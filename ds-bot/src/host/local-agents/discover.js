@@ -399,24 +399,28 @@ export function launchOf(executable, args, { platform = process.platform, readFi
 
 // spawn() for an agent CLI, also when Windows found it as a `.cmd` shim.
 export function terminateChild(child, { forceKillAfterMs = DEFAULT_FORCE_KILL_AFTER_MS, processGroup = false, platform = process.platform, spawnKiller = spawn } = {}) {
-  if (!isChildAlive(child)) return
+  if (!isChildAlive(child) || !Number.isSafeInteger(child.pid) || child.pid <= 0) return
   if (platform === 'win32') {
     killWindowsTree(child, spawnKiller)
     return
   }
   signalChild(child, 'SIGTERM', { processGroup, platform, spawnKiller })
+  if (!isChildAlive(child)) return
+  const clear = () => {
+    clearTimeout(timer)
+    child.off?.('exit', clear)
+    child.off?.('close', clear)
+    child.off?.('error', clear)
+  }
   const timer = setTimeout(() => {
+    clear()
     if (isChildAlive(child)) signalChild(child, 'SIGKILL', { processGroup, platform, spawnKiller })
   }, Math.max(0, forceKillAfterMs))
   timer.unref?.()
   if (typeof child.once === 'function') {
-    const clear = () => {
-      clearTimeout(timer)
-      child.off?.('exit', clear)
-      child.off?.('close', clear)
-    }
     child.once('exit', clear)
     child.once('close', clear)
+    child.once('error', clear)
   }
 }
 
@@ -479,13 +483,16 @@ function classifySignIn(error, stdout, stderr, check) {
 const SIGN_IN_TIMEOUT_MS = 6_000
 const KEYCHAIN_TIMEOUT_MS = 2_000
 
-function probeMacKeychainItem(service, account, spawnKeychain, timeoutMs) {
+function probeMacKeychainItem(service, account, spawnKeychain, timeoutMs, signal) {
+  if (signal?.aborted) return Promise.resolve(null)
   return new Promise((resolve) => {
     try {
+      const timeoutSignal = AbortSignal.timeout(timeoutMs)
+      const combined = signal ? AbortSignal.any([timeoutSignal, signal]) : timeoutSignal
       // Without -g or -w this looks up metadata only. A miss proves nothing:
       // the CLI may be using a fallback credential store.
       const child = spawnKeychain('/usr/bin/security', ['find-generic-password', '-s', service, '-a', account], {
-        env: probeEnv(), stdio: 'ignore', signal: AbortSignal.timeout(timeoutMs), killSignal: 'SIGKILL',
+        env: probeEnv(), stdio: 'ignore', signal: combined, killSignal: 'SIGKILL',
       })
       child.once('error', () => resolve(null))
       child.once('close', (code) => resolve(code === 0 ? true : null))
@@ -493,11 +500,11 @@ function probeMacKeychainItem(service, account, spawnKeychain, timeoutMs) {
   })
 }
 
-async function probeMacKeychain({ service, services, account }, spawnKeychain, timeoutMs = KEYCHAIN_TIMEOUT_MS) {
+async function probeMacKeychain({ service, services, account }, spawnKeychain, timeoutMs = KEYCHAIN_TIMEOUT_MS, signal) {
   const cap = Math.min(timeoutMs, KEYCHAIN_TIMEOUT_MS)
   const list = services ?? (service === undefined ? [] : [service])
   if (list.length === 0) return null
-  const results = await Promise.all(list.map(name => probeMacKeychainItem(name, account, spawnKeychain, cap)))
+  const results = await Promise.all(list.map(name => probeMacKeychainItem(name, account, spawnKeychain, cap, signal)))
   return results.every(result => result === true) ? true : null
 }
 
@@ -602,7 +609,7 @@ function resolvePlatformFile(spec, home, platform, env) {
 function probeOne(executable, check, { home, platform, env, spawnKeychain, timeoutMs, forceKillAfterMs, maxOutputBytes, signal, deadline }) {
   if (signal?.aborted) return Promise.resolve(null)
   if (check.macKeychain !== undefined) {
-    return platform === 'darwin' ? probeMacKeychain(check.macKeychain, spawnKeychain, timeoutMs) : Promise.resolve(null)
+    return platform === 'darwin' ? probeMacKeychain(check.macKeychain, spawnKeychain, timeoutMs, signal) : Promise.resolve(null)
   }
   if (check.file !== undefined) return Promise.resolve(probeFile(join(home, ...check.file)))
   if (check.appDataFile !== undefined) {

@@ -25,7 +25,15 @@ export class CodexEngine {
     // still waiting there: a resumed thread needs a fresh one.
     if (thread === undefined || thread.dead) {
       const queue = new EventQueue()
-      thread = { dshSessionId, threadId: undefined, dead: false, push: event => queue.push(event), next: () => queue.next() }
+      thread = {
+        dshSessionId,
+        threadId: undefined,
+        dead: false,
+        lastTotal: undefined,
+        awaitingFirstPrompt: false,
+        push: event => queue.push(event),
+        next: () => queue.next(),
+      }
       this.threads.set(dshSessionId, thread)
     }
     return thread
@@ -136,22 +144,53 @@ export class CodexEngine {
       case 'thread/tokenUsage/updated': {
         // {total, last, modelContextWindow}: `last` is the request that just ran, and
         // its totalTokens is what the thread's context holds now (after a compaction,
-        // what is left).
+        // what is left). `total` is cumulative across the thread and deduplicates
+        // repeated or catch-up notifications so billed tokens are never double-counted.
         const last = params?.tokenUsage?.last
         if (thread === undefined || last === undefined) break
         const size = params.tokenUsage.modelContextWindow
         if (typeof last.totalTokens === 'number') thread.push({ type: 'context', used: last.totalTokens, ...(typeof size === 'number' ? { size } : {}), turnId: params?.turnId })
-        const cached = last.cachedInputTokens ?? 0
-        if (last.inputTokens > 0 || last.outputTokens > 0) {
+        const total = codexTotals(params?.tokenUsage?.total)
+        if (thread.awaitingFirstPrompt === true) {
+          if (total !== undefined) thread.lastTotal = total
+          break
+        }
+        let step = last
+        if (total !== undefined) {
+          const prev = thread.lastTotal
+          thread.lastTotal = total
+          if (prev !== undefined) {
+            const regressed = total.inputTokens < prev.inputTokens || total.outputTokens < prev.outputTokens
+            if (!regressed) {
+              const delta = {
+                inputTokens: total.inputTokens - prev.inputTokens,
+                outputTokens: total.outputTokens - prev.outputTokens,
+                cachedInputTokens: Math.max(0, total.cachedInputTokens - prev.cachedInputTokens),
+                cacheWriteInputTokens: Math.max(0, total.cacheWriteInputTokens - prev.cacheWriteInputTokens),
+                reasoningOutputTokens: Math.max(0, total.reasoningOutputTokens - prev.reasoningOutputTokens),
+              }
+              if (delta.inputTokens === 0 && delta.outputTokens === 0 && delta.cachedInputTokens === 0 && delta.cacheWriteInputTokens === 0 && delta.reasoningOutputTokens === 0) {
+                break
+              }
+              step = delta
+            }
+          }
+        }
+        const cached = step.cachedInputTokens ?? 0
+        const cacheWrite = step.cacheWriteInputTokens ?? 0
+        const totalInput = step.inputTokens ?? 0
+        // Codex folds cached input into inputTokens; DSH counts cached buckets apart.
+        const uncached = Math.max(0, totalInput - cached - (cached + cacheWrite <= totalInput ? cacheWrite : 0))
+        if (uncached > 0 || cached > 0 || cacheWrite > 0 || (step.outputTokens ?? 0) > 0) {
           thread.push({
             type: 'usage',
             turnId: params?.turnId,
             usage: {
-              // Codex folds cached input into inputTokens; DSH counts it apart.
-              inputTokens: Math.max(0, (last.inputTokens ?? 0) - cached),
-              outputTokens: last.outputTokens ?? 0,
+              inputTokens: uncached,
+              outputTokens: step.outputTokens ?? 0,
               ...(cached > 0 ? { cacheReadTokens: cached } : {}),
-              ...(last.reasoningOutputTokens ? { reasoningTokens: last.reasoningOutputTokens } : {}),
+              ...(cacheWrite > 0 ? { cacheWriteTokens: cacheWrite } : {}),
+              ...(step.reasoningOutputTokens ? { reasoningTokens: step.reasoningOutputTokens } : {}),
             },
           })
         }
@@ -165,14 +204,17 @@ export class CodexEngine {
   onRequest(method, params) {
     if (method === 'item/commandExecution/requestApproval' || method === 'item/fileChange/requestApproval' || method === 'execCommandApproval' || method === 'patchApproval') {
       const thread = [...this.threads.values()].find(entry => entry.threadId === params?.threadId)
-      const options = (params?.availableDecisions ?? params?.decisions ?? ['accept', 'decline']).map(decision => ({ optionId: decision, kind: decision === 'accept' || decision === 'acceptForSession' ? 'allow_once' : 'reject_once', name: decision }))
+      if (thread === undefined) return Promise.reject({ code: -32603, message: 'unknown thread' })
+      const options = (params?.availableDecisions ?? params?.decisions ?? ['accept', 'decline']).map(decision => ({ optionId: decision, kind: decision === 'accept' ? 'allow_once' : decision === 'acceptForSession' ? 'allow_always' : 'reject_once', name: decision }))
       return new Promise((resolve) => {
         const reply = (decision) => resolve({ decision: decision ?? 'decline' })
-        thread?.push({
+        thread.push({
           type: 'permission', id: `perm-${Math.random().toString(36).slice(2)}`, reply,
           action: params?.reason ?? params?.command ?? 'The agent asks to run an action',
           changes: true,
           detail: detailText(params),
+          // Commands can override the thread directory; only the server's resolved cwd counts.
+          cwd: method === 'item/commandExecution/requestApproval' || method === 'execCommandApproval' ? params?.cwd : thread?.cwd,
           options,
         })
       })
@@ -187,7 +229,7 @@ export class CodexEngine {
     return Promise.reject({ code: -32601, message: `method not found: ${method}` })
   }
 
-  async open(dshSessionId, { cwd, mcp, resumeId, resumeOnly = false, mode, instructions, model, ephemeral }) {
+  async open(dshSessionId, { cwd, mcp, resumeId, resumeOnly = false, mode, instructions, model, review, ephemeral }) {
     const peer = await this.ensure()
     const prior = this.threads.get(dshSessionId)
     const created = prior === undefined || prior.dead
@@ -201,17 +243,22 @@ export class CodexEngine {
     const params = {
       cwd,
       ...(model && model !== 'default' ? { model } : {}),
-      ...(mode ? { sandbox: mode, approvalPolicy: mode === 'danger-full-access' ? 'never' : 'on-request' } : {}),
+      ...(mode ? { sandbox: mode, approvalPolicy: mode === 'danger-full-access' && !review ? 'never' : 'on-request' } : {}),
       ...(mcp !== undefined ? { config: { mcp_servers: { [MCP_SERVER]: { url: mcp.url, http_headers: { Authorization: `Bearer ${mcp.token}` } } } } } : {}),
     }
     if (thread.threadId !== undefined) {
+      thread.awaitingFirstPrompt = true
+      thread.lastTotal = undefined
       try {
         // thread/resume takes the same params, plus the thread id. The instructions it
         // was started with stay: they are not sent again here.
         await peer.request('thread/resume', { threadId: thread.threadId, ...params }, { timeout: 30_000 })
+        thread.cwd = cwd
         thread.resumed = true
         return thread
       } catch {
+        thread.awaitingFirstPrompt = false
+        thread.lastTotal = undefined
         thread.threadId = undefined
         if (resumeOnly) {
           if (created && this.threads.get(dshSessionId) === thread) this.threads.delete(dshSessionId)
@@ -222,7 +269,10 @@ export class CodexEngine {
     const resolvedInstructions = typeof instructions === 'function' ? instructions() : instructions
     const reply = await peer.request('thread/start', { ...params, ...(resolvedInstructions ? { developerInstructions: resolvedInstructions } : {}), ...(ephemeral ? { ephemeral: true } : {}) }, { timeout: 60_000 })
     thread.threadId = reply?.thread?.id ?? reply?.threadId
+    thread.cwd = cwd
     thread.resumed = false
+    thread.awaitingFirstPrompt = false
+    thread.lastTotal = undefined
     return thread
   }
 
@@ -234,6 +284,7 @@ export class CodexEngine {
 
   async prompt(thread, blocks, { signal, effort }) {
     const peer = await this.ensure()
+    thread.awaitingFirstPrompt = false
     const reply = await peer.request('turn/start', {
       threadId: thread.threadId,
       input: codexInput(blocks),
@@ -255,6 +306,7 @@ export class CodexEngine {
 
   activateTurn(thread, turnId) {
     if (turnId === undefined) return
+    thread.awaitingFirstPrompt = false
     thread.turnId = turnId
     thread.pendingCompaction = false
     const cancelled = thread.compactionCancel
@@ -271,6 +323,7 @@ export class CodexEngine {
   // The thread's own compaction: a turn of its own, which ends with turn/completed.
   compact(thread) {
     if (this.peer === undefined) return false
+    thread.awaitingFirstPrompt = false
     thread.turnId = undefined
     thread.pendingCompaction = true
     this.peer.request('thread/compact/start', { threadId: thread.threadId }, { timeout: 30_000 })
@@ -348,10 +401,13 @@ export class CodexEngine {
     this.probeEngines.clear()
     await Promise.all(probes.map(engine => engine.close({ forceKillAfterMs }).catch(() => {})))
     for (const thread of this.threads.values()) this.releaseCompaction(thread)
+    this.threads.clear()
     const child = this.child
+    const peer = this.peer
     this.child = undefined
     this.peer = undefined
     this.starting = undefined
+    peer?.close?.(new Error(`${this.engine.name} closed`))
     if (child === undefined) return this.closing
     if (child.exitCode !== null || child.signalCode !== null) return
     this.closing = new Promise((resolve) => {
@@ -403,4 +459,16 @@ const activityOf = item => {
         : (item.title ?? item.type)
   return String(kind).split('\n')[0].slice(0, 120)
 }
-const detailText = params => [params?.command, params?.reason, JSON.stringify(params?.changes ?? params?.patch ?? '')].filter(Boolean).join('\n').slice(0, 4_000)
+const detailText = params => JSON.stringify(params ?? {})
+
+function codexTotals(total) {
+  if (total === null || typeof total !== 'object') return undefined
+  if (typeof total.inputTokens !== 'number' && typeof total.outputTokens !== 'number') return undefined
+  return {
+    inputTokens: Math.max(0, total.inputTokens ?? 0),
+    outputTokens: Math.max(0, total.outputTokens ?? 0),
+    cachedInputTokens: Math.max(0, total.cachedInputTokens ?? 0),
+    cacheWriteInputTokens: Math.max(0, total.cacheWriteInputTokens ?? 0),
+    reasoningOutputTokens: Math.max(0, total.reasoningOutputTokens ?? 0),
+  }
+}

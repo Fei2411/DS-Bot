@@ -18,22 +18,48 @@ function plainCall(item) {
 }
 
 function plainEvent(frame) {
+  if (!frame.includes(TOOL_NAMESPACE) && !frame.includes('\\u')) return frame
   const lines = frame.split(/\r\n|\r|\n/)
   const data = lines.filter(line => line === 'data' || line.startsWith('data:'))
   if (!data.length) return frame
   let event
   try { event = JSON.parse(data.map(line => line.slice(5).replace(/^ /, '')).join('\n')) } catch { return frame }
   if (!event || typeof event !== 'object') return frame
-  const original = JSON.stringify(event)
-  if (event.item) event.item = plainCall(event.item)
-  if (event.response && typeof event.response === 'object') {
-    const response = { ...event.response }
-    if (Array.isArray(response.output)) response.output = response.output.map(plainCall)
-    if (Array.isArray(response.tools)) response.tools = response.tools.flatMap(tool => tool?.type === 'namespace' && tool.name === TOOL_NAMESPACE && Array.isArray(tool.tools) ? tool.tools : [tool])
-    event.response = response
+  let changed = false
+  if (event.item) {
+    const nextItem = plainCall(event.item)
+    if (nextItem !== event.item) {
+      event.item = nextItem
+      changed = true
+    }
   }
+  if (event.response && typeof event.response === 'object') {
+    let outputChanged = false
+    let nextOutput
+    if (Array.isArray(event.response.output)) {
+      nextOutput = event.response.output.map(item => {
+        const next = plainCall(item)
+        if (next !== item) outputChanged = true
+        return next
+      })
+    }
+    let toolsChanged = false
+    let nextTools
+    if (Array.isArray(event.response.tools) && event.response.tools.some(tool => tool?.type === 'namespace' && tool.name === TOOL_NAMESPACE && Array.isArray(tool.tools))) {
+      toolsChanged = true
+      nextTools = event.response.tools.flatMap(tool => tool?.type === 'namespace' && tool.name === TOOL_NAMESPACE && Array.isArray(tool.tools) ? tool.tools : [tool])
+    }
+    if (outputChanged || toolsChanged) {
+      event.response = {
+        ...event.response,
+        ...(outputChanged ? { output: nextOutput } : {}),
+        ...(toolsChanged ? { tools: nextTools } : {}),
+      }
+      changed = true
+    }
+  }
+  if (!changed) return frame
   const encoded = JSON.stringify(event)
-  if (encoded === original) return frame
   let written = false
   const newline = frame.includes('\r\n') ? '\r\n' : frame.includes('\r') ? '\r' : '\n'
   return lines.filter(line => {

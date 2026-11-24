@@ -44,7 +44,7 @@ const load = (primitives) => {
   })
   return module.exports
 }
-// The DSH the tests pin (0.2.2-rc.1) and every release since 0.2.1-alpha.3: no projection.
+// The DSH the tests pin (0.2.2-rc.5) and every release since 0.2.1-alpha.3: no projection.
 const current = load({ MarkdownText: () => null, UserTextRun: ({ text }) => text })
 // A release before 0.2.1-alpha.3, which projected user text itself.
 const older = load({ MarkdownText: () => null, projectUserText: text => [`projected:${text}`] })

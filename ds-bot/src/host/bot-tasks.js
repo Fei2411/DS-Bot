@@ -10,7 +10,7 @@ import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node
 import { join, resolve } from 'node:path'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { HANDOFF_ACK, HISTORY_TIMEOUT_MS, SOURCE_KIND, STEER_CUT } from './constants.js'
+import { HANDOFF_ACK, HISTORY_TIMEOUT_MS, SOURCE_KIND, STEER_CUT, TASK_FORK_MAX_EVENTS } from './constants.js'
 import { within } from './folders.js'
 import { absoluteLinks } from './links.js'
 import { textOf } from './text.js'
@@ -27,6 +27,7 @@ const CONTEXT_FALLBACK_MAX = 8000
 const CONTEXT_FALLBACK_NOTE_MIN = 5000
 const CONTEXT_FALLBACK_ITEMS = 16
 const MAX_SETTLED_TASKS = 50
+const MAX_REPLACED_IDS = 1000
 
 const oneLine = (text, max) => String(text ?? '').replace(/\s+/g, ' ').trim().slice(0, max)
 // Keep only session anchors for read_own_chat history lookups; omit multi-KB segment.note
@@ -170,6 +171,14 @@ export function install(rt) {
     try { rmSync(join(reportsDir, file), { force: true }) } catch {}
   }
 
+  const taskSessionIds = task => [task?.sessionId, ...(task?.segments ?? []).map(segment => segment?.sessionId)]
+    .filter(sid => typeof sid === 'string' && sid !== '')
+  const forgetTaskSession = (sessionId) => {
+    if (typeof sessionId !== 'string' || sessionId === '') return
+    admittedRpcIds.delete(sessionId)
+    rejectEmptyTaskWake.delete(sessionId)
+  }
+
   const pruneSettledTasks = (bot) => {
     const list = tasksOf(bot)
     const settled = list.filter(task => !isActiveTask(task))
@@ -179,10 +188,20 @@ export function install(rt) {
     const toDrop = new Set(dropped.map(task => task.id))
     for (const task of dropped) {
       dropReportFile(task.reportFile)
-      const sids = [task.sessionId, ...(task.segments ?? []).map(seg => seg?.sessionId)].filter(Boolean)
-      for (const sid of sids) {
+      const segIds = (task.segments ?? []).map(seg => seg?.sessionId).filter(Boolean)
+      if (segIds.length > 0) void rt.deleteSegmentNotes?.(segIds)
+      for (const sid of taskSessionIds(task)) {
+        if (state.closedCards !== undefined) delete state.closedCards[sid]
+        if (state.exchangeTurns !== undefined) delete state.exchangeTurns[sid]
+        if (state.questions !== undefined) delete state.questions[sid]
+        if (state.views !== undefined) delete state.views[sid]
+        if (state.switching !== undefined) delete state.switching[sid]
+        forgetTaskSession(sid)
         void ctx.workspaceRegistry?.archiveSession?.(sid, { stopActivity: true })?.catch(() => {})
         rt.renewMemory?.(sid)
+        rt.forgetSessionParts?.(sid)
+        rt.forgetSessionTurn?.(sid)
+        rt.forgetSessionModel?.(sid)
       }
     }
     bot.tasks = list.filter(task => !toDrop.has(task.id))
@@ -200,13 +219,37 @@ export function install(rt) {
     return false
   }
 
+  // Measures parent-session size in O(1) via DSH `session.seq`, falling back to
+  // snapshot length for test stubs without `seq`.
+  const sourceSessionOf = (sessionId) => ctx.get?.('agents')?.get(sessionId)?.session
+    ?? ctx.get?.('sessions')?.get(sessionId)
+    ?? ctx.sessions?.get?.(sessionId)
+  const sourceEventCountOf = (sessionId) => {
+    const session = sourceSessionOf(sessionId)
+    if (session === undefined) return 0
+    const seq = Number(session.seq)
+    if (Number.isInteger(seq) && seq >= 0) return seq
+    const events = session.snapshotEvents?.()
+    return Array.isArray(events) ? events.length : 0
+  }
+  const resolveTaskForkMaxEvents = (options) => {
+    for (const candidate of [options?.taskForkMaxEvents, rt.config?.taskForkMaxEvents]) {
+      if (candidate !== undefined && candidate !== null) {
+        const limit = Number(candidate)
+        if (Number.isInteger(limit) && limit >= 0) return limit
+      }
+    }
+    return TASK_FORK_MAX_EVENTS
+  }
+
   // Builds a bounded recent-context note when the task could not fork directly
-  // (e.g. first turn with no turn/end, different workdir, or local CLI agent).
+  // (e.g. first turn with no turn/end, different workdir, local CLI agent, or
+  // parent session above TASK_FORK_MAX_EVENTS).
   // Preserves the latest [Handoff] or [Checkpoint] structured note with headings
   // intact instead of flattening and clipping it to 1,000 characters.
   const fallbackContextSummary = (fromSessionId) => {
-    const sourceAgent = ctx.get('agents')?.get(fromSessionId)
-    const events = sourceAgent?.session?.snapshotEvents?.() ?? []
+    const sourceSession = sourceSessionOf(fromSessionId)
+    const events = sourceSession?.snapshotEvents?.() ?? []
     if (events.length === 0) return ''
     let latestNote = ''
     let shadowedEnd = -1
@@ -453,12 +496,18 @@ export function install(rt) {
         throw error
       }
     } finally {
+      for (const sid of taskSessionIds(task)) {
+        forgetTaskSession(sid)
+        rt.renewMemory?.(sid)
+        rt.forgetSessionParts?.(sid)
+        rt.forgetSessionTurn?.(sid)
+      }
       settling.delete(task.id)
     }
   }
 
   // Starts a background task for a Bot from either its foreground own chat or a group member Session.
-  async function startTask(fromSessionId, { title, brief, workdir }, exec) {
+  async function startTask(fromSessionId, { title, brief, workdir }, exec, options = {}) {
     if (rt.taskOwners?.has(fromSessionId)) {
       throw Object.assign(new Error('Background tasks cannot start nested background tasks. Finish this task and report back to your chat instead.'), { code: 'bot/invalid' })
     }
@@ -548,7 +597,8 @@ export function install(rt) {
       ...(dispatchApprovalOrigin !== undefined ? { dispatchApprovalOrigin } : {}),
     }
 
-    const { sessionId, forked, task } = await rt.openTaskPart(bot, fromSessionId, baseTask, { workDir: resolvedDir })
+    const shouldFork = sourceEventCountOf(fromSessionId) <= resolveTaskForkMaxEvents(options)
+    const { sessionId, forked, task } = await rt.openTaskPart(bot, fromSessionId, baseTask, { workDir: resolvedDir, fork: shouldFork })
     if (taskWorkId !== undefined) {
       rt.openWork?.(taskWorkId, { from: bot.id, parent: parentWork, toSession: sessionId, toTaskId: id, name: `task "${name}"`, child: id })
     }
@@ -649,9 +699,12 @@ export function install(rt) {
 
   // Cleanup reports when a Bot is deleted.
   const forgetBotTasks = (bot) => {
+    forgetTaskSession(bot?.id)
+    forgetTaskSession(rt.chatOf?.(bot?.id))
     for (const task of tasksOf(bot)) {
       rt.cancelApprovals?.(task.sessionId)
       dropReportFile(task.reportFile)
+      for (const sid of taskSessionIds(task)) forgetTaskSession(sid)
     }
   }
 
@@ -833,7 +886,14 @@ export function install(rt) {
       emitTaskEvent('task.resumed', bot, task, { approvalId: data.id, outcome: data.outcome })
     }
   })
-  ctx.effect?.(() => () => { offApproval?.() }, 'ds-bot: bot-tasks approval bridge')
+  ctx.effect?.(() => () => {
+    offApproval?.()
+    admittedRpcIds.clear()
+    rejectEmptyTaskWake.clear()
+    replacedIds.clear()
+    skipInterceptIds.clear()
+    inFlightTransferIds.clear()
+  }, 'ds-bot: bot-tasks approval bridge')
 
   // Determines whether a Bot's foreground chat is busy enough to move its running turn
   // intact into `bot.tasks[]` (or spawn a peer-Bot background task) rather than doing
@@ -1307,7 +1367,7 @@ export function install(rt) {
       startedAt: now,
       updatedAt: now,
     }
-    const { sessionId, task } = await rt.openTaskPart(target, fromSessionId, baseTask)
+    const { sessionId, task } = await rt.openTaskPart(target, fromSessionId, baseTask, { fork: false })
     const prevWork = reuseWork ? rt.resolveWork?.(exchangeId)?.work : undefined
     const prevToSession = prevWork?.toSession
     const prevToTaskId = prevWork?.toTaskId
@@ -1446,9 +1506,12 @@ export function install(rt) {
   // Strict turn/end state machine guard + in-place queue edit (`inbox.replace`) tagging.
   ctx.on('session/event', (session, event) => {
     if (event?.type === 'agent/inbox/spliced') {
-      if ((event.data?.removedCount ?? 0) > 0 && (event.data?.inserted?.length ?? 0) > 0) {
+      if ((event.data?.removedCount ?? 0) > 0 && (event.data?.inserted?.length ?? 0) > 0
+        && (rt.chatOwners.has(session?.id) || rt.taskOwners?.has(session?.id))) {
         for (const msg of event.data.inserted) {
-          if (msg?.id !== undefined) replacedIds.add(msg.id)
+          if (msg?.id === undefined) continue
+          if (replacedIds.size >= MAX_REPLACED_IDS) replacedIds.delete(replacedIds.values().next().value)
+          replacedIds.add(msg.id)
         }
       }
       return
@@ -1471,6 +1534,9 @@ export function install(rt) {
     const said = lastReplyOf(session, task.workDir)
     queueMicrotask(() => void handleTurnEnd(bot, task, reason, failure, said)
       .catch(error => rt.warn('ds-bot: settling task %s failed: %s', task.id, error)))
+  })
+  ctx.on?.('agent/disposed', ({ agent }) => {
+    if (agent?.id !== undefined) forgetTaskSession(agent.id)
   })
 
   async function handleTurnEnd(bot, task, reason, failure, said) {

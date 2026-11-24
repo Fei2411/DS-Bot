@@ -36,6 +36,8 @@ export function stdioBridgePath(source = BUNDLED_MCP_STDIO) {
 
 const EFFORT_ORDER = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max']
 const EFFORT_NAMES = { off: 'Off', minimal: 'Minimal', low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Max' }
+const TOOL_CALL_CACHE_MAX = 100
+const REPORTED_TOOL_CALLS_MAX = 1_000
 
 // Events a driver reports, normalized for the adapter:
 // {type:'text'|'thought',text} | {type:'activity',text} (one compact line of the
@@ -44,12 +46,13 @@ const EFFORT_NAMES = { off: 'Off', minimal: 'Minimal', low: 'Low', medium: 'Medi
 // {type:'context',used?,size?} (how full the CLI's own context is) |
 // {type:'compaction',status:'started'|'completed'|'failed'}
 export class AcpEngine {
-  constructor(route, engine, { findExecutable, defaultEfforts = new Map(), sessionEfforts = new Map(), cancelAckTimeoutMs = CANCEL_ACK_TIMEOUT_MS, onListedUpdate } = {}) {
+  constructor(route, engine, { findExecutable, defaultEfforts = new Map(), sessionEfforts, cancelAckTimeoutMs = CANCEL_ACK_TIMEOUT_MS, onListedUpdate } = {}) {
     this.route = route
     this.engine = engine
     this.findExecutable = findExecutable
     this.defaultEfforts = defaultEfforts
-    this.sessionEfforts = sessionEfforts
+    this.ownsSessionEfforts = sessionEfforts === undefined
+    this.sessionEfforts = sessionEfforts ?? new Map()
     this.cancelAckTimeoutMs = cancelAckTimeoutMs
     this.onListedUpdate = onListedUpdate
     this.hasModelConfig = false
@@ -138,6 +141,7 @@ export class AcpEngine {
   }
 
   async ensure({ probe = false } = {}) {
+    if (this.retired) throw Object.assign(new Error(`${this.engine.name} worker is closed`), { code: 'LOCAL_AGENT_EXIT' })
     // A peer exists before its handshake has finished; other callers wait for it.
     if (this.starting !== undefined) return this.starting
     if (this.peer !== undefined) return this.peer
@@ -226,19 +230,17 @@ export class AcpEngine {
       modes: [],
       toolCalls: new Map(),
       reportedToolCalls: new Set(),
+      failedToolCalls: new Set(),
       push: event => queue.push(event),
       next: () => queue.next(),
     }
   }
 
   sessionFor(dshSessionId) {
-    let session = this.sessions.get(dshSessionId)
-    // A session whose process exited keeps its queue and, with it, the pump
-    // still waiting there: a reopened session needs a fresh one.
-    if (session === undefined || session.dead) {
-      session = this.createSession(dshSessionId)
-      this.sessions.set(dshSessionId, session)
-    }
+    // Each open owns its queue. A forgotten attempt may finish after its replacement;
+    // sharing this object would let the stale cleanup unregister the replacement.
+    const session = this.createSession(dshSessionId)
+    this.sessions.set(dshSessionId, session)
     return session
   }
 
@@ -260,40 +262,89 @@ export class AcpEngine {
     if (method !== 'session/update') return
     const update = params?.update ?? {}
     switch (update.sessionUpdate) {
-      case 'agent_message_chunk': session.push({ type: 'text', text: textOf(update.content) }); break
-      case 'agent_thought_chunk': session.push({ type: 'thought', text: textOf(update.content) }); break
+      case 'agent_message_chunk':
+        if (session.promptTurn !== undefined) session.promptTurn.sawStepWork = true
+        session.push({ type: 'text', text: textOf(update.content) })
+        break
+      case 'agent_thought_chunk':
+        if (session.promptTurn !== undefined) session.promptTurn.sawStepWork = true
+        session.push({ type: 'thought', text: textOf(update.content) })
+        break
       case 'tool_call':
       case 'tool_call_update': {
+        if (session.promptTurn !== undefined) session.promptTurn.sawStepWork = true
         // A permission request names the call only by id; its title, kind and
         // input came with the call's own updates, so they are kept here.
         const id = update.toolCallId
         const known = id === undefined ? undefined : session.toolCalls.get(id)
         const call = mergeCall(known, update)
-        if (id !== undefined) session.toolCalls.set(id, call)
+        const alreadyFailed = id !== undefined && (known?.status === 'failed' || session.failedToolCalls.has(id))
+        const terminal = update.status === 'completed' || update.status === 'failed'
+        if (id !== undefined) {
+          if (terminal) {
+            session.toolCalls.delete(id)
+            if (update.status === 'failed') {
+              session.failedToolCalls.delete(id)
+              session.failedToolCalls.add(id)
+              if (session.failedToolCalls.size > REPORTED_TOOL_CALLS_MAX) {
+                session.failedToolCalls.delete(session.failedToolCalls.values().next().value)
+              }
+            }
+          } else {
+            session.toolCalls.delete(id)
+            session.toolCalls.set(id, call)
+            if (session.toolCalls.size > TOOL_CALL_CACHE_MAX) {
+              session.toolCalls.delete(session.toolCalls.keys().next().value)
+            }
+          }
+        }
+        if (call.status !== 'pending' && !['read', 'search', 'think'].includes(call.kind)) session.cwd = undefined
         const team = ownToolCall(call)
         const described = describeCall(call)
         const reported = id !== undefined && session.reportedToolCalls.has(id)
+        const markReported = () => {
+          if (id === undefined) return
+          session.reportedToolCalls.delete(id)
+          session.reportedToolCalls.add(id)
+          if (session.reportedToolCalls.size > REPORTED_TOOL_CALLS_MAX) {
+            session.reportedToolCalls.delete(session.reportedToolCalls.values().next().value)
+          }
+        }
         if (!reported) {
-          if (update.status === 'failed' && known?.status !== 'failed') {
-            if (id !== undefined) session.reportedToolCalls.add(id)
+          if (update.status === 'failed' && !alreadyFailed) {
+            markReported()
             session.push({ type: 'activity', text: `▸ ${described} — failed`, failed: true, ...(team ? { team: true } : {}) })
           } else if (id === undefined || !isAnonymousMcpPlaceholder(call)) {
-            if (id !== undefined) session.reportedToolCalls.add(id)
+            markReported()
             session.push({ type: 'activity', text: `▸ ${described}`, ...(team ? { team: true } : {}) })
           }
-        } else if (update.status === 'failed' && known?.status !== 'failed') {
+        } else if (update.status === 'failed' && !alreadyFailed) {
           session.push({ type: 'activity', text: `▸ ${described} — failed`, failed: true, ...(team ? { team: true } : {}) })
-        } else if (update.status !== 'completed' && described !== describeCall(known)) {
+        } else if (update.status !== 'completed' && known !== undefined && described !== describeCall(known)) {
           session.push({ type: 'status', text: described, ...(team ? { team: true } : {}) })
         }
         break
       }
-      case 'plan': session.push({ type: 'thought', text: planText(update.entries) }); break
+      case 'plan':
+        if (session.promptTurn !== undefined) session.promptTurn.sawStepWork = true
+        session.push({ type: 'thought', text: planText(update.entries) })
+        break
       case 'usage_update': {
         // Devin sends each one twice, the second marked as a subagent's; a real
         // subagent's context is not the session's.
         if (update._meta?.['cognition.ai/subagent_context'] !== undefined) break
-        if (typeof update.used === 'number') session.push({ type: 'context', used: update.used, ...(typeof update.size === 'number' ? { size: update.size } : {}) })
+        if (typeof update.used === 'number') {
+          session.push({ type: 'context', used: update.used, ...(typeof update.size === 'number' ? { size: update.size } : {}) })
+          // Count internal LLM steps during an active prompt turn (ignoring session/load
+          // replays, zero-token placeholders, and back-to-back duplicate snapshots).
+          const turn = session.promptTurn
+          if (turn !== undefined && session.running === true && update.used > 0
+            && (turn.steps === 0 || update.used !== turn.lastUsed || turn.sawStepWork)) {
+            turn.steps += 1
+            turn.lastUsed = update.used
+            turn.sawStepWork = false
+          }
+        }
         break
       }
       case 'config_option_update': {
@@ -328,16 +379,22 @@ export class AcpEngine {
       const once = ownToolCall(call) ? options.find(option => option.kind === 'allow_once') : undefined
       if (once !== undefined) return Promise.resolve({ outcome: { outcome: 'selected', optionId: once.optionId } })
       const action = describeCall(call)
+      const evidence = JSON.stringify(call)
       return new Promise((resolve) => {
         const id = `perm-${Math.random().toString(36).slice(2)}`
         const reply = (optionId) => {
           if (optionId === null) resolve({ outcome: { outcome: 'cancelled' } })
-          else resolve({ outcome: { outcome: 'selected', optionId } })
+          else {
+            if (options.some(option => option.optionId === optionId && option.kind?.startsWith('allow'))
+              && !['read', 'search', 'think'].includes(call.kind)) session.cwd = undefined
+            resolve({ outcome: { outcome: 'selected', optionId } })
+          }
         }
         session.push({
-          type: 'permission', id, reply,
+          type: 'permission', id, reply, cwd: session.cwd,
           action,
           detail: detailText(call, action),
+          evidence,
           options,
           changes: CHANGE_KINDS.has(call.kind),
         })
@@ -460,14 +517,13 @@ export class AcpEngine {
     if (this.engine.cwdPerProcess) return this.openInWorker(dshSessionId, openArgs)
     const { cwd, mcp, resumeId, resumeOnly = false, preset, model } = openArgs
     const peer = await this.ensure()
-    const prior = this.sessions.get(dshSessionId)
-    const created = prior === undefined || prior.dead
     const session = this.sessionFor(dshSessionId)
     try {
       const { reply, loaded } = resumeId !== undefined
         ? await this.loadSession(peer, { cwd, mcp, resumeId, resumeOnly })
         : { reply: await this.newSession(peer, { cwd, mcp }), loaded: false }
       session.acpSessionId = reply?.sessionId ?? resumeId
+      session.cwd = cwd
       session.resumed = loaded
       const loadedEffort = configOptionsOf(reply?.configOptions ?? [], 'thought_level')?.currentValue
       // Some agents list nothing on session/load: the session reads what this CLI
@@ -506,7 +562,7 @@ export class AcpEngine {
       }
       return session
     } catch (error) {
-      if (created && this.sessions.get(dshSessionId) === session) this.sessions.delete(dshSessionId)
+      if (this.sessions.get(dshSessionId) === session) this.sessions.delete(dshSessionId)
       throw error
     }
   }
@@ -593,13 +649,27 @@ export class AcpEngine {
       }
     }
     signal?.throwIfAborted()
-    const turn = session.promptTurn = { cancelled: false, controller: new AbortController() }
+    const turn = session.promptTurn = {
+      cancelled: false,
+      controller: new AbortController(),
+      steps: 0,
+      lastUsed: undefined,
+      sawStepWork: false,
+    }
     const onAbort = () => { turn.cancelled = true }
     signal?.addEventListener('abort', onAbort, { once: true })
     session.running = true
     const reply = session.pendingPrompt = peer.request('session/prompt', { sessionId: session.acpSessionId, prompt: acpPrompt(blocks) }, { signal: turn.controller.signal, timeout: 0 })
     reply.then(
-      result => { if (!turn.cancelled) session.push({ type: 'done', reason: result?.stopReason ?? 'end_turn', ...(usageOf(result?.usage) ? { usage: usageOf(result.usage) } : {}) }) },
+      (result) => {
+        if (turn.cancelled) return
+        const calls = positiveInt(result?.usage?.calls)
+          ?? positiveInt(result?.numTurns)
+          ?? positiveInt(result?.num_turns)
+          ?? (turn.steps > 0 ? turn.steps : undefined)
+        const usage = usageOf(result?.usage, calls)
+        session.push({ type: 'done', reason: result?.stopReason ?? 'end_turn', ...(usage ? { usage } : {}) })
+      },
       error => { if (!turn.cancelled) session.push({ type: 'error', error }) },
     ).finally(() => {
       if (session.promptTurn === turn) session.running = false
@@ -661,6 +731,11 @@ export class AcpEngine {
       if (retired !== undefined) void retired.close().catch(() => {})
       return
     }
+    const session = this.sessions.get(dshSessionId)
+    if (session?.acpSessionId !== undefined) {
+      this.commands.delete(session.acpSessionId)
+      this.sessionEfforts.delete(session.acpSessionId)
+    }
     this.sessions.delete(dshSessionId)
   }
 
@@ -678,10 +753,18 @@ export class AcpEngine {
     this.workers.clear()
     this.sessionWorkers.clear()
     await Promise.all([...toClose].map(worker => worker.close({ forceKillAfterMs }).catch(() => {})))
+    for (const session of this.sessions.values()) {
+      if (session?.acpSessionId !== undefined) this.sessionEfforts.delete(session.acpSessionId)
+    }
+    this.sessions.clear()
+    this.commands.clear()
+    if (this.ownsSessionEfforts) this.sessionEfforts.clear()
     const child = this.child
+    const peer = this.peer
     this.child = undefined
     this.peer = undefined
     this.starting = undefined
+    peer?.close?.(new Error(`${this.engine.name} closed`))
     terminateChild(child, forceKillAfterMs === undefined ? undefined : { forceKillAfterMs })
   }
 
@@ -920,7 +1003,7 @@ const callOf = (session, toolCall) => mergeCall(toolCall?.toolCallId === undefin
 // ACP tool kinds that change files or run something.
 const CHANGE_KINDS = new Set(['edit', 'delete', 'move', 'execute'])
 const VERBS = { read: 'Read', edit: 'Edit', delete: 'Delete', move: 'Move', search: 'Search', execute: 'Run', think: 'Think', fetch: 'Fetch' }
-const inputOf = call => (call.rawInput !== null && typeof call.rawInput === 'object' ? call.rawInput : {})
+const inputOf = call => (call?.rawInput !== null && typeof call?.rawInput === 'object' ? call.rawInput : {})
 // One line a person can act on: what kind of action, on what.
 export const describeCall = (call) => {
   const input = inputOf(call)
@@ -947,21 +1030,24 @@ const detailText = (call, action = '') => {
   if (paths.length > 0) lines.push(paths.join(', '))
   return lines.join('\n').slice(0, 4_000)
 }
+const positiveInt = value => (Number.isSafeInteger(value) && value > 0 ? value : undefined)
 // A prompt's usage. Some CLIs fold cached input into inputTokens (Devin: totalTokens is
 // inputTokens + outputTokens), while others (Antigravity) count cachedReadTokens apart.
-export const usageOf = (usage) => {
+export const usageOf = (usage, calls) => {
   if (typeof usage?.inputTokens !== 'number' && typeof usage?.outputTokens !== 'number') return undefined
   const read = usage.cachedReadTokens ?? 0
   const write = usage.cachedWriteTokens ?? 0
   const input = usage.inputTokens ?? 0
   const output = usage.outputTokens ?? 0
   const separate = typeof usage.totalTokens === 'number' && read + write > 0 && usage.totalTokens >= input + read + write + output
+  const resolvedCalls = positiveInt(calls) ?? positiveInt(usage.calls)
   return {
     inputTokens: !separate && read + write <= input ? input - read - write : input,
     outputTokens: output,
     ...(read > 0 ? { cacheReadTokens: read } : {}),
     ...(write > 0 ? { cacheWriteTokens: write } : {}),
     ...(usage.thoughtTokens ? { reasoningTokens: usage.thoughtTokens } : {}),
+    ...(resolvedCalls !== undefined && resolvedCalls > 1 ? { calls: resolvedCalls } : {}),
   }
 }
 const compactionStatus = status => (status === 'completed' ? 'completed' : status === 'started' || status === 'in_progress' ? 'started' : 'failed')

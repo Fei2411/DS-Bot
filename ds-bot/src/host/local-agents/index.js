@@ -18,6 +18,7 @@ import { findEngineExecutable, findExecutable, probeEnv, probeSignIn, probeVersi
 
 const SIGNED_IN_TTL_MS = 60_000
 const SIGNED_IN_RETRY_MS = 20_000
+const VERSION_FAIL_TTL_MS = 30_000
 
 // The preset a Session runs on: its group's, else its Bot's, else DSH's default — the one
 // a Bot without a preset of its own is shown with (permissions.js keeps it applied to the
@@ -27,7 +28,10 @@ const SIGNED_IN_RETRY_MS = 20_000
 export function presetOf(rt, sessionId) {
   const bot = rt.botOf(rt.selfOf(sessionId))
   const room = rt.roomOf(rt.groupOwners.get(sessionId)?.roomId ?? rt.taskOwners?.get(sessionId)?.roomId)
-  return room?.permission ?? bot?.permission ?? rt.permissionCatalog?.()?.defaultPreset ?? 'workspace-write'
+  // Approval review is DS Bot's own policy, not a sandbox preset: the Session
+  // runs on workspace-write while the review policy does the asking.
+  const permission = room?.permission ?? bot?.permission ?? rt.permissionCatalog?.()?.defaultPreset ?? 'workspace-write'
+  return permission === 'review' ? 'workspace-write' : permission
 }
 
 const spawnEngine = (kind, route, spec) => (kind === 'acp' ? new AcpEngine(route, spec, { findExecutable })
@@ -68,19 +72,32 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
   async function probeVersions({ force = false } = {}) {
     await Promise.all([...found.values()].map(async (entry) => {
       if (!force && entry.version !== undefined) return
+      if (!force && entry.versionFailedAt !== undefined && now() - entry.versionFailedAt < VERSION_FAIL_TTL_MS) return
       if (force || entry.versionProbe === undefined) {
         const epoch = ++nextProbeEpoch
         entry.versionEpoch = epoch
+        entry.versionAbort?.abort()
+        const controller = new AbortController()
+        entry.versionAbort = controller
         const spec = ENGINES[entry.route]
         const probe = Promise.resolve()
-          .then(() => checkVersion(entry.path, spec.version ?? ['--version'], probeEnv(spec.env ?? {})))
+          .then(() => checkVersion(entry.path, spec.version ?? ['--version'], probeEnv(spec.env ?? {}), { signal: controller.signal }))
           .catch(() => undefined)
           .then((result) => {
             if (entry.versionEpoch !== epoch || entry.versionProbe !== probe || found.get(entry.route) !== entry) return
-            entry.version = result?.version
+            if (result?.version !== undefined) {
+              entry.version = result.version
+              delete entry.versionFailedAt
+            } else {
+              if (force) entry.version = undefined
+              entry.versionFailedAt = now()
+            }
           })
           .finally(() => {
-            if (entry.versionProbe === probe) delete entry.versionProbe
+            if (entry.versionProbe === probe) {
+              delete entry.versionProbe
+              delete entry.versionAbort
+            }
           })
         entry.versionProbe = probe
       }
@@ -104,13 +121,23 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
       if (force || entry.signInProbe === undefined) {
         const epoch = ++nextProbeEpoch
         entry.signInEpoch = epoch
-        const probe = Promise.resolve().then(() => checkSignIn(entry.path, check)).catch(() => null).then((result) => {
-          if (entry.signInEpoch !== epoch || entry.signInProbe !== probe || found.get(entry.route) !== entry) return
-          entry.signedIn = result
-          entry.signedInAt = now()
-        }).finally(() => {
-          if (entry.signInProbe === probe) delete entry.signInProbe
-        })
+        entry.signInAbort?.abort()
+        const controller = new AbortController()
+        entry.signInAbort = controller
+        const probe = Promise.resolve()
+          .then(() => checkSignIn(entry.path, check, { signal: controller.signal }))
+          .catch(() => null)
+          .then((result) => {
+            if (entry.signInEpoch !== epoch || entry.signInProbe !== probe || found.get(entry.route) !== entry) return
+            entry.signedIn = result
+            entry.signedInAt = now()
+          })
+          .finally(() => {
+            if (entry.signInProbe === probe) {
+              delete entry.signInProbe
+              delete entry.signInAbort
+            }
+          })
         entry.signInProbe = probe
       }
       while (entry.signInProbe !== undefined) {
@@ -119,7 +146,7 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
     }))
   }
   // A signed-out CLI or a slow one never holds back the list for long: each check is bounded.
-  async function freshList({ forceSignIn = false, forceVersion = false } = {}) {
+  async function freshList({ forceSignIn = false, forceVersion = forceSignIn } = {}) {
     await Promise.all([probeVersions({ force: forceVersion }), probeSignIns({ force: forceSignIn })])
     return { available: supported(), detected: detected(), custom: customView() }
   }
@@ -196,6 +223,10 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
   // setup would leave the adapter disposed from the moment it installs.
   ctx.effect(() => async () => {
     disposed = true
+    for (const entry of found.values()) {
+      entry.versionAbort?.abort()
+      entry.signInAbort?.abort()
+    }
     registration?.()
     await Promise.all([initialScan, adapter.dispose()])
   }, 'ds-bot: local agents')
@@ -240,14 +271,18 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
       const approval = ctx.get?.('approval')
       if (approval === undefined || exec.agent?.session === undefined) return 'denied: approvals are not available here'
       const text = `${args.action}${args.detail ? `\n${args.detail}` : ''}`
-      const outcome = await approval.request({
+      const request = {
         agent: exec.agent,
         toolName: exec.name,
         ...(exec.callId !== undefined ? { callId: exec.callId } : {}),
         reason: text.slice(0, 500),
         displayReason: { en: text.slice(0, 500) },
         ...(exec.signal ? { signal: exec.signal } : {}),
-      })
+      }
+      const evidence = adapter.approvalEvidence(exec.agent.session.id, exec.callId)
+      const outcome = await (rt.requestActionApproval
+        ? rt.requestActionApproval(request, evidence)
+        : approval.request(request))
       // The adapter decides the CLI's option from this structured result;
       // only an explicit {"decision":"allow"} counts.
       return JSON.stringify({ decision: outcome === 'allowed-once' ? 'allow' : 'deny' })
@@ -320,6 +355,7 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
     isLocalAgentAvailable: route => registeredRoutes.has(route),
     engineNameOf: ref => (isLocalAgentRef(ref) ? adapter.providerInfo(splitRef(ref).provider).name : `the model ${ref}`),
     closeLocalAgentSession: (sessionId, reason) => adapter.closeSession(sessionId, reason),
+    localAgentLaunchPreset: sessionId => adapter.live.get(String(sessionId))?.preset,
     // The parts module's view of a CLI session's context, and the requests it makes of
     // the CLI when the conversation grows long: condense, write the handoff note, and
     // answer the context steward when the team has no model of its own.

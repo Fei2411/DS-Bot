@@ -200,7 +200,7 @@ export function install(rt) {
     return holdName('bot', cleanName, () => buildBot(cleanName, options))
   }
 
-  async function buildBot(cleanName, { role = '', instructions = '', color, brief = '', createdBy, main = false, avatar, model, effort, workDir, copyOf, pickModel = false, section, sectionId }) {
+  async function buildBot(cleanName, { role = '', instructions = '', color, brief = '', createdBy, main = false, avatar, model, effort, workDir, extraDirs, copyOf, pickModel = false, section, sectionId }) {
     // The model is fixed at creation, so a later change of the DSH default leaves it alone.
     const modelRef = model ? await rt.resolveModel(model) : pickModel ? undefined : await rt.defaultBotModel()
     const cleanAvatarValue = cleanAvatar(avatar, { engine: model ? rt.localAgentBadge?.(modelRef) : undefined })
@@ -215,6 +215,11 @@ export function install(rt) {
     const dir = workDir === undefined || workDir === null ? undefined : await rt.cleanWorkDir(workDir)
     const clash = dir === undefined ? undefined : await rt.privateClash(dir)
     if (clash) throw new Error(`${dir} is in or around the folder of ${clash.name}, a private Bot, so ${cleanName} cannot work there`)
+    const extras = extraDirs === undefined ? [] : await rt.cleanExtraDirs(extraDirs)
+    for (const path of extras) {
+      const found = await rt.privateClash(path)
+      if (found) throw new Error(`${path} is in or around the folder of ${found.name}, a private Bot, so ${cleanName} cannot work there`)
+    }
     if (!main && (section !== undefined || sectionId !== undefined)) resolveSectionInput({ section, sectionId }, { allowCreate: false })
     const id = await createSession(cleanName, { dir })
     try {
@@ -229,6 +234,7 @@ export function install(rt) {
         ...(modelRef ? { model: modelRef } : {}),
         ...(effortId ? { effort: effortId } : {}),
         ...(dir ? { workDir: dir } : {}),
+        ...(extras.length > 0 ? { extraDirs: extras } : {}),
         ...(resolvedSecId ? { sectionId: resolvedSecId } : {}),
         instructions: String(instructions).trim(),
         createdAt: Date.now(),
@@ -335,6 +341,10 @@ export function install(rt) {
     void rt.save().catch(() => {})
   }
 
+  function clearSentKickoff(botId) {
+    sentKickoffs.delete(botId)
+  }
+
   // The user wrote in a Bot's own chat, so a held greeting would only interrupt. The
   // first Main Bot's stays while that Bot has no model it can run on, and a Bot that a
   // key, a sign-in or a balance blocks has none: once it has one, it answers the message
@@ -352,6 +362,7 @@ export function install(rt) {
   // A turn that answered the user in a Bot's own chat leaves nothing for a greeting held
   // for that message to answer.
   function userAnswered(botId) {
+    sentKickoffs.delete(botId)
     const bot = rt.botOf(botId)
     if (bot?.kickoff?.afterUser !== true) return
     delete bot.kickoff
@@ -366,6 +377,7 @@ export function install(rt) {
     const model = served ? bot.model : undefined
     // A folder that went away since leaves the copy in the team workspace.
     const workDir = bot.workDir !== undefined && await rt.isFolder(bot.workDir) ? bot.workDir : undefined
+    const extraDirs = (await Promise.all((bot.extraDirs ?? []).map(async dir => (await rt.isFolder(dir) ? dir : undefined)))).filter(Boolean)
     let avatar
     try {
       avatar = cleanAvatar(bot.avatar, { engine: rt.localAgentBadge?.(model) })
@@ -385,6 +397,7 @@ export function install(rt) {
       // explicit Default pick); else the create would inherit the profile level.
       effort: served ? (bot.effort ?? null) : undefined,
       workDir,
+      extraDirs,
       sectionId: bot.sectionId,
       copyOf: bot.id,
     })
@@ -393,6 +406,8 @@ export function install(rt) {
   async function updateBot(id, patch, actorId, fromSessionId) {
     const bot = liveBot(id)
     if (bot === undefined) throw new Error('Unknown Bot')
+    if (patch.permission !== undefined && actorId !== undefined) throw new Error('Only the user can change approval and sandbox settings')
+    if (patch.autoApprove !== undefined) throw new Error('Choose the review permission mode instead of autoApprove')
     if (patch.browserGrants !== undefined && actorId !== undefined) {
       throw new Error(`Only the user can set what ${bot.name} may do in the browser`)
     }
@@ -410,8 +425,9 @@ export function install(rt) {
     // unchanged too.
     const moving = patch.workDir !== undefined
     const workDir = moving ? await rt.cleanWorkDir(patch.workDir ?? '') : undefined
+    const extraDirs = patch.extraDirs === undefined ? undefined : await rt.cleanExtraDirs(patch.extraDirs ?? [])
     const flag = patch.private === undefined ? undefined : patch.private === true
-    await rt.checkPrivacyChange(bot, { flag, moving, workDir })
+    await rt.checkPrivacyChange(bot, { flag, moving, workDir, extraDirs })
     const modelRef = patch.model === undefined ? undefined
       : patch.model === null || patch.model === '' ? null
       : await rt.resolveModel(patch.model)
@@ -421,6 +437,8 @@ export function install(rt) {
     const engineBefore = rt.engineOf === undefined ? undefined : rt.engineOfBot(bot) ?? 'model'
     if (modelRef === null && engineBefore !== undefined && engineBefore !== 'model') throw new Error(`${bot.name} runs on a local agent and keeps a model of it`)
     const engineChanged = !!modelRef && engineBefore !== undefined && rt.engineOf(modelRef) !== engineBefore
+    const toLocalAgent = engineChanged ? rt.engineOf(modelRef) !== 'model' : rt.onLocalAgent(bot)
+    if (toLocalAgent && extraDirs?.length > 0) throw new Error(`${bot.name} runs on a local agent, which keeps its own file permissions, so it has no extra folders`)
     if (engineChanged && actorId !== undefined) throw new Error(`Only the user can change what ${bot.name} runs on, in the Bot's settings`)
     if (engineChanged && patch.changeEngine !== true) throw new Error(`Changing what ${bot.name} runs on needs a confirmation in the Bot's settings`)
     const avatar = cleanAvatar(patch.avatar, {
@@ -472,6 +490,8 @@ export function install(rt) {
       else bot.model = modelRef
       modelChanged = true
     }
+    // Extra folders cannot apply on a local agent, so a move there drops them.
+    if (engineChanged && toLocalAgent) delete bot.extraDirs
     if (patch.effort !== undefined) {
       if (effortId === null) delete bot.effort
       else bot.effort = effortId
@@ -493,6 +513,11 @@ export function install(rt) {
     if (moving) {
       if (workDir === undefined) delete bot.workDir
       else bot.workDir = workDir
+    }
+    // A Session keeps its folder, so new extra folders hold from the Bot's next step on.
+    if (extraDirs !== undefined) {
+      if (extraDirs.length === 0) delete bot.extraDirs
+      else bot.extraDirs = extraDirs
     }
     await rt.save()
     // The system prompt reads the live profile every turn, but a Session with
@@ -745,7 +770,7 @@ export function install(rt) {
     }
     if (patch.mode !== undefined && !ROOM_MODES.includes(patch.mode)) throw new Error(`Reply mode must be one of ${ROOM_MODES.join(', ')}`)
     const notice = patch.notice === undefined ? undefined : cleanNotice(patch.notice)
-    if (patch.workDir !== undefined && byAdmin) throw new Error(`Only the user or a Main Bot can set the folder of "${room.name}"`)
+    if ((patch.workDir !== undefined || patch.extraDirs !== undefined) && byAdmin) throw new Error(`Only the user or a Main Bot can set the folder of "${room.name}"`)
     if ((patch.section !== undefined || patch.sectionId !== undefined) && byAdmin) {
       throw new Error(`Only the user or a Main Bot can move "${room.name}" between sidebar sections`)
     }
@@ -754,6 +779,7 @@ export function install(rt) {
     }
     // A Bot's own permissions are the user's to set, so a group's are too.
     if (patch.permission !== undefined && actorId !== undefined) throw new Error(`Only the user can set the permissions of "${room.name}"`)
+    if (patch.autoApprove !== undefined) throw new Error('Choose the review permission mode instead of autoApprove')
     const permission = patch.permission === undefined ? undefined : rt.cleanRoomPermission(patch.permission)
     // The second run is the last check before the change is written, so no other change
     // can take the name in between.
@@ -769,8 +795,11 @@ export function install(rt) {
     const avatar = cleanRoomAvatar(patch.avatar)
     const moving = patch.workDir !== undefined
     const workDir = moving ? await rt.cleanWorkDir(patch.workDir ?? '') : undefined
-    const clash = workDir === undefined ? undefined : await rt.privateClash(workDir)
-    if (clash) throw new Error(`${workDir} is in or around the folder of ${clash.name}, a private Bot, so a group cannot work there`)
+    const extraDirs = patch.extraDirs === undefined ? undefined : await rt.cleanExtraDirs(patch.extraDirs ?? [])
+    for (const path of [...(workDir === undefined ? [] : [workDir]), ...(extraDirs ?? [])]) {
+      const clash = await rt.privateClash(path)
+      if (clash) throw new Error(`${path} is in or around the folder of ${clash.name}, a private Bot, so a group cannot work there`)
+    }
     // No await from here until every change is written.
     const room = rt.roomOf(id)
     if (room === undefined) throw new Error('Unknown group chat')
@@ -784,11 +813,12 @@ export function install(rt) {
     // A deleted Bot still listed goes without a word.
     if (names(removed) !== '') changes.push(`removed ${names(removed)}`)
     // A member who leaves and comes back starts from a fresh look at the log.
+    const noteCleanups = []
     for (const member of removed) {
       if (room.seen) delete room.seen[member]
       rt.forgetSessionChanges?.(room.sessions?.[member])
       for (const segment of room.segments?.[member] ?? []) rt.forgetSessionChanges?.(segment.sessionId)
-      rt.dropGroupSession(room, member)
+      noteCleanups.push(rt.dropGroupSession(room, member))
       rt.cancelMemberTasks?.(room, member, 'Member was removed from the group')
       rt.goalMemberRemoved?.(room, member)
     }
@@ -822,6 +852,11 @@ export function install(rt) {
       changes.push(workDir ? `every member now works in ${workDir} here` : 'every member works in its own folder again')
       void rt.followFolder({ roomId: room.id })
     }
+    if (extraDirs !== undefined && extraDirs.join('\n') !== (room.extraDirs ?? []).join('\n')) {
+      if (extraDirs.length === 0) delete room.extraDirs
+      else room.extraDirs = extraDirs
+      changes.push(extraDirs.length > 0 ? `every member also works in ${extraDirs.join(', ')} here` : 'removed the extra folders')
+    }
     const before = room.name
     if (name !== undefined) {
       if (name !== '') {
@@ -854,6 +889,7 @@ export function install(rt) {
       }
     }
     await rt.save()
+    if (noteCleanups.length > 0) await Promise.allSettled(noteCleanups)
     for (const member of removed) {
       await rt.stopMemberRoomTasks?.(room.id, member, 'removed from group')
         .catch(error => rt.warn('ds-bot: stopping group tasks for removed member %s in %s failed: %s', member, room.name, error))
@@ -871,18 +907,32 @@ export function install(rt) {
     const archived = rt.archiveGroupMemory(room)
     await rt.stopRoomTasks?.(room.id, 'group deleted')
       .catch(error => rt.warn('ds-bot: stopping tasks of deleted group %s failed: %s', room.name, error))
-    for (const botId of Object.keys(room.sessions ?? {})) {
+    const noteCleanups = []
+    for (const botId of new Set([...Object.keys(room.sessions ?? {}), ...Object.keys(room.segments ?? {})])) {
       rt.forgetSessionChanges?.(room.sessions?.[botId])
       for (const segment of room.segments?.[botId] ?? []) rt.forgetSessionChanges?.(segment.sessionId)
-      rt.dropGroupSession(room, botId)
+      noteCleanups.push(rt.dropGroupSession(room, botId))
     }
-    for (const segment of room.parts ?? []) delete state.switching[segment.sessionId]
-    delete state.switching[rt.sessionOfRoom(room)]
+    const partIds = (room.parts ?? []).map(segment => segment?.sessionId).filter(Boolean)
+    if (partIds.length > 0) noteCleanups.push(rt.deleteSegmentNotes?.(partIds))
+    const roomSessions = new Set([rt.sessionOfRoom(room), ...partIds].filter(Boolean))
+    for (const sid of roomSessions) {
+      delete state.switching[sid]
+      delete state.questions[sid]
+      if (state.views !== undefined) delete state.views[sid]
+      if (state.closedCards !== undefined) delete state.closedCards[sid]
+      delete state.exchangeTurns[sid]
+      rt.forgetSessionParts?.(sid)
+      rt.forgetSessionTurn?.(sid)
+      rt.forgetHeldSteps?.(sid)
+      rt.forgetSessionModel?.(sid)
+    }
     delete state.rooms[id]
     rt.roomInbox.delete(id)
     rt.dropGroupLines(id)
     void rt.forgetRoomReports?.(room).catch(error => rt.warn('ds-bot: settling reports of deleted group %s failed: %s', room.name, error))
     await archived
+    await Promise.allSettled(noteCleanups)
     const failed = await saveForDelete()
     // Armed scheduled tasks refuse a plain archive and would keep delivering into
     // the deleted group; the session-stop that stopActivity runs removes them.
@@ -995,8 +1045,10 @@ export function install(rt) {
     if (rt.isMain(id)) throw new Error('A Main Bot cannot be deleted; remove its Main Bot role first')
     deleting.add(id)
     try {
+      sentKickoffs.delete(id)
       for (const hook of botDeleteHooks) await hook(id)
       rt.forgetBotTasks?.(bot)
+      rt.forgetBotPermissions?.(id)
       // Before the Bot and its group Sessions leave the state, which the archive reads.
       const archived = rt.archiveBotMemory(id)
       const current = rt.chatOf(id)
@@ -1016,6 +1068,7 @@ export function install(rt) {
       delete state.bots[id]
       rt.forgetBotRequests?.(id)
       rt.dropBotLedgers?.(id)
+      const noteCleanups = [rt.deleteSegmentNotes?.([...parts])]
       // The shared capability list is the user's and keeps its items; only a
       // still-unapproved local MCP this Bot alone asked for leaves with it.
       rt.dropOrphanCapabilities?.(bot)
@@ -1026,10 +1079,17 @@ export function install(rt) {
         delete state.exchangeTurns[part]
         delete state.switching[part]
         rt.forgetSessionChanges?.(part)
+        rt.forgetSessionParts?.(part)
+        rt.forgetSessionTurn?.(part)
+        rt.forgetHeldSteps?.(part)
+        rt.forgetSessionModel?.(part)
       }
       const touched = []
       for (const room of Object.values(state.rooms)) {
-        if (!room.members.includes(id)) continue
+        if (!room.members.includes(id)) {
+          if (room.sessions?.[id] !== undefined || room.segments?.[id] !== undefined) noteCleanups.push(rt.dropGroupSession(room, id))
+          continue
+        }
         const wasAdmin = room.admin === id
         room.members = room.members.filter(member => member !== id)
         if (wasAdmin) {
@@ -1040,9 +1100,10 @@ export function install(rt) {
         rt.cancelMemberTasks?.(room, id, 'Bot was deleted')
         rt.forgetSessionChanges?.(room.sessions?.[id])
         for (const segment of room.segments?.[id] ?? []) rt.forgetSessionChanges?.(segment.sessionId)
-        rt.dropGroupSession(room, id)
+        noteCleanups.push(rt.dropGroupSession(room, id))
         touched.push(room)
       }
+      await Promise.allSettled(noteCleanups)
       await rt.forgetBotRoomReports?.(id, touched)
         .catch(error => rt.warn('ds-bot: cleaning group reports for deleted Bot %s failed: %s', bot.name, error))
       await followMemberNames(touched)
@@ -1100,6 +1161,6 @@ export function install(rt) {
     saveSection, reorderSections, deleteSection,
     roomBusy, autoRoomName, retitleRoom, createRoom, updateRoom, deleteRoom,
     addRoomTodo, setRoomTodoDone, removeRoomTodo, clearDoneRoomTodos,
-    setMain, deleteBot, bootstrap, releaseKickoff, greetingOut, holdKickoffAgain, userWrote, userAnswered,
+    setMain, deleteBot, bootstrap, releaseKickoff, greetingOut, holdKickoffAgain, clearSentKickoff, userWrote, userAnswered,
   })
 }

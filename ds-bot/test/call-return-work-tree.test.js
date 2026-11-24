@@ -1042,20 +1042,24 @@ test('Empirical #2 & ctx-arch P1-5: lightweight inheritedSegments without segmen
   await tool('task_start', { title: 'Migration', brief: 'Apply schema updates' }, 'dm-a')
   const task1 = rt.botOf('a').tasks[0]
 
-  // 1) Lightweight inheritedSegments: keeps sessionId + endedAt, strips multi-KB note!
+  // 1) Lightweight inheritedSegments: keeps sessionId + endedAt, strips multi-KB note,
+  // and for non-forked own-chat task_start appends a slim ref to the live parent foreground part.
   assert.deepEqual(task1.inheritedSegments, [
     { sessionId: 'dm-a-p1', endedAt: 100 },
     { sessionId: 'dm-a-p2', endedAt: 200 },
+    { sessionId: 'dm-a' },
   ])
   assert.equal('note' in task1.inheritedSegments[0], false, 'inheritedSegments must not clone segment.note')
 
-  // 2) task_start task can search earlier parts AND read part summaries via read_own_chat (hydrated from bot.segments)!
-  assert.deepEqual(rt.partsOfThread('a', task1.sessionId).map(p => p.sessionId), ['dm-a-p1', 'dm-a-p2', task1.sessionId])
+  // 2) task_start task can search earlier parts AND the parent foreground part AND read part summaries via read_own_chat!
+  assert.deepEqual(rt.partsOfThread('a', task1.sessionId).map(p => p.sessionId), ['dm-a-p1', 'dm-a-p2', 'dm-a', task1.sessionId])
   const found = await tool('read_own_chat', { query: 'ALBATROSS-99' }, task1.sessionId)
   assert.match(found, /ALBATROSS-99/, 'task_start task must find messages from earlier foreground parts via read_own_chat')
   const part1 = await tool('read_own_chat', { part: 1 }, task1.sessionId)
   assert.match(part1, /Handoff note 1/, 'read_own_chat({ part: 1 }) inside background task must hydrate segment.note from bot.segments')
   assert.doesNotMatch(part1, /context overflow/, 'read_own_chat({ part: 1 }) must not fall back to overflow placeholder')
+  const openParentPart = await tool('read_own_chat', { part: 3 }, task1.sessionId)
+  assert.match(openParentPart, /still open and has no closing handoff note yet/)
 
   // 3) fallbackContextSummary preserves structured ## Decisions / ## Open work headings with newlines past 1,000 chars!
   const taskPrompt = textOf(agents.get(task1.sessionId).calls[0][1].content)
@@ -1077,7 +1081,7 @@ test('Empirical #2 & ctx-arch P1-5: lightweight inheritedSegments without segmen
   emit('dm-b', 'user/message', { content: textBlock('Check v2 tests'), source: { kind: 'user' } })
   await tool('task_start', { title: 'Check v2', brief: 'Run API tests' }, 'dm-b')
   const taskB = rt.botOf('b').tasks[0]
-  assert.deepEqual(taskB.inheritedSegments, [{ sessionId: 'dm-b-p1', endedAt: 50 }])
+  assert.deepEqual(taskB.inheritedSegments, [{ sessionId: 'dm-b-p1', endedAt: 50 }, { sessionId: 'dm-b' }])
   const promptB = textOf(agents.get(taskB.sessionId).calls[0][1].content)
   assert.match(promptB, /\[Checkpoint 1\]\n## Decisions\n- Keep API v2 compatibility intact\./)
   assert.doesNotMatch(promptB, /\[object Object\]/, 'TextBlock[] compaction/summary must never stringify to [object Object]')

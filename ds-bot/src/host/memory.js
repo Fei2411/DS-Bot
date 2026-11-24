@@ -197,17 +197,31 @@ export function install(rt) {
     const parsed = { topic, file, path, content, ...parseMemory(content) }
     return { revision, entries: parsed.entries.map(entry => ({ ...entry, file: parsed })).map(entry => ({ ...entry, words: entryWords(entry) })) }
   }
+  const EMPTY_ENTRIES = []
   const recallEntries = (scope, names = topicNames(scope)) => {
     const dir = dirOf(scope)
-    const cached = recallCache.get(dir)
+    if (names.length === 0) {
+      recallCache.delete(dir)
+      return EMPTY_ENTRIES
+    }
+    const prev = recallCache.get(dir)
+    const prevTopics = prev?.topics
+    let unchanged = prevTopics !== undefined && prevTopics.size === names.length
     const topics = new Map()
     for (const topic of names) {
-      const parsed = parsedFile(dir, topic, cached?.get(topic))
+      const prevParsed = prevTopics?.get(topic)
+      const parsed = parsedFile(dir, topic, prevParsed)
+      if (!prevTopics?.has(topic) || parsed !== prevParsed) unchanged = false
       if (parsed !== undefined) topics.set(topic, parsed)
     }
-    if (topics.size === 0) recallCache.delete(dir)
-    else recallCache.set(dir, topics)
-    return [...topics.values()].flatMap(parsed => parsed.entries)
+    if (unchanged) return prev.entries
+    if (topics.size === 0) {
+      recallCache.delete(dir)
+      return EMPTY_ENTRIES
+    }
+    const entries = [...topics.values()].flatMap(parsed => parsed.entries)
+    recallCache.set(dir, { topics, entries })
+    return entries
   }
   // Every entry of a scope, MEMORY.md first, read in loadScope's order so an unreadable
   // file fails the same way.
@@ -398,17 +412,20 @@ export function install(rt) {
 
   // Recent changes, for the memory updates a running conversation gets.
   const recentRows = []
+  const recentRowIds = new Set()
   let recentRowsEvicted = false
   /** @type {Map<string, {ino: bigint, offset: number, size: bigint, mtimeNs: bigint, truncated: boolean, minTime: string | undefined}>} */
   const tailsRead = new Map()
+  const cmpRowTime = (a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0)
   const rememberRow = (row) => {
-    if (recentRows.some(known => known.id === row.id)) return
+    if (recentRowIds.has(row.id)) return
+    recentRowIds.add(row.id)
     const ms = Date.parse(row.time)
     if (Number.isFinite(ms) && ms <= Date.now() + 60_000) lastPublishMs = Math.max(lastPublishMs, ms)
     recentRows.push(row)
-    recentRows.sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0))
+    if (recentRows.length > 1 && cmpRowTime(recentRows[recentRows.length - 2], row) > 0) recentRows.sort(cmpRowTime)
     if (recentRows.length > RECENT_ROWS_MAX) {
-      recentRows.splice(0, recentRows.length - RECENT_ROWS_MAX)
+      for (const dropped of recentRows.splice(0, recentRows.length - RECENT_ROWS_MAX)) recentRowIds.delete(dropped.id)
       recentRowsEvicted = true
     }
   }
@@ -736,14 +753,34 @@ export function install(rt) {
   const movedNote = room => (room.moved.length === 0 ? '' : ` MEMORY.md was at its size, so ${room.moved.length === 1 ? 'its oldest entry' : `its ${room.moved.length} oldest entries`} moved to ${room.topics.map(name => `[[${name}]]`).join(', ')}, where bot_recall finds ${room.moved.length === 1 ? 'it' : 'them'}.`)
   const movedRow = room => (room.moved.length === 0 ? {} : { moved: room.moved, movedTo: room.topics.map(name => `${name}.md`) })
 
-  // The topic an entry goes in. Past the last topic there is none, and the entry goes
-  // to MEMORY.md, which makes room for it.
+  function overflowTopic(files, length) {
+    // Reuse an existing earlier / earlier-N topic with room before opening a new
+    // overflow bucket so topic count never grows past the cap unnecessarily.
+    const existing = files
+      .filter(item => item.topic === OVERFLOW || /^earlier-(?:[2-9]|[1-9]\d+)$/.test(item.topic ?? ''))
+      .sort((a, b) => {
+        const num = name => (name === OVERFLOW ? 1 : Number(name.slice(OVERFLOW.length + 1)))
+        return num(a.topic) - num(b.topic)
+      })
+    const fit = existing.find(file => file.content.length + length + 1 <= MEMORY_LIMITS.topic)
+    if (fit !== undefined) return fit.topic
+    for (let at = 1; ; at += 1) {
+      const name = overflowName(at)
+      if (!files.some(item => item.topic === name)) return name
+    }
+  }
+
+  // The topic an entry goes in. Past the topic cap for a Bot or group, new or full
+  // topics spill into [[earlier]] (or earlier-2, …) instead of resident MEMORY.md.
   function roomInTopic(files, scope, topic, length) {
     if (topic === undefined) return undefined
     for (let at = 1; ; at += 1) {
       const name = at === 1 ? topic : `${topic}-${at}`
       const file = files.find(item => item.topic === name)
-      if (file === undefined) return scope.kind !== 'team' && files.length - 1 >= MEMORY_LIMITS.topics ? undefined : name
+      if (file === undefined) {
+        if (scope.kind !== 'team' && files.length - 1 >= MEMORY_LIMITS.topics) return overflowTopic(files, length)
+        return name
+      }
       if (file.content.length + length + 1 <= MEMORY_LIMITS.topic) return name
     }
   }
@@ -881,12 +918,15 @@ export function install(rt) {
     })
   }
 
-  function removeEntry({ scope, topic, match, actor, label }) {
+  function removeEntry({ scope, topic, match, actor, label, topicOnly = false }) {
     return queued(async () => {
       await recoverPending()
       writable(scope, actor)
       const files = loadScope(scope)
       const old = findOne(files, topic, match, label)
+      if (topicOnly && old.file.topic === undefined) {
+        throw Object.assign(new Error('Removing a team entry that every conversation reads requires always: true. Pass always: true only if you intend to delete an always-loaded entry from team MEMORY.md.'), { code: DENIED })
+      }
       return removeEntryNow({ scope, files, old, actor, label })
     })
   }
@@ -917,26 +957,38 @@ export function install(rt) {
   // A deleted Bot's memory moves to the archive, whole.
   function archiveBotMemory(botId) {
     const bot = rt.botOf(botId)
-    for (const sessionId of [botId, rt.chatOf(botId), ...(bot?.segments ?? []).map(segment => segment.sessionId), ...(bot?.tasks ?? []).map(task => task.sessionId), ...openSessions(bot), ...rt.groupSessionsOf(botId)]) renewMemory(sessionId)
+    const sessions = [botId, rt.chatOf(botId), ...(bot?.segments ?? []).map(segment => segment.sessionId), ...(bot?.tasks ?? []).map(task => task.sessionId), ...openSessions(bot), ...rt.groupSessionsOf(botId)].filter(Boolean)
+    for (const sessionId of sessions) renewMemory(sessionId)
+    forgetBotReview?.(sessions)
+    forgetTidyScope?.(scopeKey(ownScope(botId)))
+    const dir = dirOf(ownScope(botId))
     summaries.delete(botId)
+    summaryFailures.delete(botId)
     news.delete(botId)
+    windows.delete(botId)
+    const prefix = `${botId}:`
+    for (const key of modelWindows.keys()) if (key.startsWith(prefix)) modelWindows.delete(key)
+    for (const key of windowAsked.keys()) if (key.startsWith(prefix)) windowAsked.delete(key)
+    mainCache.delete(dir)
+    recallCache.delete(dir)
+    tailsRead.delete(join(dir, 'journal.jsonl'))
     return queued(async () => {
       if (rt.readOnly() !== undefined) return
       // A change that was interrupted is finished first, so the archive holds it.
       await recoverPending()
       await unlink(join(root, 'summaries', `${safeId(botId)}.json`)).catch(() => {})
-      const dir = dirOf(ownScope(botId))
       if (!existsSync(dir)) {
-        recallCache.delete(dir)
         mainCache.delete(dir)
+        recallCache.delete(dir)
         pruneSnapshots()
         return
       }
       const name = `${safeId(botId)}-${new Date().toISOString().replace(/[:.]/g, '-')}`
       await mkdir(join(root, 'archive'), { recursive: true })
       await rename(dir, join(root, 'archive', name))
-      recallCache.delete(dir)
       mainCache.delete(dir)
+      recallCache.delete(dir)
+      tailsRead.delete(join(dir, 'journal.jsonl'))
       pruneSnapshots()
       // The memory is in the archive from here: a log row that cannot be written must not
       // hide where it went, which the privacy guard needs to keep a private archive closed.
@@ -949,27 +1001,34 @@ export function install(rt) {
   // A deleted group chat's memory moves to the archive, whole. Called before the
   // group's Sessions leave the state, whose snapshots go with them.
   function archiveGroupMemory(room) {
-    for (const sessionId of [rt.sessionOfRoom(room), ...(room.parts ?? []).map(segment => segment.sessionId), ...Object.values(room.sessions ?? {}), ...Object.values(room.segments ?? {}).flat().map(segment => segment.sessionId)].filter(Boolean)) renewMemory(sessionId)
+    const sessions = [rt.sessionOfRoom(room), ...(room.parts ?? []).map(segment => segment.sessionId), ...Object.values(room.sessions ?? {}), ...Object.values(room.segments ?? {}).flat().map(segment => segment.sessionId)].filter(Boolean)
+    for (const sessionId of sessions) renewMemory(sessionId)
+    forgetGroupReview?.(room.id, sessions)
+    forgetTidyScope?.(scopeKey(groupScope(room.id)))
+    const dir = dirOf(groupScope(room.id))
     summaries.delete(room.id)
     summaryFailures.delete(room.id)
     news.delete(room.id)
+    mainCache.delete(dir)
+    recallCache.delete(dir)
+    tailsRead.delete(join(dir, 'journal.jsonl'))
     return queued(async () => {
       if (rt.readOnly() !== undefined) return
       // A change that was interrupted is finished first, so the archive holds it.
       await recoverPending()
       await unlink(summaryPath(room.id)).catch(() => {})
-      const dir = dirOf(groupScope(room.id))
       if (!existsSync(dir)) {
-        recallCache.delete(dir)
         mainCache.delete(dir)
+        recallCache.delete(dir)
         pruneSnapshots()
         return
       }
       const name = `group-${safeId(room.id)}-${new Date().toISOString().replace(/[:.]/g, '-')}`
       await mkdir(join(root, 'archive'), { recursive: true })
       await rename(dir, join(root, 'archive', name))
-      recallCache.delete(dir)
       mainCache.delete(dir)
+      recallCache.delete(dir)
+      tailsRead.delete(join(dir, 'journal.jsonl'))
       pruneSnapshots()
       await journalRow({ id: randomUUID(), time: nextRowTime(), op: 'archive', scope: scopeKey(groupScope(room.id)), actor: 'user', actorName: 'user', groupName: room.name, to: `archive/${name}` })
     }).catch(error => rt.warn('ds-bot: memory of group %s not archived: %s', room.name, error))
@@ -1371,12 +1430,19 @@ export function install(rt) {
     if (bot === undefined) return decision
     await noteWindow(bot, agent.id)
     const member = roomId !== undefined && rt.roomOf(roomId)?.members.includes(bot.id) === true
+    let derivedHistory
+    const historyOf = () => {
+      if (derivedHistory === undefined) {
+        try { derivedHistory = agent.session?.deriveMessages?.() ?? [] } catch { derivedHistory = [] }
+      }
+      return derivedHistory
+    }
     const front = []
-    const snapshot = member ? groupSnapshot(agent, roomId, bot, decision) : undefined
+    const snapshot = member ? groupSnapshot(agent, roomId, bot, decision, historyOf) : undefined
     if (snapshot !== undefined) front.push(snapshot)
     const update = memoryUpdate(agent, bot, member ? roomId : undefined, { groupRefreshed: snapshot !== undefined })
     if (update !== undefined) front.push(update)
-    const recalled = autoRecall(agent, bot, member ? roomId : undefined, decision, front)
+    const recalled = autoRecall(agent, bot, member ? roomId : undefined, decision, front, historyOf)
     if (recalled !== undefined) front.push(recalled)
     return front.length === 0 ? decision : { ...decision, messages: [...front, ...decision.messages] }
   })
@@ -1444,13 +1510,14 @@ export function install(rt) {
       })
       .map(entry => ({ ...entry, tag }))
   }
-  function autoRecall(agent, bot, roomId, decision, front = []) {
+  function autoRecall(agent, bot, roomId, decision, front = [], historyOf) {
     if (state.prefs.memoryAutoRecall === false) return undefined
     const said = decision.messages.findLast(isRecallTrigger)
     const query = said === undefined ? '' : recallQueryOf(said, { group: roomId !== undefined })
     if (query.trim() === '') return undefined
-    let history = []
-    try { history = agent.session?.deriveMessages?.() ?? [] } catch { /* nothing to look in */ }
+    const history = historyOf !== undefined
+      ? historyOf()
+      : (() => { try { return agent.session?.deriveMessages?.() ?? [] } catch { return [] } })()
     const shown = new Set(history.filter(isRecalled).flatMap(message => message.source.ids ?? []))
     const own = ownScope(bot.id)
     const scopes = [own, ...(roomId === undefined ? [] : [groupScope(roomId)]), TEAM]
@@ -1492,11 +1559,12 @@ export function install(rt) {
     })
   }
 
-  function groupSnapshot(agent, roomId, bot, decision) {
+  function groupSnapshot(agent, roomId, bot, decision, historyOf) {
     if (sectionFor(agent.id).includes(GROUP_HEADING) || decision.messages.some(isGroupMemory)) return undefined
-    try {
-      if (agent.session?.deriveMessages?.().some(isGroupMemory)) return undefined
-    } catch { /* no history to look in: the snapshot goes in */ }
+    const history = historyOf !== undefined
+      ? historyOf()
+      : (() => { try { return agent.session?.deriveMessages?.() ?? [] } catch { return [] } })()
+    if (history.some(isGroupMemory)) return undefined
     const pending = pendingChange()
     if (pending.pending === true || pending.failed === true) {
       if (pending.pending === true) void recover().catch(error => rt.warn('ds-bot: memory recovery failed: %s', error?.message ?? error))
@@ -1789,6 +1857,7 @@ export function install(rt) {
     parameters: {
       entry: { type: 'string', required: true, description: 'The entry to remove: its text, or a part only it contains' },
       topic: TOPIC_WHERE,
+      always: { type: 'boolean', description: 'Set true to remove an entry from the always-loaded team MEMORY.md (required for team resident entries)' },
       scope: SCOPE_WRITE,
     },
     output,
@@ -1799,7 +1868,7 @@ export function install(rt) {
       const { topic, error } = topicArg(args.topic)
       if (error) throw refused(error)
       try {
-        return (await removeEntry({ ...context, topic, match: args.entry })).message
+        return (await removeEntry({ ...context, topic, match: args.entry, topicOnly: context.scope.kind === 'team' && args.always !== true })).message
       } catch (failure) {
         throw writeFailure(failure)
       }
@@ -2657,9 +2726,9 @@ export function install(rt) {
     return await memoryView(panelBody(panel))
   }
 
-  const { memoryReviews } = installReview(rt, { root, reviewOn, mainLimit, TEAM, ownScope, groupScope, keeperOf, writesTeam, labelOf, fileName, today, writeText, settled, loadScope, addEntry, replaceEntry, removeEntry, entryProblem, secretEntry, botShot, languageNow, taskOwnerOf })
+  const { memoryReviews, forgetBotReview, forgetGroupReview } = installReview(rt, { root, reviewOn, mainLimit, TEAM, ownScope, groupScope, keeperOf, writesTeam, labelOf, fileName, today, writeText, settled, loadScope, addEntry, replaceEntry, removeEntry, entryProblem, secretEntry, botShot, languageNow, taskOwnerOf })
 
-  const { tidyView, undoTidy, tidyNow, tidyTick } = installTidy(rt, { TEAM, ownScope, groupScope, keeperOf, scopeKey, dirOf, today, queued, recoverPending, writable, settled, loadScope, searchEntries, publish, writeStep, removeStep, appendStep, truncateStep, writeText, botShot, languageNow, allEntries, entryProblem, USER, changedSince, noteWindow, windowUsable })
+  const { tidyView, undoTidy, tidyNow, tidyTick, forgetScope: forgetTidyScope } = installTidy(rt, { TEAM, ownScope, groupScope, keeperOf, scopeKey, dirOf, today, queued, recoverPending, writable, settled, loadScope, searchEntries, publish, writeStep, removeStep, appendStep, truncateStep, writeText, botShot, languageNow, allEntries, entryProblem, USER, changedSince, noteWindow, windowUsable })
 
   async function memoryTidyUndo(body) {
     const panel = panelOf(body)

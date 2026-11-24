@@ -18,7 +18,7 @@ import { replaceFile } from './files.js'
 import { stripOwnName } from './groups.js'
 import { answerSender, cutOffText, failureLine, turnFailure } from './turns.js'
 import { textOf } from './text.js'
-import { threadCurrentOfPart, threadOfPart } from './threads.js'
+import { isActiveTask, ownChatSessions, threadCurrentOfPart, threadOfPart } from './threads.js'
 
 // Long enough for DSH to finish opening its workspaces after a start.
 export const RESUME_DELAY_MS = 3000
@@ -578,7 +578,10 @@ export function install(rt) {
     const turn = findRecordedTurn(events, record)
     // The turn was never taken up: it is still waiting, and the delivery that is
     // waiting for it keeps what it had.
-    if (turn === undefined) return
+    if (turn === undefined) {
+      if (workId !== undefined) activeKeptWorks?.add(workId)
+      return
+    }
     const said = turn.texts.join('\n\n')
     let primarySettled = !canSettlePrimary
     if (canSettlePrimary) {
@@ -593,7 +596,10 @@ export function install(rt) {
     }
     const reason = turn.reason
     // A turn that went on to a fresh part goes on there; it is not settled here.
-    if (reason?.kind === 'blocked') return
+    if (reason?.kind === 'blocked') {
+      if (workId !== undefined) activeKeptWorks?.add(workId)
+      return
+    }
     // The turn was cut off before it finished: the work is picked up again, as after
     // a restart that cut it off.
     if (reason === undefined || reason.kind === 'interrupted') {
@@ -804,7 +810,11 @@ export function install(rt) {
       if (afterSeq !== undefined && events.some(event => event.seq !== undefined && event.seq > afterSeq
         && event.type === 'user/message'
         && (event.data?.source?.exchangeId === exchangeId
-          || event.data?.source?.joined?.some(item => item?.info?.exchangeId === exchangeId)))) continue
+          || event.data?.source?.joined?.some(item => item?.info?.exchangeId === exchangeId)))) {
+        activeKeptWorks?.add(exchangeId)
+        if (source.work !== undefined) activeKeptWorks?.add(source.work)
+        continue
+      }
       if (rt.unreadOf?.(sessionId)?.some(args => args.exchangeId === exchangeId)) continue
       // For a request, check whether the reply already went out in another run.
       if (source.role === 'request') {
@@ -931,99 +941,412 @@ export function install(rt) {
     }
   }
 
-  async function resumeAll() {
-    await rt.load()
-    if (rt.readOnly() !== undefined) return
-    const { turns: noted, queued: dropped, silent: droppedSilent } = interrupted
-    interrupted = { turns: {}, queued: {}, silent: {} }
-    // What the last run still had on the way is noted again first, under the
-    // Session it would go to now: nothing is cleared before it is handed over.
-    // A Bot that is gone takes its notes with it; what a turn already read here
-    // is done with.
-    const pending = queued
-    queued = {}
-    for (const [oldId, list] of Object.entries(pending)) {
-      if (!Array.isArray(list)) continue
-      for (const item of list) {
-        if (item?.args?.exchangeId === undefined || taken?.has(item.args.exchangeId) === true || rt.botOf(item.args.toId) === undefined) continue
-        const key = sessionFor(oldId, item.args) ?? oldId
-        queued = { ...queued, [key]: [...(queued[key] ?? []), item] }
+  let activeKeptWorks
+
+  const NON_WAKING_INBOX_KINDS = new Set([
+    'working-directory', 'runtime-context', 'time-context', 'ds-bot-time-context',
+    'bot-memory', 'skill-catalog', 'compact-checkpoint',
+  ])
+  const isWakingNextStepMsg = (msg) => {
+    const source = msg?.source
+    if (source === undefined || source === null) return true
+    if (source.silent === true || source.form === 'snapshot') return false
+    if (source.kind === SOURCE_KIND && ['note', 'cancelled', 'stopped', 'task-handoff'].includes(source.role)) return false
+    return !NON_WAKING_INBOX_KINDS.has(source.kind)
+  }
+  const sourceMatchesWork = (source, workId) => source !== null && source !== undefined && (
+    source.exchangeId === workId
+    || source.work === workId
+    || source.askWork === workId
+    || source.replyTo === workId
+    || (Array.isArray(source.joined) && source.joined.some(item => item?.info?.exchangeId === workId || item?.info?.work === workId || item?.info?.replyTo === workId))
+  )
+  const liveHeldMatchesWork = (entry, workId) => {
+    if (entry === undefined) return false
+    const held = [
+      entry.info,
+      entry.pending,
+      entry.carry?.info,
+      ...(entry.joined ?? []).map(item => item?.info),
+      ...(entry.later ?? []).map(item => item?.info),
+      ...(entry.pending?.joined ?? []).map(item => item?.info),
+      ...(entry.carry?.joined ?? []).map(item => item?.info),
+      ...(entry.carry?.later ?? []).map(item => item?.info),
+    ]
+    return held.some(info => sourceMatchesWork(info, workId))
+  }
+
+  // Startup reconciliation for genuinely abandoned open leaf works left behind when a
+  // host crashed or restarted with empty or stale inflight.json. Strictly skips paused,
+  // need_input, non-leaf, synthetic child/room, active-task, in-flight, switching, card,
+  // or inbox-queued works. Recovers already-delivered replies from the pair ledger first,
+  // otherwise settles visibly back to the caller/parent so upstream trees unblock.
+  const MAX_ORPHAN_PASSES = 16
+  async function reconcileOrphanWorks(keptWorks = new Set()) {
+    if (stopped || rt.readOnly?.() !== undefined) return 0
+    const wokenWorks = new Set()
+    let totalSettled = 0
+
+    const resolveTargetSession = (targetBot, work) => {
+      if (work.toSession !== undefined) {
+        return threadCurrentOfPart(targetBot, work.toSession)
+          ?? (rt.isBotSession?.(work.toSession) ? work.toSession : rt.chatOf(targetBot.id))
       }
+      return rt.chatOf(targetBot.id)
     }
-    persist()
-    // Restore persisted silent notices before waking Sessions via resendQueued/resumeTurn,
-    // preserving causal order without waking idle recipients (or wiping notes buffered
-    // during the startup window before resumeAll ran).
-    await rt.restoreSilentNotes?.(droppedSilent).catch(error => rt.warn('ds-bot: restoring silent notes failed: %s', error))
-    persist()
-    // Agents and inboxes are read before anything wakes their Sessions.
-    const cut = []
-    const keepTaskSessions = new Set()
-    for (const [sessionId, record] of Object.entries(noted)) {
-      const first = firstTurn.get(sessionId)
-      if (first?.type === 'turn/end') {
-        // The turn ended while DS Bot was not watching it: what it did is settled from
-        // the Session's durable log.
-        await settleEnded(sessionId, record, first)
-        continue
-      }
-      // Still running: noted again, as if it had started here.
-      if (first === undefined && (await rt.resolveAgent(sessionId).catch(() => undefined))?.status === 'running') {
-        update(sessionId, () => record)
-        keepTaskSessions.add(sessionId)
-        continue
-      }
-      // If inflight.json still held a turn (Bot work, ordinary user turn, or group turn)
-      // whose durable log already shows a terminal turn/end, or whose owed reply is already
-      // recorded in the pair ledger, settle it instead of re-running via resumeTurn.
-      let inspectedEvents
-      let inspectedTurn
-      if (first === undefined) {
-        inspectedEvents = await logOf(sessionId)
-        inspectedTurn = inspectedEvents === undefined ? undefined : findRecordedTurn(inspectedEvents, record)
-        if (isTerminalReason(inspectedTurn?.reason)) {
-          await settleEnded(sessionId, record, { reason: inspectedTurn.reason }, inspectedEvents)
-          continue
+
+    const collectProtectedSets = () => {
+      const activeTaskWorks = new Set()
+      const activeTaskIds = new Set()
+      for (const bot of Object.values(rt.state?.bots ?? {})) {
+        for (const task of bot?.tasks ?? []) {
+          if (!isActiveTask(task)) continue
+          activeTaskIds.add(task.id)
+          if (task.exchangeId) activeTaskWorks.add(task.exchangeId)
+          if (task.workId) activeTaskWorks.add(task.workId)
         }
-        if (record.roomId === undefined && record.trigger !== undefined && await settleDeliveredTrigger(record, record.trigger)) {
-          if (inspectedTurn !== undefined) {
-            const name = rt.botOf(record.botId)?.name ?? 'The other Bot'
-            await recoverTurnDeferred(sessionId, record, inspectedTurn, inspectedEvents, name)
+      }
+      const roomTrackedWorks = new Set()
+      for (const report of Object.values(rt.state?.roomReports ?? {})) {
+        if (report?.id) roomTrackedWorks.add(report.id)
+        if (report?.sub) roomTrackedWorks.add(report.sub)
+        if (report?.parentWork) roomTrackedWorks.add(report.parentWork)
+      }
+      for (const batch of Object.values(rt.state?.roomBatches ?? {})) {
+        if (batch?.workId) roomTrackedWorks.add(batch.workId)
+        if (batch?.exchangeId) roomTrackedWorks.add(batch.exchangeId)
+      }
+      const inflightWorks = new Set()
+      for (const record of Object.values(turns)) {
+        const trigger = record?.trigger
+        const tracked = trigger === undefined ? undefined : rt.workOf?.(trigger)
+        if (tracked) inflightWorks.add(tracked)
+        if (trigger?.exchangeId) inflightWorks.add(trigger.exchangeId)
+        if (trigger?.work) inflightWorks.add(trigger.work)
+        if (trigger?.askWork) inflightWorks.add(trigger.askWork)
+      }
+      for (const list of Object.values(queued)) {
+        if (!Array.isArray(list)) continue
+        for (const item of list) {
+          const args = item?.args
+          if (args?.exchangeId) inflightWorks.add(args.exchangeId)
+          if (args?.work) inflightWorks.add(args.work)
+          if (args?.askWork) inflightWorks.add(args.askWork)
+        }
+      }
+      return { activeTaskWorks, activeTaskIds, roomTrackedWorks, inflightWorks }
+    }
+
+    const checkSyncActivity = (targetBot, work, workId) => {
+      const primarySid = resolveTargetSession(targetBot, work)
+      // `parts.js` keys `state.switching[oldSid] = { botId }` and `switchJobs()` by the
+      // earlier segment moved into `segments` after `pushThreadPart`, so check Bot-level
+      // non-room switches as well as all known session ids (including `work.toSession`).
+      if (Object.values(rt.state?.switching ?? {}).some(entry => entry?.botId === targetBot.id && entry.roomId === undefined)) return { active: true }
+      if ([...(rt.switchJobs?.() ?? [])].some(job => job?.botId === targetBot.id && job.roomId === undefined)) return { active: true }
+      const allSids = [...new Set([primarySid, work.toSession, rt.chatOf(targetBot.id), ...ownChatSessions(targetBot)].filter(Boolean))]
+      for (const sid of allSids) {
+        if (rt.state?.switching?.[sid] !== undefined || rt.isSwitchingPart?.(sid) === true) return { active: true }
+        if ((rt.unreadOf?.(sid) ?? []).some(args => args?.exchangeId === workId || args?.work === workId || args?.askWork === workId)) return { active: true }
+        const liveEntry = rt.live?.get(sid)
+        if (liveEntry?.turn !== undefined) {
+          if (liveHeldMatchesWork(liveEntry, workId)) return { active: true }
+          if (sid === primarySid && liveEntry.info === undefined) return { active: true }
+        }
+      }
+      const inspectSids = [...new Set([primarySid, rt.chatOf(targetBot.id)].filter(Boolean))]
+      for (const sid of inspectSids) {
+        if (rt.waitsForApproval?.(sid) === true) return { active: true }
+        if (rt.state?.questions?.[sid] !== undefined || rt.state?.views?.[sid] !== undefined) return { active: true }
+        if ((rt.runningJobs?.(sid)?.length ?? 0) > 0) return { active: true }
+        if (rt.hasSubagents?.(sid) === true) return { active: true }
+      }
+      return { active: false, primarySid, inspectSids }
+    }
+
+    for (let pass = 0; pass < MAX_ORPHAN_PASSES; pass += 1) {
+      if (stopped || rt.readOnly?.() !== undefined) break
+      const works = rt.state?.works
+      if (works === null || typeof works !== 'object') break
+      const entries = Object.entries(works)
+      if (entries.length === 0) break
+      let settledInPass = 0
+
+      for (const [workId, work] of entries) {
+        if (stopped || rt.readOnly?.() !== undefined) return totalSettled
+        if (!work || !Object.hasOwn(works, workId)) continue
+        if (keptWorks.has(workId) || wokenWorks.has(workId)) continue
+        if ((work.state ?? 'open') !== 'open') continue
+        if ((work.open?.length ?? 0) !== 0) continue
+        if (work.child !== undefined || work.room !== undefined) continue
+        if (typeof work.to !== 'string' || work.to === '') continue
+        const targetBot = rt.botOf(work.to)
+        if (targetBot === undefined) continue
+
+        const initial = collectProtectedSets()
+        if (initial.activeTaskWorks.has(workId) || (work.toTaskId !== undefined && initial.activeTaskIds.has(work.toTaskId))) continue
+        if (initial.roomTrackedWorks.has(workId) || initial.inflightWorks.has(workId)) continue
+
+        const syncCheck = checkSyncActivity(targetBot, work, workId)
+        if (syncCheck.active) continue
+
+        let blockedByAgent = false
+        for (const sid of syncCheck.inspectSids) {
+          let agent
+          try {
+            agent = await rt.resolveAgent(sid)
+          } catch (error) {
+            if (error?.code === 'plugin/disposed') return totalSettled
+            blockedByAgent = true
+            break
+          }
+          if (agent === undefined) {
+            blockedByAgent = true
+            break
+          }
+          if (agent.status === 'running') {
+            const liveEntry = rt.live?.get(sid)
+            if (liveEntry?.turn === undefined || liveEntry.info === undefined || liveHeldMatchesWork(liveEntry, workId)) {
+              blockedByAgent = true
+              break
+            }
+          }
+          const hasMatchingInbox = (agent.inbox?.nextTurn ?? []).some(msg => sourceMatchesWork(msg?.source, workId))
+            || (agent.inbox?.nextStep ?? []).some(msg => isWakingNextStepMsg(msg) && sourceMatchesWork(msg?.source, workId))
+          if (hasMatchingInbox) {
+            blockedByAgent = true
+            break
+          }
+        }
+        if (blockedByAgent) continue
+
+        const delivered = await deliveredAnswer(work.to, work.from, workId)
+
+        // Re-verify synchronously after awaits in case a live turn, delivery, or closure arrived.
+        if (stopped || rt.readOnly?.() !== undefined) return totalSettled
+        const current = Object.hasOwn(works, workId) ? works[workId] : undefined
+        if (current === undefined || (current.state ?? 'open') !== 'open' || (current.open?.length ?? 0) !== 0) continue
+        if (keptWorks.has(workId) || wokenWorks.has(workId)) continue
+        const recheck = collectProtectedSets()
+        if (recheck.activeTaskWorks.has(workId) || (current.toTaskId !== undefined && recheck.activeTaskIds.has(current.toTaskId))) continue
+        if (recheck.roomTrackedWorks.has(workId) || recheck.inflightWorks.has(workId)) continue
+        if (checkSyncActivity(targetBot, current, workId).active) continue
+
+        if (delivered.answered) {
+          const targetName = targetBot.name ?? current.name ?? 'The other Bot'
+          const replyText = delivered.text || rt.answerText(workId, '', targetName)
+          const parentId = current.parent
+          const parent = parentId !== undefined && Object.hasOwn(works, parentId) ? works[parentId] : undefined
+          rt.closeWork?.(workId, targetName, replyText)
+          settledInPass += 1
+          totalSettled += 1
+          if (parent !== undefined && parent.open.includes(workId)) {
+            const parentBotId = parent.to ?? (parent.child !== undefined ? parent.from : undefined)
+            const parentBot = parentBotId === undefined ? undefined : rt.botOf(parentBotId)
+            const parentAlreadyAnswered = parentBot !== undefined && parent.to !== undefined
+              && (await deliveredAnswer(parent.to, parent.from, parentId)).answered === true
+            if (parentAlreadyAnswered || parentBot === undefined) {
+              rt.takenWork?.(parentId, workId)
+            } else {
+              const backRoom = rt.roomOf(current.fromRoom)?.sessions?.[parentBotId]
+              const parentSid = backRoom
+                ?? (current.fromPart === undefined ? undefined : threadCurrentOfPart(parentBot, current.fromPart))
+                ?? (parent.toSession === undefined ? undefined : threadCurrentOfPart(parentBot, parent.toSession))
+                ?? rt.chatOf(parentBotId)
+              const parentAgent = parentSid === undefined ? undefined : await rt.resolveAgent(parentSid).catch(() => undefined)
+              const replyAlreadyQueued = (rt.unreadOf?.(parentSid) ?? []).some(args => args?.replyTo === workId)
+                || (parentAgent?.inbox?.nextTurn ?? []).some(msg => msg?.source?.replyTo === workId)
+                || (parentAgent?.inbox?.nextStep ?? []).some(msg => isWakingNextStepMsg(msg) && msg?.source?.replyTo === workId)
+                || liveHeldMatchesWork(rt.live?.get(parentSid), workId)
+              wokenWorks.add(parentId)
+              if (!replyAlreadyQueued) {
+                const long = replyText.length > MESSAGE_INLINE_MAX
+                  ? await rt.attachLong?.(replyText, `Answer from ${targetName}.txt`).catch(() => undefined)
+                  : undefined
+                await rt.deliver({
+                  fromId: current.to,
+                  fromName: targetName,
+                  toId: parentBotId,
+                  ...(parentSid ? { sessionId: parentSid } : {}),
+                  text: long?.text ?? replyText,
+                  ...(long?.length === undefined ? {} : { files: long.files, length: long.length }),
+                  role: 'reply',
+                  replyTo: workId,
+                  work: parentId,
+                  ...(current.ref ? { workRef: current.ref } : {}),
+                  recordExchange: false,
+                  exchangeId: randomUUID(),
+                }).catch((error) => {
+                  rt.takenWork?.(parentId, workId)
+                  rt.answerMissed?.(workId)
+                  rt.warn('ds-bot: waking parent work %s with recovered reply failed: %s', parentId, error)
+                })
+              }
+            }
+          } else if (parentId === undefined && current.fromPart !== undefined) {
+            // Top-level work initiated by an active waiting_work background task:
+            // deliver the recovered reply to the task session so it wakes instead of hanging.
+            const callerBot = current.from === undefined ? undefined : rt.botOf(current.from)
+            const taskThread = callerBot === undefined ? undefined : threadOfPart(callerBot, current.fromPart)
+            const task = taskThread?.thread === 'task' ? callerBot.tasks?.[taskThread.index] : undefined
+            if (task !== undefined && isActiveTask(task)) {
+              const taskSid = threadCurrentOfPart(callerBot, current.fromPart) ?? task.sessionId
+              const taskAgent = taskSid === undefined ? undefined : await rt.resolveAgent(taskSid).catch(() => undefined)
+              const replyAlreadyQueued = (rt.unreadOf?.(taskSid) ?? []).some(args => args?.replyTo === workId)
+                || (taskAgent?.inbox?.nextTurn ?? []).some(msg => msg?.source?.replyTo === workId)
+                || (taskAgent?.inbox?.nextStep ?? []).some(msg => isWakingNextStepMsg(msg) && msg?.source?.replyTo === workId)
+                || liveHeldMatchesWork(rt.live?.get(taskSid), workId)
+              if (!replyAlreadyQueued) {
+                const long = replyText.length > MESSAGE_INLINE_MAX
+                  ? await rt.attachLong?.(replyText, `Answer from ${targetName}.txt`).catch(() => undefined)
+                  : undefined
+                await rt.deliver({
+                  fromId: current.to,
+                  fromName: targetName,
+                  toId: callerBot.id,
+                  ...(taskSid ? { sessionId: taskSid } : {}),
+                  text: long?.text ?? replyText,
+                  ...(long?.length === undefined ? {} : { files: long.files, length: long.length }),
+                  role: 'reply',
+                  replyTo: workId,
+                  ...(current.ref ? { workRef: current.ref } : {}),
+                  recordExchange: false,
+                  exchangeId: randomUUID(),
+                }).catch(error => rt.warn('ds-bot: waking background task %s with recovered reply failed: %s', task.id, error))
+              }
+            }
           }
           continue
         }
+
+        const parentId = current.parent
+        const abandoned = rt.abandonWork?.(workId, 'restart') === true
+        if (abandoned) {
+          settledInPass += 1
+          totalSettled += 1
+          if (parentId !== undefined) {
+            const parent = Object.hasOwn(works, parentId) ? works[parentId] : undefined
+            const parentBotId = parent?.to ?? (parent?.child !== undefined ? parent.from : undefined)
+            if (parentBotId !== undefined && rt.botOf(parentBotId) !== undefined) wokenWorks.add(parentId)
+          }
+        } else if (Object.hasOwn(works, workId)) {
+          rt.dropWork?.(workId)
+          settledInPass += 1
+          totalSettled += 1
+        }
       }
-      cut.push([sessionId, record, inspectedEvents, inspectedTurn])
+      if (settledInPass === 0) break
     }
-    firstTurn = undefined
-    for (const [sessionId, list] of Object.entries(dropped)) {
-      if (!Array.isArray(list)) continue
-      const active = await resendQueued(sessionId, list).catch((error) => {
-        rt.warn('ds-bot: sending again what %s was sent failed: %s', sessionId, error)
-        return new Set()
-      })
-      for (const dest of active ?? []) keepTaskSessions.add(dest)
-    }
-    taken = undefined
-    for (const [sessionId, record, events, turn] of cut) {
-      const resumed = await resumeTurn(sessionId, record).catch((error) => {
-        rt.warn('ds-bot: picking up the turn of %s failed: %s', sessionId, error)
-        return false
-      })
-      if (resumed === true) keepTaskSessions.add(sessionId)
-      // Recover any other steered messages (requests, replies, ask_backs, answers, reports)
-      // that arrived during the interrupted turn so they are not dropped when only `trigger` resumes.
-      if (turn !== undefined && turn.took.length > 0) {
-        const name = rt.botOf(record.botId)?.name ?? 'The other Bot'
-        await recoverTurnDeferred(sessionId, record, turn, events, name)
+    return totalSettled
+  }
+  rt.reconcileOrphanWorks = reconcileOrphanWorks
+
+  async function resumeAll() {
+    await rt.load()
+    if (rt.readOnly() !== undefined) return
+    const keptWorks = new Set()
+    activeKeptWorks = keptWorks
+    try {
+      const { turns: noted, queued: dropped, silent: droppedSilent } = interrupted
+      interrupted = { turns: {}, queued: {}, silent: {} }
+      // What the last run still had on the way is noted again first, under the
+      // Session it would go to now: nothing is cleared before it is handed over.
+      // A Bot that is gone takes its notes with it; what a turn already read here
+      // is done with.
+      const pending = queued
+      queued = {}
+      for (const [oldId, list] of Object.entries(pending)) {
+        if (!Array.isArray(list)) continue
+        for (const item of list) {
+          if (item?.args?.exchangeId === undefined || taken?.has(item.args.exchangeId) === true || rt.botOf(item.args.toId) === undefined) continue
+          const key = sessionFor(oldId, item.args) ?? oldId
+          queued = { ...queued, [key]: [...(queued[key] ?? []), item] }
+        }
       }
+      persist()
+      // Restore persisted silent notices before waking Sessions via resendQueued/resumeTurn,
+      // preserving causal order without waking idle recipients (or wiping notes buffered
+      // during the startup window before resumeAll ran).
+      await rt.restoreSilentNotes?.(droppedSilent).catch(error => rt.warn('ds-bot: restoring silent notes failed: %s', error))
+      persist()
+      // Agents and inboxes are read before anything wakes their Sessions.
+      const cut = []
+      const keepTaskSessions = new Set()
+      for (const [sessionId, record] of Object.entries(noted)) {
+        const first = firstTurn.get(sessionId)
+        if (first?.type === 'turn/end') {
+          // The turn ended while DS Bot was not watching it: what it did is settled from
+          // the Session's durable log.
+          await settleEnded(sessionId, record, first)
+          continue
+        }
+        // Still running: noted again, as if it had started here.
+        if (first === undefined && (await rt.resolveAgent(sessionId).catch(() => undefined))?.status === 'running') {
+          update(sessionId, () => record)
+          keepTaskSessions.add(sessionId)
+          const activeWork = record.trigger === undefined ? undefined : rt.workOf?.(record.trigger)
+          if (activeWork !== undefined) keptWorks.add(activeWork)
+          continue
+        }
+        // If inflight.json still held a turn (Bot work, ordinary user turn, or group turn)
+        // whose durable log already shows a terminal turn/end, or whose owed reply is already
+        // recorded in the pair ledger, settle it instead of re-running via resumeTurn.
+        let inspectedEvents
+        let inspectedTurn
+        if (first === undefined) {
+          inspectedEvents = await logOf(sessionId)
+          inspectedTurn = inspectedEvents === undefined ? undefined : findRecordedTurn(inspectedEvents, record)
+          if (isTerminalReason(inspectedTurn?.reason)) {
+            await settleEnded(sessionId, record, { reason: inspectedTurn.reason }, inspectedEvents)
+            continue
+          }
+          if (record.roomId === undefined && record.trigger !== undefined && await settleDeliveredTrigger(record, record.trigger)) {
+            if (inspectedTurn !== undefined) {
+              const name = rt.botOf(record.botId)?.name ?? 'The other Bot'
+              await recoverTurnDeferred(sessionId, record, inspectedTurn, inspectedEvents, name)
+            }
+            continue
+          }
+        }
+        cut.push([sessionId, record, inspectedEvents, inspectedTurn])
+      }
+      firstTurn = undefined
+      for (const [sessionId, list] of Object.entries(dropped)) {
+        if (!Array.isArray(list)) continue
+        const active = await resendQueued(sessionId, list).catch((error) => {
+          rt.warn('ds-bot: sending again what %s was sent failed: %s', sessionId, error)
+          return new Set()
+        })
+        for (const dest of active ?? []) keepTaskSessions.add(dest)
+      }
+      taken = undefined
+      for (const [sessionId, record, events, turn] of cut) {
+        const resumed = await resumeTurn(sessionId, record).catch((error) => {
+          rt.warn('ds-bot: picking up the turn of %s failed: %s', sessionId, error)
+          return false
+        })
+        if (resumed === true) {
+          keepTaskSessions.add(sessionId)
+          const activeWork = record.trigger === undefined ? undefined : rt.workOf?.(record.trigger)
+          if (activeWork !== undefined) keptWorks.add(activeWork)
+        }
+        // Recover any other steered messages (requests, replies, ask_backs, answers, reports)
+        // that arrived during the interrupted turn so they are not dropped when only `trigger` resumes.
+        if (turn !== undefined && turn.took.length > 0) {
+          const name = rt.botOf(record.botId)?.name ?? 'The other Bot'
+          await recoverTurnDeferred(sessionId, record, turn, events, name)
+        }
+      }
+      // Reconcile orphaned background tasks before settling room batches so a zombie
+      // group task does not keep `hasRoomTasks` true and mask a stuck batch.
+      await rt.reconcileTasksAfterRestart?.(keepTaskSessions).catch(error => rt.warn('ds-bot: reconciling background tasks failed: %s', error))
+      // What a group's members were asked for and will not pick up is settled now.
+      await rt.settleRoomBatches?.()
+      await rt.settleRoomReports?.(undefined, { startup: true })
+      await reconcileOrphanWorks(keptWorks).catch(error => rt.warn('ds-bot: reconciling orphan works failed: %s', error))
+    } finally {
+      activeKeptWorks = undefined
     }
-    // Reconcile orphaned background tasks before settling room batches so a zombie
-    // group task does not keep `hasRoomTasks` true and mask a stuck batch.
-    await rt.reconcileTasksAfterRestart?.(keepTaskSessions).catch(error => rt.warn('ds-bot: reconciling background tasks failed: %s', error))
-    // What a group's members were asked for and will not pick up is settled now.
-    await rt.settleRoomBatches?.()
-    await rt.settleRoomReports?.(undefined, { startup: true })
   }
 
   ctx.effect(() => {
@@ -1031,18 +1354,31 @@ export function install(rt) {
       || Object.keys(interrupted.queued).length > 0
       || Object.keys(interrupted.silent).length > 0
     // With nothing to pick up, orphaned tasks and group batches a restart left are settled at once.
+    let fastStartup = Promise.resolve()
     const timer = pending
       ? setTimeout(() => void resumeAll().catch(error => rt.warn('ds-bot: picking up interrupted work failed: %s', error)), RESUME_DELAY_MS)
-      : setTimeout(() => void rt.load()
-        .then(() => rt.reconcileTasksAfterRestart?.(new Set()))
-        .then(() => rt.settleRoomBatches?.())
-        .then(() => rt.settleRoomReports?.(undefined, { startup: true }))
-        .catch(error => rt.warn('ds-bot: settling group batches failed: %s', error)), 0)
+      : setTimeout(() => {
+        fastStartup = rt.load()
+          .then(() => rt.reconcileTasksAfterRestart?.(new Set()))
+          .then(() => rt.settleRoomBatches?.())
+          .then(() => rt.settleRoomReports?.(undefined, { startup: true }))
+          .catch(error => rt.warn('ds-bot: settling group batches failed: %s', error))
+      }, 0)
     timer?.unref?.()
+    // Even with empty inflight.json, open leaf works can be stranded after a crash or
+    // restart; wait RESUME_DELAY_MS so workspaces, live turns, and part hand-offs settle first.
+    const orphanTimer = pending
+      ? undefined
+      : setTimeout(() => void rt.load()
+        .then(() => fastStartup)
+        .then(() => reconcileOrphanWorks())
+        .catch(error => rt.warn('ds-bot: reconciling orphan works failed: %s', error)), RESUME_DELAY_MS)
+    orphanTimer?.unref?.()
     // What the turns stopped by this shutdown left stays as last noted.
     return () => {
       stopped = true
       clearTimeout(timer)
+      clearTimeout(orphanTimer)
       return writing
     }
   }, 'ds-bot: resume interrupted turns')

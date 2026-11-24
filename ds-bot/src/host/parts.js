@@ -249,12 +249,13 @@ export function install(rt) {
     const room = rt.roomOf(place.roomId ?? taskEntry?.roomId)
     // A background part makes room within its own thread, like the foreground chat.
     const parts = place.roomId === undefined ? partsOfThread(place.botId, agent.id) : partsOf(place.botId, place.roomId)
-    const previous = parts.at(-2)
+    const previous = parts.slice(0, -1).findLast(part => part?.endedAt !== undefined) ?? parts.at(-2)
+    const previousNote = segmentNoteOf(previous)
     const lines = await contextLines(session).catch(() => undefined)
     const budget = Math.min(RECENT_TOKENS, Math.floor((lines?.check ?? 4 * RECENT_TOKENS) / 4))
     const text = handoffPackage({
       room,
-      segment: { fallback: 'overflow', ...(previous?.note ? { note: previous.note, noteFrom: previous.noteFrom ?? previous.number } : {}) },
+      segment: { fallback: 'overflow', ...(previousNote ? { note: previousNote, noteFrom: previous.noteFrom ?? previous.number } : {}) },
       lines: await handoffLines(agent.id, { budget, group: room !== undefined, number: parts.length }),
       number: parts.length + 1,
       resume: true,
@@ -421,7 +422,11 @@ export function install(rt) {
         .map(seg => (seg?.sessionId && bySession.has(seg.sessionId) ? { ...bySession.get(seg.sessionId), ...seg } : seg))
       const seen = new Set(inherited.map(seg => seg?.sessionId).filter(Boolean))
       const segments = [...inherited, ...(thread.segments ?? []).filter(seg => !seen.has(seg?.sessionId))]
-      return partsOf(bot.id, undefined, segments, task.sessionId)
+      const result = partsOf(bot.id, undefined, segments, task.sessionId)
+      if (task.startedAt !== undefined && segments.length > 0 && segments.at(-1)?.endedAt === undefined && result.at(-1)?.sessionId === task.sessionId) {
+        result.at(-1).startedAt = task.startedAt
+      }
+      return result
     }
     return partsOf(bot.id, undefined, thread.segments, rt.chatOf(bot.id))
   }
@@ -1466,13 +1471,20 @@ export function install(rt) {
     return after === undefined || after < lines.check
   }
 
+  const segmentNoteOf = (segment) => {
+    if (segment === undefined || segment === null) return undefined
+    if (typeof segment.note === 'string') return segment.note
+    return rt.readSegmentNote?.(segment)
+  }
+
   // The note a part opened with, as the fresh part shows it. A note DS Bot put
   // together without the model carries the last note the model wrote.
   function noteText(segment) {
-    if (segment?.fallback === undefined) return segment?.note
+    const note = segmentNoteOf(segment)
+    if (segment?.fallback === undefined) return note
     if (segment.fallback === 'whole') {
       const head = '(No new note: every message of the part was carried over word for word.'
-      return segment.note === undefined ? `${head})` : `${head} Below is the note written at the end of part ${segment.noteFrom}, carried over unchanged.)\n\n${segment.note}`
+      return note === undefined ? `${head})` : `${head} Below is the note written at the end of part ${segment.noteFrom}, carried over unchanged.)\n\n${note}`
     }
     const why = segment.fallback === 'overflow' ? 'the part overflowed the model\'s window'
       : segment.fallback === 'cutoff' ? 'the part kept being cut off at the output limit'
@@ -1481,9 +1493,9 @@ export function install(rt) {
             : segment.fallback === 'manual' ? 'a fresh conversation was started'
             : 'the model did not write a usable note'
     const head = `(DS Bot put this note together without the model, because ${why}.`
-    return segment.note === undefined
+    return note === undefined
       ? `${head} There was no earlier note to carry over. Go by the messages below, and look up anything else.)`
-      : `${head} It is the note written at the end of part ${segment.noteFrom}, carried over unchanged; anything newer is in the messages below, and read_own_chat finds the rest.)\n\n${segment.note}`
+      : `${head} It is the note written at the end of part ${segment.noteFrom}, carried over unchanged; anything newer is in the messages below, and read_own_chat finds the rest.)\n\n${note}`
   }
 
   function handoffPackage({ room, self = false, segment, lines, number, resume, overflow, cutoff, failed, bare, folder, engine }) {
@@ -1819,9 +1831,8 @@ export function install(rt) {
             delete state.switching[agent.id]
             await rt.save()
           }
-          noteFailures.delete(agent.id)
-          folderRetry.delete(agent.id)
-          engineRetry.delete(agent.id)
+          forgetSessionParts(agent.id)
+          rt.forgetSessionTurn?.(agent.id)
           if (job.schedulePending === true && rt.schedulesPending?.() !== true) {
             void heldBack().catch(error => rt.warn('ds-bot: handing on input kept in earlier parts failed: %s', error))
           }
@@ -2001,11 +2012,14 @@ export function install(rt) {
       return
     }
     if (failure !== undefined) rt.warn('ds-bot: handoff note for %s failed past the hard line; moving on with the earlier note: %s', name, failure)
-    const previous = parts.at(-2)
-    const earlierNote = previous?.note ? { note: previous.note, noteFrom: previous.noteFrom ?? previous.number } : {}
-    const noted = written !== undefined ? { note: written.note }
-      : job.engine ? { fallback: 'engine', ...earlierNote }
-      : { fallback: whole ? 'whole' : job.failed !== undefined ? 'failure' : job.overflow ? 'overflow' : job.cutoff === true ? 'cutoff' : 'failed', ...earlierNote }
+    const previous = parts.slice(0, -1).findLast(part => part?.endedAt !== undefined) ?? parts.at(-2)
+    const previousNote = segmentNoteOf(previous)
+    const earlierNote = previousNote ? { note: previousNote, noteFrom: previous.noteFrom ?? previous.number } : {}
+    const fallback = written !== undefined ? undefined
+      : job.engine ? 'engine'
+      : whole ? 'whole' : job.failed !== undefined ? 'failure' : job.overflow ? 'overflow' : job.cutoff === true ? 'cutoff' : 'failed'
+    const noteBody = written !== undefined ? written.note : earlierNote.note
+    const noteFrom = written !== undefined ? undefined : earlierNote.noteFrom
     carried ??= await readLines()
     if (signal.aborted) throw signal.reason
     const dir = taskEntry?.workDir !== undefined
@@ -2022,15 +2036,35 @@ export function install(rt) {
       .catch(error => rt.warn('ds-bot: permission for the fresh part of %s not applied: %s', name, error))
     // The fresh part took several awaits: a Bot or group deleted meanwhile, a member that
     // left, or a part that is no longer the current one gets no fresh part.
-    const current = bot === undefined ? rt.sessionOfRoom(room)
-      : room !== undefined ? room.sessions?.[bot.id]
-        : thread === undefined ? rt.chatOf(bot.id) : threadCurrent(bot, agent.id)
-    const gone = bot === undefined ? rt.roomOf(room.id) !== room
-      : rt.botOf(bot.id) === undefined || (effectiveRoom !== undefined && (rt.roomOf(effectiveRoom.id) !== effectiveRoom || !effectiveRoom.members.includes(bot.id)))
-    if (gone || current !== agent.id) {
+    const isGoneOrStale = () => {
+      const current = bot === undefined ? rt.sessionOfRoom(room)
+        : room !== undefined ? room.sessions?.[bot.id]
+          : thread === undefined ? rt.chatOf(bot.id) : threadCurrent(bot, agent.id)
+      const gone = bot === undefined ? rt.roomOf(room.id) !== room
+        : rt.botOf(bot.id) === undefined || (effectiveRoom !== undefined && (rt.roomOf(effectiveRoom.id) !== effectiveRoom || !effectiveRoom.members.includes(bot.id)))
+      return gone || current !== agent.id
+    }
+    if (isGoneOrStale()) {
       await ctx.workspaceRegistry.archiveSession(freshId, { stopActivity: true })
         .catch(error => rt.warn('ds-bot: unused fresh part of %s not archived: %s', name, error))
       return
+    }
+    // Externalize handover note into `<home>/segment-notes/<safe>.md`; fail closed to inline
+    // `segment.note` if the disk write fails so no handover note is ever lost.
+    let persistedNote = false
+    if (noteBody !== undefined && typeof rt.writeSegmentNote === 'function') {
+      persistedNote = await rt.writeSegmentNote(agent.id, noteBody)
+      if (isGoneOrStale()) {
+        if (persistedNote) void rt.deleteSegmentNotes?.([agent.id])
+        await ctx.workspaceRegistry.archiveSession(freshId, { stopActivity: true })
+          .catch(error => rt.warn('ds-bot: unused fresh part of %s not archived: %s', name, error))
+        return
+      }
+    }
+    const noted = {
+      ...(fallback !== undefined ? { fallback } : {}),
+      ...(noteFrom !== undefined ? { noteFrom } : {}),
+      ...(persistedNote ? { hasNote: true } : noteBody !== undefined ? { note: noteBody } : {}),
     }
     const segment = { sessionId: agent.id, endedAt: Date.now(), ...(tokens !== undefined ? { tokens } : {}), ...noted }
     if (bot === undefined) {
@@ -2116,7 +2150,7 @@ export function install(rt) {
       })
     }
     ctx.logger.info('ds-bot: %s%s moved on to part %d at %d tokens (check line %d, hard line %d); %s; %d latest and %d earlier messages carried%s', name, bot !== undefined && room !== undefined ? ` in ${room.name}` : '', number + 1, tokens ?? -1, lines?.check ?? -1, lines?.hard ?? -1,
-      written !== undefined ? `note written in ${written.attempts} attempt(s)` : `note put together by DS Bot (${noted.fallback}${noted.note ? `, carries part ${noted.noteFrom}'s` : ', nothing to carry'})`,
+      written !== undefined ? `note written in ${written.attempts} attempt(s)` : `note put together by DS Bot (${noted.fallback}${noteBody !== undefined ? `, carries part ${noted.noteFrom}'s` : ', nothing to carry'})`,
       carried.recent.length, carried.earlier.length, folder === undefined ? '' : `; now works in ${folder}`)
   }
 
@@ -2768,9 +2802,11 @@ export function install(rt) {
       }
     }
     const more = !hitFloor && page.hasMore && events.length > 0
-    // The line above a part's first message marks where it began.
-    if (!more && index > 0) items.unshift({ kind: 'divider', time: part.startedAt })
     if (steps === true) await applySteps(items, events, part.sessionId, options)
+    // The line above a part's first message marks where it began. Skip a bare divider
+    // for a single-page part that has no visible items or aside cards of its own.
+    const hasPartRows = items.length > 0 || options.hasBtw === true || Number.isInteger(cursor?.beforeSeq)
+    if (!more && index > 0 && hasPartRows) items.unshift({ kind: 'divider', time: part.startedAt })
     return { items, cursor: more ? { part: index, beforeSeq: events[0].seq } : index > 0 ? { part: index - 1 } : null }
   }
 
@@ -2782,12 +2818,21 @@ export function install(rt) {
     const botId = roomId === undefined ? rt.chatOwners.get(sessionId) ?? (past?.roomId === undefined ? past?.botId : undefined) : undefined
     const parts = roomId === undefined ? (botId === undefined ? [] : partsOfThread(botId, sessionId)) : partsOf(undefined, roomId)
     const at = parts.findIndex(part => part.sessionId === sessionId)
-    const index = Number.isInteger(cursor?.part) ? cursor.part : at - 1
+    let index = Number.isInteger(cursor?.part) ? cursor.part : at - 1
     if (at <= 0 || index < 0 || index >= at) return { items: [], cursor: null, startedAt: parts[at]?.startedAt ?? null }
-    // Aside cards belong to the part that was current when they were asked, so
-    // they ride along with that part's history instead of the team view.
-    const btw = botId === undefined ? [] : (await rt.btwPartCards?.(botId, parts[index].sessionId)) ?? []
-    return { ...(await partPage(parts, index, cursor)), btw, startedAt: parts[at].startedAt }
+    let nextCursor = cursor
+    while (index >= 0) {
+      // Aside cards belong to the part that was current when they were asked, so
+      // they ride along with that part's history instead of the team view.
+      const btw = botId === undefined ? [] : (await rt.btwPartCards?.(botId, parts[index].sessionId)) ?? []
+      const page = await partPage(parts, index, nextCursor, false, { hasBtw: btw.length > 0 })
+      const hasContent = page.items.some(item => item.kind !== 'divider') || btw.length > 0
+      const emptyWholePart = !hasContent && !Number.isInteger(nextCursor?.beforeSeq) && (page.cursor === null || page.cursor.part !== index)
+      if (!emptyWholePart || page.cursor === null) return { ...page, btw, partIndex: index, startedAt: parts[at].startedAt }
+      index = page.cursor.part
+      nextCursor = page.cursor
+    }
+    return { items: [], cursor: null, btw: [], startedAt: parts[at].startedAt }
   }
 
   // A Bot's whole own chat, newest page first: the current part, then the earlier
@@ -2918,18 +2963,20 @@ export function install(rt) {
   }
 
   // Opens a dedicated Session for a Bot's background task (`bot.tasks`).
-  // Forks the foreground Session at the latest completed turn boundary when
-  // running on a DSH model in the same folder, falling back to a fresh Session
-  // when there is no completed turn yet (first turn), a different workDir is
-  // requested, or the Bot runs on a local CLI agent.
-  async function openTaskPart(bot, fromSessionId, task, { workDir } = {}) {
+  // When `fork` is true (default), forks the foreground Session at the latest
+  // completed turn boundary on a DSH model in the same folder, falling back to
+  // a fresh Session when there is no completed turn yet (first turn), a
+  // different workDir is requested, or the Bot runs on a local CLI agent.
+  // Pass `fork: false` for lightweight independent tasks (peer-Bot handoffs or
+  // `task_start` from a large parent Session).
+  async function openTaskPart(bot, fromSessionId, task, { workDir, fork = true } = {}) {
     const room = task.roomId !== undefined ? rt.roomOf(task.roomId) : undefined
     const defaultDir = rt.workDirOf({ botId: bot.id, ...(room ? { roomId: room.id } : {}) })
     const dir = workDir !== undefined ? (workDir ?? undefined) : defaultDir
     const isLocal = rt.localAgentBadge?.(bot.model ?? bot.appliedModel) !== undefined
     let sessionId
     let forked = false
-    if (!isLocal && dir === defaultDir && typeof ctx.sessionController?.fork === 'function') {
+    if (fork !== false && !isLocal && dir === defaultDir && typeof ctx.sessionController?.fork === 'function') {
       try {
         const res = await ctx.sessionController.fork({ sessionId: fromSessionId })
         if (typeof res?.sessionId === 'string' && res.sessionId !== '') {
@@ -2961,7 +3008,22 @@ export function install(rt) {
       if (Number.isInteger(inherited) && inherited > 0) startSeq = inherited
       else if (Number.isInteger(seq) && seq > 0) startSeq = seq
     }
-    const stored = { ...task, sessionId, segments: [], startSeq, ...(workDir !== undefined ? { workDir } : {}) }
+    // When an own-chat task_start does not fork, append a slim ref to the parent
+    // foreground part so read_own_chat can search it alongside earlier bot.segments.
+    let inheritedSegments = Array.isArray(task.inheritedSegments) ? [...task.inheritedSegments] : []
+    if (!forked && room === undefined && task.origin !== 'bot-handoff' && typeof fromSessionId === 'string' && fromSessionId !== '' && fromSessionId !== sessionId) {
+      if (!inheritedSegments.some(seg => seg?.sessionId === fromSessionId)) {
+        inheritedSegments.push({ sessionId: fromSessionId })
+      }
+    }
+    const stored = {
+      ...task,
+      ...(inheritedSegments.length > 0 ? { inheritedSegments } : {}),
+      sessionId,
+      segments: [],
+      startSeq,
+      ...(workDir !== undefined ? { workDir } : {}),
+    }
     ;(bot.tasks ??= []).push(stored)
     rt.chatOwners.set(sessionId, bot.id)
     rt.taskOwners.set(sessionId, { botId: bot.id, taskId: task.id, ...(room ? { roomId: room.id } : {}) })
@@ -3053,5 +3115,25 @@ export function install(rt) {
     }
   }
 
-  Object.assign(rt, { clock, partsOf, partsOfThread, historyEntry, partLines, noteText, earlierPage, chatPage, agentPage, taskPage, displayItems, applySteps, followFolder, followEngine, heldBack, openTaskPart, forkForegroundPart, isSwitchingPart: id => switches.has(id), isMovingInboxMessage: id => id !== undefined && movingInboxMessages.has(id), sessionTokens: session => tokensOf(session), switchJobs: () => switches.values() })
+  const forgetSessionParts = (sessionId) => {
+    if (typeof sessionId !== 'string' || sessionId === '') return
+    partBase.delete(sessionId)
+    cliCompactions.delete(sessionId)
+    condensedUnmeasured.delete(sessionId)
+    cutOffs.delete(sessionId)
+    rescued.delete(sessionId)
+    freshParts.delete(sessionId)
+    tails.delete(sessionId)
+    noteFailures.delete(sessionId)
+    folderRetry.delete(sessionId)
+    engineRetry.delete(sessionId)
+    clearTimeout(engineWakes.get(sessionId))
+    engineWakes.delete(sessionId)
+  }
+  ctx.on?.('agent/disposed', ({ agent }) => {
+    const id = agent?.id
+    if (id !== undefined && !rt.isBotSession?.(id) && rt.roomOf?.(id) === undefined) forgetSessionParts(id)
+  })
+
+  Object.assign(rt, { clock, partsOf, partsOfThread, historyEntry, partLines, noteText, earlierPage, chatPage, agentPage, taskPage, displayItems, applySteps, followFolder, followEngine, heldBack, openTaskPart, forkForegroundPart, forgetSessionParts, isSwitchingPart: id => switches.has(id), isMovingInboxMessage: id => id !== undefined && movingInboxMessages.has(id), sessionTokens: session => tokensOf(session), switchJobs: () => switches.values() })
 }

@@ -262,14 +262,17 @@ export function install(rt) {
   // Pair loop guard: tracks consecutive Bot-to-Bot delegations between (a, b) since the
   // last user message to either Bot, expiring after PAIR_LOOP_TTL_MS of inactivity.
   // Reciprocal zero-work bounces (B -> A right after A -> B) or ACK/wrap-up ping-pong
-  // pause immediately after 1 empty round-trip; substantive same-direction pure-LLM
-  // follow-ups allow 1 extra round-trip before pausing at 2; real-work rework loops
-  // pause at WORK_REWORK_CHECKPOINT so the user can continue.
+  // pause immediately at 2 (after 1 empty round-trip); same-direction substantive
+  // pure-LLM delegations (neither call nor reply is ack-like) are governed by
+  // WORK_REWORK_CHECKPOINT (4) so multi-section drafting/translation/review runs smoothly.
   function noteWorkCompleted(fromId, toId, { worked = false, id, text = '' } = {}) {
     if (!fromId || !toId || fromId === toId) return
     const key = pairKey(fromId, toId)
     const map = pairLoops()
     const now = Date.now()
+    for (const [entryKey, item] of Object.entries(map)) {
+      if (entryKey !== key && now - (item?.lastAt ?? 0) > PAIR_LOOP_TTL_MS) delete map[entryKey]
+    }
     const prev = own(map, key)
     const fresh = prev !== undefined && now - (prev.lastAt ?? 0) <= PAIR_LOOP_TTL_MS
     const entry = fresh ? prev : { idleBounces: 0, reworkBounces: 0, lastAt: 0 }
@@ -317,7 +320,7 @@ export function install(rt) {
     if (!callerWorked) {
       const idleBounces = entry.idleBounces ?? 0
       const reciprocalOrAck = entry.lastFrom === toId || entry.lastAck === true || isAckLikeText(text)
-      if (idleBounces >= 2 || (idleBounces >= 1 && reciprocalOrAck)) {
+      if (idleBounces >= 1 && reciprocalOrAck) {
         return { pause: 'idle_loop', bounces: idleBounces + 1 }
       }
     }
@@ -830,46 +833,57 @@ export function install(rt) {
 
   // Giving up one wait: the sub-work closes with an explicit result that says no reply
   // came back, so the work above it goes on. Only this branch settles; the parent's
-  // other open works stay. `gone` is the startup sweep, whose target no longer exists.
+  // other open works stay. `gone` is the startup sweep whose target no longer exists;
+  // `restart` is startup reconciliation of an orphaned leaf work with no active turn.
   function abandonWork(id, reason = 'user') {
     const work = own(works(), id)
     if (work === undefined) return false
     const parent = work.parent === undefined ? undefined : own(works(), work.parent)
-    const waitingTask = parent === undefined && work.parent === undefined ? activeTaskThreadOf(work) : undefined
-    if (parent !== undefined) {
-      if (!parent.open.includes(id)) return false
-    } else if (waitingTask === undefined) {
-      return false
+    const waitingParent = parent !== undefined && parent.open.includes(id) ? parent : undefined
+    const waitingTask = waitingParent === undefined && work.parent === undefined ? activeTaskThreadOf(work) : undefined
+    if (waitingParent === undefined && waitingTask === undefined) {
+      if (reason !== 'restart' || work.parent !== undefined) return false
     }
     const target = labelOfWork(work)
     const name = rt.botOf(work.to)?.name ?? work.name ?? (work.room !== undefined ? rt.roomOf(work.room)?.name : undefined) ?? 'the other Bot'
+    const tag = work.ref ? ` #${work.ref}` : ''
     const text = reason === 'gone'
       ? cap(target) + ' is no longer on the team, so no reply can come back for the work handed to it. The user gave up waiting for that answer: this counts as its result. Go on with the work you were given, and say plainly that this answer is missing.'
-      : 'No reply came back from ' + target + ', and the user gave up waiting for it. This counts as its result: go on with the work you were given, and say plainly that this answer is missing.'
+      : reason === 'restart'
+        ? `Work${tag} handed to ${target} did not complete before DeepSeek Harness restarted and has no active turn remaining. This counts as its result: go on with the work you were given, and say plainly that this answer is missing.`
+        : 'No reply came back from ' + target + ', and the user gave up waiting for it. This counts as its result: go on with the work you were given, and say plainly that this answer is missing.'
     const origin = workImOrigin(id)
     if (origin !== undefined) rememberImReplyOrigin(id, origin)
     if (reason === 'gone') rt.dropRoomReport?.(id)
-    const waitingBot = parent !== undefined ? ownerBotOfWork(parent) : waitingTask.callerBot.id
+    const waitingBot = waitingParent !== undefined ? ownerBotOfWork(waitingParent) : waitingTask !== undefined ? waitingTask.callerBot.id : work.from
     rememberAbandoned(id, { at: Date.now(), from: work.from, to: work.to, room: work.room, ...(work.parent !== undefined ? { parent: work.parent } : {}), name, reason, ...(waitingBot !== undefined ? { waiting: waitingBot } : {}) })
     closeWork(id, name, text, { abandoned: true, abandonedAt: Date.now(), abandonedReason: reason })
     // The wait is over now, not when the Bot next reads the result.
-    if (parent !== undefined) parent.open = parent.open.filter(other => other !== id)
+    if (waitingParent !== undefined) waitingParent.open = waitingParent.open.filter(other => other !== id)
     save()
     // The Bot that waited goes on with its work now, the same way a reply brings it back.
     if (waitingBot !== undefined && rt.botOf(waitingBot) !== undefined) {
       const said = reason === 'gone'
         ? target + ' is no longer on the team, so the work you handed it has no answer. The user gave up waiting for it; this is its result. Go on with the work you were given.'
-        : 'No reply came back from ' + target + ', and the user gave up waiting for it. This is its result: go on with the work you were given.'
+        : reason === 'restart'
+          ? (waitingParent !== undefined || waitingTask !== undefined
+            ? `Work${tag} handed to ${target} did not complete before DeepSeek Harness restarted and has no active turn remaining. This is its result: go on with the work you were given.`
+            : `Work${tag} handed to ${target} did not complete before DeepSeek Harness restarted and has no active turn remaining. Tell the user or delegate again if needed.`)
+          : 'No reply came back from ' + target + ', and the user gave up waiting for it. This is its result: go on with the work you were given.'
       const backRoom = rt.roomOf(work.fromRoom)?.sessions?.[waitingBot]
-      const targetSession = parent !== undefined
+      const targetSession = waitingParent !== undefined
         ? (backRoom
           ?? (work.fromPart === undefined ? undefined : threadCurrentOfPart(rt.botOf(waitingBot), work.fromPart))
-          ?? (parent.toSession === undefined ? undefined : threadCurrentOfPart(rt.botOf(waitingBot), parent.toSession)))
-        : waitingTask.targetSession
+          ?? (waitingParent.toSession === undefined ? undefined : threadCurrentOfPart(rt.botOf(waitingBot), waitingParent.toSession)))
+        : waitingTask !== undefined
+          ? waitingTask.targetSession
+          : (backRoom
+            ?? (work.fromPart === undefined ? undefined : threadCurrentOfPart(rt.botOf(waitingBot), work.fromPart))
+            ?? rt.chatOf(waitingBot))
       void rt.deliver({
         fromId: work.to !== undefined && rt.botOf(work.to) !== undefined ? work.to : undefined,
         fromName: name, toId: waitingBot, ...(targetSession ? { sessionId: targetSession } : {}), text: said, role: 'reply', replyTo: id,
-        exchangeId: randomUUID(), ...(work.parent !== undefined ? { work: work.parent } : {}), abandoned: true, recordExchange: false,
+        exchangeId: randomUUID(), ...(waitingParent !== undefined ? { work: work.parent } : {}), ...(work.ref ? { workRef: work.ref } : {}), abandoned: true, ...(reason === 'restart' ? { abandonedReason: 'restart' } : {}), recordExchange: false,
       }).catch(error => rt.warn('ds-bot: giving up the wait for %s was not delivered: %s', waitingBot, error))
     }
     return true
@@ -905,6 +919,7 @@ export function install(rt) {
       if (gone) abandonWork(id, 'gone')
     }
   }
+  const offAdopted = rt.onAdopted?.(() => whole.clear())
   // A host without a context (the narrow tests) has no startup to reconcile. The sweep
   // waits a tick: the team file loads through every module's own setup, and this module
   // is installed before the ones that load it.
@@ -918,7 +933,11 @@ export function install(rt) {
         })
         .catch(error => rt.warn('ds-bot: lost waits not settled: %s', error))
     }, 0)
-    return () => clearTimeout(timer)
+    return () => {
+      clearTimeout(timer)
+      offAdopted?.()
+      whole.clear()
+    }
   }, 'ds-bot: lost hand-offs')
 
   // A deleted Bot answers no more work and waits for none.
