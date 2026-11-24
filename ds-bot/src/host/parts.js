@@ -249,7 +249,7 @@ export function install(rt) {
     const room = rt.roomOf(place.roomId ?? taskEntry?.roomId)
     // A background part makes room within its own thread, like the foreground chat.
     const parts = place.roomId === undefined ? partsOfThread(place.botId, agent.id) : partsOf(place.botId, place.roomId)
-    const previous = parts.at(-2)
+    const previous = parts.slice(0, -1).findLast(part => part?.endedAt !== undefined) ?? parts.at(-2)
     const lines = await contextLines(session).catch(() => undefined)
     const budget = Math.min(RECENT_TOKENS, Math.floor((lines?.check ?? 4 * RECENT_TOKENS) / 4))
     const text = handoffPackage({
@@ -421,7 +421,11 @@ export function install(rt) {
         .map(seg => (seg?.sessionId && bySession.has(seg.sessionId) ? { ...bySession.get(seg.sessionId), ...seg } : seg))
       const seen = new Set(inherited.map(seg => seg?.sessionId).filter(Boolean))
       const segments = [...inherited, ...(thread.segments ?? []).filter(seg => !seen.has(seg?.sessionId))]
-      return partsOf(bot.id, undefined, segments, task.sessionId)
+      const result = partsOf(bot.id, undefined, segments, task.sessionId)
+      if (task.startedAt !== undefined && segments.length > 0 && segments.at(-1)?.endedAt === undefined && result.at(-1)?.sessionId === task.sessionId) {
+        result.at(-1).startedAt = task.startedAt
+      }
+      return result
     }
     return partsOf(bot.id, undefined, thread.segments, rt.chatOf(bot.id))
   }
@@ -2001,7 +2005,7 @@ export function install(rt) {
       return
     }
     if (failure !== undefined) rt.warn('ds-bot: handoff note for %s failed past the hard line; moving on with the earlier note: %s', name, failure)
-    const previous = parts.at(-2)
+    const previous = parts.slice(0, -1).findLast(part => part?.endedAt !== undefined) ?? parts.at(-2)
     const earlierNote = previous?.note ? { note: previous.note, noteFrom: previous.noteFrom ?? previous.number } : {}
     const noted = written !== undefined ? { note: written.note }
       : job.engine ? { fallback: 'engine', ...earlierNote }
@@ -2918,18 +2922,20 @@ export function install(rt) {
   }
 
   // Opens a dedicated Session for a Bot's background task (`bot.tasks`).
-  // Forks the foreground Session at the latest completed turn boundary when
-  // running on a DSH model in the same folder, falling back to a fresh Session
-  // when there is no completed turn yet (first turn), a different workDir is
-  // requested, or the Bot runs on a local CLI agent.
-  async function openTaskPart(bot, fromSessionId, task, { workDir } = {}) {
+  // When `fork` is true (default), forks the foreground Session at the latest
+  // completed turn boundary on a DSH model in the same folder, falling back to
+  // a fresh Session when there is no completed turn yet (first turn), a
+  // different workDir is requested, or the Bot runs on a local CLI agent.
+  // Pass `fork: false` for lightweight independent tasks (peer-Bot handoffs or
+  // `task_start` from a large parent Session).
+  async function openTaskPart(bot, fromSessionId, task, { workDir, fork = true } = {}) {
     const room = task.roomId !== undefined ? rt.roomOf(task.roomId) : undefined
     const defaultDir = rt.workDirOf({ botId: bot.id, ...(room ? { roomId: room.id } : {}) })
     const dir = workDir !== undefined ? (workDir ?? undefined) : defaultDir
     const isLocal = rt.localAgentBadge?.(bot.model ?? bot.appliedModel) !== undefined
     let sessionId
     let forked = false
-    if (!isLocal && dir === defaultDir && typeof ctx.sessionController?.fork === 'function') {
+    if (fork !== false && !isLocal && dir === defaultDir && typeof ctx.sessionController?.fork === 'function') {
       try {
         const res = await ctx.sessionController.fork({ sessionId: fromSessionId })
         if (typeof res?.sessionId === 'string' && res.sessionId !== '') {
@@ -2961,7 +2967,22 @@ export function install(rt) {
       if (Number.isInteger(inherited) && inherited > 0) startSeq = inherited
       else if (Number.isInteger(seq) && seq > 0) startSeq = seq
     }
-    const stored = { ...task, sessionId, segments: [], startSeq, ...(workDir !== undefined ? { workDir } : {}) }
+    // When an own-chat task_start does not fork, append a slim ref to the parent
+    // foreground part so read_own_chat can search it alongside earlier bot.segments.
+    let inheritedSegments = Array.isArray(task.inheritedSegments) ? [...task.inheritedSegments] : []
+    if (!forked && room === undefined && task.origin !== 'bot-handoff' && typeof fromSessionId === 'string' && fromSessionId !== '' && fromSessionId !== sessionId) {
+      if (!inheritedSegments.some(seg => seg?.sessionId === fromSessionId)) {
+        inheritedSegments.push({ sessionId: fromSessionId })
+      }
+    }
+    const stored = {
+      ...task,
+      ...(inheritedSegments.length > 0 ? { inheritedSegments } : {}),
+      sessionId,
+      segments: [],
+      startSeq,
+      ...(workDir !== undefined ? { workDir } : {}),
+    }
     ;(bot.tasks ??= []).push(stored)
     rt.chatOwners.set(sessionId, bot.id)
     rt.taskOwners.set(sessionId, { botId: bot.id, taskId: task.id, ...(room ? { roomId: room.id } : {}) })
