@@ -355,15 +355,60 @@ export function install(rt) {
       pairCache.delete(book)
       rt.ledger.drop(book)
     }
+    if (Array.isArray(state.exchanges) && state.exchanges.length > 0) {
+      state.exchanges = state.exchanges.filter(entry => entry?.from !== botId && entry?.to !== botId)
+    }
+  }
+
+  // One-time transparent migration for teams saved before the pair ledger (#1316):
+  // durably moves legacy `state.exchanges` entries into `bot/ledger/pair-*.jsonl`
+  // without losing entries for books that already exist on disk, and keeps any pair's
+  // entries fail-closed in `state.exchanges` if its ledger write fails.
+  async function migrateLegacyExchanges() {
+    if (rt.readOnly?.() !== undefined || !Array.isArray(state.exchanges) || state.exchanges.length === 0) return false
+    const snapshot = state.exchanges.slice()
+    const byBook = new Map()
+    const migratedRefs = new Set()
+    for (const entry of snapshot) {
+      if (!entry || typeof entry !== 'object') {
+        migratedRefs.add(entry)
+        continue
+      }
+      const from = typeof entry.from === 'string' && entry.from !== '' ? entry.from : undefined
+      const to = typeof entry.to === 'string' && entry.to !== '' ? entry.to : undefined
+      if (from === undefined || to === undefined || rt.botOf(from) === undefined || rt.botOf(to) === undefined) {
+        // Legacy records for deleted Bots or non-Bot senders cannot be opened as a pair chat.
+        migratedRefs.add(entry)
+        continue
+      }
+      const book = pairBook(from, to)
+      let bucket = byBook.get(book)
+      if (bucket === undefined) {
+        bucket = []
+        byBook.set(book, bucket)
+      }
+      bucket.push(entry)
+    }
+    for (const [book, entries] of byBook.entries()) {
+      const ok = await rt.ledger.mergeRecords(book, entries.map(entry => ({ ...entry, delivered: true })))
+      if (ok) {
+        for (const entry of entries) migratedRefs.add(entry)
+      }
+    }
+    if (migratedRefs.size === 0) return false
+    const before = state.exchanges.length
+    state.exchanges = state.exchanges.filter(entry => !migratedRefs.has(entry))
+    return state.exchanges.length !== before
   }
 
   function deliveredReplyOf(fromId, toId, replyTo) {
     if (typeof fromId !== 'string' || fromId === '' || typeof replyTo !== 'string' || replyTo === '') return undefined
     if (typeof toId === 'string' && toId !== '') {
-      if (rt.botOf(fromId) === undefined || rt.botOf(toId) === undefined) {
-        return (state.exchanges ?? []).findLast(entry => entry.from === fromId && entry.to === toId && entry.role === 'reply' && entry.replyTo === replyTo)
+      if (rt.botOf(fromId) !== undefined && rt.botOf(toId) !== undefined) {
+        const found = pairRecords(fromId, toId).replies.get(`${fromId}\u0000${toId}\u0000${replyTo}`)
+        if (found !== undefined) return found
       }
-      return pairRecords(fromId, toId).replies.get(`${fromId}\u0000${toId}\u0000${replyTo}`)
+      return (state.exchanges ?? []).findLast(entry => entry.from === fromId && entry.to === toId && entry.role === 'reply' && entry.replyTo === replyTo)
     }
     if (rt.botOf(fromId) !== undefined) {
       for (const otherId of Object.keys(state.bots ?? {})) {
@@ -526,19 +571,6 @@ export function install(rt) {
     }
     if (deliveredNow && ledgerMeta !== undefined) {
       await markSilentDelivered([{ ledger: ledgerMeta }])
-    } else if (book === undefined && recordExchange && EXCHANGE_ROLES.has(role) && !deferred && !resumed && !retried) {
-      // A message no Bot of the team sent keeps the record it had before the ledger.
-      // Recorded once the message is in the Session: an earlier record would show
-      // a failed delivery as delivered. The whole text is in its file, or in the
-      // Session it goes to; exchangeText reads it back there. Resends keep any
-      // existing record; only a merged request replaces it with its added text.
-      const kept = headOf(text, TEXT_KEPT)
-      const whole = length !== undefined ? { length, files } : kept.length < text.length ? { length: text.length, sessionId: targetSessionId } : {}
-      const entry = { id: exchangeId, from: fromId, to: toId, text: kept, ...whole, role, time: Date.now(), ...(replyTo ? { replyTo } : {}), ...(audience === 'user' ? { audience } : {}) }
-      const earlier = state.exchanges.findIndex(other => other.id === exchangeId)
-      if (earlier === -1) state.exchanges.push(entry)
-      else if (merged) state.exchanges[earlier] = entry
-      void rt.save().catch(() => {})
     }
     return exchangeId
   }
@@ -607,18 +639,37 @@ export function install(rt) {
     const { delivered: _delivered, ...rest } = record
     return { ...rest, text: kept, ...(record.length === undefined && kept.length < (record.text ?? '').length ? { length: record.text.length } : {}) }
   })
-  const exchangeOf = (id, a, b) => {
-    const record = pairRecords(a, b).shown.get(id)
+  const formatExchangeRecord = (record) => {
     if (record === undefined) return undefined
     // Imported from before the ledger: as whole as it was kept then.
     if (record.sessionId !== undefined || (record.length !== undefined && !(record.files?.length > 0))) return record
     return { ...record, ledger: true }
   }
+  const exchangeOf = (id, a, b) => formatExchangeRecord(pairRecords(a, b).shown.get(id))
+  const exchangeById = (id) => {
+    if (typeof id !== 'string' || id === '') return undefined
+    for (const cache of pairCache.values()) {
+      if (!Array.isArray(cache.peers) || cache.peers.length < 2) continue
+      const hit = pairRecords(cache.peers[0], cache.peers[1]).shown.get(id)
+      if (hit !== undefined) return formatExchangeRecord(hit)
+    }
+    const botIds = Object.keys(state.bots ?? {})
+    for (let i = 0; i < botIds.length; i += 1) {
+      for (let j = i + 1; j < botIds.length; j += 1) {
+        const book = pairBook(botIds[i], botIds[j])
+        if (pairCache.has(book)) continue
+        if (typeof rt.ledger.hasBook === 'function' && !rt.ledger.hasBook(book)) continue
+        const hit = pairRecords(botIds[i], botIds[j]).shown.get(id)
+        if (hit !== undefined) return formatExchangeRecord(hit)
+      }
+    }
+    return (state.exchanges ?? []).find(item => item?.id === id)
+  }
 
   Object.assign(rt, {
     resolveAgent, deliver, flushSilentNotes, takeSilentNotes, takeSilentEntries, putBackSilentNotes,
     markSilentDelivered, moveSilentNotes, restoreSilentNotes, injectSilent, dropBotLedgers,
-    exchangeText, attachLong, fileText, exchangesOf, exchangeOf, deliveredReplyOf, wasReplyDelivered,
-    deliveredFailuresOf, wasFailureRequestDelivered,
+    migrateLegacyExchanges, exchangeText, attachLong, fileText, exchangesOf, exchangeOf, exchangeById,
+    deliveredReplyOf, wasReplyDelivered, deliveredFailuresOf, wasFailureRequestDelivered,
   })
 }
