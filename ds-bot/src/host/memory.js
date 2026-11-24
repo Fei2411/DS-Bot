@@ -736,14 +736,34 @@ export function install(rt) {
   const movedNote = room => (room.moved.length === 0 ? '' : ` MEMORY.md was at its size, so ${room.moved.length === 1 ? 'its oldest entry' : `its ${room.moved.length} oldest entries`} moved to ${room.topics.map(name => `[[${name}]]`).join(', ')}, where bot_recall finds ${room.moved.length === 1 ? 'it' : 'them'}.`)
   const movedRow = room => (room.moved.length === 0 ? {} : { moved: room.moved, movedTo: room.topics.map(name => `${name}.md`) })
 
-  // The topic an entry goes in. Past the last topic there is none, and the entry goes
-  // to MEMORY.md, which makes room for it.
+  function overflowTopic(files, length) {
+    // Reuse an existing earlier / earlier-N topic with room before opening a new
+    // overflow bucket so topic count never grows past the cap unnecessarily.
+    const existing = files
+      .filter(item => item.topic === OVERFLOW || /^earlier-(?:[2-9]|[1-9]\d+)$/.test(item.topic ?? ''))
+      .sort((a, b) => {
+        const num = name => (name === OVERFLOW ? 1 : Number(name.slice(OVERFLOW.length + 1)))
+        return num(a.topic) - num(b.topic)
+      })
+    const fit = existing.find(file => file.content.length + length + 1 <= MEMORY_LIMITS.topic)
+    if (fit !== undefined) return fit.topic
+    for (let at = 1; ; at += 1) {
+      const name = overflowName(at)
+      if (!files.some(item => item.topic === name)) return name
+    }
+  }
+
+  // The topic an entry goes in. Past the topic cap for a Bot or group, new or full
+  // topics spill into [[earlier]] (or earlier-2, …) instead of resident MEMORY.md.
   function roomInTopic(files, scope, topic, length) {
     if (topic === undefined) return undefined
     for (let at = 1; ; at += 1) {
       const name = at === 1 ? topic : `${topic}-${at}`
       const file = files.find(item => item.topic === name)
-      if (file === undefined) return scope.kind !== 'team' && files.length - 1 >= MEMORY_LIMITS.topics ? undefined : name
+      if (file === undefined) {
+        if (scope.kind !== 'team' && files.length - 1 >= MEMORY_LIMITS.topics) return overflowTopic(files, length)
+        return name
+      }
       if (file.content.length + length + 1 <= MEMORY_LIMITS.topic) return name
     }
   }
@@ -881,12 +901,15 @@ export function install(rt) {
     })
   }
 
-  function removeEntry({ scope, topic, match, actor, label }) {
+  function removeEntry({ scope, topic, match, actor, label, topicOnly = false }) {
     return queued(async () => {
       await recoverPending()
       writable(scope, actor)
       const files = loadScope(scope)
       const old = findOne(files, topic, match, label)
+      if (topicOnly && old.file.topic === undefined) {
+        throw Object.assign(new Error('Removing a team entry that every conversation reads requires always: true. Pass always: true only if you intend to delete an always-loaded entry from team MEMORY.md.'), { code: DENIED })
+      }
       return removeEntryNow({ scope, files, old, actor, label })
     })
   }
@@ -1789,6 +1812,7 @@ export function install(rt) {
     parameters: {
       entry: { type: 'string', required: true, description: 'The entry to remove: its text, or a part only it contains' },
       topic: TOPIC_WHERE,
+      always: { type: 'boolean', description: 'Set true to remove an entry from the always-loaded team MEMORY.md (required for team resident entries)' },
       scope: SCOPE_WRITE,
     },
     output,
@@ -1799,7 +1823,7 @@ export function install(rt) {
       const { topic, error } = topicArg(args.topic)
       if (error) throw refused(error)
       try {
-        return (await removeEntry({ ...context, topic, match: args.entry })).message
+        return (await removeEntry({ ...context, topic, match: args.entry, topicOnly: context.scope.kind === 'team' && args.always !== true })).message
       } catch (failure) {
         throw writeFailure(failure)
       }

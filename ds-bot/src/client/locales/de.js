@@ -736,6 +736,8 @@ export const DE = {
 
   // Shapes
   Whale: 'Wal', Star: 'Stern', Moon: 'Mond', Wave: 'Welle', Squircle: 'Squircle', Bull: 'Stier', Blossom: 'Blüte',
+  Dolphin: 'Delfin', Octopus: 'Oktopus', Turtle: 'Schildkröte', Crab: 'Krabbe', Pufferfish: 'Kugelfisch', Jellyfish: 'Qualle',
+  Starfish: 'Seestern', Seahorse: 'Seepferdchen',
   Gumdrop: 'Fruchtgummi', Peanut: 'Erdnuss', Bubbles: 'Blasen', Saucer: 'Untertasse', Sprout: 'Keimling', Bunny: 'Hase',
   Kitty: 'Kätzchen', Beacon: 'Leuchtfeuer', Plus: 'Plus', Magnet: 'Magnet', Acorn: 'Eichel', Pebbles: 'Kiesel', Cushion: 'Kissen',
   Ring: 'Ring', Gem: 'Edelstein',
