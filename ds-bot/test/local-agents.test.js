@@ -963,6 +963,29 @@ test('claude: the retry flow replays the unanswered message', async (t) => {
   assert.match(prompts, /last unanswered message/)
 })
 
+test('claude: an explicit retry includes the message from a pre-init stall', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsb-claude-stall-'))
+  const runs = join(dir, 'runs')
+  const records = {}
+  const adapter = makeAdapter({ records, claude: FIXTURE('fake-claude-flaky.mjs'), claudeArgs: [runs, '', '', '--stall-first'] })
+  t.after(() => adapter.dispose())
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const asked = user('m1', 'fix the login')
+  const request = messages => options('s1', messages, { provider: 'local-claude-code' })
+  const stalled = assert.rejects(collect(adapter.stream(request([asked]))), error => error.code === 'LOCAL_AGENT_EXIT' && /stalled/.test(error.message))
+  for (let attempt = 0; statSync(runs, { throwIfNoEntry: false })?.size !== 1 && attempt < 300; attempt++) await delay(10)
+  assert.equal(readFileSync(runs, 'utf8'), '1')
+  assert.equal(adapter.live.get('s1')?.engineSession?.running, true)
+  assert.equal(records.s1.handedId, 'm1')
+  t.mock.timers.tick(10 * 60_000)
+  await stalled
+  t.mock.timers.reset()
+  const retry = { ...user('m2', 'Answer the last unanswered message.'), source: { kind: 'bot', form: 'relay', role: 'continue' } }
+  assert.equal((await collect(adapter.stream(request([asked, retry])))).finish.kind, 'stop')
+  assert.match(readFileSync(`${runs}.prompts`, 'utf8'), /fix the login/)
+})
+
 // The rollback is saved, not only kept in memory: a host that restarts after a
 // failed start rebuilds its live state from the record.
 test('claude: a host restart after a failed start still replays the unread input', async (t) => {

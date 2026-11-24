@@ -414,6 +414,7 @@ export class LocalAgentAdapter extends LlmAdapter {
     }
     this.live.delete(live.sessionId)
     live.engine.forget?.(live.sessionId)
+    if (error !== undefined && Object.hasOwn(live, 'handedBefore')) this.rollbackUnread(live, live.sessionId)
     live.mcp?.close()
     if (idle) {
       // The CLI session survives on the agent side; the process leaves and the
@@ -751,7 +752,7 @@ export class LocalAgentAdapter extends LlmAdapter {
       this.rollbackUnread(live, sessionId)
       // The saved conversation is gone: start over in a new one with the
       // history, once, so the user sees the answer instead of this failure.
-      if (live.resumeLost === true && options[RESUME_RETRIED] !== true) {
+      if (live.closeFailure === undefined && live.resumeLost === true && options[RESUME_RETRIED] !== true) {
         live.resumeLost = false
         yield* this.stream({ ...options, [RESUME_RETRIED]: true })
         return
