@@ -104,7 +104,8 @@ export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus
       : []
   const view = goal ? goalView(goal, { roster, roomWork }) : null
   const goalShown = room !== undefined && !away && goal !== undefined
-  const detailsOpen = useUi(state => state.details === sessionId)
+  const subjectId = bot?.id ?? room?.id ?? sessionId
+  const detailsOpen = useUi(state => Boolean(state.details) && (state.details === sessionId || (roster.byId[state.details]?.id ?? roster.roomsById[state.details]?.id ?? state.details) === subjectId))
   const name = bot?.name ?? room?.name ?? ''
   const useNews = useMemoryNews ?? noNews
   const memoryIds = bot ? [bot.id] : room ? [room.id, ...room.members] : []
