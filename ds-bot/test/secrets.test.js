@@ -772,9 +772,14 @@ test('multiline redaction covers LF, CRLF, JSON-escaped, URL-encoded, and space-
 
   await bench.call('secret-set', { name: 'PEM_BLOCK', value: crlf })
 
-  const redact = redactor([{ name: 'PEM_BLOCK', value: lf }, { name: 'LEGACY_CRLF', value: `a-${fresh()}\r\nb-${fresh()}` }])
+  const legacyA = `a-${fresh()}`
+  const legacyB = `b-${fresh()}`
+  const legacyCrlf = `${legacyA}\r\n${legacyB}`
+  const legacyLf = `${legacyA}\n${legacyB}`
+  const redact = redactor([{ name: 'PEM_BLOCK', value: lf }, { name: 'LEGACY_CRLF', value: legacyCrlf }])
   assert.equal(redact(`out:\n${lf}\nend`), 'out:\n[secret:PEM_BLOCK]\nend')
   assert.equal(redact(`out:\r\n${crlf}\r\nend`), 'out:\r\n[secret:PEM_BLOCK]\r\nend')
+  assert.equal(redact(`legacy:\r\n${legacyCrlf}\nand\n${legacyLf}`), 'legacy:\r\n[secret:LEGACY_CRLF]\nand\n[secret:LEGACY_CRLF]')
   assert.equal(redact(JSON.stringify({ key: lf })), '{"key":"[secret:PEM_BLOCK]"}')
   assert.equal(redact(JSON.stringify({ key: crlf })), '{"key":"[secret:PEM_BLOCK]"}')
   assert.equal(redact(`url?k=${encodeUrlComponent(lf)}&ok=1`), 'url?k=[secret:PEM_BLOCK]&ok=1')
@@ -782,12 +787,30 @@ test('multiline redaction covers LF, CRLF, JSON-escaped, URL-encoded, and space-
   assert.equal(redact(`echo ${spaced}`), 'echo [secret:PEM_BLOCK]')
   assert.equal(redact(`unquoted ${collapsed}`), 'unquoted [secret:PEM_BLOCK]')
 
-  // A short multiline value still obeys word boundaries and does not fold into ordinary text.
-  const shortRedact = redactor([{ name: 'TINY', value: '12\n34' }])
+  // A short multiline value (including a legacy 8-char CRLF value whose LF form is 7 chars)
+  // still obeys Unicode word boundaries and does not fold into ordinary text.
+  const shortRedact = redactor([
+    { name: 'TINY', value: '12\n34' },
+    { name: 'LEGACY_SHORT', value: '123\r\n456' },
+  ])
   assert.equal(shortRedact('code 12\n34 done'), 'code [secret:TINY] done')
   assert.equal(shortRedact('code 12\r\n34 done'), 'code [secret:TINY] done')
   assert.equal(shortRedact('x12\n34y'), 'x12\n34y')
   assert.equal(shortRedact('12 34'), '12 34')
+  assert.equal(shortRedact('abc123\n456def'), 'abc123\n456def')
+  assert.equal(shortRedact(' 123\n456 '), ' [secret:LEGACY_SHORT] ')
+  assert.equal(shortRedact('\u{10400}12\n34'), '\u{10400}12\n34')
+  assert.equal(shortRedact('12\n34\u{1D7CF}'), '12\n34\u{1D7CF}')
+  assert.equal(shortRedact('😀12\n34😀'), '😀[secret:TINY]😀')
+
+  // Exact raw values win over synthetic space-folded forms from an earlier multiline secret.
+  const partA = `alpha-${fresh()}`
+  const partB = `beta-${fresh()}`
+  const priorityRedact = redactor([
+    { name: 'MULTI', value: `${partA}\n${partB}` },
+    { name: 'EXACT', value: `${partA} ${partB}` },
+  ])
+  assert.equal(priorityRedact(`exact=${partA} ${partB}; multi=${partA}\n${partB}`), 'exact=[secret:EXACT]; multi=[secret:MULTI]')
 
   // Host pipeline redacts CRLF and collapsed output on both tools/execute and llm/stream.
   const execute = bench.listeners['tools/execute'].filter(listener => listener.name !== 'listOwnSchedules' && listener.name !== 'computerTrack').at(-1)
@@ -802,4 +825,31 @@ test('multiline redaction covers LF, CRLF, JSON-escaped, URL-encoded, and space-
   const sent = redactRequest(bench, [{ role: 'user', content: [{ type: 'text', text: `pasted:\r\n${crlf}` }] }], `sys ${collapsed}`)
   assert.equal(sent.messages[0].content[0].text, 'pasted:\r\n[secret:PEM_BLOCK]')
   assert.equal(sent.system, 'sys [secret:PEM_BLOCK]')
+})
+
+test('redactor handles large multiline secrets past V8 RegExp size limits without throwing or crashing', () => {
+  // Single legal ~14 KiB indented multiline JSON whose URL-encoded CRLF form exceeds 32,767 chars.
+  const makeLargeJson = (seed) => {
+    const rows = Array.from({ length: 180 }, (_, i) => ({ k: `${seed}/${i}`, v: `a:b=c&d?e#${i}` }))
+    return JSON.stringify({ items: rows }, null, 4)
+  }
+  const big = makeLargeJson('one')
+  const bigCrlf = big.replace(/\n/g, '\r\n')
+  const bigUrlCrlf = encodeUrlComponent(bigCrlf)
+  assert.ok(big.length <= 16384, `big fixture should fit MAX_VALUE (${big.length})`)
+  assert.ok(bigUrlCrlf.length > 32768, `URL-encoded CRLF should exceed V8 32 KiB RegExp atom limit (${bigUrlCrlf.length})`)
+
+  const unrelated = fresh()
+  const singleHuge = redactor([{ name: 'BIG_JSON', value: big }, { name: 'SHORT_TOK', value: unrelated }])
+  assert.equal(singleHuge(`tok=${unrelated}`), 'tok=[secret:SHORT_TOK]')
+  assert.equal(singleHuge(`raw=${big}`), 'raw=[secret:BIG_JSON]')
+  assert.equal(singleHuge(`crlf=${bigCrlf}`), 'crlf=[secret:BIG_JSON]')
+  assert.equal(singleHuge(`url=${bigUrlCrlf}`), 'url=[secret:BIG_JSON]')
+
+  // 30 large (~14 KiB) multiline JSON secrets must build and run without V8 RegExp limits or crashes.
+  const many = Array.from({ length: 30 }, (_, i) => ({ name: `KEY_${i}`, value: makeLargeJson(`k${i}`) }))
+  const manyRedact = redactor(many)
+  const clean = 'nothing secret in this log line'
+  assert.equal(manyRedact(clean), clean)
+  assert.equal(manyRedact(`hit ${many[17].value.replace(/\n/g, '\r\n')} ok`), 'hit [secret:KEY_17] ok')
 })

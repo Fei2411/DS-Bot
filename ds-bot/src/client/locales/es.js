@@ -1788,6 +1788,7 @@ export const ES = {
   'Unknown theme': 'Tema desconocido',
   'Accent must be a #rrggbb color': 'El color de acento debe tener formato #rrggbb',
   'Type the key first': 'Escribe primero la clave',
+  'A key cannot contain null bytes': 'Una clave no puede contener bytes nulos',
   'Choose every Bot or a list of Bots': 'Elige todos los Bots o una lista de Bots',
   'This request is gone': 'Esta solicitud ya no existe',
   'This request was already answered': 'Esta solicitud ya fue respondida',

@@ -40,23 +40,25 @@ const when = time => (Number.isFinite(time) ? new Date(time).toLocaleString(date
 
 export function MaskedInput({ value, onChange, onEnter, label, autoFocus = false, disabled = false, multiline = false }) {
   const ref = useRef(null)
-  useLayoutEffect(() => {
+  const fit = () => {
     const el = ref.current
     if (!multiline || !el || typeof el.scrollHeight !== 'number') return
-    const fit = () => {
-      const scrollTop = el.scrollTop
-      const parent = el.parentElement?.style && typeof el.parentElement.offsetHeight === 'number' ? el.parentElement : null
-      const prevMinHeight = parent ? parent.style.minHeight : ''
-      if (parent && parent.offsetHeight > 0) parent.style.minHeight = `${parent.offsetHeight}px`
-      el.style.height = '0px'
-      const next = Math.min(Math.max(el.scrollHeight, MIN_MULTI_HEIGHT), MAX_MULTI_HEIGHT)
-      el.style.height = `${next}px`
-      el.style.overflowY = el.scrollHeight > MAX_MULTI_HEIGHT ? 'auto' : 'hidden'
-      if (parent) parent.style.minHeight = prevMinHeight
-      el.scrollTop = scrollTop
-    }
-    fit()
-    if (typeof ResizeObserver !== 'function') return
+    const scrollTop = el.scrollTop
+    const parent = el.parentElement?.style && typeof el.parentElement.offsetHeight === 'number' ? el.parentElement : null
+    const prevMinHeight = parent ? parent.style.minHeight : ''
+    if (parent && parent.offsetHeight > 0) parent.style.minHeight = `${parent.offsetHeight}px`
+    el.style.overflowY = 'hidden'
+    el.style.height = '0px'
+    const next = Math.min(Math.max(el.scrollHeight, MIN_MULTI_HEIGHT), MAX_MULTI_HEIGHT)
+    el.style.height = `${next}px`
+    el.style.overflowY = el.scrollHeight > MAX_MULTI_HEIGHT ? 'auto' : 'hidden'
+    if (parent) parent.style.minHeight = prevMinHeight
+    el.scrollTop = scrollTop
+  }
+  useLayoutEffect(fit, [value, multiline])
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!multiline || !el || typeof ResizeObserver !== 'function') return
     let lastWidth = el.clientWidth
     const observer = new ResizeObserver(() => {
       if (el.clientWidth === lastWidth) return
@@ -65,7 +67,7 @@ export function MaskedInput({ value, onChange, onEnter, label, autoFocus = false
     })
     observer.observe(el)
     return () => observer.disconnect()
-  }, [value, multiline])
+  }, [multiline])
   const common = {
     ref,
     className: multiline ? 'bt-secret-input bt-secret-input-multi' : 'bt-secret-input',

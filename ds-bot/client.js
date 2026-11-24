@@ -1878,6 +1878,7 @@ var JA = {
   "Unknown theme": "不明なテーマです",
   "Accent must be a #rrggbb color": "アクセントカラーは #rrggbb 形式で指定してください",
   "Type the key first": "先にシークレットを入力してください",
+  "A key cannot contain null bytes": "シークレットに NULL バイトを含めることはできません",
   "Choose every Bot or a list of Bots": "すべての Bot または特定の Bot を選択してください",
   "This request is gone": "このリクエストはすでに存在しません",
   "This request was already answered": "このリクエストはすでに対応済みです",
@@ -4767,6 +4768,7 @@ var KO = {
   "Unknown theme": "알 수 없는 테마",
   "Accent must be a #rrggbb color": "강조 색상은 #rrggbb 형식이어야 합니다",
   "Type the key first": "먼저 시크릿을 입력하세요",
+  "A key cannot contain null bytes": "시크릿에는 널 바이트를 포함할 수 없습니다",
   "Choose every Bot or a list of Bots": "모든 Bot 또는 지정된 Bot 목록을 선택하세요",
   "This request is gone": "이 요청은 더 이상 존재하지 않습니다",
   "This request was already answered": "이미 처리된 요청입니다",
@@ -7658,6 +7660,7 @@ var ES = {
   "Unknown theme": "Tema desconocido",
   "Accent must be a #rrggbb color": "El color de acento debe tener formato #rrggbb",
   "Type the key first": "Escribe primero la clave",
+  "A key cannot contain null bytes": "Una clave no puede contener bytes nulos",
   "Choose every Bot or a list of Bots": "Elige todos los Bots o una lista de Bots",
   "This request is gone": "Esta solicitud ya no existe",
   "This request was already answered": "Esta solicitud ya fue respondida",
@@ -10506,6 +10509,7 @@ var FR = {
   "Unknown theme": "Thème inconnu",
   "Accent must be a #rrggbb color": "La couleur d’accentuation doit être au format #rrggbb",
   "Type the key first": "Saisissez d’abord la clé",
+  "A key cannot contain null bytes": "Une clé ne peut pas contenir d’octets nuls",
   "Choose every Bot or a list of Bots": "Choisissez tous les Bots ou une liste de Bots",
   "This request is gone": "Cette demande n’existe plus",
   "This request was already answered": "Cette demande a déjà été traitée",
@@ -13395,6 +13399,7 @@ var DE = {
   "Unknown theme": "Unbekanntes Design",
   "Accent must be a #rrggbb color": "Die Akzentfarbe muss im Format #rrggbb angegeben werden",
   "Type the key first": "Gib zuerst den Schlüssel ein",
+  "A key cannot contain null bytes": "Ein Schlüssel darf keine Nullbytes enthalten",
   "Choose every Bot or a list of Bots": "Wähle alle Bots oder bestimmte Bots aus",
   "This request is gone": "Diese Anfrage existiert nicht mehr",
   "This request was already answered": "Diese Anfrage wurde bereits beantwortet",
@@ -16582,6 +16587,7 @@ var HOST_ZH = {
   "Unknown theme": "未知主题",
   "Accent must be a #rrggbb color": "强调色必须是 #rrggbb 格式",
   "Type the key first": "请先输入密钥",
+  "A key cannot contain null bytes": "密钥不能包含空字符",
   "Choose every Bot or a list of Bots": "请选择所有 Bot 或指定的 Bot",
   "This request is gone": "这个请求已经不存在了",
   "This request was already answered": "这个请求已经处理过了",
@@ -26375,23 +26381,25 @@ var scopeLabel = (scope, roster) => {
 var when = (time) => Number.isFinite(time) ? new Date(time).toLocaleString(dateLocale(), { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
 function MaskedInput({ value, onChange, onEnter, label, autoFocus = false, disabled = false, multiline = false }) {
   const ref = (0, import_react19.useRef)(null);
-  (0, import_react19.useLayoutEffect)(() => {
+  const fit2 = () => {
     const el = ref.current;
     if (!multiline || !el || typeof el.scrollHeight !== "number") return;
-    const fit2 = () => {
-      const scrollTop = el.scrollTop;
-      const parent = el.parentElement?.style && typeof el.parentElement.offsetHeight === "number" ? el.parentElement : null;
-      const prevMinHeight = parent ? parent.style.minHeight : "";
-      if (parent && parent.offsetHeight > 0) parent.style.minHeight = `${parent.offsetHeight}px`;
-      el.style.height = "0px";
-      const next = Math.min(Math.max(el.scrollHeight, MIN_MULTI_HEIGHT), MAX_MULTI_HEIGHT);
-      el.style.height = `${next}px`;
-      el.style.overflowY = el.scrollHeight > MAX_MULTI_HEIGHT ? "auto" : "hidden";
-      if (parent) parent.style.minHeight = prevMinHeight;
-      el.scrollTop = scrollTop;
-    };
-    fit2();
-    if (typeof ResizeObserver !== "function") return;
+    const scrollTop = el.scrollTop;
+    const parent = el.parentElement?.style && typeof el.parentElement.offsetHeight === "number" ? el.parentElement : null;
+    const prevMinHeight = parent ? parent.style.minHeight : "";
+    if (parent && parent.offsetHeight > 0) parent.style.minHeight = `${parent.offsetHeight}px`;
+    el.style.overflowY = "hidden";
+    el.style.height = "0px";
+    const next = Math.min(Math.max(el.scrollHeight, MIN_MULTI_HEIGHT), MAX_MULTI_HEIGHT);
+    el.style.height = `${next}px`;
+    el.style.overflowY = el.scrollHeight > MAX_MULTI_HEIGHT ? "auto" : "hidden";
+    if (parent) parent.style.minHeight = prevMinHeight;
+    el.scrollTop = scrollTop;
+  };
+  (0, import_react19.useLayoutEffect)(fit2, [value, multiline]);
+  (0, import_react19.useLayoutEffect)(() => {
+    const el = ref.current;
+    if (!multiline || !el || typeof ResizeObserver !== "function") return;
     let lastWidth = el.clientWidth;
     const observer = new ResizeObserver(() => {
       if (el.clientWidth === lastWidth) return;
@@ -26400,7 +26408,7 @@ function MaskedInput({ value, onChange, onEnter, label, autoFocus = false, disab
     });
     observer.observe(el);
     return () => observer.disconnect();
-  }, [value, multiline]);
+  }, [multiline]);
   const common = {
     ref,
     className: multiline ? "bt-secret-input bt-secret-input-multi" : "bt-secret-input",
