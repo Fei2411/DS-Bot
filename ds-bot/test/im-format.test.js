@@ -56,6 +56,14 @@ test('a blockquote immediately after a Telegram table is not a table row', () =>
   }])
 })
 
+test('Telegram Setext headings require a paragraph and can span multiple lines', () => {
+  const markdown = '- Item\n---\n\n1. Other item\n---\n\nTwo-line\nheading\n===\nFollowing text'
+  assert.deepEqual(chunkTelegram(markdown), [{
+    html: '- Item\n---\n1. Other item\n---\n<b>Two-line</b>\n<b>heading</b>\nFollowing text',
+    text: '- Item\n---\n1. Other item\n---\nTwo-line\nheading\nFollowing text',
+  }])
+})
+
 test('Markdown becomes plain text', () => {
   assert.equal(toPlain('**bold** `code` [site](https://a.b)'), 'bold code site (https://a.b)')
   assert.equal(toPlain('```\nlet x = 1\n```'), 'let x = 1')

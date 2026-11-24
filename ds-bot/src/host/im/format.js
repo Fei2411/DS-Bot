@@ -71,6 +71,7 @@ const renderPlain = block => (block.kind === 'code' ? block.lines.join('\n') : b
 
 const ATX_HEADING = /^ {0,3}#{1,6}[ \t]+(.+?)\s*$/
 const SETEXT_UNDERLINE = /^ {0,3}(?:=+|-+)\s*$/
+const NON_PARAGRAPH_LINE = /^ {4}|^ {0,3}(?:[\t>]|(?:[-+*]|\d{1,9}[.)])(?:[ \t]|$))/
 const TABLE_DELIMITER = /^:?-+:?$/
 
 function tableCells(line) {
@@ -88,6 +89,15 @@ function tableCells(line) {
 
 function telegramLines(lines) {
   const rendered = []
+  let paragraph = []
+  const renderLine = (line, heading = false) => {
+    const html = inlineHtml(line)
+    rendered.push({ html: heading ? '<b>' + html + '</b>' : html, text: inlinePlain(line) })
+  }
+  const flushParagraph = (heading = false) => {
+    for (const line of paragraph) renderLine(heading ? line.trim() : line, heading)
+    paragraph = []
+  }
   const renderTableRow = (headers, row) => {
     for (const [index, header] of headers.entries()) {
       const label = row === undefined ? header : header + ':'
@@ -106,6 +116,7 @@ function telegramLines(lines) {
       if (delimiters?.length > 0 && delimiters.every(cell => TABLE_DELIMITER.test(cell))) {
         const headers = tableCells(line)
         if (headers?.length === delimiters.length) {
+          flushParagraph()
           at += 1
           let row = tableCells(lines[at + 1] ?? '')
           if (row === undefined) renderTableRow(headers)
@@ -120,15 +131,20 @@ function telegramLines(lines) {
       }
     }
     const heading = ATX_HEADING.exec(line)
-    let title = heading?.[1].replace(/[ \t]+#+$/, '')
-    if (heading === null && /^\S|^ {1,3}\S/.test(line) && SETEXT_UNDERLINE.test(next)) {
-      title = line.trim()
-      at += 1
+    if (heading !== null) {
+      flushParagraph()
+      renderLine(heading[1].replace(/[ \t]+#+$/, ''), true)
+    } else if (SETEXT_UNDERLINE.test(line)) {
+      if (paragraph.length > 0) flushParagraph(true)
+      else renderLine(line)
+    } else if (NON_PARAGRAPH_LINE.test(line)) {
+      flushParagraph()
+      renderLine(line)
+    } else {
+      paragraph.push(line)
     }
-    rendered.push(title === undefined
-      ? { html: inlineHtml(line), text: inlinePlain(line) }
-      : { html: '<b>' + inlineHtml(title) + '</b>', text: inlinePlain(title) })
   }
+  flushParagraph()
   return rendered
 }
 
