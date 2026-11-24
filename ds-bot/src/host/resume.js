@@ -327,10 +327,10 @@ export function install(rt) {
   // A message is done with once a turn takes it up, or once it leaves the inbox untaken
   // while DS Bot runs: the user stopped the Bot, or DS Bot moved or withdrew it.
   ctx.on('agent/inbox/discarded', ({ agent, message } = {}) => {
+    if (rt.isMovingInboxMessage?.(message?.id) === true) return
     const source = message?.source
     if (source?.kind === SOURCE_KIND && source.exchangeId) forgetQueued(source.exchangeId)
     if (source?.kind === SOURCE_KIND && (source.role === 'post' || source.role === 'goal') && typeof source.roomId === 'string') {
-      if (rt.isMovingInboxMessage?.(message?.id) === true) return
       rt.roomRelayDiscarded?.(source, agent?.id ?? agent?.session?.id)
     }
   })
@@ -428,10 +428,13 @@ export function install(rt) {
     return true
   }
 
-  // Where a queued note goes now: its Session if it still is one, else the
-  // current Session of its Bot, or of its group when the message went to one.
-  const sessionFor = (sessionId, args) => (rt.isBotSession(sessionId) ? sessionId
-    : args?.roomId === undefined ? rt.chatOf(args?.toId) : rt.roomOf(args.roomId)?.sessions?.[args.toId])
+  // A moved inbox can still have notes keyed to its earlier part.
+  const sessionFor = (sessionId, args) => {
+    if (rt.isBotSession(sessionId)) return sessionId
+    const bot = rt.botOf(args.toId)
+    const successor = threadOfPart(bot, sessionId)?.thread === 'task' ? threadCurrentOfPart(bot, sessionId) : undefined
+    return successor ?? (args.roomId === undefined ? rt.chatOf(args.toId) : rt.roomOf(args.roomId)?.sessions?.[args.toId])
+  }
 
   // A hard stop keeps the inbox, which the Session runs once it wakes; only what DSH
   // cancelled is sent again. The notes stay queued until a turn takes the messages
