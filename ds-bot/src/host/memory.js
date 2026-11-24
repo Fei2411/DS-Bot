@@ -1110,7 +1110,7 @@ export function install(rt) {
 
   ctx.effect(() => ctx.systemPrompt.section({
     name: 'bot-memory',
-    order: 645,
+    order: 10320,
     interpolate: false,
     text: context => sectionFor(context?.agent?.id),
   }), 'ds-bot: memory section')
