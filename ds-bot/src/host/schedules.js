@@ -279,27 +279,17 @@ export function install(rt) {
     if (stale.length > 0) await forgetMoves(stale)
     const toStop = []
     for (const record of records) {
-      let move = movesFrom(fromId).find(move => move.id === record.id)
-      if (move?.copied !== true) {
-        const request = move?.request ?? requestOf(record)
+      let move = movesFrom(fromId).find(move => move.id === record.id && typeof move.copyId === 'string')
+      if (move === undefined) {
+        const request = requestOf(record)
         if (request === null || (request.at !== undefined && Date.parse(request.at) <= Date.now())) continue
-        const matching = async id => (await schedule.list({ sessionId: id }))
-          .filter(entry => JSON.stringify(requestOf(entry)) === JSON.stringify(request))
-        let found = false
-        if (move === undefined) {
-          // The legacy API assigns the copy a random ID. Save the pre-copy matches
-          // so a restart between the create and its receipt can identify a new one.
-          move = { fromId, toId, id: record.id, request, before: (await matching(toId)).map(entry => entry.id) }
-          await saveMoves([...(state.legacyScheduleMoves ?? []), move])
-        } else {
-          const added = (await matching(move.toId)).filter(entry => !move.before.includes(entry.id))
-          if (added.length > 1) throw new Error('Could not identify the previous copy of a legacy reminder')
-          found = added.length === 1
-          // A previous save may have failed with the receipt still in memory.
-          if (!found) await rt.save({ required: true })
-        }
-        if (!found) await schedule.create(move.toId, request)
-        move.copied = true
+        const copy = await schedule.create(toId, request)
+        move = { fromId, id: record.id, copyId: copy.id }
+        const other = (state.legacyScheduleMoves ?? []).filter(item => item.fromId !== fromId || item.id !== record.id)
+        await saveMoves([...other, move])
+      } else {
+        // The earlier destination may already have moved or forwarded its reminders.
+        // Keep the exact copy and ensure its receipt made it to disk before deleting.
         await rt.save({ required: true })
       }
       try {

@@ -381,7 +381,10 @@ test('a switch stops an earlier part when deleting a copied legacy reminder fail
   const copies = []
   const schedule = {
     list: async ({ sessionId }) => sessionId === 'b' ? [reminder] : [],
-    create: async (sessionId, request) => { copies.push({ sessionId, request }) },
+    create: async (sessionId, request) => {
+      copies.push({ sessionId, request })
+      return { id: 'copy' }
+    },
     delete: async () => { throw new Error('Temporary deletion failure') },
   }
   const host = await start({ services: { ...services, schedule } })

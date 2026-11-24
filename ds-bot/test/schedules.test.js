@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -327,38 +327,58 @@ test('a failed task move can resume without losing identical remaining tasks', a
   assert.equal(on('w2').length, 0)
 })
 
-for (const failure of ['after copying', 'during deletion']) {
-  test(`a legacy reminder move interrupted ${failure} resumes after restart without another copy`, async (t) => {
+test('a legacy reminder move interrupted during deletion resumes after restart without another copy', async (t) => {
+  const schedule = scheduleService()
+  const request = { title: 'Ping', prompt: 'Check', every_seconds: 3600 }
+  const first = setup({ schedule })
+  t.after(() => rmSync(first.home, { recursive: true, force: true, maxRetries: 5 }))
+  await first.rt.load()
+  await schedule.create('s9', request)
+  const original = await schedule.create('w2', request)
+  await schedule.create('w2', request)
+  const remove = schedule.delete
+  schedule.delete = async () => { throw new Error('interrupted') }
+  await assert.rejects(first.rt.moveSchedules('w2', 's9'), /interrupted/)
+  const copies = await schedule.list({ sessionId: 's9' })
+  assert.equal(copies.length, 2)
+  assert.deepEqual(JSON.parse(readFileSync(join(first.home, 'state.json'), 'utf8')).legacyScheduleMoves,
+    [{ fromId: 'w2', id: original.id, copyId: copies[1].id }])
+  await first.ctx.dispose()
+
+  schedule.delete = remove
+  const second = setup({ schedule }, undefined, first.home)
+  t.after(() => second.ctx.dispose())
+  await second.rt.load()
+  await second.rt.moveSchedules('w2', 's10')
+  assert.deepEqual(await schedule.list({ sessionId: 's9' }), copies)
+  assert.equal((await schedule.list({ sessionId: 's10' })).length, 1)
+  assert.deepEqual(await schedule.list({ sessionId: 'w2' }), [])
+  assert.equal(second.rt.state.legacyScheduleMoves, undefined)
+})
+
+for (const [name, target] of [
+  ['does not mistake another source’s identical reminder for its copy', 's9'],
+  ['uses the current target rather than the failed attempt’s target', 's10'],
+]) {
+  test(`a failed legacy reminder copy ${name}`, async (t) => {
     const schedule = scheduleService()
     const request = { title: 'Ping', prompt: 'Check', every_seconds: 3600 }
-    const first = setup({ schedule })
-    t.after(() => rmSync(first.home, { recursive: true, force: true, maxRetries: 5 }))
-    await first.rt.load()
-    await schedule.create('s9', request)
+    const { ctx, home, rt } = setup({ schedule })
+    t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+    await rt.load()
     await schedule.create('w2', request)
-    await schedule.create('w2', request)
-    const { create, delete: remove } = schedule
-    if (failure === 'after copying') {
-      schedule.create = async (...args) => {
-        await create(...args)
-        throw new Error('interrupted')
-      }
-    } else {
-      schedule.delete = async () => { throw new Error('interrupted') }
-    }
-    await assert.rejects(first.rt.moveSchedules('w2', 's9'), /interrupted/)
-    assert.equal((await schedule.list({ sessionId: 's9' })).length, 2)
-    await first.ctx.dispose()
-
+    const create = schedule.create
+    schedule.create = async () => { throw new Error('interrupted') }
+    await assert.rejects(rt.moveSchedules('w2', 's9'), /interrupted/)
     schedule.create = create
-    schedule.delete = remove
-    const second = setup({ schedule }, undefined, first.home)
-    t.after(() => second.ctx.dispose())
-    await second.rt.load()
-    await second.rt.moveSchedules('w2', 's9')
-    assert.equal((await schedule.list({ sessionId: 's9' })).length, 3)
+    if (target === 's9') {
+      await schedule.create('m1', request)
+      await rt.moveSchedules('m1', target)
+    }
+    await rt.moveSchedules('w2', target)
     assert.deepEqual(await schedule.list({ sessionId: 'w2' }), [])
-    assert.equal(second.rt.state.legacyScheduleMoves, undefined)
+    assert.equal((await schedule.list({ sessionId: target })).length, target === 's9' ? 2 : 1)
+    if (target !== 's9') assert.deepEqual(await schedule.list({ sessionId: 's9' }), [])
   })
 }
 

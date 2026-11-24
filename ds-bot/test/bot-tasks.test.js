@@ -428,7 +428,10 @@ test('an idle retirement retry deletes the old legacy reminder without copying i
   let deletions = 0
   const schedule = {
     list: async ({ sessionId }) => sessionId === 'old-session-0' && active ? [reminder] : [],
-    create: async (sessionId, request) => copies.push({ sessionId, request }),
+    create: async (sessionId, request) => {
+      copies.push({ sessionId, request })
+      return { id: 'copy' }
+    },
     delete: async () => {
       if (++deletions === 1) throw new Error('Temporary deletion failure')
       active = false
