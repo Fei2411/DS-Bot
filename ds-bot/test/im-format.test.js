@@ -67,6 +67,16 @@ test('an unclosed indented fence does not swallow a later Telegram heading or ta
   }])
 })
 
+test('an unclosed flush-left backtick fence keeps shell wildcards literal', () => {
+  const command = 'cat *.log *.txt'
+  const markdown = '```sh\n' + command
+  assert.deepEqual(chunkTelegram(markdown), [{
+    html: '<pre><code class="language-sh">' + command + '</code></pre>',
+    text: command,
+  }])
+  assert.equal(toPlain(markdown), command)
+})
+
 test('indented fences preserve code indentation', () => {
   const markdown = '  ```python\n  if ok:\n      run()\n  ```'
   assert.deepEqual(chunkTelegram(markdown), [{

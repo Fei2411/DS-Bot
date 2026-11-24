@@ -39,11 +39,14 @@ function inlinePlain(line) {
 // can keep it whole; the rest splits on blank lines.
 const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})([^\r\n]*)\r?$/
 const FENCE_CLOSE = /^ {0,3}(`{3,}|~{3,}) *\r?$/
+const DEV_BACKTICK_OPEN = /^```(\S*)\s*$/
+const DEV_BACKTICK_CLOSE = /^```\s*$/
 
 function blocks(markdown) {
   const out = []
   const lines = String(markdown).split('\n')
   const maxRemainingClose = new Map()
+  let lastDevBacktickClose
   let at = 0
   let buffer = []
   const flush = () => {
@@ -73,6 +76,15 @@ function blocks(markdown) {
           continue
         }
         maxRemainingClose.set(char, longest)
+      }
+    }
+    const devFence = DEV_BACKTICK_OPEN.exec(line)
+    if (devFence !== null) {
+      lastDevBacktickClose ??= lines.findLastIndex(content => DEV_BACKTICK_CLOSE.test(content))
+      if (lastDevBacktickClose <= at) {
+        flush()
+        out.push({ kind: 'code', lang: devFence[1], lines: lines.slice(at + 1) })
+        break
       }
     }
     if (line.trim() === '') flush()
