@@ -709,7 +709,7 @@ jobs:
           cache-to: ${{ (github.event_name == 'push' || github.event_name == 'schedule') && 'type=gha,mode=max,scope=docker-dev' || '' }}
       - run: node docker/test-dev.mjs ds-bot:dev-test ds-bot:test
       - name: Publish the tested image
-        if: github.event_name == 'push' && github.repository == 'Fei2411/DS-Bot'
+        if: github.event_name == 'push' && github.repository == 'Fei-Craft/DS-Bot'
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GHCR_ACTOR: ${{ github.actor }}

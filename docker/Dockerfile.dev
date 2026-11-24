@@ -65,5 +65,5 @@ ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 
 LABEL org.opencontainers.image.title="DS Bot (dev)" \
       org.opencontainers.image.description="DS Bot from the mounted checkout, with source reload" \
-      org.opencontainers.image.source="https://github.com/Fei2411/DS-Bot" \
+      org.opencontainers.image.source="https://github.com/Fei-Craft/DS-Bot" \
       org.opencontainers.image.licenses="Apache-2.0"
