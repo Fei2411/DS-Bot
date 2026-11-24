@@ -19,7 +19,7 @@ Mounted via `@deepseek-ai/dsh-mcp-client` with `failOnStartupError: true` and `E
 
 - **`transport: 'stdio'`:**
   - Fields: `command`, `args` (array), `env` (key-value map).
-  - **Approval rule:** Any Bot-saved `stdio` MCP (`!ui`), or any edit changing `command`, `args`, or `env`, forces `approved: false` (`needs-approval`). You MUST ask the user to approve it in `Settings > Capabilities` before attaching/using it.
+  - **Approval rule:** Any Bot-saved `stdio` MCP (`!ui`), or any edit changing `command`, `args`, or `env`, forces `approved: false` (`needs-approval`). You MUST ask the user to approve it in `Settings → Tools → Capabilities` before attaching/using it.
 - **`transport: 'streamable-http'`:**
   - Fields: `url` (`http:` or `https:`), optional `headers` (key-value map).
   - **Approval rule:** HTTP/HTTPS `streamable-http` MCP capabilities start `approved: true`.
@@ -32,6 +32,7 @@ Mounted via `@deepseek-ai/dsh-mcp-client` with `failOnStartupError: true` and `E
 ### 3. Capability Packs (`kind: 'pack'`)
 
 - Bundles existing skill and capability names together so Main Bots can attach/detach a whole toolkit in one call (`expandCapabilityNames`).
+- In `Settings → Tools → Capabilities`, team-library items and feature packs can be set per Bot to `Always` (always mounted), `Catalog` (one-line index in the prompt; loaded/unloaded on demand per session with `use_pack` / `drop_pack`), or `Off`.
 
 ## Secret Management (`secrets.js`)
 
@@ -109,7 +110,7 @@ rl.on('line', async (line) => {
 })
 ```
 
-Save via `save_capability` (`name: 'example-tool'`, `kind: 'mcp'`, `transport: 'stdio'`, `command: 'node'`, `args: ['<workspace>/plugins/example-tool/server.mjs']`, `env: { SERVICE_TOKEN: '$DSH_SECRET_MY_TOKEN' }`), ask the user to approve in `Settings > Capabilities`, then `attach_capability` and test `ping`.
+Save via `save_capability` (`name: 'example-tool'`, `kind: 'mcp'`, `transport: 'stdio'`, `command: 'node'`, `args: ['<workspace>/plugins/example-tool/server.mjs']`, `env: { SERVICE_TOKEN: '$DSH_SECRET_MY_TOKEN' }`), ask the user to approve in `Settings → Tools → Capabilities`, then `attach_capability` and test `ping`.
 
 ## Progressive-Disclosure Checklist for Authored Skills
 

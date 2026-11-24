@@ -1,4 +1,5 @@
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { dirname, join, sep } from 'node:path'
 import test from 'node:test'
@@ -118,6 +119,32 @@ test('skillResourcePath rewrites app.asar to app.asar.unpacked with forward slas
   assert.equal(skillResourcePath(unpacked), 'root/ds-bot/src/host/skills/ds-bot-plugin-dev')
 })
 
+test('maintenanceProvider rewrites app.asar to app.asar.unpacked for locator and get().path', async (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'dsb-maint-asar-'))
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  const suffix = join('node_modules', 'ds-bot', 'src', 'host', 'skills')
+  const packedSkills = join(root, 'resources', 'app.asar', suffix)
+  const unpackedSkills = join(root, 'resources', 'app.asar.unpacked', suffix)
+  mkdirSync(dirname(unpackedSkills), { recursive: true })
+  cpSync(SKILLS_DIR, unpackedSkills, { recursive: true })
+
+  const provider = maintenanceProvider(packedSkills)
+  const items = await provider.list()
+  assert.deepEqual(items.map(item => item.name), ['ds-bot-maintenance', 'ds-bot-plugin-dev'])
+  for (const item of items) {
+    const expectedLocator = join(unpackedSkills, item.name, 'SKILL.md')
+    assert.equal(item.locator, expectedLocator)
+    assert.equal(item.resourceBase.path, join(unpackedSkills, item.name).split(sep).join('/'))
+    assert.ok(!item.locator.includes(`${sep}app.asar${sep}`))
+    const loaded = await provider.get(item)
+    assert.equal(loaded.locator, expectedLocator)
+    assert.equal(loaded.path, expectedLocator)
+    assert.ok(!loaded.path.includes(`${sep}app.asar${sep}`))
+    const fromPackedLocator = await provider.get({ locator: join(packedSkills, item.name, 'SKILL.md') })
+    assert.equal(fromPackedLocator?.path, expectedLocator)
+  }
+})
+
 test('bundled skills follow progressive disclosure, line budgets, valid references, required tokens, and docs hygiene', () => {
   // goal-grill belongs to another provider (goal-skills.js); its SKILL.md sits in the same
   // skills directory, so this layout check covers it too.
@@ -200,7 +227,14 @@ test('bundled skills follow progressive disclosure, line budgets, valid referenc
     'request_secret',
     '$DSH_SECRET_',
     'approved: false',
-    'Settings > Capabilities',
+    'Settings → Tools → Capabilities',
+    'Settings → Connect → Connectors',
+    'Settings → Models → Local agents',
+    'Always',
+    'Catalog',
+    'Off',
+    'use_pack',
+    'drop_pack',
     'streamable-http',
     '<workspace>/plugins/<name>',
     'plainToolSchema',
@@ -222,6 +256,7 @@ test('bundled skills follow progressive disclosure, line budgets, valid referenc
   ]) {
     assert.ok(pluginDevCombined.includes(needle), `expected ds-bot-plugin-dev skill/references to mention ${needle}`)
   }
+  assert.doesNotMatch(pluginDevCombined, /\b39\b/)
 
   const pluginDevSkillRaw = readFileSync(join(SKILLS_DIR, 'ds-bot-plugin-dev', 'SKILL.md'), 'utf8')
   const capabilitiesMcpRaw = readFileSync(join(SKILLS_DIR, 'ds-bot-plugin-dev', 'references', 'capabilities-and-mcp.md'), 'utf8')

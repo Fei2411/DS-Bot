@@ -7,11 +7,11 @@ Use this reference when integrating managed Connectors (`ds-bot/src/host/connect
 Connectors provide user-managed OAuth, API-key, or custom MCP integrations shared safely with Bots without exposing raw tokens.
 
 - **Catalog & Custom Connectors (`catalog.js`, `index.js`):**
-  - 39 built-in catalog definitions (`github`, `mail`, and OAuth / API-key / keyless remote services), plus custom connectors keyed by `customId`.
+  - Built-in catalog definitions (`CATALOG` in `catalog.js`, including `github`, `mail`, and OAuth / API-key / keyless remote services), plus custom connectors keyed by `customId`.
   - IDE MCP import discovers `claude_desktop_config.json`, `~/.cursor/mcp.json`, and VS Code `mcp.json` when initiated in Settings.
 - **Bot Tools & Per-Bot Filtering:**
   - `list_connectors` inspects configured connectors and connection status.
-  - `request_connector` (callable in the Bot's own chat only) asks the user to authorize/connect a needed service in `Settings > Connectors`.
+  - `request_connector` (callable in the Bot's own chat only) asks the user to authorize/connect a needed service in `Settings → Connect → Connectors`.
   - `offFor` hides connector tools (`mcp__<id>__*` and `mail_*`) from Bots that should not access a connector.
 - **Loopback Gateway (`gateway.js`):**
   - Exposes each HTTP/SSE connector locally on `http://127.0.0.1:<port>/c/<id>` protected by a 24-byte `base64url` Bearer `nonce` so Bots never hold upstream credentials directly.

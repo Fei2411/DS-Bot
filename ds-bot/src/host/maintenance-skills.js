@@ -6,23 +6,27 @@ const PROVIDER = 'ds-bot-maintenance'
 const SKILLS = ['ds-bot-maintenance', 'ds-bot-plugin-dev']
 const SKILLS_DIR = join(dirname(fileURLToPath(import.meta.url)), 'skills')
 
+export function unpackedPath(path) {
+  return path.replace(`${sep}app.asar${sep}`, `${sep}app.asar.unpacked${sep}`)
+}
+
 export function skillResourcePath(directory) {
-  return directory.replace(`${sep}app.asar${sep}`, `${sep}app.asar.unpacked${sep}`).split(sep).join('/')
+  return unpackedPath(directory).split(sep).join('/')
 }
 
-function directoryFor(skill) {
-  return join(SKILLS_DIR, skill)
+function directoryFor(skill, skillsDir = SKILLS_DIR) {
+  return unpackedPath(join(skillsDir, skill))
 }
 
-function locatorFor(skill) {
-  return join(directoryFor(skill), 'SKILL.md')
+function locatorFor(skill, skillsDir = SKILLS_DIR) {
+  return join(directoryFor(skill, skillsDir), 'SKILL.md')
 }
 
-function resolveSkill(item) {
+function resolveSkill(item, skillsDir = SKILLS_DIR) {
   if (item?.name) return SKILLS.includes(item.name) ? item.name : undefined
   if (typeof item?.locator === 'string' && item.locator) {
-    const normalized = item.locator.replaceAll('/', sep)
-    return SKILLS.find((skill) => locatorFor(skill) === item.locator || locatorFor(skill) === normalized)
+    const normalized = unpackedPath(item.locator.replaceAll('/', sep))
+    return SKILLS.find((skill) => locatorFor(skill, skillsDir) === item.locator || locatorFor(skill, skillsDir) === normalized)
   }
   return undefined
 }
@@ -61,7 +65,7 @@ function parseSkill(raw, path) {
   }
 }
 
-function candidate(skill, parsed) {
+function candidate(skill, parsed, skillsDir = SKILLS_DIR) {
   return {
     name: parsed.name,
     description: parsed.description,
@@ -69,26 +73,26 @@ function candidate(skill, parsed) {
     provider: PROVIDER,
     source: 'bundled',
     rank: 550,
-    resourceBase: { kind: 'directory', path: skillResourcePath(directoryFor(skill)) },
-    locator: locatorFor(skill),
+    resourceBase: { kind: 'directory', path: skillResourcePath(directoryFor(skill, skillsDir)) },
+    locator: locatorFor(skill, skillsDir),
   }
 }
 
-export function maintenanceProvider() {
+export function maintenanceProvider(skillsDir = SKILLS_DIR) {
   return {
     name: PROVIDER,
     async list() {
       return SKILLS.map((skill) => {
-        const locator = locatorFor(skill)
-        return candidate(skill, parseSkill(readFileSync(locator, 'utf8'), locator))
+        const locator = locatorFor(skill, skillsDir)
+        return candidate(skill, parseSkill(readFileSync(locator, 'utf8'), locator), skillsDir)
       })
     },
     async get(item) {
-      const skill = resolveSkill(item)
+      const skill = resolveSkill(item, skillsDir)
       if (!skill) return undefined
-      const locator = locatorFor(skill)
+      const locator = locatorFor(skill, skillsDir)
       const parsed = parseSkill(readFileSync(locator, 'utf8'), locator)
-      const entry = candidate(skill, parsed)
+      const entry = candidate(skill, parsed, skillsDir)
       return {
         ...item,
         ...entry,

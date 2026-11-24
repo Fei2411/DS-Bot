@@ -8,7 +8,7 @@ DS Bot supports a set of built-in local agent engines (`ROUTE_PREFIX = 'local-'`
 
 ### Registration & Validation (`local-agents/index.js`)
 
-- Custom ACP agents are configured in `Settings > Local agents` and registered via `local-agent-add`:
+- Custom ACP agents are configured in `Settings → Models → Local agents` and registered via `local-agent-add`:
   - `local-agent-add` passes `{ name, command, args }` through `validateCustom` (up to 40-character `name`, `command` program name, absolute path or `~/path` with no spaces, and `args` with no NUL bytes or newlines), creating ID `agent-<id>` and route `local-acp-<id>` (never colliding with built-in `local-*` IDs).
   - Engine properties like `cwdPerProcess` (per-process directory isolation) and `modes` (permission presets) belong to built-in engines in `engines.js` (such as `antigravity`).
 - Defaults & lifecycle (`acp.js` / `adapter.js`):

@@ -237,7 +237,7 @@ ctx.inject?.({ skills: null }, (sub) => {
 
 ### 4.3 Coexistence Traps with `ds-bot`
 
-1. **`sessionId !== botId`:** A single Bot spans rotating part sessions (`bot.sessionId`, `bot.segments`), background threads (`bot.openParts` in [`threads.js`](../ds-bot/src/host/threads.js)), and hidden per-member group sessions (`room.sessions[botId]`). Keying plugin state strictly on raw `session.id` breaks continuity across part handoffs and group turns (compare `browser-plugins/*` generic `keyOf` vs `rt.selfOf` resolution in [`browser-plugins.js`](../ds-bot/src/host/browser-plugins.js)).
+1. **`sessionId !== botId`:** A single Bot spans rotating part sessions (`bot.sessionId`, `bot.segments`), background tasks (`bot.tasks` in [`threads.js`](../ds-bot/src/host/threads.js)), and hidden per-member group sessions (`room.sessions[botId]`). Keying plugin state strictly on raw `session.id` breaks continuity across part handoffs and group turns (compare `browser-plugins/*` generic `keyOf` vs `rt.selfOf` resolution in [`browser-plugins.js`](../ds-bot/src/host/browser-plugins.js)).
 2. **Reserved IDs & `cordis.patch.yml` collisions:** Never declare Cordis row `id: bot` (collides with `ds-bot` in [`cordis.patch.yml`](../ds-bot/cordis.patch.yml)) or bare `local-*` / `local-acp-*` LLM provider routes. When patching `web`, specify both `searchProvider` and `fetchProvider`.
 3. **Never write `<bot-home>/state.json`:** `state.json` is owned strictly by the `state.lock` single-writer holder inside `ds-bot`.
 
@@ -272,8 +272,7 @@ Implemented in [`local-agents/index.js`](../ds-bot/src/host/local-agents/index.j
 
 ### 5.2 Core `ds-bot` Architecture, Constraints, and Verification
 
-- **`MODULES` order invariant ([`ds-bot/index.js`](../ds-bot/index.js)):** Registered sequentially:
-  `diagnostics, store, ledger, models, providers, permissions, turns, steer, handoffs, requests, delivery, roster, folders, privacy, agents, prompt, timeContext, tools, chatIndex, groups, goals, agentCommands, tasks, approvals, resume, memory, parts, changes, images, avatarLibrary, secrets, connectors, capabilities, learning, schedules, browser, browserPlugins, computer, usage, update, dshUpdate, thinking, mobile, feed, phone, im, channel, remote, officeSkills, goalSkills, maintenanceSkills, localAgents`.
+- **`MODULES` order invariant ([`ds-bot/index.js`](../ds-bot/index.js)):** Modules are registered sequentially in the `MODULES` array inside [`ds-bot/index.js`](../ds-bot/index.js) (see that file for the authoritative list and order).
   `privacy` MUST precede tool hooks (`tools`) so closed calls never surface cards; `usage` MUST follow every `llm/stream` rewriter (`tools`, `secrets`) so metering sees final outbound payloads. Exact hook/listener order (`ctx.calls`) is locked by [`test/install.test.js`](../ds-bot/test/install.test.js).
 - **Bot-scoped tools:** push new team tools to `rt.teamTools` so [`tools.js`](../ds-bot/src/host/tools.js) (`shareBotTools`) scopes them strictly to Bot sessions.
 - **Host API (`channel.js`):** Register actions in [`channel.js`](../ds-bot/src/host/channel.js) under `POST /api/bot` (`{ endpoint, payload }` returning `{ ok: true, value }` or `{ ok: false, error: { code, message, details } }`). Read-safe endpoints MUST appear in `READS` to stay available on read-only hosts.
