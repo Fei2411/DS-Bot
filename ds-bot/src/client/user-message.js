@@ -116,8 +116,7 @@ function UserText({ text, bots, referenceLabels, skillNames, references, actions
 // rules; see user-text-rule.js). Only a Bot this chat can call is drawn as one: the rule
 // matches every Bot of the team, so any other name stays the text it was typed as.
 export function BotMention({ node, raw, interactive, sessionId, useRoster, actions }) {
-  const roster = useRoster(value => value)
-  const bot = mentionableBots(roster, sessionId).find(item => item.id === node.data.botId)
+  const bot = useRoster(roster => mentionableBots(roster, sessionId).find(item => item.id === node.data.botId))
   if (!bot) return raw
   const mark = h(BotMark, { bot, size: 16 })
   return interactive
@@ -188,15 +187,26 @@ function HostContent({ data, prepared, shown, folded, control, loadImage, render
     referenceLabels.length > 0 ? h('div', { className: 'bt-urefs' }, t('Referenced {labels}', { labels: referenceLabels.join(t(', ')) })) : null)
 }
 
+const USER_ROSTER_FIELDS = ['bots', 'byId', 'roomsById', 'imVia']
+
 // A sent message, or one that joined a running turn ("steering").
 export function UserMessageCell({ node, sessionId, useRoster, actions, renderMessageImages, openFile, openSkill, loadImage, renderFactorySlot }) {
-  const roster = useRoster(value => value)
   const data = node.data ?? {}
+  const prev = useRef(null)
+  const picked = useRoster((value) => {
+    if (!projects) return value.imVia?.[sessionId]?.[data.seq]
+    const last = prev.current
+    if (last !== null && value !== null && value !== undefined && USER_ROSTER_FIELDS.every(key => last[key] === value[key])) return last
+    prev.current = value
+    return value
+  })
+  const roster = projects ? picked : null
+  const viaFromRoster = projects ? roster.imVia?.[sessionId]?.[data.seq] : picked
   const prepared = projects ? undefined : hostContent(data.content, data)
   const text = prepared?.text ?? contentParts(data.content).text
   const steering = node.kind === 'steering'
   const sentAt = Number.isFinite(data.time) ? messageClock(data.time) : undefined
-  const via = viaOf(data.source) ?? roster.imVia?.[sessionId]?.[data.seq]
+  const via = viaOf(data.source) ?? viaFromRoster
   const { shown, folded, control } = useFold(text, { markdown: false })
   const row = useRef(null)
   // Touch has no hover: a tap on the bubble opens its copy tool, a tap elsewhere closes it.

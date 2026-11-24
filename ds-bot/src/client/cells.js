@@ -26,6 +26,7 @@ import { BtwCardView } from './btw.js'
 import { partIndexOf, withBtwRows } from './btw-model.js'
 import { ViaTag } from './user-message.js'
 import { layoutOf, thinkingShown } from './themes.js'
+import { lruGet, lruSet, memo, useRosterPick } from './memo.js'
 
 export { clockLabel }
 
@@ -34,13 +35,35 @@ export { clockLabel }
 
 
 const useNullUi = () => null
+const EMPTY_PICKED = []
+const ASSISTANT_ROSTER_FIELDS = ['bots', 'byId', 'roomsById', 'exchangeTurns', 'prefs']
+const TRIGGER_ROSTER_FIELDS = ['bots', 'byId', 'roomsById', 'exchangeTurns', 'prefs', 'closedCards']
+export const TOOL_ROSTER_FIELDS = ['bots', 'byId', 'rooms', 'roomsById', 'exchangeTurns', 'prefs', 'closedCards', 'questions', 'views', 'secrets', 'secretRequests', 'connectors', 'connectorRequests', 'mailRequests', 'browser', 'computer']
+
+const sameStringList = (a, b) => a === b || (Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((item, i) => item === b[i]))
+
+const sameBubbles = (a, b) => sameStringList(a.texts, b.texts)
+  && a.selfId === b.selfId
+  && a.actions === b.actions
+  && a.streaming === b.streaming
+  && a.sessionId === b.sessionId
+  && a.msgKey === b.msgKey
+  && a.useUi === b.useUi
+  && a.lead === b.lead
+  && a.mentions === b.mentions
+  && a.fold === b.fold
+  && a.whole === b.whole
+  && a.time === b.time
+  && a.textInteractionSource === b.textInteractionSource
+  && a.roster?.bots === b.roster?.bots
+  && a.roster?.byId?.[a.selfId]?.name === b.roster?.byId?.[b.selfId]?.name
 
 // `lead` (a sender avatar in group chats) sits beside the last bubble, in the same
 // row, so it lines up with the bubble whether or not reactions hang below it.
 // `fold`: past what a bubble folds (fold.js); `whole`: the last text is only the start
 // of its message (see useFold). `time` marks the bubbles' message below them; a caller
 // whose own head already shows one (the flat speaker line, the group name row) leaves it unset.
-export function Bubbles({ texts, roster, selfId, actions, streaming, sessionId, msgKey, useUi, lead, mentions, fold = FOLD_AT, whole, time, textInteractionSource }) {
+export const Bubbles = memo(function Bubbles({ texts, roster, selfId, actions, streaming, sessionId, msgKey, useUi, lead, mentions, fold = FOLD_AT, whole, time, textInteractionSource }) {
   const onClick = (event) => {
     const target = mentionTarget(event)
     if (target === null) return
@@ -56,14 +79,14 @@ export function Bubbles({ texts, roster, selfId, actions, streaming, sessionId, 
       const last = index === cleaned.length - 1
       return h(Bubble, {
         key: index, text, index, roster, selfId, actions, sessionId, msgKey, mentions, fold, textInteractionSource,
-        picked: msgKey ? reactions?.[index] ?? [] : [],
+        picked: msgKey ? reactions?.[index] ?? EMPTY_PICKED : EMPTY_PICKED,
         live: streaming && last,
         lead: lead && last ? lead : null,
         whole: last ? whole : undefined,
       })
     }),
     Number.isFinite(time) ? h('div', { className: 'bt-utime', title: clockLabel(time) }, messageClock(time)) : null)
-}
+}, sameBubbles, 'Bubbles')
 
 // A folded message's last code block shows only its start; DS Bot draws its own
 // copy control for it, bound to the whole block. DSH's and the app's copy
@@ -97,10 +120,31 @@ const foldArea = (body, code, codeHead, actions) => (code === undefined ? body
     h('pre', { className: 'bt-fold-pre' }, h('code', null, codeHead)),
     h(FoldCodeCopy, { code, actions })))
 
-function Bubble({ text, index, roster, selfId, actions, sessionId, msgKey, mentions, fold, picked, live, lead, whole, textInteractionSource }) {
+const sameBubble = (a, b) => a.text === b.text
+  && a.index === b.index
+  && a.selfId === b.selfId
+  && a.actions === b.actions
+  && a.sessionId === b.sessionId
+  && a.msgKey === b.msgKey
+  && a.mentions === b.mentions
+  && a.fold === b.fold
+  && sameStringList(a.picked, b.picked)
+  && a.live === b.live
+  && a.lead === b.lead
+  && a.whole === b.whole
+  && a.textInteractionSource === b.textInteractionSource
+  && a.roster?.bots === b.roster?.bots
+  && a.roster?.byId?.[a.selfId]?.name === b.roster?.byId?.[b.selfId]?.name
+
+const Bubble = memo(function Bubble({ text, index, roster, selfId, actions, sessionId, msgKey, mentions, fold, picked, live, lead, whole, textInteractionSource }) {
   const { shown, folded, control, code, codeHead } = useFold(text, { limit: fold, whole, live })
   const key = msgKey ? `${msgKey}:${index}` : undefined
-  const body = shown === '' ? null : h(MarkdownText, { text: linkMentions(normalizeFileLinks(shown), roster.bots, selfId), streaming: live, labels: mdLabels(), variant: 'compact', fileMentions: mentions })
+  const labels = mdLabels()
+  const linked = useMemo(() => (shown === '' ? '' : linkMentions(normalizeFileLinks(shown), roster.bots, selfId)), [shown, roster.bots, selfId])
+  const body = useMemo(
+    () => (linked === '' ? null : h(MarkdownText, { text: linked, streaming: live, labels, variant: 'compact', fileMentions: mentions })),
+    [linked, live, labels, mentions],
+  )
   const row = useRef(null)
   // Touch has no hover: a tap on the bubble opens its tools, a tap elsewhere
   // closes them. Interactive targets keep their own meaning.
@@ -123,7 +167,7 @@ function Bubble({ text, index, roster, selfId, actions, sessionId, msgKey, menti
     picked.length ? h('div', { className: 'bt-reacts' }, picked.map(emoji => h('button', {
       key: emoji, type: 'button', className: 'bt-react', 'aria-label': t('Remove reaction {emoji}', { emoji }), onClick: () => actions.toggleReaction(msgKey, index, emoji),
     }, emoji))) : null)
-}
+}, sameBubble, 'Bubble')
 
 const REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏']
 // Half the reaction strip: six 32px buttons at 2px gaps plus its own padding and
@@ -189,20 +233,26 @@ function MessageTools({ text, name, sessionId, react, actions, open: tapped }) {
       item(t('Copy'), CopyIcon, copy), item(t('Download'), DownloadIcon, download)), document.body) : null)
 }
 
-// A Turn's settled thinking time, fetched per count of settled steps: while a turn
-// runs each new settled step refetches; scrolling back to a loaded turn reuses it.
-const thinkingTimes = new Map()
+// A Turn's settled thinking time, keyed per turn and refreshed as settled steps grow.
+const MAX_THINKING_TIMES = 500
+export const thinkingTimes = new Map()
 function useThinkingMs({ sessionId, turn, settledSteps, skip }) {
-  const key = `${sessionId}:${turn}:${settledSteps}`
-  const [ms, setMs] = useState(() => thinkingTimes.get(key))
+  const key = `${sessionId}:${turn}`
+  const initial = thinkingTimes.get(key)
+  const [ms, setMs] = useState(() => (initial?.steps === settledSteps ? initial.ms : undefined))
   useEffect(() => {
-    if (skip || thinkingTimes.has(key)) { setMs(thinkingTimes.get(key)); return undefined }
+    const cached = lruGet(thinkingTimes, key)
+    if (skip) { setMs(cached?.steps === settledSteps ? cached.ms : undefined); return undefined }
+    if (cached !== undefined && cached.steps === settledSteps) { setMs(cached.ms); return undefined }
     const control = new AbortController()
     call('thinking', { sessionId, turn }, control.signal)
-      .then(value => { thinkingTimes.set(key, value?.ms); setMs(value?.ms) })
+      .then((value) => {
+        lruSet(thinkingTimes, key, { steps: settledSteps, ms: value?.ms }, MAX_THINKING_TIMES)
+        setMs(value?.ms)
+      })
       .catch(() => {})
     return () => control.abort()
-  }, [key, skip])
+  }, [key, settledSteps, skip])
   return ms
 }
 
@@ -213,14 +263,15 @@ function useThinkingMs({ sessionId, turn, settledSteps, skip }) {
 // the settled steps too); settled, it shows the turn's exact thinking time if known.
 // A live turn's row moves to the step that reasons now, so whether the reader opened it
 // and where they scrolled is kept per turn (`viewKey`), not per row.
-const rowViews = new Map()
+const MAX_ROW_VIEWS = 200
+export const rowViews = new Map()
 export function ThinkingRow({ text, live, at, ms, viewKey, textInteractionSource }) {
   const box = useRef(null)
-  const view = useRef(rowViews.get(viewKey))
+  const view = useRef(lruGet(rowViews, viewKey))
   const atEnd = useRef(view.current?.atEnd ?? true)
   const [open, setOpen] = useState(view.current?.open ?? false)
   const [fade, setFade] = useState(undefined)
-  const remember = patch => { if (viewKey !== undefined) rowViews.set(viewKey, { ...rowViews.get(viewKey), ...patch }) }
+  const remember = patch => { if (viewKey !== undefined) lruSet(rowViews, viewKey, { ...rowViews.get(viewKey), ...patch }, MAX_ROW_VIEWS) }
   const measure = () => {
     const el = box.current
     atEnd.current = el.scrollHeight - el.scrollTop - el.clientHeight < 2
@@ -265,7 +316,7 @@ function useFileMentions({ node, openFile, fileMentions, useTurnData }) {
 }
 
 export function AssistantCell({ node, groupPart, sessionId, openFile, fileMentions, useTurnData, useRoster, useUi, useTurnSteps, useTurnContext, actions }) {
-  const roster = useRoster(value => value)
+  const roster = useRosterPick(useRoster, ASSISTANT_ROSTER_FIELDS)
   const data = node.data
   const steps = useTurnSteps(String(data.turn))
   const contexts = useTurnContext(String(data.turn))
@@ -718,7 +769,7 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDel
 }
 
 export function TriggerCell({ node, sessionId, useRoster, useSessions, useTurnClock, useUi, actions }) {
-  const roster = useRoster(value => value)
+  const roster = useRosterPick(useRoster, TRIGGER_ROSTER_FIELDS)
   const data = node.data
   const source = data.source !== null && typeof data.source === 'object' ? data.source : {}
   // Team state (exchanges) is keyed by the Bot id; Session state by the part shown.
@@ -1125,22 +1176,34 @@ function RelayEvent({ reply, bot, room, sessionId, actions, latestPaused = false
 }
 
 // Rows a later call closed do not change: each is read from the group's book once per page.
-const settledRows = new Map()
+const MAX_SETTLED_ROWS = 120
+export const settledRows = new Map()
 
-function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi, useWork }) {
+function GroupReplies({ sessionId, callId, done, content, roster, actions, useRoster, useUi, useWork }) {
   const [live, setLive] = useState({ replies: [], speaking: [] })
   useEffect(() => {
     if (done) return undefined
     let stop = false
     let timer
     let seen = ''
+    let delay = 1000
     const tick = async () => {
-      const result = await actions.roomProgress(sessionId)
-      if (stop) return
-      const entry = (result ?? []).find(item => item.callId === callId) ?? (result ?? [])[0]
-      const key = entry ? JSON.stringify([entry.replies, entry.speaking]) : ''
-      if (entry && key !== seen) { seen = key; setLive({ replies: entry.replies ?? [], speaking: [entry.speaking ?? []].flat() }) }
-      timer = setTimeout(tick, document.hidden ? 5000 : 1000)
+      try {
+        const result = await actions.roomProgress(sessionId)
+        if (stop) return
+        if (Array.isArray(result)) {
+          delay = 1000
+          const entry = result.find(item => item.callId === callId) ?? result[0]
+          const key = entry ? JSON.stringify([entry.replies, entry.speaking]) : ''
+          if (entry && key !== seen) { seen = key; setLive({ replies: entry.replies ?? [], speaking: [entry.speaking ?? []].flat() }) }
+        } else {
+          delay = Math.min(delay * 2, 30_000)
+        }
+      } catch {
+        if (stop) return
+        delay = Math.min(delay * 2, 30_000)
+      }
+      timer = setTimeout(tick, document.hidden ? Math.max(5000, delay) : delay)
     }
     void tick()
     return () => { stop = true; clearTimeout(timer) }
@@ -1160,28 +1223,39 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
     return () => { stop = true }
   }, [sessionId, preview])
   const rowsKey = range === undefined ? undefined : `${sessionId}:${range.from}:${range.to ?? ''}:${range.anchor ?? ''}`
-  const [view, setView] = useState(() => (rowsKey === undefined ? null : settledRows.get(rowsKey) ?? null))
+  const [view, setView] = useState(() => (rowsKey === undefined ? null : lruGet(settledRows, rowsKey) ?? null))
   // An open cell that is quiet is read again when the team changes, not on a clock.
-  const quietKey = view?.open === true && view.active !== true ? roster.revision : undefined
+  const quiet = view?.open === true && view.active !== true
+  const quietRevision = useRoster?.(value => (quiet ? value.revision : undefined))
+  const quietKey = quiet ? (quietRevision ?? roster.revision) : undefined
   useEffect(() => {
     if (rowsKey === undefined) return undefined
-    const known = settledRows.get(rowsKey)
+    const known = lruGet(settledRows, rowsKey)
     if (known !== undefined) { setView(known); return undefined }
     // The newest call's rows grow while the group works: they are read every second then,
     // and once when the group is quiet, until the next call closes them.
     let stop = false
     let timer
     let seen = ''
+    let delay = 1000
     const tick = async () => {
-      const next = await actions.groupRows(sessionId, range.from, range.to, range.anchor)
-      if (stop) return
-      if (next !== null && Array.isArray(next?.rows)) {
-        if (!next.open) settledRows.set(rowsKey, next)
-        const key = JSON.stringify(next)
-        if (key !== seen) { seen = key; setView(next) }
-        if (!next.open || next.active !== true) return
+      try {
+        const next = await actions.groupRows(sessionId, range.from, range.to, range.anchor)
+        if (stop) return
+        if (next !== null && Array.isArray(next?.rows)) {
+          delay = 1000
+          if (!next.open) lruSet(settledRows, rowsKey, next, MAX_SETTLED_ROWS)
+          const key = JSON.stringify(next)
+          if (key !== seen) { seen = key; setView(next) }
+          if (!next.open || next.active !== true) return
+        } else {
+          delay = Math.min(delay * 2, 30_000)
+        }
+      } catch {
+        if (stop) return
+        delay = Math.min(delay * 2, 30_000)
       }
-      timer = setTimeout(tick, document.hidden ? 5000 : 1000)
+      timer = setTimeout(tick, document.hidden ? Math.max(5000, delay) : delay)
     }
     void tick()
     return () => { stop = true; clearTimeout(timer) }
@@ -1281,7 +1355,7 @@ function useShownCards(actions, sessionId, callIds) {
   }, [sessionId, key])
 }
 
-function renderCall(call, { sessionId, roster, actions, useUi, useWork, findBot, heldCards, hooks }) {
+function renderCall(call, { sessionId, roster, actions, useRoster, useUi, useWork, findBot, heldCards, hooks }) {
   const tool = toolName(call)
   const done = call.kind === 'tool-result'
   const { text: arg, value: argValue } = toolArgs(call)
@@ -1334,7 +1408,7 @@ function renderCall(call, { sessionId, roster, actions, useUi, useWork, findBot,
       return done && target ? h(EventLine, { prefix: t('Updated'), bots: [target], onOpen: bot => actions.openSession(bot.id) }) : h(CellEmpty)
     }
     case 'group_relay':
-      return h(GroupReplies, { sessionId, callId: call.callId, done, content: call.content, roster, actions, useUi, useWork })
+      return h(GroupReplies, { sessionId, callId: call.callId, done, content: call.content, roster, actions, useRoster, useUi, useWork })
     case 'create_group':
     case 'update_group':
     case 'delete_group':
@@ -1398,7 +1472,7 @@ function renderCall(call, { sessionId, roster, actions, useUi, useWork, findBot,
 }
 
 export function ToolCell({ node, sessionId, useRoster, useUi, useWork, useHeldCards, useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer, actions }) {
-  const roster = useRoster(value => value)
+  const roster = useRosterPick(useRoster, TOOL_ROSTER_FIELDS)
   const heldCards = useHeldCards?.(state => state[sessionId])
   const root = node.data.root
   const turn = node.location?.turn?.turn ?? root.turn
@@ -1418,6 +1492,6 @@ export function ToolCell({ node, sessionId, useRoster, useUi, useWork, useHeldCa
   useLiveNote(actions, sessionId, `tool:${root.callId ?? node.key}`, note)
   useShownCards(actions, sessionId, drawn.filter(call => (CARDS.has(toolName(call)) || isComputerCall(toolName(call))) && call.callId).map(call => call.callId))
   if (drawn.length === 0) return h(CellEmpty)
-  const env = { sessionId, roster, actions, useUi, useWork, findBot, heldCards, hooks: { useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer } }
+  const env = { sessionId, roster, actions, useRoster, useUi, useWork, findBot, heldCards, hooks: { useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer } }
   return h(Fragment, null, drawn.map((call, index) => h(Fragment, { key: call.callId ?? index }, renderCall(call, env))))
 }

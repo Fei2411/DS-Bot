@@ -1,5 +1,6 @@
-import { createElement as h, Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { createElement as h, Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
+import { memo } from './memo.js'
 import { FishLogo } from './dsh-primitives.js'
 import { inkFill } from './inks.js'
 import { isMainOf } from './sources.js'
@@ -19,6 +20,10 @@ import { quietly } from './diagnostics.js'
 import { frameLayout, dragColumn, RAIL_WIDTH, FALLBACK_SIDEBAR_WIDTH, userSidebarToggle } from './frame-layout.js'
 import { chatRoom, dshCollapsed } from './frame-watch.js'
 import { useEscape } from './overlay-hooks.js'
+
+// Maximum retries to collapse DSH's own sidebar before stopping, so a shell that
+// stays uncollapsed never spins data-bt-collapsing and re-renders forever (#2050).
+export const MAX_COLLAPSE_RETRIES = 3
 
 // -------------------------------------------------------------------------
 // Sidebar
@@ -90,7 +95,30 @@ const waitingFor = (roster, waits) => {
   return names.length === 0 ? '' : t('Waiting for {names}', { names: names.join(t(' and ')) })
 }
 
-function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, useComputer, wide, marked, onDragStart }) {
+const sameBotRow = (a, b) => a.bot === b.bot
+  && a.wide === b.wide
+  && a.marked === b.marked
+  && a.actions === b.actions
+  && a.onDragStart === b.onDragStart
+  && a.useSessions === b.useSessions
+  && a.useSessionStatus === b.useSessionStatus
+  && a.useSessionRetainInfo === b.useSessionRetainInfo
+  && a.useActivity === b.useActivity
+  && a.useWork === b.useWork
+  && a.useComputer === b.useComputer
+  && a.roster.mainBotId === b.roster.mainBotId
+  && a.roster.mainBotIds === b.roster.mainBotIds
+  && a.roster.byId === b.roster.byId
+  && a.roster.roomsById === b.roster.roomsById
+  && a.roster.exchangeTurns === b.roster.exchangeTurns
+  && a.roster.learning === b.roster.learning
+  && a.roster.secretRequests === b.roster.secretRequests
+  && a.roster.connectorRequests === b.roster.connectorRequests
+  && a.roster.mailRequests === b.roster.mailRequests
+  && a.roster.questions === b.roster.questions
+  && a.roster.views === b.roster.views
+
+const BotRow = memo(function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, useComputer, wide, marked, onDragStart }) {
   const id = bot.id
   const part = currentPart(bot)
   const preview = useSessions(list => previewOf(list, part, roster.exchangeTurns[part]))
@@ -173,9 +201,21 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
   wide && alert && !active ? h('span', { className: 'bt-unread bt-unread-wait', 'aria-hidden': true })
     : wide && unread && !active ? h('span', { className: 'bt-unread', 'aria-hidden': true })
       : !wide && !active && (alert || unread) ? h('span', { className: `bt-dot${alert ? ' bt-dot-wait' : ''}`, 'aria-hidden': true }) : null)
-}
+}, sameBotRow, 'BotRow')
 
-function RoomRow({ room, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useWork, useComputer, wide, marked, onDragStart }) {
+const sameRoomRow = (a, b) => a.room === b.room
+  && a.wide === b.wide
+  && a.marked === b.marked
+  && a.actions === b.actions
+  && a.onDragStart === b.onDragStart
+  && a.useSessions === b.useSessions
+  && a.useSessionStatus === b.useSessionStatus
+  && a.useSessionRetainInfo === b.useSessionRetainInfo
+  && a.useWork === b.useWork
+  && a.useComputer === b.useComputer
+  && a.roster.byId === b.roster.byId
+
+const RoomRow = memo(function RoomRow({ room, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useWork, useComputer, wide, marked, onDragStart }) {
   const id = room.id
   // The group's own Session is a chain of parts; the row shows the current one.
   const sessionId = room.sessionId ?? id
@@ -211,7 +251,7 @@ function RoomRow({ room, roster, actions, useSessions, useSessionStatus, useSess
   wide && approval && !active ? h('span', { className: 'bt-unread bt-unread-wait', 'aria-hidden': true })
     : wide && unread && !active ? h('span', { className: 'bt-unread', 'aria-hidden': true })
       : !wide && !active && (approval || unread) ? h('span', { className: `bt-dot${approval ? ' bt-dot-wait' : ''}`, 'aria-hidden': true }) : null)
-}
+}, sameRoomRow, 'RoomRow')
 
 const agentSessionTitle = session => (session.title === '' ? t('New session') : session.title)
 
@@ -624,11 +664,11 @@ export function TeamSidebar(props) {
   useReportReady(roster.ready, roster)
   const [dragId, setDragId] = useState(null)
   const [dropTarget, setDropTarget] = useState(null)
-  const onDragStart = (event, id) => {
+  const onDragStart = useCallback((event, id) => {
     setDragId(id)
     event.dataTransfer?.setData?.('text/plain', id)
     if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move'
-  }
+  }, [])
   const onDragOverSec = (event, secId) => {
     if (!dragId) return
     event.preventDefault()
@@ -672,6 +712,10 @@ export function TeamSidebar(props) {
   // keeps going afterwards follows the cursor frame by frame again.
   const settleTimer = useRef(0)
   const springTimer = useRef(0)
+  useEffect(() => () => {
+    clearTimeout(settleTimer.current)
+    clearTimeout(springTimer.current)
+  }, [])
   const startDrag = (event) => {
     if (event.button !== 0) return
     event.preventDefault()
@@ -768,6 +812,8 @@ export function TeamSidebar(props) {
   // shell's auto-collapse line, which re-applies the shell's own rule.
   const dsh = useRef(null)
   const requested = useRef(false)
+  const collapseRetries = useRef(0)
+  const retryScope = useRef({ wide, collapsed: frameSnap.collapsed })
   // The request mark always lapses on its own: a re-render before the shell's
   // flip must not leave it set, or the user's next switch would read as ours.
   // A lapse checks the shell again, since our flip and another one landing in
@@ -792,6 +838,11 @@ export function TeamSidebar(props) {
   useEffect(() => () => quiet(false), [])
   useLayoutEffect(() => {
     if (typeof document === 'undefined' || typeof actions.toggleSidebar !== 'function') return undefined
+    const scope = retryScope.current
+    if (scope.wide !== wide || scope.collapsed !== frameSnap.collapsed) {
+      retryScope.current = { wide, collapsed: frameSnap.collapsed }
+      collapseRetries.current = 0
+    }
     const collapsed = dshCollapsed() ?? !wide
     const prev = dsh.current
     const viewport = window.innerWidth
@@ -802,8 +853,15 @@ export function TeamSidebar(props) {
         toggleRef.current()
       }
     }
-    if (collapsed) { clearTimeout(requestLapse.current); requested.current = false; quiet(false); return undefined }
-    if (requested.current) return undefined
+    if (collapsed) {
+      clearTimeout(requestLapse.current)
+      requested.current = false
+      collapseRetries.current = 0
+      quiet(false)
+      return undefined
+    }
+    if (requested.current || collapseRetries.current >= MAX_COLLAPSE_RETRIES) return undefined
+    collapseRetries.current += 1
     requested.current = true
     quiet(true)
     actions.toggleSidebar()
@@ -824,18 +882,22 @@ export function TeamSidebar(props) {
     return () => { window.removeEventListener('mousedown', onDown) }
   }, [mode])
 
-  const navigate = (open, id) => {
-    const result = open(id)
-    if (leftDrawer) actions.setLeftDrawer?.(false)
-    return result
-  }
-  const rowActions = {
-    ...actions,
-    openSession: id => navigate(actions.openSession, id),
-    openAgent: id => navigate(actions.openAgent, id),
-    openAgentSession: id => navigate(actions.openAgentSession, id),
-    newAgentSession: id => navigate(actions.newAgentSession, id),
-  }
+  const leftDrawerRef = useRef(leftDrawer)
+  leftDrawerRef.current = leftDrawer
+  const rowActions = useMemo(() => {
+    const navigate = (open, id) => {
+      const result = open(id)
+      if (leftDrawerRef.current) actions.setLeftDrawer?.(false)
+      return result
+    }
+    return {
+      ...actions,
+      openSession: id => navigate(actions.openSession, id),
+      openAgent: id => navigate(actions.openAgent, id),
+      openAgentSession: id => navigate(actions.openAgentSession, id),
+      newAgentSession: id => navigate(actions.newAgentSession, id),
+    }
+  }, [actions])
   const rowProps = { roster, actions: rowActions, useSessions, useUi, useSessionStatus: props.useSessionStatus, useSessionRetainInfo: props.useSessionRetainInfo, useActivity: props.useActivity, useWork: props.useWork, useComputer: props.useComputer, wide: wideContent }
   // Typing while the sidebar has focus starts a search.
   const typeToSearch = (event) => {
@@ -950,7 +1012,7 @@ function UpdateButton({ useUpdate, actions }) {
   const dshRow = showsDshRow(dsh, update?.app)
   // Hooks first: an update that turns visible after the sidebar mounted would
   // otherwise add hooks on a later render and crash the slot.
-  const tick = useViewport()
+  const tick = useViewport(open)
   useLayoutEffect(() => {
     if (!open) return
     const rect = button.current?.getBoundingClientRect()
@@ -1105,7 +1167,7 @@ export function AccountLauncher({ seat = true, settingsOpen, actions }) {
       setBusy(false)
     }
   }
-  const tick = useViewport()
+  const tick = useViewport(open)
   const anchor = () => {
     const rect = button.current?.getBoundingClientRect()
     if (rect) setBox({ left: rect.left, bottom: viewBottom() - rect.top + 5 })

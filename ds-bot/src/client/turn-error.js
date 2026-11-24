@@ -4,6 +4,7 @@ import { CheckIcon, CopyIcon } from './icons.js'
 import { ModelKeyCard, manageModels } from './model-menu.js'
 import { knownFailure } from './diagnostics.js'
 import { hostText, t } from './i18n.js'
+import { useRosterPick } from './memo.js'
 
 // -------------------------------------------------------------------------
 // A failed turn in a Bot's chat: what went wrong and what the user can do about it,
@@ -153,8 +154,10 @@ function TechnicalDetails({ facts }) {
     h('button', { type: 'button', className: 'bt-mini bt-fail-copy', onClick: copy }, copied ? h(CheckIcon) : h(CopyIcon), copied ? t('Copied') : t('Copy')))
 }
 
+const FAILURE_ROSTER_FIELDS = ['byId', 'models', 'defaultModel', 'exchangeTurns']
+
 export function FailureCell({ node, sessionId, useRoster, useTurnClock, actions }) {
-  const roster = useRoster(value => value)
+  const roster = useRosterPick(useRoster, FAILURE_ROSTER_FIELDS)
   const failRow = node?.data ?? {}
   const bot = roster.byId?.[sessionId]
   // The host corrects a failure DSH classified from the status alone (a 403 content
