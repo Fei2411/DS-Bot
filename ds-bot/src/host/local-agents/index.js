@@ -253,14 +253,18 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
       const approval = ctx.get?.('approval')
       if (approval === undefined || exec.agent?.session === undefined) return 'denied: approvals are not available here'
       const text = `${args.action}${args.detail ? `\n${args.detail}` : ''}`
-      const outcome = await approval.request({
+      const request = {
         agent: exec.agent,
         toolName: exec.name,
         ...(exec.callId !== undefined ? { callId: exec.callId } : {}),
         reason: text.slice(0, 500),
         displayReason: { en: text.slice(0, 500) },
         ...(exec.signal ? { signal: exec.signal } : {}),
-      })
+      }
+      const evidence = adapter.approvalEvidence(exec.agent.session.id, exec.callId)
+      const outcome = await (rt.requestActionApproval
+        ? rt.requestActionApproval(request, evidence)
+        : approval.request(request))
       // The adapter decides the CLI's option from this structured result;
       // only an explicit {"decision":"allow"} counts.
       return JSON.stringify({ decision: outcome === 'allowed-once' ? 'allow' : 'deny' })
