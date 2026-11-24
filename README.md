@@ -25,7 +25,7 @@ DS Bot is an open-source project built on [DeepSeek Harness](https://github.com/
 
 **Desktop app (Windows, macOS, Linux)**
 
-The desktop app bundles a pinned DSH, so you do not need to install DSH first. Download the package for your system from [Releases](https://github.com/Fei2411/DS-Bot/releases/latest), open it, and configure a model in Settings (it can also copy your existing bot team from DSH).
+The desktop app bundles a pinned DSH, so you do not need to install DSH first. Download the package for your system from [Releases](https://github.com/Fei-Craft/DS-Bot/releases/latest), open it, and configure a model in Settings (it can also copy your existing bot team from DSH).
 
 If your OS warns about an unsigned app: on Windows select **More info** → **Run anyway**; on macOS open **System Settings** → **Privacy & Security** and select **Open Anyway**.
 
@@ -68,7 +68,7 @@ In the standalone desktop app, you can use your ChatGPT plan for bot models with
 
 Each bot is a long-lived identity with one continuous conversation—no session lists or manual session switching. When context fills up, DS Bot condenses or moves to a fresh part automatically while earlier history stays readable and searchable. Each bot keeps its own saved profile (model, thinking level, instructions, working folder and permission preset), separate from the host's DSH installation profile.
 
-Your foreground chat stays responsive while a bot works: slow shell commands move to background jobs automatically, and a bot can launch background tasks or hand an in-flight turn to the background when you send a new message. Track progress, answer approvals, send follow-ups or stop tasks from the header island, inspect task transcripts in the details **Tasks** tab, or type `/side` to ask a side question. Bots also maintain long-term memory, render interactive charts/tables/forms in replies, run scheduled tasks, and can be organized into collapsible sidebar sections.
+Each bot can have its own working folder and permission preset — just tell the bot when you want to switch folders. A bot that looks after several projects can also get extra folders and work in all of them at once. Your foreground chat stays responsive while a bot works: slow shell commands move to background jobs automatically, and a bot can launch background tasks or hand an in-flight turn to the background when you send a new message. Track progress, answer approvals, send follow-ups or stop tasks from the header island, inspect task transcripts in the details **Tasks** tab, manage them on mobile, or type `/side` to ask a side question. Bots also maintain long-term memory, render interactive charts/tables/forms in replies, run scheduled tasks, and can be organized into collapsible sidebar sections.
 
 ![Bot details: model, memory, usage](docs/images/details.png)
 
@@ -128,7 +128,7 @@ Bots can create, inspect and edit Word (`.docx`), PowerPoint (`.pptx`) and Excel
 
 ### Mobile app & browser remote
 
-Control your running bot team from iOS, Android, or a browser over an end-to-end encrypted link (Noise IK)—your computer connects outbound only, with no public IP or open ports. Open **Settings → Connect → Phone**, enable phone access, and scan the QR code in the mobile app (Android APK in [Releases](https://github.com/Fei2411/DS-Bot/releases/latest); see [`mobile/README.md`](mobile/README.md) for iOS).
+Control your running bot team from iOS, Android, or a browser over an end-to-end encrypted link (Noise IK)—your computer connects outbound only, with no public IP or open ports. Open **Settings → Connect → Phone**, enable phone access, and scan the QR code in the mobile app (Android APK in [Releases](https://github.com/Fei-Craft/DS-Bot/releases/latest); see [`mobile/README.md`](mobile/README.md) for iOS).
 
 For **browser remote (preview)**, pick **Open in a browser** or **Copy browser link** on the same pairing screen. Self-hosted relay instructions and security limits are in [`link/README.md`](link/README.md) and [`docs/plans/2026-11-17-web-remote.md`](docs/plans/2026-11-17-web-remote.md).
 

@@ -3,13 +3,13 @@
 // releases/latest/download/ link can name.
 // Usage: node scripts/release-notes.mjs <version> <folder with the packages> <folder for the files to attach> [<current notes>]
 // It prints the notes with the table on top. MIRROR_BASE, when set, is a URL that holds the
-// packages under the same names; GITHUB_REPOSITORY names the repository (default Fei2411/DS-Bot).
+// packages under the same names; GITHUB_REPOSITORY names the repository (default Fei-Craft/DS-Bot).
 import { createHash } from 'node:crypto'
 import { copyFileSync, createReadStream, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-export const REPO = 'Fei2411/DS-Bot'
+export const REPO = 'Fei-Craft/DS-Bot'
 // The order of the table: Windows first, where most downloads are; the phone app last.
 export const PACKAGES = [
   { file: 'win-x64.exe', system: '**Windows 10/11 (64-bit / 64 位)**', note: 'Double-click to install / 双击安装' },

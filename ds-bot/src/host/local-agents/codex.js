@@ -1,8 +1,8 @@
-// The Codex app-server engine: `codex app-server --listen stdio://`, one
-// JSON-RPC process per route that multiplexes threads. DS Bot Sessions map to
-// threads; turns stream item notifications back.
+// The Codex app-server engine: `codex app-server --listen stdio://`.
+// Each live Session has its own process and resumable thread. Turns stream
+// item notifications back.
 import { JsonRpcPeer, wireProcess, EventQueue } from './jsonrpc.js'
-import { cleanEnv, findEngineExecutable, spawnAgent, terminateChild } from './discover.js'
+import { PROBE_FORCE_KILL_AFTER_MS, cleanEnv, findEngineExecutable, probeEnv, spawnAgent, terminateChild } from './discover.js'
 
 // The name the loopback MCP server is registered under in each thread's config.
 const MCP_SERVER = 'dsbot'
@@ -16,6 +16,7 @@ export class CodexEngine {
     this.peer = undefined
     this.starting = undefined
     this.threads = new Map()
+    this.probeEngines = new Set()
   }
 
   threadFor(dshSessionId) {
@@ -38,11 +39,11 @@ export class CodexEngine {
     return thread
   }
 
-  async ensure() {
+  async ensure({ probe = false } = {}) {
     // A peer exists before its handshake has finished; other callers wait for it.
     if (this.starting !== undefined) return this.starting
     if (this.peer !== undefined) return this.peer
-    const starting = this.startPeer()
+    const starting = this.startPeer({ probe })
     this.starting = starting
     try {
       return await starting
@@ -51,11 +52,11 @@ export class CodexEngine {
     }
   }
 
-  async startPeer() {
+  async startPeer({ probe = false } = {}) {
     const bin = findEngineExecutable(this.engine, name => this.findExecutable(name))
     if (bin === undefined) throw Object.assign(new Error(`${this.engine.name} is not installed`), { code: 'NO_ADAPTER' })
     const child = spawnAgent(bin, this.engine.args ?? [], {
-      env: cleanEnv(this.engine.env ?? {}),
+      env: (probe ? probeEnv : cleanEnv)(this.engine.env ?? {}),
       stdio: ['pipe', 'pipe', 'inherit'],
       windowsHide: true,
     })
@@ -92,7 +93,7 @@ export class CodexEngine {
       if (this.child === child) {
         this.child = undefined
         this.peer = undefined
-        terminateChild(child)
+        terminateChild(child, probe ? { forceKillAfterMs: PROBE_FORCE_KILL_AFTER_MS } : undefined)
       }
       throw error
     }
@@ -204,7 +205,7 @@ export class CodexEngine {
     if (method === 'item/commandExecution/requestApproval' || method === 'item/fileChange/requestApproval' || method === 'execCommandApproval' || method === 'patchApproval') {
       const thread = [...this.threads.values()].find(entry => entry.threadId === params?.threadId)
       if (thread === undefined) return Promise.reject({ code: -32603, message: 'unknown thread' })
-      const options = (params?.availableDecisions ?? params?.decisions ?? ['accept', 'decline']).map(decision => ({ optionId: decision, kind: decision === 'accept' || decision === 'acceptForSession' ? 'allow_once' : 'reject_once', name: decision }))
+      const options = (params?.availableDecisions ?? params?.decisions ?? ['accept', 'decline']).map(decision => ({ optionId: decision, kind: decision === 'accept' ? 'allow_once' : decision === 'acceptForSession' ? 'allow_always' : 'reject_once', name: decision }))
       return new Promise((resolve) => {
         const reply = (decision) => resolve({ decision: decision ?? 'decline' })
         thread.push({
@@ -212,6 +213,8 @@ export class CodexEngine {
           action: params?.reason ?? params?.command ?? 'The agent asks to run an action',
           changes: true,
           detail: detailText(params),
+          // Commands can override the thread directory; only the server's resolved cwd counts.
+          cwd: method === 'item/commandExecution/requestApproval' || method === 'execCommandApproval' ? params?.cwd : thread?.cwd,
           options,
         })
       })
@@ -226,7 +229,7 @@ export class CodexEngine {
     return Promise.reject({ code: -32601, message: `method not found: ${method}` })
   }
 
-  async open(dshSessionId, { cwd, mcp, resumeId, resumeOnly = false, mode, instructions, model, ephemeral }) {
+  async open(dshSessionId, { cwd, mcp, resumeId, resumeOnly = false, mode, instructions, model, review, ephemeral }) {
     const peer = await this.ensure()
     const prior = this.threads.get(dshSessionId)
     const created = prior === undefined || prior.dead
@@ -240,7 +243,7 @@ export class CodexEngine {
     const params = {
       cwd,
       ...(model && model !== 'default' ? { model } : {}),
-      ...(mode ? { sandbox: mode, approvalPolicy: mode === 'danger-full-access' ? 'never' : 'on-request' } : {}),
+      ...(mode ? { sandbox: mode, approvalPolicy: mode === 'danger-full-access' && !review ? 'never' : 'on-request' } : {}),
       ...(mcp !== undefined ? { config: { mcp_servers: { [MCP_SERVER]: { url: mcp.url, http_headers: { Authorization: `Bearer ${mcp.token}` } } } } } : {}),
     }
     if (thread.threadId !== undefined) {
@@ -250,6 +253,7 @@ export class CodexEngine {
         // thread/resume takes the same params, plus the thread id. The instructions it
         // was started with stay: they are not sent again here.
         await peer.request('thread/resume', { threadId: thread.threadId, ...params }, { timeout: 30_000 })
+        thread.cwd = cwd
         thread.resumed = true
         return thread
       } catch {
@@ -265,6 +269,7 @@ export class CodexEngine {
     const resolvedInstructions = typeof instructions === 'function' ? instructions() : instructions
     const reply = await peer.request('thread/start', { ...params, ...(resolvedInstructions ? { developerInstructions: resolvedInstructions } : {}), ...(ephemeral ? { ephemeral: true } : {}) }, { timeout: 60_000 })
     thread.threadId = reply?.thread?.id ?? reply?.threadId
+    thread.cwd = cwd
     thread.resumed = false
     thread.awaitingFirstPrompt = false
     thread.lastTotal = undefined
@@ -353,8 +358,8 @@ export class CodexEngine {
     this.threads.delete(dshSessionId)
   }
 
-  async listModels() {
-    const peer = await this.ensure()
+  async listModelsOnOwnPeer({ probe }) {
+    const peer = await this.ensure({ probe })
     const reply = await peer.request('model/list', {}, { timeout: 30_000 })
     return (reply?.data ?? reply?.models ?? []).map((entry) => {
       const model = {
@@ -375,7 +380,26 @@ export class CodexEngine {
     })
   }
 
-  async close() {
+  async listModels() {
+    // Reuse an existing live peer if one is already running; otherwise probe in a
+    // temporary process with probeEnv so a concurrent live session never inherits MISE_OFFLINE=1.
+    if (this.peer !== undefined || this.starting !== undefined) {
+      return this.listModelsOnOwnPeer({ probe: false })
+    }
+    const temp = new CodexEngine(this.route, this.engine, { findExecutable: this.findExecutable })
+    this.probeEngines.add(temp)
+    try {
+      return await temp.listModelsOnOwnPeer({ probe: true })
+    } finally {
+      this.probeEngines.delete(temp)
+      await temp.close({ forceKillAfterMs: PROBE_FORCE_KILL_AFTER_MS }).catch(() => {})
+    }
+  }
+
+  async close({ forceKillAfterMs } = {}) {
+    const probes = [...this.probeEngines]
+    this.probeEngines.clear()
+    await Promise.all(probes.map(engine => engine.close({ forceKillAfterMs }).catch(() => {})))
     for (const thread of this.threads.values()) this.releaseCompaction(thread)
     this.threads.clear()
     const child = this.child
@@ -386,11 +410,9 @@ export class CodexEngine {
     peer?.close?.(new Error(`${this.engine.name} closed`))
     if (child === undefined) return this.closing
     if (child.exitCode !== null || child.signalCode !== null) return
-    this.closing = new Promise(resolve => {
-      const timer = setTimeout(() => { try { child.kill('SIGKILL') } catch {} }, 5_000)
-      timer.unref?.()
-      child.once('close', () => { clearTimeout(timer); resolve() })
-      child.kill('SIGTERM')
+    this.closing = new Promise((resolve) => {
+      child.once('close', () => resolve())
+      terminateChild(child, forceKillAfterMs === undefined ? undefined : { forceKillAfterMs })
     })
     return this.closing
   }
@@ -437,7 +459,7 @@ const activityOf = item => {
         : (item.title ?? item.type)
   return String(kind).split('\n')[0].slice(0, 120)
 }
-const detailText = params => [params?.command, params?.reason, JSON.stringify(params?.changes ?? params?.patch ?? '')].filter(Boolean).join('\n').slice(0, 4_000)
+const detailText = params => JSON.stringify(params ?? {})
 
 function codexTotals(total) {
   if (total === null || typeof total !== 'object') return undefined

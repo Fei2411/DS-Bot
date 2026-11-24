@@ -5,7 +5,7 @@
   "private": true,
   "description": "DS Bot desktop app: the ds-bot team on its own pinned DeepSeek Harness.",
   "author": "Fei2411",
-  "homepage": "https://github.com/Fei2411/DS-Bot",
+  "homepage": "https://github.com/Fei-Craft/DS-Bot",
   "desktopName": "dsbot.desktop",
   "license": "Apache-2.0",
   "type": "module",

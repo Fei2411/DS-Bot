@@ -11,13 +11,13 @@
     "multi-agent",
     "agents"
   ],
-  "homepage": "https://github.com/Fei2411/DS-Bot#readme",
+  "homepage": "https://github.com/Fei-Craft/DS-Bot#readme",
   "bugs": {
-    "url": "https://github.com/Fei2411/DS-Bot/issues"
+    "url": "https://github.com/Fei-Craft/DS-Bot/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Fei2411/DS-Bot.git",
+    "url": "git+https://github.com/Fei-Craft/DS-Bot.git",
     "directory": "ds-bot"
   },
   "license": "Apache-2.0",
@@ -59,11 +59,16 @@
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "*",
+    "@deepseek-ai/dsh-fs-patch": "*",
     "@deepseek-ai/dsh-llm": "*",
+    "@deepseek-ai/dsh-sandbox-policy": "*",
     "@deepseek-ai/dsh-scope": "*",
     "@deepseek-ai/dsh-tools": "*",
     "@deepseek-ai/dsh-typert-protocol": "*",
     "@deepseek-ai/dsh-web": "*"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh-fs-patch": { "optional": true }
   },
   "dsh": {
     "client": {

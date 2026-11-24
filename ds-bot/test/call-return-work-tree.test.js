@@ -1045,11 +1045,11 @@ test('Empirical #2 & ctx-arch P1-5: lightweight inheritedSegments without segmen
   const task1 = rt.botOf('a').tasks[0]
 
   // 1) Lightweight inheritedSegments: keeps sessionId + endedAt, strips multi-KB note,
-  // and for non-forked own-chat task_start appends a slim ref to the live parent foreground part.
+  // and for non-forked own-chat task_start appends a branch-bounded ref to the live parent foreground part.
   assert.deepEqual(task1.inheritedSegments, [
     { sessionId: 'dm-a-p1', endedAt: 100 },
     { sessionId: 'dm-a-p2', endedAt: 200 },
-    { sessionId: 'dm-a' },
+    { sessionId: 'dm-a', throughSeq: 2 },
   ])
   assert.equal('note' in task1.inheritedSegments[0], false, 'inheritedSegments must not clone segment.note')
 
@@ -1083,7 +1083,7 @@ test('Empirical #2 & ctx-arch P1-5: lightweight inheritedSegments without segmen
   emit('dm-b', 'user/message', { content: textBlock('Check v2 tests'), source: { kind: 'user' } })
   await tool('task_start', { title: 'Check v2', brief: 'Run API tests' }, 'dm-b')
   const taskB = rt.botOf('b').tasks[0]
-  assert.deepEqual(taskB.inheritedSegments, [{ sessionId: 'dm-b-p1', endedAt: 50 }, { sessionId: 'dm-b' }])
+  assert.deepEqual(taskB.inheritedSegments, [{ sessionId: 'dm-b-p1', endedAt: 50 }, { sessionId: 'dm-b', throughSeq: 6 }])
   const promptB = textOf(agents.get(taskB.sessionId).calls[0][1].content)
   assert.match(promptB, /\[Checkpoint 1\]\n## Decisions\n- Keep API v2 compatibility intact\./)
   assert.doesNotMatch(promptB, /\[object Object\]/, 'TextBlock[] compaction/summary must never stringify to [object Object]')

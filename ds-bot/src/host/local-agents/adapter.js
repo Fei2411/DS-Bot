@@ -12,6 +12,7 @@ import { SOURCE_KIND } from '../constants.js'
 import { GROUP_MEMORY_SOURCE, MEMORY_UPDATE_SOURCE } from '../memory-copy.js'
 import { textOf } from '../text.js'
 import { engineOf, cliMode, signInFor } from './engines.js'
+import { PROBE_FORCE_KILL_AFTER_MS } from './discover.js'
 import { LoopbackMcp } from './mcp.js'
 
 async function cleanupProbeDir(dir) {
@@ -88,8 +89,12 @@ export class LocalAgentAdapter extends LlmAdapter {
     this.engines = new Map()   // route -> engine driver
     this.live = new Map()      // sessionId -> live session
     this.modelCache = new Map()
+    this.nextModelEpoch = 0
+    this.globalModelEpoch = 0
+    this.modelEpochs = new Map() // route -> monotonic epoch for modelCache writes
     this.windows = new Map()   // route\0model -> the window the CLI reported for it
-    this.probes = new Map()    // route -> the probe under way
+    this.probes = new Map()    // route -> { epoch, promise }
+    this.activeProbes = new Set() // active askModels runs, so superseding probes stay protected
     this.sideRequests = new Set()
     this.disposed = false
   }
@@ -125,36 +130,77 @@ export class LocalAgentAdapter extends LlmAdapter {
       .map(entry => ({ ...entry, inputModalities }))
   }
 
+  modelEpochOf(route) {
+    return Math.max(this.globalModelEpoch, this.modelEpochs.get(route) ?? 0)
+  }
+
+  bumpModelEpoch(route) {
+    const next = ++this.nextModelEpoch
+    this.modelEpochs.set(route, next)
+    return next
+  }
+
+  recordDiscoveredModels(route, models, { epoch } = {}) {
+    const current = this.modelEpochOf(route)
+    if (epoch !== undefined && epoch !== current) return false
+    if (epoch === undefined) {
+      this.bumpModelEpoch(route)
+      this.probes.delete(route)
+    }
+    this.modelCache.set(route, (models ?? []).filter(model => model.id !== 'default')
+      .map(model => ({ provider: route, id: model.id, name: model.name ?? model.id, ...(model.reasoning ? { reasoning: model.reasoning } : {}) })))
+    return true
+  }
+
   // Asks one CLI what it serves, once. A failure is not kept, so the next look tries
   // again. The process it took leaves unless a Session runs on it.
   async probeModels(route) {
     if (this.modelCache.has(route)) return this.listModels(route)
     if (engineOf(route, this.deps.customAgents()) === undefined) return []
-    let probe = this.probes.get(route)
-    if (probe === undefined) {
-      probe = this.askModels(route).finally(() => this.probes.delete(route))
-      this.probes.set(route, probe)
+    const epoch = this.modelEpochOf(route)
+    let entry = this.probes.get(route)
+    if (entry === undefined || entry.epoch !== epoch) {
+      entry = { epoch, promise: undefined }
+      entry.promise = this.askModels(route, epoch).finally(() => {
+        if (this.probes.get(route) === entry) this.probes.delete(route)
+      })
+      this.probes.set(route, entry)
     }
-    await probe
+    await entry.promise
+    while (this.probes.get(route) !== undefined && this.probes.get(route) !== entry) {
+      entry = this.probes.get(route)
+      await entry.promise
+    }
     return this.listModels(route)
   }
 
-  async askModels(route) {
+  async askModels(route, epoch = this.modelEpochOf(route)) {
     const engine = this.engine(route)
+    const token = { route, engine, epoch }
     const cwd = this.deps.probeCwd()
+    this.activeProbes.add(token)
     try {
       const models = await engine.listModels({ cwd, mcp: undefined })
-      this.modelCache.set(route, (models ?? []).filter(model => model.id !== 'default')
-        .map(model => ({ provider: route, id: model.id, name: model.name ?? model.id, ...(model.reasoning ? { reasoning: model.reasoning } : {}) })))
+      this.recordDiscoveredModels(route, models, { epoch })
     } catch { /* the menu still has the CLI's default */ } finally {
-      if (!this.engineInUse(engine, route)) await engine.close?.().catch(() => {})
+      this.activeProbes.delete(token)
+      if (!this.engineInUse(engine, token)) await engine.close?.({ forceKillAfterMs: PROBE_FORCE_KILL_AFTER_MS }).catch(() => {})
       await cleanupProbeDir(cwd)
     }
   }
 
   dropModelCache(route) {
-    if (route === undefined) this.modelCache.clear()
-    else this.modelCache.delete(route)
+    if (route === undefined) {
+      this.globalModelEpoch = ++this.nextModelEpoch
+      this.modelCache.clear()
+      this.probes.clear()
+      for (const engine of this.engines.values()) engine.invalidateListed?.()
+    } else {
+      this.bumpModelEpoch(route)
+      this.modelCache.delete(route)
+      this.probes.delete(route)
+      this.engines.get(route)?.invalidateListed?.()
+    }
   }
 
   async resolveModel(route, model) {
@@ -198,7 +244,9 @@ export class LocalAgentAdapter extends LlmAdapter {
     } else if (live !== undefined) await this.closeLive(live)
     const spec = engineOf(route, this.deps.customAgents())
     if (spec === undefined) throw new LlmError(`Unknown local agent ${route}`, 'LOCAL_AGENT_MISSING')
-    const engine = this.engine(route)
+    // Codex warm-resumes a loaded thread with its old MCP address (#2110).
+    // Let closing this bridge stop its app-server without stopping other Sessions.
+    const engine = spec.kind === 'codex' ? this.deps.spawnEngine(spec.kind, route, spec) : this.engine(route)
     live = {
       sessionId, route, spec, engine, dead: false,
       record,
@@ -247,6 +295,7 @@ export class LocalAgentAdapter extends LlmAdapter {
     }
     live.push = (event) => {
       this.observe(live, event)
+      if (event?.type === 'models') return
       if (live.mute && live.state === 'idle' && (event?.type === 'text' || event?.type === 'thought' || event?.type === 'activity' || event?.type === 'status')) return
       scheduleIdle()
       const waiter = live.waiters.shift()
@@ -280,6 +329,10 @@ export class LocalAgentAdapter extends LlmAdapter {
   // window; a compaction makes the last figure stale until the CLI reports again,
   // except where it reported during the compaction itself (Codex).
   observe(live, event) {
+    if (event?.type === 'models') {
+      if (Array.isArray(event.models) && event.models.length > 0) this.recordDiscoveredModels(live.route, event.models)
+      return
+    }
     if (event?.type === 'effort') {
       if (event.defaultEffort !== undefined) live.defaultEffort = event.defaultEffort
       live.effort = event.effort
@@ -342,7 +395,7 @@ export class LocalAgentAdapter extends LlmAdapter {
   engineInUse(engine, except) {
     return [...this.live.values()].some(other => other.engine === engine && !other.dead)
       || [...this.sideRequests].some(request => request !== except && request.engine === engine)
-      || [...this.probes.keys()].some(route => route !== except && this.engines.get(route) === engine)
+      || [...this.activeProbes].some(probe => probe !== except && probe.engine === engine)
   }
 
   async closeLive(live, { idle = false } = {}) {
@@ -361,6 +414,13 @@ export class LocalAgentAdapter extends LlmAdapter {
     for (const waiter of live.waiters.splice(0)) waiter({ type: 'done', reason: 'stop' })
     const stillUsed = this.engineInUse(live.engine)
     if (!stillUsed) await live.engine.close?.().catch(() => {})
+  }
+
+  // Only driver permission callbacks populate this evidence; MCP/model arguments cannot.
+  approvalEvidence(sessionId, callId) {
+    const live = this.live.get(String(sessionId))
+    if (!live || live.dead || !live.engineSession || live.engineSession.dead) return undefined
+    return live.pending.get(callId)?.approvalEvidence
   }
 
   // The turn under way ends: the CLI stops, and a call it waits on gets an answer.
@@ -536,6 +596,7 @@ export class LocalAgentAdapter extends LlmAdapter {
         resumeId: priorCliId,
         mode,
         preset,
+        review: this.deps.reviewFor?.(sessionId) === true,
         model: options.model,
         defaultEffort: live.defaultEffort,
         effort: live.effort,
@@ -553,7 +614,10 @@ export class LocalAgentAdapter extends LlmAdapter {
         system: live.spec.kind === 'claude' ? instructions : undefined,
       }
       live.engineSession = await live.engine.open(sessionId, openArgs)
-        .catch(error => { throw toLlmError(error, live) })
+        .catch(async error => {
+          if (live.spec.kind === 'codex') await this.closeLive(live)
+          throw toLlmError(error, live)
+        })
       // A resumed CLI reports its id only with `system/init`: keep the saved one
       // in the meantime, or a resume that fails would erase it. If ACP or Codex
       // could not resume and opened a fresh session instead, replay conversation
@@ -572,6 +636,8 @@ export class LocalAgentAdapter extends LlmAdapter {
         if (live.engineSession.defaultEffort !== undefined) live.defaultEffort = live.engineSession.defaultEffort
         live.effort = live.engineSession.effort
       }
+      const discovered = live.engine.discoveredModels?.(live.engineSession)
+      if (Array.isArray(discovered) && discovered.length > 0) this.recordDiscoveredModels(live.route, discovered)
       live.started = true
       // The session's events feed this Session's queue: a call from any engine
       // kind reaches drain() through live.next().
@@ -888,13 +954,24 @@ export class LocalAgentAdapter extends LlmAdapter {
         case 'permission': {
           // The preset answers what it already decides, also on an agent with no
           // matching mode of its own: full access allows, read-only refuses a change.
-          const answer = presetAnswer(this.deps.presetFor(live.sessionId), event)
+          const preset = this.deps.presetFor(live.sessionId)
+          const answer = this.deps.reviewFor?.(live.sessionId) && preset !== 'read-only' ? undefined : presetAnswer(preset, event)
           if (answer !== undefined) { event.reply(answer); break }
+          // Without a single-use grant, Allow once would be reported to the user but
+          // cancelled at the CLI. Fail closed instead of converting it to a saved grant.
+          if (!event.options?.some(option => option.kind === 'allow_once')) {
+            event.reply(optionOf(event.options, 'reject') ?? null)
+            break
+          }
           yield* closeBlocks()
           live.state = 'suspended'
           // The CLI's own permission prompt, bridged as an approval tool call.
-          const call = { name: APPROVE_TOOL, args: { action: event.action, ...(event.detail ? { detail: event.detail } : {}) }, dshCallId: event.id }
-          live.pending.set(event.id, { name: APPROVE_TOOL, resolve: (result) => event.reply(pickAllowOption(event.options, result)) })
+          const call = { name: APPROVE_TOOL, args: { action: event.action, ...(event.detail ? { detail: event.detail } : {}), ...(event.evidence ? { evidence: event.evidence } : {}) }, dshCallId: event.id }
+          live.pending.set(event.id, {
+            name: APPROVE_TOOL,
+            approvalEvidence: { kind: 'external-agent', cwd: event.cwd, action: call.args },
+            resolve: (result) => event.reply(pickAllowOption(event.options, result)),
+          })
           for (const chunk of emitCalls([call])) yield chunk
           yield { type: 'finish', reason: { kind: 'tool-calls' } }
           return
@@ -1199,7 +1276,7 @@ function pickAllowOption(options, result) {
   let decision
   try { decision = JSON.parse(result.text ?? '')?.decision } catch { decision = undefined }
   if (decision !== 'allow') return null
-  return optionOf(options, 'allow') ?? null
+  return (options ?? []).find(entry => entry.kind === 'allow_once')?.optionId ?? null
 }
 
 // The agent's one-time option of a kind ('allow' or 'reject'), else any of it.

@@ -168,7 +168,7 @@ export function install(rt) {
     secretStore: rt.secretStoreStatus(),
     secrets: rt.secretsView(),
     activity: rt.activityView(),
-    work: { bots: rt.workView(), agents: rt.agentWorkView?.() ?? {}, rooms: rt.roomWorkView(), approvals: rt.approvalsView(), waiting: rt.waitingView?.() ?? {}, paused: rt.pausedWorksView?.() ?? [], turns: rt.turnsView?.() ?? {}, steered: rt.steeredView?.() ?? {} },
+    work: { bots: rt.workView(), agents: rt.agentWorkView?.() ?? {}, rooms: rt.roomWorkView(), approvals: rt.approvalsView(), waiting: rt.waitingView?.() ?? {}, paused: rt.pausedWorksView?.() ?? [], turns: rt.turnsView?.() ?? {}, steered: rt.steeredView?.() ?? {}, canBackground: rt.canBackgroundView?.() ?? {} },
     memoryNews: rt.memoryNews(),
     memoryReviews: rt.memoryReviews(),
     learning: rt.learningView(),
@@ -541,6 +541,7 @@ export function install(rt) {
             add: Array.isArray(body.add) ? body.add : undefined,
             remove: Array.isArray(body.remove) ? body.remove : undefined,
             workDir: body.workDir,
+            extraDirs: body.extraDirs,
             permission: body.permission,
             section: body.section,
             sectionId: body.sectionId,
@@ -802,9 +803,13 @@ export function install(rt) {
           if ((text === '' && ids.length === 0) || typeof body.sessionId !== 'string') return fail('Nothing to send', 'bot/invalid')
           const images = ids.map(id => staged.get(id))
           if (images.some(entry => entry === undefined)) return fail('A photo did not arrive. Send it again.', 'bot/stale')
+          const requestId = typeof body.requestId === 'string' && body.requestId.trim() !== '' ? body.requestId.trim() : undefined
+          const mode = body.mode === 'steer' ? 'steer' : 'queue'
           await rt.load()
           await rt.sendUser({
             sessionId: body.sessionId,
+            ...(requestId !== undefined ? { requestId } : {}),
+            mode,
             content: [
               ...(text === '' ? [] : [{ type: 'text', text }]),
               ...images.map(({ mediaType, data }) => ({ type: 'image', mediaType, data })),
@@ -950,6 +955,21 @@ export function install(rt) {
         case 'local-agent-remove':
           await rt.load()
           return ok(await rt.localAgentsEndpoint(endpoint, body))
+        case 'bot-move-to-background': {
+          await rt.load()
+          const botId = typeof body.botId === 'string' && body.botId !== ''
+            ? body.botId
+            : typeof body.sessionId === 'string'
+              ? rt.chatOwners.get(body.sessionId)
+              : undefined
+          if (!botId || rt.botOf(botId) === undefined) return fail('Unknown Bot', 'bot/not-found')
+          return ok(await rt.moveForegroundToBackground({
+            botId,
+            ...(typeof body.sessionId === 'string' && body.sessionId !== '' ? { expectedSessionId: body.sessionId } : {}),
+            ...(typeof body.expectedTurn === 'number' && Number.isInteger(body.expectedTurn) ? { expectedTurn: body.expectedTurn } : {}),
+            ...(typeof body.operationId === 'string' && body.operationId !== '' ? { operationId: body.operationId } : {}),
+          }))
+        }
         case 'bot-stop-task': {
           await rt.load()
           const bot = rt.botOf(String(body.botId ?? ''))
@@ -1028,26 +1048,46 @@ export function install(rt) {
     return undefined
   }
 
-  async function sendUser({ sessionId: ref, content, requestId = randomUUID() }) {
+  async function sendUser({ sessionId: ref, content, requestId: providedRequestId, mode = 'queue' }) {
+    const callerSupplied = providedRequestId !== undefined
+    const requestId = providedRequestId ?? randomUUID()
     const past = rt.pastOwners.get(ref)
     const room = rt.roomOf(ref)
     let sessionId = ownThreadTarget(ref, past)
       ?? (room !== undefined ? rt.sessionOfRoom(room)
         : past !== undefined ? rt.sessionOfRoom(rt.roomOf(past.roomId)) : ref)
     const ownerBotId = rt.chatOwners.get(sessionId)
+    if (await rt.isAdmittedForSend?.({ ref, sessionId, requestId, callerSupplied })) return
     if (ownerBotId !== undefined && !rt.groupOwners.has(sessionId) && !rt.taskOwners?.has(sessionId)) {
       const bot = rt.botOf(ownerBotId)
-      if (rt.shouldMoveForeground?.(bot, sessionId)) {
+      if (rt.mustIsolateHiddenWork?.(bot, sessionId)) {
         sessionId = await rt.handoffForeground(bot, sessionId)
       }
     }
+    if (await rt.isAdmittedForSend?.({ ref, sessionId, requestId, callerSupplied })) return
     await rt.ensureCapabilities(sessionId)
-    await ctx.sessionController.prompt({
-      requestId,
-      sessionId,
-      mode: 'queue',
-      content,
-    }, AbortSignal.timeout(30_000))
+    const promptMode = mode === 'steer' ? 'steer' : 'queue'
+    try {
+      await ctx.sessionController.prompt({
+        requestId,
+        sessionId,
+        mode: promptMode,
+        content,
+      }, AbortSignal.timeout(30_000))
+      rt.noteSendPrompted?.(sessionId, requestId)
+    } catch (error) {
+      if (promptMode === 'steer' && error?.code === 'session/steer-unavailable') {
+        await ctx.sessionController.prompt({
+          requestId,
+          sessionId,
+          mode: 'queue',
+          content,
+        }, AbortSignal.timeout(30_000))
+        rt.noteSendPrompted?.(sessionId, requestId)
+        return
+      }
+      throw error
+    }
   }
 
   // The user's answer to an ask_user card, from the web or an IM chat. A Bot id or an

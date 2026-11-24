@@ -252,10 +252,14 @@ test('ClaudeSession.kill captures child before clearing so SIGKILL escalation fi
   try {
     session.kill()
     assert.equal(session.child, undefined)
-    assert.deepEqual(kills, ['SIGTERM'])
-    assert.equal(typeof sigkillCallback, 'function')
-    sigkillCallback()
-    assert.deepEqual(kills, ['SIGTERM', 'SIGKILL'])
+    if (process.platform === 'win32') {
+      await exited
+    } else {
+      assert.deepEqual(kills, ['SIGTERM'])
+      assert.equal(typeof sigkillCallback, 'function')
+      sigkillCallback()
+      assert.deepEqual(kills, ['SIGTERM', 'SIGKILL'])
+    }
   } finally {
     globalThis.setTimeout = realSetTimeout
     try { origKill('SIGKILL') } catch {}
@@ -280,7 +284,7 @@ test('terminateChild clears SIGKILL timer on exit and error and skips unspawned 
     globalThis.setTimeout = () => token
     globalThis.clearTimeout = (id) => { if (id === token) cleared = true }
     try {
-      terminateChild(child)
+      terminateChild(child, { platform: 'linux' })
       assert.deepEqual(signals, ['SIGTERM'])
       if (eventName === 'exit') child.emit('exit', 0, null)
       else child.emit('error', new Error('spawn ENOENT'))

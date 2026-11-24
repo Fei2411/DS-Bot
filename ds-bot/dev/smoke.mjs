@@ -482,7 +482,7 @@ await step('Chief runs a background task forked from its own chat and receives t
   )
 })
 
-await step('busy foreground auto-moves to background on new user message and reports back', async () => {
+await step('explicit move-to-background moves busy foreground into a task and reports back', async () => {
   const oldSid = chief().sessionId ?? chief().id
   const callsBefore = mockLog().length
   await send(chief().id, '慢活 4')
@@ -493,9 +493,10 @@ await step('busy foreground auto-moves to background on new user message and rep
     await sleep(100)
   }
   await sleep(300)
-  // User sends a new message while Chief is busy -> oldSid moves into bot.tasks[] as fg-handoff.
+  // User explicitly moves Chief's busy turn to background, then chats freely on the new foreground.
+  const moved = await api('bot-move-to-background', { botId: chief().id, sessionId: oldSid })
   await send(chief().id, '前台新问题')
-  const newSid = chief().sessionId ?? chief().id
+  const newSid = moved?.sessionId ?? (chief().sessionId ?? chief().id)
   const deadline = Date.now() + 25_000
   let movedTask
   while (Date.now() < deadline) {
@@ -506,18 +507,19 @@ await step('busy foreground auto-moves to background on new user message and rep
     await sleep(300)
   }
   await settle()
-  return { oldSid, newSid, movedTask }
-}, ({ oldSid, newSid, movedTask }, calls) => {
+  return { oldSid, newSid, moved, movedTask }
+}, ({ oldSid, newSid, moved, movedTask }, calls) => {
   const outputs = calls.flatMap(call => call.out ?? []).filter(block => block.type === 'text').map(block => block.text)
   const slowDone = outputs.find(line => line.includes('慢活已完成'))
   const fgReport = outputs.find(line => line.includes('已收到后台任务汇报') && line.includes('慢活已完成'))
   return expect(
-    newSid !== oldSid
+    moved?.moved === true
+      && newSid !== oldSid
       && movedTask?.origin === 'fg-handoff'
       && movedTask?.status === 'completed'
       && slowDone !== undefined
       && fgReport !== undefined,
-    `oldSid=${oldSid} newSid=${newSid} movedTask=${JSON.stringify(movedTask)} slowDone=${slowDone} fgReport=${fgReport}`,
+    `oldSid=${oldSid} newSid=${newSid} moved=${JSON.stringify(moved)} movedTask=${JSON.stringify(movedTask)} slowDone=${slowDone} fgReport=${fgReport}`,
   )
 })
 

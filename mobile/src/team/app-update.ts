@@ -2,7 +2,7 @@
 // discovery, mandatory SHA-256 checksum extraction, and release-note cleanup.
 // Kept React-Native-free so unit tests run directly under Node 24.
 
-export const REPO = 'Fei2411/DS-Bot'
+export const REPO = 'Fei-Craft/DS-Bot'
 export const RELEASES_API_URL = `https://api.github.com/repos/${REPO}/releases?per_page=20`
 export const LATEST_RELEASE_URL = `https://github.com/${REPO}/releases/latest`
 export const AUTO_CHECK_INTERVAL_MS = 4 * 60 * 60_000

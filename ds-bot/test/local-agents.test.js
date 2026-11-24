@@ -27,7 +27,7 @@ const system = (id, text) => ({ id, role: 'system', content: [{ type: 'text', te
 const toolResult = (id, callId, text, isError = false) => ({ id, role: 'tool', content: [{ type: 'text', text }], toolCallId: callId, isError, source: { kind: 'tool', callId } })
 
 // An adapter wired to the fake CLIs: every engine route spawns `node fixture`.
-function makeAdapter({ records = {}, preset = 'workspace-write', acp = FIXTURES.acp, acpArgs = [], cancelAckTimeoutMs, codex = FIXTURES.codex, codexArgs = [], claude = FIXTURES.claude, claudeArgs = [], cwdFor, attachments, fs, rt, freshMemoryView } = {}) {
+function makeAdapter({ records = {}, preset = 'workspace-write', review = false, acp = FIXTURES.acp, acpArgs = [], cancelAckTimeoutMs, codex = FIXTURES.codex, codexArgs = [], claude = FIXTURES.claude, claudeArgs = [], cwdFor, attachments, fs, rt, freshMemoryView } = {}) {
   const files = { acp, codex, claude }
   const spawned = []
   const adapter = new LocalAgentAdapter({
@@ -47,6 +47,7 @@ function makeAdapter({ records = {}, preset = 'workspace-write', acp = FIXTURES.
     record: sessionId => records[sessionId],
     saveRecord: (sessionId, record) => { records[sessionId] = record },
     presetFor: typeof preset === 'function' ? preset : () => preset,
+    reviewFor: () => review,
     cwdFor: cwdFor ?? (async () => mkdtempSync(join(tmpdir(), 'dsb-cwd-'))),
     probeCwd: () => mkdtempSync(join(tmpdir(), 'dsb-probe-')),
     toolsFor: () => [{ name: 'message_bot', description: 'Message another Bot', parameters: { type: 'object', properties: { bot: { type: 'string' }, text: { type: 'string' } } } }],
@@ -149,6 +150,7 @@ test('a permission prompt bridges to approve_agent_action and fails closed', asy
   const asked = JSON.parse(ask.calls[0].arguments ?? JSON.stringify(ask.calls[0].args))
   assert.equal(asked.action, 'Run `rm -rf /tmp/x`')
   assert.equal(asked.detail ?? '', '')
+  assert.equal(JSON.parse(asked.evidence).rawInput.command, 'rm -rf /tmp/x')
   // An allowed answer picks the agent's allow option: the tool returns its
   // structured decision, and only {"decision":"allow"} counts.
   const allowed = await collect(adapter.stream(options('s1', [user('m1', 'ask-permission'), toolResult('m2', ask.calls[0].id, JSON.stringify({ decision: 'allow' }))])))
@@ -436,6 +438,18 @@ test('acp: full access allows and read-only refuses a change without a card', as
   assert.match(refused.text, /denied/)
 })
 
+test('model review preserves read-only denials and suppresses full-access preset grants', async t => {
+  for (const preset of ['read-only', 'danger-full-access']) {
+    const adapter = makeAdapter({ preset, review: true, acpArgs: ['--cursor-modes'] })
+    t.after(() => adapter.dispose())
+    const result = await collect(adapter.stream(options('s1', [user('m1', 'ask-permission')])))
+    if (preset === 'read-only') {
+      assert.equal(result.calls.length, 0)
+      assert.match(result.text, /denied/)
+    } else assert.equal(result.calls[0]?.name, 'approve_agent_action')
+  }
+})
+
 test('devin: a call to the dsbot server is allowed once without asking; other servers still ask', async (t) => {
   const adapter = makeAdapter()
   t.after(() => adapter.dispose())
@@ -447,11 +461,12 @@ test('devin: a call to the dsbot server is allowed once without asking; other se
   assert.equal(other.calls[0]?.name, 'approve_agent_action')
 })
 
-test('acp: a dsbot call with no one-time allow still asks', async (t) => {
+test('acp: a request with no one-time allow is refused without a misleading approval card', async (t) => {
   const adapter = makeAdapter()
   t.after(() => adapter.dispose())
-  const asked = await collect(adapter.stream(options('s1', [user('m1', 'team-permission always-only')])))
-  assert.equal(asked.calls[0]?.name, 'approve_agent_action')
+  const denied = await collect(adapter.stream(options('s1', [user('m1', 'team-permission always-only')])))
+  assert.equal(denied.calls.length, 0)
+  assert.match(denied.text, /denied/)
 })
 
 test('acp: the preset picks among the modes the session lists', async (t) => {
@@ -517,6 +532,51 @@ test('codex app-server: thread per session, models from model/list', async (t) =
   const out = await collect(adapter.stream(options('s1', [user('m1', 'fix it')], { provider: 'local-codex-cli' })))
   assert.match(out.text, /fix it/)
   assert.match(out.thinking, /▸/)
+})
+
+test('codex app-server: failed thread start closes the bridge so the same session can retry', async (t) => {
+  const codexArgs = ['--fail-start']
+  const adapter = makeAdapter({ codexArgs })
+  t.after(() => adapter.dispose())
+  const request = options('s1', [user('m1', 'list-team-tools')], { provider: 'local-codex-cli' })
+  const live = await adapter.liveFor(request, adapter.deps.presetFor('s1'))
+  await live.engine.ensure()
+  const child = live.engine.child
+
+  await assert.rejects(collect(adapter.stream(request)), /thread start failed/)
+  assert.equal(live.mcp.server.listening, false)
+  assert.ok(child.exitCode !== null || child.signalCode !== null)
+  assert.equal(adapter.live.has('s1'), false)
+
+  codexArgs.length = 0
+  const out = await collect(adapter.stream(request))
+  assert.equal(out.text, 'message_bot')
+  assert.equal(out.finish.kind, 'stop')
+})
+
+test('codex app-server: idle resume reconnects team tools without disturbing another conversation', async (t) => {
+  const records = {}
+  const adapter = makeAdapter({ records })
+  t.after(() => adapter.dispose())
+  const listTools = async (sessionId, ...ids) => (await collect(adapter.stream(options(
+    sessionId, ids.map(id => user(id, 'list-team-tools')), { provider: 'local-codex-cli' },
+  )))).text
+  assert.equal(await listTools('a', 'm1'), 'message_bot')
+  assert.equal(await listTools('b', 'm1'), 'message_bot')
+  const a = adapter.live.get('a')
+  const b = adapter.live.get('b')
+  const threadId = records.a.cliSessionId
+  const aProcess = a.engine.child
+  const bProcess = b.engine.child
+
+  await adapter.closeLive(a, { idle: true })
+  assert.equal(a.mcp.server.listening, false)
+  assert.equal(await listTools('a', 'm1', 'm2'), 'message_bot')
+  assert.ok(aProcess.exitCode !== null || aProcess.signalCode !== null)
+  assert.equal(records.a.cliSessionId, threadId)
+  assert.equal(adapter.live.get('a').engineSession.resumed, true)
+  assert.equal(await listTools('b', 'm1', 'm2'), 'message_bot')
+  assert.equal(adapter.live.get('b').engine.child, bProcess)
 })
 
 // #1144: Codex 0.166 reads ThreadStartParams at the top level and the MCP servers from

@@ -113,6 +113,14 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     stopTask: (botId, taskId) => after(call('bot-stop-task', { botId, taskId })),
     sendTask: (botId, taskId, text) => after(call('bot-task-send', { botId, taskId, text })),
     readTask: (botId, taskId, cursor, steps = false) => call('bot-task-read', { botId, taskId, ...(cursor ? { cursor } : {}), ...(steps ? { steps: true } : {}) }),
+    moveToBackground: (botId, sessionId, expectedTurn) => after(call('bot-move-to-background', {
+      botId,
+      ...(sessionId ? { sessionId } : {}),
+      ...(typeof expectedTurn === 'number' ? { expectedTurn } : {}),
+      operationId: typeof globalThis.crypto?.randomUUID === 'function'
+        ? globalThis.crypto.randomUUID()
+        : `bg-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    })),
     // A side chat on the panel's own view, opened from the strip, the `···`
     // menus or `/side`. Closing the panel keeps the chats; only a tab's × deletes.
     openSideChat,

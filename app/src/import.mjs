@@ -178,11 +178,38 @@ function cpSeen(source, target, { filter = () => true, seen, ...options }) {
 }
 
 async function copySessionDirs(from, to, sessions, signal, seen, each = () => {}) {
-  for (const [index, { id, group }] of sessions.entries()) {
-    signal?.throwIfAborted()
-    await cpSeen(join(from, 'sessions', group, id), join(to, 'sessions', group, id), { recursive: true, seen })
-    each(index + 1, sessions.length)
+  // Keep the original order if two IDs could address the same path or nest inside each other.
+  const names = new Set()
+  const distinct = sessions.every(({ id }) => {
+    const name = id.toLowerCase()
+    if (!/^[A-Za-z0-9_-]+$/u.test(id) || names.has(name)) return false
+    names.add(name)
+    return true
+  })
+  let next = 0
+  let done = 0
+  let failure
+  const reportBytes = seen === undefined || signal === undefined ? seen : (size) => {
+    if (!signal.aborted) seen(size)
   }
+  const worker = async () => {
+    while (failure === undefined && next < sessions.length) {
+      const index = next++
+      const { id, group } = sessions[index]
+      try {
+        signal?.throwIfAborted()
+        await cpSeen(join(from, 'sessions', group, id), join(to, 'sessions', group, id), { recursive: true, seen: reportBytes })
+        if (signal?.aborted) return
+        each(++done, sessions.length)
+      } catch (error) {
+        if (failure === undefined || index < failure.index) failure = { index, error }
+      }
+    }
+  }
+  // The caller can remove the destination as soon as this returns or throws.
+  await Promise.all(Array.from({ length: Math.min(distinct ? 4 : 1, sessions.length) }, worker))
+  if (failure !== undefined) throw failure.error
+  signal?.throwIfAborted()
 }
 
 async function moveSessionDirs(stage, to, sessions, signal) {
@@ -196,7 +223,7 @@ async function moveSessionDirs(stage, to, sessions, signal) {
 }
 
 /**
- * Copy the team's Sessions into the DSH home `to`, as they lie in `from`; an abort stops it between Sessions.
+ * Copy the team's Sessions into the DSH home `to`, as they lie in `from`; an abort lets active copies finish before rejecting.
  * @param {string} from @param {any} team @param {string} to @param {AbortSignal} [signal]
  * @param {(done: number, total: number) => void} [onProgress] after each Session
  * @returns {Promise<string[]>} their ids

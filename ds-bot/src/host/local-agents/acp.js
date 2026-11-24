@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { JsonRpcPeer, wireProcess, EventQueue } from './jsonrpc.js'
-import { cleanEnv, findEngineExecutable, spawnAgent, terminateChild } from './discover.js'
+import { PROBE_FORCE_KILL_AFTER_MS, cleanEnv, findEngineExecutable, probeEnv, spawnAgent, terminateChild } from './discover.js'
 import { acpMode } from './engines.js'
 
 const CLIENT = { name: 'ds-bot', version: '1' }
@@ -46,7 +46,7 @@ const REPORTED_TOOL_CALLS_MAX = 1_000
 // {type:'context',used?,size?} (how full the CLI's own context is) |
 // {type:'compaction',status:'started'|'completed'|'failed'}
 export class AcpEngine {
-  constructor(route, engine, { findExecutable, defaultEfforts = new Map(), sessionEfforts, cancelAckTimeoutMs = CANCEL_ACK_TIMEOUT_MS }) {
+  constructor(route, engine, { findExecutable, defaultEfforts = new Map(), sessionEfforts, cancelAckTimeoutMs = CANCEL_ACK_TIMEOUT_MS, onListedUpdate } = {}) {
     this.route = route
     this.engine = engine
     this.findExecutable = findExecutable
@@ -54,6 +54,7 @@ export class AcpEngine {
     this.ownsSessionEfforts = sessionEfforts === undefined
     this.sessionEfforts = sessionEfforts ?? new Map()
     this.cancelAckTimeoutMs = cancelAckTimeoutMs
+    this.onListedUpdate = onListedUpdate
     this.hasModelConfig = false
     this.child = undefined
     this.peer = undefined
@@ -62,6 +63,9 @@ export class AcpEngine {
     this.caps = {}
     // The modes, options and models this CLI listed last, for a reply that lists none.
     this.listed = { modes: [], configOptions: [], models: [] }
+    // Monotonic generation incremented on live updates and cache invalidations so a
+    // slow background probe never overwrites fresher capabilities or models.
+    this.listedEpoch = 0
     // The commands each agent session lists, by the agent's session id.
     this.commands = new Map()
     // For CLIs whose commands follow their process cwd (`cwdPerProcess`): one
@@ -122,7 +126,13 @@ export class AcpEngine {
     return new AcpEngine(
       this.route,
       { ...this.engine, cwdPerProcess: false, ...(cwd ? { spawnCwd: cwd } : {}) },
-      { findExecutable: this.findExecutable, defaultEfforts: new Map(this.defaultEfforts), sessionEfforts: this.sessionEfforts, cancelAckTimeoutMs: this.cancelAckTimeoutMs },
+      {
+        findExecutable: this.findExecutable,
+        defaultEfforts: new Map(this.defaultEfforts),
+        sessionEfforts: this.sessionEfforts,
+        cancelAckTimeoutMs: this.cancelAckTimeoutMs,
+        onListedUpdate: update => this.remember(update),
+      },
     )
   }
 
@@ -130,11 +140,12 @@ export class AcpEngine {
     return session?._worker ?? (dshSessionId !== undefined ? this.sessionWorkers.get(dshSessionId) : undefined)
   }
 
-  async ensure() {
+  async ensure({ probe = false } = {}) {
+    if (this.retired) throw Object.assign(new Error(`${this.engine.name} worker is closed`), { code: 'LOCAL_AGENT_EXIT' })
     // A peer exists before its handshake has finished; other callers wait for it.
     if (this.starting !== undefined) return this.starting
     if (this.peer !== undefined) return this.peer
-    const starting = this.startPeer()
+    const starting = this.startPeer({ probe })
     this.starting = starting
     try {
       return await starting
@@ -143,14 +154,14 @@ export class AcpEngine {
     }
   }
 
-  async startPeer() {
+  async startPeer({ probe = false } = {}) {
     const bin = findEngineExecutable(this.engine, name => this.findExecutable(name))
     if (bin === undefined) throw Object.assign(new Error(`${this.engine.name} is not installed`), { code: 'NO_ADAPTER' })
     this.bin = bin
     const spawnCwd = this.engine.spawnCwd && existsSync(this.engine.spawnCwd) ? this.engine.spawnCwd : undefined
     const child = spawnAgent(bin, this.engine.args ?? [], {
       ...(spawnCwd !== undefined ? { cwd: spawnCwd } : {}),
-      env: cleanEnv(this.engine.env ?? {}),
+      env: (probe ? probeEnv : cleanEnv)(this.engine.env ?? {}),
       stdio: ['pipe', 'pipe', 'inherit'],
       windowsHide: true,
     })
@@ -204,7 +215,7 @@ export class AcpEngine {
       if (this.child === child) {
         this.child = undefined
         this.peer = undefined
-        terminateChild(child)
+        terminateChild(child, probe ? { forceKillAfterMs: PROBE_FORCE_KILL_AFTER_MS } : undefined)
       }
       throw error
     }
@@ -226,13 +237,10 @@ export class AcpEngine {
   }
 
   sessionFor(dshSessionId) {
-    let session = this.sessions.get(dshSessionId)
-    // A session whose process exited keeps its queue and, with it, the pump
-    // still waiting there: a reopened session needs a fresh one.
-    if (session === undefined || session.dead) {
-      session = this.createSession(dshSessionId)
-      this.sessions.set(dshSessionId, session)
-    }
+    // Each open owns its queue. A forgotten attempt may finish after its replacement;
+    // sharing this object would let the stale cleanup unregister the replacement.
+    const session = this.createSession(dshSessionId)
+    this.sessions.set(dshSessionId, session)
     return session
   }
 
@@ -290,6 +298,7 @@ export class AcpEngine {
             }
           }
         }
+        if (call.status !== 'pending' && !['read', 'search', 'think'].includes(call.kind)) session.cwd = undefined
         const team = ownToolCall(call)
         const described = describeCall(call)
         const reported = id !== undefined && session.reportedToolCalls.has(id)
@@ -342,6 +351,12 @@ export class AcpEngine {
         if (Array.isArray(update.configOptions)) {
           session.configOptions = update.configOptions
           session.modes = update.modes?.availableModes ?? configOptionsOf(update.configOptions, 'mode')?.options ?? session.modes
+          if (update.configOptions.length > 0) {
+            this.remember(update)
+            this.onListedUpdate?.(update)
+            const discovered = modelsFromProbe(update)
+            if (discovered.length > 0) session.push({ type: 'models', models: discovered })
+          }
         }
         break
       }
@@ -364,16 +379,22 @@ export class AcpEngine {
       const once = ownToolCall(call) ? options.find(option => option.kind === 'allow_once') : undefined
       if (once !== undefined) return Promise.resolve({ outcome: { outcome: 'selected', optionId: once.optionId } })
       const action = describeCall(call)
+      const evidence = JSON.stringify(call)
       return new Promise((resolve) => {
         const id = `perm-${Math.random().toString(36).slice(2)}`
         const reply = (optionId) => {
           if (optionId === null) resolve({ outcome: { outcome: 'cancelled' } })
-          else resolve({ outcome: { outcome: 'selected', optionId } })
+          else {
+            if (options.some(option => option.optionId === optionId && option.kind?.startsWith('allow'))
+              && !['read', 'search', 'think'].includes(call.kind)) session.cwd = undefined
+            resolve({ outcome: { outcome: 'selected', optionId } })
+          }
         }
         session.push({
-          type: 'permission', id, reply,
+          type: 'permission', id, reply, cwd: session.cwd,
           action,
           detail: detailText(call, action),
+          evidence,
           options,
           changes: CHANGE_KINDS.has(call.kind),
         })
@@ -418,6 +439,11 @@ export class AcpEngine {
       session._worker = worker
       this.sessionWorkers.set(dshSessionId, worker)
       this.caps.image = worker.caps.image
+      this.remember({
+        configOptions: worker.listed.configOptions,
+        modes: { availableModes: worker.listed.modes },
+        models: { availableModels: worker.listed.models },
+      })
       if (retiredPrev !== undefined) void retiredPrev.close().catch(() => {})
       return session
     } finally {
@@ -491,14 +517,13 @@ export class AcpEngine {
     if (this.engine.cwdPerProcess) return this.openInWorker(dshSessionId, openArgs)
     const { cwd, mcp, resumeId, resumeOnly = false, preset, model } = openArgs
     const peer = await this.ensure()
-    const prior = this.sessions.get(dshSessionId)
-    const created = prior === undefined || prior.dead
     const session = this.sessionFor(dshSessionId)
     try {
       const { reply, loaded } = resumeId !== undefined
         ? await this.loadSession(peer, { cwd, mcp, resumeId, resumeOnly })
         : { reply: await this.newSession(peer, { cwd, mcp }), loaded: false }
       session.acpSessionId = reply?.sessionId ?? resumeId
+      session.cwd = cwd
       session.resumed = loaded
       const loadedEffort = configOptionsOf(reply?.configOptions ?? [], 'thought_level')?.currentValue
       // Some agents list nothing on session/load: the session reads what this CLI
@@ -537,7 +562,7 @@ export class AcpEngine {
       }
       return session
     } catch (error) {
-      if (created && this.sessions.get(dshSessionId) === session) this.sessions.delete(dshSessionId)
+      if (this.sessions.get(dshSessionId) === session) this.sessions.delete(dshSessionId)
       throw error
     }
   }
@@ -714,7 +739,7 @@ export class AcpEngine {
     this.sessions.delete(dshSessionId)
   }
 
-  async close() {
+  async close({ forceKillAfterMs } = {}) {
     for (const pending of this.pendingOpens.values()) {
       for (const token of pending) token.forgotten = true
     }
@@ -727,7 +752,7 @@ export class AcpEngine {
     }
     this.workers.clear()
     this.sessionWorkers.clear()
-    await Promise.all([...toClose].map(worker => worker.close().catch(() => {})))
+    await Promise.all([...toClose].map(worker => worker.close({ forceKillAfterMs }).catch(() => {})))
     for (const session of this.sessions.values()) {
       if (session?.acpSessionId !== undefined) this.sessionEfforts.delete(session.acpSessionId)
     }
@@ -740,24 +765,56 @@ export class AcpEngine {
     this.peer = undefined
     this.starting = undefined
     peer?.close?.(new Error(`${this.engine.name} closed`))
-    terminateChild(child)
+    terminateChild(child, forceKillAfterMs === undefined ? undefined : { forceKillAfterMs })
   }
 
-  remember(reply) {
-    const configOptions = reply?.configOptions
+  invalidateListed() {
+    // Advance generation to reject late pre-refresh probes without wiping already-
+    // discovered modes needed by concurrent session/load resumes before re-probe completes.
+    this.listedEpoch += 1
+    this.listed = { ...this.listed, models: [] }
+    for (const worker of this.workers.values()) worker.invalidateListed()
+  }
+
+  remember(reply, { epoch } = {}) {
+    if (epoch !== undefined && epoch !== this.listedEpoch) return this.listed
+    const configOptions = Array.isArray(reply?.configOptions) && reply.configOptions.length > 0 ? reply.configOptions : undefined
     if (configOptionsOf(configOptions ?? [], 'model') !== undefined) this.hasModelConfig = true
-    const modes = reply?.modes?.availableModes ?? configOptionsOf(configOptions ?? [], 'mode')?.options
-    const models = reply?.models?.availableModels
-    this.listed = {
-      configOptions: configOptions ?? this.listed.configOptions,
-      modes: modes ?? this.listed.modes,
-      models: models ?? this.listed.models,
+    const rawModes = reply?.modes?.availableModes ?? configOptionsOf(configOptions ?? [], 'mode')?.options
+    const modes = Array.isArray(rawModes) && rawModes.length > 0 ? rawModes : undefined
+    const rawModels = reply?.models?.availableModels
+    const models = Array.isArray(rawModels) && rawModels.length > 0 ? rawModels : undefined
+    if (configOptions !== undefined || modes !== undefined || models !== undefined) {
+      this.listedEpoch += 1
+      this.listed = {
+        configOptions: configOptions ?? this.listed.configOptions,
+        modes: modes ?? this.listed.modes,
+        models: models ?? this.listed.models,
+      }
     }
     return this.listed
   }
 
+  discoveredModels(session) {
+    return modelsFromProbe({
+      configOptions: session?.configOptions,
+      models: Array.isArray(session?.models) ? { availableModels: session.models } : undefined,
+    })
+  }
+
+  async probeOnOwnPeer({ cwd, mcp, probe }) {
+    const peer = await this.ensure({ probe })
+    const reply = await this.newSession(peer, { cwd, mcp })
+    if (reply?.sessionId !== undefined) {
+      this.commands.delete(reply.sessionId)
+      if (this.caps.close) await peer.request('session/close', { sessionId: reply.sessionId }, { timeout: 15_000 }).catch(() => {})
+    }
+    return reply
+  }
+
   // Models (and per-model thinking levels) the agent advertises on a probe session.
   async listModels({ cwd, mcp }) {
+    const epoch = this.listedEpoch
     if (this.engine.cwdPerProcess) {
       const live = this.activeWorker()
       if (live !== undefined) {
@@ -765,8 +822,17 @@ export class AcpEngine {
         try {
           const target = live.engine.spawnCwd && existsSync(live.engine.spawnCwd) ? live.engine.spawnCwd : cwd
           const models = await live.listModels({ cwd: target, mcp })
-          this.caps.image = live.caps.image
-          return models
+          if (this.listedEpoch === epoch) {
+            this.caps.image = live.caps.image
+            this.remember({
+              configOptions: live.listed.configOptions,
+              modes: { availableModes: live.listed.modes },
+              models: { availableModels: live.listed.models },
+            }, { epoch })
+            return models
+          }
+          const fresher = modelsFromProbe({ configOptions: this.listed.configOptions, models: { availableModels: this.listed.models } })
+          return fresher.length > 0 ? fresher : models
         } finally {
           live.inFlight -= 1
           if (this.maybeRetireWorker(live)) await live.close().catch(() => {})
@@ -775,22 +841,53 @@ export class AcpEngine {
       const temp = this.spawnWorker(cwd)
       this.probeWorkers.add(temp)
       try {
-        const models = await temp.listModels({ cwd, mcp })
-        this.caps.image = temp.caps.image
-        return models
+        const reply = await temp.probeOnOwnPeer({ cwd, mcp, probe: true })
+        const models = modelsFromProbe(reply)
+        if (this.listedEpoch === epoch) {
+          this.caps.image = temp.caps.image
+          this.remember(reply, { epoch })
+          return models
+        }
+        const fresher = modelsFromProbe({ configOptions: this.listed.configOptions, models: { availableModels: this.listed.models } })
+        return fresher.length > 0 ? fresher : models
       } finally {
         this.probeWorkers.delete(temp)
-        await temp.close().catch(() => {})
+        await temp.close({ forceKillAfterMs: PROBE_FORCE_KILL_AFTER_MS }).catch(() => {})
       }
     }
-    const peer = await this.ensure()
-    const probe = await this.newSession(peer, { cwd, mcp })
-    if (probe?.sessionId !== undefined) {
-      this.commands.delete(probe.sessionId)
-      if (this.caps.close) await peer.request('session/close', { sessionId: probe.sessionId }, { timeout: 15_000 }).catch(() => {})
+    // Reuse an already-running live peer when present. Otherwise run the probe in
+    // an isolated temporary process with probeEnv so a concurrent live session open
+    // never inherits MISE_OFFLINE=1 on the shared engine peer.
+    if (this.peer !== undefined || this.starting !== undefined) {
+      const probe = await this.probeOnOwnPeer({ cwd, mcp, probe: false })
+      const stale = this.listedEpoch !== epoch
+      this.remember(probe, { epoch })
+      if (stale) {
+        const fresher = modelsFromProbe({ configOptions: this.listed.configOptions, models: { availableModels: this.listed.models } })
+        if (fresher.length > 0) return fresher
+      }
+      return modelsFromProbe(probe)
     }
-    this.remember(probe)
-    return modelsFromProbe(probe)
+    const temp = new AcpEngine(
+      this.route,
+      { ...this.engine, cwdPerProcess: false },
+      { findExecutable: this.findExecutable, defaultEfforts: new Map(this.defaultEfforts), sessionEfforts: this.sessionEfforts, cancelAckTimeoutMs: this.cancelAckTimeoutMs },
+    )
+    this.probeWorkers.add(temp)
+    try {
+      const probe = await temp.probeOnOwnPeer({ cwd, mcp, probe: true })
+      const stale = this.listedEpoch !== epoch
+      if (!stale) {
+        this.caps.image = temp.caps.image
+        this.remember(probe, { epoch })
+        return modelsFromProbe(probe)
+      }
+      const fresher = modelsFromProbe({ configOptions: this.listed.configOptions, models: { availableModels: this.listed.models } })
+      return fresher.length > 0 ? fresher : modelsFromProbe(probe)
+    } finally {
+      this.probeWorkers.delete(temp)
+      await temp.close({ forceKillAfterMs: PROBE_FORCE_KILL_AFTER_MS }).catch(() => {})
+    }
   }
 }
 

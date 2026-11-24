@@ -282,7 +282,11 @@ test('a click captures a download started asynchronously after 120 ms', async (t
   assert.match(result, /Downloaded "report.csv" to /)
   assert.deepEqual(await files(), ['report.csv'])
   assert.equal(await readFile(join(directory, 'report.csv'), 'utf8'), 'id,name\n1,fixture\n')
-  assert.deepEqual(actions, [{ kind: 'download', label: 'report.csv', origin: 'https://reports.example.test', host: 'reports.example.test' }])
+  assert.deepEqual(actions, [{
+    kind: 'download', label: 'report.csv', origin: 'https://reports.example.test', host: 'reports.example.test',
+    sourceUrl: 'https://reports.example.test/report.csv', sourceOrigin: 'https://reports.example.test',
+    sourceHost: 'reports.example.test', sourceProtocol: 'https:', directory, evidenceComplete: true,
+  }])
   assert.equal(incoming.canceled, 0)
 })
 
