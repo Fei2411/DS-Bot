@@ -2251,6 +2251,19 @@ test('reply origin: a Web turn does not reach IM', async (t) => {
   assert.equal(s.fake.sent.length, 0)
 })
 
+test('API turns cannot acquire an IM origin from input arriving during their output', async t => {
+  const s = await start()
+  t.after(s.stop)
+  await pairedConn(s)
+  s.emitEvent('a', 'turn/start', {})
+  s.emitEvent('a', 'user/message', { source: { kind: 'user', rpcId: 'api:key:run' }, content: [{ type: 'text', text: 'API work' }] })
+  await dm(s, 'u1', 'IM input after API admission')
+  s.emitEvent('a', 'user/message', { source: { kind: 'user', rpcId: s.prompts.at(-1).requestId }, content: [{ type: 'text', text: 'IM input' }] })
+  s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'API-only output' }] } })
+  await s.flush()
+  assert.equal(s.fake.sent.some(entry => entry.text.includes('API-only output')), false)
+})
+
 test('reply origin: a peer Bot message and a scheduled task do not reach IM', async (t) => {
   const s = await start()
   t.after(s.stop)
