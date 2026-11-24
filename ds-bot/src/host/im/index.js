@@ -560,6 +560,25 @@ export function install(rt) {
   const sendStatuses = new Map()
   const failedSends = new Map()
   const pendingSends = new Map()
+  const outboundWork = new Set()
+  const trackOutbound = (work) => {
+    outboundWork.add(work)
+    const done = () => { outboundWork.delete(work) }
+    work.then(done, done)
+    return work
+  }
+  const imWhenIdle = async () => {
+    // Dispatch and drains can add work on a different chat while we wait.
+    do {
+      await Promise.allSettled(outboundWork)
+    } while (outboundWork.size > 0)
+  }
+  const clearSendRetry = (queue) => {
+    if (queue.retry === undefined) return
+    clearTimeout(queue.retry.timer)
+    queue.retry.resolve()
+    queue.retry = undefined
+  }
   const setPendingSend = (id, chatKey, entry) => {
     let chats = pendingSends.get(id)
     if (chats === undefined) pendingSends.set(id, chats = new Map())
@@ -974,7 +993,7 @@ export function install(rt) {
     const waiterDone = settled?.waiter !== undefined && current === settled.waiter.runner && (current.queues.get(chatKey)?.jobs.length ?? 0) === 0
     if (activeDone || waiterDone) setSendStatus(id, chatKey, undefined)
   }
-  const drain = async (conn, chatKey) => {
+  const drainQueue = async (conn, chatKey) => {
     const runner = runners.get(conn.id)
     const queue = runner?.queues.get(chatKey)
     // A reserved slot has no handle until connect() lands; start() re-kicks
@@ -984,8 +1003,7 @@ export function install(rt) {
     // flag, weixin today) needs what it sent kept; elsewhere the reply text
     // would sit in the runtime file and never be read.
     const remembersSent = adapters[conn.platform]?.quote === true
-    clearTimeout(queue.retry)
-    queue.retry = undefined
+    clearSendRetry(queue)
     queue.draining = true
     try {
       while (!runner.stopped && queue.jobs.length > 0) {
@@ -1044,8 +1062,11 @@ export function install(rt) {
               const backoff = Math.min(RETRY_MS * 2 ** (job.attempts - 1), RETRY_MAX_MS)
               const asked = Number(error?.retryAfter) > 0 ? Math.min(error.retryAfter * 1000, RETRY_MAX_MS) : backoff
               setSendStatus(conn.id, chatKey, { state: 'retrying', error: failMessage(error) })
-              queue.retry = setTimeout(() => { void drain(conn, chatKey) }, asked)
-              queue.retry.unref?.()
+              const retry = Promise.withResolvers()
+              const timer = setTimeout(() => { void drain(conn, chatKey) }, asked)
+              timer.unref?.()
+              queue.retry = { timer, resolve: retry.resolve }
+              trackOutbound(retry.promise)
               return
             }
             // A failed job keeps its delivery callback: Try again resumes the same
@@ -1086,6 +1107,7 @@ export function install(rt) {
       queue.draining = false
     }
   }
+  const drain = (conn, chatKey) => trackOutbound(drainQueue(conn, chatKey))
   // Per-chat staging chain: keeps async local-image resolution ordered ahead of
   // subsequent replies and cards on the same chat without delaying plain-text sends.
   const outboundStages = new Map()
@@ -1096,7 +1118,7 @@ export function install(rt) {
     outboundStages.set(stageKey, next)
     const cleanup = () => { if (outboundStages.get(stageKey) === next) outboundStages.delete(stageKey) }
     next.then(cleanup, cleanup)
-    return next
+    return trackOutbound(next)
   }
   const enqueueAfterStage = (conn, chatKey, job) => {
     const stageKey = `${conn.id}:${chatKey}`
@@ -1680,7 +1702,7 @@ export function install(rt) {
     }
   }
 
-  const diffCards = async () => {
+  const dispatchCards = async () => {
     if (rt.readOnly() !== undefined) return
     for (const conn of Object.values(connections())) {
       const runner = runners.get(conn.id)
@@ -1740,6 +1762,7 @@ export function install(rt) {
       }
     }
   }
+  const diffCards = () => trackOutbound(dispatchCards())
 
   // Buttons drop and the answer shows wherever the card was settled.
   const settledEdits = async (conn) => {
@@ -1839,11 +1862,11 @@ export function install(rt) {
       const handle = adapter.connect(fieldsOf(conn), env, {
         onMessage: (msg) => {
           const current = fresh(conn.id)
-          return current === undefined ? undefined : onMessage(current)(msg).catch(error => rt.warn('ds-bot: im message failed: %s', error))
+          return current === undefined ? undefined : trackOutbound(onMessage(current)(msg).catch(error => rt.warn('ds-bot: im message failed: %s', error)))
         },
         onAction: (action) => {
           const current = fresh(conn.id)
-          return current === undefined ? undefined : onAction(current)(action).catch(error => rt.warn('ds-bot: im action failed: %s', error))
+          return current === undefined ? undefined : trackOutbound(onAction(current)(action).catch(error => rt.warn('ds-bot: im action failed: %s', error)))
         },
         onStatus: onStatus(conn.id),
       })
@@ -1899,8 +1922,7 @@ export function install(rt) {
     }
     const dropped = []
     for (const [chatKey, queue] of runner.queues) {
-      clearTimeout(queue.retry)
-      queue.retry = undefined
+      clearSendRetry(queue)
       const rest = queue.jobs.splice(queue.sending ? 1 : 0)
       const pending = pendingSends.get(id)?.get(chatKey)
       if (!dropOnly && queue.sending && queue.stoppedSend === undefined) {
@@ -1949,7 +1971,7 @@ export function install(rt) {
       await diffCards()
     })
     syncing = run.catch(() => {})
-    return run
+    return trackOutbound(run)
   }
 
   let stopped = false
@@ -2153,8 +2175,7 @@ export function install(rt) {
       }
       for (const [chatKey, queue] of runner?.queues ?? []) {
         if (queue.retry === undefined || queue.draining || queue.jobs.length === 0) continue
-        clearTimeout(queue.retry)
-        queue.retry = undefined
+        clearSendRetry(queue)
         queue.jobs[0].attempts = 0
         setSendStatus(conn.id, chatKey, { state: 'retrying' })
         void drain(conn, chatKey)
@@ -2207,13 +2228,14 @@ export function install(rt) {
     },
   }
 
-  const imEndpoint = async (endpoint, body) => {
+  const dispatchEndpoint = async (endpoint, body) => {
     const result = await endpoints[endpoint]?.(body ?? {})
     if (result === undefined) throw new Error(`Unknown endpoint ${endpoint}`)
     if (endpoint !== 'im-retry') void sync()
     void diffCards()
     return result
   }
+  const imEndpoint = (endpoint, body) => trackOutbound(dispatchEndpoint(endpoint, body))
 
   // ------------------------------------------------------------------ im via
   // IM-originated user messages, keyed by session and event seq, so the client
@@ -2503,13 +2525,13 @@ export function install(rt) {
 
   rt.onApproval((kind, data) => {
     if (kind === 'open') {
-      void (async () => {
+      void trackOutbound((async () => {
         const origin = approvalOrigin(data)
         if (origin === undefined) return
         const bot = rt.botOf(data.botId)
         const buttons = imPlatform(origin.conn.platform)?.buttons === true ? cardButtons.approval(data.id) : undefined
         await sendCard(origin.conn, `a:${data.id}`, [{ chatKey: origin.chatKey, chat: origin.chat }], cardText.approval(bot?.name ?? '?', data), buttons, true)
-      })().catch(error => rt.warn('ds-bot: im approval card failed: %s', error))
+      })().catch(error => rt.warn('ds-bot: im approval card failed: %s', error)))
       return
     }
     if (kind !== 'settled') return
@@ -2529,10 +2551,10 @@ export function install(rt) {
   let interval
   ctx.effect(() => {
     interval = setInterval(() => {
-      void rt.refresh().then(() => sync()).catch(() => {})
+      void trackOutbound(rt.refresh().then(() => sync()).catch(() => {}))
     }, RECONCILE_MS)
     interval.unref?.()
-    void rt.load().then(() => sync()).catch(() => {})
+    void trackOutbound(rt.load().then(() => sync()).catch(() => {}))
     return () => {
       stopped = true
       clearInterval(interval)
@@ -2550,5 +2572,5 @@ export function install(rt) {
     return [id, { state: status.state, ...(status.error !== undefined ? { error: status.error } : {}), at: status.at }]
   }))
 
-  Object.assign(rt, { imView, imStatusView, imViaView, imEndpoint, holdImOrigin, peekImOrigin, dropImOrigin, captureImOrigin, clearImOrigin, clearRoomWebRound, taintRoomImOrigin, classifyRoomUserSource })
+  Object.assign(rt, { imView, imStatusView, imViaView, imEndpoint, imWhenIdle, holdImOrigin, peekImOrigin, dropImOrigin, captureImOrigin, clearImOrigin, clearRoomWebRound, taintRoomImOrigin, classifyRoomUserSource })
 }

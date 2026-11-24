@@ -1159,7 +1159,10 @@ test('handoffs.js sweeps expired pairLoops, clears whole cache on adopt, and dro
   assert.equal(existsSync(join(home, 'state.json')), false, 'state.json does not exist on disk')
 
   rt.closeWork('parent-drop', 'Chief', 'all done')
-  await new Promise(resolve => setTimeout(resolve, 20))
+  const deadline = Date.now() + 3000
+  while (existsSync(droppedPath) && Date.now() < deadline) {
+    await new Promise(resolve => setTimeout(resolve, 20))
+  }
   assert.equal(existsSync(droppedPath), false, 'closeWork on parent must delete result file once onSaved fires')
 })
 
@@ -1938,13 +1941,13 @@ test('memory-review.js deleting a Bot while its review is queued does not reject
   }
   assert.equal(typeof releaseFirst, 'function', 'review for a is in-flight')
 
+  t.mock.timers.enable({ apis: ['setTimeout'] })
   onStatus({ agent: { id: 'b' }, status: 'running' })
   onStatus({ agent: { id: 'b' }, status: 'idle' })
   onStatus({ agent: { id: 'c' }, status: 'running' })
   onStatus({ agent: { id: 'c' }, status: 'idle' })
-  // Wait strictly past the 10ms debounce timers (ordered in libuv's timer heap after b and c)
-  // so both b and c have entered reviewQueue before archiving b.
-  await new Promise(resolve => setTimeout(resolve, 35))
+  t.mock.timers.tick(rt.config.memoryReviewDelayMs)
+  t.mock.timers.reset()
 
   // Delete 'b' while its review is queued -> archiveBotMemory calls forgetBotReview -> deletes from reviewQueue without poisoning reviewChain!
   await rt.archiveBotMemory('b')
@@ -2227,4 +2230,3 @@ test('memory-review.js forgetBotReview cancels pending failure retry timers', as
   await new Promise(resolve => setTimeout(resolve, 120))
   assert.equal(attempts, 1, 'forgetBotReview must cancel pending failure retry timer')
 })
-
