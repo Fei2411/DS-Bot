@@ -99,7 +99,7 @@ function blocks(markdown) {
   return out
 }
 
-const codeHtmlOpen = lang => lang ? `<pre><code class="language-${escapeHtml(lang).replaceAll('"', '&quot;')}">` : '<pre><code>'
+const codeHtmlOpen = lang => lang ? `<pre><code class="language-${escapeHtml(lang)}">` : '<pre><code>'
 const renderCodeHtml = block => `${codeHtmlOpen(block.lang)}${escapeHtml(block.lines.join('\n'))}</code></pre>`
 
 const renderPlain = block => (block.kind === 'code' ? block.lines.join('\n') : block.lines.map(inlinePlain).join('\n'))
@@ -143,6 +143,7 @@ function telegramLines(lines, formatBefore) {
       rendered.push({
         html: '• ' + boldInlineHtml(label) + (value ? ' ' + inlineHtml(value) : ''),
         text: '• ' + inlineTablePlain(label) + (value ? ' ' + inlineTablePlain(value) : ''),
+        converted: true,
       })
     }
   }
@@ -174,7 +175,7 @@ function telegramLines(lines, formatBefore) {
     const heading = ATX_HEADING.exec(line)
     const isHeading = heading !== null && !/^#+$/.test(heading[1])
     const content = isHeading ? heading[1].replace(/[ \t]+#+$/, '') : line
-    rendered.push({ html: isHeading ? boldInlineHtml(content) : inlineHtml(content), text: inlinePlain(content) })
+    rendered.push({ html: isHeading ? boldInlineHtml(content) : inlineHtml(content), text: inlinePlain(content), converted: isHeading })
   }
   return rendered
 }
@@ -185,8 +186,7 @@ export function toPlain(markdown) {
 
 const points = text => Array.from(text).length
 
-// Split oversized blocks at line boundaries, using escaped plain text if a line
-// itself is too long. Split a code fence into several fenced blocks.
+// Split oversized blocks at line boundaries and code fences into several fenced blocks.
 function forceCut(block, limit, lines) {
   if (block.kind !== 'code') {
     const chunks = []
@@ -198,7 +198,7 @@ function forceCut(block, limit, lines) {
       html = ''
       text = ''
     }
-    for (const { html: lineHtml, text: lineText } of lines) {
+    for (const { html: lineHtml, text: lineText, converted } of lines) {
       const candidate = html === '' ? lineHtml : `${html}\n${lineHtml}`
       if (points(candidate) <= limit) {
         html = candidate
@@ -209,6 +209,23 @@ function forceCut(block, limit, lines) {
       if (points(lineHtml) <= limit) {
         html = lineHtml
         text = lineText
+        continue
+      }
+      if (!converted) {
+        // Keep the legacy cuts for lines not changed by heading or table formatting.
+        const htmlChars = Array.from(lineHtml)
+        const textChars = Array.from(lineText)
+        const width = Math.max(1, Math.trunc(limit))
+        let at = 0
+        while (htmlChars.length - at > limit) {
+          chunks.push({
+            html: htmlChars.slice(at, at + width).join(''),
+            text: textChars.slice(at, at + width).join(''),
+          })
+          at += width
+        }
+        html = htmlChars.slice(at).join('')
+        text = textChars.slice(at).join('')
         continue
       }
       let used = 0
@@ -323,8 +340,8 @@ export function chunkTelegram(markdown, limit = 4096) {
   for (const block of blocks(markdown)) {
     let lines = []
     if (block.kind === 'code') {
-      // The legacy scanner can close a wider backtick fence at an inner triple marker.
-      if (block.lang.startsWith('`')) formatProse = false
+      // A legacy opener can be an inline span or a wider fence, not an ordinary code block.
+      if (block.lang.includes('`')) formatProse = false
     } else {
       const fence = formatProse ? block.lines.findIndex(line => FENCE_LIKE.test(line)) : 0
       formatProse = fence === -1

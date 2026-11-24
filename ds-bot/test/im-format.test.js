@@ -89,6 +89,15 @@ test('a triple-backtick line inside a four-backtick fence does not expose headin
   }])
 })
 
+test('a standalone triple-backtick span cannot expose a later fence body', () => {
+  const body = '# Literal comment\n| A | B |\n| --- | --- |\n| x | y |'
+  const markdown = '```run```\n\n```\n' + body + '\n```\nAfter'
+  assert.deepEqual(chunkTelegram(markdown), [{
+    html: '<pre><code class="language-run```"></code></pre>\n' + body + '\n<pre><code>After</code></pre>',
+    text: body + '\nAfter',
+  }])
+})
+
 test('a literal fence with pipes in its info is not a Telegram table row', () => {
   const fence = '  ```sh | label\n# Literal heading\n   ``` '
   const markdown = 'Key | Value\n--- | ---\na | b\n' + fence
@@ -370,6 +379,15 @@ test('an oversized line is hard cut and stays under the limit', () => {
   const chunks = chunkTelegram('y'.repeat(9000), 4096)
   assert.equal(chunks.length, 3)
   for (const chunk of chunks) assert.ok(chunk.html.length <= 4096)
+})
+
+test('an oversized unconverted line preserves the legacy HTML and plain chunk cuts', () => {
+  const markdown = '~~~sh\necho `**keep**` ' + 'x'.repeat(4096) + '\n~~~'
+  assert.deepEqual(chunkTelegram(markdown), [
+    { html: '~~~sh', text: '~~~sh' },
+    { html: 'echo <code>**keep**</code> ' + 'x'.repeat(4069), text: 'echo keep ' + 'x'.repeat(4086) },
+    { html: 'x'.repeat(27) + '\n~~~', text: 'x'.repeat(10) + '\n~~~' },
+  ])
 })
 
 test('chunkMarkdown drops blank lines at the start and end of a message', () => {
