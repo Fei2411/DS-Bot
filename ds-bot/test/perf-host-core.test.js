@@ -2049,7 +2049,11 @@ test('api/index.js starts and stops cleanly when readOnly ownership flips', asyn
 
   readOnlyReason = 'another host'
   await rt.apiReconcile()
-  assert.equal(rt.apiView().status, 'readonly', 'api server must stop cleanly when flipping back to readOnly')
+  assert.equal(rt.apiView().status, 'readonly', 'api server must report readonly after flipping back to readOnly')
+  assert.equal(rt.apiView().boundPort, null, 'api server must clear boundPort after flipping back to readOnly')
+  const checkClosed = createServer()
+  await new Promise((resolve, reject) => checkClosed.once('error', reject).listen(port, '127.0.0.1', resolve))
+  await new Promise(resolve => checkClosed.close(resolve))
 })
 
 test('ledger.js mergeRecords releases writing pin for LRU eviction and concurrent drop does not leak totalBytes', async (t) => {

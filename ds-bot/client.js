@@ -33042,14 +33042,14 @@ function HostContent({ data, prepared, shown, folded, control, loadImage, render
     referenceLabels.length > 0 ? (0, import_react34.createElement)("div", { className: "bt-urefs" }, t("Referenced {labels}", { labels: referenceLabels.join(t(", ")) })) : null
   );
 }
-var USER_ROSTER_FIELDS = ["bots", "byId", "roomsById", "imVia", "apiVia"];
+var USER_ROSTER_FIELDS = ["bots", "byId", "roomsById", "imVia", "apiVia", "api"];
 function UserMessageCell({ node, sessionId, useRoster, actions, renderMessageImages, openFile, openSkill, loadImage, renderFactorySlot }) {
   const data = node.data ?? {};
   const prev = (0, import_react34.useRef)(null);
   const picked = useRoster((value) => {
     if (!projects) {
       const apiName2 = value.apiVia?.[sessionId]?.[data.seq];
-      return (apiName2 ? `api:${apiName2}` : void 0) ?? value.imVia?.[sessionId]?.[data.seq];
+      return (apiName2 ? `api:${apiName2}` : void 0) ?? viaOf2(data.source, value) ?? value.imVia?.[sessionId]?.[data.seq];
     }
     const last = prev.current;
     if (last !== null && value !== null && value !== void 0 && USER_ROSTER_FIELDS.every((key) => last[key] === value[key])) return last;
@@ -33058,12 +33058,11 @@ function UserMessageCell({ node, sessionId, useRoster, actions, renderMessageIma
   });
   const roster = projects ? picked : null;
   const apiName = projects ? roster.apiVia?.[sessionId]?.[data.seq] : void 0;
-  const viaFromRoster = projects ? (apiName ? `api:${apiName}` : void 0) ?? roster.imVia?.[sessionId]?.[data.seq] : picked;
   const prepared = projects ? void 0 : hostContent(data.content, data);
   const text = prepared?.text ?? contentParts(data.content).text;
   const steering = node.kind === "steering";
   const sentAt = Number.isFinite(data.time) ? messageClock(data.time) : void 0;
-  const via = viaOf2(data.source) ?? viaFromRoster;
+  const via = projects ? (apiName ? `api:${apiName}` : void 0) ?? viaOf2(data.source, roster) ?? roster.imVia?.[sessionId]?.[data.seq] : picked;
   const { shown, folded, control } = useFold(text, { markdown: false });
   const row = (0, import_react34.useRef)(null);
   const [toolsOpen, setToolsOpen] = (0, import_react34.useState)(false);

@@ -203,7 +203,7 @@ function HostContent({ data, prepared, shown, folded, control, loadImage, render
     referenceLabels.length > 0 ? h('div', { className: 'bt-urefs' }, t('Referenced {labels}', { labels: referenceLabels.join(t(', ')) })) : null)
 }
 
-const USER_ROSTER_FIELDS = ['bots', 'byId', 'roomsById', 'imVia', 'apiVia']
+const USER_ROSTER_FIELDS = ['bots', 'byId', 'roomsById', 'imVia', 'apiVia', 'api']
 
 // A sent message, or one that joined a running turn ("steering").
 export function UserMessageCell({ node, sessionId, useRoster, actions, renderMessageImages, openFile, openSkill, loadImage, renderFactorySlot }) {
@@ -212,7 +212,7 @@ export function UserMessageCell({ node, sessionId, useRoster, actions, renderMes
   const picked = useRoster((value) => {
     if (!projects) {
       const apiName = value.apiVia?.[sessionId]?.[data.seq]
-      return (apiName ? `api:${apiName}` : undefined) ?? value.imVia?.[sessionId]?.[data.seq]
+      return (apiName ? `api:${apiName}` : undefined) ?? viaOf(data.source, value) ?? value.imVia?.[sessionId]?.[data.seq]
     }
     const last = prev.current
     if (last !== null && value !== null && value !== undefined && USER_ROSTER_FIELDS.every(key => last[key] === value[key])) return last
@@ -221,12 +221,13 @@ export function UserMessageCell({ node, sessionId, useRoster, actions, renderMes
   })
   const roster = projects ? picked : null
   const apiName = projects ? roster.apiVia?.[sessionId]?.[data.seq] : undefined
-  const viaFromRoster = projects ? ((apiName ? `api:${apiName}` : undefined) ?? roster.imVia?.[sessionId]?.[data.seq]) : picked
   const prepared = projects ? undefined : hostContent(data.content, data)
   const text = prepared?.text ?? contentParts(data.content).text
   const steering = node.kind === 'steering'
   const sentAt = Number.isFinite(data.time) ? messageClock(data.time) : undefined
-  const via = viaOf(data.source) ?? viaFromRoster
+  const via = projects
+    ? ((apiName ? `api:${apiName}` : undefined) ?? viaOf(data.source, roster) ?? roster.imVia?.[sessionId]?.[data.seq])
+    : picked
   const { shown, folded, control } = useFold(text, { markdown: false })
   const row = useRef(null)
   // Touch has no hover: a tap on the bubble opens its copy tool, a tap elsewhere closes it.
