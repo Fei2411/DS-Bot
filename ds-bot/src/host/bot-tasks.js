@@ -414,7 +414,7 @@ export function install(rt) {
     return taskSessionIds(task).filter(id => id !== task.from && !inherited.has(id))
   }
 
-  function pruneSettledTasks(bot, keepSessions, queueArchive) {
+  function pruneSettledTasks(bot, keepSessions) {
     const settled = tasksOf(bot).filter(task => !isActiveTask(task))
     const excess = settled.length - MAX_SETTLED_TASKS
     if (excess <= 0) return []
@@ -424,9 +424,7 @@ export function install(rt) {
       if (settling.has(task.id) || delivering.has(task.id) || reportPending(task.id)
         || hasOpenOutgoingWorks(bot, task) || ids.some(id => keepSessions.has(id) || sessionBusy(id))
         || (task.origin === 'fg-handoff' && (handoffing.has(bot.id) || pendingHandoff(bot.id)))) continue
-      if (queueArchive) {
-        state.retiredTasks = [...retiredTasks(), { botId: bot.id, roomId: task.roomId, sessionIds: ownedTaskSessionIds(task), reportFile: task.reportFile }]
-      }
+      state.retiredTasks = [...retiredTasks(), { botId: bot.id, roomId: task.roomId, sessionIds: ownedTaskSessionIds(task), reportFile: task.reportFile }]
       // The logs can outlive both the task and the Bot. Preserve ownership for the
       // privacy checks, including if the user turns privacy on after pruning.
       bot.retiredTaskSessions = [...new Set([...retiredTaskSessionIds(bot), ...ids])]
@@ -476,23 +474,11 @@ export function install(rt) {
       const access = writeAccess()
       if (access === undefined) return
       const pruned = bots.filter(bot => rt.botOf(bot.id) === bot)
-        .flatMap(bot => pruneSettledTasks(bot, keepSessions, access === 'locked'))
+        .flatMap(bot => pruneSettledTasks(bot, keepSessions))
       const pending = retiredTasks().slice()
       if (pruned.length === 0 && (access !== 'locked' || pending.length === 0)) return
       await rt.save({ required: true })
-      if (access === 'unlocked') {
-        // On a filesystem without usable locks, retain the old list and report
-        // cleanup. Only a locked host can commit to touching the DSH Sessions.
-        for (const task of pruned) {
-          if (writeAccess() !== 'unlocked') return
-          for (const id of ownedTaskSessionIds(task)) {
-            if (!hasSessionOwner(id) && !sessionBusy(id) && !isInherited(id)) await cleanPrunedSession(id)
-          }
-          dropReportFile(task.reportFile)
-        }
-        await rt.save({ required: true })
-        return
-      }
+      if (access !== 'locked') return
       let retry = false
       for (const entry of pending) {
         const current = () => ownsRetirement() && retiredTasks().includes(entry)

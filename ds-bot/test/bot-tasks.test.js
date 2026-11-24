@@ -38,11 +38,13 @@ const makeTeam = (over = {}) => ({
   revision: 0,
 })
 
-async function startEnv({ team = makeTeam(), forkImpl, jobsList = () => [], approvalOutcome = 'allowed-once', services = {}, config = {} } = {}) {
-  const home = mkdtempSync(join(tmpdir(), 'ds-bot-tasks-'))
+async function startEnv({ team: seededTeam = makeTeam(), existingHome, forkImpl, jobsList = () => [], approvalOutcome = 'allowed-once', services = {}, config = {} } = {}) {
+  const home = existingHome ?? mkdtempSync(join(tmpdir(), 'ds-bot-tasks-'))
   const workDir = join(home, 'team')
   mkdirSync(workDir, { recursive: true })
-  writeFileSync(join(home, 'state.json'), JSON.stringify(team))
+  const statePath = join(home, 'state.json')
+  if (existingHome === undefined) writeFileSync(statePath, JSON.stringify(seededTeam))
+  const team = existingHome === undefined ? seededTeam : JSON.parse(readFileSync(statePath, 'utf8'))
   const approvalRequests = []
   const presetApplies = []
   const ctx = fakeContext({
@@ -349,7 +351,7 @@ test('an idle pruned task Session retries a failed archive without new activity'
   assert.equal(existsSync(report), false)
 })
 
-test('a host with an unusable write lock still prunes and removes old reports', async (t) => {
+test('a host with an unusable write lock keeps reports and pending archives for a later host', async (t) => {
   const team = makeTeam()
   team.bots.a.tasks = settledTasks(52)
   for (const task of team.bots.a.tasks) task.reportFile = `${task.id}.txt`
@@ -373,8 +375,19 @@ test('a host with an unusable write lock still prunes and removes old reports', 
   await env.rt.reconcileTasksAfterRestart()
   const saved = JSON.parse(readFileSync(env.rt.statePath, 'utf8'))
   assert.equal(saved.bots.a.tasks.length, 50)
-  assert.equal(saved.retiredTasks, undefined)
+  assert.deepEqual(saved.retiredTasks, [0, 1].map(n => ({
+    botId: 'a', sessionIds: [`old-session-${n}`], reportFile: `old-task-${n}.txt`,
+  })))
   assert.deepEqual(env.archivedSessions, [])
+  assert.equal(existsSync(join(dir, 'old-task-0.txt')), true)
+  assert.equal(existsSync(join(dir, 'old-task-1.txt')), true)
+
+  await env.ctx.dispose()
+  const reopened = await startEnv({ existingHome: env.home })
+  t.after(reopened.stop)
+  await reopened.rt.reconcileTasksAfterRestart()
+  assert.deepEqual(reopened.archivedSessions.map(({ sid }) => sid), ['old-session-0', 'old-session-1'])
+  assert.deepEqual(JSON.parse(readFileSync(reopened.rt.statePath, 'utf8')).retiredTasks, [])
   assert.equal(existsSync(join(dir, 'old-task-0.txt')), false)
   assert.equal(existsSync(join(dir, 'old-task-1.txt')), false)
   assert.equal(existsSync(join(dir, 'old-task-2.txt')), true)
