@@ -37,7 +37,10 @@ function boldInlineHtml(line) {
     const tag = match[0]
     segment += text
     hasText ||= text !== ''
-    if (tag.startsWith('<code>')) {
+    if (tag.startsWith('<code>') && tags.some(open => open.startsWith('<a '))) {
+      segment += tag.slice('<code>'.length, -'</code>'.length)
+      hasText = true
+    } else if (tag.startsWith('<code>')) {
       if (hasText) rendered += '<b>' + segment + tags.slice().reverse().map(open => '</' + open[1] + '>').join('') + '</b>'
       rendered += tag
       segment = tags.join('')
@@ -108,6 +111,12 @@ const TABLE_DELIMITER = /^:?-+:?$/
 const LITERAL_FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})([^\r\n]*)\r?$/
 const LITERAL_FENCE_CLOSE = /^ {0,3}(`{3,}|~{3,})[ \t]*\r?$/
 
+function columns(text) {
+  let width = 0
+  for (const char of text) width += char === '\t' ? 4 - width % 4 : 1
+  return width
+}
+
 function literalFenceGuard(source) {
   const lists = []
   let marker = ''
@@ -115,8 +124,7 @@ function literalFenceGuard(source) {
   let paragraph = false
   return (at, canOpen = true) => {
     const line = source[at]
-    let indent = 0
-    for (const space of /^[ \t]*/.exec(line)[0]) indent += space === '\t' ? 4 - indent % 4 : 1
+    const indent = columns(/^[ \t]*/.exec(line)[0])
     const inList = lists.length > 0
     if (line.trim() !== '') {
       while (lists.at(-1) > indent) lists.pop()
@@ -135,11 +143,22 @@ function literalFenceGuard(source) {
     }
     if (!canOpen) return false
     const thematic = THEMATIC_BREAK.test(line)
-    let listPrefix = thematic ? undefined : LIST_ITEM.exec(line)?.[0]
-    if (listPrefix && paragraph && !inList && source[at - 1]?.trim()
-      && (/^ *(?!0*1[.)])\d/.test(listPrefix) || line.slice(listPrefix.length).trim() === '')) listPrefix = undefined
-    if (listPrefix) lists.push(listPrefix.length + (/[^ \t]$/.test(listPrefix) ? 1 : 0))
-    const fence = LITERAL_FENCE_OPEN.exec(listPrefix ? line.slice(listPrefix.length) : line)
+    const listPrefix = thematic ? undefined : LIST_ITEM.exec(line)?.[0]
+    let content = line
+    if (listPrefix) {
+      const markerEnd = listPrefix.trimEnd().length
+      const paddedPrefix = line.slice(0, markerEnd) + /^[ \t]*/.exec(line.slice(markerEnd))[0]
+      const padding = columns(paddedPrefix) - markerEnd
+      const prefix = padding > 4 ? listPrefix : paddedPrefix
+      const body = line.slice(prefix.length)
+      const canStartList = !paragraph || inList || !source[at - 1]?.trim()
+        || (body.trim() !== '' && (!/^ *(?!0*1[.)])\d/.test(prefix) || LITERAL_FENCE_OPEN.test(body)))
+      if (canStartList) {
+        lists.push(markerEnd + (padding >= 1 && padding <= 4 ? padding : 1))
+        content = body
+      }
+    }
+    const fence = LITERAL_FENCE_OPEN.exec(content)
     paragraph = fence === null && !thematic && !ATX_HEADING.test(line) && !/^ {0,3}>/.test(line)
     if (fence === null || (fence[1][0] === '`' && fence[2].includes('`'))) return false
     marker = fence[1]

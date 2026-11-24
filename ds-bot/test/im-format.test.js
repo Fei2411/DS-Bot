@@ -196,6 +196,37 @@ test('Telegram heading and table label code does not overlap bold or italic enti
   }])
 })
 
+test('a heading and table label with linked code preserve clickable text', () => {
+  const markdown = '## [`npm test`](https://a.b/run)\n| [`id`](https://a.b/id) | Status |\n| --- | --- |\n| 1 | good |'
+  assert.deepEqual(chunkTelegram(markdown), [{
+    html: '<b><a href="https://a.b/run">npm test</a></b>\n• <b><a href="https://a.b/id">id</a>:</b> 1\n• <b>Status:</b> good',
+    text: 'npm test (https://a.b/run)\n• id (https://a.b/id): 1\n• Status: good',
+  }])
+})
+
+test('a fence dedented from padded list content protects flush-left comments', () => {
+  for (const item of ['-   Item', '-\tItem']) {
+    const fence = item + '\n  ```sh\n# Literal comment\n| A | B |\n| --- | --- |\n| x | y |\n  ```'
+    assert.deepEqual(chunkTelegram(fence + '\n# Actual heading'), [{
+      html: fence + '\n<b>Actual heading</b>',
+      text: fence + '\nActual heading',
+    }])
+  }
+})
+
+test('a fence on an ordered list marker is kept literal after other Markdown blocks', () => {
+  const fence = '2. ```sh\n   # Literal comment\n   | A | B |\n   | --- | --- |\n   | x | y |\n   ```'
+  for (const [prefix, expected] of [
+    ['Title\n===', { html: 'Title\n===', text: 'Title\n===' }],
+    ['| Key | Value |\n| --- | --- |\n| a | b |', { html: '• <b>Key:</b> a\n• <b>Value:</b> b', text: '• Key: a\n• Value: b' }],
+  ]) {
+    assert.deepEqual(chunkTelegram(prefix + '\n' + fence), [{
+      html: expected.html + '\n' + fence,
+      text: expected.text + '\n' + fence,
+    }])
+  }
+})
+
 test('Telegram renders headings and Markdown tables as readable rows (#2173)', () => {
   const markdown = [
     '## Results ##',
