@@ -99,6 +99,10 @@ export function install(rt) {
         connected: `Connected — you can talk to ${values.target} now.`,
         stopped: 'Stopped.',
         idle: 'Nothing is running.',
+        backgrounded: 'Moved the current turn to the background. Send a new message whenever you are ready.',
+        backgroundGroupOnly: 'Moving a turn to the background is only available in a Bot private chat.',
+        backgroundFailed: 'Could not move the current turn to the background right now.',
+        steerUsage: 'Write a message after /steer.',
         stale: 'This card was already answered.',
         noFile: 'This file cannot be sent here; send it on the computer.',
         greeting: `Hello, I am ${values.name}.`,
@@ -121,6 +125,10 @@ export function install(rt) {
         connected: `已连接，现在可以和 ${values.target} 说话了。`,
         stopped: '已停下。',
         idle: '现在没有在做的活。',
+        backgrounded: '已将当前工作转到后台，现在可以继续发新消息。',
+        backgroundGroupOnly: '转到后台仅支持 Bot 私聊。',
+        backgroundFailed: '当前暂时无法将这一轮转到后台。',
+        steerUsage: '请在 /steer 后写要插话的内容。',
         stale: '这张卡已经答过了。',
         noFile: '这个文件发不过去，请在电脑上发。',
         greeting: `你好，我是 ${values.name}。`,
@@ -143,6 +151,10 @@ export function install(rt) {
         connected: `已連線，現在可以和 ${values.target} 說話了。`,
         stopped: '已停下。',
         idle: '現在沒有在做的活。',
+        backgrounded: '已將目前工作轉到背景，現在可以繼續發新訊息。',
+        backgroundGroupOnly: '轉到背景僅支援 Bot 私聊。',
+        backgroundFailed: '目前暫時無法將這一輪轉到背景。',
+        steerUsage: '請在 /steer 後寫要插話的內容。',
         stale: '這張卡已經答過了。',
         noFile: '這個檔案傳不過去，請在電腦上傳。',
         greeting: `你好，我是 ${values.name}。`,
@@ -165,6 +177,10 @@ export function install(rt) {
         connected: `接続しました。${values.target} と話せます。`,
         stopped: '停止しました。',
         idle: '実行中のタスクはありません。',
+        backgrounded: '現在の作業をバックグラウンドへ移動しました。新しいメッセージを送れます。',
+        backgroundGroupOnly: 'バックグラウンドへの移動は Bot との個別チャットでのみ使えます。',
+        backgroundFailed: '今は現在のターンをバックグラウンドへ移動できません。',
+        steerUsage: '/steer の後にメッセージを入力してください。',
         stale: 'このカードは回答済みです。',
         noFile: 'このファイルはここでは送信できません。PC から送信してください。',
         greeting: `こんにちは、${values.name} です。`,
@@ -187,6 +203,10 @@ export function install(rt) {
         connected: `연결되었습니다. 이제 ${values.target}와(과) 대화할 수 있습니다.`,
         stopped: '중지되었습니다.',
         idle: '진행 중인 작업이 없습니다.',
+        backgrounded: '현재 작업을 백그라운드로 옮겼습니다. 새 메시지를 보낼 수 있습니다.',
+        backgroundGroupOnly: '백그라운드로 옮기기는 Bot 개인 채팅에서만 사용할 수 있습니다.',
+        backgroundFailed: '지금은 현재 턴을 백그라운드로 옮길 수 없습니다.',
+        steerUsage: '/steer 뒤에 보낼 메시지를 입력해 주세요.',
         stale: '이미 응답한 카드입니다.',
         noFile: '이 파일은 여기서 보낼 수 없습니다. 컴퓨터에서 보내 주세요.',
         greeting: `안녕하세요, ${values.name}입니다.`,
@@ -209,6 +229,10 @@ export function install(rt) {
         connected: `Conectado — ya puedes hablar con ${values.target}.`,
         stopped: 'Detenido.',
         idle: 'No hay nada en curso.',
+        backgrounded: 'El turno actual pasó a segundo plano. Puedes enviar un nuevo mensaje cuando quieras.',
+        backgroundGroupOnly: 'Pasar un turno a segundo plano solo está disponible en un chat privado con un Bot.',
+        backgroundFailed: 'No se pudo pasar el turno actual a segundo plano ahora mismo.',
+        steerUsage: 'Escribe un mensaje después de /steer.',
         stale: 'Esta tarjeta ya fue respondida.',
         noFile: 'Este archivo no se puede enviar por aquí; envíalo desde el ordenador.',
         greeting: `Hola, soy ${values.name}.`,
@@ -231,6 +255,10 @@ export function install(rt) {
         connected: `Connecté — vous pouvez maintenant parler à ${values.target}.`,
         stopped: 'Arrêté.',
         idle: 'Rien n’est en cours.',
+        backgrounded: 'Le tour en cours a été déplacé en arrière-plan. Vous pouvez envoyer un nouveau message.',
+        backgroundGroupOnly: 'Le déplacement en arrière-plan n’est disponible que dans une discussion privée avec un Bot.',
+        backgroundFailed: 'Impossible de déplacer le tour en cours en arrière-plan pour le moment.',
+        steerUsage: 'Écrivez un message après /steer.',
         stale: 'Cette carte a déjà reçu une réponse.',
         noFile: 'Ce fichier ne peut pas être envoyé ici ; envoyez-le depuis l’ordinateur.',
         greeting: `Bonjour, je suis ${values.name}.`,
@@ -253,6 +281,10 @@ export function install(rt) {
         connected: `Verbunden — du kannst jetzt mit ${values.target} sprechen.`,
         stopped: 'Gestoppt.',
         idle: 'Aktuell läuft nichts.',
+        backgrounded: 'Der aktuelle Durchlauf wurde in den Hintergrund verschoben. Du kannst jetzt eine neue Nachricht senden.',
+        backgroundGroupOnly: 'Das Verschieben in den Hintergrund ist nur im Einzelchat mit einem Bot verfügbar.',
+        backgroundFailed: 'Der aktuelle Durchlauf kann gerade nicht in den Hintergrund verschoben werden.',
+        steerUsage: 'Schreibe eine Nachricht nach /steer.',
         stale: 'Diese Karte wurde bereits beantwortet.',
         noFile: 'Diese Datei kann hier nicht gesendet werden; sende sie am Computer.',
         greeting: `Hallo, ich bin ${values.name}.`,
@@ -275,6 +307,16 @@ export function install(rt) {
   // ---------------------------------------------------------------- runtime file
   const runtimes = new Map() // id → { data: {runtime, cards, sent}, timer }
   const resendCards = new WeakSet()
+  const MAX_SEEN_INBOUND_IDS = 1000
+  const seenInboundIds = new Set()
+  const markInboundSeen = (key) => {
+    if (seenInboundIds.has(key)) return false
+    seenInboundIds.add(key)
+    while (seenInboundIds.size > MAX_SEEN_INBOUND_IDS) {
+      seenInboundIds.delete(seenInboundIds.values().next().value)
+    }
+    return true
+  }
   const runtimeOf = async (id) => {
     let held = runtimes.get(id)
     if (held !== undefined) return held
@@ -1379,6 +1421,39 @@ export function install(rt) {
       await sendText(conn, msg.chat, text(stopped ? 'stopped' : 'idle'))
       return
     }
+    if (/^\/(?:background|bg)(?:@\S+)?\s*$/.test(body)) {
+      if (target === undefined) {
+        await sendText(conn, msg.chat, text(msg.chat.kind === 'group' ? 'unboundGroup' : 'unbound'))
+        return
+      }
+      if (target.botId === undefined) {
+        await sendText(conn, msg.chat, text('backgroundGroupOnly'))
+        return
+      }
+      try {
+        const res = await rt.moveForegroundToBackground({ botId: target.botId })
+        await sendText(conn, msg.chat, text(res?.moved ? 'backgrounded' : 'idle'))
+      } catch (error) {
+        await sendText(conn, msg.chat, text(error?.code === 'bot/idle' ? 'idle' : 'backgroundFailed'))
+      }
+      return
+    }
+    let promptMode = 'queue'
+    let effectiveBody = body
+    const steerCommand = /^\/steer(?:@\S+)?(?:\s+([\s\S]*))?$/.exec(body)
+    if (steerCommand !== null) {
+      if (target === undefined) {
+        await sendText(conn, msg.chat, text(msg.chat.kind === 'group' ? 'unboundGroup' : 'unbound'))
+        return
+      }
+      const steerText = (steerCommand[1] ?? '').trim()
+      if (steerText === '' && (msg.images ?? []).length === 0 && (msg.files ?? []).length === 0) {
+        await sendText(conn, msg.chat, text('steerUsage'))
+        return
+      }
+      effectiveBody = steerText
+      if (target.botId !== undefined) promptMode = 'steer'
+    }
     if (NUMBERS.test(body)) {
       const picked = body.trim().split(/\s+/).map(Number)
       const held = newestOpenCard(conn, msg.chat.key)
@@ -1417,6 +1492,10 @@ export function install(rt) {
       return
     }
     const sessionId = target.botId ?? target.roomId
+    const bindingKey = target.botId !== undefined ? `bot:${target.botId}` : `room:${target.roomId}`
+    const platformMsgId = msg.messageId !== undefined && String(msg.messageId).trim() !== '' ? String(msg.messageId).trim() : ''
+    const inboundKey = platformMsgId !== '' ? `${conn.id}:${msg.chat.key}:${bindingKey}:${platformMsgId}` : ''
+    if (inboundKey !== '' && !markInboundSeen(inboundKey)) return
     // The receipt has to sit on the Session that takes the message. A group's own
     // Session moves on to a fresh part (`room.sessionId`) while `room.id` stays the
     // first one, so uploading under the id leaves the receipt on a Session the
@@ -1428,7 +1507,7 @@ export function install(rt) {
     // A quoted reply goes in as the quoted message, then what the user said:
     // commands above are read from the reply alone.
     const quoted = msg.quote === undefined ? undefined : await quotedText(conn, msg.chat.key, msg.quote)
-    const said = quoted === undefined ? body : composeQuoted(body, quoted)
+    const said = quoted === undefined ? effectiveBody : composeQuoted(effectiveBody, quoted)
     if (said !== '') content.push({ type: 'text', text: said })
     for (const image of msg.images ?? []) content.push({ type: 'image', mediaType: image.mediaType, data: image.data })
     const env = await envFor(conn)
@@ -1440,14 +1519,20 @@ export function install(rt) {
         await sendText(conn, msg.chat, text('noFile'))
       }
     }
-    if (content.length === 0) return
-    const requestId = `im:${conn.platform}:${randomUUID()}`
+    if (content.length === 0) {
+      if (inboundKey !== '') seenInboundIds.delete(inboundKey)
+      return
+    }
+    const requestId = inboundKey !== ''
+      ? `im:${conn.platform}:${inboundKey}`
+      : `im:${conn.platform}:${randomUUID()}`
     // The turn this starts belongs to this chat: its replies go back here and nowhere else.
     if (conn.platform === 'weixin') await rememberWeixinRequest(conn, requestId, msg.chat.key, msg.sender.id)
     else rememberRequest(requestId, conn, msg.chat.key, msg.sender.id)
     try {
-      await rt.sendUser({ sessionId, content, requestId })
+      await rt.sendUser({ sessionId, content, requestId, mode: promptMode })
     } catch (error) {
+      if (inboundKey !== '') seenInboundIds.delete(inboundKey)
       requests.delete(requestId)
       throw error
     }

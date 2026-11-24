@@ -4094,6 +4094,41 @@ test('fg-handoff: task-handoff notice before IM message does not break IM reply,
   )
 })
 
+test('IM /steer, /background, and platform messageId redelivery deduplication (#2077)', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  await pairedConn(s)
+
+  // 1) /steer <text> sends with mode: 'steer'; bare /steer prints usage without prompting.
+  await dm(s, 'u1', '/steer')
+  assert.equal(s.prompts.length, 0)
+  assert.match(s.fake.sent.at(-1).text, /\/steer/)
+  s.fake.sent.length = 0
+
+  await dm(s, 'u1', '/steer focus on API')
+  assert.equal(s.prompts.length, 1)
+  assert.equal(s.prompts[0].mode, 'steer')
+  assert.equal(s.prompts[0].content[0].text, 'focus on API')
+
+  // 2) Duplicate platform messageId redelivery is deduplicated, while two distinct messageIds with identical text "?" both deliver.
+  await dm(s, 'u1', '?', { messageId: 'qq-msg-1' })
+  await dm(s, 'u1', '?', { messageId: 'qq-msg-1' })
+  await dm(s, 'u1', '?', { messageId: 'qq-msg-1' })
+  assert.equal(s.prompts.length, 2, 'duplicate platform messageId must deliver only once')
+  await dm(s, 'u1', '?', { messageId: 'qq-msg-2' })
+  assert.equal(s.prompts.length, 3, 'distinct platform messageId with identical text must still deliver')
+
+  // 3) /background calls moveForegroundToBackground explicitly and reports result.
+  let movedBotId
+  s.rt.moveForegroundToBackground = async ({ botId }) => {
+    movedBotId = botId
+    return { sessionId: 'a-new', taskId: 'k_im_bg', moved: true }
+  }
+  await dm(s, 'u1', '/background')
+  assert.equal(movedBotId, 'a')
+  assert.match(s.fake.sent.at(-1).text, /background/i)
+})
+
 
 test('P0-5/P0-B: group task-report restores persisted IM origin across restart and after a finished desktop round (via real room post path)', async (t) => {
   const s = await start()

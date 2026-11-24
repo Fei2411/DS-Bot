@@ -193,7 +193,7 @@ async function startEnv({ team = makeTeam(), forkImpl } = {}) {
 
 const execOf = (agent, callId = 'c1') => ({ agent, callId, name: 'delegate_work', signal: AbortSignal.timeout(10_000) })
 
-test('Desktop/Web user message on busy foreground moves old Session intact into bot.tasks and forks fresh foreground', async (t) => {
+test('Desktop/Web user message on busy foreground stays on same session; explicit moveForegroundToBackground moves old Session intact into bot.tasks and forks fresh foreground', async (t) => {
   const env = await startEnv()
   t.after(env.stop)
   const dmA = env.agentMap.get('dm-a')
@@ -204,18 +204,32 @@ test('Desktop/Web user message on busy foreground moves old Session intact into 
   await env.emit('dm-a', 'user/message', { content: [{ type: 'text', text: 'Run full integration suite' }], source: { kind: 'user' } })
   await env.emit('dm-a', 'tool/call', { callId: 'tc1', name: 'bash', arguments: '{"command":"npm test"}' })
 
-  assert.equal(env.rt.shouldMoveForeground(env.rt.botOf('a'), 'dm-a'), true)
+  assert.equal(env.rt.shouldMoveForeground(env.rt.botOf('a'), 'dm-a'), false, 'ordinary busy turn must NOT auto-move foreground')
+  assert.equal(env.rt.canMoveForeground(env.rt.botOf('a'), 'dm-a'), true, 'explicit move-to-background is available')
 
-  // User hits Enter in Desktop/Web composer -> spliced into dm-a inbox.
-  const userMsg = { id: 'u-new-1', role: 'user', content: [{ type: 'text', text: 'By the way, how is the release going?' }], source: { kind: 'user' } }
-  dmA.inbox.nextStep.push(userMsg)
-  await env.emit('dm-a', 'agent/inbox/spliced', { target: 'next-step', inserted: [userMsg] })
-  await waitFor(() => env.rt.botOf('a').sessionId !== 'dm-a' && env.agentMap.get(env.rt.botOf('a').sessionId)?.followups.length === 1)
+  // Ordinary Desktop/Web steer stays in dm-a inbox without auto-forking.
+  const steerMsg = { id: 'u-steer-1', role: 'user', content: [{ type: 'text', text: 'Focus on host tests only' }], source: { kind: 'user' } }
+  dmA.inbox.nextStep.push(steerMsg)
+  await env.emit('dm-a', 'agent/inbox/spliced', { target: 'next-step', inserted: [steerMsg] })
+  assert.equal(env.rt.botOf('a').sessionId, 'dm-a')
+  assert.equal(env.rt.botOf('a').tasks?.length ?? 0, 0)
+  assert.equal(dmA.inbox.nextStep.length, 1)
+  assert.equal(env.rt.canMoveForeground(env.rt.botOf('a'), 'dm-a'), false, 'cannot move to background while user inbox has pending messages')
+  await assert.rejects(
+    () => env.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'dm-a' }),
+    err => err?.code === 'bot/pending-input',
+  )
+
+  // Once inbox is clear, explicit moveForegroundToBackground moves dm-a into bot.tasks[] cleanly.
+  dmA.inbox.remove(steerMsg.id)
+  assert.equal(env.rt.canMoveForeground(env.rt.botOf('a'), 'dm-a'), true)
+  const moved = await env.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'dm-a', expectedTurn: 1, operationId: 'op-explicit-1' })
+  assert.equal(moved.moved, true)
+  assert.equal(moved.sessionId, 'fork-1')
 
   const botA = env.rt.botOf('a')
   assert.equal(botA.sessionId, 'fork-1', 'foreground must move to the forked Session')
   assert.equal(dmA.cancelled.length, 0, 'busy foreground turn must NOT be cancelled or steer-cut')
-  assert.equal(dmA.inbox.nextStep.length, 0, 'user message must be pulled synchronously out of old inbox')
   assert.equal(botA.tasks.length, 1)
   assert.equal(botA.tasks[0].sessionId, 'dm-a')
   assert.equal(botA.tasks[0].origin, 'fg-handoff')
@@ -226,8 +240,6 @@ test('Desktop/Web user message on busy foreground moves old Session intact into 
   const fresh = env.agentMap.get('fork-1')
   assert.equal(fresh.injected.length, 1, 'new foreground receives concise task-handoff notice')
   assert.match(fresh.injected[0].content[0].text, /Run full integration suite/)
-  assert.equal(fresh.followups.length, 1)
-  assert.equal(fresh.followups[0].content[0].text, 'By the way, how is the release going?')
 
   // When old dm-a finishes in background, its report lands on the new foreground fork-1.
   dmA.status = 'idle'
@@ -240,7 +252,7 @@ test('Desktop/Web user message on busy foreground moves old Session intact into 
   assert.match(report.text, /Suite passed 100%/)
 })
 
-test('Mobile/IM sendUser triggers foreground handoff after wait threshold and redirects stale sessionId', async (t) => {
+test('Mobile/IM sendUser does NOT auto-move ordinary busy foreground, supports steer mode + requestId idempotency, and redirects stale sessionId after explicit move', async (t) => {
   const env = await startEnv({ team: makeTeam({ prefs: { backgroundAfterSec: 2 } }) })
   t.after(env.stop)
   env.rt.captureImOrigin = sid => (sid === 'dm-a' ? { connId: 'c1', chatKey: 'k1', senderId: 'u1', binding: 'bot:a' } : undefined)
@@ -252,28 +264,56 @@ test('Mobile/IM sendUser triggers foreground handoff after wait threshold and re
   env.rt.live.get('dm-a').since = Date.now() - 5000
   await env.emit('dm-a', 'user/message', { content: [{ type: 'text', text: 'Deep analysis' }], source: { kind: 'user' } })
 
+  // Ordinary sendUser stays on dm-a (queue by default, steer when requested).
   await env.rt.sendUser({ sessionId: 'dm-a', content: [{ type: 'text', text: 'Quick question from phone' }], requestId: 'req-1' })
+  assert.equal(env.rt.botOf('a').sessionId, 'dm-a', 'sendUser must NOT auto-handoff ordinary busy turn')
+  assert.equal(env.prompts[0].sessionId, 'dm-a')
+  assert.equal(env.prompts[0].mode, 'queue')
+
+  await env.rt.sendUser({ sessionId: 'dm-a', content: [{ type: 'text', text: 'Steer from IM' }], requestId: 'req-steer', mode: 'steer' })
+  assert.equal(env.prompts[1].sessionId, 'dm-a')
+  assert.equal(env.prompts[1].mode, 'steer')
+
+  // Duplicate requestId already admitted on dm-a is ignored idempotently.
+  await env.emit('dm-a', 'user/message', { content: [{ type: 'text', text: 'Quick question from phone' }], source: { kind: 'user', rpcId: 'req-1' } })
+  await env.rt.sendUser({ sessionId: 'dm-a', content: [{ type: 'text', text: 'Quick question from phone' }], requestId: 'req-1' })
+  assert.equal(env.prompts.length, 2, 'duplicate requestId must not prompt a second time')
+
+  // Explicit move captures imOrigin and redirects subsequent stale sessionId calls to fork-1.
+  await env.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'dm-a' })
   assert.equal(env.rt.botOf('a').sessionId, 'fork-1')
-  assert.equal(env.prompts[0].sessionId, 'fork-1')
   assert.deepEqual(env.rt.botOf('a').tasks[0].imOrigin, { connId: 'c1', chatKey: 'k1', senderId: 'u1', binding: 'bot:a' })
 
-  // A second in-flight phone message still targeting stale 'dm-a' redirects to 'fork-1'.
   await env.rt.sendUser({ sessionId: 'dm-a', content: [{ type: 'text', text: 'Follow up from phone' }], requestId: 'req-2' })
-  assert.equal(env.prompts[1].sessionId, 'fork-1')
+  assert.equal(env.prompts[2].sessionId, 'fork-1')
 })
 
-test('quick model-only turn under wait threshold and local CLI agents do NOT auto-move foreground', async (t) => {
+test('canMoveForeground blocks local CLI agents and open interactive cards, while peer spawn keeps busy heuristic', async (t) => {
   const env = await startEnv()
   t.after(env.stop)
   await env.emit('dm-a', 'turn/start', { turn: 1 })
-  // 0 tool calls, just started (< 5s).
-  assert.equal(env.rt.shouldMoveForeground(env.rt.botOf('a'), 'dm-a'), false)
+  assert.equal(env.rt.shouldMoveForeground(env.rt.botOf('a'), 'dm-a', { forPeer: true }), false)
+  assert.equal(env.rt.canMoveForeground(env.rt.botOf('a'), 'dm-a'), true)
 
-  // Local CLI agent stays exempt even with tools and elapsed time (Decision 5①).
+  // Open question card blocks explicit move-to-background.
+  env.rt.state.questions['dm-a'] = { id: 'q1', question: 'Proceed?' }
+  assert.equal(env.rt.canMoveForeground(env.rt.botOf('a'), 'dm-a'), false)
+  await assert.rejects(
+    () => env.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'dm-a' }),
+    err => err?.code === 'bot/card-open',
+  )
+  delete env.rt.state.questions['dm-a']
+
+  // Local CLI agent stays exempt from both explicit move and peer background spawn.
   env.rt.localAgentBadge = () => 'claude'
   await env.emit('dm-a', 'tool/call', { callId: 'tc1', name: 'bash', arguments: '{}' })
   env.rt.live.get('dm-a').since = Date.now() - 60_000
-  assert.equal(env.rt.shouldMoveForeground(env.rt.botOf('a'), 'dm-a'), false)
+  assert.equal(env.rt.shouldMoveForeground(env.rt.botOf('a'), 'dm-a', { forPeer: true }), false)
+  assert.equal(env.rt.canMoveForeground(env.rt.botOf('a'), 'dm-a'), false)
+  await assert.rejects(
+    () => env.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'dm-a' }),
+    err => err?.code === 'bot/unsupported',
+  )
 })
 
 test('hidden peer-Bot turn moved to background gets bot-handoff origin, never leaks to user chat, and settles work if stopped', async (t) => {
@@ -345,7 +385,7 @@ test('peer Bot delegate_work to a busy Bot spawns a background task directly wit
   assert.match(reply.text, /API contract verified\./)
 })
 
-test('rapid double Desktop messages share one handoff and post-commit race settles finished task', async (t) => {
+test('rapid double Desktop messages during explicit handoff share one handoff and post-commit race settles finished task', async (t) => {
   let releaseFork
   const env = await startEnv({
     forkImpl: async (_opts, make) => new Promise((resolve) => {
@@ -359,6 +399,9 @@ test('rapid double Desktop messages share one handoff and post-commit race settl
   await env.emit('dm-a', 'turn/start', { turn: 1 })
   await env.emit('dm-a', 'tool/call', { callId: 'tc1', name: 'bash', arguments: '{}' })
 
+  const moveP = env.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'dm-a' })
+  await waitFor(() => typeof releaseFork === 'function')
+
   const m1 = { id: 'u1', role: 'user', content: [{ type: 'text', text: 'First msg' }], source: { kind: 'user' } }
   const m2 = { id: 'u2', role: 'user', content: [{ type: 'text', text: 'Second msg' }], source: { kind: 'user' } }
   dmA.inbox.nextStep.push(m1)
@@ -371,8 +414,8 @@ test('rapid double Desktop messages share one handoff and post-commit race settl
   await env.emit('dm-a', 'assistant/message', { turn: 1, message: { role: 'assistant', content: [{ type: 'text', text: 'Finished mid-fork.' }] } })
   await env.emit('dm-a', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
 
-  await waitFor(() => typeof releaseFork === 'function')
   releaseFork()
+  await moveP
   await waitFor(() => env.rt.botOf('a').sessionId === 'fork-1'
     && env.agentMap.get('fork-1')?.followups.filter(m => m.source?.kind === 'user').length === 2
     && env.rt.botOf('a').tasks[0]?.status === 'completed'
@@ -417,7 +460,7 @@ test('P0 #1/#2/#3: task-handoff before user message preserves turns.js userAnswe
   await env.emit('dm-a', 'turn/start', { turn: 1 })
   await env.emit('dm-a', 'tool/call', { callId: 'tc1', name: 'bash', arguments: '{}' })
 
-  await env.rt.sendUser({ sessionId: 'dm-a', content: [{ type: 'text', text: 'New question' }], requestId: 'req-im' })
+  await env.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'dm-a' })
   assert.equal(clearedOriginFor, 'dm-a', 'moving foreground into background task must clear live IM origin on oldSid')
 
   const freshSid = env.rt.botOf('a').sessionId
@@ -453,7 +496,9 @@ test('P0 #4: sendUser initiating handoff drains concurrent Desktop spliced messa
   await env.emit('dm-a', 'turn/start', { turn: 1 })
   await env.emit('dm-a', 'tool/call', { callId: 'tc1', name: 'bash', arguments: '{}' })
 
-  // Mobile/IM sendUser starts the handoff first.
+  // Explicit handoff starts first, and concurrent Mobile + Desktop messages arrive mid-fork.
+  const movePromise = env.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'dm-a' })
+  await waitFor(() => typeof releaseFork === 'function')
   const sendPromise = env.rt.sendUser({ sessionId: 'dm-a', content: [{ type: 'text', text: 'From mobile' }], requestId: 'mob-1' })
 
   // Before fork resolves, Desktop user also sends a message to dm-a.
@@ -462,9 +507,8 @@ test('P0 #4: sendUser initiating handoff drains concurrent Desktop spliced messa
   await env.emit('dm-a', 'agent/inbox/spliced', { target: 'next-step', inserted: [desktopMsg] })
   assert.equal(dmA.inbox.nextStep.length, 0, 'Desktop message must be pulled from busy inbox')
 
-  await waitFor(() => typeof releaseFork === 'function')
   releaseFork()
-  await sendPromise
+  await Promise.all([movePromise, sendPromise])
   await waitFor(() => env.agentMap.get('fork-1')?.followups.some(m => m.content?.[0]?.text === 'From desktop concurrently'))
 
   assert.equal(env.prompts[0].sessionId, 'fork-1')
@@ -503,8 +547,7 @@ test('P0 #5: failed pre-commit fork restores pulled message with wakeup=true wit
   await env.emit('dm-a', 'tool/call', { callId: 'tc1', name: 'bash', arguments: '{}' })
 
   const msg = { id: 'u-restore-1', role: 'user', content: [{ type: 'text', text: 'Do not lose me' }], source: { kind: 'user' } }
-  dmA.inbox.nextStep.push(msg)
-  await env.emit('dm-a', 'agent/inbox/spliced', { target: 'next-step', inserted: [msg] })
+  await assert.rejects(() => env.rt.handoffForeground(env.rt.botOf('a'), 'dm-a', [{ msg, target: 'next-step', oldAgent: dmA }]))
   await waitFor(() => sendCalls.length > 0)
 
   assert.equal(sendCalls.length, 1, 'restored message must be sent back exactly once with no re-interception loop')
@@ -513,7 +556,7 @@ test('P0 #5: failed pre-commit fork restores pulled message with wakeup=true wit
   assert.equal(env.rt.botOf('a').sessionId, 'dm-a')
 })
 
-test('P0 #6: post-handoff polling gap redirects stale Desktop message from background task to new foreground', async (t) => {
+test('P0 #6: post-handoff polling gap redirects stale Desktop message from background task to new foreground without recursive handoff', async (t) => {
   const env = await startEnv()
   t.after(env.stop)
   const dmA = env.agentMap.get('dm-a')
@@ -521,7 +564,7 @@ test('P0 #6: post-handoff polling gap redirects stale Desktop message from backg
 
   await env.emit('dm-a', 'turn/start', { turn: 1 })
   await env.emit('dm-a', 'tool/call', { callId: 'tc1', name: 'bash', arguments: '{}' })
-  await env.rt.sendUser({ sessionId: 'dm-a', content: [{ type: 'text', text: 'Trigger handoff' }] })
+  await env.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'dm-a' })
   assert.equal(env.rt.botOf('a').sessionId, 'fork-1')
 
   // Desktop tab hasn't polled roster yet and sends a user message to stale dm-a (now in taskOwners).
@@ -618,7 +661,7 @@ test('post-fork race inspects turn/end error reason and skips still-running noti
   await env.emit('dm-a', 'turn/start', { turn: 1 })
   await env.emit('dm-a', 'tool/call', { callId: 'tc1', name: 'bash', arguments: '{}' })
 
-  const p = env.rt.sendUser({ sessionId: 'dm-a', content: [{ type: 'text', text: 'Next' }] })
+  const p = env.rt.handoffForeground(env.rt.botOf('a'), 'dm-a', [])
 
   // Old turn errors while fork is awaiting!
   dmA.status = 'idle'
@@ -634,7 +677,7 @@ test('post-fork race inspects turn/end error reason and skips still-running noti
 })
 
 
-test('double successive foreground handoff reports task 1 to the latest foreground, migrates schedules, and keeps earlier bot.segments in partsOfThread', async (t) => {
+test('double successive explicit foreground handoff reports task 1 to the latest foreground, migrates schedules, and keeps earlier bot.segments in partsOfThread', async (t) => {
   const env = await startEnv({
     team: makeTeam({
       bots: {
@@ -647,22 +690,22 @@ test('double successive foreground handoff reports task 1 to the latest foregrou
   const movedSchedules = []
   env.rt.moveSchedules = async (from, to) => { movedSchedules.push([from, to]) }
 
-  // Turn 1 on dm-a gets interrupted -> moves into task 1, foreground becomes fork-1.
+  // Turn 1 on dm-a explicitly moves into task 1, foreground becomes fork-1.
   env.agentMap.get('dm-a').status = 'running'
   await env.emit('dm-a', 'turn/start', { turn: 1 })
   await env.emit('dm-a', 'tool/call', { callId: 'tc1', name: 'bash', arguments: '{}' })
-  await env.rt.sendUser({ sessionId: 'dm-a', content: [{ type: 'text', text: 'Task 2 work' }] })
+  await env.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'dm-a' })
   assert.equal(env.rt.botOf('a').sessionId, 'fork-1')
 
   // Moved task 1 keeps earlier bot.segments in partsOfThread (part 1 = dm-a-p1, part 2 = dm-a).
   const parts = env.rt.partsOfThread('a', 'dm-a')
   assert.deepEqual(parts.map(p => p.sessionId), ['dm-a-p1', 'dm-a'])
 
-  // Turn 2 on fork-1 ALSO gets interrupted -> moves into task 2, foreground becomes fork-2.
+  // Turn 2 on fork-1 explicitly moves into task 2, foreground becomes fork-2.
   env.agentMap.get('fork-1').status = 'running'
   await env.emit('fork-1', 'turn/start', { turn: 1 })
   await env.emit('fork-1', 'tool/call', { callId: 'tc2', name: 'bash', arguments: '{}' })
-  await env.rt.sendUser({ sessionId: 'fork-1', content: [{ type: 'text', text: 'Task 3 work' }] })
+  await env.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'fork-1' })
   assert.equal(env.rt.botOf('a').sessionId, 'fork-2')
   assert.deepEqual(movedSchedules, [['dm-a', 'fork-1'], ['fork-1', 'fork-2']])
 
@@ -741,8 +784,7 @@ test('forwardPulledMessages retries transient resolveAgent failure without dropp
   await env.emit('dm-a', 'tool/call', { callId: 'tc1', name: 'bash', arguments: '{}' })
 
   const msg = { id: 'u-retry-1', role: 'user', content: [{ type: 'text', text: 'Survive transient error' }], source: { kind: 'user' } }
-  dmA.inbox.nextStep.push(msg)
-  await env.emit('dm-a', 'agent/inbox/spliced', { target: 'next-step', inserted: [msg] })
+  await env.rt.handoffForeground(env.rt.botOf('a'), 'dm-a', [{ msg, target: 'next-step', oldAgent: dmA }])
   await waitFor(() => env.agentMap.get('fork-1')?.followups.some(m => m.content?.[0]?.text === 'Survive transient error'))
 
   const delivered = env.agentMap.get('fork-1').followups.filter(m => m.content?.[0]?.text === 'Survive transient error')
@@ -797,7 +839,7 @@ test('fg-handoff snapshots inheritedSegments so foreground rollover never shifts
   env.agentMap.get('dm-a').status = 'running'
   await env.emit('dm-a', 'turn/start', { turn: 1 })
   await env.emit('dm-a', 'tool/call', { callId: 'tc1', name: 'bash', arguments: '{}' })
-  await env.rt.sendUser({ sessionId: 'dm-a', content: [{ type: 'text', text: 'New fg work' }] })
+  await env.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'dm-a' })
 
   const bot = env.rt.botOf('a')
   assert.deepEqual(env.rt.partsOfThread('a', 'dm-a').map(p => p.sessionId), ['dm-a-p1', 'dm-a'])
@@ -823,7 +865,7 @@ test('fg-handoff carries bounded moved prompt + task_send hint, and injects fall
   await env.emit('dm-a', 'user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: longPrompt }] })
   await env.emit('dm-a', 'tool/call', { callId: 'tc1', name: 'bash', arguments: '{}' })
 
-  await env.rt.sendUser({ sessionId: 'dm-a', content: [{ type: 'text', text: 'Skip packages/api for now' }] })
+  await env.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'dm-a' })
   const freshSid = env.rt.botOf('a').sessionId
   const notice = env.agentMap.get(freshSid).injected[0]?.content?.[0]?.text ?? ''
   assert.match(notice, /Moved request: Please audit all authentication middleware files/)
@@ -845,7 +887,7 @@ test('fg-handoff carries bounded moved prompt + task_send hint, and injects fall
   await env2.emit('dm-a', 'assistant/message', { turn: 1, message: { role: 'assistant', content: [{ type: 'text', text: 'Working on ds-bot.' }] } })
   await env2.emit('dm-a', 'tool/call', { callId: 'tc2', name: 'bash', arguments: '{}' })
 
-  const pending = env2.rt.sendUser({ sessionId: 'dm-a', content: [{ type: 'text', text: 'What repo are we in?' }] })
+  const pending = env2.rt.handoffForeground(env2.rt.botOf('a'), 'dm-a', [])
   await waitFor(() => typeof releaseFork === 'function')
   // Turn finishes BEFORE fork falls back to fresh session.
   dm2.status = 'idle'
@@ -869,7 +911,7 @@ test('fg-handoff carries bounded moved prompt + task_send hint, and injects fall
   }
   await env3.emit('dm-a', 'turn/start', { turn: 1 })
   await env3.emit('dm-a', 'tool/call', { callId: 'tc3', name: 'bash', arguments: '{}' })
-  await env3.rt.sendUser({ sessionId: 'dm-a', content: [{ type: 'text', text: 'Continue from latest' }] })
+  await env3.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'dm-a' })
   const injected3 = env3.agentMap.get(env3.rt.botOf('a').sessionId).injected.map(m => m.content?.[0]?.text ?? '').join('\n')
   assert.match(injected3, /MSG_14_START/, 'newest message must survive >8KB fallback truncation')
   assert.doesNotMatch(injected3, /MSG_1_START/, 'oldest messages past 8KB should be dropped before newest ones')
@@ -896,14 +938,14 @@ test('fg-handoff fork preserves inherited exchangeTurns and closedCards without 
   await env.emit('dm-a', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
   env.rt.state.exchangeTurns['dm-a'] = [2, 3]
 
-  // Turn 3: currently running turn (e.g. bot-handoff / busy turn) when user interrupts.
+  // Turn 3: currently running turn when user explicitly moves it to background.
   dmA.status = 'running'
   await env.emit('dm-a', 'turn/start', { turn: 3 })
   await env.emit('dm-a', 'user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'Run long benchmark' }] })
   await env.emit('dm-a', 'tool/call', { callId: 'ask-running', name: 'ask_user', arguments: '{"question":"Running?"}' })
   env.rt.state.closedCards['dm-a']['ask-running'] = { status: 'dismissed' }
 
-  await env.rt.sendUser({ sessionId: 'dm-a', content: [{ type: 'text', text: 'Cancel benchmark' }] })
+  await env.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'dm-a' })
   const forkedSid = env.rt.botOf('a').sessionId
   assert.equal(forkedSid, 'fork-keep-hidden')
   assert.deepEqual(env.rt.state.exchangeTurns[forkedSid], [2], 'forked foreground must inherit completed hidden turn 2 without carrying running turn 3')

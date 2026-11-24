@@ -1,12 +1,12 @@
 import { createElement as h, Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { ChatsIcon, ClockIcon, GoalIcon, MicIcon, PaperclipIcon, PeopleIcon, PlusIcon, WaveIcon } from './icons.js'
+import { ChatsIcon, ClockIcon, GoalIcon, MicIcon, MoveIcon, PaperclipIcon, PeopleIcon, PlusIcon, WaveIcon } from './icons.js'
 import { canSetGoal } from './goal.js'
 import { BotMark } from './mark.js'
 import { stepMenuFocus, useLinger, useViewport, viewBottom } from './motion.js'
-import { t } from './i18n.js'
+import { hostText, t } from './i18n.js'
 import { insertComposerNewline, sendsOnEnter } from './enter-key.js'
-import { enterSteers, steerable } from './enter-steer.js'
+import { emptyAccelQueueKey, enterSteers, steerable } from './enter-steer.js'
 import { chatOfSession, flushDrafts, keepDraft, takeDraft } from './draft-keep.js'
 import { lruGet, lruSet } from './memo.js'
 import { mergeRescuedDraft, readRescuedForChat } from './question-draft.js'
@@ -132,8 +132,10 @@ export function menuIcons(roster) {
 // menu, whose plan, permission, model and compact rows reach past what DS Bot keeps
 // for its Bots; "/" still opens that menu. Files go through the shell's own file
 // input beside it.
-export function ComposerPlus({ sessionId, inputActions, useInput, useRoster, actions }) {
+export function ComposerPlus({ sessionId, inputActions, useInput, useRoster, useWork, actions }) {
   const roster = useRoster(value => value)
+  const enterToSend = sendsOnEnter(roster.prefs)
+  const bgInfo = useWork?.(work => work.canBackground?.[sessionId])
   const [open, setOpen] = useState(null)
   const [shown, leaving] = useLinger(open, 120)
   const button = useRef(null)
@@ -142,7 +144,7 @@ export function ComposerPlus({ sessionId, inputActions, useInput, useRoster, act
   // The selector runs on every input change, so inputNow stays live for the key
   // handler while `ready` re-renders only when steerability flips.
   const inputNow = useRef(undefined)
-  const ready = useInput?.((state) => { inputNow.current = state; return steerable(state) }) === true
+  const ready = useInput?.((state) => { inputNow.current = state; return steerable(state) }) === true && enterToSend
   const target = roster.byId?.[sessionId]?.id ?? roster.roomsById?.[sessionId]?.id
   useEffect(() => {
     if (!open) return undefined
@@ -169,7 +171,9 @@ export function ComposerPlus({ sessionId, inputActions, useInput, useRoster, act
     const onKey = (event) => {
       if (steering || event.defaultPrevented || open) return
       // Check key/steerability before touching the DOM so regular typing does zero queries (#1812).
-      if (!enterSteers(event, inputNow.current)) return
+      const plainEnter = enterSteers(event, inputNow.current, enterToSend)
+      const accelEnter = !plainEnter && emptyAccelQueueKey(event, inputNow.current)
+      if (!plainEnter && !accelEnter) return
       const targetEl = event.target
       if (typeof targetEl?.closest !== 'function') return
       const card = button.current?.closest('[data-composer-card]')
@@ -179,12 +183,13 @@ export function ComposerPlus({ sessionId, inputActions, useInput, useRoster, act
       if (targetEl.ownerDocument?.querySelector('[role="listbox"]')) return
       event.preventDefault()
       event.stopPropagation()
+      if (!steerable(inputNow.current)) return
       steering = true
       void Promise.resolve(actions.steerQueued(sessionId)).finally(() => { steering = false })
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [open, sessionId])
+  }, [open, sessionId, enterToSend])
   // Hooks stay above the early return below: the roster may not know the Bot yet, and a
   // render that skips a hook breaks the composer's slot when the roster arrives.
   // Anchored to the "+" each render: the visible viewport can move (on-screen
@@ -221,6 +226,12 @@ export function ComposerPlus({ sessionId, inputActions, useInput, useRoster, act
     setOpen(null)
     actions.composeGoal(room.id)
   }
+  const moveToBackground = () => {
+    setOpen(null)
+    if (!bgInfo || typeof actions.moveToBackground !== 'function') return
+    void Promise.resolve(actions.moveToBackground(bgInfo.botId, sessionId, bgInfo.turn))
+      .catch(error => actions.reportError?.(new Error(hostText(error?.message ?? String(error))), 'move-to-background'))
+  }
   return h(Fragment, null,
     h('button', {
       ref: button, type: 'button', className: 'bt-plus', 'aria-label': t('Add'), title: t('Add'),
@@ -233,6 +244,7 @@ export function ComposerPlus({ sessionId, inputActions, useInput, useRoster, act
     shown.files ? h('button', { type: 'button', role: 'menuitem', onClick: attach }, h(PaperclipIcon), h('span', { className: 'bt-menu-label' }, t('Add files'))) : null,
     canReference ? h('button', { type: 'button', role: 'menuitem', onMouseDown: keepComposerFocus, onClick: reference }, h(ChatsIcon), h('span', { className: 'bt-menu-label' }, t('Reference a chat'))) : null,
     canSetGoal(room, roster) ? h('button', { type: 'button', role: 'menuitem', onClick: goal }, h(GoalIcon), h('span', { className: 'bt-menu-label' }, t('Set a goal'))) : null,
+    bgInfo && typeof actions.moveToBackground === 'function' ? h('button', { type: 'button', role: 'menuitem', onMouseDown: keepComposerFocus, onClick: moveToBackground }, h(MoveIcon), h('span', { className: 'bt-menu-label' }, t('Move current work to background'))) : null,
     h('button', { type: 'button', role: 'menuitem', onClick: schedule }, h(ClockIcon), h('span', { className: 'bt-menu-label' }, t('Scheduled task')))), document.body) : null)
 }
 

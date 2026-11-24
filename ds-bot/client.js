@@ -1740,6 +1740,15 @@ var JA = {
   "Waiting for teammate": "仲間の返答待ち",
   "Interrupted": "中断されました",
   "Moved from chat": "メイン会話から移動",
+  "Move to background": "バックグラウンドへ",
+  "Moving…": "移動中…",
+  "Move current work to background": "現在の作業をバックグラウンドへ移動",
+  "Answer or dismiss the open card first": "先に開いているカードに回答するか閉じてください",
+  "Clear or send pending queued messages first": "先に待機中のメッセージを送信または削除してください",
+  "Local agent Bots cannot move running turns to the background": "ローカルエージェント Bot は実行中のターンをバックグラウンドへ移動できません",
+  "Nothing is running right now": "現在実行中の作業はありません",
+  "This conversation has already moved on": "この会話はすでに先へ進んでいます",
+  "This turn has already ended": "このターンはすでに終了しました",
   "Teammate request": "仲間からの依頼",
   "{count} background tasks · {waiting} needs approval": "バックグラウンドタスク {count} 件・承認待ち {waiting} 件",
   "{count} background tasks running": "バックグラウンドタスク {count} 件を実行中",
@@ -4632,6 +4641,15 @@ var KO = {
   "Waiting for teammate": "동료 응답 대기 중",
   "Interrupted": "중단됨",
   "Moved from chat": "메인 대화에서 이동",
+  "Move to background": "백그라운드로",
+  "Moving…": "이동 중…",
+  "Move current work to background": "현재 작업을 백그라운드로 옮기기",
+  "Answer or dismiss the open card first": "열려 있는 카드에 먼저 응답하거나 닫아 주세요",
+  "Clear or send pending queued messages first": "대기 중인 메시지를 먼저 보내거나 지워 주세요",
+  "Local agent Bots cannot move running turns to the background": "로컬 에이전트 Bot은 실행 중인 턴을 백그라운드로 옮길 수 없습니다",
+  "Nothing is running right now": "지금 실행 중인 작업이 없습니다",
+  "This conversation has already moved on": "이 대화는 이미 다음으로 넘어갔습니다",
+  "This turn has already ended": "이 턴은 이미 끝났습니다",
   "Teammate request": "동료 요청",
   "{count} background tasks · {waiting} needs approval": "백그라운드 작업 {count}개 · 승인 대기 {waiting}건",
   "{count} background tasks running": "백그라운드 작업 {count}개 실행 중",
@@ -7527,6 +7545,15 @@ var ES = {
   "Waiting for teammate": "Esperando a un compañero",
   "Interrupted": "Interrumpida",
   "Moved from chat": "Movida desde el chat",
+  "Move to background": "Pasar a segundo plano",
+  "Moving…": "Moviendo…",
+  "Move current work to background": "Pasar el trabajo actual a segundo plano",
+  "Answer or dismiss the open card first": "Responde o cierra primero la tarjeta abierta",
+  "Clear or send pending queued messages first": "Envía o borra primero los mensajes en cola",
+  "Local agent Bots cannot move running turns to the background": "Los Bots de agente local no pueden pasar turnos activos a segundo plano",
+  "Nothing is running right now": "No hay nada en ejecución ahora mismo",
+  "This conversation has already moved on": "Esta conversación ya ha avanzado",
+  "This turn has already ended": "Este turno ya ha terminado",
   "Teammate request": "Solicitud de compañero",
   "{count} background tasks · {waiting} needs approval": "{count} tareas en segundo plano · {waiting} requieren aprobación",
   "{count} background tasks running": "{count} tareas en segundo plano en curso",
@@ -10380,6 +10407,15 @@ var FR = {
   "Waiting for teammate": "En attente d'un coéquipier",
   "Interrupted": "Interrompue",
   "Moved from chat": "Déplacée depuis le chat",
+  "Move to background": "En arrière-plan",
+  "Moving…": "Déplacement…",
+  "Move current work to background": "Déplacer le travail en cours en arrière-plan",
+  "Answer or dismiss the open card first": "Répondez ou fermez d’abord la carte ouverte",
+  "Clear or send pending queued messages first": "Envoyez ou effacez d’abord les messages en file d’attente",
+  "Local agent Bots cannot move running turns to the background": "Les Bots d’agent local ne peuvent pas déplacer un tour actif en arrière-plan",
+  "Nothing is running right now": "Rien n’est en cours pour le moment",
+  "This conversation has already moved on": "Cette conversation a déjà avancé",
+  "This turn has already ended": "Ce tour est déjà terminé",
   "Teammate request": "Demande d'un coéquipier",
   "{count} background tasks · {waiting} needs approval": "{count} tâches en arrière-plan · {waiting} en attente d'approbation",
   "{count} background tasks running": "{count} tâches en arrière-plan en cours",
@@ -13272,6 +13308,15 @@ var DE = {
   "Waiting for teammate": "Wartet auf Teammitglied",
   "Interrupted": "Unterbrochen",
   "Moved from chat": "Aus dem Chat verschoben",
+  "Move to background": "In den Hintergrund",
+  "Moving…": "Wird verschoben…",
+  "Move current work to background": "Aktuelle Arbeit in den Hintergrund verschieben",
+  "Answer or dismiss the open card first": "Beantworte oder schließe zuerst die offene Karte",
+  "Clear or send pending queued messages first": "Sende oder lösche zuerst wartende Nachrichten",
+  "Local agent Bots cannot move running turns to the background": "Lokale Agent-Bots können laufende Durchläufe nicht in den Hintergrund verschieben",
+  "Nothing is running right now": "Derzeit läuft nichts",
+  "This conversation has already moved on": "Diese Unterhaltung ist bereits weitergegangen",
+  "This turn has already ended": "Dieser Durchlauf ist bereits beendet",
   "Teammate request": "Anfrage eines Teammitglieds",
   "{count} background tasks · {waiting} needs approval": "{count} Hintergrundaufgaben · {waiting} warten auf Freigabe",
   "{count} background tasks running": "{count} Hintergrundaufgaben aktiv",
@@ -16248,6 +16293,15 @@ var ZH = {
   "Waiting for teammate": "等待同伴",
   "Interrupted": "已中断",
   "Moved from chat": "来自主对话",
+  "Move to background": "转到后台",
+  "Moving…": "正在转后台…",
+  "Move current work to background": "将当前工作转到后台",
+  "Answer or dismiss the open card first": "请先回复或关闭当前卡片",
+  "Clear or send pending queued messages first": "请先处理或清除排队中的消息",
+  "Local agent Bots cannot move running turns to the background": "本地 Agent Bot 暂不支持将运行中的轮次转到后台",
+  "Nothing is running right now": "当前没有正在运行的工作",
+  "This conversation has already moved on": "当前对话已切换",
+  "This turn has already ended": "当前轮次已经结束",
   "Teammate request": "同伴请求",
   "{count} background tasks · {waiting} needs approval": "{count} 个后台任务 · {waiting} 项待批准",
   "{count} background tasks running": "{count} 个后台任务运行中",
@@ -18144,6 +18198,12 @@ function teamActions({ call: call2, after, partFor, roster, ui, live, cards, hel
     stopTask: (botId, taskId) => after(call2("bot-stop-task", { botId, taskId })),
     sendTask: (botId, taskId, text) => after(call2("bot-task-send", { botId, taskId, text })),
     readTask: (botId, taskId, cursor, steps = false) => call2("bot-task-read", { botId, taskId, ...cursor ? { cursor } : {}, ...steps ? { steps: true } : {} }),
+    moveToBackground: (botId, sessionId, expectedTurn) => after(call2("bot-move-to-background", {
+      botId,
+      ...sessionId ? { sessionId } : {},
+      ...typeof expectedTurn === "number" ? { expectedTurn } : {},
+      operationId: typeof globalThis.crypto?.randomUUID === "function" ? globalThis.crypto.randomUUID() : `bg-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    })),
     // A side chat on the panel's own view, opened from the strip, the `···`
     // menus or `/side`. Closing the panel keeps the chats; only a tab's × deletes.
     openSideChat,
@@ -20694,15 +20754,23 @@ body[data-bt-goal="2"] [class*="_scroll"]:has(> [class*="_column"]){padding-top:
 [data-chat-flow]>.bt-typing{margin-top:var(--dsh-chat-flow-gap,12px)!important}
 .bt-typing{display:flex;align-items:center;gap:12px;height:36px;min-width:0;padding-inline-start:8px;transform-origin:0 50%;animation:bt-typing-in ${SPRING_TAP.duration}ms ${SPRING_TAP.easing} backwards}
 .bt-typing[data-exiting]{animation:bt-typing-out .14s cubic-bezier(.22,1,.36,1) forwards}
-.bt-typing>.bt-mark,.bt-typing>.bt-cluster{flex-shrink:0}
-.bt-typing>.bt-mark{cursor:pointer;transition:filter .16s ease-out}
-.bt-typing>.bt-mark:hover{filter:drop-shadow(0 2px 4px rgba(0,0,0,.18))}
-.bt-typing>.bt-mark .bt-eyes{transition:scale .28s cubic-bezier(.4,.06,.18,1)}
-.bt-typing>.bt-mark:hover .bt-eyes{scale:1.18}
-.bt-typing-text{display:flex;align-items:center;flex:1 1 auto;min-width:0;animation:bt-typing-label .22s ease-out .2s backwards}
+.bt-typing>.bt-typing-mark{display:inline-flex;flex-shrink:0}
+.bt-typing>.bt-mark,.bt-typing>.bt-cluster,.bt-typing>.bt-typing-mark>.bt-mark,.bt-typing>.bt-typing-mark>.bt-cluster{flex-shrink:0}
+.bt-typing .bt-mark{cursor:pointer;transition:filter .16s ease-out}
+.bt-typing .bt-mark:hover{filter:drop-shadow(0 2px 4px rgba(0,0,0,.18))}
+.bt-typing .bt-mark .bt-eyes{transition:scale .28s cubic-bezier(.4,.06,.18,1)}
+.bt-typing .bt-mark:hover .bt-eyes{scale:1.18}
+.bt-typing-text{display:flex;align-items:center;flex:0 1 auto;min-width:0;animation:bt-typing-label .22s ease-out .2s backwards}
 .bt-typing-label{display:inline-flex;align-items:center;gap:6px;min-width:0;animation:bt-typing-label .22s ease-out backwards}
 .bt-typing-label>.bt-shimmer{font-size:14px;line-height:22px;font-weight:400;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-typing-time{flex-shrink:0;margin-left:6px;font-size:12px;line-height:22px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums;white-space:nowrap}
+.bt-typing-bg{flex:none;display:inline-flex;align-items:center;gap:5px;height:24px;padding:0 10px 0 8px;margin-left:2px;border:.5px solid var(--bt-line-2);border-radius:999px;background:transparent;color:var(--bt-ink-2);font:inherit;font-size:12px;line-height:16px;font-weight:400;white-space:nowrap;cursor:pointer;transition:background-color .14s ease,color .14s ease,border-color .14s ease}
+.bt-typing-bg:hover:not(:disabled){background:var(--bt-hover);color:var(--bt-ink);border-color:color-mix(in srgb,var(--bt-ink) 22%,transparent)}
+.bt-typing-bg:active:not(:disabled){background:var(--bt-active)}
+.bt-typing-bg:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
+.bt-typing-bg:disabled{opacity:.55;cursor:default}
+.bt-typing-bg-ico{display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;opacity:.8}
+.bt-typing-bg-ico>svg{width:13px;height:13px}
 @keyframes bt-typing-in{from{opacity:0;transform:scale(.9)}}
 @keyframes bt-typing-out{from{opacity:1;transform:scale(1)}to{opacity:0;transform:scale(.92);filter:var(--bt-fx-blur-3,blur(3px))}}
 @keyframes bt-typing-label{from{opacity:0;filter:var(--bt-fx-blur-5,blur(5px));transform:translateY(3px)}}
@@ -35015,6 +35083,11 @@ function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useLive, us
   else if (runAt.current === 0) runAt.current = Date.now();
   const liveKey = useLive((state) => JSON.stringify(state[sessionId] ?? {}));
   const steeredAt = useWork?.((work) => work.steered?.[sessionId]);
+  const bgInfo = useWork?.((work) => work.canBackground?.[sessionId]);
+  const [movingBg, setMovingBg] = (0, import_react36.useState)(false);
+  (0, import_react36.useEffect)(() => {
+    setMovingBg(false);
+  }, [sessionId, bgInfo?.turn]);
   const pendingInput = useSession((snapshot) => freshInputAt(snapshot?.pendingSubmissions, steeredAt));
   const bot = roster.byId[sessionId];
   const room2 = roster.roomsById[sessionId];
@@ -35081,16 +35154,42 @@ function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useLive, us
   useRowEntrances(() => leaving.current || Date.now() - endedAt.current < 300);
   const host = useRunningHost(running || moveAt !== 0);
   if (!host || phase === null || !shown) return null;
+  const showBgAction = bot !== void 0 && moveAt === 0 && bgInfo !== void 0 && typeof actions?.moveToBackground === "function";
+  const moveToBg = () => {
+    if (movingBg || !bgInfo) return;
+    setMovingBg(true);
+    void Promise.resolve(actions.moveToBackground(bgInfo.botId, sessionId, bgInfo.turn)).catch((error) => {
+      setMovingBg(false);
+      actions.reportError?.(new Error(hostText(error?.message ?? String(error))), "move-to-background");
+    });
+  };
   return (0, import_react_dom5.createPortal)((0, import_react36.createElement)(
     "div",
-    { className: "bt-typing", "data-exiting": phase === "out" ? "" : void 0, "aria-hidden": true },
-    bot ? (0, import_react36.createElement)(BotMark, { bot, size: 28, state: markState.current, live: true, pokeable: true }) : (0, import_react36.createElement)(RoomAvatar, { room: room2, roster, size: 28 }),
+    { className: "bt-typing", "data-exiting": phase === "out" ? "" : void 0 },
     (0, import_react36.createElement)(
       "span",
-      { className: "bt-typing-text" },
+      { className: "bt-typing-mark", "aria-hidden": true },
+      bot ? (0, import_react36.createElement)(BotMark, { bot, size: 28, state: markState.current, live: true, pokeable: true }) : (0, import_react36.createElement)(RoomAvatar, { room: room2, roster, size: 28 })
+    ),
+    (0, import_react36.createElement)(
+      "span",
+      { className: "bt-typing-text", "aria-hidden": true },
       (0, import_react36.createElement)("span", { key: `${shown.key}:${shown.at}`, className: "bt-typing-label" }, (0, import_react36.createElement)(Shimmer, null, `${shown.text}…`)),
       (0, import_react36.createElement)(Elapsed, { at: moveAt !== 0 ? moveAt : Math.max(turnAt ?? runAt.current, inputAt), className: "bt-typing-time" })
-    )
+    ),
+    showBgAction ? (0, import_react36.createElement)(
+      "button",
+      {
+        type: "button",
+        className: "bt-typing-bg",
+        disabled: movingBg,
+        "aria-label": t("Move current work to background"),
+        title: t("Move current work to background"),
+        onClick: moveToBg
+      },
+      (0, import_react36.createElement)("span", { className: "bt-typing-bg-ico", "aria-hidden": true }, (0, import_react36.createElement)(MoveIcon)),
+      (0, import_react36.createElement)("span", null, movingBg ? t("Moving…") : t("Move to background"))
+    ) : null
   ), host);
 }
 
@@ -48528,8 +48627,10 @@ function watchAgentTerminals(slots, sessionId, onError) {
 }
 
 // src/client/enter-steer.js
-var steerable = (input) => input !== void 0 && input.phase === "plain" && input.draft.trim() === "" && input.attachmentIds.length === 0 && input.queue.some((message) => message.source?.kind === "user");
-var enterSteers = (event, input) => event.key === "Enter" && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey && !event.getModifierState?.("AltGraph") && !event.isComposing && event.keyCode !== 229 && !event.repeat && steerable(input);
+var emptyPlainDraft = (input) => input !== void 0 && input.phase === "plain" && input.draft.trim() === "" && input.attachmentIds.length === 0;
+var steerable = (input) => emptyPlainDraft(input) && input.queue.some((message) => message.source?.kind === "user");
+var enterSteers = (event, input, enterToSend = true) => enterToSend === true && event.key === "Enter" && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey && !event.getModifierState?.("AltGraph") && !event.isComposing && event.keyCode !== 229 && !event.repeat && steerable(input);
+var emptyAccelQueueKey = (event, input) => event.key === "Enter" && (event.metaKey || event.ctrlKey) && !(event.metaKey && event.ctrlKey) && !event.shiftKey && !event.altKey && !event.getModifierState?.("AltGraph") && !event.isComposing && event.keyCode !== 229 && !event.repeat && emptyPlainDraft(input) && Array.isArray(input.queue) && input.queue.length > 0;
 var steerQueued = async (session) => {
   try {
     const queued = session.projections.faceOf("inbox").getSnapshot()?.["next-turn"] ?? [];
@@ -48681,8 +48782,10 @@ function menuIcons(roster) {
     return Icon;
   };
 }
-function ComposerPlus({ sessionId, inputActions, useInput, useRoster, actions }) {
+function ComposerPlus({ sessionId, inputActions, useInput, useRoster, useWork, actions }) {
   const roster = useRoster((value) => value);
+  const enterToSend = sendsOnEnter(roster.prefs);
+  const bgInfo = useWork?.((work) => work.canBackground?.[sessionId]);
   const [open, setOpen] = (0, import_react67.useState)(null);
   const [shown, leaving] = useLinger(open, 120);
   const button = (0, import_react67.useRef)(null);
@@ -48692,7 +48795,7 @@ function ComposerPlus({ sessionId, inputActions, useInput, useRoster, actions })
   const ready = useInput?.((state) => {
     inputNow.current = state;
     return steerable(state);
-  }) === true;
+  }) === true && enterToSend;
   const target = roster.byId?.[sessionId]?.id ?? roster.roomsById?.[sessionId]?.id;
   (0, import_react67.useEffect)(() => {
     if (!open) return void 0;
@@ -48726,7 +48829,9 @@ function ComposerPlus({ sessionId, inputActions, useInput, useRoster, actions })
     let steering = false;
     const onKey = (event) => {
       if (steering || event.defaultPrevented || open) return;
-      if (!enterSteers(event, inputNow.current)) return;
+      const plainEnter = enterSteers(event, inputNow.current, enterToSend);
+      const accelEnter = !plainEnter && emptyAccelQueueKey(event, inputNow.current);
+      if (!plainEnter && !accelEnter) return;
       const targetEl = event.target;
       if (typeof targetEl?.closest !== "function") return;
       const card = button.current?.closest("[data-composer-card]");
@@ -48736,6 +48841,7 @@ function ComposerPlus({ sessionId, inputActions, useInput, useRoster, actions })
       if (targetEl.ownerDocument?.querySelector('[role="listbox"]')) return;
       event.preventDefault();
       event.stopPropagation();
+      if (!steerable(inputNow.current)) return;
       steering = true;
       void Promise.resolve(actions.steerQueued(sessionId)).finally(() => {
         steering = false;
@@ -48743,7 +48849,7 @@ function ComposerPlus({ sessionId, inputActions, useInput, useRoster, actions })
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [open, sessionId]);
+  }, [open, sessionId, enterToSend]);
   const place = (0, import_react67.useMemo)(() => {
     if (!shown || !button.current) return null;
     const rect = button.current.getBoundingClientRect();
@@ -48776,6 +48882,11 @@ function ComposerPlus({ sessionId, inputActions, useInput, useRoster, actions })
     setOpen(null);
     actions.composeGoal(room2.id);
   };
+  const moveToBackground = () => {
+    setOpen(null);
+    if (!bgInfo || typeof actions.moveToBackground !== "function") return;
+    void Promise.resolve(actions.moveToBackground(bgInfo.botId, sessionId, bgInfo.turn)).catch((error) => actions.reportError?.(new Error(hostText(error?.message ?? String(error))), "move-to-background"));
+  };
   return (0, import_react67.createElement)(
     import_react67.Fragment,
     null,
@@ -48803,6 +48914,7 @@ function ComposerPlus({ sessionId, inputActions, useInput, useRoster, actions })
       shown.files ? (0, import_react67.createElement)("button", { type: "button", role: "menuitem", onClick: attach }, (0, import_react67.createElement)(PaperclipIcon), (0, import_react67.createElement)("span", { className: "bt-menu-label" }, t("Add files"))) : null,
       canReference ? (0, import_react67.createElement)("button", { type: "button", role: "menuitem", onMouseDown: keepComposerFocus, onClick: reference }, (0, import_react67.createElement)(ChatsIcon), (0, import_react67.createElement)("span", { className: "bt-menu-label" }, t("Reference a chat"))) : null,
       canSetGoal(room2, roster) ? (0, import_react67.createElement)("button", { type: "button", role: "menuitem", onClick: goal }, (0, import_react67.createElement)(GoalIcon), (0, import_react67.createElement)("span", { className: "bt-menu-label" }, t("Set a goal"))) : null,
+      bgInfo && typeof actions.moveToBackground === "function" ? (0, import_react67.createElement)("button", { type: "button", role: "menuitem", onMouseDown: keepComposerFocus, onClick: moveToBackground }, (0, import_react67.createElement)(MoveIcon), (0, import_react67.createElement)("span", { className: "bt-menu-label" }, t("Move current work to background"))) : null,
       (0, import_react67.createElement)("button", { type: "button", role: "menuitem", onClick: schedule }, (0, import_react67.createElement)(ClockIcon), (0, import_react67.createElement)("span", { className: "bt-menu-label" }, t("Scheduled task")))
     ), document.body) : null
   );

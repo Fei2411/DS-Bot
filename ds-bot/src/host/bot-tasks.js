@@ -91,8 +91,21 @@ export function install(rt) {
   // `step()` appends `user/message` to the session log).
   const admittedRpcIds = new Map()
   // In-flight foreground-to-background handoffs per Bot:
-  // botId -> { oldSid, committed, newSid, promise, messages }.
+  // botId -> { oldSid, committed, newSid, taskId, explicit, operationId, promise, messages }.
   const handoffing = new Map()
+  // Monotonic foreground epoch per Bot (incremented on foreground handoff commit).
+  const foregroundEpochs = new Map()
+  // Bounded idempotency cache for explicit moveForegroundToBackground operations.
+  const MAX_MOVE_OPS = 64
+  const completedMoveOps = new Map()
+  const rememberMoveOp = (operationId, result) => {
+    if (typeof operationId !== 'string' || operationId === '') return
+    completedMoveOps.delete(operationId)
+    completedMoveOps.set(operationId, result)
+    while (completedMoveOps.size > MAX_MOVE_OPS) {
+      completedMoveOps.delete(completedMoveOps.keys().next().value)
+    }
+  }
   const listeners = new Set()
 
   const isLocalCliBot = (bot, session) => {
@@ -100,6 +113,24 @@ export function install(rt) {
     if (rt.localAgentBadge?.(ref) !== undefined || rt.isLocalAgentRef?.(ref) === true) return true
     const provider = session?.requestHeader?.()?.config?.provider
     return provider !== undefined && rt.isLocalAgentRoute?.(provider) === true
+  }
+  const isLocalCliSession = (sessionId) => {
+    if (sessionId === undefined) return false
+    const botId = rt.chatOwners.get(sessionId) ?? rt.groupOwners.get(sessionId)?.botId ?? rt.taskOwners?.get(sessionId)?.botId
+    const bot = botId === undefined ? undefined : rt.botOf(botId)
+    const session = ctx.get('agents')?.get(sessionId)?.session
+    return isLocalCliBot(bot, session)
+  }
+  const hasPendingUserInbox = (agent) =>
+    (agent?.inbox?.nextStep ?? []).some(msg => msg?.source?.kind === 'user')
+    || (agent?.inbox?.nextTurn ?? []).some(msg => msg?.source?.kind === 'user')
+  const hasBlockingInteractiveCard = (bot, sessionId) => {
+    if (state.questions?.[sessionId] !== undefined || state.views?.[sessionId] !== undefined) return true
+    if (bot === undefined) return false
+    const pendingOn = (map) => (map?.[bot.id] ?? []).some(
+      entry => entry?.status === 'pending' && (entry.sessionId === undefined || entry.sessionId === sessionId),
+    )
+    return pendingOn(state.secretRequests) || pendingOn(state.connectorRequests) || pendingOn(state.mailRequests)
   }
 
   const onTaskEvent = (listener) => {
@@ -840,15 +871,25 @@ export function install(rt) {
               }
             }
           }
+          if (entry.originalSessionId !== undefined && entry.originalSessionId !== targetSid) {
+            movedSids.add(entry.originalSessionId)
+          }
           if (targetSid === undefined || rt.taskOwners?.has(targetSid)) {
             await clearPendingTransfers([id])
             continue
           }
           let admittedElsewhere = false
+          let origUnreadable = false
           for (const sid of movedSids) {
             if (sid === targetSid) continue
             const movedAgent = ctx.get('agents')?.get(sid) ?? await rt.resolveAgent(sid).catch(() => undefined)
-            if (isAdmittedOn(movedAgent, id) || (entry.source?.rpcId !== undefined && isAdmittedOn(movedAgent, entry.source.rpcId))) {
+            if (movedAgent === undefined) {
+              if (sid === entry.originalSessionId) origUnreadable = true
+              continue
+            }
+            if (isAdmittedOn(movedAgent, id)
+              || (entry.messageId !== undefined && isAdmittedOn(movedAgent, entry.messageId))
+              || (entry.source?.rpcId !== undefined && isAdmittedOn(movedAgent, entry.source.rpcId))) {
               admittedElsewhere = true
               break
             }
@@ -857,8 +898,10 @@ export function install(rt) {
             await clearPendingTransfers([id])
             continue
           }
+          if (origUnreadable) continue
           await forwardPulledMessages(targetSid, [{
-            msg: { id, content: entry.content, source: entry.source },
+            msg: { id: entry.messageId ?? id, content: entry.content, source: entry.source },
+            target: entry.target === 'next-step' ? 'next-step' : 'next-turn',
             transferId: id,
           }], label)
         } finally {
@@ -895,10 +938,11 @@ export function install(rt) {
     inFlightTransferIds.clear()
   }, 'ds-bot: bot-tasks approval bridge')
 
-  // Determines whether a Bot's foreground chat is busy enough to move its running turn
-  // intact into `bot.tasks[]` (or spawn a peer-Bot background task) rather than doing
-  // a fast mid-model steer cut. Disabled for local CLI agents in v1.
-  function shouldMoveForeground(bot, sessionId, { forPeer = false } = {}) {
+  // Audience isolation: a hidden peer-Bot work turn running on a Bot's foreground
+  // chat must move to background immediately when human input arrives, so the user's
+  // message never injects into or leaks out of the hidden peer-Bot turn (#2139).
+  // Also true while an explicit/isolation handoff for `sessionId` is already in flight.
+  function mustIsolateHiddenWork(bot, sessionId) {
     if (bot === undefined || sessionId === undefined || rt.readOnly?.() !== undefined) return false
     if (sessionId !== rt.chatOf(bot.id)) return false
     if (rt.groupOwners.has(sessionId) || rt.taskOwners?.has(sessionId)) return false
@@ -908,13 +952,71 @@ export function install(rt) {
     if (handoffing.get(bot.id)?.oldSid === sessionId) return true
     const entry = rt.live.get(sessionId)
     if (entry?.turn === undefined || entry.cut !== undefined) return false
-    // A hidden peer-Bot work turn on foreground must hand off immediately on user input
-    // instead of falling through to steer.js STEER_CUT (which would leak the user's reply).
-    if (!forPeer && rt.isHiddenBotWorkTurn?.(bot.id, activeTurnInfo(entry))) return true
+    return rt.isHiddenBotWorkTurn?.(bot.id, activeTurnInfo(entry)) === true
+  }
+
+  // Peer-Bot background spawn: when another Bot delegates/messages a busy Bot, spawn a
+  // lightweight `bot-handoff` task without disturbing the user's foreground session.
+  function shouldSpawnPeerTask(bot, sessionId) {
+    if (bot === undefined || sessionId === undefined || rt.readOnly?.() !== undefined) return false
+    if (sessionId !== rt.chatOf(bot.id)) return false
+    if (rt.groupOwners.has(sessionId) || rt.taskOwners?.has(sessionId)) return false
+    if (rt.isSwitchingPart?.(sessionId)) return false
+    const session = ctx.get('agents')?.get(sessionId)?.session
+    if (isLocalCliBot(bot, session)) return false
+    if (handoffing.get(bot.id)?.oldSid === sessionId) return true
+    const entry = rt.live.get(sessionId)
+    if (entry?.turn === undefined || entry.cut !== undefined) return false
     if ((entry.toolCount ?? 0) > 0 || (entry.calls?.size ?? 0) > 0) return true
     if ((rt.runningJobs?.(sessionId)?.length ?? 0) > 0) return true
     const waitMs = rt.backgroundWaitMs?.() ?? 5000
     return typeof entry.since === 'number' && Date.now() - entry.since >= waitMs
+  }
+
+  // Explains why an explicit user-triggered move-to-background is currently unavailable,
+  // or returns `undefined` when the current foreground turn can safely move.
+  function foregroundMoveBlockReason(bot, sessionId) {
+    if (bot === undefined || sessionId === undefined) return { code: 'bot/not-found', message: 'Unknown Bot' }
+    if (rt.readOnly?.() !== undefined) return { code: 'bot/read-only', message: 'This window is read-only' }
+    if (sessionId !== rt.chatOf(bot.id) || rt.groupOwners.has(sessionId) || rt.taskOwners?.has(sessionId)) {
+      return { code: 'bot/stale', message: 'This conversation has already moved on' }
+    }
+    if (rt.isSwitchingPart?.(sessionId)) return { code: 'bot/busy', message: 'Switching conversation part' }
+    const agent = ctx.get('agents')?.get(sessionId)
+    if (isLocalCliBot(bot, agent?.session)) {
+      return { code: 'bot/unsupported', message: 'Local agent Bots cannot move running turns to the background' }
+    }
+    if (handoffing.get(bot.id)?.oldSid === sessionId) return { code: 'bot/busy', message: 'Already moving to the background' }
+    const entry = rt.live.get(sessionId)
+    if (entry?.turn === undefined || entry.cut !== undefined) return { code: 'bot/idle', message: 'Nothing is running right now' }
+    if (hasBlockingInteractiveCard(bot, sessionId)) {
+      return { code: 'bot/card-open', message: 'Answer or dismiss the open card first' }
+    }
+    if (hasPendingUserInbox(agent)) {
+      return { code: 'bot/pending-input', message: 'Clear or send pending queued messages first' }
+    }
+    return undefined
+  }
+
+  function canMoveForeground(bot, sessionId) {
+    return foregroundMoveBlockReason(bot, sessionId) === undefined
+  }
+
+  function canBackgroundView() {
+    const out = {}
+    for (const bot of Object.values(state.bots)) {
+      const sid = rt.chatOf(bot.id)
+      if (canMoveForeground(bot, sid)) {
+        out[sid] = { botId: bot.id, turn: rt.live.get(sid)?.turn ?? null }
+      }
+    }
+    return out
+  }
+
+  // Back-compat wrapper: peer callers use `shouldSpawnPeerTask`; foreground human paths
+  // only auto-move for hidden peer-Bot audience isolation (`mustIsolateHiddenWork`).
+  function shouldMoveForeground(bot, sessionId, { forPeer = false } = {}) {
+    return forPeer ? shouldSpawnPeerTask(bot, sessionId) : mustIsolateHiddenWork(bot, sessionId)
   }
 
   // Extracts the bounded user prompt from the currently running foreground turn,
@@ -975,8 +1077,12 @@ export function install(rt) {
       const id = transferIdOf(item)
       inFlightTransferIds.add(id)
       if (list.some(entry => entry?.id === id)) continue
+      const originalSessionId = item.originalSessionId ?? item.oldAgent?.id ?? item.oldAgent?.session?.id
       list.push({
         id,
+        ...(item.msg?.id !== undefined ? { messageId: item.msg.id } : {}),
+        ...(originalSessionId !== undefined ? { originalSessionId } : {}),
+        target: item.target === 'next-step' ? 'next-step' : 'next-turn',
         ...(owner?.botId !== undefined ? { botId: owner.botId } : {}),
         ...(owner?.roomId !== undefined ? { roomId: owner.roomId } : {}),
         content: item.msg.content,
@@ -1016,10 +1122,10 @@ export function install(rt) {
     const sid = agent.id ?? agent.session?.id
     if (sid !== undefined && admittedRpcIds.get(sid)?.has(rpcId)) return true
     for (const list of [agent.inbox?.nextStep ?? [], agent.inbox?.nextTurn ?? []]) {
-      if (list.some(msg => msg?.source?.rpcId === rpcId)) return true
+      if (list.some(msg => msg?.id === rpcId || msg?.source?.rpcId === rpcId)) return true
     }
     for (const ev of agent.session?.snapshotEvents?.() ?? []) {
-      if (ev?.type === 'user/message' && ev.data?.source?.rpcId === rpcId) return true
+      if (ev?.type === 'user/message' && (ev.data?.message?.id === rpcId || ev.data?.source?.rpcId === rpcId)) return true
     }
     return false
   }
@@ -1044,26 +1150,60 @@ export function install(rt) {
 
   // Restores pulled user messages back to their original Agent (pre-commit failure only)
   // without triggering `interceptForegroundUserMessage`, waking an idle Agent if needed.
-  const restorePulledMessages = (items, { forceNextTurn = false } = {}) => {
-    const ids = []
+  // Only clears journal entries that were durably accepted AND flushed back to disk (#2087).
+  const restorePulledMessages = async (items, { forceNextTurn = false } = {}) => {
+    const byAgent = new Map()
+    const failedIds = []
     for (const item of items) {
-      if (item.transferId !== undefined) ids.push(item.transferId)
       const key = item.msg?.id
       if (key !== undefined) skipInterceptIds.add(key)
       const target = forceNextTurn ? 'next-turn' : item.target
+      let accepted = false
       try {
-        if (typeof item.oldAgent?.send === 'function') item.oldAgent.send(item.msg, target, true)
-        else item.oldAgent?.followup?.(item.msg)
-      } catch {}
-      finally {
+        if (typeof item.oldAgent?.send === 'function') {
+          item.oldAgent.send(item.msg, target, true)
+          accepted = true
+        } else if (typeof item.oldAgent?.followup === 'function') {
+          item.oldAgent.followup(item.msg)
+          accepted = true
+        }
+      } catch {
+        accepted = false
+      } finally {
         if (key !== undefined) skipInterceptIds.delete(key)
       }
+      if (accepted && item.oldAgent !== undefined) {
+        let group = byAgent.get(item.oldAgent)
+        if (group === undefined) { group = []; byAgent.set(item.oldAgent, group) }
+        group.push(item)
+      } else if (item.transferId !== undefined) {
+        failedIds.push(item.transferId)
+      }
     }
-    if (ids.length > 0) void clearPendingTransfers(ids)
+    const confirmedIds = []
+    for (const [oldAgent, group] of byAgent) {
+      let flushed = true
+      try {
+        if (typeof ctx.sessions?.flush === 'function' && oldAgent.session !== undefined) {
+          await ctx.sessions.flush(oldAgent.session)
+        }
+      } catch {
+        flushed = false
+      }
+      for (const item of group) {
+        if (item.transferId === undefined) continue
+        if (flushed) confirmedIds.push(item.transferId)
+        else failedIds.push(item.transferId)
+      }
+    }
+    for (const id of failedIds) inFlightTransferIds.delete(id)
+    if (confirmedIds.length > 0) await clearPendingTransfers(confirmedIds)
   }
 
   // Delivers pulled user messages onto a target foreground Session, retrying transient
-  // destination failures without duplicating already-admitted items.
+  // destination failures without duplicating already-admitted items. Preserves `next-step`
+  // steer intent when landing on a live non-hidden foreground turn, and never clears
+  // `pendingHandoffInputs` unless DSH `sessions.flush()` confirms persistence (#2087).
   const forwardPulledMessages = async (targetSid, items, botName) => {
     if (items.length === 0) return
     let nextIndex = 0
@@ -1072,6 +1212,16 @@ export function install(rt) {
       try {
         await rt.ensureCapabilities(targetSid)
         const freshAgent = await rt.resolveAgent(targetSid)
+        // Snapshot whether `targetSid` was ALREADY running a non-hidden foreground turn
+        // before this batch begins, so forwarding multiple pulled messages onto a freshly
+        // forked idle session delivers all of them as FIFO `followup` turns instead of
+        // letting item 2 steer-cut item 1.
+        const initialEntry = rt.live.get(targetSid)
+        const targetBotId = rt.chatOwners.get(targetSid)
+        const targetWasRunning = initialEntry?.turn !== undefined
+          && freshAgent.status === 'running'
+          && typeof freshAgent.send === 'function'
+          && !rt.isHiddenBotWorkTurn?.(targetBotId, activeTurnInfo(initialEntry))
         while (nextIndex < items.length) {
           const item = items[nextIndex]
           const rpcId = item.transferId ?? item.msg?.source?.rpcId
@@ -1081,9 +1231,11 @@ export function install(rt) {
               ? baseSource
               : { ...baseSource, rpcId }
             const forwarded = createUserMessage({ content: item.msg.content, source })
+            const keepSteer = targetWasRunning && item.target === 'next-step'
             skipInterceptIds.add(forwarded.id)
             try {
-              freshAgent.followup(forwarded)
+              if (keepSteer) freshAgent.send(forwarded, 'next-step', true)
+              else freshAgent.followup(forwarded)
               noteAdmittedRpc(targetSid, rpcId)
             } finally {
               skipInterceptIds.delete(forwarded.id)
@@ -1111,7 +1263,7 @@ export function install(rt) {
   // Session from the pre-turn completed boundary, updates `bot.sessionId`, drains any
   // concurrent intercepted Desktop/Web messages onto the new foreground, and returns
   // the new foreground sessionId. Serialized per Bot so rapid messages share one handoff.
-  async function handoffForeground(bot, oldSid, initialMessages = []) {
+  async function handoffForeground(bot, oldSid, initialMessages = [], { explicit = false, operationId } = {}) {
     const existing = handoffing.get(bot.id)
     if (existing !== undefined && existing.oldSid === oldSid) {
       if (initialMessages.length > 0) {
@@ -1126,7 +1278,7 @@ export function install(rt) {
     }
     const entry = rt.live.get(oldSid)
     const oldAgent = ctx.get('agents')?.get(oldSid)
-    const earlier = pullPendingUserMessages(oldAgent)
+    const earlier = explicit ? [] : pullPendingUserMessages(oldAgent)
     const seededMessages = [...earlier, ...initialMessages]
     recordPendingTransfers(seededMessages, { botId: bot.id })
     const info = activeTurnInfo(entry)
@@ -1157,14 +1309,23 @@ export function install(rt) {
     })()
     const movedImOrigin = isBotHandoff ? undefined : rt.captureImOrigin?.(oldSid)
 
-    const record = { oldSid, committed: false, newSid: undefined, messages: seededMessages, promise: undefined }
+    const record = {
+      oldSid,
+      committed: false,
+      newSid: undefined,
+      taskId: undefined,
+      explicit,
+      operationId,
+      messages: seededMessages,
+      promise: undefined,
+    }
     const run = (async () => {
       if (record.messages.length > 0) await rt.save().catch(() => {})
       let forkedResult
       try {
         forkedResult = await rt.forkForegroundPart(bot, oldSid)
       } catch (error) {
-        restorePulledMessages(record.messages.splice(0), { forceNextTurn: isBotHandoff })
+        await restorePulledMessages(record.messages.splice(0), { forceNextTurn: isBotHandoff })
         throw error
       }
       const { sessionId: newSid, forked, syncRoute } = forkedResult
@@ -1177,12 +1338,25 @@ export function install(rt) {
           if (currentSid !== undefined && currentSid !== oldSid && !rt.taskOwners?.has(currentSid)) {
             await forwardPulledMessages(currentSid, pending, bot.name)
           } else if (rt.botOf(bot.id) === bot) {
-            restorePulledMessages(pending, { forceNextTurn: isBotHandoff })
+            await restorePulledMessages(pending, { forceNextTurn: isBotHandoff })
           } else {
             await clearPendingTransfers(pending.map(item => item.transferId))
           }
         }
         return currentSid ?? newSid
+      }
+      // For an explicit move with no intercepted messages, if the old turn already finished
+      // naturally while forking, keep the original foreground and discard the unused candidate.
+      if (explicit && record.messages.length === 0) {
+        const oldStillActive = rt.live.get(oldSid)?.turn !== undefined
+          || oldAgent?.status === 'running'
+          || (rt.runningJobs?.(oldSid)?.length ?? 0) > 0
+          || rt.waitsForApproval?.(oldSid)
+        if (!oldStillActive) {
+          await ctx.workspaceRegistry.archiveSession(newSid, { stopActivity: true }).catch(() => {})
+          rememberMoveOp(operationId, { sessionId: oldSid, taskId: null, moved: false })
+          return oldSid
+        }
       }
       const now = Date.now()
       const inherited = slimSegments(bot)
@@ -1204,6 +1378,7 @@ export function install(rt) {
       }
       ;(bot.tasks ??= []).push(task)
       bot.sessionId = newSid
+      foregroundEpochs.set(bot.id, (foregroundEpochs.get(bot.id) ?? 0) + 1)
       rt.chatOwners.set(newSid, bot.id)
       rt.taskOwners.set(oldSid, { botId: bot.id, taskId: task.id })
       rt.moveSilentNotes?.(oldSid, newSid)
@@ -1247,6 +1422,8 @@ export function install(rt) {
       }
       record.committed = true
       record.newSid = newSid
+      record.taskId = task.id
+      rememberMoveOp(operationId, { sessionId: newSid, taskId: task.id, moved: true })
       // Clear live IM origin on the moved background session so it never streams raw lines
       // directly to IM; `task.imOrigin` handles approvals and the final `task-report`.
       rt.clearImOrigin?.(oldSid)
@@ -1345,6 +1522,46 @@ export function install(rt) {
     })
     handoffing.set(bot.id, record)
     return record.promise
+  }
+
+  // Explicit user-triggered action: move the Bot's currently running foreground turn
+  // to a background task and open a fresh foreground part. Idempotent on `operationId`
+  // and concurrent clicks on the same running turn.
+  async function moveForegroundToBackground({ botId, expectedSessionId, expectedTurn, operationId } = {}) {
+    if (typeof operationId === 'string' && operationId !== '' && completedMoveOps.has(operationId)) {
+      return completedMoveOps.get(operationId)
+    }
+    const bot = rt.botOf(botId)
+    if (bot === undefined) throw Object.assign(new Error('Unknown Bot'), { code: 'bot/not-found' })
+    const oldSid = rt.chatOf(bot.id)
+    if (expectedSessionId !== undefined && expectedSessionId !== oldSid) {
+      const inFlight = handoffing.get(bot.id)
+      if (inFlight !== undefined && inFlight.oldSid === expectedSessionId) {
+        const sid = await inFlight.promise
+        return { sessionId: sid, taskId: inFlight.taskId ?? null, moved: inFlight.committed === true }
+      }
+      throw Object.assign(new Error('This conversation has already moved on'), { code: 'bot/stale' })
+    }
+    const inFlight = handoffing.get(bot.id)
+    if (inFlight !== undefined && inFlight.oldSid === oldSid) {
+      const sid = await inFlight.promise
+      const result = { sessionId: sid, taskId: inFlight.taskId ?? null, moved: inFlight.committed === true }
+      rememberMoveOp(operationId, result)
+      return result
+    }
+    if (expectedTurn !== undefined && rt.live.get(oldSid)?.turn !== expectedTurn) {
+      throw Object.assign(new Error('This turn has already ended'), { code: 'bot/stale' })
+    }
+    const blocked = foregroundMoveBlockReason(bot, oldSid)
+    if (blocked !== undefined) {
+      throw Object.assign(new Error(blocked.message), { code: blocked.code })
+    }
+    const newSid = await handoffForeground(bot, oldSid, [], { explicit: true, operationId })
+    const task = (bot.tasks ?? []).findLast(item => item?.sessionId === oldSid)
+    const moved = newSid !== oldSid && task !== undefined
+    const result = { sessionId: newSid, taskId: moved ? task.id : null, moved }
+    rememberMoveOp(operationId, result)
+    return result
   }
 
   // Spawns a dedicated background task (`origin: 'bot-handoff'`) for an incoming peer
@@ -1447,7 +1664,9 @@ export function install(rt) {
           await clearPendingTransfers(pulled.map(item => item.transferId))
           return
         }
-        if (shouldMoveForeground(ownerBot, fgSid)) {
+        // Only isolate a hidden peer-Bot turn on the new foreground; never recursively
+        // hand off an ordinary user foreground turn during a polling-gap redirect (#2077).
+        if (mustIsolateHiddenWork(ownerBot, fgSid)) {
           const fgAgent = ctx.get('agents')?.get(fgSid)
           const rebased = pulled.map(item => ({ ...item, oldAgent: fgAgent }))
           fgSid = await handoffForeground(ownerBot, fgSid, rebased)
@@ -1458,11 +1677,13 @@ export function install(rt) {
       return
     }
 
-    // Case 2: Busy foreground — pull any earlier queued user prompts plus this message
-    // synchronously in FIFO order and move the busy turn intact into `bot.tasks[]`.
+    // Case 2: Audience isolation or in-flight handoff — ordinary user messages (`steer`
+    // or `queue`) stay on the foreground turn so `steer` and `queue` work as expected.
+    // Only hidden peer-Bot work turns (or an explicit handoff already in flight for `id`)
+    // intercept human input here.
     const botId = rt.chatOwners.get(id)
     const bot = botId === undefined ? undefined : rt.botOf(botId)
-    if (!shouldMoveForeground(bot, id)) {
+    if (!mustIsolateHiddenWork(bot, id)) {
       // When foreground handoff is unavailable (e.g. local CLI Bot) while a hidden
       // peer-Bot turn is running, demote user `next-step` steers to `next-turn` so the
       // user's message never injects into or leaks out of the hidden peer-Bot turn.
@@ -1485,7 +1706,7 @@ export function install(rt) {
     if (agent?.inbox?.remove === undefined) return
     const earlier = handoffing.get(bot.id)?.oldSid === id ? [] : pullPendingUserMessages(agent, msg.id)
     if (!agent.inbox.remove(msg.id)) {
-      if (earlier.length > 0) restorePulledMessages(earlier)
+      if (earlier.length > 0) void restorePulledMessages(earlier)
       return
     }
     clearSteeredAt()
@@ -1736,10 +1957,17 @@ export function install(rt) {
 
   Object.assign(rt, {
     startTask,
+    canMoveForeground,
+    canBackgroundView,
+    mustIsolateHiddenWork,
+    shouldSpawnPeerTask,
     shouldMoveForeground,
+    isLocalCliSession,
+    isAdmittedOn,
     isHandingOff: id => id !== undefined && [...handoffing.values()].some(record => record.oldSid === id),
     consumeEmptyTaskWake: id => id !== undefined && rejectEmptyTaskWake.delete(id),
     handoffForeground,
+    moveForegroundToBackground,
     spawnBotHandoffTask,
     stopTask: async (botId, taskId, reason = 'cancelled by the user') => {
       const bot = rt.botOf(botId)
