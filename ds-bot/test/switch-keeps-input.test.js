@@ -376,6 +376,23 @@ test('a failed task move leaves the earlier part unarchived and marked for retry
   assert.deepEqual(host.state().switching, {})
 })
 
+test('a switch stops an earlier part when deleting a copied legacy reminder fails', async (t) => {
+  const reminder = { id: 'reminder', kind: 'every', title: 'Check in', prompt: 'Check', everySeconds: 3600 }
+  const copies = []
+  const schedule = {
+    list: async ({ sessionId }) => sessionId === 'b' ? [reminder] : [],
+    create: async (sessionId, request) => { copies.push({ sessionId, request }) },
+    delete: async () => { throw new Error('Temporary deletion failure') },
+  }
+  const host = await start({ services: { ...services, schedule } })
+  t.after(host.stop)
+  await moveWriter(host, [])
+  await until(() => host.state().bots.b.sessionId === 's1' && Object.keys(host.state().switching).length === 0)
+  assert.deepEqual(host.archived, [['b', { stopActivity: true }]])
+  assert.deepEqual(copies, [{ sessionId: 's1', request: { title: 'Check in', prompt: 'Check', every_seconds: 3600 } }])
+  assert.equal(host.state().legacyScheduleMoves, undefined)
+})
+
 test('unmarked earlier parts are never resolved by the restart pass', async (t) => {
   const host = await start({ services })
   await moveWriter(host, [])

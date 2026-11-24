@@ -90,7 +90,7 @@ function selectorOf(when) {
 }
 
 export function install(rt) {
-  const { ctx } = rt
+  const { ctx, state } = rt
   const SCHEDULE_ATTACH_GRACE_MS = rt.config?.scheduleAttachWaitMs ?? 10_000
   let service = null
   let disposed = false
@@ -263,35 +263,60 @@ export function install(rt) {
     },
   }
 
-  const legacyMoves = new Map()
-  function moveLegacySchedules(schedule, fromId, toId) {
-    const move = legacyMoves.get(fromId) ?? { copied: new Set() }
-    if (move.running !== undefined) return move.running
-    legacyMoves.set(fromId, move)
-    const run = async () => {
-      const records = await schedule.list({ sessionId: fromId })
-      const active = new Set(records.map(record => record.id))
-      for (const id of move.copied) if (!active.has(id)) move.copied.delete(id)
-      for (const record of records) {
-        if (!move.copied.has(record.id)) {
-          const request = requestOf(record)
-          if (request === null || (request.at !== undefined && Date.parse(request.at) <= Date.now())) continue
-          await schedule.create(toId, request)
-          // The legacy API generates a new id for each create. Retry deletion, not the copy.
-          move.copied.add(record.id)
+  let legacyMoves = Promise.resolve()
+  const movesFrom = fromId => (state.legacyScheduleMoves ?? []).filter(move => move.fromId === fromId)
+  const saveMoves = moves => {
+    if (moves.length === 0) delete state.legacyScheduleMoves
+    else state.legacyScheduleMoves = moves
+    return rt.save({ required: true })
+  }
+  const forgetMoves = moves => saveMoves((state.legacyScheduleMoves ?? []).filter(move => !moves.includes(move)))
+
+  async function moveLegacySchedules(schedule, fromId, toId, canStopActivity) {
+    const records = await schedule.list({ sessionId: fromId })
+    const active = new Set(records.map(record => record.id))
+    const stale = movesFrom(fromId).filter(move => !active.has(move.id))
+    if (stale.length > 0) await forgetMoves(stale)
+    const toStop = []
+    for (const record of records) {
+      let move = movesFrom(fromId).find(move => move.id === record.id)
+      if (move?.copied !== true) {
+        const request = move?.request ?? requestOf(record)
+        if (request === null || (request.at !== undefined && Date.parse(request.at) <= Date.now())) continue
+        const matching = async id => (await schedule.list({ sessionId: id }))
+          .filter(entry => JSON.stringify(requestOf(entry)) === JSON.stringify(request))
+        let found = false
+        if (move === undefined) {
+          // The legacy API assigns the copy a random ID. Save the pre-copy matches
+          // so a restart between the create and its receipt can identify a new one.
+          move = { fromId, toId, id: record.id, request, before: (await matching(toId)).map(entry => entry.id) }
+          await saveMoves([...(state.legacyScheduleMoves ?? []), move])
+        } else {
+          const added = (await matching(move.toId)).filter(entry => !move.before.includes(entry.id))
+          if (added.length > 1) throw new Error('Could not identify the previous copy of a legacy reminder')
+          found = added.length === 1
+          // A previous save may have failed with the receipt still in memory.
+          if (!found) await rt.save({ required: true })
         }
-        await schedule.delete({ sessionId: fromId, id: record.id })
-        move.copied.delete(record.id)
+        if (!found) await schedule.create(move.toId, request)
+        move.copied = true
+        await rt.save({ required: true })
       }
+      try {
+        await schedule.delete({ sessionId: fromId, id: record.id })
+      } catch (error) {
+        if (!canStopActivity) throw error
+        toStop.push(move)
+        rt.warn('ds-bot: earlier copy of task %s not removed: %s', record.title, error?.message ?? error)
+        continue
+      }
+      await forgetMoves([move])
     }
-    move.running = run().finally(() => {
-      move.running = undefined
-      if (move.copied.size === 0) legacyMoves.delete(fromId)
-    })
-    return move.running
+    if (toStop.length > 0) return () => forgetMoves(toStop)
   }
 
-  async function moveSchedules(fromId, toId) {
+  async function moveSchedules(fromId, toId, { stopActivity = false } = {}) {
+    if (fromId === toId) return
     if (service === null) {
       if (schedulesPending()) {
         armGraceRetry()
@@ -308,7 +333,10 @@ export function install(rt) {
       }
       return
     }
-    await moveLegacySchedules(service, fromId, toId)
+    const schedule = service
+    const move = legacyMoves.then(() => moveLegacySchedules(schedule, fromId, toId, stopActivity))
+    legacyMoves = move.catch(() => {})
+    return move
   }
 
   // DSH 0.2.2's task ids are Host-wide, so a Bot's schedule tools reach only the tasks

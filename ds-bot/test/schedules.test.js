@@ -115,9 +115,9 @@ function hostSchedule() {
   }
 }
 
-function setup(services = {}, team = TEAM) {
-  const home = mkdtempSync(join(tmpdir(), 'dsb-schedules-'))
-  writeFileSync(join(home, 'state.json'), JSON.stringify(team))
+function setup(services = {}, team = TEAM, existingHome) {
+  const home = existingHome ?? mkdtempSync(join(tmpdir(), 'dsb-schedules-'))
+  if (existingHome === undefined) writeFileSync(join(home, 'state.json'), JSON.stringify(team))
   const ctx = fakeContext({ services })
   const register = ctx.connection.fetch.register
   ctx.connection.fetch.register = (route) => { ctx.route = route; return register(route) }
@@ -326,6 +326,41 @@ test('a failed task move can resume without losing identical remaining tasks', a
   assert.equal(on('s9').length, 2)
   assert.equal(on('w2').length, 0)
 })
+
+for (const failure of ['after copying', 'during deletion']) {
+  test(`a legacy reminder move interrupted ${failure} resumes after restart without another copy`, async (t) => {
+    const schedule = scheduleService()
+    const request = { title: 'Ping', prompt: 'Check', every_seconds: 3600 }
+    const first = setup({ schedule })
+    t.after(() => rmSync(first.home, { recursive: true, force: true, maxRetries: 5 }))
+    await first.rt.load()
+    await schedule.create('s9', request)
+    await schedule.create('w2', request)
+    await schedule.create('w2', request)
+    const { create, delete: remove } = schedule
+    if (failure === 'after copying') {
+      schedule.create = async (...args) => {
+        await create(...args)
+        throw new Error('interrupted')
+      }
+    } else {
+      schedule.delete = async () => { throw new Error('interrupted') }
+    }
+    await assert.rejects(first.rt.moveSchedules('w2', 's9'), /interrupted/)
+    assert.equal((await schedule.list({ sessionId: 's9' })).length, 2)
+    await first.ctx.dispose()
+
+    schedule.create = create
+    schedule.delete = remove
+    const second = setup({ schedule }, undefined, first.home)
+    t.after(() => second.ctx.dispose())
+    await second.rt.load()
+    await second.rt.moveSchedules('w2', 's9')
+    assert.equal((await schedule.list({ sessionId: 's9' })).length, 3)
+    assert.deepEqual(await schedule.list({ sessionId: 'w2' }), [])
+    assert.equal(second.rt.state.legacyScheduleMoves, undefined)
+  })
+}
 
 test('on DSH 0.2.2 a task pauses and resumes from Settings, and only a team task does', async (t) => {
   const schedule = hostSchedule()
