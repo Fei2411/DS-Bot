@@ -76,10 +76,40 @@ const renderPlain = block => (block.kind === 'code' ? block.lines.join('\n') : b
 const ATX_HEADING = /^ {0,3}#{1,6}[ \t]+(.+?)\s*$/
 const LIST_ITEM = /^ {0,3}(?:[-+*]|\d{1,9}[.)])(?:[ \t]|$)/
 const TABLE_DELIMITER = /^:?-+:?$/
-const TILDE_FENCE = /^ {0,3}(~{3,})([^\r\n]*)\r?$/
+const LITERAL_FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})([^\r\n]*)\r?$/
+const LITERAL_FENCE_CLOSE = /^ {0,3}(`{3,}|~{3,})[ \t]*\r?$/
+
+function literalFenceGuard(source) {
+  let through = -1
+  let longestRemainingBacktick = Infinity
+  return at => {
+    if (at <= through) return true
+    const fence = LITERAL_FENCE_OPEN.exec(source[at])
+    if (fence === null) return false
+    const marker = fence[1]
+    const backtick = marker[0] === '`'
+    if (backtick && (fence[2].includes('`') || marker.length > longestRemainingBacktick)) return false
+    let longest = 0
+    for (let end = at + 1; end < source.length; end += 1) {
+      const close = LITERAL_FENCE_CLOSE.exec(source[end])?.[1]
+      if (close?.[0] !== marker[0]) continue
+      if (close.length >= marker.length) {
+        through = end
+        return true
+      }
+      longest = Math.max(longest, close.length)
+    }
+    if (backtick) {
+      longestRemainingBacktick = longest
+      return false
+    }
+    through = source.length - 1
+    return true
+  }
+}
 
 function tableCells(line) {
-  if (/^ {0,3}[\t>]|^ {4}/.test(line) || ATX_HEADING.test(line) || TILDE_FENCE.test(line)) return undefined
+  if (/^ {0,3}[\t>]|^ {4}/.test(line) || ATX_HEADING.test(line)) return undefined
   const cells = ['']
   for (const part of line.trim().match(/\\.|(?<!`)(`+)(?!`).*?(?<!`)\1(?!`)|[^\\`|]+|`+|\\|\|/g) ?? []) {
     if (part === '|') cells.push('')
@@ -102,8 +132,9 @@ function tableRow(line, header) {
     && (!header.trailingPipe || row.trailingPipe) ? row : undefined
 }
 
-function telegramLines(lines, tildeFence) {
+function telegramLines(lines, isLiteral) {
   const rendered = []
+  const tableLine = at => isLiteral[at] ? '' : lines[at] ?? ''
   const renderTableRow = (headers, row) => {
     for (const [index, header] of headers.entries()) {
       const label = row === undefined ? header : header + ':'
@@ -116,26 +147,23 @@ function telegramLines(lines, tildeFence) {
   }
   for (let at = 0; at < lines.length; at += 1) {
     const line = lines[at]
-    const tilde = TILDE_FENCE.exec(line)
-    if (tildeFence.width > 0 || tilde !== null) {
-      if (tildeFence.width === 0) tildeFence.width = tilde[1].length
-      else if (tilde?.[1].length >= tildeFence.width && /^[ \t]*$/.test(tilde[2])) tildeFence.width = 0
+    if (isLiteral[at]) {
       rendered.push({ html: inlineHtml(line), text: inlinePlain(line) })
       continue
     }
-    const next = lines[at + 1] ?? ''
+    const next = tableLine(at + 1)
     if (next.includes('-')) {
       const delimiters = tableCells(next)?.cells
       if (delimiters?.length > 0 && delimiters.every(cell => TABLE_DELIMITER.test(cell))) {
         const header = tableRow(line)
         if (header?.cells.length === delimiters.length) {
           at += 1
-          let row = tableRow(lines[at + 1] ?? '', header)
+          let row = tableRow(tableLine(at + 1), header)
           if (row === undefined) renderTableRow(header.cells)
           while (row !== undefined) {
             at += 1
             renderTableRow(header.cells, row.cells)
-            row = tableRow(lines[at + 1] ?? '', header)
+            row = tableRow(tableLine(at + 1), header)
             if (row !== undefined) rendered.push({ html: '', text: '' })
           }
           continue
@@ -283,7 +311,9 @@ export function chunkMarkdown(markdown, limit) {
 
 export function chunkTelegram(markdown, limit = 4096) {
   const chunks = []
-  const tildeFence = { width: 0 }
+  const source = String(markdown).split('\n')
+  const isLiteral = literalFenceGuard(source)
+  let at = 0
   let html = ''
   let text = ''
   const flush = () => {
@@ -293,7 +323,11 @@ export function chunkTelegram(markdown, limit = 4096) {
     text = ''
   }
   for (const block of blocks(markdown)) {
-    const lines = block.kind === 'code' ? [] : telegramLines(block.lines, tildeFence)
+    while (source[at]?.trim() === '') at += 1
+    const isCode = block.kind === 'code'
+    const lines = isCode ? [] : telegramLines(block.lines, block.lines.map((_, index) => isLiteral(at + index)))
+    // Dev's code blocks omit the opening and closing lines.
+    at += block.lines.length + (isCode ? 2 : 0)
     const blockHtml = block.kind === 'code' ? renderCodeHtml(block) : lines.map(line => line.html).join('\n')
     const blockText = block.kind === 'code' ? renderPlain(block) : lines.map(line => line.text).join('\n')
     const candidate = html === '' ? blockHtml : `${html}\n${blockHtml}`

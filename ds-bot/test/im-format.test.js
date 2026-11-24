@@ -49,6 +49,34 @@ test('an unclosed tilde fence keeps the comment literal like dev', () => {
   assert.deepEqual(chunkTelegram(markdown), [{ html: markdown, text: markdown }])
 })
 
+test('Telegram leaves headings and tables inside indented backtick fences literal', () => {
+  const comment = '   ```sh\n   # Literal shell comment\n   ``` '
+  assert.deepEqual(chunkTelegram(comment), [{ html: comment, text: comment }])
+
+  const table = '  ```\n  # Literal heading\n\n  | Key | Value |\n  | --- | --- |\n  | A | B |\n  ```'
+  assert.deepEqual(chunkTelegram(table + '\n# Actual heading'), [{
+    html: table.replace('\n\n', '\n') + '\n<b>Actual heading</b>',
+    text: table.replace('\n\n', '\n') + '\nActual heading',
+  }])
+})
+
+test('a literal backtick fence can end where dev starts a code block', () => {
+  const markdown = '   ```sh\n   # Literal comment\n```\t\n# Dev code\n```\n# Actual heading'
+  assert.deepEqual(chunkTelegram(markdown), [{
+    html: '   ```sh\n   # Literal comment\n<pre><code># Dev code</code></pre>\n<b>Actual heading</b>',
+    text: '   ```sh\n   # Literal comment\n# Dev code\nActual heading',
+  }])
+})
+
+test('a literal fence with pipes in its info is not a Telegram table row', () => {
+  const fence = '  ```sh | label\n# Literal heading\n   ``` '
+  const markdown = 'Key | Value\n--- | ---\na | b\n' + fence
+  assert.deepEqual(chunkTelegram(markdown), [{
+    html: '• <b>Key:</b> a\n• <b>Value:</b> b\n' + fence,
+    text: '• Key: a\n• Value: b\n' + fence,
+  }])
+})
+
 test('a closing code fence can have different indentation from its opener', () => {
   const markdown = '- Item\n  ~~~sh\n  # comment\n   ~~~\nAfter the list'
   assert.deepEqual(chunkTelegram(markdown + '\n# Actual heading'), [{
