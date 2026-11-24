@@ -186,7 +186,7 @@ export function install(rt) {
   }
   // What a host that only reads the team may still answer.
   // Updates change the dsh profile, not the team, so a reading host may run them too.
-  const READS = new Set(['secret-store', 'secret-unlock', 'state', 'models', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'agent-chat', 'bot-task-read', 'run-stats', 'room-progress', 'group-rows', 'group-relay-replies', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library', 'computer-system-status', 'computer-shot', 'local-agents', 'local-agent-models', 'browser-frame', 'hello', 'notices', 'avatar', 'room-chat', 'usage-summary', 'image', 'markdown-image', 'file-download', 'changes-check', 'deepseek-services', 'deepseek-synthesize', 'plugins-list', 'plugins-catalog-refresh', 'plugins-versions', 'plugins-detail'])
+  const READS = new Set(['secret-store', 'secret-unlock', 'state', 'models', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'agent-chat', 'bot-task-read', 'run-stats', 'room-progress', 'group-rows', 'group-relay-replies', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'memory-history', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library', 'computer-system-status', 'computer-shot', 'local-agents', 'local-agent-models', 'browser-frame', 'hello', 'notices', 'avatar', 'room-chat', 'usage-summary', 'image', 'markdown-image', 'file-download', 'changes-check', 'deepseek-services', 'deepseek-synthesize', 'plugins-list', 'plugins-catalog-refresh', 'plugins-versions', 'plugins-detail'])
   READS.add('chatgpt')
 
   async function setPrefs(body) {
@@ -334,7 +334,8 @@ export function install(rt) {
         }
         case 'exchange-text': {
           await rt.load()
-          const entry = (body.a !== undefined && body.b !== undefined ? rt.exchangeOf(body.id, body.a, body.b) : undefined)
+          const hasPair = body.a !== undefined && body.b !== undefined
+          const entry = (hasPair ? rt.exchangeOf(body.id, body.a, body.b) : rt.exchangeById?.(body.id))
             ?? state.exchanges.find(item => item.id === body.id)
           if (entry === undefined) return fail('This message is no longer kept', 'bot/stale')
           return ok(await rt.exchangeText(entry))
@@ -353,14 +354,31 @@ export function install(rt) {
           return ok(await rt.chatPage(String(body.botId ?? ''), body.cursor ?? undefined, body.steps === true))
         // DSH's own whole-log figures for the current part of a Bot's chat, the ones its
         // status bar shows; a window without that bar shows them in the Bot's details.
+        // Local CLI agents run many internal tool steps inside one DSH turn, so their
+        // `assistant/message.usage` carries cumulative billed tokens; replace DSH's
+        // cumulative `contextPressure` with the CLI's own per-step context occupancy.
         case 'run-stats': {
           await rt.load()
           const bot = rt.botOf(String(body.botId ?? ''))
           if (bot === undefined) return fail('Unknown Bot', 'bot/not-found')
           const projections = ctx.get?.('sessionProjections')
           if (projections === undefined) return ok(null)
-          const agent = await rt.resolveAgent(rt.chatOf(bot.id))
-          return ok(projections.snapshot(agent.session, RUN_STATS).values)
+          const sessionId = rt.chatOf(bot.id)
+          const agent = await rt.resolveAgent(sessionId)
+          const values = projections.snapshot(agent.session, RUN_STATS).values
+          const isLocal = rt.isLocalAgentRoute?.(agent.session?.requestHeader?.()?.config?.provider ?? '') === true
+            || rt.isLocalAgentSession?.(sessionId) === true
+          if (values && isLocal) {
+            const localContext = rt.localAgentContext?.(sessionId)
+            const contextWindow = localContext?.size ?? values.contextPressure?.contextWindow
+            return ok({
+              ...values,
+              contextPressure: Number.isFinite(localContext?.used) && contextWindow > 0
+                ? { ...values.contextPressure, pressureTokens: localContext.used, projectedTokens: localContext.used, contextWindow }
+                : undefined,
+            })
+          }
+          return ok(values)
         }
         case 'usage':
           await rt.load()
@@ -584,8 +602,9 @@ export function install(rt) {
           const result = rt.taskNote(roomId, String(body.id ?? ''), body.text)
           if (result.error !== undefined) return fail(result.error, 'bot/refused')
           const bot = rt.botOf(result.task.botId)
+          const room = rt.roomOf(roomId)
           await rt.save()
-          if (bot !== undefined) {
+          if (bot !== undefined && room?.members.includes(bot.id)) {
             await rt.sendUser({
               sessionId: roomId,
               content: [{ type: 'text', text: `@${bot.name} ${result.task.notes.at(-1).text}` }],

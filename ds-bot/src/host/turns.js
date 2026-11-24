@@ -158,7 +158,7 @@ export function answerSender(rt, id, source, text, long, options = {}) {
   const workWorked = workBeforeClose?.worked === true || options.worked === true
   const replyImOrigin = rt.workImOrigin?.(source.exchangeId)
   if (replyImOrigin !== undefined) rt.rememberImReplyOrigin?.(source.exchangeId, replyImOrigin)
-  const work = rt.closeWork?.(source.exchangeId, name, text)
+  const work = rt.closeWork?.(source.exchangeId, name, text, workWorked ? { worked: true } : undefined)
   if (workBeforeClose !== undefined && options.failure === undefined && options.aborted !== true) {
     rt.noteWorkCompleted?.(workBeforeClose.from, workBeforeClose.to, { worked: workWorked, id: source.exchangeId, text })
   }
@@ -391,7 +391,14 @@ export function install(rt) {
       label: label || existing?.label || subagentLabelFromCall(live.get(parentId)),
       since: existing?.since ?? since,
     })
-    if (rt.groupOwners.has(parentId)) rt.workRoomTurn?.(parentId, 'subagent')
+    if (rt.groupOwners.has(parentId)) {
+      rt.workRoomTurn?.(parentId, 'subagent')
+      rt.markRoomReportsWorked?.(rt.groupOwners.get(parentId).roomId, rt.selfOf(parentId))
+    }
+    const taskOwner = rt.taskOwners?.get(parentId)
+    if (taskOwner?.roomId !== undefined) rt.markRoomReportsWorked?.(taskOwner.roomId, taskOwner.botId)
+    const taskWork = rt.taskBySession?.(parentId)?.task?.workId
+    if (taskWork !== undefined) rt.markWorkWorked?.(taskWork)
   }
 
   // The settlement notice can arrive before subagent/end, so the label must outlive the
@@ -654,7 +661,14 @@ export function install(rt) {
       entry.workToolCount = (entry.workToolCount ?? 0) + 1
       const activeWork = rt.workOf?.(entry.info)
       if (activeWork !== undefined && rt.ownsWork?.(rt.selfOf(id), activeWork)) rt.markWorkWorked?.(activeWork)
-      if (rt.groupOwners.has(id)) rt.workRoomTurn?.(id, doing.tool)
+      const taskWork = rt.taskBySession?.(id)?.task?.workId
+      if (taskWork !== undefined) rt.markWorkWorked?.(taskWork)
+      if (rt.groupOwners.has(id)) {
+        rt.workRoomTurn?.(id, doing.tool)
+        rt.markRoomReportsWorked?.(rt.groupOwners.get(id).roomId, rt.selfOf(id))
+      }
+      const taskOwner = rt.taskOwners?.get(id)
+      if (taskOwner?.roomId !== undefined) rt.markRoomReportsWorked?.(taskOwner.roomId, taskOwner.botId)
     }
   }
 
@@ -679,6 +693,11 @@ export function install(rt) {
   // Only an open delegated work request owes the sender an automatic closing reply.
   // Notes, cancellations, and stop notices are silent one-way signals and never echo back.
   const expectsReply = info => info.role === 'request'
+  // A foreground turn doing hidden peer-Bot work (request for another Bot or continuation
+  // of work owned by this Bot) must never be steered into or cut by user chat input.
+  const isHiddenBotWorkTurn = (botId, info) => info !== undefined
+    && ((info.role === 'request' && info.audience !== 'user')
+      || (rt.workOf?.(info) !== undefined && rt.ownsWork?.(botId, rt.workOf(info)) === true))
   // A group Session speaks only in its group, so what its turns write goes there, also
   // for turns that a finished background job or a fresh part starts; a Bot's private
   // message to it is answered privately.
@@ -708,9 +727,13 @@ export function install(rt) {
   // now. Every Bot still waiting for its reply hears that it was deleted: the turn's
   // trigger, requests that joined the turn, and requests it has not read yet.
   async function releaseBot(botId, sessionIds) {
-    const text = `${rt.botOf(botId)?.name ?? 'The other Bot'} was deleted before it could answer your message.`
+    const deletedBot = rt.botOf(botId)
+    const deletedName = deletedBot?.name ?? 'The other Bot'
+    const text = `${deletedName} was deleted before it could answer your message.`
+    const cancelReason = `${deletedName} was deleted before this work finished.`
     const waiting = new Map()
     for (const id of sessionIds) {
+      rt.abortRoomWaiters?.(id, { left: true })
       await stopSubagents(id)
       const entry = live.get(id)
       const held = [entry?.info, entry?.pending, ...(entry?.joined ?? []).map(joined => joined.info)]
@@ -724,11 +747,16 @@ export function install(rt) {
       live.delete(id)
       setActivity(id, undefined)
     }
-    // Work it was asked for and still waits on, outside any running turn.
-    for (const source of rt.forgetBotWork?.(botId) ?? []) {
+    // Work it was asked for and still waits on, outside any running turn, plus outgoing
+    // works it delegated to teammates so their turns and bot-handoff tasks stop cleanly.
+    const outgoing = []
+    for (const source of rt.forgetBotWork?.(botId, { onOutgoing: items => outgoing.push(...items) }) ?? []) {
       if (!waiting.has(source.exchangeId)) waiting.set(source.exchangeId, [rt.chatOf(botId), source])
     }
     for (const [id, source] of waiting.values()) tellSender(id, source, text)
+    for (const snapshot of outgoing) {
+      await rt.abortWorkExecution?.(snapshot, { sender: deletedBot, reason: cancelReason }).catch(() => {})
+    }
   }
 
   // A group Session is hidden as a whole, so its turns need no marking. A handoff
@@ -1043,6 +1071,20 @@ export function install(rt) {
     return undefined
   }
 
+  // Track Bot messages claimed out of an Agent's inbox during preStep before `user/message`
+  // is appended: if preStep or prepareRequest throws (e.g. missing CLI or model), `turn/end`
+  // fires with `entry.info === undefined` and uses this list to settle the claimed work.
+  ctx.on('agent/inbox/claimed', ({ agent, message } = {}) => {
+    const id = agent?.id ?? agent?.session?.id
+    if (id === undefined || !rt.isBotSession(id)) return
+    const source = message?.source
+    if (source?.kind !== SOURCE_KIND) return
+    const entry = liveOf(id)
+    const list = entry.claimed ??= []
+    if (source.exchangeId !== undefined && list.some(item => item.exchangeId === source.exchangeId)) return
+    list.push(source)
+  })
+
   ctx.on('session/event', (session, event) => {
     const id = session?.id
     if (id === undefined) return
@@ -1078,7 +1120,14 @@ export function install(rt) {
             entry.workToolCount = (entry.workToolCount ?? 0) + 1
             const activeWork = rt.workOf?.(entry.info)
             if (activeWork !== undefined && rt.ownsWork?.(rt.selfOf(id), activeWork)) rt.markWorkWorked?.(activeWork)
-            if (rt.groupOwners.has(id)) rt.workRoomTurn?.(id, name)
+            const taskWork = rt.taskBySession?.(id)?.task?.workId
+            if (taskWork !== undefined) rt.markWorkWorked?.(taskWork)
+            if (rt.groupOwners.has(id)) {
+              rt.workRoomTurn?.(id, name)
+              rt.markRoomReportsWorked?.(rt.groupOwners.get(id).roomId, rt.selfOf(id))
+            }
+            const taskOwner = rt.taskOwners?.get(id)
+            if (taskOwner?.roomId !== undefined) rt.markRoomReportsWorked?.(taskOwner.roomId, taskOwner.botId)
           }
         }
         break
@@ -1092,7 +1141,14 @@ export function install(rt) {
           entry.workToolCount = (entry.workToolCount ?? 0) + 1
           const activeWork = rt.workOf?.(entry.info)
           if (activeWork !== undefined && rt.ownsWork?.(rt.selfOf(id), activeWork)) rt.markWorkWorked?.(activeWork)
-          if (rt.groupOwners.has(id)) rt.workRoomTurn?.(id, name)
+          const taskWork = rt.taskBySession?.(id)?.task?.workId
+          if (taskWork !== undefined) rt.markWorkWorked?.(taskWork)
+          if (rt.groupOwners.has(id)) {
+            rt.workRoomTurn?.(id, name)
+            rt.markRoomReportsWorked?.(rt.groupOwners.get(id).roomId, rt.selfOf(id))
+          }
+          const taskOwner = rt.taskOwners?.get(id)
+          if (taskOwner?.roomId !== undefined) rt.markRoomReportsWorked?.(taskOwner.roomId, taskOwner.botId)
         }
         break
       }
@@ -1119,6 +1175,9 @@ export function install(rt) {
         // A turn turned away before its first step may end without a turn/end.
         entry.switched = false
         entry.lastSwitched = false
+        entry.askedBackWork = undefined
+        entry.lastAskedBackWork = undefined
+        entry.claimed = []
         entry.retrying = false
         entry.answers = false
         entry.opened = false
@@ -1128,12 +1187,18 @@ export function install(rt) {
         entry.carried = false
         let claimedPending
         let claimedPendingText
+        let claimedPendingImages
+        let claimedPendingFiles
         if (entry.pending !== undefined) {
           claimedPending = entry.pending
           claimedPendingText = entry.pendingText
+          claimedPendingImages = entry.pendingImages
+          claimedPendingFiles = entry.pendingFiles
           claimTrigger(id, entry, claimedPending)
           entry.pending = undefined
           entry.pendingText = undefined
+          entry.pendingImages = undefined
+          entry.pendingFiles = undefined
         }
         if (entry.carry !== undefined) {
           const carry = entry.carry
@@ -1155,12 +1220,25 @@ export function install(rt) {
           if (carry.info !== undefined && claimedPending !== undefined
             && claimedPending.exchangeId !== carry.info.exchangeId
             && (expectsReply(claimedPending) || claimedPending.role === 'room') && !answersUser(claimedPending)) {
-            entry.joined = [...carry.joined, { info: claimedPending, text: claimedPendingText }]
+            entry.joined = [...carry.joined, {
+              info: claimedPending,
+              text: claimedPendingText,
+              ...(claimedPendingImages?.length ? { images: claimedPendingImages } : {}),
+              ...(claimedPendingFiles?.length ? { files: claimedPendingFiles } : {}),
+            }]
           }
         }
         break
       case 'user/message': {
         const source = event.data?.source
+        if (source?.kind === SOURCE_KIND && Array.isArray(entry.claimed) && entry.claimed.length > 0) {
+          entry.claimed = source.exchangeId !== undefined
+            ? entry.claimed.filter(item => item.exchangeId !== source.exchangeId)
+            : entry.claimed.slice(1)
+        }
+        if (source?.kind === SOURCE_KIND && source.role === 'answer' && source.work !== undefined && source.work === entry.askedBackWork) {
+          entry.askedBackWork = undefined
+        }
         // Pure context notices (foreground handoff, silent notes, cancellations, stop
         // notices) inform the model without opening/claiming a turn or expecting a reply.
         if (source?.kind === SOURCE_KIND && (source.role === 'task-handoff' || source.silent === true || source.role === 'note' || source.role === 'cancelled' || source.role === 'stopped')) break
@@ -1192,8 +1270,15 @@ export function install(rt) {
         } else if (source?.kind === 'user' || source?.kind === SOURCE_KIND) {
           stoppedSubagentParents.delete(id)
         }
-        // A result that came back counts as taken once a turn reads it.
-        if (source?.kind === SOURCE_KIND && source.work !== undefined && source.replyTo !== undefined) rt.takenWork?.(source.work, source.replyTo)
+        // Extracts stripped relay text plus image/file attachments so deferred redelivery
+        // never loses DSH attachments when a message lands mid-turn.
+        const extractRelayPayload = (content) => {
+          const blocks = Array.isArray(content) ? content : []
+          const text = textOf(blocks).replace(/^\[(?:[^\r\n]*\]\r?\n|[^\]\r\n]*\])/, '')
+          const images = blocks.filter(block => block?.type === 'image' && block.attachment !== undefined && !block.offloaded).map(block => block.attachment)
+          const files = blocks.filter(block => block?.type === 'file' && block.attachment !== undefined).map(block => block.attachment)
+          return { text, ...(images.length > 0 ? { images } : {}), ...(files.length > 0 ? { files } : {}) }
+        }
         // A message that shares a step with a bare handoff package is what the turn
         // answers, so the turn is not a hidden acknowledgement.
         const bare = info => info?.handoff === true && info.resume !== true
@@ -1272,18 +1357,27 @@ export function install(rt) {
           })
           rt.roomRelayTaken?.(roomId, source.exchangeId)
         } else if (source?.kind === SOURCE_KIND) {
-          if (entry.turn === undefined) {
-            entry.pending = source
-            entry.pendingText = textOf(event.data.content).replace(/^\[(?:[^\r\n]*\]\r?\n|[^\]\r\n]*\])/, '')
+          const markTaken = () => {
+            if (source.work !== undefined && source.replyTo !== undefined) rt.takenWork?.(source.work, source.replyTo)
           }
-          else if (!opened) claimTrigger(id, entry, source)
-          else if (source.role === 'ask_back'
+          if (entry.turn === undefined) {
+            markTaken()
+            const payload = extractRelayPayload(event.data.content)
+            entry.pending = source
+            entry.pendingText = payload.text
+            entry.pendingImages = payload.images
+            entry.pendingFiles = payload.files
+          } else if (!opened) {
+            markTaken()
+            claimTrigger(id, entry, source)
+          } else if (source.role === 'ask_back'
             || (source.role === 'answer' && source.work !== rt.workOf?.(entry.info))
             || (source.work !== undefined && source.work !== rt.workOf?.(entry.info) && !expectsReply(source))) {
             // An ask_back, answer for another work, or result for other work informs this
             // turn and comes back in a turn of its own once this one ends, so busy callers
             // or workers never drop it without re-delivering an already-consumed same-work answer.
-            entry.later = [...(entry.later ?? []), { info: source, text: textOf(event.data.content).replace(/^\[(?:[^\r\n]*\]\r?\n|[^\]\r\n]*\])/, '') }]
+            // Do NOT mark `takenWork` here: the owning work's turn has not consumed it yet.
+            entry.later = [...(entry.later ?? []), { info: source, ...extractRelayPayload(event.data.content) }]
           } else if ((expectsReply(source) || source.role === 'room') && !answersUser(source)
             && source.exchangeId !== entry.info?.exchangeId
             && !(entry.joined ?? []).some(joined => joined.info.exchangeId === source.exchangeId)) {
@@ -1291,8 +1385,10 @@ export function install(rt) {
             // answered in a hidden turn of its own once the work is done, so the
             // sender never gets the turn's text. A failed-switch resume message
             // re-sends the trigger's own source; the same exchangeId must not join twice.
-            const text = textOf(event.data.content).replace(/^\[(?:[^\r\n]*\]\r?\n|[^\]\r\n]*\])/, '')
-            entry.joined = [...(entry.joined ?? []), { info: source, text }]
+            entry.joined = [...(entry.joined ?? []), { info: source, ...extractRelayPayload(event.data.content) }]
+          } else {
+            // Consumed inside the owning turn (e.g. a reply for the turn's own work).
+            markTaken()
           }
           // A mid-turn relay that owes no reply only informs the turn: it neither
           // claims the running turn nor queues as the next one's trigger.
@@ -1307,19 +1403,26 @@ export function install(rt) {
           // its run is the earliest of the child's not read yet. One read while a
           // turn does other work comes back in a turn of its own, like any
           // handed-back result.
-          const run = rt.subWorkRun?.(source.senderSessionId)
+          const alreadyLater = new Set((entry.later ?? []).map(item => item.info?.replyTo).filter(Boolean))
+          const run = rt.subWorkRun?.(source.senderSessionId, alreadyLater)
           if (run !== undefined) {
-            rt.takenWork?.(run.parent, run.id)
             const info = { kind: SOURCE_KIND, role: 'reply', work: run.parent, replyTo: run.id, exchangeId: run.id, senderSessionId: source.senderSessionId }
-            if (entry.turn === undefined) entry.pending = info
-            else if (entry.info === undefined && !opened) {
+            if (entry.turn === undefined) {
+              rt.takenWork?.(run.parent, run.id)
+              entry.pending = info
+            } else if (entry.info === undefined && !opened) {
               // DSH opens the turn before it records the message that filled its
               // inbox: a notice that opened the turn claims it, like the first
               // relay of a turn.
+              rt.takenWork?.(run.parent, run.id)
               entry.opened = true
               entry.answers = true
               claimTrigger(id, entry, info)
-            } else if (rt.workOf?.(entry.info) !== run.parent) entry.later = [...(entry.later ?? []), { info, text: textOf(event.data.content) }]
+            } else if (rt.workOf?.(entry.info) !== run.parent) {
+              entry.later = [...(entry.later ?? []), { info, text: textOf(event.data.content) }]
+            } else {
+              rt.takenWork?.(run.parent, run.id)
+            }
           }
         } else if (source?.kind === 'user' || source?.kind === REPLY_KIND) {
           if (rt.roomOf(id) && source.kind === 'user') {
@@ -1395,6 +1498,8 @@ export function install(rt) {
         }
         const info = entry.info
         const joined = entry.joined ?? []
+        const claimed = entry.claimed ?? []
+        const askedBackWork = entry.askedBackWork
         // What the group already saw of the turn is not posted again.
         const texts = entry.texts.slice(entry.shown)
         // Whether the turn wrote any text, also text the group already saw.
@@ -1424,6 +1529,9 @@ export function install(rt) {
         entry.suppressedSubagent = false
         entry.switched = false
         entry.lastSwitched = switched
+        entry.askedBackWork = undefined
+        entry.lastAskedBackWork = askedBackWork
+        entry.claimed = []
         entry.joined = []
         entry.since = undefined
         entry.steeredAt = undefined
@@ -1452,10 +1560,13 @@ export function install(rt) {
           if (targetSessionId === undefined && (rt.groupOwners.has(id) || rt.pastOwners?.has(id))) continue
           void rt.deliver({
             fromId: result.info.senderSessionId,
+            ...(result.info.senderName ? { fromName: result.info.senderName } : {}),
             toId: rt.selfOf(id),
             // A result handed back to the turn's own part, or to the successor part after a switch.
             ...(targetSessionId !== undefined ? { sessionId: targetSessionId } : {}),
             text: result.text,
+            ...(result.images?.length ? { images: result.images } : {}),
+            ...(result.files?.length ? { files: result.files } : {}),
             role: result.info.role,
             exchangeId: result.info.exchangeId,
             replyTo: result.info.replyTo,
@@ -1506,9 +1617,12 @@ export function install(rt) {
         } else if (reason?.kind === 'completed') {
           forgetFailure(id)
           unblockBot(rt.selfOf(id))
-          // A turn picked up after a restart that did not touch its tasks leaves them in doubt.
+          // A turn picked up after a restart that did not touch its tasks leaves them in doubt,
+          // and an explicit [PASS] with no work tools does not clear an existing task block.
+          const rawReply = texts.join('\n\n').trim()
+          const explicitPassOnly = workToolCount === 0 && rawReply !== '' && (/^\s*[[【(（]\s*pass\s*[\]】)）]|^\s*pass\s*[.。!！]?\s*$/i.test(rawReply))
           if (groupOwner !== undefined && info?.resumed === true) rt.blockTasks?.(groupOwner.roomId, groupOwner.botId, { cause: 'restarted' }, since)
-          else if (groupOwner !== undefined) rt.unblockTasks?.(groupOwner.roomId, groupOwner.botId)
+          else if (groupOwner !== undefined && !explicitPassOnly) rt.unblockTasks?.(groupOwner.roomId, groupOwner.botId)
           // A turn the user opened, or the Retry that answers the user.
           if (owner !== undefined && !rt.taskOwners?.has(id) && (info === undefined || info.role === 'continue')) rt.userAnswered(owner)
         }
@@ -1587,9 +1701,10 @@ export function install(rt) {
           const asker = rt.workAsker(work)
           if (failure !== undefined || reason?.kind === 'aborted') return answer(asker, reply)
           // Worker called ask_back during this turn: keep the work open in need_input or
-          // paused state without prematurely closing or echoing back.
+          // paused state without prematurely closing or echoing back, even if a fast
+          // answer_work already flipped work.state back to 'open' before this turn ended.
           const currentState = rt.workStateOf?.(work)
-          if (currentState === 'need_input' || currentState === 'paused') return
+          if (currentState === 'need_input' || currentState === 'paused' || askedBackWork === work) return
           if (rt.waitsWork(work)) return rt.holdWork(work, reply)
           // With what came back, the answer may pass what one message carries.
           const text = rt.answerText(work, reply, name)
@@ -1621,20 +1736,67 @@ export function install(rt) {
           const stopped = stoppedRoomTurns.delete(info.exchangeId)
           if (waiter !== undefined) {
             if (failure !== undefined) waiter.fail(failure)
-            else waiter.resolve(reason?.kind === 'aborted' ? null : state.questions[id] !== undefined || state.views[id] !== undefined ? { answer: true, text: groupReply() } : groupReply())
+            else {
+              waiter.setTurn?.(turn)
+              waiter.resolve(reason?.kind === 'aborted' ? null : state.questions[id] !== undefined || state.views[id] !== undefined ? { answer: true, text: groupReply() } : groupReply())
+            }
           } else if (!stopped && reason?.kind !== 'aborted') {
             // The round moved on without this member; how its turn ends still reaches the group.
             if (failure !== undefined) void rt.lateRoomFailure?.(id, info, failure)
-            else void rt.lateRoomReply?.(id, info, groupReply(), { shown, toolCount: workToolCount })
+            else void rt.lateRoomReply?.(id, info, groupReply(), { shown, toolCount: workToolCount, turn })
           }
         } else if (!retry && speaksInGroup(id, info)) {
           // A turn that failed before it took any input (DSH can turn it down before its
           // first step) never names its call, so the call waiting on this Session fails.
           const inRound = failure !== undefined && info === undefined && rt.failRoomTurn?.(id, failure) === true
           if (failure !== undefined) { if (!inRound) void rt.lateRoomFailure?.(id, info ?? {}, failure) }
-          else if (reason?.kind !== 'aborted') void rt.lateRoomReply?.(id, info ?? {}, groupReply(), { shown, toolCount: workToolCount })
+          else if (reason?.kind !== 'aborted') void rt.lateRoomReply?.(id, info ?? {}, groupReply(), { shown, toolCount: workToolCount, turn })
         } else if (!retry && info !== undefined) {
           finish(info, replyText())
+        }
+        // Settle Bot works claimed during preStep that failed before `user/message` was logged,
+        // plus queued peer works stranded in a blocked Bot's inbox after a terminal blocking error
+        // (DSH exits its turn loop on error without draining remaining inbox entries).
+        if (!retry && !rt.groupOwners.has(id) && (failure !== undefined || reason?.kind === 'aborted')) {
+          const settledExchanges = new Set([
+            info?.exchangeId,
+            ...joined.map(request => request.info?.exchangeId),
+          ].filter(Boolean))
+          const infoWork = rt.workOf?.(info)
+          for (const source of claimed) {
+            if (source.exchangeId !== undefined && settledExchanges.has(source.exchangeId)) continue
+            const sourceWork = rt.workOf?.(source)
+            if (infoWork !== undefined && sourceWork !== undefined && sourceWork === infoWork) continue
+            if (source.exchangeId !== undefined) {
+              settledExchanges.add(source.exchangeId)
+              rt.forgetDelivery?.(source.exchangeId)
+            }
+            finish(source, '')
+          }
+          if (failure !== undefined && BLOCKING_CODES.has(failure.code)) {
+            const agent = ctx.get?.('agents')?.get(id)
+            const self = rt.selfOf(id)
+            const toRemove = []
+            for (const message of [...(agent?.inbox?.nextStep ?? []), ...(agent?.inbox?.nextTurn ?? [])]) {
+              const source = message?.source
+              if (source?.kind !== SOURCE_KIND) continue
+              const sourceWork = rt.workOf?.(source)
+              const isPeerWork = (expectsReply(source) && !answersUser(source))
+                || (sourceWork !== undefined && rt.ownsWork?.(self, sourceWork) === true)
+              if (!isPeerWork) continue
+              toRemove.push(message.id)
+              if (source.exchangeId !== undefined) rt.forgetDelivery?.(source.exchangeId)
+              if (source.exchangeId !== undefined && settledExchanges.has(source.exchangeId)) continue
+              if (infoWork !== undefined && sourceWork !== undefined && sourceWork === infoWork) continue
+              if (source.exchangeId !== undefined) settledExchanges.add(source.exchangeId)
+              finish(source, '')
+            }
+            if (toRemove.length > 0) {
+              queueMicrotask(() => {
+                for (const messageId of toRemove) agent?.inbox?.remove?.(messageId)
+              })
+            }
+          }
         }
         // Drop stopped room turns up front, then coalesce superseded waiterless `role: 'room'`
         // deliveries so a member that received several mentions during one busy turn is not
@@ -1645,7 +1807,12 @@ export function install(rt) {
         // calls (which never open a batch) coalesce whenever any live or newer call exists for the room.
         const activeJoined = []
         for (const request of joined) {
-          if (request.info.role === 'room' && stoppedRoomTurns.delete(request.info.exchangeId)) continue
+          if (request.info.role === 'room' && stoppedRoomTurns.delete(request.info.exchangeId)) {
+            const waiter = roomWaiters.get(request.info.exchangeId)
+            roomWaiters.delete(request.info.exchangeId)
+            waiter?.resolve(null)
+            continue
+          }
           if (request.info.role !== 'room' && rt.closedWorkOf?.(request.info.exchangeId)?.status === 'cancelled') continue
           activeJoined.push(request)
         }
@@ -1657,21 +1824,39 @@ export function install(rt) {
           if (request.info.role !== 'room' || request.info.roomId === undefined) continue
           const scope = request.info.askedBy !== undefined ? `${request.info.roomId}\0${request.info.askedBy}` : undefined
           if (roomWaiters.has(request.info.exchangeId)) {
-            liveWaiterRooms.add(request.info.roomId)
-            if (scope !== undefined) liveWaiterScopes.add(scope)
+            if (failure === undefined && reason?.kind !== 'aborted') {
+              liveWaiterRooms.add(request.info.roomId)
+              if (scope !== undefined) liveWaiterScopes.add(scope)
+            }
           } else {
             latestWaiterlessRoom.set(request.info.roomId, request.info.exchangeId)
             if (scope !== undefined) latestWaiterlessScope.set(scope, request.info.exchangeId)
           }
         }
         for (const request of activeJoined) {
-          // A failed or stopped turn closes the request like any other; a finished
-          // one hands it back to the Bot to answer next.
+          // A failed turn closes joined requests like any other. On abort, non-room requests
+          // answer with stopped, live round waiters settle immediately so rounds never hang,
+          // and non-stopped waiterless joined group calls (whose unrelated primary turn was
+          // aborted, not host disposal) are still handed back to run in their own turn.
           if (failure !== undefined || reason?.kind === 'aborted') {
             if (request.info.role === 'room') {
-              if (failure !== undefined) void rt.lateRoomFailure?.(id, request.info, failure)
-            } else answer(request.info, '')
-            continue
+              const waiter = roomWaiters.get(request.info.exchangeId)
+              if (failure !== undefined) {
+                roomWaiters.delete(request.info.exchangeId)
+                if (waiter !== undefined) waiter.fail(failure)
+                else void rt.lateRoomFailure?.(id, request.info, failure)
+                continue
+              }
+              if (waiter !== undefined) {
+                roomWaiters.delete(request.info.exchangeId)
+                waiter.resolve(null)
+                continue
+              }
+              if (reason?.reason?.kind === 'disposed') continue
+            } else {
+              answer(request.info, '')
+              continue
+            }
           }
           if (request.info.role === 'room' && request.info.roomId !== undefined && !roomWaiters.has(request.info.exchangeId)) {
             if (request.info.askedBy !== undefined) {
@@ -1686,6 +1871,8 @@ export function install(rt) {
             toId: rt.selfOf(id),
             sessionId: id,
             text: request.text,
+            ...(request.images?.length ? { images: request.images } : {}),
+            ...(request.files?.length ? { files: request.files } : {}),
             role: request.info.role,
             exchangeId: request.info.exchangeId,
             ...(request.info.workRef ? { workRef: request.info.workRef } : {}),
@@ -1780,5 +1967,5 @@ export function install(rt) {
     }, 'ds-bot: prompt rejection reasons')
   }
 
-  Object.assign(rt, { live, liveOf, roomWaiters, roomProgress, roomInbox, activityView, workView, agentWorkView, roomWorkView, turnsView, steeredView, callDetail, doingOf, noteLocalAgentEvent, stopRoomTurn, stopChat, stopAgent, releaseBot, unblockBots, resumeBot, markSteerCut, clearActivity: id => setActivity(id, undefined), hasSubagents, stopSubagents, adoptLiveWork })
+  Object.assign(rt, { live, liveOf, roomWaiters, roomProgress, roomInbox, activityView, workView, agentWorkView, roomWorkView, turnsView, steeredView, callDetail, doingOf, noteLocalAgentEvent, stopRoomTurn, stopChat, stopAgent, releaseBot, unblockBots, resumeBot, markSteerCut, clearActivity: id => setActivity(id, undefined), hasSubagents, stopSubagents, adoptLiveWork, isHiddenBotWorkTurn })
 }

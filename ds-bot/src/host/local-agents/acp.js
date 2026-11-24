@@ -250,10 +250,17 @@ export class AcpEngine {
     if (method !== 'session/update') return
     const update = params?.update ?? {}
     switch (update.sessionUpdate) {
-      case 'agent_message_chunk': session.push({ type: 'text', text: textOf(update.content) }); break
-      case 'agent_thought_chunk': session.push({ type: 'thought', text: textOf(update.content) }); break
+      case 'agent_message_chunk':
+        if (session.promptTurn !== undefined) session.promptTurn.sawStepWork = true
+        session.push({ type: 'text', text: textOf(update.content) })
+        break
+      case 'agent_thought_chunk':
+        if (session.promptTurn !== undefined) session.promptTurn.sawStepWork = true
+        session.push({ type: 'thought', text: textOf(update.content) })
+        break
       case 'tool_call':
       case 'tool_call_update': {
+        if (session.promptTurn !== undefined) session.promptTurn.sawStepWork = true
         // A permission request names the call only by id; its title, kind and
         // input came with the call's own updates, so they are kept here.
         const id = update.toolCallId
@@ -278,12 +285,26 @@ export class AcpEngine {
         }
         break
       }
-      case 'plan': session.push({ type: 'thought', text: planText(update.entries) }); break
+      case 'plan':
+        if (session.promptTurn !== undefined) session.promptTurn.sawStepWork = true
+        session.push({ type: 'thought', text: planText(update.entries) })
+        break
       case 'usage_update': {
         // Devin sends each one twice, the second marked as a subagent's; a real
         // subagent's context is not the session's.
         if (update._meta?.['cognition.ai/subagent_context'] !== undefined) break
-        if (typeof update.used === 'number') session.push({ type: 'context', used: update.used, ...(typeof update.size === 'number' ? { size: update.size } : {}) })
+        if (typeof update.used === 'number') {
+          session.push({ type: 'context', used: update.used, ...(typeof update.size === 'number' ? { size: update.size } : {}) })
+          // Count internal LLM steps during an active prompt turn (ignoring session/load
+          // replays, zero-token placeholders, and back-to-back duplicate snapshots).
+          const turn = session.promptTurn
+          if (turn !== undefined && session.running === true && update.used > 0
+            && (turn.steps === 0 || update.used !== turn.lastUsed || turn.sawStepWork)) {
+            turn.steps += 1
+            turn.lastUsed = update.used
+            turn.sawStepWork = false
+          }
+        }
         break
       }
       case 'config_option_update': {
@@ -572,13 +593,27 @@ export class AcpEngine {
       }
     }
     signal?.throwIfAborted()
-    const turn = session.promptTurn = { cancelled: false, controller: new AbortController() }
+    const turn = session.promptTurn = {
+      cancelled: false,
+      controller: new AbortController(),
+      steps: 0,
+      lastUsed: undefined,
+      sawStepWork: false,
+    }
     const onAbort = () => { turn.cancelled = true }
     signal?.addEventListener('abort', onAbort, { once: true })
     session.running = true
     const reply = session.pendingPrompt = peer.request('session/prompt', { sessionId: session.acpSessionId, prompt: acpPrompt(blocks) }, { signal: turn.controller.signal, timeout: 0 })
     reply.then(
-      result => { if (!turn.cancelled) session.push({ type: 'done', reason: result?.stopReason ?? 'end_turn', ...(usageOf(result?.usage) ? { usage: usageOf(result.usage) } : {}) }) },
+      (result) => {
+        if (turn.cancelled) return
+        const calls = positiveInt(result?.usage?.calls)
+          ?? positiveInt(result?.numTurns)
+          ?? positiveInt(result?.num_turns)
+          ?? (turn.steps > 0 ? turn.steps : undefined)
+        const usage = usageOf(result?.usage, calls)
+        session.push({ type: 'done', reason: result?.stopReason ?? 'end_turn', ...(usage ? { usage } : {}) })
+      },
       error => { if (!turn.cancelled) session.push({ type: 'error', error }) },
     ).finally(() => {
       if (session.promptTurn === turn) session.running = false
@@ -854,21 +889,24 @@ const detailText = (call, action = '') => {
   if (paths.length > 0) lines.push(paths.join(', '))
   return lines.join('\n').slice(0, 4_000)
 }
+const positiveInt = value => (Number.isSafeInteger(value) && value > 0 ? value : undefined)
 // A prompt's usage. Some CLIs fold cached input into inputTokens (Devin: totalTokens is
 // inputTokens + outputTokens), while others (Antigravity) count cachedReadTokens apart.
-export const usageOf = (usage) => {
+export const usageOf = (usage, calls) => {
   if (typeof usage?.inputTokens !== 'number' && typeof usage?.outputTokens !== 'number') return undefined
   const read = usage.cachedReadTokens ?? 0
   const write = usage.cachedWriteTokens ?? 0
   const input = usage.inputTokens ?? 0
   const output = usage.outputTokens ?? 0
   const separate = typeof usage.totalTokens === 'number' && read + write > 0 && usage.totalTokens >= input + read + write + output
+  const resolvedCalls = positiveInt(calls) ?? positiveInt(usage.calls)
   return {
     inputTokens: !separate && read + write <= input ? input - read - write : input,
     outputTokens: output,
     ...(read > 0 ? { cacheReadTokens: read } : {}),
     ...(write > 0 ? { cacheWriteTokens: write } : {}),
     ...(usage.thoughtTokens ? { reasoningTokens: usage.thoughtTokens } : {}),
+    ...(resolvedCalls !== undefined && resolvedCalls > 1 ? { calls: resolvedCalls } : {}),
   }
 }
 const compactionStatus = status => (status === 'completed' ? 'completed' : status === 'started' || status === 'in_progress' ? 'started' : 'failed')

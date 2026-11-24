@@ -33,10 +33,18 @@ export const freshInputAt = (submissions, steeredAt) => Math.max(0, steeredAt ??
 // descendant one; a flow without a slot falls back to the first flow. No flow at all
 // is a mount failure, noted once per page — the observer keeps retrying in case the
 // transcript is only mid-mount.
+// The slot sits at the end of the flow, so the search walks the whole transcript; it
+// runs every frame the transcript changes, so the last slot found is kept while it
+// stays in its flow and running. The row lets it go when it stops, so a chat left
+// behind is not held in memory.
 let mountMissed = false
+let runningSlot = null
 export function findHost() {
-  const node = document.querySelector('[data-chat-flow] [data-chat-running]')?.closest('[data-chat-flow]')
-    ?? document.querySelector('[data-chat-flow]')
+  const kept = runningSlot?.slot
+  if (kept?.isConnected && kept.hasAttribute('data-chat-running') && kept.closest('[data-chat-flow]') === runningSlot.host) return runningSlot.host
+  const slot = document.querySelector('[data-chat-flow] [data-chat-running]')
+  const node = slot?.closest('[data-chat-flow]') ?? document.querySelector('[data-chat-flow]')
+  runningSlot = slot ? { slot, host: node } : null
   if (node === null && !mountMissed) {
     mountMissed = true
     noteClientError('activity row', new Error('[data-chat-flow] not found'))
@@ -44,10 +52,14 @@ export function findHost() {
   return node
 }
 
+export function releaseHost() {
+  runningSlot = null
+}
+
 function useRunningHost(active) {
   const [host, setHost] = useState(null)
   useEffect(() => {
-    if (!active) { setHost(null); return undefined }
+    if (!active) { releaseHost(); setHost(null); return undefined }
     let frame = 0
     const find = () => {
       frame = 0
@@ -59,7 +71,7 @@ function useRunningHost(active) {
     const observer = new MutationObserver(() => { if (!frame) frame = requestAnimationFrame(find) })
     observer.observe(document.querySelector('[data-conversation-scroll]') ?? document.body, { childList: true, subtree: true })
     find()
-    return () => { cancelAnimationFrame(frame); observer.disconnect() }
+    return () => { cancelAnimationFrame(frame); observer.disconnect(); releaseHost() }
   }, [active])
   return host
 }
@@ -98,7 +110,7 @@ function useRowEntrances(replacing) {
         }
         return
       }
-      const items = [...column.querySelectorAll(':scope > [data-chat-flow-key]')]
+      const items = [...column.children].filter(item => item.hasAttribute('data-chat-flow-key'))
       let last = -1
       items.forEach((item, index) => { if (seen.has(item)) last = index })
       if (reducedEffects()) return
