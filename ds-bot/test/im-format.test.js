@@ -48,6 +48,14 @@ test('Telegram renders headings and Markdown tables as readable rows (#2173)', (
   }])
 })
 
+test('a blockquote immediately after a Telegram table is not a table row', () => {
+  const markdown = '| Key | Value |\n| --- | --- |\n| a | 1 |\n> a | b | c'
+  assert.deepEqual(chunkTelegram(markdown), [{
+    html: '• <b>Key:</b> a\n• <b>Value:</b> 1\n&gt; a | b | c',
+    text: '• Key: a\n• Value: 1\n> a | b | c',
+  }])
+})
+
 test('Markdown becomes plain text', () => {
   assert.equal(toPlain('**bold** `code` [site](https://a.b)'), 'bold code site (https://a.b)')
   assert.equal(toPlain('```\nlet x = 1\n```'), 'let x = 1')

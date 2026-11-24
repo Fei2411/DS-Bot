@@ -72,7 +72,7 @@ const SETEXT_UNDERLINE = /^ {0,3}(?:=+|-+)\s*$/
 const TABLE_DELIMITER = /^:?-+:?$/
 
 function tableCells(line) {
-  if (/^ {0,3}\t|^ {4}/.test(line) || ATX_HEADING.test(line)) return undefined
+  if (/^ {0,3}[\t>]|^ {4}/.test(line) || ATX_HEADING.test(line)) return undefined
   const cells = ['']
   for (const part of line.trim().match(/\\.|[^\\|]+|\\|\|/g) ?? []) {
     if (part === '|') cells.push('')
