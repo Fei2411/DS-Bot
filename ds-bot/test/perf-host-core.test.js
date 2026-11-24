@@ -1086,7 +1086,7 @@ test('handoffs.js sweeps expired pairLoops, clears whole cache on adopt, and dro
   const home = tempDir(t, 'ds-bot-perf-handoffs-')
   const ctx = fakeContext()
   const adoptListeners = new Set()
-  let persistedRev = 2
+  const savedListeners = new Set()
   let persistOnSave = true
   const rt = {
     ctx,
@@ -1099,14 +1099,14 @@ test('handoffs.js sweeps expired pairLoops, clears whole cache on adopt, and dro
     }),
     readOnly: () => undefined,
     load: async () => {},
-    persistedRevision: () => persistedRev,
+    onSaved: fn => { savedListeners.add(fn); return () => savedListeners.delete(fn) },
     onAdopted: fn => { adoptListeners.add(fn); return () => adoptListeners.delete(fn) },
     botOf: id => rt.state.bots[id],
     own: (obj, key) => (obj && Object.hasOwn(obj, key) ? obj[key] : undefined),
     save: async () => {
       if (persistOnSave) {
         rt.state.revision += 1
-        persistedRev = rt.state.revision
+        for (const fn of savedListeners) fn()
       }
     },
     warn() {},
@@ -1482,6 +1482,7 @@ test('approvals.js removes abort listeners on normal settle and cleans up pendin
     ctx,
     groupOwners: new Map([['gb', { botId: 'b', roomId: 'r1' }]]),
     chatOwners: new Map([['a', 'a']]),
+    botOf: () => undefined,
     roomOf: () => undefined,
     warn() {},
   }
@@ -1685,25 +1686,42 @@ test('learning.js caps settled entries to settledMax and cleans bot state on del
     content: 'content b',
     why: 'test',
   }
+  const archivedSettled = {}
+  for (let i = 0; i < 6; i += 1) {
+    archivedSettled[`old-${i}`] = {
+      id: `old-${i}`,
+      kind: 'skill',
+      action: 'create',
+      botId: 'a',
+      sessionId: `a-old-part-${i}`,
+      at: 10 + i,
+      settledAt: 10 + i,
+      outcome: 'declined',
+      name: `old-skill-${i}`,
+      description: `desc ${i}`,
+      content: 'large archived content',
+      why: 'test',
+    }
+  }
   writeFileSync(join(home, 'learning', 'state.json'), JSON.stringify({
     pending: { b: ['b'] },
     cursors: { b: 42, a: 10 },
     proposals,
-    settled: {},
+    settled: archivedSettled,
     declined: [],
     learned: { b: ['skill-b'] },
     agentsPending: {},
   }))
   const { ctx } = minimalCtx()
-  const rt = createRuntime(ctx, { home, learningTimes: { settledMax: 3 } })
+  const rt = createRuntime(ctx, { home, learningTimes: { settledArchiveMax: 3 } })
   t.after(() => ctx.dispose())
   await rt.load()
 
-  for (let i = 0; i < 6; i += 1) {
-    await rt.learningEndpoint('learning-answer', { id: `p-${i}`, approve: false })
-  }
+  await rt.learningEndpoint('learning-answer', { id: 'p-0', approve: false })
   const afterCap = JSON.parse(readFileSync(join(home, 'learning', 'state.json'), 'utf8'))
-  assert.equal(Object.keys(afterCap.settled).length, 3, 'settled proposals capped at settledMax')
+  const archivedRemaining = Object.values(afterCap.settled).filter(entry => entry.sessionId !== rt.chatOf(entry.botId))
+  assert.equal(archivedRemaining.length, 3, 'archived settled proposals capped at settledArchiveMax')
+  assert.equal(archivedRemaining.every(entry => entry.content === undefined), true, 'archived settled proposals trimmed of bulky content')
 
   await rt.deleteBot('b')
   const afterDelete = JSON.parse(readFileSync(join(home, 'learning', 'state.json'), 'utf8'))

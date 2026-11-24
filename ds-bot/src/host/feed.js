@@ -104,6 +104,7 @@ export function install(rt) {
 
   ctx.on('session/event', (session, event) => {
     if (!listening()) return
+    if (rt.taskOwners?.has(session.id)) return
     const botId = rt.chatOwners.get(session.id)
     if (botId === undefined) return
     for (const item of rt.displayItems(session.id, [event])) publish('message', { botId, sessionId: session.id, item })
@@ -112,6 +113,7 @@ export function install(rt) {
 
   ctx.on('agent/assistant-stream', ({ agent, frame }) => {
     if (frame.type === 'start') {
+      if (rt.taskOwners?.has(agent.id)) return
       const now = Date.now()
       pruneWriting(now)
       const botId = rt.chatOwners.get(agent.id)

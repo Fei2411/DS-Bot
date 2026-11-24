@@ -2415,7 +2415,11 @@ export function install(rt) {
       if (query === '' && number !== undefined) {
         const part = parts[number - 1]
         if (part === undefined) return `Your own chat has no part ${number}.${partsNote}`
-        if (part.endedAt === undefined) return `Part ${number} is the current one; it is in your context.${partsNote}`
+        if (part.endedAt === undefined) {
+          return part.sessionId === lookupSession
+            ? `Part ${number} is the current one; it is in your context.${partsNote}`
+            : `Part ${number} is still open and has no closing handoff note yet. Search it with query, or omit query for its latest messages.${partsNote}`
+        }
         return `Part ${number} of your own chat (${rt.clock(part.startedAt)} – ${rt.clock(part.endedAt)}). The handoff note that closed it:\n${rt.noteText(part) ?? '(none: the part ended on a context overflow)'}${partsNote}`
       }
       if (query === '') {

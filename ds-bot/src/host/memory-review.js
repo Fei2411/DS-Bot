@@ -6,12 +6,15 @@
 // before its review starts is read in one go.
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { GONE, REVIEW_MEMORY_MAX, ROUTED, TEAM_SHARED, bodySize, cleanDay, cleanEntry, cleanTopic, isPinned, parseReview, reviewEntries } from './memory-entries.js'
+import { GONE, REVIEW_MEMORY_MAX, ROUTED, TEAM_SHARED, bodySize, cleanDay, cleanEntry, cleanTopic, entryId, isPinned, parseReview, reviewEntries } from './memory-entries.js'
 import { REVIEW_CHANGES_MAX, reviewRequest, reviewSystem, writtenIn } from './memory-copy.js'
 import { speakerOf } from '../shared/mentions.js'
 
 // The memory review reads at most this much of what is new, newest kept first.
 const REVIEW_DELAY_MS = 2_000
+const REVIEW_CATCHUP_DELAY_MS = 15_000
+const REVIEW_RETRY_BACKOFF_MS = [30_000, 120_000, 600_000]
+const REVIEW_RETRY_MAX = 3
 const REVIEW_READ_MS = 15_000
 const REVIEW_FIRST_LINES = 6
 const REVIEW_CONTEXT_LINES = 4
@@ -19,10 +22,12 @@ const REVIEW_TEXT_MAX = 16_000
 const REVIEW_USER_LINE_MAX = 3_000
 const REVIEW_OTHER_LINE_MAX = 800
 const REVIEW_PASSES_MAX = 4
+const GROUP_WAIT_MAX = 20
+const GROUP_WAIT_POLL_MAX_MS = 2_000
 
 export function installReview(rt, memory) {
   const { ctx, config } = rt
-  const { root, reviewOn, mainLimit, TEAM, ownScope, groupScope, keeperOf, writesTeam, labelOf, fileName, today, writeText, settled, loadScope, addEntry, replaceEntry, removeEntry, entryProblem, secretEntry, botShot, languageNow } = memory
+  const { root, reviewOn, mainLimit, TEAM, ownScope, groupScope, keeperOf, writesTeam, labelOf, fileName, today, writeText, settled, loadScope, addEntry, replaceEntry, removeEntry, entryProblem, secretEntry, botShot, languageNow, taskOwnerOf } = memory
 
   const cursorsPath = join(root, 'reviewed.json')
   /** @type {Record<string, number> | undefined} */
@@ -49,7 +54,7 @@ export function installReview(rt, memory) {
     : clip(who === 'you' ? `${bot.name}: ${text.replace(/^You: /, '')}` : text, REVIEW_OTHER_LINE_MAX))
 
   // What is new in a Bot's own chat, read newest first from the Session.
-  async function chatBatch(sessionId, bot, since) {
+  async function chatBatch(sessionId, bot, since, { taskId } = {}) {
     const fresh = []
     const earlier = []
     let through
@@ -74,6 +79,8 @@ export function installReview(rt, memory) {
     }
     const parts = rt.partsOfThread(bot.id, sessionId)
     const at = parts.findIndex(part => part.sessionId === sessionId)
+    const ownerTask = taskOwnerOf?.(sessionId) ?? rt.taskOwners?.get(sessionId)
+    const ownTaskId = taskId ?? (ownerTask?.roomId === undefined ? ownerTask?.taskId : undefined)
     return {
       through,
       more,
@@ -83,7 +90,9 @@ export function installReview(rt, memory) {
       // The user's latest line among those the review read.
       source: (lines) => {
         const said = lines.findLast(line => line.who === 'user')
-        return said === undefined ? undefined : `part ${at === -1 ? Math.max(parts.length, 1) : at + 1} #${said.seq}`
+        if (said === undefined) return undefined
+        if (ownTaskId !== undefined) return `task ${ownTaskId} #${said.seq}`
+        return `part ${at === -1 ? Math.max(parts.length, 1) : at + 1} #${said.seq}`
       },
     }
   }
@@ -127,24 +136,36 @@ export function installReview(rt, memory) {
     return { texts: kept, count: kept.length }
   }
 
+  // Rooms whose memory a keeper may route to from its own chat: only rooms where it
+  // is a member AND either the group's admin or a Main Bot.
+  const writableRoomsOf = keeper => Object.values(rt.state.rooms).filter(room => room.members.includes(keeper.id) && (room.admin === keeper.id || rt.isMain(keeper.id)))
+
   // Where an add goes: the review's own memory, or the audience it names.
   function routeOf(change, keeper, home, team) {
     if (home.kind === 'group') return { scope: home }
-    if (change.team === true && team) return { scope: TEAM }
-    if (typeof change.for === 'string' && change.for.trim() !== '') {
+    const wantsTeam = change.team === true
+    const wantsFor = typeof change.for === 'string' && change.for.trim() !== ''
+    const wantsGroup = typeof change.group === 'string' && change.group.trim() !== ''
+    if ([wantsTeam, wantsFor, wantsGroup].filter(Boolean).length > 1) {
+      return { scope: home, error: 'it names more than one destination (team, for, group)' }
+    }
+    if (wantsTeam && team) return { scope: TEAM }
+    if (wantsFor) {
       const bot = rt.findBot(change.for)
       if (!rt.isMain(keeper.id)) return { scope: home, error: 'only a Main Bot keeps notes for another Bot' }
       if (bot === undefined) return { scope: home, error: `there is no Bot named "${clip(change.for, 60)}"` }
       if (rt.isPrivate(bot.id)) return { scope: home, error: 'a private Bot keeps its own memory' }
       return { scope: ownScope(bot.id) }
     }
-    if (typeof change.group === 'string' && change.group.trim() !== '') {
-      const room = roomsOf(keeper).find(item => item.name === change.group.trim())
-      return room === undefined ? { scope: home, error: `the keeper is in no group named "${clip(change.group, 60)}"` } : { scope: groupScope(room.id) }
+    if (wantsGroup) {
+      const wanted = change.group.trim()
+      const matches = writableRoomsOf(keeper).filter(item => item.name === wanted)
+      if (matches.length === 0) return { scope: home, error: `the keeper cannot route notes to a group named "${clip(change.group, 60)}"` }
+      if (matches.length > 1) return { scope: home, error: `more than one group is named "${clip(change.group, 60)}"` }
+      return { scope: groupScope(matches[0].id) }
     }
     return { scope: home }
   }
-  const roomsOf = keeper => Object.values(rt.state.rooms).filter(room => room.members.includes(keeper.id))
 
   // `home` is the memory the review keeps what it finds in: the keeper's own, or its
   // group's. `teamWrites` says whether the keeper may also write the team's.
@@ -153,6 +174,9 @@ export function installReview(rt, memory) {
     const done = []
     const counts = () => ({ kept: done.length, changed: done.filter(result => result.changed).length })
     let failed
+    // Exact-identity match so review edits/removals never pass bare hex IDs through
+    // fuzzy user-facing `matchEntries` (avoiding exact-text or whole-word collisions).
+    const targetMatch = target => ({ id: entryId(target), text: target.text, hasMetaId: target.meta?.id !== undefined })
     // A removal frees room and an edit names an entry as it reads now, so both go
     // before what is new.
     const order = change => ({ remove: 0, edit: 1 })[String(change?.op)] ?? 2
@@ -165,17 +189,22 @@ export function installReview(rt, memory) {
       const target = numbered[Number(change?.entry) - 1]
       const route = op === 'add' ? routeOf(change, keeper, home, team) : undefined
       const scope = op === 'add' ? route.scope : target?.scope === 'team' ? TEAM : home
-      // What the review keeps for the team waits in a topic: it does not get in front of every Bot by itself.
-      const topic = op === 'add' && scope.kind === 'team' ? cleanTopic(String(change?.topic ?? TEAM_SHARED)) : op === 'add' && change?.topic !== undefined ? cleanTopic(String(change.topic)) : undefined
+      // What the review keeps for the team waits in a topic: empty/whitespace topic
+      // normalizes to TEAM_SHARED so it never writes into resident team/MEMORY.md.
+      const rawTopic = change?.topic === undefined || change?.topic === null ? '' : String(change.topic).trim()
+      const topic = op === 'add'
+        ? (scope.kind === 'team' ? cleanTopic(rawTopic === '' ? TEAM_SHARED : rawTopic) : rawTopic === '' ? undefined : cleanTopic(rawTopic))
+        : undefined
       const label = labelOf(scope, keeper.id)
       const text = cleanEntry(change?.text)
+      const clearUntil = change?.until === '' || change?.until === null
       const until = cleanDay(change?.until)
-      const meta = { source, ...(scope.kind === 'team' ? { by: keeper.name } : {}), added: today(), ...(until === undefined ? {} : { until }) }
+      const meta = { source, ...(scope.kind === 'team' ? { by: keeper.name } : {}), added: today(), ...(clearUntil ? { until: undefined } : until === undefined ? {} : { until }) }
       // A change memory cannot keep is set aside and said, so what was not saved
       // shows in the diagnostics; the rest of the answer is kept all the same —
       // the same lines read again would meet the same limit. A secret's text is
       // not repeated into the log.
-      const badTopic = op === 'add' && change?.topic !== undefined && String(change.topic).trim() !== '' && topic === undefined
+      const badTopic = op === 'add' && rawTopic !== '' && topic === undefined
       const problem = op === 'add' || op === 'edit' ? entryProblem(text) : undefined
       const leftOut =
         op !== 'add' && target === undefined ? `it names entry ${change?.entry}, which is not listed` :
@@ -184,6 +213,7 @@ export function installReview(rt, memory) {
         route?.error !== undefined ? route.error :
         scope.kind === 'team' && !team ? 'it is for the team memory, which the review may not write' :
         badTopic ? `it names the topic "${clip(String(change.topic), 60)}", which cannot be a topic name` :
+        op === 'add' && scope.kind === 'team' && topic === undefined ? 'it writes to what every Bot always reads, which only the user does' :
         problem !== undefined ? (secretEntry(text) ? 'the entry looks like a key, token, password, or ID number, which memory never keeps' : `the entry "${clip(text, 160)}": ${problem}`) :
         undefined
       if (leftOut !== undefined) {
@@ -192,8 +222,8 @@ export function installReview(rt, memory) {
       }
       try {
         if (op === 'add') done.push(await addEntry({ scope, topic, text, meta, actor, label }))
-        else if (op === 'edit') done.push(await replaceEntry({ scope, topic: target.file.topic, match: target.text, text, meta, actor, label }))
-        else if (op === 'remove') done.push(await removeEntry({ scope, topic: target.file.topic, match: target.text, actor, label }))
+        else if (op === 'edit') done.push(await replaceEntry({ scope, topic: target.file.topic, match: targetMatch(target), text, meta, actor, label }))
+        else if (op === 'remove') done.push(await removeEntry({ scope, topic: target.file.topic, match: targetMatch(target), actor, label }))
       } catch (failure) {
         if (failure?.code === GONE) return counts()
         // The change is named by its text and where it was headed, so the
@@ -229,7 +259,17 @@ export function installReview(rt, memory) {
 
   // What a Session's turn gives the review: its Bot's own chat, or its group with a
   // copy of the group's log as of now. `key` is where the review keeps its place.
+  // Check task ownership before chatOwners/pastOwners so both active and settled
+  // background tasks keep their room routing and taskId.
   const reviewOf = (sessionId) => {
+    const taskOwner = taskOwnerOf?.(sessionId) ?? rt.taskOwners?.get(sessionId)
+    if (taskOwner !== undefined) {
+      if (taskOwner.roomId !== undefined) {
+        const room = rt.roomOf(taskOwner.roomId)
+        return room === undefined ? undefined : { key: `group:${room.id}`, roomId: room.id, room: roomCopy(room) }
+      }
+      return { key: `chat:${sessionId}`, sessionId, botId: taskOwner.botId, taskId: taskOwner.taskId }
+    }
     const chat = rt.chatOwners.get(sessionId)
     if (chat !== undefined) return { key: `chat:${sessionId}`, sessionId, botId: chat }
     const owner = rt.groupOwners.get(sessionId) ?? rt.pastOwners.get(sessionId)
@@ -239,6 +279,48 @@ export function installReview(rt, memory) {
     return room === undefined ? undefined : { key: `group:${room.id}`, roomId: room.id, room: roomCopy(room) }
   }
 
+  let stopped = false
+  const retryMax = config.memoryReviewRetryMax ?? REVIEW_RETRY_MAX
+  const retryBackoffFor = (count) => {
+    if (typeof config.memoryReviewRetryMs === 'number' && config.memoryReviewRetryMs >= 0) return config.memoryReviewRetryMs
+    return REVIEW_RETRY_BACKOFF_MS[Math.min(count - 1, REVIEW_RETRY_BACKOFF_MS.length - 1)]
+  }
+  /** @type {Map<string, {through: number | undefined, count: number, until: number}>} */
+  const reviewFailures = new Map()
+  /** @type {WeakMap<object, number>} */
+  const failureThrough = new WeakMap()
+  /** @type {Map<string, ReturnType<typeof setTimeout>>} */
+  const retryTimers = new Map()
+  const clearFailure = (key) => {
+    reviewFailures.delete(key)
+    const timer = retryTimers.get(key)
+    if (timer !== undefined) {
+      clearTimeout(timer)
+      retryTimers.delete(key)
+    }
+  }
+  function noteFailure(key, through, seen) {
+    const prior = reviewFailures.get(key)
+    const sameBatch = prior !== undefined && (through === undefined || prior.through === undefined || through <= prior.through)
+    const count = sameBatch ? prior.count + 1 : 1
+    const waitMs = retryBackoffFor(count)
+    reviewFailures.set(key, { through: through ?? prior?.through, count, until: Date.now() + waitMs })
+    const existing = retryTimers.get(key)
+    if (existing !== undefined) {
+      clearTimeout(existing)
+      retryTimers.delete(key)
+    }
+    if (stopped || seen === undefined || count >= retryMax) return
+    const timer = setTimeout(() => {
+      retryTimers.delete(key)
+      const current = reviewFailures.get(key)
+      if (current !== undefined) current.until = 0
+      if (!stopped) queueReview(seen)
+    }, waitMs)
+    timer.unref?.()
+    retryTimers.set(key, timer)
+  }
+
   // A Bot's own chat, kept in its own memory. A context switch during the wait leaves
   // the Session an earlier part, still the Bot's.
   async function reviewChat(seen) {
@@ -246,12 +328,13 @@ export function installReview(rt, memory) {
     if (bot === undefined) return
     const since = cursorsNow()[seen.key]
     await reviewBatch({
-      key: seen.key, since, batch: await chatBatch(seen.sessionId, bot, since),
+      key: seen.key, since, batch: await chatBatch(seen.sessionId, bot, since, { taskId: seen.taskId }),
       keeper: bot, name: bot.name, home: ownScope(bot.id), teamWrites: () => writesTeam(bot.id),
       who: `The Bot: ${bot.name}${bot.role ? `, ${bot.role}` : ''}.`,
       tag: { sessionId: rt.chatOf(bot.id), kind: 'memory' },
       alive: () => rt.botOf(bot.id) !== undefined,
       next: () => queueReview(seen),
+      retrySeen: seen,
     })
   }
 
@@ -269,27 +352,32 @@ export function installReview(rt, memory) {
         rt.warn('ds-bot: the log of group "%s" could not be recovered: %s', live.name, error?.message ?? error)
       })
     }
-    const room = withKeptLines(joinLogs(seen.room, live), await rt.groupLinesAfter(live.id, since).catch((error) => {
-      rt.warn('ds-bot: the log of group "%s" could not be read: %s', live.name, error?.message ?? error)
-      return []
-    }))
+    // Fail closed if the group ledger cannot be read: never advance reviewed.json over a gap.
+    const keptLines = await rt.groupLinesAfter(live.id, since)
+    const room = withKeptLines(joinLogs(seen.room, live), keptLines)
     const members = live.members.map(id => rt.botOf(id)).filter(Boolean).map(bot => `${bot.name}${live.admin === bot.id ? ' (admin)' : ''}`)
+    const updated = { ...seen, room }
     await reviewBatch({
       key: seen.key, since, batch: groupBatch(room, since),
       keeper, name: `group "${live.name}"`, home: groupScope(live.id), teamWrites: () => false, group: true,
       who: `The group chat: "${live.name}", with the user and ${members.join(', ')}.`,
       tag: { sessionId: live.id, kind: 'memory' },
       alive: () => rt.botOf(keeper.id) !== undefined && rt.roomOf(live.id)?.members.includes(keeper.id) === true,
-      next: () => queueReview({ ...seen, room }),
+      next: () => queueReview(updated),
+      retrySeen: updated,
     })
   }
 
   // One review from the conversation's place `since`: `home` is where it keeps what it
   // finds, `keeper` the Bot whose model reads, `who` whose memory it is. `alive` says
   // whether the keeper, and the group, are still there to keep it.
-  async function reviewBatch({ key, since, batch, keeper, name, home, teamWrites, group = false, who, tag, alive, next }) {
+  async function reviewBatch({ key, since, batch, keeper, name, home, teamWrites, group = false, who, tag, alive, next, retrySeen }) {
     // The cursor only moves forward.
     if (batch.through === undefined || (since !== undefined && batch.through <= since)) return
+    const priorFail = reviewFailures.get(key)
+    if (priorFail !== undefined && priorFail.through !== undefined && batch.through <= priorFail.through && (Date.now() < priorFail.until || priorFail.count >= retryMax)) {
+      return
+    }
     // A backlog past the text limit is read in passes, oldest first, so the cursor
     // only passes lines the model has seen.
     const fresh = fitted(batch.fresh, keeper)
@@ -299,28 +387,34 @@ export function installReview(rt, memory) {
     let again = more
     // A first review fixes where it starts before the model call, so a failure
     // leaves a cursor that the next review goes on from.
-    if (since === undefined && read.length > 0) {
-      cursorsNow()[key] = read[0].seq - 1
+    let baseSince = since
+    if (baseSince === undefined && read.length > 0) {
+      baseSince = read[0].seq - 1
+      cursorsNow()[key] = baseSince
       await writeText(cursorsPath, JSON.stringify(cursors))
     }
     // Only the user's words are kept, so lines without any need no model call.
     if (read.some(line => line.who === 'user')) {
-      const { homeFiles, teamFiles } = await settled(() => ({ homeFiles: loadScope(home), teamFiles: loadScope(TEAM) }))
-      const said = read.filter(line => line.who === 'user').map(line => line.text).join('\n')
-      const tagged = group ? 'group' : 'own'
-      const { numbered, left } = reviewEntries(homeFiles, teamFiles, REVIEW_MEMORY_MAX, said, tagged)
-      const sizes = { home: bodySize(homeFiles[0]), homeLimit: mainLimit(home), team: bodySize(teamFiles[0]), teamLimit: mainLimit(TEAM) }
-      const earlier = batch.earlier.map(line => reviewLine(line.who, line.text, keeper))
-      const language = writtenIn(read.filter(line => line.who === 'user').map(line => line.text.replace(/^User: /, '')), languageNow())
-      const reply = await botShot(keeper, reviewSystem({ teamWrites: teamWrites(), group, routes: !group && rt.isMain(keeper.id), rooms: group || !teamWrites() ? [] : roomsOf(keeper).map(room => room.name) }), reviewRequest({ who, tag: tagged, numbered, left, sizes, where: batch.where, earlier, fresh: fresh.texts, more, language }), tag)
-      if (!alive()) return
-      const parsed = parseReview(reply)
-      // An answer that is no list of changes keeps nothing of the batch; the miss
-      // is said, and the place moves on — the same lines are not read again. A
-      // change that is not well formed is set aside and said, one by one.
-      if (parsed === undefined) {
-        rt.warn('ds-bot: memory review of %s got no list of changes from the model: %s', name, clip(reply.replace(/\s+/g, ' '), 120))
-      } else {
+      let reply
+      try {
+        const { homeFiles, teamFiles } = await settled(() => ({ homeFiles: loadScope(home), teamFiles: loadScope(TEAM) }))
+        const said = read.filter(line => line.who === 'user').map(line => line.text).join('\n')
+        const tagged = group ? 'group' : 'own'
+        const { numbered, left } = reviewEntries(homeFiles, teamFiles, REVIEW_MEMORY_MAX, said, tagged)
+        const sizes = { home: bodySize(homeFiles[0]), homeLimit: mainLimit(home), team: bodySize(teamFiles[0]), teamLimit: mainLimit(TEAM) }
+        const earlier = batch.earlier.map(line => reviewLine(line.who, line.text, keeper))
+        const language = writtenIn(read.filter(line => line.who === 'user').map(line => line.text.replace(/^User: /, '')), languageNow())
+        reply = await botShot(keeper, reviewSystem({ teamWrites: teamWrites(), group, routes: !group && rt.isMain(keeper.id), rooms: group || !teamWrites() ? [] : writableRoomsOf(keeper).map(room => room.name) }), reviewRequest({ who, tag: tagged, numbered, left, sizes, where: batch.where, earlier, fresh: fresh.texts, more, language }), tag)
+        if (!alive()) return
+        const parsed = parseReview(reply)
+        // An unparseable answer must not advance reviewed.json and silently discard the
+        // batch: keep the cursor intact and back off before retrying a bounded number of times.
+        if (parsed === undefined) {
+          rt.warn('ds-bot: memory review of %s got no list of changes from the model: %s', name, clip(reply.replace(/\s+/g, ' '), 120))
+          noteFailure(key, batch.through, retrySeen)
+          return
+        }
+        clearFailure(key)
         const { changes, leftOut } = parsed
         for (const change of leftOut) {
           const whole = JSON.stringify(change)
@@ -335,15 +429,20 @@ export function installReview(rt, memory) {
         // still changes something. What was set aside is no part of the limit: it
         // was handled, and the same lines read again would meet it the same way.
         const prior = overflowed.get(key)
-        const passes = prior !== undefined && prior.since === since ? prior.passes : 0
-        if (kept >= REVIEW_CHANGES_MAX && changed > 0 && passes < REVIEW_PASSES_MAX) {
-          overflowed.set(key, { since, passes: passes + 1 })
-          through = since
+        const passes = prior !== undefined && prior.since === baseSince ? prior.passes : 0
+        if (kept >= REVIEW_CHANGES_MAX && changed > 0 && passes + 1 < REVIEW_PASSES_MAX) {
+          overflowed.set(key, { since: baseSince, passes: passes + 1 })
+          through = baseSince
           again = true
         } else {
           overflowed.delete(key)
         }
+      } catch (error) {
+        if (error !== null && typeof error === 'object') failureThrough.set(error, batch.through)
+        throw error
       }
+    } else {
+      clearFailure(key)
     }
     const now = cursorsNow()[key]
     if (through !== undefined && (now === undefined || through > now)) {
@@ -355,13 +454,35 @@ export function installReview(rt, memory) {
   /** @type {Map<string, {since: number | undefined, passes: number}>} */
   const overflowed = new Map()
 
-  /** @type {Map<string, ReturnType<typeof setTimeout>>} */
+  /** @type {Map<string, {timer: ReturnType<typeof setTimeout>, seen: ReturnType<typeof reviewOf>}>} */
   const reviewTimers = new Map()
   /** @type {Map<string, ReturnType<typeof reviewOf>>} */
   const reviewQueue = new Map()
+  /** @type {Set<string>} */
+  const activeSessions = new Set()
   let reviewChain = Promise.resolve()
   let reviewsRunning = 0
   const memoryReviews = () => reviewTimers.size + reviewQueue.size + reviewsRunning
+  const clearReviewTimer = (key) => {
+    const entry = reviewTimers.get(key)
+    if (entry === undefined) return
+    clearTimeout(entry.timer)
+    reviewTimers.delete(key)
+  }
+  const groupMembersActive = (roomId) => {
+    const room = rt.roomOf(roomId)
+    if (room !== undefined) {
+      for (const sid of Object.values(room.sessions ?? {})) {
+        if (activeSessions.has(sid)) return true
+      }
+    }
+    for (const [sid, owner] of rt.taskOwners ?? []) {
+      if (owner?.roomId === roomId && activeSessions.has(sid)) return true
+    }
+    return false
+  }
+  const groupBusy = roomId => rt.roomActive?.(roomId) === true || groupMembersActive(roomId)
+
   // A conversation waits in the line once: a later turn's copy of a group log joins
   // the one that already waits.
   function queueReview(seen) {
@@ -377,9 +498,12 @@ export function installReview(rt, memory) {
       reviewQueue.delete(seen.key)
       reviewsRunning += 1
       try {
-        if (rt.readOnly() === undefined) await (waited.roomId === undefined ? reviewChat(waited) : reviewGroup(waited))
+        if (!stopped && rt.readOnly() === undefined) await (waited.roomId === undefined ? reviewChat(waited) : reviewGroup(waited))
       } catch (error) {
         rt.warn('ds-bot: memory review of %s failed: %s', waited?.key ?? seen.key, error?.message ?? error)
+        const failedAt = error !== null && typeof error === 'object' ? failureThrough.get(error) : undefined
+        const fallbackAt = waited.roomId !== undefined ? rt.roomOf(waited.roomId)?.seq : undefined
+        noteFailure(waited.key, failedAt ?? fallbackAt, waited)
       } finally {
         reviewsRunning -= 1
       }
@@ -393,13 +517,13 @@ export function installReview(rt, memory) {
 
   const dropReviewKeys = (keys, sessionIds) => {
     for (const id of sessionIds) {
-      clearTimeout(reviewTimers.get(id))
-      reviewTimers.delete(id)
       turnOwners.delete(id)
+      activeSessions.delete(id)
     }
     let changed = false
     const map = cursorsNow()
     for (const key of keys) {
+      clearReviewTimer(key)
       overflowed.delete(key)
       reviewQueue.delete(key)
       if (Object.hasOwn(map, key)) {
@@ -422,35 +546,117 @@ export function installReview(rt, memory) {
 
   if (reviewOn) {
     const delay = config.memoryReviewDelayMs ?? REVIEW_DELAY_MS
-    // A turn that starts again before the delay is over is reviewed when it ends.
+    const groupWaitBase = config.memoryReviewGroupWaitMs ?? Math.max(delay, 50)
+    const catchupDelay = config.memoryReviewCatchupDelayMs ?? REVIEW_CATCHUP_DELAY_MS
+    function scheduleReview(seen, waitMs = delay, waitTries = 0) {
+      const prior = reviewTimers.get(seen.key)
+      let merged = seen
+      if (prior !== undefined) {
+        clearTimeout(prior.timer)
+        reviewTimers.delete(seen.key)
+        if (seen.room !== undefined && prior.seen?.room !== undefined) {
+          merged = { ...seen, room: joinLogs(prior.seen.room, seen.room) }
+        }
+      }
+      const timer = setTimeout(() => {
+        reviewTimers.delete(merged.key)
+        if (stopped) return
+        if (merged.roomId !== undefined && groupBusy(merged.roomId)) {
+          if (groupMembersActive(merged.roomId)) return
+          const live = rt.roomOf(merged.roomId)
+          if (live === undefined) return
+          const refreshed = { ...merged, room: joinLogs(merged.room, live) }
+          const pollMs = Math.min(groupWaitBase * (waitTries < GROUP_WAIT_MAX ? 1 : 2), GROUP_WAIT_POLL_MAX_MS)
+          scheduleReview(refreshed, pollMs, waitTries + 1)
+          return
+        }
+        queueReview(merged)
+      }, waitMs)
+      timer.unref?.()
+      reviewTimers.set(merged.key, { timer, seen: merged })
+    }
+    // A turn that starts again before the delay is over is reviewed when it ends;
+    // for groups, any member starting work cancels the shared group timer until the
+    // whole round and all its members are idle.
     ctx.on('agent/status', ({ agent, status }) => {
       const id = agent?.id
       if (id === undefined || (!rt.isBotSession(id) && !turnOwners.has(id))) return
-      clearTimeout(reviewTimers.get(id))
-      reviewTimers.delete(id)
       if (status !== 'idle') {
+        activeSessions.add(id)
         if (!turnOwners.has(id)) turnOwners.set(id, reviewOf(id))
+        const owner = reviewOf(id) ?? turnOwners.get(id)
+        if (owner !== undefined) clearReviewTimer(owner.key)
         return
       }
+      activeSessions.delete(id)
       const started = turnOwners.get(id)
       turnOwners.delete(id)
-      const seen = reviewOf(id) ?? started
+      const liveSeen = reviewOf(id)
+      const seen = liveSeen === undefined
+        ? started
+        : (liveSeen.taskId === undefined && started?.taskId !== undefined && liveSeen.key === started.key
+            ? { ...liveSeen, taskId: started.taskId }
+            : liveSeen)
       if (seen === undefined) return
-      const timer = setTimeout(() => {
-        reviewTimers.delete(id)
-        queueReview(seen)
-      }, delay)
-      timer.unref?.()
-      reviewTimers.set(id, timer)
+      clearReviewTimer(seen.key)
+      if (seen.roomId !== undefined && groupMembersActive(seen.roomId)) return
+      scheduleReview(seen, delay)
     })
     ctx.on?.('agent/disposed', ({ agent }) => {
       const id = agent?.id
-      if (id === undefined || reviewTimers.has(id)) return
-      turnOwners.delete(id)
+      if (id === undefined) return
+      activeSessions.delete(id)
+      if (!reviewTimers.has(`chat:${id}`)) turnOwners.delete(id)
     })
+    // Catch up any current chats, recently switched segments with prior cursors, or
+    // active groups that hold unreviewed lines after a restart or aborted debounce.
+    async function catchUp() {
+      if (stopped || rt.readOnly() !== undefined) return
+      await rt.load()
+      if (stopped || rt.readOnly() !== undefined) return
+      const saved = cursorsNow()
+      for (const room of Object.values(rt.state.rooms)) {
+        if (stopped) return
+        if (typeof room.seq !== 'number' || room.seq <= 0) continue
+        const key = `group:${room.id}`
+        if (reviewTimers.has(key) || reviewQueue.has(key)) continue
+        if ((saved[key] ?? 0) >= room.seq || groupBusy(room.id)) continue
+        queueReview({ key, roomId: room.id, room: roomCopy(room) })
+      }
+      for (const bot of Object.values(rt.state.bots)) {
+        if (stopped) return
+        const currentSid = rt.chatOf(bot.id)
+        const candidates = [currentSid]
+        const prevSeg = bot.segments?.at(-1)?.sessionId
+        if (prevSeg !== undefined && saved[`chat:${prevSeg}`] !== undefined) candidates.push(prevSeg)
+        for (const sid of candidates) {
+          if (stopped || sid === undefined || activeSessions.has(sid)) continue
+          const key = `chat:${sid}`
+          if (reviewTimers.has(key) || reviewQueue.has(key)) continue
+          const agent = rt.resolveAgent !== undefined
+            ? await rt.resolveAgent(sid).catch(() => undefined)
+            : (await ctx.sessionController?.resolveAgent?.(sid).catch(() => undefined))?.agent
+          // DSH session.seq is the next seq to assign (lastEventSeq + 1).
+          const seq = agent?.session?.seq
+          if (typeof seq !== 'number' || seq <= 1) continue
+          const cursor = saved[key]
+          if (cursor !== undefined && seq - 1 <= cursor) continue
+          queueReview({ key, sessionId: sid, botId: bot.id })
+        }
+      }
+    }
+    const catchupTimer = setTimeout(() => {
+      void catchUp().catch(error => rt.warn('ds-bot: memory review catch-up failed: %s', error?.message ?? error))
+    }, catchupDelay)
+    catchupTimer.unref?.()
     ctx.effect(() => () => {
-      for (const timer of reviewTimers.values()) clearTimeout(timer)
+      stopped = true
+      clearTimeout(catchupTimer)
+      for (const entry of reviewTimers.values()) clearTimeout(entry.timer)
       reviewTimers.clear()
+      for (const timer of retryTimers.values()) clearTimeout(timer)
+      retryTimers.clear()
+      activeSessions.clear()
       turnOwners.clear()
       overflowed.clear()
       reviewQueue.clear()

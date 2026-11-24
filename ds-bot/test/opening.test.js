@@ -156,3 +156,18 @@ test('the cover names the Bot, says it is opening, and leaves the sidebar uncove
 test('no model draws nothing at all', () => {
   assert.equal(module.exports.OpeningCover({ model: null, column: 0 }), null)
 })
+
+test('a part switch within the same Bot or group does not cover the current chat until it clears', () => {
+  const chief = { id: 'bot-1', name: 'Chief', sessionId: 'part-2', parts: ['part-1'] }
+  const ops = { id: 'room-1', name: 'Ops', sessionId: 'room-2', ownParts: ['room-1'] }
+  const multiPart = {
+    byId: { 'bot-1': chief, 'part-1': chief, 'part-2': chief },
+    roomsById: { 'room-1': ops, 'room-2': ops },
+  }
+  // While part-1 is still on screen, keep showing Chief instead of flashing a cover.
+  assert.equal(openingModel({ pending: { target: 'part-2', id: 'bot-1', name: 'Chief' }, current: 'part-1', roster: multiPart }), null)
+  assert.equal(openingModel({ pending: { target: 'room-2', id: 'room-1', name: 'Ops' }, current: 'room-1', roster: multiPart }), null)
+  // Once part-1 clears (archived before part-2 lands), the cover steps in.
+  const covered = openingModel({ pending: { target: 'part-2', id: 'bot-1', name: 'Chief' }, current: null, roster: multiPart })
+  assert.equal(covered?.name, 'Chief')
+})

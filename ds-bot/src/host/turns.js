@@ -1191,12 +1191,18 @@ export function install(rt) {
         entry.carried = false
         let claimedPending
         let claimedPendingText
+        let claimedPendingImages
+        let claimedPendingFiles
         if (entry.pending !== undefined) {
           claimedPending = entry.pending
           claimedPendingText = entry.pendingText
+          claimedPendingImages = entry.pendingImages
+          claimedPendingFiles = entry.pendingFiles
           claimTrigger(id, entry, claimedPending)
           entry.pending = undefined
           entry.pendingText = undefined
+          entry.pendingImages = undefined
+          entry.pendingFiles = undefined
         }
         if (entry.carry !== undefined) {
           const carry = entry.carry
@@ -1218,7 +1224,12 @@ export function install(rt) {
           if (carry.info !== undefined && claimedPending !== undefined
             && claimedPending.exchangeId !== carry.info.exchangeId
             && (expectsReply(claimedPending) || claimedPending.role === 'room') && !answersUser(claimedPending)) {
-            entry.joined = [...carry.joined, { info: claimedPending, text: claimedPendingText }]
+            entry.joined = [...carry.joined, {
+              info: claimedPending,
+              text: claimedPendingText,
+              ...(claimedPendingImages?.length ? { images: claimedPendingImages } : {}),
+              ...(claimedPendingFiles?.length ? { files: claimedPendingFiles } : {}),
+            }]
           }
         }
         break
@@ -1263,8 +1274,15 @@ export function install(rt) {
         } else if (source?.kind === 'user' || source?.kind === SOURCE_KIND) {
           stoppedSubagentParents.delete(id)
         }
-        // A result that came back counts as taken once a turn reads it.
-        if (source?.kind === SOURCE_KIND && source.work !== undefined && source.replyTo !== undefined) rt.takenWork?.(source.work, source.replyTo)
+        // Extracts stripped relay text plus image/file attachments so deferred redelivery
+        // never loses DSH attachments when a message lands mid-turn.
+        const extractRelayPayload = (content) => {
+          const blocks = Array.isArray(content) ? content : []
+          const text = textOf(blocks).replace(/^\[(?:[^\r\n]*\]\r?\n|[^\]\r\n]*\])/, '')
+          const images = blocks.filter(block => block?.type === 'image' && block.attachment !== undefined && !block.offloaded).map(block => block.attachment)
+          const files = blocks.filter(block => block?.type === 'file' && block.attachment !== undefined).map(block => block.attachment)
+          return { text, ...(images.length > 0 ? { images } : {}), ...(files.length > 0 ? { files } : {}) }
+        }
         // A message that shares a step with a bare handoff package is what the turn
         // answers, so the turn is not a hidden acknowledgement.
         const bare = info => info?.handoff === true && info.resume !== true
@@ -1343,18 +1361,27 @@ export function install(rt) {
           })
           rt.roomRelayTaken?.(roomId, source.exchangeId)
         } else if (source?.kind === SOURCE_KIND) {
-          if (entry.turn === undefined) {
-            entry.pending = source
-            entry.pendingText = textOf(event.data.content).replace(/^\[(?:[^\r\n]*\]\r?\n|[^\]\r\n]*\])/, '')
+          const markTaken = () => {
+            if (source.work !== undefined && source.replyTo !== undefined) rt.takenWork?.(source.work, source.replyTo)
           }
-          else if (!opened) claimTrigger(id, entry, source)
-          else if (source.role === 'ask_back'
+          if (entry.turn === undefined) {
+            markTaken()
+            const payload = extractRelayPayload(event.data.content)
+            entry.pending = source
+            entry.pendingText = payload.text
+            entry.pendingImages = payload.images
+            entry.pendingFiles = payload.files
+          } else if (!opened) {
+            markTaken()
+            claimTrigger(id, entry, source)
+          } else if (source.role === 'ask_back'
             || (source.role === 'answer' && source.work !== rt.workOf?.(entry.info))
             || (source.work !== undefined && source.work !== rt.workOf?.(entry.info) && !expectsReply(source))) {
             // An ask_back, answer for another work, or result for other work informs this
             // turn and comes back in a turn of its own once this one ends, so busy callers
             // or workers never drop it without re-delivering an already-consumed same-work answer.
-            entry.later = [...(entry.later ?? []), { info: source, text: textOf(event.data.content).replace(/^\[(?:[^\r\n]*\]\r?\n|[^\]\r\n]*\])/, '') }]
+            // Do NOT mark `takenWork` here: the owning work's turn has not consumed it yet.
+            entry.later = [...(entry.later ?? []), { info: source, ...extractRelayPayload(event.data.content) }]
           } else if ((expectsReply(source) || source.role === 'room') && !answersUser(source)
             && source.exchangeId !== entry.info?.exchangeId
             && !(entry.joined ?? []).some(joined => joined.info.exchangeId === source.exchangeId)) {
@@ -1362,8 +1389,10 @@ export function install(rt) {
             // answered in a hidden turn of its own once the work is done, so the
             // sender never gets the turn's text. A failed-switch resume message
             // re-sends the trigger's own source; the same exchangeId must not join twice.
-            const text = textOf(event.data.content).replace(/^\[(?:[^\r\n]*\]\r?\n|[^\]\r\n]*\])/, '')
-            entry.joined = [...(entry.joined ?? []), { info: source, text }]
+            entry.joined = [...(entry.joined ?? []), { info: source, ...extractRelayPayload(event.data.content) }]
+          } else {
+            // Consumed inside the owning turn (e.g. a reply for the turn's own work).
+            markTaken()
           }
           // A mid-turn relay that owes no reply only informs the turn: it neither
           // claims the running turn nor queues as the next one's trigger.
@@ -1378,19 +1407,26 @@ export function install(rt) {
           // its run is the earliest of the child's not read yet. One read while a
           // turn does other work comes back in a turn of its own, like any
           // handed-back result.
-          const run = rt.subWorkRun?.(source.senderSessionId)
+          const alreadyLater = new Set((entry.later ?? []).map(item => item.info?.replyTo).filter(Boolean))
+          const run = rt.subWorkRun?.(source.senderSessionId, alreadyLater)
           if (run !== undefined) {
-            rt.takenWork?.(run.parent, run.id)
             const info = { kind: SOURCE_KIND, role: 'reply', work: run.parent, replyTo: run.id, exchangeId: run.id, senderSessionId: source.senderSessionId }
-            if (entry.turn === undefined) entry.pending = info
-            else if (entry.info === undefined && !opened) {
+            if (entry.turn === undefined) {
+              rt.takenWork?.(run.parent, run.id)
+              entry.pending = info
+            } else if (entry.info === undefined && !opened) {
               // DSH opens the turn before it records the message that filled its
               // inbox: a notice that opened the turn claims it, like the first
               // relay of a turn.
+              rt.takenWork?.(run.parent, run.id)
               entry.opened = true
               entry.answers = true
               claimTrigger(id, entry, info)
-            } else if (rt.workOf?.(entry.info) !== run.parent) entry.later = [...(entry.later ?? []), { info, text: textOf(event.data.content) }]
+            } else if (rt.workOf?.(entry.info) !== run.parent) {
+              entry.later = [...(entry.later ?? []), { info, text: textOf(event.data.content) }]
+            } else {
+              rt.takenWork?.(run.parent, run.id)
+            }
           }
         } else if (source?.kind === 'user' || source?.kind === REPLY_KIND) {
           if (rt.roomOf(id) && source.kind === 'user') {
@@ -1528,10 +1564,13 @@ export function install(rt) {
           if (targetSessionId === undefined && (rt.groupOwners.has(id) || rt.pastOwners?.has(id))) continue
           void rt.deliver({
             fromId: result.info.senderSessionId,
+            ...(result.info.senderName ? { fromName: result.info.senderName } : {}),
             toId: rt.selfOf(id),
             // A result handed back to the turn's own part, or to the successor part after a switch.
             ...(targetSessionId !== undefined ? { sessionId: targetSessionId } : {}),
             text: result.text,
+            ...(result.images?.length ? { images: result.images } : {}),
+            ...(result.files?.length ? { files: result.files } : {}),
             role: result.info.role,
             exchangeId: result.info.exchangeId,
             replyTo: result.info.replyTo,
@@ -1790,28 +1829,39 @@ export function install(rt) {
           if (request.info.role !== 'room' || request.info.roomId === undefined) continue
           const scope = request.info.askedBy !== undefined ? `${request.info.roomId}\0${request.info.askedBy}` : undefined
           if (roomWaiters.has(request.info.exchangeId)) {
-            liveWaiterRooms.add(request.info.roomId)
-            if (scope !== undefined) liveWaiterScopes.add(scope)
+            if (failure === undefined && reason?.kind !== 'aborted') {
+              liveWaiterRooms.add(request.info.roomId)
+              if (scope !== undefined) liveWaiterScopes.add(scope)
+            }
           } else {
             latestWaiterlessRoom.set(request.info.roomId, request.info.exchangeId)
             if (scope !== undefined) latestWaiterlessScope.set(scope, request.info.exchangeId)
           }
         }
         for (const request of activeJoined) {
-          // A failed or stopped turn closes the request like any other; a finished
-          // one hands it back to the Bot to answer next.
+          // A failed turn closes joined requests like any other. On abort, non-room requests
+          // answer with stopped, live round waiters settle immediately so rounds never hang,
+          // and non-stopped waiterless joined group calls (whose unrelated primary turn was
+          // aborted, not host disposal) are still handed back to run in their own turn.
           if (failure !== undefined || reason?.kind === 'aborted') {
             if (request.info.role === 'room') {
               const waiter = roomWaiters.get(request.info.exchangeId)
-              roomWaiters.delete(request.info.exchangeId)
-              if (waiter !== undefined) {
-                if (failure !== undefined) waiter.fail(failure)
-                else waiter.resolve(null)
-              } else if (failure !== undefined) {
-                void rt.lateRoomFailure?.(id, request.info, failure)
+              if (failure !== undefined) {
+                roomWaiters.delete(request.info.exchangeId)
+                if (waiter !== undefined) waiter.fail(failure)
+                else void rt.lateRoomFailure?.(id, request.info, failure)
+                continue
               }
-            } else answer(request.info, '')
-            continue
+              if (waiter !== undefined) {
+                roomWaiters.delete(request.info.exchangeId)
+                waiter.resolve(null)
+                continue
+              }
+              if (reason?.reason?.kind === 'disposed') continue
+            } else {
+              answer(request.info, '')
+              continue
+            }
           }
           if (request.info.role === 'room' && request.info.roomId !== undefined && !roomWaiters.has(request.info.exchangeId)) {
             if (request.info.askedBy !== undefined) {
@@ -1826,6 +1876,8 @@ export function install(rt) {
             toId: rt.selfOf(id),
             sessionId: id,
             text: request.text,
+            ...(request.images?.length ? { images: request.images } : {}),
+            ...(request.files?.length ? { files: request.files } : {}),
             role: request.info.role,
             exchangeId: request.info.exchangeId,
             ...(request.info.workRef ? { workRef: request.info.workRef } : {}),
