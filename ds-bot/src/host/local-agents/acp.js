@@ -732,6 +732,11 @@ export class AcpEngine {
       return
     }
     const session = this.sessions.get(dshSessionId)
+    const turn = session?.promptTurn
+    if (turn !== undefined) {
+      turn.cancelled = true
+      turn.controller.abort(new Error('the ACP session was closed'))
+    }
     if (session?.acpSessionId !== undefined) {
       this.commands.delete(session.acpSessionId)
       this.sessionEfforts.delete(session.acpSessionId)

@@ -253,6 +253,29 @@ test('acp: a stall after approval leaves the queued follow-up for explicit retry
   assert.equal(records.s1.handedId, 'm4')
 })
 
+test('acp: a forgotten stalled prompt releases its RPC without closing a shared peer', async (t) => {
+  const adapter = makeAdapter({ acpArgs: ['--no-cancel-ack'] })
+  t.after(() => adapter.dispose())
+  await collect(adapter.stream(options('other', [user('other1', 'hello')])))
+  const engine = adapter.engine('local-acp-fake')
+  const peer = engine.peer
+  const child = engine.child
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const stalled = assert.rejects(collect(adapter.stream(options('s1', [user('m1', 'hang')]))), error => error.code === 'LOCAL_AGENT_EXIT')
+  for (let attempt = 0; !adapter.live.get('s1')?.engineSession?.running && attempt < 300; attempt++) await delay(10)
+  assert.equal(adapter.live.get('s1')?.engineSession?.running, true)
+  const promptId = peer.nextId
+  assert.equal(peer.pending.has(promptId), true)
+  t.mock.timers.tick(10 * 60_000)
+  await stalled
+  t.mock.timers.reset()
+  assert.equal(engine.peer, peer)
+  assert.equal(engine.child, child)
+  assert.equal(peer.pending.has(promptId), false)
+  const next = await collect(adapter.stream(options('other', [user('other1', 'hello'), user('other2', 'still here')])))
+  assert.equal(next.text, 'ok: still here')
+})
+
 test('acp: a stopped prompt cannot fail or finish the following turns', async (t) => {
   const adapter = makeAdapter()
   t.after(() => adapter.dispose())
