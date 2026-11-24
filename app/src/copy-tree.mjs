@@ -14,9 +14,6 @@ export const within = (inner, outer) => {
   return path === '' || (!path.startsWith('..') && !path.startsWith(sep) && !/^[a-z]:/iu.test(path))
 }
 
-// Lower first so capital sharp S also expands to SS. Extra matches only serialize more links.
-const destinationKey = path => path.normalize('NFKD').toLowerCase().toUpperCase().normalize('NFKD')
-
 /**
  * Why a copy failed, in the words of the start page's cards (reason.copy.*); the rest goes into
  * the details.
@@ -48,7 +45,7 @@ export function real(path) {
 // one keeps its text, an absolute one is moved over. One that leads outside keeps leading
 // there, as an absolute link. Windows gives a junction's target with \\?\, and makes only
 // junctions, which hold absolute paths, without special rights.
-async function relink(source, path, roots, to) {
+async function linkTarget(source, roots, to) {
   const text = (await readlink(source)).replace(/^\\\\\?\\UNC\\/u, '\\\\').replace(/^\\\\\?\\/u, '')
   const written = resolve(dirname(source), text)
   // Through another link the target can lead inside the copied folder too.
@@ -59,7 +56,10 @@ async function relink(source, path, roots, to) {
   const folder = (await stat(source).catch(() => undefined))?.isDirectory() === true
   const windows = process.platform === 'win32'
   const inside = root === undefined ? written : join(to, relative(root, target))
-  await symlink(direct && !isAbsolute(text) && !(windows && folder) ? text : inside, path, folder ? (windows ? 'junction' : 'dir') : 'file')
+  return {
+    target: direct && !isAbsolute(text) && !(windows && folder) ? text : inside,
+    type: folder ? (windows ? 'junction' : 'dir') : 'file',
+  }
 }
 
 /**
@@ -96,38 +96,33 @@ export async function copyTree(from, into, { force = true, skip = false, leave =
     },
   })
   const roots = [...new Set([resolve(from), origin])]
-  const byDestination = new Map()
-  for (const [index, path] of links.entries()) {
-    const key = destinationKey(path)
-    const group = byDestination.get(key)
-    if (group === undefined) byDestination.set(key, [index])
-    else group.push(index)
-  }
-  const groups = [...byDestination.values()]
-  const skippedLinks = []
-  let next = 0
-  let failure
-  const stopped = () => failure !== undefined || signal?.aborted
-  const worker = async () => {
-    while (next < groups.length) {
-      for (const index of groups[next++]) {
-        if (stopped()) return
-        const path = links[index]
-        const at = join(into, path)
-        if (!force && await lstat(at).then(() => true, () => false)) continue
-        if (stopped()) return
+  signal?.throwIfAborted()
+  const prepare = path => linkTarget(join(origin, path), roots, resolve(as)).then(link => ({ link }), error => ({ error }))
+  const pending = links.slice(0, 4).map(prepare)
+  try {
+    for (const [index, path] of links.entries()) {
+      signal?.throwIfAborted()
+      const slot = index % pending.length
+      const at = join(into, path)
+      // Only the destination filesystem knows which names alias. Publish in discovery order.
+      const keep = !force && await lstat(at).then(() => true, () => false)
+      const prepared = await pending[slot]
+      signal?.throwIfAborted()
+      if (!keep) {
         try {
-          await relink(join(origin, path), at, roots, resolve(as))
+          if ('error' in prepared) throw prepared.error
+          await symlink(prepared.link.target, at, prepared.link.type)
         } catch (error) {
-          if (skip) skippedLinks[index] = path
-          else if (failure === undefined || index < failure.index) failure = { index, error }
+          if (!skip) throw error
+          skipped.push(path)
         }
       }
+      signal?.throwIfAborted()
+      const next = index + pending.length
+      if (next < links.length) pending[slot] = prepare(links[next])
     }
+  } finally {
+    await Promise.all(pending)
   }
-  // Callers can remove their staging folder as soon as this returns or throws.
-  await Promise.all(Array.from({ length: Math.min(4, groups.length) }, worker))
-  if (failure !== undefined) throw failure.error
-  signal?.throwIfAborted()
-  return skipped.concat(skippedLinks.filter(path => path !== undefined))
+  return skipped
 }

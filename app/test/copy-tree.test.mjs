@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { test } from 'node:test'
 import { setImmediate, setTimeout } from 'node:timers/promises'
 import { disk } from '../src/copy-tree.mjs'
@@ -42,11 +42,12 @@ async function mockRelink(t, symlink) {
   return (await import(url.href)).copyTree
 }
 
-test('relinking finishes out of order with at most four workers', async (t) => {
+test('relink preparation finishes out of order with at most four workers', async (t) => {
   const { from, into } = setup(t)
-  const { symlink } = disk.promises
+  const { readlink, symlink } = disk.promises
   const started = []
   const finished = []
+  const writes = []
   const batch = Promise.withResolvers()
   const secondFinished = Promise.withResolvers()
   const watchdog = new AbortController()
@@ -54,23 +55,30 @@ test('relinking finishes out of order with at most four workers', async (t) => {
   t.after(() => { watchdog.abort() })
   let active = 0
   let peak = 0
-  const copyTree = await mockRelink(t, async (target, path, type) => {
-    const index = started.push({ target, path, type }) - 1
+  t.mock.method(disk.promises, 'readlink', async path => {
+    const index = started.push(path) - 1
     peak = Math.max(peak, ++active)
     if (index === 3) batch.resolve()
     await Promise.race([batch.promise, deadline])
     if (index === 0) await Promise.race([secondFinished.promise, deadline])
-    await symlink(target, path, type)
+    const text = await readlink(path)
     finished.push(path)
     if (index === 1) secondFinished.resolve()
     active--
+    return text
+  })
+  const copyTree = await mockRelink(t, async (target, path, type) => {
+    writes.push({ target, path, type })
+    await symlink(target, path, type)
   })
 
   assert.deepEqual(await copyTree(from, into), [])
   assert.equal(peak, 4)
-  assert.ok(finished.indexOf(started[1].path) < finished.indexOf(started[0].path))
-  assert.deepEqual(started.map(entry => entry.path).sort(), names.map(name => join(into, name)))
-  for (const { target, path, type } of started) {
+  assert.ok(finished.indexOf(started[1]) < finished.indexOf(started[0]))
+  const written = writes.map(entry => entry.path)
+  assert.deepEqual(written, started.map(path => join(into, basename(path))))
+  assert.deepEqual([...written].sort(), names.map(name => join(into, name)))
+  for (const { target, path, type } of writes) {
     assert.equal(type, folderLink)
     assert.equal(target, join(into, 'target'))
     assert.equal(readFileSync(join(path, 'note.txt'), 'utf8'), 'copied')
@@ -97,31 +105,36 @@ test('skip order follows the walk, and force false keeps an existing destination
   assert.equal(readFileSync(kept, 'utf8'), 'kept')
 })
 
-for (const [kind, firstName, secondName] of [
+for (const [kind, ...aliases] of [
   ['ASCII case', 'Link', 'link'],
   ['Unicode case', 'ß', 'ẞ'],
   ['Unicode normalization', 'café', 'cafe\u0301'],
   ['Unicode case and normalization', 'ßé', 'ẞe\u0301'],
+  ['an ignored zero-width joiner', 'AB', 'A\u200DB'],
+  ['arbitrary filesystem equivalence', 'oldest', 'middle', 'newest'],
 ]) {
   test(`the first link wins when destination names alias by ${kind}`, async (t) => {
     const { from, into } = setup(t)
-    const first = join(into, firstName)
-    const second = join(into, secondName)
+    const destinations = aliases.map(name => join(into, name))
+    const [first] = destinations
     let made
     const attempts = []
     const exists = { isSymbolicLink: () => true }
     const { promises } = disk
-    let firstSource
+    let sources
     t.mock.method(promises, 'cp', async (origin, _into, { filter }) => {
-      firstSource = join(origin, firstName)
-      await filter(firstSource)
-      await filter(join(origin, secondName))
+      sources = aliases.map(name => join(origin, name))
+      for (const source of sources) await filter(source)
     })
     t.mock.method(promises, 'lstat', async path => {
-      if ((path !== first && path !== second) || made !== undefined) return exists
+      if (!destinations.includes(path) || made !== undefined) return exists
       throw new Error('destination does not exist')
     })
-    t.mock.method(promises, 'readlink', async path => path === firstSource ? 'first-target' : 'second-target')
+    t.mock.method(promises, 'readlink', async path => {
+      const index = sources.indexOf(path)
+      if (index !== sources.length - 1) await setImmediate()
+      return `target-${String(index)}`
+    })
     t.mock.method(promises, 'realpath', async path => path)
     t.mock.method(promises, 'stat', async () => ({ isDirectory: () => false }))
     const copyTree = await mockRelink(t, async (target, path) => {
@@ -132,40 +145,47 @@ for (const [kind, firstName, secondName] of [
     })
 
     const skipped = await copyTree(from, into, { force: false, skip: true })
-    assert.equal(made, 'first-target')
+    assert.equal(made, 'target-0')
     assert.deepEqual(attempts, [first])
     assert.deepEqual(skipped, [])
   })
 }
 
 for (const abort of [true, false]) {
-  test(`relinking drains pending writes before reporting ${abort ? 'an abort' : 'a failure'}`, { timeout: 5000 }, async (t) => {
+  test(`relinking drains pending work before reporting ${abort ? 'an abort' : 'a failure'}`, { timeout: 5000 }, async (t) => {
     const { from, into } = setup(t)
     const controller = new AbortController()
     const batch = Promise.withResolvers()
+    const writing = Promise.withResolvers()
     const stop = Promise.withResolvers()
     const drain = Promise.withResolvers()
     const started = []
     const finished = []
+    const writes = []
     const failure = new Error('relink stopped')
-    const copyTree = await mockRelink(t, async (_target, path) => {
+    const { readlink } = disk.promises
+    t.mock.method(disk.promises, 'readlink', async path => {
       const index = started.push(path) - 1
       if (index === 3) batch.resolve()
-      if (!abort && index === 0) {
-        await stop.promise
-        throw failure
-      }
-      await drain.promise
+      if (index !== 0) await drain.promise
+      const text = await readlink(path)
       finished.push(path)
+      return text
+    })
+    const copyTree = await mockRelink(t, async (_target, path) => {
+      writes.push(path)
+      writing.resolve()
+      await stop.promise
+      if (!abort) throw failure
     })
 
     let settled = false
     const result = copyTree(from, into, { signal: controller.signal, skip: abort }).finally(() => { settled = true })
     const rejected = assert.rejects(result, error => error === failure)
     try {
-      await Promise.race([batch.promise, result])
+      await Promise.race([Promise.all([batch.promise, writing.promise]), result])
       if (abort) controller.abort(failure)
-      else stop.resolve()
+      stop.resolve()
       await setImmediate()
       assert.equal(settled, false)
     } finally {
@@ -173,6 +193,7 @@ for (const abort of [true, false]) {
     }
     await rejected
     assert.equal(started.length, 4)
-    assert.deepEqual(finished, abort ? started : started.slice(1))
+    assert.deepEqual(writes, [join(into, basename(started[0]))])
+    assert.deepEqual([...finished].sort(), [...started].sort())
   })
 }
