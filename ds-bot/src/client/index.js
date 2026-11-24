@@ -153,6 +153,7 @@ export function apply(ctx) {
       if (event.key === null || event.key === unreadStore.key) ui.set(state => ({ ...state, unread: unreadStore.read(state.unread) }))
       if (event.key === null || event.key === reactionStore.key) ui.set(state => ({ ...state, reactions: reactionStore.read(state.reactions) }))
       if (event.key === null || event.key === seenStore.key) seenAt = seenStore.read(seenAt)
+      if (event.key === null || event.key === STORAGE.rescuedDrafts) questionDrafts.syncFromStorage()
     }
     window.addEventListener('storage', onStorage)
     return () => window.removeEventListener('storage', onStorage)
@@ -998,17 +999,33 @@ export function apply(ctx) {
     updateQueue: async (itemId, action) => (await ctx.sessions.binding(sessionId)?.session?.updateQueue(itemId, action)) ?? { ok: false },
     loadImage: (attachment) => ctx.uiConversation.imageUrl(sessionId, attachment),
   })
-  // A deleted Bot or group takes its kept draft with it.
+  // A deleted Bot or group takes its kept draft (and any part-keyed rescued draft) with it.
   ctx.effect(() => {
     let chats = null
     return roster.subscribe(() => {
       const snapshot = roster.getSnapshot()
       if (!snapshot.ready) return
-      const now = new Set([...snapshot.bots.map(bot => bot.id), ...snapshot.rooms.map(room => room.id)])
+      const now = new Map()
+      for (const bot of snapshot.bots) {
+        const ids = [bot.id, bot.sessionId, ...(bot.parts ?? [])].filter(id => typeof id === 'string' && id !== '')
+        now.set(bot.id, [...new Set(ids)])
+      }
+      for (const room of snapshot.rooms) {
+        const ids = [room.id, room.sessionId, ...(room.ownParts ?? [])].filter(id => typeof id === 'string' && id !== '')
+        now.set(room.id, [...new Set(ids)])
+      }
       if (chats !== null) {
-        const gone = [...chats].filter(id => !now.has(id))
-        pruneDrafts(gone)
-        questionDrafts.pruneChats(gone)
+        const goneChats = []
+        const goneAll = []
+        for (const [chatId, prevIds] of chats) {
+          if (now.has(chatId)) continue
+          goneChats.push(chatId)
+          for (const id of prevIds) goneAll.push(id)
+        }
+        if (goneChats.length > 0) {
+          pruneDrafts(goneChats)
+          questionDrafts.pruneChats([...new Set(goneAll)])
+        }
       }
       chats = now
     })

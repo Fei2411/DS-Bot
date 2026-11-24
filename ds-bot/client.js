@@ -22143,6 +22143,275 @@ function useDockHold(sessionId, kind, requestId, actions, inline) {
   };
 }
 
+// src/client/question-draft.js
+var SEPARATOR = "\n\n";
+var normalizePieces = (value) => {
+  const list = Array.isArray(value) ? value : [value];
+  const out = [];
+  for (const item of list) {
+    if (typeof item !== "string") continue;
+    const trimmed2 = item.trim();
+    if (trimmed2 !== "") out.push(trimmed2);
+  }
+  return out;
+};
+var alreadyAtEnd = (base, piece) => {
+  const tail = base.trimEnd();
+  return tail === piece || tail.endsWith(`${SEPARATOR}${piece}`) || tail.endsWith(`
+${piece}`);
+};
+function mergeRescuedDraft(existing, rescued) {
+  const pieces = normalizePieces(rescued);
+  let current2 = typeof existing === "string" ? existing : "";
+  for (const piece of pieces) {
+    if (current2.trim() === "") {
+      current2 = piece;
+    } else if (!alreadyAtEnd(current2, piece)) {
+      current2 = `${current2.trimEnd()}${SEPARATOR}${piece}`;
+    }
+  }
+  return current2;
+}
+function readRescuedForChat(map, chatId, sessionId) {
+  if (!map || typeof map !== "object") return "";
+  const first = typeof chatId === "string" && chatId !== "" ? map[chatId] : "";
+  const second = typeof sessionId === "string" && sessionId !== "" && sessionId !== chatId ? map[sessionId] : "";
+  return mergeRescuedDraft(first ?? "", second ?? "");
+}
+function blockingQuestionId(pending) {
+  return pending?.key ?? pending?.id ?? pending?.callId ?? "blocking";
+}
+var readSaved = (storage, key, fallback = {}) => {
+  if (!storage) return fallback;
+  try {
+    const raw = JSON.parse(storage.getItem(key) ?? "{}");
+    if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return {};
+    const clean = {};
+    for (const [k, v] of Object.entries(raw)) {
+      if (typeof v === "string" && v.trim() !== "") clean[k] = v.trim();
+    }
+    return clean;
+  } catch {
+    return fallback;
+  }
+};
+var writeSaved = (storage, key, value) => {
+  try {
+    if (Object.keys(value).length === 0) storage?.removeItem?.(key);
+    else storage?.setItem(key, JSON.stringify(value));
+  } catch {
+  }
+};
+var shallowEqualMap = (left, right) => {
+  if (left === right) return true;
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  if (leftKeys.length !== rightKeys.length) return false;
+  return leftKeys.every((k) => left[k] === right[k]);
+};
+var entryKey = (kind, id) => `${kind}:${id}`;
+var hasRosterChats = (roster) => Object.keys(roster?.byId ?? {}).length > 0 || Object.keys(roster?.roomsById ?? {}).length > 0;
+var isChatAlive = (roster, sessionId, chatId) => {
+  if (!roster?.ready || !hasRosterChats(roster)) return true;
+  if (chatOfSession(roster, sessionId) !== void 0) return true;
+  return typeof chatId === "string" && chatId !== "" && chatOfSession(roster, chatId) !== void 0;
+};
+function createQuestionDrafts({ storage = globalThis.localStorage, storageKey = STORAGE.rescuedDrafts } = {}) {
+  const rescued = createSource(readSaved(storage, storageKey));
+  const active = /* @__PURE__ */ new Map();
+  const mutateSaved = (change) => {
+    rescued.set((state) => {
+      const base = readSaved(storage, storageKey, state);
+      const next = change(base);
+      if (next !== base) writeSaved(storage, storageKey, next);
+      return shallowEqualMap(state, next) ? state : next;
+    });
+  };
+  const syncFromStorage = () => {
+    rescued.set((state) => {
+      const next = readSaved(storage, storageKey, state);
+      return shallowEqualMap(state, next) ? state : next;
+    });
+  };
+  const enqueueRescue = (targetKey, text) => {
+    const clean = mergeRescuedDraft("", text);
+    if (typeof targetKey !== "string" || targetKey === "" || clean === "") return null;
+    mutateSaved((base) => {
+      const nextText2 = mergeRescuedDraft(base[targetKey] ?? "", clean);
+      if (base[targetKey] === nextText2) return base;
+      return { ...base, [targetKey]: nextText2 };
+    });
+    return { targetKey, text: clean };
+  };
+  const rescueEntry = (entry) => {
+    const text = mergeRescuedDraft("", [...entry.parts.values()]);
+    if (text === "") return null;
+    const targetKey = entry.chatId || entry.sessionId;
+    const enqueued = enqueueRescue(targetKey, text);
+    return enqueued === null ? null : { targetKey, chatId: entry.chatId, sessionId: entry.sessionId, text: enqueued.text };
+  };
+  const noteDraft = ({ kind, id, subId = id, sessionId, chatId = null, text, isStillOpen }) => {
+    if (typeof kind !== "string" || kind === "" || typeof id !== "string" || id === "" || typeof sessionId !== "string" || sessionId === "") return;
+    const key = entryKey(kind, id);
+    const existing = active.get(key);
+    const raw = typeof text === "string" ? text : "";
+    if (raw === "") {
+      if (existing === void 0) return;
+      existing.parts.delete(subId);
+      if (existing.parts.size === 0 && existing.inFlight === null) active.delete(key);
+      return;
+    }
+    const entry = existing ?? {
+      kind,
+      id,
+      sessionId,
+      chatId,
+      parts: /* @__PURE__ */ new Map(),
+      inFlight: null,
+      missing: false,
+      isStillOpen: void 0
+    };
+    entry.sessionId = sessionId;
+    if (typeof chatId === "string" && chatId !== "") entry.chatId = chatId;
+    if (typeof isStillOpen === "function") entry.isStillOpen = isStillOpen;
+    entry.parts.set(subId, raw);
+    active.set(key, entry);
+  };
+  const readDraft = (kind, id, subId = id) => {
+    if (typeof kind !== "string" || typeof id !== "string") return "";
+    return active.get(entryKey(kind, id))?.parts.get(subId) ?? "";
+  };
+  const beginSettle = (kind, id, outcome) => {
+    if (outcome !== "answered" && outcome !== "dismissed") return;
+    const entry = active.get(entryKey(kind, id));
+    if (entry !== void 0) entry.inFlight = outcome;
+  };
+  const finishSettle = (kind, id, succeeded) => {
+    const key = entryKey(kind, id);
+    const entry = active.get(key);
+    if (entry === void 0) return null;
+    if (succeeded) {
+      active.delete(key);
+      return null;
+    }
+    const outcome = entry.inFlight;
+    entry.inFlight = null;
+    if (entry.missing) {
+      active.delete(key);
+      if (outcome === "dismissed") return null;
+      return rescueEntry(entry);
+    }
+    return null;
+  };
+  const reconcileRoster = (roster) => {
+    if (!roster?.ready) return [];
+    const pendingById = /* @__PURE__ */ new Map();
+    for (const [sessionId, question] of Object.entries(roster.questions ?? {})) {
+      if (typeof question?.id === "string" && question.id !== "") {
+        pendingById.set(question.id, { sessionId, chatId: chatOfSession(roster, sessionId)?.id ?? null });
+      }
+    }
+    const results = [];
+    for (const [key, entry] of active) {
+      if (entry.kind !== "ask_user") continue;
+      const live = pendingById.get(entry.id);
+      if (live !== void 0) {
+        entry.sessionId = live.sessionId;
+        if (live.chatId !== null) entry.chatId = live.chatId;
+        entry.missing = false;
+        continue;
+      }
+      const resolvedChat = chatOfSession(roster, entry.sessionId)?.id ?? null;
+      if (resolvedChat !== null) entry.chatId = resolvedChat;
+      if (!isChatAlive(roster, entry.sessionId, entry.chatId)) {
+        active.delete(key);
+        continue;
+      }
+      if (entry.inFlight !== null) {
+        entry.missing = true;
+        continue;
+      }
+      active.delete(key);
+      const item = rescueEntry(entry);
+      if (item !== null) results.push(item);
+    }
+    return results;
+  };
+  const reconcileBlocking = (sessionStatus, roster) => {
+    if (!sessionStatus || typeof sessionStatus.get !== "function") return [];
+    const results = [];
+    for (const [key, entry] of active) {
+      if (entry.kind !== "blocking") continue;
+      const interaction = sessionStatus.get(entry.sessionId)?.pendingInteraction;
+      if (interaction?.kind === "question" && blockingQuestionId(interaction) === entry.id) {
+        entry.missing = false;
+        continue;
+      }
+      if (entry.isStillOpen?.() === true) {
+        entry.missing = false;
+        continue;
+      }
+      if (interaction !== void 0 && interaction.kind !== "question") continue;
+      if (roster?.ready) {
+        const resolvedChat = chatOfSession(roster, entry.sessionId)?.id ?? null;
+        if (resolvedChat !== null) entry.chatId = resolvedChat;
+        if (!isChatAlive(roster, entry.sessionId, entry.chatId)) {
+          active.delete(key);
+          continue;
+        }
+      }
+      if (entry.inFlight !== null) {
+        entry.missing = true;
+        continue;
+      }
+      active.delete(key);
+      const item = rescueEntry(entry);
+      if (item !== null) results.push(item);
+    }
+    return results;
+  };
+  const consumeRescue = (chatId, sessionId, taken) => {
+    const keys = [chatId, sessionId].filter((value, index, list) => typeof value === "string" && value !== "" && list.indexOf(value) === index);
+    if (keys.length === 0) return;
+    mutateSaved((base) => {
+      const present = keys.filter((key) => base[key] !== void 0);
+      if (present.length === 0) return base;
+      const current2 = readRescuedForChat(base, chatId, sessionId);
+      if (taken !== void 0 && current2 !== taken) return base;
+      const next = { ...base };
+      for (const key of present) delete next[key];
+      return next;
+    });
+  };
+  const pruneChats = (gone) => {
+    if (!Array.isArray(gone) || gone.length === 0) return;
+    const goneSet = new Set(gone);
+    for (const [key, entry] of active) {
+      if (goneSet.has(entry.chatId) || goneSet.has(entry.sessionId)) active.delete(key);
+    }
+    mutateSaved((base) => {
+      const listed = gone.filter((id) => base[id] !== void 0);
+      if (listed.length === 0) return base;
+      const next = { ...base };
+      for (const id of listed) delete next[id];
+      return next;
+    });
+  };
+  return {
+    rescued,
+    noteDraft,
+    readDraft,
+    beginSettle,
+    finishSettle,
+    reconcileRoster,
+    reconcileBlocking,
+    enqueueRescue,
+    consumeRescue,
+    pruneChats,
+    syncFromStorage
+  };
+}
+
 // src/client/questions.js
 var import_react10 = require("react");
 var keyLetter = (index) => String.fromCharCode(65 + index);
@@ -22492,39 +22761,50 @@ function SettledQuestion({ question, answer, closed }) {
 }
 function QuestionCard({ sessionId, matched, actions }) {
   const pending = matched;
-  const requestId = pending.key ?? pending.id ?? pending.callId ?? "blocking";
+  const requestId = blockingQuestionId(pending);
   const effectiveSessionId = sessionId ?? pending.sessionId;
   const questions = pending.questions ?? [];
   const [index, setIndex] = (0, import_react10.useState)(0);
   const [answers, setAnswers] = (0, import_react10.useState)([]);
+  const [busy, setBusy] = (0, import_react10.useState)(false);
+  const busyRef = (0, import_react10.useRef)(false);
+  const isStillOpen = typeof pending.getSnapshot === "function" ? () => pending.getSnapshot()?.closed === false : void 0;
   const question = questions[index];
   if (question === void 0) return null;
   const subId = question.id ?? String(index);
   const initialOwn = actions?.readQuestionDraft?.("blocking", requestId, subId) ?? "";
   const onOwnChange = (text) => {
-    if (effectiveSessionId) actions?.noteQuestionDraft?.({ kind: "blocking", id: requestId, subId, sessionId: effectiveSessionId, text });
+    if (effectiveSessionId) actions?.noteQuestionDraft?.({ kind: "blocking", id: requestId, subId, sessionId: effectiveSessionId, text, isStillOpen });
+  };
+  const runSettle = (outcome, run2) => {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    setBusy(true);
+    actions?.beginQuestionSettle?.("blocking", requestId, outcome);
+    void Promise.resolve().then(run2).then(
+      () => actions?.finishQuestionSettle?.("blocking", requestId, true),
+      () => actions?.finishQuestionSettle?.("blocking", requestId, false)
+    ).finally(() => {
+      busyRef.current = false;
+      setBusy(false);
+    });
   };
   const onAnswer = (answer) => {
+    if (busyRef.current) return;
     const next = [...answers, { id: question.id, ...answer }];
     if (index + 1 < questions.length) {
+      if (effectiveSessionId) {
+        const keptCustom = typeof answer?.custom === "string" ? answer.custom.trim() : "";
+        actions?.noteQuestionDraft?.({ kind: "blocking", id: requestId, subId, sessionId: effectiveSessionId, text: keptCustom, isStillOpen });
+      }
       setAnswers(next);
       setIndex(index + 1);
       return;
     }
-    actions?.beginQuestionSettle?.("blocking", requestId, "answered");
-    void Promise.resolve().then(() => pending.answer({ answers: next })).then(
-      () => actions?.finishQuestionSettle?.("blocking", requestId, true),
-      () => actions?.finishQuestionSettle?.("blocking", requestId, false)
-    );
+    runSettle("answered", () => pending.answer({ answers: next }));
   };
-  const onDismiss = () => {
-    actions?.beginQuestionSettle?.("blocking", requestId, "dismissed");
-    void Promise.resolve().then(() => pending.dismiss()).then(
-      () => actions?.finishQuestionSettle?.("blocking", requestId, true),
-      () => actions?.finishQuestionSettle?.("blocking", requestId, false)
-    );
-  };
-  return (0, import_react10.createElement)(QuestionView, { key: `${requestId}:${index}`, question, initialOwn, onOwnChange, onAnswer, onDismiss, ownAnswer: true, raised: true });
+  const onDismiss = () => runSettle("dismissed", () => pending.dismiss());
+  return (0, import_react10.createElement)(QuestionView, { key: `${requestId}:${index}`, question, initialOwn, onOwnChange, onAnswer, onDismiss, busy, ownAnswer: true, raised: true });
 }
 function PendingQuestion({ sessionId, question, actions, inline, enterToSend = true, bare: bare2 = false }) {
   const [answered, setAnswered] = (0, import_react10.useState)(null);
@@ -47635,239 +47915,6 @@ var steerQueued = async (session) => {
   }
 };
 
-// src/client/question-draft.js
-var SEPARATOR = "\n\n";
-var normalizePieces = (value) => {
-  const list = Array.isArray(value) ? value : [value];
-  const out = [];
-  for (const item of list) {
-    if (typeof item !== "string") continue;
-    const trimmed2 = item.trim();
-    if (trimmed2 !== "") out.push(trimmed2);
-  }
-  return out;
-};
-var alreadyAtEnd = (base, piece) => {
-  const tail = base.trimEnd();
-  return tail === piece || tail.endsWith(`${SEPARATOR}${piece}`) || tail.endsWith(`
-${piece}`);
-};
-function mergeRescuedDraft(existing, rescued) {
-  const pieces = normalizePieces(rescued);
-  let current2 = typeof existing === "string" ? existing : "";
-  for (const piece of pieces) {
-    if (current2.trim() === "") {
-      current2 = piece;
-    } else if (!alreadyAtEnd(current2, piece)) {
-      current2 = `${current2.trimEnd()}${SEPARATOR}${piece}`;
-    }
-  }
-  return current2;
-}
-function readRescuedForChat(map, chatId, sessionId) {
-  if (!map || typeof map !== "object") return "";
-  const first = typeof chatId === "string" && chatId !== "" ? map[chatId] : "";
-  const second = typeof sessionId === "string" && sessionId !== "" && sessionId !== chatId ? map[sessionId] : "";
-  return mergeRescuedDraft(first ?? "", second ?? "");
-}
-var readSaved = (storage, key) => {
-  try {
-    const raw = JSON.parse(storage?.getItem(key) ?? "{}");
-    if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return {};
-    const clean = {};
-    for (const [k, v] of Object.entries(raw)) {
-      if (typeof v === "string" && v.trim() !== "") clean[k] = v.trim();
-    }
-    return clean;
-  } catch {
-    return {};
-  }
-};
-var writeSaved = (storage, key, value) => {
-  try {
-    if (Object.keys(value).length === 0) storage?.removeItem?.(key);
-    else storage?.setItem(key, JSON.stringify(value));
-  } catch {
-  }
-};
-var entryKey = (kind, id) => `${kind}:${id}`;
-var hasRosterChats = (roster) => Object.keys(roster?.byId ?? {}).length > 0 || Object.keys(roster?.roomsById ?? {}).length > 0;
-function createQuestionDrafts({ storage = globalThis.localStorage, storageKey = STORAGE.rescuedDrafts } = {}) {
-  const rescued = createSource(readSaved(storage, storageKey));
-  const active = /* @__PURE__ */ new Map();
-  const enqueueRescue = (targetKey, text) => {
-    const clean = mergeRescuedDraft("", text);
-    if (typeof targetKey !== "string" || targetKey === "" || clean === "") return null;
-    rescued.set((state) => {
-      const nextText2 = mergeRescuedDraft(state[targetKey] ?? "", clean);
-      if (state[targetKey] === nextText2) return state;
-      const next = { ...state, [targetKey]: nextText2 };
-      writeSaved(storage, storageKey, next);
-      return next;
-    });
-    return { targetKey, text: clean };
-  };
-  const rescueEntry = (entry) => {
-    const text = mergeRescuedDraft("", [...entry.parts.values()]);
-    if (text === "") return null;
-    const targetKey = entry.chatId || entry.sessionId;
-    const enqueued = enqueueRescue(targetKey, text);
-    return enqueued === null ? null : { targetKey, chatId: entry.chatId, sessionId: entry.sessionId, text: enqueued.text };
-  };
-  const noteDraft = ({ kind, id, subId = id, sessionId, chatId = null, text }) => {
-    if (typeof kind !== "string" || kind === "" || typeof id !== "string" || id === "" || typeof sessionId !== "string" || sessionId === "") return;
-    const key = entryKey(kind, id);
-    const existing = active.get(key);
-    const raw = typeof text === "string" ? text : "";
-    if (raw === "") {
-      if (existing === void 0) return;
-      existing.parts.delete(subId);
-      if (existing.parts.size === 0 && existing.inFlight === null) active.delete(key);
-      return;
-    }
-    const entry = existing ?? {
-      kind,
-      id,
-      sessionId,
-      chatId,
-      parts: /* @__PURE__ */ new Map(),
-      inFlight: null,
-      missing: false
-    };
-    entry.sessionId = sessionId;
-    if (typeof chatId === "string" && chatId !== "") entry.chatId = chatId;
-    entry.parts.set(subId, raw);
-    active.set(key, entry);
-  };
-  const readDraft = (kind, id, subId = id) => {
-    if (typeof kind !== "string" || typeof id !== "string") return "";
-    return active.get(entryKey(kind, id))?.parts.get(subId) ?? "";
-  };
-  const beginSettle = (kind, id, outcome) => {
-    if (outcome !== "answered" && outcome !== "dismissed") return;
-    const entry = active.get(entryKey(kind, id));
-    if (entry !== void 0) entry.inFlight = outcome;
-  };
-  const finishSettle = (kind, id, succeeded) => {
-    const key = entryKey(kind, id);
-    const entry = active.get(key);
-    if (entry === void 0) return null;
-    if (succeeded) {
-      active.delete(key);
-      return null;
-    }
-    const outcome = entry.inFlight;
-    entry.inFlight = null;
-    if (entry.missing) {
-      active.delete(key);
-      if (outcome === "dismissed") return null;
-      return rescueEntry(entry);
-    }
-    return null;
-  };
-  const reconcileRoster = (roster) => {
-    if (!roster?.ready) return [];
-    const pendingById = /* @__PURE__ */ new Map();
-    for (const [sessionId, question] of Object.entries(roster.questions ?? {})) {
-      if (typeof question?.id === "string" && question.id !== "") {
-        pendingById.set(question.id, { sessionId, chatId: chatOfSession(roster, sessionId)?.id ?? null });
-      }
-    }
-    const knownChats = hasRosterChats(roster);
-    const results = [];
-    for (const [key, entry] of active) {
-      if (entry.kind !== "ask_user") continue;
-      const live = pendingById.get(entry.id);
-      if (live !== void 0) {
-        entry.sessionId = live.sessionId;
-        if (live.chatId !== null) entry.chatId = live.chatId;
-        entry.missing = false;
-        continue;
-      }
-      const resolvedChat = chatOfSession(roster, entry.sessionId)?.id ?? null;
-      if (resolvedChat !== null) entry.chatId = resolvedChat;
-      const chatAlive = !knownChats || resolvedChat !== null || entry.chatId !== null && chatOfSession(roster, entry.chatId) !== void 0;
-      if (!chatAlive) {
-        active.delete(key);
-        continue;
-      }
-      if (entry.inFlight !== null) {
-        entry.missing = true;
-        continue;
-      }
-      active.delete(key);
-      const item = rescueEntry(entry);
-      if (item !== null) results.push(item);
-    }
-    return results;
-  };
-  const reconcileBlocking = (sessionStatus, roster) => {
-    if (!sessionStatus || typeof sessionStatus.get !== "function") return [];
-    const results = [];
-    for (const [key, entry] of active) {
-      if (entry.kind !== "blocking") continue;
-      const interaction = sessionStatus.get(entry.sessionId)?.pendingInteraction;
-      if (interaction?.kind === "question" && interaction.key === entry.id) {
-        entry.missing = false;
-        continue;
-      }
-      if (roster?.ready) {
-        const resolvedChat = chatOfSession(roster, entry.sessionId)?.id ?? null;
-        if (resolvedChat !== null) entry.chatId = resolvedChat;
-      }
-      if (entry.inFlight !== null) {
-        entry.missing = true;
-        continue;
-      }
-      active.delete(key);
-      const item = rescueEntry(entry);
-      if (item !== null) results.push(item);
-    }
-    return results;
-  };
-  const consumeRescue = (chatId, sessionId, taken) => {
-    const keys = [chatId, sessionId].filter((value, index, list) => typeof value === "string" && value !== "" && list.indexOf(value) === index);
-    if (keys.length === 0) return;
-    rescued.set((state) => {
-      const present = keys.filter((key) => state[key] !== void 0);
-      if (present.length === 0) return state;
-      const current2 = readRescuedForChat(state, chatId, sessionId);
-      if (taken !== void 0 && current2 !== taken) return state;
-      const next = { ...state };
-      for (const key of present) delete next[key];
-      writeSaved(storage, storageKey, next);
-      return next;
-    });
-  };
-  const pruneChats = (gone) => {
-    if (!Array.isArray(gone) || gone.length === 0) return;
-    const goneSet = new Set(gone);
-    for (const [key, entry] of active) {
-      if (goneSet.has(entry.chatId) || goneSet.has(entry.sessionId)) active.delete(key);
-    }
-    rescued.set((state) => {
-      const listed = gone.filter((id) => state[id] !== void 0);
-      if (listed.length === 0) return state;
-      const next = { ...state };
-      for (const id of listed) delete next[id];
-      writeSaved(storage, storageKey, next);
-      return next;
-    });
-  };
-  return {
-    rescued,
-    noteDraft,
-    readDraft,
-    beginSettle,
-    finishSettle,
-    reconcileRoster,
-    reconcileBlocking,
-    enqueueRescue,
-    consumeRescue,
-    pruneChats
-  };
-}
-
 // src/client/composer.js
 var import_react67 = require("react");
 var import_react_dom11 = require("react-dom");
@@ -48119,14 +48166,31 @@ function ComposerPlus({ sessionId, inputActions, useInput, useRoster, actions })
 }
 var NO_IDS = [];
 var FROZEN_PHASES = /* @__PURE__ */ new Set(["adjudicating", "submitting", "sending"]);
+var appendRescuedPreservingChips = (inputActions, base, rescued) => {
+  const merged = mergeRescuedDraft(base, rescued);
+  if (merged === base) return { applied: true, changed: false, nextText: base };
+  if (typeof inputActions.captureInsertion !== "function" || typeof inputActions.insertText !== "function") {
+    return { applied: false, changed: false, nextText: base };
+  }
+  const span = inputActions.captureInsertion();
+  if (span === void 0 || span === null || typeof span.end !== "number" || typeof span.draftRev !== "number") {
+    return { applied: false, changed: false, nextText: base };
+  }
+  const addition = base.trim() === "" ? rescued.trim() : `${base.endsWith("\n\n") ? "" : base.endsWith("\n") ? "\n" : "\n\n"}${rescued.trim()}`;
+  const ok = inputActions.insertText(addition, { start: span.end, end: span.end, draftRev: span.draftRev });
+  return { applied: ok === true, changed: ok === true, nextText: ok === true ? merged : base };
+};
 function DraftKeeper({ sessionId, inputActions, useInput, useRoster, useRescuedDrafts, actions }) {
   const chatId = useRoster((roster) => chatOfSession(roster, sessionId)?.id);
   const current2 = useRoster((roster) => chatOfSession(roster, sessionId)?.part === sessionId);
   const draft = useInput?.((state) => state.draft) ?? "";
   const ids = useInput?.((state) => state.attachmentIds) ?? NO_IDS;
   const phase = useInput?.((state) => state.phase) ?? "plain";
+  const occurrences = useInput?.((state) => state.occurrences) ?? NO_IDS;
+  const hasChips = Array.isArray(occurrences) && occurrences.length > 0;
   const rescued = useRescuedDrafts?.((state) => readRescuedForChat(state, chatId, sessionId)) ?? "";
   const frozen = FROZEN_PHASES.has(phase);
+  const rescueBlocked = frozen || phase === "claimed";
   const key = `${chatId}:${sessionId}`;
   const keyRef = (0, import_react67.useRef)(key);
   const restored = (0, import_react67.useRef)("");
@@ -48144,10 +48208,11 @@ function DraftKeeper({ sessionId, inputActions, useInput, useRoster, useRescuedD
     if (!current2 || frozen || inputActions === void 0) return;
     if (restored.current === key) return;
     const back = takeDraft({ chatId, part: sessionId, text: draft, attached: ids.length });
+    const canLandRescueHere = rescued !== "" && !rescueBlocked && (!hasChips || back.text !== "");
     const baseText = back.text !== "" ? back.text : draft;
-    const mergedText = rescued !== "" ? mergeRescuedDraft(baseText, rescued) : back.text;
-    const applyText = rescued !== "" ? mergedText !== draft : back.text !== "";
-    if (rescued !== "") rescuedHandled = true;
+    const mergedText = canLandRescueHere ? mergeRescuedDraft(baseText, rescued) : back.text;
+    const applyText = canLandRescueHere ? mergedText !== draft : back.text !== "";
+    if (canLandRescueHere) rescuedHandled = true;
     let added = [];
     let attached = false;
     let restoredText = false;
@@ -48159,7 +48224,7 @@ function DraftKeeper({ sessionId, inputActions, useInput, useRoster, useRescuedD
         restoredText = true;
         latestDraft.current = mergedText;
       }
-      if (rescued !== "") {
+      if (canLandRescueHere) {
         actions.consumeRescuedDraft?.(chatId, sessionId, rescued);
         if (restoredText && back.files.length === 0) {
           keepDraft({ chatId, part: sessionId, text: mergedText, files: actions.draftFiles?.(ids) ?? [] });
@@ -48186,10 +48251,21 @@ function DraftKeeper({ sessionId, inputActions, useInput, useRoster, useRescuedD
     if (!ok && back.files.length > 0) actions.notice?.(t("The files attached to this draft could not be put back."));
   }, [current2, frozen, chatId, sessionId, inputActions]);
   (0, import_react67.useEffect)(() => {
-    if (rescuedHandled || !current2 || frozen || inputActions === void 0 || rescued === "" || restored.current !== key) return;
+    if (rescuedHandled || !current2 || rescueBlocked || inputActions === void 0 || rescued === "" || restored.current !== key) return;
     const base = latestDraft.current;
-    const merged = mergeRescuedDraft(base, rescued);
     try {
+      if (hasChips) {
+        const result = appendRescuedPreservingChips(inputActions, base, rescued);
+        if (!result.applied) return;
+        if (result.changed) {
+          pending.current = { ...pending.current, text: true, staleDraft: draft };
+          latestDraft.current = result.nextText;
+          keepDraft({ chatId, part: sessionId, text: result.nextText, files: actions.draftFiles?.(ids) ?? [] });
+        }
+        actions.consumeRescuedDraft?.(chatId, sessionId, rescued);
+        return;
+      }
+      const merged = mergeRescuedDraft(base, rescued);
       if (merged !== base) {
         inputActions.setDraft(merged);
         pending.current = { ...pending.current, text: true, staleDraft: draft };
@@ -48200,7 +48276,7 @@ function DraftKeeper({ sessionId, inputActions, useInput, useRoster, useRescuedD
     } catch (error) {
       console.warn("[ds-bot] could not return the question draft", error);
     }
-  }, [current2, frozen, chatId, sessionId, inputActions, rescued]);
+  }, [current2, rescueBlocked, hasChips, chatId, sessionId, inputActions, rescued]);
   (0, import_react67.useEffect)(() => {
     if (!current2 || restored.current !== key) return;
     if (frozen) {
@@ -56270,6 +56346,7 @@ function apply(ctx) {
       if (event.key === null || event.key === unreadStore.key) ui.set((state) => ({ ...state, unread: unreadStore.read(state.unread) }));
       if (event.key === null || event.key === reactionStore.key) ui.set((state) => ({ ...state, reactions: reactionStore.read(state.reactions) }));
       if (event.key === null || event.key === seenStore.key) seenAt = seenStore.read(seenAt);
+      if (event.key === null || event.key === STORAGE.rescuedDrafts) questionDrafts.syncFromStorage();
     };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
@@ -57111,11 +57188,27 @@ function apply(ctx) {
     return roster.subscribe(() => {
       const snapshot = roster.getSnapshot();
       if (!snapshot.ready) return;
-      const now = /* @__PURE__ */ new Set([...snapshot.bots.map((bot) => bot.id), ...snapshot.rooms.map((room2) => room2.id)]);
+      const now = /* @__PURE__ */ new Map();
+      for (const bot of snapshot.bots) {
+        const ids = [bot.id, bot.sessionId, ...bot.parts ?? []].filter((id) => typeof id === "string" && id !== "");
+        now.set(bot.id, [...new Set(ids)]);
+      }
+      for (const room2 of snapshot.rooms) {
+        const ids = [room2.id, room2.sessionId, ...room2.ownParts ?? []].filter((id) => typeof id === "string" && id !== "");
+        now.set(room2.id, [...new Set(ids)]);
+      }
       if (chats !== null) {
-        const gone = [...chats].filter((id) => !now.has(id));
-        pruneDrafts(gone);
-        questionDrafts.pruneChats(gone);
+        const goneChats = [];
+        const goneAll = [];
+        for (const [chatId, prevIds] of chats) {
+          if (now.has(chatId)) continue;
+          goneChats.push(chatId);
+          for (const id of prevIds) goneAll.push(id);
+        }
+        if (goneChats.length > 0) {
+          pruneDrafts(goneChats);
+          questionDrafts.pruneChats([...new Set(goneAll)]);
+        }
       }
       chats = now;
     });

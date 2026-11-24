@@ -4,7 +4,7 @@ import { dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { runInNewContext } from 'node:vm'
 import { build } from 'esbuild'
-import { createQuestionDrafts, mergeRescuedDraft, readRescuedForChat } from '../src/client/question-draft.js'
+import { createQuestionDrafts, mergeRescuedDraft, readRescuedForChat, blockingQuestionId } from '../src/client/question-draft.js'
 import { indexRoster } from '../src/client/sources.js'
 import { STORAGE } from '../src/client/storage.js'
 
@@ -665,4 +665,271 @@ test('blocking QuestionCard rescues unsent custom answers across steps on extern
     v.unmount()
     c.unmount()
   }
+})
+
+// -------------------------------------------------------------------------
+// 5. Review hardening: multi-window storage RMW, blocking QuestionCard steps & busy,
+//    shadowed interactions, deleted chat parts, claimed/chip composer protection,
+//    and pinned DSH contract checks
+
+test('two windows sharing localStorage use read-modify-write and syncFromStorage without clobbering each other', () => {
+  const storage = memoryStorage()
+  const winA = createQuestionDrafts({ storage })
+  const winB = createQuestionDrafts({ storage })
+
+  winA.enqueueRescue('bot-a', 'Draft from window A')
+  // Window B writes without having received a storage event yet -> must keep bot-a.
+  winB.enqueueRescue('bot-b', 'Draft from window B')
+  assert.deepEqual(JSON.parse(storage.getItem(STORAGE.rescuedDrafts)), {
+    'bot-a': 'Draft from window A',
+    'bot-b': 'Draft from window B',
+  })
+
+  // Window A consumes bot-a -> must preserve bot-b written by window B, never removeItem the whole key.
+  winA.consumeRescue('bot-a', 'bot-a', 'Draft from window A')
+  assert.deepEqual(JSON.parse(storage.getItem(STORAGE.rescuedDrafts)), { 'bot-b': 'Draft from window B' })
+  assert.deepEqual(winA.rescued.getSnapshot(), { 'bot-b': 'Draft from window B' })
+
+  // External change in storage is picked up by syncFromStorage().
+  storage.setItem(STORAGE.rescuedDrafts, JSON.stringify({ 'bot-b': 'Draft from window B', 'bot-c': 'From window C' }))
+  winA.syncFromStorage()
+  assert.deepEqual(winA.rescued.getSnapshot(), { 'bot-b': 'Draft from window B', 'bot-c': 'From window C' })
+
+  // pruneChats also uses read-modify-write and preserves unrelated team keys in shared storage.
+  winB.pruneChats(['bot-b'])
+  assert.deepEqual(JSON.parse(storage.getItem(STORAGE.rescuedDrafts)), { 'bot-c': 'From window C' })
+})
+
+test('blocking QuestionCard drops abandoned step custom text when preset option is chosen and guards double-click busy', async () => {
+  const h = loadHarness()
+  const qd = h.createQuestionDrafts({ storage: h.localStorage })
+  const roster = h.createSource(h.indexRoster({
+    revision: 1,
+    bots: [{ id: 'chief', name: 'Chief', sessionId: 'chief', parts: ['chief'] }],
+    rooms: [],
+    agents: [],
+    sections: [],
+    questions: {},
+    prefs: {},
+  }))
+  const actions = h.teamActions({
+    call: async () => ({}),
+    after: value => value,
+    partFor: id => id,
+    roster,
+    ui: h.createSource({}),
+    live: h.createSource({}),
+    cards: h.createSource({}),
+    heldCards: h.createSource({}),
+    turnClock: h.createSource({}),
+    panelFolded: () => false,
+    questionDrafts: qd,
+  })
+
+  const pending = {
+    key: 'req-multi-abandon',
+    kind: 'question',
+    sessionId: 'chief',
+    questions: [
+      { id: 'step-1', question: 'Step 1?', options: ['Preset A', 'Preset B'] },
+      { id: 'step-2', question: 'Step 2?', options: ['Preset C'] },
+    ],
+    answer: () => Promise.resolve(),
+    dismiss: () => Promise.resolve(),
+  }
+  const card = h.mount(h.QuestionCard, { sessionId: 'chief', matched: pending, actions })
+  const v1Node = card.render()
+  const v1 = h.mount(v1Node.type, v1Node.props)
+  const form1 = v1.render()
+  // User types custom text on Step 1, then clicks Preset A instead of submitting custom text.
+  find(form1, node => node.type === 'textarea').props.onChange({ target: { value: 'Abandoned step 1 text' } })
+  find(form1, node => node.type === 'button' && node.props.className === 'bt-q-opt').props.onClick()
+  v1.unmount()
+
+  // On Step 2, user types custom text and the turn is aborted externally.
+  const v2Node = card.render()
+  const v2 = h.mount(v2Node.type, v2Node.props)
+  find(v2.render(), node => node.type === 'textarea').props.onChange({ target: { value: 'Step 2 kept text' } })
+  v2.unmount()
+  card.unmount()
+
+  const rescued = qd.reconcileBlocking(new Map([['chief', { pendingInteraction: undefined }]]), roster.getSnapshot())
+  assert.equal(rescued.length, 1)
+  assert.equal(rescued[0].text, 'Step 2 kept text')
+  assert.equal(qd.rescued.getSnapshot().chief, 'Step 2 kept text')
+  qd.consumeRescue('chief', 'chief', 'Step 2 kept text')
+
+  // Double-click guard: while pending.answer is in flight, a second click is ignored and does not trigger a false failure rescue.
+  let calls = 0
+  const gate = deferred()
+  const single = {
+    key: 'req-busy',
+    kind: 'question',
+    sessionId: 'chief',
+    questions: [{ id: 'only', question: 'Single?', options: ['A'] }],
+    answer: () => { calls += 1; return gate.promise },
+    dismiss: () => Promise.resolve(),
+  }
+  const c2 = h.mount(h.QuestionCard, { sessionId: 'chief', matched: single, actions })
+  const vn2 = c2.render()
+  const vSingle = h.mount(vn2.type, vn2.props)
+  find(vSingle.render(), node => node.type === 'textarea').props.onChange({ target: { value: 'Double click test' } })
+  vSingle.render().props.onSubmit({ preventDefault() {} })
+  vSingle.render().props.onSubmit({ preventDefault() {} })
+  await tick()
+  assert.equal(calls, 1, 'busyRef must block re-entrant submit calls')
+  // Pending interaction disappears while submit is still in flight; resolve cleanly -> no rescue.
+  qd.reconcileBlocking(new Map([['chief', { pendingInteraction: undefined }]]), roster.getSnapshot())
+  gate.resolve()
+  await tick()
+  assert.deepEqual(plain(qd.rescued.getSnapshot()), {})
+  vSingle.unmount()
+  c2.unmount()
+})
+
+test('reconcileBlocking ignores higher-precedence shadowing, live non-closed PendingQuestion, deleted chats, and matches fallback keys', () => {
+  const storage = memoryStorage()
+  const qd = createQuestionDrafts({ storage })
+  const roster = makeRoster()
+
+  // 1. Higher-precedence non-question interaction (e.g. plan-review) shadowing the seat must NOT rescue.
+  qd.noteDraft({ kind: 'blocking', id: 'req-shadow', sessionId: 'chief', chatId: 'chief', text: 'Waiting behind plan-review' })
+  const shadowed = new Map([['chief', { pendingInteraction: { key: 'plan-1', kind: 'plan-review', sessionId: 'chief' } }]])
+  assert.deepEqual(qd.reconcileBlocking(shadowed, roster), [])
+  assert.deepEqual(qd.rescued.getSnapshot(), {})
+
+  // 2. Real DSH PendingQuestion with closed === false stays protected even when seat is hidden.
+  let closed = false
+  qd.noteDraft({
+    kind: 'blocking',
+    id: 'req-hidden',
+    sessionId: 'chief',
+    chatId: 'chief',
+    text: 'Hidden panel still alive',
+    isStillOpen: () => !closed,
+  })
+  const emptyStatus = new Map([['chief', { pendingInteraction: undefined }]])
+  // Seat clears: req-shadow (no longer shadowed and no open card handle) rescues, while req-hidden stays protected because closed === false.
+  const firstRescued = qd.reconcileBlocking(emptyStatus, roster)
+  assert.equal(firstRescued.length, 1)
+  assert.equal(firstRescued[0].text, 'Waiting behind plan-review')
+  assert.equal(qd.rescued.getSnapshot().chief, 'Waiting behind plan-review')
+  assert.equal(qd.readDraft('blocking', 'req-hidden'), 'Hidden panel still alive')
+
+  // Once the hidden card actually closes, its draft rescues and merges without overwriting.
+  closed = true
+  const secondRescued = qd.reconcileBlocking(emptyStatus, roster)
+  assert.equal(secondRescued.length, 1)
+  assert.equal(secondRescued[0].text, 'Hidden panel still alive')
+  assert.equal(qd.rescued.getSnapshot().chief, 'Waiting behind plan-review\n\nHidden panel still alive')
+  qd.consumeRescue('chief', 'chief')
+
+  // 3. Deleted chat is dropped without writing into storage.
+  qd.noteDraft({ kind: 'blocking', id: 'req-del', sessionId: 'bee-2', chatId: 'bee', text: 'Deleted bot draft' })
+  const rosterWithoutBee = makeRoster({ bots: [{ id: 'chief', name: 'Chief', sessionId: 'chief', parts: ['chief'] }] })
+  assert.deepEqual(qd.reconcileBlocking(new Map([['bee-2', { pendingInteraction: undefined }]]), rosterWithoutBee), [])
+  assert.deepEqual(qd.rescued.getSnapshot(), {})
+
+  // 4. Shared blockingQuestionId fallback matches id / callId consistently.
+  assert.equal(blockingQuestionId({ id: 'fallback-id' }), 'fallback-id')
+  assert.equal(blockingQuestionId({ callId: 'call-9' }), 'call-9')
+  qd.noteDraft({ kind: 'blocking', id: blockingQuestionId({ callId: 'call-9' }), sessionId: 'chief', chatId: 'chief', text: 'CallId draft' })
+  const activeCallId = new Map([['chief', { pendingInteraction: { kind: 'question', callId: 'call-9', sessionId: 'chief' } }]])
+  assert.deepEqual(qd.reconcileBlocking(activeCallId, roster), [])
+})
+
+test('DraftKeeper waits during claimed slash-command phase and uses insertText when inline reference chips exist', () => {
+  const h = loadHarness()
+  const qd = h.createQuestionDrafts({ storage: h.localStorage })
+  const roster = h.indexRoster({
+    revision: 1,
+    bots: [{ id: 'chief', name: 'Chief', sessionId: 'chief', parts: ['chief'] }],
+    rooms: [],
+    agents: [],
+    sections: [],
+    questions: {},
+    prefs: {},
+  })
+
+  const setDraftCalls = []
+  const insertCalls = []
+  const composerState = {
+    draft: '/goal ship',
+    attachmentIds: [],
+    phase: 'claimed',
+    occurrences: [],
+    draftRev: 7,
+  }
+  const inputActions = {
+    setDraft: (text) => { setDraftCalls.push(text); composerState.draft = text },
+    addAttachments: () => true,
+    captureInsertion: () => ({ start: 4, end: 11, draftRev: composerState.draftRev }),
+    insertText: (text, span) => {
+      insertCalls.push({ text, span })
+      composerState.draft = `${composerState.draft}${text}`
+      return true
+    },
+  }
+  const props = () => ({
+    sessionId: 'chief',
+    inputActions,
+    actions: {
+      draftFiles: () => [],
+      restoreDraftFiles: () => [],
+      releaseDraftFiles: () => {},
+      reopenPastes: () => {},
+      consumeRescuedDraft: (chatId, sessionId, taken) => qd.consumeRescue(chatId, sessionId, taken),
+    },
+    useRoster: pick => pick(roster),
+    useInput: pick => pick(composerState),
+    useRescuedDrafts: pick => pick(qd.rescued.getSnapshot()),
+  })
+
+  const keeper = h.mount(h.DraftKeeper, props())
+  keeper.render(props())
+
+  // Enqueue rescue while in claimed command phase -> must NOT call setDraft or cancel the command chip.
+  qd.enqueueRescue('chief', 'Rescued note')
+  keeper.render(props())
+  assert.deepEqual(setDraftCalls, [])
+  assert.deepEqual(insertCalls, [])
+  assert.equal(qd.rescued.getSnapshot().chief, 'Rescued note')
+
+  // Return to plain phase WITH an inline reference chip -> uses insertText at collapsed span.end without calling setDraft.
+  composerState.phase = 'plain'
+  composerState.draft = '@Bee check'
+  composerState.occurrences = [{ occurrenceId: 1, source: 'mention', ref: 'bee', offset: 0 }]
+  composerState.draftRev = 8
+  keeper.render(props())
+  assert.deepEqual(setDraftCalls, [], 'must not call setDraft when inline reference chips exist')
+  assert.deepEqual(plain(insertCalls), [{ text: '\n\nRescued note', span: { start: 11, end: 11, draftRev: 8 } }])
+  assert.deepEqual(plain(qd.rescued.getSnapshot()), {})
+  keeper.unmount()
+})
+
+test('pinned DSH client UI packages satisfy the sessionStatus, PendingQuestion, and InputActions contracts used for rescue', async () => {
+  const { readFileSync } = await import('node:fs')
+  const { join } = await import('node:path')
+  const harnessPkg = (pkg, rel) => readFileSync(join(PLUGIN_DIR, 'dev', 'harness', 'node_modules', '@deepseek-ai', pkg, rel), 'utf8')
+  const sessionTypes = harnessPkg('dsh-client-ui-session', 'lib/types/client/index.d.ts')
+  const questionTypes = harnessPkg('dsh-client-ui-user-questions', 'lib/types/client/contract/slots.d.ts')
+  const inputTypes = harnessPkg('dsh-client-ui-conversation', 'lib/types/client/contract/input.d.ts')
+
+  // SessionStatus exposes the single highest-precedence pendingInteraction.
+  assert.match(sessionTypes, /readonly pendingInteraction: SessionPendingInteraction \| undefined;/)
+  assert.match(sessionTypes, /readonly key: string;/)
+  assert.match(sessionTypes, /readonly kind: string;/)
+
+  // PendingQuestion exposes key, kind, and getSnapshot().closed.
+  assert.match(questionTypes, /readonly kind: 'question' \| 'plan-review';/)
+  assert.match(questionTypes, /readonly key: string;/)
+  assert.match(questionTypes, /readonly closed: boolean;/)
+  assert.match(questionTypes, /readonly getSnapshot: \(\) => QuestionCardSnapshot;/)
+
+  // InputState & InputActions expose claimed phase, occurrences, captureInsertion, and insertText.
+  assert.match(inputTypes, /readonly phase: 'plain' \| 'adjudicating' \| 'claimed' \| 'submitting' \| 'sending';/)
+  assert.match(inputTypes, /readonly occurrences: readonly Occurrence\[\];/)
+  assert.match(inputTypes, /captureInsertion\(\): TokenSpan;/)
+  assert.match(inputTypes, /insertText\(text: string, span: TokenSpan\): boolean;/)
+  assert.match(inputTypes, /setDraft\(text: string\): void;/)
 })

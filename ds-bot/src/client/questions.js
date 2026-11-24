@@ -4,6 +4,7 @@ import { CellEmpty } from './cell-empty.js'
 import { sendsOnEnter } from './enter-key.js'
 import { t } from './i18n.js'
 import { useDockHold } from './card-hold.js'
+import { blockingQuestionId } from './question-draft.js'
 import { SPRING_SHAPE, reducedEffects, reducedMotion, useMorph } from './motion.js'
 import { createSource, heldCardKey } from './sources.js'
 
@@ -328,39 +329,52 @@ export function SettledQuestion({ question, answer, closed }) {
 
 export function QuestionCard({ sessionId, matched, actions }) {
   const pending = matched
-  const requestId = pending.key ?? pending.id ?? pending.callId ?? 'blocking'
+  const requestId = blockingQuestionId(pending)
   const effectiveSessionId = sessionId ?? pending.sessionId
   const questions = pending.questions ?? []
   const [index, setIndex] = useState(0)
   const [answers, setAnswers] = useState([])
+  const [busy, setBusy] = useState(false)
+  const busyRef = useRef(false)
+  const isStillOpen = typeof pending.getSnapshot === 'function' ? () => pending.getSnapshot()?.closed === false : undefined
   const question = questions[index]
   if (question === undefined) return null
   const subId = question.id ?? String(index)
   const initialOwn = actions?.readQuestionDraft?.('blocking', requestId, subId) ?? ''
   const onOwnChange = (text) => {
-    if (effectiveSessionId) actions?.noteQuestionDraft?.({ kind: 'blocking', id: requestId, subId, sessionId: effectiveSessionId, text })
+    if (effectiveSessionId) actions?.noteQuestionDraft?.({ kind: 'blocking', id: requestId, subId, sessionId: effectiveSessionId, text, isStillOpen })
+  }
+  const runSettle = (outcome, run) => {
+    if (busyRef.current) return
+    busyRef.current = true
+    setBusy(true)
+    actions?.beginQuestionSettle?.('blocking', requestId, outcome)
+    void Promise.resolve().then(run).then(
+      () => actions?.finishQuestionSettle?.('blocking', requestId, true),
+      () => actions?.finishQuestionSettle?.('blocking', requestId, false),
+    ).finally(() => {
+      busyRef.current = false
+      setBusy(false)
+    })
   }
   const onAnswer = (answer) => {
+    if (busyRef.current) return
     const next = [...answers, { id: question.id, ...answer }]
     if (index + 1 < questions.length) {
+      // If the user switched to a preset option on this step, drop any abandoned
+      // custom text so a later interruption does not rescue discarded input.
+      if (effectiveSessionId) {
+        const keptCustom = typeof answer?.custom === 'string' ? answer.custom.trim() : ''
+        actions?.noteQuestionDraft?.({ kind: 'blocking', id: requestId, subId, sessionId: effectiveSessionId, text: keptCustom, isStillOpen })
+      }
       setAnswers(next)
       setIndex(index + 1)
       return
     }
-    actions?.beginQuestionSettle?.('blocking', requestId, 'answered')
-    void Promise.resolve().then(() => pending.answer({ answers: next })).then(
-      () => actions?.finishQuestionSettle?.('blocking', requestId, true),
-      () => actions?.finishQuestionSettle?.('blocking', requestId, false),
-    )
+    runSettle('answered', () => pending.answer({ answers: next }))
   }
-  const onDismiss = () => {
-    actions?.beginQuestionSettle?.('blocking', requestId, 'dismissed')
-    void Promise.resolve().then(() => pending.dismiss()).then(
-      () => actions?.finishQuestionSettle?.('blocking', requestId, true),
-      () => actions?.finishQuestionSettle?.('blocking', requestId, false),
-    )
-  }
-  return h(QuestionView, { key: `${requestId}:${index}`, question, initialOwn, onOwnChange, onAnswer, onDismiss, ownAnswer: true, raised: true })
+  const onDismiss = () => runSettle('dismissed', () => pending.dismiss())
+  return h(QuestionView, { key: `${requestId}:${index}`, question, initialOwn, onOwnChange, onAnswer, onDismiss, busy, ownAnswer: true, raised: true })
 }
 
 export function PendingQuestion({ sessionId, question, actions, inline, enterToSend = true, bare = false }) {

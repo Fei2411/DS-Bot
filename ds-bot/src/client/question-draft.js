@@ -61,9 +61,20 @@ export function readRescuedForChat(map, chatId, sessionId) {
   return mergeRescuedDraft(first ?? '', second ?? '')
 }
 
-const readSaved = (storage, key) => {
+/**
+ * Shared identity extractor for DSH blocking question cards and sessionStatus
+ * pendingInteraction snapshots so both sides always match on the same key.
+ * @param {object | null | undefined} pending
+ * @returns {string}
+ */
+export function blockingQuestionId(pending) {
+  return pending?.key ?? pending?.id ?? pending?.callId ?? 'blocking'
+}
+
+const readSaved = (storage, key, fallback = {}) => {
+  if (!storage) return fallback
   try {
-    const raw = JSON.parse(storage?.getItem(key) ?? '{}')
+    const raw = JSON.parse(storage.getItem(key) ?? '{}')
     if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return {}
     const clean = {}
     for (const [k, v] of Object.entries(raw)) {
@@ -71,7 +82,7 @@ const readSaved = (storage, key) => {
     }
     return clean
   } catch {
-    return {}
+    return fallback
   }
 }
 
@@ -82,9 +93,23 @@ const writeSaved = (storage, key, value) => {
   } catch { /* storage unavailable */ }
 }
 
+const shallowEqualMap = (left, right) => {
+  if (left === right) return true
+  const leftKeys = Object.keys(left)
+  const rightKeys = Object.keys(right)
+  if (leftKeys.length !== rightKeys.length) return false
+  return leftKeys.every(k => left[k] === right[k])
+}
+
 const entryKey = (kind, id) => `${kind}:${id}`
 
 const hasRosterChats = roster => Object.keys(roster?.byId ?? {}).length > 0 || Object.keys(roster?.roomsById ?? {}).length > 0
+
+const isChatAlive = (roster, sessionId, chatId) => {
+  if (!roster?.ready || !hasRosterChats(roster)) return true
+  if (chatOfSession(roster, sessionId) !== undefined) return true
+  return typeof chatId === 'string' && chatId !== '' && chatOfSession(roster, chatId) !== undefined
+}
 
 /**
  * Track unsubmitted custom answers on active question cards and move them to
@@ -94,15 +119,31 @@ export function createQuestionDrafts({ storage = globalThis.localStorage, storag
   const rescued = createSource(readSaved(storage, storageKey))
   const active = new Map()
 
+  // Apply every storage mutation against the latest browser storage value so
+  // concurrent windows or same-origin teams never overwrite each other's drafts.
+  const mutateSaved = (change) => {
+    rescued.set((state) => {
+      const base = readSaved(storage, storageKey, state)
+      const next = change(base)
+      if (next !== base) writeSaved(storage, storageKey, next)
+      return shallowEqualMap(state, next) ? state : next
+    })
+  }
+
+  const syncFromStorage = () => {
+    rescued.set((state) => {
+      const next = readSaved(storage, storageKey, state)
+      return shallowEqualMap(state, next) ? state : next
+    })
+  }
+
   const enqueueRescue = (targetKey, text) => {
     const clean = mergeRescuedDraft('', text)
     if (typeof targetKey !== 'string' || targetKey === '' || clean === '') return null
-    rescued.set((state) => {
-      const nextText = mergeRescuedDraft(state[targetKey] ?? '', clean)
-      if (state[targetKey] === nextText) return state
-      const next = { ...state, [targetKey]: nextText }
-      writeSaved(storage, storageKey, next)
-      return next
+    mutateSaved((base) => {
+      const nextText = mergeRescuedDraft(base[targetKey] ?? '', clean)
+      if (base[targetKey] === nextText) return base
+      return { ...base, [targetKey]: nextText }
     })
     return { targetKey, text: clean }
   }
@@ -115,7 +156,7 @@ export function createQuestionDrafts({ storage = globalThis.localStorage, storag
     return enqueued === null ? null : { targetKey, chatId: entry.chatId, sessionId: entry.sessionId, text: enqueued.text }
   }
 
-  const noteDraft = ({ kind, id, subId = id, sessionId, chatId = null, text }) => {
+  const noteDraft = ({ kind, id, subId = id, sessionId, chatId = null, text, isStillOpen }) => {
     if (typeof kind !== 'string' || kind === '' || typeof id !== 'string' || id === '' || typeof sessionId !== 'string' || sessionId === '') return
     const key = entryKey(kind, id)
     const existing = active.get(key)
@@ -134,9 +175,11 @@ export function createQuestionDrafts({ storage = globalThis.localStorage, storag
       parts: new Map(),
       inFlight: null,
       missing: false,
+      isStillOpen: undefined,
     }
     entry.sessionId = sessionId
     if (typeof chatId === 'string' && chatId !== '') entry.chatId = chatId
+    if (typeof isStillOpen === 'function') entry.isStillOpen = isStillOpen
     entry.parts.set(subId, raw)
     active.set(key, entry)
   }
@@ -178,7 +221,6 @@ export function createQuestionDrafts({ storage = globalThis.localStorage, storag
         pendingById.set(question.id, { sessionId, chatId: chatOfSession(roster, sessionId)?.id ?? null })
       }
     }
-    const knownChats = hasRosterChats(roster)
     const results = []
     for (const [key, entry] of active) {
       if (entry.kind !== 'ask_user') continue
@@ -191,8 +233,7 @@ export function createQuestionDrafts({ storage = globalThis.localStorage, storag
       }
       const resolvedChat = chatOfSession(roster, entry.sessionId)?.id ?? null
       if (resolvedChat !== null) entry.chatId = resolvedChat
-      const chatAlive = !knownChats || resolvedChat !== null || (entry.chatId !== null && chatOfSession(roster, entry.chatId) !== undefined)
-      if (!chatAlive) {
+      if (!isChatAlive(roster, entry.sessionId, entry.chatId)) {
         active.delete(key)
         continue
       }
@@ -213,13 +254,26 @@ export function createQuestionDrafts({ storage = globalThis.localStorage, storag
     for (const [key, entry] of active) {
       if (entry.kind !== 'blocking') continue
       const interaction = sessionStatus.get(entry.sessionId)?.pendingInteraction
-      if (interaction?.kind === 'question' && interaction.key === entry.id) {
+      if (interaction?.kind === 'question' && blockingQuestionId(interaction) === entry.id) {
         entry.missing = false
         continue
       }
+      // A live DSH PendingQuestion exposes closed === false until it actually leaves
+      // the registry (e.g. while hidden or shadowed by a higher-precedence interaction).
+      if (entry.isStillOpen?.() === true) {
+        entry.missing = false
+        continue
+      }
+      // UiSession publishes only the single highest-precedence interaction; a non-question
+      // interaction (e.g. plan-review or approval) shadowing the seat is not a cancellation.
+      if (interaction !== undefined && interaction.kind !== 'question') continue
       if (roster?.ready) {
         const resolvedChat = chatOfSession(roster, entry.sessionId)?.id ?? null
         if (resolvedChat !== null) entry.chatId = resolvedChat
+        if (!isChatAlive(roster, entry.sessionId, entry.chatId)) {
+          active.delete(key)
+          continue
+        }
       }
       if (entry.inFlight !== null) {
         entry.missing = true
@@ -235,14 +289,13 @@ export function createQuestionDrafts({ storage = globalThis.localStorage, storag
   const consumeRescue = (chatId, sessionId, taken) => {
     const keys = [chatId, sessionId].filter((value, index, list) => typeof value === 'string' && value !== '' && list.indexOf(value) === index)
     if (keys.length === 0) return
-    rescued.set((state) => {
-      const present = keys.filter(key => state[key] !== undefined)
-      if (present.length === 0) return state
-      const current = readRescuedForChat(state, chatId, sessionId)
-      if (taken !== undefined && current !== taken) return state
-      const next = { ...state }
+    mutateSaved((base) => {
+      const present = keys.filter(key => base[key] !== undefined)
+      if (present.length === 0) return base
+      const current = readRescuedForChat(base, chatId, sessionId)
+      if (taken !== undefined && current !== taken) return base
+      const next = { ...base }
       for (const key of present) delete next[key]
-      writeSaved(storage, storageKey, next)
       return next
     })
   }
@@ -253,12 +306,11 @@ export function createQuestionDrafts({ storage = globalThis.localStorage, storag
     for (const [key, entry] of active) {
       if (goneSet.has(entry.chatId) || goneSet.has(entry.sessionId)) active.delete(key)
     }
-    rescued.set((state) => {
-      const listed = gone.filter(id => state[id] !== undefined)
-      if (listed.length === 0) return state
-      const next = { ...state }
+    mutateSaved((base) => {
+      const listed = gone.filter(id => base[id] !== undefined)
+      if (listed.length === 0) return base
+      const next = { ...base }
       for (const id of listed) delete next[id]
-      writeSaved(storage, storageKey, next)
       return next
     })
   }
@@ -274,5 +326,6 @@ export function createQuestionDrafts({ storage = globalThis.localStorage, storag
     enqueueRescue,
     consumeRescue,
     pruneChats,
+    syncFromStorage,
   }
 }

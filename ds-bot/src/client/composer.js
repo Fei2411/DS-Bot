@@ -226,6 +226,23 @@ export function ComposerPlus({ sessionId, inputActions, useInput, useRoster, act
 const NO_IDS = []
 const FROZEN_PHASES = new Set(['adjudicating', 'submitting', 'sending'])
 
+const appendRescuedPreservingChips = (inputActions, base, rescued) => {
+  const merged = mergeRescuedDraft(base, rescued)
+  if (merged === base) return { applied: true, changed: false, nextText: base }
+  if (typeof inputActions.captureInsertion !== 'function' || typeof inputActions.insertText !== 'function') {
+    return { applied: false, changed: false, nextText: base }
+  }
+  const span = inputActions.captureInsertion()
+  if (span === undefined || span === null || typeof span.end !== 'number' || typeof span.draftRev !== 'number') {
+    return { applied: false, changed: false, nextText: base }
+  }
+  const addition = base.trim() === ''
+    ? rescued.trim()
+    : `${base.endsWith('\n\n') ? '' : (base.endsWith('\n') ? '\n' : '\n\n')}${rescued.trim()}`
+  const ok = inputActions.insertText(addition, { start: span.end, end: span.end, draftRev: span.draftRev })
+  return { applied: ok === true, changed: ok === true, nextText: ok === true ? merged : base }
+}
+
 // An unsent draft stays with its chat (draft-keep.js). Sits in the composer of every Bot
 // and group Session and renders nothing.
 export function DraftKeeper({ sessionId, inputActions, useInput, useRoster, useRescuedDrafts, actions }) {
@@ -234,8 +251,12 @@ export function DraftKeeper({ sessionId, inputActions, useInput, useRoster, useR
   const draft = useInput?.(state => state.draft) ?? ''
   const ids = useInput?.(state => state.attachmentIds) ?? NO_IDS
   const phase = useInput?.(state => state.phase) ?? 'plain'
+  const occurrences = useInput?.(state => state.occurrences) ?? NO_IDS
+  const hasChips = Array.isArray(occurrences) && occurrences.length > 0
   const rescued = useRescuedDrafts?.(state => readRescuedForChat(state, chatId, sessionId)) ?? ''
   const frozen = FROZEN_PHASES.has(phase)
+  // setDraft cancels a claimed slash command; wait for plain phase before landing rescued text.
+  const rescueBlocked = frozen || phase === 'claimed'
   const key = `${chatId}:${sessionId}`
   const keyRef = useRef(key)
   const restored = useRef('')
@@ -257,10 +278,11 @@ export function DraftKeeper({ sessionId, inputActions, useInput, useRoster, useR
     if (!current || frozen || inputActions === undefined) return
     if (restored.current === key) return
     const back = takeDraft({ chatId, part: sessionId, text: draft, attached: ids.length })
+    const canLandRescueHere = rescued !== '' && !rescueBlocked && (!hasChips || back.text !== '')
     const baseText = back.text !== '' ? back.text : draft
-    const mergedText = rescued !== '' ? mergeRescuedDraft(baseText, rescued) : back.text
-    const applyText = rescued !== '' ? mergedText !== draft : back.text !== ''
-    if (rescued !== '') rescuedHandled = true
+    const mergedText = canLandRescueHere ? mergeRescuedDraft(baseText, rescued) : back.text
+    const applyText = canLandRescueHere ? mergedText !== draft : back.text !== ''
+    if (canLandRescueHere) rescuedHandled = true
     let added = []
     let attached = false
     let restoredText = false
@@ -272,7 +294,7 @@ export function DraftKeeper({ sessionId, inputActions, useInput, useRoster, useR
         restoredText = true
         latestDraft.current = mergedText
       }
-      if (rescued !== '') {
+      if (canLandRescueHere) {
         actions.consumeRescuedDraft?.(chatId, sessionId, rescued)
         if (restoredText && back.files.length === 0) {
           keepDraft({ chatId, part: sessionId, text: mergedText, files: actions.draftFiles?.(ids) ?? [] })
@@ -300,12 +322,23 @@ export function DraftKeeper({ sessionId, inputActions, useInput, useRoster, useR
     restored.current = key
     if (!ok && back.files.length > 0) actions.notice?.(t('The files attached to this draft could not be put back.'))
   }, [current, frozen, chatId, sessionId, inputActions])
-  // Rescued text from an interrupted question card lands live once this composer is editable.
+  // Rescued text from an interrupted question card lands live once this composer is plain & editable.
   useEffect(() => {
-    if (rescuedHandled || !current || frozen || inputActions === undefined || rescued === '' || restored.current !== key) return
+    if (rescuedHandled || !current || rescueBlocked || inputActions === undefined || rescued === '' || restored.current !== key) return
     const base = latestDraft.current
-    const merged = mergeRescuedDraft(base, rescued)
     try {
+      if (hasChips) {
+        const result = appendRescuedPreservingChips(inputActions, base, rescued)
+        if (!result.applied) return
+        if (result.changed) {
+          pending.current = { ...pending.current, text: true, staleDraft: draft }
+          latestDraft.current = result.nextText
+          keepDraft({ chatId, part: sessionId, text: result.nextText, files: actions.draftFiles?.(ids) ?? [] })
+        }
+        actions.consumeRescuedDraft?.(chatId, sessionId, rescued)
+        return
+      }
+      const merged = mergeRescuedDraft(base, rescued)
       if (merged !== base) {
         inputActions.setDraft(merged)
         pending.current = { ...pending.current, text: true, staleDraft: draft }
@@ -316,7 +349,7 @@ export function DraftKeeper({ sessionId, inputActions, useInput, useRoster, useR
     } catch (error) {
       console.warn('[ds-bot] could not return the question draft', error)
     }
-  }, [current, frozen, chatId, sessionId, inputActions, rescued])
+  }, [current, rescueBlocked, hasChips, chatId, sessionId, inputActions, rescued])
   useEffect(() => {
     if (!current || restored.current !== key) return
     // A draft on its way out is no longer kept: should the composer close before the
