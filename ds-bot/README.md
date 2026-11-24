@@ -2,7 +2,7 @@
 
 The DS Bot plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (dsh). It turns dsh into a team of long-lived Bots that talk to you, to each other and in group chats. See the [project page](../README.md) for an overview, install steps and screenshots.
 
-Tested with dsh `0.2.2-rc.1` (Web and Desktop).
+Tested with dsh `0.2.2-rc.5` (Web and Desktop).
 
 ## Features
 

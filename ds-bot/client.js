@@ -505,6 +505,9 @@ var JA = {
   "The model service blocked the content": "モデルサービスのコンテンツフィルターが内容をブロックしました",
   "{provider} blocked this request with its content filter. The API key is not the problem; edit the input or start a new chat.": "{provider} のコンテンツフィルターがこのリクエストをブロックしました。API キーの問題ではありません。入力を変更するか、新しいチャットを始めてください。",
   "{provider} blocked this request with its content filter ({status}). The API key is not the problem; edit the input or start a new chat.": "{provider} のコンテンツフィルターがこのリクエストをブロックしました（{status}）。API キーの問題ではありません。入力を変更するか、新しいチャットを始めてください。",
+  "The model service refused the content": "モデルサービスがコンテンツ安全ポリシーにより内容を拒否しました",
+  "{provider} refused this request under its content safety policy. Edit the input or start a new chat.": "{provider} はコンテンツ安全ポリシーによりこのリクエストを拒否しました。入力を変更するか、新しいチャットを始めてください。",
+  "{provider} refused this request under its content safety policy ({status}). Edit the input or start a new chat.": "{provider} はコンテンツ安全ポリシーによりこのリクエストを拒否しました（{status}）。入力を変更するか、新しいチャットを始めてください。",
   "{provider} is out of balance or quota.": "{provider} の残高または利用枠が不足しています。",
   "{provider} is out of balance or quota ({status}).": "{provider} の残高または利用枠が不足しています（{status}）。",
   "The DeepSeek account balance is too low.": "DeepSeek アカウントの残高が不足しています。",
@@ -1885,6 +1888,7 @@ var JA = {
   "Unknown theme": "不明なテーマです",
   "Accent must be a #rrggbb color": "アクセントカラーは #rrggbb 形式で指定してください",
   "Type the key first": "先にシークレットを入力してください",
+  "A key cannot contain null bytes": "シークレットに NULL バイトを含めることはできません",
   "Choose every Bot or a list of Bots": "すべての Bot または特定の Bot を選択してください",
   "This request is gone": "このリクエストはすでに存在しません",
   "This request was already answered": "このリクエストはすでに対応済みです",
@@ -3364,6 +3368,9 @@ var KO = {
   "The model service blocked the content": "모델 서비스의 콘텐츠 필터가 내용을 차단했습니다",
   "{provider} blocked this request with its content filter. The API key is not the problem; edit the input or start a new chat.": "{provider}의 콘텐츠 필터가 이 요청을 차단했습니다. API 키 문제가 아닙니다. 입력을 수정하거나 새 대화를 시작하세요.",
   "{provider} blocked this request with its content filter ({status}). The API key is not the problem; edit the input or start a new chat.": "{provider}의 콘텐츠 필터가 이 요청을 차단했습니다 ({status}). API 키 문제가 아닙니다. 입력을 수정하거나 새 대화를 시작하세요.",
+  "The model service refused the content": "모델 서비스가 콘텐츠 안전 정책에 따라 요청을 거부했습니다",
+  "{provider} refused this request under its content safety policy. Edit the input or start a new chat.": "{provider}가 콘텐츠 안전 정책에 따라 이 요청을 거부했습니다. 입력을 수정하거나 새 대화를 시작하세요.",
+  "{provider} refused this request under its content safety policy ({status}). Edit the input or start a new chat.": "{provider}가 콘텐츠 안전 정책에 따라 이 요청을 거부했습니다 ({status}). 입력을 수정하거나 새 대화를 시작하세요.",
   "{provider} is out of balance or quota.": "{provider}의 잔액 또는 할당량이 부족합니다.",
   "{provider} is out of balance or quota ({status}).": "{provider}의 잔액 또는 할당량이 부족합니다 ({status}).",
   "The DeepSeek account balance is too low.": "DeepSeek 계정 잔액이 부족합니다.",
@@ -4781,6 +4788,7 @@ var KO = {
   "Unknown theme": "알 수 없는 테마",
   "Accent must be a #rrggbb color": "강조 색상은 #rrggbb 형식이어야 합니다",
   "Type the key first": "먼저 시크릿을 입력하세요",
+  "A key cannot contain null bytes": "시크릿에는 널 바이트를 포함할 수 없습니다",
   "Choose every Bot or a list of Bots": "모든 Bot 또는 지정된 Bot 목록을 선택하세요",
   "This request is gone": "이 요청은 더 이상 존재하지 않습니다",
   "This request was already answered": "이미 처리된 요청입니다",
@@ -6262,6 +6270,9 @@ var ES = {
   "The model service blocked the content": "El filtro de contenido del servicio de modelos bloqueó el contenido",
   "{provider} blocked this request with its content filter. The API key is not the problem; edit the input or start a new chat.": "El filtro de contenido de {provider} bloqueó esta solicitud. La clave API no es el problema; edita la entrada o inicia un chat nuevo.",
   "{provider} blocked this request with its content filter ({status}). The API key is not the problem; edit the input or start a new chat.": "El filtro de contenido de {provider} bloqueó esta solicitud ({status}). La clave API no es el problema; edita la entrada o inicia un chat nuevo.",
+  "The model service refused the content": "El servicio de modelos rechazó el contenido por seguridad",
+  "{provider} refused this request under its content safety policy. Edit the input or start a new chat.": "{provider} rechazó esta solicitud según su política de seguridad de contenido. Edita la entrada o inicia un chat nuevo.",
+  "{provider} refused this request under its content safety policy ({status}). Edit the input or start a new chat.": "{provider} rechazó esta solicitud según su política de seguridad de contenido ({status}). Edita la entrada o inicia un chat nuevo.",
   "{provider} is out of balance or quota.": "{provider} se quedó sin saldo o cuota.",
   "{provider} is out of balance or quota ({status}).": "{provider} se quedó sin saldo o cuota ({status}).",
   "The DeepSeek account balance is too low.": "El saldo de la cuenta de DeepSeek es insuficiente.",
@@ -7679,6 +7690,7 @@ var ES = {
   "Unknown theme": "Tema desconocido",
   "Accent must be a #rrggbb color": "El color de acento debe tener formato #rrggbb",
   "Type the key first": "Escribe primero la clave",
+  "A key cannot contain null bytes": "Una clave no puede contener bytes nulos",
   "Choose every Bot or a list of Bots": "Elige todos los Bots o una lista de Bots",
   "This request is gone": "Esta solicitud ya no existe",
   "This request was already answered": "Esta solicitud ya fue respondida",
@@ -9154,6 +9166,9 @@ var FR = {
   "The model service blocked the content": "Le filtre de contenu du service de modèles a bloqué le contenu",
   "{provider} blocked this request with its content filter. The API key is not the problem; edit the input or start a new chat.": "Le filtre de contenu de {provider} a bloqué cette requête. La clé API n’est pas en cause ; modifiez la saisie ou démarrez une nouvelle discussion.",
   "{provider} blocked this request with its content filter ({status}). The API key is not the problem; edit the input or start a new chat.": "Le filtre de contenu de {provider} a bloqué cette requête ({status}). La clé API n’est pas en cause ; modifiez la saisie ou démarrez une nouvelle discussion.",
+  "The model service refused the content": "Le service de modèles a refusé le contenu pour des raisons de sécurité",
+  "{provider} refused this request under its content safety policy. Edit the input or start a new chat.": "{provider} a refusé cette requête selon sa politique de sécurité du contenu. Modifiez la saisie ou démarrez une nouvelle discussion.",
+  "{provider} refused this request under its content safety policy ({status}). Edit the input or start a new chat.": "{provider} a refusé cette requête selon sa politique de sécurité du contenu ({status}). Modifiez la saisie ou démarrez une nouvelle discussion.",
   "{provider} is out of balance or quota.": "Le solde ou le quota de {provider} est épuisé.",
   "{provider} is out of balance or quota ({status}).": "Le solde ou le quota de {provider} est épuisé ({status}).",
   "The DeepSeek account balance is too low.": "Le solde du compte DeepSeek est insuffisant.",
@@ -10534,6 +10549,7 @@ var FR = {
   "Unknown theme": "Thème inconnu",
   "Accent must be a #rrggbb color": "La couleur d’accentuation doit être au format #rrggbb",
   "Type the key first": "Saisissez d’abord la clé",
+  "A key cannot contain null bytes": "Une clé ne peut pas contenir d’octets nuls",
   "Choose every Bot or a list of Bots": "Choisissez tous les Bots ou une liste de Bots",
   "This request is gone": "Cette demande n’existe plus",
   "This request was already answered": "Cette demande a déjà été traitée",
@@ -12013,6 +12029,9 @@ var DE = {
   "The model service blocked the content": "Der Inhaltsfilter des Modelldienstes hat den Inhalt blockiert",
   "{provider} blocked this request with its content filter. The API key is not the problem; edit the input or start a new chat.": "Der Inhaltsfilter von {provider} hat diese Anfrage blockiert. Der API-Schlüssel ist nicht das Problem; ändere die Eingabe oder starte einen neuen Chat.",
   "{provider} blocked this request with its content filter ({status}). The API key is not the problem; edit the input or start a new chat.": "Der Inhaltsfilter von {provider} hat diese Anfrage blockiert ({status}). Der API-Schlüssel ist nicht das Problem; ändere die Eingabe oder starte einen neuen Chat.",
+  "The model service refused the content": "Der Modelldienst hat den Inhalt aus Sicherheitsgründen abgelehnt",
+  "{provider} refused this request under its content safety policy. Edit the input or start a new chat.": "{provider} hat diese Anfrage gemäß seiner Inhaltsrichtlinie abgelehnt. Ändere die Eingabe oder starte einen neuen Chat.",
+  "{provider} refused this request under its content safety policy ({status}). Edit the input or start a new chat.": "{provider} hat diese Anfrage gemäß seiner Inhaltsrichtlinie abgelehnt ({status}). Ändere die Eingabe oder starte einen neuen Chat.",
   "{provider} is out of balance or quota.": "Guthaben oder Kontingent bei {provider} ist aufgebraucht.",
   "{provider} is out of balance or quota ({status}).": "Guthaben oder Kontingent bei {provider} ist aufgebraucht ({status}).",
   "The DeepSeek account balance is too low.": "Das Guthaben des DeepSeek-Kontos reicht nicht aus.",
@@ -13430,6 +13449,7 @@ var DE = {
   "Unknown theme": "Unbekanntes Design",
   "Accent must be a #rrggbb color": "Die Akzentfarbe muss im Format #rrggbb angegeben werden",
   "Type the key first": "Gib zuerst den Schlüssel ein",
+  "A key cannot contain null bytes": "Ein Schlüssel darf keine Nullbytes enthalten",
   "Choose every Bot or a list of Bots": "Wähle alle Bots oder bestimmte Bots aus",
   "This request is gone": "Diese Anfrage existiert nicht mehr",
   "This request was already answered": "Diese Anfrage wurde bereits beantwortet",
@@ -14865,6 +14885,9 @@ var ZH = {
   "The model service blocked the content": "模型服务的内容审核拦截了这条内容",
   "{provider} blocked this request with its content filter. The API key is not the problem; edit the input or start a new chat.": "{provider} 的内容审核拦截了这次请求。问题不在 API Key；请修改输入内容或新开一个对话。",
   "{provider} blocked this request with its content filter ({status}). The API key is not the problem; edit the input or start a new chat.": "{provider} 的内容审核拦截了这次请求（{status}）。问题不在 API Key；请修改输入内容或新开一个对话。",
+  "The model service refused the content": "模型服务因内容安全拒绝了这条请求",
+  "{provider} refused this request under its content safety policy. Edit the input or start a new chat.": "{provider} 因内容安全策略拒绝了这次请求。请修改输入内容或新开一个对话。",
+  "{provider} refused this request under its content safety policy ({status}). Edit the input or start a new chat.": "{provider} 因内容安全策略拒绝了这次请求（{status}）。请修改输入内容或新开一个对话。",
   "{provider} is out of balance or quota.": "{provider} 的余额或额度不够了。",
   "{provider} is out of balance or quota ({status}).": "{provider} 的余额或额度不够了（{status}）。",
   "The DeepSeek account balance is too low.": "DeepSeek 账号余额不足。",
@@ -16627,6 +16650,7 @@ var HOST_ZH = {
   "Unknown theme": "未知主题",
   "Accent must be a #rrggbb color": "强调色必须是 #rrggbb 格式",
   "Type the key first": "请先输入密钥",
+  "A key cannot contain null bytes": "密钥不能包含空字符",
   "Choose every Bot or a list of Bots": "请选择所有 Bot 或指定的 Bot",
   "This request is gone": "这个请求已经不存在了",
   "This request was already answered": "这个请求已经处理过了",
@@ -17012,6 +17036,7 @@ var FAILURES = {
   INVALID_CREDENTIAL: "The API key is not in the right format",
   AUTH: "The API key was rejected",
   CONTENT_POLICY: "The model service blocked the content",
+  CONTENT_REFUSED: "The model service refused the content",
   QUOTA: "The account is out of quota",
   ACCOUNT_QUOTA: "The account is out of quota",
   ACCOUNT_SIGN_IN_REQUIRED: "The DeepSeek account needs a sign-in",
@@ -17918,6 +17943,7 @@ function forgetKeptFiles() {
 // src/client/team-actions.js
 function teamActions({ call: call2, after, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded, questionDrafts }) {
   const memoryOf = (id) => roster.getSnapshot().roomsById[id] ? { roomId: id } : { botId: id };
+  const subjectOf = (snap, id) => snap.byId?.[id]?.id ?? snap.roomsById?.[id]?.id ?? id;
   let pastes = 0;
   const pasteState = (state, sessionId, blocks) => ({ ...state, paste: { ...state.paste, [sessionId]: blocks } });
   const yieldTo = (state, view) => state.panelYield === true || panelFolded?.(view) === true;
@@ -17957,18 +17983,22 @@ function teamActions({ call: call2, after, partFor, roster, ui, live, cards, hel
     },
     toggleDetails: (id, force) => {
       ui.set((state) => {
-        const details = force || state.details !== id || state.view !== "details" ? id : null;
+        const snap = roster.getSnapshot();
+        const sameSubject = state.details !== null && subjectOf(snap, state.details) === subjectOf(snap, id);
+        const details = force || !sameSubject || state.view !== "details" ? id : null;
         if (details === null && panelFolded?.("details") === true) return { ...state, renaming: false, tab: null, details: id, view: "details", panelYield: true };
         return { ...state, renaming: false, tab: null, details, view: "details" };
       });
     },
     // The open panel follows the main view; a subject with no browser (a group
     // chat, an outside Session) settles on the details view. So does one that
-    // does not own the open side chat.
+    // does not own the open side chat. Moving between parts of the same Bot or
+    // group keeps the panel's current view, settings/rename state, and tab intact.
     followPanel: (id) => {
       ui.set((state) => {
         if (!state.details || state.details === id) return state;
         const snap = roster.getSnapshot();
+        if (subjectOf(snap, state.details) === subjectOf(snap, id)) return { ...state, details: id };
         const view = state.view === "browser" && snap.byId[id] === void 0 ? "details" : state.view === "side" && !(snap.sideChats?.[snap.byId[id]?.id] ?? []).some((chat) => chat?.id === state.side) ? "details" : state.view === "task" ? "details" : state.view;
         return { ...state, details: id, view, task: null, renaming: false, tab: null };
       });
@@ -26389,6 +26419,8 @@ body[data-bt-layout=flat] .bt-q-inline .dv-view,body[data-bt-layout=flat] .bt-q-
 // src/client/secret-card.js
 var import_react19 = require("react");
 var MIN_VALUE = 4;
+var MIN_MULTI_HEIGHT = 20;
+var MAX_MULTI_HEIGHT = 160;
 var NONE = {};
 var KeyIcon = () => (0, import_react19.createElement)(
   "svg",
@@ -26416,15 +26448,44 @@ var scopeLabel = (scope, roster) => {
   return names.length === 0 ? t("No Bot") : names.join(t(" and "));
 };
 var when = (time) => Number.isFinite(time) ? new Date(time).toLocaleString(dateLocale(), { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
-function MaskedInput({ value, onChange, onEnter, label, autoFocus = false, disabled = false }) {
-  return (0, import_react19.createElement)("input", {
-    className: "bt-secret-input",
-    type: MASK_BY_CSS ? "text" : "password",
+function MaskedInput({ value, onChange, onEnter, label, autoFocus = false, disabled = false, multiline = false }) {
+  const ref = (0, import_react19.useRef)(null);
+  const fit2 = () => {
+    const el = ref.current;
+    if (!multiline || !el || typeof el.scrollHeight !== "number") return;
+    const scrollTop = el.scrollTop;
+    const parent = el.parentElement?.style && typeof el.parentElement.offsetHeight === "number" ? el.parentElement : null;
+    const prevMinHeight = parent ? parent.style.minHeight : "";
+    if (parent && parent.offsetHeight > 0) parent.style.minHeight = `${parent.offsetHeight}px`;
+    el.style.overflowY = "hidden";
+    el.style.height = "0px";
+    const next = Math.min(Math.max(el.scrollHeight, MIN_MULTI_HEIGHT), MAX_MULTI_HEIGHT);
+    el.style.height = `${next}px`;
+    el.style.overflowY = el.scrollHeight > MAX_MULTI_HEIGHT ? "auto" : "hidden";
+    if (parent) parent.style.minHeight = prevMinHeight;
+    el.scrollTop = scrollTop;
+  };
+  (0, import_react19.useLayoutEffect)(fit2, [value, multiline]);
+  (0, import_react19.useLayoutEffect)(() => {
+    const el = ref.current;
+    if (!multiline || !el || typeof ResizeObserver !== "function") return;
+    let lastWidth = el.clientWidth;
+    const observer = new ResizeObserver(() => {
+      if (el.clientWidth === lastWidth) return;
+      lastWidth = el.clientWidth;
+      fit2();
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [multiline]);
+  const common = {
+    ref,
+    className: multiline ? "bt-secret-input bt-secret-input-multi" : "bt-secret-input",
     disabled,
-    "data-masked": MASK_BY_CSS ? "" : void 0,
+    "data-masked": MASK_BY_CSS ? "" : multiline ? "blur" : void 0,
     value,
     autoFocus,
-    autoComplete: MASK_BY_CSS ? "off" : "new-password",
+    autoComplete: multiline || MASK_BY_CSS ? "off" : "new-password",
     autoCorrect: "off",
     autoCapitalize: "off",
     spellCheck: false,
@@ -26437,10 +26498,13 @@ function MaskedInput({ value, onChange, onEnter, label, autoFocus = false, disab
     onChange: (event) => onChange(event.target.value),
     onKeyDown: (event) => {
       if (event.key !== "Enter" || event.nativeEvent.isComposing || event.keyCode === 229) return;
+      if (multiline && !event.metaKey && !event.ctrlKey) return;
       event.preventDefault();
       onEnter?.();
     }
-  });
+  };
+  if (multiline) return (0, import_react19.createElement)("textarea", { ...common, rows: 1 });
+  return (0, import_react19.createElement)("input", { ...common, type: MASK_BY_CSS ? "text" : "password" });
 }
 function ScopeSwitch({ value, onChange, bot }) {
   const options = [["all", t("All Bots")], ["bot", t("Only {name}", { name: bot.name })]];
@@ -26517,10 +26581,10 @@ function SecretCard({ sessionId, bot, request, roster, actions, inline = false }
     filling ? (0, import_react19.createElement)(
       "div",
       { className: "bt-secret-body" },
-      (0, import_react19.createElement)("label", { className: "bt-q-field bt-secret-field" }, (0, import_react19.createElement)(MaskedInput, { value, onChange: (next) => {
+      (0, import_react19.createElement)("label", { className: "bt-q-field bt-secret-field bt-secret-field-multi" }, (0, import_react19.createElement)(MaskedInput, { value, onChange: (next) => {
         hold();
         setValue(next);
-      }, onEnter: save, label: t("Value of {name}", { name: request.name }), autoFocus: replacing })),
+      }, onEnter: save, label: t("Value of {name}", { name: request.name }), autoFocus: replacing, multiline: true })),
       request.kind === "fill" ? (0, import_react19.createElement)(ScopeSwitch, { value: scope, onChange: (next) => {
         hold();
         setScope(next);
@@ -26667,8 +26731,8 @@ function ValueEditor({ secret, onSave }) {
     (0, import_react19.createElement)("div", { className: "bt-secret-edit-label" }, t("Replace the value")),
     (0, import_react19.createElement)(
       "div",
-      { className: "bt-secret-inline" },
-      (0, import_react19.createElement)("label", { className: "bt-q-field bt-secret-field" }, (0, import_react19.createElement)(MaskedInput, { value, onChange: edit, onEnter: save, label: t("New value of {name}", { name: secret.name }) })),
+      { className: "bt-secret-inline bt-secret-inline-multi" },
+      (0, import_react19.createElement)("label", { className: "bt-q-field bt-secret-field bt-secret-field-multi" }, (0, import_react19.createElement)(MaskedInput, { value, onChange: edit, onEnter: save, label: t("New value of {name}", { name: secret.name }), multiline: true })),
       (0, import_react19.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: !long, onClick: save }, t("Replace"))
     ),
     value !== "" && !long ? (0, import_react19.createElement)("div", { className: "bt-set-hint" }, t("At least {count} characters.", { count: MIN_VALUE })) : replaced ? (0, import_react19.createElement)("div", { className: "bt-set-hint bt-secret-ok", role: "status" }, (0, import_react19.createElement)(CheckIcon), t("Replaced. Bots get the new value from their next command.")) : null
@@ -26737,7 +26801,7 @@ function AddSecret({ actions, run: run2, onDone }) {
     { className: "bt-set-row bt-set-paste bt-secret-add" },
     (0, import_react19.createElement)("input", { className: "bt-input", "aria-label": t("Key name"), placeholder: t("NAME, e.g. GITHUB_TOKEN"), value: name, spellCheck: false, autoComplete: "off", autoFocus: true, onChange: (event) => setName(event.target.value.toUpperCase()) }),
     (0, import_react19.createElement)("input", { className: "bt-input", "aria-label": t("What it is for"), placeholder: t("What it is for"), value: purpose, autoComplete: "off", onChange: (event) => setPurpose(event.target.value) }),
-    (0, import_react19.createElement)("label", { className: "bt-q-field bt-secret-field" }, (0, import_react19.createElement)(MaskedInput, { value, onChange: setValue, onEnter: save, label: t("Value") })),
+    (0, import_react19.createElement)("label", { className: "bt-q-field bt-secret-field bt-secret-field-multi" }, (0, import_react19.createElement)(MaskedInput, { value, onChange: setValue, onEnter: save, label: t("Value"), multiline: true })),
     (0, import_react19.createElement)(
       "div",
       { className: "bt-secret-row-actions" },
@@ -26885,9 +26949,13 @@ var SECRET_CSS = `
 .bt-secret-name{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;line-height:16px;padding:1px 6px;border-radius:6px;background:var(--bt-hover);color:var(--bt-ink)}
 .bt-secret-body{display:flex;flex-direction:column;gap:8px}
 .bt-secret-field{align-items:center;min-height:36px}
+.bt-secret-field-multi{padding:7px 11px}
+.bt-secret-body>.bt-secret-field,.bt-secret-add>.bt-secret-field{flex:none}
 .bt-secret-input{flex:1;width:100%;min-width:0;margin:0;padding:0;border:0;outline:none;background:transparent;color:var(--bt-ink);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:14px;line-height:20px;letter-spacing:.04em}
+.bt-secret-input-multi{display:block;min-height:20px;max-height:160px;resize:none;overflow-x:hidden;overflow-y:hidden;white-space:pre-wrap;overflow-wrap:anywhere}
 .bt-secret-input[data-masked]{-webkit-text-security:disc}
-.bt-secret-input::placeholder{color:var(--bt-ink-3);font-family:var(--bt-font);letter-spacing:0}
+.bt-secret-input[data-masked="blur"]{color:transparent;text-shadow:0 0 7px var(--bt-ink);caret-color:var(--bt-ink)}
+.bt-secret-input::placeholder{color:var(--bt-ink-3);font-family:var(--bt-font);letter-spacing:0;-webkit-text-security:none;text-shadow:none}
 .bt-secret-scope{position:relative;display:inline-grid;grid-template-columns:1fr 1fr;align-self:flex-start;padding:2px;border-radius:999px;background:var(--bt-hover)}
 .bt-secret-glide{position:absolute;top:2px;bottom:2px;left:2px;width:calc(50% - 2px);border-radius:999px;background:var(--bt-main);box-shadow:0 1px 3px rgba(20,20,20,.08),inset 0 0 0 .5px color-mix(in srgb,var(--bt-ink) 6%,transparent);transition:${spring(SPRING_SHAPE, "transform")}}
 .bt-secret-glide[data-at="1"]{transform:translateX(100%)}
@@ -26933,6 +27001,8 @@ var SECRET_CSS = `
 .bt-secret-bot[aria-pressed=true]{background:var(--bt-active);color:var(--bt-ink);border-color:var(--bt-line-2)}
 .bt-secret-bot svg{width:13px;height:13px}
 .bt-secret-inline{display:flex;gap:8px;align-items:center}
+.bt-secret-inline-multi{align-items:flex-end}
+.bt-secret-inline-multi>.bt-soft-sm{margin-bottom:4px}
 .bt-secret-inline .bt-input{flex:1;height:34px}
 .bt-secret-row-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}
 .bt-secret-row-actions .bt-set-hint{flex:1}
@@ -32777,6 +32847,31 @@ function EarlierUser({ row, actions }) {
     row.via ? (0, import_react34.createElement)("div", { className: "bt-utime" }, (0, import_react34.createElement)(ViaTag, { via: row.via }), Number.isFinite(row.time) ? messageClock(row.time) : null) : null
   );
 }
+function earlierClosedKey(botParts, sessionId, closedCards) {
+  const parts = Array.isArray(botParts) ? botParts : [];
+  const earlierParts = parts.includes(sessionId) ? parts.slice(0, parts.indexOf(sessionId)) : parts;
+  return JSON.stringify(earlierParts.map((part) => [part, closedCards?.[part] ?? null]).filter(([, value]) => value !== null));
+}
+function mergeEarlierPage(pages, page, fallbackPartIndex) {
+  const incoming = Array.isArray(page.items) ? page.items : [];
+  const actualPartIndex = Number.isInteger(page.partIndex) ? page.partIndex : fallbackPartIndex;
+  const next = pages.slice();
+  const at = next.findIndex((entry) => entry.partIndex === actualPartIndex);
+  const btw = Array.isArray(page.btw) ? page.btw : at >= 0 ? next[at].btw : [];
+  if (at >= 0) next[at] = { partIndex: actualPartIndex, items: [...incoming, ...next[at].items], btw };
+  else next.push({ partIndex: actualPartIndex, items: incoming, btw });
+  next.sort((a, b) => a.partIndex - b.partIndex);
+  return next;
+}
+function earlierItems(pages, { cursor, loading } = {}) {
+  const items = [];
+  for (const page of pages) items.push(...withBtwRows(page.items, page.btw));
+  while (items.at(-1)?.kind === "divider") items.pop();
+  if (!cursor && !loading) {
+    while (items[0]?.kind === "divider") items.shift();
+  }
+  return { items, hasContent: items.some((item) => item.kind !== "divider") };
+}
 function EarlierParts({ sessionId, roster, actions }) {
   const [view, setView] = (0, import_react34.useState)({ pages: [], cursor: void 0, loading: true, failed: false, startedAt: null });
   const top = (0, import_react34.useRef)(null);
@@ -32796,23 +32891,20 @@ function EarlierParts({ sessionId, roster, actions }) {
       busy.current = false;
       const scroller = top.current && scrollParent(top.current);
       if (scroller) restore.current = { scroller, fromEnd: scroller.scrollHeight - scroller.scrollTop };
-      const incoming = Array.isArray(page.items) ? page.items : [];
-      setView((current2) => {
-        const pages = current2.pages.slice();
-        const at = pages.findIndex((entry) => entry.partIndex === partIndex);
-        const btw = Array.isArray(page.btw) ? page.btw : at >= 0 ? pages[at].btw : [];
-        if (at >= 0) pages[at] = { partIndex, items: [...incoming, ...pages[at].items], btw };
-        else pages.push({ partIndex, items: incoming, btw });
-        pages.sort((a, b) => a.partIndex - b.partIndex);
-        return { pages, cursor: page.cursor, loading: false, failed: false, startedAt: page.startedAt ?? current2.startedAt };
-      });
+      setView((current2) => ({
+        pages: mergeEarlierPage(current2.pages, page, partIndex),
+        cursor: page.cursor,
+        loading: false,
+        failed: false,
+        startedAt: page.startedAt ?? current2.startedAt
+      }));
     }, () => {
       if (mine !== generation.current) return;
       busy.current = false;
       setView((current2) => ({ ...current2, loading: false, failed: true }));
     });
   };
-  const closedEarlier = JSON.stringify((roster.byId[sessionId]?.parts ?? []).map((part) => roster.closedCards?.[part] ?? null));
+  const closedEarlier = earlierClosedKey(roster.byId[sessionId]?.parts, sessionId, roster.closedCards);
   (0, import_react34.useEffect)(() => {
     generation.current += 1;
     busy.current = false;
@@ -32840,8 +32932,7 @@ function EarlierParts({ sessionId, roster, actions }) {
     ...current2,
     pages: current2.pages.map((page) => ({ ...page, btw: page.btw.filter((card) => card?.id !== cardId) }))
   }));
-  const items = [];
-  for (const page of view.pages) items.push(...withBtwRows(page.items, page.btw));
+  const { items, hasContent } = earlierItems(view.pages, view);
   return (0, import_react34.createElement)(
     "div",
     { className: "bt-earlier", role: "feed", "aria-label": t("Earlier messages"), "aria-busy": view.loading },
@@ -32851,7 +32942,7 @@ function EarlierParts({ sessionId, roster, actions }) {
       view.loading ? (0, import_react34.createElement)(Shimmer, null, t("Loading earlier messages…")) : view.failed ? (0, import_react34.createElement)("button", { type: "button", className: "bt-soft", onClick: () => load(view.cursor) }, t("Couldn’t load earlier messages · Retry")) : view.cursor ? (0, import_react34.createElement)("button", { type: "button", className: "bt-soft", onClick: () => load(view.cursor) }, t("Load earlier")) : null
     ),
     (0, import_react34.createElement)(ChatRows, { items, sessionId, roster, actions, onBtwDelete: removeBtw }),
-    (0, import_react34.createElement)(PartLine, { time: view.startedAt })
+    hasContent ? (0, import_react34.createElement)(PartLine, { time: view.startedAt }) : null
   );
 }
 function ChatRows({ items, sessionId, roster, actions, useUi, clock: clock4 = false, onBtwDelete }) {
@@ -32859,7 +32950,9 @@ function ChatRows({ items, sessionId, roster, actions, useUi, clock: clock4 = fa
   const rows2 = [];
   for (const item of items) {
     const last = rows2.at(-1);
-    if (item.kind === "bot" && last?.kind === "bot") {
+    if (item.kind === "divider" && last?.kind === "divider") {
+      rows2[rows2.length - 1] = item;
+    } else if (item.kind === "bot" && last?.kind === "bot") {
       last.texts.push(item.text);
       last.end = item.time;
     } else rows2.push(item.kind === "bot" ? { kind: "bot", texts: [item.text], time: item.time, end: item.time } : item);
@@ -36118,35 +36211,60 @@ function glideOnto(mark2, from) {
   glide2.finished.then(land, land);
   setTimeout(land, timing.delay + GLIDE_MS + 500);
 }
+function landingPlan({ mainView, roster, isAgentSession: isAgentSession2, last }) {
+  if (!roster.ready || !roster.mainBotId) return { kind: "wait", key: "wait", nextLast: last };
+  const [id, blank3] = mainView.split("|");
+  const bot = id === "" ? void 0 : roster.byId[id];
+  if (bot !== void 0) {
+    const target = currentPart(bot);
+    const nextLast = { kind: "bot", id: bot.id, botId: bot.id, sessionId: id };
+    return target !== id ? { kind: "follow-bot", id: bot.id, key: `follow-bot:${bot.id}:${id}:${target}`, nextLast } : { kind: "stay", key: `stay-bot:${bot.id}:${id}`, nextLast };
+  }
+  const room2 = id === "" ? void 0 : roster.roomsById[id];
+  if (room2 !== void 0) {
+    const target = room2.sessionId ?? room2.id;
+    const nextLast = { kind: "room", id: room2.id, roomId: room2.id, sessionId: id };
+    return target !== id ? { kind: "follow-room", id: room2.id, key: `follow-room:${room2.id}:${id}:${target}`, nextLast } : { kind: "stay", key: `stay-room:${room2.id}:${id}`, nextLast };
+  }
+  if (id !== "" && ((isAgentSession2?.(id) ?? roster.agentOf[id] !== void 0) || blank3 !== "1")) {
+    return { kind: "stay", key: `stay-other:${id}`, nextLast: null };
+  }
+  const lastOwner = last?.kind === "room" ? roster.roomsById[last.id] : last ? roster.byId[last.botId ?? last.id] : void 0;
+  const lastTarget = lastOwner === void 0 ? "" : last.kind === "room" ? lastOwner.sessionId ?? lastOwner.id : currentPart(lastOwner);
+  return {
+    kind: "home",
+    id: roster.mainBotId,
+    last,
+    delay: last ? 0 : 400,
+    key: `home:${roster.mainBotId}:${last?.id ?? ""}:${last?.sessionId ?? ""}:${lastTarget}`,
+    nextLast: last
+  };
+}
 function useLandOnMainBot(roster, useSessions, actions) {
   const mainView = useSessions((list) => {
     const row = Object.values(list.byId).find((session) => (session?.retainedBy?.mainView ?? 0) > 0);
     return row ? `${row.id}|${row.blank ? 1 : 0}` : "";
   });
-  const lastBot = (0, import_react37.useRef)(null);
+  const lastChat = (0, import_react37.useRef)(null);
+  const plan = landingPlan({ mainView, roster, isAgentSession: actions.isAgentSession, last: lastChat.current });
+  const planRef = (0, import_react37.useRef)(plan);
+  planRef.current = plan;
   (0, import_react37.useEffect)(() => {
-    if (!roster.ready || !roster.mainBotId) return void 0;
-    const [id, blank3] = mainView.split("|");
-    const bot = id === "" ? void 0 : roster.byId[id];
-    if (bot !== void 0) {
-      lastBot.current = { botId: bot.id, sessionId: id };
-      if (currentPart(bot) !== id) actions.landOn(bot.id);
+    const current2 = planRef.current;
+    lastChat.current = current2.nextLast;
+    if (current2.kind === "follow-bot") {
+      actions.landOn(current2.id);
       return void 0;
     }
-    const room2 = id === "" ? void 0 : roster.roomsById[id];
-    if (room2 !== void 0) {
-      lastBot.current = null;
-      if ((room2.sessionId ?? room2.id) !== id) actions.openSession(room2.id);
+    if (current2.kind === "follow-room") {
+      actions.openSession(current2.id);
       return void 0;
     }
-    if (id !== "" && ((actions.isAgentSession?.(id) ?? roster.agentOf[id] !== void 0) || blank3 !== "1")) {
-      lastBot.current = null;
-      return void 0;
-    }
-    const last = lastBot.current;
-    const timer = setTimeout(() => actions.landOn(roster.mainBotId, last), last ? 0 : 400);
+    if (current2.kind !== "home") return void 0;
+    const armedSeq = actions.navSeq?.();
+    const timer = setTimeout(() => actions.landOn(current2.id, current2.last, armedSeq), current2.delay);
     return () => clearTimeout(timer);
-  }, [mainView, roster]);
+  }, [plan.key]);
 }
 function PluginsButton({ actions }) {
   if (!actions.hasPlugins?.()) return null;
@@ -47711,7 +47829,8 @@ function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSe
   const approvals = room2 ? roomApprovals(room2, { approvals: JSON.parse(workApprovalsKey || "[]") }, { asks: JSON.parse(computerAsksKey || "[]") }, roster) : bot ? JSON.parse(workApprovalsKey || "[]").map((entry) => ({ kind: "tool", id: entry.id, bot, approval: entry, at: entry.at ?? 0 })) : [];
   const view = goal ? goalView(goal, { roster, roomWork }) : null;
   const goalShown = room2 !== void 0 && !away && goal !== void 0;
-  const detailsOpen = useUi((state) => state.details === sessionId);
+  const subjectId = bot?.id ?? room2?.id ?? sessionId;
+  const detailsOpen = useUi((state) => Boolean(state.details) && (state.details === sessionId || (roster.byId[state.details]?.id ?? roster.roomsById[state.details]?.id ?? state.details) === subjectId));
   const name = bot?.name ?? room2?.name ?? "";
   const useNews = useMemoryNews ?? noNews;
   const memoryIds = bot ? [bot.id] : room2 ? [room2.id, ...room2.members] : [];
@@ -49233,6 +49352,8 @@ function failureText2(code, { name, provider, status }) {
       return status === void 0 ? t("{provider} did not accept the current API key.", { provider }) : t("{provider} did not accept the current API key ({status}).", { provider, status });
     case "CONTENT_POLICY":
       return status === void 0 ? t("{provider} blocked this request with its content filter. The API key is not the problem; edit the input or start a new chat.", { provider }) : t("{provider} blocked this request with its content filter ({status}). The API key is not the problem; edit the input or start a new chat.", { provider, status });
+    case "CONTENT_REFUSED":
+      return status === void 0 ? t("{provider} refused this request under its content safety policy. Edit the input or start a new chat.", { provider }) : t("{provider} refused this request under its content safety policy ({status}). Edit the input or start a new chat.", { provider, status });
     case "QUOTA":
       return status === void 0 ? t("{provider} is out of balance or quota.", { provider }) : t("{provider} is out of balance or quota ({status}).", { provider, status });
     case "ACCOUNT_QUOTA":
@@ -49266,8 +49387,9 @@ function fixesFor(code, { canSignIn, official, topUp, onAccount = false }) {
       return ["rekey", "model"];
     case "AUTH":
       return ["rekey", canSignIn ? "use-account" : null, "model"].filter(Boolean);
-    // A content audit is about the input, not the credentials; no key action helps.
+    // A content audit or refusal is about the input, not the credentials; no key action helps.
     case "CONTENT_POLICY":
+    case "CONTENT_REFUSED":
       return [];
     case "QUOTA":
       return official ? ["top-up"] : [];
@@ -53412,6 +53534,7 @@ function ImportCard({ flow, page, busy, imports, onApply, onCancel, onCloseAndIm
 function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSessions, useSessionStatus, useActivity, useWork, useBrowserTabs, useBrowserPages, useBrowserHolds, useComputer }) {
   const bot = roster.byId[pane.id];
   const roomSubject = roster.roomsById?.[pane.id];
+  const subjectId = bot?.id ?? roomSubject?.id ?? pane.id;
   const canBrowse = Boolean(bot && roster.browser === true && actions.browserShow);
   const sideChats = bot ? sideChatsOf(roster, bot.id) : [];
   const sideChat = sideChats.find((chat) => chat?.id === pane.side);
@@ -53531,7 +53654,7 @@ function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSes
     intent.current = {
       plan,
       next,
-      id: pane.id,
+      id: subjectId,
       at: performance.now(),
       end: flightEnd(next),
       node: source ? uniqueIds(source.cloneNode(true)) : null,
@@ -53559,7 +53682,7 @@ function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSes
   (0, import_react81.useLayoutEffect)(() => {
     const note = intent.current;
     intent.current = null;
-    const current2 = note !== null && note.next === view && note.id === pane.id && performance.now() - note.at < INTENT_MS && !instant && !leaving && !reducedMotion();
+    const current2 = note !== null && note.next === view && note.id === subjectId && performance.now() - note.at < INTENT_MS && !instant && !leaving && !reducedMotion();
     if (!current2) {
       flight.finish();
       return;
@@ -53570,7 +53693,7 @@ function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSes
       return;
     }
     flight.begin({ panel: root.current, end: note.end, node: note.node, from: note.from });
-  }, [view, pane.id]);
+  }, [view, subjectId]);
   (0, import_react81.useLayoutEffect)(() => {
     if (instant || leaving) flight.finish();
   }, [instant, leaving]);
@@ -53649,7 +53772,7 @@ function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSes
     hasStrip ? (0, import_react81.createElement)(PanelStrip, { bot, roomSubject, subject: pane.id, view, ids: tabState.ids, active, sides: sideChats, side: pane.side, task: taskEntry, canBrowse, reading, onView: switchView, actions: panelActions, useBrowserPages }) : null,
     view === "browser" && bot ? (0, import_react81.createElement)(BrowserView, { key: `browser:${active}`, bot, tabId: active, leaving, landed: landed && !settling, actions, useBrowserPages, hold }) : view === "side" && sideChat ? (0, import_react81.createElement)("div", { key: `side:${sideChat.id}`, className: "bt-panel-view" }, (0, import_react81.createElement)(SideChatView, { subject: pane.id, chat: sideChat, roster, actions: panelActions })) : view === "task" && taskEntry && taskBot ? (0, import_react81.createElement)("div", { key: `task:${taskEntry.id}`, className: "bt-panel-view" }, (0, import_react81.createElement)(TaskReaderView, { bot: taskBot, task: taskEntry, actions: panelActions })) : (0, import_react81.createElement)(
       "div",
-      { key: `details:${pane.id}:${pane.renaming ? "rename" : ""}:${pane.tab ?? ""}`, className: "bt-panel-view" },
+      { key: `details:${subjectId}:${pane.renaming ? "rename" : ""}:${pane.tab ?? ""}`, className: "bt-panel-view" },
       (0, import_react81.createElement)(DetailsDrawer, {
         sessionId: pane.id,
         startRenaming: pane.renaming,
@@ -53870,6 +53993,10 @@ function openingModel({ pending, current: current2, roster }) {
   if (current2 === pending.target) return null;
   const bot = roster?.byId?.[pending.id];
   const room2 = roster?.roomsById?.[pending.id];
+  if (current2 !== null && current2 !== void 0) {
+    if (bot !== void 0 && roster?.byId?.[current2]?.id === bot.id) return null;
+    if (room2 !== void 0 && roster?.roomsById?.[current2]?.id === room2.id) return null;
+  }
   return {
     id: pending.id,
     name: bot?.name ?? room2?.name ?? pending.name ?? "",
@@ -53980,7 +54107,7 @@ function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity
       name: "panel",
       active: shown !== null,
       notify: shown !== null,
-      reset: `${pane.id}:${pane.view}:${pane.tab ?? ""}:${pane.side ?? ""}:${pane.task?.botId ?? ""}:${pane.task?.taskId ?? ""}`,
+      reset: `${roster.byId[pane.id]?.id ?? roster.roomsById[pane.id]?.id ?? pane.id}:${pane.view}:${pane.tab ?? ""}:${pane.side ?? ""}:${pane.task?.botId ?? ""}:${pane.task?.taskId ?? ""}`,
       onDismiss: () => actions.closePanel?.(),
       actions
     }, (0, import_react_dom13.createPortal)((0, import_react83.createElement)(BotPanel, { pane, leaving: shown === null, room: layout.room, overlay: layout.panel === "overlay", roster, actions, useSessions, useSessionStatus, useActivity, useWork, useComputer, useBrowserTabs, useBrowserPages, useBrowserHolds }), document.body)) : null,
@@ -55852,27 +55979,38 @@ function noticeApprovals({ work, roster, shownSession, openSession, since = Date
 function listedOpener({ list, open, refresh, current: current2, begin, done }) {
   let drop = () => {
   };
+  let waitingTarget = null;
   return (target) => {
+    if (waitingTarget === target) return;
     drop();
     drop = () => {
     };
+    if (current2?.() === target) return;
     const listed = () => list.getSnapshot().byId?.[target] !== void 0;
     if (listed()) {
       open(target);
       return;
     }
     const from = current2?.();
+    waitingTarget = target;
     begin?.(target);
     let waiting = true;
     const settle = () => {
       if (!waiting) return;
       waiting = false;
+      waitingTarget = null;
       drop = () => {
       };
       done?.(target);
     };
     const off = list.subscribe(() => {
-      if (current2?.() !== from) {
+      const now = current2?.();
+      if (now === target) {
+        off();
+        settle();
+        return;
+      }
+      if (now !== void 0 && now !== from) {
         off();
         settle();
         return;
@@ -56826,6 +56964,7 @@ function apply(ctx) {
     if (snapshot.roomsById[sessionId] !== void 0) return snapshot.roomsById[sessionId];
     return Object.values(snapshot.byId).find((bot) => currentPart(bot) === sessionId) ?? Object.values(snapshot.roomsById).find((room2) => (room2.sessionId ?? room2.id) === sessionId);
   };
+  let navSeq = 0;
   const openingWait = bindOpeningWait(ui, {
     onSlow: () => {
       void Promise.resolve(ctx.sessions.refresh?.()).catch(quietly("refresh sessions"));
@@ -56899,6 +57038,7 @@ function apply(ctx) {
     isAgentSession: (id) => isAgentSessionId(id),
     openSession: (id) => {
       if (isAgentSessionId(id)) return actions.openAgentSession(id);
+      navSeq += 1;
       ui.set((state) => state.newChat || state.exchange || state.menu || state.palette || state.groupSearch ? { ...state, newChat: null, exchange: null, menu: null, palette: null, groupSearch: null } : state);
       setPlain(false);
       const target = partFor(id);
@@ -56907,6 +57047,7 @@ function apply(ctx) {
     // The conversation replacements withdraw for a plain Session; set the surface
     // before the navigation so the Bot skin never flashes.
     openAgentSession: (sessionId) => {
+      navSeq += 1;
       ui.set((state) => ({ ...state, newChat: null, exchange: null, menu: null, palette: null, groupSearch: null, details: null, view: "details", renaming: false, tab: null, task: null, taskDeck: null }));
       setPlain(true);
       show2(sessionId);
@@ -56965,14 +57106,38 @@ function apply(ctx) {
       if (main !== void 0 && owned.includes(main) && roster.getSnapshot().mainBotId) actions.openSession(roster.getSnapshot().mainBotId);
       return result;
     },
-    // `last` is the Bot conversation the view held before it cleared: when that part
-    // was archived for a fresh one, the view goes on in the fresh one.
-    landOn: async (id, last) => {
-      if (last) await pull().catch(() => {
-      });
-      const bot = last ? roster.getSnapshot().byId[last.botId] : void 0;
+    navSeq: () => navSeq,
+    // `last` is the Bot or group conversation the view held before it cleared: when that
+    // part was archived for a fresh one, the view goes on in the fresh one.
+    landOn: async (id, last, expectedSeq) => {
+      if (expectedSeq !== void 0 && expectedSeq !== navSeq) return;
+      const seq = ++navSeq;
+      const currentOfLast = (snap) => {
+        if (!last) return void 0;
+        const bot = last.kind === "room" ? void 0 : snap.byId[last.botId ?? last.id];
+        if (bot !== void 0) return currentPart(bot);
+        const room2 = snap.roomsById[last.roomId ?? last.id];
+        return room2 === void 0 ? void 0 : room2.sessionId ?? room2.id;
+      };
+      let moved = currentOfLast(roster.getSnapshot());
+      if (last && (moved === void 0 || moved === last.sessionId)) {
+        await pull().catch(() => {
+        });
+        if (seq !== navSeq) return;
+        moved = currentOfLast(roster.getSnapshot());
+      }
+      if (seq !== navSeq) return;
+      const now = mainView();
+      if (last && now !== void 0 && now !== last.sessionId) {
+        const snap = roster.getSnapshot();
+        const list = ctx.sessions.list.getSnapshot();
+        const nowBot = snap.byId[now];
+        const nowRoom = snap.roomsById[now];
+        if (nowBot !== void 0 && currentPart(nowBot) === now || nowRoom !== void 0 && (nowRoom.sessionId ?? nowRoom.id) === now || isAgentSessionId(now) || nowBot === void 0 && nowRoom === void 0 && list.byId?.[now]?.blank !== true) return;
+      }
       setPlain(false);
-      const target = bot && currentPart(bot) !== last.sessionId ? currentPart(bot) : partFor(id);
+      const target = moved !== void 0 && moved !== last?.sessionId ? moved : partFor(id);
+      if (last && target === last.sessionId && ctx.sessions.list.getSnapshot().byId?.[target] === void 0) return;
       show2(target);
     },
     selectPanel: (id) => {

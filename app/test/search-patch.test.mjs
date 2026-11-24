@@ -3,6 +3,10 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, before, describe, test } from 'node:test'
+import { fileURLToPath } from 'node:url'
+import { entryListSchema } from '@deepseek-ai/cordis-plugin-include'
+import { composeEntries } from '@deepseek-ai/dsh-app-boot'
+import { load } from 'js-yaml'
 import { reconcileSearchSelector, SEARCH_PATCH_NAME, searchSelectorPatch } from '../src/search-patch.mjs'
 
 const DSH_WEB = '@deepseek-ai/dsh-web'
@@ -10,12 +14,12 @@ const DSH_WEB = '@deepseek-ai/dsh-web'
 // A stand-in profile: dsh-base supplies the web row, ds-bot adds the auto
 // provider and points the selector at it, and `user` rows model the profile's
 // own cordis.patch.yml.
-function profile(user = [], { auto = true } = {}) {
+function profile(user = [], { auto = true, baseConfig = { searchProvider: 'deepseek-official', fetchProvider: 'http' } } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'ds-bot-search-patch-'))
   return {
     name: 'ds-bot', dir, patchPath: join(dir, 'cordis.patch.yml'), skippedBundles: [],
     layers: [
-      { packageName: '@deepseek-ai/dsh-base', packageDir: '', patchPaths: [], patches: [{ insert: [{ id: 'web', name: DSH_WEB, config: { searchProvider: 'deepseek-official', fetchProvider: 'http' } }] }] },
+      { packageName: '@deepseek-ai/dsh-base', packageDir: '', patchPaths: [], patches: [{ insert: [{ id: 'web', name: DSH_WEB, ...(baseConfig === null ? {} : { config: baseConfig }) }] }] },
       { packageName: 'ds-bot', packageDir: '', patchPaths: [], patches: [
         ...(auto ? [{ insert: [{ id: 'web-search-auto', name: 'ds-bot/web-search' }] }] : []),
         { id: 'web', config: { searchProvider: 'auto', fetchProvider: 'http' } },
@@ -35,6 +39,46 @@ describe('searchSelectorPatch', () => {
     assert.deepEqual(searchSelectorPatch(track([disabledAuto])), [
       { id: 'web', name: DSH_WEB, config: { searchProvider: 'deepseek-official', fetchProvider: 'http' } },
     ])
+  })
+
+  test('restores a base web row that omits searchProvider (DSH 0.2.2-rc.5 route-based auto-select)', () => {
+    const p = track([disabledAuto], { baseConfig: { fetchProvider: 'http' } })
+    const overlay = searchSelectorPatch(p)
+    assert.deepEqual(overlay, [{ id: 'web', name: DSH_WEB, config: { fetchProvider: 'http' } }])
+    const composed = composeEntries([...p.layers.map(layer => layer.patches), p.patches, overlay]).find(entry => entry.id === 'web')
+    assert.deepEqual(composed.config, { fetchProvider: 'http' })
+  })
+
+  test('reconciles against the real shipped @deepseek-ai/dsh-base and ds-bot patches', () => {
+    const readPatch = pkg => load(readFileSync(fileURLToPath(new URL('cordis.patch.yml', import.meta.resolve(`${pkg}/package.json`))), 'utf8'), { schema: entryListSchema })
+    const dir = mkdtempSync(join(tmpdir(), 'ds-bot-search-real-'))
+    made.push(dir)
+    const p = {
+      name: 'ds-bot', dir, patchPath: join(dir, 'cordis.patch.yml'), skippedBundles: [],
+      layers: [
+        { packageName: '@deepseek-ai/dsh-base', packageDir: '', patchPaths: [], patches: readPatch('@deepseek-ai/dsh-base') },
+        { packageName: 'ds-bot', packageDir: '', patchPaths: [], patches: readPatch('ds-bot') },
+      ],
+      patches: [disabledAuto],
+    }
+    const overlay = searchSelectorPatch(p)
+    assert.ok(overlay !== undefined)
+    const composed = composeEntries([...p.layers.map(layer => layer.patches), p.patches, overlay]).find(entry => entry.id === 'web')
+    assert.notEqual(composed.config?.searchProvider, 'auto')
+    assert.equal(composed.config?.fetchProvider, 'http')
+  })
+
+  test('clears searchProvider when the base web row has no config object', () => {
+    assert.deepEqual(searchSelectorPatch(track([disabledAuto], { baseConfig: null })), [
+      { id: 'web', name: DSH_WEB, config: {} },
+    ])
+  })
+
+  test('does nothing when base bundles select auto or provide no web row', () => {
+    assert.equal(searchSelectorPatch(track([disabledAuto], { baseConfig: { searchProvider: 'auto', fetchProvider: 'http' } })), undefined)
+    const p = track([disabledAuto])
+    p.layers = p.layers.filter(layer => layer.packageName !== '@deepseek-ai/dsh-base')
+    assert.equal(searchSelectorPatch(p), undefined)
   })
 
   test('does nothing while the auto provider is enabled', () => {
