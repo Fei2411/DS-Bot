@@ -908,6 +908,38 @@ test('a failed team state write rolls back to the original durable inbox', async
   }
 })
 
+test('a failed journal write for input held during a fork leaves the original foreground in place', async (t) => {
+  const rig = await createRealLoopRig(t, { durable: true, holdFork: true })
+  const old = rig.agents.get('dm-a')
+  old.followup(userPrompt('Please run slow work'))
+  await rig.toolStarted.promise
+  const moved = beginMove(rig)
+  await rig.forkStarted.promise
+
+  const save = t.mock.method(rig.rt, 'save', async () => {
+    throw Object.assign(new Error('State write blocked during fork'), { code: 'EBUSY' })
+  })
+  const prompt = userPrompt('Restore the late steer to its original queue')
+  old.steer(prompt)
+  assert.equal(old.inbox.nextStep.length, 0)
+  assert.deepEqual(journal(rig), [])
+  rig.forkGate.resolve()
+
+  assert.equal((await moved).code, 'EBUSY')
+  assert.equal(rig.rt.botOf('a').sessionId, 'dm-a')
+  assert.equal(rig.rt.taskOwners.has('dm-a'), false)
+  assert.deepEqual(old.inbox.nextStep.map(item => item.id), [prompt.id])
+  const stored = await rig.root.sessionPersistence.open(SessionId('dm-a'), 'read')
+  try {
+    const { events } = await stored.read()
+    const last = events.findLast(event => event.type === 'agent/inbox/spliced')
+    assert.deepEqual(last.data.inserted.map(item => item.id), [prompt.id])
+  } finally {
+    await stored.close()
+    save.mock.restore()
+  }
+})
+
 test('legacy handoff records with the same RPC ID replay independently for different Bots', async (t) => {
   const rig = await createRealLoopRig(t, { durable: true })
   rig.rt.state.bots.b = { id: 'b', name: 'Other Bot', sessionId: 'dm-b' }
@@ -948,6 +980,11 @@ test('recovery recognizes a restored input after a later part switch copies it t
   assert.equal(old.inbox.remove(original.id), true)
   fresh.followup(clone)
   await fresh.whenIdle()
+  const flush = t.mock.method(sessions, 'flush', async session => session.id === 'dm-a')
+  await rig.rt.reconcileTasksAfterRestart()
+  assert.deepEqual(journal(rig).map(item => item.messageId), [prompt.id])
+  assert.deepEqual(flush.mock.calls.map(call => call.arguments[0].id), ['next-part'])
+  flush.mock.restore()
   await rig.rt.reconcileTasksAfterRestart()
   assert.deepEqual(journal(rig), [])
   const recovered = fresh.session.snapshotEvents().filter(event => event.type === 'user/message'
