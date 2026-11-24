@@ -109,12 +109,18 @@ function startHost(t, { home: existingHome, team, inflight, agentSetup, logs = n
   })
 
   const rt = createRuntime(ctx, { home })
+  let seq = 0
+  const emit = (id, type, data) => {
+    for (const listener of ctx.listeners.get('session/event') ?? []) {
+      if (listener.length >= 2) listener({ id }, { type, seq: ++seq, data })
+    }
+  }
   t.after(async () => {
     t.mock.timers.reset()
     await ctx.dispose()
     if (ownsHome) rmSync(home, { recursive: true, force: true })
   })
-  return { home, ctx, rt, agents, agentOf }
+  return { home, ctx, rt, agents, agentOf, emit }
 }
 
 test('empty inflight: orphan leaf work settles visibly, wakes parent without killing parent, frees result files and upstreamOf', async (t) => {
@@ -413,4 +419,164 @@ test('non-empty inflight: resumeAll protects resumed work while reconciling unre
   const aCalls = host.agentOf('dm-a').calls.filter(([kind]) => kind === 'followup')
   assert.equal(aCalls.length, 1)
   assert.match(textOf(aCalls[0][1].content), /#W11.*restarted/)
+})
+
+test('post-pushThreadPart switching guard protects works when state.switching or switchJobs is keyed by earlier segment', async (t) => {
+  const team = seedTeam({
+    bots: {
+      a: { id: 'a', name: 'Chief', role: 'Boss', sessionId: 'dm-a', createdAt: 1 },
+      d: { id: 'd', name: 'Helper', role: 'Ops', sessionId: 'dm-d', createdAt: 2 },
+      i: {
+        id: 'i', name: 'SwitchBot', role: 'Switch', sessionId: 'dm-i-2',
+        segments: [{ sessionId: 'dm-i-1', endedAt: 100 }],
+        createdAt: 3,
+      },
+      j: {
+        id: 'j', name: 'JobSwitchBot', role: 'Switch', sessionId: 'dm-j-2',
+        segments: [{ sessionId: 'dm-j-1', endedAt: 100 }],
+        createdAt: 4,
+      },
+    },
+    switching: {
+      'dm-i-1': { botId: 'i' },
+    },
+    works: {
+      'w-sw-state': { from: 'a', to: 'i', name: 'SwitchBot', ref: 'W30', state: 'open', open: [], results: [], at: 1000 },
+      'w-sw-job': { from: 'a', to: 'j', name: 'JobSwitchBot', ref: 'W31', state: 'open', open: [], results: [], at: 1001 },
+      'w-orphan-ctrl': { from: 'a', to: 'd', name: 'Helper', ref: 'W32', state: 'open', open: [], results: [], at: 1002 },
+    },
+  })
+
+  const host = startHost(t, { team })
+  await host.rt.load()
+  const origSwitchJobs = host.rt.switchJobs
+  host.rt.switchJobs = () => [...(origSwitchJobs?.() ?? []), { botId: 'j' }]
+
+  const settled = await host.rt.reconcileOrphanWorks()
+  assert.equal(settled, 1)
+  assert.equal(host.rt.state.works['w-orphan-ctrl'], undefined, 'control orphan settles')
+  assert.ok(host.rt.state.works['w-sw-state'] !== undefined, 'work protected by post-pushThreadPart state.switching[oldSid] = { botId }')
+  assert.ok(host.rt.state.works['w-sw-job'] !== undefined, 'work protected by live switchJobs() { botId }')
+})
+
+test('multi-child ledger recovery delivers EVERY child reply for the same parent, skips live-turn duplicates, and clears parent.open', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-orphan-multi-child-'))
+
+  // Host 1 records genuine pair-ledger replies for 3 sibling children of the same parent.
+  {
+    const host1 = startHost(t, { home, team: seedTeam() })
+    await host1.rt.load()
+    await host1.rt.deliver({ fromId: 'c', toId: 'b', role: 'reply', replyTo: 'w-1', text: 'First sibling answer.' })
+    await host1.rt.deliver({ fromId: 'd', toId: 'b', role: 'reply', replyTo: 'w-2', text: 'Second sibling answer.' })
+    await host1.rt.deliver({ fromId: 'c', toId: 'b', role: 'reply', replyTo: 'w-3-live', text: 'Already running live reply.' })
+    await host1.rt.save()
+    await host1.ctx.dispose()
+  }
+
+  const staleTeam = seedTeam({
+    works: {
+      'w-parent': { from: 'a', to: 'b', name: 'Writer', ref: 'W1', state: 'open', open: ['w-1', 'w-2', 'w-3-live'], results: [], at: 1000 },
+      'w-1': { from: 'b', to: 'c', name: 'Reviewer', ref: 'W2', parent: 'w-parent', state: 'open', open: [], results: [], at: 1001 },
+      'w-2': { from: 'b', to: 'd', name: 'Helper', ref: 'W3', parent: 'w-parent', state: 'open', open: [], results: [], at: 1002 },
+      'w-3-live': { from: 'b', to: 'c', name: 'Reviewer', ref: 'W4', parent: 'w-parent', state: 'open', open: [], results: [], at: 1003 },
+    },
+  })
+  rmSync(join(home, 'inflight.json'), { force: true })
+
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const host2 = startHost(t, { home, team: staleTeam })
+  t.after(() => rmSync(home, { recursive: true, force: true }))
+  await host2.rt.load()
+  // Simulate dm-b currently running a turn that already holds w-3-live's reply.
+  host2.rt.live.set('dm-b', {
+    turn: 9,
+    info: { kind: SOURCE_KIND, role: 'reply', replyTo: 'w-3-live', work: 'w-parent' },
+  })
+
+  t.mock.timers.tick(3000)
+  for (let i = 0; i < 40; i += 1) {
+    await flushMicrotasks()
+    if (host2.rt.state.works['w-1'] === undefined
+      && host2.rt.state.works['w-2'] === undefined
+      && host2.rt.state.works['w-3-live'] === undefined
+      && host2.agentOf('dm-b').calls.length >= 2) break
+  }
+
+  assert.equal(host2.rt.state.works['w-1'], undefined)
+  assert.equal(host2.rt.state.works['w-2'], undefined)
+  assert.equal(host2.rt.state.works['w-3-live'], undefined)
+  assert.equal(host2.rt.state.abandonedWorks?.['w-1'], undefined)
+  assert.equal(host2.rt.state.abandonedWorks?.['w-2'], undefined)
+
+  // Both w-1 and w-2 MUST be delivered to dm-b (not skipped after w-1 queued for w-parent!),
+  // while w-3-live MUST NOT be duplicated because dm-b's live turn already holds it.
+  const bDeliveries = host2.agentOf('dm-b').calls.filter(([kind]) => kind === 'followup').map(([, msg]) => msg)
+  const replyTos = bDeliveries.map(msg => msg.source?.replyTo).sort()
+  assert.deepEqual(replyTos, ['w-1', 'w-2'])
+  assert.ok(bDeliveries.every(msg => msg.source?.work === 'w-parent'))
+  assert.ok(bDeliveries.some(msg => textOf(msg.content).includes('First sibling answer.')))
+  assert.ok(bDeliveries.some(msg => textOf(msg.content).includes('Second sibling answer.')))
+
+  // When dm-b's turn consumes the delivered replies (and the live w-3-live reply), parent.open clears cleanly.
+  host2.emit('dm-b', 'turn/start', { turn: 10 })
+  for (const msg of bDeliveries) host2.emit('dm-b', 'user/message', msg)
+  host2.rt.takenWork('w-parent', 'w-3-live')
+  assert.deepEqual(host2.rt.state.works['w-parent'].open, [], 'parent.open clears cleanly once sibling replies are consumed')
+
+  t.mock.timers.reset()
+  await host2.rt.save()
+})
+
+test('top-level orphan work with pair-ledger reply wakes waiting_work background task session', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-orphan-bg-ledger-'))
+
+  // Host 1 records a real pair-ledger reply from Reviewer to Chief for w-bg-answered.
+  {
+    const host1 = startHost(t, { home, team: seedTeam() })
+    await host1.rt.load()
+    await host1.rt.deliver({
+      fromId: 'c', toId: 'a', role: 'reply', replyTo: 'w-bg-answered',
+      text: 'Recovered background audit answer.',
+    })
+    await host1.rt.save()
+    await host1.ctx.dispose()
+  }
+
+  const staleTeam = seedTeam({
+    bots: {
+      a: {
+        id: 'a', name: 'Chief', role: 'Boss', sessionId: 'dm-a', createdAt: 1,
+        tasks: [{ id: 'task-1', title: 'Audit', sessionId: 'a-task-1', status: 'waiting_work', createdAt: 100, updatedAt: 100 }],
+      },
+      b: { id: 'b', name: 'Writer', role: 'Dev', sessionId: 'dm-b', createdAt: 2 },
+      c: { id: 'c', name: 'Reviewer', role: 'QA', sessionId: 'dm-c', createdAt: 3 },
+    },
+    works: {
+      'w-bg-answered': { from: 'a', fromPart: 'a-task-1', to: 'c', name: 'Reviewer', ref: 'W22', state: 'open', open: [], results: [], at: 1000 },
+    },
+  })
+  rmSync(join(home, 'inflight.json'), { force: true })
+
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const host2 = startHost(t, { home, team: staleTeam })
+  t.after(() => rmSync(home, { recursive: true, force: true }))
+  await host2.rt.load()
+  t.mock.timers.tick(0)
+  await flushMicrotasks()
+  t.mock.timers.tick(3000)
+  for (let i = 0; i < 40; i += 1) {
+    await flushMicrotasks()
+    if (host2.rt.state.works['w-bg-answered'] === undefined && host2.agentOf('a-task-1').calls.length > 0) break
+  }
+
+  assert.equal(host2.rt.state.works['w-bg-answered'], undefined, 'top-level task work closed via ledger recovery')
+  assert.equal(host2.rt.state.abandonedWorks?.['w-bg-answered'], undefined, 'recovered task work is NOT marked abandoned')
+  const taskDeliveries = host2.agentOf('a-task-1').calls.filter(([kind]) => kind === 'followup')
+  assert.equal(taskDeliveries.length, 1, 'waiting_work background task woken with recovered reply')
+  assert.equal(taskDeliveries[0][1].source?.replyTo, 'w-bg-answered')
+  assert.match(textOf(taskDeliveries[0][1].content), /Recovered background audit answer\./)
+  assert.equal(host2.agentOf('dm-a').calls.length, 0, 'foreground chat is not spammed')
+
+  t.mock.timers.reset()
+  await host2.rt.save()
 })

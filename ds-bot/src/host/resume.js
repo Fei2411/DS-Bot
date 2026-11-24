@@ -959,7 +959,7 @@ export function install(rt) {
     || source.work === workId
     || source.askWork === workId
     || source.replyTo === workId
-    || (Array.isArray(source.joined) && source.joined.some(item => item?.info?.exchangeId === workId || item?.info?.work === workId))
+    || (Array.isArray(source.joined) && source.joined.some(item => item?.info?.exchangeId === workId || item?.info?.work === workId || item?.info?.replyTo === workId))
   )
   const liveHeldMatchesWork = (entry, workId) => {
     if (entry === undefined) return false
@@ -1039,7 +1039,12 @@ export function install(rt) {
 
     const checkSyncActivity = (targetBot, work, workId) => {
       const primarySid = resolveTargetSession(targetBot, work)
-      const allSids = [...new Set([primarySid, rt.chatOf(targetBot.id), ...ownChatSessions(targetBot)].filter(Boolean))]
+      // `parts.js` keys `state.switching[oldSid] = { botId }` and `switchJobs()` by the
+      // earlier segment moved into `segments` after `pushThreadPart`, so check Bot-level
+      // non-room switches as well as all known session ids (including `work.toSession`).
+      if (Object.values(rt.state?.switching ?? {}).some(entry => entry?.botId === targetBot.id && entry.roomId === undefined)) return { active: true }
+      if ([...(rt.switchJobs?.() ?? [])].some(job => job?.botId === targetBot.id && job.roomId === undefined)) return { active: true }
+      const allSids = [...new Set([primarySid, work.toSession, rt.chatOf(targetBot.id), ...ownChatSessions(targetBot)].filter(Boolean))]
       for (const sid of allSids) {
         if (rt.state?.switching?.[sid] !== undefined || rt.isSwitchingPart?.(sid) === true) return { active: true }
         if ((rt.unreadOf?.(sid) ?? []).some(args => args?.exchangeId === workId || args?.work === workId || args?.askWork === workId)) return { active: true }
@@ -1149,9 +1154,10 @@ export function install(rt) {
                 ?? (parent.toSession === undefined ? undefined : threadCurrentOfPart(parentBot, parent.toSession))
                 ?? rt.chatOf(parentBotId)
               const parentAgent = parentSid === undefined ? undefined : await rt.resolveAgent(parentSid).catch(() => undefined)
-              const replyAlreadyQueued = (rt.unreadOf?.(parentSid) ?? []).some(args => args?.replyTo === workId || args?.work === parentId)
-                || (parentAgent?.inbox?.nextTurn ?? []).some(msg => msg?.source?.replyTo === workId || msg?.source?.work === parentId)
-                || (parentAgent?.inbox?.nextStep ?? []).some(msg => isWakingNextStepMsg(msg) && (msg?.source?.replyTo === workId || msg?.source?.work === parentId))
+              const replyAlreadyQueued = (rt.unreadOf?.(parentSid) ?? []).some(args => args?.replyTo === workId)
+                || (parentAgent?.inbox?.nextTurn ?? []).some(msg => msg?.source?.replyTo === workId)
+                || (parentAgent?.inbox?.nextStep ?? []).some(msg => isWakingNextStepMsg(msg) && msg?.source?.replyTo === workId)
+                || liveHeldMatchesWork(rt.live?.get(parentSid), workId)
               wokenWorks.add(parentId)
               if (!replyAlreadyQueued) {
                 const long = replyText.length > MESSAGE_INLINE_MAX
@@ -1175,6 +1181,38 @@ export function install(rt) {
                   rt.answerMissed?.(workId)
                   rt.warn('ds-bot: waking parent work %s with recovered reply failed: %s', parentId, error)
                 })
+              }
+            }
+          } else if (parentId === undefined && current.fromPart !== undefined) {
+            // Top-level work initiated by an active waiting_work background task:
+            // deliver the recovered reply to the task session so it wakes instead of hanging.
+            const callerBot = current.from === undefined ? undefined : rt.botOf(current.from)
+            const taskThread = callerBot === undefined ? undefined : threadOfPart(callerBot, current.fromPart)
+            const task = taskThread?.thread === 'task' ? callerBot.tasks?.[taskThread.index] : undefined
+            if (task !== undefined && isActiveTask(task)) {
+              const taskSid = threadCurrentOfPart(callerBot, current.fromPart) ?? task.sessionId
+              const taskAgent = taskSid === undefined ? undefined : await rt.resolveAgent(taskSid).catch(() => undefined)
+              const replyAlreadyQueued = (rt.unreadOf?.(taskSid) ?? []).some(args => args?.replyTo === workId)
+                || (taskAgent?.inbox?.nextTurn ?? []).some(msg => msg?.source?.replyTo === workId)
+                || (taskAgent?.inbox?.nextStep ?? []).some(msg => isWakingNextStepMsg(msg) && msg?.source?.replyTo === workId)
+                || liveHeldMatchesWork(rt.live?.get(taskSid), workId)
+              if (!replyAlreadyQueued) {
+                const long = replyText.length > MESSAGE_INLINE_MAX
+                  ? await rt.attachLong?.(replyText, `Answer from ${targetName}.txt`).catch(() => undefined)
+                  : undefined
+                await rt.deliver({
+                  fromId: current.to,
+                  fromName: targetName,
+                  toId: callerBot.id,
+                  ...(taskSid ? { sessionId: taskSid } : {}),
+                  text: long?.text ?? replyText,
+                  ...(long?.length === undefined ? {} : { files: long.files, length: long.length }),
+                  role: 'reply',
+                  replyTo: workId,
+                  ...(current.ref ? { workRef: current.ref } : {}),
+                  recordExchange: false,
+                  exchangeId: randomUUID(),
+                }).catch(error => rt.warn('ds-bot: waking background task %s with recovered reply failed: %s', task.id, error))
               }
             }
           }
