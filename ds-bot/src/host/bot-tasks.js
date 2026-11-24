@@ -392,6 +392,7 @@ export function install(rt) {
       task.from === id || task.inheritedSegments?.some(segment => segment.sessionId === id)))
 
   const retiredTasks = () => Array.isArray(state.retiredTasks) ? state.retiredTasks : []
+  const hasExcessSettledTasks = bot => tasksOf(bot).filter(task => !isActiveTask(task)).length > MAX_SETTLED_TASKS
   const pendingHandoff = botId => Array.isArray(state.pendingHandoffInputs)
     && state.pendingHandoffInputs.some(item => item?.botId === botId)
   const reportPending = (taskId) => {
@@ -529,7 +530,7 @@ export function install(rt) {
 
   function retireSettledTasksAfterIdle(sessionId) {
     const bot = rt.botOf(rt.selfOf(sessionId))
-    if (tasksOf(bot).filter(task => !isActiveTask(task)).length > MAX_SETTLED_TASKS) void retireTasks([bot])
+    if (hasExcessSettledTasks(bot)) void retireTasks([bot])
     else if (retiredTasks().some(entry => entry.sessionIds.includes(sessionId))) void retireTasks()
   }
 
@@ -833,7 +834,7 @@ export function install(rt) {
         rt.forgetSessionTurn?.(sid)
       }
       settling.delete(task.id)
-      if (settled) await retireTasks([bot])
+      if (settled && (hasExcessSettledTasks(bot) || retiredTasks().length > 0)) await retireTasks([bot])
     }
   }
 
@@ -1128,7 +1129,8 @@ export function install(rt) {
     }
     // Replay any foreground handoff inputs left on disk by a prior host crash/restart.
     await reconcilePendingHandoffInputs()
-    await retireTasks(Object.values(state.bots), keep)
+    const bots = Object.values(state.bots).filter(hasExcessSettledTasks)
+    if (bots.length > 0 || retiredTasks().length > 0) await retireTasks(bots, keep)
   }
 
   // Replays pending handoff transfer journal entries without re-running the one-shot
