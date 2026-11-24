@@ -25,28 +25,24 @@ function inlineHtml(line) {
     .replace(/~~([^~]+)~~/g, '<s>$1</s>'))
 }
 
-function inlinePlain(line) {
-  return withCodeSpans(line, code => code, kept => kept
+function stripInlineFormatting(line) {
+  return line
     .replace(/\[([^\]]*)\]\(([^)\s]+)\)/g, (_all, label, url) => (label === url ? label : `${label} (${url})`))
     .replace(/\*\*([^*]+)\*\*/g, '$1')
     .replace(/__([^_]+)__/g, '$1')
     .replace(/\*([^*]+)\*/g, '$1')
     .replace(/\b_([^_]+)_\b/g, '$1')
-    .replace(/~~([^~]+)~~/g, '$1'))
+    .replace(/~~([^~]+)~~/g, '$1')
 }
+
+const inlinePlain = line => stripInlineFormatting(line.replace(/`([^`]+)`/g, '$1'))
+const inlineTablePlain = line => withCodeSpans(line, code => code, stripInlineFormatting)
 
 // One Markdown document as blocks: fenced code stays a block of its own so chunking
 // can keep it whole; the rest splits on blank lines.
-const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})([^\r\n]*)\r?$/
-const FENCE_CLOSE = /^ {0,3}(`{3,}|~{3,}) *\r?$/
-const DEV_BACKTICK_OPEN = /^```(\S*)\s*$/
-const DEV_BACKTICK_CLOSE = /^```\s*$/
-
 function blocks(markdown) {
   const out = []
   const lines = String(markdown).split('\n')
-  const maxRemainingClose = new Map()
-  let lastDevBacktickClose
   let at = 0
   let buffer = []
   const flush = () => {
@@ -55,37 +51,14 @@ function blocks(markdown) {
   }
   while (at < lines.length) {
     const line = lines[at]
-    const fence = FENCE_OPEN.exec(line)
-    if (fence !== null && (fence[1][0] === '~' || !fence[2].includes('`'))) {
-      const marker = fence[1]
-      const char = marker[0]
-      if (marker.length <= (maxRemainingClose.get(char) ?? Infinity)) {
-        let end = at + 1
-        let longest = 0
-        for (; end < lines.length; end += 1) {
-          const close = FENCE_CLOSE.exec(lines[end])?.[1]
-          if (close?.[0] !== char) continue
-          if (close.length >= marker.length) break
-          longest = Math.max(longest, close.length)
-        }
-        if (end < lines.length) {
-          flush()
-          const lang = fence[2].trim().split(/\s+/, 1)[0]
-          out.push({ kind: 'code', lang, lines: lines.slice(at + 1, end) })
-          at = end + 1
-          continue
-        }
-        maxRemainingClose.set(char, longest)
-      }
-    }
-    const devFence = DEV_BACKTICK_OPEN.exec(line)
-    if (devFence !== null) {
-      lastDevBacktickClose ??= lines.findLastIndex(content => DEV_BACKTICK_CLOSE.test(content))
-      if (lastDevBacktickClose <= at) {
-        flush()
-        out.push({ kind: 'code', lang: devFence[1], lines: lines.slice(at + 1) })
-        break
-      }
+    const fence = /^```(\S*)\s*$/.exec(line)
+    if (fence !== null) {
+      flush()
+      const close = lines.slice(at + 1).findIndex(item => /^```\s*$/.test(item))
+      const body = close === -1 ? lines.slice(at + 1) : lines.slice(at + 1, at + 1 + close)
+      out.push({ kind: 'code', lang: fence[1] ?? '', lines: body, open: true })
+      at += 1 + (close === -1 ? body.length : close + 1)
+      continue
     }
     if (line.trim() === '') flush()
     else buffer.push(line)
@@ -103,9 +76,10 @@ const renderPlain = block => (block.kind === 'code' ? block.lines.join('\n') : b
 const ATX_HEADING = /^ {0,3}#{1,6}[ \t]+(.+?)\s*$/
 const LIST_ITEM = /^ {0,3}(?:[-+*]|\d{1,9}[.)])(?:[ \t]|$)/
 const TABLE_DELIMITER = /^:?-+:?$/
+const TILDE_FENCE = /^ {0,3}(~{3,})([^\r\n]*)\r?$/
 
 function tableCells(line) {
-  if (/^ {0,3}[\t>]|^ {4}/.test(line) || ATX_HEADING.test(line)) return undefined
+  if (/^ {0,3}[\t>]|^ {4}/.test(line) || ATX_HEADING.test(line) || TILDE_FENCE.test(line)) return undefined
   const cells = ['']
   for (const part of line.trim().match(/\\.|(?<!`)(`+)(?!`).*?(?<!`)\1(?!`)|[^\\`|]+|`+|\\|\|/g) ?? []) {
     if (part === '|') cells.push('')
@@ -128,7 +102,7 @@ function tableRow(line, header) {
     && (!header.trailingPipe || row.trailingPipe) ? row : undefined
 }
 
-function telegramLines(lines) {
+function telegramLines(lines, tildeFence) {
   const rendered = []
   const renderTableRow = (headers, row) => {
     for (const [index, header] of headers.entries()) {
@@ -136,12 +110,19 @@ function telegramLines(lines) {
       const value = row?.[index] ?? ''
       rendered.push({
         html: '• <b>' + inlineHtml(label) + '</b>' + (value ? ' ' + inlineHtml(value) : ''),
-        text: '• ' + inlinePlain(label) + (value ? ' ' + inlinePlain(value) : ''),
+        text: '• ' + inlineTablePlain(label) + (value ? ' ' + inlineTablePlain(value) : ''),
       })
     }
   }
   for (let at = 0; at < lines.length; at += 1) {
     const line = lines[at]
+    const tilde = TILDE_FENCE.exec(line)
+    if (tildeFence.width > 0 || tilde !== null) {
+      if (tildeFence.width === 0) tildeFence.width = tilde[1].length
+      else if (tilde?.[1].length >= tildeFence.width && /^[ \t]*$/.test(tilde[2])) tildeFence.width = 0
+      rendered.push({ html: inlineHtml(line), text: inlinePlain(line) })
+      continue
+    }
     const next = lines[at + 1] ?? ''
     if (next.includes('-')) {
       const delimiters = tableCells(next)?.cells
@@ -302,6 +283,7 @@ export function chunkMarkdown(markdown, limit) {
 
 export function chunkTelegram(markdown, limit = 4096) {
   const chunks = []
+  const tildeFence = { width: 0 }
   let html = ''
   let text = ''
   const flush = () => {
@@ -311,7 +293,7 @@ export function chunkTelegram(markdown, limit = 4096) {
     text = ''
   }
   for (const block of blocks(markdown)) {
-    const lines = block.kind === 'code' ? [] : telegramLines(block.lines)
+    const lines = block.kind === 'code' ? [] : telegramLines(block.lines, tildeFence)
     const blockHtml = block.kind === 'code' ? renderCodeHtml(block) : lines.map(line => line.html).join('\n')
     const blockText = block.kind === 'code' ? renderPlain(block) : lines.map(line => line.text).join('\n')
     const candidate = html === '' ? blockHtml : `${html}\n${blockHtml}`

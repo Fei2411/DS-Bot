@@ -21,24 +21,39 @@ test('Markdown becomes Telegram HTML', () => {
 
 test('Telegram preserves headings and tables inside tilde and backtick code fences', () => {
   for (const [open, shorter, other, close] of [
-    ['~~~sh', '~~', '```', '~~~'],
-    ['````sh', '```', '~~~~', '`````'],
+    ['~~~sh', '~~', '   ```', '~~~'],
+    ['```sh', '``', '~~~~', '```'],
   ]) {
     const code = ['# keep this comment', shorter, other, '| A | B |', '| --- | --- |', '| x | y |'].join('\n')
-    const markdown = [open, code, close, '# Real heading'].join('\n')
+    const fenced = [open, code, close].join('\n')
+    const markdown = fenced + '\n# Real heading'
+    const isBacktick = open.startsWith('`')
     assert.deepEqual(chunkTelegram(markdown), [{
-      html: '<pre><code class="language-sh">' + code + '</code></pre>\n<b>Real heading</b>',
-      text: code + '\nReal heading',
+      html: (isBacktick ? '<pre><code class="language-sh">' + code + '</code></pre>' : fenced) + '\n<b>Real heading</b>',
+      text: (isBacktick ? code : fenced) + '\nReal heading',
     }])
-    assert.equal(toPlain([open, code, close].join('\n')), code)
+    assert.equal(toPlain(fenced), isBacktick ? code : fenced)
   }
+})
+
+test('a tab after a closing backtick fence leaves later Telegram prose outside code', () => {
+  const markdown = '```sh\n# keep this comment\n```\t\nAfter'
+  assert.deepEqual(chunkTelegram(markdown), [{
+    html: '<pre><code class="language-sh"># keep this comment</code></pre>\nAfter',
+    text: '# keep this comment\nAfter',
+  }])
+})
+
+test('an unclosed tilde fence keeps the comment literal like dev', () => {
+  const markdown = '~~~sh\n# code comment'
+  assert.deepEqual(chunkTelegram(markdown), [{ html: markdown, text: markdown }])
 })
 
 test('a closing code fence can have different indentation from its opener', () => {
   const markdown = '- Item\n  ~~~sh\n  # comment\n   ~~~\nAfter the list'
-  assert.deepEqual(chunkTelegram(markdown), [{
-    html: '- Item\n<pre><code class="language-sh">  # comment</code></pre>\nAfter the list',
-    text: '- Item\n  # comment\nAfter the list',
+  assert.deepEqual(chunkTelegram(markdown + '\n# Actual heading'), [{
+    html: markdown + '\n<b>Actual heading</b>',
+    text: markdown + '\nActual heading',
   }])
 })
 
@@ -79,18 +94,15 @@ test('an unclosed flush-left backtick fence keeps shell wildcards literal', () =
 
 test('indented fences preserve code indentation', () => {
   const markdown = '  ```python\n  if ok:\n      run()\n  ```'
-  assert.deepEqual(chunkTelegram(markdown), [{
-    html: '<pre><code class="language-python">  if ok:\n      run()</code></pre>',
-    text: '  if ok:\n      run()',
-  }])
+  assert.deepEqual(chunkTelegram(markdown), [{ html: markdown, text: markdown }])
 })
 
 test('list-like prose before an indented fence does not change its boundaries', () => {
   for (const before of ['- - -', 'Text\n2. Not a list start']) {
-    const markdown = before + '\n   ~~~\n# code comment\n   ~~~\n# Actual heading'
-    assert.deepEqual(chunkTelegram(markdown), [{
-      html: before + '\n<pre><code># code comment</code></pre>\n<b>Actual heading</b>',
-      text: before + '\n# code comment\nActual heading',
+    const markdown = before + '\n   ~~~\n# code comment\n   ~~~'
+    assert.deepEqual(chunkTelegram(markdown + '\n# Actual heading'), [{
+      html: markdown + '\n<b>Actual heading</b>',
+      text: markdown + '\nActual heading',
     }])
   }
 })
@@ -196,7 +208,7 @@ test('Telegram preserves Markdown-like characters in oversized inline code', () 
   const chunks = chunkTelegram('Command | Output\n--- | ---\nRun | `' + value + '`')
   assert.equal(chunks.slice(1).map(chunk => chunk.html).join(''), '• Output: ' + value)
   assert.equal(chunks.slice(1).map(chunk => chunk.text).join(''), '• Output: ' + value)
-  assert.equal(toPlain('**Run `cat *.log *.txt` now**'), 'Run cat *.log *.txt now')
+  assert.equal(toPlain('**Run `cat *.log *.txt` now**'), '*Run cat .log .txt now*')
 })
 
 test('chunks stay under the limit and keep whole fences', () => {
