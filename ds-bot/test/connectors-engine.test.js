@@ -946,6 +946,7 @@ test('Google loopback catches a rejected sign-in callback instead of an unhandle
 })
 
 test('Google sign-in retries get a fresh URL and a success clears the pending row', async (t) => {
+  const address = 'retry@example.com'
   const oldId = process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_ID
   const oldSecret = process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_SECRET
   process.env.DS_BOT_GOOGLE_OAUTH_CLIENT_ID = 'google-test'
@@ -962,7 +963,7 @@ test('Google sign-in retries get a fresh URL and a success clears the pending ro
     const u = String(url)
     if (u.includes('oauth-authorization-server')) return json(AS)
     if (u === 'https://as.test/token') return json({ access_token: 'tok-aaaa', refresh_token: 'ref-bbbb', expires_in: 3600, token_type: 'Bearer' })
-    if (u.includes('userinfo')) return json({ email: `${'retry'}@gmail.com` })
+    if (u.includes('userinfo')) return json({ email: address })
     return notFound()
   } } })
   t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true }) })
@@ -981,14 +982,14 @@ test('Google sign-in retries get a fresh URL and a success clears the pending ro
   const secretEndpoint = rt.secretEndpoint
   t.mock.method(rt, 'secretEndpoint', (endpoint, body) => {
     const saved = secretEndpoint(endpoint, body)
-    if (endpoint === 'secret-set' && body.name === mailSecretName('retry@gmail.com', 'REFRESH')) storedRefresh.resolve(saved)
+    if (endpoint === 'secret-set' && body.name === mailSecretName(address, 'REFRESH')) storedRefresh.resolve(saved)
     return saved
   })
   callback.search = `?code=C&state=${url.searchParams.get('state')}`
   const [ok] = await Promise.all([fetch(callback), storedRefresh.promise])
   assert.match(await ok.text(), /Signed in/)
   const view = await rt.connectorEndpoint('mail-rule-set', {})
-  assert.ok(view.accounts.some(a => a.address === `${'retry'}@gmail.com`), 'account never landed')
+  assert.ok(view.accounts.some(a => a.address === address), 'account never landed')
   assert.ok(!view.pending?.length, 'pending row must be gone after a successful sign-in: ' + JSON.stringify({ second: second.pending[0].url, leftover: view.pending }))
 })
 
