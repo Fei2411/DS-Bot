@@ -6,7 +6,7 @@
 //   node dev/logo.mjs [out dir]        default: ../docs/images (logo.svg, logo-dark.svg)
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import { SHAPES, bodyOf, holes, maskBox } from '../src/client/characters.js'
+import { shapeOf, bodyOf, holes, maskBox } from '../src/client/characters.js'
 import { GRADIENTS, INKS } from '../src/client/inks.js'
 
 const BOX = 600
@@ -15,11 +15,11 @@ const WHALE = { shape: 'whale', color: 'deepseek', size: 300 }
 // Clockwise from the top.
 const RING = [
   { shape: 'star', color: 'aurora' },
-  { shape: 'wave', color: 'rose' },
+  { shape: 'octopus', color: 'rose' },
   { shape: 'squircle', color: 'tangerine' },
   { shape: 'moon', color: 'charcoal' },
-  { shape: 'hex', color: 'cobalt' },
-  { shape: 'zed', color: 'graphite' },
+  { shape: 'bloom', color: 'cobalt' },
+  { shape: 'bear', color: 'graphite' },
 ]
 const RING_SIZE = 116
 const RING_RADIUS = 228
@@ -47,7 +47,7 @@ function logo(mode) {
 // One character in a `size` box centered on (x, y). The eyes are cut out of the body,
 // so they show the page behind the logo.
 function character({ shape, color, size, x, y }, mode, id) {
-  const def = SHAPES[shape]
+  const def = shapeOf(shape)
   const scale = size / def.size
   const stops = GRADIENTS[color]
   const paint = stops ? `url(#${id}g)` : INKS[color][mode === 'light' ? 0 : 1]

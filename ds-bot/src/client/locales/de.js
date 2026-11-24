@@ -728,7 +728,8 @@ export const DE = {
   'Manage models': 'Modelle verwalten',
 
   // Shapes
-  Whale: 'Wal', Star: 'Stern', Moon: 'Mond', Wave: 'Welle', Squircle: 'Squircle', Bull: 'Stier', Blossom: 'Blüte',
+  Whale: 'Wal', Star: 'Stern', Moon: 'Mond', Cloud: 'Wolke', Spark: 'Funke', Bear: 'Bär', Puppy: 'Welpe',
+  Wave: 'Welle', Squircle: 'Squircle', Bull: 'Stier', Blossom: 'Blüte',
   Dolphin: 'Delfin', Octopus: 'Oktopus', Turtle: 'Schildkröte', Crab: 'Krabbe', Pufferfish: 'Kugelfisch', Jellyfish: 'Qualle',
   Starfish: 'Seestern', Seahorse: 'Seepferdchen',
   Gumdrop: 'Fruchtgummi', Peanut: 'Erdnuss', Bubbles: 'Blasen', Saucer: 'Untertasse', Sprout: 'Keimling', Bunny: 'Hase',

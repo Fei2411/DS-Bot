@@ -728,7 +728,8 @@ export const ES = {
   'Manage models': 'Gestionar modelos',
 
   // Shapes
-  Whale: 'Ballena', Star: 'Estrella', Moon: 'Luna', Wave: 'Onda', Squircle: 'Cuadrículo', Bull: 'Toro', Blossom: 'Flor',
+  Whale: 'Ballena', Star: 'Estrella', Moon: 'Luna', Cloud: 'Nube', Spark: 'Chispa', Bear: 'Oso', Puppy: 'Cachorro',
+  Wave: 'Onda', Squircle: 'Cuadrículo', Bull: 'Toro', Blossom: 'Flor',
   Dolphin: 'Delfín', Octopus: 'Pulpo', Turtle: 'Tortuga', Crab: 'Cangrejo', Pufferfish: 'Pez globo', Jellyfish: 'Medusa',
   Starfish: 'Estrella de mar', Seahorse: 'Caballito de mar',
   Gumdrop: 'Gominola', Peanut: 'Cacahuete', Bubbles: 'Burbujas', Saucer: 'Platillo', Sprout: 'Brote', Bunny: 'Conejo',

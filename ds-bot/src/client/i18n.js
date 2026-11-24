@@ -691,7 +691,8 @@ const ZH = {
   'Manage models': '管理模型',
 
   // Shapes
-  Whale: '鲸鱼', Star: '星星', Moon: '月亮', Wave: '声波', Squircle: '圆角方', Bull: '牛角', Blossom: '花朵',
+  Whale: '鲸鱼', Star: '星星', Moon: '月亮', Cloud: '云朵', Spark: '火苗', Bear: '小熊', Puppy: '小狗',
+  Wave: '声波', Squircle: '圆角方', Bull: '牛角', Blossom: '花朵',
   Dolphin: '海豚', Octopus: '章鱼', Turtle: '海龟', Crab: '螃蟹', Pufferfish: '河豚', Jellyfish: '水母',
   Starfish: '海星', Seahorse: '海马',
   Gumdrop: '软糖', Peanut: '花生', Bubbles: '泡泡', Saucer: '飞碟', Sprout: '嫩芽', Bunny: '兔子',

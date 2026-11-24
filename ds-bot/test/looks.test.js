@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readdirSync, readFileSync } from 'node:fs'
 import { test } from 'node:test'
-import { DEFAULT_COLORS, DEFAULT_SHAPES, MAIN_LOOK, defaultColor, defaultShape, lookOf } from '../src/client/characters.js'
+import { CHARACTERS, DEFAULT_COLORS, DEFAULT_SHAPES, MAIN_LOOK, PICKER_SHAPES, SHAPE_ALIASES, SHAPES, characterMarkup, defaultColor, defaultShape, hasShape, lookOf, shapeId } from '../src/client/characters.js'
 import { indexRoster } from '../src/client/sources.js'
 
 const ids = Array.from({ length: 3000 }, (_, index) => `session-${index.toString(16).padStart(8, '0')}-look`)
@@ -13,6 +13,32 @@ test('a Bot with no look of its own never gets the whale, gray, brown, or black'
   const colors = new Set(ids.map(defaultColor))
   assert.deepEqual([...shapes].sort(), [...DEFAULT_SHAPES].sort())
   assert.deepEqual([...colors].sort(), [...DEFAULT_COLORS].sort())
+})
+
+test('redesigned characters render flat 3/4 silhouettes, hide retired shapes from the picker, and alias replaced keys', () => {
+  for (const retired of ['zed', 'wave', 'hex', 'cushion', 'ring', 'gem', 'magnet']) {
+    assert.ok(!PICKER_SHAPES.includes(retired), `${retired} should stay out of PICKER_SHAPES`)
+  }
+  for (const added of ['moon', 'cloud', 'spark', 'bear', 'puppy', 'octopus', 'sprout', 'bloom', 'squircle']) {
+    assert.ok(PICKER_SHAPES.includes(added), `${added} should appear in PICKER_SHAPES`)
+    assert.ok(Object.hasOwn(SHAPES, added), `${added} should exist in SHAPES`)
+    const markup = characterMarkup(added, 'blue')
+    assert.ok(!markup.includes('fill-opacity=".07"'), `${added} should not render a fake-3D shade overlay`)
+  }
+  for (const [legacy, target] of Object.entries(SHAPE_ALIASES)) {
+    assert.equal(hasShape(legacy), true)
+    assert.equal(shapeId(legacy), target)
+    assert.equal(lookOf({ id: 'old-bot', avatar: { shape: legacy } }).shape, target)
+    assert.equal(characterMarkup(legacy, 'orange'), characterMarkup(target, 'orange'))
+  }
+  // Legacy non-vendor shapes stay renderable for Bots that already saved them.
+  for (const kept of ['ring', 'gem', 'magnet']) {
+    assert.equal(hasShape(kept), true)
+    assert.equal(lookOf({ id: 'legacy-bot', avatar: { shape: kept } }).shape, kept)
+  }
+  // The desktop start-window rig reads whale.shade and whale.light directly.
+  assert.ok(CHARACTERS.whale.shade && CHARACTERS.whale.light)
+  assert.ok(!characterMarkup('whale', 'deepseek').includes('fill-opacity=".07"'))
 })
 
 const roster = (bots, mainBotIds) => indexRoster({ bots, rooms: [], mainBotIds, mainBotId: mainBotIds[0] ?? null })
