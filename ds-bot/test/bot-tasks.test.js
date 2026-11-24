@@ -419,6 +419,45 @@ test('active and paused reminders move before the former foreground Session can 
   assert.deepEqual(env.archivedSessions.map(item => item.sid), ['old-session-0'])
 })
 
+test('an idle retirement retry deletes the old legacy reminder without copying it again', async (t) => {
+  const team = makeTeam()
+  team.bots.a.tasks = settledTasks(50)
+  const reminder = { id: 'reminder', kind: 'every', title: 'Check in', prompt: 'Check the status', everySeconds: 3600 }
+  const copies = []
+  let active = true
+  let deletions = 0
+  const schedule = {
+    list: async ({ sessionId }) => sessionId === 'old-session-0' && active ? [reminder] : [],
+    create: async (sessionId, request) => copies.push({ sessionId, request }),
+    delete: async () => {
+      if (++deletions === 1) throw new Error('Temporary deletion failure')
+      active = false
+      return { deleted: true }
+    },
+  }
+  const env = await startEnv({ team, services: { schedule } })
+  t.after(env.stop)
+  const archive = env.ctx.workspaceRegistry.archiveSession
+  env.ctx.workspaceRegistry.archiveSession = async (id, options) => {
+    if (id === 'old-session-0' && active) throw new Error('Session has an active reminder')
+    await archive(id, options)
+  }
+  await env.tool('task_start').execute({ title: 'Another task', brief: 'Trigger pruning' }, execOf(env.agentMap.get('dm-a')))
+  const task = env.rt.botOf('a').tasks.at(-1)
+  assert.equal((await env.callApi('bot-stop-task', { botId: 'a', taskId: task.id })).ok, true)
+  assert.equal(deletions, 1)
+  assert.equal(copies.length, 1)
+  assert.deepEqual(env.archivedSessions, [])
+
+  await waitFor(() => env.archivedSessions.some(({ sid }) => sid === 'old-session-0'), 5000)
+  assert.deepEqual(env.archivedSessions.map(({ sid }) => sid), ['old-session-0'])
+  assert.equal(deletions, 2)
+  assert.deepEqual(copies, [{
+    sessionId: 'dm-a',
+    request: { title: reminder.title, prompt: reminder.prompt, every_seconds: reminder.everySeconds },
+  }])
+})
+
 test('pruning a group task keeps its reminder in the group member chat', async (t) => {
   const team = makeTeam({ rooms: { r: { id: 'r', name: 'Room', members: ['a'], sessions: { a: 'room-a' } } } })
   team.bots.a.tasks = settledTasks(51)

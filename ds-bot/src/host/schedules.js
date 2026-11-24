@@ -263,8 +263,34 @@ export function install(rt) {
     },
   }
 
-  // A fresh part takes over the earlier part's active tasks: each is created again on
-  // the fresh Session before the old one goes, so a failure leaves it where it was.
+  const legacyMoves = new Map()
+  function moveLegacySchedules(schedule, fromId, toId) {
+    const move = legacyMoves.get(fromId) ?? { copied: new Set() }
+    if (move.running !== undefined) return move.running
+    legacyMoves.set(fromId, move)
+    const run = async () => {
+      const records = await schedule.list({ sessionId: fromId })
+      const active = new Set(records.map(record => record.id))
+      for (const id of move.copied) if (!active.has(id)) move.copied.delete(id)
+      for (const record of records) {
+        if (!move.copied.has(record.id)) {
+          const request = requestOf(record)
+          if (request === null || (request.at !== undefined && Date.parse(request.at) <= Date.now())) continue
+          await schedule.create(toId, request)
+          // The legacy API generates a new id for each create. Retry deletion, not the copy.
+          move.copied.add(record.id)
+        }
+        await schedule.delete({ sessionId: fromId, id: record.id })
+        move.copied.delete(record.id)
+      }
+    }
+    move.running = run().finally(() => {
+      move.running = undefined
+      if (move.copied.size === 0) legacyMoves.delete(fromId)
+    })
+    return move.running
+  }
+
   async function moveSchedules(fromId, toId) {
     if (service === null) {
       if (schedulesPending()) {
@@ -282,20 +308,7 @@ export function install(rt) {
       }
       return
     }
-    const records = await service.list({ sessionId: fromId })
-    for (const record of records) {
-      const request = requestOf(record)
-      if (request === null || (request.at !== undefined && Date.parse(request.at) <= Date.now())) continue
-      // A failed read or copy must prevent stopActivity from deleting an unmoved
-      // task. Equal requests can be separate tasks; copy each source record.
-      await service.create(toId, request)
-      try {
-        await service.delete({ sessionId: fromId, id: record.id })
-      } catch (error) {
-        // The copy is safe; archiving the earlier part will remove its old task.
-        rt.warn('ds-bot: earlier copy of task %s not removed: %s', record.title, error?.message ?? error)
-      }
-    }
+    await moveLegacySchedules(service, fromId, toId)
   }
 
   // DSH 0.2.2's task ids are Host-wide, so a Bot's schedule tools reach only the tasks
