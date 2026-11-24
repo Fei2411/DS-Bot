@@ -51,12 +51,19 @@ export function install(rt) {
   const noteCache = new Map()
   /** @type {Map<string, Promise<unknown>>} */
   const noteOps = new Map()
+  /** @type {Map<string, number>} */
+  const noteSeq = new Map()
   const queueNoteOp = (sessionId, run) => {
     const prev = noteOps.get(sessionId) ?? Promise.resolve()
     const next = prev.then(run, run)
     const settled = next.catch(() => {})
     noteOps.set(sessionId, settled)
-    settled.finally(() => { if (noteOps.get(sessionId) === settled) noteOps.delete(sessionId) })
+    settled.finally(() => {
+      if (noteOps.get(sessionId) === settled) {
+        noteOps.delete(sessionId)
+        noteSeq.delete(sessionId)
+      }
+    })
     return next
   }
   const loadSegmentNoteFromDisk = (sid) => {
@@ -86,15 +93,25 @@ export function install(rt) {
   }
   const writeSegmentNote = (sessionId, text) => {
     const sid = sessionIdOf(sessionId)
-    if (sid === undefined || typeof text !== 'string' || readOnly() !== undefined) return Promise.resolve(false)
+    if (sid === undefined || typeof text !== 'string' || stopped || readOnly() !== undefined) return Promise.resolve(false)
+    const epoch = lockEpoch
+    const seq = (noteSeq.get(sid) ?? 0) + 1
+    noteSeq.set(sid, seq)
     return queueNoteOp(sid, async () => {
+      if (readOnly() !== undefined || lockEpoch !== epoch) return false
       const target = join(notesDir, segmentNoteFile(sid))
       const temp = `${target}.${process.pid}.${randomUUID().slice(0, 8)}.tmp`
       try {
         await mkdir(notesDir, { recursive: true })
+        if (readOnly() !== undefined || lockEpoch !== epoch) return false
         await writeFile(temp, text, 'utf8')
+        if (readOnly() !== undefined || lockEpoch !== epoch) {
+          await unlink(temp).catch(() => {})
+          return false
+        }
         await replaceFile(temp, target)
-        noteCache.set(sid, text)
+        // Guard cache population against a newer queued delete/write or an adopt() reload.
+        if (lockEpoch === epoch && noteSeq.get(sid) === seq) noteCache.set(sid, text)
         return true
       } catch (error) {
         await unlink(temp).catch(() => {})
@@ -108,12 +125,20 @@ export function install(rt) {
     const ids = [...new Set(raw.map(sessionIdOf).filter(Boolean))]
     if (ids.length === 0) return Promise.resolve()
     for (const sid of ids) noteCache.delete(sid)
-    if (readOnly() !== undefined) return Promise.resolve()
-    return Promise.all(ids.map(sid => queueNoteOp(sid, async () => {
-      await unlink(join(notesDir, segmentNoteFile(sid))).catch((error) => {
-        if (error?.code !== 'ENOENT') warn('ds-bot: segment note for %s not deleted: %s', sid, error)
+    if (stopped || readOnly() !== undefined) return Promise.resolve()
+    const epoch = lockEpoch
+    return Promise.all(ids.map((sid) => {
+      const seq = (noteSeq.get(sid) ?? 0) + 1
+      noteSeq.set(sid, seq)
+      return queueNoteOp(sid, async () => {
+        if (readOnly() !== undefined || lockEpoch !== epoch) return
+        await unlink(join(notesDir, segmentNoteFile(sid))).catch((error) => {
+          if (error?.code !== 'ENOENT') warn('ds-bot: segment note for %s not deleted: %s', sid, error)
+        })
+        // Re-evict after any earlier in-flight write settled so deleted notes cannot stay cached.
+        if (lockEpoch === epoch && noteSeq.get(sid) === seq) noteCache.delete(sid)
       })
-    }))).then(() => {})
+    })).then(() => {})
   }
   const allStateSegments = () => {
     const list = []
@@ -126,7 +151,10 @@ export function install(rt) {
     for (const bot of Object.values(state.bots ?? {})) {
       if (bot === null || typeof bot !== 'object') continue
       pushList(bot.segments)
-      for (const task of Array.isArray(bot.tasks) ? bot.tasks : []) pushList(task?.segments)
+      for (const task of Array.isArray(bot.tasks) ? bot.tasks : []) {
+        pushList(task?.inheritedSegments)
+        pushList(task?.segments)
+      }
     }
     for (const room of Object.values(state.rooms ?? {})) {
       if (room === null || typeof room !== 'object') continue
@@ -138,16 +166,22 @@ export function install(rt) {
   // Migrates inline `segment.note` bodies out of `state.json` into `<home>/segment-notes/`.
   // Fail-closed: if a disk write fails, the inline note stays intact on the segment.
   async function migrateSegmentNotes() {
-    if (readOnly() !== undefined) return false
+    if (stopped || readOnly() !== undefined) return false
     const epoch = lockEpoch
+    const writtenNotes = new Map()
     let changed = false
     for (const segment of allStateSegments()) {
+      if (stopped || readOnly() !== undefined || lockEpoch !== epoch) break
       const sid = sessionIdOf(segment.sessionId)
       if (sid === undefined || typeof segment.note !== 'string') continue
       const note = segment.note
-      const ok = await writeSegmentNote(sid, note)
+      let ok = writtenNotes.get(sid) === note
+      if (!ok) {
+        ok = await writeSegmentNote(sid, note)
+        if (ok) writtenNotes.set(sid, note)
+      }
       if (!ok) continue
-      if (lockEpoch !== epoch) return false
+      if (stopped || lockEpoch !== epoch) break
       if (segment.note === note) {
         delete segment.note
         segment.hasNote = true
@@ -157,7 +191,7 @@ export function install(rt) {
     return changed
   }
   async function runStorageMigrations() {
-    if (stuck !== undefined || readOnly() !== undefined) return false
+    if (stopped || stuck !== undefined || readOnly() !== undefined) return false
     let changed = false
     if (typeof rt.migrateLegacyExchanges === 'function') {
       const movedExchanges = await rt.migrateLegacyExchanges().catch((error) => {
@@ -166,6 +200,7 @@ export function install(rt) {
       })
       if (movedExchanges) changed = true
     }
+    if (stopped || stuck !== undefined || readOnly() !== undefined) return changed
     const movedNotes = await migrateSegmentNotes().catch((error) => {
       warn('ds-bot: migrating segment notes failed: %s', error)
       return false

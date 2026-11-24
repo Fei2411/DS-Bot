@@ -1,13 +1,25 @@
 import assert from 'node:assert/strict'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import fsp from 'node:fs/promises'
+import { syncBuiltinESMExports } from 'node:module'
 import { hostname, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { setTimeout as delay } from 'node:timers/promises'
 import { createRuntime } from '../index.js'
-import { bookFile, parseBook } from '../src/host/ledger.js'
+import { install as installLedger, bookFile, parseBook } from '../src/host/ledger.js'
 import { segmentNoteFile } from '../src/host/store.js'
 import { fakeContext } from './fake-ctx.js'
+
+function patchFsp(method, replace) {
+  const original = fsp[method]
+  fsp[method] = replace(original)
+  syncBuiltinESMExports()
+  return () => {
+    fsp[method] = original
+    syncBuiltinESMExports()
+  }
+}
 
 const NOTE_SECTIONS = [
   'Goals', 'Constraints and preferences', 'Progress', 'Decisions',
@@ -834,4 +846,331 @@ test('read-only host reads unmigrated legacy state without writing, then migrate
   assert.equal('note' in migrated.bots.a.segments[0], false)
   assert.equal(existsSync(join(home, 'ledger', bookFile('pair-a-b'))), true)
   assert.equal(readFileSync(join(home, 'segment-notes', segmentNoteFile('a-seg-ro')), 'utf8'), 'RO_INLINE_NOTE')
+})
+
+test('legacy duplicated bot.tasks[*].inheritedSegments[*].note entries migrate out of state.json without risking foreground notes on prune', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-slim-inherited-'))
+  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
+
+  const fgNote = fullNote('SHARED_FG_NOTE', 120)
+  const orphanInheritedNote = fullNote('ORPHAN_INHERITED_NOTE', 80)
+
+  // Simulate a pre-slimSegments team where 20 settled tasks each cloned multi-KB inheritedSegments[*].note.
+  const tasks = Array.from({ length: 20 }, (_, idx) => ({
+    id: `k_leg_${idx}`,
+    title: `Legacy task ${idx}`,
+    brief: 'Done',
+    from: 'a-cur',
+    sessionId: `a-task-${idx}`,
+    status: 'completed',
+    startedAt: 100 + idx,
+    updatedAt: 110 + idx,
+    endedAt: 110 + idx,
+    inheritedSegments: [
+      { sessionId: 'a-fg-1', endedAt: 50, note: fgNote },
+      ...(idx === 0 ? [{ sessionId: 'a-fg-cleared', endedAt: 40, note: orphanInheritedNote }] : []),
+    ],
+    segments: [],
+  }))
+  const seed = {
+    version: 1,
+    mainBotIds: ['a'],
+    bots: {
+      a: {
+        id: 'a',
+        sessionId: 'a-cur',
+        name: 'Chief',
+        role: 'Lead',
+        instructions: '',
+        createdAt: 1,
+        segments: [{ sessionId: 'a-fg-1', endedAt: 50, note: fgNote }],
+        tasks,
+      },
+    },
+    rooms: {},
+    exchanges: [],
+    exchangeTurns: {},
+    questions: {},
+    prefs: {},
+    revision: 1,
+  }
+  const beforeBytes = Buffer.byteLength(JSON.stringify(seed))
+
+  const host = await bootHost(t, { home, seed })
+  const savedRaw = readFileSync(join(home, 'state.json'), 'utf8')
+  const saved = JSON.parse(savedRaw)
+
+  assert.ok(Buffer.byteLength(savedRaw) < beforeBytes * 0.1, `expected >90% shrink, got ${beforeBytes} -> ${Buffer.byteLength(savedRaw)}`)
+  assert.equal('note' in saved.bots.a.segments[0], false)
+  assert.equal(saved.bots.a.segments[0].hasNote, true)
+  for (const task of saved.bots.a.tasks) {
+    for (const seg of task.inheritedSegments) {
+      assert.equal('note' in seg, false, `task ${task.id} inheritedSegment ${seg.sessionId} must strip inline note`)
+      assert.equal(seg.hasNote, true)
+    }
+  }
+  assert.equal(readFileSync(join(home, 'segment-notes', segmentNoteFile('a-fg-1')), 'utf8'), fgNote)
+  assert.equal(readFileSync(join(home, 'segment-notes', segmentNoteFile('a-fg-cleared')), 'utf8'), orphanInheritedNote)
+  assert.equal(host.rt.readSegmentNote(host.rt.botOf('a').tasks[0].inheritedSegments[1]), orphanInheritedNote)
+})
+
+test('concurrent writeSegmentNote + deleteSegmentNotes cannot resurrect deleted note in cache or on disk', async (t) => {
+  const host = await bootHost(t, {
+    seed: {
+      version: 1,
+      mainBotIds: ['a'],
+      bots: { a: { id: 'a', sessionId: 'a', name: 'Chief', role: 'Lead', instructions: '', createdAt: 1 } },
+      rooms: {},
+      exchanges: [],
+      exchangeTurns: {},
+      questions: {},
+      prefs: {},
+      revision: 1,
+    },
+  })
+
+  const notePath = join(host.home, 'segment-notes', segmentNoteFile('race-sid'))
+  let entered
+  let unblock
+  const atWrite = new Promise(resolve => { entered = resolve })
+  const gate = new Promise(resolve => { unblock = resolve })
+  const restore = patchFsp('writeFile', original => async (path, ...args) => {
+    if (String(path).startsWith(`${notePath}.`)) {
+      entered()
+      await gate
+    }
+    return original(path, ...args)
+  })
+  try {
+    const writing = host.rt.writeSegmentNote('race-sid', 'STALE_WRITTEN_NOTE')
+    await atWrite
+    // Delete is invoked while writeSegmentNote is mid-flight.
+    const deleting = host.rt.deleteSegmentNotes(['race-sid'])
+    unblock()
+    await Promise.all([writing, deleting])
+  } finally {
+    unblock()
+    restore()
+  }
+
+  assert.equal(existsSync(notePath), false, 'deleted segment note file must not exist on disk')
+  assert.equal(host.rt.readSegmentNote({ sessionId: 'race-sid', hasNote: true }), undefined, 'deleted segment note must not be resurrected in noteCache')
+  assert.equal(host.rt.readSegmentNote('race-sid'), undefined)
+})
+
+test('dispose during migrateSegmentNotes stops remaining segment note writes before lock release', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-slim-dispose-'))
+  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
+
+  const seed = {
+    version: 1,
+    mainBotIds: ['a'],
+    bots: {
+      a: {
+        id: 'a',
+        sessionId: 'a-cur',
+        name: 'Chief',
+        role: 'Lead',
+        instructions: '',
+        createdAt: 1,
+        segments: [
+          { sessionId: 'seg-1', endedAt: 10, note: 'NOTE_ONE' },
+          { sessionId: 'seg-2', endedAt: 20, note: 'NOTE_TWO' },
+        ],
+      },
+    },
+    rooms: {},
+    exchanges: [],
+    exchangeTurns: {},
+    questions: {},
+    prefs: {},
+    revision: 1,
+  }
+  writeFileSync(join(home, 'state.json'), JSON.stringify(seed))
+
+  const seg1Path = join(home, 'segment-notes', segmentNoteFile('seg-1'))
+  const seg2Path = join(home, 'segment-notes', segmentNoteFile('seg-2'))
+  let entered
+  let unblock
+  const atSeg1 = new Promise(resolve => { entered = resolve })
+  const gate = new Promise(resolve => { unblock = resolve })
+  const restore = patchFsp('writeFile', original => async (path, ...args) => {
+    if (String(path).startsWith(`${seg1Path}.`)) {
+      entered()
+      await gate
+    }
+    return original(path, ...args)
+  })
+  const ctx = fakeContext()
+  ctx.logger = { warn() {}, info() {} }
+  const rt = createRuntime(ctx, { home })
+  try {
+    const loading = rt.load()
+    await atSeg1
+    const disposing = ctx.dispose()
+    unblock()
+    await Promise.all([loading, disposing])
+  } finally {
+    unblock()
+    restore()
+  }
+
+  assert.equal(existsSync(join(home, 'state.lock')), false, 'lock must be released after dispose')
+  assert.equal(existsSync(seg2Path), false, 'seg-2 must not be written after dispose stopped migration')
+})
+
+test('ledger.mergeRecords prevents duplicate disk writes, duplicate delivered events on cold open, and book resurrection after drop', async (t) => {
+  const makeLedger = (label) => {
+    const home = mkdtempSync(join(tmpdir(), `ds-bot-merge-race-${label}-`))
+    t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
+    let readOnly
+    const rt = { home, readOnly: () => readOnly, warn: () => {} }
+    installLedger(rt)
+    return { rt, home, file: book => join(home, 'ledger', bookFile(book)), setReadOnly: v => { readOnly = v } }
+  }
+
+  // 1) Queued append behind in-flight W0 + mergeRecords (W1) must NOT write R_new twice to disk.
+  {
+    const { rt, file } = makeLedger('dup-append')
+    let entered
+    let unblock
+    const atAppend = new Promise(resolve => { entered = resolve })
+    const gate = new Promise(resolve => { unblock = resolve })
+    let paused = false
+    const restore = patchFsp('appendFile', original => async (path, ...args) => {
+      if (path === file('pair-a-b') && !paused) {
+        paused = true
+        entered()
+        await gate
+      }
+      return original(path, ...args)
+    })
+    try {
+      rt.ledger.append('pair-a-b', { id: 'm0', text: 'first' })
+      await atAppend
+      const merging = rt.ledger.mergeRecords('pair-a-b', [{ id: 'legacy-0', text: 'older', delivered: true }])
+      // Synchronously append while W0 is still blocked and W1 (mergeRecords) is queued behind W0.
+      rt.ledger.append('pair-a-b', { id: 'm1', text: 'after-merge' })
+      unblock()
+      assert.equal(await merging, true)
+      await rt.ledger.flush('pair-a-b')
+    } finally {
+      unblock()
+      restore()
+    }
+    const diskIds = parseBook(readFileSync(file('pair-a-b'), 'utf8')).map(r => r.id)
+    const memIds = rt.ledger.records('pair-a-b').map(r => r.id)
+    assert.deepEqual(diskIds, ['legacy-0', 'm0', 'm1'], 'disk must contain each record exactly once in order')
+    assert.deepEqual(memIds, ['legacy-0', 'm0', 'm1'], 'memory must match disk with zero duplicates')
+  }
+
+  // 2) Cold book mergeRecords + concurrent open()/append() must NOT duplicate existing `{ event: 'delivered' }` records.
+  {
+    const { rt, home, file } = makeLedger('cold-delivered')
+    mkdirSync(join(home, 'ledger'), { recursive: true })
+    writeFileSync(file('pair-a-b'), [
+      JSON.stringify({ id: 'm1', from: 'a', to: 'b', role: 'reply', text: 'existing' }),
+      JSON.stringify({ event: 'delivered', id: 'm1', sessionId: 'b', failureRequestId: 'fail-req-1', time: 10 }),
+    ].join('\n') + '\n')
+
+    let entered
+    let unblock
+    const atWrite = new Promise(resolve => { entered = resolve })
+    const gate = new Promise(resolve => { unblock = resolve })
+    const restore = patchFsp('writeFile', original => async (path, ...args) => {
+      if (String(path).startsWith(`${file('pair-a-b')}.`)) {
+        entered()
+        await gate
+      }
+      return original(path, ...args)
+    })
+    try {
+      const merging = rt.ledger.mergeRecords('pair-a-b', [{ id: 'legacy-1', from: 'a', to: 'b', role: 'request', text: 'old', delivered: true }])
+      await atWrite
+      // Cold open + append while mergeRecords is writing temp file.
+      rt.ledger.open('pair-a-b')
+      rt.ledger.append('pair-a-b', { id: 'm2', from: 'b', to: 'a', role: 'request', text: 'concurrent' })
+      unblock()
+      assert.equal(await merging, true)
+      await rt.ledger.flush('pair-a-b')
+    } finally {
+      unblock()
+      restore()
+    }
+    const memRecords = rt.ledger.records('pair-a-b')
+    const diskRecords = parseBook(readFileSync(file('pair-a-b'), 'utf8'))
+    assert.equal(memRecords.filter(r => r.event === 'delivered' && r.failureRequestId === 'fail-req-1').length, 1, 'delivered event must not be duplicated in memory')
+    assert.equal(diskRecords.filter(r => r.event === 'delivered' && r.failureRequestId === 'fail-req-1').length, 1, 'delivered event must not be duplicated on disk')
+    assert.deepEqual(memRecords.filter(r => r.event === undefined).map(r => r.id), ['legacy-1', 'm1', 'm2'])
+    assert.deepEqual(diskRecords.filter(r => r.event === undefined).map(r => r.id), ['legacy-1', 'm1', 'm2'])
+  }
+
+  // 3) Concurrent drop(book) during in-flight mergeRecords must abort without resurrecting the book.
+  {
+    const { rt, file } = makeLedger('drop-race')
+    let entered
+    let unblock
+    const atWrite = new Promise(resolve => { entered = resolve })
+    const gate = new Promise(resolve => { unblock = resolve })
+    const restore = patchFsp('writeFile', original => async (path, ...args) => {
+      if (String(path).startsWith(`${file('pair-a-b')}.`)) {
+        entered()
+        await gate
+      }
+      return original(path, ...args)
+    })
+    try {
+      const merging = rt.ledger.mergeRecords('pair-a-b', [{ id: 'x-drop', text: 'should drop', delivered: true }])
+      await atWrite
+      rt.ledger.drop('pair-a-b')
+      unblock()
+      assert.equal(await merging, false, 'mergeRecords must abort when book is dropped mid-flight')
+      await rt.ledger.flush('pair-a-b')
+    } finally {
+      unblock()
+      restore()
+    }
+    assert.equal(existsSync(file('pair-a-b')), false, 'dropped book file must not exist on disk')
+    assert.equal(rt.ledger.hasBook('pair-a-b'), false, 'dropped book must not be resurrected in memory')
+    assert.deepEqual(rt.ledger.records('pair-a-b'), [])
+  }
+})
+
+test('stale exchange-text probes do not scan or pin empty books for unused Bot pairs', async (t) => {
+  const host = await bootHost(t, {
+    seed: {
+      version: 1,
+      mainBotIds: ['a'],
+      bots: {
+        a: { id: 'a', sessionId: 'a', name: 'Chief', role: 'Lead', instructions: '', createdAt: 1 },
+        b: { id: 'b', sessionId: 'b', name: 'Writer', role: 'Dev', instructions: '', createdAt: 2 },
+        c: { id: 'c', sessionId: 'c', name: 'Reviewer', role: 'QA', instructions: '', createdAt: 3 },
+        d: { id: 'd', sessionId: 'd', name: 'Ops', role: 'Ops', instructions: '', createdAt: 4 },
+      },
+      rooms: {},
+      exchanges: [],
+      exchangeTurns: {},
+      questions: {},
+      prefs: {},
+      revision: 1,
+    },
+  })
+
+  await host.rt.deliver({ fromId: 'a', toId: 'b', role: 'request', text: 'only pair a-b', exchangeId: 'ex-ab' })
+  assert.equal(host.rt.ledger.hasBook('pair-a-b'), true)
+  assert.equal(host.rt.ledger.hasBook('pair-c-d'), false)
+
+  // Stale ID with explicit pair (a, b) must not open unused pairs.
+  const missWithPair = await host.call('exchange-text', { id: 'missing-id', a: 'a', b: 'b' })
+  assert.equal(missWithPair.ok, false)
+  assert.equal(missWithPair.error.code, 'bot/stale')
+
+  // Stale ID without pair must also skip pairs with no file on disk.
+  const missNoPair = await host.call('exchange-text', { id: 'missing-id' })
+  assert.equal(missNoPair.ok, false)
+  assert.equal(missNoPair.error.code, 'bot/stale')
+
+  for (const unused of ['pair-a-c', 'pair-a-d', 'pair-b-c', 'pair-b-d', 'pair-c-d']) {
+    assert.equal(host.rt.ledger.hasBook(unused), false, `stale lookup must not open/pin unused ${unused}`)
+  }
 })

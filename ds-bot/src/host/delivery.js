@@ -658,6 +658,7 @@ export function install(rt) {
       for (let j = i + 1; j < botIds.length; j += 1) {
         const book = pairBook(botIds[i], botIds[j])
         if (pairCache.has(book)) continue
+        if (typeof rt.ledger.hasBook === 'function' && !rt.ledger.hasBook(book)) continue
         const hit = pairRecords(botIds[i], botIds[j]).shown.get(id)
         if (hit !== undefined) return formatExchangeRecord(hit)
       }
