@@ -8,6 +8,7 @@ import { t } from './i18n.js'
 import { insertComposerNewline, sendsOnEnter } from './enter-key.js'
 import { enterSteers, steerable } from './enter-steer.js'
 import { chatOfSession, keepDraft, takeDraft } from './draft-keep.js'
+import { mergeRescuedDraft, readRescuedForChat } from './question-draft.js'
 
 // -------------------------------------------------------------------------
 // Composer: dictation mic and the voice-chat button. The shell's send
@@ -227,33 +228,55 @@ const FROZEN_PHASES = new Set(['adjudicating', 'submitting', 'sending'])
 
 // An unsent draft stays with its chat (draft-keep.js). Sits in the composer of every Bot
 // and group Session and renders nothing.
-export function DraftKeeper({ sessionId, inputActions, useInput, useRoster, actions }) {
+export function DraftKeeper({ sessionId, inputActions, useInput, useRoster, useRescuedDrafts, actions }) {
   const chatId = useRoster(roster => chatOfSession(roster, sessionId)?.id)
   const current = useRoster(roster => chatOfSession(roster, sessionId)?.part === sessionId)
   const draft = useInput?.(state => state.draft) ?? ''
   const ids = useInput?.(state => state.attachmentIds) ?? NO_IDS
   const phase = useInput?.(state => state.phase) ?? 'plain'
+  const rescued = useRescuedDrafts?.(state => readRescuedForChat(state, chatId, sessionId)) ?? ''
   const frozen = FROZEN_PHASES.has(phase)
+  const key = `${chatId}:${sessionId}`
+  const keyRef = useRef(key)
   const restored = useRef('')
   // What was just put back and has not reached the input state yet.
-  const pending = useRef({ text: false, files: false })
+  const pending = useRef({ text: false, staleDraft: null, files: false })
+  const latestDraft = useRef(draft)
+  if (keyRef.current !== key) {
+    keyRef.current = key
+    pending.current = { text: false, staleDraft: null, files: false }
+    latestDraft.current = draft
+  } else if (!pending.current.text || draft !== pending.current.staleDraft) {
+    latestDraft.current = draft
+  }
   // Take back first, so the empty box of a composer that just opened is not kept over
   // the draft it is about to get. While a send is in flight the shell refuses edits, so
   // wait for the submit plane to settle and leave the kept draft untouched.
+  let rescuedHandled = false
   useEffect(() => {
     if (!current || frozen || inputActions === undefined) return
-    const key = `${chatId}:${sessionId}`
     if (restored.current === key) return
     const back = takeDraft({ chatId, part: sessionId, text: draft, attached: ids.length })
+    const baseText = back.text !== '' ? back.text : draft
+    const mergedText = rescued !== '' ? mergeRescuedDraft(baseText, rescued) : back.text
+    const applyText = rescued !== '' ? mergedText !== draft : back.text !== ''
+    if (rescued !== '') rescuedHandled = true
     let added = []
     let attached = false
     let restoredText = false
     let restoredFiles = false
     let ok = true
     try {
-      if (back.text !== '') {
-        inputActions.setDraft(back.text)
+      if (applyText) {
+        inputActions.setDraft(mergedText)
         restoredText = true
+        latestDraft.current = mergedText
+      }
+      if (rescued !== '') {
+        actions.consumeRescuedDraft?.(chatId, sessionId, rescued)
+        if (restoredText && back.files.length === 0) {
+          keepDraft({ chatId, part: sessionId, text: mergedText, files: actions.draftFiles?.(ids) ?? [] })
+        }
       }
       if (back.files.length > 0) {
         added = actions.restoreDraftFiles(sessionId, back.files.map(item => item.file))
@@ -273,12 +296,29 @@ export function DraftKeeper({ sessionId, inputActions, useInput, useRoster, acti
     }
     // A restore that failed outside a send is not tried again on every later send: the
     // draft is kept from what the box holds now, and the user hears the files are gone.
-    pending.current = { text: restoredText, files: restoredFiles }
+    pending.current = { text: restoredText, staleDraft: restoredText ? draft : null, files: restoredFiles }
     restored.current = key
     if (!ok && back.files.length > 0) actions.notice?.(t('The files attached to this draft could not be put back.'))
   }, [current, frozen, chatId, sessionId, inputActions])
+  // Rescued text from an interrupted question card lands live once this composer is editable.
   useEffect(() => {
-    if (!current || restored.current !== `${chatId}:${sessionId}`) return
+    if (rescuedHandled || !current || frozen || inputActions === undefined || rescued === '' || restored.current !== key) return
+    const base = latestDraft.current
+    const merged = mergeRescuedDraft(base, rescued)
+    try {
+      if (merged !== base) {
+        inputActions.setDraft(merged)
+        pending.current = { ...pending.current, text: true, staleDraft: draft }
+        latestDraft.current = merged
+        keepDraft({ chatId, part: sessionId, text: merged, files: actions.draftFiles?.(ids) ?? [] })
+      }
+      actions.consumeRescuedDraft?.(chatId, sessionId, rescued)
+    } catch (error) {
+      console.warn('[ds-bot] could not return the question draft', error)
+    }
+  }, [current, frozen, chatId, sessionId, inputActions, rescued])
+  useEffect(() => {
+    if (!current || restored.current !== key) return
     // A draft on its way out is no longer kept: should the composer close before the
     // Host takes it, the sent images must not come back as a draft. A send that fails
     // returns to the plain phase with its draft, which is then kept again.
@@ -288,9 +328,9 @@ export function DraftKeeper({ sessionId, inputActions, useInput, useRoster, acti
     }
     // What was put back lands in the input state a render later; keeping the empty box
     // in between would drop it.
-    if (pending.current.text && draft === '') return
+    if (pending.current.text && draft === pending.current.staleDraft) return
     if (pending.current.files && ids.length === 0) return
-    pending.current = { text: false, files: false }
+    pending.current = { text: false, staleDraft: null, files: false }
     keepDraft({ chatId, part: sessionId, text: draft, files: actions.draftFiles(ids) })
   }, [current, frozen, chatId, sessionId, draft, ids])
   return null

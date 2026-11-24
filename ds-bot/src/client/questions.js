@@ -57,8 +57,8 @@ export function useOptionKeys(count, onPick, ownRef) {
 
 // A question shows two ways: as a bubble in the transcript, and raised when it
 // sits in the dock above the composer.
-function QuestionView({ question, onAnswer, onDismiss, onInteract, busy = false, ownAnswer = false, raised = false, enterToSend = true }) {
-  const [own, setOwn] = useState('')
+function QuestionView({ question, onAnswer, onDismiss, onInteract, onOwnChange, initialOwn = '', busy = false, ownAnswer = false, raised = false, enterToSend = true }) {
+  const [own, setOwn] = useState(initialOwn)
   const [picked, setPicked] = useState([])
   const ownRef = useRef(null)
   const titleId = useId()
@@ -86,7 +86,14 @@ function QuestionView({ question, onAnswer, onDismiss, onInteract, busy = false,
     ref: ownRef, rows: 1, value: own, readOnly: busy, autoComplete: 'off', spellCheck: false, className: 'bt-q-input',
     'aria-label': t('Your own answer'), placeholder: t('Type your own answer'),
     'aria-keyshortcuts': hints ? ownLetter?.toLowerCase() : undefined,
-    onChange: (event) => { if (!busy) { onInteract?.(); setOwn(event.target.value) } },
+    onChange: (event) => {
+      if (!busy) {
+        onInteract?.()
+        const value = event.target.value
+        setOwn(value)
+        onOwnChange?.(value)
+      }
+    },
     onKeyDown: (event) => {
       if (event.key !== 'Enter' || !enterToSend || event.shiftKey || event.nativeEvent?.isComposing || event.keyCode === 229) return
       event.preventDefault()
@@ -319,13 +326,20 @@ export function SettledQuestion({ question, answer, closed }) {
     : null) : null)
 }
 
-export function QuestionCard({ matched }) {
+export function QuestionCard({ sessionId, matched, actions }) {
   const pending = matched
+  const requestId = pending.key ?? pending.id ?? pending.callId ?? 'blocking'
+  const effectiveSessionId = sessionId ?? pending.sessionId
   const questions = pending.questions ?? []
   const [index, setIndex] = useState(0)
   const [answers, setAnswers] = useState([])
   const question = questions[index]
   if (question === undefined) return null
+  const subId = question.id ?? String(index)
+  const initialOwn = actions?.readQuestionDraft?.('blocking', requestId, subId) ?? ''
+  const onOwnChange = (text) => {
+    if (effectiveSessionId) actions?.noteQuestionDraft?.({ kind: 'blocking', id: requestId, subId, sessionId: effectiveSessionId, text })
+  }
   const onAnswer = (answer) => {
     const next = [...answers, { id: question.id, ...answer }]
     if (index + 1 < questions.length) {
@@ -333,9 +347,20 @@ export function QuestionCard({ matched }) {
       setIndex(index + 1)
       return
     }
-    pending.answer({ answers: next })
+    actions?.beginQuestionSettle?.('blocking', requestId, 'answered')
+    void Promise.resolve().then(() => pending.answer({ answers: next })).then(
+      () => actions?.finishQuestionSettle?.('blocking', requestId, true),
+      () => actions?.finishQuestionSettle?.('blocking', requestId, false),
+    )
   }
-  return h(QuestionView, { key: index, question, onAnswer, onDismiss: () => pending.dismiss(), ownAnswer: true, raised: true })
+  const onDismiss = () => {
+    actions?.beginQuestionSettle?.('blocking', requestId, 'dismissed')
+    void Promise.resolve().then(() => pending.dismiss()).then(
+      () => actions?.finishQuestionSettle?.('blocking', requestId, true),
+      () => actions?.finishQuestionSettle?.('blocking', requestId, false),
+    )
+  }
+  return h(QuestionView, { key: `${requestId}:${index}`, question, initialOwn, onOwnChange, onAnswer, onDismiss, ownAnswer: true, raised: true })
 }
 
 export function PendingQuestion({ sessionId, question, actions, inline, enterToSend = true, bare = false }) {
@@ -344,16 +369,22 @@ export function PendingQuestion({ sessionId, question, actions, inline, enterToS
   const busyRef = useRef(false)
   const boxRef = useRef(null)
   const hold = useDockHold(sessionId, 'question', question.id, actions, inline)
+  const initialOwn = actions?.readQuestionDraft?.('ask_user', question.id) ?? ''
   if (answered === question.id) return h(CellEmpty)
-  const run = (make, { settle = false, onFail } = {}) => {
+  const run = (make, { settle = false, outcome, onFail } = {}) => {
     if (busyRef.current) return
     hold()
     busyRef.current = true
     setBusy(true)
+    if (outcome) actions?.beginQuestionSettle?.('ask_user', question.id, outcome)
     // Keep QuestionView mounted until success: a failed request must not erase
     // the selected options, custom answer, or focused field. On dismiss, wait for
     // roster to swap to the folded settled card in place rather than collapsing to 0.
-    void Promise.resolve().then(make).then(() => { if (settle) setAnswered(question.id) }, () => {
+    void Promise.resolve().then(make).then(() => {
+      if (outcome) actions?.finishQuestionSettle?.('ask_user', question.id, true)
+      if (settle) setAnswered(question.id)
+    }, () => {
+      if (outcome) actions?.finishQuestionSettle?.('ask_user', question.id, false)
       onFail?.()
       setAnswered(null)
     }).finally(() => {
@@ -361,18 +392,22 @@ export function PendingQuestion({ sessionId, question, actions, inline, enterToS
       setBusy(false)
     })
   }
+  const onOwnChange = (text) => {
+    actions?.noteQuestionDraft?.({ kind: 'ask_user', id: question.id, sessionId, text })
+  }
   const onAnswer = (answer) => {
     if (busyRef.current) return
     const height = boxRef.current?.firstElementChild?.offsetHeight || boxRef.current?.offsetHeight
     if (inline) noteJustAnswered('question', question.id, height)
     run(() => actions.answerQuestion(sessionId, question.id, { selected: answer.selected ?? [], custom: answer.custom ?? '' }), {
       settle: true,
+      outcome: 'answered',
       onFail: () => clearJustAnswered('question', question.id),
     })
   }
-  const onDismiss = () => run(() => actions.dismissQuestion(sessionId))
+  const onDismiss = () => run(() => actions.dismissQuestion(sessionId), { outcome: 'dismissed' })
   return h('div', { ref: boxRef, className: bare ? 'bt-q-hold' : (inline ? 'bt-q-inline' : 'bt-q-dock') },
-    h(QuestionView, { key: question.id, question, onAnswer, onDismiss, onInteract: hold, busy, ownAnswer: question.allowCustom === true, raised: !inline, enterToSend }))
+    h(QuestionView, { key: question.id, question, initialOwn, onOwnChange, onAnswer, onDismiss, onInteract: hold, busy, ownAnswer: question.allowCustom === true, raised: !inline, enterToSend }))
 }
 
 // Inline ask_user call in the transcript: keeps a single wrapper across pending and
