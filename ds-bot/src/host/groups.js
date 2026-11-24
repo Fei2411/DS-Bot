@@ -1719,9 +1719,10 @@ export function install(rt) {
       // - Legitimate fan-out (User -> Admin -> @B @C -> Admin) and sequential chains
       //   (User -> Admin -> @B -> @Admin -> @C -> @Admin) never repeat an edge and
       //   never trigger a false pause.
-      zeroWorkCycle = callees.some(peer =>
-        (!called.has(peer.id) && priorEdges.has(`${member.id}->${peer.id}`))
-        || (peer.id !== callerId && canReachIdleEdge(peer.id, member.id, priorEdges)))
+      zeroWorkCycle = callees.some(peer => !called.has(peer.id) && (
+        priorEdges.has(`${member.id}->${peer.id}`)
+        || (peer.id !== callerId && canReachIdleEdge(peer.id, member.id, priorEdges))
+      ))
       for (const peer of callees) noteIdleEdge(room, member.id, peer.id)
       zeroWorkLimit = callees.length > 0 && (room.zeroWorkRelays ?? 0) >= ROOM_ZERO_WORK_RELAY_LIMIT
     } else {
