@@ -17960,8 +17960,11 @@ function commRunOf(order, peers, turn, hiddenTurns = []) {
   }
   return { count, peerIds };
 }
+function turnOutlineOf(list, id) {
+  return list.projectionsBySession?.[id]?.values?.turnOutline ?? list.byId[id]?.projectionValues?.turnOutline;
+}
 function previewOf(list, id, hiddenTurns = []) {
-  const outline = list.projectionsBySession?.[id]?.values?.turnOutline ?? list.byId[id]?.projectionValues?.turnOutline;
+  const outline = turnOutlineOf(list, id);
   if (!Array.isArray(outline)) return "";
   for (let index = outline.length - 1; index >= 0; index -= 1) {
     const entry = outline[index];
@@ -35562,9 +35565,16 @@ var BotRow = memo(function BotRow2({ bot, roster, actions, useSessions, useSessi
   const id = bot.id;
   const part = currentPart(bot);
   const preview = useSessions((list) => previewOf(list, part, roster.exchangeTurns[part]));
+  const latestTurnHidden = useSessions((list) => {
+    const outline = turnOutlineOf(list, part);
+    return Array.isArray(outline) && isHiddenTurn(roster, part, outline.at(-1)?.turn);
+  });
   const running = useSessionStatus((map) => map.get(part)?.running === true);
   const active = useSessionRetainInfo(part, (info) => (info?.retainedBy?.mainView ?? 0) > 0);
-  const unread = useSessionStatus((map) => map.get(part)?.completionUnread === true || map.get(part)?.pendingInteraction !== void 0) || marked2 && !active;
+  const unread = useSessionStatus((map) => {
+    const status = map.get(part);
+    return status?.pendingInteraction !== void 0 || status?.completionUnread === true && !latestTurnHidden;
+  }) || marked2 && !active;
   useMarkedUnread(id, active, marked2, actions);
   const main = isMainOf(roster, id);
   const tile = roster.mainBotId === id;

@@ -67,6 +67,8 @@ function renderSidebar({
   computer = { asks: {} },
   activity = {},
   statusMap = new Map(),
+  projectionsBySession,
+  unread = {},
   activeSession = null,
   wide = true,
 } = {}) {
@@ -82,9 +84,9 @@ function renderSidebar({
     actions: noopActions,
     useSidebarPref: () => (wide ? 'open' : 'rail'),
     useRoster: pick => pick(roster),
-    useUi: pick => pick({ unread: {} }),
+    useUi: pick => pick({ unread }),
     useRegistry: pick => pick({}),
-    useSessions: pick => pick({ ids: activeSession ? [activeSession] : [], byId: activeSession ? { [activeSession]: { id: activeSession, retainedBy: { mainView: 1 } } } : {} }),
+    useSessions: pick => pick({ ids: activeSession ? [activeSession] : [], byId: activeSession ? { [activeSession]: { id: activeSession, retainedBy: { mainView: 1 } } } : {}, projectionsBySession }),
     useUpdate: () => ({}),
     useSessionStatus: pick => pick(statusMap),
     useSessionRetainInfo: (id, pick) => pick(id === activeSession ? { retainedBy: { mainView: 1 } } : {}),
@@ -94,6 +96,35 @@ function renderSidebar({
   })
   return expand(tree)
 }
+
+test('only a visible completion sets the Bot row unread dot', () => {
+  const part = 'writer-p2'
+  const bot = { id: 'writer', sessionId: part, name: 'Writer', createdAt: 1 }
+  const visible = { turn: 1, prompt: 'Earlier question', response: 'Earlier reply' }
+  const hidden = { turn: 2, prompt: 'Bot question', response: 'Private reply' }
+  const reply = { turn: 3, prompt: 'User question', response: 'User reply' }
+  const rowState = (turnOutline, status = { completionUnread: true }, extra = {}) => {
+    const tree = renderSidebar({
+      bots: [bot],
+      rosterExtra: { exchangeTurns: { [part]: [hidden.turn] } },
+      projectionsBySession: { [part]: { values: { turnOutline } } },
+      statusMap: new Map([[part, status]]),
+      ...extra,
+    })
+    const [row] = walk(tree, node => node.props?.['data-bot-id'] === bot.id)
+    assert.ok(row)
+    return {
+      dot: walk(row, node => node.props?.className === 'bt-unread').length === 1,
+      preview: textOf(walk(row, node => classes(node).includes('bt-row-preview'))[0]),
+    }
+  }
+  assert.deepEqual(rowState([hidden]), { dot: false, preview: '' })
+  assert.deepEqual(rowState([visible, hidden]), { dot: false, preview: 'Earlier reply' })
+  assert.deepEqual(rowState([visible, hidden, reply]), { dot: true, preview: 'User reply' })
+  assert.equal(rowState([visible, hidden, reply], { completionUnread: false }, { activeSession: part }).dot, false)
+  assert.equal(rowState([hidden], { completionUnread: true, pendingInteraction: {} }).dot, true)
+  assert.equal(rowState([hidden], { completionUnread: false }, { unread: { [bot.id]: true } }).dot, true)
+})
 
 test('botPendingOf detects learning proposals, pending request cards, questions and views on current part', () => {
   const bot = { id: 'reviewer', sessionId: 'reviewer-p2', name: 'Reviewer' }

@@ -4,7 +4,7 @@ import { memo } from './memo.js'
 import { FishLogo } from './dsh-primitives.js'
 import { inkFill } from './inks.js'
 import { isMainOf } from './sources.js'
-import { currentPart, previewOf, relativeShort } from './text.js'
+import { currentPart, isHiddenTurn, previewOf, relativeShort, turnOutlineOf } from './text.js'
 import { PlusIcon, SearchIcon, SidebarIcon, GaugeIcon, ClockIcon, GearIcon, PinMarkIcon, ConnectorIcon, PlugIcon, SwitchIcon, CloudDownloadIcon, SignInIcon, SignOutIcon, SlidersIcon, ChevronRightIcon, DotsIcon, FolderIcon } from './icons.js'
 import { lookOf, MAIN_LOOK } from './characters.js'
 import { botState, BotMark, BotAvatar, RoomAvatar } from './mark.js'
@@ -122,9 +122,16 @@ const BotRow = memo(function BotRow({ bot, roster, actions, useSessions, useSess
   const id = bot.id
   const part = currentPart(bot)
   const preview = useSessions(list => previewOf(list, part, roster.exchangeTurns[part]))
+  const latestTurnHidden = useSessions(list => {
+    const outline = turnOutlineOf(list, part)
+    return Array.isArray(outline) && isHiddenTurn(roster, part, outline.at(-1)?.turn)
+  })
   const running = useSessionStatus(map => map.get(part)?.running === true)
   const active = useSessionRetainInfo(part, info => (info?.retainedBy?.mainView ?? 0) > 0)
-  const unread = useSessionStatus(map => map.get(part)?.completionUnread === true || map.get(part)?.pendingInteraction !== undefined) || (marked && !active)
+  const unread = useSessionStatus(map => {
+    const status = map.get(part)
+    return status?.pendingInteraction !== undefined || (status?.completionUnread === true && !latestTurnHidden)
+  }) || (marked && !active)
   useMarkedUnread(id, active, marked, actions)
   const main = isMainOf(roster, id)
   const tile = roster.mainBotId === id
