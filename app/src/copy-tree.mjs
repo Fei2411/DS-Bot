@@ -93,14 +93,27 @@ export async function copyTree(from, into, { force = true, skip = false, leave =
     },
   })
   const roots = [...new Set([resolve(from), origin])]
-  for (const path of links) {
-    signal?.throwIfAborted()
-    const at = join(into, path)
-    if (!force && await lstat(at).then(() => true, () => false)) continue
-    await relink(join(origin, path), at, roots, resolve(as)).catch((error) => {
-      if (!skip) throw error
-      skipped.push(path)
-    })
+  const skippedLinks = []
+  let next = 0
+  let failure
+  const worker = async () => {
+    while (failure === undefined && !signal?.aborted && next < links.length) {
+      const index = next++
+      const path = links[index]
+      const at = join(into, path)
+      if (!force && await lstat(at).then(() => true, () => false)) continue
+      if (failure !== undefined || signal?.aborted) return
+      try {
+        await relink(join(origin, path), at, roots, resolve(as))
+      } catch (error) {
+        if (skip) skippedLinks[index] = path
+        else if (failure === undefined || index < failure.index) failure = { index, error }
+      }
+    }
   }
-  return skipped
+  // Callers can remove their staging folder as soon as this returns or throws.
+  await Promise.all(Array.from({ length: Math.min(4, links.length) }, worker))
+  if (failure !== undefined) throw failure.error
+  signal?.throwIfAborted()
+  return skipped.concat(skippedLinks.filter(path => path !== undefined))
 }
