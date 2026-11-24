@@ -36,6 +36,8 @@ export function stdioBridgePath(source = BUNDLED_MCP_STDIO) {
 
 const EFFORT_ORDER = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max']
 const EFFORT_NAMES = { off: 'Off', minimal: 'Minimal', low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Max' }
+const TOOL_CALL_CACHE_MAX = 100
+const REPORTED_TOOL_CALLS_MAX = 1_000
 
 // Events a driver reports, normalized for the adapter:
 // {type:'text'|'thought',text} | {type:'activity',text} (one compact line of the
@@ -44,12 +46,13 @@ const EFFORT_NAMES = { off: 'Off', minimal: 'Minimal', low: 'Low', medium: 'Medi
 // {type:'context',used?,size?} (how full the CLI's own context is) |
 // {type:'compaction',status:'started'|'completed'|'failed'}
 export class AcpEngine {
-  constructor(route, engine, { findExecutable, defaultEfforts = new Map(), sessionEfforts = new Map(), cancelAckTimeoutMs = CANCEL_ACK_TIMEOUT_MS }) {
+  constructor(route, engine, { findExecutable, defaultEfforts = new Map(), sessionEfforts, cancelAckTimeoutMs = CANCEL_ACK_TIMEOUT_MS }) {
     this.route = route
     this.engine = engine
     this.findExecutable = findExecutable
     this.defaultEfforts = defaultEfforts
-    this.sessionEfforts = sessionEfforts
+    this.ownsSessionEfforts = sessionEfforts === undefined
+    this.sessionEfforts = sessionEfforts ?? new Map()
     this.cancelAckTimeoutMs = cancelAckTimeoutMs
     this.hasModelConfig = false
     this.child = undefined
@@ -217,6 +220,7 @@ export class AcpEngine {
       modes: [],
       toolCalls: new Map(),
       reportedToolCalls: new Set(),
+      failedToolCalls: new Set(),
       push: event => queue.push(event),
       next: () => queue.next(),
     }
@@ -264,22 +268,49 @@ export class AcpEngine {
         const id = update.toolCallId
         const known = id === undefined ? undefined : session.toolCalls.get(id)
         const call = mergeCall(known, update)
-        if (id !== undefined) session.toolCalls.set(id, call)
+        const alreadyFailed = id !== undefined && (known?.status === 'failed' || session.failedToolCalls.has(id))
+        const terminal = update.status === 'completed' || update.status === 'failed'
+        if (id !== undefined) {
+          if (terminal) {
+            session.toolCalls.delete(id)
+            if (update.status === 'failed') {
+              session.failedToolCalls.delete(id)
+              session.failedToolCalls.add(id)
+              if (session.failedToolCalls.size > REPORTED_TOOL_CALLS_MAX) {
+                session.failedToolCalls.delete(session.failedToolCalls.values().next().value)
+              }
+            }
+          } else {
+            session.toolCalls.delete(id)
+            session.toolCalls.set(id, call)
+            if (session.toolCalls.size > TOOL_CALL_CACHE_MAX) {
+              session.toolCalls.delete(session.toolCalls.keys().next().value)
+            }
+          }
+        }
         if (call.status !== 'pending' && !['read', 'search', 'think'].includes(call.kind)) session.cwd = undefined
         const team = ownToolCall(call)
         const described = describeCall(call)
         const reported = id !== undefined && session.reportedToolCalls.has(id)
+        const markReported = () => {
+          if (id === undefined) return
+          session.reportedToolCalls.delete(id)
+          session.reportedToolCalls.add(id)
+          if (session.reportedToolCalls.size > REPORTED_TOOL_CALLS_MAX) {
+            session.reportedToolCalls.delete(session.reportedToolCalls.values().next().value)
+          }
+        }
         if (!reported) {
-          if (update.status === 'failed' && known?.status !== 'failed') {
-            if (id !== undefined) session.reportedToolCalls.add(id)
+          if (update.status === 'failed' && !alreadyFailed) {
+            markReported()
             session.push({ type: 'activity', text: `▸ ${described} — failed`, failed: true, ...(team ? { team: true } : {}) })
           } else if (id === undefined || !isAnonymousMcpPlaceholder(call)) {
-            if (id !== undefined) session.reportedToolCalls.add(id)
+            markReported()
             session.push({ type: 'activity', text: `▸ ${described}`, ...(team ? { team: true } : {}) })
           }
-        } else if (update.status === 'failed' && known?.status !== 'failed') {
+        } else if (update.status === 'failed' && !alreadyFailed) {
           session.push({ type: 'activity', text: `▸ ${described} — failed`, failed: true, ...(team ? { team: true } : {}) })
-        } else if (update.status !== 'completed' && described !== describeCall(known)) {
+        } else if (update.status !== 'completed' && known !== undefined && described !== describeCall(known)) {
           session.push({ type: 'status', text: described, ...(team ? { team: true } : {}) })
         }
         break
@@ -679,6 +710,11 @@ export class AcpEngine {
       if (retired !== undefined) void retired.close().catch(() => {})
       return
     }
+    const session = this.sessions.get(dshSessionId)
+    if (session?.acpSessionId !== undefined) {
+      this.commands.delete(session.acpSessionId)
+      this.sessionEfforts.delete(session.acpSessionId)
+    }
     this.sessions.delete(dshSessionId)
   }
 
@@ -696,10 +732,18 @@ export class AcpEngine {
     this.workers.clear()
     this.sessionWorkers.clear()
     await Promise.all([...toClose].map(worker => worker.close().catch(() => {})))
+    for (const session of this.sessions.values()) {
+      if (session?.acpSessionId !== undefined) this.sessionEfforts.delete(session.acpSessionId)
+    }
+    this.sessions.clear()
+    this.commands.clear()
+    if (this.ownsSessionEfforts) this.sessionEfforts.clear()
     const child = this.child
+    const peer = this.peer
     this.child = undefined
     this.peer = undefined
     this.starting = undefined
+    peer?.close?.(new Error(`${this.engine.name} closed`))
     terminateChild(child)
   }
 
@@ -866,7 +910,7 @@ const callOf = (session, toolCall) => mergeCall(toolCall?.toolCallId === undefin
 // ACP tool kinds that change files or run something.
 const CHANGE_KINDS = new Set(['edit', 'delete', 'move', 'execute'])
 const VERBS = { read: 'Read', edit: 'Edit', delete: 'Delete', move: 'Move', search: 'Search', execute: 'Run', think: 'Think', fetch: 'Fetch' }
-const inputOf = call => (call.rawInput !== null && typeof call.rawInput === 'object' ? call.rawInput : {})
+const inputOf = call => (call?.rawInput !== null && typeof call?.rawInput === 'object' ? call.rawInput : {})
 // One line a person can act on: what kind of action, on what.
 export const describeCall = (call) => {
   const input = inputOf(call)

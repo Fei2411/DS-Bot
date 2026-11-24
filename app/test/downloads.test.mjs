@@ -8,7 +8,7 @@ import { syncBuiltinESMExports } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { after, test } from 'node:test'
-import { downloadSaver, freePath, move } from '../src/downloads.mjs'
+import { downloadSaver, freePath, move, moveAsync } from '../src/downloads.mjs'
 
 const top = mkdtempSync(join(tmpdir(), 'ds-bot-downloads-'))
 after(() => { rmSync(top, { recursive: true, force: true }) })
@@ -317,4 +317,34 @@ test('a cross-drive move can copy a staged .asar file', async () => {
   await inElectron(({ move: electronMove }) => { electronMove(staged, target) }, { renameSync: crossDrive })
   assert.equal(readFileSync(target, 'utf8'), 'new')
   assert.deepEqual(readdirSync(at.downloads), ['tool.asar'], 'no temp file is left next to the target')
+})
+
+test('moveAsync copies asynchronously on EXDEV and cleans up partial files on copy error', async () => {
+  const at = place()
+  const staged = join(at.staging, 'held', 'big.bin')
+  mkdirSync(dirname(staged), { recursive: true })
+  writeFileSync(staged, 'payload')
+  const target = join(at.downloads, 'big.bin')
+  writeFileSync(target, 'old')
+  let asyncCopies = 0
+  await moveAsync(staged, target, {
+    renameSync() { throw Object.assign(new Error('cross-device'), { code: 'EXDEV' }) },
+    async copyFile(from, to, mode) { asyncCopies += 1; return nodeFs.promises.copyFile(from, to, mode) },
+    rename: nodeFs.promises.rename,
+    rm: nodeFs.promises.rm,
+  })
+  assert.equal(asyncCopies, 1)
+  assert.equal(readFileSync(target, 'utf8'), 'payload')
+  assert.deepEqual(readdirSync(at.downloads), ['big.bin'])
+
+  // Failure cleans up .part file and preserves existing target.
+  writeFileSync(target, 'keep')
+  await assert.rejects(() => moveAsync(staged, target, {
+    renameSync() { throw Object.assign(new Error('cross-device'), { code: 'EXDEV' }) },
+    async copyFile(_from, to) { writeFileSync(to, 'partial'); throw new Error('disk full') },
+    rename: nodeFs.promises.rename,
+    rm: nodeFs.promises.rm,
+  }), /disk full/)
+  assert.equal(readFileSync(target, 'utf8'), 'keep')
+  assert.deepEqual(readdirSync(at.downloads), ['big.bin'])
 })

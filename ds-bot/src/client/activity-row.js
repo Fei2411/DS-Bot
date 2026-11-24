@@ -41,7 +41,7 @@ let mountMissed = false
 let runningSlot = null
 export function findHost() {
   const kept = runningSlot?.slot
-  if (kept?.isConnected && kept.hasAttribute('data-chat-running') && kept.closest('[data-chat-flow]') === runningSlot.host) return runningSlot.host
+  if (kept?.ownerDocument === document && kept?.isConnected && runningSlot.host?.isConnected && kept.hasAttribute('data-chat-running') && kept.closest('[data-chat-flow]') === runningSlot.host) return runningSlot.host
   const slot = document.querySelector('[data-chat-flow] [data-chat-running]')
   const node = slot?.closest('[data-chat-flow]') ?? document.querySelector('[data-chat-flow]')
   runningSlot = slot ? { slot, host: node } : null
@@ -61,14 +61,19 @@ function useRunningHost(active) {
   useEffect(() => {
     if (!active) { releaseHost(); setHost(null); return undefined }
     let frame = 0
+    let currentHost = null
+    let currentSlot = null
     const find = () => {
       frame = 0
-      setHost(prev => {
-        const node = findHost()
-        return prev === node ? prev : node
-      })
+      const node = findHost()
+      currentHost = node
+      currentSlot = node && runningSlot?.host === node ? runningSlot.slot : null
+      setHost(prev => (prev === node ? prev : node))
     }
-    const observer = new MutationObserver(() => { if (!frame) frame = requestAnimationFrame(find) })
+    const observer = new MutationObserver(() => {
+      if (currentHost?.isConnected && currentSlot?.isConnected && currentSlot.hasAttribute('data-chat-running') && currentHost.contains(currentSlot)) return
+      if (!frame) frame = requestAnimationFrame(find)
+    })
     observer.observe(document.querySelector('[data-conversation-scroll]') ?? document.body, { childList: true, subtree: true })
     find()
     return () => { cancelAnimationFrame(frame); observer.disconnect(); releaseHost() }
@@ -94,7 +99,7 @@ function useRowEntrances(replacing) {
     }
     const scan = () => {
       frame = 0
-      const next = document.querySelector('[data-chat-flow]')
+      const next = column?.isConnected ? column : document.querySelector('[data-chat-flow]')
       if (next !== column) {
         observer.disconnect()
         column = next
@@ -110,15 +115,31 @@ function useRowEntrances(replacing) {
         }
         return
       }
-      const items = [...column.children].filter(item => item.hasAttribute('data-chat-flow-key'))
+      const items = []
+      for (const child of column.children) {
+        if (child.hasAttribute('data-chat-flow-key')) items.push(child)
+      }
       let last = -1
-      items.forEach((item, index) => { if (seen.has(item)) last = index })
+      for (let index = 0; index < items.length; index += 1) {
+        if (seen.has(items[index])) last = index
+      }
       if (reducedEffects()) return
-      const fresh = items.filter(item => !seen.has(item) && item.offsetHeight > 0)
-      for (const item of fresh) seen.add(item)
-      if (last < 0 || Date.now() - started < 800 || fresh.length > 3) return
-      for (const item of fresh) {
-        if (items.indexOf(item) < last) continue
+      if (last < 0 || Date.now() - started < 800) {
+        for (const item of items) {
+          if (!seen.has(item) && item.offsetHeight > 0) seen.add(item)
+        }
+        return
+      }
+      const fresh = []
+      for (let index = 0; index < items.length; index += 1) {
+        const item = items[index]
+        if (seen.has(item)) continue
+        if (item.offsetHeight > 0) fresh.push({ item, index })
+      }
+      for (const entry of fresh) seen.add(entry.item)
+      if (fresh.length > 3) return
+      for (const { item, index } of fresh) {
+        if (index < last) continue
         const reply = [undefined, 'assistant-step', 'tool-call'].includes(item.dataset.chatFlowKind)
         item.dataset.btEnter = reply && check.current() ? 'after-collapse' : 'new'
         item.addEventListener('animationend', settle)

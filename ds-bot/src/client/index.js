@@ -77,6 +77,7 @@ import { installMotionRest } from './motion-rest.js'
 import { agentSessionToReuse, singleFlight } from './agent-new.js'
 import { TextSelectionAction, ANNOTATION_CSS } from './text-annotation.js'
 import { installAgentForks } from './agent-fork.js'
+import { createAvatarRefCache } from './avatar-refs.js'
 
 export const inject = ['sessions', 'uiWorkspace', 'uiConversation', 'slots', 'theme', 'layout']
 
@@ -200,14 +201,17 @@ export function apply(ctx) {
     ui.set(state => (JSON.stringify(state.unread) === JSON.stringify(unread) ? state : { ...state, unread }))
   }
   const refreshed = new Set()
+  const avatarRefs = createAvatarRefCache(call)
   // Pulls can overlap (the poll and a navigation); an older answer never wins.
   let pulls = 0
   let applied = 0
+  let avatarIncomplete = false
   const pull = async () => {
     const order = ++pulls
     const known = roster.getSnapshot()
-    const value = await call('state', { since: known.revision, models: known.modelsKey ?? '', live: liveKey, locale: language() })
-    if (order < applied) return
+    const since = avatarIncomplete ? -1 : known.revision
+    const value = await call('state', { since, models: known.modelsKey ?? '', live: liveKey, locale: language(), avatars: 'ref' })
+    if (order < applied) return false
     applied = order
     const prevLiveKey = liveKey
     if (value.liveKey !== undefined) liveKey = value.liveKey
@@ -243,15 +247,28 @@ export function apply(ctx) {
     // The read-only notice goes once this host takes the team over from a dsh that
     // closed, without a reload: the window holds the answer's live fields until then.
     if (value.readOnly !== undefined && (value.readOnly ?? null) !== (current.readOnly ?? null)) live.readOnly = value.readOnly
-    if (Object.keys(live).length > 0 && current.ready) roster.set({ ...current, ...live })
-    if (value.unchanged || (value.revision === current.revision && value.modelsKey === current.modelsKey)) {
+    if (value.unchanged || (!avatarIncomplete && value.revision === current.revision && value.modelsKey === current.modelsKey)) {
+      if (Object.keys(live).length > 0 && current.ready) roster.set({ ...current, ...live })
+      return value.liveKey !== undefined && value.liveKey !== prevLiveKey
+    }
+    const { state: hydrated, incomplete } = await avatarRefs.hydrate(value)
+    if (order < applied) return false
+    avatarIncomplete = incomplete
+    const latest = roster.getSnapshot()
+    const sameState = hydrated.revision === latest.revision && hydrated.modelsKey === latest.modelsKey && latest.ready
+    const avatarsChanged = sameState && (
+      (hydrated.bots ?? []).some(bot => bot?.avatar?.image !== latest.byId?.[bot.id]?.avatar?.image)
+      || (hydrated.rooms ?? []).some(room => room?.avatar?.image !== latest.roomsById?.[room.id]?.avatar?.image)
+    )
+    if (sameState && !avatarsChanged) {
+      if (Object.keys(live).length > 0) roster.set({ ...latest, ...live })
       return value.liveKey !== undefined && value.liveKey !== prevLiveKey
     }
     // On a browser with no visit record yet, everything already there counts as seen.
-    if (Object.keys(seenAt).length === 0) leaveVisits([...value.bots, ...value.rooms].map(entry => entry.id))
-    roster.set(indexRoster(value))
+    if (Object.keys(seenAt).length === 0) leaveVisits([...hydrated.bots, ...hydrated.rooms].map(entry => entry.id))
+    roster.set(indexRoster(hydrated))
     try {
-      const ids = (value.agents ?? []).flatMap(agent => agent.sessions ?? [])
+      const ids = (hydrated.agents ?? []).flatMap(agent => agent.sessions ?? [])
       localStorage.setItem(STORAGE.agentSessions, JSON.stringify(ids))
       agentSessionCache = new Set(ids)
     } catch { /* storage unavailable */ }
@@ -263,7 +280,11 @@ export function apply(ctx) {
     for (const [agentId, sessionId] of pendingAgentSession) {
       if (listed[sessionId] !== undefined || roster.getSnapshot().agentOf[sessionId] !== agentId) pendingAgentSession.delete(agentId)
     }
-    for (const id of [...value.bots.map(currentPart), ...value.rooms.map(room => room.sessionId ?? room.id)]) {
+    const activeIds = new Set([...hydrated.bots.map(currentPart), ...hydrated.rooms.map(room => room.sessionId ?? room.id)])
+    for (const id of refreshed) {
+      if (!activeIds.has(id)) refreshed.delete(id)
+    }
+    for (const id of activeIds) {
       if (refreshed.has(id)) continue
       refreshed.add(id)
       void Promise.resolve(ctx.sessions.refreshProjections?.(id)).catch(quietly('refresh projections'))
@@ -380,7 +401,7 @@ export function apply(ctx) {
     }, 'ds-bot: Bot browsers')
   }
 
-  ctx.effect(() => () => { markupCache.clear() }, 'ds-bot: character markup')
+  ctx.effect(() => () => { markupCache.clear(); avatarRefs.clear(); avatarIncomplete = false }, 'ds-bot: character markup')
   ctx.effect(() => installMotionRest(), 'ds-bot: motion rest')
 
   // Mentions wear each Bot's color and character silhouette (or its photo). User text
@@ -391,8 +412,23 @@ export function apply(ctx) {
   const installMentions = () => {
     const style = installStyles('', 'mentions')
     let last = ''
+    let lastReg = null
+    let lastSig = null
     const render = () => {
-      const next = roster.getSnapshot().bots.map((bot) => {
+      const reg = registry.getSnapshot()
+      const bots = roster.getSnapshot().bots
+      if (lastSig !== null && reg === lastReg && bots.length === lastSig.length && bots.every((b, i) => {
+        const prev = lastSig[i]
+        return prev[0] === b.id
+          && prev[1] === b.name
+          && prev[2] === b.color
+          && prev[3] === b.avatar?.shape
+          && prev[4] === b.avatar?.color
+          && prev[5] === b.avatar?.image
+      })) return
+      lastReg = reg
+      lastSig = bots.map(b => [b.id, b.name, b.color, b.avatar?.shape, b.avatar?.color, b.avatar?.image])
+      const next = bots.map((bot) => {
         const anchor = `.bt-bubble a[href="${MENTION_ORIGIN}${bot.id}"]`
         const chip = /\s/.test(bot.name) ? '' : `:is([class*="_userRow"],.bt-uhost) [data-ref-chip="file"][title="@${bot.name.replace(/["\\]/g, '\\$&')}" i]`
         const look = lookOf(bot)
@@ -421,10 +457,29 @@ export function apply(ctx) {
     // A third-party skin's glass sliders change DSH's background tokens; the surfaces
     // follow them through --bt-skin-*, and nothing is set while the tokens are opaque.
     const skin = writeSkinSurfaceVars(document, () => (activeTheme === null ? {} : readSkinSurfaceVars(document, activeTheme)))
+    let skinRaf = 0
+    const scheduleSkin = () => {
+      if (skinRaf) return
+      if (typeof requestAnimationFrame === 'function') skinRaf = requestAnimationFrame(() => { skinRaf = 0; skin.apply() })
+      else skin.apply()
+    }
     const offTheme = ctx.on('theme/change', () => skin.apply())
+    const isTitleOnly = (record) => {
+      const target = record.target
+      const el = target?.nodeType === 1 ? target : target?.parentElement
+      if (el?.tagName === 'TITLE') return true
+      if (record.type === 'childList' && target === document.head) {
+        const nodes = [...record.addedNodes, ...record.removedNodes]
+        if (nodes.length > 0 && nodes.every(node => node?.nodeType === 1 && node.tagName === 'TITLE')) return true
+      }
+      return false
+    }
     // A skin may write the tokens itself (some set them straight on the document); the
     // composed value is what counts, so re-read whenever the tokens may have moved.
-    const observer = typeof MutationObserver === 'function' ? new MutationObserver(() => skin.apply()) : null
+    const observer = typeof MutationObserver === 'function' ? new MutationObserver((records) => {
+      if (records.length > 0 && records.every(isTitleOnly)) return
+      scheduleSkin()
+    }) : null
     if (observer !== null) {
       observer.observe(document.body, { attributes: true, attributeFilter: ['style', 'data-ds-dark-theme'] })
       observer.observe(document.documentElement, { attributes: true, attributeFilter: ['style', 'class'] })
@@ -441,15 +496,17 @@ export function apply(ctx) {
       const effects = effectsOf(prefs)
       const width = widthOf(prefs)
       const flatWidth = flatWidthOf(prefs)
-      document.body.dataset.btMotion = motion
-      document.body.dataset.btLayout = layout
-      document.body.dataset.btEffects = effects
-      if (WINDOWS) document.body.dataset.btOs = 'windows'
-      document.body.style.setProperty('--bt-msg-w', String(width / 100))
-      document.body.style.setProperty('--bt-flat-w', String(flatWidth / 100))
       const next = `${id}|${accent ?? ''}|${motion}|${layout}|${effects}|${width}|${flatWidth}|${registry.getSnapshot()}`
       if (next === key) return
       key = next
+      if (document.body.dataset.btMotion !== motion) document.body.dataset.btMotion = motion
+      if (document.body.dataset.btLayout !== layout) document.body.dataset.btLayout = layout
+      if (document.body.dataset.btEffects !== effects) document.body.dataset.btEffects = effects
+      if (WINDOWS && document.body.dataset.btOs !== 'windows') document.body.dataset.btOs = 'windows'
+      const msgW = String(width / 100)
+      if (document.body.style.getPropertyValue('--bt-msg-w') !== msgW) document.body.style.setProperty('--bt-msg-w', msgW)
+      const flatW = String(flatWidth / 100)
+      if (document.body.style.getPropertyValue('--bt-flat-w') !== flatW) document.body.style.setProperty('--bt-flat-w', flatW)
       style.textContent = themeCss(themes[id], accent)
       activeTheme = themes[id]
       skin.apply()
@@ -467,6 +524,7 @@ export function apply(ctx) {
       offRoster()
       offRegistry()
       offTheme()
+      if (skinRaf && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(skinRaf)
       observer?.disconnect()
       skin.clear()
       try {
@@ -967,29 +1025,55 @@ export function apply(ctx) {
       // Cursor events get their own long-poll: the shared state poll drops to
       // 10 s while the window is hidden, far too slow for an on-screen cursor.
       let dead = false
-      const pause = ms => new Promise(resolve => setTimeout(resolve, ms))
+      let wakeEnabled = null
+      let cancelPause = null
+      const waitEnabled = () => new Promise((resolve) => {
+        if (dead || roster.getSnapshot().computer?.enabled === true) { resolve(); return }
+        wakeEnabled = resolve
+      })
+      const pause = ms => new Promise((resolve) => {
+        if (dead) { resolve(); return }
+        const timer = setTimeout(() => {
+          if (cancelPause === cancel) cancelPause = null
+          resolve()
+        }, ms)
+        const cancel = () => {
+          clearTimeout(timer)
+          if (cancelPause === cancel) cancelPause = null
+          resolve()
+        }
+        cancelPause = cancel
+      })
+      const notifyEnabled = () => {
+        if (wakeEnabled) { const fn = wakeEnabled; wakeEnabled = null; fn() }
+      }
+      const offRoster = roster.subscribe(() => {
+        if (roster.getSnapshot().computer?.enabled === true) notifyEnabled()
+      })
       const run = async () => {
         let after = 0
         while (!dead) {
-          if (roster.getSnapshot().computer?.enabled !== true) { await pause(2000); continue }
+          if (roster.getSnapshot().computer?.enabled !== true) { await waitEnabled(); continue }
           try {
             const reply = await call('computer-cursor-wait', { after })
+            if (dead) break
             for (const event of reply?.events ?? []) {
               if (Number.isFinite(event.seq) && event.seq > after) after = event.seq
               if (Number.isFinite(event.t) && Number.isFinite(reply?.now) && reply.now - event.t > 3000) continue
               appComputer.computerCursor({ ...event, color: lookOf(roster.getSnapshot().byId[event.botId]).color, avatar: lookOf(roster.getSnapshot().byId[event.botId]).image })
             }
           } catch {
-            await pause(2000)
+            if (!dead) await pause(2000)
           }
         }
       }
       void run()
-      return () => { dead = true }
+      return () => { dead = true; offRoster(); notifyEnabled(); cancelPause?.() }
     }, 'ds-bot: computer cursor')
   }
   if (typeof appComputer?.idleSeconds === 'function') {
     ctx.effect(() => {
+      let timer = 0
       const push = () => {
         const current = roster.getSnapshot()
         if (current.computer?.enabled !== true) return
@@ -999,16 +1083,25 @@ export function apply(ctx) {
           if (Number.isFinite(idle)) call('computer-user-active', { idleSeconds: idle }).catch(() => {})
         }).catch(() => {})
       }
-      const timer = setInterval(push, 2000)
-      return () => { clearInterval(timer) }
+      const sync = () => {
+        const enabled = roster.getSnapshot().computer?.enabled === true
+        if (enabled && !timer) timer = setInterval(push, 2000)
+        else if (!enabled && timer) { clearInterval(timer); timer = 0 }
+      }
+      sync()
+      const offRoster = roster.subscribe(sync)
+      return () => { offRoster(); if (timer) clearInterval(timer) }
     }, 'ds-bot: computer user active')
   }
   if (typeof appComputer?.onComputerAction === 'function') {
-    appComputer.onComputerAction(({ kind, botId }) => {
-      if (kind === 'stop') void actions.computerStop(botId)
-      else if (kind === 'stopall') void actions.computerStop(null, true)
-      else if (kind === 'letgo') void actions.computerAllowForeground(botId)
-    })
+    ctx.effect(() => {
+      const off = appComputer.onComputerAction(({ kind, botId }) => {
+        if (kind === 'stop') void actions.computerStop(botId)
+        else if (kind === 'stopall') void actions.computerStop(null, true)
+        else if (kind === 'letgo') void actions.computerAllowForeground(botId)
+      })
+      return () => { if (typeof off === 'function') off() }
+    }, 'ds-bot: computer actions')
   }
   const face = () => ({ actions, hooks: { roster, ui, activity, work, memoryNews, registry, turnClock, live, computer, cards, heldCards, rescuedDrafts: questionDrafts.rescued, browserPages, browserTabs, browserHolds, surface, update, frame, sidebarPref, settingsShellHeld } })
   // Since DSH 0.2.1-alpha.3 user text is drawn by rules and a content factory, not the
@@ -1433,7 +1526,22 @@ export function apply(ctx) {
   shadow('sidebar.footer.action', { id: 'bot-return', order: -300, inject: face }, BotReturn)
 
   ctx.effect(() => {
-    const forks = installAgentForks({
+    let stopped = false
+    let timer = 0
+    let forks = null
+    const syncTimer = () => {
+      if (stopped) return
+      const active = forks?.hasPending() === true
+      if (active && !timer) timer = setInterval(reconcile, 5000)
+      else if (!active && timer) { clearInterval(timer); timer = 0 }
+    }
+    const reconcile = () => {
+      if (stopped || !forks) return
+      void forks.reconcile()
+        .catch(error => actions.reportError(error, 'agent-fork-reconcile'))
+        .finally(syncTimer)
+    }
+    forks = installAgentForks({
       sessions: ctx.sessions,
       ownerOf: id => roster.getSnapshot().agentOf[id],
       hasAgent: id => roster.getSnapshot().agentsById[id] !== undefined,
@@ -1443,16 +1551,30 @@ export function apply(ctx) {
       refresh: pull,
       report: (error, source) => actions.reportError(error, source),
       storage: globalThis.localStorage,
+      onPendingChange: syncTimer,
     })
-    const reconcile = () => { void forks.reconcile().catch(error => actions.reportError(error, 'agent-fork-reconcile')) }
-    const offRoster = roster.subscribe(reconcile)
-    const offList = ctx.sessions.list.subscribe(reconcile)
-    const timer = setInterval(reconcile, 5000)
+    const onChange = () => {
+      if (stopped) return
+      if (forks.hasPending()) reconcile()
+      else syncTimer()
+    }
+    const onStorage = (event) => {
+      if (!stopped && (event.key === null || event.key === STORAGE.agentForks)) reconcile()
+    }
+    const offRoster = roster.subscribe(onChange)
+    const offList = ctx.sessions.list.subscribe(onChange)
+    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+      window.addEventListener('storage', onStorage)
+    }
     reconcile()
     return () => {
+      stopped = true
       offRoster()
       offList()
-      clearInterval(timer)
+      if (typeof window !== 'undefined' && typeof window.removeEventListener === 'function') {
+        window.removeEventListener('storage', onStorage)
+      }
+      if (timer) { clearInterval(timer); timer = 0 }
       return forks.dispose()
     }
   }, 'ds-bot: Agent forks')

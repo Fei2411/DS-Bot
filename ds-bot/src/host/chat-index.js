@@ -140,13 +140,21 @@ export function install(rt) {
         rt.warn('ds-bot: no chat index, read_own_chat scans the logs: %s', error)
         return null
       }
-      // A damaged file is rebuilt from the logs once.
+      // Only proven damage warrants a rebuild: Desktop and Web share this file,
+      // and a busy lock must never read as corruption, or the other writer's
+      // index would be deleted under it.
+      const damaged = error => /malformed|not a database|corrupt|SQLITE_CORRUPT|SQLITE_NOTADB/i.test(String(error?.message ?? error))
       for (const fresh of [false, true]) {
         try {
-          if (fresh) await unlink(indexPath).catch(() => {})
+          if (fresh) {
+            await Promise.all([indexPath, `${indexPath}-wal`, `${indexPath}-shm`].map(file => unlink(file).catch(() => {})))
+          }
           return createIndex(new DatabaseSync(indexPath))
         } catch (error) {
-          if (fresh) rt.warn('ds-bot: no chat index, read_own_chat scans the logs: %s', error)
+          if (fresh || !damaged(error)) {
+            rt.warn('ds-bot: no chat index, read_own_chat scans the logs: %s', error)
+            return null
+          }
         }
       }
       return null
@@ -163,6 +171,7 @@ export function install(rt) {
 
   function createIndex(db) {
     try {
+      db.exec('PRAGMA busy_timeout = 5000')
       db.exec('PRAGMA journal_mode = WAL')
       if (db.prepare('PRAGMA user_version').get().user_version !== INDEX_VERSION) {
         db.exec(`

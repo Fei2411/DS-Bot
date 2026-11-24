@@ -36,6 +36,7 @@ const EMPTY = { url: '', title: '', favicon: null, loading: false, canGoBack: fa
 export function createAppViewProxy(bridge, botId, tabId) {
   const listeners = new Map()
   const state = { url: '', title: '', loading: false, canGoBack: false, canGoForward: false }
+  let readyOnce = false
   const fire = (name, event = {}) => {
     for (const listener of listeners.get(name) ?? []) listener({ type: name, ...event })
   }
@@ -60,12 +61,26 @@ export function createAppViewProxy(bridge, botId, tabId) {
     reload() { return bridge.views.command(botId, tabId, 'reload') },
     stop() { return bridge.views.command(botId, tabId, 'stop') },
     focus() { return bridge.views.focus(botId, tabId) },
-    update(next) {
+    update(next, { silent = false } = {}) {
+      const wasLoading = state.loading
+      const prevUrl = state.url
+      const prevTitle = state.title
       Object.assign(state, next)
-      fire('did-navigate')
-      fire('did-stop-loading')
-      fire('page-title-updated')
-      if (!state.loading) fire('dom-ready')
+      if (silent) {
+        if (!state.loading && state.live !== false) readyOnce = true
+        return
+      }
+      if (!state.loading && !readyOnce) {
+        readyOnce = true
+        fire('dom-ready')
+        return
+      }
+      if (wasLoading && !state.loading) {
+        fire('did-stop-loading')
+        return
+      }
+      if (state.url !== prevUrl) fire('did-navigate')
+      else if (state.title !== prevTitle) fire('page-title-updated')
     },
   }
 }
@@ -100,6 +115,7 @@ export function createBotBrowsers({ bridge, createSource, storage = globalThis.l
   const views = new Map()
   /** @type {Map<string, string>} tabId -> owning Bot id */
   const owner = new Map()
+  const previewing = new Set()
   // Per Bot: { ids: [tabId...], active: tabId | null }.
   const tabs = createSource({})
   // Per tab: { url, title, favicon, loading, canGoBack, canGoForward, error, live, readAt?, excerpt }
@@ -156,10 +172,21 @@ export function createBotBrowsers({ bridge, createSource, storage = globalThis.l
     }
     const entry = views.get(tabId)
     if (entry?.appView) {
+      const wasLoading = entry.element.isLoading()
+      const prevUrl = entry.element.getURL()
       entry.botAttached = change.botAttached === true
-      entry.ready = change.loading !== true
-      entry.element.update(change)
-      if (entry.ready) { observe(entry); void preview(tabId) }
+      entry.ready = change.live !== false && change.loading !== true
+      entry.element.update(change, { silent: true })
+      if (entry.ready) {
+        observe(entry, change)
+        const nextUrl = entry.element.getURL()
+        if (wasLoading || nextUrl !== prevUrl || entry.previewedUrl !== nextUrl) {
+          void preview(tabId)
+        }
+      } else {
+        publish(tabId, change)
+      }
+      return
     }
     publish(tabId, change)
   })
@@ -173,10 +200,12 @@ export function createBotBrowsers({ bridge, createSource, storage = globalThis.l
   const persist = (botId) => {
     const state = tabs.getSnapshot()[botId]
     const snapshot = pages.getSnapshot()
-    save(botId, state && {
+    const next = state && {
       tabs: state.ids.map(id => ({ id, url: snapshot[id]?.url ?? '', title: snapshot[id]?.title ?? '' })),
       active: state.active,
-    })
+    }
+    if (JSON.stringify(saved[botId] ?? null) === JSON.stringify(next ?? null)) return
+    save(botId, next)
   }
 
   // Saved tabs come back as placeholders: they show in the strip and open their
@@ -227,18 +256,21 @@ export function createBotBrowsers({ bridge, createSource, storage = globalThis.l
   // failed or empty read keeps the excerpt the tab already has.
   async function preview(tabId) {
     const entry = views.get(tabId)
-    if (entry === undefined || !entry.ready || !/^https?:/i.test(entry.element.getURL())) return false
+    const url = entry?.element.getURL() ?? ''
+    if (entry === undefined || !entry.ready || !/^https?:/i.test(url) || previewing.has(tabId)) return false
+    previewing.add(tabId)
     let timer
     const timeout = new Promise(resolve => { timer = setTimeout(() => resolve(''), PREVIEW_TIMEOUT_MS) })
     try {
       const excerpt = await Promise.race([entry.element.executeJavaScript(PREVIEW_SCRIPT), timeout])
       if (typeof excerpt !== 'string' || excerpt === '' || views.get(tabId) !== entry) return false
+      entry.previewedUrl = url
       publish(tabId, { excerpt })
       return true
-    } catch { return false } finally { clearTimeout(timer) }
+    } catch { return false } finally { clearTimeout(timer); previewing.delete(tabId) }
   }
 
-  const observe = (entry) => {
+  const observe = (entry, extra) => {
     const { element } = entry
     if (!entry.ready) return
     const url = element.getURL()
@@ -249,7 +281,7 @@ export function createBotBrowsers({ bridge, createSource, storage = globalThis.l
       entry.fresh = false
     }
     const title = element.getTitle()
-    publish(entry.tabId, { url, title, loading: element.isLoading(), canGoBack: element.canGoBack(), canGoForward: element.canGoForward(), live: true })
+    publish(entry.tabId, { ...extra, url, title, loading: element.isLoading(), canGoBack: element.canGoBack(), canGoForward: element.canGoForward(), live: extra?.live ?? true })
     persist(entry.botId)
   }
 
@@ -334,7 +366,13 @@ export function createBotBrowsers({ bridge, createSource, storage = globalThis.l
       const state = (await bridge.views.sync(botId)).find(view => view.tabId === tabId)
       if (state) {
         entry.botAttached = state.botAttached === true
-        element.update(state)
+        if (state.live === false) {
+          entry.ready = false
+          element.update(state, { silent: true })
+          publish(tabId, state)
+        } else {
+          element.update(state)
+        }
       }
     }
     return entry
@@ -541,7 +579,7 @@ export function createBotBrowsers({ bridge, createSource, storage = globalThis.l
         const tabId = state.active
         const entry = tabId ? views.get(tabId) : undefined
         const page = tabId ? snapshot[tabId] : undefined
-        if (entry?.ready && page?.url) open[botId] = { url: page.url, title: page.title }
+        if (entry?.ready && page?.live !== false && page?.url) open[botId] = { url: page.url, title: page.title }
       }
       return open
     },

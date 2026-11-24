@@ -203,10 +203,11 @@ export class CodexEngine {
   onRequest(method, params) {
     if (method === 'item/commandExecution/requestApproval' || method === 'item/fileChange/requestApproval' || method === 'execCommandApproval' || method === 'patchApproval') {
       const thread = [...this.threads.values()].find(entry => entry.threadId === params?.threadId)
+      if (thread === undefined) return Promise.reject({ code: -32603, message: 'unknown thread' })
       const options = (params?.availableDecisions ?? params?.decisions ?? ['accept', 'decline']).map(decision => ({ optionId: decision, kind: decision === 'accept' ? 'allow_once' : decision === 'acceptForSession' ? 'allow_always' : 'reject_once', name: decision }))
       return new Promise((resolve) => {
         const reply = (decision) => resolve({ decision: decision ?? 'decline' })
-        thread?.push({
+        thread.push({
           type: 'permission', id: `perm-${Math.random().toString(36).slice(2)}`, reply,
           action: params?.reason ?? params?.command ?? 'The agent asks to run an action',
           changes: true,
@@ -380,10 +381,13 @@ export class CodexEngine {
 
   async close() {
     for (const thread of this.threads.values()) this.releaseCompaction(thread)
+    this.threads.clear()
     const child = this.child
+    const peer = this.peer
     this.child = undefined
     this.peer = undefined
     this.starting = undefined
+    peer?.close?.(new Error(`${this.engine.name} closed`))
     if (child === undefined) return this.closing
     if (child.exitCode !== null || child.signalCode !== null) return
     this.closing = new Promise(resolve => {

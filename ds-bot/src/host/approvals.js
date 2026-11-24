@@ -292,7 +292,9 @@ export function install(rt) {
     }
   }
   ctx.effect?.(() => () => {
-    for (const entry of pending.values()) entry.answer('cancelled')
+    for (const entry of Array.from(pending.values())) entry.answer?.('cancelled')
+    pending.clear()
+    approvalListeners.clear()
     executions.clear()
     actionScope.disable()
   }, 'ds-bot: approval review')

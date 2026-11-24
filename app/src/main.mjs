@@ -593,7 +593,7 @@ const pnpmEntry = () => join(app.getAppPath(), 'node_modules', 'pnpm', 'bin', 'p
 const runtimeDir = () => app.isPackaged ? process.resourcesPath : join(here, '..', 'build', 'runtime')
 const hostOutput = (stream, chunk) => {
   logs.write('engine', chunk)
-  rawOutput[stream](chunk)
+  rawOutput[stream](/token=/iu.test(chunk) ? logs.redact(chunk) : chunk)
 }
 
 function newHost() {
@@ -606,6 +606,7 @@ function newHost() {
     pnpm: pnpmEntry(),
     onFailure: (error) => { if (mine === attempt) void fail(error) },
     output: hostOutput,
+    redactOutput: false,
   })
   child.onMessage(message => { chatgpt?.handle(message, response => child.send(response)) })
   return child
@@ -615,7 +616,7 @@ function newHost() {
 function newCheck(home, list) {
   const cwd = join(home, 'profiles', CHECK_PROFILE)
   mkdirSync(cwd, { recursive: true })
-  return new HostProcess({ entry: join(here, 'host.mjs'), cwd, env: { ...process.env, DSH_HOME: home, DS_BOT_CHECK: list, DS_BOT_RUNTIME_DIR: runtimeDir() }, pnpm: pnpmEntry(), onFailure: () => {}, output: hostOutput })
+  return new HostProcess({ entry: join(here, 'host.mjs'), cwd, env: { ...process.env, DSH_HOME: home, DS_BOT_CHECK: list, DS_BOT_RUNTIME_DIR: runtimeDir() }, pnpm: pnpmEntry(), onFailure: () => {}, output: hostOutput, redactOutput: false })
 }
 
 /**
@@ -817,7 +818,27 @@ function handleIpc() {
     if (!fromWindow(event)) return
     void computerCursor.update(entry)
   })
-  app.on('before-quit', () => { computerIndicator.dispose(); computerCursor.dispose() })
+  let systemSuspended = false
+  let systemLocked = false
+  const syncSystemPaused = () => {
+    botViews?.setSystemPaused(systemSuspended || systemLocked)
+  }
+  const onSuspend = () => { systemSuspended = true; computerCursor.pause(); syncSystemPaused() }
+  const onResume = () => { systemSuspended = false; syncSystemPaused() }
+  const onLockScreen = () => { systemLocked = true; computerCursor.pause(); syncSystemPaused() }
+  const onUnlockScreen = () => { systemLocked = false; syncSystemPaused() }
+  powerMonitor.on('suspend', onSuspend)
+  powerMonitor.on('lock-screen', onLockScreen)
+  powerMonitor.on('resume', onResume)
+  powerMonitor.on('unlock-screen', onUnlockScreen)
+  app.on('before-quit', () => {
+    powerMonitor.off?.('suspend', onSuspend)
+    powerMonitor.off?.('lock-screen', onLockScreen)
+    powerMonitor.off?.('resume', onResume)
+    powerMonitor.off?.('unlock-screen', onUnlockScreen)
+    computerIndicator.dispose()
+    computerCursor.dispose()
+  })
   ipcMain.on(IPC.ready, (event, report) => { if (fromWindow(event)) startWindow.ready(report) })
   // It has drawn the whale the start window hands over: the windows cross-fade.
   ipcMain.on(IPC.handoffReady, (event) => { if (fromWindow(event)) startWindow.teamReady() })
@@ -1568,11 +1589,20 @@ function createWindow() {
     return { action: 'deny' }
   })
   contents.on('did-create-window', (child) => {
+    const destroyChild = () => { if (!child.isDestroyed()) child.destroy() }
+    const timer = setTimeout(destroyChild, 30_000)
+    timer.unref?.()
+    const cleanup = () => {
+      clearTimeout(timer)
+      win.off?.('closed', destroyChild)
+    }
+    child.once('closed', cleanup)
+    win.once('closed', destroyChild)
     const away = (event, url) => {
       if (url === 'about:blank') return
       event.preventDefault()
       openOutside(url)
-      child.destroy()
+      destroyChild()
     }
     child.webContents.on('will-navigate', away)
     child.webContents.on('will-redirect', away)
@@ -1595,10 +1625,19 @@ function createWindow() {
       if (input.type === 'keyDown' && (input.key === 'F12' || (input.control && input.shift && input.key.toLowerCase() === 'i'))) contents.toggleDevTools()
     })
   }
+  // Hidden or minimized windows pause Bot browser views so off-screen pages stay silent and idle.
+  win.on('hide', () => { botViews?.setWindowHidden(true) })
+  win.on('minimize', () => { botViews?.setWindowHidden(true) })
   // The window that is shown again asks for the update that waited for it. A window that was
   // minimized asks for it when it comes back.
-  win.on('show', () => { void flushDeferredUpdate().catch((error) => { console.error(error) }) })
-  win.on('restore', () => { void flushDeferredUpdate().catch((error) => { console.error(error) }) })
+  win.on('show', () => {
+    botViews?.setWindowHidden(false)
+    void flushDeferredUpdate().catch((error) => { console.error(error) })
+  })
+  win.on('restore', () => {
+    botViews?.setWindowHidden(false)
+    void flushDeferredUpdate().catch((error) => { console.error(error) })
+  })
   return win
 }
 
