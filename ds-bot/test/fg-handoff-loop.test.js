@@ -20,7 +20,7 @@ const settle = async (check, ms = 4000, label = 'condition not reached') => {
 
 const textOf = message => (message?.content ?? []).map(block => block.text ?? '').join('\n')
 
-async function createRealLoopRig(t, { prefs = {}, failForkAndCreate = false, holdFirstModel = false, holdFork = false, delayResolveMs = 0, enableFlushPersistence = true, durable = false } = {}) {
+async function createRealLoopRig(t, { prefs = {}, failForkAndCreate = false, holdFirstModel = false, holdFork = false, delayResolveMs = 0, enableFlushPersistence = true, durable = false, slowSessionId = 'dm-a' } = {}) {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-fg-loop-'))
   const workDir = join(home, 'team')
   mkdirSync(workDir, { recursive: true })
@@ -113,7 +113,7 @@ async function createRealLoopRig(t, { prefs = {}, failForkAndCreate = false, hol
         }
       }
 
-      if (options.sessionId === 'dm-a' && !options.messages.some(m => m.role === 'tool') && lastText.includes('run slow work')) {
+      if (options.sessionId === slowSessionId && !options.messages.some(m => m.role === 'tool') && lastText.includes('run slow work')) {
         const id = `call_${++callSeq}`
         yield { type: 'block-start', index: 0, blockType: 'tool-call' }
         yield { type: 'tool-call-delta', index: 0, id, name: 'slow_check', argumentsDelta: '{}' }
@@ -983,6 +983,37 @@ test('recovery does not replay a queued copy the user deleted after a failed flu
 
   assert.deepEqual(journal(rig), [])
   assert.equal(agent.inbox.nextStep.some(item => item.source.rpcId === prompt.id), false)
+})
+
+test('recovery honors queue deletion in a group whose session ID changed', async (t) => {
+  const sessionId = 'replacement-group-session'
+  const rig = await createRealLoopRig(t, { durable: true, slowSessionId: sessionId })
+  const agent = await rig.makeRealAgent(sessionId)
+  const roomId = 'stable-group'
+  rig.rt.state.rooms[roomId] = { id: roomId, name: 'Group', sessionId: agent.id, members: ['a'] }
+  await rig.rt.save()
+  assert.equal(rig.rt.roomOf(agent.id).id, roomId)
+
+  agent.followup(userPrompt('Please run slow work'))
+  await rig.toolStarted.promise
+  const prompt = userPrompt('Do not bring back this group prompt', 'rpc-group-delete')
+  rig.rt.state.pendingHandoffInputs = [{
+    id: prompt.source.rpcId, messageId: prompt.id, roomId, target: 'next-step',
+    source: prompt.source, content: prompt.content,
+  }]
+  await rig.rt.save()
+  const flush = t.mock.method(rig.rt.ctx.sessions, 'flush', async () => false)
+  await rig.rt.reconcileTasksAfterRestart()
+  assert.deepEqual(journal(rig).map(item => item.messageId), [prompt.id])
+  const queued = agent.inbox.nextStep.find(item => item.source.rpcId === prompt.source.rpcId)
+  assert.ok(queued)
+  assert.equal(agent.inbox.remove(queued.id), true)
+  await rig.rt.save()
+  flush.mock.restore()
+  await rig.rt.reconcileTasksAfterRestart()
+
+  assert.deepEqual(journal(rig), [])
+  assert.equal(agent.inbox.nextStep.some(item => item.source.rpcId === prompt.source.rpcId), false)
 })
 
 test('recovery recognizes a restored input after a later part switch copies it to a new message ID', async (t) => {

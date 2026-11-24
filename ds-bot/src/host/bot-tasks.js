@@ -1289,6 +1289,7 @@ export function install(rt) {
   }
 
   const transferKey = (owner, id = owner?.id) => JSON.stringify([owner?.botId, owner?.roomId, id])
+  const transferOwnerKey = owner => owner === undefined ? undefined : transferKey(owner, null)
   const transferRefOf = item => ({ key: item.transferKey, token: item.transferToken })
   const pendingTransferOf = key => key !== undefined && Array.isArray(state.pendingHandoffInputs)
     ? state.pendingHandoffInputs.find(entry => transferKey(entry) === key)
@@ -1389,16 +1390,18 @@ export function install(rt) {
 
   const logicalOwnerOf = (ref) => {
     if (ref === undefined) return undefined
-    const botId = rt.chatOwners.get(ref)
-    if (botId !== undefined) return `bot:${botId}`
-    const groupOwner = rt.groupOwners.get(ref)
-    if (groupOwner !== undefined) return `room:${groupOwner.roomId}`
     const taskOwner = rt.taskOwners?.get(ref)
-    if (taskOwner !== undefined) return taskOwner.roomId !== undefined ? `room:${taskOwner.roomId}` : `bot:${taskOwner.botId}`
+    if (taskOwner !== undefined) return taskOwner.roomId !== undefined ? { roomId: taskOwner.roomId } : { botId: taskOwner.botId }
+    const botId = rt.chatOwners.get(ref)
+    if (botId !== undefined) return { botId }
+    const groupOwner = rt.groupOwners.get(ref)
+    if (groupOwner !== undefined) return { roomId: groupOwner.roomId }
     const past = rt.pastOwners?.get(ref)
-    if (past !== undefined) return past.roomId !== undefined ? `room:${past.roomId}` : `bot:${past.botId}`
-    if (rt.botOf(ref) !== undefined) return `bot:${ref}`
-    if (rt.roomOf(ref) !== undefined) return `room:${ref}`
+    if (past !== undefined) return past.roomId !== undefined ? { roomId: past.roomId } : { botId: past.botId }
+    const bot = rt.botOf(ref)
+    if (bot !== undefined) return { botId: bot.id }
+    const room = rt.roomOf(ref)
+    if (room !== undefined) return { roomId: room.id }
     return undefined
   }
 
@@ -1415,7 +1418,7 @@ export function install(rt) {
 
   const noteLogicalAdmittedRpc = (sessionId, rpcId) => {
     if (sessionId === undefined || rpcId === undefined) return
-    const ownerKey = logicalOwnerOf(sessionId)
+    const ownerKey = transferOwnerKey(logicalOwnerOf(sessionId))
     if (ownerKey === undefined) return
     let logical = admittedLogicalRpcIds.get(ownerKey)
     if (logical === undefined) {
@@ -1431,9 +1434,6 @@ export function install(rt) {
     noteLogicalAdmittedRpc(sessionId, rpcId)
   }
 
-  const transferOwnerKey = entry => entry.roomId !== undefined ? `room:${entry.roomId}`
-    : entry.botId !== undefined ? `bot:${entry.botId}` : undefined
-
   const hasPendingTransfer = (ownerKey, rpcId) => Array.isArray(state.pendingHandoffInputs)
     && state.pendingHandoffInputs.some(entry => {
       if (entry?.id !== rpcId && entry?.source?.rpcId !== rpcId) return false
@@ -1447,7 +1447,7 @@ export function install(rt) {
     if (sessionId === undefined || rpcId === undefined) return
     noteLogicalAdmittedRpc(sessionId, rpcId)
     if (rt.taskOwners?.has(sessionId)) return
-    if (hasPendingTransfer(logicalOwnerOf(sessionId), rpcId)) return
+    if (hasPendingTransfer(transferOwnerKey(logicalOwnerOf(sessionId)), rpcId)) return
     noteSessionAdmittedRpc(sessionId, rpcId)
   }
 
@@ -1594,7 +1594,8 @@ export function install(rt) {
   // IM chat rebindings for globally unique `im:` platform message IDs.
   const isAdmittedForSend = async ({ ref, sessionId, requestId, callerSupplied = true } = {}) => {
     if (requestId === undefined) return false
-    const ownerKey = logicalOwnerOf(sessionId) ?? logicalOwnerOf(ref)
+    const owner = logicalOwnerOf(sessionId) ?? logicalOwnerOf(ref)
+    const ownerKey = transferOwnerKey(owner)
     if (ownerKey !== undefined && admittedLogicalRpcIds.get(ownerKey)?.has(requestId)) return true
     const isImRequest = typeof requestId === 'string' && requestId.startsWith('im:')
     if (isImRequest) {
@@ -1631,8 +1632,8 @@ export function install(rt) {
     if (ref !== undefined && rt.botOf(ref) === undefined && rt.roomOf(ref) === undefined) {
       addCandidate(ref, false)
     }
-    if (ownerKey !== undefined && ownerKey.startsWith('bot:')) {
-      addBotCandidates(rt.botOf(ownerKey.slice(4)))
+    if (owner?.botId !== undefined) {
+      addBotCandidates(rt.botOf(owner.botId))
     }
     // An IM platform message ID (`im:<platform>:<connId>:<chatKey>:<msgId>`) belongs to a
     // single inbound platform event even if the chat was rebound to another Bot/group after restart.
@@ -1857,19 +1858,6 @@ export function install(rt) {
   // received it confirms `sessions.flush() === true` AND this transfer still owns the entry (#2087).
   const forwardPulledMessages = async (initialTargetSid, items, botName, owner = {}, { recovering = false } = {}) => {
     if (items.length === 0) return
-    const resolveOwner = (sid) => {
-      if (owner.roomId !== undefined) return { roomId: owner.roomId }
-      if (owner.botId !== undefined) return { botId: owner.botId }
-      const taskOwner = rt.taskOwners?.get(sid)
-      if (taskOwner !== undefined) return taskOwner.roomId !== undefined ? { roomId: taskOwner.roomId } : { botId: taskOwner.botId }
-      const groupOwner = rt.groupOwners.get(sid)
-      if (groupOwner !== undefined) return { roomId: groupOwner.roomId }
-      const botId = rt.chatOwners.get(sid)
-      if (botId !== undefined) return { botId }
-      const past = rt.pastOwners?.get(sid)
-      if (past !== undefined) return past.roomId !== undefined ? { roomId: past.roomId } : { botId: past.botId }
-      return {}
-    }
     const currentTargetFor = (sid, resolvedOwner) => {
       if (resolvedOwner.roomId !== undefined) {
         const room = rt.roomOf(resolvedOwner.roomId)
@@ -1881,7 +1869,8 @@ export function install(rt) {
       }
       return sid
     }
-    const resolvedOwner = resolveOwner(initialTargetSid)
+    const resolvedOwner = owner.roomId !== undefined || owner.botId !== undefined
+      ? owner : logicalOwnerOf(initialTargetSid) ?? {}
     let targetSid = initialTargetSid
     let nextIndex = 0
     // Sessions that have accepted items in this batch and still await a positive flush() === true.
@@ -2763,7 +2752,7 @@ export function install(rt) {
   ctx.on('agent/inbox/discarded', ({ agent, message } = {}) => {
     if (message?.source?.kind !== 'user' || movingHandoffInputs.has(message.id)
       || rt.isMovingInboxMessage?.(message.id) || !Array.isArray(state.pendingHandoffInputs)) return
-    const owner = logicalOwnerOf(agent?.id ?? agent?.session?.id)
+    const owner = transferOwnerKey(logicalOwnerOf(agent?.id ?? agent?.session?.id))
     if (owner === undefined) return
     const rpcId = message.source.rpcId
     const entry = state.pendingHandoffInputs.find(item => item !== null && typeof item === 'object'
