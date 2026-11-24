@@ -2063,11 +2063,7 @@ export function install(rt) {
     if (existing !== undefined && existing.oldSid === oldSid && !existing.aborted) {
       if (initialMessages.length > 0) {
         recordPendingTransfers(initialMessages, { botId: bot.id })
-        if (existing.committed && existing.newSid !== undefined) {
-          void forwardPulledMessages(existing.newSid, initialMessages, bot.name, { botId: bot.id })
-        } else {
-          existing.messages.push(...initialMessages)
-        }
+        existing.messages.push(...initialMessages)
       }
       return existing.promise
     }
@@ -2428,7 +2424,12 @@ export function install(rt) {
           ...supersededOpIds.map(id => ({ id, result: staleResult })),
         ])
         try {
-          await rt.save({ required: true })
+          // The commit write may have snapshotted state before stale composers add input.
+          let checkpointed
+          do {
+            checkpointed = record.messages.length
+            await rt.save({ required: true })
+          } while (record.messages.length > checkpointed)
         } catch (error) {
           unstagePersistedMoveOps(staged)
           for (const item of record.messages.splice(0)) {
@@ -2709,6 +2710,11 @@ export function install(rt) {
       clearSteeredAt()
       const pulled = [{ msg, target, oldAgent: agent }]
       recordPendingTransfers(pulled, taskOwner.roomId !== undefined ? { roomId: taskOwner.roomId } : { botId: taskOwner.botId })
+      const pending = taskOwner.roomId === undefined ? handoffing.get(taskOwner.botId) : undefined
+      if (pending?.oldSid === id && !pending.aborted && !pending.saved) {
+        pending.messages.push(...pulled)
+        return true
+      }
       void (async () => {
         if (taskOwner.roomId !== undefined) {
           const room = rt.roomOf(taskOwner.roomId)
@@ -2717,7 +2723,6 @@ export function install(rt) {
           else await clearPendingTransfers(pulled.map(transferRefOf))
           return
         }
-        const pending = handoffing.get(taskOwner.botId)
         if (pending !== undefined) await pending.promise.catch(() => {})
         const ownerBot = rt.botOf(taskOwner.botId)
         let fgSid = ownerBot === undefined ? undefined : rt.chatOf(ownerBot.id)

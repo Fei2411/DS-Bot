@@ -1034,6 +1034,93 @@ test('a failed foreground commit replays held input without another move request
   assert.ok(noticeIndex >= 0 && noticeIndex < promptIndex, 'the active task notice must precede the recovered correction')
 })
 
+test('a stale-session prompt arriving during the foreground commit waits for a durable replay', async (t) => {
+  const rig = await createRealLoopRig(t, { durable: true })
+  const old = rig.agents.get('dm-a')
+  old.followup(userPrompt('Please run slow work'))
+  await rig.toolStarted.promise
+
+  const commitStarted = Promise.withResolvers()
+  const commitGate = Promise.withResolvers()
+  const save = rig.rt.save
+  const blocked = t.mock.method(rig.rt, 'save', async (options) => {
+    if (rig.rt.botOf('a').sessionId === 'dm-a') return save(options)
+    if (options?.required) {
+      commitStarted.resolve()
+      await commitGate.promise
+    }
+    throw Object.assign(new Error('Foreground commit write blocked'), { code: 'EBUSY' })
+  })
+  const moved = beginMove(rig)
+  await commitStarted.promise
+  assert.equal(rig.rt.taskOwners.has('dm-a'), true)
+  const fresh = rig.agents.get('fork-1')
+  const prompt = userPrompt('Send this from the stale tab', 'during-foreground-commit')
+  const admitted = () => fresh.session.snapshotEvents().filter(event =>
+    event.type === 'user/message' && event.data.source?.rpcId === prompt.source.rpcId)
+  const diskForeground = () => JSON.parse(readFileSync(join(rig.home, 'state.json'), 'utf8')).bots.a.sessionId
+  old.steer(prompt)
+  assert.equal(old.inbox.nextStep.length, 0)
+  commitGate.resolve()
+
+  assert.equal((await moved).code, 'EBUSY')
+  await new Promise(resolve => setImmediate(resolve))
+  await fresh.whenIdle()
+  assert.equal(diskForeground(), 'dm-a')
+  assert.equal(admitted().length, 0, 'a stale-session prompt must not reach an uncommitted foreground')
+  assert.deepEqual(rig.rt.state.pendingHandoffInputs?.map(item => item.messageId), [prompt.id])
+  await rig.rt.reconcileTasksAfterRestart()
+  assert.equal(admitted().length, 0)
+
+  blocked.mock.restore()
+  await settle(() => admitted().length === 1 && journal(rig).length === 0, 4500, 'the stale-session prompt should replay after writes recover')
+  assert.equal(diskForeground(), 'fork-1')
+  assert.equal(admitted().length, 1)
+})
+
+test('a stale-session prompt missed by the commit snapshot is checkpointed before delivery', async (t) => {
+  const rig = await createRealLoopRig(t, { durable: true })
+  const old = rig.agents.get('dm-a')
+  old.followup(userPrompt('Please run slow work'))
+  await rig.toolStarted.promise
+
+  const commitWritten = Promise.withResolvers()
+  const commitGate = Promise.withResolvers()
+  const checkpointGate = Promise.withResolvers()
+  const save = rig.rt.save
+  let requiredWrites = 0
+  t.mock.method(rig.rt, 'save', async (options) => {
+    if (rig.rt.botOf('a').sessionId === 'dm-a') return save(options)
+    if (!options?.required && requiredWrites < 2) throw new Error('Best-effort write blocked')
+    if (options?.required && ++requiredWrites === 1) {
+      await save(options)
+      commitWritten.resolve()
+      await commitGate.promise
+      return
+    }
+    await checkpointGate.promise
+    return save(options)
+  })
+  const moved = beginMove(rig)
+  await commitWritten.promise
+  const prompt = userPrompt('Sent after the commit snapshot', 'after-commit-snapshot')
+  old.steer(prompt)
+  const fresh = rig.agents.get('fork-1')
+  const admitted = () => fresh.session.snapshotEvents().filter(event =>
+    event.type === 'user/message' && event.data.source?.rpcId === prompt.source.rpcId)
+  assert.deepEqual(journal(rig), [])
+  commitGate.resolve()
+  await settle(() => requiredWrites === 2 || admitted().length > 0)
+  assert.equal(admitted().length, 0, 'delivery must wait for the late input checkpoint')
+  assert.equal(requiredWrites, 2)
+
+  checkpointGate.resolve()
+  assert.equal((await moved).sessionId, 'fork-1')
+  await fresh.whenIdle()
+  assert.equal(admitted().length, 1)
+  assert.deepEqual(journal(rig), [])
+})
+
 test('replay of a non-forked handoff does not promise a report already delivered', async (t) => {
   const rig = await createRealLoopRig(t, { durable: true, holdFork: true, failFork: true })
   const old = rig.agents.get('dm-a')
