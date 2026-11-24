@@ -16,7 +16,9 @@ The link is end-to-end encrypted. Browser remote still runs a page supplied by i
 
 ## IM platforms
 
-Open **Settings → Connect → IM** to configure supported messaging-platform connections. Use the platform choices and setup fields actually shown there; do not assume every chat platform is supported. Account credentials and pairing are user UI work, not Main Bot powers. IM carries messages to the existing team; it is not a new OS sandbox or permission grant.
+Open **Settings → Connect → IM** to configure supported messaging-platform connections. Use the platform choices and setup fields actually shown there; do not assume every chat platform is supported. Account credentials and pairing are user UI work, not Main Bot powers.
+
+Direct and group messages default to **Paired accounts**, and group messages require a mention by default. To accept ordinary messages from everyone the platform allows to reach the IM bot, choose **Anyone** for direct or group messages. Those messages use the bound conversation’s existing history and capabilities, with the sender’s platform ID at the start of each message. Bind each group to a Bot or group in DS Bot. Management commands still require a paired account. Handle cards from open chats in DS Bot.
 
 ## Problems
 

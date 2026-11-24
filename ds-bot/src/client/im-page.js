@@ -282,6 +282,20 @@ function DetailView({ conn, status, roster, actions, onBack }) {
           state === 'error' ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: () => run(actions.imRetry(conn.id)) }, t('Try again')) : null,
           h(Switch, { on: conn.enabled, label: t('Enabled'), disabled: busy, onChange: on => run(actions.imUpdate(conn.id, { enabled: on })) }))),
       h(Row, { label: t('Talks to') }, h(TargetMenu, { value: conn.botId ? { botId: conn.botId } : null, roster, label: t('Talks to'), disabled: busy, onPick: next => next?.botId && run(actions.imUpdate(conn.id, { botId: next.botId })) }))),
+    h('section', { className: 'bt-set-section' },
+      h('h3', null, t('Chat access')),
+      h('div', { className: 'bt-set-card' },
+        [['dmPolicy', 'Direct messages'], ['groupPolicy', 'Group messages']].map(([key, label]) =>
+          h(Row, { key, label: t(label) }, h('select', {
+            'aria-label': t(label), value: conn[key] ?? 'peer', disabled: busy,
+            onChange: event => run(actions.imUpdate(conn.id, { [key]: event.target.value })),
+          }, h('option', { value: 'peer' }, t('Paired accounts')), h('option', { value: 'open' }, t('Anyone'))))),
+        h(Row, { label: t('Require a mention in groups') },
+          h(Switch, { on: conn.requireMention !== false, label: t('Require a mention in groups'), disabled: busy,
+            onChange: on => run(actions.imUpdate(conn.id, { requireMention: on })) })),
+        conn.dmPolicy === 'open' || conn.groupPolicy === 'open'
+          ? h('div', { className: 'bt-set-row' }, h('span', { className: 'bt-set-hint' }, t('Anyone can send messages using the bound chat’s history and capabilities.')))
+          : null)),
     conn.requests.length > 0 ? h('section', { className: 'bt-set-section' },
       h('h3', null, t('Waiting for approval')),
       h('div', { className: 'bt-set-card bt-im-attn' }, h(Requests, { conn, run, busy, actions }))) : null,

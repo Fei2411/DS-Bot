@@ -210,6 +210,108 @@ test('im-update applies only the fields it is given and keeps the rest', async (
   assert.equal(s.rt.state.im.connections[conn.id].settings.appId, 'app-1')
 })
 
+test('open direct messages use the bound Bot session and the adapter sender ID', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  const conn = await add(s)
+  assert.deepEqual([conn.dmPolicy, conn.groupPolicy, conn.requireMention], ['peer', 'peer', true])
+  const updated = await s.rt.imEndpoint('im-update', { id: conn.id, dmPolicy: 'open' })
+  assert.equal(updated.dmPolicy, 'open')
+  const senderId = 'platform:User.77'
+  await dm(s, senderId, 'owner: /stop', { messageId: 'first' })
+  await dm(s, senderId, 'owner: /stop', { messageId: 'first' })
+  const [{ sessionId, mode, content }] = s.prompts
+  assert.equal(s.prompts.length, 1)
+  assert.deepEqual({ sessionId, mode, content }, {
+    sessionId: 'a', mode: 'queue', content: [{ type: 'text', text: 'platform:User.77: owner: /stop' }],
+  })
+  assert.deepEqual(s.rt.imView().connections[0].paired, [])
+  assert.deepEqual(s.rt.imView().connections[0].requests, [])
+  s.imTurn('a')
+  s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'Shared reply' }] } })
+  await s.flush()
+  assert.deepEqual(s.fake.sent.map(job => [job.chat.key, job.text]), [[`dm-${senderId}`, 'Shared reply']])
+
+  s.emitEvent('a', 'turn/end', {})
+  await dm(s, 'guest-2', 'follow-up')
+  await s.rt.imEndpoint('im-update', { id: conn.id, dmPolicy: 'peer' })
+  s.imTurn('a')
+  s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'Late reply' }] } })
+  await s.flush()
+  assert.equal(s.fake.sent.length, 1)
+})
+
+test('a failed open reply cannot retry after direct messages require pairing again', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  const conn = await add(s)
+  await s.rt.imEndpoint('im-update', { id: conn.id, dmPolicy: 'open' })
+  await dm(s, 'guest', 'hello')
+  s.imTurn('a')
+  s.fake.fails.push(Object.assign(new Error('forbidden'), { status: 403, permanent: true }))
+  s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'failed reply' }] } })
+  await s.flush()
+  assert.equal(s.rt.imStatusView()[conn.id].state, 'error')
+  assert.equal(s.fake.jobs.filter(job => job.text === 'failed reply').length, 1)
+  await s.rt.imEndpoint('im-update', { id: conn.id, dmPolicy: 'peer' })
+  await s.rt.imEndpoint('im-retry', { id: conn.id })
+  await s.flush()
+  assert.equal(s.fake.jobs.filter(job => job.text === 'failed reply').length, 1)
+})
+
+test('open groups use their bound room, respect mentions and leave direct pairing independent', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  const conn = await add(s)
+  await s.rt.imEndpoint('im-update', { id: conn.id, groupPolicy: 'open' })
+  await gm(s, 'guest', 'ordinary message', { mentioned: false })
+  assert.equal(s.fake.sent.length, 0)
+  await gm(s, 'guest', 'mentioned before binding')
+  assert.match(s.fake.sent.at(-1).text, /not bound/)
+  assert.equal(s.prompts.length, 0)
+  await s.rt.imEndpoint('im-chat', { id: conn.id, chatKey: 'g1', target: { roomId: 'r1' } })
+  await gm(s, 'guest', 'ordinary message', { mentioned: false })
+  assert.equal(s.prompts.length, 0)
+  const updated = await s.rt.imEndpoint('im-update', { id: conn.id, requireMention: false })
+  assert.equal(updated.requireMention, false)
+  await gm(s, 'guest', 'ordinary message', { mentioned: false })
+  assert.deepEqual(s.prompts.map(prompt => [prompt.sessionId, prompt.mode, prompt.content[0].text]), [['r1', 'queue', 'guest: ordinary message']])
+  s.imTurn('r1')
+  s.rt.logRoom(s.rt.roomOf('r1'), { who: 'Writer', botId: 'b', text: 'Group reply' })
+  await s.flush()
+  assert.deepEqual([s.fake.sent.at(-1).chat.key, s.fake.sent.at(-1).text], ['g1', '**Writer**: Group reply'])
+  await dm(s, 'guest', 'private message')
+  assert.deepEqual(s.rt.imView().connections[0].requests.map(request => request.id), ['guest'])
+  assert.equal(s.prompts.length, 1)
+  const state = JSON.parse(readFileSync(join(s.home, 'state.json'), 'utf8'))
+  assert.equal(state.im.connections[conn.id].groupPolicy, 'open')
+  await assert.rejects(s.rt.imEndpoint('im-update', { id: conn.id, groupPolicy: 'any' }), /groupPolicy must be open or peer/)
+  await assert.rejects(s.rt.imEndpoint('im-update', { id: conn.id, requireMention: 'false' }), /requireMention must be a boolean/)
+})
+
+test('open chat admission does not grant IM commands or approve pairing', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  const conn = await add(s)
+  await dm(s, 'owner', '/start')
+  await s.rt.imEndpoint('im-pair', { id: conn.id, senderId: 'owner', allow: true })
+  await s.rt.imEndpoint('im-update', { id: conn.id, dmPolicy: 'open' })
+  for (const command of ['/start', '/stop', '/bg', '/steer take over', '!card V1 allow', '/card V1 allow']) {
+    await dm(s, 'guest', command)
+  }
+  await assert.rejects(s.rt.imEndpoint('im-pair', { id: conn.id, senderId: 'guest', allow: true }), /This request is gone/)
+  assert.equal(s.prompts.length, 0)
+  assert.equal(s.agentOf('a').cancelled, undefined)
+  await dm(s, 'guest', '1')
+  assert.equal(s.prompts[0].content[0].text, 'guest: 1')
+  s.imTurn('a')
+  await dm(s, 'guest', '/stop')
+  assert.equal(s.agentOf('a').cancelled, undefined)
+  await dm(s, 'owner', '/stop')
+  assert.equal(s.agentOf('a').cancelled, true)
+  assert.equal(s.prompts.length, 1)
+})
+
 test('unpaired DM asks once, allow pairs it, next message prompts the Bot', async (t) => {
   const s = await start()
   t.after(s.stop)
@@ -240,6 +342,7 @@ test('unbound group mention replies unbound and records the chat; binding routes
   const conn = await add(s)
   s.rt.state.im.connections[conn.id].paired.push({ id: 'u1', name: 'User u1', at: 1 })
   await s.rt.save()
+  await s.rt.imEndpoint('im-update', { id: conn.id, requireMention: false })
   await gm(s, 'u1', 'hi all', { mentioned: false })
   assert.equal(s.fake.sent.length, 0)
   assert.equal(s.prompts.length, 0)
@@ -2546,6 +2649,29 @@ test('WeChat replies to queued prompts admitted after restart without reopening 
   assert.deepEqual(restarted.fake.sent, [])
 })
 
+test('WeChat restores the reply route of an open message after restart', async (t) => {
+  const seed = TEAM()
+  seed.im = { connections: { im_wx: {
+    id: 'im_wx', platform: 'weixin', botId: 'a', enabled: true, secrets: {}, dmPolicy: 'open',
+  } } }
+  const first = await start({ platform: 'weixin', seed })
+  let current = first
+  t.after(() => current.stop())
+  await first.rt.imEndpoint('im-retry', { id: 'im_wx' })
+  await dm(first, 'guest', 'queued before restart')
+  const [prompt] = first.prompts
+  const snapshot = JSON.parse(readFileSync(join(first.home, 'state.json'), 'utf8'))
+  await first.close()
+
+  const restarted = current = await start({ platform: 'weixin', home: first.home, seed: snapshot })
+  await restarted.rt.imEndpoint('im-retry', { id: 'im_wx' })
+  restarted.emitEvent('a', 'turn/start', {})
+  restarted.emitEvent('a', 'user/message', { source: { kind: 'user', rpcId: prompt.requestId }, content: prompt.content })
+  restarted.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'reply after restart' }] } })
+  await restarted.flush()
+  assert.deepEqual(restarted.fake.sent.map(entry => [entry.chat.key, entry.text]), [['dm-guest', 'reply after restart']])
+})
+
 for (const group of [false, true]) {
   test(`whole-turn IM origin: an unknown IM request blocks later claims in a ${group ? 'group' : 'direct'} turn`, async (t) => {
     const s = await start()
@@ -3791,6 +3917,36 @@ test('im-retry keeps retained failed sends and card reservations when reconnect 
   assert.equal((await racing)[0], 'allowed-once')
 })
 
+test('im-retry drops a retained approval card after the chat switches to open', async t => {
+  const s = await start()
+  t.after(s.stop)
+  const { conn } = await pairedConn(s)
+  await dm(s, 'u1', 'hi')
+  s.imTurn('a')
+  s.fake.fails.push(Object.assign(new Error('forbidden'), { status: 403, permanent: true }))
+  const controller = new AbortController()
+  const approval = s.fireApprovals(
+    { agent: { id: 'a' }, toolName: 'bash', reason: 'retained approval', signal: controller.signal },
+    () => new Promise(() => {}),
+  )
+  t.after(() => controller.abort())
+  await s.flush()
+  assert.equal(s.rt.imStatusView()[conn.id].state, 'error')
+  const failures = s.fake.jobs.filter(job => job.text.includes('retained approval')).length
+  assert.equal(failures, 1)
+
+  await s.rt.imEndpoint('im-update', { id: conn.id, dmPolicy: 'open' })
+  const card = s.fake.sent.find(job => job.text.includes('retained approval'))
+  await s.fake.handlers.onAction({ chat: card.chat, sender: { id: 'guest' }, data: card.buttons[0].data })
+  assert.equal(s.rt.approvalsView().length, 1)
+  await s.rt.imEndpoint('im-retry', { id: conn.id })
+  await s.flush()
+  assert.equal(s.fake.jobs.filter(job => job.text.includes('retained approval')).length, failures)
+  assert.equal(s.rt.imStatusView()[conn.id].state, 'ready')
+  controller.abort()
+  await approval
+})
+
 test('stopping a runner mid-send retains the interrupted send and does not resurrect retry timers on the dead runner', async (t) => {
   let releaseSend
   let stopRejected = false
@@ -3936,7 +4092,7 @@ test('im-retry clears retrying status when an interrupted single send drops afte
   assert.equal(s.rt.imStatusView()[conn.id].state, 'ready')
 })
 
-test('a group attachment uploads under the group current Session, not the id it started with', async (t) => {
+test('an open group attachment carries the sender ID and uploads to the current session', async (t) => {
   // A group's own Session moves on to a fresh part when its folder changes:
   // `room.id` stays the first Session's id and `room.sessionId` the current one.
   const seed = TEAM()
@@ -3955,16 +4111,17 @@ test('a group attachment uploads under the group current Session, not the id it 
   })
   t.after(s.stop)
   const conn = await add(s)
-  s.rt.state.im.connections[conn.id].paired.push({ id: 'u1', name: 'User u1', at: 1 })
-  await s.rt.save()
+  await s.rt.imEndpoint('im-update', { id: conn.id, groupPolicy: 'open', requireMention: false })
+  await gm(s, 'u1', 'unmentioned before binding', { mentioned: false })
+  assert.deepEqual(s.fake.sent, [])
   // The chat is recorded by the first mention; binding then points it at the group.
   await gm(s, 'u1', '@fakebot hello group')
   await s.rt.imEndpoint('im-chat', { id: conn.id, chatKey: 'g1', target: { roomId: 'r1' } })
-  await gm(s, 'u1', 'see the plan', { files: [{ name: 'plan.txt', data: Buffer.from('plan') }] })
+  await gm(s, 'u1', '', { mentioned: false, files: [{ name: 'plan.txt', data: Buffer.from('plan') }] })
   assert.deepEqual(uploads, [{ sessionId: 'r1-part2', name: 'plan.txt' }], 'the receipt goes to the Session that takes the message')
   assert.equal(s.prompts.length, 1)
   assert.equal(s.prompts[0].sessionId, 'r1-part2', 'the message itself goes to the current part')
-  assert.deepEqual(s.prompts[0].content.at(-1), { type: 'file', receiptId: 'receipt-plan.txt' })
+  assert.deepEqual(s.prompts[0].content, [{ type: 'text', text: 'u1: ' }, { type: 'file', receiptId: 'receipt-plan.txt' }])
 })
 
 test('a failed add keeps the network reason under "fetch failed"', async (t) => {

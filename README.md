@@ -134,7 +134,7 @@ For **browser remote (preview)**, pick **Open in a browser** or **Copy browser l
 
 ### IM
 
-In **Settings → Connect → IM**, link any bot or group chat to WeChat, Feishu, DingTalk, WeCom, QQ, Telegram, Discord or Slack. Chat, `@` bots in groups, and answer question/approval cards directly from your messaging app while your computer is running.
+In **Settings → Connect → IM**, link a Bot or group chat to WeChat, Feishu, DingTalk, WeCom, QQ, Telegram, Discord or Slack. By default, paired accounts can chat and answer cards from the messaging app, and group messages require a mention. Choose **Anyone** to let people send messages and attachments using the bound conversation’s history and capabilities. Handle cards from open chats in DS Bot. [IM behavior and settings](docs/plans/2026-11-04-im.md#每个连接的聊天权限)
 
 WeChat supports private chat with the QR-paired account only; WeChat and QQ enforce platform reply windows; WeChat, QQ and DingTalk use numbered replies instead of card buttons; secret cards cannot be submitted from IM apps.
 
