@@ -35,10 +35,35 @@ test('Telegram preserves headings and tables inside tilde and backtick code fenc
 })
 
 test('a closing code fence can have different indentation from its opener', () => {
-  const markdown = '- Item\n  ~~~sh\n  # comment\n    ~~~\nAfter the list'
+  const markdown = '- Item\n  ~~~sh\n  # comment\n   ~~~\nAfter the list'
   assert.deepEqual(chunkTelegram(markdown), [{
     html: '- Item\n<pre><code class="language-sh">  # comment</code></pre>\nAfter the list',
     text: '- Item\n  # comment\nAfter the list',
+  }])
+})
+
+test('Telegram leaves a four-space literal fence marker alone', () => {
+  const markdown = '    ```\n\n# Actual heading'
+  assert.deepEqual(chunkTelegram(markdown), [{
+    html: '    ```\n<b>Actual heading</b>',
+    text: '    ```\nActual heading',
+  }])
+})
+
+test('a four-space backtick marker inside a fence does not close it', () => {
+  const code = 'code\n    ```\n# comment'
+  assert.deepEqual(chunkTelegram('```\n' + code + '\n```\n# Actual heading'), [{
+    html: '<pre><code>' + code + '</code></pre>\n<b>Actual heading</b>',
+    text: code + '\nActual heading',
+  }])
+})
+
+test('an unclosed indented fence does not swallow a later Telegram heading or table', () => {
+  const item = '- Item\n  ```sh\n    # code comment'
+  const markdown = item + '\n\n# Actual heading\n| A | B |\n| --- | --- |\n| x | y |'
+  assert.deepEqual(chunkTelegram(markdown), [{
+    html: item + '\n<b>Actual heading</b>\n• <b>A:</b> x\n• <b>B:</b> y',
+    text: item + '\nActual heading\n• A: x\n• B: y',
   }])
 })
 

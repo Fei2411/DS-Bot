@@ -37,12 +37,13 @@ function inlinePlain(line) {
 
 // One Markdown document as blocks: fenced code stays a block of its own so chunking
 // can keep it whole; the rest splits on blank lines.
-const FENCE_OPEN = /^(`{3,}|~{3,})([^\r\n]*)\r?$/
-const FENCE_CLOSE = /^(`{3,}|~{3,})[ \t\r]*$/
+const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})([^\r\n]*)\r?$/
+const FENCE_CLOSE = /^ {0,3}(`{3,}|~{3,}) *\r?$/
 
 function blocks(markdown) {
   const out = []
   const lines = String(markdown).split('\n')
+  const maxRemainingClose = new Map()
   let at = 0
   let buffer = []
   const flush = () => {
@@ -51,19 +52,28 @@ function blocks(markdown) {
   }
   while (at < lines.length) {
     const line = lines[at]
-    const fence = FENCE_OPEN.exec(line.trimStart())
+    const fence = FENCE_OPEN.exec(line)
     if (fence !== null && (fence[1][0] === '~' || !fence[2].includes('`'))) {
-      flush()
       const marker = fence[1]
-      let end = at + 1
-      for (; end < lines.length; end += 1) {
-        const close = FENCE_CLOSE.exec(lines[end].trimStart())?.[1]
-        if (close?.[0] === marker[0] && close.length >= marker.length) break
+      const char = marker[0]
+      if (marker.length <= (maxRemainingClose.get(char) ?? Infinity)) {
+        let end = at + 1
+        let longest = 0
+        for (; end < lines.length; end += 1) {
+          const close = FENCE_CLOSE.exec(lines[end])?.[1]
+          if (close?.[0] !== char) continue
+          if (close.length >= marker.length) break
+          longest = Math.max(longest, close.length)
+        }
+        if (end < lines.length) {
+          flush()
+          const lang = fence[2].trim().split(/\s+/, 1)[0]
+          out.push({ kind: 'code', lang, lines: lines.slice(at + 1, end) })
+          at = end + 1
+          continue
+        }
+        maxRemainingClose.set(char, longest)
       }
-      const lang = fence[2].trim().split(/\s+/, 1)[0]
-      out.push({ kind: 'code', lang, lines: lines.slice(at + 1, end) })
-      at = end + 1
-      continue
     }
     if (line.trim() === '') flush()
     else buffer.push(line)
