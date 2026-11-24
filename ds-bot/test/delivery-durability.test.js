@@ -451,7 +451,8 @@ test('F4 (resume.js): unified recoverTurnDeferred recovers steered reply/ask_bac
   assert.ok(cMsgs.some(m => m.source?.exchangeId === 'w_cut_steered' && m.source?.deferred === true))
 
   // Atomic inflight.json write leaves no leftover .tmp files once async persist settles.
-  await settle(() => readdirSync(home).filter(name => name.startsWith('inflight.json.') && name.endsWith('.tmp')).length === 0, 2000, 'atomic inflight.json write must leave no leftover .tmp files')
+  await host.stop()
+  assert.equal(readdirSync(home).filter(name => name.startsWith('inflight.json.') && name.endsWith('.tmp')).length, 0, 'atomic inflight.json write must leave no leftover .tmp files')
   assert.doesNotThrow(() => JSON.parse(readFileSync(join(home, 'inflight.json'), 'utf8')))
 })
 

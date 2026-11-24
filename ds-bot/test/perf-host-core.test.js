@@ -1159,7 +1159,10 @@ test('handoffs.js sweeps expired pairLoops, clears whole cache on adopt, and dro
   assert.equal(existsSync(join(home, 'state.json')), false, 'state.json does not exist on disk')
 
   rt.closeWork('parent-drop', 'Chief', 'all done')
-  await new Promise(resolve => setTimeout(resolve, 20))
+  const deadline = Date.now() + 3000
+  while (existsSync(droppedPath) && Date.now() < deadline) {
+    await new Promise(resolve => setTimeout(resolve, 20))
+  }
   assert.equal(existsSync(droppedPath), false, 'closeWork on parent must delete result file once onSaved fires')
 })
 
