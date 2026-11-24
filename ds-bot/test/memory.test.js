@@ -1547,9 +1547,9 @@ test('a group review that gets no list of changes is not re-armed by every membe
   ctx.emit('agent/status', { agent: { id: 'g3' }, status: 'idle' })
   await reviewed(call)
   assert.equal(requests.length, 1)
-  // The batch is marked read even though nothing could be saved: the next member
-  // to go idle finds nothing new and starts no model call.
-  assert.deepEqual(JSON.parse(read('reviewed.json')), { 'group:r1': 3 })
+  // The cursor stays before the unparseable batch for backoff retry, while other
+  // members going idle immediately do not re-arm another model call during backoff.
+  assert.deepEqual(JSON.parse(read('reviewed.json')), { 'group:r1': 0 })
   assert.ok(warnings.some(line => line.includes('no list of changes')), warnings.join('\n'))
   ctx.emit('agent/status', { agent: { id: 'g2' }, status: 'idle' })
   ctx.emit('agent/status', { agent: { id: 'g3' }, status: 'idle' })
@@ -1572,7 +1572,7 @@ test('a first group review reads back to the user\'s line past a round of replie
   assert.deepEqual(JSON.parse(read('reviewed.json')), { 'group:r1': 7 })
 })
 
-test('an answer that is no list of changes is said and passed over, never read again', async (t) => {
+test('an answer that is no list of changes keeps the cursor and backs off instead of dropping the batch', async (t) => {
   const replies = ['Nothing worth keeping here.', JSON.stringify({ changes: [{ op: 'add', text: 'The user wants this remembered' }] })]
   const { ctx, call, read, requests, warnings, stop } = start({ replies, config: { memoryReviewDelayMs: 0 } })
   t.after(() => stop())
@@ -1581,9 +1581,10 @@ test('an answer that is no list of changes is said and passed over, never read a
   await reviewed(call)
   assert.equal(requests.length, 1)
   assert.throws(() => read('bots', 'b2', 'MEMORY.md'), { code: 'ENOENT' })
-  // The miss is said, and the batch is marked read: a later turn does not read it again.
+  // The miss is logged, the cursor stays before seq 10 instead of skipping the batch,
+  // and an immediate idle during backoff does not spin another model call.
   assert.ok(warnings.some(line => line.includes('no list of changes')), warnings.join('\n'))
-  assert.deepEqual(JSON.parse(read('reviewed.json')), { 'chat:b2': 11 })
+  assert.deepEqual(JSON.parse(read('reviewed.json')), { 'chat:b2': 9 })
   ctx.emit('agent/status', { agent: { id: 'b2' }, status: 'idle' })
   await reviewed(call)
   assert.equal(requests.length, 1)
