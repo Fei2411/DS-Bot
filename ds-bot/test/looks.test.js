@@ -15,8 +15,9 @@ test('a Bot with no look of its own never gets the whale, gray, brown, or black'
   assert.deepEqual([...colors].sort(), [...DEFAULT_COLORS].sort())
 })
 
-test('redesigned characters render flat 3/4 silhouettes, hide retired shapes from the picker, and alias replaced keys', () => {
-  for (const retired of ['zed', 'wave', 'hex', 'cushion', 'ring', 'gem', 'magnet']) {
+test('redesigned characters render flat 3/4 silhouettes, keep a 20-shape picker, and alias replaced keys', () => {
+  assert.equal(PICKER_SHAPES.length, 20)
+  for (const retired of ['zed', 'wave', 'hex', 'cushion', 'ring', 'gem', 'magnet', 'dolphin', 'turtle', 'crab', 'puffer', 'jelly', 'starfish', 'seahorse']) {
     assert.ok(!PICKER_SHAPES.includes(retired), `${retired} should stay out of PICKER_SHAPES`)
   }
   for (const added of ['moon', 'cloud', 'spark', 'bear', 'puppy', 'octopus', 'sprout', 'bloom', 'squircle']) {

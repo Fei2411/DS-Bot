@@ -63,7 +63,7 @@ body[data-bt-motion=quiet] .bt-mark[data-gaze] .bt-gaze,body[data-bt-effects=red
 .bt-mark[data-state=searching] .bt-b{animation:bt-seek 1s ease-in-out infinite}
 .bt-mark[data-state=searching] .bt-eyes{animation:bt-scan 1.6s ease-in-out infinite}
 .bt-mark[data-state=working] .bt-b{animation:bt-bob 1.6s ease-in-out infinite}
-.bt-mark[data-state=working]:is([data-shape=star],[data-shape=starfish],[data-shape=bloom],[data-shape=plus],[data-shape=gem],[data-shape=magnet],[data-shape=ring]) .bt-b{animation:bt-wiggle 1.4s ease-in-out infinite;transform-origin:50% 50%}
+.bt-mark[data-state=working]:is([data-shape=star],[data-shape=bloom],[data-shape=plus],[data-shape=gem],[data-shape=magnet],[data-shape=ring]) .bt-b{animation:bt-wiggle 1.4s ease-in-out infinite;transform-origin:50% 50%}
 .bt-mark[data-state=working]:is([data-shape=gumdrop],[data-shape=peanut],[data-shape=squircle],[data-shape=moon],[data-shape=cloud],[data-shape=spark],[data-shape=sprout],[data-shape=octopus]) .bt-b{animation:bt-squash 1.2s ease-in-out infinite}
 .bt-mark[data-state=working] .bt-eye{animation:bt-blink 2.4s ease-in-out infinite}
 .bt-mark[data-state=sending] .bt-b{animation:bt-dash 1.1s cubic-bezier(.4,0,.2,1) infinite}
