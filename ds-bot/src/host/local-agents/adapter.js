@@ -7,7 +7,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, dirname, resolve } from 'node:path'
-import { LlmAdapter, LlmError, offloadedImageText, resolveImageAttachmentAccess, textOnlyImageText } from '@deepseek-ai/dsh-llm'
+import { LlmAdapter, LlmError, offloadedImageText, resolveImageAttachmentAccess, resolveRetryPolicy, textOnlyImageText } from '@deepseek-ai/dsh-llm'
 import { SOURCE_KIND } from '../constants.js'
 import { GROUP_MEMORY_SOURCE, MEMORY_UPDATE_SOURCE } from '../memory-copy.js'
 import { textOf } from '../text.js'
@@ -36,6 +36,8 @@ const REPLAY_LINE_MAX = 2_000
 const MEMORY_UPDATE_REPLAY_MAX = 4
 const MEMORY_UPDATE_REPLAY_BYTES = 8 * 1024
 const IDLE_CLOSE_MS = 10 * 60_000
+// A local CLI may have already performed actions before its request fails.
+const LOCAL_RETRY_POLICY = resolveRetryPolicy({ mode: 'normal', maxRetries: 0 }, 'local-agent')
 const APPROVE_TOOL = 'approve_agent_action'
 // A CLI that answers its compaction command first and condenses after (Devin) says
 // that it started within this long, or it is taken to have condensed without a word.
@@ -103,7 +105,7 @@ export class LocalAgentAdapter extends LlmAdapter {
     const engine = engineOf(route, this.deps.customAgents())
     return { id: route, name: engine?.name ?? route }
   }
-  providerRetryPolicy() { return undefined }
+  providerRetryPolicy() { return LOCAL_RETRY_POLICY }
   imageRequestPricing() { return undefined }
 
   engine(route) {
@@ -280,24 +282,28 @@ export class LocalAgentAdapter extends LlmAdapter {
       mute: false,
     }
     const idleCloseMs = this.deps.idleCloseMs ?? IDLE_CLOSE_MS
-    const scheduleIdle = () => {
+    live.scheduleIdle = () => {
       clearTimeout(live.idle)
       if (live.dead || !(idleCloseMs > 0)) return
       live.idle = setTimeout(() => {
         if (live.dead) return
         if (live.state === 'suspended') {
-          scheduleIdle()
+          live.scheduleIdle()
           return
         }
-        void this.closeLive(live, { idle: true })
+        const error = live.state === 'running'
+          ? new LlmError(`${live.spec.name} stalled: no activity before the local-agent idle timeout.`, 'LOCAL_AGENT_EXIT')
+          : undefined
+        void this.closeLive(live, { idle: true, error })
       }, idleCloseMs)
       live.idle.unref?.()
     }
     live.push = (event) => {
+      if (live.dead) return
       this.observe(live, event)
       if (event?.type === 'models') return
       if (live.mute && live.state === 'idle' && (event?.type === 'text' || event?.type === 'thought' || event?.type === 'activity' || event?.type === 'status')) return
-      scheduleIdle()
+      live.scheduleIdle()
       const waiter = live.waiters.shift()
       if (waiter !== undefined) waiter(event)
       else live.events.push(event)
@@ -398,10 +404,14 @@ export class LocalAgentAdapter extends LlmAdapter {
       || [...this.activeProbes].some(probe => probe !== except && probe.engine === engine)
   }
 
-  async closeLive(live, { idle = false } = {}) {
+  async closeLive(live, { idle = false, error } = {}) {
     if (live.dead) return
     live.dead = true
     clearTimeout(live.idle)
+    if (error !== undefined) {
+      live.closeFailure = { type: 'error', error }
+      void this.stopTurn(live, error.message)
+    }
     this.live.delete(live.sessionId)
     live.engine.forget?.(live.sessionId)
     live.mcp?.close()
@@ -411,7 +421,7 @@ export class LocalAgentAdapter extends LlmAdapter {
       live.engineSession = undefined
       live.started = false
     }
-    for (const waiter of live.waiters.splice(0)) waiter({ type: 'done', reason: 'stop' })
+    for (const waiter of live.waiters.splice(0)) waiter(live.closeFailure ?? { type: 'done', reason: 'stop' })
     const stillUsed = this.engineInUse(live.engine)
     if (!stillUsed) await live.engine.close?.().catch(() => {})
   }
@@ -730,6 +740,10 @@ export class LocalAgentAdapter extends LlmAdapter {
     }
 
     try {
+      if (settled.length > 0 && live.state === 'suspended' && live.pending.size === 0) {
+        live.state = 'running'
+        live.scheduleIdle()
+      }
       yield* this.drain(live, options)
     } catch (error) {
       // The caller sees the failure now: a start that died before reading its
@@ -801,12 +815,14 @@ export class LocalAgentAdapter extends LlmAdapter {
 
   // Codex resolves on acceptance; ACP resolves only when the entire turn ends.
   startTurn(live, input, signal, effort) {
+    if (live.dead) return Promise.resolve()
     if (live.stopped) {
       this.discardTurnOutput(live)
       live.stopped = false
     }
     const blocks = typeof input === 'string' ? [{ type: 'text', text: input }] : input
     live.state = 'running'
+    live.scheduleIdle()
     // The turn an engine names is the one this stream reads: a finished turn's late
     // events carry another id and are dropped instead of answering this one (#1513).
     live.turnTag = undefined
@@ -1029,6 +1045,7 @@ export class LocalAgentAdapter extends LlmAdapter {
         live.state = 'idle'
         return 'unsupported'
       }
+      live.scheduleIdle()
       this.meter(live, await this.collect(live, () => this.take(live), signal, { compaction: true }))
       return 'done'
     })
@@ -1119,6 +1136,7 @@ export class LocalAgentAdapter extends LlmAdapter {
   // The next event of a live session, as a wait that can be given up: a wait left
   // behind would take the first event of the next turn.
   take(live) {
+    if (live.closeFailure !== undefined) return { event: Promise.resolve(live.closeFailure), drop: () => {} }
     if (live.events.length > 0) return { event: Promise.resolve(live.events.shift()), drop: () => {} }
     let resolver
     const event = new Promise((resolve) => { resolver = resolve; live.waiters.push(resolve) })

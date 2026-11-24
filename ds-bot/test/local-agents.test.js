@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
+import { once } from 'node:events'
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
+import { setTimeout as delay } from 'node:timers/promises'
 import { LocalAgentAdapter } from '../src/host/local-agents/adapter.js'
 import { AcpEngine, stdioBridgePath } from '../src/host/local-agents/acp.js'
 import { CodexEngine, unwrapShellCommand } from '../src/host/local-agents/codex.js'
@@ -191,6 +193,34 @@ test('abort cancels the turn and the pending calls', async (t) => {
   setTimeout(() => control.abort(), 300)
   const out = await stream
   assert.equal(out.finish.kind, 'aborted')
+})
+
+test('acp: a stalled prompt fails instead of ending normally or being replayed', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsb-acp-stall-'))
+  const record = join(dir, 'requests.jsonl')
+  const adapter = makeAdapter({ acpArgs: ['--record', record] })
+  t.after(() => adapter.dispose())
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  await collect(adapter.stream(options('s1', [user('m0', 'hello')])))
+  const engine = adapter.engine('local-acp-fake')
+  const exited = once(engine.child, 'exit')
+  const live = adapter.live.get('s1')
+  clearTimeout(live.idle)
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  live.push({ type: 'status' })
+  const prompts = () => readFileSync(record, 'utf8').trim().split('\n').map(JSON.parse).filter(entry => entry.method === 'session/prompt')
+  const pending = collect(adapter.stream(options('s1', [user('m0', 'hello'), user('m1', 'hang')]))).catch(error => ({ error }))
+  for (let attempt = 0; prompts().length < 2 && attempt < 300; attempt++) await delay(10)
+  assert.equal(prompts().length, 2)
+  assert.equal(live.engineSession.running, true)
+  t.mock.timers.tick(10 * 60_000)
+  const outcome = await pending
+  assert.equal(outcome.error?.code ?? outcome.finish?.kind, 'LOCAL_AGENT_EXIT')
+  assert.match(outcome.error.message, /stalled/)
+  await exited
+  assert.equal(adapter.live.has('s1'), false)
+  assert.equal(prompts().length, 2)
+  assert.equal(adapter.providerRetryPolicy().maxRetries, 0)
 })
 
 test('acp: a stopped prompt cannot fail or finish the following turns', async (t) => {
