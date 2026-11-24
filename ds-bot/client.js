@@ -1513,8 +1513,11 @@ var JA = {
   "Checked {time}": "{time} に確認",
   "Could not check for updates.": "アップデートを確認できませんでした。",
   "Update checks are off.": "アップデート確認はオフになっています。",
+  "Automatic updates": "自動アップデート",
+  "Automatic updates are off.": "自動アップデートはオフです。",
   "Checking for updates…": "アップデートを確認中…",
   "Downloading {version}…": "{version} をダウンロード中…",
+  "{version} is ready": "{version} の準備ができました",
   "{version} is ready; it installs when you restart": "{version} の準備ができました。再起動するとインストールされます",
   "Restart to update": "再起動してアップデート",
   "{version} is available": "{version} が利用可能です",
@@ -4376,8 +4379,11 @@ var KO = {
   "Checked {time}": "{time} 확인됨",
   "Could not check for updates.": "업데이트를 확인하지 못했습니다.",
   "Update checks are off.": "업데이트 확인이 꺼져 있습니다.",
+  "Automatic updates": "자동 업데이트",
+  "Automatic updates are off.": "자동 업데이트가 꺼져 있습니다.",
   "Checking for updates…": "업데이트 확인 중…",
   "Downloading {version}…": "{version} 다운로드 중…",
+  "{version} is ready": "{version} 다운로드 완료",
   "{version} is ready; it installs when you restart": "{version} 다운로드가 완료되었으며 재시작 시 설치됩니다",
   "Restart to update": "재시작하여 업데이트",
   "{version} is available": "{version} 출시됨",
@@ -7246,8 +7252,11 @@ var ES = {
   "Checked {time}": "Comprobado {time}",
   "Could not check for updates.": "No se pudo buscar actualizaciones.",
   "Update checks are off.": "La búsqueda de actualizaciones está desactivada.",
+  "Automatic updates": "Actualizaciones automáticas",
+  "Automatic updates are off.": "Las actualizaciones automáticas están desactivadas.",
   "Checking for updates…": "Buscando actualizaciones…",
   "Downloading {version}…": "Descargando {version}…",
+  "{version} is ready": "{version} está listo",
   "{version} is ready; it installs when you restart": "{version} está listo; se instalará al reiniciar",
   "Restart to update": "Reiniciar para actualizar",
   "{version} is available": "{version} está disponible",
@@ -10078,8 +10087,11 @@ var FR = {
   "Checked {time}": "Vérifié {time}",
   "Could not check for updates.": "Impossible de vérifier les mises à jour.",
   "Update checks are off.": "La vérification des mises à jour est désactivée.",
+  "Automatic updates": "Mises à jour automatiques",
+  "Automatic updates are off.": "Les mises à jour automatiques sont désactivées.",
   "Checking for updates…": "Recherche de mises à jour…",
   "Downloading {version}…": "Téléchargement de {version}…",
+  "{version} is ready": "{version} est prêt",
   "{version} is ready; it installs when you restart": "{version} est prêt ; il sera installé au redémarrage",
   "Restart to update": "Redémarrer pour mettre à jour",
   "{version} is available": "{version} est disponible",
@@ -12941,8 +12953,11 @@ var DE = {
   "Checked {time}": "Geprüft {time}",
   "Could not check for updates.": "Suche nach Updates fehlgeschlagen.",
   "Update checks are off.": "Automatische Update-Prüfung ist deaktiviert.",
+  "Automatic updates": "Automatische Updates",
+  "Automatic updates are off.": "Automatische Updates sind deaktiviert.",
   "Checking for updates…": "Suche nach Updates…",
   "Downloading {version}…": "{version} wird heruntergeladen…",
+  "{version} is ready": "{version} ist bereit",
   "{version} is ready; it installs when you restart": "{version} ist bereit und wird beim Neustart installiert",
   "Restart to update": "Zum Aktualisieren neu starten",
   "{version} is available": "{version} ist verfügbar",
@@ -15888,8 +15903,11 @@ var ZH = {
   "Checked {time}": "检查于 {time}",
   "Could not check for updates.": "没能检查更新。",
   "Update checks are off.": "已关闭更新检查。",
+  "Automatic updates": "自动更新",
+  "Automatic updates are off.": "自动更新已关闭。",
   "Checking for updates…": "正在检查更新…",
   "Downloading {version}…": "正在下载 {version}…",
+  "{version} is ready": "{version} 已就绪",
   "{version} is ready; it installs when you restart": "{version} 已下载好，重启后安装",
   "Restart to update": "重启更新",
   "{version} is available": "{version} 已发布",
@@ -42258,6 +42276,8 @@ function ownAppRow(ownApp) {
   if (ownApp === null || typeof ownApp !== "object") return null;
   const version = typeof ownApp.version === "string" ? ownApp.version : "";
   switch (ownApp.phase) {
+    case "idle":
+      return { hint: ownApp.autoUpdate === false ? t("Automatic updates are off.") : null, button: "check" };
     case "checking":
       return { hint: t("Checking for updates…"), button: null };
     case "current":
@@ -42265,9 +42285,12 @@ function ownAppRow(ownApp) {
     case "downloading":
       return { hint: t("Downloading {version}…", { version }), button: null };
     case "downloaded":
-      return { hint: t("{version} is ready; it installs when you restart", { version }), button: "restart" };
+      return {
+        hint: ownApp.autoInstall === false ? t("{version} is ready", { version }) : t("{version} is ready; it installs when you restart", { version }),
+        button: "restart"
+      };
     case "available":
-      return { hint: t("{version} is available", { version }), button: "open" };
+      return { hint: t("{version} is available", { version }), button: ownApp.canDownload === true ? "download" : "open" };
     case "failed":
       return { hint: t("Could not check for updates."), button: "check" };
     default:
@@ -42283,7 +42306,7 @@ function dshHint(dsh, shown) {
   return t("Version {version}", { version: dsh.current });
 }
 var linkProps = (href) => ({ className: "bt-soft bt-soft-sm bt-about-link", href, target: "_blank", rel: "noopener noreferrer" });
-function AboutPage({ useUpdate, actions, run: run2, Section: Section2, Row: Row4, onStartTour = null }) {
+function AboutPage({ useUpdate, actions, run: run2, Section: Section2, Row: Row4, Switch: Switch2 = null, onStartTour = null }) {
   const update = useUpdate((value) => value) ?? {};
   const [checking, setChecking] = (0, import_react52.useState)(false);
   const [stars, setStars] = (0, import_react52.useState)(null);
@@ -42320,7 +42343,7 @@ function AboutPage({ useUpdate, actions, run: run2, Section: Section2, Row: Row4
   const dshNew = showsDshRow(dsh, update.app);
   const dshShown = dshNew && dsh.available;
   const ownRow = update.source === "app" ? ownAppRow(update.ownApp) : null;
-  const ownControl = ownRow?.button === "restart" ? (0, import_react52.createElement)("button", { type: "button", className: "bt-fb-primary", onClick: () => run2(actions.installOwnApp()) }, t("Restart to update")) : ownRow?.button === "check" ? (0, import_react52.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => run2(actions.checkOwnApp()) }, t("Check for updates")) : ownRow?.button === "open" ? (0, import_react52.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => run2(actions.openOwnApp()) }, t("Download")) : null;
+  const ownControl = ownRow?.button === "restart" ? (0, import_react52.createElement)("button", { type: "button", className: "bt-fb-primary", onClick: () => run2(actions.installOwnApp()) }, t("Restart to update")) : ownRow?.button === "check" ? (0, import_react52.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => run2(actions.checkOwnApp()) }, t("Check for updates")) : ownRow?.button === "download" ? (0, import_react52.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => run2(actions.downloadOwnApp()) }, t("Download")) : ownRow?.button === "open" ? (0, import_react52.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => run2(actions.openOwnApp()) }, t("Download")) : null;
   const botControl = ownRow !== null ? ownControl : phase === "installed" || phase === "updated" || update.source === "app" ? null : update.available || phase === "installing" ? (0, import_react52.createElement)(
     "button",
     { type: "button", className: "bt-fb-primary", disabled: phase === "installing", onClick: () => run2(actions.installUpdate()) },
@@ -42362,6 +42385,11 @@ function AboutPage({ useUpdate, actions, run: run2, Section: Section2, Row: Row4
       Section2,
       { key: "updates", title: t("Updates") },
       (0, import_react52.createElement)(Row4, { label: "DS Bot", hint: ownRow?.hint ?? botHint(update) }, botControl, update.available && update.notesUrl ? (0, import_react52.createElement)("a", linkProps(update.notesUrl), t("What's new")) : null),
+      ownRow !== null && Switch2 && typeof update.ownApp?.autoUpdate === "boolean" ? (0, import_react52.createElement)(
+        Row4,
+        { label: t("Automatic updates") },
+        (0, import_react52.createElement)(Switch2, { label: t("Automatic updates"), on: update.ownApp.autoUpdate, onChange: (on) => run2(actions.setOwnAppAutoUpdate(on)) })
+      ) : null,
       dsh?.current ? (0, import_react52.createElement)(Row4, { label: "DeepSeek Harness", hint: dshHint(dsh, dshShown) }, dshControl) : null
     ),
     (0, import_react52.createElement)(
@@ -44258,7 +44286,7 @@ var SEARCH_ENTRIES = [
   { id: "secrets", label: "Secrets", group: "Tools", page: "secrets", icon: "secrets", keywords: "encrypt passphrase password keys 密钥 加密 口令" },
   { id: "plugins", label: "Plugins", group: "Plugins", page: "plugins", icon: "plugins", keywords: "plugin extension browser ego playwright mcp registry catalog 插件 扩展 浏览器 市场 仓库" },
   { id: "usage", label: "Usage", group: "Usage", page: "usage", icon: "usage", keywords: "tokens cost stats chart 用量 统计 消耗" },
-  { id: "about", label: "About DS Bot", group: "About DS Bot", page: "about", icon: "about", keywords: "version update release github guide walkthrough 关于 版本 更新 引导" },
+  { id: "about", label: "About DS Bot", group: "About DS Bot", page: "about", icon: "about", keywords: "version update auto-update automatic release github guide walkthrough 关于 版本 更新 自动更新 引导" },
   { id: "feedback", label: "Feedback", group: "About DS Bot", page: "feedback", icon: "feedback", keywords: "bug error log diagnostics issue 反馈 报错 日志 诊断" }
 ];
 var matches2 = (haystack, tokens) => tokens.every((token) => haystack.includes(token));
@@ -45566,7 +45594,7 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
       case "feedback":
         return (0, import_react61.createElement)(FeedbackPage, { actions, run: run2, Section: SetSection, Row: SetRow });
       case "about":
-        return (0, import_react61.createElement)(AboutPage, { useUpdate, actions, run: run2, Section: SetSection, Row: SetRow, onStartTour: () => startTour("full") });
+        return (0, import_react61.createElement)(AboutPage, { useUpdate, actions, run: run2, Section: SetSection, Row: SetRow, Switch, onStartTour: () => startTour("full") });
       default:
         return null;
     }
@@ -56434,6 +56462,12 @@ function apply(ctx) {
   };
   actions.openOwnApp = async () => {
     await ownAppUpdates?.open?.();
+  };
+  actions.downloadOwnApp = async () => {
+    await ownAppUpdates?.download?.();
+  };
+  actions.setOwnAppAutoUpdate = async (enabled) => {
+    await ownAppUpdates?.setAutoUpdate?.(enabled === true);
   };
   const browserPages = browsers?.pages ?? createSource({});
   const browserTabs = browsers?.tabs ?? createSource({});
