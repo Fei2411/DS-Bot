@@ -80,30 +80,33 @@ const LITERAL_FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})([^\r\n]*)\r?$/
 const LITERAL_FENCE_CLOSE = /^ {0,3}(`{3,}|~{3,})[ \t]*\r?$/
 
 function literalFenceGuard(source) {
-  let through = -1
-  let longestRemainingBacktick = Infinity
-  return at => {
-    if (at <= through) return true
-    const fence = LITERAL_FENCE_OPEN.exec(source[at])
-    if (fence === null) return false
-    const marker = fence[1]
-    const backtick = marker[0] === '`'
-    if (backtick && (fence[2].includes('`') || marker.length > longestRemainingBacktick)) return false
-    let longest = 0
-    for (let end = at + 1; end < source.length; end += 1) {
-      const close = LITERAL_FENCE_CLOSE.exec(source[end])?.[1]
-      if (close?.[0] !== marker[0]) continue
-      if (close.length >= marker.length) {
-        through = end
-        return true
+  let marker = ''
+  let listIndent = 0
+  return (at, canOpen = true) => {
+    const line = source[at]
+    const indent = /^ */.exec(line)[0].length
+    if (listIndent > indent && line.trim() !== '') {
+      marker = ''
+      listIndent = 0
+    }
+    if (marker !== '') {
+      const close = LITERAL_FENCE_CLOSE.exec(line)?.[1]
+      if (close?.[0] === marker[0] && close.length >= marker.length) {
+        marker = ''
+        listIndent = 0
       }
-      longest = Math.max(longest, close.length)
+      return true
     }
-    if (backtick) {
-      longestRemainingBacktick = longest
-      return false
+    if (!canOpen) return false
+    const listPrefix = LIST_ITEM.exec(line)?.[0]
+    const fence = LITERAL_FENCE_OPEN.exec(listPrefix ? line.slice(listPrefix.length) : line)
+    if (fence === null || (fence[1][0] === '`' && fence[2].includes('`'))) return false
+    marker = fence[1]
+    if (listPrefix) listIndent = listPrefix.length
+    else if (marker[0] === '`' && indent > 0) {
+      const previousListIndent = LIST_ITEM.exec(source[at - 1] ?? '')?.[0].length ?? 0
+      if (previousListIndent <= indent) listIndent = previousListIndent
     }
-    through = source.length - 1
     return true
   }
 }
@@ -325,7 +328,16 @@ export function chunkTelegram(markdown, limit = 4096) {
   for (const block of blocks(markdown)) {
     while (source[at]?.trim() === '') at += 1
     const isCode = block.kind === 'code'
-    const lines = isCode ? [] : telegramLines(block.lines, block.lines.map((_, index) => isLiteral(at + index)))
+    let lines
+    if (isCode) {
+      isLiteral(at)
+      // A legacy code body can close an outer guard, but cannot start another one.
+      const end = Math.min(source.length, at + block.lines.length + 2)
+      for (let index = at + 1; index < end; index += 1) isLiteral(index, false)
+      lines = []
+    } else {
+      lines = telegramLines(block.lines, block.lines.map((_, index) => isLiteral(at + index)))
+    }
     // Dev's code blocks omit the opening and closing lines.
     at += block.lines.length + (isCode ? 2 : 0)
     const blockHtml = block.kind === 'code' ? renderCodeHtml(block) : lines.map(line => line.html).join('\n')

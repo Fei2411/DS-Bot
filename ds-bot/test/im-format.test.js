@@ -68,6 +68,22 @@ test('a literal backtick fence can end where dev starts a code block', () => {
   }])
 })
 
+test('an unclosed indented backtick fence keeps a heading and table literal to EOF', () => {
+  const comment = '  ```sh\n  # keep this comment'
+  for (const markdown of [comment, comment + '\n  | A | B |\n  | --- | --- |\n  | x | y |']) {
+    assert.deepEqual(chunkTelegram(markdown), [{ html: markdown, text: markdown }])
+  }
+})
+
+test('a triple-backtick line inside a four-backtick fence does not expose headings or tables', () => {
+  const body = '# Literal comment\n| A | B |\n| --- | --- |\n| x | y |'
+  const markdown = '````\ncode\n```\n' + body + '\n````'
+  assert.deepEqual(chunkTelegram(markdown), [{
+    html: '<pre><code class="language-`">code</code></pre>\n' + body + '\n<pre><code class="language-`"></code></pre>',
+    text: 'code\n' + body + '\n',
+  }])
+})
+
 test('a literal fence with pipes in its info is not a Telegram table row', () => {
   const fence = '  ```sh | label\n# Literal heading\n   ``` '
   const markdown = 'Key | Value\n--- | ---\na | b\n' + fence
@@ -107,6 +123,14 @@ test('an unclosed indented fence does not swallow a later Telegram heading or ta
   assert.deepEqual(chunkTelegram(markdown), [{
     html: item + '\n<b>Actual heading</b>\n• <b>A:</b> x\n• <b>B:</b> y',
     text: item + '\nActual heading\n• A: x\n• B: y',
+  }])
+})
+
+test('a fence after a list marker keeps its contents literal until the item ends', () => {
+  const item = '- ```sh\n  # Literal comment\n  | A | B |\n  | --- | --- |\n  | x | y |'
+  assert.deepEqual(chunkTelegram(item + '\n\n# Actual heading'), [{
+    html: item + '\n<b>Actual heading</b>',
+    text: item + '\nActual heading',
   }])
 })
 
