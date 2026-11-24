@@ -283,6 +283,53 @@ test('CodeBuddy Code is signed in while its session file holds a login and it ha
   }
 })
 
+test('Local Agents detects Qoder CN sign-in without using its credential for global Qoder (#2179)', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'dsb-qoder-'))
+  const route = 'local-qoder'
+  const qoder = ENGINES[route]
+  const owner = new Context()
+  const ctx = fakeContext({ services: { llm: new LlmRuntime(owner) } })
+  t.after(async () => {
+    await ctx.dispose()
+    await owner.fiber.dispose()
+    ENGINES[route] = qoder
+    rmSync(home, { recursive: true, force: true })
+  })
+
+  const selectCli = (name) => {
+    const cli = join(home, `${name}.cmd`)
+    writeFileSync(cli, '')
+    ENGINES[route] = { ...qoder, commands: [cli] }
+  }
+  selectCli('qoderclicn')
+  const rt = { ctx, state: { bots: {} } }
+  installLocalAgents(rt, {
+    probeSignIn: (path, check, opts) => probeSignIn(path, check, { ...opts, home, platform: 'win32' }),
+    probeVersion: async () => ({ version: '1.0.0' }),
+  })
+  const refresh = async () => (await rt.localAgentsEndpoint('local-agent-refresh', {})).detected.find(entry => entry.route === route)
+  const unknown = await refresh()
+  assert.equal(unknown.signIn, 'qoderclicn')
+  assert.equal(unknown.signedIn, null)
+
+  const auth = join(home, '.qoder-cn', '.auth')
+  mkdirSync(auth, { recursive: true })
+  writeFileSync(join(auth, 'user'), 'fixture')
+  const signedIn = await refresh()
+  assert.equal(signedIn.signedIn, true)
+  props = { agent: signedIn, Row }
+  render()
+  assert.equal(text(collect(n => n.props?.className === 'bt-la-state')[0]), 'Signed in')
+  assert.equal(collect(n => n.type === 'button' && flatten(n).join('') === 'Sign in').length, 0)
+
+  for (const alias of ['qodercn', 'qoder-cn']) {
+    selectCli(alias)
+    assert.equal((await refresh()).signedIn, true, alias)
+  }
+  selectCli('qodercli')
+  assert.equal((await refresh()).signedIn, null)
+})
+
 test('AgentBadge adapts dark monochrome SVG logos to theme ink and preserves brand colors', () => {
   const copilot = AgentBadge({ engine: 'local-copilot-cli' })
   const kimi = AgentBadge({ engine: 'local-kimi-cli' })

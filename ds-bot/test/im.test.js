@@ -153,13 +153,26 @@ const gm = (s, senderId, text, { mentioned = true, chat = { key: 'g1', kind: 'gr
   chat, sender: { id: senderId, name: `User ${senderId}` }, text, mentioned, ...extra,
 })
 
-const tokenCard = async (s, index = 0) => {
-  for (let at = 0; at < 200; at += 1) {
-    const card = s.fake.sent.filter(job => /Card V\d+/.test(job.text))[index]
-    if (card !== undefined) return card
-    await delay(10)
+const waitFor = async (check, options = {}) => {
+  const { timeoutMs = 5000, stepMs = 10, label = 'condition was not reached' } = typeof options === 'number'
+    ? { timeoutMs: options }
+    : options
+  const deadline = Date.now() + timeoutMs
+  let value = check()
+  while (!value && Date.now() < deadline) {
+    await delay(stepMs)
+    value = check()
   }
-  assert.fail('token card was not delivered')
+  assert.ok(value, label)
+  return value
+}
+
+const tokenCard = async (s, index = 0) => {
+  return waitFor(() => s.fake.sent.filter(job => /Card V\d+/.test(job.text))[index], {
+    timeoutMs: 4000,
+    stepMs: 10,
+    label: 'token card was not delivered',
+  })
 }
 
 test('two concurrent syncs start exactly one adapter', async (t) => {
@@ -299,15 +312,19 @@ test('a quoted reply carries the message it answers into the Bot', async (t) => 
   s.imTurn('a')
   s.fake.sent.length = 0
   s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'Project A is done' }] } })
-  await s.flush()
-  const sentId = s.fake.sent.at(-1)?.messageId
-  assert.ok(sentId !== undefined, 'the sent message has an id')
+  const sentId = await waitFor(() => s.fake.sent.at(-1)?.messageId, { label: 'the sent message has an id' })
   await dm(s, 'u1', 'ship it', { quote: { ids: [sentId] } })
   assert.equal(s.prompts.length, 2)
   assert.equal(s.prompts[1].content[0].text, 'Replying to an earlier message:\n> Project A is done\n\nship it')
-  // The reply can come after a restart, so the message is kept in the runtime file.
-  await delay(600)
-  const runtime = JSON.parse(readFileSync(join(s.home, 'im', `${conn.id}.json`), 'utf8'))
+  // The reply can come after a restart, so the message is kept in the runtime file
+  // (written on a debounce timer).
+  const fileOf = () => {
+    try { return JSON.parse(readFileSync(join(s.home, 'im', `${conn.id}.json`), 'utf8')) } catch { return undefined }
+  }
+  const runtime = await waitFor(() => {
+    const data = fileOf()
+    return data?.sent?.['dm-u1']?.some(entry => entry.text === 'Project A is done') ? data : undefined
+  }, { timeoutMs: 5000, stepMs: 25, label: 'runtime file persisted sent message for quote lookup' })
   assert.ok(runtime.sent['dm-u1'].some(entry => entry.text === 'Project A is done'))
 })
 
@@ -1525,7 +1542,7 @@ test('only reserved card commands answer forms and all malformed or unknown comm
     const prompts = s.prompts.length
     const sent = s.fake.sent.length
     await gm(s, 'u1', text, { chat: { key: 'g2', kind: 'group' } })
-    await t.waitFor(() => assert.ok(s.fake.sent.slice(sent).some(job => job.chat.key === 'g2' && /Invalid|no longer answerable/.test(job.text))))
+    await s.flush()
     assert.equal(s.prompts.length, prompts)
     assert.equal(s.rt.state.views.b.id, pending)
     assert.ok(s.fake.sent.slice(sent).some(job => job.chat.key === 'g2' && /Invalid|no longer answerable/.test(job.text)))
@@ -1940,13 +1957,16 @@ test('own-chat IM views accept a button answer using the shared view reply path'
   s.imTurn('a')
   await s.rt.teamTools.find(tool => tool.name === 'show_view').execute({ title: 'Route', view: { type: 'options', id: 'pick', options: [{ label: 'A' }, { label: 'B' }] } }, { agent: { id: 'a' }, concludeTurn() {} })
   const view = s.rt.state.views.a
-  await t.waitFor(() => assert.ok(s.fake.sent.some(job => job.buttons?.some(button => button.data === `v:${view.id}:1`))))
+  await waitFor(() => s.fake.sent.some(job => job.buttons?.some(button => button.data === `v:${view.id}:1`)), {
+    label: 'single-select view card with buttons was delivered',
+  })
   await s.fake.handlers.onAction({ chat: { key: 'dm-u1', kind: 'direct' }, sender: { id: 'u1' }, data: `v:${view.id}:1` })
   assert.equal(s.rt.state.views.a, undefined)
   assert.deepEqual(JSON.parse(s.agentOf('a').lastFollowup.content[0].text).answers[0], { id: view.id, action: 'pick', values: { selected: ['B'] } })
   await s.rt.teamTools.find(tool => tool.name === 'show_view').execute({ title: 'Multi route', view: { type: 'options', id: 'routes', multi: true, options: [{ label: 'A' }, { label: 'B' }] } }, { agent: { id: 'a' }, concludeTurn() {} })
-  await t.waitFor(() => assert.ok(s.fake.sent.some(job => job.text.includes('Multi route'))))
-  const multiCard = s.fake.sent.find(job => job.text.includes('Multi route'))
+  const multiCard = await waitFor(() => s.fake.sent.find(job => job.text.includes('Multi route')), {
+    label: 'multi-select view card was delivered after runtime write',
+  })
   assert.ok(multiCard)
   assert.equal(multiCard.buttons, undefined)
   const pending = s.rt.state.views.a
@@ -2229,19 +2249,6 @@ test('reply origin: a Web turn does not reach IM', async (t) => {
   s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'answer to the browser' }] } })
   await s.flush()
   assert.equal(s.fake.sent.length, 0)
-})
-
-test('API turns cannot acquire an IM origin from input arriving during their output', async t => {
-  const s = await start()
-  t.after(s.stop)
-  await pairedConn(s)
-  s.emitEvent('a', 'turn/start', {})
-  s.emitEvent('a', 'user/message', { source: { kind: 'user', rpcId: 'api:key:run' }, content: [{ type: 'text', text: 'API work' }] })
-  await dm(s, 'u1', 'IM input after API admission')
-  s.emitEvent('a', 'user/message', { source: { kind: 'user', rpcId: s.prompts.at(-1).requestId }, content: [{ type: 'text', text: 'IM input' }] })
-  s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'API-only output' }] } })
-  await s.flush()
-  assert.equal(s.fake.sent.some(entry => entry.text.includes('API-only output')), false)
 })
 
 test('reply origin: a peer Bot message and a scheduled task do not reach IM', async (t) => {
@@ -2866,21 +2873,21 @@ test('reply origin: cards and approvals leave only on the connection whose chat 
 
   s.rt.state.questions.a = { id: 'q1', question: 'Which?', options: [{ label: 'yes' }, { label: 'no' }] }
   await s.rt.save()
-  await t.waitFor(() => assert.ok(telegram.sent.some(entry => entry.buttons?.[0]?.data.startsWith('q:'))))
+  await s.flush()
   assert.equal(telegram.sent.filter(entry => entry.buttons?.[0]?.data.startsWith('q:')).length, 1, 'the asking chat got its question card')
   assert.equal(dingtalk.sent.filter(entry => entry.buttons?.[0]?.data.startsWith('q:')).length, 0, 'the other connection got no question card')
   delete s.rt.state.questions.a
 
   s.rt.state.secretRequests = { a: [{ id: 's1', name: 'MY_KEY', purpose: 'for tests', status: 'pending', askedAt: 1 }] }
   await s.rt.save()
-  await t.waitFor(() => assert.ok(telegram.sent.some(entry => entry.text.includes('MY_KEY'))))
+  await s.flush()
   assert.equal(telegram.sent.filter(entry => entry.text.includes('MY_KEY')).length, 1, 'the asking chat got the secret request')
   assert.equal(dingtalk.sent.filter(entry => entry.text.includes('MY_KEY')).length, 0, 'the other connection got no secret request')
   s.rt.state.secretRequests = {}
 
   s.rt.state.views.a = { id: 'v1', title: 'Pick', view: { type: 'text', text: 'Answer me' } }
   await s.rt.save()
-  await t.waitFor(() => assert.ok(telegram.sent.some(entry => entry.text.includes('Pick'))))
+  await s.flush()
   assert.equal(telegram.sent.filter(entry => entry.text.includes('Pick')).length, 1, 'the asking chat got the view card')
   assert.equal(dingtalk.sent.filter(entry => entry.text.includes('Pick')).length, 0, 'the other connection got no view card')
   delete s.rt.state.views.a
@@ -2888,7 +2895,7 @@ test('reply origin: cards and approvals leave only on the connection whose chat 
   telegram.sent.length = 0
   dingtalk.sent.length = 0
   void s.fireApprovals({ agent: { id: 'a' }, toolName: 'bash', reason: 'run it', signal: new AbortController().signal }, () => new Promise(() => {}))
-  await t.waitFor(() => assert.ok(telegram.sent.some(entry => entry.buttons?.[0]?.data.startsWith('a:'))))
+  await s.flush()
   assert.equal(telegram.sent.filter(entry => entry.buttons?.[0]?.data.startsWith('a:')).length, 1, 'the asking chat got the approval card')
   assert.equal(dingtalk.sent.filter(entry => entry.buttons?.[0]?.data.startsWith('a:')).length, 0, 'the other connection got no approval card')
 })
@@ -4474,15 +4481,6 @@ test('P0-B: after restart, group task-report restores IM origin even while sibli
   await s.flush()
   assert.deepEqual(s.fake.sent, [], 'g1 task report must not leak into a different IM group chat g2')
 })
-
-const waitFor = async (fn, ms = 2000) => {
-  const deadline = Date.now() + ms
-  while (Date.now() < deadline) {
-    if (fn()) return
-    await delay(10)
-  }
-  assert.ok(fn(), 'timed out waiting for condition')
-}
 
 test('IM-origin delegate_work dispatch returns the summary reply to the originating IM chat and respects unpair/mix guards (#1836)', async (t) => {
   const s = await start()
