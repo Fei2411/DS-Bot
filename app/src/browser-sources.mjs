@@ -642,7 +642,7 @@ export async function snapshotSqliteDatabase(fromPath, toPath, { busyTimeoutMs =
 }
 
 /** Snapshot the files a harvest needs into workDir. Throws {code:'locked'} when the source is running. */
-export async function cloneCookieStore(source, workDir, { needLocalState = true, busyTimeoutMs } = {}) {
+export async function cloneCookieStore(source, workDir, { needLocalState = true, skipCookieDb = false, busyTimeoutMs } = {}) {
   const copied = []
   const copyJobs = []
   let dbFrom
@@ -674,6 +674,8 @@ export async function cloneCookieStore(source, workDir, { needLocalState = true,
       if (job.required) throw error
     }
   }
+
+  if (skipCookieDb) return copied
 
   // Prefer an atomic SQLite VACUUM INTO snapshot over multi-file copy so an active browser
   // WAL checkpoint can never leave half-copied pages in workDir.
@@ -1152,8 +1154,8 @@ export function deriveLinuxChromiumKey(password = 'peanuts') {
 }
 
 const UTF8_DECODER = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })
-// Chromium's ParsedCookie::IsValidCookieValue rejects control chars (except HTAB) and ';'.
-const INVALID_PRE24_COOKIE_VALUE = /[\x00-\x08\x0a-\x1f;\x7f]/
+// Chromium 131 ParsedCookie::IsValidCookieValue rejects HttpUtil::IsControlChar (0x00–0x1F, 0x7F) and ';'.
+const INVALID_PRE24_COOKIE_VALUE = /[\x00-\x1f;\x7f]/
 
 /** Decrypt a single Chromium v10 cookie blob (enforcing v24+ SHA-256 domain digest and valid UTF-8 cookie bytes). */
 export function decryptChromiumV10(encrypted, key, { hostKey = '', stripDomainHash = false } = {}) {
@@ -1771,11 +1773,13 @@ export async function importFromBrowser(source, { close = false, platformOverrid
   throwIfAborted(signal)
   const work = await cloneWorkDir()
   let closed = false
+  let cookieDbCloned = false
   try {
     // 2. macOS direct Keychain decryption (never closes or launches the browser).
     if (source.engine === 'chromium' && currentPlatform === 'darwin' && (source.keychainServices?.length ?? 0) > 0) {
       try {
         await cloner(source, work.dir, { needLocalState: false })
+        cookieDbCloned = true
       } catch (error) {
         if (error?.code === 'locked') throw browserLockedError()
         throw error
@@ -1799,6 +1803,7 @@ export async function importFromBrowser(source, { close = false, platformOverrid
     if (source.engine === 'chromium' && currentPlatform === 'linux') {
       try {
         await cloner(source, work.dir, { needLocalState: false })
+        cookieDbCloned = true
       } catch (error) {
         if (error?.code === 'locked') throw browserLockedError()
         throw error
@@ -1815,9 +1820,10 @@ export async function importFromBrowser(source, { close = false, platformOverrid
     }
 
     throwIfAborted(signal)
-    // 4. Snapshot store (handling Windows exclusive lock without needlessly killing v20 browsers).
+    // 4. Snapshot store (reusing the SQLite snapshot from step 2/3 so ambiguity detection and CDP
+    //    always read the exact same immutable database state; only copies Local State on fallback).
     try {
-      await cloner(source, work.dir)
+      await (cookieDbCloned ? cloner(source, work.dir, { needLocalState: true, skipCookieDb: true }) : cloner(source, work.dir))
     } catch (error) {
       if (error?.code !== 'locked') throw error
       if (currentPlatform !== 'win32') throw browserLockedError()

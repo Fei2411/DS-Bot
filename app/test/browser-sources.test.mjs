@@ -1315,6 +1315,10 @@ test('decryptChromiumV10 enforces v24 domain hash and harvestLinuxChromiumV10 de
     assert.equal(decryptChromiumV10(semiBlob, emptyKey, { stripDomainHash: false }), 'atjbBkaA')
     assert.equal(decryptChromiumV10(semiBlob, peanutsKey, { stripDomainHash: false }), null)
 
+    // Pre-v24 HTAB (0x09) is also rejected to match Chromium 131 HttpUtil::IsControlChar (0x00–0x1F, 0x7F).
+    const htabBlob = encryptMacV10('a\tb', peanutsKey, { withDomainHash: false })
+    assert.equal(decryptChromiumV10(htabBlob, peanutsKey, { stripDomainHash: false }), null)
+
     // Real semicolon-free dual-decoding pre-v24 v10 ciphertext: decodes to two different Chromium-valid
     // cookie values under empty ("3iB3EkaA") and peanuts keys.
     const ambiguousBlob = Buffer.from('763130847a12a038abdaa8b85f31087ad058c4', 'hex')
@@ -1407,6 +1411,57 @@ test('decryptChromiumV10 enforces v24 domain hash and harvestLinuxChromiumV10 de
       ['keyring_v11', 'v11-ok'],
     ])
     assert.deepEqual(cdpDropped.result.skipped.map((s) => [s.name, s.code]), [['ambiguous', 'decrypt-failed']])
+
+    // Snapshot reuse TOCTOU test: a new ambiguous row written to the live DB after Step 3's snapshot
+    // must NOT overwrite workDir's Cookies DB when falling back to Step 4 clone-cdp.
+    const racePath = join(net, 'Pre24RaceCookies')
+    const raceDb = new DatabaseSync(racePath)
+    raceDb.exec(`
+      CREATE TABLE cookies (
+        host_key TEXT, name TEXT, value TEXT, encrypted_value BLOB, path TEXT,
+        is_secure INTEGER, is_httponly INTEGER, expires_utc INTEGER, samesite INTEGER,
+        has_expires INTEGER, top_frame_site_key TEXT
+      );
+    `)
+    const insRace = raceDb.prepare('INSERT INTO cookies VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    insRace.run('.race.example', 'plain_ok', 'plain-val', Buffer.alloc(0), '/', 1, 1, futureWebkit, 1, 1, '')
+    insRace.run('.race.example', 'keyring_v11', '', Buffer.concat([Buffer.from('v11'), Buffer.alloc(16, 5)]), '/', 1, 1, futureWebkit, 1, 1, '')
+    raceDb.close()
+
+    const clonerCalls = []
+    let cdpObservedNames = []
+    let cdpSawLocalState = false
+    const raceRes = await importFromBrowser({ ...source, cookieDb: racePath }, {
+      platformOverride: 'linux',
+      cloner: async (src, dir, opts) => {
+        clonerCalls.push({ ...(opts ?? {}) })
+        const out = await cloneCookieStore(src, dir, opts)
+        if (clonerCalls.length === 1) {
+          // Mutate live DB AFTER Step 3's snapshot and BEFORE Step 4's fallback runs.
+          const liveMut = new DatabaseSync(racePath)
+          liveMut.prepare('INSERT INTO cookies VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+            .run('.race.example', 'late_ambiguous', '', ambiguousBlob, '/', 1, 1, futureWebkit, 1, 1, '')
+          liveMut.close()
+        }
+        return out
+      },
+      cloneHarvester: async (_src, dir) => {
+        cdpSawLocalState = existsSync(join(dir, 'Local State'))
+        const snap = new DatabaseSync(join(dir, 'Default', 'Network', 'Pre24RaceCookies'), { readOnly: true })
+        cdpObservedNames = snap.prepare('SELECT name FROM cookies ORDER BY name').all().map((r) => r.name)
+        snap.close()
+        return {
+          cookies: [{ name: 'plain_ok', value: 'plain-val', domain: '.race.example', path: '/', secure: true, httpOnly: true }],
+          origins: [],
+          skipped: [],
+        }
+      },
+    })
+    assert.equal(raceRes.method, 'clone-cdp')
+    assert.equal(cdpSawLocalState, true, 'fallback must still copy Local State into workDir')
+    assert.equal(clonerCalls.length, 2)
+    assert.equal(clonerCalls[1].skipCookieDb, true, 'fallback must reuse Step 3 SQLite snapshot instead of re-cloning')
+    assert.deepEqual(cdpObservedNames, ['keyring_v11', 'plain_ok'], 'CDP must read the exact same snapshot analyzed in Step 3')
 
     // On macOS and Linux (where closeBrowser is Windows-only), an exclusive SQLite lock rejects with
     // browser-locked instead of showing the broken Windows "Close and import" prompt.
