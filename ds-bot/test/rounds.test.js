@@ -1996,7 +1996,7 @@ test('in-round pass-with-files reports admin goal tasks and late [PASS] with @me
   assert.deepEqual(posts[0].message.source.presented, [{ path: '/work/final.pdf', sessionId: second.sessionId, seq: 51, index: 0 }])
 })
 
-test('a line the book did not keep is reported to whoever posted it', { skip: process.platform === 'win32' || process.getuid?.() === 0 }, async (t) => {
+test('a line the book did not keep calls nobody, and the room hears it', { skip: process.platform === 'win32' || process.getuid?.() === 0 }, async (t) => {
   const { call, emit, userMessage, relay, answer, stop, sent, rt, home } = start()
   t.after(stop)
   const room = await team(call, sent)
@@ -2013,13 +2013,21 @@ test('a line the book did not keep is reported to whoever posted it', { skip: pr
   const sender = rt.botOf(room.members[0])
   // The book is there and readable; its write is the one that fails.
   const book = join(home, 'ledger', bookFile(`group-${room.id}`))
+  const turnsBefore = sent.length
   chmodSync(book, 0o444)
+  let refusal
   try {
-    // Drawn already, but not on disk: the caller must hear it.
-    await assert.rejects(rt.postToRoom(live, sender, 'a line that will not land'), /may not have been saved/)
+    await rt.postToRoom(live, sender, 'a line that will not land').catch((error) => { refusal = error })
   } finally {
     chmodSync(book, 0o644)
   }
+  // A member turn a refused line did wake shows up here; give it the time to.
+  await new Promise((resolve) => setTimeout(resolve, 100))
+  // The caller hears the rejection (and closes its batch); the room hears the notice `say`
+  // sent; nobody is woken for a line the book did not keep.
+  assert.match(String(refusal?.message), /may not have been saved/, 'the caller hears the line was not saved')
+  assert.ok(await waitFor(() => rt.roomOf(room.id).log.some(line => line.reason === 'unsaved')), 'the room hears the line was not saved')
+  assert.equal(sent.length, turnsBefore, 'the line the book did not keep calls nobody')
   await answer(first.sessionId, first.message.source.exchangeId, 'fine', 1)
   const second = await turnFor(sent, first)
   await answer(second.sessionId, second.message.source.exchangeId, 'done', 2)

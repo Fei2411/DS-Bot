@@ -3340,17 +3340,19 @@ export function install(rt) {
       // The line is drawn already; the book may not have it. The write say() queued is taken
       // here, before any await, so a record written later cannot stand in for this one.
       const landed = said === undefined ? undefined : rt.ledger.written(bookOf(room.id))
-      const callOutcome = callPost(room, running, sender, text, postExtra)
-      // If callPost held or called nobody during a running round, still track the report so it settles cleanly.
-      settleQueuedReportInRound(room, postExtra)
-      if (postExtra.batchEnd) closeBatch(postExtra.batch)
-      await rt.save()
+      // A line the book did not keep calls nobody: the caller hears the rejection (and
+      // closes its batch), the room hears the notice `say` sent.
       if (landed !== undefined) {
         await landed.catch((error) => {
           rt.warn('ds-bot: a line said in %s was not saved: %s', room.name, error?.message ?? error)
           throw new Error(`the last line said may not have been saved: ${error?.message ?? error}`)
         })
       }
+      const callOutcome = callPost(room, running, sender, text, postExtra)
+      // If callPost held or called nobody during a running round, still track the report so it settles cleanly.
+      settleQueuedReportInRound(room, postExtra)
+      if (postExtra.batchEnd) closeBatch(postExtra.batch)
+      await rt.save()
       return callOutcome === 'paused' ? { paused: true } : undefined
     }
     const agent = await rt.resolveAgent(rt.sessionOfRoom(room))
