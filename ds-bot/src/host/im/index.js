@@ -8,10 +8,11 @@ import { join } from 'node:path'
 import { replaceFile } from '../files.js'
 import { viewCardText } from '../parts.js'
 import { imPlatform, IM_PLATFORMS } from '../../shared/im-platforms.js'
-import { isSilentTurnText, SOURCE_KIND } from '../constants.js'
+import { isSilentTurnText, REPLY_KIND, SOURCE_KIND } from '../constants.js'
 import { normalizeImOrigin, sameImChat, sameImOrigin } from './origin.js'
 import { extractLocalMarkdownImages, prepareOutboundReply } from './outbound-images.js'
 import { adapters } from './platforms/index.js'
+import { boundedFetch } from './platforms/media.js'
 import { imViewChoices } from './view-choices.js'
 import { imViewFormText, isLegacyImViewFormAnswer, parseImViewForm } from './view-form.js'
 
@@ -489,7 +490,7 @@ export function install(rt) {
   }
 
   const envFor = async (conn, runtime) => ({
-    fetch: globalThis.fetch,
+    fetch: boundedFetch(),
     WebSocket: globalThis.WebSocket,
     config: rt.config.im?.[conn.platform],
     runtime: runtime ?? await runtimeEnv(conn.id),
@@ -2095,6 +2096,42 @@ export function install(rt) {
     }
     claimOrigin(sessionId, saved.connId, saved.chatKey, saved.senderId, saved.binding)
   }
+  const admitImRpc = (sessionId, rpcId, savedRequest, eventSeq) => {
+    if (Number.isInteger(eventSeq)) imVia.set(sessionId, { ...imVia.get(sessionId), [eventSeq]: rpcId.split(':')[1] })
+    // Unknown requests cannot claim a chat. Consumed requests are ignored above,
+    // including redelivery after their turn ended; they must not claim it again.
+    const asked = requests.get(rpcId)
+    requests.delete(rpcId)
+    if (savedRequest !== undefined) {
+      const { conn, entry } = savedRequest
+      entry.consumedOn = sessionId
+      void rt.save().catch(() => {})
+      claimOrigin(sessionId, conn.id, entry.chatKey, entry.senderId, entry.binding)
+    } else if (asked === undefined) dropOrigin(sessionId)
+    else {
+      consumedRequests.add(rpcId)
+      if (consumedRequests.size > CONSUMED_REQUESTS_KEEP) consumedRequests.delete(consumedRequests.values().next().value)
+      restoreCardRoomOrigin(sessionId, asked.roomCardOrigin)
+      claimOrigin(sessionId, asked.connId, asked.chatKey, asked.senderId, asked.binding)
+    }
+  }
+  // Classifies a user message pulled directly from a room Session's inbox (drainRoomInbox)
+  // through the same IM claim/drop/consume state machine as a normal user/message event.
+  const classifyRoomUserSource = (roomSid, source) => {
+    const room = rt.roomOf(roomSid)
+    if (room === undefined) return { ignored: true, origin: undefined }
+    const rpcId = source?.rpcId
+    if (typeof rpcId === 'string' && consumedRequests.has(rpcId)) return { ignored: true, origin: undefined }
+    const savedRequest = weixinRequestOf(source, roomSid)
+    if (savedRequest?.entry.consumedOn !== undefined) return { ignored: true, origin: undefined }
+    if (typeof rpcId === 'string' && rpcId.startsWith('im:')) {
+      admitImRpc(roomSid, rpcId, savedRequest)
+      return { ignored: false, origin: captureImOrigin(roomSid) }
+    }
+    if (origins.has(roomSid)) dropOrigin(roomSid)
+    roomWebRounds.add(room.id)
+    return { ignored: false, origin: undefined }
+  }
   const imViaView = () => {
     for (const sessionId of imVia.keys()) if (!rt.chatOwners.has(sessionId)) imVia.delete(sessionId)
     return Object.fromEntries([...imVia.entries()].map(([sessionId, seqs]) => [sessionId, { ...seqs }]))
@@ -2186,31 +2223,17 @@ export function install(rt) {
           const owner = rt.groupOwners.get(session.id)
           restoreSavedOrigin(session.id, saved, { roomId: owner?.roomId, requireBinding: true, dropWhenUnsaved: true })
         } else if (typeof rpcId === 'string' && rpcId.startsWith('im:')) {
-          if (Number.isInteger(event.seq)) imVia.set(session.id, { ...imVia.get(session.id), [event.seq]: rpcId.split(':')[1] })
-          // Unknown requests cannot claim a chat. Consumed requests are ignored above,
-          // including redelivery after their turn ended; they must not claim it again.
-          const asked = requests.get(rpcId)
-          requests.delete(rpcId)
-          if (savedRequest !== undefined) {
-            const { conn, entry } = savedRequest
-            entry.consumedOn = session.id
-            void rt.save().catch(() => {})
-            claimOrigin(session.id, conn.id, entry.chatKey, entry.senderId, entry.binding)
-          } else if (asked === undefined) dropOrigin(session.id)
-          else {
-            consumedRequests.add(rpcId)
-            if (consumedRequests.size > CONSUMED_REQUESTS_KEEP) consumedRequests.delete(consumedRequests.values().next().value)
-            restoreCardRoomOrigin(session.id, asked.roomCardOrigin)
-            claimOrigin(session.id, asked.connId, asked.chatKey, asked.senderId, asked.binding)
-          }
+          admitImRpc(session.id, rpcId, savedRequest, event.seq)
         } else {
           // Non-IM input can join an already-claimed IM turn, but a turn that started with
           // non-IM input must not be retroactively claimed by an async dispatch or task return.
           const room = rt.roomOf(session.id)
           if (room !== undefined) {
-            if (isOpeningPost) {
-              // An external post_to_group delivers via roomReports, never via the room's
-              // direct IM group claim: drop any live group claim and mark non-group activity.
+            const preservesRoomOrigin = continuesRoomWork || source?.kind === REPLY_KIND
+            if (!preservesRoomOrigin) {
+              // Any non-IM input joining a group (Web/Desktop/App user message, external
+              // post_to_group, schedule, or goal step) immediately cuts off external IM
+              // forwarding so private group replies never leak to an IM chat.
               if (origins.has(session.id)) dropOrigin(session.id)
               roomWebRounds.add(room.id)
             } else if (!origins.has(session.id)) {
@@ -2330,5 +2353,5 @@ export function install(rt) {
     return [id, { state: status.state, ...(status.error !== undefined ? { error: status.error } : {}), at: status.at }]
   }))
 
-  Object.assign(rt, { imView, imStatusView, imViaView, imEndpoint, holdImOrigin, peekImOrigin, dropImOrigin, captureImOrigin, clearImOrigin, clearRoomWebRound, taintRoomImOrigin })
+  Object.assign(rt, { imView, imStatusView, imViaView, imEndpoint, holdImOrigin, peekImOrigin, dropImOrigin, captureImOrigin, clearImOrigin, clearRoomWebRound, taintRoomImOrigin, classifyRoomUserSource })
 }

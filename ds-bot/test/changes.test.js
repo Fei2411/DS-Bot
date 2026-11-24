@@ -118,3 +118,73 @@ test('a later unchanged turn cannot reuse the last changed turn, live or after r
   const cold = harness({ service, page: [event(7, 3), { type: 'turn/start', seq: 8, data: { turn: 4 } }, { type: 'turn/end', seq: 9, data: { turn: 4 } }] })
   assert.equal(await cold.rt.turnChanges('s1'), undefined)
 })
+
+test('per-turn ring buffer preserves earlier turn changes after a new turn starts, falls back to page() on cache miss, and evicts on forgetSessionChanges', async () => {
+  const s1 = summaryOf(1, [file('src/first.js', 5, 2)])
+  const s2 = summaryOf(2, [file('src/second.js', 3, 0)])
+  const service = { summary: (id, seq) => (seq === 10 ? s1 : seq === 20 ? s2 : undefined) }
+  const { rt, emit, pages } = harness({
+    service,
+    page: [event(10, 1), { type: 'turn/end', seq: 11, data: { turn: 1 } }, { type: 'turn/start', seq: 12, data: { turn: 2 } }],
+  })
+  // Turn 1 changes files, then Turn 2 immediately starts before Turn 1's changes are read.
+  emit({ id: 's1' }, { type: 'turn/start', seq: 9, data: { turn: 1 } })
+  emit({ id: 's1' }, event(10, 1))
+  emit({ id: 's1' }, { type: 'turn/end', seq: 11, data: { turn: 1 } })
+  emit({ id: 's1' }, { type: 'turn/start', seq: 12, data: { turn: 2 } })
+  // Calling without targetTurn returns undefined because latest turn (2) has no changes yet.
+  assert.equal(await rt.turnChanges('s1'), undefined)
+  // Calling with explicit targetTurn 1 still retrieves Turn 1's summary from the ring buffer (no page read).
+  const turn1 = await rt.turnChanges('s1', 1)
+  assert.equal(turn1?.turn, 1)
+  assert.equal(turn1?.files[0].path, 'src/first.js')
+  assert.equal(pages.length, 0)
+  // Turn 2 later changes another file: both turns stay addressable independently.
+  emit({ id: 's1' }, event(20, 2))
+  assert.equal((await rt.turnChanges('s1', 2))?.files[0].path, 'src/second.js')
+  assert.equal((await rt.turnChanges('s1', 1))?.files[0].path, 'src/first.js')
+  // After forgetSessionChanges, Turn 1 misses memory cache and falls back cleanly to page().
+  rt.forgetSessionChanges('s1')
+  const recovered = await rt.turnChanges('s1', 1)
+  assert.equal(recovered?.turn, 1)
+  assert.equal(recovered?.files[0].path, 'src/first.js')
+  assert.equal(pages.length, 1)
+})
+
+test('live unchanged turns with explicit targetTurn return undefined with zero page() calls, falling back only on genuine cache miss', async () => {
+  const s1 = summaryOf(1, [file('src/old.js', 2, 1)])
+  const service = { summary: (id, seq) => (seq === 5 ? s1 : undefined) }
+  const { rt, emit, pages } = harness({
+    service,
+    page: [
+      { type: 'turn/start', seq: 4, data: { turn: 1 } },
+      event(5, 1),
+      { type: 'turn/end', seq: 6, data: { turn: 1 } },
+    ],
+  })
+  // Live unchanged turn 2 finishes with no workspace/changes event.
+  emit({ id: 's1' }, { type: 'turn/start', seq: 10, data: { turn: 2 } })
+  emit({ id: 's1' }, { type: 'turn/end', seq: 11, data: { turn: 2 } })
+  assert.equal(await rt.turnChanges('s1', 2), undefined)
+  assert.equal(pages.length, 0, 'live unchanged turn must not trigger sessionController.page() I/O')
+
+  // Turn 1 was never observed live (cold/pre-process) -> genuine cache miss falls back to page() once.
+  const coldTurn1 = await rt.turnChanges('s1', 1)
+  assert.equal(coldTurn1?.turn, 1)
+  assert.equal(coldTurn1?.files[0].path, 'src/old.js')
+  assert.equal(pages.length, 1)
+
+  // Subsequent lookup for Turn 1 hits the populated ring buffer (still 1 page call total).
+  assert.equal((await rt.turnChanges('s1', 1))?.turn, 1)
+  assert.equal(pages.length, 1)
+
+  // Evicting Turn 2 past the 8-turn seen ring buffer triggers a page() miss if queried again.
+  for (let turn = 3; turn <= 12; turn += 1) {
+    emit({ id: 's1' }, { type: 'turn/start', seq: turn * 10, data: { turn } })
+    emit({ id: 's1' }, { type: 'turn/end', seq: turn * 10 + 1, data: { turn } })
+  }
+  assert.equal(await rt.turnChanges('s1', 12), undefined)
+  assert.equal(pages.length, 1, 'recent unchanged turn 12 still in seen window -> 0 extra page calls')
+  assert.equal(await rt.turnChanges('s1', 2), undefined)
+  assert.equal(pages.length, 2, 'evicted turn 2 falls back to page()')
+})

@@ -1,10 +1,9 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import * as Haptics from 'expo-haptics'
 import { ChevronRightIcon } from '../../ui/icons.tsx'
 import { ViewCard } from './view.tsx'
-import { Platform, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View, Pressable } from 'react-native'
-import Animated, { useReducedMotion, useAnimatedStyle, withRepeat, withTiming, withSpring, useSharedValue, withSequence } from 'react-native-reanimated'
-import { useEffect } from 'react'
+import { Animated, Platform, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View, Pressable } from 'react-native'
+import Reanimated, { useReducedMotion, useAnimatedStyle, withSpring, useSharedValue } from 'react-native-reanimated'
 import type { Approval, ConnectorRequest, Question, ShownView } from '../../connection.ts'
 import { connectorCanConnectOnMobile } from '../../team/connectors.ts'
 import { t } from '../../ui/i18n.ts'
@@ -12,6 +11,7 @@ import { MONO, radius, shadow, SPRING_TAP, type as typeScale, type Palette } fro
 import { Avatar } from '../../ui/marks.tsx'
 import type { Bot } from '../../connection.ts'
 import type { LearningProposal } from './learning.ts'
+import { initialShimmerOpacity, startShimmerLoop } from './shimmer.ts'
 import { agentEditRows, lineDiff } from '../../../../ds-bot/src/client/learning-card-model.js'
 
 type Call = (endpoint: string, payload?: unknown) => Promise<unknown>
@@ -23,7 +23,7 @@ function useChevron(expanded: boolean) {
   const reduced = useReducedMotion()
   useEffect(() => {
     progress.value = reduced ? (expanded ? 1 : 0) : withSpring(expanded ? 1 : 0, SPRING_TAP)
-  }, [expanded])
+  }, [expanded, reduced])
   return useAnimatedStyle(() => ({ transform: [{ rotate: `${progress.value * 90}deg` }] }))
 }
 
@@ -35,7 +35,7 @@ function AccordionCard({ title, dot, expanded, onToggle, p, children }: { title:
         style={{ flexDirection: 'row', alignItems: 'center', minHeight: 46, paddingHorizontal: 16, paddingVertical: 10, gap: 8 }}>
         <Text style={[typeScale.settingsRow, { color: p.ink, fontWeight: '600', flex: 1, minWidth: 0 }]} numberOfLines={expanded ? 4 : 1}>{title}</Text>
         {dot === true ? <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: p.accent, flexShrink: 0 }} /> : null}
-        <Animated.View style={[chevron, { flexShrink: 0 }]}><ChevronRightIcon size={16} color={p.ink3} /></Animated.View>
+        <Reanimated.View style={[chevron, { flexShrink: 0 }]}><ChevronRightIcon size={16} color={p.ink3} /></Reanimated.View>
       </Pressable>
       {expanded ? <View style={{ paddingHorizontal: 16, paddingBottom: 14 }}>{children}</View> : null}
     </View>
@@ -355,18 +355,23 @@ export function HandoffCard({ handoff, botId, onView, call, p , bare = false }: 
   )
 }
 
-export function ActionRow({ bot, doing, p, dark }: { bot: Bot; doing: string; p: Palette; dark: boolean }) {
+export function ActionRow({ bot, doing, p, dark, active = true }: { bot: Bot; doing: string; p: Palette; dark: boolean; active?: boolean }) {
   const reduced = useReducedMotion()
-  const shimmer = useSharedValue(0.35)
-  useEffect(() => {
-    if (reduced) { shimmer.value = 1; return }
-    shimmer.value = withRepeat(withSequence(withTiming(1, { duration: 900 }), withTiming(0.35, { duration: 900 })), -1, false)
-  }, [reduced])
-  const style = useAnimatedStyle(() => ({ opacity: shimmer.value }))
+  const opacityRef = useRef<Animated.Value | null>(null)
+  if (opacityRef.current === null) {
+    opacityRef.current = new Animated.Value(initialShimmerOpacity(reduced, active))
+  }
+  const opacity = opacityRef.current
+  useEffect(() => startShimmerLoop(opacity, {
+    reduced,
+    active,
+    useNativeDriver: Platform.OS !== 'web',
+    animated: Animated,
+  }), [opacity, reduced, active])
   return (
     <View style={styles.action}>
       <Avatar bot={bot} dark={dark} size={28} ring={p.main} working />
-      <Animated.Text style={[type.rowPreview, { color: p.ink2, marginLeft: 8, flex: 1 }, style]} numberOfLines={1}>{doing}…</Animated.Text>
+      <Animated.Text style={[type.rowPreview, { color: p.ink2, marginLeft: 8, flex: 1, opacity }]} numberOfLines={1}>{doing}…</Animated.Text>
     </View>
   )
 }
@@ -384,7 +389,7 @@ function DockView({ sessionId, view, p, cap, collapsed, onCollapse }: { sessionI
     <View style={[styles.card, { backgroundColor: p.card, borderColor: p.line, paddingVertical: 0 }]}>
       <Pressable accessibilityRole="button" accessibilityState={{ expanded: !shut }} onPress={() => onCollapse?.(id, !shut)} style={styles.viewHead}>
         <Text style={[typeScale.settingsRow, { color: p.ink, fontWeight: '600', flex: 1, minWidth: 0 }]}>{title}</Text>
-        <Animated.View style={[chevron, { flexShrink: 0 }]}><ChevronRightIcon size={16} color={p.ink3} /></Animated.View>
+        <Reanimated.View style={[chevron, { flexShrink: 0 }]}><ChevronRightIcon size={16} color={p.ink3} /></Reanimated.View>
       </Pressable>
       {shut ? null : (
         <View style={{ paddingBottom: 14 }} onLayout={e => { if (cap !== undefined && collapsed === null && e.nativeEvent.layout.height > cap) onCollapse?.(id, true) }}>

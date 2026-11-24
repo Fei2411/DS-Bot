@@ -46,9 +46,12 @@ export function install(rt) {
   const view = ({ answer, cancelReview, ownerSessionId, lineageSessionIds, ...entry }) => {
     const taskSessionId = rt.taskOwners?.has(entry.sessionId) ? entry.sessionId : ownerSessionId ?? entry.sessionId
     const liveTask = entry.taskId === undefined ? rt.taskOwners?.get(taskSessionId) : undefined
-    const liveTitle = entry.taskTitle ?? (liveTask === undefined ? undefined : rt.taskBySession?.(taskSessionId)?.task?.title)
+    const liveEntry = liveTask === undefined ? undefined : rt.taskBySession?.(taskSessionId)?.task
+    const liveTitle = entry.taskTitle ?? liveEntry?.title
+    const liveRoomId = entry.roomId === undefined ? (liveTask?.roomId ?? liveEntry?.roomId) : undefined
     return {
       ...entry,
+      ...(liveRoomId !== undefined ? { roomId: liveRoomId } : {}),
       ...(liveTask ? { taskId: liveTask.taskId, ...(liveTitle ? { taskTitle: liveTitle } : {}) } : {}),
       answerable: answer !== undefined,
     }
@@ -95,11 +98,12 @@ export function install(rt) {
     const taskOwner = rt.taskOwners?.get(id)
     const botId = group?.botId ?? taskOwner?.botId ?? rt.chatOwners.get(id)
     if (botId === undefined) return undefined
-    const taskTitle = taskOwner === undefined ? undefined : rt.taskBySession?.(id)?.task?.title
-    const taskRoomId = taskOwner?.roomId ?? (taskOwner === undefined ? undefined : rt.taskBySession?.(id)?.task?.roomId)
+    const task = taskOwner === undefined ? undefined : rt.taskBySession?.(id)?.task
+    const taskTitle = task?.title
+    const roomId = group ? group.roomId : (taskOwner?.roomId ?? task?.roomId)
     return {
       sessionId, ownerSessionId: id, lineageSessionIds: [...seen], botId,
-      ...(group ? { roomId: group.roomId } : taskRoomId !== undefined ? { roomId: taskRoomId } : {}),
+      ...(roomId !== undefined ? { roomId } : {}),
       ...(taskOwner ? { taskId: taskOwner.taskId, ...(taskTitle ? { taskTitle } : {}) } : {}),
     }
   }
