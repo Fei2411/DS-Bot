@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { fork } from 'node:child_process'
+import { EventEmitter } from 'node:events'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -22,6 +23,7 @@ import { adapters } from '../src/host/im/platforms/index.js'
 // sent; it is off by default, like most platforms.
 const fakeAdapter = ({ buttons = true, quote = false } = {}) => {
   const sent = []
+  const sends = new EventEmitter()
   const edited = []
   const typed = []
   const fails = []
@@ -36,6 +38,14 @@ const fakeAdapter = ({ buttons = true, quote = false } = {}) => {
     edited,
     typed,
     handlers: null,
+    waitForSend: match => new Promise(resolve => {
+      const observe = job => {
+        if (!match(job)) return
+        sends.off('send', observe)
+        resolve(job)
+      }
+      sends.on('send', observe)
+    }),
     async check(fields) {
       if (fields.token === 'bad-token') throw new Error('platform refused the token')
       return { account: { id: 'bot1', name: '@fakebot' } }
@@ -49,6 +59,7 @@ const fakeAdapter = ({ buttons = true, quote = false } = {}) => {
         send: async (chat, body) => {
           const messageId = String(++nextMessage)
           sent.push({ chat, messageId, ...body })
+          sends.emit('send', sent.at(-1))
           jobs.push(body)
           const next = fails.shift()
           if (next !== undefined) throw next
@@ -1487,6 +1498,7 @@ test('pending legacy code cards receive the new reply instructions once with the
 
 test('only reserved card commands answer forms and all malformed or unknown commands stay out of ordinary chat', async (t) => {
   const s = await start()
+  const isRejection = job => job.chat.key === 'g2' && /Invalid|no longer answerable/.test(job.text)
   t.after(s.stop)
   const { one } = await pairedConn(s)
   one.chats.g1 = { kind: 'group', target: { botId: 'a' }, at: 1 }
@@ -1523,11 +1535,12 @@ test('only reserved card commands answer forms and all malformed or unknown comm
   for (const text of ['!card', '!card invalid', '!card V999999\n1: private', '/card', '/card invalid', '/card V999999\n1: private', `!card ${codes[0]}\n1: wrong chat`, `!card ${codes[1]} prose is not an answer`]) {
     const prompts = s.prompts.length
     const sent = s.fake.sent.length
+    const rejected = s.fake.waitForSend(isRejection)
     await gm(s, 'u1', text, { chat: { key: 'g2', kind: 'group' } })
-    await s.flush()
+    await rejected
     assert.equal(s.prompts.length, prompts)
     assert.equal(s.rt.state.views.b.id, pending)
-    assert.ok(s.fake.sent.slice(sent).some(job => job.chat.key === 'g2' && /Invalid|no longer answerable/.test(job.text)))
+    assert.ok(s.fake.sent.slice(sent).some(isRejection))
   }
   await gm(s, 'u1', `!card ${codes[1]}\n1: Bob`, { chat: { key: 'g2', kind: 'group' } })
   assert.equal(s.rt.state.views.b, undefined)
@@ -2836,8 +2849,8 @@ test('reply origin: cards and approvals leave only on the connection whose chat 
   const original = adapters.dingtalk
   adapters.dingtalk = dingtalk
   t.after(() => { adapters.dingtalk = original })
-  const connA = await add(s)
   const connB = await s.rt.imEndpoint('im-add', { platform: 'dingtalk', botId: 'a', fields: FIELDS.dingtalk })
+  const connA = await add(s)
   for (const id of [connA.id, connB.id]) {
     const one = s.rt.state.im.connections[id]
     one.paired.push({ id: 'u1', name: 'U1', at: 1 })
@@ -2850,31 +2863,35 @@ test('reply origin: cards and approvals leave only on the connection whose chat 
   telegram.sent.length = 0
   dingtalk.sent.length = 0
 
+  const questionSent = telegram.waitForSend(entry => entry.buttons?.[0]?.data.startsWith('q:'))
   s.rt.state.questions.a = { id: 'q1', question: 'Which?', options: [{ label: 'yes' }, { label: 'no' }] }
   await s.rt.save()
-  await s.flush()
+  await questionSent
   assert.equal(telegram.sent.filter(entry => entry.buttons?.[0]?.data.startsWith('q:')).length, 1, 'the asking chat got its question card')
   assert.equal(dingtalk.sent.filter(entry => entry.buttons?.[0]?.data.startsWith('q:')).length, 0, 'the other connection got no question card')
   delete s.rt.state.questions.a
 
+  const secretSent = telegram.waitForSend(entry => entry.text.includes('MY_KEY'))
   s.rt.state.secretRequests = { a: [{ id: 's1', name: 'MY_KEY', purpose: 'for tests', status: 'pending', askedAt: 1 }] }
   await s.rt.save()
-  await s.flush()
+  await secretSent
   assert.equal(telegram.sent.filter(entry => entry.text.includes('MY_KEY')).length, 1, 'the asking chat got the secret request')
   assert.equal(dingtalk.sent.filter(entry => entry.text.includes('MY_KEY')).length, 0, 'the other connection got no secret request')
   s.rt.state.secretRequests = {}
 
+  const viewSent = telegram.waitForSend(entry => entry.text.includes('Pick'))
   s.rt.state.views.a = { id: 'v1', title: 'Pick', view: { type: 'text', text: 'Answer me' } }
   await s.rt.save()
-  await s.flush()
+  await viewSent
   assert.equal(telegram.sent.filter(entry => entry.text.includes('Pick')).length, 1, 'the asking chat got the view card')
   assert.equal(dingtalk.sent.filter(entry => entry.text.includes('Pick')).length, 0, 'the other connection got no view card')
   delete s.rt.state.views.a
 
   telegram.sent.length = 0
   dingtalk.sent.length = 0
+  const approvalSent = telegram.waitForSend(entry => entry.buttons?.[0]?.data.startsWith('a:'))
   void s.fireApprovals({ agent: { id: 'a' }, toolName: 'bash', reason: 'run it', signal: new AbortController().signal }, () => new Promise(() => {}))
-  await s.flush()
+  await approvalSent
   assert.equal(telegram.sent.filter(entry => entry.buttons?.[0]?.data.startsWith('a:')).length, 1, 'the asking chat got the approval card')
   assert.equal(dingtalk.sent.filter(entry => entry.buttons?.[0]?.data.startsWith('a:')).length, 0, 'the other connection got no approval card')
 })

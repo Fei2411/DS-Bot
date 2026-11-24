@@ -977,18 +977,19 @@ test('Google sign-in retries get a fresh URL and a success clears the pending ro
   assert.equal(bad.status, 200)
   await new Promise(resolve => setImmediate(resolve))
   assert.ok((await rt.diagnostics.entries()).some(row => /not for this attempt/.test(row.text)))
+  const storedRefresh = Promise.withResolvers()
+  const secretEndpoint = rt.secretEndpoint
+  t.mock.method(rt, 'secretEndpoint', (endpoint, body) => {
+    const saved = secretEndpoint(endpoint, body)
+    if (endpoint === 'secret-set' && body.name === mailSecretName('retry@gmail.com', 'REFRESH')) storedRefresh.resolve(saved)
+    return saved
+  })
   callback.search = `?code=C&state=${url.searchParams.get('state')}`
-  const ok = await fetch(callback)
+  const [ok] = await Promise.all([fetch(callback), storedRefresh.promise])
   assert.match(await ok.text(), /Signed in/)
-  for (let i = 0; i < 20; i++) {
-    await new Promise(resolve => setImmediate(resolve))
-    const view = await rt.connectorEndpoint('mail-rule-set', {})
-    if (view.accounts.some(a => a.address === `${'retry'}@gmail.com`)) {
-      assert.ok(!view.pending?.length, 'pending row must be gone after a successful sign-in: ' + JSON.stringify({ second: second.pending[0].url, leftover: view.pending }))
-      return
-    }
-  }
-  assert.fail('account never landed')
+  const view = await rt.connectorEndpoint('mail-rule-set', {})
+  assert.ok(view.accounts.some(a => a.address === `${'retry'}@gmail.com`), 'account never landed')
+  assert.ok(!view.pending?.length, 'pending row must be gone after a successful sign-in: ' + JSON.stringify({ second: second.pending[0].url, leftover: view.pending }))
 })
 
 test('Google mailbox refresh reports success and failure without credentials or addresses', async () => {
