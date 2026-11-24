@@ -1685,8 +1685,9 @@ test('legacy bare replies stay private after delivery pruning, rebind and restar
     for (const text of [`${code.toLowerCase()}\n1: Private value`, `${code} 1,3`, `${code} 2\n1: Private value`, `${code} cancel`, `${code} 2 cancel`]) {
       const prompts = s.prompts.length
       const sent = s.fake.sent.length
+      const refused = s.fake.waitForSend(job => job.chat.key === 'g1' && job.text.includes(`use !card ${code}`))
       await gm(s, 'u1', text)
-      await s.flush()
+      await refused
       assert.equal(s.prompts.length, prompts, text)
       assert.equal(s.rt.state.views.b.id, pending)
       assert.ok(s.fake.sent.slice(sent).some(job => job.chat.key === 'g1' && job.text.includes(`use !card ${code}`)), text)
