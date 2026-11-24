@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict'
-import { AsyncLocalStorage, createHook } from 'node:async_hooks'
 import { fork } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -163,34 +162,6 @@ const dm = (s, senderId, text, extra = {}) => s.fake.handlers.onMessage({
 const gm = (s, senderId, text, { mentioned = true, chat = { key: 'g1', kind: 'group', title: 'Group One' }, ...extra } = {}) => s.fake.handlers.onMessage({
   chat, sender: { id: senderId, name: `User ${senderId}` }, text, mentioned, ...extra,
 })
-
-async function settleDispatch(run) {
-  const scope = new AsyncLocalStorage()
-  const pending = new Set()
-  let idle
-  const complete = id => {
-    if (pending.delete(id) && pending.size === 0) idle?.()
-  }
-  const hook = createHook({
-    init(id, type) {
-      if (scope.getStore() && (type === 'Timeout' || type === 'Immediate' || type.startsWith('FSREQ') || type === 'FILEHANDLECLOSEREQ')) pending.add(id)
-    },
-    after: complete,
-    destroy: complete,
-  }).enable()
-  try {
-    await scope.run(true, run)
-    // A callback can schedule more work in a promise continuation after its hook ends.
-    for (;;) {
-      await nextTurn()
-      if (pending.size === 0) break
-      await new Promise(resolve => { idle = resolve })
-    }
-  } finally {
-    hook.disable()
-    scope.disable()
-  }
-}
 
 const tokenCard = async (s, index = 0) => {
   for (let at = 0; at < 200; at += 1) {
@@ -2871,6 +2842,51 @@ test('reply origin: a message that waited in the queue past any window still nam
 // group keeps its chat while its members still work after the relay turn, and
 // unpairing stops a running turn from replying.
 
+test('IM idle waits for an existing drain and another connection queued while waiting', async (t) => {
+  const gatedAdapter = () => {
+    const adapter = fakeAdapter()
+    const entered = Promise.withResolvers()
+    const release = Promise.withResolvers()
+    t.after(release.resolve)
+    const connect = adapter.connect
+    adapter.connect = (...args) => {
+      const handle = connect(...args)
+      return { ...handle, send: async (...sendArgs) => {
+        entered.resolve()
+        await release.promise
+        return handle.send(...sendArgs)
+      } }
+    }
+    return { adapter, entered: entered.promise, release: release.resolve }
+  }
+  const telegram = gatedAdapter()
+  const dingtalk = gatedAdapter()
+  const original = adapters.dingtalk
+  adapters.dingtalk = dingtalk.adapter
+  t.after(() => { adapters.dingtalk = original })
+  const s = await start({ adapter: telegram.adapter })
+  t.after(s.stop)
+  await add(s)
+  await s.rt.imEndpoint('im-add', { platform: 'dingtalk', botId: 'a', fields: FIELDS.dingtalk })
+  await s.rt.imWhenIdle()
+
+  await dm(s, 'u1', 'hi')
+  await telegram.entered
+  let idle = false
+  const done = s.rt.imWhenIdle().then(() => { idle = true })
+  await nextTurn()
+  assert.equal(idle, false, 'the existing Telegram drain is still active')
+
+  await dm({ fake: dingtalk.adapter }, 'u2', 'hi')
+  await dingtalk.entered
+  telegram.release()
+  await nextTurn()
+  assert.equal(idle, false, 'the new DingTalk drain is still active')
+  dingtalk.release()
+  await done
+  assert.equal(dingtalk.adapter.sent.length, 1)
+})
+
 test('reply origin: cards and approvals leave only on the connection whose chat asked', async (t) => {
   const s = await start()
   t.after(s.stop)
@@ -2922,10 +2938,9 @@ test('reply origin: cards and approvals leave only on the connection whose chat 
   const reason = 'run the approval routing test'
   const isApproval = entry => entry.text.includes(reason) || entry.buttons?.some(button => button.data.startsWith('a:'))
   const approvalSent = telegram.waitForSend(entry => entry.chat.key === 'dm-u1' && entry.buttons?.some(button => button.data.startsWith('a:')))
-  await settleDispatch(() => {
-    void s.fireApprovals({ agent: { id: 'a' }, toolName: 'bash', reason, signal: new AbortController().signal }, () => new Promise(() => {}))
-    return approvalSent
-  })
+  void s.fireApprovals({ agent: { id: 'a' }, toolName: 'bash', reason, signal: new AbortController().signal }, () => new Promise(() => {}))
+  await approvalSent
+  await s.rt.imWhenIdle()
   assert.deepEqual(telegram.sent.filter(isApproval).map(entry => entry.chat.key), ['dm-u1'], 'only the asking chat got the approval card')
   assert.equal(dingtalk.sent.filter(isApproval).length, 0, 'the other connection got no approval card')
 })
