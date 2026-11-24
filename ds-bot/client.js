@@ -17892,6 +17892,7 @@ function forgetKeptFiles() {
 // src/client/team-actions.js
 function teamActions({ call: call2, after, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded, questionDrafts }) {
   const memoryOf = (id) => roster.getSnapshot().roomsById[id] ? { roomId: id } : { botId: id };
+  const subjectOf = (snap, id) => snap.byId?.[id]?.id ?? snap.roomsById?.[id]?.id ?? id;
   let pastes = 0;
   const pasteState = (state, sessionId, blocks) => ({ ...state, paste: { ...state.paste, [sessionId]: blocks } });
   const yieldTo = (state, view) => state.panelYield === true || panelFolded?.(view) === true;
@@ -17931,18 +17932,22 @@ function teamActions({ call: call2, after, partFor, roster, ui, live, cards, hel
     },
     toggleDetails: (id, force) => {
       ui.set((state) => {
-        const details = force || state.details !== id || state.view !== "details" ? id : null;
+        const snap = roster.getSnapshot();
+        const sameSubject = state.details !== null && subjectOf(snap, state.details) === subjectOf(snap, id);
+        const details = force || !sameSubject || state.view !== "details" ? id : null;
         if (details === null && panelFolded?.("details") === true) return { ...state, renaming: false, tab: null, details: id, view: "details", panelYield: true };
         return { ...state, renaming: false, tab: null, details, view: "details" };
       });
     },
     // The open panel follows the main view; a subject with no browser (a group
     // chat, an outside Session) settles on the details view. So does one that
-    // does not own the open side chat.
+    // does not own the open side chat. Moving between parts of the same Bot or
+    // group keeps the panel's current view, settings/rename state, and tab intact.
     followPanel: (id) => {
       ui.set((state) => {
         if (!state.details || state.details === id) return state;
         const snap = roster.getSnapshot();
+        if (subjectOf(snap, state.details) === subjectOf(snap, id)) return { ...state, details: id };
         const view = state.view === "browser" && snap.byId[id] === void 0 ? "details" : state.view === "side" && !(snap.sideChats?.[snap.byId[id]?.id] ?? []).some((chat) => chat?.id === state.side) ? "details" : state.view === "task" ? "details" : state.view;
         return { ...state, details: id, view, task: null, renaming: false, tab: null };
       });
@@ -32714,6 +32719,31 @@ function EarlierUser({ row, actions }) {
     row.via ? (0, import_react34.createElement)("div", { className: "bt-utime" }, (0, import_react34.createElement)(ViaTag, { via: row.via }), Number.isFinite(row.time) ? messageClock(row.time) : null) : null
   );
 }
+function earlierClosedKey(botParts, sessionId, closedCards) {
+  const parts = Array.isArray(botParts) ? botParts : [];
+  const earlierParts = parts.includes(sessionId) ? parts.slice(0, parts.indexOf(sessionId)) : parts;
+  return JSON.stringify(earlierParts.map((part) => [part, closedCards?.[part] ?? null]).filter(([, value]) => value !== null));
+}
+function mergeEarlierPage(pages, page, fallbackPartIndex) {
+  const incoming = Array.isArray(page.items) ? page.items : [];
+  const actualPartIndex = Number.isInteger(page.partIndex) ? page.partIndex : fallbackPartIndex;
+  const next = pages.slice();
+  const at = next.findIndex((entry) => entry.partIndex === actualPartIndex);
+  const btw = Array.isArray(page.btw) ? page.btw : at >= 0 ? next[at].btw : [];
+  if (at >= 0) next[at] = { partIndex: actualPartIndex, items: [...incoming, ...next[at].items], btw };
+  else next.push({ partIndex: actualPartIndex, items: incoming, btw });
+  next.sort((a, b) => a.partIndex - b.partIndex);
+  return next;
+}
+function earlierItems(pages, { cursor, loading } = {}) {
+  const items = [];
+  for (const page of pages) items.push(...withBtwRows(page.items, page.btw));
+  while (items.at(-1)?.kind === "divider") items.pop();
+  if (!cursor && !loading) {
+    while (items[0]?.kind === "divider") items.shift();
+  }
+  return { items, hasContent: items.some((item) => item.kind !== "divider") };
+}
 function EarlierParts({ sessionId, roster, actions }) {
   const [view, setView] = (0, import_react34.useState)({ pages: [], cursor: void 0, loading: true, failed: false, startedAt: null });
   const top = (0, import_react34.useRef)(null);
@@ -32733,23 +32763,20 @@ function EarlierParts({ sessionId, roster, actions }) {
       busy.current = false;
       const scroller = top.current && scrollParent(top.current);
       if (scroller) restore.current = { scroller, fromEnd: scroller.scrollHeight - scroller.scrollTop };
-      const incoming = Array.isArray(page.items) ? page.items : [];
-      setView((current2) => {
-        const pages = current2.pages.slice();
-        const at = pages.findIndex((entry) => entry.partIndex === partIndex);
-        const btw = Array.isArray(page.btw) ? page.btw : at >= 0 ? pages[at].btw : [];
-        if (at >= 0) pages[at] = { partIndex, items: [...incoming, ...pages[at].items], btw };
-        else pages.push({ partIndex, items: incoming, btw });
-        pages.sort((a, b) => a.partIndex - b.partIndex);
-        return { pages, cursor: page.cursor, loading: false, failed: false, startedAt: page.startedAt ?? current2.startedAt };
-      });
+      setView((current2) => ({
+        pages: mergeEarlierPage(current2.pages, page, partIndex),
+        cursor: page.cursor,
+        loading: false,
+        failed: false,
+        startedAt: page.startedAt ?? current2.startedAt
+      }));
     }, () => {
       if (mine !== generation.current) return;
       busy.current = false;
       setView((current2) => ({ ...current2, loading: false, failed: true }));
     });
   };
-  const closedEarlier = JSON.stringify((roster.byId[sessionId]?.parts ?? []).map((part) => roster.closedCards?.[part] ?? null));
+  const closedEarlier = earlierClosedKey(roster.byId[sessionId]?.parts, sessionId, roster.closedCards);
   (0, import_react34.useEffect)(() => {
     generation.current += 1;
     busy.current = false;
@@ -32777,8 +32804,7 @@ function EarlierParts({ sessionId, roster, actions }) {
     ...current2,
     pages: current2.pages.map((page) => ({ ...page, btw: page.btw.filter((card) => card?.id !== cardId) }))
   }));
-  const items = [];
-  for (const page of view.pages) items.push(...withBtwRows(page.items, page.btw));
+  const { items, hasContent } = earlierItems(view.pages, view);
   return (0, import_react34.createElement)(
     "div",
     { className: "bt-earlier", role: "feed", "aria-label": t("Earlier messages"), "aria-busy": view.loading },
@@ -32788,7 +32814,7 @@ function EarlierParts({ sessionId, roster, actions }) {
       view.loading ? (0, import_react34.createElement)(Shimmer, null, t("Loading earlier messages…")) : view.failed ? (0, import_react34.createElement)("button", { type: "button", className: "bt-soft", onClick: () => load(view.cursor) }, t("Couldn’t load earlier messages · Retry")) : view.cursor ? (0, import_react34.createElement)("button", { type: "button", className: "bt-soft", onClick: () => load(view.cursor) }, t("Load earlier")) : null
     ),
     (0, import_react34.createElement)(ChatRows, { items, sessionId, roster, actions, onBtwDelete: removeBtw }),
-    (0, import_react34.createElement)(PartLine, { time: view.startedAt })
+    hasContent ? (0, import_react34.createElement)(PartLine, { time: view.startedAt }) : null
   );
 }
 function ChatRows({ items, sessionId, roster, actions, useUi, clock: clock4 = false, onBtwDelete }) {
@@ -32796,7 +32822,9 @@ function ChatRows({ items, sessionId, roster, actions, useUi, clock: clock4 = fa
   const rows2 = [];
   for (const item of items) {
     const last = rows2.at(-1);
-    if (item.kind === "bot" && last?.kind === "bot") {
+    if (item.kind === "divider" && last?.kind === "divider") {
+      rows2[rows2.length - 1] = item;
+    } else if (item.kind === "bot" && last?.kind === "bot") {
       last.texts.push(item.text);
       last.end = item.time;
     } else rows2.push(item.kind === "bot" ? { kind: "bot", texts: [item.text], time: item.time, end: item.time } : item);
@@ -36055,35 +36083,60 @@ function glideOnto(mark2, from) {
   glide2.finished.then(land, land);
   setTimeout(land, timing.delay + GLIDE_MS + 500);
 }
+function landingPlan({ mainView, roster, isAgentSession: isAgentSession2, last }) {
+  if (!roster.ready || !roster.mainBotId) return { kind: "wait", key: "wait", nextLast: last };
+  const [id, blank3] = mainView.split("|");
+  const bot = id === "" ? void 0 : roster.byId[id];
+  if (bot !== void 0) {
+    const target = currentPart(bot);
+    const nextLast = { kind: "bot", id: bot.id, botId: bot.id, sessionId: id };
+    return target !== id ? { kind: "follow-bot", id: bot.id, key: `follow-bot:${bot.id}:${id}:${target}`, nextLast } : { kind: "stay", key: `stay-bot:${bot.id}:${id}`, nextLast };
+  }
+  const room2 = id === "" ? void 0 : roster.roomsById[id];
+  if (room2 !== void 0) {
+    const target = room2.sessionId ?? room2.id;
+    const nextLast = { kind: "room", id: room2.id, roomId: room2.id, sessionId: id };
+    return target !== id ? { kind: "follow-room", id: room2.id, key: `follow-room:${room2.id}:${id}:${target}`, nextLast } : { kind: "stay", key: `stay-room:${room2.id}:${id}`, nextLast };
+  }
+  if (id !== "" && ((isAgentSession2?.(id) ?? roster.agentOf[id] !== void 0) || blank3 !== "1")) {
+    return { kind: "stay", key: `stay-other:${id}`, nextLast: null };
+  }
+  const lastOwner = last?.kind === "room" ? roster.roomsById[last.id] : last ? roster.byId[last.botId ?? last.id] : void 0;
+  const lastTarget = lastOwner === void 0 ? "" : last.kind === "room" ? lastOwner.sessionId ?? lastOwner.id : currentPart(lastOwner);
+  return {
+    kind: "home",
+    id: roster.mainBotId,
+    last,
+    delay: last ? 0 : 400,
+    key: `home:${roster.mainBotId}:${last?.id ?? ""}:${last?.sessionId ?? ""}:${lastTarget}`,
+    nextLast: last
+  };
+}
 function useLandOnMainBot(roster, useSessions, actions) {
   const mainView = useSessions((list) => {
     const row = Object.values(list.byId).find((session) => (session?.retainedBy?.mainView ?? 0) > 0);
     return row ? `${row.id}|${row.blank ? 1 : 0}` : "";
   });
-  const lastBot = (0, import_react37.useRef)(null);
+  const lastChat = (0, import_react37.useRef)(null);
+  const plan = landingPlan({ mainView, roster, isAgentSession: actions.isAgentSession, last: lastChat.current });
+  const planRef = (0, import_react37.useRef)(plan);
+  planRef.current = plan;
   (0, import_react37.useEffect)(() => {
-    if (!roster.ready || !roster.mainBotId) return void 0;
-    const [id, blank3] = mainView.split("|");
-    const bot = id === "" ? void 0 : roster.byId[id];
-    if (bot !== void 0) {
-      lastBot.current = { botId: bot.id, sessionId: id };
-      if (currentPart(bot) !== id) actions.landOn(bot.id);
+    const current2 = planRef.current;
+    lastChat.current = current2.nextLast;
+    if (current2.kind === "follow-bot") {
+      actions.landOn(current2.id);
       return void 0;
     }
-    const room2 = id === "" ? void 0 : roster.roomsById[id];
-    if (room2 !== void 0) {
-      lastBot.current = null;
-      if ((room2.sessionId ?? room2.id) !== id) actions.openSession(room2.id);
+    if (current2.kind === "follow-room") {
+      actions.openSession(current2.id);
       return void 0;
     }
-    if (id !== "" && ((actions.isAgentSession?.(id) ?? roster.agentOf[id] !== void 0) || blank3 !== "1")) {
-      lastBot.current = null;
-      return void 0;
-    }
-    const last = lastBot.current;
-    const timer = setTimeout(() => actions.landOn(roster.mainBotId, last), last ? 0 : 400);
+    if (current2.kind !== "home") return void 0;
+    const armedSeq = actions.navSeq?.();
+    const timer = setTimeout(() => actions.landOn(current2.id, current2.last, armedSeq), current2.delay);
     return () => clearTimeout(timer);
-  }, [mainView, roster]);
+  }, [plan.key]);
 }
 function PluginsButton({ actions }) {
   if (!actions.hasPlugins?.()) return null;
@@ -47647,7 +47700,8 @@ function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSe
   const approvals = room2 ? roomApprovals(room2, { approvals: JSON.parse(workApprovalsKey || "[]") }, { asks: JSON.parse(computerAsksKey || "[]") }, roster) : bot ? JSON.parse(workApprovalsKey || "[]").map((entry) => ({ kind: "tool", id: entry.id, bot, approval: entry, at: entry.at ?? 0 })) : [];
   const view = goal ? goalView(goal, { roster, roomWork }) : null;
   const goalShown = room2 !== void 0 && !away && goal !== void 0;
-  const detailsOpen = useUi((state) => state.details === sessionId);
+  const subjectId = bot?.id ?? room2?.id ?? sessionId;
+  const detailsOpen = useUi((state) => Boolean(state.details) && (state.details === sessionId || (roster.byId[state.details]?.id ?? roster.roomsById[state.details]?.id ?? state.details) === subjectId));
   const name = bot?.name ?? room2?.name ?? "";
   const useNews = useMemoryNews ?? noNews;
   const memoryIds = bot ? [bot.id] : room2 ? [room2.id, ...room2.members] : [];
@@ -53351,6 +53405,7 @@ function ImportCard({ flow, page, busy, imports, onApply, onCancel, onCloseAndIm
 function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSessions, useSessionStatus, useActivity, useWork, useBrowserTabs, useBrowserPages, useBrowserHolds, useComputer }) {
   const bot = roster.byId[pane.id];
   const roomSubject = roster.roomsById?.[pane.id];
+  const subjectId = bot?.id ?? roomSubject?.id ?? pane.id;
   const canBrowse = Boolean(bot && roster.browser === true && actions.browserShow);
   const sideChats = bot ? sideChatsOf(roster, bot.id) : [];
   const sideChat = sideChats.find((chat) => chat?.id === pane.side);
@@ -53470,7 +53525,7 @@ function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSes
     intent.current = {
       plan,
       next,
-      id: pane.id,
+      id: subjectId,
       at: performance.now(),
       end: flightEnd(next),
       node: source ? uniqueIds(source.cloneNode(true)) : null,
@@ -53498,7 +53553,7 @@ function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSes
   (0, import_react81.useLayoutEffect)(() => {
     const note = intent.current;
     intent.current = null;
-    const current2 = note !== null && note.next === view && note.id === pane.id && performance.now() - note.at < INTENT_MS && !instant && !leaving && !reducedMotion();
+    const current2 = note !== null && note.next === view && note.id === subjectId && performance.now() - note.at < INTENT_MS && !instant && !leaving && !reducedMotion();
     if (!current2) {
       flight.finish();
       return;
@@ -53509,7 +53564,7 @@ function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSes
       return;
     }
     flight.begin({ panel: root.current, end: note.end, node: note.node, from: note.from });
-  }, [view, pane.id]);
+  }, [view, subjectId]);
   (0, import_react81.useLayoutEffect)(() => {
     if (instant || leaving) flight.finish();
   }, [instant, leaving]);
@@ -53588,7 +53643,7 @@ function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSes
     hasStrip ? (0, import_react81.createElement)(PanelStrip, { bot, roomSubject, subject: pane.id, view, ids: tabState.ids, active, sides: sideChats, side: pane.side, task: taskEntry, canBrowse, reading, onView: switchView, actions: panelActions, useBrowserPages }) : null,
     view === "browser" && bot ? (0, import_react81.createElement)(BrowserView, { key: `browser:${active}`, bot, tabId: active, leaving, landed: landed && !settling, actions, useBrowserPages, hold }) : view === "side" && sideChat ? (0, import_react81.createElement)("div", { key: `side:${sideChat.id}`, className: "bt-panel-view" }, (0, import_react81.createElement)(SideChatView, { subject: pane.id, chat: sideChat, roster, actions: panelActions })) : view === "task" && taskEntry && taskBot ? (0, import_react81.createElement)("div", { key: `task:${taskEntry.id}`, className: "bt-panel-view" }, (0, import_react81.createElement)(TaskReaderView, { bot: taskBot, task: taskEntry, actions: panelActions })) : (0, import_react81.createElement)(
       "div",
-      { key: `details:${pane.id}:${pane.renaming ? "rename" : ""}:${pane.tab ?? ""}`, className: "bt-panel-view" },
+      { key: `details:${subjectId}:${pane.renaming ? "rename" : ""}:${pane.tab ?? ""}`, className: "bt-panel-view" },
       (0, import_react81.createElement)(DetailsDrawer, {
         sessionId: pane.id,
         startRenaming: pane.renaming,
@@ -53809,6 +53864,10 @@ function openingModel({ pending, current: current2, roster }) {
   if (current2 === pending.target) return null;
   const bot = roster?.byId?.[pending.id];
   const room2 = roster?.roomsById?.[pending.id];
+  if (current2 !== null && current2 !== void 0) {
+    if (bot !== void 0 && roster?.byId?.[current2]?.id === bot.id) return null;
+    if (room2 !== void 0 && roster?.roomsById?.[current2]?.id === room2.id) return null;
+  }
   return {
     id: pending.id,
     name: bot?.name ?? room2?.name ?? pending.name ?? "",
@@ -53919,7 +53978,7 @@ function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity
       name: "panel",
       active: shown !== null,
       notify: shown !== null,
-      reset: `${pane.id}:${pane.view}:${pane.tab ?? ""}:${pane.side ?? ""}:${pane.task?.botId ?? ""}:${pane.task?.taskId ?? ""}`,
+      reset: `${roster.byId[pane.id]?.id ?? roster.roomsById[pane.id]?.id ?? pane.id}:${pane.view}:${pane.tab ?? ""}:${pane.side ?? ""}:${pane.task?.botId ?? ""}:${pane.task?.taskId ?? ""}`,
       onDismiss: () => actions.closePanel?.(),
       actions
     }, (0, import_react_dom13.createPortal)((0, import_react83.createElement)(BotPanel, { pane, leaving: shown === null, room: layout.room, overlay: layout.panel === "overlay", roster, actions, useSessions, useSessionStatus, useActivity, useWork, useComputer, useBrowserTabs, useBrowserPages, useBrowserHolds }), document.body)) : null,
@@ -55791,27 +55850,38 @@ function noticeApprovals({ work, roster, shownSession, openSession, since = Date
 function listedOpener({ list, open, refresh, current: current2, begin, done }) {
   let drop = () => {
   };
+  let waitingTarget = null;
   return (target) => {
+    if (waitingTarget === target) return;
     drop();
     drop = () => {
     };
+    if (current2?.() === target) return;
     const listed = () => list.getSnapshot().byId?.[target] !== void 0;
     if (listed()) {
       open(target);
       return;
     }
     const from = current2?.();
+    waitingTarget = target;
     begin?.(target);
     let waiting = true;
     const settle = () => {
       if (!waiting) return;
       waiting = false;
+      waitingTarget = null;
       drop = () => {
       };
       done?.(target);
     };
     const off = list.subscribe(() => {
-      if (current2?.() !== from) {
+      const now = current2?.();
+      if (now === target) {
+        off();
+        settle();
+        return;
+      }
+      if (now !== void 0 && now !== from) {
         off();
         settle();
         return;
@@ -56765,6 +56835,7 @@ function apply(ctx) {
     if (snapshot.roomsById[sessionId] !== void 0) return snapshot.roomsById[sessionId];
     return Object.values(snapshot.byId).find((bot) => currentPart(bot) === sessionId) ?? Object.values(snapshot.roomsById).find((room2) => (room2.sessionId ?? room2.id) === sessionId);
   };
+  let navSeq = 0;
   const openingWait = bindOpeningWait(ui, {
     onSlow: () => {
       void Promise.resolve(ctx.sessions.refresh?.()).catch(quietly("refresh sessions"));
@@ -56838,6 +56909,7 @@ function apply(ctx) {
     isAgentSession: (id) => isAgentSessionId(id),
     openSession: (id) => {
       if (isAgentSessionId(id)) return actions.openAgentSession(id);
+      navSeq += 1;
       ui.set((state) => state.newChat || state.exchange || state.menu || state.palette || state.groupSearch ? { ...state, newChat: null, exchange: null, menu: null, palette: null, groupSearch: null } : state);
       setPlain(false);
       const target = partFor(id);
@@ -56846,6 +56918,7 @@ function apply(ctx) {
     // The conversation replacements withdraw for a plain Session; set the surface
     // before the navigation so the Bot skin never flashes.
     openAgentSession: (sessionId) => {
+      navSeq += 1;
       ui.set((state) => ({ ...state, newChat: null, exchange: null, menu: null, palette: null, groupSearch: null, details: null, view: "details", renaming: false, tab: null, task: null, taskDeck: null }));
       setPlain(true);
       show2(sessionId);
@@ -56904,14 +56977,38 @@ function apply(ctx) {
       if (main !== void 0 && owned.includes(main) && roster.getSnapshot().mainBotId) actions.openSession(roster.getSnapshot().mainBotId);
       return result;
     },
-    // `last` is the Bot conversation the view held before it cleared: when that part
-    // was archived for a fresh one, the view goes on in the fresh one.
-    landOn: async (id, last) => {
-      if (last) await pull().catch(() => {
-      });
-      const bot = last ? roster.getSnapshot().byId[last.botId] : void 0;
+    navSeq: () => navSeq,
+    // `last` is the Bot or group conversation the view held before it cleared: when that
+    // part was archived for a fresh one, the view goes on in the fresh one.
+    landOn: async (id, last, expectedSeq) => {
+      if (expectedSeq !== void 0 && expectedSeq !== navSeq) return;
+      const seq = ++navSeq;
+      const currentOfLast = (snap) => {
+        if (!last) return void 0;
+        const bot = last.kind === "room" ? void 0 : snap.byId[last.botId ?? last.id];
+        if (bot !== void 0) return currentPart(bot);
+        const room2 = snap.roomsById[last.roomId ?? last.id];
+        return room2 === void 0 ? void 0 : room2.sessionId ?? room2.id;
+      };
+      let moved = currentOfLast(roster.getSnapshot());
+      if (last && (moved === void 0 || moved === last.sessionId)) {
+        await pull().catch(() => {
+        });
+        if (seq !== navSeq) return;
+        moved = currentOfLast(roster.getSnapshot());
+      }
+      if (seq !== navSeq) return;
+      const now = mainView();
+      if (last && now !== void 0 && now !== last.sessionId) {
+        const snap = roster.getSnapshot();
+        const list = ctx.sessions.list.getSnapshot();
+        const nowBot = snap.byId[now];
+        const nowRoom = snap.roomsById[now];
+        if (nowBot !== void 0 && currentPart(nowBot) === now || nowRoom !== void 0 && (nowRoom.sessionId ?? nowRoom.id) === now || isAgentSessionId(now) || nowBot === void 0 && nowRoom === void 0 && list.byId?.[now]?.blank !== true) return;
+      }
       setPlain(false);
-      const target = bot && currentPart(bot) !== last.sessionId ? currentPart(bot) : partFor(id);
+      const target = moved !== void 0 && moved !== last?.sessionId ? moved : partFor(id);
+      if (last && target === last.sessionId && ctx.sessions.list.getSnapshot().byId?.[target] === void 0) return;
       show2(target);
     },
     selectPanel: (id) => {
