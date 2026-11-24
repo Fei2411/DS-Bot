@@ -1182,18 +1182,25 @@ const DB_SAMESITE = { 0: 'None', 1: 'Lax', 2: 'Strict' }
 
 function decryptWithCandidateKeys(encrypted, keys, opts, { rejectAmbiguous = false } = {}) {
   let matched = null
-  for (const key of keys) {
+  let matchedIndex = -1
+  let matchCount = 0
+  for (let i = 0; i < keys.length; i += 1) {
+    const key = keys[i]
     if (!key) continue
     try {
       const decrypted = decryptChromiumV10(encrypted, key, opts)
       if (decrypted !== null) {
-        if (!rejectAmbiguous) return decrypted
-        if (matched !== null && matched !== decrypted) return null // ambiguous pre-v24 row: do not guess
+        if (!rejectAmbiguous) return { value: decrypted, ambiguous: false, keyIndex: i }
+        if (matched !== null && matched !== decrypted) {
+          return { value: null, ambiguous: true, keyIndex: -1 }
+        }
         matched = decrypted
+        matchedIndex = i
+        matchCount += 1
       }
     } catch { /* try next candidate key */ }
   }
-  return matched
+  return { value: matched, ambiguous: false, keyIndex: matchCount === 1 ? matchedIndex : -1 }
 }
 
 function readChromiumSqliteCookiesDetailed(dbPath, { key, keys, rejectAmbiguous = false, now = Date.now() / 1000 } = {}) {
@@ -1201,7 +1208,7 @@ function readChromiumSqliteCookiesDetailed(dbPath, { key, keys, rejectAmbiguous 
   const db = new DatabaseSync(dbPath, { readOnly: true })
   try {
     if (!hasTable(db, 'cookies')) {
-      return { cookies: [], origins: [], skipped: [], dbVersion: 0, decryptedCount: 0, decryptFailedCount: 0, unsupportedEncryptionCount: 0 }
+      return { cookies: [], origins: [], skipped: [], dbVersion: 0, decryptedCount: 0, decryptFailedCount: 0, ambiguousCount: 0, usedKeyCount: 0, unsupportedEncryptionCount: 0 }
     }
     let dbVersion = 0
     try {
@@ -1224,7 +1231,9 @@ function readChromiumSqliteCookiesDetailed(dbPath, { key, keys, rejectAmbiguous 
     const skipped = []
     let decryptedCount = 0
     let decryptFailedCount = 0
+    let ambiguousCount = 0
     let unsupportedEncryptionCount = 0
+    const usedKeyIndices = new Set()
     rows.forEach((row, index) => {
       const where = `entry ${index + 1}`
       let expires
@@ -1249,19 +1258,21 @@ function readChromiumSqliteCookiesDetailed(dbPath, { key, keys, rejectAmbiguous 
             skipped.push({ where, name: row.name, domain: row.host_key, code: 'decrypt-failed', reason: 'could not decrypt cookie value' })
             return
           }
-          const decrypted = decryptWithCandidateKeys(
+          const outcome = decryptWithCandidateKeys(
             enc,
             candidateKeys,
             { hostKey: row.host_key, stripDomainHash },
             { rejectAmbiguous: rejectAmbiguous && !stripDomainHash },
           )
-          if (decrypted === null) {
+          if (outcome.value === null) {
+            if (outcome.ambiguous) ambiguousCount += 1
             decryptFailedCount += 1
             skipped.push({ where, name: row.name, domain: row.host_key, code: 'decrypt-failed', reason: 'could not decrypt cookie value' })
             return
           }
-          value = decrypted
+          value = outcome.value
           decryptedCount += 1
+          if (outcome.keyIndex >= 0) usedKeyIndices.add(outcome.keyIndex)
         } else {
           unsupportedEncryptionCount += 1
           skipped.push({ where, name: row.name, domain: row.host_key, code: 'unsupported-encryption', reason: 'unsupported cookie encryption format' })
@@ -1283,7 +1294,17 @@ function readChromiumSqliteCookiesDetailed(dbPath, { key, keys, rejectAmbiguous 
       }
       cookies.push(cookie)
     })
-    return { cookies, origins: [], skipped, dbVersion, decryptedCount, decryptFailedCount, unsupportedEncryptionCount }
+    return {
+      cookies,
+      origins: [],
+      skipped,
+      dbVersion,
+      decryptedCount,
+      decryptFailedCount,
+      ambiguousCount,
+      usedKeyCount: usedKeyIndices.size,
+      unsupportedEncryptionCount,
+    }
   } finally {
     db.close()
   }
@@ -1292,11 +1313,11 @@ function readChromiumSqliteCookiesDetailed(dbPath, { key, keys, rejectAmbiguous 
 /**
  * Pure JS Linux Chromium v10 decryption trying both "peanuts" and empty password.
  * On v24+ stores, the SHA-256 domain digest authenticates each row unambiguously across mixed keys.
- * On pre-v24 stores (no MAC), pure peanuts or pure empty-password stores decrypt directly; a mixed
- * pre-v24 store delegates to clone + CDP pipe when source.exe is available, or rejects rows that
- * decode ambiguously under both keys when no binary is available.
- * Returns null if v11/keyring rows exist and source.exe is available so the caller falls through
- * to clone + CDP pipe self-decryption without dropping v11 cookies.
+ * On pre-v24 stores (no MAC), tests both keys per row so any row that validly decodes to different
+ * values under both keys is flagged as ambiguous instead of guessed: when source.exe is available,
+ * ambiguous, mixed pre-v24, v11/keyring, or all-failed v10 stores delegate to clone + CDP pipe so
+ * Chromium itself decrypts; when no binary is available, readable rows are preserved and ambiguous
+ * or unsupported rows are reported in skipped.
  */
 export async function harvestLinuxChromiumV10(source, workDir, { signal, now } = {}) {
   throwIfAborted(signal)
@@ -1306,33 +1327,17 @@ export async function harvestLinuxChromiumV10(source, workDir, { signal, now } =
   const peanutsKey = deriveLinuxChromiumKey('peanuts')
   const emptyKey = deriveLinuxChromiumKey('')
 
-  const peanutsPass = readChromiumSqliteCookiesDetailed(clonedDb, { key: peanutsKey, now })
-  let detailed = peanutsPass
-  const isPre24 = peanutsPass.dbVersion < 24
-  if (peanutsPass.decryptFailedCount > 0 || (isPre24 && peanutsPass.decryptedCount > 0)) {
-    const emptyPass = readChromiumSqliteCookiesDetailed(clonedDb, { key: emptyKey, now })
-    const peanutsClean = peanutsPass.decryptFailedCount === 0 && peanutsPass.decryptedCount > 0
-    const emptyClean = emptyPass.decryptFailedCount === 0 && emptyPass.decryptedCount > 0
-    if (peanutsClean && !emptyClean) {
-      detailed = peanutsPass
-    } else if (emptyClean && !peanutsClean) {
-      detailed = emptyPass
-    } else if (isPre24 && source.exe) {
-      // Pre-v24 mixed-key or ambiguous store has no per-row domain MAC; let Chromium itself decrypt via CDP pipe.
-      return null
-    } else {
-      const orderedKeys = emptyPass.decryptedCount > peanutsPass.decryptedCount
-        ? [emptyKey, peanutsKey]
-        : [peanutsKey, emptyKey]
-      detailed = readChromiumSqliteCookiesDetailed(clonedDb, {
-        keys: orderedKeys,
-        rejectAmbiguous: isPre24,
-        now,
-      })
-    }
+  const detailed = readChromiumSqliteCookiesDetailed(clonedDb, {
+    keys: [peanutsKey, emptyKey],
+    rejectAmbiguous: true,
+    now,
+  })
+  if (source.exe) {
+    if (detailed.ambiguousCount > 0) return null
+    if (detailed.dbVersion < 24 && detailed.usedKeyCount > 1) return null
+    if (detailed.unsupportedEncryptionCount > 0) return null
+    if (detailed.decryptFailedCount > 0 && detailed.decryptedCount === 0) return null
   }
-  if (detailed.decryptFailedCount > 0 && detailed.decryptedCount === 0) return null
-  if (detailed.unsupportedEncryptionCount > 0 && source.exe) return null
   return { cookies: detailed.cookies, origins: detailed.origins, skipped: detailed.skipped }
 }
 

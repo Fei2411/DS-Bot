@@ -1232,6 +1232,7 @@ test('decryptChromiumV10 enforces v24 domain hash and harvestLinuxChromiumV10 de
 
     const net = join(root.dir, 'Default', 'Network')
     await mkdir(net, { recursive: true })
+    await writeFile(join(root.dir, 'Local State'), '{}')
     const dbPath = join(net, 'Cookies')
     const db = new DatabaseSync(dbPath)
     db.exec(`
@@ -1307,6 +1308,53 @@ test('decryptChromiumV10 enforces v24 domain hash and harvestLinuxChromiumV10 de
       ['p1', 'peanuts-only-value-1'],
       ['e1', 'empty-only-value-1'],
     ])
+
+    // Real dual-decoding pre-v24 v10 ciphertext: decodes cleanly under BOTH empty ("atjbBkaA") and peanuts keys.
+    const ambiguousBlob = Buffer.from('763130fa1f59d6cc4d6f882a6f3566b821a58f', 'hex')
+    assert.equal(decryptChromiumV10(ambiguousBlob, emptyKey, { stripDomainHash: false }), 'atjbBkaA')
+    assert.notEqual(decryptChromiumV10(ambiguousBlob, peanutsKey, { stripDomainHash: false }), null)
+
+    const pre24AmbPath = join(root.dir, 'Pre24AmbiguousCookies')
+    const pre24AmbDb = new DatabaseSync(pre24AmbPath)
+    pre24AmbDb.exec(`
+      CREATE TABLE cookies (
+        host_key TEXT, name TEXT, value TEXT, encrypted_value BLOB, path TEXT,
+        is_secure INTEGER, is_httponly INTEGER, expires_utc INTEGER, samesite INTEGER,
+        has_expires INTEGER, top_frame_site_key TEXT
+      );
+    `)
+    const insAmb = pre24AmbDb.prepare('INSERT INTO cookies VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    insAmb.run('.amb.example', 'ambiguous', '', ambiguousBlob, '/', 1, 1, futureWebkit, 1, 1, '')
+    insAmb.run('.amb.example', 'plain_ok', 'plain-val', Buffer.alloc(0), '/', 1, 1, futureWebkit, 1, 1, '')
+    pre24AmbDb.close()
+
+    // Without source.exe: an ambiguous encrypted row must NOT abort import or drop readable plaintext rows.
+    const ambNoExe = await importFromBrowser({ ...source, cookieDb: pre24AmbPath, exe: null }, { platformOverride: 'linux' })
+    assert.equal(ambNoExe.method, 'linux-v10')
+    assert.deepEqual(ambNoExe.result.cookies.map((c) => [c.name, c.value]), [['plain_ok', 'plain-val']])
+    assert.deepEqual(ambNoExe.result.skipped.map((s) => [s.name, s.code]), [['ambiguous', 'decrypt-failed']])
+
+    // Even when a peanuts-only row makes a whole-DB peanuts pass have 0 failures, the per-row ambiguous
+    // entry must still delegate to clone-cdp when source.exe is present (never import the wrong value).
+    const pre24AmbMixedDb = new DatabaseSync(pre24AmbPath)
+    pre24AmbMixedDb.prepare('INSERT INTO cookies VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run('.amb.example', 'peanuts_only', '', encryptMacV10('peanuts-real-val', peanutsKey, { withDomainHash: false }), '/', 1, 1, futureWebkit, 1, 1, '')
+    pre24AmbMixedDb.close()
+
+    const ambWithExe = await importFromBrowser({ ...source, cookieDb: pre24AmbPath }, {
+      platformOverride: 'linux',
+      cloneHarvester: async () => ({ cookies: [{ name: 'ambiguous', value: 'atjbBkaA', domain: '.amb.example', path: '/' }], origins: [], skipped: [] }),
+    })
+    assert.equal(ambWithExe.method, 'clone-cdp')
+    assert.equal(ambWithExe.result.cookies[0].value, 'atjbBkaA')
+
+    const ambMixedNoExe = await importFromBrowser({ ...source, cookieDb: pre24AmbPath, exe: null }, { platformOverride: 'linux' })
+    assert.equal(ambMixedNoExe.method, 'linux-v10')
+    assert.deepEqual(ambMixedNoExe.result.cookies.map((c) => [c.name, c.value]), [
+      ['plain_ok', 'plain-val'],
+      ['peanuts_only', 'peanuts-real-val'],
+    ])
+    assert.deepEqual(ambMixedNoExe.result.skipped.map((s) => [s.name, s.code]), [['ambiguous', 'decrypt-failed']])
 
     // On macOS and Linux (where closeBrowser is Windows-only), an exclusive SQLite lock rejects with
     // browser-locked instead of showing the broken Windows "Close and import" prompt.
