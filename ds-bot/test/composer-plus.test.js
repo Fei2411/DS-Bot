@@ -86,3 +86,83 @@ test('the "+" calls the same hooks whether or not its roster knows the Bot yet',
   assert.equal(known.hooks, unknown.hooks)
   assert.equal(forgotten.hooks, unknown.hooks)
 })
+
+test('rapid double Cmd/Ctrl+Enter on empty draft still intercepts second keydown while steerQueued is in flight', async () => {
+  const listeners = new Map()
+  const win = {
+    addEventListener(type, fn) {
+      const list = listeners.get(type) ?? []
+      list.push(fn)
+      listeners.set(type, list)
+    },
+    removeEventListener() {},
+  }
+  const effects = []
+  const refs = []
+  const localReact = {
+    ...react,
+    useRef: initial => {
+      const ref = { current: initial }
+      refs.push(ref)
+      return ref
+    },
+    useEffect: fn => { effects.push(fn) },
+  }
+  const mod = { exports: {} }
+  runInNewContext(outputFiles[0].text, {
+    module: mod, exports: mod.exports, window: win, document: { body: {} }, setTimeout, clearTimeout,
+    require: name => (name === 'react' ? localReact : name === 'react-dom' ? { createPortal: node => node } : {}),
+  })
+  const card = { style: { getPropertyValue: () => '', setProperty: () => {}, removeProperty: () => {} } }
+  const btnEl = { closest: sel => (sel === '[data-composer-card]' ? card : null) }
+  let resolveSteer
+  let steerCalls = 0
+  mod.exports.ComposerPlus({
+    sessionId: 'chief',
+    useRoster: select => select({ byId: { chief: { id: 'chief' } }, prefs: { enterToSend: true } }),
+    useInput: select => select({ phase: 'plain', draft: '', attachmentIds: [], queue: [{ id: 'u1', source: { kind: 'user' } }, { id: 'b1', source: { kind: 'bot' } }] }),
+    actions: {
+      canReferenceChat: () => false,
+      steerQueued: () => {
+        steerCalls += 1
+        return new Promise((resolve) => { resolveSteer = resolve })
+      },
+    },
+  })
+  // Attach the button ref before running captured effects so DOM scoping matches.
+  for (const ref of refs) {
+    if (ref.current === null) { ref.current = btnEl; break }
+  }
+  for (const effect of effects) effect()
+  const keyHandlers = listeners.get('keydown') ?? []
+  assert.ok(keyHandlers.length > 0, 'ComposerPlus must register keydown capture listener')
+
+  const makeKeyEvent = () => ({
+    key: 'Enter',
+    metaKey: true,
+    defaultPrevented: false,
+    prevented: 0,
+    stopped: 0,
+    preventDefault() { this.prevented += 1; this.defaultPrevented = true },
+    stopPropagation() { this.stopped += 1 },
+    target: {
+      ownerDocument: { querySelector: () => null },
+      closest(sel) {
+        if (sel === '[data-composer-card]') return card
+        if (sel === '[contenteditable=true]') return this
+        return null
+      },
+    },
+  })
+  const ev1 = makeKeyEvent()
+  const ev2 = makeKeyEvent()
+  for (const fn of keyHandlers) fn(ev1)
+  for (const fn of keyHandlers) fn(ev2)
+
+  assert.equal(ev1.prevented, 1)
+  assert.equal(ev1.stopped, 1)
+  assert.equal(ev2.prevented, 1, 'second rapid Cmd+Enter while steerQueued is in flight MUST still be intercepted')
+  assert.equal(ev2.stopped, 1)
+  assert.equal(steerCalls, 1, 'second rapid Cmd+Enter must NOT fire a duplicate steerQueued request')
+  resolveSteer?.()
+})

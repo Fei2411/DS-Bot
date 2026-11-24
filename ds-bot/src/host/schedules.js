@@ -91,17 +91,57 @@ function selectorOf(when) {
 
 export function install(rt) {
   const { ctx } = rt
+  const SCHEDULE_ATTACH_GRACE_MS = rt.config?.scheduleAttachWaitMs ?? 10_000
   let service = null
+  let disposed = false
+  let scheduleDeadline = typeof ctx.inject === 'function' ? Date.now() + SCHEDULE_ATTACH_GRACE_MS : 0
+  let scheduleGraceTimer
+
+  const clearGraceTimer = () => {
+    if (scheduleGraceTimer === undefined) return
+    clearTimeout(scheduleGraceTimer)
+    scheduleGraceTimer = undefined
+  }
+
+  // DSH injects its schedule service after the plugin starts; while inside the attach
+  // grace window, parts wait before archiving so unmoved reminders are not destroyed.
+  const schedulesPending = () => !disposed && typeof ctx.inject === 'function' && service === null && Date.now() < scheduleDeadline
+
+  const armGraceRetry = () => {
+    if (scheduleGraceTimer !== undefined || !schedulesPending()) return
+    const wait = Math.max(1, scheduleDeadline - Date.now())
+    scheduleGraceTimer = setTimeout(() => {
+      scheduleGraceTimer = undefined
+      if (disposed) return
+      void rt.retireParts?.()
+      void rt.retireTasks?.()
+      void rt.heldBack?.()?.catch?.(error => rt.warn('ds-bot: handing on input kept in earlier parts failed: %s', error))
+    }, wait)
+    scheduleGraceTimer.unref?.()
+  }
 
   const attach = (sub) => {
+    if (disposed) return
     const own = sub.schedule
     service = own
-    sub.effect(() => () => { if (service === own) service = null }, 'ds-bot: schedule service')
+    clearGraceTimer()
+    sub.effect(() => () => {
+      if (service === own) {
+        service = null
+        if (!disposed) scheduleDeadline = Date.now() + SCHEDULE_ATTACH_GRACE_MS
+      }
+    }, 'ds-bot: schedule service')
     void rt.retireParts?.()
     void rt.retireTasks?.()
+    void rt.heldBack?.()?.catch?.(error => rt.warn('ds-bot: handing on input kept in earlier parts failed: %s', error))
   }
-  if (typeof ctx.inject === 'function') ctx.inject(['schedule'], attach)
-  else if (ctx.get?.('schedule') !== undefined) attach({ schedule: ctx.get('schedule'), effect: (execute, label) => ctx.effect(execute, label) })
+  if (typeof ctx.inject === 'function') {
+    ctx.effect(() => () => {
+      disposed = true
+      clearGraceTimer()
+    }, 'ds-bot: schedule attach grace')
+    ctx.inject(['schedule'], attach)
+  } else if (ctx.get?.('schedule') !== undefined) attach({ schedule: ctx.get('schedule'), effect: (execute, label) => ctx.effect(execute, label) })
 
   // The Bot (and group chat) a task's Session speaks for, the group chat for a group's
   // own Session, or nothing for a Session outside the team.
@@ -226,7 +266,13 @@ export function install(rt) {
   // A fresh part takes over the earlier part's active tasks: each is created again on
   // the fresh Session before the old one goes, so a failure leaves it where it was.
   async function moveSchedules(fromId, toId) {
-    if (service === null) return
+    if (service === null) {
+      if (schedulesPending()) {
+        armGraceRetry()
+        throw Object.assign(new Error('schedule service is still attaching'), { code: 'schedule/pending' })
+      }
+      return
+    }
     // A Host-wide task changes its target in place and keeps its next firing; a
     // paused one moves too, so it resumes in the Bot's current part.
     if (hostWide(service)) {
@@ -308,7 +354,5 @@ export function install(rt) {
     return { ...result, value: { ...result.value, items, shown: items.length, total: positions.length, limit, offset } }
   })
 
-  // DSH injects its schedule service after the plugin starts; until then a task cannot move.
-  const schedulesPending = () => typeof ctx.inject === 'function' && service === null
   Object.assign(rt, { scheduleEndpoint: (endpoint, body) => endpoints[endpoint](body ?? {}), moveSchedules, schedulesPending })
 }

@@ -825,11 +825,24 @@ test('P1 #2, P1 #3, P1 #5: deliver_to user loop guard, substantive pure-LLM 2-st
   const { rt, emit, tool, stop } = await start()
   t.after(stop)
 
-  // Substantive pure-LLM specialist flow (same direction, non-ack): 2nd delegation allowed, 3rd pauses.
+  // Substantive pure-LLM specialist flow (same direction, non-ack): allowed up to WORK_REWORK_CHECKPOINT (4), pausing at rework_limit on the 5th.
   rt.noteWorkCompleted('a', 'b', { worked: false, text: 'Here is the complete first draft of section one with detailed technical rationale and examples.' })
   assert.deepEqual(rt.checkPairLoop('a', 'b', { callerWorked: false, text: 'Please expand section two with migration steps and edge cases.' }), { ok: true })
   rt.noteWorkCompleted('a', 'b', { worked: false, text: 'Here is the expanded section two draft covering all migration steps.' })
-  assert.equal(rt.checkPairLoop('a', 'b', { callerWorked: false, text: 'Now refine section three as well.' }).pause, 'idle_loop')
+  assert.deepEqual(rt.checkPairLoop('a', 'b', { callerWorked: false, text: 'Now refine section three with rollout checklists.' }), { ok: true })
+  rt.noteWorkCompleted('a', 'b', { worked: false, text: 'Here is the complete section three rollout checklist.' })
+  assert.deepEqual(rt.checkPairLoop('a', 'b', { callerWorked: false, text: 'Now translate section four into concise release notes.' }), { ok: true })
+  rt.noteWorkCompleted('a', 'b', { worked: false, text: 'Here is the translated section four release note draft.' })
+  assert.deepEqual(rt.checkPairLoop('a', 'b', { callerWorked: false, text: 'Now review section five appendix.' }), { pause: 'rework_limit', bounces: 4 })
+
+  // True ack-like or reciprocal alternating zero-work ping-pong still pauses immediately at 2 (idle_loop).
+  rt.resetPairLoop('a', 'b')
+  rt.noteWorkCompleted('a', 'b', { worked: false, text: 'Here is the complete first draft of section one.' })
+  assert.deepEqual(rt.checkPairLoop('a', 'b', { callerWorked: false, text: '收到，谢谢！' }), { pause: 'idle_loop', bounces: 2 })
+  assert.deepEqual(rt.checkPairLoop('b', 'a', { callerWorked: false, text: 'Please review the attached section outline.' }), { pause: 'idle_loop', bounces: 2 })
+  rt.resetPairLoop('a', 'b')
+  rt.noteWorkCompleted('a', 'b', { worked: false, text: '收到，已收工。' })
+  assert.deepEqual(rt.checkPairLoop('a', 'b', { callerWorked: false, text: 'Please translate section two into Japanese.' }), { pause: 'idle_loop', bounces: 2 })
 
   // Expired pairLoops entry (> PAIR_LOOP_TTL_MS) resets cleanly.
   rt.state.pairLoops['a:b'].lastAt = Date.now() - PAIR_LOOP_TTL_MS - 1000
@@ -1008,4 +1021,110 @@ test('re-review fixes: linear-time isAckLikeText, no duplicate deferred ask_back
   // 4) isRelayContext excludes silent stop/note/cancel notices so they never render inside an unrelated turn.
   assert.equal(isRelayContext({ source: { kind: 'bot', role: 'stopped', silent: true, senderSessionId: 'a' } }), false)
   assert.equal(isRelayContext({ source: { kind: 'bot', role: 'stopped', senderSessionId: 'a' } }), true)
+})
+
+test('soak findings: resumeRoomPause signals Continue to woken member, and superseded waiterless joined room calls coalesce per room', async (t) => {
+  const { rt, agentOf, emit, stop } = await start()
+  t.after(stop)
+
+  // 1) resumeRoomPause adds explicit Continue note to parked entries so woken member knows user clicked Continue.
+  const room = await rt.createRoom({ name: 'CycleGroup', members: ['a', 'b'], admin: 'a', greet: false })
+  room.idlePaused = { from: 'b', count: 2, noticed: true }
+  room.paused = [{ id: 'a', name: 'Chief', note: 'Writer mentioned you', by: 'b', idle: true }]
+  const resumed = await rt.resumeRoomPause(room.id)
+  assert.equal(resumed, true)
+  assert.equal(room.idlePaused, undefined)
+  assert.equal(room.paused[0].idle, false)
+  assert.match(room.paused[0].note, /Writer mentioned you; the user clicked Continue after a pause/)
+
+  // 2) Coalescing waiterless `role: 'room'` calls respects `(roomId, askedBy)` batch ownership:
+  //    - Repeated waiterless calls from the same `askedBy` coalesce to the newest one.
+  //    - Waiterless calls from different `askedBy` callers in the same room are BOTH preserved
+  //      so neither caller's `state.roomBatches` entry is orphaned.
+  //    - Waiterless calls with `askedBy: undefined` coalesce when a newer/live call exists in that room.
+  //    - Calls from another room and Bot-to-Bot `request` calls are always preserved.
+  const groupSid = 'grp-a-session'
+  rt.groupOwners.set(groupSid, { botId: 'a', roomId: room.id })
+  const grpAgent = agentOf(groupSid)
+  emit(groupSid, 'turn/start', { turn: 1 })
+  emit(groupSid, 'user/message', {
+    content: textBlock('[Group chat "CycleGroup" · your turn]\nfirst message'),
+    source: { kind: SOURCE_KIND, form: 'relay', role: 'room', roomId: room.id, exchangeId: 'ex-primary', senderSessionId: 'b' },
+  })
+  for (const [exId, rId, role, askedBy, text] of [
+    ['ex-unscoped-old', room.id, 'room', undefined, '[Group chat "CycleGroup" · your turn]\nold unscoped'],
+    ['ex-caller-b-1', room.id, 'room', 'b', '[Group chat "CycleGroup" · b mentioned you]\nstale from b'],
+    ['ex-caller-b-2', room.id, 'room', 'b', '[Group chat "CycleGroup" · b mentioned you]\nlatest from b'],
+    ['ex-caller-c-1', room.id, 'room', 'c', '[Group chat "CycleGroup" · c mentioned you]\nonly call from c'],
+    ['ex-unscoped-new', room.id, 'room', undefined, '[Group chat "CycleGroup" · your turn]\nnewer unscoped'],
+    ['ex-other-room', 'r-other', 'room', 'b', '[Group chat "Other" · b mentioned you]\nother room msg'],
+    ['ex-direct-req', undefined, 'request', undefined, '[Work #W9 from Writer]\ndirect work'],
+  ]) {
+    emit(groupSid, 'user/message', {
+      content: textBlock(text),
+      source: {
+        kind: SOURCE_KIND,
+        form: 'relay',
+        role,
+        ...(rId ? { roomId: rId } : {}),
+        ...(askedBy !== undefined ? { askedBy } : {}),
+        exchangeId: exId,
+        senderSessionId: askedBy ?? 'b',
+      },
+    })
+  }
+  const beforeEnd = grpAgent.calls.length
+  emit(groupSid, 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  await delay(40)
+  const deferredIds = grpAgent.calls.slice(beforeEnd).map(([, m]) => m.source?.exchangeId)
+  assert.equal(deferredIds.includes('ex-unscoped-old'), false, 'older askedBy:undefined room call must be coalesced')
+  assert.equal(deferredIds.includes('ex-caller-b-1'), false, 'older waiterless call from same askedBy must be coalesced')
+  assert.equal(deferredIds.includes('ex-caller-b-2'), true, 'latest waiterless call from askedBy b must be delivered')
+  assert.equal(deferredIds.includes('ex-caller-c-1'), true, 'waiterless call from distinct askedBy c must NOT be dropped')
+  assert.equal(deferredIds.includes('ex-unscoped-new'), true, 'latest overall waiterless unscoped call must be delivered')
+  assert.equal(deferredIds.includes('ex-other-room'), true, 'room call for a different room must be preserved')
+  assert.equal(deferredIds.includes('ex-direct-req'), true, 'Bot-to-Bot work request must never be coalesced with room calls')
+})
+
+test('same-direction substantive pure-LLM delegate_work runs 4 sections before rework_limit while ack/ping-pong still pauses at 2', async (t) => {
+  const { rt, agents, emit, tool, call, stop } = await start()
+  t.after(stop)
+
+  // 4 consecutive same-direction pure-LLM delegations (0 work tools, non-ack call & reply) succeed without false idle_loop.
+  for (let i = 1; i <= 4; i += 1) {
+    const out = await tool('delegate_work', { to: 'Writer', goal: `Translate section ${i} of the architecture document and preserve technical terms.` }, 'a')
+    assert.match(out, new RegExp(`^Delegated work #W${i} to Writer`), `section ${i} must not falsely pause as idle_loop`)
+    const req = agents.get('b').calls.at(-1)[1]
+    emit('b', 'turn/start', { turn: i })
+    emit('b', 'user/message', { content: req.content, source: req.source })
+    emit('b', 'assistant/message', assistantText(`Completed translation of section ${i} with glossary alignment and formatting notes.`))
+    emit('b', 'turn/end', { turn: i, reason: { kind: 'completed' } })
+    await settled(() => (agents.get('a')?.calls.length ?? 0) >= i)
+  }
+
+  // 5th consecutive pure-LLM delegation pauses at WORK_REWORK_CHECKPOINT (rework_limit).
+  const r5 = await tool('delegate_work', { to: 'Writer', goal: 'Translate section 5 of the architecture document.' }, 'a')
+  assert.match(r5, /^Paused work #W5 before waking Writer/)
+  let paused = (await call('state', {})).value.work.paused
+  assert.equal(paused.length, 1)
+  assert.equal(paused[0].reason, 'rework_limit')
+  assert.equal((await call('cancel-work', { id: paused[0].id })).ok, true)
+
+  // Reciprocal alternating zero-work ping-pong (A -> B then B -> A) still pauses immediately at 2 as idle_loop.
+  rt.resetPairLoop('a', 'b')
+  const aToB = await tool('delegate_work', { to: 'Writer', goal: 'Draft the release summary for review.' }, 'a')
+  assert.match(aToB, /^Delegated work #W6 to Writer/)
+  const req6 = agents.get('b').calls.at(-1)[1]
+  emit('b', 'turn/start', { turn: 10 })
+  emit('b', 'user/message', { content: req6.content, source: req6.source })
+  emit('b', 'assistant/message', assistantText('Here is the drafted release summary ready for your feedback.'))
+  emit('b', 'turn/end', { turn: 10, reason: { kind: 'completed' } })
+  await settled(() => (agents.get('a')?.calls.length ?? 0) >= 5)
+
+  const bToA = await tool('delegate_work', { to: 'Chief', goal: 'Please double-check my drafted release summary.' }, 'b')
+  assert.match(bToA, /^Paused work #W7 before waking Chief/)
+  paused = (await call('state', {})).value.work.paused
+  assert.equal(paused.length, 1)
+  assert.equal(paused[0].reason, 'idle_loop')
+  assert.equal(paused[0].bounces, 2)
 })

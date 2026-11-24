@@ -13,7 +13,7 @@ export function hostExecutable(runtimeDir, platform = process.platform) {
 }
 
 // The web server prints its launch URL, and the launch token in it opens the Host.
-const redact = (text) => text.replace(/([?&]token=)[^&\s]+/gu, '$1<hidden>')
+const redact = (text) => (text.includes('token=') ? text.replace(/([?&]token=)[^&\s]+/gu, '$1<hidden>') : text)
 
 // The engine's own report of a failure is on the Host's stderr; the error box
 // gets its tail with the message so the real cause reaches the user.
@@ -39,9 +39,9 @@ export class HostProcess {
   #messageListeners = new Set()
 
   /**
-   * @param {{ entry: string, cwd: string, env: NodeJS.ProcessEnv, pnpm: string, onFailure: (error: Error) => void, output?: (stream: 'stdout' | 'stderr', text: string) => void }} options
+   * @param {{ entry: string, cwd: string, env: NodeJS.ProcessEnv, pnpm: string, onFailure: (error: Error) => void, output?: (stream: 'stdout' | 'stderr', text: string) => void, redactOutput?: boolean }} options
    *   `onFailure` receives the first unexpected failure, also after the Host was ready. `output`
-   *   takes the Host's output with the launch token hidden; by default it goes to this process's.
+   *   takes the Host's output with the launch token hidden (unless `redactOutput: false`); by default it goes to this process's.
    */
   constructor(options, platform = process.platform) { this.#options = options; this.#platform = platform }
 
@@ -51,16 +51,16 @@ export class HostProcess {
    */
   start() {
     this.#ready ??= new Promise((resolve, reject) => {
-      const { entry, cwd, env, pnpm, output = (stream, text) => { process[stream].write(text) } } = this.#options
+      const { entry, cwd, env, pnpm, output = (stream, text) => { process[stream].write(text) }, redactOutput = true } = this.#options
       const child = spawn(hostExecutable(env.DS_BOT_RUNTIME_DIR, this.#platform), ['--expose-internals', entry, pnpm], {
         cwd, env: { ...env, ELECTRON_RUN_AS_NODE: '1' }, stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
       })
       this.#child = child
       child.stdout.setEncoding('utf8')
       child.stderr.setEncoding('utf8')
-      child.stdout.on('data', (chunk) => { output('stdout', redact(chunk)) })
+      child.stdout.on('data', (chunk) => { output('stdout', redactOutput ? redact(chunk) : chunk) })
       child.stderr.on('data', (chunk) => {
-        output('stderr', redact(chunk))
+        output('stderr', redactOutput ? redact(chunk) : chunk)
         this.#stderr = (this.#stderr + chunk).slice(-STDERR_TAIL_CHARS)
       })
       child.on('message', (message) => {

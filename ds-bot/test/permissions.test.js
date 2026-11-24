@@ -171,13 +171,12 @@ test('the last preset asked for wins when two group changes overlap', async () =
   assert.equal(releases.length, 2)
   await settle(1) // the later request reaches s1, then s2, before the earlier one does
   await settle(1)
-  await settle(0) // the earlier request applies last and must not win
-  await settle(0)
+  await settle(0) // the superseded request stops before writing or resolving the next member
   await first
   await second
   assert.equal(room.permission, 'danger-full-access')
-  assert.equal(writes.length, 4)
-  assert.ok(writes.every(write => write.endsWith('=danger-full-access')))
+  assert.deepEqual(writes, ['s1=danger-full-access', 's2=danger-full-access'])
+  assert.equal(releases.length, 0)
 })
 
 test('a change that fails on one active task puts the sessions already changed back', async () => {
@@ -220,6 +219,23 @@ test('a rollback that is still applying does not write over a newer, stricter re
   await firstFails
   assert.equal(bot.permission, 'read-only')
   assert.deepEqual(writes, ['b1-chat=danger-full-access', 'b1-chat=read-only', 'b1-task=read-only', 'b1-group=read-only'])
+})
+
+test('a Bot\'s preset reaches a group task Session whose room asked for a preset before', async () => {
+  // The room once had a permission request, later cleared: roomRequests keeps a
+  // marker while room.permission is gone. A task Session not in the snapshot would
+  // read the marker as a newer room request and never get the Bot's new preset.
+  const { rt, writes, bots } = runtime()
+  const room = { id: 'r1', name: 'Ops', sessions: {} }
+  bots.b1 = { id: 'b1', name: 'Ada', tasks: [{ id: 't1', sessionId: 'b1-task', roomId: 'r1', status: 'running' }] }
+  rt.roomOf = id => id === 'r1' ? room : undefined
+  rt.taskOwners = new Map([['b1-task', { botId: 'b1', taskId: 't1', roomId: 'r1' }]])
+  await rt.setRoomPermission(room, 'workspace-write')
+  await rt.setRoomPermission(room, null)
+  writes.length = 0
+  await rt.setPermission(bots.b1, 'danger-full-access')
+  assert.equal(bots.b1.permission, 'danger-full-access')
+  assert.deepEqual(writes, ['b1-chat=danger-full-access', 'b1-group=danger-full-access', 'b1-task=danger-full-access'])
 })
 
 test('a stricter preset reaches active background tasks too', async () => {

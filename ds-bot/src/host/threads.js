@@ -78,7 +78,7 @@ export function pushThreadPart(bot, sessionId, freshId, segment) {
 }
 
 // Every session this Bot keeps outside its current thread, for cleanup, memory and usage.
-export const taskSessionIds = task => [...new Set([task.sessionId, ...(task.segments ?? []).map(segment => segment.sessionId)]
+export const taskSessionIds = task => [...new Set([task?.sessionId, ...(task?.segments ?? []).map(segment => segment?.sessionId)]
   .filter(id => typeof id === 'string' && id !== ''))]
 
 export const openSessions = bot => (bot?.tasks ?? []).flatMap(taskSessionIds)

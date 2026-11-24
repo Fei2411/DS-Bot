@@ -329,6 +329,15 @@ test('an approval asked inside a PTC program shows what that call does', async (
   assert.equal(value.work.bots.b.tool, 'pwsh')
 })
 
+test('Bots cannot change permission modes and an invalid approval model leaves preferences unchanged', async t => {
+  const host = await start()
+  t.after(host.stop)
+  await assert.rejects(host.rt.updateBot('a', { permission: 'review' }, 'a'), /Only the user/)
+  await assert.rejects(host.rt.updateRoom('r1', { permission: 'review' }, 'a'), /Only the user/)
+  const result = await host.call('set-prefs', { approvalModel: 'local-codex-cli/default' })
+  assert.equal(result.ok, false)
+  assert.equal(host.rt.state.prefs.approvalModel, undefined)
+})
 
 test('a local CLI member streams live work, keeps the round alive, frees it after the grace and counts its tools', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] })

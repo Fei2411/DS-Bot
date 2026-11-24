@@ -2,7 +2,9 @@
 
 The DS Bot plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (dsh). It turns dsh into a team of long-lived Bots that talk to you, to each other and in group chats. See the [project page](../README.md) for an overview, install steps and screenshots.
 
-Tested with dsh `0.2.2-rc.1` (Web and Desktop).
+Tested with dsh `0.2.2-rc.5` (Web and Desktop).
+
+> For LLM/automated operations, diagnostics, upgrade playbooks, and recovery, see [Self-Maintenance & Operations Reference](../docs/self-maintenance.md) and the bundled [`ds-bot-maintenance`](src/host/skills/ds-bot-maintenance/SKILL.md) skill. For capabilities, connectors, standalone DSH plugins, local ACP CLIs, and `ds-bot` extension development, see [Plugin & Extension Development Reference](../docs/plugin-development.md) and the bundled [`ds-bot-plugin-dev`](src/host/skills/ds-bot-plugin-dev/SKILL.md) skill.
 
 ## Features
 

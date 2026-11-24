@@ -290,4 +290,29 @@ test('a group chat header mounts the approval bar in the top island and answers 
     ['answerApproval', 'ap-task', 'allow'],
     ['answerApproval', 'ap-task', 'reject'],
   ])
+
+  // A foreground model-review request has no task id. It stays visible both without
+  // background work and alongside the active-task deck, without appearing in both.
+  taskWork.approvals = [
+    { id: 'ap-front', botId: 'a', sessionId: 'a', tool: 'bash', reason: 'Run check', answerable: true, at: 200 },
+    { id: 'ap-group', botId: 'a', sessionId: 'g', roomId: 'r1', tool: 'bash', reason: 'Group action', answerable: true, at: 210 },
+  ]
+  const foregroundOnly = renderBot({ approvalOpen: 'a' })
+  const foregroundPanels = findAll(foregroundOnly, node => node.props?.className === 'bt-apv-panel')
+  assert.equal(foregroundPanels.length, 1)
+  assert.equal(findAll(foregroundPanels[0], node => node.props?.className === 'bt-mw-card').length, 1, 'the group request stays out of the direct chat')
+  const foregroundButtons = findAll(foregroundPanels[0], node => node.type === 'button')
+  assert.ok(foregroundButtons.some(btn => (btn.children ?? []).join('') === 'Allow once'))
+
+  groupRoster.byId.a.tasks = [{ id: 'k_1', sessionId: 'task-a', title: 'Deploy check', status: 'running' }]
+  taskWork.approvals.push({ id: 'ap-task', botId: 'a', taskId: 'k_1', taskTitle: 'Deploy check', tool: 'bash', answerable: true, at: 100 })
+  const withBackground = renderBot({ approvalOpen: 'a' })
+  assert.equal(findAll(withBackground, node => node.props?.className === 'bt-apv-bar').length, 1)
+  const withBackgroundPanels = findAll(withBackground, node => node.props?.className === 'bt-apv-panel')
+  assert.equal(withBackgroundPanels.length, 1)
+  const labels = findAll(withBackgroundPanels[0], node => node.type === 'button').map(btn => (btn.children ?? []).join(''))
+  assert.ok(labels.includes('Allow once'))
+  assert.ok(labels.includes('Reject'))
+  const taskCards = findAll(withBackground, node => node.props?.className === 'bt-task-focus-card')
+  assert.ok(taskCards.every(card => !JSON.stringify(card).includes('ap-front')), 'the foreground request is not duplicated in the task deck')
 })

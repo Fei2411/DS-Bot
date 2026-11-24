@@ -137,5 +137,36 @@ export function install(rt) {
     }
   }
 
-  Object.assign(rt, { requestIdentity: identity, knownRequest: known, admitRequest: admit })
+  // Reclaim request identities owned by a deleted Bot (a deleted Bot can never retry).
+  const forgetBotRequests = (botId) => {
+    if (typeof botId !== 'string' || botId === '' || state.requests == null) return 0
+    const prefix = `${botId}\u0000`
+    let removed = 0
+    for (const key of Object.keys(state.requests)) {
+      if (key.startsWith(prefix)) {
+        delete state.requests[key]
+        removed += 1
+      }
+    }
+    return removed
+  }
+
+  // Prune orphaned request entries whose calling Bot no longer exists in state.bots.
+  const pruneOrphanRequests = () => {
+    if (rt.readOnly?.() !== undefined || state.requests == null || state.bots == null) return 0
+    let removed = 0
+    for (const key of Object.keys(state.requests)) {
+      const sep = key.indexOf('\u0000')
+      if (sep <= 0) continue
+      const caller = key.slice(0, sep)
+      if (rt.own(state.bots, caller) === undefined) {
+        delete state.requests[key]
+        removed += 1
+      }
+    }
+    if (removed > 0) void rt.save?.().catch(() => {})
+    return removed
+  }
+
+  Object.assign(rt, { requestIdentity: identity, knownRequest: known, admitRequest: admit, forgetBotRequests, pruneOrphanRequests })
 }

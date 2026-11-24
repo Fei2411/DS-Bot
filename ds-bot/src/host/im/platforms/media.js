@@ -12,6 +12,29 @@ export function mediaSignal(signal, timeoutMs = MEDIA_TIMEOUT_MS) {
   return signal !== undefined ? AbortSignal.any([signal, timeout]) : timeout
 }
 
+// The fetch adapters get: a call that sets no signal of its own gives up when
+// no response has started after `timeoutMs`, so one stalled connection cannot
+// hold a chat's send queue forever. Only the wait for the response head is
+// bounded: an aborted body read reaches the adapters as an empty or unparsable
+// body, which some take for success or a refused key. A timeout is not marked
+// unknown: the stalled call may be a token lookup that sent nothing yet, so the
+// send is retried and, when retries run out, kept for Try again.
+export const FETCH_TIMEOUT_MS = 60_000
+
+export function boundedFetch(fetchImpl = (...args) => globalThis.fetch(...args), timeoutMs = FETCH_TIMEOUT_MS) {
+  return async (url, init) => {
+    if (init?.signal != null) return fetchImpl(url, init)
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(new DOMException('The request timed out', 'TimeoutError')), timeoutMs)
+    timer.unref?.()
+    try {
+      return await fetchImpl(url, { ...init, signal: controller.signal })
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+}
+
 export function isHttpUrl(raw) {
   try {
     const { protocol } = new URL(String(raw ?? ''))
