@@ -14,7 +14,7 @@ import { HANDOFF_ACK, HISTORY_TIMEOUT_MS, SOURCE_KIND, STEER_CUT, TASK_FORK_MAX_
 import { within } from './folders.js'
 import { absoluteLinks } from './links.js'
 import { textOf } from './text.js'
-import { activeTasksOf, isActiveTask, threadCurrentOfPart, threadOfPart } from './threads.js'
+import { activeTasksOf, isActiveTask, retiredTaskSessionIds, taskSessionIds, threadCurrentOfPart, threadOfPart } from './threads.js'
 import { output } from './tools.js'
 import { answerSender, cutOffText, turnFailure } from './turns.js'
 
@@ -351,44 +351,198 @@ export function install(rt) {
     try { return readFileSync(join(reportsDir, file), 'utf8') } catch { return undefined }
   }
   const dropReportFile = (file) => {
-    if (typeof file !== 'string' || !/^[A-Za-z0-9_-]+\.txt$/.test(file) || rt.readOnly?.() !== undefined) return
-    try { rmSync(join(reportsDir, file), { force: true }) } catch {}
+    if (typeof file !== 'string' || !/^[A-Za-z0-9_-]+\.txt$/.test(file)) return true
+    if (rt.readOnly?.() !== undefined) return false
+    try {
+      rmSync(join(reportsDir, file), { force: true })
+      return true
+    } catch {
+      return false
+    }
   }
 
-  const taskSessionIds = task => [task?.sessionId, ...(task?.segments ?? []).map(segment => segment?.sessionId)]
-    .filter(sid => typeof sid === 'string' && sid !== '')
   const forgetTaskSession = (sessionId) => {
     if (typeof sessionId !== 'string' || sessionId === '') return
     admittedRpcIds.delete(sessionId)
     rejectEmptyTaskWake.delete(sessionId)
   }
 
-  const pruneSettledTasks = (bot) => {
-    const list = tasksOf(bot)
-    const settled = list.filter(task => !isActiveTask(task))
-    if (settled.length <= MAX_SETTLED_TASKS) return
-    const dropCount = settled.length - MAX_SETTLED_TASKS
-    const dropped = settled.slice(0, dropCount)
-    const toDrop = new Set(dropped.map(task => task.id))
-    for (const task of dropped) {
-      dropReportFile(task.reportFile)
-      const segIds = (task.segments ?? []).map(seg => seg?.sessionId).filter(Boolean)
-      if (segIds.length > 0) void rt.deleteSegmentNotes?.(segIds)
-      for (const sid of taskSessionIds(task)) {
-        if (state.closedCards !== undefined) delete state.closedCards[sid]
-        if (state.exchangeTurns !== undefined) delete state.exchangeTurns[sid]
-        if (state.questions !== undefined) delete state.questions[sid]
-        if (state.views !== undefined) delete state.views[sid]
-        if (state.switching !== undefined) delete state.switching[sid]
-        forgetTaskSession(sid)
-        void ctx.workspaceRegistry?.archiveSession?.(sid, { stopActivity: true })?.catch(() => {})
-        rt.renewMemory?.(sid)
-        rt.forgetSessionParts?.(sid)
-        rt.forgetSessionTurn?.(sid)
-        rt.forgetSessionModel?.(sid)
-      }
+  const cleanPrunedSession = (id) => {
+    for (const entries of [state.closedCards, state.exchangeTurns, state.questions, state.views, state.switching]) {
+      if (entries !== undefined) delete entries[id]
     }
-    bot.tasks = list.filter(task => !toDrop.has(task.id))
+    forgetTaskSession(id)
+    rt.renewMemory?.(id)
+    rt.forgetSessionParts?.(id)
+    rt.forgetSessionTurn?.(id)
+    rt.forgetSessionModel?.(id)
+    return rt.deleteSegmentNotes?.([id])
+  }
+
+  const sessionBusy = (id) => {
+    const agent = ctx.get('agents')?.get(id)
+    return agent?.status === 'running' || hasWakingInboxInput(agent) || rt.live.get(id)?.turn !== undefined
+      || rt.hasPendingRecovery(id) || rt.isSwitchingPart?.(id) || state.switching?.[id] !== undefined
+      || (rt.runningJobs?.(id)?.length ?? 0) > 0
+  }
+
+  const hasSessionOwner = id => rt.agentOf(id) !== undefined
+    || rt.chatOwners.has(id) || rt.pastOwners.has(id) || rt.groupOwners.has(id) || rt.roomOwners.has(id)
+  const isInherited = id => Object.values(state.bots).some(bot => tasksOf(bot).some(task =>
+      task.from === id || task.inheritedSegments?.some(segment => segment.sessionId === id)))
+
+  const retiredTasks = () => Array.isArray(state.retiredTasks) ? state.retiredTasks : []
+  const hasExcessSettledTasks = bot => tasksOf(bot).filter(task => !isActiveTask(task)).length > MAX_SETTLED_TASKS
+  const pendingHandoff = botId => Array.isArray(state.pendingHandoffInputs)
+    && state.pendingHandoffInputs.some(item => item?.botId === botId)
+  const reportPending = (taskId) => {
+    const report = info => info?.role === 'task-report' && info.taskId === taskId
+    return rt.hasPendingTaskReport(taskId) || [...rt.live.values()].some(entry =>
+      report(entry.info) || report(entry.pending) || report(entry.carry?.info) || entry.claimed?.some(report)
+      || entry.later?.some(item => report(item.info)) || entry.carry?.later?.some(item => report(item.info)))
+  }
+
+  const retirementTarget = ({ botId, roomId }) => {
+    if (rt.botOf(botId) === undefined) return undefined
+    if (roomId === undefined) return rt.chatOf(botId)
+    const room = rt.roomOf(roomId)
+    return room?.members.includes(botId) ? room.sessions?.[botId] : undefined
+  }
+
+  const ownedTaskSessionIds = (task) => {
+    const inherited = new Set((task.inheritedSegments ?? []).map(segment => segment?.sessionId))
+    return taskSessionIds(task).filter(id => id !== task.from && !inherited.has(id))
+  }
+
+  function pruneSettledTasks(bot, keepSessions) {
+    const settled = tasksOf(bot).filter(task => !isActiveTask(task))
+    const excess = settled.length - MAX_SETTLED_TASKS
+    if (excess <= 0) return []
+    const dropped = new Set()
+    for (const task of settled.slice(0, excess)) {
+      const ids = taskSessionIds(task)
+      if (settling.has(task.id) || delivering.has(task.id) || reportPending(task.id)
+        || hasOpenOutgoingWorks(bot, task) || ids.some(id => keepSessions.has(id) || sessionBusy(id))
+        || (task.origin === 'fg-handoff' && (handoffing.has(bot.id) || pendingHandoff(bot.id)))) continue
+      state.retiredTasks = [...retiredTasks(), { botId: bot.id, roomId: task.roomId, sessionIds: ownedTaskSessionIds(task), reportFile: task.reportFile }]
+      // The logs can outlive both the task and the Bot. Preserve ownership for the
+      // privacy checks, including if the user turns privacy on after pruning.
+      bot.retiredTaskSessions = [...new Set([...retiredTaskSessionIds(bot), ...ids])]
+      dropped.add(task)
+    }
+    if (dropped.size > 0) bot.tasks = tasksOf(bot).filter(task => !dropped.has(task))
+    return [...dropped]
+  }
+
+  let retirement = Promise.resolve()
+  let retirementStopped = false
+  let retirementRetryTimer
+  let retirementRetryDelay = 1000
+  const writeAccess = () => retirementStopped || rt.readOnly() !== undefined ? undefined : rt.teamWriteAccess()
+  const ownsRetirement = () => writeAccess() === 'locked'
+
+  function resetRetirementRetry() {
+    clearTimeout(retirementRetryTimer)
+    retirementRetryTimer = undefined
+    retirementRetryDelay = 1000
+  }
+
+  function retryRetirement() {
+    if (retirementRetryTimer !== undefined || !ownsRetirement()) return
+    retirementRetryTimer = setTimeout(() => {
+      retirementRetryTimer = undefined
+      if (ownsRetirement()) void retireTasks()
+    }, retirementRetryDelay)
+    retirementRetryTimer.unref?.()
+    retirementRetryDelay = Math.min(retirementRetryDelay * 2, 15_000)
+  }
+
+  async function updateRetirement(entry, next) {
+    const before = retiredTasks()
+    const after = before.flatMap(item => item === entry ? (next === undefined ? [] : [next]) : [item])
+    state.retiredTasks = after
+    try {
+      await rt.save({ required: true })
+    } catch (error) {
+      if (state.retiredTasks === after) state.retiredTasks = before
+      throw error
+    }
+  }
+
+  function retireTasks(bots = [], keepSessions = new Set()) {
+    retirement = retirement.then(async () => {
+      const access = writeAccess()
+      if (access === undefined) return
+      const pruned = bots.filter(bot => rt.botOf(bot.id) === bot)
+        .flatMap(bot => pruneSettledTasks(bot, keepSessions))
+      const pending = retiredTasks().slice()
+      if (pruned.length === 0 && (access !== 'locked' || pending.length === 0)) return
+      await rt.save({ required: true })
+      if (access !== 'locked') return
+      let retry = false
+      for (const entry of pending) {
+        const current = () => ownsRetirement() && retiredTasks().includes(entry)
+        if (!current()) return
+        const remaining = []
+        for (const id of entry.sessionIds) {
+          if (!current()) return
+          if (hasSessionOwner(id)) continue
+          if (keepSessions.has(id) || sessionBusy(id) || isInherited(id) || pendingHandoff(entry.botId) || handoffing.has(entry.botId)) {
+            remaining.push(id)
+            continue
+          }
+          try {
+            const target = retirementTarget(entry)
+            if (target !== undefined) await rt.moveSchedules(id, target)
+            if (!current()) return
+            if (hasSessionOwner(id)) continue
+            if (sessionBusy(id) || isInherited(id) || pendingHandoff(entry.botId) || handoffing.has(entry.botId)
+              || retirementTarget(entry) !== target) {
+              remaining.push(id)
+              continue
+            }
+            await ctx.workspaceRegistry.archiveSession(id)
+          } catch (error) {
+            if (error?.name !== 'WorkspaceUnknownSessionError' || error.sessionId !== id) {
+              remaining.push(id)
+              if (error?.code !== 'schedule/pending') {
+                rt.warn('ds-bot: task Session %s not archived yet: %s', id, error)
+                retry = true
+              }
+              continue
+            }
+          }
+          if (!current()) return
+          if (!hasSessionOwner(id)) await cleanPrunedSession(id)
+        }
+        if (!current()) return
+        if (remaining.length > 0 && remaining.length === entry.sessionIds.length) continue
+        let completed = entry
+        if (entry.sessionIds.length > 0) {
+          completed = { ...entry, sessionIds: remaining }
+          await updateRetirement(entry, completed)
+        }
+        if (remaining.length > 0 || !ownsRetirement() || !retiredTasks().includes(completed)) continue
+        // An empty entry records completed archiving before removing the report.
+        // If the host stops between these writes, cleanup can be tried again.
+        if (dropReportFile(completed.reportFile)) await updateRetirement(completed, undefined)
+      }
+      if (retry) retryRetirement()
+      else resetRetirementRetry()
+    }).catch(error => rt.warn('ds-bot: retiring background task Sessions failed: %s', error))
+    return retirement
+  }
+
+  function stopRetiringTasks() {
+    retirementStopped = true
+    resetRetirementRetry()
+    return retirement
+  }
+
+  function retireSettledTasksAfterIdle(sessionId) {
+    const bot = rt.botOf(rt.selfOf(sessionId))
+    if (hasExcessSettledTasks(bot)) void retireTasks([bot])
+    else if (retiredTasks().some(entry => entry.sessionIds.includes(sessionId))) void retireTasks()
   }
 
   // Checks whether any outgoing Bot-to-Bot or group report-back work originated from
@@ -411,10 +565,22 @@ export function install(rt) {
   const sourceEventCountOf = (sessionId) => {
     const session = sourceSessionOf(sessionId)
     if (session === undefined) return 0
-    const seq = Number(session.seq)
-    if (Number.isInteger(seq) && seq >= 0) return seq
+    const seq = session.seq
+    if (typeof seq === 'number' && Number.isInteger(seq) && seq >= 0) return seq
     const events = session.snapshotEvents?.()
     return Array.isArray(events) ? events.length : 0
+  }
+  const lastSeqOf = (session) => {
+    if (session === undefined || session === null) return undefined
+    const seq = session.seq
+    if (typeof seq === 'number' && Number.isInteger(seq) && seq >= 0) return seq - 1
+    const events = session.snapshotEvents?.()
+    if (Array.isArray(events)) {
+      if (events.length === 0) return -1
+      const last = events.at(-1)?.seq
+      return Number.isInteger(last) ? last : events.length - 1
+    }
+    return undefined
   }
   const resolveTaskForkMaxEvents = (options) => {
     for (const candidate of [options?.taskForkMaxEvents, rt.config?.taskForkMaxEvents]) {
@@ -555,6 +721,7 @@ export function install(rt) {
   async function settleTask(bot, task, outcome, { text = '', error, notifyForeground = true, settleWork = true } = {}) {
     if (settling.has(task.id) || !isActiveTask(task)) return
     settling.add(task.id)
+    let settled = false
     try {
       const now = Date.now()
       task.status = outcome
@@ -592,8 +759,8 @@ export function install(rt) {
         rt.blockTasks?.(task.roomId, bot.id, cause)
       }
 
-      pruneSettledTasks(bot)
       await rt.save()
+      settled = true
       emitTaskEvent(`task.${outcome}`, bot, task, {
         ...(task.summary ? { summary: task.summary } : {}),
         ...(task.error ? { error: task.error } : {}),
@@ -679,6 +846,9 @@ export function install(rt) {
         }
         throw error
       }
+    } catch (error) {
+      settled = false
+      throw error
     } finally {
       for (const sid of taskSessionIds(task)) {
         forgetTaskSession(sid)
@@ -687,6 +857,7 @@ export function install(rt) {
         rt.forgetSessionTurn?.(sid)
       }
       settling.delete(task.id)
+      if (settled && (hasExcessSettledTasks(bot) || retiredTasks().length > 0)) await retireTasks([bot])
     }
   }
 
@@ -782,7 +953,8 @@ export function install(rt) {
     }
 
     const shouldFork = sourceEventCountOf(fromSessionId) <= resolveTaskForkMaxEvents(options)
-    const { sessionId, forked, task } = await rt.openTaskPart(bot, fromSessionId, baseTask, { workDir: resolvedDir, fork: shouldFork })
+    const fromThroughSeq = room === undefined ? lastSeqOf(sourceSessionOf(fromSessionId)) : undefined
+    const { sessionId, forked, task } = await rt.openTaskPart(bot, fromSessionId, baseTask, { workDir: resolvedDir, fork: shouldFork, throughSeq: fromThroughSeq })
     if (taskWorkId !== undefined) {
       rt.openWork?.(taskWorkId, { from: bot.id, parent: parentWork, toSession: sessionId, toTaskId: id, name: `task "${name}"`, child: id })
     }
@@ -981,6 +1153,8 @@ export function install(rt) {
     }
     // Replay any foreground handoff inputs left on disk by a prior host crash/restart.
     await reconcilePendingHandoffInputs()
+    const bots = Object.values(state.bots).filter(hasExcessSettledTasks)
+    if (bots.length > 0 || retiredTasks().length > 0) await retireTasks(bots, keep)
   }
 
   // Replays pending handoff transfer journal entries without re-running the one-shot
@@ -2017,23 +2191,40 @@ export function install(rt) {
     const oldEvents = oldAgent?.session?.snapshotEvents?.() ?? []
     const runningTurn = entry?.turn
     const targetTurn = expectedTurn ?? runningTurn
-    const { startSeq, priorTurns, priorCallIds } = (() => {
+    const { startSeq, handoffCutSeq, priorTurns, priorCallIds } = (() => {
       const turns = new Set()
       const callIds = new Set()
-      if (oldEvents.length === 0) return { startSeq: 0, priorTurns: turns, priorCallIds: callIds }
+      if (oldEvents.length === 0) {
+        const oldSession = oldAgent?.session ?? ctx.sessions?.get?.(oldSid)
+        const empty = typeof oldSession?.seq === 'number' && Number.isInteger(oldSession.seq) && oldSession.seq === 0
+        return { startSeq: 0, handoffCutSeq: empty ? -1 : undefined, priorTurns: turns, priorCallIds: callIds }
+      }
       const lastStart = oldEvents.findLastIndex(ev => ev?.type === 'turn/start')
       const boundary = lastStart >= 0 ? lastStart : oldEvents.length
       let seq = 0
+      let lastCompletedSeq
       for (let i = 0; i < boundary; i += 1) {
         const ev = oldEvents[i]
         if (ev?.type === 'turn/end') {
           if (typeof ev.data?.turn === 'number' && Number.isInteger(ev.data.turn)) turns.add(ev.data.turn)
-          seq = Number.isInteger(ev.seq) ? ev.seq + 1 : i + 1
+          const endSeq = Number.isInteger(ev.seq) ? ev.seq : i
+          seq = endSeq + 1
+          lastCompletedSeq = endSeq
         } else if (ev?.type === 'tool/call' && typeof ev.data?.callId === 'string' && ev.data.callId !== '') {
           callIds.add(ev.data.callId)
         }
       }
-      return { startSeq: seq, priorTurns: turns, priorCallIds: callIds }
+      // Match DSH's latestCompletedPrefixBoundary: when a turn is in flight (`lastStart >= 0`)
+      // and no prior `turn/end` exists, there is no completed prefix before this turn (`-1`),
+      // even if Turn 1's initiating `user/message` precedes `turn/start`.
+      const cutSeq = lastCompletedSeq !== undefined
+        ? lastCompletedSeq
+        : lastStart >= 0
+          ? -1
+          : Number.isInteger(oldEvents.at(-1)?.seq)
+            ? oldEvents.at(-1).seq
+            : undefined
+      return { startSeq: seq, handoffCutSeq: cutSeq, priorTurns: turns, priorCallIds: callIds }
     })()
     const movedImOrigin = isBotHandoff ? undefined : rt.captureImOrigin?.(oldSid)
 
@@ -2150,6 +2341,32 @@ export function install(rt) {
         }
       }
       const now = Date.now()
+      const forkedSession = forked
+        ? (ctx.get('agents')?.get(newSid)?.session ?? ctx.sessions?.get?.(newSid))
+        : undefined
+      const forkedEvents = forkedSession?.snapshotEvents?.() ?? []
+      const lastForkedSeq = forkedEvents.at(-1)?.seq
+      const forkedInherited = forkedSession?.inheritedEventCount
+      const forkedCutSeq = Number.isInteger(lastForkedSeq)
+        ? lastForkedSeq
+        : (typeof forkedInherited === 'number' && Number.isInteger(forkedInherited) && forkedInherited >= 0
+            ? forkedInherited - 1
+            : undefined)
+      const effectiveCutSeq = handoffCutSeq !== undefined
+        ? handoffCutSeq
+        : (forkedCutSeq !== undefined
+            ? forkedCutSeq
+            : lastSeqOf(oldAgent?.session ?? ctx.sessions?.get?.(oldSid)))
+      // Seal any earlier task's inherited ref to `oldSid` so this moved turn and all
+      // post-handoff messages on `oldSid` never leak across task threads.
+      for (const other of bot.tasks ?? []) {
+        if (!Array.isArray(other?.inheritedSegments)) continue
+        for (const seg of other.inheritedSegments) {
+          if (seg?.sessionId !== oldSid) continue
+          if (seg.endedAt === undefined) seg.endedAt = now
+          if (seg.throughSeq === undefined && effectiveCutSeq !== undefined) seg.throughSeq = effectiveCutSeq
+        }
+      }
       const inherited = slimSegments(bot)
       const task = {
         id: newId(),
@@ -2181,9 +2398,6 @@ export function install(rt) {
       // those inherited turns so previously hidden [PASS]/Bot-to-Bot turns never leak
       // back into the user's chat after an fg-handoff or bot-handoff fork.
       if (forked) {
-        const forkedEvents = ctx.get('agents')?.get(newSid)?.session?.snapshotEvents?.()
-          ?? ctx.sessions?.get?.(newSid)?.snapshotEvents?.()
-          ?? []
         let inheritedTurns = priorTurns
         let inheritedCallIds = priorCallIds
         const hasEventBounds = forkedEvents.length > 0 || oldEvents.length > 0
@@ -2963,6 +3177,9 @@ export function install(rt) {
     forgetBotTasks,
     reconcileEndedTask,
     reconcileTasksAfterRestart,
+    retireTasks,
+    stopRetiringTasks,
+    retireSettledTasksAfterIdle,
     onTaskEvent,
   })
 }

@@ -17960,8 +17960,11 @@ function commRunOf(order, peers, turn, hiddenTurns = []) {
   }
   return { count, peerIds };
 }
+function turnOutlineOf(list, id) {
+  return list.projectionsBySession?.[id]?.values?.turnOutline ?? list.byId[id]?.projectionValues?.turnOutline;
+}
 function previewOf(list, id, hiddenTurns = []) {
-  const outline = list.projectionsBySession?.[id]?.values?.turnOutline ?? list.byId[id]?.projectionValues?.turnOutline;
+  const outline = turnOutlineOf(list, id);
   if (!Array.isArray(outline)) return "";
   for (let index = outline.length - 1; index >= 0; index -= 1) {
     const entry = outline[index];
@@ -35557,14 +35560,16 @@ var waitingFor = (roster, waits) => {
   const names = [...(waits?.bots ?? []).map((id) => roster.byId[id]?.name), ...(waits?.rooms ?? []).map((id) => roster.roomsById[id]?.name)].filter(Boolean);
   return names.length === 0 ? "" : t("Waiting for {names}", { names: names.join(t(" and ")) });
 };
-var sameBotRow = (a, b) => a.bot === b.bot && a.wide === b.wide && a.marked === b.marked && a.actions === b.actions && a.onDragStart === b.onDragStart && a.useSessions === b.useSessions && a.useSessionStatus === b.useSessionStatus && a.useSessionRetainInfo === b.useSessionRetainInfo && a.useActivity === b.useActivity && a.useWork === b.useWork && a.useComputer === b.useComputer && a.roster.mainBotId === b.roster.mainBotId && a.roster.mainBotIds === b.roster.mainBotIds && a.roster.byId === b.roster.byId && a.roster.roomsById === b.roster.roomsById && a.roster.exchangeTurns === b.roster.exchangeTurns && a.roster.learning === b.roster.learning && a.roster.secretRequests === b.roster.secretRequests && a.roster.connectorRequests === b.roster.connectorRequests && a.roster.mailRequests === b.roster.mailRequests && a.roster.questions === b.roster.questions && a.roster.views === b.roster.views;
-var BotRow = memo(function BotRow2({ bot, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, useComputer, wide, marked: marked2, onDragStart }) {
+var sameBotRow = (a, b) => a.bot === b.bot && a.wide === b.wide && a.marked === b.marked && a.actions === b.actions && a.onDragStart === b.onDragStart && a.useSessions === b.useSessions && a.useBotCompletions === b.useBotCompletions && a.useSessionStatus === b.useSessionStatus && a.useSessionRetainInfo === b.useSessionRetainInfo && a.useActivity === b.useActivity && a.useWork === b.useWork && a.useComputer === b.useComputer && a.roster.mainBotId === b.roster.mainBotId && a.roster.mainBotIds === b.roster.mainBotIds && a.roster.byId === b.roster.byId && a.roster.roomsById === b.roster.roomsById && a.roster.exchangeTurns === b.roster.exchangeTurns && a.roster.learning === b.roster.learning && a.roster.secretRequests === b.roster.secretRequests && a.roster.connectorRequests === b.roster.connectorRequests && a.roster.mailRequests === b.roster.mailRequests && a.roster.questions === b.roster.questions && a.roster.views === b.roster.views;
+var BotRow = memo(function BotRow2({ bot, roster, actions, useSessions, useBotCompletions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, useComputer, wide, marked: marked2, onDragStart }) {
   const id = bot.id;
   const part = currentPart(bot);
   const preview = useSessions((list) => previewOf(list, part, roster.exchangeTurns[part]));
+  const completionUnread = useBotCompletions((unread2) => unread2[part] === true);
   const running = useSessionStatus((map) => map.get(part)?.running === true);
   const active = useSessionRetainInfo(part, (info) => (info?.retainedBy?.mainView ?? 0) > 0);
-  const unread = useSessionStatus((map) => map.get(part)?.completionUnread === true || map.get(part)?.pendingInteraction !== void 0) || marked2 && !active;
+  const pendingInteraction = useSessionStatus((map) => map.get(part)?.pendingInteraction !== void 0);
+  const unread = pendingInteraction || completionUnread || marked2 && !active;
   useMarkedUnread(id, active, marked2, actions);
   const main = isMainOf(roster, id);
   const tile = roster.mainBotId === id;
@@ -35854,7 +35859,7 @@ function renderSidebarEntry(entry, rowProps, markedUnread, onDragStart) {
   return entry.kind === "bot" ? (0, import_react38.createElement)(BotRow, { key: entry.item.id, ...rowProps, bot: entry.item, marked: markedUnread[entry.item.id] === true, onDragStart }) : entry.kind === "room" ? (0, import_react38.createElement)(RoomRow, { key: entry.item.id, ...rowProps, room: entry.item, marked: markedUnread[entry.item.id] === true, onDragStart }) : (0, import_react38.createElement)(AgentRow, { key: entry.item.id, ...rowProps, agent: entry.item, marked: markedUnread[entry.item.id] === true, onDragStart });
 }
 function SectionBlock({ section, entries: entries2, rowProps, markedUnread, renaming, dropTarget, onDragStart, onDragOverSec, onDropSec }) {
-  const { roster, actions, useSessions, useSessionStatus, useWork, useComputer, wide } = rowProps;
+  const { roster, actions, useSessions, useBotCompletions, useSessionStatus, useWork, useComputer, wide } = rowProps;
   const input = (0, import_react38.useRef)(null);
   (0, import_react38.useLayoutEffect)(() => {
     if (!renaming) return;
@@ -35884,6 +35889,7 @@ function SectionBlock({ section, entries: entries2, rowProps, markedUnread, rena
     return list;
   }, [visibleEntries, roster.byId]);
   const sessionIds = (0, import_react38.useMemo)(() => entries2.flatMap((entry) => entry.kind === "bot" ? [currentPart(entry.item)] : entry.kind === "room" ? [entry.item.sessionId ?? entry.item.id] : entry.item.sessions ?? []), [entries2]);
+  const botParts = (0, import_react38.useMemo)(() => new Set(entries2.filter((entry) => entry.kind === "bot").map((entry) => currentPart(entry.item))), [entries2]);
   const activeSession = useSessions((list) => sessionIds.find((id) => (list.byId[id]?.retainedBy?.mainView ?? 0) > 0) ?? "");
   const activeEntry = (0, import_react38.useMemo)(() => {
     if (activeSession === "") return void 0;
@@ -35892,7 +35898,7 @@ function SectionBlock({ section, entries: entries2, rowProps, markedUnread, rena
   const statusBits = useSessionStatus((map) => JSON.stringify(sessionIds.map((id) => [
     id,
     map.get(id)?.running === true ? 1 : 0,
-    map.get(id)?.completionUnread === true || map.get(id)?.pendingInteraction !== void 0 ? 1 : 0
+    !botParts.has(id) && map.get(id)?.completionUnread === true || map.get(id)?.pendingInteraction !== void 0 ? 1 : 0
   ])));
   const shownEntries = (0, import_react38.useMemo)(() => entries2.filter((entry) => !entry.item.hidden || entry === activeEntry || entry.kind === "bot" && isMainOf(roster, entry.item.id)), [entries2, activeEntry, roster]);
   const useReadSectionWork = useWork ?? useEmptySectionWork;
@@ -35918,7 +35924,8 @@ function SectionBlock({ section, entries: entries2, rowProps, markedUnread, rena
   });
   const hasAlert = hasPendingCard || hasApproval || hasComputerAsk;
   const hasWorking = hasRoomWork || parsedStatuses.some(([, run2]) => run2 === 1);
-  const hasUnread = parsedStatuses.some(([id, , unread]) => unread === 1 && id !== activeSession) || entries2.some((entry) => markedUnread[entry.item.id] === true && entry !== activeEntry);
+  const hasBotUnread = useBotCompletions((unread) => [...botParts].some((id) => id !== activeSession && unread[id] === true));
+  const hasUnread = hasBotUnread || parsedStatuses.some(([id, , unread]) => unread === 1 && id !== activeSession) || entries2.some((entry) => markedUnread[entry.item.id] === true && entry !== activeEntry);
   const statusKind = hasAlert ? "alert" : hasWorking ? "working" : hasUnread ? "unread" : null;
   const toggle = () => {
     void Promise.resolve(actions.saveSection({ id: section.id, collapsed: !section.collapsed })).catch((error) => actions.reportError(error, "section"));
@@ -36403,7 +36410,7 @@ function TeamSidebar(props) {
       newAgentSession: (id) => navigate(actions.newAgentSession, id)
     };
   }, [actions]);
-  const rowProps = { roster, actions: rowActions, useSessions, useUi, useSessionStatus: props.useSessionStatus, useSessionRetainInfo: props.useSessionRetainInfo, useActivity: props.useActivity, useWork: props.useWork, useComputer: props.useComputer, wide: wideContent };
+  const rowProps = { roster, actions: rowActions, useSessions, useUi, useBotCompletions: props.useBotCompletions ?? useFalse, useSessionStatus: props.useSessionStatus, useSessionRetainInfo: props.useSessionRetainInfo, useActivity: props.useActivity, useWork: props.useWork, useComputer: props.useComputer, wide: wideContent };
   const typeToSearch = (event) => {
     if (event.defaultPrevented || event.key.length !== 1 || event.key === " " || event.metaKey || event.ctrlKey || event.altKey || event.nativeEvent.isComposing) return;
     if (event.target instanceof Element && event.target.closest("input,textarea,[contenteditable]")) return;
@@ -57601,6 +57608,60 @@ function createAvatarRefCache(call2) {
   };
 }
 
+// src/client/bot-completions.js
+function watchBotCompletions({ roster, sessions, statuses, unread }) {
+  const seen = /* @__PURE__ */ new Map();
+  const sync = () => {
+    const team = roster.getSnapshot();
+    const list = sessions.getSnapshot();
+    const statusMap = statuses?.getSnapshot();
+    const previous = unread.getSnapshot();
+    const next = {};
+    const parts = /* @__PURE__ */ new Set();
+    for (const bot of team.bots) {
+      const id = currentPart(bot);
+      parts.add(id);
+      const row = list.byId[id];
+      const active = (row?.retainedBy?.mainView ?? 0) > 0;
+      const status = statusMap?.get(id);
+      const hidden = team.exchangeTurns?.[id] ?? [];
+      const outline = turnOutlineOf(list, id);
+      if (!Array.isArray(outline)) {
+        if (!active && (previous[id] === true || !seen.has(id) && hidden.length === 0 && status?.completionUnread === true)) next[id] = true;
+        continue;
+      }
+      const latest = outline.at(-1);
+      const running = status?.running === true || row?.running === true;
+      const end = running && !latest?.response ? outline.length - 2 : outline.length - 1;
+      const closed = outline[end]?.turn ?? -1;
+      if (active) {
+        seen.set(id, Math.max(seen.get(id) ?? -1, closed));
+        continue;
+      }
+      if (!seen.has(id)) {
+        const unreadLatest = status?.completionUnread === true && end === outline.length - 1 && !hidden.includes(closed);
+        seen.set(id, unreadLatest ? outline[end - 1]?.turn ?? -1 : closed);
+      }
+      for (let i = end; i >= 0 && outline[i].turn > seen.get(id); i -= 1) {
+        if (hidden.includes(outline[i].turn)) continue;
+        next[id] = true;
+        break;
+      }
+    }
+    for (const id of seen.keys()) if (!parts.has(id)) seen.delete(id);
+    if (Object.keys(next).length !== Object.keys(previous).length || Object.keys(next).some((id) => previous[id] !== true)) unread.set(next);
+  };
+  const offRoster = roster.subscribe(sync);
+  const offSessions = sessions.subscribe(sync);
+  const offStatus = statuses?.subscribe(sync);
+  sync();
+  return () => {
+    offRoster();
+    offSessions();
+    offStatus?.();
+  };
+}
+
 // src/client/index.js
 var inject = ["sessions", "uiWorkspace", "uiConversation", "slots", "theme", "layout"];
 var WINDOWS = globalThis.navigator?.userAgentData?.platform === "Windows" || /^Win/u.test(globalThis.navigator?.platform ?? "");
@@ -57616,6 +57677,7 @@ function apply(ctx) {
   }
   const roster = createSource({ ...EMPTY_ROSTER, prefs: savedPrefs });
   const unreadStore = sharedMap(STORAGE.unread);
+  const botCompletions = createSource({});
   const reactionStore = sharedMap(STORAGE.reactions);
   const seenStore = sharedMap(STORAGE.seen);
   let seenAt = seenStore.read();
@@ -58920,7 +58982,7 @@ function apply(ctx) {
     () => installFrameWatch(frame2),
     () => installFrameSync(),
     () => installTheme(),
-    () => shadow("sidebar.workspaces", { priority: BOT_PRIORITY, inject: face }, TeamSidebar),
+    () => shadow("sidebar.workspaces", { priority: BOT_PRIORITY, inject: () => ({ actions, hooks: { ...face().hooks, botCompletions } }) }, TeamSidebar),
     () => shadow("sidebar.brand.mark", { priority: BOT_PRIORITY }, BrandMark),
     () => shadow("sidebar.brand.name", { priority: BOT_PRIORITY }, BrandName),
     () => shadow("sidebar.footer.action", { id: "bot-account", order: -200, inject: face }, FooterAccount),
@@ -59119,6 +59181,12 @@ function apply(ctx) {
       offRoster();
     };
   }, "ds-bot: agent surface");
+  ctx.effect(() => watchBotCompletions({
+    roster,
+    sessions: ctx.sessions.list,
+    statuses: ctx.get("uiSession")?.sessionStatus,
+    unread: botCompletions
+  }), "ds-bot: sidebar completions");
   ctx.effect(() => {
     const groups = surfaceGroups({ shell: installShell, conversation: installConversation }, {
       onError: (_group, error) => actions.reportError(new Error(t("Bot mode could not be set up here: {error}", { error: error?.message ?? String(error) })), "surface")

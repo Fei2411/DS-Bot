@@ -1,6 +1,6 @@
 // Roster: creating, changing, and deleting Bots and group chats, the Main Bot role, and
 // the first Main Bot of a new team.
-import { openSessions } from './threads.js'
+import { openSessions, retiredTaskSessionIds } from './threads.js'
 import { randomUUID } from 'node:crypto'
 import { mkdir } from 'node:fs/promises'
 import { agentAvatar } from '../client/agent-routes.js'
@@ -1061,7 +1061,7 @@ export function install(rt) {
         id: bot.id,
         name: bot.name,
         ...(bot.workDir === undefined ? {} : { workDir: bot.workDir }),
-        sessionIds: [...parts, ...rt.groupSessionsOf(id)],
+        sessionIds: [...parts, ...rt.groupSessionsOf(id), ...retiredTaskSessionIds(bot)],
         archiving: true,
       } : undefined
       await rt.releaseBot(id, [...parts, ...rt.groupSessionsOf(id)])
