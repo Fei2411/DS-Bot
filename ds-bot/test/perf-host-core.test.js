@@ -1917,19 +1917,24 @@ test('memory-review.js deleting a Bot while its review is queued does not reject
   // Start review for 'a' (blocks inside assembleLlm), then queue 'b' and 'c' behind it.
   onStatus({ agent: { id: 'a' }, status: 'running' })
   onStatus({ agent: { id: 'a' }, status: 'idle' })
-  await new Promise(resolve => setTimeout(resolve, 35))
+  const startBy = Date.now() + 5_000
+  while (releaseFirst === undefined && Date.now() < startBy) await new Promise(resolve => setTimeout(resolve, 10))
   assert.equal(typeof releaseFirst, 'function', 'review for a is in-flight')
 
+  t.mock.timers.enable({ apis: ['setTimeout'] })
   onStatus({ agent: { id: 'b' }, status: 'running' })
   onStatus({ agent: { id: 'b' }, status: 'idle' })
   onStatus({ agent: { id: 'c' }, status: 'running' })
   onStatus({ agent: { id: 'c' }, status: 'idle' })
-  await new Promise(resolve => setTimeout(resolve, 35))
+  t.mock.timers.tick(rt.config.memoryReviewDelayMs)
+  t.mock.timers.reset()
 
   // Delete 'b' while its review is queued -> archiveBotMemory calls forgetBotReview -> deletes from reviewQueue without poisoning reviewChain!
   await rt.archiveBotMemory('b')
   releaseFirst()
-  await new Promise(resolve => setTimeout(resolve, 60))
+  const finishBy = Date.now() + 5_000
+  while (rt.memoryReviews() > 0 && Date.now() < finishBy) await new Promise(resolve => setTimeout(resolve, 10))
+  assert.equal(rt.memoryReviews(), 0, 'queued reviews have finished')
   assert.deepEqual(reviewed, ['a', 'c'], 'deleted bot b is skipped cleanly and subsequent bot c review still runs')
 })
 
@@ -2203,4 +2208,3 @@ test('memory-review.js forgetBotReview cancels pending failure retry timers', as
   await new Promise(resolve => setTimeout(resolve, 120))
   assert.equal(attempts, 1, 'forgetBotReview must cancel pending failure retry timer')
 })
-
