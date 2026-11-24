@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict'
 import { createServer } from 'node:net'
-import { request as httpRequest } from 'node:http'
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -22,7 +21,7 @@ import { install as installHandoffs } from '../src/host/handoffs.js'
 import { install as installImages } from '../src/host/images.js'
 import { install as installLearning } from '../src/host/learning.js'
 import { install as installLedger } from '../src/host/ledger.js'
-import { install as installMcpServer, mcpHttpServer, closeServer } from '../src/host/mcp-server.js'
+import { install as installExternalApi } from '../src/host/api/index.js'
 import { install as installMemory } from '../src/host/memory.js'
 import { avatarRef, clearAvatarRefCache, install as installMobile } from '../src/host/mobile.js'
 import { install as installModels } from '../src/host/models.js'
@@ -993,8 +992,8 @@ test('chat-index.js configures WAL + busy_timeout, unlinks WAL/SHM on corruption
   }
 })
 
-test('mcp-server.js backs off EADDRINUSE with cooldown recovery, awaits stop on dispose, and aborts wait_for_reply on HTTP close', async (t) => {
-  const home = tempDir(t, 'ds-bot-perf-mcp-')
+test('api/index.js recovers after EADDRINUSE and awaits stop on ctx.dispose', async (t) => {
+  const home = tempDir(t, 'ds-bot-perf-api-')
   const blocker = createServer()
   await new Promise(resolve => blocker.listen(0, '127.0.0.1', resolve))
   t.after(() => new Promise(resolve => blocker.close(() => resolve())))
@@ -1010,83 +1009,37 @@ test('mcp-server.js backs off EADDRINUSE with cooldown recovery, awaits stop on 
   const rt = {
     ctx,
     home,
-    mcpBindRetryCooldownMs: 120,
     state: seedState(),
     readOnly: () => undefined,
     load: async () => {},
     save: async () => {},
+    refresh: async () => {},
+    botOf: id => seedState().bots[id],
+    roomOf: () => undefined,
+    chatOwners: new Map(),
+    roomOwners: new Map(),
+    groupOwners: new Map(),
+    live: new Map(),
+    own: (obj, key) => (obj && Object.hasOwn(obj, key) ? obj[key] : undefined),
     warn() {},
   }
-  installMcpServer(rt)
+  installExternalApi(rt)
   t.after(() => ctx.dispose())
 
-  // First settle hits EADDRINUSE and records error.
-  await new Promise(resolve => setTimeout(resolve, 40))
-  const first = rt.mcpView()
-  assert.equal(first.status, 'off')
-  assert.equal(first.error, `Port ${busyPort} is in use`)
+  await rt.apiReconcile()
+  const first = rt.apiView()
+  assert.equal(first.status, 'error')
+  assert.match(first.error, new RegExp(`Port ${busyPort}.*in use`))
 
-  // Free the blocker port: polls INSIDE cooldown MUST NOT spin listen() immediately.
   await new Promise(resolve => blocker.close(resolve))
-  for (let i = 0; i < 5; i += 1) {
-    assert.equal(rt.mcpView().status, 'off', 'mcpView polls during bind cooldown must not hammer listen()')
-  }
+  await rt.apiReconcile()
+  assert.equal(rt.apiView().status, 'running')
+  assert.equal(rt.apiView().boundPort, busyPort)
 
-  // Once cooldown expires, next mcpView() self-heals automatically and binds the port!
-  await new Promise(resolve => setTimeout(resolve, 140))
-  rt.mcpView()
-  await new Promise(resolve => setTimeout(resolve, 50))
-  assert.equal(rt.mcpView().status, 'on', 'mcp-server must auto-recover after bind retry cooldown expires')
-  assert.equal(rt.mcpView().error, null)
-
-  // Plugin dispose MUST await stop() so the port is immediately bindable right after ctx.dispose()!
   await ctx.dispose()
   const probe = createServer()
   await new Promise((resolve, reject) => probe.once('error', reject).listen(busyPort, '127.0.0.1', resolve))
   await new Promise(resolve => probe.close(resolve))
-
-  // Real HTTP disconnect test: response.on('close') aborts an in-flight wait_for_reply immediately!
-  let abortedObserved = false
-  let callResolved = false
-  const server = mcpHttpServer({
-    authorize: token => (token === 'valid-tok' ? { id: 'c1', name: 'CLI' } : undefined),
-    callFor: () => async (_name, _args, { signal }) => {
-      await new Promise((resolve) => {
-        const timer = setTimeout(resolve, 30_000)
-        signal?.addEventListener('abort', () => {
-          abortedObserved = true
-          clearTimeout(timer)
-          resolve()
-        }, { once: true })
-      })
-      callResolved = true
-      return { done: false, working: true, messages: [], after: 0 }
-    },
-  })
-  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
-  t.after(() => closeServer(server))
-  const { port } = server.address()
-
-  const payload = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'wait_for_reply', arguments: { bot: 'a', timeoutSeconds: 30 } } })
-  const req = httpRequest({
-    hostname: '127.0.0.1',
-    port,
-    path: '/mcp',
-    method: 'POST',
-    headers: {
-      authorization: 'Bearer valid-tok',
-      'content-type': 'application/json',
-      'content-length': Buffer.byteLength(payload),
-    },
-  })
-  req.on('error', () => {})
-  req.write(payload)
-  req.end()
-  await new Promise(resolve => setTimeout(resolve, 40))
-  req.destroy()
-  await new Promise(resolve => setTimeout(resolve, 60))
-  assert.equal(abortedObserved, true, 'response close must abort AbortSignal passed to wait_for_reply')
-  assert.equal(callResolved, true, 'wait_for_reply promise must settle immediately after client disconnect')
 })
 
 test('handoffs.js sweeps expired pairLoops, clears whole cache on adopt, and drops/retains result files based on onSaved', async (t) => {
@@ -2079,8 +2032,8 @@ test('btw.js btwDelete never self-evicts or writes [] under 51 pinned writingPar
   assert.equal(rt.btwCachedParts(), cachedBefore, 'dropped bot readPart must not re-populate cards cache')
 })
 
-test('mcp-server.js reconcilingKey clears even if readOnly flips before settle() runs', async (t) => {
-  const home = tempDir(t, 'ds-bot-perf-mcp-flip-')
+test('api/index.js starts and stops cleanly when readOnly ownership flips', async (t) => {
+  const home = tempDir(t, 'ds-bot-perf-api-flip-')
   const probe = createServer()
   await new Promise(resolve => probe.listen(0, '127.0.0.1', resolve))
   const port = probe.address().port
@@ -2101,23 +2054,33 @@ test('mcp-server.js reconcilingKey clears even if readOnly flips before settle()
     readOnly: () => readOnlyReason,
     load: async () => {},
     save: async () => {},
+    refresh: async () => {},
+    botOf: id => seedState().bots[id],
+    roomOf: () => undefined,
+    chatOwners: new Map(),
+    roomOwners: new Map(),
+    groupOwners: new Map(),
+    live: new Map(),
+    own: (obj, key) => (obj && Object.hasOwn(obj, key) ? obj[key] : undefined),
     warn() {},
   }
-  installMcpServer(rt)
+  installExternalApi(rt)
   t.after(() => ctx.dispose())
 
-  // Queue reconcile while readOnly === 'another host' (keyA = 1:port:ro), then synchronously flip to writable (keyB)
-  // BEFORE settle() executes -> settle() sees keyB and starts the server; reconcilingKey MUST still clear!
-  rt.mcpView()
-  readOnlyReason = undefined
-  await new Promise(resolve => setTimeout(resolve, 60))
-  assert.equal(rt.mcpView().status, 'on', 'server started after writable flip')
+  await rt.apiReconcile()
+  assert.equal(rt.apiView().status, 'readonly')
 
-  // Now flip back to readOnly (keyA): if reconcilingKey stayed wedged on keyA, mcpView() would ignore it and keep serving!
+  readOnlyReason = undefined
+  await rt.apiReconcile()
+  assert.equal(rt.apiView().status, 'running', 'server started after writable flip')
+
   readOnlyReason = 'another host'
-  rt.mcpView()
-  await new Promise(resolve => setTimeout(resolve, 60))
-  assert.equal(rt.mcpView().status, 'off', 'mcp-server must stop cleanly when flipping back to readOnly')
+  await rt.apiReconcile()
+  assert.equal(rt.apiView().status, 'readonly', 'api server must report readonly after flipping back to readOnly')
+  assert.equal(rt.apiView().boundPort, null, 'api server must clear boundPort after flipping back to readOnly')
+  const checkClosed = createServer()
+  await new Promise((resolve, reject) => checkClosed.once('error', reject).listen(port, '127.0.0.1', resolve))
+  await new Promise(resolve => checkClosed.close(resolve))
 })
 
 test('ledger.js mergeRecords releases writing pin for LRU eviction and concurrent drop does not leak totalBytes', async (t) => {

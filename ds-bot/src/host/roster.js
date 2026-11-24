@@ -10,6 +10,8 @@ import { currentColor, isColor, normalize, unquote } from './text.js'
 import { nameProblem } from '../shared/mentions.js'
 
 const BROWSER_GRANT_KINDS = new Set(['post', 'upload', 'download', 'delete', '*'])
+export const API_ACTOR = Symbol('external API')
+const API_ROOM_FIELDS = new Set(['name', 'notice', 'mode', 'members', 'add', 'remove', 'avatar'])
 const HOSTNAME = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\.(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?))*$/
 
 const OWN_RULES = 'Where your instructions say otherwise, follow them.'
@@ -192,7 +194,8 @@ export function install(rt) {
   // `pickModel` leaves the model to the user: the chat opens on a model card, and the
   // greeting waits until a model is chosen. So does a Bot made when no model it can
   // run on is served.
-  async function createBot(options) {
+  async function createBot(options, actorId) {
+    if (actorId === API_ACTOR) options = { ...options, createdBy: 'api:external', main: false }
     const cleanName = String(options.name ?? '').trim().slice(0, 40)
     const problem = nameProblem(cleanName)
     if (problem !== undefined) throw new Error(problem)
@@ -243,7 +246,7 @@ export function install(rt) {
         packs: [],
       }
       if (main) state.mainBotIds.push(id)
-      const creator = rt.botOf(createdBy)
+      const creator = createdBy === 'api:external' ? { name: 'The external API' } : rt.botOf(createdBy)
       const original = rt.botOf(copyOf)
       const language = rt.uiLanguage?.()
       // The kickoff arrives as a user message, so it outranks the Bot's instructions
@@ -307,7 +310,7 @@ export function install(rt) {
     if (rt.hostClosing?.() === true) return
     sentKickoffs.set(bot.id, greeting)
     const text = greeting.afterUser ? `${AFTER_USER} ${writeIn(rt.uiLanguage?.())}\n${OWN_RULES}` : greeting.text
-    void rt.deliver({ fromId: greeting.from ?? undefined, toId: bot.id, text, role: 'kickoff' })
+    void rt.deliver({ fromId: greeting.from ?? undefined, ...(greeting.from === 'api:external' ? { fromName: 'External API' } : {}), toId: bot.id, text, role: 'kickoff' })
       .catch(error => rt.warn('ds-bot: kickoff failed: %s', error))
   }
 
@@ -749,9 +752,11 @@ export function install(rt) {
   // await: another change or a deleted Bot may have come in meanwhile, and `add` and
   // `remove` apply to the members the group has then.
   function planRoomChange(room, patch, actorId) {
+    const byApi = actorId === API_ACTOR
+    if (byApi && Object.keys(patch).some(field => !API_ROOM_FIELDS.has(field))) throw new Error('The API can only change safe group settings')
     const byMain = actorId === undefined || rt.isMain(actorId)
     const byAdmin = !byMain && rt.isAdminOf(room, actorId)
-    if (!byMain && !byAdmin) throw new Error(`Only the user, a Main Bot, or the admin of "${room.name}" can change it`)
+    if (!byMain && !byAdmin && !byApi) throw new Error(`Only the user, a Main Bot, or the admin of "${room.name}" can change it`)
     let members = Array.isArray(patch.members) ? [...new Set(patch.members)] : [...room.members]
     for (const member of patch.add ?? []) if (!members.includes(member)) members.push(member)
     members = members.filter(member => !(patch.remove ?? []).includes(member) && liveBot(member))

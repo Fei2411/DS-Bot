@@ -605,6 +605,7 @@ export function install(rt) {
   const notifyStoreSync = () => {
     rt.onStoreSync?.()
     rt.syncDeepseekTools?.()
+    rt.onApiStoreSync?.()
     void rt.onPluginsStoreSync?.()
   }
   const syncReadOnly = () => {

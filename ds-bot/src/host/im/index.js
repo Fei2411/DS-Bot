@@ -679,6 +679,7 @@ export function install(rt) {
   // Turns that may be a member's late result waking a group up again: wait for the first
   // message of the turn before dropping the chat's origin (see the turn/start handler).
   const pendingReset = new Set()
+  const apiOrigins = new Set()
   // Request id of an IM message → the chat it came from, until that message shows up.
   const requests = new Map()
   const consumedRequests = new Set()
@@ -765,6 +766,7 @@ export function install(rt) {
   }
   const claimOrigin = (sessionId, connId, chatKey, senderId, binding) => {
     if (sessionId === undefined || connId === undefined) return
+    if (apiOrigins.has(sessionId)) return
     if (mixed.has(sessionId)) {
       if (!withheldOrigins.has(sessionId)) setWithheldOrigin(sessionId, false)
       return
@@ -798,6 +800,7 @@ export function install(rt) {
     forgetHeldOrigins(sessionId)
   }
   const resetOrigin = (sessionId) => {
+    apiOrigins.delete(sessionId)
     origins.delete(sessionId)
     mixed.delete(sessionId)
     nonImTurn.delete(sessionId)
@@ -2408,6 +2411,7 @@ export function install(rt) {
           forgetHeldOrigins(session.id)
           resetOrigin(session.id)
         }
+        if (typeof rpcId === 'string' && rpcId.startsWith('api:') && !origins.has(session.id)) apiOrigins.add(session.id)
         if (source?.kind === 'tool-jobs' || source?.kind === 'subagent-settled') {
           if (!ownsNotice(session.id, event.data)) {
             dropOrigin(session.id)

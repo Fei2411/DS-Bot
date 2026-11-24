@@ -576,6 +576,40 @@ test('task_start forks foreground chat, delivers via rt.deliver, and settles com
   assert.deepEqual(events.map(e => e.type), ['task.started', 'task.completed'])
 })
 
+test('API group tasks do not inherit an IM dispatch approval route', async t => {
+  const env = await startEnv({ team: makeTeam({ rooms: {
+    r1: { id: 'r1', name: 'Team', members: ['a', 'b'], sessionId: 'room-1', sessions: { a: 'room-a', b: 'room-b' }, createdAt: 1 },
+  } }) })
+  t.after(env.stop)
+  let captured = 0
+  env.rt.captureImOrigin = () => undefined
+  env.rt.roomReportImOrigin = () => { captured += 1; return { connId: 'im-connection', chatKey: 'im-chat' } }
+  env.rt.desiredModel = async () => 'deepseek/model'
+  const task = await env.rt.startTask('room-a', { title: 'API group work', brief: 'Separate output' }, undefined, { api: true })
+  assert.equal(task.origin, 'api')
+  assert.equal(task.imOrigin, undefined)
+  assert.equal(task.dispatchApprovalOrigin, undefined)
+  assert.equal(captured, 0)
+})
+
+test('API tasks do not inherit an IM claim or report into its foreground turn', async t => {
+  const env = await startEnv()
+  t.after(env.stop)
+  let captured = 0
+  const origin = { connId: 'im-connection', chatKey: 'im-chat' }
+  env.rt.captureImOrigin = () => { captured += 1; return origin }
+  const task = await env.rt.startTask('dm-a', { title: 'API work', brief: 'Separate output' }, undefined, { api: true })
+  assert.equal(task.origin, 'api')
+  assert.equal(task.imOrigin, undefined)
+  assert.equal(captured, 0)
+  await env.emit(task.sessionId, 'turn/start', { turn: 1 })
+  await env.emit(task.sessionId, 'assistant/message', { turn: 1, message: { content: [{ type: 'text', text: 'API-only result' }] } })
+  await env.emit(task.sessionId, 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  await waitFor(() => task.status === 'completed')
+  assert.equal(env.deliveries.some(entry => entry.role === 'task-report'), false)
+  assert.deepEqual(env.rt.captureImOrigin('dm-a'), origin)
+})
+
 test('first-turn fork-unavailable falls back to fresh session with recent chat context', async (t) => {
   const env = await startEnv({
     forkImpl: async () => { throw Object.assign(new Error('session has no completed turn to fork from'), { code: 'session/fork-unavailable' }) },

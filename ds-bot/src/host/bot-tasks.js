@@ -793,7 +793,7 @@ export function install(rt) {
         return
       }
 
-      if (!notifyForeground && parentWork === undefined) return
+      if (task.origin === 'api' || (!notifyForeground && parentWork === undefined)) return
       let targetSession
       if (task.roomId !== undefined) {
         const room = rt.roomOf(task.roomId)
@@ -863,6 +863,7 @@ export function install(rt) {
 
   // Starts a background task for a Bot from either its foreground own chat or a group member Session.
   async function startTask(fromSessionId, { title, brief, workdir }, exec, options = {}) {
+    const api = options.api === true
     if (rt.taskOwners?.has(fromSessionId)) {
       throw Object.assign(new Error('Background tasks cannot start nested background tasks. Finish this task and report back to your chat instead.'), { code: 'bot/invalid' })
     }
@@ -922,17 +923,17 @@ export function install(rt) {
 
     const id = newId()
     const now = Date.now()
-    const imOrigin = room !== undefined ? rt.captureImOrigin?.(rt.sessionOfRoom(room)) : rt.captureImOrigin?.(fromSessionId)
+    const imOrigin = api ? undefined : room !== undefined ? rt.captureImOrigin?.(rt.sessionOfRoom(room)) : rt.captureImOrigin?.(fromSessionId)
     // When a group has no direct IM binding/origin of its own, capture an untainted
     // IM dispatch approval route separately so task approvals reach the IM caller
     // without claiming the group's own Session or streaming unrelated group lines.
-    const dispatchApprovalOrigin = room !== undefined && imOrigin === undefined
+    const dispatchApprovalOrigin = !api && room !== undefined && imOrigin === undefined
       ? rt.roomReportImOrigin?.(room.id, bot.id)
       : undefined
     // Link into the DM handoff tree when a foreground DM turn is answering another Bot.
     // Group tasks participate in group dispatch batches via `hasRoomTasks` instead.
     const liveEntry = rt.live.get(fromSessionId)
-    const parentWork = room === undefined ? rt.workOf?.(liveEntry?.info) : undefined
+    const parentWork = !api && room === undefined ? rt.workOf?.(liveEntry?.info) : undefined
     const linkWork = parentWork !== undefined && rt.ownsWork?.(bot.id, parentWork)
     const taskWorkId = linkWork ? `task:${id}` : undefined
 
@@ -945,6 +946,7 @@ export function install(rt) {
       status: 'running',
       startedAt: now,
       updatedAt: now,
+      ...(api ? { origin: 'api' } : {}),
       ...(room !== undefined ? { roomId: room.id } : {}),
       ...(inherited.length > 0 ? { inheritedSegments: inherited } : {}),
       ...(taskWorkId !== undefined ? { workId: taskWorkId, parentWorkId: parentWork } : {}),
