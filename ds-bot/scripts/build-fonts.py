@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Make the reply fonts in assets/fonts/ (see src/shared/reply-fonts.js).
 
-Sources, from google/fonts (SIL Open Font License 1.1):
-  ofl/sourceserif4/SourceSerif4[opsz,wght].ttf
-  ofl/sourceserif4/SourceSerif4-Italic[opsz,wght].ttf
-  ofl/notoserifsc/NotoSerifSC[wght].ttf
+Sources, from google/fonts (SIL Open Font License 1.1), at the commits the
+shipped files were made from:
+  ofl/sourceserif4/SourceSerif4[opsz,wght].ttf          b1748ccf964b
+  ofl/sourceserif4/SourceSerif4-Italic[opsz,wght].ttf   b1748ccf964b
+  ofl/notoserifsc/NotoSerifSC[wght].ttf                 8b0a1d0f5983
 
 Needs fontTools and brotli (pip install fonttools brotli). Usage:
   python3 scripts/build-fonts.py <folder with the three .ttf files>
@@ -13,8 +14,8 @@ The subsets are modified versions under the OFL and carry their own names,
 DS Bot Serif Latin and DS Bot Serif SC, so they never pass for the full fonts
 a user may have installed. Source Serif 4 stays variable (weight and optical
 size) with Latin, Latin Extended and punctuation. Noto Serif SC becomes two
-static weights, 500 and 700, with every GB2312 Hanzi plus CJK punctuation and
-full-width forms; a character outside the subset falls through to the next
+static weights, 500 and 700, with every GB2312 Hanzi, the common Traditional
+Hanzi of Big5 level 1, CJK punctuation and full-width forms; a character outside the subset falls through to the next
 font in the stack.
 """
 import sys
@@ -30,18 +31,20 @@ LATIN = [*range(0x20, 0x7F), *range(0xA0, 0x250), 0x259, *range(0x2B0, 0x370), *
          0x2212, 0x2215, 0xFEFF, 0xFFFD]
 
 
-def gb2312_hanzi():
+def decoded(codec, highs, lows):
     chars = set()
-    for high in range(0xB0, 0xF8):
-        for low in range(0xA1, 0xFF):
+    for high in highs:
+        for low in lows:
             try:
-                chars.add(ord(bytes([high, low]).decode('gb2312')))
+                chars.add(ord(bytes([high, low]).decode(codec)))
             except UnicodeDecodeError:
                 pass
     return chars
 
 
-CJK = sorted(gb2312_hanzi() | set(range(0x3000, 0x3040)) | set(range(0xFF00, 0xFFF0)))
+GB2312 = decoded('gb2312', range(0xB0, 0xF8), range(0xA1, 0xFF))
+BIG5_COMMON = {c for c in decoded('big5', range(0xA4, 0xC7), [*range(0x40, 0x7F), *range(0xA1, 0xFF)]) if 0x4E00 <= c <= 0x9FFF}
+CJK = sorted(GB2312 | BIG5_COMMON | set(range(0x3000, 0x3040)) | set(range(0xFF00, 0xFFF0)))
 
 
 def rename(font, family, style):

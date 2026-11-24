@@ -59,6 +59,12 @@ test('the host serves each reply font on the route the client asks for', async (
     assert.equal(response.status, 200)
     assert.equal(response.headers.get('content-type'), 'font/woff2')
     assert.deepEqual(Buffer.from(await response.arrayBuffer()), readFileSync(new URL(file, FONT_DIR)))
+    // A rebuilt font must reach the browser at once: it revalidates by tag instead of caching for a time.
+    assert.equal(response.headers.get('cache-control'), 'no-cache')
+    const etag = response.headers.get('etag')
+    assert.ok(etag)
+    const again = await route.fetch(new Request(`http://127.0.0.1/${FONT_ROUTE}/${file}`, { headers: { 'if-none-match': etag } }))
+    assert.equal(again.status, 304)
   }
   assert.equal(routes.size, Object.keys(FONT_FILES).length)
 })
@@ -68,10 +74,11 @@ test('Celadon sets the serif on Bot replies only, and a text font from Settings 
   for (const file of Object.values(FONT_FILES)) assert.ok(css.includes(`url(${FONT_ROUTE}/${file})`), `@font-face for ${file}`)
   const rule = css.split('\n').find(line => line.startsWith('.bt-bubble,'))
   assert.ok(rule, 'reply rule')
-  // DSH's Markdown draws with --dsw-font-family; the user's list comes first, the serif is its fallback.
-  assert.match(rule, new RegExp(`--dsw-font-family:var\\(--dsh-font-family-text,"${REPLY_FAMILY}"`))
-  assert.match(rule, /font-family:var\(--dsw-font-family\)/)
-  assert.doesNotMatch(css, /--ds-font-family-code/, 'code keeps its own family')
+  // The user's text font comes first and the serif is its fallback; test/browser/reply-font.test.js
+  // checks the computed fonts against DSH's own style sheets.
+  assert.ok(rule.includes(`font-family:var(--dsh-font-family-text,"${REPLY_FAMILY}"`), rule)
+  // Rebinding DSH's font variables would reach code-block chrome but not the Markdown tokens.
+  assert.doesNotMatch(css, /--dsw-font-family:|--ds-font-family-code/)
   // Settings installs the theme through botOwnCss: the faces and the reply rule survive it.
   const own = botOwnCss(css)
   assert.equal(own.match(/@font-face\{/g)?.length, REPLY_FACES.length)
