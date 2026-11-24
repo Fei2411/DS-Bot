@@ -79,7 +79,7 @@ export function install(rt) {
       const view = {
         type: 'stack',
         children: [
-          { type: 'text', tone: 'muted', text: 'This report will be public on Fei2411/DS-Bot. Check that it contains no private information.' },
+          { type: 'text', tone: 'muted', text: 'This report will be public on Fei-Craft/DS-Bot. Check that it contains no private information.' },
           { type: 'text', text: `${fence}\n${body}\n${fence}` },
           { type: 'confirm', id: PUBLISH_ISSUE, confirmLabel: 'Publish issue', cancelLabel: 'Cancel' },
         ],

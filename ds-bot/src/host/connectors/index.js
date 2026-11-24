@@ -23,6 +23,7 @@ const SIGN_IN_TIMEOUT_MS = 10 * 60_000
 const SECRET_REF = /\$DSH_SECRET_([A-Z][A-Z0-9_]*)/g
 const MAX_REQUESTS = 20
 const GITHUB_API = 'https://api.github.com'
+const DS_BOT_REPO = 'Fei-Craft/DS-Bot'
 
 // Asks GitHub who the token belongs to. Any token GitHub accepts passes.
 export async function signIn(token, { api = GITHUB_API, fetch: request = fetch } = {}) {
@@ -615,7 +616,7 @@ export function install(rt) {
       || statuses.get(id)?.state === 'needs-sign-in') return undefined
     const headers = credentialOf(id)
     if (headers === undefined) return undefined
-    const response = await fetch(GITHUB_API + '/repos/Fei2411/DS-Bot/issues', {
+    const response = await fetch(`${GITHUB_API}/repos/${DS_BOT_REPO}/issues`, {
       method: 'POST',
       headers: { ...headers, 'Content-Type': 'application/json', Accept: 'application/vnd.github+json', 'User-Agent': 'ds-bot', 'X-GitHub-Api-Version': '2022-11-28' },
       body: JSON.stringify({ title, body, labels: ['bug'] }),
@@ -626,7 +627,7 @@ export function install(rt) {
     if (!response.ok) return undefined
     const { number } = await response.json()
     if (!Number.isSafeInteger(number) || number < 1) throw new Error('GitHub did not return an issue number')
-    return `https://github.com/Fei2411/DS-Bot/issues/${number}`
+    return `https://github.com/${DS_BOT_REPO}/issues/${number}`
   }
 
   // --- import -------------------------------------------------------------
