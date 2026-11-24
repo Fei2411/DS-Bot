@@ -44,13 +44,14 @@ const EFFORT_NAMES = { off: 'Off', minimal: 'Minimal', low: 'Low', medium: 'Medi
 // {type:'context',used?,size?} (how full the CLI's own context is) |
 // {type:'compaction',status:'started'|'completed'|'failed'}
 export class AcpEngine {
-  constructor(route, engine, { findExecutable, defaultEfforts = new Map(), sessionEfforts = new Map(), cancelAckTimeoutMs = CANCEL_ACK_TIMEOUT_MS }) {
+  constructor(route, engine, { findExecutable, defaultEfforts = new Map(), sessionEfforts = new Map(), cancelAckTimeoutMs = CANCEL_ACK_TIMEOUT_MS, onListedUpdate } = {}) {
     this.route = route
     this.engine = engine
     this.findExecutable = findExecutable
     this.defaultEfforts = defaultEfforts
     this.sessionEfforts = sessionEfforts
     this.cancelAckTimeoutMs = cancelAckTimeoutMs
+    this.onListedUpdate = onListedUpdate
     this.hasModelConfig = false
     this.child = undefined
     this.peer = undefined
@@ -122,7 +123,13 @@ export class AcpEngine {
     return new AcpEngine(
       this.route,
       { ...this.engine, cwdPerProcess: false, ...(cwd ? { spawnCwd: cwd } : {}) },
-      { findExecutable: this.findExecutable, defaultEfforts: new Map(this.defaultEfforts), sessionEfforts: this.sessionEfforts, cancelAckTimeoutMs: this.cancelAckTimeoutMs },
+      {
+        findExecutable: this.findExecutable,
+        defaultEfforts: new Map(this.defaultEfforts),
+        sessionEfforts: this.sessionEfforts,
+        cancelAckTimeoutMs: this.cancelAckTimeoutMs,
+        onListedUpdate: update => this.remember(update),
+      },
     )
   }
 
@@ -295,6 +302,7 @@ export class AcpEngine {
           session.modes = update.modes?.availableModes ?? configOptionsOf(update.configOptions, 'mode')?.options ?? session.modes
           if (update.configOptions.length > 0) {
             this.remember(update)
+            this.onListedUpdate?.(update)
             const discovered = modelsFromProbe(update)
             if (discovered.length > 0) session.push({ type: 'models', models: discovered })
           }
@@ -678,8 +686,10 @@ export class AcpEngine {
   }
 
   invalidateListed() {
+    // Advance generation to reject late pre-refresh probes without wiping already-
+    // discovered modes needed by concurrent session/load resumes before re-probe completes.
     this.listedEpoch += 1
-    this.listed = { modes: [], configOptions: [], models: [] }
+    this.listed = { ...this.listed, models: [] }
     for (const worker of this.workers.values()) worker.invalidateListed()
   }
 
@@ -707,6 +717,16 @@ export class AcpEngine {
       configOptions: session?.configOptions,
       models: Array.isArray(session?.models) ? { availableModels: session.models } : undefined,
     })
+  }
+
+  async probeOnOwnPeer({ cwd, mcp, probe }) {
+    const peer = await this.ensure({ probe })
+    const reply = await this.newSession(peer, { cwd, mcp })
+    if (reply?.sessionId !== undefined) {
+      this.commands.delete(reply.sessionId)
+      if (this.caps.close) await peer.request('session/close', { sessionId: reply.sessionId }, { timeout: 15_000 }).catch(() => {})
+    }
+    return reply
   }
 
   // Models (and per-model thinking levels) the agent advertises on a probe session.
@@ -738,14 +758,11 @@ export class AcpEngine {
       const temp = this.spawnWorker(cwd)
       this.probeWorkers.add(temp)
       try {
-        const models = await temp.listModels({ cwd, mcp })
+        const reply = await temp.probeOnOwnPeer({ cwd, mcp, probe: true })
+        const models = modelsFromProbe(reply)
         if (this.listedEpoch === epoch) {
           this.caps.image = temp.caps.image
-          this.remember({
-            configOptions: temp.listed.configOptions,
-            modes: { availableModes: temp.listed.modes },
-            models: { availableModels: temp.listed.models },
-          }, { epoch })
+          this.remember(reply, { epoch })
           return models
         }
         const fresher = modelsFromProbe({ configOptions: this.listed.configOptions, models: { availableModels: this.listed.models } })
@@ -755,19 +772,39 @@ export class AcpEngine {
         await temp.close({ forceKillAfterMs: PROBE_FORCE_KILL_AFTER_MS }).catch(() => {})
       }
     }
-    const peer = await this.ensure({ probe: true })
-    const probe = await this.newSession(peer, { cwd, mcp })
-    if (probe?.sessionId !== undefined) {
-      this.commands.delete(probe.sessionId)
-      if (this.caps.close) await peer.request('session/close', { sessionId: probe.sessionId }, { timeout: 15_000 }).catch(() => {})
+    // Reuse an already-running live peer when present. Otherwise run the probe in
+    // an isolated temporary process with probeEnv so a concurrent live session open
+    // never inherits MISE_OFFLINE=1 on the shared engine peer.
+    if (this.peer !== undefined || this.starting !== undefined) {
+      const probe = await this.probeOnOwnPeer({ cwd, mcp, probe: false })
+      const stale = this.listedEpoch !== epoch
+      this.remember(probe, { epoch })
+      if (stale) {
+        const fresher = modelsFromProbe({ configOptions: this.listed.configOptions, models: { availableModels: this.listed.models } })
+        if (fresher.length > 0) return fresher
+      }
+      return modelsFromProbe(probe)
     }
-    const stale = this.listedEpoch !== epoch
-    this.remember(probe, { epoch })
-    if (stale) {
+    const temp = new AcpEngine(
+      this.route,
+      { ...this.engine, cwdPerProcess: false },
+      { findExecutable: this.findExecutable, defaultEfforts: new Map(this.defaultEfforts), sessionEfforts: this.sessionEfforts, cancelAckTimeoutMs: this.cancelAckTimeoutMs },
+    )
+    this.probeWorkers.add(temp)
+    try {
+      const probe = await temp.probeOnOwnPeer({ cwd, mcp, probe: true })
+      const stale = this.listedEpoch !== epoch
+      if (!stale) {
+        this.caps.image = temp.caps.image
+        this.remember(probe, { epoch })
+        return modelsFromProbe(probe)
+      }
       const fresher = modelsFromProbe({ configOptions: this.listed.configOptions, models: { availableModels: this.listed.models } })
-      if (fresher.length > 0) return fresher
+      return fresher.length > 0 ? fresher : modelsFromProbe(probe)
+    } finally {
+      this.probeWorkers.delete(temp)
+      await temp.close({ forceKillAfterMs: PROBE_FORCE_KILL_AFTER_MS }).catch(() => {})
     }
-    return modelsFromProbe(probe)
   }
 }
 

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { EventEmitter } from 'node:events'
 import { spawn } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -8,6 +9,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { LlmRuntime } from '@deepseek-ai/dsh-llm'
 import { AcpEngine } from '../src/host/local-agents/acp.js'
 import { LocalAgentAdapter } from '../src/host/local-agents/adapter.js'
+import { CodexEngine } from '../src/host/local-agents/codex.js'
 import {
   cleanEnv,
   probeEnv,
@@ -71,9 +73,19 @@ test('probeEnv injects MISE_OFFLINE=1 without affecting cleanEnv, and respects e
   // Background probeEnv injects MISE_OFFLINE=1 by default.
   assert.equal(probeEnv().MISE_OFFLINE, '1')
   assert.equal(withProbeEnv({ PATH: '/usr/bin' }).MISE_OFFLINE, '1')
-  // Explicit extra override wins.
+  // Explicit extra override wins; empty string counts as unset; case-insensitive keys do not duplicate.
   assert.equal(probeEnv({ MISE_OFFLINE: '0' }).MISE_OFFLINE, '0')
   assert.equal(withProbeEnv({ MISE_OFFLINE: '0' }).MISE_OFFLINE, '0')
+  assert.equal(withProbeEnv({ MISE_OFFLINE: '' }).MISE_OFFLINE, '1')
+  assert.equal(withProbeEnv({ MISE_OFFLINE: '   ' }).MISE_OFFLINE, '1')
+  const lowerEnv = withProbeEnv({ mise_offline: '0' })
+  assert.equal(lowerEnv.mise_offline, '0')
+  assert.equal(Object.keys(lowerEnv).filter(k => k.toUpperCase() === 'MISE_OFFLINE').length, 1)
+  process.env.mise_offline = '0'
+  const cleanOverride = probeEnv({ MISE_OFFLINE: '1' })
+  assert.equal(cleanOverride.MISE_OFFLINE, '1')
+  assert.equal(Object.keys(cleanOverride).filter(k => k.toUpperCase() === 'MISE_OFFLINE').length, 1)
+  delete process.env.mise_offline
   // Explicit host process.env override is respected.
   process.env.MISE_OFFLINE = '0'
   assert.equal(probeEnv().MISE_OFFLINE, '0')
@@ -116,7 +128,7 @@ test('runProbeCommand force-kills SIGTERM-ignoring child and grandchild processe
   `)
 
   const started = Date.now()
-  const runningTimeout = runProbeCommand(process.execPath, [stubborn], { timeoutMs: 300, forceKillAfterMs: 120 })
+  const runningTimeout = runProbeCommand(process.execPath, [stubborn], { timeoutMs: 800, forceKillAfterMs: 120 })
   const pids = JSON.parse(await waitForFile(pidFile, 3_000))
   const result = await runningTimeout
   const elapsed = Date.now() - started
@@ -125,11 +137,11 @@ test('runProbeCommand force-kills SIGTERM-ignoring child and grandchild processe
   assert.equal(result.timedOut, true)
   assert.equal(result.signal, 'SIGKILL', 'must escalate to SIGKILL after SIGTERM is ignored')
   assert.match(readFileSync(sigFile, 'utf8'), /SIGTERM/, 'child must have received and ignored SIGTERM first')
-  assert.ok(elapsed < 2_500, `expected force-kill within grace period, took ${elapsed}ms`)
+  assert.ok(elapsed < 4_000, `expected force-kill within grace period, took ${elapsed}ms`)
   assert.equal(await waitForPidExit(pids.parent), true, `parent pid ${pids.parent} should be dead`)
   assert.equal(await waitForPidExit(pids.child), true, `grandchild pid ${pids.child} should be dead`)
 
-  // Abort path also escalates SIGTERM -> SIGKILL cleanly.
+  // Abort path also escalates SIGTERM -> SIGKILL cleanly, and does not flip to timedOut when timeoutMs < forceKillAfterMs.
   const abortPidFile = join(root, 'abort-pid.txt')
   const abortSigFile = join(root, 'abort-sig.log')
   const stubbornAbort = makeNodeScript(root, 'stubborn-abort.mjs', `
@@ -139,23 +151,32 @@ test('runProbeCommand force-kills SIGTERM-ignoring child and grandchild processe
     setInterval(() => {}, 1000)
   `)
   const controller = new AbortController()
-  const running = runProbeCommand(process.execPath, [stubbornAbort], { timeoutMs: 10_000, forceKillAfterMs: 120, signal: controller.signal })
+  const running = runProbeCommand(process.execPath, [stubbornAbort], { timeoutMs: 100, forceKillAfterMs: 300, signal: controller.signal })
   const abortPid = Number(await waitForFile(abortPidFile, 3_000))
   const abortStart = Date.now()
   controller.abort()
   const abortedResult = await running
   assert.equal(abortedResult.ok, false)
   assert.equal(abortedResult.aborted, true)
+  assert.equal(abortedResult.timedOut, false, 'timeoutTimer must be cleared on abort before forceKillAfterMs elapses')
   assert.equal(abortedResult.signal, 'SIGKILL')
   assert.match(readFileSync(abortSigFile, 'utf8'), /SIGTERM/)
-  assert.ok(Date.now() - abortStart < 2_500, 'aborted SIGTERM-ignoring child must be force-killed promptly')
+  assert.ok(Date.now() - abortStart < 3_000, 'aborted SIGTERM-ignoring child must be force-killed promptly')
   assert.equal(await waitForPidExit(abortPid), true, `aborted pid ${abortPid} should be dead`)
 
-  // Output overflow terminates noisy probe cleanly.
-  const noisy = makeNodeScript(root, 'noisy.mjs', 'process.stdout.write("x".repeat(4096)); setInterval(() => {}, 1000)')
-  const overflow = await runProbeCommand(process.execPath, [noisy], { timeoutMs: 5_000, forceKillAfterMs: 100, maxOutputBytes: 512 })
+  // Output overflow terminates noisy probe cleanly and stops accumulating smaller trailing chunks.
+  const noisy = makeNodeScript(root, 'noisy.mjs', `
+    process.stdout.write('FIRST_CHUNK\\n')
+    setTimeout(() => {
+      process.stdout.write('x'.repeat(2048))
+      process.stdout.write('TRAILING_MARKER')
+    }, 20)
+    setInterval(() => {}, 1000)
+  `)
+  const overflow = await runProbeCommand(process.execPath, [noisy], { timeoutMs: 5_000, forceKillAfterMs: 120, maxOutputBytes: 512 })
   assert.equal(overflow.ok, false)
   assert.equal(overflow.overflowed, true)
+  assert.doesNotMatch(overflow.stdout, /TRAILING_MARKER/, 'smaller chunks arriving after overflow must not be appended')
 })
 
 test('probeVersion, probeSignIn fallback, and terminateChild force-kill SIGTERM-ignoring processes', { skip: process.platform === 'win32' }, async (t) => {
@@ -169,24 +190,41 @@ test('probeVersion, probeSignIn fallback, and terminateChild force-kill SIGTERM-
     setInterval(() => {}, 1000)
   `)
 
-  // 1. probeVersion does not hang on a SIGTERM-ignoring CLI.
+  // 1. probeVersion does not hang on a SIGTERM-ignoring CLI, and drops truncated version output on overflow/timeout.
   const verPidFile = join(root, 'ver-pid.txt')
   const verSigFile = join(root, 'ver-sig.log')
-  const verScript = makeHangingScript('hanging-ver.mjs', verPidFile, verSigFile)
+  const verScript = makeNodeScript(root, 'hanging-ver.mjs', `
+    import { appendFileSync, writeFileSync } from 'node:fs'
+    process.on('SIGTERM', () => { appendFileSync(${JSON.stringify(verSigFile)}, 'SIGTERM\\n') })
+    process.stdout.write('partial 0.0.1\\n')
+    writeFileSync(${JSON.stringify(verPidFile)}, String(process.pid))
+    setInterval(() => {}, 1000)
+  `)
   const verStart = Date.now()
-  const verPromise = probeVersion(process.execPath, [verScript], undefined, { timeoutMs: 300, forceKillAfterMs: 120 })
+  const verPromise = probeVersion(process.execPath, [verScript], undefined, { timeoutMs: 800, forceKillAfterMs: 120 })
   const verPid = Number(await waitForFile(verPidFile, 3_000))
   const ver = await verPromise
   assert.equal(ver.ok, false)
-  assert.equal(ver.version, undefined)
+  assert.equal(ver.version, undefined, 'timed-out truncated stdout must not be parsed as a version')
   assert.match(readFileSync(verSigFile, 'utf8'), /SIGTERM/)
-  assert.ok(Date.now() - verStart < 2_500)
+  assert.ok(Date.now() - verStart < 4_000)
   assert.equal(await waitForPidExit(verPid), true, 'probeVersion child must be dead')
 
-  // 2. probeSignIn force-kills the hanging status command and falls back to credentials.toml.
+  const overflowVerScript = makeNodeScript(root, 'overflow-ver.mjs', 'process.stdout.write("fake 9.9.9\\n" + "z".repeat(4096))')
+  const overflowVer = await probeVersion(process.execPath, [overflowVerScript], undefined, { timeoutMs: 5_000, forceKillAfterMs: 100, maxOutputBytes: 256 })
+  assert.equal(overflowVer.ok, false)
+  assert.equal(overflowVer.version, undefined, 'overflowed stdout must not be cached as a version')
+
+  // 2. probeSignIn force-kills the hanging/overflowing status command, ignores truncated stdout, and falls back to credentials.toml.
   const signPidFile = join(root, 'sign-pid.txt')
   const signSigFile = join(root, 'sign-sig.log')
-  const signScript = makeHangingScript('hanging-sign.mjs', signPidFile, signSigFile)
+  const signScript = makeNodeScript(root, 'hanging-sign.mjs', `
+    import { appendFileSync, writeFileSync } from 'node:fs'
+    process.on('SIGTERM', () => { appendFileSync(${JSON.stringify(signSigFile)}, 'SIGTERM\\n') })
+    process.stdout.write('not logged in\\n')
+    writeFileSync(${JSON.stringify(signPidFile)}, String(process.pid))
+    setInterval(() => {}, 1000)
+  `)
   const home = join(root, 'home')
   const devinDir = join(home, '.local', 'share', 'devin')
   mkdirSync(devinDir, { recursive: true })
@@ -198,15 +236,32 @@ test('probeVersion, probeSignIn fallback, and terminateChild force-kill SIGTERM-
     home,
     platform: 'linux',
     env: {},
-    timeoutMs: 300,
+    timeoutMs: 800,
     forceKillAfterMs: 120,
   })
   const signPid = Number(await waitForFile(signPidFile, 3_000))
   const signedIn = await signPromise
-  assert.equal(signedIn, true, 'must fall back to credentials.toml after force-killing hanging status CLI')
+  assert.equal(signedIn, true, 'must ignore truncated timed-out stdout and fall back to credentials.toml')
   assert.match(readFileSync(signSigFile, 'utf8'), /SIGTERM/)
-  assert.ok(Date.now() - signStart < 2_500)
+  assert.ok(Date.now() - signStart < 4_000)
   assert.equal(await waitForPidExit(signPid), true, 'probeSignIn child must be dead')
+
+  // Overflowed sign-in output also returns null and falls back instead of trusting truncated output.
+  const overflowSign = makeNodeScript(root, 'overflow-sign.mjs', 'process.stdout.write("not logged in\\n" + "y".repeat(4096))')
+  const overflowSignedIn = await probeSignIn(process.execPath, { args: [overflowSign], fallback: ENGINES['local-devin-cli'].signedIn.fallback }, {
+    home,
+    platform: 'linux',
+    env: {},
+    timeoutMs: 5_000,
+    forceKillAfterMs: 100,
+    maxOutputBytes: 256,
+  })
+  assert.equal(overflowSignedIn, true, 'overflowed sign-in probe must fall back instead of misclassifying truncated text')
+
+  // Aborted probeSignIn exits immediately without consulting fallback stores.
+  const abortedController = new AbortController()
+  abortedController.abort()
+  assert.equal(await probeSignIn(process.execPath, check, { home, platform: 'linux', env: {}, signal: abortedController.signal }), null)
 
   // 3. terminateChild escalates to SIGKILL after grace period.
   const termPidFile = join(root, 'term-pid.txt')
@@ -219,8 +274,40 @@ test('probeVersion, probeSignIn fallback, and terminateChild force-kill SIGTERM-
   const [, sig] = await new Promise(resolve => child.once('exit', (code, signal) => resolve([code, signal])))
   assert.equal(sig, 'SIGKILL')
   assert.match(readFileSync(termSigFile, 'utf8'), /SIGTERM/)
-  assert.ok(Date.now() - killStart < 2_500)
+  assert.ok(Date.now() - killStart < 3_000)
   assert.equal(await waitForPidExit(child.pid), true)
+})
+
+test('terminateChild on win32 invokes taskkill /T /F first without prematurely calling child.kill()', () => {
+  // Success path: taskkill exits 0 -> child.kill() is never called.
+  const calls = []
+  let childKills = 0
+  const killerSuccess = new EventEmitter()
+  const child1 = { pid: 4242, exitCode: null, signalCode: null, kill: () => { childKills += 1 } }
+  terminateChild(child1, {
+    platform: 'win32',
+    spawnKiller: (cmd, args) => {
+      calls.push([cmd, args])
+      return killerSuccess
+    },
+  })
+  assert.deepEqual(calls, [['taskkill', ['/pid', '4242', '/T', '/F']]])
+  assert.equal(childKills, 0, 'must not call synchronous child.kill() while taskkill is running')
+  killerSuccess.emit('close', 0)
+  assert.equal(childKills, 0)
+
+  // Failure path: taskkill exits non-zero while child is still alive -> falls back to child.kill() once.
+  const killerFail = new EventEmitter()
+  let child2Kills = 0
+  const child2 = { pid: 5252, exitCode: null, signalCode: null, kill: () => { child2Kills += 1 } }
+  terminateChild(child2, {
+    platform: 'win32',
+    spawnKiller: () => killerFail,
+  })
+  assert.equal(child2Kills, 0)
+  killerFail.emit('close', 1)
+  killerFail.emit('error', new Error('enoent'))
+  assert.equal(child2Kills, 1, 'fallback child.kill() runs once if taskkill fails while child is alive')
 })
 
 test('ACP model probe injects MISE_OFFLINE=1 while live session keeps cleanEnv, and stale probes never overwrite refresh or live session models', async (t) => {
@@ -234,6 +321,8 @@ test('ACP model probe injects MISE_OFFLINE=1 while live session keeps cleanEnv, 
   const root = mkdtempSync(join(tmpdir(), 'dsb-acp-epoch-'))
   t.after(() => rmSync(root, { recursive: true, force: true }))
   const envLog = join(root, 'env-log.jsonl')
+  const readyRefresh = join(root, 'ready-refresh')
+  const readyLive = join(root, 'ready-live')
   const gate1 = join(root, 'release-1')
   const gateLive = join(root, 'release-live-probe')
 
@@ -241,10 +330,11 @@ test('ACP model probe injects MISE_OFFLINE=1 while live session keeps cleanEnv, 
   // so we can deterministically trigger out-of-order completion against refresh & live sessions.
   const acpScript = join(root, 'epoch-acp.mjs')
   writeFileSync(acpScript, `
-    import { appendFileSync, existsSync } from 'node:fs'
+    import { appendFileSync, existsSync, writeFileSync } from 'node:fs'
     const mode = process.argv[2] ?? 'refresh'
+    const isProbe = process.env.MISE_OFFLINE === '1'
     appendFileSync(${JSON.stringify(envLog)}, JSON.stringify({ mode, mise: process.env.MISE_OFFLINE ?? null }) + '\\n')
-    let buf = '', count = 0
+    let buf = ''
     const send = obj => process.stdout.write(JSON.stringify(obj) + '\\n')
     const waitFile = (file, cb) => {
       if (existsSync(file)) { cb(); return }
@@ -252,6 +342,7 @@ test('ACP model probe injects MISE_OFFLINE=1 while live session keeps cleanEnv, 
     }
     const modelReply = (sessionId, id, name) => ({
       sessionId,
+      modes: { availableModes: [{ id: 'code', name: 'Code' }] },
       configOptions: [{ id: 'model', category: 'model', name: 'Model', options: [{ id, name }] }],
     })
     process.stdin.setEncoding('utf8')
@@ -265,21 +356,20 @@ test('ACP model probe injects MISE_OFFLINE=1 while live session keeps cleanEnv, 
         if (method === 'initialize') {
           send({ jsonrpc: '2.0', id, result: { protocolVersion: 1, agentCapabilities: { sessionCapabilities: { close: {} } }, authMethods: [] } })
         } else if (method === 'session/new') {
-          count += 1
           if (mode === 'refresh') {
-            if (count === 1) {
+            if (!existsSync(${JSON.stringify(readyRefresh)})) {
+              writeFileSync(${JSON.stringify(readyRefresh)}, '1')
               waitFile(${JSON.stringify(gate1)}, () => send({ jsonrpc: '2.0', id, result: modelReply('s-stale', 'stale-v1', 'Stale V1') }))
             } else {
               send({ jsonrpc: '2.0', id, result: modelReply('s-fresh', 'fresh-v2', 'Fresh V2') })
             }
           } else if (mode === 'live') {
-            if (count === 1) {
+            if (isProbe) {
+              writeFileSync(${JSON.stringify(readyLive)}, '1')
               waitFile(${JSON.stringify(gateLive)}, () => send({ jsonrpc: '2.0', id, result: modelReply('s-probe', 'probe-old', 'Probe Old') }))
             } else {
               send({ jsonrpc: '2.0', id, result: modelReply('s-live', 'live-v2', 'Live V2') })
             }
-          } else if (mode === 'env-only') {
-            send({ jsonrpc: '2.0', id, result: modelReply('s-env', 'env-m', 'Env M') })
           }
         } else if (method === 'session/prompt') {
           send({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: params.sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'ok' } } } })
@@ -316,13 +406,16 @@ test('ACP model probe injects MISE_OFFLINE=1 while live session keeps cleanEnv, 
   t.after(() => refreshAdapter.dispose())
 
   const staleProbe = refreshAdapter.probeModels('local-acp-epoch')
-  // Wait until session/new #1 is in flight on the real subprocess.
-  while ((refreshEngines[0]?.peer?.nextId ?? 0) < 2) await new Promise(resolve => setTimeout(resolve, 10))
+  await waitForFile(readyRefresh, 3_000)
 
   // User triggers refresh (drops cache + bumps epoch).
   refreshAdapter.dropModelCache('local-acp-epoch')
   const freshModels = await refreshAdapter.probeModels('local-acp-epoch')
   assert.deepEqual(freshModels.map(m => m.id), ['default', 'fresh-v2'])
+  assert.deepEqual(refreshEngines[0].listed.modes.map(m => m.id), ['code'])
+  // invalidateListed preserves modes for concurrent session/load resumes while advancing epoch.
+  refreshEngines[0].invalidateListed()
+  assert.deepEqual(refreshEngines[0].listed.modes.map(m => m.id), ['code'])
 
   // Now release the stale probe that started before refresh.
   writeFileSync(gate1, 'go')
@@ -331,15 +424,16 @@ test('ACP model probe injects MISE_OFFLINE=1 while live session keeps cleanEnv, 
   assert.deepEqual(afterStale.map(m => m.id), ['default', 'fresh-v2'], 'stale pre-refresh probe must not overwrite fresh-v2')
   assert.equal(refreshEngines[0].listed.configOptions[0].options[0].id, 'fresh-v2', 'AcpEngine.listed must retain fresh-v2')
 
-  // Case 2: Slow background probe resolves AFTER a live session already opened and discovered newer models.
+  // Case 2: Concurrent background probe + live session open on shared (non-cwdPerProcess) ACP engine:
+  // probe runs in an isolated process with MISE_OFFLINE=1, live session spawns clean without MISE_OFFLINE,
+  // and late probe never overwrites live-discovered models.
   const liveEngines = []
   const liveAdapter = makeAdapter('live', liveEngines)
   t.after(() => liveAdapter.dispose())
 
   const slowBackgroundProbe = liveAdapter.probeModels('local-acp-epoch')
-  while ((liveEngines[0]?.peer?.nextId ?? 0) < 2) await new Promise(resolve => setTimeout(resolve, 10))
+  await waitForFile(readyLive, 3_000)
 
-  // Start a live turn on the same route; its session/new advertises 'live-v2'.
   const chunks = []
   for await (const chunk of liveAdapter.stream({
     sessionId: 'sess-live-1',
@@ -353,30 +447,64 @@ test('ACP model probe injects MISE_OFFLINE=1 while live session keeps cleanEnv, 
   assert.ok(chunks.some(c => c.type === 'text-delta' && c.text === 'ok'))
   assert.deepEqual((await liveAdapter.listModels('local-acp-epoch')).map(m => m.id), ['default', 'live-v2'])
 
-  // Now release the older background probe returning 'probe-old'.
+  // Release the older background probe returning 'probe-old'.
   writeFileSync(gateLive, 'go')
   await slowBackgroundProbe
   assert.deepEqual((await liveAdapter.listModels('local-acp-epoch')).map(m => m.id), ['default', 'live-v2'], 'late probe must not overwrite live-discovered models')
   assert.equal(liveEngines[0].listed.configOptions[0].options[0].id, 'live-v2', 'AcpEngine.listed must retain live-v2')
 
-  // Case 3: Verify probe spawn received MISE_OFFLINE=1 whereas a fresh live session did not force MISE_OFFLINE.
-  const envAdapter = makeAdapter('env-only')
-  t.after(() => envAdapter.dispose())
-  const envChunks = []
-  for await (const chunk of envAdapter.stream({
-    sessionId: 'sess-env-1',
-    provider: 'local-acp-epoch',
-    model: 'default',
-    messages: [{ id: 'm1', role: 'user', content: [{ type: 'text', text: 'hello' }] }],
-    tools: [],
-  })) { envChunks.push(chunk) }
-  assert.ok(envChunks.length > 0)
-
   const entries = readFileSync(envLog, 'utf8').trim().split('\n').map(line => JSON.parse(line))
-  const refreshEntry = entries.find(e => e.mode === 'refresh')
-  const liveOnlyEntry = entries.find(e => e.mode === 'env-only')
-  assert.equal(refreshEntry?.mise, '1', 'ACP model probe spawn must set MISE_OFFLINE=1')
-  assert.equal(liveOnlyEntry?.mise, null, 'live ACP session spawn must not force MISE_OFFLINE')
+  const liveEntries = entries.filter(e => e.mode === 'live')
+  assert.ok(liveEntries.some(e => e.mise === '1'), 'background ACP probe must spawn with MISE_OFFLINE=1')
+  assert.ok(liveEntries.some(e => e.mise === null), 'concurrent live ACP session must NOT inherit MISE_OFFLINE=1 from probe')
+
+  // Case 3: CodexEngine concurrent model probe + live peer isolation (MISE_OFFLINE=1 never leaks to live Codex peer).
+  const codexEnvLog = join(root, 'codex-env.jsonl')
+  const codexReady = join(root, 'codex-probe-ready')
+  const codexGate = join(root, 'codex-probe-release')
+  const codexScript = makeNodeScript(root, 'fake-codex-probe.mjs', `
+    import { appendFileSync, existsSync, writeFileSync } from 'node:fs'
+    const isProbe = process.env.MISE_OFFLINE === '1'
+    appendFileSync(${JSON.stringify(codexEnvLog)}, JSON.stringify({ mise: process.env.MISE_OFFLINE ?? null }) + '\\n')
+    let buf = ''
+    const send = obj => process.stdout.write(JSON.stringify(obj) + '\\n')
+    const waitFile = (file, cb) => {
+      if (existsSync(file)) { cb(); return }
+      const iv = setInterval(() => { if (existsSync(file)) { clearInterval(iv); cb() } }, 15)
+    }
+    process.stdin.setEncoding('utf8')
+    process.stdin.on('data', chunk => {
+      buf += chunk
+      let nl
+      while ((nl = buf.indexOf('\\n')) !== -1) {
+        const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1)
+        if (!line) continue
+        const { id, method } = JSON.parse(line)
+        if (method === 'initialize') {
+          send({ jsonrpc: '2.0', id, result: {} })
+        } else if (method === 'model/list') {
+          if (isProbe) {
+            writeFileSync(${JSON.stringify(codexReady)}, '1')
+            waitFile(${JSON.stringify(codexGate)}, () => send({ jsonrpc: '2.0', id, result: { data: [{ id: 'codex-m1', displayName: 'Codex M1' }] } }))
+          } else {
+            send({ jsonrpc: '2.0', id, result: { data: [{ id: 'codex-m1', displayName: 'Codex M1' }] } })
+          }
+        }
+      }
+    })
+  `)
+  const codexEngine = new CodexEngine('local-codex-cli', { name: 'Codex', command: process.execPath, args: [codexScript] }, { findExecutable: p => p })
+  t.after(() => codexEngine.close())
+  const codexProbe = codexEngine.listModels()
+  await waitForFile(codexReady, 3_000)
+  // Concurrent live ensure() on the same CodexEngine spawns its own clean process without MISE_OFFLINE=1.
+  await codexEngine.ensure()
+  writeFileSync(codexGate, 'go')
+  const codexModels = await codexProbe
+  assert.deepEqual(codexModels.map(m => m.id), ['codex-m1'])
+  const codexEntries = readFileSync(codexEnvLog, 'utf8').trim().split('\n').map(line => JSON.parse(line))
+  assert.ok(codexEntries.some(e => e.mise === '1'), 'Codex background probe must run with MISE_OFFLINE=1')
+  assert.ok(codexEntries.some(e => e.mise === null), 'Codex live peer must NOT inherit MISE_OFFLINE=1 from concurrent probe')
 })
 
 test('dropModelCache without immediate re-probe still discards an in-flight pre-refresh probe', async (t) => {

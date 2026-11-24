@@ -16,6 +16,7 @@ export class CodexEngine {
     this.peer = undefined
     this.starting = undefined
     this.threads = new Map()
+    this.probeEngines = new Set()
   }
 
   threadFor(dshSessionId) {
@@ -304,8 +305,8 @@ export class CodexEngine {
     this.threads.delete(dshSessionId)
   }
 
-  async listModels() {
-    const peer = await this.ensure({ probe: true })
+  async listModelsOnOwnPeer({ probe }) {
+    const peer = await this.ensure({ probe })
     const reply = await peer.request('model/list', {}, { timeout: 30_000 })
     return (reply?.data ?? reply?.models ?? []).map((entry) => {
       const model = {
@@ -326,7 +327,26 @@ export class CodexEngine {
     })
   }
 
+  async listModels() {
+    // Reuse an existing live peer if one is already running; otherwise probe in a
+    // temporary process with probeEnv so a concurrent live session never inherits MISE_OFFLINE=1.
+    if (this.peer !== undefined || this.starting !== undefined) {
+      return this.listModelsOnOwnPeer({ probe: false })
+    }
+    const temp = new CodexEngine(this.route, this.engine, { findExecutable: this.findExecutable })
+    this.probeEngines.add(temp)
+    try {
+      return await temp.listModelsOnOwnPeer({ probe: true })
+    } finally {
+      this.probeEngines.delete(temp)
+      await temp.close({ forceKillAfterMs: PROBE_FORCE_KILL_AFTER_MS }).catch(() => {})
+    }
+  }
+
   async close({ forceKillAfterMs } = {}) {
+    const probes = [...this.probeEngines]
+    this.probeEngines.clear()
+    await Promise.all(probes.map(engine => engine.close({ forceKillAfterMs }).catch(() => {})))
     for (const thread of this.threads.values()) this.releaseCompaction(thread)
     const child = this.child
     this.child = undefined

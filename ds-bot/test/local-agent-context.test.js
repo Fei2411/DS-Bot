@@ -725,7 +725,7 @@ test('dispose() unblocks when a non-isolated ACP ask() is stuck waiting in engin
 
 test('ask() finishing on a shared ACP engine does not close it underneath an in-flight probeModels()', async (t) => {
   const concurrentProbeScript = `
-    let buf = '', next = 0, heldProbe = null
+    let buf = '', next = 0, heldProbe = null, heldPrompt = null
     const send = obj => process.stdout.write(JSON.stringify(obj) + '\\n')
     process.stdin.setEncoding('utf8')
     process.stdin.on('data', chunk => {
@@ -738,11 +738,24 @@ test('ask() finishing on a shared ACP engine does not close it underneath an in-
         if (method === 'initialize') {
           send({ jsonrpc: '2.0', id, result: { protocolVersion: 1, agentCapabilities: { sessionCapabilities: { close: {} } }, authMethods: [] } })
         } else if (method === 'session/new') {
-          if (heldProbe === null) { heldProbe = id; continue }
-          send({ jsonrpc: '2.0', id, result: { sessionId: 'acp-' + (++next), configOptions: [] } })
+          if (next === 0) {
+            send({ jsonrpc: '2.0', id, result: { sessionId: 'acp-' + (++next), configOptions: [] } })
+          } else {
+            // Second session/new is the concurrent probeModels() reusing this live peer.
+            heldProbe = id
+            if (heldPrompt !== null) {
+              const p = heldPrompt; heldPrompt = null
+              send({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: p.sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'ok' } } } })
+              send({ jsonrpc: '2.0', id: p.id, result: { stopReason: 'end_turn' } })
+            }
+          }
         } else if (method === 'session/prompt') {
-          send({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: params.sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'ok' } } } })
-          send({ jsonrpc: '2.0', id, result: { stopReason: 'end_turn' } })
+          if (heldProbe !== null) {
+            send({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: params.sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'ok' } } } })
+            send({ jsonrpc: '2.0', id, result: { stopReason: 'end_turn' } })
+          } else {
+            heldPrompt = { id, sessionId: params.sessionId }
+          }
         } else if (method === 'session/close') {
           send({ jsonrpc: '2.0', id, result: {} })
           if (params.sessionId === 'acp-1' && heldProbe !== null) {
@@ -764,12 +777,15 @@ test('ask() finishing on a shared ACP engine does not close it underneath an in-
   })
   t.after(() => adapter.dispose())
 
-  const probing = adapter.probeModels('local-acp-fake')
-  while ((engines[0]?.peer?.nextId ?? 0) < 2 || (engines[0]?.peer?.pending?.size ?? 0) < 1) {
+  // Start ask() first so the shared live peer exists, then launch probeModels()
+  // which reuses that live peer while ask() is still in flight.
+  const asking = adapter.ask('s1', { system: 'sys', prompt: 'hi' })
+  while (engines[0]?.peer === undefined || (engines[0]?.peer?.nextId ?? 0) < 3) {
     await new Promise(resolve => setTimeout(resolve, 10))
   }
+  const probing = adapter.probeModels('local-acp-fake')
 
-  const text = await adapter.ask('s1', { system: 'sys', prompt: 'hi' })
+  const text = await asking
   assert.equal(text, 'ok')
   const models = await probing
   assert.deepEqual(models.map(model => model.id), ['default', 'm-fast'])
