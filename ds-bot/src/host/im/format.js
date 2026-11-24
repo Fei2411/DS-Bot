@@ -70,8 +70,6 @@ const renderCodeHtml = block => `<pre><code${block.lang ? ` class="language-${es
 const renderPlain = block => (block.kind === 'code' ? block.lines.join('\n') : block.lines.map(inlinePlain).join('\n'))
 
 const ATX_HEADING = /^ {0,3}#{1,6}[ \t]+(.+?)\s*$/
-const SETEXT_UNDERLINE = /^ {0,3}(?:=+|-+)\s*$/
-const NON_PARAGRAPH_LINE = /^ {4}|^ {0,3}(?:[\t>]|(?:[-+*]|(\d{1,9})[.)])(?:[ \t]|$))/
 const TABLE_DELIMITER = /^:?-+:?$/
 
 function tableCells(line) {
@@ -89,15 +87,6 @@ function tableCells(line) {
 
 function telegramLines(lines) {
   const rendered = []
-  let paragraph = []
-  const renderLine = (line, heading = false) => {
-    const html = inlineHtml(line)
-    rendered.push({ html: heading ? '<b>' + html + '</b>' : html, text: inlinePlain(line) })
-  }
-  const flushParagraph = (heading = false) => {
-    for (const line of paragraph) renderLine(heading ? line.trim() : line, heading)
-    paragraph = []
-  }
   const renderTableRow = (headers, row) => {
     for (const [index, header] of headers.entries()) {
       const label = row === undefined ? header : header + ':'
@@ -116,7 +105,6 @@ function telegramLines(lines) {
       if (delimiters?.length > 0 && delimiters.every(cell => TABLE_DELIMITER.test(cell))) {
         const headers = tableCells(line)
         if (headers?.length === delimiters.length) {
-          flushParagraph()
           at += 1
           let row = tableCells(lines[at + 1] ?? '')
           if (row === undefined) renderTableRow(headers)
@@ -131,21 +119,10 @@ function telegramLines(lines) {
       }
     }
     const heading = ATX_HEADING.exec(line)
-    const blockStart = NON_PARAGRAPH_LINE.exec(line)
-    if (heading !== null) {
-      flushParagraph()
-      renderLine(heading[1].replace(/[ \t]+#+$/, ''), true)
-    } else if (SETEXT_UNDERLINE.test(line)) {
-      if (paragraph.length > 0) flushParagraph(true)
-      else renderLine(line)
-    } else if (blockStart !== null && (blockStart[1] === undefined || paragraph.length === 0 || Number(blockStart[1]) === 1)) {
-      flushParagraph()
-      renderLine(line)
-    } else {
-      paragraph.push(line)
-    }
+    const content = heading === null ? line : heading[1].replace(/[ \t]+#+$/, '')
+    const html = inlineHtml(content)
+    rendered.push({ html: heading === null ? html : '<b>' + html + '</b>', text: inlinePlain(content) })
   }
-  flushParagraph()
   return rendered
 }
 

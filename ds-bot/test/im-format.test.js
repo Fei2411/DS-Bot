@@ -28,8 +28,7 @@ test('Telegram renders headings and Markdown tables as readable rows (#2173)', (
     '| **Alpha** | Ready & tested | Ann |',
     '| Beta | `Queued` | R&D \\| Ops |',
     '',
-    'Notes',
-    '=====',
+    '### Notes',
     'Ordinary prose with a | pipe.',
     '```',
     '# Literal heading',
@@ -56,20 +55,15 @@ test('a blockquote immediately after a Telegram table is not a table row', () =>
   }])
 })
 
-test('Telegram Setext headings require a paragraph and can span multiple lines', () => {
-  const markdown = '- Item\n---\n\n1. Other item\n---\n\nTwo-line\nheading\n===\nFollowing text'
-  assert.deepEqual(chunkTelegram(markdown), [{
-    html: '- Item\n---\n1. Other item\n---\n<b>Two-line</b>\n<b>heading</b>\nFollowing text',
-    text: '- Item\n---\n1. Other item\n---\nTwo-line\nheading\nFollowing text',
-  }])
-})
-
-test('only ordered lists starting at one interrupt a Telegram Setext heading paragraph', () => {
-  const markdown = 'Release notes\n24. Follow-up\n===\n\n24. List item\n---\n\nRelease notes\n1. List item\n---'
-  assert.deepEqual(chunkTelegram(markdown), [{
-    html: '<b>Release notes</b>\n<b>24. Follow-up</b>\n24. List item\n---\nRelease notes\n1. List item\n---',
-    text: 'Release notes\n24. Follow-up\n24. List item\n---\nRelease notes\n1. List item\n---',
-  }])
+test('Telegram leaves underline-like lines unchanged after prose and lists', () => {
+  for (const markdown of [
+    'item\n---',
+    '- Item\n---',
+    '1. First item\n   wrapped line\n2. Next item\n---',
+    'Release notes\n24. Follow-up\n===',
+  ]) {
+    assert.deepEqual(chunkTelegram(markdown), [{ html: markdown, text: markdown }])
+  }
 })
 
 test('Markdown becomes plain text', () => {
