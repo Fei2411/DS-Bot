@@ -1466,6 +1466,7 @@ export function install(rt) {
           await sendText(conn, msg.chat, text(error?.code === 'bot/idle' ? 'idle' : 'backgroundFailed'))
           return
         }
+        await persistInboundSeen()
         await sendText(conn, msg.chat, text(res?.moved ? 'backgrounded' : 'idle'))
         return
       }

@@ -1918,3 +1918,108 @@ test('round-4 invariants: concurrent Bot rollback isolation, superseded tombston
   assert.equal(env8.rt.state.pendingHandoffInputs, undefined, 'scheduled reconcile retry must drain once foreground flush returns true')
   assert.equal(env8.agentMap.get('dm-a').followups.length, 1, 'already-admitted message must not be duplicated on scheduled flush retry')
 })
+
+test('round-5 invariants: room.segments object does not crash IM sendUser, reconcileRetryTimer does not sweep live tasks, and superseded op-1 survives failed stale replay', async (t) => {
+  // 1) P0: Group chat with object `room.segments` + array `room.parts` must NOT throw TypeError on IM sendUser,
+  //    and cold IM admission lookup must scan `room.parts` safely.
+  const env1 = await startEnv({
+    team: makeTeam({
+      rooms: {
+        r1: {
+          id: 'r1',
+          name: 'Ops',
+          sessionId: 'room-cur',
+          parts: ['room-old-part'],
+          segments: { a: [{ sessionId: 'grp-r1-a-seg1', endedAt: 1 }] },
+          members: ['a', 'b'],
+          sessions: { a: 'grp-r1-a', b: 'grp-r1-b' },
+        },
+      },
+    }),
+  })
+  t.after(env1.stop)
+  delete env1.ctx.sessionController.inspect
+  const query1 = {
+    inspectSession: async (sid, read) => {
+      if (sid === 'room-old-part') {
+        return read({
+          snapshotEvents: () => [
+            { type: 'user/message', seq: 1, data: { id: 'm-room-1', content: [{ type: 'text', text: 'Hi group' }], source: { kind: 'user', rpcId: 'im:telegram:c1:g1:room-msg-1' } } },
+          ],
+        })
+      }
+      throw Object.assign(new Error('not found'), { code: 'SESSION_QUERY_SESSION_NOT_FOUND' })
+    },
+  }
+  const origGet1 = env1.ctx.get
+  env1.ctx.get = name => (name === 'sessionQuery' ? query1 : origGet1(name))
+
+  // Previously threw `TypeError: room?.segments ?? [] is not iterable` on EVERY inbound IM message!
+  await env1.rt.sendUser({ sessionId: 'a', content: [{ type: 'text', text: 'Brand new IM msg' }], requestId: 'im:telegram:c1:dm-u1:fresh-1' })
+  assert.equal(env1.prompts.length, 1)
+  // And an IM message already logged in `room.parts` must be deduplicated even if rebound to Bot a!
+  await env1.rt.sendUser({ sessionId: 'a', content: [{ type: 'text', text: 'Hi group' }], requestId: 'im:telegram:c1:g1:room-msg-1' })
+  assert.equal(env1.prompts.length, 1, 'IM message logged in room.parts must NOT replay on Bot a')
+
+  // 2) P1: Deferred reconcileRetryTimer must ONLY replay pendingHandoffInputs and NEVER re-run startup zombie-task sweep!
+  const env2 = await startEnv({
+    team: makeTeam({
+      bots: { a: { id: 'a', name: 'Chief', role: 'Boss', sessionId: 'dm-a', createdAt: 1 } },
+    }),
+  })
+  t.after(env2.stop)
+  // Let resume.js's 0ms startup reconcile settle, then add a live active task (simulating a task
+  // kept via keepSessions or started mid-run before its first turn begins) and defer a pending transfer.
+  await new Promise(r => setTimeout(r, 20))
+  env2.rt.botOf('a').tasks = [{ id: 'k_live', origin: 'fg-handoff', sessionId: 'task-live-1', status: 'running', startedAt: 1, updatedAt: 1 }]
+  env2.rt.state.pendingHandoffInputs = [{
+    id: 'rpc-timer-only',
+    botId: 'a',
+    content: [{ type: 'text', text: 'Retry without killing tasks' }],
+    source: { kind: 'user', rpcId: 'rpc-timer-only' },
+    at: Date.now() - 5000,
+  }]
+  let allowFlush2 = false
+  env2.ctx.sessions.flush = async () => allowFlush2
+  await env2.rt.reconcileTasksAfterRestart(new Set(['task-live-1']))
+  assert.equal(env2.rt.botOf('a').tasks[0].status, 'running')
+  allowFlush2 = true
+  await waitFor(() => env2.rt.state.pendingHandoffInputs === undefined, 2500)
+  assert.equal(env2.rt.botOf('a').tasks[0].status, 'running', 'reconcileRetryTimer must NOT settle live tasks as interrupted')
+
+  // 3) P1: Replaying superseded op-1 while Move 2's save also failed must NOT drop op-1 from pendingSaveMoveOps,
+  //    so Move 2's subsequent retry STILL persists op-1's stale:true tombstone!
+  const env3 = await startEnv()
+  t.after(env3.stop)
+  const dm3 = env3.agentMap.get('dm-a')
+  dm3.status = 'running'
+  await env3.emit('dm-a', 'turn/start', { turn: 1 })
+  const origSave3 = env3.rt.save
+  let blockSaves3 = true
+  env3.rt.save = async (opts = {}) => {
+    if (opts?.required && blockSaves3) throw new Error('disk offline')
+    return origSave3(opts)
+  }
+  await assert.rejects(
+    () => env3.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'dm-a', operationId: 'op-sup-1' }),
+    /disk offline/,
+  )
+  const fork3_1 = env3.agentMap.get('fork-1')
+  fork3_1.status = 'running'
+  await env3.emit('fork-1', 'turn/start', { turn: 2 })
+  await assert.rejects(
+    () => env3.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'fork-1', operationId: 'op-sup-2' }),
+    /disk offline/,
+  )
+  // Replay superseded op-1 while disk is STILL offline -> throws bot/stale AND keeps op-1 in pendingSaveMoveOps!
+  await assert.rejects(
+    () => env3.rt.moveForegroundToBackground({ botId: 'a', operationId: 'op-sup-1' }),
+    err => err?.code === 'bot/stale',
+  )
+  // Now disk recovers and Move 2 retries -> MUST still persist op-sup-1's stale tombstone!
+  blockSaves3 = false
+  const ok3 = await env3.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'fork-1', operationId: 'op-sup-2' })
+  assert.equal(ok3.moved, true)
+  assert.equal(env3.rt.state.completedMoveOps?.['op-sup-2']?.moved, true)
+  assert.equal(env3.rt.state.completedMoveOps?.['op-sup-1']?.stale, true, 'Move 2 retry must still persist stale tombstone for op-sup-1 after failed stale replay')
+})
