@@ -316,6 +316,39 @@ test('unfinished work keeps a task readable and the retirement record retries on
   assert.equal(existsSync(report), false)
 })
 
+test('an idle pruned task Session retries a failed archive without new activity', async (t) => {
+  const team = makeTeam()
+  team.bots.a.tasks = settledTasks(50)
+  team.bots.a.tasks[0].reportFile = 'old-task-0.txt'
+  const env = await startEnv({ team })
+  t.after(env.stop)
+  const dir = join(env.home, 'task-reports')
+  const report = join(dir, 'old-task-0.txt')
+  mkdirSync(dir)
+  writeFileSync(report, 'Report for retry')
+  const archive = env.ctx.workspaceRegistry.archiveSession
+  let attempts = 0
+  env.ctx.workspaceRegistry.archiveSession = async (id, options) => {
+    assert.equal(id, 'old-session-0')
+    if (++attempts === 1) throw new Error('Temporary registry write failure')
+    await archive(id, options)
+  }
+
+  await env.tool('task_start').execute({ title: 'Another task', brief: 'Trigger pruning' }, execOf(env.agentMap.get('dm-a')))
+  const task = env.rt.botOf('a').tasks.at(-1)
+  assert.equal((await env.callApi('bot-stop-task', { botId: 'a', taskId: task.id })).ok, true)
+  assert.equal(attempts, 1)
+  assert.deepEqual(env.archivedSessions, [])
+  assert.equal(existsSync(report), true)
+
+  const journal = () => JSON.parse(readFileSync(env.rt.statePath, 'utf8')).retiredTasks
+  await waitFor(() => journal().length === 0, 5000)
+  assert.deepEqual(journal(), [])
+  assert.equal(attempts, 2)
+  assert.deepEqual(env.archivedSessions.map(({ sid }) => sid), ['old-session-0'])
+  assert.equal(existsSync(report), false)
+})
+
 test('a host with an unusable write lock still prunes and removes old reports', async (t) => {
   const team = makeTeam()
   team.bots.a.tasks = settledTasks(52)

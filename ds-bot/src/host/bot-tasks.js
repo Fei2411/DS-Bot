@@ -438,8 +438,26 @@ export function install(rt) {
 
   let retirement = Promise.resolve()
   let retirementStopped = false
+  let retirementRetryTimer
+  let retirementRetryDelay = 1000
   const writeAccess = () => retirementStopped || rt.readOnly() !== undefined ? undefined : rt.teamWriteAccess()
   const ownsRetirement = () => writeAccess() === 'locked'
+
+  function resetRetirementRetry() {
+    clearTimeout(retirementRetryTimer)
+    retirementRetryTimer = undefined
+    retirementRetryDelay = 1000
+  }
+
+  function retryRetirement() {
+    if (retirementRetryTimer !== undefined || !ownsRetirement()) return
+    retirementRetryTimer = setTimeout(() => {
+      retirementRetryTimer = undefined
+      if (ownsRetirement()) void retireTasks()
+    }, retirementRetryDelay)
+    retirementRetryTimer.unref?.()
+    retirementRetryDelay = Math.min(retirementRetryDelay * 2, 15_000)
+  }
 
   async function updateRetirement(entry, next) {
     const before = retiredTasks()
@@ -475,6 +493,7 @@ export function install(rt) {
         await rt.save({ required: true })
         return
       }
+      let retry = false
       for (const entry of pending) {
         const current = () => ownsRetirement() && retiredTasks().includes(entry)
         if (!current()) return
@@ -500,7 +519,10 @@ export function install(rt) {
           } catch (error) {
             if (error?.name !== 'WorkspaceUnknownSessionError' || error.sessionId !== id) {
               remaining.push(id)
-              if (error?.code !== 'schedule/pending') rt.warn('ds-bot: task Session %s not archived yet: %s', id, error)
+              if (error?.code !== 'schedule/pending') {
+                rt.warn('ds-bot: task Session %s not archived yet: %s', id, error)
+                retry = true
+              }
               continue
             }
           }
@@ -519,12 +541,15 @@ export function install(rt) {
         // If the host stops between these writes, cleanup can be tried again.
         if (dropReportFile(completed.reportFile)) await updateRetirement(completed, undefined)
       }
+      if (retry) retryRetirement()
+      else resetRetirementRetry()
     }).catch(error => rt.warn('ds-bot: retiring background task Sessions failed: %s', error))
     return retirement
   }
 
   function stopRetiringTasks() {
     retirementStopped = true
+    resetRetirementRetry()
     return retirement
   }
 
