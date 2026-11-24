@@ -34,6 +34,7 @@ import { searchGroupBook } from './group-search.js'
 import { createRoomReports } from './room-reports.js'
 import { failureLine } from './turns.js'
 import { parseBook } from './ledger.js'
+import { addressedMembers, roomNote, roomRequest, roomResult } from './room-message.js'
 
 const ROOM_LOG_MAX = 60
 const ROOM_FIRST_LOOK = 12
@@ -160,6 +161,7 @@ export const mentionsIn = (text, members, references = []) => {
 // A saved list ignores opener.references. post_to_group posts carry none today; if
 // they gain references, handle them together with this list.
 function mentionsOf(opener, everyone) {
+  if (opener.route && (opener.route.kind !== 'request' || !opener.mentions)) return { all: false, found: opener.route.kind === 'request' ? addressedMembers(opener.route, everyone, opener.botId) : [] }
   const saved = opener?.mentions
   if (saved === undefined || !Array.isArray(saved.ids)) return undefined
   const byId = new Map(everyone.map(bot => [bot.id, bot]))
@@ -899,7 +901,12 @@ export function install(rt) {
     const current = lines.filter(line => line.seq >= round.startSeq)
     const owed = results.filter(result => ![...earlier, ...current].some(line => line.seq === result.seq))
     const spokeThisRound = (room.seen[member.id] ?? 0) >= round.startSeq
-    const members = `Members: the user${peers.length ? `, ${peers.join(', ')}` : ''} and you${leads ? ' (admin)' : ''}. ${ROOM_CALLS}`
+    const instructions = slot.resultOnly
+      ? `These are results of a finished request. Your reply is for the group; names in it do not call anyone. For a distinct next task use delegate_work with follow_up_to "${slot.resultRef}".`
+      : batchOfSlot(room.id, slot)?.direct
+        ? 'This is a delegated request. Your final answer goes back to its caller. Names in your progress or answer do not call other members; use delegate_work to assign a separate task.'
+        : ROOM_CALLS
+    const members = `Members: the user${peers.length ? `, ${peers.join(', ')}` : ''} and you${leads ? ' (admin)' : ''}. ${instructions}`
     const notice = room.notice ? `Group notice (shared instructions for every member):\n${room.notice}` : ''
     if (round.kickoff) return { text: [members, notice, leads ? adminNote(room) : '', roomKickoff(rt.uiLanguage?.())].filter(Boolean).join('\n\n'), images: [], files: [] }
     const goal = rt.goalBlock?.(room, member, { nudge: round.goalNudge === true, resume: round.goalResume === true }) ?? ''
@@ -1028,7 +1035,7 @@ export function install(rt) {
       && round.slots.some(slot => slot.id === botId && (slot.status === 'waiting' || slot.status === 'speaking')))
   }
 
-  const registerBatch = (roomId, by, callees) => {
+  const registerBatch = (roomId, by, callees, direct = false) => {
     if (by === undefined || callees.length === 0) return undefined
     // A group that was deleted takes its batches with it, also one whose wake never came.
     for (const [key, old] of Object.entries(batches())) {
@@ -1047,6 +1054,7 @@ export function install(rt) {
       doneIds: [],
       results: [],
       worked: false,
+      ...(direct ? { direct: true, returnRequested: true } : {}),
       answered: false,
       at: Date.now(),
     }
@@ -1059,6 +1067,7 @@ export function install(rt) {
         batch.doneIds.push(...(prev.doneIds ?? []))
         batch.results.push(...prev.results)
         batch.worked ||= prev.worked
+        if (prev.returnRequested) batch.returnRequested = true
         batch.answered ||= prev.answered
         delete batches()[prev.key]
       }
@@ -1192,7 +1201,7 @@ export function install(rt) {
       const doneIds = batch.doneIds ?? []
       const last = members.find(bot => bot.id === doneIds.at(-1)) ?? members.find(bot => doneIds.includes(bot.id))
         ?? members.find(bot => bot.name === batch.done.at(-1)) ?? members.find(bot => bot.id !== batch.by)
-      if (!room.members.includes(batch.by) || batch.done.length === 0 || last === undefined || !batch.worked || batch.answered) {
+      if (!room.members.includes(batch.by) || batch.done.length === 0 || last === undefined || !(batch.worked || batch.returnRequested) || batch.answered) {
         delete batches()[batch.key]
         changed = true
         continue
@@ -1225,7 +1234,7 @@ export function install(rt) {
   }
   const batchReadyToWake = (room, batch) => batch.pending.length === 0
     && batch.done.length > 0
-    && batch.worked === true
+    && (batch.worked === true || batch.returnRequested === true)
     && !batch.answered
     && room.members.includes(batch.by)
 
@@ -1264,7 +1273,7 @@ export function install(rt) {
         const wake = { names: [...batch.done], results: [...batch.results] }
         expandScopedReports(room.id, botId, [caller])
         if (!round.slots.some(other => other.id === caller.id && other.status === 'waiting')) {
-          callIn(round, [caller], finishedNote(wake.names), undefined)
+          callIn(round, [caller], finishedNote(wake.names), undefined, { resultOnly: true })
         }
         giveResults(round, caller.id, wake)
       }
@@ -1302,8 +1311,8 @@ export function install(rt) {
   }
 
   // A member's message in the round, for the members after it and the user.
-  const postInRound = (room, member, text, duration, claims, changes) => {
-    say(room, { who: member.name, botId: member.id, text, ...(duration === undefined ? {} : { duration }), ...(claims === undefined ? {} : { claims }), ...(changes === undefined ? {} : { changes }) })
+  const postInRound = (room, member, text, duration, claims, changes, route = roomNote()) => {
+    say(room, { who: member.name, botId: member.id, text, route, ...(duration === undefined ? {} : { duration }), ...(claims === undefined ? {} : { claims }), ...(changes === undefined ? {} : { changes }) })
     void rt.save().catch(() => {})
     return room.seq
   }
@@ -1335,9 +1344,10 @@ export function install(rt) {
   // called it, which answers what the turn posts after the round moved on. What the
   // member writes before its last step is posted at once and collected in `said`, and
   // `heard` takes each such line once it is posted.
-  async function roomTurn(room, member, sessionId, { text, images = [], files = [] }, note, signal, round, by, said = [], heard = () => {}, onWork = () => {}, onTurn = () => {}) {
+  async function roomTurn(room, member, sessionId, { text, images = [], files = [] }, note, signal, round, slot, said = [], heard = () => {}, onWork = () => {}, onTurn = () => {}) {
+    const by = slot.by
+    slot.explicitCalls = new Set()
     if (signal.aborted) return null
-    const startedAt = Date.now()
     const exchangeId = randomUUID()
     const turn = { botId: member.id, sessionId, exchangeId }
     const { started } = round
@@ -1369,12 +1379,12 @@ export function install(rt) {
         const step = stripOwnName(member.name, raw)
         if (isPass(step)) return
         said.push(step)
-        postInRound(room, member, step, Date.now() - startedAt)
         heard(step)
       }
       touch()
       rt.roomWaiters.set(exchangeId, {
         sessionId, botId: member.id, roomId: room.id,
+        explicitCalls: slot.explicitCalls,
         resolve: finish,
         fail: failure => finish({ failure }),
         setTurn: (turnNumber) => { if (Number.isInteger(turnNumber)) onTurn(turnNumber) },
@@ -1384,7 +1394,7 @@ export function install(rt) {
       signal.addEventListener('abort', () => finish(null), { once: true })
     })
     try {
-      await rt.deliver({ fromId: undefined, toId: member.id, sessionId, role: 'room', roomId: room.id, exchangeId, note, text, images, files, steer: busy, ...(by ? { askedBy: by } : {}) })
+      await rt.deliver({ fromId: undefined, toId: member.id, sessionId, role: 'room', roomId: room.id, exchangeId, note, text, images, files, steer: busy, ...(by ? { askedBy: by } : {}), ...(slot.resultRef ? { resultRef: slot.resultRef } : {}) })
       // The prompt reached the member: its read position moves on.
       room.seen[member.id] = seenAt
       // Still held by an earlier request: this turn cannot start until the user answers.
@@ -1460,15 +1470,18 @@ export function install(rt) {
   // it up the order, any other call lets it start at once. A call of another Bot stays
   // a call of its own, so that Bot is woken for its own work. `by` is the calling
   // member, if a member called.
-  function callIn(round, callees, note, by, { ordered = false } = {}) {
+  function callIn(round, callees, note, by, { ordered = false, resultOnly = false, returnRequested = false } = {}) {
     if (callees.length === 0) return
     round.batches = (round.batches ?? 0) + 1
-    const batchKey = registerBatch(round.roomId, by, callees)
+    const batchKey = registerBatch(round.roomId, by, callees, returnRequested)
     let last
     for (const peer of callees) {
       const waiting = round.slots.findIndex(slot => slot.id === peer.id && slot.status === 'waiting' && (by === undefined || slot.by === undefined || slot.by === by))
+      if (resultOnly && waiting !== -1) continue // giveResults adds context without replacing the waiting request.
       const moves = waiting === -1 || (ordered && round.slots[waiting].ordered === true)
       const slot = waiting === -1 ? { id: peer.id, name: peer.name, status: 'waiting' } : round.slots[waiting]
+      if (!resultOnly) delete slot.resultOnly
+      else if (waiting === -1) slot.resultOnly = true
       if (moves && waiting !== -1) round.slots.splice(waiting, 1)
       slot.note = note
       slot.batch = round.batches
@@ -1679,20 +1692,25 @@ export function install(rt) {
     void rt.save().catch(() => {})
   }
 
-  // The members a member's message calls: those it names with @, or everyone when the
-  // admin writes "@all" (only the admin, so a member cannot set off a storm). A turn
-  // calls each member once, however many of its lines name it.
-  // Zero-work Bot-to-Bot relays pause immediately on a graph cycle (calling a Bot that
-  // already spoke without running any work tool since the last user message or real work),
-  // after ROOM_IDLE_RELAY_LIMIT ack/status posts, or after ROOM_ZERO_WORK_RELAY_LIMIT
-  // consecutive 0-work Bot-to-Bot turns regardless of wording.
-  function callFrom(room, round, member, text, called, { worked = false, byBot = false, callerId, idleTurn } = {}) {
+  // Only unstructured discussion interprets @ as addressing syntax. Names inside
+  // a delegated answer or a receipt are content, even when they name the whole room.
+  function speechRoute(room, member, text, { resultRef, askedBy, batch, explicitCalls } = {}) {
+    if (resultRef) return roomNote()
+    if (batch?.direct && askedBy) return roomResult(askedBy, batch.key)
     const everyone = room.members.map(rt.botOf).filter(Boolean)
-    const others = everyone.filter(other => other.id !== member.id)
-    const { all, found: named } = mentionsIn(text, everyone)
-    const found = named.filter(other => other.id !== member.id)
-    const callees = (rt.isAdminOf(room, member.id) && all ? [...found, ...others.filter(other => !found.includes(other))] : found)
-      .filter(peer => !called.has(peer.id))
+    const { all, found } = mentionsIn(text, everyone)
+    const peers = (all && rt.isAdminOf(room, member.id) ? everyone : found).filter(bot => bot.id !== member.id)
+    const next = peers.filter(bot => bot.id !== askedBy && !explicitCalls?.has(bot.id))
+    if (next.length) return roomRequest(next.map(bot => bot.id))
+    if (askedBy && peers.some(bot => bot.id === askedBy)) return roomResult(askedBy, batch?.key)
+    return roomNote()
+  }
+
+  function callFrom(room, round, member, text, route, called, { worked = false, byBot = false, callerId, idleTurn } = {}) {
+    if (route.kind !== 'request') return
+    const everyone = room.members.map(rt.botOf).filter(Boolean)
+    const named = addressedMembers(route, everyone, member.id)
+    const callees = named.filter(peer => !called.has(peer.id))
     let idleStep = false
     let zeroWorkCycle = false
     let zeroWorkLimit = false
@@ -1741,7 +1759,7 @@ export function install(rt) {
       const cause = hitIdle ? 'idle' : zeroWorkCycle ? 'cycle' : zeroWorkLimit ? 'zero-work' : (room.idlePaused?.cause ?? 'idle')
       const limit = cause === 'idle' ? ROOM_IDLE_RELAY_LIMIT : cause === 'zero-work' ? ROOM_ZERO_WORK_RELAY_LIMIT : Math.max(room.zeroWorkRelays ?? 2, 2)
       const pauseCount = cause === 'idle' ? room.idleRelays : cause === 'cycle' ? Math.max(room.zeroWorkRelays ?? 2, 2) : room.zeroWorkRelays
-      if (holdIdleCalls(room, round, member, callees, { named, all, force: alreadyPaused || zeroWorkCycle || zeroWorkLimit, count: pauseCount, cause, limit })) return
+      if (holdIdleCalls(room, round, member, callees, { named, force: alreadyPaused || zeroWorkCycle || zeroWorkLimit, count: pauseCount, cause, limit })) return
     }
     if (callees.length === 0) return
     callIn(round, callees, `${member.name} mentioned you`, member.id)
@@ -1853,6 +1871,7 @@ export function install(rt) {
       await exitMemberBatches(room, member.id, { round, signal })
       return
     }
+    if (slot.resultOnly) slot.resultRef = `G${slot.finished?.results.at(-1)?.seq ?? room.seq}`
     const prompt = roomPrompt(room, member, round, slot, await finishedLines(room, slot))
     round.shown?.push(member.id)
     const text = session.brief === undefined ? prompt.text : `${session.brief}\n\n${prompt.text}`
@@ -1873,12 +1892,18 @@ export function install(rt) {
       markSlotWorked(room.id, slot)
     }
     let finishedTurn
+    const publish = (body, completedSession, changes) => {
+      const batch = batchOfSlot(room.id, slot)
+      const route = speechRoute(room, member, body, { resultRef: slot.resultRef, askedBy: slot.by, batch, explicitCalls: slot.explicitCalls })
+      if (route.kind === 'result' && batch) batch.returnRequested = true
+      const claims = completedSession && claimsOf(completedSession, body, worked, route.kind === 'request' || slot.explicitCalls?.size > 0)
+      const published = !completedSession && route.kind === 'result' ? roomNote() : route
+      posted.push(postInRound(room, member, body, Date.now() - startedAt, claims, changes, published))
+      callFrom(room, round, member, body, route, called, { worked, byBot: answeredBot, callerId: slot.by, idleTurn })
+    }
     const reply = await roomTurn(
-      room, member, session.id, { text, images: prompt.images, files: prompt.files }, slot.note ?? 'your turn', signal, round, slot.by, said,
-      (line) => {
-        posted.push(room.seq)
-        callFrom(room, round, member, line, called, { worked, byBot: answeredBot, callerId: slot.by, idleTurn })
-      },
+      room, member, session.id, { text, images: prompt.images, files: prompt.files }, slot.note ?? 'your turn', signal, round, slot, said,
+      line => publish(line),
       onWork,
       (turnNumber) => { finishedTurn = turnNumber },
     )
@@ -1918,8 +1943,7 @@ export function install(rt) {
       slot.worked = true
       clearIdleStreak(room)
       if (final !== undefined) {
-        postInRound(room, member, final, Date.now() - startedAt, claimsOf(liveSession, final, true), changes)
-        callFrom(room, round, member, final, called, { worked: true, byBot: answeredBot })
+        publish(final, liveSession, changes)
       }
       slot.status = 'working'
       markSlotWorked(room.id, slot)
@@ -1931,8 +1955,7 @@ export function install(rt) {
     } else if (final !== undefined || (typeof reply === 'string' && said.length > 0)) {
       slot.status = 'posted'
       if (final !== undefined && final.trim() !== '') {
-        posted.push(postInRound(room, member, final, Date.now() - startedAt, claimsOf(liveSession, final, worked, callsIn(room, member, final)), changes))
-        callFrom(room, round, member, final, called, { worked, byBot: answeredBot, callerId: slot.by, idleTurn })
+        publish(final, liveSession, changes)
       } else if (changes !== undefined) {
         // The turn wrote nothing to hang the change line on (a pass, or an empty final
         // reply): its completion line carries it, the same place a late completion does.
@@ -2033,7 +2056,7 @@ export function install(rt) {
         if (post.failed !== undefined) round.failed.push(sender.name)
         else if (post.resumed || post.stopped || post.done) say(room, { who: sender.name, botId: sender.id, kind: post.done ? 'done' : post.stopped ? 'stopped' : post.again ? 'cut' : 'resumed', text: '', ...(post.changes === undefined ? {} : { changes: post.changes }) })
         else {
-          say(room, { who: sender.name, botId: sender.id, text, ...(post.files === undefined ? {} : { files: post.files }), ...(post.claims === undefined ? {} : { claims: post.claims }), ...(post.changes === undefined ? {} : { changes: post.changes }), session: true, ...(post.late !== true && post.progress !== true ? { openingPost: true } : {}) })
+          say(room, { who: sender.name, botId: sender.id, text, ...(post.route ? { route: post.route } : {}), ...(post.files === undefined ? {} : { files: post.files }), ...(post.claims === undefined ? {} : { claims: post.claims }), ...(post.changes === undefined ? {} : { changes: post.changes }), session: true, ...(post.late !== true && post.progress !== true ? { openingPost: true } : {}) })
           if (post.batch !== undefined && text !== '') recordResult(post.batch, sender.name, room.seq)
         }
         callPost(room, round, sender, post.text ?? '', post)
@@ -2119,6 +2142,7 @@ export function install(rt) {
       say(room, {
         who,
         ...(post.botId ? { botId: post.botId } : {}),
+        ...(post.route ? { route: post.route } : {}),
         text,
         ...(post.images === undefined ? {} : { images: post.images }),
         ...(post.files === undefined ? {} : { files: post.files }),
@@ -2177,6 +2201,7 @@ export function install(rt) {
     // Process every actionable open post in chronological order so folded user @mentions,
     // concurrent post_to_group calls, and batchEnd wakes are never silently dropped.
     const postIsActionable = (post) => {
+      if (post.route?.kind === 'note') return post.reportBack === true
       if (post.kickoff) return kickoff
       if (post.goal === 'nudge') return goalNudge
       if (post.goal !== undefined) return true
@@ -2225,7 +2250,7 @@ export function install(rt) {
       // A batch's last result wakes the Bot that asked, with the results of the whole batch.
       const wake = post.batch === undefined || post.askedBy === undefined ? undefined : wakeOf(post.batch)
       const calledByPost = post.botId !== undefined ? speakers.filter(member => named.includes(member)) : []
-      const openingBatchKey = post.botId !== undefined && calledByPost.length > 0 ? registerBatch(room.id, post.botId, calledByPost) : undefined
+      const openingBatchKey = post.botId !== undefined && calledByPost.length > 0 ? registerBatch(room.id, post.botId, calledByPost, post.route?.expectsResult) : undefined
       // The admin's own post that opens a round hands goal tasks the same way a call does.
       if (rt.isAdminOf(room, post.botId)) for (const member of calledByPost) rt.goalTaskWorking?.(room.id, member.id)
       if (post.botId !== undefined && speakers.length > 0) expandScopedReports(room.id, post.botId, speakers)
@@ -2244,6 +2269,9 @@ export function install(rt) {
           const waiting = round.slots.findIndex(slot => slot.id === member.id && slot.status === 'waiting' && (by === undefined || slot.by === undefined || slot.by === by))
           const moves = waiting === -1 || (ordered && round.slots[waiting].ordered === true)
           const slot = waiting === -1 ? { id: member.id, name: member.name, status: 'waiting' } : round.slots[waiting]
+          if (post.route?.kind === 'result' || (wake && member.id === post.askedBy)) {
+            if (waiting === -1) slot.resultOnly = true
+          } else delete slot.resultOnly
           if (moves && waiting !== -1) round.slots.splice(waiting, 1)
           slot.batch = round.batches
           if (memberNote !== undefined) slot.note = memberNote
@@ -2535,6 +2563,13 @@ export function install(rt) {
     const at = speakers => ({ speakers, ordered: false })
     if (opener.kickoff) return at(admin ? [admin] : [])
     if (opener.quiet) return at([])
+    if (opener.route) {
+      if (opener.route.kind === 'result' && opener.route.batch) {
+        const batch = batches()[opener.route.batch]
+        if (!batch || batch.roomId !== room.id || batch.by !== opener.route.to?.[0] || batch.pending.length) return at([])
+      }
+      return { speakers: addressedMembers(opener.route, everyone, opener.botId), ordered: opener.route.ordered === true }
+    }
     if (opener.done || opener.stopped || opener.failed) return at(members.filter(bot => bot.id === opener.askedBy))
     // A goal post — the user's draft ask, an idle goal check, a resume — is the admin's alone.
     if (opener.goal !== undefined) return at(admin ? [admin] : [])
@@ -2555,6 +2590,7 @@ export function install(rt) {
   // wants the replies (`reportBack`) gets those of the members it called when the
   // round ends.
   function callPost(room, round, sender, text, extra) {
+    if (extra.route?.kind === 'note') return false
     if (extra.failed !== undefined && !extra.askedBy) return false
     if (extra.resumed || (extra.stopped && !extra.askedBy)) return false
     const post = { ...extra, botId: sender.id, name: sender.name, text }
@@ -2562,7 +2598,7 @@ export function install(rt) {
     const named = (mentionsOf(post, everyone) ?? mentionsIn(text, everyone)).found
     // Only a post backed by real work clears the zero-work cycle/limit streak;
     // a non-idle post from outside clears only the text-based ack counter (`idleRelays`).
-    const idlePost = !extra.done && extra.progress !== true && extra.late !== true && isIdleRelayText(text, everyone, [])
+    const idlePost = extra.route?.kind !== 'result' && !extra.done && extra.progress !== true && extra.late !== true && isIdleRelayText(text, everyone, [])
     if (extra.worked === true) clearIdleStreak(room)
     else if (!idlePost && !extra.late && room.idlePaused === undefined && room.idleRelays !== undefined) delete room.idleRelays
     const opened = openingCall(room, post)
@@ -2576,8 +2612,8 @@ export function install(rt) {
     const rest = speakers.filter(peer => !named.includes(peer))
     const wake = extra.batch === undefined ? undefined : wakeOf(extra.batch)
     const note = extra.done ? `${sender.name} finished the work you asked for` : undefined
-    callIn(round, by, note ?? `${sender.name} mentioned you`, sender.id, { ordered })
-    callIn(round, rest, wake === undefined ? note : finishedNote(wake.names), undefined, { ordered })
+    callIn(round, by, note ?? `${sender.name} mentioned you`, sender.id, { ordered, returnRequested: extra.route?.expectsResult })
+    callIn(round, rest, wake === undefined ? note : finishedNote(wake.names), undefined, { ordered, resultOnly: extra.route?.kind === 'result' || wake !== undefined })
     expandScopedReports(room.id, sender.id, speakers)
     if (wake !== undefined) giveResults(round, extra.askedBy, wake)
     if (rt.isAdminOf(room, sender.id)) for (const peer of speakers) rt.goalTaskWorking?.(room.id, peer.id)
@@ -2594,6 +2630,13 @@ export function install(rt) {
   async function postToRoom(room, sender, text, extra = {}, files = []) {
     // Keep imOrigin/callerOrigin out of DSH Session events — store imOrigin in state.roomReports only.
     const { imOrigin, callerOrigin, ...postExtra } = extra
+    if (!postExtra.route && (postExtra.done || postExtra.stopped || postExtra.failed || postExtra.resumed)) {
+      postExtra.route = postExtra.askedBy && !postExtra.quiet ? roomResult(postExtra.askedBy, postExtra.batch) : roomNote()
+    }
+    if (!postExtra.route && postExtra.mentions) {
+      const { speakers, ordered } = openingCall(room, { ...postExtra, botId: sender.id, text })
+      postExtra.route = speakers.length ? { ...roomRequest(speakers.map(bot => bot.id)), ...(ordered ? { ordered: true } : {}) } : roomNote()
+    }
     const postOrigin = imOrigin ?? callerOrigin
     const noticeOnly = postExtra.resumed === true || (postExtra.stopped === true && !postExtra.askedBy) || (postExtra.failed !== undefined && !postExtra.askedBy)
     const running = [...rt.roomProgress.values()].find(round => round.roomId === room.id
@@ -2617,7 +2660,7 @@ export function install(rt) {
         say(room, { who: sender.name, botId: sender.id, kind, text: '', ...(postExtra.changes === undefined ? {} : { changes: postExtra.changes }) })
       } else {
         const line = [text, ...files.map(fileLine)].filter(Boolean).join('\n')
-        say(room, { who: sender.name, botId: sender.id, text: line, ...(files.length > 0 ? { files } : {}), ...(postExtra.claims === undefined ? {} : { claims: postExtra.claims }), ...(postExtra.changes === undefined ? {} : { changes: postExtra.changes }), ...(postExtra.late !== true && postExtra.progress !== true ? { openingPost: true } : {}) })
+        say(room, { who: sender.name, botId: sender.id, text: line, ...(postExtra.route ? { route: postExtra.route } : {}), ...(files.length > 0 ? { files } : {}), ...(postExtra.claims === undefined ? {} : { claims: postExtra.claims }), ...(postExtra.changes === undefined ? {} : { changes: postExtra.changes }), ...(postExtra.late !== true && postExtra.progress !== true ? { openingPost: true } : {}) })
         if (postExtra.batch !== undefined && line !== '') recordResult(postExtra.batch, sender.name, room.seq)
       }
       callPost(room, running, sender, text, postExtra)
@@ -2704,8 +2747,8 @@ export function install(rt) {
       // keep its batch open until the background work reports back.
       if (rt.hasSubagents?.(sessionId) === true || rt.hasRoomTasks?.(room.id, member.id) === true) {
         if (!isPass(text)) {
-          const calls = callsIn(room, member, text)
-          await postToRoom(room, member, text, { progress: true, ...(!calls ? { quiet: true } : {}) })
+          const route = speechRoute(room, member, text, { ...info, batch: batchOfTurn(room.id, member.id, info) })
+          await postToRoom(room, member, text, { progress: true, route: route.kind === 'request' ? route : roomNote(), ...(route.kind !== 'request' ? { quiet: true } : {}) })
             .catch(error => rt.warn('ds-bot: background progress from %s failed: %s', member.name, error))
         }
         return
@@ -2715,7 +2758,8 @@ export function install(rt) {
       // The admin asked for this result: its goal task is reported at once, even
       // while the other members of the batch still work.
       if (askedBy === room.admin && (!isPass(text) || shown)) rt.goalTaskReported?.(room.id, member.id)
-      const named = mentionsIn(text, room.members.map(rt.botOf).filter(Boolean)).found.filter(bot => bot.id !== member.id)
+      const route = speechRoute(room, member, text, { resultRef: info.resultRef, askedBy, batch })
+      const named = route.kind === 'request' ? addressedMembers(route, room.members.map(rt.botOf).filter(Boolean), member.id) : []
       expandScopedReports(room.id, member.id, named)
       let waitingPeers = false
       let batchDoneBefore = false
@@ -2738,7 +2782,7 @@ export function install(rt) {
       // the same row. Read before posting: the review needs the turn that just ended.
       const changes = await rt.turnChanges?.(sessionId, turn)
       const moved = extra => (changes === undefined ? extra : { ...extra, changes })
-      const post = (body, extra) => postToRoom(room, member, body, { late: true, ...(toolCount > 0 ? { worked: true } : {}), ...moved(extra), ...inBatch, ...(claims === undefined ? {} : { claims }) })
+      const post = (body, extra) => postToRoom(room, member, body, { late: true, route: extra.quiet ? roomNote() : (askedBy && route.kind !== 'request' ? roomResult(askedBy, batch?.key) : route), ...(toolCount > 0 ? { worked: true } : {}), ...moved(extra), ...inBatch, ...(claims === undefined ? {} : { claims }) })
         .catch((error) => {
           if (batch !== undefined) closeBatch(batch.key)
           rt.warn('ds-bot: late group reply from %s failed: %s', member.name, error)
@@ -2777,10 +2821,13 @@ export function install(rt) {
     const member = rt.botOf(owner?.botId)
     return room !== undefined && member !== undefined && room.members.includes(member.id) ? { room, member } : undefined
   }
-  const callsIn = (room, member, text) => mentionsIn(text, room.members.map(rt.botOf).filter(Boolean)).found.some(bot => bot.id !== member.id)
+  const stepRoute = (room, member, text, info) => speechRoute(room, member, text, {
+    ...info, batch: batchOfTurn(room.id, member.id, info),
+    explicitCalls: rt.roomWaiters.get(info?.exchangeId)?.explicitCalls,
+  })
   rt.callsRoomMember = (sessionId, info, raw) => {
     const { room, member } = memberIn(sessionId, info) ?? {}
-    return room !== undefined && member !== undefined && callsIn(room, member, stripOwnName(member.name, raw ?? ''))
+    return room !== undefined && stepRoute(room, member, stripOwnName(member.name, raw ?? ''), info).kind === 'request'
   }
 
   // What a member says while it works, into the group. While the member holds its place
@@ -2793,7 +2840,8 @@ export function install(rt) {
     const { room, member } = memberIn(sessionId, info) ?? {}
     if (room === undefined) return
     ensureRoomLog(room)
-    const calls = callsIn(room, member, text)
+    const route = stepRoute(room, member, text, info)
+    const calls = route.kind === 'request'
     const running = [...rt.roomProgress.values()].find(round => round.roomId === room.id)
     if (!calls && running !== undefined) {
       postInRound(room, member, text)
@@ -2801,7 +2849,7 @@ export function install(rt) {
     }
     const quiet = !calls
     await rt.save()
-    await postToRoom(room, member, text, { progress: true, ...(quiet ? { quiet: true } : {}) })
+    await postToRoom(room, member, text, { progress: true, route: calls ? route : roomNote(), ...(quiet ? { quiet: true } : {}) })
   }
 
   // Lines a member writes close together reach the group as one message, so a burst of
@@ -2838,10 +2886,11 @@ export function install(rt) {
     }
     entry.info = info
     const line = text.trim()
-    if (line === entry.lastLine && !callsIn(room, member, text)) return
+    const calls = stepRoute(room, member, text, info).kind === 'request'
+    if (line === entry.lastLine && !calls) return
     entry.lastLine = line
     entry.lines.push(text)
-    if ((first && info?.role === 'room') || callsIn(room, member, text) || Date.now() - entry.last >= ROOM_STEP_GAP_MS) return flushSteps(sessionId)
+    if ((first && info?.role === 'room') || calls || Date.now() - entry.last >= ROOM_STEP_GAP_MS) return flushSteps(sessionId)
     entry.timer ??= setTimeout(() => void flushSteps(sessionId)?.catch(error => rt.warn('ds-bot: step lines from %s not posted: %s', member.name, error)), entry.last + ROOM_STEP_GAP_MS - Date.now())
   }
   rt.takeRoomSteps = (sessionId) => {

@@ -818,7 +818,7 @@ test('post_to_group waits until an active group_goal completes and reports once 
   const lab = { id: 'r2', name: 'Lab', members: ['b', 'c'], mode: 'admin', admin: 'b', named: true, sessions: { b: 'lb', c: 'lc' }, log: [], seq: 0, seen: {} }
   const host = await start(t, {}, undefined, { r2: lab })
   const oneStage = [{ title: 'Build', acceptance: 'green', tasks: [{ bot: 'Tester', task: 'run tests' }] }]
-  await host.tool('post_to_group', { group: 'Lab', message: '帮我达成发布目标' }, 'a')
+  await host.tool('post_to_group', { group: 'Lab', intent: 'request', message: '帮我达成发布目标' }, 'a')
   const post = host.agentOf('r2').calls.shift()
   const round1 = host.round('g1', { content: post.content, source: post.source }, 'r2')
   await settle(() => host.agentOf('lb').calls.length === 1)
@@ -907,7 +907,7 @@ test('post_to_group report still includes completed goal summary if user clears 
   const lab = { id: 'r2', name: 'Lab', members: ['b', 'c'], mode: 'admin', admin: 'b', named: true, sessions: { b: 'lb', c: 'lc' }, log: [], seq: 0, seen: {} }
   const host = await start(t, {}, undefined, { r2: lab })
   const oneStage = [{ title: 'Ship', acceptance: 'green', tasks: [{ bot: 'Tester', task: 'verify' }] }]
-  await host.tool('post_to_group', { group: 'Lab', message: '完成发布目标并归档' }, 'a')
+  await host.tool('post_to_group', { group: 'Lab', intent: 'request', message: '完成发布目标并归档' }, 'a')
   const post = host.agentOf('r2').calls.shift()
   const round = host.round('g-clear', { content: post.content, source: post.source }, 'r2')
   await settle(() => host.agentOf('lb').calls.length === 1)

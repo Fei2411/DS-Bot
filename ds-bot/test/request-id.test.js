@@ -257,7 +257,7 @@ test('a request with an id in a group calls the member once', async (t) => {
   t.after(async () => { await stop(); cleanup(home) })
 
   let posts = 0
-  rt.roomStepText = async () => { posts += 1 }
+  rt.postToRoom = async (_room, _sender, _body, post) => { assert.deepEqual(post.route.to, ['b']); posts += 1 }
   const first = await tool('delegate_work', { to: 'Writer', goal: 'do it', request_id: 'r-1' }, 'ga')
   assert.match(first, /^Called Writer in "Ops"/)
   assert.equal(posts, 1)

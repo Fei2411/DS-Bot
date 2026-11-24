@@ -262,6 +262,25 @@ await step('admin calls everyone', () => send(roomNamed('研发群').id, '讨论
   return expect(answers.length >= 2, `expected at least two answers, got ${answers.length}`)
 })
 
+await step('group request returns once; mentions in the goal, result and receipt do not wake peers',
+  () => send(roomNamed('研发群').id, '@Chief route-contract: start'), () => {
+    const room = roomNamed('研发群')
+    const lines = room.log.slice(room.log.findLastIndex(line => line.who === 'User') + 1).filter(line => line.botId)
+    const routed = lines.filter(line => line.text.includes('route-contract:'))
+    return expect(JSON.stringify(routed.map(line => [line.who, line.route?.kind])) === JSON.stringify([
+      ['Chief', 'request'], ['Writer', 'result'], ['Chief', 'note'],
+    ]), `unexpected routing: ${routed.map(line => `${line.who}:${line.route?.kind}`)}`)
+      ?? expect(!lines.some(line => line.who === 'Coder') && !room.paused?.length, 'an FYI opened or parked another turn')
+  })
+
+await step('a private completion rejects a fresh acknowledgement delegation without waking the worker',
+  () => send(chief().id, '转告 Writer: route-contract: check backup'), async (_value, calls) => {
+    const messages = await api('exchange', { a: chief().id, b: botNamed('Writer').id })
+    const marked = messages.filter(entry => entry.text?.includes('route-contract:'))
+    return expect(calls.some(call => call.out?.some(block => block.name === 'delegate_work' && block.input?.goal === 'route-contract: acknowledgement')), 'the model never attempted the bounce')
+      ?? expect(marked.map(entry => entry.role).join(',') === 'request,reply', `unexpected private deliveries: ${marked.map(entry => entry.role)}`)
+  })
+
 await step('Chief posts to the group', () => send(chief().id, '群发 研发群: 今天下午开会'), () => {
   const log = roomNamed('研发群').log ?? []
   return expect(log.some(line => line.who === 'Chief' && line.text.includes('今天下午开会')), 'post missing from the group log')
