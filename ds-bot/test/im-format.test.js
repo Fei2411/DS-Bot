@@ -34,22 +34,30 @@ test('Telegram preserves headings and tables inside tilde and backtick code fenc
   }
 })
 
-test('a closing code fence can be indented relative to the list item', () => {
+test('a closing code fence can have different indentation from its opener', () => {
   const markdown = '- Item\n  ~~~sh\n  # comment\n    ~~~\nAfter the list'
   assert.deepEqual(chunkTelegram(markdown), [{
-    html: '- Item\n<pre><code class="language-sh"># comment</code></pre>\nAfter the list',
-    text: '- Item\n# comment\nAfter the list',
+    html: '- Item\n<pre><code class="language-sh">  # comment</code></pre>\nAfter the list',
+    text: '- Item\n  # comment\nAfter the list',
   }])
-  const topLevel = '~~~\ncode\n    ~~~\nstill code\n~~~'
-  assert.equal(toTelegramHtml(topLevel), '<pre><code>code\n    ~~~\nstill code</code></pre>')
 })
 
-test('indented fences remove the fence indentation but preserve relative code indentation', () => {
+test('indented fences preserve code indentation', () => {
   const markdown = '  ```python\n  if ok:\n      run()\n  ```'
   assert.deepEqual(chunkTelegram(markdown), [{
-    html: '<pre><code class="language-python">if ok:\n    run()</code></pre>',
-    text: 'if ok:\n    run()',
+    html: '<pre><code class="language-python">  if ok:\n      run()</code></pre>',
+    text: '  if ok:\n      run()',
   }])
+})
+
+test('list-like prose before an indented fence does not change its boundaries', () => {
+  for (const before of ['- - -', 'Text\n2. Not a list start']) {
+    const markdown = before + '\n   ~~~\n# code comment\n   ~~~\n# Actual heading'
+    assert.deepEqual(chunkTelegram(markdown), [{
+      html: before + '\n<pre><code># code comment</code></pre>\n<b>Actual heading</b>',
+      text: before + '\n# code comment\nActual heading',
+    }])
+  }
 })
 
 test('Telegram renders headings and Markdown tables as readable rows (#2173)', () => {

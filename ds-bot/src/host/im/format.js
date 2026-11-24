@@ -37,15 +37,13 @@ function inlinePlain(line) {
 
 // One Markdown document as blocks: fenced code stays a block of its own so chunking
 // can keep it whole; the rest splits on blank lines.
-const LIST_ITEM = /^( {0,3})([-+*]|\d{1,9}[.)])([ \t]+|$)/
-const FENCE_OPEN = /^( {0,3})(`{3,}|~{3,})([^\r\n]*)\r?$/
-const FENCE_CLOSE = /^ {0,3}(`{3,}|~{3,})[ \t\r]*$/
+const FENCE_OPEN = /^(`{3,}|~{3,})([^\r\n]*)\r?$/
+const FENCE_CLOSE = /^(`{3,}|~{3,})[ \t\r]*$/
 
 function blocks(markdown) {
   const out = []
   const lines = String(markdown).split('\n')
   let at = 0
-  let listIndent = 0
   let buffer = []
   const flush = () => {
     if (buffer.length > 0) out.push({ kind: 'text', lines: buffer })
@@ -53,34 +51,19 @@ function blocks(markdown) {
   }
   while (at < lines.length) {
     const line = lines[at]
-    if (line.trim() !== '' && !line.startsWith(' '.repeat(listIndent))) listIndent = 0
-    const fence = FENCE_OPEN.exec(line.slice(listIndent))
-    if (fence !== null && (fence[2][0] === '~' || !fence[3].includes('`'))) {
+    const fence = FENCE_OPEN.exec(line.trimStart())
+    if (fence !== null && (fence[1][0] === '~' || !fence[2].includes('`'))) {
       flush()
-      const marker = fence[2]
-      const indent = listIndent + fence[1].length
-      const body = []
-      let closed = false
+      const marker = fence[1]
       let end = at + 1
       for (; end < lines.length; end += 1) {
-        const content = lines[end]
-        if (content.trim() !== '' && !content.startsWith(' '.repeat(listIndent))) break
-        const close = FENCE_CLOSE.exec(content.slice(listIndent))?.[1]
-        if (close?.[0] === marker[0] && close.length >= marker.length) {
-          closed = true
-          break
-        }
-        body.push(content.replace(/^ */, space => space.slice(indent)))
+        const close = FENCE_CLOSE.exec(lines[end].trimStart())?.[1]
+        if (close?.[0] === marker[0] && close.length >= marker.length) break
       }
-      const lang = fence[3].trim().split(/\s+/, 1)[0]
-      out.push({ kind: 'code', lang, lines: body })
-      at = closed ? end + 1 : end
+      const lang = fence[2].trim().split(/\s+/, 1)[0]
+      out.push({ kind: 'code', lang, lines: lines.slice(at + 1, end) })
+      at = end + 1
       continue
-    }
-    const item = LIST_ITEM.exec(line)
-    if (item !== null) {
-      const padding = item[3].length
-      listIndent = item[1].length + item[2].length + (padding > 0 && padding < 5 ? padding : 1)
     }
     if (line.trim() === '') flush()
     else buffer.push(line)
@@ -96,6 +79,7 @@ const renderCodeHtml = block => `${codeHtmlOpen(block.lang)}${escapeHtml(block.l
 const renderPlain = block => (block.kind === 'code' ? block.lines.join('\n') : block.lines.map(inlinePlain).join('\n'))
 
 const ATX_HEADING = /^ {0,3}#{1,6}[ \t]+(.+?)\s*$/
+const LIST_ITEM = /^ {0,3}(?:[-+*]|\d{1,9}[.)])(?:[ \t]|$)/
 const TABLE_DELIMITER = /^:?-+:?$/
 
 function tableCells(line) {
