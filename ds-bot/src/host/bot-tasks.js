@@ -81,6 +81,7 @@ export function install(rt) {
   // during `session/event` (`agent/inbox/spliced` with removedCount > 0 && inserted.length > 0)
   // and consumed immediately on the paired `agent/inbox/inserted` notification.
   const replacedIds = new Set()
+  const movingHandoffInputs = new Set()
   // Idle `taskOwners` sessions whose stale user prompt was pulled during `agent/inbox/inserted`:
   // reject the phantom empty wake that `ReactLoopAgent.send()` still triggers right afterward.
   const rejectEmptyTaskWake = new Set()
@@ -1014,6 +1015,10 @@ export function install(rt) {
             await active?.promise?.catch(() => {})
           }
           if (!stillPending(entry)) continue
+          if (entry.discarded === true) {
+            await clearPendingTransfers([{ key, token }])
+            continue
+          }
           let targetSid
           let label
           let bot
@@ -1285,6 +1290,9 @@ export function install(rt) {
 
   const transferKey = (owner, id = owner?.id) => JSON.stringify([owner?.botId, owner?.roomId, id])
   const transferRefOf = item => ({ key: item.transferKey, token: item.transferToken })
+  const pendingTransferOf = key => key !== undefined && Array.isArray(state.pendingHandoffInputs)
+    ? state.pendingHandoffInputs.find(entry => transferKey(entry) === key)
+    : undefined
 
   const recordPendingTransfers = (items, owner) => {
     if (rt.readOnly?.() !== undefined || items.length === 0) return
@@ -1335,8 +1343,7 @@ export function install(rt) {
     const { key, token } = transferRefOf(item)
     if (key === undefined || transferOwnerToken.get(key) !== token
       || sessionId === undefined || rt.readOnly?.() !== undefined) return
-    if (!Array.isArray(state.pendingHandoffInputs)) return
-    const entry = state.pendingHandoffInputs.find(entry => transferKey(entry) === key)
+    const entry = pendingTransferOf(key)
     if (entry === undefined) return
     let changed = false
     if (entry.recipientSessionId !== sessionId) {
@@ -1424,13 +1431,14 @@ export function install(rt) {
     noteLogicalAdmittedRpc(sessionId, rpcId)
   }
 
+  const transferOwnerKey = entry => entry.roomId !== undefined ? `room:${entry.roomId}`
+    : entry.botId !== undefined ? `bot:${entry.botId}` : undefined
+
   const hasPendingTransfer = (ownerKey, rpcId) => Array.isArray(state.pendingHandoffInputs)
     && state.pendingHandoffInputs.some(entry => {
       if (entry?.id !== rpcId && entry?.source?.rpcId !== rpcId) return false
       if (typeof rpcId === 'string' && rpcId.startsWith('im:')) return true
-      const key = entry.roomId !== undefined ? `room:${entry.roomId}`
-        : entry.botId !== undefined ? `bot:${entry.botId}` : undefined
-      return key === ownerKey
+      return transferOwnerKey(entry) === ownerKey
     })
 
   // Records a completed `sendUser` prompt acknowledgement without polluting the per-session
@@ -1709,6 +1717,15 @@ export function install(rt) {
     return false
   }
 
+  const removeForHandoff = (agent, id) => {
+    movingHandoffInputs.add(id)
+    try {
+      return agent.inbox.remove(id)
+    } finally {
+      movingHandoffInputs.delete(id)
+    }
+  }
+
   // Pulls earlier pending user-authored messages in FIFO order (next-step before
   // next-turn, matching DSH claim order) so queued foreground prompts travel with
   // a foreground handoff instead of being stranded on the background task.
@@ -1724,7 +1741,7 @@ export function install(rt) {
     const sid = agent.id ?? agent.session?.id
     const sidSet = sid === undefined ? undefined : admittedRpcIds.get(sid)
     for (const item of pending) {
-      if (agent.inbox.remove(item.msg.id)) {
+      if (removeForHandoff(agent, item.msg.id)) {
         if (sidSet !== undefined) {
           sidSet.delete(item.msg.id)
           if (item.msg.source?.rpcId !== undefined) sidSet.delete(item.msg.source.rpcId)
@@ -1869,6 +1886,7 @@ export function install(rt) {
     let nextIndex = 0
     // Sessions that have accepted items in this batch and still await a positive flush() === true.
     const pendingFlushBySession = new Map() // sid -> { session, items: Map<transferKey, transfer> }
+    const discarded = []
     const trackForFlush = (sid, session, { key, token }, checkAdmission) => {
       let bucket = pendingFlushBySession.get(sid)
       if (bucket === undefined) {
@@ -1880,7 +1898,7 @@ export function install(rt) {
       if (key !== undefined) bucket.items.set(key, { token, checkAdmission })
     }
     const flushPendingBuckets = async () => {
-      const confirmed = []
+      const confirmed = discarded.splice(0)
       let hadFalse = false
       let firstError
       for (const [sid, bucket] of [...pendingFlushBySession.entries()]) {
@@ -1985,6 +2003,11 @@ export function install(rt) {
               && !rt.isHiddenBotWorkTurn?.(targetBotId, activeTurnInfo(initialEntry))
             while (nextIndex < items.length) {
               const item = items[nextIndex]
+              if (pendingTransferOf(item.transferKey)?.discarded === true) {
+                discarded.push(transferRefOf(item))
+                nextIndex += 1
+                continue
+              }
               const rpcId = item.transferId ?? item.msg?.source?.rpcId
               if (handoffInputClaimed(freshAgent, rpcId)) {
                 await flushPendingBuckets()
@@ -2652,7 +2675,7 @@ export function install(rt) {
     if (taskOwner !== undefined) {
       if (agent?.inbox?.remove === undefined) return false
       const wasIdle = agent.status === 'idle'
-      if (!agent.inbox.remove(msg.id)) return false
+      if (!removeForHandoff(agent, msg.id)) return false
       if (wasIdle && !hasWakingInboxInput(agent)) rejectEmptyTaskWake.add(id)
       clearSteeredAt()
       const pulled = [{ msg, target, oldAgent: agent }]
@@ -2699,7 +2722,7 @@ export function install(rt) {
       const liveEntry = rt.live.get(id)
       if (bot !== undefined && target === 'next-step' && liveEntry?.turn !== undefined
         && rt.isHiddenBotWorkTurn?.(bot.id, activeTurnInfo(liveEntry)) && agent?.inbox?.remove !== undefined) {
-        if (agent.inbox.remove(msg.id)) {
+        if (removeForHandoff(agent, msg.id)) {
           clearSteeredAt()
           skipInterceptIds.add(msg.id)
           try {
@@ -2714,7 +2737,7 @@ export function install(rt) {
     }
     if (agent?.inbox?.remove === undefined) return false
     const earlier = handoffing.get(bot.id)?.oldSid === id ? [] : pullPendingUserMessages(agent, msg.id)
-    if (!agent.inbox.remove(msg.id)) {
+    if (!removeForHandoff(agent, msg.id)) {
       if (earlier.length > 0) void restorePulledMessages(earlier)
       return false
     }
@@ -2735,6 +2758,25 @@ export function install(rt) {
     if (!pulled && message?.source?.rpcId !== undefined) {
       noteAdmittedRpc(agent?.id ?? agent?.session?.id, message.source.rpcId)
     }
+  })
+
+  ctx.on('agent/inbox/discarded', ({ agent, message } = {}) => {
+    if (message?.source?.kind !== 'user' || movingHandoffInputs.has(message.id)
+      || rt.isMovingInboxMessage?.(message.id) || !Array.isArray(state.pendingHandoffInputs)) return
+    const owner = logicalOwnerOf(agent?.id ?? agent?.session?.id)
+    if (owner === undefined) return
+    const rpcId = message.source.rpcId
+    const entry = state.pendingHandoffInputs.find(item => item !== null && typeof item === 'object'
+      && transferOwnerKey(item) === owner && (item.messageId === message.id
+        || (rpcId !== undefined && (item.id === rpcId || item.source?.rpcId === rpcId))))
+    if (entry === undefined) return
+    // Queue edits and steers can discard and reinsert the same input synchronously.
+    queueMicrotask(() => {
+      if (!state.pendingHandoffInputs?.includes(entry) || rt.readOnly?.() !== undefined
+        || hasSessionAdmission(agent, message.id) || handoffInputClaimed(agent, message.id)) return
+      entry.discarded = true
+      void rt.save().catch(() => {})
+    })
   })
 
   // Strict turn/end state machine guard + in-place queue edit (`inbox.replace`) tagging.

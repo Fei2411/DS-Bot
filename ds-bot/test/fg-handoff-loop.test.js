@@ -209,6 +209,11 @@ async function createRealLoopRig(t, { prefs = {}, failForkAndCreate = false, hol
       listener(payload)
     }
   })
+  root.on('agent/inbox/discarded', (payload) => {
+    for (const listener of ctx.listeners.get('agent/inbox/discarded') ?? []) {
+      listener(payload)
+    }
+  })
   root.on('agent/pre-step', (req, next) => {
     const chain = ctx.listeners.get('agent/pre-step') ?? []
     const run = index => (index < chain.length ? chain[index](req, () => run(index + 1)) : next())
@@ -955,6 +960,31 @@ test('legacy handoff records with the same RPC ID replay independently for diffe
   for (const botId of ['a', 'b']) assert.equal(rig.repliesBySession.get(`dm-${botId}`)?.length ?? 0, 1, `Bot ${botId} should receive its own input`)
 })
 
+test('recovery does not replay a queued copy the user deleted after a failed flush', async (t) => {
+  const rig = await createRealLoopRig(t, { durable: true })
+  const agent = rig.agents.get('dm-a')
+  agent.followup(userPrompt('Please run slow work'))
+  await rig.toolStarted.promise
+  const prompt = userPrompt('Do not bring this back after I remove it')
+  rig.rt.state.pendingHandoffInputs = [{
+    id: prompt.id, messageId: prompt.id, botId: 'a', target: 'next-step',
+    source: prompt.source, content: prompt.content,
+  }]
+  await rig.rt.save()
+  const flush = t.mock.method(rig.rt.ctx.sessions, 'flush', async () => false)
+  await rig.rt.reconcileTasksAfterRestart()
+  assert.deepEqual(journal(rig).map(item => item.messageId), [prompt.id])
+  const queued = agent.inbox.nextStep.find(item => item.source.rpcId === prompt.id)
+  assert.ok(queued)
+  assert.equal(agent.inbox.remove(queued.id), true)
+  await rig.rt.save()
+  flush.mock.restore()
+  await rig.rt.reconcileTasksAfterRestart()
+
+  assert.deepEqual(journal(rig), [])
+  assert.equal(agent.inbox.nextStep.some(item => item.source.rpcId === prompt.id), false)
+})
+
 test('recovery recognizes a restored input after a later part switch copies it to a new message ID', async (t) => {
   const rig = await createRealLoopRig(t, { durable: true, failForkAndCreate: true, holdFork: true })
   const old = rig.agents.get('dm-a')
@@ -974,10 +1004,13 @@ test('recovery recognizes a restored input after a later part switch copies it t
   const clone = createUserMessage({ content: original.content, source: original.source })
   assert.notEqual(clone.id, original.id)
   const fresh = await rig.makeRealAgent('next-part')
+  rig.rt.botOf('a').segments = [{ sessionId: 'dm-a' }]
   rig.rt.botOf('a').sessionId = 'next-part'
   await rig.rt.save()
   rig.rt.ctx.sessions = sessions
+  const moving = t.mock.method(rig.rt, 'isMovingInboxMessage', id => id === original.id)
   assert.equal(old.inbox.remove(original.id), true)
+  moving.mock.restore()
   fresh.followup(clone)
   await fresh.whenIdle()
   const flush = t.mock.method(sessions, 'flush', async session => session.id === 'dm-a')
