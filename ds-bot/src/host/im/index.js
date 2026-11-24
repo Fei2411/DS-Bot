@@ -1431,7 +1431,7 @@ export function install(rt) {
         await sendText(conn, msg.chat, text('backgroundGroupOnly'))
         return
       }
-      const bgKey = platformMsgId !== '' ? `bg:${conn.id}:${msg.chat.key}:bot:${target.botId}:${platformMsgId}` : ''
+      const bgKey = platformMsgId !== '' ? `bg:${conn.id}:${msg.chat.key}:${platformMsgId}` : ''
       if (bgKey !== '' && !markInboundSeen(bgKey)) return
       const operationId = bgKey !== '' ? `im:${conn.platform}:${bgKey}` : undefined
       let res
@@ -1500,8 +1500,7 @@ export function install(rt) {
       return
     }
     const sessionId = target.botId ?? target.roomId
-    const bindingKey = target.botId !== undefined ? `bot:${target.botId}` : `room:${target.roomId}`
-    const inboundKey = platformMsgId !== '' ? `${conn.id}:${msg.chat.key}:${bindingKey}:${platformMsgId}` : ''
+    const inboundKey = platformMsgId !== '' ? `${conn.id}:${msg.chat.key}:${platformMsgId}` : ''
     if (inboundKey !== '' && !markInboundSeen(inboundKey)) return
     let requestId
     try {

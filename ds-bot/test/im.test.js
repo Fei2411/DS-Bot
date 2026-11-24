@@ -4118,17 +4118,23 @@ test('IM /steer, /background, and platform messageId redelivery deduplication (#
   await dm(s, 'u1', '?', { messageId: 'qq-msg-2' })
   assert.equal(s.prompts.length, 3, 'distinct platform messageId with identical text must still deliver')
 
-  // 3) /background calls moveForegroundToBackground explicitly with operationId, and redelivery with the same messageId does NOT move a later turn.
+  // 3) /background calls moveForegroundToBackground explicitly with operationId, and redelivery
+  //    with the same messageId does NOT move a later turn OR another Bot after rebinding the chat.
   const bgCalls = []
   s.rt.moveForegroundToBackground = async ({ botId, operationId }) => {
     bgCalls.push({ botId, operationId })
-    return { sessionId: `a-new-${bgCalls.length}`, taskId: `k_im_bg_${bgCalls.length}`, moved: true }
+    return { sessionId: `${botId}-new-${bgCalls.length}`, taskId: `k_im_bg_${bgCalls.length}`, moved: true }
   }
   await dm(s, 'u1', '/background', { messageId: 'im-bg-1' })
   await dm(s, 'u1', '/bg', { messageId: 'im-bg-1' })
-  assert.equal(bgCalls.length, 1, 'redelivered /bg with same messageId must NOT move a second turn')
+  // Rebind chat from Bot 'a' to Bot 'b' and redeliver the exact same platform messageId -> MUST still dedup!
+  one.chats['dm-u1'].target = { botId: 'b' }
+  await dm(s, 'u1', '/bg', { messageId: 'im-bg-1' })
+  one.chats['dm-u1'].target = { botId: 'a' }
+  assert.equal(bgCalls.length, 1, 'redelivered /bg with same messageId must NOT move a second turn or another Bot after rebinding')
   assert.equal(bgCalls[0].botId, 'a')
   assert.ok(bgCalls[0].operationId?.includes('im-bg-1'), '/background must pass a stable operationId derived from platform messageId')
+  assert.equal(bgCalls[0].operationId?.includes(':bot:a:'), false, '/background operationId must NOT depend on current Bot binding')
   assert.match(s.fake.sent.at(-1).text, /background/i)
 
   // 4) If origin persistence fails before sendUser (e.g. Weixin save failure), seenInboundIds is cleared so redelivery succeeds.

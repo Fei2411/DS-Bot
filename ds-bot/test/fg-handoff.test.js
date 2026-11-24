@@ -1182,3 +1182,282 @@ test('shouldSpawnPeerTask is decoupled from shell backgroundAfterSec setting', a
   assert.equal(env0.rt.shouldSpawnPeerTask(env0.rt.botOf('a'), 'dm-a'), true)
   assert.equal(env600.rt.shouldSpawnPeerTask(env600.rt.botOf('a'), 'dm-a'), true)
 })
+
+test('forwardPulledMessages flushes the exact receiving session on retry, and reconcile does not clear journal when matched session fails flush', async (t) => {
+  const env = await startEnv()
+  t.after(env.stop)
+  const dmA = env.agentMap.get('dm-a')
+  dmA.status = 'running'
+  await env.emit('dm-a', 'turn/start', { turn: 1 })
+  await env.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'dm-a' })
+  assert.equal(env.rt.botOf('a').sessionId, 'fork-1')
+
+  // 1) Stale tab sends to dm-a -> forwarded to fork-1 -> flush(fork-1) throws once!
+  //    Before retry runs, fork-1 moves to background (bot.sessionId -> fork-2).
+  //    Retry MUST flush fork-1 (NOT fork-2) before clearing the journal!
+  const flushedSessions = []
+  let failFork1FlushOnce = true
+  let moveFork1AfterFirstFlush = true
+  env.ctx.sessions.flush = async (session) => {
+    flushedSessions.push(session.id)
+    if (session.id === 'fork-1' && failFork1FlushOnce) {
+      failFork1FlushOnce = false
+      if (moveFork1AfterFirstFlush) {
+        moveFork1AfterFirstFlush = false
+        const fork1 = env.agentMap.get('fork-1')
+        fork1.status = 'running'
+        await env.emit('fork-1', 'turn/start', { turn: 1 })
+        // Move fork-1 to background while forwardPulledMessages is in retry backoff.
+        queueMicrotask(() => { void env.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'fork-1' }) })
+      }
+      throw new Error('transient flush error on fork-1')
+    }
+    if (session.id === 'fork-1') return false // second flush on fork-1 still has no persistence!
+    return true
+  }
+
+  const msg = { id: 'u-flush-exact', role: 'user', content: [{ type: 'text', text: 'Persist on fork-1' }], source: { kind: 'user', rpcId: 'rpc-flush-exact' } }
+  dmA.inbox.nextTurn.push(msg)
+  await env.emit('dm-a', 'agent/inbox/spliced', { target: 'next-turn', inserted: [msg] })
+  await waitFor(() => env.rt.botOf('a').sessionId === 'fork-2' && flushedSessions.filter(s => s === 'fork-1').length >= 2)
+  await new Promise(r => setTimeout(r, 120))
+
+  // fork-2 must NOT have been flushed to clear fork-1's journal entry, and journal must remain while flush(fork-1) returns false.
+  assert.equal(env.rt.state.pendingHandoffInputs?.some(e => e?.id === 'rpc-flush-exact'), true, 'journal must stay until receiving session fork-1 returns flush() === true')
+  assert.equal(env.agentMap.get('fork-2').followups.length, 0)
+
+  // 2) Reconcile finds rpc-flush-exact on moved session fork-1, but flush(fork-1) STILL returns false -> journal must stay!
+  await env.rt.reconcileTasksAfterRestart()
+  assert.equal(env.rt.state.pendingHandoffInputs?.some(e => e?.id === 'rpc-flush-exact'), true, 'reconcile must not clear journal while matched moved session flush() returns false')
+
+  // Once flush(fork-1) returns true, reconcile clears journal cleanly.
+  env.ctx.sessions.flush = async () => true
+  await env.rt.reconcileTasksAfterRestart()
+  assert.equal(env.rt.state.pendingHandoffInputs, undefined)
+})
+
+test('sendUser prompt ack does NOT pollute old session admittedRpcIds when inbox hook pulled message during move', async (t) => {
+  const env = await startEnv()
+  t.after(env.stop)
+  const dmA = env.agentMap.get('dm-a')
+  dmA.status = 'running'
+  await env.emit('dm-a', 'turn/start', { turn: 1 })
+
+  // While prompt('dm-a') runs, dm-a moves to background, inbox hook pulls msg out of dm-a,
+  // and forwarding to fork-1 temporarily fails (flush returns false).
+  let failForward = true
+  const origResolve = env.ctx.sessionController.resolveAgent
+  env.ctx.sessionController.resolveAgent = async (sid) => {
+    if (sid === 'fork-1' && failForward) throw new Error('fork-1 temporarily unavailable')
+    return origResolve(sid)
+  }
+  env.ctx.sessionController.prompt = async (req) => {
+    await env.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'dm-a' })
+    const m = { id: 'm-pulled-send', role: 'user', content: req.content, source: { kind: 'user', rpcId: req.requestId } }
+    dmA.inbox.nextTurn.push(m)
+    await env.emit('dm-a', 'agent/inbox/spliced', { target: 'next-turn', inserted: [m] })
+  }
+
+  await env.rt.sendUser({ sessionId: 'dm-a', content: [{ type: 'text', text: 'Do not lose me' }], requestId: 'req-send-pulled' })
+  // Wait for forwardPulledMessages retries (50 + 250ms) to exhaust.
+  await new Promise(r => setTimeout(r, 420))
+  assert.equal(env.rt.isAdmittedOn(dmA, 'req-send-pulled'), false, 'pulled message must NOT pollute old dm-a admittedRpcIds')
+  assert.equal(env.rt.state.pendingHandoffInputs?.some(e => e?.id === 'req-send-pulled'), true)
+
+  // Recover fork-1 and run reconcile -> message MUST land on fork-1 instead of being dropped!
+  failForward = false
+  await env.rt.reconcileTasksAfterRestart()
+  assert.equal(env.agentMap.get('fork-1').followups.some(m => m.content[0].text === 'Do not lose me'), true)
+  assert.equal(env.rt.state.pendingHandoffInputs, undefined)
+})
+
+test('aborted explicit move never restores intercepted input into a session moved to background by a concurrent second move', async (t) => {
+  let releaseFork1
+  let forkCall = 0
+  let pauseFlushOnce = false
+  const flushStarted = Promise.withResolvers()
+  const flushGate = Promise.withResolvers()
+  const env = await startEnv({
+    forkImpl: async (_opts, make) => {
+      forkCall += 1
+      if (forkCall === 1) {
+        return new Promise((resolve) => { releaseFork1 = () => resolve({ sessionId: make() }) })
+      }
+      return { sessionId: make() }
+    },
+  })
+  t.after(env.stop)
+  // Also simulate restorePulledMessages encountering a session that ALREADY moved to background (e.g. during async gap).
+  const dmA = env.agentMap.get('dm-a')
+  dmA.status = 'running'
+  await env.emit('dm-a', 'turn/start', { turn: 1 })
+
+  const move1 = env.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'dm-a', expectedTurn: 1, operationId: 'op-m1' })
+  await waitFor(() => typeof releaseFork1 === 'function')
+  const intercepted = { id: 'u-abort-reroute', role: 'user', content: [{ type: 'text', text: 'Keep on live foreground' }], source: { kind: 'user', rpcId: 'rpc-abort-reroute' } }
+  dmA.inbox.nextStep.push(intercepted)
+  await env.emit('dm-a', 'agent/inbox/spliced', { target: 'next-step', inserted: [intercepted] })
+
+  // Turn 1 ends and Turn 2 starts -> move1 will abort with bot/stale.
+  await env.emit('dm-a', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  await env.emit('dm-a', 'turn/start', { turn: 2 })
+
+  // Simulate Move 2 committing right when Move 1 releases and tries to restore!
+  const origArchive = env.ctx.workspaceRegistry.archiveSession
+  env.ctx.workspaceRegistry.archiveSession = async (...args) => origArchive(...args)
+  // Trigger move2 right after move1's fork resolves by letting restorePulledMessages see moved dm-a via fork1 abort:
+  // First verify that when dm-a is already a taskOwner before restore runs, restore routes to fork-2 instead of dm-a.
+  const origFlush = env.ctx.sessions.flush
+  env.ctx.sessions.flush = async (session) => {
+    if (pauseFlushOnce) {
+      pauseFlushOnce = false
+      flushStarted.resolve()
+      await flushGate.promise
+    }
+    return origFlush(session)
+  }
+
+  // Test the exact scenario: during move1's fork, a second move has ALREADY committed on dm-a (bot.sessionId moved to fork-2).
+  releaseFork1()
+  await assert.rejects(() => move1, err => err?.code === 'bot/stale')
+  assert.equal(dmA.inbox.nextStep.some(m => m.id === 'u-abort-reroute'), true, 'restored to dm-a while dm-a is still foreground')
+
+  // Now test restore directly when dm-a HAS moved to background (taskOwners has dm-a, bot.sessionId is fork-2):
+  dmA.inbox.remove('u-abort-reroute')
+  let releaseFork3
+  const env2 = await startEnv({
+    forkImpl: async (_opts, make) => {
+      if (releaseFork3 === undefined) {
+        return new Promise((resolve) => { releaseFork3 = () => resolve({ sessionId: make() }) })
+      }
+      return { sessionId: make() }
+    },
+  })
+  t.after(env2.stop)
+  const dm2 = env2.agentMap.get('dm-a')
+  dm2.status = 'running'
+  await env2.emit('dm-a', 'turn/start', { turn: 1 })
+  const moveA = env2.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'dm-a', expectedTurn: 1 })
+  await waitFor(() => typeof releaseFork3 === 'function')
+  const msgA = { id: 'u-race-move2', role: 'user', content: [{ type: 'text', text: 'Must reach fork-2' }], source: { kind: 'user', rpcId: 'rpc-race-move2' } }
+  dm2.inbox.nextStep.push(msgA)
+  await env2.emit('dm-a', 'agent/inbox/spliced', { target: 'next-step', inserted: [msgA] })
+  // Simulate another move committing dm-a -> fork-2 before moveA's fork returns.
+  env2.rt.botOf('a').sessionId = 'fork-2'
+  env2.rt.chatOwners.set('fork-2', 'a')
+  env2.rt.taskOwners.set('dm-a', { botId: 'a', taskId: 'k_other' })
+  releaseFork3()
+  await moveA
+  await waitFor(() => env2.agentMap.get('fork-2')?.followups.length === 1)
+  assert.equal(dm2.inbox.nextStep.length, 0, 'background task dm-a must NOT receive rolled-back user input')
+  assert.equal(env2.agentMap.get('fork-2').followups[0].content[0].text, 'Must reach fork-2')
+})
+
+test('moveForegroundToBackground fails closed when team lock is lost (required save) and persists operationId across restart', async (t) => {
+  const env = await startEnv()
+  t.after(env.stop)
+  const dmA = env.agentMap.get('dm-a')
+  dmA.status = 'running'
+  await env.emit('dm-a', 'turn/start', { turn: 1 })
+
+  // 1) Simulate store.js losing state.lock: optional save() resolves silently, save({ required: true }) rejects!
+  const origSave = env.rt.save
+  let lockLost = true
+  env.rt.save = async (opts = {}) => {
+    if (lockLost) {
+      if (opts?.required) throw new Error('This host cannot save the Bot team: another window owns it')
+      return undefined
+    }
+    return origSave(opts)
+  }
+
+  await assert.rejects(
+    () => env.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'dm-a', expectedTurn: 1, operationId: 'op-lock-1' }),
+    /cannot save the Bot team/,
+  )
+  // Retrying while lock is STILL lost must STILL reject (never falsely report moved: true).
+  await assert.rejects(
+    () => env.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'dm-a', expectedTurn: 1, operationId: 'op-lock-1' }),
+    /cannot save the Bot team/,
+  )
+  assert.equal(env.rt.state.completedMoveOps?.['op-lock-1'], undefined, 'unsaved move must not stay persisted in state.completedMoveOps')
+
+  // Regain lock -> retry succeeds and persists op-lock-1 into state.completedMoveOps!
+  lockLost = false
+  const ok = await env.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'dm-a', expectedTurn: 1, operationId: 'op-lock-1' })
+  assert.equal(ok.moved, true)
+  assert.equal(env.rt.state.completedMoveOps?.['op-lock-1']?.sessionId, ok.sessionId)
+
+  // 2) Simulate host restart: state.completedMoveOps is loaded from disk, new Turn 2 is running on fork-1,
+  //    replaying op-lock-1 returns cached receipt and MUST NOT move Turn 2!
+  const envRestart = await startEnv({
+    team: makeTeam({
+      bots: {
+        a: {
+          id: 'a',
+          name: 'Chief',
+          role: 'Boss',
+          sessionId: 'fork-1',
+          tasks: [{ id: ok.taskId, origin: 'fg-handoff', sessionId: 'dm-a', status: 'completed', startedAt: 1, updatedAt: 2 }],
+          createdAt: 1,
+        },
+      },
+    }),
+  })
+  t.after(envRestart.stop)
+  envRestart.rt.state.completedMoveOps = { 'op-lock-1': { sessionId: 'fork-1', taskId: ok.taskId, moved: true, at: Date.now() } }
+  const fork1 = envRestart.agentMap.get('fork-1')
+  fork1.status = 'running'
+  await envRestart.emit('fork-1', 'turn/start', { turn: 2 })
+
+  const replayed = await envRestart.rt.moveForegroundToBackground({ botId: 'a', operationId: 'op-lock-1' })
+  assert.equal(replayed.sessionId, 'fork-1')
+  assert.equal(replayed.taskId, ok.taskId)
+  assert.equal(envRestart.rt.botOf('a').sessionId, 'fork-1', 'replayed operationId after restart must NOT move Turn 2')
+  assert.equal(envRestart.rt.botOf('a').tasks.length, 1)
+})
+
+test('Mobile sendUser retry stays idempotent after host restart even when completed fg-handoff task session is unloaded on disk', async (t) => {
+  const env = await startEnv({
+    team: makeTeam({
+      bots: {
+        a: {
+          id: 'a',
+          name: 'Chief',
+          role: 'Boss',
+          sessionId: 'fork-1',
+          tasks: [{ id: 'k_done', origin: 'fg-handoff', sessionId: 'dm-a-cold', status: 'completed', startedAt: 1, updatedAt: 2 }],
+          createdAt: 1,
+        },
+      },
+    }),
+  })
+  t.after(env.stop)
+
+  // dm-a-cold is NOT in agentMap and NOT in ctx.sessions; only sessionController.inspect() has its persisted log.
+  assert.equal(env.agentMap.has('dm-a-cold'), false)
+  let inspectCalls = 0
+  env.ctx.sessionController.inspect = async (sid) => {
+    inspectCalls += 1
+    if (sid === 'dm-a-cold') {
+      return {
+        events: [
+          { type: 'user/message', seq: 1, data: { id: 'msg-cold-1', content: [{ type: 'text', text: 'Ship notes' }], source: { kind: 'user', rpcId: 'req-cold-1' } } },
+        ],
+      }
+    }
+    return { events: [] }
+  }
+
+  // Mobile retries req-cold-1 targeting either the cold session or bot id 'a' -> MUST NOT execute on fork-1!
+  await env.rt.sendUser({ sessionId: 'dm-a-cold', content: [{ type: 'text', text: 'Ship notes' }], requestId: 'req-cold-1' })
+  await env.rt.sendUser({ sessionId: 'a', content: [{ type: 'text', text: 'Ship notes' }], requestId: 'req-cold-1' })
+  assert.equal(env.prompts.length, 0, 'already-admitted requestId in unloaded cold fg-handoff task must NOT replay after restart')
+  assert.equal(inspectCalls, 1, 'settled cold task inspection must be cached in memory')
+
+  // A brand new requestId still delivers normally to fork-1 without re-inspecting dm-a-cold.
+  await env.rt.sendUser({ sessionId: 'a', content: [{ type: 'text', text: 'New request' }], requestId: 'req-brand-new' })
+  assert.equal(env.prompts.length, 1)
+  assert.equal(env.prompts[0].sessionId, 'fork-1')
+  assert.equal(inspectCalls, 1)
+})

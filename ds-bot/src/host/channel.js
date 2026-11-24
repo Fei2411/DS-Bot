@@ -1047,21 +1047,23 @@ export function install(rt) {
     return undefined
   }
 
-  async function sendUser({ sessionId: ref, content, requestId = randomUUID(), mode = 'queue' }) {
+  async function sendUser({ sessionId: ref, content, requestId: providedRequestId, mode = 'queue' }) {
+    const callerSupplied = providedRequestId !== undefined
+    const requestId = providedRequestId ?? randomUUID()
     const past = rt.pastOwners.get(ref)
     const room = rt.roomOf(ref)
     let sessionId = ownThreadTarget(ref, past)
       ?? (room !== undefined ? rt.sessionOfRoom(room)
         : past !== undefined ? rt.sessionOfRoom(rt.roomOf(past.roomId)) : ref)
     const ownerBotId = rt.chatOwners.get(sessionId)
-    if (rt.isAdmittedForSend?.({ ref, sessionId, requestId })) return
+    if (await rt.isAdmittedForSend?.({ ref, sessionId, requestId, callerSupplied })) return
     if (ownerBotId !== undefined && !rt.groupOwners.has(sessionId) && !rt.taskOwners?.has(sessionId)) {
       const bot = rt.botOf(ownerBotId)
       if (rt.mustIsolateHiddenWork?.(bot, sessionId)) {
         sessionId = await rt.handoffForeground(bot, sessionId)
       }
     }
-    if (rt.isAdmittedForSend?.({ ref, sessionId, requestId })) return
+    if (await rt.isAdmittedForSend?.({ ref, sessionId, requestId, callerSupplied })) return
     await rt.ensureCapabilities(sessionId)
     const promptMode = mode === 'steer' ? 'steer' : 'queue'
     try {
@@ -1071,7 +1073,7 @@ export function install(rt) {
         mode: promptMode,
         content,
       }, AbortSignal.timeout(30_000))
-      rt.noteAdmittedRpc?.(sessionId, requestId)
+      rt.noteSendPrompted?.(sessionId, requestId)
     } catch (error) {
       if (promptMode === 'steer' && error?.code === 'session/steer-unavailable') {
         await ctx.sessionController.prompt({
@@ -1080,7 +1082,7 @@ export function install(rt) {
           mode: 'queue',
           content,
         }, AbortSignal.timeout(30_000))
-        rt.noteAdmittedRpc?.(sessionId, requestId)
+        rt.noteSendPrompted?.(sessionId, requestId)
         return
       }
       throw error
