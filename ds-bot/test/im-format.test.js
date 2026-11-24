@@ -160,6 +160,10 @@ test('Telegram leaves underline-like lines unchanged after prose and lists', () 
   }
 })
 
+test('Telegram leaves an empty ATX heading as literal text', () => {
+  assert.deepEqual(chunkTelegram('### ###'), [{ html: '### ###', text: '### ###' }])
+})
+
 test('Markdown becomes plain text', () => {
   assert.equal(toPlain('**bold** `code` [site](https://a.b)'), 'bold code site (https://a.b)')
   assert.equal(toPlain('```\nlet x = 1\n```'), 'let x = 1')

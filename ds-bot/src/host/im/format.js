@@ -150,9 +150,10 @@ function telegramLines(lines) {
       }
     }
     const heading = ATX_HEADING.exec(line)
-    const content = heading === null ? line : heading[1].replace(/[ \t]+#+$/, '')
+    const isHeading = heading !== null && !/^#+$/.test(heading[1])
+    const content = isHeading ? heading[1].replace(/[ \t]+#+$/, '') : line
     const html = inlineHtml(content)
-    rendered.push({ html: heading === null ? html : '<b>' + html + '</b>', text: inlinePlain(content) })
+    rendered.push({ html: isHeading ? '<b>' + html + '</b>' : html, text: inlinePlain(content) })
   }
   return rendered
 }
