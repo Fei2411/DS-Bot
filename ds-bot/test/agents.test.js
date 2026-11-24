@@ -4,7 +4,7 @@ import { hostname, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { createRuntime } from '../index.js'
-import { TEAM_TOOLS } from '../src/host/constants.js'
+import { CATALOG_PACK_TOOLS, GROUP_ONLY_TOOLS, TEAM_TOOLS } from '../src/host/constants.js'
 import { fakeContext } from './fake-ctx.js'
 import { installAgentForks } from '../src/client/agent-fork.js'
 
@@ -446,8 +446,11 @@ test('a Bot Session gets the team tools in its own scope; a DSH Agent Session ge
     },
   })
   await flush()
+  // Main Bot m1 in a team with no groups and no catalog packs omits group-only tools
+  // (keeping create_group), delete_group, group_relay, and catalog pack tools.
+  const prunedForGrouplessMain = new Set(['read_browser', 'read_document', 'group_relay', 'delete_group', ...GROUP_ONLY_TOOLS, ...CATALOG_PACK_TOOLS])
   assert.deepEqual(scoped.filter(entry => entry.sessionId === 'm1').map(entry => entry.name).sort(),
-    [...TEAM_TOOLS].filter(name => name !== 'read_browser' && name !== 'read_document').sort())
+    [...TEAM_TOOLS].filter(name => !prunedForGrouplessMain.has(name)).sort())
   assert.equal(restricted.length, 0)
   // An Agent Session is a plain dsh conversation: nothing is scoped onto it and
   // nothing is masked, because the team tools never reach the global layer.

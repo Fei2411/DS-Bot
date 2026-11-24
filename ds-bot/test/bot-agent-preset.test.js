@@ -771,6 +771,43 @@ test('a preset check does not rotate a settled task still named by a stale owner
   assert.equal(host.rt.botOf(writer.id).tasks[0].sessionId, taskSession)
 })
 
+test('a finishing background task settled by turn/end is not rotated on idle after a preset edit', async (t) => {
+  const host = start()
+  t.after(host.stop)
+  await host.call('state')
+  const writer = (await host.call('create-bot', { name: 'Writer', agentPreset: 'standard' })).value
+  const taskSession = 'task-finishing'
+  host.headers.set(taskSession, 'standard')
+  host.rt.botOf(writer.id).tasks = [{
+    id: 'task-1', title: 'Side work', status: 'running', from: writer.id, sessionId: taskSession, segments: [], startedAt: 1, updatedAt: 1,
+  }]
+  host.rt.chatOwners.set(taskSession, writer.id)
+  host.rt.taskOwners.set(taskSession, { botId: writer.id, taskId: 'task-1' })
+  await host.rt.save()
+
+  const list = host.presetService.list
+  let release
+  const held = new Promise(resolve => { release = resolve })
+  let entered = false
+  host.presetService.list = async () => { entered = true; await held; return list() }
+  host.rt.botOf(writer.id).agentPreset = 'research'
+  const before = host.created.length
+
+  // DSH emits turn/end (which schedules settlement via queueMicrotask) followed by idle.
+  for (const listener of host.ctx.listeners.get('session/event') ?? []) {
+    listener(host.agentOf(taskSession).session, { type: 'turn/end', data: { reason: { kind: 'stop' } } })
+  }
+  host.idle(taskSession)
+  await until(() => entered)
+  await until(() => host.rt.botOf(writer.id).tasks[0].status === 'completed')
+  release()
+  await settle()
+  assert.equal(host.state().switching?.[taskSession], undefined)
+  assert.equal(host.created.length, before)
+  assert.equal(host.archived.some(([sessionId]) => sessionId === taskSession), false)
+  assert.equal(host.rt.botOf(writer.id).tasks[0].sessionId, taskSession)
+})
+
 test('changing back during a running turn needs no new part', async (t) => {
   const host = start()
   t.after(host.stop)
