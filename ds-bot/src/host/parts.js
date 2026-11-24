@@ -1296,6 +1296,22 @@ export function install(rt) {
     engineWakes.clear()
   }, 'ds-bot: wake parts that wait for their run mode')
 
+  // The card's call stays in the old part: the fresh part raises it in the
+  // composer dock while pending, and closing it records at the part that asked it.
+  // A group member's IM card is the same store, keyed by the session that asked.
+  function movePendingCards(fromId, freshId) {
+    if (state.questions[fromId] !== undefined) {
+      const pending = state.questions[fromId]
+      state.questions[freshId] = pending.callId && !pending.callSessionId ? { ...pending, callSessionId: fromId } : pending
+      delete state.questions[fromId]
+    }
+    if (state.views?.[fromId] !== undefined) {
+      const pending = state.views[fromId]
+      state.views[freshId] = pending.callId && !pending.callSessionId ? { ...pending, callSessionId: fromId } : pending
+      delete state.views[fromId]
+    }
+  }
+
   async function moveOn(agent, job, signal) {
     job.started = true
     const bot = job.botId === undefined ? undefined : rt.botOf(job.botId)
@@ -1388,6 +1404,7 @@ export function install(rt) {
       room.segments ??= {}
       ;(room.segments[bot.id] ??= []).push(segment)
       room.sessions[bot.id] = freshId
+      movePendingCards(agent.id, freshId)
     } else {
       pushThreadPart(bot, agent.id, freshId, segment)
       // Read the thread again: a part the user opened meanwhile turned this one into a
@@ -1398,18 +1415,7 @@ export function install(rt) {
         // A restart pass must find this thread's new part, not the foreground chat.
         if (state.switching[agent.id] !== undefined) state.switching[agent.id].next = successor
       }
-      // The card's call stays in the old part: the fresh part raises it in the
-      // composer dock while pending, and closing it records at the part that asked it.
-      if (state.questions[agent.id] !== undefined) {
-        const pending = state.questions[agent.id]
-        state.questions[freshId] = pending.callId && !pending.callSessionId ? { ...pending, callSessionId: agent.id } : pending
-        delete state.questions[agent.id]
-      }
-      if (state.views?.[agent.id] !== undefined) {
-        const pending = state.views[agent.id]
-        state.views[freshId] = pending.callId && !pending.callSessionId ? { ...pending, callSessionId: agent.id } : pending
-        delete state.views[agent.id]
-      }
+      movePendingCards(agent.id, freshId)
     }
     // A clear arriving during creation still belongs to the part made with the old pick.
     finishPresetClear(bot, agent.id, presetAtCreation !== undefined ? freshId : undefined)
@@ -2207,11 +2213,18 @@ export function install(rt) {
     if (place?.botId === undefined || agent.status !== 'idle' || readOnly() || switches.has(agent.id)) return
     // Keep the failed turn and its repair controls until the user retries successfully.
     if (lastTurnEnd(agent)?.data?.reason?.kind === 'error') return
+    // An owner map can still name a settled task until the next save. That session
+    // is not one the Bot speaks from, so a preset change must not move it.
+    const bot = rt.botOf(place.botId)
+    if (bot === undefined || !presetSessionsOf(bot).includes(agent.id)) return
     if (!await presetMismatch(agent, place.botId)) return
-    // Resolving the preset can yield to a new turn or a switch of run mode.
+    // Resolving the preset can yield to a new turn, a switch of run mode, or a task
+    // that settled and left the live set while the roster was being read.
+    const still = rt.botOf(place.botId)
     if (agent.status !== 'idle' || placeOf(agent.id)?.botId !== place.botId
       || lastTurnEnd(agent)?.data?.reason?.kind === 'error'
-      || rt.isLocalAgentRef?.(rt.botOf(place.botId)?.model ?? rt.botOf(place.botId)?.appliedModel) === true) return
+      || rt.isLocalAgentRef?.(still?.model ?? still?.appliedModel) === true
+      || still === undefined || !presetSessionsOf(still).includes(agent.id)) return
     startSwitch(agent, { preset: true })
     return true
   }
@@ -2236,8 +2249,7 @@ export function install(rt) {
     if (wanted === undefined) {
       const recorded = bot.agentPresetDefaultPending ?? []
       if (!recorded.includes(agent.id)) return undefined
-      const live = [...ownChatSessions(bot), ...rt.groupSessionsOf(bot.id)]
-      return live.includes(agent.id) ? botId : undefined
+      return presetSessionsOf(bot).includes(agent.id) ? botId : undefined
     }
     if (!wanted.usable) {
       rt.presetProblem?.(bot, wanted.id)
@@ -2249,6 +2261,8 @@ export function install(rt) {
       if (finishPresetClear(bot, agent.id)) await rt.save()
       return undefined
     }
+    // The session may have left the live set while the roster was read.
+    if (!presetSessionsOf(bot).includes(agent.id)) return undefined
     return botId
   }
 

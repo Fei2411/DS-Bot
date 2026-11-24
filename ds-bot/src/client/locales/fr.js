@@ -1973,6 +1973,9 @@ export const FR = {
 export const HOST_ERRORS_FR = [
   [/^The agent preset "(.+)" is not available in this DeepSeek Harness\. Pick another preset in the Bot's settings\.$/, "Le préréglage Agent « $1 » n’est pas disponible dans ce DeepSeek Harness. Choisissez-en un autre dans les paramètres du Bot."],
   [/^The agent preset "(.+)" cannot run: (.+)\. Pick another preset in the Bot's settings\.$/, "Le préréglage Agent « $1 » ne peut pas fonctionner : $2. Choisissez-en un autre dans les paramètres du Bot."],
+  [/^An agent preset must be named by its id$/, "Un préréglage Agent doit être désigné par son id"],
+  [/^The agent preset "(.+)" cannot be used for a Bot: (.+)\. Pick another preset in the Bot's settings\.$/, "Le préréglage Agent « $1 » ne peut pas servir pour un Bot : $2. Choisissez-en un autre dans les paramètres du Bot."],
+  [/^The default agent preset "(.+)" cannot be used for a Bot: (.+)\. Choose a preset for the Bot in its settings\.$/, "Le préréglage Agent par défaut « $1 » ne peut pas servir pour un Bot : $2. Choisissez un préréglage pour le Bot dans ses paramètres."],
   [/^Only the user can choose the agent preset of (.+)$/, "Seul l’utilisateur peut choisir le préréglage Agent de $1"],
   [/^Could not reach the mail server at (.+)\. Check the server address\.$/, "Impossible de joindre le serveur de messagerie à l’adresse $1. Vérifiez l’adresse du serveur."],
   [/^Model (.+) is not available\. Available: (.*)$/, "Le modèle $1 n’est pas disponible. Disponibles : $2"],

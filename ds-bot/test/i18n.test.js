@@ -173,6 +173,9 @@ test('HOST_ERRORS and DSH_LOCALE_PACKS stay aligned across all locales', () => {
 test('user-facing host errors translate across all non-English locales', () => {
   const samples = [
     // channel.js & roster.js
+    'An agent preset must be named by its id',
+    'The agent preset "research" cannot be used for a Bot: DS Bot needs the Bot\'s own prompt, which this preset replaces. Pick another preset in the Bot\'s settings.',
+    'The default agent preset "research" cannot be used for a Bot: DS Bot needs the Bot\'s own prompt, which this preset replaces. Choose a preset for the Bot in its settings.',
     'This message is no longer kept',
     'No file named',
     'This file cannot be read here',

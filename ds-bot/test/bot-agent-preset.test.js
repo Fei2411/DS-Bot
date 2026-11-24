@@ -679,6 +679,98 @@ test('changing the pick moves the Bot\'s own chat and its group Session to fresh
   assert.deepEqual(host.archived.map(([sessionId]) => sessionId).sort(), [memberBefore, ownBefore].sort())
 })
 
+test('a preset change keeps an unanswered IM group card answerable on the active member session', async (t) => {
+  const host = start()
+  t.after(host.stop)
+  const chief = (await host.call('state')).value.mainBotId
+  const writer = (await host.call('create-bot', { name: 'Writer', agentPreset: 'standard' })).value
+  const room = (await host.call('create-room', { members: [chief, writer.id], admin: writer.id })).value
+  const cue = { role: 'user', content: [{ type: 'text', text: 'Hello team' }], source: { kind: 'user' } }
+  for (const listener of host.ctx.listeners.get('session/event') ?? []) listener({ id: room.id }, { type: 'user/message', data: cue })
+  const controller = new AbortController()
+  const relay = rt.teamTools.find(tool => tool.name === 'group_relay').execute({}, { agent: { id: room.id }, callId: 'relay', signal: controller.signal })
+  await until(() => host.state().rooms[room.id]?.sessions?.[writer.id] !== undefined)
+  controller.abort()
+  await relay.catch(() => {})
+  const memberBefore = host.state().rooms[room.id].sessions[writer.id]
+  const imOrigin = { connId: 'tg', chatKey: 'c1', senderId: 'u1', binding: 'room:desk' }
+  host.rt.state.questions[memberBefore] = {
+    id: 'q-group', callId: 'ask-1', question: 'Which way?', options: [{ label: 'Left' }, { label: 'Right' }],
+    multiSelect: false, imOrigin, askedAt: 1,
+  }
+  host.rt.state.views[memberBefore] = {
+    id: 'v-group', callId: 'view-1', title: 'Pick',
+    view: { type: 'options', id: 'pick', options: [{ label: 'A' }, { label: 'B' }] },
+    imOrigin, askedAt: 2,
+  }
+  await host.rt.save()
+
+  assert.equal((await host.call('update-bot', { id: writer.id, agentPreset: 'research' })).ok, true)
+  await until(() => host.state().rooms[room.id].sessions[writer.id] !== memberBefore)
+  await until(() => host.state().switching?.[memberBefore] === undefined)
+
+  const active = host.state().rooms[room.id].sessions[writer.id]
+  const saved = host.state()
+  assert.equal(saved.questions[memberBefore], undefined, 'the question card must not stay on the archived member session')
+  assert.equal(saved.views[memberBefore], undefined, 'the view card must not stay on the archived member session')
+  assert.equal(saved.questions[active]?.id, 'q-group')
+  assert.equal(saved.questions[active].callSessionId, memberBefore)
+  assert.equal(saved.questions[active].imOrigin.connId, 'tg')
+  assert.equal(saved.views[active]?.id, 'v-group')
+  assert.equal(saved.views[active].callSessionId, memberBefore)
+  assert.ok(host.archived.some(([sessionId]) => sessionId === memberBefore), 'the earlier member session is archived')
+
+  const answered = await host.call('answer-question', {
+    sessionId: active, questionId: 'q-group', answer: { selected: ['Left'] },
+  })
+  assert.equal(answered.ok, true, JSON.stringify(answered))
+  assert.equal(host.state().questions[active], undefined)
+  const questionOnActive = host.agentOf(active).calls.some(([, message]) => text(message).includes('answer_to_pending_question'))
+  assert.equal(questionOnActive, true, 'the question answer reaches the active member session')
+
+  const viewed = await host.call('view-reply', {
+    sessionId: active, viewId: 'v-group', action: 'pick', values: { selected: ['A'] },
+  })
+  assert.equal(viewed.ok, true, JSON.stringify(viewed))
+  assert.equal(host.state().views[active], undefined)
+  const viewOnActive = host.agentOf(active).calls.some(([, message]) => text(message).includes('answer_to_pending_view'))
+  assert.equal(viewOnActive, true, 'the view answer reaches the active member session')
+  const stranded = host.agentOf(memberBefore).calls.some(([, message]) => /answer_to_pending_(question|view)/.test(text(message)))
+  assert.equal(stranded, false, 'answers must not be delivered to the archived session')
+})
+
+test('a preset check does not rotate a settled task still named by a stale owner map', async (t) => {
+  const host = start()
+  t.after(host.stop)
+  await host.call('state')
+  const writer = (await host.call('create-bot', { name: 'Writer', agentPreset: 'standard' })).value
+  const taskSession = 'task-old'
+  host.headers.set(taskSession, 'standard')
+  host.rt.botOf(writer.id).tasks = [{
+    id: 'task-1', title: 'Side work', status: 'running', sessionId: taskSession, segments: [],
+  }]
+  await host.rt.save()
+  assert.equal(host.rt.chatOwners.has(taskSession), true)
+
+  const list = host.presetService.list
+  let release
+  const held = new Promise(resolve => { release = resolve })
+  let entered = false
+  host.presetService.list = async () => { entered = true; await held; return list() }
+  host.rt.botOf(writer.id).agentPreset = 'research'
+  const before = host.created.length
+  host.idle(taskSession)
+  await until(() => entered)
+  // Settled, but not saved: chatOwners still names the task, and the live set does not.
+  host.rt.botOf(writer.id).tasks[0].status = 'done'
+  release()
+  await until(() => host.state().switching?.[taskSession] !== undefined || host.created.length > before, 400).catch(() => {})
+  assert.equal(host.state().switching?.[taskSession], undefined)
+  assert.equal(host.created.length, before)
+  assert.equal(host.archived.some(([sessionId]) => sessionId === taskSession), false)
+  assert.equal(host.rt.botOf(writer.id).tasks[0].sessionId, taskSession)
+})
+
 test('changing back during a running turn needs no new part', async (t) => {
   const host = start()
   t.after(host.stop)

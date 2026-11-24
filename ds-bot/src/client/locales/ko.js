@@ -2008,6 +2008,9 @@ export const KO = {
 export const HOST_ERRORS_KO = [
   [/^The agent preset "(.+)" is not available in this DeepSeek Harness\. Pick another preset in the Bot's settings\.$/, 'Agent 프리셋 "$1"은(는) 현재 DeepSeek Harness에서 사용할 수 없습니다. Bot 설정에서 다른 프리셋을 선택하세요.'],
   [/^The agent preset "(.+)" cannot run: (.+)\. Pick another preset in the Bot's settings\.$/, 'Agent 프리셋 "$1"을(를) 실행할 수 없습니다: $2. Bot 설정에서 다른 프리셋을 선택하세요.'],
+  [/^An agent preset must be named by its id$/, 'Agent 프리셋은 id로 지정해야 합니다'],
+  [/^The agent preset "(.+)" cannot be used for a Bot: (.+)\. Pick another preset in the Bot's settings\.$/, 'Agent 프리셋 "$1"은(는) Bot에 사용할 수 없습니다: $2. Bot 설정에서 다른 프리셋을 선택하세요.'],
+  [/^The default agent preset "(.+)" cannot be used for a Bot: (.+)\. Choose a preset for the Bot in its settings\.$/, '기본 Agent 프리셋 "$1"은(는) Bot에 사용할 수 없습니다: $2. Bot 설정에서 이 Bot의 프리셋을 선택하세요.'],
   [/^Only the user can choose the agent preset of (.+)$/, '$1의 Agent 프리셋은 사용자만 선택할 수 있습니다'],
   [/^Could not reach the mail server at (.+)\. Check the server address\.$/, '메일 서버 $1에 연결할 수 없습니다. 서버 주소를 확인하세요.'],
   [/^Model (.+) is not available\. Available: (.*)$/, '모델 $1을(를) 사용할 수 없습니다. 사용 가능: $2'],

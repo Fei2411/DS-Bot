@@ -1973,6 +1973,9 @@ export const JA = {
 export const HOST_ERRORS_JA = [
   [/^The agent preset "(.+)" is not available in this DeepSeek Harness\. Pick another preset in the Bot's settings\.$/, "Agent プリセット「$1」は現在の DeepSeek Harness で利用できません。Bot の設定で別のプリセットを選んでください。"],
   [/^The agent preset "(.+)" cannot run: (.+)\. Pick another preset in the Bot's settings\.$/, "Agent プリセット「$1」は実行できません: $2。Bot の設定で別のプリセットを選んでください。"],
+  [/^An agent preset must be named by its id$/, "Agent プリセットは id で指定する必要があります"],
+  [/^The agent preset "(.+)" cannot be used for a Bot: (.+)\. Pick another preset in the Bot's settings\.$/, "Agent プリセット「$1」は Bot に使用できません: $2。Bot の設定で別のプリセットを選んでください。"],
+  [/^The default agent preset "(.+)" cannot be used for a Bot: (.+)\. Choose a preset for the Bot in its settings\.$/, "既定の Agent プリセット「$1」は Bot に使用できません: $2。Bot の設定でプリセットを選んでください。"],
   [/^Only the user can choose the agent preset of (.+)$/, "$1 の Agent プリセットを選択できるのはユーザーだけです"],
   [/^Could not reach the mail server at (.+)\. Check the server address\.$/, "メールサーバー $1 に接続できませんでした。サーバーアドレスを確認してください。"],
   [/^Model (.+) is not available\. Available: (.*)$/, "モデル $1 は利用できません。利用可能: $2"],
