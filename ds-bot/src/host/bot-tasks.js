@@ -2105,9 +2105,9 @@ export function install(rt) {
       oldSid,
       committed: false,
       aborted: false,
-      saved: false,
+      readyToDrain: false,
+      savedMoveResult: undefined,
       newSid: undefined,
-      taskId: undefined,
       explicit,
       operationIds: new Set(typeof operationId === 'string' && operationId !== '' ? [operationId] : []),
       savedOperationIds: new Set(),
@@ -2285,7 +2285,6 @@ export function install(rt) {
       }
       record.committed = true
       record.newSid = newSid
-      record.taskId = task.id
       // Clear live IM origin on the moved background session so it never streams raw lines
       // directly to IM; `task.imOrigin` handles approvals and the final `task-report`.
       rt.clearImOrigin?.(oldSid)
@@ -2304,7 +2303,7 @@ export function install(rt) {
       let postSaveContext
       const deferredInputs = new Set()
       const preparePostSaveContext = () => postSaveContext ??= (async () => {
-        record.saved = true
+        record.readyToDrain = true
         await rt.moveSchedules?.(oldSid, newSid)
           .catch(error => rt.warn('ds-bot: moving schedules for %s after handoff failed: %s', bot.name, error))
         await syncRoute?.().catch(error => rt.warn('ds-bot: route sync for foreground part of %s failed: %s', bot.name, error))
@@ -2438,6 +2437,7 @@ export function install(rt) {
         let checkpointed = record.messages.length
         try {
           await rt.save({ required: true })
+          record.savedMoveResult = moveResult
         } catch (error) {
           unstagePersistedMoveOps(staged)
           deferHeldInputs()
@@ -2481,7 +2481,7 @@ export function install(rt) {
 
     record.promise = run.finally(() => {
       if (handoffing.get(bot.id) === record) handoffing.delete(bot.id)
-      if (record.saved && record.newSid !== undefined && record.messages.length > 0) {
+      if (record.readyToDrain && record.newSid !== undefined && record.messages.length > 0) {
         void forwardPulledMessages(record.newSid, record.messages.splice(0), bot.name, { botId: bot.id })
       } else if (!record.committed && record.messages.length > 0) {
         const leftover = record.messages.splice(0)
@@ -2604,7 +2604,7 @@ export function install(rt) {
     const joinInFlight = async (inFlight) => {
       if (typeof operationId === 'string' && operationId !== '') inFlight.operationIds.add(operationId)
       const sid = await inFlight.promise
-      const result = { sessionId: sid, taskId: inFlight.taskId ?? null, moved: inFlight.committed === true && inFlight.saved === true }
+      const result = inFlight.savedMoveResult ?? { sessionId: sid, taskId: null, moved: false }
       if (typeof operationId === 'string' && operationId !== '' && !inFlight.savedOperationIds.has(operationId)) {
         await persistMoveReceipts([operationId], result)
         inFlight.savedOperationIds.add(operationId)
@@ -2720,7 +2720,7 @@ export function install(rt) {
       const pulled = [{ msg, target, oldAgent: agent }]
       recordPendingTransfers(pulled, taskOwner.roomId !== undefined ? { roomId: taskOwner.roomId } : { botId: taskOwner.botId })
       const pending = taskOwner.roomId === undefined ? handoffing.get(taskOwner.botId) : undefined
-      if (pending?.oldSid === id && !pending.aborted && !pending.saved) {
+      if (pending?.oldSid === id && !pending.aborted && !pending.readyToDrain) {
         pending.messages.push(...pulled)
         return true
       }

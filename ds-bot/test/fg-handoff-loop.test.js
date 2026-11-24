@@ -1053,6 +1053,10 @@ test('a stale-session prompt arriving during the foreground commit waits for a d
   })
   const moved = beginMove(rig)
   await commitStarted.promise
+  const operationId = 'desktop:failed-commit-join'
+  let joinedSettled = false
+  const joined = rig.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'dm-a', operationId })
+    .catch(error => error).finally(() => { joinedSettled = true })
   assert.equal(rig.rt.taskOwners.has('dm-a'), true)
   const fresh = rig.agents.get('fork-1')
   const prompt = userPrompt('Send this from the stale tab', 'during-foreground-commit')
@@ -1061,9 +1065,13 @@ test('a stale-session prompt arriving during the foreground commit waits for a d
   const diskForeground = () => JSON.parse(readFileSync(join(rig.home, 'state.json'), 'utf8')).bots.a.sessionId
   old.steer(prompt)
   assert.equal(old.inbox.nextStep.length, 0)
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(joinedSettled, false, 'a joined request must wait for the required move save')
   commitGate.resolve()
 
   assert.equal((await moved).code, 'EBUSY')
+  assert.equal((await joined).code, 'EBUSY')
+  assert.equal(rig.rt.state.completedMoveOps?.[operationId], undefined)
   await new Promise(resolve => setImmediate(resolve))
   await fresh.whenIdle()
   assert.equal(diskForeground(), 'dm-a')
@@ -1131,6 +1139,7 @@ test('a failed late checkpoint cannot roll back an already written move receipt'
   const commitGate = Promise.withResolvers()
   const save = rig.rt.save
   let committed = false
+  let lateCheckpointFailed = false
   const blocked = t.mock.method(rig.rt, 'save', async (options) => {
     if (rig.rt.botOf('a').sessionId === 'dm-a') return save(options)
     if (options?.required && !committed) {
@@ -1140,12 +1149,16 @@ test('a failed late checkpoint cannot roll back an already written move receipt'
       await commitGate.promise
       return
     }
+    if (options?.required && lateCheckpointFailed) return save(options)
+    if (options?.required) lateCheckpointFailed = true
     throw Object.assign(new Error('Late checkpoint blocked'), { code: 'EBUSY' })
   })
   const operationId = 'im:test:bg:late-checkpoint'
   const moved = rig.rt.moveForegroundToBackground({ botId: 'a', operationId }).catch(error => error)
   await commitWritten.promise
-  const diskReceipt = () => JSON.parse(readFileSync(join(rig.home, 'state.json'), 'utf8')).completedMoveOps?.[operationId]
+  const joinedOperationId = 'desktop:late-checkpoint-join'
+  const joined = rig.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'dm-a', operationId: joinedOperationId }).catch(error => error)
+  const diskReceipt = (id = operationId) => JSON.parse(readFileSync(join(rig.home, 'state.json'), 'utf8')).completedMoveOps?.[id]
   assert.equal(diskReceipt()?.sessionId, 'fork-1')
   const prompt = userPrompt('Recover this without rolling back the move', 'late-checkpoint-failure')
   old.steer(prompt)
@@ -1155,6 +1168,9 @@ test('a failed late checkpoint cannot roll back an already written move receipt'
   const admitted = () => fresh.session.snapshotEvents().filter(event =>
     event.type === 'user/message' && event.data.source?.rpcId === prompt.source.rpcId)
   assert.equal(admitted().length, 0)
+  assert.equal(lateCheckpointFailed, true)
+  assert.deepEqual(await joined, moveResult, 'a caller joining the persisted move must not receive a no-op')
+  assert.equal(diskReceipt(joinedOperationId)?.moved, true)
 
   blocked.mock.restore()
   await settle(() => admitted().length === 1 && journal(rig).length === 0, 4500, 'the late prompt should replay after writes recover')
