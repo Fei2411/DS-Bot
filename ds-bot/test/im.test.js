@@ -122,8 +122,9 @@ async function start({ platform = 'telegram', adapter, seed, home, services = {}
       if (listener.length >= 2) listener({ id: sessionId }, { type, data, time: Date.now() })
     }
   }
-  const fireApprovals = (request, next) => Promise.all((ctx.listeners.get('approval/request') ?? [])
-    .map(listener => listener(request, next)))
+  // As DSH's waterfall runs them: every listener is prepended, so the last one goes first.
+  const fireApprovals = (request, next) => [...(ctx.listeners.get('approval/request') ?? [])]
+    .reduce((rest, listener) => () => listener(request, rest), next)().then(outcome => [outcome])
   const close = async () => {
     adapters[platform] = real
     await ctx.dispose()
@@ -3367,7 +3368,9 @@ async function startSwitchHarness(t, { tokens = new Map([['a', 1_000]]), cwd = (
     failure: { code },
     signal: AbortSignal.timeout(60_000),
   })
-  const fireApprovals = (request, next) => Promise.all((ctx.listeners.get('approval/request') ?? []).map(listener => listener(request, next)))
+  // As DSH's waterfall runs them: every listener is prepended, so the last one goes first.
+  const fireApprovals = (request, next) => [...(ctx.listeners.get('approval/request') ?? [])]
+    .reduce((rest, listener) => () => listener(request, rest), next)().then(outcome => [outcome])
 
   const conn = await rt.imEndpoint('im-add', { platform: 'telegram', botId: 'a', fields: { token: 'tok-1234' } })
   rt.state.im.connections[conn.id].paired.push({ id: 'u1', name: 'U1', at: 1 })

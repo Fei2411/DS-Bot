@@ -19,6 +19,7 @@
 | [隐私 Bot](2026-10-27-private-bots.md) | 独立工作文件夹、团队内隔离边界、外发审批与删除后保留保护 |
 | [Bot 运行配置](2026-10-10-bot-runtime.md) | Agent 预设、每 Bot 模型与思考强度、新 Bot 默认模型、工作文件夹与能力 |
 | [每个 Bot 的 Agent 预设](2026-11-06-bot-presets.md) | `bot.agentPreset`：默认跟着目录走（可用的 standard，否则 DSH 的默认），用户可给 Bot 显式换兼容的预设；失效即报错不静默回落；换预设后空闲换段生效，没成就在下一轮补；预设不解除 Bot 的 guard 和角色限制 |
+| [额外工作文件夹](2026-11-10-extra-folders.md) | Bot 和群聊在工作文件夹之外再列几个文件夹；文件工具写那里由 DS Bot 自动批准，shell 命令仍问用户；群文件夹优先；隐私 Bot 只用自己的文件夹 |
 | [功能包](2026-11-21-feature-packs.md) | 团队库三档状态（常驻 / 清单 / 关）、按会话 `use_pack` / `drop_pack` 装卸与 `team-admin` 内置包 |
 
 ### 2. Bot 对话、异步工作与协作

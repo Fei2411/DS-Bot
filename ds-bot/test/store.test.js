@@ -61,6 +61,35 @@ function runtime(t, saved) {
   return { rt, home, statePath, warnings, dispose }
 }
 
+test('legacy review switches migrate into the permission mode and keep the team model', async t => {
+  const { rt, statePath } = runtime(t, { version: 1,
+    bots: { b: { id: 'b', autoApprove: true, permission: 'danger-full-access' }, c: { id: 'c', autoApprove: false, permission: 'read-only' } },
+    rooms: { r: { id: 'r', members: ['b'], autoApprove: true }, s: { id: 's', members: ['b'], autoApprove: false } },
+    prefs: { approvalModel: 'mock/reviewer' }, approvalPolicies: { child: 'never' },
+  })
+  await rt.load()
+  assert.equal(rt.state.bots.b.permission, 'review')
+  assert.equal(rt.state.bots.c.permission, 'read-only')
+  assert.equal(rt.state.rooms.r.permission, 'review')
+  assert.equal(rt.state.rooms.s.permission, undefined)
+  for (const target of [...Object.values(rt.state.bots), ...Object.values(rt.state.rooms)]) assert.equal(Object.hasOwn(target, 'autoApprove'), false)
+  assert.equal(rt.state.prefs.approvalModel, 'mock/reviewer')
+  assert.equal(JSON.parse(fs.readFileSync(statePath, 'utf8')).bots.b.permission, 'review')
+  assert.equal(rt.state.approvalPolicies.child, 'never')
+})
+
+test('a previously repairable null-map and null-entry team still loads', async t => {
+  const { rt } = runtime(t, { version: 1,
+    bots: { ghost: null, chief: { id: 'chief', name: 'Chief', autoApprove: true } },
+    rooms: null,
+  })
+  await rt.load()
+  assert.equal(rt.state.bots.ghost, undefined)
+  assert.equal(rt.state.bots.chief.permission, 'review')
+  assert.equal(Object.hasOwn(rt.state.bots.chief, 'autoApprove'), false)
+  assert.deepEqual(rt.state.rooms, {})
+})
+
 test('a failed state write rejects and leaves the saved file unchanged', async (t) => {
   const { rt, statePath } = runtime(t)
   await rt.load()
