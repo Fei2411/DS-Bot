@@ -112,6 +112,8 @@ const getToken = async (fields, env) => {
 
 export default {
   id: 'qq',
+  // Checked before the reply text drops the image tag, so an oversized image leaves a notice.
+  imageMaxBytes: DIRECT_UPLOAD_LIMIT,
 
   async check(fields, env) {
     const { token } = await getToken(fields, env)

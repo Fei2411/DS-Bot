@@ -1144,6 +1144,7 @@ export function install(rt) {
         return
       }
       const prepared = await prepareOutboundReply(body, {
+        maxBytes: adapters[conn.platform]?.imageMaxBytes,
         resolveImage: (path) => rt.mobileEndpoint('markdown-image', {
           sessionId,
           ...(botId !== undefined ? { botId } : {}),
