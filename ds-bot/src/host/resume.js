@@ -180,6 +180,7 @@ export function install(rt) {
 
   // What the last run left; read before this run notes anything.
   let interrupted = readNotes(file)
+  let recoveringTurns = interrupted.turns
 
   /** @type {Record<string, {botId:string, roomId?:string, turn?:number, since:number, trigger?:any, approval?:{tool:string, reason:string}, resumed?:boolean}>} */
   let turns = {}
@@ -323,6 +324,10 @@ export function install(rt) {
     persist()
   }
   rt.forgetWorkDeliveries = forgetWorkDeliveries
+  rt.hasPendingRecovery = sessionId => Object.hasOwn(recoveringTurns, sessionId) || Object.hasOwn(turns, sessionId)
+    || (queued[sessionId]?.length ?? 0) > 0
+  rt.hasPendingTaskReport = taskId => Object.values(queued).some(list => Array.isArray(list)
+    && list.some(item => item?.args?.role === 'task-report' && item.args.taskId === taskId))
 
   // A message is done with once a turn takes it up, or once it leaves the inbox untaken
   // while DS Bot runs: the user stopped the Bot, or DS Bot moved or withdrew it.
@@ -351,6 +356,13 @@ export function install(rt) {
       taken?.add(event.data.source.exchangeId)
       forgetQueued(event.data.source.exchangeId)
     }
+    if (event.type === 'turn/end') {
+      // A stopped task has already left the active index. Only a turn cut by
+      // DSH shutdown is kept to pick up at the next start.
+      const reason = event.data?.reason
+      if (reason?.kind !== 'aborted' || reason.reason?.kind !== 'disposed') update(id, () => undefined)
+      return
+    }
     if (!rt.isBotSession(id)) return
     switch (event.type) {
       case 'turn/start': {
@@ -373,13 +385,6 @@ export function install(rt) {
         const info = rt.live.get(id)?.info
         update(id, record => (record === undefined || record.trigger !== undefined || info === undefined ? record
           : { ...record, trigger: triggerOf(info), ...(info.resumed ? { resumed: true } : {}) }))
-        break
-      }
-      case 'turn/end': {
-        // DSH stops every turn as it shuts down; that one is picked up at the next start.
-        const reason = event.data?.reason
-        if (reason?.kind === 'aborted' && reason.reason?.kind === 'disposed') break
-        update(id, () => undefined)
         break
       }
     }
@@ -1342,6 +1347,7 @@ export function install(rt) {
       }
       // Reconcile orphaned background tasks before settling room batches so a zombie
       // group task does not keep `hasRoomTasks` true and mask a stuck batch.
+      recoveringTurns = {}
       await rt.reconcileTasksAfterRestart?.(keepTaskSessions).catch(error => rt.warn('ds-bot: reconciling background tasks failed: %s', error))
       // What a group's members were asked for and will not pick up is settled now.
       await rt.settleRoomBatches?.()

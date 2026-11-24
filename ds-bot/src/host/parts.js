@@ -434,9 +434,14 @@ export function install(rt) {
           return { ...base, ...seg }
         })
       const seen = new Set(inherited.map(seg => seg?.sessionId).filter(Boolean))
-      const segments = [...inherited, ...(thread.segments ?? []).filter(seg => !seen.has(seg?.sessionId))]
+      const ownSegments = (thread.segments ?? []).filter(seg => !seen.has(seg?.sessionId))
+      const segments = [...inherited, ...ownSegments]
       const result = partsOf(bot.id, undefined, segments, task.sessionId)
-      if (task.startedAt !== undefined && segments.length > 0 && segments.at(-1)?.endedAt === undefined && result.at(-1)?.sessionId === task.sessionId) {
+      const tailSeg = segments.at(-1)
+      if (task.startedAt !== undefined
+        && tailSeg !== undefined
+        && (tailSeg.endedAt === undefined || (ownSegments.length === 0 && Number.isInteger(tailSeg.throughSeq)))
+        && result.at(-1)?.sessionId === task.sessionId) {
         result.at(-1).startedAt = task.startedAt
       }
       return result
@@ -1493,6 +1498,7 @@ export function install(rt) {
 
   const segmentNoteOf = (segment) => {
     if (segment === undefined || segment === null) return undefined
+    if (Number.isInteger(segment.throughSeq)) return undefined
     if (typeof segment.note === 'string') return segment.note
     return rt.readSegmentNote?.(segment)
   }
@@ -1807,9 +1813,13 @@ export function install(rt) {
           removeForMove(agent, held)
           // An interrupted switch may not have finished moving the tasks over; stop
           // the earlier part only after they sit on the part that replaced it.
-          await rt.moveSchedules?.(sessionId, target)
+          const finishMove = await rt.moveSchedules?.(sessionId, target, { stopActivity: true })
           await ctx.workspaceRegistry.archiveSession(sessionId, { stopActivity: true })
-            .catch(error => rt.warn('ds-bot: earlier part %s not archived: %s', sessionId, error))
+            .then(() => finishMove?.())
+            .catch(error => {
+              if (finishMove !== undefined) throw error
+              rt.warn('ds-bot: earlier part %s not archived: %s', sessionId, error)
+            })
         } else {
           try { wake(agent) } catch (error) { rt.warn('ds-bot: part %s could not be woken for its kept input: %s', sessionId, error) }
         }
@@ -1918,8 +1928,9 @@ export function install(rt) {
     if (job.moved) {
       rt.renewMemory(agent.id)
       await rt.closeLocalAgentSession?.(agent.id)?.catch(error => rt.warn('ds-bot: the local agent of earlier part %s did not stop: %s', agent.id, error))
+      let finishMove
       try {
-        await rt.moveSchedules(agent.id, job.next ?? currentOf(job))
+        finishMove = await rt.moveSchedules(agent.id, job.next ?? currentOf(job), { stopActivity: true })
       } catch (error) {
         // Keep the restart marker: stopping this part would delete unmoved tasks.
         job.kept = true
@@ -1927,7 +1938,11 @@ export function install(rt) {
         throw error
       }
       await ctx.workspaceRegistry.archiveSession(agent.id, { stopActivity: true })
-        .catch(error => rt.warn('ds-bot: earlier part %s not archived: %s', agent.id, error))
+        .then(() => finishMove?.())
+        .catch(error => {
+          if (finishMove !== undefined) job.kept = true
+          rt.warn('ds-bot: earlier part %s not archived: %s', agent.id, error)
+        })
     }
   }
 
@@ -2584,6 +2599,7 @@ export function install(rt) {
   })
 
   ctx.on('agent/status', ({ agent, status }) => {
+    if (status === 'idle') rt.retireSettledTasksAfterIdle?.(agent.id)
     if (status === 'idle' && rt.isBotSession(agent.id)) {
       releaseRescued(agent)
       const end = lastTurnEnd(agent)
@@ -2800,8 +2816,9 @@ export function install(rt) {
     // An archived earlier part may have no live agent left; its stored events
     // still page fine, so resolve failure only drops the live-session cap.
     const agent = await rt.resolveAgent(part.sessionId).catch(() => undefined)
-    const liveThroughSeq = agent !== undefined && Number.isInteger(Number(agent.session?.seq))
-      ? Number(agent.session.seq) - 1
+    const liveSeq = agent?.session?.seq
+    const liveThroughSeq = typeof liveSeq === 'number' && Number.isInteger(liveSeq) && liveSeq >= 0
+      ? liveSeq - 1
       : undefined
     const boundThroughSeq = Number.isInteger(part.throughSeq) ? part.throughSeq : undefined
     const throughSeq = liveThroughSeq !== undefined && boundThroughSeq !== undefined
@@ -3034,8 +3051,8 @@ export function install(rt) {
       ?? ctx.sessions?.get?.(fromSessionId)
     const branchThroughSeq = Number.isInteger(throughSeq) ? throughSeq : (() => {
       if (sourceSessionAtBranch === undefined || sourceSessionAtBranch === null) return undefined
-      const seq = Number(sourceSessionAtBranch.seq)
-      if (Number.isInteger(seq) && seq >= 0) return seq - 1
+      const seq = sourceSessionAtBranch.seq
+      if (typeof seq === 'number' && Number.isInteger(seq) && seq >= 0) return seq - 1
       const events = sourceSessionAtBranch.snapshotEvents?.()
       if (Array.isArray(events)) {
         if (events.length === 0) return -1

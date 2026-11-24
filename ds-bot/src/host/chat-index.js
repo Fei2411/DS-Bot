@@ -93,8 +93,9 @@ export function install(rt) {
   async function* eventsBackwards(sessionId, signal, maxPages = HISTORY_PAGES_MAX, read, maxSeq) {
     if (read !== undefined) Object.assign(read, { complete: false, capped: false })
     const liveSession = ctx.get?.('agents')?.get(sessionId)?.session ?? ctx.get?.('sessions')?.get(sessionId)
-    const liveThroughSeq = liveSession !== undefined && Number.isInteger(Number(liveSession.seq))
-      ? Number(liveSession.seq) - 1
+    const liveSeq = liveSession?.seq
+    const liveThroughSeq = typeof liveSeq === 'number' && Number.isInteger(liveSeq) && liveSeq >= 0
+      ? liveSeq - 1
       : undefined
     const boundThroughSeq = Number.isInteger(maxSeq)
       ? maxSeq
