@@ -179,7 +179,9 @@ export function install(rt) {
     const toDrop = new Set(dropped.map(task => task.id))
     for (const task of dropped) {
       dropReportFile(task.reportFile)
-      const sids = [task.sessionId, ...(task.segments ?? []).map(seg => seg?.sessionId)].filter(Boolean)
+      const segIds = (task.segments ?? []).map(seg => seg?.sessionId).filter(Boolean)
+      if (segIds.length > 0) void rt.deleteSegmentNotes?.(segIds)
+      const sids = [task.sessionId, ...segIds].filter(Boolean)
       for (const sid of sids) {
         void ctx.workspaceRegistry?.archiveSession?.(sid, { stopActivity: true })?.catch(() => {})
         rt.renewMemory?.(sid)

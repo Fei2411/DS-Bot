@@ -10,9 +10,10 @@
 // queue per book. A window that only reads the team follows the file another host
 // writes: it reads a book again when the file has grown.
 import { mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
-import { appendFile, mkdir, rename, rm, writeFile } from 'node:fs/promises'
-import { createHash } from 'node:crypto'
+import { appendFile, mkdir, rename, rm, unlink, writeFile } from 'node:fs/promises'
+import { createHash, randomUUID } from 'node:crypto'
 import { join } from 'node:path'
+import { replaceFile } from './files.js'
 import { searchTextFor } from './search-text.js'
 
 const SEARCH_MAX = 20
@@ -201,6 +202,100 @@ export function install(rt) {
     return added.length
   }
 
+  // Durably merges legacy records (e.g. from state.exchanges) ahead of any newer records
+  // in `book`, deduplicating by record.id. Returns true only when every incoming record
+  // is confirmed on disk (either already present on an existing book file or atomically
+  // written); returns false on write failure so callers keep unmigrated entries fail-closed.
+  async function mergeRecords(book, incoming) {
+    if (!writes()) return false
+    const list = Array.isArray(incoming) ? incoming.filter(record => record !== null && typeof record === 'object') : []
+    if (list.length === 0) return true
+    const run = (writing.get(book) ?? Promise.resolve()).then(async () => {
+      let diskText
+      try {
+        diskText = readFileSync(pathOf(book), 'utf8')
+      } catch (error) {
+        if (error?.code !== 'ENOENT') throw error
+      }
+      const existingOnDisk = diskText !== undefined
+      const known = books.get(book)
+      const current = known !== undefined && !known.readOnly
+        ? known.records.slice()
+        : (diskText === undefined ? [] : parseBook(diskText))
+      const existingIds = new Set()
+      for (const record of current) {
+        if (record?.event === undefined && typeof record?.id === 'string' && record.id !== '') {
+          existingIds.add(record.id)
+        }
+      }
+      const deduped = []
+      const seenIncoming = new Map()
+      for (const record of list) {
+        if (typeof record.id === 'string' && record.id !== '') {
+          if (existingIds.has(record.id)) continue
+          const prevAt = seenIncoming.get(record.id)
+          if (prevAt !== undefined) deduped[prevAt] = record
+          else {
+            seenIncoming.set(record.id, deduped.length)
+            deduped.push(record)
+          }
+        } else {
+          deduped.push(record)
+        }
+      }
+      if (existingOnDisk && deduped.length === 0) return true
+      const merged = deduped.length > 0 ? [...deduped, ...current] : [...current]
+      if (merged.length === 0) return true
+      const captured = new Set(current)
+      const mergedIds = new Set(
+        merged.filter(record => record?.event === undefined && typeof record?.id === 'string' && record.id !== '').map(record => record.id),
+      )
+      const snapshot = merged.map(record => `${JSON.stringify(record)}\n`).join('')
+      await mkdir(dir, { recursive: true })
+      const temp = `${pathOf(book)}.${process.pid}.${randomUUID().slice(0, 8)}.tmp`
+      try {
+        await writeFile(temp, snapshot, 'utf8')
+        await replaceFile(temp, pathOf(book))
+      } catch (error) {
+        await unlink(temp).catch(() => {})
+        throw error
+      }
+      // Preserve any synchronous appends queued after this run while disk I/O was in flight,
+      // and keep the existing entry object (replacing only its array ref) so queued appends
+      // still update size/rollback on the live entry while pairCache detects the new ref in O(1).
+      const live = books.get(book)
+      const tail = live !== undefined && !live.readOnly
+        ? live.records.filter(record => !captured.has(record) && !(record?.event === undefined && typeof record?.id === 'string' && mergedIds.has(record.id)))
+        : []
+      const records = tail.length > 0 ? [...merged, ...tail] : merged
+      if (live !== undefined && !live.readOnly) {
+        live.records = records
+        live.bySeq = index(records)
+        live.view = undefined
+        live.size = Buffer.byteLength(snapshot)
+        live.torn = false
+      } else {
+        books.set(book, {
+          records,
+          bySeq: index(records),
+          size: Buffer.byteLength(snapshot),
+          readOnly: false,
+          torn: false,
+        })
+      }
+      return true
+    })
+    lastWrite.set(book, run)
+    writing.set(book, run.catch((error) => {
+      rt.warn('ds-bot: legacy records of %s were not migrated: %s', book, error?.message ?? error)
+    }))
+    try {
+      return await run
+    } catch {
+      return false
+    }
+  }
+
   function drop(book) {
     books.delete(book)
     lastWrite.delete(book)
@@ -213,6 +308,7 @@ export function install(rt) {
     open,
     append,
     prepend,
+    mergeRecords,
     flush,
     // Rejects when the last record of the book did not reach the disk.
     written: book => lastWrite.get(book) ?? Promise.resolve(),
