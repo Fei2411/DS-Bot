@@ -175,9 +175,15 @@ export function install(rt) {
     const settled = list.filter(task => !isActiveTask(task))
     if (settled.length <= MAX_SETTLED_TASKS) return
     const dropCount = settled.length - MAX_SETTLED_TASKS
-    const toDrop = new Set(settled.slice(0, dropCount).map(task => task.id))
-    for (const task of settled.slice(0, dropCount)) {
+    const dropped = settled.slice(0, dropCount)
+    const toDrop = new Set(dropped.map(task => task.id))
+    for (const task of dropped) {
       dropReportFile(task.reportFile)
+      const sids = [task.sessionId, ...(task.segments ?? []).map(seg => seg?.sessionId)].filter(Boolean)
+      for (const sid of sids) {
+        void ctx.workspaceRegistry?.archiveSession?.(sid, { stopActivity: true })?.catch(() => {})
+        rt.renewMemory?.(sid)
+      }
     }
     bot.tasks = list.filter(task => !toDrop.has(task.id))
   }
@@ -1140,6 +1146,7 @@ export function install(rt) {
       bot.sessionId = newSid
       rt.chatOwners.set(newSid, bot.id)
       rt.taskOwners.set(oldSid, { botId: bot.id, taskId: task.id })
+      rt.moveSilentNotes?.(oldSid, newSid)
       if (isBotHandoff && activeWork !== undefined) {
         rt.setWorkTargetSession?.(activeWork, oldSid, task.id)
       }

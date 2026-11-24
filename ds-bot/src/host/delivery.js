@@ -3,12 +3,15 @@ import { randomUUID } from 'node:crypto'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { HISTORY_TIMEOUT_MS, LONG_HEAD, MESSAGE_INLINE_MAX, READ_LINE_MAX, SOURCE_KIND, TEXT_KEPT, TEXT_SHOW_MAX } from './constants.js'
 import { headOf, textOf } from './text.js'
-import { sameConversation } from './threads.js'
+import { sameConversation, threadCurrentOfPart } from './threads.js'
 
 export function install(rt) {
   const { ctx, state } = rt
 
   const resolveAgent = async (sessionId) => {
+    if (ctx.fiber?.uid === null || ctx.sessionController === undefined) {
+      throw Object.assign(new Error('Plugin context is inactive'), { code: 'plugin/disposed' })
+    }
     const resolved = await ctx.sessionController.resolveAgent(sessionId)
     if ('error' in resolved) throw Object.assign(new Error(resolved.error?.message ?? 'Session unavailable'), { code: resolved.error?.code })
     rt.hideBotUnusedTools(resolved.agent)
@@ -61,11 +64,15 @@ export function install(rt) {
   // Silent (zero-wake) messages buffered while a target Session is busy.
   // In real DSH (`dsh-agent-loop`), `agent.inject()` puts messages into `inbox.nextStep`,
   // which while `agent.status === 'running'` forces an extra step or starts a spurious
-  // turn when checked at `turnEnds`. Buffering until idle guarantees true zero-wake.
-  const PENDING_SILENT_MAX = 50
+  // turn when checked at `turnEnds`. Buffering until idle (and prepending before step 1
+  // via `agent/pre-step` if another turn starts first) guarantees true zero-wake AND
+  // deterministic causal ordering ahead of queued delegations. Persisted in `inflight.json`
+  // with no silent drop cap so notices survive restarts and bursts intact.
+  /** @type {Map<string, {message:any, ledger?:{book:string, id:string, sessionId:string, failureRequestId?:string, work?:string}}[]>} */
   const pendingSilent = new Map()
   const flushingSilent = new Set()
   const isBusyAgent = (agent, sessionId) => agent?.status === 'running' || rt.live?.get(sessionId)?.turn !== undefined
+  const syncSilent = (sessionId) => { rt.noteSilent?.(sessionId, pendingSilent.get(sessionId)) }
   const waitIdleBriefly = (agent, timeoutMs = 2000) => {
     if (typeof agent?.whenIdle !== 'function') return Promise.resolve()
     return new Promise((resolve) => {
@@ -76,25 +83,69 @@ export function install(rt) {
       Promise.resolve(agent.whenIdle()).then(done, done)
     })
   }
-  const bufferSilent = (sessionId, message, agent) => {
+  const markSilentDelivered = (entries, overrideSessionId) => {
+    const writes = []
+    for (const entry of entries ?? []) {
+      const ledger = entry?.ledger
+      if (ledger?.book === undefined) continue
+      rt.ledger.append(ledger.book, {
+        event: 'delivered',
+        id: ledger.id,
+        sessionId: overrideSessionId ?? ledger.sessionId,
+        time: Date.now(),
+        ...(typeof ledger.failureRequestId === 'string' && ledger.failureRequestId !== '' ? { failureRequestId: ledger.failureRequestId } : {}),
+        ...(typeof ledger.work === 'string' && ledger.work !== '' ? { work: ledger.work } : {}),
+      })
+      writes.push(rt.ledger.written(ledger.book).catch(() => {}))
+    }
+    return writes.length > 0 ? Promise.all(writes) : Promise.resolve()
+  }
+  const bufferSilent = (sessionId, message, agent, ledger) => {
     const list = pendingSilent.get(sessionId) ?? []
     const exchangeId = message?.source?.exchangeId
-    if (exchangeId !== undefined && list.some(item => item?.source?.exchangeId === exchangeId)) return
-    list.push(message)
-    if (list.length > PENDING_SILENT_MAX) list.splice(0, list.length - PENDING_SILENT_MAX)
+    if (exchangeId !== undefined && list.some(item => item?.message?.source?.exchangeId === exchangeId)) return
+    list.push({ message, ...(ledger !== undefined ? { ledger } : {}) })
     pendingSilent.set(sessionId, list)
+    syncSilent(sessionId)
     if (typeof agent?.whenIdle === 'function') {
       void Promise.resolve(agent.whenIdle()).then(() => flushSilentNotes(sessionId)).catch(() => {})
     }
   }
-  async function flushSilentNotes(sessionId) {
+  const putBackSilentNotes = (sessionId, entries) => {
+    if (typeof sessionId !== 'string' || sessionId === '' || !Array.isArray(entries) || entries.length === 0) return
+    const existing = pendingSilent.get(sessionId) ?? []
+    const existingIds = new Set(existing.map(item => item?.message?.source?.exchangeId).filter(Boolean))
+    const restored = entries.filter(item => {
+      if (item?.message === undefined) return false
+      const exId = item.message?.source?.exchangeId
+      return exId === undefined || !existingIds.has(exId)
+    })
+    if (restored.length === 0) return
+    pendingSilent.set(sessionId, [...restored, ...existing])
+    syncSilent(sessionId)
+  }
+  const pendingMessageIds = (agent) => new Set([
+    ...(agent?.inbox?.nextStep ?? []),
+    ...(agent?.inbox?.nextTurn ?? []),
+  ].map(item => item?.id).filter(Boolean))
+  const injectIfNotPending = (agent, message, pendingIds) => {
+    if (message?.id !== undefined && pendingIds.has(message.id)) return false
+    agent.inject(message)
+    if (message?.id !== undefined) pendingIds.add(message.id)
+    return true
+  }
+  async function flushSilentNotes(sessionId, { rethrow = false } = {}) {
     if (!pendingSilent.has(sessionId) || flushingSilent.has(sessionId)) return
     if (rt.live?.get(sessionId)?.turn !== undefined) return
     flushingSilent.add(sessionId)
+    let queued
     try {
       const agent = await resolveAgent(sessionId).catch(() => undefined)
       if (agent === undefined) {
-        if (rt.selfOf?.(sessionId) === undefined) pendingSilent.delete(sessionId)
+        if (rt.selfOf?.(sessionId) === undefined) {
+          pendingSilent.delete(sessionId)
+          syncSilent(sessionId)
+        }
         return
       }
       if (isBusyAgent(agent, sessionId)) {
@@ -103,31 +154,135 @@ export function install(rt) {
         }
         return
       }
-      const queued = pendingSilent.get(sessionId)
+      queued = pendingSilent.get(sessionId)
       if (queued === undefined || queued.length === 0) return
       pendingSilent.delete(sessionId)
-      for (const message of queued) agent.inject(message)
+      const pendingIds = pendingMessageIds(agent)
+      for (const entry of queued) injectIfNotPending(agent, entry.message, pendingIds)
       await ctx.sessions.flush(agent.session)
+      syncSilent(sessionId)
+      void markSilentDelivered(queued, sessionId)
+      queued = undefined
     } catch (error) {
+      if (queued !== undefined && queued.length > 0) putBackSilentNotes(sessionId, queued)
+      if (rethrow) throw error
       rt.warn('ds-bot: flushing silent notes for %s failed: %s', sessionId, error)
     } finally {
       flushingSilent.delete(sessionId)
     }
   }
-  const takeSilentNotes = (sessionId) => {
+  const takeSilentEntries = (sessionId) => {
     const queued = pendingSilent.get(sessionId)
     if (queued === undefined) return []
     pendingSilent.delete(sessionId)
+    syncSilent(sessionId)
     return queued
   }
-  const injectSilent = (sessionId, message, agent) => {
+  const takeSilentNotes = (sessionId) => takeSilentEntries(sessionId).map(entry => entry.message)
+  const moveSilentNotes = (fromSessionId, toSessionId, { awaitFlush = false, rethrow = false } = {}) => {
+    if (fromSessionId === undefined || toSessionId === undefined || fromSessionId === toSessionId) return Promise.resolve()
+    const entries = takeSilentEntries(fromSessionId)
+    if (entries.length > 0) {
+      const targetList = pendingSilent.get(toSessionId) ?? []
+      const seenIds = new Set(targetList.map(item => item?.message?.source?.exchangeId).filter(Boolean))
+      const seenMsgIds = new Set(targetList.map(item => item?.message?.id).filter(Boolean))
+      for (const entry of entries) {
+        const exId = entry?.message?.source?.exchangeId
+        const msgId = entry?.message?.id
+        if ((exId !== undefined && seenIds.has(exId)) || (msgId !== undefined && seenMsgIds.has(msgId))) continue
+        if (exId !== undefined) seenIds.add(exId)
+        if (msgId !== undefined) seenMsgIds.add(msgId)
+        targetList.push({
+          message: entry.message,
+          ...(entry.ledger !== undefined ? { ledger: { ...entry.ledger, sessionId: toSessionId } } : {}),
+        })
+      }
+      pendingSilent.set(toSessionId, targetList)
+      syncSilent(toSessionId)
+    }
+    if (!pendingSilent.has(toSessionId)) return Promise.resolve()
+    if (awaitFlush) return flushSilentNotes(toSessionId, { rethrow })
+    queueMicrotask(() => void flushSilentNotes(toSessionId))
+    return Promise.resolve()
+  }
+  async function restoreSilentNotes(savedMap) {
+    if (savedMap === null || typeof savedMap !== 'object') return
+    const touched = new Set()
+    for (const [oldSid, list] of Object.entries(savedMap)) {
+      if (!Array.isArray(list) || list.length === 0) continue
+      const botId = rt.selfOf?.(oldSid)
+      const bot = botId === undefined ? undefined : rt.botOf(botId)
+      if (bot === undefined) continue
+      const groupOwner = rt.groupOwners?.get(oldSid)
+      const destSid = groupOwner !== undefined
+        ? (rt.roomOf(groupOwner.roomId)?.sessions?.[botId] ?? oldSid)
+        : (threadCurrentOfPart(bot, oldSid) ?? (rt.isBotSession?.(oldSid) ? oldSid : rt.chatOf(botId)))
+      if (destSid === undefined) continue
+      const destList = pendingSilent.get(destSid) ?? []
+      const seenIds = new Set(destList.map(item => item?.message?.source?.exchangeId).filter(Boolean))
+      for (const raw of list) {
+        const message = raw?.message
+        if (message === undefined) continue
+        const exId = message?.source?.exchangeId
+        if (exId !== undefined && seenIds.has(exId)) continue
+        if (exId !== undefined) seenIds.add(exId)
+        destList.push({
+          message,
+          ...(raw.ledger !== undefined ? { ledger: { ...raw.ledger, sessionId: destSid } } : {}),
+        })
+      }
+      if (destList.length > 0) {
+        pendingSilent.set(destSid, destList)
+        syncSilent(destSid)
+        touched.add(destSid)
+      }
+    }
+    for (const sid of touched) await flushSilentNotes(sid)
+  }
+  const injectSilent = (sessionId, message, agent, ledger) => {
     if (isBusyAgent(agent, sessionId)) {
-      bufferSilent(sessionId, message, agent)
+      bufferSilent(sessionId, message, agent, ledger)
       return false
     }
-    agent.inject(message)
+    injectIfNotPending(agent, message, pendingMessageIds(agent))
     return true
   }
+
+  const NON_WAKING_PRE_STEP_KINDS = new Set([
+    'working-directory', 'runtime-context', 'time-context', 'ds-bot-time-context',
+    'bot-memory', 'skill-catalog', 'compact-checkpoint', 'snapshot',
+  ])
+  const isWakingPreStepMessage = (msg) => {
+    const src = msg?.source
+    if (src === undefined) return true
+    if (src.form === 'snapshot' || NON_WAKING_PRE_STEP_KINDS.has(src.kind)) return false
+    if (src.kind === SOURCE_KIND && (src.silent === true || ['note', 'cancelled', 'stopped'].includes(src.role))) return false
+    return true
+  }
+
+  // Deterministically prepend any buffered silent notices before step 1 of a real
+  // waking turn so queued work (e.g. `delegate_work` after `note_bot`) never runs
+  // ahead of them, while never waking an empty or snapshot-only wake boundary.
+  ctx.on('agent/pre-step', async ({ agent, step, messages, signal }, next) => {
+    const decision = await next()
+    if (decision?.kind === 'reject' || signal?.aborted || !Array.isArray(decision?.messages)) return decision
+    if (step !== 1 || !decision.messages.some(isWakingPreStepMessage) || (Array.isArray(messages) && !messages.some(isWakingPreStepMessage))) return decision
+    if (!pendingSilent.has(agent.id)) return decision
+    const entries = takeSilentEntries(agent.id)
+    if (entries.length === 0) return decision
+    const alreadyIds = new Set(decision.messages.map(m => m?.id).filter(Boolean))
+    const alreadyExchanges = new Set(decision.messages.map(m => m?.source?.exchangeId).filter(Boolean))
+    const toPrepend = entries
+      .map(entry => entry.message)
+      .filter(msg => (msg?.id === undefined || !alreadyIds.has(msg.id))
+        && (msg?.source?.exchangeId === undefined || !alreadyExchanges.has(msg.source.exchangeId)))
+    void markSilentDelivered(entries, agent.id)
+    if (toPrepend.length === 0) return decision
+    return {
+      ...decision,
+      messages: [...toPrepend, ...decision.messages],
+    }
+  })
 
   // Roles recorded as team exchanges.
   const EXCHANGE_ROLES = new Set(['request', 'reply', 'stopped', 'ask_back', 'answer', 'cancelled', 'note'])
@@ -139,24 +294,68 @@ export function install(rt) {
   rt.ledger.importer('pair-', book => state.exchanges
     .filter(entry => entry.from !== undefined && entry.to !== undefined && pairBook(entry.from, entry.to) === book)
     .map(entry => ({ ...entry, delivered: true })))
-  // A message shows the text its delivery carried: the last record of its id written before
-  // a delivery mark. A merged request whose replacement never went out keeps the text that did.
+  // Incremental per-pair index cache: advances only over newly appended records and
+  // rebuilds in O(1) detection whenever `ledger.js` replaces the array reference
+  // (rollback, prepend, drop, or read-only reload).
+  const pairCache = new Map()
   function pairRecords(a, b) {
-    const written = new Map()
-    const shown = new Map()
-    const marks = []
-    for (const record of rt.ledger.records(pairBook(a, b))) {
-      if (record.event === 'delivered') {
-        if (written.has(record.id)) shown.set(record.id, written.get(record.id))
-        marks.push(record)
-      } else if (record.event === undefined) {
-        written.set(record.id, record)
-        if (record.delivered === true) shown.set(record.id, record)
+    const book = pairBook(a, b)
+    const records = rt.ledger.records(book)
+    let cache = pairCache.get(book)
+    if (cache === undefined || cache.ref !== records || cache.count > records.length) {
+      cache = {
+        ref: records,
+        peers: [String(a), String(b)],
+        count: 0,
+        written: new Map(),
+        shown: new Map(),
+        marks: [],
+        replies: new Map(),
+        failures: new Map(),
+      }
+      pairCache.set(book, cache)
+    }
+    const indexShown = (record) => {
+      cache.shown.set(record.id, record)
+      if (record.role === 'reply' && typeof record.replyTo === 'string' && record.replyTo !== '') {
+        cache.replies.set(`${record.from}\u0000${record.to}\u0000${record.replyTo}`, record)
       }
     }
-    return { written, shown, marks }
+    for (let i = cache.count; i < records.length; i += 1) {
+      const record = records[i]
+      if (record.event === 'delivered') {
+        const message = cache.written.get(record.id)
+        if (message !== undefined) indexShown(message)
+        cache.marks.push(record)
+        if (typeof record.failureRequestId === 'string' && record.failureRequestId !== '') {
+          let list = cache.failures.get(record.failureRequestId)
+          if (list === undefined) { list = []; cache.failures.set(record.failureRequestId, list) }
+          list.push(record)
+        }
+      } else if (record.event === undefined) {
+        cache.written.set(record.id, record)
+        if (record.delivered === true) indexShown(record)
+      }
+    }
+    cache.count = records.length
+    return cache
   }
   const pairMessages = (a, b) => [...pairRecords(a, b).shown.values()]
+
+  function dropBotLedgers(botId) {
+    if (typeof botId !== 'string' || botId === '') return
+    const booksToDrop = new Set()
+    for (const otherId of Object.keys(state.bots ?? {})) {
+      if (otherId !== botId) booksToDrop.add(pairBook(botId, otherId))
+    }
+    for (const [book, cache] of pairCache.entries()) {
+      if (cache.peers?.includes(botId)) booksToDrop.add(book)
+    }
+    for (const book of booksToDrop) {
+      pairCache.delete(book)
+      rt.ledger.drop(book)
+    }
+  }
 
   function deliveredReplyOf(fromId, toId, replyTo) {
     if (typeof fromId !== 'string' || fromId === '' || typeof replyTo !== 'string' || replyTo === '') return undefined
@@ -164,12 +363,12 @@ export function install(rt) {
       if (rt.botOf(fromId) === undefined || rt.botOf(toId) === undefined) {
         return (state.exchanges ?? []).findLast(entry => entry.from === fromId && entry.to === toId && entry.role === 'reply' && entry.replyTo === replyTo)
       }
-      return pairMessages(fromId, toId).findLast(record => record.from === fromId && record.to === toId && record.role === 'reply' && record.replyTo === replyTo)
+      return pairRecords(fromId, toId).replies.get(`${fromId}\u0000${toId}\u0000${replyTo}`)
     }
     if (rt.botOf(fromId) !== undefined) {
       for (const otherId of Object.keys(state.bots ?? {})) {
         if (otherId === fromId) continue
-        const found = pairMessages(fromId, otherId).findLast(record => record.from === fromId && record.to === otherId && record.role === 'reply' && record.replyTo === replyTo)
+        const found = pairRecords(fromId, otherId).replies.get(`${fromId}\u0000${otherId}\u0000${replyTo}`)
         if (found !== undefined) return found
       }
     }
@@ -182,10 +381,11 @@ export function install(rt) {
     if (typeof fromId !== 'string' || typeof toId !== 'string' || typeof requestId !== 'string' || requestId === '') return []
     if (rt.botOf(fromId) === undefined || rt.botOf(toId) === undefined) return []
     const wantedWork = typeof parentWork === 'string' && parentWork !== '' ? parentWork : undefined
-    const { written, marks } = pairRecords(fromId, toId)
+    const { written, failures } = pairRecords(fromId, toId)
+    const marks = failures.get(requestId)
+    if (marks === undefined) return []
     const matches = []
     for (const mark of marks) {
-      if (mark.failureRequestId !== requestId) continue
       const markWork = typeof mark.work === 'string' && mark.work !== '' ? mark.work : undefined
       if (markWork !== wantedWork) continue
       const message = written.get(mark.id)
@@ -255,8 +455,18 @@ export function install(rt) {
       : (pairFrom !== undefined && rt.botOf(pairFrom) !== undefined ? pairFrom : undefined)
     const book = bookPeer !== undefined && recordExchange && EXCHANGE_ROLES.has(role) && !deferred && !resumed && !retried ? pairBook(bookPeer, toId) : undefined
     let enqueued = false
+    let deliveredNow = true
+    const ledgerMeta = book !== undefined
+      ? {
+          book,
+          id: exchangeId,
+          sessionId: targetSessionId,
+          ...(typeof failureRequestId === 'string' && failureRequestId !== '' ? { failureRequestId } : {}),
+          ...(typeof work === 'string' && work !== '' ? { work } : {}),
+        }
+      : undefined
     try {
-      if (book !== undefined && (merged || !rt.ledger.records(book).some(record => record.event === undefined && record.id === exchangeId))) {
+      if (book !== undefined && (merged || !pairRecords(bookPeer, toId).written.has(exchangeId))) {
         rt.ledger.append(book, { id: exchangeId, from: fromId ?? 'user', to: toId, role, text, time: Date.now(), ...(resolvedWorkRef ? { workRef: resolvedWorkRef } : {}), ...(length !== undefined ? { length, files } : {}), ...(replyTo ? { replyTo } : {}), ...(audience === 'user' ? { audience } : {}), ...(roomId ? { roomId } : {}) })
         await rt.ledger.written(book)
       }
@@ -276,17 +486,37 @@ export function install(rt) {
       })
       if (wake === false) {
         if (afterCancel && isBusyAgent(agent, targetSessionId)) await waitIdleBriefly(agent)
-        const injected = injectSilent(targetSessionId, message, agent)
+        const injected = injectSilent(targetSessionId, message, agent, ledgerMeta)
         enqueued = true
-        if (injected) await ctx.sessions.flush(agent.session)
-      } else {
-        if (!isBusyAgent(agent, targetSessionId) && pendingSilent.has(targetSessionId)) {
-          for (const silent of takeSilentNotes(targetSessionId)) agent.inject(silent)
+        if (injected) {
+          await ctx.sessions.flush(agent.session)
+        } else {
+          // Buffered until idle / next pre-step: pair-ledger 'delivered' is written once flushed.
+          deliveredNow = false
         }
-        if (steer) agent.steer(message)
-        else agent.followup(message)
-        enqueued = true
-        await ctx.sessions.flush(agent.session)
+      } else {
+        const takenSilent = !isBusyAgent(agent, targetSessionId) && pendingSilent.has(targetSessionId)
+          ? takeSilentEntries(targetSessionId)
+          : []
+        let woke = false
+        try {
+          const pendingIds = pendingMessageIds(agent)
+          for (const entry of takenSilent) injectIfNotPending(agent, entry.message, pendingIds)
+          if (steer) agent.steer(message)
+          else agent.followup(message)
+          woke = true
+          enqueued = true
+          await ctx.sessions.flush(agent.session)
+        } catch (error) {
+          // Restore silent notes only if the waking call itself never ran; once steer/followup
+          // woke the turn, already-injected notes sit in the agent's inbox for that turn and
+          // must not be re-buffered (which would duplicate them or collide on message.id).
+          if (!woke && takenSilent.length > 0) {
+            putBackSilentNotes(targetSessionId, takenSilent)
+          }
+          throw error
+        }
+        if (takenSilent.length > 0) void markSilentDelivered(takenSilent, targetSessionId)
       }
     } catch (error) {
       if (error !== null && typeof error === 'object' && error.delivered === undefined) {
@@ -294,18 +524,9 @@ export function install(rt) {
       }
       throw error
     }
-    if (book !== undefined) {
-      rt.ledger.append(book, {
-        event: 'delivered',
-        id: exchangeId,
-        sessionId: targetSessionId,
-        time: Date.now(),
-        ...(typeof failureRequestId === 'string' && failureRequestId !== '' ? { failureRequestId } : {}),
-        ...(typeof work === 'string' && work !== '' ? { work } : {}),
-      })
-      // The message went out either way; a mark that is lost only hides it from the dialog.
-      await rt.ledger.written(book).catch(() => {})
-    } else if (recordExchange && EXCHANGE_ROLES.has(role) && !deferred && !resumed && !retried) {
+    if (deliveredNow && ledgerMeta !== undefined) {
+      await markSilentDelivered([{ ledger: ledgerMeta }])
+    } else if (book === undefined && recordExchange && EXCHANGE_ROLES.has(role) && !deferred && !resumed && !retried) {
       // A message no Bot of the team sent keeps the record it had before the ledger.
       // Recorded once the message is in the Session: an earlier record would show
       // a failed delivery as delivered. The whole text is in its file, or in the
@@ -387,12 +608,17 @@ export function install(rt) {
     return { ...rest, text: kept, ...(record.length === undefined && kept.length < (record.text ?? '').length ? { length: record.text.length } : {}) }
   })
   const exchangeOf = (id, a, b) => {
-    const record = pairMessages(a, b).find(item => item.id === id)
+    const record = pairRecords(a, b).shown.get(id)
     if (record === undefined) return undefined
     // Imported from before the ledger: as whole as it was kept then.
     if (record.sessionId !== undefined || (record.length !== undefined && !(record.files?.length > 0))) return record
     return { ...record, ledger: true }
   }
 
-  Object.assign(rt, { resolveAgent, deliver, flushSilentNotes, takeSilentNotes, injectSilent, exchangeText, attachLong, fileText, exchangesOf, exchangeOf, deliveredReplyOf, wasReplyDelivered, deliveredFailuresOf, wasFailureRequestDelivered })
+  Object.assign(rt, {
+    resolveAgent, deliver, flushSilentNotes, takeSilentNotes, takeSilentEntries, putBackSilentNotes,
+    markSilentDelivered, moveSilentNotes, restoreSilentNotes, injectSilent, dropBotLedgers,
+    exchangeText, attachLong, fileText, exchangesOf, exchangeOf, deliveredReplyOf, wasReplyDelivered,
+    deliveredFailuresOf, wasFailureRequestDelivered,
+  })
 }
