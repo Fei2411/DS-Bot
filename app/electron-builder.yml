@@ -49,13 +49,9 @@ win:
   # Windows' loader, which cannot open a file inside the asar, unpacked or not (#1025). Out here
   # the SDK and the @ubjs runtime it imports are plain files, and the computer-use provider's
   # import goes up from app.asar/node_modules to resources/node_modules and finds them.
-  # Since dsh-office-kit carries a second, nested copy of the LibreOffice kit, engine packages
-  # also nest inside libreoffice-kit's and dsh-office-kit's own node_modules; inside the asar
-  # they would shadow the sibling copy under resources/. Linux keeps its plain tree instead.
   files:
     - '!node_modules/@trycua{,/**/*}'
     - '!node_modules/@ubjs{,/**/*}'
-    - '!node_modules/@deepseek-ai/*/node_modules/@deepseek-ai/libreoffice-kit-*{,/**/*}'
   extraResources:
     - from: node_modules/@trycua
       to: node_modules/@trycua
@@ -76,11 +72,6 @@ nsis:
   installerLanguages: [zh_CN, en_US]
   multiLanguageInstaller: true
 mac:
-  # Since dsh-office-kit carries a second, nested copy of the LibreOffice kit, engine packages
-  # also nest inside libreoffice-kit's and dsh-office-kit's own node_modules; inside the asar
-  # they would shadow the sibling copy under resources/. Linux keeps its plain tree instead.
-  files:
-    - '!node_modules/@deepseek-ai/*/node_modules/@deepseek-ai/libreoffice-kit-*{,/**/*}'
   # A zip, not a dmg: macOS 26 calls a downloaded unsigned dmg damaged and will not open it (#351).
   target: zip
   # Ad-hoc signing seals the bundle; no Developer ID or notarization.

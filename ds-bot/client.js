@@ -505,6 +505,9 @@ var JA = {
   "The model service blocked the content": "モデルサービスのコンテンツフィルターが内容をブロックしました",
   "{provider} blocked this request with its content filter. The API key is not the problem; edit the input or start a new chat.": "{provider} のコンテンツフィルターがこのリクエストをブロックしました。API キーの問題ではありません。入力を変更するか、新しいチャットを始めてください。",
   "{provider} blocked this request with its content filter ({status}). The API key is not the problem; edit the input or start a new chat.": "{provider} のコンテンツフィルターがこのリクエストをブロックしました（{status}）。API キーの問題ではありません。入力を変更するか、新しいチャットを始めてください。",
+  "The model service refused the content": "モデルサービスがコンテンツ安全ポリシーにより内容を拒否しました",
+  "{provider} refused this request under its content safety policy. Edit the input or start a new chat.": "{provider} はコンテンツ安全ポリシーによりこのリクエストを拒否しました。入力を変更するか、新しいチャットを始めてください。",
+  "{provider} refused this request under its content safety policy ({status}). Edit the input or start a new chat.": "{provider} はコンテンツ安全ポリシーによりこのリクエストを拒否しました（{status}）。入力を変更するか、新しいチャットを始めてください。",
   "{provider} is out of balance or quota.": "{provider} の残高または利用枠が不足しています。",
   "{provider} is out of balance or quota ({status}).": "{provider} の残高または利用枠が不足しています（{status}）。",
   "The DeepSeek account balance is too low.": "DeepSeek アカウントの残高が不足しています。",
@@ -3357,6 +3360,9 @@ var KO = {
   "The model service blocked the content": "모델 서비스의 콘텐츠 필터가 내용을 차단했습니다",
   "{provider} blocked this request with its content filter. The API key is not the problem; edit the input or start a new chat.": "{provider}의 콘텐츠 필터가 이 요청을 차단했습니다. API 키 문제가 아닙니다. 입력을 수정하거나 새 대화를 시작하세요.",
   "{provider} blocked this request with its content filter ({status}). The API key is not the problem; edit the input or start a new chat.": "{provider}의 콘텐츠 필터가 이 요청을 차단했습니다 ({status}). API 키 문제가 아닙니다. 입력을 수정하거나 새 대화를 시작하세요.",
+  "The model service refused the content": "모델 서비스가 콘텐츠 안전 정책에 따라 요청을 거부했습니다",
+  "{provider} refused this request under its content safety policy. Edit the input or start a new chat.": "{provider}가 콘텐츠 안전 정책에 따라 이 요청을 거부했습니다. 입력을 수정하거나 새 대화를 시작하세요.",
+  "{provider} refused this request under its content safety policy ({status}). Edit the input or start a new chat.": "{provider}가 콘텐츠 안전 정책에 따라 이 요청을 거부했습니다 ({status}). 입력을 수정하거나 새 대화를 시작하세요.",
   "{provider} is out of balance or quota.": "{provider}의 잔액 또는 할당량이 부족합니다.",
   "{provider} is out of balance or quota ({status}).": "{provider}의 잔액 또는 할당량이 부족합니다 ({status}).",
   "The DeepSeek account balance is too low.": "DeepSeek 계정 잔액이 부족합니다.",
@@ -6248,6 +6254,9 @@ var ES = {
   "The model service blocked the content": "El filtro de contenido del servicio de modelos bloqueó el contenido",
   "{provider} blocked this request with its content filter. The API key is not the problem; edit the input or start a new chat.": "El filtro de contenido de {provider} bloqueó esta solicitud. La clave API no es el problema; edita la entrada o inicia un chat nuevo.",
   "{provider} blocked this request with its content filter ({status}). The API key is not the problem; edit the input or start a new chat.": "El filtro de contenido de {provider} bloqueó esta solicitud ({status}). La clave API no es el problema; edita la entrada o inicia un chat nuevo.",
+  "The model service refused the content": "El servicio de modelos rechazó el contenido por seguridad",
+  "{provider} refused this request under its content safety policy. Edit the input or start a new chat.": "{provider} rechazó esta solicitud según su política de seguridad de contenido. Edita la entrada o inicia un chat nuevo.",
+  "{provider} refused this request under its content safety policy ({status}). Edit the input or start a new chat.": "{provider} rechazó esta solicitud según su política de seguridad de contenido ({status}). Edita la entrada o inicia un chat nuevo.",
   "{provider} is out of balance or quota.": "{provider} se quedó sin saldo o cuota.",
   "{provider} is out of balance or quota ({status}).": "{provider} se quedó sin saldo o cuota ({status}).",
   "The DeepSeek account balance is too low.": "El saldo de la cuenta de DeepSeek es insuficiente.",
@@ -9133,6 +9142,9 @@ var FR = {
   "The model service blocked the content": "Le filtre de contenu du service de modèles a bloqué le contenu",
   "{provider} blocked this request with its content filter. The API key is not the problem; edit the input or start a new chat.": "Le filtre de contenu de {provider} a bloqué cette requête. La clé API n’est pas en cause ; modifiez la saisie ou démarrez une nouvelle discussion.",
   "{provider} blocked this request with its content filter ({status}). The API key is not the problem; edit the input or start a new chat.": "Le filtre de contenu de {provider} a bloqué cette requête ({status}). La clé API n’est pas en cause ; modifiez la saisie ou démarrez une nouvelle discussion.",
+  "The model service refused the content": "Le service de modèles a refusé le contenu pour des raisons de sécurité",
+  "{provider} refused this request under its content safety policy. Edit the input or start a new chat.": "{provider} a refusé cette requête selon sa politique de sécurité du contenu. Modifiez la saisie ou démarrez une nouvelle discussion.",
+  "{provider} refused this request under its content safety policy ({status}). Edit the input or start a new chat.": "{provider} a refusé cette requête selon sa politique de sécurité du contenu ({status}). Modifiez la saisie ou démarrez une nouvelle discussion.",
   "{provider} is out of balance or quota.": "Le solde ou le quota de {provider} est épuisé.",
   "{provider} is out of balance or quota ({status}).": "Le solde ou le quota de {provider} est épuisé ({status}).",
   "The DeepSeek account balance is too low.": "Le solde du compte DeepSeek est insuffisant.",
@@ -11985,6 +11997,9 @@ var DE = {
   "The model service blocked the content": "Der Inhaltsfilter des Modelldienstes hat den Inhalt blockiert",
   "{provider} blocked this request with its content filter. The API key is not the problem; edit the input or start a new chat.": "Der Inhaltsfilter von {provider} hat diese Anfrage blockiert. Der API-Schlüssel ist nicht das Problem; ändere die Eingabe oder starte einen neuen Chat.",
   "{provider} blocked this request with its content filter ({status}). The API key is not the problem; edit the input or start a new chat.": "Der Inhaltsfilter von {provider} hat diese Anfrage blockiert ({status}). Der API-Schlüssel ist nicht das Problem; ändere die Eingabe oder starte einen neuen Chat.",
+  "The model service refused the content": "Der Modelldienst hat den Inhalt aus Sicherheitsgründen abgelehnt",
+  "{provider} refused this request under its content safety policy. Edit the input or start a new chat.": "{provider} hat diese Anfrage gemäß seiner Inhaltsrichtlinie abgelehnt. Ändere die Eingabe oder starte einen neuen Chat.",
+  "{provider} refused this request under its content safety policy ({status}). Edit the input or start a new chat.": "{provider} hat diese Anfrage gemäß seiner Inhaltsrichtlinie abgelehnt ({status}). Ändere die Eingabe oder starte einen neuen Chat.",
   "{provider} is out of balance or quota.": "Guthaben oder Kontingent bei {provider} ist aufgebraucht.",
   "{provider} is out of balance or quota ({status}).": "Guthaben oder Kontingent bei {provider} ist aufgebraucht ({status}).",
   "The DeepSeek account balance is too low.": "Das Guthaben des DeepSeek-Kontos reicht nicht aus.",
@@ -14830,6 +14845,9 @@ var ZH = {
   "The model service blocked the content": "模型服务的内容审核拦截了这条内容",
   "{provider} blocked this request with its content filter. The API key is not the problem; edit the input or start a new chat.": "{provider} 的内容审核拦截了这次请求。问题不在 API Key；请修改输入内容或新开一个对话。",
   "{provider} blocked this request with its content filter ({status}). The API key is not the problem; edit the input or start a new chat.": "{provider} 的内容审核拦截了这次请求（{status}）。问题不在 API Key；请修改输入内容或新开一个对话。",
+  "The model service refused the content": "模型服务因内容安全拒绝了这条请求",
+  "{provider} refused this request under its content safety policy. Edit the input or start a new chat.": "{provider} 因内容安全策略拒绝了这次请求。请修改输入内容或新开一个对话。",
+  "{provider} refused this request under its content safety policy ({status}). Edit the input or start a new chat.": "{provider} 因内容安全策略拒绝了这次请求（{status}）。请修改输入内容或新开一个对话。",
   "{provider} is out of balance or quota.": "{provider} 的余额或额度不够了。",
   "{provider} is out of balance or quota ({status}).": "{provider} 的余额或额度不够了（{status}）。",
   "The DeepSeek account balance is too low.": "DeepSeek 账号余额不足。",
@@ -16967,6 +16985,7 @@ var FAILURES = {
   INVALID_CREDENTIAL: "The API key is not in the right format",
   AUTH: "The API key was rejected",
   CONTENT_POLICY: "The model service blocked the content",
+  CONTENT_REFUSED: "The model service refused the content",
   QUOTA: "The account is out of quota",
   ACCOUNT_QUOTA: "The account is out of quota",
   ACCOUNT_SIGN_IN_REQUIRED: "The DeepSeek account needs a sign-in",
@@ -49150,6 +49169,8 @@ function failureText2(code, { name, provider, status }) {
       return status === void 0 ? t("{provider} did not accept the current API key.", { provider }) : t("{provider} did not accept the current API key ({status}).", { provider, status });
     case "CONTENT_POLICY":
       return status === void 0 ? t("{provider} blocked this request with its content filter. The API key is not the problem; edit the input or start a new chat.", { provider }) : t("{provider} blocked this request with its content filter ({status}). The API key is not the problem; edit the input or start a new chat.", { provider, status });
+    case "CONTENT_REFUSED":
+      return status === void 0 ? t("{provider} refused this request under its content safety policy. Edit the input or start a new chat.", { provider }) : t("{provider} refused this request under its content safety policy ({status}). Edit the input or start a new chat.", { provider, status });
     case "QUOTA":
       return status === void 0 ? t("{provider} is out of balance or quota.", { provider }) : t("{provider} is out of balance or quota ({status}).", { provider, status });
     case "ACCOUNT_QUOTA":
@@ -49183,8 +49204,9 @@ function fixesFor(code, { canSignIn, official, topUp, onAccount = false }) {
       return ["rekey", "model"];
     case "AUTH":
       return ["rekey", canSignIn ? "use-account" : null, "model"].filter(Boolean);
-    // A content audit is about the input, not the credentials; no key action helps.
+    // A content audit or refusal is about the input, not the credentials; no key action helps.
     case "CONTENT_POLICY":
+    case "CONTENT_REFUSED":
       return [];
     case "QUOTA":
       return official ? ["top-up"] : [];
