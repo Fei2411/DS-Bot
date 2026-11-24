@@ -2232,7 +2232,11 @@ var JA = {
   "connected": "件接続済み",
   "models": "個のモデル",
   "{provider} needs an API key": "{provider} には API キーが必要です",
-  "Click here to search any setting, Bot, or model.": "ここをクリックして設定・Bot・モデルを検索します。"
+  "Click here to search any setting, Bot, or model.": "ここをクリックして設定・Bot・モデルを検索します。",
+  "Running command": "操作を実行中",
+  "Running {count} steps": "{count} ステップを実行中",
+  "Ran 1 step": "1 ステップを実行しました",
+  "Ran {count} steps": "{count} ステップを実行しました"
 };
 var HOST_ERRORS_JA = [
   [/^Could not reach the mail server at (.+)\. Check the server address\.$/, "メールサーバー $1 に接続できませんでした。サーバーアドレスを確認してください。"],
@@ -5104,7 +5108,11 @@ var KO = {
   "connected": "개 연결됨",
   "models": "개 모델",
   "{provider} needs an API key": "{provider}에 API 키가 필요합니다",
-  "Click here to search any setting, Bot, or model.": "여기를 눌러 설정, Bot, 모델을 검색하세요."
+  "Click here to search any setting, Bot, or model.": "여기를 눌러 설정, Bot, 모델을 검색하세요.",
+  "Running command": "작업 실행 중",
+  "Running {count} steps": "{count}단계 실행 중",
+  "Ran 1 step": "1단계 실행됨",
+  "Ran {count} steps": "{count}단계 실행됨"
 };
 var HOST_ERRORS_KO = [
   [/^Could not reach the mail server at (.+)\. Check the server address\.$/, "메일 서버 $1에 연결할 수 없습니다. 서버 주소를 확인하세요."],
@@ -7977,7 +7985,11 @@ var ES = {
   "connected": "conectados",
   "models": "modelos",
   "{provider} needs an API key": "{provider} necesita una clave de API",
-  "Click here to search any setting, Bot, or model.": "Haz clic aquí para buscar cualquier ajuste, Bot o modelo."
+  "Click here to search any setting, Bot, or model.": "Haz clic aquí para buscar cualquier ajuste, Bot o modelo.",
+  "Running command": "Ejecutando acción",
+  "Running {count} steps": "Ejecutando {count} pasos",
+  "Ran 1 step": "1 paso ejecutado",
+  "Ran {count} steps": "{count} pasos ejecutados"
 };
 var HOST_ERRORS_ES = [
   [/^Could not reach the mail server at (.+)\. Check the server address\.$/, "No se pudo conectar con el servidor de correo en $1. Comprueba la dirección del servidor."],
@@ -10806,7 +10818,11 @@ var FR = {
   "connected": "connectés",
   "models": "modèles",
   "{provider} needs an API key": "{provider} a besoin d’une clé API",
-  "Click here to search any setting, Bot, or model.": "Cliquez ici pour rechercher un réglage, un Bot ou un modèle."
+  "Click here to search any setting, Bot, or model.": "Cliquez ici pour rechercher un réglage, un Bot ou un modèle.",
+  "Running command": "Action en cours",
+  "Running {count} steps": "Exécution de {count} étapes",
+  "Ran 1 step": "1 étape exécutée",
+  "Ran {count} steps": "{count} étapes exécutées"
 };
 var HOST_ERRORS_FR = [
   [/^Could not reach the mail server at (.+)\. Check the server address\.$/, "Impossible de joindre le serveur de messagerie à l’adresse $1. Vérifiez l’adresse du serveur."],
@@ -13678,7 +13694,11 @@ var DE = {
   "connected": "verbunden",
   "models": "Modelle",
   "{provider} needs an API key": "{provider} braucht einen API-Schlüssel",
-  "Click here to search any setting, Bot, or model.": "Klicke hier, um nach Einstellungen, Bots oder Modellen zu suchen."
+  "Click here to search any setting, Bot, or model.": "Klicke hier, um nach Einstellungen, Bots oder Modellen zu suchen.",
+  "Running command": "Aktion wird ausgeführt",
+  "Running {count} steps": "{count} Schritte werden ausgeführt",
+  "Ran 1 step": "1 Schritt ausgeführt",
+  "Ran {count} steps": "{count} Schritte ausgeführt"
 };
 var HOST_ERRORS_DE = [
   [/^Could not reach the mail server at (.+)\. Check the server address\.$/, "Mailserver unter $1 nicht erreichbar. Bitte prüfe die Serveradresse."],
@@ -16368,7 +16388,11 @@ var ZH = {
   "connected": "已连接",
   "models": "个模型",
   "{provider} needs an API key": "{provider} 需要 API key",
-  "Click here to search any setting, Bot, or model.": "点这里搜索设置项、Bot 或模型。"
+  "Click here to search any setting, Bot, or model.": "点这里搜索设置项、Bot 或模型。",
+  "Running command": "正在执行操作",
+  "Running {count} steps": "正在执行 {count} 步操作",
+  "Ran 1 step": "已执行 1 步操作",
+  "Ran {count} steps": "已执行 {count} 步操作"
 };
 var HOST_ERRORS = [
   [/^Could not reach the mail server at (.+)\. Check the server address\.$/, "连不上邮件服务器 $1，请检查服务器地址。"],
@@ -20547,6 +20571,14 @@ div:has(> nav [class*="_marks"]){display:none!important}
 .bt-agent-act-mark{flex:0 0 6px;width:6px;height:6px;border-radius:50%;corner-shape:round;background:var(--bt-ink-3);opacity:.55}
 .bt-agent-act-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .bt-agent-act code{font-family:var(--bt-mono);font-size:12px;background:var(--bt-hover);border-radius:4px;padding:1px 5px;color:var(--bt-ink)}
+.bt-act-fold{margin:4px 0 6px}
+.bt-act-fold>summary{display:flex;align-items:center;gap:6px;max-width:100%;min-width:0}
+.bt-act-fold>summary::before{content:"";flex:none;width:6px;height:6px;border-right:1.5px solid var(--bt-ink-3);border-bottom:1.5px solid var(--bt-ink-3);transform:rotate(-45deg);transition:transform .14s ease}
+.bt-act-fold[open]>summary::before{transform:rotate(45deg)}
+.bt-act-sum-label{flex:none;white-space:nowrap}
+.bt-act-sum-tail{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--bt-ink-3)}
+.bt-act-sum-tail code{font-family:var(--bt-mono);font-size:12px;background:var(--bt-hover);border-radius:4px;padding:1px 5px;color:var(--bt-ink-2)}
+.bt-act-fold>.bt-agent-activity{margin:6px 0 2px;padding-left:10px;border-left:2px solid var(--bt-line-2)}
 .bt-part-line{display:flex;align-items:center;gap:10px;margin:10px 0 6px;font-size:11px;line-height:14px;color:var(--bt-ink-3)}
 .bt-part-line::before,.bt-part-line::after{content:"";flex:1;height:1px;background:var(--bt-line)}
 /* The dock wrapper also holds the context meter, so it stays hidden until a side question is in it. */
@@ -30599,15 +30631,25 @@ var CONNECTOR_CSS = `
 `;
 
 // src/client/turn-reasoning.js
+function reasoningRun(members, current2) {
+  const idx = members.findIndex((step) => step.step === current2.step);
+  if (idx === -1) return [current2];
+  let start = idx;
+  while (start > 0 && !hasInterleavedBlocks(members[start - 1])) start -= 1;
+  let end = idx + 1;
+  while (end < members.length && !hasInterleavedBlocks(members[end])) end += 1;
+  return members.slice(start, end);
+}
 function turnReasoning(steps, current2) {
+  if (hasInterleavedBlocks(current2)) return "";
   const members = steps.length ? steps : [current2];
-  if (members.findLast((step) => stepReasoning(step) !== "")?.step !== current2.step) return "";
-  return members.map(stepReasoning).filter(Boolean).join("\n\n");
+  const run2 = reasoningRun(members, current2);
+  if (run2.findLast((step) => stepReasoning(step) !== "")?.step !== current2.step) return "";
+  return run2.map(stepReasoning).filter(Boolean).join("\n\n");
 }
 function opensReply(steps, current2, withReasoning = true) {
   const members = steps.length ? steps : [current2];
-  const reasoner = withReasoning ? members.findLast((step) => stepReasoning(step) !== "") : void 0;
-  return members.find((step) => texts(step).length > 0 || step === reasoner)?.step === current2.step;
+  return members.find((step) => texts(step).length > 0 || withReasoning && (hasInterleavedBlocks(step) ? stepReasoning(step) !== "" : turnReasoning(members, step) !== ""))?.step === current2.step;
 }
 var thinkingStep = (steps) => steps.find(thinkingLive);
 var thinkingLive = (step) => step.status === "running" && texts(step).length === 0 && step.blocks.some((block) => block.kind === "reasoning");
@@ -30620,10 +30662,60 @@ var visibleReasoning = (text) => {
   return end === -1 ? "" : text.slice(end + "</signature>".length).replace(/^(\r?\n)+/, "");
 };
 var ACTIVITY = "▸ ";
+var IGNORED_ACTIVITY = /* @__PURE__ */ new Set(["userMessage", "user_message", "developerMessage", "developer_message", "contextCompaction", "context_compaction"]);
 var isActivity = (line) => line.startsWith(ACTIVITY);
+function cleanActivityLine(raw) {
+  const text = String(raw ?? "").trim();
+  if (text === "" || IGNORED_ACTIVITY.has(text)) return "";
+  const match = /^(?:\/\S+\/)?(?:ba|z|da|k)?sh\s+-[a-z]*c\s+([\s\S]+)$/i.exec(text);
+  if (!match) return text;
+  const body = match[1].trim();
+  if (body.startsWith('"') && body.endsWith('"') || body.startsWith("'") && body.endsWith("'")) {
+    const quote = body[0];
+    const inner = body.slice(1, -1);
+    return quote === '"' ? inner.replace(/\\(["\\$`])/g, "$1") : inner.replace(/'\\''/g, "'");
+  }
+  return body;
+}
 var reasoningText = (step) => step.blocks.filter((block) => block.kind === "reasoning").map((block) => visibleReasoning(block.text)).join("\n");
 var stepReasoning = (step) => reasoningText(step).split("\n").filter((line) => !isActivity(line)).join("\n").trim();
-var stepActivity = (step) => reasoningText(step).split("\n").filter(isActivity).map((line) => line.slice(ACTIVITY.length).trim()).filter(Boolean);
+var stepActivity = (step) => reasoningText(step).split("\n").filter(isActivity).map((line) => cleanActivityLine(line.slice(ACTIVITY.length))).filter(Boolean);
+function hasInterleavedBlocks(step) {
+  let seenText = false;
+  for (const block of step.blocks ?? []) {
+    if (block.kind === "text" && block.text.trim() !== "") seenText = true;
+    else if (seenText && block.kind === "reasoning" && visibleReasoning(block.text).trim() !== "") return true;
+  }
+  return false;
+}
+function stepSegments(step) {
+  const segments = [];
+  for (const block of step.blocks ?? []) {
+    if (block.kind === "text") {
+      if (block.text.trim() === "") continue;
+      const last = segments.at(-1);
+      if (last?.kind === "text") last.texts.push(block.text);
+      else segments.push({ kind: "text", texts: [block.text] });
+    } else if (block.kind === "reasoning") {
+      const raw = visibleReasoning(block.text);
+      if (raw.trim() === "") continue;
+      const lines = raw.split("\n");
+      const activity = lines.filter(isActivity).map((line) => cleanActivityLine(line.slice(ACTIVITY.length))).filter(Boolean);
+      const thought = lines.filter((line) => !isActivity(line)).join("\n").trim();
+      if (activity.length === 0 && thought === "") continue;
+      const last = segments.at(-1);
+      if (last?.kind === "process") {
+        last.activity.push(...activity);
+        if (thought) last.thought = last.thought ? `${last.thought}
+
+${thought}` : thought;
+      } else {
+        segments.push({ kind: "process", activity: [...activity], thought });
+      }
+    }
+  }
+  return segments;
+}
 
 // src/shared/group-replies.js
 function relayRange(text) {
@@ -31680,7 +31772,7 @@ var USER_MESSAGE_CSS = `
 var import_react34 = require("react");
 var import_react_dom4 = require("react-dom");
 var useNullUi = () => null;
-function Bubbles({ texts: texts2, roster, selfId, actions, streaming, sessionId, msgKey, useUi, lead, mentions, fold = FOLD_AT, whole, time, textInteractionSource }) {
+function Bubbles({ texts: texts2, roster, selfId, actions, streaming, sessionId, msgKey, indexOffset = 0, useUi, lead, mentions, fold = FOLD_AT, whole, time, textInteractionSource }) {
   const onClick = (event) => {
     const target = mentionTarget(event);
     if (target === null) return;
@@ -31695,11 +31787,12 @@ function Bubbles({ texts: texts2, roster, selfId, actions, streaming, sessionId,
     "div",
     { className: "bt-astack", "data-lead": lead ? "" : void 0, onClickCapture: onClick },
     cleaned.map((text, index) => {
+      const bubbleIndex = indexOffset + index;
       const last = index === cleaned.length - 1;
       return (0, import_react34.createElement)(Bubble, {
-        key: index,
+        key: bubbleIndex,
         text,
-        index,
+        index: bubbleIndex,
         roster,
         selfId,
         actions,
@@ -31708,7 +31801,7 @@ function Bubbles({ texts: texts2, roster, selfId, actions, streaming, sessionId,
         mentions,
         fold,
         textInteractionSource,
-        picked: msgKey ? reactions?.[index] ?? [] : [],
+        picked: msgKey ? reactions?.[bubbleIndex] ?? [] : [],
         live: streaming && last,
         lead: lead && last ? lead : null,
         whole: last ? whole : void 0
@@ -31930,6 +32023,39 @@ function ThinkingRow({ text, live, at, ms, viewKey, textInteractionSource }) {
     (0, import_react34.createElement)("div", { ref: box, className: "bt-think-text", role: "region", "aria-label": title, tabIndex: 0, "data-fade": fade, "data-text-interaction-source": textInteractionSource && !live ? "" : void 0, onScroll: measure }, text)
   );
 }
+function ActivityFold({ lines, live = false, viewKey }) {
+  const cleaned = (lines ?? []).map(cleanActivityLine).filter(Boolean);
+  const [open, setOpen] = (0, import_react34.useState)(() => viewKey !== void 0 ? rowViews.get(viewKey)?.open ?? false : false);
+  if (cleaned.length === 0) return null;
+  const toggle = (event) => {
+    const next = event.currentTarget.open;
+    if (viewKey !== void 0) rowViews.set(viewKey, { ...rowViews.get(viewKey), open: next });
+    setOpen(next);
+  };
+  const latest = cleaned.at(-1) ?? "";
+  const count = cleaned.length;
+  const label = live ? count > 1 ? t("Running {count} steps", { count }) : t("Running command") : count === 1 ? t("Ran 1 step") : t("Ran {count} steps", { count });
+  return (0, import_react34.createElement)(
+    "details",
+    { className: "bt-think bt-act-fold", open, onToggle: toggle },
+    (0, import_react34.createElement)(
+      "summary",
+      null,
+      (0, import_react34.createElement)("span", { className: "bt-act-sum-label" }, label),
+      !open && latest ? (0, import_react34.createElement)("span", { className: "bt-act-sum-tail" }, "· ", activityParts(latest)) : null
+    ),
+    (0, import_react34.createElement)(
+      "div",
+      { className: "bt-agent-activity" },
+      cleaned.map((line, index) => (0, import_react34.createElement)(
+        "div",
+        { key: index, className: "bt-agent-act", title: line },
+        (0, import_react34.createElement)("span", { className: "bt-agent-act-mark", "aria-hidden": true }),
+        (0, import_react34.createElement)("span", { className: "bt-agent-act-text" }, activityParts(line))
+      ))
+    )
+  );
+}
 function useFileMentions({ node, openFile, fileMentions, useTurnData }) {
   const tail = useTurnData?.("turn-tail");
   const location2 = node.location;
@@ -31947,16 +32073,89 @@ function AssistantCell({ node, groupPart, sessionId, openFile, fileMentions, use
   const contexts = useTurnContext(String(data.turn));
   const mentions = useFileMentions({ node, openFile, fileMentions, useTurnData });
   const hidden = Boolean(roster.roomsById[sessionId]) || isHiddenTurn(roster, sessionId, data.turn);
+  const interleaved = hasInterleavedBlocks(data);
   const texts2 = groupPart === "reasoning" ? [] : data.blocks.filter((block) => block.kind === "text").map((block) => stripToolCallTags(block.text)).filter((text) => text.trim() !== "");
   const running = data.status === "running";
   const textInteractionSource = data.status === "settled" && data.finalNode?.messageId !== void 0;
   const members = steps.length ? steps : [data];
   const shown = thinkingShown(roster.prefs);
-  const reasoning = groupPart === "response" || !shown ? "" : turnReasoning(steps, data);
-  const thinking = groupPart === "response" || !shown ? void 0 : thinkingStep(members);
-  const ms = useThinkingMs({ sessionId, turn: data.turn, settledSteps: members.filter((step) => step.status !== "running").length, skip: hidden || reasoning === "" });
-  useLiveNote(actions, sessionId, `text:${node.key ?? data.seq}`, !hidden && running && texts2.length > 0 ? { text: true } : null);
+  const reasoning = interleaved || groupPart === "response" || !shown ? "" : turnReasoning(steps, data);
+  const thinking = interleaved || groupPart === "response" || !shown ? void 0 : thinkingStep(members);
+  const hasAnyReasoning = interleaved ? shown && data.blocks.some((block) => block.kind === "reasoning") : reasoning !== "";
+  const ms = useThinkingMs({ sessionId, turn: data.turn, settledSteps: members.filter((step) => step.status !== "running").length, skip: hidden || !hasAnyReasoning });
+  const streamingText = interleaved ? data.blocks.at(-1)?.kind === "text" && texts2.length > 0 : texts2.length > 0;
+  useLiveNote(actions, sessionId, `text:${node.key ?? data.seq}`, !hidden && running && streamingText ? { text: true } : null);
   if (hidden) return (0, import_react34.createElement)(CellEmpty);
+  if (interleaved) {
+    if (groupPart === "reasoning") return (0, import_react34.createElement)(CellEmpty);
+    const segments = stepSegments(data);
+    const relays2 = relaysBefore(contexts, steps, data);
+    if (segments.length === 0 && relays2.length === 0) return (0, import_react34.createElement)(CellEmpty);
+    const selfBot = roster.byId[sessionId];
+    const selfId2 = selfBot?.id ?? sessionId;
+    const speaker2 = layoutOf(roster.prefs) === "flat" ? selfBot : void 0;
+    const head2 = speaker2 !== void 0 && opensReply(steps, data, shown);
+    const lastTextIndex = segments.findLastIndex((seg) => seg.kind === "text");
+    const lastThoughtIndex = segments.findLastIndex((seg) => seg.kind === "process" && Boolean(seg.thought));
+    const msgKey = `${sessionId}:${data.turn}:${node.key ?? data.seq ?? ""}`;
+    let textOffset = 0;
+    return (0, import_react34.createElement)(
+      import_react34.Fragment,
+      null,
+      relays2.map((relay) => {
+        const source = relay.source;
+        const sender = roster.byId[source.senderSessionId] ?? { id: source.senderSessionId, name: source.senderName ?? t("a Bot"), color: "gray" };
+        return (0, import_react34.createElement)(EventLine, {
+          key: relay.seq,
+          prefix: source.role === "stopped" ? t("Stopped by") : source.role === "reply" ? t("Reply from") : t("Message from"),
+          bots: [sender],
+          onOpen: () => {
+            if (sender.id) actions.openExchange(selfId2, sender.id);
+          },
+          whole: true
+        });
+      }),
+      head2 ? (0, import_react34.createElement)(SpeakerHead, { bot: speaker2, time: data.time }) : null,
+      segments.map((seg, segIndex) => {
+        const isLast = segIndex === segments.length - 1;
+        if (seg.kind === "text") {
+          const segTexts = seg.texts.map(stripToolCallTags).filter((text) => text.trim() !== "");
+          if (segTexts.length === 0) return null;
+          const indexOffset = textOffset;
+          textOffset += segTexts.length;
+          return (0, import_react34.createElement)(Bubbles, {
+            key: `txt:${segIndex}`,
+            texts: segTexts,
+            roster,
+            selfId: selfId2,
+            actions,
+            streaming: running && isLast,
+            sessionId,
+            msgKey,
+            indexOffset,
+            useUi,
+            mentions,
+            fold: FOLD_HUGE,
+            time: speaker2 === void 0 && segIndex === lastTextIndex ? data.time : void 0,
+            textInteractionSource
+          });
+        }
+        const segLive = running && isLast;
+        return (0, import_react34.createElement)(
+          import_react34.Fragment,
+          { key: `proc:${segIndex}` },
+          seg.activity.length ? (0, import_react34.createElement)(ActivityFold, { lines: seg.activity, live: segLive && !seg.thought, viewKey: `${sessionId}:${data.turn}:act:${data.step ?? 0}:${segIndex}` }) : null,
+          shown && seg.thought ? (0, import_react34.createElement)(ThinkingRow, {
+            text: seg.thought,
+            live: segLive,
+            viewKey: `${sessionId}:${data.turn}:think:${data.step ?? 0}:${segIndex}`,
+            textInteractionSource,
+            ...segLive ? {} : { ms: segIndex === lastThoughtIndex ? ms : void 0 }
+          }) : null
+        );
+      })
+    );
+  }
   const relays = relayPart(data, groupPart) ? relaysBefore(contexts, steps, data) : [];
   const activity = groupPart === "response" ? [] : stepActivity(data);
   if (texts2.length === 0 && !reasoning && relays.length === 0 && activity.length === 0) return (0, import_react34.createElement)(CellEmpty);
@@ -31980,7 +32179,7 @@ function AssistantCell({ node, groupPart, sessionId, openFile, fileMentions, use
       });
     }),
     head ? (0, import_react34.createElement)(SpeakerHead, { bot: speaker, time: data.time }) : null,
-    activity.length ? (0, import_react34.createElement)("div", { className: "bt-agent-activity" }, activity.map((line, index) => (0, import_react34.createElement)("div", { key: index, className: "bt-agent-act", title: line }, (0, import_react34.createElement)("span", { className: "bt-agent-act-mark", "aria-hidden": true }), (0, import_react34.createElement)("span", { className: "bt-agent-act-text" }, activityParts(line))))) : null,
+    activity.length ? (0, import_react34.createElement)(ActivityFold, { lines: activity, live: running && texts2.length === 0 && !reasoning, viewKey: `${sessionId}:${data.turn}:act:${data.step ?? 0}` }) : null,
     reasoning ? (0, import_react34.createElement)(ThinkingRow, {
       text: reasoning,
       live: thinking !== void 0,

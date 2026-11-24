@@ -2151,6 +2151,10 @@ export const KO = {
   "models": "개 모델",
   "{provider} needs an API key": "{provider}에 API 키가 필요합니다",
   "Click here to search any setting, Bot, or model.": "여기를 눌러 설정, Bot, 모델을 검색하세요.",
+  "Running command": "작업 실행 중",
+  "Running {count} steps": "{count}단계 실행 중",
+  "Ran 1 step": "1단계 실행됨",
+  "Ran {count} steps": "{count}단계 실행됨",
 }
 
 export const HOST_ERRORS_KO = [

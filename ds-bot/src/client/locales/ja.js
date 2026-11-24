@@ -2116,6 +2116,10 @@ export const JA = {
   "models": "個のモデル",
   "{provider} needs an API key": "{provider} には API キーが必要です",
   "Click here to search any setting, Bot, or model.": "ここをクリックして設定・Bot・モデルを検索します。",
+  "Running command": "操作を実行中",
+  "Running {count} steps": "{count} ステップを実行中",
+  "Ran 1 step": "1 ステップを実行しました",
+  "Ran {count} steps": "{count} ステップを実行しました",
 }
 
 export const HOST_ERRORS_JA = [

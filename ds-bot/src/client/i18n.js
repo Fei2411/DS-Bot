@@ -1979,6 +1979,10 @@ const ZH = {
   "models": "个模型",
   "{provider} needs an API key": "{provider} 需要 API key",
   "Click here to search any setting, Bot, or model.": "点这里搜索设置项、Bot 或模型。",
+  "Running command": "正在执行操作",
+  "Running {count} steps": "正在执行 {count} 步操作",
+  "Ran 1 step": "已执行 1 步操作",
+  "Ran {count} steps": "已执行 {count} 步操作",
 }
 
 // Host errors stay English, since Bots read them too; they are translated where the

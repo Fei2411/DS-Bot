@@ -1856,6 +1856,14 @@ div:has(> nav [class*="_marks"]){display:none!important}
 .bt-agent-act-mark{flex:0 0 6px;width:6px;height:6px;border-radius:50%;corner-shape:round;background:var(--bt-ink-3);opacity:.55}
 .bt-agent-act-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .bt-agent-act code{font-family:var(--bt-mono);font-size:12px;background:var(--bt-hover);border-radius:4px;padding:1px 5px;color:var(--bt-ink)}
+.bt-act-fold{margin:4px 0 6px}
+.bt-act-fold>summary{display:flex;align-items:center;gap:6px;max-width:100%;min-width:0}
+.bt-act-fold>summary::before{content:"";flex:none;width:6px;height:6px;border-right:1.5px solid var(--bt-ink-3);border-bottom:1.5px solid var(--bt-ink-3);transform:rotate(-45deg);transition:transform .14s ease}
+.bt-act-fold[open]>summary::before{transform:rotate(45deg)}
+.bt-act-sum-label{flex:none;white-space:nowrap}
+.bt-act-sum-tail{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--bt-ink-3)}
+.bt-act-sum-tail code{font-family:var(--bt-mono);font-size:12px;background:var(--bt-hover);border-radius:4px;padding:1px 5px;color:var(--bt-ink-2)}
+.bt-act-fold>.bt-agent-activity{margin:6px 0 2px;padding-left:10px;border-left:2px solid var(--bt-line-2)}
 .bt-part-line{display:flex;align-items:center;gap:10px;margin:10px 0 6px;font-size:11px;line-height:14px;color:var(--bt-ink-3)}
 .bt-part-line::before,.bt-part-line::after{content:"";flex:1;height:1px;background:var(--bt-line)}
 /* The dock wrapper also holds the context meter, so it stays hidden until a side question is in it. */

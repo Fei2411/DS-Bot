@@ -2116,6 +2116,10 @@ export const FR = {
   "models": "modèles",
   "{provider} needs an API key": "{provider} a besoin d’une clé API",
   "Click here to search any setting, Bot, or model.": "Cliquez ici pour rechercher un réglage, un Bot ou un modèle.",
+  "Running command": "Action en cours",
+  "Running {count} steps": "Exécution de {count} étapes",
+  "Ran 1 step": "1 étape exécutée",
+  "Ran {count} steps": "{count} étapes exécutées",
 }
 
 export const HOST_ERRORS_FR = [
