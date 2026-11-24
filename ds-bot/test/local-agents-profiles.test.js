@@ -250,8 +250,8 @@ test('client agent-routes inherit logos/badges for profiles and isolate model me
 
 test('two concurrent profiles of the same CLI spawn isolated processes with distinct config dirs (Claude, Codex, ACP)', async (t) => {
   const root = mkdtempSync(join(tmpdir(), 'dsb-multi-prof-'))
-  t.after(() => rmSync(root, { recursive: true, force: true }))
   const home = join(root, 'home')
+  const spawnedEngines = []
 
   // Real spawned Claude stream-json fixture that echoes its PID and CLAUDE_CONFIG_DIR.
   const fakeClaude = writeNodeModule(root, 'fake-claude-env.mjs', `
@@ -346,9 +346,11 @@ test('two concurrent profiles of the same CLI spawn isolated processes with dist
     spawnEngine: (kind, route, spec) => {
       const fixture = kind === 'claude' ? fakeClaude : kind === 'codex' ? fakeCodex : fakeAcp
       const overridden = { ...spec, command: process.execPath, args: [fixture] }
-      return kind === 'claude' ? new ClaudeEngine(route, overridden, { findExecutable: p => p })
+      const engine = kind === 'claude' ? new ClaudeEngine(route, overridden, { findExecutable: p => p })
         : kind === 'codex' ? new CodexEngine(route, overridden, { findExecutable: p => p })
           : new AcpEngine(route, overridden, { findExecutable: p => p })
+      spawnedEngines.push(engine)
+      return engine
     },
     record: id => records[id],
     saveRecord: (id, rec) => { records[id] = rec },
@@ -357,7 +359,39 @@ test('two concurrent profiles of the same CLI spawn isolated processes with dist
     probeCwd: () => root,
     toolsFor: () => [],
   })
-  t.after(() => adapter.dispose())
+  t.after(async () => {
+    const children = []
+    for (const engine of spawnedEngines) {
+      if (engine.child) children.push(engine.child)
+      for (const session of engine.sessions?.values?.() ?? []) {
+        if (session?.child) children.push(session.child)
+      }
+    }
+    const exits = children.map(child => (child.exitCode !== null || child.signalCode !== null
+      ? Promise.resolve()
+      : new Promise((resolve) => {
+        const done = () => { child.off('exit', done); child.off('close', done); resolve() }
+        child.once('exit', done)
+        child.once('close', done)
+      })))
+    try {
+      await adapter.dispose()
+      let timer
+      try {
+        await Promise.race([
+          Promise.all(exits),
+          new Promise((resolve) => {
+            timer = setTimeout(resolve, 3_000)
+            timer.unref?.()
+          }),
+        ])
+      } finally {
+        clearTimeout(timer)
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true, maxRetries: 15, retryDelay: 100 })
+    }
+  })
 
   // 1. Two concurrent Claude profiles receive distinct CLAUDE_CONFIG_DIR & custom env vars
   const [clWork, clPersonal] = await Promise.all([
@@ -502,7 +536,6 @@ test('probeSignIn isolates profile env, file fallbacks, and skips macOS Keychain
 test('profile CRUD endpoints create 0o700 dirs, register routes, probe independently, reload on update, and preserve files on remove', async (t) => {
   await refreshSearchDirs()
   const root = mkdtempSync(join(tmpdir(), 'dsb-prof-crud-'))
-  t.after(() => rmSync(root, { recursive: true, force: true }))
   const home = join(root, 'bot-home')
   const customDir = join(root, 'custom-work-dir')
   const savedEngines = { ...ENGINES }
@@ -528,7 +561,14 @@ test('profile CRUD endpoints create 0o700 dirs, register routes, probe independe
     state: { bots: {}, localAgents: { custom: [], profiles: [], sessions: {} } },
     save: async () => { saves += 1 },
   }
-  t.after(async () => { await ctx.dispose(); await owner.fiber.dispose() })
+  t.after(async () => {
+    try {
+      await ctx.dispose()
+      await owner.fiber.dispose()
+    } finally {
+      rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
+    }
+  })
 
   installLocalAgents(rt, {
     probeVersion: async () => ({ ok: true, version: 'claude 2.0.0' }),
