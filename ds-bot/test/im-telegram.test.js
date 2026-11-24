@@ -84,6 +84,62 @@ test('check validates the token with getMe and names the account', async () => {
   } finally { api.close() }
 })
 
+test('initial account check times out during fetch or body reading and can retry', async t => {
+  let abort
+  t.mock.method(AbortSignal, 'timeout', ms => {
+    assert.equal(ms, 15_000)
+    abort = new AbortController()
+    return abort.signal
+  })
+  for (const phase of ['headers', 'body']) {
+    const started = Promise.withResolvers()
+    const fetch = async (_url, { signal }) => {
+      const waitForAbort = () => {
+        started.resolve()
+        return new Promise((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }))
+      }
+      return phase === 'headers' ? waitForAbort() : { json: waitForAbort }
+    }
+    const check = telegram.check({ token: 'fixture' }, { fetch })
+    await started.promise
+    abort.abort()
+    await assert.rejects(check, /within 15 seconds/)
+  }
+  const fetch = async () => ({ json: async () => ({ ok: true, result: { id: 1, username: 'fixture' } }) })
+  assert.equal((await telegram.check({ token: 'fixture' }, { fetch })).account.id, '1')
+})
+
+test('account checks keep credential-bearing errors out of failure messages', async () => {
+  const fields = { token: 'fixture-value' }
+  const transport = async url => { throw new Error(url) }
+  const denied = async url => ({ status: 401, json: async () => ({ ok: false, description: url }) })
+  for (const fetch of [transport, denied]) {
+    await assert.rejects(telegram.check(fields, { fetch }), error =>
+      !error.message.includes(fields.token) && /network|HTTP 401/.test(error.message))
+  }
+})
+
+test('the eleventh check and send stay usable while ten getUpdates polls are held', async () => {
+  const api = await fakeApi()
+  api.holdPoll = true
+  const handles = Array.from({ length: 10 }, () => telegram.connect({ token: 'TOKEN' }, env(api.api), {
+    onMessage: () => {}, onAction: () => {}, onStatus: () => {},
+  }))
+  try {
+    await until(() => api.heldPoll.length === 10)
+    const checked = await telegram.check({ token: 'TOKEN' }, env(api.api))
+    assert.equal(checked.account.id, '7')
+    await handles[0].send({ key: '1' }, { text: 'synthetic' })
+    assert.equal(api.heldPoll.length, 10, 'all ten long polls remain held while the eleventh calls complete')
+    assert.equal(api.calls.filter(call => call.method === 'getMe').length, 11)
+    assert.equal(api.calls.filter(call => call.method === 'sendMessage').length, 1)
+  } finally {
+    for (const handle of handles) handle.stop()
+    for (const response of api.heldPoll) response.end(JSON.stringify({ ok: true, result: [] }))
+    api.close()
+  }
+})
+
 test('private text, group mention and photo become adapter messages', async () => {
   const api = await fakeApi()
   const got = { messages: [], actions: [] }

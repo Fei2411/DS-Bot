@@ -1969,6 +1969,9 @@ var JA = {
   "Choose a Bot or a group": "Bot またはグループを選択してください",
   "This platform has no QR login": "このプラットフォームは QR ログインに対応していません",
   "Paste the bot token first": "先にボットトークンを貼り付けてください",
+  "Telegram did not answer within 15 seconds. Try again.": "Telegram が 15 秒以内に応答しませんでした。もう一度お試しください。",
+  "Could not reach Telegram. Check the network and try again.": "Telegram に接続できませんでした。ネットワーク接続を確認して、もう一度お試しください。",
+  "Telegram rejected the bot token (HTTP 401). Check it and try again.": "Telegram によりボットトークンが拒否されました（HTTP 401）。トークンを確認して、もう一度お試しください。",
   "Telegram did not say who this token belongs to": "Telegram からこのトークンの所有者情報が返されませんでした",
   "A webhook or another program uses this bot": "Webhook または別のプログラムがこのボットを使用しています",
   "This token does not belong to a Discord bot": "このトークンは Discord ボットのものではありません",
@@ -4858,6 +4861,9 @@ var KO = {
   "Choose a Bot or a group": "Bot 또는 그룹을 선택하세요",
   "This platform has no QR login": "이 플랫폼은 QR 로그인을 지원하지 않습니다",
   "Paste the bot token first": "먼저 봇 토큰을 붙여넣으세요",
+  "Telegram did not answer within 15 seconds. Try again.": "Telegram이 15초 안에 응답하지 않았습니다. 다시 시도하세요.",
+  "Could not reach Telegram. Check the network and try again.": "Telegram에 연결할 수 없습니다. 네트워크 연결을 확인한 후 다시 시도하세요.",
+  "Telegram rejected the bot token (HTTP 401). Check it and try again.": "Telegram이 봇 토큰을 거부했습니다(HTTP 401). 토큰을 확인한 후 다시 시도하세요.",
   "Telegram did not say who this token belongs to": "Telegram에서 이 토큰이 속한 봇 정보를 반환하지 않았습니다",
   "A webhook or another program uses this bot": "웹훅 또는 다른 프로그램이 이 봇을 사용 중입니다",
   "This token does not belong to a Discord bot": "이 토큰은 Discord 봇의 토큰이 아닙니다",
@@ -7749,6 +7755,9 @@ var ES = {
   "Choose a Bot or a group": "Elige un Bot o un grupo",
   "This platform has no QR login": "Esta plataforma no admite inicio de sesión por QR",
   "Paste the bot token first": "Pega primero el token del bot",
+  "Telegram did not answer within 15 seconds. Try again.": "Telegram no respondió en 15 segundos. Inténtalo de nuevo.",
+  "Could not reach Telegram. Check the network and try again.": "No se pudo contactar con Telegram. Comprueba la conexión y vuelve a intentarlo.",
+  "Telegram rejected the bot token (HTTP 401). Check it and try again.": "Telegram rechazó el token del bot (HTTP 401). Revísalo y vuelve a intentarlo.",
   "Telegram did not say who this token belongs to": "Telegram no indicó a qué bot pertenece este token",
   "A webhook or another program uses this bot": "Un webhook u otro programa está usando este bot",
   "This token does not belong to a Discord bot": "Este token no pertenece a un bot de Discord",
@@ -10597,6 +10606,9 @@ var FR = {
   "Choose a Bot or a group": "Choisissez un Bot ou un groupe",
   "This platform has no QR login": "Cette plateforme ne propose pas de connexion par QR code",
   "Paste the bot token first": "Collez d’abord le jeton du bot",
+  "Telegram did not answer within 15 seconds. Try again.": "Telegram n’a pas répondu dans les 15 secondes. Réessayez.",
+  "Could not reach Telegram. Check the network and try again.": "Impossible de joindre Telegram. Vérifiez votre connexion et réessayez.",
+  "Telegram rejected the bot token (HTTP 401). Check it and try again.": "Telegram a refusé le jeton du bot (HTTP 401). Vérifiez-le et réessayez.",
   "Telegram did not say who this token belongs to": "Telegram n’a pas indiqué à qui appartient ce jeton",
   "A webhook or another program uses this bot": "Un webhook ou un autre programme utilise ce bot",
   "This token does not belong to a Discord bot": "Ce jeton n’appartient pas à un bot Discord",
@@ -13486,6 +13498,9 @@ var DE = {
   "Choose a Bot or a group": "Wähle einen Bot oder eine Gruppe aus",
   "This platform has no QR login": "Diese Plattform unterstützt keine QR-Anmeldung",
   "Paste the bot token first": "Füge zuerst das Bot-Token ein",
+  "Telegram did not answer within 15 seconds. Try again.": "Telegram hat innerhalb von 15 Sekunden nicht geantwortet. Bitte versuche es erneut.",
+  "Could not reach Telegram. Check the network and try again.": "Telegram ist nicht erreichbar. Prüfe die Netzwerkverbindung und versuche es erneut.",
+  "Telegram rejected the bot token (HTTP 401). Check it and try again.": "Telegram hat das Bot-Token abgelehnt (HTTP 401). Prüfe es und versuche es erneut.",
   "Telegram did not say who this token belongs to": "Telegram hat nicht angegeben, zu welchem Bot dieses Token gehört",
   "A webhook or another program uses this bot": "Ein Webhook oder ein anderes Programm verwendet diesen Bot bereits",
   "This token does not belong to a Discord bot": "Dieses Token gehört nicht zu einem Discord-Bot",
@@ -16673,6 +16688,9 @@ var HOST_ZH = {
   "Choose a Bot or a group": "请选择一个 Bot 或群聊",
   "This platform has no QR login": "这个平台不支持扫码登录",
   "Paste the bot token first": "请先粘贴机器人令牌",
+  "Telegram did not answer within 15 seconds. Try again.": "Telegram 在 15 秒内没有响应，请重试。",
+  "Could not reach Telegram. Check the network and try again.": "无法连接 Telegram，请检查网络后重试。",
+  "Telegram rejected the bot token (HTTP 401). Check it and try again.": "Telegram 拒绝了这个机器人令牌（HTTP 401），请核对后重试。",
   "Telegram did not say who this token belongs to": "Telegram 没有返回这个令牌属于哪个机器人",
   "A webhook or another program uses this bot": "已有 Webhook 或其他程序在使用这个机器人",
   "This token does not belong to a Discord bot": "这个令牌不属于 Discord 机器人",
@@ -40300,9 +40318,14 @@ function Row3({ label, children, className }) {
   );
 }
 function Subview2({ title, onBack, children }) {
+  const root = (0, import_react46.useRef)(null);
+  (0, import_react46.useLayoutEffect)(() => {
+    const pane = root.current?.closest(".bt-settings-scroll");
+    if (pane) pane.scrollTop = 0;
+  }, []);
   return (0, import_react46.createElement)(
     "div",
-    { className: "bt-app-sub bt-im-sub" },
+    { ref: root, className: "bt-app-sub bt-im-sub" },
     (0, import_react46.createElement)(
       "div",
       { className: "bt-app-sub-head" },
