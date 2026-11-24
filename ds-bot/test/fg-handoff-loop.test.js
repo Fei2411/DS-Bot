@@ -1017,12 +1017,21 @@ test('a failed foreground commit replays held input without another move request
   assert.equal(JSON.parse(readFileSync(join(rig.home, 'state.json'), 'utf8')).bots.a.sessionId, 'fork-1')
 
   const fresh = rig.agents.get('fork-1')
+  const task = rig.rt.botOf('a').tasks.find(item => item.sessionId === 'dm-a')
+  assert.equal(task?.status, 'running')
   const admitted = () => fresh.session.snapshotEvents().filter(event =>
     event.type === 'user/message' && event.data.source?.rpcId === prompt.source.rpcId)
   await settle(() => admitted().length === 1 && journal(rig).length === 0, 3500,
     'the held input should be replayed without retrying the move or restarting the host')
   await fresh.whenIdle()
   assert.equal(admitted().length, 1)
+  const queuedMessages = fresh.session.snapshotEvents()
+    .filter(event => event.type === 'agent/inbox/spliced')
+    .flatMap(event => event.data.inserted)
+  const noticeIndex = queuedMessages.findIndex(message => message.source?.role === 'task-handoff'
+    && message.source.taskId === task.id && textOf(message).includes('is still running'))
+  const promptIndex = queuedMessages.findIndex(message => message.source?.rpcId === prompt.source.rpcId)
+  assert.ok(noticeIndex >= 0 && noticeIndex < promptIndex, 'the active task notice must precede the recovered correction')
 })
 
 test('legacy handoff records with the same RPC ID replay independently for different Bots', async (t) => {

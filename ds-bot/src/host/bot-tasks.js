@@ -128,7 +128,7 @@ export function install(rt) {
   const isStagedMoveOp = id => (stagedMoveOps.get(id) ?? 0) > 0
   const inFlightSaveMoveOps = new Map()
   const pendingSaveMoveOps = new Map()
-  const inputsAwaitingMoveSave = new WeakSet()
+  const postSaveContextByInput = new WeakMap()
   let reconcileRetryTimer
   let reconcileRetryDelayMs = 1000
   const scheduleHandoffReplay = () => {
@@ -1029,14 +1029,16 @@ export function install(rt) {
             await clearPendingTransfers([{ key, token }])
             continue
           }
-          if (inputsAwaitingMoveSave.has(entry)) {
+          const prepareContext = postSaveContextByInput.get(entry)
+          if (prepareContext !== undefined) {
             try {
               await rt.save({ required: true })
+              if (stillPending(entry)) await prepareContext()
             } catch {
               deferredAny = true
               continue
             }
-            inputsAwaitingMoveSave.delete(entry)
+            postSaveContextByInput.delete(entry)
             if (!stillPending(entry)) continue
           }
           let targetSid
@@ -2303,11 +2305,9 @@ export function install(rt) {
       const liveOld = rt.live.get(oldSid)
       if (liveOld !== undefined) liveOld.steeredAt = undefined
 
-      let postSaveDone = false
+      let postSaveContext
       const deferredInputs = new Set()
-      const finishPostSave = async () => {
-        if (postSaveDone) return
-        postSaveDone = true
+      const preparePostSaveContext = () => postSaveContext ??= (async () => {
         record.saved = true
         await rt.moveSchedules?.(oldSid, newSid)
           .catch(error => rt.warn('ds-bot: moving schedules for %s after handoff failed: %s', bot.name, error))
@@ -2374,7 +2374,14 @@ export function install(rt) {
             rt.warn('ds-bot: injecting task-handoff notice on %s failed: %s', newSid, error)
           }
         }
-
+      })()
+      const prepareReplayContext = async () => {
+        if (rt.botOf(bot.id) === bot && rt.chatOf(bot.id) === newSid && bot.tasks?.includes(task)) {
+          await preparePostSaveContext()
+        }
+      }
+      const finishPostSave = async () => {
+        await preparePostSaveContext()
         // Drain any Desktop/Web messages intercepted while the handoff was running
         // (including when `channel.js:sendUser` initiated the handoff).
         while (record.messages.length > 0) {
@@ -2382,7 +2389,7 @@ export function install(rt) {
           await forwardPulledMessages(newSid, batch, bot.name, { botId: bot.id })
         }
         if (deferredInputs.size > 0) {
-          for (const entry of deferredInputs) inputsAwaitingMoveSave.delete(entry)
+          for (const entry of deferredInputs) postSaveContextByInput.delete(entry)
           await reconcilePendingHandoffInputs(deferredInputs)
           deferredInputs.clear()
         }
@@ -2423,7 +2430,7 @@ export function install(rt) {
             const { key, token } = transferRefOf(item)
             const entry = pendingTransferOf(key)
             if (entry !== undefined && entry.token === token) {
-              inputsAwaitingMoveSave.add(entry)
+              postSaveContextByInput.set(entry, prepareReplayContext)
               deferredInputs.add(entry)
             }
             releaseTransferLock(key, token)
