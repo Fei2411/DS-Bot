@@ -1308,12 +1308,17 @@ export async function harvestLinuxChromiumV10(source, workDir, { signal, now } =
 
   const peanutsPass = readChromiumSqliteCookiesDetailed(clonedDb, { key: peanutsKey, now })
   let detailed = peanutsPass
-  if (peanutsPass.decryptFailedCount > 0) {
+  const isPre24 = peanutsPass.dbVersion < 24
+  if (peanutsPass.decryptFailedCount > 0 || (isPre24 && peanutsPass.decryptedCount > 0)) {
     const emptyPass = readChromiumSqliteCookiesDetailed(clonedDb, { key: emptyKey, now })
-    if (emptyPass.decryptFailedCount === 0 && emptyPass.decryptedCount > 0) {
+    const peanutsClean = peanutsPass.decryptFailedCount === 0 && peanutsPass.decryptedCount > 0
+    const emptyClean = emptyPass.decryptFailedCount === 0 && emptyPass.decryptedCount > 0
+    if (peanutsClean && !emptyClean) {
+      detailed = peanutsPass
+    } else if (emptyClean && !peanutsClean) {
       detailed = emptyPass
-    } else if (peanutsPass.dbVersion < 24 && source.exe) {
-      // Pre-v24 mixed-key store has no per-row domain MAC; let Chromium itself decrypt via CDP pipe.
+    } else if (isPre24 && source.exe) {
+      // Pre-v24 mixed-key or ambiguous store has no per-row domain MAC; let Chromium itself decrypt via CDP pipe.
       return null
     } else {
       const orderedKeys = emptyPass.decryptedCount > peanutsPass.decryptedCount
@@ -1321,7 +1326,7 @@ export async function harvestLinuxChromiumV10(source, workDir, { signal, now } =
         : [peanutsKey, emptyKey]
       detailed = readChromiumSqliteCookiesDetailed(clonedDb, {
         keys: orderedKeys,
-        rejectAmbiguous: peanutsPass.dbVersion < 24,
+        rejectAmbiguous: isPre24,
         now,
       })
     }
