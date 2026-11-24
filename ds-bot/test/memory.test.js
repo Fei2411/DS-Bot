@@ -2994,7 +2994,7 @@ test('a group memory review recovers lines that left the 60-line room log before
   assert.deepEqual(warnings.filter(line => line.includes('left its log')), [])
 })
 
-test('a group backfill whose write fails leaves the room unmarked, so the next call retries and the lines land', { skip: process.platform === 'win32' || process.getuid?.() === 0 }, async (t) => {
+test('a group backfill whose write fails says so and leaves the room unmarked, so the next call retries and the lines land', { skip: process.platform === 'win32' || process.getuid?.() === 0 }, async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-'))
   const allLines = Array.from({ length: 80 }, (_, index) => {
     const seq = index + 1
@@ -3016,15 +3016,54 @@ test('a group backfill whose write fails leaves the room unmarked, so the next c
   assert.equal(rt.ledger.records('group-r1')[0].seq, 21)
   await rt.ledger.flush('group-r1')
   fs.chmodSync(ledgerDir, 0o555)
-  await rt.backfillGroupLog('r1', 4)
-  await assert.rejects(rt.ledger.written('group-r1'))
+  await assert.rejects(rt.backfillGroupLog('r1', 4), /the lines recovered from its Session could not be saved/)
   fs.chmodSync(ledgerDir, 0o755)
   assert.equal(rt.ledger.record('group-r1', 5), undefined, 'the failed write keeps no earlier line')
-  assert.ok(warnings.some(line => line.includes('16 lines of group "Launch"') && line.includes('left its log')), warnings.join('\n'))
+  assert.deepEqual(warnings.filter(line => line.includes('were not in its Session')), [], 'the lines were in the Session')
   await rt.backfillGroupLog('r1', 4)
   assert.equal(rt.ledger.record('group-r1', 5)?.text, 'User turn 5', 'the retry puts the earlier line into the book')
   await rt.ledger.written('group-r1')
   assert.match(readFileSync(join(ledgerDir, 'group-r1.jsonl'), 'utf8'), /"text":"User turn 5"/)
+})
+
+test('a group memory review whose backfill write fails keeps its place, and the next review reads the recovered lines', { skip: process.platform === 'win32' || process.getuid?.() === 0 }, async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-'))
+  mkdirSync(join(home, 'memory'), { recursive: true })
+  writeFileSync(join(home, 'memory', 'reviewed.json'), JSON.stringify({ 'group:r1': 3 }))
+  const allLines = Array.from({ length: 80 }, (_, index) => {
+    const seq = index + 1
+    return seq % 2 === 1
+      ? { who: 'User', text: seq === 5 ? 'Ship everything under MIT license' : `User turn ${seq}`, seq, time: 1_000_000 + seq * 1000 }
+      : { who: 'Coder', botId: 'b3', text: `Coder reply ${seq}`, seq, time: 1_000_000 + seq * 1000 }
+  })
+  const team = structuredClone(TEAM)
+  team.rooms.r1.seq = 80
+  team.rooms.r1.log = allLines.slice(-60)
+  writeFileSync(join(home, 'state.json'), JSON.stringify(team))
+  const { ctx, call, read, requests, warnings, stop } = start({
+    home, history: { r1: legacyGroupEvents(allLines) },
+    replies: [JSON.stringify({ changes: [] })],
+    config: { memoryReviewDelayMs: 0 },
+  })
+  const ledgerDir = join(home, 'ledger')
+  t.after(() => {
+    try { fs.chmodSync(ledgerDir, 0o755) } catch {}
+    return stop()
+  })
+  await call('state', {})
+  await rt.ledger.flush('group-r1')
+  fs.chmodSync(ledgerDir, 0o555)
+  ctx.emit('agent/status', { agent: { id: 'g3' }, status: 'idle' })
+  await reviewed(call)
+  fs.chmodSync(ledgerDir, 0o755)
+  assert.equal(requests.length, 0)
+  assert.deepEqual(JSON.parse(read('reviewed.json')), { 'group:r1': 3 })
+  assert.ok(warnings.some(line => line.includes('the log of group "Launch" could not be recovered') && line.includes('could not be saved')), warnings.join('\n'))
+  ctx.emit('agent/status', { agent: { id: 'g3' }, status: 'idle' })
+  await reviewed(call)
+  assert.equal(requests.length, 1)
+  assert.match(requests[0].messages[0].content[0].text, /\nUser: Ship everything under MIT license\n/)
+  assert.deepEqual(JSON.parse(read('reviewed.json')), { 'group:r1': 80 })
 })
 
 test('when a group Session is gone, an old pre-ledger gap warns instead of silently skipping', async (t) => {

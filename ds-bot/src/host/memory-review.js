@@ -264,10 +264,14 @@ export function installReview(rt, memory) {
     const keeper = live === undefined ? undefined : keeperOf(live)
     if (keeper === undefined) return
     const since = cursorsNow()[seen.key]
+    // Lines that could not be recovered now are not passed over: the place stays, and
+    // the next review tries again.
     if (since !== undefined) {
-      await rt.backfillGroupLog?.(live.id, since).catch((error) => {
+      const recovered = await rt.backfillGroupLog?.(live.id, since).then(() => true, (error) => {
         rt.warn('ds-bot: the log of group "%s" could not be recovered: %s', live.name, error?.message ?? error)
+        return false
       })
+      if (recovered === false) return
     }
     const room = withKeptLines(joinLogs(seen.room, live), await rt.groupLinesAfter(live.id, since).catch((error) => {
       rt.warn('ds-bot: the log of group "%s" could not be read: %s', live.name, error?.message ?? error)
