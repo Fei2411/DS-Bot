@@ -172,6 +172,30 @@ test('a thematic break before an unclosed backtick fence keeps its contents lite
   assert.deepEqual(chunkTelegram(markdown), [{ html: markdown, text: markdown }])
 })
 
+test('a fence in a list cannot close on the opener of a later independent fence', () => {
+  for (const [item, marker] of [
+    ['- Item', '```'],
+    ['- Item', '~~~'],
+    ['- First line\n  second line', '```'],
+    ['- Parent\n  - Nested\n    continuation', '~~~'],
+  ]) {
+    const inside = item + '\n  ' + marker + 'sh\n  # unclosed'
+    const outside = '  ' + marker + '\n  # Literal comment\n  | A | B |\n  | --- | --- |\n  | x | y |\n  ' + marker
+    assert.deepEqual(chunkTelegram(inside + '\n\n# Actual heading\n\n' + outside), [{
+      html: inside + '\n<b>Actual heading</b>\n' + outside,
+      text: inside + '\nActual heading\n' + outside,
+    }])
+  }
+})
+
+test('Telegram heading and table label code does not overlap bold or italic entities', () => {
+  const markdown = '## **Run** *before `npm test` after*\n| `id` | Status |\n| --- | --- |\n| 1 | good |'
+  assert.deepEqual(chunkTelegram(markdown), [{
+    html: '<b>Run <i>before </i></b><code>npm test</code><b><i> after</i></b>\n• <code>id</code><b>:</b> 1\n• <b>Status:</b> good',
+    text: 'Run before npm test after\n• id: 1\n• Status: good',
+  }])
+})
+
 test('Telegram renders headings and Markdown tables as readable rows (#2173)', () => {
   const markdown = [
     '## Results ##',

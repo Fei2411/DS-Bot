@@ -25,6 +25,34 @@ function inlineHtml(line) {
     .replace(/~~([^~]+)~~/g, '<s>$1</s>'))
 }
 
+function boldInlineHtml(line) {
+  const html = inlineHtml(line).replace(/<\/?b>/g, '')
+  const tags = []
+  let rendered = ''
+  let segment = ''
+  let hasText = false
+  let at = 0
+  for (const match of html.matchAll(/<code>[\s\S]*?<\/code>|<a href="[^"]*">|<\/?[ais]>/g)) {
+    const text = html.slice(at, match.index)
+    const tag = match[0]
+    segment += text
+    hasText ||= text !== ''
+    if (tag.startsWith('<code>')) {
+      if (hasText) rendered += '<b>' + segment + tags.slice().reverse().map(open => '</' + open[1] + '>').join('') + '</b>'
+      rendered += tag
+      segment = tags.join('')
+      hasText = false
+    } else {
+      if (tag[1] === '/') tags.pop()
+      else tags.push(tag)
+      segment += tag
+    }
+    at = match.index + tag.length
+  }
+  const tail = html.slice(at)
+  return hasText || tail !== '' ? rendered + '<b>' + segment + tail + '</b>' : rendered
+}
+
 function stripInlineFormatting(line) {
   return line
     .replace(/\[([^\]]*)\]\(([^)\s]+)\)/g, (_all, label, url) => (label === url ? label : `${label} (${url})`))
@@ -81,45 +109,41 @@ const LITERAL_FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})([^\r\n]*)\r?$/
 const LITERAL_FENCE_CLOSE = /^ {0,3}(`{3,}|~{3,})[ \t]*\r?$/
 
 function literalFenceGuard(source) {
-  const laterClosers = { '`': new Uint32Array(source.length), '~': new Uint32Array(source.length) }
-  const widestCloser = { '`': 0, '~': 0 }
-  for (let at = source.length - 1; at >= 0; at -= 1) {
-    laterClosers['`'][at] = widestCloser['`']
-    laterClosers['~'][at] = widestCloser['~']
-    const close = LITERAL_FENCE_CLOSE.exec(source[at])?.[1]
-    if (close) widestCloser[close[0]] = Math.max(widestCloser[close[0]], close.length)
-  }
+  const lists = []
   let marker = ''
-  let listIndent = 0
+  let fenceIndent = 0
+  let paragraph = false
   return (at, canOpen = true) => {
     const line = source[at]
-    const indent = /^ */.exec(line)[0].length
-    if (listIndent > indent && line.trim() !== '') {
-      marker = ''
-      listIndent = 0
+    let indent = 0
+    for (const space of /^[ \t]*/.exec(line)[0]) indent += space === '\t' ? 4 - indent % 4 : 1
+    const inList = lists.length > 0
+    if (line.trim() !== '') {
+      while (lists.at(-1) > indent) lists.pop()
+      if (fenceIndent > indent) {
+        marker = ''
+        fenceIndent = 0
+      }
     }
     if (marker !== '') {
       const close = LITERAL_FENCE_CLOSE.exec(line)?.[1]
       if (close?.[0] === marker[0] && close.length >= marker.length) {
         marker = ''
-        listIndent = 0
+        fenceIndent = 0
       }
       return true
     }
     if (!canOpen) return false
-    const listPrefix = LIST_ITEM.exec(line)?.[0]
+    const thematic = THEMATIC_BREAK.test(line)
+    let listPrefix = thematic ? undefined : LIST_ITEM.exec(line)?.[0]
+    if (listPrefix && paragraph && !inList && source[at - 1]?.trim()
+      && (/^ *(?!0*1[.)])\d/.test(listPrefix) || line.slice(listPrefix.length).trim() === '')) listPrefix = undefined
+    if (listPrefix) lists.push(listPrefix.length + (/[^ \t]$/.test(listPrefix) ? 1 : 0))
     const fence = LITERAL_FENCE_OPEN.exec(listPrefix ? line.slice(listPrefix.length) : line)
+    paragraph = fence === null && !thematic && !ATX_HEADING.test(line) && !/^ {0,3}>/.test(line)
     if (fence === null || (fence[1][0] === '`' && fence[2].includes('`'))) return false
     marker = fence[1]
-    // Only an unmatched list fence can end on dedent instead of on a fence marker.
-    if (laterClosers[marker[0]][at] < marker.length) {
-      if (listPrefix) listIndent = listPrefix.length
-      else if (marker[0] === '`' && indent > 0) {
-        const previous = source[at - 1] ?? ''
-        const previousListIndent = THEMATIC_BREAK.test(previous) ? 0 : LIST_ITEM.exec(previous)?.[0].length ?? 0
-        if (previousListIndent <= indent) listIndent = previousListIndent
-      }
-    }
+    fenceIndent = lists.at(-1) ?? 0
     return true
   }
 }
@@ -156,7 +180,7 @@ function telegramLines(lines, isLiteral) {
       const label = row === undefined ? header : header + ':'
       const value = row?.[index] ?? ''
       rendered.push({
-        html: '• <b>' + inlineHtml(label) + '</b>' + (value ? ' ' + inlineHtml(value) : ''),
+        html: '• ' + boldInlineHtml(label) + (value ? ' ' + inlineHtml(value) : ''),
         text: '• ' + inlineTablePlain(label) + (value ? ' ' + inlineTablePlain(value) : ''),
       })
     }
@@ -189,8 +213,7 @@ function telegramLines(lines, isLiteral) {
     const heading = ATX_HEADING.exec(line)
     const isHeading = heading !== null && !/^#+$/.test(heading[1])
     const content = isHeading ? heading[1].replace(/[ \t]+#+$/, '') : line
-    const html = inlineHtml(content)
-    rendered.push({ html: isHeading ? '<b>' + html + '</b>' : html, text: inlinePlain(content) })
+    rendered.push({ html: isHeading ? boldInlineHtml(content) : inlineHtml(content), text: inlinePlain(content) })
   }
   return rendered
 }
