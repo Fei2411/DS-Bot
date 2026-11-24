@@ -414,7 +414,11 @@ export function install(rt) {
       const task = bot.tasks[thread.index]
       // A foreground turn moved into a background task keeps read_own_chat access to the
       // Bot's earlier parts frozen at handoff time, without shifting on later foreground rollovers.
-      const inherited = Array.isArray(task.inheritedSegments) ? task.inheritedSegments : []
+      // Hydrate slim inherited refs against `bot.segments` so `note`/`fallback`/`noteFrom`
+      // stay available to `read_own_chat({ part: N })` and overflow `earlierNote`.
+      const bySession = new Map((bot.segments ?? []).filter(seg => seg?.sessionId).map(seg => [seg.sessionId, seg]))
+      const inherited = (Array.isArray(task.inheritedSegments) ? task.inheritedSegments : [])
+        .map(seg => (seg?.sessionId && bySession.has(seg.sessionId) ? { ...bySession.get(seg.sessionId), ...seg } : seg))
       const seen = new Set(inherited.map(seg => seg?.sessionId).filter(Boolean))
       const segments = [...inherited, ...(thread.segments ?? []).filter(seg => !seen.has(seg?.sessionId))]
       return partsOf(bot.id, undefined, segments, task.sessionId)

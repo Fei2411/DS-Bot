@@ -501,6 +501,18 @@ export function createRoomReports(rt, deps) {
       })
   }
 
+  const markRoomReportsWorked = (roomId, botId) => {
+    if (roomId === undefined) return
+    let changed = false
+    for (const report of Object.values(reports())) {
+      if (report.roomId !== roomId || report.status !== 'tracking' || report.worked === true) continue
+      if (Array.isArray(report.ids) && botId !== undefined && !report.ids.includes(botId)) continue
+      report.worked = true
+      changed = true
+    }
+    if (changed) saveSoon()
+  }
+
   const recordRoundOnReports = (room, round, { aborted = false } = {}) => {
     let changed = false
     for (const report of Object.values(reports())) {
@@ -519,6 +531,10 @@ export function createRoomReports(rt, deps) {
           report.failed.push(name)
           changed = true
         }
+      }
+      if (report.worked !== true && (round.slots ?? []).some(slot => slot?.worked === true && (!Array.isArray(report.ids) || report.ids.includes(slot.id)))) {
+        report.worked = true
+        changed = true
       }
       if (aborted && report.stopped !== true) {
         report.stopped = true
@@ -717,7 +733,7 @@ export function createRoomReports(rt, deps) {
       ].filter(Boolean).join('\n\n') || 'Nobody replied to your post.'
     }
     // Replies the poster waited for go on with the work it posted for.
-    const work = report.sub === undefined ? undefined : rt.closeWork(report.sub, `Group "${room.name}"`, text)
+    const work = report.sub === undefined ? undefined : rt.closeWork(report.sub, `Group "${room.name}"`, text, report.worked === true ? { worked: true } : undefined)
     // The wait may already have been given up: the replies still reach the poster,
     // marked as the late answer they are, and open no work.
     const late = work === undefined && report.sub !== undefined ? rt.abandonedWork?.(report.sub) : undefined
@@ -755,6 +771,7 @@ export function createRoomReports(rt, deps) {
     dropRoomReport,
     hasRoomReportFor,
     roomReportImOrigin,
+    markRoomReportsWorked,
     settleRoomReports,
     forgetRoomReports,
     forgetBotRoomReports,

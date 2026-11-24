@@ -46,6 +46,7 @@ test('apply registers listeners and effects in a fixed order', (t) => {
     'effect ds-bot: auxiliary llm retry',
     'on subagent/start',
     'on subagent/end',
+    'on agent/inbox/claimed',
     'on session/event',
     'on subagent/start',
     'on subagent/end',
