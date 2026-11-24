@@ -84,10 +84,10 @@ export function install(rt) {
   // Idle `taskOwners` sessions whose stale user prompt was pulled during `agent/inbox/inserted`:
   // reject the phantom empty wake that `ReactLoopAgent.send()` still triggers right afterward.
   const rejectEmptyTaskWake = new Set()
-  // Transfer IDs created and actively handled by this host process so startup
+  // Owner-scoped transfers actively handled by this host process so startup
   // `reconcileTasksAfterRestart()` only replays entries left on disk by a prior crash.
   const inFlightTransferIds = new Set()
-  // Monotonic transfer generation token per transferId so an older transfer's flush()
+  // Monotonic generation token per transfer key so an older transfer's flush()
   // can never clear or unlock a newer transfer of the same input.
   let transferTokenSeq = 0
   const transferOwnerToken = new Map()
@@ -995,17 +995,17 @@ export function install(rt) {
         await rt.save().catch(() => {})
       }
       const pending = [...valid]
-      const stillPending = id => Array.isArray(state.pendingHandoffInputs)
-        && state.pendingHandoffInputs.some(item => item?.id === id)
+      const stillPending = entry => state.pendingHandoffInputs?.includes(entry) === true
       let deferredAny = false
       for (const entry of pending) {
         const id = (entry.id ??= entry.source?.rpcId ?? newId())
-        if (!stillPending(id)) continue
-        if (inFlightTransferIds.has(id)) continue
+        const key = transferKey(entry, id)
+        if (!stillPending(entry)) continue
+        if (inFlightTransferIds.has(key)) continue
         const token = ++transferTokenSeq
         entry.token = token
-        transferOwnerToken.set(id, token)
-        inFlightTransferIds.add(id)
+        transferOwnerToken.set(key, token)
+        inFlightTransferIds.add(key)
         try {
           const movedSids = new Set()
           while (entry.botId !== undefined && handoffing.has(entry.botId)) {
@@ -1013,7 +1013,7 @@ export function install(rt) {
             if (active?.oldSid !== undefined) movedSids.add(active.oldSid)
             await active?.promise?.catch(() => {})
           }
-          if (!stillPending(id)) continue
+          if (!stillPending(entry)) continue
           let targetSid
           let label
           let bot
@@ -1043,16 +1043,20 @@ export function install(rt) {
             if (visited !== undefined && visited !== targetSid) movedSids.add(visited)
           }
           if (targetSid === undefined || rt.taskOwners?.has(targetSid)) {
-            await clearPendingTransfers([{ id, token }])
+            await clearPendingTransfers([{ key, token }])
             continue
           }
           let matchedAgent
-          let anyMovedUnreadable = false
+          let anyMovedUncertain = false
           for (const sid of movedSids) {
             if (sid === targetSid) continue
             const movedAgent = ctx.get('agents')?.get(sid) ?? await rt.resolveAgent(sid).catch(() => undefined)
             if (movedAgent === undefined) {
-              anyMovedUnreadable = true
+              anyMovedUncertain = true
+              continue
+            }
+            if (handoffInputClaimed(movedAgent, id)) {
+              anyMovedUncertain = true
               continue
             }
             if (isAdmittedOn(movedAgent, id)
@@ -1071,11 +1075,11 @@ export function install(rt) {
             } catch {
               flushed = false
             }
-            if (flushed) await clearPendingTransfers([{ id, token }])
+            if (flushed) await clearPendingTransfers([{ key, token }])
             else deferredAny = true
             continue
           }
-          if (anyMovedUnreadable) {
+          if (anyMovedUncertain) {
             deferredAny = true
             continue
           }
@@ -1083,14 +1087,15 @@ export function install(rt) {
             msg: { id: entry.messageId ?? id, content: entry.content, source: entry.source },
             target: entry.target === 'next-step' ? 'next-step' : 'next-turn',
             transferId: id,
+            transferKey: key,
             transferToken: token,
           }], label, {
             ...(entry.botId !== undefined ? { botId: entry.botId } : {}),
             ...(entry.roomId !== undefined ? { roomId: entry.roomId } : {}),
           })
-          if (stillPending(id)) deferredAny = true
+          if (stillPending(entry)) deferredAny = true
         } finally {
-          releaseTransferLock(id, token)
+          releaseTransferLock(key, token)
         }
       }
       if (deferredAny && Array.isArray(state.pendingHandoffInputs) && state.pendingHandoffInputs.length > 0) {
@@ -1279,18 +1284,23 @@ export function install(rt) {
     return item.transferId
   }
 
+  const transferKey = (owner, id = owner?.id) => JSON.stringify([owner?.botId, owner?.roomId, id])
+  const transferRefOf = item => ({ key: item.transferKey, token: item.transferToken })
+
   const recordPendingTransfers = (items, owner) => {
     if (rt.readOnly?.() !== undefined || items.length === 0) return
     const list = Array.isArray(state.pendingHandoffInputs) ? state.pendingHandoffInputs : (state.pendingHandoffInputs = [])
     let changed = false
     for (const item of items) {
       const id = transferIdOf(item)
+      const key = transferKey(owner, id)
       const token = ++transferTokenSeq
+      item.transferKey = key
       item.transferToken = token
-      transferOwnerToken.set(id, token)
-      inFlightTransferIds.add(id)
+      transferOwnerToken.set(key, token)
+      inFlightTransferIds.add(key)
       const originalSessionId = item.originalSessionId ?? item.oldAgent?.id ?? item.oldAgent?.session?.id
-      const existing = list.find(entry => entry?.id === id)
+      const existing = list.find(entry => transferKey(entry) === key)
       if (existing !== undefined) {
         existing.token = token
         existing.target = item.target === 'next-step' ? 'next-step' : 'next-turn'
@@ -1322,10 +1332,12 @@ export function install(rt) {
     if (changed) void rt.save().catch(() => {})
   }
 
-  const noteTransferRecipient = (transferId, sessionId) => {
-    if (transferId === undefined || sessionId === undefined || rt.readOnly?.() !== undefined) return
+  const noteTransferRecipient = (item, sessionId) => {
+    const { key, token } = transferRefOf(item)
+    if (key === undefined || transferOwnerToken.get(key) !== token
+      || sessionId === undefined || rt.readOnly?.() !== undefined) return
     if (!Array.isArray(state.pendingHandoffInputs)) return
-    const entry = state.pendingHandoffInputs.find(item => item?.id === transferId)
+    const entry = state.pendingHandoffInputs.find(entry => transferKey(entry) === key)
     if (entry === undefined) return
     let changed = false
     if (entry.recipientSessionId !== sessionId) {
@@ -1340,34 +1352,26 @@ export function install(rt) {
     if (changed) void rt.save().catch(() => {})
   }
 
-  const releaseTransferLock = (id, token) => {
-    if (id === undefined) return
-    if (token !== undefined && transferOwnerToken.get(id) !== token) return
-    inFlightTransferIds.delete(id)
+  const releaseTransferLock = (key, token) => {
+    if (key === undefined) return
+    if (transferOwnerToken.get(key) !== token) return
+    inFlightTransferIds.delete(key)
+    transferOwnerToken.delete(key)
   }
 
   const clearPendingTransfers = async (entries) => {
-    const drop = new Map() // id -> token | undefined (undefined = unconditional)
-    for (const raw of entries) {
-      if (raw === undefined || raw === null) continue
-      const id = typeof raw === 'object' ? raw.id : raw
-      const token = typeof raw === 'object' ? raw.token : undefined
-      if (id === undefined) continue
-      if (token !== undefined && transferOwnerToken.get(id) !== token) continue
-      drop.set(id, token)
+    const drop = new Map()
+    for (const { key, token } of entries) {
+      if (key !== undefined && transferOwnerToken.get(key) === token) drop.set(key, token)
     }
     if (drop.size === 0) return
-    for (const [id, token] of drop) {
-      if (token === undefined || transferOwnerToken.get(id) === token) {
-        inFlightTransferIds.delete(id)
-        transferOwnerToken.delete(id)
-      }
-    }
+    for (const [key, token] of drop) releaseTransferLock(key, token)
     if (rt.readOnly?.() !== undefined || !Array.isArray(state.pendingHandoffInputs)) return
     const next = state.pendingHandoffInputs.filter((entry) => {
       if (entry === null || typeof entry !== 'object') return false
-      if (!drop.has(entry.id)) return true
-      const token = drop.get(entry.id)
+      const key = transferKey(entry)
+      if (!drop.has(key)) return true
+      const token = drop.get(key)
       if (token !== undefined && entry.token !== undefined && entry.token !== token) return true
       return false
     })
@@ -1421,28 +1425,34 @@ export function install(rt) {
     noteLogicalAdmittedRpc(sessionId, rpcId)
   }
 
+  const hasPendingTransfer = (ownerKey, rpcId) => Array.isArray(state.pendingHandoffInputs)
+    && state.pendingHandoffInputs.some(entry => {
+      if (entry?.id !== rpcId && entry?.source?.rpcId !== rpcId) return false
+      if (typeof rpcId === 'string' && rpcId.startsWith('im:')) return true
+      const key = entry.roomId !== undefined ? `room:${entry.roomId}`
+        : entry.botId !== undefined ? `bot:${entry.botId}` : undefined
+      return key === ownerKey
+    })
+
   // Records a completed `sendUser` prompt acknowledgement without polluting the per-session
   // admission map of an old session whose inbox hook already pulled the message into transit.
   const noteSendPrompted = (sessionId, rpcId) => {
     if (sessionId === undefined || rpcId === undefined) return
     noteLogicalAdmittedRpc(sessionId, rpcId)
     if (rt.taskOwners?.has(sessionId)) return
-    if (inFlightTransferIds.has(rpcId)) return
-    if (Array.isArray(state.pendingHandoffInputs)
-      && state.pendingHandoffInputs.some(entry => entry?.id === rpcId || entry?.source?.rpcId === rpcId)) {
-      return
-    }
+    if (hasPendingTransfer(logicalOwnerOf(sessionId), rpcId)) return
     noteSessionAdmittedRpc(sessionId, rpcId)
   }
 
   // Collects every user message ID / rpcId either consumed into a turn (`user/message`)
   // OR still pending in the durable DSH inbox (`agent/inbox/spliced` fold). Messages that
   // were inserted and later removed/pulled out of the inbox do NOT remain in the result.
-  const collectAdmittedIdsFromEvents = (events) => {
+  const collectAdmittedIdsFromEvents = (events, claimed) => {
     const found = new Set()
     if (!Array.isArray(events)) return found
     const pending = { 'next-turn': [], 'next-step': [] }
     for (const ev of events) {
+      if (ev?.type === 'turn/end') claimed?.clear()
       if (ev?.type === 'user/message') {
         if (ev.data?.id !== undefined) found.add(ev.data.id)
         if (ev.data?.message?.id !== undefined) found.add(ev.data.message.id)
@@ -1455,7 +1465,14 @@ export function install(rt) {
           const inserted = Array.isArray(ev.data.inserted) ? ev.data.inserted : []
           if (Number.isSafeInteger(start) && start >= 0 && start <= inbox.length
             && Number.isSafeInteger(removedCount) && removedCount >= 0 && start + removedCount <= inbox.length) {
-            inbox.splice(start, removedCount, ...inserted)
+            const removed = inbox.splice(start, removedCount, ...inserted)
+            // A claim removes an inbox item before its user/message event exists.
+            if (claimed !== undefined && ev.data.outcome !== 'canceled') {
+              for (const msg of removed) {
+                claimed.add(msg?.id)
+                claimed.add(msg?.source?.rpcId)
+              }
+            }
           }
         }
       }
@@ -1488,6 +1505,17 @@ export function install(rt) {
     }
     return isAdmittedOnSession(agent.session, rpcId)
   }
+
+  const handoffInputClaimed = (agent, id) => {
+    if (id === undefined || agent?.status !== 'running') return false
+    const claimed = new Set()
+    const admitted = collectAdmittedIdsFromEvents(agent.session?.snapshotEvents?.(), claimed)
+    return claimed.has(id) && !admitted.has(id)
+  }
+
+  const sourceWithTransferId = (source, id) => id !== undefined && source?.rpcId === undefined
+    ? { ...(source ?? { kind: 'user' }), rpcId: id }
+    : source
 
   // Confirms that the live session currently handling `ref` has flushed to disk (`flush() === true`).
   const confirmSessionFlushed = async (ref) => {
@@ -1561,10 +1589,7 @@ export function install(rt) {
         if (set.has(requestId)) return true
       }
     }
-    if (Array.isArray(state.pendingHandoffInputs)
-      && state.pendingHandoffInputs.some(entry => entry?.id === requestId || entry?.source?.rpcId === requestId)) {
-      return true
-    }
+    if (hasPendingTransfer(ownerKey, requestId)) return true
     // Ordered newest-first candidate sessions: live target, caller ref, fg-handoff tasks, ended segments.
     const candidates = new Map() // sid -> { immutable: boolean }
     const addCandidate = (sid, immutable = false) => {
@@ -1736,13 +1761,15 @@ export function install(rt) {
       const key = item.msg?.id
       if (key !== undefined) skipInterceptIds.add(key)
       const target = forceNextTurn ? 'next-turn' : item.target
+      const source = sourceWithTransferId(item.msg.source, item.transferId)
+      const message = source === item.msg.source ? item.msg : { ...item.msg, source }
       let accepted = false
       try {
         if (typeof item.oldAgent?.send === 'function') {
-          item.oldAgent.send(item.msg, target, true)
+          item.oldAgent.send(message, target, true)
           accepted = true
         } else if (typeof item.oldAgent?.followup === 'function') {
-          item.oldAgent.followup(item.msg)
+          item.oldAgent.followup(message)
           accepted = true
         }
       } catch {
@@ -1755,8 +1782,8 @@ export function install(rt) {
         let group = byAgent.get(item.oldAgent)
         if (group === undefined) { group = []; byAgent.set(item.oldAgent, group) }
         group.push(item)
-      } else if (item.transferId !== undefined) {
-        failedIds.push({ id: item.transferId, token: item.transferToken })
+      } else if (item.transferKey !== undefined) {
+        failedIds.push(transferRefOf(item))
       }
     }
     const confirmedEntries = []
@@ -1770,24 +1797,21 @@ export function install(rt) {
         flushed = false
       }
       for (const item of group) {
-        if (item.transferId === undefined) continue
-        if (flushed) confirmedEntries.push({ id: item.transferId, token: item.transferToken })
-        else failedIds.push({ id: item.transferId, token: item.transferToken })
+        if (item.transferKey === undefined) continue
+        if (flushed) confirmedEntries.push(transferRefOf(item))
+        else failedIds.push(transferRefOf(item))
       }
     }
-    for (const entry of failedIds) {
-      if (typeof entry === 'object') releaseTransferLock(entry.id, entry.token)
-      else releaseTransferLock(entry, undefined)
-    }
+    for (const { key, token } of failedIds) releaseTransferLock(key, token)
     if (confirmedEntries.length > 0) await clearPendingTransfers(confirmedEntries)
     for (const [key, rerouted] of reroutedByBot) {
       if (key === '__unknown__') {
-        for (const item of rerouted) releaseTransferLock(item.transferId, item.transferToken)
+        for (const item of rerouted) releaseTransferLock(item.transferKey, item.transferToken)
         continue
       }
       const ownerBot = rt.botOf(key)
       if (ownerBot === undefined) {
-        await clearPendingTransfers(rerouted.map(item => ({ id: item.transferId, token: item.transferToken })))
+        await clearPendingTransfers(rerouted.map(transferRefOf))
         continue
       }
       const active = handoffing.get(key)
@@ -1799,7 +1823,7 @@ export function install(rt) {
       if (fgSid !== undefined && !rt.taskOwners?.has(fgSid)) {
         await forwardPulledMessages(fgSid, rerouted, ownerBot.name, { botId: ownerBot.id })
       } else {
-        for (const item of rerouted) releaseTransferLock(item.transferId, item.transferToken)
+        for (const item of rerouted) releaseTransferLock(item.transferKey, item.transferToken)
       }
     }
   }
@@ -1839,8 +1863,8 @@ export function install(rt) {
     let targetSid = initialTargetSid
     let nextIndex = 0
     // Sessions that have accepted items in this batch and still await a positive flush() === true.
-    const pendingFlushBySession = new Map() // sid -> { session, items: Map<transferId, token> }
-    const trackForFlush = (sid, session, transferId, transferToken) => {
+    const pendingFlushBySession = new Map() // sid -> { session, items: Map<transferKey, token> }
+    const trackForFlush = (sid, session, { key, token }) => {
       let bucket = pendingFlushBySession.get(sid)
       if (bucket === undefined) {
         bucket = { session, items: new Map() }
@@ -1848,7 +1872,7 @@ export function install(rt) {
       } else if (session !== undefined) {
         bucket.session = session
       }
-      if (transferId !== undefined) bucket.items.set(transferId, transferToken)
+      if (key !== undefined) bucket.items.set(key, token)
     }
     const flushPendingBuckets = async () => {
       const confirmed = []
@@ -1861,7 +1885,7 @@ export function install(rt) {
             : false
           if (ok) {
             pendingFlushBySession.delete(sid)
-            for (const [id, token] of bucket.items) confirmed.push({ id, token })
+            for (const [key, token] of bucket.items) confirmed.push({ key, token })
           } else {
             hadFalse = true
           }
@@ -1875,10 +1899,10 @@ export function install(rt) {
     }
     const releaseUnconfirmed = () => {
       for (const bucket of pendingFlushBySession.values()) {
-        for (const [id, token] of bucket.items) releaseTransferLock(id, token)
+        for (const [key, token] of bucket.items) releaseTransferLock(key, token)
       }
       for (let i = nextIndex; i < items.length; i += 1) {
-        releaseTransferLock(items[i]?.transferId, items[i]?.transferToken)
+        releaseTransferLock(items[i].transferKey, items[i].transferToken)
       }
     }
     const delays = [50, 250]
@@ -1896,7 +1920,7 @@ export function install(rt) {
             }
             const latestBefore = currentTargetFor(targetSid, resolvedOwner)
             if (latestBefore === undefined) {
-              await clearPendingTransfers(items.slice(nextIndex).map(item => ({ id: item.transferId, token: item.transferToken })))
+              await clearPendingTransfers(items.slice(nextIndex).map(transferRefOf))
               nextIndex = items.length
               break
             }
@@ -1913,7 +1937,7 @@ export function install(rt) {
             }
             const latestAfter = currentTargetFor(targetSid, resolvedOwner)
             if (latestAfter === undefined) {
-              await clearPendingTransfers(items.slice(nextIndex).map(item => ({ id: item.transferId, token: item.transferToken })))
+              await clearPendingTransfers(items.slice(nextIndex).map(transferRefOf))
               nextIndex = items.length
               break
             }
@@ -1950,11 +1974,13 @@ export function install(rt) {
             while (nextIndex < items.length) {
               const item = items[nextIndex]
               const rpcId = item.transferId ?? item.msg?.source?.rpcId
+              if (handoffInputClaimed(freshAgent, rpcId)) {
+                await flushPendingBuckets()
+                releaseUnconfirmed()
+                return
+              }
               if (rpcId === undefined || !isAdmittedOn(freshAgent, rpcId)) {
-                const baseSource = item.msg.source ?? { kind: 'user' }
-                const source = baseSource.rpcId !== undefined || rpcId === undefined
-                  ? baseSource
-                  : { ...baseSource, rpcId }
+                const source = sourceWithTransferId(item.msg.source ?? { kind: 'user' }, rpcId)
                 const forwarded = createUserMessage({ content: item.msg.content, source })
                 const keepSteer = targetWasRunning && item.target === 'next-step'
                 skipInterceptIds.add(forwarded.id)
@@ -1966,8 +1992,8 @@ export function install(rt) {
                   skipInterceptIds.delete(forwarded.id)
                 }
               }
-              noteTransferRecipient(item.transferId, targetSid)
-              trackForFlush(targetSid, freshAgent.session, item.transferId, item.transferToken)
+              noteTransferRecipient(item, targetSid)
+              trackForFlush(targetSid, freshAgent.session, transferRefOf(item))
               nextIndex += 1
             }
           }
@@ -2061,9 +2087,9 @@ export function install(rt) {
       }
     }
     const run = (async () => {
-      if (record.messages.length > 0) await rt.save().catch(() => {})
       let forkedResult
       try {
+        if (record.messages.length > 0) await rt.save({ required: true })
         forkedResult = await rt.forkForegroundPart(bot, oldSid)
       } catch (error) {
         await restoreAll(isBotHandoff)
@@ -2081,7 +2107,7 @@ export function install(rt) {
           } else if (rt.botOf(bot.id) === bot) {
             await restorePulledMessages(pending, { forceNextTurn: isBotHandoff, botId: bot.id })
           } else {
-            await clearPendingTransfers(pending.map(item => ({ id: item.transferId, token: item.transferToken })))
+            await clearPendingTransfers(pending.map(transferRefOf))
           }
         }
         await ctx.workspaceRegistry.archiveSession(newSid, { stopActivity: true }).catch(() => {})
@@ -2376,7 +2402,7 @@ export function install(rt) {
         if (rt.botOf(bot.id) === bot) {
           void restorePulledMessages(leftover, { forceNextTurn: isBotHandoff, botId: bot.id })
         } else {
-          for (const item of leftover) releaseTransferLock(item.transferId, item.transferToken)
+          for (const item of leftover) releaseTransferLock(item.transferKey, item.transferToken)
         }
       }
     })
@@ -2612,7 +2638,7 @@ export function install(rt) {
           const room = rt.roomOf(taskOwner.roomId)
           const roomSid = room === undefined ? undefined : rt.sessionOfRoom(room)
           if (roomSid !== undefined && roomSid !== id) await forwardPulledMessages(roomSid, pulled, room.name, { roomId: taskOwner.roomId })
-          else await clearPendingTransfers(pulled.map(item => item.transferId))
+          else await clearPendingTransfers(pulled.map(transferRefOf))
           return
         }
         const pending = handoffing.get(taskOwner.botId)
@@ -2620,7 +2646,7 @@ export function install(rt) {
         const ownerBot = rt.botOf(taskOwner.botId)
         let fgSid = ownerBot === undefined ? undefined : rt.chatOf(ownerBot.id)
         if (fgSid === undefined || fgSid === id || rt.taskOwners?.has(fgSid)) {
-          await clearPendingTransfers(pulled.map(item => item.transferId))
+          await clearPendingTransfers(pulled.map(transferRefOf))
           return
         }
         // Only isolate a hidden peer-Bot turn on the new foreground; never recursively
