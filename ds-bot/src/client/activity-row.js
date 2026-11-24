@@ -34,9 +34,16 @@ export const freshInputAt = (submissions, steeredAt) => Math.max(0, steeredAt ??
 // is a mount failure, noted once per page — the observer keeps retrying in case the
 // transcript is only mid-mount.
 let mountMissed = false
+let cachedSlot = null
+let cachedFlow = null
 export function findHost() {
-  const node = document.querySelector('[data-chat-flow] [data-chat-running]')?.closest('[data-chat-flow]')
-    ?? document.querySelector('[data-chat-flow]')
+  if (cachedSlot?.ownerDocument === document && cachedSlot?.isConnected && cachedFlow?.isConnected && cachedSlot.closest?.('[data-chat-flow]') === cachedFlow) {
+    return cachedFlow
+  }
+  const slot = document.querySelector('[data-chat-flow] [data-chat-running]')
+  const node = slot?.closest('[data-chat-flow]') ?? document.querySelector('[data-chat-flow]')
+  cachedSlot = slot ?? null
+  cachedFlow = slot ? node : null
   if (node === null && !mountMissed) {
     mountMissed = true
     noteClientError('activity row', new Error('[data-chat-flow] not found'))
@@ -49,14 +56,19 @@ function useRunningHost(active) {
   useEffect(() => {
     if (!active) { setHost(null); return undefined }
     let frame = 0
+    let currentHost = null
+    let currentSlot = null
     const find = () => {
       frame = 0
-      setHost(prev => {
-        const node = findHost()
-        return prev === node ? prev : node
-      })
+      const node = findHost()
+      currentHost = node
+      currentSlot = node && cachedFlow === node ? cachedSlot : null
+      setHost(prev => (prev === node ? prev : node))
     }
-    const observer = new MutationObserver(() => { if (!frame) frame = requestAnimationFrame(find) })
+    const observer = new MutationObserver(() => {
+      if (currentHost?.isConnected && currentSlot?.isConnected && currentHost.contains(currentSlot)) return
+      if (!frame) frame = requestAnimationFrame(find)
+    })
     observer.observe(document.querySelector('[data-conversation-scroll]') ?? document.body, { childList: true, subtree: true })
     find()
     return () => { cancelAnimationFrame(frame); observer.disconnect() }
@@ -82,7 +94,7 @@ function useRowEntrances(replacing) {
     }
     const scan = () => {
       frame = 0
-      const next = document.querySelector('[data-chat-flow]')
+      const next = column?.isConnected ? column : document.querySelector('[data-chat-flow]')
       if (next !== column) {
         observer.disconnect()
         column = next
@@ -98,15 +110,31 @@ function useRowEntrances(replacing) {
         }
         return
       }
-      const items = [...column.querySelectorAll(':scope > [data-chat-flow-key]')]
+      const items = []
+      for (const child of column.children) {
+        if (child.hasAttribute('data-chat-flow-key')) items.push(child)
+      }
       let last = -1
-      items.forEach((item, index) => { if (seen.has(item)) last = index })
+      for (let index = 0; index < items.length; index += 1) {
+        if (seen.has(items[index])) last = index
+      }
       if (reducedEffects()) return
-      const fresh = items.filter(item => !seen.has(item) && item.offsetHeight > 0)
-      for (const item of fresh) seen.add(item)
-      if (last < 0 || Date.now() - started < 800 || fresh.length > 3) return
-      for (const item of fresh) {
-        if (items.indexOf(item) < last) continue
+      if (last < 0 || Date.now() - started < 800) {
+        for (const item of items) {
+          if (!seen.has(item) && item.offsetHeight > 0) seen.add(item)
+        }
+        return
+      }
+      const fresh = []
+      for (let index = 0; index < items.length; index += 1) {
+        const item = items[index]
+        if (seen.has(item)) continue
+        if (item.offsetHeight > 0) fresh.push({ item, index })
+      }
+      for (const entry of fresh) seen.add(entry.item)
+      if (fresh.length > 3) return
+      for (const { item, index } of fresh) {
+        if (index < last) continue
         const reply = [undefined, 'assistant-step', 'tool-call'].includes(item.dataset.chatFlowKind)
         item.dataset.btEnter = reply && check.current() ? 'after-collapse' : 'new'
         item.addEventListener('animationend', settle)
