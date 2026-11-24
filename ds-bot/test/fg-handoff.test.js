@@ -1417,7 +1417,7 @@ test('moveForegroundToBackground fails closed when team lock is lost (required s
   assert.equal(envRestart.rt.botOf('a').tasks.length, 1)
 })
 
-test('Mobile sendUser retry stays idempotent after host restart even when completed fg-handoff task session is unloaded on disk', async (t) => {
+test('Mobile sendUser retry stays idempotent after host restart via real DSH sessionQuery.inspectSession even when completed fg-handoff task session is unloaded', async (t) => {
   const env = await startEnv({
     team: makeTeam({
       bots: {
@@ -1434,20 +1434,21 @@ test('Mobile sendUser retry stays idempotent after host restart even when comple
   })
   t.after(env.stop)
 
-  // dm-a-cold is NOT in agentMap and NOT in ctx.sessions; only sessionController.inspect() has its persisted log.
+  // Real DSH 0.2.2-rc.5 SessionController has NO inspect(); cold reads use sessionQuery.inspectSession().
+  delete env.ctx.sessionController.inspect
   assert.equal(env.agentMap.has('dm-a-cold'), false)
   let inspectCalls = 0
-  env.ctx.sessionController.inspect = async (sid) => {
-    inspectCalls += 1
-    if (sid === 'dm-a-cold') {
-      return {
-        events: [
-          { type: 'user/message', seq: 1, data: { id: 'msg-cold-1', content: [{ type: 'text', text: 'Ship notes' }], source: { kind: 'user', rpcId: 'req-cold-1' } } },
-        ],
-      }
-    }
-    return { events: [] }
+  const sessionQuery = {
+    inspectSession: async (sid, read) => {
+      inspectCalls += 1
+      const events = sid === 'dm-a-cold'
+        ? [{ type: 'user/message', seq: 1, data: { id: 'msg-cold-1', content: [{ type: 'text', text: 'Ship notes' }], source: { kind: 'user', rpcId: 'req-cold-1' } } }]
+        : []
+      return read({ snapshotEvents: () => events })
+    },
   }
+  const origGet = env.ctx.get
+  env.ctx.get = name => (name === 'sessionQuery' ? sessionQuery : origGet(name))
 
   // Mobile retries req-cold-1 targeting either the cold session or bot id 'a' -> MUST NOT execute on fork-1!
   await env.rt.sendUser({ sessionId: 'dm-a-cold', content: [{ type: 'text', text: 'Ship notes' }], requestId: 'req-cold-1' })
@@ -1460,4 +1461,200 @@ test('Mobile sendUser retry stays idempotent after host restart even when comple
   assert.equal(env.prompts.length, 1)
   assert.equal(env.prompts[0].sessionId, 'fork-1')
   assert.equal(inspectCalls, 1)
+})
+
+test('round-3 invariants: transfer ownership token, unreadable recipient defer, concurrent save join, stale tombstone, joined/noop receipts, IM rebind dedup, and capacity rollback', async (t) => {
+  // 1) Ownership token: positive flush(B) must NOT clear journal after C takes ownership of the same input.
+  const env1 = await startEnv()
+  t.after(env1.stop)
+  const dm1 = env1.agentMap.get('dm-a')
+  dm1.status = 'running'
+  await env1.emit('dm-a', 'turn/start', { turn: 1 })
+  await env1.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'dm-a' }) // -> fork-1 (B)
+  let releaseFlushB
+  let holdFlushB = true
+  let flushCResult = false
+  env1.ctx.sessions.flush = async (session) => {
+    if (session.id === 'fork-1' && holdFlushB) {
+      holdFlushB = false
+      await new Promise((resolve) => { releaseFlushB = resolve })
+      return true
+    }
+    if (session.id === 'fork-2') return flushCResult
+    return true
+  }
+  const msgX = { id: 'u-chain-x', role: 'user', content: [{ type: 'text', text: 'Chained input X' }], source: { kind: 'user', rpcId: 'rpc-chain-x' } }
+  dm1.inbox.nextTurn.push(msgX)
+  await env1.emit('dm-a', 'agent/inbox/spliced', { target: 'next-turn', inserted: [msgX] })
+  await waitFor(() => typeof releaseFlushB === 'function')
+  // Pull X from fork-1 (B) for a hidden-work handoff onto fork-2 (C) while flush(B) is still paused.
+  const forkB = env1.agentMap.get('fork-1')
+  forkB.status = 'running'
+  await env1.emit('fork-1', 'turn/start', { turn: 1 })
+  env1.rt.live.get('fork-1').info = { kind: SOURCE_KIND, role: 'request', fromId: 'b', toId: 'a', exchangeId: 'ex-chain' }
+  env1.rt.isHiddenBotWorkTurn = () => true
+  const xCopy = { id: 'u-chain-x2', role: 'user', content: [{ type: 'text', text: 'Chained input X' }], source: { kind: 'user', rpcId: 'rpc-chain-x' } }
+  forkB.inbox.nextStep.push(xCopy)
+  await env1.emit('fork-1', 'agent/inbox/spliced', { target: 'next-step', inserted: [xCopy] })
+  // Release B's positive flush now that C owns rpc-chain-x!
+  releaseFlushB()
+  await waitFor(() => env1.rt.botOf('a').sessionId === 'fork-2' && env1.agentMap.get('fork-2').followups.length > 0)
+  await new Promise(r => setTimeout(r, 30))
+  assert.equal(
+    env1.rt.state.pendingHandoffInputs?.some(e => e?.id === 'rpc-chain-x'),
+    true,
+    'older positive flush(B) must NOT clear journal once C owns rpc-chain-x and flush(C) returned false',
+  )
+  flushCResult = true
+  await env1.rt.reconcileTasksAfterRestart()
+  assert.equal(env1.rt.state.pendingHandoffInputs, undefined)
+
+  // 2) Restart recovery defers replay when intermediate recipient B is transiently unreadable.
+  const env2 = await startEnv({
+    team: makeTeam({
+      bots: {
+        a: { id: 'a', name: 'Chief', role: 'Boss', sessionId: 'fg-c', createdAt: 1 },
+      },
+    }),
+  })
+  t.after(env2.stop)
+  env2.rt.state.pendingHandoffInputs = [{
+    id: 'rpc-unreadable-b',
+    originalSessionId: 'fg-a',
+    recipientSessionId: 'fg-b',
+    visitedSessionIds: ['fg-a', 'fg-b'],
+    botId: 'a',
+    content: [{ type: 'text', text: 'Maybe already on B' }],
+    source: { kind: 'user', rpcId: 'rpc-unreadable-b' },
+    at: Date.now() - 5000,
+  }]
+  const origResolve2 = env2.ctx.sessionController.resolveAgent
+  env2.ctx.sessionController.resolveAgent = async (sid) => {
+    if (sid === 'fg-b') throw new Error('transient disk error reading fg-b')
+    return origResolve2(sid)
+  }
+  await env2.rt.reconcileTasksAfterRestart()
+  assert.equal(env2.agentMap.get('fg-c').followups.length, 0, 'must NOT replay onto C while intermediate recipient B is unreadable')
+  assert.equal(env2.rt.state.pendingHandoffInputs?.length, 1, 'journal must stay intact while B is unreadable')
+
+  // 3) Concurrent retry joins paused save({ required: true }); rejecting save rejects BOTH and never falsely caches moved:true;
+  //    capacity rollback preserves all 64 original receipts; stale pending save leaves tombstone so replay without expectedSessionId cannot move Turn 3.
+  const env3 = await startEnv()
+  t.after(env3.stop)
+  env3.rt.state.completedMoveOps = {}
+  for (let i = 0; i < 64; i += 1) {
+    env3.rt.state.completedMoveOps[`old-op-${i}`] = { sessionId: `s-${i}`, taskId: `k-${i}`, moved: true, at: i + 1 }
+  }
+  const dm3 = env3.agentMap.get('dm-a')
+  dm3.status = 'running'
+  await env3.emit('dm-a', 'turn/start', { turn: 1 })
+  let rejectSave
+  const origSave3 = env3.rt.save
+  let pauseSaveOnce = true
+  env3.rt.save = async (opts = {}) => {
+    if (pauseSaveOnce && opts?.required) {
+      pauseSaveOnce = false
+      return new Promise((_res, rej) => { rejectSave = () => rej(new Error('save failed')) })
+    }
+    return origSave3(opts)
+  }
+  const firstMove = env3.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'dm-a', operationId: 'op-conc-1' })
+  await waitFor(() => typeof rejectSave === 'function')
+  // Concurrent retry while save is paused MUST join the save (not read staged receipt as completed!).
+  let secondSettled = false
+  const secondMove = env3.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'dm-a', operationId: 'op-conc-1' })
+    .finally(() => { secondSettled = true })
+  await new Promise(r => setTimeout(r, 20))
+  assert.equal(secondSettled, false, 'concurrent retry must wait on outstanding required save')
+  rejectSave()
+  await assert.rejects(() => firstMove, /save failed/)
+  await assert.rejects(() => secondMove, /save failed/)
+  // Capacity rollback must preserve ALL 64 original receipts (including old-op-0)!
+  assert.equal(Object.keys(env3.rt.state.completedMoveOps).length, 64)
+  assert.ok(env3.rt.state.completedMoveOps['old-op-0'] !== undefined, 'failed save rollback must restore evicted oldest receipt')
+
+  // Simulate another move superseding bot.sessionId -> stale retry rejects AND records tombstone so replay without expectedSessionId also throws bot/stale!
+  env3.rt.botOf('a').sessionId = 'other-fg'
+  env3.rt.chatOwners.set('other-fg', 'a')
+  const otherAgent = (await env3.ctx.sessionController.resolveAgent('other-fg')).agent
+  otherAgent.status = 'running'
+  await env3.emit('other-fg', 'turn/start', { turn: 3 })
+  await assert.rejects(
+    () => env3.rt.moveForegroundToBackground({ botId: 'a', operationId: 'op-conc-1' }),
+    err => err?.code === 'bot/stale',
+  )
+  await assert.rejects(
+    () => env3.rt.moveForegroundToBackground({ botId: 'a', operationId: 'op-conc-1' }),
+    err => err?.code === 'bot/stale',
+  )
+  assert.equal(env3.rt.botOf('a').sessionId, 'other-fg', 'replaying superseded operationId without expectedSessionId must NEVER move Turn 3')
+
+  // 4) Joined IM operationId is durably persisted with Desktop move, AND natural-completion no-op fails when required save fails.
+  let releaseFork4
+  const env4 = await startEnv({
+    forkImpl: async (_opts, make) => new Promise((resolve) => {
+      releaseFork4 = () => resolve({ sessionId: make() })
+    }),
+  })
+  t.after(env4.stop)
+  const dm4 = env4.agentMap.get('dm-a')
+  dm4.status = 'running'
+  await env4.emit('dm-a', 'turn/start', { turn: 1 })
+  const deskP = env4.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'dm-a', operationId: 'op-desk-join' })
+  await waitFor(() => typeof releaseFork4 === 'function')
+  const imP = env4.rt.moveForegroundToBackground({ botId: 'a', operationId: 'op-im-join' })
+  releaseFork4()
+  const [deskRes, imRes] = await Promise.all([deskP, imP])
+  assert.equal(deskRes.moved, true)
+  assert.equal(imRes.moved, true)
+  assert.ok(env4.rt.state.completedMoveOps?.['op-desk-join'] !== undefined)
+  assert.ok(env4.rt.state.completedMoveOps?.['op-im-join'] !== undefined, 'joined IM operationId must also be durably persisted')
+
+  // Natural completion no-op must reject if required save fails.
+  let releaseFork5
+  const env5 = await startEnv({
+    forkImpl: async (_opts, make) => new Promise((resolve) => {
+      releaseFork5 = () => resolve({ sessionId: make() })
+    }),
+  })
+  t.after(env5.stop)
+  const dm5 = env5.agentMap.get('dm-a')
+  dm5.status = 'running'
+  await env5.emit('dm-a', 'turn/start', { turn: 1 })
+  env5.rt.save = async (opts = {}) => { if (opts?.required) throw new Error('noop save failed') }
+  const noopP = env5.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'dm-a', operationId: 'op-noop-fail' })
+  await waitFor(() => typeof releaseFork5 === 'function')
+  dm5.status = 'idle'
+  await env5.emit('dm-a', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  releaseFork5()
+  await assert.rejects(() => noopP, /noop save failed/)
+
+  // 5) Ordinary IM message after restart + rebind from Bot A to Bot B finds original request on Bot A's cold session and does NOT prompt Bot B.
+  const env6 = await startEnv({
+    team: makeTeam({
+      bots: {
+        a: { id: 'a', name: 'Chief', role: 'Boss', sessionId: 'dm-a-cold-im', createdAt: 1 },
+        b: { id: 'b', name: 'Helper', role: 'Dev', sessionId: 'dm-b-new', createdAt: 2 },
+      },
+    }),
+  })
+  t.after(env6.stop)
+  delete env6.ctx.sessionController.inspect
+  env6.agentMap.delete('dm-a-cold-im')
+  const imQuery = {
+    inspectSession: async (sid, read) => {
+      const events = sid === 'dm-a-cold-im'
+        ? [{ type: 'user/message', seq: 1, data: { id: 'm-im-1', content: [{ type: 'text', text: 'Original IM msg' }], source: { kind: 'user', rpcId: 'im:telegram:c1:dm-u1:msg-rebind-1' } } }]
+        : []
+      return read({ snapshotEvents: () => events })
+    },
+  }
+  const origGet6 = env6.ctx.get
+  env6.ctx.get = name => (name === 'sessionQuery' ? imQuery : origGet6(name))
+  await env6.rt.sendUser({
+    sessionId: 'b',
+    content: [{ type: 'text', text: 'Original IM msg' }],
+    requestId: 'im:telegram:c1:dm-u1:msg-rebind-1',
+  })
+  assert.equal(env6.prompts.length, 0, 'redelivered IM message after restart + rebind must NOT prompt newly bound Bot B')
 })

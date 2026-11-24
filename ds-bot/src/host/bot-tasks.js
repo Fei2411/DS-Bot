@@ -87,6 +87,10 @@ export function install(rt) {
   // Transfer IDs created and actively handled by this host process so startup
   // `reconcileTasksAfterRestart()` only replays entries left on disk by a prior crash.
   const inFlightTransferIds = new Set()
+  // Monotonic transfer generation token per transferId so an older transfer's flush()
+  // can never clear or unlock a newer transfer of the same input.
+  let transferTokenSeq = 0
+  const transferOwnerToken = new Map()
   // Transfer rpcIds already admitted onto a destination session during this process
   // (covers the window after `inbox.claim()` removes the item from inbox and before
   // `step()` appends `user/message` to the session log).
@@ -95,60 +99,76 @@ export function install(rt) {
   // `requestId` stay idempotent across foreground-to-background handoffs.
   const admittedLogicalRpcIds = new Map()
   // In-flight foreground-to-background handoffs per Bot:
-  // botId -> { oldSid, committed, aborted, saved, newSid, taskId, explicit, operationId, promise, messages }.
+  // botId -> { oldSid, committed, aborted, saved, newSid, taskId, explicit, operationIds, savedOperationIds, promise, messages }.
   const handoffing = new Map()
   // Monotonic foreground epoch per Bot (incremented on foreground handoff commit).
   const foregroundEpochs = new Map()
   // Bounded idempotency caches for explicit moveForegroundToBackground operations:
   // `completedMoveOps` (mirrored to `state.completedMoveOps` on durable save) records
-  // operations whose team state was durably saved (or no-op) so retries stay idempotent
-  // even across host restarts; `pendingSaveMoveOps` holds committed-in-memory moves whose
-  // `rt.save({ required: true })` failed so a retry finishes saving instead of falsely succeeding.
+  // operations whose team state was durably saved (or terminal no-op/stale) so retries
+  // stay idempotent across restarts; `stagedMoveOps` & `inFlightSaveMoveOps` ensure
+  // concurrent retries join an outstanding save instead of reading a staged receipt early;
+  // `pendingSaveMoveOps` holds committed-in-memory moves whose `rt.save({ required: true })`
+  // failed so retries finish saving instead of falsely succeeding.
   const MAX_MOVE_OPS = 64
   const completedMoveOps = new Map()
+  const stagedMoveOps = new Set()
+  const inFlightSaveMoveOps = new Map()
   const pendingSaveMoveOps = new Map()
   // Cache of rpcIds/messageIds scanned from immutable cold (settled) sessions after restart.
   const MAX_INSPECTED_SESSIONS = 128
   const inspectedSettledSessionRpcIds = new Map()
   const readCompletedMoveOp = (operationId) => {
     if (typeof operationId !== 'string' || operationId === '') return undefined
+    if (stagedMoveOps.has(operationId) || inFlightSaveMoveOps.has(operationId) || pendingSaveMoveOps.has(operationId)) {
+      return undefined
+    }
     const mem = completedMoveOps.get(operationId)
     if (mem !== undefined) return mem
     const persisted = rt.own(state.completedMoveOps, operationId)
     if (persisted && typeof persisted === 'object' && typeof persisted.sessionId === 'string') {
-      const normalized = { sessionId: persisted.sessionId, taskId: persisted.taskId ?? null, moved: Boolean(persisted.moved) }
+      const normalized = {
+        sessionId: persisted.sessionId,
+        taskId: persisted.taskId ?? null,
+        moved: Boolean(persisted.moved),
+        ...(persisted.stale === true ? { stale: true } : {}),
+      }
       completedMoveOps.set(operationId, normalized)
       return normalized
     }
     return undefined
   }
-  const stagePersistedMoveOp = (operationId, result) => {
-    if (typeof operationId !== 'string' || operationId === '') return undefined
-    if (state.completedMoveOps === null || typeof state.completedMoveOps !== 'object' || Array.isArray(state.completedMoveOps)) {
-      state.completedMoveOps = {}
+  // Snapshots the full `state.completedMoveOps` map before staging so a rolled-back save
+  // restores any entry that would otherwise have been evicted at capacity.
+  const stagePersistedMoveOps = (opIds, result) => {
+    const validIds = opIds.filter(id => typeof id === 'string' && id !== '')
+    if (validIds.length === 0) return { active: false, snapshot: undefined }
+    const snapshot = state.completedMoveOps === null || typeof state.completedMoveOps !== 'object' || Array.isArray(state.completedMoveOps)
+      ? undefined
+      : { ...state.completedMoveOps }
+    const next = snapshot === undefined ? {} : { ...snapshot }
+    const at = Date.now()
+    for (const id of validIds) {
+      delete next[id]
+      next[id] = {
+        sessionId: result.sessionId,
+        taskId: result.taskId ?? null,
+        moved: Boolean(result.moved),
+        ...(result.stale === true ? { stale: true } : {}),
+        at,
+      }
     }
-    const prev = rt.own(state.completedMoveOps, operationId)
-    delete state.completedMoveOps[operationId]
-    state.completedMoveOps[operationId] = {
-      sessionId: result.sessionId,
-      taskId: result.taskId ?? null,
-      moved: Boolean(result.moved),
-      at: Date.now(),
-    }
-    const keys = Object.keys(state.completedMoveOps)
+    const keys = Object.keys(next)
     while (keys.length > MAX_MOVE_OPS) {
-      delete state.completedMoveOps[keys.shift()]
+      delete next[keys.shift()]
     }
-    return prev
+    state.completedMoveOps = next
+    return { active: true, snapshot }
   }
-  const unstagePersistedMoveOp = (operationId, prev) => {
-    if (typeof operationId !== 'string' || operationId === '') return
-    if (state.completedMoveOps === null || typeof state.completedMoveOps !== 'object') return
-    if (prev !== undefined) state.completedMoveOps[operationId] = prev
-    else {
-      delete state.completedMoveOps[operationId]
-      if (Object.keys(state.completedMoveOps).length === 0) delete state.completedMoveOps
-    }
+  const unstagePersistedMoveOps = (staged) => {
+    if (!staged?.active) return
+    if (staged.snapshot === undefined) delete state.completedMoveOps
+    else state.completedMoveOps = { ...staged.snapshot }
   }
   const rememberMoveOp = (operationId, result) => {
     if (typeof operationId !== 'string' || operationId === '') return
@@ -165,6 +185,34 @@ export function install(rt) {
     while (pendingSaveMoveOps.size > MAX_MOVE_OPS) {
       pendingSaveMoveOps.delete(pendingSaveMoveOps.keys().next().value)
     }
+  }
+  // Atomically stages & persists one or more operation receipts via `rt.save({ required: true })`,
+  // ensuring concurrent retries join the same in-flight save and failures roll back cleanly.
+  const persistMoveReceipts = (opIds, result) => {
+    const validIds = [...new Set(opIds.filter(id => typeof id === 'string' && id !== ''))]
+    if (validIds.length === 0) return Promise.resolve(result)
+    const p = (async () => {
+      for (const id of validIds) stagedMoveOps.add(id)
+      const staged = stagePersistedMoveOps(validIds, result)
+      try {
+        await rt.save({ required: true })
+      } catch (error) {
+        unstagePersistedMoveOps(staged)
+        throw error
+      } finally {
+        for (const id of validIds) {
+          stagedMoveOps.delete(id)
+          if (inFlightSaveMoveOps.get(id) === p) inFlightSaveMoveOps.delete(id)
+        }
+      }
+      for (const id of validIds) {
+        pendingSaveMoveOps.delete(id)
+        rememberMoveOp(id, result)
+      }
+      return result
+    })()
+    for (const id of validIds) inFlightSaveMoveOps.set(id, p)
+    return p
   }
   const listeners = new Set()
 
@@ -903,6 +951,9 @@ export function install(rt) {
         const id = (entry.id ??= entry.source?.rpcId ?? newId())
         if (!stillPending(id)) continue
         if (inFlightTransferIds.has(id)) continue
+        const token = ++transferTokenSeq
+        entry.token = token
+        transferOwnerToken.set(id, token)
         inFlightTransferIds.add(id)
         try {
           const movedSids = new Set()
@@ -934,17 +985,23 @@ export function install(rt) {
           if (entry.originalSessionId !== undefined && entry.originalSessionId !== targetSid) {
             movedSids.add(entry.originalSessionId)
           }
+          if (entry.recipientSessionId !== undefined && entry.recipientSessionId !== targetSid) {
+            movedSids.add(entry.recipientSessionId)
+          }
+          for (const visited of entry.visitedSessionIds ?? []) {
+            if (visited !== undefined && visited !== targetSid) movedSids.add(visited)
+          }
           if (targetSid === undefined || rt.taskOwners?.has(targetSid)) {
-            await clearPendingTransfers([id])
+            await clearPendingTransfers([{ id, token }])
             continue
           }
           let matchedAgent
-          let origUnreadable = false
+          let anyMovedUnreadable = false
           for (const sid of movedSids) {
             if (sid === targetSid) continue
             const movedAgent = ctx.get('agents')?.get(sid) ?? await rt.resolveAgent(sid).catch(() => undefined)
             if (movedAgent === undefined) {
-              if (sid === entry.originalSessionId) origUnreadable = true
+              anyMovedUnreadable = true
               continue
             }
             if (isAdmittedOn(movedAgent, id)
@@ -963,20 +1020,21 @@ export function install(rt) {
             } catch {
               flushed = false
             }
-            if (flushed) await clearPendingTransfers([id])
+            if (flushed) await clearPendingTransfers([{ id, token }])
             continue
           }
-          if (origUnreadable) continue
+          if (anyMovedUnreadable) continue
           await forwardPulledMessages(targetSid, [{
             msg: { id: entry.messageId ?? id, content: entry.content, source: entry.source },
             target: entry.target === 'next-step' ? 'next-step' : 'next-turn',
             transferId: id,
+            transferToken: token,
           }], label, {
             ...(entry.botId !== undefined ? { botId: entry.botId } : {}),
             ...(entry.roomId !== undefined ? { roomId: entry.roomId } : {}),
           })
         } finally {
-          inFlightTransferIds.delete(id)
+          releaseTransferLock(id, token)
         }
       }
     }
@@ -1004,9 +1062,12 @@ export function install(rt) {
     offApproval?.()
     admittedRpcIds.clear()
     admittedLogicalRpcIds.clear()
+    stagedMoveOps.clear()
+    inFlightSaveMoveOps.clear()
     pendingSaveMoveOps.clear()
     completedMoveOps.clear()
     inspectedSettledSessionRpcIds.clear()
+    transferOwnerToken.clear()
     rejectEmptyTaskWake.clear()
     replacedIds.clear()
     skipInterceptIds.clear()
@@ -1148,16 +1209,34 @@ export function install(rt) {
   const recordPendingTransfers = (items, owner) => {
     if (rt.readOnly?.() !== undefined || items.length === 0) return
     const list = Array.isArray(state.pendingHandoffInputs) ? state.pendingHandoffInputs : (state.pendingHandoffInputs = [])
-    let added = false
+    let changed = false
     for (const item of items) {
       const id = transferIdOf(item)
+      const token = ++transferTokenSeq
+      item.transferToken = token
+      transferOwnerToken.set(id, token)
       inFlightTransferIds.add(id)
-      if (list.some(entry => entry?.id === id)) continue
       const originalSessionId = item.originalSessionId ?? item.oldAgent?.id ?? item.oldAgent?.session?.id
+      const existing = list.find(entry => entry?.id === id)
+      if (existing !== undefined) {
+        existing.token = token
+        existing.target = item.target === 'next-step' ? 'next-step' : 'next-turn'
+        if (originalSessionId !== undefined) {
+          existing.originalSessionId = originalSessionId
+          const visited = Array.isArray(existing.visitedSessionIds) ? existing.visitedSessionIds : (existing.visitedSessionIds = [])
+          if (!visited.includes(originalSessionId)) visited.push(originalSessionId)
+        }
+        if (owner?.botId !== undefined) { existing.botId = owner.botId; delete existing.roomId }
+        if (owner?.roomId !== undefined) { existing.roomId = owner.roomId; delete existing.botId }
+        existing.at = Date.now()
+        changed = true
+        continue
+      }
       list.push({
         id,
+        token,
         ...(item.msg?.id !== undefined ? { messageId: item.msg.id } : {}),
-        ...(originalSessionId !== undefined ? { originalSessionId } : {}),
+        ...(originalSessionId !== undefined ? { originalSessionId, visitedSessionIds: [originalSessionId] } : {}),
         target: item.target === 'next-step' ? 'next-step' : 'next-turn',
         ...(owner?.botId !== undefined ? { botId: owner.botId } : {}),
         ...(owner?.roomId !== undefined ? { roomId: owner.roomId } : {}),
@@ -1165,17 +1244,60 @@ export function install(rt) {
         source: item.msg.source,
         at: Date.now(),
       })
-      added = true
+      changed = true
     }
-    if (added) void rt.save().catch(() => {})
+    if (changed) void rt.save().catch(() => {})
   }
 
-  const clearPendingTransfers = async (ids) => {
-    const drop = new Set(ids.filter(id => id !== undefined))
-    for (const id of drop) inFlightTransferIds.delete(id)
-    if (rt.readOnly?.() !== undefined || !Array.isArray(state.pendingHandoffInputs)) return
+  const noteTransferRecipient = (transferId, sessionId) => {
+    if (transferId === undefined || sessionId === undefined || rt.readOnly?.() !== undefined) return
+    if (!Array.isArray(state.pendingHandoffInputs)) return
+    const entry = state.pendingHandoffInputs.find(item => item?.id === transferId)
+    if (entry === undefined) return
+    let changed = false
+    if (entry.recipientSessionId !== sessionId) {
+      entry.recipientSessionId = sessionId
+      changed = true
+    }
+    const visited = Array.isArray(entry.visitedSessionIds) ? entry.visitedSessionIds : (entry.visitedSessionIds = [])
+    if (!visited.includes(sessionId)) {
+      visited.push(sessionId)
+      changed = true
+    }
+    if (changed) void rt.save().catch(() => {})
+  }
+
+  const releaseTransferLock = (id, token) => {
+    if (id === undefined) return
+    if (token !== undefined && transferOwnerToken.get(id) !== token) return
+    inFlightTransferIds.delete(id)
+  }
+
+  const clearPendingTransfers = async (entries) => {
+    const drop = new Map() // id -> token | undefined (undefined = unconditional)
+    for (const raw of entries) {
+      if (raw === undefined || raw === null) continue
+      const id = typeof raw === 'object' ? raw.id : raw
+      const token = typeof raw === 'object' ? raw.token : undefined
+      if (id === undefined) continue
+      if (token !== undefined && transferOwnerToken.get(id) !== token) continue
+      drop.set(id, token)
+    }
     if (drop.size === 0) return
-    const next = state.pendingHandoffInputs.filter(entry => !drop.has(entry?.id))
+    for (const [id, token] of drop) {
+      if (token === undefined || transferOwnerToken.get(id) === token) {
+        inFlightTransferIds.delete(id)
+        transferOwnerToken.delete(id)
+      }
+    }
+    if (rt.readOnly?.() !== undefined || !Array.isArray(state.pendingHandoffInputs)) return
+    const next = state.pendingHandoffInputs.filter((entry) => {
+      if (entry === null || typeof entry !== 'object') return false
+      if (!drop.has(entry.id)) return true
+      const token = drop.get(entry.id)
+      if (token !== undefined && entry.token !== undefined && entry.token !== token) return true
+      return false
+    })
     if (next.length === state.pendingHandoffInputs.length) return
     if (next.length === 0) delete state.pendingHandoffInputs
     else state.pendingHandoffInputs = next
@@ -1266,13 +1388,40 @@ export function install(rt) {
     return isAdmittedOnSession(agent.session, rpcId)
   }
 
+  // Reads events of a cold (unloaded) Session using the real DSH `sessionQuery` service
+  // (`inspectSession` / `readSession`), with fallback to legacy `sessionController.inspect`.
+  const readColdSessionEvents = async (sid, signal) => {
+    const query = ctx.get?.('sessionQuery') ?? ctx.sessionQuery
+    if (typeof query?.inspectSession === 'function') {
+      const events = await query.inspectSession(sid, session => session?.snapshotEvents?.() ?? [], signal).catch(() => undefined)
+      if (Array.isArray(events)) return events
+    }
+    if (typeof query?.readSession === 'function') {
+      const seen = await query.readSession(sid).catch(() => undefined)
+      if (Array.isArray(seen?.events)) return seen.events
+    }
+    const inspect = ctx.sessionController?.inspect
+    if (typeof inspect === 'function') {
+      const seen = await inspect(sid, signal).catch(() => undefined)
+      if (Array.isArray(seen?.events)) return seen.events
+    }
+    return undefined
+  }
+
   // Checks whether `requestId` was already admitted on the target logical chat —
-  // including across a foreground-to-background move where `ref` moved into `bot.tasks[]`
-  // and even after a host restart when completed handoff sessions are unloaded on disk.
+  // including across a foreground-to-background move where `ref` moved into `bot.tasks[]`,
+  // after a host restart when completed handoff sessions are unloaded on disk, and across
+  // IM chat rebindings for globally unique `im:` platform message IDs.
   const isAdmittedForSend = async ({ ref, sessionId, requestId, callerSupplied = true } = {}) => {
     if (requestId === undefined) return false
     const ownerKey = logicalOwnerOf(sessionId) ?? logicalOwnerOf(ref)
     if (ownerKey !== undefined && admittedLogicalRpcIds.get(ownerKey)?.has(requestId)) return true
+    const isImRequest = typeof requestId === 'string' && requestId.startsWith('im:')
+    if (isImRequest) {
+      for (const set of admittedLogicalRpcIds.values()) {
+        if (set.has(requestId)) return true
+      }
+    }
     if (Array.isArray(state.pendingHandoffInputs)
       && state.pendingHandoffInputs.some(entry => entry?.id === requestId || entry?.source?.rpcId === requestId)) {
       return true
@@ -1285,13 +1434,10 @@ export function install(rt) {
       if (existing === undefined) candidates.set(sid, { immutable })
       else if (immutable) existing.immutable = true
     }
-    addCandidate(sessionId, false)
-    if (ref !== undefined && rt.botOf(ref) === undefined && rt.roomOf(ref) === undefined) {
-      addCandidate(ref, false)
-    }
-    if (ownerKey !== undefined && ownerKey.startsWith('bot:')) {
-      const bot = rt.botOf(ownerKey.slice(4))
-      const tasks = [...(bot?.tasks ?? [])].reverse()
+    const addBotCandidates = (bot) => {
+      if (bot === undefined) return
+      addCandidate(rt.chatOf(bot.id), false)
+      const tasks = [...(bot.tasks ?? [])].reverse()
       for (const task of tasks) {
         if (task?.origin !== 'fg-handoff') continue
         const settled = !isActiveTask(task)
@@ -1300,8 +1446,26 @@ export function install(rt) {
           addCandidate(seg?.sessionId, true)
         }
       }
-      for (const seg of [...(bot?.segments ?? [])].reverse().slice(0, 6)) {
+      for (const seg of [...(bot.segments ?? [])].reverse().slice(0, 6)) {
         addCandidate(seg?.sessionId, true)
+      }
+    }
+    addCandidate(sessionId, false)
+    if (ref !== undefined && rt.botOf(ref) === undefined && rt.roomOf(ref) === undefined) {
+      addCandidate(ref, false)
+    }
+    if (ownerKey !== undefined && ownerKey.startsWith('bot:')) {
+      addBotCandidates(rt.botOf(ownerKey.slice(4)))
+    }
+    // An IM platform message ID (`im:<platform>:<connId>:<chatKey>:<msgId>`) belongs to a
+    // single inbound platform event even if the chat was rebound to another Bot/group after restart.
+    if (isImRequest) {
+      for (const bot of Object.values(state.bots)) addBotCandidates(bot)
+      for (const room of Object.values(state.rooms ?? {})) {
+        addCandidate(rt.sessionOfRoom?.(room), false)
+        for (const seg of [...(room?.segments ?? [])].reverse().slice(0, 4)) {
+          addCandidate(seg?.sessionId, true)
+        }
       }
     }
     const agents = ctx.get('agents')
@@ -1330,8 +1494,6 @@ export function install(rt) {
       coldCandidates.push([sid, meta])
     }
     if (!callerSupplied || coldCandidates.length === 0) return false
-    const inspect = ctx.sessionController?.inspect
-    if (typeof inspect !== 'function') return false
     for (const [sid, meta] of coldCandidates) {
       const cached = inspectedSettledSessionRpcIds.get(sid)
       if (cached !== undefined) {
@@ -1341,8 +1503,7 @@ export function install(rt) {
         }
         continue
       }
-      const seen = await inspect(sid, AbortSignal.timeout(HISTORY_TIMEOUT_MS)).catch(() => undefined)
-      const events = Array.isArray(seen?.events) ? seen.events : undefined
+      const events = await readColdSessionEvents(sid, AbortSignal.timeout(HISTORY_TIMEOUT_MS))
       if (events === undefined) continue
       const foundIds = new Set()
       for (const ev of events) {
@@ -1442,10 +1603,10 @@ export function install(rt) {
         if (group === undefined) { group = []; byAgent.set(item.oldAgent, group) }
         group.push(item)
       } else if (item.transferId !== undefined) {
-        failedIds.push(item.transferId)
+        failedIds.push({ id: item.transferId, token: item.transferToken })
       }
     }
-    const confirmedIds = []
+    const confirmedEntries = []
     for (const [oldAgent, group] of byAgent) {
       let flushed = false
       try {
@@ -1457,22 +1618,23 @@ export function install(rt) {
       }
       for (const item of group) {
         if (item.transferId === undefined) continue
-        if (flushed) confirmedIds.push(item.transferId)
-        else failedIds.push(item.transferId)
+        if (flushed) confirmedEntries.push({ id: item.transferId, token: item.transferToken })
+        else failedIds.push({ id: item.transferId, token: item.transferToken })
       }
     }
-    for (const id of failedIds) inFlightTransferIds.delete(id)
-    if (confirmedIds.length > 0) await clearPendingTransfers(confirmedIds)
+    for (const entry of failedIds) {
+      if (typeof entry === 'object') releaseTransferLock(entry.id, entry.token)
+      else releaseTransferLock(entry, undefined)
+    }
+    if (confirmedEntries.length > 0) await clearPendingTransfers(confirmedEntries)
     for (const [key, rerouted] of reroutedByBot) {
       if (key === '__unknown__') {
-        for (const item of rerouted) {
-          if (item.transferId !== undefined) inFlightTransferIds.delete(item.transferId)
-        }
+        for (const item of rerouted) releaseTransferLock(item.transferId, item.transferToken)
         continue
       }
       const ownerBot = rt.botOf(key)
       if (ownerBot === undefined) {
-        await clearPendingTransfers(rerouted.map(item => item.transferId))
+        await clearPendingTransfers(rerouted.map(item => ({ id: item.transferId, token: item.transferToken })))
         continue
       }
       const active = handoffing.get(key)
@@ -1484,9 +1646,7 @@ export function install(rt) {
       if (fgSid !== undefined && !rt.taskOwners?.has(fgSid)) {
         await forwardPulledMessages(fgSid, rerouted, ownerBot.name, { botId: ownerBot.id })
       } else {
-        for (const item of rerouted) {
-          if (item.transferId !== undefined) inFlightTransferIds.delete(item.transferId)
-        }
+        for (const item of rerouted) releaseTransferLock(item.transferId, item.transferToken)
       }
     }
   }
@@ -1495,7 +1655,7 @@ export function install(rt) {
   // destination failures without duplicating already-admitted items. Revalidates the live
   // foreground after every async step so concurrent moves never strand inputs on a moved
   // background task, and clears each item's journal entry ONLY when the exact session that
-  // received it confirms `sessions.flush() === true` (#2087).
+  // received it confirms `sessions.flush() === true` AND this transfer still owns the entry (#2087).
   const forwardPulledMessages = async (initialTargetSid, items, botName, owner = {}) => {
     if (items.length === 0) return
     const resolveOwner = (sid) => {
@@ -1526,19 +1686,19 @@ export function install(rt) {
     let targetSid = initialTargetSid
     let nextIndex = 0
     // Sessions that have accepted items in this batch and still await a positive flush() === true.
-    const pendingFlushBySession = new Map() // sid -> { session, ids: Set<string> }
-    const trackForFlush = (sid, session, transferId) => {
+    const pendingFlushBySession = new Map() // sid -> { session, items: Map<transferId, token> }
+    const trackForFlush = (sid, session, transferId, transferToken) => {
       let bucket = pendingFlushBySession.get(sid)
       if (bucket === undefined) {
-        bucket = { session, ids: new Set() }
+        bucket = { session, items: new Map() }
         pendingFlushBySession.set(sid, bucket)
       } else if (session !== undefined) {
         bucket.session = session
       }
-      if (transferId !== undefined) bucket.ids.add(transferId)
+      if (transferId !== undefined) bucket.items.set(transferId, transferToken)
     }
     const flushPendingBuckets = async () => {
-      const confirmedIds = []
+      const confirmed = []
       let hadFalse = false
       let firstError
       for (const [sid, bucket] of [...pendingFlushBySession.entries()]) {
@@ -1548,7 +1708,7 @@ export function install(rt) {
             : false
           if (ok) {
             pendingFlushBySession.delete(sid)
-            for (const id of bucket.ids) confirmedIds.push(id)
+            for (const [id, token] of bucket.items) confirmed.push({ id, token })
           } else {
             hadFalse = true
           }
@@ -1556,16 +1716,16 @@ export function install(rt) {
           firstError ??= error
         }
       }
-      if (confirmedIds.length > 0) await clearPendingTransfers(confirmedIds)
+      if (confirmed.length > 0) await clearPendingTransfers(confirmed)
       if (firstError !== undefined) throw firstError
       return !hadFalse
     }
     const releaseUnconfirmed = () => {
       for (const bucket of pendingFlushBySession.values()) {
-        for (const id of bucket.ids) inFlightTransferIds.delete(id)
+        for (const [id, token] of bucket.items) releaseTransferLock(id, token)
       }
       for (let i = nextIndex; i < items.length; i += 1) {
-        if (items[i]?.transferId !== undefined) inFlightTransferIds.delete(items[i].transferId)
+        releaseTransferLock(items[i]?.transferId, items[i]?.transferToken)
       }
     }
     const delays = [50, 250]
@@ -1583,7 +1743,7 @@ export function install(rt) {
             }
             const latestBefore = currentTargetFor(targetSid, resolvedOwner)
             if (latestBefore === undefined) {
-              await clearPendingTransfers(items.slice(nextIndex).map(item => item.transferId))
+              await clearPendingTransfers(items.slice(nextIndex).map(item => ({ id: item.transferId, token: item.transferToken })))
               nextIndex = items.length
               break
             }
@@ -1600,7 +1760,7 @@ export function install(rt) {
             }
             const latestAfter = currentTargetFor(targetSid, resolvedOwner)
             if (latestAfter === undefined) {
-              await clearPendingTransfers(items.slice(nextIndex).map(item => item.transferId))
+              await clearPendingTransfers(items.slice(nextIndex).map(item => ({ id: item.transferId, token: item.transferToken })))
               nextIndex = items.length
               break
             }
@@ -1653,7 +1813,8 @@ export function install(rt) {
                   skipInterceptIds.delete(forwarded.id)
                 }
               }
-              trackForFlush(targetSid, freshAgent.session, item.transferId)
+              noteTransferRecipient(item.transferId, targetSid)
+              trackForFlush(targetSid, freshAgent.session, item.transferId, item.transferToken)
               nextIndex += 1
             }
           }
@@ -1731,7 +1892,8 @@ export function install(rt) {
       newSid: undefined,
       taskId: undefined,
       explicit,
-      operationId,
+      operationIds: new Set(typeof operationId === 'string' && operationId !== '' ? [operationId] : []),
+      savedOperationIds: new Set(),
       messages: seededMessages,
       promise: undefined,
     }
@@ -1766,7 +1928,7 @@ export function install(rt) {
           } else if (rt.botOf(bot.id) === bot) {
             await restorePulledMessages(pending, { forceNextTurn: isBotHandoff, botId: bot.id })
           } else {
-            await clearPendingTransfers(pending.map(item => item.transferId))
+            await clearPendingTransfers(pending.map(item => ({ id: item.transferId, token: item.transferToken })))
           }
         }
         await ctx.workspaceRegistry.archiveSession(newSid, { stopActivity: true }).catch(() => {})
@@ -1796,9 +1958,11 @@ export function install(rt) {
             && !rt.waitsForApproval?.(oldSid)
           if (stillIdle) {
             const noOpResult = { sessionId: oldSid, taskId: null, moved: false }
-            stagePersistedMoveOp(operationId, noOpResult)
-            rememberMoveOp(operationId, noOpResult)
-            await rt.save().catch(() => {})
+            const opIds = [...record.operationIds]
+            if (opIds.length > 0) {
+              await persistMoveReceipts(opIds, noOpResult)
+              for (const id of opIds) record.savedOperationIds.add(id)
+            }
             return oldSid
           }
           throw Object.assign(new Error('This turn has already ended'), { code: 'bot/stale' })
@@ -1963,29 +2127,41 @@ export function install(rt) {
       }
 
       const moveResult = { sessionId: newSid, taskId: task.id, moved: true }
-      if (typeof operationId === 'string' && operationId !== '') {
-        rememberPendingSaveMoveOp(operationId, {
-          botId: bot.id,
-          oldSid,
-          newSid,
-          taskId: task.id,
-          finishPostSave,
-          savingPromise: undefined,
-        })
+      const saveOpIds = [...record.operationIds]
+      const pendingEntry = {
+        botId: bot.id,
+        oldSid,
+        newSid,
+        taskId: task.id,
+        finishPostSave,
+        savingPromise: undefined,
       }
-      const prevOp = stagePersistedMoveOp(operationId, moveResult)
-      try {
-        await rt.save({ required: true })
-      } catch (error) {
-        unstagePersistedMoveOp(operationId, prevOp)
-        throw error
-      }
-      record.saved = true
-      if (typeof operationId === 'string' && operationId !== '') {
-        pendingSaveMoveOps.delete(operationId)
-        rememberMoveOp(operationId, moveResult)
-      }
-      await finishPostSave()
+      const savePromise = (async () => {
+        for (const id of saveOpIds) stagedMoveOps.add(id)
+        const staged = stagePersistedMoveOps(saveOpIds, moveResult)
+        try {
+          await rt.save({ required: true })
+        } catch (error) {
+          unstagePersistedMoveOps(staged)
+          for (const id of saveOpIds) rememberPendingSaveMoveOp(id, pendingEntry)
+          throw error
+        } finally {
+          for (const id of saveOpIds) {
+            stagedMoveOps.delete(id)
+            if (inFlightSaveMoveOps.get(id) === savePromise) inFlightSaveMoveOps.delete(id)
+          }
+        }
+        record.saved = true
+        for (const id of saveOpIds) {
+          pendingSaveMoveOps.delete(id)
+          record.savedOperationIds.add(id)
+          rememberMoveOp(id, moveResult)
+        }
+        await finishPostSave()
+        return moveResult
+      })()
+      for (const id of saveOpIds) inFlightSaveMoveOps.set(id, savePromise)
+      await savePromise
       return newSid
     })()
 
@@ -1998,9 +2174,7 @@ export function install(rt) {
         if (rt.botOf(bot.id) === bot) {
           void restorePulledMessages(leftover, { forceNextTurn: isBotHandoff, botId: bot.id })
         } else {
-          for (const item of leftover) {
-            if (item.transferId !== undefined) inFlightTransferIds.delete(item.transferId)
-          }
+          for (const item of leftover) releaseTransferLock(item.transferId, item.transferToken)
         }
       }
     })
@@ -2014,8 +2188,15 @@ export function install(rt) {
   // the same running turn.
   async function moveForegroundToBackground({ botId, expectedSessionId, expectedTurn, operationId } = {}) {
     if (typeof operationId === 'string' && operationId !== '') {
+      const activeSave = inFlightSaveMoveOps.get(operationId)
+      if (activeSave !== undefined) return activeSave
       const done = readCompletedMoveOp(operationId)
-      if (done !== undefined) return done
+      if (done !== undefined) {
+        if (done.stale === true) {
+          throw Object.assign(new Error('This conversation has already moved on'), { code: 'bot/stale' })
+        }
+        return { sessionId: done.sessionId, taskId: done.taskId ?? null, moved: Boolean(done.moved) }
+      }
       const pendingSave = pendingSaveMoveOps.get(operationId)
       if (pendingSave !== undefined) {
         const curBot = rt.botOf(pendingSave.botId)
@@ -2024,25 +2205,35 @@ export function install(rt) {
           && (curBot.tasks ?? []).some(t => t?.id === pendingSave.taskId)
         if (!stillMatches) {
           pendingSaveMoveOps.delete(operationId)
+          const staleReceipt = { sessionId: curBot?.sessionId ?? pendingSave.newSid, taskId: null, moved: false, stale: true }
+          rememberMoveOp(operationId, staleReceipt)
+          const staged = stagePersistedMoveOps([operationId], staleReceipt)
+          await rt.save().catch(() => unstagePersistedMoveOps(staged))
           throw Object.assign(new Error('This conversation has already moved on'), { code: 'bot/stale' })
         }
         if (pendingSave.savingPromise === undefined) {
-          pendingSave.savingPromise = (async () => {
+          const retryPromise = (async () => {
             const result = { sessionId: pendingSave.newSid, taskId: pendingSave.taskId, moved: true }
-            const prevOp = stagePersistedMoveOp(operationId, result)
+            stagedMoveOps.add(operationId)
+            const staged = stagePersistedMoveOps([operationId], result)
             try {
               await rt.save({ required: true })
             } catch (error) {
-              unstagePersistedMoveOp(operationId, prevOp)
+              unstagePersistedMoveOps(staged)
               throw error
+            } finally {
+              stagedMoveOps.delete(operationId)
+              if (inFlightSaveMoveOps.get(operationId) === retryPromise) inFlightSaveMoveOps.delete(operationId)
             }
             pendingSaveMoveOps.delete(operationId)
             rememberMoveOp(operationId, result)
             await pendingSave.finishPostSave()
             return result
           })().finally(() => {
-            pendingSave.savingPromise = undefined
+            if (pendingSave.savingPromise === retryPromise) pendingSave.savingPromise = undefined
           })
+          pendingSave.savingPromise = retryPromise
+          inFlightSaveMoveOps.set(operationId, retryPromise)
         }
         return pendingSave.savingPromise
       }
@@ -2050,20 +2241,26 @@ export function install(rt) {
     const bot = rt.botOf(botId)
     if (bot === undefined) throw Object.assign(new Error('Unknown Bot'), { code: 'bot/not-found' })
     const oldSid = rt.chatOf(bot.id)
+    const joinInFlight = async (inFlight) => {
+      if (typeof operationId === 'string' && operationId !== '') inFlight.operationIds.add(operationId)
+      const sid = await inFlight.promise
+      const result = { sessionId: sid, taskId: inFlight.taskId ?? null, moved: inFlight.committed === true && inFlight.saved === true }
+      if (typeof operationId === 'string' && operationId !== '' && !inFlight.savedOperationIds.has(operationId)) {
+        await persistMoveReceipts([operationId], result)
+        inFlight.savedOperationIds.add(operationId)
+      }
+      return result
+    }
     if (expectedSessionId !== undefined && expectedSessionId !== oldSid) {
       const inFlight = handoffing.get(bot.id)
       if (inFlight !== undefined && !inFlight.aborted && inFlight.oldSid === expectedSessionId) {
-        const sid = await inFlight.promise
-        return { sessionId: sid, taskId: inFlight.taskId ?? null, moved: inFlight.committed === true && inFlight.saved === true }
+        return joinInFlight(inFlight)
       }
       throw Object.assign(new Error('This conversation has already moved on'), { code: 'bot/stale' })
     }
     const inFlight = handoffing.get(bot.id)
     if (inFlight !== undefined && !inFlight.aborted && inFlight.oldSid === oldSid) {
-      const sid = await inFlight.promise
-      const result = { sessionId: sid, taskId: inFlight.taskId ?? null, moved: inFlight.committed === true && inFlight.saved === true }
-      rememberMoveOp(operationId, result)
-      return result
+      return joinInFlight(inFlight)
     }
     if (expectedTurn !== undefined && rt.live.get(oldSid)?.turn !== expectedTurn) {
       throw Object.assign(new Error('This turn has already ended'), { code: 'bot/stale' })
@@ -2075,9 +2272,7 @@ export function install(rt) {
     const newSid = await handoffForeground(bot, oldSid, [], { explicit: true, operationId, expectedTurn })
     const task = (bot.tasks ?? []).findLast(item => item?.sessionId === oldSid)
     const moved = newSid !== oldSid && task !== undefined
-    const result = { sessionId: newSid, taskId: moved ? task.id : null, moved }
-    rememberMoveOp(operationId, result)
-    return result
+    return { sessionId: newSid, taskId: moved ? task.id : null, moved }
   }
 
   // Spawns a dedicated background task (`origin: 'bot-handoff'`) for an incoming peer

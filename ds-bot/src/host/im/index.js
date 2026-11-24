@@ -1432,6 +1432,7 @@ export function install(rt) {
         return
       }
       const bgKey = platformMsgId !== '' ? `bg:${conn.id}:${msg.chat.key}:${platformMsgId}` : ''
+      if (bgKey !== '' && (Array.isArray(conn.seenInbound) && conn.seenInbound.includes(bgKey))) return
       if (bgKey !== '' && !markInboundSeen(bgKey)) return
       const operationId = bgKey !== '' ? `im:${conn.platform}:${bgKey}` : undefined
       let res
@@ -1440,6 +1441,14 @@ export function install(rt) {
       } catch (error) {
         const terminal = ['bot/idle', 'bot/stale', 'bot/card-open', 'bot/pending-input', 'bot/unsupported', 'bot/read-only'].includes(error?.code)
         if (!terminal && bgKey !== '') seenInboundIds.delete(bgKey)
+        if (terminal && bgKey !== '') {
+          const seen = Array.isArray(conn.seenInbound) ? conn.seenInbound : (conn.seenInbound = [])
+          if (!seen.includes(bgKey)) {
+            seen.push(bgKey)
+            while (seen.length > 200) seen.shift()
+            await rt.save().catch(() => {})
+          }
+        }
         await sendText(conn, msg.chat, text(error?.code === 'bot/idle' ? 'idle' : 'backgroundFailed'))
         return
       }
@@ -1501,6 +1510,7 @@ export function install(rt) {
     }
     const sessionId = target.botId ?? target.roomId
     const inboundKey = platformMsgId !== '' ? `${conn.id}:${msg.chat.key}:${platformMsgId}` : ''
+    if (inboundKey !== '' && Array.isArray(conn.seenInbound) && conn.seenInbound.includes(inboundKey)) return
     if (inboundKey !== '' && !markInboundSeen(inboundKey)) return
     let requestId
     try {
@@ -1538,6 +1548,14 @@ export function install(rt) {
       if (conn.platform === 'weixin') await rememberWeixinRequest(conn, requestId, msg.chat.key, msg.sender.id)
       else rememberRequest(requestId, conn, msg.chat.key, msg.sender.id)
       await rt.sendUser({ sessionId, content, requestId, mode: promptMode })
+      if (inboundKey !== '') {
+        const seen = Array.isArray(conn.seenInbound) ? conn.seenInbound : (conn.seenInbound = [])
+        if (!seen.includes(inboundKey)) {
+          seen.push(inboundKey)
+          while (seen.length > 200) seen.shift()
+          void rt.save().catch(() => {})
+        }
+      }
     } catch (error) {
       if (inboundKey !== '') seenInboundIds.delete(inboundKey)
       if (requestId !== undefined) requests.delete(requestId)
