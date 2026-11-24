@@ -4,7 +4,7 @@ import { memo } from './memo.js'
 import { FishLogo } from './dsh-primitives.js'
 import { inkFill } from './inks.js'
 import { isMainOf } from './sources.js'
-import { currentPart, isHiddenTurn, previewOf, relativeShort, turnOutlineOf } from './text.js'
+import { currentPart, previewOf, relativeShort } from './text.js'
 import { PlusIcon, SearchIcon, SidebarIcon, GaugeIcon, ClockIcon, GearIcon, PinMarkIcon, ConnectorIcon, PlugIcon, SwitchIcon, CloudDownloadIcon, SignInIcon, SignOutIcon, SlidersIcon, ChevronRightIcon, DotsIcon, FolderIcon } from './icons.js'
 import { lookOf, MAIN_LOOK } from './characters.js'
 import { botState, BotMark, BotAvatar, RoomAvatar } from './mark.js'
@@ -101,6 +101,7 @@ const sameBotRow = (a, b) => a.bot === b.bot
   && a.actions === b.actions
   && a.onDragStart === b.onDragStart
   && a.useSessions === b.useSessions
+  && a.useBotCompletions === b.useBotCompletions
   && a.useSessionStatus === b.useSessionStatus
   && a.useSessionRetainInfo === b.useSessionRetainInfo
   && a.useActivity === b.useActivity
@@ -118,20 +119,15 @@ const sameBotRow = (a, b) => a.bot === b.bot
   && a.roster.questions === b.roster.questions
   && a.roster.views === b.roster.views
 
-const BotRow = memo(function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, useComputer, wide, marked, onDragStart }) {
+const BotRow = memo(function BotRow({ bot, roster, actions, useSessions, useBotCompletions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, useComputer, wide, marked, onDragStart }) {
   const id = bot.id
   const part = currentPart(bot)
   const preview = useSessions(list => previewOf(list, part, roster.exchangeTurns[part]))
-  const latestTurnHidden = useSessions(list => {
-    const outline = turnOutlineOf(list, part)
-    return Array.isArray(outline) && isHiddenTurn(roster, part, outline.at(-1)?.turn)
-  })
+  const completionUnread = useBotCompletions(unread => unread[part] === true)
   const running = useSessionStatus(map => map.get(part)?.running === true)
   const active = useSessionRetainInfo(part, info => (info?.retainedBy?.mainView ?? 0) > 0)
-  const unread = useSessionStatus(map => {
-    const status = map.get(part)
-    return status?.pendingInteraction !== undefined || (status?.completionUnread === true && !latestTurnHidden)
-  }) || (marked && !active)
+  const pendingInteraction = useSessionStatus(map => map.get(part)?.pendingInteraction !== undefined)
+  const unread = pendingInteraction || completionUnread || (marked && !active)
   useMarkedUnread(id, active, marked, actions)
   const main = isMainOf(roster, id)
   const tile = roster.mainBotId === id
@@ -378,7 +374,7 @@ function renderSidebarEntry(entry, rowProps, markedUnread, onDragStart) {
 }
 
 function SectionBlock({ section, entries, rowProps, markedUnread, renaming, dropTarget, onDragStart, onDragOverSec, onDropSec }) {
-  const { roster, actions, useSessions, useSessionStatus, useWork, useComputer, wide } = rowProps
+  const { roster, actions, useSessions, useBotCompletions, useSessionStatus, useWork, useComputer, wide } = rowProps
   const input = useRef(null)
   useLayoutEffect(() => {
     if (!renaming) return
@@ -406,6 +402,7 @@ function SectionBlock({ section, entries, rowProps, markedUnread, renaming, drop
       : entry.kind === 'room' ? [entry.item.sessionId ?? entry.item.id]
         : entry.item.sessions ?? []
   )), [entries])
+  const botParts = useMemo(() => new Set(entries.filter(entry => entry.kind === 'bot').map(entry => currentPart(entry.item))), [entries])
   const activeSession = useSessions(list => sessionIds.find(id => (list.byId[id]?.retainedBy?.mainView ?? 0) > 0) ?? '')
   const activeEntry = useMemo(() => {
     if (activeSession === '') return undefined
@@ -418,7 +415,7 @@ function SectionBlock({ section, entries, rowProps, markedUnread, renaming, drop
   const statusBits = useSessionStatus(map => JSON.stringify(sessionIds.map(id => [
     id,
     map.get(id)?.running === true ? 1 : 0,
-    map.get(id)?.completionUnread === true || map.get(id)?.pendingInteraction !== undefined ? 1 : 0,
+    (!botParts.has(id) && map.get(id)?.completionUnread === true) || map.get(id)?.pendingInteraction !== undefined ? 1 : 0,
   ])))
   const shownEntries = useMemo(() => entries.filter(entry => (
     !entry.item.hidden || entry === activeEntry || (entry.kind === 'bot' && isMainOf(roster, entry.item.id))
@@ -448,7 +445,8 @@ function SectionBlock({ section, entries, rowProps, markedUnread, renaming, drop
   })
   const hasAlert = hasPendingCard || hasApproval || hasComputerAsk
   const hasWorking = hasRoomWork || parsedStatuses.some(([, run]) => run === 1)
-  const hasUnread = parsedStatuses.some(([id, , unread]) => unread === 1 && id !== activeSession)
+  const hasBotUnread = useBotCompletions(unread => [...botParts].some(id => id !== activeSession && unread[id] === true))
+  const hasUnread = hasBotUnread || parsedStatuses.some(([id, , unread]) => unread === 1 && id !== activeSession)
     || entries.some(entry => markedUnread[entry.item.id] === true && entry !== activeEntry)
   const statusKind = hasAlert ? 'alert' : hasWorking ? 'working' : hasUnread ? 'unread' : null
   const toggle = () => {
@@ -905,7 +903,7 @@ export function TeamSidebar(props) {
       newAgentSession: id => navigate(actions.newAgentSession, id),
     }
   }, [actions])
-  const rowProps = { roster, actions: rowActions, useSessions, useUi, useSessionStatus: props.useSessionStatus, useSessionRetainInfo: props.useSessionRetainInfo, useActivity: props.useActivity, useWork: props.useWork, useComputer: props.useComputer, wide: wideContent }
+  const rowProps = { roster, actions: rowActions, useSessions, useUi, useBotCompletions: props.useBotCompletions ?? useFalse, useSessionStatus: props.useSessionStatus, useSessionRetainInfo: props.useSessionRetainInfo, useActivity: props.useActivity, useWork: props.useWork, useComputer: props.useComputer, wide: wideContent }
   // Typing while the sidebar has focus starts a search.
   const typeToSearch = (event) => {
     if (event.defaultPrevented || event.key.length !== 1 || event.key === ' ' || event.metaKey || event.ctrlKey || event.altKey || event.nativeEvent.isComposing) return

@@ -4,6 +4,8 @@ import { dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { runInNewContext } from 'node:vm'
 import { build } from 'esbuild'
+import { watchBotCompletions } from '../src/client/bot-completions.js'
+import { createSource } from '../src/client/sources.js'
 
 const PLUGIN = dirname(dirname(fileURLToPath(import.meta.url)))
 
@@ -67,6 +69,7 @@ function renderSidebar({
   computer = { asks: {} },
   activity = {},
   statusMap = new Map(),
+  botCompletions,
   projectionsBySession,
   unread = {},
   activeSession = null,
@@ -80,13 +83,20 @@ function renderSidebar({
     secretRequests: {}, connectorRequests: {}, mailRequests: {},
     ready: true, ...rosterExtra,
   }
+  const list = { ids: activeSession ? [activeSession] : [], byId: activeSession ? { [activeSession]: { id: activeSession, retainedBy: { mainView: 1 } } } : {}, projectionsBySession }
+  if (botCompletions === undefined) {
+    const snapshot = createSource({})
+    watchBotCompletions({ roster: createSource(roster), sessions: createSource(list), statuses: createSource(statusMap), unread: snapshot })()
+    botCompletions = snapshot.getSnapshot()
+  }
   const tree = TeamSidebar({
     actions: noopActions,
     useSidebarPref: () => (wide ? 'open' : 'rail'),
     useRoster: pick => pick(roster),
     useUi: pick => pick({ unread }),
     useRegistry: pick => pick({}),
-    useSessions: pick => pick({ ids: activeSession ? [activeSession] : [], byId: activeSession ? { [activeSession]: { id: activeSession, retainedBy: { mainView: 1 } } } : {}, projectionsBySession }),
+    useSessions: pick => pick(list),
+    useBotCompletions: pick => pick(botCompletions),
     useUpdate: () => ({}),
     useSessionStatus: pick => pick(statusMap),
     useSessionRetainInfo: (id, pick) => pick(id === activeSession ? { retainedBy: { mainView: 1 } } : {}),
@@ -124,6 +134,83 @@ test('only a visible completion sets the Bot row unread dot', () => {
   assert.equal(rowState([visible, hidden, reply], { completionUnread: false }, { activeSession: part }).dot, false)
   assert.equal(rowState([hidden], { completionUnread: true, pendingInteraction: {} }).dot, true)
   assert.equal(rowState([hidden], { completionUnread: false }, { unread: { [bot.id]: true } }).dot, true)
+})
+
+test('a hidden exchange preserves a preceding unread reply in the Bot row and collapsed section until viewed', (t) => {
+  const id = 'writer'
+  const bot = { id, name: 'Writer', createdAt: 1 }
+  const exchangeTurns = { [id]: [2, 3] }
+  const visible = { turn: 1, response: 'Earlier unread reply' }
+  const hidden = { turn: 2, response: 'Private reply' }
+  const laterHidden = { turn: 3, response: 'Later private reply' }
+  const roster = createSource({ bots: [bot], exchangeTurns })
+  const sessions = createSource({ byId: {}, projectionsBySession: { [id]: { values: { turnOutline: [] } } } })
+  const statuses = createSource(new Map())
+  const unread = createSource({})
+  t.after(watchBotCompletions({ roster, sessions, statuses, unread }))
+  const show = (turnOutline, active = false) => sessions.set({
+    byId: { [id]: { retainedBy: active ? { mainView: 1 } : {} } },
+    projectionsBySession: { [id]: { values: { turnOutline } } },
+  })
+  const setStatus = (running, completionUnread) => statuses.set(new Map([[id, { running, completionUnread }]]))
+  const dots = () => {
+    const props = {
+      bots: [bot],
+      rosterExtra: { exchangeTurns },
+      projectionsBySession: sessions.getSnapshot().projectionsBySession,
+      statusMap: statuses.getSnapshot(),
+      botCompletions: unread.getSnapshot(),
+    }
+    const row = renderSidebar(props)
+    const section = renderSidebar({
+      ...props,
+      bots: [{ ...bot, sectionId: 'section' }],
+      sections: [{ id: 'section', name: 'Section', collapsed: true }],
+    })
+    return [
+      walk(row, node => node.props?.className === 'bt-unread').length,
+      walk(section, node => node.props?.['data-kind'] === 'unread').length,
+    ]
+  }
+
+  setStatus(true, false)
+  show([visible])
+  setStatus(false, true)
+  assert.deepEqual(dots(), [1, 1])
+  setStatus(true, false)
+  show([visible, { ...hidden, response: '' }])
+  show([visible, hidden])
+  setStatus(false, true)
+  assert.deepEqual(dots(), [1, 1])
+
+  show([visible, hidden], true)
+  setStatus(false, false)
+  show([visible, hidden])
+  assert.deepEqual(dots(), [0, 0])
+  setStatus(true, false)
+  show([visible, hidden, { ...laterHidden, response: '' }])
+  setStatus(false, true)
+  show([visible, hidden, laterHidden])
+  assert.deepEqual(dots(), [0, 0])
+})
+
+test('a collapsed section does not show a completion dot for a hidden exchange', () => {
+  const id = 'writer'
+  const props = {
+    bots: [{ id, name: 'Writer', createdAt: 1, sectionId: 'section' }],
+    sections: [{ id: 'section', name: 'Section', collapsed: true }],
+    rosterExtra: { exchangeTurns: { [id]: [1] } },
+    projectionsBySession: { [id]: { values: { turnOutline: [{ turn: 1, response: 'Private reply' }] } } },
+    statusMap: new Map([[id, { completionUnread: true }]]),
+  }
+  const unreadDots = extra => walk(renderSidebar({ ...props, ...extra }), node => node.props?.['data-kind'] === 'unread').length
+  assert.equal(unreadDots({}), 0)
+  for (const extra of [
+    { statusMap: new Map([[id, { completionUnread: true, pendingInteraction: {} }]]) },
+    { unread: { [id]: true } },
+  ]) {
+    assert.equal(unreadDots(extra), 1)
+  }
 })
 
 test('botPendingOf detects learning proposals, pending request cards, questions and views on current part', () => {
