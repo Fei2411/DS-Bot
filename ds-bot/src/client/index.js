@@ -68,6 +68,7 @@ import { BOT_MENTION_ID, installBotMentionRule } from './user-text-rule.js'
 import { QueueDock, QUEUE_CSS } from './queue-dock.js'
 import { PASTE_CSS, PasteDock, PasteGuard } from './paste-card.js'
 import { pruneDrafts } from './draft-keep.js'
+import { createQuestionDrafts } from './question-draft.js'
 import { OPENING_CSS, bindOpeningWait } from './opening.js'
 import { noticeApprovals } from './approval-notices.js'
 import { listedOpener } from './open-listed.js'
@@ -152,6 +153,7 @@ export function apply(ctx) {
       if (event.key === null || event.key === unreadStore.key) ui.set(state => ({ ...state, unread: unreadStore.read(state.unread) }))
       if (event.key === null || event.key === reactionStore.key) ui.set(state => ({ ...state, reactions: reactionStore.read(state.reactions) }))
       if (event.key === null || event.key === seenStore.key) seenAt = seenStore.read(seenAt)
+      if (event.key === null || event.key === STORAGE.rescuedDrafts) questionDrafts.syncFromStorage()
     }
     window.addEventListener('storage', onStorage)
     return () => window.removeEventListener('storage', onStorage)
@@ -174,6 +176,9 @@ export function apply(ctx) {
   // Edited dock cards keep their component when history arrives. This source
   // holds only request identities and counts, never drafts or secret values.
   const heldCards = createSource({})
+  // Unsubmitted custom answers on open question cards; rescued into the main
+  // composer draft if a question is externally cancelled, replaced, or timed out.
+  const questionDrafts = createQuestionDrafts()
   // Per Session, the first visible time and the end time of each turn the transcript
   // has rendered; time separators compare one turn's end with the next turn's start.
   const turnClock = createSource({})
@@ -552,6 +557,8 @@ export function apply(ctx) {
     return Object.values(snapshot.byId).find(bot => currentPart(bot) === sessionId)
       ?? Object.values(snapshot.roomsById).find(room => (room.sessionId ?? room.id) === sessionId)
   }
+  // Monotonic counter so a slower async `landOn` pull never overrides a newer navigation.
+  let navSeq = 0
   const openingWait = bindOpeningWait(ui, {
     onSlow: () => { void Promise.resolve(ctx.sessions.refresh?.()).catch(quietly('refresh sessions')) },
   })
@@ -593,7 +600,7 @@ export function apply(ctx) {
     }
   }
   const actions = {
-    ...teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded }),
+    ...teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded, questionDrafts }),
     // The files a group row names open DSH's own review tab for that turn. The tab reads
     // the changes of the Session the shell shows, so that Session is opened first; the same
     // call then retries until its right column is mounted. This jump is the one place a
@@ -616,6 +623,7 @@ export function apply(ctx) {
     openSession: (id) => {
       // A DSH Agent Session id lands on the plain surface, not the Bot skin.
       if (isAgentSessionId(id)) return actions.openAgentSession(id)
+      navSeq += 1
       ui.set(state => (state.newChat || state.exchange || state.menu || state.palette || state.groupSearch ? { ...state, newChat: null, exchange: null, menu: null, palette: null, groupSearch: null } : state))
       setPlain(false)
       const target = partFor(id)
@@ -624,6 +632,7 @@ export function apply(ctx) {
     // The conversation replacements withdraw for a plain Session; set the surface
     // before the navigation so the Bot skin never flashes.
     openAgentSession: (sessionId) => {
+      navSeq += 1
       ui.set(state => ({ ...state, newChat: null, exchange: null, menu: null, palette: null, groupSearch: null, details: null, view: 'details', renaming: false, tab: null, task: null, taskDeck: null }))
       setPlain(true)
       show(sessionId)
@@ -683,13 +692,41 @@ export function apply(ctx) {
       if (main !== undefined && owned.includes(main) && roster.getSnapshot().mainBotId) actions.openSession(roster.getSnapshot().mainBotId)
       return result
     },
-    // `last` is the Bot conversation the view held before it cleared: when that part
-    // was archived for a fresh one, the view goes on in the fresh one.
-    landOn: async (id, last) => {
-      if (last) await pull().catch(() => {})
-      const bot = last ? roster.getSnapshot().byId[last.botId] : undefined
+    navSeq: () => navSeq,
+    // `last` is the Bot or group conversation the view held before it cleared: when that
+    // part was archived for a fresh one, the view goes on in the fresh one.
+    landOn: async (id, last, expectedSeq) => {
+      if (expectedSeq !== undefined && expectedSeq !== navSeq) return
+      const seq = ++navSeq
+      const currentOfLast = (snap) => {
+        if (!last) return undefined
+        const bot = last.kind === 'room' ? undefined : snap.byId[last.botId ?? last.id]
+        if (bot !== undefined) return currentPart(bot)
+        const room = snap.roomsById[last.roomId ?? last.id]
+        return room === undefined ? undefined : (room.sessionId ?? room.id)
+      }
+      let moved = currentOfLast(roster.getSnapshot())
+      if (last && (moved === undefined || moved === last.sessionId)) {
+        await pull().catch(() => {})
+        if (seq !== navSeq) return
+        moved = currentOfLast(roster.getSnapshot())
+      }
+      if (seq !== navSeq) return
+      const now = mainView()
+      if (last && now !== undefined && now !== last.sessionId) {
+        const snap = roster.getSnapshot()
+        const list = ctx.sessions.list.getSnapshot()
+        const nowBot = snap.byId[now]
+        const nowRoom = snap.roomsById[now]
+        if ((nowBot !== undefined && currentPart(nowBot) === now)
+          || (nowRoom !== undefined && (nowRoom.sessionId ?? nowRoom.id) === now)
+          || isAgentSessionId(now)
+          || (nowBot === undefined && nowRoom === undefined && list.byId?.[now]?.blank !== true)) return
+      }
       setPlain(false)
-      const target = bot && currentPart(bot) !== last.sessionId ? currentPart(bot) : partFor(id)
+      const target = moved !== undefined && moved !== last?.sessionId ? moved : partFor(id)
+      // Never try to reopen an archived part that already vanished from the list.
+      if (last && target === last.sessionId && ctx.sessions.list.getSnapshot().byId?.[target] === undefined) return
       show(target)
     },
     selectPanel: (id) => { ctx.layout.selectPanel(id) },
@@ -816,6 +853,7 @@ export function apply(ctx) {
         pick: () => bridge.importPick(),
         paste: typeof bridge.importPaste === 'function' ? (text, defaultUrl) => bridge.importPaste(text, defaultUrl) : null,
         launch: typeof bridge.importLaunch === 'function' ? (source) => bridge.importLaunch(source) : null,
+        openPermission: typeof bridge.importOpenPermission === 'function' ? () => bridge.importOpenPermission() : null,
         live: (source, close, requestId) => bridge.importLive(source, close, requestId),
         apply: (botId, pending, options) => bridge.importApply(`bot:${botId}`, pending, options),
         cancel: (pending) => bridge.importCancel(pending),
@@ -888,6 +926,8 @@ export function apply(ctx) {
   actions.checkOwnApp = async () => { await ownAppUpdates?.check?.() }
   actions.installOwnApp = async () => { await ownAppUpdates?.install?.() }
   actions.openOwnApp = async () => { await ownAppUpdates?.open?.() }
+  actions.downloadOwnApp = async () => { await ownAppUpdates?.download?.() }
+  actions.setOwnAppAutoUpdate = async (enabled) => { await ownAppUpdates?.setAutoUpdate?.(enabled === true) }
   const browserPages = browsers?.pages ?? createSource({})
   const browserTabs = browsers?.tabs ?? createSource({})
   const browserHolds = browsers?.holds ?? createSource({})
@@ -970,7 +1010,7 @@ export function apply(ctx) {
       else if (kind === 'letgo') void actions.computerAllowForeground(botId)
     })
   }
-  const face = () => ({ actions, hooks: { roster, ui, activity, work, memoryNews, registry, turnClock, live, computer, cards, heldCards, browserPages, browserTabs, browserHolds, surface, update, frame, sidebarPref, settingsShellHeld } })
+  const face = () => ({ actions, hooks: { roster, ui, activity, work, memoryNews, registry, turnClock, live, computer, cards, heldCards, rescuedDrafts: questionDrafts.rescued, browserPages, browserTabs, browserHolds, surface, update, frame, sidebarPref, settingsShellHeld } })
   // Since DSH 0.2.1-alpha.3 user text is drawn by rules and a content factory, not the
   // primitives' text projection; the user's bubble draws with either (user-message.js).
   const hostDrawsUserText = typeof ctx.uiConversation.userText?.register === 'function'
@@ -991,17 +1031,45 @@ export function apply(ctx) {
     updateQueue: async (itemId, action) => (await ctx.sessions.binding(sessionId)?.session?.updateQueue(itemId, action)) ?? { ok: false },
     loadImage: (attachment) => ctx.uiConversation.imageUrl(sessionId, attachment),
   })
-  // A deleted Bot or group takes its kept draft with it.
+  // A deleted Bot or group takes its kept draft (and any part-keyed rescued draft) with it.
   ctx.effect(() => {
     let chats = null
     return roster.subscribe(() => {
       const snapshot = roster.getSnapshot()
       if (!snapshot.ready) return
-      const now = new Set([...snapshot.bots.map(bot => bot.id), ...snapshot.rooms.map(room => room.id)])
-      if (chats !== null) pruneDrafts([...chats].filter(id => !now.has(id)))
+      const now = new Map()
+      for (const bot of snapshot.bots) {
+        const ids = [bot.id, bot.sessionId, ...(bot.parts ?? [])].filter(id => typeof id === 'string' && id !== '')
+        now.set(bot.id, [...new Set(ids)])
+      }
+      for (const room of snapshot.rooms) {
+        const ids = [room.id, room.sessionId, ...(room.ownParts ?? [])].filter(id => typeof id === 'string' && id !== '')
+        now.set(room.id, [...new Set(ids)])
+      }
+      if (chats !== null) {
+        const goneChats = []
+        const goneAll = []
+        for (const [chatId, prevIds] of chats) {
+          if (now.has(chatId)) continue
+          goneChats.push(chatId)
+          for (const id of prevIds) goneAll.push(id)
+        }
+        if (goneChats.length > 0) {
+          pruneDrafts(goneChats)
+          questionDrafts.pruneChats([...new Set(goneAll)])
+        }
+      }
       chats = now
     })
   }, 'ds-bot: drafts of removed chats')
+  // Move unsubmitted question-card text back to the main composer when a pending
+  // question disappears externally (never on explicit submit, skip, scroll, or switch).
+  ctx.effect(() => {
+    const offRoster = roster.subscribe(() => { questionDrafts.reconcileRoster(roster.getSnapshot()) })
+    const sessionStatus = ctx.get('uiSession')?.sessionStatus
+    const offStatus = sessionStatus?.subscribe?.(() => { questionDrafts.reconcileBlocking(sessionStatus.getSnapshot(), roster.getSnapshot()) })
+    return () => { offRoster(); offStatus?.() }
+  }, 'ds-bot: rescue interrupted question drafts')
   ctx.effect(() => noticeApprovals({
     work,
     roster,
@@ -1338,6 +1406,7 @@ export function apply(ctx) {
     () => shadow('conversation.input.right', { id: 'bot-voice', order: 100, inject: face }, ComposerVoice),
     () => shadow('conversation.composer', {
       priority: BOT_PRIORITY,
+      inject: face,
       select: owner => (owner.pendingInteraction?.kind === 'question' ? owner.pendingInteraction : null),
     }, QuestionCard),
     () => shadow('conversation.input.dock', { id: 'bot-paste', order: -130, inject: face }, PasteDock),

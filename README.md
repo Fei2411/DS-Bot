@@ -4,7 +4,7 @@
 
 English | [中文](README.zh.md) · [Docs](docs/README.md) · [Vision](docs/vision.md) · [Known issues](docs/known-issues.md) · [Contributing](CONTRIBUTING.md)
 
-![version](https://img.shields.io/badge/version-v0.3.10-blue) ![DSH](https://img.shields.io/badge/DSH-0.2.2--rc.1-4D6BFE) ![license](https://img.shields.io/badge/license-Apache_2.0-green)
+![version](https://img.shields.io/badge/version-v0.3.10-blue) ![DSH](https://img.shields.io/badge/DSH-0.2.2--rc.5-4D6BFE) ![license](https://img.shields.io/badge/license-Apache_2.0-green)
 
 DS Bot is an open-source project built on [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH), available as a standalone desktop app or as a DSH plugin. It turns DSH into a team of long-lived bots that you create, talk to and work with.
 
@@ -37,8 +37,8 @@ First install DSH and configure at least one model in it. DS Bot uses the models
 - **DSH Web** (needs Node.js `22.19` or later, and pnpm):
 
 ```sh
-npx @deepseek-ai/dsh@0.2.2-rc.1 plugin --profile web add ds-bot
-npx @deepseek-ai/dsh@0.2.2-rc.1 web
+npx @deepseek-ai/dsh@0.2.2-rc.5 plugin --profile web add ds-bot
+npx @deepseek-ai/dsh@0.2.2-rc.5 web
 ```
 
 **Docker (NAS, Linux server)**
@@ -102,7 +102,7 @@ Because it uses the CLI's own tools, shared capabilities and connectors in DS Bo
 
 ### Browser
 
-Each bot has its own isolated browser with separate logins, and in the desktop app can import cookies and supported `localStorage` from files or local browsers (including Chrome/Edge, Brave, Arc, Firefox and Zen). For interactive browsing, set `browserPlugin` to `refs`, `script` or `task` in the DSH profile and restart DS Bot; **Settings → Tools → Browser** explains setup and manages per-site action grants. Posting, uploading, downloading and deleting require approval unless preauthorized; logins, CAPTCHAs and payments hand control back to you.
+Each bot has its own isolated browser with separate logins, and in the desktop app can import cookies and supported `localStorage` from files or local browsers (including Chrome/Edge, Safari, Brave, Arc, Firefox and Zen). For interactive browsing, set `browserPlugin` to `refs`, `script` or `task` in the DSH profile and restart DS Bot; **Settings → Tools → Browser** explains setup and manages per-site action grants. Posting, uploading, downloading and deleting require approval unless preauthorized; logins, CAPTCHAs and payments hand control back to you.
 
 The embedded browser panel is available in the desktop app and DSH Desktop (not DSH Web); only the desktop app persists panel sign-ins across restarts and supports cookie import.
 

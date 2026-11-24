@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { createRuntime } from '../index.js'
 import { fakeContext } from './fake-ctx.js'
+import { reviewContext } from '../src/host/approval-review.js'
 
 let rt
 function start(state, { config = {}, services } = {}) {
@@ -28,6 +29,20 @@ function start(state, { config = {}, services } = {}) {
   }
   return { ctx, call, stop, rt }
 }
+
+test('approval context reads full group messages through the ledger interface', async t => {
+  const { rt, stop } = start()
+  t.after(async () => { await rt.ledger.flush(); await stop() })
+  await rt.load()
+  const room = { id: 'r', name: 'Ops', members: [], sessions: {}, log: [], seq: 0 }
+  rt.state.rooms.r = room
+  const text = 'Report context. '.repeat(200) + 'Send only to Alice.'
+  rt.logRoom(room, { who: 'User', text })
+  rt.resolveAgent = async id => ({ session: { id }, inbox: { nextStep: [], nextTurn: [] } })
+  rt.eventsBackwards = async function* () { yield { type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text }] } } }
+  const context = await reviewContext(rt, { roomId: 'r' })
+  assert.deepEqual(context, [{ source: 'user', text }])
+})
 
 // Listeners run in registration order; the team tools are not in this list
 // because they are registered per Bot session scope, not globally.
@@ -53,6 +68,7 @@ test('apply registers listeners and effects in a fixed order', (t) => {
     'on tools/result',
     'on session/event',
     'effect ds-bot: lost hand-offs',
+    'on agent/pre-step',
     'on tools/execute',
     'on session-manager/session-deleted',
     'effect ds-bot: identity section',
@@ -80,7 +96,11 @@ test('apply registers listeners and effects in a fixed order', (t) => {
     'on agent/disposed',
     'on commands/change',
     'effect ds-bot: command shield cleanup',
+    'on session/event',
+    'on tools/pre-execute (prepend)',
+    'on tools/result',
     'on approval/request (prepend)',
+    'effect ds-bot: approval review',
     'on agent/inbox/discarded',
     'on session/event',
     'effect ds-bot: resume interrupted turns',

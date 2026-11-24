@@ -8,10 +8,11 @@ import { join } from 'node:path'
 import { replaceFile } from '../files.js'
 import { viewCardText } from '../parts.js'
 import { imPlatform, IM_PLATFORMS } from '../../shared/im-platforms.js'
-import { isSilentTurnText, SOURCE_KIND } from '../constants.js'
+import { isSilentTurnText, REPLY_KIND, SOURCE_KIND } from '../constants.js'
 import { normalizeImOrigin, sameImChat, sameImOrigin } from './origin.js'
 import { extractLocalMarkdownImages, prepareOutboundReply } from './outbound-images.js'
 import { adapters } from './platforms/index.js'
+import { boundedFetch } from './platforms/media.js'
 import { imViewChoices } from './view-choices.js'
 import { imViewFormText, isLegacyImViewFormAnswer, parseImViewForm } from './view-form.js'
 
@@ -495,7 +496,7 @@ export function install(rt) {
   }
 
   const envFor = async (conn, runtime) => ({
-    fetch: globalThis.fetch,
+    fetch: boundedFetch(),
     WebSocket: globalThis.WebSocket,
     config: rt.config.im?.[conn.platform],
     runtime: runtime ?? await runtimeEnv(conn.id),
@@ -2199,7 +2200,8 @@ export function install(rt) {
       admitImRpc(roomSid, rpcId, savedRequest)
       return { ignored: false, origin: captureImOrigin(roomSid) }
     }
-    if (!origins.has(roomSid)) roomWebRounds.add(room.id)
+    if (origins.has(roomSid)) dropOrigin(roomSid)
+    roomWebRounds.add(room.id)
     return { ignored: false, origin: undefined }
   }
   const imViaView = () => {
@@ -2299,9 +2301,11 @@ export function install(rt) {
           // non-IM input must not be retroactively claimed by an async dispatch or task return.
           const room = rt.roomOf(session.id)
           if (room !== undefined) {
-            if (isOpeningPost) {
-              // An external post_to_group delivers via roomReports, never via the room's
-              // direct IM group claim: drop any live group claim and mark non-group activity.
+            const preservesRoomOrigin = continuesRoomWork || source?.kind === REPLY_KIND
+            if (!preservesRoomOrigin) {
+              // Any non-IM input joining a group (Web/Desktop/App user message, external
+              // post_to_group, schedule, or goal step) immediately cuts off external IM
+              // forwarding so private group replies never leak to an IM chat.
               if (origins.has(session.id)) dropOrigin(session.id)
               roomWebRounds.add(room.id)
             } else if (!origins.has(session.id)) {
@@ -2383,6 +2387,7 @@ export function install(rt) {
       })().catch(error => rt.warn('ds-bot: im approval card failed: %s', error))
       return
     }
+    if (kind !== 'settled') return
     void (async () => {
       for (const conn of Object.values(connections())) {
         await settleCard(conn.id, `a:${data.id}`, data.outcome === 'allowed-once' ? text('allow') : data.outcome === 'rejected' ? text('reject') : text('answered'))

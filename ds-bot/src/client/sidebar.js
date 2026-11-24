@@ -1250,6 +1250,44 @@ function glideOnto(mark, from) {
   setTimeout(land, timing.delay + GLIDE_MS + 500)
 }
 
+// Decides how the main view follows part switches and recovers from an empty/blank
+// view. Returning a primitive key lets `useLandOnMainBot` depend on the actual landing
+// target instead of re-firing on every unrelated roster poll.
+export function landingPlan({ mainView, roster, isAgentSession, last }) {
+  if (!roster.ready || !roster.mainBotId) return { kind: 'wait', key: 'wait', nextLast: last }
+  const [id, blank] = mainView.split('|')
+  const bot = id === '' ? undefined : roster.byId[id]
+  if (bot !== undefined) {
+    const target = currentPart(bot)
+    const nextLast = { kind: 'bot', id: bot.id, botId: bot.id, sessionId: id }
+    return target !== id
+      ? { kind: 'follow-bot', id: bot.id, key: `follow-bot:${bot.id}:${id}:${target}`, nextLast }
+      : { kind: 'stay', key: `stay-bot:${bot.id}:${id}`, nextLast }
+  }
+  const room = id === '' ? undefined : roster.roomsById[id]
+  if (room !== undefined) {
+    const target = room.sessionId ?? room.id
+    const nextLast = { kind: 'room', id: room.id, roomId: room.id, sessionId: id }
+    return target !== id
+      ? { kind: 'follow-room', id: room.id, key: `follow-room:${room.id}:${id}:${target}`, nextLast }
+      : { kind: 'stay', key: `stay-room:${room.id}:${id}`, nextLast }
+  }
+  // A DSH Agent Session, blank or not, is a real destination: it stays.
+  if (id !== '' && ((isAgentSession?.(id) ?? roster.agentOf[id] !== undefined) || blank !== '1')) {
+    return { kind: 'stay', key: `stay-other:${id}`, nextLast: null }
+  }
+  const lastOwner = last?.kind === 'room' ? roster.roomsById[last.id] : last ? roster.byId[last.botId ?? last.id] : undefined
+  const lastTarget = lastOwner === undefined ? '' : (last.kind === 'room' ? (lastOwner.sessionId ?? lastOwner.id) : currentPart(lastOwner))
+  return {
+    kind: 'home',
+    id: roster.mainBotId,
+    last,
+    delay: last ? 0 : 400,
+    key: `home:${roster.mainBotId}:${last?.id ?? ''}:${last?.sessionId ?? ''}:${lastTarget}`,
+    nextLast: last,
+  }
+}
+
 // Opens the Main Bot whenever the main view holds no Bot conversation, the way
 // The view always lands on a Bot rather than an empty New Session page.
 // When a Bot's chat moves on to a fresh part, the shell clears the view of the part
@@ -1259,33 +1297,26 @@ function useLandOnMainBot(roster, useSessions, actions) {
     const row = Object.values(list.byId).find(session => (session?.retainedBy?.mainView ?? 0) > 0)
     return row ? `${row.id}|${row.blank ? 1 : 0}` : ''
   })
-  const lastBot = useRef(null)
+  const lastChat = useRef(null)
+  const plan = landingPlan({ mainView, roster, isAgentSession: actions.isAgentSession, last: lastChat.current })
+  const planRef = useRef(plan)
+  planRef.current = plan
   useEffect(() => {
-    if (!roster.ready || !roster.mainBotId) return undefined
-    const [id, blank] = mainView.split('|')
-    const bot = id === '' ? undefined : roster.byId[id]
-    if (bot !== undefined) {
-      lastBot.current = { botId: bot.id, sessionId: id }
-      if (currentPart(bot) !== id) actions.landOn(bot.id)
+    const current = planRef.current
+    lastChat.current = current.nextLast
+    if (current.kind === 'follow-bot') {
+      actions.landOn(current.id)
       return undefined
     }
-    // The group's own Session moves on like a Bot's chat does: the part it archived
-    // is cleared, and the view goes on in the fresh one.
-    const room = id === '' ? undefined : roster.roomsById[id]
-    if (room !== undefined) {
-      lastBot.current = null
-      if ((room.sessionId ?? room.id) !== id) actions.openSession(room.id)
+    if (current.kind === 'follow-room') {
+      actions.openSession(current.id)
       return undefined
     }
-    // A DSH Agent Session, blank or not, is a real destination: it stays.
-    if (id !== '' && ((actions.isAgentSession?.(id) ?? roster.agentOf[id] !== undefined) || blank !== '1')) {
-      lastBot.current = null
-      return undefined
-    }
-    const last = lastBot.current
-    const timer = setTimeout(() => actions.landOn(roster.mainBotId, last), last ? 0 : 400)
+    if (current.kind !== 'home') return undefined
+    const armedSeq = actions.navSeq?.()
+    const timer = setTimeout(() => actions.landOn(current.id, current.last, armedSeq), current.delay)
     return () => clearTimeout(timer)
-  }, [mainView, roster])
+  }, [plan.key])
 }
 
 // The Plugins icon beside the foot's account gear: it opens the shell's plugin

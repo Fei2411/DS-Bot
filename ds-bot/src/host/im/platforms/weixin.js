@@ -203,7 +203,43 @@ export default {
       if (running || stopped) return
       running = true
       const gen = generation
+      // Coalesce consecutive identical transient poll errors so offline / flaky
+      // networks do not flood the log while still surfacing the first error,
+      // periodic summaries, error changes, and recovery.
+      const ERROR_SUMMARY_MS = 5 * 60_000
+      const ERROR_SUMMARY_EVERY = 60
+      const customRetryMs = Number.isFinite(env.config?.pollRetryMs) && env.config.pollRetryMs >= 0 ? env.config.pollRetryMs : undefined
       let pollAttempt = 0
+      const nextRetryWait = () => (customRetryMs !== undefined ? customRetryMs : retryDelay(pollAttempt++))
+      let lastErrKey = ''
+      let errCount = 0
+      let lastLogAt = 0
+      const warnTransient = (key, message) => {
+        const now = Date.now()
+        if (key !== lastErrKey) {
+          if (errCount > 1) {
+            env.log?.warn?.('ds-bot im: weixin poll previous error repeated %d times (%s)', errCount, lastErrKey)
+          }
+          lastErrKey = key
+          errCount = 1
+          lastLogAt = now
+          env.log?.warn?.('%s', message)
+          return
+        }
+        errCount += 1
+        if (errCount % ERROR_SUMMARY_EVERY === 0 || now - lastLogAt >= ERROR_SUMMARY_MS) {
+          lastLogAt = now
+          env.log?.warn?.('%s (repeated %d times)', message, errCount)
+        }
+      }
+      const clearTransient = () => {
+        if (errCount > 1) {
+          env.log?.warn?.('ds-bot im: weixin poll recovered after %d consecutive failures (%s)', errCount, lastErrKey)
+        }
+        lastErrKey = ''
+        errCount = 0
+        lastLogAt = 0
+      }
       try {
         while (!stopped && generation === gen) {
           let answer
@@ -218,12 +254,17 @@ export default {
               pollAttempt = 0
               continue
             }
-            env.log?.warn?.('ds-bot im: weixin poll failed: %s', error?.message ?? error)
+            const msg = String(error?.message ?? error)
+            if (error.permanent) {
+              env.log?.warn?.('ds-bot im: weixin poll failed: %s', msg)
+            } else {
+              warnTransient(`poll:${msg}`, `ds-bot im: weixin poll failed: ${msg}`)
+            }
             handlers.onStatus({ state: error.permanent ? 'error' : 'connecting', ...(error.permanent ? { error: error.message } : {}) })
             if (error.permanent) return
             const wait = Number.isFinite(error.retryAfter) && error.retryAfter > 0
               ? error.retryAfter * 1000
-              : retryDelay(pollAttempt++)
+              : nextRetryWait()
             await sleep(wait, stopping.signal)
             continue
           }
@@ -236,21 +277,23 @@ export default {
           }
           if (answer.ret !== undefined) {
             if (Number(answer.ret) !== 0) {
-              env.log?.warn?.('ds-bot im: weixin getupdates answered %s', answer.ret)
               if (Number(answer.ret) === 401 || Number(answer.ret) === 403) {
+                env.log?.warn?.('ds-bot im: weixin getupdates answered %s', answer.ret)
                 handlers.onStatus({ state: 'error', error: `WeChat answered ${answer.ret}` })
                 return
               }
-              await sleep(retryDelay(pollAttempt++), stopping.signal)
+              warnTransient(`ret:${answer.ret}`, `ds-bot im: weixin getupdates answered ${answer.ret}`)
+              await sleep(nextRetryWait(), stopping.signal)
               continue
             }
           } else if (!isUpdatesAnswer(answer)) {
-            env.log?.warn?.('ds-bot im: weixin getupdates answered an unreadable response')
+            warnTransient('unreadable', 'ds-bot im: weixin getupdates answered an unreadable response')
             handlers.onStatus({ state: 'connecting' })
-            await sleep(retryDelay(pollAttempt++), stopping.signal)
+            await sleep(nextRetryWait(), stopping.signal)
             continue
           }
           pollAttempt = 0
+          clearTransient()
           handlers.onStatus({ state: 'ready' })
           for (const msg of answer.msgs ?? []) {
             if (stopped || generation !== gen) return

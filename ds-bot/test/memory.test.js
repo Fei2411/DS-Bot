@@ -887,7 +887,8 @@ test('Main Bots and group admins write the team memory; only Main Bots touch ano
   assert.match(await tool('bot_recall', { scope: 'Nobody' }, 'b3'), /^No Bot named Nobody/)
   assert.match(await tool('bot_recall', { query: 'friday' }, 'b2'), /\[team · MEMORY\.md\] Ship on Friday/)
   await assert.rejects(tool('bot_forget', { entry: 'Friday', scope: 'team' }, 'b2'), /Only Main Bots and group admins/)
-  assert.match(await tool('bot_forget', { entry: 'Friday', scope: 'team' }, 'm1'), /^Removed from the team memory/)
+  await assert.rejects(tool('bot_forget', { entry: 'Friday', scope: 'team' }, 'm1'), /requires always: true/)
+  assert.match(await tool('bot_forget', { entry: 'Friday', scope: 'team', always: true }, 'm1'), /^Removed from the team memory/)
   await assert.rejects(tool('bot_remember', { text: 'x' }, 'stranger'), /Only Bots on the team keep a memory\./)
 })
 
@@ -1547,9 +1548,9 @@ test('a group review that gets no list of changes is not re-armed by every membe
   ctx.emit('agent/status', { agent: { id: 'g3' }, status: 'idle' })
   await reviewed(call)
   assert.equal(requests.length, 1)
-  // The batch is marked read even though nothing could be saved: the next member
-  // to go idle finds nothing new and starts no model call.
-  assert.deepEqual(JSON.parse(read('reviewed.json')), { 'group:r1': 3 })
+  // The cursor stays before the unparseable batch for backoff retry, while other
+  // members going idle immediately do not re-arm another model call during backoff.
+  assert.deepEqual(JSON.parse(read('reviewed.json')), { 'group:r1': 0 })
   assert.ok(warnings.some(line => line.includes('no list of changes')), warnings.join('\n'))
   ctx.emit('agent/status', { agent: { id: 'g2' }, status: 'idle' })
   ctx.emit('agent/status', { agent: { id: 'g3' }, status: 'idle' })
@@ -1572,7 +1573,7 @@ test('a first group review reads back to the user\'s line past a round of replie
   assert.deepEqual(JSON.parse(read('reviewed.json')), { 'group:r1': 7 })
 })
 
-test('an answer that is no list of changes is said and passed over, never read again', async (t) => {
+test('an answer that is no list of changes keeps the cursor and backs off instead of dropping the batch', async (t) => {
   const replies = ['Nothing worth keeping here.', JSON.stringify({ changes: [{ op: 'add', text: 'The user wants this remembered' }] })]
   const { ctx, call, read, requests, warnings, stop } = start({ replies, config: { memoryReviewDelayMs: 0 } })
   t.after(() => stop())
@@ -1581,9 +1582,10 @@ test('an answer that is no list of changes is said and passed over, never read a
   await reviewed(call)
   assert.equal(requests.length, 1)
   assert.throws(() => read('bots', 'b2', 'MEMORY.md'), { code: 'ENOENT' })
-  // The miss is said, and the batch is marked read: a later turn does not read it again.
+  // The miss is logged, the cursor stays before seq 10 instead of skipping the batch,
+  // and an immediate idle during backoff does not spin another model call.
   assert.ok(warnings.some(line => line.includes('no list of changes')), warnings.join('\n'))
-  assert.deepEqual(JSON.parse(read('reviewed.json')), { 'chat:b2': 11 })
+  assert.deepEqual(JSON.parse(read('reviewed.json')), { 'chat:b2': 9 })
   ctx.emit('agent/status', { agent: { id: 'b2' }, status: 'idle' })
   await reviewed(call)
   assert.equal(requests.length, 1)
@@ -1944,16 +1946,32 @@ test('a running conversation receives a team entry promoted to and removed from 
   assert.equal(section('b2'), opened)
 })
 
-test('team entries never fall back to the resident layer without always', async (t) => {
+test('team entries never fall back to the resident layer without always, and bot_forget protects team MEMORY.md', async (t) => {
   const { home, tool, read, stop } = start()
   t.after(() => stop())
   await tool('bot_remember', { scope: 'team', text: 'Always answer in Chinese', always: true }, 'm1')
   await assert.rejects(tool('bot_remember', { scope: 'team', replace: 'Always answer in Chinese', text: 'Always answer in English' }, 'm1'), /requires always/)
+  await assert.rejects(tool('bot_forget', { scope: 'team', entry: 'Always answer in Chinese' }, 'm1'), (error) => {
+    assert.equal(error.code, 'memory/denied')
+    assert.match(error.message, /requires always: true/)
+    return true
+  })
+  assert.match(read('team', 'MEMORY.md'), /Always answer in Chinese/)
   const dir = join(home, 'memory', 'team')
   for (let i = 0; i < MEMORY_LIMITS.topics; i += 1) writeFileSync(join(dir, `topic-${i}.md`), `# Topic ${i}\n`)
   await tool('bot_remember', { scope: 'team', text: 'Coder knows the build' }, 'm1')
   assert.match(read('team', 'shared.md'), /Coder knows the build/)
   assert.doesNotMatch(read('team', 'MEMORY.md'), /Coder knows the build|Always answer in English/)
+  // Team topic entries can still be forgotten without always: true.
+  assert.match(await tool('bot_forget', { scope: 'team', entry: 'Coder knows the build' }, 'm1'), /^Removed from the team memory/)
+  // Own and group MEMORY.md entries can still be forgotten without always: true.
+  await tool('bot_remember', { text: 'Own ephemeral note' }, 'b2')
+  assert.match(await tool('bot_forget', { entry: 'Own ephemeral note' }, 'b2'), /^Removed from your memory/)
+  await tool('bot_remember', { text: 'Group ephemeral note' }, 'g3')
+  assert.match(await tool('bot_forget', { entry: 'Group ephemeral note' }, 'g3'), /^Removed from the group memory/)
+  // Deleting a resident team MEMORY.md entry succeeds when always: true is explicitly passed.
+  assert.match(await tool('bot_forget', { scope: 'team', entry: 'Always answer in Chinese', always: true }, 'm1'), /^Removed from the team memory \(MEMORY\.md\)/)
+  assert.doesNotMatch(read('team', 'MEMORY.md'), /Always answer in Chinese/)
 })
 
 test('a topic never shows its expired first entry as a navigation note', async (t) => {
@@ -2481,20 +2499,61 @@ test('a new entry on a full MEMORY.md moves the oldest in the same change, and t
   assert.match(row.moved[0], /Filler fact number 27 /)
 })
 
-test('a full topic continues in a numbered one, and past the last topic the entry goes to MEMORY.md', async (t) => {
+test('a full topic continues in a numbered one, and past the topic cap entries spill into earlier instead of MEMORY.md', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-'))
   const dir = join(home, 'memory', 'bots', 'b2')
   mkdirSync(dir, { recursive: true })
-  writeFileSync(join(dir, 'MEMORY.md'), '# Memory\n\n## Index\n- [[tea]]\n')
+  // Fill MEMORY.md near its bot limit so any accidental write there would evict core entries.
+  const coreFiller = Array.from({ length: 26 }, (_, at) => `- Core fact ${at + 1} ${'c'.repeat(280)} [added: 2026-01-${String(at + 1).padStart(2, '0')}]`)
+  writeFileSync(join(dir, 'MEMORY.md'), `# Memory\n\n${coreFiller.join('\n')}\n\n## Index\n- [[tea]]\n`)
   writeFileSync(join(dir, 'tea.md'), `# tea\n\n${Array.from({ length: 56 }, (_, at) => `- Tea ${at} ${'z'.repeat(290)}`).join('\n')}\n`)
   const { tool, read, stop } = start({ home })
   t.after(() => stop())
   assert.match(await tool('bot_remember', { text: 'Likes oolong', topic: 'tea' }, 'b2'), /new topic \[\[tea-2\]\]/)
   assert.match(read('bots', 'b2', 'tea-2.md'), /- Likes oolong \[/)
-  for (let at = 1; at <= MEMORY_LIMITS.topics - 2; at += 1) writeFileSync(join(dir, `topic-${at}.md`), `# topic-${at}\n\n- fact ${at}\n`)
-  assert.match(await tool('bot_remember', { text: 'Likes coffee too', topic: 'coffee' }, 'b2'), /in MEMORY\.md/)
+
+  // Fill to the 40-topic cap (tea, tea-2, earlier, topic-1..37 = 40 topics total).
+  writeFileSync(join(dir, 'earlier.md'), '# earlier\n\n- Old archived detail\n')
+  for (let at = 1; at <= MEMORY_LIMITS.topics - 3; at += 1) writeFileSync(join(dir, `topic-${at}.md`), `# topic-${at}\n\n- fact ${at}\n`)
+  // New topic at the 40-topic cap spills into existing [[earlier]] without touching MEMORY.md or evicting core facts.
+  assert.match(await tool('bot_remember', { text: 'Likes coffee too', topic: 'coffee' }, 'b2'), /topic \[\[earlier\]\]/)
   assert.equal(existsSync(join(dir, 'coffee.md')), false)
-  assert.match(read('bots', 'b2', 'MEMORY.md'), /- Likes coffee too \[/)
+  assert.match(read('bots', 'b2', 'earlier.md'), /- Likes coffee too \[/)
+  assert.doesNotMatch(read('bots', 'b2', 'MEMORY.md'), /Likes coffee too/)
+  assert.match(read('bots', 'b2', 'MEMORY.md'), /Core fact 1 /)
+
+  // Full topic that cannot split into tea-3 at the cap also spills into [[earlier]].
+  writeFileSync(join(dir, 'tea-2.md'), `# tea-2\n\n${Array.from({ length: 56 }, (_, at) => `- Tea2 ${at} ${'q'.repeat(290)}`).join('\n')}\n`)
+  assert.match(await tool('bot_remember', { text: 'Likes puerh', topic: 'tea' }, 'b2'), /topic \[\[earlier\]\]/)
+  assert.equal(existsSync(join(dir, 'tea-3.md')), false)
+  assert.match(read('bots', 'b2', 'earlier.md'), /- Likes puerh \[/)
+
+  // When earlier.md itself is full, prefer an existing earlier-N (including N >= 10) with room before creating a new bucket.
+  writeFileSync(join(dir, 'earlier.md'), `# earlier\n\n${Array.from({ length: 56 }, (_, at) => `- Early ${at} ${'e'.repeat(290)}`).join('\n')}\n`)
+  writeFileSync(join(dir, 'earlier-3.md'), `# earlier-3\n\n${Array.from({ length: 56 }, (_, at) => `- Early3 ${at} ${'f'.repeat(290)}`).join('\n')}\n`)
+  writeFileSync(join(dir, 'earlier-10.md'), '# earlier-10\n\n- Kept archive\n')
+  assert.match(await tool('bot_remember', { text: 'Likes sencha', topic: 'sencha' }, 'b2'), /topic \[\[earlier-10\]\]/)
+  assert.equal(existsSync(join(dir, 'earlier-2.md')), false)
+  assert.match(read('bots', 'b2', 'earlier-10.md'), /- Likes sencha \[/)
+
+  // When all existing earlier* topics are full, overflow opens the next numbered earlier-N without polluting MEMORY.md.
+  writeFileSync(join(dir, 'earlier-10.md'), `# earlier-10\n\n${Array.from({ length: 56 }, (_, at) => `- Early10 ${at} ${'g'.repeat(290)}`).join('\n')}\n`)
+  assert.match(await tool('bot_remember', { text: 'Likes matcha', topic: 'matcha' }, 'b2'), /topic \[\[earlier-2\]\]/)
+  assert.equal(existsSync(join(dir, 'matcha.md')), false)
+  assert.match(read('bots', 'b2', 'earlier-2.md'), /- Likes matcha \[/)
+  assert.doesNotMatch(read('bots', 'b2', 'MEMORY.md'), /Likes matcha/)
+  assert.match(read('bots', 'b2', 'MEMORY.md'), /Core fact 1 /)
+
+  // Also verify group scope at the 40-topic cap with no prior earlier.md spills into [[earlier]] instead of group MEMORY.md.
+  const gDir = join(home, 'memory', 'groups', 'r1')
+  mkdirSync(gDir, { recursive: true })
+  writeFileSync(join(gDir, 'MEMORY.md'), '# Memory\n\n- Group core rule\n\n## Index\n')
+  for (let at = 1; at <= MEMORY_LIMITS.topics; at += 1) writeFileSync(join(gDir, `gtopic-${at}.md`), `# gtopic-${at}\n\n- item ${at}\n`)
+  assert.match(await tool('bot_remember', { text: 'Group extra note', topic: 'overflow-test' }, 'g3'), /topic \[\[earlier\]\]/)
+  assert.equal(existsSync(join(gDir, 'overflow-test.md')), false)
+  assert.match(read('groups', 'r1', 'earlier.md'), /- Group extra note \[/)
+  assert.doesNotMatch(read('groups', 'r1', 'MEMORY.md'), /Group extra note/)
+  assert.match(read('groups', 'r1', 'MEMORY.md'), /Group core rule/)
 })
 
 test('topic entries that share words with the user\'s new lines come first', () => {

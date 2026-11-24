@@ -661,7 +661,10 @@ export function install(rt) {
       else entries.set(name, expandCapabilityNames([name], library()))
     }
     pendingDrops.delete(sessionId)
-    if (!entries.size) loaded.delete(sessionId)
+    if (!entries.size) {
+      loaded.delete(sessionId)
+      rt.syncScopedSession?.(sessionId)
+    }
     const agent = agents.get(sessionId)?.deref()
     if (agent) {
       await pruneAgent(agent)
@@ -714,5 +717,6 @@ export function install(rt) {
     changeCapabilityAttachment: changeAttachment,
     usePack,
     dropPack,
+    hasLoadedPacks: sessionId => (loaded.get(sessionId)?.size ?? 0) > 0,
   })
 }

@@ -1,6 +1,7 @@
 // Store: the saved team (state.json), its migrations, the lock that keeps a second dsh
 // host on the same data from writing it, and the indexes that map a Session to the Bot
 // or group chat it belongs to.
+import { createHash, randomUUID } from 'node:crypto'
 import { copyFileSync, mkdirSync, readFileSync, statSync } from 'node:fs'
 import { mkdir, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -17,6 +18,20 @@ import { AMBIGUOUS_OLD_ROUTES, legacyRoute } from './local-agents/engines.js'
 // Object.prototype.
 export const own = (table, key) => (table != null && Object.hasOwn(table, key) ? table[key] : undefined)
 
+// Safe, collision-free filename for an externalized segment handover note under
+// `<home>/segment-notes/`. Pure lowercase ASCII ids (not Windows reserved device names)
+// stay readable; anything else (uppercase on case-insensitive macOS/Windows, separators,
+// reserved device names, long ids) maps to `h.<sha256>.md` which can never collide with
+// plain ids because `.` is disallowed in plain ids.
+const SAFE_SEGMENT_ID = /^[a-z0-9_-]{1,120}$/
+const WIN_RESERVED = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])$/i
+export function segmentNoteFile(sessionId) {
+  const raw = String(sessionId ?? '')
+  if (SAFE_SEGMENT_ID.test(raw) && !WIN_RESERVED.test(raw)) return `${raw}.md`
+  const digest = createHash('sha256').update(raw).digest('hex').slice(0, 32)
+  return `h.${digest}.md`
+}
+
 export function install(rt) {
   const { ctx, home, statePath } = rt
 
@@ -27,6 +42,172 @@ export function install(rt) {
   let writing = Promise.resolve()
   const { warn } = rt
   const sessionIdOf = id => (typeof id === 'string' && id !== '' ? id : undefined)
+
+  // Externalized segment handover notes under `<home>/segment-notes/<safe>.md`, backed
+  // by an O(1) lazy cache so `noteText` / `read_own_chat` / `handoffPackage` stay fast
+  // and synchronous without rewriting multi-KB handover text inside `state.json`.
+  const notesDir = join(home, 'segment-notes')
+  /** @type {Map<string, string>} */
+  const noteCache = new Map()
+  /** @type {Map<string, Promise<unknown>>} */
+  const noteOps = new Map()
+  /** @type {Map<string, number>} */
+  const noteSeq = new Map()
+  const queueNoteOp = (sessionId, run) => {
+    const prev = noteOps.get(sessionId) ?? Promise.resolve()
+    const next = prev.then(run, run)
+    const settled = next.catch(() => {})
+    noteOps.set(sessionId, settled)
+    settled.finally(() => {
+      if (noteOps.get(sessionId) === settled) {
+        noteOps.delete(sessionId)
+        noteSeq.delete(sessionId)
+      }
+    })
+    return next
+  }
+  const loadSegmentNoteFromDisk = (sid) => {
+    try {
+      const text = readFileSync(join(notesDir, segmentNoteFile(sid)), 'utf8')
+      noteCache.set(sid, text)
+      return text
+    } catch (error) {
+      if (error?.code !== 'ENOENT') warn('ds-bot: segment note for %s could not be read: %s', sid, error)
+      return undefined
+    }
+  }
+  const readSegmentNote = (segmentOrId) => {
+    if (segmentOrId === undefined || segmentOrId === null) return undefined
+    if (typeof segmentOrId === 'object') {
+      if (typeof segmentOrId.note === 'string') return segmentOrId.note
+      const sid = sessionIdOf(segmentOrId.sessionId)
+      if (sid === undefined) return undefined
+      if (noteCache.has(sid)) return noteCache.get(sid)
+      if (segmentOrId.hasNote !== true) return undefined
+      return loadSegmentNoteFromDisk(sid)
+    }
+    const sid = sessionIdOf(segmentOrId)
+    if (sid === undefined) return undefined
+    if (noteCache.has(sid)) return noteCache.get(sid)
+    return loadSegmentNoteFromDisk(sid)
+  }
+  const writeSegmentNote = (sessionId, text) => {
+    const sid = sessionIdOf(sessionId)
+    if (sid === undefined || typeof text !== 'string' || stopped || readOnly() !== undefined) return Promise.resolve(false)
+    const epoch = lockEpoch
+    const seq = (noteSeq.get(sid) ?? 0) + 1
+    noteSeq.set(sid, seq)
+    return queueNoteOp(sid, async () => {
+      if (readOnly() !== undefined || lockEpoch !== epoch) return false
+      const target = join(notesDir, segmentNoteFile(sid))
+      const temp = `${target}.${process.pid}.${randomUUID().slice(0, 8)}.tmp`
+      try {
+        await mkdir(notesDir, { recursive: true })
+        if (readOnly() !== undefined || lockEpoch !== epoch) return false
+        await writeFile(temp, text, 'utf8')
+        if (readOnly() !== undefined || lockEpoch !== epoch) {
+          await unlink(temp).catch(() => {})
+          return false
+        }
+        await replaceFile(temp, target)
+        // Guard cache population against a newer queued delete/write or an adopt() reload.
+        if (lockEpoch === epoch && noteSeq.get(sid) === seq) noteCache.set(sid, text)
+        return true
+      } catch (error) {
+        await unlink(temp).catch(() => {})
+        warn('ds-bot: segment note for %s not written: %s', sid, error)
+        return false
+      }
+    })
+  }
+  const deleteSegmentNotes = (sessionIds) => {
+    const raw = Array.isArray(sessionIds) ? sessionIds : [sessionIds]
+    const ids = [...new Set(raw.map(sessionIdOf).filter(Boolean))]
+    if (ids.length === 0) return Promise.resolve()
+    for (const sid of ids) noteCache.delete(sid)
+    if (stopped || readOnly() !== undefined) return Promise.resolve()
+    const epoch = lockEpoch
+    return Promise.all(ids.map((sid) => {
+      const seq = (noteSeq.get(sid) ?? 0) + 1
+      noteSeq.set(sid, seq)
+      return queueNoteOp(sid, async () => {
+        if (readOnly() !== undefined || lockEpoch !== epoch) return
+        await unlink(join(notesDir, segmentNoteFile(sid))).catch((error) => {
+          if (error?.code !== 'ENOENT') warn('ds-bot: segment note for %s not deleted: %s', sid, error)
+        })
+        // Re-evict after any earlier in-flight write settled so deleted notes cannot stay cached.
+        if (lockEpoch === epoch && noteSeq.get(sid) === seq) noteCache.delete(sid)
+      })
+    })).then(() => {})
+  }
+  const allStateSegments = () => {
+    const list = []
+    const pushList = (segments) => {
+      if (!Array.isArray(segments)) return
+      for (const segment of segments) {
+        if (segment !== null && typeof segment === 'object') list.push(segment)
+      }
+    }
+    for (const bot of Object.values(state.bots ?? {})) {
+      if (bot === null || typeof bot !== 'object') continue
+      pushList(bot.segments)
+      for (const task of Array.isArray(bot.tasks) ? bot.tasks : []) {
+        pushList(task?.inheritedSegments)
+        pushList(task?.segments)
+      }
+    }
+    for (const room of Object.values(state.rooms ?? {})) {
+      if (room === null || typeof room !== 'object') continue
+      pushList(room.parts)
+      for (const segments of Object.values(room.segments ?? {})) pushList(segments)
+    }
+    return list
+  }
+  // Migrates inline `segment.note` bodies out of `state.json` into `<home>/segment-notes/`.
+  // Fail-closed: if a disk write fails, the inline note stays intact on the segment.
+  async function migrateSegmentNotes() {
+    if (stopped || readOnly() !== undefined) return false
+    const epoch = lockEpoch
+    const writtenNotes = new Map()
+    let changed = false
+    for (const segment of allStateSegments()) {
+      if (stopped || readOnly() !== undefined || lockEpoch !== epoch) break
+      const sid = sessionIdOf(segment.sessionId)
+      if (sid === undefined || typeof segment.note !== 'string') continue
+      const note = segment.note
+      let ok = writtenNotes.get(sid) === note
+      if (!ok) {
+        ok = await writeSegmentNote(sid, note)
+        if (ok) writtenNotes.set(sid, note)
+      }
+      if (!ok) continue
+      if (stopped || lockEpoch !== epoch) break
+      if (segment.note === note) {
+        delete segment.note
+        segment.hasNote = true
+        changed = true
+      }
+    }
+    return changed
+  }
+  async function runStorageMigrations() {
+    if (stopped || stuck !== undefined || readOnly() !== undefined) return false
+    let changed = false
+    if (typeof rt.migrateLegacyExchanges === 'function') {
+      const movedExchanges = await rt.migrateLegacyExchanges().catch((error) => {
+        warn('ds-bot: migrating legacy exchanges failed: %s', error)
+        return false
+      })
+      if (movedExchanges) changed = true
+    }
+    if (stopped || stuck !== undefined || readOnly() !== undefined) return changed
+    const movedNotes = await migrateSegmentNotes().catch((error) => {
+      warn('ds-bot: migrating segment notes failed: %s', error)
+      return false
+    })
+    if (movedNotes) changed = true
+    return changed
+  }
 
   const EMPTY = JSON.stringify(state)
   // The other dsh host that holds state.lock while this one only reads (see home-lock.js);
@@ -114,9 +295,11 @@ export function install(rt) {
   // groups whose Session titles still need the new name.
   const adopt = (parsed) => {
     lockEpoch += 1
+    noteCache.clear()
     const hadCapabilities = parsed !== null && parsed !== undefined && Object.hasOwn(parsed, 'capabilities')
     for (const key of Object.keys(state)) delete state[key]
     Object.assign(state, JSON.parse(EMPTY), parsed ?? {})
+    if (!Array.isArray(state.exchanges)) state.exchanges = []
     state.prefs ??= {}
     // Teams saved before the DSH Agent existed carry no `agents`; corrupt values reset.
     if (state.agents === null || typeof state.agents !== 'object' || Array.isArray(state.agents)) state.agents = {}
@@ -375,13 +558,16 @@ export function install(rt) {
       migrated = true
     }
     // Teams from before #206 kept every long message whole in this file, written whole on
-    // every save. A message between Bots is whole in its recipient's Session; a group
-    // line's whole text moves to a file of its own, which only the writing host makes.
-    for (const entry of state.exchanges) {
-      if (typeof entry.text !== 'string' || entry.text.length <= TEXT_KEPT || entry.length !== undefined) continue
-      entry.length = entry.text.length
-      entry.text = headOf(entry.text, TEXT_KEPT)
-      migrated = true
+    // every save. When the pair ledger migration is installed, keep the full text intact
+    // so `migrateLegacyExchanges()` preserves it whole in `bot/ledger/pair-*.jsonl`; only
+    // standalone store runs without delivery truncate inline.
+    if (typeof rt.migrateLegacyExchanges !== 'function') {
+      for (const entry of state.exchanges) {
+        if (typeof entry.text !== 'string' || entry.text.length <= TEXT_KEPT || entry.length !== undefined) continue
+        entry.length = entry.text.length
+        entry.text = headOf(entry.text, TEXT_KEPT)
+        migrated = true
+      }
     }
     for (const room of writer ? Object.values(state.rooms) : []) {
       if (!Array.isArray(room.log)) continue
@@ -490,8 +676,9 @@ export function install(rt) {
     storeReady = true
     notifyStoreSync()
     if (holder !== undefined) return
+    const storageMigrated = stuck === undefined ? await runStorageMigrations() : false
     void retireParts()
-    if (migrated && stuck === undefined) {
+    if ((migrated || storageMigrated) && stuck === undefined) {
       // A failed write must not poison `loaded`: the migrated state stays in
       // memory and the next save() writes it.
       try {
@@ -523,14 +710,17 @@ export function install(rt) {
       }
       const { foldedOpenParts } = adopt(readFileState())
       notifyStoreSync()
-      return foldedOpenParts
+      const storageMigrated = !stopped && stuck === undefined && readOnly() === undefined ? await runStorageMigrations() : false
+      return foldedOpenParts || storageMigrated
     })
     writing = run.catch(() => {})
-    const tracked = run.then((foldedOpenParts) => {
+    // A save queued before this adopt must not take in later saves: they write the adopted state.
+    queued = undefined
+    const tracked = run.then((needsSave) => {
       if (adopting === tracked) adopting = undefined
       void retireParts()
-      if (foldedOpenParts && !(state.retiredParts?.length > 0) && stuck === undefined && !stopped && readOnly() === undefined) {
-        void save().catch(error => warn('ds-bot: saving the folded parallel parts failed: %s', error))
+      if (needsSave && !(state.retiredParts?.length > 0) && stuck === undefined && !stopped && readOnly() === undefined) {
+        void save().catch(error => warn('ds-bot: saving the migrated Bot team failed: %s', error))
       }
     }, (error) => {
       if (adopting === tracked) adopting = undefined
@@ -561,9 +751,10 @@ export function install(rt) {
         warnedReadOnly = false
         const { foldedOpenParts } = adopt(readFileState())
         notifyStoreSync()
+        const storageMigrated = !stopped && stuck === undefined ? await runStorageMigrations() : false
         void retireParts()
-        if (foldedOpenParts && !(state.retiredParts?.length > 0) && stuck === undefined && !stopped) {
-          void save().catch(error => warn('ds-bot: saving the folded parallel parts failed: %s', error))
+        if ((foldedOpenParts || storageMigrated) && !(state.retiredParts?.length > 0) && stuck === undefined && !stopped) {
+          void save().catch(error => warn('ds-bot: saving the migrated Bot team failed: %s', error))
         }
         return
       }
@@ -614,24 +805,45 @@ export function install(rt) {
     return warnReadOnly()
   }
 
+  let queued
   const save = ({ required = false } = {}) => {
     if (stopped) return required ? Promise.reject(new Error('The Bot team cannot be saved after this host stopped.')) : writing
     indexSessions()
     // A reading host keeps the file's revision, so its window does not skip the next change.
     if (!writable()) return required ? Promise.reject(new Error(`This host cannot save the Bot team: ${readOnly()}`)) : writing
+    // A save made while another waits in the queue joins it: that write takes its
+    // snapshot when it runs, so it already holds this caller's change.
+    const joined = queued !== undefined
+    const epoch = lockEpoch
+    queued ??= queueWrite()
+    const settle = skipped => {
+      if (skipped !== undefined && required) throw new Error(`This host cannot save the Bot team: ${skipped}`)
+    }
+    // A caller that joined would have had a write of its own, so a shared write
+    // that failed (e.g. a rename blocked on Windows) gets one more try for it. Not
+    // once an adopt replaced or is about to replace the state: that state lacks the
+    // caller's change, and writing it must not settle a required save.
+    const replaced = () => adopting !== undefined || lockEpoch !== epoch
+    return queued.then(settle, error => {
+      if (!joined || error?.code === 'ELOCKLOST' || stopped || replaced() || !writable() || replaced()) throw error
+      queued ??= queueWrite()
+      return queued.then(settle)
+    })
+  }
+  const queueWrite = () => {
     const run = writing.then(async () => {
+      if (queued === job) queued = undefined
       // Re-check writability once the queued write runs: an adopt queued before
       // it may have made this host read-only (e.g. a file a newer DS Bot wrote).
       if (stuck !== undefined || holder !== undefined) {
-        if (required) throw new Error(`This host cannot save the Bot team: ${readOnly()}`)
         warnReadOnly()
-        return
+        return readOnly()
       }
       // The snapshot is taken here, so a save made while an adopt was pending
       // writes the adopted state, not the stale one it had.
       const epoch = lockEpoch
       state.revision += 1
-      state.exchanges = state.exchanges.slice(-MAX_EXCHANGES)
+      if (state.exchanges.length > MAX_EXCHANGES) state.exchanges = state.exchanges.slice(-MAX_EXCHANGES)
       const snapshot = JSON.stringify(state)
       const temp = `${statePath}.${process.pid}.tmp`
       try {
@@ -666,16 +878,17 @@ export function install(rt) {
       }
     })
     writing = run.catch(() => {})
-    return run.catch(error => {
+    const job = run.catch(error => {
       warn('ds-bot: state write failed: %s', error)
       throw error
     })
+    return job
   }
 
   ctx.effect(() => () => {
     stopped = true
     clearTimeout(waitingForSchedules)
-    return Promise.allSettled([writing, retiring]).finally(() => lock.release())
+    return Promise.allSettled([writing, retiring, ...noteOps.values()]).finally(() => lock.release())
   }, 'ds-bot: state lock')
 
   const botOf = id => (id === undefined ? undefined : own(state.bots, id))
@@ -794,20 +1007,25 @@ export function install(rt) {
   const selfOf = id => chatOwners.get(id) ?? groupOwners.get(id)?.botId ?? pastOwners.get(id)?.botId
   // A Session where the Bot speaks now, as opposed to an archived segment.
   const isBotSession = id => chatOwners.has(id) || groupOwners.has(id)
+  const roomsOf = botId => (botId === undefined ? [] : Object.values(state.rooms).filter(room => Array.isArray(room?.members) && room.members.includes(botId)))
   const groupSessionsOf = botId => Object.values(state.rooms).map(room => room.sessions?.[botId]).filter(Boolean)
   const dropGroupSession = (room, botId) => {
     if (room.memberDirs !== undefined) delete room.memberDirs[botId]
     const sessionId = room.sessions?.[botId]
-    if (sessionId === undefined) return
-    // Resolve live round waiters before removing groupOwners so waitersOf matches by (botId, roomId) too.
-    rt.abortRoomWaiters?.(sessionId, { left: true })
-    delete room.sessions[botId]
-    const segments = room.segments?.[botId] ?? []
-    for (const segment of segments) {
-      delete state.switching[segment.sessionId]
-      rt.renewMemory?.(segment.sessionId)
+    if (sessionId !== undefined) {
+      // Resolve live round waiters before removing groupOwners so waitersOf matches by (botId, roomId) too.
+      rt.abortRoomWaiters?.(sessionId, { left: true })
+      delete room.sessions[botId]
     }
+    const segments = room.segments?.[botId] ?? []
+    const segIds = segments.map(segment => segment?.sessionId).filter(Boolean)
+    for (const segId of segIds) {
+      delete state.switching[segId]
+      rt.renewMemory?.(segId)
+    }
+    const notesDeleted = segIds.length > 0 ? deleteSegmentNotes(segIds) : Promise.resolve()
     if (room.segments !== undefined) delete room.segments[botId]
+    if (sessionId === undefined) return notesDeleted
     delete state.switching[sessionId]
     if (state.questions !== undefined) delete state.questions[sessionId]
     if (state.views !== undefined) delete state.views[sessionId]
@@ -818,6 +1036,7 @@ export function install(rt) {
     // A plain archive refuses a running Session, which would go on working for a group
     // that no longer has it.
     void ctx.workspaceRegistry.archiveSession(sessionId, { stopActivity: true }).catch(() => {})
+    return notesDeleted
   }
   // A group Session DSH can no longer open is set aside; the member's earlier parts in
   // the group stay, and its next turn there starts a new Session.
@@ -864,9 +1083,10 @@ export function install(rt) {
 
   Object.assign(rt, {
     state, load, save, refresh, readOnly, hasLoaded, retireParts, isRetiring, syncReadOnly, own, onSaved, closeCard,
+    readSegmentNote, writeSegmentNote, deleteSegmentNotes,
     botOf, roomOf, isMain, chatOf, sessionOfRoom, selfOf, isBotSession,
     chatOwners, taskOwners, groupOwners, roomOwners, pastOwners,
-    groupSessionsOf, dropGroupSession, retireGroupSession, findBot, findRooms, isAdminOf,
+    groupSessionsOf, roomsOf, dropGroupSession, retireGroupSession, findBot, findRooms, isAdminOf,
   })
 }
 
