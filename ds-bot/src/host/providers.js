@@ -4,6 +4,7 @@
 // The providers to add are the ones DSH's directory of configurable providers offers.
 
 import { serviceOf } from './services.js'
+import { CHATGPT_PROVIDER } from './chatgpt.js'
 const PI_AI = 'llm-pi-ai'
 const ROUTE_ID = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/
 // The baseline wire protocols DSH's pi-ai adapter serves on a custom route; newer DSH
@@ -253,12 +254,13 @@ export function install(rt) {
       }).filter(Boolean)
       providers.push({
         id: entry.provider,
+        ...(entry.provider === CHATGPT_PROVIDER ? { auth: 'chatgpt' } : {}),
         name: entry.displayName,
         models,
         declaredModels: declared,
         refreshable,
-        key: ref === undefined ? null : { configured: info?.configured === true, writable: info?.writable !== false },
-        removable: entry.settingsNs === PI_AI && profileOf(entry, map, 'user') !== undefined && profileOf(entry, map, 'base') === undefined,
+        key: ref === undefined ? null : { configured: info?.configured === true, writable: entry.provider !== CHATGPT_PROVIDER && info?.writable !== false },
+        removable: entry.provider !== CHATGPT_PROVIDER && entry.settingsNs === PI_AI && profileOf(entry, map, 'user') !== undefined && profileOf(entry, map, 'base') === undefined,
         custom: entry.declared === true,
         ...(entry.error ? { error: entry.error } : {}),
       })
@@ -269,6 +271,7 @@ export function install(rt) {
   }
 
   async function writableRef(provider) {
+    if (provider === CHATGPT_PROVIDER) throw invalid('Use ChatGPT sign-in and sign-out to manage this connection, not an API key.')
     const ref = keyRefs().get(provider)
     if (ref === undefined) throw invalid(`${provider} takes no API key here`)
     if ((await usable().credentials.describe(ref)).writable === false) throw invalid(`The API key for ${provider} is set outside DS Bot and cannot be changed here`)
@@ -277,6 +280,7 @@ export function install(rt) {
 
   // A key is only ever written; nothing here reads one back.
   async function setProviderKey(provider, value) {
+    if (provider === CHATGPT_PROVIDER) throw invalid('Use ChatGPT sign-in and sign-out to manage this connection, not an API key.')
     const key = checkKey(value)
     await usable().credentials.set(await writableRef(provider), key)
     rt.dropCatalog()
@@ -294,6 +298,7 @@ export function install(rt) {
     await repairing
     const { settings, credentials } = usable()
     const provider = String(body.provider ?? '').trim()
+    if (provider === CHATGPT_PROVIDER) throw invalid('Use ChatGPT sign-in to add this connection.')
     const custom = body.custom === true
     const known = custom ? await knownCatalogModels() : undefined
     const map = sections(settings)
@@ -417,6 +422,7 @@ export function install(rt) {
   // Only a route the user added goes; its key goes with it when it is the one this page
   // derives and no other provider names it.
   async function removeProvider(provider) {
+    if (provider === CHATGPT_PROVIDER) throw invalid('Use ChatGPT sign-out to disconnect this connection; its model route is retained.')
     await repairing
     const { settings, credentials } = usable()
     const map = sections(settings)

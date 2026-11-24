@@ -3,6 +3,10 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { Context } from '@deepseek-ai/cordis'
+import { mountAgentLoopTestDependencies, mountAgentLoopTestHarness } from '@deepseek-ai/dsh-agent-loop-testkit'
+import { createUserMessage, LlmAdapter } from '@deepseek-ai/dsh-llm'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import { createRuntime } from '../index.js'
 import { expandCapabilityNames, validateCapabilityName } from '../src/host/capabilities.js'
 import { fakeContext } from './fake-ctx.js'
@@ -37,6 +41,7 @@ function testAgent(id, mounts, skillsBySession, { awaitMount = async () => {} } 
   const skills = new Map()
   skillsBySession.set(id, skills)
   const agentCtx = {
+    extend(meta) { return Object.assign(Object.create(this), meta) },
     effect(execute) {
       const dispose = execute()
       if (typeof dispose === 'function') disposers.push(dispose)
@@ -94,6 +99,413 @@ test('capability names use the MCP and skill validator intersection', () => {
   assert.equal(validateCapabilityName('a'), 'a')
   assert.equal(validateCapabilityName('web-search-1'), 'web-search-1')
   for (const name of ['github', 'with_underscore', 'with--dash', '1tool', 'A', 'a'.repeat(33)]) assert.throws(() => validateCapabilityName(name))
+})
+
+test('catalog mode migrates old Bots and moves attachments between disjoint tiers', async t => {
+  const env = await setup()
+  t.after(() => env.dispose())
+  const { rt } = env
+  assert.deepEqual(rt.state.bots.chief.packs, [])
+  await rt.capabilitySave({ name: 'guide', kind: 'skill', content: 'Instructions' }, { ui: true })
+  await rt.changeCapabilityAttachment('attach', { name: 'guide' }, 'chief')
+  assert.deepEqual(rt.state.bots.chief.capabilities, ['guide'])
+  await rt.changeCapabilityAttachment('attach', { name: 'guide', mode: 'catalog' }, 'chief')
+  assert.deepEqual(rt.state.bots.chief.capabilities, [])
+  assert.deepEqual(rt.state.bots.chief.packs, ['guide'])
+  await rt.capabilityEndpoint('bot-capability', { botId: 'chief', name: 'guide', attached: true })
+  assert.deepEqual(rt.state.bots.chief.packs, [])
+  await rt.capabilityEndpoint('bot-capability', { botId: 'chief', name: 'guide', attached: true, mode: 'catalog' })
+  await rt.changeCapabilityAttachment('detach', { name: 'guide' }, 'chief')
+  assert.deepEqual(rt.state.bots.chief.packs, [])
+  await assert.rejects(rt.changeCapabilityAttachment('attach', { name: 'guide', mode: 'bad' }, 'chief'), /mode/)
+})
+
+test('feature catalog is sorted, summarized, empty when absent, and frozen until turn end', async t => {
+  const env = await setup()
+  t.after(() => env.dispose())
+  const { rt, ctx } = env
+  const render = id => ctx.sections.get('feature-packs').text({ agent: { id } })
+  assert.equal(render('worker'), '')
+  await rt.capabilitySave({ name: 'zebra', kind: 'pack', items: [], description: 'Long\n' + 'x'.repeat(150) }, { ui: true })
+  await rt.capabilitySave(mcp('alpha'), { ui: true })
+  rt.state.bots.chief.packs = ['zebra', 'alpha']
+  const text = render('chief')
+  assert.match(text, /# Feature packs\n- alpha: Echo service\n- zebra: Long x{115} \(0 tools\)\nCall use_pack/)
+  rt.state.bots.chief.packs = []
+  assert.equal(render('chief'), text)
+  assert.equal(render('room-chief'), '')
+  rt.state.bots.worker.packs = ['alpha']
+  assert.equal(render('worker'), '')
+  assert.equal(render('outside'), '')
+  const finish = ctx.listeners.get('session/event').find(listener => listener.name === 'finishFeaturePacks')
+  await finish({ id: 'chief' }, { type: 'turn/end' })
+  assert.equal(render('chief'), '')
+  await finish({ id: 'worker' }, { type: 'turn/end' })
+  const workerText = render('worker')
+  assert.match(workerText, /- alpha: Echo service/)
+  await rt.capabilitySave({ ...mcp('alpha'), description: 'Updated description' }, { ui: true })
+  assert.equal(render('worker'), workerText)
+  await finish({ id: 'worker' }, { type: 'turn/update' })
+  assert.equal(render('worker'), workerText)
+  await finish({ id: 'worker' }, { type: 'turn/end' })
+  assert.match(render('worker'), /- alpha: Updated description/)
+  await rt.capabilitySave({ ...mcp('alpha'), description: 'Edited while idle' }, { ui: true })
+  rt.state.bots.worker.packs = ['alpha', 'zebra']
+  await finish({ id: 'worker' }, { type: 'turn/start' })
+  const nextTurn = render('worker')
+  assert.match(nextTurn, /- alpha: Edited while idle/)
+  assert.match(nextTurn, /- zebra:/)
+  rt.state.bots.worker.packs = []
+  assert.equal(render('worker'), nextTurn)
+})
+
+test('use_pack mounts only the calling session and drop_pack waits for turn end', async t => {
+  const env = await setup()
+  t.after(() => env.dispose())
+  const { rt, ctx, mounts, skills } = env
+  const chief = testAgent('chief', mounts, skills)
+  const group = testAgent('room-chief', mounts, skills)
+  rt.resolveAgent = async id => id === 'chief' ? chief : group
+  await created(env)({ agent: chief })
+  await created(env)({ agent: group })
+  await rt.capabilitySave({ name: 'guide', kind: 'skill', content: 'Instructions' }, { ui: true })
+  await rt.capabilitySave({ name: 'bundle', kind: 'pack', items: ['guide'] }, { ui: true })
+  await rt.changeCapabilityAttachment('attach', { name: 'bundle', mode: 'catalog' }, 'chief')
+  assert.equal(skills.get('chief').size, 0)
+  assert.equal(await rt.usePack('chief', 'bundle'), 'guide: ready')
+  assert.equal(skills.get('chief').has('guide'), true)
+  assert.equal(skills.get('room-chief').size, 0)
+  assert.equal(await rt.usePack('room-chief', 'bundle'), 'guide: ready')
+  assert.deepEqual(rt.state.bots.chief.capabilities, [])
+  await rt.reconcileCapabilities()
+  assert.equal(skills.get('chief').has('guide'), true)
+  assert.match(await rt.dropPack('chief', 'bundle'), /end of this turn/)
+  assert.equal(skills.get('chief').has('guide'), true)
+  await ctx.listeners.get('session/event').find(listener => listener.name === 'finishFeaturePacks')(chief.session, { type: 'turn/end' })
+  assert.equal(skills.get('chief').size, 0)
+  assert.equal(skills.get('room-chief').has('guide'), true)
+  assert.match(await rt.dropPack('chief', 'bundle'), /not loaded/)
+  assert.equal(await rt.usePack('chief', 'bundle'), 'guide: ready')
+  chief.ctx.dispose()
+  const fresh = testAgent('chief', mounts, skills)
+  rt.resolveAgent = async () => fresh
+  await created(env)({ agent: fresh })
+  assert.equal(skills.get('chief').size, 0)
+})
+
+test('use_pack tools report empty packs, always-on entries, failures and known counts', async t => {
+  const env = await setup()
+  t.after(() => env.dispose())
+  const { rt, ctx, mounts, skills } = env
+  const agent = testAgent('chief', mounts, skills)
+  agent.ctx.tools = { schemas: () => [{ name: 'mcp__echo__ping' }, { name: 'other' }] }
+  rt.resolveAgent = async () => agent
+  await created(env)({ agent })
+  await rt.capabilitySave(mcp('echo'), { ui: true })
+  await rt.capabilitySave({ name: 'empty', kind: 'pack', items: [] }, { ui: true })
+  for (const name of ['echo', 'empty']) await rt.changeCapabilityAttachment('attach', { name, mode: 'catalog' }, 'chief')
+  const tool = name => rt.teamTools.find(tool => tool.name === name)
+  assert.equal(await tool('use_pack').execute({ name: 'echo', reason: 'test' }, { agent }), 'echo: ready')
+  assert.equal(await rt.usePack('chief', 'empty'), 'empty: ready (empty pack)')
+  const text = ctx.sections.get('feature-packs').text({ agent })
+  assert.match(text, /echo: Echo service \(1 tools\)/)
+  assert.match(text, /empty: Includes no items \(0 tools\)/)
+  await rt.changeCapabilityAttachment('attach', { name: 'echo' }, 'chief')
+  assert.match(await rt.usePack('chief', 'echo'), /already always on/)
+  assert.match(await tool('use_pack').execute({ name: 'missing' }, { agent }), /not in your/)
+  assert.match(await tool('drop_pack').execute({ name: 'empty' }, { agent }), /end of this turn/)
+  assert.match(await tool('use_pack').execute({ name: 'echo' }, {}), /Only Bots/)
+})
+
+test('use_pack returns approval, mount error and bounded timeout statuses', async t => {
+  const env = await setup()
+  t.after(() => env.dispose())
+  const { rt, mounts, skills } = env
+  let fail = false
+  let release
+  let gate
+  const agent = testAgent('chief', mounts, skills, { awaitMount: async () => {
+    if (fail) throw new Error('Server unavailable')
+    if (gate) await gate
+  } })
+  rt.resolveAgent = async () => agent
+  await created(env)({ agent })
+  await rt.capabilitySave(mcp('echo'), { botId: 'chief' })
+  await rt.changeCapabilityAttachment('attach', { name: 'echo', mode: 'catalog' }, 'chief')
+  assert.equal(await rt.usePack('chief', 'echo'), 'echo: needs-approval')
+  assert.equal(mounts.length, 0)
+  fail = true
+  await rt.capabilityEndpoint('capability-approve', { name: 'echo' })
+  assert.match(await rt.usePack('chief', 'echo'), /echo: error.*Server unavailable/)
+  fail = false
+  gate = new Promise(resolve => { release = resolve })
+  rt.capabilityEnsureTimeoutMs = 5
+  assert.match(await rt.usePack('chief', 'echo'), /echo: error.*time limit/)
+  release()
+  await rt.reconcileCapabilities()
+})
+
+test('a pending MCP startup does not block another pack removal before the next turn', async t => {
+  for (const removal of ['drop', 'detach', 'delete']) {
+    await t.test(removal, async t => {
+      const env = await setup()
+      const { rt, ctx, mounts, skills } = env
+      let release
+      let settled = false
+      let turnEnd
+      const gate = new Promise(resolve => { release = resolve })
+      const agent = testAgent('chief', mounts, skills, { awaitMount: async record => {
+        if (record.config?.serverName !== 'slow') return
+        await gate
+        settled = true
+      } })
+      t.after(async () => {
+        release()
+        await turnEnd
+        await rt.reconcileCapabilities()
+        await env.dispose()
+      })
+      agent.status = 'running'
+      agent.ctx.tools = { schemas: () => [{ name: 'mcp__slow__echo' }] }
+      rt.resolveAgent = async () => agent
+      await created(env)({ agent })
+      for (const name of ['slow', 'fast']) await rt.capabilitySave(mcp(name), { ui: true })
+      await rt.capabilitySave({ name: 'guide', kind: 'skill', content: 'Guide' }, { ui: true })
+      await rt.capabilitySave({ name: 'bundle', kind: 'pack', items: ['fast', 'guide'] }, { ui: true })
+      for (const name of ['slow', 'bundle']) await rt.changeCapabilityAttachment('attach', { name, mode: 'catalog' }, 'chief')
+      assert.match(await rt.usePack('chief', 'bundle'), /fast: ready/)
+      const fast = mounts.find(record => record.config?.serverName === 'fast')
+      rt.capabilityEnsureTimeoutMs = 5
+      assert.match(await rt.usePack('chief', 'slow'), /time limit/)
+      if (removal === 'drop') {
+        await rt.dropPack('chief', 'bundle')
+        assert.equal(fast.disposed, false)
+        turnEnd = ctx.listeners.get('session/event').find(listener => listener.name === 'finishFeaturePacks')(agent.session, { type: 'turn/end' })
+      }
+      agent.status = 'idle'
+      if (removal === 'detach') await rt.changeCapabilityAttachment('detach', { name: 'bundle' }, 'chief')
+      if (removal === 'delete') await rt.capabilityDelete('bundle', { ui: true })
+      await rt.ensureCapabilities('chief')
+      agent.status = 'running'
+      assert.equal(fast.disposed, true, 'removed MCP is disposed before the first step')
+      assert.equal(skills.get('chief').size, 0, 'removed skill is absent before the first step')
+      assert.equal(settled, false, 'unrelated MCP startup is still pending')
+      assert.equal(mounts.find(record => record.config?.serverName === 'slow').disposed, false)
+      agent.status = 'idle'
+      await rt.changeCapabilityAttachment('detach', { name: 'slow' }, 'chief')
+      await rt.ensureCapabilities('chief')
+      release()
+      await rt.reconcileCapabilities()
+      assert.equal(mounts.filter(record => record.config?.serverName === 'fast').length, 1)
+      await rt.changeCapabilityAttachment('attach', { name: 'slow', mode: 'catalog' }, 'chief')
+      const catalog = ctx.sections.get('feature-packs').text({ agent })
+      assert.match(catalog, /- slow: Echo service\n/, 'removed startup must not publish a late ready tool count')
+    })
+  }
+})
+
+test('queued turns exclude consecutive dropped packs while the first disposal is stalled', async t => {
+  const root = new Context()
+  const cleanup = Promise.withResolvers()
+  const disposing = Promise.withResolvers()
+  let cleanupFinished = false
+  let registerLate
+  const env = await setup({ beforeLoad: ({ mcpPlugin }) => {
+    mcpPlugin.inject = ['tools']
+    mcpPlugin.apply = (c, config) => c.effect(() => {
+      const definition = {
+        name: `mcp__${config.serverName}__ping`, description: 'Ping', parameters: {},
+        output: { schema: { type: 'string' }, render: () => [] }, execute: async () => 'pong',
+      }
+      const unregister = c.tools.register(definition)
+      if (config.serverName === 'slow') registerLate = () => c.tools.register(definition)
+      return async () => {
+        if (config.serverName === 'slow') {
+          disposing.resolve()
+          await cleanup.promise
+          cleanupFinished = true
+        }
+        unregister()
+      }
+    })
+  } })
+  const { rt, ctx } = env
+  t.after(async () => {
+    cleanup.resolve()
+    await rt.reconcileCapabilities()
+    await env.dispose()
+    await root.fiber.dispose()
+  })
+  await mountAgentLoopTestDependencies(root)
+  const seen = []
+  let agent
+  class Adapter extends LlmAdapter {
+    async resolveModel(provider, id) { return { provider, id, name: id, inputModalities: ['text'], context: { contextWindow: 100000 } } }
+    async *stream(options) {
+      seen.push((options.tools ?? []).map(tool => tool.name).filter(name => name.startsWith('mcp__') && name !== 'mcp__anchor__ping'))
+      if (seen.length === 1) {
+        await rt.dropPack('chief', 'slow')
+        for (const text of ['second', 'third']) agent.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text }] }))
+      } else if (seen.length === 2) {
+        await rt.dropPack('chief', 'guide')
+      }
+      yield { type: 'finish', reason: { kind: 'stop' } }
+    }
+  }
+  root.llm.registerAdapter(['packs-test'], new Adapter())
+  await mountAgentLoopTestHarness(root)
+  root.on('session/event', (session, event) => {
+    for (const listener of ctx.listeners.get('session/event') ?? []) if (listener.length >= 2) void listener(session, event)
+  })
+  agent = await root.agentLoop.create(SessionId('chief'), { provider: 'packs-test', model: 'test' })
+  rt.resolveAgent = async () => agent
+  await created(env)({ agent })
+  for (const name of ['slow', 'guide']) {
+    await rt.capabilitySave(mcp(name), { ui: true })
+    await rt.changeCapabilityAttachment('attach', { name, mode: 'catalog' }, 'chief')
+    assert.equal(await rt.usePack('chief', name), `${name}: ready`)
+  }
+  await rt.capabilitySave(mcp('anchor'), { ui: true })
+  await rt.changeCapabilityAttachment('attach', { name: 'anchor' }, 'chief')
+  await rt.reconcileCapabilities()
+  agent.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'first' }] }))
+  await agent.whenIdle()
+  await disposing.promise
+  assert.equal(seen.length, 3)
+  assert.deepEqual(seen[0].sort(), ['mcp__guide__ping', 'mcp__slow__ping'])
+  assert.deepEqual(seen[1], ['mcp__guide__ping'])
+  assert.deepEqual(seen[2], [], 'the third turn must not advertise either dropped pack')
+  assert.equal(cleanupFinished, false)
+  registerLate()
+  assert.deepEqual(root.tools.schemas(agent).map(tool => tool.name).filter(name => name.startsWith('mcp__')), ['mcp__anchor__ping'])
+  rt.capabilityEnsureTimeoutMs = 5
+  let timer
+  try {
+    const prepared = await Promise.race([
+      rt.ensureCapabilities('chief').then(() => true),
+      new Promise(resolve => { timer = setTimeout(resolve, 100, false) }),
+    ])
+    assert.equal(prepared, true, 'turn preparation must not wait for transport cleanup')
+  } finally {
+    clearTimeout(timer)
+  }
+})
+
+test('removed catalog entries and library items stay mounted until turn end', async t => {
+  const env = await setup()
+  t.after(() => env.dispose())
+  const { rt, ctx, mounts, skills } = env
+  const agent = testAgent('chief', mounts, skills)
+  agent.status = 'running'
+  rt.resolveAgent = async () => agent
+  await created(env)({ agent })
+  for (const name of ['first', 'second']) {
+    await rt.capabilitySave({ name, kind: 'skill', content: name }, { ui: true })
+    await rt.changeCapabilityAttachment('attach', { name, mode: 'catalog' }, 'chief')
+    await rt.usePack('chief', name)
+  }
+  await rt.changeCapabilityAttachment('detach', { name: 'first' }, 'chief')
+  await rt.capabilityDelete('second', { ui: true })
+  await rt.reconcileCapabilities()
+  assert.equal(skills.get('chief').size, 2)
+  assert.deepEqual(rt.state.bots.chief.packs, [])
+  await ctx.listeners.get('session/event').find(listener => listener.name === 'finishFeaturePacks')(agent.session, { type: 'turn/end' })
+  assert.equal(skills.get('chief').size, 0)
+})
+
+test('only the first always-on attachment resolves Bot sessions, never catalog edits', async t => {
+  const env = await setup()
+  t.after(() => env.dispose())
+  const { rt, mounts, skills } = env
+  const resolved = []
+  const agents = new Map()
+  rt.resolveAgent = async id => {
+    resolved.push(id)
+    if (!agents.has(id)) agents.set(id, testAgent(id, mounts, skills))
+    return agents.get(id)
+  }
+  for (const name of ['first', 'second', 'catalog']) await rt.capabilitySave({ name, kind: 'skill', content: name }, { ui: true })
+  const editCatalog = async () => {
+    await rt.changeCapabilityAttachment('attach', { name: 'catalog', mode: 'catalog' }, 'chief')
+    await rt.changeCapabilityAttachment('detach', { name: 'catalog' }, 'chief')
+    await rt.capabilityEndpoint('bot-capability', { botId: 'chief', name: 'catalog', attached: true, mode: 'catalog' })
+    await rt.capabilityEndpoint('bot-capability', { botId: 'chief', name: 'catalog', attached: false })
+    await rt.reconcileCapabilities()
+    assert.deepEqual(resolved, [])
+  }
+  await editCatalog()
+  await rt.changeCapabilityAttachment('attach', { name: 'first' }, 'chief')
+  assert.deepEqual(resolved.sort(), ['chief', 'room-chief'])
+  resolved.length = 0
+  await rt.changeCapabilityAttachment('attach', { name: 'second' }, 'chief')
+  assert.deepEqual(resolved, [])
+  await editCatalog()
+})
+
+test('reusing a pack preserves removed members until the turn boundary', async t => {
+  const env = await setup()
+  t.after(() => env.dispose())
+  const { rt, ctx, mounts, skills } = env
+  const agent = testAgent('chief', mounts, skills)
+  agent.status = 'running'
+  rt.resolveAgent = async () => agent
+  await created(env)({ agent })
+  for (const name of ['first', 'second', 'third']) await rt.capabilitySave({ name, kind: 'skill', content: name }, { ui: true })
+  await rt.capabilitySave({ name: 'bundle', kind: 'pack', items: ['first', 'second'] }, { ui: true })
+  await rt.changeCapabilityAttachment('attach', { name: 'bundle', mode: 'catalog' }, 'chief')
+  await rt.usePack('chief', 'bundle')
+  await rt.capabilitySave({ name: 'bundle', kind: 'pack', items: ['second', 'third'] }, { ui: true })
+  assert.match(await rt.usePack('chief', 'bundle'), /first: ready/)
+  assert.deepEqual([...skills.get('chief').keys()].sort(), ['first', 'second', 'third'])
+  await ctx.listeners.get('session/event').find(listener => listener.name === 'finishFeaturePacks')(agent.session, { type: 'turn/end' })
+  assert.deepEqual([...skills.get('chief').keys()].sort(), ['second', 'third'])
+})
+
+test('idle catalog removals reconcile before the next turn can assemble tools', async t => {
+  for (const kind of ['skill', 'pack']) {
+    for (const removal of ['detach', 'delete', ...(kind === 'pack' ? ['delete-member'] : [])]) {
+      await t.test(`${kind} ${removal}`, async t => {
+        const env = await setup()
+        t.after(() => env.dispose())
+        const { rt, mounts, skills } = env
+        const agent = testAgent('chief', mounts, skills)
+        agent.status = 'idle'
+        rt.resolveAgent = async () => agent
+        await created(env)({ agent })
+        await rt.capabilitySave({ name: 'guide', kind: 'skill', content: 'Guide' }, { ui: true })
+        const root = kind === 'pack' ? 'bundle' : 'guide'
+        if (kind === 'pack') await rt.capabilitySave({ name: root, kind, items: ['guide'] }, { ui: true })
+        await rt.changeCapabilityAttachment('attach', { name: root, mode: 'catalog' }, 'chief')
+        await rt.usePack('chief', root)
+        assert.equal(skills.get('chief').has('guide'), true)
+        if (removal === 'detach') await rt.changeCapabilityAttachment('detach', { name: root }, 'chief')
+        else await rt.capabilityDelete(removal === 'delete-member' ? 'guide' : root, { ui: true })
+        await rt.ensureCapabilities('chief')
+        assert.equal(skills.get('chief').size, 0, 'awaited pre-prompt reconciliation removes stale tools')
+        agent.status = 'running'
+        assert.equal(skills.get('chief').size, 0, 'first step starts without the removed capability')
+      })
+    }
+  }
+})
+
+test('catalog holders protect library entries and private Bots refuse attachment changes', async t => {
+  const env = await setup()
+  t.after(() => env.dispose())
+  const { rt } = env
+  await rt.capabilitySave(mcp('shared'), { botId: 'worker' })
+  await rt.changeCapabilityAttachment('attach', { name: 'shared', mode: 'catalog' }, 'chief')
+  await assert.rejects(rt.capabilityDelete('shared', { botId: 'worker' }), /Another Bot uses/)
+  rt.state.bots.worker.packs = ['shared']
+  rt.dropOrphanCapabilities(rt.state.bots.worker)
+  assert.ok(rt.state.capabilities.items.shared)
+  rt.state.bots.worker.packs = []
+  rt.state.bots.helper.private = true
+  await assert.rejects(rt.changeCapabilityAttachment('attach', { name: 'shared', bot: 'Helper', mode: 'catalog' }, 'chief'), /private Bot/)
+  await assert.rejects(rt.changeCapabilityAttachment('attach', { name: 'shared', bot: 'Chief', mode: 'catalog' }, 'worker'), /Only a Main Bot/)
+  await assert.rejects(rt.usePack('worker', 'shared'), /not in your/)
+  await assert.rejects(rt.usePack('outside', 'shared'), /Only Bots/)
+  await assert.rejects(rt.dropPack('outside', 'shared'), /Only Bots/)
 })
 
 test('packs expand only to MCP and skill items', () => {

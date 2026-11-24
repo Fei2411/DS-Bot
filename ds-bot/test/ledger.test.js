@@ -32,6 +32,40 @@ test('reads by range, after a seq, and by words, newest first', (t) => {
   assert.equal(rt.ledger.lastSeq('group-r1'), 4)
 })
 
+test('range reads the same records as a scan, and anchors are found by id as the book grows', (t) => {
+  const { rt } = host(t)
+  const scan = (book, from, to) => rt.ledger.records(book).filter(record => Number.isInteger(record.seq) && record.seq >= from && (to === undefined || record.seq <= to))
+  rt.ledger.append('group-r1', { event: 'anchor', id: 'a', from: 1 })
+  for (const seq of [1, 2, 3]) rt.ledger.append('group-r1', { seq, text: `${seq}` })
+  assert.equal(rt.ledger.anchorAt('group-r1', 'a'), 0)
+  assert.equal(rt.ledger.anchorAt('group-r1', 'b'), -1)
+  rt.ledger.append('group-r1', { event: 'anchor', id: 'b', from: 4 })
+  rt.ledger.append('group-r1', { event: 'anchor', id: 'a', from: 9 })
+  for (const seq of [4, 5]) rt.ledger.append('group-r1', { seq, text: `${seq}` })
+  assert.equal(rt.ledger.anchorAt('group-r1', 'b'), 4)
+  assert.equal(rt.ledger.anchorAt('group-r1', 'a'), 0)
+  for (const [from, to] of [[1, 5], [2, 4], [0, undefined], [3.5, 9], [6, undefined], [5, 2], [Number.NaN, 3]]) {
+    assert.deepEqual(rt.ledger.range('group-r1', from, to), scan('group-r1', from, to), `${from}..${to}`)
+  }
+  assert.deepEqual(rt.ledger.range('group-r2', 1, 3), [])
+
+  // A seq out of order or twice: the same records a scan finds, duplicates included.
+  for (const seq of [1, 3, 2, 3, 1000]) rt.ledger.append('group-r3', { seq })
+  for (const [from, to] of [[1, 3], [2, undefined], [1, 1000]]) {
+    assert.deepEqual(rt.ledger.range('group-r3', from, to), scan('group-r3', from, to))
+  }
+})
+
+test('prepend moves the anchors it finds', (t) => {
+  const { rt } = host(t)
+  rt.ledger.append('group-r1', { seq: 3 })
+  rt.ledger.append('group-r1', { event: 'anchor', id: 'a', from: 4 })
+  assert.equal(rt.ledger.anchorAt('group-r1', 'a'), 1)
+  rt.ledger.prepend('group-r1', [{ seq: 1 }, { seq: 2 }])
+  assert.equal(rt.ledger.anchorAt('group-r1', 'a'), 3)
+  assert.deepEqual(rt.ledger.range('group-r1', 1, 3).map(record => record.seq), [1, 2, 3])
+})
+
 test('a line cut by an interruption is left out, and the book goes on after it', async (t) => {
   const { rt, home, file } = host(t)
   mkdirSync(join(home, 'ledger'), { recursive: true })
@@ -81,6 +115,20 @@ test('dropping a book removes its file after the writes before it', async (t) =>
   await rt.ledger.flush('group-r1')
   assert.equal(existsSync(file('group-r1')), false)
   assert.deepEqual(rt.ledger.records('group-r1'), [])
+})
+
+test('a record that fails to write leaves an earlier one with the same seq in range', async (t) => {
+  const { rt, file } = host(t)
+  mkdirSync(join(file('group-r1'), '..'), { recursive: true })
+  writeFileSync(file('group-r1'), `${JSON.stringify({ seq: 1, text: 'kept' })}
+`)
+  assert.deepEqual(rt.ledger.range('group-r1', 1, 1).map(record => record.text), ['kept'])
+  // A folder where the file was makes the next append fail on every platform.
+  rmSync(file('group-r1'))
+  mkdirSync(file('group-r1'))
+  rt.ledger.append('group-r1', { seq: 1, text: 'lost' })
+  await rt.ledger.flush('group-r1')
+  assert.deepEqual(rt.ledger.range('group-r1', 1, 1).map(record => record.text), ['kept'])
 })
 
 test('a book with an id that is not a plain name gets a file name of its own', () => {

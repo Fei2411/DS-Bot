@@ -515,7 +515,51 @@ test('the column\'s top row hides it, on the rail too, and its edge is a drag gr
   const toggle = find(hidden, node => node.type?.name === 'TitleToggle')
   assert.equal(toggle.props.hidden, true)
   // Reduced motion disables both the column slide and the conversation margin transition.
-  assert.match(SHELL_CSS, /@media\s*\(prefers-reduced-motion:reduce\)\{\.bt-leftcol\{animation:none\}\.bt-leftcol\[data-leaving\],\[class\*="_centerCol"\]\{transition:none\}\}/)
+  assert.match(SHELL_CSS, /@media\s*\(prefers-reduced-motion:reduce\)\{\.bt-leftcol\[data-entering\]\{animation:none\}\.bt-leftcol\[data-leaving\],\[class\*="_centerCol"\]\{transition:none\}\}/)
+})
+
+test('the column draws its first mount in place and slides in only after being hidden', () => {
+  viewport.innerWidth = 1280
+  const find = node => {
+    if (Array.isArray(node)) return node.map(find).find(Boolean)
+    if (!node || typeof node !== 'object') return undefined
+    return node.type?.name === 'LeftColumn' ? node : find(node.props?.children)
+  }
+  for (const initial of ['open', 'rail', 'hidden']) {
+    const refs = []
+    const render = pref => {
+      renderRefs = refs
+      refIndex = 0
+      layoutEffects = []
+      try {
+        const tree = TeamSidebar({
+          wide: false,
+          useRoster: pick => pick({ bots: [], rooms: [], agents: [], byId: {}, ready: true }),
+          useUi: pick => pick({ unread: {} }), useRegistry: pick => pick({}),
+          useSessions: pick => pick({ ids: [], byId: {} }), useUpdate: () => ({}),
+          useSidebarPref: pick => pick(pref), actions: { toggleSidebar() {} },
+        })
+        const effects = layoutEffects
+        layoutEffects = undefined
+        effects.forEach(effect => effect())
+        return find(tree)
+      } finally {
+        renderRefs = undefined
+        layoutEffects = undefined
+      }
+    }
+    if (initial === 'hidden') assert.equal(render(initial), undefined)
+    else {
+      assert.equal(render(initial).props.entering, false)
+      assert.equal(render(initial).props.entering, false, 'ordinary rerenders do not start an entrance')
+      assert.equal(render('hidden'), undefined)
+    }
+    assert.equal(render('open').props.entering, true)
+    assert.equal(render('rail').props.entering, true)
+  }
+  assert.match(SHELL_CSS, /\.bt-leftcol\[data-entering\]\{animation:bt-leftcol-in /)
+  assert.doesNotMatch(SHELL_CSS, /\.bt-leftcol\{animation:bt-leftcol-in /)
+  assert.match(SHELL_CSS, /\.bt-leftcol\[data-leaving\]\{transform:translateX\(-100%\);transition:transform /)
 })
 
 test('the logo row takes no room in an open sidebar under a Windows title bar', () => {
@@ -846,6 +890,47 @@ test('installFrameWatch tracks data-sidebar-collapsed on DSH Desktop ancestor fr
       await new Promise(resolve => setTimeout(resolve, 30))
       assert.equal(frame.getSnapshot().collapsed, false)
     } finally { stop() }
+  })
+})
+
+test('installFrameWatch rescans the columns only when one it watches was replaced', async () => {
+  await withDom('<!doctype html><body><div class="frame"><div class="x_sidebarCol"></div><div class="x_centerCol"><div class="other"></div></div></div></body>', async ({ document }) => {
+    sandbox.Element = document.defaultView.Element
+    const observed = new Set()
+    sandbox.ResizeObserver = class { observe(node) { observed.add(node) } unobserve(node) { observed.delete(node) } disconnect() { observed.clear() } }
+    const scans = []
+    const all = document.querySelectorAll.bind(document)
+    document.querySelectorAll = (selector) => { if (selector.includes('_sidebarCol')) scans.push(selector); return all(selector) }
+    const frame = createSource({ viewport: 1280, sidebarWidth: 280, collapsedWidth: 0, collapsed: false })
+    const stop = installFrameWatch(frame)
+    const settle = () => new Promise(resolve => setTimeout(resolve, 30))
+    try {
+      assert.deepEqual([...observed], [document.querySelector('.x_sidebarCol'), document.querySelector('.x_centerCol')])
+      assert.equal(scans.length, 1)
+      document.querySelector('.other').append(document.createElement('span'))
+      await settle()
+      assert.equal(scans.length, 1, 'a mutation that leaves the columns in place does not rescan')
+      const old = document.querySelector('.x_sidebarCol')
+      const next = document.createElement('div')
+      next.className = 'x_sidebarCol'
+      old.replaceWith(next)
+      await settle()
+      assert.equal(scans.length, 2)
+      assert.equal(observed.has(old), false)
+      assert.equal(observed.has(next), true)
+      assert.equal(observed.size, 2)
+      const pane = document.createElement('div')
+      pane.className = 'x_centerCol'
+      document.querySelector('.frame').append(pane)
+      await settle()
+      assert.equal(scans.length, 3, 'a column added next to the watched ones is picked up')
+      assert.equal(observed.has(pane), true)
+      assert.equal(observed.size, 3)
+    } finally {
+      stop()
+      delete sandbox.ResizeObserver
+      delete sandbox.Element
+    }
   })
 })
 

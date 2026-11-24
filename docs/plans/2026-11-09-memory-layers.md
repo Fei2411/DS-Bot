@@ -2,7 +2,7 @@
 
 - 日期：2026-11-09
 - 相关：#797（群记忆很快满）、#925（上限写死）、#453 和 #214（已开着的会话看不到新记忆）、#1185（群整理跳过滚出日志的行）
-- 代码：`ds-bot/src/host/memory.js`、`memory-entries.js`、`memory-copy.js`、`memory-review.js`、`memory-search.js`、`memory-tidy.js`、`group-log.js`
+- 代码：`ds-bot/src/host/memory.js`、`memory-entries.js`、`memory-copy.js`、`memory-review.js`、`memory-search.js`、`memory-tidy.js`、`ledger.js`、`groups.js`
 
 ## 为什么
 
@@ -19,6 +19,7 @@
 | 自动召回 | 主题里和用户刚说的话相关的少量条目 | 回合第一步；没命中就不放；同一段不重复；设置里可关 |
 | 按需 | 所有条目、主题全文、别的 Bot 的记忆、群的原文 | Bot 调 `bot_recall`、`read_group_chat` |
 
+- 给当前会话构造增量时，如果读不到变更日志，本步跳过增量，不把该日志标记为已读，下次构造增量时重试。
 - 先按作用域过滤，再排序。排序在内存里算 BM25，因为聊天索引的 trigram 匹配不了两个字的中文词。
 - 普通 Bot 可以用 `bot_recall` 读公开 Bot 的记忆，不注入。隐私 Bot 的记忆只有它自己和用户能读。
 
@@ -64,3 +65,5 @@
 - 一条记忆放错了级别，用户在记忆面板把它移到团队、别的 Bot 或群。条目带着 id、有效期和固定状态走；进团队时放主题 `shared`，要不要常驻另外选。先写新位置再删旧位置，中断时最多两处都有，不会丢。只有面板能移动，模型没有这个工具。
 
 ## 变更
+
+- 2026-11-22：群持久日志的代码入口改为现行账本与群引擎，对照 dev 代码校正。

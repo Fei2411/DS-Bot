@@ -20,7 +20,7 @@ runInNewContext(outputFiles[0].text, {
   module, exports: module.exports,
   require: name => (name === 'react' ? react : name === 'react-dom' ? { createPortal: node => node } : {}),
 })
-const { BotSettingsForm, InlineText } = module.exports
+const { AvatarEditor, BotSettingsForm, InlineText } = module.exports
 
 function walk(node, found = []) {
   if (Array.isArray(node)) { for (const child of node) walk(child, found); return found }
@@ -34,6 +34,41 @@ function settings(bot, { main = false, rooms = [] } = {}) {
   return walk(BotSettingsForm({ bot, roster, actions: {}, run: fn => fn }))
 }
 const bot = { id: 'b', name: 'Writer', role: 'Writer', instructions: '', capabilities: [] }
+
+test('the primary Main Bot keeps its name and avatar editing controls', () => {
+  const writes = []
+  const chief = { ...bot, id: 'chief', name: 'Chief' }
+  const roster = { mainBotId: chief.id, mainBotIds: [chief.id], rooms: [], models: [] }
+  const actions = { updateBot: (id, patch) => writes.push([id, patch]) }
+  const nodes = walk(BotSettingsForm({ bot: chief, roster, actions, run: value => value }))
+  nodes.find(node => node.type === InlineText && node.props.label === 'Name').props.onSave('Captain')
+  assert.equal(nodes.some(node => node.props?.['aria-label'] === 'Edit Bot avatar'), true)
+  assert.equal(JSON.stringify(writes), JSON.stringify([['chief', { name: 'Captain' }]]))
+  assert.equal(roster.mainBotId, chief.id)
+})
+
+test('group photo reset and removal only clear the group avatar', () => {
+  const writes = []
+  const actions = { updateRoom: (id, patch) => writes.push([id, patch]) }
+  const room = { id: 'room', avatar: { image: 'data:image/png;base64,AA==' } }
+  const nodes = walk(AvatarEditor({ room, actions, run: value => value, onClose() {} }))
+  assert.equal(nodes.filter(node => node.props?.role === 'tab').length, 2)
+  nodes.find(node => node.props?.className === 'bt-avedit-tab bt-avedit-reset').props.onClick()
+  nodes.find(node => node.props?.children?.includes('Remove photo')).props.onClick()
+  assert.equal(JSON.stringify(writes), JSON.stringify([['room', { avatar: null }], ['room', { avatar: null }]]))
+})
+
+test('the group library selection writes an image without Bot-only fields', () => {
+  const real = react.useState
+  let first = true
+  react.useState = initial => [first ? (first = false, 'library') : initial, () => {}]
+  const writes = []
+  try {
+    const nodes = walk(AvatarEditor({ room: { id: 'room' }, actions: { updateRoom: (id, patch) => writes.push([id, patch]) }, run: value => value, onClose() {} }))
+    nodes.find(node => node.props?.onPick).props.onPick({ image: 'data:image/png;base64,AA==' })
+    assert.equal(JSON.stringify(writes), JSON.stringify([['room', { avatar: { image: 'data:image/png;base64,AA==' } }]]))
+  } finally { react.useState = real }
+})
 
 test('the Private switch is enabled only for a state the host accepts', () => {
   const noFolder = settings(bot).find(node => node.props?.label === 'Private')

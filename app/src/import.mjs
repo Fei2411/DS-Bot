@@ -34,11 +34,13 @@ export function userDshHome(env = process.env) {
 
 const readJson = path => JSON.parse(readFileSync(path, 'utf8'))
 
-/** Every Session the team names: each Bot's and group's parts, the group conversations and each group's own Session. */
+/** Every Session the team names: each Bot's chat and tasks' parts, the group conversations and each group's own Session. */
 export function sessionIdsOf(team) {
   const ids = segments => segments.map(part => part?.sessionId)
   return [...new Set([
-    ...Object.values(team.bots ?? {}).flatMap(bot => [bot.id, bot.sessionId, ...ids(bot.segments ?? [])]),
+    ...Object.values(team.bots ?? {}).flatMap(bot => [bot.id, bot.sessionId, ...ids(bot.segments ?? []),
+      ...(Array.isArray(bot.tasks) ? bot.tasks : []).flatMap(task => [task?.sessionId, ...ids(Array.isArray(task?.segments) ? task.segments : [])]),
+    ]),
     // A group keeps the earlier parts per member: { [botId]: segments }. The group's own
     // Session, the one it relays in, has the group's id.
     ...Object.values(team.rooms ?? {}).flatMap(room => [room.id, ...Object.values(room.sessions ?? {}), ...ids(Object.values(room.segments ?? {}).flat())]),
@@ -107,17 +109,57 @@ function pidAlive(pid) {
 }
 
 // sessions/<group>/<id>/: the group is the folder the Session works in.
-function sessionDirs(from, ids) {
+export function sessionDirs(from, ids) {
   const root = join(from, 'sessions')
   const groups = existsSync(root) ? readdirSync(root, { withFileTypes: true }).filter(entry => entry.isDirectory()).map(entry => entry.name) : []
+  const minIndexIds = 32
+  const findGroup = process.platform !== 'win32' && ids.length >= minIndexIds && ids.length * groups.length >= 512
+    ? sessionFinder(root, groups, ids.length === minIndexIds)
+    : id => groups.find(name => existsSync(join(root, name, id)))
   const found = []
   const missing = []
   for (const id of ids) {
-    const group = groups.find(name => existsSync(join(root, name, id)))
+    const group = findGroup(id)
     if (group === undefined) missing.push(id)
     else found.push({ id, group })
   }
   return { found, missing }
+}
+
+function sessionFinder(root, groups, probeFirst) {
+  const indexes = []
+  const paths = []
+  // At the indexing threshold, a single group's native probes can be cheaper than a listing.
+  const first = probeFirst ? join(root, groups[0]) : undefined
+  const start = probeFirst ? 1 : 0
+  return (id) => {
+    if (first !== undefined && existsSync(join(first, id))) return groups[0]
+    const key = id !== '' && id !== '.' && id !== '..' && !/[^\x01-\x7f]|[/\\]/u.test(id) ? id.toLowerCase() : undefined
+    for (let i = start; i < groups.length; i++) {
+      const path = paths[i] ??= join(root, groups[i])
+      if (key !== undefined) {
+        if (indexes[i] === undefined) indexes[i] = sessionIndex(path)
+        if (indexes[i] !== null && !indexes[i].has(key)) continue
+      }
+      if (existsSync(join(path, id))) return groups[i]
+    }
+  }
+}
+
+function sessionIndex(path) {
+  let names
+  try {
+    names = readdirSync(path)
+  } catch {
+    return null
+  }
+  const index = new Set()
+  for (const name of names) {
+    // Native lookup can fold non-ASCII names differently on each filesystem.
+    if (/[^\x00-\x7f]/u.test(name)) return null
+    index.add(name.toLowerCase())
+  }
+  return index
 }
 
 // fs.cp that tells `seen` the size of each file it is about to copy.
@@ -171,15 +213,28 @@ const OVER = Symbol('over budget')
 // The bytes under `path` into `tally`, links counted as themselves and what cannot be read as
 // nothing; `tally.regen` takes the bytes inside the folders that REGENERABLE names.
 async function measure(path, clock, tally, regen = false) {
-  if (clock.now() > clock.until) throw OVER
-  const entry = await lstat(path).catch(() => undefined)
-  if (entry === undefined) return
-  if (!entry.isDirectory()) {
-    tally.bytes += entry.size
-    if (regen) tally.regen += entry.size
-    return
+  const pending = [{ path, regen }]
+  while (pending.length) {
+    const batch = pending.splice(-16)
+    // Settle the whole batch before propagating expiry; siblings may still be using the disk.
+    const results = await Promise.allSettled(batch.map(async ({ path, regen }) => {
+      if (clock.now() > clock.until) throw OVER
+      const entry = await lstat(path).catch(() => undefined)
+      if (entry === undefined) return
+      if (!entry.isDirectory()) {
+        tally.bytes += entry.size
+        if (regen) tally.regen += entry.size
+        return
+      }
+      if (clock.now() > clock.until) throw OVER
+      for (const name of await readdir(path).catch(() => [])) {
+        pending.push({ path: join(path, name), regen: regen || REGENERABLE.has(name) })
+      }
+    }))
+    const failed = results.find(result => result.status === 'rejected')
+    if (failed) throw failed.reason
+    if (clock.now() > clock.until) throw OVER
   }
-  for (const name of await readdir(path).catch(() => [])) await measure(join(path, name), clock, tally, regen || REGENERABLE.has(name))
 }
 
 /**

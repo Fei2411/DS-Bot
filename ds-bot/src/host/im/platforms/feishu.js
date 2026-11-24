@@ -11,6 +11,9 @@ import { retryDelay, retryWait } from './retry.js'
 
 const TEXT_LIMIT = 4000
 const SOCKET_TIMEOUT = 30_000
+const GATEWAY_RETRY_DELAYS = [5_000, 15_000]
+const POLICY_ERROR = 'Feishu denied long-connection discovery under its platform policy. Contact Feishu support if the problem persists.'
+const isPolicyDenial = message => typeof message === 'string' && /^access denied due to platform policy\b/i.test(message)
 const pingInterval = seconds => {
   const ms = Number(seconds) * 1000
   return Number.isFinite(ms) && ms >= 1000 && ms <= 2_147_483_647 ? ms : undefined
@@ -259,7 +262,8 @@ export default {
       connectTimer = pingTimer = heartbeatTimer = undefined
     }
     let openFailures = 0
-    const retry = (gen, error) => {
+    let gatewayRefusals = 0
+    const retry = (gen, error, delay = retryDelay(openFailures)) => {
       if (stopped || generation !== gen) return
       generation += 1
       clearSocketTimers()
@@ -268,7 +272,7 @@ export default {
       try { previous?.close(4001, 'reconnect') } catch { /* already gone */ }
       handlers.onStatus({ state: 'retrying', error })
       clearTimeout(reconnectTimer)
-      reconnectTimer = setTimeout(() => { if (!stopped) void open() }, retryDelay(openFailures))
+      reconnectTimer = setTimeout(() => { if (!stopped) void open() }, delay)
       reconnectTimer.unref?.()
       openFailures += 1
     }
@@ -278,18 +282,24 @@ export default {
       let url
       let pingEvery = 90_000
       try {
-        const answer = await env.fetch(`${apiBase(env, fields)}/callback/ws/endpoint`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json', authorization: `Bearer ${await freshToken()}` },
-          body: JSON.stringify({ AppID: appId, AppSecret: appSecret }),
-        })
+        const answer = await postAppCredentials(env, `${apiBase(env, fields)}/callback/ws/endpoint`,
+          { AppID: appId, AppSecret: appSecret }, { locale: 'zh', 'user-agent': 'DS-Bot' })
         const body = await answer.json().catch(() => ({}))
         url = body.data?.URL
-        if (url === undefined || (body.code !== undefined && body.code !== 0)) {
-          const reason = body.msg ?? `Feishu answered ${answer.status}`
-          const error = new Error(body.code === undefined ? reason : `${reason} (code ${body.code})`)
+        if (!answer.ok || url === undefined || (body.code !== undefined && body.code !== 0)) {
+          const deniedByPolicy = isPolicyDenial(body.msg)
+          if (deniedByPolicy && answer.status === 200 && body.code === undefined) {
+            const delay = GATEWAY_RETRY_DELAYS[gatewayRefusals]
+            if (delay !== undefined) {
+              if (stopped || generation !== gen) return
+              gatewayRefusals += 1
+              retry(gen, POLICY_ERROR, delay)
+              return
+            }
+          }
+          const reason = deniedByPolicy ? POLICY_ERROR : (body.msg ?? `Feishu answered ${answer.status}`)
+          const error = new Error(deniedByPolicy || body.code === undefined ? reason : `${reason} (code ${body.code})`)
           error.status = answer.status
-          // A 200 that carries no WebSocket URL is the platform refusing the app.
           error.permanent = answer.ok || (answer.status >= 400 && answer.status < 500 && answer.status !== 429)
           throw error
         }
@@ -373,6 +383,7 @@ export default {
         if (!current()) return
         clearTimeout(connectTimer)
         openFailures = 0
+        gatewayRefusals = 0
         handlers.onStatus({ state: 'ready' })
         ping()
       })
@@ -384,8 +395,7 @@ export default {
 
     handlers.onStatus({ state: 'connecting' })
     // The tenant token is fetched until it arrives: a connection started before the
-    // network is up must connect once it is (#1119). The bot identity is fetched
-    // again per handshake below; here it only fills the mention check.
+    // network is up must connect once it is (#1119). The bot identity fills the mention check.
     void (async () => {
       let attempt = 0
       while (!stopped) {
@@ -568,11 +578,27 @@ function imageMediaType(bytes) {
   throw new Error('Feishu returned an unsupported image format')
 }
 
-async function tenantToken(fields, env) {
-  const response = await env.fetch(`${apiBase(env, fields)}/open-apis/auth/v3/tenant_access_token/internal`, {
+async function postAppCredentials(env, url, payload, headers = {}) {
+  const response = await env.fetch(url, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ app_id: String(fields.appId ?? '').trim(), app_secret: String(fields.appSecret ?? '').trim() }),
+    redirect: 'manual',
+    headers: { 'content-type': 'application/json', ...headers },
+    body: JSON.stringify(payload),
+  })
+  if (response.status >= 300 && response.status < 400) {
+    void response.body?.cancel().catch(() => {})
+    const error = new Error('Feishu/Lark returned an unexpected redirect; app credentials were not forwarded.')
+    error.status = response.status
+    error.permanent = true
+    throw error
+  }
+  return response
+}
+
+async function tenantToken(fields, env) {
+  const response = await postAppCredentials(env, `${apiBase(env, fields)}/open-apis/auth/v3/tenant_access_token/internal`, {
+    app_id: String(fields.appId ?? '').trim(),
+    app_secret: String(fields.appSecret ?? '').trim(),
   })
   const body = await response.json().catch(() => ({}))
   if (body.tenant_access_token === undefined) {

@@ -448,7 +448,7 @@ export function install(rt) {
       for (const sessionId of inGroup()) if (storedKinds.get(sessionId) !== 'group') ledger.setKind(sessionId, 'group')
       const ended = new Set()
       const longAgo = Date.now() - SEAL_AFTER_MS
-      for (const bot of Object.values(state.bots)) for (const segment of bot.segments ?? []) if (segment.endedAt < longAgo) ended.add(segment.sessionId)
+      for (const bot of Object.values(state.bots)) for (const segment of bot.segments ?? []) if (segment.endedAt < longAgo && rt.isRetiring?.(segment.sessionId) !== true) ended.add(segment.sessionId)
       for (const room of Object.values(state.rooms)) {
         for (const segments of Object.values(room.segments ?? {})) for (const segment of segments) if (segment.endedAt < longAgo) ended.add(segment.sessionId)
       }

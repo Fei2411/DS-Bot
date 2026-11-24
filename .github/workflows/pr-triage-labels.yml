@@ -1,0 +1,385 @@
+name: PR Triage Labels
+
+on:
+  pull_request_target:
+    types: [opened, edited, synchronize]
+  issue_comment:
+    types: [created]
+  pull_request_review:
+    types: [submitted]
+
+permissions:
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: pr-triage-labels-${{ github.event.pull_request.number || github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  sync-labels:
+    name: Sync agent and review labels
+    runs-on: ubuntu-latest
+    if: >-
+      (github.event_name == 'pull_request_target' && github.event.pull_request.state == 'open' && (github.event.action != 'edited' || github.event.changes.body != null)) ||
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request != null && github.event.issue.state == 'open') ||
+      (github.event_name == 'pull_request_review' && github.event.pull_request.state == 'open')
+    steps:
+      - name: Sync labels from PR metadata and review comments
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const AGENT_LABELS = [
+              'agent/antigravity',
+              'agent/claude-code',
+              'agent/codex',
+              'agent/devin',
+              'agent/dsbot',
+              'agent/other',
+            ];
+            const REVIEW_STATUS_LABELS = [
+              'review/approved',
+              'review/changes-requested',
+              'review/needs-decision',
+              'review/re-review',
+            ];
+            const REVIEWED_BY_LABELS = [
+              'reviewed-by/antigravity',
+              'reviewed-by/claude-code',
+              'reviewed-by/codex',
+              'reviewed-by/devin',
+              'reviewed-by/dsbot',
+              'reviewed-by/other',
+            ];
+            const TRUSTED_ASSOCIATIONS = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
+
+            function stripNonProse(text) {
+              const normalized = String(text || '')
+                .replace(/\r\n?/g, '\n')
+                .replace(/<!--[\s\S]*?-->/g, '');
+              const out = [];
+              let fenceChar = null;
+              let fenceLen = 0;
+              for (const line of normalized.split('\n')) {
+                if (!fenceChar) {
+                  const open = line.match(/^[ ]{0,3}(`{3,}|~{3,})/);
+                  if (open && !(open[1][0] === '`' && line.slice(open[0].length).includes('`'))) {
+                    fenceChar = open[1][0];
+                    fenceLen = open[1].length;
+                    continue;
+                  }
+                  out.push(line);
+                } else {
+                  const closeRe = new RegExp(`^[ ]{0,3}\\${fenceChar}{${fenceLen},}[ \\t]*$`);
+                  if (closeRe.test(line)) {
+                    fenceChar = null;
+                    fenceLen = 0;
+                  }
+                }
+              }
+              return out.join('\n');
+            }
+
+            function unwrapInline(raw) {
+              let s = String(raw || '').trim();
+              for (let i = 0; i < 4; i++) {
+                const next = s
+                  .replace(/^(?:\*\*|__|[*_`])/, '')
+                  .replace(/(?:\*\*|__|[*_`])$/, '')
+                  .trim();
+                if (next === s) break;
+                s = next;
+              }
+              return s;
+            }
+
+            function matchKnownAgent(text) {
+              if (/\bantigravity\b|\bagy\b/i.test(text)) return 'antigravity';
+              if (/\bclaude[\s_-]*code\b/i.test(text)) return 'claude-code';
+              if (/\bcodex\b/i.test(text)) return 'codex';
+              if (/\bdevin\b/i.test(text)) return 'devin';
+              if (/\bds[\s_-]*bot\b/i.test(text)) return 'dsbot';
+              return null;
+            }
+
+            function mapAgentSlug(raw) {
+              const cleaned = unwrapInline(raw);
+              if (!cleaned) return null;
+              const primary = unwrapInline(cleaned.split(/[（(@]/)[0]);
+              if (!primary) return null;
+              if (/^<[^>]+>/.test(primary) || /^<[^>]+>/.test(cleaned)) return null;
+              if (/^(?:none|n\/a|human|manual|无)$/i.test(primary)) return null;
+              if (/^(?:none|n\/a|human|manual|无)$/i.test(cleaned)) return null;
+              return matchKnownAgent(primary) || 'other';
+            }
+
+            function parseAgentLine(text) {
+              const prose = stripNonProse(text);
+              const re = /^[ ]{0,3}(?:\*\*)?Agent(?:\*\*)?[ \t]*[:：](?:\*\*)?[ \t]*([^\n]+)$/gim;
+              for (const m of prose.matchAll(re)) {
+                const slug = mapAgentSlug(m[1]);
+                if (slug) return slug;
+              }
+              return null;
+            }
+
+            const STATUS_BOUNDARY = '(?=$|[\\s*_`·–.,;:!/()（），。：；！、—-])';
+            const STATUS_RULES = [
+              [new RegExp(`^(?:approved|approve|lgtm|可合)${STATUS_BOUNDARY}`, 'i'), 'review/approved'],
+              [new RegExp(`^(?:changes[- ]requested|request[- ]changes|needs[- ]changes|需改)${STATUS_BOUNDARY}`, 'i'), 'review/changes-requested'],
+              [new RegExp(`^(?:needs[- ]decision|需拍板|需你拍板|需用户拍板)${STATUS_BOUNDARY}`, 'i'), 'review/needs-decision'],
+              [new RegExp(`^(?:re[- ]?review|待复审)${STATUS_BOUNDARY}`, 'i'), 'review/re-review'],
+            ];
+            const STANDALONE_REREVIEW_RE = /^(?:re[- ]?review|待复审)[.!。！]?$/i;
+
+            function extractReviewedSha(raw) {
+              const cleaned = unwrapInline(raw);
+              let last = null;
+              for (const m of cleaned.matchAll(/@[ \t]*[`*_]*([0-9a-f]{7,40})[`*_]*(?=$|[\s.,;:)/）\]—–-])/gi)) {
+                last = m[1].toLowerCase();
+              }
+              return last;
+            }
+
+            function parseReviewComment(text) {
+              const prose = stripNonProse(text);
+              const statusRe = /^[ ]{0,3}(?:[-*][ \t]+)?(?:\*\*)?(?:Independent[ \t]+)?Review(?:\*\*)?[ \t]*[:：](?:\*\*)?[ \t]*([^\n]+)$/gim;
+              let status = null;
+              let statusCandidate = null;
+              for (const m of prose.matchAll(statusRe)) {
+                const candidate = unwrapInline(m[1]);
+                if (!candidate || candidate.includes('|') || /[?？]/.test(candidate)) continue;
+                for (const [pattern, label] of STATUS_RULES) {
+                  if (pattern.test(candidate)) {
+                    status = label;
+                    statusCandidate = candidate;
+                    break;
+                  }
+                }
+                if (status) break;
+              }
+              if (!status) return null;
+
+              const reviewerRe = /^[ ]{0,3}(?:[-*][ \t]+)?(?:\*\*)?Reviewer(?:\*\*)?[ \t]*[:：](?:\*\*)?[ \t]*([^\n]+)$/gim;
+              let hasReviewerLine = false;
+              let reviewerSlug = null;
+              let reviewedSha = null;
+              for (const m of prose.matchAll(reviewerRe)) {
+                const cleaned = unwrapInline(m[1]);
+                if (!cleaned || /^<[^>]+>/.test(cleaned)) continue;
+                const primary = unwrapInline(cleaned.split(/[（(@]/)[0]);
+                if (!primary || /^<[^>]+>/.test(primary)) continue;
+                hasReviewerLine = true;
+                reviewerSlug = mapAgentSlug(cleaned);
+                reviewedSha = extractReviewedSha(cleaned);
+                break;
+              }
+
+              if (status === 'review/re-review') {
+                if (!hasReviewerLine && !STANDALONE_REREVIEW_RE.test(statusCandidate)) {
+                  return null;
+                }
+              } else if (!hasReviewerLine) {
+                return null;
+              }
+
+              return {
+                status,
+                reviewedBy: reviewerSlug ? `reviewed-by/${reviewerSlug}` : null,
+                reviewedSha,
+              };
+            }
+
+            async function getCurrentLabels(owner, repo, issueNumber) {
+              const { data } = await github.rest.issues.listLabelsOnIssue({
+                owner,
+                repo,
+                issue_number: issueNumber,
+                per_page: 100,
+              });
+              return new Set(data.map((l) => l.name));
+            }
+
+            async function applyLabelDiff(owner, repo, issueNumber, current, toRemove, toAdd) {
+              for (const name of toRemove) {
+                if (!current.has(name)) continue;
+                try {
+                  await github.rest.issues.removeLabel({
+                    owner,
+                    repo,
+                    issue_number: issueNumber,
+                    name,
+                  });
+                  current.delete(name);
+                } catch (err) {
+                  if (err?.status === 404) continue;
+                  if (err?.status === 403) {
+                    core.warning(`PR #${issueNumber}: insufficient permissions to remove label ${name}; skipping.`);
+                    return;
+                  }
+                  throw err;
+                }
+              }
+              const addList = [...new Set(toAdd)].filter((name) => !current.has(name));
+              if (addList.length > 0) {
+                try {
+                  await github.rest.issues.addLabels({
+                    owner,
+                    repo,
+                    issue_number: issueNumber,
+                    labels: addList,
+                  });
+                } catch (err) {
+                  if (err?.status === 403) {
+                    core.warning(`PR #${issueNumber}: insufficient permissions to add labels ${addList.join(', ')}; skipping.`);
+                    return;
+                  }
+                  throw err;
+                }
+              }
+            }
+
+            const { owner, repo } = context.repo;
+            const eventName = context.eventName;
+
+            if (eventName === 'pull_request_target') {
+              const pr = context.payload.pull_request;
+              if (!pr || pr.state !== 'open') return;
+              const issueNumber = pr.number;
+              const action = context.payload.action;
+              const current = await getCurrentLabels(owner, repo, issueNumber);
+
+              if (action === 'opened' || action === 'edited') {
+                if (action === 'edited' && !context.payload.changes?.body) {
+                  core.info(`PR #${issueNumber}: body unchanged; skipping agent/* sync.`);
+                  return;
+                }
+                const slug = parseAgentLine(pr.body);
+                if (!slug) {
+                  core.info(`PR #${issueNumber}: no Agent line found; leaving agent/* labels untouched.`);
+                  return;
+                }
+                const targetLabel = `agent/${slug}`;
+                const hasExistingAgent = AGENT_LABELS.some((l) => current.has(l));
+                const isTrustedAuthor = TRUSTED_ASSOCIATIONS.has(pr.author_association);
+                if (hasExistingAgent && !isTrustedAuthor) {
+                  core.info(`PR #${issueNumber}: preserving existing agent/* label for non-collaborator edit.`);
+                  return;
+                }
+                const toRemove = AGENT_LABELS.filter((l) => l !== targetLabel);
+                await applyLabelDiff(owner, repo, issueNumber, current, toRemove, [targetLabel]);
+                core.info(`PR #${issueNumber}: synced ${targetLabel}.`);
+                return;
+              }
+
+              if (action === 'synchronize') {
+                const staleReview =
+                  current.has('review/approved') || current.has('review/changes-requested');
+                if (!staleReview) {
+                  core.info(`PR #${issueNumber}: no active approved/changes-requested label to invalidate.`);
+                  return;
+                }
+                const toRemove = [
+                  'review/approved',
+                  'review/changes-requested',
+                  ...REVIEWED_BY_LABELS,
+                ];
+                await applyLabelDiff(owner, repo, issueNumber, current, toRemove, ['review/re-review']);
+                core.info(`PR #${issueNumber}: marked review/re-review after new commits.`);
+                return;
+              }
+              return;
+            }
+
+            if (eventName === 'issue_comment' || eventName === 'pull_request_review') {
+              const isComment = eventName === 'issue_comment';
+              let isForkReview = false;
+              if (isComment) {
+                if (!context.payload.issue?.pull_request || context.payload.issue.state !== 'open') return;
+              } else {
+                const pr = context.payload.pull_request;
+                if (!pr || pr.state !== 'open') return;
+                isForkReview = Boolean(
+                  pr.head?.repo?.full_name &&
+                  pr.base?.repo?.full_name &&
+                  pr.head.repo.full_name !== pr.base.repo.full_name,
+                );
+              }
+
+              const source = isComment ? context.payload.comment : context.payload.review;
+              const issueNumber = isComment
+                ? context.payload.issue.number
+                : context.payload.pull_request?.number;
+              if (!source || !issueNumber) return;
+
+              if (source.user?.type === 'Bot') {
+                core.info(`PR #${issueNumber}: ignoring bot comment/review from ${source.user.login}.`);
+                return;
+              }
+              if (!TRUSTED_ASSOCIATIONS.has(source.author_association)) {
+                core.info(`PR #${issueNumber}: ignoring review marker from ${source.author_association}.`);
+                return;
+              }
+
+              const parsed = parseReviewComment(source.body);
+              if (!parsed) return;
+
+              if (isForkReview) {
+                core.warning(`PR #${issueNumber}: fork pull_request_review has a read-only token; post a regular PR comment or update labels manually.`);
+                return;
+              }
+
+              const { data: livePr } = await github.rest.pulls.get({
+                owner,
+                repo,
+                pull_number: issueNumber,
+              });
+              if (!livePr || livePr.state !== 'open') {
+                core.info(`PR #${issueNumber}: PR is no longer open; skipping review label sync.`);
+                return;
+              }
+              const liveHeadSha = String(livePr.head?.sha || '').toLowerCase();
+
+              if (parsed.status !== 'review/re-review') {
+                const reviewCommitId = !isComment && source.commit_id
+                  ? String(source.commit_id).toLowerCase()
+                  : null;
+
+                if (!liveHeadSha) {
+                  core.warning(`PR #${issueNumber}: missing live head SHA; skipping verdict.`);
+                  return;
+                }
+                if (reviewCommitId && reviewCommitId !== liveHeadSha) {
+                  core.info(
+                    `PR #${issueNumber}: ignoring stale review for ${reviewCommitId.slice(0, 8)} (current head is ${liveHeadSha.slice(0, 8)}).`,
+                  );
+                  return;
+                }
+                if (parsed.reviewedSha) {
+                  if (!liveHeadSha.startsWith(parsed.reviewedSha)) {
+                    core.info(
+                      `PR #${issueNumber}: ignoring stale review marker @ ${parsed.reviewedSha} (current head is ${liveHeadSha.slice(0, 8)}).`,
+                    );
+                    return;
+                  }
+                } else if (isComment || !reviewCommitId) {
+                  core.info(
+                    `PR #${issueNumber}: ignoring ${parsed.status} without a reviewed commit SHA matching head ${liveHeadSha.slice(0, 8)}.`,
+                  );
+                  return;
+                }
+              }
+
+              const current = await getCurrentLabels(owner, repo, issueNumber);
+              const toRemove = REVIEW_STATUS_LABELS.filter((l) => l !== parsed.status);
+              const toAdd = [parsed.status];
+              if (parsed.status === 'review/re-review') {
+                toRemove.push(...REVIEWED_BY_LABELS);
+              } else if (parsed.reviewedBy) {
+                toAdd.push(parsed.reviewedBy);
+              }
+              await applyLabelDiff(owner, repo, issueNumber, current, toRemove, toAdd);
+              core.info(
+                `PR #${issueNumber}: synced ${parsed.status}${parsed.reviewedBy ? ` + ${parsed.reviewedBy}` : ''}.`,
+              );
+            }

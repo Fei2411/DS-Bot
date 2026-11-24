@@ -6,6 +6,7 @@ import * as diagnostics from './src/host/diagnostics.js'
 import * as store from './src/host/store.js'
 import * as models from './src/host/models.js'
 import * as providers from './src/host/providers.js'
+import * as chatgpt from './src/host/chatgpt.js'
 import * as permissions from './src/host/permissions.js'
 import * as turns from './src/host/turns.js'
 import * as steer from './src/host/steer.js'
@@ -40,6 +41,7 @@ import * as computer from './src/host/computer/index.js'
 import * as secrets from './src/host/secrets.js'
 import * as connectors from './src/host/connectors/index.js'
 import * as capabilities from './src/host/capabilities.js'
+import * as plugins from './src/host/plugins/index.js'
 import * as learning from './src/host/learning.js'
 import * as schedules from './src/host/schedules.js'
 import * as usage from './src/host/usage.js'
@@ -61,6 +63,7 @@ import * as localAgents from './src/host/local-agents/index.js'
 import * as deepseekServices from './src/host/deepseek-services.js'
 
 export { COLORS } from './src/host/constants.js'
+export { defineBotPlugin, defineBrowserProvider } from './src/host/plugins/sdk.js'
 
 export { name, inject } from './src/host/entry.js'
 
@@ -70,7 +73,7 @@ export { name, inject } from './src/host/entry.js'
 // usage meters model requests after every listener that rewrites them. privacy checks a
 // call before the hooks of tools do, so a closed call never reaches a card they show.
 // extraFolders answers an approval ahead of approvals, which would show it to the user.
-const MODULES = [diagnostics, store, ledger, models, providers, permissions, turns, steer, handoffs, requests, delivery, roster, folders, privacy, agents, prompt, timeContext, tools, issueReport, deepseekServices, chatIndex, groups, goals, agentCommands, tasks, approvals, extraFolders, resume, memory, parts, botTasks, changes, images, avatarLibrary, secrets, connectors, capabilities, learning, schedules, browser, browserPlugins, computer, usage, update, dshUpdate, thinking, mobile, feed, phone, mcpServer, im, channel, remote, officeSkills, goalSkills, manualSkills, localAgents]
+const MODULES = [diagnostics, store, ledger, models, providers, permissions, turns, steer, handoffs, requests, delivery, roster, folders, privacy, agents, prompt, timeContext, tools, issueReport, deepseekServices, chatIndex, groups, goals, agentCommands, tasks, approvals, extraFolders, resume, memory, parts, botTasks, changes, images, avatarLibrary, secrets, connectors, capabilities, plugins, learning, schedules, browser, browserPlugins, computer, usage, update, dshUpdate, thinking, mobile, feed, phone, mcpServer, im, channel, remote, officeSkills, goalSkills, manualSkills, localAgents]
 
 export function apply(ctx, config = {}) {
   createRuntime(ctx, config)
@@ -88,12 +91,16 @@ export function createRuntime(ctx, config = {}) {
     // The Bot-only tools each module defines; tools.js registers them in each
     // Bot Session's own scope, never globally (see shareBotTools).
     teamTools: [],
+    // False while MODULES are still installing so per-agent `tools/execute` hooks
+    // (steer.js) defer until host-level privacy/secrets wrappers have registered.
+    installed: false,
     defaults: {
       mainName: config.mainName ?? 'Chief',
       mainRole: config.mainRole ?? 'Chief of Staff',
     },
   }
-  for (const module of MODULES) module.install(rt)
+  for (const module of [...MODULES, chatgpt]) module.install(rt)
+  rt.installed = true
   // A live Agent can be scoped before the last module has added its tools (the memory
   // module starts a load during install): complete the scope now that every tool is in.
   rt.syncScopedTools?.()

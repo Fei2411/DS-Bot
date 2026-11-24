@@ -554,7 +554,7 @@ const notes = (root, options = {}) => {
 test('the live note follows the running sub-call of a program', () => {
   const asking = notes(program([call('message_bot', 'program:ptc:1', { args: { to: 'Writer' }, running: true })], { running: true }))
   assert.deepEqual(asking, [
-    { sessionId: 'chief', id: 'tool:program', entry: { label: 'Asking Writer', state: 'sending' } },
+    { sessionId: 'chief', id: 'tool:program', entry: { label: 'Delegating to Writer', state: 'sending' } },
     { sessionId: 'chief', id: 'tool:program', entry: null },
   ])
   const relaying = notes(program([call('message_bot', 'program:ptc:1', { args: { to: 'Writer' } }), call('group_relay', 'program:ptc:2', { running: true })], { running: true }))
@@ -566,7 +566,7 @@ test('the live note follows the running sub-call of a program', () => {
   assert.deepEqual(notes(program([call('message_bot', 'program:ptc:1', { args: { to: 'Writer' }, running: true })])), [])
   const roster = team({ exchangeTurns: { chief: [1] } })
   assert.deepEqual(notes(program([call('message_bot', 'program:ptc:1', { args: { to: 'Writer' }, running: true })], { running: true }), { roster }), [])
-  assert.equal(notes(call('message_bot', 'direct', { args: { to: 'Writer' }, running: true }))[0].entry.label, 'Asking Writer')
+  assert.equal(notes(call('message_bot', 'direct', { args: { to: 'Writer' }, running: true }))[0].entry.label, 'Delegating to Writer')
 })
 
 // A minimal cards store, as index.js keeps it.
@@ -856,6 +856,19 @@ test('a goal round draws nothing, while another unknown trigger keeps its event 
   }))
   assert.ok(emptied(trigger({ kind: 'goal', goalId: 'goal-1', revision: 1, round: 1 })))
   assert.match(text(trigger({ kind: 'webhook' })), /<goal_round>Keep going/)
+})
+
+test('a computer handback trigger draws nothing instead of a Bot relay event', () => {
+  const out = expand(TriggerCell({
+    node: { key: 'node', data: { source: { kind: 'bot', role: 'handback' }, turn: 3, content: text$('The user handed the computer back. Look at the app again before you go on.') }, location: { turn: { turn: 3 } } },
+    sessionId: chief.id,
+    useRoster: select => select(team()),
+    useSessions: select => select({ byId: {} }),
+    useTurnClock: select => select({}),
+    useUi: select => select({ visits: {} }),
+    actions: { openExchange: () => { throw new Error('must not open an exchange') } },
+  }))
+  assert.ok(emptied(out))
 })
 
 // #212: the chat hands a trigger its event (seq, content, source) but no turn, so every post

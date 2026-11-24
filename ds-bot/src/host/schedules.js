@@ -97,6 +97,7 @@ export function install(rt) {
     const own = sub.schedule
     service = own
     sub.effect(() => () => { if (service === own) service = null }, 'ds-bot: schedule service')
+    void rt.retireParts?.()
   }
   if (typeof ctx.inject === 'function') ctx.inject(['schedule'], attach)
   else if (ctx.get?.('schedule') !== undefined) attach({ schedule: ctx.get('schedule'), effect: (execute, label) => ctx.effect(execute, label) })
@@ -306,5 +307,7 @@ export function install(rt) {
     return { ...result, value: { ...result.value, items, shown: items.length, total: positions.length, limit, offset } }
   })
 
-  Object.assign(rt, { scheduleEndpoint: (endpoint, body) => endpoints[endpoint](body ?? {}), moveSchedules })
+  // DSH injects its schedule service after the plugin starts; until then a task cannot move.
+  const schedulesPending = () => typeof ctx.inject === 'function' && service === null
+  Object.assign(rt, { scheduleEndpoint: (endpoint, body) => endpoints[endpoint](body ?? {}), moveSchedules, schedulesPending })
 }
