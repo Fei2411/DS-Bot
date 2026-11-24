@@ -22,7 +22,7 @@ const PLACEHOLDER = /mock|test|fake|dummy|example|placeholder|should-not|xxx|you
 const VENDORS = /\b(qwen|minimax|stepfun|kimi|moonshot|zhipu|glm|mimo|anthropic|claude|openai|gemini|mistral|xai|zai)\b/i
 // Files that define the look (characters, inks, logos, themes). Vendor names there are
 // brand references; elsewhere they name model routes and can stay.
-const LOOK_FILES = /(^|\/)(src\/client\/(inks|characters|mark|themes|styles)\.js|dev\/(mascot-outlines|characters)\.mjs)$/
+const LOOK_FILES = /(^|\/)(src\/client\/(inks|characters|mark|themes|styles|avatar\/(models|outlines))\.js|dev\/characters\.mjs)$/
 const NOT_PUBLIC = /(^|[\s(`'"]|\.\.\/)(spec|research|backup|shots|attachments|workspace)\/|\.dsh-home/
 // Migration code and its tests must name the legacy ids (old package name, old theme and
 // color keys) to move saved data over; there, and on lines that say "legacy" (旧版), old names stay.

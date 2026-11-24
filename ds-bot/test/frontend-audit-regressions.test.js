@@ -96,8 +96,7 @@ test('every --bt-* CSS variable referenced in client styles is defined or an all
   const files = readdirSync(clientDir).filter(name => name.endsWith('.js'))
   const defined = new Set([
     // Runtime-injected CSS variables set via JS inline styles or themes.js/inks.js/skin.js
-    '--bt-accent-ink', '--bt-size', '--bt-delay', '--bt-fidget', '--bt-fidget-delay',
-    '--bt-gx', '--bt-gy', '--bt-stack-size', '--bt-lc-w', '--bt-mem-w',
+    '--bt-accent-ink', '--bt-size', '--bt-stack-size', '--bt-lc-w', '--bt-mem-w',
     '--bt-panel-w', '--bt-fold-top', '--bt-fill', '--bt-origin', '--bt-first-sep',
     '--bt-placeholder', '--bt-steer-unread', '--bt-level', '--bt-caption-start',
     '--bt-leftcol-fill', '--bt-fx-blur-2', '--bt-fx-blur-3', '--bt-fx-blur-4',

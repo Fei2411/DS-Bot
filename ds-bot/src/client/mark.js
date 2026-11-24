@@ -1,6 +1,6 @@
 import { createElement as h, useEffect, useRef, useState } from 'react'
 import { fnv1a, lookOf, shapeId, shapeOf, MASK_ID, nextMarkSerial, characterMarkup } from './characters.js'
-import { reducedEffects, reducedMotion } from './motion.js'
+import { LiveMark } from './avatar/live.js'
 import { memo } from './memo.js'
 import { t } from './i18n.js'
 
@@ -8,142 +8,50 @@ export { colorOf, lookOf } from './characters.js'
 
 // -------------------------------------------------------------------------
 // Bot mark: the Bot's character (or its uploaded photo), looked up by lookOf.
+//
+// The flat art (characters.js) paints first and stays for marks at rest. A mark that
+// moves gets a live layer (avatar/live.js): the character's 3D model turned and drawn
+// by the avatar engine, from the same pose, so nothing jumps when it takes over.
 
-// Mascot states: what the Bot is doing picks the
-// motion. Uploaded images only bob or hop, since they have no parts to move. `waiting`:
-// no turn runs, but work it handed on has not come back yet.
+// Mark states: what the Bot is doing picks the motion (avatar/states.js). `waiting`:
+// no turn runs, but work it handed on has not come back yet. `orbit`: relaying
+// messages in a group.
 const STATES = ['idle', 'thinking', 'searching', 'working', 'sending', 'orbit', 'waiting', 'alert', 'done']
 export const botState = (running, activity, alert) => (running ? (STATES.includes(activity) && activity !== 'waiting' ? activity : 'working')
   : alert ? 'alert' : activity === 'waiting' ? 'waiting' : 'idle')
 export const toolState = name => (/^(message_bot|delegate_work|ask_back|answer_work|cancel_work|note_bot|stop_bot|create_bot|update_bot|create_group|update_group|delete_group|post_to_group)$/.test(name) ? 'sending'
   : /search|fetch|browse|read|grep|glob|list|recall/i.test(name) ? 'searching' : 'working')
 
-// Shared gaze manager: one pointermove, one MutationObserver, one matchMedia listener,
-// and one IntersectionObserver across all BotMark instances with gaze=true.
-// Reads all bounding rects before writing --bt-gx/--bt-gy, and skips unchanged values.
-const gazeEntries = new Map()
-const gazeHub = {
-  frame: 0,
-  point: null,
-  active: false,
-  mounted: false,
-  mutationObserver: null,
-  intersectionObserver: null,
-  media: null,
-}
+// Where petting happens: a sidebar avatar or the About mark with a ring around it
+// (`.bt-pet-zone`), or a mark that can be poked.
+const PET_ZONE = ':is(.bt-row,.bt-tile)>:is(.bt-mark,.bt-cluster),.bt-pet-zone'
 
-const gazeDisabled = () => reducedEffects() || document.body?.dataset.btMotion === 'quiet'
-const clampGaze = value => Math.max(-1, Math.min(1, value))
-
-function flushGaze() {
-  gazeHub.frame = 0
-  const point = gazeHub.point
-  if (!point || gazeDisabled()) return
-  const measured = []
-  for (const entry of gazeEntries.values()) {
-    if (!entry.visible || !entry.node.isConnected) continue
-    measured.push([entry, entry.node.getBoundingClientRect()])
-  }
-  for (const [entry, box] of measured) {
-    const gx = clampGaze((point.x - box.left - box.width / 2) / 160).toFixed(2)
-    const gy = clampGaze((point.y - box.top - box.height / 2) / 160).toFixed(2)
-    if (gx !== entry.gx) { entry.gx = gx; entry.node.style.setProperty('--bt-gx', gx) }
-    if (gy !== entry.gy) { entry.gy = gy; entry.node.style.setProperty('--bt-gy', gy) }
-  }
-}
-
-function onGazeMove(event) {
-  if (gazeDisabled()) return
-  gazeHub.point = { x: event.clientX, y: event.clientY }
-  if (!gazeHub.frame) gazeHub.frame = requestAnimationFrame(flushGaze)
-}
-
-function onGazeLeave() {
-  gazeHub.point = null
-  for (const entry of gazeEntries.values()) {
-    if (entry.gx !== '0') { entry.gx = '0'; entry.node.style.setProperty('--bt-gx', '0') }
-    if (entry.gy !== '0') { entry.gy = '0'; entry.node.style.setProperty('--bt-gy', '0') }
-  }
-}
-
-function clearGazeOffsets() {
-  gazeHub.point = null
-  if (gazeHub.frame) { cancelAnimationFrame(gazeHub.frame); gazeHub.frame = 0 }
-  for (const entry of gazeEntries.values()) {
-    if (entry.gx !== '') { entry.gx = ''; entry.node.style.removeProperty('--bt-gx') }
-    if (entry.gy !== '') { entry.gy = ''; entry.node.style.removeProperty('--bt-gy') }
-  }
-}
-
-function attachGazePointer() {
-  if (gazeHub.active) return
-  gazeHub.active = true
-  window.addEventListener('pointermove', onGazeMove, { passive: true })
-  document.documentElement.addEventListener('pointerleave', onGazeLeave)
-}
-
-function detachGazePointer() {
-  if (!gazeHub.active) return
-  gazeHub.active = false
-  window.removeEventListener('pointermove', onGazeMove)
-  document.documentElement.removeEventListener('pointerleave', onGazeLeave)
-  clearGazeOffsets()
-}
-
-function syncGazeHub() {
-  if (gazeEntries.size === 0 || gazeDisabled()) detachGazePointer()
-  else attachGazePointer()
-}
-
-function mountGazeHub() {
-  if (gazeHub.mounted) return
-  gazeHub.mounted = true
-  if (typeof MutationObserver === 'function' && document.body) {
-    gazeHub.mutationObserver = new MutationObserver(syncGazeHub)
-    gazeHub.mutationObserver.observe(document.body, { attributes: true, attributeFilter: ['data-bt-effects', 'data-bt-motion'] })
-  }
-  if (typeof IntersectionObserver === 'function') {
-    gazeHub.intersectionObserver = new IntersectionObserver((records) => {
-      for (const record of records) {
-        const entry = gazeEntries.get(record.target)
-        if (entry) entry.visible = record.isIntersecting
-      }
-    })
-  }
-  gazeHub.media = window.matchMedia?.('(prefers-reduced-motion: reduce)') ?? null
-  gazeHub.media?.addEventListener?.('change', syncGazeHub)
-  syncGazeHub()
-}
-
-function unmountGazeHub() {
-  if (!gazeHub.mounted) return
-  gazeHub.mounted = false
-  gazeHub.mutationObserver?.disconnect()
-  gazeHub.mutationObserver = null
-  gazeHub.intersectionObserver?.disconnect()
-  gazeHub.intersectionObserver = null
-  gazeHub.media?.removeEventListener?.('change', syncGazeHub)
-  gazeHub.media = null
-  detachGazePointer()
-}
-
-// Eyes follow the pointer on large marks.
-function useGaze(ref, enabled) {
+// The live layer: made once the mark has something to show (a state, life at rest, the
+// pointer), kept until the mark goes, so it plays its way back to rest. Marks that
+// follow the pointer share one listener in the live clock (avatar/live.js).
+function useLive(ref, { look, image, size, state, live, gaze, pokeable, seed }) {
+  const active = live || gaze || pokeable || state !== 'idle'
+  const shape = image ? `image:${image}` : look.shape
   useEffect(() => {
     const node = ref.current
-    if (!enabled || !node) return undefined
-    const entry = { node, gx: '', gy: '', visible: true }
-    gazeEntries.set(node, entry)
-    mountGazeHub()
-    gazeHub.intersectionObserver?.observe(node)
-    return () => {
-      gazeHub.intersectionObserver?.unobserve(node)
-      gazeEntries.delete(node)
-      node.style.removeProperty('--bt-gx')
-      node.style.removeProperty('--bt-gy')
-      if (gazeEntries.size === 0) unmountGazeHub()
+    if (!active || !node) return undefined
+    const def = image ? undefined : shapeOf(look.shape)
+    const mark = new LiveMark(node, { look: { shape: image ? 'image' : shapeId(look.shape), color: look.color }, def, size, seed, live, state, canvas: !image, follow: gaze })
+    const zone = live || pokeable ? node.parentElement?.closest(PET_ZONE) ?? (node.matches(PET_ZONE) ? node : pokeable ? node : null) : null
+    const enter = (event) => {
+      const box = node.getBoundingClientRect()
+      mark.act(engine => engine.pet(true, event.clientX < box.left + box.width / 2 ? -1 : 1))
     }
-  }, [enabled])
+    const leave = () => mark.act(engine => engine.pet(false))
+    zone?.addEventListener('pointerenter', enter)
+    zone?.addEventListener('pointerleave', leave)
+    return () => {
+      zone?.removeEventListener('pointerenter', enter)
+      zone?.removeEventListener('pointerleave', leave)
+      mark.destroy()
+    }
+  }, [active, shape])
+  useEffect(() => { ref.current?.__btLive?.update({ look: image ? undefined : { shape: shapeId(look.shape), color: look.color }, def: image ? undefined : shapeOf(look.shape), size, live, state, follow: gaze }) }, [look.color, size, live, state, gaze])
 }
 
 const sameLook = (a, b) => a === b || (a?.shape === b?.shape && a?.color === b?.color && a?.image === b?.image)
@@ -155,37 +63,31 @@ const sameBotLook = (a, b) => a === b || (
   && a?.avatar?.image === b?.avatar?.image
 )
 
-// A mark moves for its state. `live` marks (sidebar, header, details) also answer the
-// pointer, and at the lively motion level blink and fidget at rest (each Bot its own
-// fidget and moment); transcript marks stay still so a long chat does not run dozens
-// of animations.
-const FIDGETS = ['hop', 'sway', 'stretch', 'look']
+// A mark moves for its state. `live` marks (sidebar, header, details) also come alive at
+// rest and answer the pointer; transcript marks move only for a state, so a long chat
+// stays still. `gaze` follows the pointer; `pokeable` answers a click.
 export const BotMark = memo(function BotMark({ bot, look: given, size = 36, state = 'idle', live = false, gaze = false, pokeable = false, label }) {
   const look = given ?? lookOf(bot)
   const ref = useRef(null)
   const maskId = useRef('')
   if (maskId.current === '') maskId.current = `bt-mark-${nextMarkSerial()}`
-  const [poked, setPoked] = useState(false)
   // A photo that does not load shows the character instead; a new photo is tried again.
   const [broken, setBroken] = useState('')
   const image = look.image && look.image !== broken ? look.image : undefined
-  useGaze(ref, gaze && !image)
+  const markState = STATES.includes(state) ? state : 'idle'
+  useLive(ref, { look, image, size, state: markState, live, gaze, pokeable, seed: fnv1a(String(bot?.id ?? look.shape)) })
   const common = {
     ref,
-    className: poked ? 'bt-mark bt-mark-poke' : 'bt-mark',
+    className: 'bt-mark',
     'data-shape': image ? 'image' : shapeId(look.shape),
-    'data-state': STATES.includes(state) ? state : 'idle',
+    'data-state': markState,
     'data-live': live ? '' : undefined,
-    'data-fidget': live ? FIDGETS[fnv1a(`${bot?.id ?? ''}:fidget`) % FIDGETS.length] : undefined,
-    'data-gaze': gaze && !image ? '' : undefined,
     'data-poke': pokeable ? '' : undefined,
-    style: { width: size, height: size, ...(live ? { '--bt-delay': `${-(fnv1a(String(bot?.id ?? '')) % 5000) / 1000}s`, '--bt-fidget-delay': `${-(fnv1a(`${bot?.id ?? ''}:when`) % 9000) / 1000}s` } : {}) },
+    style: { width: size, height: size },
     role: label ? 'img' : undefined,
     'aria-label': label,
     'aria-hidden': label ? undefined : true,
-    onClick: pokeable ? () => { if (!reducedMotion() && document.body?.dataset.btMotion !== 'quiet') setPoked(true) } : undefined,
-    onAnimationEnd: poked ? (event) => { if (event.animationName.startsWith('bt-poke')) setPoked(false) } : undefined,
-    onAnimationCancel: poked ? () => setPoked(false) : undefined,
+    onClick: pokeable ? () => ref.current?.__btLive?.act(engine => engine.poke()) : undefined,
   }
   if (image) return h('span', common, h('img', { className: 'bt-mark-img', src: image, alt: '', draggable: false, onError: () => setBroken(image) }))
   const box = shapeOf(look.shape).size
