@@ -1635,15 +1635,23 @@ body[data-bt-goal="2"] [class*="_scroll"]:has(> [class*="_column"]){padding-top:
 [data-chat-flow]>.bt-typing{margin-top:var(--dsh-chat-flow-gap,12px)!important}
 .bt-typing{display:flex;align-items:center;gap:12px;height:36px;min-width:0;padding-inline-start:8px;transform-origin:0 50%;animation:bt-typing-in ${SPRING_TAP.duration}ms ${SPRING_TAP.easing} backwards}
 .bt-typing[data-exiting]{animation:bt-typing-out .14s cubic-bezier(.22,1,.36,1) forwards}
-.bt-typing>.bt-mark,.bt-typing>.bt-cluster{flex-shrink:0}
-.bt-typing>.bt-mark{cursor:pointer;transition:filter .16s ease-out}
-.bt-typing>.bt-mark:hover{filter:drop-shadow(0 2px 4px rgba(0,0,0,.18))}
-.bt-typing>.bt-mark .bt-eyes{transition:scale .28s cubic-bezier(.4,.06,.18,1)}
-.bt-typing>.bt-mark:hover .bt-eyes{scale:1.18}
-.bt-typing-text{display:flex;align-items:center;flex:1 1 auto;min-width:0;animation:bt-typing-label .22s ease-out .2s backwards}
+.bt-typing>.bt-typing-mark{display:inline-flex;flex-shrink:0}
+.bt-typing>.bt-mark,.bt-typing>.bt-cluster,.bt-typing>.bt-typing-mark>.bt-mark,.bt-typing>.bt-typing-mark>.bt-cluster{flex-shrink:0}
+.bt-typing .bt-mark{cursor:pointer;transition:filter .16s ease-out}
+.bt-typing .bt-mark:hover{filter:drop-shadow(0 2px 4px rgba(0,0,0,.18))}
+.bt-typing .bt-mark .bt-eyes{transition:scale .28s cubic-bezier(.4,.06,.18,1)}
+.bt-typing .bt-mark:hover .bt-eyes{scale:1.18}
+.bt-typing-text{display:flex;align-items:center;flex:0 1 auto;min-width:0;animation:bt-typing-label .22s ease-out .2s backwards}
 .bt-typing-label{display:inline-flex;align-items:center;gap:6px;min-width:0;animation:bt-typing-label .22s ease-out backwards}
 .bt-typing-label>.bt-shimmer{font-size:14px;line-height:22px;font-weight:400;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-typing-time{flex-shrink:0;margin-left:6px;font-size:12px;line-height:22px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums;white-space:nowrap}
+.bt-typing-bg{flex:none;display:inline-flex;align-items:center;gap:5px;height:24px;padding:0 10px 0 8px;margin-left:2px;border:.5px solid var(--bt-line-2);border-radius:999px;background:transparent;color:var(--bt-ink-2);font:inherit;font-size:12px;line-height:16px;font-weight:400;white-space:nowrap;cursor:pointer;transition:background-color .14s ease,color .14s ease,border-color .14s ease}
+.bt-typing-bg:hover:not(:disabled){background:var(--bt-hover);color:var(--bt-ink);border-color:color-mix(in srgb,var(--bt-ink) 22%,transparent)}
+.bt-typing-bg:active:not(:disabled){background:var(--bt-active)}
+.bt-typing-bg:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
+.bt-typing-bg:disabled{opacity:.55;cursor:default}
+.bt-typing-bg-ico{display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;opacity:.8}
+.bt-typing-bg-ico>svg{width:13px;height:13px}
 @keyframes bt-typing-in{from{opacity:0;transform:scale(.9)}}
 @keyframes bt-typing-out{from{opacity:1;transform:scale(1)}to{opacity:0;transform:scale(.92);filter:var(--bt-fx-blur-3,blur(3px))}}
 @keyframes bt-typing-label{from{opacity:0;filter:var(--bt-fx-blur-5,blur(5px));transform:translateY(3px)}}

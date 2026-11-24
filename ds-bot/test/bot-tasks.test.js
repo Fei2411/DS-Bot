@@ -149,7 +149,7 @@ async function startEnv({ team = makeTeam(), forkImpl, jobsList = () => [], appr
       page: async (sessionId) => ({ records: agentMap.get(sessionId)?.session.snapshotEvents() ?? [], hasMore: false }),
     },
     sessionTitle: { rename: async () => {} },
-    sessions: { flush: async () => {} },
+    sessions: { flush: async () => true },
   })
   const origGet = ctx.get
   let apiRoute
