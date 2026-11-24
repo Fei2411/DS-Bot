@@ -358,6 +358,13 @@ export function install(rt) {
         parentWork = rt.closeWork?.(task.workId, `task "${task.title}"`, resultSummary)
       }
 
+      if (task.roomId !== undefined && outcome !== 'completed') {
+        const cause = outcome === 'interrupted' ? { cause: 'restarted' }
+          : outcome === 'stopped' ? { cause: 'stopped' }
+          : { cause: 'failed', code: 'TASK' }
+        rt.blockTasks?.(task.roomId, bot.id, cause)
+      }
+
       pruneSettledTasks(bot)
       await rt.save()
       emitTaskEvent(`task.${outcome}`, bot, task, {

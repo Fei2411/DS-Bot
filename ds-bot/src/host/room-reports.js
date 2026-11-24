@@ -445,7 +445,16 @@ export function createRoomReports(rt, deps) {
     }
     if (room.members.some(id => memberBusyForReport(room, id, report.fromTaskId))) return true
     if (Object.values(batches()).some(batch => batch.roomId === room.id && batchActivelyBusy(room, batch, report.fromTaskId, report.botId))) return true
-    if (room.goal?.status === 'active' && room.goal.idle !== true) return true
+    const activeGoalAdmin = room.admin !== undefined && room.admin !== null && room.members.includes(room.admin) && rt.botOf(room.admin) !== undefined
+    if (room.goal?.status === 'active' && room.goal.idle !== true && activeGoalAdmin) {
+      if (!startup) return true
+      // On startup with no active/recovering round, member, batch, or queued relay left,
+      // an active goal is dormant until the user continues; mark it idle instead of deadlocking reports.
+      room.goal.idle = true
+      room.goal.revision = (room.goal.revision ?? 0) + 1
+      room.goal.updatedAt = Date.now()
+      saveSoon()
+    }
     return false
   }
 

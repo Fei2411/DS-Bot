@@ -2051,8 +2051,11 @@ export function install(rt) {
         // A restart pass must find this thread's new part, not the foreground chat.
         if (state.switching[agent.id] !== undefined) state.switching[agent.id].next = successor
       }
+    }
+    if (bot !== undefined) {
       // The card's call stays in the old part: the fresh part raises it in the
-      // composer dock while pending, and closing it records at the part that asked it.
+      // composer dock (and IM routing for group members) while pending, and closing it
+      // records at the part that asked it.
       if (state.questions[agent.id] !== undefined) {
         const pending = state.questions[agent.id]
         state.questions[freshId] = pending.callId && !pending.callSessionId ? { ...pending, callSessionId: agent.id } : pending
