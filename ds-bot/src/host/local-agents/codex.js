@@ -2,7 +2,7 @@
 // JSON-RPC process per route that multiplexes threads. DS Bot Sessions map to
 // threads; turns stream item notifications back.
 import { JsonRpcPeer, wireProcess, EventQueue } from './jsonrpc.js'
-import { cleanEnv, findEngineExecutable, spawnAgent, terminateChild } from './discover.js'
+import { PROBE_FORCE_KILL_AFTER_MS, cleanEnv, findEngineExecutable, probeEnv, spawnAgent, terminateChild } from './discover.js'
 
 // The name the loopback MCP server is registered under in each thread's config.
 const MCP_SERVER = 'dsbot'
@@ -30,11 +30,11 @@ export class CodexEngine {
     return thread
   }
 
-  async ensure() {
+  async ensure({ probe = false } = {}) {
     // A peer exists before its handshake has finished; other callers wait for it.
     if (this.starting !== undefined) return this.starting
     if (this.peer !== undefined) return this.peer
-    const starting = this.startPeer()
+    const starting = this.startPeer({ probe })
     this.starting = starting
     try {
       return await starting
@@ -43,11 +43,11 @@ export class CodexEngine {
     }
   }
 
-  async startPeer() {
+  async startPeer({ probe = false } = {}) {
     const bin = findEngineExecutable(this.engine, name => this.findExecutable(name))
     if (bin === undefined) throw Object.assign(new Error(`${this.engine.name} is not installed`), { code: 'NO_ADAPTER' })
     const child = spawnAgent(bin, this.engine.args ?? [], {
-      env: cleanEnv(this.engine.env ?? {}),
+      env: (probe ? probeEnv : cleanEnv)(this.engine.env ?? {}),
       stdio: ['pipe', 'pipe', 'inherit'],
       windowsHide: true,
     })
@@ -84,7 +84,7 @@ export class CodexEngine {
       if (this.child === child) {
         this.child = undefined
         this.peer = undefined
-        terminateChild(child)
+        terminateChild(child, probe ? { forceKillAfterMs: PROBE_FORCE_KILL_AFTER_MS } : undefined)
       }
       throw error
     }
@@ -305,7 +305,7 @@ export class CodexEngine {
   }
 
   async listModels() {
-    const peer = await this.ensure()
+    const peer = await this.ensure({ probe: true })
     const reply = await peer.request('model/list', {}, { timeout: 30_000 })
     return (reply?.data ?? reply?.models ?? []).map((entry) => {
       const model = {
@@ -326,7 +326,7 @@ export class CodexEngine {
     })
   }
 
-  async close() {
+  async close({ forceKillAfterMs } = {}) {
     for (const thread of this.threads.values()) this.releaseCompaction(thread)
     const child = this.child
     this.child = undefined
@@ -334,11 +334,9 @@ export class CodexEngine {
     this.starting = undefined
     if (child === undefined) return this.closing
     if (child.exitCode !== null || child.signalCode !== null) return
-    this.closing = new Promise(resolve => {
-      const timer = setTimeout(() => { try { child.kill('SIGKILL') } catch {} }, 5_000)
-      timer.unref?.()
-      child.once('close', () => { clearTimeout(timer); resolve() })
-      child.kill('SIGTERM')
+    this.closing = new Promise((resolve) => {
+      child.once('close', () => resolve())
+      terminateChild(child, forceKillAfterMs === undefined ? undefined : { forceKillAfterMs })
     })
     return this.closing
   }

@@ -1,7 +1,7 @@
 // Finding agent CLIs and the environment they run in: PATH plus the user's
 // login-shell PATH plus the usual install folders, and an environment that
 // keeps their own sign-in but leaks nothing of ours.
-import { execFile, spawn } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { delimiter, isAbsolute, join, posix, win32 } from 'node:path'
@@ -13,9 +13,18 @@ const DROP_EXACT = new Set([
   'CLAUDE_CODE_OAUTH_TOKEN', 'GEMINI_API_KEY', 'GOOGLE_API_KEY', 'XAI_API_KEY', 'ELECTRON_RUN_AS_NODE',
 ])
 const DROP_PREFIX = ['DS_BOT_', 'DSH_', 'ANTIGRAVITY_', 'AGY_', 'DEEPSEEK_']
+export const PROBE_FORCE_KILL_AFTER_MS = 1_000
+const DEFAULT_FORCE_KILL_AFTER_MS = 5_000
+const MAX_PROBE_OUTPUT_BYTES = 1024 * 1024
+const POST_KILL_CLOSE_MS = 250
 
 function isFile(path) {
   try { return statSync(path).isFile() } catch { return false }
+}
+
+function findEnvKey(env, upperName) {
+  if (env === undefined || env === null) return undefined
+  return Object.keys(env).find(key => key.toUpperCase() === upperName && env[key] !== undefined)
 }
 
 export function cleanEnv(extra = {}) {
@@ -33,19 +42,184 @@ export function cleanEnv(extra = {}) {
   return { ...env, ...extra }
 }
 
+// Background probes disable mise auto-install/network metadata fetches unless the
+// user explicitly configured MISE_OFFLINE; live sessions keep plain cleanEnv().
+export function withProbeEnv(env = cleanEnv()) {
+  const next = { ...env }
+  if (findEnvKey(next, 'MISE_OFFLINE') === undefined) next.MISE_OFFLINE = '1'
+  return next
+}
+
+export function probeEnv(extra = {}) {
+  return withProbeEnv(cleanEnv(extra))
+}
+
+function probeEnvWithOverride(overrideEnv) {
+  const key = findEnvKey(overrideEnv, 'MISE_OFFLINE')
+  return probeEnv(key === undefined ? {} : { MISE_OFFLINE: String(overrideEnv[key]) })
+}
+
 export function agentEnv(executable, env, { platform = process.platform, find = name => findExecutable(name, { platform, env }) } = {}) {
   if (platform !== 'win32' || !/^pi-acp(?:\.(?:cmd|bat|exe))?$/iu.test(win32.basename(executable)) || Object.keys(env).some(key => key.toUpperCase() === 'PI_ACP_PI_COMMAND')) return env
   const pi = find('pi')
   return pi === undefined ? env : { ...env, PI_ACP_PI_COMMAND: pi }
 }
 
+function signalChild(child, signal, { processGroup = false } = {}) {
+  if (child === undefined) return
+  const pid = child.pid
+  if (process.platform === 'win32' && signal === 'SIGKILL') {
+    if (Number.isSafeInteger(pid) && pid > 0) {
+      try {
+        const killer = spawn('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true })
+        killer.on('error', () => {})
+        killer.unref?.()
+      } catch {}
+    }
+    try { child.kill() } catch {}
+    return
+  }
+  // Negative PID targets the detached child's process group so grandchildren holding
+  // stdout/stderr pipes die together; guard pid > 1 to never signal pgid 0 or -1.
+  if (processGroup && process.platform !== 'win32' && Number.isSafeInteger(pid) && pid > 1) {
+    try {
+      process.kill(-pid, signal)
+      return
+    } catch {}
+  }
+  if (child.exitCode == null && child.signalCode == null) {
+    try { child.kill(signal) } catch {}
+  }
+}
+
+// Runs a short-lived probe child with bounded timeout, SIGTERM->SIGKILL escalation
+// across its process group/tree, and capped output so a hung or SIGTERM-ignoring CLI
+// never stalls discovery or leaks orphan processes.
+export function runProbeCommand(file, args, {
+  env,
+  timeoutMs = 5_000,
+  forceKillAfterMs = PROBE_FORCE_KILL_AFTER_MS,
+  maxOutputBytes = MAX_PROBE_OUTPUT_BYTES,
+  signal,
+  spawnOptions = {},
+} = {}) {
+  if (signal?.aborted) {
+    return Promise.resolve({ ok: false, timedOut: false, aborted: true, overflowed: false, stdout: '', stderr: '', code: null, signal: null, error: new Error('probe aborted') })
+  }
+  if (timeoutMs <= 0) {
+    return Promise.resolve({ ok: false, timedOut: true, aborted: false, overflowed: false, stdout: '', stderr: '', code: null, signal: null, error: new Error('probe timed out') })
+  }
+  return new Promise((resolve) => {
+    const processGroup = process.platform !== 'win32'
+    let child
+    try {
+      child = spawn(file, args, {
+        ...spawnOptions,
+        env: withProbeEnv(env ?? cleanEnv()),
+        stdio: ['ignore', 'pipe', 'pipe'],
+        windowsHide: true,
+        detached: processGroup,
+      })
+    } catch (error) {
+      resolve({ ok: false, timedOut: false, aborted: false, overflowed: false, stdout: '', stderr: '', code: null, signal: null, error })
+      return
+    }
+
+    let settled = false
+    let timedOut = false
+    let aborted = false
+    let overflowed = false
+    let killing = false
+    let stdout = ''
+    let stderr = ''
+    let stdoutBytes = 0
+    let stderrBytes = 0
+    let timeoutTimer
+    let forceKillTimer
+    let postKillTimer
+
+    const cleanup = () => {
+      clearTimeout(timeoutTimer)
+      clearTimeout(forceKillTimer)
+      clearTimeout(postKillTimer)
+      signal?.removeEventListener('abort', onAbort)
+    }
+
+    const finish = ({ code = null, sig = null, spawnError } = {}) => {
+      if (settled) return
+      settled = true
+      cleanup()
+      const ok = spawnError === undefined && !timedOut && !aborted && !overflowed && code === 0 && sig === null
+      const error = ok ? null : (spawnError ?? new Error(
+        timedOut ? 'probe timed out'
+          : aborted ? 'probe aborted'
+            : overflowed ? 'probe output limit exceeded'
+              : `probe exited${sig !== null ? ` on ${sig}` : code !== null ? ` with code ${code}` : ''}`,
+      ))
+      resolve({ ok, timedOut, aborted, overflowed, stdout, stderr, code, signal: sig, error })
+    }
+
+    const beginKill = () => {
+      if (killing || settled) return
+      killing = true
+      signalChild(child, 'SIGTERM', { processGroup })
+      forceKillTimer = setTimeout(() => {
+        if (settled) return
+        signalChild(child, 'SIGKILL', { processGroup })
+        postKillTimer = setTimeout(() => {
+          child.stdout?.destroy()
+          child.stderr?.destroy()
+          finish({ code: child.exitCode, sig: child.signalCode ?? 'SIGKILL' })
+        }, POST_KILL_CLOSE_MS)
+        postKillTimer.unref?.()
+      }, Math.max(0, forceKillAfterMs))
+      forceKillTimer.unref?.()
+    }
+
+    const onAbort = () => {
+      aborted = true
+      beginKill()
+    }
+
+    child.stdout?.on('data', (chunk) => {
+      const size = Buffer.isBuffer(chunk) ? chunk.length : Buffer.byteLength(chunk)
+      if (stdoutBytes + size > maxOutputBytes) {
+        overflowed = true
+        beginKill()
+        return
+      }
+      stdoutBytes += size
+      stdout += Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk)
+    })
+    child.stderr?.on('data', (chunk) => {
+      const size = Buffer.isBuffer(chunk) ? chunk.length : Buffer.byteLength(chunk)
+      if (stderrBytes + size > maxOutputBytes) {
+        overflowed = true
+        beginKill()
+        return
+      }
+      stderrBytes += size
+      stderr += Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk)
+    })
+
+    child.once('error', spawnError => finish({ spawnError }))
+    child.once('close', (code, sig) => finish({ code, sig }))
+
+    timeoutTimer = setTimeout(() => {
+      timedOut = true
+      beginKill()
+    }, timeoutMs)
+    timeoutTimer.unref?.()
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
+}
+
 // A command's output, or undefined. Never synchronous: this runs inside the DSH
 // host, and a blocking child process there freezes every Session.
-const outputOf = (file, args) => new Promise((resolve) => {
-  try {
-    execFile(file, args, { encoding: 'utf8', timeout: 5_000, env: cleanEnv() }, (error, stdout) => resolve(error === null ? stdout : undefined))
-  } catch { resolve(undefined) }
-})
+const outputOf = async (file, args, options) => {
+  const result = await runProbeCommand(file, args, { timeoutMs: 5_000, forceKillAfterMs: PROBE_FORCE_KILL_AFTER_MS, env: probeEnv(), ...options })
+  return result.ok ? result.stdout : undefined
+}
 
 // macOS/Linux apps launched from a dock icon inherit a sparse PATH; the login
 // shell knows where the user actually installed things, and so does npm's global
@@ -165,10 +339,22 @@ export function launchOf(executable, args, { platform = process.platform, readFi
 }
 
 // spawn() for an agent CLI, also when Windows found it as a `.cmd` shim.
-export function terminateChild(child) {
-  if (child === undefined) return
-  try { child.kill('SIGTERM') } catch {}
-  setTimeout(() => { try { child.kill('SIGKILL') } catch {} }, 5_000).unref?.()
+export function terminateChild(child, { forceKillAfterMs = DEFAULT_FORCE_KILL_AFTER_MS, processGroup = false } = {}) {
+  if (child === undefined || child.exitCode != null || child.signalCode != null) return
+  signalChild(child, 'SIGTERM', { processGroup })
+  const timer = setTimeout(() => {
+    if (child.exitCode == null && child.signalCode == null) signalChild(child, 'SIGKILL', { processGroup })
+  }, Math.max(0, forceKillAfterMs))
+  timer.unref?.()
+  if (typeof child.once === 'function') {
+    const clear = () => {
+      clearTimeout(timer)
+      child.off?.('exit', clear)
+      child.off?.('close', clear)
+    }
+    child.once('exit', clear)
+    child.once('close', clear)
+  }
 }
 
 export function spawnAgent(executable, args, options) {
@@ -177,16 +363,21 @@ export function spawnAgent(executable, args, options) {
 }
 
 // One `--version` call, bounded; the version line is for display only.
-export function probeVersion(executable, args, env) {
-  return new Promise((resolve) => {
-    try {
-      const launch = launchOf(executable, args)
-      execFile(launch.file, launch.args, { encoding: 'utf8', timeout: 10_000, env, windowsHide: true, ...launch.options }, (error, stdout, stderr) => {
-        const text = `${stdout ?? ''}${stderr ?? ''}`.split('\n').map(line => line.trim()).find(Boolean)
-        resolve({ ok: error === null, version: text })
-      })
-    } catch { resolve({ ok: false, version: undefined }) }
-  })
+export async function probeVersion(executable, args, env, { timeoutMs = 10_000, forceKillAfterMs = PROBE_FORCE_KILL_AFTER_MS, signal } = {}) {
+  try {
+    const launch = launchOf(executable, args)
+    const result = await runProbeCommand(launch.file, launch.args, {
+      timeoutMs,
+      forceKillAfterMs,
+      signal,
+      env: withProbeEnv(env ?? cleanEnv()),
+      spawnOptions: launch.options,
+    })
+    const text = `${result.stdout}${result.stderr}`.split('\n').map(line => line.trim()).find(Boolean)
+    return { ok: result.ok, version: text }
+  } catch {
+    return { ok: false, version: undefined }
+  }
 }
 
 function parseJsonSignIn(stdout) {
@@ -229,7 +420,7 @@ function probeMacKeychainItem(service, account, spawnKeychain, timeoutMs) {
       // Without -g or -w this looks up metadata only. A miss proves nothing:
       // the CLI may be using a fallback credential store.
       const child = spawnKeychain('/usr/bin/security', ['find-generic-password', '-s', service, '-a', account], {
-        env: cleanEnv(), stdio: 'ignore', signal: AbortSignal.timeout(timeoutMs), killSignal: 'SIGKILL',
+        env: probeEnv(), stdio: 'ignore', signal: AbortSignal.timeout(timeoutMs), killSignal: 'SIGKILL',
       })
       child.once('error', () => resolve(null))
       child.once('close', (code) => resolve(code === 0 ? true : null))
@@ -343,7 +534,7 @@ function resolvePlatformFile(spec, home, platform, env) {
   return join(base, ...entry.path)
 }
 
-function probeOne(executable, check, { home, platform, env, spawnKeychain, timeoutMs, deadline }) {
+function probeOne(executable, check, { home, platform, env, spawnKeychain, timeoutMs, forceKillAfterMs, signal, deadline }) {
   if (check.macKeychain !== undefined) {
     return platform === 'darwin' ? probeMacKeychain(check.macKeychain, spawnKeychain, timeoutMs) : Promise.resolve(null)
   }
@@ -358,22 +549,26 @@ function probeOne(executable, check, { home, platform, env, spawnKeychain, timeo
   if (check.args === undefined) return Promise.resolve(null)
   const remaining = deadline - Date.now()
   if (remaining <= 0) return Promise.resolve(null)
-  return new Promise((resolve) => {
-    try {
-      const launch = launchOf(executable, check.args)
-      execFile(launch.file, launch.args, { encoding: 'utf8', timeout: remaining, env: cleanEnv(), windowsHide: true, ...launch.options }, (error, stdout, stderr) => {
-        resolve(classifySignIn(error, stdout, stderr, check))
-      })
-    } catch { resolve(null) }
-  })
+  try {
+    const launch = launchOf(executable, check.args)
+    return runProbeCommand(launch.file, launch.args, {
+      timeoutMs: remaining,
+      forceKillAfterMs,
+      signal,
+      env: probeEnvWithOverride(env),
+      spawnOptions: launch.options,
+    }).then(result => classifySignIn(result.ok ? null : result.error, result.stdout, result.stderr, check))
+  } catch {
+    return Promise.resolve(null)
+  }
 }
 
 // true, false, or null when the check cannot tell. Only a CLI's status command
 // can say false; a missing credential in one store proves nothing.
-export async function probeSignIn(executable, check, { home = homedir(), platform = process.platform, env = process.env, spawnKeychain = spawn, timeoutMs = SIGN_IN_TIMEOUT_MS } = {}) {
+export async function probeSignIn(executable, check, { home = homedir(), platform = process.platform, env = process.env, spawnKeychain = spawn, timeoutMs = SIGN_IN_TIMEOUT_MS, forceKillAfterMs = PROBE_FORCE_KILL_AFTER_MS, signal } = {}) {
   const deadline = Date.now() + timeoutMs
   for (let current = check; current !== undefined; current = current.fallback) {
-    const result = await probeOne(executable, current, { home, platform, env, spawnKeychain, timeoutMs, deadline })
+    const result = await probeOne(executable, current, { home, platform, env, spawnKeychain, timeoutMs, forceKillAfterMs, signal, deadline })
     if (result !== null) return result
   }
   return null

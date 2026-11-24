@@ -14,7 +14,7 @@ import { AcpEngine } from './acp.js'
 import { CodexEngine } from './codex.js'
 import { ClaudeEngine } from './claude.js'
 import { ENGINES, customRoute, isLocalAgentRoute, signInFor, validateCustom } from './engines.js'
-import { cleanEnv, findEngineExecutable, findExecutable, probeSignIn, probeVersion, refreshSearchDirs } from './discover.js'
+import { findEngineExecutable, findExecutable, probeEnv, probeSignIn, probeVersion, refreshSearchDirs } from './discover.js'
 
 const SIGNED_IN_TTL_MS = 60_000
 const SIGNED_IN_RETRY_MS = 20_000
@@ -34,7 +34,7 @@ const spawnEngine = (kind, route, spec) => (kind === 'acp' ? new AcpEngine(route
   : kind === 'codex' ? new CodexEngine(route, spec, { findExecutable })
     : new ClaudeEngine(route, spec, { findExecutable }))
 
-export function install(rt, { probeSignIn: checkSignIn = probeSignIn, now = Date.now } = {}) {
+export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersion: checkVersion = probeVersion, now = Date.now } = {}) {
   const { ctx, state } = rt
   // state.localAgents is replaced by the state load after install; read it
   // each time instead of holding the pre-load object.
@@ -51,6 +51,7 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, now = Date
 
   // Only CLIs found on this machine get a route; the scan result feeds the page.
   const found = new Map()
+  let nextProbeEpoch = 0
   let disposed = false
   async function scan() {
     await refreshSearchDirs()
@@ -64,12 +65,28 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, now = Date
     applyRoutes()
     return [...found.values()]
   }
-  async function probeVersions() {
+  async function probeVersions({ force = false } = {}) {
     await Promise.all([...found.values()].map(async (entry) => {
-      if (entry.version !== undefined) return
-      const spec = ENGINES[entry.route]
-      const result = await probeVersion(entry.path, spec.version ?? ['--version'], cleanEnv(spec.env ?? {})).catch(() => undefined)
-      entry.version = result?.version
+      if (!force && entry.version !== undefined) return
+      if (force || entry.versionProbe === undefined) {
+        const epoch = ++nextProbeEpoch
+        entry.versionEpoch = epoch
+        const spec = ENGINES[entry.route]
+        const probe = Promise.resolve()
+          .then(() => checkVersion(entry.path, spec.version ?? ['--version'], probeEnv(spec.env ?? {})))
+          .catch(() => undefined)
+          .then((result) => {
+            if (entry.versionEpoch !== epoch || entry.versionProbe !== probe || found.get(entry.route) !== entry) return
+            entry.version = result?.version
+          })
+          .finally(() => {
+            if (entry.versionProbe === probe) delete entry.versionProbe
+          })
+        entry.versionProbe = probe
+      }
+      while (entry.versionProbe !== undefined) {
+        await entry.versionProbe
+      }
     }))
   }
   // Asked only when the list of CLIs is about to show, never at start or for a menu.
@@ -85,8 +102,10 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, now = Date
         if (entry.signedIn !== undefined && now() - entry.signedInAt < ttl) return
       }
       if (force || entry.signInProbe === undefined) {
+        const epoch = ++nextProbeEpoch
+        entry.signInEpoch = epoch
         const probe = Promise.resolve().then(() => checkSignIn(entry.path, check)).catch(() => null).then((result) => {
-          if (entry.signInProbe !== probe) return
+          if (entry.signInEpoch !== epoch || entry.signInProbe !== probe || found.get(entry.route) !== entry) return
           entry.signedIn = result
           entry.signedInAt = now()
         }).finally(() => {
@@ -100,8 +119,8 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, now = Date
     }))
   }
   // A signed-out CLI or a slow one never holds back the list for long: each check is bounded.
-  async function freshList({ forceSignIn = false } = {}) {
-    await Promise.all([probeVersions(), probeSignIns({ force: forceSignIn })])
+  async function freshList({ forceSignIn = false, forceVersion = false } = {}) {
+    await Promise.all([probeVersions({ force: forceVersion }), probeSignIns({ force: forceSignIn })])
     return { available: supported(), detected: detected(), custom: customView() }
   }
 
@@ -254,7 +273,7 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, now = Date
         adapter.dropModelCache()
         await scan()
         await rt.catalog?.({ fresh: true })
-        return freshList({ forceSignIn: true })
+        return freshList({ forceSignIn: true, forceVersion: true })
       }
       case 'local-agent-models': {
         const models = await localAgentModels(String(body.route ?? ''))
