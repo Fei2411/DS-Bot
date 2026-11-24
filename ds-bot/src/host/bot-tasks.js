@@ -2334,9 +2334,14 @@ export function install(rt) {
             const contextNote = fallbackContextSummary(oldSid)
             if (contextNote !== '') {
               try {
-                const notice = `[Background task notice] Your earlier turn ("${task.title}", ${task.id}) just finished in the background; its result is being delivered next.${contextNote}`
                 await rt.ensureCapabilities(newSid)
                 const freshAgent = await rt.resolveAgent(newSid)
+                const isTaskReport = message => message?.source?.kind === SOURCE_KIND
+                  && message.source.role === 'task-report' && message.source.taskId === task.id
+                const reported = freshAgent.session?.snapshotEvents?.().some(event => event.type === 'user/message' && isTaskReport(event.data))
+                  || freshAgent.inbox?.nextStep?.some(isTaskReport) || freshAgent.inbox?.nextTurn?.some(isTaskReport)
+                const result = reported ? 'Its report has already been sent here.' : 'Its result is being delivered next.'
+                const notice = `[Background task notice] Your earlier turn ("${task.title}", ${task.id}) finished in the background. ${result}${contextNote}`
                 freshAgent.inject?.(createUserMessage({
                   content: [{ type: 'text', text: notice }],
                   source: { kind: SOURCE_KIND, form: 'relay', role: 'task-handoff', taskId: task.id },

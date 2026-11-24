@@ -20,7 +20,7 @@ const settle = async (check, ms = 4000, label = 'condition not reached') => {
 
 const textOf = message => (message?.content ?? []).map(block => block.text ?? '').join('\n')
 
-async function createRealLoopRig(t, { prefs = {}, failForkAndCreate = false, holdFirstModel = false, holdFork = false, delayResolveMs = 0, enableFlushPersistence = true, durable = false, slowSessionId = 'dm-a' } = {}) {
+async function createRealLoopRig(t, { prefs = {}, failFork = false, failForkAndCreate = false, holdFirstModel = false, holdFork = false, delayResolveMs = 0, enableFlushPersistence = true, durable = false, slowSessionId = 'dm-a' } = {}) {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-fg-loop-'))
   const workDir = join(home, 'team')
   mkdirSync(workDir, { recursive: true })
@@ -176,7 +176,7 @@ async function createRealLoopRig(t, { prefs = {}, failForkAndCreate = false, hol
             forkStarted.resolve()
             await forkGate.promise
           }
-          if (failForkAndCreate) throw new Error('simulated fork failure')
+          if (failFork || failForkAndCreate) throw new Error('simulated fork failure')
           const sid = `fork-${++forkSeq}`
           await makeRealAgent(sid)
           return { sessionId: sid }
@@ -1032,6 +1032,47 @@ test('a failed foreground commit replays held input without another move request
     && message.source.taskId === task.id && textOf(message).includes('is still running'))
   const promptIndex = queuedMessages.findIndex(message => message.source?.rpcId === prompt.source.rpcId)
   assert.ok(noticeIndex >= 0 && noticeIndex < promptIndex, 'the active task notice must precede the recovered correction')
+})
+
+test('replay of a non-forked handoff does not promise a report already delivered', async (t) => {
+  const rig = await createRealLoopRig(t, { durable: true, holdFork: true, failFork: true })
+  const old = rig.agents.get('dm-a')
+  old.followup(userPrompt('Please run slow work'))
+  await rig.toolStarted.promise
+  const moved = beginMove(rig)
+  await rig.forkStarted.promise
+  const prompt = userPrompt('Use the result that is already here', 'already-reported')
+  old.steer(prompt)
+  await rig.rt.save()
+  assert.deepEqual(journal(rig).map(item => item.messageId), [prompt.id])
+
+  const save = rig.rt.save
+  const blocked = t.mock.method(rig.rt, 'save', async (options) => {
+    if (options?.required && rig.rt.botOf('a').sessionId !== 'dm-a') {
+      throw Object.assign(new Error('Foreground commit write blocked'), { code: 'EBUSY' })
+    }
+    return save(options)
+  })
+  rig.forkGate.resolve()
+  assert.equal((await moved).code, 'EBUSY')
+  const fresh = rig.agents.get(rig.rt.botOf('a').sessionId)
+  assert.match(fresh.id, /^new-/)
+  const task = rig.rt.botOf('a').tasks.find(item => item.sessionId === 'dm-a')
+  const transcript = () => fresh.session.snapshotEvents().filter(event => event.type === 'user/message').map(event => event.data)
+  const fromTask = role => message => message.source?.role === role && message.source.taskId === task.id
+  rig.toolGate.resolve()
+  await settle(() => transcript().some(fromTask('task-report')), 4000, 'the background task must have reported before replay')
+  assert.equal(task.status, 'completed')
+  assert.equal(transcript().some(message => message.source?.rpcId === prompt.source.rpcId), false)
+
+  blocked.mock.restore()
+  await settle(() => transcript().some(message => message.source?.rpcId === prompt.source.rpcId) && journal(rig).length === 0,
+    4500, 'the held prompt should be delivered after writes recover')
+  const delivered = transcript()
+  assert.equal(delivered.filter(fromTask('task-report')).length, 1)
+  const context = delivered.find(fromTask('task-handoff'))
+  assert.ok(context, 'the non-forked chat should still receive the old turn context')
+  assert.doesNotMatch(textOf(context), /result is being delivered next/)
 })
 
 test('legacy handoff records with the same RPC ID replay independently for different Bots', async (t) => {
