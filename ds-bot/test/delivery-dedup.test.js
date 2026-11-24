@@ -502,6 +502,29 @@ test('restart replays an unread child reply in its background task without rerun
 
 test('restart keeps a task active when a child reply is still in the agent inbox', t => checkUnreadTaskReply(t, true))
 
+test('restart finds an unread task follow-up in the task’s successor inbox', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-dedup-moved-task-'))
+  const seed = baseSeed()
+  seed.bots.b.tasks = [{ id: 'task-1', sessionId: 'b-task-new', segments: [{ sessionId: 'b-task-old' }], title: 'Background task', status: 'running' }]
+  writeFileSync(join(home, 'state.json'), JSON.stringify(seed))
+  const args = { toId: 'b', sessionId: 'b-task-old', role: 'task-followup', taskId: 'task-1', exchangeId: 'followup', text: 'Only for the task' }
+  writeFileSync(join(home, 'inflight.json'), JSON.stringify({ turns: {}, queued: { 'b-task-old': [{ at: 1, args }] } }))
+  const host = await createRestartHost(t, home, new Map())
+  t.after(async () => {
+    await host.stop()
+    rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 })
+  })
+  host.agentOf('b-task-new').inbox.nextTurn.push({ source: { kind: 'bot', exchangeId: args.exchangeId } })
+  const reconciliation = t.mock.method(host.rt, 'reconcileTasksAfterRestart')
+  t.mock.timers.tick(3000)
+  await settle(() => reconciliation.mock.callCount() > 0)
+  await reconciliation.mock.calls[0].result
+  assert.deepEqual(host.agentOf('b').calls, [], 'the foreground must not receive the task follow-up')
+  assert.deepEqual(host.agentOf('b-task-new').calls, [], 'the successor inbox already has the follow-up')
+  assert.equal(host.rt.state.bots.b.tasks[0].status, 'running')
+})
+
 test('answerSender keeps separate continuations for distinct parent works sharing a failed turn', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-dedup-parents-'))
   const seed = baseSeed()

@@ -349,10 +349,13 @@ export function install(rt) {
     return true
   }
 
-  // Where a queued note goes now: its Session if it still is one, else the
-  // current Session of its Bot, or of its group when the message went to one.
-  const sessionFor = (sessionId, args) => (rt.isBotSession(sessionId) ? sessionId
-    : args?.roomId === undefined ? rt.chatOf(args?.toId) : rt.roomOf(args.roomId)?.sessions?.[args.toId])
+  // A moved inbox can still have notes keyed to its earlier part.
+  const sessionFor = (sessionId, args) => {
+    if (rt.isBotSession(sessionId)) return sessionId
+    const bot = rt.botOf(args.toId)
+    if (threadOfPart(bot, sessionId)?.thread === 'task') return threadCurrentOfPart(bot, sessionId)
+    return args.roomId === undefined ? rt.chatOf(args.toId) : rt.roomOf(args.roomId)?.sessions?.[args.toId]
+  }
 
   // A hard stop keeps the inbox, which the Session runs once it wakes; only what DSH
   // cancelled is sent again. The notes stay queued until a turn takes the messages
