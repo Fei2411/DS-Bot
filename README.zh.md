@@ -119,7 +119,7 @@ Main Bot 是你的团队总管，拥有创建和修改其他 Bot、管理群聊�
 
 ### 联网搜索与 DeepSeek 服务
 
-- **联网搜索**：`auto` 搜索坚持使用发起会话自己的模型路由与 Key（绝不借用其他路由的 Key），支持同源 DeepSeek 官方 Search API，不可用时回退至无 Key 搜索。如需所有模型统一使用官方 Search / Fetch API，可在 **插件 → 网页搜索** 打开 **Use the new Web Search API**。
+- **联网搜索**：`auto` 搜索坚持使用发起会话自己的模型路由与 Key（绝不借用其他路由的 Key），支持同源 DeepSeek 官方 Search API，不可用时回退至无 Key 搜索。如需所有模型统一使用官方 Search / Fetch API，可在 **插件 → 网页搜索** 打开 **Use the new Web Search API**。在 DeepSeek 模型上走的是 DeepSeek Search API，而非 DeepSeek Harness 自带的 `deepseek-official` 提供者，因此会话日志里不会有 `web/deepseek-search-llm-request` 事件（[详见](ds-bot/README.md#web-search)）。
 - **DeepSeek 服务**（**设置 → 模型 → DeepSeek 服务**）：在 **设置 → 模型 → 服务商** 配好 DeepSeek API Key 后，可为任意主模型单独开启文档/图片识别（`read_document`）、DeepSeek 朗读与 DeepSeek 听写。各项默认关闭，按自己的 API Key 用量计费。
 
 ### Office 文件

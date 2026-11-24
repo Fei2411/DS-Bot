@@ -152,6 +152,8 @@ The package includes a second plugin, `ds-bot/web-search`. It registers the sear
 
 Each result starts with a `Search backend: …` line that names the path it took.
 
+On a DeepSeek model, `auto` calls the route's DeepSeek Search API first and the Messages server-side search only after it fails. DeepSeek Harness's own `deepseek-official` provider then never runs, so the search appends no `web/deepseek-search-llm-request` event to the Session log, and a successful search is billed by the Search API rather than as a model turn. To use DeepSeek Harness's provider and that event instead, name `deepseek-official` for the `web` row in a profile patch; it then serves every model, and a search outside a DeepSeek route runs the DeepSeek Search API.
+
 **Turning `auto` off**: the `web` row still names `auto` when you turn off only the `web-search-auto` row (in the sidebar's Plugins page or with `disabled: true` in a profile patch). Then `web_search` fails in every session, Bot or not, with `WEB_PROVIDER_CONFIGURED_MISSING` (`configured web provider "auto" is not registered`). When you turn that row off, also name another `searchProvider` for the `web` row in the profile's `cordis.patch.yml`. The override replaces the row's whole config, so restate `fetchProvider`:
 
 ```yaml

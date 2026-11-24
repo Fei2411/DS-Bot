@@ -119,7 +119,7 @@ All bots share your desktop, so only one bot can hold an app or the foreground p
 
 ### Web search & DeepSeek services
 
-- **Web search**: The `auto` provider uses the asking conversation's own model route and key (never borrowing another route's key), tries DeepSeek's official Search API on matching routes, and falls back to keyless search. To use DeepSeek's official Search and Fetch APIs across all models, turn on **Use the new Web Search API** under **Plugins → Web search**.
+- **Web search**: The `auto` provider uses the asking conversation's own model route and key (never borrowing another route's key), tries DeepSeek's official Search API on matching routes, and falls back to keyless search. To use DeepSeek's official Search and Fetch APIs across all models, turn on **Use the new Web Search API** under **Plugins → Web search**. On a DeepSeek model that path is the DeepSeek Search API, not DeepSeek Harness's `deepseek-official` provider, so the Session log gets no `web/deepseek-search-llm-request` event ([details](ds-bot/README.md#web-search)).
 - **DeepSeek services** (**Settings → Models → DeepSeek services**): With a DeepSeek API key in **Settings → Models → Providers**, you can independently opt into document/image OCR (`read_document`), DeepSeek text-to-speech, and DeepSeek dictation for any model. Each switch is off by default and billed to your own API key.
 
 ### Office files
