@@ -20,8 +20,10 @@ const tokenSheet = (name) => {
   return JSON.parse(literal[1])
 }
 const tokensCss = [tokenSheet('base_css_default'), tokenSheet('gradient_shadow_text_css_default')].join('\n')
-// The hashed class names of this DSH build.
-const markdown = frontendCss.match(/\.(_markdown_[\w]+?_\d+)\{/)?.[1]
+// The hashed class names of this DSH build, found by the rules that define them: the
+// Markdown renderer draws its text with the base token (another `_markdown_` class only
+// colors a file icon).
+const markdown = frontendCss.match(/\.(_markdown_\w+?_\d+)\{[^}]*font:var\(--dsw-font-markdown-base\)/)?.[1]
 const tableScroll = frontendCss.match(/\.(_tableScroll_[\w]+?_\d+) td\{/)?.[1]
 
 const reply = `<div class="${markdown}">
