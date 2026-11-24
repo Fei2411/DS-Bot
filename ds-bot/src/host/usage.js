@@ -14,8 +14,9 @@ import { randomUUID } from 'node:crypto'
 import { mkdir, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
 import { openSessions } from './threads.js'
+import { isLocalAgentRoute } from './local-agents/engines.js'
 
-const LEDGER_VERSION = 4
+const LEDGER_VERSION = 5
 const PAGE_MESSAGES = 400
 const PAGE_TIMEOUT_MS = 20_000
 const SCAN_TIMEOUT_MS = 180_000
@@ -29,6 +30,7 @@ const SEAL_AFTER_MS = 60_000
 const SLOT_MS = 15 * 60_000
 
 const count = value => (Number.isSafeInteger(value) && value > 0 ? value : 0)
+const callCount = value => (Number.isSafeInteger(value) && value > 0 ? value : 1)
 
 export function usageChunk(stream) {
   if (!Array.isArray(stream)) return undefined
@@ -39,11 +41,32 @@ export function usageChunk(stream) {
   return undefined
 }
 
-const tokensOf = usage => ({
+// Local-agent logs recorded before `usage.calls` existed still carry one strictly
+// advancing cumulative usage chunk per internal model call (e.g. Codex) in `stream`.
+// Non-local providers (such as Anthropic message_start + message_delta) split one API
+// call across chunks, so this fallback applies strictly to local-agent routes.
+function streamCallCount(stream, provider) {
+  if (!Array.isArray(stream) || !isLocalAgentRoute(provider)) return 1
+  let steps = 0
+  let prevTotal = 0
+  for (const record of stream) {
+    if (record?.type !== 'chunk' || record.chunk?.type !== 'usage' || record.chunk.usage === null || typeof record.chunk.usage !== 'object') continue
+    const u = record.chunk.usage
+    const total = count(u.inputTokens) + count(u.cacheReadTokens) + count(u.cacheWriteTokens) + count(u.outputTokens)
+    if (total > prevTotal) {
+      steps += 1
+      prevTotal = total
+    }
+  }
+  return steps > 0 ? steps : 1
+}
+
+const tokensOf = (usage, calls) => ({
   input: count(usage.inputTokens),
   cacheRead: count(usage.cacheReadTokens),
   cacheWrite: count(usage.cacheWriteTokens),
   output: count(usage.outputTokens),
+  calls: callCount(calls ?? usage.calls),
 })
 
 // Folds Session events, oldest first, into one row per billed attempt, as DSH's own
@@ -83,7 +106,10 @@ export function foldCalls(events, from = {}) {
         if (usage === undefined || usage === null) break
         const attempt = state.retry?.turn === data.turn && state.retry.step === data.step ? state.retry.count : 0
         const key = `${data.turn}:${data.step}:${attempt}`
-        rows.set(key, { key, time: Number.isFinite(event.time) ? event.time : 0, provider: state.provider, model: state.model, ...tokensOf(usage) })
+        const calls = Number.isSafeInteger(usage.calls) && usage.calls > 0
+          ? usage.calls
+          : streamCallCount(data.stream, state.provider)
+        rows.set(key, { key, time: Number.isFinite(event.time) ? event.time : 0, provider: state.provider, model: state.model, ...tokensOf(usage, calls) })
         break
       }
       default:
@@ -150,35 +176,40 @@ export function sqliteLedger(DatabaseSync, path) {
       try {
         const version = db.prepare('PRAGMA user_version').get().user_version
         if (version !== LEDGER_VERSION) {
-          if (version === 2) db.exec('ALTER TABLE marks ADD COLUMN listed INTEGER')
-          else if (version !== 3) db.exec(`
-            DROP TABLE IF EXISTS calls;
-            DROP TABLE IF EXISTS call_slots;
-            DROP TABLE IF EXISTS marks;
-            DROP TABLE IF EXISTS owners;
-            DROP TABLE IF EXISTS kinds;
-            CREATE TABLE calls (key TEXT PRIMARY KEY, session TEXT NOT NULL, time INTEGER NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL, kind TEXT NOT NULL, live INTEGER NOT NULL, input INTEGER NOT NULL, cache_read INTEGER NOT NULL, cache_write INTEGER NOT NULL, output INTEGER NOT NULL);
-            CREATE INDEX calls_session ON calls (session);
-            CREATE TABLE marks (session TEXT PRIMARY KEY, through INTEGER NOT NULL, fold TEXT NOT NULL, sealed INTEGER NOT NULL, listed INTEGER);
-            CREATE TABLE owners (session TEXT PRIMARY KEY, owner TEXT NOT NULL, name TEXT NOT NULL);
-            CREATE TABLE kinds (session TEXT PRIMARY KEY, kind TEXT NOT NULL);`)
+          if (version === 2 || version === 3 || version === 4) {
+            if (version === 2) db.exec('ALTER TABLE marks ADD COLUMN listed INTEGER')
+            const cols = db.prepare('PRAGMA table_info(calls)').all().map(col => col.name)
+            if (!cols.includes('calls')) db.exec('ALTER TABLE calls ADD COLUMN calls INTEGER NOT NULL DEFAULT 1')
+          } else {
+            db.exec(`
+              DROP TABLE IF EXISTS calls;
+              DROP TABLE IF EXISTS call_slots;
+              DROP TABLE IF EXISTS marks;
+              DROP TABLE IF EXISTS owners;
+              DROP TABLE IF EXISTS kinds;
+              CREATE TABLE calls (key TEXT PRIMARY KEY, session TEXT NOT NULL, time INTEGER NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL, kind TEXT NOT NULL, live INTEGER NOT NULL, input INTEGER NOT NULL, cache_read INTEGER NOT NULL, cache_write INTEGER NOT NULL, output INTEGER NOT NULL, calls INTEGER NOT NULL DEFAULT 1);
+              CREATE INDEX calls_session ON calls (session);
+              CREATE TABLE marks (session TEXT PRIMARY KEY, through INTEGER NOT NULL, fold TEXT NOT NULL, sealed INTEGER NOT NULL, listed INTEGER);
+              CREATE TABLE owners (session TEXT PRIMARY KEY, owner TEXT NOT NULL, name TEXT NOT NULL);
+              CREATE TABLE kinds (session TEXT PRIMARY KEY, kind TEXT NOT NULL);`)
+          }
           const add = `
-            INSERT INTO call_slots VALUES (new.session, new.provider, new.model, new.kind, new.time / ${SLOT_MS}, new.input, new.cache_read, new.cache_write, new.output, 1)
+            INSERT INTO call_slots VALUES (new.session, new.provider, new.model, new.kind, new.time / ${SLOT_MS}, new.input, new.cache_read, new.cache_write, new.output, new.calls)
             ON CONFLICT (session, provider, model, kind, slot) DO UPDATE SET
               input = input + excluded.input, cache_read = cache_read + excluded.cache_read,
-              cache_write = cache_write + excluded.cache_write, output = output + excluded.output, calls = calls + 1;`
+              cache_write = cache_write + excluded.cache_write, output = output + excluded.output, calls = calls + excluded.calls;`
           const remove = (row, from = '') => `
             UPDATE call_slots SET input = call_slots.input - ${row}.input, cache_read = call_slots.cache_read - ${row}.cache_read,
-              cache_write = call_slots.cache_write - ${row}.cache_write, output = call_slots.output - ${row}.output, calls = calls - 1
+              cache_write = call_slots.cache_write - ${row}.cache_write, output = call_slots.output - ${row}.output, calls = call_slots.calls - ${row}.calls
               ${from} WHERE call_slots.session = ${row}.session AND call_slots.provider = ${row}.provider AND call_slots.model = ${row}.model AND call_slots.kind = ${row}.kind AND slot = ${row}.time / ${SLOT_MS};
-            DELETE FROM call_slots WHERE (session, provider, model, kind, slot) = (SELECT ${row}.session, ${row}.provider, ${row}.model, ${row}.kind, ${row}.time / ${SLOT_MS} ${from}) AND calls = 0;`
+            DELETE FROM call_slots WHERE (session, provider, model, kind, slot) = (SELECT ${row}.session, ${row}.provider, ${row}.model, ${row}.kind, ${row}.time / ${SLOT_MS} ${from}) AND calls <= 0;`
           db.exec(`
             DROP TRIGGER IF EXISTS calls_insert;
             DROP TRIGGER IF EXISTS calls_delete;
             DROP TRIGGER IF EXISTS calls_replace;
             DROP TABLE IF EXISTS call_slots;
             CREATE TABLE call_slots (session TEXT NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL, kind TEXT NOT NULL, slot INTEGER NOT NULL, input INTEGER NOT NULL, cache_read INTEGER NOT NULL, cache_write INTEGER NOT NULL, output INTEGER NOT NULL, calls INTEGER NOT NULL, PRIMARY KEY (session, provider, model, kind, slot)) WITHOUT ROWID;
-            INSERT INTO call_slots SELECT session, provider, model, kind, time / ${SLOT_MS}, SUM(input), SUM(cache_read), SUM(cache_write), SUM(output), COUNT(*) FROM calls GROUP BY session, provider, model, kind, time / ${SLOT_MS};
+            INSERT INTO call_slots SELECT session, provider, model, kind, time / ${SLOT_MS}, SUM(input), SUM(cache_read), SUM(cache_write), SUM(output), SUM(calls) FROM calls GROUP BY session, provider, model, kind, time / ${SLOT_MS};
             CREATE TRIGGER calls_insert AFTER INSERT ON calls BEGIN ${add} END;
             CREATE TRIGGER calls_delete AFTER DELETE ON calls BEGIN ${remove('old')} END;
             CREATE TRIGGER calls_replace BEFORE INSERT ON calls WHEN EXISTS (SELECT 1 FROM calls WHERE key = new.key) BEGIN
@@ -192,7 +223,7 @@ export function sqliteLedger(DatabaseSync, path) {
         throw error
       }
     }
-    const put = db.prepare('INSERT OR REPLACE INTO calls (key, session, time, provider, model, kind, live, input, cache_read, cache_write, output) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    const put = db.prepare('INSERT OR REPLACE INTO calls (key, session, time, provider, model, kind, live, input, cache_read, cache_write, output, calls) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
     const dropLogged = db.prepare('DELETE FROM calls WHERE session = ? AND live = 0')
     const getMark = db.prepare('SELECT through, fold, sealed, listed FROM marks WHERE session = ?')
     const setMark = db.prepare('INSERT OR REPLACE INTO marks (session, through, fold, sealed, listed) VALUES (?, ?, ?, ?, ?)')
@@ -201,7 +232,7 @@ export function sqliteLedger(DatabaseSync, path) {
     const allKinds = db.prepare('SELECT session, kind FROM kinds')
     const putKind = db.prepare('INSERT OR REPLACE INTO kinds (session, kind) VALUES (?, ?)')
     const grouped = db.prepare('SELECT session, provider, model, kind, slot, input, cache_read AS cacheRead, cache_write AS cacheWrite, output, calls FROM call_slots ORDER BY session, provider, model, kind, slot')
-    const insert = (row, live) => put.run(row.key, row.session, row.time, row.provider, row.model, row.kind, live ? 1 : 0, row.input, row.cacheRead, row.cacheWrite, row.output)
+    const insert = (row, live) => put.run(row.key, row.session, row.time, row.provider, row.model, row.kind, live ? 1 : 0, row.input, row.cacheRead, row.cacheWrite, row.output, callCount(row.calls))
     return {
       mark(session) {
         const row = getMark.get(session)

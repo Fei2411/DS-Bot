@@ -70,6 +70,7 @@ class ClaudeSession {
     this.waiters = []
     this.dead = false
     this.idWaiters = []
+    this.turnCalls = new Set()
   }
 
   emit(event) {
@@ -181,6 +182,7 @@ class ClaudeSession {
         // what the context holds now. A subagent's (parent_tool_use_id) is its own.
         const usage = event.message?.usage
         if (usage !== undefined && event.parent_tool_use_id == null) {
+          if (typeof event.message?.id === 'string' && event.message.id !== '') this.turnCalls.add(event.message.id)
           const used = ['input_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens', 'output_tokens'].reduce((sum, key) => sum + (usage[key] ?? 0), 0)
           if (used > 0) this.emit({ type: 'context', used })
         }
@@ -225,9 +227,12 @@ class ClaudeSession {
           const size = (models.find(([name]) => name === this.model) ?? models.toSorted((a, b) => (b[1]?.contextWindow ?? 0) - (a[1]?.contextWindow ?? 0))[0])?.[1]?.contextWindow
           if (typeof size === 'number' && size > 0) this.emit({ type: 'context', size })
         }
+        const observedCalls = this.turnCalls.size
+        this.turnCalls.clear()
+        const calls = positiveInt(event.num_turns) ?? (observedCalls > 0 ? observedCalls : undefined)
         this.running = false
         this.emit(event.subtype === 'success' || event.is_error !== true
-          ? { type: 'done', reason: 'stop', usage: usageOf(event.usage) }
+          ? { type: 'done', reason: 'stop', usage: usageOf(event.usage, calls) }
           : { type: 'error', error: new Error(event.result ?? 'the agent failed') })
         break
       default: break
@@ -243,6 +248,7 @@ class ClaudeSession {
   }
 
   prompt(blocks) {
+    if (this.running !== true) this.turnCalls.clear()
     this.running = true
     this.write({ type: 'user', message: { role: 'user', content: claudeContent(blocks) } })
     return Promise.resolve()
@@ -301,9 +307,12 @@ function claudeContent(blocks) {
   return out.length > 0 ? out : [{ type: 'text', text: '' }]
 }
 
-const usageOf = usage => (usage === undefined ? undefined : {
+const positiveInt = value => (Number.isSafeInteger(value) && value > 0 ? value : undefined)
+
+const usageOf = (usage, calls) => (usage === undefined ? undefined : {
   inputTokens: usage.input_tokens ?? 0,
   outputTokens: usage.output_tokens ?? 0,
   ...(usage.cache_read_input_tokens ? { cacheReadTokens: usage.cache_read_input_tokens } : {}),
   ...(usage.cache_creation_input_tokens ? { cacheWriteTokens: usage.cache_creation_input_tokens } : {}),
+  ...(calls !== undefined && calls > 1 ? { calls } : {}),
 })

@@ -18,7 +18,7 @@ export function install(rt) {
     return resolved.agent
   }
 
-  const headerFor = (role, fromName, roomName, audience, note, deferred = false, { resumed = false, retried = false, resent = false, abandoned = false, asker, workRef } = {}) => {
+  const headerFor = (role, fromName, roomName, audience, note, deferred = false, { resumed = false, retried = false, resent = false, abandoned = false, abandonedReason, asker, workRef } = {}) => {
     const label = note ?? 'new message'
     const reportLabel = note ?? 'replies to your post'
     const tag = workRef ? ` #${workRef}` : ''
@@ -29,6 +29,7 @@ export function install(rt) {
     if (role === 'note') return `[Note from ${fromName} · FYI only, no reply needed]`
     if (role === 'stopped') return `[Stopped by ${fromName} · no reply needed]`
     // A wait the user gave up reads as its own thing: the other Bot never answered.
+    if (abandoned && abandonedReason === 'restart') return `[Work${tag} · ${fromName} did not complete before restart${goesOn}]`
     if (abandoned) return `[Waiting given up · ${fromName} did not hand back this work; go on with the work it was for${goesOn}]`
     if (deferred && role === 'reply') return `[Work${tag} completed by ${fromName} · closed · you read it during your last task; go on with the work it is for now${goesOn}]`
     if (deferred && role === 'ask_back') return `[Work${tag} · ${fromName} asked during your last task${goesOn} · call answer_work to unblock or cancel_work to stop]`
@@ -458,7 +459,7 @@ export function install(rt) {
   // result that came back goes on with. `merged`: a request that takes in an earlier
   // one its recipient had not read, under that one's exchange. `fromPart`: the Session
   // of the sending Bot, which a reply comes back to when that is a background part.
-  async function deliver({ fromId, fromName: senderName, pairFrom, toId, sessionId, text, role, replyTo, roomId, audience, note, exchangeId = randomUUID(), steer = false, wake = true, afterCancel = false, deferred = false, resumed = false, retried = false, resent = false, merged = false, abandoned = false, recordExchange = true, askedBy, fromRoomId, fromPart, images = [], files = [], length, work, workRef, askWork, taskId, imOrigin, failureRequestId }) {
+  async function deliver({ fromId, fromName: senderName, pairFrom, toId, sessionId, text, role, replyTo, roomId, audience, note, exchangeId = randomUUID(), steer = false, wake = true, afterCancel = false, deferred = false, resumed = false, retried = false, resent = false, merged = false, abandoned = false, abandonedReason, recordExchange = true, askedBy, fromRoomId, fromPart, images = [], files = [], length, work, workRef, askWork, taskId, imOrigin, failureRequestId }) {
     const from = rt.botOf(fromId)
     const to = rt.botOf(toId)
     if (to === undefined) throw Object.assign(new Error(`Unknown Bot ${toId}`), { delivered: false })
@@ -523,7 +524,7 @@ export function install(rt) {
       // its next step; a follow-up queues.
       const message = createUserMessage({
         content: [
-          { type: 'text', text: `${headerFor(role, fromName, room?.name, audience, note, deferred, { resumed, retried, resent, abandoned, asker, workRef: resolvedWorkRef })}\n${text}` },
+          { type: 'text', text: `${headerFor(role, fromName, room?.name, audience, note, deferred, { resumed, retried, resent, abandoned, abandonedReason, asker, workRef: resolvedWorkRef })}\n${text}` },
           ...images.map(attachment => ({ type: 'image', attachment })),
           ...files.map(attachment => ({ type: 'file', attachment })),
         ],

@@ -775,10 +775,11 @@ export class LocalAgentAdapter extends LlmAdapter {
     let thinkBuf = ''
     let thinkIndex = -1
     // DSH keeps the last usage chunk of a request, and a CLI may report each of its
-    // model calls (Codex): the chunk carries the sum.
+    // model calls (Codex) or queue prompts in one drain (ACP): carry both the running
+    // billed token sum and the accumulated internal call count.
     let usage
     const addUsage = (more) => {
-      usage = usage === undefined ? { ...more } : Object.fromEntries([...new Set([...Object.keys(usage), ...Object.keys(more)])].map(key => [key, (usage[key] ?? 0) + (more[key] ?? 0)]))
+      usage = mergeUsage(usage, more)
       return { type: 'usage', usage }
     }
     // Open text and reasoning stay open in parallel; each closes when it has to.
@@ -1030,7 +1031,7 @@ export class LocalAgentAdapter extends LlmAdapter {
     let usage
     const add = (more) => {
       if (more === undefined) return
-      usage = usage === undefined ? { ...more } : Object.fromEntries([...new Set([...Object.keys(usage), ...Object.keys(more)])].map(key => [key, (usage[key] ?? 0) + (more[key] ?? 0)]))
+      usage = mergeUsage(usage, more)
     }
     let ended = false
     let started = false
@@ -1404,4 +1405,29 @@ function errorText(error) {
 
 function safeJson(value) {
   try { return JSON.stringify(value) || String(value) } catch { return String(value) }
+}
+
+const USAGE_ADDITIVE_KEYS = ['inputTokens', 'outputTokens', 'cacheReadTokens', 'cacheWriteTokens', 'reasoningTokens']
+const usageCallCount = usage => (Number.isSafeInteger(usage?.calls) && usage.calls > 0 ? usage.calls : 1)
+
+// Sums billed token fields and internal model call counts across multiple usage
+// chunks in one DSH step (Codex multi-step turns, ACP queued prompts). Single-call
+// records omit `calls` so existing single-step consumers see the exact same shape.
+export function mergeUsage(prev, more) {
+  if (more === undefined || more === null) return prev
+  if (prev === undefined || prev === null) {
+    const calls = usageCallCount(more)
+    const next = { ...more }
+    if (calls <= 1) delete next.calls
+    else next.calls = calls
+    return next
+  }
+  const next = {}
+  for (const key of USAGE_ADDITIVE_KEYS) {
+    if (prev[key] !== undefined || more[key] !== undefined) next[key] = (prev[key] ?? 0) + (more[key] ?? 0)
+  }
+  if (prev.totalTokens !== undefined && more.totalTokens !== undefined) next.totalTokens = prev.totalTokens + more.totalTokens
+  const calls = usageCallCount(prev) + usageCallCount(more)
+  if (calls > 1) next.calls = calls
+  return next
 }
