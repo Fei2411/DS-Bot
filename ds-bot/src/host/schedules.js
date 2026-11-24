@@ -263,7 +263,7 @@ export function install(rt) {
     },
   }
 
-  let legacyMoves = Promise.resolve()
+  let scheduleMoves = Promise.resolve()
   const movesFrom = fromId => (state.legacyScheduleMoves ?? []).filter(move => move.fromId === fromId)
   const saveMoves = moves => {
     if (moves.length === 0) delete state.legacyScheduleMoves
@@ -314,18 +314,17 @@ export function install(rt) {
       }
       return
     }
-    // A Host-wide task changes its target in place and keeps its next firing; a
-    // paused one moves too, so it resumes in the Bot's current part.
-    if (hostWide(service)) {
-      for (const entry of await service.catalog()) {
-        if (entry.status === 'ended' || sessionOf(entry) !== fromId) continue
-        await service.edit({ id: entry.id, action: 'update', patch: { target: { kind: 'session', sessionId: toId } } })
-      }
-      return
-    }
     const schedule = service
-    const move = legacyMoves.then(() => moveLegacySchedules(schedule, fromId, toId, stopActivity))
-    legacyMoves = move.catch(() => {})
+    // A switch must see any reminders moved into its earlier part before it archives it.
+    const move = scheduleMoves.then(async () => {
+      if (!hostWide(schedule)) return moveLegacySchedules(schedule, fromId, toId, stopActivity)
+      // Moving in place keeps the next firing and carries paused tasks forward too.
+      for (const entry of await schedule.catalog()) {
+        if (entry.status === 'ended' || sessionOf(entry) !== fromId) continue
+        await schedule.edit({ id: entry.id, action: 'update', patch: { target: { kind: 'session', sessionId: toId } } })
+      }
+    })
+    scheduleMoves = move.catch(() => {})
     return move
   }
 
