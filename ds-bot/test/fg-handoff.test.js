@@ -1866,4 +1866,55 @@ test('round-4 invariants: concurrent Bot rollback isolation, superseded tombston
   await waitFor(() => env6.rt.state.pendingHandoffInputs === undefined && env6.agentMap.get('fg-c').followups.length === 1, 2500)
   assert.equal(env6.rt.state.pendingHandoffInputs, undefined, 'scheduled reconcile retry must drain deferred entry once fg-b becomes readable')
   assert.equal(env6.agentMap.get('fg-c').followups[0].content[0].text, 'Recover automatically')
+
+  // 7) Two consecutive failed move saves -> retrying Move 2 MUST still persist Move 1's stale tombstone!
+  const env7 = await startEnv()
+  t.after(env7.stop)
+  const dm7 = env7.agentMap.get('dm-a')
+  dm7.status = 'running'
+  await env7.emit('dm-a', 'turn/start', { turn: 1 })
+  const origSave7 = env7.rt.save
+  let failSaves7 = 2
+  env7.rt.save = async (opts = {}) => {
+    if (opts?.required && failSaves7 > 0) { failSaves7 -= 1; throw new Error('consecutive save failure') }
+    return origSave7(opts)
+  }
+  await assert.rejects(
+    () => env7.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'dm-a', operationId: 'op-fail-1' }),
+    /consecutive save failure/,
+  )
+  const fork7_1 = env7.agentMap.get('fork-1')
+  fork7_1.status = 'running'
+  await env7.emit('fork-1', 'turn/start', { turn: 2 })
+  await assert.rejects(
+    () => env7.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'fork-1', operationId: 'op-fail-2' }),
+    /consecutive save failure/,
+  )
+  const res7 = await env7.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'fork-1', operationId: 'op-fail-2' })
+  assert.equal(res7.moved, true)
+  assert.equal(env7.rt.state.completedMoveOps?.['op-fail-2']?.moved, true)
+  assert.equal(env7.rt.state.completedMoveOps?.['op-fail-1']?.stale, true, 'retrying Move 2 after two consecutive failed saves must still persist Move 1 stale tombstone')
+
+  // 8) Reconcile whose foreground flush() returns false schedules automatic retry and drains once flush succeeds!
+  const env8 = await startEnv({
+    team: makeTeam({
+      bots: { a: { id: 'a', name: 'Chief', role: 'Boss', sessionId: 'dm-a', createdAt: 1 } },
+    }),
+  })
+  t.after(env8.stop)
+  env8.rt.state.pendingHandoffInputs = [{
+    id: 'rpc-fg-unflushed',
+    botId: 'a',
+    content: [{ type: 'text', text: 'Retry fg flush automatically' }],
+    source: { kind: 'user', rpcId: 'rpc-fg-unflushed' },
+    at: Date.now() - 5000,
+  }]
+  let allowFgFlush = false
+  env8.ctx.sessions.flush = async () => allowFgFlush
+  await env8.rt.reconcileTasksAfterRestart()
+  assert.equal(env8.rt.state.pendingHandoffInputs?.length, 1, 'journal stays while foreground flush returns false')
+  allowFgFlush = true
+  await waitFor(() => env8.rt.state.pendingHandoffInputs === undefined, 2500)
+  assert.equal(env8.rt.state.pendingHandoffInputs, undefined, 'scheduled reconcile retry must drain once foreground flush returns true')
+  assert.equal(env8.agentMap.get('dm-a').followups.length, 1, 'already-admitted message must not be duplicated on scheduled flush retry')
 })

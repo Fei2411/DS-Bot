@@ -1066,6 +1066,7 @@ export function install(rt) {
             ...(entry.botId !== undefined ? { botId: entry.botId } : {}),
             ...(entry.roomId !== undefined ? { roomId: entry.roomId } : {}),
           })
+          if (stillPending(id)) deferredAny = true
         } finally {
           releaseTransferLock(id, token)
         }
@@ -2383,17 +2384,28 @@ export function install(rt) {
         pendingSave.operationIds.add(operationId)
         if (pendingSave.savingPromise === undefined) {
           const retryOpIds = [...pendingSave.operationIds]
+          const supersededOpIds = []
+          for (const [oldOpId, entry] of pendingSaveMoveOps) {
+            if (entry.botId === pendingSave.botId && entry !== pendingSave && !retryOpIds.includes(oldOpId)) {
+              supersededOpIds.push(oldOpId)
+            }
+          }
+          const staleResult = { sessionId: pendingSave.newSid, taskId: null, moved: false, stale: true }
           const retryPromise = (async () => {
             const result = { sessionId: pendingSave.newSid, taskId: pendingSave.taskId, moved: true }
-            for (const id of retryOpIds) stagedMoveOps.add(id)
-            const staged = stagePersistedMoveOps(retryOpIds.map(id => ({ id, result })))
+            const allStagedIds = [...retryOpIds, ...supersededOpIds]
+            for (const id of allStagedIds) stagedMoveOps.add(id)
+            const staged = stagePersistedMoveOps([
+              ...retryOpIds.map(id => ({ id, result })),
+              ...supersededOpIds.map(id => ({ id, result: staleResult })),
+            ])
             try {
               await rt.save({ required: true })
             } catch (error) {
               unstagePersistedMoveOps(staged)
               throw error
             } finally {
-              for (const id of retryOpIds) {
+              for (const id of allStagedIds) {
                 stagedMoveOps.delete(id)
                 if (inFlightSaveMoveOps.get(id) === retryPromise) inFlightSaveMoveOps.delete(id)
               }
@@ -2402,6 +2414,10 @@ export function install(rt) {
               pendingSaveMoveOps.delete(id)
               pendingSave.savedOperationIds.add(id)
               rememberMoveOp(id, result)
+            }
+            for (const id of supersededOpIds) {
+              pendingSaveMoveOps.delete(id)
+              rememberMoveOp(id, staleResult)
             }
             await pendingSave.finishPostSave()
             return result
