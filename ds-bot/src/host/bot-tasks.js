@@ -2416,6 +2416,18 @@ export function install(rt) {
         finishPostSave,
         savingPromise: undefined,
       }
+      const deferHeldInputs = () => {
+        for (const item of record.messages.splice(0)) {
+          const { key, token } = transferRefOf(item)
+          const entry = pendingTransferOf(key)
+          if (entry !== undefined && entry.token === token) {
+            postSaveContextByInput.set(entry, prepareReplayContext)
+            deferredInputs.add(entry)
+          }
+          releaseTransferLock(key, token)
+        }
+        if (deferredInputs.size > 0) scheduleHandoffReplay()
+      }
       const savePromise = (async () => {
         const allStagedIds = [...saveOpIds, ...supersededOpIds]
         for (const id of allStagedIds) addStagedMoveOp(id)
@@ -2423,25 +2435,12 @@ export function install(rt) {
           ...saveOpIds.map(id => ({ id, result: moveResult })),
           ...supersededOpIds.map(id => ({ id, result: staleResult })),
         ])
+        let checkpointed = record.messages.length
         try {
-          // The commit write may have snapshotted state before stale composers add input.
-          let checkpointed
-          do {
-            checkpointed = record.messages.length
-            await rt.save({ required: true })
-          } while (record.messages.length > checkpointed)
+          await rt.save({ required: true })
         } catch (error) {
           unstagePersistedMoveOps(staged)
-          for (const item of record.messages.splice(0)) {
-            const { key, token } = transferRefOf(item)
-            const entry = pendingTransferOf(key)
-            if (entry !== undefined && entry.token === token) {
-              postSaveContextByInput.set(entry, prepareReplayContext)
-              deferredInputs.add(entry)
-            }
-            releaseTransferLock(key, token)
-          }
-          if (deferredInputs.size > 0) scheduleHandoffReplay()
+          deferHeldInputs()
           for (const id of record.operationIds) {
             pendingEntry.operationIds.add(id)
             rememberPendingSaveMoveOp(id, pendingEntry)
@@ -2461,6 +2460,16 @@ export function install(rt) {
         for (const id of supersededOpIds) {
           pendingSaveMoveOps.delete(id)
           rememberMoveOp(id, staleResult)
+        }
+        // The move receipt is durable even if a later input checkpoint fails.
+        try {
+          while (record.messages.length > checkpointed) {
+            checkpointed = record.messages.length
+            await rt.save({ required: true })
+          }
+        } catch {
+          deferHeldInputs()
+          return moveResult
         }
         await finishPostSave()
         return moveResult

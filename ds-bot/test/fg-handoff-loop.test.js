@@ -1121,6 +1121,48 @@ test('a stale-session prompt missed by the commit snapshot is checkpointed befor
   assert.deepEqual(journal(rig), [])
 })
 
+test('a failed late checkpoint cannot roll back an already written move receipt', async (t) => {
+  const rig = await createRealLoopRig(t, { durable: true })
+  const old = rig.agents.get('dm-a')
+  old.followup(userPrompt('Please run slow work'))
+  await rig.toolStarted.promise
+
+  const commitWritten = Promise.withResolvers()
+  const commitGate = Promise.withResolvers()
+  const save = rig.rt.save
+  let committed = false
+  const blocked = t.mock.method(rig.rt, 'save', async (options) => {
+    if (rig.rt.botOf('a').sessionId === 'dm-a') return save(options)
+    if (options?.required && !committed) {
+      await save(options)
+      committed = true
+      commitWritten.resolve()
+      await commitGate.promise
+      return
+    }
+    throw Object.assign(new Error('Late checkpoint blocked'), { code: 'EBUSY' })
+  })
+  const operationId = 'im:test:bg:late-checkpoint'
+  const moved = rig.rt.moveForegroundToBackground({ botId: 'a', operationId }).catch(error => error)
+  await commitWritten.promise
+  const diskReceipt = () => JSON.parse(readFileSync(join(rig.home, 'state.json'), 'utf8')).completedMoveOps?.[operationId]
+  assert.equal(diskReceipt()?.sessionId, 'fork-1')
+  const prompt = userPrompt('Recover this without rolling back the move', 'late-checkpoint-failure')
+  old.steer(prompt)
+  commitGate.resolve()
+  const moveResult = await moved
+  const fresh = rig.agents.get('fork-1')
+  const admitted = () => fresh.session.snapshotEvents().filter(event =>
+    event.type === 'user/message' && event.data.source?.rpcId === prompt.source.rpcId)
+  assert.equal(admitted().length, 0)
+
+  blocked.mock.restore()
+  await settle(() => admitted().length === 1 && journal(rig).length === 0, 4500, 'the late prompt should replay after writes recover')
+  assert.equal(diskReceipt()?.sessionId, 'fork-1', 'replay must preserve the committed move receipt')
+  assert.equal(moveResult.sessionId, 'fork-1')
+  assert.deepEqual(await rig.rt.moveForegroundToBackground({ botId: 'a', operationId }), moveResult)
+})
+
 test('replay of a non-forked handoff does not promise a report already delivered', async (t) => {
   const rig = await createRealLoopRig(t, { durable: true, holdFork: true, failFork: true })
   const old = rig.agents.get('dm-a')
