@@ -394,6 +394,9 @@ export const KO = {
   'The model service blocked the content': '모델 서비스의 콘텐츠 필터가 내용을 차단했습니다',
   '{provider} blocked this request with its content filter. The API key is not the problem; edit the input or start a new chat.': '{provider}의 콘텐츠 필터가 이 요청을 차단했습니다. API 키 문제가 아닙니다. 입력을 수정하거나 새 대화를 시작하세요.',
   '{provider} blocked this request with its content filter ({status}). The API key is not the problem; edit the input or start a new chat.': '{provider}의 콘텐츠 필터가 이 요청을 차단했습니다 ({status}). API 키 문제가 아닙니다. 입력을 수정하거나 새 대화를 시작하세요.',
+  'The model service refused the content': '모델 서비스가 콘텐츠 안전 정책에 따라 요청을 거부했습니다',
+  '{provider} refused this request under its content safety policy. Edit the input or start a new chat.': '{provider}가 콘텐츠 안전 정책에 따라 이 요청을 거부했습니다. 입력을 수정하거나 새 대화를 시작하세요.',
+  '{provider} refused this request under its content safety policy ({status}). Edit the input or start a new chat.': '{provider}가 콘텐츠 안전 정책에 따라 이 요청을 거부했습니다 ({status}). 입력을 수정하거나 새 대화를 시작하세요.',
   '{provider} is out of balance or quota.': '{provider}의 잔액 또는 할당량이 부족합니다.',
   '{provider} is out of balance or quota ({status}).': '{provider}의 잔액 또는 할당량이 부족합니다 ({status}).',
   'The DeepSeek account balance is too low.': 'DeepSeek 계정 잔액이 부족합니다.',
@@ -726,6 +729,8 @@ export const KO = {
 
   // Shapes
   Whale: '고래', Star: '별', Moon: '달', Wave: '파동', Squircle: '둥근 사각형', Bull: '뿔', Blossom: '꽃',
+  Dolphin: '돌고래', Octopus: '문어', Turtle: '거북이', Crab: '게', Pufferfish: '복어', Jellyfish: '해파리',
+  Starfish: '불가사리', Seahorse: '해마',
   Gumdrop: '젤리', Peanut: '땅콩', Bubbles: '거품', Saucer: '비행접시', Sprout: '새싹', Bunny: '토끼',
   Kitty: '고양이', Beacon: '등대', Plus: '플러스', Magnet: '자석', Acorn: '도토리', Pebbles: '조약돌', Cushion: '쿠션',
   Ring: '링', Gem: '보석',

@@ -357,6 +357,9 @@ const ZH = {
   'The model service blocked the content': '模型服务的内容审核拦截了这条内容',
   '{provider} blocked this request with its content filter. The API key is not the problem; edit the input or start a new chat.': '{provider} 的内容审核拦截了这次请求。问题不在 API Key；请修改输入内容或新开一个对话。',
   '{provider} blocked this request with its content filter ({status}). The API key is not the problem; edit the input or start a new chat.': '{provider} 的内容审核拦截了这次请求（{status}）。问题不在 API Key；请修改输入内容或新开一个对话。',
+  'The model service refused the content': '模型服务因内容安全拒绝了这条请求',
+  '{provider} refused this request under its content safety policy. Edit the input or start a new chat.': '{provider} 因内容安全策略拒绝了这次请求。请修改输入内容或新开一个对话。',
+  '{provider} refused this request under its content safety policy ({status}). Edit the input or start a new chat.': '{provider} 因内容安全策略拒绝了这次请求（{status}）。请修改输入内容或新开一个对话。',
   '{provider} is out of balance or quota.': '{provider} 的余额或额度不够了。',
   '{provider} is out of balance or quota ({status}).': '{provider} 的余额或额度不够了（{status}）。',
   'The DeepSeek account balance is too low.': 'DeepSeek 账号余额不足。',
@@ -689,6 +692,8 @@ const ZH = {
 
   // Shapes
   Whale: '鲸鱼', Star: '星星', Moon: '月亮', Wave: '声波', Squircle: '圆角方', Bull: '牛角', Blossom: '花朵',
+  Dolphin: '海豚', Octopus: '章鱼', Turtle: '海龟', Crab: '螃蟹', Pufferfish: '河豚', Jellyfish: '水母',
+  Starfish: '海星', Seahorse: '海马',
   Gumdrop: '软糖', Peanut: '花生', Bubbles: '泡泡', Saucer: '飞碟', Sprout: '嫩芽', Bunny: '兔子',
   Kitty: '小猫', Beacon: '灯塔', Plus: '加号', Magnet: '磁铁', Acorn: '橡果', Pebbles: '石子', Cushion: '靠垫',
   Ring: '圆环', Gem: '宝石',

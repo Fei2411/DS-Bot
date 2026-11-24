@@ -394,6 +394,9 @@ export const ES = {
   'The model service blocked the content': 'El filtro de contenido del servicio de modelos bloqueó el contenido',
   '{provider} blocked this request with its content filter. The API key is not the problem; edit the input or start a new chat.': 'El filtro de contenido de {provider} bloqueó esta solicitud. La clave API no es el problema; edita la entrada o inicia un chat nuevo.',
   '{provider} blocked this request with its content filter ({status}). The API key is not the problem; edit the input or start a new chat.': 'El filtro de contenido de {provider} bloqueó esta solicitud ({status}). La clave API no es el problema; edita la entrada o inicia un chat nuevo.',
+  'The model service refused the content': 'El servicio de modelos rechazó el contenido por seguridad',
+  '{provider} refused this request under its content safety policy. Edit the input or start a new chat.': '{provider} rechazó esta solicitud según su política de seguridad de contenido. Edita la entrada o inicia un chat nuevo.',
+  '{provider} refused this request under its content safety policy ({status}). Edit the input or start a new chat.': '{provider} rechazó esta solicitud según su política de seguridad de contenido ({status}). Edita la entrada o inicia un chat nuevo.',
   '{provider} is out of balance or quota.': '{provider} se quedó sin saldo o cuota.',
   '{provider} is out of balance or quota ({status}).': '{provider} se quedó sin saldo o cuota ({status}).',
   'The DeepSeek account balance is too low.': 'El saldo de la cuenta de DeepSeek es insuficiente.',
@@ -726,6 +729,8 @@ export const ES = {
 
   // Shapes
   Whale: 'Ballena', Star: 'Estrella', Moon: 'Luna', Wave: 'Onda', Squircle: 'Cuadrículo', Bull: 'Toro', Blossom: 'Flor',
+  Dolphin: 'Delfín', Octopus: 'Pulpo', Turtle: 'Tortuga', Crab: 'Cangrejo', Pufferfish: 'Pez globo', Jellyfish: 'Medusa',
+  Starfish: 'Estrella de mar', Seahorse: 'Caballito de mar',
   Gumdrop: 'Gominola', Peanut: 'Cacahuete', Bubbles: 'Burbujas', Saucer: 'Platillo', Sprout: 'Brote', Bunny: 'Conejo',
   Kitty: 'Gatito', Beacon: 'Faro', Plus: 'Más', Magnet: 'Imán', Acorn: 'Bellota', Pebbles: 'Guijarros', Cushion: 'Cojín',
   Ring: 'Anillo', Gem: 'Gema',
