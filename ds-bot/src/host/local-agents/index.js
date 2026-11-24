@@ -13,7 +13,20 @@ import { LocalAgentAdapter } from './adapter.js'
 import { AcpEngine } from './acp.js'
 import { CodexEngine } from './codex.js'
 import { ClaudeEngine } from './claude.js'
-import { ENGINES, customRoute, isLocalAgentRoute, signInFor, validateCustom } from './engines.js'
+import {
+  ENGINES,
+  customRoute,
+  defaultProfileDir,
+  engineOf as engineSpecOf,
+  ensureProfileDir,
+  isLocalAgentRoute,
+  isValidProfileId,
+  profileRoute,
+  signInFor,
+  splitProfileRoute,
+  validateCustom,
+  validateProfile,
+} from './engines.js'
 import { findEngineExecutable, findExecutable, probeEnv, probeSignIn, probeVersion, refreshSearchDirs } from './discover.js'
 
 const SIGNED_IN_TTL_MS = 60_000
@@ -43,18 +56,25 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
   // state.localAgents is replaced by the state load after install; read it
   // each time instead of holding the pre-load object.
   const store = () => {
-    const live = state.localAgents ??= { custom: [], sessions: {} }
+    const live = state.localAgents ??= { custom: [], profiles: [], sessions: {} }
     live.custom ??= []
+    live.profiles ??= []
     live.sessions ??= {}
     return live
   }
 
   const customAgents = () => store().custom
+  const profiles = () => store().profiles
   const customRouteId = () => store().custom.map(agent => customRoute(agent.id))
-  const allRoutes = () => [...Object.keys(ENGINES), ...customRouteId()]
+  const profileRouteId = () => store().profiles
+    .filter(profile => ENGINES[profile?.baseRoute] !== undefined && isValidProfileId(profile?.id))
+    .map(profile => profileRoute(profile.baseRoute, profile.id))
+  const allRoutes = () => [...Object.keys(ENGINES), ...profileRouteId(), ...customRouteId()]
 
   // Only CLIs found on this machine get a route; the scan result feeds the page.
   const found = new Map()
+  // Isolated probe state per profile route (`route -> { signedIn, signedInAt, signInProbe, signInEpoch, signInAbort }`).
+  const profileProbes = new Map()
   let nextProbeEpoch = 0
   let disposed = false
   async function scan() {
@@ -106,54 +126,106 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
       }
     }))
   }
+  async function probeProfileSignIn(profile, { force = false } = {}) {
+    if (ENGINES[profile?.baseRoute] === undefined || !isValidProfileId(profile?.id)) return
+    const route = profileRoute(profile.baseRoute, profile.id)
+    const baseFound = found.get(profile.baseRoute)
+    if (baseFound === undefined) return
+    const spec = engineSpecOf(route, [], store().profiles, { home: rt.home })
+    let entry = profileProbes.get(route)
+    if (entry === undefined) {
+      entry = {}
+      profileProbes.set(route, entry)
+    }
+    const check = spec?.signedIn
+    if (check === undefined) {
+      entry.signedIn = null
+      return
+    }
+    if (!force) {
+      const ttl = entry.signedIn === null ? SIGNED_IN_RETRY_MS : SIGNED_IN_TTL_MS
+      if (entry.signedIn !== undefined && now() - entry.signedInAt < ttl) return
+    }
+    if (force || entry.signInProbe === undefined) {
+      const epoch = ++nextProbeEpoch
+      entry.signInEpoch = epoch
+      entry.signInAbort?.abort()
+      const controller = new AbortController()
+      entry.signInAbort = controller
+      const probe = Promise.resolve()
+        .then(() => checkSignIn(baseFound.path, check, { extraEnv: spec.env, isolated: true, signal: controller.signal }))
+        .catch(() => null)
+        .then((result) => {
+          if (entry.signInEpoch !== epoch || entry.signInProbe !== probe || profileProbes.get(route) !== entry) return
+          entry.signedIn = result
+          entry.signedInAt = now()
+        })
+        .finally(() => {
+          if (entry.signInProbe === probe) {
+            delete entry.signInProbe
+            delete entry.signInAbort
+          }
+        })
+      entry.signInProbe = probe
+    }
+    while (entry.signInProbe !== undefined) {
+      await entry.signInProbe
+    }
+  }
+
   // Asked only when the list of CLIs is about to show, never at start or for a menu.
   async function probeSignIns({ force = false } = {}) {
-    await Promise.all([...found.values()].map(async (entry) => {
-      const check = ENGINES[entry.route]?.signedIn
-      if (check === undefined) {
-        entry.signedIn = null
-        return
-      }
-      if (!force) {
-        const ttl = entry.signedIn === null ? SIGNED_IN_RETRY_MS : SIGNED_IN_TTL_MS
-        if (entry.signedIn !== undefined && now() - entry.signedInAt < ttl) return
-      }
-      if (force || entry.signInProbe === undefined) {
-        const epoch = ++nextProbeEpoch
-        entry.signInEpoch = epoch
-        entry.signInAbort?.abort()
-        const controller = new AbortController()
-        entry.signInAbort = controller
-        const probe = Promise.resolve()
-          .then(() => checkSignIn(entry.path, check, { signal: controller.signal }))
-          .catch(() => null)
-          .then((result) => {
-            if (entry.signInEpoch !== epoch || entry.signInProbe !== probe || found.get(entry.route) !== entry) return
-            entry.signedIn = result
-            entry.signedInAt = now()
-          })
-          .finally(() => {
-            if (entry.signInProbe === probe) {
-              delete entry.signInProbe
-              delete entry.signInAbort
-            }
-          })
-        entry.signInProbe = probe
-      }
-      while (entry.signInProbe !== undefined) {
-        await entry.signInProbe
-      }
-    }))
+    await Promise.all([
+      ...[...found.values()].map(async (entry) => {
+        const check = ENGINES[entry.route]?.signedIn
+        if (check === undefined) {
+          entry.signedIn = null
+          return
+        }
+        if (!force) {
+          const ttl = entry.signedIn === null ? SIGNED_IN_RETRY_MS : SIGNED_IN_TTL_MS
+          if (entry.signedIn !== undefined && now() - entry.signedInAt < ttl) return
+        }
+        if (force || entry.signInProbe === undefined) {
+          const epoch = ++nextProbeEpoch
+          entry.signInEpoch = epoch
+          entry.signInAbort?.abort()
+          const controller = new AbortController()
+          entry.signInAbort = controller
+          const probe = Promise.resolve()
+            .then(() => checkSignIn(entry.path, check, { signal: controller.signal }))
+            .catch(() => null)
+            .then((result) => {
+              if (entry.signInEpoch !== epoch || entry.signInProbe !== probe || found.get(entry.route) !== entry) return
+              entry.signedIn = result
+              entry.signedInAt = now()
+            })
+            .finally(() => {
+              if (entry.signInProbe === probe) {
+                delete entry.signInProbe
+                delete entry.signInAbort
+              }
+            })
+          entry.signInProbe = probe
+        }
+        while (entry.signInProbe !== undefined) {
+          await entry.signInProbe
+        }
+      }),
+      ...store().profiles.map(profile => probeProfileSignIn(profile, { force })),
+    ])
   }
   // A signed-out CLI or a slow one never holds back the list for long: each check is bounded.
   async function freshList({ forceSignIn = false, forceVersion = forceSignIn } = {}) {
     await Promise.all([probeVersions({ force: forceVersion }), probeSignIns({ force: forceSignIn })])
-    return { available: supported(), detected: detected(), custom: customView() }
+    return { available: supported(), detected: detected(), profiles: profilesView(), custom: customView() }
   }
 
   const adapter = new LocalAgentAdapter({
     rt,
+    home: rt.home,
     customAgents,
+    profiles,
     findExecutable,
     spawnEngine,
     usedModels: route => usedRefs().map(ref => splitRef(ref)).filter(used => used?.provider === route).map(used => used.model),
@@ -194,7 +266,8 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
   const usedRefs = () => [...new Set(Object.values(state.bots ?? {}).flatMap(bot => [bot.model, bot.appliedModel]).filter(Boolean))]
   // A route a Bot runs on stays registered when its CLI goes away: the turn then fails
   // with the repair card, and nothing moves the Bot to another run mode by itself.
-  const servedRoutes = () => [...new Set([...found.keys(), ...customRouteId(), ...usedRefs().map(ref => splitRef(ref)?.provider).filter(isLocalAgentRoute)])]
+  const activeProfileRoutes = () => profileRouteId().filter(route => found.has(splitProfileRoute(route).baseRoute))
+  const servedRoutes = () => [...new Set([...found.keys(), ...activeProfileRoutes(), ...customRouteId(), ...usedRefs().map(ref => splitRef(ref)?.provider).filter(isLocalAgentRoute)])]
   function applyRoutes() {
     if (!supported()) return
     const candidates = servedRoutes()
@@ -227,6 +300,10 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
       entry.versionAbort?.abort()
       entry.signInAbort?.abort()
     }
+    for (const entry of profileProbes.values()) {
+      entry.signInAbort?.abort()
+    }
+    profileProbes.clear()
     registration?.()
     await Promise.all([initialScan, adapter.dispose()])
   }, 'ds-bot: local agents')
@@ -293,7 +370,44 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
   // The Settings page's endpoints.
 
   const detected = () => [...found.values()].filter(entry => registeredRoutes.has(entry.route)).map(entry => ({ route: entry.route, name: entry.name, path: entry.path, version: entry.version ?? null, signIn: entry.signIn, signedIn: entry.signedIn ?? null }))
+  const profileViewOf = (profile) => {
+    const route = profileRoute(profile.baseRoute, profile.id)
+    const baseFound = found.get(profile.baseRoute)
+    const spec = engineSpecOf(route, [], store().profiles, { home: rt.home })
+    const pState = profileProbes.get(route)
+    return {
+      id: profile.id,
+      baseRoute: profile.baseRoute,
+      route,
+      name: profile.name,
+      displayName: spec?.name ?? `${ENGINES[profile.baseRoute]?.name ?? profile.baseRoute} (${profile.name})`,
+      configDir: spec?.profileDir ?? profile.configDir ?? null,
+      customConfigDir: profile.configDir ?? null,
+      env: profile.env ?? {},
+      available: Boolean(baseFound && registeredRoutes.has(route)),
+      path: baseFound?.path ?? null,
+      version: baseFound?.version ?? null,
+      signIn: signInFor(spec, baseFound?.path),
+      signedIn: pState?.signedIn ?? null,
+    }
+  }
+  const profilesView = () => store().profiles
+    .filter(profile => ENGINES[profile?.baseRoute] !== undefined && isValidProfileId(profile?.id))
+    .map(profileViewOf)
   const customView = () => store().custom.map(agent => ({ ...agent, route: customRoute(agent.id), available: registeredRoutes.has(customRoute(agent.id)) }))
+
+  const findProfile = (body) => {
+    if (typeof body?.route === 'string') {
+      const split = splitProfileRoute(body.route)
+      if (split === null) return { index: -1, entry: undefined }
+      const index = store().profiles.findIndex(profile => profile?.baseRoute === split.baseRoute && profile?.id === split.profileId)
+      return { index, entry: index === -1 ? undefined : store().profiles[index] }
+    }
+    const baseRoute = typeof body?.baseRoute === 'string' ? body.baseRoute.trim() : ''
+    const id = typeof body?.id === 'string' ? body.id.trim() : ''
+    const index = store().profiles.findIndex(profile => profile?.id === id && (baseRoute === '' || profile?.baseRoute === baseRoute))
+    return { index, entry: index === -1 ? undefined : store().profiles[index] }
+  }
 
   // One CLI's models: the first look starts that CLI, later ones read what it said.
   const localAgentModels = route => (registeredRoutes.has(route) ? adapter.probeModels(route) : Promise.resolve([]))
@@ -343,6 +457,68 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
         applyRoutes()
         await rt.save()
         return customView()
+      }
+      case 'local-agent-profile-add': {
+        const baseRoute = String(body?.baseRoute ?? '').trim()
+        const existingIds = new Set(store().profiles.filter(profile => profile?.baseRoute === baseRoute).map(profile => profile.id))
+        const clean = validateProfile(body ?? {}, { existingIds })
+        if (existingIds.has(clean.id)) throw new Error(`A profile with ID "${clean.id}" already exists for ${ENGINES[clean.baseRoute].name}`)
+        const dir = clean.configDir ?? defaultProfileDir(rt.home, clean.baseRoute, clean.id)
+        ensureProfileDir(dir)
+        store().profiles.push(clean)
+        if (!found.has(clean.baseRoute)) await scan()
+        applyRoutes()
+        await Promise.all([probeVersions(), probeProfileSignIn(clean, { force: true })])
+        await rt.save()
+        return profileViewOf(clean)
+      }
+      case 'local-agent-profile-update': {
+        const { entry } = findProfile(body)
+        if (entry === undefined) throw new Error('Unknown profile')
+        const route = profileRoute(entry.baseRoute, entry.id)
+        const prevDir = entry.configDir ?? defaultProfileDir(rt.home, entry.baseRoute, entry.id)
+        const prevEnv = JSON.stringify(entry.env ?? {})
+        const nextConfigDir = body?.configDir === undefined ? entry.configDir : body.configDir
+        const nextEnv = body?.env === undefined ? entry.env : body.env
+        const clean = validateProfile({
+          id: entry.id,
+          baseRoute: entry.baseRoute,
+          name: body?.name ?? entry.name,
+          configDir: nextConfigDir,
+          env: nextEnv,
+        })
+        const newDir = clean.configDir ?? defaultProfileDir(rt.home, clean.baseRoute, clean.id)
+        const configChanged = newDir !== prevDir || JSON.stringify(clean.env ?? {}) !== prevEnv
+        ensureProfileDir(newDir)
+        entry.name = clean.name
+        if (clean.configDir !== undefined) entry.configDir = clean.configDir
+        else delete entry.configDir
+        if (clean.env !== undefined && Object.keys(clean.env).length > 0) entry.env = clean.env
+        else delete entry.env
+        if (configChanged) {
+          await adapter.closeRoute(route)
+          const pState = profileProbes.get(route)
+          pState?.signInAbort?.abort()
+          profileProbes.delete(route)
+          await probeProfileSignIn(entry, { force: true })
+        }
+        await rt.catalog?.({ fresh: true })
+        await rt.save()
+        return profileViewOf(entry)
+      }
+      case 'local-agent-profile-remove': {
+        const { index, entry } = findProfile(body)
+        if (index === -1 || entry === undefined) throw new Error('Unknown profile')
+        const route = profileRoute(entry.baseRoute, entry.id)
+        store().profiles.splice(index, 1)
+        const pState = profileProbes.get(route)
+        pState?.signInAbort?.abort()
+        profileProbes.delete(route)
+        await adapter.closeRoute(route, 'the local agent profile was removed')
+        applyRoutes()
+        await rt.catalog?.({ fresh: true })
+        await rt.save()
+        return profilesView()
       }
       default:
         throw new Error(`Unknown endpoint ${endpoint}`)

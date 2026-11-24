@@ -118,7 +118,7 @@ class ClaudeSession {
     // A resumed conversation may restore a shell directory we cannot observe.
     this.cwd = resumeId === undefined ? cwd : undefined
     const child = this.child = spawnAgent(bin, args, {
-      env: cleanEnv(this.engine.env ?? {}),
+      env: cleanEnv(this.engine.engine.env ?? {}),
       cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
       windowsHide: true,

@@ -18,6 +18,7 @@ import { randomUUID } from 'node:crypto'
 import { LlmError, createAssistantMessage, createSystemMessage, createUserMessage, isContextWindowExceededError } from '@deepseek-ai/dsh-llm'
 import { openTurnAt } from './btw.js'
 import { HANDOFF_ACK, HISTORY_SCAN_PAGES, HISTORY_TIMEOUT_MS, isSilentTurnText, REPLY_KIND, SOURCE_KIND } from './constants.js'
+import { DEFAULT_BYTES_PER_TOKEN, computeHandoffBudget, countMessageAttachments, fitHandoffHistory, measureMessagesBytes, utf8Bytes } from './handoff-budget.js'
 import { assembleLlmStream } from './models.js'
 import { compressedRelayPreview, parseReplies, relayRange, stackReplies } from '../shared/group-replies.js'
 import { CHECKPOINT_PROMPT, STEWARD_SYSTEM, checkpointCount, checkpointTail, checkpointTailNote, checkpointText, linesFor, parseDecision, selectRetainedRange, stewardRequest } from './steward.js'
@@ -253,10 +254,18 @@ export function install(rt) {
     const previousNote = segmentNoteOf(previous)
     const lines = await contextLines(session).catch(() => undefined)
     const budget = Math.min(RECENT_TOKENS, Math.floor((lines?.check ?? 4 * RECENT_TOKENS) / 4))
+    const rawCarried = await handoffLines(agent.id, { budget, group: room !== undefined, number: parts.length })
+    const targetWindow = await targetWindowTokensOf(rt.botOf(place.botId), session, lines?.window)
+    const carried = applyHandoffBudget(rawCarried, {
+      targetWindowTokens: targetWindow,
+      noteBody: previousNote ?? '',
+      carry,
+      maxHistoryTokens: budget + LIST_TOKENS + TOOL_TRAIL_TOKENS,
+    })
     const text = handoffPackage({
       room,
       segment: { fallback: 'overflow', ...(previousNote ? { note: previousNote, noteFrom: previous.noteFrom ?? previous.number } : {}) },
-      lines: await handoffLines(agent.id, { budget, group: room !== undefined, number: parts.length }),
+      lines: carried,
       number: parts.length + 1,
       resume: true,
       overflow: true,
@@ -289,6 +298,66 @@ export function install(rt) {
     if (reported !== undefined) return linesFor({ window: reported, checkRatio: config.checkRatio, checkTokens: config.checkTokens })
     const info = await ctx.llm.resolveModelInfo(route.provider, route.model)
     return linesFor({ window: info.context?.contextWindow, reserve: route.maxTokens ?? info.defaultMaxTokens, checkRatio: config.checkRatio, checkTokens: config.checkTokens })
+  }
+
+  // Resolves the target model's context window (preferring the Bot's newly selected
+  // model on an engine/model switch so the handoff package fits the destination window).
+  async function targetWindowTokensOf(bot, session, fallbackWindow) {
+    const ref = bot === undefined ? undefined : await Promise.resolve(rt.desiredModel?.(bot)).catch(() => undefined)
+    const target = splitRef(ref)
+    if (target !== undefined) {
+      const current = session?.requestHeader?.()?.config
+      if (current?.provider === target.provider && current?.model === target.model && localPart(session)) {
+        const reported = rt.localAgentContext?.(session.id)?.size
+        if (Number.isInteger(reported) && reported > 0) return reported
+      }
+      const info = await ctx.llm?.resolveModelInfo?.(target.provider, target.model).catch(() => undefined)
+      const declared = info?.context?.contextWindow
+      if (Number.isInteger(declared) && declared > 0) return declared
+    }
+    return Number.isInteger(fallbackWindow) && fallbackWindow > 0 ? fallbackWindow : undefined
+  }
+
+  // Enforces the exact UTF-8 byte budget on a deterministic handoff payload while
+  // strictly preserving the newest message and any carried in-flight turn/attachments.
+  function applyHandoffBudget(carried, { targetWindowTokens, noteBody = '', carry = [], held = [], maxHistoryTokens } = {}) {
+    if (!Number.isInteger(targetWindowTokens) || targetWindowTokens <= 0) return carried
+    const recent = carried?.recent ?? []
+    const earlier = carried?.earlier ?? []
+    const tools = carried?.tools ?? []
+    if (recent.length === 0 && earlier.length === 0 && tools.length === 0) return carried
+    const newest = recent.length > 0 ? [recent.at(-1)] : []
+    const olderRecent = recent.length > 0 ? recent.slice(0, -1) : []
+    const pending = [...(carry ?? []), ...(held ?? [])]
+    const currentTurnBytes = measureMessagesBytes(pending) + (newest.length > 0 ? utf8Bytes(newest[0]) : 0)
+    const attachmentCount = countMessageAttachments(pending)
+    const nativeUsedBytes = utf8Bytes(noteBody) + 1024
+    const maxHistoryBytes = maxHistoryTokens !== undefined
+      ? Math.floor(maxHistoryTokens * DEFAULT_BYTES_PER_TOKEN) : undefined
+    const computed = computeHandoffBudget({
+      targetWindowTokens,
+      nativeUsedBytes,
+      currentTurnBytes,
+      attachmentCount,
+      maxHistoryBytes,
+    })
+    const fitted = fitHandoffHistory({
+      currentTurn: newest,
+      recent: olderRecent,
+      earlier,
+      tools,
+      availableBytes: computed.availableBytes,
+    })
+    const trimmed = fitted.droppedRecent > 0 || fitted.droppedEarlier > 0 || fitted.truncatedEntries > 0
+    return {
+      ...carried,
+      recent: [...fitted.recent, ...fitted.currentTurn],
+      earlier: fitted.earlier,
+      tools: fitted.tools,
+      unlisted: (carried.unlisted ?? 0) + fitted.droppedEarlier,
+      complete: carried.complete !== false && !trimmed,
+      whole: carried.whole === true && !trimmed && fitted.droppedTools === 0,
+    }
   }
 
   // The backend's own entry points leave Bot Sessions alone, earlier parts and group
@@ -2125,7 +2194,15 @@ export function install(rt) {
         rt.warn('ds-bot: the fresh part of %s did not start in %s; it works in %s', name, intended, cwd)
       }
       const engine = job.engine ? rt.engineNameOf?.(bot.model ?? bot.appliedModel) : undefined
-      const text = handoffPackage({ room: effectiveRoom, self: bot === undefined, segment, lines: carried, number: number + 1, resume, overflow: job.overflow, cutoff: job.cutoff === true, failed: job.failed, bare: job.bare, folder, engine })
+      const targetWindow = await targetWindowTokensOf(bot, session, lines?.window)
+      const budgeted = applyHandoffBudget(carried, {
+        targetWindowTokens: targetWindow,
+        noteBody: noteText(segment) ?? '',
+        carry: job.carry,
+        held,
+        maxHistoryTokens: budget + LIST_TOKENS + TOOL_TRAIL_TOKENS,
+      })
+      const text = handoffPackage({ room: effectiveRoom, self: bot === undefined, segment, lines: budgeted, number: number + 1, resume, overflow: job.overflow, cutoff: job.cutoff === true, failed: job.failed, bare: job.bare, folder, engine })
       freshParts.set(freshId, estimateTokens(text))
       fresh.followup(createUserMessage({ content: [{ type: 'text', text }], source: handoffSource(job, resume) }))
       await ctx.sessions.flush(fresh.session)

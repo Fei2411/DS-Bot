@@ -36,12 +36,18 @@ function setCaseInsensitiveEnv(env, name, value) {
   env[name] = value
 }
 
+export function isDroppedEnvKey(key) {
+  const upper = String(key ?? '').toUpperCase()
+  return /^GIT_CONFIG_(?:COUNT|PARAMETERS|(?:KEY|VALUE)_\d+)$/.test(upper)
+    || DROP_EXACT.has(upper)
+    || DROP_PREFIX.some(prefix => upper.startsWith(prefix))
+}
+
 export function cleanEnv(extra = {}) {
   const env = {}
   for (const [key, value] of Object.entries(process.env)) {
-    const upper = key.toUpperCase()
     // Git's injected config is one group; dropping only KEY leaves COUNT/VALUE malformed.
-    if (/^GIT_CONFIG_(?:COUNT|PARAMETERS|(?:KEY|VALUE)_\d+)$/.test(upper) || DROP_EXACT.has(upper) || DROP_PREFIX.some(prefix => upper.startsWith(prefix))) continue
+    if (isDroppedEnvKey(key)) continue
     env[key] = value
   }
   // A CLI found outside our sparse PATH (a script with `#!/usr/bin/env node`)
@@ -69,9 +75,24 @@ export function probeEnv(extra = {}) {
   return withProbeEnv(cleanEnv(extra))
 }
 
-function probeEnvWithOverride(overrideEnv) {
-  const key = findEnvKey(overrideEnv, 'MISE_OFFLINE')
-  return probeEnv(key === undefined ? {} : { [key]: String(overrideEnv[key]) })
+// Builds a probe environment from sanitized host env + explicit caller/profile
+// overrides (CLAUDE_CONFIG_DIR, CODEX_HOME, XDG_CONFIG_HOME, MISE_OFFLINE, etc.)
+// without leaking dropped host secrets or losing PATH when overrideEnv is sparse.
+function probeEnvWithOverride(overrideEnv, extraEnv) {
+  const merged = {}
+  if (overrideEnv !== undefined && overrideEnv !== null && overrideEnv !== process.env) {
+    for (const [key, value] of Object.entries(overrideEnv)) {
+      if (value === undefined || isDroppedEnvKey(key)) continue
+      merged[key] = String(value)
+    }
+  }
+  if (extraEnv !== undefined && extraEnv !== null) {
+    for (const [key, value] of Object.entries(extraEnv)) {
+      if (value === undefined || isDroppedEnvKey(key)) continue
+      merged[key] = String(value)
+    }
+  }
+  return probeEnv(merged)
 }
 
 export function agentEnv(executable, env, { platform = process.platform, find = name => findExecutable(name, { platform, env }) } = {}) {
@@ -598,25 +619,68 @@ function envValue(env, name, platform) {
   return key === undefined ? '' : String(env[key] ?? '').trim()
 }
 
-function resolvePlatformFile(spec, home, platform, env) {
+function resolvePlatformFile(spec, home, platform, env, { isolated = false } = {}) {
   const entry = spec[platform] ?? spec.default
   if (entry === undefined) return undefined
   const envRoot = envValue(env, entry.env, platform)
-  const base = envRoot !== '' && isAbsoluteFor(envRoot, platform) ? envRoot : join(home, ...(entry.base ?? []))
-  return join(base, ...entry.path)
+  if (envRoot !== '' && isAbsoluteFor(envRoot, platform)) return join(envRoot, ...entry.path)
+  // An isolated profile must not silently fall back to the default global home directory.
+  if (isolated) {
+    const xdgRoot = envValue(env, 'XDG_CONFIG_HOME', platform)
+    if (xdgRoot !== '' && isAbsoluteFor(xdgRoot, platform)) {
+      const xdgEntry = spec.default ?? entry
+      return join(xdgRoot, ...xdgEntry.path)
+    }
+    return undefined
+  }
+  return join(home, ...(entry.base ?? []), ...entry.path)
 }
 
-function probeOne(executable, check, { home, platform, env, spawnKeychain, timeoutMs, forceKillAfterMs, maxOutputBytes, signal, deadline }) {
+function resolveSimpleFile(check, home, platform, env, { isolated = false } = {}) {
+  if (check.envDir !== undefined) {
+    const envRoot = envValue(env, check.envDir, platform)
+    if (envRoot !== '' && isAbsoluteFor(envRoot, platform)) {
+      return join(envRoot, ...check.file.slice(1))
+    }
+  }
+  if (isolated) {
+    const xdgRoot = envValue(env, 'XDG_CONFIG_HOME', platform)
+    if (xdgRoot !== '' && isAbsoluteFor(xdgRoot, platform)) {
+      return join(xdgRoot, ...check.file)
+    }
+    return undefined
+  }
+  return join(home, ...check.file)
+}
+
+function hasIsolatedProfileEnv(env, extraEnv, isolated) {
+  if (isolated === true) return true
+  const checkKeys = (obj, keys) => obj !== undefined && obj !== null
+    && Object.keys(obj).some(key => keys.includes(key.toUpperCase()) && String(obj[key] ?? '').trim() !== '')
+  if (checkKeys(extraEnv, ['CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'XDG_CONFIG_HOME'])) return true
+  if (env !== process.env && checkKeys(env, ['CLAUDE_CONFIG_DIR', 'CODEX_HOME'])) return true
+  return false
+}
+
+function probeOne(executable, check, { home, platform, env, extraEnv, isolated, spawnKeychain, timeoutMs, forceKillAfterMs, maxOutputBytes, signal, deadline }) {
   if (signal?.aborted) return Promise.resolve(null)
+  const effectiveEnv = extraEnv !== undefined && extraEnv !== null ? { ...(env ?? {}), ...extraEnv } : env
+  const isIsolated = hasIsolatedProfileEnv(env, extraEnv, isolated)
   if (check.macKeychain !== undefined) {
+    // macOS Keychain stores the global default account; never attribute it to an isolated profile.
+    if (isIsolated) return Promise.resolve(null)
     return platform === 'darwin' ? probeMacKeychain(check.macKeychain, spawnKeychain, timeoutMs, signal) : Promise.resolve(null)
   }
-  if (check.file !== undefined) return Promise.resolve(probeFile(join(home, ...check.file)))
+  if (check.file !== undefined) {
+    const file = resolveSimpleFile(check, home, platform, effectiveEnv, { isolated: isIsolated })
+    return Promise.resolve(file === undefined ? null : probeFile(file))
+  }
   if (check.appDataFile !== undefined) {
+    if (isIsolated) return Promise.resolve(null)
     return Promise.resolve(probeFile(join(home, ...(APP_DATA[platform] ?? ['.local', 'share']), ...check.appDataFile.path), check.appDataFile))
   }
   if (check.platformFile !== undefined) {
-    const file = resolvePlatformFile(check.platformFile, home, platform, env)
+    const file = resolvePlatformFile(check.platformFile, home, platform, effectiveEnv, { isolated: isIsolated })
     return Promise.resolve(file === undefined ? null : probeFile(file, check.platformFile))
   }
   if (check.args === undefined) return Promise.resolve(null)
@@ -629,7 +693,7 @@ function probeOne(executable, check, { home, platform, env, spawnKeychain, timeo
       forceKillAfterMs,
       maxOutputBytes,
       signal,
-      env: probeEnvWithOverride(env),
+      env: probeEnvWithOverride(env, extraEnv),
       spawnOptions: launch.options,
     }).then((result) => {
       if (result.timedOut || result.aborted || result.overflowed) return null
@@ -642,11 +706,11 @@ function probeOne(executable, check, { home, platform, env, spawnKeychain, timeo
 
 // true, false, or null when the check cannot tell. Only a CLI's status command
 // can say false; a missing credential in one store proves nothing.
-export async function probeSignIn(executable, check, { home = homedir(), platform = process.platform, env = process.env, spawnKeychain = spawn, timeoutMs = SIGN_IN_TIMEOUT_MS, forceKillAfterMs = PROBE_FORCE_KILL_AFTER_MS, maxOutputBytes = MAX_PROBE_OUTPUT_BYTES, signal } = {}) {
+export async function probeSignIn(executable, check, { home = homedir(), platform = process.platform, env = process.env, extraEnv, isolated = false, spawnKeychain = spawn, timeoutMs = SIGN_IN_TIMEOUT_MS, forceKillAfterMs = PROBE_FORCE_KILL_AFTER_MS, maxOutputBytes = MAX_PROBE_OUTPUT_BYTES, signal } = {}) {
   const deadline = Date.now() + timeoutMs
   for (let current = check; current !== undefined; current = current.fallback) {
     if (signal?.aborted) return null
-    const result = await probeOne(executable, current, { home, platform, env, spawnKeychain, timeoutMs, forceKillAfterMs, maxOutputBytes, signal, deadline })
+    const result = await probeOne(executable, current, { home, platform, env, extraEnv, isolated, spawnKeychain, timeoutMs, forceKillAfterMs, maxOutputBytes, signal, deadline })
     if (signal?.aborted) return null
     if (result !== null) return result
   }

@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os'
 import { basename, dirname, resolve } from 'node:path'
 import { LlmAdapter, LlmError, offloadedImageText, resolveImageAttachmentAccess, textOnlyImageText } from '@deepseek-ai/dsh-llm'
 import { SOURCE_KIND } from '../constants.js'
+import { truncateUtf8Bytes, utf8Bytes } from '../handoff-budget.js'
 import { GROUP_MEMORY_SOURCE, MEMORY_UPDATE_SOURCE } from '../memory-copy.js'
 import { textOf } from '../text.js'
 import { engineOf, cliMode, signInFor } from './engines.js'
@@ -99,8 +100,12 @@ export class LocalAgentAdapter extends LlmAdapter {
     this.disposed = false
   }
 
+  specOf(route) {
+    return engineOf(route, this.deps.customAgents?.() ?? [], this.deps.profiles?.() ?? [], { home: this.deps.home ?? this.deps.rt?.home })
+  }
+
   providerInfo(route) {
-    const engine = engineOf(route, this.deps.customAgents())
+    const engine = this.specOf(route)
     return { id: route, name: engine?.name ?? route }
   }
   providerRetryPolicy() { return undefined }
@@ -109,7 +114,7 @@ export class LocalAgentAdapter extends LlmAdapter {
   engine(route) {
     let driver = this.engines.get(route)
     if (driver === undefined) {
-      const spec = engineOf(route, this.deps.customAgents())
+      const spec = this.specOf(route)
       if (spec === undefined) throw new LlmError(`Unknown local agent ${route}`, 'NO_ADAPTER')
       driver = this.deps.spawnEngine(spec.kind, route, spec)
       this.engines.set(route, driver)
@@ -120,7 +125,7 @@ export class LocalAgentAdapter extends LlmAdapter {
   // What DS Bot knows of a route without starting its CLI: the CLI's default, what a
   // probe found, and what a Bot runs on. DSH and the catalog ask this for every route.
   async listModels(route) {
-    const spec = engineOf(route, this.deps.customAgents())
+    const spec = this.specOf(route)
     if (spec === undefined) return []
     const supportsImage = spec.kind !== 'acp' || this.engines.get(route)?.supportsImages?.() !== false
     const inputModalities = supportsImage ? ['text', 'image'] : ['text']
@@ -156,7 +161,7 @@ export class LocalAgentAdapter extends LlmAdapter {
   // again. The process it took leaves unless a Session runs on it.
   async probeModels(route) {
     if (this.modelCache.has(route)) return this.listModels(route)
-    if (engineOf(route, this.deps.customAgents()) === undefined) return []
+    if (this.specOf(route) === undefined) return []
     const epoch = this.modelEpochOf(route)
     let entry = this.probes.get(route)
     if (entry === undefined || entry.epoch !== epoch) {
@@ -204,7 +209,7 @@ export class LocalAgentAdapter extends LlmAdapter {
   }
 
   async resolveModel(route, model) {
-    const spec = engineOf(route, this.deps.customAgents())
+    const spec = this.specOf(route)
     const listed = (await this.listModels(route).catch(() => [])).find(entry => entry.id === model)
     const supportsImage = spec?.kind !== 'acp' || this.engines.get(route)?.supportsImages?.() !== false
     return {
@@ -215,6 +220,25 @@ export class LocalAgentAdapter extends LlmAdapter {
       context: { contextWindow: spec?.contextWindow ?? this.windows.get(windowKey(route, model)) ?? DEFAULT_CONTEXT_WINDOW },
       // The thinking levels the engine advertises for this model, if any.
       ...(listed?.reasoning ? { reasoning: listed.reasoning } : {}),
+    }
+  }
+
+  // Tears down a route's engine and live sessions (e.g. after a profile's configDir
+  // or env changes, or when a profile is removed) so subsequent turns spawn fresh.
+  async closeRoute(route, reason = 'the local agent configuration changed') {
+    this.dropModelCache(route)
+    for (const key of this.windows.keys()) {
+      if (key.startsWith(`${route}\u0000`)) this.windows.delete(key)
+    }
+    const matching = [...this.live.values()].filter(live => live.route === route)
+    for (const live of matching) {
+      this.stopTurn(live, reason)
+      await this.closeLive(live, { idle: true }).catch(() => {})
+    }
+    const engine = this.engines.get(route)
+    if (engine !== undefined) {
+      this.engines.delete(route)
+      await engine.close?.().catch(() => {})
     }
   }
 
@@ -242,7 +266,7 @@ export class LocalAgentAdapter extends LlmAdapter {
       if ((live.model === options.model && live.preset === preset) || live.state !== 'idle') return live
       await this.closeLive(live, { idle: true })
     } else if (live !== undefined) await this.closeLive(live)
-    const spec = engineOf(route, this.deps.customAgents())
+    const spec = this.specOf(route)
     if (spec === undefined) throw new LlmError(`Unknown local agent ${route}`, 'LOCAL_AGENT_MISSING')
     const engine = this.engine(route)
     live = {
@@ -1206,7 +1230,7 @@ export class LocalAgentAdapter extends LlmAdapter {
     if (this.disposed) throw new LlmError('the local agents adapter is disposed', 'NO_ADAPTER')
     const record = named !== undefined ? { route: named, model: namedModel } : this.live.get(sessionId) ?? this.deps.record(sessionId)
     const route = record?.route
-    const spec = route === undefined ? undefined : engineOf(route, this.deps.customAgents())
+    const spec = route === undefined ? undefined : this.specOf(route)
     if (spec === undefined) throw new LlmError('this conversation has no local agent', 'LOCAL_AGENT_MISSING')
     const isolated = spec.kind === 'codex'
     const engine = isolated ? this.deps.spawnEngine(spec.kind, route, spec) : this.engine(route)
@@ -1323,11 +1347,12 @@ function briefToolCall(block) {
   return `[tool: ${name}]`
 }
 
-async function blocksOfMessage(message, { maxText, resolveImage, includeToolCalls = false }) {
+async function blocksOfMessage(message, { maxBytes, maxText, resolveImage, includeToolCalls = false }) {
   const raw = Array.isArray(message.content) ? message.content : []
   const out = []
   let textParts = []
-  let textLeft = maxText ?? Infinity
+  const byteCap = maxBytes ?? maxText ?? Infinity
+  let bytesLeft = byteCap
   const flushText = () => {
     const text = textParts.join('\n').trim()
     textParts = []
@@ -1335,13 +1360,13 @@ async function blocksOfMessage(message, { maxText, resolveImage, includeToolCall
   }
   for (const block of raw) {
     if (block?.type === 'text' && typeof block.text === 'string') {
-      const piece = textLeft === Infinity ? block.text : block.text.slice(0, textLeft)
-      if (textLeft !== Infinity) textLeft = Math.max(0, textLeft - piece.length)
+      const piece = bytesLeft === Infinity ? block.text : truncateUtf8Bytes(block.text, bytesLeft, '')
+      if (bytesLeft !== Infinity) bytesLeft = Math.max(0, bytesLeft - utf8Bytes(piece))
       textParts.push(piece)
     } else if (includeToolCalls && block?.type === 'tool-call') {
       const note = briefToolCall(block)
-      const piece = textLeft === Infinity ? note : note.slice(0, textLeft)
-      if (textLeft !== Infinity) textLeft = Math.max(0, textLeft - piece.length)
+      const piece = bytesLeft === Infinity ? note : truncateUtf8Bytes(note, bytesLeft, '')
+      if (bytesLeft !== Infinity) bytesLeft = Math.max(0, bytesLeft - utf8Bytes(piece))
       if (piece !== '') textParts.push(piece)
     } else if (block?.type === 'image') {
       flushText()
@@ -1403,26 +1428,26 @@ async function renderReplay(messages, system, resolveImage, { preserve = [], fre
     const prefix = `${message.role === 'assistant' ? 'You' : message.role === 'tool' ? `Tool result (${message.toolCallId ?? 'call'})` : 'User'}:`
     if (sourceKind === MEMORY_UPDATE_SOURCE) {
       if (freshMemory !== undefined) continue
-      const len = prefix.length + 1 + text.length
+      const len = utf8Bytes(prefix) + 1 + utf8Bytes(text)
       if (memoryUpdates >= MEMORY_UPDATE_REPLAY_MAX || (memoryUpdates > 0 && memoryUpdateBytes + len > MEMORY_UPDATE_REPLAY_BYTES)) continue
-      const maxText = Math.max(500, MEMORY_UPDATE_REPLAY_BYTES - memoryUpdateBytes)
-      const blocks = await blocksOfMessage(message, { maxText, resolveImage, includeToolCalls: true })
+      const maxBytes = Math.max(500, MEMORY_UPDATE_REPLAY_BYTES - memoryUpdateBytes)
+      const blocks = await blocksOfMessage(message, { maxBytes, resolveImage, includeToolCalls: true })
       if (blocks.length === 0) continue
       const entry = blocks[0].type === 'text'
         ? [{ type: 'text', text: `${prefix} ${blocks[0].text}` }, ...blocks.slice(1)]
         : [{ type: 'text', text: prefix }, ...blocks]
       picked.unshift(entry)
       memoryUpdates += 1
-      memoryUpdateBytes += Math.min(len, maxText)
+      memoryUpdateBytes += Math.min(len, maxBytes)
       continue
     }
     const whole = isCurrentInput || message === latestHandoff || message === latestGroupMem
-    const approxLen = prefix.length + 1 + (whole ? text.length : Math.min(text.length, REPLAY_LINE_MAX))
+    const approxLen = utf8Bytes(prefix) + 1 + (whole ? utf8Bytes(text) : Math.min(utf8Bytes(text), REPLAY_LINE_MAX))
     if (!whole) {
       full ||= conversationCount >= REPLAY_MESSAGES || picked.length >= REPLAY_TOTAL_MAX || used + approxLen > REPLAY_BYTES
       if (full) continue
     }
-    const blocks = await blocksOfMessage(message, { maxText: whole ? Infinity : REPLAY_LINE_MAX, resolveImage, includeToolCalls: true })
+    const blocks = await blocksOfMessage(message, { maxBytes: whole ? Infinity : REPLAY_LINE_MAX, resolveImage, includeToolCalls: true })
     if (blocks.length === 0 && !whole) continue
     const entry = blocks.length > 0 && blocks[0].type === 'text'
       ? [{ type: 'text', text: `${prefix} ${blocks[0].text}` }, ...blocks.slice(1)]
