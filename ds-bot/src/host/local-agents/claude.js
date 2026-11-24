@@ -2,6 +2,7 @@
 // stdin takes user/control JSON messages; stdout streams the assistant's
 // events until a `result` ends the turn.
 import { cleanEnv, findEngineExecutable, spawnAgent } from './discover.js'
+import { lineSplitter } from './lines.js'
 
 // Claude Code tools that only read; the rest may change files or run something.
 const READ_TOOLS = new Set(['Read', 'Glob', 'Grep', 'LS', 'WebFetch', 'WebSearch', 'TodoWrite', 'NotebookRead'])
@@ -125,17 +126,8 @@ class ClaudeSession {
       new Error(stderr.trim() === '' ? message : `${message}: ${stderr.trim().split('\n').slice(-5).join(' ')}`),
       { code: 'LOCAL_AGENT_EXIT' },
     )
-    let rest = ''
     child.stdout.setEncoding('utf8')
-    child.stdout.on('data', (chunk) => {
-      rest += chunk
-      let at
-      while ((at = rest.indexOf('\n')) !== -1) {
-        const line = rest.slice(0, at).trim()
-        rest = rest.slice(at + 1)
-        if (line !== '') this.onLine(line)
-      }
-    })
+    child.stdout.on('data', lineSplitter(line => this.onLine(line)))
     // Writing to a CLI that has already exited fails asynchronously on stdin,
     // not on the child: without this listener the host dies with an unhandled
     // stream error. The failure goes into the session queue instead.
@@ -195,7 +187,7 @@ class ClaudeSession {
         for (const block of event.message?.content ?? []) {
           if (block.type === 'text') this.emit({ type: 'text', text: block.text ?? '' })
           else if (block.type === 'thinking') this.emit({ type: 'thought', text: block.thinking ?? '' })
-          else if (block.type === 'tool_use') this.emit({ type: 'activity', text: `▸ ${block.name ?? 'tool'}` })
+          else if (block.type === 'tool_use') this.emit({ type: 'activity', text: `▸ ${claudeActivity(block)}`, ...(String(block.name ?? '').startsWith('mcp__dsbot__') ? { team: true } : {}) })
         }
         break
       }
@@ -277,6 +269,17 @@ class ClaudeSession {
     setTimeout(() => { try { this.child?.kill('SIGKILL') } catch {} }, 5_000).unref?.()
     this.child = undefined
   }
+}
+
+function claudeActivity(block) {
+  const name = block.name ?? 'tool'
+  const input = block.input !== null && typeof block.input === 'object' ? block.input : {}
+  const command = input.command ?? input.cmd
+  const detail = typeof command === 'string' && command.trim() !== ''
+    ? `\`${command.trim().slice(0, 160)}\``
+    : [input.description, input.file_path, input.path, input.pattern, input.url, input.query]
+      .find(value => typeof value === 'string' && value.trim() !== '')?.trim().slice(0, 120)
+  return detail ? `${name} ${detail}` : name
 }
 
 function claudeContent(blocks) {

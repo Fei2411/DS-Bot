@@ -25,7 +25,7 @@
 // provider's prefix cache holds; a fresh part, or a checkpoint (which breaks the cache
 // anyway), freezes it anew.
 import { createHash, randomUUID } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, truncateSync, unlinkSync, writeFileSync } from 'node:fs'
+import { closeSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, renameSync, statSync, truncateSync, unlinkSync, writeFileSync } from 'node:fs'
 import { appendFile, mkdir, rename, unlink, writeFile } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import { HarnessError, createUserMessage } from '@deepseek-ai/dsh-llm'
@@ -60,6 +60,7 @@ const UPDATE_TEXT_MAX = 4_000
 // The changes kept in memory for update messages, and how far back a start reads them.
 const RECENT_ROWS_MAX = 2_000
 const RECENT_TAIL_CHARS = 512 * 1024
+const JOURNAL_TAIL_BYTES = 64 * 1024
 const QUERY_TERMS_MAX = 6
 const SOURCE_READ_MS = 5_000
 const MODEL_TIMEOUT_MS = 120_000
@@ -92,6 +93,7 @@ export function install(rt) {
     Object.assign(rt, {
       memoryEnabled: false,
       renewMemory: () => {},
+      freshMemoryView: () => undefined,
       archiveBotMemory: async () => {},
       archiveGroupMemory: async () => {},
       memoryEndpoint: async () => { throw new Error('Memory is turned off on this host') },
@@ -164,11 +166,12 @@ export function install(rt) {
       return { topic, file, path: join(dir, file), content, ...parseMemory(content) }
     })
   }
-  // Recall runs on every step, so it keeps each topic parsed and tokenized until the
-  // file changes. The file is looked at before it is read: a write in between is read
-  // again on the next step instead of being kept under the old revision. The entries
-  // are shared between steps; callers must not change them.
+  // Recall runs on every step, and a Bot may search on every turn, so each file is kept
+  // parsed and tokenized until it changes. The file is looked at before it is read: a
+  // write in between is read again on the next call instead of being kept under the old
+  // revision. The entries are shared between calls; callers must not change them.
   const recallCache = new Map()
+  const mainCache = new Map()
   const revisionOf = (path) => {
     try {
       const stat = statSync(path, { bigint: true, throwIfNoEntry: false })
@@ -177,25 +180,37 @@ export function install(rt) {
       return unreadable(path, error)
     }
   }
-  const recallEntries = (scope) => {
+  const parsedFile = (dir, topic, cached) => {
+    const file = topic === undefined ? MAIN : `${topic}.md`
+    const path = join(dir, file)
+    const revision = revisionOf(path)
+    if (revision === undefined) return undefined
+    if (cached?.revision === revision) return cached
+    const content = readText(path)
+    const parsed = { topic, file, path, content, ...parseMemory(content) }
+    return { revision, entries: parsed.entries.map(entry => ({ ...entry, file: parsed })).map(entry => ({ ...entry, words: entryWords(entry) })) }
+  }
+  const recallEntries = (scope, names = topicNames(scope)) => {
     const dir = dirOf(scope)
     const cached = recallCache.get(dir)
     const topics = new Map()
-    for (const topic of topicNames(scope)) {
-      const path = join(dir, `${topic}.md`)
-      const revision = revisionOf(path)
-      if (revision === undefined) continue
-      let parsed = cached?.get(topic)
-      if (parsed?.revision !== revision) {
-        const content = readText(path)
-        const file = { topic, file: `${topic}.md`, path, content, ...parseMemory(content) }
-        parsed = { revision, entries: file.entries.map(entry => ({ ...entry, file })).map(entry => ({ ...entry, words: entryWords(entry) })) }
-      }
-      topics.set(topic, parsed)
+    for (const topic of names) {
+      const parsed = parsedFile(dir, topic, cached?.get(topic))
+      if (parsed !== undefined) topics.set(topic, parsed)
     }
     if (topics.size === 0) recallCache.delete(dir)
     else recallCache.set(dir, topics)
     return [...topics.values()].flatMap(parsed => parsed.entries)
+  }
+  // Every entry of a scope, MEMORY.md first, read in loadScope's order so an unreadable
+  // file fails the same way.
+  const searchEntries = (scope) => {
+    const dir = dirOf(scope)
+    const names = topicNames(scope)
+    const main = parsedFile(dir, undefined, mainCache.get(dir))
+    if (main === undefined) mainCache.delete(dir)
+    else mainCache.set(dir, main)
+    return [...(main?.entries ?? []), ...recallEntries(scope, names)]
   }
   const mainLimit = scope => state.prefs.memoryLimits?.[scope.kind] ?? MEMORY_LIMITS[scope.kind]
   const fileName = file => (file.topic === undefined ? MAIN : `topic [[${file.topic}]]`)
@@ -253,6 +268,42 @@ export function install(rt) {
     }
   }
 
+  // The end of the change log, from where it starts in bytes: at least its last whole
+  // row and what follows it. Every write finishes an interrupted change first, so the
+  // row of a change that is finished twice is the last one in its log, and a half row
+  // can only be at the end. The log only grows, so a write does not read all of it.
+  function journalTail(path) {
+    let fd
+    try {
+      fd = openSync(path, 'r')
+    } catch (error) {
+      if (error?.code === 'ENOENT') return { start: 0, text: '' }
+      unreadable(path, error)
+    }
+    try {
+      const size = fstatSync(fd).size
+      for (let length = JOURNAL_TAIL_BYTES; ; length *= 2) {
+        const start = Math.max(0, size - length)
+        const bytes = Buffer.alloc(size - start)
+        for (let at = 0; at < bytes.length;) {
+          const read = readSync(fd, bytes, at, bytes.length - at, start + at)
+          if (read === 0) break
+          at += read
+        }
+        const last = bytes.lastIndexOf(0x0a)
+        // A newline byte is never part of a longer character, so cutting after one
+        // keeps the text and its offset in bytes whole.
+        if (start > 0 && !(last > 0 && bytes.lastIndexOf(0x0a, last - 1) >= 0)) continue
+        const from = start === 0 ? 0 : bytes.indexOf(0x0a) + 1
+        return { start: start + from, text: bytes.subarray(from).toString('utf8') }
+      }
+    } catch (error) {
+      unreadable(path, error)
+    } finally {
+      closeSync(fd)
+    }
+  }
+
   // Whether the change log already holds the row of a change. Only a row that parses
   // counts: a half-written row is not proof that anything was done.
   function journalled(text, id) {
@@ -282,7 +333,7 @@ export function install(rt) {
   // are whole, and the row after it starts on a line of its own.
   async function journalRow(row) {
     const { path, torn } = journalFor(row.scope, row.op)
-    const text = readJournal(path)
+    const { start, text } = journalTail(path)
     if (journalled(text, row.id)) return false
     const cut = text.lastIndexOf('\n') + 1
     const half = text.slice(cut)
@@ -300,7 +351,7 @@ export function install(rt) {
       return true
     }
     await appendFile(torn, `${half}\n`, 'utf8')
-    truncateSync(path, Buffer.byteLength(text.slice(0, cut), 'utf8'))
+    truncateSync(path, start + Buffer.byteLength(text.slice(0, cut), 'utf8'))
     await appendFile(path, `${line}\n`, 'utf8')
     return true
   }
@@ -316,13 +367,13 @@ export function install(rt) {
   }
   function readTail(path) {
     if (tailsRead.has(path)) return
-    tailsRead.add(path)
     for (const line of readJournal(path).slice(-RECENT_TAIL_CHARS).split('\n')) {
       try {
         const row = JSON.parse(line)
         if (typeof row?.id === 'string' && typeof row.time === 'string') rememberRow(row)
       } catch { /* a line cut by the tail, or half-written */ }
     }
+    tailsRead.add(path)
   }
 
   // Whether anything but a tidy changed a memory after a time.
@@ -447,9 +498,9 @@ export function install(rt) {
     return { scope: ownScope(bot.id) }
   }
   function writeDenied(scope, botId) {
-    if (scope.kind === 'team') return writesTeam(botId) ? undefined : 'Only Main Bots and group admins write the team memory. Tell a Main Bot with message_bot what the team should know.'
+    if (scope.kind === 'team') return writesTeam(botId) ? undefined : 'Only Main Bots and group admins write the team memory. Ask a Main Bot with delegate_work what the team should know.'
     if (scope.kind === 'group') return rt.roomOf(scope.roomId)?.members.includes(botId) ? undefined : 'Only the members of a group chat write its memory.'
-    if (scope.botId !== botId && !rt.isMain(botId)) return 'Only a Main Bot can change another Bot\'s memory. Use message_bot to tell that Bot instead.'
+    if (scope.botId !== botId && !rt.isMain(botId)) return 'Only a Main Bot can change another Bot\'s memory. Use delegate_work or note_bot to tell that Bot instead.'
     return undefined
   }
   const labelOf = (scope, botId) => (scope.kind === 'team' ? 'the team memory' : scope.kind === 'group' ? 'the group memory' : scope.botId === botId ? 'your memory' : `${rt.botOf(scope.botId)?.name ?? 'that Bot'}'s memory`)
@@ -892,6 +943,41 @@ export function install(rt) {
     try { unlinkSync(snapshotPath(sessionId)) } catch { /* none saved */ }
     try { unlinkSync(seenPath(sessionId)) } catch { /* none saved */ }
   }
+  // Current authorized memory view for a Session whose working context is being
+  // rebuilt (such as a local CLI whose saved session could not be resumed), so
+  // bounded replay never resurrects deleted entries from an older frozen snapshot.
+  function freshMemoryView(sessionId) {
+    if (sessionId === undefined) return undefined
+    const bot = rt.botOf(rt.selfOf(sessionId))
+    if (bot === undefined) return undefined
+    const pending = pendingChange()
+    if (pending.pending === true || pending.failed === true) return undefined
+    const path = snapshotPath(sessionId)
+    const previous = frozen.get(sessionId) ?? (existsSync(path) ? sectionRead(path).text : '')
+    const readAt = new Date().toISOString()
+    const own = memorySection(bot)
+    if (own.failed) return undefined
+    const roomId = roomIdOf(sessionId)
+    const member = roomId !== undefined && rt.roomOf(roomId)?.members.includes(bot.id) === true
+    let group
+    if (member) {
+      const readGroup = groupSection(roomId, bot)
+      if (readGroup.failed) return undefined
+      group = readGroup.text
+    }
+    if (rt.readOnly() === undefined) {
+      try {
+        mkdirSync(dirname(path), { recursive: true })
+        writeFileSync(`${path}.tmp`, own.text, 'utf8')
+        renameSync(`${path}.tmp`, path)
+        markSeen(sessionId, readAt)
+      } catch (error) {
+        rt.warn('ds-bot: memory snapshot for %s not saved: %s', bot.name, error)
+      }
+    }
+    frozen.set(sessionId, own.text)
+    return { previous: previous || undefined, own: own.text, ...(group === undefined ? {} : { group }) }
+  }
 
   ctx.effect(() => ctx.systemPrompt.section({
     name: 'bot-memory',
@@ -1207,13 +1293,16 @@ export function install(rt) {
       const self = caller.bot.id
       const { scopes, error } = readScopes(args.scope, self, caller.roomId)
       if (error) return error
+      const wantsTopic = args.topic !== undefined && String(args.topic).trim() !== ''
+      const query = String(args.query ?? '').trim().slice(0, 120)
+      const searching = !wantsTopic && query !== ''
       let loaded
       try {
-        loaded = await settled(() => scopes.map(scope => ({ scope, tag: tagOf(scope, self), label: labelOf(scope, self), files: loadScope(scope) })))
+        loaded = await settled(() => scopes.map(scope => ({ scope, tag: tagOf(scope, self), label: labelOf(scope, self), ...(searching ? { entries: searchEntries(scope) } : { files: loadScope(scope) }) })))
       } catch (failure) {
         return failure.message
       }
-      if (args.topic !== undefined && String(args.topic).trim() !== '') {
+      if (wantsTopic) {
         const topic = cleanTopic(args.topic)
         for (const { scope, label, files } of loaded) {
           const file = files.find(item => item.topic === topic)
@@ -1223,8 +1312,7 @@ export function install(rt) {
         return `No topic [[${String(args.topic).slice(0, 60)}]] there. Topics: ${known.join(', ') || 'none yet'}.`
       }
       const where = (tag, file) => `${tag} · ${file.topic === undefined ? MAIN : `[[${file.topic}]]`}`
-      const query = String(args.query ?? '').trim().slice(0, 120)
-      if (query === '') {
+      if (!searching) {
         return loaded.map(({ scope, tag, label, files }) => {
           const [main, ...topics] = files
           return [
@@ -1246,7 +1334,7 @@ export function install(rt) {
         for (const run of word.match(/[\u4e00-\u9fff]{2,}/g) ?? []) for (let at = 0; at + 1 < run.length; at += 1) parts.add(run.slice(at, at + 2))
         return [word, ...parts]
       }))]
-      const scored = loaded.flatMap(({ tag, files }) => allEntries(files).map((entry) => {
+      const scored = loaded.flatMap(({ tag, entries }) => entries.map((entry) => {
         const hay = squash(`${entry.text} ${entry.file.topic ?? ''}`)
         return { entry, tag, count: terms.filter(term => hay.includes(term)).length }
       })).filter(hit => hit.count > 0)
@@ -1841,7 +1929,7 @@ export function install(rt) {
   }
 
   Object.assign(rt, {
-    memoryEnabled: true, renewMemory, archiveBotMemory, archiveGroupMemory, memoryEndpoint, memoryEdit, memoryAdd, memoryReviews,
+    memoryEnabled: true, renewMemory, freshMemoryView, archiveBotMemory, archiveGroupMemory, memoryEndpoint, memoryEdit, memoryAdd, memoryReviews,
     memoryNews: () => Object.fromEntries(news), botShot, tidyMemoryNow: tidyNow,
   })
 }

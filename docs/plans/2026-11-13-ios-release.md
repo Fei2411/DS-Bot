@@ -11,7 +11,7 @@ v0.3.5 已经有 Android 手机 App（Settings → Phone 扫码配对），iOS �
 
 - `mobile/` 是 Expo（React Native）工程，一套代码出两端；iOS 原生工程由 `expo prebuild` 生成，不提交（`mobile/.gitignore` 忽略 `ios/`）。
 - app.json 里已有 iOS 配置：bundle id `io.github.fei2411.dsbot`、deployment target 16.4、buildNumber 跟版本、`zh-Hans`、相机权限文案；`mobile/app.config.js` 把 `ds-bot/package.json` 的 version 写成 iOS 的 buildNumber。
-- 无签名模拟器构建已经验过（Xcode 26.6 + Expo SDK 58，`xcodebuild` BUILD SUCCEEDED，App 能装进 iPhone 模拟器启动）；CI 的 `Mobile app iOS build (simulator)` 任务每次跑这一条，证明编译通过。
+- 无签名模拟器构建已经验过（Xcode 26.6 + Expo SDK 58，`xcodebuild` BUILD SUCCEEDED，App 能装进 iPhone 模拟器启动）；CI 的 `Mobile app iOS build (simulator)` 任务在命中移动端构建相关路径时运行，检查无签名模拟器编译，不是每个文档改动都运行。
 - 签名、archive、上传 TestFlight 的脚本已就位（`mobile/scripts/ios-archive.sh`），只差 Apple 账号和密钥。
 - 真机安装、扫码配对还没做，同样等账号和设备。
 
@@ -91,3 +91,4 @@ v0.3.5 已经有 Android 手机 App（Settings → Phone 扫码配对），iOS �
 ## 变更
 
 - 2026-11-13：初版：状态、用户清单、出包/上传流程、排查表（#1448）。
+- 2026-11-22：明确 iOS 模拟器 CI 按变更路径触发，对照 dev 代码校正。

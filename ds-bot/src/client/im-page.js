@@ -64,7 +64,7 @@ const GUIDES = {
   },
 }
 
-const platformOf = id => IM_PLATFORMS.find(entry => entry.id === id) ?? { id, name: id, fields: [] }
+export const platformOf = id => IM_PLATFORMS.find(entry => entry.id === id) ?? { id, name: id, fields: [] }
 
 export function ImMark({ id, size = 36 }) {
   const Brand = MARKS[BRAND[id]]
@@ -356,7 +356,7 @@ export function ImPage({ roster, actions }) {
     list.length > 0 ? h('section', { className: 'bt-set-section' },
       h('h3', null, t('Your IM bots')),
       h('div', { className: 'bt-set-card' }, list.map(conn => h(BotRow, { key: conn.id, conn, status: statuses[conn.id], roster, onOpen: () => setView({ conn: conn.id }) })))) : null,
-    h('section', { className: 'bt-app-section' },
+    h('section', { className: 'bt-app-section', 'data-tour': 'im-platforms' },
       h('div', { className: 'bt-app-section-head' }, h('h3', null, list.length > 0 ? t('Add an IM bot') : t('Choose a platform'))),
       h('div', { className: 'bt-app-grid' }, platforms.map(platform => h(PlatformTile, {
         key: platform.id, platform, count: list.filter(conn => conn.platform === platform.id).length, onOpen: () => setView({ add: platform.id }),

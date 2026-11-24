@@ -256,6 +256,58 @@ test('a Bot on a CLI keeps a model of it', async (t) => {
 // -----------------------------------------------------------------------------
 // The switch.
 
+test('creating a local-agent Bot accepts only the selected engine’s exact SVG badge', async (t) => {
+  const env = await start(t)
+  const payload = createPayload({ name: 'Local', look: { shape: 'whale' }, model: CLI })
+  assert.match(payload.avatar.image, /^data:image\/svg\+xml;base64,/)
+  for (const avatar of [
+    agentAvatar('local-claude-code'),
+    { ...payload.avatar, image: payload.avatar.image + 'AAAA' },
+  ]) {
+    const refused = await env.call('create-bot', { ...payload, avatar })
+    assert.equal(refused.ok, false)
+    assert.match(refused.error.message, /PNG, JPEG, WebP, or GIF/)
+  }
+  for (const rejected of [
+    await env.call('create-bot', { ...payload, model: DS }),
+    await env.call('create-room', { members: ['a', 'b'], avatar: payload.avatar }),
+  ]) {
+    assert.equal(rejected.ok, false)
+    assert.match(rejected.error.message, /PNG, JPEG, WebP, or GIF/)
+  }
+  const created = await env.call('create-bot', payload)
+  assert.equal(created.ok, true)
+  const { model, avatar } = env.state().bots[created.value.id]
+  assert.equal(model, CLI)
+  assert.deepEqual(avatar, payload.avatar)
+  const copy = await env.call('duplicate-bot', { id: created.value.id })
+  assert.equal(copy.ok, true)
+  assert.deepEqual(copy.value.avatar, avatar)
+})
+
+test('switching to another CLI applies the new engine’s exact badge and model together', async (t) => {
+  const engine = 'local-claude-code'
+  const bot = { ...team().bots.b, model: `${engine}/default`, avatar: { shape: 'whale', ...agentAvatar(engine) } }
+  const env = await start(t, { saved: team({ b: bot }) })
+  const target = avatarAfter({ ...bot, engine }, CLI)
+  assert.match(target.avatar.image, /^data:image\/svg\+xml;base64,/)
+  assert.notEqual(target.avatar.image, bot.avatar.image)
+  const patch = { id: 'b', model: CLI, ...target }
+  const unconfirmed = await env.call('update-bot', patch)
+  assert.equal(unconfirmed.ok, false)
+  assert.match(unconfirmed.error.message, /needs a confirmation/)
+  const wrongBadge = await env.call('update-bot', { ...patch, changeEngine: true, avatar: agentAvatar('local-cursor-cli') })
+  assert.equal(wrongBadge.ok, false)
+  assert.match(wrongBadge.error.message, /PNG, JPEG, WebP, or GIF/)
+  assert.equal(env.state().bots.b.model, bot.model)
+  assert.deepEqual(env.state().bots.b.avatar, bot.avatar)
+
+  const switched = await env.call('update-bot', { ...patch, changeEngine: true })
+  assert.equal(switched.ok, true)
+  assert.equal(env.state().bots.b.model, CLI)
+  assert.deepEqual(env.state().bots.b.avatar, target.avatar)
+})
+
 test('confirmed, the own chat and every group move on at once, with a handoff and no model call', async (t) => {
   const env = await start(t)
   for (const id of ['b', 'gb', 'gb2']) env.lastRoute.set(id, { provider: 'ds', model: 'flash' })

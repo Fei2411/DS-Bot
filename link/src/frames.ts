@@ -22,6 +22,8 @@ export const controlFrameTypes = [
   'connect.rejected',
   'secure.handshake',
   'relay',
+  'push.notify',
+  'push.result',
   'ping',
   'pong',
   'error',
@@ -96,6 +98,23 @@ export interface RelayPayload {
   targetDeviceId: string
   counter: number
   ciphertext: string
+}
+
+export interface PushNotifyPayload {
+  requestId: string
+  targetDeviceId: string
+  kind: 'fcm'
+  token: string
+  urgency: 'high' | 'normal'
+  envelope: { v: 1; h: string; p: string }
+}
+
+export interface PushResultPayload {
+  requestId: string
+  targetDeviceId: string
+  ok: boolean
+  gone?: boolean
+  code?: string
 }
 
 export interface ControlErrorPayload {

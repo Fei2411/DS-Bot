@@ -1,6 +1,6 @@
 {
   "name": "ds-bot",
-  "version": "0.3.8",
+  "version": "0.3.10",
   "description": "DS Bot: a team of long-lived Bots for DeepSeek Harness, with Main Bots, Bot-to-Bot messages and group chats",
   "keywords": [
     "dsh-plugin",
@@ -26,6 +26,8 @@
   "exports": {
     ".": "./plugin.js",
     "./client": "./client.js",
+    "./plugin-sdk": "./src/host/plugins/sdk.js",
+    "./browser-provider": "./src/host/plugins/sdk.js",
     "./web-search": "./web-search.js",
     "./package.json": "./package.json"
   },
@@ -34,6 +36,9 @@
     "plugin.js",
     "index.js",
     "src/host/",
+    "src/client/agent-logos.js",
+    "src/client/agent-routes.js",
+    "src/client/inks.js",
     "src/shared/",
     "src/office/",
     "client.js",
@@ -72,7 +77,9 @@
   "devDependencies": {
     "@xmldom/xmldom": "0.9.12",
     "esbuild": "0.28.2",
-    "qrcode-generator": "2.0.4"
+    "qrcode-generator": "2.0.4",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
   },
   "dependencies": {
     "@modelcontextprotocol/client": "2.4.0",
