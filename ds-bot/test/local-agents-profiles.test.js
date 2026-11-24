@@ -9,12 +9,13 @@ import { AcpEngine } from '../src/host/local-agents/acp.js'
 import { LocalAgentAdapter } from '../src/host/local-agents/adapter.js'
 import { ClaudeEngine } from '../src/host/local-agents/claude.js'
 import { CodexEngine } from '../src/host/local-agents/codex.js'
-import { probeSignIn, refreshSearchDirs } from '../src/host/local-agents/discover.js'
+import { cleanEnv, probeSignIn, refreshSearchDirs } from '../src/host/local-agents/discover.js'
 import {
   ENGINES,
   cliMode,
   defaultProfileDir,
   engineOf,
+  ensureProfileDir,
   isLocalAgentRoute,
   isProfileRoute,
   profileEnvFor,
@@ -23,6 +24,7 @@ import {
   splitProfileRoute,
   validateProfile,
 } from '../src/host/local-agents/engines.js'
+import { errorCode } from '../src/host/channel.js'
 import { install as installLocalAgents } from '../src/host/local-agents/index.js'
 import {
   agentAvatar,
@@ -33,6 +35,12 @@ import {
   splitProfileRoute as clientSplitProfileRoute,
 } from '../src/client/agent-routes.js'
 import { fakeContext } from './fake-ctx.js'
+
+function writeNodeModule(dir, name, body) {
+  const file = join(dir, name)
+  writeFileSync(file, `${body}\n`)
+  return file
+}
 
 function makeNodeScript(dir, name, body) {
   const file = join(dir, name)
@@ -97,8 +105,54 @@ test('profile route parsing, validation, env isolation, and sign-in hints', (t) 
   assert.deepEqual(profileEnvFor('local-codex-cli', dir), { CODEX_HOME: dir })
   assert.deepEqual(profileEnvFor('local-devin-cli', dir), { XDG_CONFIG_HOME: dir })
   assert.deepEqual(profileEnvFor('local-gemini-cli', dir, { CUSTOM_FLAG: 'yes' }), { CUSTOM_FLAG: 'yes', XDG_CONFIG_HOME: dir })
-  // Isolation key cannot be clobbered by extraEnv
+  // Isolation key cannot be clobbered by extraEnv (including case-variant keys through cleanEnv)
   assert.deepEqual(profileEnvFor('local-claude-code', dir, { CLAUDE_CONFIG_DIR: '/wrong' }), { CLAUDE_CONFIG_DIR: dir })
+  const caseClobber = profileEnvFor('local-claude-code', dir, { CLAUDE_CONFIG_DIR: '/a', claude_config_dir: '/evil', Claude_Config_Dir: '/evil2', CUSTOM_OK: '1' })
+  assert.deepEqual(caseClobber, { CUSTOM_OK: '1', CLAUDE_CONFIG_DIR: dir })
+  const cleaned = cleanEnv(caseClobber)
+  const matchingClaudeKeys = Object.keys(cleaned).filter(key => key.toUpperCase() === 'CLAUDE_CONFIG_DIR')
+  assert.deepEqual(matchingClaudeKeys, ['CLAUDE_CONFIG_DIR'])
+  assert.equal(cleaned.CLAUDE_CONFIG_DIR, dir)
+  // Control characters / newlines in profileDir rejected
+  assert.throws(() => profileEnvFor('local-claude-code', `${dir}\nEVIL=1`))
+  assert.throws(() => profileEnvFor('local-claude-code', `${dir}\rEVIL=1`))
+  assert.throws(() => profileEnvFor('local-claude-code', `${dir}\0evil`))
+
+  // ensureProfileDir: rejects non-directories and control chars; preserves existing custom folder mode
+  const regularFile = join(home, 'not-a-dir.txt')
+  writeFileSync(regularFile, 'hi')
+  let fileErr
+  try {
+    ensureProfileDir(regularFile)
+  } catch (err) {
+    fileErr = err
+  }
+  assert.ok(fileErr instanceof Error)
+  assert.match(fileErr.message, /directory, not a file/i)
+  assert.equal(errorCode(fileErr), 'bot/refused', 'file path rejection must be user-facing, not raw EEXIST')
+  assert.throws(() => ensureProfileDir(`${dir}\n`))
+  assert.throws(() => ensureProfileDir(`${dir}\r`))
+  assert.throws(() => ensureProfileDir(`${dir}\0`))
+
+  const existingCustomDir = join(home, 'existing-custom')
+  mkdirSync(existingCustomDir, { recursive: true, mode: 0o755 })
+  if (process.platform !== 'win32') chmodSync(existingCustomDir, 0o755)
+  ensureProfileDir(existingCustomDir, { managed: false })
+  if (process.platform !== 'win32') {
+    assert.equal(statSync(existingCustomDir).mode & 0o777, 0o755, 'existing custom folder permissions must not be overwritten')
+  }
+  const freshCustomDir = join(home, 'fresh-custom')
+  ensureProfileDir(freshCustomDir, { managed: false })
+  if (process.platform !== 'win32') {
+    assert.equal(statSync(freshCustomDir).mode & 0o777, 0o700, 'newly created folder receives 0o700')
+  }
+  const managedDefaultDir = join(home, 'managed-default')
+  mkdirSync(managedDefaultDir, { recursive: true, mode: 0o755 })
+  if (process.platform !== 'win32') chmodSync(managedDefaultDir, 0o755)
+  ensureProfileDir(managedDefaultDir, { managed: true })
+  if (process.platform !== 'win32') {
+    assert.equal(statSync(managedDefaultDir).mode & 0o777, 0o700, 'managed default profile dir enforces 0o700')
+  }
 
   // Blocked env keys rejected
   for (const badEnv of [
@@ -138,11 +192,29 @@ test('profile route parsing, validation, env isolation, and sign-in hints', (t) 
   assert.equal(spec.env.MY_PROFILE_TAG, 'w1')
   assert.equal(cliMode(spec.kind, 'workspace-write'), 'acceptEdits')
 
-  // Profile-aware sign-in hints on POSIX and Windows
-  const posixHint = signInFor(spec, '/usr/local/bin/claude', { platform: 'darwin' })
-  assert.equal(posixHint, `CLAUDE_CONFIG_DIR="${spec.profileDir}" claude`)
-  const winHint = signInFor(spec, 'C:\\bin\\claude.exe', { platform: 'win32' })
-  assert.equal(winHint, `$env:CLAUDE_CONFIG_DIR="${spec.profileDir}"; claude`)
+  // Profile-aware sign-in hints on POSIX and Windows (platform-explicit paths & single-quoting)
+  const posixSpec = { ...spec, profileDir: '/tmp/cli-profiles/claude-code-work' }
+  const winSpec = { ...spec, profileDir: 'C:\\Users\\Public\\cli-profiles\\claude-code-work' }
+  assert.equal(signInFor(posixSpec, '/usr/local/bin/claude', { platform: 'darwin' }), "CLAUDE_CONFIG_DIR='/tmp/cli-profiles/claude-code-work' claude")
+  assert.equal(signInFor(posixSpec, '/usr/local/bin/claude', { platform: 'linux' }), "CLAUDE_CONFIG_DIR='/tmp/cli-profiles/claude-code-work' claude")
+  assert.equal(signInFor(winSpec, 'C:\\bin\\claude.exe', { platform: 'win32' }), "$env:CLAUDE_CONFIG_DIR='C:\\Users\\Public\\cli-profiles\\claude-code-work'; claude")
+
+  // Shell quoting hardening: spaces, $HOME, !, ', ", backslashes, and Unicode single quotes
+  const trickyPosix = { ...spec, profileDir: `/tmp/my dir/$HOME/a!b/it's/"q"/c\\d` }
+  assert.equal(
+    signInFor(trickyPosix, '/usr/local/bin/claude', { platform: 'darwin' }),
+    `CLAUDE_CONFIG_DIR='/tmp/my dir/$HOME/a!b/it'\\''s/"q"/c\\d' claude`,
+  )
+  const trickyWin = { ...spec, profileDir: `C:\\Program Data\\$HOME\\a!b\\it's\\‘curly’\\"q"` }
+  assert.equal(
+    signInFor(trickyWin, 'C:\\bin\\claude.exe', { platform: 'win32' }),
+    `$env:CLAUDE_CONFIG_DIR='C:\\Program Data\\$HOME\\a!b\\it''s\\‘‘curly’’\\"q"'; claude`,
+  )
+  // Control characters / newlines in profileDir never emit an injectable shell snippet
+  assert.equal(signInFor({ ...spec, profileDir: '/tmp/ok\nrm -rf /' }, '/usr/local/bin/claude', { platform: 'darwin' }), undefined)
+  assert.equal(signInFor({ ...spec, profileDir: 'C:\\tmp\\ok\r\ncalc' }, 'C:\\bin\\claude.exe', { platform: 'win32' }), undefined)
+  assert.equal(signInFor({ ...spec, profileDir: '/tmp/ok\0bad' }, '/usr/local/bin/claude', { platform: 'linux' }), undefined)
+
   // Default global engine stays unchanged
   assert.equal(signInFor(ENGINES['local-claude-code'], '/usr/local/bin/claude', { platform: 'darwin' }), 'claude')
 })
@@ -182,7 +254,7 @@ test('two concurrent profiles of the same CLI spawn isolated processes with dist
   const home = join(root, 'home')
 
   // Real spawned Claude stream-json fixture that echoes its PID and CLAUDE_CONFIG_DIR.
-  const fakeClaude = makeNodeScript(root, 'fake-claude-env.mjs', `
+  const fakeClaude = writeNodeModule(root, 'fake-claude-env.mjs', `
     let buf = ''
     const send = obj => process.stdout.write(JSON.stringify(obj) + '\\n')
     process.stdin.setEncoding('utf8')
@@ -203,7 +275,7 @@ test('two concurrent profiles of the same CLI spawn isolated processes with dist
   `)
 
   // Real spawned Codex app-server fixture that echoes its PID, CODEX_HOME, and distinct models per CODEX_HOME.
-  const fakeCodex = makeNodeScript(root, 'fake-codex-env.mjs', `
+  const fakeCodex = writeNodeModule(root, 'fake-codex-env.mjs', `
     let buf = ''
     const send = obj => process.stdout.write(JSON.stringify(obj) + '\\n')
     process.stdin.setEncoding('utf8')
@@ -232,7 +304,7 @@ test('two concurrent profiles of the same CLI spawn isolated processes with dist
   `)
 
   // Real spawned ACP fixture that echoes its PID and XDG_CONFIG_HOME.
-  const fakeAcp = makeNodeScript(root, 'fake-acp-env.mjs', `
+  const fakeAcp = writeNodeModule(root, 'fake-acp-env.mjs', `
     let buf = ''
     const send = obj => process.stdout.write(JSON.stringify(obj) + '\\n')
     process.stdin.setEncoding('utf8')
@@ -388,6 +460,43 @@ test('probeSignIn isolates profile env, file fallbacks, and skips macOS Keychain
     home: globalHome, platform: 'darwin', extraEnv: { XDG_CONFIG_HOME: workDir }, isolated: true, spawnKeychain: fakeKeychain,
   }), true)
   assert.equal(keychainCalls, 0)
+
+  // 4. Isolated profiles MUST NOT inherit host APPDATA / XDG_DATA_HOME / CLAUDE_CONFIG_DIR credentials
+  const hostAppData = join(root, 'host-appdata')
+  const hostXdgData = join(root, 'host-xdg-data')
+  mkdirSync(join(hostAppData, 'devin'), { recursive: true })
+  writeFileSync(join(hostAppData, 'devin', 'credentials.toml'), 'windsurf_api_key = "test-win-key"\n')
+  mkdirSync(join(hostAppData, 'Cursor'), { recursive: true })
+  writeFileSync(join(hostAppData, 'Cursor', 'auth.json'), JSON.stringify({ apiKey: 'test-win-key' }))
+  mkdirSync(join(hostXdgData, 'devin'), { recursive: true })
+  writeFileSync(join(hostXdgData, 'devin', 'credentials.toml'), 'windsurf_api_key = "test-linux-key"\n')
+
+  const devinOffline = makeNodeScript(root, 'devin-offline.mjs', 'console.error("network offline")')
+  // Windows host APPDATA must not leak into empty isolated Devin or Cursor profile
+  assert.equal(await probeSignIn(devinOffline, ENGINES['local-devin-cli'].signedIn, {
+    home: globalHome, platform: 'win32', env: { APPDATA: hostAppData }, extraEnv: { XDG_CONFIG_HOME: personalDir }, isolated: true,
+  }), null, 'isolated Devin profile on win32 must ignore host APPDATA')
+  assert.equal(await probeSignIn(cursorOffline, ENGINES['local-cursor-cli'].signedIn, {
+    home: globalHome, platform: 'win32', env: { APPDATA: hostAppData }, extraEnv: { XDG_CONFIG_HOME: personalDir }, isolated: true,
+  }), null, 'isolated Cursor profile on win32 must ignore host APPDATA')
+  // POSIX host XDG_DATA_HOME must not leak into empty isolated Devin profile
+  assert.equal(await probeSignIn(devinOffline, ENGINES['local-devin-cli'].signedIn, {
+    home: globalHome, platform: 'linux', env: { XDG_DATA_HOME: hostXdgData }, extraEnv: { XDG_CONFIG_HOME: personalDir }, isolated: true,
+  }), null, 'isolated Devin profile on linux must ignore host XDG_DATA_HOME')
+  // Host CLAUDE_CONFIG_DIR (including lowercase variant on Windows) must not leak into isolated profile
+  assert.equal(await probeSignIn(claudeInconclusive, ENGINES['local-claude-code'].signedIn, {
+    home: globalHome, platform: 'win32', env: { claude_config_dir: workDir }, extraEnv: { CLAUDE_CONFIG_DIR: personalDir }, isolated: true,
+  }), null, 'isolated Claude profile must ignore host claude_config_dir')
+  // Non-isolated global Devin/Cursor still read host XDG_DATA_HOME / APPDATA (proving isolated tests above are non-vacuous)
+  assert.equal(await probeSignIn(devinOffline, ENGINES['local-devin-cli'].signedIn, {
+    home: globalHome, platform: 'linux', env: { XDG_DATA_HOME: hostXdgData },
+  }), true, 'global non-isolated Devin profile still reads host XDG_DATA_HOME')
+  assert.equal(await probeSignIn(devinOffline, ENGINES['local-devin-cli'].signedIn, {
+    home: globalHome, platform: 'win32', env: { APPDATA: hostAppData },
+  }), true, 'global non-isolated Devin profile still reads host APPDATA')
+  assert.equal(await probeSignIn(cursorOffline, ENGINES['local-cursor-cli'].signedIn, {
+    home: globalHome, platform: 'win32', env: { APPDATA: hostAppData },
+  }), true, 'global non-isolated Cursor profile still reads host APPDATA')
 })
 
 test('profile CRUD endpoints create 0o700 dirs, register routes, probe independently, reload on update, and preserve files on remove', async (t) => {
@@ -461,15 +570,46 @@ test('profile CRUD endpoints create 0o700 dirs, register routes, probe independe
     /already exists/,
   )
 
+  // Rejecting regular file as configDir returns clean validation error (not raw EEXIST)
+  const filePath = join(root, 'not-a-folder')
+  writeFileSync(filePath, 'plain file')
+  await assert.rejects(
+    rt.localAgentsEndpoint('local-agent-profile-add', { baseRoute: 'local-claude-code', id: 'bad-file', name: 'Bad File', configDir: filePath }),
+    err => /directory, not a file/i.test(err.message) && errorCode(err) === 'bot/refused',
+  )
+
+  // findProfile requires route OR both baseRoute and id (never ambiguously matching by bare id)
+  await assert.rejects(
+    rt.localAgentsEndpoint('local-agent-profile-update', { id: 'work', name: 'Ambiguous' }),
+    /Unknown profile/,
+  )
+  await assert.rejects(
+    rt.localAgentsEndpoint('local-agent-profile-remove', { id: 'work' }),
+    /Unknown profile/,
+  )
+
   // List includes both global detected & isolated profile
   const listed = await rt.localAgentsEndpoint('local-agents', {})
   assert.equal(listed.profiles.length, 1)
   assert.equal(listed.profiles[0].route, 'local-claude-code@work')
   assert.equal(listed.profiles[0].signedIn, false)
 
-  // 2. Update profile configDir -> re-probes with new dir and returns signedIn: true
+  // Seed persisted CLI session records for this profile and another route
+  rt.state.localAgents.sessions['sess-work-1'] = { route: 'local-claude-code@work', cliSessionId: 'cli-old-work', handedId: 'm-old' }
+  rt.state.localAgents.sessions['sess-global-1'] = { route: 'local-claude-code', cliSessionId: 'cli-global', handedId: 'm-g' }
+
+  // Updating only display name (without changing configDir) keeps existing session records intact
+  await rt.localAgentsEndpoint('local-agent-profile-update', {
+    baseRoute: 'local-claude-code',
+    id: 'work',
+    name: 'Work Renamed',
+  })
+  assert.equal(rt.state.localAgents.sessions['sess-work-1']?.cliSessionId, 'cli-old-work')
+
+  // 2. Update profile configDir -> preserves existing customDir mode, clears stale session records, and re-probes with new dir
   const credFile = join(customDir, '.credentials.json')
-  mkdirSync(customDir, { recursive: true })
+  mkdirSync(customDir, { recursive: true, mode: 0o755 })
+  if (process.platform !== 'win32') chmodSync(customDir, 0o755)
   writeFileSync(credFile, '{"keep":"me"}')
   const updated = await rt.localAgentsEndpoint('local-agent-profile-update', {
     route: 'local-claude-code@work',
@@ -482,10 +622,18 @@ test('profile CRUD endpoints create 0o700 dirs, register routes, probe independe
   assert.equal(updated.customConfigDir, customDir)
   assert.deepEqual(updated.env, { TEAM_ORG: 'acme' })
   assert.equal(updated.signedIn, true)
+  if (process.platform !== 'win32') {
+    assert.equal(statSync(customDir).mode & 0o777, 0o755, 'updating to an existing custom dir must preserve its permissions')
+  }
+  assert.equal(rt.state.localAgents.sessions['sess-work-1'], undefined, 'configDir change must clear stale sessions for that route')
+  assert.equal(rt.state.localAgents.sessions['sess-global-1']?.cliSessionId, 'cli-global', 'other routes sessions must stay untouched')
 
-  // 3. Remove profile -> unregisters route, keeps user's credential files intact on disk
+  // 3. Remove profile -> clears route sessions, unregisters route, keeps user's credential files intact on disk
+  rt.state.localAgents.sessions['sess-work-2'] = { route: 'local-claude-code@work', cliSessionId: 'cli-new-work', handedId: 'm-new' }
   const afterRemove = await rt.localAgentsEndpoint('local-agent-profile-remove', { route: 'local-claude-code@work' })
   assert.deepEqual(afterRemove, [])
+  assert.equal(rt.state.localAgents.sessions['sess-work-2'], undefined, 'removing a profile must clear its persisted sessions')
+  assert.equal(rt.state.localAgents.sessions['sess-global-1']?.cliSessionId, 'cli-global', 'other routes sessions must stay untouched on remove')
   assert.equal(rt.isLocalAgentAvailable('local-claude-code@work'), false)
   assert.equal(rt.isLocalAgentAvailable('local-claude-code'), true, 'global route stays intact')
   assert.equal(readFileSync(credFile, 'utf8'), '{"keep":"me"}', 'removing a profile must not delete credential files on disk')

@@ -2183,6 +2183,7 @@ export function install(rt) {
     const held = [...agent.inbox.nextStep, ...agent.inbox.nextTurn]
     const carry = []
     let folder
+    let budgeted = carried
     try {
       await rt.ensureCapabilities(freshId)
       const fresh = await rt.resolveAgent(freshId)
@@ -2195,7 +2196,7 @@ export function install(rt) {
       }
       const engine = job.engine ? rt.engineNameOf?.(bot.model ?? bot.appliedModel) : undefined
       const targetWindow = await targetWindowTokensOf(bot, session, lines?.window)
-      const budgeted = applyHandoffBudget(carried, {
+      budgeted = applyHandoffBudget(carried, {
         targetWindowTokens: targetWindow,
         noteBody: noteText(segment) ?? '',
         carry: job.carry,
@@ -2228,7 +2229,7 @@ export function install(rt) {
     }
     ctx.logger.info('ds-bot: %s%s moved on to part %d at %d tokens (check line %d, hard line %d); %s; %d latest and %d earlier messages carried%s', name, bot !== undefined && room !== undefined ? ` in ${room.name}` : '', number + 1, tokens ?? -1, lines?.check ?? -1, lines?.hard ?? -1,
       written !== undefined ? `note written in ${written.attempts} attempt(s)` : `note put together by DS Bot (${noted.fallback}${noteBody !== undefined ? `, carries part ${noted.noteFrom}'s` : ', nothing to carry'})`,
-      carried.recent.length, carried.earlier.length, folder === undefined ? '' : `; now works in ${folder}`)
+      budgeted.recent.length, budgeted.earlier.length, folder === undefined ? '' : `; now works in ${folder}`)
   }
 
   // Ends a step DS Bot takes over. Marks the live turn as switched so turns.js never

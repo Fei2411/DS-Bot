@@ -98,8 +98,9 @@ test('truncateUtf8Bytes enforces exact UTF-8 byte limits without breaking CJK or
     assert.equal(hasBrokenSurrogates(cut), false, `limit=${limit} produced broken surrogate pair`)
     assert.equal(cut.includes('\uFFFD'), false, `limit=${limit} produced U+FFFD`)
   }
-  // Exact fit returns unchanged without suffix
+  // Exact fit and Infinity return unchanged without suffix
   assert.equal(truncateUtf8Bytes(sample, utf8Bytes(sample)), sample)
+  assert.equal(truncateUtf8Bytes(sample, Infinity), sample)
   assert.equal(truncateUtf8Bytes('🚀🎉🔥', 0), '')
   assert.equal(truncateUtf8Bytes('🚀🎉🔥', 7, '…'), '🚀…') // 4 + 3 = 7 bytes
   assert.equal(truncateUtf8Bytes('🚀🎉🔥', 6, '…'), '…') // only 3 bytes left for body, cannot fit 4-byte emoji

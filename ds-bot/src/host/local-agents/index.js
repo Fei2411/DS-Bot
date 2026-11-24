@@ -397,16 +397,24 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
   const customView = () => store().custom.map(agent => ({ ...agent, route: customRoute(agent.id), available: registeredRoutes.has(customRoute(agent.id)) }))
 
   const findProfile = (body) => {
-    if (typeof body?.route === 'string') {
-      const split = splitProfileRoute(body.route)
+    if (typeof body?.route === 'string' && body.route.trim() !== '') {
+      const split = splitProfileRoute(body.route.trim())
       if (split === null) return { index: -1, entry: undefined }
       const index = store().profiles.findIndex(profile => profile?.baseRoute === split.baseRoute && profile?.id === split.profileId)
       return { index, entry: index === -1 ? undefined : store().profiles[index] }
     }
     const baseRoute = typeof body?.baseRoute === 'string' ? body.baseRoute.trim() : ''
     const id = typeof body?.id === 'string' ? body.id.trim() : ''
-    const index = store().profiles.findIndex(profile => profile?.id === id && (baseRoute === '' || profile?.baseRoute === baseRoute))
+    if (baseRoute === '' || id === '') return { index: -1, entry: undefined }
+    const index = store().profiles.findIndex(profile => profile?.baseRoute === baseRoute && profile?.id === id)
     return { index, entry: index === -1 ? undefined : store().profiles[index] }
+  }
+
+  const clearRouteSessions = (route) => {
+    const sessions = store().sessions
+    for (const [sessionId, record] of Object.entries(sessions)) {
+      if (record?.route === route) delete sessions[sessionId]
+    }
   }
 
   // One CLI's models: the first look starts that CLI, later ones read what it said.
@@ -463,8 +471,9 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
         const existingIds = new Set(store().profiles.filter(profile => profile?.baseRoute === baseRoute).map(profile => profile.id))
         const clean = validateProfile(body ?? {}, { existingIds })
         if (existingIds.has(clean.id)) throw new Error(`A profile with ID "${clean.id}" already exists for ${ENGINES[clean.baseRoute].name}`)
+        const managed = clean.configDir === undefined
         const dir = clean.configDir ?? defaultProfileDir(rt.home, clean.baseRoute, clean.id)
-        ensureProfileDir(dir)
+        ensureProfileDir(dir, { managed })
         store().profiles.push(clean)
         if (!found.has(clean.baseRoute)) await scan()
         applyRoutes()
@@ -487,9 +496,11 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
           configDir: nextConfigDir,
           env: nextEnv,
         })
+        const managed = clean.configDir === undefined
         const newDir = clean.configDir ?? defaultProfileDir(rt.home, clean.baseRoute, clean.id)
-        const configChanged = newDir !== prevDir || JSON.stringify(clean.env ?? {}) !== prevEnv
-        ensureProfileDir(newDir)
+        const dirChanged = newDir !== prevDir
+        const configChanged = dirChanged || JSON.stringify(clean.env ?? {}) !== prevEnv
+        ensureProfileDir(newDir, { managed })
         entry.name = clean.name
         if (clean.configDir !== undefined) entry.configDir = clean.configDir
         else delete entry.configDir
@@ -497,6 +508,7 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
         else delete entry.env
         if (configChanged) {
           await adapter.closeRoute(route)
+          if (dirChanged) clearRouteSessions(route)
           const pState = profileProbes.get(route)
           pState?.signInAbort?.abort()
           profileProbes.delete(route)
@@ -515,6 +527,7 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
         pState?.signInAbort?.abort()
         profileProbes.delete(route)
         await adapter.closeRoute(route, 'the local agent profile was removed')
+        clearRouteSessions(route)
         applyRoutes()
         await rt.catalog?.({ fresh: true })
         await rt.save()

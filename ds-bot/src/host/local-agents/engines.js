@@ -2,7 +2,7 @@
 // name, how it starts, and which driver speaks its protocol: 'acp' (Agent
 // Client Protocol over stdio), 'codex' (the Codex app-server JSON-RPC), or
 // 'claude' (Claude Code's stream-json).
-import { chmodSync, mkdirSync } from 'node:fs'
+import { chmodSync, mkdirSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { isAbsolute, join, parse, resolve, win32 } from 'node:path'
 
@@ -107,12 +107,22 @@ const CLIS = {
 // route -> engine, e.g. 'local-codex-cli'. `id` is the CLI's name without the prefix.
 export const ENGINES = Object.fromEntries(Object.entries(CLIS).map(([id, spec]) => [`${ROUTE_PREFIX}${id}`, { ...spec, id }]))
 
-function quotePosixDouble(value) {
-  return `"${String(value).replace(/[\\"$`]/g, '\\$&')}"`
+function hasControlChars(value) {
+  for (let i = 0; i < value.length; i += 1) {
+    const code = value.charCodeAt(i)
+    if (code <= 0x1F || code === 0x7F) return true
+  }
+  return false
 }
 
-function quotePowerShellDouble(value) {
-  return `"${String(value).replace(/["`$]/g, '`$&')}"`
+function quotePosixSingle(value) {
+  return `'${String(value).replace(/'/g, `'\\''`)}'`
+}
+
+// PowerShell treats ASCII ' and Unicode single-quote variants as string delimiters
+// inside single-quoted literals; doubling each escapes it safely.
+function quotePowerShellSingle(value) {
+  return `'${String(value).replace(/['\u2018\u2019\u201A\u201B]/g, '$&$&')}'`
 }
 
 // An engine found under another product's command (Qoder CN) signs in through that command.
@@ -123,9 +133,10 @@ export function signInFor(spec, path, { platform = process.platform } = {}) {
   const base = spec?.signInBy?.[command] ?? spec?.signIn
   if (!base) return undefined
   if (spec?.profile === true && spec.profileEnvKey && spec.profileDir) {
+    if (hasControlChars(String(spec.profileDir))) return undefined
     return platform === 'win32'
-      ? `$env:${spec.profileEnvKey}=${quotePowerShellDouble(spec.profileDir)}; ${base}`
-      : `${spec.profileEnvKey}=${quotePosixDouble(spec.profileDir)} ${base}`
+      ? `$env:${spec.profileEnvKey}=${quotePowerShellSingle(spec.profileDir)}; ${base}`
+      : `${spec.profileEnvKey}=${quotePosixSingle(spec.profileDir)} ${base}`
   }
   return base
 }
@@ -182,8 +193,18 @@ export function validateProfileEnv(raw) {
 export function profileEnvFor(baseRoute, profileDir, extraEnv = {}) {
   if (ENGINES[baseRoute] === undefined) throw new Error(`Unknown built-in local agent: ${baseRoute}`)
   const env = validateProfileEnv(extraEnv)
-  if (typeof profileDir === 'string' && profileDir.trim() !== '') {
-    env[profileEnvKeyFor(baseRoute)] = profileDir
+  if (profileDir !== undefined && profileDir !== null && String(profileDir) !== '') {
+    if (typeof profileDir !== 'string' || hasControlChars(profileDir)) {
+      throw new Error('Profile folder must not contain control characters or newlines')
+    }
+    if (profileDir.trim() !== '') {
+      const isolationKey = profileEnvKeyFor(baseRoute)
+      const upperKey = isolationKey.toUpperCase()
+      for (const key of Object.keys(env)) {
+        if (key.toUpperCase() === upperKey) delete env[key]
+      }
+      env[isolationKey] = profileDir
+    }
   }
   return env
 }
@@ -202,9 +223,38 @@ export function defaultProfileDir(home, baseRoute, profileId) {
   return target
 }
 
-export function ensureProfileDir(dir) {
-  mkdirSync(dir, { recursive: true, mode: 0o700 })
-  try { chmodSync(dir, 0o700) } catch {}
+export function ensureProfileDir(dir, { managed = false } = {}) {
+  if (typeof dir !== 'string' || dir.trim() === '' || hasControlChars(dir)) {
+    throw new Error('Config folder path is invalid')
+  }
+  let existed = false
+  try {
+    const stat = statSync(dir)
+    if (!stat.isDirectory()) {
+      throw new Error('Config folder must be a directory, not a file')
+    }
+    existed = true
+  } catch (error) {
+    if (error?.code !== 'ENOENT') {
+      if (error?.code === 'ENOTDIR') {
+        throw new Error('Config folder must be a directory, not a file')
+      }
+      throw error
+    }
+  }
+  if (!existed) {
+    try {
+      mkdirSync(dir, { recursive: true, mode: 0o700 })
+    } catch (error) {
+      if (error?.code === 'EEXIST' || error?.code === 'ENOTDIR') {
+        throw new Error('Config folder must be a directory, not a file')
+      }
+      throw error
+    }
+  }
+  if (!existed || managed) {
+    try { chmodSync(dir, 0o700) } catch {}
+  }
   return dir
 }
 
@@ -238,7 +288,7 @@ export function validateProfile({ id, baseRoute, name, configDir, env }, { exist
   let cleanDir
   if (configDir !== undefined && configDir !== null && String(configDir).trim() !== '') {
     const raw = String(configDir).trim()
-    if (raw.includes('\0') || /[\r\n]/.test(raw)) throw new Error('Profile folder must not contain newlines')
+    if (hasControlChars(raw)) throw new Error('Profile folder must not contain control characters or newlines')
     const expanded = raw.startsWith('~/') || raw.startsWith('~\\') ? join(homedir(), raw.slice(2)) : raw
     if (!isAbsolute(expanded)) throw new Error('Profile folder must be an absolute path')
     const resolved = resolve(expanded)

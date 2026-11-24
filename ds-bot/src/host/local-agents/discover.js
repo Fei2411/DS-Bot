@@ -83,13 +83,13 @@ function probeEnvWithOverride(overrideEnv, extraEnv) {
   if (overrideEnv !== undefined && overrideEnv !== null && overrideEnv !== process.env) {
     for (const [key, value] of Object.entries(overrideEnv)) {
       if (value === undefined || isDroppedEnvKey(key)) continue
-      merged[key] = String(value)
+      setCaseInsensitiveEnv(merged, key, String(value))
     }
   }
   if (extraEnv !== undefined && extraEnv !== null) {
     for (const [key, value] of Object.entries(extraEnv)) {
       if (value === undefined || isDroppedEnvKey(key)) continue
-      merged[key] = String(value)
+      setCaseInsensitiveEnv(merged, key, String(value))
     }
   }
   return probeEnv(merged)
@@ -662,17 +662,30 @@ function hasIsolatedProfileEnv(env, extraEnv, isolated) {
   return false
 }
 
+function mergeExtraEnv(base, extra) {
+  if (extra === undefined || extra === null) return base
+  const merged = base !== undefined && base !== null ? { ...base } : {}
+  for (const [key, value] of Object.entries(extra)) {
+    if (value !== undefined) setCaseInsensitiveEnv(merged, key, value)
+  }
+  return merged
+}
+
 function probeOne(executable, check, { home, platform, env, extraEnv, isolated, spawnKeychain, timeoutMs, forceKillAfterMs, maxOutputBytes, signal, deadline }) {
   if (signal?.aborted) return Promise.resolve(null)
-  const effectiveEnv = extraEnv !== undefined && extraEnv !== null ? { ...(env ?? {}), ...extraEnv } : env
   const isIsolated = hasIsolatedProfileEnv(env, extraEnv, isolated)
+  // Isolated profiles must read file-probe roots only from their own `extraEnv`,
+  // never falling back to host process.env values like APPDATA or XDG_DATA_HOME.
+  const fileEnv = isIsolated
+    ? (isolated === true || (extraEnv !== undefined && extraEnv !== null) ? (extraEnv ?? {}) : env)
+    : mergeExtraEnv(env, extraEnv)
   if (check.macKeychain !== undefined) {
     // macOS Keychain stores the global default account; never attribute it to an isolated profile.
     if (isIsolated) return Promise.resolve(null)
     return platform === 'darwin' ? probeMacKeychain(check.macKeychain, spawnKeychain, timeoutMs, signal) : Promise.resolve(null)
   }
   if (check.file !== undefined) {
-    const file = resolveSimpleFile(check, home, platform, effectiveEnv, { isolated: isIsolated })
+    const file = resolveSimpleFile(check, home, platform, fileEnv, { isolated: isIsolated })
     return Promise.resolve(file === undefined ? null : probeFile(file))
   }
   if (check.appDataFile !== undefined) {
@@ -680,7 +693,7 @@ function probeOne(executable, check, { home, platform, env, extraEnv, isolated, 
     return Promise.resolve(probeFile(join(home, ...(APP_DATA[platform] ?? ['.local', 'share']), ...check.appDataFile.path), check.appDataFile))
   }
   if (check.platformFile !== undefined) {
-    const file = resolvePlatformFile(check.platformFile, home, platform, effectiveEnv, { isolated: isIsolated })
+    const file = resolvePlatformFile(check.platformFile, home, platform, fileEnv, { isolated: isIsolated })
     return Promise.resolve(file === undefined ? null : probeFile(file, check.platformFile))
   }
   if (check.args === undefined) return Promise.resolve(null)

@@ -26,6 +26,7 @@ export const utf8Bytes = text => Buffer.byteLength(String(text ?? ''), 'utf8')
 // UTF-16 surrogate pair or multi-byte UTF-8 sequence.
 export function truncateUtf8Bytes(text, maxBytes, suffix = '…') {
   const str = String(text ?? '')
+  if (maxBytes === Infinity) return str
   const limit = Math.floor(nonNegative(maxBytes, 0))
   if (limit === 0 || str === '') return ''
   if (Buffer.byteLength(str, 'utf8') <= limit) return str
