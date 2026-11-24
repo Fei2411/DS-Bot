@@ -1,13 +1,15 @@
 import { countCards, heldCardKey } from './sources.js'
 import { noteClientError } from './diagnostics.js'
+import { chatOfSession } from './draft-keep.js'
 
 // The actions every window that draws the Bot views shares: dialogs and panels (the `ui`
 // source), requests to the host, and the notes the transcript keeps. The shell around the
 // views adds navigation and its own panels. `after` reads the team again once a request
 // is done; `partFor` maps a Bot id, or any part of its chat, to its current part.
-export function teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded }) {
+export function teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded, questionDrafts }) {
   // A memory is a Bot's or a group chat's; both are opened by id.
   const memoryOf = id => (roster.getSnapshot().roomsById[id] ? { roomId: id } : { botId: id })
+  const subjectOf = (snap, id) => snap.byId?.[id]?.id ?? snap.roomsById?.[id]?.id ?? id
   // Cards of long pastes, numbered as they come; each waits for the shell's attachment.
   let pastes = 0
   const pasteState = (state, sessionId, blocks) => ({ ...state, paste: { ...state.paste, [sessionId]: blocks } })
@@ -49,7 +51,9 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     closeVoice: () => { ui.set(state => (state.voice ? { ...state, voice: null } : state)) },
     toggleDetails: (id, force) => {
       ui.set((state) => {
-        const details = force || state.details !== id || state.view !== 'details' ? id : null
+        const snap = roster.getSnapshot()
+        const sameSubject = state.details !== null && subjectOf(snap, state.details) === subjectOf(snap, id)
+        const details = force || !sameSubject || state.view !== 'details' ? id : null
         // A folded panel is open but not shown: its opener then means "show it"
         // (the column yields it room), not "close it".
         if (details === null && panelFolded?.('details') === true) return { ...state, renaming: false, tab: null, details: id, view: 'details', panelYield: true }
@@ -58,11 +62,13 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     },
     // The open panel follows the main view; a subject with no browser (a group
     // chat, an outside Session) settles on the details view. So does one that
-    // does not own the open side chat.
+    // does not own the open side chat. Moving between parts of the same Bot or
+    // group keeps the panel's current view, settings/rename state, and tab intact.
     followPanel: (id) => {
       ui.set((state) => {
         if (!state.details || state.details === id) return state
         const snap = roster.getSnapshot()
+        if (subjectOf(snap, state.details) === subjectOf(snap, id)) return { ...state, details: id }
         const view = state.view === 'browser' && snap.byId[id] === undefined ? 'details'
           : state.view === 'side' && !(snap.sideChats?.[snap.byId[id]?.id] ?? []).some(chat => chat?.id === state.side) ? 'details'
             : state.view === 'task' ? 'details'
@@ -425,6 +431,15 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     noteHeldCard: (sessionId, kind, requestId, delta) => {
       if (sessionId !== undefined) heldCards.set(state => countCards(state, sessionId, [heldCardKey(kind, requestId)], delta))
     },
+    readQuestionDraft: (kind, id, subId) => questionDrafts?.readDraft(kind, id, subId) ?? '',
+    noteQuestionDraft: (entry) => {
+      if (!questionDrafts) return
+      const chatId = entry.chatId ?? chatOfSession(roster?.getSnapshot?.(), entry.sessionId)?.id ?? null
+      questionDrafts.noteDraft({ ...entry, chatId })
+    },
+    beginQuestionSettle: (kind, id, outcome) => questionDrafts?.beginSettle(kind, id, outcome),
+    finishQuestionSettle: (kind, id, succeeded) => questionDrafts?.finishSettle(kind, id, succeeded),
+    consumeRescuedDraft: (chatId, sessionId, taken) => questionDrafts?.consumeRescue(chatId, sessionId, taken),
     clearLive: sessionId => live.set((state) => {
       if (!state[sessionId]) return state
       const next = { ...state }

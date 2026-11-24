@@ -23,8 +23,9 @@ const META = /\s*\[([A-Za-z][\w-]*:[^\];]*(?:;\s*[A-Za-z][\w-]*:[^\];]*)*)\]\s*$
 export const NO_MATCH = 'memory/no-match'
 export const GONE = 'memory/bot-gone'
 export const DENIED = 'memory/denied'
+export const REFUSED = 'memory/refused'
 // The codes the memory review routes on. A failure that carries one keeps it.
-export const ROUTED = new Set([NO_MATCH, GONE, DENIED])
+export const ROUTED = new Set([NO_MATCH, GONE, DENIED, REFUSED])
 // What a review shows of memory, in characters of entry text.
 export const REVIEW_MEMORY_MAX = 16_000
 
@@ -48,8 +49,14 @@ export const bodySize = parsed => parsed.entries.reduce((sum, entry) => sum + en
 export const entryId = entry => entry.meta?.id ?? createHash('sha256').update(squash(entry.text)).digest('hex').slice(0, 4)
 export function newEntryId(entries) {
   const taken = new Set(entries.map(entryId))
+  if (taken.size < 32_768) {
+    for (let tries = 0; tries < 256; tries += 1) {
+      const id = randomBytes(2).toString('hex')
+      if (!taken.has(id)) return id
+    }
+  }
   for (;;) {
-    const id = randomBytes(2).toString('hex')
+    const id = randomBytes(3).toString('hex')
     if (!taken.has(id)) return id
   }
 }
@@ -91,11 +98,19 @@ export function formatEntry(text, meta = {}) {
   return `- ${text}${pairs.length > 0 ? ` [${pairs.join('; ')}]` : ''}`
 }
 
-// One line, without a bullet or metadata of its own: the tool adds those.
+const KNOWN_META_KEYS = new Set(['id', 'source', 'by', 'added', 'until', 'pinned', 'merged'])
+
+// One line, without a bullet or DS Bot metadata of its own: the tool adds those.
+// Arbitrary bracketed suffixes (e.g. "[timeout: 30]") stay untouched.
 export function cleanEntry(raw) {
   const line = String(raw ?? '').replace(/\s+/g, ' ').trim().replace(/^(?:[-*•]\s+)+/, '')
-  return splitMeta(line).text
+  const parsed = splitMeta(line)
+  const keys = Object.keys(parsed.meta)
+  return keys.length > 0 && keys.every(key => KNOWN_META_KEYS.has(key)) ? parsed.text : line
 }
+
+// A topic file with no entries left (only blank lines, headings, or `> about` notes).
+export const isEmptyTopic = lines => lines.every(line => line.trim() === '' || HEADING.test(line) || /^>(?:\s|$)/.test(line))
 
 // A flat file name: case folds on some file systems, so names are lower case.
 export function cleanTopic(raw) {
@@ -164,15 +179,21 @@ export function removeLink(lines, topic) {
 
 export const squash = text => String(text ?? '').replace(/\s+/g, ' ').trim().toLowerCase()
 
-// The entry a request means: the one with that exact text, else every entry that
-// contains it.
+// The entry a request means: exact text first, else id (returning collisions and
+// whole-word text conflicts for disambiguation), else every entry containing it.
 export function matchEntries(entries, wanted) {
   const key = squash(cleanEntry(wanted))
   if (key === '') return []
-  const named = entries.find(entry => entry.meta?.id === key || (/^[0-9a-f]{4}$/.test(key) && entryId(entry) === key))
-  if (named !== undefined) return [named]
-  const exact = entries.find(entry => squash(entry.text) === key)
-  if (exact !== undefined) return [exact]
+  const exact = entries.filter(entry => squash(entry.text) === key)
+  if (exact.length > 0) return exact
+  const isHexId = /^[0-9a-f]{4,6}$/.test(key)
+  const byId = entries.filter(entry => entry.meta?.id === key || (isHexId && entryId(entry) === key))
+  if (byId.length > 0) {
+    if (!isHexId) return byId
+    const wholeWord = new RegExp(`(?:^|[^a-z0-9])${key}(?:$|[^a-z0-9])`)
+    const textHits = entries.filter(entry => !byId.includes(entry) && wholeWord.test(squash(entry.text)))
+    return textHits.length > 0 ? [...byId, ...textHits] : byId
+  }
   return entries.filter(entry => squash(entry.text).includes(key))
 }
 

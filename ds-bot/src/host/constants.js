@@ -149,6 +149,27 @@ export const GOAL_IDLE_NUDGES = 2
 // job and the step moves on (settings can change it; 0 hands every call over).
 export const BACKGROUND_WAIT_MS = 5_000
 export const BACKGROUND_AFTER_MAX_SEC = 600
+// Above this many parent-session events, task_start skips DSH session fork (which
+// copies the whole event log) and opens a fresh lightweight Session seeded with a
+// structured context summary and read_own_chat access to the parent part.
+export const TASK_FORK_MAX_EVENTS = 600
+
+// Tools that only operate on group chats: hidden from non-Main Bots in zero groups,
+// and from Main Bots when the team has no groups yet (create_group stays available).
+export const GROUP_ONLY_TOOLS = [
+  'read_group_chat', 'post_to_group', 'group_todo', 'group_goal', 'group_task', 'update_group',
+]
+
+// Catalog feature-pack tools: hidden when a Bot has no catalog packs attached and no
+// packs currently loaded in the session.
+export const CATALOG_PACK_TOOLS = ['use_pack', 'drop_pack']
+
+// Team tools unconditionally refused inside background task sessions.
+export const TASK_HIDDEN_TEAM_TOOLS = [
+  'browser_handoff',
+  'task_start', 'task_send', 'task_stop', 'task_list', 'task_read',
+  'ask_user', 'show_view', 'request_secret', 'prepare_ds_bot_issue',
+]
 // A member still at work this long after its first tool call lets the round go on; it
 // posts its reply when the work is done.
 export const ROOM_WORK_GRACE_MS = 15_000

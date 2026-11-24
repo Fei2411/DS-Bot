@@ -33,17 +33,18 @@ export const freshInputAt = (submissions, steeredAt) => Math.max(0, steeredAt ??
 // descendant one; a flow without a slot falls back to the first flow. No flow at all
 // is a mount failure, noted once per page — the observer keeps retrying in case the
 // transcript is only mid-mount.
+// The slot sits at the end of the flow, so the search walks the whole transcript; it
+// runs every frame the transcript changes, so the last slot found is kept while it
+// stays in its flow and running. The row lets it go when it stops, so a chat left
+// behind is not held in memory.
 let mountMissed = false
-let cachedSlot = null
-let cachedFlow = null
+let runningSlot = null
 export function findHost() {
-  if (cachedSlot?.ownerDocument === document && cachedSlot?.isConnected && cachedFlow?.isConnected && cachedSlot.closest?.('[data-chat-flow]') === cachedFlow) {
-    return cachedFlow
-  }
+  const kept = runningSlot?.slot
+  if (kept?.ownerDocument === document && kept?.isConnected && runningSlot.host?.isConnected && kept.hasAttribute('data-chat-running') && kept.closest('[data-chat-flow]') === runningSlot.host) return runningSlot.host
   const slot = document.querySelector('[data-chat-flow] [data-chat-running]')
   const node = slot?.closest('[data-chat-flow]') ?? document.querySelector('[data-chat-flow]')
-  cachedSlot = slot ?? null
-  cachedFlow = slot ? node : null
+  runningSlot = slot ? { slot, host: node } : null
   if (node === null && !mountMissed) {
     mountMissed = true
     noteClientError('activity row', new Error('[data-chat-flow] not found'))
@@ -51,10 +52,14 @@ export function findHost() {
   return node
 }
 
+export function releaseHost() {
+  runningSlot = null
+}
+
 function useRunningHost(active) {
   const [host, setHost] = useState(null)
   useEffect(() => {
-    if (!active) { setHost(null); return undefined }
+    if (!active) { releaseHost(); setHost(null); return undefined }
     let frame = 0
     let currentHost = null
     let currentSlot = null
@@ -62,16 +67,16 @@ function useRunningHost(active) {
       frame = 0
       const node = findHost()
       currentHost = node
-      currentSlot = node && cachedFlow === node ? cachedSlot : null
+      currentSlot = node && runningSlot?.host === node ? runningSlot.slot : null
       setHost(prev => (prev === node ? prev : node))
     }
     const observer = new MutationObserver(() => {
-      if (currentHost?.isConnected && currentSlot?.isConnected && currentHost.contains(currentSlot)) return
+      if (currentHost?.isConnected && currentSlot?.isConnected && currentSlot.hasAttribute('data-chat-running') && currentHost.contains(currentSlot)) return
       if (!frame) frame = requestAnimationFrame(find)
     })
     observer.observe(document.querySelector('[data-conversation-scroll]') ?? document.body, { childList: true, subtree: true })
     find()
-    return () => { cancelAnimationFrame(frame); observer.disconnect() }
+    return () => { cancelAnimationFrame(frame); observer.disconnect(); releaseHost() }
   }, [active])
   return host
 }
