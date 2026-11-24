@@ -786,11 +786,17 @@ export function install(rt) {
     // A member who leaves and comes back starts from a fresh look at the log.
     for (const member of removed) {
       if (room.seen) delete room.seen[member]
+      rt.forgetSessionChanges?.(room.sessions?.[member])
+      for (const segment of room.segments?.[member] ?? []) rt.forgetSessionChanges?.(segment.sessionId)
       rt.dropGroupSession(room, member)
+      rt.cancelMemberTasks?.(room, member, 'Member was removed from the group')
+      rt.goalMemberRemoved?.(room, member)
     }
+    const prevAdmin = room.admin ?? null
     room.members = members
-    if (admin !== (room.admin ?? null)) changes.push(admin ? `made ${rt.botOf(admin).name} the admin` : 'removed the admin')
+    if (admin !== prevAdmin) changes.push(admin ? `made ${rt.botOf(admin).name} the admin` : 'removed the admin')
     room.admin = admin
+    if (prevAdmin !== null && admin === null) rt.goalAdminCleared?.(room, 'no admin is assigned')
     if (patch.mode !== undefined && patch.mode !== room.mode) {
       room.mode = patch.mode
       changes.push(patch.mode === 'admin' ? 'plain messages now go to the admin first' : 'every member now replies in turn')
@@ -865,7 +871,11 @@ export function install(rt) {
     const archived = rt.archiveGroupMemory(room)
     await rt.stopRoomTasks?.(room.id, 'group deleted')
       .catch(error => rt.warn('ds-bot: stopping tasks of deleted group %s failed: %s', room.name, error))
-    for (const botId of Object.keys(room.sessions ?? {})) rt.dropGroupSession(room, botId)
+    for (const botId of Object.keys(room.sessions ?? {})) {
+      rt.forgetSessionChanges?.(room.sessions?.[botId])
+      for (const segment of room.segments?.[botId] ?? []) rt.forgetSessionChanges?.(segment.sessionId)
+      rt.dropGroupSession(room, botId)
+    }
     for (const segment of room.parts ?? []) delete state.switching[segment.sessionId]
     delete state.switching[rt.sessionOfRoom(room)]
     delete state.rooms[id]
@@ -1013,12 +1023,21 @@ export function install(rt) {
         if (state.closedCards !== undefined) delete state.closedCards[part]
         delete state.exchangeTurns[part]
         delete state.switching[part]
+        rt.forgetSessionChanges?.(part)
       }
       const touched = []
       for (const room of Object.values(state.rooms)) {
         if (!room.members.includes(id)) continue
+        const wasAdmin = room.admin === id
         room.members = room.members.filter(member => member !== id)
-        if (room.admin === id) room.admin = null
+        if (wasAdmin) {
+          room.admin = null
+          rt.goalAdminCleared?.(room, 'the admin was deleted')
+        }
+        rt.goalMemberRemoved?.(room, id)
+        rt.cancelMemberTasks?.(room, id, 'Bot was deleted')
+        rt.forgetSessionChanges?.(room.sessions?.[id])
+        for (const segment of room.segments?.[id] ?? []) rt.forgetSessionChanges?.(segment.sessionId)
         rt.dropGroupSession(room, id)
         touched.push(room)
       }

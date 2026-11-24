@@ -92,6 +92,18 @@ export const NON_WORK_TOOLS = new Set([
 ])
 export const isWorkTool = name => typeof name === 'string' && name !== '' && !NON_WORK_TOOLS.has(name)
 
+// Team-meta mutations that count as substantive work (clearing idle streaks and
+// waking batch callers) but finish instantaneously so they skip the 15s grace timer.
+// Slow team work tools such as read_browser, read_document, and task_start stay out
+// of this set so they still yield to the 15s grace timer like any other work tool.
+export const INSTANT_WORK_TOOLS = new Set([
+  'create_bot', 'update_bot', 'create_group', 'update_group', 'delete_group',
+  'group_todo', 'group_goal', 'group_task', 'ask_user', 'show_view',
+  'prepare_ds_bot_issue', 'request_secret', 'request_connector',
+  'save_capability', 'delete_capability', 'attach_capability', 'detach_capability',
+  'use_pack', 'drop_pack', 'task_send', 'task_stop',
+])
+
 // Pure silent/pass/stage-direction text produced on a Bot-triggered own-chat turn when
 // the Bot has nothing to tell the user (e.g. "[PASS]", "（静默。）", "（收工。）", "（完。）").
 const SILENT_TURN_TEXT = /^\s*(?:[[【(（]\s*(?:pass|silent|silence|no\s*reply|nothing\s+to\s+report|done|noop|静默|收工|完|完毕|无回复|无需回复|略|跳过|待命)\s*[.。!！]*\s*[\]】)）]|pass\s*[.。!！]?)\s*$/i

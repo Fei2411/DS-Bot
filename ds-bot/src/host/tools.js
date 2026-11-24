@@ -216,7 +216,9 @@ export function install(rt) {
 
   const callInGroup = async (exec, room, sender, target, message) => {
     const call = `@${target.name}`
-    await rt.roomStepText(exec.agent.id, rt.live.get(exec.agent.id)?.info, message.startsWith(call) ? message : `${call} ${message}`, false)
+    const everyone = room.members.map(rt.botOf).filter(Boolean)
+    const alreadyCalls = mentionSpans(message, everyone).some(span => !span.all && span.bot?.id === target.id)
+    await rt.roomStepText(exec.agent.id, rt.live.get(exec.agent.id)?.info, alreadyCalls ? message : `${call} ${message}`, false)
     return `Called ${target.name} in "${room.name}" with your message, as writing "${call}" there does: it works on it in the group, and you answer its result there. Nothing went to its own chat.`
   }
 
