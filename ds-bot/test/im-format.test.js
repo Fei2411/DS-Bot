@@ -19,9 +19,50 @@ test('Markdown becomes Telegram HTML', () => {
   assert.equal(toTelegramHtml('done ~~deal~~'), 'done <s>deal</s>')
 })
 
+test('Telegram renders headings and Markdown tables as readable rows (#2173)', () => {
+  const markdown = [
+    '## Results ##',
+    '',
+    '| Bot | Status | Owner |',
+    '| :--- | ---: | :---: |',
+    '| **Alpha** | Ready & tested | Ann |',
+    '| Beta | `Queued` | R&D \\| Ops |',
+    '',
+    'Notes',
+    '=====',
+    'Ordinary prose with a | pipe.',
+    '```',
+    '# Literal heading',
+    '| A | B |',
+    '| --- | --- |',
+    '| x | y |',
+    '```',
+  ].join('\n')
+  assert.deepEqual(chunkTelegram(markdown), [{
+    html: '<b>Results</b>\n• <b>Bot:</b> <b>Alpha</b>\n• <b>Status:</b> Ready &amp; tested\n• <b>Owner:</b> Ann\n\n'
+      + '• <b>Bot:</b> Beta\n• <b>Status:</b> <code>Queued</code>\n• <b>Owner:</b> R&amp;D | Ops\n'
+      + '<b>Notes</b>\nOrdinary prose with a | pipe.\n<pre><code># Literal heading\n| A | B |\n| --- | --- |\n| x | y |</code></pre>',
+    text: 'Results\n• Bot: Alpha\n• Status: Ready & tested\n• Owner: Ann\n\n'
+      + '• Bot: Beta\n• Status: Queued\n• Owner: R&D | Ops\n'
+      + 'Notes\nOrdinary prose with a | pipe.\n# Literal heading\n| A | B |\n| --- | --- |\n| x | y |',
+  }])
+})
+
 test('Markdown becomes plain text', () => {
   assert.equal(toPlain('**bold** `code` [site](https://a.b)'), 'bold code site (https://a.b)')
   assert.equal(toPlain('```\nlet x = 1\n```'), 'let x = 1')
+})
+
+test('long Telegram table cells keep their text and do not split HTML entities', () => {
+  const value = '😀 & < '.repeat(500).trim()
+  const chunks = chunkTelegram('## Results\nBot | Status\n--- | ---\nAlpha | ' + value)
+  assert.equal(chunks[0].html, '<b>Results</b>\n• <b>Bot:</b> Alpha')
+  assert.ok(chunks.length > 2)
+  assert.equal(chunks.slice(1).map(chunk => chunk.text).join(''), '• Status: ' + value)
+  for (const { html, text } of chunks.slice(1)) {
+    assert.ok(Array.from(html).length <= 4096)
+    assert.equal(html, text.replaceAll('&', '&amp;').replaceAll('<', '&lt;'))
+  }
 })
 
 test('chunks stay under the limit and keep whole fences', () => {
