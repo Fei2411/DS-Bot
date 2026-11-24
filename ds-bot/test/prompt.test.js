@@ -19,7 +19,10 @@ function start() {
     roomOf: id => id === 'room' ? {} : undefined,
     isMain: id => id === 'main',
   })
-  const prompt = id => ctx.sections.get('bot-identity').text({ agent: { id } })
+  const prompt = id => [
+    ctx.sections.get('bot-team-rules').text({ agent: { id } }),
+    ctx.sections.get('bot-identity').text({ agent: { id } }),
+  ].filter(Boolean).join('\n\n')
   return { ctx, prompt }
 }
 
@@ -106,7 +109,10 @@ test('role-dependent prompt guidance stays frozen until the next turn in both di
   const rt = { ctx, selfOf: id => id, botOf: () => ({ name: 'Writer' }), roomOf: () => undefined, isMain: () => main, isBotSession: () => true }
   installBuiltinPacks(rt)
   install(rt)
-  const prompt = () => ctx.sections.get('bot-identity').text({ agent: { id: 'worker' } })
+  const prompt = () => [
+    ctx.sections.get('bot-team-rules').text({ agent: { id: 'worker' } }),
+    ctx.sections.get('bot-identity').text({ agent: { id: 'worker' } }),
+  ].filter(Boolean).join('\n\n')
   const emit = type => ctx.listeners.get('session/event')[0]({ id: 'worker' }, { type })
   for (const initial of [false, true]) {
     main = initial

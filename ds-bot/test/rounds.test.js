@@ -1741,3 +1741,79 @@ test('roomPrompt explicitly tells a member how many earlier unread group message
   await answer(turn2.sessionId, turn2.message.source.exchangeId, 'Checked.', 2)
   await running2
 })
+
+test('waitingLines preserves strict FIFO across nextStep, nextTurn, images, and non-user posts', async (t) => {
+  const { call, emit, userMessage, compose, relay, inboxOf, answer, stop, sent } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+
+  await emit(room.id, userMessage('Start'))
+  const running = relay(room.id, 'relay-fifo')
+  const first = await turnFor(sent)
+  assert.ok(first)
+
+  // 1) A steered image in nextStep must block draining a plain-text message queued in nextTurn.
+  await compose(room.id, [{ type: 'text', text: 'image in steer' }, { type: 'image', data: 'AAAA', mediaType: 'image/png' }], 'steer')
+  await compose(room.id, 'plain text in nextTurn', 'queue')
+  await answer(first.sessionId, first.message.source.exchangeId, 'chief done', 1)
+
+  const second = await turnFor(sent, first)
+  assert.ok(second)
+  assert.doesNotMatch(second.message.content[0].text, /plain text in nextTurn/, 'nextTurn text must not jump ahead of nextStep image')
+  assert.equal(inboxOf(room.id).nextStep.length, 1)
+  assert.equal(inboxOf(room.id).nextTurn.length, 1)
+
+  // 2) Clear nextStep image, place a non-user post ahead of a plain-text user message in nextTurn -> user message must not jump ahead.
+  inboxOf(room.id).nextStep.length = 0
+  inboxOf(room.id).nextTurn.unshift({ id: randomUUID(), role: 'user', source: { kind: 'bot', role: 'post', senderName: 'Chief' }, content: [{ type: 'text', text: '[Group post from Chief]\nqueued bot post' }] })
+  await answer(second.sessionId, second.message.source.exchangeId, 'writer done', 2)
+  const result = JSON.parse(await running)
+  assert.equal(result.replies.some(reply => reply.text?.includes('plain text in nextTurn')), false, 'user message behind a non-user post must wait in FIFO order')
+  assert.equal(inboxOf(room.id).nextTurn.length, 2)
+})
+
+test('removing or deleting a speaking member immediately resolves its round waiter, cleans cards, and lets the round continue', async (t) => {
+  for (const action of ['remove', 'delete']) {
+    const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+    t.after(stop)
+    const chief = (await call('state', {})).value.mainBotId
+    const writer = (await call('create-bot', { name: 'Writer' })).value
+    const tester = (await call('create-bot', { name: 'Tester' })).value
+    const room = (await call('create-room', { name: `R-${action}`, members: [chief, writer.id, tester.id] })).value
+    await call('update-room', { id: room.id, mode: 'everyone' })
+    sent.length = 0
+
+    await emit(room.id, userMessage('Count off'))
+    const running = relay(room.id, `relay-${action}`)
+    const chiefTurn = await turnFor(sent)
+    assert.ok(chiefTurn)
+    await answer(chiefTurn.sessionId, chiefTurn.message.source.exchangeId, 'Chief 1', 1)
+
+    // Writer is now speaking in ordered everyone mode (Tester is blocked behind Writer).
+    const writerTurn = await turnFor(sent, chiefTurn)
+    assert.ok(writerTurn)
+    const writerSid = writerTurn.sessionId
+    rt.state.questions[writerSid] = { id: 'q-stale', question: 'Stale?' }
+    ;(rt.state.views ??= {})[writerSid] = { id: 'v-stale', title: 'Stale' }
+    ;(rt.state.closedCards ??= {})[writerSid] = [{ id: 'c-stale' }]
+
+    // Remove or delete Writer mid-turn: waiter must settle immediately without 4-minute timeout!
+    if (action === 'remove') await rt.updateRoom(room.id, { members: [chief, tester.id] })
+    else await rt.deleteBot(writer.id)
+
+    assert.equal(rt.state.questions[writerSid], undefined, 'stale question card must be cleaned on dropGroupSession')
+    assert.equal(rt.state.views[writerSid], undefined, 'stale view card must be cleaned on dropGroupSession')
+    assert.equal(rt.state.closedCards[writerSid], undefined, 'stale closedCards must be cleaned on dropGroupSession')
+
+    // Tester must immediately get its turn right after Writer leaves, with no bogus 'missed' notice!
+    const testerTurn = await turnFor(sent, chiefTurn, writerTurn)
+    assert.ok(testerTurn, `Tester must immediately proceed after Writer is ${action}d`)
+    assert.match(testerTurn.message.content[0].text, /Writer \(left the group\)/)
+    await answer(testerTurn.sessionId, testerTurn.message.source.exchangeId, 'Tester 3', 2)
+
+    const result = JSON.parse(await running)
+    assert.equal(result.replies.some(reply => reply.kind === 'missed'), false, 'left member must never emit a missed timeout notice')
+    assert.deepEqual(rt.state.roomBatches ?? {}, {})
+    assert.equal(rt.roomWaiters.size, 0)
+  }
+})

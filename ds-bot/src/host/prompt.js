@@ -50,8 +50,18 @@ const MAIN_RULES = [
 export function install(rt) {
   const { ctx } = rt
 
+  // Static team-wide rules sit ahead of DSH static tool sections (800..10200) so
+  // Main Bots and Worker Bots share one byte-identical prefix through DSH's static tail.
+  const rulesFor = (id) => {
+    const self = rt.selfOf(id)
+    const bot = rt.botOf(self)
+    return bot === undefined ? '' : TEAM_RULES
+  }
+
+  // Per-Bot identity (and Main Bot authority rules) sits after DSH static sections (>10200)
+  // so per-Bot or role-specific text never busts shared static prefix caching across Bots.
   // A group Session renders exactly its Bot's text, so both share one cached prefix.
-  const promptFor = (id) => {
+  const identityFor = (id) => {
     const self = rt.selfOf(id)
     const bot = rt.botOf(self)
     if (bot !== undefined) {
@@ -60,8 +70,7 @@ export function install(rt) {
         '# Your identity',
         `You are ${bot.name}, a Bot on the user's team in DS Bot.${bot.role ? ` Your role: ${bot.role}.` : ''}`,
         bot.instructions ? `\n${bot.instructions}` : '',
-        '',
-        main ? `${MAIN_RULES}\n\n${TEAM_RULES}` : TEAM_RULES,
+        ...(main ? ['', MAIN_RULES] : []),
       ].join('\n')
     }
     const room = rt.roomOf(id)
@@ -75,10 +84,22 @@ export function install(rt) {
     return ''
   }
 
-  ctx.effect(() => ctx.systemPrompt.section({
-    name: 'bot-identity',
-    order: 640,
-    interpolate: false,
-    text: context => promptFor(context?.agent?.id),
-  }), 'ds-bot: identity section')
+  ctx.effect(() => {
+    const offRules = ctx.systemPrompt.section({
+      name: 'bot-team-rules',
+      order: 640,
+      interpolate: false,
+      text: context => rulesFor(context?.agent?.id),
+    })
+    const offIdentity = ctx.systemPrompt.section({
+      name: 'bot-identity',
+      order: 10300,
+      interpolate: false,
+      text: context => identityFor(context?.agent?.id),
+    })
+    return () => {
+      offIdentity?.()
+      offRules?.()
+    }
+  }, 'ds-bot: identity section')
 }

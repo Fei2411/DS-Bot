@@ -189,9 +189,7 @@ export function install(rt) {
   const TOOL_TRAIL_MAX = 18
   const TOOL_TRAIL_TOKENS = 1_500
   const HANDOFF_READ_MS = 60_000
-  const NOTE_MAX_TOKENS = 8_192
-  // A note cut off at the output limit is asked again with more room, up to what
-  // the route allows.
+  // Fallback output cap when neither the route nor resolveModelInfo declares one.
   const NOTE_RETRY_MAX_TOKENS = 16_384
   const NOTE_TIMEOUT_MS = 600_000
   const NOTE_ATTEMPTS = 2
@@ -416,7 +414,11 @@ export function install(rt) {
       const task = bot.tasks[thread.index]
       // A foreground turn moved into a background task keeps read_own_chat access to the
       // Bot's earlier parts frozen at handoff time, without shifting on later foreground rollovers.
-      const inherited = Array.isArray(task.inheritedSegments) ? task.inheritedSegments : []
+      // Hydrate slim inherited refs against `bot.segments` so `note`/`fallback`/`noteFrom`
+      // stay available to `read_own_chat({ part: N })` and overflow `earlierNote`.
+      const bySession = new Map((bot.segments ?? []).filter(seg => seg?.sessionId).map(seg => [seg.sessionId, seg]))
+      const inherited = (Array.isArray(task.inheritedSegments) ? task.inheritedSegments : [])
+        .map(seg => (seg?.sessionId && bySession.has(seg.sessionId) ? { ...bySession.get(seg.sessionId), ...seg } : seg))
       const seen = new Set(inherited.map(seg => seg?.sessionId).filter(Boolean))
       const segments = [...inherited, ...(thread.segments ?? []).filter(seg => !seen.has(seg?.sessionId))]
       return partsOf(bot.id, undefined, segments, task.sessionId)
@@ -612,9 +614,20 @@ export function install(rt) {
   const PI_CHARS_PER_TOKEN = 3.5
   const PI_SAFETY_TOKENS = 4_608
   const isSizeError = (error) => {
-    const code = error?.code ?? error?.failure?.code
-    const message = String(error?.message ?? error ?? '')
-    return code === OVERFLOW || error?.status === 413 || TOO_LARGE.test(message) || isContextWindowExceededError(message)
+    const seen = new Set()
+    let current = error
+    for (let depth = 0; current !== undefined && current !== null && depth < 8; depth += 1) {
+      if (typeof current === 'object') {
+        if (seen.has(current)) break
+        seen.add(current)
+      }
+      const code = current?.code ?? current?.failure?.code
+      const status = current?.status ?? current?.failure?.status
+      const message = String(current?.message ?? current?.failure?.message ?? current ?? '')
+      if (code === OVERFLOW || status === 413 || TOO_LARGE.test(message) || isContextWindowExceededError(message)) return true
+      current = typeof current === 'object' ? (current.cause ?? current.failure?.cause) : undefined
+    }
+    return false
   }
 
   function clipHeadTail(text, maxChars) {
@@ -657,7 +670,7 @@ export function install(rt) {
     const systemMsgs = stripped.filter(message => message?.role === 'system')
     const bodyMsgs = stripped.filter(message => message?.role !== 'system')
     const promptTokens = Math.ceil(String(prompt ?? '').length / PI_CHARS_PER_TOKEN) + 16
-    const desiredOutput = Math.min(targetOutput ?? NOTE_MAX_TOKENS, Math.max(512, Math.floor(window * 0.25)))
+    const desiredOutput = Math.min(targetOutput ?? NOTE_RETRY_MAX_TOKENS, Math.max(512, Math.floor(window * 0.25)))
     const systemTokens = systemMsgs.reduce((sum, message) => sum + msgTokens(message), 0)
     const bodyTokens = bodyMsgs.reduce((sum, message) => sum + msgTokens(message), 0)
     if (systemTokens + bodyTokens + promptTokens + desiredOutput + PI_SAFETY_TOKENS <= window) return stripped
@@ -787,28 +800,48 @@ export function install(rt) {
 
   // One route's attempts at the note: the same system prompt, tools, and messages as
   // the conversation's own requests, plus the note prompt; nothing is written into the
-  // Session. A cut-off note, or one without every section, is asked for again once with
-  // more output room; a request error or an abort ends the attempts there.
+  // Session. Attempt 1 matches the conversation's own route config verbatim (including
+  // reasoningEffort and full route output room) so the provider serves the peak-context
+  // prefix from KV cache without hitting an artificial output cap. Only on a max-tokens
+  // retry or tool-stripped retry does it step down reasoning via notePlan.
   async function noteThrough(session, header, messages, route, base, signal) {
-    const { effort, limit, window } = await notePlan(route)
-    return noteAttempts(session, route, base, async (prompt, attempt, { withoutTools = false, compactInput = false } = {}) => {
-      const maxTokens = Math.min(attempt === 1 ? NOTE_MAX_TOKENS : NOTE_RETRY_MAX_TOKENS, limit)
+    let plan
+    const planned = async () => (plan ??= await notePlan(route))
+    return noteAttempts(session, route, base, async (prompt, _attempt, { withoutTools = false, lowerEffort = false, compactInput = false } = {}) => {
+      const { effort, limit, window } = await planned()
+      const windowCap = Number.isInteger(window) && window > 0 ? Math.max(512, Math.floor(window * 0.25)) : NOTE_RETRY_MAX_TOKENS
+      const retryBudget = Math.min(NOTE_RETRY_MAX_TOKENS, limit, windowCap)
       const dropTools = withoutTools || compactInput
+      const keepPrefix = !dropTools && !lowerEffort
+      const maxTokens = keepPrefix ? (route.maxTokens ?? limit) : (compactInput ? retryBudget : limit)
       const stripped = dropTools ? stripToolBlocks(messages, route) : messages
       const history = compactInput
         ? fitHistoryForOutput(stripped, { route, window, targetOutput: maxTokens, prompt, minimalSystem: 'You are writing a concise internal handoff note for this conversation.' })
         : stripped
-      const callOptions = {
-        provider: route.provider,
-        model: route.model,
-        ...(effort === undefined ? {} : { reasoningEffort: effort }),
-        messages: [...history, { role: 'user', content: [{ type: 'text', text: prompt }] }],
-        ...(dropTools ? {} : { toolHistory: session.toolHistory(), ...(header.tools ? { tools: [...header.tools] } : {}) }),
-        maxTokens,
-        sessionId: session.id,
-        purpose: 'compaction',
-        signal,
-      }
+      const callOptions = keepPrefix
+        ? {
+            ...route,
+            provider: route.provider,
+            model: route.model,
+            messages: [...history, { role: 'user', content: [{ type: 'text', text: prompt }] }],
+            toolHistory: session.toolHistory(),
+            ...(header.tools ? { tools: [...header.tools] } : {}),
+            ...(maxTokens !== undefined ? { maxTokens } : {}),
+            sessionId: session.id,
+            purpose: 'compaction',
+            signal,
+          }
+        : {
+            provider: route.provider,
+            model: route.model,
+            ...(effort === undefined ? {} : { reasoningEffort: effort }),
+            messages: [...history, { role: 'user', content: [{ type: 'text', text: prompt }] }],
+            ...(dropTools ? {} : { toolHistory: session.toolHistory(), ...(header.tools ? { tools: [...header.tools] } : {}) }),
+            maxTokens,
+            sessionId: session.id,
+            purpose: 'compaction',
+            signal,
+          }
       const assembler = await (rt.assembleLlm ? rt.assembleLlm(callOptions) : assembleLlmStream(ctx, callOptions, { backoff: rt.config?.llmRetryBackoff }))
       const finish = assembler.finish
       if (finish.kind === 'error' || finish.kind === 'aborted') {
@@ -842,6 +875,7 @@ export function install(rt) {
     let retry
     let problem
     let withoutTools = false
+    let lowerEffort = false
     let compactInput = false
     let bestPartial
     let bestTruncated
@@ -855,11 +889,12 @@ export function install(rt) {
       let finish
       let usage
       try {
-        ;({ text, finish, usage } = await request(prompt, attempt, { withoutTools, compactInput }))
+        ;({ text, finish, usage } = await request(prompt, attempt, { withoutTools, lowerEffort, compactInput }))
       } catch (error) {
         if (attempt < NOTE_ATTEMPTS && canCompact && !compactInput && !signal?.aborted && isSizeError(error)) {
           compactInput = true
           withoutTools = true
+          lowerEffort = true
           problem = 'the conversation was too large for a full-prefix note'
           retry = NOTE_RETRY_SHORTER
           rt.warn('ds-bot: handoff note attempt %d of %d for %s on %s/%s overflowed input window; retrying with compacted history: %s', attempt, NOTE_ATTEMPTS, session.id, route.provider, route.model, error?.message ?? error)
@@ -876,6 +911,7 @@ export function install(rt) {
         compactInput = true
         withoutTools = true
         problem = 'it was cut off at the output limit'
+        lowerEffort = true
         retry = NOTE_RETRY_SHORTER
       } else if (finish === 'tool-calls') {
         problem = 'it tried to call a tool instead of writing text'
@@ -927,8 +963,7 @@ export function install(rt) {
     if (!route?.provider || !route?.model) throw new Error('the Session has not called a model yet')
     const messages = session.deriveMessages()
     const base = folder ? FOLDER_PROMPT : HANDOFF_PROMPT
-    const own = { provider: route.provider, model: route.model, ...(route.maxTokens === undefined ? {} : { maxTokens: route.maxTokens }) }
-    const written = await noteThrough(session, header, messages, own, base, signal)
+    const written = await noteThrough(session, header, messages, route, base, signal)
     if (written.note !== undefined) return { note: written.note, attempts: written.attempts }
     throw new Error(`no usable note in ${NOTE_ATTEMPTS} attempts on ${route.provider}/${route.model}; the last one: ${written.problem}`)
   }
@@ -1111,36 +1146,55 @@ export function install(rt) {
   // leave the Bot on the model the user is trying to leave.
   async function summaryThrough(session, route, { input, head, tail, prompt, maxTokens, signal }) {
     const forSwitch = switchRanges.has(session.id)
-    const routes = [{ provider: route.provider, model: route.model }]
+    const routes = [{ ...route, sameRoute: true }]
     if (forSwitch) {
       const bot = rt.selfOf(session.id) === undefined ? undefined : rt.botOf(rt.selfOf(session.id))
       const ref = bot === undefined ? undefined : await Promise.resolve(rt.desiredModel?.(bot)).catch(() => undefined)
       const wanted = splitRef(ref)
-      if (wanted !== undefined && routes.every(one => one.provider !== wanted.provider || one.model !== wanted.model)) routes.push(wanted)
+      if (wanted !== undefined && routes.every(one => one.provider !== wanted.provider || one.model !== wanted.model)) routes.push({ ...wanted, sameRoute: false })
     }
-    const callOnce = async (one, { routeMaxTokens, withoutTools = false, compactInput = false, trimmed = false, shorter = false } = {}) => {
-      const { effort, limit, window } = await notePlan({ ...one, ...(routeMaxTokens === undefined ? {} : { maxTokens: routeMaxTokens }) })
-      const windowCap = Number.isInteger(window) && window > 0 ? Math.max(512, Math.floor(window * 0.25)) : NOTE_RETRY_MAX_TOKENS
-      const retryBudget = Math.min(NOTE_RETRY_MAX_TOKENS, limit, windowCap)
-      const callMaxTokens = shorter ? retryBudget : routeMaxTokens
+    const callOnce = async (one, { routeMaxTokens, withoutTools = false, compactInput = false, trimmed = false, shorter = false, lowerEffort = false, plannedEffort } = {}) => {
       const dropTools = withoutTools || compactInput
+      const keepPrefix = one.sameRoute === true && !dropTools && !trimmed && !shorter && !lowerEffort
       const retryPrompt = shorter ? `${prompt}\n\n${CHECKPOINT_RETRY_SHORTER}` : prompt
       const effectivePrompt = dropTools ? `${retryPrompt}\n\nOutput only the summary as plain text, without calling any tools.` : retryPrompt
-      const stripped = dropTools && !trimmed ? stripToolBlocks([...head, ...tail], one) : [...head, ...tail]
-      const baseHistory = compactInput && !trimmed
-        ? fitHistoryForOutput(stripped, { route: one, window, targetOutput: callMaxTokens ?? retryBudget, prompt: effectivePrompt, minimalSystem: 'You are writing a concise internal checkpoint summary for this conversation.' })
-        : stripped
-      const fullMessages = [...baseHistory, { role: 'user', content: [{ type: 'text', text: effectivePrompt }] }]
-      const callOptions = {
-        provider: one.provider,
-        model: one.model,
-        ...(effort === undefined ? {} : { reasoningEffort: effort }),
-        messages: trimmed ? compactSwitchTranscript([...head, ...tail], retryPrompt) : fullMessages,
-        ...(dropTools || trimmed ? {} : { toolHistory: session.toolHistory(), ...(input.tools ? { tools: [...input.tools] } : {}) }),
-        ...(callMaxTokens !== undefined ? { maxTokens: callMaxTokens } : {}),
-        sessionId: session.id,
-        purpose: 'compaction',
-        signal,
+      let callOptions
+      if (keepPrefix) {
+        const { sameRoute: _sameRoute, ...preserved } = one
+        callOptions = {
+          ...preserved,
+          provider: one.provider,
+          model: one.model,
+          messages: [...head, ...tail, { role: 'user', content: [{ type: 'text', text: effectivePrompt }] }],
+          toolHistory: session.toolHistory(),
+          ...(input.tools ? { tools: [...input.tools] } : {}),
+          ...(routeMaxTokens !== undefined ? { maxTokens: routeMaxTokens } : {}),
+          sessionId: session.id,
+          purpose: 'compaction',
+          signal,
+        }
+      } else {
+        const plan = await notePlan({ ...one, ...(routeMaxTokens === undefined ? {} : { maxTokens: routeMaxTokens }) })
+        const effort = plannedEffort !== undefined ? plannedEffort : plan.effort
+        const windowCap = Number.isInteger(plan.window) && plan.window > 0 ? Math.max(512, Math.floor(plan.window * 0.25)) : NOTE_RETRY_MAX_TOKENS
+        const retryBudget = Math.min(NOTE_RETRY_MAX_TOKENS, plan.limit, windowCap)
+        const callMaxTokens = shorter ? retryBudget : routeMaxTokens
+        const stripped = dropTools && !trimmed ? stripToolBlocks([...head, ...tail], one) : [...head, ...tail]
+        const baseHistory = compactInput && !trimmed
+          ? fitHistoryForOutput(stripped, { route: one, window: plan.window, targetOutput: callMaxTokens ?? retryBudget, prompt: effectivePrompt, minimalSystem: 'You are writing a concise internal checkpoint summary for this conversation.' })
+          : stripped
+        const fullMessages = [...baseHistory, { role: 'user', content: [{ type: 'text', text: effectivePrompt }] }]
+        callOptions = {
+          provider: one.provider,
+          model: one.model,
+          ...(effort === undefined ? {} : { reasoningEffort: effort }),
+          messages: trimmed ? compactSwitchTranscript([...head, ...tail], retryPrompt) : fullMessages,
+          ...(dropTools || trimmed ? {} : { toolHistory: session.toolHistory(), ...(input.tools ? { tools: [...input.tools] } : {}) }),
+          ...(callMaxTokens !== undefined ? { maxTokens: callMaxTokens } : {}),
+          sessionId: session.id,
+          purpose: 'compaction',
+          signal,
+        }
       }
       const assembler = await (rt.assembleLlm ? rt.assembleLlm(callOptions) : assembleLlmStream(ctx, callOptions, { backoff: rt.config?.llmRetryBackoff }))
       const finish = assembler.finish
@@ -1176,7 +1230,7 @@ export function install(rt) {
           rt.warn('ds-bot: checkpoint summary for %s on %s/%s was cut off at output limit (output %s tokens, %d chars); retrying shorter without tools', session.id, one.provider, one.model, res.usage?.outputTokens ?? 'unknown', res.summary.length)
           withoutTools = true
           compacted = true
-          res = await callOnce(one, { routeMaxTokens, withoutTools, compactInput: true, shorter: true })
+          res = await callOnce(one, { routeMaxTokens, withoutTools, compactInput: true, shorter: true, lowerEffort: true })
           rememberTruncated(res)
         }
         if (res.finish !== 'max-tokens' && res.summary !== '') {
@@ -1271,6 +1325,43 @@ export function install(rt) {
     return 'switch'
   }
 
+  // Model-free tool-result pruning through DSH's documented toolResultPruner service.
+  // Called only once a part crosses a pressure line so prefix cache stays intact below
+  // the line. Reclaims oversized tool outputs without spending LLM tokens or losing dialogue.
+  async function pruneToolResults(agent, { inTurn = false } = {}) {
+    if (localPart(agent.session)) return { pruned: 0 }
+    if (!inTurn && !isAgentIdle(agent)) return { busy: true, pruned: 0 }
+    const pruner = ctx.get?.('agentPresets')?.serviceFor?.(agent, 'toolResultPruner') ?? ctx.get?.('toolResultPruner')
+    if (typeof pruner?.pruneSession !== 'function') return { pruned: 0 }
+    const run = async () => {
+      const before = tokensOf(agent.session)
+      const outcome = pruner.pruneSession(agent.session)
+      const count = outcome?.pruned?.length ?? 0
+      if (count === 0) return { pruned: 0, before, after: before }
+      await ctx.sessions.flush(agent.session)
+      const after = tokensOf(agent.session)
+      ctx.logger.info('ds-bot: pruned %d oversized tool result(s) in %s (%d -> %d tokens, %d chars removed)', count, agent.id, before ?? -1, after ?? -1, outcome.charsRemoved ?? 0)
+      return { pruned: count, before, after }
+    }
+    let entered = false
+    let maintenanceSignal
+    try {
+      if (inTurn) return await run()
+      return await agent.runMaintenance(async (signal) => {
+        entered = true
+        maintenanceSignal = signal
+        if (signal?.aborted) return { busy: true, pruned: 0 }
+        return run()
+      })
+    } catch (error) {
+      if (!inTurn && (!entered || maintenanceSignal?.aborted || error?.code === 'busy' || error?.code === 'cancelled')) {
+        return { busy: true, pruned: 0 }
+      }
+      rt.warn('ds-bot: pruning tool results for %s failed: %s', agent.id, error)
+      return { pruned: 0 }
+    }
+  }
+
   // Condenses the part through its own backend. `inTurn`: before a step of a running
   // turn past the hard line, retains a balanced recent verbatim tail (~16% of the usable
   // window, capped below the check line) via compactRegion and only falls back to
@@ -1278,7 +1369,7 @@ export function install(rt) {
   // maintenance pass targeting below the check line, whose checkpoint carries recent
   // verbatim exchanges and tool activity. True when the part ended up below its target
   // line, false when it did not (it then moves on), undefined when a turn got in first.
-  async function condense(agent, lines, { inTurn, signal }) {
+  async function condense(agent, lines, { inTurn, signal, outcome }) {
     if (localPart(agent.session)) return condenseLocal(agent, lines, signal)
     const engine = engineOf(agent)
     const before = tokensOf(agent.session)
@@ -1307,11 +1398,15 @@ export function install(rt) {
           }
           const afterRetained = tokensOf(agent.session)
           if (!fellBack && result !== null && afterRetained !== undefined && afterRetained >= target) {
-            try {
-              result = await engine.compactIfNeeded(agent, 'context-overflow', signal) ?? result
-            } catch (followUpError) {
-              if (signal?.aborted) throw followUpError
-              rt.warn('ds-bot: follow-up overflow compaction for %s failed after retained-tail commit: %s', agent.id, formatError(followUpError))
+            await pruneToolResults(agent, { inTurn: true })
+            const afterTailPrune = tokensOf(agent.session)
+            if (afterTailPrune === undefined || afterTailPrune >= target) {
+              try {
+                result = await engine.compactIfNeeded(agent, 'context-overflow', signal) ?? result
+              } catch (followUpError) {
+                if (signal?.aborted) throw followUpError
+                rt.warn('ds-bot: follow-up overflow compaction for %s failed after retained-tail commit: %s', agent.id, formatError(followUpError))
+              }
             }
           }
         } else {
@@ -1323,6 +1418,7 @@ export function install(rt) {
       if (result === null) return false
     } catch (error) {
       if (!inTurn && (error?.code === 'busy' || error?.code === 'cancelled')) return undefined
+      if (outcome !== undefined && isSizeError(error)) outcome.overflow = true
       rt.warn('ds-bot: condensing %s failed: %s', agent.id, formatError(error))
       return false
     } finally {
@@ -1551,8 +1647,13 @@ export function install(rt) {
   // A read-only process (another dsh holds the team) neither condenses nor switches.
   const readOnly = () => rt.readOnly() !== undefined
 
-  const isSilentRelay = (message) => message?.source?.kind === SOURCE_KIND
-    && (message.source?.silent === true || ['note', 'cancelled', 'stopped'].includes(message.source?.role))
+  const WAKING_KINDS = new Set(['user', REPLY_KIND, 'schedule', 'tool-jobs', 'subagent-settled', 'agent-message'])
+  const isSilentSource = source => source?.kind === SOURCE_KIND
+    && (source?.silent === true || ['note', 'cancelled', 'stopped'].includes(source?.role))
+  const isWakingSource = source => source != null
+    && (WAKING_KINDS.has(source.kind) || (source.kind === SOURCE_KIND && !isSilentSource(source)))
+  const isSilentRelay = message => isSilentSource(message?.source)
+  const isAgentIdle = agent => agent.status === 'idle' && rt.live?.get(agent.id)?.turn === undefined
 
   // Input for an earlier part goes on in the current one: a browser may still show the
   // old part, and a turn stopped for a switch hands on what it claimed.
@@ -1573,7 +1674,7 @@ export function install(rt) {
       const copy = createUserMessage({ content: message.content, ...(message.source ? { source: message.source } : {}) })
       if (isSilentRelay(message)) {
         if (rt.injectSilent ? rt.injectSilent(target, copy, agent) : (agent.inject(copy), true)) flushedNeeded = true
-      } else if (kind === 'user' || kind === SOURCE_KIND || kind === REPLY_KIND) {
+      } else if (isWakingSource(message.source)) {
         agent.followup(copy)
         flushedNeeded = true
       } else {
@@ -1592,10 +1693,7 @@ export function install(rt) {
   const noteInfo = (template, ...args) => { try { ctx.logger.info(template, ...args) } catch {} }
 
   // A message's inbox boundary, the same one forward() delivers it to.
-  const inboxTargetOf = (message) => {
-    const kind = message.source?.kind
-    return !isSilentRelay(message) && (kind === 'user' || kind === SOURCE_KIND || kind === REPLY_KIND) ? 'next-turn' : 'next-step'
-  }
+  const inboxTargetOf = message => (isWakingSource(message?.source) ? 'next-turn' : 'next-step')
 
   // Input a switch could not hand on goes back into the part's own durable inbox, in
   // order: input followup would deliver waits for the next turn, the rest waits for
@@ -1646,16 +1744,28 @@ export function install(rt) {
   // The start timer and a direct call can overlap on a slow start; both share one pass,
   // so kept input is handed on once.
   let heldBackRun
+  let heldBackAgain = false
   function heldBack() {
-    heldBackRun ??= handOnHeld().finally(() => { heldBackRun = undefined })
+    if (heldBackRun !== undefined) {
+      heldBackAgain = true
+      return heldBackRun
+    }
+    heldBackRun = (async () => {
+      do {
+        heldBackAgain = false
+        await handOnHeld()
+      } while (heldBackAgain)
+    })().finally(() => { heldBackRun = undefined })
     return heldBackRun
   }
   async function handOnHeld() {
     await rt.load()
     if (rt.readOnly() !== undefined) return
     for (const [sessionId, owner] of Object.entries(state.switching ?? {})) {
+      if (switches.has(sessionId)) continue
       try {
         const agent = await rt.resolveAgent(sessionId)
+        if (switches.has(sessionId)) continue
         const held = [...agent.inbox.nextStep, ...agent.inbox.nextTurn]
         const target = threadTargetOf(sessionId, owner)
         if (target !== sessionId) {
@@ -1672,7 +1782,8 @@ export function install(rt) {
         delete state.switching[sessionId]
         await rt.save()
       } catch (error) {
-        rt.warn('ds-bot: input kept in part %s was not handed on: %s', sessionId, error)
+        if (error?.code === 'schedule/pending') noteInfo('ds-bot: keeping earlier part %s until schedules attach', sessionId)
+        else rt.warn('ds-bot: input kept in part %s was not handed on: %s', sessionId, error)
       }
     }
   }
@@ -1682,9 +1793,12 @@ export function install(rt) {
   // `cutoff`: the part kept being cut off at the output limit, so it moves on without
   // asking the model for a note at the same size.
   // `engine`: because the Bot now runs on something else (see engineMoved).
-  function startSwitch(agent, { resume = false, carry = [], info, joined, overflow = false, failed, bare = false, folder = false, cutoff = false, engine = false, hard = overflow || folder || engine || cutoff } = {}) {
+  // `idle`: initiated after a turn ended (after async checks like decide/canMakeRoom);
+  // bail out atomically if a new turn started meanwhile so running work is never killed.
+  function startSwitch(agent, { idle = false, resume = false, carry = [], info, joined, overflow = false, failed, bare = false, folder = false, cutoff = false, engine = false, hard = overflow || folder || engine || cutoff } = {}) {
     const place = placeOf(agent.id)
-    if (place === undefined || switches.has(agent.id) || readOnly()) return
+    if (place === undefined || switches.has(agent.id) || readOnly()) return false
+    if (idle && !isAgentIdle(agent)) return false
     const resumeOrigin = resume || place.botId === undefined ? rt.holdImOrigin?.(agent.id) : undefined
     const job = { ...place, carry: [...carry], info, joined, resume, resumeOrigin, overflow, failed, bare, folder, engine, hard, cutoff, since: Date.now() }
     switches.set(agent.id, job)
@@ -1692,6 +1806,7 @@ export function install(rt) {
       .catch(error => {
         const name = rt.botOf(job.botId)?.name ?? rt.roomOf(job.roomId)?.name ?? agent.id
         if (unloaded(error)) return noteInfo('ds-bot: plugin unloaded while %s switched parts; input kept in part %s', name, agent.id)
+        if (error?.code === 'schedule/pending') return noteInfo('ds-bot: %s moved on to a fresh part; retiring part %s once schedules attach', name, agent.id)
         rt.warn('ds-bot: %s did not move on to a fresh part: %s', name, error)
       })
       .finally(async () => {
@@ -1706,6 +1821,9 @@ export function install(rt) {
           noteFailures.delete(agent.id)
           folderRetry.delete(agent.id)
           engineRetry.delete(agent.id)
+          if (job.schedulePending === true && rt.schedulesPending?.() !== true) {
+            void heldBack().catch(error => rt.warn('ds-bot: handing on input kept in earlier parts failed: %s', error))
+          }
           // The folder may have changed again while the switch ran.
           void followFolder(job)
           if (job.roomId !== undefined) void rt.settleRoomReports?.(job.roomId).catch(error => rt.warn('ds-bot: settling reports after part switch failed: %s', error))
@@ -1718,7 +1836,7 @@ export function install(rt) {
         // input this part kept, so it is added once.
         const back = job.carry.splice(0)
         const noted = [...agent.inbox.nextStep, ...agent.inbox.nextTurn].some(message => textOf(message.content) === PAUSE_NOTE)
-        if (resume && !back.some(message => textOf(message.content) === PAUSE_NOTE) && !noted) {
+        if (job.resume && !back.some(message => textOf(message.content) === PAUSE_NOTE) && !noted) {
           const carried = job.joined?.length ? { joined: job.joined } : {}
           back.unshift(createUserMessage({
             content: [{ type: 'text', text: PAUSE_NOTE }],
@@ -1772,6 +1890,7 @@ export function install(rt) {
       } catch (error) {
         // Keep the restart marker: stopping this part would delete unmoved tasks.
         job.kept = true
+        if (error?.code === 'schedule/pending') job.schedulePending = true
         throw error
       }
       await ctx.workspaceRegistry.archiveSession(agent.id, { stopActivity: true })
@@ -1931,8 +2050,11 @@ export function install(rt) {
         // A restart pass must find this thread's new part, not the foreground chat.
         if (state.switching[agent.id] !== undefined) state.switching[agent.id].next = successor
       }
+    }
+    if (bot !== undefined) {
       // The card's call stays in the old part: the fresh part raises it in the
-      // composer dock while pending, and closing it records at the part that asked it.
+      // composer dock (and IM routing for group members) while pending, and closing it
+      // records at the part that asked it.
       if (state.questions[agent.id] !== undefined) {
         const pending = state.questions[agent.id]
         state.questions[freshId] = pending.callId && !pending.callSessionId ? { ...pending, callSessionId: agent.id } : pending
@@ -1993,17 +2115,39 @@ export function install(rt) {
       carried.recent.length, carried.earlier.length, folder === undefined ? '' : `; now works in ${folder}`)
   }
 
-  // Ends a step DS Bot takes over. Before a turn's first step an empty batch ends the
-  // turn as completed, where a reject ends it as blocked, which other listeners read as
-  // a failure. Later in a turn an empty batch would run another model step, and a turn
-  // carried through a steer cut keeps its reject, since a completed turn reads as answered.
-  const takeOverStep = (agent, payload) => (payload.step === 1 && rt.live.get(agent.id)?.carried !== true
-    ? { kind: 'enter', messages: [] }
-    : { kind: 'reject' })
+  // Ends a step DS Bot takes over. Marks the live turn as switched so turns.js never
+  // settles a hijacked turn as a real user/group/Bot completion. Before a turn's first
+  // step an empty batch ends the turn as completed, where a reject ends it as blocked,
+  // which other listeners read as a failure. Later in a turn an empty batch would run
+  // another model step, and a turn carried through a steer cut keeps its reject, since
+  // a completed turn reads as answered.
+  const takeOverStep = (agent, payload) => {
+    const entry = rt.live?.get(agent.id)
+    if (entry !== undefined) entry.switched = true
+    return payload.step === 1 && entry?.carried !== true
+      ? { kind: 'enter', messages: [] }
+      : { kind: 'reject' }
+  }
+
+  // Hands a step's claimed messages to an already-running switch job. If a turn was
+  // already past step 1 (or carried through a steer cut), promote the switch to resume
+  // with the turn's routing state so in-flight work is never dropped behind HANDOFF_ACK.
+  const joinSwitch = (agent, job, payload) => {
+    job.carry.push(...payload.messages)
+    const entry = rt.live?.get(agent.id)
+    if (payload.step > 1 || entry?.carried === true) {
+      job.resume = true
+      if (job.info === undefined && entry?.info !== undefined) job.info = entry.info
+      if ((job.joined === undefined || job.joined.length === 0) && entry?.joined?.length) job.joined = [...entry.joined]
+      if (job.resumeOrigin === undefined) job.resumeOrigin = rt.holdImOrigin?.(agent.id)
+    }
+    return takeOverStep(agent, payload)
+  }
 
   // Runs first: an earlier part hands its input on, a part past the hard line makes
-  // room before the step (condensed in place, or it stops and goes on in a fresh
-  // part), and the backend's own pre-step listener sees the wrapper.
+  // room before the step (pruning oversized tool outputs first, then condensing in
+  // place or moving on to a fresh part), and the backend's own pre-step listener sees
+  // the wrapper.
   ctx.on('agent/pre-step', async (payload, next) => {
     await rt.load()
     const { agent } = payload
@@ -2027,10 +2171,7 @@ export function install(rt) {
     if (place === undefined) return next()
     adoptCompaction(agent)
     const job = switches.get(agent.id)
-    if (job !== undefined) {
-      job.carry.push(...payload.messages)
-      return takeOverStep(agent, payload)
-    }
+    if (job !== undefined) return joinSwitch(agent, job, payload)
     const fresh = freshParts.get(agent.id)
     if (fresh !== undefined) {
       freshParts.delete(agent.id)
@@ -2049,19 +2190,26 @@ export function install(rt) {
     const tokens = tokensOf(agent.session)
     if (fresh === undefined && tokens !== undefined && tokens > 0) lowerPartBase(agent.id, tokens)
     if (lines === undefined || tokens === undefined || tokens < lines.hard || !grown(agent.id, tokens, lines) || readOnly()) return next()
-    if (await decide(agent, { midTurn: payload.step > 1 }) === 'compact' && await condense(agent, lines, { inTurn: true, signal: payload.signal })) return next()
+    const pruned = await pruneToolResults(agent, { inTurn: true })
+    if (pruned.pruned > 0) {
+      const afterPrune = tokensOf(agent.session)
+      if (afterPrune !== undefined && afterPrune < lines.hard) {
+        if (afterPrune < lines.check) partBase.set(agent.id, afterPrune)
+        else lowerPartBase(agent.id, afterPrune)
+        return next()
+      }
+    }
+    const outcome = { overflow: false }
+    if (await decide(agent, { midTurn: payload.step > 1 }) === 'compact' && await condense(agent, lines, { inTurn: true, signal: payload.signal, outcome })) return next()
     if (!await canMakeRoom(agent, payload.messages)) return next()
-    return switchBeforeStep(agent, payload, { hard: true })
+    return switchBeforeStep(agent, payload, { hard: true, ...(outcome.overflow ? { overflow: true } : {}) })
   }, { prepend: true })
 
   // `messages` left the inbox for this step, so the switch carries them along.
   function switchBeforeStep(agent, payload, options) {
     // A switch may have started while the checks above awaited.
     const running = switches.get(agent.id)
-    if (running !== undefined) {
-      running.carry.push(...payload.messages)
-      return takeOverStep(agent, payload)
-    }
+    if (running !== undefined) return joinSwitch(agent, running, payload)
     const entry = rt.liveOf(agent.id)
     // A turn carried through a steer cut keeps its trigger and joined work, so
     // its first step is already the middle of a turn for the folder check.
@@ -2111,10 +2259,21 @@ export function install(rt) {
     const current = folders.get(agent.session)
     if (current === undefined) return next()
     await rt.load()
-    // A group's own Session only relays, so it stays in the team workspace. It has no
-    // fresh part to move to, so a stale or gone folder is corrected in place; without
-    // this every round failed with 'directory does not exist' (#710).
-    if (rt.roomOf(agent.id) !== undefined) {
+    // A group's own Session keeps its configured group folder (`room.workDir`) when
+    // present and falls back to the team workspace only when no group folder is set
+    // or the group folder is missing on disk (#710).
+    const room = rt.roomOf(agent.id)
+    if (room !== undefined) {
+      const wanted = rt.workDirOf({ roomId: room.id })
+      if (wanted !== undefined) {
+        if (await rt.isFolder(wanted)) {
+          if (current === wanted || await rt.isFolder(current)) return next()
+          await folders.set(agent, wanted, context.signal)
+            .catch(error => rt.warn('ds-bot: the group chat works in %s and could not change to %s: %s', current, wanted, error))
+          return next()
+        }
+        await rt.roomFolderNotice?.(room.id, wanted)
+      }
       if (current === rt.teamFolder() && await rt.isFolder(current)) return next()
       const team = await rt.keepTeamFolder()
       if (team === undefined) return next()
@@ -2160,7 +2319,7 @@ export function install(rt) {
       if (sessionId === undefined || switches.has(sessionId) || readOnly()) continue
       try {
         const agent = await rt.resolveAgent(sessionId)
-        if (agent.status === 'idle' && await folderMove(agent) !== undefined) startSwitch(agent, { folder: true })
+        if (isAgentIdle(agent) && await folderMove(agent) !== undefined) startSwitch(agent, { folder: true, idle: true })
       } catch (error) {
         rt.warn('ds-bot: %s did not move to its working folder: %s', name, error)
       }
@@ -2175,7 +2334,7 @@ export function install(rt) {
       engineRetry.delete(sessionId)
       try {
         const agent = await rt.resolveAgent(sessionId)
-        if (agent.status === 'idle' && engineMoved(agent, placeOf(sessionId))) startSwitch(agent, { engine: true })
+        if (isAgentIdle(agent) && engineMoved(agent, placeOf(sessionId))) startSwitch(agent, { engine: true, idle: true })
       } catch (error) {
         rt.warn('ds-bot: %s did not follow its run mode in %s: %s', rt.botOf(botId)?.name ?? botId, sessionId, error)
       }
@@ -2235,9 +2394,8 @@ export function install(rt) {
     // has, so the same size is not sent again. The part moves on the way an overflow
     // moves it, without a note at that size.
     if ((cutOffs.get(agent.id) ?? 0) >= 2) {
-      if (await canMakeRoom(agent)) {
+      if (await canMakeRoom(agent) && startSwitch(agent, { cutoff: true, idle: true }) !== false) {
         cutOffs.delete(agent.id)
-        startSwitch(agent, { cutoff: true })
       }
       return
     }
@@ -2249,13 +2407,24 @@ export function install(rt) {
     if (!hard && Date.now() < (noteFailures.get(agent.id)?.until ?? 0)) return
     checking.add(agent.id)
     try {
+      const pruned = await pruneToolResults(agent, { inTurn: false })
+      if (pruned.busy === true) return
+      if (pruned.pruned > 0) {
+        const afterPrune = tokensOf(agent.session)
+        if (afterPrune !== undefined && afterPrune < lines.check) {
+          partBase.set(agent.id, afterPrune)
+          return
+        }
+      }
+      if (!isAgentIdle(agent)) return
+      const outcome = { overflow: false }
       if (await decide(agent, { midTurn: false }) === 'compact') {
-        const condensed = await condense(agent, lines, { inTurn: false })
+        const condensed = await condense(agent, lines, { inTurn: false, outcome })
         if (condensed !== false) return
       }
-      if (switches.has(agent.id)) return
+      if (switches.has(agent.id) || !isAgentIdle(agent)) return
       if (!await canMakeRoom(agent)) return
-      startSwitch(agent, { hard: (tokensOf(agent.session) ?? tokens) >= lines.hard })
+      startSwitch(agent, { hard: (tokensOf(agent.session) ?? tokens) >= lines.hard || outcome.overflow, ...(outcome.overflow ? { overflow: true } : {}), idle: true })
     } finally {
       checking.delete(agent.id)
     }
@@ -2276,11 +2445,13 @@ export function install(rt) {
     // Condensed past the check line and still there: a checkpoint that did not make
     // room, so the part moves on.
     if (condensedUnmeasured.has(agent.id) && tokens !== undefined) {
-      condensedUnmeasured.delete(agent.id)
       if (tokens >= lines.check) {
-        if (await canMakeRoom(agent)) startSwitch(agent, { hard: tokens >= lines.hard })
+        if (await canMakeRoom(agent) && startSwitch(agent, { hard: tokens >= lines.hard, idle: true }) !== false) {
+          condensedUnmeasured.delete(agent.id)
+        }
         return
       }
+      condensedUnmeasured.delete(agent.id)
     }
     const past = tokens !== undefined && tokens >= lines.check && grown(agent.id, tokens, lines)
     if (!past && !condensed) return
@@ -2294,8 +2465,8 @@ export function install(rt) {
         }
         if (await condense(agent, lines, { inTurn: false }) !== false) return
       }
-      if (switches.has(agent.id) || !await canMakeRoom(agent)) return
-      startSwitch(agent, { hard: (sizeOf(agent.session) ?? tokens ?? 0) >= lines.hard })
+      if (switches.has(agent.id) || !isAgentIdle(agent) || !await canMakeRoom(agent)) return
+      startSwitch(agent, { hard: (sizeOf(agent.session) ?? tokens ?? 0) >= lines.hard, idle: true })
     } finally {
       checking.delete(agent.id)
     }
@@ -2352,7 +2523,7 @@ export function install(rt) {
     if (options.sessionId === undefined || options.purpose !== undefined || rt.ownRequest(options)) return next()
     const messages = options.messages ?? []
     const since = messages.findLastIndex(message => message.role === 'assistant' || message.role === 'tool') + 1
-    const opened = messages.slice(since).filter(message => message.role === 'user' && (message.source?.kind === 'user' || message.source?.kind === SOURCE_KIND))
+    const opened = messages.slice(since).filter(message => message.role === 'user' && isWakingSource(message.source))
     const bare = opened.length > 0 && opened.every(message => message.source.kind === SOURCE_KIND && message.source.handoff === true && message.source.resume !== true)
     if (!bare) return next()
     return (async function* acknowledge() {
