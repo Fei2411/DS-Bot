@@ -258,6 +258,33 @@ test('a stopped running task can be pruned after its cancelled turn ends', async
   assert.deepEqual(env.archivedSessions.map(({ sid }) => sid), [task.sessionId])
 })
 
+test('pruning a task moved from the first Bot chat archives the old Session, not the new chat', async (t) => {
+  const team = makeTeam()
+  delete team.bots.a.sessionId
+  const env = await startEnv({ team })
+  t.after(env.stop)
+  const bot = env.rt.botOf('a')
+  const firstChat = env.rt.chatOf(bot.id)
+  assert.equal(firstChat, bot.id)
+  const agent = env.agentMap.get(firstChat)
+  agent.status = 'running'
+  await env.emit(firstChat, 'turn/start', { turn: 1 })
+  const newChat = await env.rt.handoffForeground(bot, firstChat)
+  const [task] = bot.tasks
+  assert.equal(task.sessionId, firstChat)
+  assert.notEqual(newChat, firstChat)
+  bot.tasks.push(...settledTasks(50))
+
+  assert.equal((await env.callApi('bot-stop-task', { botId: bot.id, taskId: task.id })).ok, true)
+  await env.emit(firstChat, 'turn/end', { turn: 1, reason: { kind: 'aborted', reason: agent.cancelled[0] } })
+  agent.status = 'idle'
+  env.ctx.emit('agent/status', { agent, status: 'idle' })
+  await waitFor(() => bot.tasks.length === 50 && (env.rt.state.retiredTasks ?? []).length === 0)
+  assert.equal(bot.tasks.length, 50)
+  assert.equal(env.rt.chatOf(bot.id), newChat)
+  assert.deepEqual(env.archivedSessions.map(({ sid }) => sid), [firstChat])
+})
+
 test('unfinished work keeps a task readable and the retirement record retries only unfinished parts', async (t) => {
   const team = makeTeam()
   team.bots.a.tasks = settledTasks(51)

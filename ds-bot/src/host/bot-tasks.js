@@ -386,7 +386,7 @@ export function install(rt) {
       || (rt.runningJobs?.(id)?.length ?? 0) > 0
   }
 
-  const hasSessionOwner = id => rt.botOf(id) !== undefined || rt.agentOf(id) !== undefined
+  const hasSessionOwner = id => rt.agentOf(id) !== undefined
     || rt.chatOwners.has(id) || rt.pastOwners.has(id) || rt.groupOwners.has(id) || rt.roomOwners.has(id)
   const isInherited = id => Object.values(state.bots).some(bot => tasksOf(bot).some(task =>
       task.from === id || task.inheritedSegments?.some(segment => segment.sessionId === id)))
