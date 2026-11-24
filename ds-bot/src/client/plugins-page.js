@@ -1,19 +1,21 @@
-// Settings → Plugins: unified Bot plugin panel (Installed / Discover / Add custom).
-// Displays exclusive team slots (starting with replaceable browser plugins), general
-// plugins with per-Bot switches, remote plugin registries, and manual DSH/MCP installation.
+// Settings → Plugins: unified Bot plugin catalog & manager.
+// Browser control gets its own live viewport stage + hot-swappable engine deck;
+// general plugins use additive switches. Every plugin uses a custom multi-color
+// mark that sits in refined grayscale when inactive and blooms into full brand
+// color with a light sweep (matching Connectors) when activated or enabled.
 import { createElement as h, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Switch } from './bot-settings.js'
 import { writeClipboard } from './dsh-primitives.js'
 import { BotAvatar } from './mark.js'
-import { CheckIcon, CopyIcon, GlobeIcon, PlugIcon, PlusIcon, PuzzleIcon, SearchIcon, TrashIcon } from './icons.js'
+import { ExtensionsClusterMark, PluginMark, browserMetaFor } from './plugin-marks.js'
+import {
+  CheckIcon, ChevronLeftIcon, ChevronRightIcon, CopyIcon,
+  PlusIcon, SearchIcon, SpinnerIcon, TrashIcon,
+} from './icons.js'
 import { Segmented } from './motion.js'
 import { hostText, language, t } from './i18n.js'
 
-const TABS = [
-  ['installed', 'Installed'],
-  ['discover', 'Discover'],
-  ['add', 'Add plugin'],
-]
+const PREVIEW_COUNT = 6
 
 const CATEGORIES = [
   ['all', 'All'],
@@ -116,174 +118,315 @@ function parseKeyValueLines(text) {
   return out
 }
 
-function PluginIcon({ plugin }) {
-  const Icon = plugin.slot === 'browser' || plugin.category === 'browser'
-    ? GlobeIcon
-    : plugin.kind === 'mcp' ? PlugIcon : PuzzleIcon
-  return h('span', { className: 'bt-plg-icon', 'data-active': plugin.active || plugin.enabled ? '' : undefined, 'aria-hidden': true }, h(Icon))
+// Plays one sweep + icon pop when a plugin transitions from inactive → active,
+// matching Connectors' useJustConnected. Plugins that load already active stay still.
+function useJustActivated(active) {
+  const last = useRef(active)
+  const [fresh, setFresh] = useState(false)
+  useEffect(() => {
+    const was = last.current
+    last.current = active
+    if (!active) {
+      setFresh(false)
+      return undefined
+    }
+    if (was) return undefined
+    setFresh(true)
+    const timer = setTimeout(() => setFresh(false), 1100)
+    if (typeof timer === 'object' && timer?.unref) timer.unref()
+    return () => clearTimeout(timer)
+  }, [active])
+  return fresh
 }
 
-function PluginCard({ plugin, bots, managerAvailable, busyId, readOnly, onActivateSlot, onInstall, onToggle, onUpdate, onRemove, onBotToggle, onCopy }) {
-  const [expanded, setExpanded] = useState(false)
-  const [confirmRemove, setConfirmRemove] = useState(false)
+// Plays one cross-color sweep on the Browser Control Stage when the active engine changes.
+function useJustSwitched(key) {
+  const last = useRef(key)
+  const [fresh, setFresh] = useState(false)
+  useEffect(() => {
+    const was = last.current
+    last.current = key
+    if (!key) {
+      setFresh(false)
+      return undefined
+    }
+    if (!was || was === key) return undefined
+    setFresh(true)
+    const timer = setTimeout(() => setFresh(false), 1100)
+    if (typeof timer === 'object' && timer?.unref) timer.unref()
+    return () => clearTimeout(timer)
+  }, [key])
+  return fresh
+}
+
+function PluginIcon({ plugin, size = 36 }) {
+  return h('span', {
+    className: 'bt-plg-icon',
+    style: size === 36 ? undefined : { width: size, height: size },
+    'aria-hidden': true,
+  }, h(PluginMark, { plugin }))
+}
+
+function BrowserStage({ plugin, slotStatus, onOpen }) {
+  const fresh = useJustSwitched(plugin?.id ?? '')
+  if (!plugin) return null
   const name = localizedField(plugin, 'name') || plugin.name || plugin.id
   const desc = localizedField(plugin, 'description') || plugin.description || ''
+  const meta = browserMetaFor(plugin)
+  const statusTone = slotStatus === 'error' || slotStatus === 'unavailable' || plugin.error
+    ? 'error'
+    : slotStatus === 'restart-required' || plugin.status === 'restart-required'
+      ? 'warn'
+      : 'ready'
+  const statusLabel = statusTone === 'error'
+    ? t('Unavailable')
+    : statusTone === 'warn'
+      ? t('Restart required')
+      : t('In use')
+
+  return h('div', {
+    className: 'bt-plg-stage',
+    'data-tone': statusTone,
+    'data-fresh': fresh ? '' : undefined,
+  },
+  h('div', { className: 'bt-plg-stage-bar' },
+    h('span', { className: 'bt-plg-stage-dots', 'aria-hidden': true },
+      h('i', null), h('i', null), h('i', null)),
+    h('span', { className: 'bt-plg-stage-url', title: meta.url }, meta.url),
+    h('span', { className: 'bt-plg-stage-status' },
+      h('span', { className: 'bt-plg-stage-dot', 'aria-hidden': true }),
+      statusLabel)),
+  h('div', { className: 'bt-plg-stage-body' },
+    h('button', {
+      type: 'button',
+      className: 'bt-plg-stage-main',
+      onClick: () => onOpen(plugin.id),
+    },
+    h(PluginIcon, { plugin, size: 44 }),
+    h('div', { className: 'bt-plg-stage-copy' },
+      h('span', { className: 'bt-plg-stage-name' }, name),
+      desc ? h('span', { className: 'bt-plg-stage-desc' }, desc) : null,
+      meta.traits.length > 0 ? h('span', { className: 'bt-plg-stage-traits' },
+        meta.traits.map(tr => t(tr)).join(' · ')) : null)),
+    h('button', {
+      type: 'button',
+      className: 'bt-plg-stage-btn',
+      onClick: () => onOpen(plugin.id),
+    }, t('Details'), h(ChevronRightIcon))))
+}
+
+function RefreshGlyph({ spinning }) {
+  if (spinning) return h(SpinnerIcon)
+  return h('svg', { width: 15, height: 15, viewBox: '0 0 20 20', fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true },
+    h('path', { d: 'M16 10a6 6 0 1 1-1.76-4.24L16 7.5' }),
+    h('path', { d: 'M16 3.5v4h-4' }))
+}
+
+function Subview({ title, onBack, end = null, children }) {
+  return h('div', { className: 'bt-plg-subview' },
+    h('div', { className: 'bt-plg-sub-head' },
+      h('button', { type: 'button', className: 'bt-icon-btn', 'aria-label': t('Back'), onClick: onBack }, h(ChevronLeftIcon)),
+      h('h3', null, title),
+      end ? h('div', { className: 'bt-plg-sub-end' }, end) : null),
+    children)
+}
+
+function PluginAction({ plugin, managerAvailable, busyId, readOnly, onActivateSlot, onInstall, onToggle, onCopy }) {
+  const name = localizedField(plugin, 'name') || plugin.name || plugin.id
   const isBusy = busyId === plugin.id
   const disabled = readOnly || busyId !== null
   const isSlot = Boolean(plugin.slot)
+
+  if (isSlot) {
+    if (plugin.active && plugin.desired !== false) {
+      return h('span', { className: 'bt-plg-btn bt-plg-btn-done' }, h(CheckIcon), t('In use'))
+    }
+    if (plugin.installed || plugin.kind === 'mcp') {
+      return h('button', {
+        type: 'button',
+        className: 'bt-plg-btn',
+        disabled,
+        onClick: () => onActivateSlot(plugin.slot, plugin.id),
+      }, isBusy ? t('Switching…') : t('Use'))
+    }
+    if (!managerAvailable && plugin.kind === 'dsh') {
+      const cmd = installCommandFor(plugin)
+      if (!cmd) return null
+      return h('button', {
+        type: 'button',
+        className: 'bt-plg-btn',
+        onClick: () => onCopy(cmd),
+      }, h(CopyIcon), t('Copy install command'))
+    }
+    return h('button', {
+      type: 'button',
+      className: 'bt-plg-btn',
+      disabled,
+      onClick: () => onInstall(plugin),
+    }, isBusy ? t('Installing…') : t('Install'))
+  }
+
+  if (!plugin.installed && plugin.kind === 'dsh') {
+    if (!managerAvailable) {
+      const cmd = installCommandFor(plugin)
+      if (!cmd) return null
+      return h('button', {
+        type: 'button',
+        className: 'bt-plg-btn',
+        onClick: () => onCopy(cmd),
+      }, h(CopyIcon), t('Copy install command'))
+    }
+    return h('button', {
+      type: 'button',
+      className: 'bt-plg-btn',
+      disabled,
+      onClick: () => onInstall(plugin),
+    }, isBusy ? t('Installing…') : t('Install'))
+  }
+
+  if (!plugin.installed && plugin.kind === 'mcp') {
+    return h('button', {
+      type: 'button',
+      className: 'bt-plg-btn',
+      disabled,
+      onClick: () => onInstall(plugin),
+    }, isBusy ? t('Enabling…') : t('Add'))
+  }
+
+  return h(Switch, {
+    on: plugin.kind === 'mcp' ? (plugin.desired ?? plugin.enabled) : plugin.enabled,
+    label: name,
+    disabled,
+    onChange: next => onToggle(plugin.id, next),
+  })
+}
+
+function PluginTile({ plugin, managerAvailable, busyId, readOnly, onOpen, onActivateSlot, onInstall, onToggle, onCopy }) {
+  const name = localizedField(plugin, 'name') || plugin.name || plugin.id
+  const desc = localizedField(plugin, 'description') || plugin.description || ''
+  const isActive = Boolean(plugin.slot ? (plugin.active && plugin.desired !== false) : (plugin.installed && plugin.enabled))
+  const fresh = useJustActivated(isActive)
+  const subtitle = plugin.error
+    ? hostText(plugin.error)
+    : plugin.status === 'restart-required'
+      ? t('Restart required')
+      : desc
+  const tone = plugin.status === 'error' || plugin.error
+    ? 'error'
+    : plugin.status === 'restart-required' ? 'warn' : undefined
+
+  return h('div', {
+    className: 'bt-plg-tile',
+    'data-active': isActive ? '' : undefined,
+    'data-fresh': fresh ? '' : undefined,
+    'data-error': tone === 'error' ? '' : undefined,
+    'data-warn': tone === 'warn' ? '' : undefined,
+  },
+  h('button', {
+    type: 'button',
+    className: 'bt-plg-main',
+    onClick: () => onOpen(plugin.id),
+  },
+  h(PluginIcon, { plugin }),
+  h('span', { className: 'bt-plg-text' },
+    h('span', { className: 'bt-plg-name' },
+      name,
+      plugin.custom ? h('span', { className: 'bt-tag' }, t('Added')) : null),
+    subtitle ? h('span', { className: 'bt-plg-sub' }, subtitle) : null)),
+  h(PluginAction, { plugin, managerAvailable, busyId, readOnly, onActivateSlot, onInstall, onToggle, onCopy }))
+}
+
+function PluginDetailView({ plugin, bots, managerAvailable, busyId, readOnly, onBack, onActivateSlot, onInstall, onToggle, onUpdate, onRemove, onBotToggle, onCopy, Section, Row }) {
+  const [confirmRemove, setConfirmRemove] = useState(false)
+  const name = localizedField(plugin, 'name') || plugin.name || plugin.id
+  const desc = localizedField(plugin, 'description') || plugin.description || ''
+  const disabled = readOnly || busyId !== null
   const offSet = useMemo(() => new Set(plugin.offFor ?? []), [plugin.offFor])
   const homepageUrl = safeExternalUrl(plugin.homepage)
   const repoUrl = safeExternalUrl(plugin.repository)
 
-  const toggleExpand = () => {
-    setExpanded((open) => {
-      if (open) setConfirmRemove(false)
-      return !open
-    })
-  }
+  const metaParts = [
+    pluginKindLabel(plugin.kind),
+    plugin.version ? `v${plugin.version}` : null,
+    plugin.verified ? t('Verified') : null,
+    plugin.author || null,
+  ].filter(Boolean).join(' · ')
 
-  const statusTag = () => {
-    if (plugin.status === 'restart-required') return h('span', { className: 'bt-chip bt-plg-chip-warn' }, t('Restart required'))
-    if (plugin.status === 'error') return h('span', { className: 'bt-chip bt-plg-chip-err' }, t('Error'))
-    return null
-  }
+  const hasDetailRows = Boolean(
+    plugin.packageName
+    || (plugin.installSpec && plugin.installSpec !== plugin.packageName)
+    || plugin.mcp?.url
+    || plugin.mcp?.command
+    || plugin.toolPrefixes?.length
+    || homepageUrl
+    || repoUrl
+    || (plugin.updatable && plugin.installed)
+    || plugin.removable,
+  )
 
-  const primaryAction = () => {
-    if (isSlot) {
-      if (plugin.active && plugin.desired !== false) {
-        return h('span', { className: 'bt-plg-active-pill' }, h(CheckIcon), t('Active'))
-      }
-      if (plugin.installed || plugin.kind === 'mcp') {
-        return h('button', {
-          type: 'button',
-          className: 'bt-soft bt-soft-sm',
-          disabled,
-          onClick: () => onActivateSlot(plugin.slot, plugin.id),
-        }, isBusy ? t('Switching…') : t('Use'))
-      }
-      if (!managerAvailable && plugin.kind === 'dsh') {
-        const cmd = installCommandFor(plugin)
-        if (!cmd) return null
-        return h('button', {
-          type: 'button',
-          className: 'bt-soft bt-soft-sm bt-with-icon',
-          onClick: () => onCopy(cmd),
-        }, h(CopyIcon), t('Copy install command'))
-      }
-      return h('button', {
-        type: 'button',
-        className: 'bt-soft bt-soft-sm',
-        disabled,
-        onClick: () => onInstall(plugin),
-      }, isBusy ? t('Installing…') : t('Install'))
-    }
+  const isActive = Boolean(plugin.slot ? (plugin.active && plugin.desired !== false) : (plugin.installed && plugin.enabled))
 
-    if (!plugin.installed && plugin.kind === 'dsh') {
-      if (!managerAvailable) {
-        const cmd = installCommandFor(plugin)
-        if (!cmd) return null
-        return h('button', {
-          type: 'button',
-          className: 'bt-soft bt-soft-sm bt-with-icon',
-          onClick: () => onCopy(cmd),
-        }, h(CopyIcon), t('Copy install command'))
-      }
-      return h('button', {
-        type: 'button',
-        className: 'bt-soft bt-soft-sm',
-        disabled,
-        onClick: () => onInstall(plugin),
-      }, isBusy ? t('Installing…') : t('Install'))
-    }
-
-    if (!plugin.installed && plugin.kind === 'mcp') {
-      return h('button', {
-        type: 'button',
-        className: 'bt-soft bt-soft-sm',
-        disabled,
-        onClick: () => onInstall(plugin),
-      }, isBusy ? t('Enabling…') : t('Add'))
-    }
-
-    return h(Switch, {
-      on: plugin.kind === 'mcp' ? (plugin.desired ?? plugin.enabled) : plugin.enabled,
-      label: name,
-      disabled,
-      onChange: next => onToggle(plugin.id, next),
-    })
-  }
-
-  return h('div', {
-    className: 'bt-plg-card',
-    'data-active': plugin.active ? '' : undefined,
-    'data-error': plugin.status === 'error' ? '' : undefined,
-  },
-  h('div', { className: 'bt-plg-card-main' },
-    h('button', {
-      type: 'button',
-      className: 'bt-plg-card-body',
-      'aria-expanded': expanded,
-      onClick: toggleExpand,
-    },
-    h(PluginIcon, { plugin }),
-    h('div', { className: 'bt-plg-card-copy' },
-      h('div', { className: 'bt-plg-card-head' },
-        h('span', { className: 'bt-plg-card-name' }, name),
-        h('span', { className: 'bt-tag' }, pluginKindLabel(plugin.kind)),
-        plugin.verified ? h('span', { className: 'bt-chip' }, t('Verified')) : null,
-        plugin.version ? h('span', { className: 'bt-plg-ver' }, `v${plugin.version}`) : null,
-        statusTag()),
-      desc ? h('span', { className: 'bt-plg-card-desc' }, desc) : null,
-      plugin.error ? h('span', { className: 'bt-plg-card-err' }, hostText(plugin.error)) : null)),
-    h('div', { className: 'bt-plg-card-actions' }, primaryAction())),
-  expanded ? h('div', { className: 'bt-plg-card-detail' },
-    h('div', { className: 'bt-plg-meta-row' },
-      plugin.packageName ? h('span', { className: 'bt-plg-meta' }, `${t('Package')}: `, h('code', null, plugin.packageName)) : null,
-      plugin.installSpec && plugin.installSpec !== plugin.packageName ? h('span', { className: 'bt-plg-meta' }, `${t('Source')}: `, h('code', null, plugin.installSpec)) : null,
-      plugin.mcp?.url ? h('span', { className: 'bt-plg-meta' }, `${t('URL')}: `, h('code', null, plugin.mcp.url)) : null,
-      plugin.mcp?.command ? h('span', { className: 'bt-plg-meta' }, `${t('Command')}: `, h('code', null, [plugin.mcp.command, ...(plugin.mcp.args ?? [])].join(' '))) : null,
-      plugin.toolPrefixes?.length ? h('span', { className: 'bt-plg-meta' }, `${t('Tools')}: `, h('code', null, plugin.toolPrefixes.join(', '))) : null,
-      homepageUrl ? h('a', { className: 'bt-plg-link', href: homepageUrl, target: '_blank', rel: 'noopener noreferrer' }, t('Homepage')) : null,
-      repoUrl && repoUrl !== homepageUrl ? h('a', { className: 'bt-plg-link', href: repoUrl, target: '_blank', rel: 'noopener noreferrer' }, t('Repository')) : null),
-    plugin.supportsPerBot && plugin.installed && bots.length > 0 ? h('div', { className: 'bt-plg-bots' },
-      h('span', { className: 'bt-plg-bots-label' }, t('Bot access')),
-      h('div', { className: 'bt-plg-bots-list' },
+  return h(Subview, { title: name, onBack },
+    h('div', { className: 'bt-set-card bt-plg-detail-hero' },
+      h('div', { className: 'bt-plg-detail-top', 'data-active': isActive ? '' : undefined },
+        h(PluginIcon, { plugin, size: 44 }),
+        h('div', { className: 'bt-plg-detail-title' },
+          h('span', { className: 'bt-plg-detail-name' }, name),
+          metaParts ? h('span', { className: 'bt-plg-detail-meta' }, metaParts) : null),
+        h(PluginAction, { plugin, managerAvailable, busyId, readOnly, onActivateSlot, onInstall, onToggle, onCopy })),
+      plugin.error ? h('div', { className: 'bt-plg-detail-err', role: 'alert' }, hostText(plugin.error)) : null),
+    desc ? h('p', { className: 'bt-plg-about' }, desc) : null,
+    plugin.supportsPerBot && plugin.installed && bots.length > 0
+      ? h(Section, { title: t('Bot access') },
         bots.map(bot => {
           const on = !offSet.has(bot.id)
-          return h('div', { key: bot.id, className: 'bt-plg-bot-row' },
-            h('span', { className: 'bt-plg-bot-who' }, h(BotAvatar, { bot, size: 22, badge: false, live: false }), h('span', null, bot.name)),
+          return h('div', { key: bot.id, className: 'bt-set-row bt-plg-bot-row' },
+            h('span', { className: 'bt-plg-bot-who' }, h(BotAvatar, { bot, size: 24, badge: false, live: false }), h('span', null, bot.name)),
             h(Switch, {
               on,
               label: `${bot.name} — ${name}`,
               disabled,
               onChange: next => onBotToggle(plugin.id, bot.id, next),
             }))
-        }))) : null,
-    h('div', { className: 'bt-plg-detail-foot' },
-      plugin.updatable && plugin.installed ? h('button', {
-        type: 'button',
-        className: 'bt-soft bt-soft-sm',
-        disabled,
-        onClick: () => onUpdate(plugin.id),
-      }, t('Update')) : null,
-      plugin.removable ? (confirmRemove
-        ? h('span', { className: 'bt-plg-confirm' },
-          h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => setConfirmRemove(false) }, t('Cancel')),
-          h('button', {
-            type: 'button',
-            className: 'bt-soft bt-soft-sm bt-danger-btn',
-            disabled,
-            onClick: () => { setConfirmRemove(false); onRemove(plugin.id) },
-          }, t('Confirm remove')))
-        : h('button', {
-          type: 'button',
-          className: 'bt-soft bt-soft-sm bt-with-icon',
-          disabled,
-          onClick: () => setConfirmRemove(true),
-        }, h(TrashIcon), t('Remove'))) : null)) : null)
+        }))
+      : null,
+    hasDetailRows
+      ? h(Section, { title: t('Details') },
+        plugin.packageName ? h(Row, { label: t('Package') }, h('code', { className: 'bt-plg-code' }, plugin.packageName)) : null,
+        plugin.installSpec && plugin.installSpec !== plugin.packageName ? h(Row, { label: t('Source') }, h('code', { className: 'bt-plg-code' }, plugin.installSpec)) : null,
+        plugin.mcp?.url ? h(Row, { label: t('URL') }, h('code', { className: 'bt-plg-code' }, plugin.mcp.url)) : null,
+        plugin.mcp?.command ? h(Row, { label: t('Command') }, h('code', { className: 'bt-plg-code' }, [plugin.mcp.command, ...(plugin.mcp.args ?? [])].join(' '))) : null,
+        plugin.toolPrefixes?.length ? h(Row, { label: t('Tools') }, h('code', { className: 'bt-plg-code' }, plugin.toolPrefixes.join(', '))) : null,
+        homepageUrl ? h(Row, { label: t('Homepage') }, h('a', { className: 'bt-plg-link', href: homepageUrl, target: '_blank', rel: 'noopener noreferrer' }, homepageUrl)) : null,
+        repoUrl && repoUrl !== homepageUrl ? h(Row, { label: t('Repository') }, h('a', { className: 'bt-plg-link', href: repoUrl, target: '_blank', rel: 'noopener noreferrer' }, repoUrl)) : null,
+        (plugin.updatable && plugin.installed) || plugin.removable
+          ? h('div', { className: 'bt-plg-detail-foot' },
+            plugin.updatable && plugin.installed ? h('button', {
+              type: 'button',
+              className: 'bt-soft bt-soft-sm',
+              disabled,
+              onClick: () => onUpdate(plugin.id),
+            }, t('Update')) : null,
+            plugin.removable ? (confirmRemove
+              ? h('span', { className: 'bt-plg-confirm' },
+                h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => setConfirmRemove(false) }, t('Cancel')),
+                h('button', {
+                  type: 'button',
+                  className: 'bt-soft bt-soft-sm bt-danger-btn',
+                  disabled,
+                  onClick: () => { setConfirmRemove(false); onRemove(plugin.id) },
+                }, t('Confirm remove')))
+              : h('button', {
+                type: 'button',
+                className: 'bt-soft bt-soft-sm bt-with-icon',
+                disabled,
+                onClick: () => setConfirmRemove(true),
+              }, h(TrashIcon), t('Remove'))) : null)
+          : null)
+      : null)
 }
 
-function AddCustomSection({ view, busy, readOnly, onSaveCustom, onInstallDirect, onSaveSource, onRemoveSource, Section, Row }) {
+function AddCustomSection({ view, busy, readOnly, onBack, onSaveCustom, onInstallDirect, onSaveSource, onRemoveSource, Section, Row }) {
   const [kind, setKind] = useState('dsh')
   const [name, setName] = useState('')
   const [slot, setSlot] = useState('')
@@ -310,8 +453,6 @@ function AddCustomSection({ view, busy, readOnly, onSaveCustom, onInstallDirect,
         if (!cleanSpec) { setLocalError(t('Enter a package name, GitHub repository, or local path.')); return }
         const hasMeta = Boolean(name.trim() || slot || prefixes.trim())
         if (view?.managerAvailable) {
-          // Pass custom metadata directly into install so cancelled or failed installs
-          // never leave orphan custom entries behind.
           await onInstallDirect({
             spec: cleanSpec,
             ...(hasMeta ? {
@@ -371,7 +512,7 @@ function AddCustomSection({ view, busy, readOnly, onSaveCustom, onInstallDirect,
     }
   }
 
-  return h('div', { className: 'bt-plg-add' },
+  return h(Subview, { title: t('Add plugin'), onBack },
     localError ? h('div', { className: 'bt-error', role: 'alert' }, localError) : null,
     h(Section, { title: t('Install or add a plugin') },
       h('form', { className: 'bt-plg-form', onSubmit: submitCustom },
@@ -457,13 +598,23 @@ function AddCustomSection({ view, busy, readOnly, onSaveCustom, onInstallDirect,
         h('button', { type: 'submit', className: 'bt-soft bt-soft-sm', disabled: disabled || !sourceUrl.trim() }, t('Add source')))))
 }
 
+function InstalledSummary({ plugins, count, onClick }) {
+  if (count === 0) return null
+  return h('button', { type: 'button', className: 'bt-plg-summary', onClick },
+    h('span', { className: 'bt-plg-stack', 'aria-hidden': true },
+      plugins.slice(0, 3).map(p => h(PluginIcon, { key: p.id, plugin: p, size: 22 }))),
+    t('{count} installed', { count }),
+    h(ChevronRightIcon))
+}
+
 export function PluginsPage({ roster, actions, Section, Row, initialFilter = null, openEnginePlugins = null }) {
   const [view, setView] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [pendingApproval, setPendingApproval] = useState(null)
-  const [tab, setTab] = useState('installed')
+  const [subview, setSubview] = useState(null) // null | 'add' | 'installed' | { plugin: id }
   const [category, setCategory] = useState(initialFilter === 'browser' ? 'browser' : 'all')
+  const [showAllDiscover, setShowAllDiscover] = useState(false)
   const [query, setQuery] = useState('')
   const [busyId, setBusyId] = useState(null)
   const [refreshing, setRefreshing] = useState(false)
@@ -485,7 +636,7 @@ export function PluginsPage({ roster, actions, Section, Row, initialFilter = nul
   useEffect(() => {
     if (initialFilter === 'browser') {
       setCategory('browser')
-      setTab('installed')
+      setSubview(null)
     }
   }, [initialFilter])
 
@@ -577,7 +728,11 @@ export function PluginsPage({ roster, actions, Section, Row, initialFilter = nul
   }
   const handleToggle = (id, enabled) => { void exec(id, actions.pluginsToggle(id, enabled)).catch(() => {}) }
   const handleUpdate = (id) => { void exec(id, actions.pluginsUpdate(id)).catch(() => {}) }
-  const handleRemove = (id) => { void exec(id, actions.pluginsRemove(id)).catch(() => {}) }
+  const handleRemove = (id) => {
+    void exec(id, actions.pluginsRemove(id)).then(() => {
+      if (aliveRef.current && subview?.plugin === id) setSubview(null)
+    }, () => {})
+  }
   const handleBotToggle = (id, botId, enabled) => { void exec(id, actions.pluginsBotToggle(id, botId, enabled)).catch(() => {}) }
   const handleRetry = () => { void exec('retry', actions.pluginsRetry()).catch(() => {}) }
   const handleCopy = (cmd) => {
@@ -600,153 +755,273 @@ export function PluginsPage({ roster, actions, Section, Row, initialFilter = nul
   )
   const catalogErrors = (view?.catalog?.errors ?? []).filter(e => e.sourceId !== 'official' || !view?.catalog?.offline)
 
+  // Only show categories that actually have plugins (plus All and Browser).
+  const availableCategories = useMemo(() => {
+    const present = new Set(['all', 'browser'])
+    for (const p of plugins) {
+      if (p.slot) present.add(p.slot)
+      if (p.category) present.add(p.category)
+    }
+    return CATEGORIES.filter(([id]) => present.has(id))
+  }, [plugins])
+
+  const installedAll = useMemo(
+    () => plugins.filter(p => p.installed || p.active),
+    [plugins],
+  )
+  const activeInstalledIcons = useMemo(
+    () => installedAll.filter(p => p.active || (!p.slot && p.enabled)).concat(installedAll.filter(p => !p.active && (p.slot || !p.enabled))),
+    [installedAll],
+  )
+
   const filtered = useMemo(
     () => plugins.filter(p => pluginMatches(p, query, category)),
     [plugins, query, category],
   )
 
-  const browserPlugins = useMemo(
+  const browserList = useMemo(
     () => filtered.filter(p => p.slot === 'browser'),
     [filtered],
   )
-
-  const installedBrowser = useMemo(
-    () => browserPlugins.filter(p => p.installed || p.kind === 'mcp' || p.active),
-    [browserPlugins],
-  )
-  const discoverBrowser = useMemo(
-    () => browserPlugins.filter(p => !p.builtin),
-    [browserPlugins],
-  )
-
   const generalInstalled = useMemo(
     () => filtered.filter(p => !p.slot && p.installed),
     [filtered],
   )
   const generalDiscover = useMemo(
-    () => filtered.filter(p => !p.slot && !p.builtin),
+    () => filtered.filter(p => !p.slot && !p.installed && !p.builtin),
     [filtered],
   )
 
-  const showBrowserSlot = category === 'all' || category === 'browser'
-  const shownBrowser = tab === 'discover' ? discoverBrowser : installedBrowser
-  const shownGeneral = tab === 'discover' ? generalDiscover : generalInstalled
-
-  const browserSummaryBadge = activeBrowserPlugin
-    ? `${t('Active')}: ${localizedField(activeBrowserPlugin, 'name') || activeBrowserPlugin.name}`
-    : null
-
-  return h('div', { className: 'bt-plugins-page' },
-    h('div', { className: 'bt-plg-bar' },
-      h('div', { className: 'bt-plg-search-wrap' },
-        h(SearchIcon),
-        h('input', {
-          type: 'search',
-          className: 'bt-input bt-plg-search',
-          value: query,
-          placeholder: t('Search plugins'),
-          'aria-label': t('Search plugins'),
-          onChange: e => setQuery(e.target.value),
-        })),
-      h(Segmented, { label: t('Plugins'), value: tab, className: 'bt-plg-tabs' },
-        TABS.map(([id, label]) => h('button', {
-          key: id,
-          type: 'button',
-          'aria-pressed': tab === id,
-          onClick: () => setTab(id),
-        }, t(label)))),
-      h('button', {
-        type: 'button',
-        className: 'bt-soft bt-soft-sm',
-        disabled: refreshing || loading || busyId !== null,
-        onClick: () => void load(true),
-      }, refreshing ? t('Refreshing…') : t('Refresh')),
-      openEnginePlugins ? h('button', {
-        type: 'button',
-        className: 'bt-soft bt-soft-sm',
-        onClick: openEnginePlugins,
-      }, t('Engine plugins')) : null),
-    tab !== 'add' ? h('div', { className: 'bt-plg-cats', role: 'group', 'aria-label': t('Categories') },
-      CATEGORIES.map(([id, label]) => h('button', {
-        key: id,
-        type: 'button',
-        className: 'bt-plg-cat',
-        'aria-pressed': category === id,
-        onClick: () => setCategory(id),
-      }, t(label)))) : null,
-    readOnly ? h('div', { className: 'bt-plg-banner', 'data-tone': 'warn', role: 'status' },
+  const banners = [
+    readOnly ? h('div', { key: 'ro', className: 'bt-plg-banner', 'data-tone': 'warn', role: 'status' },
       h('span', null, hostText(roster.readOnly))) : null,
-    error ? h('div', { className: 'bt-error', role: 'alert' }, error) : null,
-    pendingApproval ? h('div', { className: 'bt-plg-banner', 'data-tone': 'warn', role: 'alert' },
+    error ? h('div', { key: 'err', className: 'bt-error', role: 'alert' }, error) : null,
+    pendingApproval ? h('div', { key: 'approval', className: 'bt-plg-banner', 'data-tone': 'warn', role: 'alert' },
       h('span', null, t('Build scripts require approval for: {packages}', { packages: pendingApproval.packages.join(', ') })),
       h('div', { className: 'bt-plg-banner-actions' },
         h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busyId !== null, onClick: () => setPendingApproval(null) }, t('Cancel')),
         h('button', { type: 'button', className: 'bt-send bt-soft-sm', disabled: readOnly || busyId !== null, onClick: handleApproveBuilds }, t('Approve & install')))) : null,
-    browserSlot?.status === 'error' || browserSlot?.status === 'unavailable' ? h('div', { className: 'bt-plg-banner', 'data-tone': 'error' },
+    browserSlot?.status === 'error' || browserSlot?.status === 'unavailable' ? h('div', { key: 'slot-err', className: 'bt-plg-banner', 'data-tone': 'error' },
       h('span', null, hostText(browserSlot.error || t('Active browser plugin failed to load.'))),
       h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: readOnly || busyId !== null, onClick: handleRetry }, t('Try again'))) : null,
-    hasPendingRestart ? h('div', { className: 'bt-plg-banner', 'data-tone': 'warn' },
+    hasPendingRestart ? h('div', { key: 'restart', className: 'bt-plg-banner', 'data-tone': 'warn' },
       h('span', null, browserSlot?.status === 'restart-required'
         ? t('Restart DS Bot to finish loading the selected browser plugin.')
         : t('Restart DS Bot to finish applying plugin changes.'))) : null,
-    catalogErrors.length > 0 ? h('div', { className: 'bt-plg-banner', 'data-tone': 'warn' },
+    catalogErrors.length > 0 ? h('div', { key: 'cat-err', className: 'bt-plg-banner', 'data-tone': 'warn' },
       h('span', null, t('Catalog sync failed: {details}', { details: catalogErrors.map(e => `${e.sourceId}: ${e.message}`).join('; ') }))) : null,
-    tab === 'add'
-      ? h(AddCustomSection, {
+  ].filter(Boolean)
+
+  // Subview: Plugin detail
+  const detailPlugin = subview?.plugin ? plugins.find(p => p.id === subview.plugin) : null
+  if (detailPlugin) {
+    return h('div', { className: 'bt-plugins-page' },
+      banners,
+      h(PluginDetailView, {
+        key: detailPlugin.id,
+        plugin: detailPlugin,
+        bots,
+        managerAvailable: view?.managerAvailable === true,
+        busyId,
+        readOnly,
+        onBack: () => setSubview(null),
+        onActivateSlot: handleActivateSlot,
+        onInstall: handleInstall,
+        onToggle: handleToggle,
+        onUpdate: handleUpdate,
+        onRemove: handleRemove,
+        onBotToggle: handleBotToggle,
+        onCopy: handleCopy,
+        Section,
+        Row,
+      }))
+  }
+
+  // Subview: Add custom plugin & registries
+  if (subview === 'add') {
+    return h('div', { className: 'bt-plugins-page' },
+      banners,
+      h(AddCustomSection, {
+        key: 'add-custom',
         view,
         busy: busyId !== null,
         readOnly,
+        onBack: () => setSubview(null),
         onSaveCustom: body => exec('custom', actions.pluginsCustomSave(body)),
         onInstallDirect: body => runInstall(body, 'custom'),
         onSaveSource: body => exec('source', actions.pluginsSourceSave(body)),
         onRemoveSource: id => exec('source', actions.pluginsSourceRemove(id)).catch(() => {}),
         Section,
         Row,
-      })
-      : loading && !view
-        ? h('div', { className: 'bt-empty' }, t('Loading…'))
-        : [
-          showBrowserSlot && shownBrowser.length > 0 ? h('section', { key: 'browser-slot', className: 'bt-plg-section' },
+      }))
+  }
+
+  // Subview: Installed plugins summary
+  if (subview === 'installed') {
+    const installedBrowser = installedAll.filter(p => p.slot === 'browser')
+    const installedOther = installedAll.filter(p => !p.slot)
+    return h('div', { className: 'bt-plugins-page' },
+      banners,
+      h(Subview, { title: t('Installed'), onBack: () => setSubview(null) },
+        installedBrowser.length > 0 ? h('section', { className: 'bt-plg-section' },
+          h('div', { className: 'bt-plg-sec-head' },
+            h('h3', null, t('Browser plugins')),
+            activeBrowserPlugin ? h('span', { className: 'bt-plg-sec-meta' }, `${t('In use')}: ${localizedField(activeBrowserPlugin, 'name') || activeBrowserPlugin.name}`) : null),
+          h('div', { className: 'bt-plg-grid' },
+            installedBrowser.map(plugin => h(PluginTile, {
+              key: plugin.id,
+              plugin,
+              managerAvailable: view?.managerAvailable === true,
+              busyId,
+              readOnly,
+              onOpen: id => setSubview({ plugin: id }),
+              onActivateSlot: handleActivateSlot,
+              onInstall: handleInstall,
+              onToggle: handleToggle,
+              onCopy: handleCopy,
+            })))) : null,
+        installedOther.length > 0 ? h('section', { className: 'bt-plg-section' },
+          h('div', { className: 'bt-plg-sec-head' }, h('h3', null, t('Installed plugins'))),
+          h('div', { className: 'bt-plg-grid' },
+            installedOther.map(plugin => h(PluginTile, {
+              key: plugin.id,
+              plugin,
+              managerAvailable: view?.managerAvailable === true,
+              busyId,
+              readOnly,
+              onOpen: id => setSubview({ plugin: id }),
+              onActivateSlot: handleActivateSlot,
+              onInstall: handleInstall,
+              onToggle: handleToggle,
+              onCopy: handleCopy,
+            })))) : null))
+  }
+
+  const showBrowserSection = (category === 'all' || category === 'browser') && browserList.length > 0
+  const searching = query.trim() !== ''
+  const visibleDiscover = searching || category !== 'all' || showAllDiscover
+    ? generalDiscover
+    : generalDiscover.slice(0, PREVIEW_COUNT)
+  const hasMoreDiscover = !searching && category === 'all' && !showAllDiscover && generalDiscover.length > PREVIEW_COUNT
+
+  return h('div', { className: 'bt-plugins-page' },
+    banners,
+    h('div', { className: 'bt-plg-bar' },
+      h('label', { className: 'bt-plg-search' },
+        h(SearchIcon),
+        h('input', {
+          type: 'search',
+          value: query,
+          placeholder: t('Search plugins'),
+          'aria-label': t('Search plugins'),
+          onChange: e => setQuery(e.target.value),
+        })),
+      h('button', {
+        type: 'button',
+        className: 'bt-plg-pill',
+        onClick: () => setSubview('add'),
+      }, h(PlusIcon), t('Add plugin')),
+      h(InstalledSummary, {
+        plugins: activeInstalledIcons,
+        count: installedAll.length,
+        onClick: () => setSubview('installed'),
+      }),
+      h('button', {
+        type: 'button',
+        className: 'bt-plg-refresh',
+        'aria-label': t('Refresh'),
+        title: t('Refresh'),
+        'data-spinning': refreshing ? '' : undefined,
+        disabled: refreshing || loading || busyId !== null,
+        onClick: () => void load(true),
+      }, h(RefreshGlyph, { spinning: refreshing }))),
+    h('div', { className: 'bt-plg-cats-row' },
+      h('div', { className: 'bt-plg-cats', role: 'group', 'aria-label': t('Categories') },
+        availableCategories.map(([id, label]) => h('button', {
+          key: id,
+          type: 'button',
+          'aria-pressed': category === id,
+          onClick: () => { setCategory(id); setShowAllDiscover(false) },
+        }, t(label)))),
+      openEnginePlugins ? h('button', {
+        type: 'button',
+        className: 'bt-plg-engine-link',
+        onClick: openEnginePlugins,
+      }, t('Engine plugins'), h(ChevronRightIcon)) : null),
+    loading && !view
+      ? h('p', { className: 'bt-plg-empty' }, t('Loading…'))
+      : [
+        showBrowserSection ? h('section', { key: 'browser-slot', className: 'bt-plg-section bt-plg-browser-sec' },
+          h('div', { className: 'bt-plg-sec-head' },
+            h('h3', null, t('Browser control'))),
+          !searching && activeBrowserPlugin ? h(BrowserStage, {
+            plugin: activeBrowserPlugin,
+            slotStatus: browserSlot?.status,
+            onOpen: id => setSubview({ plugin: id }),
+          }) : null,
+          h('div', { className: 'bt-plg-grid' },
+            browserList.map(plugin => h(PluginTile, {
+              key: plugin.id,
+              plugin,
+              managerAvailable: view?.managerAvailable === true,
+              busyId,
+              readOnly,
+              onOpen: id => setSubview({ plugin: id }),
+              onActivateSlot: handleActivateSlot,
+              onInstall: handleInstall,
+              onToggle: handleToggle,
+              onCopy: handleCopy,
+            })))) : null,
+        generalInstalled.length > 0 ? h('section', { key: 'installed-general', className: 'bt-plg-section' },
+          h('div', { className: 'bt-plg-sec-head' },
+            h('h3', null, t('Installed plugins'))),
+          h('div', { className: 'bt-plg-grid' },
+            generalInstalled.map(plugin => h(PluginTile, {
+              key: plugin.id,
+              plugin,
+              managerAvailable: view?.managerAvailable === true,
+              busyId,
+              readOnly,
+              onOpen: id => setSubview({ plugin: id }),
+              onActivateSlot: handleActivateSlot,
+              onInstall: handleInstall,
+              onToggle: handleToggle,
+              onCopy: handleCopy,
+            })))) : null,
+        visibleDiscover.length > 0 ? h('section', { key: 'discover', className: 'bt-plg-section' },
+          h('div', { className: 'bt-plg-sec-head' },
+            h('h3', null, t('Discover')),
+            hasMoreDiscover ? h('button', { type: 'button', className: 'bt-plg-all', onClick: () => setShowAllDiscover(true) }, t('See all')) : null),
+          h('div', { className: 'bt-plg-grid' },
+            visibleDiscover.map(plugin => h(PluginTile, {
+              key: plugin.id,
+              plugin,
+              managerAvailable: view?.managerAvailable === true,
+              busyId,
+              readOnly,
+              onOpen: id => setSubview({ plugin: id }),
+              onActivateSlot: handleActivateSlot,
+              onInstall: handleInstall,
+              onToggle: handleToggle,
+              onCopy: handleCopy,
+            })))) : null,
+        !searching && category === 'all' && generalInstalled.length === 0 && visibleDiscover.length === 0
+          ? h('section', { key: 'extensions-invite', className: 'bt-plg-section' },
             h('div', { className: 'bt-plg-sec-head' },
-              h('h3', null, t('Browser plugins')),
-              browserSummaryBadge ? h('span', { className: 'bt-chip bt-plg-chip-ok' }, browserSummaryBadge) : null),
-            h('div', { className: 'bt-plg-grid' },
-              shownBrowser.map(plugin => h(PluginCard, {
-                key: plugin.id,
-                plugin,
-                bots,
-                managerAvailable: view?.managerAvailable === true,
-                busyId,
-                readOnly,
-                onActivateSlot: handleActivateSlot,
-                onInstall: handleInstall,
-                onToggle: handleToggle,
-                onUpdate: handleUpdate,
-                onRemove: handleRemove,
-                onBotToggle: handleBotToggle,
-                onCopy: handleCopy,
-              })))) : null,
-          shownGeneral.length > 0 ? h('section', { key: 'general', className: 'bt-plg-section' },
-            h('div', { className: 'bt-plg-sec-head' },
-              h('h3', null, tab === 'discover' ? t('Available plugins') : t('Installed plugins'))),
-            h('div', { className: 'bt-plg-grid' },
-              shownGeneral.map(plugin => h(PluginCard, {
-                key: plugin.id,
-                plugin,
-                bots,
-                managerAvailable: view?.managerAvailable === true,
-                busyId,
-                readOnly,
-                onActivateSlot: handleActivateSlot,
-                onInstall: handleInstall,
-                onToggle: handleToggle,
-                onUpdate: handleUpdate,
-                onRemove: handleRemove,
-                onBotToggle: handleBotToggle,
-                onCopy: handleCopy,
-              })))) : null,
-          (!showBrowserSlot || shownBrowser.length === 0) && shownGeneral.length === 0
-            ? h('div', { key: 'empty', className: 'bt-empty' }, t('No matching plugins'))
-            : null,
-        ])
+              h('h3', null, t('Other plugins'))),
+            h('div', { className: 'bt-plg-ext-card' },
+              h('span', { className: 'bt-plg-ext-mark', 'aria-hidden': true }, h(ExtensionsClusterMark)),
+              h('div', { className: 'bt-plg-ext-copy' },
+                h('span', { className: 'bt-plg-ext-title' }, t('Extend Bots with more capabilities')),
+                h('span', { className: 'bt-plg-ext-sub' }, t('Add DSH packages, MCP servers, or third-party plugin registries'))),
+              h('button', {
+                type: 'button',
+                className: 'bt-plg-btn',
+                onClick: () => setSubview('add'),
+              }, h(PlusIcon), t('Add plugin'))))
+          : null,
+        !showBrowserSection && generalInstalled.length === 0 && visibleDiscover.length === 0
+          ? h('p', { key: 'empty', className: 'bt-plg-empty' }, t('No matching plugins'))
+          : null,
+      ])
 }

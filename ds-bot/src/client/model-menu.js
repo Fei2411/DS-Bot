@@ -8,8 +8,10 @@ import { SPRING_POP, SPRING_SHAPE, SPRING_TAP, spring, stepMenuFocus, useLinger,
 import { hostText, t } from './i18n.js'
 import { isLocalRoute, modelsFor, routeOf } from './agent-routes.js'
 import { registerPopupOwner } from './popup-ownership.js'
+import { lruGet, lruSet } from './memo.js'
 
 const MENU_EXIT_MS = 120
+const MAX_EFFORT_CACHE = 200
 
 // -------------------------------------------------------------------------
 // A Bot's model: the picker in its details panel and settings, and the message its
@@ -47,17 +49,17 @@ export function modelOf(bot, roster) {
 
 // The thinking levels of one model, `{efforts, defaultEffort?}` or undefined when it
 // has none. The catalog carries them for models Bots use; any other ref asks the host.
-const effortCache = new Map()
+export const effortCache = new Map()
 function useEfforts(served, ref, actions) {
   const [fetched, setFetched] = useState(undefined)
   useEffect(() => {
     setFetched(undefined)
     if (ref === undefined || served?.reasoning !== undefined || actions?.efforts === undefined) return undefined
     let live = true
-    if (effortCache.has(ref)) setFetched(effortCache.get(ref))
+    if (effortCache.has(ref)) setFetched(lruGet(effortCache, ref))
     else void Promise.resolve(actions.efforts(ref)).then((value) => {
       const reasoning = value?.efforts ? value : null
-      effortCache.set(ref, reasoning)
+      lruSet(effortCache, ref, reasoning, MAX_EFFORT_CACHE)
       if (live) setFetched(reasoning)
     }).catch(() => {})
     return () => { live = false }
@@ -340,7 +342,7 @@ export function useAnchoredMenu(minWidth = 240) {
   const button = useRef(null)
   const menu = useRef(null)
   useLayoutEffect(() => registerPopupOwner(button, menu), [button, menu])
-  const tick = useViewport()
+  const tick = useViewport(anchor !== null || Boolean(shownPlace))
   const close = () => { setAnchor(null); setPlace(null) }
   useEffect(() => {
     if (place === null) return undefined

@@ -13,7 +13,9 @@ import { basename, dirname, extname, join } from 'node:path'
 // In Electron's main process node:fs takes every path that ends in .asar for an archive: a real
 // file of that name with other content reads as missing, and a staged one cannot be copied.
 // original-fs sees plain files; it exists only in Electron.
-const { constants, copyFileSync, existsSync, mkdirSync, renameSync, rmSync } = process.getBuiltinModule('original-fs') ?? nodeFs
+const rawFs = process.getBuiltinModule('original-fs') ?? nodeFs
+const { constants, copyFileSync, existsSync, mkdirSync, renameSync, rmSync } = rawFs
+const fsPromises = rawFs.promises
 
 /**
  * @param {{
@@ -28,6 +30,19 @@ const { constants, copyFileSync, existsSync, mkdirSync, renameSync, rmSync } = p
  *   is Electron's app.getPath, asked again for every download.
  */
 export function downloadSaver({ window, ask, staging, getPath, homedir = osHomedir, log = console }) {
+  // Paths reserved by in-flight async moves (both auto-named and picker-chosen) so concurrent downloads never collide.
+  const reserved = new Map()
+  const reserve = (path) => {
+    reserved.set(path, (reserved.get(path) ?? 0) + 1)
+    return path
+  }
+  const release = (path) => {
+    if (path === undefined) return
+    const next = (reserved.get(path) ?? 0) - 1
+    if (next <= 0) reserved.delete(path)
+    else reserved.set(path, next)
+  }
+  const reserveFreePath = (folder, name) => reserve(freePath(folder, name, reserved))
   return (event, item, source) => {
     // The window is asked for at the moment of the download: the app may build a new one.
     const owner = typeof window === 'function' ? window() : window
@@ -56,34 +71,46 @@ export function downloadSaver({ window, ask, staging, getPath, homedir = osHomed
       if (target === null) item.cancel()
       const state = await finished
       if (state !== 'completed' || target === null) {
-        rmSync(holding, { recursive: true, force: true })
+        try { rmSync(holding, { recursive: true, force: true }) } catch { /* best-effort cleanup */ }
         return
       }
-      // A picker that cannot run means the start folder under a free name. The name is
-      // picked only now, in the same breath as the move, so two downloads of one name
-      // cannot take the same path.
-      if (target === undefined && folder !== undefined) target = freePath(folder, name)
+      // A picker that cannot run means the start folder under a free name. Reserve both
+      // auto-named and picker-chosen targets synchronously before any async cross-drive move.
+      let reservedTarget
+      if (target === undefined && folder !== undefined) {
+        target = reserveFreePath(folder, name)
+        reservedTarget = target
+      } else if (typeof target === 'string') {
+        reservedTarget = reserve(target)
+      }
       if (typeof target !== 'string') {
         log.warn(`DS Bot: a finished download has nowhere to go; it stays at ${staged}`)
         return
       }
+      let reservedFallback
       try {
-        move(staged, target)
-      } catch (error) {
-        if (folder === undefined) {
-          log.warn(`DS Bot: a download could not be moved to ${target}; it stays at ${staged}: ${message(error)}`)
-          return
-        }
         try {
-          const fallback = freePath(folder, name)
-          move(staged, fallback)
-          log.warn(`DS Bot: a download could not be moved to ${target}; it went to ${fallback} instead: ${message(error)}`)
-        } catch (secondError) {
-          log.warn(`DS Bot: a download could not be moved to ${target}; it stays at ${staged}: ${message(secondError)}`)
-          return
+          await moveAsync(staged, target)
+        } catch (error) {
+          if (folder === undefined) {
+            log.warn(`DS Bot: a download could not be moved to ${target}; it stays at ${staged}: ${message(error)}`)
+            return
+          }
+          try {
+            const fallback = reserveFreePath(folder, name)
+            reservedFallback = fallback
+            await moveAsync(staged, fallback)
+            log.warn(`DS Bot: a download could not be moved to ${target}; it went to ${fallback} instead: ${message(error)}`)
+          } catch (secondError) {
+            log.warn(`DS Bot: a download could not be moved to ${target}; it stays at ${staged}: ${message(secondError)}`)
+            return
+          }
         }
+        try { rmSync(holding, { recursive: true, force: true }) } catch { /* best-effort cleanup */ }
+      } finally {
+        release(reservedTarget)
+        release(reservedFallback)
       }
-      rmSync(holding, { recursive: true, force: true })
     })()
   }
 }
@@ -115,13 +142,31 @@ export function move(from, to, fs = { renameSync, copyFileSync, rmSync }) {
   }
 }
 
+/** Async equivalent of {@link move}: fast same-drive rename, async cross-drive copy off the main thread. */
+export async function moveAsync(from, to, fs = { renameSync, copyFile: fsPromises.copyFile, rename: fsPromises.rename, rm: fsPromises.rm }) {
+  try {
+    fs.renameSync(from, to)
+    return
+  } catch (error) {
+    if (error?.code !== 'EXDEV' && error?.code !== 'EPERM' && error?.code !== 'EEXIST') throw error
+  }
+  const part = join(dirname(to), `.${basename(to)}.${randomUUID()}.part`)
+  try {
+    await fs.copyFile(from, part, constants.COPYFILE_EXCL)
+    await fs.rename(part, to)
+  } catch (copyError) {
+    await fs.rm(part, { force: true }).catch(() => {})
+    throw copyError
+  }
+}
+
 /** `name` in `folder`, or `name (2)`, `name (3)`… when it is taken. */
-export function freePath(folder, name) {
+export function freePath(folder, name, taken) {
   const extension = extname(name)
   const stem = name.slice(0, name.length - extension.length)
   for (let count = 1; ; count += 1) {
     const path = join(folder, count === 1 ? name : `${stem} (${String(count)})${extension}`)
-    if (!existsSync(path)) return path
+    if (!taken?.has(path) && !existsSync(path)) return path
   }
 }
 

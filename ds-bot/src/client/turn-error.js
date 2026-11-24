@@ -4,6 +4,7 @@ import { CheckIcon, CopyIcon } from './icons.js'
 import { ModelKeyCard, manageModels } from './model-menu.js'
 import { knownFailure } from './diagnostics.js'
 import { hostText, t } from './i18n.js'
+import { useRosterPick } from './memo.js'
 
 // -------------------------------------------------------------------------
 // A failed turn in a Bot's chat: what went wrong and what the user can do about it,
@@ -35,6 +36,9 @@ export function failureText(code, { name, provider, status }) {
     case 'CONTENT_POLICY': return status === undefined
       ? t('{provider} blocked this request with its content filter. The API key is not the problem; edit the input or start a new chat.', { provider })
       : t('{provider} blocked this request with its content filter ({status}). The API key is not the problem; edit the input or start a new chat.', { provider, status })
+    case 'CONTENT_REFUSED': return status === undefined
+      ? t('{provider} refused this request under its content safety policy. Edit the input or start a new chat.', { provider })
+      : t('{provider} refused this request under its content safety policy ({status}). Edit the input or start a new chat.', { provider, status })
     case 'QUOTA': return status === undefined
       ? t('{provider} is out of balance or quota.', { provider })
       : t('{provider} is out of balance or quota ({status}).', { provider, status })
@@ -62,8 +66,9 @@ export function fixesFor(code, { canSignIn, official, topUp, onAccount = false }
     case 'MISSING_CREDENTIAL': return ['key', canSignIn ? 'sign-in' : null, 'model'].filter(Boolean)
     case 'INVALID_CREDENTIAL': return ['rekey', 'model']
     case 'AUTH': return ['rekey', canSignIn ? 'use-account' : null, 'model'].filter(Boolean)
-    // A content audit is about the input, not the credentials; no key action helps.
-    case 'CONTENT_POLICY': return []
+    // A content audit or refusal is about the input, not the credentials; no key action helps.
+    case 'CONTENT_POLICY':
+    case 'CONTENT_REFUSED': return []
     case 'QUOTA': return official ? ['top-up'] : []
     case 'ACCOUNT_QUOTA': return topUp ? ['top-up'] : []
     case 'MODEL_SWITCH_COMPACTION_FAILED': return ['model', 'model-settings']
@@ -149,8 +154,10 @@ function TechnicalDetails({ facts }) {
     h('button', { type: 'button', className: 'bt-mini bt-fail-copy', onClick: copy }, copied ? h(CheckIcon) : h(CopyIcon), copied ? t('Copied') : t('Copy')))
 }
 
+const FAILURE_ROSTER_FIELDS = ['byId', 'models', 'defaultModel', 'exchangeTurns']
+
 export function FailureCell({ node, sessionId, useRoster, useTurnClock, actions }) {
-  const roster = useRoster(value => value)
+  const roster = useRosterPick(useRoster, FAILURE_ROSTER_FIELDS)
   const failRow = node?.data ?? {}
   const bot = roster.byId?.[sessionId]
   // The host corrects a failure DSH classified from the status alone (a 403 content

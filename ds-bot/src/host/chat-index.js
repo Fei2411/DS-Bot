@@ -21,12 +21,42 @@ const INDEX_TIMEOUT_MS = 120_000
 const SEAL_AFTER_MS = 60_000
 
 const likeOf = term => `%${term.replace(/[\\%_]/g, char => `\\${char}`)}%`
+const HAN_RUN = /\p{Script=Han}{4,}/u
+
+// Overlapping 2-char Han bigrams (plus any non-Han runs >= 2 chars) used only as a
+// Tier-2 fallback when an unsegmented CJK phrase returns zero exact Tier-1 hits.
+function cjkSubTerms(term) {
+  if (!HAN_RUN.test(term)) return []
+  const out = []
+  const seen = new Set()
+  const add = (piece) => {
+    if (piece === '' || seen.has(piece) || out.length >= SEARCH_TERMS_MAX) return
+    seen.add(piece)
+    out.push(piece)
+  }
+  for (const match of term.matchAll(/\p{Script=Han}+|[^\p{Script=Han}]+/gu)) {
+    const chunk = match[0]
+    if (/^\p{Script=Han}+$/u.test(chunk)) {
+      const chars = [...chunk]
+      if (chars.length <= 3) add(chunk)
+      else {
+        for (let i = 0; i <= chars.length - 2; i += 1) add(chars[i] + chars[i + 1])
+      }
+    } else if ([...chunk].length >= 2) {
+      add(chunk)
+    }
+  }
+  return out
+}
+
 // Each term is a quoted FTS5 phrase when trigrams can match it, else a LIKE filter.
+// Queries with only short (<3 code-point) terms read directly from the indexed
+// `messages` table instead of scanning the FTS5 virtual table across all Bots.
 export function termQuery(terms, sessions, limit, hidden) {
   const long = terms.filter(term => [...term].length >= 3)
   const short = terms.filter(term => [...term].length < 3)
-  const where = ['session IN (SELECT value FROM json_each(?))']
-  const args = [JSON.stringify(sessions)]
+  const where = sessions.length === 1 ? ['session = ?'] : ['session IN (SELECT value FROM json_each(?))']
+  const args = sessions.length === 1 ? [sessions[0]] : [JSON.stringify(sessions)]
   if (hidden !== undefined) {
     where.push('NOT (session = ? AND seq >= ?)')
     args.push(hidden.session, hidden.from)
@@ -39,7 +69,8 @@ export function termQuery(terms, sessions, limit, hidden) {
     where.push("text LIKE ? ESCAPE '\\'")
     args.push(likeOf(term))
   }
-  return { sql: `SELECT text, session, seq, time, who FROM lines WHERE ${where.join(' AND ')} ORDER BY ${long.length > 0 ? 'rank' : 'time DESC'} LIMIT ${limit}`, args }
+  const table = long.length > 0 ? 'lines' : 'messages'
+  return { sql: `SELECT text, session, seq, time, who FROM ${table} WHERE ${where.join(' AND ')} ORDER BY ${long.length > 0 ? 'rank' : 'time DESC'} LIMIT ${limit}`, args }
 }
 
 export function install(rt) {
@@ -50,24 +81,44 @@ export function install(rt) {
   let indexOpening
 
   // A Session's events from newest to oldest, also for an archived part.
+  // Uses non-hydrating live lookup or DSH's cold sessionController.page so archived
+  // parts never wake live ReactLoopAgents and stay readable if their workDir is gone.
   async function* eventsBackwards(sessionId, signal, maxPages = HISTORY_PAGES_MAX, read) {
     if (read !== undefined) Object.assign(read, { complete: false, capped: false })
-    const agent = await rt.resolveAgent(sessionId)
-    const throughSeq = Number(agent.session.seq) - 1
+    const liveSession = ctx.get?.('agents')?.get(sessionId)?.session ?? ctx.get?.('sessions')?.get(sessionId)
+    let throughSeq = liveSession !== undefined && Number.isInteger(Number(liveSession.seq))
+      ? Number(liveSession.seq) - 1
+      : undefined
     let beforeSeq
-    if (throughSeq < 0 && read !== undefined) read.complete = true
-    for (let pages = 0; throughSeq >= 0; pages += 1) {
+    if (throughSeq !== undefined && throughSeq < 0) {
+      if (read !== undefined) read.complete = true
+      return
+    }
+    for (let pages = 0; ; pages += 1) {
       if (pages >= maxPages) {
         if (read !== undefined) read.capped = true
         if (!read?.continue?.()) return
       }
-      const page = await ctx.sessionController.page({
-        address: { kind: 'session', sessionId },
-        throughSeq,
-        ...(beforeSeq === undefined ? {} : { beforeSeq }),
-        maxMessages: HISTORY_PAGE,
-      }, signal)
+      let page
+      try {
+        page = await ctx.sessionController.page({
+          address: { kind: 'session', sessionId },
+          ...(throughSeq === undefined ? {} : { throughSeq }),
+          ...(beforeSeq === undefined ? {} : { beforeSeq }),
+          maxMessages: HISTORY_PAGE,
+        }, signal)
+      } catch (error) {
+        if (beforeSeq === undefined && (error?.code === 'session/not-found' || error?.code === 'SESSION_QUERY_SESSION_NOT_FOUND')) {
+          if (read !== undefined) read.complete = true
+          return
+        }
+        throw error
+      }
       const events = page.records.map(record => record.event)
+      if (throughSeq === undefined) {
+        const pinned = Number.isInteger(page.cursor) ? page.cursor : events.at(-1)?.seq
+        if (pinned !== undefined) throughSeq = pinned
+      }
       for (let index = events.length - 1; index >= 0; index -= 1) yield events[index]
       if (!page.hasMore) {
         if (read !== undefined) read.complete = true
@@ -89,13 +140,21 @@ export function install(rt) {
         rt.warn('ds-bot: no chat index, read_own_chat scans the logs: %s', error)
         return null
       }
-      // A damaged file is rebuilt from the logs once.
+      // Only proven damage warrants a rebuild: Desktop and Web share this file,
+      // and a busy lock must never read as corruption, or the other writer's
+      // index would be deleted under it.
+      const damaged = error => /malformed|not a database|corrupt|SQLITE_CORRUPT|SQLITE_NOTADB/i.test(String(error?.message ?? error))
       for (const fresh of [false, true]) {
         try {
-          if (fresh) await unlink(indexPath).catch(() => {})
+          if (fresh) {
+            await Promise.all([indexPath, `${indexPath}-wal`, `${indexPath}-shm`].map(file => unlink(file).catch(() => {})))
+          }
           return createIndex(new DatabaseSync(indexPath))
         } catch (error) {
-          if (fresh) rt.warn('ds-bot: no chat index, read_own_chat scans the logs: %s', error)
+          if (fresh || !damaged(error)) {
+            rt.warn('ds-bot: no chat index, read_own_chat scans the logs: %s', error)
+            return null
+          }
         }
       }
       return null
@@ -112,6 +171,7 @@ export function install(rt) {
 
   function createIndex(db) {
     try {
+      db.exec('PRAGMA busy_timeout = 5000')
       db.exec('PRAGMA journal_mode = WAL')
       if (db.prepare('PRAGMA user_version').get().user_version !== INDEX_VERSION) {
         db.exec(`
@@ -120,10 +180,12 @@ export function install(rt) {
           DROP TABLE IF EXISTS marks;
           CREATE TABLE messages (id INTEGER PRIMARY KEY, text, session, seq, time, who);
           CREATE INDEX messages_session_seq ON messages (session, seq);
+          CREATE INDEX messages_session_time ON messages (session, time DESC);
           CREATE VIRTUAL TABLE lines USING fts5(text, session UNINDEXED, seq UNINDEXED, time UNINDEXED, who UNINDEXED, content = 'messages', content_rowid = 'id', tokenize = 'trigram');
           CREATE TABLE marks (session TEXT PRIMARY KEY, through INTEGER NOT NULL, keep INTEGER NOT NULL, sealed INTEGER NOT NULL, turn INTEGER NOT NULL);
           PRAGMA user_version = ${INDEX_VERSION};`)
       }
+      db.exec('CREATE INDEX IF NOT EXISTS messages_session_time ON messages (session, time DESC)')
       const insertMessage = db.prepare('INSERT INTO messages (text, session, seq, time, who) VALUES (?, ?, ?, ?, ?)')
       const insertLine = db.prepare('INSERT INTO lines (rowid, text, session, seq, time, who) VALUES (?, ?, ?, ?, ?, ?)')
       return {
@@ -231,12 +293,9 @@ export function install(rt) {
       return index.db.prepare(sql).all(...args)
     }
     const byTime = (a, b) => (a.time - b.time) || (sessions.indexOf(a.session) - sessions.indexOf(b.session)) || (a.seq - b.seq)
-    let rows = run(terms, limit)
-    let every = true
-    if (rows.length === 0 && terms.length > 1) {
-      every = false
+    const anyOf = (wanted) => {
       const found = new Map()
-      for (const term of terms) {
+      for (const term of wanted) {
         for (const row of run([term], ANY_TERM_HITS)) {
           const key = `${row.session}#${row.seq}`
           const hit = found.get(key) ?? { row, count: 0 }
@@ -244,9 +303,32 @@ export function install(rt) {
           found.set(key, hit)
         }
       }
-      rows = [...found.values()].sort((a, b) => (b.count - a.count) || (b.row.time - a.row.time)).slice(0, limit).map(hit => hit.row)
+      return [...found.values()].sort((a, b) => (b.count - a.count) || (b.row.time - a.row.time)).slice(0, limit).map(hit => hit.row)
     }
-    return { lines: rows.sort(byTime).map(row => rowLine(parts, row, terms)), every }
+    let rows = run(terms, limit)
+    let every = true
+    let highlightTerms = terms
+    if (rows.length === 0 && terms.length > 1) {
+      every = false
+      rows = anyOf(terms)
+    }
+    if (rows.length === 0) {
+      const subTerms = []
+      const seen = new Set()
+      for (const term of terms) {
+        for (const piece of cjkSubTerms(term)) {
+          if (seen.has(piece) || subTerms.length >= SEARCH_TERMS_MAX) continue
+          seen.add(piece)
+          subTerms.push(piece)
+        }
+      }
+      if (subTerms.length > 0 && (terms.length > 1 || subTerms.length > 1)) {
+        every = false
+        highlightTerms = subTerms
+        rows = anyOf(subTerms)
+      }
+    }
+    return { lines: rows.sort(byTime).map(row => rowLine(parts, row, highlightTerms)), every }
   }
 
   // The latest messages across all parts, oldest first.

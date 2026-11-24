@@ -18,18 +18,22 @@ const readJournal = (storage) => {
 // Read-modify-write against current shared storage so concurrent windows never
 // overwrite each other's pending recovery records.
 const mutateJournal = (storage, update) => {
-  if (!storage) return
+  if (!storage) return undefined
   try {
     const map = readJournal(storage)
     const changed = update(map)
     if (changed !== false) storage.setItem(STORAGE.agentForks, JSON.stringify([...map.values()]))
-  } catch { /* storage unavailable */ }
+    return map.size
+  } catch {
+    return undefined
+  }
 }
 
 // A DSH fork has no durable parent relationship. Capture its source at the
 // public client call, including forks that never navigate the main view.
-export function installAgentForks({ sessions, ownerOf, hasAgent, pending, adopt, refresh, report, storage, ready }) {
+export function installAgentForks({ sessions, ownerOf, hasAgent, pending, adopt, refresh, report, storage, ready, onPendingChange }) {
   const localJournal = readJournal(storage)
+  let storagePending = localJournal.size > 0
   const inFlight = new Map()
   const forks = new Set()
   let stopped = false
@@ -38,13 +42,17 @@ export function installAgentForks({ sessions, ownerOf, hasAgent, pending, adopt,
     const entry = { agentId, sessionId }
     localJournal.set(sessionId, entry)
     pending.set(sessionId, agentId)
-    mutateJournal(storage, (map) => { map.set(sessionId, entry) })
+    const size = mutateJournal(storage, (map) => { map.set(sessionId, entry) })
+    if (size !== undefined) storagePending = size > 0
+    if (!stopped) onPendingChange?.()
     return entry
   }
 
   const forget = (sessionId) => {
     localJournal.delete(sessionId)
-    mutateJournal(storage, map => map.delete(sessionId))
+    const size = mutateJournal(storage, map => map.delete(sessionId))
+    if (size !== undefined) storagePending = size > 0
+    if (!stopped) onPendingChange?.()
   }
 
   const persist = (entry) => {
@@ -61,7 +69,10 @@ export function installAgentForks({ sessions, ownerOf, hasAgent, pending, adopt,
       // sessions do not appear Agent-owned or propagate a false owner to later forks.
       if (pending.get(entry.sessionId) === entry.agentId) pending.delete(entry.sessionId)
       if (!stopped) report(error, 'agent-fork-adopt')
-    }).finally(() => { inFlight.delete(entry.sessionId) })
+    }).finally(() => {
+      inFlight.delete(entry.sessionId)
+      if (!stopped) onPendingChange?.()
+    })
     inFlight.set(entry.sessionId, task)
     return task
   }
@@ -102,7 +113,8 @@ export function installAgentForks({ sessions, ownerOf, hasAgent, pending, adopt,
       }
     })()
     forks.add(task)
-    const settle = () => { forks.delete(task) }
+    if (!stopped) onPendingChange?.()
+    const settle = () => { forks.delete(task); if (!stopped) onPendingChange?.() }
     task.then(settle, settle)
     return task
   }
@@ -110,9 +122,12 @@ export function installAgentForks({ sessions, ownerOf, hasAgent, pending, adopt,
 
   const reconcile = async () => {
     if (stopped) return
+    const hadPending = storagePending
     const listed = sessions.list.getSnapshot().byId ?? {}
-    const entries = storage ? readJournal(storage) : new Map(localJournal)
+    const stored = storage ? readJournal(storage) : null
+    const entries = stored ? new Map(stored) : new Map(localJournal)
     for (const [id, entry] of localJournal) if (!entries.has(id)) entries.set(id, entry)
+    if (stored !== null) storagePending = stored.size > 0
     for (const entry of entries.values()) {
       if (stopped) return
       if (!hasAgent(entry.agentId)) continue
@@ -123,10 +138,17 @@ export function installAgentForks({ sessions, ownerOf, hasAgent, pending, adopt,
       if (listed[entry.sessionId] === undefined) continue
       await persist(entry)
     }
+    if (storage && !stopped) {
+      const nextPending = readJournal(storage).size > 0
+      const changed = nextPending !== hadPending || nextPending !== storagePending
+      storagePending = nextPending
+      if (changed) onPendingChange?.()
+    }
   }
 
   return {
     reconcile,
+    hasPending: () => storagePending || localJournal.size > 0 || pending.size > 0 || inFlight.size > 0 || forks.size > 0,
     async dispose() {
       stopped = true
       if (sessions.fork === wrapped) {
