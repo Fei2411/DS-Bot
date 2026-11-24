@@ -71,7 +71,7 @@ const renderPlain = block => (block.kind === 'code' ? block.lines.join('\n') : b
 
 const ATX_HEADING = /^ {0,3}#{1,6}[ \t]+(.+?)\s*$/
 const SETEXT_UNDERLINE = /^ {0,3}(?:=+|-+)\s*$/
-const NON_PARAGRAPH_LINE = /^ {4}|^ {0,3}(?:[\t>]|(?:[-+*]|\d{1,9}[.)])(?:[ \t]|$))/
+const NON_PARAGRAPH_LINE = /^ {4}|^ {0,3}(?:[\t>]|(?:[-+*]|(\d{1,9})[.)])(?:[ \t]|$))/
 const TABLE_DELIMITER = /^:?-+:?$/
 
 function tableCells(line) {
@@ -131,13 +131,14 @@ function telegramLines(lines) {
       }
     }
     const heading = ATX_HEADING.exec(line)
+    const blockStart = NON_PARAGRAPH_LINE.exec(line)
     if (heading !== null) {
       flushParagraph()
       renderLine(heading[1].replace(/[ \t]+#+$/, ''), true)
     } else if (SETEXT_UNDERLINE.test(line)) {
       if (paragraph.length > 0) flushParagraph(true)
       else renderLine(line)
-    } else if (NON_PARAGRAPH_LINE.test(line)) {
+    } else if (blockStart !== null && (blockStart[1] === undefined || paragraph.length === 0 || Number(blockStart[1]) === 1)) {
       flushParagraph()
       renderLine(line)
     } else {

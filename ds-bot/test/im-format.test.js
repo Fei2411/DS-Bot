@@ -64,6 +64,14 @@ test('Telegram Setext headings require a paragraph and can span multiple lines',
   }])
 })
 
+test('only ordered lists starting at one interrupt a Telegram Setext heading paragraph', () => {
+  const markdown = 'Release notes\n24. Follow-up\n===\n\n24. List item\n---\n\nRelease notes\n1. List item\n---'
+  assert.deepEqual(chunkTelegram(markdown), [{
+    html: '<b>Release notes</b>\n<b>24. Follow-up</b>\n24. List item\n---\nRelease notes\n1. List item\n---',
+    text: 'Release notes\n24. Follow-up\n24. List item\n---\nRelease notes\n1. List item\n---',
+  }])
+})
+
 test('Markdown becomes plain text', () => {
   assert.equal(toPlain('**bold** `code` [site](https://a.b)'), 'bold code site (https://a.b)')
   assert.equal(toPlain('```\nlet x = 1\n```'), 'let x = 1')
