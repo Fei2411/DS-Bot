@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
-import { encodeUrlComponent, normalizeName } from './secrets.js'
-import { SECRET_REF_GLOBAL } from './secret-refs.js'
+import { encodeUrlComponent } from './secrets.js'
+import { matchSecretRefs } from './secret-refs.js'
 import { own } from './store.js'
 import { activeTasksOf } from './threads.js'
 
@@ -8,6 +8,30 @@ const MCP_CLIENT = '@deepseek-ai/dsh-mcp-client'
 const NAME = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/
 const SECRET_REFERENCE = /\$DSH_SECRET_([A-Z][A-Z0-9_]*)/g
 const ENSURE_TIMEOUT_MS = 15_000
+
+const sanitizeSecretSegment = (raw) => String(raw ?? '')
+  .replace(/[^A-Za-z0-9_]+/g, '_')
+  .replace(/_+/g, '_')
+  .replace(/^_+|_+$/g, '')
+  .toUpperCase()
+
+function referencedSecretNames(item) {
+  const names = new Set()
+  const scan = (raw) => {
+    if (typeof raw !== 'string') return
+    for (const match of raw.matchAll(/\$DSH_SECRET_([A-Z][A-Z0-9_]*)/g)) names.add(match[1])
+  }
+  if (item?.kind === 'mcp') {
+    if (item.transport === 'stdio') {
+      for (const arg of item.args ?? []) scan(arg)
+      for (const val of Object.values(item.env ?? {})) scan(val)
+    } else {
+      scan(item.url)
+      for (const val of Object.values(item.headers ?? {})) scan(val)
+    }
+  }
+  return names
+}
 
 // Connector ids are reserved: a capability named like one would collide with
 // its mcp__<id>__* tool prefix. The connectors module registers its ids here.
@@ -94,7 +118,7 @@ export function install(rt) {
     if (!allowedToEdit(item, botId)) throw new Error(`Only ${item.createdBy ? 'its creator or a Main Bot' : 'a Main Bot'} can ${verb} ${item.name}.`)
     if (!rt.isMain(botId) && usedByOthers(item.name, botId)) throw new Error(`Another Bot uses ${item.name}, so only a Main Bot can ${verb} it.`)
   }
-  const itemInput = (body, { botId, ui }) => {
+  const buildItemInput = (body, { botId, ui }) => {
     const name = validateCapabilityName(body.name)
     const kind = body.kind
     if (!['mcp', 'skill', 'pack'].includes(kind)) throw new Error('Choose an MCP server, skill, or pack.')
@@ -139,12 +163,11 @@ export function install(rt) {
       }
       item.items = names
     }
-    items[name] = item
-    return item
+    return { item, previous }
   }
-  const consumeSecretRefsInText = async (text, { botId, capName, field, consumed }) => {
+  const consumeSecretRefsInText = async (text, { botId, capName, field, consumed, createdSecrets }) => {
     const raw = String(text ?? '')
-    const matches = [...raw.matchAll(SECRET_REF_GLOBAL)]
+    const matches = matchSecretRefs(raw)
     if (matches.length === 0) return raw
     if (!botId || typeof rt.secrets?.consumeRef !== 'function') {
       throw new Error('Secret references can only be consumed by a Bot.')
@@ -154,75 +177,102 @@ export function install(rt) {
       let secretName = consumed.get(ref)
       if (secretName === undefined) {
         const value = await rt.secrets.consumeRef(ref, { botId })
+        const capPart = sanitizeSecretSegment(capName) || 'MCP'
+        const fieldPart = sanitizeSecretSegment(field) || 'VALUE'
         const suffix = hex.slice(0, 8).toUpperCase()
-        const prefix = normalizeName(`CAP_${capName}_${field}`).slice(0, 50)
+        const prefix = `CAP_${capPart}_${fieldPart}`.replace(/_+/g, '_').slice(0, 55).replace(/_+$/, '')
         secretName = `${prefix}_${suffix}`
         await rt.secretEndpoint('secret-set', {
           name: secretName,
           value,
           purpose: `${capName} MCP capability`,
-          scope: [botId],
+          scope: [],
         })
         consumed.set(ref, secretName)
+        createdSecrets.push(secretName)
       }
       out = out.replaceAll(ref, `$DSH_SECRET_${secretName}`)
     }
     return out
   }
   const consumeSecretRefsInBody = async (body, { botId }) => {
-    if (!body || body.kind !== 'mcp' || !botId) return body
+    if (!body || body.kind !== 'mcp' || !botId) return { body, createdSecrets: [] }
     const capName = String(body.name ?? '').trim() || 'mcp'
     const consumed = new Map()
+    const createdSecrets = []
     const next = { ...body }
-    if (typeof next.url === 'string' && SECRET_REF_GLOBAL.test(next.url)) {
-      SECRET_REF_GLOBAL.lastIndex = 0
-      next.url = await consumeSecretRefsInText(next.url, { botId, capName, field: 'URL', consumed })
-    }
-    SECRET_REF_GLOBAL.lastIndex = 0
-    if (Array.isArray(next.args)) {
-      const nextArgs = []
-      for (let i = 0; i < next.args.length; i += 1) {
-        nextArgs.push(typeof next.args[i] === 'string'
-          ? await consumeSecretRefsInText(next.args[i], { botId, capName, field: `ARG_${i}`, consumed })
-          : next.args[i])
+    try {
+      if (typeof next.url === 'string') {
+        next.url = await consumeSecretRefsInText(next.url, { botId, capName, field: 'URL', consumed, createdSecrets })
       }
-      next.args = nextArgs
-    }
-    if (next.env && typeof next.env === 'object' && !Array.isArray(next.env)) {
-      const nextEnv = {}
-      for (const [key, val] of Object.entries(next.env)) {
-        nextEnv[key] = typeof val === 'string'
-          ? await consumeSecretRefsInText(val, { botId, capName, field: key, consumed })
-          : val
+      if (Array.isArray(next.args)) {
+        const nextArgs = []
+        for (let i = 0; i < next.args.length; i += 1) {
+          nextArgs.push(typeof next.args[i] === 'string'
+            ? await consumeSecretRefsInText(next.args[i], { botId, capName, field: `ARG_${i}`, consumed, createdSecrets })
+            : next.args[i])
+        }
+        next.args = nextArgs
       }
-      next.env = nextEnv
-    }
-    if (next.headers && typeof next.headers === 'object' && !Array.isArray(next.headers)) {
-      const nextHeaders = {}
-      for (const [key, val] of Object.entries(next.headers)) {
-        nextHeaders[key] = typeof val === 'string'
-          ? await consumeSecretRefsInText(val, { botId, capName, field: key, consumed })
-          : val
+      if (next.env && typeof next.env === 'object' && !Array.isArray(next.env)) {
+        const nextEnv = {}
+        for (const [key, val] of Object.entries(next.env)) {
+          nextEnv[key] = typeof val === 'string'
+            ? await consumeSecretRefsInText(val, { botId, capName, field: key, consumed, createdSecrets })
+            : val
+        }
+        next.env = nextEnv
       }
-      next.headers = nextHeaders
+      if (next.headers && typeof next.headers === 'object' && !Array.isArray(next.headers)) {
+        const nextHeaders = {}
+        for (const [key, val] of Object.entries(next.headers)) {
+          nextHeaders[key] = typeof val === 'string'
+            ? await consumeSecretRefsInText(val, { botId, capName, field: key, consumed, createdSecrets })
+            : val
+        }
+        next.headers = nextHeaders
+      }
+    } catch (error) {
+      for (const secretName of createdSecrets) {
+        await rt.secretEndpoint('secret-delete', { name: secretName }).catch(() => {})
+      }
+      throw error
     }
-    return next
+    return { body: next, createdSecrets }
   }
   const capabilitySave = async (body, options = {}) => {
     await rt.load()
     writeCheck()
     const input = body ?? {}
-    if (input.kind === 'mcp' && options.botId && !options.ui) {
-      const name = validateCapabilityName(input.name)
-      const previous = own(ensureLibrary(), name)
-      if (previous) {
-        editCheck(previous, options.botId, 'change')
-        if (previous.kind !== input.kind) throw new Error('A capability cannot change its kind. Delete it and save a new one.')
+    // Validate the full capability payload BEFORE consuming any one-time secret-ref handles.
+    const { previous } = buildItemInput(input, options)
+    const { body: resolvedBody, createdSecrets } = await consumeSecretRefsInBody(input, options)
+    const items = ensureLibrary()
+    let item
+    let nextOwned = []
+    try {
+      ;({ item } = buildItemInput(resolvedBody, options))
+      const referenced = referencedSecretNames(item)
+      const keptOwned = (previous?.ownedSecrets ?? []).filter(secretName => referenced.has(secretName))
+      nextOwned = [...new Set([...keptOwned, ...createdSecrets])]
+      if (nextOwned.length > 0) item.ownedSecrets = nextOwned
+      items[item.name] = item
+      await rt.save()
+    } catch (error) {
+      if (item?.name) {
+        if (previous !== undefined) items[item.name] = previous
+        else delete items[item.name]
+      }
+      for (const secretName of createdSecrets) {
+        await rt.secretEndpoint('secret-delete', { name: secretName }).catch(() => {})
+      }
+      throw error
+    }
+    for (const stale of previous?.ownedSecrets ?? []) {
+      if (!nextOwned.includes(stale)) {
+        await rt.secretEndpoint('secret-delete', { name: stale }).catch(() => {})
       }
     }
-    const resolvedBody = await consumeSecretRefsInBody(input, options)
-    const item = itemInput(resolvedBody, options)
-    await rt.save()
     return item
   }
   const capabilityDelete = async (name, { botId, ui } = {}) => {
@@ -239,6 +289,9 @@ export function install(rt) {
       bot.packs = (bot.packs ?? []).filter(attached => attached !== item.name)
     }
     await rt.save()
+    for (const owned of item.ownedSecrets ?? []) {
+      await rt.secretEndpoint('secret-delete', { name: owned }).catch(() => {})
+    }
     return true
   }
   // Called with the Bot being deleted, after it left the team. The shared list belongs to
@@ -358,6 +411,7 @@ export function install(rt) {
     ...(item.env ? { env: { ...item.env } } : {}),
     ...(item.headers ? { headers: { ...item.headers } } : {}),
     ...(item.items ? { items: [...item.items] } : {}),
+    ...(item.ownedSecrets ? { ownedSecrets: [...item.ownedSecrets] } : {}),
   }))
 
   async function loadMcpPlugin() {
@@ -371,24 +425,25 @@ export function install(rt) {
     }
     return pluginPromise
   }
-  function secretFor(name, botId) {
-    const value = rt.canUseSecret(name, botId) ? rt.secretValue(name) : undefined
+  function secretFor(name, botId, item) {
+    const owned = Array.isArray(item?.ownedSecrets) && item.ownedSecrets.includes(name)
+    const value = (rt.canUseSecret(name, botId) || owned) ? rt.secretValue(name) : undefined
     if (value === undefined) throw new Error(`Secret ${name} is missing or unavailable for this Bot.`)
     return value
   }
-  function resolveValues(values, botId) {
+  function resolveValues(values, botId, item) {
     const resolved = {}
     for (const [key, raw] of Object.entries(values ?? {})) {
-      resolved[key] = String(raw).replace(SECRET_REFERENCE, (_match, name) => secretFor(name, botId))
+      resolved[key] = String(raw).replace(SECRET_REFERENCE, (_match, name) => secretFor(name, botId, item))
     }
     return resolved
   }
-  const resolveUrl = (url, botId) => String(url).replace(SECRET_REFERENCE, (_match, name) => encodeUrlComponent(secretFor(name, botId)))
-  const resolveList = (list, botId) => (list ?? []).map(raw => String(raw).replace(SECRET_REFERENCE, (_match, name) => secretFor(name, botId)))
+  const resolveUrl = (url, botId, item) => String(url).replace(SECRET_REFERENCE, (_match, name) => encodeUrlComponent(secretFor(name, botId, item)))
+  const resolveList = (list, botId, item) => (list ?? []).map(raw => String(raw).replace(SECRET_REFERENCE, (_match, name) => secretFor(name, botId, item)))
   const configFor = (item, botId) => {
     if (item.kind === 'skill') return { name: item.name, description: item.description, content: item.content }
-    if (item.transport === 'stdio') return { transport: 'stdio', serverName: item.name, command: item.command, args: resolveList(item.args, botId), env: resolveValues(item.env, botId), failOnStartupError: true }
-    return { transport: 'streamable-http', serverName: item.name, url: resolveUrl(item.url, botId), headers: resolveValues(item.headers, botId), failOnStartupError: true }
+    if (item.transport === 'stdio') return { transport: 'stdio', serverName: item.name, command: item.command, args: resolveList(item.args, botId, item), env: resolveValues(item.env, botId, item), failOnStartupError: true }
+    return { transport: 'streamable-http', serverName: item.name, url: resolveUrl(item.url, botId, item), headers: resolveValues(item.headers, botId, item), failOnStartupError: true }
   }
   const disposeMount = async mount => {
     if (mount) {
@@ -411,7 +466,10 @@ export function install(rt) {
       return
     }
     if (item.kind === 'mcp' && typeof rt.resolveExternalForBot === 'function') {
-      await rt.resolveExternalForBot(bot.id).catch(() => {})
+      const secretNames = referencedSecretNames(item)
+      if (secretNames.size > 0) {
+        await rt.resolveExternalForBot(bot.id, { names: secretNames }).catch(() => {})
+      }
     }
     let config
     try {

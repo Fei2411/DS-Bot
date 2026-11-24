@@ -87,7 +87,7 @@ process.exit(2)
     const cur = JSON.parse(readFileSync(statePath, 'utf8'))
     writeFileSync(statePath, JSON.stringify({ ...cur, ...patch }))
   }
-  return { bin: scriptPath, readCalls, setState }
+  return { bin: process.execPath, binArgs: [jsPath], scriptPath, readCalls, setState }
 }
 
 test('1Password reference and account validation strictly rejects unsafe inputs', () => {
@@ -126,7 +126,7 @@ test('1Password driver batches references in a single `op --cache=false inject -
     },
   })
   const tplDir = mkdtempSync(join(dir, 'tpl-'))
-  const driver = createOnePasswordDriver({ bin: fakeOp.bin, tempDir: tplDir })
+  const driver = createOnePasswordDriver({ bin: fakeOp.bin, binArgs: fakeOp.binArgs, tempDir: tplDir })
 
   const out = await driver.readBatch(
     { account: 'team.1password.com' },
@@ -159,7 +159,7 @@ test('1Password driver falls back to individual `op --cache=false read --no-newl
       'op://Vault/Two/secret': v2,
     },
   })
-  const driver = createOnePasswordDriver({ bin: fakeOp.bin, tempDir: dir })
+  const driver = createOnePasswordDriver({ bin: fakeOp.bin, binArgs: fakeOp.binArgs, tempDir: dir })
   const out = await driver.readBatch({}, ['op://Vault/One/secret', 'op://Vault/Two/secret'])
   assert.equal(out.get('op://Vault/One/secret'), v1)
   assert.equal(out.get('op://Vault/Two/secret'), v2)
@@ -177,6 +177,7 @@ test('1Password driver enforces timeout and kills hung child process cleanly', a
   // Use a fast-starting shell script on POSIX so parallel test CPU load cannot delay
   // process boot past the short timeout window.
   let bin
+  let binArgs = []
   let countCalls
   if (process.platform !== 'win32') {
     const logPath = join(dir, 'hang-calls.log')
@@ -190,9 +191,10 @@ test('1Password driver enforces timeout and kills hung child process cleanly', a
       values: { 'op://Vault/Item/key': fresh() },
     })
     bin = fakeOp.bin
+    binArgs = fakeOp.binArgs
     countCalls = () => fakeOp.readCalls().length
   }
-  const driver = createOnePasswordDriver({ bin, timeoutMs: 1500, tempDir: dir })
+  const driver = createOnePasswordDriver({ bin, binArgs, timeoutMs: process.platform === 'win32' ? 3500 : 2500, tempDir: dir })
   const started = Date.now()
   await assert.rejects(
     () => driver.readBatch({}, ['op://Vault/Item/key']),
@@ -211,7 +213,7 @@ test('SecretResolver caches hits lock-free, deduplicates concurrent misses, cach
   const fakeOp = createFakeOpBinary(dir, {
     values: { 'op://Vault/App/key': v1 },
   })
-  const registry = createProviderRegistry([createOnePasswordDriver({ bin: fakeOp.bin, tempDir: dir })])
+  const registry = createProviderRegistry([createOnePasswordDriver({ bin: fakeOp.bin, binArgs: fakeOp.binArgs, tempDir: dir })])
   const resolver = createSecretResolver({ registry })
 
   // Concurrent misses deduplicate into a single subprocess call.
@@ -313,7 +315,7 @@ test('readSecretsSync stays synchronous with mixed vault + external entries, and
     home,
     github: false,
     diagnosticsFile: false,
-    secretProviders: { onepassword: { bin: fakeOp.bin, tempDir: dir } },
+    secretProviders: { onepassword: { bin: fakeOp.bin, binArgs: fakeOp.binArgs, tempDir: dir } },
   })
   t.after(async () => { await ctx.dispose() })
 
@@ -358,4 +360,197 @@ test('readSecretsSync stays synchronous with mixed vault + external entries, and
   const refreshed = await call('secret-refresh-external', {})
   assert.equal(refreshed.ok, true)
   assert.equal(rt.secretValue('OP_TOKEN'), undefined)
+})
+
+test('startup drains all async effects with zero op spawns when no connector or MCP references external secrets', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsb-op-boot-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const vA = fresh()
+  const vB = fresh()
+  const fakeOp = createFakeOpBinary(dir, {
+    values: {
+      'op://Prod/A/token': vA,
+      'op://Prod/B/token': vB,
+    },
+  })
+  const home = join(dir, 'home')
+  const fs = await import('node:fs')
+  fs.mkdirSync(home, { recursive: true })
+  writeFileSync(join(home, 'state.json'), JSON.stringify({
+    version: 1,
+    mainBotIds: ['m1'],
+    revision: 1,
+    bots: {
+      m1: { id: 'm1', sessionId: 'm1', name: 'Chief', role: 'Main', instructions: '', capabilities: ['plain-mcp'], createdAt: 1 },
+    },
+    capabilities: {
+      items: {
+        'plain-mcp': { name: 'plain-mcp', kind: 'mcp', transport: 'streamable-http', url: 'https://plain.example/mcp', headers: {}, approved: true, createdAt: 1, updatedAt: 1 },
+        'uses-a': { name: 'uses-a', kind: 'mcp', transport: 'streamable-http', url: 'https://a.example/mcp', headers: { Authorization: 'Bearer $DSH_SECRET_OP_A' }, approved: true, createdAt: 1, updatedAt: 1 },
+      },
+    },
+    rooms: {},
+    exchanges: [],
+    exchangeTurns: {},
+    questions: {},
+    prefs: {},
+  }))
+  writeFileSync(join(home, 'secrets.json'), JSON.stringify({
+    version: 1,
+    secrets: [
+      { name: 'OP_A', kind: 'external', providerId: 'onepassword', reference: 'op://Prod/A/token', purpose: 'A', scope: 'all', requestedBy: null, createdAt: 1, updatedAt: 1 },
+      { name: 'OP_B', kind: 'external', providerId: 'onepassword', reference: 'op://Prod/B/token', purpose: 'B', scope: 'all', requestedBy: null, createdAt: 2, updatedAt: 2 },
+    ],
+  }))
+
+  const mountedConfigs = []
+  const mcpPlugin = { name: 'mcp-client', apply() {} }
+  const loader = { import: async () => ({ default: mcpPlugin }), unwrapExports: exports => exports.default }
+  const ctx = fakeContext({ services: { loader } })
+  const agent = {
+    id: 'm1',
+    session: { id: 'm1' },
+    ctx: {
+      extend(meta) { return Object.assign(Object.create(this), meta) },
+      effect() {},
+      tools: { register: () => () => {} },
+      plugin(_plugin, config) {
+        mountedConfigs.push(config)
+        return { await: async () => {}, dispose: () => {} }
+      },
+    },
+  }
+  ctx.sessionController = { resolveAgent: async () => ({ agent }) }
+  ctx.sessions = { flush: async () => {} }
+  ctx.workspaceRegistry = { archiveSession: async () => {} }
+  ctx.llm.stream = () => (async function* () {})()
+  const rt = createRuntime(ctx, {
+    home,
+    github: false,
+    diagnosticsFile: false,
+    secretProviders: { onepassword: { bin: fakeOp.bin, binArgs: fakeOp.binArgs, tempDir: dir } },
+  })
+  t.after(async () => { await ctx.dispose() })
+
+  // Drain all startup ctx.effect async chains (connectors sync, capabilities startup, secret loading).
+  await rt.load()
+  await rt.loadSecrets()
+  await rt.reconcileCapabilities()
+  await new Promise(resolve => setTimeout(resolve, 100))
+
+  // Zero `op` spawns on boot even with external secrets in secrets.json AND a mounted MCP without secret refs!
+  assert.equal(fakeOp.readCalls().length, 0, 'startup must spawn op 0 times when no connector/MCP references external secrets')
+  assert.ok(mountedConfigs.find(c => c?.serverName === 'plain-mcp'))
+
+  // Attaching an MCP that references ONLY $DSH_SECRET_OP_A resolves ONLY OP_A (never OP_B)!
+  await rt.changeCapabilityAttachment('attach', { name: 'uses-a' }, 'm1')
+  await rt.reconcileCapabilities()
+  assert.equal(fakeOp.readCalls().length, 1)
+  assert.equal(rt.secretValue('OP_A'), vA)
+  assert.equal(rt.secretValue('OP_B'), undefined, 'unreferenced OP_B must remain uncached/unresolved')
+  assert.equal(mountedConfigs.find(c => c?.serverName === 'uses-a')?.headers?.Authorization, `Bearer ${vA}`)
+
+  // Targeted invalidation in secret-set: updating OP_B must NOT invalidate cached OP_A!
+  await rt.secretEndpoint('secret-set', { name: 'OP_B', reference: 'op://Prod/B/token', scope: 'all' })
+  assert.equal(rt.secretValue('OP_A'), vA, 'secret-set on OP_B must not wipe cached OP_A')
+})
+
+test('SecretResolver isolates per-caller AbortSignal from shared single-flight batches', async () => {
+  let batchStarts = 0
+  let batchAborted = false
+  let releaseDriver
+  const driver = {
+    kind: 'mock',
+    label: 'Mock',
+    isReference: ref => ref.startsWith('mock://'),
+    validateConfig: () => ({}),
+    readBatch: (_cfg, refs, signal) => new Promise((resolve, reject) => {
+      batchStarts += 1
+      const onAbort = () => {
+        batchAborted = true
+        reject(Object.assign(new Error('aborted'), { code: 'ABORT_ERR' }))
+      }
+      signal?.addEventListener('abort', onAbort, { once: true })
+      releaseDriver = () => {
+        signal?.removeEventListener('abort', onAbort)
+        resolve(new Map(refs.map(r => [r, `val-${r}`])))
+      }
+    }),
+  }
+  const resolver = createSecretResolver({ registry: createProviderRegistry([driver]) })
+  const item = { providerId: 'mock', config: {}, reference: 'mock://shared/token' }
+
+  // 1. Caller A aborts while Caller B is still waiting -> only Caller A rejects; Caller B gets shared result!
+  const acA = new AbortController()
+  const acB = new AbortController()
+  const pA = resolver.resolve([item], { signal: acA.signal })
+  const pB = resolver.resolve([item], { signal: acB.signal })
+  await new Promise(resolve => setImmediate(resolve))
+  acA.abort()
+  await assert.rejects(() => pA, err => err.code === 'ABORT_ERR')
+  assert.equal(batchAborted, false, 'underlying readBatch must NOT abort while Caller B is still waiting')
+  releaseDriver()
+  const resB = await pB
+  assert.equal(resB.get(item.reference).ok, true)
+  assert.equal(resB.get(item.reference).value, 'val-mock://shared/token')
+  assert.equal(batchStarts, 1)
+
+  // 2. When ALL waiting callers abort, underlying driver.readBatch IS aborted and error is NOT cached!
+  const item2 = { providerId: 'mock', config: {}, reference: 'mock://all-abort/token' }
+  const ac1 = new AbortController()
+  const ac2 = new AbortController()
+  const p1 = resolver.resolve([item2], { signal: ac1.signal })
+  const p2 = resolver.resolve([item2], { signal: ac2.signal })
+  await new Promise(resolve => setImmediate(resolve))
+  ac1.abort()
+  await assert.rejects(() => p1, err => err.code === 'ABORT_ERR')
+  assert.equal(batchAborted, false)
+  ac2.abort()
+  await assert.rejects(() => p2, err => err.code === 'ABORT_ERR')
+  assert.equal(batchAborted, true, 'underlying readBatch MUST abort once all callers abort')
+  assert.equal(resolver.getCached('mock', {}, item2.reference), undefined, 'aborted batch must not be cached')
+})
+
+test('1Password fallback isolates per-ref errors so one missing ref does not poison valid refs in the same batch', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsb-op-partial-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const goodVal = fresh()
+  const fakeOp = createFakeOpBinary(dir, {
+    values: {
+      'op://Vault/Good/secret': goodVal,
+      // op://Vault/Missing/secret intentionally omitted so inject fails and fallback runs per-ref!
+    },
+  })
+  const registry = createProviderRegistry([createOnePasswordDriver({ bin: fakeOp.bin, binArgs: fakeOp.binArgs, tempDir: dir })])
+  const resolver = createSecretResolver({ registry })
+
+  const items = [
+    { providerId: 'onepassword', config: {}, reference: 'op://Vault/Missing/secret' },
+    { providerId: 'onepassword', config: {}, reference: 'op://Vault/Good/secret' },
+  ]
+  const out = await resolver.resolve(items)
+  assert.equal(out.get('op://Vault/Good/secret').ok, true)
+  assert.equal(out.get('op://Vault/Good/secret').value, goodVal)
+  assert.equal(out.get('op://Vault/Missing/secret').ok, false)
+
+  // Subsequent lookup hits cache cleanly for BOTH without spawning op again.
+  const callsAfter = fakeOp.readCalls().length
+  const cachedGood = resolver.getCached('onepassword', {}, 'op://Vault/Good/secret')
+  const cachedBad = resolver.getCached('onepassword', {}, 'op://Vault/Missing/secret')
+  assert.equal(cachedGood.ok, true)
+  assert.equal(cachedGood.value, goodVal)
+  assert.equal(cachedBad.ok, false)
+  await resolver.resolve(items)
+  assert.equal(fakeOp.readCalls().length, callsAfter)
+})
+
+test('1Password driver safely unwraps Windows .cmd shims without spawn EINVAL', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsb-op-shim-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const v1 = fresh()
+  const fakeOp = createFakeOpBinary(dir, { values: { 'op://Vault/Shim/key': v1 } })
+  // Exercises scriptPath directly: POSIX executable shell script on Unix, .cmd shim via launchOf on Windows.
+  const driver = createOnePasswordDriver({ bin: fakeOp.scriptPath, tempDir: dir })
+  const out = await driver.readBatch({}, ['op://Vault/Shim/key'])
+  assert.equal(out.get('op://Vault/Shim/key'), v1)
 })

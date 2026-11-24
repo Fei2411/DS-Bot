@@ -8,6 +8,7 @@ import { randomUUID } from 'node:crypto'
 import { chmod, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { findExecutable, launchOf } from '../local-agents/discover.js'
 
 export const ONEPASSWORD_KIND = 'onepassword'
 export const ONEPASSWORD_TIMEOUT_MS = 45_000
@@ -47,7 +48,7 @@ function killProcessTree(child) {
   if (!child || child.exitCode !== null || child.signalCode !== null) return
   if (process.platform === 'win32' && child.pid) {
     try {
-      const killer = spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { shell: false, stdio: 'ignore' })
+      const killer = spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { shell: false, stdio: 'ignore', windowsHide: true })
       killer.unref?.()
     } catch {}
     try { child.kill() } catch {}
@@ -81,9 +82,22 @@ function runOpProcess(bin, args, { timeoutMs, signal, env }) {
     const stdoutChunks = []
     const stderrChunks = []
 
-    const child = spawn(bin, args, {
+    let launch
+    try {
+      const resolvedBin = process.platform === 'win32' && !bin.includes('/') && !bin.includes('\\')
+        ? (findExecutable(bin) ?? bin)
+        : bin
+      launch = launchOf(resolvedBin, args)
+    } catch (error) {
+      reject(Object.assign(new Error(error?.message || '1Password CLI could not start.'), { code: error?.code ?? 'OP_SPAWN_ERROR' }))
+      return
+    }
+
+    const child = spawn(launch.file, launch.args, {
       shell: false,
       stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+      ...launch.options,
       ...(env ? { env } : {}),
     })
 
@@ -180,11 +194,13 @@ function parseInjectOutput(output, refs, token) {
 
 export function createOnePasswordDriver({
   bin = () => process.env.DS_BOT_OP_BIN || 'op',
+  binArgs = [],
   timeoutMs = ONEPASSWORD_TIMEOUT_MS,
   tempDir = tmpdir(),
   env,
 } = {}) {
   const resolveBin = () => (typeof bin === 'function' ? bin() : bin)
+  const prefixArgs = Array.isArray(binArgs) ? binArgs.map(String) : []
 
   return {
     kind: ONEPASSWORD_KIND,
@@ -201,7 +217,7 @@ export function createOnePasswordDriver({
         }
       }
       const binary = resolveBin()
-      const baseArgs = ['--cache=false', ...(normalized.account ? [`--account=${normalized.account}`] : [])]
+      const baseArgs = [...prefixArgs, '--cache=false', ...(normalized.account ? [`--account=${normalized.account}`] : [])]
       const deadline = Date.now() + timeoutMs
       const remaining = () => Math.max(0, deadline - Date.now())
 
@@ -232,15 +248,38 @@ export function createOnePasswordDriver({
       }
 
       // Fallback: resolve each reference individually while sharing the original deadline.
+      // Isolate per-ref failures so one missing item does not poison valid references.
       const values = new Map()
-      for (const ref of uniqueRefs) {
-        const value = await runOpProcess(binary, [...baseArgs, 'read', '--no-newline', ref], {
-          timeoutMs: remaining(),
-          signal,
-          env,
-        })
-        values.set(ref, value)
+      let succeeded = 0
+      let firstError = null
+      for (let i = 0; i < uniqueRefs.length; i += 1) {
+        const ref = uniqueRefs[i]
+        try {
+          const value = await runOpProcess(binary, [...baseArgs, 'read', '--no-newline', ref], {
+            timeoutMs: remaining(),
+            signal,
+            env,
+          })
+          values.set(ref, value)
+          succeeded += 1
+        } catch (error) {
+          if (firstError === null) firstError = error
+          if (error?.code === 'ENOENT' || error?.code === 'ABORT_ERR' || signal?.aborted) {
+            throw error
+          }
+          values.set(ref, { ok: false, error })
+          if (error?.code === 'ETIMEDOUT' || remaining() <= 0) {
+            const timeoutErr = error?.code === 'ETIMEDOUT'
+              ? error
+              : Object.assign(new Error('1Password CLI timed out.'), { code: 'ETIMEDOUT' })
+            for (let j = i + 1; j < uniqueRefs.length; j += 1) {
+              values.set(uniqueRefs[j], { ok: false, error: timeoutErr })
+            }
+            break
+          }
+        }
       }
+      if (succeeded === 0) throw firstError ?? injectError
       return values
     },
   }

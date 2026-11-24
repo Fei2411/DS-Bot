@@ -9,6 +9,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import { PRESETS, presetOf, mailSecretName } from './presets.js'
 import { connectImap, connectGmail } from './transport.js'
 import { output } from '../../tools.js'
+import { isSecretRef } from '../../secret-refs.js'
 import { refreshTokens, invalidGrant, discover, beginBrowser, exchange } from '../oauth.js'
 
 const GOOGLE_SCOPES = 'openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/gmail.modify'
@@ -82,12 +83,20 @@ export function install(rt, host) {
     if (connecting.has(key)) return connecting.get(key)
     const make = async () => {
       if (account.auth === 'google') {
-        const token = () => rt.secretValue(mailSecretName(account.address, 'TOKEN'))
+        const tokenName = mailSecretName(account.address, 'TOKEN')
+        if (typeof rt.resolveExternalForBot === 'function') {
+          await rt.resolveExternalForBot(undefined, { names: [tokenName] }).catch(() => {})
+        }
+        const token = () => rt.secretValue(tokenName)
         const session = connectGmail(account, { token, fetch: rt.config.mail?.fetch, refresh: () => refreshGoogle(account) })
         sessions.set(key, session)
         return session
       }
-      const password = rt.secretValue(mailSecretName(account.address, 'PASSWORD'))
+      const passwordName = mailSecretName(account.address, 'PASSWORD')
+      if (typeof rt.resolveExternalForBot === 'function') {
+        await rt.resolveExternalForBot(undefined, { names: [passwordName] }).catch(() => {})
+      }
+      const password = rt.secretValue(passwordName)
       if (password === undefined) throw new Error(`The password for ${account.address} is not saved`)
       return openImap(account, password)
     }
@@ -380,16 +389,21 @@ export function install(rt, host) {
       if (adding.has(address)) return adding.get(address)
       const pending = (async () => {
         const passwordRef = typeof body.secretRef === 'string' ? body.secretRef.trim() : typeof body.passwordRef === 'string' ? body.passwordRef.trim() : ''
-        const password = passwordRef !== ''
-          ? await rt.secrets.consumeRef(passwordRef, { botId: body.botId })
-          : String(body.password ?? '').trim()
-        if (password === '') throw new Error('Enter the authorization code or app password')
+        const rawPassword = String(body.password ?? '').trim()
+        if (passwordRef === '' && rawPassword === '') throw new Error('Enter the authorization code or app password')
         const preset = presetOf(address)
         const provider = typeof body.provider === 'string' ? body.provider : preset?.id ?? 'other'
         const chosen = PRESETS.find(p => p.id === provider)
         const imap = chosen && provider !== 'other' ? chosen.imap : { host: String(body.imapHost ?? '').trim(), port: Number(body.imapPort) || 993, secure: body.imapTls !== false }
         const smtp = chosen && provider !== 'other' ? chosen.smtp : { host: String(body.smtpHost ?? '').trim(), port: Number(body.smtpPort) || 465, secure: body.smtpTls !== false }
         if (imap.host === '' || smtp.host === '') throw new Error('Enter the IMAP and SMTP hosts')
+        if (rt.readOnly() !== undefined) throw new Error(rt.readOnly())
+        const password = passwordRef !== ''
+          ? await rt.secrets.consumeRef(passwordRef, { botId: body.botId })
+          : isSecretRef(rawPassword)
+            ? await rt.secrets.consumeRef(rawPassword, { botId: body.botId })
+            : rawPassword
+        if (password === '') throw new Error('Enter the authorization code or app password')
         const existing = accountOf(address)
         const id = existing?.id ?? `m${randomUUID().slice(0, 8)}`
         const account = { ...existing, id, address, provider, auth: 'password', imap, smtp, createdAt: existing?.createdAt ?? Date.now() }

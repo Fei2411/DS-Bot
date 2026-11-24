@@ -8,7 +8,7 @@ import { chmod, mkdir, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { cleanPassphrase, decryptSecrets, encryptSecrets, isEncryptedSecretsFile, passphraseFromEnv } from './secrets-crypto.js'
-import { createSecretRefs } from './secret-refs.js'
+import { createSecretRefs, hashShellValue, shellFileKey } from './secret-refs.js'
 import { createDefaultProviderRegistry } from './secret-providers/registry.js'
 import { createSecretResolver } from './secret-providers/resolver.js'
 import { serviceOf } from './services.js'
@@ -219,7 +219,7 @@ export function install(rt) {
   const secrets = new Map()
   const providerRegistry = createDefaultProviderRegistry(rt.config?.secretProviders)
   const resolver = createSecretResolver({ registry: providerRegistry })
-  /** @type {Map<string, string>} */
+  /** @type {Map<string, { name: string, value: string, expiresAt: number }>} */
   const ephemeralRedactions = new Map()
   let hasRedactions = false
   let hasExternalSecrets = false
@@ -233,7 +233,18 @@ export function install(rt) {
     }
     return secret.value
   }
+  const pruneExpiredEphemeral = (current = Date.now()) => {
+    let removed = false
+    for (const [id, entry] of ephemeralRedactions.entries()) {
+      if (Number.isFinite(entry.expiresAt) && entry.expiresAt <= current) {
+        ephemeralRedactions.delete(id)
+        removed = true
+      }
+    }
+    return removed
+  }
   const rebuildRedactor = () => {
+    pruneExpiredEphemeral()
     const entries = []
     hasExternalSecrets = false
     for (const secret of secrets.values()) {
@@ -243,20 +254,26 @@ export function install(rt) {
         entries.push({ name: secret.name, value })
       }
     }
-    for (const [label, value] of ephemeralRedactions.entries()) {
+    for (const { name, value } of ephemeralRedactions.values()) {
       if (typeof value === 'string' && value.length >= MIN_VALUE) {
-        entries.push({ name: label, value })
+        entries.push({ name, value })
       }
     }
     hasRedactions = entries.length > 0
     redact = redactor(entries)
     redactedMessages = new WeakMap()
   }
-  const trackEphemeralPlaintext = (value, label) => {
+  const trackEphemeralPlaintext = (value, label, { id, expiresAt } = {}) => {
     if (typeof value !== 'string' || value.length < MIN_VALUE) return
-    const key = String(label || 'TEMP')
-    if (ephemeralRedactions.has(key)) ephemeralRedactions.delete(key)
-    ephemeralRedactions.set(key, value)
+    pruneExpiredEphemeral()
+    const name = String(label || 'TEMP')
+    const entryId = typeof id === 'string' && id !== '' ? id : `${name}:${randomUUID()}`
+    if (ephemeralRedactions.has(entryId)) ephemeralRedactions.delete(entryId)
+    ephemeralRedactions.set(entryId, {
+      name,
+      value,
+      expiresAt: Number.isFinite(expiresAt) ? expiresAt : Date.now() + 86_400_000,
+    })
     while (ephemeralRedactions.size > MAX_EPHEMERAL_REDACTIONS) {
       const oldest = ephemeralRedactions.keys().next().value
       if (oldest === undefined) break
@@ -269,6 +286,9 @@ export function install(rt) {
     getEncryption: () => ({ mode: store.mode, locked: store.locked, passphrase: store.passphrase }),
     warn: (...args) => rt.warn(...args),
     onPlaintext: trackEphemeralPlaintext,
+    onSweep: (current) => {
+      if (pruneExpiredEphemeral(current)) rebuildRedactor()
+    },
   })
 
   let loaded = null
@@ -301,9 +321,31 @@ export function install(rt) {
     })
   }
 
+  const pruneShellFiles = (excludeBotId = null) => {
+    if (shellMode() !== 'file') {
+      secretRefs.cleanupShellFiles()
+      return
+    }
+    const keepKeys = new Set()
+    const keepHashes = new Map()
+    const botIds = Object.keys(state.bots ?? {})
+    for (const secret of secrets.values()) {
+      const value = resolvedValueOf(secret)
+      if (typeof value !== 'string') continue
+      const valHash = hashShellValue(value)
+      for (const botId of botIds) {
+        if (botId === excludeBotId || !canUse(secret, botId)) continue
+        const key = shellFileKey(botId, secret.name)
+        keepKeys.add(key)
+        keepHashes.set(key, valHash)
+      }
+    }
+    secretRefs.cleanupShellFiles({ keepKeys, keepHashes })
+  }
+
   const notify = ({ declare = true } = {}) => {
     rebuildRedactor()
-    if (shellMode() !== 'file') secretRefs.cleanupShellFiles()
+    pruneShellFiles()
     if (declare) refreshEnv()
     else scheduleRefreshEnv()
     rt.secretsChanged?.()
@@ -595,6 +637,7 @@ export function install(rt) {
     for (const [botId, list] of Object.entries(state.secretRequests ?? {})) {
       for (const request of list) {
         if (request.status !== 'pending' || request.name !== name || request === except) continue
+        if ((request.delivery ?? 'vault') !== 'vault') continue
         if (canUse(secret, botId)) {
           settle(botId, request, 'saved')
           notes.push([botId, savedNote(name, `The user saved ${name}, and you may use it now.`)])
@@ -663,10 +706,13 @@ export function install(rt) {
   }
   const secretsView = () => [...secrets.values()].sort((a, b) => a.name.localeCompare(b.name)).map(secretView)
 
-  const externalItemsForBot = (botId) => {
+  const externalItemsForBot = (botId, names) => {
+    const nameSet = names === undefined ? null : (names instanceof Set ? names : new Set(names))
+    if (nameSet !== null && nameSet.size === 0) return []
     const items = []
     for (const secret of secrets.values()) {
       if (secret.kind !== 'external') continue
+      if (nameSet !== null && !nameSet.has(secret.name)) continue
       if (botId !== undefined && !canUse(secret, botId)) continue
       items.push({
         name: secret.name,
@@ -686,10 +732,10 @@ export function install(rt) {
     }
     return false
   }
-  async function resolveExternalForBot(botId, { signal } = {}) {
+  async function resolveExternalForBot(botId, { signal, names } = {}) {
     if (loaded === null) await loadSecrets()
     if (!hasExternalSecrets) return { resolved: 0, failed: 0, errors: {} }
-    const items = externalItemsForBot(botId)
+    const items = externalItemsForBot(botId, names)
     if (items.length === 0) return { resolved: 0, failed: 0, errors: {} }
     const hadBefore = items.map(item => resolver.getCached(item.providerId, item.config, item.reference))
     const results = await resolver.resolve(items, { signal })
@@ -773,10 +819,17 @@ export function install(rt) {
       store.source = 'user'
       store.locked = false
       store.reason = null
+      let persisted = false
       try {
         await persist()
+        persisted = true
+        await secretRefs.rekeyRefs({ fromPassphrase: null, toPassphrase: passphrase })
       } catch (error) {
+        if (persisted) {
+          await secretRefs.rekeyRefs({ fromPassphrase: passphrase, toPassphrase: null }).catch(() => {})
+        }
         Object.assign(store, previous)
+        if (persisted) await persist().catch(() => {})
         throw error
       }
       changed()
@@ -799,16 +852,26 @@ export function install(rt) {
       store.locked = false
       store.reason = null
       store.source = null
-      store.passphrase = null
+      // Keep the verified passphrase available while in-flight encrypted secret-refs are
+      // decrypted so concurrent consumeRef calls never hit SECRET_STORE_LOCKED.
+      store.passphrase = passphrase
+      let persisted = false
       try {
         await persist()
+        persisted = true
+        await secretRefs.rekeyRefs({ fromPassphrase: passphrase, toPassphrase: null })
       } catch (error) {
+        if (persisted) {
+          await secretRefs.rekeyRefs({ fromPassphrase: null, toPassphrase: passphrase }).catch(() => {})
+        }
         Object.assign(store, previous)
         secrets.clear()
         for (const secret of before) secrets.set(secret.name, secret)
+        if (persisted) await persist().catch(() => {})
         changed()
         throw error
       }
+      store.passphrase = null
       changed()
       await rt.save()
       return secretStoreStatus()
@@ -866,7 +929,10 @@ export function install(rt) {
             updatedAt: now,
             ...(existing?.lastUsedAt !== undefined ? { lastUsedAt: existing.lastUsedAt } : {}),
           })
-          resolver.invalidate(providerId)
+          if (existing?.kind === 'external' && existing.reference !== reference) {
+            resolver.invalidateRef(existing.providerId, providerConfigOf(existing.providerId), existing.reference)
+          }
+          resolver.invalidateRef(providerId, providerConfigOf(providerId), reference)
         } else {
           const value = cleanValue(body.value)
           secrets.set(request.name, {
@@ -879,6 +945,9 @@ export function install(rt) {
             updatedAt: now,
             ...(existing?.lastUsedAt !== undefined ? { lastUsedAt: existing.lastUsedAt } : {}),
           })
+          if (existing?.kind === 'external') {
+            resolver.invalidateRef(existing.providerId, providerConfigOf(existing.providerId), existing.reference)
+          }
         }
         settle(botId, request, 'saved')
         notes.push([botId, savedNote(request.name, `The user saved ${request.name} for ${scopeText(scope)}.`)])
@@ -903,7 +972,10 @@ export function install(rt) {
           updatedAt: now,
           ...(existing?.lastUsedAt !== undefined ? { lastUsedAt: existing.lastUsedAt } : {}),
         })
-        resolver.invalidate(providerId)
+        if (existing?.kind === 'external' && existing.reference !== reference) {
+          resolver.invalidateRef(existing.providerId, providerConfigOf(existing.providerId), existing.reference)
+        }
+        resolver.invalidateRef(providerId, providerConfigOf(providerId), reference)
       } else {
         const value = cleanValue(body.value)
         secrets.set(name, {
@@ -916,6 +988,9 @@ export function install(rt) {
           updatedAt: now,
           ...(existing?.lastUsedAt !== undefined ? { lastUsedAt: existing.lastUsedAt } : {}),
         })
+        if (existing?.kind === 'external') {
+          resolver.invalidateRef(existing.providerId, providerConfigOf(existing.providerId), existing.reference)
+        }
       }
       reconcile(name, notes)
       await commit(notes)
@@ -931,6 +1006,7 @@ export function install(rt) {
     },
     async 'secret-allow'(body) {
       const { botId, request } = pendingRequest(body.requestId)
+      if ((request.delivery ?? 'vault') !== 'vault') throw new Error('This request cannot be answered with an existing key')
       const secret = secrets.get(request.name)
       if (secret === undefined) throw new Error(`${request.name} is not saved yet`)
       if (!canUse(secret, botId)) secret.scope = [...new Set([...secret.scope, botId])]
@@ -992,6 +1068,7 @@ export function install(rt) {
           touched = true
         }
       }
+      pruneShellFiles(botId)
       if (touched) {
         changed()
         await persist().catch(() => {})
@@ -1281,8 +1358,10 @@ export function install(rt) {
   const secretsApi = {
     issueRef: opts => secretRefs.issueRef(opts),
     consumeRef: (ref, opts) => secretRefs.consumeRef(ref, opts),
+    rekeyRefs: opts => secretRefs.rekeyRefs(opts),
     writeSecretFile: opts => secretRefs.writeSecretFile(opts),
     savePastedFile: opts => secretRefs.savePastedFile(opts),
+    activeShellFilePaths: () => secretRefs.activeShellFilePaths(),
     sweepExpiredRefs: opts => secretRefs.sweepExpiredRefs(opts),
     sweepExpiredFiles: opts => secretRefs.sweepExpiredFiles(opts),
     resolveExternalForBot,

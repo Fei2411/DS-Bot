@@ -4,7 +4,7 @@
 // never be consumed twice.
 import { createHash, createHmac, randomBytes } from 'node:crypto'
 import { chmodSync, existsSync, mkdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
-import { chmod, mkdir, readdir, readFile, stat, unlink, writeFile } from 'node:fs/promises'
+import { chmod, lstat, mkdir, readdir, readFile, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { replaceFile } from './files.js'
 import { decryptSecretRecord, encryptSecretRecord, isEncryptedSecretsFile } from './secrets-crypto.js'
@@ -19,6 +19,18 @@ const SALT_BYTES = 32
 
 export function isSecretRef(value) {
   return typeof value === 'string' && SECRET_REF_PATTERN.test(value)
+}
+
+export function matchSecretRefs(text) {
+  return [...String(text ?? '').matchAll(/secret-ref:([0-9a-f]{32})/g)]
+}
+
+export function shellFileKey(botId, name) {
+  return `${botId}\0${name}`
+}
+
+export function hashShellValue(value) {
+  return createHash('sha256').update(value).digest('hex')
 }
 
 function codedError(code, message) {
@@ -40,6 +52,7 @@ export function createSecretRefs({
   getEncryption = () => ({ mode: 'plaintext', locked: false, passphrase: null }),
   warn = () => {},
   onPlaintext = () => {},
+  onSweep = () => {},
   now = () => Date.now(),
   fsOps = {},
 } = {}) {
@@ -137,7 +150,10 @@ export function createSecretRefs({
         ? JSON.stringify(encryptSecretRecord(record, enc.passphrase), null, 2)
         : JSON.stringify(record, null, 2)
       await atomicWritePrivate(join(refsDir, `${hex}.json`), serialized)
-      onPlaintext(value, `REF_${hex.slice(0, 8).toUpperCase()}`)
+      onPlaintext(value, `REF_${hex.slice(0, 8).toUpperCase()}`, {
+        id: `ref:${hex}`,
+        expiresAt: record.savedAt + record.ttlMs,
+      })
       return ref
     })
   }
@@ -190,8 +206,72 @@ export function createSecretRefs({
         }
         throw codedError('SECRET_REF_CONSUME_FAILED', `Could not remove secret reference after reading (${error?.code ?? 'error'}).`)
       }
-      onPlaintext(entry.value, `REF_${hex.slice(0, 8).toUpperCase()}`)
+      onPlaintext(entry.value, `REF_${hex.slice(0, 8).toUpperCase()}`, {
+        id: `ref:${hex}`,
+        expiresAt: entry.savedAt + ttl,
+      })
       return entry.value
+    })
+  }
+
+  // Re-encrypts or decrypts all existing in-flight secret-ref files when secrets.json
+  // transitions between plaintext and encrypted modes (or rotates its passphrase).
+  function rekeyRefs({ fromPassphrase = null, toPassphrase = null } = {}) {
+    return serialize(async () => {
+      let names
+      try {
+        names = await readdir(refsDir)
+      } catch (error) {
+        if (error?.code === 'ENOENT') return { updated: 0 }
+        throw error
+      }
+      let updated = 0
+      for (const name of names) {
+        if (!name.endsWith('.json')) continue
+        const full = join(refsDir, name)
+        let info
+        try {
+          info = await lstat(full)
+        } catch (error) {
+          if (error?.code === 'ENOENT') continue
+          throw error
+        }
+        if (info.isSymbolicLink() || !info.isFile()) continue
+        let raw
+        try {
+          raw = await readFile(full, 'utf8')
+        } catch (error) {
+          if (error?.code === 'ENOENT') continue
+          throw error
+        }
+        let parsed
+        try {
+          parsed = JSON.parse(raw)
+        } catch {
+          continue
+        }
+        const encrypted = isEncryptedSecretsFile(parsed)
+        if (typeof toPassphrase === 'string' && toPassphrase.length > 0) {
+          let record
+          if (encrypted) {
+            if (typeof fromPassphrase !== 'string' || fromPassphrase.length === 0) continue
+            record = decryptSecretRecord(parsed, fromPassphrase)
+          } else {
+            record = parsed
+          }
+          const envelope = encryptSecretRecord(record, toPassphrase)
+          await atomicWritePrivate(full, JSON.stringify(envelope, null, 2))
+          updated += 1
+        } else if (encrypted) {
+          if (typeof fromPassphrase !== 'string' || fromPassphrase.length === 0) {
+            throw codedError('SECRET_STORE_LOCKED', 'Passphrase is required to decrypt secret references.')
+          }
+          const record = decryptSecretRecord(parsed, fromPassphrase)
+          await atomicWritePrivate(full, JSON.stringify(record, null, 2))
+          updated += 1
+        }
+      }
+      return { updated }
     })
   }
 
@@ -205,7 +285,10 @@ export function createSecretRefs({
       const filePath = join(filesDir, fileName)
       await atomicWritePrivate(filePath, value)
       const expiresAt = now() + (Number.isFinite(ttlMs) && ttlMs > 0 ? ttlMs : DEFAULT_TTL_MS)
-      onPlaintext(value, safeLabel || `FILE_${token.slice(0, 8).toUpperCase()}`)
+      onPlaintext(value, safeLabel || `FILE_${token.slice(0, 8).toUpperCase()}`, {
+        id: `file:${token}`,
+        expiresAt,
+      })
       return { filePath, expiresAt, botId: String(botId), sessionId: String(sessionId) }
     })
   }
@@ -216,30 +299,46 @@ export function createSecretRefs({
 
   // Managed temp files for optional Shell File Mode (`$DSH_SECRET_FILE_<NAME>`).
   // Kept in sync synchronously so DSH's synchronous `shellEnv.resolve` contract works
-  // without awaiting on every command.
+  // without awaiting on every command. Each value rotation writes to a fresh content-hashed
+  // path so Windows never fails with EBUSY/EPERM if a running child holds the previous handle.
   /** @type {Map<string, { filePath: string, hash: string }>} */
   const shellFiles = new Map()
+  let shellFileGen = 0
   function ensureShellFileSync(botId, name, value) {
     ensurePrivateDirSync(filesDir)
-    const cacheKey = `${botId}\0${name}`
-    const hash = createHash('sha256').update(value).digest('hex')
+    const cacheKey = shellFileKey(botId, name)
+    const hash = hashShellValue(value)
     const cached = shellFiles.get(cacheKey)
     if (cached !== undefined && cached.hash === hash && existsSync(cached.filePath)) {
       return cached.filePath
     }
-    const id = createHash('sha256').update(`${process.pid}\0${botId}\0${name}`).digest('hex').slice(0, 24)
-    const filePath = cached?.filePath ?? join(filesDir, `env-${id}.secret`)
+    const keyHash = createHash('sha256').update(`${process.pid}\0${botId}\0${name}`).digest('hex').slice(0, 16)
+    const valHash = hash.slice(0, 12)
+    shellFileGen += 1
+    const filePath = join(filesDir, `env-${keyHash}-${valHash}-${shellFileGen.toString(36)}.secret`)
     atomicWritePrivateSync(filePath, value)
+    const previousPath = cached?.filePath
     shellFiles.set(cacheKey, { filePath, hash })
+    if (previousPath !== undefined && previousPath !== filePath) {
+      try { unlinkSync(previousPath) } catch {}
+    }
     return filePath
   }
 
-  function cleanupShellFiles(keepKeys = null) {
+  function cleanupShellFiles(options = null) {
+    const keepKeys = options instanceof Set ? options : (options?.keepKeys ?? null)
+    const keepHashes = options instanceof Set ? null : (options?.keepHashes ?? null)
     for (const [cacheKey, entry] of [...shellFiles.entries()]) {
-      if (keepKeys !== null && keepKeys.has(cacheKey)) continue
+      const keepKey = keepKeys !== null && keepKeys.has(cacheKey)
+      const keepHash = keepHashes === null || keepHashes.get(cacheKey) === entry.hash
+      if (keepKey && keepHash) continue
       shellFiles.delete(cacheKey)
       try { unlinkSync(entry.filePath) } catch {}
     }
+  }
+
+  function activeShellFilePaths() {
+    return new Set([...shellFiles.values()].map(entry => entry.filePath))
   }
 
   function sweepExpiredRefs({ maxAgeMs = DEFAULT_TTL_MS } = {}) {
@@ -256,14 +355,18 @@ export function createSecretRefs({
       for (const name of names) {
         if (name === '.salt') continue
         const full = join(refsDir, name)
+        let info
+        try {
+          info = await lstat(full)
+        } catch {
+          continue
+        }
+        if (info.isSymbolicLink() || !info.isFile()) continue
         if (name.endsWith('.partial')) {
-          try {
-            const info = await stat(full)
-            if (current - info.mtimeMs >= PARTIAL_MAX_AGE_MS) {
-              await unlink(full).catch(() => {})
-              removed += 1
-            }
-          } catch {}
+          if (current - info.mtimeMs >= PARTIAL_MAX_AGE_MS) {
+            await unlink(full).catch(() => {})
+            removed += 1
+          }
           continue
         }
         if (!name.endsWith('.json')) continue
@@ -272,23 +375,20 @@ export function createSecretRefs({
           const raw = await readFile(full, 'utf8')
           const parsed = JSON.parse(raw)
           if (isEncryptedSecretsFile(parsed)) {
-            const info = await stat(full)
             if (current - info.mtimeMs > maxAgeMs) expired = true
           } else {
             const ttl = Number.isFinite(parsed?.ttlMs) && parsed.ttlMs > 0 ? parsed.ttlMs : maxAgeMs
             if (!Number.isFinite(parsed?.savedAt) || current - parsed.savedAt > ttl) expired = true
           }
         } catch {
-          try {
-            const info = await stat(full)
-            if (current - info.mtimeMs > maxAgeMs) expired = true
-          } catch {}
+          if (current - info.mtimeMs > maxAgeMs) expired = true
         }
         if (expired) {
           await unlink(full).catch(() => {})
           removed += 1
         }
       }
+      onSweep(current)
       return removed
     })
   }
@@ -303,13 +403,14 @@ export function createSecretRefs({
         throw error
       }
       const current = now()
-      const activeShellPaths = new Set([...shellFiles.values()].map(entry => entry.filePath))
+      const activeShellPaths = activeShellFilePaths()
       let removed = 0
       for (const name of names) {
         const full = join(filesDir, name)
         if (activeShellPaths.has(full)) continue
         try {
-          const info = await stat(full)
+          const info = await lstat(full)
+          if (info.isSymbolicLink() || !info.isFile()) continue
           const limit = name.endsWith('.partial') ? PARTIAL_MAX_AGE_MS : maxAgeMs
           if (current - info.mtimeMs >= limit) {
             await unlink(full).catch(() => {})
@@ -317,6 +418,7 @@ export function createSecretRefs({
           }
         } catch {}
       }
+      onSweep(current)
       return removed
     })
   }
@@ -346,10 +448,12 @@ export function createSecretRefs({
     filesDir,
     issueRef,
     consumeRef,
+    rekeyRefs,
     writeSecretFile,
     savePastedFile,
     ensureShellFileSync,
     cleanupShellFiles,
+    activeShellFilePaths,
     sweepExpiredRefs,
     sweepExpiredFiles,
     startSweeper,

@@ -14,7 +14,7 @@ import * as oauth from './oauth.js'
 import { createGateway } from './gateway.js'
 import { install as installMail } from './mail/index.js'
 import { CONNECTOR_IDS } from '../capabilities.js'
-import { SECRET_REF_GLOBAL, isSecretRef } from '../secret-refs.js'
+import { isSecretRef, matchSecretRefs } from '../secret-refs.js'
 import { output } from '../tools.js'
 
 export const GITHUB_SECRET = 'GITHUB_TOKEN'
@@ -178,7 +178,8 @@ export function install(rt) {
     if (entry?.custom !== undefined && entry.custom.command !== undefined) {
       const env = {}
       for (const [key, raw] of Object.entries(entry.custom.env ?? {})) env[key] = resolveRefs(raw)
-      return { transport: 'stdio', serverName: id, command: entry.custom.command, args: entry.custom.args ?? [], env }
+      const args = (entry.custom.args ?? []).map(resolveRefs)
+      return { transport: 'stdio', serverName: id, command: entry.custom.command, args, env }
     }
     const gw = await gateway()
     return { transport: 'streamable-http', serverName: id, url: gw.urlFor(id), headers: gw.headers() }
@@ -222,9 +223,32 @@ export function install(rt) {
     }
   }
 
+  function referencedConnectorSecrets() {
+    const names = new Set()
+    const scan = (raw) => {
+      if (typeof raw !== 'string') return
+      for (const match of raw.matchAll(/\$DSH_SECRET_([A-Z][A-Z0-9_]*)/g)) names.add(match[1])
+    }
+    for (const entry of entries()) {
+      if (entry.id === 'mail') continue
+      if (state.connectors?.[entry.id] === undefined) continue
+      if (entry.auth.kind === 'oauth') names.add(tokenSecretOf(entry.id))
+      if (entry.auth.kind === 'key') names.add(keySecretOf(entry.id))
+      if (entry.custom !== undefined) {
+        for (const val of Object.values(entry.custom.headers ?? {})) scan(val)
+        for (const val of Object.values(entry.custom.env ?? {})) scan(val)
+        for (const arg of entry.custom.args ?? []) scan(arg)
+      }
+    }
+    return names
+  }
+
   async function reconcile() {
     if (typeof rt.resolveExternalForBot === 'function') {
-      await rt.resolveExternalForBot(undefined).catch(() => {})
+      const names = referencedConnectorSecrets()
+      if (names.size > 0) {
+        await rt.resolveExternalForBot(undefined, { names }).catch(() => {})
+      }
     }
     for (const id of mounts.keys()) {
       if (!hasCredential(id)) await unmount(id)
@@ -755,8 +779,10 @@ export function install(rt) {
       if (entry.auth.kind === 'key') {
         const remote = entry.remote?.url
         if (remote !== undefined && insecure(remote)) throw new Error('Connector addresses must start with https://')
+        if (rt.readOnly() !== undefined) throw new Error(rt.readOnly())
         const refInput = typeof body.secretRef === 'string' ? body.secretRef.trim() : typeof body.keyRef === 'string' ? body.keyRef.trim() : ''
         const rawKey = typeof body.key === 'string' ? body.key.trim() : ''
+        if (refInput === '' && rawKey === '') throw new Error('Paste a key first')
         const key = refInput !== ''
           ? await rt.secrets.consumeRef(refInput, { botId: body.botId })
           : isSecretRef(rawKey)
@@ -774,6 +800,7 @@ export function install(rt) {
         const remote = entry.remote?.url
         if (remote !== undefined && insecure(remote)) throw new Error('Connector addresses must start with https://')
         if (entry.id === 'github' && options?.api !== undefined && insecure(options.api)) throw new Error('GitHub addresses must start with https://')
+        if (rt.readOnly() !== undefined) throw new Error(rt.readOnly())
       }
       const token = tokenRef !== ''
         ? await rt.secrets.consumeRef(tokenRef, { botId: body.botId })
@@ -843,6 +870,7 @@ export function install(rt) {
       const entry = known(body.id)
       const clientId = String(body.clientId ?? '').trim()
       if (clientId === '') throw new Error('Enter the client ID')
+      if (rt.readOnly() !== undefined) throw new Error(rt.readOnly())
       const secretRefInput = typeof body.secretRef === 'string' ? body.secretRef.trim() : typeof body.clientSecretRef === 'string' ? body.clientSecretRef.trim() : ''
       const rawClientSecret = typeof body.clientSecret === 'string' && body.clientSecret.trim() !== '' ? body.clientSecret.trim() : undefined
       const clientSecret = secretRefInput !== ''
@@ -877,33 +905,68 @@ export function install(rt) {
       // An address can sign in with OAuth instead of a fixed header; commands cannot.
       const oauth = body.oauth === true && url !== undefined
       if (body.oauth === true && url === undefined) throw new Error('OAuth sign-in needs an address')
+      if (url !== undefined && body.headers !== undefined && (body.headers === null || typeof body.headers !== 'object' || Array.isArray(body.headers))) {
+        throw new Error('Headers must be an object')
+      }
+      if (url === undefined && body.args !== undefined && !Array.isArray(body.args)) {
+        throw new Error('Arguments must be a list')
+      }
+      if (url === undefined && body.env !== undefined && (body.env === null || typeof body.env !== 'object' || Array.isArray(body.env))) {
+        throw new Error('Environment variables must be an object')
+      }
+      if (rt.readOnly() !== undefined) throw new Error(rt.readOnly())
       const taken = new Set(Object.keys(state.connectors ?? {}))
       const id = customId(name, taken)
-      CONNECTOR_IDS.add(id)
+      const refSecretName = (prefix, key, hex) => {
+        const suffix = hex.slice(0, 8).toUpperCase()
+        const base = envSecretOf(id, `${prefix}_${key}`).slice(0, 55).replace(/_+$/, '')
+        return `${base}_${suffix}`
+      }
+      const consumed = new Map()
+      const createdSecrets = []
+      const resolveRefText = async (val, prefix, key) => {
+        let text = String(val)
+        const matches = matchSecretRefs(text)
+        for (const [ref, hex] of matches) {
+          let secretName = consumed.get(ref)
+          if (secretName === undefined) {
+            const resolved = await rt.secrets.consumeRef(ref, { botId: body.botId })
+            secretName = refSecretName(prefix, key, hex)
+            const existed = await keptSecret(secretName)
+            await writeSecret(secretName, resolved, `${name} connector`)
+            if (!existed) createdSecrets.push(secretName)
+            consumed.set(ref, secretName)
+          }
+          text = text.replaceAll(ref, `$DSH_SECRET_${secretName}`)
+        }
+        return text
+      }
       const resolveRefMap = async (map, prefix) => {
         const out = {}
-        const consumed = new Map()
         for (const [key, val] of Object.entries(map && typeof map === 'object' ? map : {})) {
-          let text = String(val)
-          const matches = [...text.matchAll(SECRET_REF_GLOBAL)]
-          for (const [ref] of matches) {
-            let secretName = consumed.get(ref)
-            if (secretName === undefined) {
-              const resolved = await rt.secrets.consumeRef(ref, { botId: body.botId })
-              secretName = envSecretOf(id, `${prefix}_${key}`)
-              await writeSecret(secretName, resolved, `${name} connector`)
-              consumed.set(ref, secretName)
-            }
-            text = text.replaceAll(ref, `$DSH_SECRET_${secretName}`)
-          }
-          out[key] = text
+          out[key] = await resolveRefText(val, prefix, key)
         }
         return out
       }
-      const custom = url !== undefined
-        ? { name, url, headers: await resolveRefMap(body.headers, 'HEAD'), ...(oauth ? { oauth: true } : {}) }
-        : { name, command, args: Array.isArray(body.args) ? body.args.map(String) : [], env: await resolveRefMap(body.env, 'ENV') }
-      await saveState(id, { custom, connectedAt: Date.now() })
+      let custom
+      try {
+        if (url !== undefined) {
+          custom = { name, url, headers: await resolveRefMap(body.headers, 'HEAD'), ...(oauth ? { oauth: true } : {}) }
+        } else {
+          const args = []
+          for (let i = 0; i < (body.args ?? []).length; i += 1) {
+            args.push(await resolveRefText(body.args[i], 'ARG', String(i)))
+          }
+          custom = { name, command, args, env: await resolveRefMap(body.env, 'ENV') }
+        }
+        await saveState(id, { custom, connectedAt: Date.now() })
+        CONNECTOR_IDS.add(id)
+      } catch (error) {
+        for (const secretName of createdSecrets) {
+          await rt.secretEndpoint('secret-delete', { name: secretName }).catch(() => {})
+        }
+        throw error
+      }
       await sync(true)
       return connectorsView()
     },
