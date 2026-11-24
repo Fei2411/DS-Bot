@@ -33935,18 +33935,27 @@ var freshInputAt = (submissions, steeredAt) => Math.max(
   ...(submissions ?? []).filter((sub) => sub.placement !== "queued").map((sub) => sub.time)
 );
 var mountMissed = false;
+var runningSlot = null;
 function findHost() {
-  const node = document.querySelector("[data-chat-flow] [data-chat-running]")?.closest("[data-chat-flow]") ?? document.querySelector("[data-chat-flow]");
+  const kept = runningSlot?.slot;
+  if (kept?.isConnected && kept.hasAttribute("data-chat-running") && kept.closest("[data-chat-flow]") === runningSlot.host) return runningSlot.host;
+  const slot = document.querySelector("[data-chat-flow] [data-chat-running]");
+  const node = slot?.closest("[data-chat-flow]") ?? document.querySelector("[data-chat-flow]");
+  runningSlot = slot ? { slot, host: node } : null;
   if (node === null && !mountMissed) {
     mountMissed = true;
     noteClientError("activity row", new Error("[data-chat-flow] not found"));
   }
   return node;
 }
+function releaseHost() {
+  runningSlot = null;
+}
 function useRunningHost(active) {
   const [host, setHost] = (0, import_react36.useState)(null);
   (0, import_react36.useEffect)(() => {
     if (!active) {
+      releaseHost();
       setHost(null);
       return void 0;
     }
@@ -33966,6 +33975,7 @@ function useRunningHost(active) {
     return () => {
       cancelAnimationFrame(frame2);
       observer.disconnect();
+      releaseHost();
     };
   }, [active]);
   return host;
@@ -34002,7 +34012,7 @@ function useRowEntrances(replacing) {
         }
         return;
       }
-      const items = [...column.querySelectorAll(":scope > [data-chat-flow-key]")];
+      const items = [...column.children].filter((item) => item.hasAttribute("data-chat-flow-key"));
       let last = -1;
       items.forEach((item, index) => {
         if (seen.has(item)) last = index;
