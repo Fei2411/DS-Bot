@@ -314,6 +314,14 @@ export function install(rt) {
   // What a Session was sent and no turn has read yet.
   rt.unreadOf = sessionId => (queued[sessionId] ?? []).map(item => item.args)
   rt.forgetDelivery = forgetQueued
+  rt.restoreDelivery = (sessionId, args) => {
+    if (sessionId === undefined || args?.exchangeId === undefined) return
+    const waiting = queued[sessionId] ?? []
+    const at = waiting.findIndex(item => item.args?.exchangeId === args.exchangeId)
+    const note = { at: Date.now(), args }
+    queued = { ...queued, [sessionId]: at === -1 ? [...waiting, note] : waiting.with(at, note) }
+    persist()
+  }
   rt.forgetWorkDeliveries = forgetWorkDeliveries
 
   // A message is done with once a turn takes it up, or once it leaves the inbox untaken

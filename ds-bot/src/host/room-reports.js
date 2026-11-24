@@ -15,7 +15,7 @@ export function createRoomReports(rt, deps) {
   const {
     batches,
     closeBatch,
-    dropMemberFromBatch,
+    exitMemberBatches,
     activeInRoom,
     runningRound,
     isFinalizing,
@@ -203,6 +203,7 @@ export function createRoomReports(rt, deps) {
   // (`ask_user` / interactive `show_view`), or held open solely by the waiting background
   // task that sent this report (`ignoreTaskId`), is not blocking this report.
   const batchMemberBusy = (room, id, ignoreTaskId, ignoreBotId) => {
+    if (!room.members.includes(id)) return false
     if (waitingForUser(room, id)) return false
     if (ignoreTaskId !== undefined && id === ignoreBotId && !memberBusyForReport(room, id, ignoreTaskId)) return false
     return true
@@ -344,21 +345,23 @@ export function createRoomReports(rt, deps) {
     }
   }
 
-  const trackScopedReport = (room, sender, extra, ids) => {
+  const trackScopedReport = (room, sender, extra, ids, afterSeq = nextRoomSeq(room), { paused = false } = {}) => {
     const id = extra.reportId ?? extra.sub ?? randomUUID()
     const existing = reports()[id]
     if (existing !== undefined) {
       existing.status = 'tracking'
-      existing.fromSeq = nextRoomSeq(room)
+      existing.fromSeq = afterSeq
       existing.ids = ids
+      if (paused) existing.paused = true
     } else {
       reports()[id] = createReport(room, {
         id,
         botId: sender.id,
         name: sender.name,
         status: 'tracking',
-        fromSeq: nextRoomSeq(room),
+        fromSeq: afterSeq,
         ids,
+        paused,
         sub: extra.sub,
         fromTaskId: extra.fromTaskId,
         fromRoomId: extra.fromRoomId,
@@ -498,6 +501,18 @@ export function createRoomReports(rt, deps) {
       })
   }
 
+  const markRoomReportsWorked = (roomId, botId) => {
+    if (roomId === undefined) return
+    let changed = false
+    for (const report of Object.values(reports())) {
+      if (report.roomId !== roomId || report.status !== 'tracking' || report.worked === true) continue
+      if (Array.isArray(report.ids) && botId !== undefined && !report.ids.includes(botId)) continue
+      report.worked = true
+      changed = true
+    }
+    if (changed) saveSoon()
+  }
+
   const recordRoundOnReports = (room, round, { aborted = false } = {}) => {
     let changed = false
     for (const report of Object.values(reports())) {
@@ -516,6 +531,10 @@ export function createRoomReports(rt, deps) {
           report.failed.push(name)
           changed = true
         }
+      }
+      if (report.worked !== true && (round.slots ?? []).some(slot => slot?.worked === true && (!Array.isArray(report.ids) || report.ids.includes(slot.id)))) {
+        report.worked = true
+        changed = true
       }
       if (aborted && report.stopped !== true) {
         report.stopped = true
@@ -596,7 +615,7 @@ export function createRoomReports(rt, deps) {
     }
     if (pruned) saveSoon()
     for (const room of touchedRooms) {
-      dropMemberFromBatch(room, botId)
+      await exitMemberBatches(room, botId)
       await settleRoomReports(room.id)
     }
   }
@@ -714,7 +733,7 @@ export function createRoomReports(rt, deps) {
       ].filter(Boolean).join('\n\n') || 'Nobody replied to your post.'
     }
     // Replies the poster waited for go on with the work it posted for.
-    const work = report.sub === undefined ? undefined : rt.closeWork(report.sub, `Group "${room.name}"`, text)
+    const work = report.sub === undefined ? undefined : rt.closeWork(report.sub, `Group "${room.name}"`, text, report.worked === true ? { worked: true } : undefined)
     // The wait may already have been given up: the replies still reach the poster,
     // marked as the late answer they are, and open no work.
     const late = work === undefined && report.sub !== undefined ? rt.abandonedWork?.(report.sub) : undefined
@@ -752,6 +771,7 @@ export function createRoomReports(rt, deps) {
     dropRoomReport,
     hasRoomReportFor,
     roomReportImOrigin,
+    markRoomReportsWorked,
     settleRoomReports,
     forgetRoomReports,
     forgetBotRoomReports,
