@@ -6,13 +6,23 @@
 // nonzero rule they cover exactly the silhouette: holes stay open (a ring, a magnet),
 // and a limb in front of the body adds a sheet instead of cutting one away.
 //
-// It runs every frame, so the mesh's edges are numbered once (edgesOf) and a frame
-// only fills typed arrays kept in `scratch`.
+// It runs every frame, so the mesh's edges are numbered once (edgeSteps, while the
+// rig is built) and a frame only fills typed arrays kept in `scratch`.
+
+import { clock, STEP_MS } from './steps.js'
 
 // The mesh's edges: `a`/`b` the vertices of each edge, `of[t + k]` the edge from corner
 // k of the triangle at t to corner k + 1.
 const EDGES = new WeakMap()
 function edgesOf(mesh) {
+  const steps = edgeSteps(mesh)
+  for (;;) {
+    const { done, value } = steps.next()
+    if (done) return value
+  }
+}
+// The same numbering in slices of about STEP_MS; the return value is the table.
+export function* edgeSteps(mesh) {
   let edges = EDGES.get(mesh)
   if (edges) return edges
   const { tri } = mesh
@@ -21,7 +31,9 @@ function edgesOf(mesh) {
   const a = []
   const b = []
   const of = new Int32Array(tri.length)
+  let since = clock()
   for (let t = 0; t < tri.length; t += 3) {
+    if (t % 384 === 0 && clock() - since > STEP_MS) { yield; since = clock() }
     for (let k = 0; k < 3; k += 1) {
       const p = tri[t + k]
       const q = tri[t + (k + 1) % 3]

@@ -1,7 +1,8 @@
 import { createModels, VIEW } from './models.js'
 import { meshSteps } from './mesh.js'
-import { silhouette } from './silhouette.js'
+import { edgeSteps, silhouette } from './silhouette.js'
 import { cross, norm, surfaceAt } from './sdf.js'
+import { clock, STEP_MS } from './steps.js'
 import { CHARACTERS } from '../characters.js'
 
 // A rig is a character made ready to turn: its mesh, where it sits in the mark's
@@ -39,10 +40,13 @@ export function buildRig(model, options) {
   }
 }
 
-// The same work in slices (see meshSteps); the return value is the rig.
+// The same work in steps of about STEP_MS (steps.js); the return value is the rig.
 export function* rigSteps(model, { view = VIEW, cell = model.cell ?? 0.05 } = {}) {
   for (const profile of model.prepare ?? []) yield* profile.rows()
   const mesh = yield* meshSteps(model.sdf, { cell })
+  yield
+  yield* edgeSteps(mesh)
+  yield
   const R = rotation(view.yaw, view.pitch, view.roll)
   const loops = silhouette(mesh, [R[6], R[7], R[8]])
   let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity
@@ -57,6 +61,7 @@ export function* rigSteps(model, { view = VIEW, cell = model.cell ?? 0.05 } = {}
   const scale = 92 / Math.max(x1 - x0, y1 - y0)
   const cx = (x0 + x1) / 2
   const cy = (y0 + y1) / 2
+  yield
   const eyes = model.eyes.map(([x, y]) => {
     const { p, n } = surfaceAt(model.sdf, x, y)
     // The surface's own directions at the spot, along which a glance moves the eye.
@@ -64,20 +69,26 @@ export function* rigSteps(model, { view = VIEW, cell = model.cell ?? 0.05 } = {}
     const v = cross(n, u)
     return { p, u, v, size: model.eye ?? 1, w: 10, h: 23 }
   })
-  yield
-  const paints = (model.paints ?? []).map(paint => ({ fill: paint.fill, opacity: paint.opacity ?? 1, faces: clipFaces(mesh, paint.region) }))
+  const paints = []
+  for (const paint of model.paints ?? []) paints.push({ fill: paint.fill, opacity: paint.opacity ?? 1, faces: yield* clipSteps(mesh, paint.region) })
   return { sdf: model.sdf, mesh, view, cx, cy, scale, bottom: 50 + ((cy - y0) * scale), eyes, paints }
 }
 
 // The parts of each triangle inside a decal's region (negative inside), with the
-// triangle's own normal, so a frame keeps the parts facing the viewer.
-function clipFaces(mesh, region) {
+// triangle's own normal, so a frame keeps the parts facing the viewer. In steps of
+// about STEP_MS; the return value is the faces.
+function* clipSteps(mesh, region) {
   const { pos, tri } = mesh
   const values = new Float32Array(pos.length / 3)
-  for (let v = 0; v < values.length; v += 1) values[v] = region([pos[v * 3], pos[v * 3 + 1], pos[v * 3 + 2]])
+  let since = clock()
+  for (let v = 0; v < values.length; v += 1) {
+    if (v % 64 === 0 && clock() - since > STEP_MS) { yield; since = clock() }
+    values[v] = region([pos[v * 3], pos[v * 3 + 1], pos[v * 3 + 2]])
+  }
   const faces = []
   const point = v => [pos[v * 3], pos[v * 3 + 1], pos[v * 3 + 2]]
   for (let t = 0; t < tri.length; t += 3) {
+    if (t % 192 === 0 && clock() - since > STEP_MS) { yield; since = clock() }
     const ids = [tri[t], tri[t + 1], tri[t + 2]]
     const inside = ids.map(v => values[v] < 0)
     if (!inside.some(Boolean)) continue

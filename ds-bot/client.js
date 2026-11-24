@@ -22112,6 +22112,10 @@ var Avatar = class {
 var clamp = (value, lo, hi) => Math.max(lo, Math.min(hi, value));
 var ease = (t2) => t2 * t2 * (3 - 2 * t2);
 
+// src/client/avatar/steps.js
+var STEP_MS = 1;
+var clock2 = () => performance.now();
+
 // src/client/avatar/sdf.js
 var sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 var dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
@@ -22355,12 +22359,16 @@ function outline(paths, { map, unit, grow = 0, grid: G = 260 }) {
     if (grid !== null) return;
     const shapes = paths.map(flatten);
     const baking = new Float64Array((G + 1) * (G + 1));
+    let since = clock2();
     for (let i = 0; i <= G; i += 1) {
       for (let j = 0; j <= G; j += 1) {
         const [px, py] = map(-R + 2 * R * j / G, R - 2 * R * i / G);
         baking[i * (G + 1) + j] = (Math.min(...shapes.map((loops) => polygonDistance(loops, px, py))) - grow) / unit;
       }
-      if (i % 2 === 1) yield;
+      if (clock2() - since > STEP_MS) {
+        yield;
+        since = clock2();
+      }
     }
     grid = baking;
   }
@@ -22654,10 +22662,14 @@ function* meshSteps(sdf, { bounds = [[-1.7, -1.7, -1.7], [1.7, 1.7, 1.7]], cell 
   const values = new Float32Array(nx * ny * nz);
   const p = [0, 0, 0];
   const B = 4;
+  let since = clock2();
   for (let k0 = 0; k0 < nz; k0 += B) {
     for (let j0 = 0; j0 < ny; j0 += B) {
-      yield;
       for (let i0 = 0; i0 < nx; i0 += B) {
+        if (clock2() - since > STEP_MS) {
+          yield;
+          since = clock2();
+        }
         const ci = Math.min(i0 + B / 2, nx - 1);
         const cj = Math.min(j0 + B / 2, ny - 1);
         const ck = Math.min(k0 + B / 2, nz - 1);
@@ -22683,14 +22695,16 @@ function* meshSteps(sdf, { bounds = [[-1.7, -1.7, -1.7], [1.7, 1.7, 1.7]], cell 
       }
     }
   }
-  yield;
   const cubeVertex = new Int32Array((nx - 1) * (ny - 1) * (nz - 1)).fill(-1);
   const cubeAt = (i, j, k) => (k * (ny - 1) + j) * (nx - 1) + i;
   const positions = [];
   const corner = new Float32Array(8);
   for (let k = 0; k < nz - 1; k += 1) {
-    yield;
     for (let j = 0; j < ny - 1; j += 1) {
+      if (clock2() - since > STEP_MS) {
+        yield;
+        since = clock2();
+      }
       for (let i = 0; i < nx - 1; i += 1) {
         let inside = 0;
         for (let c = 0; c < 8; c += 1) {
@@ -22714,7 +22728,6 @@ function* meshSteps(sdf, { bounds = [[-1.7, -1.7, -1.7], [1.7, 1.7, 1.7]], cell 
       }
     }
   }
-  yield;
   const triangles = [];
   const quad = (a, b, c, d, flip) => {
     if (a < 0 || b < 0 || c < 0 || d < 0) return;
@@ -22725,8 +22738,11 @@ function* meshSteps(sdf, { bounds = [[-1.7, -1.7, -1.7], [1.7, 1.7, 1.7]], cell 
     else triangles.push(q0, q1, q3, q1, q2, q3);
   };
   for (let k = 1; k < nz - 1; k += 1) {
-    if (k % 8 === 0) yield;
     for (let j = 1; j < ny - 1; j += 1) {
+      if (clock2() - since > STEP_MS) {
+        yield;
+        since = clock2();
+      }
       for (let i = 0; i < nx - 1; i += 1) {
         const a = values[at2(i, j, k)] < 0;
         if (a === values[at2(i + 1, j, k)] < 0) continue;
@@ -22735,8 +22751,11 @@ function* meshSteps(sdf, { bounds = [[-1.7, -1.7, -1.7], [1.7, 1.7, 1.7]], cell 
     }
   }
   for (let k = 1; k < nz - 1; k += 1) {
-    if (k % 8 === 0) yield;
     for (let j = 0; j < ny - 1; j += 1) {
+      if (clock2() - since > STEP_MS) {
+        yield;
+        since = clock2();
+      }
       for (let i = 1; i < nx - 1; i += 1) {
         const a = values[at2(i, j, k)] < 0;
         if (a === values[at2(i, j + 1, k)] < 0) continue;
@@ -22745,8 +22764,11 @@ function* meshSteps(sdf, { bounds = [[-1.7, -1.7, -1.7], [1.7, 1.7, 1.7]], cell 
     }
   }
   for (let k = 0; k < nz - 1; k += 1) {
-    if (k % 8 === 0) yield;
     for (let j = 1; j < ny - 1; j += 1) {
+      if (clock2() - since > STEP_MS) {
+        yield;
+        since = clock2();
+      }
       for (let i = 1; i < nx - 1; i += 1) {
         const a = values[at2(i, j, k)] < 0;
         if (a === values[at2(i, j, k + 1)] < 0) continue;
@@ -22754,6 +22776,8 @@ function* meshSteps(sdf, { bounds = [[-1.7, -1.7, -1.7], [1.7, 1.7, 1.7]], cell 
       }
     }
   }
+  yield;
+  since = clock2();
   const count = positions.length / 3;
   const pos = new Float32Array(count * 3);
   const nrm = new Float32Array(count * 3);
@@ -22786,7 +22810,10 @@ function* meshSteps(sdf, { bounds = [[-1.7, -1.7, -1.7], [1.7, 1.7, 1.7]], cell 
   };
   const g = [0, 0, 0];
   for (let v = 0; v < count; v += 1) {
-    if (v % 150 === 0) yield;
+    if (clock2() - since > STEP_MS) {
+      yield;
+      since = clock2();
+    }
     q[0] = positions[v * 3];
     q[1] = positions[v * 3 + 1];
     q[2] = positions[v * 3 + 2];
@@ -22806,6 +22833,7 @@ function* meshSteps(sdf, { bounds = [[-1.7, -1.7, -1.7], [1.7, 1.7, 1.7]], cell 
     nrm[v * 3 + 1] = g[1];
     nrm[v * 3 + 2] = g[2];
   }
+  yield;
   const tri = count < 65536 ? new Uint16Array(triangles) : new Uint32Array(triangles);
   return { pos, nrm, tri };
 }
@@ -22819,6 +22847,13 @@ var dist2 = (positions, a, b) => {
 // src/client/avatar/silhouette.js
 var EDGES2 = /* @__PURE__ */ new WeakMap();
 function edgesOf(mesh) {
+  const steps = edgeSteps(mesh);
+  for (; ; ) {
+    const { done, value } = steps.next();
+    if (done) return value;
+  }
+}
+function* edgeSteps(mesh) {
   let edges = EDGES2.get(mesh);
   if (edges) return edges;
   const { tri } = mesh;
@@ -22827,7 +22862,12 @@ function edgesOf(mesh) {
   const a = [];
   const b = [];
   const of = new Int32Array(tri.length);
+  let since = clock2();
   for (let t2 = 0; t2 < tri.length; t2 += 3) {
+    if (t2 % 384 === 0 && clock2() - since > STEP_MS) {
+      yield;
+      since = clock2();
+    }
     for (let k = 0; k < 3; k += 1) {
       const p = tri[t2 + k];
       const q = tri[t2 + (k + 1) % 3];
@@ -22940,6 +22980,9 @@ function buildRig(model, options) {
 function* rigSteps(model, { view = VIEW, cell = model.cell ?? 0.05 } = {}) {
   for (const profile of model.prepare ?? []) yield* profile.rows();
   const mesh = yield* meshSteps(model.sdf, { cell });
+  yield;
+  yield* edgeSteps(mesh);
+  yield;
   const R = rotation(view.yaw, view.pitch, view.roll);
   const loops = silhouette(mesh, [R[6], R[7], R[8]]);
   let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
@@ -22956,23 +22999,35 @@ function* rigSteps(model, { view = VIEW, cell = model.cell ?? 0.05 } = {}) {
   const scale = 92 / Math.max(x1 - x0, y1 - y0);
   const cx = (x0 + x1) / 2;
   const cy = (y0 + y1) / 2;
+  yield;
   const eyes = model.eyes.map(([x, y]) => {
     const { p, n } = surfaceAt(model.sdf, x, y);
     const u = norm(cross([0, 1, 0], n));
     const v = cross(n, u);
     return { p, u, v, size: model.eye ?? 1, w: 10, h: 23 };
   });
-  yield;
-  const paints = (model.paints ?? []).map((paint) => ({ fill: paint.fill, opacity: paint.opacity ?? 1, faces: clipFaces(mesh, paint.region) }));
+  const paints = [];
+  for (const paint of model.paints ?? []) paints.push({ fill: paint.fill, opacity: paint.opacity ?? 1, faces: yield* clipSteps(mesh, paint.region) });
   return { sdf: model.sdf, mesh, view, cx, cy, scale, bottom: 50 + (cy - y0) * scale, eyes, paints };
 }
-function clipFaces(mesh, region) {
+function* clipSteps(mesh, region) {
   const { pos, tri } = mesh;
   const values = new Float32Array(pos.length / 3);
-  for (let v = 0; v < values.length; v += 1) values[v] = region([pos[v * 3], pos[v * 3 + 1], pos[v * 3 + 2]]);
+  let since = clock2();
+  for (let v = 0; v < values.length; v += 1) {
+    if (v % 64 === 0 && clock2() - since > STEP_MS) {
+      yield;
+      since = clock2();
+    }
+    values[v] = region([pos[v * 3], pos[v * 3 + 1], pos[v * 3 + 2]]);
+  }
   const faces = [];
   const point = (v) => [pos[v * 3], pos[v * 3 + 1], pos[v * 3 + 2]];
   for (let t2 = 0; t2 < tri.length; t2 += 3) {
+    if (t2 % 192 === 0 && clock2() - since > STEP_MS) {
+      yield;
+      since = clock2();
+    }
     const ids = [tri[t2], tri[t2 + 1], tri[t2 + 2]];
     const inside = ids.map((v) => values[v] < 0);
     if (!inside.some(Boolean)) continue;
@@ -23638,6 +23693,7 @@ var queue = [];
 var job = null;
 var building = false;
 var IDLE_WAIT_MS = 300;
+var FORCED_MS = 5;
 var idleSoon = (fn) => typeof window.requestIdleCallback === "function" ? window.requestIdleCallback(fn, { timeout: IDLE_WAIT_MS }) : setTimeout(() => {
   const start = now();
   fn({ timeRemaining: () => Math.max(0, 8 - (now() - start)) });
@@ -23647,9 +23703,8 @@ function buildSoon(mark2) {
   if (building) return;
   building = true;
   const work = (deadline) => {
-    let forced = deadline.didTimeout === true;
-    while (forced || deadline.timeRemaining() > 2) {
-      forced = false;
+    const until = deadline.didTimeout === true ? now() + FORCED_MS : 0;
+    while (now() < until || deadline.timeRemaining() > 2) {
       const mark3 = queue[0];
       if (!mark3) {
         building = false;
@@ -31160,7 +31215,7 @@ function useSchedules(actions) {
   return view;
 }
 var localZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
-var clock2 = (time) => {
+var clock3 = (time) => {
   const text = String(time ?? "");
   const [, minutes, seconds] = /^(\d\d:\d\d)(?::(\d\d))?/.exec(text) ?? [];
   if (minutes === void 0) return text.slice(0, 5);
@@ -31189,10 +31244,10 @@ function timingText(task) {
     case "every":
       return everyText(task.everySeconds);
     case "daily":
-      return `${t("Every day at {time}", { time: clock2(task.time) })}${zone}`;
+      return `${t("Every day at {time}", { time: clock3(task.time) })}${zone}`;
     case "weekly": {
       const days = (task.weekdays ?? []).join();
-      const text = days === "1,2,3,4,5" ? t("Every weekday at {time}", { time: clock2(task.time) }) : days === "6,7" ? t("Every weekend at {time}", { time: clock2(task.time) }) : days === "1,2,3,4,5,6,7" ? t("Every day at {time}", { time: clock2(task.time) }) : t("Every {days} at {time}", { days: weekdayNames(task.weekdays ?? []), time: clock2(task.time) });
+      const text = days === "1,2,3,4,5" ? t("Every weekday at {time}", { time: clock3(task.time) }) : days === "6,7" ? t("Every weekend at {time}", { time: clock3(task.time) }) : days === "1,2,3,4,5,6,7" ? t("Every day at {time}", { time: clock3(task.time) }) : t("Every {days} at {time}", { days: weekdayNames(task.weekdays ?? []), time: clock3(task.time) });
       return `${text}${zone}`;
     }
     case "cron":
@@ -35074,7 +35129,7 @@ function CopyButton({ text }) {
   };
   return (0, import_react34.createElement)("button", { type: "button", className: "bt-tool", "aria-label": copied ? t("Copied") : t("Copy"), title: copied ? t("Copied") : t("Copy"), onClick: copy2 }, copied ? (0, import_react34.createElement)(CheckIcon) : (0, import_react34.createElement)(CopyIcon));
 }
-var clock3 = (time) => typeof time === "number" ? new Date(time).toLocaleTimeString(dateLocale(), { hour: "numeric", minute: "2-digit" }) : void 0;
+var clock4 = (time) => typeof time === "number" ? new Date(time).toLocaleTimeString(dateLocale(), { hour: "numeric", minute: "2-digit" }) : void 0;
 var viaOf2 = (source) => typeof source?.rpcId === "string" && source.rpcId.startsWith("im:") ? source.rpcId.split(":")[1] : void 0;
 var ViaTag = ({ via }) => (0, import_react34.createElement)("span", { className: "bt-uvia" }, t("via {platform}", { platform: t(imPlatform(via)?.name ?? via) }));
 function ProjectedContent({ data, text, shown, folded, control, roster, sessionId, actions, renderMessageImages, openFile, openSkill, onClick }) {
@@ -35088,7 +35143,7 @@ function ProjectedContent({ data, text, shown, folded, control, roster, sessionI
     attachments.length > 0 ? (0, import_react34.createElement)(Attachments, { attachments, renderMessageImages }) : null,
     text !== "" || rest.length > 0 ? (0, import_react34.createElement)(
       "div",
-      { className: "bt-ubody", title: clock3(data.time), "data-folded": folded || void 0, "data-text-interaction-source": text !== "" ? "" : void 0, onClick },
+      { className: "bt-ubody", title: clock4(data.time), "data-folded": folded || void 0, "data-text-interaction-source": text !== "" ? "" : void 0, onClick },
       control ? (0, import_react34.createElement)("div", { className: "bt-fold-body" }, body) : body,
       control,
       rest.map((block, index) => import_dsh_client_ui_primitives.JsonBlock ? (0, import_react34.createElement)(import_dsh_client_ui_primitives.JsonBlock, { key: index, label: t("Content"), payload: block }) : null)
@@ -35109,7 +35164,7 @@ function HostContent({ data, prepared, shown, folded, control, loadImage, render
     null,
     (0, import_react34.createElement)(
       "div",
-      { className: "bt-uhost", title: clock3(data.time), "data-folded": folded || void 0, onClick },
+      { className: "bt-uhost", title: clock4(data.time), "data-folded": folded || void 0, onClick },
       control ? (0, import_react34.createElement)("div", { className: "bt-fold-body" }, content) : content,
       control
     ),
@@ -35835,7 +35890,7 @@ function EarlierParts({ sessionId, roster, actions }) {
     hasContent ? (0, import_react35.createElement)(PartLine, { time: view.startedAt }) : null
   );
 }
-function ChatRows({ items, sessionId, roster, actions, useUi, clock: clock4 = false, onBtwDelete }) {
+function ChatRows({ items, sessionId, roster, actions, useUi, clock: clock5 = false, onBtwDelete }) {
   const selfId = roster.byId[sessionId]?.id;
   const rows2 = [];
   for (const item of items) {
@@ -35855,7 +35910,7 @@ function ChatRows({ items, sessionId, roster, actions, useUi, clock: clock4 = fa
       before = void 0;
       return [shown];
     }
-    const pause = clock4 && Number.isFinite(row.time) && (before === void 0 || row.time - before >= SEPARATOR_GAP_MS);
+    const pause = clock5 && Number.isFinite(row.time) && (before === void 0 || row.time - before >= SEPARATOR_GAP_MS);
     if (Number.isFinite(row.end ?? row.time)) before = row.end ?? row.time;
     return pause ? [(0, import_react35.createElement)("div", { key: `${key}:clock`, className: "bt-time-sep", role: "separator" }, clockLabel(row.time)), shown] : [shown];
   });
@@ -45799,8 +45854,8 @@ var copy = (text) => navigator.clipboard === void 0 ? Promise.resolve(false) : n
 function whenText(time) {
   const date = new Date(time);
   const today = (/* @__PURE__ */ new Date()).toDateString() === date.toDateString();
-  const clock4 = date.toLocaleTimeString(dateLocale(), { hour: "2-digit", minute: "2-digit" });
-  return today ? clock4 : `${date.toLocaleDateString(dateLocale(), { month: "short", day: "numeric" })} ${clock4}`;
+  const clock5 = date.toLocaleTimeString(dateLocale(), { hour: "2-digit", minute: "2-digit" });
+  return today ? clock5 : `${date.toLocaleDateString(dateLocale(), { month: "short", day: "numeric" })} ${clock5}`;
 }
 function entrySummary(entry) {
   if (entry.source === "turn") return failureLabel(entry.code, entry.text);

@@ -16,7 +16,7 @@ const { JSDOM } = createRequire(join(process.env.DSH_HARNESS ?? join(PLUGIN, 'de
 
 const bundle = (await build({
   stdin: {
-    contents: "export * from './src/client/avatar/live.js'; export { SHAPES } from './src/client/characters.js'; export { rigReady } from './src/client/avatar/rig.js'",
+    contents: "export * from './src/client/avatar/live.js'; export { SHAPES } from './src/client/characters.js'; export { models, rigReady, rigSteps } from './src/client/avatar/rig.js'",
     resolveDir: PLUGIN,
     loader: 'js',
   },
@@ -251,12 +251,17 @@ test('without requestIdleCallback a build slice stays short', () => {
   p.frame()
   for (let i = 0; i < 4000 && mark.rig === undefined; i += 1) p.frame(20)
   assert.notEqual(mark.rig, undefined)
-  // An 8 ms budget plus the one step that may start just before it runs out.
-  assert.ok(p.longestTimer < 30, `slices stay short (${p.longestTimer.toFixed(1)} ms)`)
+  // A slice is its 8 ms budget plus the step of about a millisecond that starts just
+  // before it runs out: about 11 ms here, 30-odd on a shared CI machine. Building the
+  // whole model at once takes 130 ms or more.
+  assert.ok(p.longestTimer < 60, `slices stay short (${p.longestTimer.toFixed(1)} ms)`)
 })
 
-test('a page that is never idle still builds the model, one step per timeout', () => {
+test('a page that is never idle still builds the model, a few steps per timeout', () => {
   const p = page({ busy: true })
+  // How many steps the whale takes, built straight through in the same page.
+  let steps = 0
+  for (const run = p.api.rigSteps(p.api.models().whale); !run.next().done;) steps += 1
   const mark = p.mount('whale')
   mark.update({ state: 'working' })
   p.frame()
@@ -264,6 +269,7 @@ test('a page that is never idle still builds the model, one step per timeout', (
   assert.ok(p.idleAsks.every(options => options?.timeout > 0), 'every idle request has a timeout')
   for (let i = 0; i < 4000 && mark.rig === undefined; i += 1) p.frame(400)
   assert.notEqual(mark.rig, undefined, 'the model is built')
+  assert.ok(p.idleAsks.length < steps / 2, `${p.idleAsks.length} timeouts for ${steps} steps`)
   assert.ok(p.frame() > 0, 'and the move plays')
 })
 

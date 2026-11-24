@@ -1,3 +1,5 @@
+import { clock, STEP_MS } from './steps.js'
+
 // Signed-distance building blocks for the characters' 3D models. dev/characters.mjs
 // traces them into the flat marks in characters.js, and the avatar engine meshes the
 // same models at run time to turn them in 3D. Both must read the same numbers, so the
@@ -189,12 +191,13 @@ export function outline(paths, { map, unit, grow = 0, grid: G = 260 }) {
     if (grid !== null) return
     const shapes = paths.map(flatten)
     const baking = new Float64Array((G + 1) * (G + 1))
+    let since = clock()
     for (let i = 0; i <= G; i += 1) {
       for (let j = 0; j <= G; j += 1) {
         const [px, py] = map(-R + (2 * R * j) / G, R - (2 * R * i) / G)
         baking[i * (G + 1) + j] = (Math.min(...shapes.map(loops => polygonDistance(loops, px, py))) - grow) / unit
       }
-      if (i % 2 === 1) yield
+      if (clock() - since > STEP_MS) { yield; since = clock() }
     }
     grid = baking
   }

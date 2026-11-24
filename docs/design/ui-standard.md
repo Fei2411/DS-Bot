@@ -263,7 +263,7 @@ Bot 形象色定义在 `inks.js`（均含浅色、深色双值）：
 
 - 逐帧动画仅动合成属性（`transform`、`translate`、`scale`、`rotate`、`opacity`）。
 - 无限循环 CSS 动画（扫光文字等）由 `motion-rest.js`（`installMotionRest`）通过 `document.getAnimations()` 与 `IntersectionObserver` 统一管理：页面隐藏、窗口 30 秒无输入或元素离开视口时自动暂停，恢复可见或有交互时继续。
-- 活头像共用一个时钟（`avatar/live.js`）：只在有东西动时跑 `requestAnimationFrame`，否则定时到下一次动作；页面隐藏、离开视口或 30 秒无输入时停下（指针停在头像上也停），有输入再继续。3D 模型在头像第一次要动时于空闲时分片构建，每片不超过约 5ms。
+- 活头像共用一个时钟（`avatar/live.js`）：只在有东西动时跑 `requestAnimationFrame`，否则定时到下一次动作；页面隐藏、离开视口或 30 秒无输入时停下（指针停在头像上也停），有输入再继续。3D 模型在头像第一次要动时于空闲时分步构建，按计时每步约 1ms。
 - 避免给大面积整页加模糊，避免在流式渲染路径引入重排选择器（如大范围 `:has()`）。
 - JS 动画启动前必须检查 `reducedMotion()` / `reducedEffects()`。
 

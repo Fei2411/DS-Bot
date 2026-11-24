@@ -5,6 +5,8 @@
 // the silhouette where that normal turns away from the viewer (silhouette.js), which
 // stays a smooth curve even on a coarse mesh.
 
+import { clock, STEP_MS } from './steps.js'
+
 const EDGES = [
   [0, 1], [2, 3], [4, 5], [6, 7], // along x
   [0, 2], [1, 3], [4, 6], [5, 7], // along y
@@ -20,8 +22,8 @@ export function meshDistance(sdf, options) {
   }
 }
 
-// The same work in slices: it yields every millisecond or two, so a page can mesh
-// between frames without a long task. The generator's return value is the mesh.
+// The same work in slices: it yields about every STEP_MS (steps.js), so a page can
+// mesh between frames without a long task. The generator's return value is the mesh.
 export function* meshSteps(sdf, { bounds = [[-1.7, -1.7, -1.7], [1.7, 1.7, 1.7]], cell = 0.05 } = {}) {
   const [lo, hi] = bounds
   const nx = Math.ceil((hi[0] - lo[0]) / cell) + 1
@@ -33,10 +35,11 @@ export function* meshSteps(sdf, { bounds = [[-1.7, -1.7, -1.7], [1.7, 1.7, 1.7]]
   // A coarse pass skips the far field: a sample farther than its block's reach from
   // the surface cannot change sign inside the block.
   const B = 4
+  let since = clock()
   for (let k0 = 0; k0 < nz; k0 += B) {
     for (let j0 = 0; j0 < ny; j0 += B) {
-      yield
       for (let i0 = 0; i0 < nx; i0 += B) {
+        if (clock() - since > STEP_MS) { yield; since = clock() }
         const ci = Math.min(i0 + B / 2, nx - 1)
         const cj = Math.min(j0 + B / 2, ny - 1)
         const ck = Math.min(k0 + B / 2, nz - 1)
@@ -57,14 +60,13 @@ export function* meshSteps(sdf, { bounds = [[-1.7, -1.7, -1.7], [1.7, 1.7, 1.7]]
   }
 
   // One vertex per cube that the surface crosses, at the mean of its edge crossings.
-  yield
   const cubeVertex = new Int32Array((nx - 1) * (ny - 1) * (nz - 1)).fill(-1)
   const cubeAt = (i, j, k) => (k * (ny - 1) + j) * (nx - 1) + i
   const positions = []
   const corner = new Float32Array(8)
   for (let k = 0; k < nz - 1; k += 1) {
-    yield
     for (let j = 0; j < ny - 1; j += 1) {
+      if (clock() - since > STEP_MS) { yield; since = clock() }
       for (let i = 0; i < nx - 1; i += 1) {
         let inside = 0
         for (let c = 0; c < 8; c += 1) {
@@ -91,7 +93,6 @@ export function* meshSteps(sdf, { bounds = [[-1.7, -1.7, -1.7], [1.7, 1.7, 1.7]]
 
   // One quad per grid edge the surface crosses, joining the four cubes around it and
   // facing out of the solid.
-  yield
   const triangles = []
   const quad = (a, b, c, d, flip) => {
     if (a < 0 || b < 0 || c < 0 || d < 0) return
@@ -103,8 +104,8 @@ export function* meshSteps(sdf, { bounds = [[-1.7, -1.7, -1.7], [1.7, 1.7, 1.7]]
     else triangles.push(q0, q1, q3, q1, q2, q3)
   }
   for (let k = 1; k < nz - 1; k += 1) {
-    if (k % 8 === 0) yield
     for (let j = 1; j < ny - 1; j += 1) {
+      if (clock() - since > STEP_MS) { yield; since = clock() }
       for (let i = 0; i < nx - 1; i += 1) {
         const a = values[at(i, j, k)] < 0
         if (a === (values[at(i + 1, j, k)] < 0)) continue
@@ -113,8 +114,8 @@ export function* meshSteps(sdf, { bounds = [[-1.7, -1.7, -1.7], [1.7, 1.7, 1.7]]
     }
   }
   for (let k = 1; k < nz - 1; k += 1) {
-    if (k % 8 === 0) yield
     for (let j = 0; j < ny - 1; j += 1) {
+      if (clock() - since > STEP_MS) { yield; since = clock() }
       for (let i = 1; i < nx - 1; i += 1) {
         const a = values[at(i, j, k)] < 0
         if (a === (values[at(i, j + 1, k)] < 0)) continue
@@ -123,8 +124,8 @@ export function* meshSteps(sdf, { bounds = [[-1.7, -1.7, -1.7], [1.7, 1.7, 1.7]]
     }
   }
   for (let k = 0; k < nz - 1; k += 1) {
-    if (k % 8 === 0) yield
     for (let j = 1; j < ny - 1; j += 1) {
+      if (clock() - since > STEP_MS) { yield; since = clock() }
       for (let i = 1; i < nx - 1; i += 1) {
         const a = values[at(i, j, k)] < 0
         if (a === (values[at(i, j, k + 1)] < 0)) continue
@@ -134,6 +135,8 @@ export function* meshSteps(sdf, { bounds = [[-1.7, -1.7, -1.7], [1.7, 1.7, 1.7]]
   }
 
   // Settle each vertex onto the surface and take the distance's own normal there.
+  yield
+  since = clock()
   const count = positions.length / 3
   const pos = new Float32Array(count * 3)
   const nrm = new Float32Array(count * 3)
@@ -150,7 +153,7 @@ export function* meshSteps(sdf, { bounds = [[-1.7, -1.7, -1.7], [1.7, 1.7, 1.7]]
   }
   const g = [0, 0, 0]
   for (let v = 0; v < count; v += 1) {
-    if (v % 150 === 0) yield
+    if (clock() - since > STEP_MS) { yield; since = clock() }
     q[0] = positions[v * 3]; q[1] = positions[v * 3 + 1]; q[2] = positions[v * 3 + 2]
     for (let step = 0; step < 2; step += 1) {
       const d = sdf(q)
@@ -162,6 +165,7 @@ export function* meshSteps(sdf, { bounds = [[-1.7, -1.7, -1.7], [1.7, 1.7, 1.7]]
     pos[v * 3] = q[0]; pos[v * 3 + 1] = q[1]; pos[v * 3 + 2] = q[2]
     nrm[v * 3] = g[0]; nrm[v * 3 + 1] = g[1]; nrm[v * 3 + 2] = g[2]
   }
+  yield
   const tri = count < 65536 ? new Uint16Array(triangles) : new Uint32Array(triangles)
   return { pos, nrm, tri }
 }

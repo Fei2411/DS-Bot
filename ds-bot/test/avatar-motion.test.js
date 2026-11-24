@@ -37,8 +37,9 @@ const pathArea = (d) => {
 }
 
 test('the traced art still comes from the shared models, byte for byte', () => {
-  const printed = execFileSync(process.execPath, [join(PLUGIN, 'dev/characters.mjs')], { encoding: 'utf8' })
-  const source = readFileSync(join(PLUGIN, 'src/client/characters.js'), 'utf8')
+  // A Windows checkout may have CRLF line ends.
+  const printed = execFileSync(process.execPath, [join(PLUGIN, 'dev/characters.mjs')], { encoding: 'utf8' }).replaceAll('\r\n', '\n')
+  const source = readFileSync(join(PLUGIN, 'src/client/characters.js'), 'utf8').replaceAll('\r\n', '\n')
   const block = source.slice(source.indexOf('export const CHARACTERS = {'), source.indexOf('\n}\n', source.indexOf('export const CHARACTERS = {')) + 2)
   assert.equal(printed.trim(), block.trim())
 })
