@@ -11,6 +11,7 @@ export interface ShimmerAnimatedValue {
 export interface ShimmerCompositeAnimation {
   start(callback?: (result: { finished: boolean }) => void): void
   stop(): void
+  reset?(): void
 }
 
 export interface ShimmerTimingConfig {
@@ -20,11 +21,16 @@ export interface ShimmerTimingConfig {
   isInteraction?: boolean
 }
 
+export interface ShimmerLoopConfig {
+  iterations: number
+  resetBeforeIteration?: boolean
+}
+
 export interface ShimmerAnimatedApi<
   TValue extends ShimmerAnimatedValue = ShimmerAnimatedValue,
   TAnim extends ShimmerCompositeAnimation = ShimmerCompositeAnimation,
 > {
-  loop(animation: TAnim): TAnim
+  loop(animation: TAnim, config?: ShimmerLoopConfig): TAnim
   sequence(animations: TAnim[]): TAnim
   timing(value: TValue, config: ShimmerTimingConfig): TAnim
 }
@@ -65,6 +71,10 @@ export function startShimmerLoop<
   }
 
   value.setValue(SHIMMER_MIN_OPACITY)
+  // Animated.loop defaults resetBeforeIteration to true, which resets Animated.Value
+  // back to its constructor _startingValue (1 if first mounted reduced/inactive)
+  // before every cycle. The sequence already ends at SHIMMER_MIN_OPACITY, so
+  // disabling reset avoids snapping back to 1 and keeps each phase continuous.
   const loop = options.animated.loop(
     options.animated.sequence([
       options.animated.timing(value, {
@@ -80,6 +90,7 @@ export function startShimmerLoop<
         isInteraction: false,
       }),
     ]),
+    { iterations: -1, resetBeforeIteration: false },
   )
   loop.start()
 
