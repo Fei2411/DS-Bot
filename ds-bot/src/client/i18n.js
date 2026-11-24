@@ -2102,6 +2102,7 @@ const HOST_ZH = {
   'Unknown theme': '未知主题',
   'Accent must be a #rrggbb color': '强调色必须是 #rrggbb 格式',
   'Type the key first': '请先输入密钥',
+  'A key cannot contain null bytes': '密钥不能包含空字符',
   'Choose every Bot or a list of Bots': '请选择所有 Bot 或指定的 Bot',
   'This request is gone': '这个请求已经不存在了',
   'This request was already answered': '这个请求已经处理过了',

@@ -36,31 +36,115 @@ export function normalizeName(raw) {
 // too keeps the sent URL equal to the text the redactor looks for.
 export const encodeUrlComponent = value => encodeURIComponent(value).replace(/[!'()*]/g, c => '%' + c.charCodeAt(0).toString(16).toUpperCase())
 
+const WORD_CHAR = /^[\p{L}\p{N}]$/u
+const prevCodePoint = (text, index) => {
+  if (index <= 0) return ''
+  const code = text.codePointAt(index - 1)
+  if (code >= 0xDC00 && code <= 0xDFFF && index >= 2) {
+    const pair = text.codePointAt(index - 2)
+    if (pair >= 0x10000) return String.fromCodePoint(pair)
+  }
+  return String.fromCodePoint(code)
+}
+const nextCodePoint = (text, index) => (index >= text.length ? '' : String.fromCodePoint(text.codePointAt(index)))
+const isWordChar = char => char !== '' && WORD_CHAR.test(char)
+
+const findNextMatch = (text, [needle, , short], from) => {
+  let at = from
+  while (at <= text.length - needle.length) {
+    const pos = text.indexOf(needle, at)
+    if (pos === -1) return -1
+    if (!short || (!isWordChar(prevCodePoint(text, pos)) && !isWordChar(nextCodePoint(text, pos + needle.length)))) {
+      return pos
+    }
+    at = pos + 1
+  }
+  return -1
+}
+
 // One function that replaces every known value in a string, longest first so a value
-// that contains another is replaced whole. JSON-escaped and URL-encoded forms are covered too.
+// that contains another is replaced whole. JSON-escaped, URL-encoded, CRLF/LF, and
+// space-folded multiline forms are covered too. Pure literal scanning avoids V8's
+// 32 KiB RegExp atom limit and keeps secret text out of SyntaxError messages.
 export function redactor(entries) {
   const pairs = []
+  const add = (seen, variant, label, short, priority) => {
+    if (variant.length < MIN_VALUE || seen.has(variant)) return
+    seen.add(variant)
+    pairs.push([variant, label, short, priority])
+  }
+  const addEncoded = (seen, raw, label, short, priority) => {
+    add(seen, raw, label, short, priority)
+    const escaped = JSON.stringify(raw).slice(1, -1)
+    if (escaped !== raw) add(seen, escaped, label, short, priority)
+    // encodeURIComponent throws on a lone surrogate; such a value cannot sit in a URL anyway.
+    const encoded = raw.isWellFormed() ? encodeUrlComponent(raw) : raw
+    if (encoded !== raw && encoded !== escaped) add(seen, encoded, label, short, priority)
+  }
   for (const { name, value } of entries) {
     if (typeof value !== 'string' || value.length < MIN_VALUE) continue
     const label = `[secret:${name}]`
-    const short = value.length < WHOLE_VALUE
-    pairs.push([value, label, short])
-    const escaped = JSON.stringify(value).slice(1, -1)
-    if (escaped !== value) pairs.push([escaped, label, short])
-    // encodeURIComponent throws on a lone surrogate; such a value cannot sit in a URL anyway.
-    const encoded = value.isWellFormed() ? encodeUrlComponent(value) : value
-    if (encoded !== value && encoded !== escaped) pairs.push([encoded, label, short])
+    const multiline = /[\r\n]/.test(value)
+    const lf = multiline ? value.replace(/\r\n?/g, '\n') : value
+    const short = lf.length < WHOLE_VALUE
+    const seen = new Set()
+    addEncoded(seen, value, label, short, 0)
+    if (multiline) {
+      const crlf = lf.replace(/\n/g, '\r\n')
+      addEncoded(seen, lf, label, short, 0)
+      addEncoded(seen, crlf, label, short, 0)
+      // Unquoted shell expansion (`echo $DSH_SECRET_NAME`) and single-line logs fold
+      // line breaks into spaces; cover those when long enough not to hit ordinary prose.
+      const spaced = lf.replace(/\n/g, ' ')
+      if (spaced.length >= WHOLE_VALUE) addEncoded(seen, spaced, label, false, 1)
+      const collapsed = lf.replace(/\s+/g, ' ').trim()
+      if (collapsed.length >= WHOLE_VALUE) addEncoded(seen, collapsed, label, false, 1)
+    }
   }
-  pairs.sort((a, b) => b[0].length - a[0].length)
+  // Longest first; when two secrets share a variant of equal length, exact forms win over
+  // synthetic space-folded forms.
+  pairs.sort((a, b) => b[0].length - a[0].length || a[3] - b[3])
   if (pairs.length === 0) return text => text
-  // One pass, so a label already written is never matched again.
-  const labels = new Map()
-  for (const [value, label] of pairs) if (!labels.has(value)) labels.set(value, label)
-  const quote = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const pattern = new RegExp(pairs.map(([value, , short]) => (short ? `(?<![\\p{L}\\p{N}])${quote(value)}(?![\\p{L}\\p{N}])` : quote(value))).join('|'), 'gu')
+  const seenNeedles = new Set()
+  const unique = []
+  for (const [needle, label, short] of pairs) {
+    if (seenNeedles.has(needle)) continue
+    seenNeedles.add(needle)
+    unique.push([needle, label, short])
+  }
   return (text) => {
-    if (typeof text !== 'string' || !pairs.some(([value]) => text.includes(value))) return text
-    return text.replace(pattern, match => labels.get(match) ?? match)
+    if (typeof text !== 'string') return text
+    const hits = []
+    for (const entry of unique) {
+      if (text.includes(entry[0])) hits.push(entry)
+    }
+    if (hits.length === 0) return text
+    const positions = hits.map(entry => findNextMatch(text, entry, 0))
+    let out = ''
+    let cursor = 0
+    while (true) {
+      let bestIndex = -1
+      let bestPos = Infinity
+      for (let i = 0; i < hits.length; i += 1) {
+        const pos = positions[i]
+        // `hits` is ordered longest-first (and exact before folded), so `<` picks the
+        // earliest match and breaks ties by longest / highest priority.
+        if (pos !== -1 && pos < bestPos) {
+          bestPos = pos
+          bestIndex = i
+        }
+      }
+      if (bestIndex === -1) break
+      const [needle, label] = hits[bestIndex]
+      out += text.slice(cursor, bestPos) + label
+      cursor = bestPos + needle.length
+      for (let i = 0; i < hits.length; i += 1) {
+        if (positions[i] !== -1 && positions[i] < cursor) {
+          positions[i] = findNextMatch(text, hits[i], cursor)
+        }
+      }
+    }
+    return cursor === 0 ? text : out + text.slice(cursor)
   }
 }
 
@@ -426,7 +510,8 @@ export function install(rt) {
 
   const cleanValue = (raw) => {
     if (typeof raw !== 'string') throw new Error('Type the key first')
-    const value = raw.trim()
+    const value = raw.replace(/\r\n?/g, '\n').trim()
+    if (value.includes('\0')) throw new Error('A key cannot contain null bytes')
     if (value.length < MIN_VALUE) throw new Error(`A key must have at least ${MIN_VALUE} characters`)
     if (value.length > MAX_VALUE) throw new Error(`A key can have at most ${MAX_VALUE} characters`)
     return value

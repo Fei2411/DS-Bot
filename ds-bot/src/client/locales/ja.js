@@ -1763,6 +1763,7 @@ export const JA = {
   "Unknown theme": "不明なテーマです",
   "Accent must be a #rrggbb color": "アクセントカラーは #rrggbb 形式で指定してください",
   "Type the key first": "先にシークレットを入力してください",
+  "A key cannot contain null bytes": "シークレットに NULL バイトを含めることはできません",
   "Choose every Bot or a list of Bots": "すべての Bot または特定の Bot を選択してください",
   "This request is gone": "このリクエストはすでに存在しません",
   "This request was already answered": "このリクエストはすでに対応済みです",

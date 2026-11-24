@@ -1763,6 +1763,7 @@ export const FR = {
   "Unknown theme": "Thème inconnu",
   "Accent must be a #rrggbb color": "La couleur d’accentuation doit être au format #rrggbb",
   "Type the key first": "Saisissez d’abord la clé",
+  "A key cannot contain null bytes": "Une clé ne peut pas contenir d’octets nuls",
   "Choose every Bot or a list of Bots": "Choisissez tous les Bots ou une liste de Bots",
   "This request is gone": "Cette demande n’existe plus",
   "This request was already answered": "Cette demande a déjà été traitée",

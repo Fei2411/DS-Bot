@@ -1791,6 +1791,7 @@ export const DE = {
   'Unknown theme': 'Unbekanntes Design',
   'Accent must be a #rrggbb color': 'Die Akzentfarbe muss im Format #rrggbb angegeben werden',
   'Type the key first': 'Gib zuerst den Schlüssel ein',
+  'A key cannot contain null bytes': 'Ein Schlüssel darf keine Nullbytes enthalten',
   'Choose every Bot or a list of Bots': 'Wähle alle Bots oder bestimmte Bots aus',
   'This request is gone': 'Diese Anfrage existiert nicht mehr',
   'This request was already answered': 'Diese Anfrage wurde bereits beantwortet',

@@ -1791,6 +1791,7 @@ export const KO = {
   'Unknown theme': '알 수 없는 테마',
   'Accent must be a #rrggbb color': '강조 색상은 #rrggbb 형식이어야 합니다',
   'Type the key first': '먼저 시크릿을 입력하세요',
+  'A key cannot contain null bytes': '시크릿에는 널 바이트를 포함할 수 없습니다',
   'Choose every Bot or a list of Bots': '모든 Bot 또는 지정된 Bot 목록을 선택하세요',
   'This request is gone': '이 요청은 더 이상 존재하지 않습니다',
   'This request was already answered': '이미 처리된 요청입니다',
