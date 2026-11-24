@@ -81,35 +81,40 @@ export function tailLines(text, count) {
 function readTail(file, count) {
   const fd = openSync(file, 'r')
   try {
-    const stat = fstatSync(fd)
-    if (!stat.isFile()) throw new Error('log is not a file')
-    const chunks = []
-    let remaining = Math.trunc(count) || Infinity
-    for (let end = stat.size; end > 0;) {
-      const start = Math.max(0, end - TAIL_BLOCK)
-      const chunk = Buffer.allocUnsafe(end - start)
-      for (let offset = 0; offset < chunk.length;) {
-        const read = readSync(fd, chunk, offset, chunk.length - offset, start + offset)
-        if (read === 0) throw new Error('log ended during read')
-        offset += read
-      }
-      if (end === stat.size && chunk.at(-1) === 10) remaining += 1
-      let newline = chunk.length
-      while (newline > 0) {
-        newline = chunk.lastIndexOf(10, newline - 1)
-        if (newline < 0) break
-        remaining -= 1
-        if (remaining === 0) break
-      }
-      chunks.push(remaining === 0 ? chunk.subarray(newline + 1) : chunk)
-      if (remaining === 0) break
-      end = start
-    }
-    // A UTF-8 code point can span blocks, but cannot contain the LF delimiter.
-    return (chunks.length === 1 ? chunks[0] : Buffer.concat(chunks.reverse())).toString('utf8')
+    // After a truncate, retry from the new EOF once; a second truncate must not hide rotations.
+    return readTailSnapshot(fd, count) ?? readTailSnapshot(fd, count) ?? ''
   } finally {
     closeSync(fd)
   }
+}
+
+function readTailSnapshot(fd, count) {
+  const stat = fstatSync(fd)
+  if (!stat.isFile()) throw new Error('log is not a file')
+  const chunks = []
+  let remaining = Math.trunc(count) || Infinity
+  for (let end = stat.size; end > 0;) {
+    const start = Math.max(0, end - TAIL_BLOCK)
+    const chunk = Buffer.allocUnsafe(end - start)
+    for (let offset = 0; offset < chunk.length;) {
+      const read = readSync(fd, chunk, offset, chunk.length - offset, start + offset)
+      if (read === 0) return undefined
+      offset += read
+    }
+    if (end === stat.size && chunk.at(-1) === 10) remaining += 1
+    let newline = chunk.length
+    while (newline > 0) {
+      newline = chunk.lastIndexOf(10, newline - 1)
+      if (newline < 0) break
+      remaining -= 1
+      if (remaining === 0) break
+    }
+    chunks.push(remaining === 0 ? chunk.subarray(newline + 1) : chunk)
+    if (remaining === 0) break
+    end = start
+  }
+  // A UTF-8 code point can span blocks, but cannot contain the LF delimiter.
+  return (chunks.length === 1 ? chunks[0] : Buffer.concat(chunks.reverse())).toString('utf8')
 }
 
 export class LogFile {

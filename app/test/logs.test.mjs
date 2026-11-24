@@ -169,6 +169,54 @@ test('the tail reads only a suffix of a large rotation, even on short reads', (t
   assert.ok(offsets.slice(1).every(position => position >= 1800000))
 })
 
+test('a concurrent truncate retries the newest log once and still reads the rotations', async (t) => {
+  const retained = 'retained\n'
+  const cases = [
+    ['reads the new tail after one truncate', [retained.length], ['oldest', 'older', 'retained']],
+    ['uses the rotations after a second truncate', [32 * 1024, 0], ['oldest', 'older']],
+  ]
+  for (const [name, sizes, expected] of cases) {
+    await t.test(name, (t) => {
+      const dir = folder(t)
+      const newest = join(dir, 'main.log')
+      writeFileSync(newest, retained + 'x'.repeat(64 * 1024))
+      writeFileSync(join(dir, 'main.1.log'), 'older\n')
+      writeFileSync(join(dir, 'main.2.log'), 'oldest\n')
+
+      let newestFd
+      let readingNewest = false
+      let attempts = 0
+      const open = fs.openSync
+      const opens = t.mock.method(fs, 'openSync', (path, flags, ...args) => {
+        const fd = open(path, flags, ...args)
+        if (flags === 'r') {
+          readingNewest = path === newest
+          if (readingNewest) newestFd = fd
+        }
+        return fd
+      })
+      const stat = fs.fstatSync
+      const stats = t.mock.method(fs, 'fstatSync', (fd) => {
+        const snapshot = stat(fd)
+        if (readingNewest) {
+          const size = sizes[attempts++]
+          if (size !== undefined) fs.truncateSync(newest, size)
+        }
+        return snapshot
+      })
+      syncBuiltinESMExports()
+      t.after(() => {
+        for (const spy of [opens, stats]) spy.mock.restore()
+        syncBuiltinESMExports()
+      })
+
+      assert.deepEqual(new LogFile({ dir }).tail(3), expected)
+      assert.equal(attempts, 2)
+      assert.throws(() => stat(newestFd), { code: 'EBADF' })
+    })
+  }
+})
+
 test('the lines of a chunk go to disk in one write, cut where the file rotates', (t) => {
   const dir = folder(t)
   const writes = t.mock.method(fs, 'writeSync')
