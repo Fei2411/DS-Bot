@@ -153,13 +153,26 @@ const gm = (s, senderId, text, { mentioned = true, chat = { key: 'g1', kind: 'gr
   chat, sender: { id: senderId, name: `User ${senderId}` }, text, mentioned, ...extra,
 })
 
-const tokenCard = async (s, index = 0) => {
-  for (let at = 0; at < 200; at += 1) {
-    const card = s.fake.sent.filter(job => /Card V\d+/.test(job.text))[index]
-    if (card !== undefined) return card
-    await delay(10)
+const waitFor = async (check, options = {}) => {
+  const { timeoutMs = 5000, stepMs = 10, label = 'condition was not reached' } = typeof options === 'number'
+    ? { timeoutMs: options }
+    : options
+  const deadline = Date.now() + timeoutMs
+  let value = check()
+  while (!value && Date.now() < deadline) {
+    await delay(stepMs)
+    value = check()
   }
-  assert.fail('token card was not delivered')
+  assert.ok(value, label)
+  return value
+}
+
+const tokenCard = async (s, index = 0) => {
+  return waitFor(() => s.fake.sent.filter(job => /Card V\d+/.test(job.text))[index], {
+    timeoutMs: 4000,
+    stepMs: 10,
+    label: 'token card was not delivered',
+  })
 }
 
 test('two concurrent syncs start exactly one adapter', async (t) => {
@@ -299,15 +312,19 @@ test('a quoted reply carries the message it answers into the Bot', async (t) => 
   s.imTurn('a')
   s.fake.sent.length = 0
   s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'Project A is done' }] } })
-  await s.flush()
-  const sentId = s.fake.sent.at(-1)?.messageId
-  assert.ok(sentId !== undefined, 'the sent message has an id')
+  const sentId = await waitFor(() => s.fake.sent.at(-1)?.messageId, { label: 'the sent message has an id' })
   await dm(s, 'u1', 'ship it', { quote: { ids: [sentId] } })
   assert.equal(s.prompts.length, 2)
   assert.equal(s.prompts[1].content[0].text, 'Replying to an earlier message:\n> Project A is done\n\nship it')
-  // The reply can come after a restart, so the message is kept in the runtime file.
-  await delay(600)
-  const runtime = JSON.parse(readFileSync(join(s.home, 'im', `${conn.id}.json`), 'utf8'))
+  // The reply can come after a restart, so the message is kept in the runtime file
+  // (written on a debounce timer).
+  const fileOf = () => {
+    try { return JSON.parse(readFileSync(join(s.home, 'im', `${conn.id}.json`), 'utf8')) } catch { return undefined }
+  }
+  const runtime = await waitFor(() => {
+    const data = fileOf()
+    return data?.sent?.['dm-u1']?.some(entry => entry.text === 'Project A is done') ? data : undefined
+  }, { timeoutMs: 5000, stepMs: 25, label: 'runtime file persisted sent message for quote lookup' })
   assert.ok(runtime.sent['dm-u1'].some(entry => entry.text === 'Project A is done'))
 })
 
@@ -1940,13 +1957,16 @@ test('own-chat IM views accept a button answer using the shared view reply path'
   s.imTurn('a')
   await s.rt.teamTools.find(tool => tool.name === 'show_view').execute({ title: 'Route', view: { type: 'options', id: 'pick', options: [{ label: 'A' }, { label: 'B' }] } }, { agent: { id: 'a' }, concludeTurn() {} })
   const view = s.rt.state.views.a
-  await s.flush()
+  await waitFor(() => s.fake.sent.some(job => job.buttons?.some(button => button.data === `v:${view.id}:1`)), {
+    label: 'single-select view card with buttons was delivered',
+  })
   await s.fake.handlers.onAction({ chat: { key: 'dm-u1', kind: 'direct' }, sender: { id: 'u1' }, data: `v:${view.id}:1` })
   assert.equal(s.rt.state.views.a, undefined)
   assert.deepEqual(JSON.parse(s.agentOf('a').lastFollowup.content[0].text).answers[0], { id: view.id, action: 'pick', values: { selected: ['B'] } })
   await s.rt.teamTools.find(tool => tool.name === 'show_view').execute({ title: 'Multi route', view: { type: 'options', id: 'routes', multi: true, options: [{ label: 'A' }, { label: 'B' }] } }, { agent: { id: 'a' }, concludeTurn() {} })
-  await s.flush()
-  const multiCard = s.fake.sent.find(job => job.text.includes('Multi route'))
+  const multiCard = await waitFor(() => s.fake.sent.find(job => job.text.includes('Multi route')), {
+    label: 'multi-select view card was delivered after runtime write',
+  })
   assert.ok(multiCard)
   assert.equal(multiCard.buttons, undefined)
   const pending = s.rt.state.views.a
@@ -4461,15 +4481,6 @@ test('P0-B: after restart, group task-report restores IM origin even while sibli
   await s.flush()
   assert.deepEqual(s.fake.sent, [], 'g1 task report must not leak into a different IM group chat g2')
 })
-
-const waitFor = async (fn, ms = 2000) => {
-  const deadline = Date.now() + ms
-  while (Date.now() < deadline) {
-    if (fn()) return
-    await delay(10)
-  }
-  assert.ok(fn(), 'timed out waiting for condition')
-}
 
 test('IM-origin delegate_work dispatch returns the summary reply to the originating IM chat and respects unpair/mix guards (#1836)', async (t) => {
   const s = await start()

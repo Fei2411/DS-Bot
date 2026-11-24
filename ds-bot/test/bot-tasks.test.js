@@ -953,12 +953,12 @@ test('task_start forks compact parents, skips fork above TASK_FORK_MAX_EVENTS wi
   assert.deepEqual(compact.inheritedSegments, [{ sessionId: 'dm-a-p1', endedAt: 100 }], 'forked task must not duplicate parent dm-a in inheritedSegments')
 
   // 2) Above configurable threshold (seq === 6 > 5): MUST skip fork, seed structured fallbackContextSummary,
-  // append slim parent ref { sessionId: 'dm-a' }, and allow read_own_chat to search both part 1 AND live dm-a!
+  // append branch-bounded parent ref { sessionId: 'dm-a', throughSeq: 5 }, and allow read_own_chat to search both part 1 AND live dm-a!
   dmA.session.seq = 6
   const overOpt = await env.rt.startTask('dm-a', { title: 'Threshold fresh', brief: 'Large session job' }, execOf(dmA), { taskForkMaxEvents: 5 })
   assert.equal(overOpt.forked, false, 'sourceEventCount > options.taskForkMaxEvents must skip fork')
   assert.equal(env.forkedCalls.length, 1, 'no new sessionController.fork call when above threshold')
-  assert.deepEqual(overOpt.inheritedSegments, [{ sessionId: 'dm-a-p1', endedAt: 100 }, { sessionId: 'dm-a' }])
+  assert.deepEqual(overOpt.inheritedSegments, [{ sessionId: 'dm-a-p1', endedAt: 100 }, { sessionId: 'dm-a', throughSeq: 5 }])
   const overDelivery = env.deliveries.find(d => d.sessionId === overOpt.sessionId && d.role === 'task')
   assert.match(overDelivery.text, /## Decisions\n- Keep lightweight background tasks\./)
   assert.match(overDelivery.text, /COBALT-77/)
@@ -1004,4 +1004,249 @@ test('task_start forks compact parents, skips fork above TASK_FORK_MAX_EVENTS wi
   const newFgSid = await env.rt.handoffForeground(env.rt.botOf('a'), 'dm-a', [])
   assert.match(newFgSid, /^fork-/, 'fg-handoff must keep forking foreground chats to retain KV cache')
   assert.equal(env.forkedCalls.length, 2)
+})
+
+test('thread-boundary isolation: non-forked inherited foreground ref + legacy unsealed ref stay bounded across fg-handoff, SQLite search, partLines, earlierPage, and pruneSettledTasks cold read', async (t) => {
+  const team = makeTeam({
+    bots: {
+      a: {
+        id: 'a',
+        name: 'Chief',
+        role: 'Boss',
+        sessionId: 'dm-a',
+        createdAt: 1,
+        segments: [{ sessionId: 'dm-a-p1', endedAt: 100, note: 'Part 1 archived summary.' }],
+      },
+    },
+  })
+  const env = await startEnv({ team })
+  t.after(env.stop)
+
+  // Cold event log backing sessionController.page (persists even after dm-a is archived and evicted from agentMap).
+  const coldStore = new Map([
+    ['dm-a-p1', [
+      { type: 'user/message', seq: 0, time: 10, data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'Archived part 1 note ARCHIVE-1.' }] } },
+      { type: 'assistant/message', seq: 1, time: 11, data: { message: { role: 'assistant', content: [{ type: 'text', text: 'Kept ARCHIVE-1.' }] } } },
+    ]],
+  ])
+  const appendEvent = (sid, event) => {
+    const agent = env.agentMap.get(sid)
+    const list = coldStore.get(sid) ?? []
+    if (!coldStore.has(sid)) coldStore.set(sid, list)
+    list.push(event)
+    if (agent !== undefined) {
+      agent.session.events.push(event)
+      agent.session.seq = list.length
+    }
+  }
+  env.ctx.sessionController.page = async ({ address, throughSeq, beforeSeq }) => {
+    const raw = coldStore.get(address.sessionId) ?? env.agentMap.get(address.sessionId)?.session.snapshotEvents() ?? []
+    const filtered = raw.filter(ev => (throughSeq === undefined || ev.seq <= throughSeq) && (beforeSeq === undefined || ev.seq < beforeSeq))
+    return { records: filtered.map(event => ({ event })), hasMore: false }
+  }
+  env.ctx.workspaceRegistry.archiveSession = async (sid, opts) => {
+    env.archivedSessions.push({ sid, opts })
+    env.agentMap.delete(sid)
+  }
+
+  // Turn 1 on foreground dm-a (> taskForkMaxEvents=2): contains pre-branch secret + shared token.
+  const dmA = env.agentMap.get('dm-a')
+  appendEvent('dm-a', { type: 'turn/start', seq: 0, time: 200, data: { turn: 1 } })
+  appendEvent('dm-a', { type: 'user/message', seq: 1, time: 201, data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'Remember secret-before-branch and shared-token-omega.' }] } })
+  appendEvent('dm-a', { type: 'assistant/message', seq: 2, time: 202, data: { message: { role: 'assistant', content: [{ type: 'text', text: 'Stored secret-before-branch.' }] } } })
+  appendEvent('dm-a', { type: 'turn/end', seq: 3, time: 203, data: { turn: 1, reason: { kind: 'completed' } } })
+  env.rt.state.exchangeTurns['dm-a'] = [99]
+
+  // 1) Non-forked task_start creates T1 (seq=4 > taskForkMaxEvents=2), capturing throughSeq: 3.
+  const t1 = await env.rt.startTask('dm-a', { title: 'Task T1', brief: 'Work on T1' }, execOf(dmA), { taskForkMaxEvents: 2 })
+  assert.equal(t1.forked, false)
+  assert.deepEqual(t1.inheritedSegments, [
+    { sessionId: 'dm-a-p1', endedAt: 100 },
+    { sessionId: 'dm-a', throughSeq: 3 },
+  ])
+
+  // 2) Seed a legacy persisted task (pre-fix) with an unsealed { sessionId: 'dm-a' } (no throughSeq, no endedAt).
+  const legacySessionId = 'ses-legacy-t1'
+  await env.ctx.sessionController.resolveAgent(legacySessionId)
+  const legacyTask = {
+    id: 'k_legacy',
+    title: 'Legacy Task',
+    brief: 'Old task from before throughSeq',
+    from: 'dm-a',
+    sessionId: legacySessionId,
+    segments: [],
+    inheritedSegments: [{ sessionId: 'dm-a-p1', endedAt: 100 }, { sessionId: 'dm-a' }],
+    status: 'running',
+    startedAt: 250,
+    updatedAt: 250,
+  }
+  env.rt.botOf('a').tasks.push(legacyTask)
+  env.rt.chatOwners.set(legacySessionId, 'a')
+  env.rt.taskOwners.set(legacySessionId, { botId: 'a', taskId: legacyTask.id })
+  await env.rt.save()
+
+  // 3) Start Turn 2 on dm-a and move dm-a into T2 via handoffForeground (fg-handoff).
+  dmA.status = 'running'
+  const turn2Start = { type: 'turn/start', seq: 4, time: 300, data: { turn: 2 } }
+  appendEvent('dm-a', turn2Start)
+  for (const listener of env.ctx.listeners.get('session/event') ?? []) {
+    if (listener.length >= 2) await listener(dmA.session, turn2Start)
+  }
+  appendEvent('dm-a', { type: 'user/message', seq: 5, time: 301, data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'Run private-t2-prompt with zz and shared-token-omega.' }] } })
+  const newFgSid = await env.rt.handoffForeground(env.rt.botOf('a'), 'dm-a', [])
+  assert.notEqual(newFgSid, 'dm-a')
+
+  const bot = env.rt.botOf('a')
+  const t1Stored = bot.tasks.find(item => item.id === t1.id)
+  const legacyStored = bot.tasks.find(item => item.id === legacyTask.id)
+  const t2Stored = bot.tasks.find(item => item.sessionId === 'dm-a')
+  assert.ok(t2Stored !== undefined && t2Stored.origin === 'fg-handoff')
+
+  // Both T1 and legacy task must be sealed with endedAt and throughSeq === 3 (excluding Turn 2!).
+  const t1Ref = t1Stored.inheritedSegments.find(seg => seg.sessionId === 'dm-a')
+  const legacyRef = legacyStored.inheritedSegments.find(seg => seg.sessionId === 'dm-a')
+  assert.equal(t1Ref.throughSeq, 3)
+  assert.equal(typeof t1Ref.endedAt, 'number')
+  assert.equal(legacyRef.throughSeq, 3)
+  assert.equal(typeof legacyRef.endedAt, 'number')
+
+  // T2 continues writing private messages (and multiple shared-token rows to test SQL LIMIT crowding) into dm-a.
+  appendEvent('dm-a', { type: 'assistant/message', seq: 6, time: 302, data: { message: { role: 'assistant', content: [{ type: 'text', text: 'Doing private-t2-work with zz and shared-token-omega #1.' }] } } })
+  appendEvent('dm-a', { type: 'assistant/message', seq: 7, time: 303, data: { message: { role: 'assistant', content: [{ type: 'text', text: 'More private-t2-work shared-token-omega #2.' }] } } })
+  appendEvent('dm-a', { type: 'assistant/message', seq: 8, time: 304, data: { message: { role: 'assistant', content: [{ type: 'text', text: 'Final private-t2-work shared-token-omega #3.' }] } } })
+
+  // Backdate T1's sealed endedAt past SEAL_AFTER_MS (60s) to prove T1's read never prematurely seals active dm-a in chat-index.sqlite.
+  t1Ref.endedAt = Date.now() - 120_000
+
+  const t1Agent = env.agentMap.get(t1.sessionId)
+  const legacyAgent = env.agentMap.get(legacySessionId)
+  const readOwn = env.tool('read_own_chat')
+
+  // 4) Real SQLite chat-index.sqlite isolation checks for BOTH T1 and legacy task!
+  for (const [label, agent] of [['T1', t1Agent], ['legacy', legacyAgent]]) {
+    const hitBefore = await readOwn.execute({ query: 'secret-before-branch' }, execOf(agent))
+    assert.match(hitBefore, /secret-before-branch/, `${label} must still recall pre-branch messages`)
+    assert.doesNotMatch(hitBefore, /private-t2-work|private-t2-prompt/, `${label} must never leak T2`)
+
+    const missT2Work = await readOwn.execute({ query: 'private-t2-work' }, execOf(agent))
+    assert.match(missT2Work, /^Nothing in your own chat mentions "private-t2-work"\./, `${label} FTS5 search must not see private-t2-work`)
+
+    const missT2Prompt = await readOwn.execute({ query: 'private-t2-prompt' }, execOf(agent))
+    assert.match(missT2Prompt, /^Nothing in your own chat mentions "private-t2-prompt"\./, `${label} FTS5 search must not see moved Turn 2 prompt`)
+
+    // Short (<3 char) LIKE query path must also enforce throughSeq!
+    const missShort = await readOwn.execute({ query: 'zz' }, execOf(agent))
+    assert.match(missShort, /^Nothing in your own chat mentions "zz"\./, `${label} short LIKE search must not leak T2`)
+
+    // Latest messages (omitting query) must return pre-branch messages and NEVER T2!
+    const latest = await readOwn.execute({}, execOf(agent))
+    assert.match(latest, /secret-before-branch/, `${label} latest read must include pre-branch messages`)
+    assert.doesNotMatch(latest, /private-t2-work|private-t2-prompt/, `${label} latest read must never leak T2`)
+
+    // Anchor reads around both pre-branch (#1) and post-branch (#6) must stay bounded!
+    const aroundBefore = await readOwn.execute({ around: 'part 2 #1' }, execOf(agent))
+    assert.match(aroundBefore, /secret-before-branch/)
+    assert.doesNotMatch(aroundBefore, /private-t2-work|private-t2-prompt/)
+    const aroundAfter = await readOwn.execute({ around: 'part 2 #6' }, execOf(agent))
+    assert.doesNotMatch(aroundAfter, /private-t2-work|private-t2-prompt/)
+
+    // Part summary read must not misreport a sealed inherited ref as context overflow or leak T2.
+    const part2 = await readOwn.execute({ part: 2 }, execOf(agent))
+    assert.match(part2, /has no closing handoff note/)
+    assert.doesNotMatch(part2, /context overflow|private-t2-work/)
+  }
+
+  // 5) SQL LIMIT must filter throughSeq BEFORE LIMIT so T2's many hits cannot crowd out T1's pre-branch hit.
+  const limited = await env.rt.searchOwnChat('a', 'shared-token-omega', { askingId: t1.sessionId, limit: 1 })
+  assert.equal(limited.lines.length, 1, 'T1 limit=1 search must not be crowded out by T2 rows')
+  assert.match(limited.lines[0], /secret-before-branch/)
+  assert.doesNotMatch(limited.lines[0], /private-t2/)
+
+  // 6) Direct partLines and earlierPage must enforce part.throughSeq.
+  const t1Parts = env.rt.partsOfThread('a', t1.sessionId)
+  const dmAPart = t1Parts.find(p => p.sessionId === 'dm-a')
+  assert.equal(dmAPart.throughSeq, 3)
+  const directLines = []
+  for await (const line of env.rt.partLines(dmAPart.sessionId, AbortSignal.timeout(5000), { throughSeq: dmAPart.throughSeq })) {
+    directLines.push(line.text)
+  }
+  assert.ok(directLines.some(text => text.includes('secret-before-branch')), 'partLines must include pre-branch lines')
+  assert.equal(directLines.some(text => text.includes('private-t2-work') || text.includes('private-t2-prompt')), false, 'partLines must never yield seq > throughSeq')
+
+  const earlier = await env.rt.earlierPage(t1.sessionId)
+  const earlierTexts = earlier.items.map(item => item.text ?? '').join('\n')
+  assert.match(earlierTexts, /secret-before-branch/)
+  assert.doesNotMatch(earlierTexts, /private-t2-work|private-t2-prompt/)
+
+  // 7) T2 itself STILL sees its own messages AND new messages appended after T1's read (dm-a was NOT prematurely sealed!).
+  appendEvent('dm-a', { type: 'assistant/message', seq: 9, time: 305, data: { message: { role: 'assistant', content: [{ type: 'text', text: 'Post-seal-window private-t2-late.' }] } } })
+  const t2Hit = await readOwn.execute({ query: 'private-t2-late' }, execOf(dmA))
+  assert.match(t2Hit, /private-t2-late/, 'T2 must still index and find its own messages after T1 read dm-a')
+  const t1MissLate = await readOwn.execute({ query: 'private-t2-late' }, execOf(t1Agent))
+  assert.match(t1MissLate, /Nothing in your own chat mentions/)
+
+  // 8) Settle T2 and overflow MAX_SETTLED_TASKS so pruneSettledTasks prunes T2 and archives dm-a:
+  //    exchangeTurns['dm-a'] stays intact while T1 still references dm-a, and T1's cold reads still work!
+  t2Stored.status = 'completed'
+  t2Stored.endedAt = Date.now()
+  // Put T2 first among settled tasks, followed by 50 more settled tasks so pruning drops T2.
+  const fillerTasks = Array.from({ length: 50 }, (_, idx) => ({
+    id: `k_fill_${idx}`,
+    title: `Filler ${idx}`,
+    brief: 'Done',
+    from: newFgSid,
+    sessionId: `ses-fill-${idx}`,
+    segments: [],
+    status: 'completed',
+    startedAt: 400 + idx,
+    updatedAt: 400 + idx,
+    endedAt: 400 + idx,
+  }))
+  bot.tasks = [t2Stored, ...fillerTasks, t1Stored, legacyStored]
+  // Trigger pruneSettledTasks by settling one more task.
+  const triggerTask = {
+    id: 'k_trigger_prune',
+    title: 'Trigger',
+    brief: 'Trigger prune',
+    from: newFgSid,
+    sessionId: 'ses-trigger',
+    segments: [],
+    status: 'running',
+    startedAt: 500,
+    updatedAt: 500,
+  }
+  bot.tasks.push(triggerTask)
+  env.rt.chatOwners.set('ses-trigger', 'a')
+  env.rt.taskOwners.set('ses-trigger', { botId: 'a', taskId: triggerTask.id })
+  await env.rt.stopTask('a', triggerTask.id, 'done')
+
+  assert.equal(bot.tasks.some(item => item.id === t2Stored.id), false, 'T2 was pruned past MAX_SETTLED_TASKS')
+  assert.equal(env.agentMap.has('dm-a'), false, 'dm-a was archived and unloaded from live agents')
+  assert.deepEqual(env.rt.state.exchangeTurns['dm-a'], [99], 'pruneSettledTasks must preserve exchangeTurns for sessions still referenced by kept tasks')
+
+  // Cold reads from T1 after dm-a is archived still work cleanly and enforce throughSeq!
+  const coldQuery = await readOwn.execute({ query: 'secret-before-branch' }, execOf(t1Agent))
+  assert.match(coldQuery, /secret-before-branch/)
+  const coldMiss = await readOwn.execute({ query: 'private-t2-work' }, execOf(t1Agent))
+  assert.match(coldMiss, /Nothing in your own chat mentions/)
+  const coldEarlier = await env.rt.earlierPage(t1.sessionId)
+  const coldEarlierTexts = coldEarlier.items.map(item => item.text ?? '').join('\n')
+  assert.match(coldEarlierTexts, /secret-before-branch/)
+  assert.doesNotMatch(coldEarlierTexts, /private-t2-work|private-t2-prompt/)
+  const coldLines = []
+  for await (const line of env.rt.partLines('dm-a', AbortSignal.timeout(5000), { throughSeq: 3 })) {
+    coldLines.push(line.text)
+  }
+  assert.ok(coldLines.some(text => text.includes('secret-before-branch')))
+  assert.equal(coldLines.some(text => text.includes('private-t2-work')), false)
+
+  // 9) Even if a bounded inherited session later appears in bot.segments with a post-branch handoff note,
+  //    partsOfThread must preserve throughSeq and never hydrate the post-branch note onto T1.
+  bot.segments.push({ sessionId: 'dm-a', endedAt: 999, note: 'Post-branch foreground note leaking future work' })
+  const hydratedParts = env.rt.partsOfThread('a', t1.sessionId)
+  const hydratedDmA = hydratedParts.find(p => p.sessionId === 'dm-a')
+  assert.equal(hydratedDmA.throughSeq, 3)
+  assert.equal(hydratedDmA.note, undefined)
+  const part2AfterRollover = await readOwn.execute({ part: 2 }, execOf(t1Agent))
+  assert.doesNotMatch(part2AfterRollover, /Post-branch foreground note/)
 })
