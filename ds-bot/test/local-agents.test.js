@@ -253,6 +253,24 @@ test('acp: a stall after approval leaves the queued follow-up for explicit retry
   assert.equal(records.s1.handedId, 'm4')
 })
 
+test('acp: a queued follow-up without instructions does not undo compaction invalidation', async (t) => {
+  const records = {}
+  const adapter = makeAdapter({ records, review: true, acpArgs: ['--compact-after-permission'] })
+  t.after(() => adapter.dispose())
+  const messages = [system('sys', 'Brief.'), user('m1', 'ask-permission')]
+  const ask = await collect(adapter.stream(options('s1', messages)))
+  assert.equal(ask.finish.kind, 'tool-calls')
+  assert.notEqual(records.s1.promptHash, undefined)
+  messages.push(toolResult('m2', ask.calls[0].id, JSON.stringify({ decision: 'allow' })), user('m3', 'also check the logs'))
+  const followed = await collect(adapter.stream(options('s1', messages)))
+  assert.match(followed.text, /also check the logs/)
+  assert.doesNotMatch(followed.text, /Updated team instructions/)
+  assert.equal(records.s1.compactions, 1)
+  messages.push(user('m4', 'what did you find?'))
+  const next = await collect(adapter.stream(options('s1', messages)))
+  assert.match(next.text, /Updated team instructions.*\n\nBrief\./)
+})
+
 test('acp: a forgotten stalled prompt releases its RPC without closing a shared peer', async (t) => {
   const adapter = makeAdapter({ acpArgs: ['--no-cancel-ack'] })
   t.after(() => adapter.dispose())

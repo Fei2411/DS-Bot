@@ -686,10 +686,11 @@ export class LocalAgentAdapter extends LlmAdapter {
       ? await renderReplay(messages, system, resolveImage, { preserve: remaining, freshMemory, memoryNote: appliedMemory.note })
       : await renderDelta(contextText, remaining, resolveImage)
     let sentInstructions = live.spec.kind !== 'acp' && startedFreshCli && instructions !== undefined
-    let nextPromptHash = queuedDelivery === undefined ? live.promptHash : queuedDelivery.promptHash
+    let nextPromptHash = live.promptHash
+    const expectedPromptHash = live.queue.findLast(entry => entry.delivery?.promptHash !== undefined)?.delivery.promptHash ?? live.promptHash
     // A new CLI session gets its instructions in the open args or the replay;
     // the "updated" line is only for a session that saw older ones.
-    if (instructions !== undefined && !startedFreshCli && nextPromptHash !== promptHash) {
+    if (instructions !== undefined && !startedFreshCli && expectedPromptHash !== promptHash) {
       const updated = `Updated team instructions (replace earlier ones):\n\n${instructions}`
       if (live.spec.kind === 'codex') {
         await live.engine.instruct?.(live.engineSession, updated)
@@ -737,7 +738,7 @@ export class LocalAgentAdapter extends LlmAdapter {
     const last = messages.at(-1)
     const queued = live.queue.at(-1)
     if (queued !== undefined) {
-      if (last !== undefined) queued.delivery = { id: last.id, promptHash: nextPromptHash }
+      if (last !== undefined) queued.delivery = { id: last.id, promptHash: sentInstructions ? nextPromptHash : undefined }
     } else {
       live.promptHash = nextPromptHash
       if (last !== undefined && live.closeFailure === undefined) this.markHanded(live, last.id, nextPromptHash ?? promptHash)
@@ -1023,7 +1024,7 @@ export class LocalAgentAdapter extends LlmAdapter {
           if (next !== undefined) {
             this.sendInput(live, next.blocks, options.signal, options.reasoningEffort)
             if (next.delivery !== undefined) {
-              live.promptHash = next.delivery.promptHash
+              live.promptHash = next.delivery.promptHash ?? live.promptHash
               this.markHanded(live, next.delivery.id, live.promptHash)
             }
             break
