@@ -2255,3 +2255,55 @@ test('the origin of a line the book did not keep is claimed once, when it is sav
   await again
   rt.classifyRoomUserSource = realClassify
 })
+
+// #2066 review (6043116028, item 2): the drain awaits the book, and a round can be stopped
+// while it waits. A line whose write succeeded is on the book and stays said; the ones
+// behind it belong to the next round, not to a round that has already stopped.
+test('a line written while its round stops keeps the rest of the inbox', { skip: process.platform === 'win32' || process.getuid?.() === 0 }, async (t) => {
+  const { call, compose, emit, userMessage, relay, answer, stop, sent, rt, inboxOf } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  await emit(room.id, userMessage('Kick off'))
+  const running = relay(room.id, 'relay')
+  const first = await turnFor(sent)
+  assert.ok(first)
+  const one = '@Writer the first line'
+  const two = '@Writer the second line'
+  let release
+  const gate = new Promise((resolve) => { release = resolve })
+  const realWritten = rt.ledger.written
+  rt.ledger.written = () => gate
+  let admin
+  let round
+  try {
+    await compose(room.id, one)
+    await compose(room.id, two)
+    await answer(first.sessionId, first.message.source.exchangeId, 'Chief done', 1)
+    // The drain appended the first line and waits for the book.
+    const appended = await waitFor(() => rt.ledger.records(`group-${room.id}`).find(record => record.text === one))
+    assert.ok(appended, 'the first line is appended before its write is awaited')
+    // A parked call waits in the room for the next round; this one names the admin, who
+    // already posted in this round, so it has no open slot to hide behind.
+    admin = rt.botOf(room.members[0])
+    rt.roomOf(room.id).paused = [{ id: admin.id, name: admin.name, idle: true }]
+    round = [...rt.roomProgress.values()].find(progress => progress.roomId === room.id)
+    assert.ok(round, 'the round is running')
+    // The round stops while that write is on its way.
+    rt.stopRoomRound(room.id)
+    release()
+    assert.ok(await waitFor(() => rt.roomOf(room.id).log.some(line => line.text === one) ? true : undefined), 'the written line stays said')
+    await settle()
+  } finally {
+    rt.ledger.written = realWritten
+    release()
+  }
+  assert.equal(rt.roomOf(room.id).log.filter(line => line.text === one).length, 1, 'the written line is said once')
+  assert.equal(rt.roomOf(room.id).log.filter(line => line.text === two).length, 0, 'the line behind it is not said into a stopped round')
+  const waiting = [...(inboxOf(room.id).nextTurn ?? []), ...(inboxOf(room.id).nextStep ?? [])]
+  assert.ok(waiting.some(message => JSON.stringify(message.content).includes(two)), 'the line behind it waits in the Session inbox')
+  assert.equal(waiting.some(message => JSON.stringify(message.content).includes(one)), false, 'the written line left the Session inbox')
+  assert.equal(sent.filter(entry => JSON.stringify(entry.message.content).includes(one) || JSON.stringify(entry.message.content).includes(two)).length, 0, 'neither line calls a member into the stopped round')
+  assert.deepEqual((rt.roomOf(room.id).paused ?? []).map(entry => entry.id), [admin.id], 'the parked call waits for the next round')
+  assert.equal(round.slots.filter(slot => slot.id === admin.id).length, 1, 'the parked call is not handed to the stopped round')
+  await running
+})

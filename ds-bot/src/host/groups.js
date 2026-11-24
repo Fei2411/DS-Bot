@@ -1938,12 +1938,16 @@ export function install(rt) {
       }
       drawLine(room, record)
       if (!agent.inbox.remove(line.id)) continue
+      // A round stopped while the line was being written takes no more lines: this one is
+      // on the book and stays said, and the ones behind it wait for the next round.
+      if (round.closed || round.abort?.signal.aborted) break
       const { all, found } = mentionsIn(line.text, members)
       const note = all || found.length > 0 ? 'the user mentioned you' : 'new message from the user'
       const { speakers, ordered } = openingCall(room, { text: line.text })
       callIn(round, speakers, note, undefined, { ordered })
     }
-    releaseParked(room, round)
+    // A stopped or closed round takes no parked calls either: they wait for the next round.
+    if (!round.closed && !round.abort?.signal.aborted) releaseParked(room, round)
     await rt.save().catch(() => {})
   }
 
