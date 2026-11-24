@@ -244,7 +244,9 @@ export class LocalAgentAdapter extends LlmAdapter {
     } else if (live !== undefined) await this.closeLive(live)
     const spec = engineOf(route, this.deps.customAgents())
     if (spec === undefined) throw new LlmError(`Unknown local agent ${route}`, 'LOCAL_AGENT_MISSING')
-    const engine = this.engine(route)
+    // Codex warm-resumes a loaded thread with its old MCP address (#2110).
+    // Let closing this bridge stop its app-server without stopping other Sessions.
+    const engine = spec.kind === 'codex' ? this.deps.spawnEngine(spec.kind, route, spec) : this.engine(route)
     live = {
       sessionId, route, spec, engine, dead: false,
       record,
@@ -612,7 +614,10 @@ export class LocalAgentAdapter extends LlmAdapter {
         system: live.spec.kind === 'claude' ? instructions : undefined,
       }
       live.engineSession = await live.engine.open(sessionId, openArgs)
-        .catch(error => { throw toLlmError(error, live) })
+        .catch(async error => {
+          if (live.spec.kind === 'codex') await this.closeLive(live)
+          throw toLlmError(error, live)
+        })
       // A resumed CLI reports its id only with `system/init`: keep the saved one
       // in the meantime, or a resume that fails would erase it. If ACP or Codex
       // could not resume and opened a fresh session instead, replay conversation
