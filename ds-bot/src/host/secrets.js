@@ -36,31 +36,115 @@ export function normalizeName(raw) {
 // too keeps the sent URL equal to the text the redactor looks for.
 export const encodeUrlComponent = value => encodeURIComponent(value).replace(/[!'()*]/g, c => '%' + c.charCodeAt(0).toString(16).toUpperCase())
 
+const WORD_CHAR = /^[\p{L}\p{N}]$/u
+const prevCodePoint = (text, index) => {
+  if (index <= 0) return ''
+  const code = text.codePointAt(index - 1)
+  if (code >= 0xDC00 && code <= 0xDFFF && index >= 2) {
+    const pair = text.codePointAt(index - 2)
+    if (pair >= 0x10000) return String.fromCodePoint(pair)
+  }
+  return String.fromCodePoint(code)
+}
+const nextCodePoint = (text, index) => (index >= text.length ? '' : String.fromCodePoint(text.codePointAt(index)))
+const isWordChar = char => char !== '' && WORD_CHAR.test(char)
+
+const findNextMatch = (text, [needle, , short], from) => {
+  let at = from
+  while (at <= text.length - needle.length) {
+    const pos = text.indexOf(needle, at)
+    if (pos === -1) return -1
+    if (!short || (!isWordChar(prevCodePoint(text, pos)) && !isWordChar(nextCodePoint(text, pos + needle.length)))) {
+      return pos
+    }
+    at = pos + 1
+  }
+  return -1
+}
+
 // One function that replaces every known value in a string, longest first so a value
-// that contains another is replaced whole. JSON-escaped and URL-encoded forms are covered too.
+// that contains another is replaced whole. JSON-escaped, URL-encoded, CRLF/LF, and
+// space-folded multiline forms are covered too. Pure literal scanning avoids V8's
+// 32 KiB RegExp atom limit and keeps secret text out of SyntaxError messages.
 export function redactor(entries) {
   const pairs = []
+  const add = (seen, variant, label, short, priority) => {
+    if (variant.length < MIN_VALUE || seen.has(variant)) return
+    seen.add(variant)
+    pairs.push([variant, label, short, priority])
+  }
+  const addEncoded = (seen, raw, label, short, priority) => {
+    add(seen, raw, label, short, priority)
+    const escaped = JSON.stringify(raw).slice(1, -1)
+    if (escaped !== raw) add(seen, escaped, label, short, priority)
+    // encodeURIComponent throws on a lone surrogate; such a value cannot sit in a URL anyway.
+    const encoded = raw.isWellFormed() ? encodeUrlComponent(raw) : raw
+    if (encoded !== raw && encoded !== escaped) add(seen, encoded, label, short, priority)
+  }
   for (const { name, value } of entries) {
     if (typeof value !== 'string' || value.length < MIN_VALUE) continue
     const label = `[secret:${name}]`
-    const short = value.length < WHOLE_VALUE
-    pairs.push([value, label, short])
-    const escaped = JSON.stringify(value).slice(1, -1)
-    if (escaped !== value) pairs.push([escaped, label, short])
-    // encodeURIComponent throws on a lone surrogate; such a value cannot sit in a URL anyway.
-    const encoded = value.isWellFormed() ? encodeUrlComponent(value) : value
-    if (encoded !== value && encoded !== escaped) pairs.push([encoded, label, short])
+    const multiline = /[\r\n]/.test(value)
+    const lf = multiline ? value.replace(/\r\n?/g, '\n') : value
+    const short = lf.length < WHOLE_VALUE
+    const seen = new Set()
+    addEncoded(seen, value, label, short, 0)
+    if (multiline) {
+      const crlf = lf.replace(/\n/g, '\r\n')
+      addEncoded(seen, lf, label, short, 0)
+      addEncoded(seen, crlf, label, short, 0)
+      // Unquoted shell expansion (`echo $DSH_SECRET_NAME`) and single-line logs fold
+      // line breaks into spaces; cover those when long enough not to hit ordinary prose.
+      const spaced = lf.replace(/\n/g, ' ')
+      if (spaced.length >= WHOLE_VALUE) addEncoded(seen, spaced, label, false, 1)
+      const collapsed = lf.replace(/\s+/g, ' ').trim()
+      if (collapsed.length >= WHOLE_VALUE) addEncoded(seen, collapsed, label, false, 1)
+    }
   }
-  pairs.sort((a, b) => b[0].length - a[0].length)
+  // Longest first; when two secrets share a variant of equal length, exact forms win over
+  // synthetic space-folded forms.
+  pairs.sort((a, b) => b[0].length - a[0].length || a[3] - b[3])
   if (pairs.length === 0) return text => text
-  // One pass, so a label already written is never matched again.
-  const labels = new Map()
-  for (const [value, label] of pairs) if (!labels.has(value)) labels.set(value, label)
-  const quote = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const pattern = new RegExp(pairs.map(([value, , short]) => (short ? `(?<![\\p{L}\\p{N}])${quote(value)}(?![\\p{L}\\p{N}])` : quote(value))).join('|'), 'gu')
+  const seenNeedles = new Set()
+  const unique = []
+  for (const [needle, label, short] of pairs) {
+    if (seenNeedles.has(needle)) continue
+    seenNeedles.add(needle)
+    unique.push([needle, label, short])
+  }
   return (text) => {
-    if (typeof text !== 'string' || !pairs.some(([value]) => text.includes(value))) return text
-    return text.replace(pattern, match => labels.get(match) ?? match)
+    if (typeof text !== 'string') return text
+    const hits = []
+    for (const entry of unique) {
+      if (text.includes(entry[0])) hits.push(entry)
+    }
+    if (hits.length === 0) return text
+    const positions = hits.map(entry => findNextMatch(text, entry, 0))
+    let out = ''
+    let cursor = 0
+    while (true) {
+      let bestIndex = -1
+      let bestPos = Infinity
+      for (let i = 0; i < hits.length; i += 1) {
+        const pos = positions[i]
+        // `hits` is ordered longest-first (and exact before folded), so `<` picks the
+        // earliest match and breaks ties by longest / highest priority.
+        if (pos !== -1 && pos < bestPos) {
+          bestPos = pos
+          bestIndex = i
+        }
+      }
+      if (bestIndex === -1) break
+      const [needle, label] = hits[bestIndex]
+      out += text.slice(cursor, bestPos) + label
+      cursor = bestPos + needle.length
+      for (let i = 0; i < hits.length; i += 1) {
+        if (positions[i] !== -1 && positions[i] < cursor) {
+          positions[i] = findNextMatch(text, hits[i], cursor)
+        }
+      }
+    }
+    return cursor === 0 ? text : out + text.slice(cursor)
   }
 }
 
@@ -68,23 +152,42 @@ export function redactor(entries) {
 export function redactDeep(value, redact) {
   if (typeof value === 'string') return redact(value)
   if (Array.isArray(value)) {
-    let changed = false
-    const next = value.map((item) => {
+    let next = null
+    for (let i = 0; i < value.length; i += 1) {
+      if (!(i in value)) continue
+      const item = value[i]
       const replaced = redactDeep(item, redact)
-      if (replaced !== item) changed = true
-      return replaced
-    })
-    return changed ? next : value
+      if (next !== null) {
+        next[i] = replaced
+      } else if (replaced !== item) {
+        next = []
+        next.length = value.length
+        for (let j = 0; j < i; j += 1) {
+          if (j in value) next[j] = value[j]
+        }
+        next[i] = replaced
+      }
+    }
+    return next ?? value
   }
   if (value !== null && typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype) {
-    let changed = false
-    const next = {}
-    for (const [key, item] of Object.entries(value)) {
+    let next = null
+    for (const key in value) {
+      if (!Object.hasOwn(value, key)) continue
+      const item = value[key]
       const replaced = redactDeep(item, redact)
-      if (replaced !== item) changed = true
-      next[key] = replaced
+      if (next !== null) {
+        next[key] = replaced
+      } else if (replaced !== item) {
+        next = {}
+        for (const prev in value) {
+          if (prev === key) break
+          if (Object.hasOwn(value, prev)) next[prev] = value[prev]
+        }
+        next[key] = replaced
+      }
     }
-    return changed ? next : value
+    return next ?? value
   }
   return value
 }
@@ -122,8 +225,8 @@ export function install(rt) {
   let seenStamp = ''
   const fileStamp = () => {
     try {
-      const { ctimeMs, mtimeMs, size } = statSync(path)
-      return `${ctimeMs}:${mtimeMs}:${size}`
+      const { ino, ctimeMs, mtimeMs, size } = statSync(path)
+      return `${ino}:${ctimeMs}:${mtimeMs}:${size}`
     } catch {
       return ''
     }
@@ -158,8 +261,14 @@ export function install(rt) {
   // would lose every key in it. While `blocked` holds the reason nothing is written,
   // and each load reads the file again (a busy file may only be briefly unreadable).
   let blocked
+  const shouldReload = () => {
+    if (loaded === null || blocked !== undefined) return true
+    if (!loadedReadOnly && rt.readOnly() === undefined) return false
+    if (loadedReadOnly && rt.readOnly() === undefined && rt.hasLoaded?.() !== false) return true
+    return fileStamp() !== seenStamp
+  }
   const loadSecrets = () => {
-    if (loaded !== null && (loadedReadOnly || rt.readOnly() !== undefined || blocked !== undefined)) loaded = null
+    if (loaded !== null && shouldReload()) loaded = null
     return loaded ??= readSecrets()
   }
   // The parsed body becomes the map. Only entries that name a key are kept.
@@ -335,6 +444,7 @@ export function install(rt) {
         await writeFile(temp, snapshot, { encoding: 'utf8', mode: 0o600 })
         await chmod(temp, 0o600)
         await replaceFile(temp, path)
+        seenStamp = fileStamp()
       } catch (error) {
         await unlink(temp).catch(() => {})
         throw error
@@ -350,7 +460,7 @@ export function install(rt) {
     usedTimer = setTimeout(() => {
       usedTimer = null
       if (loadedReadOnly || rt.readOnly() !== undefined || blocked !== undefined) return
-      void mutate(() => persist().then(() => rt.save())).catch(() => {})
+      void mutate(() => persist()).catch(() => {})
     }, USED_SAVE_MS)
     usedTimer.unref?.()
   }
@@ -426,7 +536,8 @@ export function install(rt) {
 
   const cleanValue = (raw) => {
     if (typeof raw !== 'string') throw new Error('Type the key first')
-    const value = raw.trim()
+    const value = raw.replace(/\r\n?/g, '\n').trim()
+    if (value.includes('\0')) throw new Error('A key cannot contain null bytes')
     if (value.length < MIN_VALUE) throw new Error(`A key must have at least ${MIN_VALUE} characters`)
     if (value.length > MAX_VALUE) throw new Error(`A key can have at most ${MAX_VALUE} characters`)
     return value
@@ -771,8 +882,9 @@ export function install(rt) {
     if (secrets.size === 0 || rewritten.has(options.messages)) return next()
     let messages = options.messages
     if (Array.isArray(messages)) {
-      let changed = false
-      const nextMessages = messages.map((message) => {
+      let nextMessages = null
+      for (let i = 0; i < messages.length; i += 1) {
+        const message = messages[i]
         const object = message !== null && typeof message === 'object'
         let replaced
         if (object && redactedMessages.has(message)) replaced = redactedMessages.get(message)
@@ -780,10 +892,14 @@ export function install(rt) {
           replaced = redactDeep(message, redact)
           if (object && immutableData(message)) redactedMessages.set(message, freezeCopies(replaced))
         }
-        if (replaced !== message) changed = true
-        return replaced
-      })
-      if (changed) messages = nextMessages
+        if (nextMessages !== null) {
+          nextMessages[i] = replaced
+        } else if (replaced !== message) {
+          nextMessages = messages.slice(0, i)
+          nextMessages.push(replaced)
+        }
+      }
+      if (nextMessages !== null) messages = nextMessages
     } else messages = redactDeep(messages, redact)
     const system = redactDeep(options.system, redact)
     if (messages === options.messages && system === options.system) return next()
@@ -867,7 +983,7 @@ export function install(rt) {
   }
 
   rt.onStoreSync = () => {
-    if (loaded === null || loadedReadOnly || rt.readOnly() !== undefined || blocked !== undefined) void loadSecrets()
+    if (shouldReload()) void loadSecrets()
   }
 
   ctx.effect(() => {

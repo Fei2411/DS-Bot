@@ -1,7 +1,8 @@
 // The Claude Code engine: one process per session, stream-json both ways.
 // stdin takes user/control JSON messages; stdout streams the assistant's
 // events until a `result` ends the turn.
-import { cleanEnv, findEngineExecutable, spawnAgent } from './discover.js'
+import { isAbsolute, resolve } from 'node:path'
+import { cleanEnv, findEngineExecutable, spawnAgent, terminateChild } from './discover.js'
 import { lineSplitter } from './lines.js'
 
 // Claude Code tools that only read; the rest may change files or run something.
@@ -59,6 +60,7 @@ export class ClaudeEngine {
 
   async close() {
     for (const session of this.sessions.values()) session.kill()
+    this.sessions.clear()
   }
 }
 
@@ -70,6 +72,7 @@ class ClaudeSession {
     this.waiters = []
     this.dead = false
     this.idWaiters = []
+    this.turnCalls = new Set()
   }
 
   emit(event) {
@@ -111,6 +114,9 @@ class ClaudeSession {
       args.push('--allowedTools', 'mcp__dsbot')
     }
     this.resumeId = resumeId
+    cwd = resolve(cwd ?? process.cwd())
+    // A resumed conversation may restore a shell directory we cannot observe.
+    this.cwd = resumeId === undefined ? cwd : undefined
     const child = this.child = spawnAgent(bin, args, {
       env: cleanEnv(this.engine.env ?? {}),
       cwd,
@@ -171,6 +177,7 @@ class ClaudeSession {
       case 'system':
         if (event.subtype === 'init') {
           this.cliSessionId = event.session_id
+          if (typeof event.cwd === 'string' && isAbsolute(event.cwd)) this.cwd = event.cwd
           this.model = event.model
           for (const resolve of this.idWaiters.splice(0)) resolve(this.cliSessionId)
         } else if (event.subtype === 'compact_boundary') this.emit({ type: 'compaction', status: 'completed' })
@@ -181,13 +188,18 @@ class ClaudeSession {
         // what the context holds now. A subagent's (parent_tool_use_id) is its own.
         const usage = event.message?.usage
         if (usage !== undefined && event.parent_tool_use_id == null) {
+          if (typeof event.message?.id === 'string' && event.message.id !== '') this.turnCalls.add(event.message.id)
           const used = ['input_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens', 'output_tokens'].reduce((sum, key) => sum + (usage[key] ?? 0), 0)
           if (used > 0) this.emit({ type: 'context', used })
         }
         for (const block of event.message?.content ?? []) {
           if (block.type === 'text') this.emit({ type: 'text', text: block.text ?? '' })
           else if (block.type === 'thinking') this.emit({ type: 'thought', text: block.thinking ?? '' })
-          else if (block.type === 'tool_use') this.emit({ type: 'activity', text: `▸ ${claudeActivity(block)}`, ...(String(block.name ?? '').startsWith('mcp__dsbot__') ? { team: true } : {}) })
+          else if (block.type === 'tool_use') {
+            // Shells, subagents and custom tools may change cwd without reporting it.
+            if (!READ_TOOLS.has(block.name)) this.cwd = undefined
+            this.emit({ type: 'activity', text: `▸ ${claudeActivity(block)}`, ...(String(block.name ?? '').startsWith('mcp__dsbot__') ? { team: true } : {}) })
+          }
         }
         break
       }
@@ -196,13 +208,16 @@ class ClaudeSession {
         if (request.subtype === 'can_use_tool') {
           const tool = request.tool_name ?? 'tool'
           this.emit({
-            type: 'permission', id: event.request_id,
-            reply: (optionId) => this.write({
-              type: 'control_response',
-              response: { subtype: 'success', request_id: event.request_id, response: optionId === 'allow' ? { behavior: 'allow', updatedInput: request.input ?? {} } : { behavior: 'deny', message: 'The user denied this action.' } },
-            }),
+            type: 'permission', id: event.request_id, cwd: this.cwd,
+            reply: (optionId) => {
+              if (optionId === 'allow' && !READ_TOOLS.has(tool)) this.cwd = undefined
+              this.write({
+                type: 'control_response',
+                response: { subtype: 'success', request_id: event.request_id, response: optionId === 'allow' ? { behavior: 'allow', updatedInput: request.input ?? {} } : { behavior: 'deny', message: 'The user denied this action.' } },
+              })
+            },
             action: `Run ${tool}`,
-            detail: JSON.stringify(request.input ?? {}).slice(0, 4_000),
+            detail: JSON.stringify(request),
             changes: !READ_TOOLS.has(tool),
             options: [{ optionId: 'allow', kind: 'allow_once', name: 'Allow' }, { optionId: 'deny', kind: 'reject_once', name: 'Deny' }],
           })
@@ -225,9 +240,12 @@ class ClaudeSession {
           const size = (models.find(([name]) => name === this.model) ?? models.toSorted((a, b) => (b[1]?.contextWindow ?? 0) - (a[1]?.contextWindow ?? 0))[0])?.[1]?.contextWindow
           if (typeof size === 'number' && size > 0) this.emit({ type: 'context', size })
         }
+        const observedCalls = this.turnCalls.size
+        this.turnCalls.clear()
+        const calls = positiveInt(event.num_turns) ?? (observedCalls > 0 ? observedCalls : undefined)
         this.running = false
         this.emit(event.subtype === 'success' || event.is_error !== true
-          ? { type: 'done', reason: 'stop', usage: usageOf(event.usage) }
+          ? { type: 'done', reason: 'stop', usage: usageOf(event.usage, calls) }
           : { type: 'error', error: new Error(event.result ?? 'the agent failed') })
         break
       default: break
@@ -243,6 +261,7 @@ class ClaudeSession {
   }
 
   prompt(blocks) {
+    if (this.running !== true) this.turnCalls.clear()
     this.running = true
     this.write({ type: 'user', message: { role: 'user', content: claudeContent(blocks) } })
     return Promise.resolve()
@@ -265,9 +284,9 @@ class ClaudeSession {
 
   kill() {
     this.dead = true
-    this.child?.kill('SIGTERM')
-    setTimeout(() => { try { this.child?.kill('SIGKILL') } catch {} }, 5_000).unref?.()
+    const child = this.child
     this.child = undefined
+    terminateChild(child)
   }
 }
 
@@ -301,9 +320,12 @@ function claudeContent(blocks) {
   return out.length > 0 ? out : [{ type: 'text', text: '' }]
 }
 
-const usageOf = usage => (usage === undefined ? undefined : {
+const positiveInt = value => (Number.isSafeInteger(value) && value > 0 ? value : undefined)
+
+const usageOf = (usage, calls) => (usage === undefined ? undefined : {
   inputTokens: usage.input_tokens ?? 0,
   outputTokens: usage.output_tokens ?? 0,
   ...(usage.cache_read_input_tokens ? { cacheReadTokens: usage.cache_read_input_tokens } : {}),
   ...(usage.cache_creation_input_tokens ? { cacheWriteTokens: usage.cache_creation_input_tokens } : {}),
+  ...(calls !== undefined && calls > 1 ? { calls } : {}),
 })

@@ -23,6 +23,7 @@ const WAIT_MAX_S = 50
 const MAX_PAGES = 20
 const POLL_MS = 1_000
 const LAST_USED_SAVE_MS = 60_000
+const BIND_RETRY_COOLDOWN_MS = 15_000
 const LOCAL_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]'])
 
 const invalid = message => Object.assign(new Error(message), { code: 'bot/invalid' })
@@ -171,7 +172,12 @@ export function clientTools(rt, client, { pollMs = POLL_MS, current = () => clie
     })
     return { sent: true, after }
   }
-  const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
+  const sleep = (ms, signal) => new Promise((resolve) => {
+    if (signal?.aborted) { resolve(); return }
+    const onAbort = () => { clearTimeout(timer); resolve() }
+    const timer = setTimeout(() => { signal?.removeEventListener('abort', onAbort); resolve() }, ms)
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
 
   const handlers = {
     list_bots: () => ({
@@ -196,7 +202,7 @@ export function clientTools(rt, client, { pollMs = POLL_MS, current = () => clie
       const page = await read(target(args), args.cursor)
       return { messages: visible(page.items), cursor: page.cursor, working: page.working }
     },
-    wait_for_reply: async (args) => {
+    wait_for_reply: async (args, { signal } = {}) => {
       target(args)
       const after = Number.isFinite(args.after) ? args.after : Date.now()
       const seconds = Math.min(Math.max(Number(args.timeoutSeconds) || WAIT_DEFAULT_S, 1), WAIT_MAX_S)
@@ -207,8 +213,10 @@ export function clientTools(rt, client, { pollMs = POLL_MS, current = () => clie
       // need only the newest page to see whether the Bot is still working.
       let polls = 0
       for (;;) {
+        if (signal?.aborted) return { done: false, working: true, messages: [], after }
         // Checked on every poll: the client can be removed or its scope narrowed mid-wait.
         const page = polls === 0 ? await readSince(target(args), after) : await read(target(args))
+        if (signal?.aborted) return { done: false, working: page.working, messages: [], after }
         const done = !page.working && (replies(page).length > 0 || polls > 0)
         if (done || Date.now() >= until) {
           const fresh = polls === 0 ? replies(page) : replies(await readSince(target(args), after))
@@ -216,7 +224,7 @@ export function clientTools(rt, client, { pollMs = POLL_MS, current = () => clie
           return { done, working: page.working, messages: fresh, after: last }
         }
         polls += 1
-        await sleep(Math.min(pollMs, Math.max(until - Date.now(), 0)))
+        await sleep(Math.min(pollMs, Math.max(until - Date.now(), 0)), signal)
       }
     },
     list_waiting: () => {
@@ -236,11 +244,11 @@ export function clientTools(rt, client, { pollMs = POLL_MS, current = () => clie
       return { waiting: [...approvals, ...questions], answerIn: 'DS Bot on this computer' }
     },
   }
-  return async (name, args) => {
+  return async (name, args, options) => {
     const handler = Object.hasOwn(handlers, name) ? handlers[name] : undefined
     if (handler === undefined) throw invalid(`Unknown tool ${name}`)
     await rt.load()
-    return handler(args ?? {})
+    return handler(args ?? {}, options)
   }
 }
 
@@ -248,11 +256,12 @@ export function clientTools(rt, client, { pollMs = POLL_MS, current = () => clie
 // `authorize(token)` returns the client or undefined; `callFor(client)` its tools.
 export function mcpHttpServer({ authorize, callFor, version = '0' }) {
   const send = (response, status, body, headers = {}) => {
+    if (response.writableEnded || response.destroyed) return
     response.writeHead(status, { 'content-type': 'application/json', ...headers })
     response.end(body === undefined ? undefined : JSON.stringify(body))
   }
   const rpcError = (id, code, message) => ({ jsonrpc: '2.0', id: id ?? null, error: { code, message } })
-  const answer = async (client, { id, method, params }) => {
+  const answer = async (client, { id, method, params }, signal) => {
     switch (method) {
       case 'initialize':
         return {
@@ -267,7 +276,7 @@ export function mcpHttpServer({ authorize, callFor, version = '0' }) {
         return { tools: MCP_TOOLS }
       case 'tools/call': {
         try {
-          const result = await callFor(client)(String(params?.name ?? ''), params?.arguments ?? {})
+          const result = await callFor(client)(String(params?.name ?? ''), params?.arguments ?? {}, { signal })
           return { content: [{ type: 'text', text: JSON.stringify(result) }], structuredContent: result }
         } catch (error) {
           return { isError: true, content: [{ type: 'text', text: error?.message ?? String(error) }] }
@@ -306,22 +315,31 @@ export function mcpHttpServer({ authorize, callFor, version = '0' }) {
       if (error?.status === 413) return send(response, 413, { error: error.message })
       return send(response, 400, rpcError(null, -32700, 'Parse error'))
     }
-    const batch = Array.isArray(message)
-    const replies = []
-    for (const entry of batch ? message : [message]) {
-      if (entry?.id === undefined || entry?.id === null) continue
-      try {
-        replies.push({ jsonrpc: '2.0', id: entry.id, result: await answer(client, entry) })
-      } catch (error) {
-        replies.push(rpcError(entry.id, error?.rpc ?? -32603, error?.message ?? String(error)))
+    const ac = new AbortController()
+    const onClose = () => { if (!response.writableEnded) ac.abort() }
+    response.on('close', onClose)
+    try {
+      const batch = Array.isArray(message)
+      const replies = []
+      for (const entry of batch ? message : [message]) {
+        if (ac.signal.aborted) return
+        if (entry?.id === undefined || entry?.id === null) continue
+        try {
+          replies.push({ jsonrpc: '2.0', id: entry.id, result: await answer(client, entry, ac.signal) })
+        } catch (error) {
+          replies.push(rpcError(entry.id, error?.rpc ?? -32603, error?.message ?? String(error)))
+        }
       }
+      if (ac.signal.aborted) return
+      if (replies.length === 0) return send(response, 202)
+      return send(response, 200, batch ? replies : replies[0])
+    } finally {
+      response.off('close', onClose)
     }
-    if (replies.length === 0) return send(response, 202)
-    return send(response, 200, batch ? replies : replies[0])
   }
   return createServer((request, response) => void serve(request, response).catch(() => {
     if (!response.headersSent) send(response, 500, { error: 'Internal error' })
-    else response.end()
+    else if (!response.writableEnded && !response.destroyed) response.end()
   }))
 }
 
@@ -390,36 +408,88 @@ export function install(rt) {
     if (closing !== null) await closeServer(closing)
   }
   // Only the dsh that owns the team serves it, like the phone link. One pass at a
-  // time: the view asks again on every read, so a lock that moved is noticed.
+  // time: the view re-checks when config/port/readOnly changes, and backs off after a
+  // failed bind instead of hammering listen() on every state poll.
+  const bindRetryCooldownMs = Number.isFinite(rt.mcpBindRetryCooldownMs)
+    ? rt.mcpBindRetryCooldownMs
+    : Number.isFinite(rt.config?.mcpBindRetryCooldownMs)
+      ? rt.config.mcpBindRetryCooldownMs
+      : BIND_RETRY_COOLDOWN_MS
   let chain = Promise.resolve()
-  const reconcile = () => (chain = chain.then(settle, settle))
+  let settledKey = null
+  let reconcilingKey = null
+  let reconcilingJob = null
+  let failedBindKey = null
+  let lastBindFailedAt = 0
+  let stopped = false
+  const targetKey = () => `${data.on ? 1 : 0}:${data.port}:${rt.readOnly?.() === undefined ? '' : 'ro'}`
+  const reconcile = (key = null) => {
+    if (key !== null) reconcilingKey = key
+    const job = chain.then(settle, settle)
+    chain = job
+    if (key !== null) {
+      reconcilingJob = job
+      void job.finally(() => {
+        if (reconcilingJob === job) {
+          reconcilingJob = null
+          reconcilingKey = null
+        }
+      })
+    }
+    return job
+  }
   const settle = async () => {
+    if (stopped) return
     read()
+    const key = targetKey()
     const blocked = rt.readOnly?.()
     if (!data.on || blocked !== undefined) {
       await stop()
       status = 'off'
       error = data.on ? blocked : null
+      settledKey = key
+      failedBindKey = null
+      lastBindFailedAt = 0
       return
     }
-    if (server !== null && listening === data.port) return
+    if (server !== null && listening === data.port) {
+      settledKey = key
+      failedBindKey = null
+      lastBindFailedAt = 0
+      return
+    }
     await stop()
+    if (stopped) return
     const next = mcpHttpServer({ authorize, callFor, version: rt.version ?? '0' })
     try {
       await new Promise((resolve, reject) => next.once('error', reject).listen(data.port, '127.0.0.1', resolve))
+      if (stopped) {
+        await closeServer(next)
+        return
+      }
       server = next
       listening = data.port
       status = 'on'
       error = null
+      settledKey = key
+      failedBindKey = null
+      lastBindFailedAt = 0
     } catch (failure) {
       status = 'off'
       error = failure?.code === 'EADDRINUSE' ? `Port ${data.port} is in use` : failure?.message ?? String(failure)
+      settledKey = null
+      failedBindKey = key
+      lastBindFailedAt = Date.now()
     }
   }
 
   rt.mcpView = () => {
     read()
-    if ((status === 'on') !== (data.on && rt.readOnly?.() === undefined)) void reconcile()
+    const key = targetKey()
+    const coolingDown = failedBindKey === key && (Date.now() - lastBindFailedAt) < bindRetryCooldownMs
+    if (!stopped && key !== settledKey && key !== reconcilingKey && !coolingDown) {
+      void reconcile(key)
+    }
     return {
       on: data.on,
       port: data.port,
@@ -479,6 +549,7 @@ export function install(rt) {
       case 'mcp-client-remove': {
         const client = clientOf(body.id)
         data.clients = data.clients.filter(entry => entry !== client)
+        usedSavedAt.delete(client.id)
         forget()
         write()
         break
@@ -486,12 +557,19 @@ export function install(rt) {
       default:
         throw invalid(`Unknown endpoint ${endpoint}`)
     }
+    settledKey = null
+    reconcilingKey = null
+    failedBindKey = null
+    lastBindFailedAt = 0
     await reconcile()
     return token === undefined ? rt.mcpView() : { ...rt.mcpView(), token }
   }
 
   rt.ctx.effect(() => {
-    void rt.load().then(reconcile, () => {})
-    return () => { void stop() }
+    void rt.load().then(() => reconcile(), () => {})
+    return () => {
+      stopped = true
+      return chain.then(stop, stop)
+    }
   }, 'ds-bot: mcp access')
 }

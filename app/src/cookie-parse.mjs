@@ -29,6 +29,16 @@ const DAY = 86400;
 const CHROME_MAX_AGE_DAYS = 400;   // Chrome stores at most 400 days of lifetime
 const WEBKIT_EPOCH_OFFSET = 11644473600; // seconds between 1601-01-01 and 1970-01-01
 
+function canonicalSite(domain) {
+  const raw = String(domain ?? '').trim().replace(/^\.+/, '').toLowerCase();
+  if (!raw) return '';
+  const bare = raw.replace(/^\[|\]$/g, '');
+  if (bare.includes(':') && isIP(bare) === 6) {
+    try { return new URL(`http://[${bare}]/`).hostname; } catch { return `[${bare}]`; }
+  }
+  return raw;
+}
+
 // ------------------------------------------------------------------ decoding
 
 /** Buffer | string → { text, encoding, bom }. Handles UTF-8 BOM, UTF-16 LE/BE (with or without BOM). */
@@ -414,6 +424,7 @@ function rawFromObject(e) {
     path: e.path, secure: e.secure, httpOnly: e.httpOnly, sameSite: e.sameSite,
     session: typeof e.session === 'boolean' ? e.session : undefined,
     expires, expiresField, partitionKey: e.partitionKey,
+    partitionKeyOpaque: e.partitionKeyOpaque === true ? true : undefined,
     hasField: (k) => k in e,
   };
 }
@@ -433,11 +444,17 @@ function newCtx(format, opts) {
 }
 
 function finish(ctx, error = null) {
-  // Duplicates (same name + domain + path) would overwrite each other in Chrome: keep the last one.
+  // Duplicates (same name + domain + path + partition scope) would overwrite each other in Chrome:
+  // keep the last one, while never letting a partitioned cookie overwrite an unpartitioned cookie.
   const byKey = new Map();
   ctx.items.forEach((it, idx) => {
     it.idx = idx;
-    const k = `${it.cookie.name}\u0000${it.cookie.domain}\u0000${it.cookie.path}`;
+    const partScope = it.cookie.partitionKeyOpaque
+      ? '\u0001opaque'
+      : it.cookie.partitionKey
+        ? `\u0001${it.cookie.partitionKey.topLevelSite}\u0000${it.cookie.partitionKey.hasCrossSiteAncestor ? 1 : 0}`
+        : '';
+    const k = `${it.cookie.name}\u0000${it.cookie.domain}\u0000${it.cookie.path}${partScope}`;
     if (byKey.has(k)) {
       warn(ctx, it.where, it.cookie, 'duplicate', `same name/domain/path as ${byKey.get(k).where}; the later entry is used`);
     }
@@ -505,8 +522,12 @@ function normalizeCookie(raw, ctx, where) {
   const dotted = rawDomain.startsWith('.');
   let host = rawDomain.replace(/^\.+/, '').toLowerCase();
   if (!host) return { skip: ['bad-domain', 'domain is only dots'] };
+  const bareIpv6 = !host.startsWith('[') && isIP(host) === 6;
+  if (bareIpv6) host = `[${host}]`;
   const ipv6 = /^\[[0-9a-f:.]+\]$/.test(host) && isIP(host.slice(1, -1)) === 6;
-  if (!ipv6) {
+  if (ipv6) {
+    host = canonicalSite(host);
+  } else {
     const ascii = domainToASCII(host);
     if (!ascii || !/^[a-z0-9._-]+$/.test(ascii) || Buffer.byteLength(ascii) > MAX_ATTR_BYTES) return { skip: ['bad-domain', `"${clip(host)}" is not a valid host name`] };
     if (ascii !== host) W('punycode', `domain converted to ASCII (${ascii})`);
@@ -580,6 +601,7 @@ function normalizeCookie(raw, ctx, where) {
   if (sameSite) cookie.sameSite = sameSite;
   if (!ex.session) cookie.expires = ex.expires;
   if (partitionKey) cookie.partitionKey = partitionKey;
+  if (raw.partitionKeyOpaque === true) cookie.partitionKeyOpaque = true;
   return { cookie };
 }
 
@@ -666,7 +688,7 @@ export function describeCookie(c) {
 export function summarizeBySite(result) {
   const sites = new Map();
   const get = (domain) => {
-    const site = String(domain || '(no domain)').replace(/^\./, '').toLowerCase();
+    const site = canonicalSite(domain) || '(no domain)';
     if (!sites.has(site)) sites.set(site, { site, cookies: 0, session: 0, httpOnly: 0, localStorage: 0, skipped: 0, skippedReasons: {} });
     return sites.get(site);
   };
@@ -683,7 +705,7 @@ export function summarizeBySite(result) {
     s.localStorage += o.localStorage.length;
   }
   for (const k of result.skipped ?? []) {
-    const site = String(k.domain || '').replace(/^\./, '').toLowerCase();
+    const site = canonicalSite(k.domain);
     const s = site ? sites.get(site) : undefined;
     if (!s) continue;
     s.skipped++;

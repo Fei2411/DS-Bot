@@ -92,6 +92,18 @@ export const NON_WORK_TOOLS = new Set([
 ])
 export const isWorkTool = name => typeof name === 'string' && name !== '' && !NON_WORK_TOOLS.has(name)
 
+// Team-meta mutations that count as substantive work (clearing idle streaks and
+// waking batch callers) but finish instantaneously so they skip the 15s grace timer.
+// Slow team work tools such as read_browser, read_document, and task_start stay out
+// of this set so they still yield to the 15s grace timer like any other work tool.
+export const INSTANT_WORK_TOOLS = new Set([
+  'create_bot', 'update_bot', 'create_group', 'update_group', 'delete_group',
+  'group_todo', 'group_goal', 'group_task', 'ask_user', 'show_view',
+  'prepare_ds_bot_issue', 'request_secret', 'request_connector',
+  'save_capability', 'delete_capability', 'attach_capability', 'detach_capability',
+  'use_pack', 'drop_pack', 'task_send', 'task_stop',
+])
+
 // Pure silent/pass/stage-direction text produced on a Bot-triggered own-chat turn when
 // the Bot has nothing to tell the user (e.g. "[PASS]", "（静默。）", "（收工。）", "（完。）").
 const SILENT_TURN_TEXT = /^\s*(?:[[【(（]\s*(?:pass|silent|silence|no\s*reply|nothing\s+to\s+report|done|noop|静默|收工|完|完毕|无回复|无需回复|略|跳过|待命)\s*[.。!！]*\s*[\]】)）]|pass\s*[.。!！]?)\s*$/i
@@ -137,6 +149,27 @@ export const GOAL_IDLE_NUDGES = 2
 // job and the step moves on (settings can change it; 0 hands every call over).
 export const BACKGROUND_WAIT_MS = 5_000
 export const BACKGROUND_AFTER_MAX_SEC = 600
+// Above this many parent-session events, task_start skips DSH session fork (which
+// copies the whole event log) and opens a fresh lightweight Session seeded with a
+// structured context summary and read_own_chat access to the parent part.
+export const TASK_FORK_MAX_EVENTS = 600
+
+// Tools that only operate on group chats: hidden from non-Main Bots in zero groups,
+// and from Main Bots when the team has no groups yet (create_group stays available).
+export const GROUP_ONLY_TOOLS = [
+  'read_group_chat', 'post_to_group', 'group_todo', 'group_goal', 'group_task', 'update_group',
+]
+
+// Catalog feature-pack tools: hidden when a Bot has no catalog packs attached and no
+// packs currently loaded in the session.
+export const CATALOG_PACK_TOOLS = ['use_pack', 'drop_pack']
+
+// Team tools unconditionally refused inside background task sessions.
+export const TASK_HIDDEN_TEAM_TOOLS = [
+  'browser_handoff',
+  'task_start', 'task_send', 'task_stop', 'task_list', 'task_read',
+  'ask_user', 'show_view', 'request_secret', 'prepare_ds_bot_issue',
+]
 // A member still at work this long after its first tool call lets the round go on; it
 // posts its reply when the work is done.
 export const ROOM_WORK_GRACE_MS = 15_000

@@ -247,3 +247,52 @@ test('an open shell column keeps the last collapsed track', () => {
 test('a sliding shell sidebar keeps its last settled width', () => {
   assert.equal(nextCollapsedWidth({ measured: null, collapsed: true, animating: true, last: 56 }), 56)
 })
+
+test('followPanel keeps view, tab, task, and rename state when the same Bot moves to a fresh part', () => {
+  const chief = { id: 'chief', sessionId: 'chief-p2', parts: ['chief-p1'] }
+  const writer = { id: 'writer', sessionId: 'writer' }
+  const ui = createSource({ details: 'chief-p1', view: 'details', renaming: true, tab: 'settings', task: { botId: 'chief', taskId: 't1' }, side: null, panelYield: false, leftDrawer: false })
+  const roster = createSource({ byId: { chief, 'chief-p1': chief, 'chief-p2': chief, writer }, roomsById: {}, sideChats: {} })
+  const actions = teamActions({
+    call: () => Promise.resolve(null), after: promise => promise, partFor: id => id,
+    roster, ui, panelFolded: () => false,
+  })
+  actions.followPanel('chief-p2')
+  assert.equal(ui.getSnapshot().details, 'chief-p2')
+  assert.equal(ui.getSnapshot().renaming, true)
+  assert.equal(ui.getSnapshot().tab, 'settings')
+  assert.deepEqual(ui.getSnapshot().task, { botId: 'chief', taskId: 't1' })
+  // Moving to a different Bot still resets per-chat transient panel state.
+  actions.followPanel('writer')
+  assert.equal(ui.getSnapshot().details, 'writer')
+  assert.equal(ui.getSnapshot().renaming, false)
+  assert.equal(ui.getSnapshot().tab, null)
+  assert.equal(ui.getSnapshot().task, null)
+})
+
+test('toggleDetails closes the details panel when toggled with another part of the same Bot or group', () => {
+  const chief = { id: 'chief', sessionId: 'chief-p2', parts: ['chief-p1'] }
+  const room = { id: 'room-1', sessionId: 'room-p2', ownParts: ['room-p1'] }
+  const ui = createSource({ details: 'chief', view: 'details', renaming: false, tab: null, side: null, panelYield: false, leftDrawer: false })
+  const roster = createSource({
+    byId: { chief, 'chief-p1': chief, 'chief-p2': chief },
+    roomsById: { 'room-1': room, 'room-p1': room, 'room-p2': room },
+    sideChats: {},
+  })
+  const actions = teamActions({
+    call: () => Promise.resolve(null), after: promise => promise, partFor: id => id,
+    roster, ui, panelFolded: () => false,
+  })
+  // Opened with bot.id ('chief'), header pill toggles with active part ('chief-p2') -> closes on first click.
+  actions.toggleDetails('chief-p2')
+  assert.equal(ui.getSnapshot().details, null)
+  // Same for a group chat opened with room.id and toggled with room.sessionId.
+  actions.showDetails('room-1')
+  assert.equal(ui.getSnapshot().details, 'room-1')
+  actions.toggleDetails('room-p2')
+  assert.equal(ui.getSnapshot().details, null)
+  // force=true keeps it open on the requested part.
+  actions.showDetails('chief')
+  actions.toggleDetails('chief-p2', true)
+  assert.equal(ui.getSnapshot().details, 'chief-p2')
+})
