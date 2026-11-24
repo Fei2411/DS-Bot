@@ -742,7 +742,7 @@ test('P2-1: learning fails closed on corrupt state.json, guards double-approve, 
     config: {
       memoryReview: false,
       agentsMd: false,
-      learningTimes: { minTurnMs: 0, idleMs: 0, intervalMs: 12 * 60 * 60_000, retryMs: 40 },
+      learningTimes: { minTurnMs: 0, idleMs: 0, intervalMs: 12 * 60 * 60_000, retryMs: 200 },
     },
   })
   t.after(() => rLearn.stop())
@@ -760,10 +760,10 @@ test('P2-1: learning fails closed on corrupt state.json, guards double-approve, 
   rLearn.ctx.emit('agent/status', { agent: { id: 'b2' }, status: 'idle' })
   assert.equal(rLearn.rt.learningDue(), true)
 
-  // First pass fails completely -> must NOT set 12h lastRun lockout; due() recovers after retryMs (40ms).
+  // First pass fails completely -> must NOT set 12h lastRun lockout; due() recovers after retryMs (200ms).
   await rLearn.rt.learningRun()
   assert.equal(rLearn.rt.learningDue(), false, 'failed run must enter short backoff')
-  await settle(60)
+  for (let i = 0; i < 40 && !rLearn.rt.learningDue(); i += 1) await settle(25)
   assert.equal(rLearn.rt.learningDue(), true, 'all-failed learning run must retry after short retryMs, not wait 12h')
 
   // Second pass succeeds and creates proposal.

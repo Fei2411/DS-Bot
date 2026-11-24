@@ -216,7 +216,7 @@ export function install(rt) {
   async function deliver({ fromId, fromName: senderName, pairFrom, toId, sessionId, text, role, replyTo, roomId, audience, note, exchangeId = randomUUID(), steer = false, wake = true, afterCancel = false, deferred = false, resumed = false, retried = false, resent = false, merged = false, abandoned = false, recordExchange = true, askedBy, fromRoomId, fromPart, images = [], files = [], length, work, workRef, askWork, taskId, imOrigin, failureRequestId }) {
     const from = rt.botOf(fromId)
     const to = rt.botOf(toId)
-    if (to === undefined) throw new Error(`Unknown Bot ${toId}`)
+    if (to === undefined) throw Object.assign(new Error(`Unknown Bot ${toId}`), { delivered: false })
     const fromName = senderName ?? from?.name ?? 'You'
     const room = rt.roomOf(roomId)
     const asker = work === undefined ? undefined : rt.botOf(state.works?.[work]?.from)?.name
@@ -254,34 +254,45 @@ export function install(rt) {
       ? fromId
       : (pairFrom !== undefined && rt.botOf(pairFrom) !== undefined ? pairFrom : undefined)
     const book = bookPeer !== undefined && recordExchange && EXCHANGE_ROLES.has(role) && !deferred && !resumed && !retried ? pairBook(bookPeer, toId) : undefined
-    if (book !== undefined && (merged || !rt.ledger.records(book).some(record => record.event === undefined && record.id === exchangeId))) {
-      rt.ledger.append(book, { id: exchangeId, from: fromId ?? 'user', to: toId, role, text, time: Date.now(), ...(resolvedWorkRef ? { workRef: resolvedWorkRef } : {}), ...(length !== undefined ? { length, files } : {}), ...(replyTo ? { replyTo } : {}), ...(audience === 'user' ? { audience } : {}), ...(roomId ? { roomId } : {}) })
-      await rt.ledger.written(book)
-    }
-    await rt.ensureCapabilities(targetSessionId)
-    const agent = await resolveAgent(targetSessionId)
-    // A non-waking note/cancel injects model-facing context ONLY while the target is idle
-    // (buffering until idle if the target is currently running, so DSH never runs an extra
-    // model step or starts a spurious turn). A steered message cuts into a running turn at
-    // its next step; a follow-up queues.
-    const message = createUserMessage({
-      content: [
-        { type: 'text', text: `${headerFor(role, fromName, room?.name, audience, note, deferred, { resumed, retried, resent, abandoned, asker, workRef: resolvedWorkRef })}\n${text}` },
-        ...images.map(attachment => ({ type: 'image', attachment })),
-        ...files.map(attachment => ({ type: 'file', attachment })),
-      ],
-      source,
-    })
-    if (wake === false) {
-      if (afterCancel && isBusyAgent(agent, targetSessionId)) await waitIdleBriefly(agent)
-      if (injectSilent(targetSessionId, message, agent)) await ctx.sessions.flush(agent.session)
-    } else {
-      if (!isBusyAgent(agent, targetSessionId) && pendingSilent.has(targetSessionId)) {
-        for (const silent of takeSilentNotes(targetSessionId)) agent.inject(silent)
+    let enqueued = false
+    try {
+      if (book !== undefined && (merged || !rt.ledger.records(book).some(record => record.event === undefined && record.id === exchangeId))) {
+        rt.ledger.append(book, { id: exchangeId, from: fromId ?? 'user', to: toId, role, text, time: Date.now(), ...(resolvedWorkRef ? { workRef: resolvedWorkRef } : {}), ...(length !== undefined ? { length, files } : {}), ...(replyTo ? { replyTo } : {}), ...(audience === 'user' ? { audience } : {}), ...(roomId ? { roomId } : {}) })
+        await rt.ledger.written(book)
       }
-      if (steer) agent.steer(message)
-      else agent.followup(message)
-      await ctx.sessions.flush(agent.session)
+      await rt.ensureCapabilities(targetSessionId)
+      const agent = await resolveAgent(targetSessionId)
+      // A non-waking note/cancel injects model-facing context ONLY while the target is idle
+      // (buffering until idle if the target is currently running, so DSH never runs an extra
+      // model step or starts a spurious turn). A steered message cuts into a running turn at
+      // its next step; a follow-up queues.
+      const message = createUserMessage({
+        content: [
+          { type: 'text', text: `${headerFor(role, fromName, room?.name, audience, note, deferred, { resumed, retried, resent, abandoned, asker, workRef: resolvedWorkRef })}\n${text}` },
+          ...images.map(attachment => ({ type: 'image', attachment })),
+          ...files.map(attachment => ({ type: 'file', attachment })),
+        ],
+        source,
+      })
+      if (wake === false) {
+        if (afterCancel && isBusyAgent(agent, targetSessionId)) await waitIdleBriefly(agent)
+        const injected = injectSilent(targetSessionId, message, agent)
+        enqueued = true
+        if (injected) await ctx.sessions.flush(agent.session)
+      } else {
+        if (!isBusyAgent(agent, targetSessionId) && pendingSilent.has(targetSessionId)) {
+          for (const silent of takeSilentNotes(targetSessionId)) agent.inject(silent)
+        }
+        if (steer) agent.steer(message)
+        else agent.followup(message)
+        enqueued = true
+        await ctx.sessions.flush(agent.session)
+      }
+    } catch (error) {
+      if (error !== null && typeof error === 'object' && error.delivered === undefined) {
+        error.delivered = enqueued
+      }
+      throw error
     }
     if (book !== undefined) {
       rt.ledger.append(book, {

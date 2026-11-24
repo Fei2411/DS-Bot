@@ -255,12 +255,65 @@ export function parseAsk(text) {
   return { reply: text.trim(), changes: [] }
 }
 
-// Words to compare by: Latin words of three letters or more, and pairs of Han
-// characters, which Chinese writes without spaces.
+// Closed-class English glue words omitted so common grammar does not drown out signal
+// words in auto-recall or BM25 scoring.
+const STOP_SHORT = new Set([
+  'am', 'an', 'as', 'at', 'be', 'by', 'do', 'he', 'if', 'in', 'is', 'it',
+  'me', 'my', 'no', 'of', 'on', 'or', 'so', 'to', 'up', 'us', 'we',
+])
+const STOP_WORDS = new Set([
+  'the', 'and', 'for', 'with', 'from', 'that', 'this', 'these', 'those',
+  'are', 'was', 'were', 'been', 'being', 'have', 'has', 'had', 'will', 'would',
+  'could', 'should', 'shall', 'must', 'can', 'may', 'might', 'not', 'but', 'nor',
+  'yet', 'than', 'then', 'into', 'onto', 'upon', 'over', 'under', 'between',
+  'through', 'during', 'before', 'after', 'above', 'below', 'about', 'against',
+  'because', 'while', 'where', 'when', 'what', 'which', 'who', 'whom', 'whose',
+  'why', 'how', 'they', 'them', 'their', 'there', 'here', 'your', 'yours', 'you',
+  'our', 'ours', 'her', 'hers', 'his', 'its', 'she', 'him', 'each', 'every',
+  'both', 'few', 'more', 'most', 'other', 'some', 'such', 'only', 'own', 'same',
+  'too', 'very', 'just', 'also',
+])
+const STOP_HAN_SINGLE = new Set('的了在是我有和就不人都一个上也很到说要去你会着没看好这那他她它吗呢吧啊哦嗯把被让给用从对为与及或但而之以于中下大小多少日月年')
+
+// Light English suffix folding so inflections ("flights"/"flight", "deploying"/"deploy")
+// share one token without needing a dictionary.
+function stemWord(word) {
+  if (word.length <= 4 || !/^[a-z]+$/.test(word)) return word
+  if (word.endsWith('ies') && word.length >= 6) return `${word.slice(0, -3)}y`
+  if (word.endsWith('ing') && word.length >= 6) return word.slice(0, -3)
+  if (word.endsWith('ed') && word.length >= 5) return word.slice(0, -2)
+  if (word.endsWith('es') && word.length >= 5 && /(?:sh|ch|x|z|s)es$/.test(word)) return word.slice(0, -2)
+  if (word.endsWith('s') && !word.endsWith('ss') && !word.endsWith('us') && !word.endsWith('is')) return word.slice(0, -1)
+  return word
+}
+
+// Words to compare by: Unicode words of 2+ letters/digits (keeping short tech terms such
+// as AI/PR/CI/Go/UI/TS/DB/M4 while dropping closed-class glue), Han/Kana bigrams (and
+// meaningful isolated Han chars or ASCII+Han compounds such as A股/B站).
 export const wordsOf = (text) => {
   const lower = squash(text)
-  const words = new Set(lower.match(/[a-z0-9]{3,}/g) ?? [])
-  for (const run of lower.match(/[\u4e00-\u9fff]{2,}/g) ?? []) for (let at = 0; at + 1 < run.length; at += 1) words.add(run.slice(at, at + 2))
+  const words = new Set()
+  const nonCjk = lower.replace(/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]+/gu, ' ')
+  for (const tok of nonCjk.match(/[\p{L}\p{N}]+/gu) ?? []) {
+    if (tok.length >= 3) {
+      if (!STOP_WORDS.has(tok)) words.add(stemWord(tok))
+    } else if (tok.length === 2 && /\p{L}/u.test(tok) && !STOP_SHORT.has(tok)) {
+      words.add(tok)
+    }
+  }
+  for (const run of lower.match(/\p{Script=Han}+/gu) ?? []) {
+    if (run.length >= 2) {
+      for (let at = 0; at + 1 < run.length; at += 1) words.add(run.slice(at, at + 2))
+    } else if (!STOP_HAN_SINGLE.has(run)) {
+      words.add(run)
+    }
+  }
+  for (const compound of lower.match(/(?<![a-z0-9])[a-z0-9]\p{Script=Han}|\p{Script=Han}[a-z0-9](?![a-z0-9])/gu) ?? []) {
+    words.add(compound)
+  }
+  for (const run of lower.match(/[\p{Script=Hiragana}\p{Script=Katakana}]{2,}/gu) ?? []) {
+    for (let at = 0; at + 1 < run.length; at += 1) words.add(run.slice(at, at + 2))
+  }
   return words
 }
 

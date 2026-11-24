@@ -195,11 +195,14 @@ export function install(rt) {
   // A tool that throws shows as failed in the chat, instead of as sent or stopped.
   const refuse = (message) => { throw new Error(message) }
 
-  // The works (handoffs.js) the calling turn does: what it answers, and the requests
-  // that joined it.
+  // The works (handoffs.js) the calling turn does: what it answers, any background task
+  // work node it runs inside, and the requests that joined it.
   const worksOf = (exec) => {
-    const turn = rt.live.get(exec.agent?.id)
-    return [rt.workOf(turn?.info), ...(turn?.joined ?? []).map(joined => rt.workOf(joined.info))].filter(Boolean)
+    const sid = exec.agent?.id
+    const turn = rt.live.get(sid)
+    const task = rt.taskBySession?.(sid)?.task
+    const taskWork = task?.workId ?? task?.exchangeId
+    return [...new Set([rt.workOf(turn?.info), taskWork, ...(turn?.joined ?? []).map(joined => rt.workOf(joined.info))].filter(Boolean))]
   }
   const tooLong = text => `Not sent: the message has ${text.length} characters, more than ${MESSAGE_INLINE_MAX}, and this DeepSeek Harness cannot send it as a file. Write it to a file in your working folder and send its path instead.`
 
@@ -275,6 +278,11 @@ export function install(rt) {
     const joinable = earlier !== undefined
       && (toUser || ((earlier.message.source.senderPart ?? undefined) === fromPart && rt.sameWork(earlier.message.source.exchangeId, parentWork)))
     const before = joinable ? bodyOf(earlier.message) : undefined
+    // Snapshot prior inflight unread args BEFORE inbox.remove() synchronously emits
+    // `agent/inbox/discarded` (which clears `resume.js`'s queued tracking for exchangeId).
+    const prevUnread = before !== undefined
+      ? (rt.unreadOf?.(chat) ?? []).find(item => item?.exchangeId === earlier.message.source.exchangeId)
+      : undefined
     let long = length !== undefined && before === undefined
       ? { text, files, length }
       : await rt.attachLong(before ? `${before.text}\n\n${text}` : text, `Work from ${sender.name}.txt`)
@@ -285,7 +293,7 @@ export function install(rt) {
     const steer = (when !== 'queue' && !toUser) || (joins && earlier.steered)
     const exchangeId = existingWork?.id ?? (joins ? earlier.message.source.exchangeId : randomUUID())
     const spawnInBackground = working && !toUser && !joins && when !== 'queue'
-      && rt.shouldMoveForeground?.(target, chat) === true
+      && rt.shouldMoveForeground?.(target, chat, { forPeer: true }) === true
       && typeof rt.spawnBotHandoffTask === 'function'
     if (spawnInBackground) {
       const prevState = existingWork?.work?.state
@@ -308,7 +316,7 @@ export function install(rt) {
           ...(existingWork !== undefined ? { reuseWork: true } : {}),
         })
       } catch (error) {
-        if (existingWork !== undefined) {
+        if (existingWork !== undefined && error?.delivered !== true) {
           existingWork.work.state = prevState
           if (prevPaused !== undefined) existingWork.work.paused = prevPaused
           void rt.save().catch(() => {})
@@ -326,6 +334,9 @@ export function install(rt) {
     let workRef = existingWork?.work?.ref
     const prevState = existingWork?.work?.state
     const prevPaused = existingWork?.work?.paused
+    const joinedWork = joins && !toUser ? rt.resolveWork?.(exchangeId)?.work : undefined
+    const prevImOrigin = joinedWork?.imOrigin
+    const prevImOriginMixed = joinedWork?.imOriginMixed
     if (joins) {
       rt.forgetDelivery?.(exchangeId)
       if (!toUser) rt.mergeWorkImOrigin?.(exchangeId, imOrigin)
@@ -354,11 +365,35 @@ export function install(rt) {
         ...(toUser ? { audience: 'user' } : {}),
       })
     } catch (error) {
+      if (error?.delivered === false) {
+        rt.forgetDelivery?.(exchangeId)
+        if (joins) {
+          // Restore the original unread message and delivery tracking so a failed merge
+          // never strands the already-open work in state.works.
+          const restoreTarget = earlier.steered ? 'next-step' : 'next-turn'
+          try {
+            if (typeof agent.send === 'function') agent.send(earlier.message, restoreTarget, true)
+            else if (earlier.steered) agent.steer?.(earlier.message)
+            else agent.followup?.(earlier.message)
+            await ctx.sessions.flush(agent.session).catch(() => {})
+          } catch {}
+          if (prevUnread !== undefined) rt.restoreDelivery?.(chat, prevUnread)
+          if (joinedWork !== undefined) {
+            if (prevImOrigin !== undefined) joinedWork.imOrigin = prevImOrigin
+            else delete joinedWork.imOrigin
+            if (prevImOriginMixed === true) joinedWork.imOriginMixed = true
+            else delete joinedWork.imOriginMixed
+            void rt.save().catch(() => {})
+          }
+        }
+      }
       if (existingWork !== undefined && !toUser) {
-        existingWork.work.state = prevState
-        if (prevPaused !== undefined) existingWork.work.paused = prevPaused
-        void rt.save().catch(() => {})
-      } else if (!joins && existingWork === undefined && !toUser && rt.botOf(target.id) === undefined) {
+        if (error?.delivered !== true) {
+          existingWork.work.state = prevState
+          if (prevPaused !== undefined) existingWork.work.paused = prevPaused
+          void rt.save().catch(() => {})
+        }
+      } else if (!joins && existingWork === undefined && !toUser && (error?.delivered === false || rt.botOf(target.id) === undefined)) {
         rt.dropWork(exchangeId)
       }
       throw error
@@ -399,9 +434,10 @@ export function install(rt) {
     const target = rt.botOf(snapshot.to)
     if (target === undefined) return
     const note = reason.trim() || `Work ${snapshot.ref ? `#${snapshot.ref} ` : ''}was cancelled.`
-    // Stop any running bot-handoff background task created for this work.
+    // Stop any running bot-handoff task or child task_start task linked to this work.
     for (const task of target.tasks ?? []) {
-      if (task?.exchangeId === snapshot.id && ['running', 'waiting_work', 'waiting_approval'].includes(task.status)) {
+      if ((task?.exchangeId === snapshot.id || task?.parentWorkId === snapshot.id)
+        && ['running', 'waiting_work', 'waiting_approval'].includes(task.status)) {
         await rt.stopTask?.(target.id, task.id, note).catch(() => {})
       }
     }
@@ -475,6 +511,7 @@ export function install(rt) {
         await rt.save().catch(() => {})
         const backRoom = rt.roomOf(work.fromRoom)?.sessions?.[sender.id]
         const targetSession = backRoom ?? (work.fromPart ? threadCurrentOfPart(sender, work.fromPart) : undefined)
+        const askExchangeId = randomUUID()
         try {
           await rt.deliver({
             fromId: target.id,
@@ -488,14 +525,17 @@ export function install(rt) {
             ...(work.parent ? { work: work.parent } : {}),
             ...(work.ref ? { workRef: work.ref } : {}),
             steer: true,
-            exchangeId: randomUUID(),
+            exchangeId: askExchangeId,
           })
         } catch (error) {
-          work.state = 'paused'
-          work.paused = paused
-          work.rounds = prevRounds
-          delete work.question
-          await rt.save().catch(() => {})
+          if (error?.delivered !== true) {
+            if (error?.delivered === false) rt.forgetDelivery?.(askExchangeId)
+            work.state = 'paused'
+            work.paused = paused
+            work.rounds = prevRounds
+            delete work.question
+            await rt.save().catch(() => {})
+          }
           throw error
         }
         return true
@@ -515,8 +555,10 @@ export function install(rt) {
           existingWork: resolved,
         })
       } catch (error) {
-        work.rounds = prevRounds
-        await rt.save().catch(() => {})
+        if (error?.delivered !== true) {
+          work.rounds = prevRounds
+          await rt.save().catch(() => {})
+        }
         throw error
       }
       return true
@@ -692,6 +734,11 @@ export function install(rt) {
       const body = absoluteLinks(question, rt.sessionFolder?.(exec.agent?.session ?? exec.agent))
       const long = await rt.attachLong(body, `Question from ${sender.name}.txt`)
       if (long === undefined) return tooLong(body)
+      const prevState = resolved.work.state
+      const prevRounds = resolved.work.rounds
+      const prevQuestion = resolved.work.question
+      const prevPaused = resolved.work.paused
+      const prevAskedBack = turn?.askedBackWork
       const outcome = rt.askBackWork?.(resolved.id, question, {
         worked: (turn?.workToolCount ?? 0) > 0,
         text: long.text,
@@ -701,26 +748,48 @@ export function install(rt) {
       if (outcome?.error !== undefined) refuse(`Cannot ask back on work #${resolved.work.ref ?? resolved.id}: ${outcome.error}.`)
       const ref = resolved.work.ref ? `#${resolved.work.ref}` : resolved.id
       if (outcome.status === 'paused') {
+        if (turn !== undefined) turn.askedBackWork = resolved.id
+        exec.concludeTurn?.()
         return `Paused your question on work ${ref} for the user: this work has already asked back ${outcome.work.rounds} times. End your turn and wait for the user to continue or cancel.`
       }
       const fromPart = resolved.work.fromPart
       const backRoom = rt.roomOf(resolved.work.fromRoom)?.sessions?.[caller.id]
       const targetSession = backRoom ?? (fromPart ? threadCurrentOfPart(caller, fromPart) : undefined)
-      await rt.deliver({
-        fromId: sender.id,
-        toId: caller.id,
-        ...(targetSession ? { sessionId: targetSession } : {}),
-        text: long.text,
-        files: long.files,
-        ...(long.length !== undefined ? { length: long.length } : {}),
-        role: 'ask_back',
-        askWork: resolved.id,
-        ...(resolved.work.parent ? { work: resolved.work.parent } : {}),
-        ...(resolved.work.ref ? { workRef: resolved.work.ref } : {}),
-        steer: true,
-        exchangeId: randomUUID(),
-      })
-      return `Sent your question on work ${ref} to ${caller.name}. End your turn now; ${caller.name} will unblock you with answer_work.`
+      const askExchangeId = randomUUID()
+      if (turn !== undefined) turn.askedBackWork = resolved.id
+      try {
+        await rt.deliver({
+          fromId: sender.id,
+          toId: caller.id,
+          ...(targetSession ? { sessionId: targetSession } : {}),
+          text: long.text,
+          files: long.files,
+          ...(long.length !== undefined ? { length: long.length } : {}),
+          role: 'ask_back',
+          askWork: resolved.id,
+          ...(resolved.work.parent ? { work: resolved.work.parent } : {}),
+          ...(resolved.work.ref ? { workRef: resolved.work.ref } : {}),
+          steer: true,
+          exchangeId: askExchangeId,
+        })
+      } catch (error) {
+        if (error?.delivered !== true) {
+          if (error?.delivered === false) rt.forgetDelivery?.(askExchangeId)
+          if (turn !== undefined) turn.askedBackWork = prevAskedBack
+          if (state.works?.[resolved.id] === resolved.work) {
+            resolved.work.state = prevState
+            resolved.work.rounds = prevRounds
+            if (prevQuestion === undefined) delete resolved.work.question
+            else resolved.work.question = prevQuestion
+            if (prevPaused === undefined) delete resolved.work.paused
+            else resolved.work.paused = prevPaused
+            void rt.save().catch(() => {})
+          }
+        }
+        throw error
+      }
+      exec.concludeTurn?.()
+      return `Sent your question on work ${ref} to ${caller.name}. End your turn now without calling answer_work yourself; ${caller.name} will unblock you with answer_work.`
     },
   }))
 
@@ -764,25 +833,43 @@ export function install(rt) {
       const body = absoluteLinks(answerText, rt.sessionFolder?.(exec.agent?.session ?? exec.agent))
       const long = await rt.attachLong(body, `Answer from ${sender.name}.txt`)
       if (long === undefined) return tooLong(body)
+      const prevState = resolved.work.state
+      const prevQuestion = resolved.work.question
+      const prevWorked = resolved.work.worked
       const outcome = rt.answerWork?.(resolved.id)
       if (outcome?.error !== undefined) refuse(`Could not answer work #${resolved.work.ref ?? resolved.id}: ${outcome.error}.`)
       const ref = resolved.work.ref ? `#${resolved.work.ref}` : resolved.id
       // If the work runs inside a bot-handoff background task, route the answer back to
       // that task's active segment rather than the worker's foreground chat.
       const taskTarget = resolved.work.toSession ? threadCurrentOfPart(worker, resolved.work.toSession) : undefined
-      await rt.deliver({
-        fromId: sender.id,
-        toId: worker.id,
-        ...(taskTarget ? { sessionId: taskTarget } : {}),
-        text: long.text,
-        files: long.files,
-        ...(long.length !== undefined ? { length: long.length } : {}),
-        role: 'answer',
-        work: resolved.id,
-        ...(resolved.work.ref ? { workRef: resolved.work.ref } : {}),
-        steer: true,
-        exchangeId: randomUUID(),
-      })
+      const answerExchangeId = randomUUID()
+      try {
+        await rt.deliver({
+          fromId: sender.id,
+          toId: worker.id,
+          ...(taskTarget ? { sessionId: taskTarget } : {}),
+          text: long.text,
+          files: long.files,
+          ...(long.length !== undefined ? { length: long.length } : {}),
+          role: 'answer',
+          work: resolved.id,
+          ...(resolved.work.ref ? { workRef: resolved.work.ref } : {}),
+          steer: true,
+          exchangeId: answerExchangeId,
+        })
+      } catch (error) {
+        if (error?.delivered !== true) {
+          if (error?.delivered === false) rt.forgetDelivery?.(answerExchangeId)
+          if (state.works?.[resolved.id] === resolved.work) {
+            resolved.work.state = prevState
+            if (prevQuestion === undefined) delete resolved.work.question
+            else resolved.work.question = prevQuestion
+            resolved.work.worked = prevWorked
+            void rt.save().catch(() => {})
+          }
+        }
+        throw error
+      }
       return `Answered ${worker.name} on work ${ref}; it will resume and return the result when done. Reply [PASS] if nothing needs to be told to the user.`
     },
   }))
@@ -817,7 +904,7 @@ export function install(rt) {
         matches = rt.openWorksBetween?.(sender.id, bot.id) ?? []
         if (matches.length === 0 && rt.isMain(sender.id)) {
           matches = Object.entries(state.works ?? {})
-            .filter(([, work]) => work?.to === bot.id)
+            .filter(([, work]) => work?.to === bot.id && work.child === undefined)
             .map(([id, work]) => ({ id, work }))
         }
         if (matches.length === 0) return `No open delegated work for ${bot.name}; nothing to cancel (do not send a wrap-up request).`
@@ -828,7 +915,7 @@ export function install(rt) {
         if (snapshot === undefined) continue
         cancelledRefs.push(snapshot.ref ? `#${snapshot.ref}` : snapshot.id)
         await abortWorkExecution(snapshot, { sender, reason })
-        await rt.notifyParentCancelled?.(snapshot, { reason, by: sender.id, byLabel: sender.name })
+        await rt.notifyParentCancelled?.(snapshot, { reason, by: sender.id, bySession: exec.agent?.id, byLabel: sender.name })
       }
       return `Cancelled ${cancelledRefs.join(', ')} silently. The Bot was not woken and will not reply.`
     },
@@ -887,7 +974,7 @@ export function install(rt) {
       if (target.id === sender.id) refuse('You cannot stop yourself.')
       const { running } = activeSessions(target.id)
       const activeTasks = (target.tasks ?? []).filter(task => task && ['running', 'waiting_work', 'waiting_approval'].includes(task.status))
-      const openWorks = Object.entries(state.works ?? {}).filter(([, work]) => work?.to === target.id)
+      const openWorks = Object.entries(state.works ?? {}).filter(([, work]) => work?.to === target.id && work.child === undefined)
       if (running.length === 0 && activeTasks.length === 0 && openWorks.length === 0) refuse(`${target.name} is not running right now, so there is nothing to stop. Use delegate_work to assign work.`)
       const why = String(args.reason ?? '').trim() || `Stopped by ${sender.name}; previous turn was ended on purpose.`
       const cancelledSnapshots = []
@@ -919,7 +1006,7 @@ export function install(rt) {
         }
       }
       for (const snapshot of cancelledSnapshots) {
-        await rt.notifyParentCancelled?.(snapshot, { reason: why, by: sender.id, byLabel: sender.name })
+        await rt.notifyParentCancelled?.(snapshot, { reason: why, by: sender.id, bySession: exec.agent?.id, byLabel: sender.name })
       }
       if (places.length === 0 && openWorks.length > 0) places.push(`${openWorks.length} open work${openWorks.length === 1 ? '' : 's'}`)
       await rt.deliver({ fromId: sender.id, toId: target.id, ...callerPart(exec), text: why, role: 'stopped', wake: false, afterCancel: nonTaskRunning.length > 0 || activeTasks.length > 0, ...callerRoom(exec) })
@@ -1356,7 +1443,8 @@ export function install(rt) {
       if (long === undefined) return tooLong(text)
       // Replies the poster waits for, while it works on what a Bot asked it for — or from
       // a background task that must stay open until the group replies — are tracked as work.
-      const work = reportBack ? worksOf(exec).find(id => rt.ownsWork(self, id)) : undefined
+      const taskWork = rt.taskBySession?.(exec.agent?.id)?.task?.workId
+      const work = reportBack ? worksOf(exec).find(id => rt.ownsWork(self, id) || id === taskWork) : undefined
       const taskOwner = rt.taskOwners?.get(exec.agent?.id)
       const trackTaskWait = reportBack && taskOwner !== undefined
       const fromTaskId = trackTaskWait ? taskOwner.taskId : undefined
@@ -2219,5 +2307,5 @@ export function install(rt) {
     }))
   }
 
-  Object.assign(rt, { pickRoom, hideBotUnusedTools, syncScopedTools, addTeamTool, removeTeamTool, reapplyToolMasks, resumePausedWork, cancelWorkByUser })
+  Object.assign(rt, { pickRoom, hideBotUnusedTools, syncScopedTools, addTeamTool, removeTeamTool, reapplyToolMasks, resumePausedWork, cancelWorkByUser, abortWorkExecution })
 }

@@ -695,16 +695,14 @@ export function install(rt) {
           }
         }
       }
-      if (!stopped) {
-        if (succeeded === 0 && failed > 0) {
-          failedRunUntil = Date.now() + settings.retryMs
-        } else {
-          store.lastRun = Date.now()
-          failedRunUntil = 0
-        }
+      const allFailed = !stopped && succeeded === 0 && failed > 0
+      if (!stopped && !allFailed) {
+        store.lastRun = Date.now()
+        failedRunUntil = 0
       }
       pruneSettled(store)
       await persist()
+      if (allFailed && !stopped) failedRunUntil = Date.now() + settings.retryMs
       return made
     })().finally(() => { running = undefined })
     return running
