@@ -28,16 +28,4 @@ export function useRosterPick(useRoster, fields) {
   })
 }
 
-export function lruGet(map, key) {
-  if (!map.has(key)) return undefined
-  const value = map.get(key)
-  map.delete(key)
-  map.set(key, value)
-  return value
-}
-
-export function lruSet(map, key, value, max) {
-  if (map.has(key)) map.delete(key)
-  map.set(key, value)
-  while (map.size > max) map.delete(map.keys().next().value)
-}
+export { lruGet, lruSet } from './lru.js'

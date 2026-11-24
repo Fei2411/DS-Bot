@@ -1,5 +1,5 @@
 import { INKS, GRADIENTS, isHex, inkFill } from './inks.js'
-import { lruGet, lruSet } from './memo.js'
+import { lruGet, lruSet } from './lru.js'
 
 // -------------------------------------------------------------------------
 // Characters: DS Bot's own avatars, small 3D models seen from a

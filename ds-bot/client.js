@@ -17109,28 +17109,7 @@ var inkFill = (color) => isHex(color) ? color : `var(--bt-ink-${inkName(color)})
 var inkText = (color) => color === "black" ? "var(--bt-ink-gray)" : inkFill(color);
 var paintCss = (color) => GRADIENTS[color] ? `linear-gradient(135deg,${GRADIENTS[color].map(([offset, value]) => `${value} ${offset * 100}%`).join(",")})` : inkFill(color);
 
-// src/client/memo.js
-var React = __toESM(require("react"), 1);
-function memo(component, compare, displayName) {
-  if (displayName && component.name !== displayName) {
-    Object.defineProperty(component, "name", { value: displayName, configurable: true });
-  }
-  if (typeof React.memo === "function") {
-    const wrapped = React.memo(component, compare);
-    if (displayName) wrapped.displayName = displayName;
-    return wrapped;
-  }
-  return component;
-}
-function useRosterPick(useRoster, fields) {
-  const prev = React.useRef(null);
-  return useRoster((roster) => {
-    const last = prev.current;
-    if (last !== null && roster !== null && roster !== void 0 && fields.every((key) => last[key] === roster[key])) return last;
-    prev.current = roster;
-    return roster;
-  });
-}
+// src/client/lru.js
 function lruGet(map, key) {
   if (!map.has(key)) return void 0;
   const value = map.get(key);
@@ -21161,6 +21140,29 @@ function installCompiledStyles(text, tag) {
 var RETURN_TOKENS = `
 body{--bt-return-fill:rgba(127,127,127,.08);--bt-return-fill-hover:rgba(127,127,127,.14)}
 `;
+
+// src/client/memo.js
+var React = __toESM(require("react"), 1);
+function memo(component, compare, displayName) {
+  if (displayName && component.name !== displayName) {
+    Object.defineProperty(component, "name", { value: displayName, configurable: true });
+  }
+  if (typeof React.memo === "function") {
+    const wrapped = React.memo(component, compare);
+    if (displayName) wrapped.displayName = displayName;
+    return wrapped;
+  }
+  return component;
+}
+function useRosterPick(useRoster, fields) {
+  const prev = React.useRef(null);
+  return useRoster((roster) => {
+    const last = prev.current;
+    if (last !== null && roster !== null && roster !== void 0 && fields.every((key) => last[key] === roster[key])) return last;
+    prev.current = roster;
+    return roster;
+  });
+}
 
 // src/client/mark.js
 var import_react2 = require("react");
