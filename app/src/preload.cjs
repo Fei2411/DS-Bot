@@ -669,6 +669,8 @@ function updatesBridge() {
     check: () => ipcRenderer.invoke('ds-bot:app-update-check'),
     install: () => ipcRenderer.invoke('ds-bot:app-update-install'),
     open: () => ipcRenderer.invoke('ds-bot:app-update-open'),
+    download: () => ipcRenderer.invoke('ds-bot:app-update-download'),
+    setAutoUpdate: enabled => ipcRenderer.invoke('ds-bot:app-update-auto', enabled === true),
     subscribe(listener) {
       listeners.add(listener)
       return () => { listeners.delete(listener) }

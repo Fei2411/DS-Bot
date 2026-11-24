@@ -55,13 +55,13 @@ function isHttpsPage(page) {
   }
 }
 
-// The About row shows the checker's phase: checking → current | downloading → downloaded |
-// available | failed. While a check, a download or a ready install is on, a new check must
-// not start, so `check()` is a no-op in those phases.
+// The About row shows the checker's phase: idle | checking → current | downloading →
+// downloaded | available | failed. While a check, a download or a ready install is on, a
+// new check must not start, so `check()` is a no-op in those phases.
 const UPDATE_BUSY = new Set(['checking', 'downloading', 'downloaded'])
 
-function stateHolder(log) {
-  let state = { phase: 'checking' }
+function stateHolder(log, initial = { phase: 'checking' }) {
+  let state = initial
   const listeners = new Set()
   return {
     state: () => state,
@@ -80,13 +80,16 @@ function stateHolder(log) {
 
 // `asset` names the release asset of this install (default: the macOS zip); a release without
 // it does not count.
-export function watchReleases({ current, arch, fetch = globalThis.fetch, ask, open, feed = RELEASES_URL, log = console, asset }) {
+export function watchReleases({ current, arch, fetch = globalThis.fetch, ask, open, feed = RELEASES_URL, log = console, asset, autoUpdate = true }) {
   const assetName = asset ?? (version => `DS-Bot-${version}-mac-${arch}.zip`)
+  let auto = autoUpdate !== false
+  let timer = null
   let asked
   let latest = Promise.resolve(null)
-  const holder = stateHolder(log)
-  const run = () => {
-    holder.set({ phase: 'checking' })
+  const holder = stateHolder(log, { phase: auto ? 'checking' : 'idle', autoUpdate: auto })
+  const set = (next) => { holder.set({ ...next, autoUpdate: auto }) }
+  const run = ({ manual = false } = {}) => {
+    set({ phase: 'checking' })
     latest = (async () => {
       try {
         const response = await fetch(feed, {
@@ -94,13 +97,13 @@ export function watchReleases({ current, arch, fetch = globalThis.fetch, ask, op
         })
         if (!response.ok) {
           log.error(`DS Bot: update check failed: HTTP ${String(response.status)}`)
-          holder.set({ phase: 'failed' })
+          set({ phase: 'failed' })
           return null
         }
         const releases = await response.json()
         if (!Array.isArray(releases)) {
           log.error('DS Bot: update check failed: releases response is not an array')
-          holder.set({ phase: 'failed' })
+          set({ phase: 'failed' })
           return null
         }
         const currentVersion = parseVersion(current)
@@ -119,31 +122,53 @@ export function watchReleases({ current, arch, fetch = globalThis.fetch, ask, op
           if (found === undefined || isNewer(version, found.version)) found = { version, page: release.html_url }
         }
         if (found === undefined) {
-          holder.set({ phase: 'current' })
+          set({ phase: 'current' })
           return null
         }
         log.info(`DS Bot: update ${found.version} available`)
-        if (ask !== undefined && asked !== found.version) {
+        if (!manual && auto && ask !== undefined && asked !== found.version) {
           asked = found.version
           void Promise.resolve().then(() => ask(found.version))
             .then(yes => (yes ? open(found.page) : undefined))
             .catch((error) => { log.error(`DS Bot: update ${found.version} not opened: ${error instanceof Error ? error.message : String(error)}`) })
         }
-        holder.set({ phase: 'available', version: found.version, page: found.page })
+        set({ phase: 'available', version: found.version, page: found.page })
         return found
       } catch (error) {
         log.error(`DS Bot: update check failed: ${error instanceof Error ? error.message : String(error)}`)
-        holder.set({ phase: 'failed' })
+        set({ phase: 'failed' })
         return null
       }
     })()
   }
-  // A check runs at once and then on the timer; a manual one only starts when none is on.
-  const check = () => { if (!UPDATE_BUSY.has(holder.state().phase)) run() }
-  run()
-  const timer = setInterval(check, CHECK_EVERY_MS)
-  timer.unref?.()
-  return { stop: () => { clearInterval(timer) }, latest: () => latest, state: holder.state, subscribe: holder.subscribe, check }
+  const stopTimer = () => {
+    if (timer === null) return
+    clearInterval(timer)
+    timer = null
+  }
+  const startTimer = () => {
+    if (timer !== null || !auto) return
+    timer = setInterval(() => { if (auto && !UPDATE_BUSY.has(holder.state().phase)) run({ manual: false }) }, CHECK_EVERY_MS)
+    timer.unref?.()
+  }
+  // A manual check only starts when none is on, and leaves the About row to offer the download.
+  const check = () => { if (!UPDATE_BUSY.has(holder.state().phase)) run({ manual: true }) }
+  const setAutoUpdate = (enabled) => {
+    const next = Boolean(enabled)
+    if (next === auto) return holder.state()
+    auto = next
+    if (auto) startTimer()
+    else stopTimer()
+    const phase = holder.state().phase
+    if (auto && (phase === 'idle' || phase === 'failed')) run({ manual: false })
+    else set(holder.state())
+    return holder.state()
+  }
+  if (auto) {
+    run({ manual: false })
+    startTimer()
+  }
+  return { stop: stopTimer, latest: () => latest, state: holder.state, subscribe: holder.subscribe, check, setAutoUpdate }
 }
 
 /**
@@ -153,6 +178,7 @@ export function watchReleases({ current, arch, fetch = globalThis.fetch, ask, op
  *   ask?: (version: string) => Promise<boolean>,
  *   feed?: string,
  *   log?: Pick<Console, 'info' | 'error'>,
+ *   autoUpdate?: boolean,
  * }} options `ask` answers whether to restart now; without it the update waits for the next
  *   quit. `beforeInstall` stops the Host, which runs from the files the installer replaces.
  *   `feed` is a folder URL with a latest.yml, in place of the GitHub releases.
@@ -160,66 +186,151 @@ export function watchReleases({ current, arch, fetch = globalThis.fetch, ask, op
  *   stop: () => void,
  *   latest: () => Promise<{ version: string, downloaded: Promise<boolean> } | null>,
  *   install: () => Promise<void>,
- *   state: () => { phase: string, version?: string, page?: string, percent?: number, received?: number, total?: number },
- *   subscribe: (listener: (state: { phase: string }) => void) => () => void,
+ *   download: () => void,
+ *   state: () => { phase: string, version?: string, page?: string, percent?: number, received?: number, total?: number, canDownload?: boolean, autoInstall?: boolean, autoUpdate: boolean },
+ *   subscribe: (listener: (state: { phase: string, autoUpdate: boolean }) => void) => () => void,
  *   check: () => void,
+ *   setAutoUpdate: (enabled: boolean) => { phase: string, autoUpdate: boolean },
  * }} `latest` is what the newest check found: the version and whether its download finished.
  *   `install` stops the Host and runs the installer, which opens the app again. `state` is
  *   the phase the About row shows, with the download's per cent and MB while it downloads;
  *   `check` runs the same check the timer does and does nothing while a check, a download or a
  *   ready install is on.
  */
-export function watchUpdates({ updater, beforeInstall, ask, feed, log = console }) {
-  updater.autoDownload = true
-  updater.autoInstallOnAppQuit = true
+export function watchUpdates({ updater, beforeInstall, ask, feed, log = console, autoUpdate = true }) {
+  let auto = autoUpdate !== false
+  let timer = null
+  let activeCancel = null
+  let manualDownload = false
+  let autoInstallReady = false
+  updater.autoDownload = auto
+  updater.autoInstallOnAppQuit = auto
   if (feed) updater.setFeedURL({ provider: 'generic', url: feed })
-  const holder = stateHolder(log)
+  const holder = stateHolder(log, { phase: auto ? 'checking' : 'idle', autoUpdate: auto })
+  const set = (next) => { holder.set({ ...next, autoUpdate: auto }) }
   const install = async () => {
     await beforeInstall()
     updater.quitAndInstall(true, true)
   }
   let asked
-  updater.on('checking-for-update', () => { holder.set({ phase: 'checking' }) })
-  updater.on('update-not-available', () => { holder.set({ phase: 'current' }) })
-  updater.on('update-available', (info) => { holder.set({ phase: 'downloading', version: info?.version }) })
+  updater.on('checking-for-update', () => { set({ phase: 'checking' }) })
+  updater.on('update-not-available', () => { activeCancel = null; set({ phase: 'current' }) })
+  updater.on('update-available', (info) => {
+    if (auto && updater.autoDownload) set({ phase: 'downloading', version: info?.version })
+    else set({ phase: 'available', version: info?.version, canDownload: true })
+  })
   // The download's progress, for the failure page's update banner: once per whole per cent.
   updater.on('download-progress', (progress) => {
     const current = holder.state()
     const percent = Math.floor(Number(progress?.percent))
     if (current.phase !== 'downloading' || !Number.isFinite(percent) || percent === current.percent) return
-    holder.set({ ...current, percent, received: Math.round(Number(progress.transferred) / MB) || 0, total: Math.round(Number(progress.total) / MB) || 0 })
+    set({ ...current, percent, received: Math.round(Number(progress.transferred) / MB) || 0, total: Math.round(Number(progress.total) / MB) || 0 })
   })
   updater.on('update-downloaded', ({ version }) => {
+    activeCancel = null
+    manualDownload = false
+    // electron-updater skips adding its quit handler when autoInstallOnAppQuit is false at
+    // download time, so toggling autoUpdate back on later will not arm quit-install.
+    autoInstallReady = updater.autoInstallOnAppQuit === true
     log.info(`DS Bot: update ${version} downloaded`)
-    holder.set({ phase: 'downloaded', version })
-    if (ask === undefined || asked === version) return
+    set({ phase: 'downloaded', version, autoInstall: auto && autoInstallReady })
+    if (!auto || ask === undefined || asked === version) return
     asked = version
     void ask(version).then(now => (now ? install() : undefined))
       .catch((error) => { log.error(`DS Bot: update ${version} not installed: ${error instanceof Error ? error.message : String(error)}`) })
   })
   // A downloaded update stays ready: a later failed check does not hide it.
   updater.on('error', (error) => {
+    activeCancel = null
+    manualDownload = false
     log.error(`DS Bot: update failed: ${error instanceof Error ? error.message : String(error)}`)
-    if (holder.state().phase !== 'downloaded') holder.set({ phase: 'failed' })
+    if (holder.state().phase !== 'downloaded') set({ phase: 'failed' })
   })
   let latest = Promise.resolve(null)
   // A failed check or download also comes as an 'error' event.
   // The events normally move the phase; a check that settles without one must not leave it
   // on `checking`, or the busy guard would also stop the timer's checks.
-  const settled = (next) => { if (holder.state().phase === 'checking') holder.set(next) }
+  const settled = (next) => { if (holder.state().phase === 'checking') set(next) }
   const run = () => {
     latest = updater.checkForUpdates().then((result) => {
+      activeCancel = result?.cancellationToken ?? null
       if (result?.isUpdateAvailable && result.downloadPromise) {
+        if (!auto && !manualDownload) {
+          const cancel = activeCancel
+          activeCancel = null
+          try { cancel?.cancel?.() } catch { /* ignore */ }
+          void result.downloadPromise.catch(() => {})
+          set({ phase: 'available', version: result.updateInfo.version, canDownload: true })
+          return null
+        }
         settled({ phase: 'downloading', version: result.updateInfo.version })
         return { version: result.updateInfo.version, downloaded: result.downloadPromise.then(() => true, () => false) }
       }
+      if (result?.isUpdateAvailable) {
+        settled({ phase: 'available', version: result.updateInfo.version, canDownload: true })
+        return null
+      }
       settled({ phase: 'current' })
       return null
-    }, () => { settled({ phase: 'failed' }); return null })
+    }, () => { activeCancel = null; settled({ phase: 'failed' }); return null })
+  }
+  const stopTimer = () => {
+    if (timer === null) return
+    clearInterval(timer)
+    timer = null
+  }
+  const startTimer = () => {
+    if (timer !== null || !auto) return
+    timer = setInterval(() => { if (auto && !UPDATE_BUSY.has(holder.state().phase)) run() }, CHECK_EVERY_MS)
+    timer.unref?.()
   }
   const check = () => { if (!UPDATE_BUSY.has(holder.state().phase)) run() }
-  run()
-  const timer = setInterval(check, CHECK_EVERY_MS)
-  timer.unref?.()
-  return { stop: () => { clearInterval(timer) }, latest: () => latest, install, state: holder.state, subscribe: holder.subscribe, check }
+  const download = () => {
+    const current = holder.state()
+    if (current.phase !== 'available' || typeof updater.downloadUpdate !== 'function') return
+    manualDownload = true
+    set({ phase: 'downloading', version: current.version })
+    void Promise.resolve().then(() => updater.downloadUpdate()).catch((error) => {
+      manualDownload = false
+      if (holder.state().phase === 'downloading') {
+        log.error(`DS Bot: update failed: ${error instanceof Error ? error.message : String(error)}`)
+        set({ phase: 'failed' })
+      }
+    })
+  }
+  const setAutoUpdate = (enabled) => {
+    const next = Boolean(enabled)
+    if (next === auto) return holder.state()
+    auto = next
+    updater.autoDownload = auto
+    updater.autoInstallOnAppQuit = auto
+    if (auto) startTimer()
+    else stopTimer()
+    const current = holder.state()
+    if (!auto) {
+      if (current.phase === 'downloading' && !manualDownload) {
+        const cancel = activeCancel
+        activeCancel = null
+        try { cancel?.cancel?.() } catch { /* ignore */ }
+        set(current.version ? { phase: 'available', version: current.version, canDownload: true } : { phase: 'idle' })
+      } else if (current.phase === 'downloaded') {
+        set({ phase: 'downloaded', version: current.version, autoInstall: false })
+      } else {
+        set(current)
+      }
+    } else if (current.phase === 'idle' || current.phase === 'failed') {
+      run()
+      if (holder.state().autoUpdate !== auto) set({ phase: 'checking' })
+    } else if (current.phase === 'downloaded') {
+      set({ phase: 'downloaded', version: current.version, autoInstall: autoInstallReady })
+    } else {
+      set(current)
+    }
+    return holder.state()
+  }
+  if (auto) {
+    run()
+    startTimer()
+  }
+  return { stop: stopTimer, latest: () => latest, install, download, state: holder.state, subscribe: holder.subscribe, check, setAutoUpdate }
 }

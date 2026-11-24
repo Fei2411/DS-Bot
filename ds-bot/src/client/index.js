@@ -888,6 +888,11 @@ export function apply(ctx) {
   actions.checkOwnApp = async () => { await ownAppUpdates?.check?.() }
   actions.installOwnApp = async () => { await ownAppUpdates?.install?.() }
   actions.openOwnApp = async () => { await ownAppUpdates?.open?.() }
+  actions.downloadOwnApp = async () => { await ownAppUpdates?.download?.() }
+  actions.setOwnAppAutoUpdate = async (enabled) => {
+    const next = await ownAppUpdates?.setAutoUpdate?.(enabled === true)
+    if (next) update.set(previous => ({ ...previous, ownApp: next }))
+  }
   const browserPages = browsers?.pages ?? createSource({})
   const browserTabs = browsers?.tabs ?? createSource({})
   const browserHolds = browsers?.holds ?? createSource({})

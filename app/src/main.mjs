@@ -53,6 +53,7 @@ const IPC = {
   browserImportCancel: 'ds-bot:browser-import-cancel',
   appUpdateState: 'ds-bot:app-update-state', appUpdateCheck: 'ds-bot:app-update-check',
   appUpdateInstall: 'ds-bot:app-update-install', appUpdateOpen: 'ds-bot:app-update-open',
+  appUpdateDownload: 'ds-bot:app-update-download', appUpdateAuto: 'ds-bot:app-update-auto',
   appUpdateChanged: 'ds-bot:app-update-changed',
   idleSeconds: 'ds-bot:idle-seconds', computer: 'ds-bot:computer', computerAction: 'ds-bot:computer-action', computerCursor: 'ds-bot:computer-cursor',
   notify: 'ds-bot:notify', notifyStatus: 'ds-bot:notify-status', badge: 'ds-bot:badge', openSession: 'ds-bot:open-session',
@@ -91,7 +92,7 @@ const frameFile = join(app.getPath('userData'), 'start-frame.json')
 let BotBrowserGuests, partitionOf, BotViews, isBotId, checkSourceLiveDebug, importFromBrowser, launchBrowserForDebug, listSources, applyCookies, seedOriginsInPartition, CookieImports, parseCookieFile
 let downloadSaver, chooseLocations, defaultPlaces, lang, pickerLabels, pickRoot, programFolder, saveLocations, teamIn, teamsAt, tx, HostProcess
 let copySessions, findTeam, importTeam, restoreSessions, teamInUse, teamSizes, userDshHome, copyData, copyReason, moveProblem, BUNDLES, CHECK_PROFILE, PROFILE, ImportFlow
-let watchReleases, watchUpdates, RELEASE_PAGE, getDshRuntimeVersion, electronUpdater
+let watchReleases, watchUpdates, RELEASE_PAGE, readAutoUpdate, writeAutoUpdate, getDshRuntimeVersion, electronUpdater
 
 let mainWindow
 // Settles once the hidden team window exists.
@@ -314,11 +315,11 @@ async function prepare() {
 }
 
 async function loadModules() {
-  const [browser, views, sources, cookies, cookieFiles, downloads, firstRun, hostProcess, imports, flows, moves, profile, updatesModule, boot, updater] = await Promise.all([
+  const [browser, views, sources, cookies, cookieFiles, downloads, firstRun, hostProcess, imports, flows, moves, profile, updatesModule, updatePrefsModule, boot, updater] = await Promise.all([
     import('./bot-browser.mjs'), import('./bot-views.mjs'), import('./browser-sources.mjs'), import('./cookie-import.mjs'),
     import('./cookie-parse.mjs'), import('./downloads.mjs'), import('./first-run.mjs'), import('./host-process.mjs'),
     import('./import.mjs'), import('./import-flow.mjs'), import('./move-data.mjs'), import('./profile.mjs'), import('./updates.mjs'),
-    import('@deepseek-ai/dsh-app-boot'), import('electron-updater'),
+    import('./update-prefs.mjs'), import('@deepseek-ai/dsh-app-boot'), import('electron-updater'),
   ])
   ;({ BotBrowserGuests, partitionOf } = browser)
   ;({ BotViews, isBotId } = views)
@@ -333,6 +334,7 @@ async function loadModules() {
   ;({ copyData, copyReason, moveProblem } = moves)
   ;({ BUNDLES, CHECK_PROFILE, PROFILE } = profile)
   ;({ watchReleases, watchUpdates, RELEASE_PAGE } = updatesModule)
+  ;({ readAutoUpdate, writeAutoUpdate } = updatePrefsModule)
   ;({ getDshRuntimeVersion } = boot)
   electronUpdater = updater.default
   browserGuests = new BotBrowserGuests({ session, origin: () => origin, devTools: !app.isPackaged })
@@ -1040,6 +1042,21 @@ function handleIpc() {
       void electronShell.openExternal(state.page)
     }
   })
+  ipcMain.handle(IPC.appUpdateDownload, (event) => {
+    assertWindow(event)
+    updates?.download?.()
+  })
+  ipcMain.handle(IPC.appUpdateAuto, (event, enabled) => {
+    assertWindow(event)
+    if (typeof enabled !== 'boolean') throw new Error('DS Bot: autoUpdate must be a boolean')
+    if (updates === undefined) return null
+    writeAutoUpdate(updatePrefsFile(), enabled)
+    if (!enabled) {
+      restartPrompt.clear()
+      downloadPrompt.clear()
+    }
+    return updates.setAutoUpdate(enabled)
+  })
   // The plugin keeps the team workspace; the app remembers it for its own checks.
   ipcMain.on(IPC.teamWorkspace, (event, path) => {
     if (fixed || !fromWindow(event) || typeof path !== 'string' || !isAbsolute(path)) return
@@ -1268,15 +1285,18 @@ async function runMove(to, workspace) {
   app.quit()
 }
 
+const updatePrefsFile = () => join(app.getPath('userData'), 'update-prefs.json')
+
 // Windows and a Linux AppImage update themselves; macOS and a Linux deb ask to download the new
 // version. Throwaway runs check only a given feed and never ask.
 function startUpdates() {
   const feed = process.env.DS_BOT_UPDATE_URL || undefined
   const throwaway = Boolean(process.env.DS_BOT_HOME)
   if (!app.isPackaged || (throwaway && feed === undefined)) return undefined
+  const autoUpdate = readAutoUpdate(updatePrefsFile())
   if (process.platform === 'darwin') {
     return watchReleases({
-      current: app.getVersion(), arch: process.arch, feed, ask: throwaway ? undefined : (version) => downloadPrompt.prompt(version), open: url => electronShell.openExternal(url),
+      current: app.getVersion(), arch: process.arch, feed, autoUpdate, ask: throwaway ? undefined : (version) => downloadPrompt.prompt(version), open: url => electronShell.openExternal(url),
     })
   }
   // electron-updater's Linux updater works only from inside an AppImage (APPIMAGE is set there);
@@ -1285,7 +1305,7 @@ function startUpdates() {
   if (process.platform === 'linux' && process.env.APPIMAGE === undefined) {
     const debArch = { x64: 'amd64', arm64: 'arm64' }[process.arch] ?? process.arch
     return watchReleases({
-      current: app.getVersion(), arch: process.arch, feed, ask: throwaway ? undefined : (version) => downloadPrompt.prompt(version), open: url => electronShell.openExternal(url),
+      current: app.getVersion(), arch: process.arch, feed, autoUpdate, ask: throwaway ? undefined : (version) => downloadPrompt.prompt(version), open: url => electronShell.openExternal(url),
       asset: version => `DS-Bot-${version}-linux-${debArch}.deb`,
     })
   }
@@ -1293,7 +1313,7 @@ function startUpdates() {
     // The update ends the app: the window closes for good, and the Host stops before the
     // installer replaces its files.
     return watchUpdates({
-      updater: electronUpdater.autoUpdater, feed, ask: throwaway ? undefined : (version) => restartPrompt.prompt(version),
+      updater: electronUpdater.autoUpdater, feed, autoUpdate, ask: throwaway ? undefined : (version) => restartPrompt.prompt(version),
       beforeInstall: () => { shell.beginQuit(); return stopHost() },
     })
   }
