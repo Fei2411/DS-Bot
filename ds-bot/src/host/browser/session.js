@@ -100,29 +100,37 @@ export async function openBotBrowser({ botId, profileRoot, downloadDir, headless
   const getDownloadDir = typeof downloadDir === 'function' ? downloadDir : async () => downloadDir
   const userDataDir = join(profileRoot, botId)
   const chromium = await loadChromium(playwrightUrl)
-  const browser = connect
-    ? await chromium.connectOverCDP(await connect(botId))
-    : undefined
-  if (!connect) await mkdir(userDataDir, { recursive: true })
-  const context = browser
-    ? browser.contexts()[0]
-    : await chromium.launchPersistentContext(userDataDir, {
-      headless,
-      viewport: { width: 1280, height: 900 },
-      acceptDownloads: true,
-      ...(executablePath ? { executablePath } : {}),
-      args: ['--disable-dev-shm-usage'],
-    })
-  if (!context) throw new Error('The app browser relay has no browser context.')
-  const page = context.pages()[0] ?? await context.newPage()
-  const cookieFile = join(userDataDir, 'cookies.json')
-  if (!browser) {
-    try {
-      const saved = JSON.parse(await readFile(cookieFile, 'utf8'))
-      if (Array.isArray(saved) && saved.length > 0) await context.addCookies(saved)
-    } catch { /* no cookies yet */ }
+  let browser
+  let context
+  try {
+    browser = connect
+      ? await chromium.connectOverCDP(await connect(botId))
+      : undefined
+    if (!connect) await mkdir(userDataDir, { recursive: true })
+    context = browser
+      ? browser.contexts()[0]
+      : await chromium.launchPersistentContext(userDataDir, {
+        headless,
+        viewport: { width: 1280, height: 900 },
+        acceptDownloads: true,
+        ...(executablePath ? { executablePath } : {}),
+        args: ['--disable-dev-shm-usage'],
+      })
+    if (!context) throw new Error('The app browser relay has no browser context.')
+    const page = context.pages()[0] ?? await context.newPage()
+    const cookieFile = join(userDataDir, 'cookies.json')
+    if (!browser) {
+      try {
+        const saved = JSON.parse(await readFile(cookieFile, 'utf8'))
+        if (Array.isArray(saved) && saved.length > 0) await context.addCookies(saved)
+      } catch { /* no cookies yet */ }
+    }
+    return createSession({ context, browser, page, botId, userDataDir, cookieFile, downloadDir: getDownloadDir, actionTimeout, downloadGraceMs, getHold, onHold, uploadRoots })
+  } catch (error) {
+    if (browser) await browser.close().catch(() => {})
+    else if (context) await context.close().catch(() => {})
+    throw error
   }
-  return createSession({ context, browser, page, botId, userDataDir, cookieFile, downloadDir: getDownloadDir, actionTimeout, downloadGraceMs, getHold, onHold, uploadRoots })
 }
 
 export function createSession({ context, browser, page, botId, userDataDir, cookieFile, downloadDir, actionTimeout = ACTION_TIMEOUT, downloadGraceMs = DOWNLOAD_GRACE_MS, getHold, onHold, uploadRoots }) {
@@ -199,8 +207,9 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
     if (activate) activateAfterLoad(target)
   }
 
+  const onPage = target => trackPage(target, true)
   for (const target of context.pages()) trackPage(target)
-  context.on('page', target => trackPage(target, true))
+  context.on('page', onPage)
 
   function openPages() {
     return context.pages().filter(target => !target.isClosed())
@@ -829,7 +838,7 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
       onHold?.(null)
       return 'The browser is yours again.'
     },
-    async runScript(source, origin) {
+    async runScript(source, origin, signal) {
       const body = String(source ?? '')
       if (body.length > 8_000) throw new Error('Script is longer than 8000 characters.')
       const helpers = {
@@ -874,7 +883,7 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
         if (finished) throw new Error('The browser script has finished.')
       }
       try {
-        const answer = await gateScope.run(scriptGate, () => runIsolatedScript(body, ordered))
+        const answer = await gateScope.run(scriptGate, () => runIsolatedScript(body, ordered, { signal }))
         return answer ?? 'Script finished without done().'
       } finally {
         finished = true
@@ -886,6 +895,11 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
     },
     async close() {
       disconnect()
+      context.off?.('close', disconnect)
+      context.off?.('page', onPage)
+      browser?.off?.('disconnected', disconnect)
+      lastImage = ''
+      pages.clear()
       for (const { download } of activeDownloads?.items ?? []) await download.cancel().catch(() => {})
       if (browser) { await browser.close().catch(() => {}); return }
       const cookies = await context.cookies().catch(() => [])

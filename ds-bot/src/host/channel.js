@@ -11,6 +11,8 @@ import { BACKGROUND_AFTER_MAX_SEC, COLORS, EXTRA_COLORS, ROUTE } from './constan
 
 const STAGED_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
 const STAGED_MS = 30 * 60_000
+const STAGED_MAX_ITEMS = 20
+const STAGED_MAX_BYTES = 50 * 1024 * 1024
 
 const LANGUAGES = {
   zh: 'Chinese (简体中文)',
@@ -56,6 +58,27 @@ export function install(rt) {
 
   // Photos staged by `stage-image`, kept until the message that names them is sent.
   const staged = new Map()
+  let stagedBytes = 0
+  let stagedTimer
+  const dropStaged = (id) => {
+    const entry = staged.get(id)
+    if (entry === undefined) return
+    staged.delete(id)
+    stagedBytes -= entry.bytes
+  }
+  const sweepStaged = (now = Date.now()) => {
+    let earliest
+    for (const [id, entry] of staged) {
+      if (entry.at <= now - STAGED_MS) dropStaged(id)
+      else if (earliest === undefined || entry.at < earliest) earliest = entry.at
+    }
+    clearTimeout(stagedTimer)
+    stagedTimer = undefined
+    if (earliest !== undefined) {
+      stagedTimer = setTimeout(() => sweepStaged(), Math.max(1, earliest + STAGED_MS - now))
+      stagedTimer.unref?.()
+    }
+  }
   const ok = value => ({ ok: true, value })
   const fail = (message, code = 'bot/error', details = {}) => ({ ok: false, error: { code, message, details } })
   // Models come from DSH, not state.json, so a provider added on the Models pages of Settings
@@ -411,7 +434,7 @@ export function install(rt) {
         case 'room-progress': {
           // Any part id of the group's own Session means the group itself.
           const room = rt.roomOf(body.roomId) ?? rt.roomOf(rt.pastOwners.get(body.roomId)?.roomId)
-          return ok([...rt.roomProgress.entries()].filter(([, entry]) => entry.roomId === (room?.id ?? body.roomId)).map(([callId, entry]) => ({ callId, replies: rt.groupRows(entry.roomId, entry.from), speaking: entry.slots.filter(slot => slot.status === 'speaking').map(slot => slot.id) })))
+          return ok([...rt.roomProgress.entries()].filter(([, entry]) => entry.roomId === (room?.id ?? body.roomId)).map(([callId, entry]) => ({ callId, replies: rt.groupRows(entry.roomId, entry.from, undefined, entry.anchor), speaking: entry.slots.filter(slot => slot.status === 'speaking').map(slot => slot.id) })))
         }
         // Search a group's messages, newest first, each hit with its neighbours.
         // `before` (a seq) or `offset` continues into older hits.
@@ -761,9 +784,17 @@ export function install(rt) {
           const data = typeof body.data === 'string' ? body.data : ''
           if (!STAGED_TYPES.has(mediaType) || data === '' || !/^[A-Za-z0-9+/]+={0,2}$/.test(data)) return fail('This is not a photo DS Bot can send', 'bot/invalid')
           const now = Date.now()
-          for (const [id, entry] of staged) if (entry.at < now - STAGED_MS) staged.delete(id)
+          sweepStaged(now)
+          const bytes = Buffer.byteLength(data, 'utf8')
+          while (staged.size >= STAGED_MAX_ITEMS || (staged.size > 0 && stagedBytes + bytes > STAGED_MAX_BYTES)) {
+            const oldest = staged.keys().next().value
+            if (oldest === undefined) break
+            dropStaged(oldest)
+          }
           const id = randomUUID()
-          staged.set(id, { mediaType, data, at: now })
+          staged.set(id, { mediaType, data, bytes, at: now })
+          stagedBytes += bytes
+          sweepStaged(now)
           return ok({ id })
         }
         case 'send': {
@@ -780,7 +811,11 @@ export function install(rt) {
               ...images.map(({ mediaType, data }) => ({ type: 'image', mediaType, data })),
             ],
           })
-          for (const id of ids) staged.delete(id)
+          for (const id of ids) dropStaged(id)
+          if (staged.size === 0) {
+            clearTimeout(stagedTimer)
+            stagedTimer = undefined
+          }
           return ok(true)
         }
         case 'btw-delete': {
@@ -954,7 +989,7 @@ export function install(rt) {
         default:
           if (endpoint.startsWith('computer-')) {
             await rt.load()
-            return ok(await rt.computerEndpoint(endpoint.slice('computer-'.length), body))
+            return ok(await rt.computerEndpoint(endpoint.slice('computer-'.length), body, signal))
           }
           if (endpoint.startsWith('plugins-')) {
             return ok(await rt.pluginEndpoint(endpoint.slice('plugins-'.length), body, signal))
@@ -1091,6 +1126,12 @@ export function install(rt) {
     // Registered last, so this disposer runs before the state lock is released.
     // In-flight side questions abort here; their entries stay answering for the
     // next owner.
-    return () => Promise.all([rt.btwDispose?.(), rt.sideDispose?.()])
+    return () => {
+      clearTimeout(stagedTimer)
+      stagedTimer = undefined
+      staged.clear()
+      stagedBytes = 0
+      return Promise.all([rt.btwDispose?.(), rt.sideDispose?.()])
+    }
   }, 'ds-bot: load state')
 }

@@ -361,9 +361,30 @@ export class StartWindow {
     win.once('ready-to-show', () => { note(`the start page painted ${sinceLaunch()} ms after launch`) })
     this.#later('show', PAINT_WAIT_MS, () => { this.#showStart('the page did not say it painted', { now: true }) })
     this.#painted = new Promise((resolve) => {
-      win.once('ready-to-show', resolve)
-      contents.once('did-finish-load', resolve)
-      setTimeout(resolve, PAINT_WAIT_MS)
+      let settled = false
+      let timer
+      const cleanup = () => {
+        clearTimeout(timer)
+        win.off?.('ready-to-show', done)
+        win.off?.('closed', onClosed)
+        contents.off?.('did-finish-load', done)
+      }
+      const done = () => {
+        if (settled) return
+        settled = true
+        cleanup()
+        resolve()
+      }
+      const onClosed = () => {
+        if (settled) return
+        settled = true
+        cleanup()
+      }
+      win.once('ready-to-show', done)
+      win.once('closed', onClosed)
+      contents.once('did-finish-load', done)
+      timer = setTimeout(done, PAINT_WAIT_MS)
+      timer.unref?.()
     })
     win.on('page-title-updated', (event) => { event.preventDefault() })
     contents.on('will-navigate', (event) => { event.preventDefault() })

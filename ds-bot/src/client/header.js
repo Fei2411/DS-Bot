@@ -222,16 +222,25 @@ export function pinWatch() {
 // replies land while the user is scrolled up; "N new messages ↑" points at an unread
 // divider above the viewport until it has been seen. The shell shows Back to bottom
 // only while unpinned, so its presence is the pinned signal.
-function useTranscriptView() {
+export function useTranscriptView() {
   const [view, setView] = useState(null)
   useEffect(() => {
     let frame = 0
     let watched = null
+    let headerEl = null
     const unpinned = pinWatch()
-    const observer = new MutationObserver(() => schedule())
+    const inComposer = (record) => {
+      const target = record.target
+      const el = target?.nodeType === 1 ? target : target?.parentElement
+      return typeof el?.closest === 'function' && el.closest('[data-composer-card]') !== null
+    }
+    const observer = new MutationObserver((records) => {
+      if (records.length > 0 && records.every(inComposer)) return
+      schedule()
+    })
     const measure = () => {
       frame = 0
-      const scroller = document.querySelector('[data-conversation-scroll]')
+      const scroller = watched?.isConnected ? watched : document.querySelector('[data-conversation-scroll]')
       if (scroller !== watched) {
         observer.disconnect()
         watched = scroller
@@ -239,7 +248,8 @@ function useTranscriptView() {
       }
       if (!scroller) { setView(null); return }
       const box = scroller.getBoundingClientRect()
-      const headerBottom = document.querySelector('header[class*="_header"]')?.getBoundingClientRect().bottom ?? box.top + 50
+      const header = headerEl?.isConnected ? headerEl : (headerEl = document.querySelector('header[class*="_header"]'))
+      const headerBottom = header?.getBoundingClientRect().bottom ?? box.top + 50
       const sep = newDividerIn(scroller)
       let divider = null
       if (sep) {
@@ -257,7 +267,11 @@ function useTranscriptView() {
       setView(prev => (prev && Object.keys(next).every(key => prev[key] === next[key]) ? prev : next))
     }
     const schedule = () => { if (!frame) frame = requestAnimationFrame(measure) }
-    document.addEventListener('scroll', schedule, true)
+    const onScroll = (event) => {
+      if (watched?.isConnected && event.target !== watched) return
+      schedule()
+    }
+    document.addEventListener('scroll', onScroll, true)
     window.addEventListener('resize', schedule)
     window.visualViewport?.addEventListener('resize', schedule)
     window.visualViewport?.addEventListener('scroll', schedule)
@@ -265,7 +279,7 @@ function useTranscriptView() {
     return () => {
       cancelAnimationFrame(frame)
       observer.disconnect()
-      document.removeEventListener('scroll', schedule, true)
+      document.removeEventListener('scroll', onScroll, true)
       window.removeEventListener('resize', schedule)
       window.visualViewport?.removeEventListener('resize', schedule)
       window.visualViewport?.removeEventListener('scroll', schedule)

@@ -4,7 +4,7 @@
 // Electron webviews kept in a body-level layer by bot-browsers.js; the panel
 // draws the strip and the toolbar and reports the rectangle the shown webview
 // covers.
-import { createElement as h, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createElement as h, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { BotMark } from './mark.js'
 import { STORAGE } from './storage.js'
@@ -331,8 +331,12 @@ function hasOverlayNode(nodes) {
 }
 export function shouldCheckBrowserCover(records) {
   return records.some((record) => {
-    if (record.type === 'attributes') return true
-    if (!isElementNode(record.target) || !record.target.closest?.('[data-chat-flow]')) return true
+    if (record.type === 'attributes') {
+      if (record.attributeName === 'role') return true
+      const target = record.target
+      return isElementNode(target) && (target.matches?.(OVERLAY_SELECTOR) || target.closest?.(OVERLAY_SELECTOR) != null || target.querySelector?.(OVERLAY_SELECTOR) != null)
+    }
+    if (!isElementNode(record.target)) return false
     if (record.target.closest?.(OVERLAY_SELECTOR)) return true
     return hasOverlayNode(record.addedNodes) || hasOverlayNode(record.removedNodes)
   })
@@ -1174,13 +1178,20 @@ export function BotPanel({ pane, leaving, room, overlay, roster, actions, useSes
     actions.setPanelView(next)
   }
   // Every path into the browser view (globe, card, +) animates the same collapse.
-  const panelActions = { ...actions }
-  for (const name of ['openBrowser', 'browserNewTab', 'browserPick']) {
-    if (actions[name]) panelActions[name] = (...args) => { if (view !== 'browser') beginSwitch('browser'); return actions[name](...args) }
-  }
-  for (const name of ['openSideChat', 'newSideChat']) {
-    if (actions[name]) panelActions[name] = (...args) => { if (view !== 'side') beginSwitch('side'); return actions[name](...args) }
-  }
+  const viewRef = useRef(view)
+  viewRef.current = view
+  const beginSwitchRef = useRef(beginSwitch)
+  beginSwitchRef.current = beginSwitch
+  const panelActions = useMemo(() => {
+    const next = { ...actions }
+    for (const name of ['openBrowser', 'browserNewTab', 'browserPick']) {
+      if (actions[name]) next[name] = (...args) => { if (viewRef.current !== 'browser') beginSwitchRef.current('browser'); return actions[name](...args) }
+    }
+    for (const name of ['openSideChat', 'newSideChat']) {
+      if (actions[name]) next[name] = (...args) => { if (viewRef.current !== 'side') beginSwitchRef.current('side'); return actions[name](...args) }
+    }
+    return next
+  }, [actions])
   // The note is good for the one switch it was made for. A view change without a note
   // (a closed tab folding the panel back, say) or after the note went stale ends the flight:
   // its target is no longer what it flew for.

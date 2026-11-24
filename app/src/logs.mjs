@@ -30,10 +30,10 @@ export function redactor({ home = homedir(), platform = process.platform } = {})
   const label = platform === 'win32' ? '%USERPROFILE%' : '~'
   return (text) => {
     let out = text
-      .replace(/(token=)[^&\s"'<>]+/giu, '$1<hidden>')
-      .replace(/(\/oauth\/callback)\?[^\s"'<>]+/gu, '$1?<hidden>')
-      .replace(/\bsk-[A-Za-z0-9][\w-]*/gu, 'sk-<hidden>')
-      .replace(/\b(Bearer\s+)[\w.~+/=-]+/gu, '$1<hidden>')
+    if (out.includes('=')) out = out.replace(/(token=)[^&\s"'<>]+/giu, '$1<hidden>')
+    if (out.includes('/oauth/callback?')) out = out.replace(/(\/oauth\/callback)\?[^\s"'<>]+/gu, '$1?<hidden>')
+    if (out.includes('sk-')) out = out.replace(/\bsk-[A-Za-z0-9][\w-]*/gu, 'sk-<hidden>')
+    if (out.includes('Bearer')) out = out.replace(/\b(Bearer\s+)[\w.~+/=-]+/gu, '$1<hidden>')
     if (homePattern !== undefined) out = out.replace(homePattern, label)
     return out
   }
@@ -71,6 +71,7 @@ export function rotate(dir, count = LOG_FILES) {
 
 /** The last `count` lines of a text. */
 export function tailLines(text, count) {
+  if (count <= 0) return []
   const lines = text.split(/\r?\n/u)
   if (lines.at(-1) === '') lines.pop()
   return lines.slice(-count)
@@ -98,32 +99,44 @@ export class LogFile {
 
   get dir() { return this.#dir }
 
+  /** Redacts sensitive tokens, keys and home paths using this log's redactor. */
+  redact(text) { return this.#redact(String(text)) }
+
   /** Writes the whole lines of a chunk of output, each with the time and its source. */
-  write(source, chunk) {
-    const { lines, rest } = splitLines(this.#rests.get(source) ?? '', String(chunk))
+  write(source, chunk, { redacted = false } = {}) {
+    const previous = this.#rests.get(source) ?? ''
+    const { lines, rest } = splitLines(previous, String(chunk))
     this.#rests.set(source, rest)
-    this.#lines(source, lines)
+    this.#lines(source, lines, redacted && previous === '')
   }
 
   /** Writes the lines still waiting for their end. */
   flush() {
-    for (const [source, rest] of this.#rests) if (rest !== '') this.#lines(source, [rest])
+    for (const [source, rest] of this.#rests) if (rest !== '') this.#lines(source, [rest], false)
     this.#rests.clear()
   }
 
   /** The last `count` lines across the files, oldest first, redacted. */
   tail(count) {
     this.flush()
-    const texts = []
+    if (count <= 0) return []
+    const chunks = []
+    let total = 0
     for (const name of logNames()) {
+      let content
       try {
-        texts.unshift(readFileSync(join(this.#dir, name), 'utf8'))
+        content = readFileSync(join(this.#dir, name), 'utf8')
       } catch {
         break
       }
-      if (tailLines(texts.join(''), count).length >= count) break
+      const lines = tailLines(content, count - total)
+      if (lines.length > 0) {
+        chunks.push(lines)
+        total += lines.length
+      }
+      if (total >= count) break
     }
-    return tailLines(texts.join(''), count).map(this.#redact)
+    return chunks.reverse().flat().slice(-count).map(this.#redact)
   }
 
   close() {
@@ -134,14 +147,15 @@ export class LogFile {
 
   // One write for the lines of a chunk: a chatty Host must not cost a disk write per line on the
   // main (UI) thread. The batch is cut where the file must rotate, so the limit still holds.
-  #lines(source, lines) {
+  #lines(source, lines, redacted = false) {
     if (this.#broken || lines.length === 0) return
     try {
       if (this.#fd === undefined) this.#open()
       let text = ''
       let bytes = 0
       for (const line of lines) {
-        const entry = `${this.#now().toISOString()} [${source}] ${this.#redact(line)}\n`
+        const body = redacted ? line : this.#redact(line)
+        const entry = `${this.#now().toISOString()} [${source}] ${body}\n`
         const size = Buffer.byteLength(entry)
         if (shouldRotate(this.#size + bytes, size, this.#limit)) {
           this.#put(text, bytes)
