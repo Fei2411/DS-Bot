@@ -325,29 +325,54 @@ test('Telegram leaves an empty ATX heading as literal text', () => {
   assert.deepEqual(chunkTelegram('### ###'), [{ html: '### ###', text: '### ###' }])
 })
 
+test('an oversized Telegram heading keeps legacy chunks with its inline code intact', () => {
+  const markdown = '# Run `**keep**` ' + 'x'.repeat(4096)
+  assert.deepEqual(chunkTelegram(markdown), [
+    { html: '# Run <code>**keep**</code> ' + 'x'.repeat(4068), text: '# Run keep ' + 'x'.repeat(4085) },
+    { html: 'x'.repeat(28), text: 'x'.repeat(11) },
+  ])
+})
+
 test('Markdown becomes plain text', () => {
   assert.equal(toPlain('**bold** `code` [site](https://a.b)'), 'bold code site (https://a.b)')
   assert.equal(toPlain('```\nlet x = 1\n```'), 'let x = 1')
 })
 
-test('long Telegram table cells keep their text and do not split HTML entities', () => {
+test('long Telegram table cells use legacy HTML and plain-text cuts', () => {
   const value = '😀 & < '.repeat(500).trim()
-  const chunks = chunkTelegram('## Results\nBot | Status\n--- | ---\nAlpha | ' + value)
-  assert.equal(chunks[0].html, '<b>Results</b>\n• <b>Bot:</b> Alpha')
-  assert.ok(chunks.length > 2)
-  assert.equal(chunks.slice(1).map(chunk => chunk.text).join(''), '• Status: ' + value)
-  for (const { html, text } of chunks.slice(1)) {
-    assert.ok(Array.from(html).length <= 4096)
-    assert.equal(html, text.replaceAll('&', '&amp;').replaceAll('<', '&lt;'))
-  }
+  const header = 'Bot | Status\n--- | ---'
+  const line = 'Alpha | ' + value
+  const html = Array.from(line.replaceAll('&', '&amp;').replaceAll('<', '&lt;'))
+  assert.deepEqual(chunkTelegram('## Results\n' + header + '\n' + line), [
+    { html: '<b>Results</b>\n' + header, text: 'Results\n' + header },
+    { html: html.slice(0, 4096).join(''), text: line },
+    { html: html.slice(4096).join(''), text: '' },
+  ])
 })
 
-test('Telegram preserves Markdown-like characters in oversized inline code', () => {
+test('Telegram preserves legacy chunks for an oversized table cell with inline code', () => {
   const value = 'cat *.log *.txt ' + 'x'.repeat(4200)
-  const chunks = chunkTelegram('Command | Output\n--- | ---\nRun | `' + value + '`')
-  assert.equal(chunks.slice(1).map(chunk => chunk.html).join(''), '• Output: ' + value)
-  assert.equal(chunks.slice(1).map(chunk => chunk.text).join(''), '• Output: ' + value)
+  const header = 'Command | Output\n--- | ---'
+  const html = 'Run | <code>' + value + '</code>'
+  const text = 'Run | cat .log .txt ' + 'x'.repeat(4200)
+  assert.deepEqual(chunkTelegram(header + '\nRun | `' + value + '`'), [
+    { html: header, text: header },
+    { html: html.slice(0, 4096), text: text.slice(0, 4096) },
+    { html: html.slice(4096), text: text.slice(4096) },
+  ])
   assert.equal(toPlain('**Run `cat *.log *.txt` now**'), '*Run cat .log .txt now*')
+})
+
+test('Telegram converts a table only when all of its formatted rows fit together', () => {
+  const header = 'A | B\n--- | ---'
+  const cell = 'x'.repeat(2024)
+  const row = 'a | ' + cell
+  assert.deepEqual(chunkTelegram(header + '\n' + row), [{
+    html: '• <b>A:</b> a\n• <b>B:</b> ' + cell,
+    text: '• A: a\n• B: ' + cell,
+  }])
+  const table = header + '\n' + row + '\n' + row
+  assert.deepEqual(chunkTelegram(table), [{ html: table, text: table }])
 })
 
 test('chunks stay under the limit and keep whole fences', () => {

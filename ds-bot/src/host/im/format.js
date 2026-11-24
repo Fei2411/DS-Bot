@@ -133,24 +133,24 @@ function tableRow(line, header) {
     && (!header.trailingPipe || row.trailingPipe) ? row : undefined
 }
 
-function telegramLines(lines, formatBefore) {
+const renderLine = line => ({ html: inlineHtml(line), text: inlinePlain(line) })
+
+function telegramLines(lines, formatBefore, limit) {
   const rendered = []
   const tableLine = at => at < formatBefore ? lines[at] : ''
-  const renderTableRow = (headers, row) => {
-    for (const [index, header] of headers.entries()) {
-      const label = row === undefined ? header : header + ':'
-      const value = row?.[index] ?? ''
-      rendered.push({
-        html: '• ' + boldInlineHtml(label) + (value ? ' ' + inlineHtml(value) : ''),
-        text: '• ' + inlineTablePlain(label) + (value ? ' ' + inlineTablePlain(value) : ''),
-        converted: true,
-      })
+  const fits = ({ html, text }) => points(html) <= limit && points(text) <= limit
+  const renderTableRow = (headers, row) => headers.map((header, index) => {
+    const label = row === undefined ? header : header + ':'
+    const value = row?.[index] ?? ''
+    return {
+      html: '• ' + boldInlineHtml(label) + (value ? ' ' + inlineHtml(value) : ''),
+      text: '• ' + inlineTablePlain(label) + (value ? ' ' + inlineTablePlain(value) : ''),
     }
-  }
+  })
   for (let at = 0; at < lines.length; at += 1) {
     const line = lines[at]
     if (at >= formatBefore) {
-      rendered.push({ html: inlineHtml(line), text: inlinePlain(line) })
+      rendered.push(renderLine(line))
       continue
     }
     const next = tableLine(at + 1)
@@ -159,23 +159,38 @@ function telegramLines(lines, formatBefore) {
       if (delimiters?.length > 0 && delimiters.every(cell => TABLE_DELIMITER.test(cell))) {
         const header = tableRow(line)
         if (header?.cells.length === delimiters.length) {
+          const start = at
+          const rows = []
           at += 1
           let row = tableRow(tableLine(at + 1), header)
-          if (row === undefined) renderTableRow(header.cells)
+          if (row === undefined) rows.push(renderTableRow(header.cells))
           while (row !== undefined) {
             at += 1
-            renderTableRow(header.cells, row.cells)
+            rows.push(renderTableRow(header.cells, row.cells))
             row = tableRow(tableLine(at + 1), header)
-            if (row !== undefined) rendered.push({ html: '', text: '' })
           }
+          const original = lines.slice(start, at + 1).map(renderLine)
+          const converted = {
+            html: rows.map(cells => cells.map(cell => cell.html).join('\n')).join('\n\n'),
+            text: rows.map(cells => cells.map(cell => cell.text).join('\n')).join('\n\n'),
+          }
+          if (fits(converted) && original.every(fits)) rendered.push(converted)
+          else for (const raw of original) rendered.push(raw)
           continue
         }
       }
     }
+    const original = renderLine(line)
     const heading = ATX_HEADING.exec(line)
-    const isHeading = heading !== null && !/^#+$/.test(heading[1])
-    const content = isHeading ? heading[1].replace(/[ \t]+#+$/, '') : line
-    rendered.push({ html: isHeading ? boldInlineHtml(content) : inlineHtml(content), text: inlinePlain(content), converted: isHeading })
+    if (heading !== null && !/^#+$/.test(heading[1]) && fits(original)) {
+      const content = heading[1].replace(/[ \t]+#+$/, '')
+      const converted = { html: boldInlineHtml(content), text: inlinePlain(content) }
+      if (fits(converted)) {
+        rendered.push(converted)
+        continue
+      }
+    }
+    rendered.push(original)
   }
   return rendered
 }
@@ -198,7 +213,7 @@ function forceCut(block, limit, lines) {
       html = ''
       text = ''
     }
-    for (const { html: lineHtml, text: lineText, converted } of lines) {
+    for (const { html: lineHtml, text: lineText } of lines) {
       const candidate = html === '' ? lineHtml : `${html}\n${lineHtml}`
       if (points(candidate) <= limit) {
         html = candidate
@@ -211,35 +226,19 @@ function forceCut(block, limit, lines) {
         text = lineText
         continue
       }
-      if (!converted) {
-        // Keep the legacy cuts for lines not changed by heading or table formatting.
-        const htmlChars = Array.from(lineHtml)
-        const textChars = Array.from(lineText)
-        const width = Math.max(1, Math.trunc(limit))
-        let at = 0
-        while (htmlChars.length - at > limit) {
-          chunks.push({
-            html: htmlChars.slice(at, at + width).join(''),
-            text: textChars.slice(at, at + width).join(''),
-          })
-          at += width
-        }
-        html = htmlChars.slice(at).join('')
-        text = textChars.slice(at).join('')
-        continue
+      const htmlChars = Array.from(lineHtml)
+      const textChars = Array.from(lineText)
+      const width = Math.max(1, Math.trunc(limit))
+      let at = 0
+      while (htmlChars.length - at > limit) {
+        chunks.push({
+          html: htmlChars.slice(at, at + width).join(''),
+          text: textChars.slice(at, at + width).join(''),
+        })
+        at += width
       }
-      let used = 0
-      for (const char of lineText) {
-        const escaped = escapeHtml(char)
-        const width = escaped === char ? 1 : escaped.length
-        if (used + width > limit) {
-          flush()
-          used = 0
-        }
-        html += escaped
-        text += char
-        used += width
-      }
+      html = htmlChars.slice(at).join('')
+      text = textChars.slice(at).join('')
     }
     flush()
     return chunks
@@ -345,7 +344,7 @@ export function chunkTelegram(markdown, limit = 4096) {
     } else {
       const fence = formatProse ? block.lines.findIndex(line => FENCE_LIKE.test(line)) : 0
       formatProse = fence === -1
-      lines = telegramLines(block.lines, formatProse ? block.lines.length : fence)
+      lines = telegramLines(block.lines, formatProse ? block.lines.length : fence, limit)
     }
     const blockHtml = block.kind === 'code' ? renderCodeHtml(block) : lines.map(line => line.html).join('\n')
     const blockText = block.kind === 'code' ? renderPlain(block) : lines.map(line => line.text).join('\n')
