@@ -106,66 +106,8 @@ const renderPlain = block => (block.kind === 'code' ? block.lines.join('\n') : b
 
 const ATX_HEADING = /^ {0,3}#{1,6}[ \t]+(.+?)\s*$/
 const LIST_ITEM = /^ {0,3}(?:[-+*]|\d{1,9}[.)])(?:[ \t]|$)/
-const THEMATIC_BREAK = /^ {0,3}(?:(?:-[ \t]*){3,}|(?:\*[ \t]*){3,}|(?:_[ \t]*){3,})\r?$/
 const TABLE_DELIMITER = /^:?-+:?$/
-const LITERAL_FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})([^\r\n]*)\r?$/
-const LITERAL_FENCE_CLOSE = /^ {0,3}(`{3,}|~{3,})[ \t]*\r?$/
-
-function columns(text) {
-  let width = 0
-  for (const char of text) width += char === '\t' ? 4 - width % 4 : 1
-  return width
-}
-
-function literalFenceGuard(source) {
-  const lists = []
-  let marker = ''
-  let fenceIndent = 0
-  let paragraph = false
-  return (at, canOpen = true) => {
-    const line = source[at]
-    const indent = columns(/^[ \t]*/.exec(line)[0])
-    const inList = lists.length > 0
-    if (line.trim() !== '') {
-      while (lists.at(-1) > indent) lists.pop()
-      if (fenceIndent > indent) {
-        marker = ''
-        fenceIndent = 0
-      }
-    }
-    if (marker !== '') {
-      const close = LITERAL_FENCE_CLOSE.exec(line)?.[1]
-      if (close?.[0] === marker[0] && close.length >= marker.length) {
-        marker = ''
-        fenceIndent = 0
-      }
-      return true
-    }
-    if (!canOpen) return false
-    const thematic = THEMATIC_BREAK.test(line)
-    const listPrefix = thematic ? undefined : LIST_ITEM.exec(line)?.[0]
-    let content = line
-    if (listPrefix) {
-      const markerEnd = listPrefix.trimEnd().length
-      const paddedPrefix = line.slice(0, markerEnd) + /^[ \t]*/.exec(line.slice(markerEnd))[0]
-      const padding = columns(paddedPrefix) - markerEnd
-      const prefix = padding > 4 ? listPrefix : paddedPrefix
-      const body = line.slice(prefix.length)
-      const canStartList = !paragraph || inList || !source[at - 1]?.trim()
-        || (body.trim() !== '' && (!/^ *(?!0*1[.)])\d/.test(prefix) || LITERAL_FENCE_OPEN.test(body)))
-      if (canStartList) {
-        lists.push(markerEnd + (padding >= 1 && padding <= 4 ? padding : 1))
-        content = body
-      }
-    }
-    const fence = LITERAL_FENCE_OPEN.exec(content)
-    paragraph = fence === null && !thematic && !ATX_HEADING.test(line) && !/^ {0,3}>/.test(line)
-    if (fence === null || (fence[1][0] === '`' && fence[2].includes('`'))) return false
-    marker = fence[1]
-    fenceIndent = lists.at(-1) ?? 0
-    return true
-  }
-}
+const FENCE_LIKE = /^\s*(?:(?:[-+*]|\d+[.)])\s+|>\s*)*(?:`{3,}|~{3,})/
 
 function tableCells(line) {
   if (/^ {0,3}[\t>]|^ {4}/.test(line) || ATX_HEADING.test(line)) return undefined
@@ -191,9 +133,9 @@ function tableRow(line, header) {
     && (!header.trailingPipe || row.trailingPipe) ? row : undefined
 }
 
-function telegramLines(lines, isLiteral) {
+function telegramLines(lines, formatBefore) {
   const rendered = []
-  const tableLine = at => isLiteral[at] ? '' : lines[at] ?? ''
+  const tableLine = at => at < formatBefore ? lines[at] : ''
   const renderTableRow = (headers, row) => {
     for (const [index, header] of headers.entries()) {
       const label = row === undefined ? header : header + ':'
@@ -206,7 +148,7 @@ function telegramLines(lines, isLiteral) {
   }
   for (let at = 0; at < lines.length; at += 1) {
     const line = lines[at]
-    if (isLiteral[at]) {
+    if (at >= formatBefore) {
       rendered.push({ html: inlineHtml(line), text: inlinePlain(line) })
       continue
     }
@@ -369,9 +311,7 @@ export function chunkMarkdown(markdown, limit) {
 
 export function chunkTelegram(markdown, limit = 4096) {
   const chunks = []
-  const source = String(markdown).split('\n')
-  const isLiteral = literalFenceGuard(source)
-  let at = 0
+  let formatProse = true
   let html = ''
   let text = ''
   const flush = () => {
@@ -381,20 +321,15 @@ export function chunkTelegram(markdown, limit = 4096) {
     text = ''
   }
   for (const block of blocks(markdown)) {
-    while (source[at]?.trim() === '') at += 1
-    const isCode = block.kind === 'code'
-    let lines
-    if (isCode) {
-      isLiteral(at)
-      // A legacy code body can close an outer guard, but cannot start another one.
-      const end = Math.min(source.length, at + block.lines.length + 2)
-      for (let index = at + 1; index < end; index += 1) isLiteral(index, false)
-      lines = []
+    let lines = []
+    if (block.kind === 'code') {
+      // The legacy scanner can close a wider backtick fence at an inner triple marker.
+      if (block.lang.startsWith('`')) formatProse = false
     } else {
-      lines = telegramLines(block.lines, block.lines.map((_, index) => isLiteral(at + index)))
+      const fence = formatProse ? block.lines.findIndex(line => FENCE_LIKE.test(line)) : 0
+      formatProse = fence === -1
+      lines = telegramLines(block.lines, formatProse ? block.lines.length : fence)
     }
-    // Dev's code blocks omit the opening and closing lines.
-    at += block.lines.length + (isCode ? 2 : 0)
     const blockHtml = block.kind === 'code' ? renderCodeHtml(block) : lines.map(line => line.html).join('\n')
     const blockText = block.kind === 'code' ? renderPlain(block) : lines.map(line => line.text).join('\n')
     const candidate = html === '' ? blockHtml : `${html}\n${blockHtml}`

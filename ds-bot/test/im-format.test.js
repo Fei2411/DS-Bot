@@ -29,8 +29,8 @@ test('Telegram preserves headings and tables inside tilde and backtick code fenc
     const markdown = fenced + '\n# Real heading'
     const isBacktick = open.startsWith('`')
     assert.deepEqual(chunkTelegram(markdown), [{
-      html: (isBacktick ? '<pre><code class="language-sh">' + code + '</code></pre>' : fenced) + '\n<b>Real heading</b>',
-      text: (isBacktick ? code : fenced) + '\nReal heading',
+      html: isBacktick ? '<pre><code class="language-sh">' + code + '</code></pre>\n<b>Real heading</b>' : markdown,
+      text: isBacktick ? code + '\nReal heading' : markdown,
     }])
     assert.equal(toPlain(fenced), isBacktick ? code : fenced)
   }
@@ -55,16 +55,16 @@ test('Telegram leaves headings and tables inside indented backtick fences litera
 
   const table = '  ```\n  # Literal heading\n\n  | Key | Value |\n  | --- | --- |\n  | A | B |\n  ```'
   assert.deepEqual(chunkTelegram(table + '\n# Actual heading'), [{
-    html: table.replace('\n\n', '\n') + '\n<b>Actual heading</b>',
-    text: table.replace('\n\n', '\n') + '\nActual heading',
+    html: table.replace('\n\n', '\n') + '\n# Actual heading',
+    text: table.replace('\n\n', '\n') + '\n# Actual heading',
   }])
 })
 
-test('a literal backtick fence can end where dev starts a code block', () => {
+test('a literal backtick fence disables formatting even across a dev code block', () => {
   const markdown = '   ```sh\n   # Literal comment\n```\t\n# Dev code\n```\n# Actual heading'
   assert.deepEqual(chunkTelegram(markdown), [{
-    html: '   ```sh\n   # Literal comment\n<pre><code># Dev code</code></pre>\n<b>Actual heading</b>',
-    text: '   ```sh\n   # Literal comment\n# Dev code\nActual heading',
+    html: '   ```sh\n   # Literal comment\n<pre><code># Dev code</code></pre>\n# Actual heading',
+    text: '   ```sh\n   # Literal comment\n# Dev code\n# Actual heading',
   }])
 })
 
@@ -73,6 +73,11 @@ test('an unclosed indented backtick fence keeps a heading and table literal to E
   for (const markdown of [comment, comment + '\n  | A | B |\n  | --- | --- |\n  | x | y |']) {
     assert.deepEqual(chunkTelegram(markdown), [{ html: markdown, text: markdown }])
   }
+})
+
+test('a four-space fence inside a list keeps its headings and table literal', () => {
+  const markdown = '- Item\n    ```sh\n  # Literal comment\n  | A | B |\n  | --- | --- |\n  | x | y |\n    ```'
+  assert.deepEqual(chunkTelegram(markdown), [{ html: markdown, text: markdown }])
 })
 
 test('a triple-backtick line inside a four-backtick fence does not expose headings or tables', () => {
@@ -94,18 +99,15 @@ test('a literal fence with pipes in its info is not a Telegram table row', () =>
 })
 
 test('a closing code fence can have different indentation from its opener', () => {
-  const markdown = '- Item\n  ~~~sh\n  # comment\n   ~~~\nAfter the list'
-  assert.deepEqual(chunkTelegram(markdown + '\n# Actual heading'), [{
-    html: markdown + '\n<b>Actual heading</b>',
-    text: markdown + '\nActual heading',
-  }])
+  const markdown = '- Item\n  ~~~sh\n  # comment\n   ~~~\nAfter the list\n# Actual heading'
+  assert.deepEqual(chunkTelegram(markdown), [{ html: markdown, text: markdown }])
 })
 
 test('Telegram leaves a four-space literal fence marker alone', () => {
   const markdown = '    ```\n\n# Actual heading'
   assert.deepEqual(chunkTelegram(markdown), [{
-    html: '    ```\n<b>Actual heading</b>',
-    text: '    ```\nActual heading',
+    html: '    ```\n# Actual heading',
+    text: '    ```\n# Actual heading',
   }])
 })
 
@@ -117,20 +119,20 @@ test('a four-space backtick marker inside a fence does not close it', () => {
   }])
 })
 
-test('an unclosed indented fence does not swallow a later Telegram heading or table', () => {
+test('an unclosed indented fence leaves later Telegram headings and tables literal', () => {
   const item = '- Item\n  ```sh\n    # code comment'
   const markdown = item + '\n\n# Actual heading\n| A | B |\n| --- | --- |\n| x | y |'
   assert.deepEqual(chunkTelegram(markdown), [{
-    html: item + '\n<b>Actual heading</b>\n• <b>A:</b> x\n• <b>B:</b> y',
-    text: item + '\nActual heading\n• A: x\n• B: y',
+    html: markdown.replace('\n\n', '\n'),
+    text: markdown.replace('\n\n', '\n'),
   }])
 })
 
-test('a fence after a list marker keeps its contents literal until the item ends', () => {
+test('a fence after a list marker keeps its contents and later prose literal', () => {
   const item = '- ```sh\n  # Literal comment\n  | A | B |\n  | --- | --- |\n  | x | y |'
   assert.deepEqual(chunkTelegram(item + '\n\n# Actual heading'), [{
-    html: item + '\n<b>Actual heading</b>',
-    text: item + '\nActual heading',
+    html: item + '\n# Actual heading',
+    text: item + '\n# Actual heading',
   }])
 })
 
@@ -153,8 +155,8 @@ test('list-like prose before an indented fence does not change its boundaries', 
   for (const before of ['- - -', 'Text\n2. Not a list start']) {
     const markdown = before + '\n   ~~~\n# code comment\n   ~~~'
     assert.deepEqual(chunkTelegram(markdown + '\n# Actual heading'), [{
-      html: markdown + '\n<b>Actual heading</b>',
-      text: markdown + '\nActual heading',
+      html: markdown + '\n# Actual heading',
+      text: markdown + '\n# Actual heading',
     }])
   }
 })
@@ -162,8 +164,8 @@ test('list-like prose before an indented fence does not change its boundaries', 
 test('a thematic break before a backtick fence does not expose a flush-left comment', () => {
   const fence = '- - -\n  ```sh\n# Shell comment\n  ```'
   assert.deepEqual(chunkTelegram(fence + '\n# Actual heading'), [{
-    html: fence + '\n<b>Actual heading</b>',
-    text: fence + '\nActual heading',
+    html: fence + '\n# Actual heading',
+    text: fence + '\n# Actual heading',
   }])
 })
 
@@ -172,7 +174,7 @@ test('a thematic break before an unclosed backtick fence keeps its contents lite
   assert.deepEqual(chunkTelegram(markdown), [{ html: markdown, text: markdown }])
 })
 
-test('a fence in a list cannot close on the opener of a later independent fence', () => {
+test('a fence in a list cannot expose the contents of a later independent fence', () => {
   for (const [item, marker] of [
     ['- Item', '```'],
     ['- Item', '~~~'],
@@ -182,8 +184,8 @@ test('a fence in a list cannot close on the opener of a later independent fence'
     const inside = item + '\n  ' + marker + 'sh\n  # unclosed'
     const outside = '  ' + marker + '\n  # Literal comment\n  | A | B |\n  | --- | --- |\n  | x | y |\n  ' + marker
     assert.deepEqual(chunkTelegram(inside + '\n\n# Actual heading\n\n' + outside), [{
-      html: inside + '\n<b>Actual heading</b>\n' + outside,
-      text: inside + '\nActual heading\n' + outside,
+      html: inside + '\n# Actual heading\n' + outside,
+      text: inside + '\n# Actual heading\n' + outside,
     }])
   }
 })
@@ -208,8 +210,8 @@ test('a fence dedented from padded list content protects flush-left comments', (
   for (const item of ['-   Item', '-\tItem']) {
     const fence = item + '\n  ```sh\n# Literal comment\n| A | B |\n| --- | --- |\n| x | y |\n  ```'
     assert.deepEqual(chunkTelegram(fence + '\n# Actual heading'), [{
-      html: fence + '\n<b>Actual heading</b>',
-      text: fence + '\nActual heading',
+      html: fence + '\n# Actual heading',
+      text: fence + '\n# Actual heading',
     }])
   }
 })
@@ -252,6 +254,14 @@ test('Telegram renders headings and Markdown tables as readable rows (#2173)', (
     text: 'Results\n• Bot: Alpha\n• Status: Ready & tested\n• Owner: Ann\n\n'
       + '• Bot: Beta\n• Status: Queued\n• Owner: R&D | Ops\n'
       + 'Notes\nOrdinary prose with a | pipe.\n# Literal heading\n| A | B |\n| --- | --- |\n| x | y |',
+  }])
+})
+
+test('ordinary backtick code blocks do not disable Telegram formatting between them', () => {
+  const markdown = '```sh\n# code\n```\n# Results\n| Key | Value |\n| --- | --- |\n| a | b |\n```\n# more code\n```'
+  assert.deepEqual(chunkTelegram(markdown), [{
+    html: '<pre><code class="language-sh"># code</code></pre>\n<b>Results</b>\n• <b>Key:</b> a\n• <b>Value:</b> b\n<pre><code># more code</code></pre>',
+    text: '# code\nResults\n• Key: a\n• Value: b\n# more code',
   }])
 })
 
