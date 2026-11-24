@@ -17,9 +17,9 @@ const RING = [
   { shape: 'star', color: 'aurora' },
   { shape: 'octopus', color: 'rose' },
   { shape: 'squircle', color: 'tangerine' },
-  { shape: 'moon', color: 'charcoal' },
-  { shape: 'bloom', color: 'cobalt' },
-  { shape: 'bear', color: 'graphite' },
+  { shape: 'moon', color: 'yellow' },
+  { shape: 'bloom', color: 'violet' },
+  { shape: 'bear', color: 'brown' },
 ]
 const RING_SIZE = 116
 const RING_RADIUS = 228
