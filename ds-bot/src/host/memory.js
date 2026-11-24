@@ -31,13 +31,13 @@ import { basename, dirname, join } from 'node:path'
 import { HarnessError, createUserMessage } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { REPLY_KIND } from './constants.js'
-import { openSessions } from './threads.js'
+import { isActiveTask, openSessions } from './threads.js'
 import { replaceFile } from './files.js'
 import { assembleLlmStream } from './models.js'
 import { inside, pendingPath, read as readPending, record as pendingRecord, relativePath, serialize as serializePending } from './memory-pending.js'
 import { linesFor } from './steward.js'
 import { estimateTokens, splitRef, textOf, unquote } from './text.js'
-import { EMPTY_MAIN, GONE, DENIED, HEADING, MAIN, MEMORY_LIMITS, NO_MATCH, ROUTED, addLink, bodySize, cleanDay, cleanEntry, cleanTopic, entryId, fitWindow, formatEntry, insertEntry, isExpired, isPinned, joinLines, looksSecret, matchEntries, newEntryId, parseAsk, parseMemory, promptEntry, TEAM_SHARED, removeLink, splitMeta, squash, topicAbout, WINDOW_SHARE, wordsOf } from './memory-entries.js'
+import { EMPTY_MAIN, GONE, DENIED, MAIN, MEMORY_LIMITS, NO_MATCH, REFUSED, ROUTED, addLink, bodySize, cleanDay, cleanEntry, cleanTopic, entryId, fitWindow, formatEntry, insertEntry, isEmptyTopic, isExpired, isPinned, joinLines, looksSecret, matchEntries, newEntryId, parseAsk, parseMemory, promptEntry, TEAM_SHARED, removeLink, splitMeta, squash, topicAbout, WINDOW_SHARE, wordsOf } from './memory-entries.js'
 import { entryWords, pickRecalled, rankEntries } from './memory-search.js'
 import { GROUP_HEADING, GROUP_MEMORY_SOURCE, MEMORY_RECALL_SOURCE, MEMORY_UPDATE_SOURCE, RECALL_HEADING, RECALL_NOTE, SUMMARY_SYSTEM, UPDATE_HEADING, UPDATE_NOTE, askRequest, askSystem, groupNote, groupSummaryRequest, memoryRules, summaryRequest, teamRule } from './memory-copy.js'
 import { installReview } from './memory-review.js'
@@ -86,11 +86,11 @@ const PANEL_MEMORY_DEFAULT = 24_000
 const PANEL_MEMORY_MAX = 48_000
 // A write the tools refused, and a write that broke. The code says which, so
 // nothing has to read the message to know what happened.
-const REFUSED = 'memory/refused'
 const FAILED = 'memory/failed'
 // A call to save nothing at all.
 const EMPTY = 'memory/empty'
 const NEWS_TEXT_MAX = 160
+const SNAPSHOT_PRUNE_MS = 30 * 60_000
 
 
 export function install(rt) {
@@ -360,36 +360,57 @@ export function install(rt) {
   async function journalRow(row) {
     const { path, torn } = journalFor(row.scope, row.op)
     const { start, text } = journalTail(path)
-    if (journalled(text, row.id)) return false
+    if (journalled(text, row.id)) {
+      rememberRow(row)
+      return false
+    }
     const cut = text.lastIndexOf('\n') + 1
     const half = text.slice(cut)
     const line = JSON.stringify(row)
     mkdirSync(dirname(path), { recursive: true })
-    rememberRow(row)
     if (half === '') {
       await appendFile(path, `${line}\n`, 'utf8')
+      rememberRow(row)
       return true
     }
     if (whole(half)) {
       // A whole row that lost its newline: it is ended, and the row after it starts
       // on a line of its own.
       await appendFile(path, `\n${line}\n`, 'utf8')
+      rememberRow(row)
       return true
     }
     await appendFile(torn, `${half}\n`, 'utf8')
     truncateSync(path, start + Buffer.byteLength(text.slice(0, cut), 'utf8'))
     await appendFile(path, `${line}\n`, 'utf8')
+    rememberRow(row)
     return true
+  }
+
+  // Strictly monotonic ISO timestamps for published rows so rapid back-to-back
+  // writes never collapse onto the same millisecond watermark.
+  let lastPublishMs = 0
+  const nextRowTime = () => {
+    const ms = Math.max(Date.now(), lastPublishMs + 1)
+    lastPublishMs = ms
+    return new Date(ms).toISOString()
   }
 
   // Recent changes, for the memory updates a running conversation gets.
   const recentRows = []
-  const tailsRead = new Set()
+  let recentRowsEvicted = false
+  /** @type {Map<string, {ino: bigint, offset: number, size: bigint, mtimeNs: bigint, truncated: boolean, minTime: string | undefined}>} */
+  const tailsRead = new Map()
   const rememberRow = (row) => {
     if (recentRows.some(known => known.id === row.id)) return
+    const ms = Date.parse(row.time)
+    if (Number.isFinite(ms) && ms <= Date.now() + 60_000) lastPublishMs = Math.max(lastPublishMs, ms)
     recentRows.push(row)
-    recentRows.sort((a, b) => String(a.time).localeCompare(String(b.time)))
-    if (recentRows.length > RECENT_ROWS_MAX) recentRows.splice(0, recentRows.length - RECENT_ROWS_MAX)
+    recentRows.sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0))
+    if (recentRows.length > RECENT_ROWS_MAX) {
+      recentRows.splice(0, recentRows.length - RECENT_ROWS_MAX)
+      recentRowsEvicted = true
+    }
   }
   // Opens a regular file for reading; checks `statSync` first so a directory at
   // `path` reports `EISDIR` consistently across POSIX and Windows (where `openSync`
@@ -410,26 +431,19 @@ export function install(rt) {
       unreadable(path, error)
     }
   }
-  // Reads at most `maxBytes` from the end of a change log without loading the full file.
-  // When starting past byte 0, skips through the first newline so UTF-8 characters and
-  // the leading partial line are never torn.
-  function readTailText(path, maxBytes) {
+  function readBufferFrom(path, offset, length) {
+    if (length <= 0) return Buffer.alloc(0)
     const fd = openReadableFile(path)
-    if (fd === undefined) return ''
+    if (fd === undefined) return undefined
     try {
-      const size = fstatSync(fd).size
-      const start = Math.max(0, size - maxBytes)
-      const bytes = Buffer.alloc(size - start)
+      const buf = Buffer.alloc(length)
       let at = 0
-      while (at < bytes.length) {
-        const read = readSync(fd, bytes, at, bytes.length - at, start + at)
+      while (at < length) {
+        const read = readSync(fd, buf, at, length - at, offset + at)
         if (read === 0) break
         at += read
       }
-      const chunk = bytes.subarray(0, at)
-      if (start === 0) return chunk.toString('utf8')
-      const nl = chunk.indexOf(0x0a)
-      return nl === -1 ? '' : chunk.subarray(nl + 1).toString('utf8')
+      return buf.subarray(0, at)
     } catch (error) {
       unreadable(path, error)
     } finally {
@@ -438,21 +452,93 @@ export function install(rt) {
   }
 
   function readTail(path) {
-    if (tailsRead.has(path)) return
-    for (const line of readTailText(path, RECENT_TAIL_CHARS).split('\n')) {
+    let stat
+    try {
+      stat = statSync(path, { bigint: true, throwIfNoEntry: false })
+    } catch (error) {
+      unreadable(path, error)
+    }
+    if (stat === undefined) {
+      tailsRead.delete(path)
+      return
+    }
+    if (stat.isDirectory()) unreadable(path, Object.assign(new Error('EISDIR: illegal operation on a directory, read'), { code: 'EISDIR' }))
+    const prev = tailsRead.get(path)
+    if (prev !== undefined && prev.ino === stat.ino && prev.size === stat.size && prev.mtimeNs === stat.mtimeNs) return
+    const size = Number(stat.size)
+    const sameFile = prev !== undefined && prev.ino === stat.ino && size >= prev.offset
+    let start
+    let truncated
+    let minTime
+    if (sameFile && size - prev.offset <= RECENT_TAIL_CHARS) {
+      start = prev.offset
+      truncated = prev.truncated
+      minTime = prev.minTime
+    } else {
+      start = Math.max(0, size - RECENT_TAIL_CHARS)
+      truncated = start > 0
+      minTime = undefined
+    }
+    const buf = readBufferFrom(path, start, size - start)
+    if (buf === undefined) {
+      tailsRead.delete(path)
+      return
+    }
+    let sliceStart = 0
+    if (start > 0 && !sameFile) {
+      const firstNl = buf.indexOf(0x0a)
+      sliceStart = firstNl === -1 ? buf.length : firstNl + 1
+    } else if (start > 0 && size - prev.offset > RECENT_TAIL_CHARS) {
+      const firstNl = buf.indexOf(0x0a)
+      sliceStart = firstNl === -1 ? buf.length : firstNl + 1
+    }
+    const lastNl = buf.lastIndexOf(0x0a)
+    const parseLine = (line) => {
+      if (line === '') return
       try {
         const row = JSON.parse(line)
-        if (typeof row?.id === 'string' && typeof row.time === 'string') rememberRow(row)
+        if (typeof row?.id === 'string' && typeof row.time === 'string') {
+          rememberRow(row)
+          if (minTime === undefined || row.time < minTime) minTime = row.time
+        }
       } catch { /* a line cut by the tail, or half-written */ }
     }
-    tailsRead.add(path)
+    if (lastNl >= sliceStart) {
+      for (const line of buf.subarray(sliceStart, lastNl).toString('utf8').split('\n')) parseLine(line)
+    }
+    // Peek any unterminated trailing bytes without advancing `offset` past them:
+    // a complete line missing `\n` is observed immediately, while a partial concurrent
+    // append will be re-read from `offset` once its writer finishes the line.
+    const trailStart = lastNl >= sliceStart ? lastNl + 1 : sliceStart
+    if (trailStart < buf.length) parseLine(buf.subarray(trailStart).toString('utf8'))
+    const nextOffset = lastNl >= sliceStart ? start + lastNl + 1 : start
+    tailsRead.set(path, { ino: stat.ino, offset: nextOffset, size: stat.size, mtimeNs: stat.mtimeNs, truncated, minTime })
+  }
+  const needsFullScan = (paths, earliestNeeded) => {
+    if (recentRowsEvicted && (recentRows.length === 0 || earliestNeeded <= recentRows[0].time)) return true
+    for (const path of paths) {
+      const state = tailsRead.get(path)
+      if (state?.truncated === true && (state.minTime === undefined || earliestNeeded <= state.minTime)) return true
+    }
+    return false
+  }
+
+  // Read paths for a Bot's journals: includes legacy per-Bot journal.jsonl read-only
+  // after toggling a private Bot back to public so history and updates stay continuous.
+  function botJournalPaths(botId) {
+    const paths = new Set([journalPath])
+    if (botId !== undefined) {
+      paths.add(journalFor(scopeKey(ownScope(botId)), 'read').path)
+      const ownLog = join(dirOf(ownScope(botId)), 'journal.jsonl')
+      if (existsSync(ownLog)) paths.add(ownLog)
+    }
+    return [...paths]
   }
 
   // Whether anything but a tidy changed a memory after a time.
   function changedSince(key, time) {
-    readTail(journalPath)
     const botId = key.startsWith('bot:') ? key.slice(4) : undefined
-    if (botId !== undefined) readTail(journalFor(key, 'read').path)
+    for (const path of botJournalPaths(botId)) readTail(path)
     return recentRows.some(row => row.scope === key && (time === undefined || row.time > time) && row.op !== 'tidy' && row.op !== 'tidy-undo')
   }
 
@@ -489,7 +575,7 @@ export function install(rt) {
 
   async function publish({ op, scope, steps, row }) {
     const id = randomUUID()
-    const time = new Date().toISOString()
+    const time = nextRowTime()
     const record = pendingRecord({ id, time, op, scope, steps, row: { ...row, mainChanges: mainChanges(scope, steps, row) } })
     // The record has to be readable back, so its size is checked before the change
     // is accepted: a record that cannot be read would stop the memory for good.
@@ -526,9 +612,16 @@ export function install(rt) {
     return read()
   })
 
-  // A change that was interrupted is finished when the host starts.
+  // A change that was interrupted is finished when the host starts, and orphaned
+  // snapshots from settled tasks or retired segments are pruned once loaded.
   ctx.effect(() => {
-    void rt.load().then(() => recover()).catch(error => rt.warn('ds-bot: memory recovery failed: %s', error?.message ?? error))
+    void rt.load().then(async () => {
+      await recover()
+      pruneSnapshots()
+    }).catch(error => rt.warn('ds-bot: memory recovery failed: %s', error?.message ?? error))
+    const timer = setInterval(() => pruneSnapshots(), SNAPSHOT_PRUNE_MS)
+    timer.unref?.()
+    return () => clearInterval(timer)
   }, 'ds-bot: memory recovery')
 
   // Checked when the write runs: a Bot or group chat deleted after the write was
@@ -572,6 +665,7 @@ export function install(rt) {
   function writeDenied(scope, botId) {
     if (scope.kind === 'team') return writesTeam(botId) ? undefined : 'Only Main Bots and group admins write the team memory. Ask a Main Bot with delegate_work what the team should know.'
     if (scope.kind === 'group') return rt.roomOf(scope.roomId)?.members.includes(botId) ? undefined : 'Only the members of a group chat write its memory.'
+    if (scope.botId !== botId && rt.isPrivate(scope.botId)) return 'That Bot is private. Ask the user to share what you need.'
     if (scope.botId !== botId && !rt.isMain(botId)) return 'Only a Main Bot can change another Bot\'s memory. Use delegate_work or note_bot to tell that Bot instead.'
     return undefined
   }
@@ -642,14 +736,34 @@ export function install(rt) {
   const movedNote = room => (room.moved.length === 0 ? '' : ` MEMORY.md was at its size, so ${room.moved.length === 1 ? 'its oldest entry' : `its ${room.moved.length} oldest entries`} moved to ${room.topics.map(name => `[[${name}]]`).join(', ')}, where bot_recall finds ${room.moved.length === 1 ? 'it' : 'them'}.`)
   const movedRow = room => (room.moved.length === 0 ? {} : { moved: room.moved, movedTo: room.topics.map(name => `${name}.md`) })
 
-  // The topic an entry goes in. Past the last topic there is none, and the entry goes
-  // to MEMORY.md, which makes room for it.
+  function overflowTopic(files, length) {
+    // Reuse an existing earlier / earlier-N topic with room before opening a new
+    // overflow bucket so topic count never grows past the cap unnecessarily.
+    const existing = files
+      .filter(item => item.topic === OVERFLOW || /^earlier-(?:[2-9]|[1-9]\d+)$/.test(item.topic ?? ''))
+      .sort((a, b) => {
+        const num = name => (name === OVERFLOW ? 1 : Number(name.slice(OVERFLOW.length + 1)))
+        return num(a.topic) - num(b.topic)
+      })
+    const fit = existing.find(file => file.content.length + length + 1 <= MEMORY_LIMITS.topic)
+    if (fit !== undefined) return fit.topic
+    for (let at = 1; ; at += 1) {
+      const name = overflowName(at)
+      if (!files.some(item => item.topic === name)) return name
+    }
+  }
+
+  // The topic an entry goes in. Past the topic cap for a Bot or group, new or full
+  // topics spill into [[earlier]] (or earlier-2, …) instead of resident MEMORY.md.
   function roomInTopic(files, scope, topic, length) {
     if (topic === undefined) return undefined
     for (let at = 1; ; at += 1) {
       const name = at === 1 ? topic : `${topic}-${at}`
       const file = files.find(item => item.topic === name)
-      if (file === undefined) return scope.kind !== 'team' && files.length - 1 >= MEMORY_LIMITS.topics ? undefined : name
+      if (file === undefined) {
+        if (scope.kind !== 'team' && files.length - 1 >= MEMORY_LIMITS.topics) return overflowTopic(files, length)
+        return name
+      }
       if (file.content.length + length + 1 <= MEMORY_LIMITS.topic) return name
     }
   }
@@ -676,35 +790,50 @@ export function install(rt) {
     })
   }
 
+  // Shared insertion + MEMORY.md overflow helper used by both addEntryNow and
+  // memoryRestore so restoring into a topic (such as earlier.md) sees the newly
+  // inserted line before makeRoom runs and never gets clobbered by overflow writes.
+  function insertWithRoom(files, scope, target, line) {
+    const main = files[0]
+    const base = target.lines.length > 0 ? target.lines : parseMemory(target === main ? EMPTY_MAIN : `# ${target.topic}\n`).lines
+    const written = insertEntry(base, line)
+    const mainLines = main.lines.length > 0 ? main.lines : parseMemory(EMPTY_MAIN).lines
+    // What the overflow writes sees this entry, in case the two are the same topic.
+    const seen = target === main ? files : [...files.filter(file => file !== target), { ...target, ...parseMemory(joinLines(written)), content: joinLines(written) }]
+    const room = makeRoom(seen, scope, target === main ? written : target.topic !== undefined && !main.links.includes(target.topic) ? addLink(mainLines, target.topic) : mainLines, target === main ? line : undefined)
+    const targetRel = relativePath(root, target.path)
+    const roomWritesTarget = room.steps.some(step => step.path === targetRel)
+    const steps = target === main
+      ? [writeStep(main.path, joinLines(room.lines))]
+      : [...(roomWritesTarget ? [] : [writeStep(target.path, joinLines(written))]), ...(room.lines === mainLines ? [] : [writeStep(main.path, joinLines(room.lines))])]
+    return { written, room, steps: [...steps, ...room.steps] }
+  }
+
   async function addEntryNow({ scope, topic, text, meta, actor, label, moving = false }) {
     writable(scope, actor)
     const files = loadScope(scope)
     const entries = allEntries(files)
     const same = entries.find(entry => squash(entry.text) === squash(text))
-    const line = formatEntry(text, { id: meta.id ?? newEntryId(entries), ...meta })
+    const rawLine = formatEntry(text, { id: meta.id ?? newEntryId(entries), ...meta })
     if (same !== undefined) {
       // An exact copy lets a move finish after its destination was saved before a restart.
-      if (moving && (formatEntry(same.text, { id: same.meta.id, ...same.meta }) !== line || (scope.kind === 'team' && same.file.topic === undefined))) {
+      if (moving && (formatEntry(same.text, { id: same.meta.id, ...same.meta }) !== rawLine || (scope.kind === 'team' && same.file.topic === undefined))) {
         throw new Error('The destination already has this entry with different details.')
       }
       return { changed: false, file: same.file, message: `Already in ${label} (${fileName(same.file)}): "${same.text}". Nothing changed.` }
     }
-    if (moving && entries.some(entry => entryId(entry) === meta.id)) throw new Error('The destination already uses this entry id for another entry.')
+    const id = moving && meta.id !== undefined && entries.some(entry => entryId(entry) === meta.id)
+      ? newEntryId(entries)
+      : (meta.id ?? newEntryId(entries))
+    const { id: _metaId, ...restMeta } = meta
+    const line = formatEntry(text, { id, ...restMeta })
     const main = files[0]
     const name = roomInTopic(files, scope, topic, line.length)
     let target = name === undefined ? main : files.find(file => file.topic === name)
     const fresh = target === undefined
     if (fresh) target = { topic: name, file: `${name}.md`, path: join(dirOf(scope), `${name}.md`), content: '', ...parseMemory(`# ${name}\n`) }
-    const base = target.lines.length > 0 ? target.lines : parseMemory(target === main ? EMPTY_MAIN : `# ${name}\n`).lines
-    const written = insertEntry(base, line)
-    const mainLines = main.lines.length > 0 ? main.lines : parseMemory(EMPTY_MAIN).lines
-    // What the overflow writes sees this entry, in case the two are the same topic.
-    const seen = target === main ? files : [...files.filter(file => file !== target), { ...target, ...parseMemory(joinLines(written)), content: joinLines(written) }]
-    const room = makeRoom(seen, scope, target === main ? written : name !== undefined && !main.links.includes(name) ? addLink(mainLines, name) : mainLines, target === main ? line : undefined)
-    const steps = target === main
-      ? [writeStep(main.path, joinLines(room.lines))]
-      : [writeStep(target.path, joinLines(written)), ...(room.lines === mainLines ? [] : [writeStep(main.path, joinLines(room.lines))])]
-    await publish({ op: 'add', scope: scopeKey(scope), steps: [...steps, ...room.steps], row: { op: 'add', scope: scopeKey(scope), file: target.file, ...actorOf(actor), after: line, ...movedRow(room) } })
+    const { written, room, steps } = insertWithRoom(files, scope, target, line)
+    await publish({ op: 'add', scope: scopeKey(scope), steps, row: { op: 'add', scope: scopeKey(scope), file: target.file, ...actorOf(actor), after: line, ...movedRow(room) } })
     noteNews(scope, actor, 'add', line)
     const where = target === main ? MAIN : fresh ? `the new topic [[${name}]], linked from MEMORY.md` : `topic [[${name}]]`
     const after = target === main ? room.lines : written
@@ -712,12 +841,29 @@ export function install(rt) {
   }
 
   // `topic` narrows where to look; undefined looks in every file of the scope.
+  // `wanted` may be a user-facing query string (fuzzy `matchEntries`) or an exact-identity
+  // target `{ id, text, hasMetaId }` from internal callers like `applyReview`.
   function findOne(files, topic, wanted, label) {
     const pool = topic === undefined ? files : files.filter(file => file.topic === topic)
     const missing = message => Object.assign(new Error(message), { code: NO_MATCH })
     if (topic !== undefined && pool.length === 0) throw missing(`${capital(label)} has no topic [[${topic}]].`)
-    const found = matchEntries(allEntries(pool), wanted)
-    const shown = String(wanted ?? '').slice(0, 80)
+    const entries = allEntries(pool)
+    let found
+    let shown
+    if (wanted !== null && typeof wanted === 'object') {
+      const targetId = typeof wanted.id === 'string' ? wanted.id.toLowerCase() : undefined
+      const targetText = typeof wanted.text === 'string' ? squash(wanted.text) : undefined
+      found = entries.filter(entry =>
+        (targetId === undefined || entryId(entry) === targetId)
+        && (targetText === undefined || squash(entry.text) === targetText))
+      if (found.length === 0 && targetId !== undefined && wanted.hasMetaId === true) {
+        found = entries.filter(entry => entry.meta?.id === targetId)
+      }
+      shown = String(wanted.text ?? wanted.id ?? '').slice(0, 80)
+    } else {
+      found = matchEntries(entries, wanted)
+      shown = String(wanted ?? '').slice(0, 80)
+    }
     if (found.length === 0) throw missing(`No entry in ${label}${topic ? ` (topic [[${topic}]])` : ''} matches "${shown}". bot_recall shows what is saved.`)
     if (found.length > 1) throw missing(`"${shown}" matches ${found.length} entries in ${label}; quote more of the one you mean:\n${found.slice(0, 8).map(entry => `- ${entry.text} (${fileName(entry.file)})`).join('\n')}`)
     return found[0]
@@ -731,7 +877,15 @@ export function install(rt) {
       const files = loadScope(scope)
       const old = findOne(files, topic, match, label)
       if (topicOnly && old.file.topic === undefined) throw Object.assign(new Error('Changing a team entry that every conversation reads requires always: true.'), { code: DENIED })
-      const line = formatEntry(text, { id: entryId(old), ...meta, ...(old.meta.pinned === undefined ? {} : { pinned: old.meta.pinned }) })
+      const duplicate = allEntries(files).find(entry => squash(entry.text) === squash(text) && !(entry.file === old.file && entry.line === old.line))
+      if (duplicate !== undefined) {
+        throw Object.assign(new Error(`Already in ${label} (${fileName(duplicate.file)}): "${duplicate.text}". Remove the old entry instead of duplicating it.`), { code: REFUSED })
+      }
+      const hasUntil = Object.hasOwn(meta, 'until')
+      const keptUntil = !hasUntil && old.meta.until !== undefined ? { until: old.meta.until } : {}
+      const nextMeta = { id: entryId(old), ...keptUntil, ...meta, ...(old.meta.pinned === undefined ? {} : { pinned: old.meta.pinned }) }
+      if (hasUntil && (meta.until === undefined || meta.until === null || meta.until === '')) delete nextMeta.until
+      const line = formatEntry(text, nextMeta)
       const lines = [...old.file.lines]
       const before = lines[old.line]
       lines[old.line] = line
@@ -747,12 +901,15 @@ export function install(rt) {
     })
   }
 
-  function removeEntry({ scope, topic, match, actor, label }) {
+  function removeEntry({ scope, topic, match, actor, label, topicOnly = false }) {
     return queued(async () => {
       await recoverPending()
       writable(scope, actor)
       const files = loadScope(scope)
       const old = findOne(files, topic, match, label)
+      if (topicOnly && old.file.topic === undefined) {
+        throw Object.assign(new Error('Removing a team entry that every conversation reads requires always: true. Pass always: true only if you intend to delete an always-loaded entry from team MEMORY.md.'), { code: DENIED })
+      }
       return removeEntryNow({ scope, files, old, actor, label })
     })
   }
@@ -760,8 +917,8 @@ export function install(rt) {
   async function removeEntryNow({ scope, files, old, actor, label }) {
     const before = old.file.lines[old.line]
     const lines = old.file.lines.filter((_line, index) => index !== old.line)
-    // A topic left with nothing but its title goes, and so does its link.
-    const empty = old.file.topic !== undefined && lines.every(line => line.trim() === '' || HEADING.test(line))
+    // A topic left with nothing but its title (or `> about` note) goes, and so does its link.
+    const empty = old.file.topic !== undefined && isEmptyTopic(lines)
     const steps = []
     if (empty) {
       steps.push(removeStep(old.file.path))
@@ -783,7 +940,7 @@ export function install(rt) {
   // A deleted Bot's memory moves to the archive, whole.
   function archiveBotMemory(botId) {
     const bot = rt.botOf(botId)
-    for (const sessionId of [botId, rt.chatOf(botId), ...(bot?.segments ?? []).map(segment => segment.sessionId), ...openSessions(bot), ...rt.groupSessionsOf(botId)]) renewMemory(sessionId)
+    for (const sessionId of [botId, rt.chatOf(botId), ...(bot?.segments ?? []).map(segment => segment.sessionId), ...(bot?.tasks ?? []).map(task => task.sessionId), ...openSessions(bot), ...rt.groupSessionsOf(botId)]) renewMemory(sessionId)
     summaries.delete(botId)
     news.delete(botId)
     return queued(async () => {
@@ -794,15 +951,19 @@ export function install(rt) {
       const dir = dirOf(ownScope(botId))
       if (!existsSync(dir)) {
         recallCache.delete(dir)
+        mainCache.delete(dir)
+        pruneSnapshots()
         return
       }
       const name = `${safeId(botId)}-${new Date().toISOString().replace(/[:.]/g, '-')}`
       await mkdir(join(root, 'archive'), { recursive: true })
       await rename(dir, join(root, 'archive', name))
       recallCache.delete(dir)
+      mainCache.delete(dir)
+      pruneSnapshots()
       // The memory is in the archive from here: a log row that cannot be written must not
       // hide where it went, which the privacy guard needs to keep a private archive closed.
-      await journalRow({ id: randomUUID(), time: new Date().toISOString(), op: 'archive', scope: scopeKey(ownScope(botId)), actor: 'user', actorName: 'user', botName: bot?.name, to: `archive/${name}` })
+      await journalRow({ id: randomUUID(), time: nextRowTime(), op: 'archive', scope: scopeKey(ownScope(botId)), actor: 'user', actorName: 'user', botName: bot?.name, to: `archive/${name}` })
         .catch(error => rt.warn('ds-bot: archive of the memory of %s not logged: %s', bot?.name ?? botId, error))
       return join(root, 'archive', name)
     }).catch(error => rt.warn('ds-bot: memory of %s not archived: %s', bot?.name ?? botId, error))
@@ -823,13 +984,17 @@ export function install(rt) {
       const dir = dirOf(groupScope(room.id))
       if (!existsSync(dir)) {
         recallCache.delete(dir)
+        mainCache.delete(dir)
+        pruneSnapshots()
         return
       }
       const name = `group-${safeId(room.id)}-${new Date().toISOString().replace(/[:.]/g, '-')}`
       await mkdir(join(root, 'archive'), { recursive: true })
       await rename(dir, join(root, 'archive', name))
       recallCache.delete(dir)
-      await journalRow({ id: randomUUID(), time: new Date().toISOString(), op: 'archive', scope: scopeKey(groupScope(room.id)), actor: 'user', actorName: 'user', groupName: room.name, to: `archive/${name}` })
+      mainCache.delete(dir)
+      pruneSnapshots()
+      await journalRow({ id: randomUUID(), time: nextRowTime(), op: 'archive', scope: scopeKey(groupScope(room.id)), actor: 'user', actorName: 'user', groupName: room.name, to: `archive/${name}` })
     }).catch(error => rt.warn('ds-bot: memory of group %s not archived: %s', room.name, error))
   }
 
@@ -996,8 +1161,35 @@ export function install(rt) {
   const frozen = new Map()
   const snapshotPath = sessionId => join(root, 'snapshots', `${safeId(sessionId)}.md`)
   // Where a Session's memory stands: the time of its snapshot, then of the last update.
+  // `.seen` stores a plain ISO timestamp (written atomically), while `seenAtIds` tracks
+  // exact committed row IDs at that millisecond so same-ms writes are never dropped.
   const seenPath = sessionId => join(root, 'snapshots', `${safeId(sessionId)}.seen`)
   const seenTimes = new Map()
+  /** @type {Map<string, Set<string>>} */
+  const seenAtIds = new Map()
+  /** @type {Map<string, {time: string, ids: Set<string>}>} */
+  const groupSeen = new Map()
+  const RENAME_BUSY = new Set(['EPERM', 'EACCES', 'EBUSY'])
+  const SYNC_WAIT = new Int32Array(new SharedArrayBuffer(4))
+  function writeFileAtomicSync(path, text) {
+    mkdirSync(dirname(path), { recursive: true })
+    const temp = join(dirname(path), `.${basename(path).slice(0, 32)}.${process.pid}.${randomUUID()}.tmp`)
+    try {
+      writeFileSync(temp, text, 'utf8')
+      for (let attempt = 1; ; attempt += 1) {
+        try {
+          renameSync(temp, path)
+          return
+        } catch (error) {
+          if (process.platform !== 'win32' || attempt >= 5 || !RENAME_BUSY.has(error?.code)) throw error
+          Atomics.wait(SYNC_WAIT, 0, 0, 20 * attempt)
+        }
+      }
+    } catch (error) {
+      try { unlinkSync(temp) } catch { /* ignore */ }
+      throw error
+    }
+  }
   const seenOf = (sessionId) => {
     if (seenTimes.has(sessionId)) return seenTimes.get(sessionId)
     try {
@@ -1008,15 +1200,33 @@ export function install(rt) {
       return undefined
     }
   }
-  const markSeen = (sessionId, time) => {
+  const markSeen = (sessionId, time, ids) => {
+    const prev = seenTimes.get(sessionId)
     seenTimes.set(sessionId, time)
+    if (ids !== undefined) seenAtIds.set(sessionId, new Set(ids))
+    else if (prev !== time) seenAtIds.delete(sessionId)
     if (rt.readOnly() !== undefined) return
     try {
-      mkdirSync(dirname(seenPath(sessionId)), { recursive: true })
-      writeFileSync(seenPath(sessionId), time, 'utf8')
+      writeFileAtomicSync(seenPath(sessionId), time)
     } catch (error) {
       rt.warn('ds-bot: memory place for %s not saved: %s', sessionId, error)
     }
+  }
+  // Captures the highest committed journal watermark BEFORE reading memory files so
+  // any concurrent publish() that commits after this point is delivered on the next
+  // memoryUpdate instead of being silently skipped by wall-clock skew.
+  function cursorBeforeRead(keys, paths) {
+    for (const path of paths) {
+      try { readTail(path) } catch { /* non-throwing for snapshot render */ }
+    }
+    let latestTime
+    for (const row of recentRows) {
+      if (!keys.has(row.scope)) continue
+      if (latestTime === undefined || row.time > latestTime) latestTime = row.time
+    }
+    if (latestTime === undefined) return { time: new Date(Date.now() - 1).toISOString(), ids: new Set() }
+    const ids = new Set(recentRows.filter(row => keys.has(row.scope) && row.time === latestTime).map(row => row.id))
+    return { time: latestTime, ids }
   }
 
   function sectionFor(sessionId) {
@@ -1047,15 +1257,15 @@ export function install(rt) {
     // the files again.
     let failed = snap.failed !== undefined
     if (text === '' || !holds(text)) {
+      const ownKeys = new Set([scopeKey(ownScope(bot.id)), scopeKey(TEAM)])
+      const cursor = cursorBeforeRead(ownKeys, botJournalPaths(bot.id))
       const section = memorySection(bot)
       text = section.text
       failed = failed || section.failed
       if (!failed && rt.readOnly() === undefined) {
         try {
-          mkdirSync(dirname(path), { recursive: true })
-          writeFileSync(`${path}.tmp`, text, 'utf8')
-          renameSync(`${path}.tmp`, path)
-          markSeen(sessionId, new Date().toISOString())
+          writeFileAtomicSync(path, text)
+          markSeen(sessionId, cursor.time, cursor.ids)
         } catch (error) {
           rt.warn('ds-bot: memory snapshot for %s not saved: %s', bot.name, error)
         }
@@ -1069,8 +1279,61 @@ export function install(rt) {
     if (sessionId === undefined) return
     frozen.delete(sessionId)
     seenTimes.delete(sessionId)
+    seenAtIds.delete(sessionId)
+    groupSeen.delete(sessionId)
     try { unlinkSync(snapshotPath(sessionId)) } catch { /* none saved */ }
     try { unlinkSync(seenPath(sessionId)) } catch { /* none saved */ }
+  }
+  // Removes orphaned snapshot and `.seen` files left behind by settled background
+  // tasks, archived segments, removed group members, or deleted Bots/groups.
+  function pruneSnapshots() {
+    if (rt.readOnly() !== undefined || rt.hasLoaded?.() === false) return 0
+    const dir = join(root, 'snapshots')
+    let entries
+    try {
+      entries = readdirSync(dir)
+    } catch {
+      return 0
+    }
+    const live = new Set()
+    const keep = (sid) => { if (typeof sid === 'string' && sid !== '') live.add(safeId(sid)) }
+    for (const sid of rt.chatOwners?.keys?.() ?? []) keep(sid)
+    for (const sid of rt.groupOwners?.keys?.() ?? []) keep(sid)
+    for (const sid of rt.roomOwners?.keys?.() ?? []) keep(sid)
+    for (const sid of rt.taskOwners?.keys?.() ?? []) keep(sid)
+    for (const sid of rt.live?.keys?.() ?? []) keep(sid)
+    for (const entry of state.retiredParts ?? []) keep(entry?.sessionId)
+    for (const bot of Object.values(state.bots)) {
+      keep(bot.id)
+      keep(rt.chatOf(bot.id))
+      for (const task of bot.tasks ?? []) {
+        if (isActiveTask(task)) keep(task.sessionId)
+      }
+    }
+    for (const room of Object.values(state.rooms)) {
+      keep(rt.sessionOfRoom?.(room))
+      for (const sid of Object.values(room.sessions ?? {})) keep(sid)
+    }
+    for (const [oldSid, sw] of Object.entries(state.switching ?? {})) {
+      keep(oldSid)
+      keep(sw?.next)
+    }
+    let removed = 0
+    for (const name of entries) {
+      if (!name.endsWith('.md') && !name.endsWith('.seen')) continue
+      const stem = name.endsWith('.md') ? name.slice(0, -3) : name.slice(0, -5)
+      if (live.has(stem)) continue
+      try {
+        unlinkSync(join(dir, name))
+        removed += 1
+      } catch { /* already gone */ }
+    }
+    for (const map of [frozen, seenTimes, seenAtIds, groupSeen]) {
+      for (const sid of map.keys()) {
+        if (!live.has(safeId(sid))) map.delete(sid)
+      }
+    }
+    return removed
   }
   // Current authorized memory view for a Session whose working context is being
   // rebuilt (such as a local CLI whose saved session could not be resumed), so
@@ -1083,27 +1346,29 @@ export function install(rt) {
     if (pending.pending === true || pending.failed === true) return undefined
     const path = snapshotPath(sessionId)
     const previous = frozen.get(sessionId) ?? (existsSync(path) ? sectionRead(path).text : '')
-    const readAt = new Date().toISOString()
-    const own = memorySection(bot)
-    if (own.failed) return undefined
     const roomId = roomIdOf(sessionId)
     const member = roomId !== undefined && rt.roomOf(roomId)?.members.includes(bot.id) === true
+    const ownKeys = new Set([scopeKey(ownScope(bot.id)), scopeKey(TEAM)])
+    const cursor = cursorBeforeRead(ownKeys, botJournalPaths(bot.id))
+    const own = memorySection(bot)
+    if (own.failed) return undefined
     let group
+    let groupCursor
     if (member) {
+      groupCursor = cursorBeforeRead(new Set([scopeKey(groupScope(roomId))]), [journalPath])
       const readGroup = groupSection(roomId, bot)
       if (readGroup.failed) return undefined
       group = readGroup.text
     }
     if (rt.readOnly() === undefined) {
       try {
-        mkdirSync(dirname(path), { recursive: true })
-        writeFileSync(`${path}.tmp`, own.text, 'utf8')
-        renameSync(`${path}.tmp`, path)
-        markSeen(sessionId, readAt)
+        writeFileAtomicSync(path, own.text)
+        markSeen(sessionId, cursor.time, cursor.ids)
       } catch (error) {
         rt.warn('ds-bot: memory snapshot for %s not saved: %s', bot.name, error)
       }
     }
+    if (groupCursor !== undefined) groupSeen.set(sessionId, groupCursor)
     frozen.set(sessionId, own.text)
     return { previous: previous || undefined, own: own.text, ...(group === undefined ? {} : { group }) }
   }
@@ -1132,7 +1397,7 @@ export function install(rt) {
     const front = []
     const snapshot = member ? groupSnapshot(agent, roomId, bot, decision) : undefined
     if (snapshot !== undefined) front.push(snapshot)
-    const update = memoryUpdate(agent.id, bot, member ? roomId : undefined)
+    const update = memoryUpdate(agent, bot, member ? roomId : undefined, { groupRefreshed: snapshot !== undefined })
     if (update !== undefined) front.push(update)
     const recalled = autoRecall(agent, bot, member ? roomId : undefined, decision, front)
     if (recalled !== undefined) front.push(recalled)
@@ -1255,41 +1520,116 @@ export function install(rt) {
     try {
       if (agent.session?.deriveMessages?.().some(isGroupMemory)) return undefined
     } catch { /* no history to look in: the snapshot goes in */ }
+    const pending = pendingChange()
+    if (pending.pending === true || pending.failed === true) {
+      if (pending.pending === true) void recover().catch(error => rt.warn('ds-bot: memory recovery failed: %s', error?.message ?? error))
+      return undefined
+    }
+    const groupCursor = cursorBeforeRead(new Set([scopeKey(groupScope(roomId))]), [journalPath])
     const group = groupSection(roomId, bot)
     if (group.failed) return undefined
+    groupSeen.set(agent.id, groupCursor)
     return createUserMessage({
       content: [{ type: 'text', text: group.text }],
-      source: { kind: GROUP_MEMORY_SOURCE, form: 'snapshot', sections: [{ name: GROUP_MEMORY_SOURCE, text: group.text }] },
+      source: {
+        kind: GROUP_MEMORY_SOURCE,
+        form: 'snapshot',
+        watermark: { time: groupCursor.time, ids: [...groupCursor.ids] },
+        sections: [{ name: GROUP_MEMORY_SOURCE, text: group.text }],
+      },
     })
+  }
+
+  const rowAfter = (row, cursor) => row.time > cursor.time || (cursor.ids !== undefined && row.time === cursor.time && !cursor.ids.has(row.id))
+  const advanceCursor = (cursor, rows) => {
+    let time = cursor.time
+    let ids = cursor.ids === undefined ? undefined : new Set(cursor.ids)
+    for (const row of rows) {
+      if (row.time > time) {
+        time = row.time
+        ids = new Set([row.id])
+      } else if (row.time === time && ids !== undefined) {
+        ids.add(row.id)
+      }
+    }
+    return { time, ids }
+  }
+  const allRowsFrom = (paths) => {
+    const byId = new Map()
+    for (const path of paths) {
+      for (const row of journalRows(path)) {
+        if (typeof row?.id === 'string' && typeof row.time === 'string') byId.set(row.id, row)
+      }
+    }
+    return [...byId.values()].sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0))
   }
 
   // What changed in the memory a Session has in view since it last looked, as a message
   // of its own at the end of the conversation: the prompt above stays byte for byte, so
   // the provider's prefix cache holds. A Session's own writes are not news to it.
-  function memoryUpdate(sessionId, bot, roomId) {
-    const seen = seenOf(sessionId)
-    const now = new Date().toISOString()
-    if (seen === undefined) {
-      markSeen(sessionId, now)
-      return undefined
-    }
+  function memoryUpdate(agent, bot, roomId, { groupRefreshed = false } = {}) {
+    const sessionId = agent.id
     const own = ownScope(bot.id)
     const keys = new Set([scopeKey(own), scopeKey(TEAM), ...(roomId === undefined ? [] : [scopeKey(groupScope(roomId))])])
+    const paths = botJournalPaths(bot.id)
+    const seen = seenOf(sessionId)
+    if (seen === undefined) {
+      const initial = cursorBeforeRead(keys, paths)
+      markSeen(sessionId, initial.time, initial.ids)
+      return undefined
+    }
     try {
-      for (const path of new Set([journalPath, journalFor(scopeKey(own), 'read').path])) readTail(path)
+      for (const path of paths) readTail(path)
     } catch (error) {
       rt.warn('ds-bot: memory update for %s not read: %s', bot.name, error?.message ?? error)
       return undefined
     }
-    const changes = recentRows
-      .filter(row => row.time > seen && keys.has(row.scope) && row.session !== sessionId)
-      .flatMap(updateChanges)
+    const baseCursor = { time: seen, ids: seenAtIds.get(sessionId) }
+    let gCursor
+    if (roomId !== undefined) {
+      gCursor = groupSeen.get(sessionId)
+      if (gCursor === undefined) {
+        let history = []
+        try { history = agent.session?.deriveMessages?.() ?? [] } catch { /* ignore */ }
+        const latest = history.findLast(message =>
+          (isGroupMemory(message) && typeof message?.source?.watermark?.time === 'string')
+          || (message?.source?.kind === MEMORY_UPDATE_SOURCE && typeof message?.source?.groupWatermark?.time === 'string'))
+        const wm = latest?.source?.kind === MEMORY_UPDATE_SOURCE ? latest.source.groupWatermark : latest?.source?.watermark
+        if (typeof wm?.time === 'string') {
+          gCursor = { time: wm.time, ids: new Set(Array.isArray(wm.ids) ? wm.ids : []) }
+          groupSeen.set(sessionId, gCursor)
+        }
+      }
+    }
+    const earliestNeeded = gCursor !== undefined && gCursor.time < baseCursor.time ? gCursor.time : baseCursor.time
+    const rows = needsFullScan(paths, earliestNeeded)
+      ? allRowsFrom(paths)
+      : recentRows
+    const matched = rows.filter((row) => {
+      if (!keys.has(row.scope) || row.session === sessionId) return false
+      if (row.scope.startsWith('group:')) {
+        if (groupRefreshed) return gCursor !== undefined && rowAfter(row, gCursor)
+        return rowAfter(row, gCursor ?? baseCursor)
+      }
+      return rowAfter(row, baseCursor)
+    })
+    const changes = matched.flatMap(updateChanges)
     if (changes.length === 0) return undefined
-    markSeen(sessionId, changes.at(-1).time)
+    const ownTeamMatched = matched.filter(row => !row.scope.startsWith('group:'))
+    const groupMatched = matched.filter(row => row.scope.startsWith('group:'))
+    const nextGroup = groupMatched.length > 0 && gCursor !== undefined ? advanceCursor(gCursor, groupMatched) : undefined
+    if (nextGroup !== undefined) groupSeen.set(sessionId, nextGroup)
+    const nextBase = advanceCursor(baseCursor, gCursor !== undefined ? ownTeamMatched : matched)
+    markSeen(sessionId, nextBase.time, nextBase.ids)
     const text = updateText(changes, bot)
     return createUserMessage({
       content: [{ type: 'text', text }],
-      source: { kind: MEMORY_UPDATE_SOURCE, form: 'snapshot', sections: [{ name: MEMORY_UPDATE_SOURCE, text }] },
+      source: {
+        kind: MEMORY_UPDATE_SOURCE,
+        form: 'snapshot',
+        ...(nextGroup === undefined ? {} : { groupWatermark: { time: nextGroup.time, ids: [...nextGroup.ids] } }),
+        sections: [{ name: MEMORY_UPDATE_SOURCE, text }],
+      },
     })
   }
 
@@ -1338,10 +1678,31 @@ export function install(rt) {
     return bot === undefined ? undefined : { bot, sessionId, roomId: roomIdOf(sessionId) }
   }
 
+  // Resolves background task ownership for active tasks, recently settled tasks
+  // (moved to pastOwners by settleTask -> rt.save() before agent/status: idle), and
+  // archived task segments so source anchors and review routing never lose taskId.
+  function taskOwnerOf(sessionId) {
+    const active = rt.taskOwners?.get(sessionId)
+    if (active !== undefined) return active
+    const past = rt.pastOwners?.get(sessionId)
+    const bot = past?.botId === undefined ? undefined : rt.botOf(past.botId)
+    for (const task of bot?.tasks ?? []) {
+      if (task?.sessionId === sessionId || task?.segments?.some(segment => segment?.sessionId === sessionId)) {
+        return {
+          botId: bot.id,
+          taskId: task.id,
+          ...(typeof task.roomId === 'string' && task.roomId !== '' ? { roomId: task.roomId } : {}),
+        }
+      }
+    }
+    return undefined
+  }
+
   // Where the caller learned it: the anchor of the latest message to it in this part,
   // which read_own_chat opens, or the group and the time.
   async function sourceOf(sessionId) {
-    const owner = rt.groupOwners.get(sessionId) ?? (rt.taskOwners?.get(sessionId)?.roomId !== undefined ? rt.taskOwners.get(sessionId) : undefined)
+    const taskOwner = taskOwnerOf(sessionId)
+    const owner = rt.groupOwners.get(sessionId) ?? (taskOwner?.roomId !== undefined ? taskOwner : undefined)
     if (owner !== undefined) {
       const room = rt.roomOf(owner.roomId)
       return room === undefined ? 'group ?' : `group "${room.name}" #${room.seq}`
@@ -1359,6 +1720,9 @@ export function install(rt) {
         }
       }
     } catch { /* no history to point at: the time stands in */ }
+    if (taskOwner !== undefined) {
+      return seq === undefined ? `task ${taskOwner.taskId} ${rt.clock(Date.now())}` : `task ${taskOwner.taskId} #${seq}`
+    }
     return seq === undefined ? `part ${number} ${rt.clock(Date.now())}` : `part ${number} #${seq}`
   }
   const metaFor = async (caller, scope) => ({
@@ -1427,8 +1791,9 @@ export function install(rt) {
       if (error) throw refused(error)
       const replace = String(args.replace ?? '').trim()
       try {
+        const clearUntil = args.until === '' || args.until === null
         const until = cleanDay(args.until)
-        const meta = { ...await metaFor(context.caller, context.scope), ...(until === undefined ? {} : { until }), ...(args.pin === true ? { pinned: 'user' } : {}) }
+        const meta = { ...await metaFor(context.caller, context.scope), ...(clearUntil ? { until: undefined } : until === undefined ? {} : { until }), ...(args.pin === true ? { pinned: 'user' } : {}) }
         const shared = context.scope.kind === 'team' && args.always !== true && topic === undefined ? TEAM_SHARED : args.always === true && context.scope.kind === 'team' ? undefined : topic
         const result = replace === ''
           ? await addEntry({ ...context, topic: shared, text, meta })
@@ -1447,6 +1812,7 @@ export function install(rt) {
     parameters: {
       entry: { type: 'string', required: true, description: 'The entry to remove: its text, or a part only it contains' },
       topic: TOPIC_WHERE,
+      always: { type: 'boolean', description: 'Set true to remove an entry from the always-loaded team MEMORY.md (required for team resident entries)' },
       scope: SCOPE_WRITE,
     },
     output,
@@ -1457,7 +1823,7 @@ export function install(rt) {
       const { topic, error } = topicArg(args.topic)
       if (error) throw refused(error)
       try {
-        return (await removeEntry({ ...context, topic, match: args.entry })).message
+        return (await removeEntry({ ...context, topic, match: args.entry, topicOnly: context.scope.kind === 'team' && args.always !== true })).message
       } catch (failure) {
         throw writeFailure(failure)
       }
@@ -1926,7 +2292,7 @@ export function install(rt) {
       const steps = []
       let to = MAIN
       if (always) {
-        const emptied = remaining.every(item => item.trim() === '' || HEADING.test(item))
+        const emptied = isEmptyTopic(remaining)
         const mainBase = main.lines.length > 0 ? main.lines : parseMemory(EMPTY_MAIN).lines
         const put = insertEntry(emptied ? removeLink(mainBase, old.file.topic) : mainBase, line)
         const seen = files.map(file => (file === old.file ? { ...file, ...parseMemory(joinLines(remaining)), content: joinLines(remaining) } : file))
@@ -1959,7 +2325,8 @@ export function install(rt) {
         await recoverPending()
         writable(from, USER)
         const files = loadScope(from)
-        const file = files.find(item => item.topic === (body.topic ?? undefined))
+        const wantedTopic = userTopic(body.topic)
+        const file = files.find(item => item.topic === wantedTopic)
         const entry = file?.entries.find(item => item.text === body.text)
         if (entry === undefined) throw noMatch('This entry changed or moved. Reload the memory and try again.')
         const old = { ...entry, file }
@@ -2010,8 +2377,18 @@ export function install(rt) {
         : undefined)
 
   // The logs a panel's scopes write to: the shared log, plus a private Bot's own
-  // for its `bot:` scope. journalFor decides which, exactly as it does for writes.
-  const journalPathsOf = panel => [...new Set(Object.values(panel.scopes).map(scope => journalFor(scopeKey(scope), 'restore').path))]
+  // (or legacy per-Bot journal left from before toggling Private -> Public) read-only.
+  const journalPathsOf = (panel) => {
+    const paths = new Set()
+    for (const scope of Object.values(panel.scopes)) {
+      paths.add(journalFor(scopeKey(scope), 'restore').path)
+      if (scope.kind === 'bot') {
+        const ownLog = join(dirOf(scope), 'journal.jsonl')
+        if (existsSync(ownLog)) paths.add(ownLog)
+      }
+    }
+    return [...paths]
+  }
 
   const journalRows = (path) => {
     const rows = []
@@ -2222,7 +2599,7 @@ export function install(rt) {
         // row's before: a value that became a saved secret since is not journaled.
         if (secretEntry(row.after)) throw new Error(`The entry the change added cannot be taken out: it looks like a key, token, password, or ID number, which memory never keeps.`)
         const lines = target.lines.filter((_line, index) => index !== found[0].line)
-        const empty = target.topic !== undefined && lines.every(item => item.trim() === '' || HEADING.test(item))
+        const empty = target.topic !== undefined && isEmptyTopic(lines)
         if (empty) {
           steps.push(removeStep(target.path))
           const main = files[0]
@@ -2267,13 +2644,8 @@ export function install(rt) {
             file = { topic, file: row.file, path: join(dirOf(scope), row.file), content: '', ...parseMemory(`# ${topic}\n`) }
           }
         }
-        const lines = file.lines.length > 0 ? file.lines : parseMemory(`# ${file.topic}\n`).lines
-        const put = insertEntry(lines, row.before)
-        const main = files[0]
-        const room = makeRoom(files, scope, file === main ? put : file.topic !== undefined && !main.links.includes(file.topic) ? addLink(main.lines, file.topic) : main.lines, file === main ? row.before : undefined)
-        if (file !== main) steps.push(writeStep(file.path, joinLines(put)))
-        if (file === main || room.lines !== main.lines) steps.push(writeStep(main.path, joinLines(room.lines)))
-        steps.push(...room.steps)
+        const { room, steps: insertSteps } = insertWithRoom(files, scope, file, row.before)
+        steps.push(...insertSteps)
         await publish({ op: 'add', scope: scopeKey(scope), steps, row: { op: 'add', ...base, file: file.file, after: row.before, ...movedRow(room) } })
         return
       }
@@ -2309,7 +2681,7 @@ export function install(rt) {
     return await memoryView(panelBody(panel))
   }
 
-  const { memoryReviews } = installReview(rt, { root, reviewOn, mainLimit, TEAM, ownScope, groupScope, keeperOf, writesTeam, labelOf, fileName, today, writeText, settled, loadScope, addEntry, replaceEntry, removeEntry, entryProblem, secretEntry, botShot, languageNow })
+  const { memoryReviews } = installReview(rt, { root, reviewOn, mainLimit, TEAM, ownScope, groupScope, keeperOf, writesTeam, labelOf, fileName, today, writeText, settled, loadScope, addEntry, replaceEntry, removeEntry, entryProblem, secretEntry, botShot, languageNow, taskOwnerOf })
 
   const { tidyView, undoTidy, tidyNow, tidyTick } = installTidy(rt, { TEAM, ownScope, groupScope, keeperOf, scopeKey, dirOf, today, queued, recoverPending, writable, settled, loadScope, searchEntries, publish, writeStep, removeStep, appendStep, truncateStep, writeText, botShot, languageNow, allEntries, entryProblem, USER, changedSince, noteWindow, windowUsable })
 
@@ -2336,6 +2708,6 @@ export function install(rt) {
 
   Object.assign(rt, {
     memoryEnabled: true, renewMemory, freshMemoryView, archiveBotMemory, archiveGroupMemory, memoryEndpoint, memoryEdit, memoryAdd, memoryReviews,
-    memoryNews: () => Object.fromEntries(news), botShot, tidyMemoryNow: tidyNow, tidyMemoryTick: tidyTick,
+    memoryNews: () => Object.fromEntries(news), botShot, tidyMemoryNow: tidyNow, tidyMemoryTick: tidyTick, pruneMemorySnapshots: pruneSnapshots,
   })
 }

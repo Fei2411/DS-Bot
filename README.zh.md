@@ -4,7 +4,7 @@
 
 [English](README.md) | 中文 · [文档导航](docs/README.md) · [愿景](docs/vision.zh.md) · [已知问题](docs/known-issues.zh.md) · [参与开发](CONTRIBUTING.zh.md)
 
-![版本](https://img.shields.io/badge/版本-v0.3.10-blue) ![DSH](https://img.shields.io/badge/DSH-0.2.2--rc.1-4D6BFE) ![许可](https://img.shields.io/badge/许可-Apache_2.0-green)
+![版本](https://img.shields.io/badge/版本-v0.3.10-blue) ![DSH](https://img.shields.io/badge/DSH-0.2.2--rc.5-4D6BFE) ![许可](https://img.shields.io/badge/许可-Apache_2.0-green)
 
 DS Bot 是一个基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（简称 DSH）的开源项目，提供独立桌面应用和 DSH 插件两种形态。它将 DSH 转化为一支持久化的 Bot 团队，你可以创建、交流并与它们一起工作。
 
@@ -37,8 +37,8 @@ DS Bot 是一个基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepsee
 - **DSH Web**（需要 Node.js `22.19` 以上和 pnpm）：
 
 ```sh
-npx @deepseek-ai/dsh@0.2.2-rc.1 plugin --profile web add ds-bot
-npx @deepseek-ai/dsh@0.2.2-rc.1 web
+npx @deepseek-ai/dsh@0.2.2-rc.5 plugin --profile web add ds-bot
+npx @deepseek-ai/dsh@0.2.2-rc.5 web
 ```
 
 **Docker（NAS、Linux 服务器）**
@@ -102,7 +102,7 @@ Main Bot 是你的团队总管，拥有创建和修改其他 Bot、管理群聊�
 
 ### 浏览器
 
-每个 Bot 有独立的浏览器和登录态，桌面应用支持从文件或本机浏览器（Chrome/Edge、Brave、Arc、Firefox、Zen 等）导入 Cookie 及受支持的 `localStorage`。需要交互式操作网页时，在 DSH profile 里将 `browserPlugin` 设为 `refs`、`script` 或 `task` 并重启 DS Bot；**设置 → 工具 → 浏览器**提供配置指引和按站点操作授权。发帖、上传、下载、删除默认需要你批准；登录、验证码和付款会交还由你操作。
+每个 Bot 有独立的浏览器和登录态，桌面应用支持从文件或本机浏览器（Chrome/Edge、Safari、Brave、Arc、Firefox、Zen 等）导入 Cookie 及受支持的 `localStorage`。需要交互式操作网页时，在 DSH profile 里将 `browserPlugin` 设为 `refs`、`script` 或 `task` 并重启 DS Bot；**设置 → 工具 → 浏览器**提供配置指引和按站点操作授权。发帖、上传、下载、删除默认需要你批准；登录、验证码和付款会交还由你操作。
 
 内嵌浏览器面板仅桌面应用和 DSH Desktop 可用（DSH Web 没有）；仅桌面应用会在退出后保留登录态并支持导入 Cookie。
 

@@ -10,9 +10,10 @@
 // queue per book. A window that only reads the team follows the file another host
 // writes: it reads a book again when the file has grown.
 import { mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
-import { appendFile, mkdir, rename, rm, writeFile } from 'node:fs/promises'
-import { createHash } from 'node:crypto'
+import { appendFile, mkdir, rename, rm, unlink, writeFile } from 'node:fs/promises'
+import { createHash, randomUUID } from 'node:crypto'
 import { join } from 'node:path'
+import { replaceFile } from './files.js'
 import { searchTextFor } from './search-text.js'
 
 const SEARCH_MAX = 20
@@ -49,6 +50,10 @@ export function install(rt) {
   // go on when its record is not on disk.
   /** @type {Map<string, Promise<unknown>>} */
   const lastWrite = new Map()
+  /** @type {Map<string, number>} */
+  const dropGen = new Map()
+  /** @type {Map<string, Set<object[]>>} */
+  const activeMerges = new Map()
   /** @type {Map<string, (book: string) => object[] | undefined>} */
   const importers = new Map()
 
@@ -122,13 +127,19 @@ export function install(rt) {
   function append(book, record) {
     const entry = open(book)
     entry.records.push(record)
+    const merging = activeMerges.get(book)
+    if (merging !== undefined) {
+      for (const bucket of merging) bucket.push(record)
+    }
     if (Number.isInteger(record.seq)) entry.bySeq.set(record.seq, record)
     if (entry.view !== undefined) note(entry.view, record, entry.records.length - 1)
     if (!writes()) return record
-    const line = `${entry.torn ? '\n' : ''}${JSON.stringify(record)}\n`
-    entry.torn = false
-    entry.size += Buffer.byteLength(line)
     const run = (writing.get(book) ?? Promise.resolve()).then(async () => {
+      // Construct the line inside the serialized queue so if a prior write failed
+      // and set `entry.torn = true`, this write prepends `\n` instead of fusing lines.
+      const line = `${entry.torn ? '\n' : ''}${JSON.stringify(record)}\n`
+      entry.torn = false
+      entry.size += Buffer.byteLength(line)
       await mkdir(dir, { recursive: true })
       await appendFile(pathOf(book), line, 'utf8')
     })
@@ -138,8 +149,9 @@ export function install(rt) {
       // Memory holds only what the disk has, so a record that did not land is written again
       // when it is sent again. Part of its line may have landed: the next one starts anew.
       if (books.get(book) !== entry) return
-      const at = entry.records.indexOf(record)
-      if (at !== -1) entry.records.splice(at, 1)
+      // Replace the array reference on rollback so incremental readers (`delivery.js`) can
+      // detect mutations in O(1) via reference identity.
+      entry.records = entry.records.filter(item => item !== record)
       entry.view = undefined
       // An earlier record may hold the same seq; range walks bySeq, so it must find that one.
       if (Number.isInteger(record.seq) && entry.bySeq.get(record.seq) === record) entry.bySeq = index(entry.records)
@@ -170,11 +182,16 @@ export function install(rt) {
     entry.view = undefined
     for (const record of added) entry.bySeq.set(record.seq, record)
     if (!writes()) return added.length
-    const wasTorn = entry.torn
-    const snapshot = entry.records.map(record => `${JSON.stringify(record)}\n`).join('')
-    entry.torn = false
-    entry.size = Buffer.byteLength(snapshot)
+    // Snapshot membership synchronously so later queued appends are NOT included twice,
+    // while reading `entry.records` inside the serialized queue excludes any earlier
+    // queued append that failed and rolled itself out of memory before this rewrite ran.
+    const included = new Set(entry.records)
+    let wasTorn = false
     const run = (writing.get(book) ?? Promise.resolve()).then(async () => {
+      wasTorn = entry.torn
+      const snapshot = entry.records.filter(record => included.has(record)).map(record => `${JSON.stringify(record)}\n`).join('')
+      entry.torn = false
+      entry.size = Buffer.byteLength(snapshot)
       await mkdir(dir, { recursive: true })
       const temp = `${pathOf(book)}.${process.pid}.tmp`
       await writeFile(temp, snapshot, 'utf8')
@@ -193,8 +210,125 @@ export function install(rt) {
     return added.length
   }
 
+  // Durably merges legacy records (e.g. from state.exchanges) ahead of any newer records
+  // in `book`, deduplicating by record.id. Returns true only when every incoming record
+  // is confirmed on disk (either already present on an existing book file or atomically
+  // written); returns false on write failure, read-only transition, or concurrent drop(book).
+  async function mergeRecords(book, incoming) {
+    if (!writes()) return false
+    const list = Array.isArray(incoming) ? incoming.filter(record => record !== null && typeof record === 'object') : []
+    if (list.length === 0) return true
+    // Snapshot drop generation and pre-existing in-memory membership synchronously at call time,
+    // and track any synchronous `append()` calls queued after this run so they are never written
+    // twice on disk and concurrent cold `open()` never duplicates existing disk events in RAM.
+    const gen = dropGen.get(book) ?? 0
+    const initialKnown = books.get(book)
+    const preIncluded = initialKnown !== undefined && !initialKnown.readOnly ? new Set(initialKnown.records) : undefined
+    const appendedAfter = []
+    let mergeSet = activeMerges.get(book)
+    if (mergeSet === undefined) {
+      mergeSet = new Set()
+      activeMerges.set(book, mergeSet)
+    }
+    mergeSet.add(appendedAfter)
+    const untrack = () => {
+      mergeSet.delete(appendedAfter)
+      if (mergeSet.size === 0 && activeMerges.get(book) === mergeSet) activeMerges.delete(book)
+    }
+    const run = (writing.get(book) ?? Promise.resolve()).then(async () => {
+      try {
+        if (!writes() || (dropGen.get(book) ?? 0) !== gen) return false
+        let diskText
+        try {
+          diskText = readFileSync(pathOf(book), 'utf8')
+        } catch (error) {
+          if (error?.code !== 'ENOENT') throw error
+        }
+        const existingOnDisk = diskText !== undefined
+        const current = preIncluded !== undefined
+          ? initialKnown.records.filter(record => preIncluded.has(record))
+          : (diskText === undefined ? [] : parseBook(diskText))
+        const existingIds = new Set()
+        for (const record of current) {
+          if (record?.event === undefined && typeof record?.id === 'string' && record.id !== '') {
+            existingIds.add(record.id)
+          }
+        }
+        const deduped = []
+        const seenIncoming = new Map()
+        for (const record of list) {
+          if (typeof record.id === 'string' && record.id !== '') {
+            if (existingIds.has(record.id)) continue
+            const prevAt = seenIncoming.get(record.id)
+            if (prevAt !== undefined) deduped[prevAt] = record
+            else {
+              seenIncoming.set(record.id, deduped.length)
+              deduped.push(record)
+            }
+          } else {
+            deduped.push(record)
+          }
+        }
+        if (existingOnDisk && deduped.length === 0) return true
+        const merged = deduped.length > 0 ? [...deduped, ...current] : [...current]
+        if (merged.length === 0) return true
+        const snapshot = merged.map(record => `${JSON.stringify(record)}\n`).join('')
+        await mkdir(dir, { recursive: true })
+        if (!writes() || (dropGen.get(book) ?? 0) !== gen) return false
+        const temp = `${pathOf(book)}.${process.pid}.${randomUUID().slice(0, 8)}.tmp`
+        try {
+          await writeFile(temp, snapshot, 'utf8')
+          if (!writes() || (dropGen.get(book) ?? 0) !== gen) {
+            await unlink(temp).catch(() => {})
+            return false
+          }
+          await replaceFile(temp, pathOf(book))
+        } catch (error) {
+          await unlink(temp).catch(() => {})
+          throw error
+        }
+        if ((dropGen.get(book) ?? 0) !== gen) return false
+        // Combine merged disk records with only the appends queued synchronously after this
+        // call, keeping the existing entry object (replacing only its array ref) so queued
+        // appends still update size/rollback on the live entry while pairCache detects the
+        // new ref in O(1).
+        const records = appendedAfter.length > 0 ? [...merged, ...appendedAfter] : merged
+        const live = books.get(book)
+        if (live !== undefined && !live.readOnly) {
+          live.records = records
+          live.bySeq = index(records)
+          live.view = undefined
+          live.size = Buffer.byteLength(snapshot)
+          live.torn = false
+        } else {
+          books.set(book, {
+            records,
+            bySeq: index(records),
+            size: Buffer.byteLength(snapshot),
+            readOnly: false,
+            torn: false,
+          })
+        }
+        return true
+      } finally {
+        untrack()
+      }
+    })
+    lastWrite.set(book, run)
+    writing.set(book, run.catch((error) => {
+      rt.warn('ds-bot: legacy records of %s were not migrated: %s', book, error?.message ?? error)
+    }))
+    try {
+      return await run
+    } catch {
+      return false
+    }
+  }
+
   function drop(book) {
+    dropGen.set(book, (dropGen.get(book) ?? 0) + 1)
     books.delete(book)
+    lastWrite.delete(book)
     if (!writes()) return
     const run = (writing.get(book) ?? Promise.resolve()).then(() => rm(pathOf(book), { force: true }))
     writing.set(book, run.catch(() => {}))
@@ -202,8 +336,10 @@ export function install(rt) {
 
   const ledger = {
     open,
+    hasBook: book => books.has(book) || sizeOf(book) >= 0,
     append,
     prepend,
+    mergeRecords,
     flush,
     // Rejects when the last record of the book did not reach the disk.
     written: book => lastWrite.get(book) ?? Promise.resolve(),
