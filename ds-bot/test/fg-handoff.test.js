@@ -1658,3 +1658,212 @@ test('round-3 invariants: transfer ownership token, unreadable recipient defer, 
   })
   assert.equal(env6.prompts.length, 0, 'redelivered IM message after restart + rebind must NOT prompt newly bound Bot B')
 })
+
+test('round-4 invariants: concurrent Bot rollback isolation, superseded tombstone persistence, coalesced failed-save retry, natural-completion archival race, cold inbox splice & fail-closed, and deferred reconcile retry', async (t) => {
+  // 1) Per-key rollback: Bot A save fails after Bot B save succeeds -> Bot B receipt stays intact!
+  const env1 = await startEnv()
+  t.after(env1.stop)
+  const dmA1 = env1.agentMap.get('dm-a')
+  const dmB1 = env1.agentMap.get('dm-b')
+  dmA1.status = 'running'
+  dmB1.status = 'running'
+  await env1.emit('dm-a', 'turn/start', { turn: 1 })
+  await env1.emit('dm-b', 'turn/start', { turn: 1 })
+  const origSave1 = env1.rt.save
+  let rejectSaveA
+  let saveIdx = 0
+  env1.rt.save = async (opts = {}) => {
+    if (opts?.required) {
+      saveIdx += 1
+      if (saveIdx === 1) {
+        return new Promise((_res, rej) => { rejectSaveA = () => rej(new Error('save A failed')) })
+      }
+    }
+    return origSave1(opts)
+  }
+  const moveA = env1.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'dm-a', operationId: 'op-bot-a' })
+  await waitFor(() => typeof rejectSaveA === 'function')
+  const resB = await env1.rt.moveForegroundToBackground({ botId: 'b', expectedSessionId: 'dm-b', operationId: 'op-bot-b' })
+  assert.equal(resB.moved, true)
+  rejectSaveA()
+  await assert.rejects(() => moveA, /save A failed/)
+  assert.ok(env1.rt.state.completedMoveOps?.['op-bot-b'] !== undefined, 'Bot A rollback must NOT wipe Bot B committed receipt')
+  assert.equal(env1.rt.state.completedMoveOps?.['op-bot-a'], undefined)
+
+  // 2) Failed Move 1 -> newer Move 2 commits & saves -> Move 1 stale tombstone is persisted atomically!
+  //    Simulating restart from that saved state: replaying Move 1 ID without expectedSessionId throws bot/stale (does NOT move Turn 3).
+  const env2 = await startEnv()
+  t.after(env2.stop)
+  const dmA2 = env2.agentMap.get('dm-a')
+  dmA2.status = 'running'
+  await env2.emit('dm-a', 'turn/start', { turn: 1 })
+  const origSave2 = env2.rt.save
+  let failOnce2 = true
+  env2.rt.save = async (opts = {}) => {
+    if (failOnce2 && opts?.required) { failOnce2 = false; throw new Error('first move save failed') }
+    return origSave2(opts)
+  }
+  await assert.rejects(
+    () => env2.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'dm-a', operationId: 'op-move-1' }),
+    /first move save failed/,
+  )
+  // Now start Turn 2 on the new in-memory foreground (fork-1) and complete Move 2 (op-move-2).
+  const fork1_2 = env2.agentMap.get('fork-1')
+  fork1_2.status = 'running'
+  await env2.emit('fork-1', 'turn/start', { turn: 2 })
+  const res2 = await env2.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'fork-1', operationId: 'op-move-2' })
+  assert.equal(res2.moved, true)
+  assert.equal(env2.rt.state.completedMoveOps?.['op-move-1']?.stale, true, 'Move 2 must persist stale tombstone for superseded op-move-1')
+  // Simulate restart with persisted state.completedMoveOps and Turn 3 running on fork-2.
+  const persistedOps = structuredClone(env2.rt.state.completedMoveOps)
+  const env2Restart = await startEnv({
+    team: makeTeam({
+      bots: { a: { id: 'a', name: 'Chief', role: 'Boss', sessionId: 'fork-2', createdAt: 1 } },
+    }),
+  })
+  t.after(env2Restart.stop)
+  env2Restart.rt.state.completedMoveOps = persistedOps
+  const fork2R = env2Restart.agentMap.get('fork-2')
+  fork2R.status = 'running'
+  await env2Restart.emit('fork-2', 'turn/start', { turn: 3 })
+  await assert.rejects(
+    () => env2Restart.rt.moveForegroundToBackground({ botId: 'a', operationId: 'op-move-1' }),
+    err => err?.code === 'bot/stale',
+  )
+  assert.equal(env2Restart.rt.botOf('a').sessionId, 'fork-2', 'replaying old op-move-1 after restart must NOT move Turn 3')
+
+  // 3) Coalesced Desktop/IM failed save retry saves BOTH IDs into state.completedMoveOps!
+  let releaseFork3
+  const env3 = await startEnv({
+    forkImpl: async (_opts, make) => new Promise((resolve) => { releaseFork3 = () => resolve({ sessionId: make() }) }),
+  })
+  t.after(env3.stop)
+  const dmA3 = env3.agentMap.get('dm-a')
+  dmA3.status = 'running'
+  await env3.emit('dm-a', 'turn/start', { turn: 1 })
+  const origSave3 = env3.rt.save
+  let failSave3 = true
+  env3.rt.save = async (opts = {}) => {
+    if (failSave3 && opts?.required) { failSave3 = false; throw new Error('coalesced save failed') }
+    return origSave3(opts)
+  }
+  const desk3 = env3.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'dm-a', operationId: 'op-coal-desk' })
+  await waitFor(() => typeof releaseFork3 === 'function')
+  const im3 = env3.rt.moveForegroundToBackground({ botId: 'a', operationId: 'op-coal-im' })
+  releaseFork3()
+  await assert.rejects(() => desk3, /coalesced save failed/)
+  await assert.rejects(() => im3, /coalesced save failed/)
+  const [retryDesk, retryIm] = await Promise.all([
+    env3.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'dm-a', operationId: 'op-coal-desk' }),
+    env3.rt.moveForegroundToBackground({ botId: 'a', operationId: 'op-coal-im' }),
+  ])
+  assert.equal(retryDesk.moved, true)
+  assert.equal(retryIm.moved, true)
+  assert.ok(env3.rt.state.completedMoveOps?.['op-coal-desk'] !== undefined)
+  assert.ok(env3.rt.state.completedMoveOps?.['op-coal-im'] !== undefined, 'shared retry must persist BOTH Desktop and IM operationIds')
+
+  // 4) Natural completion mid-fork while archiveSession is paused + Turn 2 starts + same-ID retry MUST join no-op and NOT move Turn 2!
+  let releaseFork4
+  let releaseArchive4
+  const env4 = await startEnv({
+    forkImpl: async (_opts, make) => new Promise((resolve) => { releaseFork4 = () => resolve({ sessionId: make() }) }),
+  })
+  t.after(env4.stop)
+  env4.ctx.workspaceRegistry.archiveSession = async () => new Promise((resolve) => { releaseArchive4 = resolve })
+  const dmA4 = env4.agentMap.get('dm-a')
+  dmA4.status = 'running'
+  await env4.emit('dm-a', 'turn/start', { turn: 1 })
+  const p4 = env4.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'dm-a', operationId: 'op-noop-race' })
+  await waitFor(() => typeof releaseFork4 === 'function')
+  dmA4.status = 'idle'
+  await env4.emit('dm-a', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  releaseFork4()
+  await waitFor(() => typeof releaseArchive4 === 'function')
+  // Turn 2 starts on dm-a while archival of candidate fork is still paused!
+  dmA4.status = 'running'
+  await env4.emit('dm-a', 'turn/start', { turn: 2 })
+  const retry4 = env4.rt.moveForegroundToBackground({ botId: 'a', operationId: 'op-noop-race' })
+  releaseArchive4()
+  const [res4a, res4b] = await Promise.all([p4, retry4])
+  assert.equal(res4a.moved, false)
+  assert.equal(res4b.moved, false)
+  assert.equal(env4.rt.botOf('a').sessionId, 'dm-a', 'same-ID retry during natural-completion archival must NOT move Turn 2')
+  assert.equal(env4.rt.botOf('a').tasks?.length ?? 0, 0)
+
+  // 5) Cold session queued via agent/inbox/spliced (no user/message yet) is detected; removed splice is ignored; unreadable cold session fails closed!
+  const env5 = await startEnv({
+    team: makeTeam({
+      bots: {
+        a: { id: 'a', name: 'Chief', role: 'Boss', sessionId: 'dm-a-queued-cold', createdAt: 1 },
+        b: { id: 'b', name: 'Helper', role: 'Dev', sessionId: 'dm-b-target', createdAt: 2 },
+      },
+    }),
+  })
+  t.after(env5.stop)
+  delete env5.ctx.sessionController.inspect
+  env5.agentMap.delete('dm-a-queued-cold')
+  let coldMode = 'queued'
+  const query5 = {
+    inspectSession: async (sid, read) => {
+      if (sid === 'dm-a-queued-cold') {
+        if (coldMode === 'error') {
+          throw Object.assign(new Error('disk I/O failure'), { code: 'SESSION_QUERY_PERSISTENCE_FAILED' })
+        }
+        const events = coldMode === 'queued'
+          ? [{ type: 'agent/inbox/spliced', seq: 1, data: { target: 'next-turn', start: 0, inserted: [{ id: 'mq-1', role: 'user', content: [{ type: 'text', text: 'Queued IM' }], source: { kind: 'user', rpcId: 'im:telegram:c1:dm-u1:q-1' } }] } }]
+          : [
+              { type: 'agent/inbox/spliced', seq: 1, data: { target: 'next-turn', start: 0, inserted: [{ id: 'mq-2', role: 'user', content: [{ type: 'text', text: 'Removed IM' }], source: { kind: 'user', rpcId: 'im:telegram:c1:dm-u1:q-2' } }] } },
+              { type: 'agent/inbox/spliced', seq: 2, data: { target: 'next-turn', start: 0, removedCount: 1, inserted: [] } },
+            ]
+        return read({ snapshotEvents: () => events })
+      }
+      throw Object.assign(new Error('not found'), { code: 'SESSION_QUERY_SESSION_NOT_FOUND' })
+    },
+  }
+  const origGet5 = env5.ctx.get
+  env5.ctx.get = name => (name === 'sessionQuery' ? query5 : origGet5(name))
+
+  await env5.rt.sendUser({ sessionId: 'b', content: [{ type: 'text', text: 'Queued IM' }], requestId: 'im:telegram:c1:dm-u1:q-1' })
+  assert.equal(env5.prompts.length, 0, 'cold queued agent/inbox/spliced on Bot A must prevent duplicate prompt on newly bound Bot B')
+
+  coldMode = 'removed'
+  await env5.rt.sendUser({ sessionId: 'b', content: [{ type: 'text', text: 'Removed IM' }], requestId: 'im:telegram:c1:dm-u1:q-2' })
+  assert.equal(env5.prompts.length, 1, 'splice-removed message on Bot A must NOT falsely suppress delivery')
+
+  coldMode = 'error'
+  await assert.rejects(
+    () => env5.rt.sendUser({ sessionId: 'b', content: [{ type: 'text', text: 'Unreadable check' }], requestId: 'im:telegram:c1:dm-u1:q-3' }),
+    /disk I\/O failure/,
+    'unreadable cold session must fail closed instead of treating error as a miss',
+  )
+
+  // 6) Deferred unreadable recipient automatically retries once readable!
+  const env6 = await startEnv({
+    team: makeTeam({
+      bots: { a: { id: 'a', name: 'Chief', role: 'Boss', sessionId: 'fg-c', createdAt: 1 } },
+    }),
+  })
+  t.after(env6.stop)
+  env6.rt.state.pendingHandoffInputs = [{
+    id: 'rpc-retry-sched',
+    originalSessionId: 'fg-a',
+    recipientSessionId: 'fg-b',
+    visitedSessionIds: ['fg-a', 'fg-b'],
+    botId: 'a',
+    content: [{ type: 'text', text: 'Recover automatically' }],
+    source: { kind: 'user', rpcId: 'rpc-retry-sched' },
+    at: Date.now() - 5000,
+  }]
+  let blockB = true
+  const origResolve6 = env6.ctx.sessionController.resolveAgent
+  env6.ctx.sessionController.resolveAgent = async (sid) => {
+    if (sid === 'fg-b' && blockB) throw new Error('fg-b temporarily offline')
+    return origResolve6(sid)
+  }
+  await env6.rt.reconcileTasksAfterRestart()
+  assert.equal(env6.rt.state.pendingHandoffInputs?.length, 1)
+  blockB = false
+  await waitFor(() => env6.rt.state.pendingHandoffInputs === undefined && env6.agentMap.get('fg-c').followups.length === 1, 2500)
+  assert.equal(env6.rt.state.pendingHandoffInputs, undefined, 'scheduled reconcile retry must drain deferred entry once fg-b becomes readable')
+  assert.equal(env6.agentMap.get('fg-c').followups[0].content[0].text, 'Recover automatically')
+})

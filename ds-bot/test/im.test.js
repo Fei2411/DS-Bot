@@ -4154,6 +4154,29 @@ test('IM /steer, /background, and platform messageId redelivery deduplication (#
   s.rt.save = origSave
   assert.equal(s.prompts.length, promptsBeforeWx + 1, 'redelivery after rememberWeixinRequest failure must not be swallowed')
   assert.equal(s.prompts.at(-1).content[0].text, 'weixin retryable text')
+
+  // 5) Redelivered ordinary numeric message "1" must NOT answer a question card opened afterward.
+  const origConfirm = s.rt.confirmSessionFlushed
+  s.rt.confirmSessionFlushed = async () => true
+  await dm(s, 'u1', '1', { messageId: 'num-msg-1' })
+  assert.equal(s.prompts.at(-1).content[0].text, '1')
+  assert.equal(one.seenInbound?.includes(`${one.id}:dm-u1:num-msg-1`), true, 'persisted seenInbound written once session flush confirmed true')
+  // Open a question card and redeliver the exact same messageId "num-msg-1" -> MUST be ignored!
+  let answeredQ = 0
+  const origAnswerQ = s.rt.answerQuestion
+  s.rt.answerQuestion = async (...args) => { answeredQ += 1; return origAnswerQ(...args) }
+  s.rt.state.questions[s.rt.chatOf('a')] = { id: 'q-after-1', question: 'Pick one', options: [{ label: 'Alpha' }, { label: 'Beta' }] }
+  s.rt.emitImCard?.(one.id, 'dm-u1', 'q:q-after-1')
+  await dm(s, 'u1', '1', { messageId: 'num-msg-1' })
+  assert.equal(answeredQ, 0, 'redelivered ordinary "1" must NOT answer a newly opened question card')
+  delete s.rt.state.questions[s.rt.chatOf('a')]
+  s.rt.answerQuestion = origAnswerQ
+
+  // 6) conn.seenInbound must NOT be persisted when session flush returns false (un-durable session).
+  s.rt.confirmSessionFlushed = async () => false
+  await dm(s, 'u1', 'unflushed prompt', { messageId: 'unflushed-1' })
+  assert.equal(one.seenInbound?.includes(`${one.id}:dm-u1:unflushed-1`), false, 'unflushed session must NOT persist seenInbound key')
+  s.rt.confirmSessionFlushed = origConfirm
 })
 
 
