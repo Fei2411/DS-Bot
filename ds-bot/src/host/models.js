@@ -12,13 +12,23 @@ const ROUTE_WAIT_MS = 30_000
 const ACCOUNT_RECORD = 'deepseek-account-platform/default'
 const TRANSIENT_LLM_CODES = new Set(['TRANSPORT', 'TIMEOUT', 'MALFORMED_RESPONSE'])
 const MALFORMED_RETRIES = 2
-// pi-ai ends a Gemini stream that stops on a malformed tool call or response with a plain
-// error, which dsh-llm-pi-ai classifies as PI_AI_ERROR. It is the same transient failure.
-const GEMINI_MALFORMED = /\b(?:Provider stopped with|Unhandled stop reason): (?:MALFORMED_RESPONSE|MALFORMED_FUNCTION_CALL|UNEXPECTED_TOOL_CALL)\b/
+// pi-ai's Google adapters end a Gemini stream that stops on a malformed tool call or response
+// with exactly one of these errors, which dsh-llm-pi-ai classifies as PI_AI_ERROR. It is the
+// same transient failure.
+const GEMINI_MALFORMED = new Set([
+  'Provider stopped with: MALFORMED_FUNCTION_CALL',
+  'Provider stopped with: UNEXPECTED_TOOL_CALL',
+  'Unhandled stop reason: MALFORMED_RESPONSE',
+])
 
 function failureCode(failure) {
   const code = failure?.code
-  return code === 'PI_AI_ERROR' && GEMINI_MALFORMED.test(String(failure?.message ?? '')) ? 'MALFORMED_RESPONSE' : code
+  return code === 'PI_AI_ERROR' && GEMINI_MALFORMED.has(failure?.message) ? 'MALFORMED_RESPONSE' : code
+}
+
+// dsh-llm-retry already spends the policy's budget on a failure under its own code.
+function dshRetries(policy, code) {
+  return policy?.mode === 'always' || (policy?.mode === 'normal' && Array.isArray(policy.retryableCodes) && policy.retryableCodes.includes(code))
 }
 
 function retryPolicyOf(ctx, provider) {
@@ -128,6 +138,7 @@ export function install(rt) {
       malformedRetries.set(agent, retries)
     }
     const policy = payload.retryPolicy ?? retryPolicyOf(ctx, payload.provider)
+    if (code !== failure.code && dshRetries(policy, failure.code)) return undefined
     if (!canRetryPolicy(policy, code, retries.count + 1)) return undefined
     retries.count += 1
     rt.warn(`Retrying malformed model response for ${agent.id} (turn ${turn}, step ${step}, retry ${retries.count}/${MALFORMED_RETRIES})`)
