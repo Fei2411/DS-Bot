@@ -12,6 +12,13 @@ var SECURE_FRAGMENT_MAGIC = new Uint8Array([68, 83, 66, 70]);
 var SECURE_FRAGMENT_VERSION = 1;
 var SECURE_FRAGMENT_HEADER_BYTES = 17;
 var MAX_IN_FLIGHT_SECURE_MESSAGES = 8;
+var SECURE_ASSEMBLY_TTL_MS = 3e4;
+var textEncoder = new TextEncoder();
+var textDecoder = new TextDecoder();
+var fatalTextDecoder = new TextDecoder("utf-8", { fatal: true });
+function utf8ByteLength(value) {
+  return typeof Buffer !== "undefined" ? Buffer.byteLength(value, "utf8") : textEncoder.encode(value).byteLength;
+}
 var controlFrameTypes = [
   "hello",
   "hello.ack",
@@ -44,22 +51,22 @@ function createRpcRequest(method, params, id) {
 }
 function encodeControlFrame(frame, limits = {}) {
   const encoded = JSON.stringify(parseControlFrame(frame));
-  assertControlFrameSize(new TextEncoder().encode(encoded).byteLength, frame.type, limits);
+  assertControlFrameSize(utf8ByteLength(encoded), frame.type, limits);
   return encoded;
 }
 function decodeControlFrame(data, limits = {}) {
-  const encoded = typeof data === "string" ? new TextEncoder().encode(data) : data;
-  if (encoded.byteLength > MAX_RELAY_FRAME_BYTES) throw new Error("Control frame exceeds the Relay frame limit.");
-  const text = typeof data === "string" ? data : new TextDecoder("utf-8", { fatal: true }).decode(data);
+  const byteLength = typeof data === "string" ? utf8ByteLength(data) : data.byteLength;
+  if (byteLength > MAX_RELAY_FRAME_BYTES) throw new Error("Control frame exceeds the Relay frame limit.");
+  const text = typeof data === "string" ? data : fatalTextDecoder.decode(data);
   const frame = parseControlFrame(JSON.parse(text));
-  assertControlFrameSize(encoded.byteLength, frame.type, limits);
+  assertControlFrameSize(byteLength, frame.type, limits);
   return frame;
 }
 function encodeMessage(message) {
-  return new TextEncoder().encode(JSON.stringify(message));
+  return textEncoder.encode(JSON.stringify(message));
 }
 function decodeMessage(data) {
-  const text = typeof data === "string" ? data : new TextDecoder().decode(data);
+  const text = typeof data === "string" ? data : textDecoder.decode(data);
   const value = JSON.parse(text);
   if (!isEnvelope(value) || !messageTypes.includes(value.type)) {
     throw new Error("Remote message is invalid.");
@@ -80,6 +87,12 @@ function isEnvelope(value) {
 var SecureMessageCodec = class {
   nextMessageId = 1;
   assemblies = /* @__PURE__ */ new Map();
+  assemblyTtlMs;
+  now;
+  constructor(options = {}) {
+    this.assemblyTtlMs = options.assemblyTtlMs ?? SECURE_ASSEMBLY_TTL_MS;
+    this.now = options.now ?? (() => Date.now());
+  }
   encode(message) {
     if (message.byteLength > MAX_SECURE_MESSAGE_BYTES) throw new Error("Secure message exceeds the reassembly limit.");
     if (message.byteLength <= SECURE_FRAGMENT_CHUNK_BYTES) return [message];
@@ -104,6 +117,8 @@ var SecureMessageCodec = class {
     return frames;
   }
   decode(frame) {
+    const currentTime = this.now();
+    if (this.assemblies.size > 0) this.sweepExpired(currentTime);
     if (!isSecureFragment(frame)) return frame;
     if (frame.byteLength < SECURE_FRAGMENT_HEADER_BYTES || frame[4] !== SECURE_FRAGMENT_VERSION) {
       throw new Error("Secure fragment header is invalid.");
@@ -124,7 +139,7 @@ var SecureMessageCodec = class {
       if (index !== 0 || this.assemblies.size >= MAX_IN_FLIGHT_SECURE_MESSAGES) {
         throw new Error("Secure fragment sequence is invalid.");
       }
-      assembly = { total, totalBytes, receivedBytes: 0, chunks: [] };
+      assembly = { total, totalBytes, receivedBytes: 0, updatedAt: currentTime, chunks: [] };
       this.assemblies.set(messageId, assembly);
     }
     if (assembly.total !== total || assembly.totalBytes !== totalBytes || index !== assembly.chunks.length) {
@@ -133,6 +148,7 @@ var SecureMessageCodec = class {
     }
     assembly.chunks.push(Uint8Array.from(chunk));
     assembly.receivedBytes += chunk.byteLength;
+    assembly.updatedAt = currentTime;
     if (assembly.chunks.length < total) return void 0;
     this.assemblies.delete(messageId);
     if (assembly.receivedBytes !== totalBytes) throw new Error("Secure message length is invalid.");
@@ -143,6 +159,12 @@ var SecureMessageCodec = class {
       offset += part.byteLength;
     }
     return message;
+  }
+  sweepExpired(now) {
+    if (!Number.isFinite(this.assemblyTtlMs) || this.assemblyTtlMs <= 0) return;
+    for (const [messageId, assembly] of this.assemblies) {
+      if (now - assembly.updatedAt > this.assemblyTtlMs) this.assemblies.delete(messageId);
+    }
   }
   reset() {
     this.nextMessageId = 1;
@@ -2625,14 +2647,34 @@ function deviceIdFor(publicKey) {
 function randomToken(bytes = 32) {
   return toBase64Url(randomBytes2(bytes));
 }
+var BASE64_CHUNK = 8192;
 function toBase64Url(bytes) {
-  const binary = Array.from(bytes, (byte) => String.fromCharCode(byte)).join("");
+  if (typeof Buffer !== "undefined") {
+    return Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString("base64url");
+  }
+  let binary = "";
+  for (let offset = 0; offset < bytes.length; offset += BASE64_CHUNK) {
+    const slice = bytes.subarray(offset, Math.min(bytes.length, offset + BASE64_CHUNK));
+    binary += String.fromCharCode.apply(null, slice);
+  }
   return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
 }
+var BASE64URL_CHARS = /^[A-Za-z0-9_-]*$/;
 function fromBase64Url(value) {
-  const normalized = value.replaceAll("-", "+").replaceAll("_", "/");
+  const stripped = value.endsWith("=") ? value.length % 4 === 0 ? value.replace(/={1,2}$/, "") : null : value;
+  if (stripped === null || stripped.length % 4 === 1 || !BASE64URL_CHARS.test(stripped)) {
+    throw new Error("Invalid base64url string.");
+  }
+  if (typeof Buffer !== "undefined") {
+    const buf = Buffer.from(stripped, "base64url");
+    return buf.byteOffset === 0 && buf.byteLength === buf.buffer.byteLength ? new Uint8Array(buf.buffer) : Uint8Array.from(buf);
+  }
+  const normalized = stripped.replaceAll("-", "+").replaceAll("_", "/");
   const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
-  return Uint8Array.from(atob(padded), (char) => char.charCodeAt(0));
+  const binary = atob(padded);
+  const out = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) out[index] = binary.charCodeAt(index);
+  return out;
 }
 
 // node_modules/@lukeburns/clatterjs/dist/constants.js
@@ -7678,9 +7720,13 @@ var BaseTransport = class {
 var nextSends = /* @__PURE__ */ new WeakMap();
 async function waitForRelayCapacity(socket, wireBytes = 0) {
   const started = Date.now();
+  let waitMs = 25;
   while ((socket.bufferedAmount ?? 0) > 512 * 1024) {
-    if (socket.readyState !== 1 || Date.now() - started > 1e4) throw new Error("Relay consumer is too slow or disconnected");
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    const elapsed = Date.now() - started;
+    if (socket.readyState !== 1 || elapsed > 1e4) throw new Error("Relay consumer is too slow or disconnected");
+    const sleepMs = Math.min(waitMs, Math.max(1, 1e4 - elapsed));
+    await new Promise((resolve) => setTimeout(resolve, sleepMs));
+    waitMs = Math.min(waitMs * 2, 200);
   }
   if (wireBytes > 0) {
     const now = Date.now();
@@ -7699,6 +7745,7 @@ var MAX_CALLS_PER_TUNNEL = 32;
 var MAX_EMIT_PENDING = 64;
 var SERVER_SILENCE_MS = 75e3;
 var PUSH_TIMEOUT_MS = 1e4;
+var HANDSHAKE_TIMEOUT_MS = 15e3;
 var TunnelError = class extends Error {
   code;
   constructor(code, message) {
@@ -7752,11 +7799,12 @@ var HostLink = class {
       const left = timeoutMs - (Date.now() - started);
       if (left <= 0) throw new Error("The computer did not reach the Server in time.");
       await new Promise((resolve) => {
-        const timer = setTimeout(done, left);
-        function done() {
+        const done = () => {
           clearTimeout(timer);
+          this.statusWaiters.delete(done);
           resolve();
-        }
+        };
+        const timer = setTimeout(done, left);
         this.statusWaiters.add(done);
       });
     }
@@ -7795,13 +7843,14 @@ var HostLink = class {
   }
   /** Tells every connected phone that something changed. */
   emit(event, data) {
-    const message = encodeMessage(createMessage("event", { event, data }));
+    let message;
     for (const tunnel of this.tunnels.values()) {
       if (tunnel.stage !== "ready") continue;
       if ((tunnel.emitPending ?? 0) >= MAX_EMIT_PENDING) {
         this.dropTunnel(tunnel, "SEND_FAILED");
         continue;
       }
+      message ??= encodeMessage(createMessage("event", { event, data }));
       tunnel.emitPending = (tunnel.emitPending ?? 0) + 1;
       void this.sendSecure(tunnel, message).catch(() => this.dropTunnel(tunnel, "SEND_FAILED")).finally(() => {
         if (tunnel.emitPending !== void 0) tunnel.emitPending -= 1;
@@ -7880,6 +7929,10 @@ var HostLink = class {
       };
       const end = () => {
         clearInterval(watchdog);
+        socket.onopen = null;
+        socket.onmessage = null;
+        socket.onerror = null;
+        socket.onclose = null;
         if (this.socket === socket) this.socket = void 0;
         if (this.endAttempt === end) this.endAttempt = void 0;
         resolve(accepted);
@@ -7970,7 +8023,7 @@ var HostLink = class {
       return;
     }
     const { identity } = this.options;
-    this.tunnels.set(connectionId, {
+    const tunnel = {
       connectionId,
       deviceId: clientDeviceId,
       identityKey: clientIdentityKey,
@@ -7988,7 +8041,16 @@ var HostLink = class {
       lastCounter: -1,
       sendTail: Promise.resolve(),
       calls: /* @__PURE__ */ new Map()
-    });
+    };
+    const handshakeTimeoutMs = this.options.handshakeTimeoutMs ?? HANDSHAKE_TIMEOUT_MS;
+    if (Number.isFinite(handshakeTimeoutMs) && handshakeTimeoutMs > 0) {
+      tunnel.handshakeTimer = setTimeout(() => {
+        tunnel.handshakeTimer = void 0;
+        if (tunnel.stage !== "ready") this.dropTunnel(tunnel, "HANDSHAKE_TIMEOUT");
+      }, handshakeTimeoutMs);
+      tunnel.handshakeTimer.unref?.();
+    }
+    this.tunnels.set(connectionId, tunnel);
     this.sendControl("connect.accepted", { connectionId });
   }
   async handshake(tunnel, payload) {
@@ -8002,6 +8064,10 @@ var HostLink = class {
       if (this.tunnels.get(tunnel.connectionId) !== tunnel) return;
       if (!allowed) throw new TunnelError("NOT_PAIRED", "The phone is not paired.");
       const reply = tunnel.noise.writeHandshake(encodeHandshakeHello(this.options.name === void 0 ? {} : { name: this.options.name }));
+      if (tunnel.handshakeTimer !== void 0) {
+        clearTimeout(tunnel.handshakeTimer);
+        tunnel.handshakeTimer = void 0;
+      }
       tunnel.stage = "ready";
       this.options.onReadyCount?.(this.connectedDevices().length);
       this.sendControl("secure.handshake", {
@@ -8062,7 +8128,10 @@ var HostLink = class {
           counter: tunnel.counter,
           ciphertext: toBase64Url(ciphertext)
         }), this.limits);
-        await waitForRelayCapacity(socket, new TextEncoder().encode(frame).byteLength);
+        await waitForRelayCapacity(socket, utf8ByteLength(frame));
+        if (this.tunnels.get(tunnel.connectionId) !== tunnel || this.socket !== socket || socket.readyState !== 1) {
+          throw new Error("The tunnel closed.");
+        }
         socket.send(frame);
         tunnel.counter += 1;
       }
@@ -8072,6 +8141,10 @@ var HostLink = class {
   }
   dropTunnel(tunnel, code) {
     if (this.tunnels.get(tunnel.connectionId) !== tunnel) return;
+    if (tunnel.handshakeTimer !== void 0) {
+      clearTimeout(tunnel.handshakeTimer);
+      tunnel.handshakeTimer = void 0;
+    }
     this.tunnels.delete(tunnel.connectionId);
     if (tunnel.stage === "ready") this.options.onReadyCount?.(this.connectedDevices().length);
     for (const controller of tunnel.calls.values()) controller.abort(new Error("The phone link closed."));
@@ -9108,9 +9181,16 @@ var RelayTransport = class extends BaseTransport {
       const stale = () => this.socket !== socket;
       let ended = false;
       let watchdog;
+      const detachHandlers = () => {
+        socket.onopen = null;
+        socket.onmessage = null;
+        socket.onerror = null;
+        socket.onclose = null;
+      };
       const endSocket = (reason, emit = true) => {
         if (ended) return;
         ended = true;
+        detachHandlers();
         if (reason !== void 0) this.closeReason = reason;
         socket.close();
         if (this.socket === socket) {
@@ -9150,6 +9230,7 @@ var RelayTransport = class extends BaseTransport {
         if (ended) return;
         if (this.socket !== void 0 && stale()) return;
         ended = true;
+        detachHandlers();
         if (watchdog !== void 0) clearInterval(watchdog);
         this.clearProbe();
         if (this.readyReject !== void 0) this.failConnection(Object.assign(new Error("Relay control channel closed before it was ready"), { code: "SERVER_UNREACHABLE" }));
@@ -9180,7 +9261,8 @@ var RelayTransport = class extends BaseTransport {
       counter: this.relayCounter,
       ciphertext: toBase64Url(data)
     }), this.controlFrameLimits);
-    await waitForRelayCapacity(socket, new TextEncoder().encode(frame).byteLength);
+    await waitForRelayCapacity(socket, utf8ByteLength(frame));
+    if (this.socket !== socket || socket.readyState !== 1) throw new Error("relay transport is not connected");
     socket.send(frame);
     this.bytesSent += data.byteLength;
     this.relayCounter += 1;
@@ -9663,6 +9745,7 @@ export {
   RelayTransport,
   RpcClient,
   RpcClientError,
+  SECURE_ASSEMBLY_TTL_MS,
   SECURE_FRAGMENT_CHUNK_BYTES,
   SecureMessageCodec,
   SecureTransport,
@@ -9693,5 +9776,6 @@ export {
   randomToken,
   sealPushEnvelope,
   toBase64Url,
+  utf8ByteLength,
   waitForRelayCapacity
 };

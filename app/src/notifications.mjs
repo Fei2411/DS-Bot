@@ -3,18 +3,28 @@
 // The notification never takes focus; only a click brings the window forward and
 // opens the Session it names.
 
+const MAX_LIVE = 50
+const LIVE_TTL_MS = 10 * 60_000
+
 /**
  * @param {{
  *   Notification: new (options: object) => { on: (event: string, run: () => void) => void, show: () => void, close?: () => void },
  *   systemPreferences?: { getNotificationSettings?: () => { authorizationStatus?: string } },
  *   platform?: string,
  *   isSupported?: () => boolean,
+ *   maxLive?: number,
+ *   ttlMs?: number,
  *   log?: Pick<Console, 'warn'>,
  * }} options the shell's Electron surface, injectable for tests
  */
-export function createNotifications({ Notification, systemPreferences, platform = process.platform, isSupported, log = console }) {
-  const live = new Set()
+export function createNotifications({ Notification, systemPreferences, platform = process.platform, isSupported, maxLive = MAX_LIVE, ttlMs = LIVE_TTL_MS, log = console }) {
+  const live = new Map()
   const supported = () => (typeof isSupported === 'function' ? isSupported() : Notification.isSupported?.() !== false)
+  const drop = (notification) => {
+    const timer = live.get(notification)
+    if (timer !== undefined) clearTimeout(timer)
+    live.delete(notification)
+  }
 
   /**
    * Whether the operating system will show a notification at all. `unknown` means the
@@ -50,10 +60,21 @@ export function createNotifications({ Notification, systemPreferences, platform 
       log.warn?.('ds-bot: notification failed: %s', error?.message ?? error)
       return false
     }
-    live.add(notification)
+    while (live.size >= maxLive && maxLive > 0) {
+      const oldest = live.keys().next().value
+      if (oldest === undefined) break
+      drop(oldest)
+    }
+    let timer
+    if (Number.isFinite(ttlMs) && ttlMs > 0) {
+      timer = setTimeout(() => { drop(notification) }, ttlMs)
+      timer.unref?.()
+    }
+    live.set(notification, timer)
     let settled = false
-    const done = () => { live.delete(notification) }
+    const done = () => { drop(notification) }
     notification.on('close', done)
+    notification.on('failed', done)
     notification.on('click', () => {
       // One banner opens one Session: a second click, or a click after close, is nothing.
       if (settled) return
@@ -67,10 +88,11 @@ export function createNotifications({ Notification, systemPreferences, platform 
 
   /** Close every banner this shell put up (the window came to the front). */
   function clear() {
-    for (const notification of live) {
+    for (const [notification, timer] of [...live]) {
+      if (timer !== undefined) clearTimeout(timer)
+      live.delete(notification)
       try { notification.close?.() } catch { /* already gone */ }
     }
-    live.clear()
   }
 
   return { status, show, clear, supported }
