@@ -2845,7 +2845,7 @@ test('reply origin: cards and approvals leave only on the connection whose chat 
   const s = await start()
   t.after(s.stop)
   const telegram = s.fake
-  const dingtalk = fakeAdapter()
+  const dingtalk = fakeAdapter({ buttons: false })
   const original = adapters.dingtalk
   adapters.dingtalk = dingtalk
   t.after(() => { adapters.dingtalk = original })
@@ -2889,11 +2889,15 @@ test('reply origin: cards and approvals leave only on the connection whose chat 
 
   telegram.sent.length = 0
   dingtalk.sent.length = 0
-  const approvalSent = telegram.waitForSend(entry => entry.buttons?.[0]?.data.startsWith('a:'))
-  void s.fireApprovals({ agent: { id: 'a' }, toolName: 'bash', reason: 'run it', signal: new AbortController().signal }, () => new Promise(() => {}))
+  const reason = 'run the approval routing test'
+  const isApproval = entry => entry.text.includes(reason) || entry.buttons?.some(button => button.data.startsWith('a:'))
+  const approvalSent = telegram.waitForSend(entry => entry.chat.key === 'dm-u1' && entry.buttons?.some(button => button.data.startsWith('a:')))
+  void s.fireApprovals({ agent: { id: 'a' }, toolName: 'bash', reason, signal: new AbortController().signal }, () => new Promise(() => {}))
   await approvalSent
-  assert.equal(telegram.sent.filter(entry => entry.buttons?.[0]?.data.startsWith('a:')).length, 1, 'the asking chat got the approval card')
-  assert.equal(dingtalk.sent.filter(entry => entry.buttons?.[0]?.data.startsWith('a:')).length, 0, 'the other connection got no approval card')
+  // The expected send alone says nothing about the other outbound queues.
+  await s.flush()
+  assert.deepEqual(telegram.sent.filter(isApproval).map(entry => entry.chat.key), ['dm-u1'], 'only the asking chat got the approval card')
+  assert.equal(dingtalk.sent.filter(isApproval).length, 0, 'the other connection got no approval card')
 })
 
 test('reply origin: an answer from IM keeps its chat for the turn the answer continues', async (t) => {
