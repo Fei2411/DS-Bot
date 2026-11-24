@@ -64,7 +64,6 @@ export function install(rt) {
   const loaded = new Map()
   const pendingDrops = new Map()
   const frozenCatalogs = new Map()
-  const toolCounts = new Map()
   let statusesCache
   let statusesKey
   let pluginPromise
@@ -385,9 +384,6 @@ export function install(rt) {
       await fiber.await()
       if (stopped || agents.get(sessionId)?.deref() !== agent || agentMounts.get(name) !== mounted) return
       statusSet(bot.id, name, sessionId, { state: 'ready' })
-      if (item.kind === 'skill') toolCounts.set(name, 0)
-      const schemas = agent.ctx.tools?.schemas?.(agent)
-      if (item.kind === 'mcp' && Array.isArray(schemas)) toolCounts.set(name, schemas.filter(tool => tool.name.startsWith(`mcp__${name}__`)).length)
     } catch (error) {
       if (agentMounts.get(name) !== mounted) return
       await drop()
@@ -601,9 +597,7 @@ export function install(rt) {
       const item = own(library(), name)
       if (!item) return []
       const summary = String(item.description || (item.kind === 'mcp' ? 'MCP server' : item.kind === 'skill' ? 'Skill instructions' : `Includes ${(item.items ?? []).join(', ') || 'no items'}`)).replace(/\s+/g, ' ').trim().slice(0, 120)
-      const members = item.kind === 'pack' ? item.items ?? [] : [name]
-      const count = members.every(member => toolCounts.has(member)) ? members.reduce((sum, member) => sum + toolCounts.get(member), 0) : undefined
-      return [`- ${name}: ${summary}${count === undefined ? '' : ` (${count} tools)`}`]
+      return [`- ${name}: ${summary}`]
     })
     return lines.length ? ['# Feature packs', ...lines, 'Call use_pack when a task needs one of these packs.'].join('\n') : ''
   }
@@ -614,7 +608,7 @@ export function install(rt) {
     frozenCatalogs.set(sessionId, text)
     return text
   }
-  ctx.systemPrompt.section({ name: 'feature-packs', order: 646, text: ({ agent }) => {
+  ctx.systemPrompt.section({ name: 'feature-packs', order: 10310, text: ({ agent }) => {
     if (agent?.ctx) trackAgent(agent)
     return catalogFor(agent?.id)
   } })
@@ -702,7 +696,6 @@ export function install(rt) {
       loaded.clear()
       pendingDrops.clear()
       frozenCatalogs.clear()
-      toolCounts.clear()
       statusesCache = undefined
       await Promise.all(live.flatMap(agentMounts => [...agentMounts.values()].map(disposeMount)))
     }

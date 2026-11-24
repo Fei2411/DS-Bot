@@ -807,12 +807,22 @@ export function install(rt) {
     if (room.memberDirs !== undefined) delete room.memberDirs[botId]
     const sessionId = room.sessions?.[botId]
     if (sessionId === undefined) return
+    // Resolve live round waiters before removing groupOwners so waitersOf matches by (botId, roomId) too.
+    rt.abortRoomWaiters?.(sessionId, { left: true })
     delete room.sessions[botId]
-    for (const segment of room.segments?.[botId] ?? []) delete state.switching[segment.sessionId]
+    const segments = room.segments?.[botId] ?? []
+    for (const segment of segments) {
+      delete state.switching[segment.sessionId]
+      rt.renewMemory?.(segment.sessionId)
+    }
     if (room.segments !== undefined) delete room.segments[botId]
     delete state.switching[sessionId]
+    if (state.questions !== undefined) delete state.questions[sessionId]
+    if (state.views !== undefined) delete state.views[sessionId]
+    if (state.closedCards !== undefined) delete state.closedCards[sessionId]
     groupOwners.delete(sessionId)
     rt.cancelApprovals?.(sessionId)
+    rt.renewMemory?.(sessionId)
     // A plain archive refuses a running Session, which would go on working for a group
     // that no longer has it.
     void ctx.workspaceRegistry.archiveSession(sessionId, { stopActivity: true }).catch(() => {})

@@ -5256,3 +5256,140 @@ test('external post_to_group never leaks into an IM-bound group (idle reset, cro
   assert.deepEqual(s.fake.sent, [], 'answering a historical IM group card while sibling late Web work runs must not re-arm g1')
   s.emitEvent('grp-r1-b', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
 })
+
+test('drainRoomInbox classifies drained user messages through the IM origin state machine (cross-chat drop, unknown rpcId drop, IM claim, and Web report taint)', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  const { one } = await pairedConn(s)
+  one.chats.g1 = { kind: 'group', title: 'Group One', target: { roomId: 'r1' }, at: 1 }
+  one.chats.g2 = { kind: 'group', title: 'Group Two', target: { roomId: 'r1' }, at: 2 }
+  await s.rt.save()
+
+  const room = s.rt.roomOf('r1')
+  const roomSid = s.rt.sessionOfRoom(room)
+  const roomAgent = s.agentOf(roomSid)
+  const makeInbox = () => ({
+    nextStep: [],
+    nextTurn: [],
+    remove(id) {
+      for (const lane of [this.nextStep, this.nextTurn]) {
+        const idx = lane.findIndex(item => item.id === id)
+        if (idx !== -1) { lane.splice(idx, 1); return true }
+      }
+      return false
+    },
+  })
+  roomAgent.inbox = makeInbox()
+  const relayTool = s.rt.teamTools.find(d => d.name === 'group_relay')
+  let turnSeq = 10
+  const answerMember = (sid, msg, replyText) => {
+    const turn = ++turnSeq
+    s.emitEvent(sid, 'turn/start', { turn })
+    s.emitEvent(sid, 'user/message', { source: msg.source, content: msg.content })
+    s.emitEvent(sid, 'assistant/message', { message: { content: [{ type: 'text', text: replyText }] } })
+    s.emitEvent(sid, 'turn/end', { turn, reason: { kind: 'completed' } })
+  }
+  const runDrainedRound = async (openingEvent, queueDuringChief) => {
+    room.sessions = { a: 'ga', b: 'gb' }
+    s.rt.groupOwners.set('ga', { botId: 'a', roomId: 'r1' })
+    s.rt.groupOwners.set('gb', { botId: 'b', roomId: 'r1' })
+    const chiefAgent = s.agentOf('ga')
+    const writerAgent = s.agentOf('gb')
+    chiefAgent.lastFollowup = undefined
+    writerAgent.lastFollowup = undefined
+    s.emitEvent(roomSid, 'user/message', openingEvent)
+    const signal = new AbortController().signal
+    await relayTool.execute({}, { agent: { id: roomSid, inbox: roomAgent.inbox }, callId: `relay-${Date.now()}-${Math.random()}`, signal })
+    await waitFor(() => chiefAgent.lastFollowup?.source?.role === 'room')
+    const chiefMsg = chiefAgent.lastFollowup
+    await queueDuringChief()
+    answerMember('ga', chiefMsg, 'Chief first reply')
+    await waitFor(() => writerAgent.lastFollowup?.source?.role === 'room')
+    const writerMsg = writerAgent.lastFollowup
+    answerMember('gb', writerMsg, 'Writer follow-up reply')
+    // Wait for any follow-up turn triggered by the drained message to settle too.
+    await waitFor(() => {
+      const waiter = [...s.rt.roomWaiters.values()].find(w => w.roomId === 'r1')
+      if (waiter !== undefined) {
+        const msg = s.agentOf(waiter.sessionId).lastFollowup
+        if (msg?.source?.exchangeId === [...s.rt.roomWaiters.entries()].find(([, v]) => v === waiter)?.[0]) {
+          answerMember(waiter.sessionId, msg, 'Reply after drained message')
+        }
+        return false
+      }
+      return !s.rt.roomActive('r1')
+    })
+    await s.flush()
+  }
+
+  // 1) Active IM round from g1 + cross-chat IM message from g2 drained via drainRoomInbox -> drops g1 origin, ZERO leak to g1!
+  await gm(s, 'u1', 'hello from g1')
+  const g1Req = s.prompts.at(-1).requestId
+  s.emitEvent(roomSid, 'turn/start', { turn: 1 })
+  s.fake.sent.length = 0
+  await runDrainedRound(
+    { source: { kind: 'user', rpcId: g1Req }, content: [{ type: 'text', text: 'hello from g1' }] },
+    async () => {
+      await gm(s, 'u1', 'secret from g2', { chat: { key: 'g2', kind: 'group', title: 'Group Two' } })
+      const g2Req = s.prompts.at(-1).requestId
+      roomAgent.inbox.nextTurn.push({ id: 'm-g2', role: 'user', source: { kind: 'user', rpcId: g2Req }, content: [{ type: 'text', text: '@Writer secret from g2' }] })
+      s.rt.nudgeRoom('r1')
+    },
+  )
+  assert.equal(roomAgent.inbox.nextTurn.length, 0, 'g2 message must be drained from inbox')
+  assert.equal(s.rt.captureImOrigin(roomSid), undefined, 'cross-chat g2 drained by drainRoomInbox must drop g1 origin')
+  assert.equal(s.fake.sent.some(entry => entry.text.includes('Writer follow-up reply') || entry.text.includes('Reply after drained message')), false, 'replies after g2 mixed in must never leak to g1')
+
+  // 2) Active IM round from g1 + unknown IM rpcId drained via drainRoomInbox -> drops g1 origin, nothing leaks!
+  s.rt.clearImOrigin(roomSid)
+  await gm(s, 'u1', 'clean g1 round')
+  const g1Req2 = s.prompts.at(-1).requestId
+  s.emitEvent(roomSid, 'turn/start', { turn: 2 })
+  s.fake.sent.length = 0
+  await runDrainedRound(
+    { source: { kind: 'user', rpcId: g1Req2 }, content: [{ type: 'text', text: 'clean g1 round' }] },
+    async () => {
+      roomAgent.inbox.nextTurn.push({ id: 'm-unk', role: 'user', source: { kind: 'user', rpcId: 'im:telegram:unknown-drained' }, content: [{ type: 'text', text: '@Writer unknown IM' }] })
+      s.rt.nudgeRoom('r1')
+    },
+  )
+  assert.equal(s.rt.captureImOrigin(roomSid), undefined, 'unknown IM rpcId drained by drainRoomInbox must drop g1 origin')
+  assert.equal(s.fake.sent.some(entry => entry.text.includes('Writer follow-up reply')), false)
+
+  // 3) Active unclaimed Web round + legitimate IM message from g1 drained via drainRoomInbox -> claims g1 and delivers replies to g1!
+  s.rt.clearImOrigin(roomSid)
+  s.emitEvent(roomSid, 'turn/start', { turn: 3 })
+  s.fake.sent.length = 0
+  await runDrainedRound(
+    { source: { kind: 'user' }, content: [{ type: 'text', text: 'local start' }] },
+    async () => {
+      await gm(s, 'u1', '@Writer join from g1')
+      const g1JoinReq = s.prompts.at(-1).requestId
+      roomAgent.inbox.nextTurn.push({ id: 'm-g1-join', role: 'user', source: { kind: 'user', rpcId: g1JoinReq }, content: [{ type: 'text', text: '@Writer join from g1' }] })
+      s.rt.nudgeRoom('r1')
+    },
+  )
+  assert.equal(s.rt.captureImOrigin(roomSid)?.chatKey, 'g1', 'legitimate IM message drained by drainRoomInbox must claim g1 origin')
+  assert.ok(s.fake.sent.some(entry => entry.chat.key === 'g1' && entry.text.includes('Writer follow-up reply')), 'replies after g1 joins via drainRoomInbox must reach g1')
+
+  // 4) Pending IM roomReport + Web user message drained via drainRoomInbox -> taints roomReport!
+  s.rt.state.roomReports = {
+    'rep-im-1': {
+      id: 'rep-im-1', roomId: 'r1', botId: 'a', name: 'Chief', status: 'tracking', fromSeq: 1,
+      passed: [], failed: [], at: Date.now(),
+      imOrigin: { connId: one.id, chatKey: 'dm-u1', senderId: 'u1', binding: 'bot:a' },
+    },
+  }
+  await runDrainedRound(
+    { source: { kind: 'user' }, content: [{ type: 'text', text: 'round with report' }] },
+    async () => {
+      roomAgent.inbox.nextTurn.push({ id: 'm-web-taint', role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: '@Writer local web message' }] })
+      s.rt.nudgeRoom('r1')
+    },
+  )
+  // Report settles asynchronously at end of round; wait for delivery and verify Web drain tainted its origin.
+  await waitFor(() => s.agentOf('a').lastFollowup?.source?.replyTo !== undefined)
+  const deliveredReport = s.agentOf('a').lastFollowup
+  assert.ok(deliveredReport?.source?.replyTo !== undefined)
+  assert.equal(s.rt.imReplyOrigin(deliveredReport.source.replyTo)?.chatKey, undefined, 'Web user message drained by drainRoomInbox must taint pending IM roomReport')
+})
