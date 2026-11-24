@@ -231,8 +231,10 @@ export function install(rt) {
               // Another host started the book while the importer ran: its records are the
               // book, and what the importer found is only an older view of it.
               text = readFileSync(pathOf(book), 'utf8')
+              // The bytes we just read are what the torn-tail check below must see.
+              buf = Buffer.from(text)
               records = parseBook(text)
-              size = Buffer.byteLength(text)
+              size = buf.length
               const writtenStat = statOf(book)
               ino = writtenStat?.ino ?? 0
               dev = writtenStat?.dev ?? 0

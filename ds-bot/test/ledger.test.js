@@ -279,6 +279,24 @@ test('a book another host starts while the importer runs is read, not replaced',
   assert.deepEqual(rt.ledger.records('group-r1').map(record => record.text), ['made elsewhere'])
   assert.equal(readFileSync(file('group-r1'), 'utf8').includes('imported'), false)
 })
+// #2066 review (6043116028): a book another host starts can end in a torn line. Its bytes
+// are read in the importer branch, so the same torn check must look at them: otherwise the
+// first write appended by this host fuses onto the cut line and is lost with it.
+test('a book another host starts with a torn tail is not fused by the next write', async (t) => {
+  const { rt, home, file } = host(t)
+  mkdirSync(join(home, 'ledger'), { recursive: true })
+  rt.ledger.importer('group-', () => {
+    // The other host's write was interrupted mid-line.
+    writeFileSync(file('group-r1'), `${JSON.stringify({ seq: 1, text: 'made elsewhere' })}\n{"seq":2,"text":"cut`)
+    return [{ seq: 9, text: 'imported over it' }]
+  })
+  assert.deepEqual(rt.ledger.records('group-r1').map(record => record.text), ['made elsewhere'])
+  rt.ledger.append('group-r1', { seq: 3, text: 'ours' })
+  await rt.ledger.written('group-r1')
+  const text = readFileSync(file('group-r1'), 'utf8')
+  assert.equal(parseBook(text).some(record => record.text === 'ours'), true, 'the next write starts on a line of its own')
+  assert.equal(parseBook(text).some(record => record.text === 'made elsewhere'), true, 'the line before it is kept')
+})
 // The slot holds the book's last write, not "the write after this record". A caller that
 // captures it right after its own append gets its own write; a later record cannot answer
 // for an earlier one.
