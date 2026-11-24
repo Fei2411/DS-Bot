@@ -639,6 +639,43 @@ test('a restarted host shows the saved tail without reading the Session', async 
   await second.stop()
 })
 
+test('a background part does not overwrite the saved tail of the Bot own chat', async () => {
+  const { rt, call, emit, history, stop } = start()
+  const { chief } = await team(call)
+  const sessionId = (await call('state', {})).value.bots.find(bot => bot.id === chief).sessionId
+  history[sessionId] = [user(1, 'Ship the list first', 1000)]
+  await emit(sessionId, history[sessionId][0])
+  const tailFile = join(rt.home, 'tail', `${chief}.json`)
+  await waitFor(() => {
+    try { return readFileSync(tailFile, 'utf8').includes('Ship the list first') } catch { return false }
+  })
+  // An earlier part read once, then updated while the own chat is on screen.
+  const earlier = 's-earlier'
+  rt.chatOwners.set(earlier, chief)
+  rt.chatTail(earlier)
+  history[earlier] = [user(1, 'An answer from earlier', 2000)]
+  await emit(earlier, history[earlier][0])
+  await settle()
+  await settle()
+  const saved = JSON.parse(readFileSync(tailFile, 'utf8'))
+  assert.equal(saved.session, sessionId)
+  assert.equal(saved.preview, 'Ship the list first')
+  await stop()
+})
+
+test('a restart ignores a tail saved for another part', async () => {
+  const first = start()
+  const { chief } = await team(first.call)
+  mkdirSync(join(first.rt.home, 'tail'), { recursive: true })
+  writeFileSync(join(first.rt.home, 'tail', `${chief}.json`), JSON.stringify({ session: 's-earlier', at: 5000, preview: 'An answer from earlier' }))
+  await first.ctx.dispose()
+  const second = start({ home: first.rt.home })
+  const row = (await second.call('state', {})).value.bots.find(bot => bot.id === chief)
+  assert.equal(row.preview, undefined)
+  assert.equal(row.lastAt, undefined)
+  await second.stop()
+})
+
 test('room-chat reads the current part after a group chat moves to a fresh part, and pages back to earlier parts', async (t) => {
   const { call, emit, history, routes, rt, stop } = start()
   t.after(stop)

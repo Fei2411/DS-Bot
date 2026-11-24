@@ -2893,6 +2893,8 @@ export function install(rt) {
       try {
         const parsed = JSON.parse(await readFile(tailFile(bot.id), 'utf8'))
         if (parsed === null || typeof parsed !== 'object') continue
+        // A file saved for another part is not this chat's row.
+        if (parsed.session !== sessionId) continue
         tails.set(sessionId, {
           lastAt: Number.isFinite(parsed.at) ? parsed.at : 0,
           preview: typeof parsed.preview === 'string' ? parsed.preview : '',
@@ -2915,7 +2917,9 @@ export function install(rt) {
     tails.set(sessionId, tail)
     if (prev?.lastAt === tail.lastAt && prev?.preview === tail.preview) return
     const botId = rt.chatOwners.get(sessionId)
-    if (botId === undefined || tailDir === undefined || rt.readOnly?.() !== undefined) return
+    // Only the foreground chat is read back at load, so a tail from an earlier part
+    // or a task must not overwrite the one saved for it.
+    if (botId === undefined || rt.chatOf(botId) !== sessionId || tailDir === undefined || rt.readOnly?.() !== undefined) return
     writeTail(botId, { session: sessionId, at: tail.lastAt, preview: tail.preview })
   }
   const applyTail = (sessionId, item) => setTail(sessionId, { lastAt: item.time ?? 0, preview: previewText(item) })
