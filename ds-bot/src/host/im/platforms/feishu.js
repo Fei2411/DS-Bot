@@ -7,10 +7,13 @@
 // by PATCH. The tiny protobuf codec below implements only this frame shape.
 // Protocol ported from @larksuiteoapi/node-sdk (MIT, see NOTICE).
 import { chunkMarkdown } from '../format.js'
+import { discardBody, FILE_LIMIT, IMAGE_LIMIT, mediaSignal, readCappedBytes } from './media.js'
 import { retryDelay, retryWait } from './retry.js'
 
 const TEXT_LIMIT = 4000
 const SOCKET_TIMEOUT = 30_000
+const PARTS_TTL_MS = 30_000
+const PARTS_MAX = 500
 const GATEWAY_RETRY_DELAYS = [5_000, 15_000]
 const POLICY_ERROR = 'Feishu denied long-connection discovery under its platform policy. Contact Feishu support if the problem persists.'
 const isPolicyDenial = message => typeof message === 'string' && /^access denied due to platform policy\b/i.test(message)
@@ -141,6 +144,7 @@ export default {
     const appId = String(fields.appId ?? '').trim()
     const appSecret = String(fields.appSecret ?? '').trim()
     let stopped = false
+    const stopping = new AbortController()
     let socket
     let generation = 0
     let reconnectTimer
@@ -180,7 +184,7 @@ export default {
     }))
 
     const downloadResource = (messageId, key, resourceType) => freshToken()
-      .then(bearer => resource(env, apiBase(env, fields), bearer, messageId, key, resourceType))
+      .then(bearer => resource(env, apiBase(env, fields), bearer, messageId, key, resourceType, resourceType === 'image' ? IMAGE_LIMIT : FILE_LIMIT, stopping.signal))
       .catch(() => undefined)
 
     const dispatch = async (type, body) => {
@@ -263,10 +267,16 @@ export default {
     }
     let openFailures = 0
     let gatewayRefusals = 0
+    const pruneParts = (now = Date.now()) => {
+      for (const [id, entry] of parts) {
+        if (now - entry.at > PARTS_TTL_MS) parts.delete(id)
+      }
+    }
     const retry = (gen, error, delay = retryDelay(openFailures)) => {
       if (stopped || generation !== gen) return
       generation += 1
       clearSocketTimers()
+      pruneParts()
       const previous = socket
       socket = undefined
       try { previous?.close(4001, 'reconnect') } catch { /* already gone */ }
@@ -370,9 +380,16 @@ export default {
         const seq = Number(frame.headers.find(h => h.key === 'seq')?.value ?? 1)
         ack(frame, 0)
         if (sum > 1) {
-          const held = parts.get(messageId) ?? { received: new Map(), sum }
+          const now = Date.now()
+          for (const [id, entry] of parts) {
+            if (now - entry.at > PARTS_TTL_MS) parts.delete(id)
+          }
+          const held = parts.get(messageId) ?? { received: new Map(), sum, at: now }
+          held.at = now
           held.received.set(seq, frame.payload)
+          parts.delete(messageId)
           parts.set(messageId, held)
+          while (parts.size > PARTS_MAX) parts.delete(parts.keys().next().value)
           if (held.received.size !== sum) return
           frame.payload = Buffer.concat([...held.received.keys()].sort((a, b) => a - b).map(s => held.received.get(s)))
           parts.delete(messageId)
@@ -500,6 +517,7 @@ export default {
       },
       stop: () => {
         stopped = true
+        stopping.abort()
         generation += 1
         clearTimeout(reconnectTimer)
         clearSocketTimers()
@@ -627,10 +645,19 @@ async function api(env, base, token, path, { method = 'GET', body } = {}) {
   return json
 }
 
-async function resource(env, base, token, messageId, key, type) {
+async function resource(env, base, token, messageId, key, type, limit = FILE_LIMIT, signal) {
   const response = await env.fetch(`${base}/open-apis/im/v1/messages/${messageId}/resources/${key}?type=${type}`, {
     headers: { authorization: `Bearer ${token}` },
+    signal: mediaSignal(signal),
   })
-  if (!response.ok) return undefined
-  return new Uint8Array(await response.arrayBuffer())
+  if (!response.ok) {
+    await discardBody(response)
+    return undefined
+  }
+  const got = await readCappedBytes(response, limit)
+  if (got.overLimit) {
+    env.log?.warn?.('ds-bot im: feishu %s over %d byte cap, skipped', type, limit)
+    return undefined
+  }
+  return got.bytes === undefined ? undefined : new Uint8Array(got.bytes.buffer, got.bytes.byteOffset, got.bytes.byteLength)
 }

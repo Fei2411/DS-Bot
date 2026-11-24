@@ -83,4 +83,31 @@ describe('notifications', () => {
     assert.equal(badgeCount(1000), 99)
     assert.equal(badgeCount('4'), 4)
   })
+
+  test('failed notifications, capped overflow, and expired banners are evicted from live tracking', async () => {
+    const shown = []
+    const Notification = class extends EventEmitter {
+      static isSupported() { return true }
+      constructor(options) { super(); this.options = options }
+      show() { shown.push(this) }
+      close() { this.closed = true; this.emit('close') }
+    }
+    const notifications = createNotifications({ Notification, maxLive: 2, ttlMs: 40, log: { warn() {} } })
+    notifications.show({ title: 'One', body: '1' })
+    shown[0].emit('failed')
+    notifications.show({ title: 'Two', body: '2' })
+    notifications.show({ title: 'Three', body: '3' })
+    notifications.show({ title: 'Four', body: '4' })
+    // 'Two' was evicted by maxLive: 2; 'One' was dropped by 'failed'. Only Three and Four remain live.
+    notifications.clear()
+    assert.equal(shown[0].closed, undefined, 'failed notification dropped before clear')
+    assert.equal(shown[1].closed, undefined, 'overflow notification evicted by maxLive cap')
+    assert.equal(shown[2].closed, true)
+    assert.equal(shown[3].closed, true)
+
+    notifications.show({ title: 'Expiring', body: 'ttl' })
+    await new Promise(resolve => setTimeout(resolve, 70))
+    notifications.clear()
+    assert.equal(shown[4].closed, undefined, 'TTL-expired notification dropped without accumulating')
+  })
 })

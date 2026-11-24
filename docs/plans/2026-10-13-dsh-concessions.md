@@ -32,6 +32,11 @@ DS Bot 以 DSH 插件形态运行，严格遵守「不修改 DSH、只调用公�
 | C17 | #702 | DSH 网页版「预览版说明」首屏无文档开关（自动凭据引导已用 `credentialOnboarding: false` 关闭） | 不伪装 `dshDesktop`，接受新用户首屏多点一次「继续」 | 首次打开桌面应用会先见到 DSH 预览说明 | 向上游申请开关，或桌面应用改用自绘前端 |
 | C18 | #904 #910 | DSH 网页端 `ui-primitives` 缺少 `projectUserText` 钩子且气泡不带 `source.rpcId` | 宿主已下发 `imVia` 映射；群聊与历史段正常显示「来自 IM」，私聊当前段暂由 DSH 默认气泡渲染 | 私聊当前段的 IM 消息暂不显示来源标签 | 上游开放 `projectUserText`，或桌面应用自绘消息气泡 |
 | C19 | — | DSH `ui-chat` 样式表与插件样式中的大量 `:has()` 选择器叠加会拖慢长回复流式渲染 | 持续清理 DS Bot 侧 `:has()` 选择器 | 上游 `ui-chat` 侧的 `:has()` 仍会在极长回复流式时造成重算开销 | 桌面应用自绘聊天流后彻底移除两侧 `:has()` |
+| C20 | — | `BasicCompactionEngine.compactNow()` 硬编码 `retainTokens = 0`，不支持为空闲压缩传入保留尾部预算 | 回合内保留尾部压缩走 `selectRetainedRange` 与 `compactRegion`；空闲压缩走 `compactNow()` 并由检查点摘要带入近期原文 | 空闲压缩无法直接按 `retainTokens` 原样保留近期尾巴，只能通过摘要段重建 | 向上游申请为 `compactNow()` 增加可选 `retainTokens` 参数 |
+| C21 | — | `BasicCompactionConfig` 在切换到较小窗口的模型、解析出的压缩阈值 `<= retainTokens` 时直接抛出 `MODEL_SWITCH_COMPACTION_FAILED`，不自动夹紧保留预算 | 宿主侧对 Bot 会话接管 `compactRegion` 与摘要钩子，并在错误页引导改选更大窗口模型或重试 | 切向极小窗口模型时仍会被 DSH 策略校验拒绝，无法自动夹紧 `retainTokens` | 向上游申请在目标模型阈值不大于 `retainTokens` 时自动夹紧保留预算 |
+| C22 | — | `dsh-agent-loop` 变更可见工具列表时会向会话追加 `developer/message` 事件；部分兼容提供方路由不接受 `role: 'developer'`，在已有该事件的会话上请求会被提供方拒绝 | 不修改 DSH 事件模型或篡改既有会话日志；换段或新建会话可隔离旧事件 | 切换到不接受 `role: 'developer'` 的兼容提供方路由时，含历史 `developer/message` 的会话继续请求可能报角色错误 | 向上游申请在不支持 `developer` 角色的提供方适配器中做角色降级映射 |
+| C23 | — | `dsh-llm-retry` 对 HTTP 429 统一按重试策略等待并重发，不区分瞬时限流与重置时间在数小时后的硬性额度耗尽 | 保持 `dsh-llm-retry` 原样不打补丁；本地 Agent 路径单独识别配额耗尽快速失败，模型路由错误按 DSH 事件透传给用户 | 模型路由遇到数小时后才重置的硬性 429 额度耗尽时仍会触发无效退避重试，拖长失败反馈 | 向上游申请在重置时间远超策略边界或明确为硬性额度耗尽时直接快速失败 |
+| C24 | — | DSH 未提供后台增量会话文本索引接口，检索归档与长历史只能按需通过 `sessionController.page` 同步分页回扫 | DS Bot 自建本地 SQLite FTS5 `chat-index.sqlite`（`chat-index.js`），查询或读取旧段时按需追平并封存已结束段 | 大体量会话首次冷搜或重建索引时仍须同步分页回扫，存在冷搜延迟与分页上限约束 | 向上游申请后台/增量会话索引能力，替代冷搜时的同步分页回扫 |
 
 ## 已清理的让步
 
@@ -48,3 +53,4 @@ DS Bot 以 DSH 插件形态运行，严格遵守「不修改 DSH、只调用公�
 ## 变更
 
 - 2026-11-22：合并整理全部在用与已清理的 DSH 限制条目为仓库唯一总账，拆出「已清理的让步」表，去除冗余的作废夹注。
+- 2026-11-24：补录 5 项已核实的上游 DSH 限制（`C20`–`C24`）：`compactNow()` 硬编码 `retainTokens = 0`、切小窗口模型 `threshold <= retainTokens` 抛 `MODEL_SWITCH_COMPACTION_FAILED`、`developer/message` 角色兼容、`llm/retry` 对长期 429 配额耗尽的重试、以及缺少后台增量会话索引。

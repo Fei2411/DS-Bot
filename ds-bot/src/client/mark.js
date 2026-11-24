@@ -1,6 +1,7 @@
 import { createElement as h, useEffect, useRef, useState } from 'react'
 import { fnv1a, lookOf, shapeId, shapeOf, MASK_ID, nextMarkSerial, characterMarkup } from './characters.js'
 import { reducedEffects, reducedMotion } from './motion.js'
+import { memo } from './memo.js'
 import { t } from './i18n.js'
 
 export { colorOf, lookOf } from './characters.js'
@@ -17,70 +18,149 @@ export const botState = (running, activity, alert) => (running ? (STATES.include
 export const toolState = name => (/^(message_bot|delegate_work|ask_back|answer_work|cancel_work|note_bot|stop_bot|create_bot|update_bot|create_group|update_group|delete_group|post_to_group)$/.test(name) ? 'sending'
   : /search|fetch|browse|read|grep|glob|list|recall/i.test(name) ? 'searching' : 'working')
 
+// Shared gaze manager: one pointermove, one MutationObserver, one matchMedia listener,
+// and one IntersectionObserver across all BotMark instances with gaze=true.
+// Reads all bounding rects before writing --bt-gx/--bt-gy, and skips unchanged values.
+const gazeEntries = new Map()
+const gazeHub = {
+  frame: 0,
+  point: null,
+  active: false,
+  mounted: false,
+  mutationObserver: null,
+  intersectionObserver: null,
+  media: null,
+}
+
+const gazeDisabled = () => reducedEffects() || document.body?.dataset.btMotion === 'quiet'
+const clampGaze = value => Math.max(-1, Math.min(1, value))
+
+function flushGaze() {
+  gazeHub.frame = 0
+  const point = gazeHub.point
+  if (!point || gazeDisabled()) return
+  const measured = []
+  for (const entry of gazeEntries.values()) {
+    if (!entry.visible || !entry.node.isConnected) continue
+    measured.push([entry, entry.node.getBoundingClientRect()])
+  }
+  for (const [entry, box] of measured) {
+    const gx = clampGaze((point.x - box.left - box.width / 2) / 160).toFixed(2)
+    const gy = clampGaze((point.y - box.top - box.height / 2) / 160).toFixed(2)
+    if (gx !== entry.gx) { entry.gx = gx; entry.node.style.setProperty('--bt-gx', gx) }
+    if (gy !== entry.gy) { entry.gy = gy; entry.node.style.setProperty('--bt-gy', gy) }
+  }
+}
+
+function onGazeMove(event) {
+  if (gazeDisabled()) return
+  gazeHub.point = { x: event.clientX, y: event.clientY }
+  if (!gazeHub.frame) gazeHub.frame = requestAnimationFrame(flushGaze)
+}
+
+function onGazeLeave() {
+  gazeHub.point = null
+  for (const entry of gazeEntries.values()) {
+    if (entry.gx !== '0') { entry.gx = '0'; entry.node.style.setProperty('--bt-gx', '0') }
+    if (entry.gy !== '0') { entry.gy = '0'; entry.node.style.setProperty('--bt-gy', '0') }
+  }
+}
+
+function clearGazeOffsets() {
+  gazeHub.point = null
+  if (gazeHub.frame) { cancelAnimationFrame(gazeHub.frame); gazeHub.frame = 0 }
+  for (const entry of gazeEntries.values()) {
+    if (entry.gx !== '') { entry.gx = ''; entry.node.style.removeProperty('--bt-gx') }
+    if (entry.gy !== '') { entry.gy = ''; entry.node.style.removeProperty('--bt-gy') }
+  }
+}
+
+function attachGazePointer() {
+  if (gazeHub.active) return
+  gazeHub.active = true
+  window.addEventListener('pointermove', onGazeMove, { passive: true })
+  document.documentElement.addEventListener('pointerleave', onGazeLeave)
+}
+
+function detachGazePointer() {
+  if (!gazeHub.active) return
+  gazeHub.active = false
+  window.removeEventListener('pointermove', onGazeMove)
+  document.documentElement.removeEventListener('pointerleave', onGazeLeave)
+  clearGazeOffsets()
+}
+
+function syncGazeHub() {
+  if (gazeEntries.size === 0 || gazeDisabled()) detachGazePointer()
+  else attachGazePointer()
+}
+
+function mountGazeHub() {
+  if (gazeHub.mounted) return
+  gazeHub.mounted = true
+  if (typeof MutationObserver === 'function' && document.body) {
+    gazeHub.mutationObserver = new MutationObserver(syncGazeHub)
+    gazeHub.mutationObserver.observe(document.body, { attributes: true, attributeFilter: ['data-bt-effects', 'data-bt-motion'] })
+  }
+  if (typeof IntersectionObserver === 'function') {
+    gazeHub.intersectionObserver = new IntersectionObserver((records) => {
+      for (const record of records) {
+        const entry = gazeEntries.get(record.target)
+        if (entry) entry.visible = record.isIntersecting
+      }
+    })
+  }
+  gazeHub.media = window.matchMedia?.('(prefers-reduced-motion: reduce)') ?? null
+  gazeHub.media?.addEventListener?.('change', syncGazeHub)
+  syncGazeHub()
+}
+
+function unmountGazeHub() {
+  if (!gazeHub.mounted) return
+  gazeHub.mounted = false
+  gazeHub.mutationObserver?.disconnect()
+  gazeHub.mutationObserver = null
+  gazeHub.intersectionObserver?.disconnect()
+  gazeHub.intersectionObserver = null
+  gazeHub.media?.removeEventListener?.('change', syncGazeHub)
+  gazeHub.media = null
+  detachGazePointer()
+}
+
 // Eyes follow the pointer on large marks.
 function useGaze(ref, enabled) {
   useEffect(() => {
-    if (!enabled) return undefined
-    let frame = 0
-    let point = null
-    let active = false
-    const clear = () => {
-      point = null
-      if (frame) {
-        cancelAnimationFrame(frame)
-        frame = 0
-      }
-      ref.current?.style.removeProperty('--bt-gx')
-      ref.current?.style.removeProperty('--bt-gy')
-    }
-    const place = () => {
-      frame = 0
-      const node = ref.current
-      if (!node || !point || reducedEffects()) return
-      const box = node.getBoundingClientRect()
-      const clamp = value => Math.max(-1, Math.min(1, value))
-      node.style.setProperty('--bt-gx', clamp((point.x - box.left - box.width / 2) / 160).toFixed(2))
-      node.style.setProperty('--bt-gy', clamp((point.y - box.top - box.height / 2) / 160).toFixed(2))
-    }
-    const onMove = (event) => {
-      if (reducedEffects() || document.body?.dataset.btMotion === 'quiet') return
-      point = { x: event.clientX, y: event.clientY }
-      if (!frame) frame = requestAnimationFrame(place)
-    }
-    const onLeave = () => { point = null; ref.current?.style.setProperty('--bt-gx', '0'); ref.current?.style.setProperty('--bt-gy', '0') }
-    const attach = () => {
-      if (active) return
-      active = true
-      window.addEventListener('pointermove', onMove, { passive: true })
-      document.documentElement.addEventListener('pointerleave', onLeave)
-    }
-    const detach = () => {
-      if (!active) return
-      active = false
-      window.removeEventListener('pointermove', onMove)
-      document.documentElement.removeEventListener('pointerleave', onLeave)
-      clear()
-    }
-    const sync = () => { if (reducedEffects() || document.body?.dataset.btMotion === 'quiet') detach(); else attach() }
-    sync()
-    const observer = typeof MutationObserver === 'function' && document.body ? new MutationObserver(sync) : null
-    observer?.observe(document.body, { attributes: true, attributeFilter: ['data-bt-effects', 'data-bt-motion'] })
-    const media = window.matchMedia?.('(prefers-reduced-motion: reduce)')
-    media?.addEventListener?.('change', sync)
+    const node = ref.current
+    if (!enabled || !node) return undefined
+    const entry = { node, gx: '', gy: '', visible: true }
+    gazeEntries.set(node, entry)
+    mountGazeHub()
+    gazeHub.intersectionObserver?.observe(node)
     return () => {
-      observer?.disconnect()
-      media?.removeEventListener?.('change', sync)
-      detach()
+      gazeHub.intersectionObserver?.unobserve(node)
+      gazeEntries.delete(node)
+      node.style.removeProperty('--bt-gx')
+      node.style.removeProperty('--bt-gy')
+      if (gazeEntries.size === 0) unmountGazeHub()
     }
   }, [enabled])
 }
+
+const sameLook = (a, b) => a === b || (a?.shape === b?.shape && a?.color === b?.color && a?.image === b?.image)
+const sameBotLook = (a, b) => a === b || (
+  a?.id === b?.id
+  && a?.color === b?.color
+  && a?.avatar?.shape === b?.avatar?.shape
+  && a?.avatar?.color === b?.avatar?.color
+  && a?.avatar?.image === b?.avatar?.image
+)
 
 // A mark moves for its state. `live` marks (sidebar, header, details) also answer the
 // pointer, and at the lively motion level blink and fidget at rest (each Bot its own
 // fidget and moment); transcript marks stay still so a long chat does not run dozens
 // of animations.
 const FIDGETS = ['hop', 'sway', 'stretch', 'look']
-export function BotMark({ bot, look: given, size = 36, state = 'idle', live = false, gaze = false, pokeable = false, label }) {
+export const BotMark = memo(function BotMark({ bot, look: given, size = 36, state = 'idle', live = false, gaze = false, pokeable = false, label }) {
   const look = given ?? lookOf(bot)
   const ref = useRef(null)
   const maskId = useRef('')
@@ -110,7 +190,14 @@ export function BotMark({ bot, look: given, size = 36, state = 'idle', live = fa
   if (image) return h('span', common, h('img', { className: 'bt-mark-img', src: image, alt: '', draggable: false, onError: () => setBroken(image) }))
   const box = shapeOf(look.shape).size
   return h('span', common, h('svg', { viewBox: `0 0 ${box} ${box}`, dangerouslySetInnerHTML: { __html: characterMarkup(look.shape, look.color).replaceAll(MASK_ID, maskId.current) } }))
-}
+}, (a, b) => sameBotLook(a.bot, b.bot)
+  && sameLook(a.look, b.look)
+  && a.size === b.size
+  && a.state === b.state
+  && a.live === b.live
+  && a.gaze === b.gaze
+  && a.pokeable === b.pokeable
+  && a.label === b.label, 'BotMark')
 
 function StarIcon({ size = 8 }) {
   return h('svg', { width: size, height: size, viewBox: '0 0 10 10', 'aria-hidden': true },
@@ -142,7 +229,7 @@ function useSettled(state, id) {
   return settled
 }
 
-export function BotAvatar({ bot, size, state = 'idle', main, admin, badge = true, live = true, gaze = false, pokeable = false }) {
+export const BotAvatar = memo(function BotAvatar({ bot, size, state = 'idle', main, admin, badge = true, live = true, gaze = false, pokeable = false }) {
   const settled = useSettled(state, bot?.id)
   if (bot === undefined) return h(BotMark, { size })
   const badgeKind = !badge ? null : state === 'alert' ? 'alert' : state !== 'idle' && state !== 'waiting' ? 'working' : admin ? 'admin' : main ? 'main' : null
@@ -152,7 +239,15 @@ export function BotAvatar({ bot, size, state = 'idle', main, admin, badge = true
     badgeKind === 'alert' ? h('span', { className: 'bt-badge bt-badge-alert', 'aria-label': t('Waiting for your answer'), role: 'img' }, '?') : null,
     badgeKind === 'admin' ? h('span', { className: 'bt-badge bt-badge-admin', 'aria-label': t('Admin'), role: 'img' }, h(StarIcon)) : null,
     badgeKind === 'main' ? h('span', { className: 'bt-badge bt-badge-main', 'aria-label': t('Main Bot'), role: 'img' }, h(MainStar)) : null)
-}
+}, (a, b) => sameBotLook(a.bot, b.bot)
+  && a.size === b.size
+  && a.state === b.state
+  && a.main === b.main
+  && a.admin === b.admin
+  && a.badge === b.badge
+  && a.live === b.live
+  && a.gaze === b.gaze
+  && a.pokeable === b.pokeable, 'BotAvatar')
 
 // A group avatar seats its members' characters in the frame: two on a
 // diagonal, three in a triangle, four in a grid, and past four three plus a "+N" seat.
@@ -168,7 +263,32 @@ function clusterSeats(count, frame) {
   return [[0, 0, half], [half, 0, half], [0, half, half], [half, half, half]]
 }
 
-export function RoomAvatar({ room, roster, size = 36 }) {
+function sameRoomAvatar(a, b) {
+  if (a.size !== b.size || a.room?.id !== b.room?.id || a.room?.avatar?.image !== b.room?.avatar?.image) return false
+  const am = a.room?.members ?? []
+  const bm = b.room?.members ?? []
+  const aById = a.roster?.byId
+  const bById = b.roster?.byId
+  let ai = 0
+  let bi = 0
+  let visible = 0
+  for (;;) {
+    let aBot
+    while (ai < am.length && !(aBot = aById?.[am[ai]])) ai += 1
+    let bBot
+    while (bi < bm.length && !(bBot = bById?.[bm[bi]])) bi += 1
+    const aDone = ai >= am.length
+    const bDone = bi >= bm.length
+    if (aDone !== bDone) return false
+    if (aDone) return true
+    if (visible < 4 && !sameBotLook(aBot, bBot)) return false
+    visible += 1
+    ai += 1
+    bi += 1
+  }
+}
+
+export const RoomAvatar = memo(function RoomAvatar({ room, roster, size = 36 }) {
   const [broken, setBroken] = useState('')
   const image = room.avatar?.image
   if (image && image !== broken) return h('span', { className: 'bt-mark', style: { width: size, height: size }, 'aria-hidden': true },
@@ -204,4 +324,4 @@ export function RoomAvatar({ room, roster, size = 36 }) {
       const bot = people[index]
       return h('span', { key: bot?.id ?? 'you', style }, seat(bot, s))
     }))
-}
+}, sameRoomAvatar, 'RoomAvatar')

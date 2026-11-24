@@ -11,6 +11,7 @@ const GOAL_MAX = 200
 const PROGRESS_MAX = 300
 const RESULT_MAX = 2000
 const NOTE_MAX = 500
+const NOTES_MAX = 50
 const REASON_MAX = 500
 
 const oneLine = (text, max) => String(text ?? '').replace(/\s+/g, ' ').trim().slice(0, max)
@@ -91,6 +92,7 @@ export function install(rt) {
     const line = oneLine(text, NOTE_MAX)
     if (line === '') return undefined
     ;(task.notes ??= []).push({ at: Date.now(), by, text: line })
+    if (task.notes.length > NOTES_MAX) task.notes.splice(0, task.notes.length - NOTES_MAX)
     task.updatedAt = Date.now()
     return task
   }
@@ -184,16 +186,33 @@ export function install(rt) {
     void rt.save().catch(() => {})
   }
 
+  const cancelMemberTasks = (room, botId, reason) => {
+    if (room === undefined || botId === undefined) return 0
+    const open = openTasksOf(room).filter(task => task.botId === botId)
+    if (open.length === 0) return 0
+    const at = Date.now()
+    const why = oneLine(reason, REASON_MAX)
+    for (const task of open) {
+      task.status = 'cancelled'
+      delete task.blocked
+      if (why !== '') task.reason = why
+      task.updatedAt = at
+    }
+    return open.length
+  }
+
   // For the group overview. The endpoint adds the user's note and posts it to the room.
   Object.assign(rt, {
     blockTasks,
     unblockTasks,
+    cancelMemberTasks,
     taskNote: (roomId, id, text) => {
       const room = rt.roomOf(roomId)
       if (room === undefined) return { error: 'No such group.' }
       const task = tasksOf(room)[String(id ?? '')]
       if (task === undefined) return { error: 'No such task.' }
       if (!OPEN_STATUSES.includes(task.status)) return { error: 'That task is already finished.' }
+      if (!room.members.includes(task.botId)) return { error: 'That task\'s owner is no longer in this group.' }
       const noted = note(room, id, text, 'user')
       return noted === undefined ? { error: 'Write a note first.' } : { task: noted }
     },

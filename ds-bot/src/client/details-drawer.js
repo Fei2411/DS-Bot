@@ -273,12 +273,16 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, ro
   const close = () => actions.closeOverlay()
   const running = useSessionStatus(map => map.get(part)?.running === true)
   const doing = useActivity(map => map[bot?.id ?? sessionId])
-  const transcript = useSessions(list => transcriptOf(list, part, bot?.name ?? room?.name ?? t('Bot'), roster.exchangeTurns[part]))
+  const sessionsRef = useRef(null)
+  useSessions((list) => { sessionsRef.current = list; return null })
   const usage = useSessions(list => usageOf(list, [part, ...(bot?.parts ?? room?.parts ?? [])]))
   const run = promise => Promise.resolve(promise)
     .then(() => { setError(''); return true })
     .catch(failure => { setError(failure?.message ?? String(failure)); return false })
   const share = () => {
+    const transcript = sessionsRef.current
+      ? transcriptOf(sessionsRef.current, part, bot?.name ?? room?.name ?? t('Bot'), roster.exchangeTurns[part])
+      : ''
     void navigator.clipboard?.writeText(transcript).then(() => {
       setCopied(true)
       setTimeout(() => setCopied(false), 1600)
