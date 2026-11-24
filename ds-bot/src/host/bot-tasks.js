@@ -129,9 +129,18 @@ export function install(rt) {
   const inFlightSaveMoveOps = new Map()
   const pendingSaveMoveOps = new Map()
   const inputsAwaitingMoveSave = new WeakSet()
-  // Bounded retry timer when `reconcilePendingHandoffInputs` defers an unreadable/unflushed session.
   let reconcileRetryTimer
   let reconcileRetryDelayMs = 1000
+  const scheduleHandoffReplay = () => {
+    if (reconcileRetryTimer !== undefined) return
+    const delay = reconcileRetryDelayMs
+    reconcileRetryDelayMs = Math.min(reconcileRetryDelayMs * 2, 15_000)
+    reconcileRetryTimer = setTimeout(() => {
+      reconcileRetryTimer = undefined
+      void reconcilePendingHandoffInputs().catch(() => {})
+    }, delay)
+    reconcileRetryTimer.unref?.()
+  }
   // Cache of rpcIds/messageIds scanned from immutable cold (settled) sessions after restart.
   const MAX_INSPECTED_SESSIONS = 128
   const inspectedSettledSessionRpcIds = new Map()
@@ -1114,15 +1123,7 @@ export function install(rt) {
         }
       }
       if (deferredAny && Array.isArray(state.pendingHandoffInputs) && state.pendingHandoffInputs.length > 0) {
-        if (reconcileRetryTimer === undefined) {
-          const delay = reconcileRetryDelayMs
-          reconcileRetryDelayMs = Math.min(reconcileRetryDelayMs * 2, 15_000)
-          reconcileRetryTimer = setTimeout(() => {
-            reconcileRetryTimer = undefined
-            void reconcilePendingHandoffInputs().catch(() => {})
-          }, delay)
-          reconcileRetryTimer.unref?.()
-        }
+        scheduleHandoffReplay()
       } else if (!Array.isArray(state.pendingHandoffInputs) || state.pendingHandoffInputs.length === 0) {
         reconcileRetryDelayMs = 1000
       }
@@ -2427,6 +2428,7 @@ export function install(rt) {
             }
             releaseTransferLock(key, token)
           }
+          if (deferredInputs.size > 0) scheduleHandoffReplay()
           for (const id of record.operationIds) {
             pendingEntry.operationIds.add(id)
             rememberPendingSaveMoveOp(id, pendingEntry)
