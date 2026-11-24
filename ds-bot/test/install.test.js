@@ -60,6 +60,7 @@ test('apply registers listeners and effects in a fixed order', (t) => {
     'on settings/document-updated',
     'on agent/disposed',
     'effect ds-bot: auxiliary llm retry',
+    'on tools/pre-execute (prepend)',
     'on subagent/start',
     'on subagent/end',
     'on agent/inbox/claimed',

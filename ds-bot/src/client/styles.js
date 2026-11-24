@@ -579,6 +579,7 @@ html[data-platform=darwin] .bt-panel [data-window-drag] :is(a,button,input,texta
 .bt-drawer-model{display:flex;flex-direction:column}
 .bt-drawer-model .bt-note{margin-top:6px}
 .bt-drawer-permission{display:flex;flex-direction:column}
+.bt-seg.bt-permissions button{height:auto;min-height:30px;min-width:0;padding:6px 4px;line-height:18px;white-space:normal}
 .bt-seg button.bt-perm-danger,.bt-seg button.bt-perm-danger[aria-pressed=true],.bt-kv span.bt-perm-danger{color:var(--bt-danger)}
 
 /* Settings dialog: a 212px searchable nav rail beside the page. */

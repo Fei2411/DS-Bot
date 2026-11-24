@@ -380,6 +380,14 @@ export function install(rt) {
       if (sessionIdOf(room.id) === undefined) room.id = id
       if (!Array.isArray(room.members)) room.members = []
     }
+    // Null maps and null entries are repaired above. Migrating before that
+    // threw on archives that previously still loaded.
+    for (const target of [...Object.values(state.bots), ...Object.values(state.rooms)]) {
+      if (!Object.hasOwn(target, 'autoApprove')) continue
+      if (target.autoApprove === true) target.permission = 'review'
+      delete target.autoApprove
+      migrated = true
+    }
     // A Bot has one conversation at a time again: a team saved with parts opened while
     // the Bot was busy (#1548, withdrawn) keeps them as earlier parts of its chat, still
     // readable. Each live one is listed in `retiredParts` until its tasks have moved to

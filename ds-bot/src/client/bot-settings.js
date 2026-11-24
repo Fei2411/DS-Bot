@@ -14,6 +14,7 @@ import { AvatarLibraryPanel, avatarImage } from './avatar-library.js'
 import { useMemoryCount } from './memory-panel.js'
 import { SPRING_SHAPE, SPRING_TAP, spring, useGlide, useLinger } from './motion.js'
 import { t } from './i18n.js'
+import { ApprovalSettings } from './approval-settings.js'
 
 const capitalize = word => word[0].toUpperCase() + word.slice(1)
 
@@ -256,6 +257,7 @@ export function BotSettingsForm({ bot, roster, actions, run }) {
         h(FolderMenu, { value: bot.workDir, actions, run, onPick: workDir => save({ workDir }) })),
       // A private Bot works in its own folder only; a local agent keeps its own file permissions.
       bot.private === true || bot.engine !== undefined ? null : h(ExtraFolders, { value: bot.extraDirs, actions, run, onSave: extraDirs => save({ extraDirs }) })),
+    h(ApprovalSettings, { target: bot, roster, Card }),
     h(Card, { title: t('Privacy') },
       h(SwitchRow, {
         label: t('Private'),

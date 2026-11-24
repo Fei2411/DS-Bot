@@ -30,6 +30,8 @@ test('sharp native modules and versioned libvips libraries are unpacked together
     '@img/sharp-libvips-darwin-arm64/lib/libvips-cpp.8.18.7.dylib',
     '@img/sharp-win32-x64/lib/libvips-42.dll',
     'pnpm/bin/pnpm.cjs',
+    'ds-bot/src/host/skills/ds-bot-maintenance/references/online-inspection.md',
+    'ds-bot/src/host/skills/ds-bot-plugin-dev/references/capabilities-and-mcp.md',
     'ds-bot/src/host/skills/ds-bot-manual/SKILL.md',
     'ds-bot/src/host/skills/ds-bot-manual/references/settings.md',
   ]) assert.equal(filter(join(root, 'node_modules', file), stat), true, file)

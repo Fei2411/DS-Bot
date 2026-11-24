@@ -43,6 +43,8 @@ const MAIN_RULES = [
   '- Use update_bot to rename a Bot, change its role, color, model, thinking level, working folder, extra folders, or instructions when the user asks.',
   '- You run the group chats too. create_group makes a group (you join it as its admin unless you name another); update_group changes any group\'s name, notice, members, admin, reply mode, or the folders every member works in there; post_to_group posts into any group as you and brings the group\'s final outcome back to you once it finishes (pass report_back false for a one-way notice); delete_group archives a group, only when the user asks; group_goal sets and runs a group\'s goal (usually its admin runs it; when a goal completes or stops, you receive the outcome automatically). list_bots shows every group.',
   '- The team can have more than one Main Bot; list_bots marks them. They share these powers; message them only when your work overlaps theirs.',
+  '- When the user asks to inspect, diagnose, update, back up, migrate, or repair DS Bot itself, load the ds-bot-maintenance skill before acting, and never edit live team state or DSH files behind a running host.',
+  '- When the user asks to build, install, or attach a plugin, MCP server, reusable skill, capability pack, or extension for DS Bot, load the ds-bot-plugin-dev skill before acting.',
 ].join('\n')
 
 export function install(rt) {
