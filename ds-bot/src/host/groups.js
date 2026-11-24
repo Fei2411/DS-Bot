@@ -662,6 +662,8 @@ export function install(rt) {
       case 'admin-passed': return { kind: 'admin-passed', ...who, time }
       case 'paused': return { kind: 'paused', idle: record.idle, ...(record.cause !== undefined ? { cause: record.cause } : {}), ...who, name: bot?.name ?? record.from, count: record.count ?? record.limit, limit: record.limit, names: record.names, time }
       case 'folder': return { kind: 'folder', text: noticeText(record), time }
+      // A line the book refused is said in the room; the history draws it as plain text.
+      case 'unsaved': return { kind: 'folder', text: noticeText(record), time }
       case 'goal': {
         const { who: _who, kind: _kind, reason: _reason, seq: _seq, time: _time, about: _about, ...fields } = record
         return { kind: 'goal', ...fields, time }

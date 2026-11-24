@@ -2307,3 +2307,35 @@ test('a line written while its round stops keeps the rest of the inbox', { skip:
   assert.equal(round.slots.filter(slot => slot.id === admin.id).length, 1, 'the parked call is not handed to the stopped round')
   await running
 })
+
+// #2066 review (6043116028, item 4): the room is told a line was not saved, but the group
+// history is built from the book through rowOf, which has no shape for that notice. The
+// user never sees it.
+test('the group history shows the notice of a line the book did not keep', { skip: process.platform === 'win32' || process.getuid?.() === 0 }, async (t) => {
+  const { call, compose, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  await emit(room.id, userMessage('Kick off'))
+  const running = relay(room.id, 'relay')
+  const first = await turnFor(sent)
+  assert.ok(first)
+  const wrote = '@Writer a line the book refuses'
+  // The composed line's write is the one that fails; the notice's own write still lands.
+  const realWritten = rt.ledger.written
+  rt.ledger.written = (book) => rt.ledger.records(book).at(-1)?.text === wrote
+    ? Promise.reject(new Error('refused'))
+    : realWritten(book)
+  try {
+    await compose(room.id, wrote)
+    await answer(first.sessionId, first.message.source.exchangeId, 'Chief done', 1)
+    const notice = await waitFor(() => rt.roomOf(room.id).log.find(line => line.reason === 'unsaved'))
+    assert.ok(notice, 'the room is told the line was not saved')
+    const rows = rt.groupRows(room.id, 1)
+    assert.ok(rows.some(row => row.text?.includes('may not have been saved')), 'the group history shows the notice')
+  } finally {
+    rt.ledger.written = realWritten
+  }
+  const second = await turnFor(sent, first)
+  if (second !== undefined) await answer(second.sessionId, second.message.source.exchangeId, 'Writer done', 2)
+  await running
+})
