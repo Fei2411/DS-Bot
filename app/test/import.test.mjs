@@ -8,7 +8,8 @@ import { after, before, describe, test } from 'node:test'
 import { entryListSchema } from '@deepseek-ai/cordis-plugin-include'
 import { load } from 'js-yaml'
 import { parse } from 'yaml'
-import { copySessions, findTeam, importTeam, restoreSessions, sessionIdsOf, teamInUse, teamSizes, userDshHome } from '../src/import.mjs'
+import { disk } from '../src/copy-tree.mjs'
+import { copySessions, findTeam, importTeam, restoreSessions, sessionDirs, sessionIdsOf, teamInUse, teamSizes, userDshHome } from '../src/import.mjs'
 
 const write = (path, text) => {
   mkdirSync(dirname(path), { recursive: true })
@@ -17,6 +18,115 @@ const write = (path, text) => {
 const readJson = path => JSON.parse(readFileSync(path, 'utf8'))
 // The import's stage folders in a data location.
 const staged = to => readdirSync(to).filter(name => /^\.import-\d+$/u.test(name))
+
+function oldSessionDirs(from, ids) {
+  const root = join(from, 'sessions')
+  const groups = existsSync(root) ? readdirSync(root, { withFileTypes: true }).filter(entry => entry.isDirectory()).map(entry => entry.name) : []
+  const found = []
+  const missing = []
+  for (const id of ids) {
+    const group = groups.find(name => existsSync(join(root, name, id)))
+    if (group === undefined) missing.push(id)
+    else found.push({ id, group })
+  }
+  return { found, missing }
+}
+
+describe('sessionDirs', () => {
+  let root
+  before(() => { root = mkdtempSync(join(tmpdir(), 'ds-bot-session-index-')) })
+  after(() => { rmSync(root, { recursive: true, force: true }) })
+
+  test('skips impossible probes in a large batch', async (t) => {
+    const from = join(root, 'probes')
+    for (let i = 0; i < 64; i++) mkdirSync(join(from, 'sessions', `g${i}`), { recursive: true })
+    const ids = Array.from({ length: 1000 }, (_, i) => `s${i}`)
+    for (const id of ids) mkdirSync(join(from, 'sessions', 'g63', id))
+    let probes = 0
+    t.mock.method(disk, 'existsSync', path => { probes++; return existsSync(path) })
+    const { sessionDirs: discover } = await import('../src/import.mjs?session-probes')
+    assert.deepEqual(discover(from, ids), oldSessionDirs(from, ids))
+    if (process.platform !== 'win32') assert.ok(probes <= 1001, `${probes} probes`)
+  })
+
+  test('matches native lookup for duplicates, links, case, Unicode and unusual ids', () => {
+    const from = join(root, 'equivalence')
+    for (const group of ['a', 'b', 'c']) mkdirSync(join(from, 'sessions', group), { recursive: true })
+    for (const [group, id] of [['a', 'shared'], ['b', 'shared'], ['b', 'Case'], ['c', 'é'], ['a', 'K']]) {
+      mkdirSync(join(from, 'sessions', group, id))
+    }
+    symlinkSync(join(from, 'sessions', 'a', 'shared'), join(from, 'sessions', 'b', 'linked'), process.platform === 'win32' ? 'junction' : 'dir')
+    symlinkSync(join(from, 'absent'), join(from, 'sessions', 'a', 'broken'), process.platform === 'win32' ? 'junction' : 'dir')
+    const ids = ['shared', 'missing', 'shared', 'linked', 'broken', 'case', 'é', 'é', 'k', '', '.', '..', 'b/shared', 'a\\shared', 'nul\0id']
+    assert.deepEqual(sessionDirs(from, ids), oldSessionDirs(from, ids))
+    assert.deepEqual(sessionDirs(from, Array.from({ length: 20 }, () => ids).flat()), oldSessionDirs(from, Array.from({ length: 20 }, () => ids).flat()))
+    assert.deepEqual(sessionDirs(from, []), { found: [], missing: [] })
+    assert.deepEqual(sessionDirs(join(root, 'absent'), ids), oldSessionDirs(join(root, 'absent'), ids))
+  })
+
+  test('probes groups whose listing fails', async (t) => {
+    const from = join(root, 'unreadable')
+    mkdirSync(join(from, 'sessions', 'group', 'present'), { recursive: true })
+    t.mock.method(disk, 'readdirSync', (path, ...args) => {
+      if (path === join(from, 'sessions', 'group')) throw new Error('unreadable')
+      return readdirSync(path, ...args)
+    })
+    const { sessionDirs: discover } = await import('../src/import.mjs?session-unreadable')
+    const ids = Array(512).fill('present').concat('missing')
+    assert.deepEqual(discover(from, ids), oldSessionDirs(from, ids))
+  })
+
+  test('keeps the full probe for small batches without listing groups', async (t) => {
+    const from = join(root, 'small')
+    const sessions = join(from, 'sessions')
+    for (let i = 0; i < 64; i++) mkdirSync(join(from, 'sessions', `g${i}`), { recursive: true })
+    const listings = []
+    t.mock.method(disk, 'readdirSync', (path, ...args) => {
+      listings.push(path)
+      return readdirSync(path, ...args)
+    })
+    const { sessionDirs: discover } = await import('../src/import.mjs?session-small')
+    const ids = Array(8).fill('missing')
+    assert.deepEqual(discover(from, ids), { found: [], missing: ids })
+    assert.deepEqual(listings, [sessions])
+  })
+
+  test('does not list later groups when the first group finds every Session', async (t) => {
+    const from = join(root, 'first-group')
+    const sessions = join(from, 'sessions')
+    for (let i = 0; i < 16; i++) mkdirSync(join(sessions, `g${i}`), { recursive: true })
+    const first = join(sessions, readdirSync(sessions)[0])
+    const ids = Array.from({ length: 64 }, (_, i) => `s${i}`)
+    for (const id of ids) mkdirSync(join(first, id))
+    const listings = []
+    t.mock.method(disk, 'readdirSync', (path, ...args) => {
+      listings.push(path)
+      return readdirSync(path, ...args)
+    })
+    const { sessionDirs: discover } = await import('../src/import.mjs?session-first')
+    const threshold = ids.slice(0, 32)
+    assert.deepEqual(discover(from, threshold), oldSessionDirs(from, threshold))
+    assert.deepEqual(listings, [sessions])
+    listings.length = 0
+    assert.deepEqual(discover(from, ids), oldSessionDirs(from, ids))
+    assert.deepEqual(listings, process.platform === 'win32' ? [sessions] : [sessions, first])
+  })
+
+  test('matches the frozen discovery on deterministic randomized trees', () => {
+    let seed = 1950
+    const random = n => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed % n }
+    for (let round = 0; round < 8; round++) {
+      const from = join(root, `random-${round}`)
+      for (let g = 0; g < 16; g++) {
+        const group = join(from, 'sessions', `g${g}`)
+        mkdirSync(group, { recursive: true })
+        for (let i = 0; i < 30; i++) mkdirSync(join(group, `s${random(100)}`), { recursive: true })
+      }
+      const ids = Array.from({ length: 200 }, () => `s${random(130)}`)
+      assert.deepEqual(sessionDirs(from, ids), oldSessionDirs(from, ids))
+    }
+  })
+})
 
 function treeHash(dir) {
   const hash = createHash('sha256')
@@ -52,6 +162,48 @@ const TEAM = {
 }
 const TEAM_SESSIONS = [['--team--', 'session-a'], ['--team--', 'session-a2'], ['--team--', 'session-g'], ['--team--', 'session-g0'], ['--team--', 'session-r1'], ['--site--', 'session-b']]
 
+// Frozen serial size calculation from e9a907e8, before the parallel walk.
+async function serialTeamSizes(from, team, { budget = 2000, now = Date.now } = {}) {
+  const { lstat, readdir } = disk.promises
+  const regenerable = new Set(['node_modules', '.venv', '__pycache__', '.pnpm-store', '.next'])
+  const leftBehind = new Set(['state.lock', 'inflight.json', 'workspace'])
+  const over = Symbol('over budget')
+  const clock = { until: now() + budget, now }
+  const measure = async (path, tally, regen = false) => {
+    if (clock.now() > clock.until) throw over
+    const entry = await lstat(path).catch(() => undefined)
+    if (entry === undefined) return
+    if (!entry.isDirectory()) {
+      tally.bytes += entry.size
+      if (regen) tally.regen += entry.size
+      return
+    }
+    for (const name of await readdir(path).catch(() => [])) await measure(join(path, name), tally, regen || regenerable.has(name))
+  }
+  const sessions = join(from, 'sessions')
+  const groups = existsSync(sessions) ? readdirSync(sessions, { withFileTypes: true }).filter(entry => entry.isDirectory()).map(entry => entry.name) : []
+  const found = sessionIdsOf(team).flatMap(id => {
+    const group = groups.find(name => existsSync(join(sessions, name, id)))
+    return group === undefined ? [] : [{ id, group }]
+  })
+  if (clock.now() > clock.until) return { sessions: found.length }
+  const chats = { bytes: 0, regen: 0 }
+  const work = { bytes: 0, regen: 0 }
+  const bot = join(from, 'bot')
+  try {
+    for (const name of await readdir(bot).catch(() => [])) {
+      if (!leftBehind.has(name)) await measure(join(bot, name), chats)
+    }
+    for (const { id, group } of found) await measure(join(sessions, group, id), chats)
+    await measure(join(from, 'attachments'), chats)
+    await measure(join(bot, 'workspace'), work)
+  } catch (error) {
+    if (error === over) return { sessions: found.length }
+    throw error
+  }
+  return { sessions: found.length, chats: chats.bytes, work: work.bytes, regen: work.regen }
+}
+
 describe('teamSizes', () => {
   let root
   before(() => { root = mkdtempSync(join(tmpdir(), 'ds-bot-app-sizes-')) })
@@ -73,6 +225,82 @@ describe('teamSizes', () => {
 
   test('measures an empty team', async () => {
     assert.deepEqual(await teamSizes(root, {}, { now: () => 0 }), { sessions: 0, chats: 0, work: 0, regen: 0 })
+  })
+
+  test('matches the serial walk for nested files, links, unreadable entries and absent roots', async (t) => {
+    const from = join(root, 'equivalent')
+    oldHome(from)
+    const home = join(from, 'dsh')
+    const workspace = join(home, 'bot', 'workspace')
+    write(join(workspace, 'node_modules', 'pkg', 'lib', 'index.js'), 'regenerable')
+    write(join(workspace, 'src', 'nested', 'index.js'), 'source')
+    const denied = join(workspace, 'unreadable')
+    write(denied, 'not counted')
+    const deniedDir = join(workspace, 'unreadable-dir')
+    write(join(deniedDir, 'hidden'), 'not counted either')
+    mkdirSync(join(workspace, 'empty'))
+    symlinkSync(join(workspace, 'missing'), join(workspace, 'broken'), 'file')
+    symlinkSync(workspace, join(workspace, 'self'), process.platform === 'win32' ? 'junction' : 'dir')
+    const original = disk.promises.lstat
+    t.mock.method(disk.promises, 'lstat', async path => {
+      if (path === denied) throw Object.assign(new Error('unreadable'), { code: 'EACCES' })
+      return original(path)
+    })
+    const originalReaddir = disk.promises.readdir
+    t.mock.method(disk.promises, 'readdir', async (...args) => {
+      if (args[0] === deniedDir) throw Object.assign(new Error('unreadable'), { code: 'EACCES' })
+      return originalReaddir(...args)
+    })
+    const { teamSizes: sizes } = await import('../src/import.mjs?size-equivalence')
+    for (const [at, team] of [[home, TEAM], [join(workspace, 'empty'), {}], [join(root, 'missing'), {}]]) {
+      assert.deepEqual(await sizes(at, team, { now: () => 0 }), await serialTeamSizes(at, team, { now: () => 0 }))
+    }
+    assert.deepEqual(await Promise.all([sizes(home, TEAM, { now: () => 0 }), sizes(home, TEAM, { now: () => 0 })]),
+      [await serialTeamSizes(home, TEAM, { now: () => 0 }), await serialTeamSizes(home, TEAM, { now: () => 0 })])
+  })
+
+  test('drains in-flight stats on budget expiry without starting more operations', async (t) => {
+    const from = join(root, 'drain')
+    const workspace = join(from, 'bot', 'workspace')
+    for (let i = 0; i < 40; i++) write(join(workspace, `file-${i}`), 'x')
+    const original = disk.promises.lstat
+    let time = 0
+    let started = 0
+    let settled = 0
+    const releases = []
+    let ready
+    const inFlight = new Promise(resolve => { ready = resolve })
+    t.mock.method(disk.promises, 'lstat', async path => {
+      if (dirname(path) !== workspace) return original(path)
+      started++
+      if (started === 2) time = 2
+      return new Promise((resolve, reject) => {
+        releases.push(() => {
+          settled++
+          if (settled === 2) reject(new Error('unreadable'))
+          else resolve({ isDirectory: () => false, size: 1 })
+        })
+        if (started === 2) ready()
+      })
+    })
+    const { teamSizes: sizes } = await import('../src/import.mjs?size-drain')
+    let resolved = false
+    const result = sizes(from, {}, { budget: 1, now: () => time }).then(value => { resolved = true; return value })
+    await inFlight
+    try {
+      await new Promise(resolve => setImmediate(resolve))
+      assert.equal(resolved, false, 'must wait for in-flight stats after another task expires')
+      assert.equal(started, 2)
+      releases[0]()
+      await new Promise(resolve => setImmediate(resolve))
+      assert.equal(resolved, false, 'must drain every sibling, not just the first')
+    } finally {
+      for (const release of releases.slice(settled)) release()
+      await result
+    }
+    assert.equal(settled, 2)
+    assert.equal(started, 2)
+    assert.deepEqual(await result, { sessions: 0 })
   })
 })
 
@@ -402,6 +630,44 @@ describe('finding the team', () => {
 
   test('names each Session of the team once', () => {
     assert.deepEqual(sessionIdsOf(TEAM), ['session-a', 'session-a2', 'session-b', 'session-r1', 'session-g', 'session-gone', 'session-g0'])
+  })
+
+  test('names running and settled task Sessions and their earlier parts once', () => {
+    assert.deepEqual(sessionIdsOf({ bots: { bot: { id: 'bot', tasks: [
+      { status: 'running', sessionId: 'task-running', segments: [{ sessionId: 'task-running-old' }, { sessionId: 'task-running' }] },
+      { status: 'settled', sessionId: 'task-settled', segments: [{ sessionId: 'task-settled-old' }] },
+    ] } } }), ['bot', 'task-running', 'task-running-old', 'task-settled', 'task-settled-old'])
+  })
+
+  test('ignores absent, empty and malformed tasks and task parts', () => {
+    assert.deepEqual(sessionIdsOf({}), [])
+    for (const tasks of [undefined, null, {}, [], [null, {}, { sessionId: '', segments: null }, { sessionId: 42, segments: {} }, { segments: [null, {}, { sessionId: false }] }]]) {
+      assert.deepEqual(sessionIdsOf({ bots: { bot: { id: 'bot', tasks } } }), ['bot'])
+    }
+  })
+
+  test('copies background-task Session directories for import and the check', async () => {
+    const taskRoot = join(root, 'background-tasks')
+    const taskFrom = oldHome(taskRoot)
+    const team = readJson(join(taskFrom, 'bot', 'state.json'))
+    team.bots['session-a'].tasks = [
+      { status: 'running', sessionId: 'task-running', segments: [{ sessionId: 'task-running-old' }] },
+      { status: 'settled', sessionId: 'task-settled', segments: [{ sessionId: 'task-settled-old' }] },
+    ]
+    write(join(taskFrom, 'bot', 'state.json'), JSON.stringify(team))
+    const taskIds = ['task-running', 'task-running-old', 'task-settled', 'task-settled-old']
+    for (const id of taskIds) write(join(taskFrom, 'sessions', '--team--', id, 'session.v4.jsonl.zstd'), id)
+    const oldTree = treeHash(taskFrom)
+    const check = join(taskRoot, 'check')
+    const ids = await copySessions(taskFrom, team, check)
+    const { to, workspace } = newHome(taskRoot)
+    const summary = await importTeam({ from: taskFrom, to, workspace, profile: 'desktop' })
+    assert.equal(summary.sessions, TEAM_SESSIONS.length + taskIds.length)
+    for (const id of taskIds) {
+      assert.ok(ids.includes(id))
+      for (const home of [check, to]) assert.equal(readFileSync(join(home, 'sessions', '--team--', id, 'session.v4.jsonl.zstd'), 'utf8'), id)
+    }
+    assert.equal(treeHash(taskFrom), oldTree)
   })
 
   test('names the own Session of every group, so an imported group can be opened', () => {

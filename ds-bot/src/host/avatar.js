@@ -91,6 +91,12 @@ export function avatarBytes(value) {
   return readDataUrl(String(value ?? ''))
 }
 
+export function cleanAvatarImage(value) {
+  if (typeof value !== 'string' || !value.startsWith('data:')) throw new Error('An avatar must contain an image data URL')
+  if (value.length > MAX_AVATAR_IMAGE) throw new Error('Avatar image is too large')
+  return avatarBytes(value).url
+}
+
 // Returns the data URL for avatar.image, or throws with a line the user can read.
 // `baseDir` is where a relative local path starts, and `isData` says whether a real path
 // lies in data a Bot may not read from. Links are not fetched: the host would reach

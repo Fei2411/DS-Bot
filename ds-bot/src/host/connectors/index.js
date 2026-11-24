@@ -598,6 +598,7 @@ export function install(rt) {
       })
       while (list.length > MAX_REQUESTS) { const at = list.findIndex(entry => entry.status !== 'pending'); list.splice(at === -1 ? 0 : at, 1) }
       await rt.save()
+      rt.cardShown?.(agentId, 'connector', entry.name)
       exec.concludeTurn?.()
       return `The card asking the user to connect ${entry.name} is on screen. A note arrives when the user connects or dismisses it.`
     },

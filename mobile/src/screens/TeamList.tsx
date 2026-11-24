@@ -1,17 +1,17 @@
 import { useMemo, useSyncExternalStore } from 'react'
 import { Pressable, StyleSheet, Text, View, SectionList } from 'react-native'
-import type { Bot, Room } from '../connection.ts'
+import type { Agent, Bot, Room } from '../connection.ts'
 import { useTeam } from '../team/context.tsx'
 import { botHasPending, roomHasPending } from '../nav/pending.ts'
 import { isUnread, seenVersion, subscribeSeen } from '../team/seen.ts'
 import { t } from '../ui/i18n.ts'
 import { radius, type as typeScale, useTheme } from '../ui/tokens.ts'
 import { Avatar, RoomAvatar } from '../ui/marks.tsx'
-import { PinMarkIcon } from '../ui/icons.tsx'
+import { FishLogo, PinMarkIcon } from '../ui/icons.tsx'
 import { workPhrase } from '../ui/phrases.ts'
 import { cleanPreview } from './chat/settled.ts'
 
-export interface ChatTarget { kind: 'bot' | 'room'; id: string }
+export interface ChatTarget { kind: 'bot' | 'room' | 'agent'; id: string }
 
 // The drawer's team list, laid out like the desktop sidebar (sidebar.js): every Main
 // Bot as a tile on top, then the other Bots and groups as rows, pinned first, then
@@ -26,6 +26,7 @@ export function TeamList({ onOpen, query = '', current }: { onOpen: (target: Cha
   const mains = new Set(team?.mainBotIds ?? [])
   const needle = query.trim().toLowerCase()
   const mainList = bots.filter(bot => mains.has(bot.id) && bot.hidden !== true && (needle === '' || (bot.name ?? '').toLowerCase().includes(needle)))
+  const agentList = (Array.isArray(team?.agents) ? team.agents : []).filter(agent => needle === '' || agentName(agent).toLowerCase().includes(needle))
   const workBots = team?.work?.bots ?? {}
   const workRooms = team?.work?.rooms ?? {}
   const waiting = team?.work?.waiting ?? {}
@@ -76,8 +77,9 @@ export function TeamList({ onOpen, query = '', current }: { onOpen: (target: Cha
         sections={[{ data: entries }]}
         keyExtractor={entry => `${entry.kind}-${entry.item.id}`}
         stickySectionHeadersEnabled={false}
-        ListHeaderComponent={mainList.length > 0 ? (
-          <View style={styles.tiles}>
+        ListHeaderComponent={mainList.length > 0 || agentList.length > 0 ? (
+          <View>
+          {mainList.length > 0 ? <View style={styles.tiles}>
             {mainList.map(main => (
               <Pressable key={main.id} accessibilityRole="button" accessibilityLabel={`${main.name}, ${t('Main Bot')}`} onPress={() => onOpen({ kind: 'bot', id: main.id })}
                 style={({ pressed }) => [styles.tile, { backgroundColor: pressed || current === main.id ? p.active : p.hover }]}>
@@ -86,6 +88,8 @@ export function TeamList({ onOpen, query = '', current }: { onOpen: (target: Cha
                 {main.role ? <View style={[styles.tag, { backgroundColor: p.active }]}><Text style={{ fontSize: 11, lineHeight: 15, color: p.ink2 }} numberOfLines={1}>{main.role}</Text></View> : null}
               </Pressable>
             ))}
+          </View> : null}
+          {agentList.map(agent => <AgentRow key={agent.id} agent={agent} p={p} selected={current === agent.id} onPress={() => onOpen({ kind: 'agent', id: agent.id })} />)}
           </View>
         ) : undefined}
         renderItem={({ item: entry }) => entry.kind === 'bot' ? (
@@ -113,6 +117,20 @@ function BotRow({ bot, p, dark, mains, waiting, workBots, preview, unread, selec
           {unread === true ? <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: p.accent, marginLeft: 'auto' }} /> : null}
         </View>
         {preview ? <Text style={[typeScale.rowPreview, { color: p.ink2 }]} numberOfLines={1}>{preview}</Text> : null}
+      </View>
+    </Pressable>
+  )
+}
+
+export const agentName = (agent: Agent) => agent.name ?? 'DSH Agent'
+
+// The DSH Agent's row: DSH's own mark, as the desktop sidebar shows it.
+function AgentRow({ agent, p, selected, onPress }: { agent: Agent; p: ReturnType<typeof useTheme>['p']; selected?: boolean; onPress: () => void }) {
+  return (
+    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.row, (pressed || selected) && { backgroundColor: p.hover }]}>
+      <View style={[styles.agentMark, { backgroundColor: p.hover }]}><FishLogo size={22} /></View>
+      <View style={styles.rowBody}>
+        <Text style={[typeScale.rowName, { color: p.ink }]} numberOfLines={1}>{agentName(agent)}</Text>
       </View>
     </Pressable>
   )
@@ -149,6 +167,7 @@ const styles = StyleSheet.create({
   tag: { marginTop: 3, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2, maxWidth: '100%' },
   row: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 52, paddingVertical: 6, paddingHorizontal: 10, marginHorizontal: 8, borderRadius: 10 },
   rowBody: { flex: 1, minWidth: 0 },
+  agentMark: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
   nameRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   waitDot: { position: 'absolute', bottom: -2, right: -2, width: 18, height: 18, borderRadius: 9, borderWidth: 3, alignItems: 'center', justifyContent: 'center' },
   waitIn: { width: 12, height: 12, borderRadius: 6, alignItems: 'center', justifyContent: 'center' },

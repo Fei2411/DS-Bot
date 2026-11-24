@@ -50,6 +50,7 @@ function mount(Component, firstProps) {
         self.cursor = 0
         self.effects = []
         try { self.tree = Component(self.props) } finally { instance = null }
+        assert.equal(self.cursor, self.hookCount ??= self.cursor, 'hook count changed between renders')
         for (const effect of self.effects) effect()
       } while (self.again)
       self.busy = false
@@ -63,8 +64,15 @@ function mount(Component, firstProps) {
 }
 
 const listeners = []
+const resizeObservers = []
 const sandbox = {
+  ResizeObserver: class {
+    constructor(update) { this.update = update; resizeObservers.push(this) }
+    observe(element) { this.element = element }
+    disconnect() { this.disconnected = true }
+  },
   window: {
+    innerWidth: 1024, innerHeight: 768,
     addEventListener: (name, fn, capture) => listeners.push({ name, fn, capture }),
     removeEventListener: (name, fn) => { const at = listeners.findIndex(entry => entry.name === name && entry.fn === fn); if (at >= 0) listeners.splice(at, 1) },
     matchMedia: () => ({ matches: false }),
@@ -84,7 +92,7 @@ const module = { exports: {} }
 runInNewContext(bundle.outputFiles[0].text, {
   ...sandbox,
   module, exports: module.exports,
-  require: name => (name === 'react' ? react : {}),
+  require: name => (name === 'react' ? react : name === 'react-dom' ? { createPortal: tree => tree } : {}),
 })
 const { ModelMenu, EffortBar } = module.exports
 
@@ -95,6 +103,74 @@ const listener = name => listeners.findLast(entry => entry.name === name)?.fn
 
 const efforts = [{ id: 'low', name: 'Low' }, { id: 'high', name: 'High' }]
 const thinking = { efforts, defaultEffort: 'high' }
+
+test('the Settings default picker labels the inherited usable model without changing other empty pickers', () => {
+  const model = { ref: 'official/flash', provider: 'official', providerName: 'DeepSeek', name: 'Flash' }
+  const render = (models, extra = {}) => {
+    const element = ModelMenu({ bot: { id: 'new-bots', name: 'New Bots' }, roster: { models, defaultModel: model.ref }, actions: {}, run: () => {}, wide: true, withEfforts: false, fallbackModel: model.ref, ...extra })
+    return mount(element.type, element.props).tree
+  }
+  const text = (tree, className) => nodes(tree, node => node.props.className === className).map(node => node.children.join(''))
+  const tree = render([model])
+  assert.deepEqual(text(tree, 'bt-model-name'), ['Flash'])
+  assert.deepEqual(text(tree, 'bt-model-provider'), ['DeepSeek'])
+  assert.deepEqual(text(tree, 'bt-model-default'), ['Default'])
+  for (const entries of [[], [{ ...model, needsKey: true }]]) {
+    const empty = render(entries)
+    assert.deepEqual(text(empty, 'bt-model-name'), ['Choose a model'])
+    assert.deepEqual(text(empty, 'bt-model-default'), [])
+  }
+  assert.deepEqual(text(render([model], { fallbackModel: undefined }), 'bt-model-name'), ['Choose a model'])
+  const explicit = render([model], { bot: { id: 'new-bots', model: 'gone/model' } })
+  assert.deepEqual(text(explicit, 'bt-model-name'), ['model'])
+  assert.deepEqual(text(explicit, 'bt-model-default'), [])
+})
+
+test('a wide picker hides a squeezed provider rather than showing a stub', () => {
+  const model = { ref: 'official/flash', name: 'Flash', provider: 'official', reasoning: thinking }
+  const props = { bot: { id: 'new-bots', model: 'official/flash', effort: 'low' }, roster: { models: [model] }, actions: {}, run: () => {}, wide: true, withEfforts: true }
+  const element = ModelMenu(props)
+  const view = mount(element.type, element.props)
+  const provider = { clientWidth: 60, scrollWidth: 70, toggleAttribute(name, hidden) { this.hidden = hidden } }
+  nodes(view.tree, node => node.props.className === 'bt-model-trigger')[0].props.ref.current = { querySelector: () => provider }
+  view.rerender({ ...props, wide: false })
+  view.rerender(props)
+  const observer = resizeObservers.at(-1)
+  assert.equal(observer.element, provider)
+  assert.equal(provider.hidden, false)
+  provider.clientWidth = 30
+  observer.update()
+  assert.equal(provider.hidden, true)
+  provider.clientWidth = 20
+  provider.scrollWidth = 20
+  observer.update()
+  assert.equal(provider.hidden, false)
+  // Changing effortLabel or served state re-runs squeeze detection even when provider stays identical.
+  provider.clientWidth = 30
+  provider.scrollWidth = 90
+  view.rerender({ ...props, bot: { ...props.bot, effort: 'high' } })
+  assert.equal(provider.hidden, true)
+  view.rerender({ ...props, roster: { models: [{ ref: 'other/chat', name: 'Other', provider: 'other' }] } })
+  assert.equal(provider.hidden, true)
+  view.rerender({ ...props, wide: false })
+  assert.equal(resizeObservers.at(-1).disconnected, true)
+
+  // Missing ResizeObserver must not throw.
+  const prevRO = sandbox.ResizeObserver
+  try {
+    const noRoMod = { exports: {} }
+    runInNewContext(bundle.outputFiles[0].text, {
+      ...sandbox,
+      ResizeObserver: undefined,
+      module: noRoMod, exports: noRoMod.exports,
+      require: name => (name === 'react' ? react : name === 'react-dom' ? { createPortal: tree => tree } : {}),
+    })
+    const noRoEl = noRoMod.exports.ModelMenu(props)
+    assert.doesNotThrow(() => mount(noRoEl.type, noRoEl.props))
+  } finally {
+    sandbox.ResizeObserver = prevRO
+  }
+})
 
 test('a save still under way keeps the slider on the newest pick', async () => {
   const saves = []
@@ -322,4 +398,32 @@ test('a menu that is not inline stays a popup with no slider under its trigger',
   assert.equal(nodes(popup.tree, node => node.props.className === 'bt-model-inline').length, 0)
   assert.equal(nodes(popup.tree, node => node.type === EffortBar).length, 0)
   assert.equal(nodes(popup.tree, node => node.props.className === 'bt-model-trigger').length, 1)
+})
+
+test('the popup can open before models load, then focus a model row from search', () => {
+  listeners.length = 0
+  let refreshed = 0
+  const { type, props } = ModelMenu({
+    bot: { id: 'new-bots', name: 'New Bots' }, roster: { models: [] }, withEfforts: false,
+    actions: { refreshModels: () => { refreshed += 1 } },
+  })
+  const popup = mount(type, props)
+  const trigger = popup.tree.children[0]
+  trigger.props.ref.current = { getBoundingClientRect: () => ({ top: 60, bottom: 92, right: 300, width: 160 }) }
+  trigger.props.onClick()
+  assert.equal(refreshed, 1)
+  const menu = () => nodes(popup.tree, node => node.props.role === 'menu')[0]
+  const search = () => nodes(menu(), node => node.props.type === 'search')[0]
+  assert.ok(menu())
+  assert.equal(search(), undefined)
+
+  popup.rerender({ ...props, roster: { models: [{ ref: 'official/flash', provider: 'official', name: 'DeepSeek Flash' }] } })
+  assert.equal(search().props.autoFocus, true)
+  const field = {}
+  const row = { focus: () => { sandbox.document.activeElement = row } }
+  menu().props.ref.current = { querySelectorAll: () => [row] }
+  sandbox.document.activeElement = field
+  search().props.onKeyDown({ ...keydown('ArrowDown'), currentTarget: field })
+  assert.equal(sandbox.document.activeElement, row)
+  sandbox.document.activeElement = null
 })

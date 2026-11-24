@@ -12,16 +12,21 @@ import {
   type ConnectRequestPayload,
   type ControlFrame,
   type HelloPayload,
+  type PushNotifyPayload,
+  type PushResultPayload,
   type RelayPayload,
   type SecureHandshakePayload,
 } from '../src/frames.ts'
 import { deviceIdFor } from '../src/keys.ts'
+import { MAX_SEALED_PUSH_CHARS, PUSH_ENVELOPE_VERSION, isValidPushToken } from '../src/push.ts'
+import type { PushForwarder } from './push.ts'
 import { DeviceStore, LinkError } from './store.ts'
 
 interface Peer {
   ws: WebSocket
   id: string
   role: 'host' | 'client'
+  address: string
   capabilities: string[]
   lastPong: number
   nonce?: string
@@ -51,12 +56,31 @@ export interface GatewayOptions {
   trustProxy?: boolean
   /** Forget devices not seen for this long. */
   deviceTtlMs?: number
+  /** Optional FCM push forwarder; when present, hosts can request offline wakeups. */
+  pushForwarder?: PushForwarder
+  /** Maximum push notifications one host may request per hour. */
+  maxPushesPerHour?: number
+  /** Optional allowlist of host device IDs permitted to use the relay's FCM forwarder. */
+  allowedPushHosts?: string[]
+  /** Maximum concurrent in-flight push forwards per host. */
+  maxInFlightPushesPerHost?: number
 }
 
 const RELAY_CAPABILITY = 'transport.relay'
+const PUSH_FCM_CAPABILITY = 'push.fcm'
 const HEARTBEAT_MS = 25_000
 const HOUR_MS = 3_600_000
 const DEFAULT_MAX_BYTES_PER_HOUR = 512 * 1024 * 1024
+const DEFAULT_MAX_PUSHES_PER_HOUR = 240
+const DEFAULT_MAX_INFLIGHT_PUSHES = 4
+
+function positiveInt(value: number | undefined, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback
+}
+
+function nonNegativeInt(value: number | undefined, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? Math.floor(value) : fallback
+}
 
 /**
  * Pairs a phone's control socket with its computer's and forwards their frames.
@@ -72,10 +96,17 @@ export class Gateway {
   private readonly sockets = new Map<string, number>()
   private readonly registrations = new Map<string, { start: number; count: number }>()
   private readonly traffic = new Map<string, { start: number; bytes: number }>()
+  private readonly pushes = new Map<string, { start: number; count: number }>()
+  private readonly pushesByAddress = new Map<string, { start: number; count: number }>()
+  private readonly inFlightPushes = new Map<string, number>()
+  private readonly allowedPushHosts?: Set<string>
   private lastPrune = 0
 
   constructor(options: GatewayOptions) {
     this.options = options
+    this.allowedPushHosts = Array.isArray(options.allowedPushHosts)
+      ? new Set(options.allowedPushHosts)
+      : undefined
     this.heartbeat = setInterval(() => this.beat(), HEARTBEAT_MS)
     this.heartbeat.unref()
     this.prune()
@@ -145,6 +176,8 @@ export class Gateway {
     const now = Date.now()
     for (const [address, window] of this.registrations) if (now - window.start >= HOUR_MS) this.registrations.delete(address)
     for (const [address, window] of this.traffic) if (now - window.start >= HOUR_MS) this.traffic.delete(address)
+    for (const [hostId, window] of this.pushes) if (now - window.start >= HOUR_MS) this.pushes.delete(hostId)
+    for (const [address, window] of this.pushesByAddress) if (now - window.start >= HOUR_MS) this.pushesByAddress.delete(address)
     if (this.options.deviceTtlMs === undefined || now - this.lastPrune < HOUR_MS) return
     this.lastPrune = now
     this.options.store.prune(this.options.deviceTtlMs, now)
@@ -248,8 +281,14 @@ export class Gateway {
     if (this.options.store.get(p.deviceId) === undefined) this.registerNew(address)
     this.options.store.admit(p.deviceId, p.role, p.identityKey, p.accessToken)
     this.disconnect(p.deviceId, 'CONNECTION_REPLACED')
-    const peer: Peer = { ws, id: p.deviceId, role: p.role, capabilities: p.capabilities, lastPong: Date.now() }
+    const peer: Peer = { ws, id: p.deviceId, role: p.role, address, capabilities: p.capabilities, lastPong: Date.now() }
     this.peers.set(peer.id, peer)
+    const capabilities: string[] = []
+    if (peer.capabilities.includes(RELAY_CAPABILITY)) capabilities.push(RELAY_CAPABILITY)
+    const fcmAllowed = this.allowedPushHosts === undefined || this.allowedPushHosts.has(peer.id)
+    if (peer.role === 'host' && this.options.pushForwarder !== undefined && fcmAllowed && peer.capabilities.includes(PUSH_FCM_CAPABILITY)) {
+      capabilities.push(PUSH_FCM_CAPABILITY)
+    }
     this.send(peer, createControlFrame('hello.ack', {
       protocol: PROTOCOL_VERSION,
       serverVersion: this.options.serverVersion,
@@ -257,7 +296,7 @@ export class Gateway {
       heartbeatIntervalMs: HEARTBEAT_MS,
       maxControlFrameBytes: MAX_CONTROL_FRAME_BYTES,
       maxRelayFrameBytes: MAX_RELAY_FRAME_BYTES,
-      capabilities: peer.capabilities.includes(RELAY_CAPABILITY) ? [RELAY_CAPABILITY] : [],
+      capabilities,
     }))
     return peer
   }
@@ -269,6 +308,7 @@ export class Gateway {
       if (peer.nonce !== undefined && p.nonce === peer.nonce) { peer.lastPong = Date.now(); peer.nonce = undefined }
       return
     }
+    if (frame.type === 'push.notify') { this.pushNotify(peer, frame.payload as Partial<PushNotifyPayload>); return }
     if (frame.type === 'connect.request') { this.connectRequest(peer, frame.payload as Partial<ConnectRequestPayload>); return }
     const link = typeof p.connectionId === 'string' ? this.links.get(p.connectionId) : undefined
     if (link === undefined || (peer.id !== link.host && peer.id !== link.client)) throw new LinkError('CONNECTION_NOT_FOUND')
@@ -327,6 +367,71 @@ export class Gateway {
       clientDeviceId: peer.id,
       clientIdentityKey: this.options.store.get(peer.id)!.identityKey,
     }))
+  }
+
+  private pushNotify(peer: Peer, payload: Partial<PushNotifyPayload>): void {
+    if (peer.role !== 'host') throw new LinkError('INVALID_MESSAGE')
+    const requestId = typeof payload.requestId === 'string' && payload.requestId.length > 0 && payload.requestId.length <= 128 ? payload.requestId : undefined
+    const targetDeviceId = typeof payload.targetDeviceId === 'string' && payload.targetDeviceId.length > 0 && payload.targetDeviceId.length <= 128 ? payload.targetDeviceId : undefined
+    const envelope = payload.envelope
+    if (requestId === undefined || targetDeviceId === undefined || payload.kind !== 'fcm'
+      || !isValidPushToken(payload.token)
+      || (payload.urgency !== 'high' && payload.urgency !== 'normal')
+      || envelope === undefined || envelope === null || typeof envelope !== 'object'
+      || envelope.v !== PUSH_ENVELOPE_VERSION
+      || envelope.h !== peer.id
+      || typeof envelope.p !== 'string' || envelope.p.length === 0 || envelope.p.length > MAX_SEALED_PUSH_CHARS) {
+      throw new LinkError('INVALID_MESSAGE')
+    }
+    const reply = (result: Omit<PushResultPayload, 'requestId' | 'targetDeviceId'>) => {
+      if (this.peers.get(peer.id) !== peer) return
+      this.send(peer, createControlFrame('push.result', { requestId, targetDeviceId, ...result } satisfies PushResultPayload))
+    }
+    const forwarder = this.options.pushForwarder
+    if (forwarder === undefined || (this.allowedPushHosts !== undefined && !this.allowedPushHosts.has(peer.id))) {
+      reply({ ok: false, code: 'UNSUPPORTED' })
+      return
+    }
+    const maxPerHost = nonNegativeInt(this.options.maxPushesPerHour, DEFAULT_MAX_PUSHES_PER_HOUR)
+    const maxInFlight = positiveInt(this.options.maxInFlightPushesPerHost, DEFAULT_MAX_INFLIGHT_PUSHES)
+    const active = this.inFlightPushes.get(peer.id) ?? 0
+    if (active >= maxInFlight) {
+      reply({ ok: false, code: 'RATE_LIMITED' })
+      return
+    }
+    const now = Date.now()
+    let window = this.pushes.get(peer.id)
+    if (window === undefined || now - window.start >= HOUR_MS) {
+      window = { start: now, count: 0 }
+      this.pushes.set(peer.id, window)
+    }
+    let addrWindow = this.pushesByAddress.get(peer.address)
+    if (addrWindow === undefined || now - addrWindow.start >= HOUR_MS) {
+      addrWindow = { start: now, count: 0 }
+      this.pushesByAddress.set(peer.address, addrWindow)
+    }
+    if (window.count >= maxPerHost || addrWindow.count >= maxPerHost * 4) {
+      reply({ ok: false, code: 'RATE_LIMITED' })
+      return
+    }
+    window.count += 1
+    addrWindow.count += 1
+    this.inFlightPushes.set(peer.id, active + 1)
+    void forwarder({
+      requestId,
+      targetDeviceId,
+      kind: 'fcm',
+      token: payload.token,
+      urgency: payload.urgency,
+      envelope: { v: PUSH_ENVELOPE_VERSION, h: envelope.h, p: envelope.p },
+    })
+      .then(result => reply(result))
+      .catch(() => reply({ ok: false, code: 'PUSH_FAILED' }))
+      .finally(() => {
+        const next = (this.inFlightPushes.get(peer.id) ?? 1) - 1
+        if (next > 0) this.inFlightPushes.set(peer.id, next)
+        else this.inFlightPushes.delete(peer.id)
+      })
   }
 }
 

@@ -11,8 +11,10 @@ import * as Crypto from 'expo-crypto'
 import { listComputers, removeComputer, type StoredComputer } from '../store.ts'
 import { ComputersCtx } from '../nav/computers.ts'
 import * as ImagePicker from 'expo-image-picker'
+import { manipulateAsync, SaveFormat } from 'expo-image-manipulator'
 import { useTeam } from '../team/context.tsx'
 import { memorySummaryText } from '../team/memory.ts'
+import { avatarPhoto } from '../team/avatar-photo.ts'
 import { t, timeLabel, weekdayShort } from '../ui/i18n.ts'
 import { CheckIcon, ChevronLeftIcon, ChevronRightIcon, GearIcon } from '../ui/icons.tsx'
 import { Avatar, COLOR_PAINT, RoomAvatar } from '../ui/marks.tsx'
@@ -25,11 +27,10 @@ export const SHAPES = ['acorn', 'berry', 'bunny', 'gem', 'gumdrop', 'kitty', 'mo
 export const COLORS = ['black', 'brown', 'red', 'orange', 'yellow', 'green', 'cyan', 'blue', 'violet', 'magenta', 'gray', 'aurora']
 
 export const pickPhoto = async (): Promise<string | null> => {
-  const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 0.8, base64: true })
+  const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 0.8 })
   const asset = result.canceled ? null : result.assets?.[0]
-  if (!asset?.base64) return null
-  const mime = asset.mimeType ?? 'image/jpeg'
-  return `data:${mime};base64,${asset.base64}`
+  if (!asset) return null
+  return avatarPhoto(asset, (uri, actions) => manipulateAsync(uri, actions, { compress: 0.8, format: SaveFormat.JPEG, base64: true }))
 }
 
 const botOf = (team: TeamState | null, id: string) => team?.bots?.find(b => b.id === id)
@@ -409,10 +410,18 @@ export function BotEdit({ route, navigation }: any) {
   const { p, dark } = useTheme()
   const { team } = useTeam()
   const { run, error } = useWrite(navigation)
+  const [photoError, setPhotoError] = useState('')
   const open = useOpenWhenListed(navigation)
   const bot = botOf(team, route.params?.botId ?? '')
   if (bot === undefined) return <Screen title=""><BackRow title="" onBack={() => navigation.goBack()} /></Screen>
   const save = (patch: Record<string, unknown>) => void run('update-bot', { id: bot.id, ...patch })
+  const upload = async () => {
+    setPhotoError('')
+    try {
+      const image = await pickPhoto()
+      if (image !== null) save({ avatar: { ...bot.avatar, image } })
+    } catch (err) { setPhotoError(err instanceof Error ? err.message : String(err)) }
+  }
   const shape = bot.avatar?.shape ?? 'star'
   const color = bot.color ?? 'blue'
   const main = isMain(team, bot.id)
@@ -423,7 +432,7 @@ export function BotEdit({ route, navigation }: any) {
         <View style={{ alignItems: 'center', paddingTop: 12 }}>
           <Avatar bot={bot} dark={dark} size={56} ring={p.main} />
         </View>
-        {error ? <Text style={[typeScale.small, { color: p.danger, marginHorizontal: 18, marginTop: 10 }]}>{error}</Text> : null}
+        {error || photoError ? <Text style={[typeScale.small, { color: p.danger, marginHorizontal: 18, marginTop: 10 }]}>{error || photoError}</Text> : null}
         <Section label={t('Profile')}>
           <Field label={t('Name')} value={bot.name} placeholder="Bob" onSave={name => { if (name) save({ name }) }} />
           <Field label={t('Label')} value={bot.role} placeholder={t('Research, admin…')} onSave={role => save({ role })} />
@@ -437,7 +446,7 @@ export function BotEdit({ route, navigation }: any) {
             draw={(id, size) => <View style={{ width: size * 0.52, height: size * 0.52, borderRadius: size, backgroundColor: COLOR_PAINT[id] ?? inkColor(id, dark) }} />} />
         </Section>
         <Section label={t('Photo')}>
-          <Row label={t('Upload photo')} onPress={() => { void pickPhoto().then(image => { if (image !== null) save({ avatar: { ...bot.avatar, image } }) }) }} />
+          <Row label={t('Upload photo')} onPress={() => { void upload() }} />
           {bot.avatar?.image ? <Row label={t('Remove photo')} onPress={() => save({ avatar: { shape: bot.avatar?.shape } })} /> : null}
         </Section>
         <Section label={t('Model')}>
@@ -607,21 +616,40 @@ export function GroupDetails({ route, navigation }: any) {
 
 export function GroupSettings({ route, navigation }: any) {
   const { p, dark } = useTheme()
-  const { team } = useTeam()
+  const { team, hello } = useTeam()
   const { run, error } = useWrite(navigation)
+  const [photoError, setPhotoError] = useState('')
   const room = roomOf(team, route.params?.roomId ?? '')
   if (room === undefined) return <Screen title=""><BackRow title="" onBack={() => navigation.goBack()} /></Screen>
   const bots = team?.bots ?? []
+  const canSetAvatar = hello?.capabilities?.includes('room-avatars') === true
   const members = new Set(room.members ?? [])
   const update = (patch: Record<string, unknown>) => void run('update-room', { id: room.id, ...patch })
+  const upload = async () => {
+    if (!canSetAvatar) return
+    setPhotoError('')
+    try {
+      const image = await pickPhoto()
+      if (image !== null) update({ avatar: { image } })
+    } catch (failure) {
+      setPhotoError(failure instanceof Error ? failure.message : String(failure))
+    }
+  }
   const mode = room.admin !== undefined && bots.some(b => b.id === room.admin) ? (room.mode ?? 'admin') : 'everyone'
   return (
     <Screen title={room.name}>
       <BackRow title={t('Group settings')} onBack={() => navigation.goBack()} />
       <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
-        {error ? <Text style={[typeScale.small, { color: p.danger, marginHorizontal: 18, marginTop: 10 }]}>{error}</Text> : null}
+        {error || photoError ? <Text style={[typeScale.small, { color: p.danger, marginHorizontal: 18, marginTop: 10 }]}>{error || photoError}</Text> : null}
+        <View style={{ alignItems: 'center', paddingVertical: 16 }}>
+          <Pressable accessibilityRole="button" accessibilityLabel={t('Edit group avatar')} disabled={!canSetAvatar} accessibilityState={{ disabled: !canSetAvatar }} onPress={() => { void upload() }}>
+            <RoomAvatar room={room} bots={bots} dark={dark} size={72} ring={p.main} />
+          </Pressable>
+        </View>
         <Section label={t('Profile')}>
           <Field label={t('Name')} value={room.named === true ? room.name : ''} placeholder={t('Name after members')} onSave={name => update({ name })} />
+          {canSetAvatar ? <Row label={t('Upload photo')} onPress={() => { void upload() }} /> : null}
+          {canSetAvatar && (room.avatar?.image || room.avatar?.imageRef) ? <Row label={t('Remove photo')} onPress={() => update({ avatar: null })} /> : null}
           <Field label={t('Notice')} value={room.notice} multiline placeholder={t('Shared instructions every member reads before speaking…')} onSave={notice => update({ notice })} />
         </Section>
         <Section label={t('Who answers')}>

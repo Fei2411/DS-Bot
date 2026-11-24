@@ -24,6 +24,7 @@ import { QuestionCard, QuestionDock } from './questions.js'
 import { AnsweredReply, WidgetDock, WIDGET_CSS } from './widget-cell.js'
 import { CHANGES_CSS } from './changes-card.js'
 import { HandoffDock, HANDOFF_CSS } from './handoff-card.js'
+import { WorkPauseDock } from './work-pause-card.js'
 import { AppAccessDock, ComputerHandoffDock, ComputerIndicator, COMPUTER_CSS } from './computer.js'
 import { installHeaderNavigation } from './header-navigation.js'
 import { AssistantCell, TriggerCell, TurnProcessCell, Nothing, CellEmpty, TurnTailCell, ToolCell } from './cells.js'
@@ -39,7 +40,6 @@ import { CONNECTORS_PAGE_CSS } from './connectors-page.js'
 import { PROVIDERS_CSS } from './providers-page.js'
 import { LearningDock, LearningTurnTail, PendingLearning, LEARNING_CSS } from './learning-card.js'
 import { MODEL_CSS, ModelChoiceDock, DeepSeekSignIn } from './model-menu.js'
-import { ReadOnlyDock, READ_ONLY_CSS } from './read-only-dock.js'
 import { BOT_SETTINGS_CSS } from './bot-settings.js'
 import { BOT_MODELS_CSS } from './bot-models-page.js'
 import { AGENT_CARDS_CSS } from './agent-cards.js'
@@ -97,7 +97,7 @@ export function apply(ctx) {
   let seenAt = seenStore.read()
   // `details` is the panel's subject (a Session id); `view` picks details or the
   // subject Bot's browser inside it.
-  const ui = createSource({ details: null, view: 'details', readOnlyPart: null, renaming: false, tab: null, side: null, task: null, taskDeck: null, newChat: null, exchange: null, menu: null, voice: null, palette: null, quote: null, paste: {}, pendingOpen: null, settings: null, memory: null, toast: null, signIn: null, renameAgent: null, unread: unreadStore.read(), reactions: reactionStore.read(), visits: {}, panelYield: false, leftDrawer: false, bootFailed: false, goalCompose: null, goalOpen: null, approvalOpen: null })
+  const ui = createSource({ details: null, view: 'details', renaming: false, tab: null, side: null, task: null, taskDeck: null, newChat: null, exchange: null, menu: null, voice: null, palette: null, quote: null, paste: {}, pendingOpen: null, settings: null, memory: null, toast: null, signIn: null, renameAgent: null, unread: unreadStore.read(), reactions: reactionStore.read(), visits: {}, panelYield: false, leftDrawer: false, bootFailed: false, goalCompose: null, goalOpen: null, approvalOpen: null })
   // The left column's kept preference, and the frame geometry the layout rules
   // in frame-layout.js read: the window and the shell's collapsed track come from
   // installFrameWatch, the open column's width is the user's own.
@@ -222,7 +222,6 @@ export function apply(ctx) {
     const current = roster.getSnapshot()
     // Connector, capability, phone and MCP states change without a new revision.
     const live = {}
-    if (value.partsRunning !== undefined && JSON.stringify(value.partsRunning) !== JSON.stringify(current.partsRunning ?? {})) live.partsRunning = value.partsRunning
     if (value.secretStore !== undefined && JSON.stringify(value.secretStore) !== JSON.stringify(current.secretStore ?? {})) live.secretStore = value.secretStore
     if (value.secrets !== undefined && JSON.stringify(value.secrets) !== JSON.stringify(current.secrets ?? [])) live.secrets = value.secrets
     if (value.connectors !== undefined && JSON.stringify(value.connectors) !== JSON.stringify(current.connectors ?? [])) live.connectors = value.connectors
@@ -235,6 +234,7 @@ export function apply(ctx) {
     if (value.sideChats !== undefined && JSON.stringify(value.sideChats) !== JSON.stringify(current.sideChats ?? {})) live.sideChats = value.sideChats
     if (value.imStatus !== undefined && JSON.stringify(value.imStatus) !== JSON.stringify(current.imStatus ?? {})) live.imStatus = value.imStatus
     if (value.imVia !== undefined && JSON.stringify(value.imVia) !== JSON.stringify(current.imVia ?? {})) live.imVia = value.imVia
+    if (value.plugins !== undefined && JSON.stringify(value.plugins) !== JSON.stringify(current.plugins ?? null)) live.plugins = value.plugins
     // The read-only notice goes once this host takes the team over from a dsh that
     // closed, without a reload: the window holds the answer's live fields until then.
     if (value.readOnly !== undefined && (value.readOnly ?? null) !== (current.readOnly ?? null)) live.readOnly = value.readOnly
@@ -828,10 +828,9 @@ export function apply(ctx) {
   actions.signIn = () => ui.set(state => ({ ...state, signIn: (state.signIn ?? 0) + 1 }))
   actions.closeSignIn = () => ui.set(state => ({ ...state, signIn: null }))
   actions.accountT = () => ctx.get('locale').bind('settings.account')
-  // DSH's Plugins page (bundle install and management): its navigation face is
-  // absent where the peer may not list bundles, such as the app's own profile.
-  actions.hasPlugins = () => ctx.get('pluginNavigation') !== undefined
-  actions.openPlugins = () => ctx.get('pluginNavigation')?.openList()
+  // DS Bot's own Plugins panel works consistently in both the desktop app and plugin mode.
+  actions.hasPlugins = () => true
+  actions.openPlugins = (focus = null) => actions.openSettings('plugins', focus)
   // The Voice Input plugin's speech Remote; absent while that plugin is off.
   actions.speech = () => ctx.get('remote.speech') ?? undefined
   // One of DSH's onboarding editors, such as the DeepSeek API key form, opened by id
@@ -1283,7 +1282,7 @@ export function apply(ctx) {
     () => shadow('shell.overlay', { id: 'bot-toast', order: 60, inject: face }, ErrorToast),
   ]
   const installConversation = () => [
-    () => installCompiledStyles(CONVERSATION_CSS + READ_ONLY_CSS, 'conversation'),
+    () => installCompiledStyles(CONVERSATION_CSS, 'conversation'),
     () => installCompiledStyles(TURN_ERROR_CSS, 'turn-errors'),
     () => installCompiledStyles(QUEUE_CSS, 'queue'),
     () => installCompiledStyles(ANNOTATION_CSS, 'text-annotation'),
@@ -1344,12 +1343,12 @@ export function apply(ctx) {
     () => shadow('conversation.input.dock', { id: 'bot-paste', order: -130, inject: face }, PasteDock),
     () => shadow('conversation.input.dock', { id: 'bot-members', order: -120, inject: face }, MemberDock),
     () => shadow('conversation.input.dock', { id: 'bot-model', order: -110, inject: face }, ModelChoiceDock),
-    () => shadow('conversation.input.dock', { id: 'bot-readonly', order: -105, inject: face }, ReadOnlyDock),
     () => shadow('conversation.input.dock', { id: 'bot-question', order: -100, inject: face }, QuestionDock),
     () => shadow('conversation.input.dock', { id: 'bot-view', order: -95, inject: face }, WidgetDock),
     () => shadow('conversation.input.dock', { id: 'bot-secret', order: -90, inject: face }, SecretDock),
     () => shadow('conversation.input.dock', { id: 'bot-connector', order: -89, inject: face }, ConnectorDock),
     () => shadow('conversation.input.dock', { id: 'bot-mail', order: -88, inject: face }, MailDock),
+    () => shadow('conversation.input.dock', { id: 'bot-work-pause', order: -86, inject: face }, WorkPauseDock),
     () => shadow('conversation.input.dock', { id: 'bot-handoff', order: -85, inject: face }, HandoffDock),
     () => shadow('conversation.input.dock', { id: 'bot-computer-handoff', order: -84, inject: face }, ComputerHandoffDock),
     () => shadow('conversation.input.dock', { id: 'bot-computer-app', order: -83, inject: face }, AppAccessDock),

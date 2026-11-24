@@ -436,9 +436,10 @@ test('on DSH 0.2.2 a one-time task set "after" a delay is also past resuming onc
   assert.equal(schedule.tasks.get('schedule-after').status, 'paused')
 })
 
-test('on DSH 0.2.2 a task on an older chat still open resumes there, not on the foreground chat', async (t) => {
+// A team saved with a parallel chat (#1548, withdrawn) keeps it as an earlier part of
+// the Bot's chat, so a task left there resumes on the foreground chat.
+test('on DSH 0.2.2 a task on a withdrawn parallel chat resumes on the foreground chat', async (t) => {
   const team = JSON.parse(JSON.stringify(TEAM))
-  // Writer's foreground is w2; w-open is an older chat still open beside it.
   team.bots.w1.openParts = [{ sessionId: 'w-open', openedAt: 5 }]
   const schedule = hostSchedule()
   const { ctx, home, call } = setup({ schedule }, team)
@@ -446,8 +447,7 @@ test('on DSH 0.2.2 a task on an older chat still open resumes there, not on the 
   schedule.tasks.set('schedule-open', { record: { id: 'schedule-open', kind: 'daily', title: 'Open chat', prompt: 'x', scheduledAt: '2030-01-01T09:00:00.000Z' }, target: { kind: 'session', sessionId: 'w-open' }, status: 'paused' })
   const resumed = await call('schedule-pause', { sessionId: 'w-open', id: 'schedule-open', active: true })
   assert.equal(resumed.ok, true, JSON.stringify(resumed))
-  assert.deepEqual(schedule.edits.at(-1).patch, { active: true })
-  assert.deepEqual(schedule.tasks.get('schedule-open').target, { kind: 'session', sessionId: 'w-open' })
+  assert.deepEqual(schedule.edits.at(-1).patch, { active: true, target: { kind: 'session', sessionId: 'w2' } })
 })
 
 // A background task's Session holds no schedules (the hand-off moves them to the

@@ -96,9 +96,10 @@ export function install(rt) {
     const botId = group?.botId ?? taskOwner?.botId ?? rt.chatOwners.get(id)
     if (botId === undefined) return undefined
     const taskTitle = taskOwner === undefined ? undefined : rt.taskBySession?.(id)?.task?.title
+    const taskRoomId = taskOwner?.roomId ?? (taskOwner === undefined ? undefined : rt.taskBySession?.(id)?.task?.roomId)
     return {
       sessionId, ownerSessionId: id, lineageSessionIds: [...seen], botId,
-      ...(group ? { roomId: group.roomId } : taskOwner?.roomId !== undefined ? { roomId: taskOwner.roomId } : {}),
+      ...(group ? { roomId: group.roomId } : taskRoomId !== undefined ? { roomId: taskRoomId } : {}),
       ...(taskOwner ? { taskId: taskOwner.taskId, ...(taskTitle ? { taskTitle } : {}) } : {}),
     }
   }

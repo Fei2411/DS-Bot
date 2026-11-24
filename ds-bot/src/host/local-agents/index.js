@@ -17,6 +17,7 @@ import { ENGINES, customRoute, isLocalAgentRoute, signInFor, validateCustom } fr
 import { cleanEnv, findEngineExecutable, findExecutable, probeSignIn, probeVersion, refreshSearchDirs } from './discover.js'
 
 const SIGNED_IN_TTL_MS = 60_000
+const SIGNED_IN_RETRY_MS = 20_000
 
 // The preset a Session runs on: its group's, else its Bot's, else DSH's default — the one
 // a Bot without a preset of its own is shown with (permissions.js keeps it applied to the
@@ -36,7 +37,7 @@ const spawnEngine = (kind, route, spec) => (kind === 'acp' ? new AcpEngine(route
   : kind === 'codex' ? new CodexEngine(route, spec, { findExecutable })
     : new ClaudeEngine(route, spec, { findExecutable }))
 
-export function install(rt) {
+export function install(rt, { probeSignIn: checkSignIn = probeSignIn, now = Date.now } = {}) {
   const { ctx, state } = rt
   // state.localAgents is replaced by the state load after install; read it
   // each time instead of holding the pre-load object.
@@ -75,16 +76,35 @@ export function install(rt) {
     }))
   }
   // Asked only when the list of CLIs is about to show, never at start or for a menu.
-  async function probeSignIns() {
+  async function probeSignIns({ force = false } = {}) {
     await Promise.all([...found.values()].map(async (entry) => {
-      if (entry.signedIn !== undefined && Date.now() - entry.signedInAt < SIGNED_IN_TTL_MS) return
-      entry.signedIn = await probeSignIn(entry.path, ENGINES[entry.route].signedIn)
-      entry.signedInAt = Date.now()
+      const check = ENGINES[entry.route]?.signedIn
+      if (check === undefined) {
+        entry.signedIn = null
+        return
+      }
+      if (!force) {
+        const ttl = entry.signedIn === null ? SIGNED_IN_RETRY_MS : SIGNED_IN_TTL_MS
+        if (entry.signedIn !== undefined && now() - entry.signedInAt < ttl) return
+      }
+      if (force || entry.signInProbe === undefined) {
+        const probe = Promise.resolve().then(() => checkSignIn(entry.path, check)).catch(() => null).then((result) => {
+          if (entry.signInProbe !== probe) return
+          entry.signedIn = result
+          entry.signedInAt = now()
+        }).finally(() => {
+          if (entry.signInProbe === probe) delete entry.signInProbe
+        })
+        entry.signInProbe = probe
+      }
+      while (entry.signInProbe !== undefined) {
+        await entry.signInProbe
+      }
     }))
   }
   // A signed-out CLI or a slow one never holds back the list for long: each check is bounded.
-  async function freshList() {
-    await Promise.all([probeVersions(), probeSignIns()])
+  async function freshList({ forceSignIn = false } = {}) {
+    await Promise.all([probeVersions(), probeSignIns({ force: forceSignIn })])
     return { available: supported(), detected: detected(), custom: customView() }
   }
 
@@ -107,6 +127,7 @@ export function install(rt) {
       if (record !== undefined) Object.assign(record, patch)
     },
     presetFor: sessionId => presetOf(rt, sessionId),
+    freshMemoryView: sessionId => rt.freshMemoryView?.(sessionId),
     cwdFor: async (sessionId) => {
       try {
         const agent = await rt.resolveAgent(sessionId)
@@ -238,10 +259,9 @@ export function install(rt) {
       }
       case 'local-agent-refresh': {
         adapter.dropModelCache()
-        for (const entry of found.values()) delete entry.signedIn
         await scan()
         await rt.catalog?.({ fresh: true })
-        return freshList()
+        return freshList({ forceSignIn: true })
       }
       case 'local-agent-models': {
         const models = await localAgentModels(String(body.route ?? ''))

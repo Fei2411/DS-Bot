@@ -10,7 +10,8 @@
 //  - a running model call is cancelled (hook reason) and the steer is moved to
 //    the front of next-turn, so a fresh turn claims it at once.
 import { isAbsolute, resolve } from 'node:path'
-import { boundContextSummary, createUserMessage } from '@deepseek-ai/dsh-llm'
+import { boundContextSummary, createUserMessage, HarnessError } from '@deepseek-ai/dsh-llm'
+import { TOOL_ABORTED } from '@deepseek-ai/dsh-tools'
 import { BACKGROUND_WAIT_MS, STEER_CUT } from './constants.js'
 
 const SHELL_TOOLS = ['pwsh', 'bash']
@@ -115,11 +116,11 @@ export function install(rt) {
 
   // A user steer into a private chat must cut a running model call. The check runs
   // off the event that queued it, never inside the append that emitted the event.
-  const maybeCut = (id) => {
+  const maybeCut = (id, checkedHandoff = false) => {
     const entry = rt.live.get(id)
     const agent = liveAgent(id)
     if (!privateOf(id) || rt.readOnly?.() !== undefined || entry === undefined || agent === undefined) return
-    if (rt.taskOwners?.has(id) || rt.shouldMoveForeground?.(rt.botOf(rt.chatOwners.get(id)), id)) return
+    if (rt.taskOwners?.has(id) || rt.isHandingOff?.(id) || (!checkedHandoff && rt.shouldMoveForeground?.(rt.botOf(rt.chatOwners.get(id)), id))) return
     if ([...(rt.switchJobs?.() ?? [])].some(job => job?.botId === rt.chatOwners.get(id) && job.roomId === undefined)) return
     const track = stateOf(id)
     if (track.phase !== 'model' || track.cutting) return
@@ -137,7 +138,7 @@ export function install(rt) {
       agent.inbox.prepend('next-turn', last)
     }
   }
-  const scheduleCut = (id) => { queueMicrotask(() => maybeCut(id)) }
+  const scheduleCut = (id, checkedHandoff = false) => { queueMicrotask(() => maybeCut(id, checkedHandoff)) }
 
   // Renders one jobs.read() result the way tool-jobs' renderModelDelta does:
   // stdout and unlabeled chunks joined, then a [stderr] section, then a
@@ -233,263 +234,278 @@ export function install(rt) {
     && paramOf(def, 'run_in_background') !== undefined
     && !/kills the command on expiry/i.test(paramOf(def, 'timeoutMs')?.description ?? '')
 
-  // Track the underlying global definition wrapped per agent so tools/change
-  // (e.g. when jobs attaches after startup and dsh-tool-bash re-registers) can
-  // refresh the shadow without recursive wrapping.
-  const wrappedDefs = new WeakSet()
-  const agentShadows = new WeakMap()
+  // Intercept shell calls through DSH's `tools/execute` waterfall on each Bot
+  // agent's scope rather than re-registering a shadowing tool definition. DSH
+  // may register `tool-bash` / `tool-pwsh` globally, in a standing parent preset
+  // scope (`dsh-agent-preset-registry`), or directly in `agent.ctx` (where
+  // `dsh-tools` forbids duplicate same-scope registrations); looking up the live
+  // executable definition inside `tools/execute` works uniformly across all three
+  // layers, avoids stale shadows when jobs/presets reload, and preserves
+  // `tools.restrict()` visibility.
+  //
+  // Note: `dsh-tools`'s `dispatchToolBody` re-fuses the caller's AbortSignal onto
+  // `exec.signal`, so steer-detach cannot delegate through `next()` without
+  // `STEER_CUT` killing a detached job. Invoking `def.execute` directly means:
+  //  - any `tools/execute` hook registered *after* an agent attaches is bypassed
+  //    for private-chat `bash`/`pwsh` (host modules like `privacy` and `secrets`
+  //    install first, enforced by the `rt.installed` gate below);
+  //  - `dsh-tools` sees `bodyInvoked = false` if the caller signal aborts in the
+  //    narrow window after `steerShellExecute` returns a success value.
   const formatWarned = new Set()
-  const KEEP_CURRENT = Symbol('keep-current-shadow')
 
-  const resolveShellDef = (name, agent, current) => {
-    if (typeof ctx.tools?.get !== 'function') return undefined
-    const globalRaw = ctx.tools.get(name)
-    const globalDef = globalRaw !== undefined && !wrappedDefs.has(globalRaw) ? globalRaw : undefined
-    if (current !== undefined) {
-      if (current.fromGlobal) {
-        if (globalDef === undefined) return undefined
-        if (globalDef === current.rawDef) return KEEP_CURRENT
-        return { def: globalDef, fromGlobal: true, checkVisibleAfterDispose: true }
-      }
-      const scopedDef = ctx.tools.get(name, agent)
-      if (scopedDef !== undefined && wrappedDefs.has(scopedDef)) return KEEP_CURRENT
-      return scopedDef !== undefined ? { def: scopedDef, fromGlobal: false, checkVisibleAfterDispose: false } : undefined
+  const errorMessage = (error) => (error instanceof Error
+    ? (error.message || error.name)
+    : typeof error === 'object' && error !== null && typeof error.message === 'string' && error.message !== ''
+      ? error.message
+      : String(error))
+
+  const toToolError = (error) => {
+    const message = errorMessage(error)
+    const info = error instanceof HarnessError
+      ? { name: error.name, code: error.code }
+      : (error?.name === 'AbortError' || error?.code === TOOL_ABORTED)
+        ? { name: 'AbortError', code: TOOL_ABORTED }
+        : undefined
+    return {
+      isError: true,
+      error: { message, ...(info === undefined ? {} : { info }) },
+      content: [{ type: 'text', text: `Error: ${message}` }],
     }
-    // Initial attach must respect agent-level tools.restrict() visibility.
-    const visible = ctx.tools.get(name, agent)
-    if (visible === undefined || wrappedDefs.has(visible)) return undefined
-    return { def: visible, fromGlobal: visible === globalDef, checkVisibleAfterDispose: false }
   }
 
-  const shadowShell = (agent, name, def) => {
+  const toAbortedError = () => ({
+    isError: true,
+    error: { message: 'tool call aborted', info: { name: 'AbortError', code: TOOL_ABORTED } },
+    content: [{ type: 'text', text: 'Error: tool call aborted' }],
+  })
+
+  const executeShell = async (def, name, args, exec) => {
+    const sessionId = exec.agent?.id
+    const waitMs = rt.backgroundWaitMs?.()
+    const capacity = hasJobCapacity(sessionId)
+
+    // 0s setting: hand off directly to DSH's native run_in_background path
+    // so approval runs first, startJob registers once, and tool-jobs owns
+    // every read and completion notice. Shape the result as `promoted` (0ms)
+    // so DSH's own presenter renders a background console card rather than a
+    // completed exit-0 terminal card when the model did not pass run_in_background.
+    if (waitMs === 0 && capacity && hasBackgroundFormat(def)) {
+      const bg = await def.execute({ ...args, run_in_background: true }, exec)
+      if (bg?.kind === 'background' && typeof bg.jobId === 'string') {
+        return {
+          detached: false,
+          value: { kind: 'promoted', cwd: typeof bg.cwd === 'string' ? bg.cwd : '', jobId: bg.jobId, timeoutMs: 0, output: '' },
+        }
+      }
+      return { detached: false, value: bg }
+    }
+
+    // Tighten timeoutMs into DSH's native waitOnJob whenever the shell tool
+    // supports native timeout promotion and the owner has job capacity.
+    // Non-positive caller timeoutMs was already passed through untouched above.
+    const nativePromote = Number.isFinite(waitMs) && waitMs > 0 && capacity && canNativePromote(def)
+    const callerTimeout = args?.timeoutMs
+    const effectiveTimeoutMs = nativePromote
+      ? (callerTimeout !== undefined ? Math.min(callerTimeout, waitMs) : waitMs)
+      : undefined
+    const callArgs = effectiveTimeoutMs !== undefined ? { ...args, timeoutMs: effectiveTimeoutMs } : args
+
+    const track = stateOf(sessionId)
+    // Proxy exec.signal so a turn cancellation (such as STEER_CUT) after a
+    // steer detach cannot reach waitOnJob and kill the promoted job, while
+    // still forwarding aborts before detach (including during approvals).
+    const nativeController = new AbortController()
+    const onTurnAbort = () => nativeController.abort(exec.signal.reason)
+    if (exec.signal?.aborted) nativeController.abort(exec.signal.reason)
+    else exec.signal?.addEventListener('abort', onTurnAbort, { once: true })
+    const detachSignal = () => exec.signal?.removeEventListener('abort', onTurnAbort)
+    const nativeExec = exec.signal === undefined
+      ? exec
+      : {
+          ...exec,
+          ...(typeof exec.concludeTurn === 'function' ? { concludeTurn: () => exec.concludeTurn() } : {}),
+          signal: nativeController.signal,
+        }
+
+    let steeredAt = (exec.agent.inbox?.nextStep ?? []).some(message => message?.source?.kind === 'user') ? Date.now() : undefined
+    let steerSignal
+    const onSteer = () => {
+      if (steeredAt === undefined) steeredAt = Date.now()
+      steerSignal?.()
+    }
+    // Subscribe before calling def.execute so a steer arriving during
+    // approval or before job/registered is never missed.
+    track.steerWaiters.add(onSteer)
+
+    let native
+    try {
+      native = Promise.resolve(def.execute(callArgs, nativeExec))
+    } catch (error) {
+      track.steerWaiters.delete(onSteer)
+      detachSignal()
+      throw error
+    }
+    native.catch(() => {})
+
+    let jobResolve
+    let graceTimer
+    let waitTimer
+    let runningSince
+    let detached = false
+    try {
+      const known = track.jobsByCall.get(exec.callId)
+      const jobWait = known !== undefined ? Promise.resolve(known) : new Promise((resolve) => {
+        jobResolve = resolve
+        const set = track.jobWaiters.get(exec.callId) ?? new Set()
+        track.jobWaiters.set(exec.callId, set)
+        set.add(resolve)
+      })
+      const registered = await Promise.race([native.then(() => 'native', () => 'native'), jobWait.then(() => 'job')])
+      if (registered !== 'job') return { detached: false, value: await native }
+      runningSince = Date.now()
+
+      if (waitMs !== 0 || !capacity) {
+        if (steeredAt === undefined && (exec.agent.inbox?.nextStep ?? []).some(message => message?.source?.kind === 'user')) {
+          steeredAt = Date.now()
+        }
+        if (steeredAt === undefined) {
+          const steerPromise = new Promise((resolve) => { steerSignal = () => resolve('steered') })
+          // When nativePromote is active, DSH's own waitOnJob owns the
+          // timeout so we only wake early on a user steer. Otherwise (e.g.
+          // a custom/mock tool without run_in_background), keep the local
+          // wait timer as fallback.
+          const racers = [native.then(() => 'native', () => 'native'), steerPromise]
+          if (!nativePromote && Number.isFinite(waitMs) && waitMs > 0) {
+            racers.push(new Promise((resolve) => { waitTimer = setTimeout(() => resolve('waited'), waitMs) }))
+          }
+          const first = await Promise.race(racers)
+          if (first !== 'steered' && first !== 'waited') return { detached: false, value: await native }
+        }
+        if (steeredAt !== undefined) {
+          const remainingGrace = Math.max(0, STEER_GRACE_MS - (Date.now() - steeredAt))
+          const capMs = effectiveTimeoutMs ?? (Number.isFinite(waitMs) && waitMs > 0 ? waitMs : Infinity)
+          const remainingWait = Number.isFinite(capMs) ? Math.max(0, capMs - (Date.now() - runningSince)) : Infinity
+          // If native waitOnJob will promote within the steer grace window
+          // anyway, stay on the native single track instead of detaching.
+          if (nativePromote && remainingWait <= remainingGrace) return { detached: false, value: await native }
+          const grace = Math.min(remainingGrace, remainingWait)
+          if (grace > 0) {
+            const graced = await Promise.race([
+              native.then(() => 'native', () => 'native'),
+              new Promise((resolve) => { graceTimer = setTimeout(() => resolve('grace'), grace) }),
+            ])
+            if (graced !== 'grace') return { detached: false, value: await native }
+          }
+        }
+      }
+
+      if (nativeController.signal.aborted) return { detached: false, value: await native }
+      const jobId = track.jobsByCall.get(exec.callId)
+      let read
+      try {
+        read = jobs.read(jobId, sessionId)
+      } catch {
+        return { detached: false, value: await native }
+      }
+      const status = read?.job?.status
+      if (status === 'completed' || status === 'killed' || status === 'failed') return { detached: false, value: await native }
+      detached = true
+      detachSignal()
+      detachAfter(jobId, args, exec, def, native, name)
+      const base = rt.sessionFolder?.(exec.agent.session)
+      const cwd = args?.workdir === undefined ? (base ?? '')
+        : !isAbsolute(args.workdir) && base !== undefined ? resolve(base, args.workdir) : args.workdir
+      return {
+        detached: true,
+        value: { kind: 'promoted', cwd, jobId, timeoutMs: Math.max(0, Date.now() - runningSince), output: renderJobRead(read) },
+      }
+    } finally {
+      if (!detached) void native.then(detachSignal, detachSignal)
+      track.steerWaiters.delete(onSteer)
+      if (jobResolve !== undefined) {
+        const set = track.jobWaiters.get(exec.callId)
+        set?.delete(jobResolve)
+        if (set?.size === 0) track.jobWaiters.delete(exec.callId)
+      }
+      clearTimeout(graceTimer)
+      clearTimeout(waitTimer)
+    }
+  }
+
+  const steerShellExecute = async (exec, next) => {
+    const name = exec?.name
+    if (!SHELL_TOOLS.includes(name)) return next()
+    const args = exec.arguments
+    // Pass malformed/non-object arguments straight to DSH's own validation path.
+    if (args === null || typeof args !== 'object' || Array.isArray(args)) return next()
+    const sessionId = exec.agent?.id
+    if (args.run_in_background === true || jobs === undefined || sessionId === undefined
+      || !privateOf(sessionId) || rt.taskOwners?.has(sessionId)) return next()
+    if (exec.signal?.aborted) return next()
+
+    const callerTimeout = args.timeoutMs
+    if (callerTimeout !== undefined && (!Number.isFinite(callerTimeout) || callerTimeout <= 0)) return next()
+
+    const def = typeof ctx.tools?.executable === 'function'
+      ? ctx.tools.executable(name, exec.agent, exec.toolSet)
+      : ctx.tools?.get?.(name, exec.agent, exec.toolSet)
+    if (def === undefined) return next()
     if (!hasPromotedFormat(def)) {
       if (!formatWarned.has(name)) {
         formatWarned.add(name)
         rt.warn('ds-bot: %s has no promoted result format; its calls keep the step boundary', name)
       }
-      return undefined
+      return next()
     }
-    const wrapper = {
-      ...def,
-      ...(typeof def.presentResult === 'function' ? {
-        presentResult: (args, result) => {
-          const effectiveArgs = result?.value?.kind === 'background' && args?.run_in_background !== true
-            ? { ...args, run_in_background: true } : args
-          return def.presentResult(effectiveArgs, result)
-        },
-      } : {}),
-      execute: async (args, exec) => {
-        const sessionId = exec.agent?.id
-        if (args?.run_in_background === true || jobs === undefined || sessionId === undefined
-          || !privateOf(sessionId)) return def.execute(args, exec)
 
-        const waitMs = rt.backgroundWaitMs?.()
-        const capacity = hasJobCapacity(sessionId)
-
-        // 0s setting: hand off directly to DSH's native run_in_background path
-        // so approval runs first, startJob registers once, and tool-jobs owns
-        // every read and completion notice.
-        if (waitMs === 0 && capacity && hasBackgroundFormat(def)) {
-          return def.execute({ ...args, run_in_background: true }, exec)
-        }
-
-        // Tighten timeoutMs into DSH's native waitOnJob whenever the shell tool
-        // supports native timeout promotion and the owner has job capacity.
-        // Leave invalid caller timeoutMs untouched so DSH's own validation rejects it.
-        const nativePromote = Number.isFinite(waitMs) && waitMs > 0 && capacity && canNativePromote(def)
-        const callerTimeout = args?.timeoutMs
-        const validCallerTimeout = callerTimeout === undefined || (Number.isFinite(callerTimeout) && callerTimeout > 0)
-        const effectiveTimeoutMs = nativePromote && validCallerTimeout
-          ? (callerTimeout !== undefined ? Math.min(callerTimeout, waitMs) : waitMs)
-          : undefined
-        const callArgs = effectiveTimeoutMs !== undefined ? { ...args, timeoutMs: effectiveTimeoutMs } : args
-
-        const track = stateOf(sessionId)
-        // Proxy exec.signal so a turn cancellation (such as STEER_CUT) after a
-        // steer detach cannot reach waitOnJob and kill the promoted job, while
-        // still forwarding aborts before detach (including during approvals).
-        const nativeController = new AbortController()
-        const onTurnAbort = () => nativeController.abort(exec.signal.reason)
-        if (exec.signal?.aborted) nativeController.abort(exec.signal.reason)
-        else exec.signal?.addEventListener('abort', onTurnAbort, { once: true })
-        const detachSignal = () => exec.signal?.removeEventListener('abort', onTurnAbort)
-        const nativeExec = exec.signal === undefined ? exec : { ...exec, signal: nativeController.signal }
-
-        let steeredAt = (exec.agent.inbox?.nextStep ?? []).some(message => message?.source?.kind === 'user') ? Date.now() : undefined
-        let steerSignal
-        const onSteer = () => {
-          if (steeredAt === undefined) steeredAt = Date.now()
-          steerSignal?.()
-        }
-        // Subscribe before calling def.execute so a steer arriving during
-        // approval or before job/registered is never missed.
-        track.steerWaiters.add(onSteer)
-
-        let native
-        try {
-          native = Promise.resolve(def.execute(callArgs, nativeExec))
-        } catch (error) {
-          track.steerWaiters.delete(onSteer)
-          detachSignal()
-          throw error
-        }
-        native.catch(() => {})
-
-        let jobResolve
-        let graceTimer
-        let waitTimer
-        let runningSince
-        let detached = false
-        try {
-          const known = track.jobsByCall.get(exec.callId)
-          const jobWait = known !== undefined ? Promise.resolve(known) : new Promise((resolve) => {
-            jobResolve = resolve
-            const set = track.jobWaiters.get(exec.callId) ?? new Set()
-            track.jobWaiters.set(exec.callId, set)
-            set.add(resolve)
-          })
-          const registered = await Promise.race([native.then(() => 'native', () => 'native'), jobWait.then(() => 'job')])
-          if (registered !== 'job') return await native
-          runningSince = Date.now()
-
-          if (waitMs !== 0 || !capacity) {
-            if (steeredAt === undefined && (exec.agent.inbox?.nextStep ?? []).some(message => message?.source?.kind === 'user')) {
-              steeredAt = Date.now()
-            }
-            if (steeredAt === undefined) {
-              const steerPromise = new Promise((resolve) => { steerSignal = () => resolve('steered') })
-              // When nativePromote is active, DSH's own waitOnJob owns the
-              // timeout so we only wake early on a user steer. Otherwise (e.g.
-              // a custom/mock tool without run_in_background), keep the local
-              // wait timer as fallback.
-              const racers = [native.then(() => 'native', () => 'native'), steerPromise]
-              if (!nativePromote && Number.isFinite(waitMs) && waitMs > 0) {
-                racers.push(new Promise((resolve) => { waitTimer = setTimeout(() => resolve('waited'), waitMs) }))
-              }
-              const first = await Promise.race(racers)
-              if (first !== 'steered' && first !== 'waited') return await native
-            }
-            if (steeredAt !== undefined) {
-              const remainingGrace = Math.max(0, STEER_GRACE_MS - (Date.now() - steeredAt))
-              const capMs = effectiveTimeoutMs ?? (Number.isFinite(waitMs) && waitMs > 0 ? waitMs : Infinity)
-              const remainingWait = Number.isFinite(capMs) ? Math.max(0, capMs - (Date.now() - runningSince)) : Infinity
-              // If native waitOnJob will promote within the steer grace window
-              // anyway, stay on the native single track instead of detaching.
-              if (nativePromote && remainingWait <= remainingGrace) return await native
-              const grace = Math.min(remainingGrace, remainingWait)
-              if (grace > 0) {
-                const graced = await Promise.race([
-                  native.then(() => 'native', () => 'native'),
-                  new Promise((resolve) => { graceTimer = setTimeout(() => resolve('grace'), grace) }),
-                ])
-                if (graced !== 'grace') return await native
-              }
-            }
-          }
-
-          if (nativeController.signal.aborted) return await native
-          const jobId = track.jobsByCall.get(exec.callId)
-          let read
-          try {
-            read = jobs.read(jobId, sessionId)
-          } catch {
-            return await native
-          }
-          const status = read?.job?.status
-          if (status === 'completed' || status === 'killed' || status === 'failed') return await native
-          detached = true
-          detachSignal()
-          detachAfter(jobId, args, exec, def, native, name)
-          const base = rt.sessionFolder?.(exec.agent.session)
-          const cwd = args?.workdir === undefined ? (base ?? '')
-            : !isAbsolute(args.workdir) && base !== undefined ? resolve(base, args.workdir) : args.workdir
-          return { kind: 'promoted', cwd, jobId, timeoutMs: Math.max(0, Date.now() - runningSince), output: renderJobRead(read) }
-        } finally {
-          if (!detached) void native.then(detachSignal, detachSignal)
-          track.steerWaiters.delete(onSteer)
-          if (jobResolve !== undefined) {
-            const set = track.jobWaiters.get(exec.callId)
-            set?.delete(jobResolve)
-            if (set?.size === 0) track.jobWaiters.delete(exec.callId)
-          }
-          clearTimeout(graceTimer)
-          clearTimeout(waitTimer)
-        }
-      },
-    }
-    wrappedDefs.add(wrapper)
-    const lift = agent.ctx.tools.register(wrapper)
-    return typeof lift === 'function' ? lift : () => {}
-  }
-
-  const syncing = new WeakSet()
-
-  const syncShellShadows = (agent) => {
-    if (agent === undefined || !rt.isBotSession(agent.session?.id)) return false
-    if (typeof agent.ctx?.tools?.register !== 'function') return false
-    // agent.ctx.tools.register() and its disposer synchronously emit tools/change;
-    // ignore re-entrant refreshes triggered by our own mutations.
-    if (syncing.has(agent)) return (agentShadows.get(agent)?.size ?? 0) > 0
-    syncing.add(agent)
     try {
-      let map = agentShadows.get(agent)
-      if (map === undefined) {
-        map = new Map()
-        agentShadows.set(agent, map)
-      }
-      for (const name of SHELL_TOOLS) {
-        const current = map.get(name)
-        const resolved = resolveShellDef(name, agent, current)
-        if (resolved === KEEP_CURRENT) continue
-        if (current !== undefined) {
-          map.delete(name)
-          current.dispose()
+      const outcome = await executeShell(def, name, args, exec)
+      if (!outcome.detached && exec.signal?.aborted) return toAbortedError()
+      // Populate content & meta for outer `tools/execute` wrappers; `dsh-tools`
+      // `normalizeDispatchResult` still validates and re-renders from any
+      // redacted `value` (e.g. `secrets.js`) because this object is non-canonical.
+      let content = []
+      let meta
+      try {
+        const rendered = def.output?.render?.(args, outcome.value)
+        if (Array.isArray(rendered)) content = rendered
+        if (typeof def.output?.presentationMeta === 'function') {
+          meta = def.output.presentationMeta(args, outcome.value)
         }
-        if (resolved === undefined) continue
-        if (resolved.checkVisibleAfterDispose && ctx.tools.get(name, agent) !== resolved.def) continue
-        try {
-          const dispose = shadowShell(agent, name, resolved.def)
-          if (dispose !== undefined) map.set(name, { rawDef: resolved.def, fromGlobal: resolved.fromGlobal, dispose })
-        } catch (error) {
-          rt.warn('ds-bot: shadowing %s failed: %s', name, error)
-        }
+      } catch {
+        // Leave empty content so `normalizeDispatchResult` surfaces ToolOutputError.
       }
-      return map.size > 0
-    } finally {
-      syncing.delete(agent)
+      return {
+        isError: false,
+        value: outcome.value,
+        content,
+        ...(meta === undefined ? {} : { meta }),
+      }
+    } catch (error) {
+      return toToolError(error)
     }
   }
 
   const ownedDisposers = new WeakSet()
   rt.shadowShells = (agent) => {
+    // Defer while `createRuntime` is still installing host modules so `privacy`
+    // and `secrets` always register their `tools/execute` wrappers before us.
+    if (rt.installed === false) return []
     if (agent === undefined || !rt.isBotSession(agent.session?.id)) return []
-    if (typeof agent.ctx?.tools?.register !== 'function') return []
-    const alreadyOwned = ownedDisposers.has(agent)
-    ownedDisposers.add(agent)
-    syncShellShadows(agent)
-    if (alreadyOwned) return []
+    if (typeof agent.ctx?.on !== 'function') return []
+    if (ownedDisposers.has(agent)) return []
     const id = agent.session?.id ?? agent.id
+    const offExecute = agent.ctx.on('tools/execute', steerShellExecute)
+    ownedDisposers.add(agent)
     return [() => {
       ownedDisposers.delete(agent)
-      syncing.add(agent)
-      try {
-        const map = agentShadows.get(agent)
-        agentShadows.delete(agent)
-        if (map !== undefined) {
-          for (const item of map.values()) item.dispose()
-          map.clear()
-        }
-      } finally {
-        syncing.delete(agent)
-      }
+      if (typeof offExecute === 'function') offExecute()
       if (id !== undefined && (liveAgent(id) === undefined || liveAgent(id) === agent)) {
         state.delete(id)
       }
     }]
   }
-  rt.refreshShellShadows = (agent) => {
-    if (agent !== undefined && ownedDisposers.has(agent)) syncShellShadows(agent)
-  }
+  rt.refreshShellShadows = () => {}
 
   ctx.on('session/event', (session, event) => {
     const id = session?.id
@@ -580,7 +596,7 @@ export function install(rt) {
         if (isUserSteer(event)) {
           if (rt.taskOwners?.has(id) || rt.shouldMoveForeground?.(rt.botOf(rt.chatOwners.get(id)), id)) break
           wake(track.steerWaiters, true)
-          scheduleCut(id)
+          scheduleCut(id, true)
         }
         break
     }

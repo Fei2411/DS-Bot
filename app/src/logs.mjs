@@ -102,12 +102,12 @@ export class LogFile {
   write(source, chunk) {
     const { lines, rest } = splitLines(this.#rests.get(source) ?? '', String(chunk))
     this.#rests.set(source, rest)
-    for (const line of lines) this.#line(source, line)
+    this.#lines(source, lines)
   }
 
   /** Writes the lines still waiting for their end. */
   flush() {
-    for (const [source, rest] of this.#rests) if (rest !== '') this.#line(source, rest)
+    for (const [source, rest] of this.#rests) if (rest !== '') this.#lines(source, [rest])
     this.#rests.clear()
   }
 
@@ -132,26 +132,52 @@ export class LogFile {
     this.#fd = undefined
   }
 
-  #line(source, line) {
-    if (this.#broken) return
-    const text = `${this.#now().toISOString()} [${source}] ${this.#redact(line)}\n`
-    const bytes = Buffer.byteLength(text)
+  // One write for the lines of a chunk: a chatty Host must not cost a disk write per line on the
+  // main (UI) thread. The batch is cut where the file must rotate, so the limit still holds.
+  #lines(source, lines) {
+    if (this.#broken || lines.length === 0) return
     try {
       if (this.#fd === undefined) this.#open()
-      if (shouldRotate(this.#size, bytes, this.#limit)) {
-        closeSync(this.#fd)
-        this.#fd = undefined
-        // Another process can still hold main.log open (the one that relaunched this one);
-        // then the file grows past the limit until the next start.
-        try { rotate(this.#dir) } catch { /* kept */ }
-        this.#open()
+      let text = ''
+      let bytes = 0
+      for (const line of lines) {
+        const entry = `${this.#now().toISOString()} [${source}] ${this.#redact(line)}\n`
+        const size = Buffer.byteLength(entry)
+        if (shouldRotate(this.#size + bytes, size, this.#limit)) {
+          this.#put(text, bytes)
+          text = ''
+          bytes = 0
+          this.#rotate()
+        }
+        text += entry
+        bytes += size
       }
-      writeSync(this.#fd, text)
-      this.#size += bytes
+      this.#put(text, bytes)
     } catch {
       // A log that cannot be written must not stop the app.
       this.#broken = true
     }
+  }
+
+  #put(text, bytes) {
+    if (text === '') return
+    // writeSync may take only part of a buffer; the rest of the batch must still reach the file.
+    const buffer = Buffer.from(text)
+    for (let done = 0; done < buffer.length;) {
+      const wrote = writeSync(this.#fd, buffer, done, buffer.length - done)
+      if (wrote <= 0) throw new Error('log write made no progress')
+      done += wrote
+    }
+    this.#size += bytes
+  }
+
+  #rotate() {
+    closeSync(this.#fd)
+    this.#fd = undefined
+    // Another process can still hold main.log open (the one that relaunched this one);
+    // then the file grows past the limit until the next start.
+    try { rotate(this.#dir) } catch { /* kept */ }
+    this.#open()
   }
 
   #open() {

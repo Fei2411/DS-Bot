@@ -105,6 +105,9 @@ test('activeChatTarget resolves launch fallback and clears when another screen i
   openChat(fresh, { kind: 'room', id: 'r-1' })
   assert.deepEqual(activeChatTarget(fresh.getState(), 'b-chief'), { kind: 'room', id: 'r-1' })
 
+  openChat(fresh, { kind: 'agent', id: 'a-1' })
+  assert.deepEqual(activeChatTarget(fresh.getState(), 'b-chief'), { kind: 'agent', id: 'a-1' })
+
   fresh.dispatch(CommonActions.navigate('Needs'))
   assert.equal(activeChatTarget(fresh.getState(), 'b-chief'), undefined)
 })

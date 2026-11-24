@@ -182,11 +182,60 @@ export function install(rt) {
       return bot !== undefined && isPrivate(bot.id) && bot.id !== self ? bot : undefined
     }
     switch (exec.name) {
+      case 'delegate_work':
       case 'message_bot': {
+        const body = String(args.goal ?? args.message ?? '')
         const bot = target(args.to)
-        if (bot) throw new Error(`Not sent: ${bot.name} is a private Bot, and other Bots cannot message it. Ask the user to pass it on.`)
+        if (bot) throw new Error(`Not sent: ${bot.name} is a private Bot, and other Bots cannot delegate work to it. Ask the user to pass it on.`)
         const to = botNamed(args.to)
-        if (isPrivate(self) && to !== undefined) await approve(exec, { en: `Let ${rt.botOf(self).name} send this to ${to.name}?\n\n${String(args.message ?? '')}`, zh: `允许 ${rt.botOf(self).name} 把下面的内容发给 ${to.name} 吗？\n\n${String(args.message ?? '')}` })
+        if (isPrivate(self) && to !== undefined) await approve(exec, { en: `Let ${rt.botOf(self).name} send this to ${to.name}?\n\n${body}`, zh: `允许 ${rt.botOf(self).name} 把下面的内容发给 ${to.name} 吗？\n\n${body}` })
+        return
+      }
+      case 'note_bot': {
+        const body = String(args.note ?? '')
+        const bot = target(args.to)
+        if (bot) throw new Error(`Not sent: ${bot.name} is a private Bot, and other Bots cannot leave notes for it. Ask the user to pass it on.`)
+        const to = botNamed(args.to)
+        if (isPrivate(self) && to !== undefined) await approve(exec, { en: `Let ${rt.botOf(self).name} leave this note for ${to.name}?\n\n${body}`, zh: `允许 ${rt.botOf(self).name} 给 ${to.name} 留这条静默留言吗？\n\n${body}` })
+        return
+      }
+      case 'ask_back': {
+        const body = String(args.question ?? '')
+        const explicit = typeof args.work_id === 'string' && args.work_id.trim() !== '' ? args.work_id.trim() : undefined
+        const activeId = explicit ?? rt.workOf?.(rt.live?.get(exec.agent?.id)?.info)
+        const active = activeId !== undefined ? rt.resolveWork?.(activeId)?.work : undefined
+        const to = active?.from ? rt.botOf(active.from) : undefined
+        if (to !== undefined && isPrivate(to.id) && to.id !== self) throw new Error(`Not sent: ${to.name} is a private Bot, and other Bots cannot message it.`)
+        if (isPrivate(self) && to !== undefined) await approve(exec, { en: `Let ${rt.botOf(self).name} ask ${to.name} this?\n\n${body}`, zh: `允许 ${rt.botOf(self).name} 向 ${to.name} 追问下面的问题吗？\n\n${body}` })
+        return
+      }
+      case 'answer_work': {
+        const body = String(args.answer ?? '')
+        const explicit = typeof args.work_id === 'string' && args.work_id.trim() !== '' ? args.work_id.trim() : undefined
+        const turnAskWork = rt.live?.get(exec.agent?.id)?.info?.askWork
+        const active = explicit !== undefined
+          ? rt.resolveWork?.(explicit)?.work
+          : turnAskWork !== undefined
+            ? rt.resolveWork?.(turnAskWork)?.work
+            : rt.needInputWorksFor?.(self)?.[0]?.work
+        const to = active?.to ? rt.botOf(active.to) : undefined
+        if (to !== undefined && isPrivate(to.id) && to.id !== self) throw new Error(`Not sent: ${to.name} is a private Bot, and other Bots cannot message it.`)
+        if (isPrivate(self) && to !== undefined) await approve(exec, { en: `Let ${rt.botOf(self).name} send this answer to ${to.name}?\n\n${body}`, zh: `允许 ${rt.botOf(self).name} 把下面的答复发给 ${to.name} 吗？\n\n${body}` })
+        return
+      }
+      case 'cancel_work': {
+        const ref = typeof args.target === 'string' ? args.target.trim() : ''
+        const byRef = ref !== '' ? rt.resolveWork?.(ref)?.work : undefined
+        const byName = botNamed(ref)
+        const touched = [byRef?.to ? rt.botOf(byRef.to) : undefined, byRef?.from ? rt.botOf(byRef.from) : undefined, byName].filter(Boolean)
+        const locked = touched.find(bot => isPrivate(bot.id) && bot.id !== self)
+        if (locked !== undefined) throw new Error(`Not cancelled: ${locked.name} is a private Bot, and other Bots cannot touch its work.`)
+        const to = byRef?.to ? rt.botOf(byRef.to) : byName
+        const reason = String(args.reason ?? '').trim()
+        if (isPrivate(self) && to !== undefined && to.id !== self) {
+          const detail = reason !== '' ? `\n\n${reason}` : ''
+          await approve(exec, { en: `Let ${rt.botOf(self).name} cancel work on ${to.name}?${detail}`, zh: `允许 ${rt.botOf(self).name} 取消发给 ${to.name} 的工单吗？${detail}` })
+        }
         return
       }
       // Every Bot reads the shared capabilities, so saving one shares what is in it.

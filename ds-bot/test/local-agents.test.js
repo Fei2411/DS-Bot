@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 import { LocalAgentAdapter } from '../src/host/local-agents/adapter.js'
 import { AcpEngine, stdioBridgePath } from '../src/host/local-agents/acp.js'
-import { CodexEngine } from '../src/host/local-agents/codex.js'
+import { CodexEngine, unwrapShellCommand } from '../src/host/local-agents/codex.js'
 import { JsonRpcPeer, wireProcess } from '../src/host/local-agents/jsonrpc.js'
 import { ClaudeEngine } from '../src/host/local-agents/claude.js'
 import { LoopbackMcp, flattenSchema } from '../src/host/local-agents/mcp.js'
@@ -27,17 +27,18 @@ const system = (id, text) => ({ id, role: 'system', content: [{ type: 'text', te
 const toolResult = (id, callId, text, isError = false) => ({ id, role: 'tool', content: [{ type: 'text', text }], toolCallId: callId, isError, source: { kind: 'tool', callId } })
 
 // An adapter wired to the fake CLIs: every engine route spawns `node fixture`.
-function makeAdapter({ records = {}, preset = 'workspace-write', review = false, acp = FIXTURES.acp, acpArgs = [], codex = FIXTURES.codex, codexArgs = [], claude = FIXTURES.claude, claudeArgs = [], cwdFor, attachments, fs, rt } = {}) {
+function makeAdapter({ records = {}, preset = 'workspace-write', review = false, acp = FIXTURES.acp, acpArgs = [], cancelAckTimeoutMs, codex = FIXTURES.codex, codexArgs = [], claude = FIXTURES.claude, claudeArgs = [], cwdFor, attachments, fs, rt, freshMemoryView } = {}) {
   const files = { acp, codex, claude }
   const spawned = []
   const adapter = new LocalAgentAdapter({
     rt: rt ?? { warn: () => {} },
     attachments,
     fs,
+    freshMemoryView,
     customAgents: () => [{ id: 'fake', name: 'Fake ACP', command: 'x', args: [] }, { id: 'fake2', name: 'Fake ACP 2', command: 'x', args: [] }],
     findExecutable: path => path,
     spawnEngine: (kind, route, spec) => {
-      const engine = kind === 'acp' ? new AcpEngine(route, { ...spec, command: process.execPath, args: [files.acp, ...acpArgs] }, { findExecutable: path => path })
+      const engine = kind === 'acp' ? new AcpEngine(route, { ...spec, command: process.execPath, args: [files.acp, ...acpArgs] }, { findExecutable: path => path, cancelAckTimeoutMs })
         : kind === 'codex' ? new CodexEngine(route, { ...spec, command: process.execPath, args: [files.codex, ...codexArgs] }, { findExecutable: path => path })
           : new ClaudeEngine(route, { ...spec, command: process.execPath, args: [files.claude, ...claudeArgs] }, { findExecutable: path => path })
       spawned.push(engine)
@@ -190,6 +191,157 @@ test('abort cancels the turn and the pending calls', async (t) => {
   setTimeout(() => control.abort(), 300)
   const out = await stream
   assert.equal(out.finish.kind, 'aborted')
+})
+
+test('acp: a stopped prompt cannot fail or finish the following turns', async (t) => {
+  const adapter = makeAdapter()
+  t.after(() => adapter.dispose())
+  const control = new AbortController()
+  const engine = adapter.engine('local-acp-fake')
+  const prompt = engine.prompt.bind(engine)
+  let started
+  const ready = new Promise(resolve => { started = resolve })
+  engine.prompt = async (...args) => {
+    const result = prompt(...args)
+    // ensure() and the write happen before the test stops this turn.
+    await new Promise(resolve => setImmediate(resolve))
+    started()
+    return result
+  }
+  const stopped = collect(adapter.stream(options('s1', [user('m1', 'hang')], { signal: control.signal })))
+  await ready
+  control.abort()
+  assert.equal((await stopped).finish.kind, 'aborted')
+  const messages = [user('m1', 'hang')]
+  for (const text of ['second', 'third']) {
+    messages.push(user(text, text))
+    const out = await collect(adapter.stream(options('s1', messages)))
+    assert.equal(out.text, `ok: ${text}`)
+    assert.equal(out.finish.kind, 'stop')
+  }
+})
+
+test('acp: a missing cancel acknowledgement cannot freeze subsequent turns', async (t) => {
+  for (const late of [false, true]) await t.test(late ? 'late reply is ignored' : 'no reply', async (t) => {
+    const adapter = makeAdapter({ acpArgs: ['--no-cancel-ack', ...(late ? ['--late-cancel-reply'] : [])], cancelAckTimeoutMs: 20 })
+    t.after(() => adapter.dispose())
+    await collect(adapter.stream(options('s1', [user('m0', 'hello')])))
+    const engine = adapter.engine('local-acp-fake')
+    const peer = engine.peer
+    const control = new AbortController()
+    const stopped = collect(adapter.stream(options('s1', [user('m0', 'hello'), user('m1', 'hang')], { signal: control.signal })))
+    // The fake CLI has received the hung prompt before Stop is pressed.
+    const request = peer.request.bind(peer)
+    let sent
+    const ready = new Promise(resolve => { sent = resolve })
+    peer.request = (...args) => {
+      const result = request(...args)
+      if (args[0] === 'session/prompt') sent()
+      return result
+    }
+    await ready
+    const oldId = peer.nextId
+    control.abort()
+    assert.equal((await stopped).finish.kind, 'aborted')
+    const messages = [user('m0', 'hello'), user('m1', 'hang'), user('m2', 'second')]
+    const next = await collect(adapter.stream(options('s1', messages, { signal: AbortSignal.timeout(1000) })))
+    assert.equal(next.finish.kind, 'stop')
+    assert.equal(next.text, 'ok: second')
+    assert.equal(peer.pending.has(oldId), false)
+    messages.push(user('m3', 'third'))
+    const third = await collect(adapter.stream(options('s1', messages)))
+    assert.equal(third.text, 'ok: third')
+    assert.equal(third.finish.kind, 'stop')
+  })
+})
+
+test('acp: Stop interrupts a new prompt waiting for a missing cancel acknowledgement', async (t) => {
+  const adapter = makeAdapter({ acpArgs: ['--no-cancel-ack'], cancelAckTimeoutMs: 10_000 })
+  t.after(() => adapter.dispose())
+  await collect(adapter.stream(options('s1', [user('m0', 'hello')])))
+  const engine = adapter.engine('local-acp-fake')
+  const session = adapter.live.get('s1').engineSession
+  const control = new AbortController()
+  const first = engine.prompt(session, [{ type: 'text', text: 'hang' }], { signal: control.signal })
+  await new Promise(resolve => setImmediate(resolve))
+  const oldId = engine.peer.nextId
+  control.abort()
+  engine.cancel(session)
+  const nextControl = new AbortController()
+  const second = engine.prompt(session, [{ type: 'text', text: 'must not send' }], { signal: nextControl.signal })
+  const rejected = assert.rejects(second, { name: 'AbortError' })
+  await new Promise(resolve => setImmediate(resolve))
+  nextControl.abort()
+  await Promise.race([rejected, new Promise((_, reject) => setTimeout(() => reject(new Error('Stop did not release the waiting prompt')), 200))])
+  assert.equal(engine.peer.nextId, oldId)
+  await adapter.dispose()
+  await first
+})
+
+test('after Stop the next turn receives its first text or permission event', async (t) => {
+  for (const type of ['text', 'permission']) await t.test(type, async (t) => {
+    const adapter = makeAdapter()
+    t.after(() => adapter.dispose())
+    const live = await adapter.liveFor(options('s1', []), 'workspace-write')
+    live.engineSession = {}
+    live.engine.prompt = async () => {}
+    live.engine.cancel = () => {}
+    const control = new AbortController()
+    await adapter.startTurn(live, 'first', control.signal)
+    const first = collect(adapter.drain(live, { signal: control.signal }))
+    await new Promise(resolve => setImmediate(resolve))
+    control.abort()
+    assert.equal((await first).finish.kind, 'aborted')
+    await adapter.startTurn(live, 'second')
+    live.push(type === 'text' ? { type, text: 'first reply' } : {
+      type, id: 'first-permission', action: 'Run a command', changes: false,
+      options: [{ optionId: 'allow', kind: 'allow_once', name: 'Allow' }], reply: () => {},
+    })
+    live.push({ type: 'done', reason: 'end_turn' })
+    const second = await collect(adapter.drain(live, {}))
+    if (type === 'text') assert.equal(second.text, 'first reply')
+    else {
+      assert.equal(second.finish.kind, 'tool-calls')
+      assert.equal(second.calls[0]?.id, 'first-permission')
+    }
+    assert.equal(live.waiters.length, 0)
+  })
+})
+
+test('acp: cancelled wire replies and notices are isolated until the next prompt', async (t) => {
+  for (const fails of [false, true]) await t.test(fails ? 'late error' : 'late success', async () => {
+    const engine = new AcpEngine('local-acp-fake', {}, {})
+    const sent = []
+    const peer = new JsonRpcPeer(message => sent.push(message))
+    engine.ensure = async () => peer
+    engine.peer = peer
+    const session = engine.sessionFor('s1')
+    session.acpSessionId = 'acp-1'
+    const events = []
+    session.push = event => events.push(event)
+    const notice = text => engine.onNotice('session/update', { sessionId: 'acp-1', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text } } })
+    const control = new AbortController()
+    const first = engine.prompt(session, [{ type: 'text', text: 'first' }], { signal: control.signal }).catch(error => error)
+    await new Promise(resolve => setImmediate(resolve))
+    control.abort()
+    engine.cancel(session)
+    const second = engine.prompt(session, [{ type: 'text', text: 'second' }])
+    await new Promise(resolve => setImmediate(resolve))
+    assert.equal(sent.filter(message => message.method === 'session/prompt').length, 1)
+    notice('late output')
+    peer.handleLine(JSON.stringify({ jsonrpc: '2.0', id: sent[0].id, ...(fails ? { error: { code: -32603, message: 'cancelled' } } : { result: { stopReason: 'cancelled' } }) }))
+    await first
+    await new Promise(resolve => setImmediate(resolve))
+    assert.deepEqual(events, [])
+    const request = sent.filter(message => message.method === 'session/prompt').at(-1)
+    notice('second answer')
+    peer.handleLine(JSON.stringify({ jsonrpc: '2.0', id: request.id, result: { stopReason: 'end_turn' } }))
+    await second
+    assert.deepEqual(events, [{ type: 'text', text: 'second answer' }, { type: 'done', reason: 'end_turn' }])
+    const count = sent.length
+    await assert.rejects(engine.prompt(session, [], { signal: control.signal }), { name: 'AbortError' })
+    assert.equal(sent.length, count)
+  })
 })
 
 test('env sanitization drops agent and key variables', () => {
@@ -846,6 +998,8 @@ test('a running turn of a local-agent part is not checked before its steps', asy
     chatOf: () => 's1',
     isBotSession: id => id === 's1',
     isLocalAgentRef: ref => typeof ref === 'string' && ref.startsWith('local-acp-'),
+    engineOf: ref => (typeof ref === 'string' && ref.startsWith('local-acp-') ? 'local-acp-fake' : 'dsh'),
+    engineOfBot: target => (typeof target?.model === 'string' && target.model.startsWith('local-acp-') ? 'local-acp-fake' : 'dsh'),
     isLocalAgentRoute: route => route.startsWith('local-acp-'),
     localAgentContext: () => ({ used: 999_999, size: 200_000, compactions: 0 }),
     chatOwners: new Map([['s1', 'b1']]),
@@ -865,9 +1019,9 @@ test('a running turn of a local-agent part is not checked before its steps', asy
   assert.equal(result, 'next-called')
 })
 
-// A manual new part gives the deterministic handoff: verbatim tail + anchors +
-// the read_own_chat line, with no model call.
-test('a fresh part carries the deterministic handoff', async () => {
+// A run-mode change on a local agent gives the deterministic handoff: verbatim tail +
+// anchors + the read_own_chat line, with no model call.
+test('a run-mode change on a local agent carries the deterministic handoff', async () => {
   const ctx = fakeContext()
   ctx.workspaceRegistry = { archiveSession: async () => {}, unarchiveSession: async () => {} }
   ctx.sessions = { flush: async () => {} }
@@ -892,6 +1046,8 @@ test('a fresh part carries the deterministic handoff', async () => {
     sessionOfRoom: () => undefined,
     isBotSession: id => ['s1', 's2'].includes(id),
     isLocalAgentRef: ref => typeof ref === 'string' && ref.startsWith('local-acp-'),
+    engineOf: ref => (typeof ref === 'string' && ref.startsWith('local-acp-') ? 'local-acp-fake' : 'dsh'),
+    engineOfBot: target => (typeof target?.model === 'string' && target.model.startsWith('local-acp-') ? 'local-acp-fake' : 'dsh'),
     chatOwners: new Map([['s1', 'b1']]),
     groupOwners: new Map(),
     pastOwners: new Map(),
@@ -917,7 +1073,7 @@ test('a fresh part carries the deterministic handoff', async () => {
     noteText: () => '',
     followFolder: async () => {},
     heldBack: () => [],
-    resolveAgent: async id => ({ id, session: { id, deriveMessages: () => messages.map(line => ({ role: line.who === 'user' ? 'user' : 'assistant', content: [{ type: 'text', text: line.text }] })) }, status: 'idle', followup: (message) => followed.push(message), whenIdle: async () => {}, runMaintenance: async fn => fn(AbortSignal.timeout(5_000)), inbox: { nextStep: [], nextTurn: [] }, send: async () => {} }),
+    resolveAgent: async id => ({ id, session: { id, requestHeader: () => ({ config: { provider: 'deepseek', model: 'v4' } }), deriveMessages: () => messages.map(line => ({ role: line.who === 'user' ? 'user' : 'assistant', content: [{ type: 'text', text: line.text }] })) }, status: 'idle', followup: (message) => followed.push(message), whenIdle: async () => {}, runMaintenance: async fn => fn(AbortSignal.timeout(5_000)), inbox: { nextStep: [], nextTurn: [] }, send: async () => {} }),
     createSession: async () => 's2',
     desiredModel: async bot => bot.model,
     desiredEffort: async () => undefined,
@@ -938,15 +1094,16 @@ test('a fresh part carries the deterministic handoff', async () => {
     llmRequests: new Map(),
   }
   partsInstall(rt)
-  assert.equal(typeof rt.newPart, 'function')
-  await rt.newPart('s1')
+  assert.equal(rt.newPart, undefined)
+  assert.equal(rt.switchPart, undefined)
+  await rt.followEngine('b1')
   // The switch runs as a job; the Bot lands on s2 with s1 kept as an earlier part.
   for (let i = 0; i < 50 && bot.sessionId !== 's2'; i += 1) await new Promise(resolve => setTimeout(resolve, 20))
   assert.equal(bot.sessionId, 's2', rt.warnings.join(' | '))
   assert.equal(bot.segments.length, 1)
   assert.equal(bot.segments[0].sessionId, 's1')
   const text = [...followed, ...delivered].map(message => message?.content?.map?.(block => block.text).join('') ?? message?.text ?? String(message)).join('\n')
-  assert.match(text, /fresh conversation was started|previous part|read_own_chat/i)
+  assert.match(text, /run mode|previous part|read_own_chat/i)
 })
 
 test('an open-ended request outlives the default deadline', async () => {
@@ -958,6 +1115,22 @@ test('an open-ended request outlives the default deadline', async () => {
   assert.equal(await settled, 'timeout', 'a positive timeout still fires')
   peer.handleLine(JSON.stringify({ jsonrpc: '2.0', id: 1, result: { stopReason: 'end_turn' } }))
   assert.deepEqual(await open, { stopReason: 'end_turn' }, 'a 0 timeout never expires')
+})
+
+test('an aborted JSON-RPC request is removed and its late reply is ignored', async () => {
+  const peer = new JsonRpcPeer(() => {})
+  const control = new AbortController()
+  const first = peer.request('session/prompt', {}, { signal: control.signal, timeout: 0 })
+  control.abort()
+  await assert.rejects(first, { name: 'AbortError' })
+  assert.equal(peer.pending.size, 0)
+  const second = peer.request('session/prompt', {}, { timeout: 0 })
+  peer.handleLine(JSON.stringify({ jsonrpc: '2.0', id: 1, result: { stopReason: 'cancelled' } }))
+  peer.handleLine(JSON.stringify({ jsonrpc: '2.0', id: 1, error: { code: -32603, message: 'late failure' } }))
+  assert.equal(peer.pending.size, 1)
+  peer.handleLine(JSON.stringify({ jsonrpc: '2.0', id: 2, result: { stopReason: 'end_turn' } }))
+  assert.deepEqual(await second, { stopReason: 'end_turn' })
+  assert.equal(peer.pending.size, 0)
 })
 
 // #1513: a card that suspends the stream can outlive the CLI's turn. The answer must
@@ -2124,4 +2297,320 @@ test('ACP errors with numeric, empty or object codes keep their message and get 
     collect(adapter.stream(options('s3', [user('m1', 'rpc-error-object')]))),
     err => err.code === 'LOCAL_AGENT_ERROR' && /"reason":"stopped"/.test(err.message) && !/\[object Object\]/.test(err.message),
   )
+})
+
+
+test('stream reports live thoughts, tool activities and end-of-stream idle to the turn tracker', async (t) => {
+  const seen = []
+  const records = {}
+  const adapter = makeAdapter({
+    records,
+    rt: { warn: () => {}, noteLocalAgentEvent: (sessionId, event) => seen.push([sessionId, event.type, event.text ?? null, event.team === true]) },
+  })
+  t.after(() => adapter.dispose())
+  const out = await collect(adapter.stream(options('s1', [user('m1', 'inspect files')])))
+  assert.equal(out.finish.kind, 'stop')
+  assert.deepEqual(seen, [
+    ['s1', 'thought', 'thought about: The conversation so far (oldest first):\n', false],
+    ['s1', 'activity', '▸ Read src/a.js', false],
+    ['s1', 'activity', '▸ Run `npm test`', false],
+    ['s1', 'text', 'ok: The conversation so far (oldest first):\n\nUser: inspect files', false],
+    ['s1', 'idle', null, false],
+  ])
+  // A request DS Bot makes for itself never reports live turn activity.
+  seen.length = 0
+  assert.equal(await adapter.compact('s1'), 'done')
+  assert.deepEqual(seen, [])
+})
+
+test('stream reports idle in finally when a consumer terminates the generator early', async (t) => {
+  const seen = []
+  const adapter = makeAdapter({
+    rt: { warn: () => {}, noteLocalAgentEvent: (sessionId, event) => seen.push([sessionId, event.type, event.text ?? null]) },
+  })
+  t.after(() => adapter.dispose())
+  const gen = adapter.stream(options('s1', [user('m1', 'inspect files')]))
+  for await (const chunk of gen) {
+    if (chunk.type === 'reasoning-delta' && chunk.text.includes('Read src/a.js')) break
+  }
+  assert.equal(seen.some(([, type, text]) => type === 'activity' && text === '▸ Read src/a.js'), true)
+  assert.deepEqual(seen.at(-1), ['s1', 'idle', null])
+})
+
+test('Devin and Cursor recorded ACP team-MCP streams emit only team-marked activities', async (t) => {
+  const seen = []
+  const adapter = makeAdapter({
+    rt: { warn: () => {}, noteLocalAgentEvent: (sessionId, event) => seen.push([sessionId, event.type, event.text ?? null, event.team === true]) },
+  })
+  t.after(() => adapter.dispose())
+  const devin = await collect(adapter.stream(options('s1', [user('m1', 'devin-team')])))
+  assert.equal(devin.calls[0]?.name, 'message_bot')
+  assert.deepEqual(seen.filter(([, type]) => type === 'activity' || type === 'status'), [
+    ['s1', 'activity', '▸ Calling message_bot from dsbot', true],
+  ])
+  assert.deepEqual(seen.at(-1), ['s1', 'idle', null, false])
+
+  seen.length = 0
+  const cursor = await collect(adapter.stream(options('s2', [user('m1', 'team-permission')])))
+  assert.equal(cursor.calls[0]?.name, 'message_bot')
+  assert.deepEqual(seen.filter(([, type]) => type === 'activity' || type === 'status'), [
+    ['s2', 'activity', '▸ dsbot: message_bot', true],
+  ])
+  assert.deepEqual(seen.at(-1), ['s2', 'idle', null, false])
+})
+
+test('codex app-server ignores non-tool items and unwraps shell -lc wrappers', () => {
+  assert.equal(unwrapShellCommand('/bin/zsh -lc pwd'), 'pwd')
+  assert.equal(unwrapShellCommand('/bin/zsh -lc "python3 -c \'print(\\"hi\\")\'"'), 'python3 -c \'print("hi")\'')
+  assert.equal(unwrapShellCommand(['/bin/bash', '-lc', 'git status -sb']), 'git status -sb')
+  const engine = new CodexEngine('local-codex-cli', { name: 'Codex' }, { findExecutable: () => undefined })
+  const thread = engine.threadFor('s1')
+  thread.threadId = 't1'
+  const pushed = []
+  thread.push = event => pushed.push(event)
+  engine.onNotice('item/started', { threadId: 't1', turnId: 'u1', item: { type: 'userMessage', text: 'hi' } })
+  engine.onNotice('item/started', { threadId: 't1', turnId: 'u1', item: { type: 'developerMessage', text: 'sys' } })
+  engine.onNotice('item/started', { threadId: 't1', turnId: 'u1', item: { type: 'agentMessage', text: '' } })
+  engine.onNotice('item/started', { threadId: 't1', turnId: 'u1', item: { type: 'commandExecution', command: '/bin/zsh -lc pwd' } })
+  engine.onNotice('item/completed', { threadId: 't1', turnId: 'u1', item: { type: 'agentMessage', text: 'done' } })
+  assert.deepEqual(pushed, [
+    { type: 'activity', text: '▸ pwd', turnId: 'u1' },
+    { type: 'text', text: 'done', turnId: 'u1' },
+  ])
+})
+
+test('acp: when session/load fails and falls back to session/new, adapter replays history and instructions and resets stale context', async (t) => {
+  const record = join(mkdtempSync(join(tmpdir(), 'dsb-acp-resume-drop-')), 'prompts.jsonl')
+  t.after(() => rmSync(dirname(record), { recursive: true, force: true }))
+  const records = {}
+  const messages = [
+    system('sys', 'You are Kai. Team memory: user prefers pnpm.'),
+    user('m1', 'Earlier task: fix auth token refresh'),
+    { id: 'a1', role: 'assistant', content: [{ type: 'text', text: 'Checked src/auth.js and found the expiry check.' }] },
+  ]
+  const first = makeAdapter({ records })
+  try {
+    await collect(first.stream(options('s1', messages)))
+  } finally {
+    await first.dispose()
+  }
+  const priorId = records.s1.cliSessionId
+  assert.ok(priorId?.startsWith('acp-'))
+  // Simulate stale compaction count / context from the previous CLI session.
+  records.s1 = { ...records.s1, compactions: 3, context: { used: 140_000, size: 200_000 } }
+
+  const warnings = []
+  const second = makeAdapter({
+    records,
+    acpArgs: ['--fail-load', '--record', record],
+    rt: { warn: (...args) => warnings.push(args.join(' ')) },
+  })
+  t.after(() => second.dispose())
+  const out = await collect(second.stream(options('s1', [...messages, user('m2', 'Now update the test too')])))
+  assert.equal(out.finish?.kind, 'stop')
+  const calls = readFileSync(record, 'utf8').trim().split('\n').map(line => JSON.parse(line))
+  const promptText = calls.at(-1).params.prompt.map(block => block.text ?? '').join('\n')
+  assert.match(promptText, /The team instructions for this conversation:\nYou are Kai\. Team memory: user prefers pnpm\./)
+  assert.match(promptText, /The conversation so far \(oldest first\):/)
+  assert.match(promptText, /User: Earlier task: fix auth token refresh/)
+  assert.match(promptText, /You: Checked src\/auth\.js and found the expiry check\./)
+  assert.match(promptText, /User: Now update the test too/)
+  assert.equal(records.s1.handedId, 'm2')
+  assert.equal(records.s1.compactions ?? 0, 0)
+  assert.ok(warnings.some(line => line.includes('did not resume session')), warnings.join('\n'))
+})
+
+test('codex: when thread/resume fails and falls back to thread/start, adapter sends developerInstructions and replays history', async (t) => {
+  const record = join(mkdtempSync(join(tmpdir(), 'dsb-codex-resume-drop-')), 'params.jsonl')
+  t.after(() => rmSync(dirname(record), { recursive: true, force: true }))
+  const records = {}
+  const messages = [
+    system('sys', 'You are Kai. Team memory: always run lint.'),
+    user('m1', 'We are refactoring src/cache.js'),
+    { id: 'a1', role: 'assistant', content: [{ type: 'text', text: 'Proposed option A and option B.' }] },
+  ]
+  const first = makeAdapter({ records, codexArgs: ['--record', record] })
+  try {
+    await collect(first.stream(options('s1', messages, { provider: 'local-codex-cli', model: 'gpt-5.1-codex' })))
+  } finally {
+    await first.dispose()
+  }
+  const priorThreadId = records.s1.cliSessionId
+  assert.ok(priorThreadId)
+
+  const second = makeAdapter({ records, codexArgs: ['--fail-resume', '--record', record] })
+  t.after(() => second.dispose())
+  const out = await collect(second.stream(options('s1', [...messages, user('m2', 'Go with option B')], { provider: 'local-codex-cli', model: 'gpt-5.1-codex' })))
+  assert.equal(out.finish?.kind, 'stop')
+
+  const calls = readFileSync(record, 'utf8').trim().split('\n').map(line => JSON.parse(line))
+  const starts = calls.filter(call => call.method === 'thread/start')
+  const resumes = calls.filter(call => call.method === 'thread/resume')
+  const turns = calls.filter(call => call.method === 'turn/start')
+  assert.equal(resumes.length, 1, 'must attempt thread/resume first')
+  assert.equal(starts.length, 2, 'must fall back to a new thread/start')
+  assert.equal(starts[1].params.developerInstructions, 'You are Kai. Team memory: always run lint.', 'fallback thread/start must carry developerInstructions')
+  const secondInput = turns.at(-1).params.input.map(block => block.text ?? '').join('\n')
+  assert.match(secondInput, /The conversation so far \(oldest first\):/)
+  assert.match(secondInput, /We are refactoring src\/cache\.js/)
+  assert.match(secondInput, /Proposed option A and option B\./)
+  assert.match(secondInput, /Go with option B/)
+  assert.equal(records.s1.handedId, 'm2')
+})
+
+test('replay keeps full group memory snapshot and assistant tool-call markers, and digest keeps newest messages', async (t) => {
+  const record = join(mkdtempSync(join(tmpdir(), 'dsb-acp-replay-')), 'prompts.jsonl')
+  t.after(() => rmSync(dirname(record), { recursive: true, force: true }))
+  const adapter = makeAdapter({ acpArgs: ['--record', record] })
+  t.after(() => adapter.dispose())
+  const longGroupMem = `## Group memory\n${'Remember project milestone detail. '.repeat(120)}TAIL_MARKER`
+  assert.ok(longGroupMem.length > 3_500)
+  const msgs = [
+    system('sys', 'You are Kai.'),
+    { id: 'gm', role: 'user', content: [{ type: 'text', text: longGroupMem }], source: { kind: 'ds-bot-group-memory' } },
+    user('u1', 'Inspect auth.js'),
+    { id: 'a1', role: 'assistant', content: [{ type: 'tool-call', id: 'tc1', name: 'read_file', arguments: { path: 'src/auth.js' } }] },
+    toolResult('t1', 'tc1', 'file contents here'),
+    { id: 'clock', role: 'user', content: [{ type: 'text', text: 'Current time: 10:00' }], source: { kind: 'runtime-context' } },
+    user('u2', 'What did we read?'),
+  ]
+  const out = await collect(adapter.stream(options('s1', msgs)))
+  assert.equal(out.finish?.kind, 'stop')
+  const calls = readFileSync(record, 'utf8').trim().split('\n').map(line => JSON.parse(line))
+  const promptText = calls.at(-1).params.prompt.map(block => block.text ?? '').join('\n')
+  assert.match(promptText, /TAIL_MARKER/, 'group memory snapshot must not be clipped at 2,000 chars')
+  assert.match(promptText, /\[tool: read_file\(src\/auth\.js\)\]/, 'assistant tool calls must appear in replay')
+  assert.doesNotMatch(promptText, /Current time: 10:00/, 'stale runtime-context clock messages should not waste replay budget')
+
+  const many = Array.from({ length: 60 }, (_, i) => user(`d${i}`, `msg-${i} ${'x'.repeat(250)}`))
+  const digest = await collect(adapter.stream(options('s2', many, { purpose: 'compaction' })))
+  assert.match(digest.text, /msg-59/, 'compaction digest must keep newest messages')
+  assert.doesNotMatch(digest.text, /msg-0 /, 'compaction digest should drop oldest messages past 8KB budget')
+})
+
+test('failed CLI resume preserves a >2000-char request followed by a clock message, bounds memory updates, and rejects dropped resume during maintenance', async (t) => {
+  const record = join(mkdtempSync(join(tmpdir(), 'dsb-acp-clock-replay-')), 'prompts.jsonl')
+  t.after(() => rmSync(dirname(record), { recursive: true, force: true }))
+  const records = {}
+  const first = makeAdapter({ records })
+  try {
+    await collect(first.stream(options('s1', [system('sys', 'You are Kai.'), user('m1', 'hello')])))
+  } finally {
+    await first.dispose()
+  }
+
+  const longReq = `${'Detailed change request. '.repeat(110)}DO_NOT_TOUCH_PROD_TAIL`
+  assert.ok(longReq.length > 2_500)
+  const manyUpdates = Array.from({ length: 30 }, (_, i) => ({
+    id: `mu-${i}`,
+    role: 'user',
+    content: [{ type: 'text', text: `Memory update #${i}: ${'m'.repeat(1_500)}` }],
+    source: { kind: 'ds-bot-memory-update' },
+  }))
+  const second = makeAdapter({ records, acpArgs: ['--fail-load', '--record', record] })
+  t.after(() => second.dispose())
+  const out = await collect(second.stream(options('s1', [
+    system('sys', 'You are Kai.'),
+    user('m1', 'hello'),
+    ...manyUpdates,
+    user('m2', longReq),
+    { id: 'clk', role: 'user', content: [{ type: 'text', text: 'Current time: 14:30' }], source: { kind: 'runtime-context' } },
+  ])))
+  assert.equal(out.finish?.kind, 'stop')
+  const calls = readFileSync(record, 'utf8').trim().split('\n').map(line => JSON.parse(line))
+  const promptText = calls.at(-1).params.prompt.map(block => block.text ?? '').join('\n')
+  assert.match(promptText, /DO_NOT_TOUCH_PROD_TAIL/, 'long unread request followed by clock must not be clipped at 2,000 chars')
+  assert.match(promptText, /Memory update #29:/, 'newest memory updates must be kept')
+  assert.doesNotMatch(promptText, /Memory update #0:/, 'old memory updates must be bounded instead of growing replay without limit')
+
+  // Maintenance (`note()`) on a dropped resume must fail without creating an orphan blank CLI session,
+  // and must clean up both the live entry and the spawned engine session/process without leaking.
+  const maintAcpRecord = join(mkdtempSync(join(tmpdir(), 'dsb-acp-maint-fail-')), 'rpc.jsonl')
+  t.after(() => rmSync(dirname(maintAcpRecord), { recursive: true, force: true }))
+  const third = makeAdapter({ records, acpArgs: ['--fail-load', '--record', maintAcpRecord] })
+  t.after(() => third.dispose())
+  await assert.rejects(
+    () => third.note('s1', 'Write a handoff note', AbortSignal.timeout(5_000)),
+    /could not be resumed/,
+  )
+  assert.equal(third.live.size, 0, 'failed maintenance resume must remove live entry')
+  assert.equal(third._spawned[0].sessions.size, 0, 'failed maintenance resume must forget engine session')
+  const maintAcpCalls = readFileSync(maintAcpRecord, 'utf8').trim().split('\n').map(line => JSON.parse(line))
+  assert.equal(maintAcpCalls.filter(call => call.method === 'session/load').length, 1, 'maintenance must attempt session/load')
+  assert.equal(maintAcpCalls.filter(call => call.method === 'session/new').length, 0, 'failed maintenance resume must not spawn an orphan session/new')
+
+  // When freshMemoryView is available on a dropped CLI resume, replay refreshes the
+  // authorized memory snapshot instead of replaying a bounded suffix of deltas over a
+  // stale frozen snapshot, so older deleted entries never resurrect.
+  const freshRecord = join(mkdtempSync(join(tmpdir(), 'dsb-acp-fresh-mem-')), 'prompts.jsonl')
+  t.after(() => rmSync(dirname(freshRecord), { recursive: true, force: true }))
+  const staleSnap = '# Your memory\n\n## Your memory (MEMORY.md)\n- Deploy to staging\n- Keep logs short'
+  const currentSnap = '# Your memory\n\n## Your memory (MEMORY.md)\n- Keep logs short\n- Always run lint\n- Keep literal $& and $$100 intact'
+  const freshAdapter = makeAdapter({
+    records,
+    acpArgs: ['--fail-load', '--record', freshRecord],
+    freshMemoryView: () => ({ previous: staleSnap, own: currentSnap, group: '# Group memory\n- Active release: v2' }),
+  })
+  t.after(() => freshAdapter.dispose())
+  const freshOut = await collect(freshAdapter.stream(options('s1', [
+    system('sys', `You are Kai.\n\n${staleSnap}`),
+    user('m1', 'hello'),
+    { id: 'gm-old', role: 'user', content: [{ type: 'text', text: '# Group memory\n- Old deleted group note' }], source: { kind: 'ds-bot-group-memory' } },
+    { id: 'mu-del', role: 'user', content: [{ type: 'text', text: 'Memory update: removed Deploy to staging' }], source: { kind: 'ds-bot-memory-update' } },
+    ...manyUpdates.slice(0, 6),
+    user('m2', 'What is our deployment plan?'),
+  ])))
+  assert.equal(freshOut.finish?.kind, 'stop')
+  const freshCalls = readFileSync(freshRecord, 'utf8').trim().split('\n').map(line => JSON.parse(line))
+  const freshPrompt = freshCalls.at(-1).params.prompt.map(block => block.text ?? '').join('\n')
+  assert.doesNotMatch(freshPrompt, /Deploy to staging/, 'deleted memory from stale frozen snapshot must not resurrect after failed resume')
+  assert.doesNotMatch(freshPrompt, /Old deleted group note/, 'stale group memory snapshot must be replaced with current authorized group memory')
+  assert.match(freshPrompt, /Always run lint/, 'current memory entries must appear in replacement CLI replay')
+  assert.ok(freshPrompt.includes('Keep literal $& and $$100 intact'), 'dollar-sign tokens in memory must stay literal without expanding stale snapshot')
+  assert.match(freshPrompt, /Active release: v2/, 'current group memory must appear in replacement CLI replay')
+  assert.doesNotMatch(freshPrompt, /Memory update #0:/, 'historical memory delta messages must not be replayed when fresh snapshot was applied')
+
+  // On Codex fallback thread/start (after thread/resume fails), startup developerInstructions
+  // itself must already carry the refreshed memory (excluding deleted entries and preserving $&/$$).
+  const codexRecord = join(mkdtempSync(join(tmpdir(), 'dsb-codex-fresh-mem-')), 'params.jsonl')
+  t.after(() => rmSync(dirname(codexRecord), { recursive: true, force: true }))
+  const codexRecords = {}
+  const codexFirst = makeAdapter({ records: codexRecords, codexArgs: ['--record', codexRecord] })
+  try {
+    await collect(codexFirst.stream(options('c1', [system('sys', `You are Kai.\n\n${staleSnap}`), user('m1', 'hello')], { provider: 'local-codex-cli', model: 'gpt-5.1-codex' })))
+  } finally {
+    await codexFirst.dispose()
+  }
+  const codexSecond = makeAdapter({
+    records: codexRecords,
+    codexArgs: ['--fail-resume', '--record', codexRecord],
+    freshMemoryView: () => ({ previous: staleSnap, own: currentSnap }),
+  })
+  t.after(() => codexSecond.dispose())
+  const codexOut = await collect(codexSecond.stream(options('c1', [
+    system('sys', `You are Kai.\n\n${staleSnap}`),
+    user('m1', 'hello'),
+    user('m2', 'status?'),
+  ], { provider: 'local-codex-cli', model: 'gpt-5.1-codex' })))
+  assert.equal(codexOut.finish?.kind, 'stop')
+  const codexCalls = readFileSync(codexRecord, 'utf8').trim().split('\n').map(line => JSON.parse(line))
+  const fallbackStart = codexCalls.filter(call => call.method === 'thread/start').at(-1)
+  assert.doesNotMatch(fallbackStart.params.developerInstructions, /Deploy to staging/, 'fallback Codex thread/start developerInstructions must not carry deleted memory')
+  assert.ok(fallbackStart.params.developerInstructions.includes('Keep literal $& and $$100 intact'), 'fallback Codex developerInstructions must carry refreshed memory literally')
+
+  // Codex maintenance (`note()`) on a failed resume must reject without calling thread/start
+  // (no orphan blank thread created) and clean up live + engine thread entries.
+  const maintCodexRecord = join(mkdtempSync(join(tmpdir(), 'dsb-codex-maint-fail-')), 'rpc.jsonl')
+  t.after(() => rmSync(dirname(maintCodexRecord), { recursive: true, force: true }))
+  const codexMaint = makeAdapter({ records: codexRecords, codexArgs: ['--fail-resume', '--record', maintCodexRecord] })
+  t.after(() => codexMaint.dispose())
+  await assert.rejects(
+    () => codexMaint.note('c1', 'Write a handoff note', AbortSignal.timeout(5_000)),
+    /could not be resumed/,
+  )
+  assert.equal(codexMaint.live.size, 0, 'failed Codex maintenance resume must remove live entry')
+  assert.equal(codexMaint._spawned[0].threads.size, 0, 'failed Codex maintenance resume must forget engine thread')
+  const maintCodexCalls = readFileSync(maintCodexRecord, 'utf8').trim().split('\n').map(line => JSON.parse(line))
+  assert.equal(maintCodexCalls.filter(call => call.method === 'thread/resume').length, 1, 'Codex maintenance must attempt thread/resume')
+  assert.equal(maintCodexCalls.filter(call => call.method === 'thread/start').length, 0, 'failed Codex maintenance resume must not spawn an orphan thread/start')
 })

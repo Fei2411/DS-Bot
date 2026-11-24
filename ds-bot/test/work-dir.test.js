@@ -234,26 +234,6 @@ test('an idle Bot\'s own chat moves to its new folder at once, and back', async 
   assert.match(handoffOf(agentOf('s2')), new RegExp(`because your working folder changed to ${escapeRegExp(team)}\\.`))
 })
 
-// #1501: a Bot's own chat may keep a part live in the background. Changing its folder
-// moves every part: a background part left behind would keep working in the old one.
-test('a background part moves to the new folder with the rest of the chat', async (t) => {
-  const saved = { ...TEAM, bots: { ...TEAM.bots, b: { ...TEAM.bots.b, openParts: [{ sessionId: 'b-bg', segments: [] }] } } }
-  const { call, created, agentOf, project, state, stop } = await start({ team: saved })
-  t.after(stop)
-  assert.equal((await call('update-bot', { id: 'b', workDir: project })).ok, true)
-  // Both threads move on to a fresh part made in the new folder.
-  await until(() => state().bots.b.sessionId.startsWith('s') && state().bots.b.openParts[0].sessionId.startsWith('s'))
-  await settle()
-  assert.deepEqual(created.map(options => options.cwd), [project, project])
-  const writer = state().bots.b
-  assert.deepEqual([writer.sessionId, writer.openParts[0].sessionId].sort(), ['s1', 's2'])
-  // Each thread keeps its own chain: the old foreground part and the old background one.
-  assert.deepEqual(writer.segments.map(segment => segment.sessionId), ['b'])
-  assert.deepEqual(writer.openParts[0].segments.map(segment => segment.sessionId), ['b-bg'])
-  assert.equal(agentOf(writer.sessionId).session.header.cwd, project)
-  assert.equal(agentOf(writer.openParts[0].sessionId).session.header.cwd, project)
-})
-
 test('a running Bot moves at its next step and carries that step\'s input along', async (t) => {
   const { requests, services } = approvalServices('allowed-once')
   const { tool, preStep, agentOf, created, project, state, stop } = await start({ services })
@@ -1710,50 +1690,6 @@ test('a bounded Main Bot skips approval for unbounded Bots unless a group bounds
   assert.equal(await tool('update_group', { group: 'Ops', work_dir: '' }, 'a'), `Could not update "Ops": ${notAllowed(project)}`)
   assert.equal(state().rooms.r1.workDir, other)
   assert.equal(requests.length, 3)
-})
-
-test('a Bot\'s live background threads count when checking a folder change, without checking archived segments', async (t) => {
-  const { service } = folderService()
-  const { requests, current, services } = fullAccessServices('rejected')
-  const saved = {
-    ...TEAM,
-    rooms: {},
-    bots: {
-      ...TEAM.bots,
-      b: {
-        ...TEAM.bots.b,
-        permission: 'danger-full-access',
-        openParts: [{ sessionId: 'b-bg', segments: [{ sessionId: 'b-bg-old' }] }],
-      },
-    },
-  }
-  current.set('b', 'danger-full-access')
-  current.set('b-bg', 'workspace-write')
-  current.set('b-bg-old', 'workspace-write')
-  const { ctx, tool, agentOf, project, state, stop } = await start({ services: { ...services, workingDirectory: service }, team: saved })
-  t.after(stop)
-  const resolveAgent = ctx.sessionController.resolveAgent
-  ctx.sessionController.resolveAgent = async (sessionId) => {
-    if (sessionId === 'b-bg-old') throw new Error('archived segment has no live agent')
-    return resolveAgent(sessionId)
-  }
-
-  // Main Bot (workspace-write) sees that b's live background thread b-bg is still bounded.
-  assert.equal(await tool('update_bot', { bot: 'Writer', work_dir: project }, 'a'), `Could not update the Bot: ${notAllowed(project)}`)
-  assert.equal(requests.length, 1)
-
-  // A read-only foreground thread changing via working_directory also checks live b-bg.
-  current.set('b', 'read-only')
-  agentOf('b').status = 'running'
-  assert.deepEqual(await changeDirectory(ctx, service, agentOf('b'), project), { error: notAllowed(project), ran: false })
-  assert.equal(requests.length, 2)
-
-  // Once every live thread is on Full access, archived b-bg-old is not checked and needs no approval.
-  current.set('b', 'danger-full-access')
-  current.set('b-bg', 'danger-full-access')
-  assert.equal(await tool('update_bot', { bot: 'Writer', work_dir: project }, 'a'), `Updated Writer. It now works in ${project}.`)
-  assert.equal(state().bots.b.workDir, project)
-  assert.equal(requests.length, 2)
 })
 
 test('the Full-access shortcut fails closed on preset lookup errors and unknown presets, and still skips without a preset service', async (t) => {

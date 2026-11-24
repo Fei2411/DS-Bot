@@ -12,7 +12,7 @@ import { join } from 'node:path'
 import { ANCHOR_LINE_MAX, HISTORY_PAGE, HISTORY_PAGES_MAX, HISTORY_SCAN_PAGES, HISTORY_TIMEOUT_MS, OWN_CHAT_BRIEF, OWN_CHAT_LINE_MAX, OWN_CHAT_READ, OWN_CHAT_SEARCH } from './constants.js'
 import { excerpt } from './text.js'
 
-const INDEX_VERSION = 4
+const INDEX_VERSION = 5
 const AROUND_LINES = 6
 const SEARCH_TERMS_MAX = 6
 const ANY_TERM_HITS = 50
@@ -168,7 +168,7 @@ export function install(rt) {
       if (index !== chatIndex) return
       let keep = mark ? mark.keep === 1 : false
       let turn = mark?.turn ?? -1
-      const seal = part.endedAt !== undefined && Date.now() - part.endedAt > SEAL_AFTER_MS
+      const seal = part.endedAt !== undefined && Date.now() - part.endedAt > SEAL_AFTER_MS && rt.isRetiring?.(part.sessionId) !== true
       index.db.exec('BEGIN')
       try {
         let last = through
