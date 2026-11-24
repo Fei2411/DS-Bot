@@ -788,7 +788,7 @@ jobs:
   publish-docker:
     name: Publish Docker image
     needs: [docker, result]
-    if: github.event_name == 'push' && github.repository == 'Fei-Craft/DS-Bot'
+    if: ${{ !cancelled() && needs.docker.result == 'success' && needs.result.result == 'success' && github.event_name == 'push' && github.repository == 'Fei-Craft/DS-Bot' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
