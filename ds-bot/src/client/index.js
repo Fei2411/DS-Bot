@@ -816,6 +816,7 @@ export function apply(ctx) {
         pick: () => bridge.importPick(),
         paste: typeof bridge.importPaste === 'function' ? (text, defaultUrl) => bridge.importPaste(text, defaultUrl) : null,
         launch: typeof bridge.importLaunch === 'function' ? (source) => bridge.importLaunch(source) : null,
+        openPermission: typeof bridge.importOpenPermission === 'function' ? () => bridge.importOpenPermission() : null,
         live: (source, close, requestId) => bridge.importLive(source, close, requestId),
         apply: (botId, pending, options) => bridge.importApply(`bot:${botId}`, pending, options),
         cancel: (pending) => bridge.importCancel(pending),
@@ -888,6 +889,8 @@ export function apply(ctx) {
   actions.checkOwnApp = async () => { await ownAppUpdates?.check?.() }
   actions.installOwnApp = async () => { await ownAppUpdates?.install?.() }
   actions.openOwnApp = async () => { await ownAppUpdates?.open?.() }
+  actions.downloadOwnApp = async () => { await ownAppUpdates?.download?.() }
+  actions.setOwnAppAutoUpdate = async (enabled) => { await ownAppUpdates?.setAutoUpdate?.(enabled === true) }
   const browserPages = browsers?.pages ?? createSource({})
   const browserTabs = browsers?.tabs ?? createSource({})
   const browserHolds = browsers?.holds ?? createSource({})

@@ -1282,7 +1282,7 @@ test('P2 #1: fast answer_work crossing actual Turn 1 -> Turn 2 boundary on bot-h
   emit(task.sessionId, 'user/message', { content: answerMsg.content, source: answerMsg.source })
   emit(task.sessionId, 'assistant/message', { message: { role: 'assistant', content: textBlock('Deployed to us-west-2.') } })
   emit(task.sessionId, 'turn/end', { turn: 2, reason: { kind: 'completed' } })
-  await settle(() => rt.state.works[workId] === undefined && task.status === 'completed', 2000)
+  await settle(() => rt.state.works[workId] === undefined && task.status === 'completed' && agents.get('dm-a').calls.length >= chiefCallsBeforeEnd + 1, 2000)
   assert.equal(agents.get('dm-a').calls.length, chiefCallsBeforeEnd + 1)
   assert.match(textOf(agents.get('dm-a').calls.at(-1)[1].content), /Deployed to us-west-2\./)
 })

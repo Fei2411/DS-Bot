@@ -17,7 +17,7 @@
 import { randomUUID } from 'node:crypto'
 import { LlmError, createAssistantMessage, createSystemMessage, createUserMessage, isContextWindowExceededError } from '@deepseek-ai/dsh-llm'
 import { openTurnAt } from './btw.js'
-import { HANDOFF_ACK, HISTORY_SCAN_PAGES, HISTORY_TIMEOUT_MS, REPLY_KIND, SOURCE_KIND } from './constants.js'
+import { HANDOFF_ACK, HISTORY_SCAN_PAGES, HISTORY_TIMEOUT_MS, isSilentTurnText, REPLY_KIND, SOURCE_KIND } from './constants.js'
 import { assembleLlmStream } from './models.js'
 import { compressedRelayPreview, parseReplies, relayRange, stackReplies } from '../shared/group-replies.js'
 import { CHECKPOINT_PROMPT, STEWARD_SYSTEM, checkpointCount, checkpointTail, checkpointTailNote, checkpointText, linesFor, parseDecision, selectRetainedRange, stewardRequest } from './steward.js'
@@ -281,7 +281,7 @@ export function install(rt) {
   // Lines for the model the Session last routed to; undefined while it has not
   // routed yet.
   async function contextLines(session) {
-    const route = session.requestHeader()?.config
+    const route = session?.requestHeader?.()?.config
     if (!route?.provider || !route?.model) return undefined
     // A CLI's window is the one it reports; it keeps its own room for replies.
     const reported = localPart(session) ? rt.localAgentContext?.(session.id)?.size : undefined
@@ -1032,7 +1032,7 @@ export function install(rt) {
   // that from cache.
   async function writeCheckpoint(input, agent, signal) {
     const session = agent.session
-    const route = session.requestHeader()?.config
+    const route = session?.requestHeader?.()?.config
     if (!route?.provider || !route?.model) throw new Error('the Session has not called a model yet')
     // The results list grows with the work, so the checkpoint may write as much as one
     // of the Bot's own replies.
@@ -1769,7 +1769,8 @@ export function install(rt) {
         const held = [...agent.inbox.nextStep, ...agent.inbox.nextTurn]
         const target = threadTargetOf(sessionId, owner)
         if (target !== sessionId) {
-          await forward(owner, [...held, ...(rt.takeSilentNotes?.(sessionId) ?? [])], target)
+          await forward(owner, held, target)
+          await rt.moveSilentNotes?.(sessionId, target, { awaitFlush: true, rethrow: true })
           removeForMove(agent, held)
           // An interrupted switch may not have finished moving the tasks over; stop
           // the earlier part only after they sit on the part that replaced it.
@@ -1904,7 +1905,7 @@ export function install(rt) {
   async function freshRoute(bot, session) {
     const ref = await rt.desiredModel(bot)
     if (ref !== undefined) return { ref, effort: await rt.desiredEffort(bot, ref) }
-    const route = session.requestHeader()?.config
+    const route = session?.requestHeader?.()?.config
     return route?.provider && route?.model ? { ref: `${route.provider}/${route.model}`, effort: route.reasoningEffort } : undefined
   }
   const selectRoute = (named, sessionId, { ref, effort }) => rt.selectSessionModel(sessionId, { ...splitRef(ref), ...(effort === undefined ? {} : { reasoningEffort: effort }) })
@@ -2095,7 +2096,11 @@ export function install(rt) {
       fresh.followup(createUserMessage({ content: [{ type: 'text', text }], source: handoffSource(job, resume) }))
       await ctx.sessions.flush(fresh.session)
       carry.push(...job.carry.splice(0))
-      await forward(job, [...carry, ...held, ...(rt.takeSilentNotes?.(agent.id) ?? [])], freshId)
+      await forward(job, [...carry, ...held], freshId)
+      // Migrate buffered silent entries after forward succeeds so entry.ledger stays
+      // intact until freshId actually flushes (or takes them on pre-step), and a failed
+      // forward never leaves duplicate silent notes on both old and new parts.
+      void rt.moveSilentNotes?.(agent.id, freshId)
     } catch (error) {
       job.kept = true
       try { restore(agent, [...carry, ...job.carry.splice(0)]) } catch {}
@@ -2558,6 +2563,12 @@ export function install(rt) {
     // turn/start from the page before, so seed that turn when the projection has
     // it — or when the caller walked the log back to it (no live session).
     let turn = seedTurn ?? openTurnAt(ctx.get?.('sessionProjections'), session, events[0]?.seq)
+    const isBotRelayTrigger = (src) => src?.kind === SOURCE_KIND && src.audience !== 'user' && src.silent !== true && src.handoff !== true
+      && ['reply', 'report', 'task-report', 'ask_back', 'request', 'answer'].includes(src.role)
+    const live = options.taskView === true ? undefined : rt.live?.get(partId)
+    const liveBotTriggered = live !== undefined && isBotRelayTrigger(live.info)
+    let sawTurnBoundary = false
+    let turnKind
     const stamp = (event, item) => {
       if (typeof event.seq === 'number' && Number.isInteger(event.seq)) item.seq = event.seq
       if (turn !== undefined) item.turn = turn
@@ -2566,6 +2577,8 @@ export function install(rt) {
     for (const event of events) {
       if (event.type === 'turn/start') {
         if (typeof event.data?.turn === 'number' && Number.isInteger(event.data.turn)) turn = event.data.turn
+        sawTurnBoundary = true
+        turnKind = undefined
         continue
       }
       if (event.type === 'deliverables/presented') {
@@ -2576,7 +2589,13 @@ export function install(rt) {
       if (event.type === 'assistant/message') {
         if (hidden.has(event.data?.turn ?? turn)) continue
         // One entry per text block: the chat shows each block in a bubble of its own.
+        // Suppress silent [PASS]/stub replies on Bot-triggered own-chat turns immediately
+        // (before turn/end records exchangeTurns) so live feed and sidebar preview never flash [PASS].
         const content = Array.isArray(event.data?.message?.content) ? event.data.message.content : []
+        const eventTurn = event.data?.turn ?? turn
+        const isLiveBotTurn = !sawTurnBoundary && liveBotTriggered
+          && (live.turn === undefined || eventTurn === undefined || eventTurn === live.turn)
+        if (options.taskView !== true && (turnKind === 'bot' || isLiveBotTurn) && isSilentTurnText(textOf(content))) continue
         for (const block of content) {
           if (block?.type === 'text' && typeof block.text === 'string' && block.text.trim() !== '') stamp(event, { kind: 'bot', text: block.text, time: event.time })
         }
@@ -2634,6 +2653,15 @@ export function install(rt) {
       }
       if (event.type !== 'user/message') continue
       const source = event.data?.source
+      if (options.taskView !== true) {
+        if (source?.kind === 'user' || source?.kind === REPLY_KIND) {
+          sawTurnBoundary = true
+          turnKind = 'user'
+        } else if (turnKind === undefined && isBotRelayTrigger(source)) {
+          sawTurnBoundary = true
+          turnKind = 'bot'
+        }
+      }
       if (source?.kind === 'user') {
         const content = Array.isArray(event.data.content) ? event.data.content : []
         const imageRefs = content.filter(block => block?.type === 'image' && block.attachment !== undefined)
