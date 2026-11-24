@@ -2,7 +2,7 @@
 // the IM bots already added, then a grid of platforms. A platform opens its own view
 // with setup steps and the form; an added IM bot opens a view with its Bot, accounts
 // and chats.
-import { createElement as h, Fragment, useEffect, useState } from 'react'
+import { createElement as h, Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import qrcode from 'qrcode-generator'
 import { IM_PLATFORMS } from '../shared/im-platforms.js'
@@ -119,7 +119,13 @@ function Row({ label, children, className }) {
 }
 
 function Subview({ title, onBack, children }) {
-  return h('div', { className: 'bt-app-sub bt-im-sub' },
+  const root = useRef(null)
+  useLayoutEffect(() => {
+    // The list and its subviews share one scrolling settings pane.
+    const pane = root.current?.closest('.bt-settings-scroll')
+    if (pane) pane.scrollTop = 0
+  }, [])
+  return h('div', { ref: root, className: 'bt-app-sub bt-im-sub' },
     h('div', { className: 'bt-app-sub-head' },
       h('button', { type: 'button', className: 'bt-icon-btn', 'aria-label': t('Back'), onClick: onBack }, h(ChevronLeftIcon)),
       h('h3', null, title)),

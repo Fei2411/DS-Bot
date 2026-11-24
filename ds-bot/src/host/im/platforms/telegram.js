@@ -334,12 +334,25 @@ const apiBase = env => String(env.config?.api ?? 'https://api.telegram.org').rep
 // One Bot API call without the connection's abort bookkeeping, used by `check`
 // before a connection exists.
 async function callApi(env, token, method, params) {
-  const response = await env.fetch(`${apiBase(env)}/bot${token}/${method}`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(params),
-  })
-  const body = await response.json().catch(() => ({}))
-  if (!body.ok) throw new Error(String(body.description ?? `Telegram answered ${response.status}`))
+  const signal = AbortSignal.timeout(15_000)
+  let response, body
+  try {
+    response = await env.fetch(`${apiBase(env)}/bot${token}/${method}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(params),
+      signal,
+    })
+    body = await response.json()
+  } catch {
+    // The request URL includes the token. Never surface transport errors verbatim.
+    if (signal.aborted) throw new Error('Telegram did not answer within 15 seconds. Try again.')
+    if (!response) throw new Error('Could not reach Telegram. Check the network and try again.')
+  }
+  if (!body?.ok) {
+    const status = Number.isInteger(body?.error_code) ? body.error_code : response.status
+    if (status === 401) throw new Error('Telegram rejected the bot token (HTTP 401). Check it and try again.')
+    throw new Error(`Telegram returned an invalid account response (HTTP ${status}).`)
+  }
   return body.result
 }
