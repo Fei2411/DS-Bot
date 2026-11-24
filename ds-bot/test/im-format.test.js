@@ -19,6 +19,21 @@ test('Markdown becomes Telegram HTML', () => {
   assert.equal(toTelegramHtml('done ~~deal~~'), 'done <s>deal</s>')
 })
 
+test('Telegram preserves headings and tables inside tilde and backtick code fences', () => {
+  for (const [open, shorter, other, close] of [
+    ['~~~sh', '~~', '```', '~~~'],
+    ['````sh', '```', '~~~~', '`````'],
+  ]) {
+    const code = ['# keep this comment', shorter, other, '| A | B |', '| --- | --- |', '| x | y |'].join('\n')
+    const markdown = [open, code, close, '# Real heading'].join('\n')
+    assert.deepEqual(chunkTelegram(markdown), [{
+      html: '<pre><code class="language-sh">' + code + '</code></pre>\n<b>Real heading</b>',
+      text: code + '\nReal heading',
+    }])
+    assert.equal(toPlain([open, code, close].join('\n')), code)
+  }
+})
+
 test('Telegram renders headings and Markdown tables as readable rows (#2173)', () => {
   const markdown = [
     '## Results ##',

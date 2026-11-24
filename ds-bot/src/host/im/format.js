@@ -37,6 +37,9 @@ function inlinePlain(line) {
 
 // One Markdown document as blocks: fenced code stays a block of its own so chunking
 // can keep it whole; the rest splits on blank lines.
+const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})([^\r\n]*)\r?$/
+const FENCE_CLOSE = /^ {0,3}(`{3,}|~{3,})[ \t\r]*$/
+
 function blocks(markdown) {
   const out = []
   const lines = String(markdown).split('\n')
@@ -48,13 +51,18 @@ function blocks(markdown) {
   }
   while (at < lines.length) {
     const line = lines[at]
-    const fence = /^```(\S*)\s*$/.exec(line)
-    if (fence !== null) {
+    const fence = FENCE_OPEN.exec(line)
+    if (fence !== null && (fence[1][0] === '~' || !fence[2].includes('`'))) {
       flush()
-      const close = lines.slice(at + 1).findIndex(item => /^```\s*$/.test(item))
-      const body = close === -1 ? lines.slice(at + 1) : lines.slice(at + 1, at + 1 + close)
-      out.push({ kind: 'code', lang: fence[1] ?? '', lines: body, open: true })
-      at += 1 + (close === -1 ? body.length : close + 1)
+      const marker = fence[1]
+      let end = at + 1
+      for (; end < lines.length; end += 1) {
+        const close = FENCE_CLOSE.exec(lines[end])?.[1]
+        if (close?.[0] === marker[0] && close.length >= marker.length) break
+      }
+      const lang = fence[2].trim().split(/\s+/, 1)[0]
+      out.push({ kind: 'code', lang, lines: lines.slice(at + 1, end) })
+      at = end + 1
       continue
     }
     if (line.trim() === '') flush()
@@ -65,7 +73,8 @@ function blocks(markdown) {
   return out
 }
 
-const renderCodeHtml = block => `<pre><code${block.lang ? ` class="language-${escapeHtml(block.lang)}"` : ''}>${escapeHtml(block.lines.join('\n'))}</code></pre>`
+const codeHtmlOpen = lang => lang ? `<pre><code class="language-${escapeHtml(lang).replaceAll('"', '&quot;')}">` : '<pre><code>'
+const renderCodeHtml = block => `${codeHtmlOpen(block.lang)}${escapeHtml(block.lines.join('\n'))}</code></pre>`
 
 const renderPlain = block => (block.kind === 'code' ? block.lines.join('\n') : block.lines.map(inlinePlain).join('\n'))
 
@@ -178,7 +187,7 @@ function forceCut(block, limit, lines) {
     return chunks
   }
   const chunks = []
-  const open = `<pre><code${block.lang ? ` class="language-${escapeHtml(block.lang)}"` : ''}>`
+  const open = codeHtmlOpen(block.lang)
   const close = '</code></pre>'
   let body = block.lines.join('\n')
   const room = Math.max(1, limit - points(open) - points(close))
