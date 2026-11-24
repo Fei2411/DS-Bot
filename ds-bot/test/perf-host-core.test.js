@@ -4,7 +4,7 @@ import { request as httpRequest } from 'node:http'
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { test } from 'node:test'
+import { after, test } from 'node:test'
 import { DatabaseSync } from 'node:sqlite'
 import { PNG } from 'pngjs'
 import { createRuntime } from '../index.js'
@@ -36,9 +36,15 @@ import { install as installTurns } from '../src/host/turns.js'
 import { install as installUsage } from '../src/host/usage.js'
 import { fakeContext } from './fake-ctx.js'
 
-const tempDir = (t, prefix) => {
+const tempDirs = []
+after(() => {
+  for (const dir of tempDirs.splice(0)) {
+    try { rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }) } catch {}
+  }
+})
+const tempDir = (_t, prefix) => {
   const dir = mkdtempSync(join(tmpdir(), prefix))
-  t.after(() => rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }))
+  tempDirs.push(dir)
   return dir
 }
 
