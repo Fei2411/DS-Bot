@@ -557,6 +557,8 @@ export function apply(ctx) {
     return Object.values(snapshot.byId).find(bot => currentPart(bot) === sessionId)
       ?? Object.values(snapshot.roomsById).find(room => (room.sessionId ?? room.id) === sessionId)
   }
+  // Monotonic counter so a slower async `landOn` pull never overrides a newer navigation.
+  let navSeq = 0
   const openingWait = bindOpeningWait(ui, {
     onSlow: () => { void Promise.resolve(ctx.sessions.refresh?.()).catch(quietly('refresh sessions')) },
   })
@@ -621,6 +623,7 @@ export function apply(ctx) {
     openSession: (id) => {
       // A DSH Agent Session id lands on the plain surface, not the Bot skin.
       if (isAgentSessionId(id)) return actions.openAgentSession(id)
+      navSeq += 1
       ui.set(state => (state.newChat || state.exchange || state.menu || state.palette || state.groupSearch ? { ...state, newChat: null, exchange: null, menu: null, palette: null, groupSearch: null } : state))
       setPlain(false)
       const target = partFor(id)
@@ -629,6 +632,7 @@ export function apply(ctx) {
     // The conversation replacements withdraw for a plain Session; set the surface
     // before the navigation so the Bot skin never flashes.
     openAgentSession: (sessionId) => {
+      navSeq += 1
       ui.set(state => ({ ...state, newChat: null, exchange: null, menu: null, palette: null, groupSearch: null, details: null, view: 'details', renaming: false, tab: null, task: null, taskDeck: null }))
       setPlain(true)
       show(sessionId)
@@ -688,13 +692,37 @@ export function apply(ctx) {
       if (main !== undefined && owned.includes(main) && roster.getSnapshot().mainBotId) actions.openSession(roster.getSnapshot().mainBotId)
       return result
     },
-    // `last` is the Bot conversation the view held before it cleared: when that part
-    // was archived for a fresh one, the view goes on in the fresh one.
+    // `last` is the Bot or group conversation the view held before it cleared: when that
+    // part was archived for a fresh one, the view goes on in the fresh one.
     landOn: async (id, last) => {
-      if (last) await pull().catch(() => {})
-      const bot = last ? roster.getSnapshot().byId[last.botId] : undefined
+      const seq = ++navSeq
+      const currentOfLast = (snap) => {
+        if (!last) return undefined
+        const bot = last.kind === 'room' ? undefined : snap.byId[last.botId ?? last.id]
+        if (bot !== undefined) return currentPart(bot)
+        const room = snap.roomsById[last.roomId ?? last.id]
+        return room === undefined ? undefined : (room.sessionId ?? room.id)
+      }
+      let moved = currentOfLast(roster.getSnapshot())
+      if (last && (moved === undefined || moved === last.sessionId)) {
+        await pull().catch(() => {})
+        if (seq !== navSeq) return
+        moved = currentOfLast(roster.getSnapshot())
+      }
+      if (seq !== navSeq) return
+      const now = mainView()
+      if (last && now !== undefined && now !== last.sessionId) {
+        const snap = roster.getSnapshot()
+        const nowBot = snap.byId[now]
+        const nowRoom = snap.roomsById[now]
+        if ((nowBot !== undefined && currentPart(nowBot) === now)
+          || (nowRoom !== undefined && (nowRoom.sessionId ?? nowRoom.id) === now)
+          || isAgentSessionId(now)) return
+      }
       setPlain(false)
-      const target = bot && currentPart(bot) !== last.sessionId ? currentPart(bot) : partFor(id)
+      const target = moved !== undefined && moved !== last?.sessionId ? moved : partFor(id)
+      // Never try to reopen an archived part that already vanished from the list.
+      if (last && target === last.sessionId && ctx.sessions.list.getSnapshot().byId?.[target] === undefined) return
       show(target)
     },
     selectPanel: (id) => { ctx.layout.selectPanel(id) },

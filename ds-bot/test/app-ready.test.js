@@ -12,7 +12,7 @@ import { build } from 'esbuild'
 const PLUGIN = dirname(dirname(fileURLToPath(import.meta.url)))
 const { outputFiles } = await build({
   stdin: {
-    contents: "export { BotReturn, TeamSidebar } from './src/client/sidebar.js'\nexport { clientErrors } from './src/client/diagnostics.js'",
+    contents: "export { BotReturn, TeamSidebar, landingPlan } from './src/client/sidebar.js'\nexport { clientErrors } from './src/client/diagnostics.js'",
     resolveDir: PLUGIN,
   },
   bundle: true, format: 'cjs', platform: 'browser', write: false, logLevel: 'silent',
@@ -233,4 +233,36 @@ test('a whale handed over glides from where it was handed onto the Main Bot\'s a
   assert.equal(outer.removed, true)
   assert.equal(mark.style.opacity, '')
   assert.equal(mark.animations.length, 1)
+})
+
+test('landingPlan keeps a stable key across unrelated roster updates and tracks room part switches', () => {
+  const { landingPlan } = page()
+  const chief = { id: 'chief', name: 'Chief', sessionId: 'p2', parts: ['p1'] }
+  const ops = { id: 'room-1', name: 'Ops', sessionId: 'r2', ownParts: ['r1'] }
+  const roster1 = {
+    ready: true, revision: 1, mainBotId: 'chief',
+    byId: { chief, p1: chief, p2: chief },
+    roomsById: { 'room-1': ops, r1: ops, r2: ops },
+    agentOf: {},
+  }
+  const roster2 = { ...roster1, revision: 2 }
+  // Following a Bot part switch produces the same key across unrelated roster updates.
+  const follow1 = landingPlan({ mainView: 'p1|0', roster: roster1, last: null })
+  const follow2 = landingPlan({ mainView: 'p1|0', roster: roster2, last: follow1.nextLast })
+  assert.equal(follow1.kind, 'follow-bot')
+  assert.equal(follow1.key, follow2.key)
+  // After an archived part clears mainView, the home recovery key stays stable for the same target.
+  const home1 = landingPlan({ mainView: '', roster: roster1, last: follow1.nextLast })
+  const home2 = landingPlan({ mainView: '', roster: roster2, last: home1.nextLast })
+  assert.equal(home1.kind, 'home')
+  assert.equal(home1.delay, 0)
+  assert.equal(home1.key, home2.key)
+  // A group chat moving to a fresh part also keeps lastChat so archiving its old part follows it.
+  const roomPlan = landingPlan({ mainView: 'r1|0', roster: roster1, last: null })
+  assert.equal(roomPlan.kind, 'follow-room')
+  assert.deepEqual({ ...roomPlan.nextLast }, { kind: 'room', id: 'room-1', roomId: 'room-1', sessionId: 'r1' })
+  const roomHome = landingPlan({ mainView: '', roster: roster1, last: roomPlan.nextLast })
+  assert.equal(roomHome.kind, 'home')
+  assert.equal(roomHome.delay, 0)
+  assert.equal(roomHome.last.id, 'room-1')
 })

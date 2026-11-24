@@ -194,3 +194,15 @@ test('a marked final reply stacks onto earlier progress and keeps later messages
   assert.deepEqual(stacked[1].texts, ['Follow-up'])
   assert.equal(stacked[1].claims, undefined)
 })
+
+test('consecutive part dividers collapse into one keeping the latest timestamp', () => {
+  const items = [
+    { kind: 'user', text: 'switch model', time: MINUTE },
+    { kind: 'divider', time: 2 * MINUTE },
+    { kind: 'divider', time: 3 * MINUTE },
+    { kind: 'bot', text: 'ready', time: 4 * MINUTE },
+  ]
+  const rows = [...ChatRows({ items, sessionId: 'b', roster, actions: {} })]
+  assert.deepEqual(shape(rows), ['EarlierUser', 'PartLine', 'bot:ready'])
+  assert.equal(rows[1].props.time, 3 * MINUTE)
+})

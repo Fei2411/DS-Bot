@@ -46,11 +46,15 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     },
     // The open panel follows the main view; a subject with no browser (a group
     // chat, an outside Session) settles on the details view. So does one that
-    // does not own the open side chat.
+    // does not own the open side chat. Moving between parts of the same Bot or
+    // group keeps the panel's current view, settings/rename state, and tab intact.
     followPanel: (id) => {
       ui.set((state) => {
         if (!state.details || state.details === id) return state
         const snap = roster.getSnapshot()
+        const prevSubject = snap.byId[state.details]?.id ?? snap.roomsById[state.details]?.id ?? state.details
+        const nextSubject = snap.byId[id]?.id ?? snap.roomsById[id]?.id ?? id
+        if (prevSubject === nextSubject) return { ...state, details: id }
         const view = state.view === 'browser' && snap.byId[id] === undefined ? 'details'
           : state.view === 'side' && !(snap.sideChats?.[snap.byId[id]?.id] ?? []).some(chat => chat?.id === state.side) ? 'details'
             : state.view === 'task' ? 'details'

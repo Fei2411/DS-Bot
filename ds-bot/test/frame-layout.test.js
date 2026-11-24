@@ -247,3 +247,25 @@ test('an open shell column keeps the last collapsed track', () => {
 test('a sliding shell sidebar keeps its last settled width', () => {
   assert.equal(nextCollapsedWidth({ measured: null, collapsed: true, animating: true, last: 56 }), 56)
 })
+
+test('followPanel keeps view, tab, task, and rename state when the same Bot moves to a fresh part', () => {
+  const chief = { id: 'chief', sessionId: 'chief-p2', parts: ['chief-p1'] }
+  const writer = { id: 'writer', sessionId: 'writer' }
+  const ui = createSource({ details: 'chief-p1', view: 'details', renaming: true, tab: 'settings', task: { botId: 'chief', taskId: 't1' }, side: null, panelYield: false, leftDrawer: false })
+  const roster = createSource({ byId: { chief, 'chief-p1': chief, 'chief-p2': chief, writer }, roomsById: {}, sideChats: {} })
+  const actions = teamActions({
+    call: () => Promise.resolve(null), after: promise => promise, partFor: id => id,
+    roster, ui, panelFolded: () => false,
+  })
+  actions.followPanel('chief-p2')
+  assert.equal(ui.getSnapshot().details, 'chief-p2')
+  assert.equal(ui.getSnapshot().renaming, true)
+  assert.equal(ui.getSnapshot().tab, 'settings')
+  assert.deepEqual(ui.getSnapshot().task, { botId: 'chief', taskId: 't1' })
+  // Moving to a different Bot still resets per-chat transient panel state.
+  actions.followPanel('writer')
+  assert.equal(ui.getSnapshot().details, 'writer')
+  assert.equal(ui.getSnapshot().renaming, false)
+  assert.equal(ui.getSnapshot().tab, null)
+  assert.equal(ui.getSnapshot().task, null)
+})

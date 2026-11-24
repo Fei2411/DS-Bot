@@ -552,13 +552,14 @@ function EarlierParts({ sessionId, roster, actions }) {
       const scroller = top.current && scrollParent(top.current)
       if (scroller) restore.current = { scroller, fromEnd: scroller.scrollHeight - scroller.scrollTop }
       const incoming = Array.isArray(page.items) ? page.items : []
+      const actualPartIndex = Number.isInteger(page.partIndex) ? page.partIndex : partIndex
       setView(current => {
         const pages = current.pages.slice()
-        const at = pages.findIndex(entry => entry.partIndex === partIndex)
+        const at = pages.findIndex(entry => entry.partIndex === actualPartIndex)
         // The host sends a part's aside cards on every page of that part.
         const btw = Array.isArray(page.btw) ? page.btw : (at >= 0 ? pages[at].btw : [])
-        if (at >= 0) pages[at] = { partIndex, items: [...incoming, ...pages[at].items], btw }
-        else pages.push({ partIndex, items: incoming, btw })
+        if (at >= 0) pages[at] = { partIndex: actualPartIndex, items: [...incoming, ...pages[at].items], btw }
+        else pages.push({ partIndex: actualPartIndex, items: incoming, btw })
         pages.sort((a, b) => a.partIndex - b.partIndex)
         return { pages, cursor: page.cursor, loading: false, failed: false, startedAt: page.startedAt ?? current.startedAt }
       })
@@ -568,7 +569,9 @@ function EarlierParts({ sessionId, roster, actions }) {
       setView(current => ({ ...current, loading: false, failed: true }))
     })
   }
-  const closedEarlier = JSON.stringify((roster.byId[sessionId]?.parts ?? []).map(part => roster.closedCards?.[part] ?? null))
+  const botParts = roster.byId[sessionId]?.parts ?? []
+  const earlierParts = botParts.includes(sessionId) ? botParts.slice(0, botParts.indexOf(sessionId)) : botParts
+  const closedEarlier = JSON.stringify(earlierParts.map(part => [part, roster.closedCards?.[part] ?? null]).filter(([, value]) => value !== null))
   useEffect(() => {
     generation.current += 1
     busy.current = false
@@ -596,13 +599,20 @@ function EarlierParts({ sessionId, roster, actions }) {
   }))
   const items = []
   for (const page of view.pages) items.push(...withBtwRows(page.items, page.btw))
+  // Drop trailing dividers from empty earlier parts right above the current part's own
+  // divider, and drop leading dividers once all earlier history is loaded with nothing above.
+  while (items.at(-1)?.kind === 'divider') items.pop()
+  if (!view.cursor && !view.loading) {
+    while (items[0]?.kind === 'divider') items.shift()
+  }
+  const hasContent = items.some(item => item.kind !== 'divider')
   return h('div', { className: 'bt-earlier', role: 'feed', 'aria-label': t('Earlier messages'), 'aria-busy': view.loading },
     h('div', { ref: top, className: 'bt-earlier-top' },
       view.loading ? h(Shimmer, null, t('Loading earlier messages…'))
         : view.failed ? h('button', { type: 'button', className: 'bt-soft', onClick: () => load(view.cursor) }, t('Couldn’t load earlier messages · Retry'))
           : view.cursor ? h('button', { type: 'button', className: 'bt-soft', onClick: () => load(view.cursor) }, t('Load earlier')) : null),
     h(ChatRows, { items, sessionId, roster, actions, onBtwDelete: removeBtw }),
-    h(PartLine, { time: view.startedAt }))
+    hasContent ? h(PartLine, { time: view.startedAt }) : null)
 }
 
 // A Bot chat's entries as the host lists them (the `earlier` and `chat` endpoints): the
@@ -613,7 +623,10 @@ export function ChatRows({ items, sessionId, roster, actions, useUi, clock = fal
   const rows = []
   for (const item of items) {
     const last = rows.at(-1)
-    if (item.kind === 'bot' && last?.kind === 'bot') {
+    if (item.kind === 'divider' && last?.kind === 'divider') {
+      // Collapse consecutive dividers from empty parts into one, keeping the latest start time.
+      rows[rows.length - 1] = item
+    } else if (item.kind === 'bot' && last?.kind === 'bot') {
       last.texts.push(item.text)
       last.end = item.time
     } else rows.push(item.kind === 'bot' ? { kind: 'bot', texts: [item.text], time: item.time, end: item.time } : item)
