@@ -1824,8 +1824,10 @@ export function install(rt) {
           if (request.info.role !== 'room' || request.info.roomId === undefined) continue
           const scope = request.info.askedBy !== undefined ? `${request.info.roomId}\0${request.info.askedBy}` : undefined
           if (roomWaiters.has(request.info.exchangeId)) {
-            liveWaiterRooms.add(request.info.roomId)
-            if (scope !== undefined) liveWaiterScopes.add(scope)
+            if (failure === undefined && reason?.kind !== 'aborted') {
+              liveWaiterRooms.add(request.info.roomId)
+              if (scope !== undefined) liveWaiterScopes.add(scope)
+            }
           } else {
             latestWaiterlessRoom.set(request.info.roomId, request.info.exchangeId)
             if (scope !== undefined) latestWaiterlessScope.set(scope, request.info.exchangeId)

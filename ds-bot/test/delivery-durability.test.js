@@ -1098,3 +1098,136 @@ test('F10 + State Hygiene + Weixin: deleteBot/startup prune requests & pair ledg
   assert.equal(warns.filter(w => w.includes('poll failed: WeChat answered an unreadable response')).length, 1, `unreadable repeats must be coalesced: ${JSON.stringify(warns)}`)
   assert.ok(warns.some(w => /recovered after 2 consecutive failures/.test(w)), `recovery must report suppressed count: ${JSON.stringify(warns)}`)
 })
+
+test('P1 merge regression (turns.js): aborted turn settles live roomWaiter without falsely coalescing away waiterless room calls in same room/scope', async (t) => {
+  const host = await startHost(t, {
+    team: makeTeam({
+      rooms: {
+        r1: { id: 'r1', name: 'Ops', members: ['a', 'b'], mode: 'admin', admin: 'a', named: true, sessions: { a: 'ga', b: 'gb' }, log: [], seq: 0, seen: {} },
+      },
+    }),
+  })
+  // 1) Same (roomId, askedBy) scope: live waiter settles with null, waiterless call STILL redelivers.
+  const callsBefore1 = host.agents.get('gb')?.calls.length ?? 0
+  host.emit('gb', 'turn/start', { turn: 1 })
+  host.emit('gb', 'user/message', { content: textBlock('[Group chat "Ops"]\nPrimary work'), source: { kind: SOURCE_KIND, role: 'room', roomId: 'r1', exchangeId: 'primary-abort-1' } })
+  host.emit('gb', 'user/message', { content: textBlock('[Group chat "Ops"]\nLive waiter call'), source: { kind: SOURCE_KIND, role: 'room', roomId: 'r1', askedBy: 'a', exchangeId: 'joined-live-scoped' } })
+  host.emit('gb', 'user/message', { content: textBlock('[Group chat "Ops"]\nWaiterless same-scope call'), source: { kind: SOURCE_KIND, role: 'room', roomId: 'r1', askedBy: 'a', exchangeId: 'joined-waiterless-scoped' } })
+  let scopedWaiterResult = 'pending'
+  host.rt.roomWaiters.set('joined-live-scoped', {
+    sessionId: 'gb', botId: 'b', roomId: 'r1',
+    resolve: value => { scopedWaiterResult = value },
+    fail: failure => { scopedWaiterResult = { failure } },
+    touch() {}, work() {}, say() {}, approval() {},
+  })
+  host.emit('gb', 'turn/end', { turn: 1, reason: { kind: 'aborted', reason: { kind: 'user' } } })
+  assert.equal(scopedWaiterResult, null, 'live roomWaiter must settle immediately with null on abort')
+  assert.equal(host.rt.roomWaiters.has('joined-live-scoped'), false)
+  await settle(() => (host.agents.get('gb')?.calls.length ?? 0) > callsBefore1, 1500, 'waiterless same-scope call must not be coalesced away by aborted live waiter')
+  const added1 = host.agents.get('gb').calls.slice(callsBefore1).map(([, msg]) => msg)
+  assert.deepEqual(added1.map(m => m.source?.exchangeId), ['joined-waiterless-scoped'])
+  assert.equal(added1[0].source?.deferred, true)
+
+  // 2) Room-wide (askedBy undefined): live waiter settles with null, room-wide waiterless call STILL redelivers.
+  const callsBefore2 = host.agents.get('gb')?.calls.length ?? 0
+  host.emit('gb', 'turn/start', { turn: 2 })
+  host.emit('gb', 'user/message', { content: textBlock('[Group chat "Ops"]\nPrimary work 2'), source: { kind: SOURCE_KIND, role: 'room', roomId: 'r1', exchangeId: 'primary-abort-2' } })
+  host.emit('gb', 'user/message', { content: textBlock('[Group chat "Ops"]\nLive waiter call 2'), source: { kind: SOURCE_KIND, role: 'room', roomId: 'r1', exchangeId: 'joined-live-room' } })
+  host.emit('gb', 'user/message', { content: textBlock('[Group chat "Ops"]\nWaiterless room-wide call'), source: { kind: SOURCE_KIND, role: 'room', roomId: 'r1', exchangeId: 'joined-waiterless-room' } })
+  let roomWaiterResult = 'pending'
+  host.rt.roomWaiters.set('joined-live-room', {
+    sessionId: 'gb', botId: 'b', roomId: 'r1',
+    resolve: value => { roomWaiterResult = value },
+    fail: failure => { roomWaiterResult = { failure } },
+    touch() {}, work() {}, say() {}, approval() {},
+  })
+  host.emit('gb', 'turn/end', { turn: 2, reason: { kind: 'aborted', reason: { kind: 'user' } } })
+  assert.equal(roomWaiterResult, null, 'room-wide live roomWaiter must settle immediately with null on abort')
+  assert.equal(host.rt.roomWaiters.has('joined-live-room'), false)
+  await settle(() => (host.agents.get('gb')?.calls.length ?? 0) > callsBefore2, 1500, 'room-wide waiterless call must not be coalesced away by aborted live waiter')
+  const added2 = host.agents.get('gb').calls.slice(callsBefore2).map(([, msg]) => msg)
+  assert.deepEqual(added2.map(m => m.source?.exchangeId), ['joined-waiterless-room'])
+  assert.equal(added2[0].source?.deferred, true)
+})
+
+test('P1 merge regression (resume.js): recoverTurnDeferred preserves deferred child replies and reports targeting task:<id> work nodes', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-task-work-recover-'))
+  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
+
+  const attachment = { attachmentId: 'att-task-sub-1', mediaType: 'text/plain', name: 'build.log' }
+  const team = makeTeam({
+    rooms: {
+      r1: { id: 'r1', name: 'Ops', members: ['a', 'b', 'c'], mode: 'admin', admin: 'a', named: true, sessions: { a: 'ga', b: 'gb', c: 'gc' }, log: [], seq: 0, seen: {} },
+    },
+    works: {
+      w_parent: { from: 'a', to: 'b', open: ['task:k_1'], results: [], at: 1 },
+      'task:k_1': { from: 'b', parent: 'w_parent', toSession: 'task-b-1', toTaskId: 'k_1', name: 'task "Build"', child: 'k_1', open: ['w_sub_1', 'rep_1'], results: [], at: 2 },
+      'task:k_other': { from: 'a', parent: 'w_other', toSession: 'task-a-1', toTaskId: 'k_other', name: 'task "Other"', child: 'k_other', open: ['w_sub_other'], results: [], at: 2 },
+    },
+  })
+  team.bots.b.tasks = [{
+    id: 'k_1', title: 'Build', brief: 'run build', from: 'dm-b', sessionId: 'task-b-1',
+    segments: [], origin: 'task-start', workId: 'task:k_1', parentWorkId: 'w_parent',
+    status: 'running', startedAt: 1, updatedAt: 1,
+  }]
+  writeFileSync(join(home, 'inflight.json'), JSON.stringify({
+    turns: {
+      'task-b-1': { botId: 'b', turn: 1, since: 10 },
+    },
+    queued: {},
+  }))
+
+  const logs = new Map([
+    ['task-b-1', [
+      { type: 'turn/start', seq: 1, data: { turn: 1 } },
+      { type: 'user/message', seq: 2, data: { source: { kind: SOURCE_KIND, role: 'task', taskId: 'k_1', exchangeId: 'task-init-1' }, content: textBlock('[Background task · Build]\nRun build') } },
+      {
+        type: 'user/message',
+        seq: 3,
+        data: {
+          source: { kind: SOURCE_KIND, role: 'reply', exchangeId: 'ex-task-reply-1', senderSessionId: 'c', senderName: 'Reviewer', work: 'task:k_1', replyTo: 'w_sub_1' },
+          content: [{ type: 'text', text: '[Work completed by Reviewer]\nBuild log ready' }, { type: 'file', attachment }],
+        },
+      },
+      {
+        type: 'user/message',
+        seq: 4,
+        data: {
+          source: { kind: SOURCE_KIND, role: 'report', exchangeId: 'ex-task-report-1', roomId: 'r1', work: 'task:k_1' },
+          content: textBlock('[Group chat "Ops" · replies to your post]\nOps confirmed green'),
+        },
+      },
+      {
+        type: 'user/message',
+        seq: 5,
+        data: {
+          source: { kind: SOURCE_KIND, role: 'reply', exchangeId: 'ex-foreign-task-reply', senderSessionId: 'c', senderName: 'Reviewer', work: 'task:k_other', replyTo: 'w_sub_other' },
+          content: textBlock('[Work completed by Reviewer]\nBelongs to Chief task, not Writer'),
+        },
+      },
+      { type: 'assistant/message', seq: 6, data: assistantText('Checked initial step.') },
+      { type: 'turn/end', seq: 7, data: { turn: 1, reason: { kind: 'completed' } } },
+    ]],
+  ])
+
+  const host = await startHost(t, { home, team, logs })
+  t.mock.timers.tick(3000)
+
+  await settle(() => (host.agents.get('task-b-1')?.calls.length ?? 0) >= 2, 2000, 'deferred reply and report for task:k_1 must recover on restart')
+
+  const delivered = host.agents.get('task-b-1').calls.map(([, msg]) => msg)
+  const recoveredReply = delivered.find(m => m.source?.exchangeId === 'ex-task-reply-1')
+  const recoveredReport = delivered.find(m => m.source?.exchangeId === 'ex-task-report-1')
+  assert.ok(recoveredReply, 'deferred child reply targeting task:<id> work node must be recovered')
+  assert.equal(recoveredReply.source?.deferred, true)
+  assert.equal(recoveredReply.source?.work, 'task:k_1')
+  assert.equal(recoveredReply.source?.replyTo, 'w_sub_1')
+  assert.deepEqual(recoveredReply.content.filter(b => b.type === 'file').map(b => b.attachment), [attachment], 'recovered task child reply must preserve file attachments')
+  assert.ok(recoveredReport, 'deferred group report targeting task:<id> work node must be recovered')
+  assert.equal(recoveredReport.source?.deferred, true)
+  assert.equal(recoveredReport.source?.work, 'task:k_1')
+  assert.equal(recoveredReport.source?.roomId, 'r1')
+  assert.equal(delivered.some(m => m.source?.exchangeId === 'ex-foreign-task-reply'), false, 'task:<id> owned by another Bot must not be recovered here')
+  assert.equal(host.rt.botOf('b').tasks.find(item => item.id === 'k_1')?.status, 'running', 'task with recovered deferred replies must stay active, not be marked interrupted')
+})

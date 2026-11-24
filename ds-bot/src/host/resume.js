@@ -737,10 +737,20 @@ export function install(rt) {
         || queuedPosts.some(msg => stripOwnName(bot.name, textOf(msg.content).replace(/^\[Group post from (?:[^\r\n]*\]\r?\n|[^\]\r\n]*\])/, '')).trim() === trimmed)
       )
       if (!alreadyPosted) {
-        await rt.lateRoomReply?.(sessionId, info, reply, { toolCount: turn.toolCount ?? 0 })
+        await rt.lateRoomReply?.(sessionId, info, reply, { toolCount: turn.toolCount ?? 0, ...(turn.turn !== undefined ? { turn: turn.turn } : {}) })
       }
     }
     await recoverTurnDeferred(sessionId, record, turn, events, bot.name)
+  }
+
+  // Matches both delegated Bot works (`work.to === botId`) and task/subagent child work
+  // nodes (`work.child !== undefined && work.from === botId`, cf. handoffs.js ownerBotOfWork).
+  const ownsWorkOrTask = (botId, workId) => {
+    if (workId === undefined) return false
+    if (rt.ownsWork(botId, workId)) return true
+    const works = rt.state?.works
+    const work = works != null && Object.hasOwn(works, workId) ? works[workId] : undefined
+    return work?.child !== undefined && work.from === botId
   }
 
   // Unified deferred-message recovery for turns reconciled or resumed after a restart.
@@ -779,7 +789,7 @@ export function install(rt) {
         if (source.work !== undefined && (source.work === primaryWork || rt.workStateOf?.(source.work) !== 'open')) continue
       } else if (source.role === 'reply' || source.role === 'report' || source.role === 'task-report') {
         if (source.work === undefined || source.work === primaryWork) continue
-        if (!rt.ownsWork(record.botId, source.work)) continue
+        if (!ownsWorkOrTask(record.botId, source.work)) continue
         if (rt.closedWorkOf?.(source.work)?.status === 'cancelled') continue
       }
 
@@ -840,7 +850,7 @@ export function install(rt) {
           : source.role === 'answer'
             ? (source.work === undefined || rt.workStateOf?.(source.work) === 'open')
             : (source.role === 'reply' || source.role === 'report' || source.role === 'task-report')
-              ? (rt.ownsWork(record.botId, source.work) && rt.closedWorkOf?.(source.work)?.status !== 'cancelled')
+              ? (ownsWorkOrTask(record.botId, source.work) && rt.closedWorkOf?.(source.work)?.status !== 'cancelled')
               : true
       if (alreadyHandedBack || !workStillValid) continue
       try {
