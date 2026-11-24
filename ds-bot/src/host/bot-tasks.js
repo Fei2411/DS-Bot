@@ -2063,7 +2063,7 @@ export function install(rt) {
     if (existing !== undefined && existing.oldSid === oldSid && !existing.aborted) {
       if (initialMessages.length > 0) {
         recordPendingTransfers(initialMessages, { botId: bot.id })
-        existing.messages.push(...initialMessages)
+        existing.holdInputs(initialMessages)
       }
       return existing.promise
     }
@@ -2112,6 +2112,7 @@ export function install(rt) {
       operationIds: new Set(typeof operationId === 'string' && operationId !== '' ? [operationId] : []),
       savedOperationIds: new Set(),
       messages: seededMessages,
+      holdInputs: (items) => record.messages.push(...items),
       promise: undefined,
     }
     const releaseRecord = () => {
@@ -2415,8 +2416,8 @@ export function install(rt) {
         finishPostSave,
         savingPromise: undefined,
       }
-      const deferHeldInputs = () => {
-        for (const item of record.messages.splice(0)) {
+      const deferInputs = (items) => {
+        for (const item of items) {
           const { key, token } = transferRefOf(item)
           const entry = pendingTransferOf(key)
           if (entry !== undefined && entry.token === token) {
@@ -2426,6 +2427,10 @@ export function install(rt) {
           releaseTransferLock(key, token)
         }
         if (deferredInputs.size > 0) scheduleHandoffReplay()
+      }
+      const deferHeldInputs = () => {
+        record.holdInputs = deferInputs
+        deferInputs(record.messages.splice(0))
       }
       const savePromise = (async () => {
         const allStagedIds = [...saveOpIds, ...supersededOpIds]
@@ -2721,7 +2726,7 @@ export function install(rt) {
       recordPendingTransfers(pulled, taskOwner.roomId !== undefined ? { roomId: taskOwner.roomId } : { botId: taskOwner.botId })
       const pending = taskOwner.roomId === undefined ? handoffing.get(taskOwner.botId) : undefined
       if (pending?.oldSid === id && !pending.aborted && !pending.readyToDrain) {
-        pending.messages.push(...pulled)
+        pending.holdInputs(pulled)
         return true
       }
       void (async () => {

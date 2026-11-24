@@ -1129,6 +1129,58 @@ test('a stale-session prompt missed by the commit snapshot is checkpointed befor
   assert.deepEqual(journal(rig), [])
 })
 
+test('a stale-session prompt arriving after checkpoint rejection is replayed', async (t) => {
+  const rig = await createRealLoopRig(t, { durable: true })
+  const old = rig.agents.get('dm-a')
+  old.followup(userPrompt('Please run slow work'))
+  await rig.toolStarted.promise
+
+  const commitWritten = Promise.withResolvers()
+  const commitGate = Promise.withResolvers()
+  const checkpointStarted = Promise.withResolvers()
+  const checkpoint = Promise.withResolvers()
+  const save = rig.rt.save
+  let requiredWrites = 0
+  const blocked = t.mock.method(rig.rt, 'save', (options) => {
+    if (rig.rt.botOf('a').sessionId === 'dm-a') return save(options)
+    if (options?.required && ++requiredWrites === 1) {
+      return save(options).then(() => {
+        commitWritten.resolve()
+        return commitGate.promise
+      })
+    }
+    if (options?.required && requiredWrites === 2) {
+      checkpointStarted.resolve()
+      return checkpoint.promise
+    }
+    return Promise.reject(new Error('Best-effort write blocked'))
+  })
+  const moved = beginMove(rig)
+  await commitWritten.promise
+  const first = userPrompt('Sent before checkpoint rejection', 'before-checkpoint-rejection')
+  const second = userPrompt('Sent after checkpoint rejection', 'after-checkpoint-rejection')
+  old.steer(first)
+  commitGate.resolve()
+  await checkpointStarted.promise
+  checkpoint.reject(Object.assign(new Error('Late checkpoint blocked'), { code: 'EBUSY' }))
+  // The save's catch runs first; the handoff's outer finally is still pending.
+  await new Promise((resolve) => queueMicrotask(() => {
+    old.steer(second)
+    resolve()
+  }))
+  assert.equal((await moved).sessionId, 'fork-1')
+  blocked.mock.restore()
+  const fresh = rig.agents.get('fork-1')
+  const admitted = prompt => fresh.session.snapshotEvents().filter(event =>
+    event.type === 'user/message' && event.data.source?.rpcId === prompt.source.rpcId).length
+  await settle(() => admitted(first) === 1, 4500, 'the first prompt should replay after writes recover')
+  await rig.rt.reconcileTasksAfterRestart()
+  await settle(() => admitted(second) === 1 && journal(rig).length === 0, 4500,
+    'the prompt arriving after rejection must not be locked out of replay')
+  assert.equal(admitted(second), 1, 'the prompt arriving after rejection must not be locked out of replay')
+  assert.deepEqual(journal(rig), [])
+})
+
 test('a failed late checkpoint cannot roll back an already written move receipt', async (t) => {
   const rig = await createRealLoopRig(t, { durable: true })
   const old = rig.agents.get('dm-a')
