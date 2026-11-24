@@ -68,6 +68,7 @@ import { BOT_MENTION_ID, installBotMentionRule } from './user-text-rule.js'
 import { QueueDock, QUEUE_CSS } from './queue-dock.js'
 import { PASTE_CSS, PasteDock, PasteGuard } from './paste-card.js'
 import { pruneDrafts } from './draft-keep.js'
+import { createQuestionDrafts } from './question-draft.js'
 import { OPENING_CSS, bindOpeningWait } from './opening.js'
 import { noticeApprovals } from './approval-notices.js'
 import { listedOpener } from './open-listed.js'
@@ -152,6 +153,7 @@ export function apply(ctx) {
       if (event.key === null || event.key === unreadStore.key) ui.set(state => ({ ...state, unread: unreadStore.read(state.unread) }))
       if (event.key === null || event.key === reactionStore.key) ui.set(state => ({ ...state, reactions: reactionStore.read(state.reactions) }))
       if (event.key === null || event.key === seenStore.key) seenAt = seenStore.read(seenAt)
+      if (event.key === null || event.key === STORAGE.rescuedDrafts) questionDrafts.syncFromStorage()
     }
     window.addEventListener('storage', onStorage)
     return () => window.removeEventListener('storage', onStorage)
@@ -174,6 +176,9 @@ export function apply(ctx) {
   // Edited dock cards keep their component when history arrives. This source
   // holds only request identities and counts, never drafts or secret values.
   const heldCards = createSource({})
+  // Unsubmitted custom answers on open question cards; rescued into the main
+  // composer draft if a question is externally cancelled, replaced, or timed out.
+  const questionDrafts = createQuestionDrafts()
   // Per Session, the first visible time and the end time of each turn the transcript
   // has rendered; time separators compare one turn's end with the next turn's start.
   const turnClock = createSource({})
@@ -593,7 +598,7 @@ export function apply(ctx) {
     }
   }
   const actions = {
-    ...teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded }),
+    ...teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded, questionDrafts }),
     // The files a group row names open DSH's own review tab for that turn. The tab reads
     // the changes of the Session the shell shows, so that Session is opened first; the same
     // call then retries until its right column is mounted. This jump is the one place a
@@ -973,7 +978,7 @@ export function apply(ctx) {
       else if (kind === 'letgo') void actions.computerAllowForeground(botId)
     })
   }
-  const face = () => ({ actions, hooks: { roster, ui, activity, work, memoryNews, registry, turnClock, live, computer, cards, heldCards, browserPages, browserTabs, browserHolds, surface, update, frame, sidebarPref, settingsShellHeld } })
+  const face = () => ({ actions, hooks: { roster, ui, activity, work, memoryNews, registry, turnClock, live, computer, cards, heldCards, rescuedDrafts: questionDrafts.rescued, browserPages, browserTabs, browserHolds, surface, update, frame, sidebarPref, settingsShellHeld } })
   // Since DSH 0.2.1-alpha.3 user text is drawn by rules and a content factory, not the
   // primitives' text projection; the user's bubble draws with either (user-message.js).
   const hostDrawsUserText = typeof ctx.uiConversation.userText?.register === 'function'
@@ -994,17 +999,45 @@ export function apply(ctx) {
     updateQueue: async (itemId, action) => (await ctx.sessions.binding(sessionId)?.session?.updateQueue(itemId, action)) ?? { ok: false },
     loadImage: (attachment) => ctx.uiConversation.imageUrl(sessionId, attachment),
   })
-  // A deleted Bot or group takes its kept draft with it.
+  // A deleted Bot or group takes its kept draft (and any part-keyed rescued draft) with it.
   ctx.effect(() => {
     let chats = null
     return roster.subscribe(() => {
       const snapshot = roster.getSnapshot()
       if (!snapshot.ready) return
-      const now = new Set([...snapshot.bots.map(bot => bot.id), ...snapshot.rooms.map(room => room.id)])
-      if (chats !== null) pruneDrafts([...chats].filter(id => !now.has(id)))
+      const now = new Map()
+      for (const bot of snapshot.bots) {
+        const ids = [bot.id, bot.sessionId, ...(bot.parts ?? [])].filter(id => typeof id === 'string' && id !== '')
+        now.set(bot.id, [...new Set(ids)])
+      }
+      for (const room of snapshot.rooms) {
+        const ids = [room.id, room.sessionId, ...(room.ownParts ?? [])].filter(id => typeof id === 'string' && id !== '')
+        now.set(room.id, [...new Set(ids)])
+      }
+      if (chats !== null) {
+        const goneChats = []
+        const goneAll = []
+        for (const [chatId, prevIds] of chats) {
+          if (now.has(chatId)) continue
+          goneChats.push(chatId)
+          for (const id of prevIds) goneAll.push(id)
+        }
+        if (goneChats.length > 0) {
+          pruneDrafts(goneChats)
+          questionDrafts.pruneChats([...new Set(goneAll)])
+        }
+      }
       chats = now
     })
   }, 'ds-bot: drafts of removed chats')
+  // Move unsubmitted question-card text back to the main composer when a pending
+  // question disappears externally (never on explicit submit, skip, scroll, or switch).
+  ctx.effect(() => {
+    const offRoster = roster.subscribe(() => { questionDrafts.reconcileRoster(roster.getSnapshot()) })
+    const sessionStatus = ctx.get('uiSession')?.sessionStatus
+    const offStatus = sessionStatus?.subscribe?.(() => { questionDrafts.reconcileBlocking(sessionStatus.getSnapshot(), roster.getSnapshot()) })
+    return () => { offRoster(); offStatus?.() }
+  }, 'ds-bot: rescue interrupted question drafts')
   ctx.effect(() => noticeApprovals({
     work,
     roster,
@@ -1341,6 +1374,7 @@ export function apply(ctx) {
     () => shadow('conversation.input.right', { id: 'bot-voice', order: 100, inject: face }, ComposerVoice),
     () => shadow('conversation.composer', {
       priority: BOT_PRIORITY,
+      inject: face,
       select: owner => (owner.pendingInteraction?.kind === 'question' ? owner.pendingInteraction : null),
     }, QuestionCard),
     () => shadow('conversation.input.dock', { id: 'bot-paste', order: -130, inject: face }, PasteDock),

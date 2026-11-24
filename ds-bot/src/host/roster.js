@@ -787,11 +787,12 @@ export function install(rt) {
     // A deleted Bot still listed goes without a word.
     if (names(removed) !== '') changes.push(`removed ${names(removed)}`)
     // A member who leaves and comes back starts from a fresh look at the log.
+    const noteCleanups = []
     for (const member of removed) {
       if (room.seen) delete room.seen[member]
       rt.forgetSessionChanges?.(room.sessions?.[member])
       for (const segment of room.segments?.[member] ?? []) rt.forgetSessionChanges?.(segment.sessionId)
-      rt.dropGroupSession(room, member)
+      noteCleanups.push(rt.dropGroupSession(room, member))
       rt.cancelMemberTasks?.(room, member, 'Member was removed from the group')
       rt.goalMemberRemoved?.(room, member)
     }
@@ -857,6 +858,7 @@ export function install(rt) {
       }
     }
     await rt.save()
+    if (noteCleanups.length > 0) await Promise.allSettled(noteCleanups)
     for (const member of removed) {
       await rt.stopMemberRoomTasks?.(room.id, member, 'removed from group')
         .catch(error => rt.warn('ds-bot: stopping group tasks for removed member %s in %s failed: %s', member, room.name, error))
@@ -874,18 +876,22 @@ export function install(rt) {
     const archived = rt.archiveGroupMemory(room)
     await rt.stopRoomTasks?.(room.id, 'group deleted')
       .catch(error => rt.warn('ds-bot: stopping tasks of deleted group %s failed: %s', room.name, error))
-    for (const botId of Object.keys(room.sessions ?? {})) {
+    const noteCleanups = []
+    for (const botId of new Set([...Object.keys(room.sessions ?? {}), ...Object.keys(room.segments ?? {})])) {
       rt.forgetSessionChanges?.(room.sessions?.[botId])
       for (const segment of room.segments?.[botId] ?? []) rt.forgetSessionChanges?.(segment.sessionId)
-      rt.dropGroupSession(room, botId)
+      noteCleanups.push(rt.dropGroupSession(room, botId))
     }
-    for (const segment of room.parts ?? []) delete state.switching[segment.sessionId]
+    const partIds = (room.parts ?? []).map(segment => segment?.sessionId).filter(Boolean)
+    for (const sid of partIds) delete state.switching[sid]
+    if (partIds.length > 0) noteCleanups.push(rt.deleteSegmentNotes?.(partIds))
     delete state.switching[rt.sessionOfRoom(room)]
     delete state.rooms[id]
     rt.roomInbox.delete(id)
     rt.dropGroupLines(id)
     void rt.forgetRoomReports?.(room).catch(error => rt.warn('ds-bot: settling reports of deleted group %s failed: %s', room.name, error))
     await archived
+    await Promise.allSettled(noteCleanups)
     const failed = await saveForDelete()
     // Armed scheduled tasks refuse a plain archive and would keep delivering into
     // the deleted group; the session-stop that stopActivity runs removes them.
@@ -1019,6 +1025,7 @@ export function install(rt) {
       delete state.bots[id]
       rt.forgetBotRequests?.(id)
       rt.dropBotLedgers?.(id)
+      const noteCleanups = [rt.deleteSegmentNotes?.([...parts])]
       // The shared capability list is the user's and keeps its items; only a
       // still-unapproved local MCP this Bot alone asked for leaves with it.
       rt.dropOrphanCapabilities?.(bot)
@@ -1032,7 +1039,10 @@ export function install(rt) {
       }
       const touched = []
       for (const room of Object.values(state.rooms)) {
-        if (!room.members.includes(id)) continue
+        if (!room.members.includes(id)) {
+          if (room.sessions?.[id] !== undefined || room.segments?.[id] !== undefined) noteCleanups.push(rt.dropGroupSession(room, id))
+          continue
+        }
         const wasAdmin = room.admin === id
         room.members = room.members.filter(member => member !== id)
         if (wasAdmin) {
@@ -1043,9 +1053,10 @@ export function install(rt) {
         rt.cancelMemberTasks?.(room, id, 'Bot was deleted')
         rt.forgetSessionChanges?.(room.sessions?.[id])
         for (const segment of room.segments?.[id] ?? []) rt.forgetSessionChanges?.(segment.sessionId)
-        rt.dropGroupSession(room, id)
+        noteCleanups.push(rt.dropGroupSession(room, id))
         touched.push(room)
       }
+      await Promise.allSettled(noteCleanups)
       await rt.forgetBotRoomReports?.(id, touched)
         .catch(error => rt.warn('ds-bot: cleaning group reports for deleted Bot %s failed: %s', bot.name, error))
       await followMemberNames(touched)

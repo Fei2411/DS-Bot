@@ -830,46 +830,57 @@ export function install(rt) {
 
   // Giving up one wait: the sub-work closes with an explicit result that says no reply
   // came back, so the work above it goes on. Only this branch settles; the parent's
-  // other open works stay. `gone` is the startup sweep, whose target no longer exists.
+  // other open works stay. `gone` is the startup sweep whose target no longer exists;
+  // `restart` is startup reconciliation of an orphaned leaf work with no active turn.
   function abandonWork(id, reason = 'user') {
     const work = own(works(), id)
     if (work === undefined) return false
     const parent = work.parent === undefined ? undefined : own(works(), work.parent)
-    const waitingTask = parent === undefined && work.parent === undefined ? activeTaskThreadOf(work) : undefined
-    if (parent !== undefined) {
-      if (!parent.open.includes(id)) return false
-    } else if (waitingTask === undefined) {
-      return false
+    const waitingParent = parent !== undefined && parent.open.includes(id) ? parent : undefined
+    const waitingTask = waitingParent === undefined && work.parent === undefined ? activeTaskThreadOf(work) : undefined
+    if (waitingParent === undefined && waitingTask === undefined) {
+      if (reason !== 'restart' || work.parent !== undefined) return false
     }
     const target = labelOfWork(work)
     const name = rt.botOf(work.to)?.name ?? work.name ?? (work.room !== undefined ? rt.roomOf(work.room)?.name : undefined) ?? 'the other Bot'
+    const tag = work.ref ? ` #${work.ref}` : ''
     const text = reason === 'gone'
       ? cap(target) + ' is no longer on the team, so no reply can come back for the work handed to it. The user gave up waiting for that answer: this counts as its result. Go on with the work you were given, and say plainly that this answer is missing.'
-      : 'No reply came back from ' + target + ', and the user gave up waiting for it. This counts as its result: go on with the work you were given, and say plainly that this answer is missing.'
+      : reason === 'restart'
+        ? `Work${tag} handed to ${target} did not complete before DeepSeek Harness restarted and has no active turn remaining. This counts as its result: go on with the work you were given, and say plainly that this answer is missing.`
+        : 'No reply came back from ' + target + ', and the user gave up waiting for it. This counts as its result: go on with the work you were given, and say plainly that this answer is missing.'
     const origin = workImOrigin(id)
     if (origin !== undefined) rememberImReplyOrigin(id, origin)
     if (reason === 'gone') rt.dropRoomReport?.(id)
-    const waitingBot = parent !== undefined ? ownerBotOfWork(parent) : waitingTask.callerBot.id
+    const waitingBot = waitingParent !== undefined ? ownerBotOfWork(waitingParent) : waitingTask !== undefined ? waitingTask.callerBot.id : work.from
     rememberAbandoned(id, { at: Date.now(), from: work.from, to: work.to, room: work.room, ...(work.parent !== undefined ? { parent: work.parent } : {}), name, reason, ...(waitingBot !== undefined ? { waiting: waitingBot } : {}) })
     closeWork(id, name, text, { abandoned: true, abandonedAt: Date.now(), abandonedReason: reason })
     // The wait is over now, not when the Bot next reads the result.
-    if (parent !== undefined) parent.open = parent.open.filter(other => other !== id)
+    if (waitingParent !== undefined) waitingParent.open = waitingParent.open.filter(other => other !== id)
     save()
     // The Bot that waited goes on with its work now, the same way a reply brings it back.
     if (waitingBot !== undefined && rt.botOf(waitingBot) !== undefined) {
       const said = reason === 'gone'
         ? target + ' is no longer on the team, so the work you handed it has no answer. The user gave up waiting for it; this is its result. Go on with the work you were given.'
-        : 'No reply came back from ' + target + ', and the user gave up waiting for it. This is its result: go on with the work you were given.'
+        : reason === 'restart'
+          ? (waitingParent !== undefined || waitingTask !== undefined
+            ? `Work${tag} handed to ${target} did not complete before DeepSeek Harness restarted and has no active turn remaining. This is its result: go on with the work you were given.`
+            : `Work${tag} handed to ${target} did not complete before DeepSeek Harness restarted and has no active turn remaining. Tell the user or delegate again if needed.`)
+          : 'No reply came back from ' + target + ', and the user gave up waiting for it. This is its result: go on with the work you were given.'
       const backRoom = rt.roomOf(work.fromRoom)?.sessions?.[waitingBot]
-      const targetSession = parent !== undefined
+      const targetSession = waitingParent !== undefined
         ? (backRoom
           ?? (work.fromPart === undefined ? undefined : threadCurrentOfPart(rt.botOf(waitingBot), work.fromPart))
-          ?? (parent.toSession === undefined ? undefined : threadCurrentOfPart(rt.botOf(waitingBot), parent.toSession)))
-        : waitingTask.targetSession
+          ?? (waitingParent.toSession === undefined ? undefined : threadCurrentOfPart(rt.botOf(waitingBot), waitingParent.toSession)))
+        : waitingTask !== undefined
+          ? waitingTask.targetSession
+          : (backRoom
+            ?? (work.fromPart === undefined ? undefined : threadCurrentOfPart(rt.botOf(waitingBot), work.fromPart))
+            ?? rt.chatOf(waitingBot))
       void rt.deliver({
         fromId: work.to !== undefined && rt.botOf(work.to) !== undefined ? work.to : undefined,
         fromName: name, toId: waitingBot, ...(targetSession ? { sessionId: targetSession } : {}), text: said, role: 'reply', replyTo: id,
-        exchangeId: randomUUID(), ...(work.parent !== undefined ? { work: work.parent } : {}), abandoned: true, recordExchange: false,
+        exchangeId: randomUUID(), ...(waitingParent !== undefined ? { work: work.parent } : {}), ...(work.ref ? { workRef: work.ref } : {}), abandoned: true, ...(reason === 'restart' ? { abandonedReason: 'restart' } : {}), recordExchange: false,
       }).catch(error => rt.warn('ds-bot: giving up the wait for %s was not delivered: %s', waitingBot, error))
     }
     return true
