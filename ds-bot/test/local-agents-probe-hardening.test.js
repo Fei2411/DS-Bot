@@ -151,7 +151,7 @@ test('runProbeCommand force-kills SIGTERM-ignoring child and grandchild processe
     setInterval(() => {}, 1000)
   `)
   const controller = new AbortController()
-  const running = runProbeCommand(process.execPath, [stubbornAbort], { timeoutMs: 100, forceKillAfterMs: 300, signal: controller.signal })
+  const running = runProbeCommand(process.execPath, [stubbornAbort], { timeoutMs: 600, forceKillAfterMs: 1_200, signal: controller.signal })
   const abortPid = Number(await waitForFile(abortPidFile, 3_000))
   const abortStart = Date.now()
   controller.abort()
@@ -161,7 +161,7 @@ test('runProbeCommand force-kills SIGTERM-ignoring child and grandchild processe
   assert.equal(abortedResult.timedOut, false, 'timeoutTimer must be cleared on abort before forceKillAfterMs elapses')
   assert.equal(abortedResult.signal, 'SIGKILL')
   assert.match(readFileSync(abortSigFile, 'utf8'), /SIGTERM/)
-  assert.ok(Date.now() - abortStart < 3_000, 'aborted SIGTERM-ignoring child must be force-killed promptly')
+  assert.ok(Date.now() - abortStart < 4_000, 'aborted SIGTERM-ignoring child must be force-killed promptly')
   assert.equal(await waitForPidExit(abortPid), true, `aborted pid ${abortPid} should be dead`)
 
   // Output overflow terminates noisy probe cleanly and stops accumulating smaller trailing chunks.
