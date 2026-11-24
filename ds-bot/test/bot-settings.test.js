@@ -20,7 +20,7 @@ runInNewContext(outputFiles[0].text, {
   module, exports: module.exports,
   require: name => (name === 'react' ? react : name === 'react-dom' ? { createPortal: node => node } : {}),
 })
-const { AvatarEditor, BotSettingsForm, InlineText } = module.exports
+const { AvatarEditor, BotSettingsForm, CharacterGrid, InlineText } = module.exports
 
 function walk(node, found = []) {
   if (Array.isArray(node)) { for (const child of node) walk(child, found); return found }
@@ -162,4 +162,24 @@ test('a field takes its class from the page it sits in, and defaults to the Sett
   assert.equal(InlineText({ label: 'Label', value: '' }).props.className, 'bt-bs-input')
   assert.equal(InlineText({ label: 'Instructions', value: '', multiline: true }).props.className, 'bt-bs-input bt-bs-area')
   assert.equal(InlineText({ label: 'Label', value: '', className: 'bt-drawer-role-input' }).props.className, 'bt-drawer-role-input')
+})
+
+test('CharacterGrid stays a flat 20-button grid for legacy and aliased Bot shapes', () => {
+  // Legacy render-only shapes do not append an extra 21st button to the picker.
+  for (const legacy of ['ring', 'gem', 'magnet']) {
+    const grid = walk(CharacterGrid({ look: { shape: legacy, color: 'blue' }, onShape() {}, onColor() {} }))
+    const buttons = grid.filter(node => node.props?.className === 'bt-shape')
+    assert.equal(buttons.length, 20, `${legacy} should not add a 21st picker button`)
+    assert.equal(grid.some(node => node.props?.className === 'bt-shape-row'), false)
+    assert.equal(buttons.some(node => node.props['aria-pressed']), false)
+  }
+  // Aliased shapes resolve through AvatarEditor and highlight their active target button.
+  const editorNodes = walk(AvatarEditor({ bot: { id: 'old', name: 'Old', avatar: { shape: 'wave' }, color: 'red' }, actions: {}, run: v => v, onClose() {} }))
+  const gridEl = editorNodes.find(node => node.type === CharacterGrid)
+  assert.equal(gridEl.props.look.shape, 'octopus')
+  const buttons = walk(CharacterGrid(gridEl.props)).filter(node => node.props?.className === 'bt-shape')
+  assert.equal(buttons.length, 20)
+  const pressed = buttons.filter(node => node.props['aria-pressed'])
+  assert.equal(pressed.length, 1)
+  assert.equal(pressed[0].props['aria-label'], 'Octopus')
 })

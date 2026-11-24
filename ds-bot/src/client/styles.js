@@ -549,8 +549,7 @@ html[data-platform=darwin] .bt-panel [data-window-drag] :is(a,button,input,texta
 .bt-avedit-tabs[data-glide] .bt-avedit-tab[aria-selected=true]{background:transparent}
 .bt-avedit-reset{color:var(--bt-ink-3)}
 .bt-avedit-reset:hover{color:var(--bt-ink)}
-.bt-shapes{display:flex;flex-direction:column;gap:4px}
-.bt-shape-row{display:grid;grid-template-columns:repeat(5,1fr);gap:4px}
+.bt-shapes{display:grid;grid-template-columns:repeat(5,1fr);gap:4px}
 .bt-shape{position:relative;aspect-ratio:1;border:0;border-radius:10px;background:none;color:var(--bt-ink);cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0}
 .bt-shape:hover{background:var(--bt-hover)}
 .bt-shape .bt-ring{position:absolute;left:50%;top:50%;width:36px;height:36px;translate:-50% -50%;overflow:visible;opacity:0;scale:.82;pointer-events:none;transition:opacity .14s ease,${spring(SPRING_POP, 'scale')}}
@@ -1500,7 +1499,7 @@ body[data-ds-dark-theme] .bt-select{color-scheme:dark}
   .bt-set-model .bt-set-control{max-width:none}
   .bt-settings-layer .bt-model-trigger[data-wide]{width:100%;min-width:0;max-width:100%;flex-shrink:1}
   .bt-avedit{width:min(300px,calc(100vw - 32px))}
-  .bt-shape-row{grid-template-columns:repeat(4,1fr)}
+  .bt-shapes{grid-template-columns:repeat(4,1fr)}
 }
 /* iOS zooms the whole page on focused inputs under 16px. */
 @media (max-width:640px) and (pointer:coarse){

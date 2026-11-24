@@ -49,9 +49,10 @@ export const SHAPE_ALIASES = Object.freeze({
 })
 // The picker shows 20 active characters, five to a row (4x5). A Bot with no choice gets
 // one of the friendliest non-whale shapes; the whale stays the Main Bot's.
+// Slots keep the surviving shapes at their original indices so existing Bots stay stable.
 export const PICKER_SHAPES = Object.keys(CHARACTERS).filter(id => !LEGACY_SHAPES.has(id))
 export const PICKER_COLUMNS = 5
-export const DEFAULT_SHAPES = ['star', 'moon', 'cloud', 'spark', 'bear', 'puppy', 'kitty', 'bunny', 'octopus', 'sprout', 'bloom', 'acorn', 'gumdrop', 'peanut']
+export const DEFAULT_SHAPES = ['star', 'moon', 'cloud', 'octopus', 'spark', 'bear', 'puppy', 'sprout', 'bloom', 'squircle', 'gumdrop', 'peanut', 'bunny', 'kitty', 'acorn']
 export const FALLBACK_SHAPE = 'gumdrop'
 // The team's first Main Bot, and the plugin's own mark in the sidebar.
 export const MAIN_LOOK = Object.freeze({ shape: 'whale', color: 'deepseek' })
@@ -60,6 +61,16 @@ export const MAIN_LOOK = Object.freeze({ shape: 'whale', color: 'deepseek' })
 export const CHARACTER_COLORS = ['black', 'brown', 'red', 'orange', 'yellow', 'green', 'cyan', 'blue', 'violet', 'magenta', 'gray', 'aurora']
 export const DEFAULT_COLORS = CHARACTER_COLORS.filter(color => !['black', 'gray', 'brown'].includes(color) && !GRADIENTS[color])
 export const isColor = color => isHex(color) || Object.hasOwn(INKS, color)
+
+// Registered shapes join the characters: `body(paint)` returns SVG markup in a
+// `size` box and `eyes` lists the two capsules.
+export const SHAPES = {}
+for (const [id, character] of Object.entries(CHARACTERS)) {
+  const layers = (character.paints ?? [])
+    .map(([d, fill, opacity]) => `<path d="${d}" fill="${fill}" fill-opacity="${opacity}"/>`)
+    .join('')
+  SHAPES[id] = { label: character.label ?? id[0].toUpperCase() + id.slice(1), size: 100, path: character.body, layers, eyes: character.eyes }
+}
 
 // The default look comes from the Bot id (FNV-1a, then mulberry32 for the
 // color and murmur3's fmix32 for the shape), so it is the same on every device.
@@ -83,7 +94,8 @@ export function defaultShape(id) {
 
 // A stored shape or color wins; then the id. With no Bot it is a black gumdrop.
 export const colorOf = bot => (isColor(bot?.color) ? bot.color : bot?.id ? defaultColor(String(bot.id)) : 'black')
-export const resolveShape = id => (typeof id === 'string' && Object.hasOwn(SHAPE_ALIASES, id) ? SHAPE_ALIASES[id] : id)
+// Exact registered ids (built-in or custom) take precedence over legacy aliases.
+export const resolveShape = id => (typeof id === 'string' && !Object.hasOwn(SHAPES, id) && Object.hasOwn(SHAPE_ALIASES, id) ? SHAPE_ALIASES[id] : id)
 export function lookOf(bot) {
   const avatar = bot?.avatar ?? {}
   const stored = resolveShape(avatar.shape)
@@ -94,15 +106,6 @@ export function lookOf(bot) {
   }
 }
 
-// Registered shapes join the characters: `body(paint)` returns SVG markup in a
-// `size` box and `eyes` lists the two capsules.
-export const SHAPES = {}
-for (const [id, character] of Object.entries(CHARACTERS)) {
-  const layers = (character.paints ?? [])
-    .map(([d, fill, opacity]) => `<path d="${d}" fill="${fill}" fill-opacity="${opacity}"/>`)
-    .join('')
-  SHAPES[id] = { label: character.label ?? id[0].toUpperCase() + id.slice(1), size: 100, path: character.body, layers, eyes: character.eyes }
-}
 export const hasShape = id => typeof id === 'string' && Object.hasOwn(SHAPES, resolveShape(id))
 export const shapeId = (id) => {
   const resolved = resolveShape(id)
@@ -128,10 +131,11 @@ let markSerial = 0
 export const nextMarkSerial = () => (markSerial += 1)
 export const markupCache = new Map()
 export function characterMarkup(shape, color) {
-  const key = `${shape}|${color}`
+  const resolved = shapeId(shape)
+  const key = `${resolved}|${color}`
   let markup = markupCache.get(key)
   if (markup === undefined) {
-    const def = shapeOf(shape)
+    const def = SHAPES[resolved]
     // The eyes sit in the mask, untransformed by their placement, so CSS blinks and
     // glances never replace where they sit.
     const eyes = `<g class="bt-gaze"><g class="bt-eyes" fill="#000">${def.eyes.map(eyeMarkup).join('')}${def.eyes.map(happyEyeMarkup).join('')}</g></g>`
@@ -146,12 +150,13 @@ export function characterMarkup(shape, color) {
 const svgUrl = (inner, size) => `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size} ${size}">${inner}</svg>`)}")`
 export const maskCache = new Map()
 export function maskOf(shape) {
-  let mask = maskCache.get(shape)
+  const resolved = shapeId(shape)
+  let mask = maskCache.get(resolved)
   if (mask === undefined) {
-    const def = shapeOf(shape)
+    const def = SHAPES[resolved]
     const body = `<g mask="url(#e)">${bodyOf(def, '#000', true)}</g>`
     mask = svgUrl(`<mask id="e" ${maskBox(def.size)}>${holes(def, def.eyes.map(eyeMarkup).join('').replaceAll('class="bt-eye"', 'fill="#000"'))}</mask>${def.wrap ? `<g transform="${def.wrap}">${body}</g>` : body}`, def.size)
-    maskCache.set(shape, mask)
+    maskCache.set(resolved, mask)
   }
   return mask
 }

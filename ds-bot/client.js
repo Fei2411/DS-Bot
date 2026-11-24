@@ -826,13 +826,10 @@ var JA = {
   "Spark": "ほのお",
   "Bear": "クマ",
   "Puppy": "コイヌ",
-  "Wave": "ウェーブ",
   "Squircle": "スクワークル",
-  "Bull": "ツノ",
   "Blossom": "花",
   "Gumdrop": "ドロップ",
   "Peanut": "ピーナッツ",
-  "Bubbles": "バブル",
   "Saucer": "UFO",
   "Sprout": "ふたば",
   "Bunny": "ウサギ",
@@ -842,17 +839,9 @@ var JA = {
   "Magnet": "マグネット",
   "Acorn": "どんぐり",
   "Pebbles": "小石",
-  "Cushion": "クッション",
   "Ring": "リング",
   "Gem": "宝石",
-  "Dolphin": "イルカ",
   "Octopus": "タコ",
-  "Turtle": "カメ",
-  "Crab": "カニ",
-  "Pufferfish": "フグ",
-  "Jellyfish": "クラゲ",
-  "Starfish": "ヒトデ",
-  "Seahorse": "タツノオトシゴ",
   "Black": "ブラック",
   "Brown": "ブラウン",
   "Red": "レッド",
@@ -3696,21 +3685,11 @@ var KO = {
   Spark: "불꽃",
   Bear: "곰",
   Puppy: "강아지",
-  Wave: "파동",
   Squircle: "둥근 사각형",
-  Bull: "뿔",
   Blossom: "꽃",
-  Dolphin: "돌고래",
   Octopus: "문어",
-  Turtle: "거북이",
-  Crab: "게",
-  Pufferfish: "복어",
-  Jellyfish: "해파리",
-  Starfish: "불가사리",
-  Seahorse: "해마",
   Gumdrop: "젤리",
   Peanut: "땅콩",
-  Bubbles: "거품",
   Saucer: "비행접시",
   Sprout: "새싹",
   Bunny: "토끼",
@@ -3720,7 +3699,6 @@ var KO = {
   Magnet: "자석",
   Acorn: "도토리",
   Pebbles: "조약돌",
-  Cushion: "쿠션",
   Ring: "링",
   Gem: "보석",
   // Colors
@@ -6595,21 +6573,11 @@ var ES = {
   Spark: "Chispa",
   Bear: "Oso",
   Puppy: "Cachorro",
-  Wave: "Onda",
   Squircle: "Cuadrículo",
-  Bull: "Toro",
   Blossom: "Flor",
-  Dolphin: "Delfín",
   Octopus: "Pulpo",
-  Turtle: "Tortuga",
-  Crab: "Cangrejo",
-  Pufferfish: "Pez globo",
-  Jellyfish: "Medusa",
-  Starfish: "Estrella de mar",
-  Seahorse: "Caballito de mar",
   Gumdrop: "Gominola",
   Peanut: "Cacahuete",
-  Bubbles: "Burbujas",
   Saucer: "Platillo",
   Sprout: "Brote",
   Bunny: "Conejo",
@@ -6619,7 +6587,6 @@ var ES = {
   Magnet: "Imán",
   Acorn: "Bellota",
   Pebbles: "Guijarros",
-  Cushion: "Cojín",
   Ring: "Anillo",
   Gem: "Gema",
   // Colors
@@ -9472,27 +9439,17 @@ var FR = {
   "Saving": "Enregistrement",
   "Manage models": "Gérer les modèles",
   "Whale": "Baleine",
-  "Dolphin": "Dauphin",
   "Octopus": "Poulpe",
-  "Turtle": "Tortue",
-  "Crab": "Crabe",
-  "Pufferfish": "Poisson-globe",
-  "Jellyfish": "Méduse",
-  "Starfish": "Étoile de mer",
-  "Seahorse": "Hippocampe",
   "Star": "Étoile",
   "Moon": "Lune",
   "Cloud": "Nuage",
   "Spark": "Flamme",
   "Bear": "Ours",
   "Puppy": "Chiot",
-  "Wave": "Onde",
   "Squircle": "Squircle",
-  "Bull": "Taureau",
   "Blossom": "Fleur",
   "Gumdrop": "Bonbon",
   "Peanut": "Cacahuète",
-  "Bubbles": "Bulles",
   "Saucer": "Soucoupe",
   "Sprout": "Pousse",
   "Bunny": "Lapin",
@@ -9502,7 +9459,6 @@ var FR = {
   "Magnet": "Aimant",
   "Acorn": "Gland",
   "Pebbles": "Galets",
-  "Cushion": "Coussin",
   "Ring": "Anneau",
   "Gem": "Gemme",
   "Black": "Noir",
@@ -12348,21 +12304,11 @@ var DE = {
   Spark: "Funke",
   Bear: "Bär",
   Puppy: "Welpe",
-  Wave: "Welle",
   Squircle: "Squircle",
-  Bull: "Stier",
   Blossom: "Blüte",
-  Dolphin: "Delfin",
   Octopus: "Oktopus",
-  Turtle: "Schildkröte",
-  Crab: "Krabbe",
-  Pufferfish: "Kugelfisch",
-  Jellyfish: "Qualle",
-  Starfish: "Seestern",
-  Seahorse: "Seepferdchen",
   Gumdrop: "Fruchtgummi",
   Peanut: "Erdnuss",
-  Bubbles: "Blasen",
   Saucer: "Untertasse",
   Sprout: "Keimling",
   Bunny: "Hase",
@@ -12372,7 +12318,6 @@ var DE = {
   Magnet: "Magnet",
   Acorn: "Eichel",
   Pebbles: "Kiesel",
-  Cushion: "Kissen",
   Ring: "Ring",
   Gem: "Edelstein",
   // Colors
@@ -15201,21 +15146,11 @@ var ZH = {
   Spark: "火苗",
   Bear: "小熊",
   Puppy: "小狗",
-  Wave: "声波",
   Squircle: "圆角方",
-  Bull: "牛角",
   Blossom: "花朵",
-  Dolphin: "海豚",
   Octopus: "章鱼",
-  Turtle: "海龟",
-  Crab: "螃蟹",
-  Pufferfish: "河豚",
-  Jellyfish: "水母",
-  Starfish: "海星",
-  Seahorse: "海马",
   Gumdrop: "软糖",
   Peanut: "花生",
-  Bubbles: "泡泡",
   Saucer: "飞碟",
   Sprout: "嫩芽",
   Bunny: "兔子",
@@ -15225,7 +15160,6 @@ var ZH = {
   Magnet: "磁铁",
   Acorn: "橡果",
   Pebbles: "石子",
-  Cushion: "靠垫",
   Ring: "圆环",
   Gem: "宝石",
   // Colors
@@ -17165,12 +17099,17 @@ var SHAPE_ALIASES = Object.freeze({
 });
 var PICKER_SHAPES = Object.keys(CHARACTERS).filter((id) => !LEGACY_SHAPES.has(id));
 var PICKER_COLUMNS = 5;
-var DEFAULT_SHAPES = ["star", "moon", "cloud", "spark", "bear", "puppy", "kitty", "bunny", "octopus", "sprout", "bloom", "acorn", "gumdrop", "peanut"];
+var DEFAULT_SHAPES = ["star", "moon", "cloud", "octopus", "spark", "bear", "puppy", "sprout", "bloom", "squircle", "gumdrop", "peanut", "bunny", "kitty", "acorn"];
 var FALLBACK_SHAPE = "gumdrop";
 var MAIN_LOOK = Object.freeze({ shape: "whale", color: "deepseek" });
 var CHARACTER_COLORS = ["black", "brown", "red", "orange", "yellow", "green", "cyan", "blue", "violet", "magenta", "gray", "aurora"];
 var DEFAULT_COLORS = CHARACTER_COLORS.filter((color) => !["black", "gray", "brown"].includes(color) && !GRADIENTS[color]);
 var isColor = (color) => isHex(color) || Object.hasOwn(INKS, color);
+var SHAPES = {};
+for (const [id, character] of Object.entries(CHARACTERS)) {
+  const layers = (character.paints ?? []).map(([d, fill2, opacity]) => `<path d="${d}" fill="${fill2}" fill-opacity="${opacity}"/>`).join("");
+  SHAPES[id] = { label: character.label ?? id[0].toUpperCase() + id.slice(1), size: 100, path: character.body, layers, eyes: character.eyes };
+}
 function fnv1a(text) {
   let value = 2166136261;
   for (let index = 0; index < text.length; index += 1) value = Math.imul(value ^ text.charCodeAt(index), 16777619);
@@ -17189,7 +17128,7 @@ function defaultShape(id) {
   return DEFAULT_SHAPES[((value ^ value >>> 16) >>> 0) % DEFAULT_SHAPES.length];
 }
 var colorOf = (bot) => isColor(bot?.color) ? bot.color : bot?.id ? defaultColor(String(bot.id)) : "black";
-var resolveShape = (id) => typeof id === "string" && Object.hasOwn(SHAPE_ALIASES, id) ? SHAPE_ALIASES[id] : id;
+var resolveShape = (id) => typeof id === "string" && !Object.hasOwn(SHAPES, id) && Object.hasOwn(SHAPE_ALIASES, id) ? SHAPE_ALIASES[id] : id;
 function lookOf(bot) {
   const avatar = bot?.avatar ?? {};
   const stored = resolveShape(avatar.shape);
@@ -17198,11 +17137,6 @@ function lookOf(bot) {
     image: avatar.image,
     color: colorOf(bot)
   };
-}
-var SHAPES = {};
-for (const [id, character] of Object.entries(CHARACTERS)) {
-  const layers = (character.paints ?? []).map(([d, fill2, opacity]) => `<path d="${d}" fill="${fill2}" fill-opacity="${opacity}"/>`).join("");
-  SHAPES[id] = { label: character.label ?? id[0].toUpperCase() + id.slice(1), size: 100, path: character.body, layers, eyes: character.eyes };
 }
 var hasShape = (id) => typeof id === "string" && Object.hasOwn(SHAPES, resolveShape(id));
 var shapeId = (id) => {
@@ -17227,10 +17161,11 @@ var markSerial = 0;
 var nextMarkSerial = () => markSerial += 1;
 var markupCache = /* @__PURE__ */ new Map();
 function characterMarkup(shape, color) {
-  const key = `${shape}|${color}`;
+  const resolved = shapeId(shape);
+  const key = `${resolved}|${color}`;
   let markup = markupCache.get(key);
   if (markup === void 0) {
-    const def = shapeOf(shape);
+    const def = SHAPES[resolved];
     const eyes = `<g class="bt-gaze"><g class="bt-eyes" fill="#000">${def.eyes.map(eyeMarkup).join("")}${def.eyes.map(happyEyeMarkup).join("")}</g></g>`;
     const stops = GRADIENTS[color];
     const gradient = stops ? `<linearGradient id="${MASK_ID}g" gradientUnits="userSpaceOnUse" x1="18" y1="10" x2="78" y2="92">${stops.map(([offset, value]) => `<stop offset="${offset}" stop-color="${value}"/>`).join("")}</linearGradient>` : "";
@@ -17243,12 +17178,13 @@ function characterMarkup(shape, color) {
 var svgUrl = (inner, size) => `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size} ${size}">${inner}</svg>`)}")`;
 var maskCache = /* @__PURE__ */ new Map();
 function maskOf(shape) {
-  let mask = maskCache.get(shape);
+  const resolved = shapeId(shape);
+  let mask = maskCache.get(resolved);
   if (mask === void 0) {
-    const def = shapeOf(shape);
+    const def = SHAPES[resolved];
     const body = `<g mask="url(#e)">${bodyOf(def, "#000", true)}</g>`;
     mask = svgUrl(`<mask id="e" ${maskBox(def.size)}>${holes(def, def.eyes.map(eyeMarkup).join("").replaceAll('class="bt-eye"', 'fill="#000"'))}</mask>${def.wrap ? `<g transform="${def.wrap}">${body}</g>` : body}`, def.size);
-    maskCache.set(shape, mask);
+    maskCache.set(resolved, mask);
   }
   return mask;
 }
@@ -18477,7 +18413,7 @@ function registerShape(id, shape) {
   };
   const refresh = () => {
     markupCache.clear();
-    maskCache.delete(id);
+    maskCache.clear();
     registry.set((value) => value + 1);
   };
   refresh();
@@ -19494,8 +19430,7 @@ html[data-platform=darwin] .bt-panel [data-window-drag] :is(a,button,input,texta
 .bt-avedit-tabs[data-glide] .bt-avedit-tab[aria-selected=true]{background:transparent}
 .bt-avedit-reset{color:var(--bt-ink-3)}
 .bt-avedit-reset:hover{color:var(--bt-ink)}
-.bt-shapes{display:flex;flex-direction:column;gap:4px}
-.bt-shape-row{display:grid;grid-template-columns:repeat(5,1fr);gap:4px}
+.bt-shapes{display:grid;grid-template-columns:repeat(5,1fr);gap:4px}
 .bt-shape{position:relative;aspect-ratio:1;border:0;border-radius:10px;background:none;color:var(--bt-ink);cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0}
 .bt-shape:hover{background:var(--bt-hover)}
 .bt-shape .bt-ring{position:absolute;left:50%;top:50%;width:36px;height:36px;translate:-50% -50%;overflow:visible;opacity:0;scale:.82;pointer-events:none;transition:opacity .14s ease,${spring(SPRING_POP, "scale")}}
@@ -20445,7 +20380,7 @@ body[data-ds-dark-theme] .bt-select{color-scheme:dark}
   .bt-set-model .bt-set-control{max-width:none}
   .bt-settings-layer .bt-model-trigger[data-wide]{width:100%;min-width:0;max-width:100%;flex-shrink:1}
   .bt-avedit{width:min(300px,calc(100vw - 32px))}
-  .bt-shape-row{grid-template-columns:repeat(4,1fr)}
+  .bt-shapes{grid-template-columns:repeat(4,1fr)}
 }
 /* iOS zooms the whole page on focused inputs under 16px. */
 @media (max-width:640px) and (pointer:coarse){
@@ -29857,13 +29792,10 @@ function ShapeRing({ shape, size }) {
 }
 function CharacterGrid({ look, hasPhoto = false, onShape, onColor }) {
   const shapes = [...PICKER_SHAPES, ...Object.keys(SHAPES).filter((id) => !Object.hasOwn(CHARACTERS, id))];
-  if (!shapes.includes(look.shape)) shapes.push(look.shape);
-  const rows2 = [];
-  for (let index = 0; index < shapes.length; index += PICKER_COLUMNS) rows2.push(shapes.slice(index, index + PICKER_COLUMNS));
   return (0, import_react27.createElement)(
     import_react27.Fragment,
     null,
-    (0, import_react27.createElement)("div", { className: "bt-shapes", role: "group", "aria-label": t("Character shape") }, rows2.map((row, index) => (0, import_react27.createElement)("div", { key: index, className: "bt-shape-row" }, row.map((id) => (0, import_react27.createElement)("button", {
+    (0, import_react27.createElement)("div", { className: "bt-shapes", role: "group", "aria-label": t("Character shape") }, shapes.map((id) => (0, import_react27.createElement)("button", {
       key: id,
       type: "button",
       className: "bt-shape",
@@ -29871,7 +29803,7 @@ function CharacterGrid({ look, hasPhoto = false, onShape, onColor }) {
       title: t(shapeOf(id).label),
       "aria-pressed": !hasPhoto && look.shape === id,
       onClick: () => onShape(id)
-    }, (0, import_react27.createElement)(ShapeRing, { shape: id, size: 36 }), (0, import_react27.createElement)(BotMark, { look: { shape: id, color: look.color }, size: 36 })))))),
+    }, (0, import_react27.createElement)(ShapeRing, { shape: id, size: 36 }), (0, import_react27.createElement)(BotMark, { look: { shape: id, color: look.color }, size: 36 })))),
     (0, import_react27.createElement)("div", { className: "bt-colors", role: "group", "aria-label": t("Character color") }, CHARACTER_COLORS.map((color) => (0, import_react27.createElement)("button", {
       key: color,
       type: "button",

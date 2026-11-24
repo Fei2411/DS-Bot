@@ -17,7 +17,7 @@ import { memorySummaryText } from '../team/memory.ts'
 import { avatarPhoto } from '../team/avatar-photo.ts'
 import { t, timeLabel, weekdayShort } from '../ui/i18n.ts'
 import { CheckIcon, ChevronLeftIcon, ChevronRightIcon, GearIcon } from '../ui/icons.tsx'
-import { PICKER_SHAPES } from '../../../ds-bot/src/client/characters.js'
+import { lookOf, PICKER_SHAPES } from '../../../ds-bot/src/client/characters.js'
 import { Avatar, COLOR_PAINT, RoomAvatar } from '../ui/marks.tsx'
 import { inkColor, radius, shadow, type as typeScale, useTheme, type Palette } from '../ui/tokens.ts'
 import type { Bot, Room, TeamState } from '../connection.ts'
@@ -423,8 +423,9 @@ export function BotEdit({ route, navigation }: any) {
       if (image !== null) save({ avatar: { ...bot.avatar, image } })
     } catch (err) { setPhotoError(err instanceof Error ? err.message : String(err)) }
   }
-  const shape = bot.avatar?.shape ?? 'star'
-  const color = bot.color ?? 'blue'
+  const look = lookOf(bot)
+  const shape = look.shape
+  const color = look.color
   const main = isMain(team, bot.id)
   return (
     <Screen title={bot.name}>

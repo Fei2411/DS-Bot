@@ -729,11 +729,9 @@ export const DE = {
 
   // Shapes
   Whale: 'Wal', Star: 'Stern', Moon: 'Mond', Cloud: 'Wolke', Spark: 'Funke', Bear: 'Bär', Puppy: 'Welpe',
-  Wave: 'Welle', Squircle: 'Squircle', Bull: 'Stier', Blossom: 'Blüte',
-  Dolphin: 'Delfin', Octopus: 'Oktopus', Turtle: 'Schildkröte', Crab: 'Krabbe', Pufferfish: 'Kugelfisch', Jellyfish: 'Qualle',
-  Starfish: 'Seestern', Seahorse: 'Seepferdchen',
-  Gumdrop: 'Fruchtgummi', Peanut: 'Erdnuss', Bubbles: 'Blasen', Saucer: 'Untertasse', Sprout: 'Keimling', Bunny: 'Hase',
-  Kitty: 'Kätzchen', Beacon: 'Leuchtfeuer', Plus: 'Plus', Magnet: 'Magnet', Acorn: 'Eichel', Pebbles: 'Kiesel', Cushion: 'Kissen',
+  Squircle: 'Squircle', Blossom: 'Blüte', Octopus: 'Oktopus',
+  Gumdrop: 'Fruchtgummi', Peanut: 'Erdnuss', Saucer: 'Untertasse', Sprout: 'Keimling', Bunny: 'Hase',
+  Kitty: 'Kätzchen', Beacon: 'Leuchtfeuer', Plus: 'Plus', Magnet: 'Magnet', Acorn: 'Eichel', Pebbles: 'Kiesel',
   Ring: 'Ring', Gem: 'Edelstein',
 
   // Colors
