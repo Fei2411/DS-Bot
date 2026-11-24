@@ -3,7 +3,7 @@
 import { randomUUID } from 'node:crypto'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { readAvatar } from './avatar.js'
-import { COLORS, EXTRA_COLORS, MESSAGE_INLINE_MAX, ROOM_MODES, SOURCE_KIND, TEXT_KEPT } from './constants.js'
+import { CATALOG_PACK_TOOLS, COLORS, EXTRA_COLORS, GROUP_ONLY_TOOLS, MESSAGE_INLINE_MAX, ROOM_MODES, SOURCE_KIND, TASK_HIDDEN_TEAM_TOOLS, TEXT_KEPT } from './constants.js'
 import { within } from './folders.js'
 import { missingFileRefs } from './claims.js'
 import { absoluteLinks } from './links.js'
@@ -14,7 +14,7 @@ import { mentionSpans } from '../shared/mentions.js'
 import { plainToolSchema } from './tool-schema.js'
 import { viewCardText } from './parts.js'
 import { checkShownView, showViewDescription, showViewParameters } from 'deep-view/core'
-import { install as installBuiltinPacks } from './builtin-packs.js'
+import { BUILTIN_PACKS, install as installBuiltinPacks } from './builtin-packs.js'
 
 export const output = { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: String(value) }] }
 export const GROUP_REF = { type: 'string', required: true, description: 'Exact group chat name from list_bots' }
@@ -37,6 +37,9 @@ const GOAL_REFUSAL = 'Bot chats do not run /goal. To give a group a goal, use Se
 // DSH 0.2.2's schedule tools can deliver to a new Session, which is outside the team and
 // has no Bot; a Bot's tasks deliver to its own chat, which DS Bot moves on with each part.
 const SCHEDULE_TARGET_TOOLS = ['schedule_create', 'schedule_edit']
+const TASK_HIDDEN_GLOBAL_TOOLS = ['browser_handoff', ...SCHEDULE_TARGET_TOOLS]
+const MAIN_ONLY_TOOLS = BUILTIN_PACKS['team-admin'].tools
+const RELAY_ONLY_TOOL = 'group_relay'
 const SCHEDULE_TARGET_REFUSAL = 'A Bot’s scheduled tasks run in its own chat. Use target "this_session".'
 const SCHEDULE_UPDATE_FIELDS = new Set(['id', 'action', 'title', 'prompt', 'rrule', 'target', 'active', 'expectedUpdatedAt'])
 const DELEGATION_REFUSAL = 'Bots do not start subagents, teammates or workflows. Do the work yourself, or delegate it to another Bot with delegate_work.'
@@ -465,9 +468,13 @@ export function install(rt) {
     }
     // Only notify targets that actually received the work (a paused delegation was never sent).
     if (snapshot.state !== 'paused') {
+      const cancelSession = snapshot.toSession
+        ? (threadCurrentOfPart(target, snapshot.toSession) ?? snapshot.toSession)
+        : undefined
       await rt.deliver({
         ...(sender?.id ? { fromId: sender.id } : { fromName: 'The user', ...(snapshot.from ? { pairFrom: snapshot.from } : {}) }),
         toId: target.id,
+        ...(cancelSession ? { sessionId: cancelSession } : {}),
         text: note,
         role: 'cancelled',
         wake: false,
@@ -1220,7 +1227,9 @@ export function install(rt) {
       if (admin === undefined) return `No Bot named ${args.admin}. Team: ${teamNames()}`
       const members = [...new Set([self, ...bots.map(bot => bot.id), admin.id])]
       try {
+        const hadRooms = Object.keys(state.rooms).length > 0
         const room = await rt.createRoom({ members, name: args.name, notice: args.notice, mode: args.mode, admin: admin.id, section: args.section, createdBy: self })
+        if (!hadRooms) rt.refreshToolScopeForSession?.(exec.agent?.id)
         return `Created group "${room.name}" with ${room.members.map(id => rt.botOf(id).name).join(', ')}. ${admin.id === self ? 'You are' : `${admin.name} is`} its admin. It is in the user's sidebar; use post_to_group to start a discussion there.`
       } catch (error) {
         return `Could not create the group: ${error.message}`
@@ -1610,13 +1619,81 @@ export function install(rt) {
   // the live Agents back: a reload lifts their scope while they are still
   // live, and agent/created does not fire for them again, so without the walk
   // their next request would come without the team tools.
+  const scopeOf = (id) => rt.toolScopeForTurn?.(id) ?? {
+    main: rt.isMain(rt.selfOf(id)),
+    hasRooms: Object.keys(state.rooms ?? {}).length > 0,
+    inRoom: rt.roomsOf?.(rt.selfOf(id))?.length > 0,
+    isTask: rt.taskOwners?.has(id) === true,
+    hasTaskRoom: rt.taskOwners?.get(id)?.roomId !== undefined,
+    hasPacks: (rt.botOf(rt.selfOf(id))?.packs?.length ?? 0) > 0 || rt.hasLoadedPacks?.(id) === true,
+  }
+  const scopeKeyOf = (id) => {
+    const s = scopeOf(id)
+    return `${s.main ? 1 : 0}:${s.hasRooms ? 1 : 0}:${s.inRoom ? 1 : 0}:${s.isTask ? 1 : 0}:${s.hasTaskRoom ? 1 : 0}:${s.hasPacks ? 1 : 0}`
+  }
+
+  // Team tools that have zero valid actions in this Bot Session's current role/context.
+  // Permission checks in each tool's execute() and ctx.tools.guard remain intact as
+  // defense-in-depth.
+  const hiddenTeamToolsFor = (id) => {
+    const hidden = new Set()
+    if (!rt.isBotSession(id)) return hidden
+    const s = scopeOf(id)
+    // group_relay is only for a group chat's own Session (relayOnly), never a Bot Session.
+    hidden.add(RELAY_ONLY_TOOL)
+    if (!s.main) {
+      for (const name of MAIN_ONLY_TOOLS) hidden.add(name)
+      if (!s.inRoom) {
+        for (const name of GROUP_ONLY_TOOLS) hidden.add(name)
+      }
+    } else if (!s.hasRooms) {
+      for (const name of GROUP_ONLY_TOOLS) hidden.add(name)
+      hidden.add('delete_group')
+    }
+    if (s.isTask) {
+      for (const name of TASK_HIDDEN_TEAM_TOOLS) hidden.add(name)
+      if (s.hasTaskRoom) hidden.add('delegate_work')
+    }
+    if (!s.hasPacks) {
+      for (const name of CATALOG_PACK_TOOLS) hidden.add(name)
+    }
+    return hidden
+  }
+  const hiddenSessionTools = (id) => {
+    const hidden = hiddenTeamToolsFor(id)
+    if (!rt.isBotSession(id)) return hidden
+    for (const name of rt.hiddenBuiltinTools(id)) hidden.add(name)
+    if (scopeOf(id).isTask) {
+      for (const name of TASK_HIDDEN_GLOBAL_TOOLS) hidden.add(name)
+    }
+    return hidden
+  }
+
   /** @type {Map<string, {agent: any, relay: boolean, tools: boolean, restricted: boolean, disposers: Array<() => void>, unlisted: Set<string>}>} */
   const scoped = new Map()
+  const disposeScopedTool = (held, name) => {
+    const dispose = held.toolLifts?.get(name)
+    held.toolLifts?.delete(name)
+    if (typeof dispose === 'function') {
+      const idx = held.disposers.indexOf(dispose)
+      if (idx !== -1) held.disposers.splice(idx, 1)
+    }
+    held.added?.delete(name)
+    held.unlisted?.delete(name)
+    if (typeof dispose === 'function') {
+      try { dispose() } catch { /* already disposed */ }
+    }
+  }
   const unscope = (id) => {
     const held = scoped.get(id)
     if (held === undefined) return
     scoped.delete(id)
     clearTimeout(held.retryTimer)
+    for (const lift of held.taskGlobalLifts ?? []) {
+      try { lift() } catch { /* already lifted */ }
+    }
+    held.taskGlobalLifts = []
+    held.taskGlobalDenied = new Set()
     for (const lift of held.connectorLifts ?? []) {
       try { lift() } catch { /* already lifted */ }
     }
@@ -1633,6 +1710,11 @@ export function install(rt) {
       }
     }
   }
+  const syncScopedSession = (id) => {
+    if (id === undefined) return
+    const held = scoped.get(id)
+    if (held?.agent !== undefined) hideBotUnusedTools(held.agent)
+  }
   const syncScopedTools = () => {
     // unscope() deletes as it goes, which a Map keys iterator takes in stride.
     for (const id of scoped.keys()) {
@@ -1642,7 +1724,14 @@ export function install(rt) {
     // file can newly own one that already runs: scope each live Agent the team
     // owns before its next request. hideBotUnusedTools does nothing for a
     // Session that stays unowned, and nothing twice for one already scoped.
-    for (const agent of ctx.get?.('agents')?.list?.() ?? []) hideBotUnusedTools(agent)
+    const seen = new Set()
+    for (const agent of ctx.get?.('agents')?.list?.() ?? []) {
+      if (agent?.session?.id !== undefined) seen.add(agent.session.id)
+      hideBotUnusedTools(agent)
+    }
+    for (const [id, held] of scoped) {
+      if (!seen.has(id) && held.agent !== undefined) hideBotUnusedTools(held.agent)
+    }
   }
   ctx.effect(() => () => { for (const id of scoped.keys()) unscope(id) }, 'ds-bot: scoped team tools')
 
@@ -1690,9 +1779,18 @@ export function install(rt) {
     // join that scope. Register what it is missing, so the next request is whole.
     const botId = owns ? rt.selfOf(id) : undefined
     const scopedDenied = botId ? (rt.pluginDeniedRules?.(botId)?.scopedDenied ?? new Set()) : new Set()
+    const hiddenScoped = relayOnly ? null : hiddenTeamToolsFor(id)
+    const scopeKey = relayOnly ? 'relay' : scopeKeyOf(id)
     if (held?.tools === true) {
+      if (!relayOnly && held.scopeKey !== scopeKey) {
+        held.scopeKey = scopeKey
+        for (const name of held.added ?? []) {
+          if (hiddenScoped.has(name)) disposeScopedTool(held, name)
+        }
+      }
       for (const def of [...rt.teamTools, ...(localBot ? (rt.localAgentTools ?? []) : [])]) {
         if (relayOnly && def.name !== 'group_relay') continue
+        if (!relayOnly && hiddenScoped.has(def.name)) continue
         if (!relayOnly && scopedDenied.has(def.name)) {
           ;(held.pluginHiddenScoped ??= new Set()).add(def.name)
           continue
@@ -1718,7 +1816,7 @@ export function install(rt) {
           rt.warn('ds-bot: team tool %s not added to %s: %s', def.name, id, error)
         }
       }
-      if ([...rt.teamTools, ...(localBot ? (rt.localAgentTools ?? []) : [])].some(def => (!relayOnly || def.name === 'group_relay') && !scopedDenied.has(def.name) && !held.added?.has(def.name))) {
+      if ([...rt.teamTools, ...(localBot ? (rt.localAgentTools ?? []) : [])].some(def => (!relayOnly || def.name === 'group_relay') && (relayOnly || !hiddenScoped.has(def.name)) && !scopedDenied.has(def.name) && !held.added?.has(def.name))) {
         retryBotTools(agent, held)
       } else {
         clearTimeout(held.retryTimer)
@@ -1739,6 +1837,7 @@ export function install(rt) {
     const registered = []
     for (const def of [...rt.teamTools, ...(localBot ? (rt.localAgentTools ?? []) : [])]) {
       if (relayOnly && def.name !== 'group_relay') continue
+      if (!relayOnly && hiddenScoped.has(def.name)) continue
       if (!relayOnly && scopedDenied.has(def.name)) {
         ;(held.pluginHiddenScoped ??= new Set()).add(def.name)
         continue
@@ -1761,6 +1860,7 @@ export function install(rt) {
     held.relay = relayOnly
     held.tools = true
     held.local = localBot
+    held.scopeKey = scopeKey
     held.disposers.push(...disposers)
     held.added = new Set(registered)
     scoped.set(id, held)
@@ -1782,6 +1882,7 @@ export function install(rt) {
     rt.teamTools.push(def)
     for (const [id, held] of scoped) {
       if (held.relay || held.tools !== true || held.added?.has(def.name) || typeof held.agent?.ctx?.tools?.register !== 'function') continue
+      if (hiddenTeamToolsFor(id).has(def.name)) continue
       const botId = rt.selfOf(id)
       if (botId && rt.pluginDeniedRules?.(botId)?.scopedDenied?.has(def.name)) {
         ;(held.pluginHiddenScoped ??= new Set()).add(def.name)
@@ -1888,23 +1989,18 @@ export function install(rt) {
       // so unrelated registration failures stay governed by `retryBotTools`.
       if (held.tools === true && !held.relay && typeof agent.ctx?.tools?.register === 'function') {
         const hiddenScoped = (held.pluginHiddenScoped ??= new Set())
+        const hiddenTeam = hiddenTeamToolsFor(agent.session?.id)
         for (const def of rt.teamTools) {
           const shouldHide = scopedDenied.has(def.name)
           const hasLift = held.toolLifts?.has(def.name) === true
           if (shouldHide) {
             hiddenScoped.add(def.name)
             if (hasLift) {
-              const dispose = held.toolLifts.get(def.name)
-              held.toolLifts.delete(def.name)
-              const idx = held.disposers.indexOf(dispose)
-              if (idx !== -1) held.disposers.splice(idx, 1)
-              held.added?.delete(def.name)
-              held.unlisted?.delete(def.name)
-              try { dispose() } catch { /* already disposed */ }
+              disposeScopedTool(held, def.name)
             }
           } else if (hiddenScoped.has(def.name)) {
             hiddenScoped.delete(def.name)
-            if (!held.added?.has(def.name)) {
+            if (!hiddenTeam.has(def.name) && !held.added?.has(def.name)) {
               try {
                 const dispose = agent.ctx.tools.register(def)
                 if (typeof dispose === 'function') {
@@ -1964,10 +2060,54 @@ export function install(rt) {
       maskingPlugins.delete(agent)
     }
   }
+  const maskingTaskGlobals = new WeakSet()
+  const maskTaskGlobalTools = (agent, held) => {
+    if (maskingTaskGlobals.has(agent)) return
+    if (typeof agent.ctx?.tools?.restrict !== 'function' || typeof ctx.tools?.schemas !== 'function') return
+    const id = agent.session?.id
+    const isTask = rt.isBotSession(id) && scopeOf(id).isTask
+    if (!isTask && (held.taskGlobalLifts?.length ?? 0) === 0 && (held.taskGlobalDenied?.size ?? 0) === 0) return
+    maskingTaskGlobals.add(agent)
+    try {
+      const served = new Set([...ctx.tools.schemas(agent).map(schema => schema.name), ...(held.taskGlobalDenied ?? [])])
+      const deny = new Set()
+      if (isTask) {
+        for (const name of TASK_HIDDEN_GLOBAL_TOOLS) {
+          if (served.has(name) && !held.added?.has(name)) deny.add(name)
+        }
+      }
+      const before = held.taskGlobalDenied ?? new Set()
+      if (deny.size === before.size && [...deny].every(name => before.has(name))) return
+      const prevLifts = held.taskGlobalLifts ?? []
+      held.taskGlobalLifts = []
+      held.taskGlobalDenied = new Set()
+      for (const lift of prevLifts) { try { lift() } catch { /* already lifted */ } }
+      if (deny.size === 0) return
+      const names = [...deny]
+      const applied = new Set()
+      try {
+        const lift = agent.ctx.tools.restrict({ deny: names })
+        if (typeof lift === 'function') held.taskGlobalLifts.push(lift)
+        for (const name of names) applied.add(name)
+      } catch {
+        for (const name of names) {
+          try {
+            const lift = agent.ctx.tools.restrict({ deny: [name] })
+            if (typeof lift === 'function') held.taskGlobalLifts.push(lift)
+            applied.add(name)
+          } catch { /* scoped tool cannot be restricted via inherited deny */ }
+        }
+      }
+      held.taskGlobalDenied = applied
+    } finally {
+      maskingTaskGlobals.delete(agent)
+    }
+  }
   const reapplyToolMasks = () => {
     for (const held of scoped.values()) {
       if (held.agent === undefined) continue
       try { rt.refreshShellShadows?.(held.agent) } catch (error) { rt.warn('ds-bot: shell shadow refresh failed: %s', error) }
+      try { maskTaskGlobalTools(held.agent, held) } catch (error) { rt.warn('ds-bot: task tool mask failed: %s', error) }
       try { maskConnectorTools(held.agent, held) } catch (error) { rt.warn('ds-bot: connector mask failed: %s', error) }
       try { maskPluginTools(held.agent, held) } catch (error) { rt.warn('ds-bot: plugin mask failed: %s', error) }
     }
@@ -2024,6 +2164,7 @@ export function install(rt) {
     if (held.restricted !== true && typeof agent.ctx?.tools?.restrict === 'function') {
       maskHiddenTools(agent, held, new Set(ctx.tools.schemas(agent).map(schema => schema.name)))
     }
+    maskTaskGlobalTools(agent, held)
     maskConnectorTools(agent, held)
     maskPluginTools(agent, held)
   }
@@ -2071,7 +2212,7 @@ export function install(rt) {
   // guard refuses calls.
   const filterAssembled = (id, assembled) => {
     if (!rt.isBotSession(id) || assembled === undefined || assembled === null) return assembled
-    const hidden = new Set([...HIDDEN_TOOLS, ...rt.hiddenBuiltinTools(id)])
+    const hidden = new Set([...HIDDEN_TOOLS, ...hiddenSessionTools(id)])
     const dropTool = tool => hidden.has(tool?.name)
     const dropSection = section => HIDDEN_SECTIONS.has(section?.name)
       || (typeof section?.name === 'string' && section.name.startsWith('tool:') && hidden.has(section.name.slice(5)))
@@ -2309,5 +2450,5 @@ export function install(rt) {
     }))
   }
 
-  Object.assign(rt, { pickRoom, hideBotUnusedTools, syncScopedTools, addTeamTool, removeTeamTool, reapplyToolMasks, resumePausedWork, cancelWorkByUser, abortWorkExecution })
+  Object.assign(rt, { pickRoom, hideBotUnusedTools, syncScopedTools, syncScopedSession, hiddenTeamToolsFor, hiddenSessionTools, addTeamTool, removeTeamTool, reapplyToolMasks, resumePausedWork, cancelWorkByUser, abortWorkExecution })
 }

@@ -708,6 +708,16 @@ var JA = {
   "{count} sites storage": "{count} サイトのストレージ",
   "page reloaded": "ページを再読み込みしました",
   "{count}": "{count} 件",
+  "{count} cookies": "{count} 個の Cookie",
+  "Permission needed": "権限が必要",
+  "Safari cookies could not be read. Try again or import from a file.": "Safari の Cookie を読み込めませんでした。再試行するか、ファイルからインポートしてください。",
+  "Allow Safari access": "Safari へのアクセスを許可",
+  "macOS protects Safari cookies with Full Disk Access. Enable DS Bot once in System Settings to import from Safari.": "macOS はフルディスクアクセスで Safari の Cookie を保護しています。システム設定で DS Bot を一度有効にすると Safari からインポートできます。",
+  "1. Open Full Disk Access in System Settings and turn on DS Bot.": "1. システム設定で「フルディスクアクセス」を開き、DS Bot をオンにします。",
+  "2. If macOS asks to quit and reopen DS Bot, click Quit & Reopen, then try again.": "2. macOS が DS Bot の終了と再起動を求めたら、確認してもう一度お試しください。",
+  "Full Disk Access granted — ready to import.": "フルディスクアクセスが許可されました。インポートできます。",
+  "Open System Settings": "システム設定を開く",
+  "This browser’s cookie database is busy. Quit the browser and try again.": "このブラウザの Cookie データベースが使用中です。ブラウザを終了してから再試行してください。",
   "Choose a PNG, JPEG, WebP, or GIF image": "PNG、JPEG、WebP、または GIF 画像を選択してください",
   "Choose an image smaller than 25 MB": "25 MB 未満の画像を選択してください",
   "That image is too large": "画像サイズが大きすぎます",
@@ -828,6 +838,14 @@ var JA = {
   "Cushion": "クッション",
   "Ring": "リング",
   "Gem": "宝石",
+  "Dolphin": "イルカ",
+  "Octopus": "タコ",
+  "Turtle": "カメ",
+  "Crab": "カニ",
+  "Pufferfish": "フグ",
+  "Jellyfish": "クラゲ",
+  "Starfish": "ヒトデ",
+  "Seahorse": "タツノオトシゴ",
   "Black": "ブラック",
   "Brown": "ブラウン",
   "Red": "レッド",
@@ -1513,8 +1531,11 @@ var JA = {
   "Checked {time}": "{time} に確認",
   "Could not check for updates.": "アップデートを確認できませんでした。",
   "Update checks are off.": "アップデート確認はオフになっています。",
+  "Automatic updates": "自動アップデート",
+  "Automatic updates are off.": "自動アップデートはオフです。",
   "Checking for updates…": "アップデートを確認中…",
   "Downloading {version}…": "{version} をダウンロード中…",
+  "{version} is ready": "{version} の準備ができました",
   "{version} is ready; it installs when you restart": "{version} の準備ができました。再起動するとインストールされます",
   "Restart to update": "再起動してアップデート",
   "{version} is available": "{version} が利用可能です",
@@ -3543,6 +3564,16 @@ var KO = {
   "{count} sites storage": "{count}개 사이트 스토리지",
   "page reloaded": "페이지 새로고침됨",
   "{count}": "{count}개",
+  "{count} cookies": "쿠키 {count}개",
+  "Permission needed": "권한 필요",
+  "Safari cookies could not be read. Try again or import from a file.": "Safari 쿠키를 읽을 수 없습니다. 다시 시도하거나 파일에서 가져오세요.",
+  "Allow Safari access": "Safari 접근 허용",
+  "macOS protects Safari cookies with Full Disk Access. Enable DS Bot once in System Settings to import from Safari.": "macOS는 전체 디스크 접근 권한으로 Safari 쿠키를 보호합니다. 시스템 설정에서 DS Bot을 한 번 켜면 Safari에서 가져올 수 있습니다.",
+  "1. Open Full Disk Access in System Settings and turn on DS Bot.": "1. 시스템 설정에서 전체 디스크 접근 권한을 열고 DS Bot을 켜세요.",
+  "2. If macOS asks to quit and reopen DS Bot, click Quit & Reopen, then try again.": "2. macOS에서 DS Bot을 종료하고 다시 열지 물으면 확인한 뒤 다시 시도하세요.",
+  "Full Disk Access granted — ready to import.": "전체 디스크 접근 권한이 허용되었습니다. 가져올 준비가 되었습니다.",
+  "Open System Settings": "시스템 설정 열기",
+  "This browser’s cookie database is busy. Quit the browser and try again.": "이 브라우저의 쿠키 데이터베이스가 사용 중입니다. 브라우저를 종료한 뒤 다시 시도하세요.",
   // Bot settings
   "Choose a PNG, JPEG, WebP, or GIF image": "PNG, JPEG, WebP 또는 GIF 이미지를 선택하세요",
   "Choose an image smaller than 25 MB": "25MB 미만의 이미지를 선택하세요",
@@ -3654,6 +3685,14 @@ var KO = {
   Squircle: "둥근 사각형",
   Bull: "뿔",
   Blossom: "꽃",
+  Dolphin: "돌고래",
+  Octopus: "문어",
+  Turtle: "거북이",
+  Crab: "게",
+  Pufferfish: "복어",
+  Jellyfish: "해파리",
+  Starfish: "불가사리",
+  Seahorse: "해마",
   Gumdrop: "젤리",
   Peanut: "땅콩",
   Bubbles: "거품",
@@ -4376,8 +4415,11 @@ var KO = {
   "Checked {time}": "{time} 확인됨",
   "Could not check for updates.": "업데이트를 확인하지 못했습니다.",
   "Update checks are off.": "업데이트 확인이 꺼져 있습니다.",
+  "Automatic updates": "자동 업데이트",
+  "Automatic updates are off.": "자동 업데이트가 꺼져 있습니다.",
   "Checking for updates…": "업데이트 확인 중…",
   "Downloading {version}…": "{version} 다운로드 중…",
+  "{version} is ready": "{version} 다운로드 완료",
   "{version} is ready; it installs when you restart": "{version} 다운로드가 완료되었으며 재시작 시 설치됩니다",
   "Restart to update": "재시작하여 업데이트",
   "{version} is available": "{version} 출시됨",
@@ -6413,6 +6455,16 @@ var ES = {
   "{count} sites storage": "almacenamiento de {count} sitios",
   "page reloaded": "página recargada",
   "{count}": "{count}",
+  "{count} cookies": "{count} cookies",
+  "Permission needed": "Permiso necesario",
+  "Safari cookies could not be read. Try again or import from a file.": "No se pudieron leer las cookies de Safari. Inténtalo de nuevo o importa desde un archivo.",
+  "Allow Safari access": "Permitir acceso a Safari",
+  "macOS protects Safari cookies with Full Disk Access. Enable DS Bot once in System Settings to import from Safari.": "macOS protege las cookies de Safari con Acceso total al disco. Activa DS Bot una vez en Ajustes del Sistema para importar desde Safari.",
+  "1. Open Full Disk Access in System Settings and turn on DS Bot.": "1. Abre Acceso total al disco en Ajustes del Sistema y activa DS Bot.",
+  "2. If macOS asks to quit and reopen DS Bot, click Quit & Reopen, then try again.": "2. Si macOS pide cerrar y volver a abrir DS Bot, acepta y vuelve a intentarlo.",
+  "Full Disk Access granted — ready to import.": "Acceso total al disco concedido: listo para importar.",
+  "Open System Settings": "Abrir Ajustes del Sistema",
+  "This browser’s cookie database is busy. Quit the browser and try again.": "La base de datos de cookies de este navegador está ocupada. Cierra el navegador e inténtalo de nuevo.",
   // Bot settings
   "Choose a PNG, JPEG, WebP, or GIF image": "Elige una imagen PNG, JPEG, WebP o GIF",
   "Choose an image smaller than 25 MB": "Elige una imagen de menos de 25 MB",
@@ -6524,6 +6576,14 @@ var ES = {
   Squircle: "Cuadrículo",
   Bull: "Toro",
   Blossom: "Flor",
+  Dolphin: "Delfín",
+  Octopus: "Pulpo",
+  Turtle: "Tortuga",
+  Crab: "Cangrejo",
+  Pufferfish: "Pez globo",
+  Jellyfish: "Medusa",
+  Starfish: "Estrella de mar",
+  Seahorse: "Caballito de mar",
   Gumdrop: "Gominola",
   Peanut: "Cacahuete",
   Bubbles: "Burbujas",
@@ -7246,8 +7306,11 @@ var ES = {
   "Checked {time}": "Comprobado {time}",
   "Could not check for updates.": "No se pudo buscar actualizaciones.",
   "Update checks are off.": "La búsqueda de actualizaciones está desactivada.",
+  "Automatic updates": "Actualizaciones automáticas",
+  "Automatic updates are off.": "Las actualizaciones automáticas están desactivadas.",
   "Checking for updates…": "Buscando actualizaciones…",
   "Downloading {version}…": "Descargando {version}…",
+  "{version} is ready": "{version} está listo",
   "{version} is ready; it installs when you restart": "{version} está listo; se instalará al reiniciar",
   "Restart to update": "Reiniciar para actualizar",
   "{version} is available": "{version} está disponible",
@@ -9273,6 +9336,16 @@ var FR = {
   "{count} sites storage": "stockage de {count} sites",
   "page reloaded": "page rechargée",
   "{count}": "{count}",
+  "{count} cookies": "{count} cookies",
+  "Permission needed": "Autorisation requise",
+  "Safari cookies could not be read. Try again or import from a file.": "Impossible de lire les cookies Safari. Réessayez ou importez depuis un fichier.",
+  "Allow Safari access": "Autoriser l’accès à Safari",
+  "macOS protects Safari cookies with Full Disk Access. Enable DS Bot once in System Settings to import from Safari.": "macOS protège les cookies Safari avec l’Accès complet au disque. Activez DS Bot une fois dans Réglages Système pour importer depuis Safari.",
+  "1. Open Full Disk Access in System Settings and turn on DS Bot.": "1. Ouvrez Accès complet au disque dans Réglages Système et activez DS Bot.",
+  "2. If macOS asks to quit and reopen DS Bot, click Quit & Reopen, then try again.": "2. Si macOS demande de quitter et rouvrir DS Bot, confirmez puis réessayez.",
+  "Full Disk Access granted — ready to import.": "Accès complet au disque accordé — prêt à importer.",
+  "Open System Settings": "Ouvrir Réglages Système",
+  "This browser’s cookie database is busy. Quit the browser and try again.": "La base de cookies de ce navigateur est occupée. Quittez le navigateur puis réessayez.",
   "Choose a PNG, JPEG, WebP, or GIF image": "Choisissez une image PNG, JPEG, WebP ou GIF",
   "Choose an image smaller than 25 MB": "Choisissez une image de moins de 25 Mo",
   "That image is too large": "Cette image est trop volumineuse",
@@ -9372,6 +9445,14 @@ var FR = {
   "Saving": "Enregistrement",
   "Manage models": "Gérer les modèles",
   "Whale": "Baleine",
+  "Dolphin": "Dauphin",
+  "Octopus": "Poulpe",
+  "Turtle": "Tortue",
+  "Crab": "Crabe",
+  "Pufferfish": "Poisson-globe",
+  "Jellyfish": "Méduse",
+  "Starfish": "Étoile de mer",
+  "Seahorse": "Hippocampe",
   "Star": "Étoile",
   "Moon": "Lune",
   "Wave": "Onde",
@@ -10078,8 +10159,11 @@ var FR = {
   "Checked {time}": "Vérifié {time}",
   "Could not check for updates.": "Impossible de vérifier les mises à jour.",
   "Update checks are off.": "La vérification des mises à jour est désactivée.",
+  "Automatic updates": "Mises à jour automatiques",
+  "Automatic updates are off.": "Les mises à jour automatiques sont désactivées.",
   "Checking for updates…": "Recherche de mises à jour…",
   "Downloading {version}…": "Téléchargement de {version}…",
+  "{version} is ready": "{version} est prêt",
   "{version} is ready; it installs when you restart": "{version} est prêt ; il sera installé au redémarrage",
   "Restart to update": "Redémarrer pour mettre à jour",
   "{version} is available": "{version} est disponible",
@@ -12108,6 +12192,16 @@ var DE = {
   "{count} sites storage": "Speicher von {count} Websites",
   "page reloaded": "Seite neu geladen",
   "{count}": "{count}",
+  "{count} cookies": "{count} Cookies",
+  "Permission needed": "Berechtigung nötig",
+  "Safari cookies could not be read. Try again or import from a file.": "Safari-Cookies konnten nicht gelesen werden. Versuche es erneut oder importiere aus einer Datei.",
+  "Allow Safari access": "Safari-Zugriff erlauben",
+  "macOS protects Safari cookies with Full Disk Access. Enable DS Bot once in System Settings to import from Safari.": "macOS schützt Safari-Cookies mit Festplattenvollzugriff. Aktiviere DS Bot einmalig in den Systemeinstellungen, um aus Safari zu importieren.",
+  "1. Open Full Disk Access in System Settings and turn on DS Bot.": "1. Öffne in den Systemeinstellungen „Festplattenvollzugriff“ und aktiviere DS Bot.",
+  "2. If macOS asks to quit and reopen DS Bot, click Quit & Reopen, then try again.": "2. Falls macOS fragt, DS Bot zu beenden und neu zu öffnen, bestätige dies und versuche es erneut.",
+  "Full Disk Access granted — ready to import.": "Festplattenvollzugriff erteilt – bereit zum Importieren.",
+  "Open System Settings": "Systemeinstellungen öffnen",
+  "This browser’s cookie database is busy. Quit the browser and try again.": "Die Cookie-Datenbank dieses Browsers ist belegt. Beende den Browser und versuche es erneut.",
   // Bot settings
   "Choose a PNG, JPEG, WebP, or GIF image": "Wähle ein PNG-, JPEG-, WebP- oder GIF-Bild",
   "Choose an image smaller than 25 MB": "Wähle ein Bild, das kleiner als 25 MB ist",
@@ -12219,6 +12313,14 @@ var DE = {
   Squircle: "Squircle",
   Bull: "Stier",
   Blossom: "Blüte",
+  Dolphin: "Delfin",
+  Octopus: "Oktopus",
+  Turtle: "Schildkröte",
+  Crab: "Krabbe",
+  Pufferfish: "Kugelfisch",
+  Jellyfish: "Qualle",
+  Starfish: "Seestern",
+  Seahorse: "Seepferdchen",
   Gumdrop: "Fruchtgummi",
   Peanut: "Erdnuss",
   Bubbles: "Blasen",
@@ -12941,8 +13043,11 @@ var DE = {
   "Checked {time}": "Geprüft {time}",
   "Could not check for updates.": "Suche nach Updates fehlgeschlagen.",
   "Update checks are off.": "Automatische Update-Prüfung ist deaktiviert.",
+  "Automatic updates": "Automatische Updates",
+  "Automatic updates are off.": "Automatische Updates sind deaktiviert.",
   "Checking for updates…": "Suche nach Updates…",
   "Downloading {version}…": "{version} wird heruntergeladen…",
+  "{version} is ready": "{version} ist bereit",
   "{version} is ready; it installs when you restart": "{version} ist bereit und wird beim Neustart installiert",
   "Restart to update": "Zum Aktualisieren neu starten",
   "{version} is available": "{version} ist verfügbar",
@@ -14932,6 +15037,16 @@ var ZH = {
   "{count} sites storage": "{count} 个网站本地存储",
   "page reloaded": "页面已刷新",
   "{count}": "{count} 个",
+  "{count} cookies": "{count} 个 cookie",
+  "Permission needed": "需要权限",
+  "Safari cookies could not be read. Try again or import from a file.": "无法读取 Safari 的 cookie。请重试，或改为从文件导入。",
+  "Allow Safari access": "允许访问 Safari",
+  "macOS protects Safari cookies with Full Disk Access. Enable DS Bot once in System Settings to import from Safari.": "macOS 用「完全磁盘访问权限」保护 Safari 的 cookie。在系统设置里开启 DS Bot 一次即可从 Safari 导入。",
+  "1. Open Full Disk Access in System Settings and turn on DS Bot.": "1. 在系统设置中打开「完全磁盘访问权限」，开启 DS Bot。",
+  "2. If macOS asks to quit and reopen DS Bot, click Quit & Reopen, then try again.": "2. 如果 macOS 提示退出并重新打开 DS Bot，点击确认后再重试。",
+  "Full Disk Access granted — ready to import.": "已授予完全磁盘访问权限，可以导入了。",
+  "Open System Settings": "打开系统设置",
+  "This browser’s cookie database is busy. Quit the browser and try again.": "这个浏览器的 cookie 数据库正被占用。请退出该浏览器后重试。",
   // Bot settings
   "Choose a PNG, JPEG, WebP, or GIF image": "请选择 PNG、JPEG、WebP 或 GIF 图片",
   "Choose an image smaller than 25 MB": "请选择小于 25 MB 的图片",
@@ -15043,6 +15158,14 @@ var ZH = {
   Squircle: "圆角方",
   Bull: "牛角",
   Blossom: "花朵",
+  Dolphin: "海豚",
+  Octopus: "章鱼",
+  Turtle: "海龟",
+  Crab: "螃蟹",
+  Pufferfish: "河豚",
+  Jellyfish: "水母",
+  Starfish: "海星",
+  Seahorse: "海马",
   Gumdrop: "软糖",
   Peanut: "花生",
   Bubbles: "泡泡",
@@ -15888,8 +16011,11 @@ var ZH = {
   "Checked {time}": "检查于 {time}",
   "Could not check for updates.": "没能检查更新。",
   "Update checks are off.": "已关闭更新检查。",
+  "Automatic updates": "自动更新",
+  "Automatic updates are off.": "自动更新已关闭。",
   "Checking for updates…": "正在检查更新…",
   "Downloading {version}…": "正在下载 {version}…",
+  "{version} is ready": "{version} 已就绪",
   "{version} is ready; it installs when you restart": "{version} 已下载好，重启后安装",
   "Restart to update": "重启更新",
   "{version} is available": "{version} 已发布",
@@ -16952,6 +17078,14 @@ var paintCss = (color) => GRADIENTS[color] ? `linear-gradient(135deg,${GRADIENTS
 var CHARACTERS = {
   whale: { label: "Whale", body: "M65.3 20.9l5.1 .1 4.8 .9 4.8 1.7 4.3 2.3 3.8 3.1 3 3.4 2.3 3.8 1.6 4.3 .9 4.3 0 4.8-.8 4.8-1.4 4.3-2.3 4.3-3.2 4.3-3.4 3.3-4.3 3.1-7.2 3.5-7.6 1.7-7.2 .1-9.6-1.6-3.3-1-2.9-1.7-8.8-8.9-6-4.7-3.3-.5-7.7 1.1-4.8-.1-4.7-1.2-1.9-1.2-1-1-.5-1.5 .4-1.4 1.1-1.3 1.9-1.3 4.7-1.5 7.7-.6 1.1-.5 .7-1 0-1.4-2.8-7.2-1.2-5.3-.1-4.3 .4-1.4 .9-1.2 1.9-.2 2 1 2.2 2.3 2.2 3.4 3.2 7.6 1.9 9.7 .5-.1 1.1-7.2 1.8-4.8 3.2-5.2 3.9-4.3 4.9-3.9 5.6-2.9 5.8-1.9z", paints: [["M93.3 55.8l1-.3 .1 1.2-2.4 5.3-3.4 4.8-3.8 3.8-4.8 3.4-5.7 2.8-4.8 1.5-4.8 .4 20.1-17.4 5.2-3.7z", "#fff", 1]], shade: "M88.6 29.5l2.4 2.9 1.9 2.8 2.4 6.3 .5 3.3 .1 5.3-1.5 6.6-1.9 4.3-2 3.3-4.8 5.4-5.7 4.3-7.2 3.3-6.2 1.5-6.7 .1-3.3-.2-9.6-1.8-3.3-1.5-2.4-1.9-8.6-8.9-5.3-3.9-3.3-.1-2.9 .2-3.3 .8-5.8 0-4.3-1-2.9-1.9 .6-.6 3.8-1.3 10.5-2.5 4.3 .9 1.4-.1 2.2-1.7 .5-1.4-.3-1.5-1.2-1.4-2.2-1.4-1.2-1.9-.6-12 .4-3.3 .5-.5 2.9 3.8 2.4 4.8 1.9 5.7 .7 5.8 .7 2.8 2.1 2.4 2.7 5.5 3.8 4.3 2.9 2.2 3.3 1 3.4-.4 6.2-3 7.1-4.5 7.3-5.6 6.6-5.9 5.9-6.5 3.7-5.3 1.7-4.2 .1-2.9z", light: "M55.6 22.8l1.9-.3 1.5 .3 .6 1 .1 .9-2 4.3-3.8 5.3-5.8 6.2-5.4 4.4-4.8 2.3-1.4 0-1.2-.5-.8-1.9 .5-3.3 2.5-4.8 3.3-4.3 2.4-2.4 5.3-3.9zM19.3 28.1l-1.4 2 .3-1.1zM21.7 49.1l.6 .5-.3 .5-.8 0zM35.8 52l1.2-.4 .9 .7 .7 1.6-.4 .9-1.2 .1-2.6-.5zM7.2 52.9l-2.9 2.9 1.2-1.6z", eyes: [[72.5, 48.4, 9.3, 23, -15.8], [85.6, 43.4, 7, 22.9, -21.2]] },
   star: { label: "Star", body: "M40.1 4.4l1.5-.4 1.9 .1 5.2 1.1 1.9 .9 13.2 14.9 17.1-.8 5.2 1.1 1.8 .9 1.7 1.6 .7 2.4-.4 1.9-9.7 23.6 5.6 23.7 .1 1.9-.6 1.4-2.1 1.8-2.3 .5-19.9-1.8-16.6 15.5-1.9 1-1.9 .3-7-1.5-2.6-2.1-.9-2.4-2.8-24.1-16-13.6-1.1-1.5-.5-1.9 .4-1.9 1.2-1.5 18.9-13.6 7.1-24.6 1-1.7z", shade: "M52 7.7l14.3 16.1 1 2.9 .3 3.1 19.4-1.3 2-1.4 .7-2.3-.4-1 .5 .5 .5 1.9-.4 1.9-9.8 23.2 5.5 23.1 .1 3.4-2 2.4-2.8 .8-19.4-2.1-1.9 1.4-14.7 14-2.4 1.4-3.3 .1-4.7-1-2-1 .6-.2 3.3 .8 2.8 .1 5.1-2.1 .7-.9 .4-2.4-2.6-22.7-.3-.3-1.4 .2-1.4 .7-5.7 .7-5.6-1.2-16.7-13.8 1-.1 5.2 1 3.8-1.1 1-.7 1.9-.4 .4-.4 1.5 .3 .4-.4 1 .2 18-12.8 6.7-23.5 0-1.8-.4-.5-.3-1.9 .4-2.4z", light: "M40.1 4.4l2-.1 4.7 1 .7 1-.5 1.4-2.8 1.5-6.6 23.1 .7 1.2 .6 .3-18.1 12.5-1.8 2.1-3.4 .7-5.2-1.2-.3-.4 .3-.9 1.4-1.4 18.3-12.9 .9-2.3 6.4-22.7 .8-1.4z", eyes: [[53.9, 53.4, 7.2, 18.8, -10], [65.1, 49.2, 7.2, 18.8, -10]] },
+  dolphin: { label: "Dolphin", body: "M33.8 19.8l1.5-.5 2.6 1 6.3 6.3 3.2 1.5 7.6-.5 5.1 .4 5 1.2 9.6 3.3 3.1 .6 2.6 .1 10.8-1.3 1.9 .3 1.4 .9 1.1 1.5 .4 1.7-.4 1.9-1.5 1.9-9.3 5.5-2.5 2-2.5 3.3-3.2 6.9-3.1 4.5-4.6 4.4-5.7 3.7-4.4 1.7-7 1.6-5.1 .6-4.4-.2-4.4-.8-4.5-1.5-3.8-1.9-5.1-3.3-1.9 .8-1.9 1.7-3.9 7.1-2 2.6-2.3 1.6-1.9 .1-1.4-1.7-.4-2.6 .3-3.1 1.6-6.4-.3-5.7-.8-1.9-2.8-3.3-1.9-3.3-.9-2.9 .4-2.5 1.1-1.2 1.3-.5 3.1 .5 3.8 2.1 5.1 4.6 1.9 .6 4.9-9.9 7-8.9 .5-3.2-.9-7.6 .6-2.6z", paints: [["M68 50.9l1.6-.6 .6 .1 1.8 1.1 1.1 1.3 .9 1.9 .4 1.9-.4 3.8-1.2 2.5-3.9 3.8-5 3.3-2.6 1.2-.8 0-2.2-1.9-1-2.6 .2-3.8 1.1-3.8 1.5-3.2 1.9-2.5z", "#fff", 1]], shade: "M38.8 22.3l.3-.4 .7 .2 3.6 4-2.4 1.1-1.9 .3-1.2-.5 .1-2.2zM94.9 33.7l.9 1.9 0 1.9-.6 1.3-2.1 1.9-8.3 4.7-2.6 2.3-2.2 2.5-3.4 7.6-2.6 3.8-5 5.1-3.9 2.6-5.7 2.6-7.6 1.8-10.8 .2-3.8-.8-5-1.9-2.6-1.3-5.1-3.6-2.5 1.2-1.7 1.8-4 7.6-2.6 2.7-2.5 1.1-1.3-.6 4.2-7.7 2.4-7.6 3-4.1 2.5-.9 2.5 .1 5.7 2.6 4.5 1 2.5-.1 5.7-1.5 7.2-4.1 8.4-5.7 7.3-6 5.1-5.2 1.9-1.2 2.5-.7 6.3 .6 3.2-.2 8.9-3.2 .9-1.2zM11.4 49l3-.2 3.7 4-1 1.9-3.3 3.1-2 1.6-1.2 .3-3.2-3.1-.5-1.9 1.2-3.2 1.2-1.3z", light: "M33.9 19.8l-1.2 1.9 .1-.7zM32.6 35l.2-.3 6.7 2.2 1.7 1.3-5.8 6.3-8.3 8-2.6 .7-3.3-.4 4-8.9 3.8-5zM4.8 46.4l.1 .7-.7 .6zM10.5 68.6l.2 0 0 1.3-.8 2-.2-.7 .7-1.3z", eyes: [[55.6, 50.7, 7.2, 17.9, -15.7], [68.7, 45.7, 5.6, 17.9, -20.7]] },
+  octopus: { label: "Octopus", body: "M42.8 4.4l4.9-.4 4.2 .2 4.3 .7 4.2 1.3 4.2 2 3.5 2.3 3.4 3 2.4 2.8 3.5 6.4 1.6 7-.3 7-.8 3.5-1.6 4.2 .2 .7 1.3 2.9 9.1 13.3 .6 1.4 0 2.1-1 2.1-1.5 1.3-1.4 .5-2.1-.1-1.4-.5-9.2-6.5-.7-.4-.7 .2 .3 4.1 3.8 15.5-.3 1.4-1 1.7-1.4 1.1-1.4 .5-2.1-.1-2.1-1.1-7.7-12-1.4-1.5-.8 0-.7 3.7-.7 17.5-1.4 2.4-1.4 1-1.4 .4-2.8-.5-2-1.8-4.3-15.9-1.4-2.5-.7-.5-.7 .1-2.1 3-5.6 14.3-2.2 2-2.8 .4-1.4-.4-1.4-1.1-1.3-2.3 .8-22.5-.2-3.5-1.5-5.6-5.2-11.2-1.7-5-.9-5.6 .5-6.3 1.4-4.9 2-4.3 2.8-4.2 4-4.2 4.2-3.3 5-2.7 4.9-1.9z", paints: [["M62.3 58.5l2.3-.7 .9 .7 .1 4.2-1.1 3.5-1.3 1.8-2.1 1.5-5.7 1.4-.7-1.1-.3-1.5 .1-1.4 .7-2.1 2.9-3.5z", "#fff", 1]], shade: "M71.9 14.9l.7 0 2.7 3.5 2 4.3 1.4 4.9 0 9.1-1.5 5.6-1.1 2.1 1.4 3.6 9.7 14 0 3.5-.7 1.4-2.2 1.6-3.5-.1-8.5-6.1-2.1-1.1-.7 .2 .3 4.8 3.3 12 .2 2.1-.3 2.8-1.4 1.6-1.4 .7-3.5 0-1.4-.9 1.4-.3 1-1.1-4.2-8.4-4.5-1.1-1.4-1-1.4-2-.8 .4-.5 .9-.5 4.2-.4 16.1-1.2 2.2-2.3 1.4-2.1 .1-2.1-.8 3.2-2.2 .8-.7 0-.7-1.1-14.7-2.2-2.9-2.1-.5-2.1 .8-2.1 1.5-2.8-1-1.3 1.4-2.6 5.6-3.2 9.1-1.4 2.3-.7 .6-2.1 .8-2.1-.1-1.4-.7 3.3-2.2 1.3-1.4 4.8-18.2 .2-6.4-1.8-8.4 .2-1.4 .8-1.4 1.1-1.4 7.7-3.8 8.4-5.4 6.3-4.9 5.4-4.9 5.2-5.7 3.5-5 2.1-4.8z", light: "M37.1 5.8l2.5 0 1.2 .7 .5 1.4-.1 1.4-2.2 4.9-4.3 5.6-5.8 5.7-5.8 4-4.2 1.6-2.1 .1-1.4-.6-1-1.6 .2-3.5 2.1-4.3 3.6-4.9 3.6-3.5 4.8-3.4 4.3-2.2z", eyes: [[55.3, 44.6, 7.8, 17.3, -7.5], [72, 38.4, 5.5, 17.6, -3.8]] },
+  turtle: { label: "Turtle", body: "M34.6 21.1l8-.6 4.5 .5 3.8 1 5.7 2.5 7.6 6 2.6 1 2.5-.4 5.7-2.6 3.8-.9 4.5 .1 4.4 1.3 2.6 1.5 1.9 1.7 1.6 2.2 1.3 2.5 .7 2.6 .2 3.1-.5 3.2-1 2.6-1.9 3.1-3 2.9-3.2 2-3.8 1.3-3.1 .3-3.2-.2-3.2-.9-5.7-2.5-1.9-.2-1.3 .5-1.1 1.9 0 3.2 4.5 14.6-.8 2.9-1.3 1.3-1.3 .6-2.5 .2-2.6-1.2-10.1-14-1.9-2.1-1.3-.7-9.5 2.1-25.4 11.9-1.9 .3-1.9-.4-1.5-.9-1-1.3-.5-1.2 0-2 1.1-2.4 4.2-3.9 1.6-2.5 0-1.3-2.5-6.4-.6-4.4 .6-5.7 1.8-5.1 3.8-5.7 5.7-5.2 7-3.9z", paints: [["M44.1 40.7l3-.6 2.5 .6 2.6 1.9 1.1 1.9 .4 2.6-.4 2.5-1.2 1.9-2.5 1.8-2.5 .4-1.9-.4-2.4-1.8-1.2-1.9-.7-2.5 .2-2.6 .9-2z", "#fff", 1]], shade: "M62.8 31.2l2.7 4.7 4.6 11.2 1.7 2.5 1.9 1.1 1.9 .4 .7-.3 4.4-3 3.9-3.3 5.7-6.4 1.2-2.2 1-2.8 .3-.1 .6 .8 1.4 2.5 1.2 5.1-.7 4.9-1.8 4-2 2.5-3.2 2.5-2.5 1.4-4.4 1.2-3.8 .1-5.1-1.3-4.5-2.4-3.1-.1-1.3 1.2-.6 1.2 .2 4.5 4.3 12.7 0 1.9-.6 1.2-2 2-1.3 .5-1.9 0-2.5-1.2 1.8-.6 1.1-.7 .2-.6-6.7-12.1-1.5-.5-5.1 .3-1.9-2.1-1.3-.6-3.8 1-5.7 .9-16.5 8-2.6 .9-5.7 3-1.9 .6-1.3 0-2.6-1.3 2.6-1 3.2-2.8 5.7-3.6 21.6-11.5 8.8-5.9 5.2-4.3 5.5-5.8 2.7-4z", light: "M29.9 22.3l3.2 .1 1.1 1.2 .2 1.3-1.6 4.4-4.3 5.7-5.6 5.1-5 3.2-4.5 1.5-1.9-.1-1.3-.6-.7-1.5 0-2.5 2.6-5.1 2.6-3.2 5.8-5 4.3-2.6zM74.9 28.7l2-.3 .6 .3 .1 .6-.6 1.9-1.7 2.6-.9 .6-1.9 .2-1.9-.8-1.3-1.7-.1-.9zM13.1 57.2l1 .1 .9 1.2 .2 1.3-.8 1.9-5.9 5.1-1.7 1.9-1 .7-1.3 .1-.1-.8 .8-1.3 5.5-5.1 .6-1.2 0-1.3 .8-1.8z", eyes: [[82.1, 44.3, 6.8, 15.9, -11.9], [91.7, 39.6, 4.6, 15.9, -19.9]] },
+  crab: { label: "Crab", body: "M92.2 16.6l1.5-.1 1.3 .7 .8 1.2 .1 1.8-4.2 10.7-2.6 3.6-1.5 4.2-1.6 2.7-2.5 2.1-3.5 1.4-4.2 0-5.4-2-1.2 .7-.6 1-.2 1.3 .4 1.8 5.9 9.6 .1 1.8-1.1 1.8-2.1 .9-1.8-.5-12-9.4-15.6 4.6-.6 .3-.3 1.1-2.5 12-1.3 1.8-2.5 .5-2-1.1-.8-1.8-.8-5.2-.5 2.2-1.3 3-3.1 3.6-3.5 2.1-5.7 1.5-5.1 6.6-1.8 .5-2-1.1-.7-1.8-.2-8.4-2.5-4.8-.8-3-.2-3 .4-2.4 1.1-3 1.5-2.4 4.9-4.2-.2-2.4 .3-2.4 2-4.8 2.7-3.6 3.9-3.6 5.4-3.5 6.6-3 6.6-2 7.2-1.1 6-.1 6 .9 4.8 1.7 4.8 3.1 .6 0 3.6-3 2.4-1.2 3-.5 3.6 .1 1.8-.5z", paints: [["M62 44.1l.6 .1 .6 .8-.3 2.1-2 2.4-2.5 2.2-7.2 2.2-2.4-.3-1.2-.8 0-2.1 1.5-1.8 1.5-.4 5.4 1.5 4.8-5.2z", "#fff", 1]], shade: "M95.5 17.8l.1 3-3.6 9.5-3.4 4.8-1.3 4.2-1.9 2.6-1.9 1.6-3.5 1.4-4.8-.2-4.2-1.8-1.2 .1-1.1 1.1-.5 2.4 .6 1.8 5.9 9-.1 2.4-1.2 1.4-1.2 .5-1.8 0-12-9.4-1.2-.3-1.2 .3-6 2.2-8.4 2.3-.9 3-2.1 10.7-1.2 1.3-1.8 .6-1.9-.6 3.4-3 .9-8.5-.6-.7-1.2-.4-3-.2-1.8 .3-.5 .5 .5 .6 0 3.6-.5 2.4-1.3 3-1.8 2.4-4.2 3-3.6 1.2-2.4 .2-1.6 1.6-3.8 5.4-1.8 .3-1.3-.3 2.8-2.4 4.6-10.8 1.1-1.4 5.2-4.6 2.9-3.6 1.9-3.6 .5-3 3.9-.7 4.8-1.7 13.3-6 10.7-6.5 3-2.5 3-3 .6 .5 3.6 6.5 1.2 1.4 3.6-1.2 4.2-3 2.9-3 1.9-2.6 4.1-3.1zM66.6 50.7l.4 0 5.8 7.2 0 .6-1.2 1.2-.6 0-8.1-7.8z", light: "M92.5 16.6l.1 .6-.4 .6-6.8 6.9-1.8 .4-1.6-.7 1.6-.9 7.7-6.4zM73.5 25l1.7-.6 1.2 .5 0 1.3-.5 1.2-3.1 3.4-3 1.9-.6-.1-.9-1.7-.3-1.2 .3-.6 3.3-3zM34.8 25.6l2.6 0 .7 .6 .2 1.2-1.5 3.5-2.8 3.6-4.1 4.2-3.5 3-4.6 3-2.8 1.2 2.4 1.2 .6 .6-.2 .6-6.6 .4-.2-.4 1-1.2-.2-.3-2.4-.6-.7-.9-.2-1.2 .2-1.8 2.5-4.2 4.8-4.9 3.1-2.3 6.5-3.5zM12.7 49.5l1.9-.3 1 .3 .3 .6-.3 1.8-1.4 2.4-4.4 3.9-2.4 1.1-1.8 0-.6-.6-.1-1.4 1.3-2.4 1.9-2.4 2.3-1.8 1.8-.6z", eyes: [[45, 42.8, 7.4, 17.7, -18.3], [61.7, 36.6, 5.4, 17.9, -29.3]] },
+  puffer: { label: "Pufferfish", body: "M40.1 4.7l1.8-.7 2 .7 .9 1.3 2.6 6.7 .7 1 .7 .3 4.8 .7 .7-.3 4.4-5.6 1.8-.7 1.3 .4 1.3 1.7-.1 6.8 .2 .9 .7 .4 2.1 .2 2-.6 5.5-4.2 1.4-.2 1.8 .8 .9 1.4 .1 1.3-2.1 6.2 0 4.2 1 2.7 3.8 7.6 1.8 6.2 1.7 1.1 6.8 1.4 1.5 1.6 .1 1.4-.9 1.5-6.8 3.7-1.8 1.7-1.9 7.5-3.1 6.9-2.8 4.2-5 5.5-1.9 2.7-.7 3.5 .4 6.8-.5 1.4-1.3 1.1-1.4 .1-1.1-.5-5.1-5.7-2.1-1-2-.4-7.6 .7-1.4 1.1-2.3 3.9-1.8 .7-1.4-.6-.7-1-.5-3.2-.8-1.6-5.6-1.6-5.5-2.6-4.8-3.2-4.1-3.9-5.5-6.8-3.2-8.5-1.3-6.9 .1-7.6 1.4-6.9 2.9-6.8 4.8-6.9 5.6-5.3 6.2-3.8 8.3-3.2 2-8.4z", paints: [["M70.8 64.5l2.7 .2 1.4 .9 .7 1 .2 3.4-1.6 4.2-2.7 3.7-5.5 4.8-3.5 1.4-2.7-.2-1.2-1.5-.2-2.7 .9-3.5 1.6-3.4 2.3-3.2 2.4-2.3 2.4-1.7z", "#fff", 1]], shade: "M44.5 6l.3 0 .5 1.4 1.7 4.8 1.6 2.8-1.9-.1-1.6-1.3-1.5-6.2 .1-.7zM62.5 9.5l.4 1.4-.1 6.8 .5 1.4 1.5 1.4 .2 .7-.4 .6-1.4-.4-1.2-.9-1.4-2.8 .2-3.4 .9-3.4zM77 15l.7 1.4 0 .6-2.5 6.9 0 2.8 1.4 4.1 1.8 2.8 2 4.1 1.7 6.2 2.5 3.3 1.3 1.2 .7 .2 5.5-.6 0 2.1-1.4 1.3-6.1 3-2 1.9-1.5 6.9-3.4 7.5-2.7 4.2-5.3 5.5-2.1 3.4 0 9.6-.3 1.4-.6 .7-1.4 .3-1.6-.3 1.2-1.4-1.7-3.5-.7-.6-1.3 .1-1.4 .7-1.4-1.2-3.4-1.4-8.3 .7-1.9 1.8-.9 2.1-1.3 1.5-1.4 .5-1.4-.6 1.4-.4 1-1 .6-1.4 .2-4.2-1.1-1.8-2.1-.8-2.7 .4-.6 .9 .6 2.2-3.5-.9-4.8-1.9-2.7-1.5-4.9-3.4-4.2-4.2 4.2 1.3 2.1 .1 .6-.7-4.7-4.2-2.1-.2-.7-.7-2.9-.4 2.9-2.2 4.1-.9 3.3 .4 3.6 2 1.6 2.1 1.2 3.2 .7-.1 4.8-2.1 6.2-3.5 5.5-3.8 5.7-4.7 5.7-5.5 4.9-5.5 4.3-6.2 2.8-4.8 1.9-4.9 .7-3.4 0-2.8-.6-3.4 .3-2.1zM21.2 31.5l2.1 1.3-.1 1.5-1.3 1.4-2 .2-2.1-2.3 1.4-.5z", light: "M40.3 4.7l.9-.3 .2 .3-.4 .6-1.2 1-.7-.3zM58.9 8.8l.9-.3 .2 .3-1.3 1.4-3.1 6-1.3 1.4-1.4 0-.7-.6-.3-1.3 1-.2 1.9-1.2zM72.7 14.3l.8-.3 .6 .3-3.3 3.7-2.1 .9-1.5-.5 2.9-1.6zM36.8 15l1-.2 .7 1.6 1.3 4.1-.1 2.1-2.4 4.8-3.7 4.6-.7 .2-2.4-2.1-2.4-.9-6.2-.3-.7-.7-1.3 .2-1.6 1.7-1.2 .6-.4 .8-.2 1.4 1.4 1.4-.7 8.9-3.5 .4-2.5-1.1-1-2.1 .7-4.1 2.1-4.1 4-5.5 4.2-4.2 4.9-3.4 5.5-2.7zM17.8 61.1l1 0 .9 .7 .2 1-.6 1-4.3 2.7-1.4 1.5-1.3 .4-.1-.4 2.2-2.2 .6 0 .6-.6 .8-2.6z", eyes: [[56.6, 53.5, 9.1, 21.7, -12.7], [73.9, 47, 6.3, 21.5, -17.3]] },
+  jelly: { label: "Jellyfish", body: "M53.3 4.1l6.6 0 6.8 1 9.8 2.3 7.8 2.8 4.2 2.4 3.7 3.6 2.1 3.7 .8 3.8-.3 3.8-1.2 3.7-1.7 3-3.7 5.3-.1 7.5-1.8 15.8 .2 6.8-.7 2.3-1 1.2-1.5 .9-5.4 .9-1.1 2.2-1.2 5.3-.8 1.5-1.6 1.5-2.7 1-6.1-.6-1.5 .4-.8 1.5-.7 4.5-.6 1.5-1.6 1.6-2.3 .7-3-.8-4-4.5-2-1.3-2.3-.9-.7-.1-.8 .4-2.2 3.4-2.3 1.5-3 .1-2.3-1.4-1-1.7-1.2-3.8-1.5-2.9-9.1-13.4-5.1-12.3-2.3-3-4.9-4.5-1.9-2.3-1.6-3-.8-3.7 .4-4.5 2.2-5.3 3.9-5.3 5.6-5.1 6-4.1 8.3-4.2 9.1-5.6 6-2.3z", shade: "M91.8 16.9l.5-.7 2.3 4.5 .1 6.8-.8 3-1.5 3-3.6 4.5-.8 1.5-.1 9.8-.9 6.8-.4 .7-.1 12.8-.8 2.3-1.7 1.6-1.5 .7-3.8 .1-.8 .6-1.1 1.5-1 5.3-.6 1.5-1 1.5-1.5 .9-2.2 .7-3.1-.1-.7-.5-1.5 0-1.5 0-.8 .5-1.2 2.2-.3 3.8-.6 1.5-1.6 1.6-1.5 .6-1.5 .1-2.3-.8-.9-.8 2.4-.4 2.2-1.8-1.4-2.1-1.5-1.1-1.6 .2-2.2 1.8-3.8-2.3-3-.1-2.2 3.6-2.3 1.5-3 .1-1.5-.7 3-2 1-1.2-.7-3-1.8-5.2-1.5-2.4-1.5-1-5.3-.5-.9-.7-1.1-1.5 1.3-5.2-.1-5.3-4.9-5.3-5.6-3.5-1.5-.6-.7 .3-1.5-1.9-4-3.3 1 .6 3.7 .7 6.8-.2 6-.8 13.8-3.3 15.6-5.5 13.9-6.5 10.9-6.6 3.8-2.9 3.7-3.5 2.3-3zM78.9 51.6l.7 0 .8 2.2 .2 2.3-.4 3.7-.6 2.3-.9 1.3-.8 .9-1.4 .8-1.5-1.1-.8-1.5-.8-3.4 .1-4.5 1.5-1.7zM49.6 59.8l1.3 0 1.6 .8 1.9 10.5 1.2 4.5 .2 2.3-.3 2.3-.8 1.6-.8 .6-1.5-.2-2.3-1.7-2.2-4-2-5.4-.2-3.7 .5-3.1 1.6-3.7zM62.7 59.8l1-.7 1 .7 2.1 6.1 2.8 3.7 .5 1.5 0 2.3-.6 1.5-1.3 1.7-1.5 .7-1.5 0-1.5-.8-1.5-1.8-3-5.1 .1-5.3 1.4-.6 .6-.9z", light: "M43.4 6.4l1.4 0-4.4 3.7-4 3.8-2.3 3-1.5 3 .2 1.9 1.5 .6 3-.5 6.1-1.7 .2 .5-4 5.3-3.8 3.7-4.6 3.8-3.5 2.3-8.4 4-3.8 1.1-3.7 .4-3-.5-2.1-1.3-.8-1.5-.1-1.5 1.3-3.8 3.1-4.5 5.3-5.3 6.1-4.5 6.7-3.7 3-1.1 4.7-3.4z", eyes: [[61.7, 34.1, 6.8, 16.8, -21], [78.5, 27.8, 5.5, 17, -29.2]] },
+  starfish: { label: "Starfish", body: "M41 4.2l4.5 .1 6.4 1.4 2.8 1.3 2.8 2.5 6.4 9.5 .7 .3 9.9-1.8 7.8 1.5 2.8 1 2.7 1.8 1.7 2.2 1.3 2.8 .5 2.8-.7 4.3-5 9.9-3.5 8.4 1.5 6.4 4 12-.2 4.3-2.1 4.2-1.6 1.7-2.1 1.4-4.3 1.2-2.8-.1-12.7-3.1-11.5 13-3.4 2.1-3.5 .7-2.8-.3-7.1-1.6-2.8-1.4-2.5-2.3-1.6-2.8-.7-2.8-.5-18.4-.5-.7-12.6-8.5-2.6-3.6-1-4.2 .3-2.8 .7-2.1 2.6-3.7 2.1-1.6 13.7-7.5 .4-.6 3.3-17.7 .9-2.9 1.5-2.4 1.9-1.8 2.3-1.4z", shade: "M57.4 9.8l.9 .7 5.6 8.5 0 .7 2.9 2.8 0 .7 1.4 1.5 0 1.4 .8 .7-.1 5.6 .6 1-.5-.3-.9-2.1-1.2-1.4-3.7-2.2-2.1-.6-2.2 .1-4.9 1.4-.5-.8-1.2-5 .9-4.9 2.9-4.1zM88.5 23.2l.1-.2 .9 1 1.3 2.8 0 6.3-6.1 12.1-2.8 7 1.4 6.4 4.1 11.3-.1 5-1.5 3.5-2.8 2.9-2.8 1.5-2.9 .6-2.8-.1-12.7-3.2-2.6 2.5-8.1 9.9-2.8 2.1-2.1 .9-7-.1-.8-.4-5.4-1.1-2.3-1.2-.9-.9 .9-.3 4.9 1 2.8-.4 3.6-1.7 4.3-3.5 .4-.7-.1-5.7-1.1-9.2 .5-4.9-1.2-.2-.7 .7-1.4 0-2.1 1.1-2.2 .1-1.4 .7-4.2-.1-.7-.7-2.1 0-.7-.7-2.2-.1-1.4-1.5-.7 0-12.7-8.5 1.4-.2 4.9 1 2.9-.4 2.4-1.1 3.2-2.3 5-4.8 2.1-1.2 4.2-.5 2 .3 .6 4.9 1 2.2 1.4 1.5 1.4 .7 2.1 .2 4.3-1.2 6.3-3.9 5.7-5.2 3.7-4.9 1.5-2.8 1.1-3.5 2-2.1 2.3-1.7 2.8-1.4 9.9-2.4 1.4-2.6z", light: "M38.6 4.9l2-.3 6.3 1.5 .3 1.6-1.2 2.1-2.6 2.7-2.8 1.5-7.8-1.3-.3-1.5 1-2.1 2.8-2.9zM34.6 30.3l1.7 .1 .4 1.3 1 1 1.5 .2 0 .6-.8 0-13.4 6.9-2.6 4.1-3 2.5-2.2 .8-7-1.2-.7-.7 0-.7 1.4-2.9 2.1-2.1 2.1-1.4 6.4-3.1 8.5-5 .7 .4 2.1-.1z", eyes: [[59.7, 54.2, 7, 16.6, -10], [71.5, 49.7, 5.4, 16.6, -10]] },
+  seahorse: { label: "Seahorse", body: "M44.6 4l1.9 .3 1.4 1 1.1 1.8 .8 4.3 1.6 2.9 2.5 2.6 7.3 6.1 2.4 1.4 3.1 1.1 10.4 1.1 2 1.3 1.3 2.4-.4 3-1.7 2-11.6 3.3-4.4 2.1-3.4 3.6-1.9 4.3-.3 2.5 .5 1.2 1.2 1.2 5.1 3.1 2.1 1.8 2.2 3 1.2 3.7 .2 3.7-.7 3-1.1 2.5-3.2 4.2-.4 1.3 .4 .8 3.7 2.8 1.6 1.9 1.3 2.4 .3 2.5-.4 1.8-1.1 1.8-1.7 1.4-1.8 .7-2.5 0-2.4-.7-4.9-3.8-1.8-.8-9.8-.1-2.5-.6-1.8-1-2-1.8-1.5-2.4-1.8-8.6-.8-.6-5.5-1.7-3.7-2.4-3.2-3.8-2-4.9-.4-3.7 .4-3.7 3.6-9.1 .5-2.5-.3-2.4-1.6-4.9-.3-3.1 .4-4.2 1.1-3.7 3.1-5.3 3.6-4.5 8.6-6.8 4.2-4.1z", paints: [["M57.4 63.9l2.6 .7 1.8 1.7 1 2.5-.2 2.4-1.3 2.5-2 1.6-3 1.1-2.5-.2-1.4-.7-1.1-1.2-.4-1.9 .3-1.8 1-2.4 1.6-2.4 1.9-1.5z", "#fff", 0.35]], shade: "M48.3 5.9l.7 1.2 .2 3 .6 1.9 .6 1.2 2.8 3-.6 .6-1.2-.3-1.2-.9-2.4-3.6-.5-3.7zM58.1 26l1.9 .7 5.4 3.9 3.7 1.2 8.6-.6 1.3-1.5 .5-1.3 .8 1.9-.1 2.4-.6 1.3-1.3 1.3-1.2 .6-10.4 2.5-4.3 1.9-2.9 2.8-1.2 1.9-1.2 2.4-.6 2.4 0 1.3 1.9 3-.3 6.7 .6 2.4 .6 1 1.3 .8 4.2-1.8 .9-1.8 .4-2.5 1.9 3.2 1.1 3.6 .1 3.1-.7 3-1.8 3.6-3 3.8 0 1.2 .6 .6 .3 1.2-1.2 4.9 .5 1.8 .3 .4 .6-.3 2.4-2.5 1.3-2.5 1.8 2.6 .6 1.8 .1 2.4-.6 1.8-1.1 1.2-1.4 1.4-1.8 .6-3.1 0-1.8-.7-1.2-.6-3.1-2.9-2.4-1.2-10.4-.1-3.7-1.4-1.3-1.2 3.1-.7 3.7-2.7 2.2-3.3 .3-1.2-.2-1.3-.7-.6-1.6-.4-6.7-.2-3.1-.5-1.2-1.2-4.9-1.3-2.4-1.2-3.7-3.1 .6 .4 3.1-.1 3-1 3.1-1.6 5.2-3.8 4.8-4.9 1.8-5.5 0-2.4-.5-1.9-1.2-1.8-1.6-1.4-6.7-3.5-.4-.6 .2-.6 7.1-5.5 5.3-5 7.4-2.2z", light: "M42.9 4.6l1.2-.2 .4 .2-.2 .7-13.9 19.5-4 3.5-1.9 .8-1.2-.3-.3-.9 .3-2.5 2.4-4.3 3.1-4.2 2.5-2.5 5.4-3.9zM23.2 47.4l.7-.6 2 1.2 .8 1.2 .1 1.3-.4 1.3-1.9 2.2-2.4 1.1-.6-.2-.5-.8-.1-1.2 .5-1.8z", eyes: [[44.1, 32.3, 7.4, 17.8, -13], [55.1, 29.6, 6.3, 17.9, -18.3]] },
   moon: { label: "Moon", body: "M45.8 4.2l4.7-.2 4.2 .4 10.2 2.4 3.7 1.6 3.6 2.1 3.3 2.5 3 3.1 4.6 6.7 3.4 8.3 1.5 8.8 .1 4.6-.8 7.8-2.6 8.8-3.9 7.7-5.1 6.7-6.1 5.3-4.1 2.6-3.6 1.6-27.2 10.2-2.8 .7-2.6 0-5.7-1.3-2-.8-1.9-1.7-1.1-2.6-6.5-37.7-.2-5.2 .8-7.7 1.3-5.2 3.1-7.8 4.2-6.7 3-3.6 3.9-3.6 6.3-4.2 4.1-1.8z", paints: [["M57.6 9.9l.2-.3 .2 .3 2 4.7 1.9 1.9 2.6 .5 1.5-.7 1.1-1.1 .4 .4-.1 1.6-.7 1.5-2.2 2.5-1.6 .7-2 0-1.6-.8-1.3-1.4-.8-2-.4-2.6 .1-3.1z", "#1783FF", 1]], shade: "M74.3 13.5l2.1 1.5 .3-.4-.3-.6 2.1 2.1 4.6 6.7 3.1 7.4 1.5 7.6 .1 10.4-.6 4.6-2.5 8.3-4.2 8.2-3.1 4.2-5.7 5.7-6.2 4.2-4.6 2-28 10.3-4.1 0-5.2-1.1-2-.9-.5-.7 .5 .5 1.5 0 3.6 1 2.6-.3 5.7-2.1 2.1-2.1-5.4-31.5-.2-4.1 .4-1.1-.1-2.6 .5-3.6 1.8-7.7 2.8-6.7 1.9-3.1 3.9-5.2 3.2-3.1 2.5-2 5.2-2.9 3.1-1.1 3.1-.8 2.1 0 .5-.4 2.6 .2 1-.3 1.6 .4 1-.5 2.1 .8 1-.8 2.1 1.2z", light: "M38 6.3l1.7-.3 2.5 .2 .6 .4 1.5 0 .5 .5 1.6 .3-3.1 1.3 .4 .7-2.5 1.6-.5 1-2.5 2.1-2.7 2.9-6.2 7.9-1.5 2.7-1 .9-1.2 2.6-1.4 1-1.3 3.7-1.3 .3-6-1.4-1 3.6-.8 0 .9-3.6-.5-1 1.1-3.6 2.7-5.7 4.1-6.2 5.7-5.8 3.1-2.4 3.6-2.2z", eyes: [[51.6, 48.5, 8.4, 22.1, -10], [66.8, 42.9, 8.4, 22.1, -10]] },
   wave: { label: "Wave", body: "M46.1 4l6.1 .3 9.6 2.1 4.5 1.8 4.1 2.4 3.5 2.8 4.4 4.8 2.6 4 2.1 4.1 2.2 6 4.8 26 .5 5.3-.3 4.1-1.2 3.8-1.5 2.8-2.4 2.5-2.1 1.4-3.1 1-3 .3-8.1-1.5-3.2 5.3-2.1 2.1-2.5 1.5-2.8 1-3 .4-9.1-1.6-2.7 4.2-3.4 3.1-4 1.7-4.6 .1-7-1.5-3.5-1.9-3.4-3.5-2.1-4-1.5-5.6-3.7-20.7-.6-5.6-.1-5 .5-6.1 2.3-9.6 2.3-5.5 2.7-4.9 2.7-3.7 3.2-3.6 4.2-3.6 4.7-2.9 4.4-2 4-1.2z", paints: [["M61.6 48.5l2.2-.3 2 1.1 1.1 2.2 .3 3-.6 3.1-1.5 3.5-2.5 4.1-2.4 2.8-5-2.2-3-2.2-2.3-3-.7-3.5 .6-2.6 1.8-2.1 1.6-.7 1.5 0 1.5 .6 1.5 1.3 2-3.6z", "#fff", 0.4]], shade: "M69.3 13.6l2.6 1.3 .5-.3 .5-1.3 2 1.7 .5 0 2.5 2.7 3.5 5.5 3.6 8.6 1.5 6.6 3.5 19.7 .5 5.5-.4 4.6-2 5-1 1.6-2.6 2.5-3 1.5-2.1 .5-4 0-6.6-1.4-1.4 2.9-1.9 2.5-2.7 2.6-3.1 1.5-2.5 .6-4 .1-7.1-1.5-1.5 2.8-2.6 3-2 1.6-3 1.4-4.5 .6-7.1-1.5-3.6-1.5-3.5-3.1 6.6 1.5 2.8-.5 .5-.5-.3-.5 3.2-2-.4-1 1.4-1.5-.3-1 .7-1.6-.2-2.5-3.4-19.2 .3-.5-.6-5 .5-.5-.1-4.6 .4-.5 .3-4 1-4.1 1.5-4.5 3.8-7.7 5.5-6.9 3.1-2.6 6.5-3.9 7.6-2.2 3.1 0 .5-.4 3 .5 1-.5 2.5 1z", light: "M36.5 6.1l2-.3 .5 .6 4.1 .5 1 .7-3.3 1.5-.3 1.2-3 2-.3 .8-2.8 2.6-3.5 4-3.9 5-2 3.6-1 .5-1.7 4-1.5 .5-1.4 4.6-1.6 .2-.5-.4-5.6-.9-.4-.4 1.4-5.1 1.5-3.5 2.6-5.1 4-5.5 6.6-6.2 4-2.5z", eyes: [[47.5, 37.2, 8.4, 22.1, -10], [61.6, 31.9, 8.4, 22.1, -10]] },
   squircle: { label: "Squircle", body: "M54.5 4.2l3.9-.2 3.7 .3 11.6 2.7 3.1 1.6 2.8 1.9 2.6 2.7 2.2 3.1 2.4 4.8 1.9 5.8 3.7 19.4 .8 11.1-.4 4.7-1 4.7-1.3 3.5-1.8 3.4-4.8 5.8-6.4 4.7-8 4-14.2 5.3-9.5 2.2-7.4 .1-10.5-2.2-5.3-2.5-4.3-3.7-3.3-4.8-2.7-6.3-2.4-9.5-2.8-17.9-.2-7.8 1.3-7.9 2.2-5.3 2.8-4.2 4.1-4.2 4.3-3.1 6.3-3.4 11.6-4.6 7.9-2.7z", shade: "M80.5 11.6l2.1 2.1 2.1 3.2 3.2 7.3 2.1 8.4 2.7 15.8 .5 7.9-.6 7.4-2 6.3-3.8 6.3-4.2 4.3-2.6 2-6.9 3.8-15.2 6.2-9.5 2.7-6.8 .6-6.2-.7-8.5-2-5.8-3.2-3.2-3.3 .5 .4 1.1-.2 5.8 1.4 2.1-.8 1.4-.7-.3-.5 1.4-1.1-.1-1 .8-.5 0-1.1 1.1-1 .1-2.1 .4-.6-.2-3.6-2.4-17.9-.2-9.5 .8-5.3 1.1-3.6 1.2-2.7 2.2-3.5 2.7-2.8 3.1-2.5 5.8-3.2 17.9-6.9 5.3-1.4 8.4-1.4 1.6-1.1 .5 .1 .9-1.5z", light: "M39.4 8.4l1.2 0-1.6 .7-1-.1 1-.1zM36.8 9.5l1 0 .6 .9 4.2 .6 .7 .6-3.8-.4-.3 .4 1.9 .3 .1 .7-3.2 1.6-6.9 5.8-5.3 6-4.7 6.1-3.8 3.7-.2 .5-1.8 .1-6.8-1.7 .4-3.6 2.1-4.2 2.2-3.2 4.2-4.3 4.2-3 3.1-1.8 5.3-2.5zM35.1 10.5l1.7 0-.5 .4zM36.5 11.1l.3-.5 2.2 .1 .4 .4-.4 .3z", eyes: [[52.6, 52.4, 8.4, 22.1, -10], [67.3, 46.9, 8.4, 22.1, -10]] },
@@ -16973,7 +17107,7 @@ var CHARACTERS = {
 };
 var PICKER_SHAPES = Object.keys(CHARACTERS);
 var PICKER_COLUMNS = 5;
-var DEFAULT_SHAPES = ["star", "moon", "gumdrop", "peanut", "bunny", "kitty", "acorn"];
+var DEFAULT_SHAPES = ["star", "moon", "dolphin", "octopus", "turtle", "crab", "puffer", "jelly", "starfish", "seahorse", "gumdrop", "peanut", "bunny", "kitty", "acorn"];
 var FALLBACK_SHAPE = "gumdrop";
 var MAIN_LOOK = Object.freeze({ shape: "whale", color: "deepseek" });
 var CHARACTER_COLORS = ["black", "brown", "red", "orange", "yellow", "green", "cyan", "blue", "violet", "magenta", "gray", "aurora"];
@@ -17116,665 +17250,74 @@ function countCards(state, sessionId, callIds, delta) {
   return { ...state, [sessionId]: own };
 }
 
-// src/client/team-actions.js
-function teamActions({ call: call2, after, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded }) {
-  const memoryOf = (id) => roster.getSnapshot().roomsById[id] ? { roomId: id } : { botId: id };
-  let pastes = 0;
-  const pasteState = (state, sessionId, blocks) => ({ ...state, paste: { ...state.paste, [sessionId]: blocks } });
-  const yieldTo = (state, view) => state.panelYield === true || panelFolded?.(view) === true;
-  const openSideChat = (sessionId, chatId) => {
-    ui.set((state) => ({ ...state, details: sessionId, view: "side", side: chatId ?? null, renaming: false, tab: null, panelYield: yieldTo(state, "side") }));
-  };
-  const openSettings = (page = "general", id = null) => {
-    ui.set((state) => ({ ...state, settings: { page, id }, menu: null, palette: null, newChat: null }));
-  };
-  return {
-    // The pane starts at the rail's edge, so a floating drawer would stick out from under it.
-    openNewChat: (mode, sectionId = null) => {
-      ui.set((state) => ({ ...state, newChat: mode, newChatSection: sectionId ?? null, menu: null, palette: null, leftDrawer: false }));
-    },
-    openPalette: (query = "") => {
-      ui.set((state) => ({ ...state, palette: { query, token: Date.now() }, newChat: null, menu: null }));
-    },
-    // The token keeps a late exit timer from closing a palette opened again since.
-    closePalette: (token) => {
-      ui.set((state) => state.palette && (token === void 0 || state.palette.token === token) ? { ...state, palette: null } : state);
-    },
-    // Searching one group's own history, from its header.
-    openGroupSearch: (roomId) => {
-      if (roomId) ui.set((state) => ({ ...state, groupSearch: { roomId, token: Date.now() }, palette: null, newChat: null, menu: null }));
-    },
-    closeGroupSearch: (token) => {
-      ui.set((state) => state.groupSearch && (token === void 0 || state.groupSearch.token === token) ? { ...state, groupSearch: null } : state);
-    },
-    openExchange: (a, b) => {
-      if (a && b) ui.set((state) => ({ ...state, exchange: [a, b] }));
-    },
-    openVoice: (id) => {
-      if (id) ui.set((state) => ({ ...state, voice: id, menu: null }));
-    },
-    closeVoice: () => {
-      ui.set((state) => state.voice ? { ...state, voice: null } : state);
-    },
-    toggleDetails: (id, force) => {
-      ui.set((state) => {
-        const details = force || state.details !== id || state.view !== "details" ? id : null;
-        if (details === null && panelFolded?.("details") === true) return { ...state, renaming: false, tab: null, details: id, view: "details", panelYield: true };
-        return { ...state, renaming: false, tab: null, details, view: "details" };
-      });
-    },
-    // The open panel follows the main view; a subject with no browser (a group
-    // chat, an outside Session) settles on the details view. So does one that
-    // does not own the open side chat.
-    followPanel: (id) => {
-      ui.set((state) => {
-        if (!state.details || state.details === id) return state;
-        const snap = roster.getSnapshot();
-        const view = state.view === "browser" && snap.byId[id] === void 0 ? "details" : state.view === "side" && !(snap.sideChats?.[snap.byId[id]?.id] ?? []).some((chat) => chat?.id === state.side) ? "details" : state.view === "task" ? "details" : state.view;
-        return { ...state, details: id, view, task: null, renaming: false, tab: null };
-      });
-    },
-    showDetails: (id, tab = null) => {
-      ui.set((state) => ({ ...state, details: id, view: "details", renaming: false, tab, panelYield: yieldTo(state, "details") }));
-    },
-    // Opening the conversation would move focus to its composer and blur the name field.
-    renameBot: (id) => {
-      ui.set((state) => ({ ...state, details: id, view: "details", renaming: true, tab: null, panelYield: yieldTo(state, "details") }));
-    },
-    openSettings,
-    // DS Bot's own Models page: the providers DSH serves, their keys and models.
-    openModels: () => openSettings("models"),
-    closeSettings: () => {
-      ui.set((state) => state.settings ? { ...state, settings: null } : state);
-    },
-    openMemory: (id) => {
-      ui.set((state) => ({ ...state, memory: id, menu: null, palette: null }));
-    },
-    closeMemory: () => {
-      ui.set((state) => state.memory ? { ...state, memory: null } : state);
-    },
-    openConnectors: () => {
-      ui.set((state) => ({ ...state, settings: { page: "connectors", id: null }, menu: null, palette: null, newChat: null }));
-    },
-    hasPlugins: () => true,
-    openPlugins: (focus = null) => openSettings("plugins", focus),
-    setPanelView: (view) => {
-      if (view !== "details" && view !== "browser" && view !== "side" && view !== "task") return;
-      ui.set((state) => state.details && state.view !== view ? { ...state, view, ...view === "details" ? { tab: null } : {}, panelYield: yieldTo(state, view) } : state);
-    },
-    openTaskDeck: (targetId, taskId = null) => {
-      if (!targetId) return;
-      ui.set((state) => ({ ...state, taskDeck: { targetId, taskId, token: Date.now() }, approvalOpen: null, goalOpen: null, goalCompose: null, menu: null, palette: null }));
-    },
-    toggleTaskDeck: (targetId) => {
-      if (!targetId) return;
-      ui.set((state) => state.taskDeck?.targetId === targetId ? { ...state, taskDeck: null } : { ...state, taskDeck: { targetId, taskId: null, token: Date.now() }, approvalOpen: null, goalOpen: null, goalCompose: null, menu: null, palette: null });
-    },
-    closeTaskDeck: () => {
-      ui.set((state) => state.taskDeck ? { ...state, taskDeck: null } : state);
-    },
-    openTask: (sessionId, botId, taskId) => {
-      if (!sessionId || !botId || !taskId) return;
-      ui.set((state) => ({ ...state, details: sessionId, view: "task", task: { botId, taskId }, renaming: false, tab: null, panelYield: yieldTo(state, "details") }));
-    },
-    closeTask: () => {
-      ui.set((state) => state.details && state.view === "task" ? { ...state, view: "details", task: null, tab: "tasks" } : { ...state, task: null });
-    },
-    stopTask: (botId, taskId) => after(call2("bot-stop-task", { botId, taskId })),
-    sendTask: (botId, taskId, text) => after(call2("bot-task-send", { botId, taskId, text })),
-    readTask: (botId, taskId, cursor, steps = false) => call2("bot-task-read", { botId, taskId, ...cursor ? { cursor } : {}, ...steps ? { steps: true } : {} }),
-    // A side chat on the panel's own view, opened from the strip, the `···`
-    // menus or `/side`. Closing the panel keeps the chats; only a tab's × deletes.
-    openSideChat,
-    // The roster is pulled before the panel opens on a new chat: a view on a chat
-    // the roster does not hold yet folds back into details.
-    newSideChat: async (sessionId) => {
-      const value = await after(call2("side-new", { sessionId }));
-      openSideChat(sessionId, value?.chatId);
-      return value;
-    },
-    sideCall: (name, body) => after(call2(name, body)),
-    askSide: (sessionId, chatId, text) => after(call2("side-ask", { sessionId, chatId, text })),
-    cancelSide: (chatId, entryId) => after(call2("side-cancel", { chatId, entryId })),
-    closeSideChat: (chatId) => {
-      ui.set((state) => state.details && state.view === "side" && state.side === chatId ? { ...state, view: "details", side: null } : state);
-      return after(call2("side-close", { chatId }));
-    },
-    closePanel: () => {
-      ui.set((state) => state.details ? { ...state, details: null, view: "details", renaming: false, tab: null, side: null, task: null } : state);
-    },
-    quote: (sessionId, text) => ui.set((state) => ({ ...state, quote: { sessionId, text, token: Date.now() } })),
-    // A long paste becomes a card; its text stays here until it goes back into the box.
-    addPaste: (sessionId, text, name) => {
-      pastes += 1;
-      const block = { id: `paste-${pastes}`, text, name, attachmentId: null };
-      ui.set((state) => pasteState(state, sessionId, [...state.paste?.[sessionId] ?? [], block]));
-      return block.id;
-    },
-    // The shell attachment whose label is that waiting card's own file name.
-    linkPastes: (sessionId, links) => ui.set((state) => {
-      const blocks = state.paste?.[sessionId] ?? [];
-      const byBlock = /* @__PURE__ */ new Map();
-      for (const link of links) byBlock.set(link.blockId, link.attachmentId);
-      const linked = blocks.map((block) => {
-        if (block.attachmentId !== null) return block;
-        const id = byBlock.get(block.id);
-        return id === void 0 ? block : { ...block, attachmentId: id };
-      });
-      return linked.every((block, index) => block === blocks[index]) ? state : pasteState(state, sessionId, linked);
-    }),
-    // Files put back into a draft get new attachment ids: the cards of `from` wait for
-    // their files again in `to`, and bind by name as on a paste.
-    reopenPastes: (from, to) => ui.set((state) => {
-      const blocks = state.paste?.[from] ?? [];
-      if (blocks.length === 0) return state;
-      const waiting = blocks.map((block) => ({ ...block, attachmentId: null }));
-      if (from === to) return pasteState(state, to, waiting);
-      const { [from]: _left, ...rest } = state.paste;
-      return { ...state, paste: { ...rest, [to]: [...rest[to] ?? [], ...waiting] } };
-    }),
-    unlinkPastes: (sessionId, blockIds) => ui.set((state) => {
-      const blocks = state.paste?.[sessionId] ?? [];
-      const waiting = blocks.map((block) => blockIds.includes(block.id) && block.attachmentId !== null ? { ...block, attachmentId: null } : block);
-      return waiting.every((block, index) => block === blocks[index]) ? state : pasteState(state, sessionId, waiting);
-    }),
-    removePaste: (sessionId, blockIds) => ui.set((state) => {
-      const blocks = state.paste?.[sessionId] ?? [];
-      const kept = blocks.filter((block) => !blockIds.includes(block.id));
-      return kept.length === blocks.length ? state : pasteState(state, sessionId, kept);
-    }),
-    clearQuote: (token) => ui.set((state) => state.quote?.token === token ? { ...state, quote: null } : state),
-    setFlags: (id, flags) => after(call2("set-flags", { id, ...flags })),
-    saveSection: (payload) => after(call2("section-save", payload)),
-    reorderSections: (ids) => after(call2("section-order", { ids })),
-    deleteSection: (id) => after(call2("section-delete", { id })),
-    beginSectionRename: (id) => ui.set((state) => ({ ...state, renameSection: id })),
-    endSectionRename: () => ui.set((state) => state.renameSection ? { ...state, renameSection: null } : state),
-    deleteRoom: (id) => after(call2("delete-room", { id })),
-    openMenu: (menu) => {
-      ui.set((state) => ({ ...state, menu, palette: null }));
-    },
-    closeMenu: () => {
-      ui.set((state) => state.menu ? { ...state, menu: null } : state);
-    },
-    closeNewChat: () => {
-      ui.set((state) => state.newChat || state.newChatSection ? { ...state, newChat: null, newChatSection: null } : state);
-    },
-    closeExchange: () => {
-      ui.set((state) => state.exchange ? { ...state, exchange: null } : state);
-    },
-    closeOverlay: () => {
-      ui.set((state) => ({ ...state, newChat: null, newChatSection: null, exchange: null, details: state.newChat || state.exchange ? state.details : null }));
-    },
-    createBot: (payload) => after(call2("create-bot", payload)),
-    // The avatar library: photos the user imported once, kept by the host.
-    avatarLibrary: (options = {}) => call2("avatar-library", options),
-    importAvatars: (items) => call2("avatar-import", { items }),
-    deleteAvatar: (id) => call2("avatar-delete", { id }),
-    createRoom: (members, options = {}) => after(call2("create-room", { members, ...options })),
-    updateBot: (id, patch) => after(call2("update-bot", { id, ...patch })),
-    // Give up one wait the Bot has on a hand-off that will not come back.
-    abandonWork: (id) => after(call2("abandon-work", { id })),
-    resumeWork: (id) => after(call2("resume-work", { id })),
-    cancelWork: (id, reason) => after(call2("cancel-work", { id, ...reason ? { reason } : {} })),
-    resumeRoomPause: (roomId) => after(call2("resume-room-pause", { roomId })),
-    refreshModels: () => after(call2("models")).catch(() => {
-    }),
-    // One local agent's models: the first look starts its CLI, later ones read what it said.
-    agentModels: (route) => after(call2("local-agent-models", { route })).catch(() => {
-    }),
-    efforts: (ref) => call2("efforts", { ref }),
-    // Model providers and their API keys; DSH keeps them, and a key only travels to the host.
-    providers: () => call2("providers"),
-    chatgpt: () => call2("chatgpt"),
-    chatgptSignIn: (body) => call2("chatgpt-sign-in", body),
-    chatgptCancel: () => call2("chatgpt-cancel"),
-    chatgptSignOut: () => call2("chatgpt-sign-out"),
-    chatgptModels: () => call2("chatgpt-models"),
-    setProviderKey: (provider, value) => after(call2("provider-key", { provider, value })),
-    addProvider: (body) => after(call2("provider-add", body)),
-    providerModels: (body) => call2("provider-models", body),
-    saveProviderModels: (body) => call2("provider-models-save", body),
-    removeProvider: (provider) => after(call2("provider-remove", { provider })),
-    // After a failed turn: the Bot answers the user's last unanswered message, which is never sent again.
-    resume: (botId) => after(call2("resume", { botId })),
-    folders: () => call2("folders"),
-    folderPick: () => call2("folder-pick"),
-    folderList: (path2) => call2("folder-list", { path: path2 ?? "" }),
-    setTeamWorkspace: (path2) => after(call2("team-workspace", { path: path2 })),
-    deleteBot: (id) => after(call2("delete-bot", { id })),
-    releasePrivate: (id) => after(call2("private-release", { id })),
-    duplicateBot: (id) => after(call2("duplicate-bot", { id })),
-    setPrefs: (prefs) => after(call2("set-prefs", prefs)),
-    setMain: (id, main = true, options = {}) => after(call2("set-main", { id, main, ...options })),
-    updateRoom: (id, patch) => after(call2("update-room", { id, ...patch })),
-    roomTodoCheck: (roomId, id, done) => after(call2("room-todo", { roomId, id, done })),
-    roomTodoRemove: (roomId, id) => after(call2("room-todo", { roomId, id, action: "remove" })),
-    roomTodoClear: (roomId) => after(call2("room-todo", { roomId, action: "clear" })),
-    send: (sessionId, text) => after(call2("send", { sessionId: partFor(sessionId), text })),
-    answerQuestion: (sessionId, questionId, answer) => after(call2("answer-question", { sessionId: partFor(sessionId), questionId, answer })),
-    dismissQuestion: (sessionId) => after(call2("dismiss-question", { sessionId })),
-    answerView: (sessionId, viewId, action, values) => after(call2("view-reply", { sessionId: partFor(sessionId), viewId, action, values })),
-    dismissView: (sessionId) => after(call2("dismiss-view", { sessionId: partFor(sessionId) })),
-    deleteBtw: (sessionId, cardId) => after(call2("btw-delete", { sessionId, cardId })),
-    answerApproval: (id, choice) => after(call2("approval-answer", { id, choice })),
-    computerSetEnabled: (enabled) => after(call2("computer-set-enabled", { enabled })),
-    computerSetLevel: (botId, level) => after(call2("computer-set-level", { botId, level })),
-    computerRevokeApp: (botId, appKey) => after(call2("computer-revoke-app", { botId, appKey })),
-    computerProviderRetry: () => after(call2("computer-provider-retry", {})),
-    computerSystemStatus: () => call2("computer-system-status", {}),
-    computerPermission: (permission) => call2("computer-permission", { permission }),
-    computerStop: (botId, all = false) => after(call2("computer-stop", all ? { all: true } : { botId })),
-    computerTakeover: (botId) => after(call2("computer-takeover", { botId })),
-    computerHandback: (botId) => after(call2("computer-handback", { botId })),
-    computerAllowForeground: (botId) => call2("computer-allow-foreground", { botId }),
-    computerAppAnswer: (id, answer) => after(call2("computer-app-answer", { id, answer })),
-    computerHoldAnswer: (botId, { callId, outcome } = {}) => after(call2("computer-hold-answer", { botId, ...callId !== void 0 ? { callId } : {}, outcome })),
-    computerShot: (attachmentId) => call2("computer-shot", { attachmentId }),
-    computerUserActive: (idleSeconds) => call2("computer-user-active", { idleSeconds }),
-    stopMemberWork: (roomId, botId) => after(call2("stop-member-work", { roomId, botId })),
-    stopRoomWork: (roomId) => after(call2("stop-room-work", { roomId })),
-    goalDraft: (roomId, text) => after(call2("goal-draft", { roomId, text })),
-    goalControl: (roomId, goalId, action, stopWork) => after(call2("goal-control", { roomId, goalId, action, ...stopWork ? { stopWork: true } : {} })),
-    // The group task board: the user's note is kept on the task and posted to the
-    // group as a user message that calls its owner; cancelling is the panel's own.
-    taskNote: (roomId, id, text) => after(call2("task-note", { roomId, id, text })),
-    taskCancel: (roomId, id) => after(call2("task-cancel", { roomId, id })),
-    // The goal / approval island: `goalCompose` holds the room whose draft form is
-    // open, `goalOpen` the room whose goal panel is open, `approvalOpen` the room
-    // whose approval panel is open. Goal and approval panels stay mutually exclusive.
-    composeGoal: (roomId) => ui.set((state) => ({ ...state, goalCompose: roomId, goalOpen: roomId, approvalOpen: null, taskDeck: null })),
-    closeGoalCompose: () => ui.set((state) => state.goalCompose ? { ...state, goalCompose: null } : state),
-    toggleGoal: (roomId) => ui.set((state) => ({
-      ...state,
-      goalOpen: state.goalOpen === roomId ? null : roomId,
-      approvalOpen: state.goalOpen === roomId ? state.approvalOpen : null,
-      taskDeck: state.goalOpen === roomId ? state.taskDeck : null
-    })),
-    closeGoal: () => ui.set((state) => state.goalOpen ? { ...state, goalOpen: null } : state),
-    toggleApproval: (roomId) => ui.set((state) => ({
-      ...state,
-      approvalOpen: state.approvalOpen === roomId ? null : roomId,
-      goalOpen: state.approvalOpen === roomId ? state.goalOpen : null,
-      goalCompose: state.approvalOpen === roomId ? state.goalCompose : null,
-      taskDeck: state.approvalOpen === roomId ? state.taskDeck : null
-    })),
-    openApproval: (roomId) => ui.set((state) => {
-      const snap = roster.getSnapshot();
-      const activeSet = /* @__PURE__ */ new Set(["running", "waiting_work", "waiting_approval"]);
-      const room2 = snap.roomsById?.[roomId];
-      const bot = snap.byId?.[roomId];
-      const hasTasks = room2 ? (room2.members ?? []).some((id) => (snap.byId?.[id]?.tasks ?? []).some((item) => item?.roomId === room2.id && activeSet.has(item.status))) : (bot?.tasks ?? []).some((item) => !item?.roomId && activeSet.has(item.status));
-      if (hasTasks) {
-        return { ...state, taskDeck: { targetId: roomId, taskId: null, token: Date.now() }, approvalOpen: null, goalOpen: null, goalCompose: null };
+// src/client/storage.js
+var STORAGE = {
+  unread: "ds-bot:unread",
+  reactions: "ds-bot:reactions",
+  seen: "ds-bot:seen",
+  prefs: "ds-bot:prefs",
+  surface: "ds-bot:surface",
+  agentSessions: "ds-bot:agent-sessions",
+  agentForks: "ds-bot:pending-agent-forks",
+  browserWidth: "ds-bot:browser-width",
+  browserImportSource: "ds-bot:browser-import-source",
+  sidebar: "ds-bot:sidebar",
+  browsers: "ds-bot.browser.v2",
+  drafts: "ds-bot:drafts",
+  rescuedDrafts: "ds-bot:rescued-drafts"
+};
+var LEGACY_PREFIXES = ["dsh-bot:", "dsh-bot-team:"];
+var LEGACY_BROWSER_KEYS = ["ds-bot.browser.v1", "dsh-bot.browser.v1"];
+var LEGACY_THEMES = { grok: "mono" };
+function legacyKeys(key) {
+  if (key === STORAGE.browsers) return LEGACY_BROWSER_KEYS;
+  const name = key.slice(key.indexOf(":") + 1);
+  return LEGACY_PREFIXES.map((prefix) => `${prefix}${name}`);
+}
+var migrateBrowsers = (storage) => {
+  if (storage.getItem(STORAGE.browsers) !== null) {
+    for (const key of LEGACY_BROWSER_KEYS) storage.removeItem(key);
+    return;
+  }
+  for (const key of LEGACY_BROWSER_KEYS) {
+    try {
+      const value = storage.getItem(key);
+      if (value === null) continue;
+      const previous = JSON.parse(value) ?? {};
+      const tabs = Object.fromEntries(Object.entries(previous).filter(([, page]) => page && typeof page === "object").map(([botId, page]) => {
+        const tab = { id: `v1-${botId}`, url: page.url ?? "", title: page.title ?? "" };
+        return [botId, { tabs: [tab], active: tab.id }];
+      }));
+      storage.setItem(STORAGE.browsers, JSON.stringify(tabs));
+      for (const earlier of LEGACY_BROWSER_KEYS) storage.removeItem(earlier);
+      return;
+    } catch {
+    }
+  }
+};
+function migrateStorage(storage = globalThis.localStorage) {
+  for (const key of Object.values(STORAGE)) {
+    if (key === STORAGE.browsers) continue;
+    for (const legacy of legacyKeys(key)) {
+      try {
+        const value = storage.getItem(legacy);
+        if (value !== null && storage.getItem(key) === null) storage.setItem(key, value);
+        storage.removeItem(legacy);
+      } catch {
       }
-      return { ...state, approvalOpen: roomId, goalOpen: null, goalCompose: null, taskDeck: null };
-    }),
-    closeApproval: () => ui.set((state) => state.approvalOpen ? { ...state, approvalOpen: null } : state),
-    // Values go out in these requests and never come back in a response.
-    secretSet: (payload) => after(call2("secret-set", payload)),
-    secretAllow: (requestId) => after(call2("secret-allow", { requestId })),
-    secretCancel: (requestId) => after(call2("secret-cancel", { requestId })),
-    secretUpdate: (name, { scope, purpose } = {}) => after(call2("secret-update", { name, scope, purpose })),
-    secretDelete: (name) => after(call2("secret-delete", { name })),
-    secretUnlock: (passphrase) => after(call2("secret-unlock", { passphrase })),
-    secretEncrypt: (passphrase) => after(call2("secret-encrypt", { passphrase })),
-    secretDecrypt: (passphrase) => after(call2("secret-decrypt", { passphrase })),
-    connectorConnect: (id, payload = {}) => after(call2("connector-connect", { id, ...payload })),
-    connectorDisconnect: (id) => after(call2("connector-disconnect", { id })),
-    connectorRetry: (id) => after(call2("connector-retry", { id })),
-    connectorSignInCode: (id, input) => after(call2("connector-sign-in-code", { id, input })),
-    connectorCancel: (id) => after(call2("connector-cancel", { id })),
-    connectorClient: (id, clientId, clientSecret) => after(call2("connector-client", { id, clientId, clientSecret })),
-    connectorSet: (id, patch) => after(call2("connector-set", { id, ...patch })),
-    connectorAdd: (spec) => after(call2("connector-add", spec)),
-    connectorRemove: (id) => after(call2("connector-remove", { id })),
-    connectorImportScan: () => call2("connector-import-scan", {}),
-    connectorImport: (items) => after(call2("connector-import", { items })),
-    connectorRequestCancel: (requestId) => after(call2("connector-request-cancel", { requestId })),
-    mailAccountAdd: (payload) => after(call2("mail-account-add", payload)),
-    mailAccountRemove: (id) => after(call2("mail-account-remove", { id })),
-    mailRuleSet: (payload) => after(call2("mail-rule-set", payload)),
-    mailSendAnswer: (requestId, choice, extra = {}) => after(call2("mail-send-answer", { requestId, choice, ...extra })),
-    mailSignInCode: (payload) => after(call2("mail-sign-in-code", payload)),
-    // DeepSeek's own document and speech services (api.deepseek.com/v1/tools/*), each
-    // off until enabled. The status answer names the credential ref, never its value.
-    deepseekServices: () => call2("deepseek-services"),
-    // absent keeps a field, null resets it; the full status comes back with the roster.
-    setDeepseekServices: (patch) => after(call2("deepseek-services-config", patch)),
-    // One short piece of speech; the caller queues and plays the WAV it gets back.
-    synthesizeSpeech: (body, signal) => call2("deepseek-synthesize", body, signal),
-    phoneSet: (settings) => after(call2("phone-set", settings)),
-    phonePair: () => after(call2("phone-pair")),
-    phonePairCancel: () => after(call2("phone-pair-cancel")),
-    phoneRemove: (id) => after(call2("phone-remove", { id })),
-    // The answer to mcp-client-add carries the new token once; nothing else does.
-    mcpSet: (settings) => after(call2("mcp-set", settings)),
-    mcpClientAdd: (client) => after(call2("mcp-client-add", client)),
-    mcpClientUpdate: (id, patch) => after(call2("mcp-client-update", { id, ...patch })),
-    mcpClientRemove: (id) => after(call2("mcp-client-remove", { id })),
-    imAdd: (payload) => after(call2("im-add", payload)),
-    imUpdate: (id, patch) => after(call2("im-update", { id, ...patch })),
-    imRemove: (id) => after(call2("im-remove", { id })),
-    imPair: (id, senderId, allow) => after(call2("im-pair", { id, senderId, allow })),
-    imUnpair: (id, senderId) => after(call2("im-unpair", { id, senderId })),
-    imChat: (id, body) => after(call2("im-chat", { id, ...body })),
-    imRetry: (id) => after(call2("im-retry", { id })),
-    imLoginStart: (payload) => call2("im-login-start", payload),
-    imLoginWait: (payload) => call2("im-login-wait", payload),
-    saveCapability: (capability) => after(call2("capability-save", capability)),
-    deleteCapability: (name) => after(call2("capability-delete", { name })),
-    approveCapability: (name) => after(call2("capability-approve", { name })),
-    setBotCapability: (botId, name, attached, mode = "always") => after(call2("bot-capability", { botId, name, attached, mode })),
-    pluginsList: (refresh = false) => call2("plugins-list", { refresh }),
-    pluginsCatalogRefresh: () => call2("plugins-catalog-refresh", {}),
-    pluginsInstall: (body) => after(call2("plugins-install", body)),
-    pluginsToggle: (id, enabled) => after(call2("plugins-toggle", { id, enabled })),
-    pluginsRemove: (id) => after(call2("plugins-remove", { id })),
-    pluginsUpdate: (id, version) => after(call2("plugins-update", { id, ...version ? { version } : {} })),
-    pluginsSlotSet: (slot, id) => after(call2("plugins-slot-set", { slot, id })),
-    pluginsBotToggle: (id, botId, enabled) => after(call2("plugins-bot-toggle", { id, botId, enabled })),
-    pluginsCustomSave: (body) => after(call2("plugins-custom-save", body)),
-    pluginsSourceSave: (body) => after(call2("plugins-source-save", body)),
-    pluginsSourceRemove: (id) => after(call2("plugins-source-remove", { id })),
-    pluginsRetry: () => after(call2("plugins-retry", {})),
-    schedules: () => call2("schedules"),
-    scheduleCreate: (task) => call2("schedule-create", task),
-    scheduleDelete: (sessionId, id) => call2("schedule-delete", { sessionId, id }),
-    schedulePause: (sessionId, id, active) => call2("schedule-pause", { sessionId, id, active }),
-    exchange: (a, b) => call2("exchange", { a, b }).catch(() => []),
-    exchangeText: (id, a, b) => call2("exchange-text", { id, ...a !== void 0 && b !== void 0 ? { a, b } : {} }).catch(() => void 0),
-    fileText: (file) => call2("file-text", { file }).catch(() => void 0),
-    roomProgress: (roomId) => call2("room-progress", { roomId }).catch(() => []),
-    groupRows: (roomId, from, to, anchor) => call2("group-rows", { roomId, from, ...to === void 0 ? {} : { to }, ...anchor === void 0 ? {} : { anchor } }).catch(() => null),
-    groupRelayReplies: (sessionId, preview) => call2("group-relay-replies", { sessionId, preview }).catch(() => null),
-    earlier: (sessionId, cursor) => call2("earlier", { sessionId, cursor: cursor ?? null }),
-    // Hours come back in this browser's time zone, so days start at local midnight.
-    usage: () => call2("usage", { timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }),
-    // The details panel's status line: turns, speed, cache hits and context for one Bot.
-    runStats: (botId) => call2("run-stats", { botId }),
-    // `summarize` starts a summary when the entries changed; `regenerate` always does.
-    memoryView: (id, flags = {}) => call2("memory-view", { ...memoryOf(id), ...flags }),
-    memoryAsk: (id, text) => call2("memory-ask", { ...memoryOf(id), text }),
-    memoryLayer: (id, entry, always) => call2("memory-layer", { ...memoryOf(id), topic: entry.topic, text: entry.text, always }),
-    memoryMove: (id, entry, to) => call2("memory-move", { ...memoryOf(id), scope: entry.scope, topic: entry.topic, text: entry.text, to }),
-    memoryTidyUndo: (id, scope, batch) => call2("memory-tidy-undo", { ...memoryOf(id), scope, batch }),
-    memoryPin: (id, entry, pin) => call2("memory-pin", { ...memoryOf(id), scope: entry.scope, topic: entry.topic, text: entry.text, pin }),
-    memoryForget: (id, entry) => call2("memory-forget", { ...memoryOf(id), scope: entry.scope, topic: entry.topic, text: entry.text }),
-    memoryHistory: (id, before) => call2("memory-history", { ...memoryOf(id), ...before === void 0 ? {} : { before } }),
-    memoryRestore: (id, rowId) => call2("memory-restore", { ...memoryOf(id), id: rowId }),
-    diagnostics: (payload) => call2("diagnostics", payload),
-    diagnosticsLog: () => call2("diagnostics-log"),
-    diagnosticsClear: () => call2("diagnostics-clear"),
-    repoStars: () => call2("repo-stars"),
-    // A failed action away from any form (a menu, the palette) shows as a toast.
-    reportError: (error, where = "action") => {
-      noteClientError(where, error);
-      ui.set((state) => ({ ...state, toast: { text: error?.message ?? String(error), token: Date.now() } }));
-    },
-    // A message with no failure behind it (a review that expired, a window without the
-    // column): a toast, but not in the client-error log.
-    notice: (text) => ui.set((state) => ({ ...state, toast: { text, token: Date.now() } })),
-    dismissToast: (token) => ui.set((state) => state.toast && (token === void 0 || state.toast.token === token) ? { ...state, toast: null } : state),
-    noteTurnTime: (sessionId, turn, key, time) => {
-      if (sessionId === void 0 || !Number.isFinite(turn) || !Number.isFinite(time)) return;
-      turnClock.set((state) => {
-        const turns = state[sessionId] ?? {};
-        const entry = turns[turn] ?? {};
-        const next = key === "first" && entry.first !== void 0 ? Math.min(entry.first, time) : time;
-        if (entry[key] === next) return state;
-        return { ...state, [sessionId]: { ...turns, [turn]: { ...entry, [key]: next } } };
-      });
-    },
-    noteTurnPeer: (sessionId, turn, peerId) => {
-      if (sessionId === void 0 || !Number.isFinite(turn)) return;
-      turnClock.set((state) => {
-        const turns = state[sessionId] ?? {};
-        const entry = turns[turn] ?? {};
-        if (entry.peer === peerId) return state;
-        return { ...state, [sessionId]: { ...turns, [turn]: { ...entry, peer: peerId } } };
-      });
-    },
-    noteLive: (sessionId, id, entry) => {
-      if (sessionId === void 0) return;
-      live.set((state) => {
-        const own = state[sessionId] ?? {};
-        const prev = own[id];
-        if (entry === null ? prev === void 0 : prev !== void 0 && JSON.stringify({ ...prev, at: 0 }) === JSON.stringify({ ...entry, at: 0 })) return state;
-        const next = { ...own };
-        if (entry === null) delete next[id];
-        else next[id] = { ...entry, at: prev?.at ?? Date.now() };
-        return { ...state, [sessionId]: next };
-      });
-    },
-    noteCards: (sessionId, callIds, delta) => {
-      if (sessionId !== void 0) cards.set((state) => countCards(state, sessionId, callIds, delta));
-    },
-    noteHeldCard: (sessionId, kind, requestId, delta) => {
-      if (sessionId !== void 0) heldCards.set((state) => countCards(state, sessionId, [heldCardKey(kind, requestId)], delta));
-    },
-    clearLive: (sessionId) => live.set((state) => {
-      if (!state[sessionId]) return state;
-      const next = { ...state };
-      delete next[sessionId];
-      return next;
-    })
-  };
-}
-
-// src/client/themes.js
-var THEME_KEYS = ["bg", "sidebar", "bubble", "card", "text", "user", "userText", "accent"];
-var THEMES = {
-  deepseek: {
-    label: "DeepSeek",
-    light: { bg: "#fcfcfc", sidebar: "#f7f7f7", bubble: "#eeeeee", card: "#ffffff", text: "#141414", user: "#070707", userText: "#fcfcfc", accent: "#4d6bfe" },
-    dark: { bg: "#141414", sidebar: "#1b1b1b", bubble: "#262626", card: "#1f1f1f", text: "#f2f2f2", user: "#f2f2f2", userText: "#141414", accent: "#5b7bff" }
-  },
-  mono: {
-    label: "Mono",
-    light: { bg: "#ffffff", sidebar: "#f9f9f9", bubble: "#f0f0f0", card: "#ffffff", text: "#0d0d0d", user: "#0d0d0d", userText: "#ffffff", accent: "#0d0d0d" },
-    dark: { bg: "#0f0f0f", sidebar: "#171717", bubble: "#242424", card: "#1c1c1c", text: "#f4f4f4", user: "#f4f4f4", userText: "#0f0f0f", accent: "#f4f4f4" }
-  },
-  paper: {
-    label: "Paper",
-    light: { bg: "#faf9f5", sidebar: "#f3f0e8", bubble: "#ebe7dc", card: "#ffffff", text: "#1f1e1b", user: "#2b2a26", userText: "#faf9f5", accent: "#d97757" },
-    dark: { bg: "#1f1e1b", sidebar: "#262521", bubble: "#34322d", card: "#2a2925", text: "#f3f0e8", user: "#f3f0e8", userText: "#1f1e1b", accent: "#e08a6d" }
-  },
-  moonlight: {
-    label: "Moonlight",
-    light: { bg: "#f7f9fc", sidebar: "#eef2f8", bubble: "#e5ebf5", card: "#ffffff", text: "#121826", user: "#1e3a8a", userText: "#ffffff", accent: "#1e86ff" },
-    dark: { bg: "#0b1020", sidebar: "#10172a", bubble: "#1a2340", card: "#141c33", text: "#e8edf7", user: "#3b6fd8", userText: "#ffffff", accent: "#4f9dff" }
-  }
-};
-var DARK_INK = "#141414";
-var accentInk = (accent) => (luminance(accent) + 0.05) ** 2 > 1.05 * (luminance(DARK_INK) + 0.05) ? DARK_INK : "#ffffff";
-var rgba = (hex, alpha) => `rgba(${[1, 3, 5].map((index) => parseInt(hex.slice(index, index + 2), 16)).join(",")},${alpha})`;
-function themeVars(mode, dark, accent = mode.accent) {
-  return {
-    "--bt-ink": mode.text,
-    "--bt-ink-2": rgba(mode.text, 0.6),
-    "--bt-ink-3": rgba(mode.text, 0.36),
-    "--bt-bubble": mode.bubble,
-    "--bt-sidebar": `var(--bt-skin-sidebar, ${mode.sidebar})`,
-    "--bt-main": `var(--bt-skin-main, ${mode.bg})`,
-    "--bt-card": `var(--bt-skin-card, ${mode.card})`,
-    "--bt-line": rgba(mode.text, 0.08),
-    "--bt-line-2": rgba(mode.text, 0.15),
-    "--bt-hover": dark ? "rgba(160,160,160,.12)" : "rgba(119,119,119,.09)",
-    "--bt-active": dark ? "rgba(160,160,160,.2)" : "rgba(119,119,119,.17)",
-    "--bt-accent": accent,
-    "--bt-accent-ink": accentInk(accent),
-    "--bt-user": mode.user,
-    "--bt-user-ink": mode.userText,
-    "--bt-tag-bg": rgba(mode.text, dark ? 0.09 : 0.06),
-    "--bt-tag-ink": rgba(mode.text, 0.58),
-    // Warning text and icon: readable on the card in both modes (ui-standard 2.3).
-    "--bt-warn": dark ? "#f0b84a" : "#8a5a00"
-  };
-}
-var declarations = (vars) => Object.entries(vars).map(([name, value]) => `${name}:${value}`).join(";");
-var darkAccent = (accent) => {
-  const ink = ACCENT_INKS.find((id) => INKS[id][0] === accent);
-  return ink === void 0 ? accent : INKS[ink][1];
-};
-var themeCss = (theme, accent) => `html body{${declarations(themeVars(theme.light, false, accent ?? theme.light.accent))}}
-html body[data-ds-dark-theme]{${declarations(themeVars(theme.dark, true, darkAccent(accent) ?? theme.dark.accent))}}
-${theme.css ?? ""}`;
-var shellTokens = ({ light, dark }) => ({
-  "--dsw-alias-bg-base": { light: light.bg, dark: dark.bg },
-  "--dsw-specific-sidebar-fill": { light: light.sidebar, dark: dark.sidebar },
-  "--dsw-specific-input-major": { light: light.bg, dark: dark.sidebar },
-  "--dsw-alias-label-primary": { light: light.text, dark: dark.text },
-  "--dsw-alias-label-secondary": { light: rgba(light.text, 0.74), dark: rgba(dark.text, 0.74) },
-  "--dsw-alias-label-tertiary": { light: rgba(light.text, 0.6), dark: rgba(dark.text, 0.6) }
-});
-var customThemes = {};
-var registry = createSource(0);
-var isPoint = (point) => Array.isArray(point) && point.length === 2 && point.every(Number.isFinite);
-function registerShape(id, shape) {
-  if (typeof id !== "string" || !/^[a-z][\w-]{0,31}$/.test(id)) throw new Error("Shape ids are lowercase words");
-  if (typeof shape?.body !== "function" || typeof shape.body("#000") !== "string") throw new Error("A shape needs body(paint) returning SVG markup");
-  const at = shape.eyes?.at;
-  if (!Array.isArray(at) || at.length !== 2 || !at.every(isPoint)) throw new Error("A shape needs eyes.at: two [x, y] points");
-  const size = Number.isFinite(shape.size) && shape.size > 0 ? shape.size : 100;
-  const pick2 = (key, fallback) => Number.isFinite(shape.eyes[key]) ? shape.eyes[key] : fallback;
-  const eyes = at.map(([x, y]) => [x, y, pick2("w", size * 0.1), pick2("h", size * 0.23), pick2("tilt", -27)]);
-  const previous = SHAPES[id];
-  SHAPES[id] = {
-    label: String(shape.label ?? id),
-    size,
-    body: shape.body,
-    eyes,
-    ...typeof shape.wrap === "string" ? { wrap: shape.wrap } : {}
-  };
-  const refresh = () => {
-    markupCache.clear();
-    maskCache.delete(id);
-    registry.set((value) => value + 1);
-  };
-  refresh();
-  return () => {
-    if (previous) SHAPES[id] = previous;
-    else delete SHAPES[id];
-    refresh();
-  };
-}
-function registerTheme(id, theme) {
-  if (typeof id !== "string" || !/^[a-z][\w-]{0,31}$/.test(id)) throw new Error("Theme ids are lowercase words");
-  for (const mode of ["light", "dark"]) {
-    for (const key of THEME_KEYS) if (!isHex(theme?.[mode]?.[key])) throw new Error(`Theme ${mode}.${key} must be a #rrggbb color`);
-  }
-  const previous = customThemes[id];
-  customThemes[id] = { label: String(theme.label ?? id), light: theme.light, dark: theme.dark, css: typeof theme.css === "string" ? theme.css : "" };
-  registry.set((value) => value + 1);
-  return () => {
-    if (previous) customThemes[id] = previous;
-    else delete customThemes[id];
-    registry.set((value) => value + 1);
-  };
-}
-var allThemes = () => ({ ...THEMES, ...customThemes });
-var MESSAGE_WIDTH = { min: 50, max: 100, step: 5 };
-var percent = (value, initial) => Number.isInteger(value) && value >= MESSAGE_WIDTH.min && value <= MESSAGE_WIDTH.max ? value : initial;
-var layoutOf = (prefs) => prefs?.layout === "flat" ? "flat" : "bubble";
-var effectsOf = (prefs) => prefs?.effects === "reduced" || prefs?.effects === "off" ? prefs.effects : "full";
-var thinkingShown = (prefs) => prefs?.thinking === true;
-var widthOf = (prefs) => percent(prefs?.width, 80);
-var flatWidthOf = (prefs) => percent(prefs?.flatWidth, 100);
-
-// src/client/skin.js
-var MIN_SKIN_ALPHA = 0.7;
-var SKIN_VARIABLES = ["--bt-skin-main", "--bt-skin-sidebar", "--bt-skin-card"];
-var HEX = /^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
-var RGB = /^rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)(?:\s*[,/]\s*([\d.]+)(%?))?\s*\)$/i;
-function parseColor(value) {
-  const text = String(value ?? "").trim();
-  const hex = HEX.exec(text);
-  if (hex !== null) {
-    const digits = hex[1];
-    const pair = (at) => {
-      const part = digits.length <= 4 ? digits[at] + digits[at] : digits.slice(at * 2, at * 2 + 2);
-      return Number.parseInt(part, 16);
-    };
-    const alpha = digits.length === 4 ? pair(3) / 255 : digits.length === 8 ? pair(3) / 255 : 1;
-    return { r: pair(0), g: pair(1), b: pair(2), a: alpha };
-  }
-  const rgb = RGB.exec(text);
-  if (rgb !== null) {
-    const alpha = rgb[4] === void 0 ? 1 : rgb[5] === "%" ? Number(rgb[4]) / 100 : Number(rgb[4]);
-    return { r: Number(rgb[1]), g: Number(rgb[2]), b: Number(rgb[3]), a: Math.max(0, Math.min(1, alpha)) };
-  }
-  return void 0;
-}
-var hex2 = (value) => Math.max(0, Math.min(255, Math.round(value))).toString(16).padStart(2, "0");
-var withAlpha = ({ r, g, b }, a) => `#${hex2(r)}${hex2(g)}${hex2(b)}${hex2(a * 255)}`;
-var alphaOf = (value) => parseColor(value)?.a ?? 1;
-function skinSurfaceVars({ main, sidebar, colors }, { minAlpha = MIN_SKIN_ALPHA } = {}) {
-  const vars = {};
-  const floor = (alpha) => Math.min(1, Math.max(alpha, minAlpha));
-  const mainAlpha = alphaOf(main);
-  const sidebarAlpha = alphaOf(sidebar);
-  if (mainAlpha < 1) {
-    const alpha = floor(mainAlpha);
-    vars["--bt-skin-main"] = withAlpha(parseColor(colors.main) ?? { r: 252, g: 252, b: 252 }, alpha);
-    vars["--bt-skin-card"] = withAlpha(parseColor(colors.card) ?? { r: 255, g: 255, b: 255 }, alpha);
-  }
-  if (sidebarAlpha < 1) {
-    vars["--bt-skin-sidebar"] = withAlpha(parseColor(colors.sidebar) ?? { r: 247, g: 247, b: 247 }, floor(sidebarAlpha));
-  }
-  return vars;
-}
-function over(surface, alpha, wallpaper) {
-  const back = parseColor(wallpaper) ?? { r: 255, g: 255, b: 255, a: 1 };
-  return { r: surface.r * alpha + back.r * (1 - alpha), g: surface.g * alpha + back.g * (1 - alpha), b: surface.b * alpha + back.b * (1 - alpha), a: 1 };
-}
-var channel = (value) => {
-  const c = value / 255;
-  return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-};
-var luminance2 = ({ r, g, b }) => 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
-var contrastRatio = (foreground, background) => {
-  const a = luminance2(foreground);
-  const b = luminance2(background);
-  return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
-};
-function readSkinSurfaceVars(doc, theme, { minAlpha = MIN_SKIN_ALPHA } = {}) {
-  const body = doc?.body;
-  if (body === void 0) return {};
-  const dark = body.hasAttribute?.("data-ds-dark-theme") === true;
-  const mode = dark ? theme.dark : theme.light;
-  const colors = { main: mode.bg, sidebar: mode.sidebar, card: mode.card };
-  const style = doc.defaultView?.getComputedStyle?.(body);
-  const token = (name) => {
-    const value = style?.getPropertyValue?.(name)?.trim() ?? "";
-    if (value === "" || parseColor(value) !== void 0) return value;
-    const canvas = doc.createElement("canvas");
-    canvas.width = canvas.height = 1;
-    const paint = canvas.getContext("2d");
-    paint.fillStyle = value;
-    paint.fillRect(0, 0, 1, 1);
-    const [r, g, b, a] = paint.getImageData(0, 0, 1, 1).data;
-    return withAlpha({ r, g, b }, a / 255);
-  };
-  return skinSurfaceVars({ main: token("--dsw-alias-bg-base"), sidebar: token("--dsw-specific-sidebar-fill"), colors }, { minAlpha });
-}
-function writeSkinSurfaceVars(doc, read) {
-  const body = doc?.body;
-  const apply2 = () => {
-    if (body === void 0) return;
-    const vars = read() ?? {};
-    for (const name of SKIN_VARIABLES) {
-      if (vars[name] === void 0) body.style.removeProperty(name);
-      else if (body.style.getPropertyValue?.(name) !== vars[name]) body.style.setProperty(name, vars[name]);
     }
-  };
-  return {
-    apply: apply2,
-    clear() {
-      if (body === void 0) return;
-      for (const name of SKIN_VARIABLES) body.style.removeProperty(name);
+  }
+  try {
+    migrateBrowsers(storage);
+  } catch {
+  }
+  try {
+    const prefs = JSON.parse(storage.getItem(STORAGE.prefs) ?? "null");
+    if (prefs && Object.hasOwn(LEGACY_THEMES, prefs.theme ?? "")) {
+      storage.setItem(STORAGE.prefs, JSON.stringify({ ...prefs, theme: LEGACY_THEMES[prefs.theme] }));
     }
-  };
+  } catch {
+  }
 }
 
 // src/shared/mentions.js
@@ -18265,6 +17808,738 @@ function runStatsOf(values) {
   return shown;
 }
 
+// src/client/draft-keep.js
+var NO_FILES = [];
+var keptFiles = /* @__PURE__ */ new Map();
+var readTexts = (storage) => {
+  try {
+    const value = JSON.parse(storage?.getItem(STORAGE.drafts) ?? "{}");
+    return value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
+  } catch {
+    return {};
+  }
+};
+var writeTexts = (storage, value) => {
+  try {
+    storage?.setItem(STORAGE.drafts, JSON.stringify(value));
+  } catch {
+  }
+};
+var textEntry = (value) => value !== null && typeof value === "object" && typeof value.part === "string" && typeof value.text === "string";
+function chatOfSession(roster, sessionId) {
+  if (typeof sessionId !== "string" || sessionId === "") return void 0;
+  const bots = Object.values(roster?.byId ?? {});
+  const rooms = Object.values(roster?.roomsById ?? {});
+  const bot = roster?.byId?.[sessionId] ?? bots.find((item) => currentPart(item) === sessionId || item.parts?.includes(sessionId));
+  if (bot !== void 0) return { id: bot.id, part: currentPart(bot) };
+  const room2 = roster?.roomsById?.[sessionId] ?? rooms.find((item) => (item.sessionId ?? item.id) === sessionId || item.ownParts?.includes(sessionId));
+  if (room2 !== void 0) return { id: room2.id, part: room2.sessionId ?? room2.id };
+  return void 0;
+}
+function keepDraft({ chatId, part, text, files }, storage = globalThis.localStorage) {
+  if (files.length === 0) keptFiles.delete(chatId);
+  else keptFiles.set(chatId, { part, files: [...files] });
+  const texts2 = readTexts(storage);
+  const before = texts2[chatId];
+  if (text === "") {
+    if (before === void 0) return;
+    delete texts2[chatId];
+  } else {
+    if (before?.part === part && before?.text === text) return;
+    texts2[chatId] = { part, text };
+  }
+  writeTexts(storage, texts2);
+}
+function takeDraft({ chatId, part, text, attached }, storage = globalThis.localStorage) {
+  const kept = keptFiles.get(chatId);
+  const files = attached === 0 && kept !== void 0 ? kept.files : NO_FILES;
+  const entry = readTexts(storage)[chatId];
+  const carried = textEntry(entry) && entry.part !== part && text.trim() === "" ? entry.text : "";
+  return { text: carried, files, from: files.length > 0 ? kept.part : carried === "" ? void 0 : entry.part };
+}
+function pruneDrafts(gone, storage = globalThis.localStorage) {
+  if (gone.length === 0) return;
+  for (const chatId of gone) keptFiles.delete(chatId);
+  const texts2 = readTexts(storage);
+  const listed = gone.filter((chatId) => texts2[chatId] !== void 0);
+  if (listed.length === 0) return;
+  for (const chatId of listed) delete texts2[chatId];
+  writeTexts(storage, texts2);
+}
+function forgetKeptFiles() {
+  keptFiles.clear();
+}
+
+// src/client/team-actions.js
+function teamActions({ call: call2, after, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded, questionDrafts }) {
+  const memoryOf = (id) => roster.getSnapshot().roomsById[id] ? { roomId: id } : { botId: id };
+  let pastes = 0;
+  const pasteState = (state, sessionId, blocks) => ({ ...state, paste: { ...state.paste, [sessionId]: blocks } });
+  const yieldTo = (state, view) => state.panelYield === true || panelFolded?.(view) === true;
+  const openSideChat = (sessionId, chatId) => {
+    ui.set((state) => ({ ...state, details: sessionId, view: "side", side: chatId ?? null, renaming: false, tab: null, panelYield: yieldTo(state, "side") }));
+  };
+  const openSettings = (page = "general", id = null) => {
+    ui.set((state) => ({ ...state, settings: { page, id }, menu: null, palette: null, newChat: null }));
+  };
+  return {
+    // The pane starts at the rail's edge, so a floating drawer would stick out from under it.
+    openNewChat: (mode, sectionId = null) => {
+      ui.set((state) => ({ ...state, newChat: mode, newChatSection: sectionId ?? null, menu: null, palette: null, leftDrawer: false }));
+    },
+    openPalette: (query = "") => {
+      ui.set((state) => ({ ...state, palette: { query, token: Date.now() }, newChat: null, menu: null }));
+    },
+    // The token keeps a late exit timer from closing a palette opened again since.
+    closePalette: (token) => {
+      ui.set((state) => state.palette && (token === void 0 || state.palette.token === token) ? { ...state, palette: null } : state);
+    },
+    // Searching one group's own history, from its header.
+    openGroupSearch: (roomId) => {
+      if (roomId) ui.set((state) => ({ ...state, groupSearch: { roomId, token: Date.now() }, palette: null, newChat: null, menu: null }));
+    },
+    closeGroupSearch: (token) => {
+      ui.set((state) => state.groupSearch && (token === void 0 || state.groupSearch.token === token) ? { ...state, groupSearch: null } : state);
+    },
+    openExchange: (a, b) => {
+      if (a && b) ui.set((state) => ({ ...state, exchange: [a, b] }));
+    },
+    openVoice: (id) => {
+      if (id) ui.set((state) => ({ ...state, voice: id, menu: null }));
+    },
+    closeVoice: () => {
+      ui.set((state) => state.voice ? { ...state, voice: null } : state);
+    },
+    toggleDetails: (id, force) => {
+      ui.set((state) => {
+        const details = force || state.details !== id || state.view !== "details" ? id : null;
+        if (details === null && panelFolded?.("details") === true) return { ...state, renaming: false, tab: null, details: id, view: "details", panelYield: true };
+        return { ...state, renaming: false, tab: null, details, view: "details" };
+      });
+    },
+    // The open panel follows the main view; a subject with no browser (a group
+    // chat, an outside Session) settles on the details view. So does one that
+    // does not own the open side chat.
+    followPanel: (id) => {
+      ui.set((state) => {
+        if (!state.details || state.details === id) return state;
+        const snap = roster.getSnapshot();
+        const view = state.view === "browser" && snap.byId[id] === void 0 ? "details" : state.view === "side" && !(snap.sideChats?.[snap.byId[id]?.id] ?? []).some((chat) => chat?.id === state.side) ? "details" : state.view === "task" ? "details" : state.view;
+        return { ...state, details: id, view, task: null, renaming: false, tab: null };
+      });
+    },
+    showDetails: (id, tab = null) => {
+      ui.set((state) => ({ ...state, details: id, view: "details", renaming: false, tab, panelYield: yieldTo(state, "details") }));
+    },
+    // Opening the conversation would move focus to its composer and blur the name field.
+    renameBot: (id) => {
+      ui.set((state) => ({ ...state, details: id, view: "details", renaming: true, tab: null, panelYield: yieldTo(state, "details") }));
+    },
+    openSettings,
+    // DS Bot's own Models page: the providers DSH serves, their keys and models.
+    openModels: () => openSettings("models"),
+    closeSettings: () => {
+      ui.set((state) => state.settings ? { ...state, settings: null } : state);
+    },
+    openMemory: (id) => {
+      ui.set((state) => ({ ...state, memory: id, menu: null, palette: null }));
+    },
+    closeMemory: () => {
+      ui.set((state) => state.memory ? { ...state, memory: null } : state);
+    },
+    openConnectors: () => {
+      ui.set((state) => ({ ...state, settings: { page: "connectors", id: null }, menu: null, palette: null, newChat: null }));
+    },
+    hasPlugins: () => true,
+    openPlugins: (focus = null) => openSettings("plugins", focus),
+    setPanelView: (view) => {
+      if (view !== "details" && view !== "browser" && view !== "side" && view !== "task") return;
+      ui.set((state) => state.details && state.view !== view ? { ...state, view, ...view === "details" ? { tab: null } : {}, panelYield: yieldTo(state, view) } : state);
+    },
+    openTaskDeck: (targetId, taskId = null) => {
+      if (!targetId) return;
+      ui.set((state) => ({ ...state, taskDeck: { targetId, taskId, token: Date.now() }, approvalOpen: null, goalOpen: null, goalCompose: null, menu: null, palette: null }));
+    },
+    toggleTaskDeck: (targetId) => {
+      if (!targetId) return;
+      ui.set((state) => state.taskDeck?.targetId === targetId ? { ...state, taskDeck: null } : { ...state, taskDeck: { targetId, taskId: null, token: Date.now() }, approvalOpen: null, goalOpen: null, goalCompose: null, menu: null, palette: null });
+    },
+    closeTaskDeck: () => {
+      ui.set((state) => state.taskDeck ? { ...state, taskDeck: null } : state);
+    },
+    openTask: (sessionId, botId, taskId) => {
+      if (!sessionId || !botId || !taskId) return;
+      ui.set((state) => ({ ...state, details: sessionId, view: "task", task: { botId, taskId }, renaming: false, tab: null, panelYield: yieldTo(state, "details") }));
+    },
+    closeTask: () => {
+      ui.set((state) => state.details && state.view === "task" ? { ...state, view: "details", task: null, tab: "tasks" } : { ...state, task: null });
+    },
+    stopTask: (botId, taskId) => after(call2("bot-stop-task", { botId, taskId })),
+    sendTask: (botId, taskId, text) => after(call2("bot-task-send", { botId, taskId, text })),
+    readTask: (botId, taskId, cursor, steps = false) => call2("bot-task-read", { botId, taskId, ...cursor ? { cursor } : {}, ...steps ? { steps: true } : {} }),
+    // A side chat on the panel's own view, opened from the strip, the `···`
+    // menus or `/side`. Closing the panel keeps the chats; only a tab's × deletes.
+    openSideChat,
+    // The roster is pulled before the panel opens on a new chat: a view on a chat
+    // the roster does not hold yet folds back into details.
+    newSideChat: async (sessionId) => {
+      const value = await after(call2("side-new", { sessionId }));
+      openSideChat(sessionId, value?.chatId);
+      return value;
+    },
+    sideCall: (name, body) => after(call2(name, body)),
+    askSide: (sessionId, chatId, text) => after(call2("side-ask", { sessionId, chatId, text })),
+    cancelSide: (chatId, entryId) => after(call2("side-cancel", { chatId, entryId })),
+    closeSideChat: (chatId) => {
+      ui.set((state) => state.details && state.view === "side" && state.side === chatId ? { ...state, view: "details", side: null } : state);
+      return after(call2("side-close", { chatId }));
+    },
+    closePanel: () => {
+      ui.set((state) => state.details ? { ...state, details: null, view: "details", renaming: false, tab: null, side: null, task: null } : state);
+    },
+    quote: (sessionId, text) => ui.set((state) => ({ ...state, quote: { sessionId, text, token: Date.now() } })),
+    // A long paste becomes a card; its text stays here until it goes back into the box.
+    addPaste: (sessionId, text, name) => {
+      pastes += 1;
+      const block = { id: `paste-${pastes}`, text, name, attachmentId: null };
+      ui.set((state) => pasteState(state, sessionId, [...state.paste?.[sessionId] ?? [], block]));
+      return block.id;
+    },
+    // The shell attachment whose label is that waiting card's own file name.
+    linkPastes: (sessionId, links) => ui.set((state) => {
+      const blocks = state.paste?.[sessionId] ?? [];
+      const byBlock = /* @__PURE__ */ new Map();
+      for (const link of links) byBlock.set(link.blockId, link.attachmentId);
+      const linked = blocks.map((block) => {
+        if (block.attachmentId !== null) return block;
+        const id = byBlock.get(block.id);
+        return id === void 0 ? block : { ...block, attachmentId: id };
+      });
+      return linked.every((block, index) => block === blocks[index]) ? state : pasteState(state, sessionId, linked);
+    }),
+    // Files put back into a draft get new attachment ids: the cards of `from` wait for
+    // their files again in `to`, and bind by name as on a paste.
+    reopenPastes: (from, to) => ui.set((state) => {
+      const blocks = state.paste?.[from] ?? [];
+      if (blocks.length === 0) return state;
+      const waiting = blocks.map((block) => ({ ...block, attachmentId: null }));
+      if (from === to) return pasteState(state, to, waiting);
+      const { [from]: _left, ...rest } = state.paste;
+      return { ...state, paste: { ...rest, [to]: [...rest[to] ?? [], ...waiting] } };
+    }),
+    unlinkPastes: (sessionId, blockIds) => ui.set((state) => {
+      const blocks = state.paste?.[sessionId] ?? [];
+      const waiting = blocks.map((block) => blockIds.includes(block.id) && block.attachmentId !== null ? { ...block, attachmentId: null } : block);
+      return waiting.every((block, index) => block === blocks[index]) ? state : pasteState(state, sessionId, waiting);
+    }),
+    removePaste: (sessionId, blockIds) => ui.set((state) => {
+      const blocks = state.paste?.[sessionId] ?? [];
+      const kept = blocks.filter((block) => !blockIds.includes(block.id));
+      return kept.length === blocks.length ? state : pasteState(state, sessionId, kept);
+    }),
+    clearQuote: (token) => ui.set((state) => state.quote?.token === token ? { ...state, quote: null } : state),
+    setFlags: (id, flags) => after(call2("set-flags", { id, ...flags })),
+    saveSection: (payload) => after(call2("section-save", payload)),
+    reorderSections: (ids) => after(call2("section-order", { ids })),
+    deleteSection: (id) => after(call2("section-delete", { id })),
+    beginSectionRename: (id) => ui.set((state) => ({ ...state, renameSection: id })),
+    endSectionRename: () => ui.set((state) => state.renameSection ? { ...state, renameSection: null } : state),
+    deleteRoom: (id) => after(call2("delete-room", { id })),
+    openMenu: (menu) => {
+      ui.set((state) => ({ ...state, menu, palette: null }));
+    },
+    closeMenu: () => {
+      ui.set((state) => state.menu ? { ...state, menu: null } : state);
+    },
+    closeNewChat: () => {
+      ui.set((state) => state.newChat || state.newChatSection ? { ...state, newChat: null, newChatSection: null } : state);
+    },
+    closeExchange: () => {
+      ui.set((state) => state.exchange ? { ...state, exchange: null } : state);
+    },
+    closeOverlay: () => {
+      ui.set((state) => ({ ...state, newChat: null, newChatSection: null, exchange: null, details: state.newChat || state.exchange ? state.details : null }));
+    },
+    createBot: (payload) => after(call2("create-bot", payload)),
+    // The avatar library: photos the user imported once, kept by the host.
+    avatarLibrary: (options = {}) => call2("avatar-library", options),
+    importAvatars: (items) => call2("avatar-import", { items }),
+    deleteAvatar: (id) => call2("avatar-delete", { id }),
+    createRoom: (members, options = {}) => after(call2("create-room", { members, ...options })),
+    updateBot: (id, patch) => after(call2("update-bot", { id, ...patch })),
+    // Give up one wait the Bot has on a hand-off that will not come back.
+    abandonWork: (id) => after(call2("abandon-work", { id })),
+    resumeWork: (id) => after(call2("resume-work", { id })),
+    cancelWork: (id, reason) => after(call2("cancel-work", { id, ...reason ? { reason } : {} })),
+    resumeRoomPause: (roomId) => after(call2("resume-room-pause", { roomId })),
+    refreshModels: () => after(call2("models")).catch(() => {
+    }),
+    // One local agent's models: the first look starts its CLI, later ones read what it said.
+    agentModels: (route) => after(call2("local-agent-models", { route })).catch(() => {
+    }),
+    efforts: (ref) => call2("efforts", { ref }),
+    // Model providers and their API keys; DSH keeps them, and a key only travels to the host.
+    providers: () => call2("providers"),
+    chatgpt: () => call2("chatgpt"),
+    chatgptSignIn: (body) => call2("chatgpt-sign-in", body),
+    chatgptCancel: () => call2("chatgpt-cancel"),
+    chatgptSignOut: () => call2("chatgpt-sign-out"),
+    chatgptModels: () => call2("chatgpt-models"),
+    setProviderKey: (provider, value) => after(call2("provider-key", { provider, value })),
+    addProvider: (body) => after(call2("provider-add", body)),
+    providerModels: (body) => call2("provider-models", body),
+    saveProviderModels: (body) => call2("provider-models-save", body),
+    removeProvider: (provider) => after(call2("provider-remove", { provider })),
+    // After a failed turn: the Bot answers the user's last unanswered message, which is never sent again.
+    resume: (botId) => after(call2("resume", { botId })),
+    folders: () => call2("folders"),
+    folderPick: () => call2("folder-pick"),
+    folderList: (path2) => call2("folder-list", { path: path2 ?? "" }),
+    setTeamWorkspace: (path2) => after(call2("team-workspace", { path: path2 })),
+    deleteBot: (id) => after(call2("delete-bot", { id })),
+    releasePrivate: (id) => after(call2("private-release", { id })),
+    duplicateBot: (id) => after(call2("duplicate-bot", { id })),
+    setPrefs: (prefs) => after(call2("set-prefs", prefs)),
+    setMain: (id, main = true, options = {}) => after(call2("set-main", { id, main, ...options })),
+    updateRoom: (id, patch) => after(call2("update-room", { id, ...patch })),
+    roomTodoCheck: (roomId, id, done) => after(call2("room-todo", { roomId, id, done })),
+    roomTodoRemove: (roomId, id) => after(call2("room-todo", { roomId, id, action: "remove" })),
+    roomTodoClear: (roomId) => after(call2("room-todo", { roomId, action: "clear" })),
+    send: (sessionId, text) => after(call2("send", { sessionId: partFor(sessionId), text })),
+    answerQuestion: (sessionId, questionId, answer) => after(call2("answer-question", { sessionId: partFor(sessionId), questionId, answer })),
+    dismissQuestion: (sessionId) => after(call2("dismiss-question", { sessionId })),
+    answerView: (sessionId, viewId, action, values) => after(call2("view-reply", { sessionId: partFor(sessionId), viewId, action, values })),
+    dismissView: (sessionId) => after(call2("dismiss-view", { sessionId: partFor(sessionId) })),
+    deleteBtw: (sessionId, cardId) => after(call2("btw-delete", { sessionId, cardId })),
+    answerApproval: (id, choice) => after(call2("approval-answer", { id, choice })),
+    computerSetEnabled: (enabled) => after(call2("computer-set-enabled", { enabled })),
+    computerSetLevel: (botId, level) => after(call2("computer-set-level", { botId, level })),
+    computerRevokeApp: (botId, appKey) => after(call2("computer-revoke-app", { botId, appKey })),
+    computerProviderRetry: () => after(call2("computer-provider-retry", {})),
+    computerSystemStatus: () => call2("computer-system-status", {}),
+    computerPermission: (permission) => call2("computer-permission", { permission }),
+    computerStop: (botId, all = false) => after(call2("computer-stop", all ? { all: true } : { botId })),
+    computerTakeover: (botId) => after(call2("computer-takeover", { botId })),
+    computerHandback: (botId) => after(call2("computer-handback", { botId })),
+    computerAllowForeground: (botId) => call2("computer-allow-foreground", { botId }),
+    computerAppAnswer: (id, answer) => after(call2("computer-app-answer", { id, answer })),
+    computerHoldAnswer: (botId, { callId, outcome } = {}) => after(call2("computer-hold-answer", { botId, ...callId !== void 0 ? { callId } : {}, outcome })),
+    computerShot: (attachmentId) => call2("computer-shot", { attachmentId }),
+    computerUserActive: (idleSeconds) => call2("computer-user-active", { idleSeconds }),
+    stopMemberWork: (roomId, botId) => after(call2("stop-member-work", { roomId, botId })),
+    stopRoomWork: (roomId) => after(call2("stop-room-work", { roomId })),
+    goalDraft: (roomId, text) => after(call2("goal-draft", { roomId, text })),
+    goalControl: (roomId, goalId, action, stopWork) => after(call2("goal-control", { roomId, goalId, action, ...stopWork ? { stopWork: true } : {} })),
+    // The group task board: the user's note is kept on the task and posted to the
+    // group as a user message that calls its owner; cancelling is the panel's own.
+    taskNote: (roomId, id, text) => after(call2("task-note", { roomId, id, text })),
+    taskCancel: (roomId, id) => after(call2("task-cancel", { roomId, id })),
+    // The goal / approval island: `goalCompose` holds the room whose draft form is
+    // open, `goalOpen` the room whose goal panel is open, `approvalOpen` the room
+    // whose approval panel is open. Goal and approval panels stay mutually exclusive.
+    composeGoal: (roomId) => ui.set((state) => ({ ...state, goalCompose: roomId, goalOpen: roomId, approvalOpen: null, taskDeck: null })),
+    closeGoalCompose: () => ui.set((state) => state.goalCompose ? { ...state, goalCompose: null } : state),
+    toggleGoal: (roomId) => ui.set((state) => ({
+      ...state,
+      goalOpen: state.goalOpen === roomId ? null : roomId,
+      approvalOpen: state.goalOpen === roomId ? state.approvalOpen : null,
+      taskDeck: state.goalOpen === roomId ? state.taskDeck : null
+    })),
+    closeGoal: () => ui.set((state) => state.goalOpen ? { ...state, goalOpen: null } : state),
+    toggleApproval: (roomId) => ui.set((state) => ({
+      ...state,
+      approvalOpen: state.approvalOpen === roomId ? null : roomId,
+      goalOpen: state.approvalOpen === roomId ? state.goalOpen : null,
+      goalCompose: state.approvalOpen === roomId ? state.goalCompose : null,
+      taskDeck: state.approvalOpen === roomId ? state.taskDeck : null
+    })),
+    openApproval: (roomId) => ui.set((state) => {
+      const snap = roster.getSnapshot();
+      const activeSet = /* @__PURE__ */ new Set(["running", "waiting_work", "waiting_approval"]);
+      const room2 = snap.roomsById?.[roomId];
+      const bot = snap.byId?.[roomId];
+      const hasTasks = room2 ? (room2.members ?? []).some((id) => (snap.byId?.[id]?.tasks ?? []).some((item) => item?.roomId === room2.id && activeSet.has(item.status))) : (bot?.tasks ?? []).some((item) => !item?.roomId && activeSet.has(item.status));
+      if (hasTasks) {
+        return { ...state, taskDeck: { targetId: roomId, taskId: null, token: Date.now() }, approvalOpen: null, goalOpen: null, goalCompose: null };
+      }
+      return { ...state, approvalOpen: roomId, goalOpen: null, goalCompose: null, taskDeck: null };
+    }),
+    closeApproval: () => ui.set((state) => state.approvalOpen ? { ...state, approvalOpen: null } : state),
+    // Values go out in these requests and never come back in a response.
+    secretSet: (payload) => after(call2("secret-set", payload)),
+    secretAllow: (requestId) => after(call2("secret-allow", { requestId })),
+    secretCancel: (requestId) => after(call2("secret-cancel", { requestId })),
+    secretUpdate: (name, { scope, purpose } = {}) => after(call2("secret-update", { name, scope, purpose })),
+    secretDelete: (name) => after(call2("secret-delete", { name })),
+    secretUnlock: (passphrase) => after(call2("secret-unlock", { passphrase })),
+    secretEncrypt: (passphrase) => after(call2("secret-encrypt", { passphrase })),
+    secretDecrypt: (passphrase) => after(call2("secret-decrypt", { passphrase })),
+    connectorConnect: (id, payload = {}) => after(call2("connector-connect", { id, ...payload })),
+    connectorDisconnect: (id) => after(call2("connector-disconnect", { id })),
+    connectorRetry: (id) => after(call2("connector-retry", { id })),
+    connectorSignInCode: (id, input) => after(call2("connector-sign-in-code", { id, input })),
+    connectorCancel: (id) => after(call2("connector-cancel", { id })),
+    connectorClient: (id, clientId, clientSecret) => after(call2("connector-client", { id, clientId, clientSecret })),
+    connectorSet: (id, patch) => after(call2("connector-set", { id, ...patch })),
+    connectorAdd: (spec) => after(call2("connector-add", spec)),
+    connectorRemove: (id) => after(call2("connector-remove", { id })),
+    connectorImportScan: () => call2("connector-import-scan", {}),
+    connectorImport: (items) => after(call2("connector-import", { items })),
+    connectorRequestCancel: (requestId) => after(call2("connector-request-cancel", { requestId })),
+    mailAccountAdd: (payload) => after(call2("mail-account-add", payload)),
+    mailAccountRemove: (id) => after(call2("mail-account-remove", { id })),
+    mailRuleSet: (payload) => after(call2("mail-rule-set", payload)),
+    mailSendAnswer: (requestId, choice, extra = {}) => after(call2("mail-send-answer", { requestId, choice, ...extra })),
+    mailSignInCode: (payload) => after(call2("mail-sign-in-code", payload)),
+    // DeepSeek's own document and speech services (api.deepseek.com/v1/tools/*), each
+    // off until enabled. The status answer names the credential ref, never its value.
+    deepseekServices: () => call2("deepseek-services"),
+    // absent keeps a field, null resets it; the full status comes back with the roster.
+    setDeepseekServices: (patch) => after(call2("deepseek-services-config", patch)),
+    // One short piece of speech; the caller queues and plays the WAV it gets back.
+    synthesizeSpeech: (body, signal) => call2("deepseek-synthesize", body, signal),
+    phoneSet: (settings) => after(call2("phone-set", settings)),
+    phonePair: () => after(call2("phone-pair")),
+    phonePairCancel: () => after(call2("phone-pair-cancel")),
+    phoneRemove: (id) => after(call2("phone-remove", { id })),
+    // The answer to mcp-client-add carries the new token once; nothing else does.
+    mcpSet: (settings) => after(call2("mcp-set", settings)),
+    mcpClientAdd: (client) => after(call2("mcp-client-add", client)),
+    mcpClientUpdate: (id, patch) => after(call2("mcp-client-update", { id, ...patch })),
+    mcpClientRemove: (id) => after(call2("mcp-client-remove", { id })),
+    imAdd: (payload) => after(call2("im-add", payload)),
+    imUpdate: (id, patch) => after(call2("im-update", { id, ...patch })),
+    imRemove: (id) => after(call2("im-remove", { id })),
+    imPair: (id, senderId, allow) => after(call2("im-pair", { id, senderId, allow })),
+    imUnpair: (id, senderId) => after(call2("im-unpair", { id, senderId })),
+    imChat: (id, body) => after(call2("im-chat", { id, ...body })),
+    imRetry: (id) => after(call2("im-retry", { id })),
+    imLoginStart: (payload) => call2("im-login-start", payload),
+    imLoginWait: (payload) => call2("im-login-wait", payload),
+    saveCapability: (capability) => after(call2("capability-save", capability)),
+    deleteCapability: (name) => after(call2("capability-delete", { name })),
+    approveCapability: (name) => after(call2("capability-approve", { name })),
+    setBotCapability: (botId, name, attached, mode = "always") => after(call2("bot-capability", { botId, name, attached, mode })),
+    pluginsList: (refresh = false) => call2("plugins-list", { refresh }),
+    pluginsCatalogRefresh: () => call2("plugins-catalog-refresh", {}),
+    pluginsInstall: (body) => after(call2("plugins-install", body)),
+    pluginsToggle: (id, enabled) => after(call2("plugins-toggle", { id, enabled })),
+    pluginsRemove: (id) => after(call2("plugins-remove", { id })),
+    pluginsUpdate: (id, version) => after(call2("plugins-update", { id, ...version ? { version } : {} })),
+    pluginsSlotSet: (slot, id) => after(call2("plugins-slot-set", { slot, id })),
+    pluginsBotToggle: (id, botId, enabled) => after(call2("plugins-bot-toggle", { id, botId, enabled })),
+    pluginsCustomSave: (body) => after(call2("plugins-custom-save", body)),
+    pluginsSourceSave: (body) => after(call2("plugins-source-save", body)),
+    pluginsSourceRemove: (id) => after(call2("plugins-source-remove", { id })),
+    pluginsRetry: () => after(call2("plugins-retry", {})),
+    schedules: () => call2("schedules"),
+    scheduleCreate: (task) => call2("schedule-create", task),
+    scheduleDelete: (sessionId, id) => call2("schedule-delete", { sessionId, id }),
+    schedulePause: (sessionId, id, active) => call2("schedule-pause", { sessionId, id, active }),
+    exchange: (a, b) => call2("exchange", { a, b }).catch(() => []),
+    exchangeText: (id, a, b) => call2("exchange-text", { id, ...a !== void 0 && b !== void 0 ? { a, b } : {} }).catch(() => void 0),
+    fileText: (file) => call2("file-text", { file }).catch(() => void 0),
+    roomProgress: (roomId) => call2("room-progress", { roomId }).catch(() => []),
+    groupRows: (roomId, from, to, anchor) => call2("group-rows", { roomId, from, ...to === void 0 ? {} : { to }, ...anchor === void 0 ? {} : { anchor } }).catch(() => null),
+    groupRelayReplies: (sessionId, preview) => call2("group-relay-replies", { sessionId, preview }).catch(() => null),
+    earlier: (sessionId, cursor) => call2("earlier", { sessionId, cursor: cursor ?? null }),
+    // Hours come back in this browser's time zone, so days start at local midnight.
+    usage: () => call2("usage", { timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }),
+    // The details panel's status line: turns, speed, cache hits and context for one Bot.
+    runStats: (botId) => call2("run-stats", { botId }),
+    // `summarize` starts a summary when the entries changed; `regenerate` always does.
+    memoryView: (id, flags = {}) => call2("memory-view", { ...memoryOf(id), ...flags }),
+    memoryAsk: (id, text) => call2("memory-ask", { ...memoryOf(id), text }),
+    memoryLayer: (id, entry, always) => call2("memory-layer", { ...memoryOf(id), topic: entry.topic, text: entry.text, always }),
+    memoryMove: (id, entry, to) => call2("memory-move", { ...memoryOf(id), scope: entry.scope, topic: entry.topic, text: entry.text, to }),
+    memoryTidyUndo: (id, scope, batch) => call2("memory-tidy-undo", { ...memoryOf(id), scope, batch }),
+    memoryPin: (id, entry, pin) => call2("memory-pin", { ...memoryOf(id), scope: entry.scope, topic: entry.topic, text: entry.text, pin }),
+    memoryForget: (id, entry) => call2("memory-forget", { ...memoryOf(id), scope: entry.scope, topic: entry.topic, text: entry.text }),
+    memoryHistory: (id, before) => call2("memory-history", { ...memoryOf(id), ...before === void 0 ? {} : { before } }),
+    memoryRestore: (id, rowId) => call2("memory-restore", { ...memoryOf(id), id: rowId }),
+    diagnostics: (payload) => call2("diagnostics", payload),
+    diagnosticsLog: () => call2("diagnostics-log"),
+    diagnosticsClear: () => call2("diagnostics-clear"),
+    repoStars: () => call2("repo-stars"),
+    // A failed action away from any form (a menu, the palette) shows as a toast.
+    reportError: (error, where = "action") => {
+      noteClientError(where, error);
+      ui.set((state) => ({ ...state, toast: { text: error?.message ?? String(error), token: Date.now() } }));
+    },
+    // A message with no failure behind it (a review that expired, a window without the
+    // column): a toast, but not in the client-error log.
+    notice: (text) => ui.set((state) => ({ ...state, toast: { text, token: Date.now() } })),
+    dismissToast: (token) => ui.set((state) => state.toast && (token === void 0 || state.toast.token === token) ? { ...state, toast: null } : state),
+    noteTurnTime: (sessionId, turn, key, time) => {
+      if (sessionId === void 0 || !Number.isFinite(turn) || !Number.isFinite(time)) return;
+      turnClock.set((state) => {
+        const turns = state[sessionId] ?? {};
+        const entry = turns[turn] ?? {};
+        const next = key === "first" && entry.first !== void 0 ? Math.min(entry.first, time) : time;
+        if (entry[key] === next) return state;
+        return { ...state, [sessionId]: { ...turns, [turn]: { ...entry, [key]: next } } };
+      });
+    },
+    noteTurnPeer: (sessionId, turn, peerId) => {
+      if (sessionId === void 0 || !Number.isFinite(turn)) return;
+      turnClock.set((state) => {
+        const turns = state[sessionId] ?? {};
+        const entry = turns[turn] ?? {};
+        if (entry.peer === peerId) return state;
+        return { ...state, [sessionId]: { ...turns, [turn]: { ...entry, peer: peerId } } };
+      });
+    },
+    noteLive: (sessionId, id, entry) => {
+      if (sessionId === void 0) return;
+      live.set((state) => {
+        const own = state[sessionId] ?? {};
+        const prev = own[id];
+        if (entry === null ? prev === void 0 : prev !== void 0 && JSON.stringify({ ...prev, at: 0 }) === JSON.stringify({ ...entry, at: 0 })) return state;
+        const next = { ...own };
+        if (entry === null) delete next[id];
+        else next[id] = { ...entry, at: prev?.at ?? Date.now() };
+        return { ...state, [sessionId]: next };
+      });
+    },
+    noteCards: (sessionId, callIds, delta) => {
+      if (sessionId !== void 0) cards.set((state) => countCards(state, sessionId, callIds, delta));
+    },
+    noteHeldCard: (sessionId, kind, requestId, delta) => {
+      if (sessionId !== void 0) heldCards.set((state) => countCards(state, sessionId, [heldCardKey(kind, requestId)], delta));
+    },
+    readQuestionDraft: (kind, id, subId) => questionDrafts?.readDraft(kind, id, subId) ?? "",
+    noteQuestionDraft: (entry) => {
+      if (!questionDrafts) return;
+      const chatId = entry.chatId ?? chatOfSession(roster?.getSnapshot?.(), entry.sessionId)?.id ?? null;
+      questionDrafts.noteDraft({ ...entry, chatId });
+    },
+    beginQuestionSettle: (kind, id, outcome) => questionDrafts?.beginSettle(kind, id, outcome),
+    finishQuestionSettle: (kind, id, succeeded) => questionDrafts?.finishSettle(kind, id, succeeded),
+    consumeRescuedDraft: (chatId, sessionId, taken) => questionDrafts?.consumeRescue(chatId, sessionId, taken),
+    clearLive: (sessionId) => live.set((state) => {
+      if (!state[sessionId]) return state;
+      const next = { ...state };
+      delete next[sessionId];
+      return next;
+    })
+  };
+}
+
+// src/client/themes.js
+var THEME_KEYS = ["bg", "sidebar", "bubble", "card", "text", "user", "userText", "accent"];
+var THEMES = {
+  deepseek: {
+    label: "DeepSeek",
+    light: { bg: "#fcfcfc", sidebar: "#f7f7f7", bubble: "#eeeeee", card: "#ffffff", text: "#141414", user: "#070707", userText: "#fcfcfc", accent: "#4d6bfe" },
+    dark: { bg: "#141414", sidebar: "#1b1b1b", bubble: "#262626", card: "#1f1f1f", text: "#f2f2f2", user: "#f2f2f2", userText: "#141414", accent: "#5b7bff" }
+  },
+  mono: {
+    label: "Mono",
+    light: { bg: "#ffffff", sidebar: "#f9f9f9", bubble: "#f0f0f0", card: "#ffffff", text: "#0d0d0d", user: "#0d0d0d", userText: "#ffffff", accent: "#0d0d0d" },
+    dark: { bg: "#0f0f0f", sidebar: "#171717", bubble: "#242424", card: "#1c1c1c", text: "#f4f4f4", user: "#f4f4f4", userText: "#0f0f0f", accent: "#f4f4f4" }
+  },
+  paper: {
+    label: "Paper",
+    light: { bg: "#faf9f5", sidebar: "#f3f0e8", bubble: "#ebe7dc", card: "#ffffff", text: "#1f1e1b", user: "#2b2a26", userText: "#faf9f5", accent: "#d97757" },
+    dark: { bg: "#1f1e1b", sidebar: "#262521", bubble: "#34322d", card: "#2a2925", text: "#f3f0e8", user: "#f3f0e8", userText: "#1f1e1b", accent: "#e08a6d" }
+  },
+  moonlight: {
+    label: "Moonlight",
+    light: { bg: "#f7f9fc", sidebar: "#eef2f8", bubble: "#e5ebf5", card: "#ffffff", text: "#121826", user: "#1e3a8a", userText: "#ffffff", accent: "#1e86ff" },
+    dark: { bg: "#0b1020", sidebar: "#10172a", bubble: "#1a2340", card: "#141c33", text: "#e8edf7", user: "#3b6fd8", userText: "#ffffff", accent: "#4f9dff" }
+  }
+};
+var DARK_INK = "#141414";
+var accentInk = (accent) => (luminance(accent) + 0.05) ** 2 > 1.05 * (luminance(DARK_INK) + 0.05) ? DARK_INK : "#ffffff";
+var rgba = (hex, alpha) => `rgba(${[1, 3, 5].map((index) => parseInt(hex.slice(index, index + 2), 16)).join(",")},${alpha})`;
+function themeVars(mode, dark, accent = mode.accent) {
+  return {
+    "--bt-ink": mode.text,
+    "--bt-ink-2": rgba(mode.text, 0.6),
+    "--bt-ink-3": rgba(mode.text, 0.36),
+    "--bt-bubble": mode.bubble,
+    "--bt-sidebar": `var(--bt-skin-sidebar, ${mode.sidebar})`,
+    "--bt-main": `var(--bt-skin-main, ${mode.bg})`,
+    "--bt-card": `var(--bt-skin-card, ${mode.card})`,
+    "--bt-line": rgba(mode.text, 0.08),
+    "--bt-line-2": rgba(mode.text, 0.15),
+    "--bt-hover": dark ? "rgba(160,160,160,.12)" : "rgba(119,119,119,.09)",
+    "--bt-active": dark ? "rgba(160,160,160,.2)" : "rgba(119,119,119,.17)",
+    "--bt-accent": accent,
+    "--bt-accent-ink": accentInk(accent),
+    "--bt-user": mode.user,
+    "--bt-user-ink": mode.userText,
+    "--bt-tag-bg": rgba(mode.text, dark ? 0.09 : 0.06),
+    "--bt-tag-ink": rgba(mode.text, 0.58),
+    // Warning text and icon: readable on the card in both modes (ui-standard 2.3).
+    "--bt-warn": dark ? "#f0b84a" : "#8a5a00"
+  };
+}
+var declarations = (vars) => Object.entries(vars).map(([name, value]) => `${name}:${value}`).join(";");
+var darkAccent = (accent) => {
+  const ink = ACCENT_INKS.find((id) => INKS[id][0] === accent);
+  return ink === void 0 ? accent : INKS[ink][1];
+};
+var themeCss = (theme, accent) => `html body{${declarations(themeVars(theme.light, false, accent ?? theme.light.accent))}}
+html body[data-ds-dark-theme]{${declarations(themeVars(theme.dark, true, darkAccent(accent) ?? theme.dark.accent))}}
+${theme.css ?? ""}`;
+var shellTokens = ({ light, dark }) => ({
+  "--dsw-alias-bg-base": { light: light.bg, dark: dark.bg },
+  "--dsw-specific-sidebar-fill": { light: light.sidebar, dark: dark.sidebar },
+  "--dsw-specific-input-major": { light: light.bg, dark: dark.sidebar },
+  "--dsw-alias-label-primary": { light: light.text, dark: dark.text },
+  "--dsw-alias-label-secondary": { light: rgba(light.text, 0.74), dark: rgba(dark.text, 0.74) },
+  "--dsw-alias-label-tertiary": { light: rgba(light.text, 0.6), dark: rgba(dark.text, 0.6) }
+});
+var customThemes = {};
+var registry = createSource(0);
+var isPoint = (point) => Array.isArray(point) && point.length === 2 && point.every(Number.isFinite);
+function registerShape(id, shape) {
+  if (typeof id !== "string" || !/^[a-z][\w-]{0,31}$/.test(id)) throw new Error("Shape ids are lowercase words");
+  if (typeof shape?.body !== "function" || typeof shape.body("#000") !== "string") throw new Error("A shape needs body(paint) returning SVG markup");
+  const at = shape.eyes?.at;
+  if (!Array.isArray(at) || at.length !== 2 || !at.every(isPoint)) throw new Error("A shape needs eyes.at: two [x, y] points");
+  const size = Number.isFinite(shape.size) && shape.size > 0 ? shape.size : 100;
+  const pick2 = (key, fallback) => Number.isFinite(shape.eyes[key]) ? shape.eyes[key] : fallback;
+  const eyes = at.map(([x, y]) => [x, y, pick2("w", size * 0.1), pick2("h", size * 0.23), pick2("tilt", -27)]);
+  const previous = SHAPES[id];
+  SHAPES[id] = {
+    label: String(shape.label ?? id),
+    size,
+    body: shape.body,
+    eyes,
+    ...typeof shape.wrap === "string" ? { wrap: shape.wrap } : {}
+  };
+  const refresh = () => {
+    markupCache.clear();
+    maskCache.delete(id);
+    registry.set((value) => value + 1);
+  };
+  refresh();
+  return () => {
+    if (previous) SHAPES[id] = previous;
+    else delete SHAPES[id];
+    refresh();
+  };
+}
+function registerTheme(id, theme) {
+  if (typeof id !== "string" || !/^[a-z][\w-]{0,31}$/.test(id)) throw new Error("Theme ids are lowercase words");
+  for (const mode of ["light", "dark"]) {
+    for (const key of THEME_KEYS) if (!isHex(theme?.[mode]?.[key])) throw new Error(`Theme ${mode}.${key} must be a #rrggbb color`);
+  }
+  const previous = customThemes[id];
+  customThemes[id] = { label: String(theme.label ?? id), light: theme.light, dark: theme.dark, css: typeof theme.css === "string" ? theme.css : "" };
+  registry.set((value) => value + 1);
+  return () => {
+    if (previous) customThemes[id] = previous;
+    else delete customThemes[id];
+    registry.set((value) => value + 1);
+  };
+}
+var allThemes = () => ({ ...THEMES, ...customThemes });
+var MESSAGE_WIDTH = { min: 50, max: 100, step: 5 };
+var percent = (value, initial) => Number.isInteger(value) && value >= MESSAGE_WIDTH.min && value <= MESSAGE_WIDTH.max ? value : initial;
+var layoutOf = (prefs) => prefs?.layout === "flat" ? "flat" : "bubble";
+var effectsOf = (prefs) => prefs?.effects === "reduced" || prefs?.effects === "off" ? prefs.effects : "full";
+var thinkingShown = (prefs) => prefs?.thinking === true;
+var widthOf = (prefs) => percent(prefs?.width, 80);
+var flatWidthOf = (prefs) => percent(prefs?.flatWidth, 100);
+
+// src/client/skin.js
+var MIN_SKIN_ALPHA = 0.7;
+var SKIN_VARIABLES = ["--bt-skin-main", "--bt-skin-sidebar", "--bt-skin-card"];
+var HEX = /^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
+var RGB = /^rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)(?:\s*[,/]\s*([\d.]+)(%?))?\s*\)$/i;
+function parseColor(value) {
+  const text = String(value ?? "").trim();
+  const hex = HEX.exec(text);
+  if (hex !== null) {
+    const digits = hex[1];
+    const pair = (at) => {
+      const part = digits.length <= 4 ? digits[at] + digits[at] : digits.slice(at * 2, at * 2 + 2);
+      return Number.parseInt(part, 16);
+    };
+    const alpha = digits.length === 4 ? pair(3) / 255 : digits.length === 8 ? pair(3) / 255 : 1;
+    return { r: pair(0), g: pair(1), b: pair(2), a: alpha };
+  }
+  const rgb = RGB.exec(text);
+  if (rgb !== null) {
+    const alpha = rgb[4] === void 0 ? 1 : rgb[5] === "%" ? Number(rgb[4]) / 100 : Number(rgb[4]);
+    return { r: Number(rgb[1]), g: Number(rgb[2]), b: Number(rgb[3]), a: Math.max(0, Math.min(1, alpha)) };
+  }
+  return void 0;
+}
+var hex2 = (value) => Math.max(0, Math.min(255, Math.round(value))).toString(16).padStart(2, "0");
+var withAlpha = ({ r, g, b }, a) => `#${hex2(r)}${hex2(g)}${hex2(b)}${hex2(a * 255)}`;
+var alphaOf = (value) => parseColor(value)?.a ?? 1;
+function skinSurfaceVars({ main, sidebar, colors }, { minAlpha = MIN_SKIN_ALPHA } = {}) {
+  const vars = {};
+  const floor = (alpha) => Math.min(1, Math.max(alpha, minAlpha));
+  const mainAlpha = alphaOf(main);
+  const sidebarAlpha = alphaOf(sidebar);
+  if (mainAlpha < 1) {
+    const alpha = floor(mainAlpha);
+    vars["--bt-skin-main"] = withAlpha(parseColor(colors.main) ?? { r: 252, g: 252, b: 252 }, alpha);
+    vars["--bt-skin-card"] = withAlpha(parseColor(colors.card) ?? { r: 255, g: 255, b: 255 }, alpha);
+  }
+  if (sidebarAlpha < 1) {
+    vars["--bt-skin-sidebar"] = withAlpha(parseColor(colors.sidebar) ?? { r: 247, g: 247, b: 247 }, floor(sidebarAlpha));
+  }
+  return vars;
+}
+function over(surface, alpha, wallpaper) {
+  const back = parseColor(wallpaper) ?? { r: 255, g: 255, b: 255, a: 1 };
+  return { r: surface.r * alpha + back.r * (1 - alpha), g: surface.g * alpha + back.g * (1 - alpha), b: surface.b * alpha + back.b * (1 - alpha), a: 1 };
+}
+var channel = (value) => {
+  const c = value / 255;
+  return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+};
+var luminance2 = ({ r, g, b }) => 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
+var contrastRatio = (foreground, background) => {
+  const a = luminance2(foreground);
+  const b = luminance2(background);
+  return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+};
+function readSkinSurfaceVars(doc, theme, { minAlpha = MIN_SKIN_ALPHA } = {}) {
+  const body = doc?.body;
+  if (body === void 0) return {};
+  const dark = body.hasAttribute?.("data-ds-dark-theme") === true;
+  const mode = dark ? theme.dark : theme.light;
+  const colors = { main: mode.bg, sidebar: mode.sidebar, card: mode.card };
+  const style = doc.defaultView?.getComputedStyle?.(body);
+  const token = (name) => {
+    const value = style?.getPropertyValue?.(name)?.trim() ?? "";
+    if (value === "" || parseColor(value) !== void 0) return value;
+    const canvas = doc.createElement("canvas");
+    canvas.width = canvas.height = 1;
+    const paint = canvas.getContext("2d");
+    paint.fillStyle = value;
+    paint.fillRect(0, 0, 1, 1);
+    const [r, g, b, a] = paint.getImageData(0, 0, 1, 1).data;
+    return withAlpha({ r, g, b }, a / 255);
+  };
+  return skinSurfaceVars({ main: token("--dsw-alias-bg-base"), sidebar: token("--dsw-specific-sidebar-fill"), colors }, { minAlpha });
+}
+function writeSkinSurfaceVars(doc, read) {
+  const body = doc?.body;
+  const apply2 = () => {
+    if (body === void 0) return;
+    const vars = read() ?? {};
+    for (const name of SKIN_VARIABLES) {
+      if (vars[name] === void 0) body.style.removeProperty(name);
+      else if (body.style.getPropertyValue?.(name) !== vars[name]) body.style.setProperty(name, vars[name]);
+    }
+  };
+  return {
+    apply: apply2,
+    clear() {
+      if (body === void 0) return;
+      for (const name of SKIN_VARIABLES) body.style.removeProperty(name);
+    }
+  };
+}
+
 // src/client/motion.js
 var import_react = require("react");
 var effectsTier = () => {
@@ -18553,75 +18828,6 @@ function stepMenuFocus(menu, event, trigger) {
   const next = event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : event.key === "ArrowDown" ? (current2 + 1) % items.length : current2 <= 0 ? items.length - 1 : current2 - 1;
   items[next]?.focus();
   return true;
-}
-
-// src/client/storage.js
-var STORAGE = {
-  unread: "ds-bot:unread",
-  reactions: "ds-bot:reactions",
-  seen: "ds-bot:seen",
-  prefs: "ds-bot:prefs",
-  surface: "ds-bot:surface",
-  agentSessions: "ds-bot:agent-sessions",
-  agentForks: "ds-bot:pending-agent-forks",
-  browserWidth: "ds-bot:browser-width",
-  browserImportSource: "ds-bot:browser-import-source",
-  sidebar: "ds-bot:sidebar",
-  browsers: "ds-bot.browser.v2",
-  drafts: "ds-bot:drafts"
-};
-var LEGACY_PREFIXES = ["dsh-bot:", "dsh-bot-team:"];
-var LEGACY_BROWSER_KEYS = ["ds-bot.browser.v1", "dsh-bot.browser.v1"];
-var LEGACY_THEMES = { grok: "mono" };
-function legacyKeys(key) {
-  if (key === STORAGE.browsers) return LEGACY_BROWSER_KEYS;
-  const name = key.slice(key.indexOf(":") + 1);
-  return LEGACY_PREFIXES.map((prefix) => `${prefix}${name}`);
-}
-var migrateBrowsers = (storage) => {
-  if (storage.getItem(STORAGE.browsers) !== null) {
-    for (const key of LEGACY_BROWSER_KEYS) storage.removeItem(key);
-    return;
-  }
-  for (const key of LEGACY_BROWSER_KEYS) {
-    try {
-      const value = storage.getItem(key);
-      if (value === null) continue;
-      const previous = JSON.parse(value) ?? {};
-      const tabs = Object.fromEntries(Object.entries(previous).filter(([, page]) => page && typeof page === "object").map(([botId, page]) => {
-        const tab = { id: `v1-${botId}`, url: page.url ?? "", title: page.title ?? "" };
-        return [botId, { tabs: [tab], active: tab.id }];
-      }));
-      storage.setItem(STORAGE.browsers, JSON.stringify(tabs));
-      for (const earlier of LEGACY_BROWSER_KEYS) storage.removeItem(earlier);
-      return;
-    } catch {
-    }
-  }
-};
-function migrateStorage(storage = globalThis.localStorage) {
-  for (const key of Object.values(STORAGE)) {
-    if (key === STORAGE.browsers) continue;
-    for (const legacy of legacyKeys(key)) {
-      try {
-        const value = storage.getItem(legacy);
-        if (value !== null && storage.getItem(key) === null) storage.setItem(key, value);
-        storage.removeItem(legacy);
-      } catch {
-      }
-    }
-  }
-  try {
-    migrateBrowsers(storage);
-  } catch {
-  }
-  try {
-    const prefs = JSON.parse(storage.getItem(STORAGE.prefs) ?? "null");
-    if (prefs && Object.hasOwn(LEGACY_THEMES, prefs.theme ?? "")) {
-      storage.setItem(STORAGE.prefs, JSON.stringify({ ...prefs, theme: LEGACY_THEMES[prefs.theme] }));
-    }
-  } catch {
-  }
 }
 
 // src/client/frame-layout.js
@@ -21937,6 +22143,275 @@ function useDockHold(sessionId, kind, requestId, actions, inline) {
   };
 }
 
+// src/client/question-draft.js
+var SEPARATOR = "\n\n";
+var normalizePieces = (value) => {
+  const list = Array.isArray(value) ? value : [value];
+  const out = [];
+  for (const item of list) {
+    if (typeof item !== "string") continue;
+    const trimmed2 = item.trim();
+    if (trimmed2 !== "") out.push(trimmed2);
+  }
+  return out;
+};
+var alreadyAtEnd = (base, piece) => {
+  const tail = base.trimEnd();
+  return tail === piece || tail.endsWith(`${SEPARATOR}${piece}`) || tail.endsWith(`
+${piece}`);
+};
+function mergeRescuedDraft(existing, rescued) {
+  const pieces = normalizePieces(rescued);
+  let current2 = typeof existing === "string" ? existing : "";
+  for (const piece of pieces) {
+    if (current2.trim() === "") {
+      current2 = piece;
+    } else if (!alreadyAtEnd(current2, piece)) {
+      current2 = `${current2.trimEnd()}${SEPARATOR}${piece}`;
+    }
+  }
+  return current2;
+}
+function readRescuedForChat(map, chatId, sessionId) {
+  if (!map || typeof map !== "object") return "";
+  const first = typeof chatId === "string" && chatId !== "" ? map[chatId] : "";
+  const second = typeof sessionId === "string" && sessionId !== "" && sessionId !== chatId ? map[sessionId] : "";
+  return mergeRescuedDraft(first ?? "", second ?? "");
+}
+function blockingQuestionId(pending) {
+  return pending?.key ?? pending?.id ?? pending?.callId ?? "blocking";
+}
+var readSaved = (storage, key, fallback = {}) => {
+  if (!storage) return fallback;
+  try {
+    const raw = JSON.parse(storage.getItem(key) ?? "{}");
+    if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return {};
+    const clean = {};
+    for (const [k, v] of Object.entries(raw)) {
+      if (typeof v === "string" && v.trim() !== "") clean[k] = v.trim();
+    }
+    return clean;
+  } catch {
+    return fallback;
+  }
+};
+var writeSaved = (storage, key, value) => {
+  try {
+    if (Object.keys(value).length === 0) storage?.removeItem?.(key);
+    else storage?.setItem(key, JSON.stringify(value));
+  } catch {
+  }
+};
+var shallowEqualMap = (left, right) => {
+  if (left === right) return true;
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  if (leftKeys.length !== rightKeys.length) return false;
+  return leftKeys.every((k) => left[k] === right[k]);
+};
+var entryKey = (kind, id) => `${kind}:${id}`;
+var hasRosterChats = (roster) => Object.keys(roster?.byId ?? {}).length > 0 || Object.keys(roster?.roomsById ?? {}).length > 0;
+var isChatAlive = (roster, sessionId, chatId) => {
+  if (!roster?.ready || !hasRosterChats(roster)) return true;
+  if (chatOfSession(roster, sessionId) !== void 0) return true;
+  return typeof chatId === "string" && chatId !== "" && chatOfSession(roster, chatId) !== void 0;
+};
+function createQuestionDrafts({ storage = globalThis.localStorage, storageKey = STORAGE.rescuedDrafts } = {}) {
+  const rescued = createSource(readSaved(storage, storageKey));
+  const active = /* @__PURE__ */ new Map();
+  const mutateSaved = (change) => {
+    rescued.set((state) => {
+      const base = readSaved(storage, storageKey, state);
+      const next = change(base);
+      if (next !== base) writeSaved(storage, storageKey, next);
+      return shallowEqualMap(state, next) ? state : next;
+    });
+  };
+  const syncFromStorage = () => {
+    rescued.set((state) => {
+      const next = readSaved(storage, storageKey, state);
+      return shallowEqualMap(state, next) ? state : next;
+    });
+  };
+  const enqueueRescue = (targetKey, text) => {
+    const clean = mergeRescuedDraft("", text);
+    if (typeof targetKey !== "string" || targetKey === "" || clean === "") return null;
+    mutateSaved((base) => {
+      const nextText2 = mergeRescuedDraft(base[targetKey] ?? "", clean);
+      if (base[targetKey] === nextText2) return base;
+      return { ...base, [targetKey]: nextText2 };
+    });
+    return { targetKey, text: clean };
+  };
+  const rescueEntry = (entry) => {
+    const text = mergeRescuedDraft("", [...entry.parts.values()]);
+    if (text === "") return null;
+    const targetKey = entry.chatId || entry.sessionId;
+    const enqueued = enqueueRescue(targetKey, text);
+    return enqueued === null ? null : { targetKey, chatId: entry.chatId, sessionId: entry.sessionId, text: enqueued.text };
+  };
+  const noteDraft = ({ kind, id, subId = id, sessionId, chatId = null, text, isStillOpen }) => {
+    if (typeof kind !== "string" || kind === "" || typeof id !== "string" || id === "" || typeof sessionId !== "string" || sessionId === "") return;
+    const key = entryKey(kind, id);
+    const existing = active.get(key);
+    const raw = typeof text === "string" ? text : "";
+    if (raw === "") {
+      if (existing === void 0) return;
+      existing.parts.delete(subId);
+      if (existing.parts.size === 0 && existing.inFlight === null) active.delete(key);
+      return;
+    }
+    const entry = existing ?? {
+      kind,
+      id,
+      sessionId,
+      chatId,
+      parts: /* @__PURE__ */ new Map(),
+      inFlight: null,
+      missing: false,
+      isStillOpen: void 0
+    };
+    entry.sessionId = sessionId;
+    if (typeof chatId === "string" && chatId !== "") entry.chatId = chatId;
+    if (typeof isStillOpen === "function") entry.isStillOpen = isStillOpen;
+    entry.parts.set(subId, raw);
+    active.set(key, entry);
+  };
+  const readDraft = (kind, id, subId = id) => {
+    if (typeof kind !== "string" || typeof id !== "string") return "";
+    return active.get(entryKey(kind, id))?.parts.get(subId) ?? "";
+  };
+  const beginSettle = (kind, id, outcome) => {
+    if (outcome !== "answered" && outcome !== "dismissed") return;
+    const entry = active.get(entryKey(kind, id));
+    if (entry !== void 0) entry.inFlight = outcome;
+  };
+  const finishSettle = (kind, id, succeeded) => {
+    const key = entryKey(kind, id);
+    const entry = active.get(key);
+    if (entry === void 0) return null;
+    if (succeeded) {
+      active.delete(key);
+      return null;
+    }
+    const outcome = entry.inFlight;
+    entry.inFlight = null;
+    if (entry.missing) {
+      active.delete(key);
+      if (outcome === "dismissed") return null;
+      return rescueEntry(entry);
+    }
+    return null;
+  };
+  const reconcileRoster = (roster) => {
+    if (!roster?.ready) return [];
+    const pendingById = /* @__PURE__ */ new Map();
+    for (const [sessionId, question] of Object.entries(roster.questions ?? {})) {
+      if (typeof question?.id === "string" && question.id !== "") {
+        pendingById.set(question.id, { sessionId, chatId: chatOfSession(roster, sessionId)?.id ?? null });
+      }
+    }
+    const results = [];
+    for (const [key, entry] of active) {
+      if (entry.kind !== "ask_user") continue;
+      const live = pendingById.get(entry.id);
+      if (live !== void 0) {
+        entry.sessionId = live.sessionId;
+        if (live.chatId !== null) entry.chatId = live.chatId;
+        entry.missing = false;
+        continue;
+      }
+      const resolvedChat = chatOfSession(roster, entry.sessionId)?.id ?? null;
+      if (resolvedChat !== null) entry.chatId = resolvedChat;
+      if (!isChatAlive(roster, entry.sessionId, entry.chatId)) {
+        active.delete(key);
+        continue;
+      }
+      if (entry.inFlight !== null) {
+        entry.missing = true;
+        continue;
+      }
+      active.delete(key);
+      const item = rescueEntry(entry);
+      if (item !== null) results.push(item);
+    }
+    return results;
+  };
+  const reconcileBlocking = (sessionStatus, roster) => {
+    if (!sessionStatus || typeof sessionStatus.get !== "function") return [];
+    const results = [];
+    for (const [key, entry] of active) {
+      if (entry.kind !== "blocking") continue;
+      const interaction = sessionStatus.get(entry.sessionId)?.pendingInteraction;
+      if (interaction?.kind === "question" && blockingQuestionId(interaction) === entry.id) {
+        entry.missing = false;
+        continue;
+      }
+      if (entry.isStillOpen?.() === true) {
+        entry.missing = false;
+        continue;
+      }
+      if (interaction !== void 0 && interaction.kind !== "question") continue;
+      if (roster?.ready) {
+        const resolvedChat = chatOfSession(roster, entry.sessionId)?.id ?? null;
+        if (resolvedChat !== null) entry.chatId = resolvedChat;
+        if (!isChatAlive(roster, entry.sessionId, entry.chatId)) {
+          active.delete(key);
+          continue;
+        }
+      }
+      if (entry.inFlight !== null) {
+        entry.missing = true;
+        continue;
+      }
+      active.delete(key);
+      const item = rescueEntry(entry);
+      if (item !== null) results.push(item);
+    }
+    return results;
+  };
+  const consumeRescue = (chatId, sessionId, taken) => {
+    const keys = [chatId, sessionId].filter((value, index, list) => typeof value === "string" && value !== "" && list.indexOf(value) === index);
+    if (keys.length === 0) return;
+    mutateSaved((base) => {
+      const present = keys.filter((key) => base[key] !== void 0);
+      if (present.length === 0) return base;
+      const current2 = readRescuedForChat(base, chatId, sessionId);
+      if (taken !== void 0 && current2 !== taken) return base;
+      const next = { ...base };
+      for (const key of present) delete next[key];
+      return next;
+    });
+  };
+  const pruneChats = (gone) => {
+    if (!Array.isArray(gone) || gone.length === 0) return;
+    const goneSet = new Set(gone);
+    for (const [key, entry] of active) {
+      if (goneSet.has(entry.chatId) || goneSet.has(entry.sessionId)) active.delete(key);
+    }
+    mutateSaved((base) => {
+      const listed = gone.filter((id) => base[id] !== void 0);
+      if (listed.length === 0) return base;
+      const next = { ...base };
+      for (const id of listed) delete next[id];
+      return next;
+    });
+  };
+  return {
+    rescued,
+    noteDraft,
+    readDraft,
+    beginSettle,
+    finishSettle,
+    reconcileRoster,
+    reconcileBlocking,
+    enqueueRescue,
+    consumeRescue,
+    pruneChats,
+    syncFromStorage
+  };
+}
+
 // src/client/questions.js
 var import_react10 = require("react");
 var keyLetter = (index) => String.fromCharCode(65 + index);
@@ -21972,8 +22447,8 @@ function useOptionKeys(count, onPick, ownRef) {
   }, [count, ownRef]);
   return count > 0 && listening <= 1;
 }
-function QuestionView({ question, onAnswer, onDismiss, onInteract, busy = false, ownAnswer = false, raised = false, enterToSend = true }) {
-  const [own, setOwn] = (0, import_react10.useState)("");
+function QuestionView({ question, onAnswer, onDismiss, onInteract, onOwnChange, initialOwn = "", busy = false, ownAnswer = false, raised = false, enterToSend = true }) {
+  const [own, setOwn] = (0, import_react10.useState)(initialOwn);
   const [picked, setPicked] = (0, import_react10.useState)([]);
   const ownRef = (0, import_react10.useRef)(null);
   const titleId = (0, import_react10.useId)();
@@ -22011,7 +22486,9 @@ function QuestionView({ question, onAnswer, onDismiss, onInteract, busy = false,
     onChange: (event) => {
       if (!busy) {
         onInteract?.();
-        setOwn(event.target.value);
+        const value = event.target.value;
+        setOwn(value);
+        onOwnChange?.(value);
       }
     },
     onKeyDown: (event) => {
@@ -22282,23 +22759,52 @@ function SettledQuestion({ question, answer, closed }) {
     ) : null
   );
 }
-function QuestionCard({ matched }) {
+function QuestionCard({ sessionId, matched, actions }) {
   const pending = matched;
+  const requestId = blockingQuestionId(pending);
+  const effectiveSessionId = sessionId ?? pending.sessionId;
   const questions = pending.questions ?? [];
   const [index, setIndex] = (0, import_react10.useState)(0);
   const [answers, setAnswers] = (0, import_react10.useState)([]);
+  const [busy, setBusy] = (0, import_react10.useState)(false);
+  const busyRef = (0, import_react10.useRef)(false);
+  const isStillOpen = typeof pending.getSnapshot === "function" ? () => pending.getSnapshot()?.closed === false : void 0;
   const question = questions[index];
   if (question === void 0) return null;
+  const subId = question.id ?? String(index);
+  const initialOwn = actions?.readQuestionDraft?.("blocking", requestId, subId) ?? "";
+  const onOwnChange = (text) => {
+    if (effectiveSessionId) actions?.noteQuestionDraft?.({ kind: "blocking", id: requestId, subId, sessionId: effectiveSessionId, text, isStillOpen });
+  };
+  const runSettle = (outcome, run2) => {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    setBusy(true);
+    actions?.beginQuestionSettle?.("blocking", requestId, outcome);
+    void Promise.resolve().then(run2).then(
+      () => actions?.finishQuestionSettle?.("blocking", requestId, true),
+      () => actions?.finishQuestionSettle?.("blocking", requestId, false)
+    ).finally(() => {
+      busyRef.current = false;
+      setBusy(false);
+    });
+  };
   const onAnswer = (answer) => {
+    if (busyRef.current) return;
     const next = [...answers, { id: question.id, ...answer }];
     if (index + 1 < questions.length) {
+      if (effectiveSessionId) {
+        const keptCustom = typeof answer?.custom === "string" ? answer.custom.trim() : "";
+        actions?.noteQuestionDraft?.({ kind: "blocking", id: requestId, subId, sessionId: effectiveSessionId, text: keptCustom, isStillOpen });
+      }
       setAnswers(next);
       setIndex(index + 1);
       return;
     }
-    pending.answer({ answers: next });
+    runSettle("answered", () => pending.answer({ answers: next }));
   };
-  return (0, import_react10.createElement)(QuestionView, { key: index, question, onAnswer, onDismiss: () => pending.dismiss(), ownAnswer: true, raised: true });
+  const onDismiss = () => runSettle("dismissed", () => pending.dismiss());
+  return (0, import_react10.createElement)(QuestionView, { key: `${requestId}:${index}`, question, initialOwn, onOwnChange, onAnswer, onDismiss, busy, ownAnswer: true, raised: true });
 }
 function PendingQuestion({ sessionId, question, actions, inline, enterToSend = true, bare: bare2 = false }) {
   const [answered, setAnswered] = (0, import_react10.useState)(null);
@@ -22306,15 +22812,19 @@ function PendingQuestion({ sessionId, question, actions, inline, enterToSend = t
   const busyRef = (0, import_react10.useRef)(false);
   const boxRef = (0, import_react10.useRef)(null);
   const hold = useDockHold(sessionId, "question", question.id, actions, inline);
+  const initialOwn = actions?.readQuestionDraft?.("ask_user", question.id) ?? "";
   if (answered === question.id) return (0, import_react10.createElement)(CellEmpty);
-  const run2 = (make, { settle = false, onFail } = {}) => {
+  const run2 = (make, { settle = false, outcome, onFail } = {}) => {
     if (busyRef.current) return;
     hold();
     busyRef.current = true;
     setBusy(true);
+    if (outcome) actions?.beginQuestionSettle?.("ask_user", question.id, outcome);
     void Promise.resolve().then(make).then(() => {
+      if (outcome) actions?.finishQuestionSettle?.("ask_user", question.id, true);
       if (settle) setAnswered(question.id);
     }, () => {
+      if (outcome) actions?.finishQuestionSettle?.("ask_user", question.id, false);
       onFail?.();
       setAnswered(null);
     }).finally(() => {
@@ -22322,20 +22832,24 @@ function PendingQuestion({ sessionId, question, actions, inline, enterToSend = t
       setBusy(false);
     });
   };
+  const onOwnChange = (text) => {
+    actions?.noteQuestionDraft?.({ kind: "ask_user", id: question.id, sessionId, text });
+  };
   const onAnswer = (answer) => {
     if (busyRef.current) return;
     const height = boxRef.current?.firstElementChild?.offsetHeight || boxRef.current?.offsetHeight;
     if (inline) noteJustAnswered("question", question.id, height);
     run2(() => actions.answerQuestion(sessionId, question.id, { selected: answer.selected ?? [], custom: answer.custom ?? "" }), {
       settle: true,
+      outcome: "answered",
       onFail: () => clearJustAnswered("question", question.id)
     });
   };
-  const onDismiss = () => run2(() => actions.dismissQuestion(sessionId));
+  const onDismiss = () => run2(() => actions.dismissQuestion(sessionId), { outcome: "dismissed" });
   return (0, import_react10.createElement)(
     "div",
     { ref: boxRef, className: bare2 ? "bt-q-hold" : inline ? "bt-q-inline" : "bt-q-dock" },
-    (0, import_react10.createElement)(QuestionView, { key: question.id, question, onAnswer, onDismiss, onInteract: hold, busy, ownAnswer: question.allowCustom === true, raised: !inline, enterToSend })
+    (0, import_react10.createElement)(QuestionView, { key: question.id, question, initialOwn, onOwnChange, onAnswer, onDismiss, onInteract: hold, busy, ownAnswer: question.allowCustom === true, raised: !inline, enterToSend })
   );
 }
 function AskUserCell({ sessionId, callId, arg, argValue, roster, actions, heldCards }) {
@@ -33857,18 +34371,27 @@ var freshInputAt = (submissions, steeredAt) => Math.max(
   ...(submissions ?? []).filter((sub) => sub.placement !== "queued").map((sub) => sub.time)
 );
 var mountMissed = false;
+var runningSlot = null;
 function findHost() {
-  const node = document.querySelector("[data-chat-flow] [data-chat-running]")?.closest("[data-chat-flow]") ?? document.querySelector("[data-chat-flow]");
+  const kept = runningSlot?.slot;
+  if (kept?.isConnected && kept.hasAttribute("data-chat-running") && kept.closest("[data-chat-flow]") === runningSlot.host) return runningSlot.host;
+  const slot = document.querySelector("[data-chat-flow] [data-chat-running]");
+  const node = slot?.closest("[data-chat-flow]") ?? document.querySelector("[data-chat-flow]");
+  runningSlot = slot ? { slot, host: node } : null;
   if (node === null && !mountMissed) {
     mountMissed = true;
     noteClientError("activity row", new Error("[data-chat-flow] not found"));
   }
   return node;
 }
+function releaseHost() {
+  runningSlot = null;
+}
 function useRunningHost(active) {
   const [host, setHost] = (0, import_react36.useState)(null);
   (0, import_react36.useEffect)(() => {
     if (!active) {
+      releaseHost();
       setHost(null);
       return void 0;
     }
@@ -33888,6 +34411,7 @@ function useRunningHost(active) {
     return () => {
       cancelAnimationFrame(frame2);
       observer.disconnect();
+      releaseHost();
     };
   }, [active]);
   return host;
@@ -33924,7 +34448,7 @@ function useRowEntrances(replacing) {
         }
         return;
       }
-      const items = [...column.querySelectorAll(":scope > [data-chat-flow-key]")];
+      const items = [...column.children].filter((item) => item.hasAttribute("data-chat-flow-key"));
       let last = -1;
       items.forEach((item, index) => {
         if (seen.has(item)) last = index;
@@ -42258,6 +42782,8 @@ function ownAppRow(ownApp) {
   if (ownApp === null || typeof ownApp !== "object") return null;
   const version = typeof ownApp.version === "string" ? ownApp.version : "";
   switch (ownApp.phase) {
+    case "idle":
+      return { hint: ownApp.autoUpdate === false ? t("Automatic updates are off.") : null, button: "check" };
     case "checking":
       return { hint: t("Checking for updates…"), button: null };
     case "current":
@@ -42265,9 +42791,12 @@ function ownAppRow(ownApp) {
     case "downloading":
       return { hint: t("Downloading {version}…", { version }), button: null };
     case "downloaded":
-      return { hint: t("{version} is ready; it installs when you restart", { version }), button: "restart" };
+      return {
+        hint: ownApp.autoInstall === false ? t("{version} is ready", { version }) : t("{version} is ready; it installs when you restart", { version }),
+        button: "restart"
+      };
     case "available":
-      return { hint: t("{version} is available", { version }), button: "open" };
+      return { hint: t("{version} is available", { version }), button: ownApp.canDownload === true ? "download" : "open" };
     case "failed":
       return { hint: t("Could not check for updates."), button: "check" };
     default:
@@ -42283,7 +42812,7 @@ function dshHint(dsh, shown) {
   return t("Version {version}", { version: dsh.current });
 }
 var linkProps = (href) => ({ className: "bt-soft bt-soft-sm bt-about-link", href, target: "_blank", rel: "noopener noreferrer" });
-function AboutPage({ useUpdate, actions, run: run2, Section: Section2, Row: Row4, onStartTour = null }) {
+function AboutPage({ useUpdate, actions, run: run2, Section: Section2, Row: Row4, Switch: Switch2 = null, onStartTour = null }) {
   const update = useUpdate((value) => value) ?? {};
   const [checking, setChecking] = (0, import_react52.useState)(false);
   const [stars, setStars] = (0, import_react52.useState)(null);
@@ -42320,7 +42849,7 @@ function AboutPage({ useUpdate, actions, run: run2, Section: Section2, Row: Row4
   const dshNew = showsDshRow(dsh, update.app);
   const dshShown = dshNew && dsh.available;
   const ownRow = update.source === "app" ? ownAppRow(update.ownApp) : null;
-  const ownControl = ownRow?.button === "restart" ? (0, import_react52.createElement)("button", { type: "button", className: "bt-fb-primary", onClick: () => run2(actions.installOwnApp()) }, t("Restart to update")) : ownRow?.button === "check" ? (0, import_react52.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => run2(actions.checkOwnApp()) }, t("Check for updates")) : ownRow?.button === "open" ? (0, import_react52.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => run2(actions.openOwnApp()) }, t("Download")) : null;
+  const ownControl = ownRow?.button === "restart" ? (0, import_react52.createElement)("button", { type: "button", className: "bt-fb-primary", onClick: () => run2(actions.installOwnApp()) }, t("Restart to update")) : ownRow?.button === "check" ? (0, import_react52.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => run2(actions.checkOwnApp()) }, t("Check for updates")) : ownRow?.button === "download" ? (0, import_react52.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => run2(actions.downloadOwnApp()) }, t("Download")) : ownRow?.button === "open" ? (0, import_react52.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => run2(actions.openOwnApp()) }, t("Download")) : null;
   const botControl = ownRow !== null ? ownControl : phase === "installed" || phase === "updated" || update.source === "app" ? null : update.available || phase === "installing" ? (0, import_react52.createElement)(
     "button",
     { type: "button", className: "bt-fb-primary", disabled: phase === "installing", onClick: () => run2(actions.installUpdate()) },
@@ -42362,6 +42891,11 @@ function AboutPage({ useUpdate, actions, run: run2, Section: Section2, Row: Row4
       Section2,
       { key: "updates", title: t("Updates") },
       (0, import_react52.createElement)(Row4, { label: "DS Bot", hint: ownRow?.hint ?? botHint(update) }, botControl, update.available && update.notesUrl ? (0, import_react52.createElement)("a", linkProps(update.notesUrl), t("What's new")) : null),
+      ownRow !== null && Switch2 && typeof update.ownApp?.autoUpdate === "boolean" ? (0, import_react52.createElement)(
+        Row4,
+        { label: t("Automatic updates") },
+        (0, import_react52.createElement)(Switch2, { label: t("Automatic updates"), on: update.ownApp.autoUpdate, onChange: (on) => run2(actions.setOwnAppAutoUpdate(on)) })
+      ) : null,
       dsh?.current ? (0, import_react52.createElement)(Row4, { label: "DeepSeek Harness", hint: dshHint(dsh, dshShown) }, dshControl) : null
     ),
     (0, import_react52.createElement)(
@@ -44258,7 +44792,7 @@ var SEARCH_ENTRIES = [
   { id: "secrets", label: "Secrets", group: "Tools", page: "secrets", icon: "secrets", keywords: "encrypt passphrase password keys 密钥 加密 口令" },
   { id: "plugins", label: "Plugins", group: "Plugins", page: "plugins", icon: "plugins", keywords: "plugin extension browser ego playwright mcp registry catalog 插件 扩展 浏览器 市场 仓库" },
   { id: "usage", label: "Usage", group: "Usage", page: "usage", icon: "usage", keywords: "tokens cost stats chart 用量 统计 消耗" },
-  { id: "about", label: "About DS Bot", group: "About DS Bot", page: "about", icon: "about", keywords: "version update release github guide walkthrough 关于 版本 更新 引导" },
+  { id: "about", label: "About DS Bot", group: "About DS Bot", page: "about", icon: "about", keywords: "version update auto-update automatic release github guide walkthrough 关于 版本 更新 自动更新 引导" },
   { id: "feedback", label: "Feedback", group: "About DS Bot", page: "feedback", icon: "feedback", keywords: "bug error log diagnostics issue 反馈 报错 日志 诊断" }
 ];
 var matches2 = (haystack, tokens) => tokens.every((token) => haystack.includes(token));
@@ -45566,7 +46100,7 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
       case "feedback":
         return (0, import_react61.createElement)(FeedbackPage, { actions, run: run2, Section: SetSection, Row: SetRow });
       case "about":
-        return (0, import_react61.createElement)(AboutPage, { useUpdate, actions, run: run2, Section: SetSection, Row: SetRow, onStartTour: () => startTour("full") });
+        return (0, import_react61.createElement)(AboutPage, { useUpdate, actions, run: run2, Section: SetSection, Row: SetRow, Switch, onStartTour: () => startTour("full") });
       default:
         return null;
     }
@@ -47381,68 +47915,6 @@ var steerQueued = async (session) => {
   }
 };
 
-// src/client/draft-keep.js
-var NO_FILES = [];
-var keptFiles = /* @__PURE__ */ new Map();
-var readTexts = (storage) => {
-  try {
-    const value = JSON.parse(storage?.getItem(STORAGE.drafts) ?? "{}");
-    return value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
-  } catch {
-    return {};
-  }
-};
-var writeTexts = (storage, value) => {
-  try {
-    storage?.setItem(STORAGE.drafts, JSON.stringify(value));
-  } catch {
-  }
-};
-var textEntry = (value) => value !== null && typeof value === "object" && typeof value.part === "string" && typeof value.text === "string";
-function chatOfSession(roster, sessionId) {
-  if (typeof sessionId !== "string" || sessionId === "") return void 0;
-  const bots = Object.values(roster?.byId ?? {});
-  const rooms = Object.values(roster?.roomsById ?? {});
-  const bot = roster?.byId?.[sessionId] ?? bots.find((item) => currentPart(item) === sessionId || item.parts?.includes(sessionId));
-  if (bot !== void 0) return { id: bot.id, part: currentPart(bot) };
-  const room2 = roster?.roomsById?.[sessionId] ?? rooms.find((item) => (item.sessionId ?? item.id) === sessionId || item.ownParts?.includes(sessionId));
-  if (room2 !== void 0) return { id: room2.id, part: room2.sessionId ?? room2.id };
-  return void 0;
-}
-function keepDraft({ chatId, part, text, files }, storage = globalThis.localStorage) {
-  if (files.length === 0) keptFiles.delete(chatId);
-  else keptFiles.set(chatId, { part, files: [...files] });
-  const texts2 = readTexts(storage);
-  const before = texts2[chatId];
-  if (text === "") {
-    if (before === void 0) return;
-    delete texts2[chatId];
-  } else {
-    if (before?.part === part && before?.text === text) return;
-    texts2[chatId] = { part, text };
-  }
-  writeTexts(storage, texts2);
-}
-function takeDraft({ chatId, part, text, attached }, storage = globalThis.localStorage) {
-  const kept = keptFiles.get(chatId);
-  const files = attached === 0 && kept !== void 0 ? kept.files : NO_FILES;
-  const entry = readTexts(storage)[chatId];
-  const carried = textEntry(entry) && entry.part !== part && text.trim() === "" ? entry.text : "";
-  return { text: carried, files, from: files.length > 0 ? kept.part : carried === "" ? void 0 : entry.part };
-}
-function pruneDrafts(gone, storage = globalThis.localStorage) {
-  if (gone.length === 0) return;
-  for (const chatId of gone) keptFiles.delete(chatId);
-  const texts2 = readTexts(storage);
-  const listed = gone.filter((chatId) => texts2[chatId] !== void 0);
-  if (listed.length === 0) return;
-  for (const chatId of listed) delete texts2[chatId];
-  writeTexts(storage, texts2);
-}
-function forgetKeptFiles() {
-  keptFiles.clear();
-}
-
 // src/client/composer.js
 var import_react67 = require("react");
 var import_react_dom11 = require("react-dom");
@@ -47694,29 +48166,69 @@ function ComposerPlus({ sessionId, inputActions, useInput, useRoster, actions })
 }
 var NO_IDS = [];
 var FROZEN_PHASES = /* @__PURE__ */ new Set(["adjudicating", "submitting", "sending"]);
-function DraftKeeper({ sessionId, inputActions, useInput, useRoster, actions }) {
+var appendRescuedPreservingChips = (inputActions, base, rescued) => {
+  const merged = mergeRescuedDraft(base, rescued);
+  if (merged === base) return { applied: true, changed: false, nextText: base };
+  if (typeof inputActions.captureInsertion !== "function" || typeof inputActions.insertText !== "function") {
+    return { applied: false, changed: false, nextText: base };
+  }
+  const span = inputActions.captureInsertion();
+  if (span === void 0 || span === null || typeof span.end !== "number" || typeof span.draftRev !== "number") {
+    return { applied: false, changed: false, nextText: base };
+  }
+  const addition = base.trim() === "" ? rescued.trim() : `${base.endsWith("\n\n") ? "" : base.endsWith("\n") ? "\n" : "\n\n"}${rescued.trim()}`;
+  const ok = inputActions.insertText(addition, { start: span.end, end: span.end, draftRev: span.draftRev });
+  return { applied: ok === true, changed: ok === true, nextText: ok === true ? merged : base };
+};
+function DraftKeeper({ sessionId, inputActions, useInput, useRoster, useRescuedDrafts, actions }) {
   const chatId = useRoster((roster) => chatOfSession(roster, sessionId)?.id);
   const current2 = useRoster((roster) => chatOfSession(roster, sessionId)?.part === sessionId);
   const draft = useInput?.((state) => state.draft) ?? "";
   const ids = useInput?.((state) => state.attachmentIds) ?? NO_IDS;
   const phase = useInput?.((state) => state.phase) ?? "plain";
+  const occurrences = useInput?.((state) => state.occurrences) ?? NO_IDS;
+  const hasChips = Array.isArray(occurrences) && occurrences.length > 0;
+  const rescued = useRescuedDrafts?.((state) => readRescuedForChat(state, chatId, sessionId)) ?? "";
   const frozen = FROZEN_PHASES.has(phase);
+  const rescueBlocked = frozen || phase === "claimed";
+  const key = `${chatId}:${sessionId}`;
+  const keyRef = (0, import_react67.useRef)(key);
   const restored = (0, import_react67.useRef)("");
-  const pending = (0, import_react67.useRef)({ text: false, files: false });
+  const pending = (0, import_react67.useRef)({ text: false, staleDraft: null, files: false });
+  const latestDraft = (0, import_react67.useRef)(draft);
+  if (keyRef.current !== key) {
+    keyRef.current = key;
+    pending.current = { text: false, staleDraft: null, files: false };
+    latestDraft.current = draft;
+  } else if (!pending.current.text || draft !== pending.current.staleDraft) {
+    latestDraft.current = draft;
+  }
+  let rescuedHandled = false;
   (0, import_react67.useEffect)(() => {
     if (!current2 || frozen || inputActions === void 0) return;
-    const key = `${chatId}:${sessionId}`;
     if (restored.current === key) return;
     const back = takeDraft({ chatId, part: sessionId, text: draft, attached: ids.length });
+    const canLandRescueHere = rescued !== "" && !rescueBlocked && (!hasChips || back.text !== "");
+    const baseText = back.text !== "" ? back.text : draft;
+    const mergedText = canLandRescueHere ? mergeRescuedDraft(baseText, rescued) : back.text;
+    const applyText = canLandRescueHere ? mergedText !== draft : back.text !== "";
+    if (canLandRescueHere) rescuedHandled = true;
     let added = [];
     let attached = false;
     let restoredText = false;
     let restoredFiles = false;
     let ok = true;
     try {
-      if (back.text !== "") {
-        inputActions.setDraft(back.text);
+      if (applyText) {
+        inputActions.setDraft(mergedText);
         restoredText = true;
+        latestDraft.current = mergedText;
+      }
+      if (canLandRescueHere) {
+        actions.consumeRescuedDraft?.(chatId, sessionId, rescued);
+        if (restoredText && back.files.length === 0) {
+          keepDraft({ chatId, part: sessionId, text: mergedText, files: actions.draftFiles?.(ids) ?? [] });
+        }
       }
       if (back.files.length > 0) {
         added = actions.restoreDraftFiles(sessionId, back.files.map((item) => item.file));
@@ -47734,19 +48246,46 @@ function DraftKeeper({ sessionId, inputActions, useInput, useRoster, actions }) 
       ok = false;
       console.warn("[ds-bot] could not put the draft back", error);
     }
-    pending.current = { text: restoredText, files: restoredFiles };
+    pending.current = { text: restoredText, staleDraft: restoredText ? draft : null, files: restoredFiles };
     restored.current = key;
     if (!ok && back.files.length > 0) actions.notice?.(t("The files attached to this draft could not be put back."));
   }, [current2, frozen, chatId, sessionId, inputActions]);
   (0, import_react67.useEffect)(() => {
-    if (!current2 || restored.current !== `${chatId}:${sessionId}`) return;
+    if (rescuedHandled || !current2 || rescueBlocked || inputActions === void 0 || rescued === "" || restored.current !== key) return;
+    const base = latestDraft.current;
+    try {
+      if (hasChips) {
+        const result = appendRescuedPreservingChips(inputActions, base, rescued);
+        if (!result.applied) return;
+        if (result.changed) {
+          pending.current = { ...pending.current, text: true, staleDraft: draft };
+          latestDraft.current = result.nextText;
+          keepDraft({ chatId, part: sessionId, text: result.nextText, files: actions.draftFiles?.(ids) ?? [] });
+        }
+        actions.consumeRescuedDraft?.(chatId, sessionId, rescued);
+        return;
+      }
+      const merged = mergeRescuedDraft(base, rescued);
+      if (merged !== base) {
+        inputActions.setDraft(merged);
+        pending.current = { ...pending.current, text: true, staleDraft: draft };
+        latestDraft.current = merged;
+        keepDraft({ chatId, part: sessionId, text: merged, files: actions.draftFiles?.(ids) ?? [] });
+      }
+      actions.consumeRescuedDraft?.(chatId, sessionId, rescued);
+    } catch (error) {
+      console.warn("[ds-bot] could not return the question draft", error);
+    }
+  }, [current2, rescueBlocked, hasChips, chatId, sessionId, inputActions, rescued]);
+  (0, import_react67.useEffect)(() => {
+    if (!current2 || restored.current !== key) return;
     if (frozen) {
       keepDraft({ chatId, part: sessionId, text: "", files: [] });
       return;
     }
-    if (pending.current.text && draft === "") return;
+    if (pending.current.text && draft === pending.current.staleDraft) return;
     if (pending.current.files && ids.length === 0) return;
-    pending.current = { text: false, files: false };
+    pending.current = { text: false, staleDraft: null, files: false };
     keepDraft({ chatId, part: sessionId, text: draft, files: actions.draftFiles(ids) });
   }, [current2, frozen, chatId, sessionId, draft, ids]);
   return null;
@@ -52007,11 +52546,17 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
       cancelPendingImport();
     };
   }, [tabId]);
+  const sourcesReqRef = (0, import_react81.useRef)(0);
   const refreshSources = () => {
     if (!imports) return;
+    const req = ++sourcesReqRef.current;
     void imports.sources().then(
-      (list) => setSources(Array.isArray(list) ? list : []),
-      () => setSources((prev) => prev ?? [])
+      (list) => {
+        if (req === sourcesReqRef.current) setSources(Array.isArray(list) ? list : []);
+      },
+      () => {
+        if (req === sourcesReqRef.current) setSources((prev) => prev ?? []);
+      }
     );
   };
   const openImport = () => {
@@ -52076,7 +52621,14 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
       return;
     }
     if (r?.canceled) return;
-    if (r?.needsRemoteDebugging) setFlowTracked({ stage: "remote-debug", source, info: r });
+    if (r?.needsProfileChoice) {
+      setSources(null);
+      setFlowTracked("menu");
+      refreshSources();
+      return;
+    }
+    if (r?.needsFullDiskAccess) setFlowTracked({ stage: "safari-permission", source, info: r });
+    else if (r?.needsRemoteDebugging) setFlowTracked({ stage: "remote-debug", source, info: r });
     else if (r?.running) setFlowTracked({ stage: "running", source });
     else showPicked(r, token);
   });
@@ -52270,6 +52822,9 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
         onLaunchSource: () => {
           if (flow.source && imports?.launch) void imports.launch(flow.source.id);
         },
+        onOpenPermission: () => {
+          if (imports?.openPermission) void imports.openPermission();
+        },
         onFile: pickFile,
         onSubmitPaste: submitPaste,
         onDone: () => setFlowTracked(null),
@@ -52302,6 +52857,8 @@ function importError(error) {
   if (error === "devtools-denied") return t("Remote debugging permission was declined in the browser. Try again and click Allow.");
   if (error === "devtools-timeout") return t("Timed out waiting for you to click Allow in the browser.");
   if (error === "devtools-wrong-profile") return t("Another browser profile is active. Switch to the chosen profile window in your browser, then try again.");
+  if (error === "browser-locked") return t("This browser’s cookie database is busy. Quit the browser and try again.");
+  if (error === "safari-corrupt") return t("Safari cookies could not be read. Try again or import from a file.");
   return String(error);
 }
 function ImportMenu({ sources, lastSourceId, loading, busy, canPaste, onFile, onPaste, onSource, onClose }) {
@@ -52312,8 +52869,11 @@ function ImportMenu({ sources, lastSourceId, loading, busy, canPaste, onFile, on
     (0, import_react81.createElement)("div", { className: "bt-import-menu-title" }, t("Import from browser")),
     loading ? (0, import_react81.createElement)("div", { className: "bt-import-menu-note" }, t("Loading…")) : sources.length === 0 ? (0, import_react81.createElement)("div", { className: "bt-import-menu-note" }, t("No browsers found")) : sources.map((source) => {
       const isLast = source.id === lastSourceId;
+      const needsPerm = Boolean(source.needsPermission);
       const isReady = Boolean(source.liveDebugReady);
-      const showFallback = !isLast && !isReady && !source.email;
+      const hasCount = typeof source.cookieCount === "number" && !needsPerm && !isReady;
+      const showFallback = !isLast && !needsPerm && !isReady && !hasCount && !source.email;
+      const hasMeta = isLast || needsPerm || isReady || hasCount || showFallback;
       return (0, import_react81.createElement)(
         "button",
         {
@@ -52332,11 +52892,13 @@ function ImportMenu({ sources, lastSourceId, loading, busy, canPaste, onFile, on
           (0, import_react81.createElement)("span", { className: "bt-import-item-name" }, source.label),
           source.email ? (0, import_react81.createElement)("span", { className: "bt-import-item-email" }, source.email) : null
         ),
-        isLast || isReady || showFallback ? (0, import_react81.createElement)(
+        hasMeta ? (0, import_react81.createElement)(
           "span",
           { className: "bt-import-item-meta" },
           isLast ? (0, import_react81.createElement)("span", { className: "bt-import-item-tag" }, t("Last used")) : null,
+          needsPerm ? (0, import_react81.createElement)("span", { className: "bt-import-item-sub", "data-warn": true }, t("Permission needed")) : null,
           isReady ? (0, import_react81.createElement)("span", { className: "bt-import-item-sub", "data-ready": true }, t("Ready")) : null,
+          hasCount ? (0, import_react81.createElement)("span", { className: "bt-import-item-sub" }, t("{count} cookies", { count: source.cookieCount })) : null,
           showFallback ? (0, import_react81.createElement)("span", { className: "bt-import-item-sub" }, t("Browser profile")) : null
         ) : null
       );
@@ -52357,6 +52919,77 @@ function ImportMenu({ sources, lastSourceId, loading, busy, canPaste, onFile, on
       (0, import_react81.createElement)("span", { className: "bt-import-item-sub" }, t("JSON, cURL, header"))
     ) : null
   );
+}
+function SafariPermissionCard({ flow, busy, imports, onOpenPermission, onPermissionGranted, onRetrySource, onCancel }) {
+  const { source } = flow;
+  const [granted, setGranted] = (0, import_react81.useState)(false);
+  const notifiedRef = (0, import_react81.useRef)(false);
+  const onGrantedRef = (0, import_react81.useRef)(onPermissionGranted);
+  onGrantedRef.current = onPermissionGranted;
+  (0, import_react81.useEffect)(() => {
+    const canProbe = typeof imports?.probe === "function";
+    if (!canProbe) return void 0;
+    let active = true;
+    let timer = null;
+    const schedule = () => {
+      if (!active) return;
+      timer = setTimeout(poll, 2e3);
+    };
+    const poll = () => {
+      void imports.probe(source.id).then(
+        (res) => {
+          if (!active) return;
+          const ok = Boolean(res?.permissionGranted);
+          setGranted(ok);
+          if (ok && !notifiedRef.current) {
+            notifiedRef.current = true;
+            onGrantedRef.current?.();
+          }
+        },
+        () => {
+        }
+      ).finally(schedule);
+    };
+    schedule();
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [imports, source.id]);
+  return (0, import_react81.createElement)("div", { className: "bt-import-card" }, (0, import_react81.createElement)(
+    "div",
+    { className: "bt-import-box" },
+    (0, import_react81.createElement)("div", { className: "bt-import-title" }, t("Allow Safari access")),
+    (0, import_react81.createElement)(
+      "div",
+      { className: "bt-import-text" },
+      t("macOS protects Safari cookies with Full Disk Access. Enable DS Bot once in System Settings to import from Safari.")
+    ),
+    (0, import_react81.createElement)(
+      "div",
+      { className: "bt-import-steps" },
+      (0, import_react81.createElement)("div", { className: "bt-import-step" }, t("1. Open Full Disk Access in System Settings and turn on DS Bot.")),
+      (0, import_react81.createElement)("div", { className: "bt-import-step" }, t("2. If macOS asks to quit and reopen DS Bot, click Quit & Reopen, then try again."))
+    ),
+    granted ? (0, import_react81.createElement)("div", { className: "bt-import-ready-note" }, t("Full Disk Access granted — ready to import.")) : null,
+    (0, import_react81.createElement)(
+      "div",
+      { className: "bt-import-actions" },
+      (0, import_react81.createElement)("button", { type: "button", className: "bt-import-plain", disabled: busy, onClick: onCancel }, t("Cancel")),
+      imports?.openPermission ? (0, import_react81.createElement)("button", {
+        type: "button",
+        className: granted ? "bt-import-plain" : "bt-import-primary",
+        disabled: busy,
+        onClick: onOpenPermission
+      }, t("Open System Settings")) : null,
+      (0, import_react81.createElement)("button", {
+        type: "button",
+        className: granted || !imports?.openPermission ? "bt-import-primary" : "bt-import-plain",
+        disabled: busy,
+        onClick: onRetrySource
+      }, busy ? t("Reading…") : granted ? t("Import") : t("Try again"))
+    )
+  ));
 }
 function RemoteDebugCard({ flow, busy, imports, onRetrySource, onLaunchSource, onFile, onCancel }) {
   const { source, info } = flow;
@@ -52607,7 +53240,7 @@ function PreviewCard({ flow, page, busy, onApply, onCancel }) {
     )
   ));
 }
-function ImportCard({ flow, page, busy, imports, onApply, onCancel, onCloseAndImport, onRetrySource, onLaunchSource, onFile, onSubmitPaste, onDone, onReload }) {
+function ImportCard({ flow, page, busy, imports, onApply, onCancel, onCloseAndImport, onRetrySource, onLaunchSource, onOpenPermission, onPermissionGranted, onFile, onSubmitPaste, onDone, onReload }) {
   const { stage } = flow;
   if (stage === "connecting") {
     return (0, import_react81.createElement)("div", { className: "bt-import-card" }, (0, import_react81.createElement)(
@@ -52622,6 +53255,9 @@ function ImportCard({ flow, page, busy, imports, onApply, onCancel, onCloseAndIm
         (0, import_react81.createElement)("button", { type: "button", className: "bt-import-plain", onClick: onCancel }, t("Cancel"))
       )
     ));
+  }
+  if (stage === "safari-permission") {
+    return (0, import_react81.createElement)(SafariPermissionCard, { flow, busy, imports, onOpenPermission, onPermissionGranted, onRetrySource, onCancel });
   }
   if (stage === "remote-debug") {
     return (0, import_react81.createElement)(RemoteDebugCard, { flow, busy, imports, onRetrySource, onLaunchSource, onFile, onCancel });
@@ -53049,10 +53685,11 @@ var BROWSER_CSS = `
 .bt-import-item-main .bt-import-item-name{max-width:none}
 .bt-import-item-email{font-size:11px;line-height:15px;color:var(--bt-ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-import-item-meta{flex:none;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
-.bt-import-item-tag{font-size:11px;color:var(--bt-ink-3)}
+.bt-import-item-tag{font-size:11px;line-height:15px;padding:1px 6px;border-radius:4px;background:var(--bt-tag-bg);color:var(--bt-tag-ink)}
 .bt-import-item-sub{flex:1;min-width:0;text-align:right;font-size:11px;color:var(--bt-ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-import-item-meta .bt-import-item-sub{flex:none}
 .bt-import-item-sub[data-ready]{color:var(--bt-green);font-weight:500}
+.bt-import-item-sub[data-warn]{color:var(--bt-warn);font-weight:500}
 .bt-import-menu-note{padding:8px 10px 10px;font-size:12px;color:var(--bt-ink-3)}
 .bt-import-card{position:absolute;inset:0;z-index:5;display:flex;align-items:center;justify-content:center;padding:20px;background:var(--bt-main);overflow:auto;animation:bt-foot-in .2s ease}
 .bt-import-box{width:100%;max-width:380px;max-height:100%;display:flex;flex-direction:column;gap:10px;padding:20px;border:.5px solid var(--bt-line-2);border-radius:16px;background:var(--bt-main);box-shadow:0 12px 36px -12px rgba(0,0,0,.14);overflow:auto}
@@ -53088,7 +53725,7 @@ var BROWSER_CSS = `
 .bt-import-note{font-size:12px;line-height:17px;color:var(--bt-ink-3)}
 .bt-import-warns{font-size:12px;color:var(--bt-ink-3)}
 .bt-import-warns summary{cursor:pointer;padding:2px 0}
-.bt-import-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:4px}
+.bt-import-actions{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;margin-top:4px}
 .bt-import-primary{height:32px;padding:0 16px;border:0;border-radius:999px;background:var(--bt-accent);color:var(--bt-accent-ink);font:inherit;font-size:13px;cursor:pointer}
 .bt-import-primary:disabled{opacity:.55;cursor:default}
 .bt-import-plain{height:32px;padding:0 14px;border:.5px solid var(--bt-line-2);border-radius:999px;background:var(--bt-main);color:var(--bt-ink);font:inherit;font-size:13px;cursor:pointer}
@@ -55709,6 +56346,7 @@ function apply(ctx) {
       if (event.key === null || event.key === unreadStore.key) ui.set((state) => ({ ...state, unread: unreadStore.read(state.unread) }));
       if (event.key === null || event.key === reactionStore.key) ui.set((state) => ({ ...state, reactions: reactionStore.read(state.reactions) }));
       if (event.key === null || event.key === seenStore.key) seenAt = seenStore.read(seenAt);
+      if (event.key === null || event.key === STORAGE.rescuedDrafts) questionDrafts.syncFromStorage();
     };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
@@ -55722,6 +56360,7 @@ function apply(ctx) {
   let computerKey = "{}";
   const cards = createSource({});
   const heldCards = createSource({});
+  const questionDrafts = createQuestionDrafts();
   const turnClock = createSource({});
   let activityKey = "{}";
   const memoryNews = createSource({});
@@ -56146,7 +56785,7 @@ function apply(ctx) {
     }
   };
   const actions = {
-    ...teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded }),
+    ...teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded, questionDrafts }),
     // The files a group row names open DSH's own review tab for that turn. The tab reads
     // the changes of the Session the shell shows, so that Session is opened first; the same
     // call then retries until its right column is mounted. This jump is the one place a
@@ -56375,6 +57014,7 @@ function apply(ctx) {
         pick: () => bridge2.importPick(),
         paste: typeof bridge2.importPaste === "function" ? (text, defaultUrl) => bridge2.importPaste(text, defaultUrl) : null,
         launch: typeof bridge2.importLaunch === "function" ? (source) => bridge2.importLaunch(source) : null,
+        openPermission: typeof bridge2.importOpenPermission === "function" ? () => bridge2.importOpenPermission() : null,
         live: (source, close, requestId) => bridge2.importLive(source, close, requestId),
         apply: (botId, pending, options) => bridge2.importApply(`bot:${botId}`, pending, options),
         cancel: (pending) => bridge2.importCancel(pending)
@@ -56434,6 +57074,12 @@ function apply(ctx) {
   };
   actions.openOwnApp = async () => {
     await ownAppUpdates?.open?.();
+  };
+  actions.downloadOwnApp = async () => {
+    await ownAppUpdates?.download?.();
+  };
+  actions.setOwnAppAutoUpdate = async (enabled) => {
+    await ownAppUpdates?.setAutoUpdate?.(enabled === true);
   };
   const browserPages = browsers?.pages ?? createSource({});
   const browserTabs = browsers?.tabs ?? createSource({});
@@ -56520,7 +57166,7 @@ function apply(ctx) {
       else if (kind === "letgo") void actions.computerAllowForeground(botId);
     });
   }
-  const face = () => ({ actions, hooks: { roster, ui, activity, work, memoryNews, registry, turnClock, live, computer, cards, heldCards, browserPages, browserTabs, browserHolds, surface, update, frame: frame2, sidebarPref, settingsShellHeld } });
+  const face = () => ({ actions, hooks: { roster, ui, activity, work, memoryNews, registry, turnClock, live, computer, cards, heldCards, rescuedDrafts: questionDrafts.rescued, browserPages, browserTabs, browserHolds, surface, update, frame: frame2, sidebarPref, settingsShellHeld } });
   const hostDrawsUserText = typeof ctx.uiConversation.userText?.register === "function";
   ctx.effect(() => installCommandActions(ctx, { roster, actions }), "ds-bot: bot command actions");
   ctx.effect(() => {
@@ -56542,11 +57188,44 @@ function apply(ctx) {
     return roster.subscribe(() => {
       const snapshot = roster.getSnapshot();
       if (!snapshot.ready) return;
-      const now = /* @__PURE__ */ new Set([...snapshot.bots.map((bot) => bot.id), ...snapshot.rooms.map((room2) => room2.id)]);
-      if (chats !== null) pruneDrafts([...chats].filter((id) => !now.has(id)));
+      const now = /* @__PURE__ */ new Map();
+      for (const bot of snapshot.bots) {
+        const ids = [bot.id, bot.sessionId, ...bot.parts ?? []].filter((id) => typeof id === "string" && id !== "");
+        now.set(bot.id, [...new Set(ids)]);
+      }
+      for (const room2 of snapshot.rooms) {
+        const ids = [room2.id, room2.sessionId, ...room2.ownParts ?? []].filter((id) => typeof id === "string" && id !== "");
+        now.set(room2.id, [...new Set(ids)]);
+      }
+      if (chats !== null) {
+        const goneChats = [];
+        const goneAll = [];
+        for (const [chatId, prevIds] of chats) {
+          if (now.has(chatId)) continue;
+          goneChats.push(chatId);
+          for (const id of prevIds) goneAll.push(id);
+        }
+        if (goneChats.length > 0) {
+          pruneDrafts(goneChats);
+          questionDrafts.pruneChats([...new Set(goneAll)]);
+        }
+      }
       chats = now;
     });
   }, "ds-bot: drafts of removed chats");
+  ctx.effect(() => {
+    const offRoster = roster.subscribe(() => {
+      questionDrafts.reconcileRoster(roster.getSnapshot());
+    });
+    const sessionStatus = ctx.get("uiSession")?.sessionStatus;
+    const offStatus = sessionStatus?.subscribe?.(() => {
+      questionDrafts.reconcileBlocking(sessionStatus.getSnapshot(), roster.getSnapshot());
+    });
+    return () => {
+      offRoster();
+      offStatus?.();
+    };
+  }, "ds-bot: rescue interrupted question drafts");
   ctx.effect(() => noticeApprovals({
     work,
     roster,
@@ -56864,6 +57543,7 @@ function apply(ctx) {
     () => shadow("conversation.input.right", { id: "bot-voice", order: 100, inject: face }, ComposerVoice),
     () => shadow("conversation.composer", {
       priority: BOT_PRIORITY,
+      inject: face,
       select: (owner) => owner.pendingInteraction?.kind === "question" ? owner.pendingInteraction : null
     }, QuestionCard),
     () => shadow("conversation.input.dock", { id: "bot-paste", order: -130, inject: face }, PasteDock),

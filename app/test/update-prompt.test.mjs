@@ -67,4 +67,17 @@ describe('the update prompt', () => {
     assert.deepEqual(app.asked, [])
     assert.deepEqual(app.installed, [])
   })
+
+  test('clear drops a queued prompt before the window returns', async () => {
+    const app = harness()
+    app.state.shown = false
+    await app.deferred.prompt('0.2.3')
+    assert.equal(app.deferred.waiting(), '0.2.3')
+    app.deferred.clear()
+    assert.equal(app.deferred.waiting(), undefined)
+    app.state.shown = true
+    await app.deferred.flush()
+    assert.deepEqual(app.asked, [])
+    assert.deepEqual(app.installed, [])
+  })
 })

@@ -334,7 +334,8 @@ export function install(rt) {
         }
         case 'exchange-text': {
           await rt.load()
-          const entry = (body.a !== undefined && body.b !== undefined ? rt.exchangeOf(body.id, body.a, body.b) : undefined)
+          const hasPair = body.a !== undefined && body.b !== undefined
+          const entry = (hasPair ? rt.exchangeOf(body.id, body.a, body.b) : rt.exchangeById?.(body.id))
             ?? state.exchanges.find(item => item.id === body.id)
           if (entry === undefined) return fail('This message is no longer kept', 'bot/stale')
           return ok(await rt.exchangeText(entry))
@@ -353,14 +354,31 @@ export function install(rt) {
           return ok(await rt.chatPage(String(body.botId ?? ''), body.cursor ?? undefined, body.steps === true))
         // DSH's own whole-log figures for the current part of a Bot's chat, the ones its
         // status bar shows; a window without that bar shows them in the Bot's details.
+        // Local CLI agents run many internal tool steps inside one DSH turn, so their
+        // `assistant/message.usage` carries cumulative billed tokens; replace DSH's
+        // cumulative `contextPressure` with the CLI's own per-step context occupancy.
         case 'run-stats': {
           await rt.load()
           const bot = rt.botOf(String(body.botId ?? ''))
           if (bot === undefined) return fail('Unknown Bot', 'bot/not-found')
           const projections = ctx.get?.('sessionProjections')
           if (projections === undefined) return ok(null)
-          const agent = await rt.resolveAgent(rt.chatOf(bot.id))
-          return ok(projections.snapshot(agent.session, RUN_STATS).values)
+          const sessionId = rt.chatOf(bot.id)
+          const agent = await rt.resolveAgent(sessionId)
+          const values = projections.snapshot(agent.session, RUN_STATS).values
+          const isLocal = rt.isLocalAgentRoute?.(agent.session?.requestHeader?.()?.config?.provider ?? '') === true
+            || rt.isLocalAgentSession?.(sessionId) === true
+          if (values && isLocal) {
+            const localContext = rt.localAgentContext?.(sessionId)
+            const contextWindow = localContext?.size ?? values.contextPressure?.contextWindow
+            return ok({
+              ...values,
+              contextPressure: Number.isFinite(localContext?.used) && contextWindow > 0
+                ? { ...values.contextPressure, pressureTokens: localContext.used, projectedTokens: localContext.used, contextWindow }
+                : undefined,
+            })
+          }
+          return ok(values)
         }
         case 'usage':
           await rt.load()

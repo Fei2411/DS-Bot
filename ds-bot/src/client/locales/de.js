@@ -605,6 +605,16 @@ export const DE = {
   '{count} sites storage': 'Speicher von {count} Websites',
   'page reloaded': 'Seite neu geladen',
   '{count}': '{count}',
+  '{count} cookies': '{count} Cookies',
+  'Permission needed': 'Berechtigung nötig',
+  'Safari cookies could not be read. Try again or import from a file.': 'Safari-Cookies konnten nicht gelesen werden. Versuche es erneut oder importiere aus einer Datei.',
+  'Allow Safari access': 'Safari-Zugriff erlauben',
+  'macOS protects Safari cookies with Full Disk Access. Enable DS Bot once in System Settings to import from Safari.': 'macOS schützt Safari-Cookies mit Festplattenvollzugriff. Aktiviere DS Bot einmalig in den Systemeinstellungen, um aus Safari zu importieren.',
+  '1. Open Full Disk Access in System Settings and turn on DS Bot.': '1. Öffne in den Systemeinstellungen „Festplattenvollzugriff“ und aktiviere DS Bot.',
+  '2. If macOS asks to quit and reopen DS Bot, click Quit & Reopen, then try again.': '2. Falls macOS fragt, DS Bot zu beenden und neu zu öffnen, bestätige dies und versuche es erneut.',
+  'Full Disk Access granted — ready to import.': 'Festplattenvollzugriff erteilt – bereit zum Importieren.',
+  'Open System Settings': 'Systemeinstellungen öffnen',
+  'This browser’s cookie database is busy. Quit the browser and try again.': 'Die Cookie-Datenbank dieses Browsers ist belegt. Beende den Browser und versuche es erneut.',
 
   // Bot settings
   'Choose a PNG, JPEG, WebP, or GIF image': 'Wähle ein PNG-, JPEG-, WebP- oder GIF-Bild',
@@ -716,6 +726,8 @@ export const DE = {
 
   // Shapes
   Whale: 'Wal', Star: 'Stern', Moon: 'Mond', Wave: 'Welle', Squircle: 'Squircle', Bull: 'Stier', Blossom: 'Blüte',
+  Dolphin: 'Delfin', Octopus: 'Oktopus', Turtle: 'Schildkröte', Crab: 'Krabbe', Pufferfish: 'Kugelfisch', Jellyfish: 'Qualle',
+  Starfish: 'Seestern', Seahorse: 'Seepferdchen',
   Gumdrop: 'Fruchtgummi', Peanut: 'Erdnuss', Bubbles: 'Blasen', Saucer: 'Untertasse', Sprout: 'Keimling', Bunny: 'Hase',
   Kitty: 'Kätzchen', Beacon: 'Leuchtfeuer', Plus: 'Plus', Magnet: 'Magnet', Acorn: 'Eichel', Pebbles: 'Kiesel', Cushion: 'Kissen',
   Ring: 'Ring', Gem: 'Edelstein',
@@ -1423,8 +1435,11 @@ export const DE = {
   'Checked {time}': 'Geprüft {time}',
   'Could not check for updates.': 'Suche nach Updates fehlgeschlagen.',
   'Update checks are off.': 'Automatische Update-Prüfung ist deaktiviert.',
+  'Automatic updates': 'Automatische Updates',
+  'Automatic updates are off.': 'Automatische Updates sind deaktiviert.',
   'Checking for updates…': 'Suche nach Updates…',
   'Downloading {version}…': '{version} wird heruntergeladen…',
+  '{version} is ready': '{version} ist bereit',
   '{version} is ready; it installs when you restart': '{version} ist bereit und wird beim Neustart installiert',
   'Restart to update': 'Zum Aktualisieren neu starten',
   '{version} is available': '{version} ist verfügbar',

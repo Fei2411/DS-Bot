@@ -782,7 +782,7 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
       case 'capabilities': return h(CapabilitiesPage, { roster, actions, run })
       case 'secrets': return h(SecretsPage, { roster, actions, run, Section: SetSection })
       case 'feedback': return h(FeedbackPage, { actions, run, Section: SetSection, Row: SetRow })
-      case 'about': return h(AboutPage, { useUpdate, actions, run, Section: SetSection, Row: SetRow, onStartTour: () => startTour('full') })
+      case 'about': return h(AboutPage, { useUpdate, actions, run, Section: SetSection, Row: SetRow, Switch, onStartTour: () => startTour('full') })
       default: return null
     }
   }
