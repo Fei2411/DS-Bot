@@ -124,9 +124,6 @@ export async function handleRequest(request, env, nowMs = Date.now()) {
   if (request.headers.get('origin')) {
     return new Response(JSON.stringify({ error: 'browser origin not allowed' }), { status: 403, headers: JSON_HEADERS })
   }
-  if (!allowWrite(nowMs)) {
-    return new Response(JSON.stringify({ error: 'rate limit exceeded' }), { status: 429, headers: JSON_HEADERS })
-  }
 
   const contentType = request.headers.get('content-type') ?? ''
   if (!contentType.toLowerCase().includes('application/json')) {
@@ -152,6 +149,10 @@ export async function handleRequest(request, env, nowMs = Date.now()) {
 
   if (!env?.DB) {
     return new Response(JSON.stringify({ error: 'storage unavailable' }), { status: 503, headers: JSON_HEADERS })
+  }
+
+  if (!allowWrite(nowMs)) {
+    return new Response(JSON.stringify({ error: 'rate limit exceeded' }), { status: 429, headers: JSON_HEADERS })
   }
 
   const nowIso = new Date(nowMs).toISOString()

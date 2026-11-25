@@ -444,7 +444,7 @@ export function install(rt) {
     if (SEARCH_TOOLS.includes(name)) {
       const where = typeof args.path === 'string' && args.path !== '' ? args.path : '.'
       const pattern = typeof args.pattern === 'string' ? fold(args.pattern) : ''
-      if (pattern.includes('api-') || pattern.includes('mcp.json') || pattern.includes('telemetry.json')) throw closedApi()
+      if (pattern.includes('api-') || pattern.includes('mcp.json')) throw closedApi()
       const base = folder()
       const keys = await spellings(base === undefined ? where : resolve(base, where))
       const protectedPaths = await apiProtectedFiles()
@@ -453,10 +453,16 @@ export function install(rt) {
     }
     if (SHELL_TOOLS.includes(name)) {
       const flat = fold(strings(args).join('\n').replace(/\\/g, '/'))
-      if (flat.includes('api-') || flat.includes('mcp.json') || flat.includes('telemetry.json')) throw closedApi()
+      if (flat.includes('api-') || flat.includes('mcp.json')) throw closedApi()
       const protectedPaths = await apiProtectedFiles()
       for (const file of protectedPaths) {
         if (asShell(file).some(spelled => flat.includes(spelled))) throw closedApi()
+      }
+      if (flat.includes('telemetry.json')) {
+        const base = folder()
+        const homeKeys = await spellings(rt.home)
+        const baseKeys = base === undefined ? [] : await spellings(base)
+        if (base === undefined || baseKeys.some(k => homeKeys.some(h => overlap(k, h)))) throw closedApi()
       }
     }
   }

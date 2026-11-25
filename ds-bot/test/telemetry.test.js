@@ -238,11 +238,17 @@ test('DSH upstream safeguards block session-log-deepseek by default and permanen
     assert.equal(privBlocked.sourceEvent, undefined)
 
     // Real Cordis waterfall `next()` takes zero arguments and returns the original record.
-    const scrubbed = recordListener(sample, () => sample)
+    // Long feedback bodies must retain their non-sensitive suffix while still scrubbing secrets.
+    const longSample = {
+      ...sample,
+      body: { text: `${'a'.repeat(2200)} super-secret-token-999 tail-marker-preserved` },
+    }
+    const scrubbed = recordListener(longSample, () => longSample)
     assert.ok(scrubbed.sourceEvent)
     assert.equal(scrubbed.attributes['session.cwd'], '~')
     assert.equal(scrubbed.body.text.includes('super-secret-token-999'), false)
     assert.equal(scrubbed.body.text.includes('[secret:DEMO]'), true)
+    assert.equal(scrubbed.body.text.endsWith('tail-marker-preserved'), true)
   } finally {
     await env.dispose()
     rmSync(home, { recursive: true, force: true })

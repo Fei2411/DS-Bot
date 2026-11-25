@@ -351,7 +351,7 @@ export function install(rt) {
     }
     const current = next()
     if (!current || typeof current !== 'object') return current
-    const scrub = text => cleanText(text, { redact: rt.redactSecrets ?? (v => v) })
+    const scrub = text => cleanText(text, { redact: rt.redactSecrets ?? (v => v), maxLength: Infinity })
     const attrs = current.attributes && typeof current.attributes === 'object' ? { ...current.attributes } : undefined
     if (attrs && typeof attrs['session.cwd'] === 'string') attrs['session.cwd'] = '~'
     return {

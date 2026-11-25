@@ -143,3 +143,23 @@ test('handleRequest enforces size cap, content-type, method, and healthz', async
   }), { DB: db }, NOW)
   assert.equal(crossOrigin.status, 403)
 })
+
+test('rejected invalid payloads do not exhaust the write rate limit', async () => {
+  const db = mockDb()
+  const windowNow = NOW + 120_000
+  for (let i = 0; i < 650; i++) {
+    const bad = await handleRequest(new Request('https://telemetry.dsbot.app/v1/collect', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ bad: true }),
+    }), { DB: db }, windowNow)
+    assert.equal(bad.status, 400)
+  }
+  const ok = await handleRequest(new Request('https://telemetry.dsbot.app/v1/collect', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(makeDaily()),
+  }), { DB: db }, windowNow)
+  assert.equal(ok.status, 204)
+  assert.equal(db.calls.length, 1)
+})
