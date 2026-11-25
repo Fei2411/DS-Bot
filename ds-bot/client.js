@@ -35922,7 +35922,7 @@ var BotRow = memo(function BotRow2({ bot, roster, actions, useSessions, useBotCo
     actions.openSession(id);
     actions.openTaskDeck?.(id);
   };
-  const label = [bot.name, main ? t("Main Bot") : "", pinned ? t("Pinned") : "", running || away ? t("Working") : "", taskCounts.active > 0 ? t("{count} background tasks running", { count: taskCounts.active }) : "", waitsFor, waitLine || deferredWaitLine || "", unread ? t("Unread activity") : ""].filter(Boolean).join(", ");
+  const label = [bot.name, bot.role, main ? t("Main Bot") : "", pinned ? t("Pinned") : "", running || away ? t("Working") : "", taskCounts.active > 0 ? t("{count} background tasks running", { count: taskCounts.active }) : "", waitsFor, waitLine || deferredWaitLine || "", unread ? t("Unread activity") : ""].filter(Boolean).join(", ");
   if (tile && wide) {
     return (0, import_react38.createElement)("div", { className: "bt-tile-wrap" }, (0, import_react38.createElement)(
       "button",
@@ -35962,7 +35962,7 @@ var BotRow = memo(function BotRow2({ bot, roster, actions, useSessions, useBotCo
     wide ? (0, import_react38.createElement)(
       "span",
       { className: "bt-row-body" },
-      (0, import_react38.createElement)("span", { className: "bt-row-name" }, (0, import_react38.createElement)("span", { className: "bt-row-title" }, bot.name), bot.engine ? (0, import_react38.createElement)(AgentBadge, { engine: bot.engine }) : null, pinned ? (0, import_react38.createElement)(PinMark) : null, (0, import_react38.createElement)(SidebarTaskPill, { active: taskCounts.active, waitingApproval: taskCounts.waitingApproval, onClick: openTasks })),
+      (0, import_react38.createElement)("span", { className: "bt-row-name" }, (0, import_react38.createElement)("span", { className: "bt-row-title" }, bot.name), bot.role ? (0, import_react38.createElement)("span", { className: "bt-tag", title: bot.role }, bot.role) : null, bot.engine ? (0, import_react38.createElement)(AgentBadge, { engine: bot.engine }) : null, pinned ? (0, import_react38.createElement)(PinMark) : null, (0, import_react38.createElement)(SidebarTaskPill, { active: taskCounts.active, waitingApproval: taskCounts.waitingApproval, onClick: openTasks })),
       waitLine ? (0, import_react38.createElement)("span", { className: "bt-row-preview bt-row-preview-wait" }, waitLine) : runningLine ? (0, import_react38.createElement)("span", { className: "bt-row-preview" }, runningLine) : awayLine ? (0, import_react38.createElement)("span", { className: "bt-row-preview" }, awayLine) : deferredWaitLine ? (0, import_react38.createElement)("span", { className: "bt-row-preview bt-row-preview-wait" }, deferredWaitLine) : waitsFor ? (0, import_react38.createElement)("span", { className: "bt-row-preview" }, waitsFor) : preview ? (0, import_react38.createElement)("span", { className: "bt-row-preview" }, preview) : null
     ) : null,
     wide && alert && !active ? (0, import_react38.createElement)("span", { className: "bt-unread bt-unread-wait", "aria-hidden": true }) : wide && unread && !active ? (0, import_react38.createElement)("span", { className: "bt-unread", "aria-hidden": true }) : !wide && !active && (alert || unread) ? (0, import_react38.createElement)("span", { className: `bt-dot${alert ? " bt-dot-wait" : ""}`, "aria-hidden": true }) : null

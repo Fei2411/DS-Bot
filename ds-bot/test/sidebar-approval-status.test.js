@@ -441,3 +441,19 @@ test('a background task approval does not mask a foreground question, and still 
   assert.equal(walk(idleRow, node => classes(node).includes('bt-badge-alert')).length, 1)
   assert.equal(textOf(walk(idleRow, node => classes(node).includes('bt-row-preview-wait'))[0]), 'Waiting for your approval')
 })
+
+test('a sidebar Bot row renders its role label to the right of the name when set', () => {
+  const ops = { id: 'ops', name: 'Nanoka', role: '主机运维', createdAt: 1 }
+  const plain = { id: 'plain', name: 'Meruru', createdAt: 2 }
+  const tree = renderSidebar({ bots: [ops, plain] })
+
+  const [opsRow] = walk(tree, node => node.props?.['data-bot-id'] === 'ops')
+  const [nameLine] = walk(opsRow, node => classes(node).includes('bt-row-name'))
+  const [tag] = walk(nameLine, node => classes(node).includes('bt-tag'))
+  assert.ok(tag !== undefined)
+  assert.equal(textOf(tag), '主机运维')
+  assert.match(opsRow.props['aria-label'], /^Nanoka, 主机运维/)
+
+  const [plainRow] = walk(tree, node => node.props?.['data-bot-id'] === 'plain')
+  assert.equal(walk(plainRow, node => classes(node).includes('bt-tag')).length, 0)
+})
