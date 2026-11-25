@@ -199,7 +199,12 @@ export function answerSender(rt, id, source, text, long, options = {}) {
     ...(failureRequestId === undefined ? {} : { failureRequestId }),
   }
   void rt.deliver(deliverPayload).then(() => {
-    if (obligationId !== undefined) rt.coordination?.markObligation?.(obligationId, 'settled')
+    if (obligationId === undefined) return
+    try {
+      rt.coordination?.markObligation?.(obligationId, 'settled')
+    } catch (error) {
+      rt.warn?.('ds-bot: marking obligation %s settled failed: %s', obligationId, error)
+    }
   }, (error) => {
     rt.warn('ds-bot: reply delivery failed: %s', error)
     // If admission/flush is uncertain or the target task/room permanently closed,

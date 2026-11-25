@@ -81,7 +81,7 @@ export function addressedSession(rt, toId, address) {
   if (address.taskId) {
     return bot.tasks?.find(task => task.id === address.taskId && isActiveTask(task))?.sessionId
   }
-  return address.foreground ? rt.chatOf(toId) : undefined
+  return address.foreground ? (rt.chatOf?.(toId) ?? currentSession(bot)) : undefined
 }
 
 export function sessionRoomId(state, botId, sessionId) {

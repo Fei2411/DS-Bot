@@ -918,7 +918,13 @@ export function install(rt) {
       rt.forgetTaskStartDeliveries?.(task.id)
 
       await rt.save()
-      if (handoffPlan === undefined) rt.coordination?.clearTerminalMarker?.('task', task.id)
+      if (handoffPlan === undefined) {
+        try {
+          rt.coordination?.clearTerminalMarker?.('task', task.id)
+        } catch (error) {
+          rt.warn?.('ds-bot: clearing task terminal marker %s failed: %s', task.id, error)
+        }
+      }
       settled = true
       emitTaskEvent(`task.${outcome}`, bot, task, {
         ...(task.summary ? { summary: task.summary } : {}),
@@ -945,7 +951,11 @@ export function install(rt) {
             { ...(handoffPlan.aborted ? { aborted: true } : {}), obligationId: handoffPlan.obligation.id },
           )
           void rt.save().then(() => {
-            rt.coordination?.clearTerminalMarker?.('task', task.id)
+            try {
+              rt.coordination?.clearTerminalMarker?.('task', task.id)
+            } catch (error) {
+              rt.warn?.('ds-bot: clearing task terminal marker %s failed: %s', task.id, error)
+            }
           }, () => {})
         }
         return

@@ -839,7 +839,11 @@ export function createRoomReports(rt, deps) {
     })
     delete reports()[report.id]
     void rt.save().then(() => {
-      rt.coordination?.clearTerminalMarker?.('room_report', report.id)
+      try {
+        rt.coordination?.clearTerminalMarker?.('room_report', report.id)
+      } catch (error) {
+        rt.warn?.('ds-bot: clearing room_report terminal marker %s failed: %s', report.id, error)
+      }
     }, () => {})
     await rt.deliver(deliverPayload).then(() => {
       rt.coordination?.markObligation?.(obligationId, 'settled')
