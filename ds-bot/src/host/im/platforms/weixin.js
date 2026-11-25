@@ -547,6 +547,12 @@ const chunk = (text, limit) => {
       const space = rest.lastIndexOf(' ', at)
       if (space > limit / 2) at = space
     }
+    // The limit and the cut are both UTF-16 offsets, so the cut can land between the two
+    // halves of an astral character. WeChat then receives a lone surrogate and draws a
+    // replacement character for each half; stepping back one unit keeps the pair whole in
+    // the next chunk, the same way `chunkMarkdown` does it for the other platforms.
+    const before = rest.charCodeAt(at - 1)
+    if (at > 1 && before >= 0xd800 && before <= 0xdbff) at -= 1
     chunks.push(rest.slice(0, at))
     rest = rest.slice(at).replace(/^\s+/, '')
   }

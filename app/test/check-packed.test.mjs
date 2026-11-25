@@ -13,7 +13,8 @@ const chatSource = source.slice(source.indexOf('async function chat(cdp)'), sour
 //   dropped   the press never reaches the page
 //   composing an IME owns the key, so the press sends nothing
 //   busy      the first press disables the send button while sending
-async function runChat(delivery) {
+// mode: 'contenteditable' (DSH legacy) or 'textarea' (DS Bot own-frontend composer).
+async function runChat(delivery, mode = 'textarea') {
   let now = 0
   let reply = ''
   let presses = 0
@@ -23,18 +24,26 @@ async function runChat(delivery) {
   const timers = []
   const listeners = new Map()
   const button = { disabled: true, getAttribute: () => 'Send message' }
-  const field = {
-    tagName: 'DIV', isContentEditable: true, innerText: '',
-    hasAttribute: () => false, querySelector: () => null,
-    contains: node => node === field,
-    getBoundingClientRect: () => ({ x: 100, y: 500, width: 400, height: 40, toJSON: () => ({ x: 100, y: 500, width: 400, height: 40 }) }),
-    parentElement: { querySelector: () => button },
-  }
+  const field = mode === 'textarea'
+    ? {
+      tagName: 'TEXTAREA', isContentEditable: false, value: '', innerText: '',
+      hasAttribute: () => false, querySelector: () => null,
+      contains: node => node === field,
+      getBoundingClientRect: () => ({ x: 100, y: 500, width: 400, height: 40, toJSON: () => ({ x: 100, y: 500, width: 400, height: 40 }) }),
+      parentElement: { querySelector: () => button },
+    }
+    : {
+      tagName: 'DIV', isContentEditable: true, innerText: '',
+      hasAttribute: () => false, querySelector: () => null,
+      contains: node => node === field,
+      getBoundingClientRect: () => ({ x: 100, y: 500, width: 400, height: 40, toJSON: () => ({ x: 100, y: 500, width: 400, height: 40 }) }),
+      parentElement: { querySelector: () => button },
+    }
   const control = { click() {} }
   const document = {
     activeElement: field, visibilityState: 'visible', hasFocus: () => focused,
     elementFromPoint: () => field,
-    body: { get innerText() { return '先让团队帮你做哪块 ' + field.innerText + ' ' + reply } },
+    body: { get innerText() { return '先让团队帮你做哪块 ' + (mode === 'textarea' ? '' : field.innerText) + ' ' + reply } },
     querySelector: selector => selector === '[role=listbox]' ? null : control,
     querySelectorAll: selector => selector === '[role=dialog] button' ? [] : [field],
   }
@@ -60,7 +69,8 @@ async function runChat(delivery) {
     if (method === 'Input.insertText') {
       assert.equal(focused, true, 'must not insert text before the window holds focus')
       assert.ok(clicks >= 1, 'must click through the input pipeline before typing even if bare focus() held')
-      field.innerText = params.text
+      if (mode === 'textarea') field.value = params.text
+      else field.innerText = params.text
       button.disabled = false
       return {}
     }
@@ -78,7 +88,8 @@ async function runChat(delivery) {
     if (type === 'keydown') {
       event.defaultPrevented = true
       if (delivery === 'sent' || delivery === 'unfocused' || (delivery === 'second' && presses >= 2)) {
-        field.innerText = ''
+        if (mode === 'textarea') field.value = ''
+        else field.innerText = ''
         reply = '收到：packaged app check'
       }
       if (delivery === 'busy') button.disabled = true
@@ -134,9 +145,11 @@ test('an IME holding the key stops after three tries and reports composing and p
   assert.equal(trace.events.length, 6)
   const state = JSON.parse(error.message.split('; composer: ')[1])
   assert.deepEqual([...state.enter.events].map(event => event.type), ['keydown', 'keyup', 'keydown', 'keyup', 'keydown', 'keyup'])
-  assert.equal(state.enter.events[0].target, 'DIV')
+  assert.equal(state.enter.events[0].target, 'TEXTAREA')
   assert.equal(state.enter.events[0].composing, true)
   assert.equal(state.enter.events[0].prevented, true)
+  const legacy = await runChat('sent', 'contenteditable')
+  assert.equal(legacy.error, undefined)
 })
 
 test('the script waits for the start window to close and leave one visible window before running chat', () => {

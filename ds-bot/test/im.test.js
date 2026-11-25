@@ -5669,3 +5669,24 @@ test('drainRoomInbox classifies drained user messages through the IM origin stat
   assert.equal(s.rt.captureImOrigin(roomSid)?.chatKey, 'g1', 'same-IM follow-up drained by drainRoomInbox must preserve g1 origin')
   assert.ok(s.fake.sent.some(entry => entry.chat.key === 'g1' && entry.text.includes('Writer follow-up reply')), 'replies after same-IM follow-up drained must reach g1')
 })
+
+test('a group chat title from the platform is stored and refreshed', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  await add(s)
+  const [one] = Object.values(s.rt.state.im.connections)
+  one.paired.push({ id: 'u1', name: 'U1', at: 1 })
+  await s.rt.save()
+  // First sight: the chat is stored with the platform-provided title.
+  await gm(s, 'u1', 'hello group', { chat: { key: 'g1', kind: 'group', title: '发布群' } })
+  s.imTurn('a')
+  assert.equal(one.chats.g1.title, '发布群', 'first-seen chat keeps the platform title')
+  // The stored title does not drift back to empty when a later frame omits it.
+  await gm(s, 'u1', 'again', { chat: { key: 'g1', kind: 'group', title: '' } })
+  s.imTurn('a')
+  assert.equal(one.chats.g1.title, '发布群', 'an empty later title never erases the stored name')
+  // A rename arrives on a later frame: the stored title follows it.
+  await gm(s, 'u1', 'renamed?', { chat: { key: 'g1', kind: 'group', title: '发布群 v2' } })
+  s.imTurn('a')
+  assert.equal(one.chats.g1.title, '发布群 v2', 'a later title refreshes the stored chat name')
+})

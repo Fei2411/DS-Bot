@@ -16,7 +16,8 @@ const LOG_MAX_BYTES = 1 << 20
 const STACK_LINES = 8
 const TEXT_MAX = 2000
 export const REPORT_ENTRIES = 20
-export const ISSUES_URL = 'https://github.com/Fei-Craft/DS-Bot/issues/new'
+export const DS_BOT_REPO = 'Fei-Craft/DS-Bot'
+export const ISSUES_URL = `https://github.com/${DS_BOT_REPO}/issues/new`
 
 const quote = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
@@ -36,7 +37,7 @@ const CREDENTIALS = [
   [/(["']?(?:api[_-]?key|authorization|x-api-key|password|secret)["']?\s*[:=]\s*["']?)[^\s"',}]{6,}/gi, '$1[hidden]'],
 ]
 
-export function cleanText(text, { redact = value => value, home = homedir() } = {}) {
+export function cleanText(text, { redact = value => value, home = homedir(), maxLength = TEXT_MAX } = {}) {
   let out = redact(String(text ?? ''))
   for (const [pattern, replacement] of CREDENTIALS) out = out.replace(pattern, replacement)
   if (home && home.length > 1) {
@@ -47,7 +48,7 @@ export function cleanText(text, { redact = value => value, home = homedir() } = 
     const doubled = home.replace(/\\/g, '\\\\')
     if (doubled !== home) out = out.replace(new RegExp(quote(doubled), 'g'), '~')
   }
-  return out.length > TEXT_MAX ? `${out.slice(0, TEXT_MAX)}…` : out
+  return Number.isFinite(maxLength) && out.length > maxLength ? `${out.slice(0, maxLength)}…` : out
 }
 
 const errorText = error => `${error.name && error.name !== 'Error' ? `${error.name}: ` : ''}${error.message}`
@@ -168,6 +169,19 @@ export function install(rt) {
     fresh.push(entry)
     if (fresh.length > KEEP) fresh = fresh.slice(-KEEP)
     append(entry)
+    if (level === 'error' || (level === 'warn' && typeof stack === 'string' && stack !== '')) {
+      const errName = /^([A-Za-z][A-Za-z0-9_]*Error)\b/.exec(String(text ?? ''))?.[1]
+      void rt.telemetry?.noteError({
+        source: source === 'api' ? 'host' : source,
+        errorName: errName ?? 'Error',
+        code: fields.code,
+        where: fields.where,
+        stack,
+        bot: fields.bot,
+        botId: fields.botId,
+        sessionId: fields.sessionId,
+      })
+    }
     return entry
   }
 

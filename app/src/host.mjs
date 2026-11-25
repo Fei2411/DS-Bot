@@ -7,12 +7,15 @@ import { readFileSync } from 'node:fs'
 import { inspect } from 'node:util'
 import { loadLayeredEnv, reportSkippedBundles } from '@deepseek-ai/dsh-app-boot'
 import { runProfile } from '@deepseek-ai/dsh/profile-boot'
+import { installSocketTosGuard } from 'ds-bot/socket-tos-guard'
 import { writeAppPatch } from './app-patch.mjs'
 import { CHECK_PROFILE, INSTALL_ANCHOR, loadAppProfile, loadCheckProfile, PROFILE } from './profile.mjs'
 import { reconcileGoal } from './goal-patch.mjs'
 import { reconcileOfficeRuntime } from './office-patch.mjs'
 import { reconcileSearchSelector } from './search-patch.mjs'
 import { unreadableSessions } from './session-check.mjs'
+
+installSocketTosGuard()
 
 const MAX_FATAL_DIAGNOSTIC_CHARS = 64 * 1024
 

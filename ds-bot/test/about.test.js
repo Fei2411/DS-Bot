@@ -133,3 +133,13 @@ test('ownAppRow maps each phase to its hint and button kind', () => {
   assert.equal(downloaded.hint, '0.2.2 is ready; it installs when you restart')
   assert.equal(downloaded.button, 'restart')
 })
+
+test('inlineFeedback hides the redundant Report a problem link row', () => {
+  const find = (node, pick) => (Array.isArray(node) ? node.flatMap(one => find(one, pick))
+    : node && typeof node === 'object' ? [...pick(node), ...find(node.children, pick)] : [])
+  const actions = { repoStars: async () => null, openSettings() {} }
+  const standalone = AboutPage({ useUpdate: s => s({}), actions, run: p => p, Section: 'section', Row: 'row' })
+  const inline = AboutPage({ useUpdate: s => s({}), actions, run: p => p, Section: 'section', Row: 'row', inlineFeedback: true })
+  assert.equal(find(standalone, n => (n.props?.label === 'Report a problem' ? [n] : [])).length, 1)
+  assert.equal(find(inline, n => (n.props?.label === 'Report a problem' ? [n] : [])).length, 0)
+})

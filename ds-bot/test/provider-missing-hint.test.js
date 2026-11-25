@@ -28,13 +28,15 @@ const expand = (node) => {
   if (Array.isArray(node)) return node.map(expand)
   if (typeof node !== 'object') return node
   if (typeof node.type === 'function') return expand(node.type(node.props))
-  return { ...node, props: { ...(node.props ?? {}), children: expand(node.props?.children) } }
+  return { ...node, props: { ...node.props, children: expand(node.props?.children) } }
 }
 const rerender = () => { idx = 0; concrete = expand(module.exports.CustomForm(props)) }
 const react = {
-  createElement: (type, p, ...children) => ({ type, props: { ...(p ?? {}), children } }),
+  createElement: (type, p, ...children) => ({ type, props: { ...p, children } }),
   Fragment: 'fragment',
   useCallback: fn => fn,
+  useMemo: fn => fn(),
+  useId: () => 'id',
   useEffect() {}, useLayoutEffect() {},
   useState: (init) => {
     const i = idx++
@@ -86,16 +88,16 @@ const mount = () => {
 
 test('the Add form names every required field it still needs', () => {
   mount()
-  assert.equal(hintText(), 'Still needed: Provider ID, Endpoint, At least one model')
+  assert.equal(hintText(), 'Please enter: Provider ID, Endpoint, At least one model')
   assert.equal(addButton().props.disabled, true)
 })
 
 test('each filled field leaves the hint one step shorter', () => {
   mount()
   type('Provider ID', 'my-gw')
-  assert.equal(hintText(), 'Still needed: Endpoint, At least one model')
+  assert.equal(hintText(), 'Please enter: Endpoint, At least one model')
   type('Endpoint', 'http://127.0.0.1:9/v1')
-  assert.equal(hintText(), 'Still needed: At least one model')
+  assert.equal(hintText(), 'Please enter: At least one model')
   // A model typed by id counts, not only one picked from the fetched list.
   type('Model ids', 'm1')
   assert.equal(hintText(), null)
@@ -106,6 +108,6 @@ test('blank and padded values still count as missing', () => {
   mount()
   type('Provider ID', '   ')
   type('Endpoint', ' ')
-  assert.equal(hintText(), 'Still needed: Provider ID, Endpoint, At least one model')
+  assert.equal(hintText(), 'Please enter: Provider ID, Endpoint, At least one model')
   assert.equal(addButton().props.disabled, true)
 })
