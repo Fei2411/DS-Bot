@@ -509,9 +509,14 @@ export function install(rt) {
   // A Session's durable log, as DSH keeps it: what happened there, and what it said.
   // Undefined when this DSH cannot read it, or when the Session is gone.
   async function logOf(sessionId) {
-    const inspect = ctx.sessionController?.inspect
-    if (typeof inspect !== 'function') return undefined
-    const seen = await inspect(sessionId, AbortSignal.timeout(HISTORY_TIMEOUT_MS)).catch(() => undefined)
+    const controller = ctx.sessionController
+    if (typeof controller?.inspect !== 'function') return undefined
+    // Call inspect as a method of the controller: DSH's implementation reads
+    // this.ctx on its first line, and a bare call throws synchronously, which
+    // the .catch below never sees.
+    const seen = await Promise.resolve()
+      .then(() => controller.inspect(sessionId, AbortSignal.timeout(HISTORY_TIMEOUT_MS)))
+      .catch(() => undefined)
     return Array.isArray(seen?.events) ? seen.events : undefined
   }
 
