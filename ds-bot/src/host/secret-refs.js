@@ -339,8 +339,11 @@ export function createSecretRefs({
       for (const name of names) {
         const full = join(refsDir, name)
         // Leftover `.consuming-*` files are already-consumed handles whose unlink failed;
-        // remove (or scrub) them during rekey so enabling encryption never leaves plaintext behind.
+        // remove (or scrub) regular files during rekey so enabling encryption never leaves plaintext behind.
         if (CONSUMING_REF_RE.test(name)) {
+          let info
+          try { info = await lstat(full) } catch { continue }
+          if (info.isSymbolicLink() || !info.isFile()) continue
           await unlinkFile(full).catch(async (error) => {
             if (error?.code !== 'ENOENT') {
               await writeFile(full, '', { mode: 0o600 }).catch(() => {})

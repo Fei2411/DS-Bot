@@ -886,6 +886,10 @@ test('guardSecretFiles allows text searches for secret-refs/secret-files in unre
     ['pwsh', { command: 'Split-Path -Parent $env:DSH_SECRET_FILE_DEPLOY_KEY', workdir: repoDir }],
     ['pwsh', { command: 'Split-Path -Leaf -Parent $env:DSH_SECRET_FILE_DEPLOY_KEY', workdir: repoDir }],
     ['pwsh', { command: 'Split-Path -Leaf "$env:DSH_SECRET_FILE_DEPLOY_KEY/.."', workdir: repoDir }],
+    ['pwsh', { command: 'Split-Path $env:DSH_SECRET_FILE_DEPLOY_KEY > -Leaf', workdir: repoDir }],
+    ['pwsh', { command: "Split-Path '-Leaf' $env:DSH_SECRET_FILE_DEPLOY_KEY", workdir: repoDir }],
+    ['pwsh', { command: 'Split-Path -Path -Leaf $env:DSH_SECRET_FILE_DEPLOY_KEY', workdir: repoDir }],
+    ['pwsh', { command: 'Split-Path -- -Leaf $env:DSH_SECRET_FILE_DEPLOY_KEY', workdir: repoDir }],
   ]) {
     const res = await run(toolName, args, 'b')
     assert.equal(res.ran, false, `expected blocked: ${toolName} ${JSON.stringify(args)}`)
@@ -897,10 +901,21 @@ test('guardSecretFiles preserves isolation when secret-files is symlinked outsid
   const { run, home, root, stop } = await start({ privateBot: false })
   t.after(stop)
   const externalStore = join(root, 'external-secret-files')
+  const externalRefs = join(root, 'external-vault')
+  const siblingFiles = join(root, 'external-secret-files-tools')
+  const siblingRefs = join(root, 'external-vault-tools')
   mkdirSync(join(externalStore, 'a'), { recursive: true })
+  mkdirSync(externalRefs, { recursive: true })
+  mkdirSync(siblingFiles, { recursive: true })
+  mkdirSync(siblingRefs, { recursive: true })
   const secretA = join(externalStore, 'a', 'sf-linked.secret')
   writeFileSync(secretA, 'linked-bot-a-secret-123456')
   symlinkSync(externalStore, join(home, 'secret-files'))
+  symlinkSync(externalRefs, join(home, 'secret-refs'))
+
+  // Sibling directories sharing a prefix with symlinked secret storage must NOT be blocked.
+  assert.deepEqual(await run('bash', { command: 'pwd', workdir: siblingFiles }, 'b'), { ran: true })
+  assert.deepEqual(await run('bash', { command: 'pwd', workdir: siblingRefs }, 'b'), { ran: true })
 
   // Bot A can read its own file via either symlink or real target; Bot B is blocked on both.
   assert.deepEqual(await run('read', { file_path: secretA }, 'a'), { ran: true })
@@ -910,4 +925,7 @@ test('guardSecretFiles preserves isolation when secret-files is symlinked outsid
   const blockedBash = await run('bash', { command: `cat "${secretA}"` }, 'b')
   assert.equal(blockedBash.ran, false)
   assert.match(blockedBash.error, /secret/i)
+  const blockedRefs = await run('bash', { command: `ls "${externalRefs}"` }, 'b')
+  assert.equal(blockedRefs.ran, false)
+  assert.match(blockedRefs.error, /secret/i)
 })

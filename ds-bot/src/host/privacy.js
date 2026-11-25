@@ -56,16 +56,18 @@ function splitShellCommands(text) {
   let buf = ''
   let hasToken = false
   let tokenRedir = false
+  let tokenQuoted = false
   let nextRedir = false
   let quote = null
   const subshellQuotes = []
 
   const flushToken = () => {
     if (!hasToken) return
-    current.push({ value: buf, redir: tokenRedir })
+    current.push({ value: buf, redir: tokenRedir, quoted: tokenQuoted })
     buf = ''
     hasToken = false
     tokenRedir = false
+    tokenQuoted = false
   }
   const flushSegment = () => {
     flushToken()
@@ -79,6 +81,7 @@ function splitShellCommands(text) {
     if (!hasToken) {
       hasToken = true
       tokenRedir = nextRedir
+      tokenQuoted = false
       nextRedir = false
     }
   }
@@ -117,6 +120,7 @@ function splitShellCommands(text) {
     }
     if (ch === "'" || ch === '"') {
       startToken()
+      tokenQuoted = true
       quote = ch
       continue
     }
@@ -248,6 +252,11 @@ function searchPatternTokenIndices(tokens) {
       if (value.startsWith('--regexp=') || (value.startsWith('-e') && value.length > 2 && !value.startsWith('--'))) {
         sawExplicitPattern = true
         exempt.add(i)
+        continue
+      }
+      if (value === '-f' || value === '--file' || value.startsWith('--file=')) {
+        sawExplicitPattern = true
+        if (value === '-f' || value === '--file') i += 1
         continue
       }
       if (GREP_VALUE_FLAGS.has(value) || (isRg && RG_ONLY_VALUE_FLAGS.has(value))) {
@@ -867,8 +876,16 @@ export function install(rt) {
       }
       const rawText = strings(args).join('\n')
       const flat = fold(rawText.replace(/\\/g, '/'))
-      if (refsRoot.flatMap(asShell).some(spelled => flat.includes(spelled))) {
-        throw closedSecret()
+      const hasRootBoundary = (text, at, len) => {
+        const before = at === 0 ? '' : text[at - 1]
+        if (before !== '' && /[a-z0-9_.-]/i.test(before)) return false
+        const after = at + len >= text.length ? '' : text[at + len]
+        return after === '' || /[\s/"'`;|&)><]/.test(after)
+      }
+      for (const spelled of refsRoot.flatMap(asShell)) {
+        for (let at = flat.indexOf(spelled); at !== -1; at = flat.indexOf(spelled, at + spelled.length)) {
+          if (hasRootBoundary(flat, at, spelled.length)) throw closedSecret()
+        }
       }
       if (/dsh_secret_file_/i.test(flat)
         && (/\bdirname\b/i.test(flat) || /(?:^|[/\\])\.\.(?:$|[/\\\s"'`;|&)])/.test(flat))) {
@@ -876,21 +893,37 @@ export function install(rt) {
       }
       const isSafeSplitPathLeaf = (segment) => {
         // Allow only unambiguous filename-only `Split-Path -Leaf` / `-LeafBase` calls;
-        // default `Split-Path` (returns parent), `-Parent`, `-Resolve`, `-Qualifier`, etc. stay blocked.
+        // ignore redirection targets, quoted literals, and `-Path` argument values so
+        // default `Split-Path` (parent), `-Parent`, `-Resolve`, `-Qualifier`, etc. stay blocked.
         let sawLeaf = false
+        let sawDoubleDash = false
+        let expectPathValue = false
         for (const tok of segment) {
+          if (tok.redir) continue
+          if (expectPathValue) {
+            expectPathValue = false
+            continue
+          }
           const lower = tok.value.toLowerCase()
-          if (lower === 'split-path') continue
-          if (lower === '-leaf' || lower === '-leafbase') {
+          if (!tok.quoted && lower === 'split-path') continue
+          if (!tok.quoted && lower === '--') {
+            sawDoubleDash = true
+            continue
+          }
+          if (!sawDoubleDash && !tok.quoted && (lower === '-leaf' || lower === '-leafbase')) {
             sawLeaf = true
             continue
           }
-          if (lower.startsWith('-')) {
-            if (lower === '-path' || lower === '-literalpath') continue
+          if (!sawDoubleDash && !tok.quoted && lower.startsWith('-')) {
+            if (lower === '-path' || lower === '-literalpath') {
+              expectPathValue = true
+              continue
+            }
+            if (lower.startsWith('-path:') || lower.startsWith('-literalpath:')) continue
             return false
           }
         }
-        return sawLeaf
+        return sawLeaf && !expectPathValue
       }
       const ownPrefix = `/${fold(self)}/`
       const checkRestAfterFilesRoot = (rest) => {
@@ -903,6 +936,7 @@ export function install(rt) {
       }
       for (const spelled of filesRoot.flatMap(asShell)) {
         for (let at = flat.indexOf(spelled); at !== -1; at = flat.indexOf(spelled, at + spelled.length)) {
+          if (!hasRootBoundary(flat, at, spelled.length)) continue
           checkRestAfterFilesRoot(flat.slice(at + spelled.length))
         }
       }
@@ -918,7 +952,7 @@ export function install(rt) {
       const segments = splitShellCommands(rawText)
       if (/dsh_secret_file_/i.test(flat) && /\bsplit-path\b/i.test(flat)) {
         for (const segment of segments) {
-          const hasSplitPath = segment.some(tok => /\bsplit-path\b/i.test(tok.value))
+          const hasSplitPath = segment.some(tok => !tok.redir && /\bsplit-path\b/i.test(tok.value))
           if (hasSplitPath && !isSafeSplitPathLeaf(segment)) {
             throw closedSecret()
           }
@@ -930,15 +964,15 @@ export function install(rt) {
           const tok = segment[i]
           if (isPlainSearchPattern(tok, i, exempt)) continue
           const tokFlat = fold(tok.value.replace(/\\/g, '/'))
-          if (/(?:^|[^a-z0-9_.-])secret-refs(?:$|[^a-z0-9_.-])/.test(tokFlat)) {
+          if (/(?:^|[^a-z0-9_.-])secret-refs(?:$|[^a-z0-9_.-])/i.test(tokFlat)) {
             throw closedSecret()
           }
           for (let at = tokFlat.indexOf(markerFiles); at !== -1; at = tokFlat.indexOf(markerFiles, at + markerFiles.length)) {
             const before = at === 0 ? '' : tokFlat[at - 1]
-            if (/[a-z0-9_.-]/.test(before)) continue
+            if (/[a-z0-9_.-]/i.test(before)) continue
             const rest = tokFlat.slice(at + markerFiles.length)
             const first = rest[0] ?? ''
-            if (first !== '' && /[a-z0-9_.-]/.test(first)) continue
+            if (first !== '' && /[a-z0-9_.-]/i.test(first)) continue
             checkRestAfterFilesRoot(rest)
           }
         }
