@@ -227,15 +227,21 @@ export class LocalAgentAdapter extends LlmAdapter {
 
   // Tears down a route's engine and live sessions (e.g. after a profile's configDir
   // or env changes, or when a profile is removed) so subsequent turns spawn fresh.
-  async closeRoute(route, reason = 'the local agent configuration changed') {
+  // Any session with an in-flight turn or waiting reader fails explicitly so an
+  // interrupted reply is never reported as completed and unread markers roll back.
+  async closeRoute(route, reason = 'the local agent configuration changed', { code = 'LOCAL_AGENT_EXIT' } = {}) {
     this.dropModelCache(route)
     for (const key of this.windows.keys()) {
       if (key.startsWith(`${route}\u0000`)) this.windows.delete(key)
     }
     const matching = [...this.live.values()].filter(live => live.route === route)
     for (const live of matching) {
-      this.stopTurn(live, reason)
-      await this.closeLive(live, { idle: true }).catch(() => {})
+      const active = !live.started || live.state !== 'idle' || live.waiters.length > 0 || live.pending.size > 0 || live.queue.length > 0
+      const error = active
+        ? new LlmError(`${live.spec.name} stopped: ${reason}.`, code)
+        : undefined
+      if (error === undefined) this.stopTurn(live, reason)
+      await this.closeLive(live, { idle: true, error }).catch(() => {})
     }
     const engine = this.engines.get(route)
     if (engine !== undefined) {
@@ -655,6 +661,13 @@ export class LocalAgentAdapter extends LlmAdapter {
           if (live.spec.kind === 'codex') await this.closeLive(live)
           throw toLlmError(error, live)
         })
+      if (live.dead) {
+        const openedSession = live.engineSession
+        live.engineSession = undefined
+        await live.engine.closeSession?.(openedSession).catch(() => {})
+        live.engine.forget?.(sessionId)
+        throw toLlmError(live.closeFailure?.error ?? new LlmError(`${live.spec.name} session closed while opening.`, 'LOCAL_AGENT_EXIT'), live)
+      }
       // A resumed CLI reports its id only with `system/init`: keep the saved one
       // in the meantime, or a resume that fails would erase it. If ACP or Codex
       // could not resume and opened a fresh session instead, replay conversation

@@ -514,3 +514,304 @@ test('adapter.js renderReplay truncates multi-byte CJK/emoji history safely and 
   assert.ok(utf8Bytes(prompts[1]) < 26 * 1024, `expected bounded replay under 26 KiB, got ${utf8Bytes(prompts[1])} bytes`)
   assert.equal(prompts[1].includes('/dir-0/'), false, 'oldest pure tool-call message must be evicted by REPLAY_BYTES')
 })
+
+test('parts.js overflow handoff preserves initiating user request and attachments verbatim after interim assistant output and tool calls', async () => {
+  const runOverflow = async ({ targetWindowTokens }) => {
+    const followed = []
+    // Long multi-byte comparison request (~2,400 chars, ~6.7 KiB UTF-8) with an image attachment.
+    const longRequest = `INITIATING_START_比较两份报告: ${'核心对比指标_'.repeat(320)} INITIATING_END_完整保留_🚀`
+    const historyEvents = [
+      { type: 'user/message', seq: 1, time: 1, data: { content: [{ type: 'text', text: `OLDER_TURN_1_${'旧'.repeat(500)}` }], source: { kind: 'user' } } },
+      { type: 'assistant/message', seq: 2, time: 2, data: { message: { content: [{ type: 'text', text: `OLDER_REPLY_1_${'史'.repeat(500)}` }] } } },
+      {
+        type: 'user/message',
+        seq: 3,
+        time: 3,
+        data: {
+          content: [
+            { type: 'text', text: longRequest },
+            { type: 'image', attachment: { attachmentId: 'report-chart-1' } },
+          ],
+          source: { kind: 'user' },
+        },
+      },
+      { type: 'assistant/message', seq: 4, time: 4, data: { message: { content: [{ type: 'text', text: "I'll check both reports." }] } } },
+      { type: 'tool/call', seq: 5, time: 5, data: { callId: 'c1', name: 'read_file', arguments: { path: '/workspace/report-a.md' } } },
+      { type: 'tool/result', seq: 6, time: 6, data: { message: { toolCallId: 'c1', ok: true, content: [{ type: 'text', text: 'R'.repeat(20_000) }] } } },
+    ]
+    const ctx = fakeContext({ services: { tokenMeter: { measure: () => ({ totalTokens: 50_000 }) } } })
+    ctx.logger = { warn: () => {}, info: () => {} }
+    ctx.sessions = { flush: async () => {} }
+    ctx.workspaceRegistry = { archiveSession: async () => {} }
+    ctx.llm = {
+      resolveModelInfo: async () => ({ context: { contextWindow: targetWindowTokens } }),
+    }
+
+    const bot = { id: 'b1', name: 'Kai', sessionId: 's1', model: 'provider/small', segments: [] }
+    const session = {
+      id: 's1',
+      header: { cwd: '/tmp/team' },
+      requestHeader: () => ({ config: { provider: 'provider', model: 'small' } }),
+      deriveMessages: () => [],
+      toolHistory: () => [],
+    }
+    const agent = {
+      id: 's1', session, status: 'idle',
+      whenIdle: async () => {},
+      runMaintenance: async job => job(AbortSignal.timeout(10_000)),
+      inbox: { nextStep: [], nextTurn: [] },
+      followup: message => followed.push(message),
+      send: async () => {},
+    }
+    const fresh = {
+      id: 's2',
+      session: { id: 's2', header: { cwd: '/tmp/team' }, requestHeader: () => ({ config: {} }), deriveMessages: () => [], toolHistory: () => [] },
+      status: 'idle',
+      whenIdle: async () => {},
+      runMaintenance: async job => job(AbortSignal.timeout(10_000)),
+      inbox: { nextStep: [], nextTurn: [] },
+      followup: message => followed.push(message),
+      send: async () => {},
+    }
+    const live = new Map()
+    const rt = {
+      ctx,
+      home: '/unused',
+      config: {},
+      state: { bots: { b1: bot }, rooms: {}, prefs: {}, exchanges: [], capabilities: { items: {} }, switching: {}, questions: {}, views: {} },
+      warn: () => {},
+      async save() {},
+      async load() {},
+      readOnly: () => undefined,
+      botOf: id => rt.state.bots[id],
+      roomOf: () => undefined,
+      selfOf: () => 'b1',
+      isMain: () => false,
+      chatOf: () => 's1',
+      sessionOfRoom: () => undefined,
+      isBotSession: id => ['s1', 's2'].includes(id),
+      isLocalAgentRef: () => false,
+      isLocalAgentRoute: () => false,
+      chatOwners: new Map([['s1', 'b1']]),
+      groupOwners: new Map(),
+      pastOwners: new Map(),
+      roomOwners: new Map(),
+      teamTools: [],
+      live,
+      liveOf: id => {
+        let entry = live.get(id)
+        if (entry === undefined) { entry = { joined: [] }; live.set(id, entry) }
+        return entry
+      },
+      groupSessionsOf: () => [],
+      unreadOf: () => [],
+      eventsBackwards: async function* (_sid, _sig, _pages, scan) {
+        for (const event of [...historyEvents].reverse()) yield event
+        if (scan) scan.complete = true
+      },
+      resolveAgent: async id => (id === 's2' ? fresh : agent),
+      createSession: async () => 's2',
+      desiredModel: async subject => subject.model,
+      desiredEffort: async () => undefined,
+      selectSessionModel: async () => {},
+      applyPermission: async () => {},
+      ensureCapabilities: async () => {},
+      renewMemory: () => {},
+      moveSchedules: async () => {},
+      deliver: async () => {},
+      teamFolder: () => '/tmp/team',
+      workDirOf: () => '/tmp/team',
+      isFolder: async () => true,
+      roomProgress: new Map(),
+    }
+
+    partsInstall(rt)
+    const reqErrListeners = ctx.listeners.get('agent/request-error') ?? []
+    const payload = {
+      agent,
+      failure: { code: 'CONTEXT_WINDOW_EXCEEDED', message: 'context length exceeded' },
+    }
+    const dispatch = i => (i < reqErrListeners.length ? reqErrListeners[i](payload, () => dispatch(i + 1)) : Promise.resolve(undefined))
+    await dispatch(0)
+    for (let i = 0; i < 100 && bot.sessionId !== 's2'; i += 1) {
+      await new Promise(resolve => setTimeout(resolve, 10))
+    }
+    assert.equal(bot.sessionId, 's2')
+    return followed.map(m => m.content.map(b => b.text).join('')).join('\n')
+  }
+
+  // 1. Extreme budget (availableBytes === 0): initiating request survives completely verbatim;
+  // older history is evicted rather than dropping the active request.
+  const pkgZeroBudget = await runOverflow({ targetWindowTokens: 2_500 })
+  assert.ok(pkgZeroBudget.includes('INITIATING_START_比较两份报告'), 'initiating request head must survive at 0 history budget')
+  assert.ok(pkgZeroBudget.includes('INITIATING_END_完整保留_🚀'), 'initiating request tail must survive intact at 0 history budget')
+  assert.equal(pkgZeroBudget.includes('OLDER_TURN_1_'), false, 'older history must be evicted first')
+  assert.equal(pkgZeroBudget.includes('OLDER_REPLY_1_'), false, 'older assistant reply must be evicted first')
+  assert.equal(hasBrokenSurrogates(pkgZeroBudget), false)
+
+  // 2. Tight budget with room for the interim assistant reply (~50 bytes) but not old turns:
+  // both initiating request and interim reply survive in chronological order, while old turns are evicted.
+  const pkgTightWithInterim = await runOverflow({ targetWindowTokens: 6_800 })
+  assert.ok(pkgTightWithInterim.includes('INITIATING_START_比较两份报告'))
+  assert.ok(pkgTightWithInterim.includes('INITIATING_END_完整保留_🚀'))
+  assert.ok(pkgTightWithInterim.includes("I'll check both reports."), 'interim reply survives when budget allows')
+  assert.ok(
+    pkgTightWithInterim.indexOf('INITIATING_END_完整保留_🚀') < pkgTightWithInterim.indexOf("I'll check both reports."),
+    'initiating user request must precede interim assistant reply chronologically',
+  )
+  assert.equal(pkgTightWithInterim.includes('OLDER_TURN_1_'), false, 'older turn evicted before interim reply')
+})
+
+test('parts.js folder switch writes handoff summary note when destination byte budget trims history, and skips note only when all messages fit', async () => {
+  const NOTE_SECTIONS = ['Goals', 'Constraints and preferences', 'Progress', 'Decisions', 'Facts to keep', 'Open threads', 'Next step', 'Where to look']
+  const fakeNote = NOTE_SECTIONS.map(name => `## ${name}\n- FOLDER_SUMMARY_MARKER`).join('\n\n')
+  function* noteChunks(text) {
+    yield { type: 'block-start', index: 0, blockType: 'text' }
+    yield { type: 'text-delta', index: 0, text }
+    yield { type: 'block-end', index: 0, block: { type: 'text', text } }
+    yield { type: 'finish', reason: { kind: 'stop' } }
+  }
+
+  const runFolderSwitch = async ({ contextWindow, withOverhead }) => {
+    const followed = []
+    let noteCalls = 0
+    // Short chat (~900 tokens total): easily fits preliminary RECENT_TOKENS (4,000 / 4 = 1,000+)
+    // and has zero tool messages, so preliminary `carried.whole` is true.
+    const historyEvents = [
+      { type: 'user/message', seq: 1, time: 1, data: { content: [{ type: 'text', text: `FIRST_FOLDER_MSG_${'A'.repeat(1_200)}` }], source: { kind: 'user' } } },
+      { type: 'assistant/message', seq: 2, time: 2, data: { message: { content: [{ type: 'text', text: `SECOND_FOLDER_MSG_${'B'.repeat(1_200)}` }] } } },
+      { type: 'user/message', seq: 3, time: 3, data: { content: [{ type: 'text', text: 'LATEST_FOLDER_MSG' }], source: { kind: 'user' } } },
+    ]
+    const ctx = fakeContext({ services: { tokenMeter: { measure: () => ({ totalTokens: 1_200 }) } } })
+    ctx.logger = { warn: () => {}, info: () => {} }
+    ctx.sessions = { flush: async () => {} }
+    ctx.workspaceRegistry = { archiveSession: async () => {} }
+    ctx.llm = {
+      resolveModelInfo: async () => ({ context: { contextWindow }, defaultMaxTokens: 1_024 }),
+      stream: () => {
+        noteCalls += 1
+        return noteChunks(fakeNote)
+      },
+    }
+
+    const bot = { id: 'b1', name: 'Kai', sessionId: 's1', model: 'provider/model', segments: [] }
+    const heavyTools = withOverhead
+      ? [{ name: 'heavy_tool', description: 'T'.repeat(4_500), parameters: { type: 'object', properties: {} } }]
+      : []
+    const derivedMessages = withOverhead
+      ? [{ role: 'system', content: [{ type: 'text', text: 'S'.repeat(2_000) }] }]
+      : []
+    const queuedInput = withOverhead
+      ? [{ id: 'q1', role: 'user', content: [{ type: 'text', text: `QUEUED_${'Q'.repeat(1_500)}` }], source: { kind: 'user' } }]
+      : []
+    const session = {
+      id: 's1',
+      header: { cwd: '/tmp/old-folder' },
+      requestHeader: () => ({ config: { provider: 'provider', model: 'model' }, tools: heavyTools }),
+      deriveMessages: () => derivedMessages,
+      toolHistory: () => [],
+    }
+    const agent = {
+      id: 's1', session, status: 'idle',
+      whenIdle: async () => {},
+      runMaintenance: async job => job(AbortSignal.timeout(10_000)),
+      inbox: {
+        nextStep: [],
+        nextTurn: [...queuedInput],
+        remove: (id) => {
+          const idx = agent.inbox.nextTurn.findIndex(m => m.id === id)
+          if (idx !== -1) agent.inbox.nextTurn.splice(idx, 1)
+        },
+      },
+      followup: message => followed.push(message),
+      send: async () => {},
+    }
+    const fresh = {
+      id: 's2',
+      session: { id: 's2', header: { cwd: '/tmp/new-folder' }, requestHeader: () => ({ config: {} }), deriveMessages: () => [], toolHistory: () => [] },
+      status: 'idle',
+      whenIdle: async () => {},
+      runMaintenance: async job => job(AbortSignal.timeout(10_000)),
+      inbox: { nextStep: [], nextTurn: [] },
+      followup: message => followed.push(message),
+      send: async () => {},
+    }
+    const rt = {
+      ctx,
+      home: '/unused',
+      config: {},
+      state: { bots: { b1: bot }, rooms: {}, prefs: {}, exchanges: [], capabilities: { items: {} }, switching: {}, questions: {}, views: {} },
+      warn: () => {},
+      async save() {},
+      async load() {},
+      readOnly: () => undefined,
+      botOf: id => rt.state.bots[id],
+      roomOf: () => undefined,
+      selfOf: () => 'b1',
+      isMain: () => false,
+      chatOf: () => 's1',
+      sessionOfRoom: () => undefined,
+      isBotSession: id => ['s1', 's2'].includes(id),
+      isLocalAgentRef: () => false,
+      isLocalAgentRoute: () => false,
+      chatOwners: new Map([['s1', 'b1']]),
+      groupOwners: new Map(),
+      pastOwners: new Map(),
+      roomOwners: new Map(),
+      teamTools: [],
+      live: new Map(),
+      groupSessionsOf: () => [],
+      unreadOf: () => [],
+      eventsBackwards: async function* (_sid, _sig, _pages, scan) {
+        for (const event of [...historyEvents].reverse()) yield event
+        if (scan) scan.complete = true
+      },
+      resolveAgent: async id => (id === 's2' ? fresh : agent),
+      createSession: async () => 's2',
+      desiredModel: async subject => subject.model,
+      desiredEffort: async () => undefined,
+      selectSessionModel: async () => {},
+      applyPermission: async () => {},
+      ensureCapabilities: async () => {},
+      renewMemory: () => {},
+      moveSchedules: async () => {},
+      deliver: async () => {},
+      teamFolder: () => '/tmp/old-folder',
+      workDirOf: () => '/tmp/new-folder',
+      isFolder: async () => true,
+      roomProgress: new Map(),
+    }
+
+    partsInstall(rt)
+    await rt.followFolder({ botId: 'b1' })
+    for (let i = 0; i < 100 && bot.sessionId !== 's2'; i += 1) {
+      await new Promise(resolve => setTimeout(resolve, 10))
+    }
+    assert.equal(bot.sessionId, 's2')
+    return {
+      noteCalls,
+      segment: bot.segments[0],
+      pkg: followed.map(m => m.content.map(b => b.text).join('')).join('\n'),
+    }
+  }
+
+  // 1. Small-window model where preliminary history fits, but instructions + queued input + work reserve
+  // cause applyHandoffBudget to drop older messages: must NOT skip writing the summary note.
+  const trimmed = await runFolderSwitch({ contextWindow: 4_000, withOverhead: true })
+  assert.equal(trimmed.noteCalls, 1, 'folder change with byte-trimmed history must write a summary note')
+  assert.equal(trimmed.segment.fallback, undefined, 'persisted segment must not record fallback=whole')
+  assert.ok(trimmed.segment.note?.includes('FOLDER_SUMMARY_MARKER'), 'written summary note must be persisted')
+  assert.ok(trimmed.pkg.includes('FOLDER_SUMMARY_MARKER'), 'handoff package must carry the written summary note')
+  assert.equal(trimmed.pkg.includes('every message of the part was carried over word for word'), false, 'noteText must not falsely claim whole-part carry')
+  assert.equal(trimmed.pkg.includes('FIRST_FOLDER_MSG_'), false, 'older message was indeed dropped by destination byte budget')
+  assert.ok(trimmed.pkg.includes('LATEST_FOLDER_MSG'), 'latest message survives verbatim')
+
+  // 2. Positive control: when all messages genuinely survive applyHandoffBudget with no tool work,
+  // folder change still takes the note-free whole fast path.
+  const whole = await runFolderSwitch({ contextWindow: 64_000, withOverhead: false })
+  assert.equal(whole.noteCalls, 0, 'untrimmed folder change with no tool work skips note writing')
+  assert.equal(whole.segment.fallback, 'whole')
+  assert.ok(whole.pkg.includes('every message of the part was carried over word for word'))
+  assert.ok(whole.pkg.includes('FIRST_FOLDER_MSG_'))
+  assert.ok(whole.pkg.includes('LATEST_FOLDER_MSG'))
+})

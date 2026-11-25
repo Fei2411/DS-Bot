@@ -35,6 +35,7 @@ import { findEngineExecutable, findExecutable, probeEnv, probeSignIn, probeVersi
 const SIGNED_IN_TTL_MS = 60_000
 const SIGNED_IN_RETRY_MS = 20_000
 const VERSION_FAIL_TTL_MS = 30_000
+const invalid = message => Object.assign(new Error(message), { code: 'bot/invalid' })
 
 // The preset a Session runs on: its group's, else its Bot's, else DSH's default — the one
 // a Bot without a preset of its own is shown with (permissions.js keeps it applied to the
@@ -59,9 +60,10 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
   // state.localAgents is replaced by the state load after install; read it
   // each time instead of holding the pre-load object.
   const store = () => {
-    const live = state.localAgents ??= { custom: [], profiles: [], sessions: {} }
+    const live = state.localAgents ??= { custom: [], profiles: [], retiredProfiles: [], sessions: {} }
     live.custom ??= []
     live.profiles ??= []
+    live.retiredProfiles ??= []
     live.sessions ??= {}
     return live
   }
@@ -86,7 +88,7 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
     profileProbes.delete(route)
   }
   const clearEngineProfileProbes = (baseRoute) => {
-    for (const route of [...profileProbes.keys()]) {
+    for (const route of profileProbes.keys()) {
       if (splitProfileRoute(route)?.baseRoute === baseRoute) clearProfileProbe(route)
     }
   }
@@ -440,6 +442,27 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
     }
   }
 
+  // Collects active, retired, and Bot-referenced profile IDs for a base CLI route
+  // so removing and recreating a profile never silently rebinds an existing Bot.
+  const reservedProfileIds = (baseRoute) => {
+    const activeIds = new Set(
+      store().profiles
+        .filter(profile => profile?.baseRoute === baseRoute && typeof profile.id === 'string')
+        .map(profile => profile.id),
+    )
+    const retiredOrReferencedIds = new Set()
+    for (const route of store().retiredProfiles) {
+      const split = splitProfileRoute(route)
+      if (split?.baseRoute === baseRoute) retiredOrReferencedIds.add(split.profileId)
+    }
+    for (const ref of usedRefs()) {
+      const split = splitProfileRoute(splitRef(ref)?.provider)
+      if (split?.baseRoute === baseRoute) retiredOrReferencedIds.add(split.profileId)
+    }
+    const allIds = new Set([...activeIds, ...retiredOrReferencedIds])
+    return { activeIds, retiredOrReferencedIds, allIds }
+  }
+
   // One CLI's models: the first look starts that CLI, later ones read what it said.
   const localAgentModels = route => (registeredRoutes.has(route) ? adapter.probeModels(route) : Promise.resolve([]))
 
@@ -491,9 +514,12 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
       }
       case 'local-agent-profile-add': {
         const baseRoute = String(body?.baseRoute ?? '').trim()
-        const existingIds = new Set(store().profiles.filter(profile => profile?.baseRoute === baseRoute).map(profile => profile.id))
-        const clean = validateProfile(body ?? {}, { existingIds })
-        if (existingIds.has(clean.id)) throw new Error(`A profile with ID "${clean.id}" already exists for ${ENGINES[clean.baseRoute].name}`)
+        const { activeIds, retiredOrReferencedIds, allIds } = reservedProfileIds(baseRoute)
+        const clean = validateProfile(body ?? {}, { existingIds: allIds })
+        if (activeIds.has(clean.id)) throw invalid(`A profile with ID "${clean.id}" already exists for ${ENGINES[clean.baseRoute].name}`)
+        if (retiredOrReferencedIds.has(clean.id)) {
+          throw invalid(`Profile ID "${clean.id}" for ${ENGINES[clean.baseRoute].name} was previously removed or is still referenced by a Bot; choose a different ID`)
+        }
         const managed = clean.configDir === undefined
         const dir = clean.configDir ?? defaultProfileDir(rt.home, clean.baseRoute, clean.id)
         validateProfileDirUnique(clean.baseRoute, dir, store().profiles, { home: rt.home })
@@ -533,7 +559,7 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
         if (clean.env !== undefined && Object.keys(clean.env).length > 0) entry.env = clean.env
         else delete entry.env
         if (configChanged) {
-          await adapter.closeRoute(route)
+          await adapter.closeRoute(route, 'the local agent configuration changed', { code: 'LOCAL_AGENT_EXIT' })
           if (dirChanged) clearRouteSessions(route)
           clearProfileProbe(route)
           await probeProfileSignIn(entry, { force: true })
@@ -547,8 +573,10 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
         if (index === -1 || entry === undefined) throw new Error('Unknown profile')
         const route = profileRoute(entry.baseRoute, entry.id)
         store().profiles.splice(index, 1)
+        const retired = store().retiredProfiles
+        if (!retired.includes(route)) retired.push(route)
         clearProfileProbe(route)
-        await adapter.closeRoute(route, 'the local agent profile was removed')
+        await adapter.closeRoute(route, 'the local agent profile was removed', { code: 'LOCAL_AGENT_MISSING' })
         clearRouteSessions(route)
         applyRoutes()
         await rt.catalog?.({ fresh: true })

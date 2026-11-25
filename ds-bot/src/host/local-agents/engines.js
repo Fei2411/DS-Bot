@@ -2,6 +2,7 @@
 // name, how it starts, and which driver speaks its protocol: 'acp' (Agent
 // Client Protocol over stdio), 'codex' (the Codex app-server JSON-RPC), or
 // 'claude' (Claude Code's stream-json).
+import { randomBytes } from 'node:crypto'
 import { chmodSync, mkdirSync, realpathSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, dirname, isAbsolute, join, parse, posix, resolve, win32 } from 'node:path'
@@ -141,10 +142,11 @@ export function signInFor(spec, path, { platform = process.platform } = {}) {
   const base = spec?.signInBy?.[executableCommand(path)] ?? spec?.signIn
   if (!base) return undefined
   if (spec?.profile === true && spec.profileEnvKey && spec.profileDir) {
-    if (hasControlChars(String(spec.profileDir))) return undefined
+    const key = String(spec.profileEnvKey)
+    if (!ENV_KEY_RE.test(key) || hasControlChars(String(spec.profileDir))) return undefined
     return platform === 'win32'
-      ? `$env:${spec.profileEnvKey}=${quotePowerShellSingle(spec.profileDir)}; ${base}`
-      : `${spec.profileEnvKey}=${quotePosixSingle(spec.profileDir)} ${base}`
+      ? `$__p=$env:${key}; $env:${key}=${quotePowerShellSingle(spec.profileDir)}; try { ${base} } finally { if ($null -eq $__p) { Remove-Item Env:${key} -ErrorAction SilentlyContinue } else { $env:${key}=$__p } }`
+      : `${key}=${quotePosixSingle(spec.profileDir)} ${base}`
   }
   return base
 }
@@ -391,7 +393,10 @@ export function slugifyProfileId(name, existingIds = new Set()) {
     const candidate = `${seed.slice(0, 27)}-${n}`
     if (!existingIds.has(candidate)) return candidate
   }
-  return `p-${Date.now().toString(36)}`
+  for (;;) {
+    const candidate = `p-${randomBytes(4).toString('hex')}`
+    if (!existingIds.has(candidate)) return candidate
+  }
 }
 
 export function validateProfile({ id, baseRoute, name, configDir, env }, {

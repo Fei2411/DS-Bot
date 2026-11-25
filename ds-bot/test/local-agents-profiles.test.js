@@ -262,7 +262,10 @@ test('profile route parsing, validation, env isolation, and sign-in hints', (t) 
   const winSpec = { ...spec, profileDir: 'C:\\Users\\Public\\cli-profiles\\claude-code-work' }
   assert.equal(signInFor(posixSpec, '/usr/local/bin/claude', { platform: 'darwin' }), "CLAUDE_CONFIG_DIR='/tmp/cli-profiles/claude-code-work' claude")
   assert.equal(signInFor(posixSpec, '/usr/local/bin/claude', { platform: 'linux' }), "CLAUDE_CONFIG_DIR='/tmp/cli-profiles/claude-code-work' claude")
-  assert.equal(signInFor(winSpec, 'C:\\bin\\claude.exe', { platform: 'win32' }), "$env:CLAUDE_CONFIG_DIR='C:\\Users\\Public\\cli-profiles\\claude-code-work'; claude")
+  assert.equal(
+    signInFor(winSpec, 'C:\\bin\\claude.exe', { platform: 'win32' }),
+    "$__p=$env:CLAUDE_CONFIG_DIR; $env:CLAUDE_CONFIG_DIR='C:\\Users\\Public\\cli-profiles\\claude-code-work'; try { claude } finally { if ($null -eq $__p) { Remove-Item Env:CLAUDE_CONFIG_DIR -ErrorAction SilentlyContinue } else { $env:CLAUDE_CONFIG_DIR=$__p } }",
+  )
 
   // Shell quoting hardening: spaces, $HOME, !, ', ", backslashes, and Unicode single quotes
   const trickyPosix = { ...spec, profileDir: `/tmp/my dir/$HOME/a!b/it's/"q"/c\\d` }
@@ -273,12 +276,22 @@ test('profile route parsing, validation, env isolation, and sign-in hints', (t) 
   const trickyWin = { ...spec, profileDir: `C:\\Program Data\\$HOME\\a!b\\it's\\‘curly’\\"q"` }
   assert.equal(
     signInFor(trickyWin, 'C:\\bin\\claude.exe', { platform: 'win32' }),
-    `$env:CLAUDE_CONFIG_DIR='C:\\Program Data\\$HOME\\a!b\\it''s\\‘‘curly’’\\"q"'; claude`,
+    `$__p=$env:CLAUDE_CONFIG_DIR; $env:CLAUDE_CONFIG_DIR='C:\\Program Data\\$HOME\\a!b\\it''s\\‘‘curly’’\\"q"'; try { claude } finally { if ($null -eq $__p) { Remove-Item Env:CLAUDE_CONFIG_DIR -ErrorAction SilentlyContinue } else { $env:CLAUDE_CONFIG_DIR=$__p } }`,
   )
-  // Control characters / newlines in profileDir never emit an injectable shell snippet
+  // Control characters / newlines in profileDir and invalid env keys never emit an injectable shell snippet
   assert.equal(signInFor({ ...spec, profileDir: '/tmp/ok\nrm -rf /' }, '/usr/local/bin/claude', { platform: 'darwin' }), undefined)
   assert.equal(signInFor({ ...spec, profileDir: 'C:\\tmp\\ok\r\ncalc' }, 'C:\\bin\\claude.exe', { platform: 'win32' }), undefined)
   assert.equal(signInFor({ ...spec, profileDir: '/tmp/ok\0bad' }, '/usr/local/bin/claude', { platform: 'linux' }), undefined)
+  assert.equal(signInFor({ ...winSpec, profileEnvKey: 'CLAUDE_CONFIG_DIR; calc' }, 'C:\\bin\\claude.exe', { platform: 'win32' }), undefined)
+
+  // Codex Windows sign-in command scopes CODEX_HOME inside try/finally and handles both absent and preset values
+  const codexWinSpec = engineOf('local-codex-cli@work', [], [{ id: 'work', baseRoute: 'local-codex-cli', name: 'Work', configDir: 'C:\\Users\\Alice O\'Neil\\codex-work' }], { home, platform: 'win32' })
+  const codexWinCmd = signInFor(codexWinSpec, 'C:\\bin\\codex.cmd', { platform: 'win32' })
+  assert.equal(
+    codexWinCmd,
+    "$__p=$env:CODEX_HOME; $env:CODEX_HOME='C:\\Users\\Alice O''Neil\\codex-work'; try { codex login } finally { if ($null -eq $__p) { Remove-Item Env:CODEX_HOME -ErrorAction SilentlyContinue } else { $env:CODEX_HOME=$__p } }",
+  )
+  assert.match(codexWinCmd, /^\$__p=\$env:CODEX_HOME; \$env:CODEX_HOME='[^']*(?:''[^']*)*'; try \{ codex login \} finally \{ if \(\$null -eq \$__p\) \{ Remove-Item Env:CODEX_HOME -ErrorAction SilentlyContinue \} else \{ \$env:CODEX_HOME=\$__p \} \}$/)
 
   // Default global engine stays unchanged
   assert.equal(signInFor(ENGINES['local-claude-code'], '/usr/local/bin/claude', { platform: 'darwin' }), 'claude')
@@ -766,4 +779,369 @@ test('profile CRUD endpoints create 0o700 dirs, register routes, probe independe
   assert.equal(rt.isLocalAgentAvailable('local-claude-code'), true, 'global route stays intact')
   assert.equal(readFileSync(credFile, 'utf8'), '{"keep":"me"}', 'removing a profile must not delete credential files on disk')
   assert.ok(seenProbeEnvs.some(entry => entry.isolated === true && entry.extraEnv?.CLAUDE_CONFIG_DIR === customDir))
+})
+
+test('updating or removing a profile during an active reply fails the stream explicitly and rolls back unread markers', async (t) => {
+  await refreshSearchDirs()
+  const root = mkdtempSync(join(tmpdir(), 'dsb-prof-active-close-'))
+  const home = join(root, 'home')
+  const spawnedEngines = []
+
+  // Real Claude fixture: stalls BEFORE system/init when prompt contains 'stall-pre-init'
+  // (exercises pre-init unread rollback), and completes normally otherwise.
+  const fakeClaudeStall = writeNodeModule(root, 'fake-claude-stall.mjs', `
+    let buf = ''
+    const send = obj => process.stdout.write(JSON.stringify(obj) + '\\n')
+    process.stdin.setEncoding('utf8')
+    process.stdin.on('data', chunk => {
+      buf += chunk
+      let nl
+      while ((nl = buf.indexOf('\\n')) !== -1) {
+        const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1)
+        if (!line) continue
+        const msg = JSON.parse(line)
+        if (msg.type === 'user') {
+          const text = JSON.stringify(msg.message ?? '')
+          if (text.includes('stall-pre-init')) {
+            // Stay alive waiting without system/init or result.
+            continue
+          }
+          send({ type: 'system', subtype: 'init', session_id: 'cl-ok-' + process.pid, model: 'sonnet' })
+          send({ type: 'assistant', message: { content: [{ type: 'text', text: 'Complete reply' }] } })
+          send({ type: 'result', subtype: 'success', is_error: false })
+        }
+      }
+    })
+  `)
+
+  // Real Codex app-server fixture: emits partial text and waits for more CLI output
+  // without sending turn/completed so we can update or remove the profile mid-reply.
+  const fakeCodexPartial = writeNodeModule(root, 'fake-codex-partial.mjs', `
+    let buf = ''
+    const send = obj => process.stdout.write(JSON.stringify(obj) + '\\n')
+    process.stdin.setEncoding('utf8')
+    process.stdin.on('data', chunk => {
+      buf += chunk
+      let nl
+      while ((nl = buf.indexOf('\\n')) !== -1) {
+        const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1)
+        if (!line) continue
+        const { id, method, params = {} } = JSON.parse(line)
+        if (method === 'initialize') {
+          send({ jsonrpc: '2.0', id, result: {} })
+        } else if (method === 'thread/start') {
+          send({ jsonrpc: '2.0', id, result: { thread: { id: 'thr-' + process.pid } } })
+        } else if (method === 'turn/start') {
+          send({ jsonrpc: '2.0', id, result: { turn: { id: 't1' } } })
+          send({ jsonrpc: '2.0', method: 'item/completed', params: { threadId: params.threadId, turnId: 't1', item: { type: 'agentMessage', text: 'Half answer before profile change' } } })
+          // Intentionally stay open waiting for next CLI output (no turn/completed).
+        }
+      }
+    })
+  `)
+
+  // Part 1: Direct adapter.closeRoute during pre-init Claude stream -> explicit failure + unread rollback;
+  // idle session closes quietly without rolling back handedId.
+  const profiles = [{ id: 'work', baseRoute: 'local-claude-code', name: 'Work' }]
+  const records = {
+    's-preinit': { route: 'local-claude-code@work', handedId: 'm1' },
+  }
+  const adapter = new LocalAgentAdapter({
+    rt: { warn: () => {} },
+    home,
+    customAgents: () => [],
+    profiles: () => profiles,
+    findExecutable: p => p,
+    spawnEngine: (kind, route, spec) => {
+      const overridden = { ...spec, command: process.execPath, args: [fakeClaudeStall] }
+      const engine = new ClaudeEngine(route, overridden, { findExecutable: p => p })
+      spawnedEngines.push(engine)
+      return engine
+    },
+    record: id => records[id],
+    saveRecord: (id, rec) => { records[id] = rec },
+    presetFor: () => 'workspace-write',
+    cwdFor: async () => root,
+    probeCwd: () => root,
+    toolsFor: () => [],
+  })
+
+  const waitUntil = async (fn, label) => {
+    for (let i = 0; i < 300; i += 1) {
+      if (fn()) return
+      await new Promise(resolve => setTimeout(resolve, 10))
+    }
+    throw new Error(`Timed out waiting for ${label}`)
+  }
+
+  // Idle session completes normally and closes quietly on closeRoute without altering handedId
+  const completed = await collect(adapter.stream({
+    provider: 'local-claude-code@work',
+    model: 'default',
+    sessionId: 's-idle',
+    messages: [userMsg('m-idle', 'say hi')],
+    tools: [],
+  }))
+  assert.equal(completed.text, 'Complete reply')
+  assert.equal(completed.finish?.kind, 'stop')
+  assert.equal(records['s-idle'].handedId, 'm-idle')
+  await adapter.closeRoute('local-claude-code@work')
+  assert.equal(records['s-idle'].handedId, 'm-idle', 'closing an idle session must stay quiet and keep handedId')
+
+  // Active pre-init stream waiting for CLI output -> closeRoute fails stream explicitly and rolls back handedId
+  const preInitPromise = collect(adapter.stream({
+    provider: 'local-claude-code@work',
+    model: 'default',
+    sessionId: 's-preinit',
+    messages: [userMsg('m1', 'earlier'), userMsg('m2', 'stall-pre-init')],
+    tools: [],
+  }))
+  await waitUntil(() => adapter.live.get('s-preinit')?.waiters.length > 0 && records['s-preinit']?.handedId === 'm2', 'pre-init stream to park in drain')
+  await adapter.closeRoute('local-claude-code@work', 'the local agent configuration changed', { code: 'LOCAL_AGENT_EXIT' })
+  await assert.rejects(
+    preInitPromise,
+    err => err.code === 'LOCAL_AGENT_EXIT' && /configuration changed/i.test(err.message),
+  )
+  assert.equal(records['s-preinit'].handedId, 'm1', 'unread marker must roll back to handedBefore when interrupted pre-init')
+  await adapter.dispose()
+
+  // Part 2: End-to-end local-agent-profile-update (configDir change) and local-agent-profile-remove
+  // while a Codex reply stream is waiting for its next CLI output after emitting partial text.
+  const savedEngines = { ...ENGINES }
+  const fakeCodexBin = makeNodeScript(root, 'fake-codex-bin.mjs', `
+    if (process.argv.includes('--version')) { console.log('codex 1.0.0'); process.exit(0) }
+    await import(${JSON.stringify(new URL(`file://${fakeCodexPartial}`).href)})
+  `)
+  for (const route of Object.keys(ENGINES)) delete ENGINES[route]
+  ENGINES['local-codex-cli'] = { ...savedEngines['local-codex-cli'], command: fakeCodexBin, commands: [fakeCodexBin], args: [], version: ['--version'] }
+  t.after(() => {
+    for (const route of Object.keys(ENGINES)) delete ENGINES[route]
+    Object.assign(ENGINES, savedEngines)
+  })
+
+  const owner = new Context()
+  const llm = new LlmRuntime(owner)
+  const ctx = fakeContext({ services: { llm } })
+  const rt = {
+    ctx,
+    home,
+    state: { bots: {}, localAgents: { custom: [], profiles: [], retiredProfiles: [], sessions: {} } },
+    save: async () => {},
+    catalog: async () => [],
+    teamTools: [],
+    botOf: () => undefined,
+    roomOf: () => undefined,
+    selfOf: () => undefined,
+    groupOwners: new Map(),
+    resolveAgent: async () => ({ session: { header: { cwd: root } } }),
+    teamFolder: () => root,
+  }
+  t.after(async () => {
+    try {
+      await ctx.dispose()
+      await owner.fiber.dispose()
+    } finally {
+      rmSync(root, { recursive: true, force: true, maxRetries: 15, retryDelay: 100 })
+    }
+  })
+
+  installLocalAgents(rt, {
+    probeVersion: async () => ({ ok: true, version: 'codex 1.0.0' }),
+    probeSignIn: async () => true,
+  })
+  await rt.localAgentsEndpoint('local-agents', {})
+  const workProfile = await rt.localAgentsEndpoint('local-agent-profile-add', { baseRoute: 'local-codex-cli', name: 'Work' })
+  assert.equal(workProfile.route, 'local-codex-cli@work')
+
+  // 2a. Update profile configDir while Codex reply stream is waiting for next CLI output
+  const streamForUpdate = llm.stream({
+    provider: 'local-codex-cli@work',
+    model: 'default',
+    sessionId: 's-codex-upd',
+    messages: [userMsg('m1', 'generate report')],
+    tools: [],
+  })
+  const firstUpdateChunks = []
+  const iterUpdate = streamForUpdate[Symbol.asyncIterator]()
+  let sawHalfUpdate = false
+  while (!sawHalfUpdate) {
+    const step = await iterUpdate.next()
+    assert.equal(step.done, false, 'stream must not end before profile update')
+    firstUpdateChunks.push(step.value)
+    if (step.value.type === 'text-delta' && step.value.text.includes('Half answer')) sawHalfUpdate = true
+  }
+  // Start waiting for the next event, then change configDir mid-reply
+  const restUpdate = (async () => {
+    for (;;) {
+      const step = await iterUpdate.next()
+      if (step.done) return firstUpdateChunks
+      firstUpdateChunks.push(step.value)
+    }
+  })()
+  await new Promise(resolve => setTimeout(resolve, 30))
+  const updatedDir = join(root, 'codex-work-v2')
+  await rt.localAgentsEndpoint('local-agent-profile-update', { route: 'local-codex-cli@work', configDir: updatedDir })
+  const updateChunks = await restUpdate
+  const updateFinish = updateChunks.find(chunk => chunk.type === 'finish')?.reason
+  assert.equal(updateFinish?.kind, 'error', 'interrupted reply must finish as an explicit error, never kind=stop')
+  assert.equal(updateFinish?.failure?.code, 'LOCAL_AGENT_EXIT')
+  assert.match(updateFinish?.failure?.message ?? '', /configuration changed/i)
+  assert.equal(rt.state.localAgents.sessions['s-codex-upd'], undefined, 'configDir update must clear stale route session record')
+
+  // 2b. Remove profile while Codex reply stream is waiting for next CLI output
+  const streamForRemove = llm.stream({
+    provider: 'local-codex-cli@work',
+    model: 'default',
+    sessionId: 's-codex-rem',
+    messages: [userMsg('m1', 'another report')],
+    tools: [],
+  })
+  const firstRemoveChunks = []
+  const iterRemove = streamForRemove[Symbol.asyncIterator]()
+  let sawHalfRemove = false
+  while (!sawHalfRemove) {
+    const step = await iterRemove.next()
+    assert.equal(step.done, false, 'stream must not end before profile removal')
+    firstRemoveChunks.push(step.value)
+    if (step.value.type === 'text-delta' && step.value.text.includes('Half answer')) sawHalfRemove = true
+  }
+  const restRemove = (async () => {
+    for (;;) {
+      const step = await iterRemove.next()
+      if (step.done) return firstRemoveChunks
+      firstRemoveChunks.push(step.value)
+    }
+  })()
+  await new Promise(resolve => setTimeout(resolve, 30))
+  await rt.localAgentsEndpoint('local-agent-profile-remove', { route: 'local-codex-cli@work' })
+  const removeChunks = await restRemove
+  const removeFinish = removeChunks.find(chunk => chunk.type === 'finish')?.reason
+  assert.equal(removeFinish?.kind, 'error', 'removed profile reply must finish as an explicit error, never kind=stop')
+  assert.equal(removeFinish?.failure?.code, 'LOCAL_AGENT_MISSING')
+  assert.match(removeFinish?.failure?.message ?? '', /profile was removed/i)
+  assert.equal(rt.state.localAgents.sessions['s-codex-rem'], undefined, 'profile removal must clear route session record')
+})
+
+test('removing and recreating a profile with the same name allocates a fresh route and never silently rebinds existing Bots', async (t) => {
+  await refreshSearchDirs()
+  const root = mkdtempSync(join(tmpdir(), 'dsb-prof-no-rebind-'))
+  const home = join(root, 'home')
+  const accountADir = join(root, 'codex-account-a')
+  const accountBDir = join(root, 'codex-account-b')
+  const savedEngines = { ...ENGINES }
+  const fakeCodex = makeNodeScript(root, 'fake-codex-cli.mjs', `
+    if (process.argv.includes('--version')) { console.log('codex 1.0.0'); process.exit(0) }
+    console.log('Logged in')
+  `)
+  for (const route of Object.keys(ENGINES)) delete ENGINES[route]
+  ENGINES['local-codex-cli'] = { ...savedEngines['local-codex-cli'], command: fakeCodex, commands: [fakeCodex], version: ['--version'] }
+  t.after(() => {
+    for (const route of Object.keys(ENGINES)) delete ENGINES[route]
+    Object.assign(ENGINES, savedEngines)
+  })
+
+  const owner = new Context()
+  const llm = new LlmRuntime(owner)
+  const ctx = fakeContext({ services: { llm } })
+  const rt = {
+    ctx,
+    home,
+    state: {
+      bots: {
+        // Legacy pre-existing Bot referencing a profile route not yet in retiredProfiles
+        bLegacy: { id: 'bLegacy', name: 'LegacyBot', model: 'local-codex-cli@legacy/default', appliedModel: 'local-codex-cli@legacy/default' },
+      },
+      localAgents: { custom: [], profiles: [], retiredProfiles: [], sessions: {} },
+    },
+    save: async () => {},
+    catalog: async () => [],
+    teamTools: [],
+    botOf: id => rt.state.bots[id],
+    roomOf: () => undefined,
+    selfOf: () => undefined,
+    groupOwners: new Map(),
+  }
+  t.after(async () => {
+    try {
+      await ctx.dispose()
+      await owner.fiber.dispose()
+    } finally {
+      rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
+    }
+  })
+
+  installLocalAgents(rt, {
+    probeVersion: async () => ({ ok: true, version: 'codex 1.0.0' }),
+    probeSignIn: async () => true,
+  })
+  await rt.localAgentsEndpoint('local-agents', {})
+
+  // 1. Create Codex profile "Work" and bind Bot b1 to it
+  const firstWork = await rt.localAgentsEndpoint('local-agent-profile-add', {
+    baseRoute: 'local-codex-cli',
+    name: 'Work',
+    configDir: accountADir,
+  })
+  assert.equal(firstWork.id, 'work')
+  assert.equal(firstWork.route, 'local-codex-cli@work')
+  rt.state.bots.b1 = {
+    id: 'b1',
+    name: 'WorkBot',
+    model: 'local-codex-cli@work/default',
+    appliedModel: 'local-codex-cli@work/default',
+  }
+
+  // 2. Remove "Work" -> route is retired; Bot b1 still retains its old selection
+  await rt.localAgentsEndpoint('local-agent-profile-remove', { route: 'local-codex-cli@work' })
+  assert.ok(rt.state.localAgents.retiredProfiles.includes('local-codex-cli@work'))
+  assert.equal(engineOf('local-codex-cli@work', [], rt.state.localAgents.profiles, { home }), undefined)
+
+  // 3. Recreating a profile with the same name "Work" MUST allocate a brand-new route (never reuse @work)
+  const recreatedWork = await rt.localAgentsEndpoint('local-agent-profile-add', {
+    baseRoute: 'local-codex-cli',
+    name: 'Work',
+    configDir: accountBDir,
+  })
+  assert.notEqual(recreatedWork.route, 'local-codex-cli@work')
+  assert.equal(recreatedWork.route, 'local-codex-cli@work-2')
+  assert.equal(recreatedWork.id, 'work-2')
+  assert.equal(recreatedWork.configDir, accountBDir)
+
+  // Existing Bot b1 is NOT silently rebound to accountBDir; its old route still fails as LOCAL_AGENT_MISSING
+  assert.equal(rt.state.bots.b1.model, 'local-codex-cli@work/default')
+  assert.equal(engineOf('local-codex-cli@work', [], rt.state.localAgents.profiles, { home }), undefined)
+  const missingResult = await collect(llm.stream({
+    provider: 'local-codex-cli@work',
+    model: 'default',
+    sessionId: 's-b1',
+    messages: [userMsg('m1', 'secret history')],
+    tools: [],
+  }))
+  assert.equal(missingResult.finish?.kind, 'error')
+  assert.equal(missingResult.finish?.failure?.code, 'LOCAL_AGENT_MISSING')
+
+  // 4. Explicitly passing retired ID "work" is refused with bot/invalid
+  await assert.rejects(
+    rt.localAgentsEndpoint('local-agent-profile-add', {
+      baseRoute: 'local-codex-cli',
+      id: 'work',
+      name: 'Work Hijack',
+    }),
+    err => errorCode(err) === 'bot/invalid' && /previously removed|referenced by a Bot/i.test(err.message),
+  )
+
+  // 5. Even without retiredProfiles, a route still referenced by an existing Bot cannot be hijacked
+  const recreatedLegacy = await rt.localAgentsEndpoint('local-agent-profile-add', {
+    baseRoute: 'local-codex-cli',
+    name: 'Legacy',
+  })
+  assert.equal(recreatedLegacy.route, 'local-codex-cli@legacy-2', 'auto-generated ID must skip routes referenced by existing Bots')
+  await assert.rejects(
+    rt.localAgentsEndpoint('local-agent-profile-add', {
+      baseRoute: 'local-codex-cli',
+      id: 'legacy',
+      name: 'Legacy Hijack',
+    }),
+    err => errorCode(err) === 'bot/invalid' && /previously removed|referenced by a Bot/i.test(err.message),
+  )
 })

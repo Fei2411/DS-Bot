@@ -345,18 +345,24 @@ export function install(rt) {
   }
 
   // Enforces the exact UTF-8 byte budget on a deterministic handoff payload while
-  // strictly preserving the newest message and any carried in-flight turn/attachments.
+  // strictly preserving the active turn's initiating input and carried attachments.
   function applyHandoffBudget(carried, { session, targetWindowTokens, noteBody = '', carry = [], held = [], maxHistoryTokens } = {}) {
     if (!Number.isInteger(targetWindowTokens) || targetWindowTokens <= 0) return carried
     const recent = carried?.recent ?? []
     const earlier = carried?.earlier ?? []
     const tools = carried?.tools ?? []
     if (recent.length === 0 && earlier.length === 0 && tools.length === 0) return carried
-    const newest = recent.length > 0 ? [recent.at(-1)] : []
-    const olderRecent = recent.length > 0 ? recent.slice(0, -1) : []
+    const hasStructured = Array.isArray(carried?.currentTurn)
+    const currentTurn = hasStructured ? carried.currentTurn : (recent.length > 0 ? [recent.at(-1)] : [])
+    const olderBefore = hasStructured ? (carried.olderRecent ?? []) : (recent.length > 0 ? recent.slice(0, -1) : [])
+    const trailingAfter = hasStructured ? (carried.trailingRecent ?? []) : []
+    // Evict older turns before the active turn's own interim assistant replies,
+    // while keeping the initiating request itself hard-protected even at 0 bytes.
+    const trimmableRecent = [...olderBefore, ...trailingAfter]
     const pending = [...(carry ?? []), ...(held ?? [])]
-    const currentTurnBytes = measureMessagesBytes(pending) + (newest.length > 0 ? utf8Bytes(newest[0]) : 0)
-    const attachmentCount = countMessageAttachments(pending)
+    const currentTurnTextBytes = currentTurn.reduce((sum, entry) => sum + utf8Bytes(entry), 0)
+    const currentTurnBytes = measureMessagesBytes(pending) + currentTurnTextBytes
+    const attachmentCount = countMessageAttachments(pending) + (carried?.currentTurnAttachments ?? 0)
     const nativeUsedBytes = utf8Bytes(noteBody) + sessionNativeBytes(session) + 1024
     const maxHistoryBytes = maxHistoryTokens !== undefined
       ? Math.floor(maxHistoryTokens * DEFAULT_BYTES_PER_TOKEN) : undefined
@@ -368,18 +374,25 @@ export function install(rt) {
       maxHistoryBytes,
     })
     const fitted = fitHandoffHistory({
-      currentTurn: newest,
-      recent: olderRecent,
+      currentTurn,
+      recent: trimmableRecent,
       earlier,
       tools,
       availableBytes: computed.availableBytes,
     })
+    const keptOlderCount = Math.max(0, olderBefore.length - fitted.droppedRecent)
+    const keptOlder = fitted.recent.slice(0, keptOlderCount)
+    const keptTrailing = fitted.recent.slice(keptOlderCount)
+    const mergedRecent = [...keptOlder, ...fitted.currentTurn, ...keptTrailing]
     const trimmed = fitted.droppedRecent > 0 || fitted.droppedEarlier > 0 || fitted.truncatedEntries > 0
     return {
       ...carried,
-      recent: [...fitted.recent, ...fitted.currentTurn],
+      recent: mergedRecent,
       earlier: fitted.earlier,
       tools: fitted.tools,
+      currentTurn: fitted.currentTurn,
+      olderRecent: keptOlder,
+      trailingRecent: keptTrailing,
       unlisted: (carried.unlisted ?? 0) + fitted.droppedEarlier,
       complete: carried.complete !== false && !trimmed,
       whole: carried.whole === true && !trimmed && fitted.droppedTools === 0,
@@ -566,7 +579,18 @@ export function install(rt) {
       const kept = entry.keepAnswers ? answers : []
       answers = []
       yield* kept
-      if (entry.text !== '') yield { text: entry.who === 'user' ? `User: ${entry.text}` : entry.text, time: event.time, seq: event.seq, who: entry.who }
+      const attachments = event.type === 'user/message' ? countMessageAttachments([{ content: event.data?.content }]) : 0
+      if (entry.text !== '') {
+        yield {
+          text: entry.who === 'user' ? `User: ${entry.text}` : entry.text,
+          time: event.time,
+          seq: event.seq,
+          who: entry.who,
+          ...(attachments > 0 ? { attachments } : {}),
+        }
+      } else if (attachments > 0 && entry.who === 'user' && event.data?.source?.kind === 'user') {
+        yield { text: 'User: [attachment]', time: event.time, seq: event.seq, who: 'user', attachments }
+      }
     }
     // If paging stopped at the page cap before reaching the initiating user message
     // (for instance a long tool turn hit the cap), flush the real replies already read
@@ -642,22 +666,52 @@ export function install(rt) {
   // the Bot (from the user or another Bot) as an anchored list. A group turn message
   // holds the whole round, so a group part carries only its latest messages.
   async function handoffLines(sessionId, { budget, group, number }) {
-    const recent = []
+    let initiating
+    let initiatingAttachments = 0
+    const trailing = []
+    const olderRecent = []
     const earlier = []
     let used = 0
     let full = false
+    let clipped = false
     let listed = 0
     let unlisted = 0
     let complete = true
     const read = {}
     const stamp = line => (group ? `[${clock(line.time)}]` : `[part ${number} #${line.seq} · ${clock(line.time)}]`)
+    const recentClipHint = line => (group ? 'the full text is in the saved record' : `read_own_chat around "part ${number} #${line.seq}" shows all of it`)
     try {
       for await (const line of partLines(sessionId, AbortSignal.timeout(HANDOFF_READ_MS), { group, pages: HISTORY_SCAN_PAGES, read })) {
+        if (initiating === undefined) {
+          if (line.who === 'you') {
+            const text = clip(line.text, RECENT_LINE_MAX, recentClipHint(line))
+            if (text !== line.text) clipped = true
+            const cost = estimateTokens(text)
+            if (!full && (trailing.length === 0 || used + cost <= budget)) {
+              trailing.push(`${stamp(line)} ${text}`)
+              used += cost
+            } else {
+              full = true
+            }
+            continue
+          }
+          // Preserve the active turn's initiating input in `currentTurn` (bounded
+          // only by RECENT_LINE_MAX so giant admitted pastes can still recover from
+          // overflow via read_own_chat, while never demoting it to earlier/400 chars
+          // or letting applyHandoffBudget evict it behind interim assistant output).
+          const text = clip(line.text, RECENT_LINE_MAX, recentClipHint(line))
+          if (text !== line.text) clipped = true
+          initiating = `${stamp(line)} ${text}`
+          initiatingAttachments = line.attachments ?? 0
+          used += estimateTokens(text)
+          continue
+        }
         if (!full) {
-          const text = clip(line.text, RECENT_LINE_MAX, group ? 'the full text is in the saved record' : `read_own_chat around "part ${number} #${line.seq}" shows all of it`)
+          const text = clip(line.text, RECENT_LINE_MAX, recentClipHint(line))
+          if (text !== line.text) clipped = true
           const cost = estimateTokens(text)
-          if (recent.length === 0 || used + cost <= budget) {
-            recent.push(`${stamp(line)} ${text}`)
+          if (used + cost <= budget) {
+            olderRecent.push(`${stamp(line)} ${text}`)
             used += cost
             continue
           }
@@ -676,14 +730,31 @@ export function install(rt) {
       }
     } catch (error) {
       // The latest messages matter most; what could not be read is only noted.
-      if (recent.length === 0) throw error
+      if (initiating === undefined && trailing.length === 0) throw error
       complete = false
       rt.warn('ds-bot: reading %s for its handoff stopped early: %s', sessionId, error)
     }
     const tools = await recentToolActivity(sessionId, { maxTokens: Math.min(TOOL_TRAIL_TOKENS, Math.max(0, Math.floor(budget / 4))) })
-    // `whole`: every message of the part is in `recent`.
+    // `whole`: every message of the part is in `recent` without clipping or drops.
     complete &&= read.complete === true
-    return { recent: recent.reverse(), earlier: earlier.reverse(), tools, unlisted, complete, whole: complete && !full }
+    const trailingChrono = trailing.reverse()
+    const olderChrono = olderRecent.reverse()
+    const recent = initiating !== undefined ? [...olderChrono, initiating, ...trailingChrono] : trailingChrono
+    const currentTurn = initiating !== undefined ? [initiating] : (trailingChrono.length > 0 ? [trailingChrono.at(-1)] : [])
+    const olderBeforeTurn = initiating !== undefined ? olderChrono : trailingChrono.slice(0, -1)
+    const afterCurrentTurn = initiating !== undefined ? trailingChrono : []
+    return {
+      recent,
+      earlier: earlier.reverse(),
+      tools,
+      unlisted,
+      complete,
+      whole: complete && !full && !clipped,
+      currentTurn,
+      olderRecent: olderBeforeTurn,
+      trailingRecent: afterCurrentTurn,
+      currentTurnAttachments: initiatingAttachments,
+    }
   }
 
   // The note's sections, in order. A note without all of them is not used.
@@ -1611,8 +1682,9 @@ export function install(rt) {
       : segment.fallback === 'cutoff' ? 'the part kept being cut off at the output limit'
         : segment.fallback === 'failure' ? 'a request in the previous part kept failing'
           : segment.fallback === 'engine' ? 'what you run on changed'
-            : segment.fallback === 'manual' ? 'a fresh conversation was started'
-            : 'the model did not write a usable note'
+            : segment.fallback === 'trimmed' ? 'the handoff had to be trimmed to fit the model\'s window'
+              : segment.fallback === 'manual' ? 'a fresh conversation was started'
+                : 'the model did not write a usable note'
     const head = `(DS Bot put this note together without the model, because ${why}.`
     return note === undefined
       ? `${head} There was no earlier note to carry over. Go by the messages below, and look up anything else.)`
@@ -2115,9 +2187,30 @@ export function install(rt) {
     const effectiveRoom = room ?? taskRoom
     const budget = Math.min(RECENT_TOKENS, Math.floor((lines?.check ?? 4 * RECENT_TOKENS) / 4))
     const readLines = () => (job.bare ? { recent: [], earlier: [], tools: [], unlisted: 0, complete: true } : handoffLines(agent.id, { budget, group: effectiveRoom !== undefined, number }))
+    const previous = parts.slice(0, -1).findLast(part => part?.endedAt !== undefined && !Number.isInteger(part.throughSeq)) ?? parts.at(-2)
+    const previousNote = segmentNoteOf(previous)
+    const earlierNote = previousNote ? { note: previousNote, noteFrom: previous.noteFrom ?? previous.number } : {}
     let carried = job.folder ? await readLines() : undefined
-    // A short part with no tool work goes over word for word, so it needs no note.
-    const whole = carried?.whole === true && !session.deriveMessages().some(message => message.role === 'tool')
+    // Apply the destination byte budget before deciding whether a folder change
+    // can skip writing a summary note: if instructions, queued input, or work
+    // reserve trim or drop any message, a summary note is still required.
+    let fittedForWhole
+    if (job.folder && carried !== undefined) {
+      const previewWindow = await targetWindowTokensOf(bot, session, lines?.window)
+      const previewWholeSegment = { fallback: 'whole', ...(earlierNote.note !== undefined ? { note: earlierNote.note, noteFrom: earlierNote.noteFrom } : {}) }
+      const previewHeld = [...agent.inbox.nextStep, ...agent.inbox.nextTurn]
+      fittedForWhole = applyHandoffBudget(carried, {
+        session,
+        targetWindowTokens: previewWindow,
+        noteBody: noteText(previewWholeSegment) ?? '',
+        carry: job.carry,
+        held: previewHeld,
+        maxHistoryTokens: budget + LIST_TOKENS + TOOL_TRAIL_TOKENS,
+      })
+    }
+    // A short part with no tool work that survives the destination budget intact
+    // goes over word for word, so it needs no note.
+    const whole = fittedForWhole?.whole === true && !session.deriveMessages().some(message => message.role === 'tool')
     let written
     let failure
     const local = localPart(session)
@@ -2143,9 +2236,6 @@ export function install(rt) {
       return
     }
     if (failure !== undefined) rt.warn('ds-bot: handoff note for %s failed past the hard line; moving on with the earlier note: %s', name, failure)
-    const previous = parts.slice(0, -1).findLast(part => part?.endedAt !== undefined && !Number.isInteger(part.throughSeq)) ?? parts.at(-2)
-    const previousNote = segmentNoteOf(previous)
-    const earlierNote = previousNote ? { note: previousNote, noteFrom: previous.noteFrom ?? previous.number } : {}
     const fallback = written !== undefined ? undefined
       : job.engine ? 'engine'
       : whole ? 'whole' : job.failed !== undefined ? 'failure' : job.overflow ? 'overflow' : job.cutoff === true ? 'cutoff' : 'failed'
@@ -2266,6 +2356,20 @@ export function install(rt) {
         held,
         maxHistoryTokens: budget + LIST_TOKENS + TOOL_TRAIL_TOKENS,
       })
+      // Keep the persisted fallback and rendered note text honest if concurrent
+      // input or a model change tightened the final budget after the whole check.
+      if (segment.fallback === 'whole' && budgeted.whole !== true) {
+        segment.fallback = 'trimmed'
+        await rt.save()
+        budgeted = applyHandoffBudget(carried, {
+          session,
+          targetWindowTokens: targetWindow,
+          noteBody: noteText(segment) ?? '',
+          carry: job.carry,
+          held,
+          maxHistoryTokens: budget + LIST_TOKENS + TOOL_TRAIL_TOKENS,
+        })
+      }
       const text = handoffPackage({ room: effectiveRoom, self: bot === undefined, segment, lines: budgeted, number: number + 1, resume, overflow: job.overflow, cutoff: job.cutoff === true, failed: job.failed, bare: job.bare, folder, engine })
       freshParts.set(freshId, estimateTokens(text))
       fresh.followup(createUserMessage({ content: [{ type: 'text', text }], source: handoffSource(job, resume) }))
@@ -2291,7 +2395,7 @@ export function install(rt) {
       })
     }
     ctx.logger.info('ds-bot: %s%s moved on to part %d at %d tokens (check line %d, hard line %d); %s; %d latest and %d earlier messages carried%s', name, bot !== undefined && room !== undefined ? ` in ${room.name}` : '', number + 1, tokens ?? -1, lines?.check ?? -1, lines?.hard ?? -1,
-      written !== undefined ? `note written in ${written.attempts} attempt(s)` : `note put together by DS Bot (${noted.fallback}${noteBody !== undefined ? `, carries part ${noted.noteFrom}'s` : ', nothing to carry'})`,
+      written !== undefined ? `note written in ${written.attempts} attempt(s)` : `note put together by DS Bot (${segment.fallback}${noteBody !== undefined ? `, carries part ${noted.noteFrom}'s` : ', nothing to carry'})`,
       budgeted.recent.length, budgeted.earlier.length, folder === undefined ? '' : `; now works in ${folder}`)
   }
 
