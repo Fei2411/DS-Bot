@@ -87,6 +87,27 @@ test('session-title and compaction stay deterministic, no CLI is started', async
   const title = await collect(adapter.stream(options('s1', [user('m1', 'Please review the auth changes')], { purpose: 'session-title' })))
   assert.equal(title.text, 'Please review the auth changes')
   assert.equal(title.finish.kind, 'stop')
+
+  const framedArray = await collect(adapter.stream(options('s1', [
+    user('m1', 'Generate the session title from this JSON array of human messages:\n[{"seq":10,"text":"Fix perfesclist loading issue\\nmore details"}]'),
+  ], { purpose: 'session-title' })))
+  assert.equal(framedArray.text, 'Fix perfesclist loading issue')
+
+  const framedObject = await collect(adapter.stream(options('s1', [
+    user('m1', 'Update the session title from this JSON object:\n{"currentTitle":"Old title","messages":[{"seq":10,"text":"Refactor login flow"}]}'),
+  ], { purpose: 'session-title' })))
+  assert.equal(framedObject.text, 'Refactor login flow')
+
+  const framedFallbackCurrent = await collect(adapter.stream(options('s1', [
+    user('m1', 'Update the session title from this JSON object:\n{"currentTitle":"Keep existing title","messages":[]}'),
+  ], { purpose: 'session-title' })))
+  assert.equal(framedFallbackCurrent.text, 'Keep existing title')
+
+  const framedMalformed = await collect(adapter.stream(options('s1', [
+    user('m1', 'Generate the session title from this JSON array of human messages:\n{bad json'),
+  ], { purpose: 'session-title' })))
+  assert.equal(framedMalformed.text, 'Chat')
+
   const digest = await collect(adapter.stream(options('s1', [user('m1', 'hello')], { purpose: 'compaction' })))
   assert.match(digest.text, /condensed/)
   assert.equal(adapter.engines.size, 0)

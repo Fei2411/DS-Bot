@@ -1108,8 +1108,12 @@ export function install(rt) {
     const reason = ended?.reason
     if (reason?.kind === 'aborted' && reason.reason?.kind === 'disposed') return false
     if (reason?.kind === 'blocked') return false
-    const inspect = ctx.sessionController?.inspect
-    const seen = typeof inspect === 'function' ? await inspect(sessionId, AbortSignal.timeout(HISTORY_TIMEOUT_MS)).catch(() => undefined) : undefined
+    const controller = ctx.sessionController
+    const seen = typeof controller?.inspect === 'function'
+      ? await Promise.resolve()
+          .then(() => controller.inspect(sessionId, AbortSignal.timeout(HISTORY_TIMEOUT_MS)))
+          .catch(() => undefined)
+      : undefined
     const events = Array.isArray(seen?.events) ? seen.events : []
     const lastStart = events.findLastIndex(event => event?.type === 'turn/start')
     const slice = lastStart === -1 ? events : events.slice(lastStart)

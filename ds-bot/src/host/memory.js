@@ -2004,6 +2004,7 @@ export function install(rt) {
     if (route === undefined) throw new Error('No model is available. Add one in Settings > Models.')
     return route
   }
+  const modelTimeoutMs = config.memoryModelTimeoutMs ?? MODEL_TIMEOUT_MS
   // The panel's model calls belong to the Bot or group whose memory they serve;
   // without the tag the meter would file them under "other".
   async function oneShot(route, system, text, tag) {
@@ -2030,10 +2031,13 @@ export function install(rt) {
         system,
         messages,
         maxTokens,
-        signal: AbortSignal.timeout(MODEL_TIMEOUT_MS),
+        signal: AbortSignal.timeout(modelTimeoutMs),
       }
       const assembler = await (rt.assembleLlm ? rt.assembleLlm(callOptions) : assembleLlmStream(ctx, callOptions, { backoff: rt.config?.llmRetryBackoff }))
       const finish = assembler.finish
+      // The only signal here is the time limit; the provider reports it as a bare
+      // "Request was aborted", which tells nobody that the model was too slow (#2026).
+      if (finish.kind === 'aborted' && callOptions.signal.aborted) throw new Error(`${route.provider}/${route.model} did not answer within ${modelTimeoutMs / 1000} s`)
       // A cancelled call is the caller's decision, not a route that may answer again.
       if (finish.kind === 'aborted') throw new Error(finish.failure?.message ?? 'aborted')
       if (finish.kind === 'error') {
@@ -2064,7 +2068,7 @@ export function install(rt) {
     // A local agent CLI answers in a one-off read-only session; a fallback never
     // leaves the Bot's run mode.
     if (rt.isLocalAgentRoute?.(own.provider) === true) {
-      const reply = String(await rt.localAgentAsk(tag?.sessionId ?? rt.chatOf?.(bot.id) ?? bot.id, { route: own.provider, model: own.model, system, prompt: text, kind: tag?.kind ?? 'memory', signal: AbortSignal.timeout(MODEL_TIMEOUT_MS) }) ?? '').trim()
+      const reply = String(await rt.localAgentAsk(tag?.sessionId ?? rt.chatOf?.(bot.id) ?? bot.id, { route: own.provider, model: own.model, system, prompt: text, kind: tag?.kind ?? 'memory', signal: AbortSignal.timeout(modelTimeoutMs) }) ?? '').trim()
       // As on a model: an empty answer is no answer, so nothing saved is replaced by it.
       if (reply === '') throw new Error(`${own.provider}/${own.model} wrote nothing; no answer was written`)
       return reply
