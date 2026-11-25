@@ -893,10 +893,13 @@ test('recovery does not hand a request back again when the normal path delivered
 test('a deferred delivery that failed is sent again on retry in the same run', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] })
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-dedup-retry-'))
-  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }))
+  let host
+  t.after(async () => {
+    await host?.stop()
+    rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 })
+  })
   writeFileSync(join(home, 'state.json'), JSON.stringify(baseSeed()))
-  const host = await createRestartHost(t, home, new Map())
-  t.after(() => host.stop())
+  host = await createRestartHost(t, home, new Map())
   const agent = host.agentOf('b')
   const followup = agent.followup
   let follows = 0
@@ -915,10 +918,13 @@ test('a deferred delivery that failed is sent again on retry in the same run', a
 test('a concurrent duplicate waits for the delivery already going and shares its failure', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] })
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-dedup-concurrent-'))
-  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }))
+  let host
+  t.after(async () => {
+    await host?.stop()
+    rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 })
+  })
   writeFileSync(join(home, 'state.json'), JSON.stringify(baseSeed()))
-  const host = await createRestartHost(t, home, new Map())
-  t.after(() => host.stop())
+  host = await createRestartHost(t, home, new Map())
   const agent = host.agentOf('b')
   const followup = agent.followup
   let follows = 0
