@@ -317,7 +317,7 @@ export function install(rt) {
   // The retry goes where the turn's trigger came from: a group round's waiter or a
   // Bot's request keeps its exchange; anything else is a nudge in the Bot's own chat.
   const retryTurn = (id, info, note, text) => {
-    const keeps = info !== undefined && (info.role === 'room' || expectsReply(info))
+    const keeps = info !== undefined && (info.role === 'room' || info.role === 'reply' || expectsReply(info))
     return rt.deliver({
       ...(keeps && info.senderSessionId ? { fromId: info.senderSessionId } : {}),
       toId: rt.selfOf(id),
@@ -328,6 +328,11 @@ export function install(rt) {
       ...(info?.work ? { work: info.work } : {}),
       ...(keeps && info.audience ? { audience: info.audience } : {}),
       ...(keeps && info.askedBy ? { askedBy: info.askedBy } : {}),
+      ...(keeps && info.batchKey ? { batchKey: info.batchKey } : {}),
+      ...(keeps && info.resumedUpstream ? { resumedUpstream: true } : {}),
+      ...(info?.resultRef ? { resultRef: info.resultRef } : {}),
+      ...(info?.replyTo ? { replyTo: info.replyTo } : {}),
+      ...(info?.workRef ? { workRef: info.workRef } : {}),
       ...(keeps && info.senderRoomId ? { fromRoomId: info.senderRoomId } : {}),
       ...(keeps && info.senderPart ? { fromPart: info.senderPart } : {}),
       note,
@@ -1191,6 +1196,7 @@ export function install(rt) {
         entry.retrying = false
         entry.answers = false
         entry.opened = false
+        entry.userInput = false
         entry.joined = []
         entry.later = []
         entry.steeredAt = undefined
@@ -1223,6 +1229,7 @@ export function install(rt) {
           entry.uiToolCount = carry.uiToolCount ?? 0
           entry.opened = true
           entry.carried = true
+          entry.userInput = Boolean(entry.userInput || carry.userInput)
           if (carry.info !== undefined) claimTrigger(id, entry, carry.info)
           entry.joined = carry.joined
           // A request the carry displaced as this turn's trigger keeps its deferred
@@ -1331,6 +1338,7 @@ export function install(rt) {
             ...(source.member ? { member: true } : {}),
             // Who the whole post called. `text` may be only its opening (attachLong).
             ...(source.mentions ? { mentions: source.mentions } : {}),
+            ...(source.route ? { route: source.route } : {}),
             ...(source.sub ? { sub: source.sub } : {}),
             ...(source.late ? { late: true } : {}),
             ...(source.worked ? { worked: true } : {}),
@@ -1345,6 +1353,10 @@ export function install(rt) {
             ...(source.askedBy ? { askedBy: source.askedBy } : {}),
             ...(source.batch ? { batch: source.batch } : {}),
             ...(source.batchEnd ? { batchEnd: true } : {}),
+            ...(source.explicitDelegate ? { explicitDelegate: true } : {}),
+            ...(source.callerExchangeId ? { callerExchangeId: source.callerExchangeId } : {}),
+            ...(source.callerId ? { callerId: source.callerId } : {}),
+            ...(source.parentBatchKey ? { parentBatchKey: source.parentBatchKey } : {}),
             ...(source.fromRoomId ? { fromRoomId: source.fromRoomId } : {}),
             ...(source.fromPart ? { fromPart: source.fromPart } : {}),
             // A post written into a running round already carries its log seq, or true
@@ -1443,6 +1455,7 @@ export function install(rt) {
           }
           const own = rt.chatOwners.get(id)
           if (own !== undefined && !rt.taskOwners?.has(id)) {
+            entry.userInput = true
             rt.userWrote(own)
             rt.resetBotLoops?.(own)
           }
@@ -1504,7 +1517,7 @@ export function install(rt) {
         const steerCut = cut !== undefined && event.data?.reason?.kind === 'aborted'
           && event.data.reason.reason?.kind === 'hook' && event.data.reason.reason.reason === STEER_CUT
         if (steerCut) {
-          entry.carry = { info: entry.info, joined: entry.joined ?? [], later: entry.later ?? [], texts: entry.texts.slice(0, cut.texts), shown: entry.shown, answers: entry.answers, toolCount: entry.toolCount ?? 0, workToolCount: entry.workToolCount ?? 0, uiToolCount: entry.uiToolCount ?? 0 }
+          entry.carry = { info: entry.info, joined: entry.joined ?? [], later: entry.later ?? [], texts: entry.texts.slice(0, cut.texts), shown: entry.shown, answers: entry.answers, toolCount: entry.toolCount ?? 0, workToolCount: entry.workToolCount ?? 0, uiToolCount: entry.uiToolCount ?? 0, userInput: true }
         }
         const info = entry.info
         const joined = entry.joined ?? []
@@ -1643,7 +1656,7 @@ export function install(rt) {
         // the call.
         const wroteCall = failure === undefined && reason?.kind === 'completed' && lastCalled !== true && writesToolCall(lastText)
         const promisedOnly = !wroteCall && failure === undefined && reason?.kind === 'completed'
-          && toolCount === 0 && lastCalled !== true && info?.role === 'room'
+          && toolCount === 0 && lastCalled !== true && info?.role === 'room' && !info.resultRef
           && promisesWork(lastText) && !rt.callsRoomMember?.(id, info, lastText)
         const retry = (wroteCall || promisedOnly) && info?.retried !== true && !(info?.role === 'room' && stoppedRoomTurns.has(info.exchangeId))
         entry.retrying = retry
@@ -1754,14 +1767,14 @@ export function install(rt) {
           } else if (!stopped && reason?.kind !== 'aborted') {
             // The round moved on without this member; how its turn ends still reaches the group.
             if (failure !== undefined) void rt.lateRoomFailure?.(id, info, failure)
-            else void rt.lateRoomReply?.(id, info, groupReply(), { shown, toolCount: workToolCount, turn })
+            else void rt.lateRoomReply?.(id, info, groupReply(), { shown, toolCount: workToolCount, turn, joined: joined.map(item => item.info) })
           }
         } else if (!retry && speaksInGroup(id, info)) {
           // A turn that failed before it took any input (DSH can turn it down before its
           // first step) never names its call, so the call waiting on this Session fails.
           const inRound = failure !== undefined && info === undefined && rt.failRoomTurn?.(id, failure) === true
           if (failure !== undefined) { if (!inRound) void rt.lateRoomFailure?.(id, info ?? {}, failure) }
-          else if (reason?.kind !== 'aborted') void rt.lateRoomReply?.(id, info ?? {}, groupReply(), { shown, toolCount: workToolCount, turn })
+          else if (reason?.kind !== 'aborted') void rt.lateRoomReply?.(id, info ?? {}, groupReply(), { shown, toolCount: workToolCount, turn, joined: joined.map(item => item.info) })
         } else if (!retry && info !== undefined) {
           finish(info, replyText())
         }
@@ -1829,19 +1842,31 @@ export function install(rt) {
         }
         const liveWaiterRooms = new Set()
         const liveWaiterScopes = new Set()
+        const liveWaiterBatchScopes = new Set()
         const latestWaiterlessRoom = new Map()
         const latestWaiterlessScope = new Map()
+        const latestWaiterlessBatchScope = new Map()
+        const selfId = rt.selfOf(id)
+        const liveBatchScopeOf = (info) => {
+          if (info.batchKey === undefined || selfId === undefined) return undefined
+          const batch = rt.state?.roomBatches?.[info.batchKey]
+          if (batch === undefined || batch.roomId !== info.roomId || !Array.isArray(batch.pending) || !batch.pending.includes(selfId)) return undefined
+          return `${info.roomId}\0${info.askedBy ?? ''}\0${info.batchKey}`
+        }
         for (const request of activeJoined) {
           if (request.info.role !== 'room' || request.info.roomId === undefined) continue
           const scope = request.info.askedBy !== undefined ? `${request.info.roomId}\0${request.info.askedBy}` : undefined
+          const batchScope = liveBatchScopeOf(request.info)
           if (roomWaiters.has(request.info.exchangeId)) {
             if (failure === undefined && reason?.kind !== 'aborted') {
               liveWaiterRooms.add(request.info.roomId)
               if (scope !== undefined) liveWaiterScopes.add(scope)
+              if (batchScope !== undefined) liveWaiterBatchScopes.add(batchScope)
             }
           } else {
             latestWaiterlessRoom.set(request.info.roomId, request.info.exchangeId)
             if (scope !== undefined) latestWaiterlessScope.set(scope, request.info.exchangeId)
+            if (batchScope !== undefined) latestWaiterlessBatchScope.set(batchScope, request.info.exchangeId)
           }
         }
         for (const request of activeJoined) {
@@ -1870,7 +1895,10 @@ export function install(rt) {
             }
           }
           if (request.info.role === 'room' && request.info.roomId !== undefined && !roomWaiters.has(request.info.exchangeId)) {
-            if (request.info.askedBy !== undefined) {
+            const batchScope = liveBatchScopeOf(request.info)
+            if (batchScope !== undefined) {
+              if (liveWaiterBatchScopes.has(batchScope) || latestWaiterlessBatchScope.get(batchScope) !== request.info.exchangeId) continue
+            } else if (request.info.askedBy !== undefined) {
               const scope = `${request.info.roomId}\0${request.info.askedBy}`
               if (liveWaiterScopes.has(scope) || latestWaiterlessScope.get(scope) !== request.info.exchangeId) continue
             } else if (liveWaiterRooms.has(request.info.roomId) || latestWaiterlessRoom.get(request.info.roomId) !== request.info.exchangeId) {
@@ -1887,7 +1915,7 @@ export function install(rt) {
             role: request.info.role,
             exchangeId: request.info.exchangeId,
             ...(request.info.workRef ? { workRef: request.info.workRef } : {}),
-            ...(request.info.role === 'room' ? { roomId: request.info.roomId, askedBy: request.info.askedBy, note: 'you read this call during your last task; answer it now' } : {}),
+            ...(request.info.role === 'room' ? { roomId: request.info.roomId, askedBy: request.info.askedBy, resultRef: request.info.resultRef, ...(request.info.batchKey ? { batchKey: request.info.batchKey } : {}), ...(request.info.resumedUpstream ? { resumedUpstream: true } : {}), note: 'you read this call during your last task; answer it now' } : {}),
             ...(request.info.senderRoomId ? { fromRoomId: request.info.senderRoomId } : {}),
             ...(request.info.senderPart ? { fromPart: request.info.senderPart } : {}),
             deferred: true,

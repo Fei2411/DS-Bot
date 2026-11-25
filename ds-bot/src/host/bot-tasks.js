@@ -2891,7 +2891,7 @@ export function install(rt) {
   // Spawns a dedicated background task (`origin: 'bot-handoff'`) for an incoming peer
   // Bot request while the target Bot's foreground chat is busy, without switching the
   // user's visible foreground session or interrupting desktop drafts/IME.
-  async function spawnBotHandoffTask(target, fromSessionId, { fromBot, fromPart, parentWork, imOrigin, text, files = [], length, exchangeId, reuseWork = false }) {
+  async function spawnBotHandoffTask(target, fromSessionId, { fromBot, fromPart, parentWork, imOrigin, follows, text, files = [], length, exchangeId, reuseWork = false }) {
     const id = newId()
     const now = Date.now()
     const title = oneLine(`From ${fromBot.name}: ${text}`, TITLE_MAX)
@@ -2926,6 +2926,7 @@ export function install(rt) {
         files,
         ...(length === undefined ? {} : { length }),
         role: 'request',
+        ...(follows ? { follows } : {}),
         steer: false,
         exchangeId,
         ...(workRef ? { workRef } : {}),

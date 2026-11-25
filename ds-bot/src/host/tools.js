@@ -8,6 +8,7 @@ import { within } from './folders.js'
 import { missingFileRefs } from './claims.js'
 import { absoluteLinks } from './links.js'
 import { NAME_MAX } from './requests.js'
+import { roomRequest, roomNote, waitsOnMember } from './room-message.js'
 import { unquote } from './text.js'
 import { ownChatSessions, threadCurrentOfPart } from './threads.js'
 import { mentionSpans } from '../shared/mentions.js'
@@ -219,12 +220,24 @@ export function install(rt) {
     return `Not sent: ${target.name} is not in "${room.name}", and work for this group stays in it. Ask the user to add ${target.name} to the group${add}.`
   }
 
-  const callInGroup = async (exec, room, sender, target, message) => {
+  const callInGroup = async (room, sender, target, message, follows, { worked = false, callerExchangeId, callerId, parentBatchKey } = {}) => {
+    if (waitsOnMember(state.roomBatches, room.id, sender.id, target.id)) refuse(`Not sent: ${target.name} is already waiting for your result. Write the result or blocking question in your reply.`)
     const call = `@${target.name}`
     const everyone = room.members.map(rt.botOf).filter(Boolean)
     const alreadyCalls = mentionSpans(message, everyone).some(span => !span.all && span.bot?.id === target.id)
-    await rt.roomStepText(exec.agent.id, rt.live.get(exec.agent.id)?.info, alreadyCalls ? message : `${call} ${message}`, false)
-    return `Called ${target.name} in "${room.name}" with your message, as writing "${call}" there does: it works on it in the group, and you answer its result there. Nothing went to its own chat.`
+    const posted = await rt.postToRoom(room, sender, alreadyCalls ? message : `${call} ${message}`, {
+      progress: true,
+      explicitDelegate: true,
+      ...(worked ? { worked: true } : {}),
+      ...(callerExchangeId ? { callerExchangeId } : {}),
+      ...(callerId ? { callerId } : {}),
+      ...(parentBatchKey ? { parentBatchKey } : {}),
+      route: { ...roomRequest([target.id]), expectsResult: true, ...(follows ? { follows } : {}) },
+    })
+    if (posted?.paused === true) {
+      return `Paused in "${room.name}": consecutive handoffs without running a work tool reached the loop guard. The call to ${target.name} waits until the user continues or writes in the group.`
+    }
+    return `Called ${target.name} in "${room.name}". Its result returns in the group. Nothing went to its own chat.`
   }
 
   // The Bots each Session's post_to_group called by name in its current turn, so that
@@ -277,12 +290,13 @@ export function install(rt) {
   // long-file attachments, busy-foreground background handoff, and live delivery.
   // Used by both `delegate_work` and `resumePausedWork` so paused delegations run
   // through the exact same path when the user clicks Continue.
-  async function dispatchDelegation({ sender, target, text, files = [], length, fromPart, parentWork, imOrigin, toUser = false, when = 'now', request, existingWork, callerWorked = false }) {
+  async function dispatchDelegation({ sender, target, text, files = [], length, fromPart, parentWork, imOrigin, follows, toUser = false, when = 'now', request, existingWork, callerWorked = false }) {
     const chat = rt.chatOf(target.id)
     const agent = await rt.resolveAgent(chat)
     const status = rt.statusOf(target.id)
     const earlier = existingWork !== undefined ? undefined : unreadRequest(agent, sender.id, toUser)
     const joinable = earlier !== undefined
+      && earlier.message.source.follows === follows
       && (toUser || ((earlier.message.source.senderPart ?? undefined) === fromPart && rt.sameWork(earlier.message.source.exchangeId, parentWork)))
     const before = joinable ? bodyOf(earlier.message) : undefined
     // Snapshot prior inflight unread args BEFORE inbox.remove() synchronously emits
@@ -313,6 +327,7 @@ export function install(rt) {
       try {
         await rt.spawnBotHandoffTask(target, chat, {
           fromBot: sender,
+          follows,
           fromPart,
           parentWork,
           ...(imOrigin ? { imOrigin } : {}),
@@ -365,6 +380,7 @@ export function install(rt) {
         files: [...long.files, ...(joins ? before.files : [])],
         length: long.length,
         role: 'request',
+        ...(follows ? { follows } : {}),
         steer,
         exchangeId,
         ...(workRef ? { workRef } : {}),
@@ -560,6 +576,7 @@ export function install(rt) {
           length: paused.length,
           fromPart: work.fromPart,
           parentWork: work.parent,
+          follows: paused.follows,
           ...(work.imOrigin ? { imOrigin: work.imOrigin } : {}),
           toUser: paused.toUser === true,
           when: paused.when ?? 'now',
@@ -596,6 +613,7 @@ export function install(rt) {
     parameters: {
       to: { type: 'string', required: true, description: 'Exact Bot name from list_bots' },
       goal: { type: 'string', required: true, description: 'Self-contained task to execute or specific question to answer; the other Bot cannot see this conversation' },
+      follow_up_to: { type: 'string', description: 'For a distinct task prompted by a completed result, cite the reference in this turn (e.g. W7 in chat, G12 in a group). Acknowledgements are not follow-ups.' },
       deliver_to: {
         type: 'string',
         enum: ['me', 'user'],
@@ -631,6 +649,9 @@ export function install(rt) {
       const room = rt.roomOf(rt.groupOwners.get(exec.agent?.id)?.roomId)
       const deliverTo = args.deliver_to === 'user' || args.reply_to === 'user' ? 'user' : 'me'
       const when = args.when === 'queue' ? 'queue' : 'now'
+      const trigger = rt.live.get(exec.agent?.id)?.info
+      const resultRef = trigger?.resultRef ?? (trigger?.role === 'reply' ? trigger.workRef ?? rt.workRefOf?.(trigger.replyTo) ?? trigger.replyTo : undefined)
+      const followUp = String(args.follow_up_to ?? '').trim().replace(/^#/, '').toUpperCase()
       const request = name === '' ? undefined : rt.requestIdentity({
         caller: sender.id,
         context: room === undefined ? 'chat' : `room:${room.id}`,
@@ -640,6 +661,7 @@ export function install(rt) {
           goal: rawGoal.replace(/\r\n?/g, '\n').trim(),
           deliver_to: deliverTo,
           when,
+          ...(followUp ? { followUp } : {}),
         },
       })
       const answer = (outcome) => {
@@ -654,10 +676,34 @@ export function install(rt) {
         const seen = await rt.knownRequest(request)
         if (seen !== undefined) return answer(seen)
       }
+      const fromResult = (trigger?.role === 'reply' || Boolean(trigger?.resultRef)) && !trigger?.work
+      const userTurn = rt.live.get(exec.agent?.id)?.userInput === true
+      if (fromResult && !userTurn && resultRef !== undefined) {
+        if (!followUp) {
+          refuse(`Not sent: this is a result, not a new request. Report it to the user or leave a silent note. Only for a distinct next task, cite ${resultRef} in follow_up_to.`)
+        }
+        if (followUp !== resultRef.toUpperCase()) {
+          refuse(`Not sent: follow_up_to must identify the completed work that opened this turn (${resultRef}).`)
+        }
+      }
       if (room !== undefined) {
         const refusal = groupRefusal(room, sender, target)
         if (refusal !== undefined) refuse(refusal)
-        const send = () => callInGroup(exec, room, sender, target, text.trim())
+        if (waitsOnMember(state.roomBatches, room.id, sender.id, target.id)) {
+          refuse(`Not sent: ${target.name} is already waiting for your result. Write the result or blocking question in your reply.`)
+        }
+        const callerWorked = (rt.live.get(exec.agent?.id)?.workToolCount ?? 0) > 0
+        const parentBatchKey = rt.activeRoomBatchKey?.(exec.agent?.id, trigger)
+        const send = async () => {
+          const receipt = await callInGroup(room, sender, target, text.trim(), followUp, {
+            worked: callerWorked,
+            callerExchangeId: trigger?.exchangeId,
+            callerId: trigger?.askedBy,
+            ...(parentBatchKey ? { parentBatchKey } : {}),
+          })
+          rt.markExplicitRoomCall?.(trigger?.exchangeId, target.id)
+          return receipt
+        }
         return request === undefined ? await send() : answer(await rt.admitRequest(request, send))
       }
       const posted = calledInPosts.get(exec.agent?.id)
@@ -671,7 +717,7 @@ export function install(rt) {
         const imOrigin = !toUser && work === undefined ? callerImOrigin(exec) : undefined
         const fromPart = callerPart(exec).fromPart
         const callerWorked = (rt.live.get(exec.agent?.id)?.workToolCount ?? 0) > 0
-        const loop = rt.checkPairLoop?.(sender.id, target.id, { callerWorked, text }) ?? { ok: true }
+        const loop = rt.checkPairLoop?.(sender.id, target.id, { callerWorked, text, followUp: !!followUp }) ?? { ok: true }
         if (loop.blocked === 'already_paused') {
           if (request !== undefined) request.unsent = true
           return `Not sent: work ${loop.work?.ref ? `#${loop.work.ref}` : loop.id} between you and ${target.name} is already paused waiting for the user. Wait for the user to continue or cancel it.`
@@ -695,6 +741,7 @@ export function install(rt) {
               files: long.files,
               length: long.length,
               when,
+              ...(followUp ? { follows: followUp } : {}),
               ...(toUser ? { toUser: true } : {}),
               bounces: loop.bounces,
               at: Date.now(),
@@ -706,7 +753,7 @@ export function install(rt) {
           }
           return `Paused work${ref} before waking ${target.name}: you and ${target.name} have completed ${loop.bounces} consecutive delegations since the user last wrote. The user can click Continue on the pause card to keep going.`
         }
-        return dispatchDelegation({ sender, target, text, fromPart, parentWork: work, imOrigin, toUser, when, request, callerWorked })
+        return dispatchDelegation({ sender, target, text, fromPart, parentWork: work, imOrigin, follows: followUp || undefined, toUser, when, request, callerWorked })
       }
       return request === undefined ? await send() : answer(await rt.admitRequest(request, send))
     },
@@ -1448,10 +1495,11 @@ export function install(rt) {
 
   rt.teamTools.push(defineTool({
     name: 'post_to_group',
-    description: 'Post a message into a group chat as yourself. A Main Bot may post into any group, any other Bot into a group it is in. A Main Bot\'s or the group admin\'s post starts a round: members reply in the group, where the user reads them. Another member\'s post calls only the members it names with "@Name"; without one it is only written into the group. By default, whenever your post calls members, their final outcome comes back to you as a new message once the group\'s work (including long tasks, approvals, relays and any active goal) finishes; pass report_back: false for a one-way notice or when the user reads in the group themselves.',
+    description: 'Post into a group chat as yourself. Main Bots may post into any group; others only into their groups. A notice never wakes anyone. To ask for work, address members with @Name, or use intent "request" as Main Bot or admin to start a discussion. The final outcome of a request comes back once the group finishes; set report_back false to leave it in the group.',
     parameters: {
       group: GROUP_REF,
       message: { type: 'string', required: true, description: 'What to say; write "@Name" to choose who answers, and a name without "@" to only mention a member' },
+      intent: { type: 'string', enum: ['notice', 'request'], description: 'A notice is visible but never calls members, even if the body contains @names. A request invites answers. Without named members, explicitly use request to open a discussion.' },
       report_back: { type: 'boolean', description: 'Send the group\'s final replies back to you as a new message once its work finishes (default true when your post calls members; set false for a one-way notice)' },
     },
     output,
@@ -1477,10 +1525,14 @@ export function install(rt) {
         if (span.bot && span.bot.id !== self && !named.includes(span.bot.id)) named.push(span.bot.id)
       }
       const mentions = { ids: named, all: spans.some(span => span.all === true) }
-      if (member && named.length === 0 && args.report_back === true) {
+      const receipt = info?.role === 'report' && info.roomId === room.id
+      const notice = args.intent === 'notice' || (args.intent !== 'request'
+        && (receipt || (args.report_back !== true && named.length === 0 && !(mentions.all && !member))))
+      if (notice && args.report_back === true) return 'A notice calls nobody and cannot report back. Use intent "request" to ask for work.'
+      if (!notice && member && named.length === 0 && args.report_back === true) {
         return 'Nobody would answer: your post only calls the members you name. Write "@Name" for each member who should answer, or post with report_back: false.'
       }
-      const reportBack = !(member && named.length === 0) && args.report_back !== false
+      const reportBack = !notice && !(member && named.length === 0) && args.report_back !== false
       const long = await rt.attachLong(text, `Post from ${sender.name}.txt`)
       if (long === undefined) return tooLong(text)
       // Replies the poster waits for, while it works on what a Bot asked it for — or from
@@ -1500,7 +1552,7 @@ export function install(rt) {
       try {
         // A post that wants the replies names the conversation it was written
         // from, so the report comes back there instead of the own chat.
-        await rt.postToRoom(room, sender, long.text, { mentions, ...(claims ? { claims } : {}), ...(callerOrigin ? { callerOrigin } : {}), ...(reportBack ? { reportBack: true, reportId, ...(fromTaskId ? { fromTaskId } : {}), ...(imOrigin ? { imOrigin } : {}), ...callerRoom(exec), ...callerPart(exec) } : {}), ...(member ? { member: true } : {}), ...(sub ? { sub } : {}), ...(long.length ? { length: long.length } : {}) }, long.files)
+        await rt.postToRoom(room, sender, long.text, { mentions, ...(notice ? { route: roomNote(), quiet: true } : {}), ...(claims ? { claims } : {}), ...(callerOrigin ? { callerOrigin } : {}), ...(reportBack ? { reportBack: true, reportId, ...(fromTaskId ? { fromTaskId } : {}), ...(imOrigin ? { imOrigin } : {}), ...callerRoom(exec), ...callerPart(exec) } : {}), ...(member ? { member: true } : {}), ...(sub ? { sub } : {}), ...(long.length ? { length: long.length } : {}) }, long.files)
       } catch (failure) {
         if (failure?.delivered !== true) {
           if (sub !== undefined) rt.dropWork(sub)
@@ -1509,6 +1561,7 @@ export function install(rt) {
         return `Could not post in "${room.name}": ${failure.message}`
       }
       if (member && named.length === 0) return `Posted in "${room.name}", where the user and its members read it. Nobody answers it: your post only calls the members you name with @Name.`
+      if (notice) return `Posted in "${room.name}" as a notice. Nobody answers it.`
       if (named.length > 0) {
         const turn = turnOf(exec)
         const earlier = calledInPosts.get(exec.agent?.id)

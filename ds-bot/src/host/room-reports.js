@@ -16,6 +16,8 @@ export function createRoomReports(rt, deps) {
     batches,
     closeBatch,
     exitMemberBatches,
+    releaseIdleParentBatches,
+    pendingDirectRelays,
     activeInRoom,
     runningRound,
     isFinalizing,
@@ -661,7 +663,28 @@ export function createRoomReports(rt, deps) {
     if (Object.values(rt.state.switching ?? {}).some(entry => entry?.roomId === source.roomId && entry.botId === undefined)) return
     if ([...(rt.switchJobs?.() ?? [])].some(job => job.roomId === source.roomId && job.botId === undefined)) return
     roomRelayTaken(source.roomId, source.exchangeId)
-    if (source.batchEnd && source.batch) closeBatch(source.batch)
+    const discardedParents = []
+    if (typeof source.exchangeId === 'string') {
+      const relay = pendingDirectRelays?.get(source.exchangeId)
+      if (relay !== undefined) {
+        pendingDirectRelays.delete(source.exchangeId)
+        if (relay.by !== undefined && relay.parentBatchKey !== undefined) {
+          discardedParents.push({ by: relay.by, parentBatchKey: relay.parentBatchKey })
+        }
+      }
+    }
+    if (source.batchEnd && source.batch) {
+      const batch = batches()[source.batch]
+      const parentKey = batch?.parentBatchKey ?? source.parentBatchKey
+      const callerId = batch?.by ?? source.askedBy
+      closeBatch(source.batch)
+      if (callerId !== undefined && parentKey !== undefined) {
+        discardedParents.push({ by: callerId, parentBatchKey: parentKey })
+      }
+    }
+    if (room !== undefined && discardedParents.length > 0) {
+      releaseIdleParentBatches?.(room, discardedParents)
+    }
     if (typeof source.reportId === 'string' && reports()[source.reportId]?.status === 'queued') {
       reports()[source.reportId].neverStarted = true
       reports()[source.reportId].stopped = true
