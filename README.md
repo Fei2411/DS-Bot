@@ -157,9 +157,11 @@ In **Settings → Usage**, track token usage by time range, bot and model. In **
 
 ![Usage page](docs/images/usage.png)
 
-## Data
+## Data & privacy
 
 All data stays on your computer: in the data folder chosen for the desktop app (`~/.ds-bot` by default), or in `bot/` and `sessions/` inside your DSH home folder (`~/.dsh` by default) for the plugin. Uninstalling the app or plugin does not delete your data.
+
+Optional anonymous telemetry is gated behind a one-time notice before anything is sent, and can be changed, inspected (raw JSON of the last 20 payloads), or disabled anytime in **Settings → About DS Bot → Privacy** (or via `DS_BOT_TELEMETRY_DISABLED=1` / `DO_NOT_TRACK=1`). Chats, memories, secrets, file paths, Bot names, private Bots, error messages, and IP addresses are never collected. Upstream DSH official API session-log upload and feedback session upload are disabled by default in DS Bot, with private Bots permanently excluded. See [`docs/plans/2026-11-25-telemetry-and-privacy.md`](docs/plans/2026-11-25-telemetry-and-privacy.md) and [`telemetry/`](telemetry/).
 
 ## Documentation & development
 
