@@ -342,11 +342,15 @@ test('createTeam wires Bot Browser actions, unified right sidebar coexistence, s
     assert.equal(bridge.log.some(([op, botId, held]) => op === 'hold' && botId === 'b1' && held === false), true)
     assert.equal(hostCalls.some(([ep, b]) => ep === 'browser-give-back' && b.botId === 'b1' && b.callId === 'c1'), true)
 
-    // Cookie import bridge wraps bot storage key (`bot:<id>`).
+    // Cookie import bridge wraps single Bot key (`bot:<id>`) and preserves arrays for batch apply.
     assert.deepEqual(plain(await team.actions.browserImport.sources()), [{ id: 'chrome', name: 'Chrome' }])
     assert.deepEqual(
       plain(await team.actions.browserImport.apply('b1', 'pend-1', { domains: ['example.com'] })),
       { key: 'bot:b1', pending: 'pend-1', options: { domains: ['example.com'] } },
+    )
+    assert.deepEqual(
+      plain(await team.actions.browserImport.apply(['b1', 'b2'], 'pend-2', { sites: ['github.com'] })),
+      { key: ['bot:b1', 'bot:b2'], pending: 'pend-2', options: { sites: ['github.com'] } },
     )
 
     // Closing one of two browser tabs stays in 'browser' view on the remaining tab.

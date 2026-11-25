@@ -90,7 +90,7 @@ if (process.env.DS_BOT_SHELL_DATA) app.setPath('userData', process.env.DS_BOT_SH
 const frameFile = join(app.getPath('userData'), 'start-frame.json')
 
 // Loaded once the start window is up (loadModules).
-let BotBrowserGuests, partitionOf, BotViews, isBotId, probeSource, importFromBrowser, launchBrowserForDebug, listSources, SAFARI_FULL_DISK_ACCESS_URL, safariContainerLibrary, applyCookies, seedOriginsInPartition, CookieImports, parseCookieFile
+let BotBrowserGuests, partitionOf, BotViews, isBotId, probeSource, importFromBrowser, launchBrowserForDebug, listSources, SAFARI_FULL_DISK_ACCESS_URL, safariContainerLibrary, applyCookies, applyImportToTargets, seedOriginsInPartition, CookieImports, parseCookieFile
 let downloadSaver, chooseLocations, defaultPlaces, lang, pickerLabels, pickRoot, programFolder, saveLocations, teamIn, teamsAt, tx, HostProcess
 let copySessions, findTeam, importTeam, restoreSessions, teamInUse, teamSizes, userDshHome, copyData, copyReason, moveProblem, BUNDLES, CHECK_PROFILE, PROFILE, ImportFlow
 let watchReleases, watchUpdates, RELEASE_PAGE, readAutoUpdate, writeAutoUpdate, getDshRuntimeVersion, electronUpdater
@@ -326,7 +326,7 @@ async function loadModules() {
   ;({ BotBrowserGuests, partitionOf } = browser)
   ;({ BotViews, isBotId } = views)
   ;({ probeSource, importFromBrowser, launchBrowserForDebug, listSources, SAFARI_FULL_DISK_ACCESS_URL, safariContainerLibrary } = sources)
-  ;({ applyCookies, seedOriginsInPartition, CookieImports } = cookies)
+  ;({ applyCookies, applyImportToTargets, seedOriginsInPartition, CookieImports } = cookies)
   ;({ parseCookieFile } = cookieFiles)
   ;({ downloadSaver } = downloads)
   ;({ chooseLocations, defaultPlaces, lang, pickerLabels, pickRoot, programFolder, saveLocations, teamIn, teamsAt, tx } = firstRun)
@@ -1068,20 +1068,23 @@ function handleIpc() {
       if (activeLiveImports.get(reqKey) === controller) activeLiveImports.delete(reqKey)
     }
   })
-  ipcMain.handle(IPC.browserImportApply, async (event, key, id, options) => {
+  ipcMain.handle(IPC.browserImportApply, async (event, keyOrKeys, id, options) => {
     assertWindow(event)
-    if (typeof key !== 'string' || !key.startsWith('bot:')) throw new Error('DS Bot: a Bot storage key is required')
-    const pending = cookieImports.take(typeof id === 'string' ? id : '')
-    if (!pending) throw new Error('DS Bot: this import is no longer pending')
-    const sites = Array.isArray(options?.sites) ? options.sites.map(String) : undefined
-    const persistSession = options?.persistSession === true
-    const partition = partitionOf(key)
-    const storage = session.fromPartition(partition)
-    const report = await applyCookies(storage, pending.cookies, { sites, persistSession })
-    const storageReport = (pending.origins ?? []).length > 0
-      ? await seedOriginsInPartition(BrowserWindow, partition, pending.origins, { sites })
-      : { originsStored: 0, entriesStored: 0, failedOrigins: [] }
-    return { ...report, ...storageReport }
+    return applyImportToTargets({
+      keyOrKeys,
+      id,
+      options,
+      store: cookieImports,
+      applyOne: async (key, pending, { sites, persistSession }) => {
+        const partition = partitionOf(key)
+        const storage = session.fromPartition(partition)
+        const report = await applyCookies(storage, pending.cookies, { sites, persistSession })
+        const storageReport = (pending.origins ?? []).length > 0
+          ? await seedOriginsInPartition(BrowserWindow, partition, pending.origins, { sites })
+          : { originsStored: 0, entriesStored: 0, failedOrigins: [] }
+        return { ...report, ...storageReport }
+      },
+    })
   })
   ipcMain.handle(IPC.browserImportCancel, (event, id) => {
     assertWindow(event)
