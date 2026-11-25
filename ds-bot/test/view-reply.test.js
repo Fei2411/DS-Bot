@@ -104,10 +104,9 @@ test('the bundled report skill can be invoked by the model and by the user with 
   const full = await provider.get(item)
   assert.match(full.content, /prepare_ds_bot_issue.*show_view/)
   assert.match(full.content, /Fei-Craft\/DS-Bot/)
-  assert.equal(
-    unpackedPath('/Applications/DS Bot.app/Contents/Resources/app.asar/node_modules/ds-bot/src/host/skills/report-ds-bot-issue'),
-    '/Applications/DS Bot.app/Contents/Resources/app.asar.unpacked/node_modules/ds-bot/src/host/skills/report-ds-bot-issue',
-  )
+  const suffix = join('node_modules', 'ds-bot', 'src', 'host', 'skills', 'report-ds-bot-issue')
+  assert.equal(unpackedPath(join('opt', 'app.asar', suffix)), join('opt', 'app.asar.unpacked', suffix))
+  assert.equal(unpackedPath(join('opt', suffix)), join('opt', suffix))
 })
 
 test('only the matching affirmative view reply publishes the redacted issue shown to the user', async (t) => {

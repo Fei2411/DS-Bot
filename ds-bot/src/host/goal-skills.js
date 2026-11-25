@@ -40,8 +40,9 @@ export function goalProvider(root = ROOT) {
     name: PROVIDER,
     list: () => Promise.resolve(all),
     async get(item) {
-      const { description, content } = parseSkill(readFileSync(item.locator, 'utf8'), item.locator)
-      return { ...item, description, content }
+      const locator = unpackedPath(item.locator)
+      const { description, content } = parseSkill(readFileSync(locator, 'utf8'), locator)
+      return { ...item, locator, description, content }
     },
   }
 }
