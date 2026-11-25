@@ -46,6 +46,29 @@ const SLOT_CHOICES = [
 // (safe across POSIX shells, PowerShell, and Windows Command Prompt).
 const SAFE_CLI_SPEC_RE = /^[A-Za-z0-9@._/:#+-]+$/
 
+// Internal DSH profiles, experimental engine bundles, and subagent/agent-team bundles
+// belong only to Engine plugins (or are disallowed in DS Bot) and must never leak into
+// DS Bot's Plugins catalog or Discover section.
+const HIDDEN_ENGINE_BUNDLES = new Set([
+  'dsbot-engine',
+  '@deepseek-ai/dsh-acp-app',
+  '@deepseek-ai/dsh-headless',
+  '@deepseek-ai/dsh-sdk-app',
+  '@deepseek-ai/dsh-sdk-minimal',
+  '@deepseek-ai/dsh-experimental-agent-team-profile',
+  '@deepseek-ai/dsh-experimental-ralph-bundle',
+  '@deepseek-ai/dsh-experimental-terminal-bundle',
+  '@deepseek-ai/dsh-experimental-tool-worktree',
+])
+
+function isHiddenEngineBundle(plugin) {
+  if (plugin.slot) return false
+  if (plugin.sourceId === 'installed' && !plugin.installed) return true
+  const pkg = String(plugin.packageName ?? (String(plugin.id ?? '').startsWith('dsh:') ? String(plugin.id).slice(4) : '')).trim()
+  if (!pkg) return false
+  return HIDDEN_ENGINE_BUNDLES.has(pkg) || pkg.startsWith('@deepseek-ai/dsh-subagent-')
+}
+
 function safeExternalUrl(raw) {
   if (typeof raw !== 'string') return null
   const text = raw.trim()
@@ -744,7 +767,10 @@ export function PluginsPage({ roster, actions, Section, Row, initialFilter = nul
     }, () => {})
   }
 
-  const plugins = view?.plugins ?? []
+  const plugins = useMemo(
+    () => (view?.plugins ?? []).filter(p => !isHiddenEngineBundle(p)),
+    [view],
+  )
   const bots = roster?.bots ?? []
   const browserSlot = view?.slots?.browser
   const activeBrowserPlugin = plugins.find(p => p.id === browserSlot?.active)

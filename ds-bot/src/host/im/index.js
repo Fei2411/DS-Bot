@@ -2529,6 +2529,7 @@ export function install(rt) {
 
   rt.onApproval((kind, data) => {
     if (kind === 'open') {
+      if (data.botId === undefined) return
       void trackOutbound((async () => {
         const origin = approvalOrigin(data)
         if (origin === undefined) return

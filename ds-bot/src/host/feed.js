@@ -33,13 +33,16 @@ export function install(rt) {
     }
     try { controller.enqueue(chunk) } catch { leave(controller) }
   }
+  const publishLocal = (event, data) => {
+    if (clients.size === 0) return
+    const chunk = encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
+    for (const controller of clients) send(controller, chunk)
+  }
   const publish = (event, data) => {
     for (const tap of taps) {
       try { tap(event, data) } catch { /* taps are isolated from the feed */ }
     }
-    if (clients.size === 0) return
-    const chunk = encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
-    for (const controller of clients) send(controller, chunk)
+    publishLocal(event, data)
   }
 
   // Attempts being streamed, by id. A turn that answers another Bot is hidden from the
@@ -84,6 +87,10 @@ export function install(rt) {
   })
   rt.publishFeed = (event, data) => {
     if (listening()) publish(event, data)
+  }
+  // Computer-local SSE only (never fans out to paired phones, browsers, or remote RPC taps).
+  rt.publishLocalFeed = (event, data) => {
+    publishLocal(event, data)
   }
 
   let liveTimer

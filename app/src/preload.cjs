@@ -68,12 +68,14 @@ if (startPage !== undefined) {
     computer: (entries) => { ipcRenderer.send('ds-bot:computer', computerEntriesOf(entries)) },
     computerCursor: (event) => { const clean = cursorEventOf(event); if (clean !== undefined) ipcRenderer.send('ds-bot:computer-cursor', clean) },
     onComputerAction: (run) => {
-      if (typeof run !== 'function') return
+      if (typeof run !== 'function') return () => {}
       ipcRenderer.removeAllListeners('ds-bot:computer-action')
-      ipcRenderer.on('ds-bot:computer-action', (_event, action) => {
+      const handler = (_event, action) => {
         if (action === null || typeof action !== 'object' || typeof action.kind !== 'string') return
         run({ kind: action.kind, botId: typeof action.botId === 'string' ? action.botId : null })
-      })
+      }
+      ipcRenderer.on('ds-bot:computer-action', handler)
+      return () => { ipcRenderer.removeListener('ds-bot:computer-action', handler) }
     },
   })
   // Only plain numbers cross; the main process checks that they make a box inside the page.
@@ -115,11 +117,16 @@ if (startPage !== undefined) {
     return {
       rows: rows.map((entry) => {
         if (entry === null || typeof entry !== 'object' || typeof entry.label !== 'string') return undefined
-        return {
+        const clean = {
           label: String(entry.label).slice(0, 80),
           botId: typeof entry.botId === 'string' ? entry.botId : null,
           waiting: entry.waiting === true,
         }
+        if (typeof entry.name === 'string' && entry.name.trim() !== '') clean.name = entry.name.slice(0, 60)
+        if (typeof entry.app === 'string' && entry.app.trim() !== '') clean.app = entry.app.slice(0, 60)
+        if (typeof entry.color === 'string' && /^#[0-9a-fA-F]{3,8}$/.test(entry.color)) clean.color = entry.color
+        if (typeof entry.avatar === 'string' && /^data:image\/(png|jpeg|webp|svg\+xml);base64,[a-zA-Z0-9+/=]+$/.test(entry.avatar) && entry.avatar.length <= 12000) clean.avatar = entry.avatar
+        return clean
       }).filter(entry => entry !== undefined),
       labels: {
         stop: typeof labels.stop === 'string' ? String(labels.stop).slice(0, 30) : undefined,
@@ -777,11 +784,11 @@ function captionColors(mica) {
     return `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`
   }
   const column = () => {
-    if (!mica) return document.querySelector('div[class*="_sidebarCol"]') ?? document.querySelector('.dsb-frame')
-    const right = document.querySelector('div[class*="_rightbarCol"]')
+    if (!mica) return document.querySelector('.dsb-side, div[class*="_sidebarCol"]') ?? document.querySelector('.dsb-frame')
+    const right = document.querySelector('.bt-panel, div[class*="_rightbarCol"]')
     return right !== null && right.getBoundingClientRect().width > 0
       ? right
-      : (document.querySelector('div[class*="_centerCol"]') ?? document.querySelector('.dsb-frame'))
+      : (document.querySelector('.dsb-main, div[class*="_centerCol"]') ?? document.querySelector('.dsb-frame'))
   }
   const FRAME_ATTRS = [
     'style', 'class', 'data-rightbar-collapsed', 'data-rightbar-fullscreen',
@@ -803,8 +810,10 @@ function captionColors(mica) {
   const surface = () => {
     const start = column()
     // Opening or closing the right sidebar, drawer mask, or overlay layer changes the frame.
-    const nextFrame = start?.classList?.contains?.('dsb-frame') ? start : start?.parentElement ?? null
-    if (nextFrame !== null && nextFrame !== frame) {
+    const nextFrame = start?.classList?.contains?.('bt-panel')
+      ? (document.querySelector('.dsb-frame') ?? start.parentElement)
+      : (start?.classList?.contains?.('dsb-frame') ? start : start?.parentElement ?? null)
+    if (nextFrame !== null && nextFrame !== document.body && nextFrame !== frame) {
       frame = nextFrame
       watchFrame(frame)
     }
@@ -886,7 +895,7 @@ function captionColors(mica) {
     }
     if (relevant) queue(urgent)
   })
-  observer.observe(document.body, { attributes: true, attributeFilter: ['data-ds-dark-theme', 'style'], childList: true })
+  observer.observe(document.body, { attributes: true, attributeFilter: ['data-ds-dark-theme', 'data-bt-material', 'data-bt-bg', 'style'], childList: true })
   for (const child of document.body.children ?? []) watchPortal(child)
   observer.observe(document.head, { childList: true, subtree: true })
   observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-ds-theme-source', 'style'] })
