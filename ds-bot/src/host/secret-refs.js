@@ -3,9 +3,9 @@
 // `secrets.json` and are deleted before their value is returned so a single handle can
 // never be consumed twice.
 import { createHash, createHmac, randomBytes } from 'node:crypto'
-import { chmodSync, existsSync, mkdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
-import { chmod, lstat, mkdir, readdir, readFile, unlink, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { chmodSync, existsSync, mkdirSync, renameSync, rmdirSync, unlinkSync, writeFileSync } from 'node:fs'
+import { chmod, lstat, mkdir, readdir, readFile, rmdir, unlink, writeFile } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
 import { replaceFile } from './files.js'
 import { decryptSecretRecord, encryptSecretRecord, isEncryptedSecretsFile } from './secrets-crypto.js'
 
@@ -176,59 +176,123 @@ export function createSecretRefs({
     })
   }
 
+  const OP_TEMP_SUBDIR = '_op'
+
+  function assertValidBotId(botId, code = 'SECRET_FILE_INVALID') {
+    if (
+      typeof botId !== 'string'
+      || botId === ''
+      || botId === '.'
+      || botId === '..'
+      || botId === OP_TEMP_SUBDIR
+      || botId.includes('/')
+      || botId.includes('\\')
+      || botId.includes('\0')
+    ) {
+      throw codedError(code, 'A valid Bot id is required for a secret file.')
+    }
+  }
+
+  function botFilesDir(botId) {
+    assertValidBotId(botId)
+    return join(filesDir, botId)
+  }
+
+  async function readAndValidateRef(ref, botId, { unlinkExpired = false } = {}) {
+    const match = typeof ref === 'string' ? SECRET_REF_PATTERN.exec(ref) : null
+    if (match === null) throw codedError('SECRET_REF_INVALID', 'Invalid secret reference format.')
+    if (typeof botId !== 'string' || botId === '') throw codedError('SECRET_REF_FORBIDDEN', 'A Bot id is required to consume a secret reference.')
+    const hex = match[1]
+    const filePath = join(refsDir, `${hex}.json`)
+    let raw
+    try {
+      raw = await readFile(filePath, 'utf8')
+    } catch (error) {
+      if (error?.code === 'ENOENT') throw codedError('SECRET_REF_NOT_FOUND', 'This secret reference was not found or has already been used.')
+      throw error
+    }
+    let parsed
+    try {
+      parsed = JSON.parse(raw)
+    } catch {
+      throw codedError('SECRET_REF_INVALID', 'This secret reference file is damaged.')
+    }
+    let entry = parsed
+    if (isEncryptedSecretsFile(parsed)) {
+      const enc = getEncryption()
+      if (enc?.locked || !enc?.passphrase) {
+        throw codedError('SECRET_STORE_LOCKED', 'The secrets store is locked. Unlock it to use this secret reference.')
+      }
+      entry = decryptSecretRecord(parsed, enc.passphrase)
+    }
+    if (entry?.botId !== botId) {
+      throw codedError('SECRET_REF_FORBIDDEN', 'This secret reference belongs to another Bot.')
+    }
+    const ttl = Number.isFinite(entry.ttlMs) && entry.ttlMs > 0 ? entry.ttlMs : DEFAULT_TTL_MS
+    if (!Number.isFinite(entry.savedAt) || now() - entry.savedAt > ttl) {
+      if (unlinkExpired) await unlinkFile(filePath).catch(() => {})
+      throw codedError('SECRET_REF_EXPIRED', 'This secret reference has expired.')
+    }
+    if (typeof entry.value !== 'string') {
+      throw codedError('SECRET_REF_INVALID', 'This secret reference has no value.')
+    }
+    return { ref, hex, filePath, value: entry.value, savedAt: entry.savedAt, ttl }
+  }
+
   function consumeRef(ref, { botId } = {}) {
     return serialize(async () => {
-      const match = typeof ref === 'string' ? SECRET_REF_PATTERN.exec(ref) : null
-      if (match === null) throw codedError('SECRET_REF_INVALID', 'Invalid secret reference format.')
-      if (typeof botId !== 'string' || botId === '') throw codedError('SECRET_REF_FORBIDDEN', 'A Bot id is required to consume a secret reference.')
-      const hex = match[1]
-      const filePath = join(refsDir, `${hex}.json`)
-      let raw
-      try {
-        raw = await readFile(filePath, 'utf8')
-      } catch (error) {
-        if (error?.code === 'ENOENT') throw codedError('SECRET_REF_NOT_FOUND', 'This secret reference was not found or has already been used.')
-        throw error
-      }
-      let parsed
-      try {
-        parsed = JSON.parse(raw)
-      } catch {
-        throw codedError('SECRET_REF_INVALID', 'This secret reference file is damaged.')
-      }
-      let entry = parsed
-      if (isEncryptedSecretsFile(parsed)) {
-        const enc = getEncryption()
-        if (enc?.locked || !enc?.passphrase) {
-          throw codedError('SECRET_STORE_LOCKED', 'The secrets store is locked. Unlock it to use this secret reference.')
-        }
-        entry = decryptSecretRecord(parsed, enc.passphrase)
-      }
-      if (entry?.botId !== botId) {
-        throw codedError('SECRET_REF_FORBIDDEN', 'This secret reference belongs to another Bot.')
-      }
-      const ttl = Number.isFinite(entry.ttlMs) && entry.ttlMs > 0 ? entry.ttlMs : DEFAULT_TTL_MS
-      if (!Number.isFinite(entry.savedAt) || now() - entry.savedAt > ttl) {
-        await unlinkFile(filePath).catch(() => {})
-        throw codedError('SECRET_REF_EXPIRED', 'This secret reference has expired.')
-      }
-      if (typeof entry.value !== 'string') {
-        throw codedError('SECRET_REF_INVALID', 'This secret reference has no value.')
-      }
+      const item = await readAndValidateRef(ref, botId, { unlinkExpired: true })
       // Delete BEFORE returning plaintext so a handle can never be consumed twice.
       try {
-        await unlinkFile(filePath)
+        await unlinkFile(item.filePath)
       } catch (error) {
         if (error?.code === 'ENOENT') {
           throw codedError('SECRET_REF_NOT_FOUND', 'This secret reference has already been used.')
         }
         throw codedError('SECRET_REF_CONSUME_FAILED', `Could not remove secret reference after reading (${error?.code ?? 'error'}).`)
       }
-      onPlaintext(entry.value, `REF_${hex.slice(0, 8).toUpperCase()}`, {
-        id: `ref:${hex}`,
-        expiresAt: entry.savedAt + ttl,
+      onPlaintext(item.value, `REF_${item.hex.slice(0, 8).toUpperCase()}`, {
+        id: `ref:${item.hex}`,
+        expiresAt: item.savedAt + item.ttl,
       })
-      return entry.value
+      return item.value
+    })
+  }
+
+  // Atomically validates and consumes a batch of secret-ref handles inside the single
+  // serialized queue. If any handle is invalid, missing, expired, locked, or belongs to
+  // another Bot, zero handles are deleted so callers can fix the bad handle and retry.
+  function consumeRefs(refs, { botId } = {}) {
+    return serialize(async () => {
+      if (typeof botId !== 'string' || botId === '') {
+        throw codedError('SECRET_REF_FORBIDDEN', 'A Bot id is required to consume a secret reference.')
+      }
+      const uniqueRefs = [...new Set(refs ?? [])]
+      if (uniqueRefs.length === 0) return new Map()
+      const validated = []
+      for (const ref of uniqueRefs) {
+        validated.push(await readAndValidateRef(ref, botId, { unlinkExpired: false }))
+      }
+      // Delete every handle BEFORE returning any plaintext.
+      for (const item of validated) {
+        try {
+          await unlinkFile(item.filePath)
+        } catch (error) {
+          if (error?.code === 'ENOENT') {
+            throw codedError('SECRET_REF_NOT_FOUND', 'This secret reference has already been used.')
+          }
+          throw codedError('SECRET_REF_CONSUME_FAILED', `Could not remove secret reference after reading (${error?.code ?? 'error'}).`)
+        }
+      }
+      const values = new Map()
+      for (const item of validated) {
+        onPlaintext(item.value, `REF_${item.hex.slice(0, 8).toUpperCase()}`, {
+          id: `ref:${item.hex}`,
+          expiresAt: item.savedAt + item.ttl,
+        })
+        values.set(item.ref, item.value)
+      }
+      return values
     })
   }
 
@@ -296,11 +360,14 @@ export function createSecretRefs({
   function writeSecretFile({ botId = '', sessionId = '', name = '', value, ttlMs = DEFAULT_TTL_MS } = {}) {
     return serialize(async () => {
       if (typeof value !== 'string' || value.length === 0) throw codedError('SECRET_FILE_INVALID', 'A secret value cannot be empty.')
+      if (value.includes('\0')) throw codedError('SECRET_FILE_INVALID', 'A secret value cannot contain null bytes.')
+      const dir = botFilesDir(botId)
       await ensurePrivateDir(filesDir)
+      await ensurePrivateDir(dir)
       const token = randomBytes(16).toString('hex')
       const safeLabel = String(name ?? '').replace(/[^A-Za-z0-9_]/g, '').slice(0, 32)
       const fileName = safeLabel ? `sf-${safeLabel.toLowerCase()}-${token}.secret` : `sf-${token}.secret`
-      const filePath = join(filesDir, fileName)
+      const filePath = join(dir, fileName)
       await atomicWritePrivate(filePath, value)
       const expiresAt = now() + (Number.isFinite(ttlMs) && ttlMs > 0 ? ttlMs : DEFAULT_TTL_MS)
       onPlaintext(value, safeLabel || `FILE_${token.slice(0, 8).toUpperCase()}`, {
@@ -317,13 +384,15 @@ export function createSecretRefs({
 
   // Managed temp files for optional Shell File Mode (`$DSH_SECRET_FILE_<NAME>`).
   // Kept in sync synchronously so DSH's synchronous `shellEnv.resolve` contract works
-  // without awaiting on every command. Each value rotation writes to a fresh content-hashed
-  // path so Windows never fails with EBUSY/EPERM if a running child holds the previous handle.
+  // without awaiting on every command. Each Bot writes into its own `<filesDir>/<botId>/`
+  // folder and rotates to a fresh content-hashed path so Windows never hits EBUSY/EPERM.
   /** @type {Map<string, { filePath: string, hash: string }>} */
   const shellFiles = new Map()
   let shellFileGen = 0
   function ensureShellFileSync(botId, name, value) {
+    const dir = botFilesDir(botId)
     ensurePrivateDirSync(filesDir)
+    ensurePrivateDirSync(dir)
     const cacheKey = shellFileKey(botId, name)
     const hash = hashShellValue(value)
     const cached = shellFiles.get(cacheKey)
@@ -333,7 +402,7 @@ export function createSecretRefs({
     const keyHash = createHash('sha256').update(`${process.pid}\0${botId}\0${name}`).digest('hex').slice(0, 16)
     const valHash = hash.slice(0, 12)
     shellFileGen += 1
-    const filePath = join(filesDir, `env-${keyHash}-${valHash}-${shellFileGen.toString(36)}.secret`)
+    const filePath = join(dir, `env-${keyHash}-${valHash}-${shellFileGen.toString(36)}.secret`)
     atomicWritePrivateSync(filePath, value)
     const previousPath = cached?.filePath
     shellFiles.set(cacheKey, { filePath, hash })
@@ -346,43 +415,125 @@ export function createSecretRefs({
   function cleanupShellFiles(options = null) {
     const keepKeys = options instanceof Set ? options : (options?.keepKeys ?? null)
     const keepHashes = options instanceof Set ? null : (options?.keepHashes ?? null)
+    const touchedDirs = new Set()
     for (const [cacheKey, entry] of shellFiles.entries()) {
       const keepKey = keepKeys !== null && keepKeys.has(cacheKey)
       const keepHash = keepHashes === null || keepHashes.get(cacheKey) === entry.hash
       if (keepKey && keepHash) continue
       shellFiles.delete(cacheKey)
       try { unlinkSync(entry.filePath) } catch {}
+      const parent = dirname(entry.filePath)
+      if (parent !== filesDir) touchedDirs.add(parent)
     }
+    for (const dir of touchedDirs) {
+      try { rmdirSync(dir) } catch {}
+    }
+  }
+
+  function removeBotFiles(botId) {
+    return serialize(async () => {
+      let dir
+      try {
+        dir = botFilesDir(botId)
+      } catch {
+        return 0
+      }
+      let dirInfo
+      try {
+        dirInfo = await lstat(dir)
+      } catch (error) {
+        if (error?.code === 'ENOENT') return 0
+        throw error
+      }
+      if (dirInfo.isSymbolicLink() || !dirInfo.isDirectory()) return 0
+      let names
+      try {
+        names = await readdir(dir)
+      } catch (error) {
+        if (error?.code === 'ENOENT') return 0
+        throw error
+      }
+      let removed = 0
+      const removedIds = []
+      for (const name of names) {
+        const full = join(dir, name)
+        try {
+          const info = await lstat(full)
+          if (info.isSymbolicLink() || !info.isFile()) continue
+          await unlink(full).catch(() => {})
+          removed += 1
+          const sfMatch = SF_FILE_RE.exec(name)
+          if (sfMatch !== null) removedIds.push(`file:${sfMatch[2]}`)
+        } catch {}
+      }
+      await rmdir(dir).catch(() => {})
+      if (removedIds.length > 0) onSweep(now(), removedIds)
+      return removed
+    })
   }
 
   function activeShellFilePaths() {
     return new Set([...shellFiles.values()].map(entry => entry.filePath))
   }
 
-  function restoreSecretFiles({ maxAgeMs = DEFAULT_TTL_MS, cleanExpired = true } = {}) {
-    return serialize(async () => {
-      let names
+  // Lists regular files inside `filesDir` and its immediate non-symlink subdirectories
+  // without ever dereferencing symlinks.
+  async function listSecretFiles({ includeOpDir = true } = {}) {
+    let entries
+    try {
+      entries = await readdir(filesDir)
+    } catch (error) {
+      if (error?.code === 'ENOENT') return []
+      throw error
+    }
+    const found = []
+    for (const name of entries) {
+      const full = join(filesDir, name)
+      let info
       try {
-        names = await readdir(filesDir)
-      } catch (error) {
-        if (error?.code === 'ENOENT') return 0
-        throw error
+        info = await lstat(full)
+      } catch {
+        continue
       }
-      const current = now()
-      let restored = 0
-      const removedIds = []
-      for (const name of names) {
-        const match = SF_FILE_RE.exec(name)
-        if (match === null) continue
-        const [, rawLabel, token] = match
-        const full = join(filesDir, name)
-        let info
+      if (info.isSymbolicLink()) continue
+      if (info.isFile()) {
+        found.push({ name, full, info })
+        continue
+      }
+      if (!info.isDirectory()) continue
+      if (!includeOpDir && name === OP_TEMP_SUBDIR) continue
+      let children
+      try {
+        children = await readdir(full)
+      } catch {
+        continue
+      }
+      for (const childName of children) {
+        const childFull = join(full, childName)
+        let childInfo
         try {
-          info = await lstat(full)
+          childInfo = await lstat(childFull)
         } catch {
           continue
         }
-        if (info.isSymbolicLink() || !info.isFile()) continue
+        if (childInfo.isSymbolicLink() || !childInfo.isFile()) continue
+        found.push({ name: childName, full: childFull, info: childInfo })
+      }
+    }
+    return found
+  }
+
+  function restoreSecretFiles({ maxAgeMs = DEFAULT_TTL_MS, cleanExpired = true } = {}) {
+    return serialize(async () => {
+      const files = await listSecretFiles({ includeOpDir: false })
+      if (files.length === 0) return 0
+      const current = now()
+      let restored = 0
+      const removedIds = []
+      for (const { name, full, info } of files) {
+        const match = SF_FILE_RE.exec(name)
+        if (match === null) continue
+        const [, rawLabel, token] = match
         if (current - info.mtimeMs >= maxAgeMs) {
           if (cleanExpired) {
             await unlink(full).catch(() => {})
@@ -466,31 +617,21 @@ export function createSecretRefs({
 
   function sweepExpiredFiles({ maxAgeMs = DEFAULT_TTL_MS } = {}) {
     return serialize(async () => {
-      let names
-      try {
-        names = await readdir(filesDir)
-      } catch (error) {
-        if (error?.code === 'ENOENT') return 0
-        throw error
-      }
+      const files = await listSecretFiles({ includeOpDir: true })
+      if (files.length === 0) return 0
       const current = now()
       const activeShellPaths = activeShellFilePaths()
       let removed = 0
       const removedIds = []
-      for (const name of names) {
-        const full = join(filesDir, name)
+      for (const { name, full, info } of files) {
         if (activeShellPaths.has(full)) continue
-        try {
-          const info = await lstat(full)
-          if (info.isSymbolicLink() || !info.isFile()) continue
-          const limit = (name.endsWith('.partial') || name.endsWith('.tpl')) ? PARTIAL_MAX_AGE_MS : maxAgeMs
-          if (current - info.mtimeMs >= limit) {
-            await unlink(full).catch(() => {})
-            removed += 1
-            const sfMatch = SF_FILE_RE.exec(name)
-            if (sfMatch !== null) removedIds.push(`file:${sfMatch[2]}`)
-          }
-        } catch {}
+        const limit = (name.endsWith('.partial') || name.endsWith('.tpl')) ? PARTIAL_MAX_AGE_MS : maxAgeMs
+        if (current - info.mtimeMs >= limit) {
+          await unlink(full).catch(() => {})
+          removed += 1
+          const sfMatch = SF_FILE_RE.exec(name)
+          if (sfMatch !== null) removedIds.push(`file:${sfMatch[2]}`)
+        }
       }
       onSweep(current, removedIds)
       return removed
@@ -522,11 +663,13 @@ export function createSecretRefs({
     filesDir,
     issueRef,
     consumeRef,
+    consumeRefs,
     rekeyRefs,
     writeSecretFile,
     savePastedFile,
     ensureShellFileSync,
     cleanupShellFiles,
+    removeBotFiles,
     activeShellFilePaths,
     restoreSecretFiles,
     sweepExpiredRefs,

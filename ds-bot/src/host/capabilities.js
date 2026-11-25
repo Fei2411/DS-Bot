@@ -6,8 +6,11 @@ import { activeTasksOf } from './threads.js'
 
 const MCP_CLIENT = '@deepseek-ai/dsh-mcp-client'
 const NAME = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/
-const SECRET_REFERENCE = /\$DSH_SECRET_([A-Z][A-Z0-9_]*)/g
+const SECRET_REFERENCE = /\$\{DSH_SECRET_([A-Z][A-Z0-9_]*)\}|\$DSH_SECRET_([A-Z][A-Z0-9_]*)/g
 const ENSURE_TIMEOUT_MS = 15_000
+
+const replaceSecretReferences = (raw, resolveName) =>
+  String(raw).replace(SECRET_REFERENCE, (_match, braced, bare) => resolveName(braced ?? bare))
 
 const sanitizeSecretSegment = (raw) => String(raw ?? '')
   .replace(/[^A-Za-z0-9_]+/g, '_')
@@ -19,7 +22,7 @@ function referencedSecretNames(item) {
   const names = new Set()
   const scan = (raw) => {
     if (typeof raw !== 'string') return
-    for (const match of raw.matchAll(/\$DSH_SECRET_([A-Z][A-Z0-9_]*)/g)) names.add(match[1])
+    for (const match of raw.matchAll(SECRET_REFERENCE)) names.add(match[1] ?? match[2])
   }
   if (item?.kind === 'mcp') {
     if (item.transport === 'stdio') {
@@ -165,33 +168,13 @@ export function install(rt) {
     }
     return { item, previous }
   }
-  const consumeSecretRefsInText = async (text, { botId, capName, field, consumed, createdSecrets }) => {
-    const raw = String(text ?? '')
-    const matches = matchSecretRefs(raw)
-    if (matches.length === 0) return raw
-    if (!botId || typeof rt.secrets?.consumeRef !== 'function') {
-      throw new Error('Secret references can only be consumed by a Bot.')
-    }
-    let out = raw
-    for (const [ref, hex] of matches) {
-      let secretName = consumed.get(ref)
-      if (secretName === undefined) {
-        const value = await rt.secrets.consumeRef(ref, { botId })
-        const capPart = sanitizeSecretSegment(capName) || 'MCP'
-        const fieldPart = sanitizeSecretSegment(field) || 'VALUE'
-        const suffix = hex.slice(0, 8).toUpperCase()
-        const prefix = `CAP_${capPart}_${fieldPart}`.replace(/_+/g, '_').slice(0, 55).replace(/_+$/, '')
-        secretName = `${prefix}_${suffix}`
-        await rt.secretEndpoint('secret-set', {
-          name: secretName,
-          value,
-          purpose: `${capName} MCP capability`,
-          scope: [],
-        })
-        consumed.set(ref, secretName)
-        createdSecrets.push(secretName)
+  const replaceSecretRefsInText = (text, secretNamesByRef) => {
+    let out = String(text ?? '')
+    for (const [ref] of matchSecretRefs(out)) {
+      const secretName = secretNamesByRef.get(ref)
+      if (secretName !== undefined) {
+        out = out.replaceAll(ref, `\${DSH_SECRET_${secretName}}`)
       }
-      out = out.replaceAll(ref, `$DSH_SECRET_${secretName}`)
     }
     return out
   }
@@ -199,48 +182,89 @@ export function install(rt) {
     if (!body || body.kind !== 'mcp' || !botId) return { body, createdSecrets: [] }
     const capName = String(body.name ?? '').trim() || 'mcp'
     const transport = body.transport === 'streamable-http' ? 'streamable-http' : 'stdio'
-    const consumed = new Map()
+    // 1. Collect all unique secret-ref handles in active transport fields BEFORE consuming any.
+    /** @type {Map<string, { hex: string, field: string }>} */
+    const refMeta = new Map()
+    const collectFromText = (raw, field) => {
+      if (typeof raw !== 'string') return
+      for (const [ref, hex] of matchSecretRefs(raw)) {
+        if (!refMeta.has(ref)) refMeta.set(ref, { hex, field })
+      }
+    }
+    if (transport === 'stdio') {
+      if (Array.isArray(body.args)) {
+        for (let i = 0; i < body.args.length; i += 1) collectFromText(body.args[i], `ARG_${i}`)
+      }
+      if (body.env && typeof body.env === 'object' && !Array.isArray(body.env)) {
+        for (const [key, val] of Object.entries(body.env)) collectFromText(val, key)
+      }
+    } else {
+      collectFromText(body.url, 'URL')
+      if (body.headers && typeof body.headers === 'object' && !Array.isArray(body.headers)) {
+        for (const [key, val] of Object.entries(body.headers)) collectFromText(val, key)
+      }
+    }
+    if (refMeta.size === 0) return { body, createdSecrets: [] }
+    if (typeof rt.secrets?.consumeRefs !== 'function' && typeof rt.secrets?.consumeRef !== 'function') {
+      throw new Error('Secret references can only be consumed by a Bot.')
+    }
+    if (rt.secretStoreStatus?.().locked) {
+      throw new Error('The secrets store is locked. Unlock it to use secret references.')
+    }
+
+    // 2. Atomically validate and consume every handle in one batch so a bad/expired
+    //    handle never destroys sibling valid handles.
+    const uniqueRefs = [...refMeta.keys()]
+    const resolvedValues = typeof rt.secrets.consumeRefs === 'function'
+      ? await rt.secrets.consumeRefs(uniqueRefs, { botId })
+      : new Map(await Promise.all(uniqueRefs.map(async ref => [ref, await rt.secrets.consumeRef(ref, { botId })])))
+
+    // 3. Store each resolved value in host-only scope [] and rewrite fields using braced
+    //    `${DSH_SECRET_<NAME>}` placeholders so adjacent uppercase/underscore suffixes stay unambiguous.
+    const secretNamesByRef = new Map()
     const createdSecrets = []
-    const next = { ...body }
     try {
-      if (transport === 'stdio') {
-        if (Array.isArray(next.args)) {
-          const nextArgs = []
-          for (let i = 0; i < next.args.length; i += 1) {
-            nextArgs.push(typeof next.args[i] === 'string'
-              ? await consumeSecretRefsInText(next.args[i], { botId, capName, field: `ARG_${i}`, consumed, createdSecrets })
-              : next.args[i])
-          }
-          next.args = nextArgs
-        }
-        if (next.env && typeof next.env === 'object' && !Array.isArray(next.env)) {
-          const nextEnv = {}
-          for (const [key, val] of Object.entries(next.env)) {
-            nextEnv[key] = typeof val === 'string'
-              ? await consumeSecretRefsInText(val, { botId, capName, field: key, consumed, createdSecrets })
-              : val
-          }
-          next.env = nextEnv
-        }
-      } else {
-        if (typeof next.url === 'string') {
-          next.url = await consumeSecretRefsInText(next.url, { botId, capName, field: 'URL', consumed, createdSecrets })
-        }
-        if (next.headers && typeof next.headers === 'object' && !Array.isArray(next.headers)) {
-          const nextHeaders = {}
-          for (const [key, val] of Object.entries(next.headers)) {
-            nextHeaders[key] = typeof val === 'string'
-              ? await consumeSecretRefsInText(val, { botId, capName, field: key, consumed, createdSecrets })
-              : val
-          }
-          next.headers = nextHeaders
-        }
+      const capPart = sanitizeSecretSegment(capName) || 'MCP'
+      for (const [ref, { hex, field }] of refMeta.entries()) {
+        const fieldPart = sanitizeSecretSegment(field) || 'VALUE'
+        const suffix = hex.slice(0, 8).toUpperCase()
+        const prefix = `CAP_${capPart}_${fieldPart}`.replace(/_+/g, '_').slice(0, 55).replace(/_+$/, '')
+        const secretName = `${prefix}_${suffix}`
+        await rt.secretEndpoint('secret-set', {
+          name: secretName,
+          value: resolvedValues.get(ref),
+          purpose: `${capName} MCP capability`,
+          scope: [],
+        })
+        secretNamesByRef.set(ref, secretName)
+        createdSecrets.push(secretName)
       }
     } catch (error) {
       for (const secretName of createdSecrets) {
         await rt.secretEndpoint('secret-delete', { name: secretName }).catch(() => {})
       }
       throw error
+    }
+
+    const next = { ...body }
+    if (transport === 'stdio') {
+      if (Array.isArray(next.args)) {
+        next.args = next.args.map(arg => (typeof arg === 'string' ? replaceSecretRefsInText(arg, secretNamesByRef) : arg))
+      }
+      if (next.env && typeof next.env === 'object' && !Array.isArray(next.env)) {
+        next.env = Object.fromEntries(
+          Object.entries(next.env).map(([key, val]) => [key, typeof val === 'string' ? replaceSecretRefsInText(val, secretNamesByRef) : val]),
+        )
+      }
+    } else {
+      if (typeof next.url === 'string') {
+        next.url = replaceSecretRefsInText(next.url, secretNamesByRef)
+      }
+      if (next.headers && typeof next.headers === 'object' && !Array.isArray(next.headers)) {
+        next.headers = Object.fromEntries(
+          Object.entries(next.headers).map(([key, val]) => [key, typeof val === 'string' ? replaceSecretRefsInText(val, secretNamesByRef) : val]),
+        )
+      }
     }
     return { body: next, createdSecrets }
   }
@@ -444,12 +468,12 @@ export function install(rt) {
   function resolveValues(values, botId, item) {
     const resolved = {}
     for (const [key, raw] of Object.entries(values ?? {})) {
-      resolved[key] = String(raw).replace(SECRET_REFERENCE, (_match, name) => secretFor(name, botId, item))
+      resolved[key] = replaceSecretReferences(raw, name => secretFor(name, botId, item))
     }
     return resolved
   }
-  const resolveUrl = (url, botId, item) => String(url).replace(SECRET_REFERENCE, (_match, name) => encodeUrlComponent(secretFor(name, botId, item)))
-  const resolveList = (list, botId, item) => (list ?? []).map(raw => String(raw).replace(SECRET_REFERENCE, (_match, name) => secretFor(name, botId, item)))
+  const resolveUrl = (url, botId, item) => replaceSecretReferences(url, name => encodeUrlComponent(secretFor(name, botId, item)))
+  const resolveList = (list, botId, item) => (list ?? []).map(raw => replaceSecretReferences(raw, name => secretFor(name, botId, item)))
   const configFor = (item, botId) => {
     if (item.kind === 'skill') return { name: item.name, description: item.description, content: item.content }
     if (item.transport === 'stdio') return { transport: 'stdio', serverName: item.name, command: item.command, args: resolveList(item.args, botId, item), env: resolveValues(item.env, botId, item), failOnStartupError: true }

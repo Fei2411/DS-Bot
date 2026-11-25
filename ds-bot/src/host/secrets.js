@@ -97,6 +97,12 @@ export function redactor(entries) {
     const short = lf.length < WHOLE_VALUE
     const seen = new Set()
     addEncoded(seen, value, label, short, 0)
+    // Cover trimmed form too (e.g. file-delivered SSH key with trailing newline when
+    // bash command substitution `$(cat "$file")` strips the trailing line break).
+    const trimmed = lf.trim()
+    if (trimmed !== lf && trimmed.length >= MIN_VALUE) {
+      addEncoded(seen, trimmed, label, trimmed.length < WHOLE_VALUE, 0)
+    }
     if (multiline) {
       const crlf = lf.replace(/\n/g, '\r\n')
       addEncoded(seen, lf, label, short, 0)
@@ -221,11 +227,16 @@ export function install(rt) {
   const providerRegistry = createDefaultProviderRegistry({
     ...rt.config?.secretProviders,
     onepassword: {
-      tempDir: join(home, 'secret-files'),
+      tempDir: join(home, 'secret-files', '_op'),
       ...rt.config?.secretProviders?.onepassword,
     },
   })
   const resolver = createSecretResolver({ registry: providerRegistry })
+  // Process-lifetime redaction memory for external secret values that may already have
+  // been injected into running MCP servers or shell subprocesses. Kept in memory only,
+  // deduplicated by value, never written to disk, and cleared when the host disposes.
+  /** @type {Map<string, string>} */
+  const retiredExternalRedactions = new Map()
   /** @type {Map<string, { name: string, value: string, expiresAt: number }>} */
   const ephemeralRedactions = new Map()
   let hasRedactions = false
@@ -239,6 +250,23 @@ export function install(rt) {
       return hit?.ok ? hit.value : undefined
     }
     return secret.value
+  }
+  const retireExternalValue = (name, value) => {
+    if (typeof value === 'string' && value.length >= MIN_VALUE) {
+      retiredExternalRedactions.set(value, name)
+    }
+  }
+  const retireSecretValue = (secret) => {
+    if (secret?.kind !== 'external') return
+    const value = resolvedValueOf(secret)
+    if (value !== undefined) retireExternalValue(secret.name, value)
+  }
+  const retireCachedExternals = (providerId) => {
+    for (const secret of secrets.values()) {
+      if (secret.kind !== 'external') continue
+      if (providerId !== undefined && secret.providerId !== providerId) continue
+      retireSecretValue(secret)
+    }
   }
   const pruneExpiredEphemeral = (current = Date.now()) => {
     let removed = false
@@ -259,6 +287,11 @@ export function install(rt) {
       const value = resolvedValueOf(secret)
       if (typeof value === 'string' && value.length >= MIN_VALUE) {
         entries.push({ name: secret.name, value })
+      }
+    }
+    for (const [value, name] of retiredExternalRedactions.entries()) {
+      if (typeof value === 'string' && value.length >= MIN_VALUE) {
+        entries.push({ name, value })
       }
     }
     for (const { name, value } of ephemeralRedactions.values()) {
@@ -687,6 +720,17 @@ export function install(rt) {
     if (value.length > MAX_VALUE) throw new Error(`A key can have at most ${MAX_VALUE} characters`)
     return value
   }
+  // Preserves exact bytes (including leading/trailing whitespace and trailing `\n`
+  // required by OpenSSH private keys) for `delivery: 'file'` temp files.
+  const cleanFileValue = (raw) => {
+    if (typeof raw !== 'string') throw new Error('Type the key first')
+    if (raw.includes('\0')) throw new Error('A key cannot contain null bytes')
+    const trimmedLen = raw.trim().length
+    if (trimmedLen === 0) throw new Error('Type the key first')
+    if (trimmedLen < MIN_VALUE) throw new Error(`A key must have at least ${MIN_VALUE} characters`)
+    if (raw.length > MAX_VALUE) throw new Error(`A key can have at most ${MAX_VALUE} characters`)
+    return raw
+  }
   const cleanScope = (raw) => {
     if (raw === 'all') return 'all'
     if (!Array.isArray(raw)) throw new Error('Choose every Bot or a list of Bots')
@@ -772,6 +816,7 @@ export function install(rt) {
       const res = results.get(item.reference)
       if (res?.ok) {
         resolved += 1
+        retireExternalValue(item.name, res.value)
         if (!hadBefore[i]?.ok || hadBefore[i].value !== res.value) changedAny = true
       } else {
         failed += 1
@@ -786,13 +831,17 @@ export function install(rt) {
     return { resolved, failed, errors }
   }
   const invalidateExternal = (providerId) => {
+    retireCachedExternals(providerId)
     resolver.invalidate(providerId)
     if (shellMode() === 'file') secretRefs.cleanupShellFiles()
     rebuildRedactor()
     scheduleRefreshEnv()
   }
   const onPrefsChanged = ({ shellModeChanged = false, providersChanged = false } = {}) => {
-    if (providersChanged) resolver.invalidate()
+    if (providersChanged) {
+      retireCachedExternals()
+      resolver.invalidate()
+    }
     if (shellModeChanged || providersChanged) {
       secretRefs.cleanupShellFiles()
       changed()
@@ -923,7 +972,7 @@ export function install(rt) {
           return { name: request.name, delivery: 'ref', status: 'saved' }
         }
         if (delivery === 'file') {
-          const value = cleanValue(body.value)
+          const value = cleanFileValue(body.value)
           const { filePath, expiresAt } = await secretRefs.writeSecretFile({
             botId,
             sessionId: request.sessionId ?? botId,
@@ -941,6 +990,7 @@ export function install(rt) {
         else scope = existing.scope === 'all' ? 'all' : [...new Set([...existing.scope, botId])]
         if (hasRefInput) {
           const { providerId, reference } = cleanReference(body.reference)
+          retireSecretValue(existing)
           secrets.set(request.name, {
             name: request.name,
             kind: 'external',
@@ -959,6 +1009,7 @@ export function install(rt) {
           resolver.invalidateRef(providerId, providerConfigOf(providerId), reference)
         } else {
           const value = cleanValue(body.value)
+          retireSecretValue(existing)
           secrets.set(request.name, {
             name: request.name,
             value,
@@ -984,6 +1035,7 @@ export function install(rt) {
       const existing = secrets.get(name)
       if (hasRefInput) {
         const { providerId, reference } = cleanReference(body.reference)
+        retireSecretValue(existing)
         secrets.set(name, {
           name,
           kind: 'external',
@@ -1002,6 +1054,7 @@ export function install(rt) {
         resolver.invalidateRef(providerId, providerConfigOf(providerId), reference)
       } else {
         const value = cleanValue(body.value)
+        retireSecretValue(existing)
         secrets.set(name, {
           name,
           value,
@@ -1061,7 +1114,13 @@ export function install(rt) {
     },
     async 'secret-delete'(body) {
       const name = normalizeName(body.name)
-      if (!secrets.delete(name)) throw new Error('No such key')
+      const existing = secrets.get(name)
+      if (existing === undefined) throw new Error('No such key')
+      if (existing.kind === 'external') {
+        retireSecretValue(existing)
+        resolver.invalidateRef(existing.providerId, providerConfigOf(existing.providerId), existing.reference)
+      }
+      secrets.delete(name)
       const notes = []
       reconcile(name, notes)
       await commit(notes)
@@ -1093,6 +1152,7 @@ export function install(rt) {
         }
       }
       pruneShellFiles(botId)
+      await secretRefs.removeBotFiles(botId).catch(() => {})
       if (touched) {
         changed()
         await persist().catch(() => {})
@@ -1136,7 +1196,7 @@ export function install(rt) {
         const readOnly = rt.readOnly()
         if (readOnly !== undefined) return `Cannot write a temporary secret file now. ${readOnly}`
         let value
-        try { value = cleanValue(args.value) } catch (error) { return error.message }
+        try { value = cleanFileValue(args.value) } catch (error) { return error.message }
         const { filePath, expiresAt } = await secretRefs.savePastedFile({
           botId: bot.id,
           sessionId: id ?? bot.id,
@@ -1376,6 +1436,8 @@ export function install(rt) {
     })
     return () => {
       if (usedTimer !== null) clearTimeout(usedTimer)
+      retiredExternalRedactions.clear()
+      ephemeralRedactions.clear()
       secretRefs.dispose()
     }
   }, 'ds-bot: load secrets')
@@ -1383,6 +1445,7 @@ export function install(rt) {
   const secretsApi = {
     issueRef: opts => secretRefs.issueRef(opts),
     consumeRef: (ref, opts) => secretRefs.consumeRef(ref, opts),
+    consumeRefs: (refs, opts) => secretRefs.consumeRefs(refs, opts),
     rekeyRefs: opts => secretRefs.rekeyRefs(opts),
     writeSecretFile: opts => secretRefs.writeSecretFile(opts),
     savePastedFile: opts => secretRefs.savePastedFile(opts),

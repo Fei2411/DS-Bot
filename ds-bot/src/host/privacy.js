@@ -146,7 +146,8 @@ export function install(rt) {
 
   const openFoldersOf = async (self, ownBot, moving, memo) => {
     const ownRegions = ownBot === undefined ? [] : await regionsOf(ownBot, memo)
-    const open = [rt.workDirOf({ botId: self }), teamFolder(), teamMemory, moving ? undefined : memoryArchive, dirname(manualDirectory())].filter(Boolean)
+    const ownSecretFiles = typeof self === 'string' && self !== '' ? join(rt.home, 'secret-files', self) : undefined
+    const open = [rt.workDirOf({ botId: self }), teamFolder(), teamMemory, moving ? undefined : memoryArchive, dirname(manualDirectory()), ownSecretFiles].filter(Boolean)
     return [...(await Promise.all(open.map(dir => spellings(dir, memo)))).flat(), ...ownRegions]
   }
 
@@ -459,6 +460,107 @@ export function install(rt) {
     }
   }
 
+  // Per-Bot temporary secret files (`<home>/secret-files/<botId>/`) and host-only secret
+  // storage (`<home>/secret-refs/`, `<home>/secret-files/_op/`) are fenced for every Bot,
+  // regardless of whether any Bot is marked `private: true`.
+  async function guardSecretFiles(exec, self) {
+    const args = exec.arguments ?? {}
+    const name = exec.name
+    const folder = () => rt.sessionFolder(exec.agent?.session ?? exec.agent)
+    const closedSecret = () => new Error('Bots cannot access secret reference files or another Bot\'s temporary secret files.')
+    const memo = new Map()
+    const refsRoot = await spellings(join(rt.home, 'secret-refs'), memo)
+    const filesRoot = await spellings(join(rt.home, 'secret-files'), memo)
+    const ownDir = await spellings(join(rt.home, 'secret-files', self), memo)
+    const inRefs = keys => keys.some(key => refsRoot.some(root => within(key, root)))
+    const overlapsRefs = keys => keys.some(key => refsRoot.some(root => overlap(key, root)))
+    const inFiles = keys => keys.some(key => filesRoot.some(root => within(key, root)))
+    const overlapsFiles = keys => keys.some(key => filesRoot.some(root => overlap(key, root)))
+    const allOwnSecretFiles = keys => keys.every(key => ownDir.some(dir => within(key, dir) && key !== dir))
+    const allInOwnSecretDir = keys => keys.every(key => ownDir.some(dir => within(key, dir)))
+
+    if (name in FILE_TOOLS) {
+      const path = args[FILE_TOOLS[name]]
+      if (typeof path !== 'string' || path === '') return
+      const base = folder()
+      const keys = await spellings(base === undefined ? path : resolve(base, path), memo)
+      if (inRefs(keys)) throw closedSecret()
+      if (inFiles(keys)) {
+        if (WRITE_TOOLS.includes(name) || !allOwnSecretFiles(keys)) throw closedSecret()
+      }
+      return
+    }
+    if (SEARCH_TOOLS.includes(name)) {
+      const where = typeof args.path === 'string' && args.path !== '' ? args.path : '.'
+      const pattern = typeof args.pattern === 'string' ? fold(args.pattern.replace(/\\/g, '/')) : ''
+      if (pattern.includes('secret-refs') || pattern.includes('secret-files/_op')) throw closedSecret()
+      const base = folder()
+      const keys = await spellings(base === undefined ? where : resolve(base, where), memo)
+      if (overlapsRefs(keys)) throw closedSecret()
+      if (overlapsFiles(keys) && !allInOwnSecretDir(keys)) throw closedSecret()
+      if (typeof args.pattern === 'string' && /^([a-z]:|[\\/]|~)/i.test(args.pattern)) {
+        const prefix = args.pattern.replace(/[*?[{].*$/, '')
+        const patKeys = await spellings(base === undefined ? prefix : resolve(base, prefix), memo)
+        if (overlapsRefs(patKeys)) throw closedSecret()
+        if (overlapsFiles(patKeys) && !allInOwnSecretDir(patKeys)) throw closedSecret()
+      }
+      return
+    }
+    if ((name === 'subagent' || name === 'subagent_fork') && typeof args.cwd === 'string') {
+      const base = folder()
+      const keys = await spellings(base === undefined ? args.cwd : resolve(base, args.cwd), memo)
+      if (inRefs(keys) || inFiles(keys)) throw closedSecret()
+      return
+    }
+    if (name === 'working_directory' && typeof args.cd === 'string') {
+      const base = folder()
+      const keys = await spellings(base === undefined ? args.cd : resolve(base, args.cd), memo)
+      if (inRefs(keys) || inFiles(keys)) throw closedSecret()
+      return
+    }
+    if (SHELL_TOOLS.includes(name)) {
+      const base = folder()
+      for (const dirArg of [args.workdir, args.cwd]) {
+        if (typeof dirArg !== 'string' || dirArg === '') continue
+        const keys = await spellings(base === undefined ? dirArg : resolve(base, dirArg), memo)
+        if (inRefs(keys) || inFiles(keys)) throw closedSecret()
+      }
+      const flat = fold(strings(args).join('\n').replace(/\\/g, '/'))
+      if (refsRoot.flatMap(asShell).some(spelled => flat.includes(spelled))
+        || /(?:^|[^a-z0-9_-])secret-refs(?:$|[^a-z0-9_-])/.test(flat)) {
+        throw closedSecret()
+      }
+      if (flat.includes('dsh_secret_file_')
+        && (/\bdirname\b/.test(flat) || /(?:^|[/\\])\.\.(?:$|[/\\\s"'`;|&)])/.test(flat))) {
+        throw closedSecret()
+      }
+      const ownPrefix = `/${fold(self)}/`
+      const checkRestAfterFilesRoot = (rest) => {
+        if (!rest.startsWith(ownPrefix)) throw closedSecret()
+        const afterOwn = rest.slice(ownPrefix.length)
+        const token = afterOwn.match(/^[^\s"'`;|&)><]*/)?.[0] ?? ''
+        if (token === '' || token.includes('/') || token === '.' || token === '..' || token.includes('..') || /[$*?[{`~]/.test(token)) {
+          throw closedSecret()
+        }
+      }
+      const marker = 'secret-files'
+      for (let at = flat.indexOf(marker); at !== -1; at = flat.indexOf(marker, at + marker.length)) {
+        const before = at === 0 ? '' : flat[at - 1]
+        if (/[a-z0-9_-]/.test(before)) continue
+        const rest = flat.slice(at + marker.length)
+        const first = rest[0] ?? ''
+        if (first !== '' && /[a-z0-9_-]/.test(first)) continue
+        checkRestAfterFilesRoot(rest)
+      }
+      for (const spelled of filesRoot.flatMap(asShell)) {
+        if (spelled.endsWith(marker)) continue
+        for (let at = flat.indexOf(spelled); at !== -1; at = flat.indexOf(spelled, at + spelled.length)) {
+          checkRestAfterFilesRoot(flat.slice(at + spelled.length))
+        }
+      }
+    }
+  }
+
   // Before the tools' own hooks, so that a closed call never reaches a card they show.
   ctx.on('tools/execute', async (exec, next) => {
     const self = await callerOf(exec)
@@ -466,7 +568,10 @@ export function install(rt) {
       await guardTeam(exec, self)
       await guardFiles(exec, self)
     }
-    if (self !== undefined) await guardApiFiles(exec)
+    if (self !== undefined) {
+      await guardApiFiles(exec)
+      await guardSecretFiles(exec, self)
+    }
     return next()
   })
 

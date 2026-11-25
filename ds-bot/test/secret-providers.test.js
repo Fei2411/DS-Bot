@@ -357,10 +357,12 @@ test('readSecretsSync stays synchronous with mixed vault + external entries, and
   assert.ok(tplIdx >= 0)
   const tplPath = calls[0].args[tplIdx + 1]
   const privateDir = join(home, 'secret-files')
-  assert.equal(tplPath.startsWith(privateDir), true, `inject template must live in private ${privateDir}, got ${tplPath}`)
+  const opTempDir = join(privateDir, '_op')
+  assert.equal(tplPath.startsWith(opTempDir), true, `inject template must live in private ${opTempDir}, got ${tplPath}`)
   assert.equal(existsSync(tplPath), false, 'inject template must be unlinked after op inject')
   if (process.platform !== 'win32') {
     assert.equal(statSync(privateDir).mode & 0o777, 0o700)
+    assert.equal(statSync(opTempDir).mode & 0o777, 0o700)
   }
   assert.equal(res.value.stdout, 'vault=[secret:VAULT_KEY] ext=[secret:OP_TOKEN]')
   assert.equal(res.content[0].text, 'ext=[secret:OP_TOKEN]')
@@ -579,4 +581,114 @@ test('1Password driver safely unwraps Windows .cmd shims without spawn EINVAL', 
   const driver = createOnePasswordDriver({ bin: fakeOp.scriptPath, tempDir: dir })
   const out = await driver.readBatch({}, ['op://Vault/Shim/key'])
   assert.equal(out.get('op://Vault/Shim/key'), v1)
+})
+
+test('invalidateExternal keeps redacting previously resolved external values in tool results and LLM requests before and after rotation', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsb-op-retired-redact-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const oldToken = `old-${fresh()}`
+  const newToken = `new-${fresh()}`
+  const fakeOp = createFakeOpBinary(dir, {
+    values: { 'op://Prod/API/token': oldToken },
+  })
+  const home = join(dir, 'home')
+  const fs = await import('node:fs')
+  fs.mkdirSync(home, { recursive: true })
+  writeFileSync(join(home, 'state.json'), JSON.stringify({
+    version: 1,
+    mainBotIds: ['m1'],
+    revision: 1,
+    bots: {
+      m1: { id: 'm1', sessionId: 'm1', name: 'Chief', role: 'Main', instructions: '', createdAt: 1 },
+      b2: { id: 'b2', sessionId: 'b2', name: 'Writer', role: 'Writer', instructions: '', createdAt: 2 },
+    },
+    rooms: {},
+    exchanges: [],
+    exchangeTurns: {},
+    questions: {},
+    prefs: {},
+  }))
+  writeFileSync(join(home, 'secrets.json'), JSON.stringify({
+    version: 1,
+    secrets: [
+      { name: 'OP_TOKEN', kind: 'external', providerId: 'onepassword', reference: 'op://Prod/API/token', purpose: 'prod', scope: 'all', requestedBy: null, createdAt: 1, updatedAt: 1 },
+    ],
+  }))
+
+  const ctx = fakeContext()
+  const listeners = {}
+  const on = ctx.on
+  ctx.on = (name, listener, options) => {
+    ;(listeners[name] ??= []).push(listener)
+    return on(name, listener, options)
+  }
+  const streamed = []
+  ctx.llm.stream = (options) => {
+    streamed.push(options)
+    return (async function* () {})()
+  }
+  ctx.sessionController = { resolveAgent: async () => ({ agent: { session: {}, followup: () => {} } }) }
+  ctx.sessions = { flush: async () => {} }
+  ctx.workspaceRegistry = { archiveSession: async () => {} }
+  let route
+  ctx.connection.fetch.register = (options) => { route = options; return () => {} }
+  const rt = createRuntime(ctx, {
+    home,
+    github: false,
+    diagnosticsFile: false,
+    secretProviders: { onepassword: { bin: fakeOp.bin, binArgs: fakeOp.binArgs } },
+  })
+  t.after(async () => { await ctx.dispose() })
+
+  const call = async (endpoint, payload) => (await route.fetch(new Request('http://localhost/api/bot', {
+    method: 'POST', body: JSON.stringify({ endpoint, payload }),
+  }))).json()
+  const execute = listeners['tools/execute'].filter(l => l.name !== 'listOwnSchedules' && l.name !== 'computerTrack').at(-1)
+  // The usage meter registers after the secrets listener.
+  const streamHook = listeners['llm/stream'].at(-2)
+
+  // 1. Initial resolution caches oldToken and redacts it.
+  await rt.resolveExternalForBot('b2')
+  assert.equal(rt.secretValue('OP_TOKEN'), oldToken)
+  assert.equal(rt.redactSecrets(`v=${oldToken}`), 'v=[secret:OP_TOKEN]')
+
+  // 2. Rotate upstream 1Password secret and call invalidateExternal() (BEFORE re-resolving newToken).
+  fakeOp.setState({ values: { 'op://Prod/API/token': newToken } })
+  assert.equal((await call('secret-refresh-external', {})).ok, true)
+  assert.equal(rt.secretValue('OP_TOKEN'), undefined)
+
+  // Running subprocess still holding oldToken MUST still be redacted in both tool results and LLM requests!
+  const midToolRes = await execute({ name: 'read_file', agent: { id: 'b2', session: { header: { id: 'b2' } } } }, async () => ({
+    isError: false,
+    value: { stdout: `stale=${oldToken}` },
+  }))
+  assert.equal(midToolRes.value.stdout, 'stale=[secret:OP_TOKEN]')
+
+  streamed.length = 0
+  streamHook({ messages: [{ role: 'user', content: `leaked ${oldToken}` }], system: `sys ${oldToken}` }, () => 'pass')
+  assert.equal(streamed.length, 1)
+  assert.equal(streamed[0].messages[0].content, 'leaked [secret:OP_TOKEN]')
+  assert.equal(streamed[0].system, 'sys [secret:OP_TOKEN]')
+
+  // 3. Re-resolving fetches newToken, and BOTH oldToken AND newToken are redacted!
+  await rt.resolveExternalForBot('b2')
+  assert.equal(rt.secretValue('OP_TOKEN'), newToken)
+  const postToolRes = await execute({ name: 'read_file', agent: { id: 'b2', session: { header: { id: 'b2' } } } }, async () => ({
+    isError: false,
+    value: { stdout: `old=${oldToken} new=${newToken}` },
+  }))
+  assert.equal(postToolRes.value.stdout, 'old=[secret:OP_TOKEN] new=[secret:OP_TOKEN]')
+
+  streamed.length = 0
+  streamHook({ messages: [{ role: 'user', content: `${oldToken} and ${newToken}` }] }, () => 'pass')
+  assert.equal(streamed.length, 1)
+  assert.equal(streamed[0].messages[0].content, '[secret:OP_TOKEN] and [secret:OP_TOKEN]')
+
+  // 4. Deleting the external secret also preserves process-lifetime redaction for already-injected values.
+  assert.equal((await call('secret-delete', { name: 'OP_TOKEN' })).ok, true)
+  assert.equal(rt.redactSecrets(`${oldToken} ${newToken}`), '[secret:OP_TOKEN] [secret:OP_TOKEN]')
+  // Nothing persisted to secrets.json.
+  const disk = readFileSync(join(home, 'secrets.json'), 'utf8')
+  assert.equal(disk.includes(oldToken), false)
+  assert.equal(disk.includes(newToken), false)
 })

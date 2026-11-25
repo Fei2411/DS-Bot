@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { test } from 'node:test'
 import { createRuntime } from '../index.js'
 import { CONNECTOR_IDS } from '../src/host/capabilities.js'
@@ -246,12 +246,12 @@ test('request_secret delivery=ref issues a one-time handle consumed by save_capa
   }, 'b2')
   assert.match(savedCap.text, /Saved my-mcp/)
 
-  // state.json stores $DSH_SECRET_..., never plaintext or stale handle.
+  // state.json stores ${DSH_SECRET_...}, never plaintext or stale handle.
   const stateRaw = readFileSync(join(bench.home, 'state.json'), 'utf8')
   assert.equal(stateRaw.includes(secret), false)
   assert.equal(stateRaw.includes(handle), false)
   const savedItem = (await bench.view()).capabilities.find(c => c.name === 'my-mcp')
-  assert.match(savedItem.headers.Authorization, /^Bearer \$DSH_SECRET_CAP_MY_MCP_AUTHORIZATION_[A-F0-9]{8}$/)
+  assert.match(savedItem.headers.Authorization, /^Bearer \$\{DSH_SECRET_CAP_MY_MCP_AUTHORIZATION_[A-F0-9]{8}\}$/)
 
   // Consumed handle cannot be reused.
   await assert.rejects(() => bench.rt.secrets.consumeRef(handle, { botId: 'b2' }), err => err.code === 'SECRET_REF_NOT_FOUND')
@@ -280,12 +280,14 @@ test('request_secret delivery=file writes 0600 temp file, supports pasted secret
   const pathMatch = note.match(/private temporary file \(0600\): ([^\s]+) \(expires/)
   assert.ok(pathMatch, `expected temp file path in note: ${note}`)
   const filePath = pathMatch[1]
+  assert.equal(dirname(filePath), join(bench.home, 'secret-files', 'b2'))
   assert.equal(readFileSync(filePath, 'utf8'), secret1)
   if (process.platform !== 'win32') {
     assert.equal(statSync(join(bench.home, 'secret-files')).mode & 0o777, 0o700)
+    assert.equal(statSync(join(bench.home, 'secret-files', 'b2')).mode & 0o777, 0o700)
     assert.equal(statSync(filePath).mode & 0o777, 0o600)
   }
-  assert.deepEqual(readdirSync(join(bench.home, 'secret-files')).filter(f => f.endsWith('.partial')), [])
+  assert.deepEqual(readdirSync(join(bench.home, 'secret-files', 'b2')).filter(f => f.endsWith('.partial')), [])
 
   // Redactor immediately covers temp file plaintext even though secrets.json is empty!
   assert.equal(bench.rt.redactSecrets(`leaked ${secret1}`), 'leaked [secret:DEPLOY_TOKEN]')
@@ -452,8 +454,8 @@ test('save_capability secret-ref uses host-only scope [], validates before consu
     headers: { 'X-Api.Key:v1': `Token ${ref1}` },
   }, { botId: 'b2' })
   const headerVal = saved.headers['X-Api.Key:v1']
-  assert.match(headerVal, /^Token \$DSH_SECRET_CAP_DOTTED_MCP_X_API_KEY_V1_[A-F0-9]{8}$/)
-  const secretName = headerVal.slice('Token $DSH_SECRET_'.length)
+  assert.match(headerVal, /^Token \$\{DSH_SECRET_CAP_DOTTED_MCP_X_API_KEY_V1_[A-F0-9]{8}\}$/)
+  const secretName = headerVal.slice('Token ${DSH_SECRET_'.length, -1)
   const storedSecret = rt.secretsView().find(s => s.name === secretName)
   assert.deepEqual(storedSecret.scope, [], 'capability ref secret must have host-only scope []')
   assert.deepEqual(envOf('b2'), {}, 'Bot shell env must NEVER receive capability ref secret')
@@ -506,8 +508,8 @@ test('save_capability secret-ref uses host-only scope [], validates before consu
     rt.capabilitySave({ name: 'conc-a', kind: 'mcp', transport: 'streamable-http', url: `https://a.test/mcp?k=${refA}` }, { botId: 'b2' }),
     rt.capabilitySave({ name: 'conc-b', kind: 'mcp', transport: 'streamable-http', url: `https://b.test/mcp?k=${refB}` }, { botId: 'c3' }),
   ])
-  assert.match(capA.url, /^https:\/\/a\.test\/mcp\?k=\$DSH_SECRET_CAP_CONC_A_URL_[A-F0-9]{8}$/)
-  assert.match(capB.url, /^https:\/\/b\.test\/mcp\?k=\$DSH_SECRET_CAP_CONC_B_URL_[A-F0-9]{8}$/)
+  assert.match(capA.url, /^https:\/\/a\.test\/mcp\?k=\$\{DSH_SECRET_CAP_CONC_A_URL_[A-F0-9]{8}\}$/)
+  assert.match(capB.url, /^https:\/\/b\.test\/mcp\?k=\$\{DSH_SECRET_CAP_CONC_B_URL_[A-F0-9]{8}\}$/)
 })
 
 test('reconcile() does not settle or mutate pending ref/file cards when a same-named vault secret changes', async (t) => {
@@ -652,7 +654,7 @@ test('HTTP connector and mail endpoints reject secret-ref handles without trusti
     url: 'https://trusted.example/mcp',
     headers: { Authorization: `Bearer ${ref}` },
   }, { botId: 'b2' })
-  assert.match(saved.headers.Authorization, /^Bearer \$DSH_SECRET_CAP_TRUSTED_MCP_AUTHORIZATION_[A-F0-9]{8}$/)
+  assert.match(saved.headers.Authorization, /^Bearer \$\{DSH_SECRET_CAP_TRUSTED_MCP_AUTHORIZATION_[A-F0-9]{8}\}$/)
   assert.equal(existsSync(refFile), false)
 })
 
@@ -811,13 +813,220 @@ test('sweepExpiredRefs and sweepExpiredFiles use lstat and do not dereference sy
   await refs.issueRef({ botId: 'b2', sessionId: 's', requestId: 'init', field: 'K', value: fresh() })
   await refs.writeSecretFile({ botId: 'b2', sessionId: 's', name: 'INIT', value: fresh() })
 
+  const outsideDir = join(home, 'outside-dir')
+  mkdirSync(outsideDir, { recursive: true })
+  const outsideNested = join(outsideDir, `sf-escape-${'b'.repeat(32)}.secret`)
+  writeFileSync(outsideNested, 'must-stay-intact-dir')
+  utimesSync(outsideNested, old, old)
+
   const refLink = join(refs.refsDir, 'deadbeef.json')
   const fileLink = join(refs.filesDir, 'sf-link.secret')
+  const dirLink = join(refs.filesDir, 'linked-bot')
   symlinkSync(outsideFile, refLink)
   symlinkSync(outsideFile, fileLink)
+  symlinkSync(outsideDir, dirLink)
 
+  await refs.restoreSecretFiles({ maxAgeMs: 1 })
   await refs.sweepExpiredRefs({ maxAgeMs: 1 })
   await refs.sweepExpiredFiles({ maxAgeMs: 1 })
   assert.equal(existsSync(outsideFile), true)
   assert.equal(readFileSync(outsideFile, 'utf8'), 'must-stay-intact')
+  assert.equal(existsSync(outsideNested), true)
+  assert.equal(readFileSync(outsideNested, 'utf8'), 'must-stay-intact-dir')
+})
+
+test('delivery=file preserves exact bytes including trailing newline for OpenSSH private keys on both card and direct-paste paths', async (t) => {
+  const bench = start()
+  t.after(bench.stop)
+  const beginLine = ['-----BEGIN', 'OPENSSH', 'PRIVATE', 'KEY-----'].join(' ')
+  const endLine = ['-----END', 'OPENSSH', 'PRIVATE', 'KEY-----'].join(' ')
+  const sshKeyCard = `${beginLine}\n  ${fresh()}\n${fresh()}\n${endLine}\n`
+  const sshKeyPaste = `${beginLine}\n${fresh()}\n${fresh()}\n${endLine}\n`
+
+  // 1. SecretCard delivery='file' path preserves trailing '\n' and leading/internal whitespace verbatim.
+  const asked = await bench.tool('request_secret', { name: 'SSH_KEY_CARD', purpose: 'SSH deploy', delivery: 'file' }, 'b2')
+  assert.equal(asked.concluded, true)
+  const [req] = (await bench.view()).secretRequests.b2
+  const submitted = await bench.call('secret-set', { requestId: req.id, value: sshKeyCard })
+  assert.equal(submitted.ok, true, JSON.stringify(submitted.error))
+  const cardNote = bench.delivered.at(-1).text
+  const cardMatch = cardNote.match(/private temporary file \(0600\): ([^\s]+) \(expires/)
+  assert.ok(cardMatch)
+  assert.equal(readFileSync(cardMatch[1], 'utf8'), sshKeyCard)
+  assert.equal(Buffer.compare(readFileSync(cardMatch[1]), Buffer.from(sshKeyCard, 'utf8')), 0)
+  // Both exact (with trailing \n) and command-substitution trimmed forms are redacted.
+  assert.equal(bench.rt.redactSecrets(`raw=${sshKeyCard}`), 'raw=[secret:SSH_KEY_CARD]')
+  assert.equal(bench.rt.redactSecrets(`sub=${sshKeyCard.trim()}`), 'sub=[secret:SSH_KEY_CARD]')
+
+  // 2. Direct paste delivery='file' + value path preserves trailing '\n' verbatim.
+  const pasted = await bench.tool('request_secret', { name: 'SSH_KEY_PASTE', purpose: 'SSH deploy', delivery: 'file', value: sshKeyPaste }, 'b2')
+  const pasteMatch = pasted.text.match(/private temporary file \(0600\): ([^\s]+) \(expires/)
+  assert.ok(pasteMatch)
+  assert.equal(readFileSync(pasteMatch[1], 'utf8'), sshKeyPaste)
+  assert.equal(Buffer.compare(readFileSync(pasteMatch[1]), Buffer.from(sshKeyPaste, 'utf8')), 0)
+  assert.equal(bench.rt.redactSecrets(`sub=${sshKeyPaste.trim()}`), 'sub=[secret:SSH_KEY_PASTE]')
+
+  // 3. Rejects whitespace-only and null bytes on delivery='file'.
+  const blankRes = await bench.tool('request_secret', { name: 'BLANK_KEY', purpose: 'bad', delivery: 'file', value: '   \n\t  ' }, 'b2')
+  assert.match(blankRes.text, /Type the key first/i)
+  const nullRes = await bench.tool('request_secret', { name: 'NULL_KEY', purpose: 'bad', delivery: 'file', value: 'abcd\0efgh\n' }, 'b2')
+  assert.match(nullRes.text, /null bytes/i)
+})
+
+test('save_capability atomically consumes multiple secret-ref handles so partial failure keeps valid handles intact for retry', async (t) => {
+  const bench = start()
+  t.after(bench.stop)
+
+  const val1 = fresh()
+  const val2 = fresh()
+  const validRef1 = await bench.rt.secrets.issueRef({ botId: 'b2', sessionId: 'b2', requestId: 'atomic-1', field: 'PRIMARY', value: val1 })
+  const expiredRef = await bench.rt.secrets.issueRef({ botId: 'b2', sessionId: 'b2', requestId: 'atomic-exp', field: 'SECONDARY', value: fresh(), ttlMs: 1 })
+  await new Promise(resolve => setTimeout(resolve, 15))
+  const otherBotRef = await bench.rt.secrets.issueRef({ botId: 'c3', sessionId: 'c3', requestId: 'atomic-other', field: 'OTHER', value: fresh() })
+  const validRef1Path = join(bench.home, 'secret-refs', `${validRef1.slice('secret-ref:'.length)}.json`)
+  assert.equal(existsSync(validRef1Path), true)
+
+  // Attempt 1: validRef1 + expiredRef -> fails, validRef1 MUST stay untouched on disk and 0 secrets created!
+  await assert.rejects(
+    () => bench.rt.capabilitySave({
+      name: 'multi-ref-mcp',
+      kind: 'mcp',
+      transport: 'streamable-http',
+      url: 'https://multi.example/mcp',
+      headers: {
+        'X-Primary': `Bearer ${validRef1}`,
+        'X-Secondary': `Bearer ${expiredRef}`,
+      },
+    }, { botId: 'b2' }),
+    err => err.code === 'SECRET_REF_EXPIRED',
+  )
+  assert.equal(existsSync(validRef1Path), true, 'valid first handle must NOT be deleted when second handle is expired')
+  assert.equal(bench.rt.secretsView().length, 0)
+
+  // Attempt 2: validRef1 + otherBotRef -> fails, validRef1 STILL untouched on disk!
+  await assert.rejects(
+    () => bench.rt.capabilitySave({
+      name: 'multi-ref-mcp',
+      kind: 'mcp',
+      transport: 'streamable-http',
+      url: 'https://multi.example/mcp',
+      headers: {
+        'X-Primary': `Bearer ${validRef1}`,
+        'X-Secondary': `Bearer ${otherBotRef}`,
+      },
+    }, { botId: 'b2' }),
+    err => err.code === 'SECRET_REF_FORBIDDEN',
+  )
+  assert.equal(existsSync(validRef1Path), true, 'valid first handle must NOT be deleted when second handle belongs to another Bot')
+  assert.equal(bench.rt.secretsView().length, 0)
+
+  // Attempt 3: replace bad second handle with fresh validRef2 (and reuse validRef1 in two fields) -> succeeds!
+  const validRef2 = await bench.rt.secrets.issueRef({ botId: 'b2', sessionId: 'b2', requestId: 'atomic-2', field: 'SECONDARY', value: val2 })
+  const saved = await bench.rt.capabilitySave({
+    name: 'multi-ref-mcp',
+    kind: 'mcp',
+    transport: 'streamable-http',
+    url: `https://multi.example/mcp?p=${validRef1}`,
+    headers: {
+      'X-Primary': `Bearer ${validRef1}`,
+      'X-Secondary': `Bearer ${validRef2}`,
+    },
+  }, { botId: 'b2' })
+  assert.equal(existsSync(validRef1Path), false)
+  assert.equal(existsSync(join(bench.home, 'secret-refs', `${validRef2.slice('secret-ref:'.length)}.json`)), false)
+  assert.equal(saved.ownedSecrets.length, 2, 'duplicate occurrences of validRef1 should share one owned secret')
+  assert.equal(bench.rt.secretValue(saved.ownedSecrets[0]), val1)
+  assert.equal(bench.rt.secretValue(saved.ownedSecrets[1]), val2)
+})
+
+test('save_capability braced ${DSH_SECRET_<NAME>} placeholders stay unambiguous next to uppercase/underscore suffixes across save, mount, and edit', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-braced-refs-'))
+  writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))
+  const mountedConfigs = []
+  const mcpPlugin = { name: 'mcp-client', apply() {} }
+  const loader = { import: async () => ({ default: mcpPlugin }), unwrapExports: exports => exports.default }
+  const ctx = fakeContext({ services: { loader } })
+  ctx.sessionController = { resolveAgent: async id => ({ agent: { session: { id }, followup: () => {} } }) }
+  ctx.sessions = { flush: async () => {} }
+  ctx.workspaceRegistry = { archiveSession: async () => {} }
+  ctx.llm.stream = () => (async function* () {})()
+  const rt = createRuntime(ctx, { home, github: false, diagnosticsFile: false })
+  t.after(async () => {
+    await ctx.dispose()
+    rmSync(home, { recursive: true, force: true, maxRetries: 5 })
+  })
+
+  const sArg = fresh()
+  const sEnv = fresh()
+  const sUrl = fresh()
+  const sHdr = fresh()
+  const refArg = await rt.secrets.issueRef({ botId: 'b2', sessionId: 'b2', requestId: 'br-1', field: 'ARG', value: sArg })
+  const refEnv = await rt.secrets.issueRef({ botId: 'b2', sessionId: 'b2', requestId: 'br-2', field: 'ENV', value: sEnv })
+  const refUrl = await rt.secrets.issueRef({ botId: 'b2', sessionId: 'b2', requestId: 'br-3', field: 'URL', value: sUrl })
+  const refHdr = await rt.secrets.issueRef({ botId: 'b2', sessionId: 'b2', requestId: 'br-4', field: 'HDR', value: sHdr })
+
+  // Save stdio MCP with adjacent `_US` suffixes in both args and env.
+  const stdioSaved = await rt.capabilitySave({
+    name: 'suffix-stdio',
+    kind: 'mcp',
+    transport: 'stdio',
+    command: 'node',
+    args: [`${refArg}_US`],
+    env: { REGION_KEY: `${refEnv}_US` },
+  }, { botId: 'b2' })
+  assert.match(stdioSaved.args[0], /^\$\{DSH_SECRET_CAP_SUFFIX_STDIO_ARG_0_[A-F0-9]{8}\}_US$/)
+  assert.match(stdioSaved.env.REGION_KEY, /^\$\{DSH_SECRET_CAP_SUFFIX_STDIO_REGION_KEY_[A-F0-9]{8}\}_US$/)
+  await rt.capabilityEndpoint('capability-approve', { name: 'suffix-stdio' })
+
+  // Save streamable-http MCP with adjacent `_US` suffixes in both url and headers.
+  const httpSaved = await rt.capabilitySave({
+    name: 'suffix-http',
+    kind: 'mcp',
+    transport: 'streamable-http',
+    url: `https://suffix.example/mcp?k=${refUrl}_US`,
+    headers: { 'X-Region-Token': `${refHdr}_US` },
+  }, { botId: 'b2' })
+  assert.match(httpSaved.url, /^https:\/\/suffix\.example\/mcp\?k=\$\{DSH_SECRET_CAP_SUFFIX_HTTP_URL_[A-F0-9]{8}\}_US$/)
+  assert.match(httpSaved.headers['X-Region-Token'], /^\$\{DSH_SECRET_CAP_SUFFIX_HTTP_X_REGION_TOKEN_[A-F0-9]{8}\}_US$/)
+
+  const agent = {
+    id: 'b2',
+    session: { id: 'b2' },
+    ctx: {
+      extend(meta) { return Object.assign(Object.create(this), meta) },
+      effect() {},
+      tools: { register: () => () => {} },
+      plugin(_plugin, config) {
+        mountedConfigs.push(config)
+        return { await: async () => {}, dispose: () => {} }
+      },
+    },
+  }
+  await rt.changeCapabilityAttachment('attach', { name: 'suffix-stdio' }, 'b2')
+  await rt.changeCapabilityAttachment('attach', { name: 'suffix-http' }, 'b2')
+  ctx.emit('agent/created', { agent })
+  await rt.reconcileCapabilities()
+
+  const mountedStdio = mountedConfigs.find(c => c?.serverName === 'suffix-stdio')
+  const mountedHttp = mountedConfigs.find(c => c?.serverName === 'suffix-http')
+  assert.ok(mountedStdio, 'suffix-stdio must mount cleanly')
+  assert.ok(mountedHttp, 'suffix-http must mount cleanly')
+  assert.equal(mountedStdio.args[0], `${sArg}_US`)
+  assert.equal(mountedStdio.env.REGION_KEY, `${sEnv}_US`)
+  assert.equal(mountedHttp.url, `https://suffix.example/mcp?k=${encodeURIComponent(sUrl)}_US`)
+  assert.equal(mountedHttp.headers['X-Region-Token'], `${sHdr}_US`)
+
+  // Editing suffix-http preserves ownedSecrets (referencedSecretNames parses braced placeholders without swallowing _US).
+  const editedHttp = await rt.capabilitySave({
+    name: 'suffix-http',
+    kind: 'mcp',
+    description: 'Updated description',
+    transport: 'streamable-http',
+    url: httpSaved.url,
+    headers: httpSaved.headers,
+  }, { botId: 'b2' })
+  assert.deepEqual(editedHttp.ownedSecrets, httpSaved.ownedSecrets)
+  for (const name of httpSaved.ownedSecrets) {
+    assert.ok(rt.secretsView().some(s => s.name === name), `owned secret ${name} must survive edit`)
+  }
 })
