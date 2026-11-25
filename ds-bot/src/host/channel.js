@@ -1193,6 +1193,7 @@ export function install(rt) {
           return ok(await rt.telemetry.clearLog())
         }
         case 'telemetry-client-error':
+          if (remote) return fail('Privacy settings can only be changed on this computer', 'bot/refused')
           await rt.telemetry.noteError({
             source: 'renderer',
             errorName: typeof body?.errorName === 'string' ? body.errorName : 'Error',

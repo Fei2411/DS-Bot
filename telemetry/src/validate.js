@@ -28,6 +28,11 @@ export const IM_PLATFORMS = new Set([
   'telegram', 'feishu', 'discord', 'slack', 'dingtalk', 'wecom', 'qq', 'weixin',
 ])
 export const ERROR_SOURCES = new Set(['host', 'electron-main', 'renderer', 'turn', 'update'])
+export const SAFE_WHERE = new Set([
+  'turns', 'groups', 'memory', 'browser', 'store', 'channel', 'schedule', 'connector',
+  'im', 'phone', 'api', 'computer', 'plugins', 'secrets', 'update', 'overlay',
+  'own-chat', 'group-chat', 'other',
+])
 
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/
@@ -36,7 +41,6 @@ const OS_RE = /^(?:darwin|win32|linux|ios|android|unknown)(?: [0-9]{1,3})?$/
 const LOCALE_RE = /^(?:unknown|[a-z]{2}(?:-[A-Z]{2})?)$/
 const IDENT_RE = /^[A-Za-z][A-Za-z0-9_]{0,47}$/
 const CODE_RE = /^[A-Za-z0-9_/-]{1,48}$/
-const WHERE_RE = /^[a-z][a-z0-9._-]{0,47}$/
 const FINGERPRINT_RE = /^[0-9a-f]{16}$/
 // Only relative package frames inside ds-bot/, app/, link/, or mobile/.
 const FRAME_RE = /^(?:[A-Za-z0-9_$.<> -]{1,64} @ )?(?:ds-bot|app|link|mobile)\/[A-Za-z0-9_./-]{1,120}(?::[0-9]{1,6}(?::[0-9]{1,5})?)?$/
@@ -150,7 +154,7 @@ export function validatePayload(raw, nowMs = Date.now()) {
   if (typeof raw.source !== 'string' || !ERROR_SOURCES.has(raw.source)) return { ok: false, error: 'invalid source' }
   if (typeof raw.error_name !== 'string' || !IDENT_RE.test(raw.error_name)) return { ok: false, error: 'invalid error_name' }
   if (raw.error_code !== undefined && (typeof raw.error_code !== 'string' || !CODE_RE.test(raw.error_code))) return { ok: false, error: 'invalid error_code' }
-  if (raw.where !== undefined && (typeof raw.where !== 'string' || !WHERE_RE.test(raw.where))) return { ok: false, error: 'invalid where' }
+  if (raw.where !== undefined && (typeof raw.where !== 'string' || !SAFE_WHERE.has(raw.where))) return { ok: false, error: 'invalid where' }
   if (!Array.isArray(raw.stack_frames) || raw.stack_frames.length > 8) return { ok: false, error: 'invalid stack_frames' }
   for (const frame of raw.stack_frames) {
     if (typeof frame !== 'string' || !FRAME_RE.test(frame) || frame.includes('..')) {

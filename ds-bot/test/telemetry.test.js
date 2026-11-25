@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { install as installTelemetry, sanitizeStack, envDisabledReason, botCountBucket, turnsBucket, normalizeProvider } from '../src/host/telemetry.js'
+import { install as installTelemetry, sanitizeStack, envDisabledReason, botCountBucket, turnsBucket, normalizeProvider, normalizeWhere } from '../src/host/telemetry.js'
 import { validatePayload } from '../../telemetry/src/validate.js'
 
 function makeRt(home, opts = {}) {
@@ -169,26 +169,28 @@ test('error telemetry is opt-in, omits raw error.message, excludes private Bots,
     assert.equal(await env.rt.telemetry.noteError({ source: 'turn', errorName: 'TypeError', sessionId: 'priv-seg-1', stack: 'at f (/x/ds-bot/src/host/turns.js:10:2)' }), false)
     assert.equal(env.sent.length, 0)
 
-    // Public error is sent once per fingerprint per day and passes worker validator.
+    // Public error is sent once per fingerprint per day, strips group title from `where`, and passes worker validator.
     const ok1 = await env.rt.telemetry.noteError({
-      source: 'host',
+      source: 'turn',
       errorName: 'TypeError',
       code: 'ENOENT',
-      where: 'turns',
+      where: 'group "Confidential Boardroom"',
       stack: 'TypeError: secret filename\n    at run (/Users/<user>/repo/ds-bot/src/host/turns.js:42:9)',
     })
     assert.equal(ok1, true)
     assert.equal(env.sent.length, 1)
     assert.equal(validatePayload(env.sent[0], now).ok, true)
+    assert.equal(env.sent[0].where, 'group-chat')
     assert.equal('message' in env.sent[0], false)
     assert.equal(JSON.stringify(env.sent[0]).includes('secret filename'), false)
+    assert.equal(JSON.stringify(env.sent[0]).includes('Confidential'), false)
 
     // Duplicate same-day fingerprint is deduplicated.
     const ok2 = await env.rt.telemetry.noteError({
-      source: 'host',
+      source: 'turn',
       errorName: 'TypeError',
       code: 'ENOENT',
-      where: 'turns',
+      where: 'group "Another Secret Group"',
       stack: 'at run (/Users/<user>/repo/ds-bot/src/host/turns.js:42:9)',
     })
     assert.equal(ok2, false)
@@ -227,14 +229,16 @@ test('DSH upstream safeguards block session-log-deepseek by default and permanen
       attributes: { 'session.id': 'pub1', 'session.cwd': '/Users/<user>/secret-dir' },
       body: { text: 'token is super-secret-token-999' },
     }
-    const blocked = recordListener(sample, r => r)
+    const blocked = recordListener(sample, () => sample)
     assert.equal(blocked.sourceEvent, undefined)
 
     await env.rt.telemetry.update({ dshFeedbackTelemetry: true })
-    const privBlocked = recordListener({ ...sample, sourceEvent: { sessionId: 'priv1', envelope: {} }, attributes: { 'session.id': 'priv1' } }, r => r)
+    const privSample = { ...sample, sourceEvent: { sessionId: 'priv1', envelope: {} }, attributes: { 'session.id': 'priv1' } }
+    const privBlocked = recordListener(privSample, () => privSample)
     assert.equal(privBlocked.sourceEvent, undefined)
 
-    const scrubbed = recordListener(sample, r => r)
+    // Real Cordis waterfall `next()` takes zero arguments and returns the original record.
+    const scrubbed = recordListener(sample, () => sample)
     assert.ok(scrubbed.sourceEvent)
     assert.equal(scrubbed.attributes['session.cwd'], '~')
     assert.equal(scrubbed.body.text.includes('super-secret-token-999'), false)
@@ -280,4 +284,9 @@ test('envDisabledReason and bucketing helpers behave predictably', () => {
   assert.equal(turnsBucket(51), '51+')
   assert.equal(normalizeProvider('openai/gpt-5'), 'openai')
   assert.equal(normalizeProvider('private-host/my-model'), 'custom')
+  assert.equal(normalizeWhere('group "My Secret Room"'), 'group-chat')
+  assert.equal(normalizeWhere('own chat'), 'own-chat')
+  assert.equal(normalizeWhere('overlay.settings'), 'overlay')
+  assert.equal(normalizeWhere('turns'), 'turns')
+  assert.equal(normalizeWhere('secret-custom-name'), undefined)
 })

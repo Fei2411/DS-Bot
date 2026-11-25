@@ -91,10 +91,11 @@ test('rejects absolute paths and traversal in stack frames', () => {
   assert.equal(validatePayload(makeError({ stack_frames: ['ds-bot/../secrets.json:1:1'] }), NOW).ok, false)
 })
 
-test('rejects unknown providers, features, or out-of-range days', () => {
+test('rejects unknown providers, features, where values, or out-of-range days', () => {
   assert.equal(validatePayload(makeDaily({ providers_used: ['my-private-llm.corp'] }), NOW).ok, false)
   assert.equal(validatePayload(makeDaily({ features_active: ['private-plugin-name'] }), NOW).ok, false)
   assert.equal(validatePayload(makeDaily({ day: '2026-10-01' }), NOW).ok, false)
+  assert.equal(validatePayload(makeError({ where: 'secretgroupname' }), NOW).ok, false)
 })
 
 test('handleRequest stores daily and error payloads without touching client IP headers', async () => {
@@ -134,4 +135,11 @@ test('handleRequest enforces size cap, content-type, method, and healthz', async
 
   const wrongMethod = await handleRequest(new Request('https://telemetry.dsbot.app/v1/collect', { method: 'GET' }), { DB: db }, NOW)
   assert.equal(wrongMethod.status, 405)
+
+  const crossOrigin = await handleRequest(new Request('https://telemetry.dsbot.app/v1/collect', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', origin: 'https://evil.example' },
+    body: JSON.stringify(makeDaily()),
+  }), { DB: db }, NOW)
+  assert.equal(crossOrigin.status, 403)
 })

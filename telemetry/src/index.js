@@ -7,6 +7,20 @@
 import { MAX_BODY_BYTES, validatePayload } from './validate.js'
 
 const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }
+const RATE_WINDOW_MS = 60_000
+const MAX_WRITES_PER_WINDOW = 600
+let windowStart = 0
+let windowWrites = 0
+
+function allowWrite(nowMs) {
+  if (nowMs - windowStart >= RATE_WINDOW_MS) {
+    windowStart = nowMs
+    windowWrites = 0
+  }
+  if (windowWrites >= MAX_WRITES_PER_WINDOW) return false
+  windowWrites += 1
+  return true
+}
 
 async function readBoundedText(request, maxBytes) {
   const declared = Number(request.headers.get('content-length'))
@@ -105,6 +119,13 @@ export async function handleRequest(request, env, nowMs = Date.now()) {
   }
   if (request.method !== 'POST') {
     return new Response(null, { status: 405, headers: { allow: 'POST' } })
+  }
+  // DS Bot sends telemetry from its Node host process (never browser cross-origin requests).
+  if (request.headers.get('origin')) {
+    return new Response(JSON.stringify({ error: 'browser origin not allowed' }), { status: 403, headers: JSON_HEADERS })
+  }
+  if (!allowWrite(nowMs)) {
+    return new Response(JSON.stringify({ error: 'rate limit exceeded' }), { status: 429, headers: JSON_HEADERS })
   }
 
   const contentType = request.headers.get('content-type') ?? ''

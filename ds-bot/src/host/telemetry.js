@@ -41,13 +41,27 @@ const KNOWN_FEATURES = new Set([
   'local_api', 'connectors', 'capabilities', 'plugins', 'secrets',
 ])
 const ERROR_SOURCES = new Set(['host', 'electron-main', 'renderer', 'turn', 'update'])
+const SAFE_WHERE = new Set([
+  'turns', 'groups', 'memory', 'browser', 'store', 'channel', 'schedule', 'connector',
+  'im', 'phone', 'api', 'computer', 'plugins', 'secrets', 'update', 'overlay',
+  'own-chat', 'group-chat', 'other',
+])
 const ARCHS = new Set(['arm64', 'x64', 'ia32', 'arm'])
 
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const IDENT_RE = /^[A-Za-z][A-Za-z0-9_]{0,47}$/
 const CODE_RE = /^[A-Za-z0-9_/-]{1,48}$/
-const WHERE_RE = /^[a-z][a-z0-9._-]{0,47}$/
 const FRAME_CHECK_RE = /^(?:[A-Za-z0-9_$.<> -]{1,64} @ )?(?:ds-bot|app|link|mobile)\/[A-Za-z0-9_./-]{1,120}(?::[0-9]{1,6}(?::[0-9]{1,5})?)?$/
+
+export function normalizeWhere(raw) {
+  if (typeof raw !== 'string') return undefined
+  const trimmed = raw.trim().toLowerCase()
+  if (trimmed === '') return undefined
+  if (trimmed === 'own chat' || trimmed === 'own-chat') return 'own-chat'
+  if (trimmed.startsWith('group ') || trimmed === 'group-chat') return 'group-chat'
+  if (trimmed.startsWith('overlay.') || trimmed.startsWith('overlay:') || trimmed === 'overlay') return 'overlay'
+  return SAFE_WHERE.has(trimmed) ? trimmed : undefined
+}
 
 const utcDay = (now = Date.now()) => new Date(now).toISOString().slice(0, 10)
 const utcMonth = (now = Date.now()) => new Date(now).toISOString().slice(0, 7)
@@ -329,19 +343,22 @@ export function install(rt) {
 
   // 2. OTLP feedback telemetry redaction & opt-in gate: DSH ships no default redaction
   //    rules, so we withhold unless enabled, always block private Bots, and scrub secrets/paths.
+  //    Cordis waterfall `next()` takes no arguments; run downstream first, then scrub its result.
   ctx.on?.('session-telemetry/record', (record, next) => {
     const sid = record?.sourceEvent?.sessionId ?? record?.attributes?.['session.id']
     if (!data.dshFeedbackTelemetry || isPrivateSession(sid)) {
       return { ...record, sourceEvent: undefined }
     }
+    const current = next()
+    if (!current || typeof current !== 'object') return current
     const scrub = text => cleanText(text, { redact: rt.redactSecrets ?? (v => v) })
-    const attrs = record.attributes && typeof record.attributes === 'object' ? { ...record.attributes } : undefined
+    const attrs = current.attributes && typeof current.attributes === 'object' ? { ...current.attributes } : undefined
     if (attrs && typeof attrs['session.cwd'] === 'string') attrs['session.cwd'] = '~'
-    return next({
-      ...record,
+    return {
+      ...current,
       ...(attrs ? { attributes: redactDeep(attrs, scrub) } : {}),
-      body: redactDeep(record.body, scrub),
-    })
+      body: redactDeep(current.body, scrub),
+    }
   })
 
   const detectSurface = () => {
@@ -507,8 +524,7 @@ export function install(rt) {
     const safeSource = ERROR_SOURCES.has(source) ? source : 'host'
     const rawName = typeof errorName === 'string' && IDENT_RE.test(errorName) ? errorName : 'Error'
     const safeCode = typeof code === 'string' && CODE_RE.test(code) ? code : undefined
-    const rawWhere = typeof where === 'string' ? where.toLowerCase().replace(/[^a-z0-9._-]/g, '').slice(0, 48) : ''
-    const safeWhere = rawWhere && WHERE_RE.test(rawWhere) ? rawWhere : undefined
+    const safeWhere = normalizeWhere(where)
     const frames = sanitizeStack(stack)
     const fp = errorFingerprint({ source: safeSource, errorName: rawName, errorCode: safeCode, where: safeWhere, frames })
 
