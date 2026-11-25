@@ -52,6 +52,24 @@ const LANGUAGES = {
   de: 'German (Deutsch)',
 }
 const RUN_STATS = ['sessionStats', 'tokenUsage', 'contextPressure']
+const positiveInt = value => (Number.isSafeInteger(value) && value > 0 ? value : undefined)
+const nonNegativeInt = value => (Number.isSafeInteger(value) && value >= 0 ? value : undefined)
+
+// Local CLI agents run many internal tool steps inside one DSH turn, so their
+// `assistant/message.usage` carries cumulative billed tokens. Replace DSH's
+// cumulative `contextPressure` wholesale with the CLI's per-step occupancy, or
+// omit it when the CLI has no fresh occupancy sample yet (e.g. after compaction).
+export function runStatsValues(values, localContext) {
+  if (values === null || values === undefined || typeof values !== 'object') return values
+  const used = localContext?.stale === true ? undefined : nonNegativeInt(localContext?.used)
+  const contextWindow = positiveInt(localContext?.size) ?? positiveInt(values.contextPressure?.contextWindow)
+  return {
+    ...values,
+    contextPressure: used !== undefined && contextWindow !== undefined
+      ? { pressureTokens: used, projectedTokens: used, contextWindow }
+      : undefined,
+  }
+}
 
 const invalid = message => Object.assign(new Error(message), { code: 'bot/invalid' })
 // Programming and file system errors are DS Bot's own faults, logged with their stack;
@@ -546,13 +564,12 @@ export function install(rt) {
           const isLocal = measured?.isLocal === true
           if (values && isLocal) {
             const resolved = await rt.contextRuntime.resolveWindow(agent.session).catch(() => undefined)
-            const contextWindow = (resolved?.source !== 'default' ? resolved?.window : undefined) ?? values.contextPressure?.contextWindow
-            return ok({
-              ...values,
-              contextPressure: Number.isFinite(measured.workingTokens) && contextWindow > 0
-                ? { ...values.contextPressure, pressureTokens: measured.workingTokens, projectedTokens: measured.workingTokens, contextWindow }
-                : undefined,
-            })
+            const size = (resolved?.source !== 'default' ? positiveInt(resolved?.window) : undefined) ?? positiveInt(measured.reportedWindow)
+            return ok(runStatsValues(values, {
+              used: measured.workingTokens,
+              size,
+              stale: measured.stale,
+            }))
           }
           return ok(values)
         }

@@ -36,6 +36,8 @@ const SIGNED_IN_TTL_MS = 60_000
 const SIGNED_IN_RETRY_MS = 20_000
 const VERSION_FAIL_TTL_MS = 30_000
 const invalid = message => Object.assign(new Error(message), { code: 'bot/invalid' })
+const FORBIDDEN_WINDOW_KEYS = new Set(['__proto__', 'constructor', 'prototype'])
+const safeWindowKey = value => typeof value === 'string' && value !== '' && !FORBIDDEN_WINDOW_KEYS.has(value)
 
 export function parseCliSemver(raw) {
   if (typeof raw !== 'string') return undefined
@@ -76,15 +78,24 @@ const spawnEngine = (kind, route, spec) => (kind === 'acp' ? new AcpEngine(route
 
 export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersion: checkVersion = probeVersion, now = Date.now } = {}) {
   const { ctx, state } = rt
+  const ownOf = (object, key) => (typeof rt.own === 'function'
+    ? rt.own(object, key)
+    : (object != null && Object.hasOwn(object, key) ? object[key] : undefined))
   // state.localAgents is replaced by the state load after install; read it
   // each time instead of holding the pre-load object.
   const store = () => {
-    const live = state.localAgents ??= { custom: [], profiles: [], retiredProfiles: [], sessions: {} }
+    const live = state.localAgents ??= { custom: [], profiles: [], retiredProfiles: [], sessions: {}, windows: {} }
     live.custom ??= []
     live.profiles ??= []
     live.retiredProfiles ??= []
     live.sessions ??= {}
+    if (!live.windows || typeof live.windows !== 'object' || Array.isArray(live.windows)) live.windows = {}
     return live
+  }
+  const dropPersistedWindows = (route) => {
+    if (!safeWindowKey(route)) return
+    const windows = store().windows
+    if (Object.hasOwn(windows, route)) delete windows[route]
   }
 
   const customAgents = () => store().custom
@@ -287,6 +298,25 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
       void rt.save().catch(() => {})
     },
     recordUsage: entry => rt.recordUsage?.(entry),
+    savedWindow: (route, model) => {
+      if (!safeWindowKey(route) || !safeWindowKey(model)) return undefined
+      const byRoute = ownOf(store().windows, route)
+      if (!byRoute || typeof byRoute !== 'object' || Array.isArray(byRoute)) return undefined
+      return ownOf(byRoute, model)
+    },
+    saveWindow: (route, model, size) => {
+      if (!safeWindowKey(route) || !safeWindowKey(model)) return
+      const windows = store().windows
+      let byRoute = ownOf(windows, route)
+      if (!byRoute || typeof byRoute !== 'object' || Array.isArray(byRoute)) {
+        byRoute = Object.create(null)
+        windows[route] = byRoute
+      }
+      if (ownOf(byRoute, model) === size) return
+      byRoute[model] = size
+      rt.contextRuntime?.clearWindowCache?.()
+      void rt.save().catch(() => {})
+    },
     // A change that rides along with the next save: the CLI reports its context on
     // every model call.
     patchRecord: (sessionId, patch) => {
@@ -364,10 +394,15 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
     prevSecretsChanged?.()
     if (!disposed) void adapter.secretsChanged?.().catch(() => {})
   }
+  const offAdopted = rt.onAdopted?.(() => {
+    adapter.dropWindows()
+    rt.contextRuntime?.clearWindowCache?.()
+  })
   // The callback returns the disposer: running adapter.dispose() inside the
   // setup would leave the adapter disposed from the moment it installs.
   ctx.effect(() => async () => {
     disposed = true
+    offAdopted?.()
     for (const entry of found.values()) {
       entry.versionAbort?.abort()
       entry.signInAbort?.abort()
@@ -546,15 +581,27 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
         const entry = store().custom.find(agent => agent.id === body.id)
         if (entry === undefined) throw new Error('Unknown agent')
         const clean = validateCustom({ name: body.name ?? entry.name, command: body.command ?? entry.command, args: body.args ?? entry.args })
+        const route = customRoute(entry.id)
+        const launchChanged = clean.command !== entry.command || JSON.stringify(clean.args) !== JSON.stringify(entry.args)
         Object.assign(entry, clean)
-        adapter.dropModelCache(customRoute(entry.id))
+        adapter.dropModelCache(route)
+        if (launchChanged) {
+          dropPersistedWindows(route)
+          adapter.dropWindows(route)
+          rt.contextRuntime?.clearWindowCache?.()
+        }
         await rt.save()
-        return { ...entry, route: customRoute(entry.id) }
+        return { ...entry, route }
       }
       case 'local-agent-remove': {
         const at = store().custom.findIndex(agent => agent.id === body.id)
         if (at === -1) throw new Error('Unknown agent')
-        store().custom.splice(at, 1)
+        const [removed] = store().custom.splice(at, 1)
+        const route = customRoute(removed.id)
+        dropPersistedWindows(route)
+        adapter.dropModelCache(route)
+        adapter.dropWindows(route)
+        rt.contextRuntime?.clearWindowCache?.()
         applyRoutes()
         await rt.save()
         return customView()
@@ -606,6 +653,9 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
         if (clean.env !== undefined && Object.keys(clean.env).length > 0) entry.env = clean.env
         else delete entry.env
         if (configChanged) {
+          dropPersistedWindows(route)
+          adapter.dropWindows(route)
+          rt.contextRuntime?.clearWindowCache?.()
           await adapter.closeRoute(route, 'the local agent configuration changed', { code: 'LOCAL_AGENT_EXIT' })
           if (dirChanged) clearRouteSessions(route)
           clearProfileProbe(route)
@@ -622,6 +672,9 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
         store().profiles.splice(index, 1)
         const retired = store().retiredProfiles
         if (!retired.includes(route)) retired.push(route)
+        dropPersistedWindows(route)
+        adapter.dropWindows(route)
+        rt.contextRuntime?.clearWindowCache?.()
         clearProfileProbe(route)
         await adapter.closeRoute(route, 'the local agent profile was removed', { code: 'LOCAL_AGENT_MISSING' })
         clearRouteSessions(route)
