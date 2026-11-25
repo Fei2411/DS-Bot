@@ -266,8 +266,8 @@ export function install(rt) {
     if (write && !canWrite()) return null
     const dbExists = existsSync(dbPath)
     if (!dbExists) schemaReady = false
-    const hasHotJournal = dbExists && (existsSync(`${dbPath}-journal`) || existsSync(`${dbPath}-wal`))
-    const allowWriteRecovery = !write && hasHotJournal && canWrite() && rt.hasLoaded?.() === true
+    const hasHotJournal = dbExists && existsSync(`${dbPath}-journal`)
+    const allowWriteRecovery = !write && (initialReadFailed || hasHotJournal) && canWrite() && rt.hasLoaded?.() === true
     const readOnlyMode = (!write && !allowWriteRecovery) || !canWrite()
     if (db !== null) {
       if (!readOnlyMode && openedReadOnly) closeDb()
@@ -301,7 +301,7 @@ export function install(rt) {
           throw error
         }
       } catch (error) {
-        if (readOnlyMode && !fresh && hasHotJournal) initialReadFailed = true
+        if (readOnlyMode && !fresh) initialReadFailed = true
         if (fresh || readOnlyMode || !isCorruptSqliteError(error)) {
           rt.warn?.('ds-bot: coordination store unavailable: %s', error)
           return null
@@ -312,19 +312,20 @@ export function install(rt) {
   }
 
   // Opens an existing coordination DB writable once the host owns `state.lock` so SQLite
-  // can roll back any hot rollback journal or orphaned WAL left by a hard crash.
-  // Never creates a new DB if none exists, and never writes in a read-only host.
+  // can roll back any hot rollback journal left by a hard crash. Returns true ONLY when
+  // the initial pre-lock read actually failed (never for ordinary live WAL files), so
+  // startup only reloads its recovery snapshot when pre-lock state could not be read.
   function recoverAfterLock() {
     if (!canWrite() || !existsSync(dbPath)) return false
     const hadFailure = initialReadFailed
-    const hasJournal = existsSync(`${dbPath}-journal`) || existsSync(`${dbPath}-wal`)
-    if (!hadFailure && !hasJournal) return false
+    const hasHotJournal = existsSync(`${dbPath}-journal`)
+    if (!hadFailure && !hasHotJournal) return false
     const conn = ensureDb({ write: true })
     if (conn === null) return false
     try {
       stmt?.getMeta?.get('coord_gen')
       initialReadFailed = false
-      return hadFailure || hasJournal
+      return hadFailure
     } finally {
       if (CLOSE_AFTER_OP) closeDb()
     }
@@ -889,6 +890,7 @@ export function install(rt) {
     dbPath,
     currentGen,
     loadInitialState,
+    hadInitialReadFailure: () => initialReadFailed,
     recoverAfterLock,
     syncLegacyInflight: () => importLegacyInflightIfNeeded({ allowWrite: true }),
     upsertDelivery,

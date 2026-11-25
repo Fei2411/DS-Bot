@@ -405,11 +405,11 @@ export function install(rt) {
   })
   // Exchanges a turn took up since this start, until the resends are done, so a resend
   // never repeats one.
-  let taken = Object.keys(interrupted.queued).length > 0 ? new Set() : undefined
+  let taken = (Object.keys(interrupted.queued).length > 0 || coord?.hadInitialReadFailure?.() === true) ? new Set() : undefined
   // The first turn event of each Session since this start, until the noted turns are
   // picked up. A turn that ends, or still runs, before one starts here outlived the
   // last run: only DS Bot restarted (the plugin reloaded) and DSH went on.
-  let firstTurn = Object.keys(interrupted.turns).length > 0 ? new Map() : undefined
+  let firstTurn = (Object.keys(interrupted.turns).length > 0 || coord?.hadInitialReadFailure?.() === true) ? new Map() : undefined
   ctx.on('session/event', (session, event) => {
     const id = session?.id
     if (id === undefined) return
@@ -1583,23 +1583,36 @@ export function install(rt) {
   }
   rt.reconcileOrphanWorks = reconcileOrphanWorks
 
+  const mergeRecoveredSnapshot = (reloaded) => {
+    if (reloaded === undefined) return false
+    // Exclude turns started in this runtime so live work is never misclassified as interrupted.
+    const preRestartTurns = {}
+    for (const [sid, rec] of Object.entries(reloaded.turns ?? {})) {
+      if (!(sid in turns)) preRestartTurns[sid] = rec
+    }
+    const mergedTurns = { ...preRestartTurns, ...interrupted.turns }
+    const mergedQueued = Object.keys(interrupted.queued).length > 0 ? interrupted.queued : (reloaded.queued ?? {})
+    const mergedSilent = Object.keys(interrupted.silent).length > 0 ? interrupted.silent : (reloaded.silent ?? {})
+    interrupted = {
+      turns: mergedTurns,
+      queued: mergedQueued,
+      silent: mergedSilent,
+      obligations: reloaded.obligations ?? [],
+      terminalMarkers: reloaded.terminalMarkers ?? [],
+    }
+    if (Object.keys(queued).length === 0 && Object.keys(mergedQueued).length > 0) queued = mergedQueued
+    if (Object.keys(silent).length === 0 && Object.keys(mergedSilent).length > 0) silent = mergedSilent
+    recoveringTurns = mergedTurns
+    return Object.keys(mergedTurns).length > 0
+      || Object.keys(mergedQueued).length > 0
+      || Object.keys(mergedSilent).length > 0
+  }
+
   async function resumeAll() {
     await rt.load()
     if (rt.readOnly() !== undefined) return
     if (coord?.recoverAfterLock?.() === true) {
-      const reloaded = coord.loadInitialState?.()
-      if (reloaded !== undefined) {
-        interrupted = {
-          turns: { ...reloaded.turns, ...interrupted.turns },
-          queued: Object.keys(interrupted.queued).length > 0 ? interrupted.queued : reloaded.queued,
-          silent: Object.keys(interrupted.silent).length > 0 ? interrupted.silent : reloaded.silent,
-          obligations: reloaded.obligations ?? [],
-          terminalMarkers: reloaded.terminalMarkers ?? [],
-        }
-        if (Object.keys(queued).length === 0 && Object.keys(reloaded.queued).length > 0) queued = reloaded.queued
-        if (Object.keys(silent).length === 0 && Object.keys(reloaded.silent).length > 0) silent = reloaded.silent
-        recoveringTurns = interrupted.turns
-      }
+      mergeRecoveredSnapshot(coord.loadInitialState?.())
     }
     coord?.syncLegacyInflight?.()
     if ((coord?.listTerminalMarkers?.().length ?? 0) > 0) {
@@ -1649,7 +1662,7 @@ export function install(rt) {
       const keepTaskSessions = new Set()
       const unverified = {}
       for (const [sessionId, record] of Object.entries(noted)) {
-        const first = firstTurn.get(sessionId)
+        const first = firstTurn?.get(sessionId)
         if (first?.type === 'turn/end') {
           // The turn ended while DS Bot was not watching it: what it did is settled from
           // the Session's durable log.
@@ -1761,20 +1774,12 @@ export function install(rt) {
         fastStartup = rt.load()
           .then(() => {
             if (rt.readOnly() === undefined && coord?.recoverAfterLock?.() === true) {
-              const reloaded = coord.loadInitialState?.()
-              if (reloaded !== undefined) {
-                const hasInterrupted = Object.keys(reloaded.turns).length > 0
-                  || Object.keys(reloaded.queued).length > 0
-                  || Object.keys(reloaded.silent).length > 0
-                if (hasInterrupted) {
-                  interrupted = reloaded
-                  recoveringTurns = reloaded.turns
-                  if (Object.keys(queued).length === 0) queued = reloaded.queued
-                  if (Object.keys(silent).length === 0) silent = reloaded.silent
-                  return resumeAll()
-                }
+              if (mergeRecoveredSnapshot(coord.loadInitialState?.())) {
+                return resumeAll()
               }
             }
+            firstTurn = undefined
+            taken = undefined
             const hasWork = (coord?.listTerminalMarkers?.().length ?? 0) > 0
               || (coord?.listPendingObligations?.().length ?? 0) > 0
             return hasWork

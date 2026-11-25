@@ -801,15 +801,20 @@ test('hot rollback journal left by crash is rolled back after lock acquisition a
         createdAt: 1,
         tasks: [{ id: 'task-hj', title: 'HotJournal', brief: 'Check', from: 'dm-a', sessionId: 'bg-hj', status: 'completed', startedAt: 1, updatedAt: 2, endedAt: 2 }],
       },
+      b: { id: 'b', name: 'Writer', role: 'Dev', sessionId: 'dm-b', createdAt: 2 },
     },
   })))
 
   const dsh1 = await mountRealDsh(t, base)
   const fg1 = await dsh1.create('dm-a')
   await dsh1.root.sessions.flush(fg1.session)
+  const bg1 = await dsh1.create('dm-b')
+  bg1.session.append('turn/start', { turn: 1 })
+  await dsh1.root.sessions.flush(bg1.session)
   const host1 = attachRuntime(t, dsh1, home, base)
   await host1.rt.load()
   const exchangeId = 'task-report:task-hj'
+  host1.rt.coordination.upsertTurn('dm-b', { botId: 'b', turn: 1, since: 100 })
   host1.rt.coordination.commitTaskTerminal({
     taskId: 'task-hj',
     obligation: {
@@ -863,20 +868,65 @@ test('hot rollback journal left by crash is rolled back after lock acquisition a
     try { ro.prepare('SELECT value FROM meta WHERE key = ?').get('coord_gen') } finally { ro.close() }
   })
 
-  // Fresh runtime must roll back the hot journal after acquiring state.lock and replay the report!
+  // Fresh runtime must roll back the hot journal after acquiring state.lock, recover both the
+  // active turn on dm-b (without crashing on missing firstTurn) and replay the report on dm-a!
   const dsh2 = await mountRealDsh(t, base)
   await dsh2.open('dm-a')
+  await dsh2.open('dm-b')
   const host2 = attachRuntime(t, dsh2, home, base)
   await host2.rt.load()
   await sleepUntil(
     () => host2.rt.coordination.listPendingObligations().length === 0
-      && dsh2.root.agents.get('dm-a').session.snapshotEvents().some(e => e.type === 'user/message' && e.data?.source?.exchangeId === exchangeId),
+      && dsh2.root.agents.get('dm-a').session.snapshotEvents().some(e => e.type === 'user/message' && e.data?.source?.exchangeId === exchangeId)
+      && dsh2.root.agents.get('dm-b').session.snapshotEvents().some(e => e.type === 'user/message' && e.data?.source?.resumed === true),
     RESUME_DELAY_MS + 4000,
-    'committed task_report behind a hot journal must still replay after lock recovery',
+    'both active turn and committed task_report behind a hot journal must recover after lock acquisition',
   )
   const fg2 = dsh2.root.agents.get('dm-a')
   await fg2.whenIdle()
+  await dsh2.root.agents.get('dm-b').whenIdle()
   const reports = fg2.session.snapshotEvents().filter(e => e.type === 'user/message' && e.data?.source?.exchangeId === exchangeId)
   assert.equal(reports.length, 1)
   assert.match(reports[0].data.content[0].text, /HOT JOURNAL REPORT RECOVERED/)
+})
+
+test('live turn started on another Bot during delayed WAL startup recovery never gets a spurious restart prompt', async (t) => {
+  const base = mkdtempSync(join(tmpdir(), 'ds-bot-coord-live-wal-'))
+  t.after(() => rmSync(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }))
+  const home = join(base, 'bot')
+  mkdirSync(home, { recursive: true })
+  writeFileSync(join(home, 'state.json'), JSON.stringify(seedTeam()))
+
+  // Host 1 leaves an interrupted turn on dm-a in SQLite.
+  const dsh1 = await mountRealDsh(t, base)
+  const dmA1 = await dsh1.create('dm-a')
+  dmA1.session.append('turn/start', { turn: 1 })
+  await dsh1.root.sessions.flush(dmA1.session)
+  const dmB1 = await dsh1.create('dm-b')
+  await dsh1.root.sessions.flush(dmB1.session)
+  const host1 = attachRuntime(t, dsh1, home, base)
+  await host1.rt.load()
+  host1.rt.coordination.upsertTurn('dm-a', { botId: 'a', turn: 1, since: 100 })
+  await host1.ctx.dispose()
+  await dsh1.root.fiber.dispose()
+
+  // Host 2 starts; during the 3s delayed recovery window, Bot B starts a brand-new live turn
+  // (which creates/appends to the ordinary WAL file). When resumeAll runs, Bot B must NOT receive a restart prompt!
+  const dsh2 = await mountRealDsh(t, base)
+  await dsh2.open('dm-a')
+  const dmB2 = await dsh2.open('dm-b')
+  const host2 = attachRuntime(t, dsh2, home, base)
+  await host2.rt.load()
+  // Simulate Bot B starting a fresh live turn before RESUME_DELAY_MS fires.
+  dmB2.session.append('turn/start', { turn: 1 })
+
+  await sleepUntil(
+    () => dsh2.root.agents.get('dm-a').session.snapshotEvents().some(e => e.type === 'user/message' && e.data?.source?.resumed === true),
+    RESUME_DELAY_MS + 4000,
+    'pre-restart interrupted turn on dm-a should resume',
+  )
+  await dsh2.root.agents.get('dm-a').whenIdle()
+  await delay(200)
+  const resumedOnB = dmB2.session.snapshotEvents().filter(e => e.type === 'user/message' && e.data?.source?.resumed === true)
+  assert.equal(resumedOnB.length, 0, 'live turn started on Bot B during startup recovery must never receive a spurious restart prompt')
 })
