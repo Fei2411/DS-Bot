@@ -690,21 +690,25 @@ export function install(rt) {
     }
     // Not the messages the group's own Session shows itself.
     const found = rt.ledger.range(bookOf(roomId), from, end)
-    const rows = found.filter(record => record.session !== true).map(rowOf).filter(Boolean)
+    const kept = found.filter(record => record.session !== true)
     // The room's log holds what the book would not: a line said while its write failed, and the
     // notice about it, are drawn there but never reach the book's records. A fetch with no upper
     // bound ends in that tail, so carry it across; the seq is the join key, and an anchor only
-    // ends the window, it does not stop the tail from belonging to it.
+    // ends the window, it does not stop the tail from belonging to it. A session line the book
+    // refused stays out the same way a saved one does, and the merge is ordered by seq: a
+    // refused line keeps the number it took, so its seq can lie below one the book already has.
+    const merged = [...kept]
     if (to === undefined && room !== undefined) {
       const inBook = new Set(found.map(record => record.seq))
       for (const line of room.log ?? []) {
         if (!Number.isInteger(line.seq) || line.seq < from) continue
         if (end !== undefined && line.seq > end) continue
         if (inBook.has(line.seq)) continue
-        const row = rowOf(line)
-        if (row !== undefined) rows.push(row)
+        if (line.session === true) continue
+        merged.push(line)
       }
     }
+    const rows = merged.sort((a, b) => a.seq - b.seq).map(rowOf).filter(Boolean)
     return { rows, open: end === undefined }
   }
   const groupRows = (roomId, from, to, anchor) => rowsView(roomId, from, to, anchor).rows

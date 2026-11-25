@@ -2844,3 +2844,75 @@ test('a held post whose state cannot be saved is reported delivered, not posted 
   assert.equal(summary.lines, 1, 'the line is in the book once')
   assert.equal(summary.turnsAfter, 0, 'no member was called for the held post')
 })
+
+// #2066 review (klarkxy 6058458578, item 1): rowsView drops `session` lines from the book
+// (the group's own Session draws those messages itself), but the room.log tail it merges in
+// had no such filter. A session line whose write failed lives only in room.log, so the tail
+// drew it as a sent message: absent while saved, present while refused, for the same message.
+test('a session line the book refused is not drawn as a sent message', { skip: process.platform === 'win32' || process.getuid?.() === 0 }, async (t) => {
+  const { call, emit, userMessage, relay, stop, sent, rt, home } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  const book = join(home, 'ledger', bookFile(`group-${room.id}`))
+  // A book that already holds a line, so walling it off makes the next write fail for real.
+  rt.ledger.append(`group-${room.id}`, { who: 'User', text: 'Kick off', seq: 1, time: Date.now() })
+  await rt.ledger.flush()
+  chmodSync(book, 0o444)
+  const refused = 'a line the book refuses to keep'
+  try {
+    await emit(room.id, userMessage(refused))
+    const running = relay(room.id, 'relay').catch(() => undefined)
+    try {
+      const notice = await waitFor(() => (rt.roomOf(room.id).log ?? []).find(line => line.reason === 'unsaved'))
+      assert.ok(notice, 'the room is told the line was not saved')
+      const rows = rt.groupRows(room.id, 1)
+      assert.equal(rows.filter(row => row.kind === 'user' && row.text === refused).length, 0,
+        'a session line the book refused is not drawn as a sent message')
+      assert.equal(rows.filter(row => row.text?.includes('may not have been saved')).length, 1,
+        'the notice still says the line was not saved')
+    } finally {
+      chmodSync(book, 0o644)
+    }
+    rt.stopRoomRound?.(room.id)
+    void running.catch(() => {})
+  } finally {
+    try { chmodSync(book, 0o644) } catch {}
+  }
+})
+
+// #2066 review (klarkxy 6058458578, item 2): the tail was pushed after the book's rows
+// unconditionally, so a refused line with a lower seq was drawn after lines the book took
+// later. The client draws rows in the order it gets them, so the merge has to keep seq order.
+test('the rows keep the seq order when a refused line sits in the room log', { skip: process.platform === 'win32' || process.getuid?.() === 0 }, async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt, home } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  const book = join(home, 'ledger', bookFile(`group-${room.id}`))
+  await emit(room.id, userMessage('Start the round'))
+  const running = relay(room.id, 'relay')
+  const turn = await turnFor(sent)
+  assert.ok(turn, 'the round calls a member')
+  const refused = 'a line the book refuses to keep'
+  let refusedSeq
+  try {
+    chmodSync(book, 0o444)
+    await answer(turn.sessionId, turn.message.source.exchangeId, refused, 1).catch(() => undefined)
+    const kept = await waitFor(() => (rt.roomOf(room.id).log ?? []).find(line => line.reason === 'unsaved'))
+    assert.ok(kept, 'the room is told the line was not saved')
+    refusedSeq = (rt.roomOf(room.id).log ?? []).find(line => line.text === refused)?.seq
+    assert.ok(Number.isInteger(refusedSeq), 'the refused line kept its seq in the room log')
+  } finally {
+    chmodSync(book, 0o644)
+  }
+  // A line the book takes afterwards: its seq is higher than the refused line's.
+  const later = 'Writer done'
+  rt.ledger.append(`group-${room.id}`, { who: 'Chief', botId: room.members[0], text: later, seq: (rt.roomOf(room.id).seq ?? 0) + 1, time: Date.now() })
+  await rt.ledger.flush()
+  const texts = rt.groupRows(room.id, refusedSeq).map(row => row.text)
+  assert.ok(texts.includes(refused), 'the refused line is in the rows')
+  assert.ok(texts.includes(later), 'the later line is in the rows')
+  assert.ok(texts.indexOf(refused) < texts.indexOf(later),
+    'the rows keep the seq order when a refused line sits in the room log')
+  rt.stopRoomRound?.(room.id)
+  void running.catch(() => {})
+})
