@@ -114,6 +114,7 @@ export function install(rt) {
     join(rt.home, 'coordination.sqlite'),
     join(rt.home, 'coordination.sqlite-wal'),
     join(rt.home, 'coordination.sqlite-shm'),
+    join(rt.home, 'coordination.sqlite-journal'),
     join(rt.home, 'inflight.json'),
     join(rt.home, 'learning', 'state.json'),
     join(rt.home, 'ocr.json'),

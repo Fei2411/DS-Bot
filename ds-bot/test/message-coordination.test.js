@@ -163,7 +163,12 @@ test('coordination.sqlite replays a committed task_report obligation without inf
   await dsh2.open('dm-a')
   const host2 = attachRuntime(t, dsh2, home, base)
   await host2.rt.load()
-  await delay(RESUME_DELAY_MS + 400)
+  await sleepUntil(
+    () => host2.rt.coordination.listPendingObligations().length === 0
+      && dsh2.root.agents.get('dm-a').session.snapshotEvents().some(e => e.type === 'user/message' && e.data?.source?.role === 'task-report'),
+    RESUME_DELAY_MS + 4000,
+    'task_report obligation should replay and settle',
+  )
   const fg2 = dsh2.root.agents.get('dm-a')
   await fg2.whenIdle()
   const reports = fg2.session.snapshotEvents().filter(e => e.type === 'user/message' && e.data?.source?.role === 'task-report')
@@ -530,6 +535,8 @@ test('crash between SQLite room_report commit and state.json save does not dupli
   const dsh1 = await mountRealDsh(t, base)
   const fg1 = await dsh1.create('dm-a')
   await dsh1.root.sessions.flush(fg1.session)
+  const dmB1 = await dsh1.create('dm-b')
+  await dsh1.root.sessions.flush(dmB1.session)
   const host1 = attachRuntime(t, dsh1, home, base)
   await host1.rt.load()
   const exchangeId = 'group-report:rr-1'
@@ -548,25 +555,45 @@ test('crash between SQLite room_report commit and state.json save does not dupli
       role: 'report',
       roomId: 'r1',
       text: 'OPS REVIEW DONE',
-      replyTo: 'rr-1',
+      replyTo: 'sub-rr-1',
+      work: 'parent-1',
     },
-    terminalMarker: { kind: 'room_report', ownerId: 'rr-1', snapshot: { roomId: 'r1', botId: 'a', reportKey: 'rr-1' } },
+    terminalMarker: {
+      kind: 'room_report',
+      ownerId: 'rr-1',
+      snapshot: {
+        roomId: 'r1',
+        roomName: 'Ops',
+        botId: 'a',
+        reportKey: 'sub-rr-1',
+        sub: 'sub-rr-1',
+        workResult: 'OPS REVIEW DONE',
+        worked: true,
+        imReplyOrigin: { connId: 'c1', chatKey: 'chat-1', senderId: 'u1', binding: 'bot:a' },
+      },
+    },
   })
   await host1.ctx.dispose()
   await dsh1.root.fiber.dispose()
 
-  // Simulate crash after SQLite commit but before state.json persisted watcher removal.
+  // Simulate crash after SQLite commit but before state.json persisted watcher removal,
+  // child-work closure, or imReplyOrigins.
   writeFileSync(statePath, JSON.stringify(seedTeam({
     rooms: {
       r1: { id: 'r1', name: 'Ops', sessionId: 'room-r1', members: ['a', 'b'], sessions: { a: 'rm-a', b: 'rm-b' }, mode: 'all', log: [], seen: {}, seq: 1 },
     },
+    works: {
+      'parent-1': { from: 'b', to: 'a', ref: 'W1', state: 'open', open: ['sub-rr-1'], results: [], at: 5 },
+      'sub-rr-1': { from: 'a', room: 'r1', parent: 'parent-1', ref: 'W2', state: 'open', open: [], results: [], at: 6 },
+    },
     roomReports: {
-      'rr-1': { id: 'rr-1', roomId: 'r1', botId: 'a', name: 'Chief', fromPart: 'dm-a', after: 0, at: 10 },
+      'rr-1': { id: 'rr-1', roomId: 'r1', botId: 'a', name: 'Chief', sub: 'sub-rr-1', fromPart: 'dm-a', after: 0, at: 10 },
     },
   })))
 
   const dsh2 = await mountRealDsh(t, base)
   await dsh2.open('dm-a')
+  await dsh2.open('dm-b')
   const host2 = attachRuntime(t, dsh2, home, base)
   await host2.rt.load()
   await sleepUntil(() => {
@@ -576,10 +603,19 @@ test('crash between SQLite room_report commit and state.json save does not dupli
   await delay(300)
   const fg2 = dsh2.root.agents.get('dm-a')
   await fg2.whenIdle()
+  const dmB2 = dsh2.root.agents.get('dm-b')
+  await sleepUntil(() => {
+    return dmB2.session.snapshotEvents().some(e => e.type === 'user/message' && e.data?.source?.role === 'reply' && e.data?.source?.replyTo === 'parent-1')
+  }, 3000, 'parent work should finish and return answer to asking Bot')
+  await dmB2.whenIdle()
   const reports = fg2.session.snapshotEvents().filter(e => e.type === 'user/message' && e.data?.source?.role === 'report')
   assert.equal(reports.length, 1, 'stale roomReports watcher must be reconciled before settleRoomReports')
   assert.match(reports[0].data.content[0].text, /OPS REVIEW DONE/)
   assert.equal(host2.rt.state.roomReports?.['rr-1'], undefined)
+  assert.equal(host2.rt.state.works['sub-rr-1'], undefined, 'delegated child work must be closed on marker recovery')
+  const parentReply = dmB2.session.snapshotEvents().find(e => e.type === 'user/message' && e.data?.source?.role === 'reply' && e.data?.source?.replyTo === 'parent-1')
+  assert.match(parentReply.data.content[0].text, /OPS REVIEW DONE/, 'parent answer must include preserved group work result from closeWork')
+  assert.equal(host2.rt.state.imReplyOrigins?.['sub-rr-1']?.chatKey, 'chat-1', 'eligible IM reply origin must be restored on marker recovery')
 })
 
 test('closed destination falls back to foreground for completed replies and room_report obligations', async (t) => {

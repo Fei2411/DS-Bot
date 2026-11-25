@@ -692,8 +692,22 @@ export function install(rt) {
           alreadySynced.push(marker)
         }
       } else if (marker.kind === 'room_report') {
+        let changed = false
+        if (snap.sub !== undefined) {
+          const closed = rt.closeWork?.(snap.sub, `Group "${snap.roomName ?? 'group'}"`, snap.workResult ?? '', snap.worked === true ? { worked: true } : undefined)
+          if (closed !== undefined) changed = true
+        }
+        if (snap.imReplyOrigin !== undefined && snap.reportKey !== undefined) {
+          if (rt.state.imReplyOrigins?.[snap.reportKey] === undefined) {
+            rt.rememberImReplyOrigin?.(snap.reportKey, snap.imReplyOrigin)
+            changed = true
+          }
+        }
         if (rt.state.roomReports?.[marker.ownerId] !== undefined) {
           delete rt.state.roomReports[marker.ownerId]
+          changed = true
+        }
+        if (changed) {
           dirty = true
           applied.push(marker)
         } else {
@@ -1591,12 +1605,10 @@ export function install(rt) {
         if (!Array.isArray(list)) continue
         for (const item of list) {
           if (item?.args?.exchangeId === undefined || taken?.has(item.args.exchangeId) === true || rt.botOf(item.args.toId) === undefined) {
-            if (item?.args?.exchangeId !== undefined) coord?.removeDelivery?.(item.args.exchangeId)
             continue
           }
           const target = resolveReplayTarget(oldId, item.args)
           if (target === undefined) {
-            coord?.removeDelivery?.(item.args.exchangeId)
             rt.noteFailure?.({
               level: 'warn',
               source: 'delivery',
@@ -1608,9 +1620,9 @@ export function install(rt) {
           }
           const updatedArgs = { ...item.args, address: target.address }
           queued = { ...queued, [target.sessionId]: [...(queued[target.sessionId] ?? []), { ...item, args: updatedArgs }] }
-          coord?.upsertDelivery?.(target.sessionId, updatedArgs, item.at)
         }
       }
+      coord?.replaceAllDeliveries?.(queued)
       persist()
       // Restore persisted silent notices before waking Sessions via resendQueued/resumeTurn,
       // preserving causal order without waking idle recipients (or wiping notes buffered

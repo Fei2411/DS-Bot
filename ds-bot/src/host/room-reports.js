@@ -793,8 +793,11 @@ export function createRoomReports(rt, deps) {
     const target = resolvedTarget ?? rt.chatOf(bot.id)
     // Never carry a group IM origin onto the Bot's own chat if the Bot left or the origin group was deleted.
     const replyOrigin = report.imOriginMixed === true ? { mixed: true } : report.imOrigin
-    if (replyOrigin !== undefined && !(report.fromRoomId !== undefined && back === undefined)) {
-      rt.rememberImReplyOrigin?.(reportKey, replyOrigin)
+    const eligibleReplyOrigin = replyOrigin !== undefined && !(report.fromRoomId !== undefined && back === undefined)
+      ? replyOrigin
+      : undefined
+    if (eligibleReplyOrigin !== undefined) {
+      rt.rememberImReplyOrigin?.(reportKey, eligibleReplyOrigin)
     }
     const exchangeId = `group-report:${reportKey}`
     const deliverPayload = {
@@ -812,7 +815,8 @@ export function createRoomReports(rt, deps) {
     const obligationId = `room-report:${reportKey}`
     // Persist the delivery obligation and watcher-removal marker atomically in SQLite
     // before dropping the pending report from state.roomReports so a crash between SQLite
-    // commit and `state.json` save never drops OR duplicates the report.
+    // commit and `state.json` save never drops OR duplicates the report, and preserves
+    // delegated child-work closure and eligible IM reply origin on recovery.
     rt.coordination?.commitObligation?.({
       id: obligationId,
       kind: 'room_report',
@@ -824,7 +828,14 @@ export function createRoomReports(rt, deps) {
       terminalMarker: {
         kind: 'room_report',
         ownerId: report.id,
-        snapshot: { roomId: room.id, botId: report.botId, reportKey },
+        snapshot: {
+          roomId: room.id,
+          roomName: room.name,
+          botId: report.botId,
+          reportKey,
+          ...(report.sub !== undefined ? { sub: report.sub, workResult: text, worked: report.worked === true } : {}),
+          ...(eligibleReplyOrigin !== undefined ? { imReplyOrigin: eligibleReplyOrigin } : {}),
+        },
       },
     })
     delete reports()[report.id]

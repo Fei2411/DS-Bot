@@ -65,6 +65,7 @@ export function install(rt) {
   let stmt = null
   let disposed = false
   let openedReadOnly = false
+  let schemaReady = false
 
   const canWrite = () => !disposed && rt.readOnly?.() === undefined
 
@@ -165,8 +166,12 @@ export function install(rt) {
 
   function initSchema(conn) {
     conn.exec('PRAGMA busy_timeout = 5000')
-    conn.exec('PRAGMA journal_mode = WAL')
+    // On Windows we close the handle after each op to avoid EPERM directory locks;
+    // rollback DELETE journal avoids per-close WAL checkpoint + SHM unlink overhead on NTFS
+    // while keeping every transaction fully atomic and crash-safe.
+    conn.exec(CLOSE_AFTER_OP ? 'PRAGMA journal_mode = DELETE' : 'PRAGMA journal_mode = WAL')
     conn.exec('PRAGMA synchronous = NORMAL')
+    if (schemaReady) return
     const current = conn.prepare('PRAGMA user_version').get()?.user_version ?? 0
     if (current !== SCHEMA_VERSION) {
       conn.exec(`
@@ -243,6 +248,7 @@ export function install(rt) {
         PRAGMA user_version = ${SCHEMA_VERSION};
       `)
     }
+    schemaReady = true
   }
 
   function closeDb() {
@@ -267,7 +273,8 @@ export function install(rt) {
     for (const fresh of [false, true]) {
       try {
         if (fresh) {
-          for (const file of [dbPath, `${dbPath}-wal`, `${dbPath}-shm`]) {
+          schemaReady = false
+          for (const file of [dbPath, `${dbPath}-wal`, `${dbPath}-shm`, `${dbPath}-journal`]) {
             try { unlinkSync(file) } catch { /* ignore */ }
           }
         }
@@ -515,6 +522,20 @@ export function install(rt) {
     if (!canWrite() || !args?.exchangeId) return 0
     return withTx((s) => {
       writeDeliveryRow(s, sessionId, args, at)
+      return bumpGen(s)
+    }) ?? 0
+  }
+
+  function replaceAllDeliveries(queuedBySession) {
+    if (!canWrite()) return 0
+    return withTx((s) => {
+      s.clearDeliveries.run()
+      for (const [sid, list] of Object.entries(queuedBySession ?? {})) {
+        if (!Array.isArray(list)) continue
+        for (const item of list) {
+          if (item?.args?.exchangeId) writeDeliveryRow(s, sid, item.args, item.at)
+        }
+      }
       return bumpGen(s)
     }) ?? 0
   }
@@ -845,6 +866,7 @@ export function install(rt) {
     loadInitialState,
     syncLegacyInflight: () => importLegacyInflightIfNeeded({ allowWrite: true }),
     upsertDelivery,
+    replaceAllDeliveries,
     removeDelivery,
     removeWorkDeliveries,
     removeTaskStartDeliveries,
