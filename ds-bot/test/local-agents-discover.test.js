@@ -110,6 +110,33 @@ test('on Windows a pnpm shim starts its Node script', () => {
     { file: 'C:\\nodejs\\node.exe', args: ['C:\\Users\\me\\AppData\\Local\\pnpm\\global\\5\\node_modules\\opencode-ai\\bin\\opencode', 'acp'] })
 })
 
+test('on Windows a Node batch launcher leaves extensionless entrypoint resolution to Node', () => {
+  const args = ['--config=C:\\config\\日本語.json']
+  assert.deepEqual(launchOf('C:\\tools\\agent.cmd', args, {
+    platform: 'win32',
+    readFile: () => '@node "%~dp0agent" %*\r\n',
+    exists: path => path === 'C:\\tools\\agent.js',
+    find: name => name === 'node' ? 'C:\\nodejs\\node.exe' : undefined,
+  }), { file: 'C:\\nodejs\\node.exe', args: ['C:\\tools\\agent', ...args] })
+})
+
+test('on Windows the Cursor CLI batch launcher runs through cmd.exe even with Node on PATH', () => {
+  const exe = 'C:\\Program Files\\Cursor\\cursor-agent.cmd'
+  const windows = {
+    platform: 'win32',
+    readFile: () => '@echo off\r\nset "SCRIPT_DIR=%~dp0"\r\npowershell.exe -NoProfile -File "%SCRIPT_DIR%\\cursor-agent.ps1" %*\r\n',
+    exists: path => path === 'C:\\Program Files\\Cursor\\cursor-agent.ps1',
+    find: name => name === 'node' ? 'C:\\nodejs\\node.exe' : undefined,
+  }
+  for (const arg of ['--version', 'status', 'acp']) {
+    assert.deepEqual(launchOf(exe, [arg], windows), {
+      file: process.env.ComSpec ?? 'cmd.exe',
+      args: ['/d', '/s', '/c', `""${exe}" ${arg}"`],
+      options: { windowsVerbatimArguments: true },
+    })
+  }
+})
+
 test('another batch file runs through cmd.exe only with plain arguments', () => {
   const other = { platform: 'win32', readFile: () => '@echo off\r\nstart-agent\r\n', exists: () => false, find: () => undefined }
   const launch = launchOf('C:\\agents\\my agent.bat', ['acp'], other)
