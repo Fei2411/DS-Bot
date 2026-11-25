@@ -2384,13 +2384,96 @@ test('the group history shows the notice of a line the book did not keep', { ski
     const notice = await waitFor(() => rt.roomOf(room.id).log.find(line => line.reason === 'unsaved'))
     assert.ok(notice, 'the room is told the line was not saved')
     const rows = rt.groupRows(room.id, 1)
-    assert.ok(rows.some(row => row.text?.includes('may not have been saved')), 'the group history shows the notice')
+    assert.equal(rows.filter(row => row.text?.includes('may not have been saved')).length, 1, 'the group history shows the notice once')
   } finally {
     rt.ledger.written = realWritten
   }
   const second = await turnFor(sent, first)
   if (second !== undefined) await answer(second.sessionId, second.message.source.exchangeId, 'Writer done', 2)
   await running
+})
+
+// #2066 review (Fei2411 6055704278, blocking): while the book keeps refusing every write,
+// the notice that says a line was not saved is itself appended to that book, so the write
+// rolls it back out of memory and the rows clients fetch (rowsView reads only the book)
+// never carry it. room.log is not the path the client reads; rt.groupRows is.
+test('the notice of a line the book refused is in the rows clients fetch while every write still fails', { skip: process.platform === 'win32' || process.getuid?.() === 0 }, async (t) => {
+  const { call, compose, emit, userMessage, relay, answer, stop, sent, rt, home } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  await emit(room.id, userMessage('Kick off'))
+  const running = relay(room.id, 'relay')
+  const first = await turnFor(sent)
+  assert.ok(first)
+  const book = join(home, 'ledger', bookFile(`group-${room.id}`))
+  const wrote = '@Writer a line the book keeps refusing'
+  chmodSync(book, 0o444)
+  try {
+    await compose(room.id, wrote)
+    await answer(first.sessionId, first.message.source.exchangeId, 'Chief done', 1)
+    const notice = await waitFor(() => rt.roomOf(room.id).log.find(line => line.reason === 'unsaved'))
+    assert.ok(notice, 'the room is told the line was not saved')
+    // Every write is refused, the notice's own included: the book holds no notice at all.
+    await rt.ledger.flush()
+    assert.equal(rt.ledger.records(`group-${room.id}`).some(record => record.reason === 'unsaved'), false,
+      'the book refused the notice too, so the rows cannot come from it')
+    const rows = rt.groupRows(room.id, 1)
+    assert.ok(rows.some(row => row.text?.includes('may not have been saved')),
+      'the rows clients fetch show the notice while the book keeps refusing writes')
+  } finally {
+    chmodSync(book, 0o644)
+  }
+  const second = await turnFor(sent, first)
+  if (second !== undefined) await answer(second.sessionId, second.message.source.exchangeId, 'Writer done', 2)
+  await running
+  // The same refusal is met twice in this round (the drain and the handed-back line); the
+  // room hears one warning for it, not one per attempt.
+  assert.equal(rt.roomOf(room.id).log.filter(line => line.reason === 'unsaved').length, 1,
+    'two refused attempts say the same warning once')
+})
+// #2066 review (Fei2411 6055704278, blocking, part 2): once the book takes writes again,
+// the notice kept for the refused line must show exactly once: either the slot is written
+// to the book and cleared, or it is cleared without a second copy. Zero would lose the
+// warning; two would show the same notice twice.
+test('the notice of a refused line shows once after the book takes writes again', { skip: process.platform === 'win32' || process.getuid?.() === 0 }, async (t) => {
+  const { call, compose, emit, userMessage, relay, answer, stop, sent, rt, home } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  await emit(room.id, userMessage('Kick off'))
+  const running = relay(room.id, 'relay')
+  const first = await turnFor(sent)
+  assert.ok(first)
+  const book = join(home, 'ledger', bookFile(`group-${room.id}`))
+  const wrote = '@Writer a line the book keeps refusing'
+  chmodSync(book, 0o444)
+  let notice
+  try {
+    await compose(room.id, wrote)
+    await answer(first.sessionId, first.message.source.exchangeId, 'Chief done', 1)
+    notice = await waitFor(() => rt.roomOf(room.id).log.find(line => line.reason === 'unsaved'))
+    assert.ok(notice, 'the room is told the line was not saved')
+  } finally {
+    chmodSync(book, 0o644)
+  }
+  // The round hands the line back; the next round says it once the book takes writes.
+  const second = await turnFor(sent, first)
+  if (second !== undefined) await answer(second.sessionId, second.message.source.exchangeId, 'Writer done', 2)
+  assert.ok(await waitFor(() => rt.roomActive(room.id) === false ? true : undefined), 'the round ends and hands the line back')
+  const again = relay(room.id, 'again').catch(() => undefined)
+  const saved = await waitFor(() => rt.roomOf(room.id).log.some(line => line.text === wrote) ? true : undefined)
+  assert.ok(saved, 'the next round saves the line once the book takes writes')
+  await rt.ledger.flush()
+  await new Promise(resolve => setTimeout(resolve, 40))
+  // Two refused writes leave two notices; each must reach the rows exactly once, so a
+  // lost notice and a notice shown twice both fail here.
+  const pending = (rt.roomOf(room.id).log ?? []).filter(line => line.reason === 'unsaved')
+  assert.ok(pending.length > 0, 'the refused writes left notices in the room log')
+  const notices = rt.groupRows(room.id, 1).filter(row => row.text?.includes('may not have been saved'))
+  assert.equal(notices.length, pending.length, 'every notice the book refused shows once in the rows after recovery')
+  rt.stopRoomRound?.(room.id)
+  await new Promise(resolve => setTimeout(resolve, 40))
+  await running
+  await again
 })
 
 // #2066 review (klarkxy 6052137086): postToRoom calls registerQueuedReport before it
