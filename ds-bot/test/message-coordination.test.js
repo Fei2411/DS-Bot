@@ -1123,3 +1123,36 @@ test('bot-handoff crash after commitTaskTerminal replays peer_result obligation 
   assert.equal(replies.length, 1)
   assert.match(replies[0].data.content[0].text, /HANDOFF RESULT COMMITTED/)
 })
+
+test('incomplete SQLite schema does not crash startup and completes initialization after lock', async (t) => {
+  const base = mkdtempSync(join(tmpdir(), 'ds-bot-coord-partial-schema-'))
+  t.after(() => rmSync(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }))
+  const home = join(base, 'bot')
+  mkdirSync(home, { recursive: true })
+  writeFileSync(join(home, 'state.json'), JSON.stringify(seedTeam()))
+
+  // Simulate a DB left with only the first two tables (`meta`, `deliveries`) and user_version = 0.
+  const { DatabaseSync } = await import('node:sqlite')
+  const dbPath = join(home, 'coordination.sqlite')
+  const partial = new DatabaseSync(dbPath)
+  partial.exec(`
+    CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+    CREATE TABLE deliveries (
+      exchange_id TEXT PRIMARY KEY, session_id TEXT, address_json TEXT, role TEXT NOT NULL,
+      bot_id TEXT NOT NULL, room_id TEXT, task_id TEXT, work_id TEXT, args_json TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'queued', reason TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+    );
+  `)
+  partial.close()
+
+  const dsh = await mountRealDsh(t, base)
+  await dsh.create('dm-a')
+  const host = attachRuntime(t, dsh, home, base)
+  assert.equal(host.rt.coordination.hadInitialReadFailure(), true, 'incomplete schema must trigger initialReadFailed instead of throwing during install')
+  await host.rt.load()
+  assert.equal(host.rt.coordination.recoverAfterLock(), true, 'recoverAfterLock must complete schema initialization once lock is held')
+  assert.equal(host.rt.coordination.hadInitialReadFailure(), false)
+  // All tables are now present and writable.
+  host.rt.coordination.upsertTurn('dm-a', { botId: 'a', turn: 1, since: 100 })
+  assert.equal(host.rt.coordination.loadInitialState().turns['dm-a']?.botId, 'a')
+})

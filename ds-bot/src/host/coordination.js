@@ -186,79 +186,86 @@ export function install(rt) {
     conn.exec(CLOSE_AFTER_OP ? 'PRAGMA journal_mode = DELETE' : 'PRAGMA journal_mode = WAL')
     const current = conn.prepare('PRAGMA user_version').get()?.user_version ?? 0
     if (current !== SCHEMA_VERSION) {
-      conn.exec(`
-        CREATE TABLE IF NOT EXISTS meta (
-          key TEXT PRIMARY KEY,
-          value TEXT NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS deliveries (
-          exchange_id TEXT PRIMARY KEY,
-          session_id TEXT,
-          address_json TEXT,
-          role TEXT NOT NULL,
-          bot_id TEXT NOT NULL,
-          room_id TEXT,
-          task_id TEXT,
-          work_id TEXT,
-          args_json TEXT NOT NULL,
-          status TEXT NOT NULL DEFAULT 'queued',
-          reason TEXT,
-          created_at INTEGER NOT NULL,
-          updated_at INTEGER NOT NULL
-        );
-        CREATE INDEX IF NOT EXISTS idx_deliveries_task ON deliveries (task_id);
-        CREATE INDEX IF NOT EXISTS idx_deliveries_work ON deliveries (work_id);
-        CREATE TABLE IF NOT EXISTS active_turns (
-          session_id TEXT PRIMARY KEY,
-          bot_id TEXT NOT NULL,
-          room_id TEXT,
-          task_id TEXT,
-          turn_num INTEGER,
-          since INTEGER NOT NULL,
-          trigger_json TEXT,
-          approval_json TEXT,
-          resumed INTEGER NOT NULL DEFAULT 0,
-          unverified INTEGER NOT NULL DEFAULT 0,
-          record_json TEXT NOT NULL,
-          updated_at INTEGER NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS obligations (
-          obligation_id TEXT PRIMARY KEY,
-          kind TEXT NOT NULL,
-          owner_id TEXT NOT NULL,
-          bot_id TEXT NOT NULL,
-          address_json TEXT NOT NULL,
-          payload_json TEXT NOT NULL,
-          status TEXT NOT NULL DEFAULT 'pending',
-          delivery_id TEXT,
-          created_at INTEGER NOT NULL,
-          updated_at INTEGER NOT NULL
-        );
-        CREATE INDEX IF NOT EXISTS idx_obligations_status ON obligations (status);
-        CREATE INDEX IF NOT EXISTS idx_obligations_owner ON obligations (kind, owner_id);
-        CREATE TABLE IF NOT EXISTS silent_notes (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          scope TEXT NOT NULL,
-          target_key TEXT NOT NULL,
-          exchange_id TEXT,
-          message_json TEXT NOT NULL,
-          ledger_json TEXT,
-          created_at INTEGER NOT NULL
-        );
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_silent_unique
-          ON silent_notes (scope, target_key, exchange_id)
-          WHERE exchange_id IS NOT NULL;
-        CREATE INDEX IF NOT EXISTS idx_silent_scope_target
-          ON silent_notes (scope, target_key, id);
-        CREATE TABLE IF NOT EXISTS terminal_markers (
-          kind TEXT NOT NULL,
-          owner_id TEXT NOT NULL,
-          snapshot_json TEXT NOT NULL,
-          updated_at INTEGER NOT NULL,
-          PRIMARY KEY (kind, owner_id)
-        );
-        PRAGMA user_version = ${SCHEMA_VERSION};
-      `)
+      conn.exec('BEGIN IMMEDIATE')
+      try {
+        conn.exec(`
+          CREATE TABLE IF NOT EXISTS meta (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+          );
+          CREATE TABLE IF NOT EXISTS deliveries (
+            exchange_id TEXT PRIMARY KEY,
+            session_id TEXT,
+            address_json TEXT,
+            role TEXT NOT NULL,
+            bot_id TEXT NOT NULL,
+            room_id TEXT,
+            task_id TEXT,
+            work_id TEXT,
+            args_json TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'queued',
+            reason TEXT,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+          );
+          CREATE INDEX IF NOT EXISTS idx_deliveries_task ON deliveries (task_id);
+          CREATE INDEX IF NOT EXISTS idx_deliveries_work ON deliveries (work_id);
+          CREATE TABLE IF NOT EXISTS active_turns (
+            session_id TEXT PRIMARY KEY,
+            bot_id TEXT NOT NULL,
+            room_id TEXT,
+            task_id TEXT,
+            turn_num INTEGER,
+            since INTEGER NOT NULL,
+            trigger_json TEXT,
+            approval_json TEXT,
+            resumed INTEGER NOT NULL DEFAULT 0,
+            unverified INTEGER NOT NULL DEFAULT 0,
+            record_json TEXT NOT NULL,
+            updated_at INTEGER NOT NULL
+          );
+          CREATE TABLE IF NOT EXISTS obligations (
+            obligation_id TEXT PRIMARY KEY,
+            kind TEXT NOT NULL,
+            owner_id TEXT NOT NULL,
+            bot_id TEXT NOT NULL,
+            address_json TEXT NOT NULL,
+            payload_json TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            delivery_id TEXT,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+          );
+          CREATE INDEX IF NOT EXISTS idx_obligations_status ON obligations (status);
+          CREATE INDEX IF NOT EXISTS idx_obligations_owner ON obligations (kind, owner_id);
+          CREATE TABLE IF NOT EXISTS silent_notes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            scope TEXT NOT NULL,
+            target_key TEXT NOT NULL,
+            exchange_id TEXT,
+            message_json TEXT NOT NULL,
+            ledger_json TEXT,
+            created_at INTEGER NOT NULL
+          );
+          CREATE UNIQUE INDEX IF NOT EXISTS idx_silent_unique
+            ON silent_notes (scope, target_key, exchange_id)
+            WHERE exchange_id IS NOT NULL;
+          CREATE INDEX IF NOT EXISTS idx_silent_scope_target
+            ON silent_notes (scope, target_key, id);
+          CREATE TABLE IF NOT EXISTS terminal_markers (
+            kind TEXT NOT NULL,
+            owner_id TEXT NOT NULL,
+            snapshot_json TEXT NOT NULL,
+            updated_at INTEGER NOT NULL,
+            PRIMARY KEY (kind, owner_id)
+          );
+          PRAGMA user_version = ${SCHEMA_VERSION};
+        `)
+        conn.exec('COMMIT')
+      } catch (error) {
+        try { conn.exec('ROLLBACK') } catch { /* ignore */ }
+        throw error
+      }
     }
     schemaReady = true
   }
@@ -306,6 +313,11 @@ export function install(rt) {
         try {
           if (readOnlyMode) {
             conn.exec('PRAGMA busy_timeout = 5000')
+            const version = conn.prepare('PRAGMA user_version').get()?.user_version ?? 0
+            const tableCount = conn.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table' AND name IN ('meta','deliveries','active_turns','obligations','silent_notes','terminal_markers')").get()?.n ?? 0
+            if (version !== SCHEMA_VERSION || tableCount < 6) {
+              throw new Error(`incomplete coordination schema (version=${version}, tables=${tableCount})`)
+            }
           } else {
             initSchema(conn)
           }
