@@ -11,7 +11,11 @@ import { DatabaseSync } from 'node:sqlite'
 import { HISTORY_TIMEOUT_MS, SOURCE_KIND } from './constants.js'
 import { isMissingSessionError } from './threads.js'
 
-const SCHEMA_VERSION = 1
+const SCHEMA_VERSION = 2
+// On Windows, an open SQLite WAL handle blocks removing the team directory (EPERM).
+// Closing the handle immediately after each operation keeps coordination durable while
+// leaving zero lingering OS file locks between operations.
+const CLOSE_AFTER_OP = process.platform === 'win32'
 
 const isCorruptSqliteError = error => /malformed|not a database|corrupt|SQLITE_CORRUPT|SQLITE_NOTADB/i.test(String(error?.message ?? error))
 
@@ -92,7 +96,6 @@ export function install(rt) {
       deleteDeliveriesByWork: conn.prepare('DELETE FROM deliveries WHERE exchange_id = ? OR work_id = ?'),
       clearDeliveries: conn.prepare('DELETE FROM deliveries'),
       listDeliveries: conn.prepare('SELECT exchange_id, session_id, address_json, role, bot_id, room_id, task_id, work_id, args_json, status, reason, created_at, updated_at FROM deliveries ORDER BY created_at ASC'),
-      markDeliveryStatus: conn.prepare('UPDATE deliveries SET status = ?, reason = ?, updated_at = ? WHERE exchange_id = ?'),
 
       upsertTurn: conn.prepare(`
         INSERT INTO active_turns (
@@ -147,6 +150,16 @@ export function install(rt) {
       listSilentByScope: conn.prepare('SELECT id, scope, target_key, exchange_id, message_json, ledger_json, created_at FROM silent_notes WHERE scope = ? ORDER BY id ASC'),
       listSilentByScopeTarget: conn.prepare('SELECT id, scope, target_key, exchange_id, message_json, ledger_json, created_at FROM silent_notes WHERE scope = ? AND target_key = ? ORDER BY id ASC'),
       countSilentByScopeTarget: conn.prepare('SELECT COUNT(*) AS count FROM silent_notes WHERE scope = ? AND target_key = ?'),
+
+      upsertTerminalMarker: conn.prepare(`
+        INSERT INTO terminal_markers (kind, owner_id, snapshot_json, updated_at)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(kind, owner_id) DO UPDATE SET
+          snapshot_json = excluded.snapshot_json,
+          updated_at = excluded.updated_at
+      `),
+      deleteTerminalMarker: conn.prepare('DELETE FROM terminal_markers WHERE kind = ? AND owner_id = ?'),
+      listTerminalMarkers: conn.prepare('SELECT kind, owner_id, snapshot_json, updated_at FROM terminal_markers ORDER BY updated_at ASC'),
     }
   }
 
@@ -220,6 +233,13 @@ export function install(rt) {
           WHERE exchange_id IS NOT NULL;
         CREATE INDEX IF NOT EXISTS idx_silent_scope_target
           ON silent_notes (scope, target_key, id);
+        CREATE TABLE IF NOT EXISTS terminal_markers (
+          kind TEXT NOT NULL,
+          owner_id TEXT NOT NULL,
+          snapshot_json TEXT NOT NULL,
+          updated_at INTEGER NOT NULL,
+          PRIMARY KEY (kind, owner_id)
+        );
         PRAGMA user_version = ${SCHEMA_VERSION};
       `)
     }
@@ -278,6 +298,16 @@ export function install(rt) {
     return null
   }
 
+  function withRead(fn, fallback) {
+    const conn = ensureDb()
+    if (conn === null || stmt === null) return fallback
+    try {
+      return fn(stmt, conn)
+    } finally {
+      if (CLOSE_AFTER_OP) closeDb()
+    }
+  }
+
   function withTx(fn) {
     const conn = ensureDb({ write: true })
     if (conn === null) return undefined
@@ -289,15 +319,17 @@ export function install(rt) {
     } catch (error) {
       try { conn.exec('ROLLBACK') } catch { /* ignore */ }
       throw error
+    } finally {
+      if (CLOSE_AFTER_OP) closeDb()
     }
   }
 
   function currentGen() {
-    const conn = ensureDb()
-    if (conn === null || stmt === null) return 0
-    const row = stmt.getMeta.get('coord_gen')
-    const parsed = Number.parseInt(row?.value ?? '0', 10)
-    return Number.isFinite(parsed) ? parsed : 0
+    return withRead((s) => {
+      const row = s.getMeta.get('coord_gen')
+      const parsed = Number.parseInt(row?.value ?? '0', 10)
+      return Number.isFinite(parsed) ? parsed : 0
+    }, 0)
   }
 
   function bumpGen(s) {
@@ -354,11 +386,10 @@ export function install(rt) {
   // so a read-only host never creates or mutates `coordination.sqlite`.
   function importLegacyInflightIfNeeded({ allowWrite = false } = {}) {
     const canCommit = allowWrite && canWrite()
-    const conn = ensureDb({ write: false })
     if (!existsSync(legacyInflightPath)) {
       // If a previous mirror existed and was externally removed (e.g. reset/test fixture),
       // clear only mirrored inflight tables while preserving committed SQLite obligations.
-      const hadMirror = conn !== null && stmt !== null && Boolean(stmt.getMeta.get('legacy_inflight_hash')?.value)
+      const hadMirror = withRead(s => Boolean(s.getMeta.get('legacy_inflight_hash')?.value), false)
       if (hadMirror) {
         if (canCommit) {
           withTx((s) => {
@@ -380,12 +411,16 @@ export function install(rt) {
     if (!parsed || typeof parsed !== 'object') return { imported: false }
     const fileHash = sha256(raw)
     const obj = value => (value !== null && typeof value === 'object' && !Array.isArray(value) ? value : {})
-    if (conn !== null && stmt !== null) {
-      const lastImportedHash = stmt.getMeta.get('legacy_inflight_hash')?.value
-      const gen = currentGen()
+    const metaCheck = withRead((s) => {
+      const lastImportedHash = s.getMeta.get('legacy_inflight_hash')?.value
+      const genRow = s.getMeta.get('coord_gen')?.value
+      const gen = Number.isFinite(Number.parseInt(genRow ?? '0', 10)) ? Number.parseInt(genRow ?? '0', 10) : 0
+      return { lastImportedHash, gen }
+    }, null)
+    if (metaCheck !== null) {
       const fileGen = typeof parsed._coordGen === 'number' ? parsed._coordGen : undefined
-      if (fileHash === lastImportedHash) return { imported: false }
-      if (fileGen !== undefined && fileGen <= gen) return { imported: false }
+      if (fileHash === metaCheck.lastImportedHash) return { imported: false }
+      if (fileGen !== undefined && fileGen <= metaCheck.gen) return { imported: false }
     }
     if (!canCommit) {
       return {
@@ -430,35 +465,50 @@ export function install(rt) {
   function loadInitialState() {
     const legacy = importLegacyInflightIfNeeded({ allowWrite: false })
     if (legacy.fallback !== undefined) {
-      return { ...legacy.fallback, obligations: listPendingObligations() }
+      return { ...legacy.fallback, obligations: listPendingObligations(), terminalMarkers: listTerminalMarkers() }
     }
-    const conn = ensureDb()
-    if (conn === null || stmt === null) {
-      return { turns: {}, queued: {}, silent: {}, obligations: [] }
-    }
-    const turns = {}
-    for (const row of stmt.listTurns.all()) {
-      const record = parseJson(row.record_json)
-      if (record && typeof record === 'object') turns[row.session_id] = record
-    }
-    const queued = {}
-    for (const row of stmt.listDeliveries.all()) {
-      if (row.status === 'cancelled' || row.status === 'consumed') continue
-      const args = parseJson(row.args_json)
-      if (!args || typeof args !== 'object') continue
-      const key = row.session_id || args.sessionId || args.toId
-      if (!key) continue
-      ;(queued[key] ??= []).push({ at: row.created_at, args, status: row.status })
-    }
-    const silent = {}
-    for (const row of stmt.listSilentByScope.all('session')) {
-      const message = parseJson(row.message_json)
-      if (!message) continue
-      const ledger = parseJson(row.ledger_json)
-      ;(silent[row.target_key] ??= []).push({ message, ...(ledger !== undefined ? { ledger } : {}) })
-    }
-    const obligations = listPendingObligations()
-    return { turns, queued, silent, obligations }
+    return withRead((s) => {
+      const turns = {}
+      for (const row of s.listTurns.all()) {
+        const record = parseJson(row.record_json)
+        if (record && typeof record === 'object') turns[row.session_id] = record
+      }
+      const queued = {}
+      for (const row of s.listDeliveries.all()) {
+        if (row.status === 'cancelled' || row.status === 'consumed') continue
+        const args = parseJson(row.args_json)
+        if (!args || typeof args !== 'object') continue
+        const key = row.session_id || args.sessionId || args.toId
+        if (!key) continue
+        ;(queued[key] ??= []).push({ at: row.created_at, args, status: row.status })
+      }
+      const silent = {}
+      for (const row of s.listSilentByScope.all('session')) {
+        const message = parseJson(row.message_json)
+        if (!message) continue
+        const ledger = parseJson(row.ledger_json)
+        ;(silent[row.target_key] ??= []).push({ message, ...(ledger !== undefined ? { ledger } : {}) })
+      }
+      const obligations = s.listPendingObligations.all().map(row => ({
+        id: row.obligation_id,
+        kind: row.kind,
+        ownerId: row.owner_id,
+        botId: row.bot_id,
+        address: parseJson(row.address_json, { foreground: true }),
+        payload: parseJson(row.payload_json, {}),
+        status: row.status,
+        deliveryId: row.delivery_id ?? undefined,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      }))
+      const terminalMarkers = s.listTerminalMarkers.all().map(row => ({
+        kind: row.kind,
+        ownerId: row.owner_id,
+        snapshot: parseJson(row.snapshot_json, {}),
+        updatedAt: row.updated_at,
+      }))
+      return { turns, queued, silent, obligations, terminalMarkers }
+    }, { turns: {}, queued: {}, silent: {}, obligations: [], terminalMarkers: [] })
   }
 
   function upsertDelivery(sessionId, args, at = Date.now()) {
@@ -532,16 +582,21 @@ export function install(rt) {
   // Atomically commits a background task's terminal coordination changes:
   // 1) cancels any unsent opening `role: 'task'` delivery so a failed start can never
   //    replay into the Bot's foreground chat after restart;
-  // 2) records the owed `task_report` (or `peer_result`) obligation in the same transaction
-  //    so a crash between saving `state.json` and calling `deliver()` never drops the report.
-  function commitTaskTerminal({ taskId, obligation } = {}) {
+  // 2) records the owed `task_report` obligation in the same transaction
+  //    so a crash between saving `state.json` and calling `deliver()` never drops the report;
+  // 3) records a durable terminal task snapshot until `state.json` persists the settled status
+  //    so a crash between SQLite commit and `state.json` save never lets startup re-mark the task interrupted.
+  function commitTaskTerminal({ taskId, obligation, terminalSnapshot } = {}) {
     if (!canWrite()) return false
     return withTx((s) => {
+      const now = Date.now()
       if (typeof taskId === 'string' && taskId !== '') {
         s.deleteDeliveriesByTaskStart.run(taskId)
+        if (terminalSnapshot && typeof terminalSnapshot === 'object') {
+          s.upsertTerminalMarker.run('task', taskId, JSON.stringify(terminalSnapshot), now)
+        }
       }
       if (obligation && typeof obligation.id === 'string' && obligation.id !== '') {
-        const now = Date.now()
         s.upsertObligation.run(
           obligation.id,
           String(obligation.kind ?? 'task_report'),
@@ -560,7 +615,7 @@ export function install(rt) {
     }) === true
   }
 
-  function commitObligation({ id, kind, ownerId, botId, address, payload, deliveryId = null }) {
+  function commitObligation({ id, kind, ownerId, botId, address, payload, deliveryId = null, terminalMarker }) {
     if (!canWrite() || typeof id !== 'string' || id === '') return false
     return withTx((s) => {
       const now = Date.now()
@@ -576,6 +631,32 @@ export function install(rt) {
         now,
         now,
       )
+      if (terminalMarker?.kind && terminalMarker?.ownerId) {
+        s.upsertTerminalMarker.run(
+          String(terminalMarker.kind),
+          String(terminalMarker.ownerId),
+          JSON.stringify(terminalMarker.snapshot ?? {}),
+          now,
+        )
+      }
+      bumpGen(s)
+      return true
+    }) === true
+  }
+
+  function listTerminalMarkers() {
+    return withRead(s => s.listTerminalMarkers.all().map(row => ({
+      kind: row.kind,
+      ownerId: row.owner_id,
+      snapshot: parseJson(row.snapshot_json, {}),
+      updatedAt: row.updated_at,
+    })), [])
+  }
+
+  function clearTerminalMarker(kind, ownerId) {
+    if (!canWrite() || typeof kind !== 'string' || kind === '' || typeof ownerId !== 'string' || ownerId === '') return false
+    return withTx((s) => {
+      s.deleteTerminalMarker.run(kind, ownerId)
       bumpGen(s)
       return true
     }) === true
@@ -596,16 +677,14 @@ export function install(rt) {
 
   function hasPendingObligation(id) {
     if (typeof id !== 'string' || id === '') return false
-    const conn = ensureDb()
-    if (conn === null || stmt === null) return false
-    const row = stmt.getObligation.get(id)
-    return row !== undefined && (row.status === 'pending' || row.status === 'dispatched')
+    return withRead((s) => {
+      const row = s.getObligation.get(id)
+      return row !== undefined && (row.status === 'pending' || row.status === 'dispatched')
+    }, false)
   }
 
   function listPendingObligations() {
-    const conn = ensureDb()
-    if (conn === null || stmt === null) return []
-    return stmt.listPendingObligations.all().map(row => ({
+    return withRead(s => s.listPendingObligations.all().map(row => ({
       id: row.obligation_id,
       kind: row.kind,
       ownerId: row.owner_id,
@@ -616,7 +695,7 @@ export function install(rt) {
       deliveryId: row.delivery_id ?? undefined,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
-    }))
+    })), [])
   }
 
   // Durable work-scoped mid-step notes (`scope = 'work'`).
@@ -639,9 +718,7 @@ export function install(rt) {
 
   function listWorkNotes(workKey) {
     if (typeof workKey !== 'string' || workKey === '') return []
-    const conn = ensureDb()
-    if (conn === null || stmt === null) return []
-    return stmt.listSilentByScopeTarget.all('work', workKey).map((row) => {
+    return withRead(s => s.listSilentByScopeTarget.all('work', workKey).map((row) => {
       const message = parseJson(row.message_json)
       const ledger = parseJson(row.ledger_json)
       return {
@@ -650,7 +727,7 @@ export function install(rt) {
         message,
         ...(ledger !== undefined ? { ledger } : {}),
       }
-    }).filter(item => item.message !== undefined)
+    }).filter(item => item.message !== undefined), [])
   }
 
   function removeWorkNote(workKey, exchangeId) {
@@ -673,9 +750,7 @@ export function install(rt) {
 
   function countWorkNotes(workKey) {
     if (typeof workKey !== 'string' || workKey === '') return 0
-    const conn = ensureDb()
-    if (conn === null || stmt === null) return 0
-    return Number(stmt.countSilentByScopeTarget.get('work', workKey)?.count ?? 0)
+    return withRead(s => Number(s.countSilentByScopeTarget.get('work', workKey)?.count ?? 0), 0)
   }
 
   function noteMirrorWritten(jsonText) {
@@ -781,6 +856,8 @@ export function install(rt) {
     markObligation,
     hasPendingObligation,
     listPendingObligations,
+    listTerminalMarkers,
+    clearTerminalMarker,
     addWorkNote,
     listWorkNotes,
     removeWorkNote,

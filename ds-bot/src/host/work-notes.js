@@ -7,8 +7,13 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { SOURCE_KIND } from './constants.js'
 
 export function workNotes(rt) {
+  const MAX_OBSERVED = 500
   const observedIds = new Set()
   const confirmingIds = new Set()
+  const rememberObserved = (id) => {
+    observedIds.add(id)
+    if (observedIds.size > MAX_OBSERVED) observedIds.delete(observedIds.values().next().value)
+  }
 
   const listNotes = (workId, work) => {
     const dbNotes = rt.coordination?.listWorkNotes?.(workId) ?? []
@@ -27,23 +32,48 @@ export function workNotes(rt) {
 
   async function enqueue(ref, sender, target, long, room) {
     if (rt.readOnly?.() !== undefined) throw new Error('This window cannot save a work update.')
-    const current = () => room
-      ? rt.pendingGroupAssignment?.(room.id, target.id, sender.id)
-      : rt.resolveWork?.(ref)?.work
-    const work = current()
     if (room && (!room.members.includes(sender.id) || !room.members.includes(target.id))) {
       throw new Error('Both Bots must be members of this group.')
     }
-    if (!room && (!work || work.from !== sender.id || work.to !== target.id)) {
-      throw new Error('No open work with that reference from you to this Bot. Nothing was sent.')
-    }
-    if (room && ref && ref !== work?.key) {
-      throw new Error('That reference does not name your open group assignment to this member.')
-    }
+    let work
+    let current
     if (room) {
+      if (ref) {
+        const resolveByRef = () => {
+          const found = rt.resolveGroupBatch?.(room.id, target.id, ref)
+          return found !== undefined && found.by === sender.id ? found : undefined
+        }
+        work = resolveByRef()
+        if (work === undefined) {
+          throw new Error('That reference does not name your open group assignment to this member.')
+        }
+        const resolvedKey = work.key
+        current = () => {
+          const found = rt.resolveGroupBatch?.(room.id, target.id, resolvedKey)
+          return found !== undefined && found.by === sender.id ? found : undefined
+        }
+      } else {
+        const matches = rt.pendingGroupAssignments?.(room.id, target.id, sender.id) ?? []
+        if (matches.length > 1) {
+          throw new Error(`Multiple open group assignments to ${target.name} match (${matches.map(item => item.key).join(', ')}); pass work_id to specify which one.`)
+        }
+        work = matches[0]
+        const resolvedKey = work?.key
+        current = () => {
+          if (resolvedKey === undefined) return undefined
+          const found = rt.resolveGroupBatch?.(room.id, target.id, resolvedKey)
+          return found !== undefined && found.by === sender.id ? found : undefined
+        }
+      }
       await rt.recordGroupNote?.(room, sender, target, long)
       if (!work || current() !== work) {
         return 'Posted as a group note. No open assignment received it; nobody was woken.'
+      }
+    } else {
+      current = () => rt.resolveWork?.(ref)?.work
+      work = current()
+      if (!work || work.from !== sender.id || work.to !== target.id) {
+        throw new Error('No open work with that reference from you to this Bot. Nothing was sent.')
       }
     }
     const id = room ? work.key : rt.resolveWork(ref).id
@@ -101,9 +131,17 @@ export function workNotes(rt) {
       : rt.live.get(agent.id)?.info
     const task = rt.taskBySession?.(agent.id)?.task
     const member = rt.groupOwners.get(agent.id)
-    const group = member && primary?.askedBy && primary.roomId === member.roomId
-      ? rt.pendingGroupAssignment?.(member.roomId, member.botId, primary.askedBy)
-      : undefined
+    let group
+    if (member && primary?.roomId === member.roomId) {
+      if (primary.batchKey !== undefined) {
+        // When a turn names a batch, resolve only that exact batch (or its same-parent successor);
+        // never fall back to another open assignment between the same caller and worker.
+        group = rt.resolveGroupBatch?.(member.roomId, member.botId, primary.batchKey)
+      } else if (primary.askedBy !== undefined) {
+        const matches = rt.pendingGroupAssignments?.(member.roomId, member.botId, primary.askedBy) ?? []
+        if (matches.length === 1) group = matches[0]
+      }
+    }
     const id = group?.key
       ?? rt.workOf?.(primary)
       ?? (task?.origin === 'bot-handoff' && primary?.kind !== 'user' ? task.exchangeId : undefined)
@@ -142,7 +180,7 @@ export function workNotes(rt) {
     if (typeof exId !== 'string' || exId === '') return
     const found = listNotes(workId, work).find(entry => (entry.exchangeId ?? entry.message?.source?.exchangeId) === exId)
     if (found === undefined) return
-    observedIds.add(exId)
+    rememberObserved(exId)
     if (confirmingIds.has(exId)) return
     confirmingIds.add(exId)
     // session/event fires inside Session.append. Checkpoint outside that call

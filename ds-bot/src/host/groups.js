@@ -1003,6 +1003,11 @@ export function install(rt) {
     && batch.pending.includes(botId)
     && (!matchParent || batch.parentBatchKey === parentBatchKey))
   rt.pendingGroupAssignment = (roomId, botId, by) => batchOf(roomId, botId, by)
+  rt.pendingGroupAssignments = (roomId, botId, by) => Object.values(batches()).filter(batch =>
+    batch.roomId === roomId
+    && batch.by === by
+    && batch.pending.includes(botId))
+  rt.resolveGroupBatch = (roomId, botId, key) => resolveBatchKey(roomId, botId, key)
   rt.recordGroupNote = async (room, sender, target, long) => {
     say(room, {
       who: sender.name,

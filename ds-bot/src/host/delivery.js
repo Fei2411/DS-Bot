@@ -504,7 +504,7 @@ export function install(rt) {
       ...(fromRoomId ? { senderRoomId: fromRoomId } : {}),
       ...(abandoned ? { abandoned: true } : {}),
     }
-    const targetSessionId = sessionId ?? rt.chatOf(toId)
+    let targetSessionId = sessionId ?? rt.chatOf(toId)
     // On disk before it goes out: a message the book could not keep is not sent, so none is
     // delivered with no record of it. A resend keeps the record it has; only a merged request
     // replaces it with its added text.
@@ -529,9 +529,17 @@ export function install(rt) {
         await rt.ledger.written(book)
       }
       await rt.ensureCapabilities(targetSessionId)
-      const agent = await resolveAgent(targetSessionId)
+      let agent = await resolveAgent(targetSessionId)
       if (address && addressedSession(rt, toId, address) !== targetSessionId) {
-        throw Object.assign(new Error('The delivery recipient changed during admission'), { code: 'bot/unresolved-return', delivered: false })
+        const currentTarget = addressedSession(rt, toId, address)
+        const fallbackTarget = currentTarget ?? ((role === 'reply' || role === 'report') ? rt.chatOf(toId) : undefined)
+        if (fallbackTarget === undefined) {
+          throw Object.assign(new Error('The delivery recipient changed during admission'), { code: 'bot/unresolved-return', delivered: false })
+        }
+        targetSessionId = fallbackTarget
+        if (ledgerMeta !== undefined) ledgerMeta.sessionId = targetSessionId
+        await rt.ensureCapabilities(targetSessionId)
+        agent = await resolveAgent(targetSessionId)
       }
       // A non-waking note/cancel injects model-facing context ONLY while the target is idle
       // (buffering until idle if the target is currently running, so DSH never runs an extra

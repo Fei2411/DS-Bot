@@ -84,12 +84,20 @@ export function addressedSession(rt, toId, address) {
   return address.foreground ? rt.chatOf(toId) : undefined
 }
 
+export function sessionRoomId(state, botId, sessionId) {
+  if (typeof sessionId !== 'string' || sessionId === '' || typeof botId !== 'string' || botId === '') return undefined
+  for (const room of Object.values(state?.rooms ?? {})) {
+    if (room?.sessions?.[botId] === sessionId) return room.id
+    if ((room?.segments?.[botId] ?? []).some(segment => segment?.sessionId === sessionId)) return room.id
+  }
+  return undefined
+}
+
 export function isMissingSessionError(error) {
   const code = error?.code
   return code === 'session/not-found'
     || code === 'SESSION_QUERY_SESSION_NOT_FOUND'
-    || code === 'ENOENT'
-    || /\bsession\b.*\bnot found\b|\bnot found\b/i.test(String(error?.message ?? ''))
+    || /\bsession\b.*\bnot found\b|\bnot found\b.*\bsession\b/i.test(String(error?.message ?? ''))
 }
 
 // A fresh part replaces a thread's current one; the part it replaces joins that thread's

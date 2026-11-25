@@ -18,7 +18,7 @@ import { replaceFile } from './files.js'
 import { stripOwnName } from './groups.js'
 import { answerSender, cutOffText, failureLine, turnFailure } from './turns.js'
 import { textOf } from './text.js'
-import { addressedSession, isActiveTask, ownChatSessions, returnAddress, threadCurrentOfPart, threadOfPart } from './threads.js'
+import { addressedSession, isActiveTask, ownChatSessions, returnAddress, sessionRoomId, threadCurrentOfPart, threadOfPart } from './threads.js'
 
 // Long enough for DSH to finish opening its workspaces after a start.
 export const RESUME_DELAY_MS = 3000
@@ -512,30 +512,36 @@ export function install(rt) {
     return true
   }
 
-  // Resolve the current DSH Session for a queued delivery using its logical address.
-  // A closed background task or removed group NEVER receives a redirected task-start,
-  // task-followup, or room call. Completed peer replies and group reports whose originating
-  // task/group closed fall back to the Bot's foreground chat so completed answers are not lost.
+  // Resolve the current DSH Session and effective logical address for a queued delivery or
+  // obligation. A closed background task or removed group NEVER receives a redirected
+  // task-start, task-followup, or room call. Completed peer replies and group reports whose
+  // originating task/group closed fall back to `{ foreground: true }` so completed answers
+  // are never stranded by delivery admission.
   const canFallbackReturnToForeground = role => role === 'reply' || role === 'report'
-  const sessionFor = (sessionId, args) => {
-    if (args.address && typeof args.address === 'object') {
-      const resolved = addressedSession(rt, args.toId, args.address)
-      if (resolved !== undefined) return resolved
-      return canFallbackReturnToForeground(args.role) ? rt.chatOf(args.toId) : undefined
-    }
-    if (args.taskId && (args.role === 'task' || args.role === 'task-followup')) {
-      return rt.botOf(args.toId)?.tasks?.find(task => task.id === args.taskId && isActiveTask(task))?.sessionId
-    }
+  const resolveReplayTarget = (sessionId, args) => {
     const bot = rt.botOf(args.toId)
     if (bot === undefined) return undefined
-    const inferred = returnAddress(bot, sessionId, args.roomId)
-    if (!inferred.foreground) {
-      const resolved = addressedSession(rt, args.toId, inferred)
-      if (resolved !== undefined) return resolved
-      return canFallbackReturnToForeground(args.role) ? rt.chatOf(args.toId) : undefined
+    let addr
+    if (args.address && typeof args.address === 'object') {
+      addr = args.address
+    } else if (args.taskId && (args.role === 'task' || args.role === 'task-followup')) {
+      addr = { taskId: args.taskId }
+    } else if (args.role === 'report') {
+      // Legacy group reports carry the SOURCE group in `args.roomId`; infer the recipient
+      // conversation solely from the saved session id (current or past group part, task, or DM).
+      const destRoomId = sessionRoomId(rt.state, args.toId, sessionId)
+      addr = returnAddress(bot, sessionId, destRoomId)
+    } else {
+      const destRoomId = sessionRoomId(rt.state, args.toId, sessionId) ?? (args.role === 'room' ? args.roomId : undefined)
+      addr = returnAddress(bot, sessionId, destRoomId)
     }
-    if (rt.isBotSession(sessionId)) return sessionId
-    return args.roomId === undefined ? rt.chatOf(args.toId) : rt.roomOf(args.roomId)?.sessions?.[args.toId]
+    const resolved = addressedSession(rt, args.toId, addr)
+    if (resolved !== undefined) return { sessionId: resolved, address: addr }
+    if (canFallbackReturnToForeground(args.role)) {
+      const fg = rt.chatOf(args.toId)
+      if (fg !== undefined) return { sessionId: fg, address: { foreground: true }, fellBackFromRoom: Boolean(addr.roomId) }
+    }
+    return undefined
   }
 
   // A hard stop keeps the inbox, which the Session runs once it wakes; only what DSH
@@ -551,8 +557,8 @@ export function install(rt) {
         if (args?.exchangeId !== undefined) forgetQueued(args.exchangeId)
         continue
       }
-      const dest = sessionFor(sessionId, args)
-      if (dest === undefined) {
+      const target = resolveReplayTarget(sessionId, args)
+      if (target === undefined) {
         forgetQueued(args.exchangeId)
         rt.noteFailure?.({
           level: 'warn',
@@ -589,11 +595,12 @@ export function install(rt) {
       return evidenceCache.get(sid)
     }
     for (const { args } of fresh) {
-      const dest = sessionFor(sessionId, args)
-      if (dest === undefined) {
+      const target = resolveReplayTarget(sessionId, args)
+      if (target === undefined) {
         forgetQueued(args.exchangeId)
         continue
       }
+      const dest = target.sessionId
       if (!agents.has(dest)) agents.set(dest, await rt.resolveAgent(dest))
       const agent = agents.get(dest)
       const inInbox = [...(agent.inbox?.nextStep ?? []), ...(agent.inbox?.nextTurn ?? [])].some(m =>
@@ -633,7 +640,15 @@ export function install(rt) {
       // A request that waited through a restart reaches its target late: the work
       // it is for is marked, so the answer that comes back says so.
       if (args.role === 'request' || args.role === 'stopped') rt.lateWork?.(args.exchangeId)
-      const ok = await deliver({ ...args, sessionId: dest, steer: false, resent: true })
+      const effectiveArgs = {
+        ...args,
+        sessionId: dest,
+        address: target.address,
+        ...(target.fellBackFromRoom ? { imOrigin: undefined } : {}),
+        steer: false,
+        resent: true,
+      }
+      const ok = await deliver(effectiveArgs)
         .then(() => true, (error) => { rt.warn('ds-bot: sending again what %s was sent failed: %s', sessionId, error); return false })
       if (ok) {
         active.add(dest)
@@ -641,6 +656,66 @@ export function install(rt) {
       }
     }
     return active
+  }
+
+  // Applies committed SQLite terminal markers (`task`, `room_report`) to `state.json`
+  // before obligation replay and orphan-task / room-report sweeps run. Closes the crash
+  // window between committing SQLite WAL and persisting `state.json` so completed tasks
+  // are never re-marked `interrupted` and settled group report watchers never fire twice.
+  async function reconcileTerminalMarkers() {
+    if (stopped || rt.readOnly?.() !== undefined || !coord) return
+    coord.syncLegacyInflight?.()
+    const markers = coord.listTerminalMarkers?.() ?? []
+    if (markers.length === 0) return
+    const applied = []
+    const alreadySynced = []
+    let dirty = false
+    for (const marker of markers) {
+      if (stopped || rt.readOnly?.() !== undefined) return
+      const snap = marker.snapshot ?? {}
+      if (marker.kind === 'task') {
+        const bot = rt.botOf(snap.botId)
+        const task = bot?.tasks?.find(item => item?.id === marker.ownerId)
+        if (task !== undefined && isActiveTask(task)) {
+          task.status = snap.status ?? 'completed'
+          if (typeof snap.updatedAt === 'number') task.updatedAt = snap.updatedAt
+          if (typeof snap.endedAt === 'number') task.endedAt = snap.endedAt
+          if (snap.error !== undefined) task.error = snap.error
+          if (snap.summary !== undefined) task.summary = snap.summary
+          if (snap.reportFile !== undefined) task.reportFile = snap.reportFile
+          if (snap.workId !== undefined) {
+            rt.closeWork?.(snap.workId, `task "${snap.workTitle ?? task.title}"`, snap.workResult ?? snap.summary ?? '(completed)')
+          }
+          dirty = true
+          applied.push(marker)
+        } else {
+          alreadySynced.push(marker)
+        }
+      } else if (marker.kind === 'room_report') {
+        if (rt.state.roomReports?.[marker.ownerId] !== undefined) {
+          delete rt.state.roomReports[marker.ownerId]
+          dirty = true
+          applied.push(marker)
+        } else {
+          alreadySynced.push(marker)
+        }
+      } else {
+        alreadySynced.push(marker)
+      }
+    }
+    for (const marker of alreadySynced) {
+      coord.clearTerminalMarker?.(marker.kind, marker.ownerId)
+    }
+    if (dirty) {
+      try {
+        await rt.save()
+        for (const marker of applied) {
+          coord.clearTerminalMarker?.(marker.kind, marker.ownerId)
+        }
+      } catch (error) {
+        rt.warn('ds-bot: saving reconciled terminal markers failed: %s', error)
+      }
+    }
   }
 
   // Replays durable pending obligations (`task_report`, `room_report`, `peer_result`)
@@ -662,8 +737,8 @@ export function install(rt) {
         coord.markObligation(obl.id, 'cancelled')
         continue
       }
-      const dest = addressedSession(rt, payload.toId, obl.address)
-      if (dest === undefined) {
+      const target = resolveReplayTarget(payload.sessionId, { ...payload, address: obl.address })
+      if (target === undefined) {
         coord.markObligation(obl.id, 'cancelled')
         rt.noteFailure?.({
           level: 'warn',
@@ -674,8 +749,15 @@ export function install(rt) {
         })
         continue
       }
+      const dest = target.sessionId
       const exchangeId = payload.exchangeId ?? obl.deliveryId ?? obl.id
-      const deliverArgs = { ...payload, exchangeId, address: obl.address, sessionId: dest }
+      const deliverArgs = {
+        ...payload,
+        exchangeId,
+        address: target.address,
+        sessionId: dest,
+        ...(target.fellBackFromRoom ? { imOrigin: undefined } : {}),
+      }
       // If already queued in-memory/DB for resend or already in pair ledger, avoid duplicating.
       const alreadyQueued = Object.values(queued).some(items => Array.isArray(items) && items.some(item => item.args?.exchangeId === exchangeId))
       if (alreadyQueued) {
@@ -697,7 +779,10 @@ export function install(rt) {
         continue
       }
       const evidence = await rt.readSessionEvidence(dest, AbortSignal.timeout(HISTORY_TIMEOUT_MS))
-      if (evidence.status === 'error') {
+      const origEvidence = payload.sessionId && payload.sessionId !== dest
+        ? await rt.readSessionEvidence(payload.sessionId, AbortSignal.timeout(HISTORY_TIMEOUT_MS))
+        : { status: 'not_found', events: [] }
+      if (evidence.status === 'error' || origEvidence.status === 'error') {
         keepTaskSessions.add(dest)
         rt.noteFailure?.({
           level: 'warn',
@@ -708,7 +793,8 @@ export function install(rt) {
         })
         continue
       }
-      if (evidence.status === 'ok' && evidence.events.some(ev => eventMatchesReceipt(ev, deliverArgs))) {
+      if ((evidence.status === 'ok' && evidence.events.some(ev => eventMatchesReceipt(ev, deliverArgs)))
+        || (origEvidence.status === 'ok' && origEvidence.events.some(ev => eventMatchesReceipt(ev, deliverArgs)))) {
         coord.markObligation(obl.id, 'settled')
         continue
       }
@@ -1487,6 +1573,9 @@ export function install(rt) {
     await rt.load()
     if (rt.readOnly() !== undefined) return
     coord?.syncLegacyInflight?.()
+    if ((coord?.listTerminalMarkers?.().length ?? 0) > 0) {
+      await reconcileTerminalMarkers().catch(error => rt.warn('ds-bot: reconciling terminal markers failed: %s', error))
+    }
     const keptWorks = new Set()
     activeKeptWorks = keptWorks
     try {
@@ -1505,8 +1594,8 @@ export function install(rt) {
             if (item?.args?.exchangeId !== undefined) coord?.removeDelivery?.(item.args.exchangeId)
             continue
           }
-          const dest = sessionFor(oldId, item.args)
-          if (dest === undefined) {
+          const target = resolveReplayTarget(oldId, item.args)
+          if (target === undefined) {
             coord?.removeDelivery?.(item.args.exchangeId)
             rt.noteFailure?.({
               level: 'warn',
@@ -1517,8 +1606,9 @@ export function install(rt) {
             })
             continue
           }
-          queued = { ...queued, [dest]: [...(queued[dest] ?? []), item] }
-          coord?.upsertDelivery?.(dest, item.args, item.at)
+          const updatedArgs = { ...item.args, address: target.address }
+          queued = { ...queued, [target.sessionId]: [...(queued[target.sessionId] ?? []), { ...item, args: updatedArgs }] }
+          coord?.upsertDelivery?.(target.sessionId, updatedArgs, item.at)
         }
       }
       persist()
@@ -1635,14 +1725,20 @@ export function install(rt) {
       || Object.keys(interrupted.queued).length > 0
       || Object.keys(interrupted.silent).length > 0
       || (interrupted.obligations?.length ?? 0) > 0
+      || (interrupted.terminalMarkers?.length ?? 0) > 0
     // With nothing to pick up, orphaned tasks and group batches a restart left are settled at once.
     let fastStartup = Promise.resolve()
     const timer = pending
       ? setTimeout(() => void resumeAll().catch(error => rt.warn('ds-bot: picking up interrupted work failed: %s', error)), RESUME_DELAY_MS)
       : setTimeout(() => {
         fastStartup = rt.load()
-          .then(() => recoverObligations())
-          .then(() => rt.reconcileTasksAfterRestart?.(new Set()))
+          .then(() => {
+            const hasWork = (coord?.listTerminalMarkers?.().length ?? 0) > 0
+              || (coord?.listPendingObligations?.().length ?? 0) > 0
+            return hasWork
+              ? reconcileTerminalMarkers().then(() => recoverObligations()).then(() => rt.reconcileTasksAfterRestart?.(new Set()))
+              : rt.reconcileTasksAfterRestart?.(new Set())
+          })
           .then(() => rt.settleRoomBatches?.())
           .then(() => rt.settleRoomReports?.(undefined, { startup: true }))
           .catch(error => rt.warn('ds-bot: settling group batches failed: %s', error))

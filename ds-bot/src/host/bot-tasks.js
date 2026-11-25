@@ -754,15 +754,16 @@ export function install(rt) {
       // Close child work on the handoff tree before waking the foreground so
       // `turns.js` knows this branch is settled when the foreground runs next.
       let parentWork
+      let workResultSummary
       if (task.workId !== undefined) {
-        const resultSummary = outcome === 'completed'
+        workResultSummary = outcome === 'completed'
           ? (fullText || '(completed with no reply text)')
           : outcome === 'failed'
             ? `Background task "${task.title}" failed: ${task.error ?? 'model call failed'}`
             : outcome === 'interrupted'
               ? `Background task "${task.title}" was interrupted by a restart.`
               : `Background task "${task.title}" was stopped.`
-        parentWork = rt.closeWork?.(task.workId, `task "${task.title}"`, resultSummary)
+        parentWork = rt.closeWork?.(task.workId, `task "${task.title}"`, workResultSummary)
       }
 
       if (task.roomId !== undefined && outcome !== 'completed') {
@@ -820,10 +821,21 @@ export function install(rt) {
         }
       }
 
-      // Single SQLite transaction: cancel any unsent `role: 'task'` start delivery AND
+      // Single SQLite transaction: cancel any unsent `role: 'task'` start delivery,
+      // record the terminal task snapshot until `state.json` persists it, AND
       // durably record any owed foreground/group report before saving `state.json`.
       rt.coordination?.commitTaskTerminal?.({
         taskId: task.id,
+        terminalSnapshot: {
+          botId: bot.id,
+          status: task.status,
+          updatedAt: task.updatedAt,
+          endedAt: task.endedAt,
+          ...(task.error !== undefined ? { error: task.error } : {}),
+          ...(task.summary !== undefined ? { summary: task.summary } : {}),
+          ...(task.reportFile !== undefined ? { reportFile: task.reportFile } : {}),
+          ...(task.workId !== undefined ? { workId: task.workId, workTitle: task.title, workResult: workResultSummary } : {}),
+        },
         ...(reportPayload !== undefined ? {
           obligation: {
             id: reportObligationId,
@@ -839,6 +851,7 @@ export function install(rt) {
       rt.forgetTaskStartDeliveries?.(task.id)
 
       await rt.save()
+      rt.coordination?.clearTerminalMarker?.('task', task.id)
       settled = true
       emitTaskEvent(`task.${outcome}`, bot, task, {
         ...(task.summary ? { summary: task.summary } : {}),

@@ -810,8 +810,9 @@ export function createRoomReports(rt, deps) {
       ...(work ? { work } : {}),
     }
     const obligationId = `room-report:${reportKey}`
-    // Persist the delivery obligation in SQLite before dropping the pending report
-    // from state.roomReports so a crash between save and deliver never loses the report.
+    // Persist the delivery obligation and watcher-removal marker atomically in SQLite
+    // before dropping the pending report from state.roomReports so a crash between SQLite
+    // commit and `state.json` save never drops OR duplicates the report.
     rt.coordination?.commitObligation?.({
       id: obligationId,
       kind: 'room_report',
@@ -820,9 +821,16 @@ export function createRoomReports(rt, deps) {
       address,
       payload: deliverPayload,
       deliveryId: exchangeId,
+      terminalMarker: {
+        kind: 'room_report',
+        ownerId: report.id,
+        snapshot: { roomId: room.id, botId: report.botId, reportKey },
+      },
     })
     delete reports()[report.id]
-    saveSoon()
+    void rt.save().then(() => {
+      rt.coordination?.clearTerminalMarker?.('room_report', report.id)
+    }, () => {})
     await rt.deliver(deliverPayload).then(() => {
       rt.coordination?.markObligation?.(obligationId, 'settled')
     }, (error) => {
