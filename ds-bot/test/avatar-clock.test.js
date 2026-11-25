@@ -83,6 +83,7 @@ function page({ motion = 'normal', effects = 'full', busy = false } = {}) {
         idleAsks.push(options)
         return setTimer(false)(() => fn({ didTimeout: true, timeRemaining: () => 0 }), options?.timeout ?? 1e9)
       },
+      cancelIdleCallback: id => timers.delete(id),
     } : {}),
     matchMedia: () => {
       const query = { matches: false, addEventListener: (type) => { live.set(`media:${type}`, (live.get(`media:${type}`) ?? 0) + 1); query.added = true }, removeEventListener: (type) => { if (query.added) live.set(`media:${type}`, (live.get(`media:${type}`) ?? 0) - 1); query.added = false } }
@@ -295,6 +296,60 @@ test('a lively mark dozes off after DOZE_MS and wakes on input', () => {
   assert.equal(mark.engine.state, 'sleeping')
   p.win.dispatch('pointerdown')
   assert.equal(mark.engine.state, 'idle')
+})
+
+test('marks that come up after the window rested with none on screen start awake', () => {
+  const p = page()
+  const mark = p.mount('gumdrop', { state: 'working' })
+  assert.ok(built(p, mark))
+  p.skip(31_000)
+  assert.equal(mark.engine.resting, true)
+  mark.destroy()
+  // Someone opened the page again; no mark was there to hear it.
+  const next = p.mount('gumdrop', { state: 'working' })
+  assert.equal(next.engine.resting, false)
+  assert.ok(p.asking, 'it moves')
+})
+
+test('with motion off, a face that switches in place is drawn, and so is the way back to rest', () => {
+  const p = page({ effects: 'off' })
+  const mark = p.mount('gumdrop')
+  settle(p)
+  assert.equal(mark.rig, undefined)
+  // Sending changes only the face: that is enough to need the model.
+  mark.update({ state: 'sending' })
+  assert.ok(built(p, mark), 'the model is built for the face')
+  settle(p)
+  assert.equal(mark.engine.face.name, 'determined')
+  const sent = p.drawn
+  assert.ok(sent > 0, 'and drawn')
+  mark.update({ state: 'done' })
+  settle(p)
+  assert.equal(mark.engine.face.name, 'happy')
+  assert.ok(p.drawn > sent)
+  // Done hands back to idle in place, and the neutral face is drawn.
+  const happy = p.drawn
+  for (let i = 0; i < 500 && mark.engine.state !== 'idle'; i += 1) p.frame(20)
+  settle(p)
+  assert.equal(mark.engine.state, 'idle')
+  assert.equal(mark.engine.face.name, 'neutral')
+  assert.ok(p.drawn > happy, 'the way back is drawn')
+  assert.equal(p.asking, false)
+  assert.equal(p.timers, 1, 'only the rest timer is left')
+})
+
+test('a mark that goes while its model is still being built leaves nothing running, and a new one builds it', () => {
+  const p = page()
+  const mark = p.mount('whale', { state: 'working' })
+  for (let i = 0; i < 3; i += 1) p.frame(20)
+  assert.equal(mark.rig, undefined, 'still building')
+  mark.destroy()
+  assert.equal(p.timers, 0, 'no build slice is left waiting')
+  assert.equal(p.asking, false)
+  const again = p.mount('whale', { state: 'working' })
+  assert.ok(built(p, again))
+  again.destroy()
+  assert.equal(p.timers, 0)
 })
 
 test('a hidden page and a mark out of view are skipped', () => {

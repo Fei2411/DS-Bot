@@ -11,7 +11,7 @@ import { drawShapes, shapesOf, pathsOf } from '../src/client/avatar/render.js'
 import { silhouette } from '../src/client/avatar/silhouette.js'
 import { Avatar, random } from '../src/client/avatar/engine.js'
 import { CLIPS, TURN, blinkClip } from '../src/client/avatar/clips.js'
-import { FACES, eyePolygons } from '../src/client/avatar/face.js'
+import { FACES, eyePolygons, mixEye } from '../src/client/avatar/face.js'
 import { STATES } from '../src/client/avatar/states.js'
 
 const PLUGIN = dirname(dirname(fileURLToPath(import.meta.url)))
@@ -85,7 +85,12 @@ test('a turned character keeps a closed outline, hides an eye that goes round th
   // Path data for renderers without a canvas.
   const paths = pathsOf(front)
   assert.match(paths.body, /^M[\d.-]+ [\d.-]+Q/)
-  assert.match(paths.eyes, /Z$/)
+  const eyes = paths.eyes.split('Z').filter(Boolean)
+  assert.equal(eyes.length, 2)
+  front.eyes.forEach((eye, index) => {
+    assert.equal(eyes[index], `M${(Math.round(eye[0] * 100) / 100)} ${(Math.round(eye[1] * 100) / 100)}${eyes[index].slice(eyes[index].indexOf('L'))}`, `eye ${index} starts at its own first point`)
+    assert.equal(eyes[index].match(/L/g)?.length, eye.length / 2 - 1, `eye ${index} draws every point`)
+  })
 })
 
 test('every clip starts and ends at rest, so it can begin or stop at any moment', () => {
@@ -345,6 +350,24 @@ test('a lid meets the eye in a round corner, so no expression has square eyes', 
   }
 })
 
+test('a lid that only just comes down leaves the eye as it was, so faces blend without a jump', () => {
+  for (const [name, face] of Object.entries(FACES)) {
+    face.forEach((shape, index) => {
+      if (shape.kind !== 'capsule' || !(shape.top > 0 || shape.bottom > 0)) return
+      const side = index ? 1 : -1
+      for (const [W, H] of [[10, 13], [10, 23], [12, 18]]) {
+        const start = Math.abs(signedArea(eyePolygons(FACES.neutral[index], W, H, side)[0]))
+        let last = start
+        for (let t = 0.001; t <= 1; t += t < 0.01 ? 0.003 : 0.02) {
+          const area = Math.abs(signedArea(eyePolygons(mixEye(FACES.neutral[index], shape, t), W, H, side)[0]))
+          assert.ok(Math.abs(area - last) < 0.03 * start, `${name} eye ${index} at ${W}×${H}: ${last.toFixed(1)} → ${area.toFixed(1)} at t = ${t.toFixed(3)}`)
+          last = area
+        }
+      }
+    })
+  }
+})
+
 test('a spin throws confetti that stays on the canvas; a bounce and reduced effects throw none', () => {
   const avatar = new Avatar({ seed: 9, size: 64 })
   avatar.poke()
@@ -352,9 +375,15 @@ test('a spin throws confetti that stays on the canvas; a bounce and reduced effe
   run(avatar, 0.3)
   avatar.poke()
   assert.equal(avatar.frame.accent?.kind, 'confetti')
-  const { seed } = avatar.frame.accent
-  run(avatar, 1)
-  assert.equal(avatar.frame.accent?.kind, 'confetti')
+  const { seed } = avatar.frame.accent.bursts[0]
+  // The next poke, once the spin is over, spins twice while the first burst is still in
+  // the air: that one throws more, and the first falls on.
+  run(avatar, 0.95)
+  avatar.poke()
+  assert.equal(avatar.frame.accent.bursts.length, 2)
+  assert.equal(avatar.frame.accent.bursts[0].seed, seed)
+  run(avatar, 0.8)
+  assert.equal(avatar.frame.accent?.bursts.length, 1, 'the first burst is over, the second still falls')
   run(avatar, 1)
   assert.equal(avatar.frame.accent, null, 'and it is over')
   // Where each piece is drawn, from start to end, in the mark's box: the canvas reaches
@@ -371,9 +400,26 @@ test('a spin throws confetti that stays on the canvas; a bounce and reduced effe
     },
     set: (target, key, value) => { target[key] = value; return true },
   })
-  for (let t = 0; t < 1.7; t += 0.05) drawShapes(ctx, { body: [], paints: [], eyes: [], accent: { kind: 'confetti', t, seed }, offset: [0, 0] }, '#000', ['#111'])
+  for (let t = 0; t < 1.7; t += 0.05) drawShapes(ctx, { body: [], paints: [], eyes: [], accent: { kind: 'confetti', t, bursts: [{ at: 0, seed }] }, offset: [0, 0] }, '#000', ['#111'])
   assert.ok(at.length > 0)
   for (const [x, y] of at) assert.ok(x > -25 && x < 125 && y > -25 && y < 125, `piece at ${x.toFixed(0)}, ${y.toFixed(0)}`)
+  // It goes behind what is drawn, after the decals (which paint only on what is there)
+  // and before the eyes are cut out of everything.
+  const steps = []
+  const order = new Proxy({}, {
+    get: (target, key) => {
+      if (key === 'fill' || key === 'fillRect' || key === 'stroke') return () => steps.push(`${key}:${target.globalCompositeOperation ?? 'source-over'}`)
+      return key in target ? target[key] : () => {}
+    },
+    set: (target, key, value) => { target[key] = value; return true },
+  })
+  const shapes = shapesOf(rigFor('whale', SHAPES.whale), REST)
+  assert.ok(shapes.paints.some(paint => paint.count > 0), 'the whale has its belly')
+  drawShapes(order, { ...shapes, accent: { kind: 'confetti', t: 0.3, bursts: [{ at: 0, seed }] } }, '#000', ['#111'])
+  const confetti = steps.filter(step => step.startsWith('fillRect') || step.startsWith('stroke'))
+  assert.ok(confetti.length > 0 && confetti.every(step => step.endsWith('destination-over')), 'confetti goes behind')
+  assert.ok(steps.lastIndexOf('fill:source-atop') < steps.indexOf(confetti[0]), 'after the decals')
+  assert.ok(steps.lastIndexOf(confetti.at(-1)) < steps.indexOf('fill:destination-out'), 'before the eyes are cut out')
   const calm = new Avatar({ seed: 9, size: 64, effects: 'reduced' })
   for (let i = 0; i < 3; i += 1) { calm.poke(); run(calm, 0.8) }
   assert.equal(calm.frame.accent, null)
@@ -410,6 +456,18 @@ test('asleep, a lively mark peeks now and then, less often the longer it sleeps,
 })
 
 // Nonzero winding of the body's loops around a point.
+// Whether a point is on a decal: inside any of its facets.
+const onDecal = (paints, x, y) => paints.some((paint) => {
+  for (let k = 0, from = 0; k < paint.count; from = paint.ends[k], k += 1) {
+    let inside = false
+    for (let i = from, j = paint.ends[k] - 2; i < paint.ends[k]; j = i, i += 2) {
+      const [x0, y0, x1, y1] = [paint.points[j], paint.points[j + 1], paint.points[i], paint.points[i + 1]]
+      if ((y0 > y) !== (y1 > y) && x < x0 + ((y - y0) * (x1 - x0)) / (y1 - y0)) inside = !inside
+    }
+    if (inside) return true
+  }
+  return false
+})
 const winding = (loops, x, y) => {
   let w = 0
   for (const pts of loops) {
@@ -440,13 +498,16 @@ test('a glance moves the eyes across the face at their own size, and they stay o
         assert.ok(Math.abs((b.x1 - b.x0) - (was.x1 - was.x0)) < 1e-3 && Math.abs((b.y1 - b.y0) - (was.y1 - was.y0)) < 1e-3, `${id} eye ${index} keeps its size looking ${gx},${gy}`)
         moved = Math.max(moved, Math.hypot(b.cx - was.cx, b.cy - was.cy))
       })
-      // No point of an eye that is on the body leaves it; bigger eyes look less far.
-      for (const big of [{}, { face: FACES.surprised, pupil: 0.1 }]) {
-        const still = shapesOf(rig, { ...REST, ...big }).eyes
-        shapesOf(rig, { ...REST, ...big, gx, gy }).eyes.forEach((eye, index) => {
+      // No point of an eye that is on the body leaves it, or lands on a decal; bigger
+      // eyes look less far. Closed eyes, a wink and a peek are drawn wider than the open
+      // eye the room is measured for, so they are held to the same.
+      for (const [label, more] of [['', {}], ['surprised', { face: FACES.surprised, pupil: 0.1 }], ['sleepy', { face: FACES.sleepy }], ['happy', { face: FACES.happy }], ['wink', { face: FACES.wink }], ['peek', { face: FACES.peek }]]) {
+        const still = shapesOf(rig, { ...REST, ...more }).eyes
+        shapesOf(rig, { ...REST, ...more, gx, gy }).eyes.forEach((eye, index) => {
           for (let i = 0; i < eye.length; i += 2) {
-            if (winding(rest.body, still[index][i], still[index][i + 1]) === 0) continue
-            assert.notEqual(winding(rest.body, eye[i], eye[i + 1]), 0, `${id} eye ${index} stays on the body looking ${gx},${gy}${big.face ? ', surprised' : ''}`)
+            const [sx, sy] = [still[index][i], still[index][i + 1]]
+            if (winding(rest.body, sx, sy) !== 0) assert.notEqual(winding(rest.body, eye[i], eye[i + 1]), 0, `${id} eye ${index} stays on the body looking ${gx},${gy} ${label}`)
+            if (!onDecal(rest.paints, sx, sy)) assert.ok(!onDecal(rest.paints, eye[i], eye[i + 1]), `${id} eye ${index} keeps off the decal looking ${gx},${gy} ${label}`)
           }
         })
       }

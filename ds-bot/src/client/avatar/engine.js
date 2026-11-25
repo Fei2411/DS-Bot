@@ -81,9 +81,9 @@ export class Avatar {
   // Whether the mark answers the pointer (petting, following it).
   get follows() { return !this.calm && this.tier !== 'quiet' }
   // Whether the frame is the flat art: nothing playing, every channel at zero, and open
-  // neutral eyes. Until a mark leaves this pose it needs no model.
+  // neutral eyes, now and on the next tick. Until a mark leaves this pose it needs no model.
   get atRest() {
-    if (this.clips.length > 0 || this.frame.accent || this.face.swap || this.face.mix < 1 || this.face.name !== 'neutral') return false
+    if (this.clips.length > 0 || this.frame.accent || this.face.swap || this.face.mix < 1 || this.face.name !== 'neutral' || this.faceWanted() !== 'neutral') return false
     for (const name of CHANNELS) {
       const spring = this.springs[name]
       if (spring.x !== 0 || spring.v !== 0 || spring.target !== 0) return false
@@ -141,8 +141,17 @@ export class Avatar {
     const clip = make(this.rng)
     const play = { name, clip, t: 0, weight: 1, fade: 0, commit: !!clip.commit, blink: false, ...options }
     this.clips.push(play)
-    if (clip.accent && this.lod !== 'chip') this.frame.accent = { kind: clip.accent, t: 0, seed: Math.floor(this.rng() * 2 ** 31) }
+    if (clip.accent && this.lod !== 'chip') this.burst(clip.accent)
     return play
+  }
+
+  // A one-shot accent, each with its own seed. Confetti thrown while some is still in
+  // the air joins it, so the first burst falls on instead of vanishing.
+  burst(kind) {
+    const seed = Math.floor(this.rng() * 2 ** 31)
+    const accent = this.frame.accent
+    if (kind === 'confetti' && accent?.kind === 'confetti') accent.bursts.push({ at: accent.t, seed })
+    else this.frame.accent = kind === 'confetti' ? { kind, t: 0, bursts: [{ at: 0, seed }] } : { kind, t: 0, seed }
   }
 
   blink(double = this.rng() < 0.18) {
@@ -198,8 +207,9 @@ export class Avatar {
   }
 
   // ---- Running.
-  // Moves time on by dt seconds. Returns whether anything moved, so a quiet mark can
-  // stop asking for frames until `wakeIn()`.
+  // Moves time on by dt seconds. Returns whether the frame changed: anything moving, or,
+  // with motion off, a face or pose that switched in place. A mark whose frame did not
+  // change can stop asking for frames until `wakeIn()`.
   tick(dt) {
     dt = Math.max(dt, 0)
     // A long gap (the mark slept between events) passes at once when nothing was
@@ -213,10 +223,11 @@ export class Avatar {
 
     // Springs toward the pose.
     let moving = false
+    let changed = false
     const settle = (STATES[this.state].settle ?? 1)
     for (const name of CHANNELS) {
       const spring = this.springs[name]
-      if (this.still) { spring.x = spring.target; spring.v = 0; continue }
+      if (this.still) { if (spring.x !== spring.target) changed = true; spring.x = spring.target; spring.v = 0; continue }
       const [w0, zeta] = SPRINGS[name]
       const w = w0 * settle
       let rest = dt
@@ -255,8 +266,8 @@ export class Avatar {
     this.clips = this.clips.filter(play => play.t < play.clip.dur && play.weight > 0)
     if (blinks > 0) this.blink(false)
 
-    // Expression: a clip's beats over a held face over the state's.
-    this.updateFace(clipFace ?? this.override.face ?? (this.petting ? (this.time - this.petting.since > 0.35 ? 'happy' : 'content') : null) ?? STATES[this.state].face, dt)
+    // Expression: a clip's beats over the face the mark wants.
+    if (this.updateFace(clipFace ?? this.faceWanted(), dt)) changed = true
     if (this.face.mix < 1 || this.face.swap) moving = true
     let swapLid = 0
     if (this.face.swap) {
@@ -282,7 +293,10 @@ export class Avatar {
     if (accent) {
       if (ONE_SHOT[accent.kind]) {
         accent.t += dt
-        if (accent.t > ONE_SHOT[accent.kind]) this.frame.accent = null
+        const life = ONE_SHOT[accent.kind]
+        const bursts = accent.bursts
+        if (bursts) while (bursts.length > 0 && accent.t - bursts[0].at > life) bursts.shift()
+        if (bursts ? bursts.length === 0 : accent.t > life) this.frame.accent = null
         moving = true
       } else if ((!this.resting || (accent.kind === 'z' && accent.t < Z_RUN)) && accent.t < ACCENT_RUN) {
         accent.t += dt
@@ -290,7 +304,7 @@ export class Avatar {
       }
     }
     this.settled = !moving
-    return moving
+    return moving || changed
   }
 
   // Seconds until the next thing this mark will do on its own.
@@ -435,14 +449,23 @@ export class Avatar {
     this.face = { from: face, to: face, mix: 1, name: STATES[this.state].face, swap: null }
   }
 
+  // The face the mark is going to, clips aside: a held face over petting over the state's.
+  faceWanted() {
+    if (this.override.face && this.time < this.override.faceUntil) return this.override.face
+    if (this.petting) return this.time - this.petting.since > 0.35 ? 'happy' : 'content'
+    return STATES[this.state].face
+  }
+
   shownFace() {
     const { from, to, mix } = this.face
     return mix >= 1 ? to : [mixEye(from[0], to[0], ease(mix)), mixEye(from[1], to[1], ease(mix))]
   }
 
+  // Moves the face toward `name`; returns whether it set out for a new one.
   updateFace(name, dt) {
     const face = this.face
-    if (name !== face.name) {
+    const fresh = name !== face.name
+    if (fresh) {
       const target = FACES[name] ?? FACES.neutral
       const shown = this.shownFace()
       face.name = name
@@ -451,6 +474,7 @@ export class Avatar {
       else { face.swap = { name, t: 0, done: false }; face.from = shown; face.to = shown; face.mix = 1 }
     }
     if (face.mix < 1) face.mix = Math.min(1, face.mix + dt / FACE_BLEND)
+    return fresh
   }
 }
 

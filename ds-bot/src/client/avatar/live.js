@@ -161,6 +161,11 @@ const INPUTS = ['pointerdown', 'keydown', 'wheel', 'touchstart']
 function watch() {
   if (watching) return
   watching = true
+  // No input was heard while no mark was up, and a mark usually comes up because
+  // someone just did something: resting starts counting again.
+  lastInput = now()
+  resting = false
+  dozing = false
   const settings = motionSettings()
   shownSettings = `${settings.tier}|${settings.effects}`
   shownDark = document.body?.hasAttribute('data-ds-dark-theme') === true
@@ -208,33 +213,52 @@ function unwatch() {
   if (timer) clearTimeout(timer)
   frame = 0
   timer = 0
+  stopBuilding()
 }
 
 // Rigs take tens of milliseconds to build, so they are built in slices in idle
-// moments, one shape at a time; until a mark's rig is ready it shows its flat art,
-// which is the same pose.
+// moments, for the first waiting mark's shape; until a mark's rig is ready it shows its
+// flat art, which is the same pose. A shape whose marks all went is left part-built
+// and goes on from there if one comes back.
 const queue = []
-let job = null
+const jobs = new Map()
 let building = false
+let idleAsk = null
 // A page that is never idle still gets FORCED_MS of building after IDLE_WAIT_MS.
 // Without requestIdleCallback, a slice gets a few milliseconds of its own.
 const IDLE_WAIT_MS = 300
 const FORCED_MS = 5
-const idleSoon = fn => (typeof window.requestIdleCallback === 'function'
-  ? window.requestIdleCallback(fn, { timeout: IDLE_WAIT_MS })
-  : setTimeout(() => { const start = now(); fn({ timeRemaining: () => Math.max(0, 8 - (now() - start)) }) }, 16))
+const idleSoon = (fn) => {
+  if (typeof window.requestIdleCallback === 'function') {
+    const id = window.requestIdleCallback(fn, { timeout: IDLE_WAIT_MS })
+    idleAsk = { cancel: () => window.cancelIdleCallback?.(id) }
+  } else {
+    const id = setTimeout(() => { const start = now(); fn({ timeRemaining: () => Math.max(0, 8 - (now() - start)) }) }, 16)
+    idleAsk = { cancel: () => clearTimeout(id) }
+  }
+}
+function stopBuilding() {
+  idleAsk?.cancel()
+  idleAsk = null
+  building = false
+  // Nobody is left to wait for a model: what was part-built goes too.
+  if (marks.size === 0) jobs.clear()
+}
 function buildSoon(mark) {
   if (!queue.includes(mark)) queue.push(mark)
   if (building) return
   building = true
   const work = (deadline) => {
+    idleAsk = null
     const until = deadline.didTimeout === true ? now() + FORCED_MS : 0
     while (now() < until || deadline.timeRemaining() > 2) {
       const mark = queue[0]
-      if (!mark) { building = false; job = null; return }
-      job ??= rigJob(mark.look.shape, mark.def)
+      if (!mark) { stopBuilding(); return }
+      const { shape } = mark.look
+      let job = jobs.get(shape)
+      if (!job) jobs.set(shape, job = rigJob(shape, mark.def))
       if (!job()) continue
-      job = null
+      jobs.delete(shape)
       // Every waiting mark of this shape can take the rig now.
       for (const waiting of queue.filter(other => rigReady(other.look.shape, other.def))) {
         queue.splice(queue.indexOf(waiting), 1)
@@ -270,6 +294,8 @@ export class LiveMark {
     this.rig = undefined
     this.inkEpoch = -1
     this.wantsCanvas = canvas
+    // Listening first: the window's rest is counted afresh when the first mark comes up.
+    watch()
     // The engine starts from the flat art's pose and goes into the state from there,
     // so a state's opening move (a done hop, a call for attention) plays as it appears.
     this.engine = new Avatar({ seed, size, live, state: 'idle', ...motionSettings() })
@@ -278,7 +304,6 @@ export class LiveMark {
     this.follow = false
     host.__btLive = this
     marks.add(this)
-    watch()
     this.setFollow(follow)
     observer?.observe(host)
     // A photo has nothing to build; a character builds its model when it first moves.

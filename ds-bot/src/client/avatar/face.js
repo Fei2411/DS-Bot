@@ -86,21 +86,26 @@ function capsule(W, H) {
 }
 
 // A lidded eye is the capsule and its lids as one distance (negative inside), joined
-// with rounded corners (LID_ROUND eye widths), and traced along rays from its middle in
-// EYE_POINTS points. A lid never cuts a square corner, and where lids close in on a
-// side the eye narrows to a round end instead of folding.
+// with rounded corners, and traced along rays from its middle in EYE_POINTS points. A
+// lid never cuts a square corner, and where lids close in on a side the eye narrows to
+// a round end instead of folding. A corner's rounding is as deep as its lid cuts, up to
+// LID_ROUND eye widths: a lid that only just comes down rounds by as little, so an eye
+// gains its lids smoothly from the plain capsule.
 const LID_ROUND = 0.6
 const EYE_POINTS = 56
 function liddedEye(w, h, top, bottom) {
   const r = w / 2
   const a = Math.max(0, h / 2 - r)
   const ry = Math.min(r, h / 2)
-  const k = LID_ROUND * w
+  // How far each lid comes into the eye at its deepest, across the eye's width.
+  const deepest = lid => [-r, 0, r].map(x => lid.at(x))
+  const kTop = top ? Math.min(LID_ROUND * w, Math.max(0, Math.max(...deepest(top)) + h / 2)) : 0
+  const kBottom = bottom ? Math.min(LID_ROUND * w, Math.max(0, h / 2 - Math.min(...deepest(bottom)))) : 0
   const body = (x, y) => (a > 0 ? Math.hypot(x, Math.max(Math.abs(y) - a, 0)) - r : (Math.hypot(x / r, y / ry) - 1) * ry)
   const inside = (x, y) => {
     let d = body(x, y)
-    if (top) d = smoothMax(d, top.distance(x, y, 1), k)
-    if (bottom) d = smoothMax(d, bottom.distance(x, y, -1), k)
+    if (top) d = smoothMax(d, top.distance(x, y, 1), kTop)
+    if (bottom) d = smoothMax(d, bottom.distance(x, y, -1), kBottom)
     return d
   }
   const upper = top ? Math.max(-h / 2, top.at(0)) : -h / 2

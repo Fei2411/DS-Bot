@@ -19124,7 +19124,8 @@ ${Object.entries(INKS).map(([name, [, dark]]) => `body[data-ds-dark-theme]{--bt-
 .bt-mark-live{position:absolute;pointer-events:none}
 .bt-mark[data-live3d]>svg{visibility:hidden}
 .bt-mark[data-poke]{cursor:pointer}
-body[data-bt-motion=quiet] .bt-mark[data-poke]{cursor:default}
+:is(body[data-bt-motion=quiet],[data-bt-effects=off]) .bt-mark[data-poke]{cursor:default}
+@media (prefers-reduced-motion:reduce){.bt-mark[data-poke]{cursor:default}}
 /* Petting: the pointer on a sidebar avatar, or a ring around it a fifth of its size
    wide, wakes the mark up to it. */
 :is(.bt-row,.bt-tile)>:is(.bt-mark,.bt-cluster)::before,.bt-pet-zone::before{content:'';position:absolute;inset:-20%;border-radius:50%}
@@ -21526,12 +21527,14 @@ function liddedEye(w, h84, top, bottom) {
   const r = w / 2;
   const a = Math.max(0, h84 / 2 - r);
   const ry2 = Math.min(r, h84 / 2);
-  const k = LID_ROUND * w;
+  const deepest = (lid) => [-r, 0, r].map((x) => lid.at(x));
+  const kTop = top ? Math.min(LID_ROUND * w, Math.max(0, Math.max(...deepest(top)) + h84 / 2)) : 0;
+  const kBottom = bottom ? Math.min(LID_ROUND * w, Math.max(0, h84 / 2 - Math.min(...deepest(bottom)))) : 0;
   const body = (x, y) => a > 0 ? Math.hypot(x, Math.max(Math.abs(y) - a, 0)) - r : (Math.hypot(x / r, y / ry2) - 1) * ry2;
   const inside = (x, y) => {
     let d = body(x, y);
-    if (top) d = smoothMax(d, top.distance(x, y, 1), k);
-    if (bottom) d = smoothMax(d, bottom.distance(x, y, -1), k);
+    if (top) d = smoothMax(d, top.distance(x, y, 1), kTop);
+    if (bottom) d = smoothMax(d, bottom.distance(x, y, -1), kBottom);
     return d;
   };
   const upper = top ? Math.max(-h84 / 2, top.at(0)) : -h84 / 2;
@@ -21817,9 +21820,9 @@ var Avatar = class {
     return !this.calm && this.tier !== "quiet";
   }
   // Whether the frame is the flat art: nothing playing, every channel at zero, and open
-  // neutral eyes. Until a mark leaves this pose it needs no model.
+  // neutral eyes, now and on the next tick. Until a mark leaves this pose it needs no model.
   get atRest() {
-    if (this.clips.length > 0 || this.frame.accent || this.face.swap || this.face.mix < 1 || this.face.name !== "neutral") return false;
+    if (this.clips.length > 0 || this.frame.accent || this.face.swap || this.face.mix < 1 || this.face.name !== "neutral" || this.faceWanted() !== "neutral") return false;
     for (const name of CHANNELS) {
       const spring2 = this.springs[name];
       if (spring2.x !== 0 || spring2.v !== 0 || spring2.target !== 0) return false;
@@ -21877,8 +21880,16 @@ var Avatar = class {
     const clip3 = make(this.rng);
     const play = { name, clip: clip3, t: 0, weight: 1, fade: 0, commit: !!clip3.commit, blink: false, ...options };
     this.clips.push(play);
-    if (clip3.accent && this.lod !== "chip") this.frame.accent = { kind: clip3.accent, t: 0, seed: Math.floor(this.rng() * 2 ** 31) };
+    if (clip3.accent && this.lod !== "chip") this.burst(clip3.accent);
     return play;
+  }
+  // A one-shot accent, each with its own seed. Confetti thrown while some is still in
+  // the air joins it, so the first burst falls on instead of vanishing.
+  burst(kind) {
+    const seed = Math.floor(this.rng() * 2 ** 31);
+    const accent = this.frame.accent;
+    if (kind === "confetti" && accent?.kind === "confetti") accent.bursts.push({ at: accent.t, seed });
+    else this.frame.accent = kind === "confetti" ? { kind, t: 0, bursts: [{ at: 0, seed }] } : { kind, t: 0, seed };
   }
   blink(double = this.rng() < 0.18) {
     if (this.still) return;
@@ -21933,8 +21944,9 @@ var Avatar = class {
     }
   }
   // ---- Running.
-  // Moves time on by dt seconds. Returns whether anything moved, so a quiet mark can
-  // stop asking for frames until `wakeIn()`.
+  // Moves time on by dt seconds. Returns whether the frame changed: anything moving, or,
+  // with motion off, a face or pose that switched in place. A mark whose frame did not
+  // change can stop asking for frames until `wakeIn()`.
   tick(dt) {
     dt = Math.max(dt, 0);
     if (dt > 0.1) {
@@ -21947,10 +21959,12 @@ var Avatar = class {
     if (def.next && this.time - this.stateSince >= def.hold && !this.clips.some((play) => play.commit && !play.blink)) this.setState(def.next);
     this.schedule();
     let moving = false;
+    let changed = false;
     const settle = STATES[this.state].settle ?? 1;
     for (const name of CHANNELS) {
       const spring2 = this.springs[name];
       if (this.still) {
+        if (spring2.x !== spring2.target) changed = true;
         spring2.x = spring2.target;
         spring2.v = 0;
         continue;
@@ -22000,7 +22014,7 @@ var Avatar = class {
     }
     this.clips = this.clips.filter((play) => play.t < play.clip.dur && play.weight > 0);
     if (blinks > 0) this.blink(false);
-    this.updateFace(clipFace ?? this.override.face ?? (this.petting ? this.time - this.petting.since > 0.35 ? "happy" : "content" : null) ?? STATES[this.state].face, dt);
+    if (this.updateFace(clipFace ?? this.faceWanted(), dt)) changed = true;
     if (this.face.mix < 1 || this.face.swap) moving = true;
     let swapLid = 0;
     if (this.face.swap) {
@@ -22028,7 +22042,10 @@ var Avatar = class {
     if (accent) {
       if (ONE_SHOT[accent.kind]) {
         accent.t += dt;
-        if (accent.t > ONE_SHOT[accent.kind]) this.frame.accent = null;
+        const life = ONE_SHOT[accent.kind];
+        const bursts = accent.bursts;
+        if (bursts) while (bursts.length > 0 && accent.t - bursts[0].at > life) bursts.shift();
+        if (bursts ? bursts.length === 0 : accent.t > life) this.frame.accent = null;
         moving = true;
       } else if ((!this.resting || accent.kind === "z" && accent.t < Z_RUN) && accent.t < ACCENT_RUN) {
         accent.t += dt;
@@ -22036,7 +22053,7 @@ var Avatar = class {
       }
     }
     this.settled = !moving;
-    return moving;
+    return moving || changed;
   }
   // Seconds until the next thing this mark will do on its own.
   wakeIn() {
@@ -22184,13 +22201,21 @@ var Avatar = class {
     const face = FACES[STATES[this.state].face];
     this.face = { from: face, to: face, mix: 1, name: STATES[this.state].face, swap: null };
   }
+  // The face the mark is going to, clips aside: a held face over petting over the state's.
+  faceWanted() {
+    if (this.override.face && this.time < this.override.faceUntil) return this.override.face;
+    if (this.petting) return this.time - this.petting.since > 0.35 ? "happy" : "content";
+    return STATES[this.state].face;
+  }
   shownFace() {
     const { from, to, mix } = this.face;
     return mix >= 1 ? to : [mixEye(from[0], to[0], ease(mix)), mixEye(from[1], to[1], ease(mix))];
   }
+  // Moves the face toward `name`; returns whether it set out for a new one.
   updateFace(name, dt) {
     const face = this.face;
-    if (name !== face.name) {
+    const fresh = name !== face.name;
+    if (fresh) {
       const target = FACES[name] ?? FACES.neutral;
       const shown = this.shownFace();
       face.name = name;
@@ -22212,6 +22237,7 @@ var Avatar = class {
       }
     }
     if (face.mix < 1) face.mix = Math.min(1, face.mix + dt / FACE_BLEND);
+    return fresh;
   }
 };
 var clamp = (value, lo, hi) => Math.max(lo, Math.min(hi, value));
@@ -23232,7 +23258,8 @@ function* lookSteps(free, eyes) {
         rims.push(eye2.x + ox / length * edge, eye2.y + oy / length * edge);
       }
     }
-    for (let k = 0; k < LOOK_WAYS; k += 1) {
+    if (rims.length === 0) ways.fill(0);
+    for (let k = 0; k < LOOK_WAYS && rims.length > 0; k += 1) {
       if (clock2() - since > STEP_MS) {
         yield;
         since = clock2();
@@ -23448,7 +23475,6 @@ function* decalPolys(paint) {
   }
 }
 function drawShapes(ctx, shapes, ink, confetti = []) {
-  if (shapes.accent?.kind === "confetti") drawConfetti(ctx, shapes.accent, [ink, ...confetti]);
   ctx.fillStyle = ink;
   ctx.beginPath();
   for (const loop2 of shapes.body) smoothLoop(ctx, loop2);
@@ -23464,6 +23490,11 @@ function drawShapes(ctx, shapes, ink, confetti = []) {
     ctx.globalAlpha = 1;
   }
   ctx.globalCompositeOperation = "source-over";
+  if (shapes.accent?.kind === "confetti") {
+    ctx.globalCompositeOperation = "destination-over";
+    drawConfetti(ctx, shapes.accent, [ink, ...confetti]);
+    ctx.globalCompositeOperation = "source-over";
+  }
   if (shapes.eyes.length > 0) {
     ctx.globalCompositeOperation = "destination-out";
     ctx.fillStyle = ink;
@@ -23475,7 +23506,10 @@ function drawShapes(ctx, shapes, ink, confetti = []) {
   if (shapes.accent && shapes.accent.kind !== "confetti") drawAccent(ctx, shapes.accent, ink, shapes.offset);
 }
 var CONFETTI = 18;
-function drawConfetti(ctx, { t: t2, seed = 1 }, colors) {
+function drawConfetti(ctx, accent, colors) {
+  for (const { at: at2, seed } of accent.bursts) drawBurst(ctx, accent.t - at2, seed, colors);
+}
+function drawBurst(ctx, t2, seed, colors) {
   const rng = random(seed);
   const drag = 2.4;
   const flight = (1 - Math.exp(-drag * t2)) / drag;
@@ -23589,7 +23623,7 @@ function pathsOf(shapes) {
   return {
     body: shapes.body.map(loop2).join(""),
     paints: shapes.paints.map((paint) => ({ fill: paint.fill, opacity: paint.opacity, d: [...decalPolys(paint)].map(([from, to]) => poly(paint.points, from, to)).join("") })),
-    eyes: shapes.eyes.map(poly).join("")
+    eyes: shapes.eyes.map((pts) => poly(pts)).join("")
   };
 }
 
@@ -23915,6 +23949,9 @@ var INPUTS2 = ["pointerdown", "keydown", "wheel", "touchstart"];
 function watch() {
   if (watching) return;
   watching = true;
+  lastInput = now();
+  resting = false;
+  dozing = false;
   const settings = motionSettings();
   shownSettings = `${settings.tier}|${settings.effects}`;
   shownDark = document.body?.hasAttribute("data-ds-dark-theme") === true;
@@ -23964,32 +24001,50 @@ function unwatch() {
   if (timer) clearTimeout(timer);
   frame = 0;
   timer = 0;
+  stopBuilding();
 }
 var queue = [];
-var job = null;
+var jobs = /* @__PURE__ */ new Map();
 var building = false;
+var idleAsk = null;
 var IDLE_WAIT_MS = 300;
 var FORCED_MS = 5;
-var idleSoon = (fn) => typeof window.requestIdleCallback === "function" ? window.requestIdleCallback(fn, { timeout: IDLE_WAIT_MS }) : setTimeout(() => {
-  const start = now();
-  fn({ timeRemaining: () => Math.max(0, 8 - (now() - start)) });
-}, 16);
+var idleSoon = (fn) => {
+  if (typeof window.requestIdleCallback === "function") {
+    const id = window.requestIdleCallback(fn, { timeout: IDLE_WAIT_MS });
+    idleAsk = { cancel: () => window.cancelIdleCallback?.(id) };
+  } else {
+    const id = setTimeout(() => {
+      const start = now();
+      fn({ timeRemaining: () => Math.max(0, 8 - (now() - start)) });
+    }, 16);
+    idleAsk = { cancel: () => clearTimeout(id) };
+  }
+};
+function stopBuilding() {
+  idleAsk?.cancel();
+  idleAsk = null;
+  building = false;
+  if (marks.size === 0) jobs.clear();
+}
 function buildSoon(mark2) {
   if (!queue.includes(mark2)) queue.push(mark2);
   if (building) return;
   building = true;
   const work = (deadline) => {
+    idleAsk = null;
     const until = deadline.didTimeout === true ? now() + FORCED_MS : 0;
     while (now() < until || deadline.timeRemaining() > 2) {
       const mark3 = queue[0];
       if (!mark3) {
-        building = false;
-        job = null;
+        stopBuilding();
         return;
       }
-      job ??= rigJob(mark3.look.shape, mark3.def);
+      const { shape } = mark3.look;
+      let job = jobs.get(shape);
+      if (!job) jobs.set(shape, job = rigJob(shape, mark3.def));
       if (!job()) continue;
-      job = null;
+      jobs.delete(shape);
       for (const waiting of queue.filter((other) => rigReady(other.look.shape, other.def))) {
         queue.splice(queue.indexOf(waiting), 1);
         if (marks.has(waiting)) waiting.attachRig();
@@ -24020,13 +24075,13 @@ var LiveMark = class {
     this.rig = void 0;
     this.inkEpoch = -1;
     this.wantsCanvas = canvas;
+    watch();
     this.engine = new Avatar({ seed, size, live, state: "idle", ...motionSettings() });
     if (resting) this.engine.rest(true);
     if (state !== "idle") this.engine.setState(state);
     this.follow = false;
     host.__btLive = this;
     marks.add(this);
-    watch();
     this.setFollow(follow);
     observer?.observe(host);
     if (!canvas) this.attachRig();
@@ -56286,7 +56341,7 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
     else if (r?.error) setFlowTracked({ stage: "error", message: importError(r.error) });
     else setFlowTracked(null);
   };
-  const job2 = async (work) => {
+  const job = async (work) => {
     const token = ++reqRef.current;
     setBusy(true);
     try {
@@ -56297,14 +56352,14 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
       if (token === reqRef.current) setBusy(false);
     }
   };
-  const pickFile = () => job2(async (token) => showPicked(await imports.pick(), token));
+  const pickFile = () => job(async (token) => showPicked(await imports.pick(), token));
   const openPaste = () => {
     reqRef.current += 1;
     setBusy(false);
     cancelPendingImport();
     setFlowTracked({ stage: "paste", siteUrl: hostOfUrl(page.url) ? page.url : "" });
   };
-  const submitPaste = (text, siteUrl) => job2(async (token) => {
+  const submitPaste = (text, siteUrl) => job(async (token) => {
     if (!imports?.paste) return;
     showPicked(await imports.paste(text, siteUrl || void 0), token);
   });
@@ -56320,7 +56375,7 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
       if (liveReqIdRef.current === requestId) liveReqIdRef.current = null;
     }
   };
-  const pickSource = (source) => job2(async (token) => {
+  const pickSource = (source) => job(async (token) => {
     setFlowTracked({ stage: "connecting", source });
     const r = await runLiveImport(source, false, token);
     if (token !== reqRef.current) {
@@ -56340,7 +56395,7 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
     else if (r?.running) setFlowTracked({ stage: "running", source });
     else showPicked(r, token);
   });
-  const closeAndImport = () => job2(async (token) => {
+  const closeAndImport = () => job(async (token) => {
     const source = flowRef.current?.source;
     if (!source) return;
     const r = await runLiveImport(source, true, token);
@@ -56353,7 +56408,7 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
     if (r?.needsRemoteDebugging) setFlowTracked({ stage: "remote-debug", source, info: r });
     else showPicked(r, token);
   });
-  const applyImport = (options) => job2(async (token) => {
+  const applyImport = (options) => job(async (token) => {
     const current2 = flowRef.current;
     if (!current2?.id) return;
     const report = await imports.apply(bot.id, current2.id, options);
@@ -58438,17 +58493,17 @@ function createBotBrowsers({ bridge: bridge2, createSource: createSource2, stora
   function open(tabId) {
     const entry = views.get(tabId);
     if (entry) return Promise.resolve(entry);
-    let job2 = opening.get(tabId);
-    if (job2 === void 0) {
-      job2 = create(tabId).catch((error) => {
+    let job = opening.get(tabId);
+    if (job === void 0) {
+      job = create(tabId).catch((error) => {
         console.warn("[ds-bot] browser acquire", error);
         publish2(tabId, { loading: false, error: String(error?.message ?? error) });
         return void 0;
       }).finally(() => opening.delete(tabId));
-      opening.set(tabId, job2);
-      void job2.then(() => trim());
+      opening.set(tabId, job);
+      void job.then(() => trim());
     }
-    return job2;
+    return job;
   }
   function trim() {
     const idle = [...views.values()].filter((entry) => !entry.appView && !entry.botAttached && entry.tabId !== shown).sort((a, b) => a.usedAt - b.usedAt);
@@ -58668,9 +58723,9 @@ function serveBrowserReads({ browsers, post, clientId = globalThis.crypto.random
   let reported = "";
   const answered = /* @__PURE__ */ new Map();
   const answer = async ({ id, botId }) => {
-    let job2 = answered.get(id);
-    if (job2 === void 0) {
-      job2 = (async () => {
+    let job = answered.get(id);
+    if (job === void 0) {
+      job = (async () => {
         try {
           const result = { id, ok: true, page: await browsers.read(botId) };
           browsers.noteRead(botId);
@@ -58679,10 +58734,10 @@ function serveBrowserReads({ browsers, post, clientId = globalThis.crypto.random
           return { id, ok: false, error: error instanceof Error ? error.message : String(error) };
         }
       })();
-      answered.set(id, job2);
+      answered.set(id, job);
       if (answered.size > 200) answered.delete(answered.keys().next().value);
     }
-    await post("browser-result", await job2).catch((error) => console.warn("[ds-bot] browser result", error));
+    await post("browser-result", await job).catch((error) => console.warn("[ds-bot] browser result", error));
   };
   const loop2 = async () => {
     let failures = 0;
@@ -59966,9 +60021,9 @@ function createAvatarRefCache(call2) {
   let latestGen = 0;
   let latestLiveRefs = /* @__PURE__ */ new Set();
   const fetchRef = (ref, payload) => {
-    let job2 = inflight.get(ref);
-    if (job2 === void 0) {
-      job2 = Promise.resolve().then(() => call2("avatar", payload)).then((reply) => {
+    let job = inflight.get(ref);
+    if (job === void 0) {
+      job = Promise.resolve().then(() => call2("avatar", payload)).then((reply) => {
         if (typeof reply?.image === "string") {
           const actual = typeof reply?.ref === "string" && reply.ref !== "" ? reply.ref : ref;
           if (latestLiveRefs.has(actual) || latestLiveRefs.has(ref)) {
@@ -59983,9 +60038,9 @@ function createAvatarRefCache(call2) {
       }).catch(() => ({ status: "error" })).finally(() => {
         inflight.delete(ref);
       });
-      inflight.set(ref, job2);
+      inflight.set(ref, job);
     }
-    return job2;
+    return job;
   };
   async function hydrate(value) {
     if (value === null || typeof value !== "object") return { state: value, incomplete: false, resolved: false };

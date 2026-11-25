@@ -171,8 +171,6 @@ function* decalPolys(paint) {
 // `ink` is the body's paint: a color string or a CanvasGradient. `confetti` lists the
 // colors a spin's confetti mixes with the body's own.
 export function drawShapes(ctx, shapes, ink, confetti = []) {
-  // Confetti comes from behind the body.
-  if (shapes.accent?.kind === 'confetti') drawConfetti(ctx, shapes.accent, [ink, ...confetti])
   ctx.fillStyle = ink
   ctx.beginPath()
   for (const loop of shapes.body) smoothLoop(ctx, loop)
@@ -190,6 +188,13 @@ export function drawShapes(ctx, shapes, ink, confetti = []) {
     ctx.globalAlpha = 1
   }
   ctx.globalCompositeOperation = 'source-over'
+  // Confetti comes from behind the body. It goes in after the decals (which paint only
+  // on what is already drawn) and before the eyes are cut out.
+  if (shapes.accent?.kind === 'confetti') {
+    ctx.globalCompositeOperation = 'destination-over'
+    drawConfetti(ctx, shapes.accent, [ink, ...confetti])
+    ctx.globalCompositeOperation = 'source-over'
+  }
   if (shapes.eyes.length > 0) {
     // Only the fill's opacity counts when cutting out; the body's own ink is opaque.
     ctx.globalCompositeOperation = 'destination-out'
@@ -203,10 +208,13 @@ export function drawShapes(ctx, shapes, ink, confetti = []) {
 }
 
 // A spin throws confetti: paper bits that tumble and streamers that curl, bursting up
-// from behind the body, slowing in the air and falling. Each burst is its own (accent.seed),
-// and it stays inside the canvas margin (MARGIN in live.js).
+// from behind the body, slowing in the air and falling. Each burst has its own start and
+// seed (accent.bursts), and it stays inside the canvas margin (MARGIN in live.js).
 const CONFETTI = 18
-function drawConfetti(ctx, { t, seed = 1 }, colors) {
+function drawConfetti(ctx, accent, colors) {
+  for (const { at, seed } of accent.bursts) drawBurst(ctx, accent.t - at, seed, colors)
+}
+function drawBurst(ctx, t, seed, colors) {
   const rng = random(seed)
   const drag = 2.4
   const flight = (1 - Math.exp(-drag * t)) / drag
@@ -329,6 +337,6 @@ export function pathsOf(shapes) {
   return {
     body: shapes.body.map(loop).join(''),
     paints: shapes.paints.map(paint => ({ fill: paint.fill, opacity: paint.opacity, d: [...decalPolys(paint)].map(([from, to]) => poly(paint.points, from, to)).join('') })),
-    eyes: shapes.eyes.map(poly).join(''),
+    eyes: shapes.eyes.map(pts => poly(pts)).join(''),
   }
 }

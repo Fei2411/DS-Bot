@@ -205,7 +205,9 @@ function* lookSteps(free, eyes) {
         rims.push(eye.x + (ox / length) * edge, eye.y + (oy / length) * edge)
       }
     }
-    for (let k = 0; k < LOOK_WAYS; k += 1) {
+    // No eye on the free part (none of the characters today): the eyes stay put.
+    if (rims.length === 0) ways.fill(0)
+    for (let k = 0; k < LOOK_WAYS && rims.length > 0; k += 1) {
       if (clock() - since > STEP_MS) { yield; since = clock() }
       const angle = (2 * Math.PI * k) / LOOK_WAYS
       const dx = Math.cos(angle)

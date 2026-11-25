@@ -30,7 +30,8 @@ ${Object.entries(INKS).map(([name, [, dark]]) => `body[data-ds-dark-theme]{--bt-
 .bt-mark-live{position:absolute;pointer-events:none}
 .bt-mark[data-live3d]>svg{visibility:hidden}
 .bt-mark[data-poke]{cursor:pointer}
-body[data-bt-motion=quiet] .bt-mark[data-poke]{cursor:default}
+:is(body[data-bt-motion=quiet],[data-bt-effects=off]) .bt-mark[data-poke]{cursor:default}
+@media (prefers-reduced-motion:reduce){.bt-mark[data-poke]{cursor:default}}
 /* Petting: the pointer on a sidebar avatar, or a ring around it a fifth of its size
    wide, wakes the mark up to it. */
 :is(.bt-row,.bt-tile)>:is(.bt-mark,.bt-cluster)::before,.bt-pet-zone::before{content:'';position:absolute;inset:-20%;border-radius:50%}
