@@ -40,12 +40,12 @@ const TEAM = {
 // starts in the team workspace unless it is made with a cwd. `services` are what
 // ctx.get finds, such as the sandbox policy and approvals.
 // `locked`: another dsh holds the team, so this one only shows it.
-async function start({ services = {}, workspaces = [], llm, team: saved = TEAM, locked = false, root: rootDir } = {}) {
+async function start({ services = {}, workspaces = [], llm, team: saved = TEAM, locked = false, root: rootDir, home: customHome } = {}) {
   // The native realpath, as fs/promises uses: on Windows the JS one keeps 8.3 short names.
   const root = rootDir ?? realpathSync.native(mkdtempSync(join(tmpdir(), 'ds-bot-work-dir-')))
   mkdirSync(root, { recursive: true })
   const dsh = join(root, 'dsh')
-  const home = join(dsh, 'bot')
+  const home = customHome ?? join(dsh, 'bot')
   const team = join(home, 'workspace')
   const project = join(root, 'project')
   for (const dir of [team, project]) mkdirSync(dir, { recursive: true })
@@ -420,10 +420,19 @@ test('the folder menu lists DSH projects and the folders Bots use, but not the t
   await call('update-room', { id: 'r1', workDir: other })
   assert.deepEqual((await call('folders', {})).value, {
     team,
+    data: join(root, 'dsh'),
     picker: null,
     folders: [{ path: project, title: 'project' }, { path: other, title: 'other' }],
   })
   assert.equal((await call('folder-pick', {})).error.message, 'This DeepSeek Harness has no folder chooser')
+})
+
+test('folders reports custom config.home when isolated from DSH_HOME', async (t) => {
+  const customHome = mkdtempSync(join(tmpdir(), 'ds-bot-custom-home-'))
+  t.after(() => rmSync(customHome, { recursive: true, force: true, maxRetries: 5 }))
+  const { call, stop } = await start({ home: customHome })
+  t.after(stop)
+  assert.equal((await call('folders', {})).value.data, customHome)
 })
 
 test('the folder menu browses through the DSH folder picker', async (t) => {

@@ -161,6 +161,10 @@ const triggerOf = info => ({
   ...(info.askWork ? { askWork: info.askWork } : {}),
   ...(info.audience ? { audience: info.audience } : {}),
   ...(info.askedBy ? { askedBy: info.askedBy } : {}),
+  ...(info.batchKey ? { batchKey: info.batchKey } : {}),
+  ...(info.resumedUpstream ? { resumedUpstream: true } : {}),
+  ...(info.resultRef ? { resultRef: info.resultRef } : {}),
+  ...(info.replyTo ? { replyTo: info.replyTo } : {}),
   ...(info.senderRoomId ? { senderRoomId: info.senderRoomId } : {}),
 })
 
@@ -409,7 +413,19 @@ export function install(rt) {
         rt.blockTasks?.(room.id, bot.id, { cause: 'restarted' })
         return false
       }
-      await rt.deliver({ toId: bot.id, sessionId: room.sessions?.[bot.id] ?? sessionId, role: 'room', roomId: room.id, note: 'picking up after a restart', resumed: true, text, ...(record.trigger?.askedBy ? { askedBy: record.trigger.askedBy } : {}) })
+      await rt.deliver({
+        toId: bot.id,
+        sessionId: room.sessions?.[bot.id] ?? sessionId,
+        role: 'room',
+        roomId: room.id,
+        note: 'picking up after a restart',
+        resumed: true,
+        text,
+        ...(record.trigger?.askedBy ? { askedBy: record.trigger.askedBy } : {}),
+        ...(record.trigger?.batchKey ? { batchKey: record.trigger.batchKey } : {}),
+        ...(record.trigger?.resumedUpstream ? { resumedUpstream: true } : {}),
+        ...(record.trigger?.resultRef ? { resultRef: record.trigger.resultRef } : {}),
+      })
       return true
     }
     if (record.resumed) return false
@@ -429,7 +445,7 @@ export function install(rt) {
       return true
     }
     // A turn that went on with work another Bot asked for still owes that Bot its answer.
-    await rt.deliver({ toId: bot.id, ...ownPart, role: 'resume', resumed: true, text, ...(trigger?.work ? { work: trigger.work } : {}), ...(trigger?.workRef ? { workRef: trigger.workRef } : {}) })
+    await rt.deliver({ toId: bot.id, ...ownPart, role: trigger?.role === 'reply' && !trigger.work ? 'reply' : 'resume', resumed: true, text, ...(trigger?.replyTo ? { replyTo: trigger.replyTo } : {}), ...(trigger?.work ? { work: trigger.work } : {}), ...(trigger?.workRef ? { workRef: trigger.workRef } : {}) })
     return true
   }
 
@@ -891,6 +907,9 @@ export function install(rt) {
           ...(source.senderRoomId ? { fromRoomId: source.senderRoomId } : {}),
           ...(source.roomId ? { roomId: source.roomId } : {}),
           ...(source.askedBy ? { askedBy: source.askedBy } : {}),
+          ...(source.batchKey ? { batchKey: source.batchKey } : {}),
+          ...(source.resumedUpstream ? { resumedUpstream: true } : {}),
+          ...(source.resultRef ? { resultRef: source.resultRef } : {}),
           ...(source.role === 'room' ? { note: 'you read this call during your last task; answer it now' } : {}),
           ...(images.length > 0 ? { images } : {}),
           ...(files.length > 0 ? { files } : {}),

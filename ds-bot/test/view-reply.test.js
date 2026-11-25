@@ -474,6 +474,17 @@ test('dismiss-view drops the open view, keeps it as a closed card, and leaves a 
   assert.deepEqual((await team()).closedCards, { 'writer-now': { 'call-1': 'dismissed', 'q-call': 'dismissed' } })
 })
 
+test('a view shown over one still open closes the earlier view instead of dropping it (#2172)', async (t) => {
+  const { show, team, stop } = await start()
+  t.after(stop)
+  await rt.teamTools.find(d => d.name === 'list_bots').execute({}, { agent: { id: 'chief' } })
+  await show('writer-now', { title: 'Pick', view: CHOICES }, 'v-first')
+  await show('writer-now', { title: 'Pick again', view: CHOICES }, 'v-second')
+  const open = await team()
+  assert.equal(open.views['writer-now'].callId, 'v-second')
+  assert.deepEqual(open.closedCards, { 'writer-now': { 'v-first': 'dismissed' } })
+})
+
 test('an answered view is not kept as a closed card: its reply message carries it', async (t) => {
   const { show, call, team, stop } = await start()
   t.after(stop)
@@ -575,4 +586,26 @@ test('a card carried from an earlier part records its close on the part that ask
   assert.equal(open.questions['writer-now'], undefined)
   assert.equal(open.views['writer-now'], undefined)
   assert.deepEqual(open.closedCards, { 'writer-old': { 'q-old': 'replied', 'v-old': 'replied' } })
+})
+
+test('show_view closes an earlier-segment card as dismissed even when the new card reuses the same callId', async (t) => {
+  const { show, team, stop } = await start()
+  t.after(stop)
+  await rt.teamTools.find(d => d.name === 'list_bots').execute({}, { agent: { id: 'chief' } })
+  rt.state.views['writer-now'] = {
+    id: 'v-carried',
+    callId: 'v-dup',
+    callSessionId: 'writer-old',
+    title: 'Old View',
+    view: CHOICES,
+    askedAt: 1,
+  }
+  await show('writer-now', { title: 'New View', view: CHOICES }, 'v-dup')
+  const open = await team()
+  assert.equal(open.views['writer-now'].title, 'New View')
+  assert.deepEqual(open.closedCards, { 'writer-old': { 'v-dup': 'dismissed' } })
+
+  // Same-segment same-callId re-entry must NOT dismiss itself.
+  await show('writer-now', { title: 'New View Again', view: CHOICES }, 'v-dup')
+  assert.equal((await team()).closedCards['writer-now'], undefined)
 })

@@ -1,7 +1,8 @@
 import { createElement as h, useEffect, useState } from 'react'
 import { BotAvatar } from './mark.js'
-import { PlusIcon } from './icons.js'
+import { CheckIcon, PlusIcon } from './icons.js'
 import { Segmented } from './motion.js'
+import { SelectMenu } from './select-menu.js'
 import { dateLocale, t } from './i18n.js'
 
 const ACTIONS = [['post', 'Post'], ['upload', 'Upload'], ['download', 'Download'], ['delete', 'Delete']]
@@ -96,8 +97,7 @@ export function BrowserPage({ roster, actions, run, Section, Row }) {
     ?? activeBrowserId.replace(/^(builtin|dsh|mcp|provider):/, '')
 
   return h('div', { className: 'bt-browser-settings' },
-    h(Section, { title: t('Browser access') },
-      h('p', { className: 'bt-browser-note' }, t('A Bot can read the page you have open: its title, address and visible text. By default it cannot click, type, scroll or open pages.')),
+    h(Section, null,
       h(Row, {
         label: t('Browser plugin'),
         hint: activeBrowserLabel,
@@ -106,19 +106,17 @@ export function BrowserPage({ roster, actions, run, Section, Row }) {
         type: 'button',
         className: 'bt-soft bt-soft-sm',
         onClick: () => actions.openSettings?.('plugins', 'browser'),
-      }, t('Switch browser plugin'))),
-      activeBrowserId === 'builtin:readonly' ? h(Row, {
-        label: t('How to enable interactive browsing'),
-        hint: t('In this DSH profile, set browserPlugin to refs, script or task, then restart DS Bot.'),
-      }) : null,
-      h('p', { className: 'bt-browser-note' }, activeBrowserId.startsWith('builtin:')
-        ? t('With an interactive plugin, Bots browse, click and fill in forms. Posting, uploading, downloading and deleting ask you first unless you allow them here. Payments are always yours: the Bot hands the page to you.')
-        : t('External browser plugins (DSH / MCP) manage their own browser actions and approvals; the action grants below apply only to built-in Playwright plugins.'))),
+      }, t('Switch')))),
     adding ? h(Section, { title: t('Allow an action') },
       h('form', { className: 'bt-browser-form', onSubmit: add },
         h(Row, { label: t('Bot') },
-          h('select', { className: 'bt-select', value: botId, onChange: event => setBotId(event.target.value), disabled: bots.length === 0 },
-            bots.map(bot => h('option', { key: bot.id, value: bot.id }, bot.name)))),
+          h(SelectMenu, {
+            'aria-label': t('Bot'),
+            value: botId,
+            disabled: bots.length === 0,
+            options: bots.map(bot => ({ value: bot.id, label: bot.name })),
+            onChange: setBotId,
+          })),
         h(Row, { label: t('Site') },
           h('input', {
             className: 'bt-input bt-browser-site',
@@ -128,14 +126,19 @@ export function BrowserPage({ roster, actions, run, Section, Row }) {
             onChange: event => setSite(event.target.value),
           })),
         h(Row, { label: t('Actions') },
-          h('div', { className: 'bt-browser-action-list' },
-            ACTIONS.map(([kind, label]) => h('label', { key: kind, className: 'bt-browser-action-choice' },
-              h('input', {
-                type: 'checkbox',
-                checked: kinds.includes(kind),
-                onChange: event => toggleKind(kind, event.target.checked),
-              }),
-              t(label))))),
+          h('div', { className: 'bt-browser-action-list', role: 'group', 'aria-label': t('Actions') },
+            ACTIONS.map(([kind, label]) => {
+              const active = kinds.includes(kind)
+              return h('button', {
+                key: kind,
+                type: 'button',
+                className: 'bt-browser-action-choice',
+                'aria-pressed': active,
+                onClick: () => toggleKind(kind, !active),
+              },
+              active ? h('span', { className: 'bt-browser-action-check', 'aria-hidden': true }, h(CheckIcon)) : null,
+              t(label))
+            }))),
         h(Row, { label: t('Duration') },
           h(Segmented, { label: t('Duration'), value: duration, className: 'bt-browser-seg' },
             DURATIONS.map(([key, label]) => h('button', {
@@ -152,7 +155,6 @@ export function BrowserPage({ roster, actions, run, Section, Row }) {
             disabled: busy || !selectedBot || kinds.length === 0,
           }, busy ? t('Saving…') : t('Add'))))) : null,
     h(Section, { title: t('Allowed actions'), action: addBtn },
-      h('p', { className: 'bt-browser-note' }, t('These grants apply only after an interactive browser plugin is enabled.')),
       grants.length === 0
         ? h('div', { className: 'bt-set-row' }, h('span', { className: 'bt-set-hint' }, t('Nothing allowed yet.')))
         : grants.map(({ bot, grant, index, expired }) => h('div', {

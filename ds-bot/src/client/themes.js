@@ -1,17 +1,17 @@
 import { ACCENT_INKS, INKS, isHex, luminance } from './inks.js'
 import { SHAPES, markupCache, maskCache } from './characters.js'
 import { createSource } from './sources.js'
+import { BASE_KEYS, cleanTheme, contrast, READABLE, THEME_KEYS, USER_THEME } from '../shared/appearance.js'
 
 // -------------------------------------------------------------------------
 // Themes. A theme names eight colors per mode; every `--bt-*` variable and the shell
 // tokens derive from them, so a registered theme recolors the whole team UI.
 
-const THEME_KEYS = ['bg', 'sidebar', 'bubble', 'card', 'text', 'user', 'userText', 'accent']
 const THEMES = {
   deepseek: {
     label: 'DeepSeek',
     light: { bg: '#fcfcfc', sidebar: '#f7f7f7', bubble: '#eeeeee', card: '#ffffff', text: '#141414', user: '#070707', userText: '#fcfcfc', accent: '#4d6bfe' },
-    dark: { bg: '#141414', sidebar: '#1b1b1b', bubble: '#262626', card: '#1f1f1f', text: '#f2f2f2', user: '#f2f2f2', userText: '#141414', accent: '#5b7bff' },
+    dark: { bg: '#141414', sidebar: '#1b1b1b', bubble: '#262626', card: '#1f1f1f', text: '#f2f2f2', user: '#f2f2f2', userText: '#141414', accent: '#4d6bfe' },
   },
   mono: {
     label: 'Mono',
@@ -29,11 +29,88 @@ const THEMES = {
     dark: { bg: '#0b1020', sidebar: '#10172a', bubble: '#1a2340', card: '#141c33', text: '#e8edf7', user: '#3b6fd8', userText: '#ffffff', accent: '#4f9dff' },
   },
 }
-// Text on the accent: near-black or white, whichever has the higher WCAG contrast.
-// (L + .05)² > 1.05 × (L(#141414) + .05) is "dark ink reads better".
+// Text on the accent: prefer crisp white whenever it reads cleanly (>= 4.2:1, e.g. DeepSeek blue);
+// fall back to near-black only on genuinely bright accents (such as Mono dark #f4f4f4).
 const DARK_INK = '#141414'
-const accentInk = accent => ((luminance(accent) + 0.05) ** 2 > 1.05 * (luminance(DARK_INK) + 0.05) ? DARK_INK : '#ffffff')
+const accentInk = accent => (contrast('#ffffff', accent) >= 4.2
+  ? '#ffffff'
+  : (luminance(accent) + 0.05) ** 2 > 1.05 * (luminance(DARK_INK) + 0.05) ? DARK_INK : '#ffffff')
 const rgba = (hex, alpha) => `rgba(${[1, 3, 5].map(index => parseInt(hex.slice(index, index + 2), 16)).join(',')},${alpha})`
+// While a background shows (appearance.js): one wash of the main color at the chosen
+// opacity lies over the picture, and the page panes on top of it are clear (`--bt-pane`,
+// DSH's base fill). DSH nests several panes on the same base color, so panes that each let
+// the picture through would stack into a solid color again. Floating surfaces on the main
+// color (Settings, panels, docks) stay nearly solid, so they read over the page; the sidebar
+// keeps a light tint of its own color, cards stay nearly solid.
+const SIDEBAR_TINT = 0.4
+const FLOATING = 0.94
+const round = alpha => Math.round(alpha * 100) / 100
+export const washColor = (mode, alpha) => rgba(mode.bg, alpha)
+export const surfaceVars = (mode, alpha) => `--bt-pane:transparent;--bt-wash:${washColor(mode, alpha)};--bt-skin-main:${rgba(mode.bg, FLOATING)};--bt-skin-sidebar:${rgba(mode.sidebar, SIDEBAR_TINT)};--bt-skin-card:${rgba(mode.card, round(Math.max(FLOATING, alpha + 0.06)))}`
+export const surfaceColors = theme => ({ light: { bg: 'transparent', sidebar: rgba(theme.light.sidebar, SIDEBAR_TINT) }, dark: { bg: 'transparent', sidebar: rgba(theme.dark.sidebar, SIDEBAR_TINT) } })
+export const veilColors = alpha => ({ light: rgba('#ffffff', alpha), dark: rgba('#000000', alpha) })
+// Where a new background starts when the user picks its kind (appearance-page.js).
+export const BACKGROUND_STARTS = { color: { light: '#dfe6f5', dark: '#1d2433' }, from: '#9ab6ff', to: '#f7c6d9' }
+// The basic colors (Settings → Appearance): a new background or text color moves the other
+// surfaces with it. Each surface keeps its place between background and text, channel by
+// channel, so a theme's tint (Paper's warm sidebar) carries over. Your bubble and its text
+// follow the text and background when they were near them, and keep their own color when
+// the theme gave them one (Moonlight's blue).
+const channels = hex => [1, 3, 5].map(index => parseInt(hex.slice(index, index + 2), 16))
+const toHex = rgb => `#${rgb.map(value => Math.round(Math.min(255, Math.max(0, value))).toString(16).padStart(2, '0')).join('')}`
+const distance = (a, b) => Math.max(...channels(a).map((value, index) => Math.abs(value - channels(b)[index])))
+// Which basic color a bubble color sat on, if any: the nearer one within 24 a channel.
+const anchorOf = (color, mode) => {
+  const [toText, toBg] = [distance(color, mode.text), distance(color, mode.bg)]
+  if (Math.min(toText, toBg) > 24) return undefined
+  return toText <= toBg ? 'text' : 'bg'
+}
+// A channel where background and text are this close says nothing about a surface's place.
+const SPAN = 16
+/**
+ * @param {object} mode - a theme's eight colors for one mode
+ * @param {{ bg?: string, text?: string }} change
+ * @returns {object} the mode with the change and the surfaces that follow it
+ */
+export function followBasics(mode, change) {
+  const next = { ...mode, ...change }
+  const [bg, text, newBg, newText] = [mode.bg, mode.text, next.bg, next.text].map(channels)
+  const spans = bg.map((value, index) => text[index] - value)
+  for (const key of ['sidebar', 'bubble', 'card']) {
+    const at = channels(mode[key]).map((value, index) => (Math.abs(spans[index]) >= SPAN ? (value - bg[index]) / spans[index] : undefined))
+    const known = at.filter(value => value !== undefined)
+    if (known.length === 0) continue
+    const mean = known.reduce((sum, value) => sum + value, 0) / known.length
+    next[key] = toHex(at.map((value, index) => newBg[index] + (value ?? mean) * (newText[index] - newBg[index])))
+  }
+  // Your bubble and its text never land on the same color: when both sat on one basic color,
+  // both keep their own.
+  const [user, userText] = [anchorOf(mode.user, mode), anchorOf(mode.userText, mode)]
+  if (user !== userText || user === undefined) {
+    if (user !== undefined) next.user = next[user]
+    if (userText !== undefined) next.userText = next[userText]
+  }
+  // One of the pair keeps its own color (Moonlight's blue bubble): the other one follows
+  // whichever basic color reads on it, when the one it sat on no longer does.
+  const basics = [next.bg, next.text]
+  const readOn = other => basics.reduce((best, color) => (contrast(color, other) > contrast(best, other) ? color : best))
+  if (user === undefined && userText !== undefined && contrast(next.userText, next.user) < READABLE) next.userText = readOn(next.user)
+  if (userText === undefined && user !== undefined && contrast(next.user, next.userText) < READABLE) next.user = readOn(next.userText)
+  return next
+}
+/**
+ * The colors with a new background or text color, the other surfaces placed as they sat in
+ * the colors before the first of a run of such changes. Those are kept with the colors
+ * (`base`), so a background that passes close to the text on its way loses nothing, also
+ * when the change after it comes another day. A color set on its own drops `base`.
+ * @param {object} colors - one mode of a theme, maybe with its `base`
+ * @param {{ bg?: string, text?: string }} change
+ */
+export function moveBasics(colors, change) {
+  const base = colors.base ?? Object.fromEntries(BASE_KEYS.map(key => [key, colors[key]]))
+  const moved = followBasics({ ...colors, ...base }, { bg: colors.bg, text: colors.text, ...change })
+  return { ...colors, ...Object.fromEntries(BASE_KEYS.map(key => [key, moved[key]])), base }
+}
 export function themeVars(mode, dark, accent = mode.accent) {
   return {
     '--bt-ink': mode.text, '--bt-ink-2': rgba(mode.text, 0.6), '--bt-ink-3': rgba(mode.text, 0.36),
@@ -57,13 +134,16 @@ const darkAccent = (accent) => {
   const ink = ACCENT_INKS.find(id => INKS[id][0] === accent)
   return ink === undefined ? accent : INKS[ink][1]
 }
+/** The accent a mode shows: the team's accent when one is picked, else the theme's. */
+export const accentIn = (theme, modeName, accent) => (modeName === 'dark' ? darkAccent(accent) : accent) ?? theme[modeName].accent
 // `html body` outranks the base sheet's `body` rules without !important.
 export const themeCss = (theme, accent) => `html body{${declarations(themeVars(theme.light, false, accent ?? theme.light.accent))}}
 html body[data-ds-dark-theme]{${declarations(themeVars(theme.dark, true, darkAccent(accent) ?? theme.dark.accent))}}
 ${theme.css ?? ''}`
-export const shellTokens = ({ light, dark }) => ({
-  '--dsw-alias-bg-base': { light: light.bg, dark: dark.bg },
-  '--dsw-specific-sidebar-fill': { light: light.sidebar, dark: dark.sidebar },
+// `surfaces` replaces the base and sidebar fills, so a background shows through DSH's frame too.
+export const shellTokens = ({ light, dark }, surfaces = { light, dark }) => ({
+  '--dsw-alias-bg-base': { light: surfaces.light.bg, dark: surfaces.dark.bg },
+  '--dsw-specific-sidebar-fill': { light: surfaces.light.sidebar, dark: surfaces.dark.sidebar },
   '--dsw-specific-input-major': { light: light.bg, dark: dark.sidebar },
   '--dsw-alias-label-primary': { light: light.text, dark: dark.text },
   '--dsw-alias-label-secondary': { light: rgba(light.text, 0.74), dark: rgba(dark.text, 0.74) },
@@ -119,6 +199,16 @@ export function registerTheme(id, theme) {
   }
 }
 export const allThemes = () => ({ ...THEMES, ...customThemes })
+// The team's own themes (`prefs.themes`, ids `my-…`) after the built-in and plugin ones. A
+// saved theme that no longer passes the rules is left out, so it falls back to the default.
+export function themesOf(prefs) {
+  const own = {}
+  for (const [id, theme] of Object.entries(prefs?.themes ?? {})) {
+    if (!USER_THEME.test(id)) continue
+    try { own[id] = { ...cleanTheme(theme), own: true } } catch { /* unusable: left out */ }
+  }
+  return { ...allThemes(), ...own }
+}
 
 // How chat messages are drawn; a value the plugin does not know reads as the default.
 // A width is a percent of the column: the bubbles' in either layout, the text's in the

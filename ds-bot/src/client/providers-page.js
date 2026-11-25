@@ -3,10 +3,12 @@
 // all of it; a key only ever travels from these inputs to the host.
 import { createElement as h, useEffect, useState } from 'react'
 import { BotAvatar } from './mark.js'
-import { CheckIcon, ChevronRightIcon, PlusIcon, TrashIcon } from './icons.js'
+import { CheckIcon, ChevronDownIcon, ChevronRightIcon, PlusIcon, TrashIcon } from './icons.js'
 import { KeyIcon, MaskedInput } from './secret-card.js'
 import { Segmented, SPRING_SHAPE } from './motion.js'
 import { isLocalRoute } from './agent-routes.js'
+import { ProviderLogo, matchProviderId } from './provider-logos.js'
+import { SelectMenu } from './select-menu.js'
 import { hostText, t } from './i18n.js'
 import { ChatGPTSettings } from './chatgpt-settings.js'
 
@@ -238,14 +240,19 @@ export function ProviderRow({ provider, apply, actions, roster, revision, open, 
               refreshError ? h('div', { className: 'bt-set-hint', 'data-error': '', role: 'alert' }, refreshError) : null,
             ])
     : null
+  const logoId = matchProviderId({ provider: provider.id, providerName: provider.name, model: provider.models?.[0]?.ref, name: provider.models?.[0]?.name })
+  const logo = logoId ? h(ProviderLogo, { provider: provider.id, providerName: provider.name, model: provider.models?.[0]?.ref, name: provider.models?.[0]?.name, size: 18 }) : null
+  const monogram = (String(provider.name || provider.id).match(/[\p{L}\p{N}]/u)?.[0] ?? '?').toUpperCase()
   return h('div', { className: 'bt-secret-item bt-provider', 'data-open': open ? '' : undefined },
     h('button', { type: 'button', className: 'bt-set-row bt-secret-summary', 'aria-expanded': open, onClick: onToggle },
+      h('span', { className: 'bt-provider-logo', 'data-provider': logoId ?? undefined, 'aria-hidden': true }, logo ?? monogram),
       h('span', { className: 'bt-set-copy' },
-        h('span', { className: 'bt-secret-title' }, provider.name, provider.name !== provider.id ? h('span', { className: 'bt-provider-id' }, provider.id) : null),
+        h('span', { className: 'bt-secret-title' }, provider.name, provider.removable && provider.name !== provider.id ? h('span', { className: 'bt-provider-id' }, provider.id) : null),
         h('span', { className: 'bt-set-hint', 'data-error': provider.error ? '' : undefined }, hint)),
       h('span', { className: 'bt-set-control' },
         h(UsedBy, { bots: usersOf(provider, roster) }),
-        state ? h('span', { className: 'bt-provider-state', 'data-state': state[0] }, state[1]) : null)),
+        state ? h('span', { className: 'bt-provider-state', 'data-state': state[0] }, state[1]) : null,
+        h('span', { className: 'bt-chevron bt-collapse-chevron', 'data-open': open || undefined }, h(ChevronDownIcon)))),
     open ? h('div', { className: 'bt-secret-edit' },
       !isChatGPT && provider.key?.writable ? h(KeyEditor, { provider, apply, actions }) : null,
       !isChatGPT && provider.key && !provider.key.writable ? h('div', { className: 'bt-set-hint' }, t('This key comes from outside DS Bot, such as an environment variable, and cannot be changed here.')) : null,
@@ -361,9 +368,13 @@ function KnownForm({ view, apply, actions, onDone }) {
     void apply(actions.addProvider({ provider, key })).then((ok) => { if (ok) onDone() })
   }
   return h('div', { className: 'bt-provider-form' },
-    h('select', { className: 'bt-select', 'aria-label': t('Provider'), value: provider, onChange: event => setProvider(event.target.value) },
-      h('option', { value: '', disabled: true }, t('Choose a provider')),
-      options.map(option => h('option', { key: option.id, value: option.id }, option.name))),
+    h(SelectMenu, {
+      'aria-label': t('Provider'),
+      value: provider,
+      placeholder: t('Choose a provider'),
+      options: options.map(option => ({ value: option.id, label: option.name })),
+      onChange: setProvider,
+    }),
     provider === 'openai' && actions.chatgpt
       ? h(ChatGPTSettings, { actions, apply, provider: view.providers.find(entry => entry.auth === 'chatgpt') }) : null,
     h('label', { className: 'bt-q-field bt-secret-field' }, h(KeyIcon), h(MaskedInput, { value: key, onChange: setKey, onEnter: add, label: t('API key') })),
@@ -386,7 +397,7 @@ export function CustomForm({ view, apply, actions, onDone }) {
   if (models.length === 0) missing.push(t('At least one model'))
   const ready = missing.length === 0
   const missingHint = ready ? null : h('div', { className: 'bt-set-hint bt-provider-missing', role: 'status' },
-    t('Still needed: {fields}', {
+    t('Please enter: {fields}', {
       fields: missing.join(t(', ')),
     }))
   const fetchModels = () => {
@@ -409,8 +420,12 @@ export function CustomForm({ view, apply, actions, onDone }) {
       input('name', t('Name'), t('Name (optional)'))),
     h('div', { className: 'bt-provider-pair' },
       input('baseURL', t('Endpoint'), ENDPOINT_HINTS[draft.api] ?? 'https://gateway.example/v1'),
-      h('select', { className: 'bt-select', 'aria-label': t('Protocol'), value: draft.api, onChange: event => set('api', event.target.value) },
-        view.protocols.map(api => h('option', { key: api, value: api }, PROTOCOL_NAMES[api] ?? api)))),
+      h(SelectMenu, {
+        'aria-label': t('Protocol'),
+        value: draft.api,
+        options: view.protocols.map(api => ({ value: api, label: PROTOCOL_NAMES[api] ?? api })),
+        onChange: value => set('api', value),
+      })),
     h('label', { className: 'bt-q-field bt-secret-field' }, h(KeyIcon), h(MaskedInput, { value: draft.key, onChange: value => set('key', value), label: t('API key') })),
     h('div', { className: 'bt-secret-edit-block' },
       h('div', { className: 'bt-provider-models-head' },
@@ -432,6 +447,8 @@ function FormActions({ onCancel, onAdd, ready }) {
 }
 
 export const PROVIDERS_CSS = `
+.bt-provider .bt-secret-summary{gap:12px}
+.bt-provider-logo{flex:none;width:32px;height:32px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;background:var(--bt-hover);color:var(--bt-ink);font-size:13px;font-weight:600;line-height:1}
 .bt-provider-id{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;color:var(--bt-ink-3)}
 .bt-chatgpt{padding:12px;border:1px solid var(--bt-line);border-radius:12px;min-width:0}
 .bt-chatgpt-account{display:flex;flex-direction:column;gap:2px;overflow-wrap:anywhere}
@@ -456,8 +473,9 @@ export const PROVIDERS_CSS = `
 .bt-provider-form{display:flex;flex-direction:column;gap:10px}
 .bt-provider-form .bt-secret-field{min-height:36px;align-items:center;gap:8px}
 .bt-provider-pair{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.bt-provider-pair .bt-sel{height:36px}
 .bt-provider-models-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
-.bt-provider-missing{color:var(--bt-danger)}
+.bt-provider-missing{color:var(--bt-ink-3)}
 .bt-provider-draft{display:flex;flex-direction:column;gap:8px}
 .bt-provider-draft-group{display:flex;flex-direction:column;gap:6px}
 .bt-provider-draft>.bt-set-hint,.bt-provider-draft-group>.bt-set-hint{margin:0}
@@ -467,5 +485,6 @@ export const PROVIDERS_CSS = `
 .bt-provider-found{max-height:180px;overflow-y:auto;scrollbar-width:thin;padding:3px;margin:-3px}
 .bt-provider-found code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px}
 .bt-provider-found .bt-secret-bot{padding:0 10px}
+@media (max-width:768px){.bt-provider .bt-secret-summary{flex-direction:row;align-items:center;flex-wrap:wrap}.bt-provider .bt-secret-summary>.bt-set-copy{width:auto}}
 @media (prefers-reduced-motion:reduce){.bt-provider-add{animation:none}}
 `

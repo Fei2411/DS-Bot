@@ -234,7 +234,7 @@ test('deleting a group cancels its members\' waiting approvals and stops their S
 test('a report back waits through a member approval and delivers the final reply once allowed', async (t) => {
   const host = await start()
   t.after(host.stop)
-  const posted = await host.tool('post_to_group', { group: 'Ops', message: 'Copy the doc' }, 'a')
+  const posted = await host.tool('post_to_group', { group: 'Ops', intent: 'request', message: 'Copy the doc' }, 'a')
   assert.match(posted, /^Posted in "Ops"/)
   const post = host.agentOf('r1').calls.shift()
   host.emit('r1', 'user/message', { content: post.content, source: post.source })

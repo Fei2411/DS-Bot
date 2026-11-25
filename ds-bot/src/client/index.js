@@ -3,10 +3,11 @@ import { isHex, inkText, paintCss } from './inks.js'
 import { DEFAULT_MASK, SHAPES, markupCache, maskOf } from './characters.js'
 import { createSource, EMPTY_ROSTER, indexRoster, isAgentSession } from './sources.js'
 import { teamActions } from './team-actions.js'
-import { themeCss, shellTokens, registry, registerShape, registerTheme, allThemes, layoutOf, effectsOf, widthOf, flatWidthOf } from './themes.js'
+import { themeCss, shellTokens, surfaceColors, registry, registerShape, registerTheme, allThemes, themesOf, layoutOf, effectsOf, widthOf, flatWidthOf } from './themes.js'
+import { appearanceCss, backgroundShown, onSafeAppearance, pictureUrl, safeAppearance, userCss, watchSafeAppearance } from './appearance.js'
 import { readSkinSurfaceVars, writeSkinSurfaceVars } from './skin.js'
 import { MENTION_ORIGIN, currentPart } from './text.js'
-import { SHELL_CSS, CONVERSATION_CSS, botOwnCss, installStyles, installCompiledStyles, RETURN_TOKENS } from './styles.js'
+import { SHELL_CSS, CONVERSATION_CSS, botOwnCss, installStyles, installLastStyles, installCompiledStyles, RETURN_TOKENS } from './styles.js'
 import { lookOf } from './mark.js'
 import { TeamSidebar, YouAvatar, AccountLauncher, FooterAccount, BrandMark, BrandName, BotReturn, SIDEBAR_CSS, RETURN_CSS, holdShellShortcuts } from './sidebar.js'
 import { installSettingsShell, SETTINGS_SHELL_CSS } from './settings-shell.js'
@@ -48,6 +49,7 @@ import { GROUP_SETTINGS_CSS } from './group-settings.js'
 import { FOLDER_CSS } from './folder-menu.js'
 import { USAGE_CSS } from './usage-page.js'
 import { SCHEDULE_CSS } from './schedules.js'
+import { APPEARANCE_PAGE_CSS } from './appearance-page.js'
 import { STORAGE, migrateStorage } from './storage.js'
 import { noteLeft, setUnread, sharedMap, toggleReaction } from './shared-map.js'
 import { freePriority, groupsFor, readMode, surfaceGroups, writeMode } from './surface.js'
@@ -452,14 +454,21 @@ export function apply(ctx) {
 
   // The chosen theme lives in the team state so every device shares it; the local
   // copy only avoids a flash of the default theme before the first state pull.
+  // The Session the main view holds open, if any.
+  const shownSessionId = () => Object.values(ctx.sessions.list.getSnapshot().byId ?? {}).find(session => (session?.retainedBy?.mainView ?? 0) > 0)?.id
   const installTheme = () => {
     const style = installStyles('', 'theme')
+    // The appearance, and the user's own stylesheet after every DS Bot sheet.
+    const look = installStyles('', 'appearance')
+    const userSheet = installLastStyles('user-stylesheet')
     let key = ''
     let releaseTokens = null
     let activeTheme = null
     // A third-party skin's glass sliders change DSH's background tokens; the surfaces
     // follow them through --bt-skin-*, and nothing is set while the tokens are opaque.
-    const skin = writeSkinSurfaceVars(document, () => (activeTheme === null ? {} : readSkinSurfaceVars(document, activeTheme)))
+    // DS Bot's own background sets the panes itself (appearance.js); the skin bridge then stays out.
+    let ownBackground = false
+    const skin = writeSkinSurfaceVars(document, () => (activeTheme === null || ownBackground ? {} : readSkinSurfaceVars(document, activeTheme)))
     let skinRaf = 0
     const scheduleSkin = () => {
       if (skinRaf) return
@@ -491,15 +500,25 @@ export function apply(ctx) {
     const render = () => {
       const snapshot = roster.getSnapshot()
       const prefs = snapshot.ready ? snapshot.prefs ?? {} : savedPrefs
-      const themes = allThemes()
+      const themes = themesOf(prefs)
       const id = themes[prefs.theme] ? prefs.theme : 'deepseek'
+      // The open chat's own background, over the team's (docs/plans/2026-11-21-appearance.md).
+      const open = shownSessionId()
+      const chat = open === undefined ? undefined : snapshot.byId?.[open] ?? snapshot.roomsById?.[open]
+      const safe = safeAppearance()
+      const lookCss = appearanceCss({ appearance: prefs.appearance, theme: themes[id], background: chat?.background, pictureUrl: picture => pictureUrl(picture, call, render), safe, user: false })
+      if (look.textContent !== lookCss) look.textContent = lookCss
+      const mine = userCss(prefs.appearance, safe)
+      if (userSheet.textContent !== mine) userSheet.textContent = mine
+      const through = backgroundShown({ appearance: prefs.appearance, background: chat?.background, pictureUrl: picture => pictureUrl(picture, call, render), safe })
+      ownBackground = through
       const accent = isHex(prefs.accent) ? prefs.accent : undefined
       const motion = prefs.motion === 'quiet' || prefs.motion === 'lively' ? prefs.motion : 'normal'
       const layout = layoutOf(prefs)
       const effects = effectsOf(prefs)
       const width = widthOf(prefs)
       const flatWidth = flatWidthOf(prefs)
-      const next = `${id}|${accent ?? ''}|${motion}|${layout}|${effects}|${width}|${flatWidth}|${registry.getSnapshot()}`
+      const next = `${id}|${JSON.stringify(themes[id])}|${accent ?? ''}|${motion}|${layout}|${effects}|${width}|${flatWidth}|${through}|${registry.getSnapshot()}`
       if (next === key) return
       key = next
       if (document.body.dataset.btMotion !== motion) document.body.dataset.btMotion = motion
@@ -514,7 +533,7 @@ export function apply(ctx) {
       activeTheme = themes[id]
       skin.apply()
       const release = releaseTokens
-      releaseTokens = ctx.theme.overrideTokens('ds-bot', shellTokens(themes[id]))
+      releaseTokens = ctx.theme.overrideTokens('ds-bot', shellTokens(themes[id], through ? surfaceColors(themes[id]) : undefined))
       if (typeof release === 'function') release()
       if (snapshot.ready) {
         try { localStorage.setItem(PREFS_KEY, JSON.stringify({ theme: prefs.theme, accent: prefs.accent, motion: prefs.motion, layout: prefs.layout, effects: prefs.effects, width: prefs.width, flatWidth: prefs.flatWidth, thinking: prefs.thinking, defaultBotModel: prefs.defaultBotModel, enterToSend: prefs.enterToSend })) } catch { /* storage unavailable */ }
@@ -523,9 +542,20 @@ export function apply(ctx) {
     render()
     const offRoster = roster.subscribe(render)
     const offRegistry = registry.subscribe(render)
+    const offShown = ctx.sessions.list.subscribe(render)
+    const offSafe = onSafeAppearance((on) => {
+      render()
+      if (on) actions.notice?.(t('Safe appearance: the background and your stylesheet are off in this window. Turn them back on in Settings → Appearance.'))
+    })
+    const stopSafe = watchSafeAppearance()
     return () => {
       offRoster()
       offRegistry()
+      offShown()
+      offSafe()
+      stopSafe()
+      look.remove()
+      userSheet.remove()
       offTheme()
       if (skinRaf && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(skinRaf)
       observer?.disconnect()
@@ -1169,7 +1199,7 @@ export function apply(ctx) {
   ctx.effect(() => noticeApprovals({
     work,
     roster,
-    shownSession: () => Object.values(ctx.sessions.list.getSnapshot().byId ?? {}).find(session => (session?.retainedBy?.mainView ?? 0) > 0)?.id,
+    shownSession: shownSessionId,
     openSession: id => actions.openSession(id),
   }), 'ds-bot: approval notifications')
   const assistantFace = (sessionId) => {
@@ -1220,7 +1250,17 @@ export function apply(ctx) {
   actions.steerQueued = async (sessionId) => {
     const session = ctx.sessions.binding(sessionId)?.session
     if (session === undefined) return
-    if (await steerQueued(session) === 'failed') {
+    const steerBatch = roster.getSnapshot().byId?.[sessionId] !== undefined
+      ? async (ids) => {
+          try {
+            const result = await actions.steerQueueBatch(sessionId, ids)
+            return result?.fallback === true ? 'fallback' : 'done'
+          } catch (error) {
+            return error?.code === 'bot/not-found' ? 'fallback' : 'failed'
+          }
+        }
+      : undefined
+    if (await steerQueued(session, steerBatch) === 'failed') {
       actions.reportError(new Error(t('Couldn’t steer the queued messages. Try again.')), 'steer-queue')
     }
   }
@@ -1384,6 +1424,7 @@ export function apply(ctx) {
     [MODEL_CSS + FOLDER_CSS + BOT_SETTINGS_CSS + BOT_MODELS_CSS + AGENT_CARDS_CSS + GROUP_SETTINGS_CSS + AVATAR_LIBRARY_CSS, 'models'],
     [USAGE_CSS, 'usage'],
     [SCHEDULE_CSS, 'schedules'],
+    [APPEARANCE_PAGE_CSS, 'appearance-page'],
     [FEEDBACK_CSS, 'feedback'],
     [ABOUT_CSS, 'about'],
     [MEMBER_CSS, 'members'],
@@ -1413,7 +1454,7 @@ export function apply(ctx) {
     syncEffects()
     const snapshot = roster.getSnapshot()
     const prefs = snapshot.ready ? snapshot.prefs ?? {} : savedPrefs
-    const themes = allThemes()
+    const themes = themesOf(prefs)
     const theme = themes[prefs.theme] ?? themes.deepseek
     const offs = [
       roster.subscribe(syncEffects),

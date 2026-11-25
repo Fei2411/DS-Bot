@@ -307,7 +307,7 @@ export function install(rt) {
     }
     if (changed) save()
   }
-  function checkPairLoop(fromId, toId, { callerWorked = false, text = '' } = {}) {
+  function checkPairLoop(fromId, toId, { callerWorked = false, text = '', followUp = false } = {}) {
     if (!fromId || !toId || fromId === toId) return { ok: true }
     for (const [id, work] of Object.entries(works())) {
       if (work?.state === 'paused' && ((work.from === fromId && work.to === toId) || (work.from === toId && work.to === fromId))) {
@@ -317,7 +317,7 @@ export function install(rt) {
     const entry = own(pairLoops(), pairKey(fromId, toId))
     if (entry === undefined) return { ok: true }
     if (Date.now() - (entry.lastAt ?? 0) > PAIR_LOOP_TTL_MS) return { ok: true }
-    if (!callerWorked) {
+    if (!callerWorked && !followUp) {
       const idleBounces = entry.idleBounces ?? 0
       const reciprocalOrAck = entry.lastFrom === toId || entry.lastAck === true || isAckLikeText(text)
       if (idleBounces >= 1 && reciprocalOrAck) {
@@ -664,6 +664,7 @@ export function install(rt) {
     if (waiting === undefined || rt.botOf(waiting) === undefined) return
     void rt.deliver({
       fromName: late.name ?? 'the subagent', toId: waiting, text: LATE_ANSWER + text, role: 'reply',
+      replyTo: id, ...(late.ref ? { workRef: late.ref } : {}),
       exchangeId: randomUUID(), recordExchange: false,
     }).catch(error => rt.warn('ds-bot: the late result of %s did not reach %s: %s', late.name ?? 'a subagent', waiting, error))
   }
