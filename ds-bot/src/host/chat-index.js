@@ -504,7 +504,7 @@ export function install(rt) {
     const formatHit = (parts, row) => {
       const part = parts.find(item => item.sessionId === row.session)
       const partNumber = part?.number ?? 1
-      const anchor = parts.length > 1 ? `part ${partNumber} #${row.seq}` : `#${row.seq}`
+      const anchor = `part ${partNumber} #${row.seq}`
       const raw = String(row.text ?? '')
       if (start >= raw.length && raw.length > 0) {
         return {
@@ -525,8 +525,9 @@ export function install(rt) {
       const slice = raw.slice(start, start + maxChars)
       const end = start + slice.length
       const hasMore = end < raw.length
+      const groupHint = roomId !== undefined ? `, group: ${JSON.stringify(roomId)}` : ''
       const text = hasMore
-        ? `${slice}\n… (showing characters ${start}–${end} of ${raw.length}; pass call_id: "${row.call_id}", around: "${anchor}", offset: ${end} to read more)`
+        ? `${slice}\n… (showing characters ${start}–${end} of ${raw.length}; pass call_id: ${JSON.stringify(row.call_id)}, around: ${JSON.stringify(anchor)}, offset: ${end}${groupHint} to read more)`
         : start > 0
           ? `${slice}\n… (showing characters ${start}–${end} of ${raw.length})`
           : slice

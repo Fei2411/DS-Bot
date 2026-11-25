@@ -786,6 +786,16 @@ test('B14/D8 review regressions: reused call_id + SQL throughSeq + offset pagina
   assert.equal(page3.truncated, false)
   assert.match(page3.text, /TAIL_MARKER/)
 
+  // Group recall continuation hint includes both explicit `part N #seq` and `group`.
+  rt.state.rooms.r1 = { id: 'r1', name: 'Backend', members: ['b1'], sessions: { b1: 'g-live' }, segments: {}, log: [], seq: 0, seen: {} }
+  sessionEvents.set('g-live', [
+    { seq: 0, time: 30, type: 'tool/call', data: { callId: 'g-call', name: 'bash', arguments: '{}' } },
+    { seq: 1, time: 31, type: 'tool/result', data: { message: { toolCallId: 'g-call', ok: true, content: [{ type: 'text', text: longPayload }] } } },
+  ])
+  const grpPage1 = await rt.recallToolOutput('b1', 'g-call', { askingId: 'g-live', roomId: 'r1', maxChars: 50, offset: 0 })
+  assert.equal(grpPage1.found, true)
+  assert.match(grpPage1.text, /around: "part 1 #1", offset: 50, group: "r1"/)
+
   // 2) Codex forkSession reuses live parent engine instead of spawning a second shared engine.
   let spawnCount = 0
   let parentForkCalls = 0
