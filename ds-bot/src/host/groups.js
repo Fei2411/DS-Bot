@@ -3326,6 +3326,7 @@ export function install(rt) {
         registerQueuedReport(room, sender, postExtra, { imOrigin, tainted: imOrigin !== undefined && tainted })
       }
       let said
+      let line = ''
       if (postExtra.failed !== undefined) {
         // A failed model call is in the log already (noteFailure); the round names it.
         running.failed.push(sender.name)
@@ -3333,9 +3334,8 @@ export function install(rt) {
         const kind = postExtra.done === true ? 'done' : postExtra.stopped === true ? 'stopped' : postExtra.again === true ? 'cut' : 'resumed'
         said = say(room, { who: sender.name, botId: sender.id, kind, text: '', ...(postExtra.changes === undefined ? {} : { changes: postExtra.changes }) })
       } else {
-        const line = [text, ...files.map(fileLine)].filter(Boolean).join('\n')
+        line = [text, ...files.map(fileLine)].filter(Boolean).join('\n')
         said = say(room, { who: sender.name, botId: sender.id, text: line, ...(postExtra.route ? { route: postExtra.route } : {}), ...(files.length > 0 ? { files } : {}), ...(presented.length > 0 ? { presented } : {}), ...(postExtra.claims === undefined ? {} : { claims: postExtra.claims }), ...(postExtra.changes === undefined ? {} : { changes: postExtra.changes }), ...(postExtra.late !== true && postExtra.progress !== true ? { openingPost: true } : {}) })
-        if (postExtra.batch !== undefined && (line !== '' || presented.length > 0)) recordResult(postExtra.batch, sender.name, room.seq)
       }
       // The line is drawn already; the book may not have it. The write say() queued is taken
       // here, before any await, so a record written later cannot stand in for this one.
@@ -3344,9 +3344,28 @@ export function install(rt) {
       // closes its batch), the room hears the notice `say` sent.
       if (landed !== undefined) {
         await landed.catch((error) => {
+          // The receipt was queued before the write; a line the book did not keep has no
+          // delivery to report, so its receipt goes with it.
+          if (postExtra.reportId !== undefined) dropRoomReport(postExtra.reportId)
           rt.warn('ds-bot: a line said in %s was not saved: %s', room.name, error?.message ?? error)
           throw new Error(`the last line said may not have been saved: ${error?.message ?? error}`)
         })
+      }
+      // On the book now, so the batch result is a fact about a seq the book took: recording it
+      // before the write remembered a seq the book never had.
+      if (postExtra.batch !== undefined && (line !== '' || presented.length > 0) && said !== undefined) recordResult(postExtra.batch, sender.name, said.seq)
+      // The round can close while that write is awaited. A post that would join it now belongs
+      // to the next round, which calls its members at the line: one already closed cannot.
+      if (!noticeOnly && (running.closed || running.abort?.signal.aborted)) {
+        await holdForNextRound(room, [{
+          ...postExtra,
+          botId: sender.id,
+          name: sender.name,
+          text,
+          ...(files.length > 0 ? { files } : {}),
+          ...(said?.seq === undefined ? {} : { logged: said.seq }),
+        }], undefined, { stopped: running.abort?.signal.aborted === true })
+        return
       }
       let callOutcome
       try {
