@@ -11,6 +11,7 @@ import { createUserMessage, LlmAdapter } from '@deepseek-ai/dsh-llm'
 import { TokenMeter } from '@deepseek-ai/dsh-token-meter'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { createRuntime } from '../index.js'
+import { SOURCE_KIND } from '../src/host/constants.js'
 import { output } from '../src/host/tools.js'
 import { fakeContext } from './fake-ctx.js'
 
@@ -551,8 +552,8 @@ test('B18: crash between pointer flip and handoff flush #1 recovers missing hand
   await host.rt.load()
   const msg = { id: 'm-b18', role: 'user', content: [{ type: 'text', text: 'important task' }], source: { kind: 'user', exchangeId: 'ex-b18' } }
   const entry = host.rt.liveOf('b')
-  entry.info = { kind: 'ds-bot', form: 'relay', role: 'request', exchangeId: 'ex-peer-route', rpcId: 'stale-rpc-1', senderName: 'Kai' }
-  entry.joined = [{ info: { kind: 'ds-bot', role: 'request', exchangeId: 'ex-joined-1' }, text: 'also check this' }]
+  entry.info = { kind: SOURCE_KIND, form: 'relay', role: 'request', exchangeId: 'ex-peer-route', rpcId: 'stale-rpc-1', senderName: 'Kai' }
+  entry.joined = [{ info: { kind: SOURCE_KIND, role: 'request', exchangeId: 'ex-joined-1' }, text: 'also check this' }]
   host.agentOf('b').status = 'running'
   await host.preStep('b', [msg], 2)
   assert.equal(await waitFor(() => host.state().bots.b.sessionId === 's1'), true)
@@ -740,4 +741,30 @@ test('B6-nonbinding: an explicit checkTokens above the ratio-based check line do
   await runTurn('Run task under nonbinding checkTokens')
   assert.equal(rt.chatOf('m1'), 'm1')
   assert.equal(calls.filter(c => c.kind === 'checkpoint').length, 0, 'nonbinding checkTokens must not trigger early mid-turn compaction below hard line')
+})
+
+test('rollback after failed fresh-part creation still delivers PAUSE_NOTE when the original exchangeId is already in the old session history', async (t) => {
+  const host = makeSwitchFixture({
+    fail: {
+      onCreate: async () => { throw new Error('disk full') },
+    },
+  })
+  t.after(host.stop)
+  await host.rt.load()
+
+  // Old session already has the initiating peer-Bot request (exchangeId: 'ex-42') in its logged user/message history.
+  const bAgent = host.agentOf('b')
+  bAgent.session.snapshotEvents = () => [
+    { type: 'user/message', data: { id: 'orig-req-42', source: { kind: SOURCE_KIND, form: 'relay', role: 'request', exchangeId: 'ex-42', senderName: 'Kai' }, content: [{ type: 'text', text: 'Finish ex-42' }] } },
+  ]
+  const entry = host.rt.liveOf('b')
+  entry.info = { kind: SOURCE_KIND, form: 'relay', role: 'request', exchangeId: 'ex-42', senderName: 'Kai' }
+  bAgent.status = 'running'
+
+  await host.preStep('b', [], 2)
+  assert.equal(await waitFor(() => bAgent.calls.some(([kind, m]) => kind === 'followup' && (m.content?.[0]?.text ?? '').includes('DS Bot paused your turn'))), true, 'PAUSE_NOTE must not be dropped as a duplicate of the logged ex-42 request')
+
+  const pauseMsg = bAgent.calls.find(([kind, m]) => kind === 'followup' && (m.content?.[0]?.text ?? '').includes('DS Bot paused your turn'))[1]
+  assert.equal(pauseMsg.source?.exchangeId, 'ex-42', 'PAUSE_NOTE keeps original exchangeId for reply routing')
+  assert.ok(typeof pauseMsg.source?.transferId === 'string' && pauseMsg.source.transferId !== 'ex-42', 'PAUSE_NOTE uses its own distinct transferId')
 })

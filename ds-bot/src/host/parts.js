@@ -1858,21 +1858,27 @@ export function install(rt) {
   const isSilentRelay = message => isSilentSource(message?.source)
   const isAgentIdle = agent => agent.status === 'idle' && rt.live?.get(agent.id)?.turn === undefined
 
-  // Collects transfer/message identities already pending in the target inbox,
+  // Collects per-message transfer identities already pending in the target inbox,
   // claimed into an in-flight turn, or admitted into the target session log so
   // retrying a failed forward flush never duplicates an already-claimed prompt.
-  const transferKeyOf = message => message?.source?.transferId ?? message?.source?.exchangeId ?? message?.source?.rpcId ?? message?.id
-  function collectTargetSeenKeys(agent) {
-    const seen = new Set()
-    const addMsg = (msg) => {
+  // Keeps per-message transfer identity separate from reply-routing exchangeId so
+  // a synthetic resume message (PAUSE_NOTE) sharing an active turn's exchangeId is
+  // never mistaken for the original request already logged in the old part's history.
+  const transferKeyOf = message => message?.source?.transferId ?? message?.source?.rpcId ?? message?.id ?? message?.source?.exchangeId
+  function collectTargetSeen(agent) {
+    const seenTransferIds = new Set()
+    const pendingExchangeIds = new Set()
+    const addTransfer = (msg) => {
       if (!msg) return
-      if (msg.id !== undefined) seen.add(msg.id)
+      if (msg.id !== undefined) seenTransferIds.add(msg.id)
       const src = msg.source
-      if (src?.transferId !== undefined) seen.add(src.transferId)
-      if (src?.exchangeId !== undefined) seen.add(src.exchangeId)
-      if (src?.rpcId !== undefined) seen.add(src.rpcId)
+      if (src?.transferId !== undefined) seenTransferIds.add(src.transferId)
+      if (src?.rpcId !== undefined) seenTransferIds.add(src.rpcId)
     }
-    for (const msg of [...(agent.inbox?.nextStep ?? []), ...(agent.inbox?.nextTurn ?? [])]) addMsg(msg)
+    for (const msg of [...(agent.inbox?.nextStep ?? []), ...(agent.inbox?.nextTurn ?? [])]) {
+      addTransfer(msg)
+      if (msg?.source?.exchangeId !== undefined) pendingExchangeIds.add(msg.source.exchangeId)
+    }
     const events = agent.session?.snapshotEvents?.()
     if (Array.isArray(events)) {
       const pending = { 'next-turn': [], 'next-step': [] }
@@ -1880,12 +1886,11 @@ export function install(rt) {
       for (const ev of events) {
         if (ev?.type === 'turn/end') claimed.clear()
         if (ev?.type === 'user/message') {
-          if (ev.data?.id !== undefined) seen.add(ev.data.id)
-          if (ev.data?.message?.id !== undefined) seen.add(ev.data.message.id)
+          if (ev.data?.id !== undefined) seenTransferIds.add(ev.data.id)
+          if (ev.data?.message?.id !== undefined) seenTransferIds.add(ev.data.message.id)
           const src = ev.data?.source ?? ev.data?.message?.source
-          if (src?.transferId !== undefined) seen.add(src.transferId)
-          if (src?.exchangeId !== undefined) seen.add(src.exchangeId)
-          if (src?.rpcId !== undefined) seen.add(src.rpcId)
+          if (src?.transferId !== undefined) seenTransferIds.add(src.transferId)
+          if (src?.rpcId !== undefined) seenTransferIds.add(src.rpcId)
         } else if (ev?.type === 'agent/inbox/spliced' && ev.data) {
           const inbox = pending[ev.data.target]
           if (inbox !== undefined) {
@@ -1897,10 +1902,8 @@ export function install(rt) {
               const removed = inbox.splice(start, removedCount, ...inserted)
               if (inserted.length === 0 && ev.data.outcome !== 'canceled') {
                 for (const msg of removed) {
-                  const key = transferKeyOf(msg)
-                  if (key !== undefined) claimed.add(key)
                   if (msg?.id !== undefined) claimed.add(msg.id)
-                  if (msg?.source?.exchangeId !== undefined) claimed.add(msg.source.exchangeId)
+                  if (msg?.source?.transferId !== undefined) claimed.add(msg.source.transferId)
                   if (msg?.source?.rpcId !== undefined) claimed.add(msg.source.rpcId)
                 }
               }
@@ -1909,15 +1912,15 @@ export function install(rt) {
         }
       }
       for (const list of [pending['next-turn'], pending['next-step']]) {
-        for (const msg of list) addMsg(msg)
+        for (const msg of list) addTransfer(msg)
       }
-      for (const key of claimed) seen.add(key)
+      for (const key of claimed) seenTransferIds.add(key)
     } else {
       for (const msg of agent.session?.deriveMessages?.() ?? []) {
-        if (msg?.role === 'user') addMsg(msg)
+        if (msg?.role === 'user') addTransfer(msg)
       }
     }
-    return seen
+    return { seenTransferIds, pendingExchangeIds }
   }
 
   // Input for an earlier part goes on in the current one: a browser may still show the
@@ -1928,15 +1931,19 @@ export function install(rt) {
     const agent = await rt.resolveAgent(target)
     // A retry after a forward that stopped halfway must not deliver the same input twice,
     // including prompts the target already claimed out of its inbox before flush failed.
-    const seen = collectTargetSeenKeys(agent)
+    const { seenTransferIds, pendingExchangeIds } = collectTargetSeen(agent)
     let flushNeeded = false
     for (const message of messages) {
       const kind = message.source?.kind
       // DSH's notice of a folder change is about the Session it was queued in; the part
       // that goes on has its own folder, which its handoff names.
       if (kind === 'working-directory') continue
+      const explicitTransfer = message.source?.transferId
       const key = transferKeyOf(message)
-      if (key !== undefined && seen.has(key)) {
+      const exchangeId = message.source?.exchangeId
+      const alreadySeen = (key !== undefined && seenTransferIds.has(key))
+        || (explicitTransfer === undefined && exchangeId !== undefined && pendingExchangeIds.has(exchangeId))
+      if (alreadySeen) {
         // Ensure a previously claimed/pending admission on the target is flushed to disk
         // before the caller removes the original message from the old inbox.
         flushNeeded = true
@@ -1955,7 +1962,8 @@ export function install(rt) {
         agent.inject(copy)
         flushNeeded = true
       }
-      if (key !== undefined) seen.add(key)
+      if (key !== undefined) seenTransferIds.add(key)
+      if (explicitTransfer === undefined && exchangeId !== undefined) pendingExchangeIds.add(exchangeId)
     }
     if (flushNeeded) await ctx.sessions.flush(agent.session)
   }
@@ -2216,9 +2224,12 @@ export function install(rt) {
           const carried = job.joined?.length ? { joined: job.joined } : {}
           back.unshift(createUserMessage({
             content: [{ type: 'text', text: PAUSE_NOTE }],
-            source: carryOriginSource(job, job.info
-              ? { ...job.info, ...carried }
-              : { kind: SOURCE_KIND, form: 'relay', role: 'resume', exchangeId: randomUUID(), senderName: 'DS Bot', ...carried }),
+            source: {
+              ...carryOriginSource(job, job.info
+                ? { ...job.info, ...carried }
+                : { kind: SOURCE_KIND, form: 'relay', role: 'resume', exchangeId: randomUUID(), senderName: 'DS Bot', ...carried }),
+              transferId: randomUUID(),
+            },
           }))
         }
         await forward(job, back, threadTargetOf(agent.id, job)).then(() => {
