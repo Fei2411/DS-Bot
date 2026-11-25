@@ -8,8 +8,9 @@ can rewrite its own copies freely.
   script and a real PNG. It proves relative assets load under the ticketed route and
   that asset bytes participate in the preview revision.
 - `canvas-sensitive/`: allowed assets beside names that must never be served —
-  dotfiles, keys, credential-shaped files and a symlink/junction target outside the
-  entry directory.
+  credential-shaped files and a symlink/junction target outside the entry directory.
+  The dotfile and PEM-shaped honey files are written by the test itself: the leak
+  scanner refuses `.env`/`.pem` names anywhere in the repository, fixture or not.
 - `reader-long/`: one long Markdown article with repeated passages and a local
   image, one MDX file that must render as plain Markdown, one `.markdown` alias and
   one `.txt` file the Reader refuses. The repeated passages pin down the rule that a

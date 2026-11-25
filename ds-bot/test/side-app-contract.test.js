@@ -67,6 +67,12 @@ function copyFixture(t, name, into = '') {
   const target = into === '' ? root : join(root, into)
   mkdirSync(target, { recursive: true })
   cpSync(join(fixtureRoot, name), target, { recursive: true })
+  if (name === 'canvas-sensitive') {
+    // Honey names with forbidden extensions never live in the repository (the leak
+    // scanner refuses them on sight); the test grows them where it runs.
+    writeFileSync(join(target, '.env'), 'CANVAS_FIXTURE_TOKEN=not-a-real-secret\n')
+    writeFileSync(join(target, 'server-key.pem'), 'fixture key material: not a real credential, present only so the canvas route proves it never serves PEM-shaped names\n')
+  }
   return { root, target }
 }
 
