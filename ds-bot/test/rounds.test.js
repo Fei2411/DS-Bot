@@ -2392,3 +2392,120 @@ test('the group history shows the notice of a line the book did not keep', { ski
   if (second !== undefined) await answer(second.sessionId, second.message.source.exchangeId, 'Writer done', 2)
   await running
 })
+
+// #2066 review (klarkxy 6052137086): postToRoom calls registerQueuedReport before it
+// awaits the line's write. A refused write must not leave a queued report behind.
+test('a Bot post the book refused leaves no queued report behind', { skip: process.platform === 'win32' || process.getuid?.() === 0 }, async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  await emit(room.id, userMessage('Kick off'))
+  const running = relay(room.id, 'relay-leak-report')
+  const first = await turnFor(sent)
+  assert.ok(first)
+  const round = await waitFor(() => [...rt.roomProgress.values()].find(progress => progress.roomId === room.id && progress.nudge !== undefined))
+  assert.ok(round)
+  const sender = rt.botOf(room.members[0])
+  const reportId = 'orphan-report'
+  const realWritten = rt.ledger.written
+  rt.ledger.written = () => Promise.reject(new Error('probe: refused'))
+  let refusal
+  try {
+    await rt.postToRoom(rt.roomOf(room.id), sender, '@Writer a post the book refuses', { reportBack: true, reportId })
+      .catch(error => { refusal = error })
+  } finally {
+    rt.ledger.written = realWritten
+  }
+  assert.match(String(refusal?.message), /may not have been saved/, 'the caller hears the line was not saved')
+  const reports = rt.state.roomReports ?? {}
+  assert.equal(reports[reportId], undefined, 'a refused post leaves no queued report behind')
+  await answer(first.sessionId, first.message.source.exchangeId, 'fine', 1)
+  const second = await turnFor(sent, first)
+  if (second !== undefined) await answer(second.sessionId, second.message.source.exchangeId, 'done', 2)
+  await running
+})
+
+// #2066 review (klarkxy 6052137086): postToRoom records the line in its batch
+// (`recordResult`) before it awaits the write. A refused write must not leave a seq
+// in the batch that never reached the book.
+test('a Bot post the book refused records no result in its batch', { skip: process.platform === 'win32' || process.getuid?.() === 0 }, async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  await emit(room.id, userMessage('Kick off'))
+  const running = relay(room.id, 'relay-leak-batch')
+  const first = await turnFor(sent)
+  assert.ok(first)
+  const round = await waitFor(() => [...rt.roomProgress.values()].find(progress => progress.roomId === room.id && progress.nudge !== undefined))
+  assert.ok(round)
+  const sender = rt.botOf(room.members[0])
+  const batchKey = 'orphan-batch'
+  rt.state.roomBatches = {
+    [batchKey]: { key: batchKey, roomId: room.id, by: sender.id, pending: [], done: [], doneIds: [], results: [], worked: false, answered: false, at: Date.now() },
+  }
+  const realWritten = rt.ledger.written
+  rt.ledger.written = () => Promise.reject(new Error('probe: refused'))
+  let refusal
+  try {
+    await rt.postToRoom(rt.roomOf(room.id), sender, '@Writer a post the book refuses', { batch: batchKey, batchEnd: true })
+      .catch(error => { refusal = error })
+  } finally {
+    rt.ledger.written = realWritten
+  }
+  assert.match(String(refusal?.message), /may not have been saved/, 'the caller hears the line was not saved')
+  assert.deepEqual(rt.state.roomBatches[batchKey]?.results ?? [], [], 'a refused post records no batch result')
+  delete rt.state.roomBatches[batchKey]
+  await answer(first.sessionId, first.message.source.exchangeId, 'fine', 1)
+  const second = await turnFor(sent, first)
+  if (second !== undefined) await answer(second.sessionId, second.message.source.exchangeId, 'done', 2)
+  await running
+})
+
+// #2066 review (klarkxy 6052137086): the round can close while the Bot post waits for
+// its own write. callIn then pushes the named member into a round whose nudge is gone,
+// and nobody is woken. The member belongs to the round that follows.
+test('a Bot post held on its write belongs to the round that follows, not the round that closed', async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  await emit(room.id, userMessage('Kick off'))
+  const running = relay(room.id, 'relay-race')
+  const first = await turnFor(sent)
+  assert.ok(first)
+  const round = await waitFor(() => [...rt.roomProgress.values()].find(progress => progress.roomId === room.id && progress.nudge !== undefined))
+  assert.ok(round)
+  const sender = rt.botOf(room.members[0])
+  const batchKey = 'held-batch'
+  rt.state.roomBatches = {
+    [batchKey]: { key: batchKey, roomId: room.id, by: sender.id, pending: [], done: [], doneIds: [], results: [], worked: false, answered: false, at: Date.now() },
+  }
+  const posted = '@Writer a post held on its write'
+  // Hold the line's own write: call 1 is say()'s watcher, call 2 is the awaited `landed`.
+  let written = 0
+  let release
+  const gate = new Promise(resolve => { release = resolve })
+  const realWritten = rt.ledger.written
+  rt.ledger.written = (book) => {
+    written += 1
+    if (written === 2) return gate.then(() => 'held write resolved')
+    return realWritten(book)
+  }
+  const posting = rt.postToRoom(rt.roomOf(room.id), sender, posted, { batch: batchKey })
+  await waitFor(() => written >= 2)
+  await answer(first.sessionId, first.message.source.exchangeId, 'done', 1)
+  const second = await turnFor(sent, first)
+  assert.ok(second, 'the other member is still called after the first answers')
+  await answer(second.sessionId, second.message.source.exchangeId, 'done', 2)
+  await waitFor(() => round.closed === true && round.nudge === undefined)
+  release()
+  await posting
+  rt.ledger.written = realWritten
+  const woken = await turnFor(sent, first, second)
+  assert.ok(woken, 'the member the held post names is called in a round that runs')
+  const said = rt.ledger.records(`group-${room.id}`).filter(record => record.text === posted)
+  assert.equal(said.length, 1, 'the held post is said once')
+  assert.deepEqual(rt.state.roomBatches[batchKey]?.results ?? [], [{ name: 'Chief', seq: said[0].seq }], 'the held post records its true seq once')
+  delete rt.state.roomBatches[batchKey]
+  await answer(woken.sessionId, woken.message.source.exchangeId, 'fine', 3)
+  await running
+})
