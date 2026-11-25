@@ -1739,10 +1739,11 @@ export function install(rt) {
   }
 
   // Carries any active IM turn origin onto a synthetic switch/resume source without
-  // replaying a stale request rpcId that the earlier part already consumed.
+  // replaying a stale request rpcId or transferId that the earlier part already consumed.
   function carryOriginSource(job, base) {
     const source = { ...base }
     delete source.rpcId
+    delete source.transferId
     if (job.resumeOrigin === undefined) return source
     job.originSent = true
     return { ...source, imOrigin: job.resumeOrigin }
@@ -1867,30 +1868,35 @@ export function install(rt) {
   const transferKeyOf = message => message?.source?.transferId ?? message?.source?.rpcId ?? message?.id ?? message?.source?.exchangeId
   function collectTargetSeen(agent) {
     const seenTransferIds = new Set()
-    const pendingExchangeIds = new Set()
+    const seenExchangeIds = new Set()
     const addTransfer = (msg) => {
       if (!msg) return
       if (msg.id !== undefined) seenTransferIds.add(msg.id)
       const src = msg.source
       if (src?.transferId !== undefined) seenTransferIds.add(src.transferId)
       if (src?.rpcId !== undefined) seenTransferIds.add(src.rpcId)
+      if (src?.exchangeId !== undefined) seenExchangeIds.add(src.exchangeId)
     }
     for (const msg of [...(agent.inbox?.nextStep ?? []), ...(agent.inbox?.nextTurn ?? [])]) {
       addTransfer(msg)
-      if (msg?.source?.exchangeId !== undefined) pendingExchangeIds.add(msg.source.exchangeId)
     }
     const events = agent.session?.snapshotEvents?.()
     if (Array.isArray(events)) {
       const pending = { 'next-turn': [], 'next-step': [] }
-      const claimed = new Set()
+      const claimedTransfer = new Set()
+      const claimedExchange = new Set()
       for (const ev of events) {
-        if (ev?.type === 'turn/end') claimed.clear()
+        if (ev?.type === 'turn/end') {
+          claimedTransfer.clear()
+          claimedExchange.clear()
+        }
         if (ev?.type === 'user/message') {
           if (ev.data?.id !== undefined) seenTransferIds.add(ev.data.id)
           if (ev.data?.message?.id !== undefined) seenTransferIds.add(ev.data.message.id)
           const src = ev.data?.source ?? ev.data?.message?.source
           if (src?.transferId !== undefined) seenTransferIds.add(src.transferId)
           if (src?.rpcId !== undefined) seenTransferIds.add(src.rpcId)
+          if (src?.exchangeId !== undefined) seenExchangeIds.add(src.exchangeId)
         } else if (ev?.type === 'agent/inbox/spliced' && ev.data) {
           const inbox = pending[ev.data.target]
           if (inbox !== undefined) {
@@ -1902,9 +1908,10 @@ export function install(rt) {
               const removed = inbox.splice(start, removedCount, ...inserted)
               if (inserted.length === 0 && ev.data.outcome !== 'canceled') {
                 for (const msg of removed) {
-                  if (msg?.id !== undefined) claimed.add(msg.id)
-                  if (msg?.source?.transferId !== undefined) claimed.add(msg.source.transferId)
-                  if (msg?.source?.rpcId !== undefined) claimed.add(msg.source.rpcId)
+                  if (msg?.id !== undefined) claimedTransfer.add(msg.id)
+                  if (msg?.source?.transferId !== undefined) claimedTransfer.add(msg.source.transferId)
+                  if (msg?.source?.rpcId !== undefined) claimedTransfer.add(msg.source.rpcId)
+                  if (msg?.source?.exchangeId !== undefined) claimedExchange.add(msg.source.exchangeId)
                 }
               }
             }
@@ -1914,13 +1921,14 @@ export function install(rt) {
       for (const list of [pending['next-turn'], pending['next-step']]) {
         for (const msg of list) addTransfer(msg)
       }
-      for (const key of claimed) seenTransferIds.add(key)
+      for (const key of claimedTransfer) seenTransferIds.add(key)
+      for (const key of claimedExchange) seenExchangeIds.add(key)
     } else {
       for (const msg of agent.session?.deriveMessages?.() ?? []) {
         if (msg?.role === 'user') addTransfer(msg)
       }
     }
-    return { seenTransferIds, pendingExchangeIds }
+    return { seenTransferIds, seenExchangeIds }
   }
 
   // Input for an earlier part goes on in the current one: a browser may still show the
@@ -1931,7 +1939,7 @@ export function install(rt) {
     const agent = await rt.resolveAgent(target)
     // A retry after a forward that stopped halfway must not deliver the same input twice,
     // including prompts the target already claimed out of its inbox before flush failed.
-    const { seenTransferIds, pendingExchangeIds } = collectTargetSeen(agent)
+    const { seenTransferIds, seenExchangeIds } = collectTargetSeen(agent)
     let flushNeeded = false
     for (const message of messages) {
       const kind = message.source?.kind
@@ -1942,7 +1950,7 @@ export function install(rt) {
       const key = transferKeyOf(message)
       const exchangeId = message.source?.exchangeId
       const alreadySeen = (key !== undefined && seenTransferIds.has(key))
-        || (explicitTransfer === undefined && exchangeId !== undefined && pendingExchangeIds.has(exchangeId))
+        || (explicitTransfer === undefined && exchangeId !== undefined && seenExchangeIds.has(exchangeId))
       if (alreadySeen) {
         // Ensure a previously claimed/pending admission on the target is flushed to disk
         // before the caller removes the original message from the old inbox.
@@ -1963,7 +1971,7 @@ export function install(rt) {
         flushNeeded = true
       }
       if (key !== undefined) seenTransferIds.add(key)
-      if (explicitTransfer === undefined && exchangeId !== undefined) pendingExchangeIds.add(exchangeId)
+      if (explicitTransfer === undefined && exchangeId !== undefined) seenExchangeIds.add(exchangeId)
     }
     if (flushNeeded) await ctx.sessions.flush(agent.session)
   }

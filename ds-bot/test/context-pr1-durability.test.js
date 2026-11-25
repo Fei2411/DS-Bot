@@ -752,13 +752,13 @@ test('rollback after failed fresh-part creation still delivers PAUSE_NOTE when t
   t.after(host.stop)
   await host.rt.load()
 
-  // Old session already has the initiating peer-Bot request (exchangeId: 'ex-42') in its logged user/message history.
+  // Old session already has the initiating peer-Bot request (exchangeId: 'ex-42', transferId: 'tr-orig-42') in its logged user/message history.
   const bAgent = host.agentOf('b')
   bAgent.session.snapshotEvents = () => [
-    { type: 'user/message', data: { id: 'orig-req-42', source: { kind: SOURCE_KIND, form: 'relay', role: 'request', exchangeId: 'ex-42', senderName: 'Kai' }, content: [{ type: 'text', text: 'Finish ex-42' }] } },
+    { type: 'user/message', data: { id: 'orig-req-42', source: { kind: SOURCE_KIND, form: 'relay', role: 'request', exchangeId: 'ex-42', transferId: 'tr-orig-42', senderName: 'Kai' }, content: [{ type: 'text', text: 'Finish ex-42' }] } },
   ]
   const entry = host.rt.liveOf('b')
-  entry.info = { kind: SOURCE_KIND, form: 'relay', role: 'request', exchangeId: 'ex-42', senderName: 'Kai' }
+  entry.info = { kind: SOURCE_KIND, form: 'relay', role: 'request', exchangeId: 'ex-42', transferId: 'tr-orig-42', senderName: 'Kai' }
   bAgent.status = 'running'
 
   await host.preStep('b', [], 2)
@@ -766,5 +766,69 @@ test('rollback after failed fresh-part creation still delivers PAUSE_NOTE when t
 
   const pauseMsg = bAgent.calls.find(([kind, m]) => kind === 'followup' && (m.content?.[0]?.text ?? '').includes('DS Bot paused your turn'))[1]
   assert.equal(pauseMsg.source?.exchangeId, 'ex-42', 'PAUSE_NOTE keeps original exchangeId for reply routing')
-  assert.ok(typeof pauseMsg.source?.transferId === 'string' && pauseMsg.source.transferId !== 'ex-42', 'PAUSE_NOTE uses its own distinct transferId')
+  assert.ok(typeof pauseMsg.source?.transferId === 'string' && pauseMsg.source.transferId !== 'ex-42' && pauseMsg.source.transferId !== 'tr-orig-42', 'PAUSE_NOTE uses its own distinct transferId')
+})
+
+test('startup resend logged on successor before handOnHeld does not duplicate the held Bot request', async (t) => {
+  const host = makeSwitchFixture()
+  t.after(host.stop)
+  await host.rt.load()
+
+  // 1) Deliver a peer-Bot request through the real rt.deliver journal path into part 'b'.
+  await host.rt.deliver({
+    fromId: 'b',
+    fromName: 'Kai',
+    toId: 'b',
+    sessionId: 'b',
+    role: 'request',
+    exchangeId: 'ex-dup-restart',
+    text: 'Append one line to audit.log',
+  })
+  const bAgent = host.agentOf('b')
+  const heldOriginal = bAgent.inbox.nextTurn.find(m => m?.source?.exchangeId === 'ex-dup-restart')
+  assert.ok(heldOriginal, 'original Bot request must be queued in old part inbox')
+  const stableTransferId = heldOriginal.source?.transferId
+  assert.ok(typeof stableTransferId === 'string' && stableTransferId.length > 0, 'rt.deliver stamps a stable transferId')
+
+  const inflight = JSON.parse(readFileSync(join(host.home, 'inflight.json'), 'utf8'))
+  const journalEntry = inflight.queued?.b?.find(item => item.args?.exchangeId === 'ex-dup-restart')
+  assert.equal(journalEntry?.args?.transferId, stableTransferId, 'inflight journal persists the exact same transferId')
+
+  // 2) Simulate crash after saving pointer flip (b -> b-next) before moving b's inbox,
+  // and startup resend delivering the journal entry to b-next (new message id, same transferId)
+  // which b-next already claimed & logged into user/message before handOnHeld runs.
+  const bot = host.rt.state.bots.b
+  bot.sessionId = 'b-next'
+  bot.parts = [{ sessionId: 'b', at: Date.now() - 1_000, reason: 'full' }, { sessionId: 'b-next', at: Date.now() }]
+  host.rt.state.switching = { b: { botId: 'b', next: 'b-next' } }
+  await host.rt.save()
+
+  const nextAgent = host.agentOf('b-next')
+  // Simulate startup resendQueued calling deliver with the journaled args on the new part.
+  await host.rt.deliver({ ...journalEntry.args, sessionId: 'b-next', steer: false, resent: true })
+  const resentMsg = nextAgent.inbox.nextTurn.find(m => m?.source?.exchangeId === 'ex-dup-restart')
+  assert.ok(resentMsg, 'startup resend reached new part inbox')
+  assert.equal(resentMsg.source?.transferId, stableTransferId, 'startup resend carries the same stable transferId')
+  assert.notEqual(resentMsg.id, heldOriginal.id, 'startup resend has a distinct message id')
+
+  // Successor claims the resent message out of its inbox and logs it as user/message BEFORE handOnHeld runs.
+  nextAgent.inbox.nextTurn.splice(0)
+  nextAgent.session.snapshotEvents = () => [
+    { type: 'user/message', data: { id: resentMsg.id, source: resentMsg.source, content: resentMsg.content } },
+    // Also simulate a legacy pre-upgrade resend without transferId already logged on successor.
+    { type: 'user/message', data: { id: 'legacy-resent-id', source: { kind: SOURCE_KIND, form: 'relay', role: 'request', exchangeId: 'ex-legacy-restart', senderName: 'Kai' }, content: [{ type: 'text', text: 'Legacy append' }] } },
+  ]
+  bAgent.inbox.nextTurn.push(createUserMessage({
+    id: 'legacy-orig-id',
+    content: [{ type: 'text', text: 'Legacy append' }],
+    source: { kind: SOURCE_KIND, form: 'relay', role: 'request', exchangeId: 'ex-legacy-restart', senderName: 'Kai' },
+  }))
+  const followupsBefore = nextAgent.calls.filter(([kind]) => kind === 'followup').length
+
+  await host.rt.heldBack()
+
+  const followupsAfter = nextAgent.calls.filter(([kind]) => kind === 'followup').length
+  assert.equal(followupsAfter, followupsBefore, 'handOnHeld must not duplicate either transferId-tagged or legacy exchangeId-only Bot requests already logged by startup resend')
+  assert.equal(bAgent.inbox.nextTurn.length, 0, 'old part inbox is cleared after confirming target admission')
+  assert.equal(host.rt.state.switching.b, undefined, 'switching marker cleared')
 })

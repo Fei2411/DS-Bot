@@ -279,7 +279,7 @@ export function install(rt) {
   // entry, so a retry in this run really sends it.
   const sending = new Map()
   rt.deliver = async (args) => {
-    const noted = { ...args, exchangeId: args.exchangeId ?? randomUUID() }
+    const noted = { ...args, exchangeId: args.exchangeId ?? randomUUID(), transferId: args.transferId ?? randomUUID() }
     // Non-waking silent notices (note_bot, cancel_work, stop_bot) do not open turns, so
     // they must never enter inflight `queued` (would inflate unread counts and resend as work).
     if (noted.wake === false) return deliver(noted)

@@ -460,7 +460,7 @@ export function install(rt) {
   // result that came back goes on with. `merged`: a request that takes in an earlier
   // one its recipient had not read, under that one's exchange. `fromPart`: the Session
   // of the sending Bot, which a reply comes back to when that is a background part.
-  async function deliver({ fromId, fromName: senderName, pairFrom, toId, sessionId, text, role, replyTo, roomId, audience, note, exchangeId = randomUUID(), steer = false, wake = true, afterCancel = false, deferred = false, resumed = false, retried = false, resent = false, merged = false, abandoned = false, abandonedReason, recordExchange = true, askedBy, resultRef, follows, batchKey, resumedUpstream = false, fromRoomId, fromPart, images = [], files = [], length, work, workRef, askWork, taskId, imOrigin, failureRequestId }) {
+  async function deliver({ fromId, fromName: senderName, pairFrom, toId, sessionId, text, role, replyTo, roomId, audience, note, exchangeId = randomUUID(), transferId, steer = false, wake = true, afterCancel = false, deferred = false, resumed = false, retried = false, resent = false, merged = false, abandoned = false, abandonedReason, recordExchange = true, askedBy, resultRef, follows, batchKey, resumedUpstream = false, fromRoomId, fromPart, images = [], files = [], length, work, workRef, askWork, taskId, imOrigin, failureRequestId }) {
     const from = rt.botOf(fromId)
     const to = rt.botOf(toId)
     if (to === undefined) throw Object.assign(new Error(`Unknown Bot ${toId}`), { delivered: false })
@@ -474,6 +474,7 @@ export function install(rt) {
       form: 'relay',
       role,
       exchangeId,
+      ...(transferId ? { transferId } : {}),
       senderName: fromName,
       ...(wake === false ? { silent: true } : {}),
       ...(work ? { work } : {}),
