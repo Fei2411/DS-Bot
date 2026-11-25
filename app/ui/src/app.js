@@ -235,10 +235,10 @@ export function App() {
   const browserEnabled = hooks.useRoster(value => value.browser !== false)
   const isNarrowRef = useRef(isNarrow)
   isNarrowRef.current = isNarrow
-  const capabilitiesOf = useCallback((rosterSnap) => ({
+  const capabilitiesOf = useCallback((rosterSnap, mode = 'bot') => ({
     hasSurface: typeof actions.setSurface === 'function',
-    hasBrowser: typeof actions.openBrowser === 'function' && rosterSnap?.browser !== false,
-    hasInbox: typeof actions.openInbox === 'function',
+    hasBrowser: mode !== 'agent' && (typeof actions.toggleBrowser === 'function' || typeof actions.openBrowser === 'function') && rosterSnap?.browser !== false,
+    hasInbox: mode !== 'agent' && typeof actions.openInbox === 'function',
   }), [actions])
 
   const runShortcut = useCallback((hit) => {
@@ -299,6 +299,7 @@ export function App() {
       return
     }
     if (hit === 'inbox') {
+      if (mode !== 'bot') return
       if (typeof actions.openInbox === 'function') {
         if (uiSnap.inbox) actions.closeInbox?.()
         else actions.openInbox()
@@ -306,7 +307,7 @@ export function App() {
       return
     }
     if (hit === 'browser') {
-      if (rosterSnap.browser === false) return
+      if (mode !== 'bot' || rosterSnap.browser === false) return
       const currentBot = shownId ? rosterSnap.byId?.[shownId] : null
       const botId = currentBot?.id ?? rosterSnap.mainBotId ?? rosterSnap.bots?.[0]?.id
       if (typeof actions.toggleBrowser === 'function') {
@@ -440,10 +441,11 @@ export function App() {
     const onKeyDown = (event) => {
       const uiSnap = team.snapshots?.ui?.() ?? {}
       const rosterSnap = team.snapshots?.roster?.() ?? {}
+      const mode = team.snapshots?.surface?.()?.mode ?? 'bot'
       const hit = matchGlobalShortcut(event, {
         settingsOpen: Boolean(uiSnap.settings),
         modal: activeModalOf(uiSnap),
-        capabilities: capabilitiesOf(rosterSnap),
+        capabilities: capabilitiesOf(rosterSnap, mode),
       })
       if (!hit) return
       event.preventDefault()
@@ -462,7 +464,8 @@ export function App() {
     if (!bridge) return undefined
     const push = () => {
       const rosterSnap = team.snapshots?.roster?.() ?? {}
-      bridge.syncShortcuts?.(shortcutsStore.activeBindings(capabilitiesOf(rosterSnap)))
+      const mode = team.snapshots?.surface?.()?.mode ?? 'bot'
+      bridge.syncShortcuts?.(shortcutsStore.activeBindings(capabilitiesOf(rosterSnap, mode)))
     }
     push()
     const offStore = shortcutsStore.subscribe(push)
@@ -470,7 +473,8 @@ export function App() {
       if (isShortcutRecording()) return
       const def = SHORTCUT_BY_ID[id]
       const rosterSnap = team.snapshots?.roster?.() ?? {}
-      if (!def || !isCommandAvailable(def, capabilitiesOf(rosterSnap))) return
+      const mode = team.snapshots?.surface?.()?.mode ?? 'bot'
+      if (!def || !isCommandAvailable(def, capabilitiesOf(rosterSnap, mode))) return
       const uiSnap = team.snapshots?.ui?.() ?? {}
       const modal = activeModalOf(uiSnap)
       if (modal && !(def.allowInModal && def.allowInModal.includes(modal))) return
@@ -480,7 +484,7 @@ export function App() {
       offStore()
       if (typeof offShortcut === 'function') offShortcut()
     }
-  }, [team, activeModalOf, capabilitiesOf, browserEnabled, hasSurfaceCap, hasInboxCap])
+  }, [team, activeModalOf, capabilitiesOf, browserEnabled, hasSurfaceCap, hasInboxCap, inClassicMode])
   const prefs = hooks.useRoster(value => value.prefs)
   // The open chat's own background, over the team's.
   const chat = hooks.useRoster(value => (shown ? value.byId?.[shown] ?? value.roomsById?.[shown] : undefined))

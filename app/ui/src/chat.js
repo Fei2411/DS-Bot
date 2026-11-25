@@ -16,6 +16,7 @@ import { LearningDock } from '../../../ds-bot/src/client/learning-card.js'
 import { MemberDock } from '../../../ds-bot/src/client/member-status.js'
 import { ModelChoiceDock } from '../../../ds-bot/src/client/model-menu.js'
 import { stepMenuFocus, useLinger, useViewport, viewBottom } from '../../../ds-bot/src/client/motion.js'
+import { hasEscapeLayer } from '../../../ds-bot/src/client/overlay-hooks.js'
 import { PasteCard, foldPastedText, pastedName } from '../../../ds-bot/src/client/paste-card.js'
 import { mergeRescuedDraft, readRescuedForChat } from '../../../ds-bot/src/client/question-draft.js'
 import { QuestionDock } from '../../../ds-bot/src/client/questions.js'
@@ -889,7 +890,8 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
           }
           // Double-Escape within 500 ms stops the running turn while keeping queued messages.
           if (event.key === 'Escape' && !event.repeat && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && !isImeComposing(event)) {
-            if (running && !stopping && typeof onStop === 'function' && !(typeof document !== 'undefined' && document.querySelector('[aria-modal="true"], [role="menu"], [role="dialog"]'))) {
+            const overlayOpen = hasEscapeLayer() || (typeof document !== 'undefined' && Boolean(document.querySelector('[aria-modal="true"], [role="menu"], [role="dialog"]')))
+            if (running && !stopping && typeof onStop === 'function' && !overlayOpen) {
               const now = Date.now()
               if (now - lastEscAt.current <= 500) {
                 lastEscAt.current = 0

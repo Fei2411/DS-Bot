@@ -74,10 +74,13 @@ const MODIFIER_CODES = new Set([
   'AltLeft', 'AltRight', 'MetaLeft', 'MetaRight', 'OSLeft', 'OSRight', 'CapsLock',
 ])
 
-// Reserved OS / standard text-editing combos that must never be stolen globally.
+// Reserved OS / standard text-editing / window-zoom combos that must never be stolen globally.
 const RESERVED_MOD_CODES = new Set([
   'KeyC', 'KeyV', 'KeyX', 'KeyA', 'KeyZ', 'KeyQ', 'KeyW', 'KeyH',
+  'Digit0', 'Numpad0', 'Minus', 'Equal', 'NumpadAdd', 'NumpadSubtract',
 ])
+// Additional macOS native Cocoa menu accelerators (Minimize / Reload).
+const RESERVED_MAC_MOD_CODES = new Set(['KeyM', 'KeyR'])
 
 const FUNCTION_CODE = /^F(?:[1-9]|1[0-2])$/
 
@@ -311,10 +314,15 @@ export function validateBinding(binding, mac = isMacPlatform()) {
   if ((!hasAnyMod || onlyShift) && !FUNCTION_CODE.test(binding.code)) {
     return { ok: false, reason: 'need-modifier' }
   }
-  // Protect core OS and text-editing shortcuts (Cmd/Ctrl + C/V/X/A/Z/Q/W/H).
+  // Protect core OS, text-editing, window-zoom, and macOS Cocoa menu shortcuts.
   // On macOS, Cmd+Ctrl+<key> (with Control held) is distinct from Cmd+<key> and stays allowed.
-  if (hasPrimary && !mods.alt && !mods.shift && RESERVED_MOD_CODES.has(binding.code)) {
-    if (!mac || (mods.meta && !mods.ctrl)) return { ok: false, reason: 'reserved' }
+  if (hasPrimary && !mods.alt && !mods.shift) {
+    if (RESERVED_MOD_CODES.has(binding.code) && (!mac || (mods.meta && !mods.ctrl))) {
+      return { ok: false, reason: 'reserved' }
+    }
+    if (mac && mods.meta && !mods.ctrl && RESERVED_MAC_MOD_CODES.has(binding.code)) {
+      return { ok: false, reason: 'reserved' }
+    }
   }
   return { ok: true }
 }
@@ -504,6 +512,7 @@ export function matchShortcutEvent(event, {
   overrides = shortcutsStore.getSnapshot(),
   capabilities = {},
   ignoreRecording = false,
+  inTerminal: forceInTerminal,
 } = {}) {
   if (!event || event.defaultPrevented || event.repeat || isImeComposing(event) || isAltGraph(event)) return null
   if (!ignoreRecording && isShortcutRecording()) return null
@@ -522,7 +531,7 @@ export function matchShortcutEvent(event, {
     && (mac ? (metaKey && !ctrlKey) : (ctrlKey && !metaKey))
   if (settingsOpen && isSettingsSearchChord) return null
 
-  const inTerminal = Boolean(
+  const inTerminal = forceInTerminal !== undefined ? Boolean(forceInTerminal) : Boolean(
     event.target?.closest?.('.xterm')
     || (!event.target?.closest && typeof document !== 'undefined' && document.activeElement?.closest?.('.xterm')),
   )

@@ -24801,6 +24801,9 @@ var CHANGES_CSS = `
 // src/client/overlay-hooks.js
 var import_react6 = require("react");
 var escapeLayers = [];
+function hasEscapeLayer() {
+  return escapeLayers.length > 0;
+}
 var topEscapeLayer = () => {
   let top = null;
   for (const layer of escapeLayers) {
@@ -52226,8 +52229,15 @@ var RESERVED_MOD_CODES = /* @__PURE__ */ new Set([
   "KeyZ",
   "KeyQ",
   "KeyW",
-  "KeyH"
+  "KeyH",
+  "Digit0",
+  "Numpad0",
+  "Minus",
+  "Equal",
+  "NumpadAdd",
+  "NumpadSubtract"
 ]);
+var RESERVED_MAC_MOD_CODES = /* @__PURE__ */ new Set(["KeyM", "KeyR"]);
 var FUNCTION_CODE = /^F(?:[1-9]|1[0-2])$/;
 var CODE_LABELS = {
   Backquote: "`",
@@ -52417,8 +52427,13 @@ function validateBinding(binding, mac = isMacPlatform()) {
   if ((!hasAnyMod || onlyShift) && !FUNCTION_CODE.test(binding.code)) {
     return { ok: false, reason: "need-modifier" };
   }
-  if (hasPrimary && !mods.alt && !mods.shift && RESERVED_MOD_CODES.has(binding.code)) {
-    if (!mac || mods.meta && !mods.ctrl) return { ok: false, reason: "reserved" };
+  if (hasPrimary && !mods.alt && !mods.shift) {
+    if (RESERVED_MOD_CODES.has(binding.code) && (!mac || mods.meta && !mods.ctrl)) {
+      return { ok: false, reason: "reserved" };
+    }
+    if (mac && mods.meta && !mods.ctrl && RESERVED_MAC_MOD_CODES.has(binding.code)) {
+      return { ok: false, reason: "reserved" };
+    }
   }
   return { ok: true };
 }
@@ -52581,7 +52596,8 @@ function matchShortcutEvent(event, {
   modal = null,
   overrides = shortcutsStore.getSnapshot(),
   capabilities = {},
-  ignoreRecording = false
+  ignoreRecording = false,
+  inTerminal: forceInTerminal
 } = {}) {
   if (!event || event.defaultPrevented || event.repeat || isImeComposing(event) || isAltGraph(event)) return null;
   if (!ignoreRecording && isShortcutRecording()) return null;
@@ -52594,7 +52610,7 @@ function matchShortcutEvent(event, {
   if (!mac && ctrlKey && altKey && !metaKey && !FUNCTION_CODE.test(code)) return null;
   const isSettingsSearchChord = code === "KeyK" && !altKey && !shiftKey && (mac ? metaKey && !ctrlKey : ctrlKey && !metaKey);
   if (settingsOpen && isSettingsSearchChord) return null;
-  const inTerminal = Boolean(
+  const inTerminal = forceInTerminal !== void 0 ? Boolean(forceInTerminal) : Boolean(
     event.target?.closest?.(".xterm") || !event.target?.closest && typeof document !== "undefined" && document.activeElement?.closest?.(".xterm")
   );
   const activeModal = modal ?? (settingsOpen ? "settings" : null);
@@ -52766,7 +52782,8 @@ function ShortcutsPage({ roster, actions, Section: Section2, Row: Row4, store = 
       }
     };
     const onMouseDown = (event) => {
-      if (event.target instanceof Element && event.target.closest("[data-shortcut-row]")) return;
+      const row = event.target instanceof Element ? event.target.closest("[data-shortcut-row]") : null;
+      if (row && row.getAttribute("data-shortcut-row") === recordingRef.current) return;
       setRecordingId(null);
       setNotice(null);
     };
@@ -52778,6 +52795,7 @@ function ShortcutsPage({ roster, actions, Section: Section2, Row: Row4, store = 
       window.removeEventListener("mousedown", onMouseDown, true);
     };
   }, [recordingId, mac, store]);
+  useEscape(() => setNotice(null), Boolean(notice && !recordingId), { priority: 100 });
   const wanted = query.trim().toLowerCase();
   const visibleDefs = (0, import_react66.useMemo)(() => {
     const capabilities = { hasSurface, hasBrowser, hasInbox };
@@ -57904,10 +57922,16 @@ function CommandPalette({ start, token, roster, actions, useSessions }) {
   const activeBotId = activeSessionId && roster.byId?.[activeSessionId]?.id || roster.mainBotId || roster.bots?.[0]?.id || null;
   const canToggleBrowser = roster.browser !== false && (typeof actions.toggleBrowser === "function" || typeof actions.openBrowser === "function");
   const commands = [
-    { key: "cmd:new", icon: (0, import_react80.createElement)(PlusIcon), title: t("New chat"), shortcut: "new-chat", run: () => actions.openNewChat("new") },
+    {
+      key: "cmd:new",
+      icon: (0, import_react80.createElement)(PlusIcon),
+      title: t("New chat"),
+      shortcut: "new-chat",
+      run: () => inAgentMode && typeof actions.createClassicSession === "function" ? actions.createClassicSession() : actions.openNewChat("new")
+    },
     { key: "cmd:bot", icon: (0, import_react80.createElement)(PlusIcon), title: t("Create Bot"), run: () => actions.openNewChat("create") },
     { key: "cmd:group", icon: (0, import_react80.createElement)(PeopleIcon), title: t("Create group chat"), run: () => actions.openNewChat("group") },
-    typeof actions.openInbox === "function" ? { key: "cmd:inbox", icon: (0, import_react80.createElement)(UnreadIcon), title: t("Open Inbox"), shortcut: "inbox", run: () => actions.openInbox() } : null,
+    !inAgentMode && typeof actions.openInbox === "function" ? { key: "cmd:inbox", icon: (0, import_react80.createElement)(UnreadIcon), title: t("Open Inbox"), shortcut: "inbox", run: () => actions.openInbox() } : null,
     typeof actions.setSurface === "function" ? {
       key: "cmd:surface",
       icon: (0, import_react80.createElement)(SwitchIcon),
@@ -57915,7 +57939,7 @@ function CommandPalette({ start, token, roster, actions, useSessions }) {
       shortcut: "switch-surface",
       run: () => actions.setSurface(inAgentMode ? "bot" : "agent")
     } : null,
-    canToggleBrowser && activeBotId ? {
+    !inAgentMode && canToggleBrowser && activeBotId ? {
       key: "cmd:browser",
       icon: (0, import_react80.createElement)(GlobeIcon),
       title: t("Toggle Bot browser"),

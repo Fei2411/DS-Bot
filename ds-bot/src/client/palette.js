@@ -95,10 +95,18 @@ export function CommandPalette({ start, token, roster, actions, useSessions }) {
   const activeBotId = (activeSessionId && roster.byId?.[activeSessionId]?.id) || roster.mainBotId || roster.bots?.[0]?.id || null
   const canToggleBrowser = roster.browser !== false && (typeof actions.toggleBrowser === 'function' || typeof actions.openBrowser === 'function')
   const commands = [
-    { key: 'cmd:new', icon: h(PlusIcon), title: t('New chat'), shortcut: 'new-chat', run: () => actions.openNewChat('new') },
+    {
+      key: 'cmd:new',
+      icon: h(PlusIcon),
+      title: t('New chat'),
+      shortcut: 'new-chat',
+      run: () => (inAgentMode && typeof actions.createClassicSession === 'function'
+        ? actions.createClassicSession()
+        : actions.openNewChat('new')),
+    },
     { key: 'cmd:bot', icon: h(PlusIcon), title: t('Create Bot'), run: () => actions.openNewChat('create') },
     { key: 'cmd:group', icon: h(PeopleIcon), title: t('Create group chat'), run: () => actions.openNewChat('group') },
-    typeof actions.openInbox === 'function'
+    !inAgentMode && typeof actions.openInbox === 'function'
       ? { key: 'cmd:inbox', icon: h(UnreadIcon), title: t('Open Inbox'), shortcut: 'inbox', run: () => actions.openInbox() }
       : null,
     typeof actions.setSurface === 'function'
@@ -110,7 +118,7 @@ export function CommandPalette({ start, token, roster, actions, useSessions }) {
         run: () => actions.setSurface(inAgentMode ? 'bot' : 'agent'),
       }
       : null,
-    canToggleBrowser && activeBotId
+    !inAgentMode && canToggleBrowser && activeBotId
       ? {
         key: 'cmd:browser',
         icon: h(GlobeIcon),

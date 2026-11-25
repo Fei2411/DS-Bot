@@ -136,6 +136,14 @@ test('validateBinding and eventToBinding reject unsafe combos while allowing mac
   assert.deepEqual(validateBinding({ code: 'Digit7', mod: true, ctrl: false, alt: true, shift: true }, false), { ok: false, reason: 'reserved' })
   assert.deepEqual(validateBinding({ code: 'F8', mod: true, ctrl: false, alt: true, shift: false }, false), { ok: true })
   assert.deepEqual(validateBinding({ code: 'KeyQ', mod: true, ctrl: false, alt: true, shift: false }, true), { ok: true })
+  // Window zoom shortcuts (Mod+0/-/+ and NumpadAdd/Subtract) and macOS Cocoa menu Cmd+M / Cmd+R are reserved.
+  assert.deepEqual(validateBinding({ code: 'Digit0', mod: true, ctrl: false, alt: false, shift: false }, false), { ok: false, reason: 'reserved' })
+  assert.deepEqual(validateBinding({ code: 'Minus', mod: true, ctrl: false, alt: false, shift: false }, false), { ok: false, reason: 'reserved' })
+  assert.deepEqual(validateBinding({ code: 'Equal', mod: true, ctrl: false, alt: false, shift: false }, true), { ok: false, reason: 'reserved' })
+  assert.deepEqual(validateBinding({ code: 'KeyM', mod: true, ctrl: false, alt: false, shift: false }, true), { ok: false, reason: 'reserved' })
+  assert.deepEqual(validateBinding({ code: 'KeyR', mod: true, ctrl: false, alt: false, shift: false }, true), { ok: false, reason: 'reserved' })
+  // Mod+Shift+M (switch-surface) stays allowed since Shift distinguishes it from macOS Cmd+M.
+  assert.deepEqual(validateBinding({ code: 'KeyM', mod: true, ctrl: false, alt: false, shift: true }, true), { ok: true })
   // On macOS, Ctrl+Cmd+C is distinct from Cmd+C and stays assignable.
   assert.deepEqual(validateBinding({ code: 'KeyC', mod: true, ctrl: true, alt: false, shift: false }, true), { ok: true })
   assert.deepEqual(validateBinding({ code: 'F8', mod: false, ctrl: false, alt: false, shift: false }, true), { ok: true })

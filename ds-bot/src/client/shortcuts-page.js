@@ -13,6 +13,7 @@ import {
   shortcutsStore,
 } from './shortcuts-model.js'
 import { isImeComposing, sendsOnEnter } from './enter-key.js'
+import { useEscape } from './overlay-hooks.js'
 
 /**
  * Subscribes a React component to a shortcut store using standard state/effect hooks.
@@ -116,7 +117,8 @@ export function ShortcutsPage({ roster, actions, Section, Row, store = shortcuts
       }
     }
     const onMouseDown = (event) => {
-      if (event.target instanceof Element && event.target.closest('[data-shortcut-row]')) return
+      const row = event.target instanceof Element ? event.target.closest('[data-shortcut-row]') : null
+      if (row && row.getAttribute('data-shortcut-row') === recordingRef.current) return
       setRecordingId(null)
       setNotice(null)
     }
@@ -128,6 +130,8 @@ export function ShortcutsPage({ roster, actions, Section, Row, store = shortcuts
       window.removeEventListener('mousedown', onMouseDown, true)
     }
   }, [recordingId, mac, store])
+
+  useEscape(() => setNotice(null), Boolean(notice && !recordingId), { priority: 100 })
 
   const wanted = query.trim().toLowerCase()
   const visibleDefs = useMemo(() => {

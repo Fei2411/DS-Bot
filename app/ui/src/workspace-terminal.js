@@ -8,6 +8,7 @@ import { createElement as h, useCallback, useEffect, useRef, useState } from 're
 import { call } from '../../../ds-bot/src/client/api.js'
 import { hostText, t } from '../../../ds-bot/src/client/i18n.js'
 import { CloseIcon, PlusIcon, TerminalIcon } from '../../../ds-bot/src/client/icons.js'
+import { matchShortcutEvent } from '../../../ds-bot/src/client/shortcuts-model.js'
 import { writeClipboard } from './primitives.js'
 
 const MAX_CLIENT_BUFFER = 64 * 1024
@@ -274,20 +275,17 @@ export function readXtermTheme() {
   }
 }
 
-const MAC_BUBBLE_KEYS = new Set(['k', ',', '\\', 'n', '/'])
-const MAC_BUBBLE_CODES = new Set(['KeyK', 'Comma', 'Backslash', 'KeyN', 'Slash'])
-
 /**
- * Builds the custom xterm key handler so Cmd+C copies when text is selected,
- * Cmd+V pastes natively, macOS app shortcuts bubble cleanly, and all terminal
- * control keys (`Ctrl+C`, `Ctrl+D`, `Ctrl+L`, arrows, Tab, Esc, etc.) flow to the PTY.
+ * Builds the custom xterm key handler so Cmd+C / Ctrl+Shift+C copy when text is selected,
+ * Cmd+V / Ctrl+Shift+V paste natively, active global app shortcuts bubble cleanly to window,
+ * and terminal control keys (`Ctrl+C`, `Ctrl+D`, `Ctrl+L`, arrows, Tab, Esc, etc.) flow to the PTY.
  */
-export function createTerminalKeyHandler(term, { mac = isMacPlatform(), copy = writeClipboard } = {}) {
+export function createTerminalKeyHandler(term, { mac = isMacPlatform(), copy = writeClipboard, overrides } = {}) {
   return (event) => {
     if (!event || event.type !== 'keydown') return true
     const key = String(event.key ?? '').toLowerCase()
     const code = String(event.code ?? '')
-    if (mac && event.metaKey && !event.ctrlKey && !event.altKey) {
+    if (mac && event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey) {
       if (key === 'c' || code === 'KeyC') {
         if (term.hasSelection?.()) {
           const selected = term.getSelection?.() ?? ''
@@ -298,10 +296,6 @@ export function createTerminalKeyHandler(term, { mac = isMacPlatform(), copy = w
         return false
       }
       if (key === 'v' || code === 'KeyV') return false
-      if (!event.shiftKey && (MAC_BUBBLE_KEYS.has(key) || MAC_BUBBLE_CODES.has(code))) {
-        return false
-      }
-      return true
     }
     if (!mac && event.ctrlKey && event.shiftKey && !event.altKey && !event.metaKey) {
       if ((key === 'c' || code === 'KeyC') && term.hasSelection?.()) {
@@ -312,6 +306,12 @@ export function createTerminalKeyHandler(term, { mac = isMacPlatform(), copy = w
         return false
       }
       if (key === 'v' || code === 'KeyV') return false
+    }
+    // Let active global shortcuts (including custom bindings, F1–F12, and allowInTerminal
+    // commands like Ctrl+`) bubble to the window dispatcher; plain non-Mac Ctrl+<key>
+    // terminal control sequences return null and continue straight to the PTY.
+    if (matchShortcutEvent(event, { mac, inTerminal: true, ...(overrides !== undefined ? { overrides } : {}) })) {
+      return false
     }
     return true
   }
