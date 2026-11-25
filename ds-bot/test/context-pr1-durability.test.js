@@ -1055,11 +1055,16 @@ test('handOnHeld re-checks destination after source resolution and never moves r
   assert.deepEqual(host.rt.state.switching, {}, 'switching marker cleared after moving to s2')
 })
 
-test('same-part rollback after failed create keeps PAUSE_NOTE and claimed input ahead of messages queued during the switch', async (t) => {
+test('same-part rollback after failed create keeps PAUSE_NOTE and claimed input ahead of messages queued in next-step and next-turn during the switch', async (t) => {
   const host = makeSwitchFixture({
     fail: {
       onCreate: async () => {
-        // Simulate a newer user message arriving while create() awaits before failing.
+        // Simulate BOTH a steered next-step follow-up AND a next-turn message arriving while create() awaits.
+        host.agentOf('b').inbox.nextStep.push(createUserMessage({
+          id: 'm-steered-later',
+          content: [{ type: 'text', text: 'steered task follow-up' }],
+          source: { kind: SOURCE_KIND, form: 'relay', role: 'task-followup', exchangeId: 'ex-steered-later', senderName: 'Chief' },
+        }))
         host.agentOf('b').inbox.nextTurn.push(createUserMessage({
           id: 'm-later-1',
           content: [{ type: 'text', text: 'later follow-up' }],
@@ -1081,11 +1086,12 @@ test('same-part rollback after failed create keeps PAUSE_NOTE and claimed input 
   })
   await host.preStep('b', [claimed], 2)
 
-  assert.equal(await waitFor(() => bAgent.inbox.nextTurn.length === 3 && !host.rt.isSwitchingPart('b')), true)
+  assert.equal(await waitFor(() => bAgent.inbox.nextTurn.length === 4 && !host.rt.isSwitchingPart('b')), true)
   const queuedTexts = bAgent.inbox.nextTurn.map(m => m.content?.[0]?.text ?? '')
   assert.match(queuedTexts[0], /DS Bot paused your turn/, 'PAUSE_NOTE must be first')
   assert.equal(queuedTexts[1], 'earlier claimed input', 'claimed input must precede messages queued during switch')
-  assert.equal(queuedTexts[2], 'later follow-up', 'later message stays behind rolled-back turn input')
+  assert.equal(queuedTexts[2], 'steered task follow-up', 'steered next-step follow-up must not overtake paused/claimed input')
+  assert.equal(queuedTexts[3], 'later follow-up', 'later next-turn message stays behind rolled-back turn input')
 })
 
 test('same-part rollback keeps queued prompts durable on disk if host stops before waking', async (t) => {

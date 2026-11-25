@@ -2017,11 +2017,14 @@ export function install(rt) {
   const removeForMove = (agent, messages) => {
     for (const message of messages) removeMessageForMove(agent, message)
   }
-  const wake = (agent) => {
+  const wake = (agent, priorityIds) => {
     const pending = [...agent.inbox.nextStep, ...agent.inbox.nextTurn]
     removeForMove(agent, pending)
     const silent = pending.filter(isSilentRelay)
     const active = pending.filter(message => !isSilentRelay(message))
+    // Keep PAUSE_NOTE and rolled-back turn input ahead of newer steered follow-ups in next-step.
+    const rank = message => (textOf(message?.content) === PAUSE_NOTE ? 2 : (priorityIds?.has(message?.id) ? 1 : 0))
+    active.sort((a, b) => rank(b) - rank(a))
     for (const message of silent) agent.send(message, 'next-step', false)
     for (let i = 0; i < active.length; i += 1) {
       agent.send(active[i], inboxTargetOf(active[i]), i === 0)
@@ -2466,11 +2469,12 @@ export function install(rt) {
           // Handle same-part rollback in place: parked messages stay at the head of
           // agent.inbox and later queued prompts stay behind them without ever being
           // removed across async awaits.
-          job.carriedIds.clear()
           const toPrepend = [...job.carry.splice(0)]
           if (pauseMessage !== undefined && !toPrepend.some(message => textOf(message.content) === PAUSE_NOTE)) {
             toPrepend.unshift(pauseMessage)
           }
+          const priorityIds = new Set([...job.carriedIds, ...toPrepend.map(m => m?.id).filter(Boolean)])
+          job.carriedIds.clear()
           restore(agent, toPrepend)
           const inboxAccepted = toPrepend.length === 0
             || [...agent.inbox.nextStep, ...agent.inbox.nextTurn].some(m => toPrepend.some(p => p.id === m.id))
@@ -2491,7 +2495,7 @@ export function install(rt) {
               await rt.ensureCapabilities(agent.id)
               await ctx.sessions.flush(agent.session)
               if (agent.inbox.nextStep.length > 0 || agent.inbox.nextTurn.length > 0) {
-                wake(agent)
+                wake(agent, priorityIds)
                 await ctx.sessions.flush(agent.session)
               }
             })().then(() => {
@@ -2504,7 +2508,7 @@ export function install(rt) {
               }
               rt.warn('ds-bot: input for %s was not handed on: %s', agent.id, error)
               // The input is already in exact order in agent.inbox; wake it at once.
-              try { wake(agent) } catch {}
+              try { wake(agent, priorityIds) } catch {}
               scheduleHeldBackRetry()
             })
           }
