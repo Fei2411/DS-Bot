@@ -129,6 +129,7 @@ export function workNotes(rt) {
       ? decision.messages.find(msg => msg?.source?.kind === 'user'
         || (msg?.source?.kind === SOURCE_KIND && !msg.source.silent && msg.source.form === 'relay'))?.source
       : rt.live.get(agent.id)?.info
+    if (step === 1 && primary === undefined) return decision
     const task = rt.taskBySession?.(agent.id)?.task
     const member = rt.groupOwners.get(agent.id)
     let group

@@ -949,8 +949,9 @@ export function install(rt) {
       const text = absoluteLinks(rawNote, rt.sessionFolder?.(exec.agent?.session ?? exec.agent))
       const long = await rt.attachLong(text, `Note from ${sender.name}.txt`)
       if (long === undefined) return tooLong(text)
-      if (room !== undefined || args.work_id !== undefined) {
-        return rt.enqueueWorkNote(args.work_id, sender, target, long, room)
+      const workId = typeof args.work_id === 'string' && args.work_id.trim() !== '' ? args.work_id.trim() : undefined
+      if (room !== undefined || workId !== undefined) {
+        return rt.enqueueWorkNote(workId, sender, target, long, room)
       }
       await rt.deliver({
         fromId: sender.id,

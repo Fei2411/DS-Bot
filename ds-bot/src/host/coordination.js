@@ -310,10 +310,20 @@ export function install(rt) {
             initSchema(conn)
           }
           const statements = prepareStatements(conn)
-          // Touch one lightweight statement inside ensureDb so corrupt files and
-          // read-only opens blocked by a hot rollback journal fail here (triggering
-          // rebuild or initialReadFailed) without compiling all 22 statements per op.
-          void statements.getMeta
+          // Touch one lightweight statement inside ensureDb so corrupt files, externally
+          // truncated 0-byte files, and read-only opens blocked by a hot rollback journal
+          // fail here without compiling all 22 statements per op.
+          try {
+            void statements.getMeta
+          } catch (probeError) {
+            if (!readOnlyMode && schemaReady && /no such table/i.test(String(probeError?.message ?? probeError))) {
+              schemaReady = false
+              initSchema(conn)
+              void statements.getMeta
+            } else {
+              throw probeError
+            }
+          }
           stmt = statements
           db = conn
           openedReadOnly = readOnlyMode
@@ -496,6 +506,13 @@ export function install(rt) {
       }
     }
     if (!canCommit) {
+      // When coordination.sqlite exists but failed pre-lock read-only open (e.g. hot
+      // rollback journal), a `_coordGen`-stamped inflight.json is only a potentially stale
+      // compatibility mirror; defer to post-lock recoverAfterLock() + syncLegacyInflight()
+      // so old mirror entries never clobber newer SQLite deliveries or resurrect ended turns.
+      if (metaCheck === null && initialReadFailed && typeof parsed._coordGen === 'number') {
+        return { imported: false }
+      }
       return {
         imported: true,
         fallback: { turns: obj(parsed.turns), queued: obj(parsed.queued), silent: obj(parsed.silent) },

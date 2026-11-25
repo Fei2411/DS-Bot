@@ -930,3 +930,196 @@ test('live turn started on another Bot during delayed WAL startup recovery never
   const resumedOnB = dmB2.session.snapshotEvents().filter(e => e.type === 'user/message' && e.data?.source?.resumed === true)
   assert.equal(resumedOnB.length, 0, 'live turn started on Bot B during startup recovery must never receive a spurious restart prompt')
 })
+
+test('hot journal recovery with stale _coordGen mirror and live startup delivery preserves committed SQLite deliveries', async (t) => {
+  const base = mkdtempSync(join(tmpdir(), 'ds-bot-coord-hot-stale-'))
+  t.after(() => rmSync(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }))
+  const home = join(base, 'bot')
+  mkdirSync(home, { recursive: true })
+  writeFileSync(join(home, 'state.json'), JSON.stringify(seedTeam()))
+
+  const dsh1 = await mountRealDsh(t, base)
+  const dmA1 = await dsh1.create('dm-a')
+  await dsh1.root.sessions.flush(dmA1.session)
+  const dmB1 = await dsh1.create('dm-b')
+  await dsh1.root.sessions.flush(dmB1.session)
+  const host1 = attachRuntime(t, dsh1, home, base)
+  await host1.rt.load()
+  const committedEx = 'ex-sqlite-newer-delivery'
+  host1.rt.coordination.upsertDelivery('dm-a', {
+    fromId: 'b',
+    fromName: 'Writer',
+    toId: 'a',
+    sessionId: 'dm-a',
+    role: 'reply',
+    replyTo: 'w-committed',
+    exchangeId: committedEx,
+    text: 'COMMITTED SQLITE DELIVERY SURVIVED',
+    address: { foreground: true },
+  })
+  const newerGen = host1.rt.coordination.currentGen()
+  assert.ok(newerGen > 0)
+  await host1.ctx.dispose()
+  await dsh1.root.fiber.dispose()
+
+  // Leave a stale `_coordGen`-stamped inflight.json (older than SQLite) with an old turn and old queued item.
+  writeFileSync(join(home, 'inflight.json'), JSON.stringify({
+    _coordGen: Math.max(0, newerGen - 1),
+    turns: { 'dm-b': { botId: 'b', turn: 1, since: 50 } },
+    queued: {
+      'dm-a': [{
+        at: 50,
+        args: {
+          fromId: 'b',
+          fromName: 'Writer',
+          toId: 'a',
+          sessionId: 'dm-a',
+          role: 'reply',
+          replyTo: 'w-stale',
+          exchangeId: 'ex-stale-mirror',
+          text: 'STALE MIRROR DELIVERY MUST NOT WIN',
+          address: { foreground: true },
+        },
+      }],
+    },
+  }))
+
+  // Synthesize a genuine hot rollback journal so pre-lock read-only open fails.
+  const { DatabaseSync } = await import('node:sqlite')
+  const { copyFileSync } = await import('node:fs')
+  const dbPath = join(home, 'coordination.sqlite')
+  const rawDb = new DatabaseSync(dbPath)
+  rawDb.exec('PRAGMA journal_mode = DELETE')
+  rawDb.exec('PRAGMA cache_size = 1')
+  rawDb.exec('BEGIN IMMEDIATE')
+  for (let i = 0; i < 8; i += 1) {
+    rawDb.prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)').run(`uncommitted_${i}`, 'y'.repeat(8192))
+  }
+  const journalPath = `${dbPath}-journal`
+  const savedJournal = join(base, 'hot.journal')
+  const savedDb = join(base, 'hot.sqlite')
+  copyFileSync(journalPath, savedJournal)
+  copyFileSync(dbPath, savedDb)
+  rawDb.exec('ROLLBACK')
+  rawDb.close()
+  copyFileSync(savedDb, dbPath)
+  copyFileSync(savedJournal, journalPath)
+
+  // Fresh runtime starts; also simulate a live delivery arriving during startup before recovery runs.
+  const dsh2 = await mountRealDsh(t, base)
+  await dsh2.open('dm-a')
+  await dsh2.open('dm-b')
+  const host2 = attachRuntime(t, dsh2, home, base)
+  await host2.rt.load()
+  await host2.rt.deliver({
+    fromId: 'a',
+    fromName: 'Chief',
+    toId: 'b',
+    sessionId: 'dm-b',
+    role: 'request',
+    exchangeId: 'ex-live-startup-req',
+    text: 'Live startup work',
+    address: { foreground: true },
+  })
+
+  await sleepUntil(
+    () => dsh2.root.agents.get('dm-a').session.snapshotEvents().some(e => e.type === 'user/message' && e.data?.source?.exchangeId === committedEx),
+    RESUME_DELAY_MS + 4000,
+    'committed SQLite delivery must survive hot journal recovery even with stale mirror and live startup delivery',
+  )
+  await dsh2.root.agents.get('dm-a').whenIdle()
+  await dsh2.root.agents.get('dm-b').whenIdle()
+  const aEvents = dsh2.root.agents.get('dm-a').session.snapshotEvents().filter(e => e.type === 'user/message')
+  assert.equal(aEvents.some(e => e.data?.source?.exchangeId === committedEx), true)
+  assert.equal(aEvents.some(e => e.data?.source?.exchangeId === 'ex-stale-mirror'), false, 'stale mirror delivery must not overwrite SQLite')
+  const bResumed = dsh2.root.agents.get('dm-b').session.snapshotEvents().filter(e => e.type === 'user/message' && e.data?.source?.resumed === true)
+  assert.equal(bResumed.length, 0, 'stale mirror ended turn must not resurrect on dm-b')
+})
+
+test('bot-handoff crash after commitTaskTerminal replays peer_result obligation and closes work once', async (t) => {
+  const base = mkdtempSync(join(tmpdir(), 'ds-bot-coord-peer-result-'))
+  t.after(() => rmSync(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }))
+  const home = join(base, 'bot')
+  mkdirSync(home, { recursive: true })
+  const team = seedTeam()
+  team.works = {
+    'w-handoff-1': { from: 'a', to: 'b', open: [], results: [], at: 10 },
+  }
+  team.bots.b.tasks = [{
+    id: 'task-ho-1',
+    title: 'Handoff research',
+    sessionId: 'task-ho-sess-1',
+    status: 'running',
+    origin: 'bot-handoff',
+    exchangeId: 'w-handoff-1',
+    createdAt: 10,
+    updatedAt: 10,
+  }]
+  writeFileSync(join(home, 'state.json'), JSON.stringify(team))
+
+  const dsh1 = await mountRealDsh(t, base)
+  const dmA1 = await dsh1.create('dm-a')
+  await dsh1.root.sessions.flush(dmA1.session)
+  const dmB1 = await dsh1.create('dm-b')
+  await dsh1.root.sessions.flush(dmB1.session)
+  const host1 = attachRuntime(t, dsh1, home, base)
+  await host1.rt.load()
+
+  // Simulate crash right after commitTaskTerminal committed the bot-handoff terminal marker
+  // + peer_result obligation in SQLite, before state.json save or answerSender delivery ran.
+  const replyExchangeId = 'reply:w-handoff-1'
+  host1.rt.coordination.commitTaskTerminal({
+    taskId: 'task-ho-1',
+    terminalSnapshot: {
+      botId: 'b',
+      status: 'completed',
+      updatedAt: 20,
+      endedAt: 20,
+      summary: 'HANDOFF RESULT COMMITTED',
+      handoffExchangeId: 'w-handoff-1',
+      handoffBotName: 'Writer',
+      handoffResult: 'HANDOFF RESULT COMMITTED',
+      handoffWorked: true,
+    },
+    obligation: {
+      id: 'peer-result:w-handoff-1',
+      kind: 'peer_result',
+      ownerId: 'task-ho-1',
+      botId: 'a',
+      address: { foreground: true },
+      deliveryId: replyExchangeId,
+      payload: {
+        fromId: 'b',
+        fromName: 'Writer',
+        toId: 'a',
+        sessionId: 'dm-a',
+        role: 'reply',
+        replyTo: 'w-handoff-1',
+        exchangeId: replyExchangeId,
+        address: { foreground: true },
+        text: 'HANDOFF RESULT COMMITTED',
+      },
+    },
+  })
+  await host1.ctx.dispose()
+  await dsh1.root.fiber.dispose()
+
+  const dsh2 = await mountRealDsh(t, base)
+  await dsh2.open('dm-a')
+  await dsh2.open('dm-b')
+  const host2 = attachRuntime(t, dsh2, home, base)
+  await host2.rt.load()
+  await sleepUntil(
+    () => host2.rt.coordination.listPendingObligations().length === 0
+      && dsh2.root.agents.get('dm-a').session.snapshotEvents().some(e => e.type === 'user/message' && e.data?.source?.exchangeId === replyExchangeId),
+    RESUME_DELAY_MS + 4000,
+    'peer_result obligation should replay to asking Bot and reconcile task/work state',
+  )
+  await dsh2.root.agents.get('dm-a').whenIdle()
+  const taskAfter = host2.rt.botOf('b').tasks.find(item => item.id === 'task-ho-1')
+  assert.equal(taskAfter?.status, 'completed', 'bot-handoff task must reconcile as completed, not interrupted')
+  assert.equal(host2.rt.state.works?.['w-handoff-1'], undefined, 'delegated work must be closed during marker reconciliation')
+  const replies = dsh2.root.agents.get('dm-a').session.snapshotEvents().filter(e => e.type === 'user/message' && e.data?.source?.exchangeId === replyExchangeId)
+  assert.equal(replies.length, 1)
+  assert.match(replies[0].data.content[0].text, /HANDOFF RESULT COMMITTED/)
+})

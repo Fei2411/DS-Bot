@@ -331,9 +331,17 @@ export function install(rt) {
     // Non-waking silent notices (note_bot, cancel_work, stop_bot) do not open turns, so
     // they must never enter inflight `queued` (would inflate unread counts and resend as work).
     if (noted.wake === false) return deliver(noted)
-    const sessionId = address !== undefined
+    let sessionId = address !== undefined
       ? addressedSession(rt, noted.toId, address)
       : (noted.sessionId ?? rt.chatOf(noted.toId))
+    if (address !== undefined && sessionId === undefined && canFallbackReturnToForeground(noted.role)) {
+      const fg = rt.chatOf(noted.toId)
+      if (fg !== undefined) {
+        if (address.roomId !== undefined) noted.imOrigin = undefined
+        noted.address = { foreground: true }
+        sessionId = fg
+      }
+    }
     if (address !== undefined && sessionId === undefined) {
       rt.noteFailure?.({
         level: 'warn',
@@ -555,7 +563,7 @@ export function install(rt) {
   // cancelled is sent again. Before replaying any queued delivery, verify both the live
   // inbox and durable DSH session history so already-consumed messages are never sent twice,
   // and fail closed when cold history cannot be read.
-  async function resendQueued(sessionId, list, onCovered) {
+  async function resendQueued(sessionId, list) {
     const active = new Set()
     const fresh = []
     for (const item of list) {
@@ -616,12 +624,10 @@ export function install(rt) {
       )
       if (inInbox) {
         active.add(dest)
-        onCovered?.()
         continue
       }
       if (taken?.has(args.exchangeId) === true) {
         forgetQueued(args.exchangeId)
-        onCovered?.()
         continue
       }
       const destEvidence = await readEvidence(dest)
@@ -630,7 +636,6 @@ export function install(rt) {
         || (origEvidence.status === 'ok' && origEvidence.events.some(ev => eventMatchesReceipt(ev, args)))
       if (alreadyConsumed) {
         forgetQueued(args.exchangeId)
-        onCovered?.()
         continue
       }
       if (destEvidence.status === 'error' || origEvidence.status === 'error') {
@@ -659,7 +664,6 @@ export function install(rt) {
         .then(() => true, (error) => { rt.warn('ds-bot: sending again what %s was sent failed: %s', sessionId, error); return false })
       if (ok) {
         active.add(dest)
-        onCovered?.()
       }
     }
     return active
@@ -683,6 +687,7 @@ export function install(rt) {
       if (marker.kind === 'task') {
         const bot = rt.botOf(snap.botId)
         const task = bot?.tasks?.find(item => item?.id === marker.ownerId)
+        let changed = false
         if (task !== undefined && isActiveTask(task)) {
           task.status = snap.status ?? 'completed'
           if (typeof snap.updatedAt === 'number') task.updatedAt = snap.updatedAt
@@ -693,6 +698,23 @@ export function install(rt) {
           if (snap.workId !== undefined) {
             rt.closeWork?.(snap.workId, `task "${snap.workTitle ?? task.title}"`, snap.workResult ?? snap.summary ?? '(completed)')
           }
+          changed = true
+        }
+        if (snap.handoffExchangeId !== undefined) {
+          if (snap.handoffImOrigin !== undefined && rt.state.imReplyOrigins?.[snap.handoffExchangeId] === undefined) {
+            rt.rememberImReplyOrigin?.(snap.handoffExchangeId, snap.handoffImOrigin)
+            changed = true
+          }
+          const hadHandoff = rt.resolveWork?.(snap.handoffExchangeId) !== undefined
+          const closedHandoff = rt.closeWork?.(
+            snap.handoffExchangeId,
+            snap.handoffBotName ?? bot?.name ?? 'The other Bot',
+            snap.handoffResult ?? snap.summary ?? '',
+            snap.handoffWorked === true ? { worked: true } : undefined,
+          )
+          if (hadHandoff || closedHandoff !== undefined) changed = true
+        }
+        if (changed) {
           dirty = true
           applied.push(marker)
         } else {
@@ -701,8 +723,9 @@ export function install(rt) {
       } else if (marker.kind === 'room_report') {
         let changed = false
         if (snap.sub !== undefined) {
+          const hadSub = rt.resolveWork?.(snap.sub) !== undefined
           const closed = rt.closeWork?.(snap.sub, `Group "${snap.roomName ?? 'group'}"`, snap.workResult ?? '', snap.worked === true ? { worked: true } : undefined)
-          if (closed !== undefined) changed = true
+          if (hadSub || closed !== undefined) changed = true
         }
         if (snap.imReplyOrigin !== undefined && snap.reportKey !== undefined) {
           if (rt.state.imReplyOrigins?.[snap.reportKey] === undefined) {
@@ -1592,33 +1615,56 @@ export function install(rt) {
 
   const mergeRecoveredSnapshot = (reloaded) => {
     if (reloaded === undefined) return false
-    // Exclude turns started in this runtime so live work is never misclassified as interrupted.
+    // Post-lock SQLite (after hot-journal rollback + syncLegacyInflight) is the single
+    // pre-restart baseline. Exclude turns started in this runtime so live work is never
+    // misclassified as interrupted, and merge recovered queued/silent entries with any
+    // deliveries buffered during the startup window rather than overwriting either side.
     const preRestartTurns = {}
     for (const [sid, rec] of Object.entries(reloaded.turns ?? {})) {
       if (!(sid in turns)) preRestartTurns[sid] = rec
     }
-    const mergedTurns = { ...preRestartTurns, ...interrupted.turns }
-    const mergedQueued = Object.keys(interrupted.queued).length > 0 ? interrupted.queued : (reloaded.queued ?? {})
-    const mergedSilent = Object.keys(interrupted.silent).length > 0 ? interrupted.silent : (reloaded.silent ?? {})
+    const recoveredQueued = reloaded.queued ?? {}
+    const recoveredSilent = reloaded.silent ?? {}
     interrupted = {
-      turns: mergedTurns,
-      queued: mergedQueued,
-      silent: mergedSilent,
+      turns: preRestartTurns,
+      queued: recoveredQueued,
+      silent: recoveredSilent,
       obligations: reloaded.obligations ?? [],
       terminalMarkers: reloaded.terminalMarkers ?? [],
     }
-    if (Object.keys(queued).length === 0 && Object.keys(mergedQueued).length > 0) queued = mergedQueued
-    if (Object.keys(silent).length === 0 && Object.keys(mergedSilent).length > 0) silent = mergedSilent
-    recoveringTurns = mergedTurns
-    return Object.keys(mergedTurns).length > 0
-      || Object.keys(mergedQueued).length > 0
-      || Object.keys(mergedSilent).length > 0
+    const mergedQueued = { ...queued }
+    const existingQueuedIds = new Set(Object.values(mergedQueued).flat().map(item => item?.args?.exchangeId).filter(Boolean))
+    for (const [sid, list] of Object.entries(recoveredQueued)) {
+      if (!Array.isArray(list)) continue
+      const additions = list.filter(item => item?.args?.exchangeId && !existingQueuedIds.has(item.args.exchangeId))
+      if (additions.length === 0) continue
+      for (const item of additions) existingQueuedIds.add(item.args.exchangeId)
+      mergedQueued[sid] = [...additions, ...(mergedQueued[sid] ?? [])]
+    }
+    queued = mergedQueued
+    const mergedSilent = { ...silent }
+    for (const [sid, list] of Object.entries(recoveredSilent)) {
+      if (!Array.isArray(list) || list.length === 0) continue
+      const current = mergedSilent[sid] ?? []
+      const currentIds = new Set(current.map(entry => entry?.message?.source?.exchangeId).filter(Boolean))
+      const additions = list.filter((entry) => {
+        const exId = entry?.message?.source?.exchangeId
+        return !exId || !currentIds.has(exId)
+      })
+      if (additions.length > 0) mergedSilent[sid] = [...additions, ...current]
+    }
+    silent = mergedSilent
+    recoveringTurns = preRestartTurns
+    return Object.keys(preRestartTurns).length > 0
+      || Object.keys(recoveredQueued).length > 0
+      || Object.keys(recoveredSilent).length > 0
   }
 
   async function resumeAll() {
     await rt.load()
     if (rt.readOnly() !== undefined) return
     if (coord?.recoverAfterLock?.() === true) {
+      coord?.syncLegacyInflight?.()
       mergeRecoveredSnapshot(coord.loadInitialState?.())
     }
     coord?.syncLegacyInflight?.()
@@ -1781,6 +1827,7 @@ export function install(rt) {
         fastStartup = rt.load()
           .then(() => {
             if (rt.readOnly() === undefined && coord?.recoverAfterLock?.() === true) {
+              coord?.syncLegacyInflight?.()
               if (mergeRecoveredSnapshot(coord.loadInitialState?.())) {
                 return resumeAll()
               }

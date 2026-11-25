@@ -14,7 +14,7 @@ import { HANDOFF_ACK, HISTORY_TIMEOUT_MS, MESSAGE_INLINE_MAX, SOURCE_KIND, STEER
 import { within } from './folders.js'
 import { absoluteLinks } from './links.js'
 import { textOf } from './text.js'
-import { activeTasksOf, isActiveTask, retiredTaskSessionIds, taskSessionIds, threadCurrentOfPart, threadOfPart } from './threads.js'
+import { activeTasksOf, addressedSession, isActiveTask, retiredTaskSessionIds, returnAddress, taskSessionIds, threadCurrentOfPart, threadOfPart } from './threads.js'
 import { output } from './tools.js'
 import { answerSender, cutOffText, turnFailure } from './turns.js'
 
@@ -821,9 +821,85 @@ export function install(rt) {
         }
       }
 
+      let handoffPlan
+      if (task.origin === 'bot-handoff' && settleWork && task.exchangeId !== undefined && rt.ownsWork?.(bot.id, task.exchangeId)) {
+        const asker = rt.workAsker?.(task.exchangeId)
+        if (asker !== undefined) {
+          const answerText = outcome === 'completed'
+            ? (rt.answerText?.(task.exchangeId, fullText, bot.name) ?? fullText)
+            : outcome === 'interrupted'
+              ? `${bot.name} was interrupted by a restart before it could answer your message.`
+              : outcome === 'failed'
+                ? `${bot.name} could not answer your message: ${task.error ?? 'model call failed'}.`
+                : `${bot.name} was stopped before it could answer your message.`
+          const long = outcome === 'completed' && answerText.length > MESSAGE_INLINE_MAX
+            ? await rt.attachLong?.(answerText, `Answer from ${bot.name}.txt`).catch(() => undefined)
+            : undefined
+          const toId = asker.senderSessionId
+          const rawAddress = returnAddress(rt.botOf(toId), asker.senderPart, asker.senderRoomId)
+          const resolvedTarget = addressedSession(rt, toId, rawAddress)
+          const address = resolvedTarget !== undefined ? rawAddress : { foreground: true }
+          const workBeforeClose = Object.hasOwn(rt.state?.works ?? {}, task.exchangeId) ? rt.state.works[task.exchangeId] : undefined
+          const workRef = asker.workRef ?? workBeforeClose?.ref ?? rt.workRefOf?.(task.exchangeId)
+          const workWorked = workBeforeClose?.worked === true
+          const replyImOrigin = rt.workImOrigin?.(task.exchangeId)
+          const eligibleImOrigin = replyImOrigin !== undefined && !(asker.senderRoomId !== undefined && resolvedTarget === undefined)
+            ? replyImOrigin
+            : undefined
+          const replyExchangeId = `reply:${task.exchangeId}`
+          const obligationId = `peer-result:${task.exchangeId}`
+          const payload = {
+            fromId: bot.id,
+            fromName: bot.name,
+            toId,
+            ...(resolvedTarget ? { sessionId: resolvedTarget } : {}),
+            text: long?.text ?? answerText,
+            ...(long?.length === undefined ? {} : { files: long.files, length: long.length }),
+            role: 'reply',
+            replyTo: task.exchangeId,
+            exchangeId: replyExchangeId,
+            address,
+            ...(workBeforeClose?.parent !== undefined ? { work: workBeforeClose.parent } : {}),
+            ...(workRef ? { workRef } : {}),
+          }
+          handoffPlan = {
+            asker,
+            answerText,
+            long,
+            aborted: outcome !== 'completed',
+            obligation: {
+              id: obligationId,
+              kind: 'peer_result',
+              ownerId: task.id,
+              botId: toId,
+              address,
+              payload,
+              deliveryId: replyExchangeId,
+            },
+            snapshot: {
+              handoffExchangeId: task.exchangeId,
+              handoffBotName: bot.name,
+              handoffResult: answerText,
+              handoffWorked: workWorked,
+              ...(eligibleImOrigin !== undefined ? { handoffImOrigin: eligibleImOrigin } : {}),
+            },
+          }
+        }
+      }
+
+      const terminalObligation = handoffPlan?.obligation ?? (reportPayload !== undefined ? {
+        id: reportObligationId,
+        kind: 'task_report',
+        ownerId: task.id,
+        botId: bot.id,
+        address: reportAddress,
+        payload: reportPayload,
+        deliveryId: reportPayload.exchangeId,
+      } : undefined)
+
       // Single SQLite transaction: cancel any unsent `role: 'task'` start delivery,
       // record the terminal task snapshot until `state.json` persists it, AND
-      // durably record any owed foreground/group report before saving `state.json`.
+      // durably record any owed foreground/group/peer report before saving `state.json`.
       rt.coordination?.commitTaskTerminal?.({
         taskId: task.id,
         terminalSnapshot: {
@@ -835,23 +911,14 @@ export function install(rt) {
           ...(task.summary !== undefined ? { summary: task.summary } : {}),
           ...(task.reportFile !== undefined ? { reportFile: task.reportFile } : {}),
           ...(task.workId !== undefined ? { workId: task.workId, workTitle: task.title, workResult: workResultSummary } : {}),
+          ...(handoffPlan?.snapshot ?? {}),
         },
-        ...(reportPayload !== undefined ? {
-          obligation: {
-            id: reportObligationId,
-            kind: 'task_report',
-            ownerId: task.id,
-            botId: bot.id,
-            address: reportAddress,
-            payload: reportPayload,
-            deliveryId: reportPayload.exchangeId,
-          },
-        } : {}),
+        ...(terminalObligation !== undefined ? { obligation: terminalObligation } : {}),
       })
       rt.forgetTaskStartDeliveries?.(task.id)
 
       await rt.save()
-      rt.coordination?.clearTerminalMarker?.('task', task.id)
+      if (handoffPlan === undefined) rt.coordination?.clearTerminalMarker?.('task', task.id)
       settled = true
       emitTaskEvent(`task.${outcome}`, bot, task, {
         ...(task.summary ? { summary: task.summary } : {}),
@@ -864,28 +931,22 @@ export function install(rt) {
       // answer the asking Bot once here and clear `liveEntry.info` so any ensuing
       // `turn/end (aborted)` from `agent.cancel()` can never emit a duplicate reply.
       if (task.origin === 'bot-handoff') {
-        if (settleWork && task.exchangeId !== undefined && rt.ownsWork?.(bot.id, task.exchangeId)) {
-          const asker = rt.workAsker?.(task.exchangeId)
-          if (asker !== undefined) {
-            const liveEntry = rt.live.get(task.sessionId)
-            if (liveEntry?.info !== undefined && rt.workOf?.(liveEntry.info) === task.exchangeId) {
-              liveEntry.info = undefined
-            }
-            if (outcome === 'completed') {
-              const answer = rt.answerText?.(task.exchangeId, fullText, bot.name) ?? fullText
-              const long = answer.length > MESSAGE_INLINE_MAX
-                ? await rt.attachLong?.(answer, `Answer from ${bot.name}.txt`).catch(() => undefined)
-                : undefined
-              answerSender(rt, task.sessionId, asker, answer, long)
-            } else {
-              const notice = outcome === 'interrupted'
-                ? `${bot.name} was interrupted by a restart before it could answer your message.`
-                : outcome === 'failed'
-                  ? `${bot.name} could not answer your message: ${task.error ?? 'model call failed'}.`
-                  : `${bot.name} was stopped before it could answer your message.`
-              answerSender(rt, task.sessionId, asker, notice, undefined, { aborted: true })
-            }
+        if (handoffPlan !== undefined) {
+          const liveEntry = rt.live.get(task.sessionId)
+          if (liveEntry?.info !== undefined && rt.workOf?.(liveEntry.info) === task.exchangeId) {
+            liveEntry.info = undefined
           }
+          answerSender(
+            rt,
+            task.sessionId,
+            handoffPlan.asker,
+            handoffPlan.answerText,
+            handoffPlan.long,
+            { ...(handoffPlan.aborted ? { aborted: true } : {}), obligationId: handoffPlan.obligation.id },
+          )
+          void rt.save().then(() => {
+            rt.coordination?.clearTerminalMarker?.('task', task.id)
+          }, () => {})
         }
         return
       }

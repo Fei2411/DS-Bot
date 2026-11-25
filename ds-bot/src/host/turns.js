@@ -9,7 +9,7 @@ import { HANDOFF_ACK, isSilentTurnText, isWorkTool, LATE_ANSWER, MESSAGE_INLINE_
 import { cleanText } from './diagnostics.js'
 import { absoluteLinks } from './links.js'
 import { splitRef, textOf } from './text.js'
-import { returnAddress, sameConversation, threadCurrentOfPart } from './threads.js'
+import { addressedSession, returnAddress, sameConversation, threadCurrentOfPart } from './threads.js'
 import { viaOf } from '../shared/im-platforms.js'
 import { reminderText } from './schedules.js'
 import { usageChunk } from './usage.js'
@@ -106,17 +106,15 @@ function dropSuppressedWork(rt, exchangeId, name, text) {
 // for closes, and the answer goes up to the Bot that asked. `id` is the Session the
 // answer comes from; `source` is the trigger the turn answered.
 export function answerSender(rt, id, source, text, long, options = {}) {
-  const back = rt.roomOf(source.senderRoomId)?.sessions?.[source.senderSessionId]
-  // The asking Bot may have written from a background part of its own chat: its reply
-  // goes back to that part's thread, not to the part the user is reading. When the part
-  // is gone, or no part was recorded, the reply goes to the Bot's current chat, as before.
-  const asker = source.senderPart === undefined ? undefined : rt.botOf(source.senderSessionId)
-  const part = back === undefined && asker !== undefined ? threadCurrentOfPart(asker, source.senderPart) : undefined
-  const target = back ?? part
   const fromId = rt.selfOf(id)
   const toId = source.senderSessionId
+  const rawAddress = returnAddress(rt.botOf(toId), source.senderPart, source.senderRoomId)
+  const resolvedTarget = addressedSession(rt, toId, rawAddress)
+  const address = resolvedTarget !== undefined ? rawAddress : { foreground: true }
+  const target = resolvedTarget
   const targetSessionId = target ?? rt.chatOf?.(toId) ?? toId
   const name = rt.botOf(fromId)?.name ?? 'The other Bot'
+  const obligationId = typeof options?.obligationId === 'string' && options.obligationId !== '' ? options.obligationId : undefined
   const guards = guardsOf(rt)
   const exchangeKey = typeof source.exchangeId === 'string' && source.exchangeId !== ''
     ? `${fromId ?? ''}\0${toId ?? ''}\0${source.exchangeId}`
@@ -128,6 +126,7 @@ export function answerSender(rt, id, source, text, long, options = {}) {
     if (typeof source.exchangeId === 'string' && source.exchangeId !== '') {
       rt.closeWork?.(source.exchangeId, name, deliveredReply?.text || text)
     }
+    if (obligationId !== undefined) rt.coordination?.markObligation?.(obligationId, 'settled')
     return false
   }
   const failureRequestId = typeof options?.failure?.requestId === 'string' && options.failure.requestId !== ''
@@ -149,16 +148,20 @@ export function answerSender(rt, id, source, text, long, options = {}) {
         .findLast(entry => parentCoveredBy(rt, ownParent, entry.replyTo))
   if (matchedInMemory || matchedLedger !== undefined) {
     dropSuppressedWork(rt, source.exchangeId, name, text)
+    if (obligationId !== undefined) rt.coordination?.markObligation?.(obligationId, 'settled')
     return false
   }
   if (typeof source.exchangeId === 'string' && source.exchangeId !== '' && rt.closedWorkOf?.(source.exchangeId)?.status === 'cancelled') {
+    if (obligationId !== undefined) rt.coordination?.markObligation?.(obligationId, 'cancelled')
     return false
   }
   const workBeforeClose = typeof source.exchangeId === 'string' && Object.hasOwn(rt.state?.works ?? {}, source.exchangeId) ? rt.state.works[source.exchangeId] : undefined
   const workRef = source.workRef ?? workBeforeClose?.ref ?? rt.workRefOf?.(source.exchangeId)
   const workWorked = workBeforeClose?.worked === true || options.worked === true
   const replyImOrigin = rt.workImOrigin?.(source.exchangeId)
-  if (replyImOrigin !== undefined) rt.rememberImReplyOrigin?.(source.exchangeId, replyImOrigin)
+  if (replyImOrigin !== undefined && !(source.senderRoomId !== undefined && resolvedTarget === undefined)) {
+    rt.rememberImReplyOrigin?.(source.exchangeId, replyImOrigin)
+  }
   const work = rt.closeWork?.(source.exchangeId, name, text, workWorked ? { worked: true } : undefined)
   if (workBeforeClose !== undefined && options.failure === undefined && options.aborted !== true) {
     rt.noteWorkCompleted?.(workBeforeClose.from, workBeforeClose.to, { worked: workWorked, id: source.exchangeId, goalKey: workBeforeClose.goalKey, text })
@@ -180,8 +183,6 @@ export function answerSender(rt, id, source, text, long, options = {}) {
   const body = marker === '' ? (long?.text ?? text) : `${marker}${long?.text ?? text}`
   const length = long === undefined ? undefined : late === undefined ? long.length : (long.length ?? text.length) + marker.length
   const exchangeId = source.exchangeId ? `${late ? 'late-reply' : 'reply'}:${source.exchangeId}` : randomUUID()
-  const rawAddress = returnAddress(rt.botOf(toId), source.senderPart, source.senderRoomId)
-  const address = target !== undefined ? rawAddress : { foreground: true }
   const deliverPayload = {
     fromId,
     fromName: name,
@@ -197,7 +198,9 @@ export function answerSender(rt, id, source, text, long, options = {}) {
     ...(workRef ? { workRef } : {}),
     ...(failureRequestId === undefined ? {} : { failureRequestId }),
   }
-  void rt.deliver(deliverPayload).catch((error) => {
+  void rt.deliver(deliverPayload).then(() => {
+    if (obligationId !== undefined) rt.coordination?.markObligation?.(obligationId, 'settled')
+  }, (error) => {
     rt.warn('ds-bot: reply delivery failed: %s', error)
     // If admission/flush is uncertain or the target task/room permanently closed,
     // never emit a second waking message.

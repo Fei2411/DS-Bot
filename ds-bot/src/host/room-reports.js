@@ -786,14 +786,13 @@ export function createRoomReports(rt, deps) {
     // The report goes back to the conversation the post was written from: its
     // Session in that group when the post came from one, or the current part of
     // that own-chat thread, else the own chat.
-    const back = rt.roomOf(report.fromRoomId)?.sessions?.[report.botId]
     const rawAddress = report.fromTaskId ? { taskId: report.fromTaskId } : returnAddress(bot, report.fromPart, report.fromRoomId)
     const resolvedTarget = addressedSession(rt, bot.id, rawAddress)
     const address = resolvedTarget !== undefined ? rawAddress : { foreground: true }
     const target = resolvedTarget ?? rt.chatOf(bot.id)
     // Never carry a group IM origin onto the Bot's own chat if the Bot left or the origin group was deleted.
     const replyOrigin = report.imOriginMixed === true ? { mixed: true } : report.imOrigin
-    const eligibleReplyOrigin = replyOrigin !== undefined && !(report.fromRoomId !== undefined && back === undefined)
+    const eligibleReplyOrigin = replyOrigin !== undefined && !(report.fromRoomId !== undefined && resolvedTarget === undefined)
       ? replyOrigin
       : undefined
     if (eligibleReplyOrigin !== undefined) {
