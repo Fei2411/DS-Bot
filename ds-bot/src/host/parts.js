@@ -708,19 +708,37 @@ export function install(rt) {
           used += estimateTokens(text)
           continue
         }
+        // For an idle handoff whose newest line is a completed reply, keep scanning past
+        // any over-budget intermediate assistant lines in the same turn so its initiating
+        // request stays paired before enforcing the source scan budget on older turns.
+        if (!activeTurn && idleReplyCollected && !idleExchangePaired) {
+          if (line.who === 'you') {
+            const text = clip(line.text, RECENT_LINE_MAX, recentClipHint(line))
+            if (text !== line.text) clipped = true
+            const cost = estimateTokens(text)
+            if (!full && used + cost <= budget) {
+              olderRecent.push(`${stamp(line)} ${text}`)
+              used += cost
+            } else {
+              full = true
+            }
+            continue
+          }
+          const text = clip(line.text, RECENT_LINE_MAX, recentClipHint(line))
+          if (text !== line.text) clipped = true
+          olderRecent.push(`${stamp(line)} ${text}`)
+          used += estimateTokens(text)
+          idleExchangePaired = true
+          continue
+        }
         if (!full) {
           const text = clip(line.text, RECENT_LINE_MAX, recentClipHint(line))
           if (text !== line.text) clipped = true
           const cost = estimateTokens(text)
-          // For an idle handoff whose newest line is a completed reply, keep its
-          // immediately preceding initiating request paired before enforcing the
-          // source scan budget so switches to a larger destination model keep both.
-          const pairRequest = !activeTurn && idleReplyCollected && !idleExchangePaired && line.who !== 'you'
-          if ((!activeTurn && olderRecent.length === 0) || pairRequest || used + cost <= budget) {
+          if ((!activeTurn && olderRecent.length === 0) || used + cost <= budget) {
             olderRecent.push(`${stamp(line)} ${text}`)
             used += cost
             if (!activeTurn && olderRecent.length === 1 && line.who === 'you') idleReplyCollected = true
-            else if (pairRequest) idleExchangePaired = true
             continue
           }
           full = true

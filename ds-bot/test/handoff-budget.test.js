@@ -944,20 +944,23 @@ test('parts.js idle engine switch preserves the latest completed reply and does 
 
 test('parts.js canMakeRoom uses idle mode on first-step rollover and idle group switch preserves latest request+reply pair', async () => {
   // 1. First-step pre-step check (`step: 1`, non-carried) must run `canMakeRoom` with
-  // `activeTurn: false` (protecting the latest completed reply, matching `moveOn`):
-  // short request + large reply (~1,600 tokens) + large queued prompt (~1,600 tokens)
-  // over a small 8,192-token model (usable ~6,144) with ~3,000 native tokens must NOT
-  // falsely approve a rollover by dropping the last reply.
-  {
+  // `activeTurn: false` (protecting the latest completed reply, matching `moveOn`),
+  // while mid-turn (`step: 2`) uses `activeTurn: true` (protecting the initiating request):
+  // on an 8,192-token model (usable = 6,144, hard = 5,836) with 4,500 system tokens,
+  // 400 prior handoff tokens, 10-token request, 950-token reply (total = 5,860 >= 5,836),
+  // and 800-token queued prompt, `step: 1` must reject rollover (4,500 + ~1,900 > 6,144)
+  // whereas `step: 2` approves rollover (evicting the reply -> 4,500 + ~960 <= 6,144).
+  const runPreStep = async ({ step }) => {
     let created = 0
-    const largeReply = `LARGE_FINAL_REPLY_${'R'.repeat(6_400)}`
-    const queuedPrompt = `LARGE_QUEUED_PROMPT_${'P'.repeat(6_400)}`
+    let historyReads = 0
+    const largeReply = `LARGE_FINAL_REPLY_${'R'.repeat(3_800)}`
+    const queuedPrompt = `LARGE_QUEUED_PROMPT_${'P'.repeat(3_200)}`
     const historyEvents = [
       { type: 'user/message', seq: 1, time: 1, data: { content: [{ type: 'text', text: 'Short request' }], source: { kind: 'user' } } },
       { type: 'assistant/message', seq: 2, time: 2, data: { message: { content: [{ type: 'text', text: largeReply }] } } },
     ]
     const derived = [
-      { role: 'system', content: [{ type: 'text', text: 'S'.repeat(12_000) }] },
+      { role: 'system', content: [{ type: 'text', text: 'S'.repeat(18_000) }] },
       { role: 'user', content: [{ type: 'text', text: 'prior handoff' }], source: { handoff: true } },
       { role: 'user', content: [{ type: 'text', text: 'Short request' }], source: { kind: 'user' } },
       { role: 'assistant', content: [{ type: 'text', text: largeReply }] },
@@ -971,12 +974,12 @@ test('parts.js canMakeRoom uses idle mode on first-step rollover and idle group 
         tokenMeter: {
           estimateMessage,
           measure: () => ({
-            totalTokens: 3_000 + 200 + 4 + 1_605,
+            totalTokens: 4_500 + 400 + 10 + 950,
             nodes: [
-              { seq: 1, tokens: 3_000 },
-              { seq: 2, tokens: 200 },
-              { seq: 3, tokens: 4 },
-              { seq: 4, tokens: 1_605 },
+              { seq: 1, tokens: 4_500 },
+              { seq: 2, tokens: 400 },
+              { seq: 3, tokens: 10 },
+              { seq: 4, tokens: 950 },
             ],
           }),
         },
@@ -1005,6 +1008,16 @@ test('parts.js canMakeRoom uses idle mode on first-step rollover and idle group 
       followup: () => {},
       send: async () => {},
     }
+    const fresh = {
+      id: 's2',
+      session: { id: 's2', header: { cwd: '/tmp/team' }, requestHeader: () => ({ config: {} }), deriveMessages: () => [], toolHistory: () => [] },
+      status: 'idle',
+      whenIdle: async () => {},
+      runMaintenance: async job => job(AbortSignal.timeout(10_000)),
+      inbox: { nextStep: [], nextTurn: [] },
+      followup: () => {},
+      send: async () => {},
+    }
     const live = new Map()
     const rt = {
       ctx, home: '/unused', config: {},
@@ -1012,7 +1025,7 @@ test('parts.js canMakeRoom uses idle mode on first-step rollover and idle group 
       warn: () => {}, async save() {}, async load() {}, readOnly: () => undefined,
       botOf: id => rt.state.bots[id], roomOf: () => undefined, selfOf: () => 'b1',
       isMain: () => false, chatOf: () => 's1', sessionOfRoom: () => undefined,
-      isBotSession: id => id === 's1', isLocalAgentRef: () => false, isLocalAgentRoute: () => false,
+      isBotSession: id => ['s1', 's2'].includes(id), isLocalAgentRef: () => false, isLocalAgentRoute: () => false,
       chatOwners: new Map([['s1', 'b1']]), groupOwners: new Map(), pastOwners: new Map(), roomOwners: new Map(),
       teamTools: [], live,
       liveOf: id => {
@@ -1022,10 +1035,11 @@ test('parts.js canMakeRoom uses idle mode on first-step rollover and idle group 
       },
       groupSessionsOf: () => [], unreadOf: () => [],
       eventsBackwards: async function* (_sid, _sig, _pages, scan) {
+        historyReads += 1
         for (const event of [...historyEvents].reverse()) yield event
         if (scan) scan.complete = true
       },
-      resolveAgent: async () => agent,
+      resolveAgent: async id => (id === 's2' ? fresh : agent),
       createSession: async () => { created += 1; return 's2' },
       desiredModel: async subject => subject.model,
       desiredEffort: async () => undefined,
@@ -1039,7 +1053,7 @@ test('parts.js canMakeRoom uses idle mode on first-step rollover and idle group 
     let nextCalled = false
     const payload = {
       agent,
-      step: 1,
+      step,
       messages: [{ role: 'user', content: [{ type: 'text', text: queuedPrompt }], source: { kind: 'user' } }],
       modelSelection: { provider: 'provider', model: 'small' },
       signal: AbortSignal.timeout(5_000),
@@ -1048,27 +1062,39 @@ test('parts.js canMakeRoom uses idle mode on first-step rollover and idle group 
       ? preStepListeners[i](payload, () => dispatch(i + 1))
       : Promise.resolve((nextCalled = true)))
     await dispatch(0)
-    assert.equal(nextCalled, true, 'first-step preflight must reject rollover when protecting last reply exceeds usable limit')
-    assert.equal(created, 0, 'no fresh session should be created when canMakeRoom returns false')
+    if (!nextCalled) {
+      for (let i = 0; i < 100 && created === 0; i += 1) await new Promise(resolve => setTimeout(resolve, 10))
+    }
+    return { nextCalled, created, historyReads }
   }
+  const firstStep = await runPreStep({ step: 1 })
+  assert.ok(firstStep.historyReads >= 1, 'pre-step must actually invoke canMakeRoom (totalTokens >= hard)')
+  assert.equal(firstStep.nextCalled, true, 'first-step preflight must reject rollover when protecting last reply exceeds usable limit')
+  assert.equal(firstStep.created, 0, 'no fresh session should be created when canMakeRoom returns false')
+
+  const midTurnStep = await runPreStep({ step: 2 })
+  assert.ok(midTurnStep.historyReads >= 1)
+  assert.equal(midTurnStep.nextCalled, false, 'mid-turn preflight (activeTurn: true) approves rollover by trimming interim reply')
+  assert.equal(midTurnStep.created, 1)
 
   // 2. Idle group run-mode switch from a small source model (source scan budget ~1,200 tokens)
   // to a larger destination model (32,000 tokens) must keep BOTH the 1,300-token group request
-  // and the short reply that answered it.
+  // and its completed reply, even when an intermediate assistant message also appeared in that turn.
   {
     const followed = []
     const longGroupReq = `GROUP_REQUEST_START_${'群'.repeat(1_800)}_GROUP_REQUEST_END`
     const historyEvents = [
       { type: 'user/message', seq: 1, time: 1, data: { content: [{ type: 'text', text: 'OLDER_GROUP_MSG' }], source: { kind: 'user' } } },
       { type: 'user/message', seq: 2, time: 2, data: { content: [{ type: 'text', text: longGroupReq }], source: { kind: 'user' } } },
-      { type: 'assistant/message', seq: 3, time: 3, data: { message: { content: [{ type: 'text', text: 'Summary is ready.' }] } } },
+      { type: 'assistant/message', seq: 3, time: 3, data: { message: { content: [{ type: 'text', text: `INTERIM_${'中'.repeat(1_400)}` }] } } },
+      { type: 'assistant/message', seq: 4, time: 4, data: { message: { content: [{ type: 'text', text: 'Summary is ready.' }] } } },
     ]
     const ctx = fakeContext({ services: { tokenMeter: { measure: () => ({ totalTokens: 1_500 }) } } })
     ctx.logger = { warn: () => {}, info: () => {} }
     ctx.sessions = { flush: async () => {} }
     ctx.workspaceRegistry = { archiveSession: async () => {} }
     ctx.llm = {
-      resolveModelInfo: async ({ provider }) => ({
+      resolveModelInfo: async (provider) => ({
         context: { contextWindow: provider === 'big-provider' ? 32_000 : 8_000 },
         defaultMaxTokens: 2_000,
       }),
