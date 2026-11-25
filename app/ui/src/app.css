@@ -28,7 +28,13 @@ body[data-ds-dark-theme]{color-scheme:dark}
 .dsb-side-list{display:flex;flex-direction:column;flex:1 1 auto;min-height:0;margin:0 -12px 0 -4px;padding-left:4px}
 .dsb-side .bt-list{overflow-x:hidden}
 html[data-windows-titlebar] .dsb-frame[data-surface=agent] .dsb-side{padding-top:var(--dsh-windows-titlebar-height,var(--dsb-band))}
-html[data-windows-titlebar] .dsb-classic-collapse{display:none}
+@media (min-width:769px){html[data-windows-titlebar] .dsb-classic-collapse{display:none}}
+/* macOS non-fullscreen: in the 88px rail, x=88 sits outside the rail in the chat area,
+   so the sidebar toggle moves inside the rail's top stack below the traffic lights. */
+html[data-windows-titlebar]:not([data-fullscreen]) body[data-bt-os=macos] .bt-title-toggle[data-left=rail]{display:none!important}
+html[data-windows-titlebar]:not([data-fullscreen]) body[data-bt-os=macos] .bt-leftcol[data-left=rail] .bt-rail-top>.bt-side-collapse{display:inline-flex!important;width:32px;height:32px;border:0;border-radius:8px;background:transparent;color:var(--bt-ink-2)}
+html[data-windows-titlebar]:not([data-fullscreen]) body[data-bt-os=macos] .bt-leftcol[data-left=rail] .bt-rail-top>.bt-side-collapse:hover{background:var(--bt-hover);color:var(--bt-ink)}
+html[data-windows-titlebar]:not([data-fullscreen]) body[data-bt-os=macos] .bt-leftcol[data-left=rail] .bt-rail-top>.bt-side-collapse svg{width:16px;height:16px}
 .dsb-side-foot{display:flex;align-items:center;gap:9px;padding:8px 6px 6px}
 .dsb-settings{padding:0;border:0;background:none;border-radius:50%;corner-shape:round;cursor:pointer}
 .dsb-settings:hover .bt-you{background:color-mix(in srgb,var(--bt-ink) 9%,var(--bt-sidebar))}

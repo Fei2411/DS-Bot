@@ -1147,3 +1147,159 @@ test('hiding the sidebar during post-drag settle clears inline drag styles and d
     for (const name of Object.keys(globals)) delete sandbox[name]
   }
 })
+
+test('unmounting TeamSidebar during post-drag settle strips inline drag styles and releases chatRoom.hold', async () => {
+  const dom = new JSDOM('<!doctype html><body><div class="x_centerCol"></div><div class="bt-leftcol"><div class="bt-leftcol-grip"></div></div></body>')
+  const { document } = dom.window
+  const column = document.querySelector('.bt-leftcol')
+  const grip = column.querySelector('.bt-leftcol-grip')
+  const center = document.querySelector('.x_centerCol')
+  const frame = { viewport: 1280, sidebarWidth: 320, collapsedWidth: 0, collapsed: false }
+  const stored = { pref: 'open' }
+  const roster = { bots: [], rooms: [], agents: [], byId: {}, ready: true }
+  const refs = []
+  const cleanups = []
+  const prevUseEffect = react.useEffect
+  react.useEffect = (effect) => {
+    const off = effect()
+    if (typeof off === 'function') cleanups.push(off)
+  }
+  const actions = {
+    setPanelYield() {}, setLeftDrawer() {}, toggleSidebar() {}, toggleLeftHidden() {},
+    setSidebarWidth: (width) => { frame.sidebarWidth = width },
+    setSidebarPref: (pref) => { stored.pref = pref },
+  }
+  const render = () => {
+    renderRefs = refs
+    refIndex = 0
+    layoutEffects = []
+    try {
+      const tree = TeamSidebar({
+        wide: stored.pref === 'open', actions,
+        useRoster: pick => pick(roster), useUi: pick => pick({ unread: {} }), useRegistry: pick => pick({}),
+        useSessions: pick => pick({ ids: [], byId: {} }), useUpdate: () => ({}),
+        useFrame: pick => pick(frame), useSidebarPref: pick => pick(stored.pref),
+      })
+      const effects = layoutEffects
+      layoutEffects = undefined
+      effects.forEach(effect => effect())
+      return tree
+    } finally {
+      renderRefs = undefined
+      layoutEffects = undefined
+    }
+  }
+  const findLeft = (node) => {
+    if (Array.isArray(node)) return node.map(findLeft).find(Boolean)
+    if (!node || typeof node !== 'object') return undefined
+    return node.type?.name === 'LeftColumn' ? node : findLeft(node.props?.children)
+  }
+  const globals = { document, performance, setTimeout, clearTimeout, requestAnimationFrame: next => setTimeout(next, 0), cancelAnimationFrame: clearTimeout, CSS: { escape: value => value } }
+  Object.assign(sandbox, globals)
+  viewport.innerWidth = 1280
+  viewport.addEventListener = () => {}
+  viewport.removeEventListener = () => {}
+  try {
+    const first = findLeft(render())
+    first.props.onGrip({ button: 0, pointerId: 1, currentTarget: grip, preventDefault() {} })
+    grip.dispatchEvent(new dom.window.MouseEvent('pointermove', { clientX: 120 }))
+    grip.dispatchEvent(new dom.window.MouseEvent('pointerup', { clientX: 120 }))
+    assert.equal(center.style.getPropertyValue('margin-left'), '88px')
+    // Simulate unmounting TeamSidebar (e.g. switching Bot -> Classic) mid-settle.
+    for (const off of cleanups.splice(0)) off()
+    assert.equal(center.style.getPropertyValue('margin-left'), '', 'unmount must strip inline drag margin-left')
+    assert.equal(center.style.getPropertyValue('transition'), '', 'unmount must strip inline drag transition')
+    await new Promise(resolve => setTimeout(resolve, 600))
+    const chatRoomRule = [...document.head.querySelectorAll('style')].map(el => el.sheet?.cssRules?.[0]?.style).find(Boolean)
+    assert.equal(chatRoomRule?.marginLeft ?? '', '', 'settle timer must not restore left margin after unmount')
+    assert.equal(chatRoomRule?.transition ?? '', '', 'chatRoom.hold(false) must release transition override')
+  } finally {
+    react.useEffect = prevUseEffect
+    delete viewport.addEventListener
+    delete viewport.removeEventListener
+    document.head.replaceChildren()
+    for (const name of Object.keys(globals)) delete sandbox[name]
+  }
+})
+
+test('aborting an active drag on hide ignores pointerup, and panelYield during settle keeps rail margin', async () => {
+  const dom = new JSDOM('<!doctype html><body><div class="x_centerCol"></div><div class="bt-leftcol"><div class="bt-leftcol-grip"></div></div></body>')
+  const { document } = dom.window
+  const column = document.querySelector('.bt-leftcol')
+  const grip = column.querySelector('.bt-leftcol-grip')
+  const center = document.querySelector('.x_centerCol')
+  const frame = { viewport: 1000, sidebarWidth: 280, collapsedWidth: 0, collapsed: false }
+  const stored = { pref: 'rail', details: null, view: 'details', panelYield: false }
+  const prefCalls = []
+  const roster = { bots: [], rooms: [], agents: [], byId: {}, ready: true }
+  const refs = []
+  const actions = {
+    setPanelYield: (on) => { stored.panelYield = on },
+    setLeftDrawer() {}, toggleSidebar() {}, toggleLeftHidden() {},
+    setSidebarWidth: (width) => { frame.sidebarWidth = width },
+    setSidebarPref: (pref) => { prefCalls.push(pref); stored.pref = pref },
+  }
+  const render = () => {
+    renderRefs = refs
+    refIndex = 0
+    layoutEffects = []
+    try {
+      const tree = TeamSidebar({
+        wide: stored.pref === 'open', actions,
+        useRoster: pick => pick(roster),
+        useUi: pick => pick({ unread: {}, details: stored.details, view: stored.view, panelYield: stored.panelYield }),
+        useRegistry: pick => pick({}),
+        useSessions: pick => pick({ ids: [], byId: {} }), useUpdate: () => ({}),
+        useFrame: pick => pick(frame), useSidebarPref: pick => pick(stored.pref),
+      })
+      const effects = layoutEffects
+      layoutEffects = undefined
+      effects.forEach(effect => effect())
+      return tree
+    } finally {
+      renderRefs = undefined
+      layoutEffects = undefined
+    }
+  }
+  const findLeft = (node) => {
+    if (Array.isArray(node)) return node.map(findLeft).find(Boolean)
+    if (!node || typeof node !== 'object') return undefined
+    return node.type?.name === 'LeftColumn' ? node : findLeft(node.props?.children)
+  }
+  const globals = { document, performance, setTimeout, clearTimeout, requestAnimationFrame: next => setTimeout(next, 0), cancelAnimationFrame: clearTimeout, CSS: { escape: value => value } }
+  Object.assign(sandbox, globals)
+  viewport.innerWidth = 1000
+  try {
+    // 1. Mid-drag hide aborts the active drag and suppresses subsequent pointerup setSidebarPref.
+    const start1 = findLeft(render())
+    start1.props.onGrip({ button: 0, pointerId: 1, currentTarget: grip, preventDefault() {} })
+    grip.dispatchEvent(new dom.window.MouseEvent('pointermove', { clientX: 220 }))
+    stored.pref = 'hidden'
+    render()
+    assert.equal(center.style.getPropertyValue('margin-left'), '')
+    prefCalls.length = 0
+    grip.dispatchEvent(new dom.window.MouseEvent('pointerup', { clientX: 220 }))
+    assert.deepEqual(prefCalls, [], 'pointerup after hide abort must not call setSidebarPref')
+
+    // 2. Drag rail -> open (264px), then panelYield folds back to rail during settle: margin stays 88px.
+    stored.pref = 'rail'
+    const start2 = findLeft(render())
+    start2.props.onGrip({ button: 0, pointerId: 2, currentTarget: grip, preventDefault() {} })
+    grip.dispatchEvent(new dom.window.MouseEvent('pointermove', { clientX: 200 }))
+    grip.dispatchEvent(new dom.window.MouseEvent('pointerup', { clientX: 200 }))
+    assert.equal(stored.pref, 'open')
+    assert.equal(frame.sidebarWidth, 264)
+    // Right panel opens and yields sidebar back to rail (88px) before settleTimer fires.
+    stored.details = 'bot-1'
+    stored.view = 'workspace'
+    stored.panelYield = true
+    render()
+    assert.equal(center.style.getPropertyValue('margin-left'), '')
+    await new Promise(resolve => setTimeout(resolve, 600))
+    const chatRoomSheet = [...document.head.querySelectorAll('style')].map(el => el.sheet?.cssRules?.[0]?.style?.marginLeft ?? '').find(Boolean)
+    assert.equal(chatRoomSheet, '88px', 'stale settle timer must not overwrite yielded rail margin with 264px')
+  } finally {
+    document.head.replaceChildren()
+    for (const name of Object.keys(globals)) delete sandbox[name]
+  }
+})

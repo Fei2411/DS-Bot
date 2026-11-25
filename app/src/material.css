@@ -14,6 +14,7 @@ body:not([data-bt-material="off"]):not([data-bt-bg]) .dsb-frame {
   padding-top: 0 !important;
   background: color-mix(in srgb, var(--bt-sidebar) 45%, transparent) !important;
 }
+body:not([data-bt-material="off"]):not([data-bt-bg]) .bt-leftcol:not([data-left="drawer"]),
 body:not([data-bt-material="off"]):not([data-bt-bg]) .dsb-side {
   background: transparent !important;
 }

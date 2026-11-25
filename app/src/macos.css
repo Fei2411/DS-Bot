@@ -1,31 +1,6 @@
 /* macOS: the traffic lights stand at the left of the caption band, to x 68, and the controls
    that the page puts at the band's left edge start past them, at x 88. Fullscreen hides the
-   lights. In the 88px avatar rail, x 88 sits outside the rail edge in the chat area, so the
-   sidebar toggle moves inside the rail's top stack below the traffic lights. */
+   lights. */
 html:not([data-fullscreen]) {
   --bt-caption-start: 76px;
-}
-
-html[data-windows-titlebar]:not([data-fullscreen]) .bt-title-toggle[data-left="rail"] {
-  display: none !important;
-}
-
-html[data-windows-titlebar]:not([data-fullscreen]) .bt-leftcol[data-left="rail"] .bt-rail-top > .bt-side-collapse {
-  display: inline-flex !important;
-  width: 32px;
-  height: 32px;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--bt-ink-2);
-}
-
-html[data-windows-titlebar]:not([data-fullscreen]) .bt-leftcol[data-left="rail"] .bt-rail-top > .bt-side-collapse:hover {
-  background: var(--bt-hover);
-  color: var(--bt-ink);
-}
-
-html[data-windows-titlebar]:not([data-fullscreen]) .bt-leftcol[data-left="rail"] .bt-rail-top > .bt-side-collapse svg {
-  width: 16px;
-  height: 16px;
 }

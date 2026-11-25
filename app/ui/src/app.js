@@ -47,8 +47,10 @@ function useTheme(prefs, chat, actions, registryVersion) {
     else delete document.body.dataset.btMotion
     document.body.dataset.btEffects = effectsOf(prefs)
     document.body.dataset.btLayout = layoutOf(prefs)
-    if (typeof navigator !== 'undefined' && /\bwin/iu.test(navigator.platform || navigator.userAgent)) {
-      document.body.dataset.btOs = 'windows'
+    if (typeof navigator !== 'undefined') {
+      const osAgent = navigator.platform || navigator.userAgent || ''
+      if (/\bwin/iu.test(osAgent)) document.body.dataset.btOs = 'windows'
+      else if (/\bmac/iu.test(osAgent)) document.body.dataset.btOs = 'macos'
     }
     document.body.style.setProperty('--bt-msg-w', String(widthOf(prefs) / 100))
     document.body.style.setProperty('--bt-flat-w', String(flatWidthOf(prefs) / 100))
@@ -173,7 +175,6 @@ export function App() {
   const isNarrow = viewportWidth <= 768
   const inClassicMode = surfaceMode === 'agent'
   const classicHidden = inClassicMode && !isNarrow && sidebarPref === 'hidden'
-  const macTitlebar = typeof window !== 'undefined' && Boolean(window.dsBotApp)
   const effectiveSideW = isNarrow
     ? Math.min(sidebarWidth, Math.max(264, Math.round(viewportWidth * 0.84)))
     : Math.min(sidebarWidth, Math.max(264, viewportWidth - 420))
@@ -314,7 +315,6 @@ export function App() {
     'data-collapsed': classicHidden ? '' : undefined,
     'data-drawer-open': drawerOpen ? '' : undefined,
     'data-surface': surfaceMode,
-    'data-mac-titlebar': macTitlebar ? '' : undefined,
   },
   drawerOpen ? h('div', { className: 'dsb-drawer-scrim', 'aria-hidden': true, onClick: () => setDrawerOpen(false) }) : null,
   inClassicMode

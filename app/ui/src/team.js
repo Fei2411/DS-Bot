@@ -396,12 +396,12 @@ export function createTeam() {
       const hadDialog = Boolean(ui.getSnapshot().newChat || ui.getSnapshot().exchange)
       baseActions.closeOverlay()
       if (!hadDialog) {
-        ui.set(state => (state.details === null && state.rightPanel !== null ? { ...state, rightPanel: null } : state))
+        ui.set(state => (state.details === null && (state.rightPanel !== null || state.panelYield) ? { ...state, rightPanel: null, panelYield: false } : state))
       }
     },
     toggleDetails: (id, force) => {
       baseActions.toggleDetails(id, force)
-      ui.set(state => (state.details === null && state.rightPanel !== null ? { ...state, rightPanel: null } : state))
+      ui.set(state => (state.details === null && (state.rightPanel !== null || state.panelYield) ? { ...state, rightPanel: null, panelYield: false } : state))
     },
     openSettings: (...args) => { clearShortcuts(); return baseActions.openSettings(...args) },
     openPalette: (...args) => { clearShortcuts(); return baseActions.openPalette(...args) },
@@ -431,6 +431,7 @@ export function createTeam() {
         tab: null,
         side: null,
         task: null,
+        panelYield: false,
         rightPanel: null,
         newChat: null,
         exchange: null,
@@ -504,7 +505,7 @@ export function createTeam() {
           ...state,
           ...(keepPanel
             ? { details: sessionId, view: 'workspace', renaming: false, tab: null, side: null, task: null }
-            : { details: null, view: 'details', renaming: false, tab: null, side: null, task: null }),
+            : { details: null, view: 'details', renaming: false, tab: null, side: null, task: null, panelYield: false }),
           newChat: null,
           exchange: null,
           menu: null,
@@ -615,7 +616,9 @@ export function createTeam() {
     landOn: id => show(partFor(id)),
     setSidebarPref: (pref) => {
       const next = pref === 'rail' || pref === 'hidden' ? pref : 'open'
-      sidebarSaved = { ...sidebarSaved, pref: next, ...(next === 'hidden' ? {} : { shown: next }) }
+      const nextShown = next === 'hidden' ? sidebarSaved.shown : next
+      if (sidebarSaved.pref === next && sidebarSaved.shown === nextShown) return
+      sidebarSaved = { ...sidebarSaved, pref: next, shown: nextShown }
       writeSidebar(sidebarSaved)
       layout.set({ ...sidebarSaved, wide: next === 'open' })
     },
@@ -628,7 +631,7 @@ export function createTeam() {
       layout.set(state => (state.width === clamped ? state : { ...sidebarSaved, wide: state.pref === 'open' }))
     },
     toggleLeftHidden: () => {
-      ui.set(state => (state.leftDrawer || state.panelYield ? { ...state, leftDrawer: false, panelYield: false } : state))
+      ui.set(state => (state.leftDrawer ? { ...state, leftDrawer: false } : state))
       actions.setSidebarPref(toggledPref(layout.getSnapshot().pref, sidebarSaved.shown))
     },
     setLeftDrawer: on => ui.set(state => (state.leftDrawer === Boolean(on) ? state : { ...state, leftDrawer: Boolean(on) })),
@@ -736,6 +739,7 @@ export function createTeam() {
           tab: null,
           side: null,
           task: null,
+          panelYield: false,
           rightPanel: null,
         }
       })
@@ -1031,10 +1035,10 @@ export function createTeam() {
             if (on && hasBot) return state
             if (hasWorkspace) return { ...state, view: 'workspace' }
             if (hasBot || hasRoom) return { ...state, view: 'details' }
-            return { ...state, details: null, view: 'details', renaming: false, tab: null, side: null, task: null, rightPanel: null }
+            return { ...state, details: null, view: 'details', renaming: false, tab: null, side: null, task: null, panelYield: false, rightPanel: null }
           }
           if (!hasBot && !hasRoom && !hasWorkspace) {
-            return { ...state, details: null, view: 'details', renaming: false, tab: null, side: null, task: null, rightPanel: null }
+            return { ...state, details: null, view: 'details', renaming: false, tab: null, side: null, task: null, panelYield: false, rightPanel: null }
           }
           return state
         })
