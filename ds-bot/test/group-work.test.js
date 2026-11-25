@@ -5106,4 +5106,88 @@ test('paused nested delegation preserves parentBatchKey across Continue, partial
     host.finish('gb', 'Will document v0.3.11.')
     await settle(() => r2() !== undefined)
   }
+
+  // 8) Clicking Continue with two parked direct requests from the same caller to the same worker
+  // serving two different upstream parents keeps both child batches and resumes both parents.
+  {
+    const host = await start(
+      t,
+      { members: ['a', 'b', 'c', 'd'], sessions: { a: 'ga', b: 'gb', c: 'gc', d: 'gd' } },
+      undefined,
+      undefined,
+      { d: {} },
+    )
+    const room = rt.roomOf('r1')
+    const p1 = {
+      key: 'parent-chief',
+      roomId: 'r1',
+      by: 'a',
+      pending: ['b'],
+      done: [],
+      doneIds: [],
+      results: [],
+      worked: false,
+      direct: true,
+      returnRequested: true,
+      answered: false,
+      at: Date.now(),
+    }
+    const p2 = {
+      key: 'parent-reviewer',
+      roomId: 'r1',
+      by: 'd',
+      pending: ['b'],
+      done: [],
+      doneIds: [],
+      results: [],
+      worked: false,
+      direct: true,
+      returnRequested: true,
+      answered: false,
+      at: Date.now(),
+    }
+    rt.state.roomBatches = { [p1.key]: p1, [p2.key]: p2 }
+    room.idlePaused = { from: 'b', count: 2, limit: 2, cause: 'zero-work', noticed: true }
+    room.paused = [
+      { id: 'c', name: 'Tester', note: 'Writer mentioned you', by: 'b', idle: true, direct: true, parentBatchKey: p1.key },
+      { id: 'c', name: 'Tester', note: 'Writer mentioned you', by: 'b', idle: true, direct: true, parentBatchKey: p2.key },
+    ]
+    await rt.resumeRoomPause('r1')
+    await settle(() => host.agentOf('r1').calls.length === 1)
+    const continuePost = host.takePost()
+    const r = host.round('c-dual', continuePost)
+
+    // Tester runs slot 1 (Chief's parent) -> wakes Writer for Chief's parent.
+    await settle(() => host.agentOf('gc').calls.length === 1)
+    const testerCalls = Object.values(rt.state.roomBatches ?? {}).filter(b => b.by === 'b' && b.pending.includes('c'))
+    assert.equal(testerCalls.length, 2, 'both parent-scoped child batches must coexist on resume')
+    host.begin('gc')
+    host.emit('gc', 'tool/call', { callId: 't-dual-1', name: 'read', arguments: '{}' })
+    host.emit('gc', 'tool/result', { callId: 't-dual-1' })
+    host.finish('gc', 'Checked release notes.')
+
+    // Tester runs slot 2 (Reviewer's parent) -> wakes Writer for Reviewer's parent.
+    await settle(() => host.agentOf('gc').calls.length === 2)
+    host.begin('gc')
+    host.emit('gc', 'tool/call', { callId: 't-dual-2', name: 'read', arguments: '{}' })
+    host.emit('gc', 'tool/result', { callId: 't-dual-2' })
+    host.finish('gc', 'Checked migration guide.')
+
+    // Writer resumes twice (once per upstream parent) and hands back both summaries.
+    await settle(() => host.agentOf('gb').calls.length === 1)
+    host.begin('gb')
+    host.finish('gb', 'Release notes summary ready.')
+    await settle(() => host.agentOf('gb').calls.length === 2)
+    host.begin('gb')
+    host.finish('gb', 'Migration guide summary ready.')
+
+    // Both Chief AND Reviewer must be woken with their respective results!
+    await settle(() => host.agentOf('ga').calls.length === 1 && host.agentOf('gd').calls.length === 1)
+    host.begin('ga')
+    host.finish('ga', 'Chief done.')
+    host.begin('gd')
+    host.finish('gd', 'Reviewer done.')
+    await settle(() => r() !== undefined)
+    assert.deepEqual(Object.values(rt.state.roomBatches ?? {}), [])
+  }
 })

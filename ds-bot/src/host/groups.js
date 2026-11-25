@@ -997,7 +997,11 @@ export function install(rt) {
   // (`state.roomBatches`), so who still owes whom survives a restart.
   const batches = () => (rt.state.roomBatches ??= {})
   const saveSoon = () => void rt.save().catch(() => {})
-  const batchOf = (roomId, botId, by) => Object.values(batches()).find(batch => batch.roomId === roomId && batch.by === by && batch.pending.includes(botId))
+  const batchOf = (roomId, botId, by, { matchParent = false, parentBatchKey } = {}) => Object.values(batches()).find(batch =>
+    batch.roomId === roomId
+    && batch.by === by
+    && batch.pending.includes(botId)
+    && (!matchParent || batch.parentBatchKey === parentBatchKey))
   // Oldest first.
   const batchesOf = (roomId, botId) => Object.values(batches()).filter(batch => batch.roomId === roomId && batch.pending.includes(botId))
   const unpend = (batch, botId) => { batch.pending = batch.pending.filter(id => id !== botId) }
@@ -1132,7 +1136,7 @@ export function install(rt) {
     }
     const room = rt.roomOf(roomId)
     for (const peer of callees) {
-      const prev = batchOf(roomId, peer.id, by)
+      const prev = batchOf(roomId, peer.id, by, { matchParent: true, parentBatchKey })
       if (prev === undefined) continue
       unpend(prev, peer.id)
       // Re-parent this member's child batches, queued direct relays, and parked calls even
@@ -1621,6 +1625,14 @@ export function install(rt) {
   // it up the order, any other call lets it start at once. A call of another Bot stays
   // a call of its own, so that Bot is woken for its own work. `by` is the calling
   // member, if a member called.
+  // Two distinct live batches for the same caller/callee pair (e.g. nested delegations
+  // serving different upstream parents) keep separate waiting slots instead of overwriting.
+  const sameBatchSlot = (slot, batchKey) => {
+    if (batchKey === undefined || slot.batchKey === undefined || slot.batchKey === batchKey) return true
+    const existing = batches()[slot.batchKey]
+    return existing === undefined || !existing.pending.includes(slot.id)
+  }
+
   function callIn(round, callees, note, by, { ordered = false, resultOnly = false, returnRequested = false, parentBatchKey, resumeBatch } = {}) {
     if (callees.length === 0) return
     round.batches = (round.batches ?? 0) + 1
@@ -1628,7 +1640,10 @@ export function install(rt) {
     const batchKey = resumeBatch !== undefined ? resumeBatch.key : registerBatch(round.roomId, by, callees, returnRequested, parentBatchKey)
     let last
     for (const peer of callees) {
-      const waiting = round.slots.findIndex(slot => slot.id === peer.id && slot.status === 'waiting' && (effectiveBy === undefined || slot.by === undefined || slot.by === effectiveBy))
+      const waiting = round.slots.findIndex(slot => slot.id === peer.id
+        && slot.status === 'waiting'
+        && (effectiveBy === undefined || slot.by === undefined || slot.by === effectiveBy)
+        && sameBatchSlot(slot, batchKey))
       if (resultOnly && waiting !== -1) continue // giveResults adds context without replacing the waiting request.
       const moves = waiting === -1 || (ordered && round.slots[waiting].ordered === true)
       const slot = waiting === -1 ? { id: peer.id, name: peer.name, status: 'waiting' } : round.slots[waiting]
@@ -1701,7 +1716,10 @@ export function install(rt) {
         : undefined
       round.batches = (round.batches ?? 0) + 1
       for (const entry of group) {
-        const waiting = round.slots.find(slot => slot.id === entry.id && slot.status === 'waiting' && (by === undefined || slot.by === undefined || slot.by === by))
+        const waiting = round.slots.find(slot => slot.id === entry.id
+          && slot.status === 'waiting'
+          && (by === undefined || slot.by === undefined || slot.by === by)
+          && sameBatchSlot(slot, batchKey))
         if (waiting !== undefined) {
           delete waiting.resultOnly
           if (batchKey !== undefined) waiting.batchKey = batchKey
@@ -3504,7 +3522,12 @@ export function install(rt) {
     enterLate(room.id)
     try {
       // The failed turn answers one call; without that call, every batch of the member ends.
-      const owed = info.askedBy !== undefined ? [batchOf(room.id, member.id, info.askedBy)].filter(Boolean) : batchesOf(room.id, member.id)
+      const exact = info?.batchKey !== undefined ? batches()[info.batchKey] : undefined
+      const owed = exact !== undefined && exact.roomId === room.id && exact.pending.includes(member.id)
+        ? [exact]
+        : info.askedBy !== undefined
+          ? [batchOf(room.id, member.id, info.askedBy)].filter(Boolean)
+          : batchesOf(room.id, member.id)
       const { code, status, message } = failure
       const failText = `Could not finish: its model call failed (${failureLine(failure)}).`
       const failExtra = { late: true, failed: { code, ...(status ? { status } : {}), message } }
