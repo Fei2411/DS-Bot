@@ -889,7 +889,10 @@ export function install(rt) {
           }
         }
         ensureLock()
-        await writeFile(temp, snapshot, 'utf8')
+        // Flushed before the rename: after a crash or power loss, a renamed file whose
+        // data never reached the disk can come back empty, and an empty state.json loads
+        // as an empty team (#2238).
+        await writeFile(temp, snapshot, { encoding: 'utf8', flush: true })
         ensureLock()
         await replaceFile(temp, statePath, ensureLock)
         seen = stamp()
