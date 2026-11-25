@@ -90,7 +90,7 @@ export function install(rt) {
 
   const isActiveForeground = (id, agent = liveAgent(id)) => {
     if (id === undefined || rt.readOnly?.() !== undefined || !privateOf(id)) return false
-    if (rt.taskOwners?.has(id) || rt.isLocalCliSession?.(id)) return false
+    if (rt.taskOwners?.has(id)) return false
     const botId = rt.chatOwners.get(id)
     if (botId === undefined || (typeof rt.chatOf === 'function' && rt.chatOf(botId) !== id)) return false
     if (agent !== undefined && liveAgent(id) !== agent) return false
@@ -136,6 +136,7 @@ export function install(rt) {
     const entry = rt.live.get(id)
     const agent = liveAgent(id)
     if (entry === undefined || agent === undefined || !isActiveForeground(id, agent)) return
+    if (rt.isLocalCliSession?.(id)) return
     const botId = rt.chatOwners.get(id)
     const activeInfo = entry.info ?? entry.claimed?.find(item => item?.silent !== true)
     if (rt.isHiddenBotWorkTurn?.(botId, activeInfo)) return
@@ -173,7 +174,7 @@ export function install(rt) {
     const track = state.get(id)
     const agent = liveAgent(id)
     if (track === undefined || !track.cutting || track.cutAnchorId === undefined || track.folding || agent === undefined) return
-    if (!isActiveForeground(id, agent)) return
+    if (!isActiveForeground(id, agent) || rt.isLocalCliSession?.(id)) return
     const botId = rt.chatOwners.get(id)
     if (rt.isHandingOff?.(id) || rt.mustIsolateHiddenWork?.(rt.botOf(botId), id)) return
     const nextTurn = agent.inbox?.nextTurn ?? []
@@ -691,7 +692,7 @@ export function install(rt) {
       else map.delete(key)
     }
     const trackable = (id) => {
-      if (id === undefined || rt.readOnly?.() !== undefined || !privateOf(id) || rt.taskOwners?.has(id)) return false
+      if (id === undefined || rt.readOnly?.() !== undefined || !privateOf(id) || rt.taskOwners?.has(id) || rt.isLocalCliSession?.(id)) return false
       const botId = rt.chatOwners.get(id)
       return botId !== undefined && (typeof rt.chatOf !== 'function' || rt.chatOf(botId) === id)
     }
@@ -735,7 +736,7 @@ export function install(rt) {
 
   ctx.on('agent/inbox/inserted', ({ agent, message } = {}) => {
     const id = agent?.id ?? agent?.session?.id
-    if (id === undefined || !isActiveForeground(id, agent) || message?.source?.kind !== 'user') return
+    if (id === undefined || !isActiveForeground(id, agent) || rt.isLocalCliSession?.(id) || message?.source?.kind !== 'user') return
     const botId = rt.chatOwners.get(id)
     if (rt.isHandingOff?.(id) || rt.mustIsolateHiddenWork?.(rt.botOf(botId), id)) return
     const track = state.get(id)

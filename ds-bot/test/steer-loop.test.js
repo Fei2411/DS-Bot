@@ -456,8 +456,26 @@ test('real DSH ReactLoopAgent: bot-steer-queue with empty ids does not steer que
     rig.rt.mustIsolateHiddenWork = origIsolate
   }
 
+  // Local CLI Bot sessions still promote queued rows via bot-steer-queue to next-step
+  // without triggering a host STEER_CUT.
+  const origLocalCli = rig.rt.isLocalCliSession
+  rig.rt.isLocalCliSession = () => true
+  try {
+    const cliRes = await rig.rt.channelCall('bot-steer-queue', { sessionId: 'dm-a', ids: [q1.id] })
+    assert.deepEqual(cliRes, { ok: true, value: { steered: 1 } })
+    assert.equal(rig.agent.inbox.nextTurn.length, 0)
+    assert.deepEqual(rig.agent.inbox.nextStep.map(m => m.id), [q1.id])
+    await Promise.resolve()
+    await Promise.resolve()
+    // Call #1 must still be held (not aborted by STEER_CUT).
+    assert.equal(rig.agent.inbox.nextStep.map(m => m.id)[0], q1.id)
+  } finally {
+    rig.rt.isLocalCliSession = origLocalCli
+  }
+
   rig.callGates.get(1).resolve()
   await rig.agent.whenIdle()
+  assert.deepEqual(committedUserTexts(rig.agent), ['BASE', 'Q1'])
 })
 
 test('real DSH ReactLoopAgent: bot-steer-queue rejects a retired foreground part and concurrent same-requestId steers stay tracked', async (t) => {
