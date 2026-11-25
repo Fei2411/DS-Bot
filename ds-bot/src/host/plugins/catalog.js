@@ -9,6 +9,8 @@ import { dirname, posix, win32 } from 'node:path'
 import { replaceFile } from '../files.js'
 import { BUNDLED_PLUGIN_CATALOG, defaultRegistryUrl } from './registry-url.js'
 import { PLUGIN_CATEGORIES } from './sdk.js'
+import { normalizeExecutionWithImplied } from './tiers.js'
+import { validateKillListDocument } from './kill-list.js'
 
 const CATALOG_CACHE_TTL_MS = 60 * 60 * 1000
 const FETCH_TIMEOUT_MS = 10_000
@@ -519,6 +521,16 @@ export function parsePluginRegistry(doc, { sourceId = 'official', sourceName = '
       install.mcp = mcp
     }
     seen.add(id)
+    // Execution tier normalization is fail-closed: entries declaring an invalid tier
+    // or an impossible tier/capability combination are dropped like any other malformed
+    // entry, so a registry cannot smuggle executable powers past the boundary. DSH
+    // bundles and stdio MCP servers always execute trusted host/subprocess code, which
+    // no confined tier may claim; streamable HTTP entries declare no implied execution.
+    const impliedExecution = kind === 'dsh' || install.mcp?.transport !== 'streamable-http'
+      ? ['entry', 'process', 'worker']
+      : []
+    const normalizedExecution = normalizeExecutionWithImplied({ execution: raw.execution, capabilities: raw.capabilities }, impliedExecution)
+    if (!normalizedExecution) continue
     plugins.push({
       id,
       name: name.slice(0, 120),
@@ -528,11 +540,14 @@ export function parsePluginRegistry(doc, { sourceId = 'official', sourceName = '
       category,
       slot,
       kind,
+      execution: normalizedExecution.execution,
+      capabilities: normalizedExecution.capabilities,
       featured: raw.featured === true,
       verified: sourceId === 'official' && raw.verified === true,
       tags: cleanStringList(raw.tags, 12),
       toolPrefixes: cleanStringList(raw.toolPrefixes, 24),
       install,
+      replaces: cleanStringList(raw.replaces, 8),
       homepage: cleanSafeHttpUrl(raw.homepage),
       repository: cleanSafeHttpUrl(raw.repository),
       locales: cleanLocales(raw.locales),
@@ -541,10 +556,20 @@ export function parsePluginRegistry(doc, { sourceId = 'official', sourceName = '
       sourceUrl,
     })
   }
+  // Optional embedded kill list. It is validated structurally here and applied by the
+  // plugin runtime's kill-list store, which enforces per-source anti-rollback; an
+  // invalid kill list never invalidates the registry document it rides in.
+  let killList = null
+  if (doc.killList != null) {
+    try {
+      killList = validateKillListDocument(doc.killList)
+    } catch { /* a malformed kill list is inert */ }
+  }
   return {
     schemaVersion: 1,
     updatedAt: typeof doc.updatedAt === 'string' ? doc.updatedAt : null,
     plugins,
+    killList,
   }
 }
 
@@ -813,12 +838,14 @@ export function createCatalogManager({ cachePath, fetchImpl = globalThis.fetch, 
       const errors = []
       let officialList = []
       const customLists = []
+      const killLists = []
       for (const src of activeSources) {
         try {
           const json = await fetchJsonWithGuard(src.url, { fetchImpl, dnsLookup, allowHttp })
           const parsed = parsePluginRegistry(json, { sourceId: src.id, sourceName: src.name || src.id, sourceUrl: src.url })
           if (src.official) officialList = parsed.plugins
           else customLists.push(parsed.plugins)
+          if (parsed.killList) killLists.push({ sourceId: src.id, killList: parsed.killList })
         } catch (error) {
           errors.push({ sourceId: src.id, url: src.url, message: error?.message ?? String(error) })
         }
@@ -833,6 +860,7 @@ export function createCatalogManager({ cachePath, fetchImpl = globalThis.fetch, 
         entries,
         errors,
         offline: officialList.length === 0 && customLists.length === 0,
+        killLists,
       }
       memoryCache = snapshot
       await writeDiskCache(snapshot)
@@ -863,6 +891,7 @@ export function createCatalogManager({ cachePath, fetchImpl = globalThis.fetch, 
       entries: bundledEntries(),
       errors: [],
       offline: true,
+      killLists: [],
     }
   }
 
