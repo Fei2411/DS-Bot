@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { JsonRpcPeer, wireProcess, EventQueue } from './jsonrpc.js'
-import { PROBE_FORCE_KILL_AFTER_MS, cleanEnv, findEngineExecutable, probeEnv, spawnAgent, terminateChild } from './discover.js'
+import { PROBE_FORCE_KILL_AFTER_MS, cleanEnv, findEngineExecutable, launchOf, probeEnv, runProbeCommand, spawnAgent, terminateChild } from './discover.js'
 import { acpMode } from './engines.js'
 
 const CLIENT = { name: 'ds-bot', version: '1' }
@@ -355,7 +355,10 @@ export class AcpEngine {
           if (update.configOptions.length > 0) {
             this.remember(update)
             this.onListedUpdate?.(update)
-            const discovered = modelsFromProbe(update)
+            // Notices carry the config but no model variants, so the catalog is
+            // parsed from what the CLI has listed so far, not this update alone:
+            // parsing it bare would drop the per-model thinking tiers (#2145).
+            const discovered = modelsFromProbe({ configOptions: update.configOptions, models: { availableModels: this.listed.models } })
             if (discovered.length > 0) session.push({ type: 'models', models: discovered })
           }
         }
@@ -795,29 +798,69 @@ export class AcpEngine {
     if (configOptions !== undefined || modes !== undefined || models !== undefined) {
       this.listedEpoch += 1
       this.listed = {
+        // Variant evidence merges by union within a cache epoch: the CLI can
+        // answer mid-build with a partial catalog (#2145), and a partial answer
+        // must not erase what a fuller one already listed. The config keeps
+        // last-write-wins: its entries are the CLI's select state, and variant
+        // families it omits still surface through the parse. A real removal
+        // joins with the next cache invalidation, which clears this state.
         configOptions: configOptions ?? this.listed.configOptions,
         modes: modes ?? this.listed.modes,
-        models: models ?? this.listed.models,
+        models: models === undefined ? this.listed.models : unionById(this.listed.models, models),
       }
     }
     return this.listed
   }
 
   discoveredModels(session) {
+    const seen = new Set()
+    const availableModels = []
+    for (const list of [session?.models, this.listed.models]) {
+      if (!Array.isArray(list)) continue
+      for (const entry of list) {
+        const id = String(entry?.modelId ?? entry?.id ?? '')
+        if (id === '' || seen.has(id)) continue
+        seen.add(id)
+        availableModels.push(entry)
+      }
+    }
     return modelsFromProbe({
-      configOptions: session?.configOptions,
-      models: Array.isArray(session?.models) ? { availableModels: session.models } : undefined,
+      configOptions: session?.configOptions ?? this.listed.configOptions,
+      models: availableModels.length > 0 ? { availableModels } : undefined,
     })
   }
 
   async probeOnOwnPeer({ cwd, mcp, probe }) {
     const peer = await this.ensure({ probe })
+    const listing = this.probeModelsListing()
     const reply = await this.newSession(peer, { cwd, mcp })
     if (reply?.sessionId !== undefined) {
       this.commands.delete(reply.sessionId)
       if (this.caps.close) await peer.request('session/close', { sessionId: reply.sessionId }, { timeout: 15_000 }).catch(() => {})
     }
-    return reply
+    return mergeModelEvidence(reply, await listing)
+  }
+
+  // Some CLIs advertise their catalog in two places at once: the ACP session reply
+  // and a plain listing command (`agy models`). The ACP reply can be a partial
+  // snapshot while the CLI's own catalog is still being built (#2145): the listing
+  // then carries the variants the reply lacks, so both are merged before parsing.
+  async probeModelsListing() {
+    const args = this.engine.modelsArgs
+    if (!Array.isArray(args) || args.length === 0) return []
+    try {
+      const bin = this.bin ?? findEngineExecutable(this.engine, name => this.findExecutable(name))
+      if (bin === undefined) return []
+      const launch = launchOf(bin, args)
+      const result = await runProbeCommand(launch.file, launch.args, {
+        timeoutMs: 10_000,
+        forceKillAfterMs: PROBE_FORCE_KILL_AFTER_MS,
+        spawnOptions: launch.options,
+      })
+      return result.ok ? parseModelListing(result.stdout) : []
+    } catch {
+      return []
+    }
   }
 
   // Models (and per-model thinking levels) the agent advertises on a probe session.
@@ -911,12 +954,68 @@ function acpPrompt(blocks) {
   return out.length > 0 ? out : [{ type: 'text', text: '' }]
 }
 
+// The trailing token of a concrete variant id, when it is a known thinking level.
+const tierSuffixOf = (id, vocabulary) => vocabulary.find(token => id.endsWith(`-${token}`))
+
+const catalogEntryId = entry => String(entry?.modelId ?? entry?.id ?? entry?.value ?? entry?.name ?? '')
+function unionById(previous = [], next = []) {
+  const seen = new Set()
+  const out = []
+  for (const entry of [...previous, ...next]) {
+    const id = catalogEntryId(entry)
+    if (id === '' || seen.has(id)) continue
+    seen.add(id)
+    out.push(entry)
+  }
+  return out
+}
+
+// Model entries of a CLI's plain listing command output (`agy models` style):
+// one model per line, the id first, its display name after a tab or spacing.
+// Header and progress lines have no id-shaped first token and drop out.
+export function parseModelListing(stdout) {
+  const entries = []
+  const seen = new Set()
+  for (const line of String(stdout ?? '').split(/\r?\n/u)) {
+    const trimmed = line.trim()
+    if (trimmed === '') continue
+    const match = /^(\S+)(?:[\t ]{2,}|\t)(.+)$/u.exec(trimmed) ?? /^(\S+)$/u.exec(trimmed)
+    if (match === null) continue
+    const id = match[1]
+    // Model ids carry a digit or a separator; a word alone is a header or noise.
+    if (!/^[\w][\w./-]*$/u.test(id) || !/[\d._-]/u.test(id) || seen.has(id)) continue
+    seen.add(id)
+    entries.push({ modelId: id, name: (match[2] ?? '').trim() || id })
+  }
+  return entries
+}
+
+// The probe reply plus the CLI's own listing entries merged into one evidence set:
+// variant ids either source knows count as variant evidence for the parse.
+function mergeModelEvidence(reply, listingEntries = []) {
+  if (!Array.isArray(listingEntries) || listingEntries.length === 0) return reply ?? {}
+  const availableModels = [...(reply?.models?.availableModels ?? [])]
+  const seen = new Set(availableModels.map(entry => String(entry?.modelId ?? entry?.id ?? '')))
+  for (const entry of listingEntries) {
+    const id = String(entry?.modelId ?? entry?.id ?? '')
+    if (id === '' || seen.has(id)) continue
+    seen.add(id)
+    availableModels.push(entry)
+  }
+  return { ...reply, models: { ...reply?.models, availableModels } }
+}
+
+// The catalog one probe's evidence describes. Base models come from the model
+// config's options when the CLI lists them; `models.availableModels` is variant
+// evidence: an entry `<base>-<level>` proves that base serves that thinking level.
+// The config and the variants can disagree when the CLI answered mid-build (#2145),
+// so variant families the config does not list become bases of their own (when the
+// family shows at least two levels, which tells a real tier suffix from a trailing
+// word of the model's own name), and a concrete entry neither config nor family
+// explains is listed as itself.
 export function modelsFromProbe(probe) {
   const option = configOptionsOf(probe?.configOptions ?? [], 'model')
   const available = probe?.models?.availableModels ?? []
-  const baseModels = (option?.options ?? []).length > 0
-    ? option.options.map(entry => ({ id: String(entry.id ?? entry.value ?? entry.name), name: String(entry.name ?? entry.id ?? entry.value) }))
-    : available.map(entry => ({ id: String(entry.modelId ?? entry.id ?? entry.name), name: String(entry.name ?? entry.modelId ?? entry.id) }))
   const thought = configOptionsOf(probe?.configOptions ?? [], 'thought_level')
   const thoughtOptions = (thought?.options ?? []).map(entry => ({
     id: String(entry.id ?? entry.value ?? entry.name),
@@ -924,20 +1023,78 @@ export function modelsFromProbe(probe) {
     ...(entry.description ? { description: String(entry.description) } : {}),
   }))
   const thoughtById = new Map(thoughtOptions.map(entry => [entry.id, entry]))
-  const availableIds = new Set(available.map(entry => String(entry.modelId ?? entry.id ?? '')).filter(Boolean))
-  const knownEfforts = [...new Set([...EFFORT_ORDER, ...thoughtOptions.map(entry => entry.id)])]
-  const hasVariantMap = (option?.options ?? []).length > 0
-    && availableIds.size > 0
-    && baseModels.some(base => knownEfforts.some(effortId => availableIds.has(`${base.id}-${effortId}`)))
-  return baseModels.map((model) => {
-    // Leave defaultEffort unset so a Bot without a chosen level keeps the CLI's default.
-    if (hasVariantMap) {
-      const efforts = knownEfforts
-        .filter(effortId => availableIds.has(`${model.id}-${effortId}`))
-        .map(effortId => thoughtById.get(effortId) ?? { id: effortId, name: EFFORT_NAMES[effortId] ?? effortId })
-      return efforts.length > 0 ? { ...model, reasoning: { efforts } } : model
+  const vocabulary = [...new Set([...EFFORT_ORDER, ...thoughtOptions.map(entry => entry.id)])]
+  const effortOf = id => thoughtById.get(id) ?? { id, name: EFFORT_NAMES[id] ?? id }
+  const configBases = (option?.options ?? []).map(entry => ({ id: String(entry.id ?? entry.value ?? entry.name), name: String(entry.name ?? entry.id ?? entry.value) }))
+
+  // Group the available entries that end in a known level token by their base id.
+  const groups = new Map() // baseId -> Map(tierId -> entry)
+  const groupOf = (baseId) => {
+    let group = groups.get(baseId)
+    if (group === undefined) {
+      group = new Map()
+      groups.set(baseId, group)
     }
-    return thoughtOptions.length > 0 ? { ...model, reasoning: { efforts: thoughtOptions } } : model
+    return group
+  }
+  const entries = available.map((entry) => {
+    const id = String(entry.modelId ?? entry.id ?? entry.name)
+    const tier = tierSuffixOf(id, vocabulary)
+    if (tier !== undefined && id.length > tier.length + 1) groupOf(id.slice(0, -(tier.length + 1))).set(tier, entry)
+    return { entry, id, tier, baseId: tier === undefined ? undefined : id.slice(0, -(tier.length + 1)) }
+  })
+
+  const configIds = new Set(configBases.map(base => base.id))
+  const variantMode = configBases.some(base => groups.has(base.id))
+  if (!variantMode) {
+    // No evidence this CLI publishes one id per level: every model serves the
+    // thinking levels the config lists, like before variant-aware parsing.
+    const baseModels = configBases.length > 0
+      ? configBases
+      : entries.map(({ entry, id }) => ({ id, name: String(entry.name ?? id) }))
+    return baseModels.map(model => (thoughtOptions.length > 0 ? { ...model, reasoning: { efforts: thoughtOptions } } : model))
+  }
+
+  const consumed = new Set()
+  const tiersOf = (baseId) => {
+    const group = groups.get(baseId)
+    if (group === undefined) return []
+    for (const tier of group.keys()) consumed.add(`${baseId}-${tier}`)
+    return vocabulary.filter(tier => group.has(tier)).map(effortOf)
+  }
+  const out = configBases.map((model) => {
+    // Leave defaultEffort unset so a Bot without a chosen level keeps the CLI's default.
+    const efforts = tiersOf(model.id)
+    return efforts.length > 0 ? { ...model, reasoning: { efforts } } : model
+  })
+
+  // A variant family the config does not list at all: the CLI's own model ids,
+  // collapsed to their base so a pick reaches it the way the config entries do.
+  for (const [baseId, group] of groups) {
+    if (configIds.has(baseId) || group.size < 2) continue
+    for (const tier of group.keys()) consumed.add(`${baseId}-${tier}`)
+    const first = group.values().next().value
+    const stripped = String(first?.name ?? '').replace(/\s*\([^()]*\)\s*$/u, '').trim()
+    out.push({
+      id: baseId,
+      name: stripped !== '' ? stripped : baseId,
+      reasoning: { efforts: vocabulary.filter(tier => group.has(tier)).map(effortOf) },
+    })
+  }
+
+  // Whatever is left over is a concrete model of its own (a single-level model
+  // whose id happens to end in a level word, or a variant of a family too thin
+  // to read). It is listed as itself, untiered, rather than dropped.
+  for (const { entry, id } of entries) {
+    if (consumed.has(id) || configIds.has(id)) continue
+    out.push({ id, name: String(entry.name ?? id) })
+  }
+
+  const seen = new Set()
+  return out.filter((model) => {
+    if (seen.has(model.id)) return false
+    seen.add(model.id)
+    return true
   })
 }
 

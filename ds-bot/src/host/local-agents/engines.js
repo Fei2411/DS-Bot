@@ -64,6 +64,10 @@ const CLIS = {
   'antigravity': {
     name: 'Antigravity', kind: 'acp', command: 'agy', args: ['acp'], version: ['--version'], signIn: 'agy acp --login',
     signedIn: { macKeychain: { service: 'gemini', account: 'antigravity' } },
+    // `agy models` lists the same concrete model ids the ACP session advertises in
+    // models.availableModels. The ACP reply can be a partial snapshot while the CLI
+    // is still fetching its catalog (#2145), so the probe merges both sources.
+    modelsArgs: ['models'],
     cwdPerProcess: true,
     modes: {
       'read-only': ['default'],
