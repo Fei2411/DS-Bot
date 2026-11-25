@@ -75,6 +75,21 @@ test('a card asked in a hidden Bot-to-Bot turn keeps its call id, and closing it
   assert.deepEqual(rt.state.closedCards, { writer: { 'call-1': 'replied' } })
 })
 
+test('a card asked over one still open closes the earlier card instead of dropping it (#2172)', async (t) => {
+  const { emit, ask, questions, stop } = await start()
+  t.after(stop)
+  emit('writer', 'turn/start', { turn: 1 })
+  emit('writer', 'user/message', { content: text('Help me name a Bot'), source: { kind: 'user' } })
+  await ask('writer', 'call-1')
+  emit('writer', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  // A message from another Bot, not the user, starts the next turn: the card stays open.
+  emit('writer', 'turn/start', { turn: 2 })
+  emit('writer', 'user/message', { content: text('[Message from Chief]\nCheck the draft'), source: { kind: 'bot', role: 'request', senderSessionId: 'chief', senderName: 'Chief', exchangeId: 'x1', hop: 0 } })
+  await ask('writer', 'call-2')
+  assert.equal((await questions()).writer.callId, 'call-2')
+  assert.deepEqual(rt.state.closedCards, { writer: { 'call-1': 'dismissed' } })
+})
+
 test('a card asked in a visible turn stays at its call', async (t) => {
   const { emit, ask, questions, stop } = await start()
   t.after(stop)
