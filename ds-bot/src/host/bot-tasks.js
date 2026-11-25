@@ -2679,6 +2679,7 @@ export function install(rt) {
           rememberMoveOp(id, moveResult)
         }
         for (const id of supersededOpIds) {
+          pendingSaveMoveOps.get(id)?.operationIds.delete(id)
           pendingSaveMoveOps.delete(id)
           rememberMoveOp(id, staleResult)
         }
@@ -2739,7 +2740,7 @@ export function install(rt) {
           && curBot.sessionId === pendingSave.newSid
           && (curBot.tasks ?? []).some(t => t?.id === pendingSave.taskId)
         if (!stillMatches) {
-          const allStaleIds = [...pendingSave.operationIds]
+          const allStaleIds = [...pendingSave.operationIds].filter(id => !pendingSave.savedOperationIds.has(id))
           const staleReceipt = { sessionId: curBot?.sessionId ?? pendingSave.newSid, taskId: null, moved: false, stale: true }
           // Keep superseded entries in `pendingSaveMoveOps` until a required save durably
           // writes their stale tombstones (either here or inside a newer move's retry).
@@ -2759,15 +2760,16 @@ export function install(rt) {
             if (persisted) {
               for (const id of unstagedStaleIds) {
                 pendingSaveMoveOps.delete(id)
+                pendingSave.operationIds.delete(id)
                 rememberMoveOp(id, staleReceipt)
               }
             }
           }
           throw Object.assign(new Error('This conversation has already moved on'), { code: 'bot/stale' })
         }
-        pendingSave.operationIds.add(operationId)
+        if (!pendingSave.savedOperationIds.has(operationId)) pendingSave.operationIds.add(operationId)
         if (pendingSave.savingPromise === undefined) {
-          const retryOpIds = [...pendingSave.operationIds]
+          const retryOpIds = [...pendingSave.operationIds].filter(id => !pendingSave.savedOperationIds.has(id))
           const supersededOpIds = []
           for (const [oldOpId, entry] of pendingSaveMoveOps) {
             if (entry.botId === pendingSave.botId && entry !== pendingSave && !retryOpIds.includes(oldOpId)) {
@@ -2796,10 +2798,12 @@ export function install(rt) {
             }
             for (const id of retryOpIds) {
               pendingSaveMoveOps.delete(id)
+              pendingSave.operationIds.delete(id)
               pendingSave.savedOperationIds.add(id)
               rememberMoveOp(id, result)
             }
             for (const id of supersededOpIds) {
+              pendingSaveMoveOps.get(id)?.operationIds.delete(id)
               pendingSaveMoveOps.delete(id)
               rememberMoveOp(id, staleResult)
             }
@@ -2814,7 +2818,8 @@ export function install(rt) {
         const res = await pendingSave.savingPromise
         if (!pendingSave.savedOperationIds.has(operationId)) {
           try {
-            await persistMoveReceipts([operationId], res)
+            await (inFlightSaveMoveOps.get(operationId) ?? persistMoveReceipts([operationId], res))
+            pendingSave.operationIds.delete(operationId)
             pendingSave.savedOperationIds.add(operationId)
           } catch (error) {
             if (res.moved === true) {
@@ -2836,7 +2841,8 @@ export function install(rt) {
       const result = inFlight.savedMoveResult ?? { sessionId: sid, taskId: null, moved: false }
       if (typeof operationId === 'string' && operationId !== '' && !inFlight.savedOperationIds.has(operationId)) {
         try {
-          await persistMoveReceipts([operationId], result)
+          await (inFlightSaveMoveOps.get(operationId) ?? persistMoveReceipts([operationId], result))
+          inFlight.pendingReceiptEntry?.operationIds.delete(operationId)
           inFlight.savedOperationIds.add(operationId)
         } catch (error) {
           if (result.moved === true) {

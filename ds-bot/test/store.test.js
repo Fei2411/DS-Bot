@@ -275,11 +275,9 @@ test('a state write reaches the disk before it replaces state.json and uses uniq
   const { rt, statePath } = runtime(t)
   await rt.load()
   const steps = []
-  const temps = []
   const restoreWrite = patch('writeFile', original => async (path, data, options) => {
     const result = await original(path, data, options)
     if (String(path).startsWith(`${statePath}.`)) {
-      temps.push(String(path))
       steps.push(['write-done', path, typeof options === 'object' && options?.flush === true])
     }
     return result
@@ -328,6 +326,78 @@ test('load() sweeps stale temp files from dead PIDs while keeping current PID te
   assert.equal(fs.existsSync(staleUnique), false, 'stale unique temp file must be removed')
   assert.equal(fs.existsSync(ownTemp), true, 'current PID temp file must not be touched')
   assert.equal(fs.existsSync(unrelated), true, 'unrelated backup files must not be touched')
+})
+
+test('read-only load() does not sweep another host temp files', async (t) => {
+  const { rt, home } = runtime(t)
+  const otherPid = process.ppid
+  const otherTemp = join(home, `state.json.${otherPid}.cafebabe.tmp`)
+  fs.writeFileSync(join(home, 'state.lock'), JSON.stringify({ pid: otherPid, host: hostname(), token: 'new-owner' }))
+  fs.writeFileSync(otherTemp, 'active-write')
+  await rt.load()
+  assert.match(rt.readOnly(), /another dsh/)
+  await new Promise(resolve => setTimeout(resolve, 40))
+  assert.equal(fs.existsSync(otherTemp), true, 'read-only host must leave active owner temp files untouched')
+})
+
+test('dispose waits for startup temp sweep and aborted or lock-lost sweep never deletes another host active temp file', async (t) => {
+  // Case 1: dispose() awaits in-flight startup sweep before releasing state.lock and stops unlinking once stopped.
+  {
+    const { rt, home, dispose } = runtime(t)
+    const otherPid = process.pid + 1
+    const otherTemp = join(home, `state.json.${otherPid}.deadbeef.tmp`)
+    fs.writeFileSync(otherTemp, 'other-write')
+    const atReaddir = Promise.withResolvers()
+    const gate = Promise.withResolvers()
+    const restore = patch('readdir', original => async (dir, ...args) => {
+      if (dir === home) {
+        atReaddir.resolve()
+        await gate.promise
+      }
+      return original(dir, ...args)
+    })
+    try {
+      await rt.load()
+      await atReaddir.promise
+      const disposing = dispose()
+      await new Promise(resolve => setTimeout(resolve, 20))
+      assert.equal(fs.existsSync(join(home, 'state.lock')), true, 'state.lock must stay held until startup sweep finishes')
+      gate.resolve()
+      await disposing
+      assert.equal(fs.existsSync(join(home, 'state.lock')), false, 'state.lock is released after sweep exits')
+      assert.equal(fs.existsSync(otherTemp), true, 'disposed host must not unlink temp files after stopping')
+    } finally {
+      gate.resolve()
+      restore()
+    }
+  }
+  // Case 2: another host takes over state.lock while readdir is pending -> sweep skips unlinking the new owner temp file.
+  {
+    const { rt, home, dispose } = runtime(t)
+    const newOwnerPid = process.ppid
+    const activeTemp = join(home, `state.json.${newOwnerPid}.11223344.tmp`)
+    const atReaddir = Promise.withResolvers()
+    const gate = Promise.withResolvers()
+    const restore = patch('readdir', original => async (dir, ...args) => {
+      if (dir === home) {
+        atReaddir.resolve()
+        await gate.promise
+      }
+      return original(dir, ...args)
+    })
+    try {
+      await rt.load()
+      await atReaddir.promise
+      fs.writeFileSync(join(home, 'state.lock'), JSON.stringify({ pid: newOwnerPid, host: hostname(), token: 'new-owner' }))
+      fs.writeFileSync(activeTemp, 'in-flight-write')
+      gate.resolve()
+      await dispose()
+      assert.equal(fs.existsSync(activeTemp), true, 'lock-lost host must not unlink replacement host active temp file')
+    } finally {
+      gate.resolve()
+      restore()
+    }
+  }
 })
 
 test('malformed state is backed up before a later save', async (t) => {

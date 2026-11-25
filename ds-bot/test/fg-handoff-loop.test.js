@@ -1506,9 +1506,98 @@ test('joinInFlight registers failed move-receipt persistence in pendingSaveMoveO
   assert.equal(disk.completedMoveOps?.[opJoiner]?.moved, true)
 })
 
-test('collectAdmittedIdsFromEvents does not mistake an in-place inbox splice replacement for a turn claim', async (t) => {
+test('shared pendingSaveMoveOps removes already-saved joiner IDs so a later stale retry never overwrites moved:true', async (t) => {
   const rig = await createRealLoopRig(t, { durable: true })
+  const old = rig.agents.get('dm-a')
+  old.followup(userPrompt('Please run slow work'))
+  await rig.toolStarted.promise
+
+  const commitWritten = Promise.withResolvers()
+  const commitGate = Promise.withResolvers()
+  const j2SaveEntered = Promise.withResolvers()
+  const j2SaveGate = Promise.withResolvers()
+  const save = rig.rt.save
+  let committed = false
+  let failNextRequired = false
+  let pauseJ2Receipt = false
+  let j2Paused = false
+  const blocked = t.mock.method(rig.rt, 'save', async (options) => {
+    if (rig.rt.botOf('a').sessionId === 'dm-a') return save(options)
+    if (options?.required && !committed) {
+      await save(options)
+      committed = true
+      commitWritten.resolve()
+      await commitGate.promise
+      return
+    }
+    if (options?.required && failNextRequired) {
+      failNextRequired = false
+      throw Object.assign(new Error('First joiner receipt write failed'), { code: 'EBUSY' })
+    }
+    if (options?.required && pauseJ2Receipt && !j2Paused) {
+      j2Paused = true
+      j2SaveEntered.resolve()
+      await j2SaveGate.promise
+      throw Object.assign(new Error('Second joiner receipt write failed'), { code: 'EBUSY' })
+    }
+    return save(options)
+  })
+
+  const opPrimary = 'op:shared-primary'
+  const opJ1 = 'op:shared-j1'
+  const opJ2 = 'op:shared-j2'
+  const primary = rig.rt.moveForegroundToBackground({ botId: 'a', operationId: opPrimary })
+  await commitWritten.promise
+  failNextRequired = true
+  pauseJ2Receipt = true
+  const j1 = rig.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'dm-a', operationId: opJ1 })
+  const j2 = rig.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'dm-a', operationId: opJ2 })
+  commitGate.resolve()
+
+  const primaryRes = await primary
+  assert.equal(primaryRes.moved, true)
+  await assert.rejects(j1, { code: 'EBUSY' })
+  await j2SaveEntered.promise
+
+  // Retry opJ1 while opJ2's initial receipt save is still paused -> opJ1 commits durably.
+  const j1Retry = await rig.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'dm-a', operationId: opJ1 })
+  assert.deepEqual(j1Retry, primaryRes)
+
+  // Now opJ2 fails and registers onto the same shared pendingReceiptEntry.
+  j2SaveGate.resolve()
+  await assert.rejects(j2, { code: 'EBUSY' })
+  blocked.mock.restore()
+
+  // Bot moves on to a newer foreground segment so `stillMatches` becomes false.
+  rig.rt.botOf('a').sessionId = 'dm-a-newer'
+  await rig.rt.save()
+
+  // Retrying opJ2 fails with bot/stale, but opJ1 must keep its committed moved:true receipt!
+  await assert.rejects(
+    rig.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'dm-a', operationId: opJ2 }),
+    { code: 'bot/stale' },
+  )
+  const disk = JSON.parse(readFileSync(join(rig.home, 'state.json'), 'utf8'))
+  assert.equal(disk.completedMoveOps?.[opJ2]?.stale, true)
+  assert.equal(disk.completedMoveOps?.[opJ1]?.moved, true, 'already-saved opJ1 must not be overwritten as stale')
+  assert.equal(disk.completedMoveOps?.[opJ1]?.stale, undefined)
+  assert.equal(disk.completedMoveOps?.[opJ1]?.sessionId, primaryRes.sessionId)
+  const j1Again = await rig.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'dm-a', operationId: opJ1 })
+  assert.deepEqual(j1Again, primaryRes)
+
+  rig.toolGate.resolve()
+  await old.whenIdle()
+})
+
+test('collectAdmittedIdsFromEvents does not mistake an in-place inbox splice replacement for a turn claim', async (t) => {
+  const rig = await createRealLoopRig(t, { durable: true, holdFirstModel: true })
   const agent = rig.agents.get('dm-a')
+  // Start a real running turn so `agent.status === 'running'` and `handoffInputClaimed`
+  // actually executes `collectAdmittedIdsFromEvents(..., claimed)`.
+  agent.followup(userPrompt('RUNNING_TURN'))
+  await rig.firstModelStarted.promise
+  assert.equal(agent.status, 'running')
+
   const original = userPrompt('Original queued prompt', 'rpc-replace-check')
   const replacement = createUserMessage({ content: [{ type: 'text', text: 'Edited queued prompt' }], source: { kind: 'user', rpcId: 'rpc-replace-check' } })
 
@@ -1519,8 +1608,7 @@ test('collectAdmittedIdsFromEvents does not mistake an in-place inbox splice rep
     { type: 'agent/inbox/spliced', data: { target: 'next-turn', start: 0, removedCount: 1, inserted: [replacement] } },
     { type: 'agent/inbox/spliced', data: { target: 'next-turn', start: 0, removedCount: 1, inserted: [], outcome: 'canceled' } },
   ]
-  const origSnapshot = agent.session.snapshotEvents.bind(agent.session)
-  t.mock.method(agent.session, 'snapshotEvents', () => syntheticEvents)
+  const snapshotMock = t.mock.method(agent.session, 'snapshotEvents', () => syntheticEvents)
 
   // Queue a pending handoff input for that rpcId: because the replace was NOT a claim and
   // the message is neither pending nor committed, reconcile must replay it rather than dropping it.
@@ -1533,8 +1621,12 @@ test('collectAdmittedIdsFromEvents does not mistake an in-place inbox splice rep
     content: original.content,
   }]
   await rig.rt.save()
-  await rig.rt.reconcileTasksAfterRestart()
-  agent.session.snapshotEvents = origSnapshot
+  try {
+    await rig.rt.reconcileTasksAfterRestart()
+  } finally {
+    snapshotMock.mock.restore()
+  }
+  rig.firstModelGate.resolve()
   await agent.whenIdle()
 
   assert.deepEqual(journal(rig), [])

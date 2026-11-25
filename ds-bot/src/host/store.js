@@ -618,6 +618,7 @@ export function install(rt) {
   // Finishes what the fold of withdrawn parallel parts left (see adopt): only the host
   // that saves the team does it, and an entry stays listed until both steps succeed.
   let retiring
+  let sweeping
   let waitingForSchedules
   // A part waiting to be retired may still run a turn, so it is not complete yet.
   const isRetiring = sessionId => Array.isArray(state.retiredParts) && state.retiredParts.some(entry => entry?.sessionId === sessionId)
@@ -697,11 +698,17 @@ export function install(rt) {
     notifyStoreSync()
     if (holder !== undefined) return
     if (teamWriteAccess() === 'locked') {
-      void readdir(home).then(entries => Promise.all(entries.map((name) => {
-        const match = /^state\.json\.(\d+)(?:\.[a-f0-9]+)?\.tmp$/.exec(name)
-        if (match === null || Number(match[1]) === process.pid) return undefined
-        return unlink(join(home, name)).catch(() => {})
-      }))).catch(() => {})
+      const sweep = (async () => {
+        const entries = await readdir(home)
+        if (teamWriteAccess() !== 'locked') return
+        for (const name of entries) {
+          if (teamWriteAccess() !== 'locked') return
+          const match = /^state\.json\.(\d+)(?:\.[a-f0-9]+)?\.tmp$/.exec(name)
+          if (match === null || Number(match[1]) === process.pid) continue
+          await unlink(join(home, name)).catch(() => {})
+        }
+      })().catch(() => {}).finally(() => { if (sweeping === sweep) sweeping = undefined })
+      sweeping = sweep
     }
     const storageMigrated = stuck === undefined ? await runStorageMigrations() : false
     void retireParts()
@@ -929,7 +936,7 @@ export function install(rt) {
   ctx.effect(() => () => {
     stopped = true
     clearTimeout(waitingForSchedules)
-    return Promise.allSettled([writing, retiring, rt.stopRetiringTasks?.(), ...noteOps.values()]).finally(() => lock.release())
+    return Promise.allSettled([writing, retiring, sweeping, rt.stopRetiringTasks?.(), ...noteOps.values()]).finally(() => lock.release())
   }, 'ds-bot: state lock')
 
   const botOf = id => (id === undefined ? undefined : own(state.bots, id))

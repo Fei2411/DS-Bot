@@ -1938,7 +1938,7 @@ export function install(rt) {
   // diagnostics and put into the error the user reads.
   const controller = ctx.sessionController
   const controllerTarget = controller?.[cordisSymbols.original] ?? controller
-  if (controllerTarget !== undefined && typeof controllerTarget.prompt === 'function') {
+  if (controllerTarget != null && typeof controllerTarget.prompt === 'function') {
     const hadOwnPrompt = Object.hasOwn(controllerTarget, 'prompt')
     const prompt = controllerTarget.prompt
     const admitted = async function (request, ...rest) {
