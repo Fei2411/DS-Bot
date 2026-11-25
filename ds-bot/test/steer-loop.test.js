@@ -22,7 +22,7 @@ const committedUserTexts = (agent) => agent.session.snapshotEvents()
 async function createSteerLoopRig(t, {
   holdCallNumbers = new Set(),
   holdPrepareSteps = new Set(),
-  abortExitDelayMs = 0,
+  holdAbortCalls = new Set(),
   toolOnFirstCall = false,
   onPrompt = undefined,
 } = {}) {
@@ -63,6 +63,18 @@ async function createSteerLoopRig(t, {
   for (const step of holdPrepareSteps) {
     prepareStarted.set(step, Promise.withResolvers())
     prepareGates.set(step, Promise.withResolvers())
+  }
+  const abortStarted = new Map()
+  const abortGates = new Map()
+  for (const n of holdAbortCalls) {
+    abortStarted.set(n, Promise.withResolvers())
+    abortGates.set(n, Promise.withResolvers())
+  }
+  const loggerWarnings = []
+  const origWarn = root.logger.warn.bind(root.logger)
+  root.logger.warn = (...args) => {
+    loggerWarnings.push(args.map(String).join(' '))
+    return origWarn(...args)
   }
 
   root.tools.register({
@@ -132,7 +144,10 @@ async function createSteerLoopRig(t, {
           })
         })
         if (options.signal?.aborted) {
-          if (abortExitDelayMs > 0) await realDelay(abortExitDelayMs)
+          if (holdAbortCalls.has(current)) {
+            abortStarted.get(current).resolve()
+            await abortGates.get(current).promise
+          }
           yield { type: 'finish', reason: { kind: 'aborted', failure: { code: 'ABORTED', message: 'aborted' } } }
           return
         }
@@ -141,7 +156,10 @@ async function createSteerLoopRig(t, {
         // before the reply finishes, matching real async LLM network calls.
         await realDelay(15)
         if (options.signal?.aborted) {
-          if (abortExitDelayMs > 0) await realDelay(abortExitDelayMs)
+          if (holdAbortCalls.has(current)) {
+            abortStarted.get(current).resolve()
+            await abortGates.get(current).promise
+          }
           yield { type: 'finish', reason: { kind: 'aborted', failure: { code: 'ABORTED', message: 'aborted' } } }
           return
         }
@@ -249,12 +267,13 @@ async function createSteerLoopRig(t, {
     toolGate.resolve()
     for (const gate of callGates.values()) gate.resolve()
     for (const gate of prepareGates.values()) gate.resolve()
+    for (const gate of abortGates.values()) gate.resolve()
     await root.fiber.dispose()
     await ctx.dispose()
     rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 })
   })
   await rt.load()
-  return { root, ctx, rt, agent, sessionController, seenPrompts, completedReplies, callStarted, callGates, prepareStarted, prepareGates, toolStarted, toolGate }
+  return { root, ctx, rt, agent, sessionController, seenPrompts, completedReplies, loggerWarnings, callStarted, callGates, prepareStarted, prepareGates, abortStarted, abortGates, toolStarted, toolGate }
 }
 
 test('real DSH ReactLoopAgent: rapid followup + steer during preStep never swallows the first message', async (t) => {
@@ -340,27 +359,32 @@ test('real DSH ReactLoopAgent: atomic bot-steer-queue promotes multiple queued u
   assert.equal(botCommitted, true, 'non-user queued message must still be delivered in its own turn')
 })
 
-test('real DSH ReactLoopAgent: rapid steers arriving during STEER_CUT abort window fold in FIFO order ahead of unsteered queued rows, while plain queue stays behind', async (t) => {
-  const rig = await createSteerLoopRig(t, { holdCallNumbers: new Set([1]), abortExitDelayMs: 40 })
+test('real DSH ReactLoopAgent: rapid steers arriving during STEER_CUT abort window fold in FIFO order ahead of unsteered queued rows without re-entrancy recursion', async (t) => {
+  const rig = await createSteerLoopRig(t, { holdCallNumbers: new Set([1]), holdAbortCalls: new Set([1]) })
   rig.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'BASE' }], source: { kind: 'user' } }))
   await rig.callStarted.get(1).promise
 
   // Unsteered queued message waiting for a later turn.
   await rig.sessionController.prompt({ sessionId: 'dm-a', requestId: 'q0', mode: 'queue', content: [{ type: 'text', text: 'QUEUED_LATER' }] })
 
-  // First steer triggers STEER_CUT; Turn 1 takes 40ms to finish unwinding.
+  // First steer triggers STEER_CUT; deterministically pause Turn 1 unwind at abort gate.
   await rig.sessionController.prompt({ sessionId: 'dm-a', requestId: 's1', mode: 'steer', content: [{ type: 'text', text: 'STEER_1' }] })
-  // Yield one microtask so maybeCut() fires and enters track.cutting = true.
-  await Promise.resolve()
-  await Promise.resolve()
+  await rig.abortStarted.get(1).promise
 
+  const splicesBefore = rig.agent.session.snapshotEvents().filter(event => event.type === 'agent/inbox/spliced').length
   // Second and third steers arrive while Turn 1 is still aborting (`wakingAfterAbort`),
   // plus a plain queued prompt that must stay behind them.
   await rig.sessionController.prompt({ sessionId: 'dm-a', requestId: 's2', mode: 'steer', content: [{ type: 'text', text: 'STEER_2' }] })
   await rig.sessionController.prompt({ sessionId: 'dm-a', requestId: 'q1', mode: 'queue', content: [{ type: 'text', text: 'QUEUED_AFTER' }] })
   await rig.sessionController.prompt({ sessionId: 'dm-a', requestId: 's3', mode: 'steer', content: [{ type: 'text', text: 'STEER_3' }] })
+  const splicesAdded = rig.agent.session.snapshotEvents().filter(event => event.type === 'agent/inbox/spliced').length - splicesBefore
 
+  rig.abortGates.get(1).resolve()
   await rig.agent.whenIdle()
+
+  // Folding S2 + Q1 + S3 must emit only O(1) inbox splices and zero listener errors.
+  assert.ok(splicesAdded <= 15, `expected bounded inbox splices during STEER_CUT folding, got ${splicesAdded}`)
+  assert.deepEqual(rig.loggerWarnings.filter(msg => msg.includes('agent/inbox/inserted')), [])
 
   // Turn 2 must claim [STEER_1, STEER_2, STEER_3] together ahead of QUEUED_LATER and QUEUED_AFTER.
   const secondCall = rig.seenPrompts.find(entry => entry.callNo === 2)
@@ -368,8 +392,8 @@ test('real DSH ReactLoopAgent: rapid steers arriving during STEER_CUT abort wind
   assert.deepEqual(committedUserTexts(rig.agent), ['BASE', 'STEER_1', 'STEER_2', 'STEER_3', 'QUEUED_LATER', 'QUEUED_AFTER'])
 })
 
-test('real DSH ReactLoopAgent: updateQueue steer and bot-steer-queue during STEER_CUT abort window (including deleted anchor) keep FIFO order', async (t) => {
-  const rig = await createSteerLoopRig(t, { holdCallNumbers: new Set([1]), abortExitDelayMs: 40 })
+test('real DSH ReactLoopAgent: updateQueue steer (including re-steering active cut anchor) and bot-steer-queue during STEER_CUT abort window keep FIFO order', async (t) => {
+  const rig = await createSteerLoopRig(t, { holdCallNumbers: new Set([1]), holdAbortCalls: new Set([1]) })
   rig.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'BASE' }], source: { kind: 'user' } }))
   await rig.callStarted.get(1).promise
 
@@ -380,11 +404,15 @@ test('real DSH ReactLoopAgent: updateQueue steer and bot-steer-queue during STEE
   rig.agent.followup(q1)
   rig.agent.followup(q2)
 
-  // First steer triggers STEER_CUT; wait for maybeCut microtask.
+  // First steer triggers STEER_CUT; deterministically pause Turn 1 unwind at abort gate.
   const anchor = createUserMessage({ content: [{ type: 'text', text: 'ANCHOR' }], source: { kind: 'user' } })
   rig.agent.steer(anchor)
-  await Promise.resolve()
-  await Promise.resolve()
+  await rig.abortStarted.get(1).promise
+
+  // Re-steering the active cut anchor itself via updateQueue must keep it pinned at nextTurn[0],
+  // never demoting it behind unsteered qKeep.
+  await rig.sessionController.updateQueue({ sessionId: 'dm-a', itemId: anchor.id, action: { kind: 'steer' } })
+  assert.equal(rig.agent.inbox.nextTurn[0]?.id, anchor.id)
 
   // Simulate QueueDock deleting the anchor while STEER_CUT is still unwinding,
   // then steering q1 via updateQueue and q2 via bot-steer-queue.
@@ -393,8 +421,10 @@ test('real DSH ReactLoopAgent: updateQueue steer and bot-steer-queue during STEE
   const batchRes = await rig.rt.channelCall('bot-steer-queue', { sessionId: 'dm-a', ids: [q2.id] })
   assert.deepEqual(batchRes, { ok: true, value: { steered: 1 } })
 
+  rig.abortGates.get(1).resolve()
   await rig.agent.whenIdle()
 
+  assert.deepEqual(rig.loggerWarnings.filter(msg => msg.includes('agent/inbox/inserted')), [])
   const secondCall = rig.seenPrompts.find(entry => entry.callNo === 2)
   assert.deepEqual(secondCall?.users, ['BASE', 'PROMOTE_1', 'PROMOTE_2'])
   assert.deepEqual(committedUserTexts(rig.agent), ['BASE', 'PROMOTE_1', 'PROMOTE_2', 'KEEP_QUEUED'])
@@ -436,7 +466,7 @@ test('real DSH ReactLoopAgent: bot-steer-queue rejects a retired foreground part
   let dupCalls = 0
   const rig = await createSteerLoopRig(t, {
     holdCallNumbers: new Set([1]),
-    abortExitDelayMs: 60,
+    holdAbortCalls: new Set([1]),
     onPrompt: async (request) => {
       if (request.requestId === 'dup-req') {
         dupCalls += 1
@@ -466,8 +496,21 @@ test('real DSH ReactLoopAgent: bot-steer-queue rejects a retired foreground part
   // while the second is still in flight before inserting into the STEER_CUT abort window.
   rig.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'KEEP_QUEUED' }], source: { kind: 'user' } }))
   await rig.sessionController.prompt({ sessionId: 'dm-a', requestId: 's-cut', mode: 'steer', content: [{ type: 'text', text: 'STEER_1' }] })
-  await Promise.resolve()
-  await Promise.resolve()
+  await rig.abortStarted.get(1).promise
+
+  // While a foreground handoff is active, steer.js must NOT fold/mutate the retiring inbox.
+  const origHandingOff = rig.rt.isHandingOff
+  rig.rt.isHandingOff = () => true
+  try {
+    await rig.sessionController.prompt({ sessionId: 'dm-a', requestId: 'handoff-steer', mode: 'steer', content: [{ type: 'text', text: 'HANDOFF_MSG' }] })
+    // Must remain at tail of nextTurn (not folded ahead of KEEP_QUEUED).
+    assert.equal(rig.agent.inbox.nextTurn.at(-1)?.content?.[0]?.text, 'HANDOFF_MSG')
+    assert.equal(rig.agent.inbox.nextStep.length, 0)
+    // Remove synthetic handoff message before testing concurrent same-requestId folding.
+    assert.equal(rig.agent.inbox.remove(rig.agent.inbox.nextTurn.at(-1).id), true)
+  } finally {
+    rig.rt.isHandingOff = origHandingOff
+  }
 
   const p1 = rig.sessionController.prompt({ sessionId: 'dm-a', requestId: 'dup-req', mode: 'steer', content: [{ type: 'text', text: 'STEER_DUP_1' }] })
   const p2 = rig.sessionController.prompt({ sessionId: 'dm-a', requestId: 'dup-req', mode: 'steer', content: [{ type: 'text', text: 'STEER_DUP_2' }] })
@@ -475,8 +518,10 @@ test('real DSH ReactLoopAgent: bot-steer-queue rejects a retired foreground part
   await p1
   secondRelease.resolve()
   await p2
+  rig.abortGates.get(1).resolve()
   await rig.agent.whenIdle()
 
+  assert.deepEqual(rig.loggerWarnings.filter(msg => msg.includes('agent/inbox/inserted')), [])
   const secondCall = rig.seenPrompts.find(entry => entry.callNo === 2)
   assert.deepEqual(secondCall?.users, ['BASE', 'STEER_1', 'STEER_DUP_1', 'STEER_DUP_2'])
   assert.deepEqual(committedUserTexts(rig.agent), ['BASE', 'STEER_1', 'STEER_DUP_1', 'STEER_DUP_2', 'KEEP_QUEUED'])

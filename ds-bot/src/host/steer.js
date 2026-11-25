@@ -78,6 +78,7 @@ export function install(rt) {
         activeWaitReads: new Map(),
         activeKills: new Map(),
         cutting: false,
+        folding: false,
         cutAnchorId: undefined,
         pendingSteerRpcs: new Map(),
         pendingSteerIds: new Map(),
@@ -85,6 +86,15 @@ export function install(rt) {
       state.set(id, entry)
     }
     return entry
+  }
+
+  const isActiveForeground = (id, agent = liveAgent(id)) => {
+    if (id === undefined || rt.readOnly?.() !== undefined || !privateOf(id)) return false
+    if (rt.taskOwners?.has(id) || rt.isLocalCliSession?.(id)) return false
+    const botId = rt.chatOwners.get(id)
+    if (botId === undefined || (typeof rt.chatOf === 'function' && rt.chatOf(botId) !== id)) return false
+    if (agent !== undefined && liveAgent(id) !== agent) return false
+    return true
   }
 
   // How long a Bot's own chat waits for a shell call before it goes on as a background
@@ -125,30 +135,33 @@ export function install(rt) {
   const maybeCut = (id) => {
     const entry = rt.live.get(id)
     const agent = liveAgent(id)
-    if (!privateOf(id) || rt.readOnly?.() !== undefined || entry === undefined || agent === undefined) return
+    if (entry === undefined || agent === undefined || !isActiveForeground(id, agent)) return
     const botId = rt.chatOwners.get(id)
-    if (rt.isLocalCliSession?.(id)) return
     const activeInfo = entry.info ?? entry.claimed?.find(item => item?.silent !== true)
     if (rt.isHiddenBotWorkTurn?.(botId, activeInfo)) return
-    if (rt.taskOwners?.has(id) || rt.isHandingOff?.(id) || rt.mustIsolateHiddenWork?.(rt.botOf(botId), id)) return
+    if (rt.isHandingOff?.(id) || rt.mustIsolateHiddenWork?.(rt.botOf(botId), id)) return
     if (rt.waitsForApproval?.(id)) return
     if ([...(rt.switchJobs?.() ?? [])].some(job => job?.botId === botId && job.roomId === undefined)) return
     const track = stateOf(id)
-    if (track.phase !== 'model' || track.cutting) return
+    if (track.phase !== 'model' || track.cutting || track.folding) return
     if (entry.turn === undefined || (entry.calls?.size ?? 0) > 0 || agent.status !== 'running') return
     const nextStep = agent.inbox?.nextStep ?? []
     const last = [...nextStep].reverse().find(message => message?.source?.kind === 'user')
     if (last === undefined) return
-    if (!agent.inbox.remove(last.id)) return
-    track.cutting = true
-    rt.markSteerCut(id)
-    agent.cancel({ kind: 'hook', reason: STEER_CUT }, { keepInbox: true })
-    agent.send(last, 'next-turn', true)
-    if (agent.inbox.nextTurn[0]?.id !== last.id) {
-      agent.inbox.remove(last.id)
-      agent.inbox.prepend('next-turn', last)
+    track.folding = true
+    try {
+      if (!agent.inbox.remove(last.id)) return
+      track.cutting = true
+      track.cutAnchorId = last.id
+      rt.markSteerCut(id)
+      agent.cancel({ kind: 'hook', reason: STEER_CUT }, { keepInbox: true })
+      agent.send(last, 'next-turn', true)
+      if (agent.inbox.nextTurn[0]?.id !== last.id && agent.inbox.remove(last.id)) {
+        agent.inbox.prepend('next-turn', last)
+      }
+    } finally {
+      track.folding = false
     }
-    track.cutAnchorId = last.id
   }
   const scheduleCut = (id) => { queueMicrotask(() => maybeCut(id)) }
 
@@ -159,34 +172,54 @@ export function install(rt) {
   const foldIntoCutBatch = (id, messageId) => {
     const track = state.get(id)
     const agent = liveAgent(id)
-    if (track === undefined || !track.cutting || track.cutAnchorId === undefined || agent === undefined) return
-    if (messageId === track.cutAnchorId) return
+    if (track === undefined || !track.cutting || track.cutAnchorId === undefined || track.folding || agent === undefined) return
+    if (!isActiveForeground(id, agent)) return
+    const botId = rt.chatOwners.get(id)
+    if (rt.isHandingOff?.(id) || rt.mustIsolateHiddenWork?.(rt.botOf(botId), id)) return
     const nextTurn = agent.inbox?.nextTurn ?? []
     const incoming = nextTurn.find(message => message?.id === messageId && message?.source?.kind === 'user')
     if (incoming === undefined) return
-    const anchor = nextTurn[0]?.id === track.cutAnchorId ? nextTurn[0] : undefined
-    if (!agent.inbox.remove(incoming.id)) return
-    if (anchor !== undefined) {
-      if (!agent.inbox.remove(anchor.id)) {
-        agent.inbox.append('next-turn', incoming)
-        return
+    // Re-steering the active cut anchor via updateQueue moves it to the tail of
+    // next-turn during `wakingAfterAbort`; keep it pinned at index 0.
+    if (messageId === track.cutAnchorId) {
+      if (nextTurn[0]?.id === messageId) return
+      track.folding = true
+      try {
+        if (agent.inbox.remove(incoming.id)) agent.inbox.prepend('next-turn', incoming)
+      } finally {
+        track.folding = false
       }
-      agent.inbox.append('next-step', anchor)
+      return
     }
-    agent.inbox.prepend('next-turn', incoming)
-    track.cutAnchorId = incoming.id
+    const anchor = nextTurn[0]?.id === track.cutAnchorId ? nextTurn[0] : undefined
+    const previousAnchorId = track.cutAnchorId
+    track.folding = true
+    try {
+      if (!agent.inbox.remove(incoming.id)) return
+      if (anchor !== undefined) {
+        if (!agent.inbox.remove(anchor.id)) {
+          agent.inbox.append('next-turn', incoming)
+          return
+        }
+        agent.inbox.append('next-step', anchor)
+      }
+      track.cutAnchorId = incoming.id
+      agent.inbox.prepend('next-turn', incoming)
+    } catch (error) {
+      track.cutAnchorId = previousAnchorId
+      throw error
+    } finally {
+      track.folding = false
+    }
   }
 
   // Steers queued user-authored messages in one atomic host step so promoting
   // several queued rows at once never races between per-row RPCs, never
   // reorders messages behind other queued items, and never cascade-cuts turns.
   const steerQueued = (id, ids) => {
-    if (id === undefined || rt.readOnly?.() !== undefined) return { steered: 0 }
-    if (!privateOf(id) || rt.taskOwners?.has(id)) return { steered: 0 }
-    const botId = rt.chatOwners.get(id)
-    if (botId === undefined || (typeof rt.chatOf === 'function' && rt.chatOf(botId) !== id)) return { steered: 0 }
     const agent = liveAgent(id)
-    if (agent === undefined || agent.status !== 'running') return { steered: 0 }
+    if (agent === undefined || !isActiveForeground(id, agent) || agent.status !== 'running') return { steered: 0 }
+    const botId = rt.chatOwners.get(id)
     if (Array.isArray(ids) && ids.length === 0) return { steered: 0 }
     const nextTurn = agent.inbox?.nextTurn ?? []
     const wanted = Array.isArray(ids) ? new Set(ids) : undefined
@@ -202,56 +235,72 @@ export function install(rt) {
     const activeInfo = entry?.info ?? entry?.claimed?.find(item => item?.silent !== true)
     if (rt.isHiddenBotWorkTurn?.(botId, activeInfo)) return { steered: 0 }
     const track = stateOf(id)
+    if (track.folding) return { steered: 0 }
     if (track.cutting && track.cutAnchorId !== undefined) {
       const anchor = nextTurn[0]?.id === track.cutAnchorId ? nextTurn[0] : undefined
       const additions = selected.filter(message => message.id !== track.cutAnchorId)
       if (additions.length === 0) return { steered: 0 }
+      const previousAnchorId = track.cutAnchorId
+      track.folding = true
+      try {
+        const removed = []
+        for (const message of additions) {
+          if (agent.inbox.remove(message.id)) removed.push(message)
+        }
+        if (removed.length === 0) return { steered: 0 }
+        if (anchor !== undefined && !agent.inbox.remove(anchor.id)) {
+          for (const message of removed) agent.inbox.append('next-turn', message)
+          return { steered: 0 }
+        }
+        const tail = removed.pop()
+        const toNextStep = anchor !== undefined ? [anchor, ...removed] : removed
+        if (toNextStep.length > 0) {
+          if (typeof agent.inbox.splice === 'function') {
+            agent.inbox.splice('next-step', agent.inbox.nextStep.length, 0, toNextStep)
+          } else {
+            for (const message of toNextStep) agent.inbox.append('next-step', message)
+          }
+        }
+        track.cutAnchorId = tail.id
+        agent.inbox.prepend('next-turn', tail)
+        return { steered: removed.length + 1 }
+      } catch (error) {
+        track.cutAnchorId = previousAnchorId
+        throw error
+      } finally {
+        track.folding = false
+      }
+    }
+    track.folding = true
+    try {
       const removed = []
-      for (const message of additions) {
+      for (const message of selected) {
         if (agent.inbox.remove(message.id)) removed.push(message)
       }
       if (removed.length === 0) return { steered: 0 }
-      if (anchor !== undefined && !agent.inbox.remove(anchor.id)) {
-        for (const message of removed) agent.inbox.append('next-turn', message)
-        return { steered: 0 }
-      }
       const tail = removed.pop()
-      const toNextStep = anchor !== undefined ? [anchor, ...removed] : removed
-      if (toNextStep.length > 0) {
+      if (removed.length > 0) {
         if (typeof agent.inbox.splice === 'function') {
-          agent.inbox.splice('next-step', agent.inbox.nextStep.length, 0, toNextStep)
+          agent.inbox.splice('next-step', agent.inbox.nextStep.length, 0, removed)
         } else {
-          for (const message of toNextStep) agent.inbox.append('next-step', message)
+          for (const message of removed) agent.inbox.append('next-step', message)
         }
       }
-      agent.inbox.prepend('next-turn', tail)
-      track.cutAnchorId = tail.id
-      return { steered: removed.length + 1 }
-    }
-    const removed = []
-    for (const message of selected) {
-      if (agent.inbox.remove(message.id)) removed.push(message)
-    }
-    if (removed.length === 0) return { steered: 0 }
-    const tail = removed.pop()
-    if (removed.length > 0) {
-      if (typeof agent.inbox.splice === 'function') {
-        agent.inbox.splice('next-step', agent.inbox.nextStep.length, 0, removed)
-      } else {
-        for (const message of removed) agent.inbox.append('next-step', message)
+      if (typeof agent.steer === 'function') agent.steer(tail)
+      else if (typeof agent.send === 'function') agent.send(tail, 'next-step', true)
+      else agent.inbox.append('next-step', tail)
+      // If a non-cut abort was winding down (`wakingAfterAbort`), DSH placed `tail`
+      // at the end of `next-turn`: keep it at index 0 so the next turn claims the
+      // full steered batch `[...removed, tail]` ahead of any unsteered rows.
+      if ((agent.inbox.nextTurn ?? []).some(message => message?.id === tail.id)
+        && agent.inbox.nextTurn[0]?.id !== tail.id
+        && agent.inbox.remove(tail.id)) {
+        agent.inbox.prepend('next-turn', tail)
       }
+      return { steered: removed.length + 1 }
+    } finally {
+      track.folding = false
     }
-    if (typeof agent.steer === 'function') agent.steer(tail)
-    else if (typeof agent.send === 'function') agent.send(tail, 'next-step', true)
-    else agent.inbox.append('next-step', tail)
-    // If a non-cut abort was winding down (`wakingAfterAbort`), DSH placed `tail`
-    // at the end of `next-turn`: keep it at index 0 so the next turn claims the
-    // full steered batch `[...removed, tail]` ahead of any unsteered rows.
-    if ((agent.inbox.nextTurn ?? []).some(message => message?.id === tail.id) && agent.inbox.nextTurn[0]?.id !== tail.id) {
-      agent.inbox.remove(tail.id)
-      agent.inbox.prepend('next-turn', tail)
-    }
-    return { steered: removed.length + 1 }
   }
   rt.steerQueued = steerQueued
 
@@ -641,7 +690,11 @@ export function install(rt) {
       if (next > 0) map.set(key, next)
       else map.delete(key)
     }
-    const trackable = (id) => id !== undefined && privateOf(id) && !rt.taskOwners?.has(id)
+    const trackable = (id) => {
+      if (id === undefined || rt.readOnly?.() !== undefined || !privateOf(id) || rt.taskOwners?.has(id)) return false
+      const botId = rt.chatOwners.get(id)
+      return botId !== undefined && (typeof rt.chatOf !== 'function' || rt.chatOf(botId) === id)
+    }
     const wrappedPrompt = origPrompt === undefined ? undefined : async function (request, ...rest) {
       const id = request?.sessionId
       const rpcId = request?.mode === 'steer' && typeof request?.requestId === 'string' && request.requestId !== '' && trackable(id) ? request.requestId : undefined
@@ -682,10 +735,12 @@ export function install(rt) {
 
   ctx.on('agent/inbox/inserted', ({ agent, message } = {}) => {
     const id = agent?.id ?? agent?.session?.id
-    if (id === undefined || !privateOf(id) || message?.source?.kind !== 'user') return
+    if (id === undefined || !isActiveForeground(id, agent) || message?.source?.kind !== 'user') return
+    const botId = rt.chatOwners.get(id)
+    if (rt.isHandingOff?.(id) || rt.mustIsolateHiddenWork?.(rt.botOf(botId), id)) return
     const track = state.get(id)
-    if (track === undefined || !track.cutting || track.cutAnchorId === undefined) return
-    if (message.id === track.cutAnchorId) return
+    if (track === undefined || !track.cutting || track.cutAnchorId === undefined || track.folding) return
+    if (message.id === track.cutAnchorId && agent.inbox?.nextTurn?.[0]?.id === message.id) return
     const matched = (track.pendingSteerIds.get(message.id) ?? 0) > 0
       || (message.source.rpcId !== undefined && (track.pendingSteerRpcs.get(message.source.rpcId) ?? 0) > 0)
     if (!matched) return
