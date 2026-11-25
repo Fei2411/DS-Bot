@@ -25,11 +25,18 @@ const clock = ts => `T${ts}`
 function makeMockCtx() {
   const emitter = new EventEmitter()
   const services = new Map()
+  const disposers = []
   return {
     logger: { info() {}, warn() {}, error() {}, debug() {} },
     on(event, fn) { emitter.on(event, fn); return () => emitter.off(event, fn) },
     emit(event, ...args) { emitter.emit(event, ...args) },
-    effect() {},
+    effect(fn) {
+      const stop = fn?.()
+      if (typeof stop === 'function') disposers.push(stop)
+    },
+    async dispose() {
+      for (const stop of disposers.splice(0).reverse()) await stop()
+    },
     get(name) { return services.get(name) },
     set(name, value) { services.set(name, value) },
     llm: {
@@ -143,7 +150,11 @@ test('context-pack: buildHandoffPack, buildCheckpointPack, buildCompactDigest, b
 
 test('B14: read_own_chat recalls tool output by call_id and queries own group parts with membership isolation', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'dsb-pr4-recall-'))
-  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }))
+  const ctx = makeMockCtx()
+  t.after(async () => {
+    await ctx.dispose()
+    rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })
+  })
 
   const stateSeed = {
     version: 1,
@@ -196,7 +207,6 @@ test('B14: read_own_chat recalls tool output by call_id and queries own group pa
     ]],
   ])
 
-  const ctx = makeMockCtx()
   ctx.sessionController = {
     async page({ address, throughSeq, beforeSeq }) {
       const all = sessionEvents.get(address.sessionId) ?? []
@@ -205,7 +215,7 @@ test('B14: read_own_chat recalls tool output by call_id and queries own group pa
     },
   }
   const rt = {
-    ctx, home, statePath: join(home, 'state.json'), config: {}, teamTools: [],
+    ctx, home, statePath: join(home, 'state.json'), config: {}, teamTools: [], roomProgress: new Map(),
     ledger: { importer() {}, append() {}, tail() { return [] }, read() { return [] } },
     warn() {},
     redactSecrets: text => String(text).replace(/SECRET_XYZ/g, '[REDACTED]'),
@@ -257,7 +267,11 @@ test('B14: read_own_chat recalls tool output by call_id and queries own group pa
 
 test('B14 regressions: pruned replacement never overwrites original tool output, and upgraded v5 sealed parts backfill tool_outputs', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'dsb-pr4-prune-recall-'))
-  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }))
+  const ctx = makeMockCtx()
+  t.after(async () => {
+    await ctx.dispose()
+    rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })
+  })
 
   writeFileSync(join(home, 'state.json'), JSON.stringify({
     version: 1, revision: 1,
@@ -284,7 +298,6 @@ test('B14 regressions: pruned replacement never overwrites original tool output,
     ]],
   ])
 
-  const ctx = makeMockCtx()
   ctx.sessionController = {
     async page({ address, throughSeq, beforeSeq }) {
       const all = sessionEvents.get(address.sessionId) ?? []
@@ -423,13 +436,16 @@ test('D8 regressions: Claude rejected --fork-session retries once on fresh sessi
 
   // 2) openTaskPart probes fork on demand and preserves bounded parent ref in inheritedSegments for native CLI forks.
   const home = mkdtempSync(join(tmpdir(), 'dsb-pr4-clifork-'))
-  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }))
+  const ctx = makeMockCtx()
+  t.after(async () => {
+    await ctx.dispose()
+    rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })
+  })
   writeFileSync(join(home, 'state.json'), JSON.stringify({
     version: 1, revision: 1,
     bots: { b1: { id: 'b1', name: 'CodexBot', sessionId: 'dm-codex', model: 'local-codex-cli/o3', createdAt: 1, segments: [], tasks: [] } },
     rooms: {}, exchanges: [], prefs: {},
   }))
-  const ctx = makeMockCtx()
   const parentSession = { id: 'dm-codex', seq: 15, requestHeader: () => ({ config: { provider: 'local-codex-cli', model: 'o3' } }) }
   ctx.set('agents', new Map([['dm-codex', { id: 'dm-codex', session: parentSession }]]))
   let probedRoute
@@ -461,9 +477,12 @@ test('D8 regressions: Claude rejected --fork-session retries once on fresh sessi
 
 test('B14: normal part switch includes omitted-image notice when previous part had images, and omits it on text-only parts', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'dsb-pr4-img-'))
-  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }))
-
   const ctx = makeMockCtx()
+  t.after(async () => {
+    await ctx.dispose()
+    rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })
+  })
+
   const eventsByPart = new Map([
     ['p-img', [
       { seq: 0, time: 10, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'See screenshot' }, { type: 'image', mediaType: 'image/png', data: 'abc' }] } },
@@ -565,7 +584,11 @@ test('D8: versionSupportsFork, Codex thread/fork RPC + unsupported cache, and Cl
 
 test('D8: task_start fork gating uses ContextRuntime window occupancy ratio (<= 60% forks, > 60% fresh)', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'dsb-pr4-fork-ratio-'))
-  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }))
+  const ctx = makeMockCtx()
+  t.after(async () => {
+    await ctx.dispose()
+    rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })
+  })
 
   writeFileSync(join(home, 'state.json'), JSON.stringify({
     version: 1, revision: 1,
@@ -585,11 +608,10 @@ test('D8: task_start fork gating uses ContextRuntime window occupancy ratio (<= 
     ],
   }
   const agents = new Map([['dm-1', { id: 'dm-1', session: fakeSession }]])
-  const ctx = makeMockCtx()
   ctx.set('agents', agents)
   ctx.set('tokenMeter', { measure: () => ({ total: currentWorkingTokens }) })
   const rt = {
-    ctx, home, statePath: join(home, 'state.json'), config: {}, teamTools: [], live: new Map(),
+    ctx, home, statePath: join(home, 'state.json'), config: {}, teamTools: [], roomProgress: new Map(), live: new Map(),
     warn() {},
     workDirOf: () => undefined,
     sessionTokens: () => currentWorkingTokens,
@@ -622,7 +644,11 @@ test('D8: task_start fork gating uses ContextRuntime window occupancy ratio (<= 
 
 test('L9/D9: forgetLocalAgentSession and pruneLocalAgentSessions remove stale state.localAgents.sessions entries', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'dsb-pr4-cleanup-'))
-  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }))
+  const ctx = makeMockCtx()
+  t.after(async () => {
+    await ctx.dispose()
+    rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })
+  })
 
   writeFileSync(join(home, 'state.json'), JSON.stringify({
     version: 1, revision: 1,
@@ -638,7 +664,6 @@ test('L9/D9: forgetLocalAgentSession and pruneLocalAgentSessions remove stale st
     },
   }))
 
-  const ctx = makeMockCtx()
   const rt = { ctx, home, statePath: join(home, 'state.json'), config: {}, teamTools: [], warn() {} }
   installStore(rt)
   installContextRuntime(rt)
