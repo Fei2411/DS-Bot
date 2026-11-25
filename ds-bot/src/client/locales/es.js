@@ -2267,7 +2267,6 @@ export const ES = {
   "Click here to search any setting, Bot, or model.": "Haz clic aquí para buscar cualquier ajuste, Bot o modelo.",
   // Appearance (appearance-page.js)
   "Render": "Vista",
-  "Fit": "Ajustar",
   "Tablet": "Tableta",
   "Width": "Ancho",
   "Live": "En vivo",
@@ -2278,7 +2277,6 @@ export const ES = {
   "Canvas preview of {path}": "Vista previa del lienzo de {path}",
   "Source of {path}": "Código de {path}",
   "Reading {path}": "Leyendo {path}",
-  "Changes": "Cambios",
   "Changes from the Bot's last edit": "Cambios de la última edición del Bot",
   "Changes since this tab opened or was reviewed": "Cambios desde que se abrió esta pestaña o se revisó",
   "Mark reviewed": "Marcar como revisado",
@@ -2301,7 +2299,6 @@ export const ES = {
   "Close file tab": "Cerrar pestaña de archivo",
   "Couldn't open {path}": "No se pudo abrir {path}",
   "Opening {path}…": "Abriendo {path}…",
-  "Image": "Imagen",
   "Ask Bot": "Preguntar al Bot",
   "Ask Bot about this passage": "Preguntar al Bot sobre este pasaje",
   "Add to chat": "Añadir al chat",

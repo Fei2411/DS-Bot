@@ -2267,7 +2267,6 @@ export const KO = {
   "Click here to search any setting, Bot, or model.": "여기를 눌러 설정, Bot, 모델을 검색하세요.",
   // Appearance (appearance-page.js)
   "Render": "렌더",
-  "Fit": "맞춤",
   "Tablet": "태블릿",
   "Width": "너비",
   "Live": "실시간",
@@ -2278,7 +2277,6 @@ export const KO = {
   "Canvas preview of {path}": "{path} 캔버스 미리보기",
   "Source of {path}": "{path} 소스",
   "Reading {path}": "{path} 읽는 중",
-  "Changes": "변경 사항",
   "Changes from the Bot's last edit": "Bot의 마지막 편집 변경 내용",
   "Changes since this tab opened or was reviewed": "이 탭을 열거나 확인한 이후의 변경 내용",
   "Mark reviewed": "확인함으로 표시",
@@ -2301,7 +2299,6 @@ export const KO = {
   "Close file tab": "파일 탭 닫기",
   "Couldn't open {path}": "{path}을(를) 열 수 없습니다",
   "Opening {path}…": "{path} 여는 중…",
-  "Image": "이미지",
   "Ask Bot": "Bot에게 물어보기",
   "Ask Bot about this passage": "이 부분에 대해 Bot에게 물어보기",
   "Add to chat": "대화에 추가",

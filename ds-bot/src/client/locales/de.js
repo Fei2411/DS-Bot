@@ -2267,7 +2267,6 @@ export const DE = {
   "Click here to search any setting, Bot, or model.": "Klicke hier, um nach Einstellungen, Bots oder Modellen zu suchen.",
   // Appearance (appearance-page.js)
   "Render": "Ansicht",
-  "Fit": "Anpassen",
   "Tablet": "Tablet",
   "Width": "Breite",
   "Live": "Live",
@@ -2278,7 +2277,6 @@ export const DE = {
   "Canvas preview of {path}": "Canvas-Vorschau von {path}",
   "Source of {path}": "Quelltext von {path}",
   "Reading {path}": "{path} lesen",
-  "Changes": "Änderungen",
   "Changes from the Bot's last edit": "Änderungen der letzten Bot-Bearbeitung",
   "Changes since this tab opened or was reviewed": "Änderungen seit dem Öffnen dieses Tabs oder der letzten Prüfung",
   "Mark reviewed": "Als geprüft markieren",
@@ -2301,7 +2299,6 @@ export const DE = {
   "Close file tab": "Datei-Tab schließen",
   "Couldn't open {path}": "{path} konnte nicht geöffnet werden",
   "Opening {path}…": "{path} wird geöffnet…",
-  "Image": "Bild",
   "Ask Bot": "Bot fragen",
   "Ask Bot about this passage": "Bot zu dieser Passage fragen",
   "Add to chat": "Zum Chat hinzufügen",
