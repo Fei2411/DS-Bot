@@ -9,8 +9,9 @@ import { PANEL_MINIMUMS } from './side-apps.js'
 
 export const MIN_CHAT = 420
 export const RAIL_WIDTH = 88
-// What each panel view needs besides the chat; side-apps.js owns the table.
-export const PANEL_MIN = PANEL_MINIMUMS
+// What each panel view needs besides the chat; side-apps.js owns the shared
+// entries, and DSH's workspace panel keeps its own floor.
+export const PANEL_MIN = { ...PANEL_MINIMUMS, workspace: 360 }
 // The shell collapses its own sidebar below this width.
 export const DSH_NARROW = 1024
 // What the shell's collapsed track takes from the window. A phone-width shell parks the

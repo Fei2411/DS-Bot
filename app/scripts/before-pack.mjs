@@ -2,7 +2,7 @@
 // (npmRebuild: false), so they fit only the architecture of the Node that ran npm. An app built for
 // another architecture would carry them and not start, so such a build stops here.
 import { Arch } from 'electron-builder'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { preparePrimaryRuntime, runtimeTarget } from './prepare-runtime.mjs'
 
@@ -41,11 +41,15 @@ export function officeRuntimeRequest(context) {
   }
 }
 
-export async function beforePack(context, prepare = preparePrimaryRuntime) {
+export async function beforePack(context, prepare = preparePrimaryRuntime, exists = existsSync) {
   const targets = []
   for (const archToNames of context.packager?.packagerOptions?.targets?.values() ?? [])
     for (const arch of archToNames.keys()) targets.push(Arch[arch])
   const problem = archProblem({ target: Arch[context.arch], platform: context.electronPlatformName, targets })
   if (problem !== undefined) throw new Error(problem)
+  const appDir = context.packager?.appDir ?? context.packager?.projectDir
+  if (typeof appDir === 'string' && !exists(join(appDir, 'ui', 'dist', 'index.html'))) {
+    throw new Error('The built frontend (ui/dist/index.html) is missing. Run `npm run build` before packaging.')
+  }
   await prepare(officeRuntimeRequest(context))
 }

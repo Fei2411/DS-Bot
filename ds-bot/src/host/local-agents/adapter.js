@@ -46,6 +46,42 @@ const COMPACT_START_MS = 15_000
 const NO_TOOLS = 'Tools are not available for this request. Answer with text only.'
 
 // A title request never reaches the CLI.
+const TITLE_ARRAY_PREFIX = 'Generate the session title from this JSON array of human messages:'
+const TITLE_OBJECT_PREFIX = 'Update the session title from this JSON object:'
+
+function firstNonEmptyLine(text) {
+  return (String(text ?? '').split('\n').find(line => line.trim() !== '') ?? '').trim()
+}
+
+// DSH's session-title-llm wraps human messages in a fixed instruction line followed by
+// JSON; unwrap that payload so the fallback title uses the user's message instead of
+// the instruction prefix.
+function extractSessionTitle(raw) {
+  const trimmed = String(raw ?? '').trim()
+  let jsonText
+  if (trimmed.startsWith(TITLE_ARRAY_PREFIX)) jsonText = trimmed.slice(TITLE_ARRAY_PREFIX.length).trim()
+  else if (trimmed.startsWith(TITLE_OBJECT_PREFIX)) jsonText = trimmed.slice(TITLE_OBJECT_PREFIX.length).trim()
+  if (jsonText !== undefined) {
+    try {
+      const parsed = JSON.parse(jsonText)
+      const items = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.messages) ? parsed.messages : undefined
+      if (items !== undefined) {
+        for (const item of items) {
+          const line = firstNonEmptyLine(typeof item === 'string' ? item : item?.text)
+          if (line !== '') return line
+        }
+      }
+      if (typeof parsed?.currentTitle === 'string') {
+        const line = firstNonEmptyLine(parsed.currentTitle)
+        if (line !== '') return line
+      }
+    } catch { /* fall through to default */ }
+    return 'Chat'
+  }
+  const line = firstNonEmptyLine(trimmed)
+  return line === '' ? 'Chat' : line
+}
+
 function titleChunk(text) {
   const title = text.slice(0, 60)
   return [
@@ -500,8 +536,7 @@ export class LocalAgentAdapter extends LlmAdapter {
     if (this.disposed) throw new LlmError('the local agents adapter is disposed', 'NO_ADAPTER')
     if (options.purpose === 'session-title') {
       const first = (options.messages ?? []).find(message => message.role === 'user')
-      const title = (textOf(first?.content).split('\n').find(line => line.trim() !== '') ?? 'Chat').trim()
-      yield* titleChunk(title === '' ? 'Chat' : title)
+      yield* titleChunk(extractSessionTitle(textOf(first?.content)))
       return
     }
     if (options.purpose === 'compaction') {

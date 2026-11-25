@@ -1886,7 +1886,6 @@ test('memory-review.js deleting a Bot while its review is queued does not reject
       firstStarted,
       new Promise((_, reject) => {
         startTimer = setTimeout(() => reject(new Error('timed out waiting for review a to start')), 5000)
-        startTimer.unref?.()
       }),
     ])
   } finally {

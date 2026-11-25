@@ -30,6 +30,12 @@ export class OverlayBoundary extends Component {
     const name = this.props.name || 'overlay'
     console.error(`ds-bot: overlay '${name}' failed`, error, info?.componentStack ?? '')
     noteClientError(`overlay:${name}`, error)
+    this.props.actions?.telemetryClientError?.({
+      errorName: typeof error?.name === 'string' ? error.name : 'Error',
+      errorCode: typeof error?.code === 'string' ? error.code : undefined,
+      where: `overlay.${name}`,
+      stack: typeof error?.stack === 'string' ? error.stack : undefined,
+    })
     try {
       this.props.onDismiss?.()
     } catch (failure) {

@@ -478,3 +478,74 @@ test('PluginsPage allows disabling failed MCP plugins via desired state and disa
   assert.equal(submitBtn.props.disabled, true)
   resolveList(SAMPLE_VIEW)
 })
+
+test('PluginsPage hides uninstalled engine bundles and internal DSH profile/subagent bundles from Discover while keeping real catalog plugins', async () => {
+  const leakedEngineItems = [
+    {
+      id: 'dsh:@deepseek-ai/dsh-acp-app', name: 'ACP Profile', description: 'ACP runtime',
+      category: 'other', slot: null, kind: 'dsh', installed: false, enabled: false, active: false,
+      status: 'inactive', builtin: false, sourceId: 'installed', packageName: '@deepseek-ai/dsh-acp-app',
+    },
+    {
+      id: 'dsh:@deepseek-ai/dsh-experimental-agent-team-profile', name: 'Agent Team', description: 'Banned subagent bundle',
+      category: 'other', slot: null, kind: 'dsh', installed: true, enabled: false, active: false,
+      status: 'inactive', builtin: false, sourceId: 'installed', packageName: '@deepseek-ai/dsh-experimental-agent-team-profile',
+    },
+    {
+      id: 'dsh:@deepseek-ai/dsh-subagent-core', name: 'Subagent Core', description: 'Subagent engine',
+      category: 'other', slot: null, kind: 'dsh', installed: true, enabled: false, active: false,
+      status: 'inactive', builtin: false, sourceId: 'installed', packageName: '@deepseek-ai/dsh-subagent-core',
+    },
+    {
+      id: 'dsh:@deepseek-ai/dsh-devtools-bundle', name: 'Developer Tools', description: 'Uninstalled optional engine bundle',
+      category: 'other', slot: null, kind: 'dsh', installed: false, enabled: false, active: false,
+      status: 'inactive', builtin: false, sourceId: 'installed', packageName: '@deepseek-ai/dsh-devtools-bundle',
+    },
+    {
+      id: 'dsh:@deepseek-ai/dsh-headless', name: 'Headless Profile', description: 'Headless runtime',
+      category: 'other', slot: null, kind: 'dsh', installed: false, enabled: false, active: false,
+      status: 'inactive', builtin: false, sourceId: 'installed', packageName: '@deepseek-ai/dsh-headless',
+    },
+    {
+      id: 'dsh:dsbot-engine', name: 'DS Bot Engine', description: 'Internal desktop engine bundle',
+      category: 'other', slot: null, kind: 'dsh', installed: true, enabled: true, active: true,
+      status: 'ready', builtin: false, sourceId: 'installed', packageName: 'dsbot-engine',
+    },
+  ]
+
+  // When only browser plugins + leaked engine bundles are present, Discover is empty and shows the clean invite card.
+  const emptyGeneralView = {
+    ...SAMPLE_VIEW,
+    plugins: [...SAMPLE_VIEW.plugins.slice(0, 3), ...leakedEngineItems],
+  }
+  const emptyMount = mountPluginsPage({ view: emptyGeneralView })
+  emptyMount.draw()
+  await flush()
+  const emptyTree = emptyMount.draw()
+  const emptyText = textOf(emptyTree)
+  assert.doesNotMatch(emptyText, /ACP Profile|Agent Team|Subagent Core|Developer Tools|Headless Profile|DS Bot Engine/)
+  assert.match(emptyText, /Extend Bots with more capabilities/)
+  // Category bar must not include an empty "Other" tab from hidden engine bundles.
+  const catLabels = findAll(emptyTree, n => n.props?.className === 'bt-plg-cats')[0]
+  assert.doesNotMatch(textOf(catLabels), /Other/)
+
+  // Real catalog plugins from official/custom registries still appear in Discover.
+  const catalogView = {
+    ...emptyGeneralView,
+    plugins: [
+      ...emptyGeneralView.plugins,
+      {
+        id: 'dsh:dsbot-notes', name: 'DS Bot Notes', description: 'Official Bot plugin',
+        category: 'productivity', slot: null, kind: 'dsh', installed: false, enabled: false, active: false,
+        status: 'unavailable', builtin: false, sourceId: 'official', packageName: 'dsbot-notes',
+      },
+    ],
+  }
+  const catalogMount = mountPluginsPage({ view: catalogView })
+  catalogMount.draw()
+  await flush()
+  const catalogText = textOf(catalogMount.draw())
+  assert.match(catalogText, /Discover/)
+  assert.match(catalogText, /DS Bot Notes/)
+  assert.doesNotMatch(catalogText, /ACP Profile|Agent Team|Subagent Core|Developer Tools|Headless Profile|DS Bot Engine/)
+})

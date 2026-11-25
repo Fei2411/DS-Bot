@@ -7,8 +7,11 @@ import { after, before, describe, test } from 'node:test'
 import { composeEntries } from '@deepseek-ai/dsh-app-boot'
 import { BUNDLES, claimBundles, loadAppProfile } from '../src/profile.mjs'
 
-// Packages of DSH's own Web front end and its browser runtime, which the window shows.
-const DSH_WEB_FRONT_END = /^@deepseek-ai\/dsh-(client-ui-|web-app|web-frontend|client-modules|host-frontend-static|cordis-client-runner|client-hmr)/u
+// Packages of DSH's own Web front end and its browser runtime, which the desktop app must never load.
+// Also forbids dsh-host-directory-picker-auto, which dynamically loads dsh-client-ui-directory-picker-* at runtime.
+// Note: @deepseek-ai/dsh-experimental-voice-input-bundle carries a no-op stub `ui-voice-input` (empty `apply()`)
+// alongside the host SenseVoice/ASR service; no browser surface is served.
+const DSH_WEB_FRONT_END = /^@deepseek-ai\/dsh-(client-ui-|web-app|web-frontend|client-modules|host-frontend-static|cordis-client-runner|client-hmr|host-directory-picker-auto)/u
 
 // Every row of an entry list, with the rows inside groups and agent presets.
 function rows(entries) {
@@ -32,10 +35,18 @@ describe('the app profile', () => {
   })
   after(() => { rmSync(home, { recursive: true, force: true }) })
 
-  test('mounts DSH Web, which the window shows, and the Bot team', () => {
+  test('mounts dsbot-engine and the Bot team with zero DSH Web front-end rows', () => {
     const on = new Set(entries.filter((entry) => entry.disabled !== true).map((entry) => entry.id))
-    for (const id of ['webserver', 'connection', 'bot']) assert.ok(on.has(id), `${id} is mounted`)
-    assert.ok(rows(entries).some((entry) => DSH_WEB_FRONT_END.test(entry.name ?? '')), 'the DSH Web front end is mounted')
+    for (const id of [
+      'webserver', 'connection', 'engine-index', 'workspace', 'workspace-changes',
+      'session-controller', 'cordis-host-runner', 'cordis-inspect-providers',
+      'session-stats', 'session-turn-outline', 'agent-preset-registry',
+      'preset-standard', 'preset-ptc', 'preset-minimal', 'preset-cordis', 'bot',
+    ]) assert.ok(on.has(id), `${id} is mounted`)
+    const leaked = rows(entries)
+      .filter((entry) => entry.disabled !== true && DSH_WEB_FRONT_END.test(entry.name ?? ''))
+      .map((entry) => `${entry.id}:${entry.name}`)
+    assert.deepEqual(leaked, [], 'no DSH Web front-end rows are mounted in the desktop app profile')
   })
 })
 
@@ -50,8 +61,8 @@ describe('claimBundles', () => {
   }
   const read = () => JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
 
-  test('puts the app bundles first, keeps the user bundles and drops the retired ones', () => {
-    write(['@deepseek-ai/dsh-base', LEGACY_ENGINE, 'dsbot-engine', 'ds-bot', 'a-plugin'])
+  test('puts the app bundles first, keeps the user bundles and drops the retired ones (including dsh-web-app)', () => {
+    write(['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', LEGACY_ENGINE, 'ds-bot', 'a-plugin'])
     claimBundles(dir)
     assert.deepEqual(read().dsh.profile.bundles, [...BUNDLES, 'a-plugin'])
     assert.deepEqual(read().dependencies, { 'a-plugin': '1.0.0' })

@@ -77,9 +77,10 @@ export const Bubbles = memo(function Bubbles({ texts, roster, selfId, actions, s
   const reactions = useReadUi(state => (msgKey ? state.reactions?.[msgKey] ?? null : null))
   return h('div', { className: 'bt-astack', 'data-lead': lead ? '' : undefined, onClickCapture: onClick },
     cleaned.map((text, index) => {
+      const first = index === 0
       const last = index === cleaned.length - 1
       return h(Bubble, {
-        key: index, text, index, roster, selfId, actions, sessionId, msgKey, mentions, fold, textInteractionSource,
+        key: index, text, index, first, last, roster, selfId, actions, sessionId, msgKey, mentions, fold, textInteractionSource,
         picked: msgKey ? reactions?.[index] ?? EMPTY_PICKED : EMPTY_PICKED,
         live: streaming && last,
         lead: lead && last ? lead : null,
@@ -123,6 +124,8 @@ const foldArea = (body, code, codeHead, actions) => (code === undefined ? body
 
 const sameBubble = (a, b) => a.text === b.text
   && a.index === b.index
+  && a.first === b.first
+  && a.last === b.last
   && a.selfId === b.selfId
   && a.actions === b.actions
   && a.sessionId === b.sessionId
@@ -137,7 +140,7 @@ const sameBubble = (a, b) => a.text === b.text
   && a.roster?.bots === b.roster?.bots
   && a.roster?.byId?.[a.selfId]?.name === b.roster?.byId?.[b.selfId]?.name
 
-const Bubble = memo(function Bubble({ text, index, roster, selfId, actions, sessionId, msgKey, mentions, fold, picked, live, lead, whole, textInteractionSource }) {
+const Bubble = memo(function Bubble({ text, index, first = true, last = true, roster, selfId, actions, sessionId, msgKey, mentions, fold, picked, live, lead, whole, textInteractionSource }) {
   const { shown, folded, control, code, codeHead } = useFold(text, { limit: fold, whole, live })
   const key = msgKey ? `${msgKey}:${index}` : undefined
   const labels = mdLabels()
@@ -157,7 +160,15 @@ const Bubble = memo(function Bubble({ text, index, roster, selfId, actions, sess
   }
   const bubble = useRef(null)
   const area = foldArea(body, code, codeHead, actions)
-  return h('div', { ref: row, className: 'bt-msg', onClick: tapTools },
+  return h('div', {
+    ref: row,
+    className: 'bt-msg',
+    'data-first': first ? '' : undefined,
+    'data-last': last ? '' : undefined,
+    'data-join-top': first ? undefined : '',
+    'data-join-bottom': last ? undefined : '',
+    onClick: tapTools,
+  },
     h('div', { className: 'bt-msg-line' },
       lead,
       h('div', { ref: bubble, className: 'bt-bubble', 'data-folded': folded || undefined, 'data-text-interaction-source': textInteractionSource ? '' : undefined },
@@ -555,7 +566,7 @@ function MemoryEvent({ sessionId, scope, tool, result, failed, code, roster, act
     panel === undefined ? null : h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => actions.openMemory(panel) }, t('Manage')))
 }
 
-function PartLine({ time }) {
+export function PartLine({ time }) {
   return h('div', { className: 'bt-part-line', role: 'separator' }, Number.isFinite(time) ? h('span', null, dayLabel(time)) : null)
 }
 
@@ -566,14 +577,23 @@ const scrollParent = (node) => {
   return null
 }
 
-function EarlierUser({ row, actions }) {
+function EarlierUser({ row, actions, renderUserAttachments }) {
   const { shown, folded, control, code, codeHead } = useFold(row.text ?? '')
   const body = row.text && shown !== '' ? h(MarkdownText, { text: shown, labels: mdLabels(), variant: 'compact' }) : null
   const area = foldArea(body, code, codeHead, actions)
-  return h('div', { className: 'bt-urow' }, h('div', { className: 'bt-ububble', 'data-folded': folded || undefined, 'data-text-interaction-source': body || code !== undefined ? '' : undefined },
-    control ? h('div', { className: 'bt-fold-body' }, area) : area,
-    control,
-    row.images ? h('span', { className: 'bt-uimages', 'data-text-interaction-exclude': '' }, row.images === 1 ? t('1 image') : t('{count} images', { count: row.images })) : null),
+  const hasRich = typeof renderUserAttachments === 'function' && ((row.imageRefs?.length ?? 0) > 0 || (row.fileRefs?.length ?? 0) > 0)
+  const attachments = hasRich ? renderUserAttachments(row) : null
+  const fileNames = !hasRich && Array.isArray(row.fileRefs) && row.fileRefs.length > 0
+    ? row.fileRefs.map(file => file.name).filter(Boolean).join(', ')
+    : ''
+  const showBubble = Boolean(body || code !== undefined || (!hasRich && (row.images || fileNames)))
+  return h('div', { className: 'bt-urow' },
+    attachments,
+    showBubble ? h('div', { className: 'bt-ububble', 'data-folded': folded || undefined, 'data-text-interaction-source': body || code !== undefined ? '' : undefined },
+      control ? h('div', { className: 'bt-fold-body' }, area) : area,
+      control,
+      !hasRich && row.images ? h('span', { className: 'bt-uimages', 'data-text-interaction-exclude': '' }, row.images === 1 ? t('1 image') : t('{count} images', { count: row.images })) : null,
+      fileNames ? h('span', { className: 'bt-uimages', 'data-text-interaction-exclude': '' }, fileNames) : null) : null,
     row.via ? h('div', { className: 'bt-utime' }, h(ViaTag, { via: row.via }), Number.isFinite(row.time) ? messageClock(row.time) : null) : null)
 }
 
@@ -614,7 +634,7 @@ export function earlierItems(pages, { cursor, loading } = {}) {
 // The earlier parts of a Bot's own chat, above its current part as one conversation.
 // Pages load from the host as the user scrolls up; a thin line marks where each
 // part begins, the last one where the current part begins.
-function EarlierParts({ sessionId, roster, actions }) {
+export function EarlierParts({ sessionId, roster, actions }) {
   const [view, setView] = useState({ pages: [], cursor: undefined, loading: true, failed: false, startedAt: null })
   const top = useRef(null)
   const busy = useRef(false)
@@ -689,7 +709,7 @@ function EarlierParts({ sessionId, roster, actions }) {
 // A Bot chat's entries as the host lists them (the `earlier` and `chat` endpoints): the
 // Bot's messages in a row are one block, and a thin line marks where a part begins.
 // `clock` adds the time separators: one above the first entry, and one after each pause.
-export function ChatRows({ items, sessionId, roster, actions, useUi, clock = false, onBtwDelete }) {
+export function ChatRows({ items, sessionId, roster, actions, useUi, clock = false, onBtwDelete, renderUserAttachments }) {
   const selfId = roster.byId[sessionId]?.id
   const rows = []
   for (const item of items) {
@@ -706,7 +726,7 @@ export function ChatRows({ items, sessionId, roster, actions, useUi, clock = fal
   return rows.flatMap((row, index) => {
     // Pages are prepended, so a row keeps its distance from the end.
     const key = rows.length - index
-    const shown = chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDelete })
+    const shown = chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDelete, renderUserAttachments })
     // A part's first entry shows its time under the part's line, as a chat's first one does.
     if (row.kind === 'divider') {
       before = undefined
@@ -719,10 +739,10 @@ export function ChatRows({ items, sessionId, roster, actions, useUi, clock = fal
 }
 
 // `useUi` gives a block its reactions and its Reply tool.
-function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDelete }) {
+function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDelete, renderUserAttachments }) {
   switch (row.kind) {
     case 'divider': return h(PartLine, { key, time: row.time })
-    case 'user': return h(EarlierUser, { key, row, actions })
+    case 'user': return h(EarlierUser, { key, row, actions, renderUserAttachments })
     case 'answer': return h(AnsweredReply, { key, node: { data: row } })
     // A question or view card closed without an answer on it.
     case 'closed': return row.view === undefined
@@ -1325,9 +1345,10 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useRo
 // The calls ToolCell draws. A PTC program (`run_code`) dispatches the real tools as
 // its sub-calls, so a call draws by its own name wherever it sits in the tree.
 const isComputerCall = name => name === 'cua' || name?.startsWith('cua_driver_native__') === true
-const DRAWN = new Set(['message_bot', 'delegate_work', 'ask_back', 'answer_work', 'cancel_work', 'note_bot', 'stop_bot', 'create_bot', 'update_bot', 'group_relay', 'create_group', 'update_group', 'delete_group', 'post_to_group', 'ask_user', 'request_secret', 'request_connector', 'mail_send', 'ask_user_question', 'show_view', 'browser_handoff', 'read_group_chat', 'bot_remember', 'bot_forget', 'remember', 'forget', 'open_canvas', 'open_reader'])
+const DRAWN = new Set(['message_bot', 'delegate_work', 'ask_back', 'answer_work', 'cancel_work', 'note_bot', 'stop_bot', 'create_bot', 'update_bot', 'group_relay', 'create_group', 'update_group', 'delete_group', 'post_to_group', 'ask_user', 'request_secret', 'request_connector', 'mail_send', 'ask_user_question', 'show_view', 'browser_handoff', 'computer_handoff', 'read_group_chat', 'bot_remember', 'bot_forget', 'remember', 'forget', 'open_canvas', 'open_reader'])
 // Calls whose card a dock above the composer carries when the call is not drawn.
 const CARDS = new Set(['ask_user', 'request_secret', 'request_connector', 'mail_send', 'show_view', 'browser_handoff', 'computer_handoff'])
+export const isBotTool = name => DRAWN.has(name) || isComputerCall(name)
 
 // The root and its sub-calls in dispatch order, each call once.
 export function callTree(root) {

@@ -443,3 +443,61 @@ test('chunkMarkdown trims the edges of a message cut into several chunks', () =>
   assert.deepEqual(chunks, [body, body])
   for (const chunk of chunks) assert.ok(Array.from(chunk).length <= 60)
 })
+
+test('chunkMarkdown never cuts an emoji in half', () => {
+  // `limit` is counted in code points but the cut index was used as a UTF-16 offset, so
+  // every astral character before it moved the cut one unit early -- onto the middle of
+  // a surrogate pair. Each chunk then held half an emoji, which renders as nothing.
+  const emoji = '\u{1F600}'.repeat(10)
+  const chunks = chunkMarkdown(emoji, 5)
+  assert.deepEqual(chunks, ['\u{1F600}'.repeat(5), '\u{1F600}'.repeat(5)])
+  assert.equal(chunks.join(''), emoji)
+  for (const chunk of chunks) {
+    assert.ok(!/[\uD800-\uDBFF]$/.test(chunk), 'a chunk must not end on a lone high surrogate')
+    assert.ok(!/^[\uDC00-\uDFFF]/.test(chunk), 'a chunk must not start on a lone low surrogate')
+  }
+})
+
+test('chunkMarkdown keeps a mixed message whole when it fits', () => {
+  const body = 'a\u{1F600}b'.repeat(20)
+  const chunks = chunkMarkdown(body, 20)
+  assert.equal(chunks.join(''), body)
+  for (const chunk of chunks) assert.ok(Array.from(chunk).length <= 20)
+})
+
+test('chunkMarkdown caps UTF-16 units for a platform that counts them', () => {
+  // Discord measures a message in UTF-16 units, so an emoji costs two and a chunk of
+  // `limit` code points can still be rejected. The unit option measures the cut in the
+  // platform's own count, which never ends on half a pair.
+  const emoji = '\u{1F600}'.repeat(10)
+  const chunks = chunkMarkdown(emoji, 5, { unit: 'utf16' })
+  assert.equal(chunks.join(''), emoji)
+  for (const chunk of chunks) {
+    assert.ok(chunk.length <= 5, `chunk of ${chunk.length} UTF-16 units exceeds the limit`)
+    assert.ok(!/[\uD800-\uDBFF]$/.test(chunk), 'a chunk must not end on a lone high surrogate')
+  }
+})
+
+test('chunkMarkdown prefers a separator in the second half of the budget', () => {
+  // Two emoji put the cut four units into the string, so a halfway mark measured on that
+  // index alone would call the newline early and cut mid-word instead.
+  const body = '\u{1F600}\u{1F600}aaaaaa\nbbbbbbbbbb'
+  const chunks = chunkMarkdown(body, 10)
+  assert.equal(chunks[0], '\u{1F600}\u{1F600}aaaaaa')
+  assert.equal(chunks.join('\n'), body)
+})
+
+test('chunkMarkdown measures the halfway separator in the unit the platform counts', () => {
+  // 600 emoji are 600 code points but 1,200 UTF-16 units, so the newline sits at unit
+  // 1,200: past half of Discord's 2,000-unit budget counted in units, but short of half
+  // of it counted in code points. Measuring the mark in code points hid that newline and
+  // the cut went through the link behind it.
+  const label = 'a'.repeat(900)
+  const link = `[${label}](https://example.com/x)`
+  const body = `${'\u{1F600}'.repeat(600)}\n${link}${'b'.repeat(600)}`
+  const chunks = chunkMarkdown(body, 2000, { unit: 'utf16' })
+  assert.equal(chunks.length, 2)
+  assert.equal(chunks[0], '\u{1F600}'.repeat(600))
+  assert.ok(chunks[1].startsWith(link), 'the link is not cut in half')
+  for (const chunk of chunks) assert.ok(chunk.length <= 2000, `chunk of ${chunk.length} units exceeds the limit`)
+})
