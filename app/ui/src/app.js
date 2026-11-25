@@ -1,4 +1,4 @@
-import { Component, createElement as h, Fragment, useCallback, useEffect, useMemo, useState } from 'react'
+import { Component, createElement as h, Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { sendsOnEnter } from '../../../ds-bot/src/client/enter-key.js'
 import { ErrorToast } from '../../../ds-bot/src/client/feedback.js'
 import { HeaderPill } from '../../../ds-bot/src/client/header.js'
@@ -18,6 +18,7 @@ import { useDshSettingsBridge } from './engine-settings-bridge.js'
 import { getAppLocale } from './locale.js'
 import { WorkspacePaneBody, buildWorkspaceTabs } from './right-panel.js'
 import { ShortcutsDialog, matchGlobalShortcut } from './shortcuts.js'
+import { SHORTCUT_BY_ID, isCommandAvailable, isShortcutRecording, shortcutsStore, visibleClassicSessions, visibleSidebarTargets } from '../../../ds-bot/src/client/shortcuts-model.js'
 import { RIGHT_PANE_TAB_SLOT, SHELL_OVERLAY_SLOT, SlotErrorBoundary, slots, useSlotEntries } from './slots.js'
 import { createTeam } from './team.js'
 
@@ -205,38 +206,247 @@ export function App() {
     const pref = isNarrow ? (drawerOpen ? 'open' : 'hidden') : (wide ? 'open' : 'rail')
     return selector => selector(pref)
   }, [isNarrow, drawerOpen, wide])
-  useEffect(() => {
-    const onKeyDown = (event) => {
-      const hit = matchGlobalShortcut(event, { settingsOpen })
-      if (!hit) return
-      event.preventDefault()
-      if (hit === 'shortcuts') {
-        if (shortcutsOpen) actions.closeShortcuts()
-        else actions.openShortcuts()
+  const browserEnabled = hooks.useRoster(value => value.browser !== false)
+  const isNarrowRef = useRef(isNarrow)
+  isNarrowRef.current = isNarrow
+  const capabilitiesOf = useCallback((rosterSnap) => ({
+    hasSurface: typeof actions.setSurface === 'function',
+    hasBrowser: typeof actions.openBrowser === 'function' && rosterSnap?.browser !== false,
+    hasInbox: typeof actions.openInbox === 'function',
+  }), [actions])
+
+  const runShortcut = useCallback((hit) => {
+    if (!hit) return
+    const uiSnap = team.snapshots?.ui?.() ?? {}
+    const rosterSnap = team.snapshots?.roster?.() ?? {}
+    const sessionsSnap = team.snapshots?.sessions?.() ?? {}
+    const statusMap = team.snapshots?.status?.()
+    const shownId = team.snapshots?.shown?.() ?? null
+    const mode = team.snapshots?.surface?.()?.mode ?? 'bot'
+    const isShortcutsOpen = uiSnap.shortcuts === true
+    const isSettingsOpen = Boolean(uiSnap.settings)
+    const isPaletteOpen = Boolean(uiSnap.palette)
+    const focusComposerSoon = () => {
+      const focus = () => {
+        if (typeof document === 'undefined') return
+        if (document.querySelector('[aria-modal="true"]')) return
+        document.querySelector('[data-composer-input]')?.focus?.()
+      }
+      if (typeof requestAnimationFrame === 'function') requestAnimationFrame(focus)
+      else focus()
+    }
+
+    if (hit === 'shortcuts') {
+      if (isShortcutsOpen) actions.closeShortcuts()
+      else actions.openShortcuts()
+      return
+    }
+    if (isShortcutsOpen) actions.closeShortcuts()
+    if (hit === 'palette') {
+      if (isPaletteOpen) actions.closePalette()
+      else actions.openPalette()
+      return
+    }
+    if (hit === 'settings') {
+      if (isSettingsOpen) actions.closeSettings()
+      else actions.openSettings()
+      return
+    }
+    if (hit === 'new-chat') {
+      if (isSettingsOpen) actions.closeSettings()
+      if (mode === 'agent') {
+        void Promise.resolve(actions.createClassicSession?.()).catch(error => actions.reportError?.(error, 'agent-session'))
+      } else {
+        actions.openNewChat('new')
+      }
+      return
+    }
+    if (hit === 'sidebar') {
+      if (isNarrowRef.current) setDrawerOpen(open => !open)
+      else actions.toggleSidebar()
+      return
+    }
+    if (hit === 'switch-surface') {
+      if (typeof actions.setSurface === 'function') {
+        void Promise.resolve(actions.setSurface(mode === 'agent' ? 'bot' : 'agent')).catch(error => actions.reportError?.(error, 'surface'))
+      }
+      return
+    }
+    if (hit === 'inbox') {
+      if (typeof actions.openInbox === 'function') {
+        if (uiSnap.inbox) actions.closeInbox?.()
+        else actions.openInbox()
+      }
+      return
+    }
+    if (hit === 'browser') {
+      if (typeof actions.openBrowser !== 'function' || rosterSnap.browser === false) return
+      const currentBot = shownId ? rosterSnap.byId?.[shownId] : null
+      const botId = currentBot?.id ?? rosterSnap.mainBotId ?? rosterSnap.bots?.[0]?.id
+      const detailsBotId = uiSnap.details ? (rosterSnap.byId?.[uiSnap.details]?.id ?? uiSnap.details) : null
+      if (uiSnap.details && uiSnap.view === 'browser' && (!botId || detailsBotId === botId)) {
+        actions.closePanel()
         return
       }
-      if (shortcutsOpen) actions.closeShortcuts()
-      if (hit === 'palette') {
-        if (paletteOpen) actions.closePalette()
-        else actions.openPalette()
-      } else if (hit === 'settings') {
-        if (settingsOpen) actions.closeSettings()
-        else actions.openSettings()
-      } else if (hit === 'new-chat') {
-        if (settingsOpen) actions.closeSettings()
-        if (surfaceMode === 'agent') {
-          void Promise.resolve(actions.createClassicSession?.()).catch(error => actions.reportError?.(error, 'agent-session'))
-        } else {
-          actions.openNewChat('new')
-        }
-      } else if (hit === 'sidebar') {
-        if (isNarrow) setDrawerOpen(open => !open)
-        else actions.toggleSidebar()
+      if (botId) actions.openBrowser(botId)
+      return
+    }
+    if (hit === 'right-panel') {
+      if (uiSnap.details) actions.closePanel()
+      else actions.toggleRightPanel?.()
+      return
+    }
+    if (hit === 'terminal') {
+      if (uiSnap.details && uiSnap.view === 'workspace' && uiSnap.rightPanel?.tab === 'terminal') {
+        actions.closePanel()
+      } else if (actions.canOpenTerminal?.() !== false) {
+        actions.setRightPanelTab?.('terminal')
       }
+      return
+    }
+    if (hit === 'details') {
+      const target = shownId ? (rosterSnap.byId?.[shownId]?.id ?? rosterSnap.roomsById?.[shownId]?.id) : null
+      if (target) actions.toggleDetails?.(target)
+      return
+    }
+    if (hit === 'memory') {
+      if (uiSnap.memory) {
+        actions.closeMemory?.()
+        return
+      }
+      const target = shownId ? (rosterSnap.byId?.[shownId]?.id ?? rosterSnap.roomsById?.[shownId]?.id) : null
+      if (target && rosterSnap.memory !== false) actions.openMemory?.(target)
+      return
+    }
+    if (hit === 'focus-composer') {
+      focusComposerSoon()
+      return
+    }
+    if (hit === 'group-search') {
+      if (uiSnap.groupSearch) {
+        actions.closeGroupSearch?.()
+        return
+      }
+      const room = shownId ? rosterSnap.roomsById?.[shownId] : null
+      if (room && typeof actions.openGroupSearch === 'function') actions.openGroupSearch(room.id)
+      else actions.openPalette()
+      return
+    }
+    if (hit === 'stop-turn') {
+      if (!shownId) return
+      const room = rosterSnap.roomsById?.[shownId]
+      const bot = rosterSnap.byId?.[shownId]
+      const agentId = !bot && !room ? rosterSnap.agentOf?.[shownId] : null
+      if (room && typeof actions.stopRoomWork === 'function') {
+        void Promise.resolve(actions.stopRoomWork(room.id)).catch(error => actions.reportError?.(error, 'stop'))
+      } else if (bot && typeof actions.stopChat === 'function') {
+        if (statusMap && statusMap.get(shownId)?.running !== true) return
+        void Promise.resolve(actions.stopChat(bot.id)).catch(error => actions.reportError?.(error, 'stop'))
+      } else if (agentId && typeof actions.stopAgent === 'function') {
+        if (statusMap && statusMap.get(shownId)?.running !== true) return
+        void Promise.resolve(actions.stopAgent(agentId, shownId)).catch(error => actions.reportError?.(error, 'stop'))
+      }
+      return
+    }
+    if (hit === 'prev-chat' || hit === 'next-chat' || hit.startsWith('switch-bot-')) {
+      const delta = hit === 'prev-chat' ? -1 : hit === 'next-chat' ? 1 : 0
+      const slot = hit.startsWith('switch-bot-') ? Number(hit.slice('switch-bot-'.length)) - 1 : -1
+      if (mode === 'agent') {
+        const list = visibleClassicSessions(rosterSnap, sessionsSnap.byId)
+        if (list.length === 0) return
+        let target = null
+        if (slot >= 0) target = list[slot] ?? null
+        else {
+          const currentIndex = list.findIndex(item => item.id === shownId)
+          const nextIndex = currentIndex < 0 ? 0 : (currentIndex + delta + list.length) % list.length
+          target = list[nextIndex]
+        }
+        if (target) {
+          actions.openAgentSession?.(target.id)
+          focusComposerSoon()
+        }
+        return
+      }
+      const targets = visibleSidebarTargets(rosterSnap, sessionsSnap.byId, shownId)
+      if (targets.length === 0) return
+      let target = null
+      if (slot >= 0) {
+        target = targets[slot] ?? null
+      } else {
+        const currentEntityId = shownId
+          ? (rosterSnap.byId?.[shownId]?.id ?? rosterSnap.roomsById?.[shownId]?.id ?? rosterSnap.agentOf?.[shownId] ?? shownId)
+          : null
+        const currentIndex = targets.findIndex(item => item.id === currentEntityId)
+        const nextIndex = currentIndex < 0 ? 0 : (currentIndex + delta + targets.length) % targets.length
+        target = targets[nextIndex]
+      }
+      if (target) {
+        if (target.kind === 'agent') actions.openAgent?.(target.id)
+        else actions.openSession(target.id)
+        focusComposerSoon()
+      }
+    }
+  }, [team, actions])
+
+  // Priority follows actual modal z-index stacking (75 shortcuts > 70 palette/groupSearch > 61 memory > 60 settings > dialogs > inbox).
+  const activeModalOf = useCallback((uiSnap) => {
+    if (uiSnap.shortcuts) return 'shortcuts'
+    if (uiSnap.palette) return 'palette'
+    if (uiSnap.groupSearch) return 'groupSearch'
+    if (uiSnap.memory) return 'memory'
+    if (uiSnap.settings) return 'settings'
+    if (uiSnap.newChat || uiSnap.exchange || uiSnap.voice || uiSnap.signIn) return 'dialog'
+    if (uiSnap.inbox) return 'inbox'
+    if (typeof document !== 'undefined' && document.querySelector('[aria-modal="true"]')) return 'dialog'
+    return null
+  }, [])
+
+  const runShortcutRef = useRef(runShortcut)
+  runShortcutRef.current = runShortcut
+
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      const uiSnap = team.snapshots?.ui?.() ?? {}
+      const rosterSnap = team.snapshots?.roster?.() ?? {}
+      const hit = matchGlobalShortcut(event, {
+        settingsOpen: Boolean(uiSnap.settings),
+        modal: activeModalOf(uiSnap),
+        capabilities: capabilitiesOf(rosterSnap),
+      })
+      if (!hit) return
+      event.preventDefault()
+      runShortcutRef.current(hit)
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [actions, settingsOpen, shortcutsOpen, paletteOpen, surfaceMode, isNarrow])
+  }, [team, activeModalOf, capabilitiesOf])
+
+  // Keep Electron's main process aware of active global bindings so shortcuts pressed inside
+  // a focused Bot browser WebContentsView still reach the window without churn on chat switches.
+  useEffect(() => {
+    const bridge = globalThis.dsBotApp
+    if (!bridge) return undefined
+    const push = () => {
+      const rosterSnap = team.snapshots?.roster?.() ?? {}
+      bridge.syncShortcuts?.(shortcutsStore.activeBindings(capabilitiesOf(rosterSnap)))
+    }
+    push()
+    const offStore = shortcutsStore.subscribe(push)
+    const offShortcut = bridge.onShortcut?.((id) => {
+      if (isShortcutRecording()) return
+      const def = SHORTCUT_BY_ID[id]
+      const rosterSnap = team.snapshots?.roster?.() ?? {}
+      if (!def || !isCommandAvailable(def, capabilitiesOf(rosterSnap))) return
+      const uiSnap = team.snapshots?.ui?.() ?? {}
+      const modal = activeModalOf(uiSnap)
+      if (modal && !(def.allowInModal && def.allowInModal.includes(modal))) return
+      runShortcutRef.current(id)
+    })
+    return () => {
+      offStore()
+      if (typeof offShortcut === 'function') offShortcut()
+    }
+  }, [team, activeModalOf, capabilitiesOf, browserEnabled])
   const prefs = hooks.useRoster(value => value.prefs)
   // The open chat's own background, over the team's.
   const chat = hooks.useRoster(value => (shown ? value.byId?.[shown] ?? value.roomsById?.[shown] : undefined))
@@ -348,7 +558,15 @@ export function App() {
       : (inClassicMode ? h('div', { className: 'dsb-classic-none' }, h(AgentEmptyHero, { actions, readOnly, noSession: true })) : null)),
   h(Contain, { onError: closeOverlays },
     h(Overlays, { ...views, useFrame: useOwnFrame, useSidebarPref: useOwnSidebarPref, workspace, dsh: dshBridge }),
-    h(ShortcutsDialog, { open: shortcutsOpen, enterToSend: sendsOnEnter(prefs), onClose: actions.closeShortcuts }),
+    h(ShortcutsDialog, {
+      open: shortcutsOpen,
+      enterToSend: sendsOnEnter(prefs),
+      hasSurface: typeof actions.setSurface === 'function',
+      hasBrowser: typeof actions.openBrowser === 'function' && browserEnabled,
+      hasInbox: typeof actions.openInbox === 'function',
+      onCustomize: () => actions.openSettings('shortcuts'),
+      onClose: actions.closeShortcuts,
+    }),
     h(ShellOverlayHost, { registry: slots, views })),
   h(ErrorToast, views))
 }

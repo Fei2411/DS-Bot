@@ -32,6 +32,7 @@ import { langOf } from './start/text.mjs'
 import { createDeferredPrompt } from './update-prompt.mjs'
 import { CAPTION_HEIGHT, cssColor, frameOptions, framelessOn, keepVibrancy, materialOf, nativeThemeSource } from './window-frame.mjs'
 import { zoomKey, zoomLevel } from './zoom-keys.mjs'
+import { matchForwardedShortcut } from './shortcut-match.mjs'
 
 const { rm } = disk.promises
 
@@ -58,6 +59,7 @@ const IPC = {
   appUpdateChanged: 'ds-bot:app-update-changed',
   idleSeconds: 'ds-bot:idle-seconds', computer: 'ds-bot:computer', computerAction: 'ds-bot:computer-action', computerCursor: 'ds-bot:computer-cursor',
   notify: 'ds-bot:notify', notifyStatus: 'ds-bot:notify-status', badge: 'ds-bot:badge', openSession: 'ds-bot:open-session',
+  syncShortcuts: 'ds-bot:sync-shortcuts', shortcut: 'ds-bot:shortcut',
 }
 // A cookie export larger than this is not a cookie export.
 const IMPORT_FILE_MAX = 32 * 1024 * 1024
@@ -157,6 +159,7 @@ let copying
 const copyAbort = new AbortController()
 let browserGuests
 let botViews
+let activeShortcuts = []
 let cookieImports
 const cachedImportSources = new Map()
 const activeLiveImports = new Map()
@@ -344,6 +347,15 @@ async function loadModules() {
     window: () => mainWindow, WebContentsView, guests: browserGuests, origin: () => origin, devTools: !app.isPackaged,
     statePath: join(app.getPath('userData'), 'bot-views.json'),
     onChange: state => mainWindow?.webContents.send(IPC.browserViewChanged, state),
+    onInputShortcut: (input) => {
+      const id = matchForwardedShortcut(input, activeShortcuts, process.platform)
+      if (!id) return false
+      // Return keyboard focus from the child Bot WebContentsView to the app window so
+      // opened palettes, settings, or the composer accept typing immediately.
+      mainWindow?.webContents.focus()
+      mainWindow?.webContents.send(IPC.shortcut, id)
+      return true
+    },
   })
   cookieImports = new CookieImports()
 }
@@ -855,6 +867,19 @@ function handleIpc() {
   })
   ipcMain.on(IPC.motion, (event, tier) => { if (fromWindow(event)) writeStartFrame(frameFile, { motion: tier }) })
   ipcMain.on(IPC.effects, (event, tier) => { if (fromWindow(event)) writeStartFrame(frameFile, { effects: tier }) })
+  ipcMain.on(IPC.syncShortcuts, (event, bindings) => {
+    if (!fromWindow(event) || !Array.isArray(bindings)) return
+    activeShortcuts = bindings.slice(0, 64).filter(entry =>
+      entry && typeof entry === 'object' && typeof entry.id === 'string' && typeof entry.code === 'string',
+    ).map(entry => ({
+      id: entry.id,
+      code: entry.code,
+      mod: entry.mod === true,
+      ctrl: entry.ctrl === true,
+      alt: entry.alt === true,
+      shift: entry.shift === true,
+    }))
+  })
   ipcMain.handle(IPC.dataLocation, (event) => {
     assertWindow(event)
     return { path: places.dataDir, fixed }
