@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { createRuntime } from '../index.js'
 import { normalizeView, VIEW_BYTE_LIMIT, viewBytes } from 'deep-view/core'
-import { goalProvider } from '../src/host/goal-skills.js'
+import { goalProvider, unpackedPath } from '../src/host/goal-skills.js'
 import { replyText } from '../src/host/parts.js'
 import { fakeContext } from './fake-ctx.js'
 
@@ -94,11 +94,20 @@ async function prepareIssue(args = {}) {
   return JSON.parse(prepared.slice(prepared.indexOf('\n') + 1))
 }
 
-test('the bundled report skill can be invoked by the model and by the user', async () => {
+test('the bundled report skill can be invoked by the model and by the user with strict trigger boundaries', async () => {
   const provider = goalProvider()
   const item = (await provider.list()).find(skill => skill.name === 'report-ds-bot-issue')
   assert.deepEqual(item.invocation, { modelInvocable: true, userInvocable: true })
-  assert.match((await provider.get(item)).content, /prepare_ds_bot_issue.*show_view/)
+  assert.ok(item.description.length <= 500)
+  assert.match(item.description, /Do not use for user code errors/i)
+  assert.match(item.description, /Never open the approval card before the user agrees/i)
+  const full = await provider.get(item)
+  assert.match(full.content, /prepare_ds_bot_issue.*show_view/)
+  assert.match(full.content, /Fei-Craft\/DS-Bot/)
+  assert.equal(
+    unpackedPath('/Applications/DS Bot.app/Contents/Resources/app.asar/node_modules/ds-bot/src/host/skills/report-ds-bot-issue'),
+    '/Applications/DS Bot.app/Contents/Resources/app.asar.unpacked/node_modules/ds-bot/src/host/skills/report-ds-bot-issue',
+  )
 })
 
 test('only the matching affirmative view reply publishes the redacted issue shown to the user', async (t) => {
@@ -109,9 +118,10 @@ test('only the matching affirmative view reply publishes the redacted issue show
   rt.redactSecrets = value => value.replaceAll(savedSecret, '[hidden]')
   rt.publishDsBotIssue = async (botId, draft) => {
     writes.push({ botId, ...draft })
-    return 'https://github.com/Fei2411/DS-Bot/issues/42'
+    return 'https://github.com/Fei-Craft/DS-Bot/issues/42'
   }
   const draft = await prepareIssue({ what: `Error in ${homedir()}/a with ${savedSecret}` })
+  assert.match(draft.view.children[0].text, /Fei-Craft\/DS-Bot/)
   const action = draft.view.children.at(-1).id
   const tampered = await show('writer-now', { ...draft, title: 'Not the approved title' })
   assert.match(tampered.text, /draft changed or expired/)
@@ -126,7 +136,7 @@ test('only the matching affirmative view reply publishes the redacted issue show
   assert.equal((await call('view-reply', { ...reply, values: { confirmed: 'yes' } })).ok, false)
   const answers = await Promise.all([call('view-reply', reply), call('view-reply', reply)])
   assert.equal(answers.filter(result => result.ok).length, 1)
-  assert.deepEqual(answers.find(result => result.ok).value, { issueReportResult: 'Issue published: https://github.com/Fei2411/DS-Bot/issues/42' })
+  assert.deepEqual(answers.find(result => result.ok).value, { issueReportResult: 'Issue published: https://github.com/Fei-Craft/DS-Bot/issues/42' })
   assert.equal(writes.length, 1)
   const [{ botId, title, body }] = writes
   assert.equal(botId, 'writer')
@@ -137,7 +147,7 @@ test('only the matching affirmative view reply publishes the redacted issue show
   assert.ok(!JSON.stringify(draft).includes(savedSecret))
   const followup = sent.at(-1).message.content[0].text
   assert.equal(JSON.parse(followup).answers[0].values.confirmed, true)
-  assert.match(replyText(followup), /Issue published: https:\/\/github\.com\/Fei2411\/DS-Bot\/issues\/42$/)
+  assert.match(replyText(followup), /Issue published: https:\/\/github\.com\/Fei-Craft\/DS-Bot\/issues\/42$/)
 })
 
 test('cancel, dismiss, a typed yes, and a plain confirmation card never publish an issue', async (t) => {
@@ -194,7 +204,7 @@ test('an unconnected report returns a capped prefilled link, and a failed follow
   assert.match(uncertain.value.issueReportResult, /Check existing issues before submitting manually: https:\/\//)
 
   let writes = 0
-  rt.publishDsBotIssue = async () => { writes += 1; return 'https://github.com/Fei2411/DS-Bot/issues/42' }
+  rt.publishDsBotIssue = async () => { writes += 1; return 'https://github.com/Fei-Craft/DS-Bot/issues/42' }
   await show('writer-now', await prepareIssue())
   const reply = await open()
   failFlush(new Error('could not flush'))
