@@ -6,6 +6,29 @@
 
 const scalarType = type => typeof type === 'string' || (Array.isArray(type) && type.every(part => typeof part === 'string'))
 
+const nonNullType = type => Array.isArray(type) && type.includes('null') ? type.find(part => part !== 'null') : undefined
+
+// Both tool transports drop null from unions. Keep the property usable by allowing omission.
+export function finishNullableSchema(schema, original) {
+  const type = nonNullType(schema.type)
+  if (type !== undefined) {
+    const types = schema.type.filter(part => part !== 'null')
+    schema.type = types.length === 1 ? types[0] : types
+  }
+  if (!original.properties || !Array.isArray(schema.required)) return schema
+  const required = schema.required.filter(name => {
+    const property = original.properties[name]
+    return nonNullType(property?.type) === undefined && !['anyOf', 'oneOf'].some(key =>
+      Array.isArray(property?.[key]) && property[key].some(branch => branch?.type === 'null') &&
+      property[key].some(branch => branch?.type !== 'null'))
+  })
+  if (required.length !== schema.required.length) {
+    if (required.length) schema.required = required
+    else delete schema.required
+  }
+  return schema
+}
+
 // The type a non-empty enum implies, for a schema that carries none.
 function enumType(values) {
   const kept = values.filter(value => value !== null)
@@ -43,7 +66,7 @@ function typed(node) {
     else if (Array.isArray(out.enum)) out.type = enumType(out.enum)
   }
   if (Array.isArray(out.enum) && scalarType(out.type)) out.enum = out.enum.filter(value => value !== null)
-  return out
+  return finishNullableSchema(out, node)
 }
 
 // One tool's parameters, plain enough for any provider: unions collapsed to their

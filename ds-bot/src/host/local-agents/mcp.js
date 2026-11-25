@@ -3,10 +3,19 @@
 // Bot team tools; every call is handed to the adapter, which emits it as a
 // DSH tool call and answers here once the result arrives.
 import { createServer } from 'node:http'
-import { randomBytes, randomUUID } from 'node:crypto'
+import { createHash, randomBytes, randomUUID } from 'node:crypto'
+
+import { finishNullableSchema } from '../tool-schema.js'
 
 const PROTOCOL_VERSION = '2025-03-26'
 const KEEPALIVE_MS = 20_000
+
+// The bridge adds its own namespace outside this name. Keep shared calls bound
+// to the original server even when different tools are mounted on a later turn.
+function bridgeName(name) {
+  if (!name.startsWith('mcp__') || name.length <= 64 - 'mcp__dsbot__'.length) return name
+  return 'mcp__' + createHash('sha256').update(name).digest('hex').slice(0, 47)
+}
 
 // Several CLIs refuse schemas with unions, refs or const, so every schema is
 // flattened to plain JSON Schema before tools/list.
@@ -22,9 +31,15 @@ export function flattenSchema(node) {
       if (first !== undefined) Object.assign(out, flattenSchema(first))
       continue
     }
-    out[key] = flattenSchema(value)
+    if (key === 'properties' || key === 'patternProperties') {
+      out[key] = Object.fromEntries(Object.entries(value).map(([name, child]) => [name, flattenSchema(child)]))
+    } else if (['enum', 'default', 'examples'].includes(key)) {
+      out[key] = value
+    } else {
+      out[key] = flattenSchema(value)
+    }
   }
-  return out
+  return finishNullableSchema(out, node)
 }
 
 export class LoopbackMcp {
@@ -97,7 +112,7 @@ export class LoopbackMcp {
       case 'ping':
         return { jsonrpc: '2.0', id, result: {} }
       case 'tools/list':
-        return { jsonrpc: '2.0', id, result: { tools: this.tools().map(tool => ({ name: tool.name, description: tool.description ?? '', inputSchema: flattenSchema(tool.parameters ?? { type: 'object', properties: {} }) })) } }
+        return { jsonrpc: '2.0', id, result: { tools: this.tools().map(tool => ({ name: bridgeName(tool.name), description: tool.description ?? '', inputSchema: flattenSchema(tool.parameters ?? { type: 'object', properties: {} }) })) } }
       default:
         return { jsonrpc: '2.0', id, error: { code: -32601, message: `method not found: ${method}` } }
     }
@@ -139,7 +154,12 @@ export class LoopbackMcp {
     timer.unref?.()
     response.on('close', cleanup)
     this.calls.set(callId, entry)
-    this.onCall({ name: params?.name, arguments: params?.arguments ?? {}, callId })
+    const tool = this.tools().find(candidate => bridgeName(candidate.name) === params?.name)
+    if (!tool) {
+      entry.settle({ isError: true, text: 'Unknown or unmounted tool' })
+      return
+    }
+    this.onCall({ name: tool.name, arguments: params?.arguments ?? {}, callId })
       .then(entry.settle, error => entry.settle({ isError: true, text: error?.message ?? String(error) }))
   }
 }

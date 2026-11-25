@@ -181,9 +181,12 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
     },
     probeCwd: () => mkdtempSync(join(tmpdir(), 'dsb-probe-')),
     toolsFor: (options) => {
-      // Only DS Bot's own team tools cross the bridge; the CLI keeps its own.
+      // `options.tools` is the host's already-authorized per-turn catalog.
+      // Preserve its mounted MCP entries without rebuilding authorization here.
+      // The provider-qualified name is part of the binding, so a later mount
+      // cannot retarget an already emitted name.
       const names = new Set([...rt.teamTools.map(def => def.name), 'approve_agent_action'])
-      return (options.tools ?? []).filter(tool => names.has(tool.name))
+      return (options.tools ?? []).filter(tool => names.has(tool.name) || tool.name.startsWith('mcp__'))
     },
   })
 
