@@ -977,3 +977,104 @@ test('three-part recovery delivers the newest merged request once and never over
   assert.equal(p2.inbox.nextTurn.length, 0, 'part 2 inbox cleared')
   assert.deepEqual(host.rt.state.switching, {}, 'both switching markers cleared')
 })
+
+test('undelivered resume handoff followed by non-resuming folder handoff preserves reply routing and joined requests on recovery', async (t) => {
+  const host = makeSwitchFixture()
+  t.after(host.stop)
+  await host.rt.load()
+
+  const bot = host.rt.state.bots.b
+  bot.sessionId = 's2'
+  bot.segments = [
+    { sessionId: 'b', endedAt: Date.now() - 2_000 },
+    { sessionId: 's1', endedAt: Date.now() - 1_000 },
+  ]
+  host.rt.chatOwners.set('s1', 'b')
+  host.rt.chatOwners.set('s2', 'b')
+  // Part 1 ('b') had an interrupted turn answering Planner ('ex-planner') with a joined request;
+  // Part 2 ('s1') then hit an idle folder switch whose handoff was also interrupted.
+  host.rt.state.switching = {
+    b: {
+      botId: 'b',
+      handoffPending: true,
+      handoffMeta: {
+        resume: true,
+        overflow: false,
+        cutoff: false,
+        folder: false,
+        engine: false,
+        bare: false,
+        info: { kind: SOURCE_KIND, form: 'relay', role: 'request', exchangeId: 'ex-planner', senderName: 'Planner' },
+        joined: [{ info: { kind: SOURCE_KIND, form: 'relay', role: 'request', exchangeId: 'ex-joined-2', senderName: 'Reviewer' }, text: 'check appendix' }],
+      },
+    },
+    s1: {
+      botId: 'b',
+      handoffPending: true,
+      handoffMeta: {
+        resume: false,
+        overflow: false,
+        cutoff: false,
+        folder: true,
+        engine: false,
+        bare: false,
+      },
+    },
+  }
+  await host.rt.save()
+
+  await host.rt.heldBack()
+
+  const p3 = host.agentOf('s2')
+  const handoffs = p3.calls.filter(([kind, m]) => kind === 'followup' && m.source?.handoff === true).map(([, m]) => m)
+  assert.equal(handoffs.length, 1, 'delivers one consolidated handoff package to part 3')
+  assert.equal(handoffs[0].source?.resume, true, 'consolidated handoff preserves resume flag from earlier interrupted turn')
+  assert.equal(handoffs[0].source?.exchangeId, 'ex-planner', 'consolidated handoff preserves original reply exchangeId')
+  assert.equal(handoffs[0].source?.role, 'request', 'consolidated handoff preserves original reply role')
+  assert.deepEqual(handoffs[0].source?.joined?.map(item => item.info?.exchangeId), ['ex-joined-2'], 'consolidated handoff preserves joined requests')
+  assert.match(handoffs[0].content[0].text, /You were in the middle of a turn/)
+  assert.deepEqual(host.rt.state.switching, {}, 'both switching markers cleared only after consolidated handoff is durable')
+})
+
+test('handOnHeld re-checks destination after source resolution and never moves reminders onto a retiring part', async (t) => {
+  const host = makeSwitchFixture()
+  t.after(host.stop)
+  await host.rt.load()
+
+  const bot = host.rt.state.bots.b
+  bot.sessionId = 's1'
+  bot.segments = [{ sessionId: 'b', endedAt: Date.now() - 1_000 }]
+  host.rt.chatOwners.set('s1', 'b')
+  host.rt.state.switching = { b: { botId: 'b' } }
+  await host.rt.save()
+
+  const movedSchedules = []
+  host.rt.moveSchedules = async (fromId, toId, opts) => {
+    const resolved = typeof opts?.resolveTarget === 'function' ? opts.resolveTarget() : toId
+    movedSchedules.push([fromId, resolved])
+  }
+
+  // While handOnHeld resolves source part 'b', a concurrent folder edit moves b's current part from s1 -> s2.
+  let flippedDuringResolve = false
+  const origResolve = host.ctx.sessionController.resolveAgent
+  host.ctx.sessionController.resolveAgent = async (sid) => {
+    const res = await origResolve(sid)
+    if (sid === 'b' && !flippedDuringResolve) {
+      flippedDuringResolve = true
+      bot.sessionId = 's2'
+      bot.segments.push({ sessionId: 's1', endedAt: Date.now() })
+      host.rt.chatOwners.set('s2', 'b')
+    }
+    return res
+  }
+
+  await host.rt.heldBack()
+  // First pass must defer cleanly instead of moving reminders onto retiring s1!
+  assert.deepEqual(movedSchedules, [], 'must NOT move reminders onto retiring part s1 when destination changed mid-resolution')
+  assert.ok(host.rt.state.switching.b !== undefined, 'old part remains marked for retry against new destination')
+
+  // Next retry resolves s2 cleanly and moves reminders directly to s2.
+  await host.rt.heldBack()
+  assert.deepEqual(movedSchedules, [['b', 's2']], 'retry moves reminders directly onto live part s2')
+  assert.deepEqual(host.rt.state.switching, {}, 'switching marker cleared after moving to s2')
+})

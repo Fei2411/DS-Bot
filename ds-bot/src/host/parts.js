@@ -2055,7 +2055,7 @@ export function install(rt) {
 
   // Recovers a handoff package that was not yet flushed to `target` when the process
   // crashed or errored between flipping the current-part pointer and flushing flush #1.
-  async function ensureHandoffDelivered(oldSessionId, owner, targetId) {
+  async function ensureHandoffDelivered(oldSessionId, owner, targetId, { metaOverride, fallbackSessionId } = {}) {
     await rt.ensureCapabilities(targetId)
     const fresh = await rt.resolveAgent(targetId)
     const alreadyHasHandoff = (fresh.session?.deriveMessages?.() ?? []).some(m => m?.source?.handoff === true)
@@ -2068,14 +2068,21 @@ export function install(rt) {
     const effectiveRoom = room ?? taskRoom
     const parts = bot === undefined ? partsOf(undefined, room?.id)
       : room !== undefined ? partsOf(bot.id, room.id) : partsOfThread(bot.id, targetId)
-    const segment = parts.find(part => part?.sessionId === oldSessionId) ?? { sessionId: oldSessionId, fallback: 'failed' }
+    let segment = parts.find(part => part?.sessionId === oldSessionId) ?? { sessionId: oldSessionId, fallback: 'failed' }
     const number = Math.max(2, parts.length)
-    const meta = owner.handoffMeta ?? {}
+    const meta = metaOverride ?? owner.handoffMeta ?? {}
     const lines = await contextLines(fresh.session).catch(() => undefined)
     const budget = Math.min(RECENT_TOKENS, Math.floor((lines?.check ?? 4 * RECENT_TOKENS) / 4))
-    const carried = meta.bare
+    let carried = meta.bare
       ? { recent: [], earlier: [], tools: [], unlisted: 0, complete: true }
       : await handoffLines(oldSessionId, { budget, group: effectiveRoom !== undefined, number: number - 1 })
+    if (!meta.bare && carried.recent.length === 0 && carried.earlier.length === 0 && fallbackSessionId !== undefined && fallbackSessionId !== oldSessionId) {
+      const fallbackCarried = await handoffLines(fallbackSessionId, { budget, group: effectiveRoom !== undefined, number: number - 1 })
+      if (fallbackCarried.recent.length > 0 || fallbackCarried.earlier.length > 0 || fallbackCarried.tools.length > 0) {
+        carried = fallbackCarried
+        segment = parts.find(part => part?.sessionId === fallbackSessionId) ?? segment
+      }
+    }
     const folder = meta.folder ? fresh.session?.header?.cwd : undefined
     const engine = meta.engine && bot !== undefined ? rt.engineNameOf?.(bot.model ?? bot.appliedModel) : undefined
     const resume = meta.resume === true || meta.overflow === true
@@ -2104,6 +2111,75 @@ export function install(rt) {
       source: handoffSource(recoveredJob, resume),
     }))
     await ctx.sessions.flush(fresh.session)
+  }
+
+  // Combines contextual metadata from the newest pending handoff with any unsatisfied
+  // interrupted-turn resume obligations (info, joined, resumeOrigin) from earlier
+  // pending handoffs so an idle folder/engine hop never erases an unrecovered turn route.
+  function mergePendingHandoffMeta(pendingHandoffs) {
+    const newest = pendingHandoffs[pendingHandoffs.length - 1]
+    const newestMeta = newest.owner.handoffMeta ?? {}
+    let resumedEntry
+    let resume = false
+    let overflow = false
+    let cutoff = false
+    let folder = newestMeta.folder === true
+    let engine = newestMeta.engine === true
+    let bare = newestMeta.bare === true
+    let failed = newestMeta.failed
+    let primaryInfo
+    let resumeOrigin
+    const allInfos = []
+    const joined = []
+    const seenJoined = new Set()
+    const addJoined = (item) => {
+      const ex = item?.info?.exchangeId
+      if (ex !== undefined && seenJoined.has(ex)) return
+      if (ex !== undefined) seenJoined.add(ex)
+      joined.push(item)
+    }
+    for (const entry of pendingHandoffs) {
+      const meta = entry.owner.handoffMeta ?? {}
+      const hasResume = meta.resume === true || meta.overflow === true || meta.info !== undefined || (Array.isArray(meta.joined) && meta.joined.length > 0)
+      if (hasResume) resumedEntry = entry
+      if (meta.resume === true) resume = true
+      if (meta.overflow === true) overflow = true
+      if (meta.cutoff === true) cutoff = true
+      if (meta.folder === true) folder = true
+      if (meta.engine === true) engine = true
+      if (meta.failed !== undefined) failed = meta.failed
+      if (meta.info !== undefined) {
+        allInfos.push(meta.info)
+        primaryInfo = meta.info
+      }
+      if (meta.resumeOrigin !== undefined) resumeOrigin = meta.resumeOrigin
+      if (Array.isArray(meta.joined)) {
+        for (const item of meta.joined) addJoined(item)
+      }
+    }
+    if (primaryInfo?.exchangeId !== undefined) seenJoined.add(primaryInfo.exchangeId)
+    for (let i = 0; i < allInfos.length - 1; i += 1) {
+      const earlierInfo = allInfos[i]
+      if (earlierInfo?.exchangeId !== undefined && !seenJoined.has(earlierInfo.exchangeId)) {
+        addJoined({ info: earlierInfo, text: '' })
+      }
+    }
+    if (resumedEntry !== undefined && resumedEntry !== newest && resumedEntry.owner.handoffMeta?.bare === true) {
+      bare = true
+    }
+    const mergedMeta = {
+      resume,
+      overflow,
+      cutoff,
+      folder,
+      engine,
+      bare,
+      ...(failed !== undefined ? { failed } : {}),
+      ...(primaryInfo !== undefined ? { info: primaryInfo } : {}),
+      ...(joined.length > 0 ? { joined } : {}),
+      ...(resumeOrigin !== undefined ? { resumeOrigin } : {}),
+    }
+    return { newest, resumedEntry, mergedMeta }
   }
 
   let heldBackRun
@@ -2204,22 +2280,27 @@ export function install(rt) {
       const ready = group.slice(blockedIdx + 1)
       if (ready.length === 0) continue
 
+      // Re-verify destination after async source resolution: if the destination started
+      // switching or already moved on to a newer part, defer so we never deliver handoffs,
+      // input, or reminders onto a retiring part.
+      if (switches.has(target) || ready.some(entry => threadTargetOf(entry.sessionId, entry.owner) !== target)) {
+        retryNeeded = true
+        continue
+      }
+
       try {
-        // Deliver the newest pending handoff for this target before forwarding held input.
-        let newestHandoff
-        for (let i = ready.length - 1; i >= 0; i -= 1) {
-          if (ready[i].owner.handoffPending === true) {
-            newestHandoff = ready[i]
-            break
-          }
-        }
-        if (newestHandoff !== undefined) {
-          await ensureHandoffDelivered(newestHandoff.sessionId, newestHandoff.owner, target)
-          for (const entry of ready) {
-            if (entry.owner.handoffPending === true || entry.owner.handoffMeta !== undefined) {
-              delete entry.owner.handoffPending
-              delete entry.owner.handoffMeta
-            }
+        // Deliver the newest pending handoff for this target before forwarding held input,
+        // preserving any unsatisfied interrupted-turn resume obligations from earlier pending handoffs.
+        const pendingHandoffs = ready.filter(entry => entry.owner.handoffPending === true)
+        if (pendingHandoffs.length > 0) {
+          const { newest, resumedEntry, mergedMeta } = mergePendingHandoffMeta(pendingHandoffs)
+          await ensureHandoffDelivered(newest.sessionId, newest.owner, target, {
+            metaOverride: mergedMeta,
+            fallbackSessionId: resumedEntry?.sessionId,
+          })
+          for (const entry of pendingHandoffs) {
+            delete entry.owner.handoffPending
+            delete entry.owner.handoffMeta
           }
           await rt.save()
         }
@@ -2256,13 +2337,24 @@ export function install(rt) {
         continue
       }
 
-      for (const { sessionId, agent, held } of ready) {
+      for (const { sessionId, owner, agent, held } of ready) {
         try {
+          // If the destination switched or started switching while handoff/forward ran,
+          // defer cleanup and schedule migration rather than moving reminders onto a retiring part.
+          const liveTarget = threadTargetOf(sessionId, owner)
+          if (liveTarget !== target || switches.has(target)) {
+            retryNeeded = true
+            continue
+          }
           await rt.moveSilentNotes?.(sessionId, target, { awaitFlush: true, rethrow: true })
           removeForMove(agent, held)
           // An interrupted switch may not have finished moving the tasks over; stop
           // the earlier part only after they sit on the part that replaced it.
-          const finishMove = await rt.moveSchedules?.(sessionId, target, { stopActivity: true })
+          // Resolve the live destination again inside the serialized scheduleMoves chain.
+          const finishMove = await rt.moveSchedules?.(sessionId, target, {
+            stopActivity: true,
+            resolveTarget: () => threadTargetOf(sessionId, owner),
+          })
           await ctx.workspaceRegistry.archiveSession(sessionId, { stopActivity: true })
             .then(() => finishMove?.())
             .catch(error => {
@@ -2410,6 +2502,10 @@ export function install(rt) {
         // Keep the restart marker: stopping this part would delete unmoved tasks.
         job.kept = true
         if (error?.code === 'schedule/pending') job.schedulePending = true
+        if (job.handoffCleared === true) {
+          job.handoffCleared = false
+          await rt.save().catch(() => {})
+        }
         throw error
       }
       await ctx.workspaceRegistry.archiveSession(agent.id, { stopActivity: true })
