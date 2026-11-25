@@ -97,6 +97,46 @@ test('a private Bot can always turn privacy off, and cannot become Main or be du
   assert.equal(tree.some(node => node.props?.onClick && node.props.className === 'bt-set-row bt-bs-row' && JSON.stringify(node).includes('Duplicate')), false)
 })
 
+test('RunModeCard combines Engine and Model into one card without prose hints', () => {
+  const tree = settings(bot)
+  const runCard = tree.find(node => typeof node.type === 'function' && node.type.name === 'RunModeCard')
+  assert.ok(runCard, 'BotSettingsForm mounts RunModeCard')
+  const rendered = walk(runCard.type(runCard.props))
+  const text = JSON.stringify(rendered)
+  assert.match(text, /Engine/)
+  assert.match(text, /Built-in engine/)
+  assert.match(text, /Switch/)
+  assert.match(text, /Model/)
+  assert.doesNotMatch(text, /Answers with a model served by DS Bot/)
+  assert.doesNotMatch(text, /Answers through this CLI/)
+})
+
+test('extra folders are listed under the working folder and saved as one list', () => {
+  const saved = []
+  const actions = { updateBot: (id, patch) => saved.push([id, patch]) }
+  const roster = { mainBotIds: [], mainBotId: null, rooms: [], models: [], memory: false }
+  const tree = walk(BotSettingsForm({ bot: { ...bot, workDir: '/work', extraDirs: ['/site', '/api'] }, roster, actions, run: fn => fn }))
+  const list = tree.find(node => node.props?.value?.[0] === '/site' && typeof node.props.onSave === 'function')
+  const rows = walk(list.type(list.props))
+  const remove = rows.find(node => node.props?.['aria-label'] === 'Remove /site')
+  remove.props.onClick()
+  const adder = rows.find(node => node.props?.adding === true)
+  adder.props.onPick('/docs')
+  adder.props.onPick('/api')
+  // The lists come from the bundle's own realm.
+  assert.deepEqual(JSON.parse(JSON.stringify(saved)), [['b', { extraDirs: ['/api'] }], ['b', { extraDirs: ['/site', '/api', '/docs'] }]])
+  // A Bot with extra folders clears them before it becomes private.
+  const privacy = tree.find(node => node.props?.label === 'Private')
+  assert.equal(privacy.props.disabled, true)
+  assert.equal(privacy.props.hint, 'Remove its extra folders first.')
+  // A local agent owns its file permissions and has no extra-folder controls.
+  const local = settings({ ...bot, workDir: '/work', engine: 'local-codex', extraDirs: ['/site'] })
+  assert.equal(local.some(node => typeof node.props?.onSave === 'function' && Array.isArray(node.props.value ?? [])), false)
+  // A private Bot has no list to edit.
+  const closed = settings({ ...bot, workDir: '/work', private: true })
+  assert.equal(closed.some(node => typeof node.props?.onSave === 'function' && Array.isArray(node.props.value ?? [])), false)
+})
+
 // One InlineText with working state, so a test can type into it, press keys and blur it.
 function field(props) {
   const cells = []

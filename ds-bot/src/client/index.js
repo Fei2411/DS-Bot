@@ -3,10 +3,11 @@ import { isHex, inkText, paintCss } from './inks.js'
 import { DEFAULT_MASK, SHAPES, markupCache, maskOf } from './characters.js'
 import { createSource, EMPTY_ROSTER, indexRoster, isAgentSession } from './sources.js'
 import { teamActions } from './team-actions.js'
-import { themeCss, shellTokens, registry, registerShape, registerTheme, allThemes, layoutOf, effectsOf, widthOf, flatWidthOf } from './themes.js'
+import { themeCss, shellTokens, surfaceColors, registry, registerShape, registerTheme, allThemes, themesOf, layoutOf, effectsOf, widthOf, flatWidthOf } from './themes.js'
+import { appearanceCss, backgroundShown, onSafeAppearance, pictureUrl, safeAppearance, userCss, watchSafeAppearance } from './appearance.js'
 import { readSkinSurfaceVars, writeSkinSurfaceVars } from './skin.js'
 import { MENTION_ORIGIN, currentPart } from './text.js'
-import { SHELL_CSS, CONVERSATION_CSS, botOwnCss, installStyles, installCompiledStyles, RETURN_TOKENS } from './styles.js'
+import { SHELL_CSS, CONVERSATION_CSS, botOwnCss, installStyles, installLastStyles, installCompiledStyles, RETURN_TOKENS } from './styles.js'
 import { lookOf } from './mark.js'
 import { TeamSidebar, YouAvatar, AccountLauncher, FooterAccount, BrandMark, BrandName, BotReturn, SIDEBAR_CSS, RETURN_CSS, holdShellShortcuts } from './sidebar.js'
 import { installSettingsShell, SETTINGS_SHELL_CSS } from './settings-shell.js'
@@ -24,6 +25,7 @@ import { QuestionCard, QuestionDock } from './questions.js'
 import { AnsweredReply, WidgetDock, WIDGET_CSS } from './widget-cell.js'
 import { CHANGES_CSS } from './changes-card.js'
 import { HandoffDock, HANDOFF_CSS } from './handoff-card.js'
+import { WorkPauseDock } from './work-pause-card.js'
 import { AppAccessDock, ComputerHandoffDock, ComputerIndicator, COMPUTER_CSS } from './computer.js'
 import { installHeaderNavigation } from './header-navigation.js'
 import { AssistantCell, TriggerCell, TurnProcessCell, Nothing, CellEmpty, TurnTailCell, ToolCell } from './cells.js'
@@ -47,6 +49,7 @@ import { GROUP_SETTINGS_CSS } from './group-settings.js'
 import { FOLDER_CSS } from './folder-menu.js'
 import { USAGE_CSS } from './usage-page.js'
 import { SCHEDULE_CSS } from './schedules.js'
+import { APPEARANCE_PAGE_CSS } from './appearance-page.js'
 import { STORAGE, migrateStorage } from './storage.js'
 import { noteLeft, setUnread, sharedMap, toggleReaction } from './shared-map.js'
 import { freePriority, groupsFor, readMode, surfaceGroups, writeMode } from './surface.js'
@@ -56,6 +59,7 @@ import { steerQueued } from './enter-steer.js'
 import { installCommandActions } from './command-actions.js'
 import { RIGHTBAR_ATTRIBUTES, columnOpened, createSwitchWindow, drawerOpened, rightColumnOpen } from './right-panel.js'
 import { ErrorToast, FEEDBACK_CSS } from './feedback.js'
+import { PRIVACY_CSS } from './privacy-page.js'
 import { ABOUT_CSS } from './about.js'
 import { MEMBER_CSS, MemberDock } from './member-status.js'
 import { TASK_CSS } from './task-board.js'
@@ -67,6 +71,7 @@ import { BOT_MENTION_ID, installBotMentionRule } from './user-text-rule.js'
 import { QueueDock, QUEUE_CSS } from './queue-dock.js'
 import { PASTE_CSS, PasteDock, PasteGuard } from './paste-card.js'
 import { pruneDrafts } from './draft-keep.js'
+import { createQuestionDrafts } from './question-draft.js'
 import { OPENING_CSS, bindOpeningWait } from './opening.js'
 import { noticeApprovals } from './approval-notices.js'
 import { listedOpener } from './open-listed.js'
@@ -75,6 +80,8 @@ import { installMotionRest } from './motion-rest.js'
 import { agentSessionToReuse, singleFlight } from './agent-new.js'
 import { TextSelectionAction, ANNOTATION_CSS } from './text-annotation.js'
 import { installAgentForks } from './agent-fork.js'
+import { createAvatarRefCache } from './avatar-refs.js'
+import { watchBotCompletions } from './bot-completions.js'
 
 export const inject = ['sessions', 'uiWorkspace', 'uiConversation', 'slots', 'theme', 'layout']
 
@@ -90,6 +97,7 @@ export function apply(ctx) {
   try { savedPrefs = JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}') ?? {} } catch { savedPrefs = {} }
   const roster = createSource({ ...EMPTY_ROSTER, prefs: savedPrefs })
   const unreadStore = sharedMap(STORAGE.unread)
+  const botCompletions = createSource({})
   const reactionStore = sharedMap(STORAGE.reactions)
   // When each conversation was last left; a visit compares new turns against it.
   const seenStore = sharedMap(STORAGE.seen)
@@ -151,6 +159,7 @@ export function apply(ctx) {
       if (event.key === null || event.key === unreadStore.key) ui.set(state => ({ ...state, unread: unreadStore.read(state.unread) }))
       if (event.key === null || event.key === reactionStore.key) ui.set(state => ({ ...state, reactions: reactionStore.read(state.reactions) }))
       if (event.key === null || event.key === seenStore.key) seenAt = seenStore.read(seenAt)
+      if (event.key === null || event.key === STORAGE.rescuedDrafts) questionDrafts.syncFromStorage()
     }
     window.addEventListener('storage', onStorage)
     return () => window.removeEventListener('storage', onStorage)
@@ -173,6 +182,9 @@ export function apply(ctx) {
   // Edited dock cards keep their component when history arrives. This source
   // holds only request identities and counts, never drafts or secret values.
   const heldCards = createSource({})
+  // Unsubmitted custom answers on open question cards; rescued into the main
+  // composer draft if a question is externally cancelled, replaced, or timed out.
+  const questionDrafts = createQuestionDrafts()
   // Per Session, the first visible time and the end time of each turn the transcript
   // has rendered; time separators compare one turn's end with the next turn's start.
   const turnClock = createSource({})
@@ -194,14 +206,17 @@ export function apply(ctx) {
     ui.set(state => (JSON.stringify(state.unread) === JSON.stringify(unread) ? state : { ...state, unread }))
   }
   const refreshed = new Set()
+  const avatarRefs = createAvatarRefCache(call)
   // Pulls can overlap (the poll and a navigation); an older answer never wins.
   let pulls = 0
   let applied = 0
+  let avatarIncomplete = false
   const pull = async () => {
     const order = ++pulls
     const known = roster.getSnapshot()
-    const value = await call('state', { since: known.revision, models: known.modelsKey ?? '', live: liveKey, locale: language() })
-    if (order < applied) return
+    const since = avatarIncomplete ? -1 : known.revision
+    const value = await call('state', { since, models: known.modelsKey ?? '', live: liveKey, locale: language(), avatars: 'ref' })
+    if (order < applied) return false
     applied = order
     const prevLiveKey = liveKey
     if (value.liveKey !== undefined) liveKey = value.liveKey
@@ -226,26 +241,40 @@ export function apply(ctx) {
     if (value.connectors !== undefined && JSON.stringify(value.connectors) !== JSON.stringify(current.connectors ?? [])) live.connectors = value.connectors
     if (value.capabilityStatuses !== undefined && JSON.stringify(value.capabilityStatuses) !== JSON.stringify(current.capabilityStatuses ?? {})) live.capabilityStatuses = value.capabilityStatuses
     if (value.phone !== undefined && JSON.stringify(value.phone) !== JSON.stringify(current.phone ?? null)) live.phone = value.phone
-    if (value.mcp !== undefined && JSON.stringify(value.mcp) !== JSON.stringify(current.mcp ?? null)) live.mcp = value.mcp
+    if (value.api !== undefined && JSON.stringify(value.api) !== JSON.stringify(current.api ?? null)) live.api = value.api
     if (value.learning !== undefined && JSON.stringify(value.learning) !== JSON.stringify(current.learning ?? {})) live.learning = value.learning
     if (value.learningSettled !== undefined && JSON.stringify(value.learningSettled) !== JSON.stringify(current.learningSettled ?? {})) live.learningSettled = value.learningSettled
     if (value.btwCards !== undefined && JSON.stringify(value.btwCards) !== JSON.stringify(current.btwCards ?? {})) live.btwCards = value.btwCards
     if (value.sideChats !== undefined && JSON.stringify(value.sideChats) !== JSON.stringify(current.sideChats ?? {})) live.sideChats = value.sideChats
     if (value.imStatus !== undefined && JSON.stringify(value.imStatus) !== JSON.stringify(current.imStatus ?? {})) live.imStatus = value.imStatus
     if (value.imVia !== undefined && JSON.stringify(value.imVia) !== JSON.stringify(current.imVia ?? {})) live.imVia = value.imVia
+    if (value.apiVia !== undefined && JSON.stringify(value.apiVia) !== JSON.stringify(current.apiVia ?? {})) live.apiVia = value.apiVia
     if (value.plugins !== undefined && JSON.stringify(value.plugins) !== JSON.stringify(current.plugins ?? null)) live.plugins = value.plugins
     // The read-only notice goes once this host takes the team over from a dsh that
     // closed, without a reload: the window holds the answer's live fields until then.
     if (value.readOnly !== undefined && (value.readOnly ?? null) !== (current.readOnly ?? null)) live.readOnly = value.readOnly
-    if (Object.keys(live).length > 0 && current.ready) roster.set({ ...current, ...live })
-    if (value.unchanged || (value.revision === current.revision && value.modelsKey === current.modelsKey)) {
+    if (value.unchanged || (!avatarIncomplete && value.revision === current.revision && value.modelsKey === current.modelsKey)) {
+      if (Object.keys(live).length > 0 && current.ready) roster.set({ ...current, ...live })
+      return value.liveKey !== undefined && value.liveKey !== prevLiveKey
+    }
+    const { state: hydrated, incomplete } = await avatarRefs.hydrate(value)
+    if (order < applied) return false
+    avatarIncomplete = incomplete
+    const latest = roster.getSnapshot()
+    const sameState = hydrated.revision === latest.revision && hydrated.modelsKey === latest.modelsKey && latest.ready
+    const avatarsChanged = sameState && (
+      (hydrated.bots ?? []).some(bot => bot?.avatar?.image !== latest.byId?.[bot.id]?.avatar?.image)
+      || (hydrated.rooms ?? []).some(room => room?.avatar?.image !== latest.roomsById?.[room.id]?.avatar?.image)
+    )
+    if (sameState && !avatarsChanged) {
+      if (Object.keys(live).length > 0) roster.set({ ...latest, ...live })
       return value.liveKey !== undefined && value.liveKey !== prevLiveKey
     }
     // On a browser with no visit record yet, everything already there counts as seen.
-    if (Object.keys(seenAt).length === 0) leaveVisits([...value.bots, ...value.rooms].map(entry => entry.id))
-    roster.set(indexRoster(value))
+    if (Object.keys(seenAt).length === 0) leaveVisits([...hydrated.bots, ...hydrated.rooms].map(entry => entry.id))
+    roster.set(indexRoster(hydrated))
     try {
-      const ids = (value.agents ?? []).flatMap(agent => agent.sessions ?? [])
+      const ids = (hydrated.agents ?? []).flatMap(agent => agent.sessions ?? [])
       localStorage.setItem(STORAGE.agentSessions, JSON.stringify(ids))
       agentSessionCache = new Set(ids)
     } catch { /* storage unavailable */ }
@@ -257,7 +286,11 @@ export function apply(ctx) {
     for (const [agentId, sessionId] of pendingAgentSession) {
       if (listed[sessionId] !== undefined || roster.getSnapshot().agentOf[sessionId] !== agentId) pendingAgentSession.delete(agentId)
     }
-    for (const id of [...value.bots.map(currentPart), ...value.rooms.map(room => room.sessionId ?? room.id)]) {
+    const activeIds = new Set([...hydrated.bots.map(currentPart), ...hydrated.rooms.map(room => room.sessionId ?? room.id)])
+    for (const id of refreshed) {
+      if (!activeIds.has(id)) refreshed.delete(id)
+    }
+    for (const id of activeIds) {
       if (refreshed.has(id)) continue
       refreshed.add(id)
       void Promise.resolve(ctx.sessions.refreshProjections?.(id)).catch(quietly('refresh projections'))
@@ -374,7 +407,7 @@ export function apply(ctx) {
     }, 'ds-bot: Bot browsers')
   }
 
-  ctx.effect(() => () => { markupCache.clear() }, 'ds-bot: character markup')
+  ctx.effect(() => () => { markupCache.clear(); avatarRefs.clear(); avatarIncomplete = false }, 'ds-bot: character markup')
   ctx.effect(() => installMotionRest(), 'ds-bot: motion rest')
 
   // Mentions wear each Bot's color and character silhouette (or its photo). User text
@@ -385,8 +418,23 @@ export function apply(ctx) {
   const installMentions = () => {
     const style = installStyles('', 'mentions')
     let last = ''
+    let lastReg = null
+    let lastSig = null
     const render = () => {
-      const next = roster.getSnapshot().bots.map((bot) => {
+      const reg = registry.getSnapshot()
+      const bots = roster.getSnapshot().bots
+      if (lastSig !== null && reg === lastReg && bots.length === lastSig.length && bots.every((b, i) => {
+        const prev = lastSig[i]
+        return prev[0] === b.id
+          && prev[1] === b.name
+          && prev[2] === b.color
+          && prev[3] === b.avatar?.shape
+          && prev[4] === b.avatar?.color
+          && prev[5] === b.avatar?.image
+      })) return
+      lastReg = reg
+      lastSig = bots.map(b => [b.id, b.name, b.color, b.avatar?.shape, b.avatar?.color, b.avatar?.image])
+      const next = bots.map((bot) => {
         const anchor = `.bt-bubble a[href="${MENTION_ORIGIN}${bot.id}"]`
         const chip = /\s/.test(bot.name) ? '' : `:is([class*="_userRow"],.bt-uhost) [data-ref-chip="file"][title="@${bot.name.replace(/["\\]/g, '\\$&')}" i]`
         const look = lookOf(bot)
@@ -407,18 +455,44 @@ export function apply(ctx) {
 
   // The chosen theme lives in the team state so every device shares it; the local
   // copy only avoids a flash of the default theme before the first state pull.
+  // The Session the main view holds open, if any.
+  const shownSessionId = () => Object.values(ctx.sessions.list.getSnapshot().byId ?? {}).find(session => (session?.retainedBy?.mainView ?? 0) > 0)?.id
   const installTheme = () => {
     const style = installStyles('', 'theme')
+    // The appearance, and the user's own stylesheet after every DS Bot sheet.
+    const look = installStyles('', 'appearance')
+    const userSheet = installLastStyles('user-stylesheet')
     let key = ''
     let releaseTokens = null
     let activeTheme = null
     // A third-party skin's glass sliders change DSH's background tokens; the surfaces
     // follow them through --bt-skin-*, and nothing is set while the tokens are opaque.
-    const skin = writeSkinSurfaceVars(document, () => (activeTheme === null ? {} : readSkinSurfaceVars(document, activeTheme)))
+    // DS Bot's own background sets the panes itself (appearance.js); the skin bridge then stays out.
+    let ownBackground = false
+    const skin = writeSkinSurfaceVars(document, () => (activeTheme === null || ownBackground ? {} : readSkinSurfaceVars(document, activeTheme)))
+    let skinRaf = 0
+    const scheduleSkin = () => {
+      if (skinRaf) return
+      if (typeof requestAnimationFrame === 'function') skinRaf = requestAnimationFrame(() => { skinRaf = 0; skin.apply() })
+      else skin.apply()
+    }
     const offTheme = ctx.on('theme/change', () => skin.apply())
+    const isTitleOnly = (record) => {
+      const target = record.target
+      const el = target?.nodeType === 1 ? target : target?.parentElement
+      if (el?.tagName === 'TITLE') return true
+      if (record.type === 'childList' && target === document.head) {
+        const nodes = [...record.addedNodes, ...record.removedNodes]
+        if (nodes.length > 0 && nodes.every(node => node?.nodeType === 1 && node.tagName === 'TITLE')) return true
+      }
+      return false
+    }
     // A skin may write the tokens itself (some set them straight on the document); the
     // composed value is what counts, so re-read whenever the tokens may have moved.
-    const observer = typeof MutationObserver === 'function' ? new MutationObserver(() => skin.apply()) : null
+    const observer = typeof MutationObserver === 'function' ? new MutationObserver((records) => {
+      if (records.length > 0 && records.every(isTitleOnly)) return
+      scheduleSkin()
+    }) : null
     if (observer !== null) {
       observer.observe(document.body, { attributes: true, attributeFilter: ['style', 'data-ds-dark-theme'] })
       observer.observe(document.documentElement, { attributes: true, attributeFilter: ['style', 'class'] })
@@ -427,28 +501,40 @@ export function apply(ctx) {
     const render = () => {
       const snapshot = roster.getSnapshot()
       const prefs = snapshot.ready ? snapshot.prefs ?? {} : savedPrefs
-      const themes = allThemes()
+      const themes = themesOf(prefs)
       const id = themes[prefs.theme] ? prefs.theme : 'deepseek'
+      // The open chat's own background, over the team's (docs/plans/2026-11-21-appearance.md).
+      const open = shownSessionId()
+      const chat = open === undefined ? undefined : snapshot.byId?.[open] ?? snapshot.roomsById?.[open]
+      const safe = safeAppearance()
+      const lookCss = appearanceCss({ appearance: prefs.appearance, theme: themes[id], background: chat?.background, pictureUrl: picture => pictureUrl(picture, call, render), safe, user: false })
+      if (look.textContent !== lookCss) look.textContent = lookCss
+      const mine = userCss(prefs.appearance, safe)
+      if (userSheet.textContent !== mine) userSheet.textContent = mine
+      const through = backgroundShown({ appearance: prefs.appearance, background: chat?.background, pictureUrl: picture => pictureUrl(picture, call, render), safe })
+      ownBackground = through
       const accent = isHex(prefs.accent) ? prefs.accent : undefined
       const motion = prefs.motion === 'quiet' || prefs.motion === 'lively' ? prefs.motion : 'normal'
       const layout = layoutOf(prefs)
       const effects = effectsOf(prefs)
       const width = widthOf(prefs)
       const flatWidth = flatWidthOf(prefs)
-      document.body.dataset.btMotion = motion
-      document.body.dataset.btLayout = layout
-      document.body.dataset.btEffects = effects
-      if (WINDOWS) document.body.dataset.btOs = 'windows'
-      document.body.style.setProperty('--bt-msg-w', String(width / 100))
-      document.body.style.setProperty('--bt-flat-w', String(flatWidth / 100))
-      const next = `${id}|${accent ?? ''}|${motion}|${layout}|${effects}|${width}|${flatWidth}|${registry.getSnapshot()}`
+      const next = `${id}|${JSON.stringify(themes[id])}|${accent ?? ''}|${motion}|${layout}|${effects}|${width}|${flatWidth}|${through}|${registry.getSnapshot()}`
       if (next === key) return
       key = next
+      if (document.body.dataset.btMotion !== motion) document.body.dataset.btMotion = motion
+      if (document.body.dataset.btLayout !== layout) document.body.dataset.btLayout = layout
+      if (document.body.dataset.btEffects !== effects) document.body.dataset.btEffects = effects
+      if (WINDOWS && document.body.dataset.btOs !== 'windows') document.body.dataset.btOs = 'windows'
+      const msgW = String(width / 100)
+      if (document.body.style.getPropertyValue('--bt-msg-w') !== msgW) document.body.style.setProperty('--bt-msg-w', msgW)
+      const flatW = String(flatWidth / 100)
+      if (document.body.style.getPropertyValue('--bt-flat-w') !== flatW) document.body.style.setProperty('--bt-flat-w', flatW)
       style.textContent = themeCss(themes[id], accent)
       activeTheme = themes[id]
       skin.apply()
       const release = releaseTokens
-      releaseTokens = ctx.theme.overrideTokens('ds-bot', shellTokens(themes[id]))
+      releaseTokens = ctx.theme.overrideTokens('ds-bot', shellTokens(themes[id], through ? surfaceColors(themes[id]) : undefined))
       if (typeof release === 'function') release()
       if (snapshot.ready) {
         try { localStorage.setItem(PREFS_KEY, JSON.stringify({ theme: prefs.theme, accent: prefs.accent, motion: prefs.motion, layout: prefs.layout, effects: prefs.effects, width: prefs.width, flatWidth: prefs.flatWidth, thinking: prefs.thinking, defaultBotModel: prefs.defaultBotModel, enterToSend: prefs.enterToSend })) } catch { /* storage unavailable */ }
@@ -457,10 +543,22 @@ export function apply(ctx) {
     render()
     const offRoster = roster.subscribe(render)
     const offRegistry = registry.subscribe(render)
+    const offShown = ctx.sessions.list.subscribe(render)
+    const offSafe = onSafeAppearance((on) => {
+      render()
+      if (on) actions.notice?.(t('Safe appearance: the background and your stylesheet are off in this window. Turn them back on in Settings → Appearance.'))
+    })
+    const stopSafe = watchSafeAppearance()
     return () => {
       offRoster()
       offRegistry()
+      offShown()
+      offSafe()
+      stopSafe()
+      look.remove()
+      userSheet.remove()
       offTheme()
+      if (skinRaf && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(skinRaf)
       observer?.disconnect()
       skin.clear()
       try {
@@ -551,6 +649,8 @@ export function apply(ctx) {
     return Object.values(snapshot.byId).find(bot => currentPart(bot) === sessionId)
       ?? Object.values(snapshot.roomsById).find(room => (room.sessionId ?? room.id) === sessionId)
   }
+  // Monotonic counter so a slower async `landOn` pull never overrides a newer navigation.
+  let navSeq = 0
   const openingWait = bindOpeningWait(ui, {
     onSlow: () => { void Promise.resolve(ctx.sessions.refresh?.()).catch(quietly('refresh sessions')) },
   })
@@ -592,7 +692,7 @@ export function apply(ctx) {
     }
   }
   const actions = {
-    ...teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded }),
+    ...teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded, questionDrafts }),
     // The files a group row names open DSH's own review tab for that turn. The tab reads
     // the changes of the Session the shell shows, so that Session is opened first; the same
     // call then retries until its right column is mounted. This jump is the one place a
@@ -615,6 +715,7 @@ export function apply(ctx) {
     openSession: (id) => {
       // A DSH Agent Session id lands on the plain surface, not the Bot skin.
       if (isAgentSessionId(id)) return actions.openAgentSession(id)
+      navSeq += 1
       ui.set(state => (state.newChat || state.exchange || state.menu || state.palette || state.groupSearch ? { ...state, newChat: null, exchange: null, menu: null, palette: null, groupSearch: null } : state))
       setPlain(false)
       const target = partFor(id)
@@ -623,6 +724,7 @@ export function apply(ctx) {
     // The conversation replacements withdraw for a plain Session; set the surface
     // before the navigation so the Bot skin never flashes.
     openAgentSession: (sessionId) => {
+      navSeq += 1
       ui.set(state => ({ ...state, newChat: null, exchange: null, menu: null, palette: null, groupSearch: null, details: null, view: 'details', renaming: false, tab: null, task: null, taskDeck: null }))
       setPlain(true)
       show(sessionId)
@@ -682,13 +784,41 @@ export function apply(ctx) {
       if (main !== undefined && owned.includes(main) && roster.getSnapshot().mainBotId) actions.openSession(roster.getSnapshot().mainBotId)
       return result
     },
-    // `last` is the Bot conversation the view held before it cleared: when that part
-    // was archived for a fresh one, the view goes on in the fresh one.
-    landOn: async (id, last) => {
-      if (last) await pull().catch(() => {})
-      const bot = last ? roster.getSnapshot().byId[last.botId] : undefined
+    navSeq: () => navSeq,
+    // `last` is the Bot or group conversation the view held before it cleared: when that
+    // part was archived for a fresh one, the view goes on in the fresh one.
+    landOn: async (id, last, expectedSeq) => {
+      if (expectedSeq !== undefined && expectedSeq !== navSeq) return
+      const seq = ++navSeq
+      const currentOfLast = (snap) => {
+        if (!last) return undefined
+        const bot = last.kind === 'room' ? undefined : snap.byId[last.botId ?? last.id]
+        if (bot !== undefined) return currentPart(bot)
+        const room = snap.roomsById[last.roomId ?? last.id]
+        return room === undefined ? undefined : (room.sessionId ?? room.id)
+      }
+      let moved = currentOfLast(roster.getSnapshot())
+      if (last && (moved === undefined || moved === last.sessionId)) {
+        await pull().catch(() => {})
+        if (seq !== navSeq) return
+        moved = currentOfLast(roster.getSnapshot())
+      }
+      if (seq !== navSeq) return
+      const now = mainView()
+      if (last && now !== undefined && now !== last.sessionId) {
+        const snap = roster.getSnapshot()
+        const list = ctx.sessions.list.getSnapshot()
+        const nowBot = snap.byId[now]
+        const nowRoom = snap.roomsById[now]
+        if ((nowBot !== undefined && currentPart(nowBot) === now)
+          || (nowRoom !== undefined && (nowRoom.sessionId ?? nowRoom.id) === now)
+          || isAgentSessionId(now)
+          || (nowBot === undefined && nowRoom === undefined && list.byId?.[now]?.blank !== true)) return
+      }
       setPlain(false)
-      const target = bot && currentPart(bot) !== last.sessionId ? currentPart(bot) : partFor(id)
+      const target = moved !== undefined && moved !== last?.sessionId ? moved : partFor(id)
+      // Never try to reopen an archived part that already vanished from the list.
+      if (last && target === last.sessionId && ctx.sessions.list.getSnapshot().byId?.[target] === undefined) return
       show(target)
     },
     selectPanel: (id) => { ctx.layout.selectPanel(id) },
@@ -815,8 +945,13 @@ export function apply(ctx) {
         pick: () => bridge.importPick(),
         paste: typeof bridge.importPaste === 'function' ? (text, defaultUrl) => bridge.importPaste(text, defaultUrl) : null,
         launch: typeof bridge.importLaunch === 'function' ? (source) => bridge.importLaunch(source) : null,
+        openPermission: typeof bridge.importOpenPermission === 'function' ? () => bridge.importOpenPermission() : null,
         live: (source, close, requestId) => bridge.importLive(source, close, requestId),
-        apply: (botId, pending, options) => bridge.importApply(`bot:${botId}`, pending, options),
+        apply: (botId, pending, options) => bridge.importApply(
+          Array.isArray(botId) ? botId.map((id) => `bot:${id}`) : `bot:${botId}`,
+          pending,
+          options,
+        ),
         cancel: (pending) => bridge.importCancel(pending),
       } : null,
     })
@@ -887,6 +1022,8 @@ export function apply(ctx) {
   actions.checkOwnApp = async () => { await ownAppUpdates?.check?.() }
   actions.installOwnApp = async () => { await ownAppUpdates?.install?.() }
   actions.openOwnApp = async () => { await ownAppUpdates?.open?.() }
+  actions.downloadOwnApp = async () => { await ownAppUpdates?.download?.() }
+  actions.setOwnAppAutoUpdate = async (enabled) => { await ownAppUpdates?.setAutoUpdate?.(enabled === true) }
   const browserPages = browsers?.pages ?? createSource({})
   const browserTabs = browsers?.tabs ?? createSource({})
   const browserHolds = browsers?.holds ?? createSource({})
@@ -926,29 +1063,55 @@ export function apply(ctx) {
       // Cursor events get their own long-poll: the shared state poll drops to
       // 10 s while the window is hidden, far too slow for an on-screen cursor.
       let dead = false
-      const pause = ms => new Promise(resolve => setTimeout(resolve, ms))
+      let wakeEnabled = null
+      let cancelPause = null
+      const waitEnabled = () => new Promise((resolve) => {
+        if (dead || roster.getSnapshot().computer?.enabled === true) { resolve(); return }
+        wakeEnabled = resolve
+      })
+      const pause = ms => new Promise((resolve) => {
+        if (dead) { resolve(); return }
+        const timer = setTimeout(() => {
+          if (cancelPause === cancel) cancelPause = null
+          resolve()
+        }, ms)
+        const cancel = () => {
+          clearTimeout(timer)
+          if (cancelPause === cancel) cancelPause = null
+          resolve()
+        }
+        cancelPause = cancel
+      })
+      const notifyEnabled = () => {
+        if (wakeEnabled) { const fn = wakeEnabled; wakeEnabled = null; fn() }
+      }
+      const offRoster = roster.subscribe(() => {
+        if (roster.getSnapshot().computer?.enabled === true) notifyEnabled()
+      })
       const run = async () => {
         let after = 0
         while (!dead) {
-          if (roster.getSnapshot().computer?.enabled !== true) { await pause(2000); continue }
+          if (roster.getSnapshot().computer?.enabled !== true) { await waitEnabled(); continue }
           try {
             const reply = await call('computer-cursor-wait', { after })
+            if (dead) break
             for (const event of reply?.events ?? []) {
               if (Number.isFinite(event.seq) && event.seq > after) after = event.seq
               if (Number.isFinite(event.t) && Number.isFinite(reply?.now) && reply.now - event.t > 3000) continue
               appComputer.computerCursor({ ...event, color: lookOf(roster.getSnapshot().byId[event.botId]).color, avatar: lookOf(roster.getSnapshot().byId[event.botId]).image })
             }
           } catch {
-            await pause(2000)
+            if (!dead) await pause(2000)
           }
         }
       }
       void run()
-      return () => { dead = true }
+      return () => { dead = true; offRoster(); notifyEnabled(); cancelPause?.() }
     }, 'ds-bot: computer cursor')
   }
   if (typeof appComputer?.idleSeconds === 'function') {
     ctx.effect(() => {
+      let timer = 0
       const push = () => {
         const current = roster.getSnapshot()
         if (current.computer?.enabled !== true) return
@@ -958,18 +1121,27 @@ export function apply(ctx) {
           if (Number.isFinite(idle)) call('computer-user-active', { idleSeconds: idle }).catch(() => {})
         }).catch(() => {})
       }
-      const timer = setInterval(push, 2000)
-      return () => { clearInterval(timer) }
+      const sync = () => {
+        const enabled = roster.getSnapshot().computer?.enabled === true
+        if (enabled && !timer) timer = setInterval(push, 2000)
+        else if (!enabled && timer) { clearInterval(timer); timer = 0 }
+      }
+      sync()
+      const offRoster = roster.subscribe(sync)
+      return () => { offRoster(); if (timer) clearInterval(timer) }
     }, 'ds-bot: computer user active')
   }
   if (typeof appComputer?.onComputerAction === 'function') {
-    appComputer.onComputerAction(({ kind, botId }) => {
-      if (kind === 'stop') void actions.computerStop(botId)
-      else if (kind === 'stopall') void actions.computerStop(null, true)
-      else if (kind === 'letgo') void actions.computerAllowForeground(botId)
-    })
+    ctx.effect(() => {
+      const off = appComputer.onComputerAction(({ kind, botId }) => {
+        if (kind === 'stop') void actions.computerStop(botId)
+        else if (kind === 'stopall') void actions.computerStop(null, true)
+        else if (kind === 'letgo') void actions.computerAllowForeground(botId)
+      })
+      return () => { if (typeof off === 'function') off() }
+    }, 'ds-bot: computer actions')
   }
-  const face = () => ({ actions, hooks: { roster, ui, activity, work, memoryNews, registry, turnClock, live, computer, cards, heldCards, browserPages, browserTabs, browserHolds, surface, update, frame, sidebarPref, settingsShellHeld } })
+  const face = () => ({ actions, hooks: { roster, ui, activity, work, memoryNews, registry, turnClock, live, computer, cards, heldCards, rescuedDrafts: questionDrafts.rescued, browserPages, browserTabs, browserHolds, surface, update, frame, sidebarPref, settingsShellHeld } })
   // Since DSH 0.2.1-alpha.3 user text is drawn by rules and a content factory, not the
   // primitives' text projection; the user's bubble draws with either (user-message.js).
   const hostDrawsUserText = typeof ctx.uiConversation.userText?.register === 'function'
@@ -990,21 +1162,49 @@ export function apply(ctx) {
     updateQueue: async (itemId, action) => (await ctx.sessions.binding(sessionId)?.session?.updateQueue(itemId, action)) ?? { ok: false },
     loadImage: (attachment) => ctx.uiConversation.imageUrl(sessionId, attachment),
   })
-  // A deleted Bot or group takes its kept draft with it.
+  // A deleted Bot or group takes its kept draft (and any part-keyed rescued draft) with it.
   ctx.effect(() => {
     let chats = null
     return roster.subscribe(() => {
       const snapshot = roster.getSnapshot()
       if (!snapshot.ready) return
-      const now = new Set([...snapshot.bots.map(bot => bot.id), ...snapshot.rooms.map(room => room.id)])
-      if (chats !== null) pruneDrafts([...chats].filter(id => !now.has(id)))
+      const now = new Map()
+      for (const bot of snapshot.bots) {
+        const ids = [bot.id, bot.sessionId, ...(bot.parts ?? [])].filter(id => typeof id === 'string' && id !== '')
+        now.set(bot.id, [...new Set(ids)])
+      }
+      for (const room of snapshot.rooms) {
+        const ids = [room.id, room.sessionId, ...(room.ownParts ?? [])].filter(id => typeof id === 'string' && id !== '')
+        now.set(room.id, [...new Set(ids)])
+      }
+      if (chats !== null) {
+        const goneChats = []
+        const goneAll = []
+        for (const [chatId, prevIds] of chats) {
+          if (now.has(chatId)) continue
+          goneChats.push(chatId)
+          for (const id of prevIds) goneAll.push(id)
+        }
+        if (goneChats.length > 0) {
+          pruneDrafts(goneChats)
+          questionDrafts.pruneChats([...new Set(goneAll)])
+        }
+      }
       chats = now
     })
   }, 'ds-bot: drafts of removed chats')
+  // Move unsubmitted question-card text back to the main composer when a pending
+  // question disappears externally (never on explicit submit, skip, scroll, or switch).
+  ctx.effect(() => {
+    const offRoster = roster.subscribe(() => { questionDrafts.reconcileRoster(roster.getSnapshot()) })
+    const sessionStatus = ctx.get('uiSession')?.sessionStatus
+    const offStatus = sessionStatus?.subscribe?.(() => { questionDrafts.reconcileBlocking(sessionStatus.getSnapshot(), roster.getSnapshot()) })
+    return () => { offRoster(); offStatus?.() }
+  }, 'ds-bot: rescue interrupted question drafts')
   ctx.effect(() => noticeApprovals({
     work,
     roster,
-    shownSession: () => Object.values(ctx.sessions.list.getSnapshot().byId ?? {}).find(session => (session?.retainedBy?.mainView ?? 0) > 0)?.id,
+    shownSession: shownSessionId,
     openSession: id => actions.openSession(id),
   }), 'ds-bot: approval notifications')
   const assistantFace = (sessionId) => {
@@ -1055,7 +1255,17 @@ export function apply(ctx) {
   actions.steerQueued = async (sessionId) => {
     const session = ctx.sessions.binding(sessionId)?.session
     if (session === undefined) return
-    if (await steerQueued(session) === 'failed') {
+    const steerBatch = roster.getSnapshot().byId?.[sessionId] !== undefined
+      ? async (ids) => {
+          try {
+            const result = await actions.steerQueueBatch(sessionId, ids)
+            return result?.fallback === true ? 'fallback' : 'done'
+          } catch (error) {
+            return error?.code === 'bot/not-found' ? 'fallback' : 'failed'
+          }
+        }
+      : undefined
+    if (await steerQueued(session, steerBatch) === 'failed') {
       actions.reportError(new Error(t('Couldn’t steer the queued messages. Try again.')), 'steer-queue')
     }
   }
@@ -1219,7 +1429,9 @@ export function apply(ctx) {
     [MODEL_CSS + FOLDER_CSS + BOT_SETTINGS_CSS + BOT_MODELS_CSS + AGENT_CARDS_CSS + GROUP_SETTINGS_CSS + AVATAR_LIBRARY_CSS, 'models'],
     [USAGE_CSS, 'usage'],
     [SCHEDULE_CSS, 'schedules'],
+    [APPEARANCE_PAGE_CSS, 'appearance-page'],
     [FEEDBACK_CSS, 'feedback'],
+    [PRIVACY_CSS, 'privacy'],
     [ABOUT_CSS, 'about'],
     [MEMBER_CSS, 'members'],
     [TASK_CSS, 'tasks'],
@@ -1248,7 +1460,7 @@ export function apply(ctx) {
     syncEffects()
     const snapshot = roster.getSnapshot()
     const prefs = snapshot.ready ? snapshot.prefs ?? {} : savedPrefs
-    const themes = allThemes()
+    const themes = themesOf(prefs)
     const theme = themes[prefs.theme] ?? themes.deepseek
     const offs = [
       roster.subscribe(syncEffects),
@@ -1267,7 +1479,7 @@ export function apply(ctx) {
     () => installFrameWatch(frame),
     () => installFrameSync(),
     () => installTheme(),
-    () => shadow('sidebar.workspaces', { priority: BOT_PRIORITY, inject: face }, TeamSidebar),
+    () => shadow('sidebar.workspaces', { priority: BOT_PRIORITY, inject: () => ({ actions, hooks: { ...face().hooks, botCompletions } }) }, TeamSidebar),
     () => shadow('sidebar.brand.mark', { priority: BOT_PRIORITY }, BrandMark),
     () => shadow('sidebar.brand.name', { priority: BOT_PRIORITY }, BrandName),
     () => shadow('sidebar.footer.action', { id: 'bot-account', order: -200, inject: face }, FooterAccount),
@@ -1337,6 +1549,7 @@ export function apply(ctx) {
     () => shadow('conversation.input.right', { id: 'bot-voice', order: 100, inject: face }, ComposerVoice),
     () => shadow('conversation.composer', {
       priority: BOT_PRIORITY,
+      inject: face,
       select: owner => (owner.pendingInteraction?.kind === 'question' ? owner.pendingInteraction : null),
     }, QuestionCard),
     () => shadow('conversation.input.dock', { id: 'bot-paste', order: -130, inject: face }, PasteDock),
@@ -1347,6 +1560,7 @@ export function apply(ctx) {
     () => shadow('conversation.input.dock', { id: 'bot-secret', order: -90, inject: face }, SecretDock),
     () => shadow('conversation.input.dock', { id: 'bot-connector', order: -89, inject: face }, ConnectorDock),
     () => shadow('conversation.input.dock', { id: 'bot-mail', order: -88, inject: face }, MailDock),
+    () => shadow('conversation.input.dock', { id: 'bot-work-pause', order: -86, inject: face }, WorkPauseDock),
     () => shadow('conversation.input.dock', { id: 'bot-handoff', order: -85, inject: face }, HandoffDock),
     () => shadow('conversation.input.dock', { id: 'bot-computer-handoff', order: -84, inject: face }, ComputerHandoffDock),
     () => shadow('conversation.input.dock', { id: 'bot-computer-app', order: -83, inject: face }, AppAccessDock),
@@ -1362,7 +1576,22 @@ export function apply(ctx) {
   shadow('sidebar.footer.action', { id: 'bot-return', order: -300, inject: face }, BotReturn)
 
   ctx.effect(() => {
-    const forks = installAgentForks({
+    let stopped = false
+    let timer = 0
+    let forks = null
+    const syncTimer = () => {
+      if (stopped) return
+      const active = forks?.hasPending() === true
+      if (active && !timer) timer = setInterval(reconcile, 5000)
+      else if (!active && timer) { clearInterval(timer); timer = 0 }
+    }
+    const reconcile = () => {
+      if (stopped || !forks) return
+      void forks.reconcile()
+        .catch(error => actions.reportError(error, 'agent-fork-reconcile'))
+        .finally(syncTimer)
+    }
+    forks = installAgentForks({
       sessions: ctx.sessions,
       ownerOf: id => roster.getSnapshot().agentOf[id],
       hasAgent: id => roster.getSnapshot().agentsById[id] !== undefined,
@@ -1372,16 +1601,30 @@ export function apply(ctx) {
       refresh: pull,
       report: (error, source) => actions.reportError(error, source),
       storage: globalThis.localStorage,
+      onPendingChange: syncTimer,
     })
-    const reconcile = () => { void forks.reconcile().catch(error => actions.reportError(error, 'agent-fork-reconcile')) }
-    const offRoster = roster.subscribe(reconcile)
-    const offList = ctx.sessions.list.subscribe(reconcile)
-    const timer = setInterval(reconcile, 5000)
+    const onChange = () => {
+      if (stopped) return
+      if (forks.hasPending()) reconcile()
+      else syncTimer()
+    }
+    const onStorage = (event) => {
+      if (!stopped && (event.key === null || event.key === STORAGE.agentForks)) reconcile()
+    }
+    const offRoster = roster.subscribe(onChange)
+    const offList = ctx.sessions.list.subscribe(onChange)
+    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+      window.addEventListener('storage', onStorage)
+    }
     reconcile()
     return () => {
+      stopped = true
       offRoster()
       offList()
-      clearInterval(timer)
+      if (typeof window !== 'undefined' && typeof window.removeEventListener === 'function') {
+        window.removeEventListener('storage', onStorage)
+      }
+      if (timer) { clearInterval(timer); timer = 0 }
       return forks.dispose()
     }
   }, 'ds-bot: Agent forks')
@@ -1440,6 +1683,10 @@ export function apply(ctx) {
     sync()
     return () => { offList(); offRoster() }
   }, 'ds-bot: agent surface')
+
+  ctx.effect(() => watchBotCompletions({
+    roster, sessions: ctx.sessions.list, statuses: ctx.get('uiSession')?.sessionStatus, unread: botCompletions,
+  }), 'ds-bot: sidebar completions')
 
   ctx.effect(() => {
     const groups = surfaceGroups({ shell: installShell, conversation: installConversation }, {

@@ -8,7 +8,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { runInNewContext } from 'node:vm'
 import test from 'node:test'
-import { applyCookies, applyOrigins, CookieImports, filterCookiesBySites, friendlyCookieError, previewOf, seedOriginsInPartition, toSetDetails } from '../src/cookie-import.mjs'
+import { applyCookies, applyImportToTargets, applyOrigins, CookieImports, filterCookiesBySites, friendlyCookieError, previewOf, seedOriginsInPartition, splitPartitionedCookies, toSetDetails } from '../src/cookie-import.mjs'
 import { parseCookieFile } from '../src/cookie-parse.mjs'
 
 const fixtures = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'cookies')
@@ -371,4 +371,168 @@ test('applyCookies retries http:// overwrite and insecure SameSite=None, keeps s
   assert.equal(friendlyCookieError(new Error('Setting cookie failed: EXCLUDE_OVERWRITE_SECURE, DO_NOT_WARN')), 'cannot overwrite an existing secure cookie')
   assert.equal(friendlyCookieError(new Error("Error invoking remote method 'x': Error: Setting cookie failed: EXCLUDE_FAILURE_TO_STORE")), 'rejected by the browser')
   assert.equal(friendlyCookieError(new Error('Invalid cookie fields')), 'Invalid cookie fields')
+})
+
+test('toSetDetails and applyCookies wrap bare IPv6 hosts in brackets and canonicalize expanded IPv6 read-back keys', async () => {
+  const bare = toSetDetails({ name: 'sid', value: 'v', domain: '::1', path: '/app', secure: false })
+  assert.equal(bare.url, 'http://[::1]/app')
+  assert.equal(bare.domain, undefined)
+
+  const expanded = toSetDetails({ name: 'sid2', value: 'v2', domain: '2001:0db8:0000:0000:0000:0000:0000:0001', path: '/', secure: true })
+  assert.equal(expanded.url, 'https://[2001:db8::1]/')
+
+  const ses = fakeSession()
+  const report = await applyCookies(ses, [
+    { name: 'sid', value: 'v', domain: '::1', path: '/', secure: false },
+    { name: 'sid2', value: 'v2', domain: '2001:0db8:0000:0000:0000:0000:0000:0001', path: '/', secure: true },
+  ])
+  assert.equal(report.stored, 2)
+  assert.equal(report.dropped.length, 0)
+  assert.equal(report.failed.length, 0)
+
+  // Site filtering and previewOf/summarizeBySite agree on one canonical IPv6 site row.
+  const ipv6Cookies = [
+    { name: 'sid1', value: 'v1', domain: '2001:0db8:0000:0000:0000:0000:0000:0001', path: '/', secure: true },
+    { name: 'sid2', value: 'v2', domain: '[2001:db8::1]', path: '/', secure: true },
+  ]
+  const preview = previewOf({ format: 'live', entries: 2, cookies: ipv6Cookies, origins: [], skipped: [], warnings: [], info: {} }, { kind: 'chrome', label: 'Chrome' })
+  assert.equal(preview.sites.length, 1)
+  assert.equal(preview.sites[0].site, '[2001:db8::1]')
+  assert.equal(preview.sites[0].cookies, 2)
+  assert.equal(filterCookiesBySites(ipv6Cookies, [preview.sites[0].site]).length, 2)
+
+  // Bare IPv6 also parses cleanly through parseCookieFile.
+  const parsed = parseCookieFile(JSON.stringify([{ name: 'v6', value: 'ok', domain: '::1', path: '/', secure: false }]))
+  assert.equal(parsed.ok, true)
+  assert.equal(parsed.cookies.length, 1)
+  assert.equal(parsed.cookies[0].domain, '[::1]')
+})
+
+test('CHIPS partitioned and opaque-partitioned cookies are skipped without overwriting same-key unpartitioned cookies', async () => {
+  // File parsing must NOT let a later partitioned cookie clobber an earlier unpartitioned login cookie.
+  const parsed = parseCookieFile(JSON.stringify({
+    cookies: [
+      { name: 'sid', value: 'real-login', domain: '.example.com', path: '/', secure: true },
+      { name: 'sid', value: 'iframe-part', domain: '.example.com', path: '/', secure: true, partitionKey: 'https://embedder.example' },
+      { name: 'opaque_c', value: 'opaque-val', domain: '.example.com', path: '/', secure: true, partitionKeyOpaque: true },
+    ],
+    origins: [],
+  }))
+  assert.equal(parsed.cookies.length, 3)
+
+  const split = splitPartitionedCookies(parsed.cookies)
+  assert.deepEqual(split.cookies.map((c) => [c.name, c.value]), [['sid', 'real-login']])
+  assert.deepEqual(split.skipped.map((s) => [s.name, s.code]), [['sid', 'partitioned'], ['opaque_c', 'partitioned']])
+
+  const store = new CookieImports()
+  const { id, preview } = store.store(parsed, { kind: 'file', label: 'state.json' })
+  assert.equal(preview.cookies, 1)
+  assert.equal(preview.skipped.length, 2)
+  assert.equal(JSON.stringify(preview).includes('iframe-part'), false)
+  assert.equal(JSON.stringify(preview).includes('opaque-val'), false)
+  assert.deepEqual(store.take(id).cookies.map((c) => [c.name, c.value]), [['sid', 'real-login']])
+
+  // Direct applyCookies also refuses to flatten partitioned or opaque-partitioned cookies into Electron's jar.
+  const ses = fakeSession()
+  const report = await applyCookies(ses, parsed.cookies)
+  assert.equal(report.stored, 1)
+  assert.equal(ses.stored.size, 1)
+  assert.equal([...ses.stored.values()][0].value, 'real-login')
+  assert.equal(report.skipped.length, 2)
+  assert.deepEqual(report.skipped.map((s) => s.code), ['partitioned', 'partitioned'])
+})
+
+test('applyImportToTargets consumes pending once for batch Bots, deduplicates keys, and validates before taking', async () => {
+  const store = new CookieImports()
+  const parsed = parse('cookie-editor.json')
+  const { id } = store.store(parsed, { kind: 'file', label: 'cookie-editor.json' })
+
+  // Invalid targets (empty array, bare prefix, whitespace-only, non-bot) must fail before consuming pending.
+  for (const bad of [[], 'bot:', 'bot:   ', ['bot:a', 'not-bot'], ['bot:a', 'bot:   ']]) {
+    await assert.rejects(
+      () => applyImportToTargets({ keyOrKeys: bad, id, options: {}, store, applyOne: async () => ({}) }),
+      /Bot storage key is required/,
+    )
+  }
+  assert.ok(store.peek(id), 'malformed key list must not consume pending import')
+
+  const sessions = new Map([
+    ['bot:a', fakeSession()],
+    ['bot:b', fakeSession({ drop: ['p_strict'] })],
+  ])
+  const appliedKeys = []
+  const report = await applyImportToTargets({
+    keyOrKeys: ['bot:a', 'bot:b', 'bot:a'],
+    id,
+    options: { persistSession: true },
+    store,
+    applyOne: async (key, pending, opts) => {
+      appliedKeys.push(key)
+      const r = await applyCookies(sessions.get(key), pending.cookies, opts)
+      return { ...r, originsStored: 0, entriesStored: 0, failedOrigins: [] }
+    },
+  })
+
+  assert.deepEqual(appliedKeys, ['bot:a', 'bot:b'])
+  assert.equal(store.peek(id), null, 'pending import must be consumed once')
+  assert.equal(report.botCount, 2)
+  assert.equal(report.stored, 8)
+  assert.equal(report.dropped.length, 1)
+  assert.equal(sessions.get('bot:a').stored.size, 8)
+  assert.equal(sessions.get('bot:b').stored.size, 7)
+
+  // Partial failure records failed Bot and continues applying to remaining Bots; dedup keeps distinct domains.
+  const { id: idPartial } = store.store(parsed, { kind: 'file', label: 'cookie-editor.json' })
+  const partialKeys = []
+  const partialReport = await applyImportToTargets({
+    keyOrKeys: ['bot:ok1', 'bot:boom', 'bot:ok2'],
+    id: idPartial,
+    options: {},
+    store,
+    applyOne: async (key) => {
+      partialKeys.push(key)
+      if (key === 'bot:boom') throw new Error('partition locked')
+      return {
+        stored: 5,
+        originsStored: 1,
+        entriesStored: 2,
+        dropped: [{ name: 'sid', domain: key === 'bot:ok1' ? 'a.example' : 'b.example', path: '/', reason: 'expired' }],
+        failed: [],
+        failedOrigins: [{ origin: 'https://fail.example', reason: 'timeout' }],
+      }
+    },
+  })
+  assert.deepEqual(partialKeys, ['bot:ok1', 'bot:boom', 'bot:ok2'])
+  assert.equal(partialReport.stored, 5)
+  assert.equal(partialReport.botCount, 3)
+  assert.equal(partialReport.dropped.length, 2, 'same cookie name on distinct domains must not collapse')
+  assert.equal(partialReport.failedOrigins.length, 1, 'duplicate failedOrigins must deduplicate')
+  assert.equal(partialReport.failed.length, 1)
+  assert.equal(partialReport.failed[0].name, 'boom')
+
+  // When every Bot in a batch throws, rethrow the first error.
+  const { id: idAllFail } = store.store(parsed, { kind: 'file', label: 'cookie-editor.json' })
+  await assert.rejects(
+    () => applyImportToTargets({
+      keyOrKeys: ['bot:x', 'bot:y'],
+      id: idAllFail,
+      options: {},
+      store,
+      applyOne: async () => { throw new Error('disk full') },
+    }),
+    /disk full/,
+  )
+
+  // Single-string caller keeps exact single-Bot shape.
+  const { id: id2 } = store.store(parsed, { kind: 'file', label: 'cookie-editor.json' })
+  const singleSession = fakeSession()
+  const singleReport = await applyImportToTargets({
+    keyOrKeys: 'bot:solo',
+    id: id2,
+    options: {},
+    store,
+    applyOne: async (_key, pending, opts) => applyCookies(singleSession, pending.cookies, opts),
+  })
+  assert.equal(singleReport.stored, 8)
+  assert.equal(singleReport.botCount, undefined)
 })

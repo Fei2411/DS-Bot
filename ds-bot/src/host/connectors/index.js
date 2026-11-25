@@ -14,6 +14,7 @@ import * as oauth from './oauth.js'
 import { createGateway } from './gateway.js'
 import { install as installMail } from './mail/index.js'
 import { CONNECTOR_IDS } from '../capabilities.js'
+import { DS_BOT_REPO } from '../diagnostics.js'
 import { output } from '../tools.js'
 
 export const GITHUB_SECRET = 'GITHUB_TOKEN'
@@ -205,6 +206,7 @@ export function install(rt) {
       const plugin = await loadMcpPlugin()
       if (stopped) return
       const config = { ...(await configFor(id)), failOnStartupError: true }
+      if (stopped) return
       const fiber = ctx.plugin(plugin, config)
       const mount = { fp, fiber }
       mounts.set(id, mount)
@@ -342,6 +344,10 @@ export function install(rt) {
     // otherwise end this one when it fires.
     const { timer: previousTimer, ...rest } = pending
     if (previousTimer !== undefined) clearTimeout(previousTimer)
+    if (stopped) {
+      await closeListener(listener)
+      return
+    }
     pendings.set(id, { ...rest, listener, fixed, redirectUri })
     try {
       const saved = state.connectors?.[id]
@@ -351,7 +357,14 @@ export function install(rt) {
         await saveState(id, { client: rest })
       }
       const resolved = await oauth.resolveClient(entry, pending.discovery, redirectUri, fixed, saved?.client ? { ...saved.client, clientSecret: rt.secretValue(clientSecretOf(id)) } : undefined, { persist })
+      if (stopped) {
+        await endPending(id)
+        return
+      }
       if (resolved === null) {
+        const timer = setTimeout(() => void expire(id), SIGN_IN_TIMEOUT_MS)
+        timer.unref?.()
+        pendings.set(id, { ...rest, listener, fixed, redirectUri, timer })
         statuses.set(id, { state: 'needs-client' })
         return
       }
@@ -359,11 +372,17 @@ export function install(rt) {
       if (resolved.via !== 'dcr') await saveState(id, { client: { via: resolved.via, clientId: resolved.clientInformation.client_id } })
       const stateParam = randomBytes(16).toString('base64url')
       const { url, codeVerifier } = await oauth.beginBrowser(pending.discovery, resolved.clientInformation, redirectUri, { state: stateParam })
+      if (stopped) {
+        await endPending(id)
+        return
+      }
+      const timer = setTimeout(() => void expire(id), SIGN_IN_TIMEOUT_MS)
+      timer.unref?.()
       pendings.set(id, {
-        ...pending, kind: 'browser', listener, fixed, redirectUri, codeVerifier, expectedState: stateParam,
+        ...rest, kind: 'browser', listener, fixed, redirectUri, codeVerifier, expectedState: stateParam,
         clientInformation: resolved.clientInformation,
         row: { kind: 'browser', url },
-        timer: setTimeout(() => void expire(id), SIGN_IN_TIMEOUT_MS),
+        timer,
       })
       statuses.set(id, { state: 'connecting' })
     } catch (error) {
@@ -395,6 +414,7 @@ export function install(rt) {
   async function startDeviceFlow(id, entry, pending) {
     const clientId = entry.auth.client.id
     const device = await oauth.deviceBegin(clientId, (entry.auth.scopes ?? []).join(' '), { endpoints: rt.config.github?.endpoints })
+    if (stopped) return
     const poll = async () => {
       const current = pendings.get(id)
       if (current === undefined || current.kind !== 'device' || stopped) return
@@ -416,11 +436,14 @@ export function install(rt) {
         return
       }
       current.timer = setTimeout(() => void poll(), current.interval * 1000)
+      current.timer.unref?.()
     }
+    const timer = setTimeout(() => void poll(), device.interval * 1000)
+    timer.unref?.()
     pendings.set(id, {
       ...pending, kind: 'device', device, interval: device.interval,
       row: { kind: 'device', userCode: device.userCode, verificationUri: device.verificationUri, expiresAt: device.expiresAt },
-      timer: setTimeout(() => void poll(), device.interval * 1000),
+      timer,
     })
   }
 
@@ -441,9 +464,11 @@ export function install(rt) {
       if (remote === undefined) throw new Error('This connector has no server address')
       if (insecure(remote)) throw new Error('Connector addresses must start with https://')
       const discovery = await oauth.discover(remote)
+      if (stopped) return
       if (discovery.metadata === undefined) throw new Error('This service does not publish OAuth sign-in metadata')
       state.connectors = { ...(state.connectors ?? {}), [id]: { ...state.connectors?.[id], oauth: { authorizationServerUrl: discovery.authorizationServerUrl, resource: discovery.resource, scope: discovery.scope } } }
       await rt.save()
+      if (stopped) return
       await startBrowserFlow(id, entry, { discovery })
     } catch (error) {
       await endPending(id)
@@ -615,7 +640,7 @@ export function install(rt) {
       || statuses.get(id)?.state === 'needs-sign-in') return undefined
     const headers = credentialOf(id)
     if (headers === undefined) return undefined
-    const response = await fetch(GITHUB_API + '/repos/Fei2411/DS-Bot/issues', {
+    const response = await fetch(`${GITHUB_API}/repos/${DS_BOT_REPO}/issues`, {
       method: 'POST',
       headers: { ...headers, 'Content-Type': 'application/json', Accept: 'application/vnd.github+json', 'User-Agent': 'ds-bot', 'X-GitHub-Api-Version': '2022-11-28' },
       body: JSON.stringify({ title, body, labels: ['bug'] }),
@@ -626,7 +651,7 @@ export function install(rt) {
     if (!response.ok) return undefined
     const { number } = await response.json()
     if (!Number.isSafeInteger(number) || number < 1) throw new Error('GitHub did not return an issue number')
-    return `https://github.com/Fei2411/DS-Bot/issues/${number}`
+    return `https://github.com/${DS_BOT_REPO}/issues/${number}`
   }
 
   // --- import -------------------------------------------------------------

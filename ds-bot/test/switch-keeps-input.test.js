@@ -360,6 +360,54 @@ test('an earlier part is stopped only after its tasks moved to the fresh part', 
   assert.deepEqual(order, [['move', 'b', 's1'], ['archive', 'b']])
 })
 
+test('a part switch carries a reminder arriving from a pruned task', async (t) => {
+  const reminder = { id: 'reminder', status: 'active', target: { kind: 'session', sessionId: 'pruned' } }
+  const editStarted = Promise.withResolvers()
+  const releaseEdit = Promise.withResolvers()
+  const editFinished = Promise.withResolvers()
+  const schedule = {
+    catalog: async () => reminder.status === 'ended' ? [] : [{ ...reminder }],
+    edit: async ({ patch }) => {
+      if (patch.target.sessionId === 'b') {
+        editStarted.resolve()
+        await releaseEdit.promise
+      }
+      reminder.target = patch.target
+      if (patch.target.sessionId === 'b') editFinished.resolve()
+    },
+  }
+  const host = await start({ services: { ...services, schedule } })
+  t.after(async () => { releaseEdit.resolve(); await host.stop() })
+  const switchMoveStarted = Promise.withResolvers()
+  const moveSchedules = host.rt.moveSchedules
+  host.rt.moveSchedules = (from, ...args) => {
+    if (from === 'b') switchMoveStarted.resolve()
+    return moveSchedules(from, ...args)
+  }
+  const archive = host.ctx.workspaceRegistry.archiveSession
+  host.ctx.workspaceRegistry.archiveSession = async (id, options) => {
+    if (id === 'b' && options?.stopActivity) {
+      await editFinished.promise
+      if (reminder.target.sessionId === id) reminder.status = 'ended'
+    }
+    return archive(id, options)
+  }
+  host.rt.state.retiredTasks = [{ botId: 'b', sessionIds: ['pruned'] }]
+  const retirement = host.rt.retireTasks()
+  await editStarted.promise
+  await moveWriter(host, [])
+  await switchMoveStarted.promise
+  await new Promise(resolve => setImmediate(resolve))
+  releaseEdit.resolve()
+
+  await retirement
+  await until(() => host.archived.some(([id]) => id === 'b'))
+  await host.rt.retireTasks()
+  assert.equal(reminder.status, 'active')
+  assert.equal(reminder.target.sessionId, 's1')
+  assert.ok(host.archived.some(([id]) => id === 'pruned'))
+})
+
 test('a failed task move leaves the earlier part unarchived and marked for retry', async (t) => {
   const host = await start({ services })
   t.after(host.stop)
@@ -374,6 +422,26 @@ test('a failed task move leaves the earlier part unarchived and marked for retry
   await host.rt.heldBack()
   assert.deepEqual(host.archived, [['b', { stopActivity: true }]])
   assert.deepEqual(host.state().switching, {})
+})
+
+test('a switch stops an earlier part when deleting a copied legacy reminder fails', async (t) => {
+  const reminder = { id: 'reminder', kind: 'every', title: 'Check in', prompt: 'Check', everySeconds: 3600 }
+  const copies = []
+  const schedule = {
+    list: async ({ sessionId }) => sessionId === 'b' ? [reminder] : [],
+    create: async (sessionId, request) => {
+      copies.push({ sessionId, request })
+      return { id: 'copy' }
+    },
+    delete: async () => { throw new Error('Temporary deletion failure') },
+  }
+  const host = await start({ services: { ...services, schedule } })
+  t.after(host.stop)
+  await moveWriter(host, [])
+  await until(() => host.state().bots.b.sessionId === 's1' && Object.keys(host.state().switching).length === 0)
+  assert.deepEqual(host.archived, [['b', { stopActivity: true }]])
+  assert.deepEqual(copies, [{ sessionId: 's1', request: { title: 'Check in', prompt: 'Check', every_seconds: 3600 } }])
+  assert.equal(host.state().legacyScheduleMoves, undefined)
 })
 
 test('unmarked earlier parts are never resolved by the restart pass', async (t) => {

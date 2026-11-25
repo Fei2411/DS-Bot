@@ -3,17 +3,20 @@
 // check line or after the CLI condensed on its own, the CLI condenses on request and
 // writes the handoff note, and the part moves on.
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { format } from 'node:util'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
-import { LocalAgentAdapter } from '../src/host/local-agents/adapter.js'
+import { createRuntime } from '../index.js'
+import { LocalAgentAdapter, mergeUsage } from '../src/host/local-agents/adapter.js'
 import { AcpEngine, modelsFromProbe, usageOf } from '../src/host/local-agents/acp.js'
+import { ClaudeEngine } from '../src/host/local-agents/claude.js'
 import { ENGINES } from '../src/host/local-agents/engines.js'
 import { CodexEngine } from '../src/host/local-agents/codex.js'
 import { install as partsInstall } from '../src/host/parts.js'
+import { runStatsOf } from '../src/client/text.js'
 import { fakeContext } from './fake-ctx.js'
 
 const FIXTURE = name => fileURLToPath(new URL(`./fixtures/${name}`, import.meta.url))
@@ -725,7 +728,7 @@ test('dispose() unblocks when a non-isolated ACP ask() is stuck waiting in engin
 
 test('ask() finishing on a shared ACP engine does not close it underneath an in-flight probeModels()', async (t) => {
   const concurrentProbeScript = `
-    let buf = '', next = 0, heldProbe = null
+    let buf = '', next = 0, heldProbe = null, heldPrompt = null
     const send = obj => process.stdout.write(JSON.stringify(obj) + '\\n')
     process.stdin.setEncoding('utf8')
     process.stdin.on('data', chunk => {
@@ -738,11 +741,24 @@ test('ask() finishing on a shared ACP engine does not close it underneath an in-
         if (method === 'initialize') {
           send({ jsonrpc: '2.0', id, result: { protocolVersion: 1, agentCapabilities: { sessionCapabilities: { close: {} } }, authMethods: [] } })
         } else if (method === 'session/new') {
-          if (heldProbe === null) { heldProbe = id; continue }
-          send({ jsonrpc: '2.0', id, result: { sessionId: 'acp-' + (++next), configOptions: [] } })
+          if (next === 0) {
+            send({ jsonrpc: '2.0', id, result: { sessionId: 'acp-' + (++next), configOptions: [] } })
+          } else {
+            // Second session/new is the concurrent probeModels() reusing this live peer.
+            heldProbe = id
+            if (heldPrompt !== null) {
+              const p = heldPrompt; heldPrompt = null
+              send({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: p.sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'ok' } } } })
+              send({ jsonrpc: '2.0', id: p.id, result: { stopReason: 'end_turn' } })
+            }
+          }
         } else if (method === 'session/prompt') {
-          send({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: params.sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'ok' } } } })
-          send({ jsonrpc: '2.0', id, result: { stopReason: 'end_turn' } })
+          if (heldProbe !== null) {
+            send({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: params.sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'ok' } } } })
+            send({ jsonrpc: '2.0', id, result: { stopReason: 'end_turn' } })
+          } else {
+            heldPrompt = { id, sessionId: params.sessionId }
+          }
         } else if (method === 'session/close') {
           send({ jsonrpc: '2.0', id, result: {} })
           if (params.sessionId === 'acp-1' && heldProbe !== null) {
@@ -764,12 +780,15 @@ test('ask() finishing on a shared ACP engine does not close it underneath an in-
   })
   t.after(() => adapter.dispose())
 
-  const probing = adapter.probeModels('local-acp-fake')
-  while ((engines[0]?.peer?.nextId ?? 0) < 2 || (engines[0]?.peer?.pending?.size ?? 0) < 1) {
+  // Start ask() first so the shared live peer exists, then launch probeModels()
+  // which reuses that live peer while ask() is still in flight.
+  const asking = adapter.ask('s1', { system: 'sys', prompt: 'hi' })
+  while (engines[0]?.peer === undefined || (engines[0]?.peer?.nextId ?? 0) < 3) {
     await new Promise(resolve => setTimeout(resolve, 10))
   }
+  const probing = adapter.probeModels('local-acp-fake')
 
-  const text = await adapter.ask('s1', { system: 'sys', prompt: 'hi' })
+  const text = await asking
   assert.equal(text, 'ok')
   const models = await probing
   assert.deepEqual(models.map(model => model.id), ['default', 'm-fast'])
@@ -816,4 +835,377 @@ test('a usage-only report does not hand the previous model\'s window to the new 
   // A report that does carry a size is still the model's window.
   adapter.observe(live, { type: 'context', used: 5_100, size: 475_000 })
   assert.equal((await adapter.resolveModel('local-acp-fake', 'another-model')).context.contextWindow, 475_000)
+})
+
+function makeScriptEngineAdapter(kind, script, { records = {}, engines = [] } = {}) {
+  const Ctor = kind === 'claude' ? ClaudeEngine : kind === 'codex' ? CodexEngine : AcpEngine
+  return new LocalAgentAdapter({
+    rt: { warn: () => {} },
+    customAgents: () => [{ id: 'fake', name: 'Fake ACP', command: 'x', args: [] }],
+    findExecutable: path => path,
+    spawnEngine: (_kind, r, spec) => {
+      const args = kind === 'claude' ? ['-e', script, '--'] : ['-e', script]
+      const engine = new Ctor(r, { ...spec, command: process.execPath, args }, { findExecutable: path => path })
+      engines.push(engine)
+      return engine
+    },
+    record: sessionId => records[sessionId],
+    saveRecord: (sessionId, record) => { records[sessionId] = record },
+    patchRecord: (sessionId, patch) => { if (records[sessionId]) Object.assign(records[sessionId], patch) },
+    recordUsage: () => {},
+    presetFor: () => 'workspace-write',
+    cwdFor: async () => tmpdir(),
+    probeCwd: () => tmpdir(),
+    toolsFor: () => [],
+  })
+}
+
+test('Claude Code multi-step turn: preserves full cumulative billed tokens + num_turns calls while keeping single-step context', async (t) => {
+  const claudeScript = `
+    let buf = '', turn = 0
+    const send = obj => process.stdout.write(JSON.stringify(obj) + '\\n')
+    process.stdin.setEncoding('utf8')
+    process.stdin.on('data', chunk => {
+      buf += chunk
+      let i
+      while ((i = buf.indexOf('\\n')) !== -1) {
+        const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1)
+        if (!line) continue
+        const msg = JSON.parse(line)
+        if (msg.type !== 'user') continue
+        turn += 1
+        if (turn === 1) {
+          send({ type: 'system', subtype: 'init', session_id: 'cl-1', model: 'claude-sonnet-4-6' })
+          // Two blocks sharing msg_1 (must count once), plus msg_2, msg_3, and a subagent message (ignored).
+          send({ type: 'assistant', message: { id: 'msg_1', content: [{ type: 'thinking', thinking: 'plan' }], usage: { input_tokens: 2000, cache_read_input_tokens: 7500, output_tokens: 500 } } })
+          send({ type: 'assistant', message: { id: 'msg_1', content: [{ type: 'tool_use', name: 'Read', input: { file_path: 'a.js' } }], usage: { input_tokens: 2000, cache_read_input_tokens: 7500, output_tokens: 500 } } })
+          send({ type: 'assistant', parent_tool_use_id: 'toolu_sub', message: { id: 'msg_sub', content: [{ type: 'tool_use', name: 'Read', input: { file_path: 'sub.js' } }], usage: { input_tokens: 90000, output_tokens: 1000 } } })
+          send({ type: 'assistant', message: { id: 'msg_2', content: [{ type: 'tool_use', name: 'Read', input: { file_path: 'b.js' } }], usage: { input_tokens: 3000, cache_read_input_tokens: 18000, output_tokens: 1000 } } })
+          send({ type: 'assistant', message: { id: 'msg_3', content: [{ type: 'text', text: 'done' }], usage: { input_tokens: 4000, cache_read_input_tokens: 30000, output_tokens: 1000 } } })
+          send({
+            type: 'result', subtype: 'success', is_error: false, num_turns: 12,
+            usage: { input_tokens: 120000, cache_read_input_tokens: 5800000, cache_creation_input_tokens: 80000, output_tokens: 15000 },
+            modelUsage: { 'claude-sonnet-4-6': { contextWindow: 200000 } },
+          })
+        } else {
+          // Turn 2 omits num_turns: falls back to distinct main-session message.ids (2, ignoring subagent).
+          send({ type: 'assistant', message: { id: 'msg_a', content: [{ type: 'thinking', thinking: 'hmm' }], usage: { input_tokens: 1000, cache_read_input_tokens: 34000, output_tokens: 200 } } })
+          send({ type: 'assistant', message: { id: 'msg_a', content: [{ type: 'tool_use', name: 'Read', input: { file_path: 'c.js' } }], usage: { input_tokens: 1000, cache_read_input_tokens: 34000, output_tokens: 200 } } })
+          send({ type: 'assistant', parent_tool_use_id: 'toolu_sub2', message: { id: 'msg_sub2', content: [{ type: 'tool_use', name: 'Read', input: { file_path: 'sub2.js' } }], usage: { input_tokens: 50000, output_tokens: 500 } } })
+          send({ type: 'assistant', message: { id: 'msg_b', content: [{ type: 'text', text: 'ok2' }], usage: { input_tokens: 1500, cache_read_input_tokens: 36000, output_tokens: 500 } } })
+          send({
+            type: 'result', subtype: 'success', is_error: false,
+            usage: { input_tokens: 2500, cache_read_input_tokens: 70000, output_tokens: 700 },
+            modelUsage: { 'claude-sonnet-4-6': { contextWindow: 200000 } },
+          })
+        }
+      }
+    })
+  `
+  const adapter = makeScriptEngineAdapter('claude', claudeScript)
+  t.after(() => adapter.dispose())
+
+  const first = await turn(adapter, 's1', [user('m1', 'do big work')], 'local-claude-code')
+  assert.equal(first.text, 'done')
+  assert.deepEqual(first.usage, {
+    inputTokens: 120_000,
+    outputTokens: 15_000,
+    cacheReadTokens: 5_800_000,
+    cacheWriteTokens: 80_000,
+    calls: 12,
+  })
+  // Single-step context is the last main assistant message (4000 + 30000 + 1000 = 35000),
+  // never the 6M cumulative multi-step sum or the 91K subagent step.
+  assert.deepEqual(adapter.contextOf('s1'), { used: 35_000, size: 200_000, compactions: 0 })
+
+  const second = await turn(adapter, 's1', [user('m1', 'do big work'), { id: 'a1', role: 'assistant', content: [{ type: 'text', text: 'done' }] }, user('m2', 'next')], 'local-claude-code')
+  assert.equal(second.text, 'ok2')
+  assert.deepEqual(second.usage, {
+    inputTokens: 2_500,
+    outputTokens: 700,
+    cacheReadTokens: 70_000,
+    calls: 2,
+  })
+  assert.deepEqual(adapter.contextOf('s1'), { used: 38_000, size: 200_000, compactions: 0 })
+})
+
+test('Codex multi-step turn deduplicates repeated totals, preserves coalesced deltas and cacheWrite, and skips thread/resume catch-up', async (t) => {
+  const codexScript = `
+    let buf = '', turnNo = 0, resumed = false
+    const send = obj => process.stdout.write(JSON.stringify(obj) + '\\n')
+    process.stdin.setEncoding('utf8')
+    process.stdin.on('data', chunk => {
+      buf += chunk
+      let i
+      while ((i = buf.indexOf('\\n')) !== -1) {
+        const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1)
+        if (!line) continue
+        const { id, method, params = {} } = JSON.parse(line)
+        if (method === 'initialize') {
+          send({ jsonrpc: '2.0', id, result: {} })
+        } else if (method === 'thread/start') {
+          send({ jsonrpc: '2.0', id, result: { thread: { id: 'th-1' } } })
+        } else if (method === 'thread/resume') {
+          resumed = true
+          // Catch-up tokenUsage emitted during thread/resume before any new turn starts:
+          // must update context and baseline total without emitting billed usage.
+          send({
+            jsonrpc: '2.0', method: 'thread/tokenUsage/updated',
+            params: {
+              threadId: params.threadId,
+              tokenUsage: {
+                total: { totalTokens: 60600, inputTokens: 60000, cachedInputTokens: 30000, cacheWriteInputTokens: 500, outputTokens: 600, reasoningOutputTokens: 100 },
+                last: { totalTokens: 22000, inputTokens: 21800, cachedInputTokens: 12000, cacheWriteInputTokens: 0, outputTokens: 200, reasoningOutputTokens: 0 },
+                modelContextWindow: 475000,
+              },
+            },
+          })
+          send({ jsonrpc: '2.0', id, result: { thread: { id: params.threadId } } })
+        } else if (method === 'turn/start') {
+          turnNo += 1
+          const turnId = (resumed ? 'tr-' : 't-') + turnNo
+          send({ jsonrpc: '2.0', id, result: { turn: { id: turnId } } })
+          send({ jsonrpc: '2.0', method: 'turn/started', params: { threadId: params.threadId, turn: { id: turnId } } })
+          if (!resumed) {
+            // Step 1 (with cacheWriteInputTokens)
+            send({
+              jsonrpc: '2.0', method: 'thread/tokenUsage/updated',
+              params: {
+                threadId: params.threadId, turnId,
+                tokenUsage: {
+                  total: { totalTokens: 10100, inputTokens: 10000, cachedInputTokens: 4000, cacheWriteInputTokens: 500, outputTokens: 100, reasoningOutputTokens: 20 },
+                  last: { totalTokens: 10100, inputTokens: 10000, cachedInputTokens: 4000, cacheWriteInputTokens: 500, outputTokens: 100, reasoningOutputTokens: 20 },
+                  modelContextWindow: 475000,
+                },
+              },
+            })
+            // Step 2
+            send({
+              jsonrpc: '2.0', method: 'thread/tokenUsage/updated',
+              params: {
+                threadId: params.threadId, turnId,
+                tokenUsage: {
+                  total: { totalTokens: 25300, inputTokens: 25000, cachedInputTokens: 12000, cacheWriteInputTokens: 500, outputTokens: 300, reasoningOutputTokens: 50 },
+                  last: { totalTokens: 15200, inputTokens: 15000, cachedInputTokens: 8000, cacheWriteInputTokens: 0, outputTokens: 200, reasoningOutputTokens: 30 },
+                  modelContextWindow: 475000,
+                },
+              },
+            })
+            // Duplicate unchanged total (must NOT double-count tokens or increment calls)
+            send({
+              jsonrpc: '2.0', method: 'thread/tokenUsage/updated',
+              params: {
+                threadId: params.threadId, turnId,
+                tokenUsage: {
+                  total: { totalTokens: 25300, inputTokens: 25000, cachedInputTokens: 12000, cacheWriteInputTokens: 500, outputTokens: 300, reasoningOutputTokens: 50 },
+                  last: { totalTokens: 15200, inputTokens: 15000, cachedInputTokens: 8000, cacheWriteInputTokens: 0, outputTokens: 200, reasoningOutputTokens: 30 },
+                  modelContextWindow: 475000,
+                },
+              },
+            })
+            // Step 3 (coalesced delta: total jumped by 35000 input / 300 output while last is 21800 / 200)
+            send({
+              jsonrpc: '2.0', method: 'thread/tokenUsage/updated',
+              params: {
+                threadId: params.threadId, turnId,
+                tokenUsage: {
+                  total: { totalTokens: 60600, inputTokens: 60000, cachedInputTokens: 30000, cacheWriteInputTokens: 500, outputTokens: 600, reasoningOutputTokens: 100 },
+                  last: { totalTokens: 22000, inputTokens: 21800, cachedInputTokens: 12000, cacheWriteInputTokens: 0, outputTokens: 200, reasoningOutputTokens: 50 },
+                  modelContextWindow: 475000,
+                },
+              },
+            })
+            send({ jsonrpc: '2.0', method: 'item/completed', params: { threadId: params.threadId, turnId, item: { type: 'agentMessage', text: 'step3-done' } } })
+            send({ jsonrpc: '2.0', method: 'turn/completed', params: { threadId: params.threadId, turn: { id: turnId, status: 'completed' } } })
+          } else {
+            // Post-resume Turn 2: total advances by 24000 input (15000 cached), 250 output.
+            send({
+              jsonrpc: '2.0', method: 'thread/tokenUsage/updated',
+              params: {
+                threadId: params.threadId, turnId,
+                tokenUsage: {
+                  total: { totalTokens: 84850, inputTokens: 84000, cachedInputTokens: 45000, cacheWriteInputTokens: 500, outputTokens: 850, reasoningOutputTokens: 100 },
+                  last: { totalTokens: 24250, inputTokens: 24000, cachedInputTokens: 15000, cacheWriteInputTokens: 0, outputTokens: 250, reasoningOutputTokens: 0 },
+                  modelContextWindow: 475000,
+                },
+              },
+            })
+            send({ jsonrpc: '2.0', method: 'item/completed', params: { threadId: params.threadId, turnId, item: { type: 'agentMessage', text: 'resumed-ok' } } })
+            send({ jsonrpc: '2.0', method: 'turn/completed', params: { threadId: params.threadId, turn: { id: turnId, status: 'completed' } } })
+          }
+        }
+      }
+    })
+  `
+  const records = {}
+  const adapter = makeScriptEngineAdapter('codex', codexScript, { records })
+  t.after(() => adapter.dispose())
+
+  const first = await turn(adapter, 's1', [user('m1', 'run tools')], 'local-codex-cli')
+  assert.equal(first.text, 'step3-done')
+  // Exact total spend: input (uncached) = 60000 - 30000 - 500 = 29500, cacheRead = 30000, cacheWrite = 500, output = 600, reasoning = 100, calls = 3.
+  assert.deepEqual(first.usage, {
+    inputTokens: 29_500,
+    outputTokens: 600,
+    cacheReadTokens: 30_000,
+    cacheWriteTokens: 500,
+    reasoningTokens: 100,
+    calls: 3,
+  })
+  // Single-step context stays at last.totalTokens (22000), not cumulative 60600.
+  assert.deepEqual(adapter.contextOf('s1'), { used: 22_000, size: 475_000, compactions: 0 })
+
+  // Close live session to force thread/resume on Turn 2.
+  await adapter.closeSession('s1')
+  const second = await turn(adapter, 's1', [
+    user('m1', 'run tools'),
+    { id: 'a1', role: 'assistant', content: [{ type: 'text', text: 'step3-done' }] },
+    user('m2', 'follow up'),
+  ], 'local-codex-cli')
+  assert.equal(second.text, 'resumed-ok')
+  // Only Turn 2's delta is billed (24000 - 15000 = 9000 uncached, 15000 cached, 250 output); single call omits `calls`.
+  assert.deepEqual(second.usage, {
+    inputTokens: 9_000,
+    outputTokens: 250,
+    cacheReadTokens: 15_000,
+  })
+  assert.deepEqual(adapter.contextOf('s1'), { used: 24_250, size: 475_000, compactions: 0 })
+})
+
+test('ACP multi-step prompt (Antigravity 1.5.9 recorded trace): counts internal steps, deduplicates identical usage_update, ignores session/load replay', async (t) => {
+  const fixturePath = FIXTURE('recorded/antigravity-acp-1.5.9.json')
+  const acpReplayScript = `
+    const { readFileSync } = require('node:fs')
+    const fixture = JSON.parse(readFileSync(${JSON.stringify(fixturePath)}, 'utf8'))
+    const sid = fixture.sessionNew.sessionId
+    let buf = ''
+    const send = obj => process.stdout.write(JSON.stringify(obj) + '\\n')
+    process.stdin.setEncoding('utf8')
+    process.stdin.on('data', chunk => {
+      buf += chunk
+      let i
+      while ((i = buf.indexOf('\\n')) !== -1) {
+        const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1)
+        if (!line) continue
+        const { id, method, params = {} } = JSON.parse(line)
+        if (method === 'initialize') {
+          send({ jsonrpc: '2.0', id, result: { protocolVersion: 1, agentCapabilities: {}, authMethods: [] } })
+        } else if (method === 'session/new') {
+          send({ jsonrpc: '2.0', id, result: { sessionId: sid, configOptions: [] } })
+          // Historical replay notice outside any active prompt: updates context, must NOT inflate next turn's calls.
+          send({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: sid, update: { sessionUpdate: 'usage_update', used: 9000, size: 1048576 } } })
+        } else if (method === 'session/prompt') {
+          for (const m of fixture.messages) {
+            if (m.method === 'session/update') send({ jsonrpc: '2.0', method: m.method, params: m.params })
+          }
+          // Duplicate back-to-back usage_update with identical used and no work between (must be deduped).
+          send({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: sid, update: { sessionUpdate: 'usage_update', used: 12984, size: 1048576 } } })
+          send({ jsonrpc: '2.0', id, result: fixture.promptResult })
+        } else if (id !== undefined) {
+          send({ jsonrpc: '2.0', id, error: { code: -32601, message: 'method not found' } })
+        }
+      }
+    })
+  `
+  const adapter = makeScriptEngineAdapter('acp', acpReplayScript)
+  t.after(() => adapter.dispose())
+
+  const fixture = JSON.parse(readFileSync(fixturePath, 'utf8'))
+  const out = await turn(adapter, 's1', [user('m1', 'run recorded trace')])
+  assert.deepEqual(out.usage, { ...usageOf(fixture.promptResult.usage), calls: 2 })
+  // Single-step context is 12984, NOT the cumulative 25685 sum across both steps.
+  assert.deepEqual(adapter.contextOf('s1'), { used: 12_984, size: 1_048_576, compactions: 0 })
+})
+
+test('mergeUsage accumulates additive tokens and call counts without emitting calls=1 for single-step turns', () => {
+  const single = mergeUsage(undefined, { inputTokens: 100, outputTokens: 20, calls: 1 })
+  assert.deepEqual(single, { inputTokens: 100, outputTokens: 20 })
+  const two = mergeUsage(single, { inputTokens: 200, outputTokens: 30, cacheReadTokens: 500 })
+  assert.deepEqual(two, { inputTokens: 300, outputTokens: 50, cacheReadTokens: 500, calls: 2 })
+  const multi = mergeUsage(two, { inputTokens: 400, outputTokens: 40, cacheWriteTokens: 100, calls: 3 })
+  assert.deepEqual(multi, { inputTokens: 700, outputTokens: 90, cacheReadTokens: 500, cacheWriteTokens: 100, calls: 5 })
+})
+
+test('channel run-stats replaces distorted cumulative DSH contextPressure with CLI per-step context occupancy', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-run-stats-'))
+  writeFileSync(join(home, 'state.json'), JSON.stringify({
+    version: 1,
+    mainBotIds: ['b1'],
+    bots: {
+      b1: { id: 'b1', name: 'Coder', role: 'Dev', sessionId: 'dm-b1', model: 'local-claude-code/sonnet', createdAt: 1 },
+    },
+    rooms: {},
+    agents: {},
+    exchanges: [],
+    exchangeTurns: {},
+    questions: {},
+    prefs: {},
+    localAgents: {
+      custom: [],
+      sessions: {
+        'dm-b1': { route: 'local-claude-code', model: 'sonnet', context: { used: 42_000, size: 200_000 }, compactions: 0 },
+      },
+    },
+    revision: 0,
+  }))
+
+  const dshSnapshot = {
+    values: {
+      sessionStats: { turns: 1, decodeMs: 5000, decodeTokens: 500 },
+      tokenUsage: { uncachedInputTokens: 120_000, cacheReadTokens: 5_800_000, cacheWriteTokens: 80_000, outputTokens: 15_000 },
+      // Cumulative 6M tokens from DSH's usage-projection on a 200K window:
+      contextPressure: { pressureTokens: 6_000_000, projectedTokens: 6_000_000, contextWindow: 200_000 },
+    },
+  }
+  const ctx = fakeContext({ services: { sessionProjections: { snapshot: () => dshSnapshot } } })
+  const session = {
+    id: 'dm-b1',
+    requestHeader: () => ({ config: { provider: 'local-claude-code', model: 'sonnet' } }),
+  }
+  const agent = {
+    id: 'dm-b1',
+    session,
+    status: 'idle',
+    inbox: { nextStep: [], nextTurn: [], remove: () => false },
+    async whenIdle() {},
+  }
+  Object.assign(ctx, {
+    llm: { listProviders: () => [], listModels: async () => [], resolveModelInfo: async () => ({}) },
+    sessionController: { resolveAgent: async () => ({ agent }) },
+  })
+  let route
+  const origReg = ctx.connection.fetch.register
+  ctx.connection.fetch.register = (opts) => { route = opts; return origReg(opts) }
+
+  const rt = createRuntime(ctx, { home })
+  t.after(async () => {
+    await ctx.dispose()
+    rmSync(home, { recursive: true, force: true })
+  })
+  await rt.load()
+
+  const call = async (endpoint, payload) => {
+    const response = await route.fetch(new Request('http://localhost/api/bot', { method: 'POST', body: JSON.stringify({ endpoint, payload }) }))
+    return response.json()
+  }
+  const res = await call('run-stats', { botId: 'b1' })
+  assert.equal(res.ok, true)
+  assert.deepEqual(res.value.contextPressure, {
+    pressureTokens: 42_000,
+    projectedTokens: 42_000,
+    contextWindow: 200_000,
+  })
+  const rendered = runStatsOf(res.value)
+  const ctxItem = rendered.find(item => item.key === 'context')
+  assert.equal(ctxItem?.text, 'Context 21%')
+  assert.equal(ctxItem?.title, '42.0K of 200.0K tokens of context in use')
+
+  // When CLI context is stale after compaction (used === undefined), omit contextPressure
+  // instead of falling back to DSH's cumulative 6M figure.
+  rt.state.localAgents.sessions['dm-b1'].context = { used: 42_000, size: 200_000, stale: true }
+  rt.state.localAgents.sessions['dm-b1'].compactions = 1
+  const staleRes = await call('run-stats', { botId: 'b1' })
+  assert.equal(staleRes.ok, true)
+  assert.equal(staleRes.value.contextPressure, undefined)
+  assert.equal(runStatsOf(staleRes.value).find(item => item.key === 'context'), undefined)
 })

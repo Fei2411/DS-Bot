@@ -264,11 +264,11 @@ test('group member task_start inherits group workDir/permissions/memory, isolate
   assert.match(await env.tool('task_list').execute({}, execOf(grpA)), /Build audit/)
   assert.equal(await env.tool('task_list').execute({}, execOf(dmA)), 'No background tasks.')
 
-  // Group task cannot call message_bot directly.
+  // Group task cannot call delegate_work directly.
   const taskAgent = env.agentMap.get(task.sessionId)
   await assert.rejects(
-    () => env.tool('message_bot').execute({ to: 'Helper', message: 'Hi outside' }, execOf(taskAgent)),
-    /Background tasks in a group chat cannot call message_bot/,
+    () => env.tool('delegate_work').execute({ to: 'Helper', goal: 'Hi outside' }, execOf(taskAgent)),
+    /Background tasks in a group chat cannot call delegate_work/,
   )
 
   // Updating group permission propagates to active group tasks.

@@ -2,18 +2,20 @@ import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
 import { describe, test } from 'node:test'
 import { setTimeout as sleep } from 'node:timers/promises'
-import { isNewer, RELEASES_URL, watchReleases, watchUpdates } from '../src/updates.mjs'
+import { isNewer, watchReleases, watchUpdates } from '../src/updates.mjs'
 
 // electron-updater's AppUpdater, as far as the app uses it. `found` makes the answer of a
 // check that finds a version, with the download that autoDownload starts.
 class FakeUpdater extends EventEmitter {
   checks = 0
+  downloads = 0
   feeds = []
   installs = []
   failCheck = false
   found = null
   // `wait` leaves the check pending, the way a slow answer from the feed would.
   wait = false
+  downloadHandler = null
   checkForUpdates() {
     this.checks += 1
     this.emit('checking-for-update')
@@ -26,6 +28,10 @@ class FakeUpdater extends EventEmitter {
     const result = this.found?.() ?? { isUpdateAvailable: false, updateInfo: { version: '0.1.7' } }
     this.emit(result.isUpdateAvailable ? 'update-available' : 'update-not-available', result.updateInfo)
     return Promise.resolve(result)
+  }
+  downloadUpdate() {
+    this.downloads += 1
+    return this.downloadHandler ? this.downloadHandler() : Promise.resolve(['installer.exe'])
   }
   setFeedURL(options) { this.feeds.push(options) }
   quitAndInstall(...args) { this.installs.push(args) }
@@ -42,7 +48,7 @@ const release = (version, options = {}) => {
   const arch = options.arch ?? 'arm64'
   return {
     tag_name: `v${version}`,
-    html_url: options.page ?? `https://github.com/Fei2411/DS-Bot/releases/tag/v${version}`,
+    html_url: options.page ?? `https://github.com/Fei-Craft/DS-Bot/releases/tag/v${version}`,
     draft: options.draft ?? false,
     prerelease: options.prerelease ?? false,
     assets: options.assets ?? [{ name: `DS-Bot-${version}-mac-${arch}.zip` }],
@@ -84,7 +90,7 @@ describe('watchReleases', () => {
     t.after(updates.stop)
     assert.equal(await updates.latest(), null)
     assert.deepEqual(calls[0], {
-      url: RELEASES_URL,
+      url: 'https://api.github.com/repos/Fei-Craft/DS-Bot/releases?per_page=20',
       options: { headers: { accept: 'application/vnd.github+json', 'user-agent': 'DS-Bot/0.1.7' } },
     })
 
@@ -96,7 +102,7 @@ describe('watchReleases', () => {
   })
 
   test('reports a newer release and opens its page only when accepted', async (t) => {
-    const page = 'https://github.com/Fei2411/DS-Bot/releases/tag/v0.1.9'
+    const page = 'https://github.com/Fei-Craft/DS-Bot/releases/tag/v0.1.9'
     for (const accepted of [true, false]) {
       const asked = []
       const opened = []
@@ -171,7 +177,7 @@ describe('watchReleases', () => {
       [async () => releaseResponse({}, 403), 'DS Bot: update check failed: HTTP 403'],
       [async () => { throw new Error('offline') }, 'DS Bot: update check failed: offline'],
       [async () => ({ ok: true, status: 200, json: async () => { throw new Error('bad JSON') } }), 'DS Bot: update check failed: bad JSON'],
-      [async () => releaseResponse([release('0.1.9', { page: 'http://github.com/Fei2411/DS-Bot' })]), 'DS Bot: update check failed: release page URL is not HTTPS'],
+      [async () => releaseResponse([release('0.1.9', { page: 'http://github.com/Fei-Craft/DS-Bot' })]), 'DS Bot: update check failed: release page URL is not HTTPS'],
     ]
     for (const [fetch, message] of cases) {
       const log = quietLog()
@@ -212,14 +218,14 @@ describe('watchReleases', () => {
     attached = true
     t.mock.timers.tick(4 * 60 * 60_000)
     assert.deepEqual(await updates.latest(), {
-      version: '0.1.9', page: 'https://github.com/Fei2411/DS-Bot/releases/tag/v0.1.9',
+      version: '0.1.9', page: 'https://github.com/Fei-Craft/DS-Bot/releases/tag/v0.1.9',
     })
     await sleep(0)
     assert.deepEqual(asked, ['0.1.9'])
   })
 
   test('a given asset replaces the mac zip: the deb of a Linux install', async (t) => {
-    const page = 'https://github.com/Fei2411/DS-Bot/releases/tag/v0.1.9'
+    const page = 'https://github.com/Fei-Craft/DS-Bot/releases/tag/v0.1.9'
     // The deb's file name uses the Debian architecture (x64 → amd64).
     const deb = version => `DS-Bot-${version}-linux-amd64.deb`
     // A release with only the mac zip does not count for a deb install.
@@ -257,7 +263,7 @@ describe('watchReleases', () => {
     })
     t.after(updates.stop)
     assert.deepEqual(await updates.latest(), {
-      version: '0.2.0-rc.2', page: 'https://github.com/Fei2411/DS-Bot/releases/tag/v0.2.0-rc.2',
+      version: '0.2.0-rc.2', page: 'https://github.com/Fei-Craft/DS-Bot/releases/tag/v0.2.0-rc.2',
     })
   })
 
@@ -279,7 +285,7 @@ describe('watchReleases', () => {
     })
     t.after(updates.stop)
     assert.deepEqual(await updates.latest(), {
-      version: '0.1.10', page: 'https://github.com/Fei2411/DS-Bot/releases/tag/v0.1.10',
+      version: '0.1.10', page: 'https://github.com/Fei-Craft/DS-Bot/releases/tag/v0.1.10',
     })
   })
 
@@ -318,17 +324,17 @@ describe('watchReleases', () => {
       current: '0.1.7', arch: 'arm64', fetch: async () => releaseResponse([release('0.1.7')]), log: quietLog(),
     })
     t.after(none.stop)
-    assert.deepEqual(none.state(), { phase: 'checking' })
+    assert.deepEqual(none.state(), { phase: 'checking', autoUpdate: true })
     assert.equal(await none.latest(), null)
-    assert.deepEqual(none.state(), { phase: 'current' })
+    assert.deepEqual(none.state(), { phase: 'current', autoUpdate: true })
 
-    const page = 'https://github.com/Fei2411/DS-Bot/releases/tag/v0.1.9'
+    const page = 'https://github.com/Fei-Craft/DS-Bot/releases/tag/v0.1.9'
     const found = watchReleases({
       current: '0.1.7', arch: 'arm64', fetch: async () => releaseResponse([release('0.1.9', { page })]), log: quietLog(),
     })
     t.after(found.stop)
     assert.deepEqual(await found.latest(), { version: '0.1.9', page })
-    assert.deepEqual(found.state(), { phase: 'available', version: '0.1.9', page })
+    assert.deepEqual(found.state(), { phase: 'available', version: '0.1.9', page, autoUpdate: true })
   })
 
   test('a failed check reports failed: HTTP error, bad JSON, non-array, thrown', async (t) => {
@@ -342,7 +348,7 @@ describe('watchReleases', () => {
       const updates = watchReleases({ current: '0.1.7', arch: 'arm64', fetch, log: quietLog() })
       t.after(updates.stop)
       assert.equal(await updates.latest(), null)
-      assert.deepEqual(updates.state(), { phase: 'failed' })
+      assert.deepEqual(updates.state(), { phase: 'failed', autoUpdate: true })
     }
   })
 
@@ -355,18 +361,18 @@ describe('watchReleases', () => {
       log: quietLog(),
     })
     t.after(updates.stop)
-    assert.deepEqual(updates.state(), { phase: 'checking' })
+    assert.deepEqual(updates.state(), { phase: 'checking', autoUpdate: true })
     updates.check()
     assert.equal(calls, 1)
     gate(releaseResponse([release('0.1.7')]))
     await updates.latest()
-    assert.deepEqual(updates.state(), { phase: 'current' })
+    assert.deepEqual(updates.state(), { phase: 'current', autoUpdate: true })
     updates.check()
     assert.equal(calls, 2)
-    assert.deepEqual(updates.state(), { phase: 'checking' })
+    assert.deepEqual(updates.state(), { phase: 'checking', autoUpdate: true })
     gate(releaseResponse([release('0.1.7')]))
     await updates.latest()
-    assert.deepEqual(updates.state(), { phase: 'current' })
+    assert.deepEqual(updates.state(), { phase: 'current', autoUpdate: true })
   })
 
   test('listeners hear every state change until they unsubscribe', async (t) => {
@@ -387,6 +393,82 @@ describe('watchReleases', () => {
     await updates.latest()
     await sleep(0)
     assert.deepEqual(seen, ['current', 'checking', 'current'])
+  })
+
+  test('autoUpdate=false skips automatic checks and prompts, still allows manual check(), and toggles cleanly', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval'] })
+    const page = 'https://github.com/Fei-Craft/DS-Bot/releases/tag/v0.1.9'
+    let calls = 0
+    const asked = []
+    const updates = watchReleases({
+      current: '0.1.7', arch: 'arm64', autoUpdate: false,
+      fetch: async () => { calls += 1; return releaseResponse([release('0.1.9', { page })]) },
+      ask: async version => { asked.push(version); return true },
+      open: () => {},
+      log: quietLog(),
+    })
+    t.after(updates.stop)
+
+    assert.equal(calls, 0)
+    assert.deepEqual(updates.state(), { phase: 'idle', autoUpdate: false })
+    t.mock.timers.tick(8 * 60 * 60_000)
+    assert.equal(calls, 0)
+
+    // Manual check works and reports available without popping a prompt.
+    updates.check()
+    assert.deepEqual(await updates.latest(), { version: '0.1.9', page })
+    assert.equal(calls, 1)
+    assert.deepEqual(asked, [])
+    assert.deepEqual(updates.state(), { phase: 'available', version: '0.1.9', page, autoUpdate: false })
+
+    // Re-enabling starts the timer; turning back off stops it.
+    updates.setAutoUpdate(true)
+    assert.deepEqual(updates.state(), { phase: 'available', version: '0.1.9', page, autoUpdate: true })
+    t.mock.timers.tick(4 * 60 * 60_000)
+    await updates.latest()
+    assert.equal(calls, 2)
+    assert.deepEqual(asked, ['0.1.9'])
+
+    updates.setAutoUpdate(false)
+    t.mock.timers.tick(8 * 60 * 60_000)
+    assert.equal(calls, 2)
+  })
+
+  test('turning autoUpdate on from idle starts an immediate check', async (t) => {
+    let calls = 0
+    const updates = watchReleases({
+      current: '0.1.7', arch: 'arm64', autoUpdate: false,
+      fetch: async () => { calls += 1; return releaseResponse([release('0.1.7')]) },
+      log: quietLog(),
+    })
+    t.after(updates.stop)
+    assert.equal(calls, 0)
+    updates.setAutoUpdate(true)
+    assert.equal(calls, 1)
+    await updates.latest()
+    assert.deepEqual(updates.state(), { phase: 'current', autoUpdate: true })
+  })
+
+  test('turning autoUpdate off while a check is in flight suppresses prompt and clears latest', async (t) => {
+    const page = 'https://github.com/Fei-Craft/DS-Bot/releases/tag/v0.1.9'
+    let gate
+    const asked = []
+    const updates = watchReleases({
+      current: '0.1.7', arch: 'arm64',
+      fetch: () => new Promise(resolve => { gate = resolve }),
+      ask: async version => { asked.push(version); return true },
+      open: () => {},
+      log: quietLog(),
+    })
+    t.after(updates.stop)
+    assert.deepEqual(updates.state(), { phase: 'checking', autoUpdate: true })
+
+    updates.setAutoUpdate(false)
+    assert.equal(await updates.latest(), null)
+    gate(releaseResponse([release('0.1.9', { page })]))
+    await sleep(10)
+    assert.deepEqual(asked, [])
+    assert.deepEqual(updates.state(), { phase: 'available', version: '0.1.9', page, autoUpdate: false })
   })
 })
 
@@ -505,13 +587,13 @@ describe('watchUpdates', () => {
     const updates = watchUpdates({ updater, beforeInstall: async () => {}, log: quietLog() })
     t.after(updates.stop)
     // The first check already answered: nothing newer.
-    assert.deepEqual(updates.state(), { phase: 'current' })
+    assert.deepEqual(updates.state(), { phase: 'current', autoUpdate: true })
     updater.emit('checking-for-update')
-    assert.deepEqual(updates.state(), { phase: 'checking' })
+    assert.deepEqual(updates.state(), { phase: 'checking', autoUpdate: true })
     updater.emit('update-available', { version: '0.1.9' })
-    assert.deepEqual(updates.state(), { phase: 'downloading', version: '0.1.9' })
+    assert.deepEqual(updates.state(), { phase: 'downloading', version: '0.1.9', autoUpdate: true })
     updater.emit('update-downloaded', { version: '0.1.9' })
-    assert.deepEqual(updates.state(), { phase: 'downloaded', version: '0.1.9' })
+    assert.deepEqual(updates.state(), { phase: 'downloaded', version: '0.1.9', autoInstall: true, autoUpdate: true })
   })
 
   test('the download reports its per cent and MB, once per whole per cent', (t) => {
@@ -530,11 +612,11 @@ describe('watchUpdates', () => {
     updater.emit('download-progress', { percent: 38.1, transferred: 80.6 * MB, total: 212 * MB })
     updater.emit('download-progress', { percent: Number.NaN })
     assert.deepEqual(seen.slice(1), [
-      { phase: 'downloading', version: '0.1.9', percent: 37, received: 78, total: 212 },
-      { phase: 'downloading', version: '0.1.9', percent: 38, received: 81, total: 212 },
+      { phase: 'downloading', version: '0.1.9', percent: 37, received: 78, total: 212, autoUpdate: true },
+      { phase: 'downloading', version: '0.1.9', percent: 38, received: 81, total: 212, autoUpdate: true },
     ])
     updater.emit('update-downloaded', { version: '0.1.9' })
-    assert.deepEqual(updates.state(), { phase: 'downloaded', version: '0.1.9' })
+    assert.deepEqual(updates.state(), { phase: 'downloaded', version: '0.1.9', autoInstall: true, autoUpdate: true })
   })
 
   test('a failed check or download reports failed, unless an update is already downloaded', (t) => {
@@ -542,13 +624,13 @@ describe('watchUpdates', () => {
     const updates = watchUpdates({ updater, beforeInstall: async () => {}, log: quietLog() })
     t.after(updates.stop)
     updater.emit('error', new Error('offline'))
-    assert.deepEqual(updates.state(), { phase: 'failed' })
+    assert.deepEqual(updates.state(), { phase: 'failed', autoUpdate: true })
     updater.emit('update-available', { version: '0.1.9' })
     updater.emit('error', new Error('sha512 checksum mismatch'))
-    assert.deepEqual(updates.state(), { phase: 'failed' })
+    assert.deepEqual(updates.state(), { phase: 'failed', autoUpdate: true })
     updater.emit('update-downloaded', { version: '0.1.9' })
     updater.emit('error', new Error('offline'))
-    assert.deepEqual(updates.state(), { phase: 'downloaded', version: '0.1.9' })
+    assert.deepEqual(updates.state(), { phase: 'downloaded', version: '0.1.9', autoInstall: true, autoUpdate: true })
   })
 
   test('check() runs the timer\'s check, but not while checking, downloading or downloaded', (t) => {
@@ -557,7 +639,7 @@ describe('watchUpdates', () => {
     const updates = watchUpdates({ updater, beforeInstall: async () => {}, log: quietLog() })
     t.after(updates.stop)
     // The first check is still on: the updater has not answered it yet.
-    assert.deepEqual(updates.state(), { phase: 'checking' })
+    assert.deepEqual(updates.state(), { phase: 'checking', autoUpdate: true })
     updates.check()
     assert.equal(updater.checks, 1)
     updater.wait = false
@@ -584,5 +666,204 @@ describe('watchUpdates', () => {
     off()
     updater.emit('update-downloaded', { version: '0.1.9' })
     assert.deepEqual(seen, ['checking', 'downloading'])
+  })
+
+  test('autoUpdate=false disables autoDownload/quit-install, skips checks, and supports manual check + download', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval'] })
+    const updater = new FakeUpdater()
+    const asked = []
+    updater.found = () => ({ isUpdateAvailable: true, updateInfo: { version: '0.1.9' }, downloadPromise: null })
+    updater.downloadHandler = () => {
+      updater.emit('update-downloaded', { version: '0.1.9' })
+      return Promise.resolve(['installer.exe'])
+    }
+    const updates = watchUpdates({
+      updater, beforeInstall: async () => {}, log: quietLog(), autoUpdate: false,
+      ask: async version => { asked.push(version); return true },
+    })
+    t.after(updates.stop)
+
+    assert.equal(updater.autoDownload, false)
+    assert.equal(updater.autoInstallOnAppQuit, false)
+    assert.equal(updater.checks, 0)
+    assert.deepEqual(updates.state(), { phase: 'idle', autoUpdate: false })
+
+    t.mock.timers.tick(8 * 60 * 60_000)
+    assert.equal(updater.checks, 0)
+
+    // Manual check finds an update without downloading.
+    updates.check()
+    await updates.latest()
+    assert.equal(updater.checks, 1)
+    assert.equal(updater.downloads, 0)
+    assert.deepEqual(updates.state(), { phase: 'available', version: '0.1.9', canDownload: true, autoUpdate: false })
+
+    // Manual download downloads without popping the restart prompt or arming quit-install.
+    updates.download()
+    await sleep(0)
+    assert.equal(updater.downloads, 1)
+    assert.deepEqual(asked, [])
+    assert.deepEqual(updates.state(), { phase: 'downloaded', version: '0.1.9', autoInstall: false, autoUpdate: false })
+
+    // Re-enabling updates flags for future runs, while keeping autoInstall false for this download.
+    updates.setAutoUpdate(true)
+    assert.equal(updater.autoDownload, true)
+    assert.equal(updater.autoInstallOnAppQuit, true)
+    assert.deepEqual(updates.state(), { phase: 'downloaded', version: '0.1.9', autoInstall: false, autoUpdate: true })
+  })
+
+  test('turning autoUpdate off cancels an active background download and disarms quit-install', async (t) => {
+    let cancelled = 0
+    const updater = new FakeUpdater()
+    updater.found = () => ({
+      isUpdateAvailable: true,
+      updateInfo: { version: '0.1.9' },
+      cancellationToken: { cancel: () => { cancelled += 1 } },
+      downloadPromise: new Promise(() => {}),
+    })
+    const updates = watchUpdates({ updater, beforeInstall: async () => {}, log: quietLog() })
+    t.after(updates.stop)
+    await sleep(0)
+    assert.deepEqual(updates.state(), { phase: 'downloading', version: '0.1.9', autoUpdate: true })
+
+    updates.setAutoUpdate(false)
+    assert.equal(cancelled, 1)
+    assert.equal(updater.autoDownload, false)
+    assert.equal(updater.autoInstallOnAppQuit, false)
+    assert.deepEqual(updates.state(), { phase: 'available', version: '0.1.9', canDownload: true, autoUpdate: false })
+  })
+
+  test('turning autoUpdate off after an automatic download disarms autoInstallOnAppQuit', (t) => {
+    const updater = new FakeUpdater()
+    const updates = watchUpdates({ updater, beforeInstall: async () => {}, log: quietLog() })
+    t.after(updates.stop)
+    updater.emit('update-downloaded', { version: '0.1.9' })
+    assert.deepEqual(updates.state(), { phase: 'downloaded', version: '0.1.9', autoInstall: true, autoUpdate: true })
+
+    updates.setAutoUpdate(false)
+    assert.equal(updater.autoInstallOnAppQuit, false)
+    assert.deepEqual(updates.state(), { phase: 'downloaded', version: '0.1.9', autoInstall: false, autoUpdate: false })
+
+    // Turning it back on restores autoInstall because electron-updater registered its quit handler
+    // when autoInstallOnAppQuit was true at download time.
+    updates.setAutoUpdate(true)
+    assert.equal(updater.autoInstallOnAppQuit, true)
+    assert.deepEqual(updates.state(), { phase: 'downloaded', version: '0.1.9', autoInstall: true, autoUpdate: true })
+
+    // Monotonicity: once BaseUpdater registered its quit handler, a later download while
+    // autoUpdate is off does not unregister it; re-enabling still reports autoInstall=true.
+    updates.setAutoUpdate(false)
+    updater.emit('update-downloaded', { version: '0.1.10' })
+    assert.deepEqual(updates.state(), { phase: 'downloaded', version: '0.1.10', autoInstall: false, autoUpdate: false })
+    updates.setAutoUpdate(true)
+    assert.deepEqual(updates.state(), { phase: 'downloaded', version: '0.1.10', autoInstall: true, autoUpdate: true })
+  })
+
+  test('manual download waits for cancelled background download cleanup before invoking downloadUpdate', async (t) => {
+    const updater = new FakeUpdater()
+    let finishCleanup
+    // Model real AppUpdater.downloadPromise: stays occupied until async cleanup settles.
+    let internalLock = null
+    updater.found = () => {
+      let rejectDownload
+      const promise = new Promise((_resolve, reject) => { rejectDownload = reject })
+      internalLock = promise
+      const cleanup = promise.catch(() => {}).finally(() => { internalLock = null })
+      return {
+        isUpdateAvailable: true,
+        updateInfo: { version: '0.1.9' },
+        cancellationToken: {
+          cancel: () => {
+            finishCleanup = async () => {
+              rejectDownload(new Error('cancelled'))
+              await cleanup
+            }
+          },
+        },
+        downloadPromise: promise,
+      }
+    }
+    updater.downloadHandler = () => {
+      if (internalLock !== null) return internalLock
+      updater.emit('update-downloaded', { version: '0.1.9' })
+      return Promise.resolve(['installer.exe'])
+    }
+
+    const updates = watchUpdates({ updater, beforeInstall: async () => {}, log: quietLog() })
+    t.after(updates.stop)
+    await sleep(0)
+    assert.deepEqual(updates.state(), { phase: 'downloading', version: '0.1.9', autoUpdate: true })
+
+    // Cancel background download; cleanup is still pending.
+    updates.setAutoUpdate(false)
+    assert.equal(await updates.latest(), null, 'disabling clears latest() so fail/offerUpdate never acts on stale download')
+    assert.deepEqual(updates.state(), { phase: 'available', version: '0.1.9', canDownload: true, autoUpdate: false })
+
+    // User immediately clicks manual Download before cleanup completes.
+    updates.download()
+    assert.deepEqual(updates.state(), { phase: 'downloading', version: '0.1.9', autoUpdate: false })
+    // Stale progress from cancelled background download is ignored during cleanup.
+    updater.emit('download-progress', { percent: 91, transferred: 91 * 1024 * 1024, total: 100 * 1024 * 1024 })
+    assert.equal(updates.state().percent, undefined)
+    assert.equal(updater.downloads, 0, 'waits until cleanup frees AppUpdater.downloadPromise')
+
+    await finishCleanup()
+    await sleep(10)
+    assert.equal(updater.downloads, 1)
+    assert.deepEqual(updates.state(), { phase: 'downloaded', version: '0.1.9', autoInstall: false, autoUpdate: false })
+  })
+
+  test('disabling autoUpdate mid-check cancels a newly started download, and manual download is not cancelled by toggles', async (t) => {
+    let resolveCheck
+    let cancelled = 0
+    const updater = new FakeUpdater()
+    updater.checkForUpdates = () => {
+      updater.checks += 1
+      return new Promise(resolve => { resolveCheck = resolve })
+    }
+    const updates = watchUpdates({ updater, beforeInstall: async () => {}, log: quietLog() })
+    t.after(updates.stop)
+
+    updates.setAutoUpdate(false)
+    let rejectBg
+    const bgPromise = new Promise((_res, rej) => { rejectBg = rej })
+    resolveCheck({
+      isUpdateAvailable: true,
+      updateInfo: { version: '0.1.9' },
+      cancellationToken: { cancel: () => { cancelled += 1; rejectBg(new Error('cancelled')) } },
+      downloadPromise: bgPromise,
+    })
+    await sleep(10)
+    assert.equal(cancelled, 1)
+    assert.deepEqual(updates.state(), { phase: 'available', version: '0.1.9', canDownload: true, autoUpdate: false })
+
+    // Start manual download that rejects without emitting an error event.
+    let rejectManual
+    updater.downloadHandler = () => new Promise((_res, rej) => { rejectManual = rej })
+    updates.download()
+    await sleep(0)
+    assert.deepEqual(updates.state(), { phase: 'downloading', version: '0.1.9', autoUpdate: false })
+    // Toggling autoUpdate on and back off does not cancel a manual download.
+    updates.setAutoUpdate(true)
+    updates.setAutoUpdate(false)
+    assert.deepEqual(updates.state(), { phase: 'downloading', version: '0.1.9', autoUpdate: false })
+
+    rejectManual(new Error('network reset'))
+    await sleep(10)
+    assert.deepEqual(updates.state(), { phase: 'failed', autoUpdate: false })
+  })
+
+  test('enabling autoUpdate from idle or failed runs check even when checkForUpdates settles without events', async (t) => {
+    const updater = new FakeUpdater()
+    updater.checkForUpdates = () => { updater.checks += 1; return Promise.resolve(null) }
+    const updates = watchUpdates({ updater, beforeInstall: async () => {}, log: quietLog(), autoUpdate: false })
+    t.after(updates.stop)
+    assert.deepEqual(updates.state(), { phase: 'idle', autoUpdate: false })
+
+    updates.setAutoUpdate(true)
+    assert.equal(updater.checks, 1)
+    assert.deepEqual(updates.state(), { phase: 'checking', autoUpdate: true })
+    await updates.latest()
+    assert.deepEqual(updates.state(), { phase: 'current', autoUpdate: true })
   })
 })

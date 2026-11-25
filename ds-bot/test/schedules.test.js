@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -115,9 +115,9 @@ function hostSchedule() {
   }
 }
 
-function setup(services = {}, team = TEAM) {
-  const home = mkdtempSync(join(tmpdir(), 'dsb-schedules-'))
-  writeFileSync(join(home, 'state.json'), JSON.stringify(team))
+function setup(services = {}, team = TEAM, existingHome) {
+  const home = existingHome ?? mkdtempSync(join(tmpdir(), 'dsb-schedules-'))
+  if (existingHome === undefined) writeFileSync(join(home, 'state.json'), JSON.stringify(team))
   const ctx = fakeContext({ services })
   const register = ctx.connection.fetch.register
   ctx.connection.fetch.register = (route) => { ctx.route = route; return register(route) }
@@ -256,8 +256,10 @@ test('on DSH 0.2.2 a Bot reads and changes only the tasks of its own chat', asyn
   schedule.tasks.set('own', { record: { id: 'own', kind: 'at', title: 'Mine', prompt: 'x', scheduledAt: '2030-01-01T00:00:00.000Z' }, target: { kind: 'session', sessionId: 'w1' }, status: 'active' })
   schedule.tasks.set('chief', { record: { id: 'chief', kind: 'at', title: 'Chief', prompt: 'x', scheduledAt: '2030-01-01T00:00:00.000Z' }, target: { kind: 'session', sessionId: 'm1' }, status: 'active' })
   schedule.tasks.set('elsewhere', { record: { id: 'elsewhere', kind: 'at', title: 'New', prompt: 'x', scheduledAt: '2030-01-01T00:00:00.000Z' }, target: { kind: 'new_once' }, status: 'active' })
-  const [gate] = ctx.listeners.get('tools/pre-execute')
-  const check = (name, id, sessionId) => gate({ name, arguments: { id, action: 'delete' }, agent: { id: sessionId } }, async () => ({ kind: 'allow' }))
+  const check = (name, id, sessionId) => {
+    const exec = { name, arguments: { id, action: 'delete' }, agent: { id: sessionId } }
+    return ctx.listeners.get('tools/pre-execute').reduceRight((next, gate) => () => gate(exec, next), async () => ({ kind: 'allow' }))()
+  }
   assert.deepEqual(await check('schedule_edit', 'own', 'w2'), { kind: 'allow' })
   assert.deepEqual(await check('schedule_view', 'own', 'w2'), { kind: 'allow' })
   for (const id of ['chief', 'elsewhere']) {
@@ -324,6 +326,61 @@ test('a failed task move can resume without losing identical remaining tasks', a
   assert.equal(on('s9').length, 2)
   assert.equal(on('w2').length, 0)
 })
+
+test('a legacy reminder move interrupted during deletion resumes after restart without another copy', async (t) => {
+  const schedule = scheduleService()
+  const request = { title: 'Ping', prompt: 'Check', every_seconds: 3600 }
+  const first = setup({ schedule })
+  t.after(() => rmSync(first.home, { recursive: true, force: true, maxRetries: 5 }))
+  await first.rt.load()
+  await schedule.create('s9', request)
+  const original = await schedule.create('w2', request)
+  await schedule.create('w2', request)
+  const remove = schedule.delete
+  schedule.delete = async () => { throw new Error('interrupted') }
+  await assert.rejects(first.rt.moveSchedules('w2', 's9'), /interrupted/)
+  const copies = await schedule.list({ sessionId: 's9' })
+  assert.equal(copies.length, 2)
+  assert.deepEqual(JSON.parse(readFileSync(join(first.home, 'state.json'), 'utf8')).legacyScheduleMoves,
+    [{ fromId: 'w2', id: original.id, copyId: copies[1].id }])
+  await first.ctx.dispose()
+
+  schedule.delete = remove
+  const second = setup({ schedule }, undefined, first.home)
+  t.after(() => second.ctx.dispose())
+  await second.rt.load()
+  await second.rt.moveSchedules('w2', 's10')
+  assert.deepEqual(await schedule.list({ sessionId: 's9' }), copies)
+  assert.equal((await schedule.list({ sessionId: 's10' })).length, 1)
+  assert.deepEqual(await schedule.list({ sessionId: 'w2' }), [])
+  assert.equal(second.rt.state.legacyScheduleMoves, undefined)
+})
+
+for (const [name, target] of [
+  ['does not mistake another source’s identical reminder for its copy', 's9'],
+  ['uses the current target rather than the failed attempt’s target', 's10'],
+]) {
+  test(`a failed legacy reminder copy ${name}`, async (t) => {
+    const schedule = scheduleService()
+    const request = { title: 'Ping', prompt: 'Check', every_seconds: 3600 }
+    const { ctx, home, rt } = setup({ schedule })
+    t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+    await rt.load()
+    await schedule.create('w2', request)
+    const create = schedule.create
+    schedule.create = async () => { throw new Error('interrupted') }
+    await assert.rejects(rt.moveSchedules('w2', 's9'), /interrupted/)
+    schedule.create = create
+    if (target === 's9') {
+      await schedule.create('m1', request)
+      await rt.moveSchedules('m1', target)
+    }
+    await rt.moveSchedules('w2', target)
+    assert.deepEqual(await schedule.list({ sessionId: 'w2' }), [])
+    assert.equal((await schedule.list({ sessionId: target })).length, target === 's9' ? 2 : 1)
+    if (target !== 's9') assert.deepEqual(await schedule.list({ sessionId: 's9' }), [])
+  })
+}
 
 test('on DSH 0.2.2 a task pauses and resumes from Settings, and only a team task does', async (t) => {
   const schedule = hostSchedule()

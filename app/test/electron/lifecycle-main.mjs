@@ -14,6 +14,7 @@ const assets = join(here, '..', '..', 'assets')
 // The data of this run is the folder the check script names, so that the check never writes
 // into the data of the user. The path is set before the app is ready.
 if (process.env.DS_BOT_SHELL_DATA !== undefined) app.setPath('userData', process.env.DS_BOT_SHELL_DATA)
+if (process.platform === 'darwin' && !app.commandLine.hasSwitch('use-mock-keychain')) app.commandLine.appendSwitch('use-mock-keychain')
 const token = randomBytes(16).toString('hex')
 const cookie = `dsh-auth=${token}`
 let origin
@@ -91,6 +92,7 @@ const state = () => ({
   hosts,
   hasTray: shell.hasTray(),
   quitting: shell.isQuitting(),
+  mockKeychain: app.commandLine.hasSwitch('use-mock-keychain'),
 })
 
 async function handle(command) {

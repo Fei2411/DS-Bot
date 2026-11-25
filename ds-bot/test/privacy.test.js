@@ -130,6 +130,51 @@ async function start({ services = {}, privateBot = true, archives, memberPick = 
 
 const CLOSED = /private Bot/
 
+for (const child of [false, true]) test('private relative file approvals include their actual destination; child=' + child, async t => {
+  const env = await start({ services: { approval: fakeApproval() } })
+  t.after(env.stop)
+  const evidence = []
+  env.rt.requestActionApproval = async (_request, action) => { evidence.push(action); return 'allowed-once' }
+  const agent = env.agentOf(child ? 'private-child' : P)
+  if (child) Object.assign(agent.session.header, { parentSession: P, origin: 'subagent' })
+  for (const cwd of [env.project, env.team]) {
+    agent.session.header.cwd = cwd
+    assert.equal((await env.run('write', { file_path: 'report.txt', content: 'report' }, agent.id, agent)).ran, true)
+  }
+  assert.equal(evidence[0].cwd, env.project)
+  assert.equal(evidence[0].path, join(env.project, 'report.txt'))
+  assert.equal(evidence[0].resolvedPath, join(env.project, 'report.txt'))
+  assert.equal(evidence[1].path, join(env.team, 'report.txt'))
+  assert.notDeepEqual(evidence[0], evidence[1])
+})
+
+test('private file approval cannot be reused after a link target changes', async t => {
+  const env = await start({ services: { approval: fakeApproval() } })
+  t.after(env.stop)
+  const agent = env.agentOf(P)
+  agent.session.header.cwd = env.project
+  const path = join(env.project, 'report.txt')
+  const realBeyond = env.rt.realBeyond
+  let moved = false
+  env.rt.realBeyond = value => value === path && moved ? Promise.resolve(join(env.team, 'report.txt')) : realBeyond(value)
+  env.rt.requestActionApproval = async () => { moved = true; return 'allowed-once' }
+  const result = await env.run('write', { file_path: 'report.txt', content: 'report' }, P)
+  assert.equal(result.ran, false)
+  assert.match(result.error, /destination changed/)
+})
+
+test('private file approval cannot be reused after its effective directory changes', async t => {
+  const env = await start({ services: { approval: fakeApproval() } })
+  t.after(env.stop)
+  const agent = env.agentOf(P)
+  agent.session.header.cwd = env.project
+  env.rt.requestActionApproval = async () => { agent.session.header.cwd = env.team; return 'allowed-once' }
+  const result = await env.run('write', { file_path: 'report.txt', content: 'report' }, P)
+  assert.equal(result.ran, false)
+  assert.match(result.error, /destination changed/)
+})
+
+
 test('only the user makes a Bot private, and the Bot needs a folder of its own', async (t) => {
   const { rt, project, team, state, stop } = await start({ privateBot: false })
   t.after(stop)
@@ -256,6 +301,27 @@ test('a private Bot\'s background part stays closed to other Bots', async (t) =>
   assert.deepEqual(await run('session_search', { query: 'x', session_ids: ['p-bg'] }, P), { ran: true })
 })
 
+test('pruned private task history stays protected after reloading state and deleting its Bot', async (t) => {
+  const { rt, run, state, stop } = await start()
+  t.after(stop)
+  const bot = rt.botOf(P)
+  bot.tasks = Array.from({ length: 51 }, (_, n) => ({
+    id: `task-${n}`, sessionId: `retired-private-${n}`, status: 'completed',
+  }))
+  bot.tasks[0].segments = [{ sessionId: 'retired-private-earlier' }]
+  await rt.reconcileTasksAfterRestart()
+  const saved = state().bots[P]
+  assert.equal(saved.tasks.length, 50)
+  assert.deepEqual(saved.retiredTaskSessions, ['retired-private-0', 'retired-private-earlier'])
+  rt.state.bots[P] = saved
+  const ids = { session_ids: saved.retiredTaskSessions }
+  assert.match((await run('session_search', ids, 'b')).error, CLOSED)
+  assert.deepEqual(await run('session_search', ids, P), { ran: true })
+  await rt.deleteBot(P)
+  assert.match((await run('session_search', ids, 'b')).error, CLOSED)
+  assert.ok(ids.session_ids.every(id => state().privateArchives[0].sessionIds.includes(id)))
+})
+
 test('other Bots cannot read, write or search what a private Bot keeps', async (t) => {
   const { run, root, dsh, home, diary, team, project, stop } = await start()
   t.after(stop)
@@ -359,8 +425,7 @@ test('the private Bot reads its own and the team\'s files; a Session it starts s
   t.after(stop)
   assert.deepEqual(await run('read', { file_path: join(diary, 'notes.txt') }, P), { ran: true })
   assert.deepEqual(await run('glob', { pattern: '**/*', path: diary }, P), { ran: true })
-  // Its own data is no secret from it: with no other private Bot, the data folder is open to a search.
-  assert.deepEqual(await run('glob', { pattern: '**/*', path: home }, P), { ran: true })
+  assert.equal((await run('glob', { pattern: '**/*', path: home }, P)).ran, false)
   assert.deepEqual(await run('read', { file_path: join(project, 'a.txt') }, P), { ran: true })
   assert.deepEqual(await run('glob', { pattern: '**/*', path: team }, P), { ran: true })
   assert.deepEqual(await run('read', { file_path: join(home, 'memory', 'team', 'MEMORY.md') }, P), { ran: true })
@@ -380,6 +445,7 @@ test('what a private Bot sends to the others waits for the user', async (t) => {
   assert.deepEqual(await run('message_bot', { to: 'Writer', message: 'My secret plan' }, P), { ran: true })
   assert.equal(approval.requests.length, 1)
   assert.equal(approval.requests[0].toolName, 'message_bot')
+  assert.equal(approval.requests[0].privacy, true)
   assert.match(approval.requests[0].reason, /Diary[\s\S]*Writer[\s\S]*My secret plan/)
   assert.match(approval.requests[0].displayReason.zh, /My secret plan/)
   // The Bots that are not private send as before.
@@ -689,5 +755,33 @@ test('with no private Bot the tools run as they did', async (t) => {
   t.after(stop)
   assert.deepEqual(await run('read', { file_path: join(diary, 'notes.txt') }, 'b'), { ran: true })
   assert.deepEqual(await run('message_bot', { to: 'Diary', message: 'hi' }, 'a'), { ran: true })
-  assert.deepEqual(await run('glob', { pattern: '*', path: join(diary, '..') }, 'b'), { ran: true })
+  assert.equal((await run('glob', { pattern: '*', path: join(diary, '..') }, 'b')).ran, false)
+})
+
+test('telemetry consent file stays protected from Bots even when no Bot is private', async (t) => {
+  const { run, home, project, agentOf, stop } = await start({ privateBot: false })
+  t.after(stop)
+  const telFile = join(home, 'telemetry.json')
+  writeFileSync(telFile, JSON.stringify({ noticeAccepted: false, usage: false, errors: false }))
+  for (const [toolName, args] of [
+    ['read', { file_path: telFile }],
+    ['write', { file_path: telFile, content: '{"noticeAccepted":true,"usage":true}' }],
+    ['write', { file_path: `${telFile}.tmp`, content: '{}' }],
+    ['edit', { file_path: telFile, old_string: 'false', new_string: 'true' }],
+    ['grep', { pattern: 'telemetry.json', path: home }],
+    ['glob', { pattern: '*', path: home }],
+    ['bash', { command: `cat "${telFile}"` }],
+    ['bash', { command: 'cat ../telemetry.json' }],
+  ]) {
+    const res = await run(toolName, args, 'b')
+    assert.equal(res.ran, false, `${toolName} must not access telemetry.json`)
+    assert.match(res.error, /telemetry consent/)
+  }
+  // Searching an unrelated workspace for references to `telemetry.json` stays allowed.
+  const agent = agentOf('b')
+  agent.session.header.cwd = project
+  assert.deepEqual(await run('grep', { pattern: 'telemetry.json', path: project }, 'b', agent), { ran: true })
+  assert.deepEqual(await run('bash', { command: 'rg telemetry.json src/' }, 'b', agent), { ran: true })
+  // Direct host path in bash is still blocked even from an unrelated cwd.
+  assert.equal((await run('bash', { command: `cat "${telFile}"` }, 'b', agent)).ran, false)
 })

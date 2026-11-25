@@ -31,7 +31,7 @@ runInNewContext(bundle.outputFiles[0].text, {
     return platform[name]
   },
 })
-const { PanelMenu, menuItemFor } = module.exports
+const { PanelMenu, PlusTabIcon, menuItemFor } = module.exports
 
 const find = (node, match, out = []) => {
   if (Array.isArray(node)) node.forEach(child => find(child, match, out))
@@ -84,6 +84,8 @@ test('the strip shows with only side chats and no browser', () => {
   assert.equal(panelHasStrip(true, 0, 0), false)
   assert.equal(panelHasStrip(true, 1, 0), true)
   assert.equal(panelHasStrip(true, 0, 2), true)
+  assert.equal(panelHasStrip(false, 0, 0, false, 1), true)
+  assert.equal(panelHasStrip(false, 0, 0, false, 0), false)
 })
 
 test('the strip `···` offers a browser tab only where the browser works', () => {
@@ -104,20 +106,27 @@ test('the details `···` hides when it would be empty', () => {
   assert.deepEqual(drawerMenuKeys({ bot: false, room: false, canBrowse: false, canTerminal: true, canFiles: true }), [])
 })
 
-test('the `···` button opens the menu with an item per entry', () => {
+test('the `+` button opens the menu with an item per entry and accepts an optional custom icon', () => {
   const actions = { openBrowser: () => {}, browserNewTab: () => {}, newSideChat: () => {}, newTerminal: () => {}, openFiles: () => {} }
   const items = stripMenuKeys({ canBrowse: true, canTerminal: true, canFiles: true }).map(key => menuItemFor(key, actions, 's'))
-  const tree = PanelMenu({ items, className: 'bt-ptab-new', 'aria-label': 'More' })
+  const tree = PanelMenu({ items, className: 'bt-ptab-new', 'aria-label': 'New tab' })
   const [button] = find(tree, node => node.type === 'button' && node.props?.className === 'bt-ptab-new')
-  assert.equal(button.props['aria-label'], 'More')
+  assert.equal(button.props['aria-label'], 'New tab')
   assert.equal(button.props['aria-haspopup'], 'menu')
+  assert.equal(button.children[0].type, PlusTabIcon, 'PanelMenu defaults to crisp PlusTabIcon')
+  const svg = PlusTabIcon()
+  assert.equal(svg.props.strokeWidth, 1.75)
+  const CustomIcon = () => null
+  const customTree = PanelMenu({ items, className: 'bt-ptab-new', 'aria-label': 'Custom', icon: CustomIcon })
+  const [customBtn] = find(customTree, node => node.type === 'button' && node.props?.className === 'bt-ptab-new')
+  assert.equal(customBtn.children[0].type, CustomIcon)
   const labels = find(tree, node => node.props?.role === 'menuitem').map(node => node.children.flat(Infinity).at(-1)?.children?.[0])
   assert.deepEqual([...labels], ['New browser tab', 'Side chat', 'Terminal', 'Files'])
   assert.equal(find(tree, node => node.props?.className === 'bt-pmenu-sep').length, 1)
 })
 
 test('an empty list renders no button', () => {
-  assert.equal(PanelMenu({ items: [], className: 'bt-round', 'aria-label': 'More' }), null)
+  assert.equal(PanelMenu({ items: [], className: 'bt-round', 'aria-label': 'New tab' }), null)
 })
 
 test('a rejecting menu action reports through reportError', async () => {

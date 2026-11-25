@@ -245,6 +245,25 @@ test('a Bot without a model of its own still moves to a CLI only by the user, co
   assert.equal(env.state().bots.d.model, 'ds/pro')
 })
 
+test('moving to a local agent clears extra folders and excludes group grants', async (t) => {
+  const env = await start(t)
+  const extra = join(env.root, 'extra')
+  mkdirSync(extra)
+  assert.equal((await env.call('update-bot', { id: 'b', extraDirs: [extra] })).ok, true)
+  assert.equal((await env.call('update-room', { id: 'r1', extraDirs: [extra] })).ok, true)
+  assert.deepEqual(env.rt.extraDirsOfSession('b'), [extra])
+  assert.deepEqual(env.rt.extraDirsOfSession('gb'), [extra])
+  assert.equal((await env.call('update-bot', { id: 'b', model: CLI, changeEngine: true })).ok, true)
+  assert.equal(env.state().bots.b.extraDirs, undefined)
+  assert.deepEqual(env.rt.extraDirsOfSession('b'), [])
+  assert.deepEqual(env.rt.extraDirsOfSession('gb'), [])
+  assert.equal(env.ctx.sections.get('bot-extra-folders').text({ agent: { id: 'gb' } }), '')
+  const refused = await env.call('update-bot', { id: 'b', extraDirs: [extra] })
+  assert.equal(refused.ok, false)
+  assert.match(refused.error.message, /runs on a local agent/)
+  assert.equal(env.state().bots.b.extraDirs, undefined)
+})
+
 test('a Bot on a CLI keeps a model of it', async (t) => {
   const env = await start(t, { saved: team({ c: { id: 'c', name: 'Local', role: '', sessionId: 'c', createdAt: 3, model: CLI, appliedModel: CLI } }) })
   const cleared = await env.call('update-bot', { id: 'c', model: null })
@@ -460,6 +479,53 @@ test('a fallback never crosses the line, in either direction', async (t) => {
   assert.equal(await rt.defaultBotModel(), DS)
 })
 
+for (const explicit of [false, true]) test('default model changes invalidate reviews opened during resolution; explicit reviewer=' + explicit, async t => {
+  const { rt, call } = await start(t)
+  if (explicit) rt.state.prefs.approvalModel = 'ds/flash'
+  let release
+  let started
+  const reached = new Promise(resolve => { started = resolve })
+  const holding = new Promise(resolve => { release = resolve })
+  t.after(() => release())
+  rt.resolveModel = async () => { started(); await holding; return 'ds/pro' }
+  let pendingReview = false
+  rt.cancelApprovalReviews = () => { pendingReview = false }
+  const saving = call('set-prefs', { defaultBotModel: 'ds/pro' })
+  await reached
+  pendingReview = true
+  release()
+  assert.equal((await saving).ok, true)
+  assert.equal(rt.state.prefs.defaultBotModel, 'ds/pro')
+  assert.equal(pendingReview, explicit, 'a review opened while resolution waits must follow the committed model choice')
+})
+
+for (const field of ['approvalModel', 'defaultBotModel']) for (const next of ['ds/pro', null]) for (const stage of ['refresh', 'load', 'resolveModel']) {
+  test('model saves keep the newest ' + field + '=' + next + ' while an older request waits in ' + stage, async t => {
+    const { rt, call } = await start(t)
+    let release
+    let entered
+    const reached = new Promise(resolve => { entered = resolve })
+    const holding = new Promise(resolve => { release = resolve })
+    t.after(() => release())
+    const original = rt[stage]
+    let held = false
+    rt[stage] = async (...args) => {
+      if (!held) { held = true; entered(); await holding }
+      return original(...args)
+    }
+    let cancelled = 0
+    rt.cancelApprovalReviews = () => { cancelled++ }
+    const older = call('set-prefs', { [field]: 'ds/flash' })
+    await reached
+    assert.equal((await call('set-prefs', { [field]: next })).ok, true)
+    const settledCancellations = cancelled
+    release()
+    assert.equal((await older).ok, true)
+    assert.equal(rt.state.prefs[field], next ?? undefined)
+    assert.equal(cancelled, settledCancellations, 'the obsolete selection must not invalidate reviews under the newer setting')
+  })
+}
+
 test('a CLI cannot become the team default model', async (t) => {
   const env = await start(t)
   const refused = await env.call('set-prefs', { defaultBotModel: CLI })
@@ -637,10 +703,31 @@ test('closing a Session answers what its CLI waits on and lets the process go', 
   for await (const chunk of first) if (chunk.type === 'finish') assert.equal(chunk.reason.kind, 'tool-calls')
   assert.equal(adapter.live.get('s1').pending.size, 1)
   const child = engines[0].child
+  const exited = child.exitCode !== null || child.signalCode !== null
+    ? Promise.resolve()
+    : new Promise((resolve) => {
+      const done = () => { child.off('exit', done); child.off('close', done); resolve() }
+      child.once('exit', done)
+      child.once('close', done)
+    })
   await adapter.closeSession('s1', 'moved on')
   assert.equal(adapter.live.has('s1'), false)
   assert.equal(engines[0].child, undefined)
-  assert.notEqual(child.killed, false)
+  if (!child.killed && child.exitCode === null && child.signalCode === null) {
+    let timer
+    try {
+      await Promise.race([
+        exited,
+        new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new Error('child process did not exit after closeSession')), 5_000)
+          timer.unref?.()
+        }),
+      ])
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+  assert.ok(child.killed || child.exitCode !== null || child.signalCode !== null, 'CLI child process should be terminated or exited')
   // The record stays, so opening that part again resumes the CLI session.
   assert.ok(records.s1.cliSessionId)
 })

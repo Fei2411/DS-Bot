@@ -111,7 +111,11 @@ function mountPluginsPage({ view = SAMPLE_VIEW, roster = DEFAULT_ROSTER, actions
     pluginsCatalogRefresh: () => Promise.resolve(view),
     pluginsSlotSet: (s, id) => {
       calls.push(['slot', s, id])
-      return Promise.resolve({ ...view, slots: { browser: { ...view.slots.browser, active: id } } })
+      return Promise.resolve({
+        ...view,
+        slots: { browser: { ...view.slots.browser, active: id } },
+        plugins: view.plugins.map(p => (p.slot === s ? { ...p, active: p.id === id, enabled: p.id === id } : p)),
+      })
     },
     pluginsInstall: body => { calls.push(['install', body]); return Promise.resolve({ view }) },
     pluginsToggle: (id, enabled) => { calls.push(['toggle', id, enabled]); return Promise.resolve(view) },
@@ -186,29 +190,59 @@ const SAMPLE_VIEW = {
   ],
 }
 
-test('PluginsPage renders switches with knobs, switches browser slot, installs from Discover, toggles per-Bot, and sanitizes links', async () => {
+test('PluginsPage renders borderless tiles with switch knobs, switches browser slot, opens detail subview, toggles per-Bot, and sanitizes links', async () => {
   const { draw, calls } = mountPluginsPage()
   draw()
   await flush()
   let tree = draw()
 
-  assert.match(textOf(tree), /Browser plugins/)
+  assert.match(textOf(tree), /Browser control/)
+  assert.match(textOf(tree), /browser:\/\/readonly/)
+  assert.match(textOf(tree), /Ego Lite Browser/)
   assert.match(textOf(tree), /Notes MCP/)
+
+  // Browser Control Stage & tiles render official marks; inactive tiles start without data-active.
+  const stage = findAll(tree, n => n.type === 'div' && n.props?.className === 'bt-plg-stage')[0]
+  assert.ok(stage)
+  const refsTileBefore = findAll(tree, n => n.type === 'div' && n.props?.className === 'bt-plg-tile' && textOf(n).includes('Playwright (Refs)'))[0]
+  assert.ok(refsTileBefore)
+  assert.equal(refsTileBefore.props['data-active'], undefined)
 
   // General plugin switch renders real `.bt-switch-knob`.
   const generalSwitch = findAll(tree, n => n.type === 'button' && n.props?.role === 'switch' && n.props['aria-label'] === 'Notes MCP')[0]
   assert.ok(generalSwitch)
   assert.ok(findAll(generalSwitch, n => n.type === 'span' && n.props?.className === 'bt-switch-knob').length === 1)
 
-  // Click "Use" on Playwright (Refs).
+  // Click "Use" on Playwright (Refs) → stage switches to Playwright emerald and plays activation sweep.
   const useBtn = findAll(tree, n => n.type === 'button' && textOf(n) === 'Use')[0]
   useBtn.props.onClick()
   await flush()
   assert.deepEqual(calls[0], ['slot', 'browser', 'builtin:refs'])
 
-  // Expand Notes MCP → unsafe `javascript:` homepage is NOT rendered; per-Bot switches include `.bt-switch-knob`.
+  // First draw updates props/effect (`setFresh(true)`); next draw reflects `data-fresh`.
   tree = draw()
-  const notesBtn = findAll(tree, n => n.type === 'button' && n.props?.className === 'bt-plg-card-body' && textOf(n).includes('Notes MCP'))[0]
+  tree = draw()
+  const stageAfter = findAll(tree, n => n.type === 'div' && n.props?.className === 'bt-plg-stage')[0]
+  assert.ok(stageAfter)
+  assert.match(textOf(stageAfter), /browser:\/\/playwright\/refs/)
+  assert.equal(stageAfter.props['data-fresh'], '')
+  const refsTileAfter = findAll(tree, n => n.type === 'div' && n.props?.className === 'bt-plg-tile' && textOf(n).includes('Playwright (Refs)'))[0]
+  assert.equal(refsTileAfter.props['data-active'], '')
+  assert.equal(refsTileAfter.props['data-fresh'], '')
+
+  // Switching away within the 1100ms sweep window immediately clears `data-fresh` on the deactivated tile.
+  const backUseBtn = findAll(tree, n => n.type === 'button' && textOf(n) === 'Use')[0]
+  backUseBtn.props.onClick()
+  await flush()
+  tree = draw()
+  tree = draw()
+  const refsTileDeactivated = findAll(tree, n => n.type === 'div' && n.props?.className === 'bt-plg-tile' && textOf(n).includes('Playwright (Refs)'))[0]
+  assert.equal(refsTileDeactivated.props['data-active'], undefined)
+  assert.equal(refsTileDeactivated.props['data-fresh'], undefined)
+
+  // Open Notes MCP detail subview → unsafe `javascript:` homepage is NOT rendered; per-Bot switches include `.bt-switch-knob`.
+  const notesBtn = findAll(tree, n => n.type === 'button' && n.props?.className === 'bt-plg-main' && textOf(n).includes('Notes MCP'))[0]
+  assert.ok(notesBtn)
   notesBtn.props.onClick()
   tree = draw()
   assert.equal(findAll(tree, n => n.type === 'a').length, 0)
@@ -217,34 +251,19 @@ test('PluginsPage renders switches with knobs, switches browser slot, installs f
   assert.ok(findAll(writerSwitch, n => n.type === 'span' && n.props?.className === 'bt-switch-knob').length === 1)
   writerSwitch.props.onClick()
   await flush()
-  assert.deepEqual(calls[1], ['bot', 'mcp:notes', 'writer', false])
+  assert.deepEqual(calls[2], ['bot', 'mcp:notes', 'writer', false])
 
-  // Two-step remove confirmation resets when collapsing the card.
+  // Two-step remove confirmation executes removal.
   tree = draw()
-  const removeBtn = findAll(tree, n => n.type === 'button' && textOf(n) === 'Remove')[0]
-  removeBtn.props.onClick()
-  tree = draw()
-  assert.ok(findAll(tree, n => n.type === 'button' && textOf(n) === 'Confirm remove').length === 1)
-  // Collapse and re-expand → confirm state reset!
-  const notesToggle = findAll(tree, n => n.type === 'button' && n.props?.className === 'bt-plg-card-body' && textOf(n).includes('Notes MCP'))[0]
-  notesToggle.props.onClick()
-  tree = draw()
-  const notesReopen = findAll(tree, n => n.type === 'button' && n.props?.className === 'bt-plg-card-body' && textOf(n).includes('Notes MCP'))[0]
-  notesReopen.props.onClick()
-  tree = draw()
-  assert.equal(findAll(tree, n => n.type === 'button' && textOf(n) === 'Confirm remove').length, 0)
-
-  // Confirm remove executes removal.
   findAll(tree, n => n.type === 'button' && textOf(n) === 'Remove')[0].props.onClick()
   tree = draw()
   findAll(tree, n => n.type === 'button' && textOf(n) === 'Confirm remove')[0].props.onClick()
   await flush()
-  assert.deepEqual(calls[2], ['remove', 'mcp:notes'])
+  assert.deepEqual(calls[3], ['remove', 'mcp:notes'])
 
-  // Discover tab renders safe `https:` homepage & repository with `noopener noreferrer`.
-  findAll(tree, n => n.type === 'button' && textOf(n) === 'Discover')[0].props.onClick()
+  // Back on main catalog, open Ego Lite Browser detail subview → safe `https:` links rendered with `noopener noreferrer`.
   tree = draw()
-  const egoBtn = findAll(tree, n => n.type === 'button' && n.props?.className === 'bt-plg-card-body' && textOf(n).includes('Ego Lite Browser'))[0]
+  const egoBtn = findAll(tree, n => n.type === 'button' && n.props?.className === 'bt-plg-main' && textOf(n).includes('Ego Lite Browser'))[0]
   egoBtn.props.onClick()
   tree = draw()
   const links = findAll(tree, n => n.type === 'a')
@@ -274,8 +293,6 @@ test('PluginsPage handles pendingBuilds approval flow and retries with approvedB
   draw()
   await flush()
   let tree = draw()
-  findAll(tree, n => n.type === 'button' && textOf(n) === 'Discover')[0].props.onClick()
-  tree = draw()
   findAll(tree, n => n.type === 'button' && textOf(n) === 'Install')[0].props.onClick()
   await flush()
   tree = draw()
@@ -325,16 +342,14 @@ test('PluginsPage preserves AddCustomSection form on error and handles !managerA
   await flush()
   let tree = draw()
 
-  // Discover tab with !managerAvailable copies safe specs and hides Copy for unsafe cmd/shell metacharacter specs.
-  findAll(tree, n => n.type === 'button' && textOf(n) === 'Discover')[0].props.onClick()
-  tree = draw()
+  // Main view with !managerAvailable copies safe specs and hides Copy for unsafe cmd/shell metacharacter specs.
   const copyBtns = findAll(tree, n => n.type === 'button' && textOf(n).includes('Copy install command'))
   assert.equal(copyBtns.length, 1)
   copyBtns[0].props.onClick()
   await flush()
   assert.equal(copied[0], 'dsh plugin add dsh-ego-browser')
 
-  // Add plugin tab: failed save shows error and preserves input value instead of clearing.
+  // Add plugin subview: failed save shows error and preserves input value instead of clearing.
   findAll(tree, n => n.type === 'button' && textOf(n) === 'Add plugin')[0].props.onClick()
   tree = draw()
   const pkgInput = findAll(tree, n => n.type === 'input' && n.props['aria-label'] === 'Package or repository')[0]
@@ -382,9 +397,7 @@ test('PluginsPage enforces readOnly mode, displays restart/unavailable/catalog-e
   assert.match(text, /Plugin removed/)
   assert.match(text, /Restart DS Bot to finish applying plugin changes/)
   assert.match(text, /team: HTTP 502/)
-  // initialFilter: 'browser' filters out non-browser plugins (Notes MCP hidden).
   assert.doesNotMatch(text, /Notes MCP/)
-  // All action buttons inside cards are disabled when readOnly.
   const useBtn = findAll(tree, n => n.type === 'button' && textOf(n) === 'Use')[0]
   assert.equal(useBtn.props.disabled, true)
 })
@@ -392,7 +405,6 @@ test('PluginsPage enforces readOnly mode, displays restart/unavailable/catalog-e
 test('PluginsPage clears busyId when exec falls back to load(false) without wedging controls', async () => {
   const { draw } = mountPluginsPage({
     actions: {
-      // Return empty object without `.view` to exercise the `load(false)` fallback branch in `exec`.
       pluginsSlotSet: () => Promise.resolve({}),
     },
   })
@@ -427,13 +439,11 @@ test('PluginsPage keeps Use button on active read-only fallback when another bro
   })
   draw()
   await flush()
-  let tree = draw()
-  // Read-only fallback card (`active: true, desired: false`) must offer "Use" so user can cancel pending browser switch.
-  const readonlyCard = findAll(tree, n => n.props?.className === 'bt-plg-card' && textOf(n).includes('Read-only Browser'))[0]
-  assert.ok(findAll(readonlyCard, n => n.type === 'button' && textOf(n) === 'Use').length === 1)
+  const tree = draw()
+  const readonlyTile = findAll(tree, n => n.props?.className === 'bt-plg-tile' && textOf(n).includes('Read-only Browser'))[0]
+  assert.ok(findAll(readonlyTile, n => n.type === 'button' && textOf(n) === 'Use').length === 1)
   assert.equal(listCalls, 1)
 
-  // Live roster plugin change triggers automatic reload.
   currentRoster.plugins = { slots: { browser: { active: 'builtin:refs' } } }
   draw()
   await flush()
@@ -450,14 +460,13 @@ test('PluginsPage allows disabling failed MCP plugins via desired state and disa
   const { draw, calls } = mountPluginsPage({ view: failedMcpView })
   draw()
   await flush()
-  let tree = draw()
+  const tree = draw()
   const sw = findAll(tree, n => n.type === 'button' && n.props?.role === 'switch' && n.props['aria-label'] === 'Notes MCP')[0]
   assert.equal(sw.props['aria-checked'], true)
   sw.props.onClick()
   await flush()
   assert.deepEqual(calls[0], ['toggle', 'mcp:notes', false])
 
-  // While initial pluginsList is still pending (`view === null`), Add plugin form submit is disabled.
   let resolveList
   const pending = mountPluginsPage({
     actions: { pluginsList: () => new Promise(r => { resolveList = r }) },
@@ -468,4 +477,75 @@ test('PluginsPage allows disabling failed MCP plugins via desired state and disa
   const submitBtn = findAll(pendingTree, n => n.type === 'button' && n.props?.type === 'submit')[0]
   assert.equal(submitBtn.props.disabled, true)
   resolveList(SAMPLE_VIEW)
+})
+
+test('PluginsPage hides uninstalled engine bundles and internal DSH profile/subagent bundles from Discover while keeping real catalog plugins', async () => {
+  const leakedEngineItems = [
+    {
+      id: 'dsh:@deepseek-ai/dsh-acp-app', name: 'ACP Profile', description: 'ACP runtime',
+      category: 'other', slot: null, kind: 'dsh', installed: false, enabled: false, active: false,
+      status: 'inactive', builtin: false, sourceId: 'installed', packageName: '@deepseek-ai/dsh-acp-app',
+    },
+    {
+      id: 'dsh:@deepseek-ai/dsh-experimental-agent-team-profile', name: 'Agent Team', description: 'Banned subagent bundle',
+      category: 'other', slot: null, kind: 'dsh', installed: true, enabled: false, active: false,
+      status: 'inactive', builtin: false, sourceId: 'installed', packageName: '@deepseek-ai/dsh-experimental-agent-team-profile',
+    },
+    {
+      id: 'dsh:@deepseek-ai/dsh-subagent-core', name: 'Subagent Core', description: 'Subagent engine',
+      category: 'other', slot: null, kind: 'dsh', installed: true, enabled: false, active: false,
+      status: 'inactive', builtin: false, sourceId: 'installed', packageName: '@deepseek-ai/dsh-subagent-core',
+    },
+    {
+      id: 'dsh:@deepseek-ai/dsh-devtools-bundle', name: 'Developer Tools', description: 'Uninstalled optional engine bundle',
+      category: 'other', slot: null, kind: 'dsh', installed: false, enabled: false, active: false,
+      status: 'inactive', builtin: false, sourceId: 'installed', packageName: '@deepseek-ai/dsh-devtools-bundle',
+    },
+    {
+      id: 'dsh:@deepseek-ai/dsh-headless', name: 'Headless Profile', description: 'Headless runtime',
+      category: 'other', slot: null, kind: 'dsh', installed: false, enabled: false, active: false,
+      status: 'inactive', builtin: false, sourceId: 'installed', packageName: '@deepseek-ai/dsh-headless',
+    },
+    {
+      id: 'dsh:dsbot-engine', name: 'DS Bot Engine', description: 'Internal desktop engine bundle',
+      category: 'other', slot: null, kind: 'dsh', installed: true, enabled: true, active: true,
+      status: 'ready', builtin: false, sourceId: 'installed', packageName: 'dsbot-engine',
+    },
+  ]
+
+  // When only browser plugins + leaked engine bundles are present, Discover is empty and shows the clean invite card.
+  const emptyGeneralView = {
+    ...SAMPLE_VIEW,
+    plugins: [...SAMPLE_VIEW.plugins.slice(0, 3), ...leakedEngineItems],
+  }
+  const emptyMount = mountPluginsPage({ view: emptyGeneralView })
+  emptyMount.draw()
+  await flush()
+  const emptyTree = emptyMount.draw()
+  const emptyText = textOf(emptyTree)
+  assert.doesNotMatch(emptyText, /ACP Profile|Agent Team|Subagent Core|Developer Tools|Headless Profile|DS Bot Engine/)
+  assert.match(emptyText, /Extend Bots with more capabilities/)
+  // Category bar must not include an empty "Other" tab from hidden engine bundles.
+  const catLabels = findAll(emptyTree, n => n.props?.className === 'bt-plg-cats')[0]
+  assert.doesNotMatch(textOf(catLabels), /Other/)
+
+  // Real catalog plugins from official/custom registries still appear in Discover.
+  const catalogView = {
+    ...emptyGeneralView,
+    plugins: [
+      ...emptyGeneralView.plugins,
+      {
+        id: 'dsh:dsbot-notes', name: 'DS Bot Notes', description: 'Official Bot plugin',
+        category: 'productivity', slot: null, kind: 'dsh', installed: false, enabled: false, active: false,
+        status: 'unavailable', builtin: false, sourceId: 'official', packageName: 'dsbot-notes',
+      },
+    ],
+  }
+  const catalogMount = mountPluginsPage({ view: catalogView })
+  catalogMount.draw()
+  await flush()
+  const catalogText = textOf(catalogMount.draw())
+  assert.match(catalogText, /Discover/)
+  assert.match(catalogText, /DS Bot Notes/)
+  assert.doesNotMatch(catalogText, /ACP Profile|Agent Team|Subagent Core|Developer Tools|Headless Profile|DS Bot Engine/)
 })

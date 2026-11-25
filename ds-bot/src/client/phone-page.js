@@ -44,7 +44,7 @@ function minutesLeft(until) {
 }
 
 // The phone app ships with each DS Bot release, as the release's Android APK.
-const APP_DOWNLOAD = 'https://github.com/Fei2411/DS-Bot/releases/latest'
+const APP_DOWNLOAD = 'https://github.com/Fei-Craft/DS-Bot/releases/latest'
 
 // Settings → Connect → Phone: the DS Bot phone app reaches this computer through a Relay Server.
 export function PhonePage({ roster, actions, Section, Row }) {
@@ -167,7 +167,7 @@ export function PhonePage({ roster, actions, Section, Row }) {
           : h('button', { type: 'button', className: 'bt-send bt-soft-sm', disabled: busy, onClick: startPair }, online ? t('Show QR code') : t('Turn on & pair'))),
       h(Row, { key: 'app', label: t('Android beta') },
         h('a', { className: 'bt-soft bt-soft-sm', href: APP_DOWNLOAD, target: '_blank', rel: 'noopener noreferrer' }, t('Download')))),
-    h(Section, { title: t('Phones') }, phone.phones.length === 0
+    h(Section, { title: t('Paired devices') }, phone.phones.length === 0
       ? h('div', { className: 'bt-set-row' }, h('span', { className: 'bt-set-hint' }, t('No phones yet')))
       : phone.phones.map(entry => h(Row, {
         key: entry.id,

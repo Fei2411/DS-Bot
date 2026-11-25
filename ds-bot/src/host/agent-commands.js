@@ -55,7 +55,10 @@ export function install(rt) {
     // The agent can arrive before its Bot or group is in the state (a Bot created a
     // moment ago); the shield mounts for every agent and waits for that Session to
     // become known, then registers its shadows on the next sync.
-    if (!covered(shield.sessionId)) return
+    const isCovered = covered(shield.sessionId)
+    shield.wasCovered = isCovered
+    shield.wasGroup = isCovered && isGroup(shield.sessionId)
+    if (!isCovered) return
     // Lift first: `list(agent)` is the merged view, so only after our shadows are gone
     // does it answer what the host currently serves this agent.
     const definitions = commands.list(shield.agent)
@@ -83,6 +86,17 @@ export function install(rt) {
     applying = true
     try { for (const shield of shields.values()) sync(shield) } finally { applying = false }
   }
+  const resyncSaved = () => {
+    if (applying) return
+    applying = true
+    try {
+      for (const shield of shields.values()) {
+        const isCovered = covered(shield.sessionId)
+        const group = isCovered && isGroup(shield.sessionId)
+        if (isCovered !== shield.wasCovered || group !== shield.wasGroup) sync(shield)
+      }
+    } finally { applying = false }
+  }
 
   const mount = (agent) => {
     const sessionId = agent?.session?.id
@@ -90,7 +104,7 @@ export function install(rt) {
     // Test doubles and non-interactive hosts have no plugin seam; a Bot without it simply
     // keeps the DSH commands.
     if (typeof agent.ctx?.plugin !== 'function') return undefined
-    const shield = { sessionId, agent, child: undefined, lifts: [] }
+    const shield = { sessionId, agent, child: undefined, lifts: [], wasCovered: false, wasGroup: false }
     shield.ready = new Promise((resolve) => { shield.resolveReady = resolve })
     shields.set(sessionId, shield)
     try {
@@ -146,7 +160,7 @@ export function install(rt) {
   ctx.on('agent/created', ({ agent }) => mountReady(agent))
   ctx.on('agent/disposed', ({ agent }) => { unmount(agent?.session?.id) })
   ctx.on('commands/change', resync)
-  const offSaved = rt.onSaved?.(() => resync())
+  const offSaved = rt.onSaved?.(() => resyncSaved())
   ctx.effect(() => () => {
     applying = true
     offSaved?.()
