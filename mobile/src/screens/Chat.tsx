@@ -8,7 +8,7 @@ import { shareFile } from '../team/share-file'
 import type { Agent, Approval, Bot, Question, Room } from '../connection.ts'
 import { createChatCache, createChatHistory, refreshChatHistory, roomHeadPart } from '../team/chat-cache.ts'
 import { connectorCanConnectOnMobile } from '../team/connectors.ts'
-import { onPrefsChange, readPrefs } from '../store.ts'
+import { onPrefsChange, peekPrefs, readPrefs } from '../store.ts'
 import { enterMode, sendsOnEnter } from './chat/enter-key.ts'
 import { useTeam } from '../team/context.tsx'
 import { markSeen } from '../team/seen.ts'
@@ -131,14 +131,15 @@ export function ChatView({ bot, room, agent, header, onMissing }: { bot?: Bot; r
   const kind: ChatKind = room !== undefined ? 'room' : agent !== undefined ? 'agent' : 'bot'
   const id = bot?.id ?? room?.id ?? agent?.id ?? ''
   const chatKey = `${computer?.hostDeviceId ?? ''}:${kind}:${id}`
-  const [prefs, setPrefs] = useState<Record<string, string>>({})
+  const [prefs, setPrefs] = useState(peekPrefs)
   useEffect(() => {
     const read = () => void readPrefs().then(setPrefs)
     read()
     return onPrefsChange(read)
   }, [])
-  const mode = enterMode(prefs)
-  const sends = sendsOnEnter(mode, team?.prefs)
+  const mode = enterMode(prefs ?? undefined)
+  // Do not announce submit behavior to the keyboard before the phone's choice is loaded.
+  const sends = prefs !== null && sendsOnEnter(mode, team?.prefs)
   const cached = pages.get(chatKey)
   const [pageState, setPageState] = useState<{ key: string; page: ChatPage | null; older: ChatItem[] }>(() => ({
     key: chatKey,

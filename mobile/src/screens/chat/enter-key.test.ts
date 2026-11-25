@@ -62,13 +62,16 @@ test('the browser build handles Enter itself, since react-native-web ignores sub
 
 test('the composer takes its Enter behavior from the stored mode and the computer', () => {
   const composer = readFileSync(new URL('./composer.tsx', import.meta.url), 'utf8')
-  assert.match(composer, /from '\.\/composer\.enter'\n/, 'the import omits the extension so Metro picks the platform copy')
+  for (const source of [composer, composer.replace(/\r?\n/g, '\r\n')]) {
+    assert.match(source, /from '\.\/composer\.enter'\r?\n/, 'the import omits the extension so Metro picks the platform copy, with either line ending')
+  }
   assert.match(composer, /submitProps\(sends\)/)
   assert.match(composer, /enterHandler\(sends, send\)/)
   assert.match(composer, /onSubmitEditing=\{sends \? send : undefined\}/, 'newline mode cannot submit')
   const chat = readFileSync(new URL('../Chat.tsx', import.meta.url), 'utf8')
-  assert.match(chat, /enterMode\(prefs\)/)
-  assert.match(chat, /sendsOnEnter\(mode, team\?\.prefs\)/)
+  assert.match(chat, /useState\(peekPrefs\)/, 'the first render uses the phone preferences already in memory')
+  assert.match(chat, /enterMode\(prefs \?\? undefined\)/)
+  assert.match(chat, /prefs !== null && sendsOnEnter\(mode, team\?\.prefs\)/, 'unloaded preferences cannot briefly enable submit')
   assert.match(chat, /onPrefsChange\(read\)/)
   const settings = readFileSync(new URL('../Settings.tsx', import.meta.url), 'utf8')
   assert.match(settings, /enterMode\(prefs\)/)
