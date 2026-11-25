@@ -32,7 +32,7 @@ export const SEARCH_ENTRIES = [
   { id: 'phone', label: 'Phone', group: 'Connect', page: 'phone', icon: 'phone', keywords: 'mobile app qr relay android ios remote 手机 二维码 远控 配对' },
   { id: 'api', label: 'API', group: 'Connect', page: 'api', icon: 'api', keywords: 'token port client external agent mcp api 端口 令牌' },
   { id: 'computer', label: 'Computer use', group: 'Tools', page: 'computer', icon: 'computer', keywords: 'screen accessibility mouse keyboard desktop 电脑操控 屏幕 辅助功能' },
-  { id: 'browser', label: 'Browser', group: 'Tools', page: 'browser', icon: 'browser', keywords: 'grants site web interactive 浏览器 权限 网站' },
+  { id: 'browser', label: 'Browser', group: 'Tools', page: 'browser', icon: 'browser', keywords: 'grants site web interactive cookies import login 浏览器 权限 网站 导入 登录' },
   { id: 'capabilities', label: 'Capabilities', group: 'Tools', page: 'capabilities', icon: 'capabilities', keywords: 'shared mcp skill pack 能力 技能 包' },
   { id: 'secrets', label: 'Secrets', group: 'Tools', page: 'secrets', icon: 'secrets', keywords: 'encrypt passphrase password keys 密钥 加密 口令' },
   { id: 'plugins', label: 'Plugins', group: 'Plugins', page: 'plugins', icon: 'plugins', keywords: 'plugin extension browser ego playwright mcp registry catalog 插件 扩展 浏览器 市场 仓库' },

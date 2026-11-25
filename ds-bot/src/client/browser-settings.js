@@ -1,7 +1,8 @@
-import { createElement as h, useEffect, useState } from 'react'
+import { createElement as h, useEffect, useRef, useState } from 'react'
 import { BotAvatar } from './mark.js'
 import { PlusIcon } from './icons.js'
-import { Segmented } from './motion.js'
+import { Segmented, useMorph } from './motion.js'
+import { ImportCard, ImportMenu, useCookieImportFlow } from './cookie-import-ui.js'
 import { dateLocale, t } from './i18n.js'
 
 const ACTIONS = [['post', 'Post'], ['upload', 'Upload'], ['download', 'Download'], ['delete', 'Delete']]
@@ -30,16 +31,29 @@ function grantKinds(grant) {
 export function BrowserPage({ roster, actions, run, Section, Row }) {
   const bots = roster.bots ?? []
   const [botId, setBotId] = useState(bots[0]?.id ?? '')
+  const [importBotId, setImportBotId] = useState(bots[0]?.id ?? '')
   const [site, setSite] = useState('')
   const [kinds, setKinds] = useState(['post'])
   const [duration, setDuration] = useState('hour')
   const [adding, setAdding] = useState(false)
   const [busy, setBusy] = useState(false)
   const selectedBot = bots.find(bot => bot.id === botId)
+  const importBot = bots.find(bot => bot.id === importBotId) ?? bots[0] ?? null
+  const imports = importBot ? (actions.browserImport ?? null) : null
+  const importFlow = useCookieImportFlow({
+    imports,
+    botId: importBot?.id ?? null,
+    resetKey: 'settings',
+    idleFlow: 'menu',
+  })
+  const importBoxRef = useRef(null)
+  const importStageKey = importFlow.flow === 'menu' ? 'menu' : (importFlow.flow?.stage ?? 'menu')
+  useMorph(importBoxRef, importStageKey)
 
   useEffect(() => {
     if (!bots.some(bot => bot.id === botId)) setBotId(bots[0]?.id ?? '')
-  }, [bots, botId])
+    if (!bots.some(bot => bot.id === importBotId)) setImportBotId(bots[0]?.id ?? '')
+  }, [bots, botId, importBotId])
 
   const grants = bots.flatMap(bot => (bot.browserGrants ?? []).map((grant, index) => ({
     bot, grant, index, expired: expired(grant),
@@ -114,6 +128,48 @@ export function BrowserPage({ roster, actions, run, Section, Row }) {
       h('p', { className: 'bt-browser-note' }, activeBrowserId.startsWith('builtin:')
         ? t('With an interactive plugin, Bots browse, click and fill in forms. Posting, uploading, downloading and deleting ask you first unless you allow them here. Payments are always yours: the Bot hands the page to you.')
         : t('External browser plugins (DSH / MCP) manage their own browser actions and approvals; the action grants below apply only to built-in Playwright plugins.'))),
+    imports ? h(Section, { title: t('Import cookies') },
+      bots.length > 0 ? h(Row, { label: t('Bot') },
+        h('div', { className: 'bt-browser-import-bot' },
+          importBot ? h(BotAvatar, { bot: importBot, size: 22 }) : null,
+          h('select', {
+            className: 'bt-select',
+            value: importBot?.id ?? '',
+            disabled: importFlow.busy || bots.length === 0,
+            onChange: event => {
+              setImportBotId(event.target.value)
+              if (importFlow.flow?.stage === 'result') importFlow.doneImport()
+            },
+          }, bots.map(bot => h('option', { key: bot.id, value: bot.id }, bot.name))))) : null,
+      h('div', { ref: importBoxRef, className: 'bt-browser-import-body' },
+        importFlow.flow === 'menu' || !importFlow.flow
+          ? h(ImportMenu, {
+            sources: importFlow.sources,
+            lastSourceId: importFlow.lastSourceId,
+            loading: importFlow.loadingSources,
+            busy: importFlow.busy || !importBot,
+            canPaste: Boolean(imports.paste),
+            inline: true,
+            onFile: importFlow.pickFile,
+            onPaste: importFlow.openPaste,
+            onSource: importFlow.pickSource,
+          })
+          : h(ImportCard, {
+            flow: importFlow.flow,
+            busy: importFlow.busy,
+            imports,
+            inline: true,
+            onApply: importFlow.applyImport,
+            onCancel: importFlow.cancelImport,
+            onBack: importFlow.openImport,
+            onCloseAndImport: importFlow.closeAndImport,
+            onRetrySource: importFlow.retrySource,
+            onLaunchSource: importFlow.launchSource,
+            onOpenPermission: importFlow.openPermission,
+            onFile: importFlow.pickFile,
+            onSubmitPaste: importFlow.submitPaste,
+            onDone: importFlow.doneImport,
+          }))) : null,
     adding ? h(Section, { title: t('Allow an action') },
       h('form', { className: 'bt-browser-form', onSubmit: add },
         h(Row, { label: t('Bot') },

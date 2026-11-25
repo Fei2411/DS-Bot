@@ -835,6 +835,13 @@ body[data-ds-dark-theme] .bt-tour-spot{box-shadow:0 0 0 4px color-mix(in srgb,va
 .bt-theme-check{display:inline-flex;color:var(--bt-accent)}
 .bt-theme-check>svg{width:13px;height:13px}
 .bt-browser-settings{display:flex;flex-direction:column;gap:20px}
+.bt-browser-import-bot{display:inline-flex;align-items:center;gap:8px;min-width:0}
+.bt-browser-import-bot .bt-select{width:auto;min-width:150px;max-width:240px}
+.bt-browser-import-body{padding:14px 16px 16px}
+.bt-browser-import-body[data-morph]{overflow:hidden}
+.bt-browser-import-body .bt-import-item{width:calc(100% + 16px);margin:0 -8px;padding:8px}
+.bt-browser-import-body .bt-import-item-alt{padding:7px 8px}
+.bt-browser-import-body .bt-import-list{margin:0 -8px}
 .bt-set-card{flex-shrink:0;border:.5px solid var(--bt-glass-rim);border-radius:12px;background:var(--bt-card);box-shadow:var(--bt-card-shadow);display:flex;flex-direction:column;overflow:clip}
 .bt-set-row{display:flex;align-items:center;gap:16px;min-height:48px;padding:12px 16px;border:0;background:none;color:var(--bt-ink);font:inherit;font-size:13px;line-height:18px;text-align:left;width:100%;box-sizing:border-box;border-radius:0;transition:background-color .14s ease}
 button.bt-set-row{cursor:pointer}
