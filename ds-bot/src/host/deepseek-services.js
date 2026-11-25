@@ -266,6 +266,20 @@ export function install(rt) {
       return { ref: DEFAULT_REF, configured: false }
     })
   }
+  let asrRefreshTimer
+  const cancelAsrRefresh = () => {
+    clearTimeout(asrRefreshTimer)
+    asrRefreshTimer = undefined
+  }
+  const scheduleAsrRefresh = () => {
+    if (lifetime.signal.aborted || asrRefreshTimer !== undefined) return
+    asrRefreshTimer = setTimeout(() => {
+      asrRefreshTimer = undefined
+      void refreshAsrKey()
+    }, 100)
+    asrRefreshTimer.unref?.()
+  }
+  lifetime.signal.addEventListener('abort', cancelAsrRefresh, { once: true })
 
   async function transcribe(input, signal) {
     const audio = input?.audio
@@ -339,7 +353,7 @@ export function install(rt) {
       return transcribe(input, signal)
     },
   }
-  void refreshAsrKey()
+  scheduleAsrRefresh()
 
   const mountAsr = (sub) => {
     sub.effect(() => {
@@ -348,7 +362,7 @@ export function install(rt) {
         const service = ctx.get?.('speechToText') ?? ctx.speechToText
         unregister = service.register(asrProvider)
         asrRegistration = 'registered'
-        void refreshAsrKey()
+        scheduleAsrRefresh()
       } catch (error) {
         asrRegistration = `another provider already answers as ${ASR_PROVIDER_ID}: ${error?.message ?? error}`
       }
@@ -356,12 +370,13 @@ export function install(rt) {
       // (baseURL/apiKeyEnv may move the effective endpoint), and on the provider
       // directory changing — each can change what the key means.
       const offs = [
-        ctx.on?.('credentials/reference-updated', () => void refreshAsrKey()),
-        ctx.on?.('settings/document-updated', () => void refreshAsrKey()),
-        ctx.on?.('llm/adapters-updated', () => void refreshAsrKey()),
+        ctx.on?.('credentials/reference-updated', scheduleAsrRefresh),
+        ctx.on?.('settings/document-updated', scheduleAsrRefresh),
+        ctx.on?.('llm/adapters-updated', scheduleAsrRefresh),
       ]
       return async () => {
         asrRegistration = 'pending'
+        cancelAsrRefresh()
         for (const off of offs) off?.()
         if (unregister !== undefined) await unregister()
       }
