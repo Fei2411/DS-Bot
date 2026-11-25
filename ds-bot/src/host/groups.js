@@ -621,6 +621,10 @@ export function install(rt) {
     return record
   }
   const say = (room, line) => {
+    // A line the book refused is handed back and may be refused again: the same warning twice in
+    // a row says nothing new, so the room hears it once and the caller still hears its rejection.
+    const last = room.log?.at(-1)
+    if (line.reason === 'unsaved' && last?.reason === 'unsaved' && last.text === line.text) return last
     const record = appendLine(room, line)
     // A line the book did not keep is told once to the room here, so every caller is
     // covered; a caller that waits for written() hears the rejection as well. The notice
@@ -685,7 +689,22 @@ export function install(rt) {
       if (nextFrom !== undefined) end = nextFrom - 1
     }
     // Not the messages the group's own Session shows itself.
-    const rows = rt.ledger.range(bookOf(roomId), from, end).filter(record => record.session !== true).map(rowOf).filter(Boolean)
+    const found = rt.ledger.range(bookOf(roomId), from, end)
+    const rows = found.filter(record => record.session !== true).map(rowOf).filter(Boolean)
+    // The room's log holds what the book would not: a line said while its write failed, and the
+    // notice about it, are drawn there but never reach the book's records. A fetch with no upper
+    // bound ends in that tail, so carry it across; the seq is the join key, and an anchor only
+    // ends the window, it does not stop the tail from belonging to it.
+    if (to === undefined && room !== undefined) {
+      const inBook = new Set(found.map(record => record.seq))
+      for (const line of room.log ?? []) {
+        if (!Number.isInteger(line.seq) || line.seq < from) continue
+        if (end !== undefined && line.seq > end) continue
+        if (inBook.has(line.seq)) continue
+        const row = rowOf(line)
+        if (row !== undefined) rows.push(row)
+      }
+    }
     return { rows, open: end === undefined }
   }
   const groupRows = (roomId, from, to, anchor) => rowsView(roomId, from, to, anchor).rows
