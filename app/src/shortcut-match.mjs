@@ -1,3 +1,5 @@
+import { zoomKey } from './zoom-keys.mjs'
+
 const FUNCTION_CODE = /^F([1-9]|1[0-2])$/
 
 function isAltGrInput(input, platform) {
@@ -12,11 +14,12 @@ function isAltGrInput(input, platform) {
 /**
  * Matches an Electron `before-input-event` input record from a focused child Bot
  * WebContentsView against the active desktop shortcut whitelist synced from the window.
- * Guards IME composition, auto-repeat, and AltGr (AltGraph) character input on Windows/Linux.
+ * Guards IME composition, auto-repeat, window zoom keys, and AltGr character input on Windows/Linux.
  * @returns {string | null} matched shortcut command id, or null if not matched
  */
 export function matchForwardedShortcut(input, bindings, platform = process.platform) {
   if (!input || input.type !== 'keyDown' || input.isComposing || input.isAutoRepeat) return null
+  if (zoomKey(input, platform)) return null
   if (isAltGrInput(input, platform)) return null
   if (!Array.isArray(bindings) || bindings.length === 0) return null
   const mac = platform === 'darwin'

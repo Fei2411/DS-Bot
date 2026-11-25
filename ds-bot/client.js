@@ -52610,6 +52610,7 @@ function matchShortcutEvent(event, {
   inTerminal: forceInTerminal
 } = {}) {
   if (!event || event.defaultPrevented || event.repeat || isImeComposing(event) || isAltGraph(event)) return null;
+  if (isReservedZoomKeyEvent(event, mac)) return null;
   if (!ignoreRecording && isShortcutRecording()) return null;
   const code = codeOfEvent(event);
   if (!code || MODIFIER_CODES.has(code)) return null;

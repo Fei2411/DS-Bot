@@ -213,6 +213,10 @@ test('matchForwardedShortcut and BotViews forward matching whitelist shortcuts a
   assert.equal(matchForwardedShortcut({ type: 'keyDown', meta: true, alt: true, code: 'KeyQ', key: 'œ' }, altList, 'darwin'), 'browser')
   // macOS Option+E produces key='Dead' on U.S. layout; must stay consistent with renderer matching.
   assert.equal(matchForwardedShortcut({ type: 'keyDown', alt: true, code: 'KeyE', key: 'Dead' }, altList, 'darwin'), 'terminal')
+  // Stored Ctrl+Minus (recorded on German Ctrl+ß) matches 'ß' but yields to '-' zoom after switching to US layout.
+  const zoomList = [{ id: 'settings', code: 'Minus', mod: true, ctrl: false, alt: false, shift: false }]
+  assert.equal(matchForwardedShortcut({ type: 'keyDown', control: true, code: 'Minus', key: 'ß' }, zoomList, 'win32'), 'settings')
+  assert.equal(matchForwardedShortcut({ type: 'keyDown', control: true, code: 'Minus', key: '-' }, zoomList, 'win32'), null)
 
   const received = []
   let focusedMain = 0

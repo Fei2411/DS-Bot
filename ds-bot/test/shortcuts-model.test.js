@@ -151,6 +151,10 @@ test('validateBinding and eventToBinding reject unsafe combos while allowing mac
   assert.equal(isReservedZoomKeyEvent({ ctrlKey: true, code: 'Minus', key: '-' }, false), true)
   assert.equal(isReservedZoomKeyEvent({ ctrlKey: true, code: 'Equal', key: '=' }, false), true)
   assert.equal(isReservedZoomKeyEvent({ ctrlKey: true, shiftKey: true, code: 'Equal', key: '+' }, false), true)
+  // Stored Ctrl+Minus (recorded on German Ctrl+ß) matches 'ß' but yields to '-' zoom after switching to US layout.
+  const minusOverride = { settings: { code: 'Minus', mod: true, ctrl: false, alt: false, shift: false } }
+  assert.equal(matchShortcutEvent({ ctrlKey: true, code: 'Minus', key: 'ß' }, { mac: false, overrides: minusOverride }), 'settings')
+  assert.equal(matchShortcutEvent({ ctrlKey: true, code: 'Minus', key: '-' }, { mac: false, overrides: minusOverride }), null)
   // Mod+Shift+M (switch-surface) stays allowed since Shift distinguishes it from macOS Cmd+M.
   assert.deepEqual(validateBinding({ code: 'KeyM', mod: true, ctrl: false, alt: false, shift: true }, true), { ok: true })
   // On macOS, Ctrl+Cmd+C is distinct from Cmd+C and stays assignable.
