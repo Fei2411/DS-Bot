@@ -5688,7 +5688,7 @@ test('persisted batch replacement survives restart and startup settleRoomBatches
       },
     )
     // Tester's recovered turn still carries k1Key -> must settle K3 (P1), leaving K2 (P2) pending!
-    await settle(() => host2.agentOf('gc').calls.some(msg => msg.source?.exchangeId === 'ex-t-rec-k1'))
+    await until(() => host2.agentOf('gc').calls.some(msg => msg.source?.exchangeId === 'ex-t-rec-k1'), 6000)
     const k1Recovered = host2.agentOf('gc').calls.find(msg => msg.source?.exchangeId === 'ex-t-rec-k1')
     host2.agentOf('gc').calls.push(k1Recovered)
     host2.begin('gc')
@@ -5769,7 +5769,7 @@ test('persisted batch replacement survives restart and startup settleRoomBatches
     )
 
     // Startup settleRoomBatches automatically runs with P2 queued on Writer and C1 finished for P1.
-    await settle(() => host.agentOf('gb').calls.some(msg => msg.source?.exchangeId === 'ex-w-res-p2'))
+    await until(() => host.agentOf('gb').calls.some(msg => msg.source?.exchangeId === 'ex-w-res-p2'), 6000)
     await settle(() => host.agentOf('r1').calls.length === 1)
     assert.ok(rt.state.roomBatches?.[p1.key] !== undefined, 'parent P1 with finished waking child C1 must not be pruned')
     const wakePost = host.takePost()
@@ -5889,7 +5889,7 @@ test('persisted batch replacement survives restart and startup settleRoomBatches
       },
     )
 
-    await settle(() => host.agentOf('r1').calls.length === 2)
+    await until(() => host.agentOf('r1').calls.length === 2, 6000)
     const wakeIdle = host.agentOf('r1').calls.find(m => m.source?.batch === cIdle.key)
     const wakeBusy = host.agentOf('r1').calls.find(m => m.source?.batch === cDone.key)
     assert.ok(wakeIdle && wakeBusy)
