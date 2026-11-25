@@ -764,13 +764,24 @@ test('B14/D8 review regressions: reused call_id + SQL throughSeq + offset pagina
   assert.equal(page1.seq, 2)
   assert.equal(page1.truncated, true)
   assert.match(page1.text, /HEAD_MARKER/)
-  assert.match(page1.text, /pass offset: 50/)
+  assert.match(page1.text, /around: "part 1 #2", offset: 50/)
 
-  const page2 = await rt.recallToolOutput('b1', 'call_0', { askingId: 't-fork', maxChars: 50, offset: 50 })
+  const page2 = await rt.recallToolOutput('b1', 'call_0', { askingId: 't-fork', around: 'part 1 #2', maxChars: 50, offset: 50 })
   assert.equal(page2.found, true)
   assert.match(page2.text, /MIDDLE_MARKER/)
 
-  const page3 = await rt.recallToolOutput('b1', 'call_0', { askingId: 't-fork', maxChars: 50, offset: 100 })
+  // Even on unbounded p-live where a newer `call_0` exists at seq 6 (or was just appended),
+  // passing `around: "part 1 #2"` pins pagination to seq 2 and never jumps to seq 6!
+  const pinnedOnLive = await rt.recallToolOutput('b1', 'call_0', { askingId: 'p-live', around: 'part 1 #2', maxChars: 50, offset: 50 })
+  assert.equal(pinnedOnLive.found, true)
+  assert.equal(pinnedOnLive.seq, 2)
+  assert.match(pinnedOnLive.text, /MIDDLE_MARKER/)
+
+  // Attempting to pin past a forked task's throughSeq is refused.
+  const deniedPastBound = await rt.recallToolOutput('b1', 'call_0', { askingId: 't-fork', around: 'part 1 #6', maxChars: 50, offset: 0 })
+  assert.equal(deniedPastBound.found, false)
+
+  const page3 = await rt.recallToolOutput('b1', 'call_0', { askingId: 't-fork', around: 'part 1 #2', maxChars: 50, offset: 100 })
   assert.equal(page3.found, true)
   assert.equal(page3.truncated, false)
   assert.match(page3.text, /TAIL_MARKER/)

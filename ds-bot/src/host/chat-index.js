@@ -494,20 +494,24 @@ export function install(rt) {
   // Recalls the full saved output of an earlier tool call by callId across the
   // Bot's authorized parts (own chat thread or a specified group's parts), falling
   // back to log scanning when SQLite is unavailable or the call is from the current turn.
-  // Supports optional character `offset` pagination for long outputs clipped past maxChars.
-  async function recallToolOutput(botId, callId, { askingId, roomId, offset = 0, maxChars = TOOL_OUTPUT_RECALL_MAX } = {}) {
+  // Supports optional character `offset` pagination and an optional `around` anchor
+  // (`part N #seq` or `#seq`) to pin multi-page reads to the exact event even if a
+  // later turn reuses the same short call_id.
+  async function recallToolOutput(botId, callId, { askingId, roomId, around = '', offset = 0, maxChars = TOOL_OUTPUT_RECALL_MAX } = {}) {
     const id = String(callId ?? '').trim()
     if (id === '') return { found: false }
     const start = Number.isInteger(offset) && offset > 0 ? offset : 0
     const formatHit = (parts, row) => {
       const part = parts.find(item => item.sessionId === row.session)
+      const partNumber = part?.number ?? 1
+      const anchor = parts.length > 1 ? `part ${partNumber} #${row.seq}` : `#${row.seq}`
       const raw = String(row.text ?? '')
       if (start >= raw.length && raw.length > 0) {
         return {
           found: true,
           callId: row.call_id,
           session: row.session,
-          partNumber: part?.number ?? 1,
+          partNumber,
           seq: row.seq,
           time: row.time,
           name: row.name,
@@ -522,7 +526,7 @@ export function install(rt) {
       const end = start + slice.length
       const hasMore = end < raw.length
       const text = hasMore
-        ? `${slice}\n… (showing characters ${start}–${end} of ${raw.length}; pass offset: ${end} to read more)`
+        ? `${slice}\n… (showing characters ${start}–${end} of ${raw.length}; pass call_id: "${row.call_id}", around: "${anchor}", offset: ${end} to read more)`
         : start > 0
           ? `${slice}\n… (showing characters ${start}–${end} of ${raw.length})`
           : slice
@@ -530,7 +534,7 @@ export function install(rt) {
         found: true,
         callId: row.call_id,
         session: row.session,
-        partNumber: part?.number ?? 1,
+        partNumber,
         seq: row.seq,
         time: row.time,
         name: row.name,
@@ -544,33 +548,58 @@ export function install(rt) {
     const { index, parts: indexed } = await indexedParts(botId, askingId, { roomId })
     const parts = indexed ?? resolveParts(botId, askingId, roomId)
     if (parts.length === 0) return { found: false }
+    let pinnedPart
+    let pinnedSeq
+    const anchorText = String(around ?? '').trim()
+    if (anchorText !== '') {
+      const match = /(?:part\s*)?(\d+)?\s*#\s*(\d+)/i.exec(anchorText)
+      if (match === null) return { found: false }
+      const number = match[1] === undefined ? parts.length : Number(match[1])
+      pinnedPart = parts[number - 1]
+      pinnedSeq = Number(match[2])
+      if (pinnedPart === undefined) return { found: false }
+      if (Number.isInteger(pinnedPart.throughSeq) && pinnedSeq > pinnedPart.throughSeq) return { found: false }
+    }
     if (index !== null) {
-      for (const part of parts) {
+      const targetParts = pinnedPart !== undefined ? [pinnedPart] : parts
+      for (const part of targetParts) {
         await catchUpToolOutputs(index, part).catch(error => rt.warn('ds-bot: indexing tool outputs for %s failed: %s', part.sessionId, error))
       }
-      const sessions = parts.map(part => part.sessionId)
-      const where = ['call_id = ?', sessions.length === 1 ? 'session = ?' : 'session IN (SELECT value FROM json_each(?))']
-      const args = [id, sessions.length === 1 ? sessions[0] : JSON.stringify(sessions)]
-      for (const part of parts) {
-        if (Number.isInteger(part.throughSeq)) {
-          where.push('NOT (session = ? AND seq > ?)')
-          args.push(part.sessionId, part.throughSeq)
+      let row
+      if (pinnedPart !== undefined) {
+        row = index.db.prepare(
+          'SELECT call_id, session, seq, time, name, ok, text FROM tool_outputs WHERE call_id = ? AND session = ? AND seq = ? LIMIT 1'
+        ).get(id, pinnedPart.sessionId, pinnedSeq)
+      } else {
+        const sessions = parts.map(part => part.sessionId)
+        const where = ['call_id = ?', sessions.length === 1 ? 'session = ?' : 'session IN (SELECT value FROM json_each(?))']
+        const args = [id, sessions.length === 1 ? sessions[0] : JSON.stringify(sessions)]
+        for (const part of parts) {
+          if (Number.isInteger(part.throughSeq)) {
+            where.push('NOT (session = ? AND seq > ?)')
+            args.push(part.sessionId, part.throughSeq)
+          }
         }
+        row = index.db.prepare(
+          `SELECT call_id, session, seq, time, name, ok, text FROM tool_outputs WHERE ${where.join(' AND ')} ORDER BY time DESC, seq DESC LIMIT 1`
+        ).get(...args)
       }
-      const row = index.db.prepare(
-        `SELECT call_id, session, seq, time, name, ok, text FROM tool_outputs WHERE ${where.join(' AND ')} ORDER BY time DESC, seq DESC LIMIT 1`
-      ).get(...args)
       if (row !== undefined) return formatHit(parts, row)
     }
     // Scan logs newest-first as fallback (also covers live turns when SQLite is unavailable),
     // skipping pruned surfaceOp replacement events so original full tool outputs are recovered.
     const signal = AbortSignal.timeout(HISTORY_TIMEOUT_MS)
-    for (const part of [...parts].reverse()) {
+    const scanParts = pinnedPart !== undefined ? [pinnedPart] : [...parts].reverse()
+    for (const part of scanParts) {
       let matchedResult
       let matchedName
       try {
         for await (const event of eventsBackwards(part.sessionId, signal, HISTORY_SCAN_PAGES, undefined, part.throughSeq)) {
-          if (matchedResult === undefined && event.type === 'tool/result' && !isReplacementToolResult(event) && event.data?.message?.toolCallId === id) {
+          if (matchedResult === undefined
+            && event.type === 'tool/result'
+            && !isReplacementToolResult(event)
+            && event.data?.message?.toolCallId === id
+            && (pinnedSeq === undefined || event.seq === pinnedSeq)) {
             matchedResult = event
           } else if (matchedResult !== undefined && event.type === 'tool/call' && event.data?.callId === id) {
             matchedName = event.data?.name
