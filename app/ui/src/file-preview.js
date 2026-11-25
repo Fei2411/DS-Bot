@@ -84,11 +84,17 @@ export function parseDelimitedTable(text, delimiter = ',', maxRows = MAX_TABLE_R
 }
 
 function base64ToBlobUrl(base64, mime) {
-  if (!base64 || typeof URL?.createObjectURL !== 'function' || typeof globalThis.atob !== 'function') return null
+  if (!base64 || typeof URL?.createObjectURL !== 'function') return null
   try {
-    const binary = globalThis.atob(base64)
-    const bytes = new Uint8Array(binary.length)
-    for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i)
+    let bytes
+    if (typeof base64 === 'string' && typeof Uint8Array.fromBase64 === 'function') {
+      bytes = Uint8Array.fromBase64(base64)
+    } else {
+      if (typeof globalThis.atob !== 'function') return null
+      const binary = globalThis.atob(base64)
+      bytes = new Uint8Array(binary.length)
+      for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i)
+    }
     return URL.createObjectURL(new Blob([bytes], { type: mime }))
   } catch {
     return null

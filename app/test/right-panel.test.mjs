@@ -407,6 +407,51 @@ test('FilePreview renders Markdown, CSV table, strictly sandboxed HTML, PDF (Off
   assert.equal(revokedUrls.length, 1, 'PDF blob URL must be revoked on unmount')
 })
 
+for (const native of [false, true]) {
+  test(`FilePreview preserves binary preview behavior with ${native ? 'native' : 'fallback'} base64 decoding`, async (t) => {
+    const decode = t.mock.fn((value) => Uint8Array.from(atob(value), ch => ch.charCodeAt(0)))
+    sandbox.Uint8Array = class extends Uint8Array { static fromBase64 = native ? decode : undefined }
+    t.after(() => { delete sandbox.Uint8Array })
+    const legacy = t.mock.method(sandbox, 'atob', atob)
+    const createUrl = t.mock.method(sandbox.URL, 'createObjectURL', () => 'blob:test/binary')
+    const preview = (kind, base64, mime) => {
+      const view = mount(FilePreview, { file: { kind, name: 'sample', base64, mime } })
+      try {
+        view.render()
+        return view.render()
+      } finally {
+        view.unmount()
+      }
+    }
+
+    const cases = [
+      ['image', 'AP+AAQ==', 'IMAGE/PNG', 'image/png', [0, 255, 128, 1]],
+      ['pdf', ' \t/ x\r\n', undefined, 'application/pdf', [255]],
+      ['pdf', '/x==', undefined, 'application/pdf', [255]],
+      ['pdf', ' \t', undefined, 'application/pdf', []],
+    ]
+    for (const [kind, base64, mime, type, bytes] of cases) {
+      const tree = preview(kind, base64, mime)
+      const tag = kind === 'image' ? 'img' : 'iframe'
+      assert.equal(all(tree, n => n.type === tag)[0]?.props.src, 'blob:test/binary')
+      const [blob] = createUrl.mock.calls.at(-1).arguments
+      assert.equal(blob.type, type)
+      assert.deepEqual(Array.from(new Uint8Array(await blob.arrayBuffer())), bytes)
+    }
+
+    for (const base64 of ['A', 'Zg=', '_w==', 'Zg==\v', '']) {
+      const tree = preview('pdf', base64)
+      assert.equal(all(tree, n => n.type === 'iframe').length, 0)
+      assert.match(textOf(tree), /Preview unavailable/)
+    }
+    const image = preview('image', '!', 'image/png')
+    assert.equal(all(image, n => n.type === 'img')[0]?.props.src, 'data:image/png;base64,!')
+    assert.equal(createUrl.mock.callCount(), cases.length)
+    assert.equal(decode.mock.callCount(), native ? 9 : 0)
+    assert.equal(legacy.mock.callCount(), native ? 0 : 9)
+  })
+}
+
 test('Unified right sidebar coexists across Details, Side chat, Files, Preview, Changes, Terminal, and plugin tabs', async () => {
   const calls = []
   windowEvents.length = 0
