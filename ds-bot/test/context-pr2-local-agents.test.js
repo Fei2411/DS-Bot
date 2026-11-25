@@ -633,6 +633,29 @@ test('L6: unrecoverable overflow marks CONTEXT_WINDOW_EXCEEDED and recoverOverfl
   assert.equal(postHandoffHuge.bot.sessionId, 's1')
   assert.equal(postHandoffHuge.rt.liveOf('s1').overflowFailure, true)
 
+  // - oversized incoming handoff + short first request CAN shrink (replacement < old handoff) -> auto-switches to s2.
+  const oversizedHandoff = user('h-big', `[Handoff · part 2]\n${'Prior transcript context. '.repeat(2000)}`, { kind: 'bot', role: 'handoff', handoff: true })
+  const bigHandoffShortReq = makePartsHarness({
+    local: true,
+    context: { used: 195_000, size: 200_000, compactions: 0 },
+    messages: [oversizedHandoff, user('u-short', 'Summarize the decision.')],
+  })
+  const shrinkOut = await dispatchRequestError(bigHandoffShortReq, { code: 'CONTEXT_WINDOW_EXCEEDED', message: 'Prompt is too long' })
+  assert.equal(shrinkOut, undefined)
+  await bigHandoffShortReq.settle()
+  assert.equal(bigHandoffShortReq.bot.sessionId, 's2')
+
+  // - oversized incoming handoff + oversized first user message (> RECENT_LINE_MAX) refuses clipping auto-switch.
+  const bigHandoffBigReq = makePartsHarness({
+    local: true,
+    context: { used: 195_000, size: 200_000, compactions: 0 },
+    messages: [oversizedHandoff, user('u-big', 'X'.repeat(5000))],
+  })
+  const bigReqOut = await dispatchRequestError(bigHandoffBigReq, { code: 'CONTEXT_WINDOW_EXCEEDED', message: 'Prompt is too long' })
+  assert.equal(bigReqOut, 'next')
+  assert.equal(bigHandoffBigReq.bot.sessionId, 's1')
+  assert.equal(bigHandoffBigReq.rt.liveOf('s1').overflowFailure, true)
+
   // - post-handoff part with real assistant work CAN shrink -> auto-switches to s2.
   const postHandoffMulti = makePartsHarness({
     local: true,
