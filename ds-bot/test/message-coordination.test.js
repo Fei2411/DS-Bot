@@ -785,3 +785,98 @@ test('legacy group report without logical address replays to original private ch
     'legacy group report must not be misrouted into the source group session',
   )
 })
+
+test('hot rollback journal left by crash is rolled back after lock acquisition and replays committed report', async (t) => {
+  const base = mkdtempSync(join(tmpdir(), 'ds-bot-coord-hot-journal-'))
+  t.after(() => rmSync(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }))
+  const home = join(base, 'bot')
+  mkdirSync(home, { recursive: true })
+  writeFileSync(join(home, 'state.json'), JSON.stringify(seedTeam({
+    bots: {
+      a: {
+        id: 'a',
+        name: 'Chief',
+        role: 'Boss',
+        sessionId: 'dm-a',
+        createdAt: 1,
+        tasks: [{ id: 'task-hj', title: 'HotJournal', brief: 'Check', from: 'dm-a', sessionId: 'bg-hj', status: 'completed', startedAt: 1, updatedAt: 2, endedAt: 2 }],
+      },
+    },
+  })))
+
+  const dsh1 = await mountRealDsh(t, base)
+  const fg1 = await dsh1.create('dm-a')
+  await dsh1.root.sessions.flush(fg1.session)
+  const host1 = attachRuntime(t, dsh1, home, base)
+  await host1.rt.load()
+  const exchangeId = 'task-report:task-hj'
+  host1.rt.coordination.commitTaskTerminal({
+    taskId: 'task-hj',
+    obligation: {
+      id: exchangeId,
+      kind: 'task_report',
+      ownerId: 'task-hj',
+      botId: 'a',
+      address: { foreground: true },
+      deliveryId: exchangeId,
+      payload: {
+        toId: 'a',
+        role: 'task-report',
+        taskId: 'task-hj',
+        exchangeId,
+        note: '"HotJournal" (task-hj) finished',
+        text: 'HOT JOURNAL REPORT RECOVERED',
+        recordExchange: false,
+      },
+    },
+  })
+  await host1.ctx.dispose()
+  await dsh1.root.fiber.dispose()
+
+  // Switch the DB to DELETE journal mode and synthesize a genuine hot rollback journal
+  // (spilled dirty pages + non-zero page count, as left by a hard crash mid-write).
+  const { DatabaseSync } = await import('node:sqlite')
+  const { copyFileSync } = await import('node:fs')
+  const dbPath = join(home, 'coordination.sqlite')
+  const rawDb = new DatabaseSync(dbPath)
+  rawDb.exec('PRAGMA journal_mode = DELETE')
+  rawDb.exec('PRAGMA cache_size = 1')
+  rawDb.exec('BEGIN IMMEDIATE')
+  for (let i = 0; i < 8; i += 1) {
+    rawDb.prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)').run(`uncommitted_${i}`, 'x'.repeat(8192))
+  }
+  const journalPath = `${dbPath}-journal`
+  const savedJournal = join(base, 'hot.journal')
+  const savedDb = join(base, 'hot.sqlite')
+  assert.equal(existsSync(journalPath), true, 'DELETE journal should exist during uncommitted spilled write')
+  copyFileSync(journalPath, savedJournal)
+  copyFileSync(dbPath, savedDb)
+  rawDb.exec('ROLLBACK')
+  rawDb.close()
+  copyFileSync(savedDb, dbPath)
+  copyFileSync(savedJournal, journalPath)
+  assert.equal(existsSync(join(home, 'inflight.json')), false)
+
+  // Verify a read-only open indeed fails on this hot journal before lock recovery.
+  assert.throws(() => {
+    const ro = new DatabaseSync(dbPath, { readOnly: true })
+    try { ro.prepare('SELECT value FROM meta WHERE key = ?').get('coord_gen') } finally { ro.close() }
+  })
+
+  // Fresh runtime must roll back the hot journal after acquiring state.lock and replay the report!
+  const dsh2 = await mountRealDsh(t, base)
+  await dsh2.open('dm-a')
+  const host2 = attachRuntime(t, dsh2, home, base)
+  await host2.rt.load()
+  await sleepUntil(
+    () => host2.rt.coordination.listPendingObligations().length === 0
+      && dsh2.root.agents.get('dm-a').session.snapshotEvents().some(e => e.type === 'user/message' && e.data?.source?.exchangeId === exchangeId),
+    RESUME_DELAY_MS + 4000,
+    'committed task_report behind a hot journal must still replay after lock recovery',
+  )
+  const fg2 = dsh2.root.agents.get('dm-a')
+  await fg2.whenIdle()
+  const reports = fg2.session.snapshotEvents().filter(e => e.type === 'user/message' && e.data?.source?.exchangeId === exchangeId)
+  assert.equal(reports.length, 1)
+  assert.match(reports[0].data.content[0].text, /HOT JOURNAL REPORT RECOVERED/)
+})

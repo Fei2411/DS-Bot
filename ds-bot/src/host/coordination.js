@@ -66,6 +66,7 @@ export function install(rt) {
   let disposed = false
   let openedReadOnly = false
   let schemaReady = false
+  let initialReadFailed = false
 
   const canWrite = () => !disposed && rt.readOnly?.() === undefined
 
@@ -263,12 +264,16 @@ export function install(rt) {
   function ensureDb({ write = false } = {}) {
     if (disposed) return null
     if (write && !canWrite()) return null
-    const readOnlyMode = !write || !canWrite()
+    const dbExists = existsSync(dbPath)
+    if (!dbExists) schemaReady = false
+    const hasHotJournal = dbExists && (existsSync(`${dbPath}-journal`) || existsSync(`${dbPath}-wal`))
+    const allowWriteRecovery = !write && hasHotJournal && canWrite() && rt.hasLoaded?.() === true
+    const readOnlyMode = (!write && !allowWriteRecovery) || !canWrite()
     if (db !== null) {
       if (!readOnlyMode && openedReadOnly) closeDb()
       else return db
     }
-    if (readOnlyMode && !existsSync(dbPath)) return null
+    if (readOnlyMode && !dbExists) return null
     if (!readOnlyMode) mkdirSync(home, { recursive: true })
     for (const fresh of [false, true]) {
       try {
@@ -296,6 +301,7 @@ export function install(rt) {
           throw error
         }
       } catch (error) {
+        if (readOnlyMode && !fresh && hasHotJournal) initialReadFailed = true
         if (fresh || readOnlyMode || !isCorruptSqliteError(error)) {
           rt.warn?.('ds-bot: coordination store unavailable: %s', error)
           return null
@@ -303,6 +309,25 @@ export function install(rt) {
       }
     }
     return null
+  }
+
+  // Opens an existing coordination DB writable once the host owns `state.lock` so SQLite
+  // can roll back any hot rollback journal or orphaned WAL left by a hard crash.
+  // Never creates a new DB if none exists, and never writes in a read-only host.
+  function recoverAfterLock() {
+    if (!canWrite() || !existsSync(dbPath)) return false
+    const hadFailure = initialReadFailed
+    const hasJournal = existsSync(`${dbPath}-journal`) || existsSync(`${dbPath}-wal`)
+    if (!hadFailure && !hasJournal) return false
+    const conn = ensureDb({ write: true })
+    if (conn === null) return false
+    try {
+      stmt?.getMeta?.get('coord_gen')
+      initialReadFailed = false
+      return hadFailure || hasJournal
+    } finally {
+      if (CLOSE_AFTER_OP) closeDb()
+    }
   }
 
   function withRead(fn, fallback) {
@@ -864,6 +889,7 @@ export function install(rt) {
     dbPath,
     currentGen,
     loadInitialState,
+    recoverAfterLock,
     syncLegacyInflight: () => importLegacyInflightIfNeeded({ allowWrite: true }),
     upsertDelivery,
     replaceAllDeliveries,

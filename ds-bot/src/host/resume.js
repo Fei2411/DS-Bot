@@ -1586,6 +1586,21 @@ export function install(rt) {
   async function resumeAll() {
     await rt.load()
     if (rt.readOnly() !== undefined) return
+    if (coord?.recoverAfterLock?.() === true) {
+      const reloaded = coord.loadInitialState?.()
+      if (reloaded !== undefined) {
+        interrupted = {
+          turns: { ...reloaded.turns, ...interrupted.turns },
+          queued: Object.keys(interrupted.queued).length > 0 ? interrupted.queued : reloaded.queued,
+          silent: Object.keys(interrupted.silent).length > 0 ? interrupted.silent : reloaded.silent,
+          obligations: reloaded.obligations ?? [],
+          terminalMarkers: reloaded.terminalMarkers ?? [],
+        }
+        if (Object.keys(queued).length === 0 && Object.keys(reloaded.queued).length > 0) queued = reloaded.queued
+        if (Object.keys(silent).length === 0 && Object.keys(reloaded.silent).length > 0) silent = reloaded.silent
+        recoveringTurns = interrupted.turns
+      }
+    }
     coord?.syncLegacyInflight?.()
     if ((coord?.listTerminalMarkers?.().length ?? 0) > 0) {
       await reconcileTerminalMarkers().catch(error => rt.warn('ds-bot: reconciling terminal markers failed: %s', error))
@@ -1745,6 +1760,21 @@ export function install(rt) {
       : setTimeout(() => {
         fastStartup = rt.load()
           .then(() => {
+            if (rt.readOnly() === undefined && coord?.recoverAfterLock?.() === true) {
+              const reloaded = coord.loadInitialState?.()
+              if (reloaded !== undefined) {
+                const hasInterrupted = Object.keys(reloaded.turns).length > 0
+                  || Object.keys(reloaded.queued).length > 0
+                  || Object.keys(reloaded.silent).length > 0
+                if (hasInterrupted) {
+                  interrupted = reloaded
+                  recoveringTurns = reloaded.turns
+                  if (Object.keys(queued).length === 0) queued = reloaded.queued
+                  if (Object.keys(silent).length === 0) silent = reloaded.silent
+                  return resumeAll()
+                }
+              }
+            }
             const hasWork = (coord?.listTerminalMarkers?.().length ?? 0) > 0
               || (coord?.listPendingObligations?.().length ?? 0) > 0
             return hasWork
