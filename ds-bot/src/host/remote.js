@@ -156,6 +156,9 @@ export function createRemoteService(rt) {
       if (name.startsWith('api-')) {
         return { ok: false, error: { code: 'bot/refused', message: 'External API settings and tokens are managed on the computer', details: {} } }
       }
+      if (name.startsWith('mcp-')) {
+        return { ok: false, error: { code: 'bot/refused', message: 'MCP access is set up on the computer', details: {} } }
+      }
       if (name === 'folder-pick') {
         return { ok: false, error: { code: 'bot/refused', message: 'Folders are chosen in a window on the computer', details: {} } }
       }
@@ -177,6 +180,12 @@ export function createRemoteService(rt) {
         return { ok: false, error: { code: 'bot/refused', message: 'Voice input settings and transcription are available on the computer', details: {} } }
       }
       const answer = plain(await rt.channelCall(name, payload ?? {}, signal, true))
+      if (name === 'state' && answer?.ok === true && answer.value && typeof answer.value === 'object'
+        && answer.value.phone && typeof answer.value.phone === 'object' && Object.hasOwn(answer.value.phone, 'pairing')) {
+        const phone = { ...answer.value.phone }
+        delete phone.pairing
+        return { ...answer, value: { ...answer.value, phone } }
+      }
       if (name === 'folders' && answer?.ok === true && answer.value && typeof answer.value === 'object' && Object.hasOwn(answer.value, 'data')) {
         const value = { ...answer.value }
         delete value.data

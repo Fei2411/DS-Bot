@@ -348,9 +348,9 @@ test('createRemoteService serves dsBot/call and dsBot/feed through real DSH Type
   assert.deepEqual(omittedPayload.value, { ok: true, value: { id: 'b1', avatar: { shape: 'whale' } } })
   assert.equal('image' in omittedPayload.value.value.avatar, false)
 
-  // 3. Computer-only endpoints (`phone-*`, `folder-pick`, `session-*`, `speech-*`) are refused before reaching channelCall
+  // 3. Computer-only endpoints (`phone-*`, `mcp-*`, `folder-pick`, `session-*`, `speech-*`) are refused before reaching channelCall
   const beforeRefusedCount = received.length
-  for (const forbidden of ['phone-set', 'phone-pair', 'phone-pair-cancel', 'phone-remove', 'folder-pick', 'session-page', 'speech-catalog', 'speech-configure', 'speech-prepare', 'speech-cancel', 'speech-transcribe']) {
+  for (const forbidden of ['phone-set', 'phone-pair', 'phone-pair-cancel', 'phone-remove', 'mcp-set', 'mcp-token', 'folder-pick', 'session-page', 'speech-catalog', 'speech-configure', 'speech-prepare', 'speech-cancel', 'speech-transcribe']) {
     const refused = await gateway.dispatchRpc(
       `${RPC_NAMESPACE}/call`,
       { args: { endpoint: forbidden, payload: { on: false } } },
@@ -528,6 +528,11 @@ test('full ds-bot runtime serves real hello, state and live feed through TypertG
   assert.equal(rpcHello.value.value.capabilities.includes('rpc'), true)
   assert.deepEqual(rpcHello.value.value.rpc, { call: 'dsBot/call', feed: 'dsBot/feed' })
 
+  const basePhoneView = rt.phoneView
+  rt.phoneView = () => ({
+    ...basePhoneView(),
+    pairing: { uri: 'dsbot://pair?code=test-only', browserUri: 'https://relay.example/web/#code=test-only', expiresAt: Date.now() + 60_000 },
+  })
   const rpcState = await gateway.dispatchRpc(
     'dsBot/call',
     { args: { endpoint: 'state', payload: { avatars: 'ref', locale: 'zh-CN' } } },
@@ -538,7 +543,10 @@ test('full ds-bot runtime serves real hello, state and live feed through TypertG
   assert.equal(rpcState.value.ok, true)
   assert.ok(rpcState.value.value.bots.length >= 1)
   assert.equal(Object.hasOwn(rpcState.value.value, 'api'), false)
-  assert.ok(Object.hasOwn((await rt.channelCall('state', {})).value, 'api'))
+  assert.equal(Object.hasOwn(rpcState.value.value.phone, 'pairing'), false)
+  const localState = (await rt.channelCall('state', {})).value
+  assert.ok(Object.hasOwn(localState, 'api'))
+  assert.ok(Object.hasOwn(localState.phone, 'pairing'))
   const remotePoll = await gateway.dispatchRpc(
     'dsBot/call',
     { args: { endpoint: 'state', payload: { since: rt.state.revision, live: 'old' } } },
@@ -547,6 +555,8 @@ test('full ds-bot runtime serves real hello, state and live feed through TypertG
   )
   assert.equal(remotePoll.value.value.unchanged, true)
   assert.equal(Object.hasOwn(remotePoll.value.value, 'api'), false)
+  assert.equal(Object.hasOwn(remotePoll.value.value.phone, 'pairing'), false)
+  rt.phoneView = basePhoneView
 
   // Updating a Bot saves state and emits a `revision` frame over `dsBot/feed`.
   const beforeUpdateRev = rt.state.revision
@@ -594,6 +604,16 @@ test('full ds-bot runtime serves real hello, state and live feed through TypertG
   assert.equal(refusedFolderPick.ok, true)
   assert.equal(refusedFolderPick.value.ok, false)
   assert.equal(refusedFolderPick.value.error.code, 'bot/refused')
+
+  const refusedMcp = await gateway.dispatchRpc(
+    'dsBot/call',
+    { args: { endpoint: 'mcp-set', payload: {} } },
+    new AbortController().signal,
+    ownerPeer(),
+  )
+  assert.equal(refusedMcp.ok, true)
+  assert.equal(refusedMcp.value.ok, false)
+  assert.equal(refusedMcp.value.error.code, 'bot/refused')
 
   const unknownEndpoint = await gateway.dispatchRpc(
     'dsBot/call',
