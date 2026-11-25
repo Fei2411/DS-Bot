@@ -179,6 +179,7 @@ export const referenceNote = references => (references?.length
   : '')
 
 const ROOM_REPLY = 'Reply with your message for the group, no name prefix: in a discussion, one or two short messages. When you are asked to do something, call your first tool in the same step as your opening note — if you stop without a tool call, your turn ends and no work runs. The group does not wait for you and sees what you write while you work: say what you will do, write again only when something matters, and end with the result, never a promise to do it later. Reply [PASS] to stay silent when you have nothing new to add or the message is for someone else.'
+const ROOM_REPLY_COMPACT = 'Reply for the group (no name prefix; [PASS] to stay silent).'
 const ROOM_CALLS = 'Writing "@Name" calls that member at once, to answer or to do what you ask, as soon as your message is posted: call members before you start on your own part. Members called in one message start together and do not see each other\'s replies until they post, so when one needs another\'s result, call the first and ask it to call the next. When a member finishes work you gave it, you answer its result. To only mention a member, write its name without "@".'
 
 const slotLabel = (slot, self) => {
@@ -876,7 +877,7 @@ export function install(rt) {
   // `finished` is what a batch woke the member for (finishedLines): its result lines, the
   // ones the prompt does not show anyway coming after the earlier lines, and the members
   // that finished without a closing message.
-  function roomPrompt(room, member, round, slot, finished = { results: [], quiet: [] }) {
+  function roomPrompt(room, member, round, slot, finished = { results: [], quiet: [] }, sessionId) {
     const { results, quiet } = finished
     const peers = room.members.filter(id => id !== member.id).map(rt.botOf).filter(Boolean)
       .map(bot => `${bot.name}${rt.isAdminOf(room, bot.id) ? ' (admin)' : ''}`)
@@ -890,14 +891,54 @@ export function install(rt) {
     const current = lines.filter(line => line.seq >= round.startSeq)
     const owed = results.filter(result => ![...earlier, ...current].some(line => line.seq === result.seq))
     const spokeThisRound = (room.seen[member.id] ?? 0) >= round.startSeq
-    const instructions = slot.resultOnly
+    const overrideInstructions = slot.resultOnly
       ? `These are results of a finished request. Your reply is for the group; names in it do not call anyone. For a distinct next task use delegate_work with follow_up_to "${slot.resultRef}".`
       : batchOfSlot(room.id, slot)?.direct
         ? 'This is a delegated request. Your final answer goes back to its caller. Names in your progress or answer do not call other members; use delegate_work to assign a separate task.'
-        : ROOM_CALLS
-    const members = `Members: the user${peers.length ? `, ${peers.join(', ')}` : ''} and you${leads ? ' (admin)' : ''}. ${instructions}`
-    const notice = room.notice ? `Group notice (shared instructions for every member):\n${room.notice}` : ''
-    if (round.kickoff) return { text: [members, notice, leads ? adminNote(room) : '', roomKickoff(rt.uiLanguage?.())].filter(Boolean).join('\n\n'), images: [], files: [] }
+        : undefined
+    const instructions = overrideInstructions ?? ROOM_CALLS
+    const membersList = `Members: the user${peers.length ? `, ${peers.join(', ')}` : ''} and you${leads ? ' (admin)' : ''}.`
+    const members = `${membersList} ${instructions}`
+    const noticeText = room.notice ?? ''
+    const notice = noticeText ? `Group notice (shared instructions for every member):\n${noticeText}` : ''
+    const adminText = leads ? adminNote(room) : ''
+    if (round.kickoff) return { text: [members, notice, adminText, roomKickoff(rt.uiLanguage?.())].filter(Boolean).join('\n\n'), images: [], files: [], meta: undefined }
+
+    // Group rules, members list, notice, and admin role are delivered in full once
+    // per context epoch (opening turn and after any compaction). Subsequent turns in
+    // the same epoch send only a delta when group metadata changes plus a compact footer.
+    const epoch = sessionId !== undefined ? (rt.contextRuntime?.epochOf?.(sessionId) ?? 0) : 0
+    const prevMeta = sessionId !== undefined ? rt.contextRuntime?.groupMetaOf?.(sessionId) : undefined
+    const modeValue = room.mode ?? 'admin'
+    const metaPayload = { membersList, notice: noticeText, mode: modeValue, leads }
+    const metaHash = createHash('sha256').update(JSON.stringify(metaPayload)).digest('hex').slice(0, 16)
+    const hasSnapshot = prevMeta !== undefined && prevMeta.epoch === epoch && prevMeta.full === true
+    let headerBlocks
+    let footer
+    let nextMeta
+    if (!hasSnapshot) {
+      headerBlocks = [members, notice, adminText]
+      footer = ROOM_REPLY
+      nextMeta = sessionId !== undefined ? { hash: metaHash, epoch, full: true, ...metaPayload } : undefined
+    } else if (prevMeta.hash === metaHash) {
+      headerBlocks = [overrideInstructions ?? '']
+      footer = ROOM_REPLY_COMPACT
+      nextMeta = undefined
+    } else {
+      const deltas = []
+      if (prevMeta.membersList !== membersList) deltas.push(`Updated group members: ${membersList}`)
+      if (prevMeta.notice !== noticeText) {
+        deltas.push(noticeText ? `Updated group notice (shared instructions for every member):\n${noticeText}` : 'Group notice was cleared.')
+      }
+      if (prevMeta.leads !== leads || (leads && prevMeta.mode !== modeValue)) {
+        deltas.push(leads ? `Updated group role: ${adminText}` : 'You are no longer this group\'s admin.')
+      }
+      if (overrideInstructions !== undefined) deltas.push(overrideInstructions)
+      headerBlocks = deltas
+      footer = ROOM_REPLY_COMPACT
+      nextMeta = { hash: metaHash, epoch, full: true, ...metaPayload }
+    }
+
     const goal = rt.goalBlock?.(room, member, { nudge: round.goalNudge === true, resume: round.goalResume === true }) ?? ''
     // Members answering in this round are named with the round below.
     const answering = new Set(round.slots.filter(other => other.status === 'speaking').map(other => other.id))
@@ -907,10 +948,8 @@ export function install(rt) {
       ? `(${omittedCount} earlier unread group message${omittedCount === 1 ? '' : 's'} not shown here; use read_group_chat to read them.)`
       : ''
     const text = [
-      members,
-      notice,
+      ...headerBlocks,
       goal,
-      leads ? adminNote(room) : '',
       earlier.length
         ? `Earlier in the group, before this round (context only):\n${omittedNotice ? `${omittedNotice}\n` : ''}${transcript(earlier, memberText(room))}`
         : omittedNotice,
@@ -924,10 +963,10 @@ export function install(rt) {
       round.shown?.includes(member.id) ? '' : referenceNote(round.references),
       working.length > 0 ? `Still at work on what they were asked; each posts here when done: ${working.map(item => `${item.bot.name} (${minutesSince(item.since)} min${item.unread > 0 ? `, with ${item.unread} group message(s) it has not read yet` : ''})`).join(', ')}.` : '',
       ...placeLines(round, slot),
-      ROOM_REPLY,
+      footer,
     ].filter(Boolean).join('\n\n')
     const shown = [...earlier, ...owed.flatMap(result => result.line ?? []), ...current]
-    return { text, images: shown.flatMap(line => line.images ?? []), files: shown.flatMap(line => line.files ?? []) }
+    return { text, images: shown.flatMap(line => line.images ?? []), files: shown.flatMap(line => line.files ?? []), meta: nextMeta }
   }
 
   // The result lines a wake carries, oldest first, one per seq. A line that left the room's
@@ -1552,7 +1591,7 @@ export function install(rt) {
   // called it, which answers what the turn posts after the round moved on. What the
   // member writes before its last step is posted at once and collected in `said`, and
   // `heard` takes each such line once it is posted.
-  async function roomTurn(room, member, sessionId, { text, images = [], files = [] }, note, signal, round, slot, said = [], heard = () => {}, onWork = () => {}, onTurn = () => {}) {
+  async function roomTurn(room, member, sessionId, { text, images = [], files = [], meta }, note, signal, round, slot, said = [], heard = () => {}, onWork = () => {}, onTurn = () => {}) {
     const by = slot.by
     if (signal.aborted) return null
     const exchangeId = randomUUID()
@@ -1609,8 +1648,9 @@ export function install(rt) {
     })
     try {
       await rt.deliver({ fromId: undefined, toId: member.id, sessionId, role: 'room', roomId: room.id, exchangeId, note, text, images, files, steer: busy, ...(by ? { askedBy: by } : {}), ...(slot.resultRef ? { resultRef: slot.resultRef } : {}), ...(slot.batchKey ? { batchKey: slot.batchKey } : {}), ...(slot.resumedUpstream ? { resumedUpstream: true } : {}) })
-      // The prompt reached the member: its read position moves on.
+      // The prompt reached the member: its read position and group header snapshot move on.
       room.seen[member.id] = seenAt
+      if (meta !== undefined) rt.contextRuntime?.setGroupMeta?.(sessionId, meta)
       // Still held by an earlier request: this turn cannot start until the user answers.
       if (rt.state.questions[sessionId] !== undefined || rt.state.views[sessionId] !== undefined) rt.roomWaiters.get(exchangeId)?.resolve({ answer: true })
       else if (rt.waitsForApproval?.(sessionId)) rt.roomWaiters.get(exchangeId)?.approval()
@@ -2172,7 +2212,7 @@ export function install(rt) {
       return
     }
     if (slot.resultOnly) slot.resultRef = `G${slot.finished?.results.at(-1)?.seq ?? room.seq}`
-    const prompt = roomPrompt(room, member, round, slot, await finishedLines(room, slot))
+    const prompt = roomPrompt(room, member, round, slot, await finishedLines(room, slot), session.id)
     round.shown?.push(member.id)
     const text = session.brief === undefined ? prompt.text : `${session.brief}\n\n${prompt.text}`
     const said = []
@@ -2203,7 +2243,7 @@ export function install(rt) {
       callFrom(room, round, member, body, route, called, { worked, byBot: answeredBot, callerId: slot.by, idleTurn })
     }
     const reply = await roomTurn(
-      room, member, session.id, { text, images: prompt.images, files: prompt.files }, slot.note ?? 'your turn', signal, round, slot, said,
+      room, member, session.id, { text, images: prompt.images, files: prompt.files, meta: prompt.meta }, slot.note ?? 'your turn', signal, round, slot, said,
       line => publish(line),
       onWork,
       (turnNumber) => { finishedTurn = turnNumber },

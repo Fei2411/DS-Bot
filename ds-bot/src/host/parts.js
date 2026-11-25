@@ -19,9 +19,10 @@ import { LlmError, createAssistantMessage, createSystemMessage, createUserMessag
 import { openTurnAt } from './btw.js'
 import { HANDOFF_ACK, HISTORY_SCAN_PAGES, HISTORY_TIMEOUT_MS, isSilentTurnText, REPLY_KIND, SOURCE_KIND } from './constants.js'
 import { isContextOnlyMessage, isContextOnlySource, isSilentBotSource } from './context-messages.js'
+import { install as ensureContextRuntime } from './context-runtime.js'
 import { assembleLlmStream } from './models.js'
 import { compressedRelayPreview, parseReplies, relayRange, stackReplies } from '../shared/group-replies.js'
-import { CHECKPOINT_PROMPT, DEFAULT_CHECK_RATIO, STEWARD_SYSTEM, checkpointCount, checkpointTail, checkpointTailNote, checkpointText, linesFor, parseDecision, selectRetainedRange, stewardRequest } from './steward.js'
+import { CHECKPOINT_PROMPT, DEFAULT_CHECK_RATIO, STEWARD_SYSTEM, checkpointCount, checkpointTail, checkpointTailNote, checkpointText, parseDecision, selectRetainedRange, stewardRequest } from './steward.js'
 import { RESUME_DELAY_MS } from './resume.js'
 import { clip, createClock, escapeRegExp, estimateTokens, reminderPrompts, splitRef, textOf } from './text.js'
 import { pageThinkingMs } from './thinking.js'
@@ -232,13 +233,14 @@ export function install(rt) {
       return undefined
     }
   }
+  const contextRuntime = rt.contextRuntime ?? ensureContextRuntime(rt)
   const tokensOf = session => measureOf(session)?.totalTokens
   // A part answered by a local agent CLI. The CLI holds the working context: its size
   // and window are what the CLI reports, and the CLI condenses it and writes the note.
   // The DSH Session keeps the whole record for read_own_chat and is never condensed.
-  const localPart = session => rt.isLocalAgentRoute?.(session.requestHeader?.()?.config?.provider ?? '') === true
+  const localPart = session => contextRuntime.isLocal(session)
   // Undefined while the CLI has not said how full it is: such a part is not checked.
-  const sizeOf = session => (localPart(session) ? rt.localAgentContext?.(session.id)?.used : tokensOf(session))
+  const sizeOf = session => contextRuntime.measure(session, { logTokens: tokensOf(session) }).workingTokens
   const clock = createClock(config.timeZone)
   // Replacing a handoff must shrink the request, not just create another Session.
   async function canMakeRoom(agent, carry = []) {
@@ -312,11 +314,11 @@ export function install(rt) {
   async function contextLines(session) {
     const route = session?.requestHeader?.()?.config
     if (!route?.provider || !route?.model) return undefined
-    // A CLI's window is the one it reports; it keeps its own room for replies.
-    const reported = localPart(session) ? rt.localAgentContext?.(session.id)?.size : undefined
-    if (reported !== undefined) return linesFor({ window: reported, checkRatio: config.checkRatio, checkTokens: config.checkTokens })
-    const info = await ctx.llm.resolveModelInfo(route.provider, route.model)
-    return linesFor({ window: info.context?.contextWindow, reserve: route.maxTokens ?? info.defaultMaxTokens, checkRatio: config.checkRatio, checkTokens: config.checkTokens })
+    return contextRuntime.linesForSession(session, {
+      route,
+      checkRatio: config.checkRatio,
+      checkTokens: config.checkTokens,
+    })
   }
 
   // The backend's own entry points leave Bot Sessions alone, earlier parts and group
@@ -349,7 +351,11 @@ export function install(rt) {
     condensing.add(sessionId)
     if (forSwitch) switchRanges.set(sessionId, range)
     try {
-      return await run()
+      const result = await run()
+      if (result !== null && result !== undefined) {
+        contextRuntime.bumpEpoch(sessionId, forSwitch ? 'model-switch-compact' : 'compact-range')
+      }
+      return result
     } finally {
       condensing.delete(sessionId)
       if (forSwitch) switchRanges.delete(sessionId)
@@ -1673,7 +1679,8 @@ export function install(rt) {
     } finally {
       condensing.delete(sessionId)
     }
-    // The prefix cache starts over anyway, so the memory section catches up.
+    // The prefix cache starts over anyway, so advance the context epoch and renew memory.
+    contextRuntime.bumpEpoch(sessionId, 'dsh-checkpoint')
     rt.renewMemory(sessionId)
     const after = tokensOf(agent.session) ?? before
     partBase.set(agent.id, after)
@@ -1690,6 +1697,7 @@ export function install(rt) {
   // past the line.
   async function condenseLocal(agent, lines, signal) {
     const before = sizeOf(agent.session)
+    const epochBefore = contextRuntime.epochOf(agent.id)
     let result
     let requested
     try {
@@ -1708,6 +1716,9 @@ export function install(rt) {
     if (result === 'unsupported') {
       partBase.set(agent.id, before ?? 0)
       return undefined
+    }
+    if (contextRuntime.epochOf(agent.id) === epochBefore) {
+      contextRuntime.bumpEpoch(agent.id, 'cli-compact')
     }
     rt.renewMemory(agent.id)
     const after = sizeOf(agent.session)
@@ -1884,9 +1895,11 @@ export function install(rt) {
   // Parts that have not started a turn yet, with their handoff package's size.
   const freshParts = new Map()
   // Context size where a part started, or where a checkpoint or a failed switch left
-  // it. A part makes room again only once it grew by a quarter of the check line past
-  // it, so a large system prompt or a broken switch cannot make it act every turn.
-  const partBase = new Map()
+  // it (persisted in state.contextParts via ContextRuntime so restarts keep the baseline).
+  const partBase = {
+    get: sessionId => contextRuntime.partBaseOf(sessionId),
+    set: (sessionId, value) => contextRuntime.setPartBase(sessionId, value),
+  }
   // Parts whose note failed below the hard line: failures in a row, and the time
   // before which the check line does not try again.
   const noteFailures = new Map()
@@ -1898,9 +1911,13 @@ export function install(rt) {
   const midTurnCondensed = new Set()
   // Parts the steward is deciding about at the end of a turn.
   const checking = new Set()
-  // Per part on a local agent CLI: the compactions already looked at, and the parts
-  // the CLI condensed without saying yet how full they are now.
-  const cliCompactions = new Map()
+  // Per part on a local agent CLI: the compactions already looked at (persisted in
+  // state.contextParts via ContextRuntime), and the parts the CLI condensed without
+  // saying yet how full they are now.
+  const cliCompactions = {
+    get: sessionId => contextRuntime.cliCompactionsOf(sessionId),
+    set: (sessionId, count) => contextRuntime.setCliCompactions(sessionId, count),
+  }
   const condensedUnmeasured = new Set()
   // Turns a route stopped at its window, in a row, per part: nothing written, or a
   // short answer far below the model's output limit (#1104, #1461).
@@ -3397,7 +3414,11 @@ export function install(rt) {
       return
     }
     const lines = await contextLines(agent.session)
-    const tokens = tokensOf(agent.session)
+    const measured = measureOf(agent.session)
+    const tokens = measured?.totalTokens
+    if (lines !== undefined && Number.isFinite(measured?.nodes?.[0]?.tokens)) {
+      contextRuntime.checkPrefixShare(agent.id, { prefixTokens: measured.nodes[0].tokens, usable: lines.usable })
+    }
     lowerPartBase(agent.id, tokens)
     if (lines === undefined || tokens === undefined || tokens < lines.check) {
       if (tokens !== undefined && lines !== undefined && tokens < lines.check) midTurnCondensed.delete(agent.id)
@@ -4186,8 +4207,7 @@ export function install(rt) {
 
   const forgetSessionParts = (sessionId) => {
     if (typeof sessionId !== 'string' || sessionId === '') return
-    partBase.delete(sessionId)
-    cliCompactions.delete(sessionId)
+    contextRuntime.forget(sessionId)
     condensedUnmeasured.delete(sessionId)
     cutOffs.delete(sessionId)
     rescued.delete(sessionId)

@@ -171,6 +171,10 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
     },
     presetFor: sessionId => presetOf(rt, sessionId),
     freshMemoryView: sessionId => rt.freshMemoryView?.(sessionId),
+    onCompaction: (sessionId, info) => {
+      rt.contextRuntime?.bumpEpoch(sessionId, info?.reason ?? 'cli-compaction')
+      rt.renewMemory?.(sessionId)
+    },
     switchOnResumeLost: sessionId => rt.isBotSession?.(sessionId) === true && rt.readOnly?.() === undefined,
     cwdFor: async (sessionId) => {
       try {
@@ -364,6 +368,7 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
     localAgentCompact: (sessionId, signal) => adapter.compact(String(sessionId), signal),
     localAgentNote: (sessionId, text, signal) => adapter.note(String(sessionId), text, signal),
     localAgentAsk: (sessionId, request) => adapter.ask(String(sessionId), request),
+    notifyLocalAgentToolsChanged: sessionId => adapter.notifyToolsChanged(sessionId),
     localAgentBadge: (ref) => {
       const provider = splitRef(ref)?.provider
       return provider !== undefined && isLocalAgentRoute(provider) ? provider : undefined
