@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { createServer, request } from 'node:http'
 import { test } from 'node:test'
-import { createChatGPTRelay } from '../src/chatgpt-relay.mjs'
+import { createChatGPTRelay, previewRequest } from '../src/chatgpt-relay.mjs'
 import { createChatGPTBridge } from '../src/chatgpt-bridge.mjs'
 
 const tick = () => new Promise(resolve => setImmediate(resolve))
@@ -64,7 +64,7 @@ test('relay lists models in OpenAI discovery format, preserving order and empty 
   assert.deepEqual(await (await fetch(`${empty.baseURL}/models`, { headers: { authorization: `Bearer ${empty.secret}` } })).json(), { object: 'list', data: [] })
 })
 
-test('relay applies preview restrictions, moves only system messages and preserves tools and developer messages', async t => {
+test('relay applies preview restrictions, moves only system messages and namespaces tools without changing developer messages', async t => {
   const f = await fixture(t)
   const omit = ['background', 'conversation', 'max_output_tokens', 'max_tool_calls', 'metadata', 'moderation', 'multi_agent', 'prompt', 'prompt_cache_retention', 'safety_identifier', 'temperature', 'top_logprobs', 'top_p', 'truncation', 'user', 'previous_response_id']
   const developer = { type: 'message', role: 'developer', content: 'developer rules' }
@@ -76,9 +76,99 @@ test('relay applies preview restrictions, moves only system messages and preserv
   assert.equal(response.status, 200)
   assert.equal(await response.text(), 'data: synthetic-event\n\ndata: [DONE]\n\n')
   assert.equal(f.requests[0].headers.authorization, 'Bearer synthetic-access')
-  assert.deepEqual(f.requests[0].body, { store: false, stream: true, model: 'model-z', instructions: 'existing\n\nsystem one\n\nsystem two', tools, input: [developer] })
+  assert.deepEqual(f.requests[0].body, { store: false, stream: true, model: 'model-z', instructions: 'existing\n\nsystem one\n\nsystem two', tools: [{ type: 'namespace', name: 'ds_bot', description: 'DS Bot tools.', tools }], input: [developer] })
   await (await f.post({ input: 'hello' })).text()
   assert.deepEqual(f.requests[1].body.input, [{ role: 'user', content: 'hello' }])
+})
+
+// Wire shapes: https://developers.openai.com/api/docs/guides/function-calling#defining-namespaces
+// Call/output fields: https://developers.openai.com/api/reference/resources/responses/methods/create
+const functionTool = { type: 'function', name: 'get_weather', description: 'Look up weather.', parameters: { type: 'object', properties: { location: { type: 'string' } }, required: ['location'], additionalProperties: false }, strict: true }
+const customTool = { type: 'custom', name: 'run_query', format: { type: 'text' } }
+const namespace = tools => ({ type: 'namespace', name: 'ds_bot', description: 'DS Bot tools.', tools })
+
+test('namespace conversion preserves schemas, hosted tools, existing namespaces and call/output correlation', () => {
+  const call = { type: 'function_call', id: 'fc_weather', call_id: 'call_weather', name: 'get_weather', arguments: '{"location":"Paris"}' }
+  const output = { type: 'function_call_output', call_id: call.call_id, output: '{"temperature":25}' }
+  const custom = { type: 'custom_tool_call', id: 'ctc_query', call_id: 'call_query', name: 'run_query', input: 'select 1' }
+  const customOutput = { type: 'custom_tool_call_output', call_id: custom.call_id, output: '1' }
+  const native = { type: 'namespace', name: 'crm', description: 'Customer tools.', tools: [functionTool] }
+  const hosted = { type: 'web_search' }
+  const body = { tools: [functionTool, hosted, customTool, native], input: [call, output, custom, customOutput, { ...call, namespace: 'crm' }], tool_choice: { type: 'function', name: 'get_weather' } }
+  const before = structuredClone(body)
+  const converted = previewRequest(body)
+  assert.deepEqual(converted.tools, [hosted, native, namespace([functionTool, customTool])])
+  assert.deepEqual(converted.input, [{ ...call, namespace: 'ds_bot' }, output, { ...custom, namespace: 'ds_bot' }, customOutput, { ...call, namespace: 'crm' }])
+  assert.deepEqual(converted.tool_choice, body.tool_choice)
+  assert.deepEqual(body, before)
+  assert.deepEqual(previewRequest(converted), converted)
+  assert.deepEqual(previewRequest({ input: [call], tools: [] }).input, [{ ...call, namespace: 'ds_bot' }])
+  assert.deepEqual(previewRequest({ input: [], tools: [namespace([functionTool]), customTool] }).tools, [namespace([functionTool, customTool])])
+})
+
+for (const choice of ['auto', 'none', 'required', { type: 'custom', name: 'run_query' }, { type: 'allowed_tools', mode: 'required', tools: [{ type: 'function', name: 'get_weather' }] }]) {
+  test(`namespacing keeps documented tool_choice ${JSON.stringify(choice)} unchanged`, () => {
+    assert.deepEqual(previewRequest({ input: [], tools: [functionTool, customTool], tool_choice: choice }).tool_choice, choice)
+  })
+}
+
+for (const tools of [undefined, []]) test(`no tools produces no empty namespace (${JSON.stringify(tools)})`, () => {
+  const body = { input: [], ...(tools ? { tools } : {}) }
+  assert.deepEqual(previewRequest(body), { ...body, store: false, stream: true })
+})
+
+test('invalid tool containers are rejected instead of sent upstream', () => {
+  for (const tools of [null, {}, 'tools', [customTool, { type: 'namespace', name: 'ds_bot' }]]) assert.throws(() => previewRequest({ input: [], tools }), /Invalid ChatGPT request/)
+})
+
+for (const newline of ['\n', '\r\n', '\r']) test(`documented tool events survive fragmented UTF-8 SSE and replay (${JSON.stringify(newline)})`, async t => {
+  const call = { type: 'function_call', id: 'fc_weather', call_id: 'call_weather', name: 'get_weather', arguments: '{"location":"北京"}', namespace: 'ds_bot' }
+  const custom = { type: 'custom_tool_call', id: 'ctc_query', call_id: 'call_query', name: 'run_query', input: 'select 1', namespace: 'ds_bot' }
+  const plain = ({ namespace: _namespace, ...item }) => item
+  const events = [
+    { type: 'response.output_item.added', output_index: 0, item: { ...call, arguments: '' }, sequence_number: 0 },
+    { type: 'response.function_call_arguments.delta', item_id: call.id, output_index: 0, delta: call.arguments, sequence_number: 1 },
+    { type: 'response.function_call_arguments.done', item_id: call.id, output_index: 0, arguments: call.arguments, sequence_number: 2 },
+    { type: 'response.output_item.done', output_index: 0, item: call, sequence_number: 3 },
+    { type: 'response.output_item.added', output_index: 1, item: custom, sequence_number: 4 },
+    { type: 'response.output_item.done', output_index: 2, item: { ...call, namespace: 'crm' }, sequence_number: 5 },
+    { type: 'response.output_text.delta', output_index: 3, content_index: 0, delta: '{"namespace":"ds_bot"}', sequence_number: 6 },
+    ...['completed', 'incomplete', 'failed'].map((state, index) => ({ type: `response.${state}`, sequence_number: index + 7, response: { output: [call, custom], tools: [namespace([functionTool, customTool])], tool_choice: { type: 'function', name: 'get_weather' }, error: state === 'failed' ? { code: 'subscription_sharing_usage_limit_exceeded' } : null } })),
+  ]
+  const frame = event => `: keepalive${newline}id: ${event.sequence_number}${newline}event: ${event.type}${newline}` + JSON.stringify(event, null, 2).split('\n').map(line => `data: ${line}`).join(newline) + newline + newline
+  const f = await fixture(t, { handle: async (_req, res) => {
+    res.writeHead(200, { 'content-type': 'text/event-stream' })
+    const bytes = Buffer.from(events.map(frame).join('') + `data: [DONE]${newline}${newline}`)
+    for (let i = 0; i < bytes.length; i += 7) { res.write(bytes.subarray(i, i + 7)); await tick() }
+    res.end()
+  } })
+  const response = await f.post({ input: [], tools: [functionTool, customTool] })
+  const text = await response.text()
+  const frames = text.split(newline + newline).filter(Boolean)
+  assert.equal(frames.at(-1), 'data: [DONE]')
+  const received = frames.slice(0, -1).map(part => JSON.parse(part.split(newline).filter(line => line.startsWith('data:')).map(line => line.slice(6)).join('\n')))
+  assert.deepEqual(received, events.map(event => ({ ...event,
+    ...(event.item ? { item: event.item.namespace === 'ds_bot' ? plain(event.item) : event.item } : {}),
+    ...(event.response ? { response: { ...event.response, output: [plain(call), plain(custom)], tools: [functionTool, customTool] } } : {}),
+  })))
+  assert.ok(text.includes(`: keepalive${newline}id: 0${newline}event: response.output_item.added`))
+  await (await f.post({ input: [received[3].item, { type: 'function_call_output', call_id: call.call_id, output: '25' }], tools: [functionTool] })).text()
+  assert.deepEqual(f.requests[1].body.input, [call, { type: 'function_call_output', call_id: call.call_id, output: '25' }])
+})
+
+test('a converted function call reaches DSH before upstream completion', async t => {
+  let finish
+  const event = { type: 'response.output_item.added', output_index: 0, item: { type: 'function_call', id: 'fc_weather', call_id: 'call_weather', name: 'get_weather', namespace: 'ds_bot', arguments: '' } }
+  const f = await fixture(t, { handle: (_req, res) => {
+    res.writeHead(200, { 'content-type': 'text/event-stream' })
+    res.write(`data: ${JSON.stringify(event)}\n\n`)
+    finish = () => res.end('data: [DONE]\n\n')
+  } })
+  const reader = (await bounded(f.post({ input: [], tools: [functionTool] }))).body.getReader()
+  const first = new TextDecoder().decode((await bounded(reader.read())).value)
+  assert.deepEqual(JSON.parse(first.slice(6)), { ...event, item: { type: 'function_call', id: 'fc_weather', call_id: 'call_weather', name: 'get_weather', arguments: '' } })
+  finish()
+  while (!(await reader.read()).done) {}
 })
 
 test('relay rejects malformed, invalid and oversized bodies without contacting upstream', async t => {
@@ -172,3 +262,37 @@ test('IPC bridge correlates requests, sanitizes failures and cancels an active s
   assert.ok(replies.find(item => item.id === 'chatgpt:route').result.secret)
   assert.equal(replies.find(item => item.id === 'chatgpt:sign-out').result.remoteRevocationConfirmed, false)
 })
+
+test('unchanged SSE frames pass through with zero JSON.stringify calls and modified frames serialize once', async t => {
+  const unchanged = [
+    'data: {"type":"response.output_text.delta","delta":"hello world"}\n\n',
+    'data: {"type":"response.output_text.delta","delta":"mentions ds_bot in plain text"}\n\n',
+    'data: [DONE]\n\n',
+  ]
+  const modified = 'data: {"type":"response.output_item.added","item":{"type":"function_call","name":"ping","namespace":"ds_bot"}}\n\n'
+  const origStringify = JSON.stringify
+  let stringifyCalls = 0
+  let counting = false
+  JSON.stringify = (...args) => { if (counting) stringifyCalls += 1; return origStringify(...args) }
+  t.after(() => { JSON.stringify = origStringify })
+
+  let payload = unchanged.join('')
+  const f = await fixture(t, { handle: (_req, res) => {
+    counting = true
+    res.writeHead(200, { 'content-type': 'text/event-stream' })
+    res.end(payload)
+  } })
+
+  const first = await (await f.post({ input: [] })).text()
+  counting = false
+  assert.equal(first, unchanged.join(''))
+  assert.equal(stringifyCalls, 0, 'unchanged SSE frames must not call JSON.stringify')
+
+  stringifyCalls = 0
+  payload = modified
+  const second = await (await f.post({ input: [] })).text()
+  counting = false
+  assert.equal(second, 'data: {"type":"response.output_item.added","item":{"type":"function_call","name":"ping"}}\n\n')
+  assert.equal(stringifyCalls, 1, 'a modified SSE frame must serialize once, not twice')
+})
+

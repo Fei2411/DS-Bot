@@ -92,9 +92,9 @@ const SECTION_TOURS = {
     { target: 'phone-pair', title: 'Pair a phone', cue: 'Click "Turn on & pair" to show a one-time QR code, then scan it on your phone.' },
     { target: 'phone-server', title: 'Server', cue: 'Click "Edit" here only if you host your own relay server.' },
   ],
-  mcp: [
-    { target: 'mcp-switch', title: 'MCP access', cue: 'Turn on this switch so other local agents can reach your Bots.' },
-    { target: 'mcp-add', title: 'Add a client', cue: 'Enter a client name, click "Create token", then pick allowed Bots below.' },
+  api: [
+    { target: 'api-switch', title: 'Enable local API server', cue: 'Turn on this switch so other local agents can reach your Bots.' },
+    { target: 'api-add', title: 'Access tokens', cue: 'Click "New token", then choose the allowed targets and scopes before creating it.' },
   ],
   computer: [
     { target: 'comp-switch', title: 'Computer use', cue: 'Turn on this switch and grant system permissions when prompted.' },

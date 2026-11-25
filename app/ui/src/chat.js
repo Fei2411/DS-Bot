@@ -1,4 +1,4 @@
-import { createElement as h, Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createElement as h, Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { call } from '../../../ds-bot/src/client/api.js'
 import { BtwDock } from '../../../ds-bot/src/client/btw.js'
@@ -38,6 +38,7 @@ const stagedByteCost = (size, isImage) => (isImage ? Math.ceil(size / 3) * 4 : s
 const EMPTY_OBJ = {}
 const EMPTY_WORK = { bots: {}, approvals: [] }
 const NO_OBJ_HOOK = selector => selector(EMPTY_OBJ)
+const MemoChatRows = typeof memo === 'function' ? memo(ChatRows) : ChatRows
 const NO_WORK_HOOK = selector => selector(EMPTY_WORK)
 
 export function bytesToBase64(bytes) {
@@ -1181,7 +1182,7 @@ export function Chat({ sessionId, team, registry, classic = false }) {
       sessionNotice,
       h('div', { className: 'dsb-flow', 'data-chat-flow': '', role: 'feed', 'aria-label': name, 'aria-busy': busy },
         isRoom
-          ? h(ChatRows, { items: roomChat.view.items, sessionId, roster, actions, useUi: hooks.useUi, clock: true, renderUserAttachments: renderRoomUserAttachments })
+          ? h(MemoChatRows, { items: roomChat.view.items, sessionId, roster, actions, useUi: hooks.useUi, clock: true, renderUserAttachments: renderRoomUserAttachments })
           : h(SessionTranscript, {
             log: dmChat.log,
             sessionId: activeSessionId,

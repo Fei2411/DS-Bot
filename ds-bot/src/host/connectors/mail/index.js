@@ -136,11 +136,14 @@ export function install(rt, host) {
     if ((state.connectors?.mail?.offFor ?? []).includes(bot.id)) return 'The mailbox is turned off for you.'
     const account = accountOf(args.account)
     if (account === undefined) return accountList().length === 0 ? 'No mail account is added yet.' : `Name the account: ${accountList().map(a => a.address).join(', ')}`
+    let session
     try {
-      const session = await connect(account)
+      session = await connect(account)
       return await run(session, account, bot)
     } catch (error) {
-      sessions.delete(account.id)
+      const stale = session ?? sessions.get(account.id)
+      if (sessions.get(account.id) === stale) sessions.delete(account.id)
+      void stale?.close?.().catch(() => {})
       throw error
     }
   }
@@ -497,49 +500,100 @@ export function install(rt, host) {
 
   // --- Google sign-in ------------------------------------------------------
 
+  let disposed = false
+  const SIGN_IN_TIMEOUT_MS = 10 * 60_000
   const googlePendings = new Map()
+  const activeGoogleListeners = new Set()
+  const closeGoogleListener = (listener, { immediate = false, response } = {}) => {
+    if (!listener) return
+    listener.close()
+    if (immediate) {
+      listener.closeAllConnections?.()
+      return
+    }
+    listener.closeIdleConnections?.()
+    let scheduled = false
+    const scheduleForceClose = () => {
+      if (scheduled) return
+      scheduled = true
+      const grace = setTimeout(() => listener.closeAllConnections?.(), 250)
+      grace.unref?.()
+      listener.once('close', () => clearTimeout(grace))
+    }
+    if (response && !response.writableFinished) {
+      response.once('finish', scheduleForceClose)
+      response.once('close', scheduleForceClose)
+    } else {
+      scheduleForceClose()
+    }
+  }
   const dropGooglePending = key => {
     const pending = googlePendings.get(key)
     if (pending === undefined) return
     googlePendings.delete(key)
-    pending.listener?.close()
+    if (pending.timer !== undefined) clearTimeout(pending.timer)
+    closeGoogleListener(pending.listener, { immediate: true })
   }
   async function beginGoogle(address) {
+    if (disposed) throw new Error('Mail connector is closed')
     const client = googleClient()
     const discovery = await discover('https://accounts.google.com', { originFallback: true, fetch: rt.config.mail?.fetch ?? fetch })
+    if (disposed) throw new Error('Mail connector is closed')
     dropGooglePending(address)
     const pending = { discovery, address: address || undefined, key: address }
     googlePendings.set(address, pending)
-    const { createServer } = await import('node:http')
-    const listener = createServer((req, res) => {
-      req.on('error', () => res.destroy())
-      res.on('error', () => req.destroy())
-      let url
-      try { url = new URL(req.url ?? '/', 'http://127.0.0.1') } catch { res.writeHead(400); res.end(); return }
-      if (url.pathname !== '/callback') { res.writeHead(404); res.end(); return }
-      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
-      if (!url.searchParams.get('code')) {
-        res.end('<p style="font-family:sans-serif">Google sign-in did not finish — go back to DS Bot and try again.</p>')
-        rt.warn('ds-bot: mail Google sign-in failed: %s', url.searchParams.get('error') ?? 'no code')
-        return
+    let listener
+    try {
+      const { createServer } = await import('node:http')
+      if (disposed) throw new Error('Mail connector is closed')
+      listener = createServer((req, res) => {
+        req.on('error', () => res.destroy())
+        res.on('error', () => req.destroy())
+        let url
+        try { url = new URL(req.url ?? '/', 'http://127.0.0.1') } catch { res.writeHead(400); res.end(); return }
+        if (url.pathname !== '/callback') { res.writeHead(404); res.end(); return }
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', connection: 'close' })
+        if (!url.searchParams.get('code')) {
+          res.end('<p style="font-family:sans-serif">Google sign-in did not finish — go back to DS Bot and try again.</p>')
+          rt.warn('ds-bot: mail Google sign-in failed: %s', url.searchParams.get('error') ?? 'no code')
+          return
+        }
+        res.end('<p style="font-family:sans-serif">Signed in — you can close this tab.</p>')
+        void googleCode({ address, input: url.toString() }, { response: res }).catch(error => rt.warn('ds-bot: mail Google sign-in failed: %s', host.reason(error)))
+      })
+      activeGoogleListeners.add(listener)
+      listener.once('close', () => activeGoogleListeners.delete(listener))
+      listener.on('error', error => {
+        if (listener.listening) rt.warn('ds-bot: mail Google sign-in listener failed: %s', error?.code ?? 'error')
+      })
+      await new Promise((resolve, reject) => { listener.once('error', reject); listener.listen(0, '127.0.0.1', resolve) })
+      if (disposed || googlePendings.get(address) !== pending) {
+        closeGoogleListener(listener, { immediate: true })
+        if (disposed) throw new Error('Mail connector is closed')
+        return mailView()
       }
-      res.end('<p style="font-family:sans-serif">Signed in — you can close this tab.</p>')
-      void googleCode({ address, input: url.toString() }).catch(error => rt.warn('ds-bot: mail Google sign-in failed: %s', host.reason(error)))
-    })
-    listener.on('error', error => {
-      if (listener.listening) rt.warn('ds-bot: mail Google sign-in listener failed: %s', error?.code ?? 'error')
-    })
-    await new Promise((resolve, reject) => { listener.once('error', reject); listener.listen(0, '127.0.0.1', resolve) })
-    pending.listener = listener
-    pending.redirectUri = `http://127.0.0.1:${listener.address().port}/callback`
-    const state = randomUUID()
-    const { url, codeVerifier } = await beginBrowser(discovery, { client_id: client.id, client_secret: client.secret }, pending.redirectUri, { state, scope: GOOGLE_SCOPES })
-    pending.codeVerifier = codeVerifier
-    pending.state = state
-    pending.url = url
+      pending.listener = listener
+      pending.redirectUri = `http://127.0.0.1:${listener.address().port}/callback`
+      const state = randomUUID()
+      const { url, codeVerifier } = await beginBrowser(discovery, { client_id: client.id, client_secret: client.secret }, pending.redirectUri, { state, scope: GOOGLE_SCOPES })
+      if (disposed || googlePendings.get(address) !== pending) {
+        closeGoogleListener(listener, { immediate: true })
+        if (disposed) throw new Error('Mail connector is closed')
+        return mailView()
+      }
+      pending.codeVerifier = codeVerifier
+      pending.state = state
+      pending.url = url
+      pending.timer = setTimeout(() => dropGooglePending(address), SIGN_IN_TIMEOUT_MS)
+      pending.timer.unref?.()
+    } catch (error) {
+      closeGoogleListener(listener, { immediate: true })
+      if (googlePendings.get(address) === pending) dropGooglePending(address)
+      throw error
+    }
     return mailView()
   }
-  async function googleCode(body) {
+  async function googleCode(body, { response } = {}) {
     const address = String(body.address ?? '').toLowerCase()
     const pending = googlePendings.get(address) ?? [...googlePendings.values()][0]
     if (pending === undefined) throw new Error('No Google sign-in is waiting')
@@ -550,10 +604,13 @@ export function install(rt, host) {
     const given = url?.searchParams.get('state')
     if (given !== null && pending.state !== undefined && given !== pending.state) throw new Error('The sign-in answer is not for this attempt')
     googlePendings.delete(pending.key ?? pending.address)
-    pending.listener?.close()
+    if (pending.timer !== undefined) clearTimeout(pending.timer)
+    closeGoogleListener(pending.listener, { response })
     const client = googleClient()
     const tokens = await exchange(pending.discovery, { client_id: client.id, client_secret: client.secret }, { code, codeVerifier: pending.codeVerifier, redirectUri: pending.redirectUri, iss: url?.searchParams.get('iss') ?? undefined }, { fetch: rt.config.mail?.fetch })
+    if (disposed) throw new Error('Mail connector is closed')
     const email = pending.address || await googleEmail(tokens.access_token)
+    if (disposed) throw new Error('Mail connector is closed')
     const id = `g${randomUUID().slice(0, 8)}`
     const account = { id, address: email, provider: 'gmail', auth: 'google', createdAt: Date.now() }
     state.connectors = { ...(state.connectors ?? {}), mail: { ...state.connectors?.mail, accounts: { ...accounts(), [id]: account } } }
@@ -594,10 +651,19 @@ export function install(rt, host) {
       return endpoints[name](body ?? {})
     },
     async dispose() {
+      disposed = true
       const live = [...sessions.values()]
       sessions.clear()
-      for (const pending of googlePendings.values()) pending.listener?.close()
+      for (const pending of googlePendings.values()) {
+        if (pending.timer !== undefined) clearTimeout(pending.timer)
+        closeGoogleListener(pending.listener, { immediate: true })
+      }
       googlePendings.clear()
+      const listeners = Array.from(activeGoogleListeners)
+      activeGoogleListeners.clear()
+      for (const listener of listeners) {
+        closeGoogleListener(listener, { immediate: true })
+      }
       await Promise.all(live.map(session => session.close?.().catch(() => {})))
     },
     _internals: { sessions, refreshGoogle, mailSecretName },

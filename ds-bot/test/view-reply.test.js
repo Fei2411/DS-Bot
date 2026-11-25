@@ -179,7 +179,7 @@ test('an unconnected report returns a capped prefilled link, and a failed follow
   const link = fallback.value.issueReportResult.match(/https:\/\/\S+/)[0]
   assert.ok(link.length <= 4000)
   const url = new URL(link)
-  assert.equal(url.origin + url.pathname, 'https://github.com/Fei2411/DS-Bot/issues/new')
+  assert.equal(url.origin + url.pathname, 'https://github.com/Fei-Craft/DS-Bot/issues/new')
   assert.equal(url.searchParams.get('template'), 'bug.yml')
   assert.equal(url.searchParams.get('title'), args.title)
   assert.match(url.searchParams.get('what'), /^(?:故障😀)+故?障?…$/)

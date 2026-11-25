@@ -153,6 +153,9 @@ export function createRemoteService(rt) {
       if (name.startsWith('phone-')) {
         return { ok: false, error: { code: 'bot/refused', message: 'Phones are paired and removed on the computer', details: {} } }
       }
+      if (name.startsWith('api-')) {
+        return { ok: false, error: { code: 'bot/refused', message: 'External API settings and tokens are managed on the computer', details: {} } }
+      }
       if (name === 'folder-pick') {
         return { ok: false, error: { code: 'bot/refused', message: 'Folders are chosen in a window on the computer', details: {} } }
       }
@@ -170,7 +173,7 @@ export function createRemoteService(rt) {
       if (name.startsWith('plugins-')) {
         return { ok: false, error: { code: 'bot/refused', message: 'Plugins are managed on the computer', details: {} } }
       }
-      const answer = plain(await rt.channelCall(name, payload ?? {}, signal))
+      const answer = plain(await rt.channelCall(name, payload ?? {}, signal, true))
       if (name === 'folders' && answer?.ok === true && answer.value && typeof answer.value === 'object' && Object.hasOwn(answer.value, 'data')) {
         const value = { ...answer.value }
         delete value.data

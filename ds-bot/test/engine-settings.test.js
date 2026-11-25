@@ -488,6 +488,7 @@ test('Classic Agent approvals bridge into approvalsView without botId, and sessi
     nextCalled = true
     return new Promise(() => {})
   })
+  await Promise.resolve()
   assert.equal(nextCalled, true, 'Classic Agent approval still races DSH native card when present')
   const view = rt.approvalsView()
   assert.equal(view.length, 1)

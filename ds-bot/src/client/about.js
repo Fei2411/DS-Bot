@@ -37,11 +37,15 @@ export function ownAppRow(ownApp) {
   if (ownApp === null || typeof ownApp !== 'object') return null
   const version = typeof ownApp.version === 'string' ? ownApp.version : ''
   switch (ownApp.phase) {
+    case 'idle': return { hint: ownApp.autoUpdate === false ? t('Automatic updates are off.') : null, button: 'check' }
     case 'checking': return { hint: t('Checking for updates…'), button: null }
     case 'current': return { hint: t('Up to date'), button: 'check' }
     case 'downloading': return { hint: t('Downloading {version}…', { version }), button: null }
-    case 'downloaded': return { hint: t('{version} is ready; it installs when you restart', { version }), button: 'restart' }
-    case 'available': return { hint: t('{version} is available', { version }), button: 'open' }
+    case 'downloaded': return {
+      hint: ownApp.autoInstall === false ? t('{version} is ready', { version }) : t('{version} is ready; it installs when you restart', { version }),
+      button: 'restart',
+    }
+    case 'available': return { hint: t('{version} is available', { version }), button: ownApp.canDownload === true ? 'download' : 'open' }
     case 'failed': return { hint: t('Could not check for updates.'), button: 'check' }
     default: return null
   }
@@ -58,7 +62,7 @@ function dshHint(dsh, shown) {
 
 const linkProps = href => ({ className: 'bt-soft bt-soft-sm bt-about-link', href, target: '_blank', rel: 'noopener noreferrer' })
 
-export function AboutPage({ useUpdate, actions, run, Section, Row, onStartTour = null, inlineFeedback = false }) {
+export function AboutPage({ useUpdate, actions, run, Section, Row, Switch = null, onStartTour = null, inlineFeedback = false }) {
   const update = useUpdate(value => value) ?? {}
   const [checking, setChecking] = useState(false)
   const [stars, setStars] = useState(null)
@@ -91,9 +95,11 @@ export function AboutPage({ useUpdate, actions, run, Section, Row, onStartTour =
     ? h('button', { type: 'button', className: 'bt-fb-primary', onClick: () => run(actions.installOwnApp()) }, t('Restart to update'))
     : ownRow?.button === 'check'
       ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => run(actions.checkOwnApp()) }, t('Check for updates'))
-      : ownRow?.button === 'open'
-        ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => run(actions.openOwnApp()) }, t('Download'))
-        : null
+      : ownRow?.button === 'download'
+        ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => run(actions.downloadOwnApp()) }, t('Download'))
+        : ownRow?.button === 'open'
+          ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => run(actions.openOwnApp()) }, t('Download'))
+          : null
   const botControl = ownRow !== null ? ownControl
     : phase === 'installed' || phase === 'updated' || update.source === 'app' ? null
     : update.available || phase === 'installing'
@@ -123,6 +129,10 @@ export function AboutPage({ useUpdate, actions, run, Section, Row, onStartTour =
     repo ? h('p', { key: 'ask', className: 'bt-about-ask' }, t('If DS Bot helps you, a star on GitHub helps more people find it.')) : null,
     h(Section, { key: 'updates', title: t('Updates') },
       h(Row, { label: 'DS Bot', hint: ownRow?.hint ?? botHint(update) }, botControl, update.available && update.notesUrl ? h('a', linkProps(update.notesUrl), t("What's new")) : null),
+      ownRow !== null && Switch && typeof update.ownApp?.autoUpdate === 'boolean'
+        ? h(Row, { label: t('Automatic updates') },
+            h(Switch, { label: t('Automatic updates'), on: update.ownApp.autoUpdate, onChange: on => run(actions.setOwnAppAutoUpdate(on)) }))
+        : null,
       dsh?.current ? h(Row, { label: 'DeepSeek Harness', hint: dshHint(dsh, dshShown) }, dshControl) : null),
     h(Section, { key: 'links', title: t('Links') },
       onStartTour ? h(Row, { label: t('Settings guide') }, h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', onClick: onStartTour }, h(CompassIcon), t('Start'))) : null,

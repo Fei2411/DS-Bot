@@ -10,6 +10,7 @@ import { isLocalRoute } from './agent-routes.js'
 import { ProviderLogo, matchProviderId } from './provider-logos.js'
 import { SelectMenu } from './select-menu.js'
 import { hostText, t } from './i18n.js'
+import { ChatGPTSettings } from './chatgpt-settings.js'
 
 const PROTOCOL_NAMES = {
   'openai-completions': 'OpenAI Chat Completions',
@@ -142,6 +143,7 @@ export function ProvidersPage({ actions, run, roster, Section, advanced = null }
     h(Section, { key: 'list', title: t('Model providers · {count}', { count: view.providers.length }), action: addBtn, tour: 'provider-list' },
       view.providers.map(provider => h(ProviderRow, {
         key: provider.id, provider, apply, actions, roster, revision: view.revision,
+        chatgptProvider: view.providers.find(entry => entry.auth === 'chatgpt'),
         open: open === provider.id, onToggle: () => setOpen(open === provider.id ? null : provider.id),
       })),
       adding ? h(AddProvider, { key: 'add', view, apply, actions, onDone: () => setAdding(false) }) : null),
@@ -158,7 +160,7 @@ function keyState(key) {
   return key.writable ? ['set', t('Key set')] : ['outside', t('Key set outside DS Bot')]
 }
 
-export function ProviderRow({ provider, apply, actions, roster, revision, open, onToggle }) {
+export function ProviderRow({ provider, apply, actions, roster, revision, open, onToggle, chatgptProvider }) {
   const [confirm, setConfirm] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [refreshError, setRefreshError] = useState('')
@@ -171,10 +173,11 @@ export function ProviderRow({ provider, apply, actions, roster, revision, open, 
     setRefreshError('')
     setConfirmRemove(false)
   }, [open])
-  const state = keyState(provider.key)
+  const isChatGPT = provider.auth === 'chatgpt'
+  const state = isChatGPT ? null : keyState(provider.key)
   const shown = provider.models.slice(0, SHOWN_MODELS)
   const hint = provider.error ?? (provider.models.length === 0 ? t('No models') : t('{count} models', { count: provider.models.length }))
-  const canRefresh = provider.refreshable === true
+  const canRefresh = provider.refreshable === true && !isChatGPT
   const refresh = () => {
     if (!canRefresh || refreshing) return
     setRefreshing(true)
@@ -251,10 +254,12 @@ export function ProviderRow({ provider, apply, actions, roster, revision, open, 
         state ? h('span', { className: 'bt-provider-state', 'data-state': state[0] }, state[1]) : null,
         h('span', { className: 'bt-chevron bt-collapse-chevron', 'data-open': open || undefined }, h(ChevronDownIcon)))),
     open ? h('div', { className: 'bt-secret-edit' },
-      provider.key?.writable ? h(KeyEditor, { provider, apply, actions }) : null,
-      provider.key && !provider.key.writable ? h('div', { className: 'bt-set-hint' }, t('This key comes from outside DS Bot, such as an environment variable, and cannot be changed here.')) : null,
-      modelsBlock,
-      provider.removable ? h('div', { className: 'bt-secret-row-actions' },
+      !isChatGPT && provider.key?.writable ? h(KeyEditor, { provider, apply, actions }) : null,
+      !isChatGPT && provider.key && !provider.key.writable ? h('div', { className: 'bt-set-hint' }, t('This key comes from outside DS Bot, such as an environment variable, and cannot be changed here.')) : null,
+      (provider.id === 'openai' || isChatGPT) && actions.chatgpt
+        ? h(ChatGPTSettings, { actions, apply, provider: isChatGPT ? provider : chatgptProvider }) : null,
+      isChatGPT ? null : modelsBlock,
+      !isChatGPT && provider.removable ? h('div', { className: 'bt-secret-row-actions' },
         confirm
           ? [
               h('span', { key: 'q', className: 'bt-set-hint' }, t('Remove {name}? Bots on its models need another model.', { name: provider.name })),
@@ -370,6 +375,8 @@ function KnownForm({ view, apply, actions, onDone }) {
       options: options.map(option => ({ value: option.id, label: option.name })),
       onChange: setProvider,
     }),
+    provider === 'openai' && actions.chatgpt
+      ? h(ChatGPTSettings, { actions, apply, provider: view.providers.find(entry => entry.auth === 'chatgpt') }) : null,
     h('label', { className: 'bt-q-field bt-secret-field' }, h(KeyIcon), h(MaskedInput, { value: key, onChange: setKey, onEnter: add, label: t('API key') })),
     h(FormActions, { onCancel: onDone, onAdd: add, ready: provider !== '' }))
 }
@@ -443,6 +450,12 @@ export const PROVIDERS_CSS = `
 .bt-provider .bt-secret-summary{gap:12px}
 .bt-provider-logo{flex:none;width:32px;height:32px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;background:var(--bt-hover);color:var(--bt-ink);font-size:13px;font-weight:600;line-height:1}
 .bt-provider-id{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;color:var(--bt-ink-3)}
+.bt-chatgpt{padding:12px;border:1px solid var(--bt-line);border-radius:12px;min-width:0}
+.bt-chatgpt-account{display:flex;flex-direction:column;gap:2px;overflow-wrap:anywhere}
+.bt-chatgpt .bt-set-hint{margin:0}
+.bt-chatgpt [data-error]{color:var(--bt-danger)}
+.bt-chatgpt .bt-secret-row-actions{flex-wrap:wrap}
+.bt-chatgpt button:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
 .bt-provider .bt-set-hint[data-error]{color:var(--bt-danger)}
 .bt-provider-state{display:inline-flex;align-items:center;gap:6px;font-size:12px;line-height:16px;color:var(--bt-ink-2);white-space:nowrap}
 .bt-provider-state::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--bt-ink-3)}

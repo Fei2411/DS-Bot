@@ -105,6 +105,8 @@ function createHarness() {
     window: { addEventListener() {}, removeEventListener() {} },
     document: {
       activeElement: null,
+      addEventListener() {},
+      removeEventListener() {},
       documentElement: { dataset: {} },
       body: {
         append() {},

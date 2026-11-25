@@ -20,7 +20,7 @@ runInNewContext(outputFiles[0].text, {
   module, exports: module.exports,
   require: name => (name === 'react' ? react : name === 'react-dom' ? { createPortal: node => node } : {}),
 })
-const { BotSettingsForm, InlineText } = module.exports
+const { AvatarEditor, BotSettingsForm, InlineText } = module.exports
 
 function walk(node, found = []) {
   if (Array.isArray(node)) { for (const child of node) walk(child, found); return found }
@@ -34,6 +34,41 @@ function settings(bot, { main = false, rooms = [] } = {}) {
   return walk(BotSettingsForm({ bot, roster, actions: {}, run: fn => fn }))
 }
 const bot = { id: 'b', name: 'Writer', role: 'Writer', instructions: '', capabilities: [] }
+
+test('the primary Main Bot keeps its name and avatar editing controls', () => {
+  const writes = []
+  const chief = { ...bot, id: 'chief', name: 'Chief' }
+  const roster = { mainBotId: chief.id, mainBotIds: [chief.id], rooms: [], models: [] }
+  const actions = { updateBot: (id, patch) => writes.push([id, patch]) }
+  const nodes = walk(BotSettingsForm({ bot: chief, roster, actions, run: value => value }))
+  nodes.find(node => node.type === InlineText && node.props.label === 'Name').props.onSave('Captain')
+  assert.equal(nodes.some(node => node.props?.['aria-label'] === 'Edit Bot avatar'), true)
+  assert.equal(JSON.stringify(writes), JSON.stringify([['chief', { name: 'Captain' }]]))
+  assert.equal(roster.mainBotId, chief.id)
+})
+
+test('group photo reset and removal only clear the group avatar', () => {
+  const writes = []
+  const actions = { updateRoom: (id, patch) => writes.push([id, patch]) }
+  const room = { id: 'room', avatar: { image: 'data:image/png;base64,AA==' } }
+  const nodes = walk(AvatarEditor({ room, actions, run: value => value, onClose() {} }))
+  assert.equal(nodes.filter(node => node.props?.role === 'tab').length, 2)
+  nodes.find(node => node.props?.className === 'bt-avedit-tab bt-avedit-reset').props.onClick()
+  nodes.find(node => node.props?.children?.includes('Remove photo')).props.onClick()
+  assert.equal(JSON.stringify(writes), JSON.stringify([['room', { avatar: null }], ['room', { avatar: null }]]))
+})
+
+test('the group library selection writes an image without Bot-only fields', () => {
+  const real = react.useState
+  let first = true
+  react.useState = initial => [first ? (first = false, 'library') : initial, () => {}]
+  const writes = []
+  try {
+    const nodes = walk(AvatarEditor({ room: { id: 'room' }, actions: { updateRoom: (id, patch) => writes.push([id, patch]) }, run: value => value, onClose() {} }))
+    nodes.find(node => node.props?.onPick).props.onPick({ image: 'data:image/png;base64,AA==' })
+    assert.equal(JSON.stringify(writes), JSON.stringify([['room', { avatar: { image: 'data:image/png;base64,AA==' } }]]))
+  } finally { react.useState = real }
+})
 
 test('the Private switch is enabled only for a state the host accepts', () => {
   const noFolder = settings(bot).find(node => node.props?.label === 'Private')
@@ -74,6 +109,32 @@ test('RunModeCard combines Engine and Model into one card without prose hints', 
   assert.match(text, /Model/)
   assert.doesNotMatch(text, /Answers with a model served by DS Bot/)
   assert.doesNotMatch(text, /Answers through this CLI/)
+})
+
+test('extra folders are listed under the working folder and saved as one list', () => {
+  const saved = []
+  const actions = { updateBot: (id, patch) => saved.push([id, patch]) }
+  const roster = { mainBotIds: [], mainBotId: null, rooms: [], models: [], memory: false }
+  const tree = walk(BotSettingsForm({ bot: { ...bot, workDir: '/work', extraDirs: ['/site', '/api'] }, roster, actions, run: fn => fn }))
+  const list = tree.find(node => node.props?.value?.[0] === '/site' && typeof node.props.onSave === 'function')
+  const rows = walk(list.type(list.props))
+  const remove = rows.find(node => node.props?.['aria-label'] === 'Remove /site')
+  remove.props.onClick()
+  const adder = rows.find(node => node.props?.adding === true)
+  adder.props.onPick('/docs')
+  adder.props.onPick('/api')
+  // The lists come from the bundle's own realm.
+  assert.deepEqual(JSON.parse(JSON.stringify(saved)), [['b', { extraDirs: ['/api'] }], ['b', { extraDirs: ['/site', '/api', '/docs'] }]])
+  // A Bot with extra folders clears them before it becomes private.
+  const privacy = tree.find(node => node.props?.label === 'Private')
+  assert.equal(privacy.props.disabled, true)
+  assert.equal(privacy.props.hint, 'Remove its extra folders first.')
+  // A local agent owns its file permissions and has no extra-folder controls.
+  const local = settings({ ...bot, workDir: '/work', engine: 'local-codex', extraDirs: ['/site'] })
+  assert.equal(local.some(node => typeof node.props?.onSave === 'function' && Array.isArray(node.props.value ?? [])), false)
+  // A private Bot has no list to edit.
+  const closed = settings({ ...bot, workDir: '/work', private: true })
+  assert.equal(closed.some(node => typeof node.props?.onSave === 'function' && Array.isArray(node.props.value ?? [])), false)
 })
 
 // One InlineText with working state, so a test can type into it, press keys and blur it.

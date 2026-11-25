@@ -6,7 +6,7 @@ import { PencilIcon, ChevronRightIcon } from './icons.js'
 import { lookOf, BotMark } from './mark.js'
 import { ModelMenu, modelOf } from './model-menu.js'
 import { RunModeCard } from './agent-cards.js'
-import { FolderMenu } from './folder-menu.js'
+import { ExtraFolders, FolderMenu } from './folder-menu.js'
 import { BotSchedules } from './schedules.js'
 import { BotCapabilitiesCard } from './capability-settings.js'
 import { BotComputerCard } from './computer.js'
@@ -15,6 +15,7 @@ import { useMemoryCount } from './memory-panel.js'
 import { SPRING_SHAPE, SPRING_TAP, spring, useGlide, useLinger } from './motion.js'
 import { ChatBackgroundSection } from './appearance-page.js'
 import { t } from './i18n.js'
+import { ApprovalSettings } from './approval-settings.js'
 
 const capitalize = word => word[0].toUpperCase() + word.slice(1)
 
@@ -130,14 +131,20 @@ export function CharacterGrid({ look, hasPhoto = false, onShape, onColor }) {
 // The avatar editor: the Bot tab picks a character (every click saves), the
 // Upload tab takes a photo, the Library tab picks one the user imported before, and
 // Reset returns to the look the Bot id gives.
-function AvatarEditor({ bot, actions, run, onClose, leaving = false }) {
-  const look = lookOf(bot)
-  const [tab, setTab] = useState(look.image ? 'upload' : 'bot')
+export function AvatarEditor({ bot, room, actions, run, onClose, leaving = false }) {
+  const look = room ? { image: room.avatar?.image } : lookOf(bot)
+  const [tab, setTab] = useState(room || look.image ? 'upload' : 'bot')
   const [over, setOver] = useState(false)
   const ref = useRef(null)
   const fileRef = useRef(null)
+  const savePhoto = image => room
+    ? actions.updateRoom(room.id, { avatar: { image } })
+    : actions.updateBot(bot.id, { avatar: { ...(bot.avatar ?? {}), image } })
+  const reset = () => room
+    ? actions.updateRoom(room.id, { avatar: null })
+    : actions.updateBot(bot.id, { avatar: null, color: null })
   const upload = (file) => {
-    if (file) void run(avatarImage(file).then(image => actions.updateBot(bot.id, { avatar: { ...bot.avatar, image } })))
+    if (file) void run(avatarImage(file).then(savePhoto))
   }
   useEffect(() => {
     const onDown = (event) => {
@@ -157,17 +164,17 @@ function AvatarEditor({ bot, actions, run, onClose, leaving = false }) {
     }
     window.addEventListener('paste', onPaste)
     return () => window.removeEventListener('paste', onPaste)
-  }, [tab, bot])
+  }, [tab, bot, room])
   const hasPhoto = Boolean(look.image)
   const glide = useGlide(tab)
   return h('div', { ref, className: 'bt-avedit', role: 'dialog', 'aria-label': t('Avatar editor'), 'data-leaving': leaving || undefined },
     h('div', { className: 'bt-avedit-top' },
       h('div', { ref: glide.box, role: 'tablist', 'aria-label': t('Avatar source'), className: 'bt-avedit-tabs' },
         h('span', { ref: glide.thumb, className: 'bt-thumb', 'aria-hidden': true }),
-        [['bot', 'Bot'], ['upload', 'Upload'], ['library', 'Library']].map(([id, label]) => h('button', { key: id, type: 'button', role: 'tab', className: 'bt-avedit-tab', 'aria-selected': tab === id, onClick: () => setTab(id) }, t(label)))),
+        [...(room ? [] : [['bot', 'Bot']]), ['upload', 'Upload'], ['library', 'Library']].map(([id, label]) => h('button', { key: id, type: 'button', role: 'tab', className: 'bt-avedit-tab', 'aria-selected': tab === id, onClick: () => setTab(id) }, t(label)))),
       h('button', {
-        type: 'button', className: 'bt-avedit-tab bt-avedit-reset', title: t('Reset character to default'),
-        onClick: () => run(actions.updateBot(bot.id, { avatar: null, color: null })),
+        type: 'button', className: 'bt-avedit-tab bt-avedit-reset', title: room ? t('Remove photo') : t('Reset character to default'),
+        onClick: () => run(reset()),
       }, t('Reset'))),
     tab === 'bot' ? h(CharacterGrid, {
       look, hasPhoto,
@@ -184,13 +191,13 @@ function AvatarEditor({ bot, actions, run, onClose, leaving = false }) {
     h('div', null, t('Drag, drop, or paste an image')),
     h('div', { className: 'bt-actions', style: { justifyContent: 'center' } },
       h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => fileRef.current?.click() }, hasPhoto ? t('Replace') : t('Browse files')),
-      hasPhoto ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => run(actions.updateBot(bot.id, { avatar: hasShape(bot.avatar?.shape) ? { shape: bot.avatar.shape } : null })) }, t('Remove photo')) : null),
+      hasPhoto ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => run(room ? reset() : actions.updateBot(bot.id, { avatar: hasShape(bot.avatar?.shape) ? { shape: bot.avatar.shape } : null })) }, t('Remove photo')) : null),
     h('input', { ref: fileRef, type: 'file', accept: 'image/png,image/jpeg,image/webp,image/gif', hidden: true, onChange: (event) => { const file = event.target.files?.[0]; event.target.value = ''; upload(file) } })) : null,
     // A photo from the library is the same photo the user uploaded before: the Bot
     // keeps its own copy, and the library keeps its entry.
     tab === 'library' ? h(AvatarLibraryPanel, {
       actions,
-      onPick: entry => run(actions.updateBot(bot.id, { avatar: { ...bot.avatar, image: entry.image } })),
+      onPick: entry => run(savePhoto(entry.image)),
     }) : null)
 }
 
@@ -222,7 +229,7 @@ export function BotSettingsForm({ bot, roster, actions, run }) {
   const isTile = roster.mainBotId === bot.id
   const inGroup = (roster.rooms ?? []).some(room => room.members?.includes(bot.id))
   const privateHint = t('Other Bots cannot read its folder, memory or chats, and you approve what it shares with them.')
-  const privacyHint = bot.private === true ? privateHint : isMainBot ? t('A Main Bot cannot be private.') : inGroup ? t('Leave its group chats before making it private.') : !bot.workDir ? t('Choose a working folder of its own first.') : privateHint
+  const privacyHint = bot.private === true ? privateHint : isMainBot ? t('A Main Bot cannot be private.') : inGroup ? t('Leave its group chats before making it private.') : !bot.workDir ? t('Choose a working folder of its own first.') : bot.extraDirs?.length ? t('Remove its extra folders first.') : privateHint
   const save = patch => run(actions.updateBot(bot.id, patch))
   const duplicate = () => run(actions.duplicateBot(bot.id).then(copy => actions.openSession(copy.id)))
   const remove = () => { if (confirming) void run(actions.deleteBot(bot.id)); else setConfirming(true) }
@@ -249,13 +256,16 @@ export function BotSettingsForm({ bot, roster, actions, run }) {
     h(Card, { title: t('Working folder') },
       h('div', { className: 'bt-set-row bt-bs-row' },
         h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-bs-label' }, t('Folder'))),
-        h(FolderMenu, { value: bot.workDir, actions, run, onPick: workDir => save({ workDir }) }))),
-    h(Card, null,
+        h(FolderMenu, { value: bot.workDir, actions, run, onPick: workDir => save({ workDir }) })),
+      // A private Bot works in its own folder only; a local agent keeps its own file permissions.
+      bot.private === true || bot.engine !== undefined ? null : h(ExtraFolders, { value: bot.extraDirs, actions, run, onSave: extraDirs => save({ extraDirs }) })),
+    h(ApprovalSettings, { target: bot, roster, Card }),
+    h(Card, { title: t('Privacy') },
       h(SwitchRow, {
         label: t('Private'),
         hint: privacyHint,
         on: bot.private === true,
-        disabled: bot.private !== true && (isMainBot || inGroup || !bot.workDir),
+        disabled: bot.private !== true && (isMainBot || inGroup || !bot.workDir || bot.extraDirs?.length > 0),
         onChange: value => save({ private: value }),
       })),
     h(Card, { title: t('Instructions') },

@@ -421,7 +421,7 @@ export function ChatView({ bot, room, agent, header, onMissing }: { bot?: Bot; r
       const images: string[] = []
       for (const photo of entry.photos) images.push(((await call('stage-image', { mediaType: photo.mediaType, data: photo.data })) as { id: string }).id)
       const target = entry.sessionId !== '' || entry.agentId === undefined ? entry.sessionId : await agentSession(call, entry.agentId)
-      await call('send', { sessionId: target, text: entry.item.text ?? '', ...(images.length > 0 ? { images } : {}) })
+      await call('send', { sessionId: target, text: entry.item.text ?? '', requestId: localId, ...(images.length > 0 ? { images } : {}) })
       // What the chat already holds, so only a new row of the same text counts as this one.
       const kept = pages.get(key)
       const all = [...(kept?.older ?? []), ...(kept?.page.items ?? [])]
@@ -763,6 +763,7 @@ function Streaming({ sessionId, p, flat, maxWidth, inRoom }: { sessionId: string
     if (onFeed === undefined) return
     const attempts = new Map<string, string>()
     return onFeed((event, data) => {
+      if (event === 'hello') { attempts.clear(); setText(''); return }
       if (event !== 'stream' || data?.sessionId !== sessionId) return
       if (data.phase === 'start') attempts.set(data.attemptId, '')
       else if (typeof data.text === 'string') attempts.set(data.attemptId, (attempts.get(data.attemptId) ?? '') + data.text)

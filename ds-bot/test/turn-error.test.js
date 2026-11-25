@@ -453,6 +453,13 @@ test('a content audit keeps its own copy and facts, and offers no key action', (
   ])
 })
 
+test('a streaming content refusal (DSH 0.2.2-rc.4 CONTENT_REFUSED) explains the refusal and offers no key action', () => {
+  assert.equal(failureText('CONTENT_REFUSED', { provider: 'DeepSeek' }), 'DeepSeek refused this request under its content safety policy. Edit the input or start a new chat.')
+  assert.equal(failureText('CONTENT_REFUSED', { provider: 'DeepSeek', status: 400 }), 'DeepSeek refused this request under its content safety policy (400). Edit the input or start a new chat.')
+  assert.deepEqual(Array.from(fixesFor('CONTENT_REFUSED', { canSignIn: true, official: true })), [])
+  assert.equal(retryShown('CONTENT_REFUSED', undefined), true)
+})
+
 test('the host correction reaches the card for the failed turn', () => {
   const body = 'upstream 403: content_policy_violation: 内容审计命中风险规则'
   const side = cell({
@@ -488,7 +495,7 @@ test('in a Chinese interface every repair card state reads in Chinese, outside T
     return shown(node.props?.children)
   }
   try {
-    const codes = ['MISSING_CREDENTIAL', 'INVALID_CREDENTIAL', 'AUTH', 'QUOTA', 'ACCOUNT_QUOTA', 'ACCOUNT_SIGN_IN_REQUIRED', 'ACCOUNT_SIGNED_OUT', 'ACCOUNT_TOKEN_INVALID', 'TRANSPORT', 'TIMEOUT', 'RATE_LIMIT', 'SERVER', 'INTERRUPTED', 'CONTEXT_WINDOW_EXCEEDED', 'MODEL_SWITCH_COMPACTION_FAILED', 'CONTENT_POLICY', 'OTHER']
+    const codes = ['MISSING_CREDENTIAL', 'INVALID_CREDENTIAL', 'AUTH', 'QUOTA', 'ACCOUNT_QUOTA', 'ACCOUNT_SIGN_IN_REQUIRED', 'ACCOUNT_SIGNED_OUT', 'ACCOUNT_TOKEN_INVALID', 'TRANSPORT', 'TIMEOUT', 'RATE_LIMIT', 'SERVER', 'INTERRUPTED', 'CONTEXT_WINDOW_EXCEEDED', 'MODEL_SWITCH_COMPACTION_FAILED', 'CONTENT_POLICY', 'CONTENT_REFUSED', 'OTHER']
     const account = { status: 'credential-stored', links: { topUpUrl: 'https://platform.example/top_up' }, attempt: null }
     for (const code of codes) {
       for (const blocked of [undefined, { code, status: 401, requestId: 'req-1', provider: 'deepseek-official', at: 1 }]) {

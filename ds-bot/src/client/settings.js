@@ -1,6 +1,6 @@
 import { Component, createElement as h, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { isMainOf } from './sources.js'
-import { BlocksIcon, CheckIcon, ChevronDownIcon, ChevronLeftIcon, ChevronRightIcon, ClockIcon, CloseIcon, CompassIcon, ConnectorIcon, GlobeIcon, InfoIcon, LayersIcon, MonitorIcon, OverviewIcon, PaletteIcon, PhoneIcon, PlugIcon, PlusIcon, PuzzleIcon, SearchIcon, SendIcon, SlidersIcon, TerminalIcon, WaveIcon, SETTINGS_ICONS } from './icons.js'
+import { ApiIcon, BlocksIcon, CheckIcon, ChevronDownIcon, ChevronLeftIcon, ChevronRightIcon, ClockIcon, CloseIcon, CompassIcon, ConnectorIcon, GlobeIcon, InfoIcon, LayersIcon, MonitorIcon, OverviewIcon, PaletteIcon, PhoneIcon, PlusIcon, PuzzleIcon, SearchIcon, SendIcon, SlidersIcon, TerminalIcon, WaveIcon, SETTINGS_ICONS } from './icons.js'
 import { IconAgentPresetOutlineMedium, IconArchiveOutlineMedium, IconSettingsOutlineMedium, IconUserOutlineMedium } from './dsh-primitives.js'
 import { AdminStar, BotAvatar, RoomAvatar } from './mark.js'
 import { useEscape } from './overlay-hooks.js'
@@ -13,7 +13,7 @@ import { KeyIcon, SecretsPage } from './secret-card.js'
 import { UsagePage } from './usage-page.js'
 import { ConnectorsPage } from './connectors-page.js'
 import { PhonePage } from './phone-page.js'
-import { McpPage } from './mcp-page.js'
+import { ApiPage } from './api-page.js'
 import { ImPage } from './im-page.js'
 import { CapabilitiesPage } from './capability-settings.js'
 import { DeepSeekServicesPage } from './services-settings.js'
@@ -64,7 +64,7 @@ const NAV_GROUPS = [
     id: 'connect',
     label: 'Connect',
     icon: 'connectors',
-    pages: [['connectors', 'Connectors'], ['im', 'IM'], ['phone', 'Phone'], ['mcp', 'MCP access']],
+    pages: [['connectors', 'Connectors'], ['im', 'IM'], ['phone', 'Phone'], ['api', 'API']],
     section: 'main',
   },
   {
@@ -99,7 +99,7 @@ export const dshPages = dsh => (dsh?.sections ?? []).filter(row => row.id !== ''
 const hasSection = (dsh, id) => (dsh?.sections ?? []).some(row => row.id === id)
 const dshItem = (dsh, id) => h('div', { key: id, className: 'bt-dsh-item', 'data-item': id },
   dsh.preferences && PREFERENCE_ITEMS.has(id) ? h(SettingsPreferences, { id, preferences: dsh.preferences }) : dsh.renderSlot('settings.general.item', {}, { only: id }))
-const PAGE_ICONS = { ...SETTINGS_ICONS, overview: OverviewIcon, appearance: PaletteIcon, models: SlidersIcon, 'bot-models': LayersIcon, 'local-agents': TerminalIcon, connectors: ConnectorIcon, im: SendIcon, phone: PhoneIcon, mcp: PlugIcon, capabilities: BlocksIcon, 'deepseek-services': WaveIcon, browser: GlobeIcon, plugins: PuzzleIcon, computer: MonitorIcon, schedules: ClockIcon, secrets: KeyIcon, feedback: FeedbackIcon, about: InfoIcon }
+const PAGE_ICONS = { ...SETTINGS_ICONS, overview: OverviewIcon, appearance: PaletteIcon, models: SlidersIcon, 'bot-models': LayersIcon, 'local-agents': TerminalIcon, connectors: ConnectorIcon, im: SendIcon, phone: PhoneIcon, api: ApiIcon, capabilities: BlocksIcon, 'deepseek-services': WaveIcon, browser: GlobeIcon, plugins: PuzzleIcon, computer: MonitorIcon, schedules: ClockIcon, secrets: KeyIcon, feedback: FeedbackIcon, about: InfoIcon }
 
 // What each MEMORY.md holds by default, in characters of entry text.
 const MEMORY_SIZES = [
@@ -176,6 +176,14 @@ function GeneralPage({ roster, actions, run, dsh, openAdvanced = 0 }) {
       h(SetRow, { label: t('Enter sends message') },
         h(Switch, { label: t('Enter sends message'), on: prefs.enterToSend !== false, onChange: enterToSend => run(actions.setPrefs({ enterToSend })) })),
       basicDsh.includes('composer-enter') ? dshItem(dsh, 'composer-enter') : null),
+    h(SetSection, { key: 'approvals', title: t('Approvals') },
+      h(SetRow, { label: t('Approval model'), className: 'bt-set-model' },
+        h(ModelMenu, {
+          bot: { id: 'approval-model', name: t('Approval model'), model: prefs.approvalModel || prefs.defaultBotModel || roster.defaultModel },
+          roster: { ...roster, models: (roster.models ?? []).filter(model => !isLocalRoute(model.ref)) }, actions, run, wide: true, withEfforts: false,
+          onPick: ref => run(actions.setPrefs({ approvalModel: ref })),
+        }),
+        prefs.approvalModel ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => run(actions.setPrefs({ approvalModel: null })) }, t('Follow team default')) : null)),
     h(LocationsSection, { key: 'places', actions, run }),
     actions.setSurface && !inAgentMode ? h(SetSection, { key: 'classic-mode', title: t('Mode') },
       h(SetRow, { label: t('Classic Agent mode') },
@@ -456,7 +464,7 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
   const section = resolvedPage === 'dsh' ? extra.find(row => row.id === sectionId) : undefined
   // DSH's Models page, one level into Models.
   const advanced = resolvedPage === 'models' && id === 'advanced' && hasSection(dsh, 'models')
-  // DSH's Plugins page (e.g. Web Search API & engine plugin switches), one level into Plugins.
+  // DSH's Plugins page (e.g. Web Search API, Automation tasks & engine plugin switches), one level into Plugins.
   const enginePlugins = (legacyEnginePlugins || (resolvedPage === 'plugins' && rawSectionId === 'dsh')) && hasSection(dsh, 'plugins')
   const validPage = groups.some(group => group.pages.some(([key]) => key === resolvedPage))
   const shown = section ? 'dsh' : validPage ? resolvedPage : 'overview'
@@ -671,13 +679,13 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
       case 'connectors': return h(ConnectorsPage, { roster, actions })
       case 'im': return h(ImPage, { roster, actions })
       case 'phone': return h(PhonePage, { roster, actions, Section: SetSection, Row: SetRow })
-      case 'mcp': return h(McpPage, { roster, actions, Section: SetSection, Row: SetRow })
+      case 'api': return h(ApiPage, { roster, actions, Section: SetSection, Row: SetRow })
       case 'computer': return h(ComputerPage, { roster, actions, run, Section: SetSection, Row: SetRow, Switch })
       case 'browser': return h(BrowserPage, { roster, actions, run, Section: SetSection, Row: SetRow })
       case 'capabilities': return h(CapabilitiesPage, { roster, actions, run })
       case 'secrets': return h(SecretsPage, { roster, actions, run, Section: SetSection })
       case 'feedback': return h(FeedbackPage, { actions, run, Section: SetSection, Row: SetRow })
-      case 'about': return h(AboutPage, { useUpdate, actions, run, Section: SetSection, Row: SetRow, onStartTour: () => startTour('full'), inlineFeedback: false })
+      case 'about': return h(AboutPage, { useUpdate, actions, run, Section: SetSection, Row: SetRow, Switch, onStartTour: () => startTour('full'), inlineFeedback: false })
       default: return null
     }
   }

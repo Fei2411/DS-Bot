@@ -49,10 +49,12 @@ const IPC = {
   browserImportSources: 'ds-bot:browser-import-sources', browserImportProbe: 'ds-bot:browser-import-probe',
   browserImportPick: 'ds-bot:browser-import-pick',
   browserImportPaste: 'ds-bot:browser-import-paste', browserImportLaunch: 'ds-bot:browser-import-launch',
+  browserImportOpenPermission: 'ds-bot:browser-import-open-permission',
   browserImportLive: 'ds-bot:browser-import-live', browserImportApply: 'ds-bot:browser-import-apply',
   browserImportCancel: 'ds-bot:browser-import-cancel',
   appUpdateState: 'ds-bot:app-update-state', appUpdateCheck: 'ds-bot:app-update-check',
   appUpdateInstall: 'ds-bot:app-update-install', appUpdateOpen: 'ds-bot:app-update-open',
+  appUpdateDownload: 'ds-bot:app-update-download', appUpdateAuto: 'ds-bot:app-update-auto',
   appUpdateChanged: 'ds-bot:app-update-changed',
   idleSeconds: 'ds-bot:idle-seconds', computer: 'ds-bot:computer', computerAction: 'ds-bot:computer-action', computerCursor: 'ds-bot:computer-cursor',
   notify: 'ds-bot:notify', notifyStatus: 'ds-bot:notify-status', badge: 'ds-bot:badge', openSession: 'ds-bot:open-session',
@@ -88,10 +90,10 @@ if (process.env.DS_BOT_SHELL_DATA) app.setPath('userData', process.env.DS_BOT_SH
 const frameFile = join(app.getPath('userData'), 'start-frame.json')
 
 // Loaded once the start window is up (loadModules).
-let BotBrowserGuests, partitionOf, BotViews, isBotId, checkSourceLiveDebug, importFromBrowser, launchBrowserForDebug, listSources, applyCookies, seedOriginsInPartition, CookieImports, parseCookieFile
+let BotBrowserGuests, partitionOf, BotViews, isBotId, probeSource, importFromBrowser, launchBrowserForDebug, listSources, SAFARI_FULL_DISK_ACCESS_URL, safariContainerLibrary, applyCookies, seedOriginsInPartition, CookieImports, parseCookieFile
 let downloadSaver, chooseLocations, defaultPlaces, lang, pickerLabels, pickRoot, programFolder, saveLocations, teamIn, teamsAt, tx, HostProcess
 let copySessions, findTeam, importTeam, restoreSessions, teamInUse, teamSizes, userDshHome, copyData, copyReason, moveProblem, BUNDLES, CHECK_PROFILE, PROFILE, ImportFlow
-let watchReleases, watchUpdates, RELEASE_PAGE, getDshRuntimeVersion, electronUpdater
+let watchReleases, watchUpdates, RELEASE_PAGE, readAutoUpdate, writeAutoUpdate, getDshRuntimeVersion, electronUpdater
 
 let mainWindow
 // Settles once the hidden team window exists.
@@ -292,6 +294,7 @@ async function start() {
 async function prepare() {
   if (!chatgpt) {
     const signIn = await createChatGPTSignIn({ userData: app.getPath('userData'), safeStorage,
+      mockKeychain: process.platform === 'darwin' && Boolean(app.commandLine?.hasSwitch('use-mock-keychain')),
       onChange: status => host?.send({ type: 'chatgpt:changed', status }),
     })
     const relay = await createChatGPTRelay({ signIn })
@@ -314,15 +317,15 @@ async function prepare() {
 }
 
 async function loadModules() {
-  const [browser, views, sources, cookies, cookieFiles, downloads, firstRun, hostProcess, imports, flows, moves, profile, updatesModule, boot, updater] = await Promise.all([
+  const [browser, views, sources, cookies, cookieFiles, downloads, firstRun, hostProcess, imports, flows, moves, profile, updatesModule, updatePrefsModule, boot, updater] = await Promise.all([
     import('./bot-browser.mjs'), import('./bot-views.mjs'), import('./browser-sources.mjs'), import('./cookie-import.mjs'),
     import('./cookie-parse.mjs'), import('./downloads.mjs'), import('./first-run.mjs'), import('./host-process.mjs'),
     import('./import.mjs'), import('./import-flow.mjs'), import('./move-data.mjs'), import('./profile.mjs'), import('./updates.mjs'),
-    import('@deepseek-ai/dsh-app-boot'), import('electron-updater'),
+    import('./update-prefs.mjs'), import('@deepseek-ai/dsh-app-boot'), import('electron-updater'),
   ])
   ;({ BotBrowserGuests, partitionOf } = browser)
   ;({ BotViews, isBotId } = views)
-  ;({ checkSourceLiveDebug, importFromBrowser, launchBrowserForDebug, listSources } = sources)
+  ;({ probeSource, importFromBrowser, launchBrowserForDebug, listSources, SAFARI_FULL_DISK_ACCESS_URL, safariContainerLibrary } = sources)
   ;({ applyCookies, seedOriginsInPartition, CookieImports } = cookies)
   ;({ parseCookieFile } = cookieFiles)
   ;({ downloadSaver } = downloads)
@@ -333,6 +336,7 @@ async function loadModules() {
   ;({ copyData, copyReason, moveProblem } = moves)
   ;({ BUNDLES, CHECK_PROFILE, PROFILE } = profile)
   ;({ watchReleases, watchUpdates, RELEASE_PAGE } = updatesModule)
+  ;({ readAutoUpdate, writeAutoUpdate } = updatePrefsModule)
   ;({ getDshRuntimeVersion } = boot)
   electronUpdater = updater.default
   browserGuests = new BotBrowserGuests({ session, origin: () => origin, devTools: !app.isPackaged })
@@ -590,7 +594,7 @@ const pnpmEntry = () => join(app.getAppPath(), 'node_modules', 'pnpm', 'bin', 'p
 const runtimeDir = () => app.isPackaged ? process.resourcesPath : join(here, '..', 'build', 'runtime')
 const hostOutput = (stream, chunk) => {
   logs.write('engine', chunk)
-  rawOutput[stream](chunk)
+  rawOutput[stream](/token=/iu.test(chunk) ? logs.redact(chunk) : chunk)
 }
 
 function newHost() {
@@ -603,6 +607,7 @@ function newHost() {
     pnpm: pnpmEntry(),
     onFailure: (error) => { if (mine === attempt) void fail(error) },
     output: hostOutput,
+    redactOutput: false,
   })
   child.onMessage(message => { chatgpt?.handle(message, response => child.send(response)) })
   return child
@@ -612,7 +617,7 @@ function newHost() {
 function newCheck(home, list) {
   const cwd = join(home, 'profiles', CHECK_PROFILE)
   mkdirSync(cwd, { recursive: true })
-  return new HostProcess({ entry: join(here, 'host.mjs'), cwd, env: { ...process.env, DSH_HOME: home, DS_BOT_CHECK: list, DS_BOT_RUNTIME_DIR: runtimeDir() }, pnpm: pnpmEntry(), onFailure: () => {}, output: hostOutput })
+  return new HostProcess({ entry: join(here, 'host.mjs'), cwd, env: { ...process.env, DSH_HOME: home, DS_BOT_CHECK: list, DS_BOT_RUNTIME_DIR: runtimeDir() }, pnpm: pnpmEntry(), onFailure: () => {}, output: hostOutput, redactOutput: false })
 }
 
 /**
@@ -814,7 +819,27 @@ function handleIpc() {
     if (!fromWindow(event)) return
     void computerCursor.update(entry)
   })
-  app.on('before-quit', () => { computerIndicator.dispose(); computerCursor.dispose() })
+  let systemSuspended = false
+  let systemLocked = false
+  const syncSystemPaused = () => {
+    botViews?.setSystemPaused(systemSuspended || systemLocked)
+  }
+  const onSuspend = () => { systemSuspended = true; computerCursor.pause(); syncSystemPaused() }
+  const onResume = () => { systemSuspended = false; syncSystemPaused() }
+  const onLockScreen = () => { systemLocked = true; computerCursor.pause(); syncSystemPaused() }
+  const onUnlockScreen = () => { systemLocked = false; syncSystemPaused() }
+  powerMonitor.on('suspend', onSuspend)
+  powerMonitor.on('lock-screen', onLockScreen)
+  powerMonitor.on('resume', onResume)
+  powerMonitor.on('unlock-screen', onUnlockScreen)
+  app.on('before-quit', () => {
+    powerMonitor.off?.('suspend', onSuspend)
+    powerMonitor.off?.('lock-screen', onLockScreen)
+    powerMonitor.off?.('resume', onResume)
+    powerMonitor.off?.('unlock-screen', onUnlockScreen)
+    computerIndicator.dispose()
+    computerCursor.dispose()
+  })
   ipcMain.on(IPC.ready, (event, report) => { if (fromWindow(event)) startWindow.ready(report) })
   // It has drawn the whale the start window hands over: the windows cross-fade.
   ipcMain.on(IPC.handoffReady, (event) => { if (fromWindow(event)) startWindow.teamReady() })
@@ -894,6 +919,8 @@ function handleIpc() {
       profileName: s.profileName,
       email: s.email ?? null,
       hasCookies: s.hasCookies,
+      cookieCount: typeof s.cookieCount === 'number' ? s.cookieCount : null,
+      needsPermission: s.needsPermission === true,
       inspectUrl: s.inspectUrl ?? null,
       liveDebugReady: s.liveDebugReady === true,
       hasExe: Boolean(s.exe),
@@ -901,9 +928,14 @@ function handleIpc() {
   })
   ipcMain.handle(IPC.browserImportProbe, async (event, sourceId) => {
     assertWindow(event)
-    const source = await resolveImportSource(sourceId)
-    if (!source) return { liveDebugReady: false }
-    return { liveDebugReady: await checkSourceLiveDebug(source) }
+    const id = String(sourceId ?? '')
+    let source = await resolveImportSource(id)
+    if (!source && id === 'safari:permission' && process.platform === 'darwin') {
+      source = { engine: 'safari', userDataDir: safariContainerLibrary(), needsPermission: true }
+    }
+    if (!source) return { liveDebugReady: false, permissionGranted: false }
+    // Keep probe read-only: do not overwrite cachedImportSources here.
+    return probeSource(source)
   })
   ipcMain.handle(IPC.browserImportPick, async (event) => {
     assertWindow(event)
@@ -931,6 +963,16 @@ function handleIpc() {
     if (!source) return { launched: false }
     return { launched: launchBrowserForDebug(source) }
   })
+  ipcMain.handle(IPC.browserImportOpenPermission, async (event) => {
+    assertWindow(event)
+    if (process.platform !== 'darwin') return { opened: false }
+    try {
+      await electronShell.openExternal(SAFARI_FULL_DISK_ACCESS_URL)
+      return { opened: true }
+    } catch {
+      return { opened: false }
+    }
+  })
   ipcMain.handle(IPC.browserImportLive, async (event, sourceId, close, requestId) => {
     assertWindow(event)
     // Abort any older in-flight live import so Keychain / browser Allow prompts never stack.
@@ -942,20 +984,49 @@ function handleIpc() {
     const controller = new AbortController()
     activeLiveImports.set(reqKey, controller)
     try {
-      const source = await resolveImportSource(sourceId)
+      const id = String(sourceId ?? '')
+      let source = await resolveImportSource(id)
       if (controller.signal.aborted) return { canceled: true }
+      // The pre-permission placeholder has its own dedicated id ('safari:permission') distinct
+      // from real Safari profiles ('safari:Default', 'safari:<UUID>'), so retrying it always
+      // re-enumerates Safari profiles cleanly and can never accidentally bypass profile choice.
+      if (id === 'safari:permission') {
+        const fresh = await refreshImportSources()
+        if (controller.signal.aborted) return { canceled: true }
+        const safariSources = fresh.filter((item) => item.engine === 'safari')
+        if (safariSources.length === 1) {
+          source = safariSources[0]
+        } else if (safariSources.length > 1) {
+          return { needsProfileChoice: true }
+        } else {
+          return {
+            ...cookieImports.store({ format: 'live', entries: 0, cookies: [], origins: [], skipped: [], warnings: [], info: {} }, { kind: 'safari', label: 'Safari', id: 'safari:Default' }),
+            restarted: false,
+            method: 'safari-binarycookies',
+          }
+        }
+      }
       if (!source) throw new Error('DS Bot: an unknown browser profile')
       let outcome
       try {
         outcome = await importFromBrowser(source, { close: close === true, signal: controller.signal })
       } catch (error) {
         if (error?.code === 'import-cancelled' || controller.signal.aborted) return { canceled: true }
-        if (['app-bound', 'keychain-denied', 'devtools-denied', 'devtools-timeout', 'devtools-wrong-profile'].includes(error?.code)) {
+        if (['app-bound', 'browser-locked', 'keychain-denied', 'devtools-denied', 'devtools-timeout', 'devtools-wrong-profile', 'safari-corrupt'].includes(error?.code)) {
           return { error: error.code }
         }
         throw error
       }
       if (controller.signal.aborted) return { canceled: true }
+      if (outcome.needsFullDiskAccess) {
+        return {
+          needsFullDiskAccess: true,
+          sourceId: source.id,
+          browserName: outcome.browserName ?? source.name,
+          label: source.label,
+          kind: source.kind,
+        }
+      }
       if (outcome.needsRemoteDebugging) {
         return {
           needsRemoteDebugging: true,
@@ -1039,6 +1110,21 @@ function handleIpc() {
     if (state?.phase === 'available' && typeof state.page === 'string' && state.page.startsWith('https://')) {
       void electronShell.openExternal(state.page)
     }
+  })
+  ipcMain.handle(IPC.appUpdateDownload, (event) => {
+    assertWindow(event)
+    updates?.download?.()
+  })
+  ipcMain.handle(IPC.appUpdateAuto, (event, enabled) => {
+    assertWindow(event)
+    if (typeof enabled !== 'boolean') throw new Error('DS Bot: autoUpdate must be a boolean')
+    if (updates === undefined) return null
+    writeAutoUpdate(updatePrefsFile(), enabled)
+    if (!enabled) {
+      restartPrompt.clear()
+      downloadPrompt.clear()
+    }
+    return updates.setAutoUpdate(enabled)
   })
   // The plugin keeps the team workspace; the app remembers it for its own checks.
   ipcMain.on(IPC.teamWorkspace, (event, path) => {
@@ -1268,15 +1354,18 @@ async function runMove(to, workspace) {
   app.quit()
 }
 
+const updatePrefsFile = () => join(app.getPath('userData'), 'update-prefs.json')
+
 // Windows and a Linux AppImage update themselves; macOS and a Linux deb ask to download the new
 // version. Throwaway runs check only a given feed and never ask.
 function startUpdates() {
   const feed = process.env.DS_BOT_UPDATE_URL || undefined
   const throwaway = Boolean(process.env.DS_BOT_HOME)
   if (!app.isPackaged || (throwaway && feed === undefined)) return undefined
+  const autoUpdate = readAutoUpdate(updatePrefsFile())
   if (process.platform === 'darwin') {
     return watchReleases({
-      current: app.getVersion(), arch: process.arch, feed, ask: throwaway ? undefined : (version) => downloadPrompt.prompt(version), open: url => electronShell.openExternal(url),
+      current: app.getVersion(), arch: process.arch, feed, autoUpdate, ask: throwaway ? undefined : (version) => downloadPrompt.prompt(version), open: url => electronShell.openExternal(url),
     })
   }
   // electron-updater's Linux updater works only from inside an AppImage (APPIMAGE is set there);
@@ -1285,7 +1374,7 @@ function startUpdates() {
   if (process.platform === 'linux' && process.env.APPIMAGE === undefined) {
     const debArch = { x64: 'amd64', arm64: 'arm64' }[process.arch] ?? process.arch
     return watchReleases({
-      current: app.getVersion(), arch: process.arch, feed, ask: throwaway ? undefined : (version) => downloadPrompt.prompt(version), open: url => electronShell.openExternal(url),
+      current: app.getVersion(), arch: process.arch, feed, autoUpdate, ask: throwaway ? undefined : (version) => downloadPrompt.prompt(version), open: url => electronShell.openExternal(url),
       asset: version => `DS-Bot-${version}-linux-${debArch}.deb`,
     })
   }
@@ -1293,7 +1382,7 @@ function startUpdates() {
     // The update ends the app: the window closes for good, and the Host stops before the
     // installer replaces its files.
     return watchUpdates({
-      updater: electronUpdater.autoUpdater, feed, ask: throwaway ? undefined : (version) => restartPrompt.prompt(version),
+      updater: electronUpdater.autoUpdater, feed, autoUpdate, ask: throwaway ? undefined : (version) => restartPrompt.prompt(version),
       beforeInstall: () => { shell.beginQuit(); return stopHost() },
     })
   }
@@ -1313,12 +1402,12 @@ const afterHandoff = async () => { await startWindow.teamShown; return !failed }
 // An update question that the page cannot show counts as 「以后再说」: the update installs at the
 // next quit, and the About row still offers it.
 async function askRestartNow(version) {
-  if (failed || !await afterHandoff()) return false
+  if (failed || updates?.state()?.autoUpdate === false || !await afterHandoff() || updates?.state()?.autoUpdate === false) return false
   return await askInWindow({ message: tx('dialog.update.ready', { version }), detail: tx('dialog.update.readyDetail'), buttons: [{ label: tx('btn.restart'), primary: true }, { label: tx('btn.notNowRestart') }], cancel: 1 }) === 0
 }
 
 async function askDownloadNow(version) {
-  if (failed || !await afterHandoff()) return false
+  if (failed || updates?.state()?.autoUpdate === false || !await afterHandoff() || updates?.state()?.autoUpdate === false) return false
   return await askInWindow({ message: tx('dialog.update.available', { version }), detail: tx('dialog.update.availableDetail'), buttons: [{ label: tx('btn.download'), primary: true }, { label: tx('btn.notNowDownload') }], cancel: 1 }) === 0
 }
 
@@ -1501,11 +1590,20 @@ function createWindow() {
     return { action: 'deny' }
   })
   contents.on('did-create-window', (child) => {
+    const destroyChild = () => { if (!child.isDestroyed()) child.destroy() }
+    const timer = setTimeout(destroyChild, 30_000)
+    timer.unref?.()
+    const cleanup = () => {
+      clearTimeout(timer)
+      win.off?.('closed', destroyChild)
+    }
+    child.once('closed', cleanup)
+    win.once('closed', destroyChild)
     const away = (event, url) => {
       if (url === 'about:blank') return
       event.preventDefault()
       openOutside(url)
-      child.destroy()
+      destroyChild()
     }
     child.webContents.on('will-navigate', away)
     child.webContents.on('will-redirect', away)
@@ -1528,10 +1626,19 @@ function createWindow() {
       if (input.type === 'keyDown' && (input.key === 'F12' || (input.control && input.shift && input.key.toLowerCase() === 'i'))) contents.toggleDevTools()
     })
   }
+  // Hidden or minimized windows pause Bot browser views so off-screen pages stay silent and idle.
+  win.on('hide', () => { botViews?.setWindowHidden(true) })
+  win.on('minimize', () => { botViews?.setWindowHidden(true) })
   // The window that is shown again asks for the update that waited for it. A window that was
   // minimized asks for it when it comes back.
-  win.on('show', () => { void flushDeferredUpdate().catch((error) => { console.error(error) }) })
-  win.on('restore', () => { void flushDeferredUpdate().catch((error) => { console.error(error) }) })
+  win.on('show', () => {
+    botViews?.setWindowHidden(false)
+    void flushDeferredUpdate().catch((error) => { console.error(error) })
+  })
+  win.on('restore', () => {
+    botViews?.setWindowHidden(false)
+    void flushDeferredUpdate().catch((error) => { console.error(error) })
+  })
   return win
 }
 
@@ -1655,8 +1762,9 @@ async function fail(error) {
 // version that cannot install itself (macOS, a Linux deb); one that can is downloading already,
 // and installs once it is downloaded, unless the user has tried again meanwhile.
 async function offerUpdate(mine) {
+  if (updates?.state()?.autoUpdate === false) return
   const found = await Promise.race([updates?.latest() ?? null, sleep(UPDATE_CHECK_WAIT_MS).then(() => null)])
-  const still = () => failed && mine === attempt
+  const still = () => failed && mine === attempt && updates?.state()?.autoUpdate !== false
   offered = found ?? undefined
   if (!found || !still()) return
   const { version } = found

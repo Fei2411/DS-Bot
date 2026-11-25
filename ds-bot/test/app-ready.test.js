@@ -12,7 +12,7 @@ import { build } from 'esbuild'
 const PLUGIN = dirname(dirname(fileURLToPath(import.meta.url)))
 const { outputFiles } = await build({
   stdin: {
-    contents: "export { BotReturn, TeamSidebar } from './src/client/sidebar.js'\nexport { clientErrors } from './src/client/diagnostics.js'",
+    contents: "export { BotReturn, TeamSidebar, landingPlan } from './src/client/sidebar.js'\nexport { clientErrors } from './src/client/diagnostics.js'",
     resolveDir: PLUGIN,
   },
   bundle: true, format: 'cjs', platform: 'browser', write: false, logLevel: 'silent',
@@ -23,7 +23,7 @@ let hooks
 const react = {
   createElement: (type, props, ...children) => ({ type, props: { ...props, children } }), Fragment: Symbol('Fragment'),
   useRef: initial => hooks.ref(initial), useEffect: (run, deps) => hooks.effect(run, deps), useLayoutEffect() {},
-  useMemo: make => make(), useState: initial => [initial, () => {}], useId: () => 'id',
+  useMemo: make => make(), useCallback: fn => fn, useState: initial => [initial, () => {}], useId: () => 'id',
   // The bundled Deep View widgets make a React context when their module loads.
   createContext: value => ({ Provider: 'Provider', value }), useContext: context => context.value,
 }
@@ -233,4 +233,55 @@ test('a whale handed over glides from where it was handed onto the Main Bot\'s a
   assert.equal(outer.removed, true)
   assert.equal(mark.style.opacity, '')
   assert.equal(mark.animations.length, 1)
+})
+
+test('landingPlan keeps a stable key across unrelated roster updates and tracks room part switches', () => {
+  const { landingPlan } = page()
+  const chief = { id: 'chief', name: 'Chief', sessionId: 'p2', parts: ['p1'] }
+  const ops = { id: 'room-1', name: 'Ops', sessionId: 'r2', ownParts: ['r1'] }
+  const roster1 = {
+    ready: true, revision: 1, mainBotId: 'chief',
+    byId: { chief, p1: chief, p2: chief },
+    roomsById: { 'room-1': ops, r1: ops, r2: ops },
+    agentOf: {},
+  }
+  const roster2 = { ...roster1, revision: 2 }
+  // Following a Bot part switch produces the same key across unrelated roster updates.
+  const follow1 = landingPlan({ mainView: 'p1|0', roster: roster1, last: null })
+  const follow2 = landingPlan({ mainView: 'p1|0', roster: roster2, last: follow1.nextLast })
+  assert.equal(follow1.kind, 'follow-bot')
+  assert.equal(follow1.key, follow2.key)
+  // After an archived part clears mainView, the home recovery key stays stable for the same target.
+  const home1 = landingPlan({ mainView: '', roster: roster1, last: follow1.nextLast })
+  const home2 = landingPlan({ mainView: '', roster: roster2, last: home1.nextLast })
+  assert.equal(home1.kind, 'home')
+  assert.equal(home1.delay, 0)
+  assert.equal(home1.key, home2.key)
+  // A group chat moving to a fresh part also keeps lastChat so archiving its old part follows it.
+  const roomPlan = landingPlan({ mainView: 'r1|0', roster: roster1, last: null })
+  assert.equal(roomPlan.kind, 'follow-room')
+  assert.deepEqual({ ...roomPlan.nextLast }, { kind: 'room', id: 'room-1', roomId: 'room-1', sessionId: 'r1' })
+  const roomHome = landingPlan({ mainView: '', roster: roster1, last: roomPlan.nextLast })
+  assert.equal(roomHome.kind, 'home')
+  assert.equal(roomHome.delay, 0)
+  assert.equal(roomHome.last.id, 'room-1')
+  // An unindexed non-blank session that later appears in roster as a Bot or Room changes plan.key so lastChat updates.
+  const unindexed = { ready: true, mainBotId: 'chief', byId: { chief: { id: 'chief', sessionId: 'chief' } }, roomsById: {}, agentOf: {} }
+  const beforeBot = landingPlan({ mainView: 'p2|0', roster: unindexed, last: null })
+  const afterBot = landingPlan({ mainView: 'p2|0', roster: roster1, last: beforeBot.nextLast })
+  assert.equal(beforeBot.kind, 'stay')
+  assert.equal(afterBot.kind, 'stay')
+  assert.equal(beforeBot.nextLast, null)
+  assert.equal(afterBot.nextLast.id, 'chief')
+  assert.notEqual(beforeBot.key, afterBot.key)
+  // Moving between two non-current parts updates key so lastChat.sessionId stays accurate.
+  const multiPartRoster = {
+    ready: true, mainBotId: 'chief',
+    byId: { chief: { id: 'chief', sessionId: 'p3' }, p1: { id: 'chief', sessionId: 'p3' }, p2: { id: 'chief', sessionId: 'p3' }, p3: { id: 'chief', sessionId: 'p3' } },
+    roomsById: {}, agentOf: {},
+  }
+  const followP1 = landingPlan({ mainView: 'p1|0', roster: multiPartRoster, last: null })
+  const followP2 = landingPlan({ mainView: 'p2|0', roster: multiPartRoster, last: followP1.nextLast })
+  assert.notEqual(followP1.key, followP2.key)
+  assert.equal(followP2.nextLast.sessionId, 'p2')
 })

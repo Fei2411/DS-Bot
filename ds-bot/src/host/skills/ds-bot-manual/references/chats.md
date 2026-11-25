@@ -2,11 +2,13 @@
 
 Each Bot has its own conversation. In a group it speaks from a separate conversation. A group has members, an optional admin, shared memory and an optional shared working folder. Group work can use more model calls than one Bot.
 
+To change a group's photo, open **Settings → Team → Group chats**, select the group and open its avatar editor. Use **Upload** or **Library**, or remove the photo to show members' avatars again. This is a settings action, not an `update_group` tool argument.
+
 ## UI and tools
 
 Use **Settings → Group chats** to inspect and change groups. In a chat's **+** menu, **Reference a chat** adds another chat as context. **Set a goal** starts a staged group goal. Type /side for a side question without interrupting the main work.
 
-- `message_bot` delegates to another Bot. Use it only for work or useful facts, not acknowledgements. Replies arrive later; do not poll. In a group it reaches only that group's members.
+- `delegate_work` delegates a concrete task or question to another Bot as a tracked work (#W…), whose final reply returns automatically and closes the work. Use `ask_back` when blocked, `answer_work` to unblock, `cancel_work` to silently cancel without waking the target, and `note_bot` for silent FYI updates that never wake the target. In a group `delegate_work` reaches only that group's members.
 - `create_group` is Main Bot only. It joins the creator as admin unless another admin is named.
 - `update_group` changes name, notice, members, admin, reply mode or work_dir. A Main Bot can manage any group; the group's admin can manage its group, but only a Main Bot can change its working folder or sidebar section.
 - `post_to_group` posts from outside a group. A Main Bot's or the admin's post starts a discussion. Another member's post calls the members it names with @Name. A Main Bot can post to any group.

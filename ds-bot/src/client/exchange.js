@@ -6,18 +6,35 @@ import { Bubbles } from './cells.js'
 import { stripLongNote } from './fold.js'
 import { useEscape } from './overlay-hooks.js'
 import { layoutOf } from './themes.js'
+import { WorkPauseCard } from './work-pause-card.js'
 import { t } from './i18n.js'
 
 const SHEET_EXIT_MS = 220
+const EMPTY = []
+const useNullWork = () => EMPTY
 
-export function ExchangeDialog({ pair, paneLeft, roster, actions }) {
+const roleTagOf = (role) => {
+  switch (role) {
+    case 'note': return t('Silent note')
+    case 'ask_back': return t('Question')
+    case 'answer': return t('Answer')
+    case 'reply': return t('Completed')
+    default: return null
+  }
+}
+
+export function ExchangeDialog({ pair, paneLeft, roster, actions, useWork }) {
   const [entries, setEntries] = useState(null)
   const [leaving, setLeaving] = useState(false)
+  const useReadWork = useWork ?? useNullWork
+  const pausedAll = useReadWork(state => state.paused ?? EMPTY)
+  const pausedHere = pausedAll.filter(item =>
+    (item.from === pair[0] && item.to === pair[1]) || (item.from === pair[1] && item.to === pair[0]))
   const log = useRef(null)
   const atEnd = useRef(true)
   useLayoutEffect(() => {
     if (entries !== null && atEnd.current && log.current) log.current.scrollTop = log.current.scrollHeight
-  }, [entries])
+  }, [entries, pausedHere.length])
   // The sheet slides back down before it unmounts.
   const close = () => {
     if (leaving) return
@@ -56,19 +73,35 @@ export function ExchangeDialog({ pair, paneLeft, roster, actions }) {
         atEnd.current = node.scrollHeight - node.scrollTop - node.clientHeight < 2
       } },
         entries === null ? h('div', { className: 'bt-hint' }, t('Loading…'))
-          : entries.length === 0 ? h('div', { className: 'bt-hint' }, t('No messages yet'))
-            : entries.map((entry) => {
-              const bot = roster.byId[entry.from] ?? { id: entry.from, name: t('You'), color: 'gray' }
-              const showDay = entry.time - lastDay > 30 * 60 * 1000
-              lastDay = entry.time
-              // A long message comes with its start only; the rest is read on request.
-              const whole = entry.length === undefined ? undefined : { length: entry.length, load: () => actions.exchangeText(entry.id, entry.from, entry.to) }
-              const lead = h('span', { className: 'bt-lead' }, h(BotMark, { bot: bot, size: 22 }))
-              return h(Fragment, { key: entry.id },
-                showDay ? h('time', { className: 'bt-time' }, dayLabel(entry.time)) : null,
-                h('div', { className: 'bt-group-msg' },
-                  h('span', { className: 'bt-group-name', style: flat ? undefined : { color: inkText(colorOf(bot)) } }, flat ? lead : null, bot.name),
-                  h(Bubbles, { texts: [stripLongNote(entry.text)], roster, selfId: bot.id, actions, whole, lead: flat ? null : lead })))
-            })),
+          : entries.length === 0 && pausedHere.length === 0 ? h('div', { className: 'bt-hint' }, t('No messages yet'))
+            : h(Fragment, null,
+              entries.map((entry) => {
+                const bot = roster.byId[entry.from] ?? { id: entry.from, name: t('You'), color: 'gray' }
+                const showDay = entry.time - lastDay > 30 * 60 * 1000
+                lastDay = entry.time
+                if (entry.role === 'cancelled' || entry.role === 'stopped') {
+                  const ref = entry.workRef ? ` #${entry.workRef}` : ''
+                  const label = entry.role === 'cancelled'
+                    ? t('{name} cancelled work{ref}: {reason}', { name: bot.name, ref, reason: stripLongNote(entry.text) })
+                    : t('{name} stopped the turn: {reason}', { name: bot.name, reason: stripLongNote(entry.text) })
+                  return h(Fragment, { key: entry.id },
+                    showDay ? h('time', { className: 'bt-time' }, dayLabel(entry.time)) : null,
+                    h('div', { className: 'bt-event' }, label))
+                }
+                // A long message comes with its start only; the rest is read on request.
+                const whole = entry.length === undefined ? undefined : { length: entry.length, load: () => actions.exchangeText(entry.id, entry.from, entry.to) }
+                const lead = h('span', { className: 'bt-lead' }, h(BotMark, { bot: bot, size: 22 }))
+                const tag = roleTagOf(entry.role)
+                return h(Fragment, { key: entry.id },
+                  showDay ? h('time', { className: 'bt-time' }, dayLabel(entry.time)) : null,
+                  h('div', { className: 'bt-group-msg' },
+                    h('span', { className: 'bt-group-name', style: flat ? undefined : { color: inkText(colorOf(bot)) } },
+                      flat ? lead : null,
+                      bot.name,
+                      entry.workRef ? h('span', { className: 'bt-tag', style: { marginLeft: '6px' } }, `#${entry.workRef}`) : null,
+                      tag ? h('span', { className: 'bt-tag', style: { marginLeft: '4px' } }, tag) : null),
+                    h(Bubbles, { texts: [stripLongNote(entry.text)], roster, selfId: bot.id, actions, whole, lead: flat ? null : lead })))
+              }),
+              pausedHere.map(item => h(WorkPauseCard, { key: item.id, work: item, roster, actions, inline: true })))),
       h('div', { className: 'bt-dialog-foot' }, h('button', { type: 'button', className: 'bt-soft', onClick: close }, t('Close Chat')))))
 }

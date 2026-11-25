@@ -555,7 +555,7 @@ test('PanelStrip repositions active capsule when sibling tab titles grow, tabs s
     disconnect() { observed.clear() }
   }
   globalThis.window = { addEventListener() {}, removeEventListener() {}, matchMedia: () => ({ matches: true }) }
-  globalThis.document = { body: { dataset: {} }, querySelectorAll: () => [] }
+  globalThis.document = { body: { dataset: {} }, querySelectorAll: () => [], addEventListener() {}, removeEventListener() {} }
 
   try {
     const botTab = { isConnected: true, offsetLeft: 0, offsetWidth: 40 }
@@ -842,7 +842,7 @@ test('room-chat adapter renders distinct group members and round events in ChatR
   const origWin = globalThis.window
   const origDoc = globalThis.document
   globalThis.window = { addEventListener() {}, removeEventListener() {}, innerWidth: 1200, innerHeight: 800 }
-  globalThis.document = { body: { dataset: {} }, querySelectorAll: () => [] }
+  globalThis.document = { body: { dataset: {} }, querySelectorAll: () => [], addEventListener() {}, removeEventListener() {} }
   try {
     const adapted = adaptRoomItems(roomChatItems)
     const tree = harness.render(harness.React.createElement(ChatRows, {
@@ -1198,7 +1198,7 @@ test('PanelStrip translates vertical wheel to horizontal scroll, tracks overflow
   globalThis.requestAnimationFrame = () => 0
   globalThis.cancelAnimationFrame = () => {}
   globalThis.window = { addEventListener() {}, removeEventListener() {}, matchMedia: () => ({ matches: true }), innerWidth: 1280 }
-  globalThis.document = { body: { dataset: {} }, querySelectorAll: () => [] }
+  globalThis.document = { body: { dataset: {} }, querySelectorAll: () => [], addEventListener() {}, removeEventListener() {} }
   globalThis.ResizeObserver = class {
     constructor(cb) { roCallback = cb }
     observe() {}

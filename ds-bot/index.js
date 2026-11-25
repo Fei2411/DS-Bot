@@ -27,6 +27,7 @@ import * as goals from './src/host/goals.js'
 import * as agentCommands from './src/host/agent-commands.js'
 import * as tasks from './src/host/tasks.js'
 import * as approvals from './src/host/approvals.js'
+import * as extraFolders from './src/host/extra-folders.js'
 import * as resume from './src/host/resume.js'
 import * as memory from './src/host/memory.js'
 import * as parts from './src/host/parts.js'
@@ -49,7 +50,6 @@ import * as update from './src/host/update.js'
 import * as dshUpdate from './src/host/dsh-update.js'
 import * as thinking from './src/host/thinking.js'
 import * as phone from './src/host/phone.js'
-import * as mcpServer from './src/host/mcp-server.js'
 import * as channel from './src/host/channel.js'
 import * as remote from './src/host/remote.js'
 import * as mobile from './src/host/mobile.js'
@@ -58,8 +58,10 @@ import * as sessionFollow from './src/host/session-follow.js'
 import * as workspacePanel from './src/host/workspace-panel.js'
 import * as engineSettings from './src/host/engine-settings.js'
 import * as im from './src/host/im/index.js'
+import * as externalApi from './src/host/api/index.js'
 import * as officeSkills from './src/host/office-skills.js'
 import * as goalSkills from './src/host/goal-skills.js'
+import * as maintenanceSkills from './src/host/maintenance-skills.js'
 import * as issueReport from './src/host/issue-report.js'
 import * as manualSkills from './src/host/manual-skills.js'
 import * as localAgents from './src/host/local-agents/index.js'
@@ -75,7 +77,8 @@ export { name, inject } from './src/host/entry.js'
 // install. Listeners run and tools are listed in registration order, so this order holds:
 // usage meters model requests after every listener that rewrites them. privacy checks a
 // call before the hooks of tools do, so a closed call never reaches a card they show.
-const MODULES = [diagnostics, store, ledger, models, providers, permissions, turns, steer, handoffs, requests, delivery, roster, folders, privacy, agents, prompt, timeContext, tools, issueReport, deepseekServices, chatIndex, groups, goals, agentCommands, tasks, approvals, resume, memory, parts, botTasks, changes, images, avatarLibrary, appearance, secrets, connectors, capabilities, plugins, learning, schedules, browser, browserPlugins, computer, usage, update, dshUpdate, thinking, mobile, feed, sessionFollow, workspacePanel, engineSettings, phone, mcpServer, im, channel, remote, officeSkills, goalSkills, manualSkills, localAgents]
+// extraFolders answers an approval ahead of approvals, which would show it to the user.
+const MODULES = [diagnostics, store, ledger, models, providers, permissions, turns, steer, handoffs, requests, delivery, roster, folders, privacy, agents, prompt, timeContext, tools, issueReport, deepseekServices, chatIndex, groups, goals, agentCommands, tasks, approvals, extraFolders, resume, memory, parts, botTasks, changes, images, avatarLibrary, appearance, secrets, connectors, capabilities, plugins, learning, schedules, browser, browserPlugins, computer, usage, update, dshUpdate, thinking, mobile, feed, sessionFollow, workspacePanel, engineSettings, phone, im, externalApi, channel, remote, officeSkills, goalSkills, maintenanceSkills, manualSkills, localAgents]
 
 export function apply(ctx, config = {}) {
   createRuntime(ctx, config)

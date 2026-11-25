@@ -15,18 +15,21 @@ export const KINDS = ['acp', 'codex', 'claude']
 // load with a duplicate adapter.
 export const ROUTE_PREFIX = 'local-'
 
+const QODER_CN_COMMANDS = ['qoderclicn', 'qodercn', 'qoder-cn']
+const QODER_CN_SIGN_IN = { file: ['.qoder-cn', '.auth', 'user'] }
+
 const CLIS = {
   'devin-cli': {
     name: 'Devin CLI', kind: 'acp', command: 'devin', args: ['acp'], version: ['--version'], signIn: 'devin auth login',
     // `devin auth status` fetches remote team settings and can time out offline;
-    // `devin auth logout` deletes credentials.toml, which requires `windsurf_api_key`.
+    // `devin auth logout` deletes credentials.toml, which requires top-level `windsurf_api_key`.
     signedIn: {
       args: ['auth', 'status'],
       fallback: {
         platformFile: {
           win32: { env: 'APPDATA', base: ['AppData', 'Roaming'], path: ['devin', 'credentials.toml'] },
           default: { env: 'XDG_DATA_HOME', base: ['.local', 'share'], path: ['devin', 'credentials.toml'] },
-          match: /^[ \t]*windsurf_api_key[ \t]*=[ \t]*(?:"[ \t]*[^\s"\r\n][^"\r\n]*"|'[ \t]*[^\s'\r\n][^'\r\n]*')[ \t]*(?:#[^\r\n]*)?\r?$/mu,
+          tomlStrings: ['windsurf_api_key'],
         },
       },
     },
@@ -35,18 +38,22 @@ const CLIS = {
   'codex-cli': { name: 'Codex CLI', kind: 'codex', command: 'codex', args: ['app-server', '--listen', 'stdio://'], version: ['--version'], signIn: 'codex login', signedIn: { args: ['login', 'status'] } },
   'cursor-cli': {
     name: 'Cursor CLI', kind: 'acp', command: 'cursor-agent', args: ['acp'], version: ['--version'], signIn: 'cursor-agent login',
-    // `cursor-agent status` validates over the network; fall back to Cursor's
-    // macOS Keychain item (metadata only) or auth.json file store if inconclusive.
+    // `cursor-agent status` validates over the network and requires either both OAuth
+    // tokens (access + refresh) or an API key; fall back to macOS Keychain metadata
+    // or auth.json with the same contract if the status call is inconclusive.
     signedIn: {
       args: ['status'],
       fallback: {
-        macKeychain: { service: 'cursor-access-token', account: 'cursor-user' },
+        macKeychain: { services: ['cursor-access-token', 'cursor-refresh-token'], account: 'cursor-user' },
         fallback: {
-          platformFile: {
-            darwin: { path: ['.cursor', 'auth.json'] },
-            win32: { env: 'APPDATA', base: ['AppData', 'Roaming'], path: ['Cursor', 'auth.json'] },
-            default: { env: 'XDG_CONFIG_HOME', base: ['.config'], path: ['cursor', 'auth.json'] },
-            any: [['accessToken'], ['refreshToken'], ['apiKey']],
+          macKeychain: { service: 'cursor-api-key', account: 'cursor-user' },
+          fallback: {
+            platformFile: {
+              darwin: { path: ['.cursor', 'auth.json'] },
+              win32: { env: 'APPDATA', base: ['AppData', 'Roaming'], path: ['Cursor', 'auth.json'] },
+              default: { env: 'XDG_CONFIG_HOME', base: ['.config'], path: ['cursor', 'auth.json'] },
+              stringGroups: [[['accessToken'], ['refreshToken']], [['apiKey']]],
+            },
           },
         },
       },
@@ -78,7 +85,11 @@ const CLIS = {
     // only accepts a file with a token and an account (the values may be encrypted).
     signedIn: { appDataFile: { path: ['CodeBuddyExtension', 'Data', 'Public', 'auth', 'Tencent-Cloud.coding-copilot.info'], loggedOut: '.logged-out', has: [['auth', 'accessToken'], ['account']] } },
   },
-  'qoder': { name: 'Qoder CLI', kind: 'acp', command: 'qodercli', commands: ['qodercli', 'qoder', 'qoderclicn', 'qodercn', 'qoder-cn'], args: ['--acp'], version: ['--version'], signIn: 'qodercli', signInBy: { qoderclicn: 'qoderclicn', qodercn: 'qoderclicn', 'qoder-cn': 'qoderclicn' } },
+  'qoder': {
+    name: 'Qoder CLI', kind: 'acp', command: 'qodercli', commands: ['qodercli', 'qoder', ...QODER_CN_COMMANDS], args: ['--acp'], version: ['--version'], signIn: 'qodercli',
+    signInBy: Object.fromEntries(QODER_CN_COMMANDS.map(command => [command, 'qoderclicn'])),
+    signedInBy: Object.fromEntries(QODER_CN_COMMANDS.map(command => [command, QODER_CN_SIGN_IN])),
+  },
   'minimax-code': { name: 'MiniMax Code', kind: 'acp', command: 'mcode', args: ['acp'], version: ['--version'], signIn: 'mcode' },
   'glm-cli': { name: 'GLM Agent', kind: 'acp', command: 'glm-acp-agent', args: [], version: ['--version'], signIn: 'glm-acp-agent --setup' },
   'kiro-cli': { name: 'Kiro CLI', kind: 'acp', command: 'kiro-cli', args: ['acp'], version: ['--version'], signIn: 'kiro-cli login' },
@@ -92,11 +103,11 @@ const CLIS = {
 // route -> engine, e.g. 'local-codex-cli'. `id` is the CLI's name without the prefix.
 export const ENGINES = Object.fromEntries(Object.entries(CLIS).map(([id, spec]) => [`${ROUTE_PREFIX}${id}`, { ...spec, id }]))
 
+const executableCommand = path => typeof path === 'string' ? win32.basename(path).replace(/\.(cmd|exe|bat|com)$/i, '') : undefined
+
 // An engine found under another product's command (Qoder CN) signs in through that command.
-export function signInFor(spec, path) {
-  const command = typeof path === 'string' ? win32.basename(path).replace(/\.(cmd|exe|bat|com)$/i, '') : undefined
-  return spec?.signInBy?.[command] ?? spec?.signIn
-}
+export const signInFor = (spec, path) => spec?.signInBy?.[executableCommand(path)] ?? spec?.signIn
+export const signedInFor = (spec, path) => spec?.signedInBy?.[executableCommand(path)] ?? spec?.signedIn
 
 export const CUSTOM_PREFIX = `${ROUTE_PREFIX}acp-`
 
