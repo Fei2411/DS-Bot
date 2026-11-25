@@ -20,7 +20,7 @@ import { openTurnAt } from './btw.js'
 import { HANDOFF_ACK, HISTORY_SCAN_PAGES, HISTORY_TIMEOUT_MS, isSilentTurnText, REPLY_KIND, SOURCE_KIND } from './constants.js'
 import { assembleLlmStream } from './models.js'
 import { compressedRelayPreview, parseReplies, relayRange, stackReplies } from '../shared/group-replies.js'
-import { CHECKPOINT_PROMPT, STEWARD_SYSTEM, checkpointCount, checkpointTail, checkpointTailNote, checkpointText, linesFor, parseDecision, selectRetainedRange, stewardRequest } from './steward.js'
+import { CHECKPOINT_PROMPT, DEFAULT_CHECK_RATIO, STEWARD_SYSTEM, checkpointCount, checkpointTail, checkpointTailNote, checkpointText, linesFor, parseDecision, selectRetainedRange, stewardRequest } from './steward.js'
 import { RESUME_DELAY_MS } from './resume.js'
 import { clip, createClock, escapeRegExp, estimateTokens, reminderPrompts, splitRef, textOf } from './text.js'
 import { pageThinkingMs } from './thinking.js'
@@ -1341,36 +1341,193 @@ export function install(rt) {
     return parseDecision(assembler.blocks().filter(block => block.type === 'text').map(block => block.text).join('\n'))
   }
 
-  // What the steward decides; a part that cannot be condensed, or a steward that
-  // gives no answer, moves on as it always could.
+  // Structured live signals proving work is still under way on this part. Checking
+  // them before asking the steward avoids an LLM call when the answer is already
+  // known, and `hasLiveActivity` prevents an idle switch from stopping running
+  // shell jobs or subagents via archiveSession({ stopActivity: true }).
+  function activeWorkSignals(agent) {
+    const id = agent.id
+    const reasons = []
+    let hasLiveActivity = false
+    if ((rt.runningJobs?.(id)?.length ?? 0) > 0) {
+      reasons.push('running-jobs')
+      hasLiveActivity = true
+    }
+    if (rt.hasSubagents?.(id) === true) {
+      reasons.push('running-subagents')
+      hasLiveActivity = true
+    }
+    if ((typeof rt.own === 'function' ? rt.own(state.questions, id) : state.questions?.[id]) !== undefined) reasons.push('pending-question')
+    if ((typeof rt.own === 'function' ? rt.own(state.views, id) : state.views?.[id]) !== undefined) reasons.push('pending-view')
+    const place = placeOf(id)
+    const room = place?.roomId === undefined ? undefined : rt.roomOf(place.roomId)
+    if (room?.goal?.status === 'active' || room?.goal?.status === 'drafting') reasons.push('active-goal')
+    return { reasons, hasLiveActivity }
+  }
+
+  // What the steward decides. Active structured work short-circuits to compact;
+  // mid-turn steward failures default to tail-preserving compact rather than
+  // tearing down an active turn with a switch.
   async function decide(agent, { midTurn }) {
-    if (!localPart(agent.session) && engineOf(agent) === undefined) return 'switch'
+    const canCondense = localPart(agent.session) || engineOf(agent) !== undefined
+    if (!canCondense) return 'switch'
+    const signals = activeWorkSignals(agent)
+    if (signals.reasons.length > 0) {
+      ctx.logger.info('ds-bot: steward short-circuited to compact for %s (%s)', agent.id, signals.reasons.join(', '))
+      return 'compact'
+    }
+    const fallback = midTurn ? 'compact' : 'switch'
     try {
       const action = await askSteward(agent, { midTurn })
       if (action !== undefined) return action
-      rt.warn('ds-bot: the context steward gave no usable answer for %s; moving on to a fresh part', agent.id)
+      rt.warn('ds-bot: the context steward gave no usable answer for %s; defaulting to %s', agent.id, fallback)
     } catch (error) {
-      rt.warn('ds-bot: the context steward failed for %s; moving on to a fresh part: %s', agent.id, error)
+      rt.warn('ds-bot: the context steward failed for %s; defaulting to %s: %s', agent.id, fallback, error)
     }
-    return 'switch'
+    return fallback
+  }
+
+  const prunerOf = agent => ctx.get?.('agentPresets')?.serviceFor?.(agent, 'toolResultPruner') ?? ctx.get?.('toolResultPruner')
+
+  // Sequence boundary of the active turn's start so mid-turn pruning protects every
+  // tool output produced in this turn — including ones before a mid-turn steer or
+  // runtime-context user/message. Falls back to the last waking user/message only
+  // on minimal sessions without turn/start events.
+  function protectedPruneCutoff(session) {
+    if (typeof session?.eventAt === 'function' && Number.isInteger(session.seq) && session.seq > 0) {
+      for (let seq = session.seq - 1; seq >= 0; seq -= 1) {
+        const event = session.eventAt(seq)
+        if (event?.type === 'turn/start') return seq
+      }
+    }
+    const nodes = session?.surface?.nodes
+    if (!Array.isArray(nodes) || typeof session?.eventAt !== 'function') return undefined
+    for (let index = nodes.length - 1; index >= 0; index -= 1) {
+      const seq = nodes[index]
+      const event = session.eventAt(seq)
+      if (event?.type === 'user/message' && isWakingSource(event.data?.source)) return seq
+    }
+    return undefined
+  }
+
+  // Read-only dry-run of how many tokens tool-result pruning would reclaim without
+  // mutating the Session or breaking the provider's KV prefix cache.
+  function estimatePrunableSavings(session, pruner, { beforeSeq } = {}) {
+    if (typeof pruner?.pruneContent !== 'function' || typeof session?.eventAt !== 'function') return undefined
+    const nodes = session?.surface?.nodes
+    if (!Array.isArray(nodes)) return undefined
+    const meter = ctx.get?.('tokenMeter')
+    let count = 0
+    let saved = 0
+    for (const seq of nodes) {
+      if (beforeSeq !== undefined && seq >= beforeSeq) continue
+      const event = session.eventAt(seq)
+      if (event?.type !== 'tool/result') continue
+      const original = typeof session.deriveEventMessage === 'function' ? session.deriveEventMessage(event) : event.data?.message
+      if (!Array.isArray(original?.content)) continue
+      const pruned = pruner.pruneContent(original.content)
+      if (pruned === null) continue
+      count += 1
+      const before = meter?.estimateMessage?.(original) ?? estimateTokens(textOf(original.content))
+      const after = meter?.estimateMessage?.({ ...original, content: pruned }) ?? estimateTokens(textOf(pruned))
+      saved += Math.max(0, before - after)
+    }
+    return { count, saved }
+  }
+
+  // Prunes only tool results older than `beforeSeq`, matching ToolResultPruner's
+  // exact compaction/prune + tool/result surface replacement events.
+  function pruneOlderToolResults(session, pruner, beforeSeq) {
+    const nodes = [...(session?.surface?.nodes ?? [])]
+    const meter = ctx.get?.('tokenMeter')
+    const pruned = []
+    let charsRemoved = 0
+    for (const seq of nodes) {
+      if (seq >= beforeSeq) continue
+      const event = session.eventAt(seq)
+      if (event?.type !== 'tool/result') continue
+      const original = typeof session.deriveEventMessage === 'function' ? session.deriveEventMessage(event) : event.data?.message
+      if (!Array.isArray(original?.content)) continue
+      const content = pruner.pruneContent(original.content)
+      if (content === null) continue
+      const charsBefore = typeof pruner.measureContent === 'function' ? pruner.measureContent(original.content) : textOf(original.content).length
+      const charsAfter = typeof pruner.measureContent === 'function' ? pruner.measureContent(content) : textOf(content).length
+      const message = Object.freeze({ ...original, content: Object.freeze(content.map(block => Object.freeze({ ...block }))) })
+      session.append('compaction/prune', {
+        shadowedRange: { start: seq, end: seq },
+        shadowedSeqs: [seq],
+        shadowedTokenCount: meter?.estimateMessage?.(original) ?? estimateTokens(textOf(original.content)),
+      })
+      const replacement = session.append('tool/result', { ...event.data, message }, {
+        surfaceOp: { op: 'replace', startSeq: seq, endSeq: seq },
+        sourceEventSeqs: [seq],
+      })
+      pruned.push({ originalSeq: seq, replacementSeq: replacement.seq, charsBefore, charsAfter })
+      charsRemoved += Math.max(0, charsBefore - charsAfter)
+    }
+    return { pruned, charsRemoved }
+  }
+
+  // Non-mutating check that no maintenance pass is currently holding the agent lock.
+  async function tryMaintenanceIdle(agent) {
+    if (!isAgentIdle(agent)) return false
+    if (typeof agent.runMaintenance !== 'function') return true
+    let entered = false
+    let maintenanceSignal
+    try {
+      return await agent.runMaintenance((signal) => {
+        entered = true
+        maintenanceSignal = signal
+        return !signal?.aborted
+      })
+    } catch (error) {
+      if (!entered || maintenanceSignal?.aborted || error?.code === 'busy' || error?.code === 'cancelled') return false
+      return true
+    }
   }
 
   // Model-free tool-result pruning through DSH's documented toolResultPruner service.
   // Called only once a part crosses a pressure line so prefix cache stays intact below
-  // the line. Reclaims oversized tool outputs without spending LLM tokens or losing dialogue.
-  async function pruneToolResults(agent, { inTurn = false } = {}) {
+  // the line. Mid-turn pruning protects the current turn's tool outputs first and only
+  // falls back to pruning them when older results alone cannot drop below `target`.
+  async function pruneToolResults(agent, { inTurn = false, target } = {}) {
     if (localPart(agent.session)) return { pruned: 0 }
     if (!inTurn && !isAgentIdle(agent)) return { busy: true, pruned: 0 }
-    const pruner = ctx.get?.('agentPresets')?.serviceFor?.(agent, 'toolResultPruner') ?? ctx.get?.('toolResultPruner')
+    const pruner = prunerOf(agent)
     if (typeof pruner?.pruneSession !== 'function') return { pruned: 0 }
     const run = async () => {
       const before = tokensOf(agent.session)
+      let count = 0
+      let charsRemoved = 0
+      if (inTurn && typeof pruner.pruneContent === 'function' && typeof agent.session?.append === 'function') {
+        const cutoff = protectedPruneCutoff(agent.session)
+        if (cutoff !== undefined) {
+          const allDry = estimatePrunableSavings(agent.session, pruner)
+          const olderDry = estimatePrunableSavings(agent.session, pruner, { beforeSeq: cutoff })
+          const hasProtected = allDry !== undefined && olderDry !== undefined && allDry.count > olderDry.count
+          if (hasProtected && olderDry.count > 0) {
+            const olderOutcome = pruneOlderToolResults(agent.session, pruner, cutoff)
+            count += olderOutcome.pruned.length
+            charsRemoved += olderOutcome.charsRemoved
+            if (count > 0) {
+              await ctx.sessions.flush(agent.session)
+              const afterOlder = tokensOf(agent.session)
+              if (target === undefined || (afterOlder !== undefined && afterOlder < target)) {
+                ctx.logger.info('ds-bot: pruned %d older tool result(s) in %s (%d -> %d tokens, %d chars removed; current turn protected)', count, agent.id, before ?? -1, afterOlder ?? -1, charsRemoved)
+                return { pruned: count, before, after: afterOlder }
+              }
+            }
+          }
+        }
+      }
       const outcome = pruner.pruneSession(agent.session)
-      const count = outcome?.pruned?.length ?? 0
+      const extra = outcome?.pruned?.length ?? 0
+      count += extra
+      charsRemoved += outcome?.charsRemoved ?? 0
       if (count === 0) return { pruned: 0, before, after: before }
       await ctx.sessions.flush(agent.session)
       const after = tokensOf(agent.session)
-      ctx.logger.info('ds-bot: pruned %d oversized tool result(s) in %s (%d -> %d tokens, %d chars removed)', count, agent.id, before ?? -1, after ?? -1, outcome.charsRemoved ?? 0)
+      ctx.logger.info('ds-bot: pruned %d oversized tool result(s) in %s (%d -> %d tokens, %d chars removed)', count, agent.id, before ?? -1, after ?? -1, charsRemoved)
       return { pruned: count, before, after }
     }
     let entered = false
@@ -1458,6 +1615,8 @@ export function install(rt) {
     rt.renewMemory(sessionId)
     const after = tokensOf(agent.session) ?? before
     partBase.set(agent.id, after)
+    if (inTurn && after < target && after >= lines.check) midTurnCondensed.add(agent.id)
+    else midTurnCondensed.delete(agent.id)
     ctx.logger.info('ds-bot: %s condensed from %d to %d tokens (check line %d, hard line %d)', agent.id, before ?? -1, after ?? -1, lines.check, lines.hard)
     return after < target
   }
@@ -1580,10 +1739,11 @@ export function install(rt) {
   }
 
   // Carries any active IM turn origin onto a synthetic switch/resume source without
-  // replaying a stale request rpcId that the earlier part already consumed.
+  // replaying a stale request rpcId or transferId that the earlier part already consumed.
   function carryOriginSource(job, base) {
     const source = { ...base }
     delete source.rpcId
+    delete source.transferId
     if (job.resumeOrigin === undefined) return source
     job.originSent = true
     return { ...source, imOrigin: job.resumeOrigin }
@@ -1617,6 +1777,12 @@ export function install(rt) {
   // Parts whose note failed below the hard line: failures in a row, and the time
   // before which the check line does not try again.
   const noteFailures = new Map()
+  // Parts where canMakeRoom returned false below the hard line: failures in a row,
+  // and the time before which checkContext does not re-ask the steward.
+  const roomRetry = new Map()
+  // Parts whose mid-turn condensation succeeded below hard but stayed at or above check;
+  // checkContext ignores the C/4 growth gate once when the turn finishes.
+  const midTurnCondensed = new Set()
   // Parts the steward is deciding about at the end of a turn.
   const checking = new Set()
   // Per part on a local agent CLI: the compactions already looked at, and the parts
@@ -1693,35 +1859,121 @@ export function install(rt) {
   const isSilentRelay = message => isSilentSource(message?.source)
   const isAgentIdle = agent => agent.status === 'idle' && rt.live?.get(agent.id)?.turn === undefined
 
+  // Collects per-message transfer identities already pending in the target inbox,
+  // claimed into an in-flight turn, or admitted into the target session log so
+  // retrying a failed forward flush never duplicates an already-claimed prompt.
+  // Keeps per-message transfer identity separate from reply-routing exchangeId so
+  // a synthetic resume message (PAUSE_NOTE) sharing an active turn's exchangeId is
+  // never mistaken for the original request already logged in the old part's history.
+  const transferKeyOf = message => message?.source?.transferId ?? message?.source?.rpcId ?? message?.id ?? message?.source?.exchangeId
+  function collectTargetSeen(agent) {
+    const seenTransferIds = new Set()
+    const seenExchangeIds = new Set()
+    const addTransfer = (msg) => {
+      if (!msg) return
+      if (msg.id !== undefined) seenTransferIds.add(msg.id)
+      const src = msg.source
+      if (src?.transferId !== undefined) seenTransferIds.add(src.transferId)
+      if (src?.rpcId !== undefined) seenTransferIds.add(src.rpcId)
+      if (src?.exchangeId !== undefined) seenExchangeIds.add(src.exchangeId)
+    }
+    for (const msg of [...(agent.inbox?.nextStep ?? []), ...(agent.inbox?.nextTurn ?? [])]) {
+      addTransfer(msg)
+    }
+    const events = agent.session?.snapshotEvents?.()
+    if (Array.isArray(events)) {
+      const pending = { 'next-turn': [], 'next-step': [] }
+      const claimedTransfer = new Set()
+      const claimedExchange = new Set()
+      for (const ev of events) {
+        if (ev?.type === 'turn/end') {
+          claimedTransfer.clear()
+          claimedExchange.clear()
+        }
+        if (ev?.type === 'user/message') {
+          if (ev.data?.id !== undefined) seenTransferIds.add(ev.data.id)
+          if (ev.data?.message?.id !== undefined) seenTransferIds.add(ev.data.message.id)
+          const src = ev.data?.source ?? ev.data?.message?.source
+          if (src?.transferId !== undefined) seenTransferIds.add(src.transferId)
+          if (src?.rpcId !== undefined) seenTransferIds.add(src.rpcId)
+          if (src?.exchangeId !== undefined) seenExchangeIds.add(src.exchangeId)
+        } else if (ev?.type === 'agent/inbox/spliced' && ev.data) {
+          const inbox = pending[ev.data.target]
+          if (inbox !== undefined) {
+            const start = ev.data.start
+            const removedCount = ev.data.removedCount ?? 0
+            const inserted = Array.isArray(ev.data.inserted) ? ev.data.inserted : []
+            if (Number.isSafeInteger(start) && start >= 0 && start <= inbox.length
+              && Number.isSafeInteger(removedCount) && removedCount >= 0 && start + removedCount <= inbox.length) {
+              const removed = inbox.splice(start, removedCount, ...inserted)
+              if (inserted.length === 0 && ev.data.outcome !== 'canceled') {
+                for (const msg of removed) {
+                  if (msg?.id !== undefined) claimedTransfer.add(msg.id)
+                  if (msg?.source?.transferId !== undefined) claimedTransfer.add(msg.source.transferId)
+                  if (msg?.source?.rpcId !== undefined) claimedTransfer.add(msg.source.rpcId)
+                  if (msg?.source?.exchangeId !== undefined) claimedExchange.add(msg.source.exchangeId)
+                }
+              }
+            }
+          }
+        }
+      }
+      for (const list of [pending['next-turn'], pending['next-step']]) {
+        for (const msg of list) addTransfer(msg)
+      }
+      for (const key of claimedTransfer) seenTransferIds.add(key)
+      for (const key of claimedExchange) seenExchangeIds.add(key)
+    } else {
+      for (const msg of agent.session?.deriveMessages?.() ?? []) {
+        if (msg?.role === 'user') addTransfer(msg)
+      }
+    }
+    return { seenTransferIds, seenExchangeIds }
+  }
+
   // Input for an earlier part goes on in the current one: a browser may still show the
   // old part, and a turn stopped for a switch hands on what it claimed.
   async function forward(owner, messages, target = currentOf(owner)) {
     if (target === undefined || messages.length === 0) return
     await rt.ensureCapabilities(target)
     const agent = await rt.resolveAgent(target)
-    // A retry after a forward that stopped halfway must not deliver the same input twice.
-    const pending = [...agent.inbox.nextStep, ...agent.inbox.nextTurn]
-    let flushedNeeded = false
+    // A retry after a forward that stopped halfway must not deliver the same input twice,
+    // including prompts the target already claimed out of its inbox before flush failed.
+    const { seenTransferIds, seenExchangeIds } = collectTargetSeen(agent)
+    let flushNeeded = false
     for (const message of messages) {
       const kind = message.source?.kind
       // DSH's notice of a folder change is about the Session it was queued in; the part
       // that goes on has its own folder, which its handoff names.
       if (kind === 'working-directory') continue
+      const explicitTransfer = message.source?.transferId
+      const key = transferKeyOf(message)
       const exchangeId = message.source?.exchangeId
-      if (exchangeId !== undefined && pending.some(queued => queued.source?.exchangeId === exchangeId)) continue
-      const copy = createUserMessage({ content: message.content, ...(message.source ? { source: message.source } : {}) })
+      const alreadySeen = (key !== undefined && seenTransferIds.has(key))
+        || (explicitTransfer === undefined && exchangeId !== undefined && seenExchangeIds.has(exchangeId))
+      if (alreadySeen) {
+        // Ensure a previously claimed/pending admission on the target is flushed to disk
+        // before the caller removes the original message from the old inbox.
+        flushNeeded = true
+        continue
+      }
+      const source = message.source
+        ? { ...message.source, ...(key !== undefined && message.source.transferId === undefined ? { transferId: key } : {}) }
+        : (key !== undefined ? { transferId: key } : undefined)
+      const copy = createUserMessage({ content: message.content, ...(source ? { source } : {}) })
       if (isSilentRelay(message)) {
-        if (rt.injectSilent ? rt.injectSilent(target, copy, agent) : (agent.inject(copy), true)) flushedNeeded = true
+        if (rt.injectSilent ? rt.injectSilent(target, copy, agent) : (agent.inject(copy), true)) flushNeeded = true
       } else if (isWakingSource(message.source)) {
         agent.followup(copy)
-        flushedNeeded = true
+        flushNeeded = true
       } else {
         agent.inject(copy)
-        flushedNeeded = true
+        flushNeeded = true
       }
-      pending.push(copy)
+      if (key !== undefined) seenTransferIds.add(key)
+      if (explicitTransfer === undefined && exchangeId !== undefined) seenExchangeIds.add(exchangeId)
     }
-    if (flushedNeeded) await ctx.sessions.flush(agent.session)
+    if (flushNeeded) await ctx.sessions.flush(agent.session)
   }
 
   // The plugin's own fiber is disposed (a reload, or DSH closing): every service
@@ -1765,11 +2017,14 @@ export function install(rt) {
   const removeForMove = (agent, messages) => {
     for (const message of messages) removeMessageForMove(agent, message)
   }
-  const wake = (agent) => {
+  const wake = (agent, priorityIds) => {
     const pending = [...agent.inbox.nextStep, ...agent.inbox.nextTurn]
     removeForMove(agent, pending)
     const silent = pending.filter(isSilentRelay)
     const active = pending.filter(message => !isSilentRelay(message))
+    // Keep PAUSE_NOTE and rolled-back turn input ahead of newer steered follow-ups in next-step.
+    const rank = message => (textOf(message?.content) === PAUSE_NOTE ? 2 : (priorityIds?.has(message?.id) ? 1 : 0))
+    active.sort((a, b) => rank(b) - rank(a))
     for (const message of silent) agent.send(message, 'next-step', false)
     for (let i = 0; i < active.length; i += 1) {
       agent.send(active[i], inboxTargetOf(active[i]), i === 0)
@@ -1782,6 +2037,170 @@ export function install(rt) {
   // to; a part that stayed just wakes so its kept input goes on.
   // The start timer and a direct call can overlap on a slow start; both share one pass,
   // so kept input is handed on once.
+  const HELD_RETRY_MS = [5_000, 15_000, 60_000, 300_000]
+  let heldRetryTimer
+  let heldRetryCount = 0
+  function scheduleHeldBackRetry() {
+    if (heldRetryTimer !== undefined || readOnly() || ctx.fiber?.uid === null) return
+    if (Object.keys(state.switching ?? {}).length === 0) {
+      heldRetryCount = 0
+      return
+    }
+    const delay = HELD_RETRY_MS[Math.min(heldRetryCount, HELD_RETRY_MS.length - 1)]
+    heldRetryCount += 1
+    heldRetryTimer = setTimeout(() => {
+      heldRetryTimer = undefined
+      if (ctx.fiber?.uid === null || readOnly()) return
+      void heldBack().catch(error => rt.warn('ds-bot: handing on input kept in earlier parts failed: %s', error))
+    }, delay)
+    heldRetryTimer.unref?.()
+  }
+
+  // Recovers a handoff package that was not yet flushed to `target` when the process
+  // crashed or errored between flipping the current-part pointer and flushing flush #1.
+  async function ensureHandoffDelivered(oldSessionId, owner, targetId, { metaOverride, fallbackSessionId } = {}) {
+    await rt.ensureCapabilities(targetId)
+    const fresh = await rt.resolveAgent(targetId)
+    const meta = metaOverride ?? owner.handoffMeta ?? {}
+    const expectedExchangeId = meta.info?.exchangeId
+    const matchesExistingHandoff = (m) => {
+      if (m?.source?.handoff !== true) return false
+      if (expectedExchangeId === undefined) return true
+      return m.source?.exchangeId === expectedExchangeId
+    }
+    const alreadyHasHandoff = (fresh.session?.deriveMessages?.() ?? []).some(matchesExistingHandoff)
+      || [...(fresh.inbox?.nextStep ?? []), ...(fresh.inbox?.nextTurn ?? [])].some(matchesExistingHandoff)
+    if (alreadyHasHandoff) return
+    const bot = owner.botId === undefined ? undefined : rt.botOf(owner.botId)
+    const room = rt.roomOf(owner.roomId)
+    const taskEntry = rt.taskBySession?.(targetId)?.task ?? rt.taskBySession?.(oldSessionId)?.task
+    const taskRoom = taskEntry?.roomId !== undefined ? rt.roomOf(taskEntry.roomId) : undefined
+    const effectiveRoom = room ?? taskRoom
+    const parts = bot === undefined ? partsOf(undefined, room?.id)
+      : room !== undefined ? partsOf(bot.id, room.id) : partsOfThread(bot.id, targetId)
+    const targetPart = parts.find(part => part?.sessionId === targetId)
+    const number = targetPart?.number ?? Math.max(2, parts.length)
+    let segment = parts.find(part => part?.sessionId === oldSessionId) ?? { sessionId: oldSessionId, fallback: 'failed' }
+    const oldPartNumber = segment.number ?? Math.max(1, number - 1)
+    const lines = await contextLines(fresh.session).catch(() => undefined)
+    const budget = Math.min(RECENT_TOKENS, Math.floor((lines?.check ?? 4 * RECENT_TOKENS) / 4))
+    let carried = meta.bare
+      ? { recent: [], earlier: [], tools: [], unlisted: 0, complete: true }
+      : await handoffLines(oldSessionId, { budget, group: effectiveRoom !== undefined, number: oldPartNumber })
+    if (!meta.bare && carried.recent.length === 0 && carried.earlier.length === 0 && fallbackSessionId !== undefined && fallbackSessionId !== oldSessionId) {
+      const fallbackSegment = parts.find(part => part?.sessionId === fallbackSessionId)
+      const fallbackPartNumber = fallbackSegment?.number ?? Math.max(1, oldPartNumber - 1)
+      const fallbackCarried = await handoffLines(fallbackSessionId, { budget, group: effectiveRoom !== undefined, number: fallbackPartNumber })
+      if (fallbackCarried.recent.length > 0 || fallbackCarried.earlier.length > 0 || fallbackCarried.tools.length > 0) {
+        carried = fallbackCarried
+        segment = fallbackSegment ?? segment
+      }
+    }
+    const folder = meta.folder ? fresh.session?.header?.cwd : undefined
+    const engine = meta.engine && bot !== undefined ? rt.engineNameOf?.(bot.model ?? bot.appliedModel) : undefined
+    const resume = meta.resume === true || meta.overflow === true
+    const text = handoffPackage({
+      room: effectiveRoom,
+      self: bot === undefined,
+      segment,
+      lines: carried,
+      number,
+      resume,
+      overflow: meta.overflow === true,
+      cutoff: meta.cutoff === true,
+      failed: meta.failed,
+      bare: meta.bare === true,
+      folder,
+      engine,
+    })
+    freshParts.set(targetId, estimateTokens(text))
+    const recoveredJob = {
+      ...(meta.info !== undefined ? { info: meta.info } : {}),
+      ...(Array.isArray(meta.joined) && meta.joined.length > 0 ? { joined: meta.joined } : {}),
+      ...(meta.resumeOrigin !== undefined ? { resumeOrigin: meta.resumeOrigin } : {}),
+    }
+    fresh.followup(createUserMessage({
+      content: [{ type: 'text', text }],
+      source: handoffSource(recoveredJob, resume),
+    }))
+    await ctx.sessions.flush(fresh.session)
+  }
+
+  // Splits stacked pending handoffs into batches with at most one distinct primary
+  // request per handoff (never demoting a primary request to a payload-less joined entry),
+  // while consolidating trailing non-resuming folder/engine hops into the same handoff.
+  function planPendingHandoffs(pendingHandoffs) {
+    const batches = []
+    let current = []
+    let currentPrimaryEx
+    for (const entry of pendingHandoffs) {
+      const ex = entry.owner.handoffMeta?.info?.exchangeId
+      if (ex !== undefined && currentPrimaryEx !== undefined && ex !== currentPrimaryEx) {
+        batches.push(current)
+        current = [entry]
+        currentPrimaryEx = ex
+      } else {
+        current.push(entry)
+        if (ex !== undefined) currentPrimaryEx = ex
+      }
+    }
+    if (current.length > 0) batches.push(current)
+
+    return batches.map((entries) => {
+      const newest = entries[entries.length - 1]
+      const newestMeta = newest.owner.handoffMeta ?? {}
+      let resumedEntry
+      let resume = false
+      let overflow = false
+      let cutoff = false
+      let folder = newestMeta.folder === true
+      let engine = newestMeta.engine === true
+      let bare = newestMeta.bare === true
+      let failed = newestMeta.failed
+      let primaryInfo
+      let resumeOrigin
+      const joined = []
+      const seenJoined = new Set()
+      for (const entry of entries) {
+        const meta = entry.owner.handoffMeta ?? {}
+        const hasResume = meta.resume === true || meta.overflow === true || meta.info !== undefined || (Array.isArray(meta.joined) && meta.joined.length > 0)
+        if (hasResume) resumedEntry = entry
+        if (meta.resume === true) resume = true
+        if (meta.overflow === true) overflow = true
+        if (meta.cutoff === true) cutoff = true
+        if (meta.folder === true) folder = true
+        if (meta.engine === true) engine = true
+        if (meta.failed !== undefined) failed = meta.failed
+        if (meta.info !== undefined) primaryInfo = meta.info
+        if (meta.resumeOrigin !== undefined) resumeOrigin = meta.resumeOrigin
+        if (Array.isArray(meta.joined)) {
+          for (const item of meta.joined) {
+            const ex = item?.info?.exchangeId
+            if (ex !== undefined && seenJoined.has(ex)) continue
+            if (ex !== undefined) seenJoined.add(ex)
+            joined.push(item)
+          }
+        }
+      }
+      if (resumedEntry !== undefined && resumedEntry !== newest && resumedEntry.owner.handoffMeta?.bare === true) {
+        bare = true
+      }
+      const mergedMeta = {
+        resume,
+        overflow,
+        cutoff,
+        folder,
+        engine,
+        bare,
+        ...(failed !== undefined ? { failed } : {}),
+        ...(primaryInfo !== undefined ? { info: primaryInfo } : {}),
+        ...(joined.length > 0 ? { joined } : {}),
+        ...(resumeOrigin !== undefined ? { resumeOrigin } : {}),
+      }
+      return { entries, newest, resumedEntry, mergedMeta }
+    })
+  }
+
   let heldBackRun
   let heldBackAgain = false
   function heldBack() {
@@ -1797,39 +2216,189 @@ export function install(rt) {
     })().finally(() => { heldBackRun = undefined })
     return heldBackRun
   }
+  // Orders multiple unfinished switching parts targeting the same successor from
+  // oldest to newest using the thread's recorded parts list (falling back to
+  // state.switching insertion order, with pruned ancient parts sorted earliest).
+  function partOrderIndex(sessionId, owner, target, insertionIndex) {
+    const bot = owner.botId === undefined ? undefined : rt.botOf(owner.botId)
+    const parts = bot === undefined ? partsOf(undefined, owner.roomId)
+      : owner.roomId !== undefined ? partsOf(bot.id, owner.roomId)
+        : partsOfThread(bot.id, target)
+    const idx = parts.findIndex(part => part?.sessionId === sessionId)
+    return idx !== -1 ? idx : -1e9 + insertionIndex
+  }
+
   async function handOnHeld() {
     await rt.load()
     if (rt.readOnly() !== undefined) return
+    let retryNeeded = false
+    const samePart = []
+    const byTarget = new Map()
+    let insertionIndex = 0
     for (const [sessionId, owner] of Object.entries(state.switching ?? {})) {
+      const target = threadTargetOf(sessionId, owner)
+      if (target === sessionId) {
+        samePart.push({ sessionId, owner })
+      } else {
+        let group = byTarget.get(target)
+        if (group === undefined) {
+          group = []
+          byTarget.set(target, group)
+        }
+        group.push({ sessionId, owner, order: partOrderIndex(sessionId, owner, target, insertionIndex) })
+      }
+      insertionIndex += 1
+    }
+
+    for (const { sessionId } of samePart) {
       if (switches.has(sessionId)) continue
       try {
         const agent = await rt.resolveAgent(sessionId)
         if (switches.has(sessionId)) continue
-        const held = [...agent.inbox.nextStep, ...agent.inbox.nextTurn]
-        const target = threadTargetOf(sessionId, owner)
-        if (target !== sessionId) {
-          await forward(owner, held, target)
+        try { wake(agent) } catch (error) { rt.warn('ds-bot: part %s could not be woken for its kept input: %s', sessionId, error) }
+        delete state.switching[sessionId]
+        await rt.save()
+      } catch (error) {
+        retryNeeded = true
+        rt.warn('ds-bot: input kept in part %s was not handed on: %s', sessionId, error)
+      }
+    }
+
+    for (const [target, group] of byTarget) {
+      group.sort((a, b) => a.order - b.order)
+      let blockedIdx = -1
+      for (let i = 0; i < group.length; i += 1) {
+        const entry = group[i]
+        if (switches.has(entry.sessionId)) {
+          entry.active = true
+          blockedIdx = i
+          continue
+        }
+        try {
+          const agent = await rt.resolveAgent(entry.sessionId)
+          if (switches.has(entry.sessionId)) {
+            entry.active = true
+            blockedIdx = i
+            continue
+          }
+          entry.agent = agent
+          entry.held = [...agent.inbox.nextStep, ...agent.inbox.nextTurn]
+        } catch (error) {
+          entry.error = error
+          blockedIdx = i
+          retryNeeded = true
+          rt.warn('ds-bot: input kept in part %s was not handed on: %s', entry.sessionId, error)
+        }
+      }
+      // If a newer source part targeting the same successor is actively switching or
+      // failed to resolve, keep earlier parts untouched so stale originals are never
+      // forwarded ahead of a newer merged replacement.
+      if (blockedIdx !== -1 && group.slice(0, blockedIdx).some(entry => !entry.active && entry.error === undefined)) {
+        retryNeeded = true
+      }
+      const ready = group.slice(blockedIdx + 1)
+      if (ready.length === 0) continue
+
+      // Re-verify destination after async source resolution: if the destination started
+      // switching or already moved on to a newer part, defer so we never deliver handoffs,
+      // input, or reminders onto a retiring part.
+      if (switches.has(target) || ready.some(entry => threadTargetOf(entry.sessionId, entry.owner) !== target)) {
+        retryNeeded = true
+        continue
+      }
+
+      try {
+        // Deliver pending handoffs for this target before forwarding held input.
+        // Distinct interrupted primary requests stay separate handoffs (preserving full
+        // source transcripts and reply routing); trailing non-resuming hops consolidate.
+        const pendingHandoffs = ready.filter(entry => entry.owner.handoffPending === true)
+        if (pendingHandoffs.length > 0) {
+          for (const { entries, newest, resumedEntry, mergedMeta } of planPendingHandoffs(pendingHandoffs)) {
+            await ensureHandoffDelivered(newest.sessionId, newest.owner, target, {
+              metaOverride: mergedMeta,
+              fallbackSessionId: resumedEntry?.sessionId,
+            })
+            for (const entry of entries) {
+              delete entry.owner.handoffPending
+              delete entry.owner.handoffMeta
+            }
+            await rt.save()
+          }
+        }
+
+        // Resolve competing copies across successive source parts so a newer merged
+        // payload always supersedes an older retained original for the same transfer.
+        const latestTransferPart = new Map()
+        const latestExchangePart = new Map()
+        for (let i = 0; i < ready.length; i += 1) {
+          for (const msg of ready[i].held) {
+            const key = transferKeyOf(msg)
+            if (key !== undefined) latestTransferPart.set(key, i)
+            const ex = msg.source?.exchangeId
+            if (ex !== undefined && msg.source?.handoff !== true && textOf(msg.content) !== PAUSE_NOTE) {
+              latestExchangePart.set(ex, i)
+            }
+          }
+        }
+        const toForward = []
+        for (let i = 0; i < ready.length; i += 1) {
+          for (const msg of ready[i].held) {
+            const explicitTransfer = msg.source?.transferId
+            const key = transferKeyOf(msg)
+            const ex = msg.source?.exchangeId
+            const superseded = (key !== undefined && latestTransferPart.get(key) > i)
+              || (explicitTransfer === undefined && ex !== undefined && latestExchangePart.get(ex) > i)
+            if (!superseded) toForward.push(msg)
+          }
+        }
+        await forward(ready[ready.length - 1].owner, toForward, target)
+        // Target admission is now durable on disk: remove acknowledged originals at once
+        // so a later switch of `target` before reminder/archive cleanup cannot replay
+        // prompts `target` already answered.
+        for (const { agent, held } of ready) removeForMove(agent, held)
+      } catch (error) {
+        retryNeeded = true
+        rt.warn('ds-bot: input kept in parts targeting %s was not handed on: %s', target, error)
+        continue
+      }
+
+      for (const { sessionId, owner } of ready) {
+        try {
+          // If the destination switched or started switching while handoff/forward ran,
+          // defer silent-note/schedule migration and archive rather than moving reminders
+          // onto a retiring part.
+          const liveTarget = threadTargetOf(sessionId, owner)
+          if (liveTarget !== target || switches.has(target)) {
+            retryNeeded = true
+            continue
+          }
           await rt.moveSilentNotes?.(sessionId, target, { awaitFlush: true, rethrow: true })
-          removeForMove(agent, held)
           // An interrupted switch may not have finished moving the tasks over; stop
           // the earlier part only after they sit on the part that replaced it.
-          const finishMove = await rt.moveSchedules?.(sessionId, target, { stopActivity: true })
+          // Resolve the live destination again inside the serialized scheduleMoves chain.
+          const finishMove = await rt.moveSchedules?.(sessionId, target, {
+            stopActivity: true,
+            resolveTarget: () => threadTargetOf(sessionId, owner),
+          })
           await ctx.workspaceRegistry.archiveSession(sessionId, { stopActivity: true })
             .then(() => finishMove?.())
             .catch(error => {
               if (finishMove !== undefined) throw error
               rt.warn('ds-bot: earlier part %s not archived: %s', sessionId, error)
             })
-        } else {
-          try { wake(agent) } catch (error) { rt.warn('ds-bot: part %s could not be woken for its kept input: %s', sessionId, error) }
+          delete state.switching[sessionId]
+          await rt.save()
+        } catch (error) {
+          if (error?.code === 'schedule/pending') noteInfo('ds-bot: keeping earlier part %s until schedules attach', sessionId)
+          else {
+            retryNeeded = true
+            rt.warn('ds-bot: input kept in part %s was not handed on: %s', sessionId, error)
+          }
         }
-        delete state.switching[sessionId]
-        await rt.save()
-      } catch (error) {
-        if (error?.code === 'schedule/pending') noteInfo('ds-bot: keeping earlier part %s until schedules attach', sessionId)
-        else rt.warn('ds-bot: input kept in part %s was not handed on: %s', sessionId, error)
       }
     }
+    if (!retryNeeded) heldRetryCount = 0
+    else scheduleHeldBackRetry()
   }
 
   // `hard`: past the hard line or the window, the part moves on even without a note
@@ -1839,17 +2408,20 @@ export function install(rt) {
   // `engine`: because the Bot now runs on something else (see engineMoved).
   // `idle`: initiated after a turn ended (after async checks like decide/canMakeRoom);
   // bail out atomically if a new turn started meanwhile so running work is never killed.
-  function startSwitch(agent, { idle = false, resume = false, carry = [], info, joined, overflow = false, failed, bare = false, folder = false, cutoff = false, engine = false, hard = overflow || folder || engine || cutoff } = {}) {
+  function startSwitch(agent, { idle = false, resume = false, carry = [], carriedIds, info, joined, overflow = false, failed, bare = false, folder = false, cutoff = false, engine = false, hard = overflow || folder || engine || cutoff } = {}) {
     const place = placeOf(agent.id)
     if (place === undefined || switches.has(agent.id) || readOnly()) return false
     if (idle && !isAgentIdle(agent)) return false
     const resumeOrigin = resume || place.botId === undefined ? rt.holdImOrigin?.(agent.id) : undefined
-    const job = { ...place, carry: [...carry], info, joined, resume, resumeOrigin, overflow, failed, bare, folder, engine, hard, cutoff, since: Date.now() }
+    const job = { ...place, carry: [...carry], carriedIds: new Set(carriedIds ?? []), info, joined, resume, resumeOrigin, overflow, failed, bare, folder, engine, hard, cutoff, since: Date.now() }
     switches.set(agent.id, job)
     const done = runSwitch(agent, job)
       .catch(error => {
         const name = rt.botOf(job.botId)?.name ?? rt.roomOf(job.roomId)?.name ?? agent.id
-        if (unloaded(error)) return noteInfo('ds-bot: plugin unloaded while %s switched parts; input kept in part %s', name, agent.id)
+        if (unloaded(error)) {
+          job.unloaded = true
+          return noteInfo('ds-bot: plugin unloaded while %s switched parts; input kept in part %s', name, agent.id)
+        }
         if (error?.code === 'schedule/pending') return noteInfo('ds-bot: %s moved on to a fresh part; retiring part %s once schedules attach', name, agent.id)
         rt.warn('ds-bot: %s did not move on to a fresh part: %s', name, error)
       })
@@ -1857,10 +2429,15 @@ export function install(rt) {
         switches.delete(agent.id)
         if (job.moved) {
           if (!job.originSent) rt.dropImOrigin?.(job.resumeOrigin)
-          // A move that had to put input back keeps the part marked for the restart pass.
+          // A move that had to put input back keeps the part marked for the restart/retry pass.
           if (job.kept !== true) {
             delete state.switching[agent.id]
             await rt.save()
+          } else {
+            if (job.handoffCleared === true) await rt.save().catch(() => {})
+            if (job.schedulePending !== true && job.unloaded !== true) {
+              scheduleHeldBackRetry()
+            }
           }
           forgetSessionParts(agent.id)
           rt.forgetSessionTurn?.(agent.id)
@@ -1875,29 +2452,96 @@ export function install(rt) {
         if (folder) folderRetry.set(agent.id, Date.now() + FOLDER_RETRY_MS)
         if (job.engine) engineRetry.set(agent.id, Date.now() + FOLDER_RETRY_MS)
         if (!job.noteFailed) partBase.set(agent.id, sizeOf(agent.session) ?? 0)
-        // The stopped turn goes on where it was. A retry finds the note among the
-        // input this part kept, so it is added once.
-        const back = job.carry.splice(0)
+        const rollbackTarget = threadTargetOf(agent.id, job)
         const noted = [...agent.inbox.nextStep, ...agent.inbox.nextTurn].some(message => textOf(message.content) === PAUSE_NOTE)
-        if (job.resume && !back.some(message => textOf(message.content) === PAUSE_NOTE) && !noted) {
-          const carried = job.joined?.length ? { joined: job.joined } : {}
-          back.unshift(createUserMessage({
-            content: [{ type: 'text', text: PAUSE_NOTE }],
-            source: carryOriginSource(job, job.info
-              ? { ...job.info, ...carried }
-              : { kind: SOURCE_KIND, form: 'relay', role: 'resume', exchangeId: randomUUID(), senderName: 'DS Bot', ...carried }),
-          }))
+        const pauseMessage = job.resume && !noted
+          ? createUserMessage({
+              content: [{ type: 'text', text: PAUSE_NOTE }],
+              source: {
+                ...carryOriginSource(job, job.info
+                  ? { ...job.info, ...(job.joined?.length ? { joined: job.joined } : {}) }
+                  : { kind: SOURCE_KIND, form: 'relay', role: 'resume', exchangeId: randomUUID(), senderName: 'DS Bot', ...(job.joined?.length ? { joined: job.joined } : {}) }),
+                transferId: randomUUID(),
+              },
+            })
+          : undefined
+        if (rollbackTarget === agent.id) {
+          // Handle same-part rollback in place: parked messages stay at the head of
+          // agent.inbox and later queued prompts stay behind them without ever being
+          // removed across async awaits.
+          const toPrepend = job.carry.splice(0)
+          if (pauseMessage !== undefined && !toPrepend.some(message => textOf(message.content) === PAUSE_NOTE)) {
+            toPrepend.unshift(pauseMessage)
+          }
+          const priorityIds = new Set([...job.carriedIds, ...toPrepend.map(m => m?.id).filter(Boolean)])
+          job.carriedIds.clear()
+          restore(agent, toPrepend)
+          const inboxAccepted = toPrepend.length === 0
+            || [...agent.inbox.nextStep, ...agent.inbox.nextTurn].some(m => toPrepend.some(p => p.id === m.id))
+          if (!inboxAccepted) {
+            await forward(job, toPrepend, rollbackTarget).then(() => {
+              delete state.switching[agent.id]
+            }).catch((error) => {
+              job.kept = true
+              if (unloaded(error)) {
+                job.unloaded = true
+                return noteInfo('ds-bot: plugin unloaded during the switch of %s; input kept in part %s', agent.id, agent.id)
+              }
+              rt.warn('ds-bot: input for %s was not handed on: %s', agent.id, error)
+              scheduleHeldBackRetry()
+            })
+          } else {
+            await (async () => {
+              await rt.ensureCapabilities(agent.id)
+              await ctx.sessions.flush(agent.session)
+              if (agent.inbox.nextStep.length > 0 || agent.inbox.nextTurn.length > 0) {
+                wake(agent, priorityIds)
+                await ctx.sessions.flush(agent.session)
+              }
+            })().then(() => {
+              delete state.switching[agent.id]
+            }).catch((error) => {
+              job.kept = true
+              if (unloaded(error)) {
+                job.unloaded = true
+                return noteInfo('ds-bot: plugin unloaded during the switch of %s; input kept in part %s', agent.id, agent.id)
+              }
+              rt.warn('ds-bot: input for %s was not handed on: %s', agent.id, error)
+              // The input is already in exact order in agent.inbox; wake it at once.
+              try { wake(agent, priorityIds) } catch {}
+              scheduleHeldBackRetry()
+            })
+          }
+        } else {
+          // Collect any claimed messages that were durably parked in agent.inbox along
+          // with any remaining in-memory carry so failed-switch recovery preserves exact order.
+          const parked = []
+          if (job.carriedIds.size > 0) {
+            for (const message of [...agent.inbox.nextStep, ...agent.inbox.nextTurn]) {
+              if (message?.id !== undefined && job.carriedIds.has(message.id)) parked.push(message)
+            }
+            removeForMove(agent, parked)
+            job.carriedIds.clear()
+          }
+          const back = [...parked, ...job.carry.splice(0)]
+          if (pauseMessage !== undefined && !back.some(message => textOf(message.content) === PAUSE_NOTE)) {
+            back.unshift(pauseMessage)
+          }
+          await forward(job, back, rollbackTarget).then(() => {
+            delete state.switching[agent.id]
+          }).catch((error) => {
+            job.kept = true
+            try { restore(agent, back) } catch {}
+            if (unloaded(error)) {
+              job.unloaded = true
+              return noteInfo('ds-bot: plugin unloaded during the switch of %s; input kept in part %s', agent.id, agent.id)
+            }
+            rt.warn('ds-bot: input for %s was not handed on: %s', agent.id, error)
+            // The input is back where it was; the turn that owns it goes on at once.
+            try { wake(agent) } catch {}
+            scheduleHeldBackRetry()
+          })
         }
-        await forward(job, back, threadTargetOf(agent.id, job)).then(() => {
-          delete state.switching[agent.id]
-        }).catch((error) => {
-          job.kept = true
-          try { restore(agent, back) } catch {}
-          if (unloaded(error)) return noteInfo('ds-bot: plugin unloaded during the switch of %s; input kept in part %s', agent.id, agent.id)
-          rt.warn('ds-bot: input for %s was not handed on: %s', agent.id, error)
-          // The input is back where it was; the turn that owns it goes on at once.
-          try { wake(agent) } catch {}
-        })
         if (!job.originSent) rt.dropImOrigin?.(job.resumeOrigin)
         await rt.save()
         if (job.roomId !== undefined) void rt.settleRoomReports?.(job.roomId).catch(error => rt.warn('ds-bot: settling reports after part switch failed: %s', error))
@@ -1935,6 +2579,10 @@ export function install(rt) {
         // Keep the restart marker: stopping this part would delete unmoved tasks.
         job.kept = true
         if (error?.code === 'schedule/pending') job.schedulePending = true
+        if (job.handoffCleared === true) {
+          job.handoffCleared = false
+          await rt.save().catch(() => {})
+        }
         throw error
       }
       await ctx.workspaceRegistry.archiveSession(agent.id, { stopActivity: true })
@@ -2137,6 +2785,26 @@ export function install(rt) {
         delete state.views[agent.id]
       }
     }
+    const resume = job.resume || job.overflow
+    // Mark handoffPending before flipping the current-part pointer so a crash between
+    // rt.save() and flush #1 lets handOnHeld() reconstruct and deliver the same routable
+    // handoff package (including reply routing & joined requests, without stale rpcId).
+    if (state.switching[agent.id] !== undefined) {
+      const sanitizedInfo = resume && job.info ? carryOriginSource({}, job.info) : undefined
+      state.switching[agent.id].handoffPending = true
+      state.switching[agent.id].handoffMeta = {
+        resume,
+        overflow: job.overflow === true,
+        cutoff: job.cutoff === true,
+        ...(job.failed !== undefined ? { failed: job.failed } : {}),
+        bare: job.bare === true,
+        folder: job.folder === true,
+        engine: job.engine === true,
+        ...(sanitizedInfo !== undefined ? { info: sanitizedInfo } : {}),
+        ...(resume && job.joined?.length ? { joined: job.joined } : {}),
+        ...(job.resumeOrigin !== undefined ? { resumeOrigin: job.resumeOrigin } : {}),
+      }
+    }
     await rt.save()
     // A model the user picked until now went to the earlier part, which was still the
     // Bot's; from here on a change goes to the fresh one.
@@ -2144,9 +2812,9 @@ export function install(rt) {
     if (now !== undefined && (now.ref !== picked?.ref || now.effort !== picked?.effort)) await selectRoute({ name }, freshId, now)
     if (job.failed !== undefined) rescued.set(freshId, job.bare ? 'bare' : 'carried')
     job.moved = true
-    const resume = job.resume || job.overflow
-    // Then what the old part held: the stopped turn's input, then whatever waited. It
-    // moves first; only after that does the old inbox give it up, so a failure keeps it.
+    // Then what the old part held: the stopped turn's input (already persisted in the
+    // old inbox), then whatever waited. It moves first; only after that does the old
+    // inbox give it up, so a failure keeps it.
     const held = [...agent.inbox.nextStep, ...agent.inbox.nextTurn]
     const carry = []
     let folder
@@ -2165,7 +2833,18 @@ export function install(rt) {
       freshParts.set(freshId, estimateTokens(text))
       fresh.followup(createUserMessage({ content: [{ type: 'text', text }], source: handoffSource(job, resume) }))
       await ctx.sessions.flush(fresh.session)
-      carry.push(...job.carry.splice(0))
+      // Handoff package is now durably flushed to the fresh part: clear the pending flag
+      // in memory (persisted on the switch's final save; even on a hard crash before that
+      // save, ensureHandoffDelivered sees the flushed handoff on fresh and skips cleanly).
+      if (state.switching[agent.id] !== undefined) {
+        delete state.switching[agent.id].handoffPending
+        delete state.switching[agent.id].handoffMeta
+        job.handoffCleared = true
+      }
+      const heldIds = new Set(held.map(m => m?.id).filter(Boolean))
+      for (const message of job.carry.splice(0)) {
+        if (message?.id === undefined || !heldIds.has(message.id)) carry.push(message)
+      }
       await forward(job, [...carry, ...held], freshId)
       // Migrate buffered silent entries after forward succeeds so entry.ledger stays
       // intact until freshId actually flushes (or takes them on pre-step), and a failed
@@ -2174,9 +2853,14 @@ export function install(rt) {
     } catch (error) {
       job.kept = true
       try { restore(agent, [...carry, ...job.carry.splice(0)]) } catch {}
+      if (job.handoffCleared === true) {
+        job.handoffCleared = false
+        await rt.save().catch(() => {})
+      }
       throw error
     }
     removeForMove(agent, held)
+    job.carriedIds.clear()
     // Input the old part claimed while the rest moved goes on after it.
     for (let late = job.carry.splice(0); late.length > 0; late = job.carry.splice(0)) {
       await forward(job, late, threadTargetOf(agent.id, job)).catch((error) => {
@@ -2204,11 +2888,36 @@ export function install(rt) {
       : { kind: 'reject' }
   }
 
+  // Durably parks claimed step messages back into the old part's inbox and flushes
+  // the old session so a crash during note writing or session creation never loses
+  // user input even when DSH buffers JSONL session writes.
+  async function parkClaimedMessages(agent, messages, carriedIds, fallbackCarry) {
+    if (!Array.isArray(messages) || messages.length === 0) return
+    if (typeof agent.inbox?.prepend === 'function' && !messages.some(m => m?.id === undefined)) {
+      let restored = false
+      try {
+        restore(agent, messages)
+        restored = true
+        for (const message of messages) carriedIds.add(message.id)
+      } catch {}
+      if (restored) {
+        try {
+          if (typeof ctx.sessions?.flush === 'function') await ctx.sessions.flush(agent.session)
+        } catch (error) {
+          if (!unloaded(error)) rt.warn('ds-bot: flushing parked input on part %s failed: %s', agent.id, error)
+        }
+        return
+      }
+    }
+    fallbackCarry.push(...messages)
+  }
+
   // Hands a step's claimed messages to an already-running switch job. If a turn was
   // already past step 1 (or carried through a steer cut), promote the switch to resume
   // with the turn's routing state so in-flight work is never dropped behind HANDOFF_ACK.
-  const joinSwitch = (agent, job, payload) => {
-    job.carry.push(...payload.messages)
+  const joinSwitch = async (agent, job, payload) => {
+    if (job.moved) job.carry.push(...payload.messages)
+    else await parkClaimedMessages(agent, payload.messages, job.carriedIds, job.carry)
     const entry = rt.live?.get(agent.id)
     if (payload.step > 1 || entry?.carried === true) {
       job.resume = true
@@ -2264,8 +2973,33 @@ export function install(rt) {
     const lines = await contextLines(agent.session).catch(() => undefined)
     const tokens = tokensOf(agent.session)
     if (fresh === undefined && tokens !== undefined && tokens > 0) lowerPartBase(agent.id, tokens)
-    if (lines === undefined || tokens === undefined || tokens < lines.hard || !grown(agent.id, tokens, lines) || readOnly()) return next()
-    const pruned = await pruneToolResults(agent, { inTurn: true })
+    const effectiveRatio = typeof config.checkRatio === 'number' && config.checkRatio > 0 && config.checkRatio < 1 ? config.checkRatio : DEFAULT_CHECK_RATIO
+    const capIsBinding = Number.isInteger(config.checkTokens) && config.checkTokens > 0 && lines !== undefined
+      && lines.check === config.checkTokens
+      && config.checkTokens < Math.min(Math.floor(lines.usable * effectiveRatio), lines.hard)
+    const midTurnSoft = capIsBinding ? Math.min(Math.floor(lines.check * 1.5), lines.hard) : lines?.hard
+    if (lines === undefined || tokens === undefined || tokens < midTurnSoft || !grown(agent.id, tokens, lines) || readOnly()) return next()
+    // When an explicit binding checkTokens cap lowers check well below hard, condense
+    // in place past the mid-turn soft line without tearing down the active turn.
+    if (tokens < lines.hard) {
+      const pruned = await pruneToolResults(agent, { inTurn: true, target: midTurnSoft })
+      const afterPrune = pruned.pruned > 0 ? tokensOf(agent.session) : tokens
+      if (afterPrune !== undefined && afterPrune < midTurnSoft) {
+        if (afterPrune < lines.check) partBase.set(agent.id, afterPrune)
+        else lowerPartBase(agent.id, afterPrune)
+        return next()
+      }
+      const condensed = engineOf(agent) !== undefined
+        && await condense(agent, lines, { inTurn: true, signal: payload.signal, outcome: { overflow: false } })
+      if (!condensed) {
+        partBase.set(agent.id, afterPrune ?? tokens)
+        // Throttle further mid-turn retries below hard without suppressing the idle
+        // checkContext pass when the turn ends (idle check can switch parts).
+        midTurnCondensed.add(agent.id)
+      }
+      return next()
+    }
+    const pruned = await pruneToolResults(agent, { inTurn: true, target: lines.hard })
     if (pruned.pruned > 0) {
       const afterPrune = tokensOf(agent.session)
       if (afterPrune !== undefined && afterPrune < lines.hard) {
@@ -2280,8 +3014,9 @@ export function install(rt) {
     return switchBeforeStep(agent, payload, { hard: true, ...(outcome.overflow ? { overflow: true } : {}) })
   }, { prepend: true })
 
-  // `messages` left the inbox for this step, so the switch carries them along.
-  function switchBeforeStep(agent, payload, options) {
+  // `messages` left the inbox for this step, so persist and flush them back into the
+  // old inbox immediately before starting the switch so a crash never drops them.
+  async function switchBeforeStep(agent, payload, options) {
     // A switch may have started while the checks above awaited.
     const running = switches.get(agent.id)
     if (running !== undefined) return joinSwitch(agent, running, payload)
@@ -2290,7 +3025,23 @@ export function install(rt) {
     // its first step is already the middle of a turn for the folder check.
     const midTurn = payload.step > 1 || entry.carried === true
     entry.switched = true
-    startSwitch(agent, { resume: midTurn, carry: payload.messages, info: midTurn ? entry.info : undefined, joined: midTurn ? [...(entry.joined ?? [])] : undefined, ...options })
+    const carriedIds = new Set()
+    const carry = []
+    await parkClaimedMessages(agent, payload.messages, carriedIds, carry)
+    // Re-check after awaiting the park flush in case another switch started meanwhile.
+    const raced = switches.get(agent.id)
+    if (raced !== undefined) {
+      for (const id of carriedIds) raced.carriedIds.add(id)
+      raced.carry.push(...carry)
+      if (midTurn) {
+        raced.resume = true
+        if (raced.info === undefined && entry.info !== undefined) raced.info = entry.info
+        if ((raced.joined === undefined || raced.joined.length === 0) && entry.joined?.length) raced.joined = [...entry.joined]
+        if (raced.resumeOrigin === undefined) raced.resumeOrigin = rt.holdImOrigin?.(agent.id)
+      }
+      return takeOverStep(agent, payload)
+    }
+    startSwitch(agent, { resume: midTurn, carry, carriedIds, info: midTurn ? entry.info : undefined, joined: midTurn ? [...(entry.joined ?? [])] : undefined, ...options })
     return takeOverStep(agent, payload)
   }
 
@@ -2457,6 +3208,15 @@ export function install(rt) {
     return undefined
   }, { prepend: true })
 
+  function recordNoRoom(agent, fallbackTokens) {
+    const current = sizeOf(agent.session) ?? fallbackTokens ?? 0
+    partBase.set(agent.id, current)
+    const count = (roomRetry.get(agent.id)?.count ?? 0) + 1
+    const wait = NOTE_COOLDOWN_MS[Math.min(count, NOTE_COOLDOWN_MS.length) - 1]
+    roomRetry.set(agent.id, { count, until: Date.now() + wait })
+    ctx.logger.info('ds-bot: %s cannot make room by switching at %d tokens (next check in %ds)', agent.id, current, wait / 1000)
+  }
+
   // At the end of a turn past the check line, the steward decides once. Either way
   // the part ends up below the line, and nothing is decided again until it grows
   // past it.
@@ -2477,29 +3237,65 @@ export function install(rt) {
     const lines = await contextLines(agent.session)
     const tokens = tokensOf(agent.session)
     lowerPartBase(agent.id, tokens)
-    if (lines === undefined || tokens === undefined || tokens < lines.check || !grown(agent.id, tokens, lines)) return
+    if (lines === undefined || tokens === undefined || tokens < lines.check) {
+      if (tokens !== undefined && lines !== undefined && tokens < lines.check) midTurnCondensed.delete(agent.id)
+      return
+    }
+    const forceRecheck = midTurnCondensed.has(agent.id)
+    if (!forceRecheck && !grown(agent.id, tokens, lines)) return
     const hard = tokens >= lines.hard
     if (!hard && Date.now() < (noteFailures.get(agent.id)?.until ?? 0)) return
+    if (!hard && Date.now() < (roomRetry.get(agent.id)?.until ?? 0)) return
     checking.add(agent.id)
     try {
-      const pruned = await pruneToolResults(agent, { inTurn: false })
-      if (pruned.busy === true) return
-      if (pruned.pruned > 0) {
-        const afterPrune = tokensOf(agent.session)
-        if (afterPrune !== undefined && afterPrune < lines.check) {
-          partBase.set(agent.id, afterPrune)
-          return
+      // Only mutate the history with tool-result pruning before the steward when a
+      // dry-run predicts pruning alone will drop below lines.check; otherwise keep the
+      // prefix cache intact so writeNote / writeCheckpoint run on the hot KV prefix.
+      const pruner = prunerOf(agent)
+      const dry = pruner === undefined ? { count: 0, saved: 0 } : estimatePrunableSavings(agent.session, pruner)
+      const shouldPruneFirst = pruner !== undefined && (dry === undefined || (dry.count > 0 && tokens - dry.saved < lines.check))
+      if (shouldPruneFirst) {
+        const pruned = await pruneToolResults(agent, { inTurn: false })
+        if (pruned.busy === true) return
+        if (pruned.pruned > 0) {
+          const afterPrune = tokensOf(agent.session)
+          if (afterPrune !== undefined && afterPrune < lines.check) {
+            midTurnCondensed.delete(agent.id)
+            partBase.set(agent.id, afterPrune)
+            return
+          }
         }
+      } else if (!await tryMaintenanceIdle(agent)) {
+        return
       }
       if (!isAgentIdle(agent)) return
+      midTurnCondensed.delete(agent.id)
+      if (engineOf(agent) === undefined && !await canMakeRoom(agent)) {
+        recordNoRoom(agent, tokens)
+        return
+      }
       const outcome = { overflow: false }
       if (await decide(agent, { midTurn: false }) === 'compact') {
         const condensed = await condense(agent, lines, { inTurn: false, outcome })
-        if (condensed !== false) return
+        if (condensed !== false) {
+          roomRetry.delete(agent.id)
+          return
+        }
       }
       if (switches.has(agent.id) || !isAgentIdle(agent)) return
-      if (!await canMakeRoom(agent)) return
-      startSwitch(agent, { hard: (tokensOf(agent.session) ?? tokens) >= lines.hard || outcome.overflow, ...(outcome.overflow ? { overflow: true } : {}), idle: true })
+      const effectiveHard = (tokensOf(agent.session) ?? tokens) >= lines.hard || outcome.overflow
+      // Do not archive a part with running shell jobs or subagents below the hard line;
+      // archiveSession({ stopActivity: true }) would kill them.
+      if (!effectiveHard && activeWorkSignals(agent).hasLiveActivity) {
+        ctx.logger.info('ds-bot: deferring part switch for %s while background jobs or subagents are active', agent.id)
+        return
+      }
+      if (!await canMakeRoom(agent)) {
+        recordNoRoom(agent, tokens)
+        return
+      }
+      roomRetry.delete(agent.id)
+      startSwitch(agent, { hard: effectiveHard, ...(outcome.overflow ? { overflow: true } : {}), idle: true })
     } finally {
       checking.delete(agent.id)
     }
@@ -2530,6 +3326,8 @@ export function install(rt) {
     }
     const past = tokens !== undefined && tokens >= lines.check && grown(agent.id, tokens, lines)
     if (!past && !condensed) return
+    const hard = tokens !== undefined && tokens >= lines.hard
+    if (!hard && Date.now() < (roomRetry.get(agent.id)?.until ?? 0)) return
     checking.add(agent.id)
     try {
       if (await decide(agent, { midTurn: false }) === 'compact') {
@@ -2538,10 +3336,23 @@ export function install(rt) {
           partBase.set(agent.id, tokens ?? 0)
           return
         }
-        if (await condense(agent, lines, { inTurn: false }) !== false) return
+        if (await condense(agent, lines, { inTurn: false }) !== false) {
+          roomRetry.delete(agent.id)
+          return
+        }
       }
-      if (switches.has(agent.id) || !isAgentIdle(agent) || !await canMakeRoom(agent)) return
-      startSwitch(agent, { hard: (sizeOf(agent.session) ?? tokens ?? 0) >= lines.hard, idle: true })
+      if (switches.has(agent.id) || !isAgentIdle(agent)) return
+      const effectiveHard = (sizeOf(agent.session) ?? tokens ?? 0) >= lines.hard
+      if (!effectiveHard && activeWorkSignals(agent).hasLiveActivity) {
+        ctx.logger.info('ds-bot: deferring local part switch for %s while background jobs or subagents are active', agent.id)
+        return
+      }
+      if (!await canMakeRoom(agent)) {
+        recordNoRoom(agent, tokens)
+        return
+      }
+      roomRetry.delete(agent.id)
+      startSwitch(agent, { hard: effectiveHard, idle: true })
     } finally {
       checking.delete(agent.id)
     }
@@ -2580,7 +3391,11 @@ export function install(rt) {
   ctx.effect(() => {
     const timer = setTimeout(() => void heldBack().catch(error => rt.warn('ds-bot: handing on input kept in earlier parts failed: %s', error)), RESUME_DELAY_MS)
     timer.unref?.()
-    return () => clearTimeout(timer)
+    return () => {
+      clearTimeout(timer)
+      clearTimeout(heldRetryTimer)
+      heldRetryTimer = undefined
+    }
   }, 'ds-bot: hand on input kept in earlier parts')
 
   // An archive from DSH's own Session list while the team runs: DSH asks for the
@@ -3216,6 +4031,8 @@ export function install(rt) {
     freshParts.delete(sessionId)
     tails.delete(sessionId)
     noteFailures.delete(sessionId)
+    roomRetry.delete(sessionId)
+    midTurnCondensed.delete(sessionId)
     folderRetry.delete(sessionId)
     engineRetry.delete(sessionId)
     clearTimeout(engineWakes.get(sessionId))
