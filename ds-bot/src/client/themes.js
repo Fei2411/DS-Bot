@@ -51,6 +51,10 @@ export const surfaceColors = theme => ({ light: { bg: 'transparent', sidebar: rg
 export const veilColors = alpha => ({ light: rgba('#ffffff', alpha), dark: rgba('#000000', alpha) })
 // Where a new background starts when the user picks its kind (appearance-page.js).
 export const BACKGROUND_STARTS = { color: { light: '#dfe6f5', dark: '#1d2433' }, from: '#9ab6ff', to: '#f7c6d9' }
+// What a VS Code theme that names no usable editor background or accent falls back to
+// (vscode-theme-import.js): the canvas of VS Code's own default themes, and the blue of
+// its default button, which is also DeepSeek's accent.
+export const VSCODE_DEFAULTS = { dark: '#1e1e1e', light: '#ffffff', accent: '#4d6bfe' }
 // The basic colors (Settings → Appearance): a new background or text color moves the other
 // surfaces with it. Each surface keeps its place between background and text, channel by
 // channel, so a theme's tint (Paper's warm sidebar) carries over. Your bubble and its text
@@ -110,6 +114,66 @@ export function moveBasics(colors, change) {
   const base = colors.base ?? Object.fromEntries(BASE_KEYS.map(key => [key, colors[key]]))
   const moved = followBasics({ ...colors, ...base }, { bg: colors.bg, text: colors.text, ...change })
   return { ...colors, ...Object.fromEntries(BASE_KEYS.map(key => [key, moved[key]])), base }
+}
+// Deriving a whole mode from two picked colors (the canvas and the accent, in Settings →
+// Appearance): the surfaces are small lightness steps off the canvas in the mode's
+// direction, the text is as soft as the contrast target allows, and your bubble takes the
+// accent with the same ink the accent buttons use.
+const hslOf = (hex) => {
+  const [r, g, b] = channels(hex).map(value => value / 255)
+  const [hi, lo] = [Math.max(r, g, b), Math.min(r, g, b)]
+  const l = (hi + lo) / 2
+  if (hi === lo) return [0, 0, l]
+  const d = hi - lo
+  const s = d / (1 - Math.abs(2 * l - 1))
+  const h = hi === r ? 60 * (((g - b) / d) % 6) : hi === g ? 60 * ((b - r) / d + 2) : 60 * ((r - g) / d + 4)
+  return [h < 0 ? h + 360 : h, s, l]
+}
+const hexOfHsl = (h, s, l) => {
+  const c = (1 - Math.abs(2 * l - 1)) * s
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1))
+  const m = l - c / 2
+  const rgb = h < 60 ? [c, x, 0] : h < 120 ? [x, c, 0] : h < 180 ? [0, c, x] : h < 240 ? [0, x, c] : h < 300 ? [x, 0, c] : [c, 0, x]
+  return toHex(rgb.map(value => (value + m) * 255))
+}
+const toward = (from, to, ratio) => toHex(channels(from).map((value, index) => value + (channels(to)[index] - value) * ratio))
+// Readable text starts soft (the built-in themes' inks); on a mid-tone canvas, where even
+// pure black or pure white barely reads, it strengthens toward the pure endpoint.
+const TEXT_TARGET = 7
+const readableOn = (ink, canvas) => {
+  const pure = contrast('#000000', canvas) >= contrast('#ffffff', canvas) ? '#000000' : '#ffffff'
+  if (contrast(ink, canvas) >= TEXT_TARGET) return ink
+  for (let step = 1; step <= 6; step += 1) {
+    const moved = toward(ink, pure, step / 6)
+    if (contrast(moved, canvas) >= TEXT_TARGET) return moved
+  }
+  return pure
+}
+/**
+ * The eight colors of one mode derived from a canvas and an accent.
+ * @param {string} canvasHex - the main background, `#rrggbb`
+ * @param {string} accentHex - the accent, `#rrggbb`
+ * @param {'light' | 'dark'} [appearance] - force a mode; by default the canvas's lightness decides
+ * @returns {{ accent: string, bg: string, text: string, sidebar: string, bubble: string, card: string, user: string, userText: string }}
+ */
+export function deriveThemeMode(canvasHex, accentHex, appearance) {
+  if (!isHex(canvasHex) || !isHex(accentHex)) throw new TypeError('A canvas and an accent as #rrggbb colors')
+  const canvas = canvasHex.toLowerCase()
+  const accent = accentHex.toLowerCase()
+  const [hue, saturation, lightness] = hslOf(canvas)
+  const dark = appearance === undefined ? lightness < 0.5 : appearance === 'dark'
+  const step = (delta) => hexOfHsl(hue, saturation, Math.min(1, Math.max(0, lightness + delta)))
+  return {
+    accent,
+    bg: canvas,
+    text: readableOn(dark ? '#f2f2f2' : '#141414', canvas),
+    sidebar: step(dark ? 0.03 : -0.03),
+    bubble: step(dark ? 0.075 : -0.075),
+    // Cards float a little lighter than the canvas in both modes.
+    card: step(0.045),
+    user: accent,
+    userText: accentInk(accent),
+  }
 }
 export function themeVars(mode, dark, accent = mode.accent) {
   return {

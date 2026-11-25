@@ -7,7 +7,8 @@ import { createPortal } from 'react-dom'
 import { ACCENT_INKS, INKS } from './inks.js'
 import { ArrowUpIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, ClockIcon, SearchIcon } from './icons.js'
 import { BotAvatar } from './mark.js'
-import { accentIn, BACKGROUND_STARTS, moveBasics, themesOf, effectsOf, flatWidthOf, layoutOf, thinkingShown, widthOf, MESSAGE_WIDTH } from './themes.js'
+import { accentIn, BACKGROUND_STARTS, deriveThemeMode, moveBasics, themesOf, effectsOf, flatWidthOf, layoutOf, thinkingShown, widthOf, MESSAGE_WIDTH } from './themes.js'
+import { parseVscodeTheme } from './vscode-theme-import.js'
 import { backgroundPaint, DEFAULT_APPEARANCE_CHANGE, leaveSafeAppearance, onSafeAppearance, pictureUrl, safeAppearance, triggerColorMorph } from './appearance.js'
 import { call } from './api.js'
 import { BLUR, contrast, DENSITIES, DIM, FONT_SIZE, fontStack, LINE_HEIGHT, MAX_BACKGROUND_BYTES, MAX_CSS, MAX_FONT, READABLE, readAppearance, readThemeFile, SURFACE, themeFile, utf8Length } from '../shared/appearance.js'
@@ -234,16 +235,32 @@ function ThemeSection({ prefs, actions, run, Section, Row, Choice, ownWindow, ds
     return run(actions.setPrefs({ themes: { [newThemeId()]: { label: t('My theme {n}', { n: ownCount + 1 }), light: base.light, dark: base.dark } } }))
   }
   const importFile = async (file) => {
-    // The file is read here, not by the host: its refusal is put in the interface language here too.
-    let read
-    try { read = readThemeFile(await readFile(file, 'text')) } catch (error) { throw new Error(hostText(error?.message ?? String(error))) }
+    // The file is read here, not by the host: its refusal is put in the interface language
+    // here too. Two kinds of file import: a DS Bot theme carries its appearance along; a
+    // VS Code theme is only colors, so the rest of the appearance stays as it is.
+    const text = await readFile(file, 'text')
+    let theme
+    let appearance
+    let image
+    try {
+      const read = readThemeFile(text)
+      theme = read.theme
+      appearance = read.appearance
+      image = read.image
+    } catch (error) {
+      try {
+        theme = parseVscodeTheme(text, t('VS Code theme'))
+      } catch {
+        throw new Error(hostText(error?.message ?? String(error)))
+      }
+    }
     const id = newThemeId()
     // The look is the file's: the team accent gives way to the theme's, as a theme's own
     // accent change does.
-    const change = { themes: { [id]: read.theme }, theme: id, accent: null, appearance: read.appearance }
-    if (read.image !== undefined && read.appearance.background?.kind === 'image') {
-      const saved = await actions.addBackground(read.image)
-      change.appearance = { ...read.appearance, background: { ...read.appearance.background, image: saved.id } }
+    const change = { themes: { [id]: theme }, theme: id, accent: null, ...(appearance ? { appearance } : {}) }
+    if (image !== undefined && appearance?.background?.kind === 'image') {
+      const saved = await actions.addBackground(image)
+      change.appearance = { ...appearance, background: { ...appearance.background, image: saved.id } }
     }
     triggerColorMorph()
     await actions.setPrefs(change)
@@ -336,7 +353,12 @@ export function ColorsSection({ prefs, actions, run, Section, Row, Choice }) {
       h('span', { className: 'bt-look-more-copy' },
         h('span', null, more ? t('Fewer settings') : t('More settings')),
         more || folded === undefined ? null : h('span', { className: 'bt-look-warn' }, t('Hard to read · {ratio}:1', { ratio: folded.toFixed(1) }))),
-      h('span', { className: 'bt-chevron bt-collapse-chevron', 'data-open': more || undefined }, h(ChevronDownIcon))))
+      h('span', { className: 'bt-chevron bt-collapse-chevron', 'data-open': more || undefined }, h(ChevronDownIcon))),
+    h(Row, { key: `${mode}-derive`, label: t('Derive from 2 colors') },
+      h(DeriveColors, {
+        colors, teamAccent: accentIn(theme, mode, prefs.accent), mode,
+        save: derived => save(() => derived, { accent: null }),
+      })))
 }
 
 // Fonts on this computer, once the user opens the list: the browser asks before it tells.
@@ -759,6 +781,20 @@ export function ChatBackgroundSection({ owner, ownerKind, actions, run, Section,
     h(BackgroundEditor, { value: readAppearance({ background: owner.background }).background, save, actions, run, Row, Choice }))
 }
 
+// Deriving the mode's colors from a canvas and an accent (themes.js deriveThemeMode).
+// The two wells edit local copies only; the derived colors save like any color edit.
+function DeriveColors({ colors, teamAccent, mode, save }) {
+  const [pair, setPair] = useState(() => ({ canvas: colors.bg, accent: teamAccent }))
+  const well = (label, key) => h('input', {
+    type: 'color', className: 'bt-look-well', value: pair[key], 'aria-label': label, title: label, 'data-derive': key,
+    onChange: event => setPair(current => ({ ...current, [key]: event.target.value })),
+  })
+  return h('span', { className: 'bt-look-derive' },
+    well(t('Canvas'), 'canvas'),
+    well(t('Accent'), 'accent'),
+    h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => save(deriveThemeMode(pair.canvas, pair.accent, mode)) }, t('Derive')))
+}
+
 // Colors from the --bt-* variables only; corners on the standard steps.
 export const APPEARANCE_PAGE_CSS = `
 .bt-look[data-bg] .bt-look-chat{background:var(--bt-pane,var(--bt-main))}
@@ -801,6 +837,7 @@ body[data-bt-effects=off] :is(.bt-swatch,.bt-look-theme){animation:none;transiti
 .bt-look-warn{flex-basis:100%;padding-left:32px;color:var(--bt-warn);font-size:11px}
 .bt-look-pair{display:flex;gap:16px}
 .bt-look-cin{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}
+.bt-look-derive{display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap}
 .bt-look-cin .bt-look-warn{flex-basis:auto;padding:0}
 .bt-look-hex{width:92px;height:28px;padding:0 8px;font-family:var(--bt-mono,ui-monospace,Menlo,Consolas,monospace);font-size:12px;text-transform:uppercase}
 .bt-look-well{width:28px;height:28px;padding:0;border:.5px solid var(--bt-line-2);border-radius:8px;background:none;cursor:pointer}
