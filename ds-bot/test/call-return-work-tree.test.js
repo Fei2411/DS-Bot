@@ -430,7 +430,7 @@ test('F1 (real ReactLoopAgent): user steer during <5s zero-tool hidden peer-Bot 
   )
 })
 
-test('F1 (local CLI Bot): user next-step steer during hidden peer-Bot turn demotes to next-turn and steer.js refuses STEER_CUT', async (t) => {
+test('F1 (non-movable runtime): user next-step steer during hidden peer-Bot turn demotes to next-turn and steer.js refuses STEER_CUT', async (t) => {
   const { rt, agents, emit, tool } = await startHost(t, {
     team: makeTeam({
       bots: {
@@ -439,7 +439,9 @@ test('F1 (local CLI Bot): user next-step steer during hidden peer-Bot turn demot
       },
     }),
   })
-  // Mark Writer's model as a local CLI route so foreground handoff is disabled.
+  // Local CLI Bots now support moving hidden peer work to background (D8);
+  // simulate a runtime/state where foreground handoff is disabled to verify the
+  // defensive next-step -> next-turn demotion fallback.
   t.mock.method(rt, 'isLocalAgentRef', ref => ref === 'local-cli/claude')
 
   await tool('delegate_work', { to: 'Writer', goal: 'inspect logs' }, 'dm-a')
@@ -451,9 +453,12 @@ test('F1 (local CLI Bot): user next-step steer during hidden peer-Bot turn demot
   emit('dm-b', 'user/message', { content: req.content, source: req.source })
   emit('dm-b', 'step/start', { turn: 1, step: 1 })
 
+  assert.equal(rt.shouldMoveForeground(rt.botOf('b'), 'dm-b'), true, 'local CLI Bot supports isolating hidden peer work to background')
+
+  t.mock.method(rt.contextRuntime, 'capabilitiesFor', () => ({ isLocal: true, canMoveToBackground: false }))
   assert.equal(rt.shouldMoveForeground(rt.botOf('b'), 'dm-b'), false)
 
-  // User sends a next-step steer while local CLI Bot runs hidden #W1.
+  // User sends a next-step steer while foreground handoff is disabled during hidden #W1.
   const userMsg = createUserMessage({ content: textBlock('User question for Writer'), source: { kind: 'user' } })
   dmB.send(userMsg, 'next-step')
   await realDelay(30)

@@ -2827,11 +2827,14 @@ export function install(rt) {
   // Private context enters a group only through this tool, and the group sees each use.
   rt.teamTools.push(defineTool({
     name: 'read_own_chat',
-    description: 'Read or search your own chat with the user, across all its parts, including earlier parts that left your working context. Each line starts with its anchor, such as [part 2 #1234 · 10-08 14:22]; long messages are cut. Pass the anchor as around to read that message in full, with what was said just before and after it. In a group chat the group sees that you looked, so share only what the group needs.',
+    description: 'Read or search your own chat with the user (or your own earlier parts in a group when `group` is passed), across all its parts, including earlier parts that left your working context. Each line starts with its anchor, such as [part 2 #1234 · 10-08 14:22]; long messages are cut. Pass the anchor as `around` to read that message in full, `part` for the closing handoff note of an earlier part, or `call_id` to recall the full saved output of an earlier tool call. In a group chat the group sees that you looked, so share only what the group needs.',
     parameters: {
       query: { type: 'string', description: 'Words to look for in every part, separated by spaces. A message must have all of them; when none has, those with the most are shown. Omit for the latest messages' },
       around: { type: 'string', description: 'An anchor from an earlier result, such as "part 2 #1234": shows that message in full and the messages just before and after it' },
       part: { type: 'integer', description: 'Number of an earlier part: shows the handoff note you wrote when it ended' },
+      call_id: { type: 'string', description: 'Recall the full saved output of an earlier tool call by its call_id (e.g. from Recent tool activity or after tool-output pruning)' },
+      offset: { type: 'integer', description: 'Optional character offset when recalling a long tool output via call_id' },
+      group: { type: 'string', description: 'Optional group id or name you belong to: query your own conversation parts in that group instead of your private chat' },
     },
     output,
     async execute(args, exec) {
@@ -2845,44 +2848,73 @@ export function install(rt) {
       const room = rt.roomOf(owner?.roomId ?? taskOwner?.roomId)
       const query = String(args.query ?? '').trim().slice(0, 80)
       const around = String(args.around ?? '').trim().slice(0, 40)
-      const lookupSession = taskOwner?.roomId !== undefined ? rt.chatOf(botId) : id
-      const parts = rt.partsOfThread(botId, lookupSession)
+      const callId = String(args.call_id ?? '').trim().slice(0, 120)
+      const groupRef = args.group !== undefined && args.group !== null ? String(args.group).trim() : ''
+      let targetRoom
+      if (groupRef !== '') {
+        const picked = rt.pickRoom(groupRef, botId)
+        if (picked.error) return picked.error
+        if (!picked.room.members.includes(botId)) {
+          return `You are not a member of "${picked.room.name}", so you have no own parts there.`
+        }
+        targetRoom = picked.room
+      }
+      const targetRoomId = targetRoom?.id
+      const scopeLabel = targetRoom !== undefined ? `Your parts in group "${targetRoom.name}"` : 'Your own chat'
+      // Pass the actual caller session to indexed reads: when querying another
+      // group from private chat or a different group, `askingSession` must be
+      // undefined so the target group's latest finished turn is never hidden.
+      const askingSession = targetRoomId !== undefined
+        ? (owner?.roomId === targetRoomId ? id : undefined)
+        : (taskOwner?.roomId !== undefined ? rt.chatOf(botId) : id)
+      const parts = targetRoomId !== undefined
+        ? rt.partsOf(botId, targetRoomId)
+        : rt.partsOfThread(botId, askingSession)
       const number = Number.isInteger(args.part) ? args.part : undefined
-      if (room !== undefined && member !== undefined) {
-        const text = query !== '' ? query : around !== '' ? `around ${around}` : number !== undefined ? `part ${number}` : ''
+      // Only log a private-chat lookup (or cross-group lookup) to the current group;
+      // looking up this same group's own parts does not cross privacy boundaries.
+      if (room !== undefined && member !== undefined && targetRoomId !== room.id) {
+        const text = callId !== '' ? `call ${callId}` : query !== '' ? query : around !== '' ? `around ${around}` : number !== undefined ? `part ${number}` : ''
         say(room, { who: member.name, botId: member.id, kind: 'lookup', text })
         void rt.save().catch(() => {})
       }
-      const partsNote = parts.length > 1 ? `\n\nYour own chat has ${parts.length} parts: ${rt.partIndex(parts)}. Call read_own_chat with part N for the note that closed an earlier part, or with words to search all parts.` : ''
+      const partsNote = parts.length > 1 ? `\n\n${scopeLabel} has ${parts.length} parts: ${rt.partIndex(parts)}. Call read_own_chat with part N for the note that closed an earlier part, or with words to search all parts.` : ''
+      if (callId !== '') {
+        const offset = Number.isInteger(args.offset) && args.offset > 0 ? args.offset : 0
+        const recalled = await rt.recallToolOutput?.(botId, callId, { askingId: askingSession, roomId: targetRoomId, around, offset })
+        if (!recalled?.found) return `No saved tool output with call_id "${callId}" was found in ${scopeLabel.toLowerCase()}.${partsNote}`
+        const status = recalled.ok ? 'ok' : 'error'
+        return `Tool output [${parts.length > 1 ? `part ${recalled.partNumber} ` : ''}#${recalled.seq} · ${rt.clock(recalled.time)}] ${recalled.name} (${recalled.callId}, ${status}):\n${recalled.text}${partsNote}`
+      }
       if (query === '' && around !== '') {
-        const found = await rt.aroundOwnChat(botId, around, lookupSession)
+        const found = await rt.aroundOwnChat(botId, around, askingSession, { roomId: targetRoomId })
         if (found.error) return `${found.error}${partsNote}`
         if (found.lines.length === 0) return `Nothing was said around ${around}.${partsNote}`
         const heading = found.exact ? `around ${around}` : `with no message at ${around}; the nearest ones`
-        return `Your own chat ${heading} (oldest first):\n${found.lines.join('\n')}${partsNote}`
+        return `${scopeLabel} ${heading} (oldest first):\n${found.lines.join('\n')}${partsNote}`
       }
       if (query === '' && number !== undefined) {
         const part = parts[number - 1]
-        if (part === undefined) return `Your own chat has no part ${number}.${partsNote}`
+        if (part === undefined) return `${scopeLabel} has no part ${number}.${partsNote}`
         if (part.endedAt === undefined) {
-          return part.sessionId === lookupSession
+          return part.sessionId === id
             ? `Part ${number} is the current one; it is in your context.${partsNote}`
             : `Part ${number} is still open and has no closing handoff note yet. Search it with query, or omit query for its latest messages.${partsNote}`
         }
         const note = rt.noteText(part)
         if (note === undefined && Number.isInteger(part.throughSeq)) {
-          return `Part ${number} of your own chat (${rt.clock(part.startedAt)} – ${rt.clock(part.endedAt)}) has no closing handoff note. Search it with query, or omit query for its latest messages.${partsNote}`
+          return `Part ${number} of ${scopeLabel.toLowerCase()} (${rt.clock(part.startedAt)} – ${rt.clock(part.endedAt)}) has no closing handoff note. Search it with query, or omit query for its latest messages.${partsNote}`
         }
-        return `Part ${number} of your own chat (${rt.clock(part.startedAt)} – ${rt.clock(part.endedAt)}). The handoff note that closed it:\n${note ?? '(none: the part ended on a context overflow)'}${partsNote}`
+        return `Part ${number} of ${scopeLabel.toLowerCase()} (${rt.clock(part.startedAt)} – ${rt.clock(part.endedAt)}). The handoff note that closed it:\n${note ?? '(none: the part ended on a context overflow)'}${partsNote}`
       }
       if (query === '') {
-        const lines = await rt.latestOwnChat(botId, { askingId: lookupSession })
-        return lines.length === 0 ? `Your own chat is empty.${partsNote}` : `Your own chat (oldest first):\n${lines.join('\n')}${partsNote}`
+        const lines = await rt.latestOwnChat(botId, { askingId: askingSession, roomId: targetRoomId })
+        return lines.length === 0 ? `${scopeLabel} is empty.${partsNote}` : `${scopeLabel} (oldest first):\n${lines.join('\n')}${partsNote}`
       }
-      const { lines, every } = await rt.searchOwnChat(botId, query, { askingId: lookupSession })
-      if (lines.length === 0) return `Nothing in your own chat mentions "${query}".${partsNote}`
+      const { lines, every } = await rt.searchOwnChat(botId, query, { askingId: askingSession, roomId: targetRoomId })
+      if (lines.length === 0) return `Nothing in ${scopeLabel.toLowerCase()} mentions "${query}".${partsNote}`
       const heading = every ? `messages mentioning "${query}"` : `no message has all of "${query}"; messages with the most of these words`
-      return `Your own chat, ${heading} (oldest first):\n${lines.join('\n')}${partsNote}`
+      return `${scopeLabel}, ${heading} (oldest first):\n${lines.join('\n')}${partsNote}`
     },
   }))
 

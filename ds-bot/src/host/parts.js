@@ -19,6 +19,7 @@ import { LlmError, createAssistantMessage, createSystemMessage, createUserMessag
 import { openTurnAt } from './btw.js'
 import { HANDOFF_ACK, HISTORY_SCAN_PAGES, HISTORY_TIMEOUT_MS, isSilentTurnText, REPLY_KIND, SOURCE_KIND } from './constants.js'
 import { isContextOnlyMessage, isContextOnlySource, isSilentBotSource } from './context-messages.js'
+import { buildCheckpointPack, buildHandoffPack, extractToolTrail, toolArgSummary as summarizeToolArg } from './context-pack.js'
 import { install as ensureContextRuntime } from './context-runtime.js'
 import { assembleLlmStream } from './models.js'
 import { compressedRelayPreview, parseReplies, relayRange, stackReplies } from '../shared/group-replies.js'
@@ -496,6 +497,8 @@ export function install(rt) {
     return partsOf(bot.id, undefined, thread.segments, rt.chatOf(bot.id))
   }
 
+  const hasImageBlock = (content) => Array.isArray(content) && content.some(block => block?.type === 'image' || block?.type === 'image_url')
+
   // What was said in one part, newest first: the user, other Bots, and the Bot itself.
   async function* partLines(sessionId, signal, { group = false, pages, read, throughSeq } = {}) {
     // Read backwards, a Bot's answers come before the message they answer.
@@ -509,6 +512,10 @@ export function install(rt) {
     let answers = []
     for await (const event of rt.eventsBackwards(sessionId, signal, pages, scan, bound)) {
       if (bound !== undefined && Number.isInteger(event?.seq) && event.seq > bound) continue
+      if ((event.type === 'user/message' && hasImageBlock(event.data?.message?.content ?? event.data?.content))
+        || ((event.type === 'assistant/message' || event.type === 'tool/result') && hasImageBlock(event.data?.message?.content))) {
+        scan.hasImages = true
+      }
       const entry = historyEntry(event, group)
       if (entry === undefined) continue
       if (entry.answer) {
@@ -533,60 +540,21 @@ export function install(rt) {
   const TOOL_TRAIL_SKIP = new Set(['ask_user', 'show_view', 'request_secret', 'group_relay'])
   const TOOL_ARG_KEYS = ['path', 'file_path', 'file', 'target', 'command', 'cmd', 'query', 'pattern', 'url', 'to', 'task', 'topic', 'dir', 'cwd', 'title']
   const redactText = text => (typeof rt.redactSecrets === 'function' ? rt.redactSecrets(String(text ?? '')) : String(text ?? ''))
-
-  function toolArgSummary(rawArgs) {
-    let args = rawArgs
-    if (typeof args === 'string') {
-      try { args = JSON.parse(args) } catch { return redactText(args).replace(/\s+/g, ' ').trim().slice(0, 120) }
-    }
-    if (args === null || typeof args !== 'object') return ''
-    for (const key of TOOL_ARG_KEYS) {
-      const val = args[key]
-      if (typeof val === 'string' && val.trim() !== '') {
-        const clean = redactText(val).replace(/\s+/g, ' ').trim()
-        return clean.length > 120 ? `${clean.slice(0, 120)}…` : clean
-      }
-    }
-    return ''
-  }
+  const toolArgSummary = rawArgs => summarizeToolArg(rawArgs, { redact: redactText, argKeys: TOOL_ARG_KEYS })
 
   // Concise, redacted trail of the most recent tool calls and outcomes in a part,
   // oldest first within budget, so checkpoints and handoffs retain file paths, commands,
-  // and errors even when tool-call messages themselves are condensed or left behind.
-  async function recentToolActivity(sessionId, { maxCalls = TOOL_TRAIL_MAX, maxTokens = TOOL_TRAIL_TOKENS, pages = 4 } = {}) {
-    if (maxCalls <= 0 || maxTokens <= 0) return []
-    const results = new Map()
-    const entries = []
-    let used = 0
-    try {
-      for await (const event of rt.eventsBackwards(sessionId, AbortSignal.timeout(HANDOFF_READ_MS), pages)) {
-        if (event.type === 'tool/result') {
-          const message = event.data?.message
-          const callId = message?.toolCallId
-          if (typeof callId === 'string' && !results.has(callId)) {
-            const failed = message.ok === false || message.isError === true
-            const detail = failed ? redactText(textOf(message.content)).replace(/\s+/g, ' ').trim().slice(0, 120) : ''
-            results.set(callId, failed ? (detail ? `error: ${detail}` : 'error') : 'ok')
-          }
-          continue
-        }
-        if (event.type !== 'tool/call') continue
-        const name = event.data?.name
-        if (typeof name !== 'string' || TOOL_TRAIL_SKIP.has(name)) continue
-        const arg = toolArgSummary(event.data?.arguments)
-        const outcome = typeof event.data?.callId === 'string' ? results.get(event.data.callId) : undefined
-        const head = arg === '' ? name : `${name}(${arg})`
-        const line = `- [${clock(event.time)}] ${head}${outcome === undefined ? '' : ` -> ${outcome}`}`
-        const cost = estimateTokens(line)
-        if (entries.length > 0 && used + cost > maxTokens) break
-        entries.push(line)
-        used += cost
-        if (entries.length >= maxCalls) break
-      }
-    } catch {
-      return entries.reverse()
-    }
-    return entries.reverse()
+  // call_ids, and errors even when tool-call messages themselves are condensed or left behind.
+  function recentToolActivity(sessionId, { maxCalls = TOOL_TRAIL_MAX, maxTokens = TOOL_TRAIL_TOKENS, pages = 4 } = {}) {
+    return extractToolTrail(rt.eventsBackwards(sessionId, AbortSignal.timeout(HANDOFF_READ_MS), pages), {
+      maxCalls,
+      maxTokens,
+      skipNames: TOOL_TRAIL_SKIP,
+      argKeys: TOOL_ARG_KEYS,
+      redact: redactText,
+      clock,
+      estimateTokens,
+    })
   }
 
   // What a fresh part carries of the part that ends, read newest first: the latest
@@ -594,48 +562,44 @@ export function install(rt) {
   // the Bot (from the user or another Bot) as an anchored list. A group turn message
   // holds the whole round, so a group part carries only its latest messages.
   async function handoffLines(sessionId, { budget, group, number }) {
-    const recent = []
-    const earlier = []
-    let used = 0
-    let full = false
-    let listed = 0
-    let unlisted = 0
+    let packed
     let complete = true
     const read = {}
-    const stamp = line => (group ? `[${clock(line.time)}]` : `[part ${number} #${line.seq} · ${clock(line.time)}]`)
+    const collected = []
     try {
       for await (const line of partLines(sessionId, AbortSignal.timeout(HANDOFF_READ_MS), { group, pages: HISTORY_SCAN_PAGES, read })) {
-        if (!full) {
-          const text = clip(line.text, RECENT_LINE_MAX, group ? 'the full text is in the saved record' : `read_own_chat around "part ${number} #${line.seq}" shows all of it`)
-          const cost = estimateTokens(text)
-          if (recent.length === 0 || used + cost <= budget) {
-            recent.push(`${stamp(line)} ${text}`)
-            used += cost
-            continue
-          }
-          full = true
-        }
-        if (group) break
-        if (line.who === 'you') continue
-        const text = clip(line.text, LIST_LINE_MAX, `read_own_chat around "part ${number} #${line.seq}" shows all of it`)
-        const cost = estimateTokens(text)
-        if (unlisted > 0 || listed + cost > LIST_TOKENS) {
-          unlisted += 1
-          continue
-        }
-        earlier.push(`${stamp(line)} ${text}`)
-        listed += cost
+        collected.push(line)
       }
     } catch (error) {
       // The latest messages matter most; what could not be read is only noted.
-      if (recent.length === 0) throw error
+      if (collected.length === 0) throw error
       complete = false
       rt.warn('ds-bot: reading %s for its handoff stopped early: %s', sessionId, error)
     }
+    packed = await buildHandoffPack({
+      lines: collected,
+      budget,
+      listBudget: LIST_TOKENS,
+      recentLineMax: RECENT_LINE_MAX,
+      listLineMax: LIST_LINE_MAX,
+      group,
+      number,
+      clock,
+      clip,
+      estimateTokens,
+    })
     const tools = await recentToolActivity(sessionId, { maxTokens: Math.min(TOOL_TRAIL_TOKENS, Math.max(0, Math.floor(budget / 4))) })
     // `whole`: every message of the part is in `recent`.
     complete &&= read.complete === true
-    return { recent: recent.reverse(), earlier: earlier.reverse(), tools, unlisted, complete, whole: complete && !full }
+    return {
+      recent: packed.recent,
+      earlier: packed.earlier,
+      tools,
+      unlisted: packed.unlisted,
+      complete,
+      whole: complete && !packed.full,
+      hasImages: read.hasImages === true,
+    }
   }
 
   // The note's sections, in order. A note without all of them is not used.
@@ -1074,56 +1038,25 @@ export function install(rt) {
   // the latest user+Bot exchanges verbatim plus a compact recent tool trail so active
   // work does not lose immediate context.
   async function checkpointContext(sessionId, { budget, group, number, includeRecent = false, tailText = '' }) {
-    const recent = []
-    const kept = []
-    const recentBudget = includeRecent ? Math.floor(budget * 0.5) : 0
-    const toolBudget = includeRecent ? Math.min(TOOL_TRAIL_TOKENS, Math.floor(budget * 0.15)) : 0
-    const keptBudget = Math.max(0, budget - recentBudget - toolBudget)
-    let recentUsed = 0
-    let recentFull = !includeRecent
-    let keptUsed = 0
-    let more = false
-    let skippedTail = false
-    const stamp = line => (group ? `[${clock(line.time)}]` : `[part ${number} #${line.seq} · ${clock(line.time)}]`)
-    const read = { continue: () => recent.length === 0 && kept.length === 0 }
-    for await (const line of partLines(sessionId, AbortSignal.timeout(HANDOFF_READ_MS), { group, pages: HISTORY_SCAN_PAGES, read })) {
-      // Skip duplicating the single assistant reply DSH already kept verbatim right
-      // after the checkpoint on the surface.
-      if (includeRecent && !skippedTail && tailText !== '' && line.who === 'you' && line.text === `You: ${tailText}`) {
-        skippedTail = true
-        continue
-      }
-      if (!recentFull) {
-        const text = `${stamp(line)} ${clip(line.text, RECENT_LINE_MAX, 'read_own_chat shows all of it')}`
-        const cost = estimateTokens(text)
-        if (recent.length === 0 || recentUsed + cost <= recentBudget) {
-          recent.push(text)
-          recentUsed += cost
-          if (read.capped) {
-            more = true
-            break
-          }
-          continue
-        }
-        recentFull = true
-      }
-      if (line.who === 'you') continue
-      const text = `${stamp(line)} ${clip(line.text, RECENT_LINE_MAX, 'read_own_chat shows all of it')}`
-      const cost = estimateTokens(text)
-      if ((kept.length > 0 || recent.length > 0) && keptUsed + cost > keptBudget) {
-        more = true
-        break
-      }
-      kept.push(text)
-      keptUsed += cost
-      if (read.capped) {
-        more = true
-        break
-      }
-    }
-    more ||= read.complete !== true
-    const tools = includeRecent ? await recentToolActivity(sessionId, { maxTokens: toolBudget }) : []
-    return { recent: recent.reverse(), tools, kept: kept.reverse(), more }
+    let keptAny = false
+    const read = { continue: () => !keptAny }
+    const packed = await buildCheckpointPack({
+      lines: partLines(sessionId, AbortSignal.timeout(HANDOFF_READ_MS), { group, pages: HISTORY_SCAN_PAGES, read }),
+      budget,
+      recentLineMax: RECENT_LINE_MAX,
+      toolMaxTokens: TOOL_TRAIL_TOKENS,
+      group,
+      number,
+      includeRecent,
+      tailText,
+      clock,
+      clip,
+      estimateTokens,
+      read,
+      onKept: () => { keptAny = true },
+    })
+    const tools = includeRecent ? await recentToolActivity(sessionId, { maxTokens: packed.toolBudget }) : []
+    return { recent: packed.recent, tools, kept: packed.kept, more: packed.more }
   }
 
   // DS Bot's summary for a Bot Session, in place of the backend's. Like the backend's
@@ -1762,9 +1695,9 @@ export function install(rt) {
     const where = room === undefined ? 'your own chat with the user'
       : self ? `the group chat "${room.name}"` : `your conversation in the group chat "${room.name}"`
     const lookup = room === undefined
-      ? 'read_own_chat searches every part, reads around an anchor such as [part 2 #1234 · …], and shows the note that closed any earlier part.'
+      ? 'read_own_chat searches every part, reads around an anchor such as [part 2 #1234 · …], recalls tool outputs by call_id, and shows the note that closed any earlier part.'
       : self ? 'the earlier part stays in the group\'s saved record.'
-        : 'read_group_chat shows the group\'s latest messages, and read_own_chat your own chat.'
+        : 'read_group_chat shows the group\'s latest messages, and read_own_chat your own chat (or pass group to search your earlier parts here, or call_id to recall a tool output).'
     const reason = failed !== undefined ? `a request in the previous part kept failing (${failed})`
       : runtimeLost ? 'the local agent session could no longer be resumed'
         : overflow ? 'the previous part overflowed the model\'s window'
@@ -1784,7 +1717,7 @@ export function install(rt) {
       `Everything earlier stays saved: ${lookup}`,
       ...(engine !== undefined ? [`You now run on ${engine}. Your memory, instructions, team and folder stay yours, but your own tools and how they work may differ from the ones in the messages below: look at what you have before you repeat a step.`] : []),
       ...(folder !== undefined ? [`You now work in ${folder}: commands and file tools start there. Relative paths in the messages below meant the previous folder.`] : []),
-      ...(failed !== undefined ? ['Images from the previous part are not in this conversation; if one matters, ask the user to send it again.'] : []),
+      ...(failed !== undefined || lines.hasImages === true ? ['Images from the previous part are not in this conversation; if one matters, ask the user to send it again.'] : []),
       '',
       '## Handoff note',
       noteText(segment) ?? '(none)',
@@ -2727,7 +2660,10 @@ export function install(rt) {
         throw error
       }
       await ctx.workspaceRegistry.archiveSession(agent.id, { stopActivity: true })
-        .then(() => finishMove?.())
+        .then(() => {
+          finishMove?.()
+          rt.forgetLocalAgentSession?.(agent.id)
+        })
         .catch(error => {
           if (finishMove !== undefined) job.kept = true
           rt.warn('ds-bot: earlier part %s not archived: %s', agent.id, error)
@@ -4035,11 +3971,12 @@ export function install(rt) {
   // different workDir is requested, or the Bot runs on a local CLI agent.
   // Pass `fork: false` for lightweight independent tasks (peer-Bot handoffs or
   // `task_start` from a large parent Session).
-  async function openTaskPart(bot, fromSessionId, task, { workDir, fork = true, throughSeq } = {}) {
+  async function openTaskPart(bot, fromSessionId, task, { workDir, fork = true, throughSeq, fallbackContext } = {}) {
     const room = task.roomId !== undefined ? rt.roomOf(task.roomId) : undefined
     const defaultDir = rt.workDirOf({ botId: bot.id, ...(room ? { roomId: room.id } : {}) })
     const dir = workDir !== undefined ? (workDir ?? undefined) : defaultDir
-    const isLocal = rt.localAgentBadge?.(bot.model ?? bot.appliedModel) !== undefined
+    const capabilities = contextRuntime.capabilitiesFor({ bot, session: ctx.get('agents')?.get(fromSessionId)?.session })
+    const isLocal = capabilities.isLocal
     // Capture the parent session's last event seq before async creation/routing so a
     // non-forked inherited ref stays pinned strictly to branch time.
     const sourceSessionAtBranch = ctx.get?.('agents')?.get(fromSessionId)?.session
@@ -4058,12 +3995,14 @@ export function install(rt) {
       return undefined
     })()
     let sessionId
+    let dshForked = false
     let forked = false
     if (fork !== false && !isLocal && dir === defaultDir && typeof ctx.sessionController?.fork === 'function') {
       try {
         const res = await ctx.sessionController.fork({ sessionId: fromSessionId })
         if (typeof res?.sessionId === 'string' && res.sessionId !== '') {
           sessionId = res.sessionId
+          dshForked = true
           forked = true
         }
       } catch {
@@ -4083,19 +4022,49 @@ export function install(rt) {
         .catch(error => rt.warn('ds-bot: unused task part of %s not archived: %s', bot.name, error))
       throw Object.assign(new Error(room !== undefined ? 'Bot is no longer in this group' : 'Bot no longer exists'), { code: 'bot/not-found' })
     }
+    // Register session ownership BEFORE any native CLI fork writes `state.localAgents.sessions[sessionId]`
+    // so a concurrent `pruneLocalAgentSessions(liveRaw)` pass can never delete the new record.
+    rt.chatOwners.set(sessionId, bot.id)
+    rt.taskOwners.set(sessionId, { botId: bot.id, taskId: task.id, ...(room ? { roomId: room.id } : {}) })
+    if (fork !== false && isLocal && dir === defaultDir && typeof rt.forkLocalAgentSession === 'function') {
+      const parsed = splitRef(picked?.ref ?? bot.model ?? bot.appliedModel)
+      const canForkCli = capabilities.canFork === true
+        || (parsed?.provider !== undefined && await rt.ensureLocalAgentForkCapability?.(parsed.provider) === true)
+      if (canForkCli) {
+        try {
+          const cliFork = await rt.forkLocalAgentSession(fromSessionId, sessionId, {
+            cwd: dir,
+            model: parsed?.model,
+            fallbackContext,
+          })
+          if (cliFork?.cliSessionId) forked = true
+        } catch {
+          // Unsupported or un-forkable CLI session: stay on the fresh Session with fallback summary.
+        }
+      }
+      if (rt.botOf(bot.id) !== bot || (room !== undefined && (rt.roomOf(room.id) !== room || !room.members.includes(bot.id)))) {
+        rt.chatOwners.delete(sessionId)
+        rt.taskOwners.delete(sessionId)
+        rt.forgetLocalAgentSession?.(sessionId)
+        await ctx.workspaceRegistry.archiveSession(sessionId, { stopActivity: true })
+          .catch(error => rt.warn('ds-bot: unused task part of %s not archived: %s', bot.name, error))
+        throw Object.assign(new Error(room !== undefined ? 'Bot is no longer in this group' : 'Bot no longer exists'), { code: 'bot/not-found' })
+      }
+    }
     let startSeq = 0
-    if (forked) {
+    if (dshForked) {
       const forkedAgent = await rt.resolveAgent(sessionId).catch(() => undefined)
       const inherited = forkedAgent?.session?.inheritedEventCount
       const seq = forkedAgent?.session?.seq
       if (Number.isInteger(inherited) && inherited > 0) startSeq = inherited
       else if (Number.isInteger(seq) && seq > 0) startSeq = seq
     }
-    // When an own-chat task_start does not fork, append a slim ref to the parent
-    // foreground part bounded to branch time so read_own_chat can search pre-branch
-    // history without ever leaking later foreground or fg-handoff messages.
+    // Whenever DSH events were not cloned into `sessionId` (non-forked tasks AND
+    // native local CLI forks whose DSH log stays on the parent), append a slim ref
+    // to the parent foreground part bounded to branch time so read_own_chat (including
+    // call_id recall) can reach pre-branch history without leaking post-branch turns.
     let inheritedSegments = Array.isArray(task.inheritedSegments) ? [...task.inheritedSegments] : []
-    if (!forked && room === undefined && task.origin !== 'bot-handoff' && typeof fromSessionId === 'string' && fromSessionId !== '' && fromSessionId !== sessionId) {
+    if (!dshForked && room === undefined && task.origin !== 'bot-handoff' && typeof fromSessionId === 'string' && fromSessionId !== '' && fromSessionId !== sessionId) {
       if (!inheritedSegments.some(seg => seg?.sessionId === fromSessionId)) {
         inheritedSegments.push({
           sessionId: fromSessionId,
@@ -4112,8 +4081,6 @@ export function install(rt) {
       ...(workDir !== undefined ? { workDir } : {}),
     }
     ;(bot.tasks ??= []).push(stored)
-    rt.chatOwners.set(sessionId, bot.id)
-    rt.taskOwners.set(sessionId, { botId: bot.id, taskId: task.id, ...(room ? { roomId: room.id } : {}) })
     await rt.save()
     const now = await freshRoute(bot, sourceAgent?.session)
     if (now !== undefined && (now.ref !== picked?.ref || now.effort !== picked?.effort)) {
@@ -4128,9 +4095,13 @@ export function install(rt) {
   // history and KV cache, falling back to a fresh Session on first turn.
   async function forkForegroundPart(bot, fromSessionId) {
     const dir = rt.workDirOf({ botId: bot.id })
+    const sourceAgent = ctx.get('agents')?.get(fromSessionId)
+    const isLocal = contextRuntime.isLocal({ bot, session: sourceAgent?.session })
     let sessionId
     let forked = false
-    if (typeof ctx.sessionController?.fork === 'function') {
+    // A local CLI session stays attached to the moving background Session (`fromSessionId`);
+    // the new foreground opens a fresh Session + fresh CLI session seeded with handoff context.
+    if (!isLocal && typeof ctx.sessionController?.fork === 'function') {
       try {
         const res = await ctx.sessionController.fork({ sessionId: fromSessionId })
         if (typeof res?.sessionId === 'string' && res.sessionId !== '') {
@@ -4144,7 +4115,6 @@ export function install(rt) {
     if (sessionId === undefined) {
       sessionId = await rt.createSession(bot.name, { dir })
     }
-    const sourceAgent = ctx.get('agents')?.get(fromSessionId)
     const picked = await freshRoute(bot, sourceAgent?.session)
     if (picked !== undefined) await selectRoute({ name: bot.name }, sessionId, picked)
     await rt.applyPermission(bot, sessionId, undefined)
@@ -4205,6 +4175,8 @@ export function install(rt) {
   const forgetSessionParts = (sessionId) => {
     if (typeof sessionId !== 'string' || sessionId === '') return
     contextRuntime.forget(sessionId)
+    rt.forgetLocalAgentSession?.(sessionId)
+    rt.forgetChatIndexSession?.(sessionId)
     condensedUnmeasured.delete(sessionId)
     cutOffs.delete(sessionId)
     rescued.delete(sessionId)

@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os'
 import { basename, dirname, resolve } from 'node:path'
 import { LlmAdapter, LlmError, isContextWindowExceededError, isQuotaExceededError, offloadedImageText, resolveImageAttachmentAccess, resolveRetryPolicy, textOnlyImageText } from '@deepseek-ai/dsh-llm'
 import { isClockSource, isContextOnlyMessage, isSnapshotContextSource } from '../context-messages.js'
+import { buildCompactDigest, buildReplayPack } from '../context-pack.js'
 import { GROUP_MEMORY_SOURCE, MEMORY_RECALL_SOURCE, MEMORY_UPDATE_SOURCE, OWN_HEADING, OWN_MEMORY_SOURCE } from '../memory-copy.js'
 import { textOf } from '../text.js'
 import { engineOf, cliMode, signInFor } from './engines.js'
@@ -103,18 +104,7 @@ function titleChunk(text) {
 
 // A compaction request neither: a deterministic digest of the newest messages.
 function digestChunks(messages) {
-  const lines = []
-  let used = 0
-  for (const message of [...(messages ?? [])].reverse()) {
-    if (message?.role === 'system') continue
-    const text = textOf(message.content).replace(/\s+/g, ' ').trim()
-    if (text === '') continue
-    const line = `${message.role}: ${text.slice(0, 300)}`
-    if (lines.length > 0 && used + line.length > 8 * 1024) break
-    lines.push(line)
-    used += line.length
-  }
-  const text = `[Earlier conversation, condensed]\n${lines.reverse().join('\n')}`
+  const text = buildCompactDigest(messages)
   return [
     { type: 'block-start', index: 0, blockType: 'text' },
     { type: 'text-delta', index: 0, text },
@@ -143,6 +133,7 @@ export class LocalAgentAdapter extends LlmAdapter {
     this.probes = new Map()    // route -> { epoch, promise }
     this.activeProbes = new Set() // active askModels runs, so superseding probes stay protected
     this.sideRequests = new Set()
+    this.forkUnsupportedRoutes = new Set()
     this.disposed = false
   }
 
@@ -324,6 +315,8 @@ export class LocalAgentAdapter extends LlmAdapter {
       cwd: record?.cwd,
       model: options.model,
       preset,
+      forkFrom: record?.forkFrom === true,
+      forkFallbackContext: typeof record?.forkFallbackContext === 'string' && record.forkFallbackContext !== '' ? record.forkFallbackContext : undefined,
       // What the CLI reported of its own context ({used, size, stale}) and how often
       // it condensed in this Session; the parts module decides with them.
       context: record?.context,
@@ -382,6 +375,8 @@ export class LocalAgentAdapter extends LlmAdapter {
       model: live.model,
       ...(live.defaultEffort === undefined ? {} : { defaultEffort: live.defaultEffort }),
       ...(live.effort === undefined ? {} : { effort: live.effort }),
+      ...(live.forkFrom === true ? { forkFrom: true } : {}),
+      ...(typeof live.forkFallbackContext === 'string' && live.forkFallbackContext !== '' ? { forkFallbackContext: live.forkFallbackContext } : {}),
       ...(live.context === undefined ? {} : { context: live.context }),
       ...(live.compactions > 0 ? { compactions: live.compactions } : {}),
       ...(Array.isArray(live.pendingContext) && live.pendingContext.length > 0 ? { pendingContext: live.pendingContext.map(entry => ({ ...entry })) } : {}),
@@ -519,6 +514,77 @@ export class LocalAgentAdapter extends LlmAdapter {
     await this.closeLive(live, { idle: true })
   }
 
+  isForkUnsupported(route) {
+    return this.forkUnsupportedRoutes.has(route) || this.engines.get(route)?.forkSupported === false
+  }
+
+  // Forks a local CLI session natively when the engine supports it (Codex `thread/fork`
+  // or Claude `--resume <id> --fork-session`) so a background task inherits parent context.
+  // Returns `{ cliSessionId }` on success, or `undefined` to fall back to a fresh Session.
+  async forkSession(fromSessionId, toSessionId, { cwd, model, fallbackContext } = {}) {
+    const fromId = String(fromSessionId ?? '')
+    const toId = String(toSessionId ?? '')
+    if (fromId === '' || toId === '') return undefined
+    const sourceLive = this.live.get(fromId)
+    const sourceRecord = this.deps.record(fromId)
+    const route = sourceLive?.route ?? sourceRecord?.route
+    const sourceCliId = sourceLive?.cliSessionId ?? sourceRecord?.cliSessionId
+    if (!route || !sourceCliId) return undefined
+    const spec = engineOf(route, this.deps.customAgents())
+    if (spec === undefined) return undefined
+    if (this.isForkUnsupported(route) || sourceLive?.engine?.forkSupported === false) {
+      this.forkUnsupportedRoutes.add(route)
+      return undefined
+    }
+    const resolvedCwd = cwd ?? sourceLive?.cwd ?? sourceRecord?.cwd ?? await this.deps.cwdFor(toId)
+    const resolvedModel = model ?? sourceLive?.model ?? sourceRecord?.model
+    if (spec.kind === 'codex') {
+      // Prefer the live parent session's existing Codex app-server so we neither spawn
+      // an extra persistent child process nor miss un-flushed in-memory thread state.
+      const engine = sourceLive?.engine ?? this.engine(route)
+      if (engine.forkSupported === false || typeof engine.fork !== 'function') {
+        if (engine.forkSupported === false) this.forkUnsupportedRoutes.add(route)
+        return undefined
+      }
+      const preset = this.deps.presetFor(toId)
+      const mode = cliMode('codex', preset)
+      const forked = await engine.fork(sourceCliId, toId, {
+        cwd: resolvedCwd,
+        mode,
+        model: resolvedModel,
+        review: this.deps.reviewFor?.(toId) === true,
+      })
+      if (engine.forkSupported === false) this.forkUnsupportedRoutes.add(route)
+      if (!forked?.cliSessionId) return undefined
+      this.deps.saveRecord(toId, {
+        route,
+        cliSessionId: forked.cliSessionId,
+        cwd: resolvedCwd,
+        model: resolvedModel,
+        compactions: 0,
+      })
+      return forked
+    }
+    if (spec.kind === 'claude') {
+      // Claude forks lazily on first spawn via `--resume <sourceCliId> --fork-session`,
+      // receiving a fresh `cliSessionId` on `system/init`. Retain optional `fallbackContext`
+      // only until init succeeds so if `--fork-session` is rejected, we fall back to a
+      // fresh CLI session with parent context instead of failing or resuming the parent.
+      const trimmedFallback = typeof fallbackContext === 'string' ? fallbackContext.trim() : ''
+      this.deps.saveRecord(toId, {
+        route,
+        cliSessionId: sourceCliId,
+        forkFrom: true,
+        ...(trimmedFallback !== '' ? { forkFallbackContext: trimmedFallback } : {}),
+        cwd: resolvedCwd,
+        model: resolvedModel,
+        compactions: 0,
+      })
+      return { cliSessionId: sourceCliId, deferred: true }
+    }
+    return undefined
+  }
+
   // Restores handed cursor, promptHash, and staged context when a turn fails
   // before the CLI confirms or accepts it (pre-init exit on Claude, immediate
   // RPC rejection on Codex/ACP), while never replaying a turn that already ran.
@@ -538,6 +604,25 @@ export class LocalAgentAdapter extends LlmAdapter {
         session.rolledBack = true
         live.handedRolledBack = true
         restoreContext()
+        // A deferred Claude fork rejected `--fork-session` or could not find the parent
+        // conversation before init: never resume the parent without `--fork-session`;
+        // drop the parent id and retry once on a clean fresh session with fallback context.
+        if (live.forkFrom === true && (session.forkUnsupported === true || session.resumeMissing === true)) {
+          if (session.forkUnsupported === true) this.forkUnsupportedRoutes.add(live.route)
+          live.forkFrom = false
+          live.cliSessionId = undefined
+          live.handed = undefined
+          live.promptHash = undefined
+          live.pumpToken = undefined
+          live.events.length = 0
+          live.engine.forget?.(sessionId)
+          live.engineSession = undefined
+          live.started = false
+          live.forkFallbackRetry = true
+          live.applyForkFallback = true
+          this.deps.saveRecord(sessionId, this.recordOf(live))
+          return
+        }
         if (session.resumeMissing === true) {
           if (this.deps.switchOnResumeLost?.(sessionId) === true) {
             live.handed = live.handedBefore
@@ -692,6 +777,19 @@ export class LocalAgentAdapter extends LlmAdapter {
     live.cwd = cwd
 
     const mode = cliMode(live.spec.kind, preset)
+    if (live.engineSession === undefined && live.forkFrom === true && (live.engine.forkSupported === false || this.isForkUnsupported(live.route))) {
+      // Another task already discovered this CLI rejects `--fork-session`:
+      // convert this staged deferred fork directly to a fresh session with its
+      // retained fallbackContext instead of throwing in engine.open().
+      live.forkFrom = false
+      live.cliSessionId = undefined
+      live.handed = undefined
+      live.promptHash = undefined
+      if (typeof live.forkFallbackContext === 'string' && live.forkFallbackContext !== '') {
+        live.applyForkFallback = true
+      }
+      this.deps.saveRecord(sessionId, this.recordOf(live))
+    }
     const priorCliId = live.cliSessionId
     const freshCli = priorCliId === undefined
     let freshMemory
@@ -717,13 +815,18 @@ export class LocalAgentAdapter extends LlmAdapter {
       refreshMemory()
     }
     const switchOnResumeLost = this.deps.switchOnResumeLost?.(sessionId) === true
+    const forkFallback = live.applyForkFallback === true && typeof live.forkFallbackContext === 'string' && live.forkFallbackContext !== ''
+      ? live.forkFallbackContext
+      : undefined
     let resumeDropped = false
     if (live.engineSession === undefined) {
+      const isForkOpen = live.forkFrom === true && priorCliId !== undefined
       const openArgs = {
         cwd,
         mcp,
         resumeId: priorCliId,
-        resumeOnly: switchOnResumeLost && priorCliId !== undefined,
+        forkSession: isForkOpen,
+        resumeOnly: switchOnResumeLost && priorCliId !== undefined && !isForkOpen,
         mode,
         preset,
         review: this.deps.reviewFor?.(sessionId) === true,
@@ -753,7 +856,7 @@ export class LocalAgentAdapter extends LlmAdapter {
       // the Bot part, a lost CLI session escalates to a formal `runtime-lost` part
       // switch instead of silently replaying inside the same part.
       const reportedId = live.engineSession.acpSessionId ?? live.engineSession.threadId ?? live.engineSession.cliSessionId
-      if (!freshCli && (live.engineSession.resumed === false || (reportedId !== undefined && reportedId !== priorCliId))) {
+      if (!freshCli && !isForkOpen && (live.engineSession.resumed === false || (reportedId !== undefined && reportedId !== priorCliId))) {
         if (switchOnResumeLost) {
           const opened = live.engineSession
           live.engineSession = undefined
@@ -770,7 +873,10 @@ export class LocalAgentAdapter extends LlmAdapter {
         this.deps.onCompaction?.(sessionId, { compactions: 0, kind: live.spec.kind, reason: 'resume-dropped' })
         this.deps.rt?.warn?.('local-agents: %s did not resume session %s for %s (opened %s); replaying conversation history', live.spec.kind, priorCliId, sessionId, reportedId ?? 'new')
       }
-      if (reportedId !== undefined) live.cliSessionId = reportedId
+      if (reportedId !== undefined) {
+        live.cliSessionId = reportedId
+        if (isForkOpen) live.forkFrom = false
+      }
       if (live.spec.kind === 'acp') {
         if (live.engineSession.defaultEffort !== undefined) live.defaultEffort = live.engineSession.defaultEffort
         live.effort = live.engineSession.effort
@@ -801,6 +907,8 @@ export class LocalAgentAdapter extends LlmAdapter {
           live.turnConfirmed = true
           live.flushedContext = undefined
           live.cliSessionId = id
+          live.forkFrom = false
+          if (live.applyForkFallback !== true) live.forkFallbackContext = undefined
           this.deps.saveRecord(sessionId, this.recordOf(live, { cliSessionId: id, cwd, model: options.model }))
         })
       }
@@ -831,6 +939,11 @@ export class LocalAgentAdapter extends LlmAdapter {
           includeSystem: live.spec.kind === 'acp',
         })
       : await renderDelta(contextText, remaining, resolveImage)
+    if (forkFallback !== undefined) {
+      promptBlocks = mergeTextBlocks([{ type: 'text', text: forkFallback }, ...promptBlocks])
+      live.applyForkFallback = false
+      live.forkFallbackContext = undefined
+    }
     let sentInstructions = live.spec.kind !== 'acp' && startedFreshCli && instructions !== undefined
     let nextPromptHash = live.promptHash
     const expectedPromptHash = live.queue.findLast(entry => entry.delivery?.promptHash !== undefined)?.delivery.promptHash ?? live.promptHash
@@ -913,6 +1026,11 @@ export class LocalAgentAdapter extends LlmAdapter {
       this.rollbackUnread(live, sessionId)
       if (live.closeFailure === undefined && live.promptFileRetry === true) {
         live.promptFileRetry = false
+        yield* this.stream(options)
+        return
+      }
+      if (live.closeFailure === undefined && live.forkFallbackRetry === true) {
+        live.forkFallbackRetry = false
         yield* this.stream(options)
         return
       }
@@ -1682,70 +1800,30 @@ function applyFreshMemory(system, freshMemory) {
 // the current unread input, the latest memory snapshots, and the latest handoff word
 // for word while bounding historical messages and incremental memory updates.
 async function renderReplay(messages, system, resolveImage, { preserve = [], freshMemory, memoryNote = '', includeSystem = true } = {}) {
-  const picked = []
-  let used = 0
-  let conversationCount = 0
-  let memoryUpdates = 0
-  let memoryUpdateBytes = 0
-  const body = (messages ?? []).filter(message => message.role !== 'system')
-  const latest = body.at(-1)
-  const latestNonClock = [...body].reverse().find(message => !isClockSource(message.source))
-  const injectFreshOwn = freshMemory?.own !== undefined && !system.includes(OWN_HEADING)
-  const latestOwnMem = injectFreshOwn ? undefined : [...body].reverse().find(message => message.source?.kind === OWN_MEMORY_SOURCE)
-  const latestGroupMem = freshMemory?.group !== undefined ? undefined : [...body].reverse().find(message => message.source?.kind === GROUP_MEMORY_SOURCE)
-  const latestHandoff = [...body].reverse().find(message => message.source?.handoff === true)
-  const preserveSet = new Set(preserve)
-  let full = false
-  for (const message of [...body].reverse()) {
-    const sourceKind = message.source?.kind
-    const isCurrentInput = message === latest || message === latestNonClock || preserveSet.has(message)
-    if (!isCurrentInput && isClockSource(message.source)) continue
-    if (sourceKind === OWN_MEMORY_SOURCE && message !== latestOwnMem) continue
-    if (sourceKind === GROUP_MEMORY_SOURCE && message !== latestGroupMem) continue
-    const text = textOf(message.content)
-    const prefix = `${message.role === 'assistant' ? 'You' : message.role === 'tool' ? `Tool result (${message.toolCallId ?? 'call'})` : 'User'}:`
-    if (sourceKind === MEMORY_UPDATE_SOURCE) {
-      if (freshMemory !== undefined) continue
-      const len = prefix.length + 1 + text.length
-      if (memoryUpdates >= MEMORY_UPDATE_REPLAY_MAX || (memoryUpdates > 0 && memoryUpdateBytes + len > MEMORY_UPDATE_REPLAY_BYTES)) continue
-      const maxText = Math.max(500, MEMORY_UPDATE_REPLAY_BYTES - memoryUpdateBytes)
-      const blocks = await blocksOfMessage(message, { maxText, resolveImage, includeToolCalls: true })
-      if (blocks.length === 0) continue
-      const entry = blocks[0].type === 'text'
-        ? [{ type: 'text', text: `${prefix} ${blocks[0].text}` }, ...blocks.slice(1)]
-        : [{ type: 'text', text: prefix }, ...blocks]
-      picked.unshift(entry)
-      memoryUpdates += 1
-      memoryUpdateBytes += Math.min(len, maxText)
-      continue
-    }
-    const whole = isCurrentInput || message === latestHandoff || message === latestOwnMem || message === latestGroupMem
-    const approxLen = prefix.length + 1 + (whole ? text.length : Math.min(text.length, REPLAY_LINE_MAX))
-    if (!whole) {
-      full ||= conversationCount >= REPLAY_MESSAGES || picked.length >= REPLAY_TOTAL_MAX || used + approxLen > REPLAY_BYTES
-      if (full) continue
-    }
-    const blocks = await blocksOfMessage(message, { maxText: whole ? Infinity : REPLAY_LINE_MAX, resolveImage, includeToolCalls: true })
-    if (blocks.length === 0 && !whole) continue
-    const entry = blocks.length > 0 && blocks[0].type === 'text'
-      ? [{ type: 'text', text: `${prefix} ${blocks[0].text}` }, ...blocks.slice(1)]
-      : blocks.length > 0
-        ? [{ type: 'text', text: prefix }, ...blocks]
-        : [{ type: 'text', text: `${prefix} ` }]
-    picked.unshift(entry)
-    if (!whole) used += approxLen
-    if (message.role !== 'tool' && sourceKind !== OWN_MEMORY_SOURCE && sourceKind !== GROUP_MEMORY_SOURCE && !isClockSource(message.source)) {
-      conversationCount += 1
-    }
-  }
-  if (picked.length === 0) return []
-  const headerParts = []
-  if (includeSystem && system !== '') headerParts.push(`The team instructions for this conversation:\n${system}`)
-  if (memoryNote !== '') headerParts.push(memoryNote)
-  if (injectFreshOwn) headerParts.push(freshMemory.own)
-  if (freshMemory?.group !== undefined) headerParts.push(freshMemory.group)
-  headerParts.push('The conversation so far (oldest first):')
-  return mergeTextBlocks([{ type: 'text', text: headerParts.join('\n\n') }, ...picked.flat()])
+  return buildReplayPack({
+    messages,
+    system,
+    resolveImage,
+    blocksOfMessage,
+    mergeTextBlocks,
+    preserve,
+    freshMemory,
+    memoryNote,
+    includeSystem,
+    isClockSource,
+    ownMemorySource: OWN_MEMORY_SOURCE,
+    groupMemorySource: GROUP_MEMORY_SOURCE,
+    memoryUpdateSource: MEMORY_UPDATE_SOURCE,
+    ownHeading: OWN_HEADING,
+    limits: {
+      messages: REPLAY_MESSAGES,
+      totalMax: REPLAY_TOTAL_MAX,
+      bytes: REPLAY_BYTES,
+      lineMax: REPLAY_LINE_MAX,
+      memoryUpdateMax: MEMORY_UPDATE_REPLAY_MAX,
+      memoryUpdateBytes: MEMORY_UPDATE_REPLAY_BYTES,
+    },
+  })
 }
 
 // Process exits, missing CLIs, quota and sign-in failures get typed codes so DS
