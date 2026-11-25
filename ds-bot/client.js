@@ -40020,7 +40020,7 @@ function TeamSidebar(props) {
     panel: details ? { view, yielded: panelYield } : null
   });
   const [drag, setDrag] = (0, import_react40.useState)(null);
-  const mode = drag?.left ?? layout.left;
+  const mode = layout.left === "hidden" ? "hidden" : drag?.left ?? layout.left;
   const [held, leaving] = useLinger(mode === "hidden" ? null : mode, SPRING_SHAPE.duration);
   const shown = held ?? mode;
   const firstColumn = (0, import_react40.useRef)(true);

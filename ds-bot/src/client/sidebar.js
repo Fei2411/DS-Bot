@@ -629,9 +629,10 @@ export function TeamSidebar(props) {
     pref, drawer: leftDrawer,
     panel: details ? { view, yielded: panelYield } : null,
   })
-  // A drag of the column's edge shows where it would land, live.
+  // A drag of the column's edge shows where it would land, live; an explicit
+  // hide takes precedence so toggling the sidebar mid-drag aborts the drag.
   const [drag, setDrag] = useState(null)
-  const mode = drag?.left ?? layout.left
+  const mode = layout.left === 'hidden' ? 'hidden' : (drag?.left ?? layout.left)
   // A hidden column stays mounted for its slide out; `shown` is the mode it last had.
   const [held, leaving] = useLinger(mode === 'hidden' ? null : mode, SPRING_SHAPE.duration)
   const shown = held ?? mode

@@ -1233,6 +1233,7 @@ test('aborting an active drag on hide ignores pointerup, and panelYield during s
   const prefCalls = []
   const roster = { bots: [], rooms: [], agents: [], byId: {}, ready: true }
   const refs = []
+  const states = []
   const actions = {
     setPanelYield: (on) => { stored.panelYield = on },
     setLeftDrawer() {}, toggleSidebar() {}, toggleLeftHidden() {},
@@ -1242,6 +1243,8 @@ test('aborting an active drag on hide ignores pointerup, and panelYield during s
   const render = () => {
     renderRefs = refs
     refIndex = 0
+    renderStates = states
+    stateIndex = 0
     layoutEffects = []
     try {
       const tree = TeamSidebar({
@@ -1258,6 +1261,7 @@ test('aborting an active drag on hide ignores pointerup, and panelYield during s
       return tree
     } finally {
       renderRefs = undefined
+      renderStates = undefined
       layoutEffects = undefined
     }
   }
@@ -1270,16 +1274,22 @@ test('aborting an active drag on hide ignores pointerup, and panelYield during s
   Object.assign(sandbox, globals)
   viewport.innerWidth = 1000
   try {
-    // 1. Mid-drag hide aborts the active drag and suppresses subsequent pointerup setSidebarPref.
+    // 1. Mid-drag hide aborts the active drag even after crossing the snap threshold (`drag !== null`)
+    // and suppresses subsequent pointerup setSidebarPref.
     const start1 = findLeft(render())
     start1.props.onGrip({ button: 0, pointerId: 1, currentTarget: grip, preventDefault() {} })
     grip.dispatchEvent(new dom.window.MouseEvent('pointermove', { clientX: 220 }))
+    // Commit React state so `drag` is non-null ({ left: 'open', width: 264 }).
+    assert.equal(findLeft(render()).props.mode, 'open')
     stored.pref = 'hidden'
     render()
     assert.equal(center.style.getPropertyValue('margin-left'), '')
     prefCalls.length = 0
     grip.dispatchEvent(new dom.window.MouseEvent('pointerup', { clientX: 220 }))
     assert.deepEqual(prefCalls, [], 'pointerup after hide abort must not call setSidebarPref')
+    // Reopening does not resurrect stale `drag` state.
+    stored.pref = 'rail'
+    assert.equal(findLeft(render()).props.mode, 'rail')
 
     // 2. Drag rail -> open (264px), then panelYield folds back to rail during settle: margin stays 88px.
     stored.pref = 'rail'
