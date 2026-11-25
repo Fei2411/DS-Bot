@@ -106,8 +106,14 @@ class ClaudeSession {
     // CLI starts an interactive session and never speaks this protocol.
     const args = [...(this.engine.engine.args ?? []), '--print', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose']
     if (resumeId !== undefined) {
+      if (forkSession === true && this.engine.forkSupported === false) {
+        // Never silently resume the parent conversation when a fork was requested but unsupported.
+        this.forkUnsupported = true
+        this.dead = true
+        throw Object.assign(new Error(`${this.engine.engine.name} does not support --fork-session`), { code: 'LOCAL_AGENT_EXIT' })
+      }
       args.push('--resume', resumeId)
-      if (forkSession === true && this.engine.forkSupported !== false) {
+      if (forkSession === true) {
         args.push('--fork-session')
         this.usedForkSession = true
       }

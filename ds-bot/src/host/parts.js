@@ -513,7 +513,7 @@ export function install(rt) {
     for await (const event of rt.eventsBackwards(sessionId, signal, pages, scan, bound)) {
       if (bound !== undefined && Number.isInteger(event?.seq) && event.seq > bound) continue
       if ((event.type === 'user/message' && hasImageBlock(event.data?.content))
-        || (event.type === 'assistant/message' && hasImageBlock(event.data?.message?.content))) {
+        || ((event.type === 'assistant/message' || event.type === 'tool/result') && hasImageBlock(event.data?.message?.content))) {
         scan.hasImages = true
       }
       const entry = historyEntry(event, group)
@@ -1038,16 +1038,10 @@ export function install(rt) {
   // the latest user+Bot exchanges verbatim plus a compact recent tool trail so active
   // work does not lose immediate context.
   async function checkpointContext(sessionId, { budget, group, number, includeRecent = false, tailText = '' }) {
-    let seenAny = false
-    const read = { continue: () => !seenAny }
-    async function* trackedLines() {
-      for await (const line of partLines(sessionId, AbortSignal.timeout(HANDOFF_READ_MS), { group, pages: HISTORY_SCAN_PAGES, read })) {
-        seenAny = true
-        yield line
-      }
-    }
+    let keptAny = false
+    const read = { continue: () => !keptAny }
     const packed = await buildCheckpointPack({
-      lines: trackedLines(),
+      lines: partLines(sessionId, AbortSignal.timeout(HANDOFF_READ_MS), { group, pages: HISTORY_SCAN_PAGES, read }),
       budget,
       recentLineMax: RECENT_LINE_MAX,
       toolMaxTokens: TOOL_TRAIL_TOKENS,
@@ -1059,6 +1053,7 @@ export function install(rt) {
       clip,
       estimateTokens,
       read,
+      onKept: () => { keptAny = true },
     })
     const tools = includeRecent ? await recentToolActivity(sessionId, { maxTokens: packed.toolBudget }) : []
     return { recent: packed.recent, tools, kept: packed.kept, more: packed.more }
@@ -3976,7 +3971,7 @@ export function install(rt) {
   // different workDir is requested, or the Bot runs on a local CLI agent.
   // Pass `fork: false` for lightweight independent tasks (peer-Bot handoffs or
   // `task_start` from a large parent Session).
-  async function openTaskPart(bot, fromSessionId, task, { workDir, fork = true, throughSeq } = {}) {
+  async function openTaskPart(bot, fromSessionId, task, { workDir, fork = true, throughSeq, fallbackContext } = {}) {
     const room = task.roomId !== undefined ? rt.roomOf(task.roomId) : undefined
     const defaultDir = rt.workDirOf({ botId: bot.id, ...(room ? { roomId: room.id } : {}) })
     const dir = workDir !== undefined ? (workDir ?? undefined) : defaultDir
@@ -4000,12 +3995,14 @@ export function install(rt) {
       return undefined
     })()
     let sessionId
+    let dshForked = false
     let forked = false
     if (fork !== false && !isLocal && dir === defaultDir && typeof ctx.sessionController?.fork === 'function') {
       try {
         const res = await ctx.sessionController.fork({ sessionId: fromSessionId })
         if (typeof res?.sessionId === 'string' && res.sessionId !== '') {
           sessionId = res.sessionId
+          dshForked = true
           forked = true
         }
       } catch {
@@ -4018,15 +4015,6 @@ export function install(rt) {
     const sourceAgent = ctx.get('agents')?.get(fromSessionId)
     const picked = await freshRoute(bot, sourceAgent?.session)
     if (picked !== undefined) await selectRoute({ name: bot.name }, sessionId, picked)
-    if (fork !== false && isLocal && dir === defaultDir && capabilities.canFork === true && typeof rt.forkLocalAgentSession === 'function') {
-      try {
-        const parsed = splitRef(picked?.ref ?? bot.model ?? bot.appliedModel)
-        const cliFork = await rt.forkLocalAgentSession(fromSessionId, sessionId, { cwd: dir, model: parsed?.model })
-        if (cliFork?.cliSessionId) forked = true
-      } catch {
-        // Unsupported or un-forkable CLI session: stay on the fresh Session with fallback summary.
-      }
-    }
     await rt.applyPermission(bot, sessionId, room)
       .catch(error => rt.warn('ds-bot: permission for task %s of %s not applied: %s', task.id, bot.name, error))
     if (rt.botOf(bot.id) !== bot || (room !== undefined && (rt.roomOf(room.id) !== room || !room.members.includes(bot.id)))) {
@@ -4034,19 +4022,49 @@ export function install(rt) {
         .catch(error => rt.warn('ds-bot: unused task part of %s not archived: %s', bot.name, error))
       throw Object.assign(new Error(room !== undefined ? 'Bot is no longer in this group' : 'Bot no longer exists'), { code: 'bot/not-found' })
     }
+    // Register session ownership BEFORE any native CLI fork writes `state.localAgents.sessions[sessionId]`
+    // so a concurrent `pruneLocalAgentSessions(liveRaw)` pass can never delete the new record.
+    rt.chatOwners.set(sessionId, bot.id)
+    rt.taskOwners.set(sessionId, { botId: bot.id, taskId: task.id, ...(room ? { roomId: room.id } : {}) })
+    if (fork !== false && isLocal && dir === defaultDir && typeof rt.forkLocalAgentSession === 'function') {
+      const parsed = splitRef(picked?.ref ?? bot.model ?? bot.appliedModel)
+      const canForkCli = capabilities.canFork === true
+        || (parsed?.provider !== undefined && await rt.ensureLocalAgentForkCapability?.(parsed.provider) === true)
+      if (canForkCli) {
+        try {
+          const cliFork = await rt.forkLocalAgentSession(fromSessionId, sessionId, {
+            cwd: dir,
+            model: parsed?.model,
+            fallbackContext,
+          })
+          if (cliFork?.cliSessionId) forked = true
+        } catch {
+          // Unsupported or un-forkable CLI session: stay on the fresh Session with fallback summary.
+        }
+      }
+      if (rt.botOf(bot.id) !== bot || (room !== undefined && (rt.roomOf(room.id) !== room || !room.members.includes(bot.id)))) {
+        rt.chatOwners.delete(sessionId)
+        rt.taskOwners.delete(sessionId)
+        rt.forgetLocalAgentSession?.(sessionId)
+        await ctx.workspaceRegistry.archiveSession(sessionId, { stopActivity: true })
+          .catch(error => rt.warn('ds-bot: unused task part of %s not archived: %s', bot.name, error))
+        throw Object.assign(new Error(room !== undefined ? 'Bot is no longer in this group' : 'Bot no longer exists'), { code: 'bot/not-found' })
+      }
+    }
     let startSeq = 0
-    if (forked) {
+    if (dshForked) {
       const forkedAgent = await rt.resolveAgent(sessionId).catch(() => undefined)
       const inherited = forkedAgent?.session?.inheritedEventCount
       const seq = forkedAgent?.session?.seq
       if (Number.isInteger(inherited) && inherited > 0) startSeq = inherited
       else if (Number.isInteger(seq) && seq > 0) startSeq = seq
     }
-    // When an own-chat task_start does not fork, append a slim ref to the parent
-    // foreground part bounded to branch time so read_own_chat can search pre-branch
-    // history without ever leaking later foreground or fg-handoff messages.
+    // Whenever DSH events were not cloned into `sessionId` (non-forked tasks AND
+    // native local CLI forks whose DSH log stays on the parent), append a slim ref
+    // to the parent foreground part bounded to branch time so read_own_chat (including
+    // call_id recall) can reach pre-branch history without leaking post-branch turns.
     let inheritedSegments = Array.isArray(task.inheritedSegments) ? [...task.inheritedSegments] : []
-    if (!forked && room === undefined && task.origin !== 'bot-handoff' && typeof fromSessionId === 'string' && fromSessionId !== '' && fromSessionId !== sessionId) {
+    if (!dshForked && room === undefined && task.origin !== 'bot-handoff' && typeof fromSessionId === 'string' && fromSessionId !== '' && fromSessionId !== sessionId) {
       if (!inheritedSegments.some(seg => seg?.sessionId === fromSessionId)) {
         inheritedSegments.push({
           sessionId: fromSessionId,
@@ -4063,8 +4081,6 @@ export function install(rt) {
       ...(workDir !== undefined ? { workDir } : {}),
     }
     ;(bot.tasks ??= []).push(stored)
-    rt.chatOwners.set(sessionId, bot.id)
-    rt.taskOwners.set(sessionId, { botId: bot.id, taskId: task.id, ...(room ? { roomId: room.id } : {}) })
     await rt.save()
     const now = await freshRoute(bot, sourceAgent?.session)
     if (now !== undefined && (now.ref !== picked?.ref || now.effort !== picked?.effort)) {

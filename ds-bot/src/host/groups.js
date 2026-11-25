@@ -2860,12 +2860,15 @@ export function install(rt) {
       }
       const targetRoomId = targetRoom?.id
       const scopeLabel = targetRoom !== undefined ? `Your parts in group "${targetRoom.name}"` : 'Your own chat'
-      const lookupSession = targetRoomId !== undefined
-        ? (owner?.roomId === targetRoomId ? id : targetRoom.sessions?.[botId])
+      // Pass the actual caller session to indexed reads: when querying another
+      // group from private chat or a different group, `askingSession` must be
+      // undefined so the target group's latest finished turn is never hidden.
+      const askingSession = targetRoomId !== undefined
+        ? (owner?.roomId === targetRoomId ? id : undefined)
         : (taskOwner?.roomId !== undefined ? rt.chatOf(botId) : id)
       const parts = targetRoomId !== undefined
         ? rt.partsOf(botId, targetRoomId)
-        : rt.partsOfThread(botId, lookupSession)
+        : rt.partsOfThread(botId, askingSession)
       const number = Number.isInteger(args.part) ? args.part : undefined
       // Only log a private-chat lookup (or cross-group lookup) to the current group;
       // looking up this same group's own parts does not cross privacy boundaries.
@@ -2876,13 +2879,13 @@ export function install(rt) {
       }
       const partsNote = parts.length > 1 ? `\n\n${scopeLabel} has ${parts.length} parts: ${rt.partIndex(parts)}. Call read_own_chat with part N for the note that closed an earlier part, or with words to search all parts.` : ''
       if (callId !== '') {
-        const recalled = await rt.recallToolOutput?.(botId, callId, { askingId: lookupSession, roomId: targetRoomId })
+        const recalled = await rt.recallToolOutput?.(botId, callId, { askingId: askingSession, roomId: targetRoomId })
         if (!recalled?.found) return `No saved tool output with call_id "${callId}" was found in ${scopeLabel.toLowerCase()}.${partsNote}`
         const status = recalled.ok ? 'ok' : 'error'
         return `Tool output [${parts.length > 1 ? `part ${recalled.partNumber} ` : ''}#${recalled.seq} · ${rt.clock(recalled.time)}] ${recalled.name} (${recalled.callId}, ${status}):\n${recalled.text}${partsNote}`
       }
       if (query === '' && around !== '') {
-        const found = await rt.aroundOwnChat(botId, around, lookupSession, { roomId: targetRoomId })
+        const found = await rt.aroundOwnChat(botId, around, askingSession, { roomId: targetRoomId })
         if (found.error) return `${found.error}${partsNote}`
         if (found.lines.length === 0) return `Nothing was said around ${around}.${partsNote}`
         const heading = found.exact ? `around ${around}` : `with no message at ${around}; the nearest ones`
@@ -2892,7 +2895,7 @@ export function install(rt) {
         const part = parts[number - 1]
         if (part === undefined) return `${scopeLabel} has no part ${number}.${partsNote}`
         if (part.endedAt === undefined) {
-          return part.sessionId === lookupSession
+          return part.sessionId === id
             ? `Part ${number} is the current one; it is in your context.${partsNote}`
             : `Part ${number} is still open and has no closing handoff note yet. Search it with query, or omit query for its latest messages.${partsNote}`
         }
@@ -2903,10 +2906,10 @@ export function install(rt) {
         return `Part ${number} of ${scopeLabel.toLowerCase()} (${rt.clock(part.startedAt)} – ${rt.clock(part.endedAt)}). The handoff note that closed it:\n${note ?? '(none: the part ended on a context overflow)'}${partsNote}`
       }
       if (query === '') {
-        const lines = await rt.latestOwnChat(botId, { askingId: lookupSession, roomId: targetRoomId })
+        const lines = await rt.latestOwnChat(botId, { askingId: askingSession, roomId: targetRoomId })
         return lines.length === 0 ? `${scopeLabel} is empty.${partsNote}` : `${scopeLabel} (oldest first):\n${lines.join('\n')}${partsNote}`
       }
-      const { lines, every } = await rt.searchOwnChat(botId, query, { askingId: lookupSession, roomId: targetRoomId })
+      const { lines, every } = await rt.searchOwnChat(botId, query, { askingId: askingSession, roomId: targetRoomId })
       if (lines.length === 0) return `Nothing in ${scopeLabel.toLowerCase()} mentions "${query}".${partsNote}`
       const heading = every ? `messages mentioning "${query}"` : `no message has all of "${query}"; messages with the most of these words`
       return `${scopeLabel}, ${heading} (oldest first):\n${lines.join('\n')}${partsNote}`

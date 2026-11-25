@@ -640,7 +640,7 @@ export function install(rt) {
   // parent session past the fork occupancy threshold).
   // Preserves the latest [Handoff] or [Checkpoint] structured note with headings
   // intact instead of flattening and clipping it to 1,000 characters.
-  const fallbackContextSummary = (fromSessionId) => {
+  const fallbackContextSummary = (fromSessionId, { maxSeq, excludeTurns } = {}) => {
     const sourceSession = sourceSessionOf(fromSessionId)
     const events = sourceSession?.snapshotEvents?.() ?? []
     const room = rt.roomOf(rt.groupOwners.get(fromSessionId)?.roomId)
@@ -652,6 +652,8 @@ export function install(rt) {
       noteMinChars: CONTEXT_FALLBACK_NOTE_MIN,
       maxItems: CONTEXT_FALLBACK_ITEMS,
       lineMax: 1000,
+      maxSeq,
+      excludeTurns,
       sourceKind: SOURCE_KIND,
       handoffAck: HANDOFF_ACK,
       cleanStructuredNote,
@@ -1083,14 +1085,15 @@ export function install(rt) {
 
     const shouldFork = await shouldForkTask(fromSessionId, options)
     const fromThroughSeq = room === undefined ? lastSeqOf(sourceSessionOf(fromSessionId)) : undefined
-    const { sessionId, forked, task } = await rt.openTaskPart(bot, fromSessionId, baseTask, { workDir: resolvedDir, fork: shouldFork, throughSeq: fromThroughSeq })
+    const isLocal = isLocalCliBot(bot, ctx.get('agents')?.get(fromSessionId)?.session)
+    const fallbackContext = isLocal && shouldFork ? fallbackContextSummary(fromSessionId) : undefined
+    const { sessionId, forked, task } = await rt.openTaskPart(bot, fromSessionId, baseTask, { workDir: resolvedDir, fork: shouldFork, throughSeq: fromThroughSeq, fallbackContext })
     if (taskWorkId !== undefined) {
       rt.openWork?.(taskWorkId, { from: bot.id, parent: parentWork, toSession: sessionId, toTaskId: id, name: `task "${name}"`, child: id })
     }
     if (room !== undefined) rt.workRoomTurn?.(fromSessionId, 'task')
 
-    const isLocal = isLocalCliBot(bot, ctx.get('agents')?.get(fromSessionId)?.session)
-    const contextNote = forked ? '' : fallbackContextSummary(fromSessionId)
+    const contextNote = forked ? '' : (fallbackContext ?? fallbackContextSummary(fromSessionId))
     const localNote = isLocal ? '\nNote: You are running in a separate local CLI session that does not share in-memory state with the foreground chat.' : ''
     const dirNote = resolvedDir ? `\nWorking directory: ${resolvedDir}` : ''
     const reportDest = room !== undefined ? `your session in group "${room.name}"` : 'your own chat'
@@ -2675,6 +2678,28 @@ export function install(rt) {
             }))
           } catch (error) {
             rt.warn('ds-bot: injecting task-handoff notice on %s failed: %s', newSid, error)
+          }
+        }
+        // When a hidden peer-Bot turn moved to background without a DSH fork (e.g. local CLI),
+        // carry forward ONLY the user's own prior conversation before the hidden turn, excluding
+        // all hidden exchange turns, so the fresh foreground never wakes up amnesic or leaks peer work.
+        if (!forked && origin === 'bot-handoff') {
+          const hiddenTurns = new Set([
+            ...(Array.isArray(rt.own(state.exchangeTurns, oldSid)) ? rt.own(state.exchangeTurns, oldSid) : []),
+            ...(Number.isInteger(runningTurn) ? [runningTurn] : []),
+          ])
+          const sanitized = fallbackContextSummary(oldSid, { maxSeq: effectiveCutSeq, excludeTurns: hiddenTurns })
+          if (sanitized !== '') {
+            try {
+              await rt.ensureCapabilities(newSid)
+              const freshAgent = await rt.resolveAgent(newSid)
+              freshAgent.inject?.(createUserMessage({
+                content: [{ type: 'text', text: sanitized.trim() }],
+                source: { kind: SOURCE_KIND, form: 'relay', role: 'task-handoff', taskId: task.id },
+              }))
+            } catch (error) {
+              rt.warn('ds-bot: injecting sanitized fallback context on %s failed: %s', newSid, error)
+            }
           }
         }
       })()

@@ -104,15 +104,23 @@ test('context-pack: buildHandoffPack, buildCheckpointPack, buildCompactDigest, b
 
   const fallback = buildFallbackContext({
     events: [
+      { seq: 0, type: 'turn/start', data: { turn: 1 } },
       { seq: 1, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'Build feature X' }] } },
       { seq: 2, type: 'assistant/message', data: { message: { content: [{ type: 'text', text: 'Working on X now.' }] } } },
+      { seq: 3, type: 'turn/end', data: { turn: 1 } },
+      { seq: 4, type: 'turn/start', data: { turn: 2 } },
+      { seq: 5, type: 'user/message', data: { source: { kind: SOURCE_KIND, role: 'request' }, content: [{ type: 'text', text: 'SECRET_PEER_DELEGATION' }] } },
+      { seq: 6, type: 'assistant/message', data: { message: { content: [{ type: 'text', text: 'SECRET_PEER_REPLY' }] } } },
+      { seq: 7, type: 'turn/end', data: { turn: 2 } },
     ],
     label: 'your own chat',
     sourceKind: SOURCE_KIND,
+    excludeTurns: new Set([2]),
   })
   assert.match(fallback, /\[Recent context from your own chat\]/)
   assert.match(fallback, /User: Build feature X/)
   assert.match(fallback, /Assistant: Working on X now\./)
+  assert.doesNotMatch(fallback, /SECRET_PEER/, 'excludeTurns must strip hidden peer-Bot turns completely')
 
   assert.match(formatOwnChatBrief(['[#1 · T1] User: Hi']), /User: Hi/)
   assert.match(formatOwnChatBrief([]), /Nothing yet\./)
@@ -226,6 +234,196 @@ test('B14: read_own_chat recalls tool output by call_id and queries own group pa
   // 3) Unauthorized group query is refused.
   const denied = await readOwnChat.execute({ group: 'SecretRoom', query: 'anything' }, { agent: { id: 'own-2' } })
   assert.match(denied, /not in|not a member/i)
+
+  // 4) Querying a group from private chat does NOT hide the target group's latest finished turn.
+  const crossRoomLatest = await readOwnChat.execute({ group: 'Backend', query: 'regressions' }, { agent: { id: 'own-2' } })
+  assert.match(crossRoomLatest, /Any regressions\?/, 'group lookup from private chat must not hide the group current session latest turn')
+})
+
+test('B14 regressions: pruned replacement never overwrites original tool output, and upgraded v5 sealed parts backfill tool_outputs', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'dsb-pr4-prune-recall-'))
+  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }))
+
+  writeFileSync(join(home, 'state.json'), JSON.stringify({
+    version: 1, revision: 1,
+    bots: {
+      b1: { id: 'b1', name: 'Coder', sessionId: 'p2', createdAt: 1, segments: [{ sessionId: 'p1', endedAt: 100 }] },
+    },
+    rooms: {}, exchanges: [], prefs: {},
+  }))
+
+  // p1 contains an original tool/result at seq 2 AND a pruned surfaceOp replace at seq 5 with the same callId.
+  const sessionEvents = new Map([
+    ['p1', [
+      { seq: 0, time: 10, type: 'turn/start', data: { turn: 1 } },
+      { seq: 1, time: 11, type: 'tool/call', data: { callId: 'tc-big', name: 'read_file', arguments: '{"path":"big.log"}' } },
+      { seq: 2, time: 12, type: 'tool/result', data: { message: { toolCallId: 'tc-big', ok: true, content: [{ type: 'text', text: 'ORIGINAL_FULL_DIAGNOSTIC_PAYLOAD_9999' }] } } },
+      { seq: 3, time: 13, type: 'assistant/message', data: { message: { content: [{ type: 'text', text: 'Reviewed.' }] } } },
+      { seq: 4, time: 14, type: 'compaction/prune', data: { shadowedRange: { start: 2, end: 2 }, shadowedSeqs: [2] } },
+      { seq: 5, time: 15, type: 'tool/result', surfaceOp: { op: 'replace', startSeq: 2, endSeq: 2 }, sourceEventSeqs: [2], data: { message: { toolCallId: 'tc-big', ok: true, content: [{ type: 'text', text: '[pruned output]' }] } } },
+    ]],
+    ['p2', [
+      { seq: 0, time: 200, type: 'turn/start', data: { turn: 1 } },
+      { seq: 1, time: 201, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'Check big.log again' }] } },
+    ]],
+  ])
+
+  const ctx = makeMockCtx()
+  ctx.sessionController = {
+    async page({ address, throughSeq, beforeSeq }) {
+      const all = sessionEvents.get(address.sessionId) ?? []
+      const filtered = all.filter(ev => (throughSeq === undefined || ev.seq <= throughSeq) && (beforeSeq === undefined || ev.seq < beforeSeq))
+      return { records: filtered.map(event => ({ event })), hasMore: false, cursor: filtered.at(-1)?.seq }
+    },
+  }
+  const rt = { ctx, home, statePath: join(home, 'state.json'), config: {}, warn() {} }
+  installStore(rt)
+  installContextRuntime(rt)
+  installChatIndex(rt)
+  installParts(rt)
+  await rt.load()
+
+  // Seed a pre-upgrade v5 database where p1 is already marked sealed in `marks`, with empty `tool_outputs`/`tool_marks`.
+  const { DatabaseSync } = await import('node:sqlite')
+  const db = new DatabaseSync(join(home, 'chat-index.sqlite'))
+  db.exec(`
+    CREATE TABLE messages (id INTEGER PRIMARY KEY, text, session, seq, time, who);
+    CREATE INDEX messages_session_seq ON messages (session, seq);
+    CREATE INDEX messages_session_time ON messages (session, time DESC);
+    CREATE VIRTUAL TABLE lines USING fts5(text, session UNINDEXED, seq UNINDEXED, time UNINDEXED, who UNINDEXED, content = 'messages', content_rowid = 'id', tokenize = 'trigram');
+    CREATE TABLE marks (session TEXT PRIMARY KEY, through INTEGER NOT NULL, keep INTEGER NOT NULL, sealed INTEGER NOT NULL, turn INTEGER NOT NULL);
+    INSERT INTO marks (session, through, keep, sealed, turn) VALUES ('p1', 5, 1, 1, 0);
+    PRAGMA user_version = 5;
+  `)
+  db.close()
+
+  // Recalling tc-big must backfill from p1 despite sealed text mark AND return the ORIGINAL unpruned payload!
+  const recalled = await rt.recallToolOutput('b1', 'tc-big', { askingId: 'p2' })
+  assert.equal(recalled.found, true)
+  assert.equal(recalled.seq, 2)
+  assert.equal(recalled.text, 'ORIGINAL_FULL_DIAGNOSTIC_PAYLOAD_9999')
+  assert.doesNotMatch(recalled.text, /\[pruned output\]/)
+
+  // extractToolTrail also skips replacement events and keeps the original outcome.
+  const trail = await extractToolTrail([...sessionEvents.get('p1')].reverse(), { clock })
+  assert.equal(trail.length, 1)
+  assert.match(trail[0], /read_file\(big\.log\) -> ok \[call_id: tc-big\]/)
+})
+
+test('D8 regressions: Claude rejected --fork-session retries once on fresh session with fallbackContext (never resuming parent); openTaskPart probes fork on demand and preserves parent inheritedSegments', async (t) => {
+  // 1) Claude deferred fork rejected before init retries cleanly on a fresh session without resumeId and delivers fallbackContext.
+  const records = new Map([
+    ['parent-c', { route: 'local-claude-code', cliSessionId: 'cli-parent-1', cwd: '/repo', model: 'sonnet' }],
+  ])
+  const openCalls = []
+  const promptCalls = []
+  const fakeEngine = {
+    forkSupported: undefined,
+    open(sid, args) {
+      openCalls.push({ sid, resumeId: args.resumeId, forkSession: args.forkSession })
+      if (args.forkSession === true) {
+        this.forkSupported = false
+        let emitted = false
+        return Promise.resolve({
+          dead: true,
+          cliSessionId: undefined,
+          forkUnsupported: true,
+          next() {
+            if (!emitted) {
+              emitted = true
+              return Promise.resolve({ type: 'error', error: new Error('unknown option: --fork-session') })
+            }
+            return new Promise(() => {})
+          },
+          whenSessionId() { return Promise.resolve(undefined) },
+        })
+      }
+      let step = 0
+      return Promise.resolve({
+        dead: false,
+        cliSessionId: 'cli-fresh-child-2',
+        next() {
+          step += 1
+          if (step === 1) return Promise.resolve({ type: 'text', text: 'Child succeeded on fresh session.' })
+          if (step === 2) return Promise.resolve({ type: 'done', reason: 'stop' })
+          return new Promise(() => {})
+        },
+        whenSessionId() { return Promise.resolve('cli-fresh-child-2') },
+      })
+    },
+    prompt(_session, blocks) { promptCalls.push(blocks) },
+    forget() {},
+    async close() {},
+  }
+  const adapter = new LocalAgentAdapter({
+    customAgents: () => [],
+    findExecutable: () => '/bin/claude',
+    spawnEngine: () => fakeEngine,
+    record: sid => records.get(sid),
+    saveRecord: (sid, rec) => records.set(sid, rec),
+    presetFor: () => 'workspace-write',
+    cwdFor: async () => '/repo',
+    toolsFor: () => [],
+  })
+  t.after(() => adapter.dispose())
+
+  const forked = await adapter.forkSession('parent-c', 'child-c', { fallbackContext: '[Recent context from your own chat]\nUser: Keep port 8080' })
+  assert.equal(forked.deferred, true)
+
+  const chunks = []
+  for await (const chunk of adapter.stream({
+    sessionId: 'child-c',
+    provider: 'local-claude-code',
+    model: 'sonnet',
+    messages: [{ id: 'm1', role: 'user', content: [{ type: 'text', text: 'Run task' }] }],
+  })) {
+    chunks.push(chunk)
+  }
+  assert.equal(openCalls.length, 2, 'must retry once after --fork-session rejection')
+  assert.deepEqual(openCalls[0], { sid: 'child-c', resumeId: 'cli-parent-1', forkSession: true })
+  assert.deepEqual(openCalls[1], { sid: 'child-c', resumeId: undefined, forkSession: false }, 'retry must open fresh session and NEVER resume parent without --fork-session')
+  const promptText = promptCalls.flat().map(b => b.text ?? '').join('\n')
+  assert.match(promptText, /Keep port 8080/, 'fresh retry must deliver retained fallbackContext')
+  assert.equal(records.get('child-c')?.cliSessionId, 'cli-fresh-child-2')
+  assert.equal(records.get('child-c')?.forkFrom, undefined)
+  assert.equal(records.get('child-c')?.forkFallbackContext, undefined)
+
+  // 2) openTaskPart probes fork on demand and preserves bounded parent ref in inheritedSegments for native CLI forks.
+  const home = mkdtempSync(join(tmpdir(), 'dsb-pr4-clifork-'))
+  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }))
+  writeFileSync(join(home, 'state.json'), JSON.stringify({
+    version: 1, revision: 1,
+    bots: { b1: { id: 'b1', name: 'CodexBot', sessionId: 'dm-codex', model: 'local-codex-cli/o3', createdAt: 1, segments: [], tasks: [] } },
+    rooms: {}, exchanges: [], prefs: {},
+  }))
+  const ctx = makeMockCtx()
+  const parentSession = { id: 'dm-codex', seq: 15, requestHeader: () => ({ config: { provider: 'local-codex-cli', model: 'o3' } }) }
+  ctx.set('agents', new Map([['dm-codex', { id: 'dm-codex', session: parentSession }]]))
+  let probedRoute
+  let forkedCliCalled = false
+  const rt = {
+    ctx, home, statePath: join(home, 'state.json'), config: {}, warn() {},
+    workDirOf: () => undefined,
+    desiredModel: async () => 'local-codex-cli/o3',
+    desiredEffort: async () => undefined,
+    selectSessionModel: async () => {},
+    applyPermission: async () => {},
+    createSession: async () => 'task-codex-1',
+    isLocalAgentRoute: p => p === 'local-codex-cli',
+    localAgentSupportsFork: () => false, // not yet probed at startup!
+    ensureLocalAgentForkCapability: async (route) => { probedRoute = route; return true },
+    forkLocalAgentSession: async () => { forkedCliCalled = true; return { cliSessionId: 'thr-fork-1' } },
+  }
+  installStore(rt)
+  installContextRuntime(rt)
+  installParts(rt)
+  await rt.load()
+
+  const opened = await rt.openTaskPart(rt.botOf('b1'), 'dm-codex', { id: 't1', title: 'Job', brief: 'Work', from: 'dm-codex', status: 'running', startedAt: 1, updatedAt: 1 }, { fork: true })
+  assert.equal(probedRoute, 'local-codex-cli', 'must probe fork capability on demand when not yet cached')
+  assert.equal(forkedCliCalled, true)
+  assert.equal(opened.forked, true)
+  assert.deepEqual(opened.task.inheritedSegments, [{ sessionId: 'dm-codex', throughSeq: 14 }], 'native CLI fork must preserve bounded parent DSH ref for read_own_chat recall')
 })
 
 test('B14: normal part switch includes omitted-image notice when previous part had images, and omits it on text-only parts', async (t) => {
@@ -241,6 +439,11 @@ test('B14: normal part switch includes omitted-image notice when previous part h
     ['p-txt', [
       { seq: 0, time: 20, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'Plain text only' }] } },
       { seq: 1, time: 21, type: 'assistant/message', data: { message: { content: [{ type: 'text', text: 'Understood.' }] } } },
+    ]],
+    ['p-tool-img', [
+      { seq: 0, time: 30, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'Capture page' }] } },
+      { seq: 1, time: 31, type: 'tool/result', data: { message: { toolCallId: 'tc-shot', ok: true, content: [{ type: 'image', mediaType: 'image/png', data: 'png' }] } } },
+      { seq: 2, time: 32, type: 'assistant/message', data: { message: { content: [{ type: 'text', text: 'Captured.' }] } } },
     ]],
   ])
   ctx.sessionController = {
@@ -260,6 +463,12 @@ test('B14: normal part switch includes omitted-image notice when previous part h
   for await (const line of rt.partLines('p-img', AbortSignal.timeout(5_000), { read: readImg })) imgLines.push(line)
   assert.equal(imgLines.length, 2)
   assert.equal(readImg.hasImages, true, 'partLines must flag hasImages when an event contains an image block')
+
+  const readToolImg = {}
+  const toolImgLines = []
+  for await (const line of rt.partLines('p-tool-img', AbortSignal.timeout(5_000), { read: readToolImg })) toolImgLines.push(line)
+  assert.equal(toolImgLines.length, 2)
+  assert.equal(readToolImg.hasImages, true, 'partLines must flag hasImages when a tool/result contains an image block')
 
   const readTxt = {}
   const txtLines = []

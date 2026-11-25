@@ -315,6 +315,7 @@ export class LocalAgentAdapter extends LlmAdapter {
       model: options.model,
       preset,
       forkFrom: record?.forkFrom === true,
+      forkFallbackContext: typeof record?.forkFallbackContext === 'string' && record.forkFallbackContext !== '' ? record.forkFallbackContext : undefined,
       // What the CLI reported of its own context ({used, size, stale}) and how often
       // it condensed in this Session; the parts module decides with them.
       context: record?.context,
@@ -374,6 +375,7 @@ export class LocalAgentAdapter extends LlmAdapter {
       ...(live.defaultEffort === undefined ? {} : { defaultEffort: live.defaultEffort }),
       ...(live.effort === undefined ? {} : { effort: live.effort }),
       ...(live.forkFrom === true ? { forkFrom: true } : {}),
+      ...(typeof live.forkFallbackContext === 'string' && live.forkFallbackContext !== '' ? { forkFallbackContext: live.forkFallbackContext } : {}),
       ...(live.context === undefined ? {} : { context: live.context }),
       ...(live.compactions > 0 ? { compactions: live.compactions } : {}),
       ...(Array.isArray(live.pendingContext) && live.pendingContext.length > 0 ? { pendingContext: live.pendingContext.map(entry => ({ ...entry })) } : {}),
@@ -518,7 +520,7 @@ export class LocalAgentAdapter extends LlmAdapter {
   // Forks a local CLI session natively when the engine supports it (Codex `thread/fork`
   // or Claude `--resume <id> --fork-session`) so a background task inherits parent context.
   // Returns `{ cliSessionId }` on success, or `undefined` to fall back to a fresh Session.
-  async forkSession(fromSessionId, toSessionId, { cwd, model } = {}) {
+  async forkSession(fromSessionId, toSessionId, { cwd, model, fallbackContext } = {}) {
     const fromId = String(fromSessionId ?? '')
     const toId = String(toSessionId ?? '')
     if (fromId === '' || toId === '') return undefined
@@ -554,11 +556,15 @@ export class LocalAgentAdapter extends LlmAdapter {
     }
     if (spec.kind === 'claude') {
       // Claude forks lazily on first spawn via `--resume <sourceCliId> --fork-session`,
-      // receiving a fresh `cliSessionId` on `system/init`.
+      // receiving a fresh `cliSessionId` on `system/init`. Retain optional `fallbackContext`
+      // only until init succeeds so if `--fork-session` is rejected, we fall back to a
+      // fresh CLI session with parent context instead of failing or resuming the parent.
+      const trimmedFallback = typeof fallbackContext === 'string' ? fallbackContext.trim() : ''
       this.deps.saveRecord(toId, {
         route,
         cliSessionId: sourceCliId,
         forkFrom: true,
+        ...(trimmedFallback !== '' ? { forkFallbackContext: trimmedFallback } : {}),
         cwd: resolvedCwd,
         model: resolvedModel,
         compactions: 0,
@@ -587,6 +593,24 @@ export class LocalAgentAdapter extends LlmAdapter {
         session.rolledBack = true
         live.handedRolledBack = true
         restoreContext()
+        // A deferred Claude fork rejected `--fork-session` or could not find the parent
+        // conversation before init: never resume the parent without `--fork-session`;
+        // drop the parent id and retry once on a clean fresh session with fallback context.
+        if (live.forkFrom === true && (session.forkUnsupported === true || session.resumeMissing === true)) {
+          live.forkFrom = false
+          live.cliSessionId = undefined
+          live.handed = undefined
+          live.promptHash = undefined
+          live.pumpToken = undefined
+          live.events.length = 0
+          live.engine.forget?.(sessionId)
+          live.engineSession = undefined
+          live.started = false
+          live.forkFallbackRetry = true
+          live.applyForkFallback = true
+          this.deps.saveRecord(sessionId, this.recordOf(live))
+          return
+        }
         if (session.resumeMissing === true) {
           if (this.deps.switchOnResumeLost?.(sessionId) === true) {
             live.handed = live.handedBefore
@@ -766,6 +790,9 @@ export class LocalAgentAdapter extends LlmAdapter {
       refreshMemory()
     }
     const switchOnResumeLost = this.deps.switchOnResumeLost?.(sessionId) === true
+    const forkFallback = live.applyForkFallback === true && typeof live.forkFallbackContext === 'string' && live.forkFallbackContext !== ''
+      ? live.forkFallbackContext
+      : undefined
     let resumeDropped = false
     if (live.engineSession === undefined) {
       const isForkOpen = live.forkFrom === true && priorCliId !== undefined
@@ -856,6 +883,7 @@ export class LocalAgentAdapter extends LlmAdapter {
           live.flushedContext = undefined
           live.cliSessionId = id
           live.forkFrom = false
+          if (live.applyForkFallback !== true) live.forkFallbackContext = undefined
           this.deps.saveRecord(sessionId, this.recordOf(live, { cliSessionId: id, cwd, model: options.model }))
         })
       }
@@ -886,6 +914,11 @@ export class LocalAgentAdapter extends LlmAdapter {
           includeSystem: live.spec.kind === 'acp',
         })
       : await renderDelta(contextText, remaining, resolveImage)
+    if (forkFallback !== undefined) {
+      promptBlocks = mergeTextBlocks([{ type: 'text', text: forkFallback }, ...promptBlocks])
+      live.applyForkFallback = false
+      live.forkFallbackContext = undefined
+    }
     let sentInstructions = live.spec.kind !== 'acp' && startedFreshCli && instructions !== undefined
     let nextPromptHash = live.promptHash
     const expectedPromptHash = live.queue.findLast(entry => entry.delivery?.promptHash !== undefined)?.delivery.promptHash ?? live.promptHash
@@ -968,6 +1001,11 @@ export class LocalAgentAdapter extends LlmAdapter {
       this.rollbackUnread(live, sessionId)
       if (live.closeFailure === undefined && live.promptFileRetry === true) {
         live.promptFileRetry = false
+        yield* this.stream(options)
+        return
+      }
+      if (live.closeFailure === undefined && live.forkFallbackRetry === true) {
+        live.forkFallbackRetry = false
         yield* this.stream(options)
         return
       }

@@ -88,46 +88,48 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
     applyRoutes()
     return [...found.values()]
   }
+  async function probeEntryVersion(entry, { force = false } = {}) {
+    if (entry === undefined) return
+    if (!force && entry.version !== undefined) return
+    if (!force && entry.versionFailedAt !== undefined && now() - entry.versionFailedAt < VERSION_FAIL_TTL_MS) return
+    if (force || entry.versionProbe === undefined) {
+      const epoch = ++nextProbeEpoch
+      entry.versionEpoch = epoch
+      entry.versionAbort?.abort()
+      const controller = new AbortController()
+      entry.versionAbort = controller
+      const spec = ENGINES[entry.route]
+      const probe = Promise.resolve()
+        .then(() => checkVersion(entry.path, spec.version ?? ['--version'], probeEnv(spec.env ?? {}), { signal: controller.signal }))
+        .catch(() => undefined)
+        .then((result) => {
+          if (entry.versionEpoch !== epoch || entry.versionProbe !== probe || found.get(entry.route) !== entry) return
+          if (result?.version !== undefined) {
+            entry.version = result.version
+            entry.supportsFork = versionSupportsFork(spec.kind, result.version)
+            delete entry.versionFailedAt
+          } else {
+            if (force) {
+              entry.version = undefined
+              entry.supportsFork = false
+            }
+            entry.versionFailedAt = now()
+          }
+        })
+        .finally(() => {
+          if (entry.versionProbe === probe) {
+            delete entry.versionProbe
+            delete entry.versionAbort
+          }
+        })
+      entry.versionProbe = probe
+    }
+    while (entry.versionProbe !== undefined) {
+      await entry.versionProbe
+    }
+  }
   async function probeVersions({ force = false } = {}) {
-    await Promise.all([...found.values()].map(async (entry) => {
-      if (!force && entry.version !== undefined) return
-      if (!force && entry.versionFailedAt !== undefined && now() - entry.versionFailedAt < VERSION_FAIL_TTL_MS) return
-      if (force || entry.versionProbe === undefined) {
-        const epoch = ++nextProbeEpoch
-        entry.versionEpoch = epoch
-        entry.versionAbort?.abort()
-        const controller = new AbortController()
-        entry.versionAbort = controller
-        const spec = ENGINES[entry.route]
-        const probe = Promise.resolve()
-          .then(() => checkVersion(entry.path, spec.version ?? ['--version'], probeEnv(spec.env ?? {}), { signal: controller.signal }))
-          .catch(() => undefined)
-          .then((result) => {
-            if (entry.versionEpoch !== epoch || entry.versionProbe !== probe || found.get(entry.route) !== entry) return
-            if (result?.version !== undefined) {
-              entry.version = result.version
-              entry.supportsFork = versionSupportsFork(spec.kind, result.version)
-              delete entry.versionFailedAt
-            } else {
-              if (force) {
-                entry.version = undefined
-                entry.supportsFork = false
-              }
-              entry.versionFailedAt = now()
-            }
-          })
-          .finally(() => {
-            if (entry.versionProbe === probe) {
-              delete entry.versionProbe
-              delete entry.versionAbort
-            }
-          })
-        entry.versionProbe = probe
-      }
-      while (entry.versionProbe !== undefined) {
-        await entry.versionProbe
-      }
-    }))
+    await Promise.all([...found.values()].map(entry => probeEntryVersion(entry, { force })))
   }
   // Asked only when the list of CLIs is about to show, never at start or for a menu.
   async function probeSignIns({ force = false } = {}) {
@@ -421,11 +423,25 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
     return found.get(route)?.supportsFork === true
   }
 
+  // On-demand version probe for one route when starting a fork-eligible task,
+  // reusing the cached/in-flight probe so native forks work immediately after restart
+  // without waiting for Settings -> Local agents to be opened.
+  async function ensureLocalAgentForkCapability(route) {
+    if (typeof route !== 'string' || route === '' || adapter.isForkUnsupported(route)) return false
+    await initialScan.catch(() => {})
+    const entry = found.get(route)
+    if (entry === undefined) return false
+    if (entry.supportsFork !== undefined) return entry.supportsFork === true
+    await probeEntryVersion(entry).catch(() => {})
+    return !adapter.isForkUnsupported(route) && entry.supportsFork === true
+  }
+
   Object.assign(rt, {
     isLocalAgentRoute, isLocalAgentRef, engineOf, engineOfBot, localAgentOf, isLocalAgentSession,
     localAgentRoutes: allRoutes, localAgentsEndpoint, localAgentModels,
     isLocalAgentAvailable: route => registeredRoutes.has(route),
     localAgentSupportsFork,
+    ensureLocalAgentForkCapability,
     forkLocalAgentSession: (fromSessionId, toSessionId, options) => adapter.forkSession(fromSessionId, toSessionId, options),
     forgetLocalAgentSession,
     pruneLocalAgentSessions,

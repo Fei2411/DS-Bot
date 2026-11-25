@@ -10,7 +10,7 @@
 import { mkdir, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
 import { ANCHOR_LINE_MAX, HISTORY_PAGE, HISTORY_PAGES_MAX, HISTORY_SCAN_PAGES, HISTORY_TIMEOUT_MS, OWN_CHAT_BRIEF, OWN_CHAT_LINE_MAX, OWN_CHAT_READ, OWN_CHAT_SEARCH } from './constants.js'
-import { formatOwnChatBrief } from './context-pack.js'
+import { formatOwnChatBrief, isReplacementToolResult } from './context-pack.js'
 import { excerpt, textOf } from './text.js'
 
 const INDEX_VERSION = 5
@@ -198,6 +198,7 @@ export function install(rt) {
           DROP TABLE IF EXISTS lines;
           DROP TABLE IF EXISTS messages;
           DROP TABLE IF EXISTS tool_outputs;
+          DROP TABLE IF EXISTS tool_marks;
           DROP TABLE IF EXISTS marks;
           CREATE TABLE messages (id INTEGER PRIMARY KEY, text, session, seq, time, who);
           CREATE INDEX messages_session_seq ON messages (session, seq);
@@ -205,20 +206,26 @@ export function install(rt) {
           CREATE VIRTUAL TABLE lines USING fts5(text, session UNINDEXED, seq UNINDEXED, time UNINDEXED, who UNINDEXED, content = 'messages', content_rowid = 'id', tokenize = 'trigram');
           CREATE TABLE tool_outputs (call_id TEXT NOT NULL, session TEXT NOT NULL, seq INTEGER NOT NULL, time INTEGER NOT NULL, name TEXT NOT NULL, ok INTEGER NOT NULL, text TEXT NOT NULL, PRIMARY KEY (session, call_id));
           CREATE INDEX tool_outputs_call_id ON tool_outputs (call_id);
+          CREATE TABLE tool_marks (session TEXT PRIMARY KEY, through INTEGER NOT NULL, sealed INTEGER NOT NULL);
           CREATE TABLE marks (session TEXT PRIMARY KEY, through INTEGER NOT NULL, keep INTEGER NOT NULL, sealed INTEGER NOT NULL, turn INTEGER NOT NULL);
           PRAGMA user_version = ${INDEX_VERSION};`)
       }
       db.exec(`
         CREATE INDEX IF NOT EXISTS messages_session_time ON messages (session, time DESC);
         CREATE TABLE IF NOT EXISTS tool_outputs (call_id TEXT NOT NULL, session TEXT NOT NULL, seq INTEGER NOT NULL, time INTEGER NOT NULL, name TEXT NOT NULL, ok INTEGER NOT NULL, text TEXT NOT NULL, PRIMARY KEY (session, call_id));
-        CREATE INDEX IF NOT EXISTS tool_outputs_call_id ON tool_outputs (call_id);`)
+        CREATE INDEX IF NOT EXISTS tool_outputs_call_id ON tool_outputs (call_id);
+        CREATE TABLE IF NOT EXISTS tool_marks (session TEXT PRIMARY KEY, through INTEGER NOT NULL, sealed INTEGER NOT NULL);`)
       const insertMessage = db.prepare('INSERT INTO messages (text, session, seq, time, who) VALUES (?, ?, ?, ?, ?)')
       const insertLine = db.prepare('INSERT INTO lines (rowid, text, session, seq, time, who) VALUES (?, ?, ?, ?, ?, ?)')
-      const insertToolOutput = db.prepare('INSERT OR REPLACE INTO tool_outputs (call_id, session, seq, time, name, ok, text) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      // INSERT OR IGNORE preserves the original unpruned tool/result if a later surfaceOp replace
+      // or duplicate seq is ever encountered.
+      const insertToolOutput = db.prepare('INSERT OR IGNORE INTO tool_outputs (call_id, session, seq, time, name, ok, text) VALUES (?, ?, ?, ?, ?, ?, ?)')
       return {
         db,
         mark: db.prepare('SELECT through, keep, sealed, turn FROM marks WHERE session = ?'),
         setMark: db.prepare('INSERT OR REPLACE INTO marks (session, through, keep, sealed, turn) VALUES (?, ?, ?, ?, ?)'),
+        toolMark: db.prepare('SELECT through, sealed FROM tool_marks WHERE session = ?'),
+        setToolMark: db.prepare('INSERT OR REPLACE INTO tool_marks (session, through, sealed) VALUES (?, ?, ?)'),
         insert: (...values) => {
           const { lastInsertRowid } = insertMessage.run(...values)
           insertLine.run(lastInsertRowid, ...values)
@@ -266,6 +273,8 @@ export function install(rt) {
         && rt.isBotSession?.(part.sessionId) !== true
         && Date.now() - part.endedAt > SEAL_AFTER_MS
         && rt.isRetiring?.(part.sessionId) !== true
+      const toolMark = index.toolMark.get(part.sessionId)
+      const advanceToolMark = (toolMark?.through ?? -1) === through
       const callNames = new Map()
       index.db.exec('BEGIN')
       try {
@@ -275,7 +284,7 @@ export function install(rt) {
           if (event.type === 'turn/start') turn = event.seq
           if (event.type === 'tool/call' && typeof event.data?.callId === 'string' && typeof event.data?.name === 'string') {
             callNames.set(event.data.callId, event.data.name)
-          } else if (event.type === 'tool/result') {
+          } else if (event.type === 'tool/result' && !isReplacementToolResult(event)) {
             const msg = event.data?.message
             const callId = msg?.toolCallId
             if (typeof callId === 'string' && callId !== '') {
@@ -295,6 +304,7 @@ export function install(rt) {
           if (entry.text !== '') index.insert(entry.text, part.sessionId, event.seq, event.time ?? 0, entry.who)
         }
         index.setMark.run(part.sessionId, last, keep ? 1 : 0, seal ? 1 : 0, turn)
+        if (advanceToolMark) index.setToolMark.run(part.sessionId, last, seal ? 1 : 0)
         index.db.exec('COMMIT')
       } catch (error) {
         index.db.exec('ROLLBACK')
@@ -302,6 +312,59 @@ export function install(rt) {
       }
     })().finally(() => catchingUp.delete(part.sessionId))
     catchingUp.set(part.sessionId, job)
+    return job
+  }
+
+  // Independent backfill for `tool_outputs` so parts already indexed/sealed in an
+  // existing v5 database still get full tool-output coverage without wiping text rows.
+  const catchingUpTools = new Map()
+  function catchUpToolOutputs(index, part) {
+    const running = catchingUpTools.get(part.sessionId)
+    if (running) return running
+    const job = (async () => {
+      const mark = index.toolMark.get(part.sessionId)
+      if (mark?.sealed) return
+      const through = mark?.through ?? -1
+      const events = []
+      for await (const event of eventsBackwards(part.sessionId, AbortSignal.timeout(INDEX_TIMEOUT_MS), Infinity)) {
+        if (event.seq <= through) break
+        events.push(event)
+      }
+      if (events.length > 0 && events.at(-1).seq !== through + 1) throw new Error(`the history of ${part.sessionId} came back with a gap`)
+      events.reverse()
+      if (index !== chatIndex) return
+      const seal = part.endedAt !== undefined
+        && !Number.isInteger(part.throughSeq)
+        && rt.isBotSession?.(part.sessionId) !== true
+        && Date.now() - part.endedAt > SEAL_AFTER_MS
+        && rt.isRetiring?.(part.sessionId) !== true
+      const callNames = new Map()
+      index.db.exec('BEGIN')
+      try {
+        let last = through
+        for (const event of events) {
+          last = event.seq
+          if (event.type === 'tool/call' && typeof event.data?.callId === 'string' && typeof event.data?.name === 'string') {
+            callNames.set(event.data.callId, event.data.name)
+          } else if (event.type === 'tool/result' && !isReplacementToolResult(event)) {
+            const msg = event.data?.message
+            const callId = msg?.toolCallId
+            if (typeof callId === 'string' && callId !== '') {
+              const name = callNames.get(callId) ?? msg?.toolName ?? msg?.name ?? 'tool'
+              const ok = msg?.ok === false || msg?.isError === true ? 0 : 1
+              const body = redactText(textOf(msg?.content))
+              index.insertToolOutput(callId, part.sessionId, event.seq, event.time ?? 0, String(name), ok, body)
+            }
+          }
+        }
+        index.setToolMark.run(part.sessionId, last, seal ? 1 : 0)
+        index.db.exec('COMMIT')
+      } catch (error) {
+        index.db.exec('ROLLBACK')
+        throw error
+      }
+    })().finally(() => catchingUpTools.delete(part.sessionId))
+    catchingUpTools.set(part.sessionId, job)
     return job
   }
 
@@ -457,6 +520,9 @@ export function install(rt) {
     if (parts.length === 0) return { found: false }
     const bySession = new Map(parts.map(part => [part.sessionId, part]))
     if (index !== null) {
+      for (const part of parts) {
+        await catchUpToolOutputs(index, part).catch(error => rt.warn('ds-bot: indexing tool outputs for %s failed: %s', part.sessionId, error))
+      }
       const sessions = parts.map(part => part.sessionId)
       const row = index.toolOutputByCallId.get(id, JSON.stringify(sessions))
       if (row !== undefined) {
@@ -466,14 +532,15 @@ export function install(rt) {
         }
       }
     }
-    // Scan logs newest-first as fallback (also covers live turns when SQLite is unavailable).
+    // Scan logs newest-first as fallback (also covers live turns when SQLite is unavailable),
+    // skipping pruned surfaceOp replacement events so original full tool outputs are recovered.
     const signal = AbortSignal.timeout(HISTORY_TIMEOUT_MS)
     for (const part of [...parts].reverse()) {
       let matchedResult
       let matchedName
       try {
         for await (const event of eventsBackwards(part.sessionId, signal, HISTORY_SCAN_PAGES, undefined, part.throughSeq)) {
-          if (matchedResult === undefined && event.type === 'tool/result' && event.data?.message?.toolCallId === id) {
+          if (matchedResult === undefined && event.type === 'tool/result' && !isReplacementToolResult(event) && event.data?.message?.toolCallId === id) {
             matchedResult = event
           } else if (matchedResult !== undefined && event.type === 'tool/call' && event.data?.callId === id) {
             matchedName = event.data?.name

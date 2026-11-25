@@ -40,6 +40,9 @@ export function toolArgSummary(rawArgs, { redact = value => String(value ?? ''),
 // budget-bounded trail of recent tool calls and outcomes, oldest first.
 // Appends `[call_id: ...]` when a callId is present so pruned/archived outputs
 // remain recallable via `read_own_chat({ call_id })`.
+export const isReplacementToolResult = event => event?.surfaceOp?.op === 'replace'
+  || (Array.isArray(event?.sourceEventSeqs) && event.sourceEventSeqs.length > 0)
+
 export async function extractToolTrail(events, {
   maxCalls = 18,
   maxTokens = 1_500,
@@ -56,6 +59,7 @@ export async function extractToolTrail(events, {
   try {
     for await (const event of events) {
       if (event.type === 'tool/result') {
+        if (isReplacementToolResult(event)) continue
         const message = event.data?.message
         const callId = message?.toolCallId
         if (typeof callId === 'string' && !results.has(callId)) {
@@ -106,7 +110,6 @@ export async function buildHandoffPack({
   let full = false
   let listed = 0
   let unlisted = 0
-  let complete = true
   const stamp = line => (group ? `[${clock(line.time)}]` : `[part ${number} #${line.seq} · ${clock(line.time)}]`)
   for await (const line of lines) {
     if (!full) {
@@ -130,7 +133,7 @@ export async function buildHandoffPack({
     earlier.push(`${stamp(line)} ${text}`)
     listed += cost
   }
-  return { recent: recent.reverse(), earlier: earlier.reverse(), unlisted, full, complete }
+  return { recent: recent.reverse(), earlier: earlier.reverse(), unlisted, full }
 }
 
 // Checkpoint packer: preserves messages to the Bot (and optionally the latest
@@ -148,6 +151,7 @@ export async function buildCheckpointPack({
   clip = clipText,
   estimateTokens = defaultEstimateTokens,
   read,
+  onKept,
 }) {
   const recent = []
   const kept = []
@@ -172,6 +176,7 @@ export async function buildCheckpointPack({
       const cost = estimateTokens(text)
       if (recent.length === 0 || recentUsed + cost <= recentBudget) {
         recent.push(text)
+        onKept?.()
         recentUsed += cost
         if (read?.capped) {
           more = true
@@ -189,6 +194,7 @@ export async function buildCheckpointPack({
       break
     }
     kept.push(text)
+    onKept?.()
     keptUsed += cost
     if (read?.capped) {
       more = true
@@ -318,15 +324,22 @@ export function buildFallbackContext({
   noteMinChars = 1_500,
   maxItems = 8,
   lineMax = 1_000,
+  maxSeq,
+  excludeTurns,
   sourceKind,
   handoffAck = '',
   cleanStructuredNote = value => String(value ?? '').trim(),
   clipStructuredNote = (note, max) => (note.length <= max ? note : `${note.slice(0, max)}…`),
 }) {
   if (!Array.isArray(events) || events.length === 0) return ''
+  const excluded = excludeTurns instanceof Set && excludeTurns.size > 0 ? excludeTurns : undefined
+  const boundedEvents = Number.isInteger(maxSeq)
+    ? events.filter(event => !Number.isInteger(event?.seq) || event.seq <= maxSeq)
+    : events
+  if (boundedEvents.length === 0) return ''
   let latestNote = ''
   let shadowedEnd = -1
-  for (const event of events) {
+  for (const event of boundedEvents) {
     if (event.type === 'compaction/summary') {
       const cleaned = cleanStructuredNote(event.data?.summary)
       if (cleaned !== '') latestNote = cleaned
@@ -340,7 +353,17 @@ export function buildFallbackContext({
     }
   }
   const lines = []
-  for (const event of events) {
+  let activeTurn
+  for (const event of boundedEvents) {
+    if (event.type === 'turn/start' && Number.isInteger(event.data?.turn)) {
+      activeTurn = event.data.turn
+      continue
+    }
+    if (event.type === 'turn/end') {
+      activeTurn = undefined
+      continue
+    }
+    if (excluded !== undefined && activeTurn !== undefined && excluded.has(activeTurn)) continue
     if (shadowedEnd >= 0 && Number.isInteger(event.seq) && event.seq <= shadowedEnd) continue
     if (event.type === 'user/message') {
       const source = event.data?.source
