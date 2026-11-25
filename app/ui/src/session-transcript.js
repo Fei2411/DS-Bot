@@ -107,7 +107,8 @@ function classifyUserMessage(event, { turn, roster, sessionId }) {
   const content = Array.isArray(data.content) ? data.content : []
   if (source.kind === 'user') {
     const { text, attachments, rest } = contentParts(content)
-    const via = viaOf(source) ?? roster?.imVia?.[sessionId]?.[event.seq]
+    const apiName = roster?.apiVia?.[sessionId]?.[event.seq]
+    const via = (apiName ? `api:${apiName}` : undefined) ?? viaOf(source, roster) ?? roster?.imVia?.[sessionId]?.[event.seq]
     if (text === '' && attachments.length === 0 && rest.length === 0) return null
     return {
       kind: 'user',
