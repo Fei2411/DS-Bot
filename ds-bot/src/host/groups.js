@@ -1027,13 +1027,60 @@ export function install(rt) {
   }
   rt.markExplicitRoomCall = rememberExplicitCall
 
-  const openChildBatches = (roomId, botId) => Object.values(batches())
-    .filter(batch => batch.roomId === roomId && batch.by === botId && batch.direct === true && batch.pending.length > 0)
+  // Queued explicit `delegate_work` relays enqueued via `agent.followup` when no round
+  // was running, tracked from enqueue until the target round registers the child batch
+  // (or cancels/pauses the relay), so a slow caller closing Turn 1 in the gap never drops
+  // its upstream parent batch early.
+  const pendingDirectRelays = new Map()
+  const hasPendingDirectRelay = (roomId, botId, parentBatchKey) => {
+    for (const entry of pendingDirectRelays.values()) {
+      if (entry.roomId !== roomId || entry.by !== botId) continue
+      if (parentBatchKey === undefined || entry.parentBatchKey === parentBatchKey) return true
+    }
+    return false
+  }
+
+  const openChildBatches = (roomId, botId, parentBatchKey) => Object.values(batches())
+    .filter(batch => batch.roomId === roomId
+      && batch.by === botId
+      && batch.direct === true
+      && batch.pending.length > 0
+      && (parentBatchKey === undefined || batch.parentBatchKey === parentBatchKey))
+
+  const upstreamBatchFor = (roomId, callerId, parentBatchKey) => {
+    if (parentBatchKey === undefined) return undefined
+    const exact = batches()[parentBatchKey]
+    return exact !== undefined && exact.roomId === roomId && exact.pending.includes(callerId) ? exact : undefined
+  }
+
+  const hasPendingUpstreamWake = (room, botId, batch, { round, slot, sessionId, joined } = {}) => {
+    if (batch === undefined) return false
+    const rounds = round !== undefined ? new Set([round, ...rt.roomProgress.values()]) : rt.roomProgress.values()
+    for (const candidate of rounds) {
+      if (candidate?.roomId !== room.id || !Array.isArray(candidate.slots)) continue
+      if (candidate.slots.some(other => other !== slot
+        && other.id === botId
+        && other.resumedUpstream === true
+        && other.batchKey === batch.key
+        && (other.status === 'waiting' || other.status === 'speaking'))) return true
+    }
+    const joinedInfos = joined ?? (sessionId !== undefined ? (rt.live.get(sessionId)?.joined ?? []).map(item => item?.info) : [])
+    if (joinedInfos.some(item => item?.role === 'room' && item.resumedUpstream === true && item.batchKey === batch.key)) return true
+    if (sessionId !== undefined && (rt.unreadOf?.(sessionId) ?? []).some(args => args?.role === 'room' && args.resumedUpstream === true && args.batchKey === batch.key)) return true
+    return false
+  }
+
+  const hasPendingChildWork = (room, botId, batch, opts = {}) => {
+    if (batch === undefined) return false
+    return openChildBatches(room.id, botId, batch.key).length > 0
+      || hasPendingDirectRelay(room.id, botId, batch.key)
+      || hasPendingUpstreamWake(room, botId, batch, opts)
+  }
 
   // At work in the group: a turn, subagent, or group background task running, a call waiting
   // in a round, a message on its way to the member's group Session that no turn took up yet,
   // or an open child delegation whose result this member is waiting on to finish its own task.
-  const activeInRoom = (room, botId, ignoreTaskId, seen = new Set()) => {
+  const activeInRoom = (room, botId, ignoreTaskId, seen = new Set(), parentBatchKey = undefined) => {
     if (!room.members.includes(botId) || seen.has(botId)) return false
     seen.add(botId)
     const sessionId = room.sessions?.[botId]
@@ -1042,10 +1089,11 @@ export function install(rt) {
     if (sessionId !== undefined && (rt.unreadOf?.(sessionId) ?? []).some(args => !missedExchanges.has(args.exchangeId))) return true
     if ([...rt.roomProgress.values()].some(round => round.roomId === room.id
       && round.slots.some(slot => slot.id === botId && (slot.status === 'waiting' || slot.status === 'speaking')))) return true
-    return openChildBatches(room.id, botId).some(child => child.pending.some(peerId => activeInRoom(room, peerId, ignoreTaskId, seen)))
+    if (hasPendingDirectRelay(room.id, botId, parentBatchKey)) return true
+    return openChildBatches(room.id, botId, parentBatchKey).some(child => child.pending.some(peerId => activeInRoom(room, peerId, ignoreTaskId, seen, child.key)))
   }
 
-  const registerBatch = (roomId, by, callees, direct = false) => {
+  const registerBatch = (roomId, by, callees, direct = false, parentBatchKey = undefined) => {
     if (by === undefined || callees.length === 0) return undefined
     // A group that was deleted takes its batches with it, also one whose wake never came.
     for (const [key, old] of Object.entries(batches())) {
@@ -1053,6 +1101,9 @@ export function install(rt) {
         wakingBatches.delete(key)
         delete batches()[key]
       }
+    }
+    for (const [exchangeId, relay] of pendingDirectRelays) {
+      if (rt.roomOf(relay.roomId) === undefined) pendingDirectRelays.delete(exchangeId)
     }
     const batch = {
       key: randomUUID(),
@@ -1064,7 +1115,7 @@ export function install(rt) {
       doneIds: [],
       results: [],
       worked: false,
-      ...(direct ? { direct: true, returnRequested: true } : {}),
+      ...(direct ? { direct: true, returnRequested: true, ...(parentBatchKey !== undefined ? { parentBatchKey } : {}) } : {}),
       answered: false,
       at: Date.now(),
     }
@@ -1078,7 +1129,14 @@ export function install(rt) {
         batch.results.push(...prev.results)
         batch.worked ||= prev.worked
         if (prev.returnRequested) batch.returnRequested = true
+        if (batch.parentBatchKey === undefined && prev.parentBatchKey !== undefined) batch.parentBatchKey = prev.parentBatchKey
         batch.answered ||= prev.answered
+        for (const child of Object.values(batches())) {
+          if (child.parentBatchKey === prev.key) child.parentBatchKey = batch.key
+        }
+        for (const relay of pendingDirectRelays.values()) {
+          if (relay.parentBatchKey === prev.key) relay.parentBatchKey = batch.key
+        }
         delete batches()[prev.key]
       }
     }
@@ -1089,7 +1147,7 @@ export function install(rt) {
 
   const pruneBatchPending = (room, batch) => {
     for (const otherId of batch.pending) {
-      if (!room.members.includes(otherId) || !activeInRoom(room, otherId)) unpend(batch, otherId)
+      if (!room.members.includes(otherId) || !activeInRoom(room, otherId, undefined, new Set(), batch.key)) unpend(batch, otherId)
     }
   }
 
@@ -1104,10 +1162,24 @@ export function install(rt) {
     }
   }
 
-  // The batch the turn with trigger `info` answers. The call names who asked; a turn that
-  // names nobody (not a call of the group) answers the oldest batch the member is in.
-  const batchOfTurn = (roomId, botId, info) => (info?.askedBy !== undefined ? batchOf(roomId, botId, info.askedBy) : undefined)
-    ?? (info?.role !== 'room' ? batchesOf(roomId, botId)[0] : undefined)
+  // The batch the turn with trigger `info` answers. Exact `batchKey` wins; else the call
+  // names who asked; a turn that names nobody (not a call of the group) answers the oldest
+  // batch the member is in.
+  const batchOfTurn = (roomId, botId, info) => {
+    if (info?.batchKey !== undefined) {
+      const exact = batches()[info.batchKey]
+      if (exact !== undefined && exact.roomId === roomId && exact.pending.includes(botId)) return exact
+    }
+    return (info?.askedBy !== undefined ? batchOf(roomId, botId, info.askedBy) : undefined)
+      ?? (info?.role !== 'room' ? batchesOf(roomId, botId)[0] : undefined)
+  }
+  rt.activeRoomBatchKey = (sessionId, info) => {
+    const owner = rt.groupOwners.get(sessionId)
+    if (owner === undefined) return undefined
+    const waiter = info?.role === 'room' ? rt.roomWaiters.get(info.exchangeId) : undefined
+    if (waiter?.slot !== undefined) return batchOfSlot(owner.roomId, waiter.slot)?.key
+    return batchOfTurn(owner.roomId, owner.botId, info)?.key
+  }
 
   // The member's work for one batch is over. A batch whose wake is posted to the group
   // (`keep`) stays until that post, the last one that names it, is taken in (closeBatch),
@@ -1217,7 +1289,7 @@ export function install(rt) {
         continue
       }
       wakingBatches.add(batch.key)
-      await postToRoom(room, last, '', { late: true, done: true, askedBy: batch.by, batch: batch.key, batchEnd: true })
+      await postToRoom(room, last, '', { late: true, done: true, askedBy: batch.by, batch: batch.key, batchEnd: true, ...(batch.parentBatchKey ? { parentBatchKey: batch.parentBatchKey } : {}) })
         .catch((error) => {
           closeBatch(batch.key)
           rt.warn('ds-bot: a batch in %s left by a restart did not wake its caller: %s', room.name, error)
@@ -1226,11 +1298,36 @@ export function install(rt) {
     if (changed) saveSoon()
   }
   const finishedNote = names => `${names.join(' and ')} finished the work you asked for`
-  const giveResults = (round, botId, wake) => {
-    const slot = round.slots.findLast(other => other.id === botId && other.status === 'waiting')
+  const giveResults = (round, botId, wake, batchKey) => {
+    const slot = (batchKey !== undefined
+      ? round.slots.findLast(other => other.id === botId && other.status === 'waiting' && other.batchKey === batchKey)
+      : undefined)
+      ?? round.slots.findLast(other => other.id === botId && other.status === 'waiting')
     if (slot === undefined) return
     slot.finished = slot.finished === undefined ? wake
       : { names: [...new Set([...slot.finished.names, ...wake.names])], results: [...slot.finished.results, ...wake.results] }
+  }
+
+  // When a child batch closes without waking its caller (e.g. child failed, passed, or
+  // paused), unwind the specific upstream parent batch that depended on it if that caller
+  // has no other active work left for that parent assignment.
+  async function unwindOrphanedCallers(room, closedBatches, excludeBotId, { round, signal } = {}) {
+    const orphaned = new Map()
+    for (const batch of closedBatches) {
+      if (batch.pending.length === 0 && batch.by !== undefined && batch.by !== excludeBotId && batch.parentBatchKey !== undefined) {
+        let keys = orphaned.get(batch.by)
+        if (keys === undefined) { keys = new Set(); orphaned.set(batch.by, keys) }
+        keys.add(batch.parentBatchKey)
+      }
+    }
+    for (const [callerId, keys] of orphaned) {
+      for (const parentKey of keys) {
+        const parent = upstreamBatchFor(room.id, callerId, parentKey)
+        if (parent !== undefined && !activeInRoom(room, callerId, undefined, new Set(), parent.key)) {
+          await exitMemberBatches(room, callerId, { owed: [parent], round, signal })
+        }
+      }
+    }
   }
 
   const batchCarrier = (room, batch, preferred) => {
@@ -1277,18 +1374,8 @@ export function install(rt) {
     }
     // If a child batch closed without waking its caller (e.g. child failed, passed, or
     // paused) and that caller was waiting on it to fulfill an upstream request, unwind
-    // the caller's upstream batches so nested delegations never deadlock.
-    const orphanedCallers = new Set()
-    for (const batch of owed) {
-      if (!readySet.has(batch) && batch.pending.length === 0 && batch.by !== undefined && batch.by !== botId) {
-        orphanedCallers.add(batch.by)
-      }
-    }
-    for (const callerId of orphanedCallers) {
-      if (batchesOf(room.id, callerId).length > 0 && !activeInRoom(room, callerId)) {
-        await exitMemberBatches(room, callerId, { round, signal })
-      }
-    }
+    // that specific upstream parent batch so nested delegations never deadlock.
+    await unwindOrphanedCallers(room, owed.filter(batch => !readySet.has(batch)), botId, { round, signal })
     if (ready.length === 0) return { wokenCount: 0, usedFirstPost: false }
     if (inRound) {
       for (const batch of ready) {
@@ -1296,11 +1383,9 @@ export function install(rt) {
         if (caller === undefined || !room.members.includes(caller.id)) continue
         const wake = { names: [...batch.done], results: [...batch.results] }
         expandScopedReports(room.id, botId, [caller])
-        const upstream = batchesOf(room.id, caller.id)[0]
-        if (!round.slots.some(other => other.id === caller.id && other.status === 'waiting')) {
-          callIn(round, [caller], finishedNote(wake.names), undefined, upstream !== undefined ? { resumeBatch: upstream } : { resultOnly: true })
-        }
-        giveResults(round, caller.id, wake)
+        const upstream = upstreamBatchFor(room.id, caller.id, batch.parentBatchKey)
+        callIn(round, [caller], finishedNote(wake.names), undefined, upstream !== undefined ? { resumeBatch: upstream } : { resultOnly: true })
+        giveResults(round, caller.id, wake, upstream?.key)
       }
       return { wokenCount: ready.length, usedFirstPost: false }
     }
@@ -1321,9 +1406,10 @@ export function install(rt) {
         continue
       }
       const body = custom?.text ?? ''
+      const parentExtra = batch.parentBatchKey ? { parentBatchKey: batch.parentBatchKey } : {}
       const extra = custom !== undefined
-        ? { ...custom.extra, askedBy: batch.by, batch: batch.key, batchEnd: true }
-        : { ...wakeExtra, askedBy: batch.by, batch: batch.key, batchEnd: true }
+        ? { ...custom.extra, askedBy: batch.by, batch: batch.key, batchEnd: true, ...parentExtra }
+        : { ...wakeExtra, askedBy: batch.by, batch: batch.key, batchEnd: true, ...parentExtra }
       if (custom !== undefined) usedFirstPost = true
       wokenCount += 1
       await postToRoom(room, carrier, body, extra)
@@ -1414,7 +1500,7 @@ export function install(rt) {
       }
       touch()
       rt.roomWaiters.set(exchangeId, {
-        sessionId, botId: member.id, roomId: room.id,
+        sessionId, botId: member.id, roomId: room.id, slot,
         explicitCalls: slot.explicitCalls,
         resolve: finish,
         fail: failure => finish({ failure }),
@@ -1425,7 +1511,7 @@ export function install(rt) {
       signal.addEventListener('abort', onAbort, { once: true })
     })
     try {
-      await rt.deliver({ fromId: undefined, toId: member.id, sessionId, role: 'room', roomId: room.id, exchangeId, note, text, images, files, steer: busy, ...(by ? { askedBy: by } : {}), ...(slot.resultRef ? { resultRef: slot.resultRef } : {}) })
+      await rt.deliver({ fromId: undefined, toId: member.id, sessionId, role: 'room', roomId: room.id, exchangeId, note, text, images, files, steer: busy, ...(by ? { askedBy: by } : {}), ...(slot.resultRef ? { resultRef: slot.resultRef } : {}), ...(slot.batchKey ? { batchKey: slot.batchKey } : {}), ...(slot.resumedUpstream ? { resumedUpstream: true } : {}) })
       // The prompt reached the member: its read position moves on.
       room.seen[member.id] = seenAt
       // Still held by an earlier request: this turn cannot start until the user answers.
@@ -1501,11 +1587,11 @@ export function install(rt) {
   // it up the order, any other call lets it start at once. A call of another Bot stays
   // a call of its own, so that Bot is woken for its own work. `by` is the calling
   // member, if a member called.
-  function callIn(round, callees, note, by, { ordered = false, resultOnly = false, returnRequested = false, resumeBatch } = {}) {
+  function callIn(round, callees, note, by, { ordered = false, resultOnly = false, returnRequested = false, parentBatchKey, resumeBatch } = {}) {
     if (callees.length === 0) return
     round.batches = (round.batches ?? 0) + 1
     const effectiveBy = resumeBatch !== undefined ? resumeBatch.by : by
-    const batchKey = resumeBatch !== undefined ? resumeBatch.key : registerBatch(round.roomId, by, callees, returnRequested)
+    const batchKey = resumeBatch !== undefined ? resumeBatch.key : registerBatch(round.roomId, by, callees, returnRequested, parentBatchKey)
     let last
     for (const peer of callees) {
       const waiting = round.slots.findIndex(slot => slot.id === peer.id && slot.status === 'waiting' && (effectiveBy === undefined || slot.by === undefined || slot.by === effectiveBy))
@@ -1971,7 +2057,7 @@ export function install(rt) {
     const publish = (body, completedSession, changes, { interim = false } = {}) => {
       const batch = batchOfSlot(room.id, slot)
       const route = speechRoute(room, member, body, { resultRef: slot.resultRef, askedBy: slot.by, batch, explicitCalls: slot.explicitCalls })
-      const holdsResult = interim || openChildBatches(room.id, member.id).length > 0
+      const holdsResult = interim || hasPendingChildWork(room, member.id, batch, { round, slot, sessionId: room.sessions?.[member.id] ?? session.id })
       if (route.kind === 'result' && !holdsResult && batch) batch.returnRequested = true
       const claims = completedSession && claimsOf(completedSession, body, worked, route.kind === 'request' || slot.explicitCalls?.size > 0)
       const published = (!completedSession || holdsResult) && route.kind === 'result' ? roomNote() : route
@@ -1985,6 +2071,7 @@ export function install(rt) {
       (turnNumber) => { finishedTurn = turnNumber },
     )
     if (reply?.left === true) {
+      if (slot.exchangeId !== undefined) explicitCallsByExchange.delete(slot.exchangeId)
       slot.status = 'left'
       await exitMemberBatches(room, member.id, { round, signal })
       return
@@ -2063,7 +2150,7 @@ export function install(rt) {
         await exitMemberBatches(room, member.id, { round, signal })
       } else {
         const batch = batchOfSlot(room.id, slot)
-        const pendingChildren = ['posted', 'passed'].includes(slot.status) && openChildBatches(room.id, member.id).length > 0
+        const pendingChildren = ['posted', 'passed'].includes(slot.status) && hasPendingChildWork(room, member.id, batch, { round, slot, sessionId: activeSid })
         if (batch !== undefined && !pendingChildren) {
           if (slot.status === 'posted') {
             batch.done.push(member.name)
@@ -2125,7 +2212,10 @@ export function install(rt) {
     }
     const members = room.members.map(rt.botOf).filter(Boolean)
     for (const post of posts) {
-      if (post.logged !== undefined || post.resumedPause === true || isStoppedRelay(post)) continue
+      if (post.logged !== undefined || post.resumedPause === true || isStoppedRelay(post)) {
+        if (post.exchangeId !== undefined) pendingDirectRelays.delete(post.exchangeId)
+        continue
+      }
       const own = round.kickoff || post.kickoff || post.goal !== undefined || post.images !== undefined || (post.references?.length ?? 0) > 0
       if (own) {
         laterPosts.set(room.id, [...(laterPosts.get(room.id) ?? []), post])
@@ -2141,11 +2231,15 @@ export function install(rt) {
           if (post.batch !== undefined && text !== '') recordResult(post.batch, sender.name, room.seq)
         }
         callPost(room, round, sender, post.text ?? '', post)
+        if (post.exchangeId !== undefined) pendingDirectRelays.delete(post.exchangeId)
         settleQueuedReportInRound(room, post)
         if (post.batchEnd) closeBatch(post.batch)
         continue
       }
-      if (post.botId !== undefined) continue
+      if (post.botId !== undefined) {
+        if (post.exchangeId !== undefined) pendingDirectRelays.delete(post.exchangeId)
+        continue
+      }
       // The user's message, as one the round takes in from the Session's inbox.
       noteRoomUserOrigin(room, post.via !== undefined ? rt.captureImOrigin?.(rt.sessionOfRoom(room)) : undefined)
       const text = [post.text, ...(post.files ?? []).map(fileLine)].filter(Boolean).join('\n')
@@ -2166,6 +2260,7 @@ export function install(rt) {
   ctx.effect(() => () => {
     disposed = true
     explicitCallsByExchange.clear()
+    pendingDirectRelays.clear()
     for (const round of rt.roomProgress.values()) round.abort?.abort()
   }, 'ds-bot: group rounds')
 
@@ -2191,7 +2286,11 @@ export function install(rt) {
     return run
   }
   async function runRoundFrom(room, queued, agent, key, signal, holder) {
-    const filtered = queued.filter(post => !isStoppedRelay(post))
+    const filtered = queued.filter((post) => {
+      if (!isStoppedRelay(post)) return true
+      if (post.exchangeId !== undefined) pendingDirectRelays.delete(post.exchangeId)
+      return false
+    })
     if (queued.length > 0 && filtered.length === 0) return
     const posts = filtered.length > 0 ? filtered : [{ text: '' }]
     // A goal post queued for a goal that moved on is dropped: a check or resume
@@ -2355,8 +2454,10 @@ export function install(rt) {
       const ordered = opened.ordered
       // A batch's last result wakes the Bot that asked, with the results of the whole batch.
       const wake = post.batch === undefined || post.askedBy === undefined ? undefined : wakeOf(post.batch)
+      const wakeParentKey = post.parentBatchKey ?? (post.batch === undefined ? undefined : batches()[post.batch]?.parentBatchKey)
       const calledByPost = post.botId !== undefined ? speakers.filter(member => named.includes(member)) : []
-      const openingBatchKey = post.botId !== undefined && calledByPost.length > 0 ? registerBatch(room.id, post.botId, calledByPost, post.route?.expectsResult) : undefined
+      const openingBatchKey = post.botId !== undefined && calledByPost.length > 0 ? registerBatch(room.id, post.botId, calledByPost, post.route?.expectsResult, post.parentBatchKey) : undefined
+      if (post.exchangeId !== undefined) pendingDirectRelays.delete(post.exchangeId)
       // The admin's own post that opens a round hands goal tasks the same way a call does.
       if (rt.isAdminOf(room, post.botId)) for (const member of calledByPost) rt.goalTaskWorking?.(room.id, member.id)
       if (post.botId !== undefined && speakers.length > 0) expandScopedReports(room.id, post.botId, speakers)
@@ -2372,7 +2473,7 @@ export function install(rt) {
         for (const member of speakers) {
           const by = calledByPost.includes(member) ? post.botId : undefined
           const isResultWake = by === undefined && (post.route?.kind === 'result' || (wake !== undefined && member.id === post.askedBy))
-          const upstream = isResultWake ? batchesOf(room.id, member.id)[0] : undefined
+          const upstream = isResultWake ? upstreamBatchFor(room.id, member.id, wakeParentKey) : undefined
           const effectiveBy = upstream !== undefined ? upstream.by : by
           const memberNote = wake !== undefined && member.id === post.askedBy && by === undefined ? finishedNote(wake.names) : postNote
           const waiting = round.slots.findIndex(slot => slot.id === member.id && slot.status === 'waiting' && (effectiveBy === undefined || slot.by === undefined || slot.by === effectiveBy))
@@ -2411,7 +2512,9 @@ export function install(rt) {
             last = slot
           }
         }
-        if (wake !== undefined && speakers.some(member => member.id === post.askedBy)) giveResults(round, post.askedBy, wake)
+        if (wake !== undefined && speakers.some(member => member.id === post.askedBy)) {
+          giveResults(round, post.askedBy, wake, upstreamBatchFor(room.id, post.askedBy, wakeParentKey)?.key)
+        }
       }
       if (post.reportBack && poster !== undefined) {
         if (multiPost) trackScopedReport(room, poster, post, speakers.map(member => member.id), afterSeq)
@@ -2419,6 +2522,7 @@ export function install(rt) {
         reportsOpened = true
       }
     }
+    for (const post of posts) if (post.exchangeId !== undefined) pendingDirectRelays.delete(post.exchangeId)
     if (reportsOpened) saveSoon()
     if (round.batches === 0) round.batches = 1
     // The admin alone with the user's message: when it passes, the round ends with
@@ -2756,19 +2860,20 @@ export function install(rt) {
     const by = speakers.filter(peer => named.includes(peer))
     const rest = speakers.filter(peer => !named.includes(peer))
     const wake = extra.batch === undefined ? undefined : wakeOf(extra.batch)
+    const wakeParentKey = extra.parentBatchKey ?? (extra.batch === undefined ? undefined : batches()[extra.batch]?.parentBatchKey)
     const note = extra.done ? `${sender.name} finished the work you asked for` : undefined
-    callIn(round, by, note ?? `${sender.name} mentioned you`, sender.id, { ordered, returnRequested: extra.route?.expectsResult })
+    callIn(round, by, note ?? `${sender.name} mentioned you`, sender.id, { ordered, returnRequested: extra.route?.expectsResult, parentBatchKey: extra.parentBatchKey })
     const resultWake = extra.route?.kind === 'result' || wake !== undefined
     if (resultWake) {
       for (const peer of rest) {
-        const upstream = batchesOf(room.id, peer.id)[0]
+        const upstream = upstreamBatchFor(room.id, peer.id, wakeParentKey)
         callIn(round, [peer], wake === undefined ? note : finishedNote(wake.names), undefined, upstream !== undefined ? { ordered, resumeBatch: upstream } : { ordered, resultOnly: true })
       }
     } else {
       callIn(round, rest, wake === undefined ? note : finishedNote(wake.names), undefined, { ordered })
     }
     expandScopedReports(room.id, sender.id, speakers)
-    if (wake !== undefined) giveResults(round, extra.askedBy, wake)
+    if (wake !== undefined) giveResults(round, extra.askedBy, wake, upstreamBatchFor(room.id, extra.askedBy, wakeParentKey)?.key)
     if (rt.isAdminOf(room, sender.id)) for (const peer of speakers) rt.goalTaskWorking?.(room.id, peer.id)
     if (extra.reportBack) {
       trackScopedReport(room, sender, extra, speakers.map(peer => peer.id))
@@ -2835,6 +2940,10 @@ export function install(rt) {
       registerQueuedReport(room, sender, postExtra, { imOrigin, tainted: imOrigin !== undefined && originUpdate.tainted })
     }
     if (tracksRelay) noteRoomRelayQueued(room.id, exchangeId, postExtra.reportId)
+    const tracksDirectRelay = postExtra.explicitDelegate === true && postExtra.route?.kind === 'request'
+    if (tracksDirectRelay) {
+      pendingDirectRelays.set(exchangeId, { roomId: room.id, by: sender.id, parentBatchKey: postExtra.parentBatchKey })
+    }
     let enqueued = false
     try {
       const msg = createUserMessage({
@@ -2861,6 +2970,7 @@ export function install(rt) {
         })
       }
       if (withdrawn) {
+        if (tracksDirectRelay) pendingDirectRelays.delete(exchangeId)
         if (tracksRelay) roomRelayTaken(room.id, exchangeId)
         if (postExtra.reportId !== undefined) dropRoomReport(postExtra.reportId)
         if (snapshot !== undefined) restoreOriginState(room.id, snapshot, originUpdate.version)
@@ -2880,7 +2990,7 @@ export function install(rt) {
   // it names answer. When multiple members were called in one batch, each result posts
   // as soon as it is ready, and the caller is woken once when the last member in the
   // batch finishes.
-  async function lateRoomReply(sessionId, info, reply, { shown = false, toolCount = 0, turn } = {}) {
+  async function lateRoomReply(sessionId, info, reply, { shown = false, toolCount = 0, turn, joined } = {}) {
     const owner = rt.groupOwners.get(sessionId)
     const room = rt.roomOf(owner?.roomId ?? info.roomId)
     const member = rt.botOf(owner?.botId)
@@ -2898,21 +3008,20 @@ export function install(rt) {
         }
         return
       }
-      // While a DSH subagent, group background task, or child delegation of this member is
-      // still running, the member's work is not finished yet: post any non-empty text as a
-      // progress line and keep its upstream batch open until child work returns.
+      const batch = batchOfTurn(room.id, member.id, info)
+      // While a DSH subagent, group background task, or child delegation of this batch is
+      // still running/queued/resuming, the member's work for this batch is not finished yet:
+      // post any non-empty text as a progress line and keep its upstream batch open.
       const hasBg = rt.hasSubagents?.(sessionId) === true || rt.hasRoomTasks?.(room.id, member.id) === true
-      const hasChildren = openChildBatches(room.id, member.id).length > 0
+      const hasChildren = hasPendingChildWork(room, member.id, batch, { sessionId, joined })
       if (hasBg || hasChildren) {
-        if (hasBg) keepExplicit = true
         if (!isPass(text)) {
-          const route = speechRoute(room, member, text, { ...info, batch: batchOfTurn(room.id, member.id, info), explicitCalls })
+          const route = speechRoute(room, member, text, { ...info, batch, explicitCalls })
           await postToRoom(room, member, text, { progress: true, route: route.kind === 'request' ? route : roomNote(), ...(route.kind !== 'request' ? { quiet: true } : {}) })
             .catch(error => rt.warn('ds-bot: background progress from %s failed: %s', member.name, error))
         }
         return
       }
-      const batch = batchOfTurn(room.id, member.id, info)
       const askedBy = info.role === 'room' ? info.askedBy : (info.askedBy ?? batch?.by)
       // The admin asked for this result: its goal task is reported at once, even
       // while the other members of the batch still work.
@@ -2934,9 +3043,9 @@ export function install(rt) {
       }
       // The post names its batch: its line is a result of it, and the wake that closes the
       // batch carries the results.
-      const inBatch = batch === undefined ? {} : { batch: batch.key, ...(waitingPeers ? {} : { batchEnd: true }) }
+      const inBatch = batch === undefined ? {} : { batch: batch.key, ...(waitingPeers ? {} : { batchEnd: true }), ...(batch.parentBatchKey ? { parentBatchKey: batch.parentBatchKey } : {}) }
       const session = await rt.resolveAgent(sessionId).then(agent => agent?.session, () => undefined)
-      const claims = isPass(text) ? undefined : claimsOf(session, text, toolCount > 0, named.length > 0)
+      const claims = isPass(text) ? undefined : claimsOf(session, text, toolCount > 0, named.length > 0 || (explicitCalls?.size ?? 0) > 0)
       // What this turn changed in the member's folder, so the group can open the review from
       // the same row. Read before posting: the review needs the turn that just ended.
       const changes = await rt.turnChanges?.(sessionId, turn)
@@ -2961,7 +3070,10 @@ export function install(rt) {
       }
       const done = isPass(text) && (shown || batchDoneBefore) && askedBy !== undefined
       if (isPass(text) && !done) {
-        if (batch !== undefined) closeBatch(batch.key)
+        if (batch !== undefined) {
+          closeBatch(batch.key)
+          await unwindOrphanedCallers(room, [batch], member.id)
+        }
         if (changes !== undefined) await lateDone()
         return
       }
@@ -3143,6 +3255,7 @@ export function install(rt) {
         if (isBotPendingPost(post)) {
           rememberStoppedRelay(post.exchangeId)
           rememberStoppedRelay(post.reportId)
+          if (post.exchangeId !== undefined) pendingDirectRelays.delete(post.exchangeId)
           if (post.batchEnd && post.batch) closeBatch(post.batch)
         } else {
           kept.push(post)
@@ -3174,6 +3287,7 @@ export function install(rt) {
             if (!cancelable) continue
             rememberStoppedRelay(src.exchangeId)
             rememberStoppedRelay(src.reportId)
+            if (src.exchangeId !== undefined) pendingDirectRelays.delete(src.exchangeId)
             if (src.batchEnd && src.batch) closeBatch(src.batch)
             roomAgent.inbox.remove(message.id)
           }
@@ -3312,6 +3426,7 @@ export function install(rt) {
           .catch(error => rt.warn('ds-bot: late group failure from %s failed: %s', member.name, error))
       }
     } finally {
+      if (info?.exchangeId !== undefined) explicitCallsByExchange.delete(info.exchangeId)
       leaveLate(room.id)
       void settleRoomReports(room.id).catch(error => rt.warn('ds-bot: settling reports in %s failed: %s', room.name, error))
     }

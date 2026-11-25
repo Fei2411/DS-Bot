@@ -220,7 +220,7 @@ export function install(rt) {
     return `Not sent: ${target.name} is not in "${room.name}", and work for this group stays in it. Ask the user to add ${target.name} to the group${add}.`
   }
 
-  const callInGroup = async (room, sender, target, message, follows, { worked = false, callerExchangeId, callerId } = {}) => {
+  const callInGroup = async (room, sender, target, message, follows, { worked = false, callerExchangeId, callerId, parentBatchKey } = {}) => {
     if (waitsOnMember(state.roomBatches, room.id, sender.id, target.id)) refuse(`Not sent: ${target.name} is already waiting for your result. Write the result or blocking question in your reply.`)
     const call = `@${target.name}`
     const everyone = room.members.map(rt.botOf).filter(Boolean)
@@ -231,6 +231,7 @@ export function install(rt) {
       ...(worked ? { worked: true } : {}),
       ...(callerExchangeId ? { callerExchangeId } : {}),
       ...(callerId ? { callerId } : {}),
+      ...(parentBatchKey ? { parentBatchKey } : {}),
       route: { ...roomRequest([target.id]), expectsResult: true, ...(follows ? { follows } : {}) },
     })
     if (posted?.paused === true) {
@@ -692,11 +693,13 @@ export function install(rt) {
           refuse(`Not sent: ${target.name} is already waiting for your result. Write the result or blocking question in your reply.`)
         }
         const callerWorked = (rt.live.get(exec.agent?.id)?.workToolCount ?? 0) > 0
+        const parentBatchKey = rt.activeRoomBatchKey?.(exec.agent?.id, trigger)
         const send = async () => {
           const receipt = await callInGroup(room, sender, target, text.trim(), followUp, {
             worked: callerWorked,
             callerExchangeId: trigger?.exchangeId,
             callerId: trigger?.askedBy,
+            ...(parentBatchKey ? { parentBatchKey } : {}),
           })
           rt.markExplicitRoomCall?.(trigger?.exchangeId, target.id)
           return receipt

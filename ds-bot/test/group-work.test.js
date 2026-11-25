@@ -4563,3 +4563,232 @@ test('nested group delegation unwinds upstream batch cleanly when the child dele
 
   assert.deepEqual(Object.values(rt.state.roomBatches ?? {}), [], 'upstream batch must unwind instead of lingering when child passes')
 })
+
+test('queued new-round zero-work delegate_work(follow_up_to) preserves explicitDelegate through turns.js and trips cycle guard', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const host = await start(t)
+  // Round 1: Chief delegates to Writer (0 work tools on Writer -> returns result to Chief).
+  const first = host.round('c1', host.say('@Chief ask Writer to check detail 1'))
+  await settle(() => host.agentOf('ga').calls.length === 1)
+  host.begin('ga')
+  await host.tool('delegate_work', { to: 'Writer', goal: 'Check detail 1' }, 'ga')
+  host.finish('ga', '[PASS]')
+
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  host.begin('gb')
+  host.finish('gb', 'Detail 1 checked from context.')
+
+  // Chief wakes on Writer's result, then pauses past 15s grace (via a non-work tool / wait) or
+  // let's have Round 1 end while Chief is still running so Chief's follow_up_to delegate_work
+  // goes through `postToRoom` -> `agent.followup` -> `turns.js:queueRoomMessage` -> `runRoundFrom`!
+  await settle(() => host.agentOf('ga').calls.length === 2)
+  const chiefSecond = host.begin('ga')
+  const resultRef = chiefSecond.source.resultRef
+  assert.ok(resultRef)
+  // Simulate Chief holding past reply/grace timeout so Round 1 finishes with no running round.
+  rt.roomWaiters.get(chiefSecond.source.exchangeId)?.resolve({ working: true })
+  await settle(() => first() !== undefined)
+  assert.equal(rt.roomActive('r1'), false, 'no round may be running when Chief calls delegate_work')
+
+  await host.tool('delegate_work', { to: 'Writer', goal: 'Check detail 2 via queued relay', follow_up_to: resultRef }, 'ga')
+  await settle(() => host.agentOf('r1').calls.length === 1)
+  const queuedPost = host.takePost()
+  assert.equal(queuedPost.source.explicitDelegate, true, 'queued relay source must carry explicitDelegate')
+  assert.equal(queuedPost.source.callerExchangeId, chiefSecond.source.exchangeId)
+
+  // Replay through turns.js -> group_relay -> runRoundFrom.
+  const round2 = host.round('c2', queuedPost)
+  await settle(() => round2() !== undefined)
+  host.finish('ga', '[PASS]')
+
+  assert.equal(host.agentOf('gb').calls.length, 1, 'Writer must not be woken on a queued 0-work follow_up_to cycle')
+  const pausedNotices = rt.roomOf('r1').log.filter(line => line.kind === 'notice' && line.reason === 'paused')
+  assert.equal(pausedNotices.length, 1)
+  assert.equal(pausedNotices[0].cause, 'cycle')
+})
+
+test('nested group delegation survives fast child finishing before parent Turn 1 ends and waiting-slot collisions on parent', async (t) => {
+  const host = await start(t)
+  const first = host.round('c1', host.say('@Chief coordinate fast nested check'))
+  await settle(() => host.agentOf('ga').calls.length === 1)
+  host.begin('ga')
+  await host.tool('delegate_work', { to: 'Writer', goal: 'Coordinate check with Tester' }, 'ga')
+  host.finish('ga', '[PASS]')
+
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  host.begin('gb')
+  await host.tool('delegate_work', { to: 'Tester', goal: 'Fast check' }, 'gb')
+
+  // Tester starts and finishes BEFORE Writer ends Turn 1!
+  await settle(() => host.agentOf('gc').calls.length === 1)
+  // Also simulate a concurrent waiting slot on Writer (e.g. from user) before Tester finishes
+  // to verify exitMemberBatches still attaches resumeBatch instead of skipping callIn.
+  const activeRound = [...rt.roomProgress.values()].find(r => r.roomId === 'r1')
+  activeRound.slots.push({ id: 'b', name: 'Writer', status: 'waiting', note: 'user ping' })
+
+  host.begin('gc')
+  host.emit('gc', 'tool/call', { callId: 't-fast', name: 'read', arguments: '{}' })
+  host.emit('gc', 'tool/result', { callId: 't-fast' })
+  host.finish('gc', 'Fast check passed.')
+
+  // Now Writer closes Turn 1 with [PASS] AFTER Tester already completed and queued Writer's resumed slot.
+  await settle(() => activeRound.slots.some(s => s.id === 'b' && s.status === 'waiting' && s.resumedUpstream === true))
+  host.finish('gb', '[PASS]')
+
+  // Writer's resumed Turn 2 must still carry Chief's upstream batch and return the final summary to Chief!
+  await settle(() => host.agentOf('gb').calls.length === 2)
+  host.begin('gb')
+  host.finish('gb', 'Combined summary after fast Tester check.')
+
+  await settle(() => host.agentOf('ga').calls.length === 2)
+  host.begin('ga')
+  host.finish('ga', 'Got it, thanks!')
+  await settle(() => first() !== undefined)
+
+  const summaryLine = rt.roomOf('r1').log.find(line => line.botId === 'b' && line.text.includes('Combined summary'))
+  assert.equal(summaryLine?.route?.kind, 'result', 'Writer resumed summary must route to Chief as result')
+  assert.deepEqual(summaryLine?.route?.to, ['a'])
+  assert.deepEqual(Object.values(rt.state.roomBatches ?? {}), [])
+})
+
+test('slow (>15s grace) nested delegation keeps upstream batch open across queued child relay and unwinds on late child [PASS]', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  // Case A: Slow parent delegates with no running round, finishes Turn 1 before child round starts -> parent batch stays open.
+  {
+    const host = await start(t)
+    const first = host.round('c1', host.say('@Chief ask Writer to run slow nested work'))
+    await settle(() => host.agentOf('ga').calls.length === 1)
+    host.begin('ga')
+    await host.tool('delegate_work', { to: 'Writer', goal: 'Run build and ask Tester' }, 'ga')
+    host.finish('ga', '[PASS]')
+
+    await settle(() => host.agentOf('gb').calls.length === 1)
+    host.begin('gb')
+    host.emit('gb', 'tool/call', { callId: 'w-slow', name: 'pwsh', arguments: '{}' })
+    t.mock.timers.tick(ROOM_WORK_GRACE_MS)
+    await settle(() => first() !== undefined)
+
+    // No round is running now: Writer delegates to Tester (queued to group Session) and closes Turn 1 immediately.
+    await host.tool('delegate_work', { to: 'Tester', goal: 'Verify slow build' }, 'gb')
+    await settle(() => host.agentOf('r1').calls.length === 1)
+    const childRelay = host.takePost()
+    host.emit('gb', 'tool/result', { callId: 'w-slow' })
+    host.finish('gb', '[PASS]')
+    await new Promise(resolve => setImmediate(resolve))
+
+    // Upstream Chief -> Writer batch MUST still be open while childRelay awaits its round!
+    assert.ok(Object.values(rt.state.roomBatches ?? {}).some(b => b.by === 'a' && b.pending.includes('b')), 'upstream batch must survive queued child relay')
+
+    // Now Tester's round runs and finishes -> wakes Writer with Chief's upstream batch intact -> wakes Chief!
+    const round2 = host.round('c2', childRelay)
+    await settle(() => host.agentOf('gc').calls.length === 1)
+    host.begin('gc')
+    host.emit('gc', 'tool/call', { callId: 't-ver', name: 'read', arguments: '{}' })
+    host.emit('gc', 'tool/result', { callId: 't-ver' })
+    host.finish('gc', 'Build verified.')
+
+    await settle(() => host.agentOf('gb').calls.length === 2)
+    host.begin('gb')
+    host.finish('gb', 'Final report for Chief: verified.')
+
+    await settle(() => host.agentOf('ga').calls.length === 2)
+    host.begin('ga')
+    host.finish('ga', 'Done.')
+    await settle(() => round2() !== undefined)
+
+    const reportLine = rt.roomOf('r1').log.find(line => line.botId === 'b' && line.text.includes('Final report for Chief'))
+    assert.equal(reportLine?.route?.kind, 'result')
+    assert.deepEqual(reportLine?.route?.to, ['a'])
+    assert.deepEqual(Object.values(rt.state.roomBatches ?? {}), [])
+  }
+
+  // Case B: Child past 15s grace finishes with late [PASS] -> unwinds orphaned upstream batch cleanly.
+  {
+    const host = await start(t)
+    const first = host.round('c1', host.say('@Chief ask Writer to delegate slow check'))
+    await settle(() => host.agentOf('ga').calls.length === 1)
+    host.begin('ga')
+    await host.tool('delegate_work', { to: 'Writer', goal: 'Ask Tester to check' }, 'ga')
+    host.finish('ga', '[PASS]')
+
+    await settle(() => host.agentOf('gb').calls.length === 1)
+    host.begin('gb')
+    await host.tool('delegate_work', { to: 'Tester', goal: 'Slow check' }, 'gb')
+    host.finish('gb', '[PASS]')
+
+    await settle(() => host.agentOf('gc').calls.length === 1)
+    host.begin('gc')
+    host.emit('gc', 'tool/call', { callId: 't-slow-pass', name: 'pwsh', arguments: '{}' })
+    t.mock.timers.tick(ROOM_WORK_GRACE_MS)
+    await settle(() => first() !== undefined)
+
+    // Both Chief->Writer and Writer->Tester batches are open while Tester runs late.
+    assert.equal(Object.values(rt.state.roomBatches ?? {}).length, 2)
+
+    // Tester finishes late with [PASS] -> both child batch AND orphaned parent batch must unwind!
+    host.emit('gc', 'tool/result', { callId: 't-slow-pass' })
+    host.finish('gc', '[PASS]')
+    await settle(() => Object.values(rt.state.roomBatches ?? {}).length === 0, 2000, 'late child [PASS] must unwind orphaned parent batch')
+  }
+})
+
+test('nested delegation parentBatchKey scopes child holding and wakes so unrelated callers receive immediate results', async (t) => {
+  const host = await start(t, { members: ['a', 'b', 'c', 'd'], sessions: { a: 'ga', b: 'gb', c: 'gc', d: 'gd' } }, undefined, {}, { d: {} })
+  const room = rt.roomOf('r1')
+
+  // Chief delegates review to Writer; Reviewer separately asks Writer for release date.
+  const first = host.round('c1', host.say('@Chief @Reviewer please each ask Writer your question'))
+  await settle(() => host.agentOf('ga').calls.length === 1 && host.agentOf('gd').calls.length === 1)
+
+  host.begin('ga')
+  await host.tool('delegate_work', { to: 'Writer', goal: 'Fact-check draft' }, 'ga')
+  host.finish('ga', '[PASS]')
+
+  // Writer starts Chief's task, delegates fact-check to Tester, and yields Turn 1.
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  host.begin('gb')
+  await host.tool('delegate_work', { to: 'Tester', goal: 'Verify numbers' }, 'gb')
+  host.finish('gb', '[PASS]')
+
+  // Tester is now actively working on Chief's child batch.
+  await settle(() => host.agentOf('gc').calls.length === 1)
+  host.begin('gc')
+
+  // While Tester is still busy, Reviewer delegates an UNRELATED question to Writer.
+  host.begin('gd')
+  await host.tool('delegate_work', { to: 'Writer', goal: 'What is the release date?' }, 'gd')
+  host.finish('gd', '[PASS]')
+
+  // Writer answers Reviewer IMMEDIATELY while Tester is still running!
+  await settle(() => host.agentOf('gb').calls.length === 2)
+  host.begin('gb')
+  host.finish('gb', 'Release date is Friday.')
+
+  // Reviewer MUST get Writer's result wake immediately — NOT blocked or downgraded by Chief's child batch!
+  await settle(() => host.agentOf('gd').calls.length === 2)
+  host.begin('gd')
+  host.finish('gd', 'Thanks!')
+  assert.equal(host.agentOf('ga').calls.length, 1, 'Chief must still be waiting on Tester')
+  const relLine = room.log.find(line => line.botId === 'b' && line.text.includes('Release date is Friday'))
+  assert.equal(relLine?.route?.kind, 'result')
+  assert.deepEqual(relLine?.route?.to, ['d'])
+
+  // Now Tester finishes -> resumes Writer specifically for Chief's batch -> Chief gets final result!
+  host.emit('gc', 'tool/call', { callId: 't-num', name: 'read', arguments: '{}' })
+  host.emit('gc', 'tool/result', { callId: 't-num' })
+  host.finish('gc', 'Numbers verified.')
+
+  await settle(() => host.agentOf('gb').calls.length === 3)
+  host.begin('gb')
+  host.finish('gb', 'Draft fact-check complete for Chief.')
+
+  await settle(() => host.agentOf('ga').calls.length === 2)
+  host.begin('ga')
+  host.finish('ga', 'Approved.')
+  await settle(() => first() !== undefined)
+
+  const chiefLine = room.log.find(line => line.botId === 'b' && line.text.includes('Draft fact-check complete for Chief'))
+  assert.equal(chiefLine?.route?.kind, 'result')
+  assert.deepEqual(chiefLine?.route?.to, ['a'])
+  assert.deepEqual(Object.values(rt.state.roomBatches ?? {}), [])
+})
