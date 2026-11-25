@@ -525,6 +525,7 @@ export function install(rt) {
     pingInFlight = true
     try {
       const payload = await buildDailyPayload(now)
+      if (stopped || isDisabled() || rt.readOnly?.() !== undefined || !isNoticeCurrent() || !data.usage) return false
       const ok = await sendPayload(payload)
       if (ok) {
         data.lastPingDay = day

@@ -385,3 +385,24 @@ test('real createRuntime wires every host view into a schema-valid daily payload
   assert.equal(payload.features_active.includes('schedule'), false)
   assert.equal(payload.features_active.includes('phone_link'), false)
 })
+
+test('maybeSendDaily aborts send if user opts out while awaiting schedule lookup', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'dsb-tel-race-'))
+  let resolveSched
+  const schedWait = new Promise(resolve => { resolveSched = resolve })
+  const env = makeRt(home)
+  env.rt.scheduleEndpoint = async () => schedWait
+  try {
+    await env.rt.telemetry.update({ noticeAccepted: true, usage: true, errors: false })
+    // Clear the initial auto-send trigger and start a controlled maybeSendDaily.
+    await new Promise(resolve => setTimeout(resolve, 10))
+    // User disables usage telemetry while schedule lookup is still pending.
+    await env.rt.telemetry.update({ usage: false })
+    resolveSched({ available: true, canPause: true, tasks: [] })
+    await new Promise(resolve => setTimeout(resolve, 20))
+    assert.equal(env.sent.length, 0)
+  } finally {
+    await env.dispose()
+    rmSync(home, { recursive: true, force: true })
+  }
+})
