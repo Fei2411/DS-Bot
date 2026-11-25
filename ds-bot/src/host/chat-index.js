@@ -52,7 +52,7 @@ function cjkSubTerms(term) {
 // Each term is a quoted FTS5 phrase when trigrams can match it, else a LIKE filter.
 // Queries with only short (<3 code-point) terms read directly from the indexed
 // `messages` table instead of scanning the FTS5 virtual table across all Bots.
-export function termQuery(terms, sessions, limit, hidden) {
+export function termQuery(terms, sessions, limit, hidden, bounds) {
   const long = terms.filter(term => [...term].length >= 3)
   const short = terms.filter(term => [...term].length < 3)
   const where = sessions.length === 1 ? ['session = ?'] : ['session IN (SELECT value FROM json_each(?))']
@@ -60,6 +60,13 @@ export function termQuery(terms, sessions, limit, hidden) {
   if (hidden !== undefined) {
     where.push('NOT (session = ? AND seq >= ?)')
     args.push(hidden.session, hidden.from)
+  }
+  if (Array.isArray(bounds)) {
+    for (const bound of bounds) {
+      if (typeof bound?.session !== 'string' || !Number.isInteger(bound?.throughSeq)) continue
+      where.push('NOT (session = ? AND seq > ?)')
+      args.push(bound.session, bound.throughSeq)
+    }
   }
   if (long.length > 0) {
     where.unshift('lines MATCH ?')
@@ -83,12 +90,19 @@ export function install(rt) {
   // A Session's events from newest to oldest, also for an archived part.
   // Uses non-hydrating live lookup or DSH's cold sessionController.page so archived
   // parts never wake live ReactLoopAgents and stay readable if their workDir is gone.
-  async function* eventsBackwards(sessionId, signal, maxPages = HISTORY_PAGES_MAX, read) {
+  async function* eventsBackwards(sessionId, signal, maxPages = HISTORY_PAGES_MAX, read, maxSeq) {
     if (read !== undefined) Object.assign(read, { complete: false, capped: false })
     const liveSession = ctx.get?.('agents')?.get(sessionId)?.session ?? ctx.get?.('sessions')?.get(sessionId)
-    let throughSeq = liveSession !== undefined && Number.isInteger(Number(liveSession.seq))
-      ? Number(liveSession.seq) - 1
+    const liveSeq = liveSession?.seq
+    const liveThroughSeq = typeof liveSeq === 'number' && Number.isInteger(liveSeq) && liveSeq >= 0
+      ? liveSeq - 1
       : undefined
+    const boundThroughSeq = Number.isInteger(maxSeq)
+      ? maxSeq
+      : (Number.isInteger(read?.throughSeq) ? read.throughSeq : undefined)
+    let throughSeq = liveThroughSeq !== undefined && boundThroughSeq !== undefined
+      ? Math.min(liveThroughSeq, boundThroughSeq)
+      : (boundThroughSeq ?? liveThroughSeq)
     let beforeSeq
     if (throughSeq !== undefined && throughSeq < 0) {
       if (read !== undefined) read.complete = true
@@ -119,7 +133,11 @@ export function install(rt) {
         const pinned = Number.isInteger(page.cursor) ? page.cursor : events.at(-1)?.seq
         if (pinned !== undefined) throughSeq = pinned
       }
-      for (let index = events.length - 1; index >= 0; index -= 1) yield events[index]
+      for (let index = events.length - 1; index >= 0; index -= 1) {
+        const event = events[index]
+        if (boundThroughSeq !== undefined && Number.isInteger(event?.seq) && event.seq > boundThroughSeq) continue
+        yield event
+      }
       if (!page.hasMore) {
         if (read !== undefined) read.complete = true
         return
@@ -140,13 +158,21 @@ export function install(rt) {
         rt.warn('ds-bot: no chat index, read_own_chat scans the logs: %s', error)
         return null
       }
-      // A damaged file is rebuilt from the logs once.
+      // Only proven damage warrants a rebuild: Desktop and Web share this file,
+      // and a busy lock must never read as corruption, or the other writer's
+      // index would be deleted under it.
+      const damaged = error => /malformed|not a database|corrupt|SQLITE_CORRUPT|SQLITE_NOTADB/i.test(String(error?.message ?? error))
       for (const fresh of [false, true]) {
         try {
-          if (fresh) await unlink(indexPath).catch(() => {})
+          if (fresh) {
+            await Promise.all([indexPath, `${indexPath}-wal`, `${indexPath}-shm`].map(file => unlink(file).catch(() => {})))
+          }
           return createIndex(new DatabaseSync(indexPath))
         } catch (error) {
-          if (fresh) rt.warn('ds-bot: no chat index, read_own_chat scans the logs: %s', error)
+          if (fresh || !damaged(error)) {
+            rt.warn('ds-bot: no chat index, read_own_chat scans the logs: %s', error)
+            return null
+          }
         }
       }
       return null
@@ -163,6 +189,7 @@ export function install(rt) {
 
   function createIndex(db) {
     try {
+      db.exec('PRAGMA busy_timeout = 5000')
       db.exec('PRAGMA journal_mode = WAL')
       if (db.prepare('PRAGMA user_version').get().user_version !== INDEX_VERSION) {
         db.exec(`
@@ -189,6 +216,7 @@ export function install(rt) {
         },
         before: db.prepare('SELECT text, session, seq, time, who FROM messages WHERE session = ? AND seq < ? ORDER BY seq DESC LIMIT ?'),
         from: db.prepare('SELECT text, session, seq, time, who FROM messages WHERE session = ? AND seq >= ? ORDER BY seq LIMIT ?'),
+        between: db.prepare('SELECT text, session, seq, time, who FROM messages WHERE session = ? AND seq >= ? AND seq <= ? ORDER BY seq LIMIT ?'),
       }
     } catch (error) {
       db.close()
@@ -221,7 +249,11 @@ export function install(rt) {
       if (index !== chatIndex) return
       let keep = mark ? mark.keep === 1 : false
       let turn = mark?.turn ?? -1
-      const seal = part.endedAt !== undefined && Date.now() - part.endedAt > SEAL_AFTER_MS && rt.isRetiring?.(part.sessionId) !== true
+      const seal = part.endedAt !== undefined
+        && !Number.isInteger(part.throughSeq)
+        && rt.isBotSession?.(part.sessionId) !== true
+        && Date.now() - part.endedAt > SEAL_AFTER_MS
+        && rt.isRetiring?.(part.sessionId) !== true
       index.db.exec('BEGIN')
       try {
         let last = through
@@ -279,8 +311,11 @@ export function install(rt) {
     const { index, parts, hidden } = await indexedParts(botId, askingId)
     if (index === null) return { lines: await scanOwnChat(botId, query, limit, askingId), every: true }
     const sessions = parts.map(part => part.sessionId)
+    const bounds = parts
+      .filter(part => Number.isInteger(part.throughSeq))
+      .map(part => ({ session: part.sessionId, throughSeq: part.throughSeq }))
     const run = (wanted, max) => {
-      const { sql, args } = termQuery(wanted, sessions, max, hidden)
+      const { sql, args } = termQuery(wanted, sessions, max, hidden, bounds)
       return index.db.prepare(sql).all(...args)
     }
     const byTime = (a, b) => (a.time - b.time) || (sessions.indexOf(a.session) - sessions.indexOf(b.session)) || (a.seq - b.seq)
@@ -328,7 +363,9 @@ export function install(rt) {
     if (index === null) return scanOwnChat(botId, '', limit, askingId)
     const rows = []
     for (const part of [...parts].reverse()) {
-      const below = hidden?.session === part.sessionId ? hidden.from : Number.MAX_SAFE_INTEGER
+      let below = hidden?.session === part.sessionId ? hidden.from : Number.MAX_SAFE_INTEGER
+      if (Number.isInteger(part.throughSeq)) below = Math.min(below, part.throughSeq + 1)
+      if (below <= 0) continue
       rows.push(...index.before.all(part.sessionId, below, limit - rows.length))
       if (rows.length >= limit) break
     }
@@ -345,7 +382,16 @@ export function install(rt) {
     const part = parts[number - 1]
     if (part === undefined) return { error: `Your own chat has no part ${number}.` }
     const seq = Number(found[2])
-    const rows = [...index.before.all(part.sessionId, seq, AROUND_LINES).reverse(), ...index.from.all(part.sessionId, seq, AROUND_LINES + 1)]
+    const maxSeq = Number.isInteger(part.throughSeq) ? part.throughSeq : undefined
+    if (maxSeq !== undefined && maxSeq < 0) return { part, exact: false, lines: [] }
+    const beforeLimit = maxSeq === undefined ? seq : Math.min(seq, maxSeq + 1)
+    const beforeRows = beforeLimit <= 0 ? [] : index.before.all(part.sessionId, beforeLimit, AROUND_LINES).reverse()
+    const fromRows = maxSeq === undefined
+      ? index.from.all(part.sessionId, seq, AROUND_LINES + 1)
+      : seq > maxSeq
+        ? []
+        : index.between.all(part.sessionId, seq, maxSeq, AROUND_LINES + 1)
+    const rows = [...beforeRows, ...fromRows]
     return { part, exact: rows.some(row => row.seq === seq), lines: rows.map(row => rowLine(parts, row, [], row.seq === seq ? ANCHOR_LINE_MAX : OWN_CHAT_LINE_MAX)) }
   }
 
@@ -359,7 +405,7 @@ export function install(rt) {
     let capped = false
     for (const part of [...parts].reverse()) {
       const read = {}
-      for await (const line of rt.partLines(part.sessionId, signal, { pages: HISTORY_SCAN_PAGES, read })) {
+      for await (const line of rt.partLines(part.sessionId, signal, { pages: HISTORY_SCAN_PAGES, read, throughSeq: part.throughSeq })) {
         if (wanted !== '' && !line.text.toLowerCase().includes(wanted)) continue
         lines.push(`[${parts.length > 1 ? `part ${part.number} · ` : ''}${rt.clock(line.time)}] ${excerpt(line.text, wanted)}`)
         if (lines.length >= limit) break

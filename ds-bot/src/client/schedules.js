@@ -21,13 +21,34 @@ export function useSchedules(actions) {
   useEffect(() => {
     listeners.add(setView)
     let stopped = false
+    let inFlight = false
     let timer
-    const load = () => actions.schedules?.()
-      .then((next) => { if (!stopped) publish(next) })
-      .catch(() => {})
-      .finally(() => { if (!stopped) timer = setTimeout(load, POLL_MS) })
+    const schedule = () => {
+      clearTimeout(timer)
+      if (stopped || (typeof document !== 'undefined' && document.hidden)) return
+      timer = setTimeout(load, POLL_MS)
+    }
+    const load = () => {
+      if (stopped || inFlight) return
+      if (typeof document !== 'undefined' && document.hidden) return
+      inFlight = true
+      Promise.resolve(actions.schedules?.())
+        .then((next) => { if (!stopped && next !== undefined) publish(next) })
+        .catch(() => {})
+        .finally(() => { inFlight = false; schedule() })
+    }
+    const onVisibility = () => {
+      if (document.hidden) clearTimeout(timer)
+      else if (!stopped) load()
+    }
+    if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisibility)
     load()
-    return () => { stopped = true; clearTimeout(timer); listeners.delete(setView) }
+    return () => {
+      stopped = true
+      clearTimeout(timer)
+      if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisibility)
+      listeners.delete(setView)
+    }
   }, [])
   return view
 }

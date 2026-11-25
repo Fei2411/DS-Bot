@@ -161,6 +161,7 @@ export function install(rt) {
     const key = await resolveKey()
     const deadline = new AbortController()
     const timer = timeoutMs === undefined ? undefined : setTimeout(() => deadline.abort(new Error('DeepSeek did not answer in time')), timeoutMs)
+    timer?.unref?.()
     const combined = AbortSignal.any([lifetime.signal, deadline.signal, ...(signal === undefined ? [] : [signal])])
     let response
     try {
@@ -181,18 +182,30 @@ export function install(rt) {
     // their own failure text.
     const read = async (maxBytes) => {
       const reader = response.body?.getReader?.()
-      if (reader === undefined) return new Uint8Array(await response.arrayBuffer())
-      const chunks = []
-      let size = 0
-      for (;;) {
-        const { done: ended, value } = await reader.read()
-        if (ended) break
-        size += value.byteLength
-        if (size > maxBytes) {
-          await reader.cancel().catch(() => {})
+      if (reader === undefined) {
+        const whole = new Uint8Array(await response.arrayBuffer())
+        if (whole.byteLength > maxBytes) {
           throw refused(`DeepSeek returned more data than expected (over ${Math.floor(maxBytes / 1024 / 1024)} MiB)`)
         }
-        chunks.push(value)
+        return whole
+      }
+      const chunks = []
+      let size = 0
+      try {
+        for (;;) {
+          const { done: ended, value } = await reader.read()
+          if (ended) break
+          size += value.byteLength
+          if (size > maxBytes) {
+            throw refused(`DeepSeek returned more data than expected (over ${Math.floor(maxBytes / 1024 / 1024)} MiB)`)
+          }
+          chunks.push(value)
+        }
+      } catch (error) {
+        await reader.cancel().catch(() => {})
+        throw error
+      } finally {
+        reader.releaseLock?.()
       }
       return concat(chunks)
     }

@@ -283,6 +283,8 @@ export function locatePrivate(rt, raw, groupError) {
   return { sessionId, botId }
 }
 
+const MAX_HISTORICAL_PARTS = 50
+
 export function install(rt) {
   const { ctx, state } = rt
   registerAnchor(ctx)
@@ -296,27 +298,76 @@ export function install(rt) {
   const partFile = (botId, partId) => join(cardsDir, botId, `${partId}.json`)
   const partKey = (botId, partId) => `${botId}/${partId}`
   const writes = () => rt.readOnly?.() === undefined
+  const writeKey = (botId, partId) => `${botId}:${partId}`
   /** @type {Map<string, Map<string, object[]>>} */
   const cards = new Map()
+  // Bounded LRU of cached non-current parts (`botId\0partId`) so paging old history does not grow RAM unboundedly.
+  const historicalParts = new Set()
   const reading = new Map()
+  const writingParts = new Map()
   let writing = Promise.resolve()
   let deleting = Promise.resolve()
 
+  const histKey = (botId, partId) => `${botId}\0${partId}`
+  const isCurrentPart = (botId, partId) => rt.chatOf?.(botId) === partId
+  const trackPart = (botId, partId) => {
+    if (cardsDir === undefined || dropped.has(botId)) return
+    const key = histKey(botId, partId)
+    if (isCurrentPart(botId, partId)) {
+      historicalParts.delete(key)
+      const byBot = cards.get(botId)
+      if (byBot !== undefined) {
+        for (const cachedPart of byBot.keys()) {
+          if (cachedPart !== partId) historicalParts.add(histKey(botId, cachedPart))
+        }
+      }
+    } else {
+      historicalParts.delete(key)
+      historicalParts.add(key)
+    }
+    if (historicalParts.size <= MAX_HISTORICAL_PARTS) return
+    for (const oldest of historicalParts) {
+      if (historicalParts.size <= MAX_HISTORICAL_PARTS) break
+      if (oldest === key) continue
+      const sep = oldest.indexOf('\0')
+      const bId = oldest.slice(0, sep)
+      const pId = oldest.slice(sep + 1)
+      if (isCurrentPart(bId, pId)) {
+        historicalParts.delete(oldest)
+        continue
+      }
+      if (reading.has(partKey(bId, pId)) || writingParts.has(writeKey(bId, pId))) continue
+      historicalParts.delete(oldest)
+      const byBot = cards.get(bId)
+      if (byBot !== undefined) {
+        byBot.delete(pId)
+        if (byBot.size === 0) cards.delete(bId)
+      }
+    }
+  }
+
   const listOf = (botId, partId) => cards.get(botId)?.get(partId) ?? []
 
-  const writePart = (botId, partId) => {
+  const writePart = (botId, partId, list) => {
+    const key = writeKey(botId, partId)
+    const snapshot = [...(list ?? cards.get(botId)?.get(partId) ?? [])]
+    writingParts.set(key, (writingParts.get(key) ?? 0) + 1)
     const run = writing.then(async () => {
       if (cardsDir === undefined || !writes() || dropped.has(botId) || rt.botOf(botId) === undefined) return
       const path = partFile(botId, partId)
       await mkdir(dirname(path), { recursive: true })
       const temp = `${path}.${process.pid}.tmp`
       try {
-        await writeFile(temp, JSON.stringify(cards.get(botId)?.get(partId) ?? [], null, 2), 'utf8')
+        await writeFile(temp, JSON.stringify(snapshot, null, 2), 'utf8')
         await replaceFile(temp, path)
       } catch (error) {
         await unlink(temp).catch(() => {})
         throw error
       }
+    }).finally(() => {
+      const remaining = (writingParts.get(key) ?? 0) - 1
+      if (remaining <= 0) writingParts.delete(key)
+      else writingParts.set(key, remaining)
     })
     writing = run.catch(() => {})
     return run
@@ -327,17 +378,22 @@ export function install(rt) {
   // with it, and the file is written again. A reading host keeps the cards as
   // they were saved.
   async function readPart(botId, partId) {
-    const byBot = cards.get(botId) ?? new Map()
-    cards.set(botId, byBot)
-    const held = byBot.get(partId)
-    if (held !== undefined) return held
+    const held = cards.get(botId)?.get(partId)
+    if (held !== undefined) {
+      trackPart(botId, partId)
+      return held
+    }
     const key = partKey(botId, partId)
     const pending = reading.get(key)
     if (pending !== undefined) return pending
     const job = (async () => {
       let list = []
       if (cardsDir === undefined) {
+        if (dropped.has(botId)) return list
+        let byBot = cards.get(botId)
+        if (byBot === undefined) { byBot = new Map(); cards.set(botId, byBot) }
         byBot.set(partId, list)
+        trackPart(botId, partId)
         return list
       }
       try {
@@ -349,6 +405,9 @@ export function install(rt) {
       } catch (error) {
         if (error?.code !== 'ENOENT') rt.warn('ds-bot: unreadable btw cards %s: %s', partFile(botId, partId), error?.code ?? error)
       }
+      if (dropped.has(botId)) return list
+      let byBot = cards.get(botId)
+      if (byBot === undefined) { byBot = new Map(); cards.set(botId, byBot) }
       if (writes()) {
         const now = Date.now()
         let touched = false
@@ -358,11 +417,13 @@ export function install(rt) {
           return { ...card, status: 'failed', error: card.error ?? RESTART_ERROR, finishedAt: card.finishedAt ?? now }
         })
         byBot.set(partId, list)
-        if (touched) await writePart(botId, partId).catch(error => rt.warn('ds-bot: btw cards of %s not saved: %s', botId, error))
+        if (touched) await writePart(botId, partId, list).catch(error => rt.warn('ds-bot: btw cards of %s not saved: %s', botId, error))
+        if (dropped.has(botId)) return list
       } else {
         byBot.set(partId, list)
       }
-      return byBot.get(partId)
+      trackPart(botId, partId)
+      return cards.get(botId)?.get(partId) ?? list
     })()
     reading.set(key, job)
     try {
@@ -417,16 +478,25 @@ export function install(rt) {
     const run = deleting.then(async () => {
       const { botId } = locatePrivate(rt, sessionId, "Side chat is only available in a Bot's private chat.")
       const list = await readPart(botId, sessionId)
+      if (dropped.has(botId)) return { deleted: false }
       const next = list.filter(card => card?.id !== cardId)
       if (next.length === list.length) return { deleted: false }
-      const byBot = cards.get(botId)
+      let byBot = cards.get(botId)
+      if (byBot === undefined) { byBot = new Map(); cards.set(botId, byBot) }
       byBot.set(sessionId, next)
       try {
-        await writePart(botId, sessionId)
+        await writePart(botId, sessionId, next)
       } catch (error) {
-        byBot.set(sessionId, list)
+        if (!dropped.has(botId)) {
+          let rollback = cards.get(botId)
+          if (rollback === undefined) { rollback = new Map(); cards.set(botId, rollback) }
+          rollback.set(sessionId, list)
+          trackPart(botId, sessionId)
+        }
         throw error
       }
+      if (dropped.has(botId)) return { deleted: false }
+      trackPart(botId, sessionId)
       await rt.save()
       return { deleted: true }
     })
@@ -438,12 +508,18 @@ export function install(rt) {
   async function btwDispose() {
     await deleting
     await writing
+    cards.clear()
+    historicalParts.clear()
+    reading.clear()
+    writingParts.clear()
   }
 
   // Clears the Bot's cards before the roster save.
   async function dropBot(botId) {
     dropped.add(botId)
     cards.delete(botId)
+    const histPrefix = `${botId}\0`
+    for (const key of historicalParts) if (key.startsWith(histPrefix)) historicalParts.delete(key)
     for (const key of reading.keys()) if (key.startsWith(`${botId}/`)) reading.delete(key)
     if (cardsDir !== undefined && writes()) await rm(join(cardsDir, botId), { recursive: true, force: true }).catch(error => rt.warn('ds-bot: btw cards of %s not removed: %s', botId, error))
   }
@@ -451,5 +527,5 @@ export function install(rt) {
   // Channel can be installed without the roster (the thinking route test).
   rt.onBotDelete?.(dropBot)
 
-  Object.assign(rt, { btwDelete, btwDispose, btwView, btwPartCards: readPart })
+  Object.assign(rt, { btwDelete, btwDispose, btwView, btwPartCards: readPart, btwCachedParts: () => [...cards.values()].reduce((sum, map) => sum + map.size, 0) })
 }

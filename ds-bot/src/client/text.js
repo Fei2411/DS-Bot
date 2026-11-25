@@ -463,9 +463,13 @@ export function commRunOf(order, peers, turn, hiddenTurns = []) {
   return { count, peerIds }
 }
 
+export function turnOutlineOf(list, id) {
+  return list.projectionsBySession?.[id]?.values?.turnOutline ?? list.byId[id]?.projectionValues?.turnOutline
+}
+
 // Latest visible line for a sidebar row; Bot-to-Bot exchange turns stay out of it.
 export function previewOf(list, id, hiddenTurns = []) {
-  const outline = list.projectionsBySession?.[id]?.values?.turnOutline ?? list.byId[id]?.projectionValues?.turnOutline
+  const outline = turnOutlineOf(list, id)
   if (!Array.isArray(outline)) return ''
   for (let index = outline.length - 1; index >= 0; index -= 1) {
     const entry = outline[index]

@@ -79,6 +79,7 @@ export function install(rt) {
   const readSegmentNote = (segmentOrId) => {
     if (segmentOrId === undefined || segmentOrId === null) return undefined
     if (typeof segmentOrId === 'object') {
+      if (Number.isInteger(segmentOrId.throughSeq)) return undefined
       if (typeof segmentOrId.note === 'string') return segmentOrId.note
       const sid = sessionIdOf(segmentOrId.sessionId)
       if (sid === undefined) return undefined
@@ -222,6 +223,11 @@ export function install(rt) {
   // Bumped each time the in-memory state is replaced from the file, so a queued
   // save cannot write a snapshot taken of the state it replaced.
   let lockEpoch = 0
+  const adoptListeners = new Set()
+  const onAdopted = (listener) => {
+    adoptListeners.add(listener)
+    return () => adoptListeners.delete(listener)
+  }
   const stamp = () => {
     try {
       const { mtimeMs, size } = statSync(statePath)
@@ -374,6 +380,14 @@ export function install(rt) {
       }
       if (sessionIdOf(room.id) === undefined) room.id = id
       if (!Array.isArray(room.members)) room.members = []
+    }
+    // Null maps and null entries are repaired above. Migrating before that
+    // threw on archives that previously still loaded.
+    for (const target of [...Object.values(state.bots), ...Object.values(state.rooms)]) {
+      if (!Object.hasOwn(target, 'autoApprove')) continue
+      if (target.autoApprove === true) target.permission = 'review'
+      delete target.autoApprove
+      migrated = true
     }
     // A Bot has one conversation at a time again: a team saved with parts opened while
     // the Bot was busy (#1548, withdrawn) keeps them as earlier parts of its chat, still
@@ -581,6 +595,9 @@ export function install(rt) {
     const stale = Object.values(state.rooms).filter(room => !room.named && room.name !== rt.autoRoomName(room.members))
     for (const room of stale) room.name = rt.autoRoomName(room.members)
     indexSessions()
+    for (const listener of adoptListeners) {
+      try { listener() } catch (error) { warn('ds-bot: adopted listener failed: %s', error) }
+    }
     return { migrated: migrated || stale.length > 0, stale, foldedOpenParts }
   }
 
@@ -588,6 +605,7 @@ export function install(rt) {
   const notifyStoreSync = () => {
     rt.onStoreSync?.()
     rt.syncDeepseekTools?.()
+    rt.onApiStoreSync?.()
     void rt.onPluginsStoreSync?.()
   }
   const syncReadOnly = () => {
@@ -640,7 +658,8 @@ export function install(rt) {
             const target = botOf(entry.botId) === undefined ? undefined : chatOf(entry.botId)
             const registry = ctx.workspaceRegistry
             if (typeof rt.moveSchedules !== 'function' || typeof registry?.archiveSession !== 'function') continue
-            if (target !== undefined && target !== sessionId) await rt.moveSchedules(sessionId, target)
+            const finishMove = target === undefined || target === sessionId ? undefined
+              : await rt.moveSchedules(sessionId, target, { stopActivity: true })
             if (stopped || readOnly() !== undefined || lockEpoch !== epoch) return
             try {
               await registry.archiveSession(sessionId, { stopActivity: true })
@@ -648,6 +667,7 @@ export function install(rt) {
               // Session already gone from DSH live registry and persistence: treat as retired.
               if (archiveError?.name !== 'WorkspaceUnknownSessionError') throw archiveError
             }
+            await finishMove?.()
           }
           dropEntry(entry, sessionId)
         } catch (error) {
@@ -744,6 +764,7 @@ export function install(rt) {
   const refresh = async () => {
     await load()
     const hadHolder = holder !== undefined
+    let synced = false
     if (hadHolder) {
       claimLock()
       if (holder === undefined) {
@@ -770,14 +791,18 @@ export function install(rt) {
         return
       }
       warn('ds-bot: %s', readOnly())
+      synced = true
     }
     if (adopting !== undefined) {
       await adopting
       notifyStoreSync()
       return
     }
-    if ((stuck !== undefined || holder !== undefined) && stamp() !== seen) adopt(readFileState())
-    notifyStoreSync()
+    if ((stuck !== undefined || holder !== undefined) && stamp() !== seen) {
+      adopt(readFileState())
+      synced = true
+    }
+    if (synced) notifyStoreSync()
   }
 
   const warnReadOnly = () => {
@@ -885,10 +910,16 @@ export function install(rt) {
     return job
   }
 
+  const teamWriteAccess = () => {
+    if (stopped || readOnly() !== undefined) return undefined
+    if (lockBroken) return 'unlocked'
+    return lock.owns() ? 'locked' : undefined
+  }
+
   ctx.effect(() => () => {
     stopped = true
     clearTimeout(waitingForSchedules)
-    return Promise.allSettled([writing, retiring, ...noteOps.values()]).finally(() => lock.release())
+    return Promise.allSettled([writing, retiring, rt.stopRetiringTasks?.(), ...noteOps.values()]).finally(() => lock.release())
   }, 'ds-bot: state lock')
 
   const botOf = id => (id === undefined ? undefined : own(state.bots, id))
@@ -1022,6 +1053,10 @@ export function install(rt) {
     for (const segId of segIds) {
       delete state.switching[segId]
       rt.renewMemory?.(segId)
+      rt.forgetSessionParts?.(segId)
+      rt.forgetSessionTurn?.(segId)
+      rt.forgetHeldSteps?.(segId)
+      rt.forgetSessionModel?.(segId)
     }
     const notesDeleted = segIds.length > 0 ? deleteSegmentNotes(segIds) : Promise.resolve()
     if (room.segments !== undefined) delete room.segments[botId]
@@ -1033,6 +1068,10 @@ export function install(rt) {
     groupOwners.delete(sessionId)
     rt.cancelApprovals?.(sessionId)
     rt.renewMemory?.(sessionId)
+    rt.forgetSessionParts?.(sessionId)
+    rt.forgetSessionTurn?.(sessionId)
+    rt.forgetHeldSteps?.(sessionId)
+    rt.forgetSessionModel?.(sessionId)
     // A plain archive refuses a running Session, which would go on working for a group
     // that no longer has it.
     void ctx.workspaceRegistry.archiveSession(sessionId, { stopActivity: true }).catch(() => {})
@@ -1082,8 +1121,9 @@ export function install(rt) {
   }
 
   Object.assign(rt, {
-    state, load, save, refresh, readOnly, hasLoaded, retireParts, isRetiring, syncReadOnly, own, onSaved, closeCard,
+    state, load, save, refresh, readOnly, hasLoaded, retireParts, isRetiring, syncReadOnly, own, onSaved, onAdopted, closeCard,
     readSegmentNote, writeSegmentNote, deleteSegmentNotes,
+    teamWriteAccess,
     botOf, roomOf, isMain, chatOf, sessionOfRoom, selfOf, isBotSession,
     chatOwners, taskOwners, groupOwners, roomOwners, pastOwners,
     groupSessionsOf, roomsOf, dropGroupSession, retireGroupSession, findBot, findRooms, isAdminOf,

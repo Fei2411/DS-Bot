@@ -137,6 +137,7 @@ test('remote state and live polls never disclose pairing offers, including attac
     const before = (await link.client.rpc('bot', { endpoint: 'state', payload: {} })).value
     const opened = (await desk.call('phone-pair', {})).value.pairing
     const desktop = (await desk.call('state', {})).value
+    assert.ok(Object.hasOwn(desktop, 'api'))
     assert.deepEqual(desktop.phone.pairing, opened)
     for (const uri of [opened.uri, opened.browserUri]) assert.ok(parsePairingUri(uri).code)
     const answers = [
@@ -151,6 +152,7 @@ test('remote state and live polls never disclose pairing offers, including attac
     for (const answer of answers) {
       assert.equal(answer.ok, true)
       const view = answer.state ?? answer.value
+      assert.equal(Object.hasOwn(view, 'api'), false)
       assert.ok(view.phone)
       assert.equal(Object.hasOwn(view.phone, 'pairing'), false)
       for (const uri of [opened.uri, opened.browserUri]) {
@@ -197,6 +199,8 @@ test('the host enforces a default-deny browser allowlist across every channel ro
   assert.deepEqual(remoteAccessError(undefined, 'connector-add'), { code: 'bot/refused', message: 'This device is not paired', details: {} })
   assert.deepEqual(remoteAccessError({ deviceId: 'x', kind: 'unknown' }, 'connector-add'), { code: 'bot/refused', message: 'Not available from a browser. Use the phone app or the computer.', details: {} })
   assert.deepEqual(remoteAccessError({ deviceId: 'x', kind: 'phone' }, 'phone-pair'), { code: 'bot/refused', message: 'Phones are paired and removed on the computer', details: {} })
+  assert.deepEqual(remoteAccessError({ deviceId: 'x', kind: 'phone' }, 'api-set'), { code: 'bot/refused', message: 'External API settings and tokens are managed on the computer', details: {} })
+  assert.deepEqual(remoteAccessError({ deviceId: 'x', kind: 'browser' }, 'api-token-create'), { code: 'bot/refused', message: 'External API settings and tokens are managed on the computer', details: {} })
   assert.equal(remoteAccessError({ deviceId: 'x', kind: 'phone' }, 'connector-add'), undefined)
 
   const home = mkdtempSync(join(tmpdir(), 'dsb-gated-'))
@@ -209,7 +213,7 @@ test('the host enforces a default-deny browser allowlist across every channel ro
   await rt.phoneEndpoint('phone-set', { server: server.url, on: true })
   await until(async () => rt.phoneView(), view => view.status === 'online')
 
-  const deniedEndpoints = [...allHostRoutes].filter(endpoint => !endpoint.startsWith('phone-') && !BROWSER_ALLOWED.has(endpoint))
+  const deniedEndpoints = [...allHostRoutes].filter(endpoint => !endpoint.startsWith('phone-') && !endpoint.startsWith('api-') && !BROWSER_ALLOWED.has(endpoint))
   deniedEndpoints.push('future-unlisted-endpoint')
   for (const kind of ['browser', 'phone']) {
     const view = await rt.phoneEndpoint('phone-pair', {})
@@ -220,7 +224,6 @@ test('the host enforces a default-deny browser allowlist across every channel ro
       const payload = endpoint === 'connector-add' ? { name: 'pwn', command: 'id', args: [] } : {}
       const answer = await link.client.rpc('bot', { endpoint, payload })
       if (kind === 'browser') assert.deepEqual(answer, { ok: false, error: { code: 'bot/refused', message: 'Not available from a browser. Use the phone app or the computer.', details: {} } }, endpoint)
-      else if (endpoint.startsWith('mcp-')) assert.deepEqual(answer, { ok: false, error: { code: 'bot/refused', message: 'MCP access is set up on the computer', details: {} } }, endpoint)
       else assert.deepEqual(answer, { ok: true, value: endpoint }, endpoint)
     }
     // DSH Agent chats are phone-only, and so is their media.

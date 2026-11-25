@@ -270,6 +270,9 @@ export function install(rt) {
     const key = pairKey(fromId, toId)
     const map = pairLoops()
     const now = Date.now()
+    for (const [entryKey, item] of Object.entries(map)) {
+      if (entryKey !== key && now - (item?.lastAt ?? 0) > PAIR_LOOP_TTL_MS) delete map[entryKey]
+    }
     const prev = own(map, key)
     const fresh = prev !== undefined && now - (prev.lastAt ?? 0) <= PAIR_LOOP_TTL_MS
     const entry = fresh ? prev : { idleBounces: 0, reworkBounces: 0, lastAt: 0 }
@@ -916,6 +919,7 @@ export function install(rt) {
       if (gone) abandonWork(id, 'gone')
     }
   }
+  const offAdopted = rt.onAdopted?.(() => whole.clear())
   // A host without a context (the narrow tests) has no startup to reconcile. The sweep
   // waits a tick: the team file loads through every module's own setup, and this module
   // is installed before the ones that load it.
@@ -929,7 +933,11 @@ export function install(rt) {
         })
         .catch(error => rt.warn('ds-bot: lost waits not settled: %s', error))
     }, 0)
-    return () => clearTimeout(timer)
+    return () => {
+      clearTimeout(timer)
+      offAdopted?.()
+      whole.clear()
+    }
   }, 'ds-bot: lost hand-offs')
 
   // A deleted Bot answers no more work and waits for none.

@@ -9,6 +9,7 @@ import { chatOfSession } from './draft-keep.js'
 export function teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded, questionDrafts }) {
   // A memory is a Bot's or a group chat's; both are opened by id.
   const memoryOf = id => (roster.getSnapshot().roomsById[id] ? { roomId: id } : { botId: id })
+  const subjectOf = (snap, id) => snap.byId?.[id]?.id ?? snap.roomsById?.[id]?.id ?? id
   // Cards of long pastes, numbered as they come; each waits for the shell's attachment.
   let pastes = 0
   const pasteState = (state, sessionId, blocks) => ({ ...state, paste: { ...state.paste, [sessionId]: blocks } })
@@ -23,6 +24,19 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
   }
   // `id` opens one Bot (page 'bots') or one group chat (page 'groups').
   const openSettings = (page = 'general', id = null) => { ui.set(state => ({ ...state, settings: { page, id }, menu: null, palette: null, newChat: null })) }
+  const MAX_TURN_CLOCK_SESSIONS = 40
+  const turnClockOrder = new Set()
+  const setTurnClock = (state, sessionId, turns) => {
+    turnClockOrder.delete(sessionId)
+    turnClockOrder.add(sessionId)
+    const next = { ...state, [sessionId]: turns }
+    while (turnClockOrder.size > MAX_TURN_CLOCK_SESSIONS) {
+      const oldest = turnClockOrder.values().next().value
+      turnClockOrder.delete(oldest)
+      delete next[oldest]
+    }
+    return next
+  }
   return {
     // The pane starts at the rail's edge, so a floating drawer would stick out from under it.
     openNewChat: (mode, sectionId = null) => { ui.set(state => ({ ...state, newChat: mode, newChatSection: sectionId ?? null, menu: null, palette: null, leftDrawer: false })) },
@@ -37,7 +51,9 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     closeVoice: () => { ui.set(state => (state.voice ? { ...state, voice: null } : state)) },
     toggleDetails: (id, force) => {
       ui.set((state) => {
-        const details = force || state.details !== id || state.view !== 'details' ? id : null
+        const snap = roster.getSnapshot()
+        const sameSubject = state.details !== null && subjectOf(snap, state.details) === subjectOf(snap, id)
+        const details = force || !sameSubject || state.view !== 'details' ? id : null
         // A folded panel is open but not shown: its opener then means "show it"
         // (the column yields it room), not "close it".
         if (details === null && panelFolded?.('details') === true) return { ...state, renaming: false, tab: null, details: id, view: 'details', panelYield: true }
@@ -46,11 +62,13 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     },
     // The open panel follows the main view; a subject with no browser (a group
     // chat, an outside Session) settles on the details view. So does one that
-    // does not own the open side chat.
+    // does not own the open side chat. Moving between parts of the same Bot or
+    // group keeps the panel's current view, settings/rename state, and tab intact.
     followPanel: (id) => {
       ui.set((state) => {
         if (!state.details || state.details === id) return state
         const snap = roster.getSnapshot()
+        if (subjectOf(snap, state.details) === subjectOf(snap, id)) return { ...state, details: id }
         const view = state.view === 'browser' && snap.byId[id] === undefined ? 'details'
           : state.view === 'side' && !(snap.sideChats?.[snap.byId[id]?.id] ?? []).some(chat => chat?.id === state.side) ? 'details'
             : state.view === 'task' ? 'details'
@@ -95,6 +113,14 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     stopTask: (botId, taskId) => after(call('bot-stop-task', { botId, taskId })),
     sendTask: (botId, taskId, text) => after(call('bot-task-send', { botId, taskId, text })),
     readTask: (botId, taskId, cursor, steps = false) => call('bot-task-read', { botId, taskId, ...(cursor ? { cursor } : {}), ...(steps ? { steps: true } : {}) }),
+    moveToBackground: (botId, sessionId, expectedTurn) => after(call('bot-move-to-background', {
+      botId,
+      ...(sessionId ? { sessionId } : {}),
+      ...(typeof expectedTurn === 'number' ? { expectedTurn } : {}),
+      operationId: typeof globalThis.crypto?.randomUUID === 'function'
+        ? globalThis.crypto.randomUUID()
+        : `bg-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    })),
     // A side chat on the panel's own view, opened from the strip, the `···`
     // menus or `/side`. Closing the panel keeps the chats; only a tab's × deletes.
     openSideChat,
@@ -308,11 +334,12 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     phonePair: () => after(call('phone-pair')),
     phonePairCancel: () => after(call('phone-pair-cancel')),
     phoneRemove: id => after(call('phone-remove', { id })),
-    // The answer to mcp-client-add carries the new token once; nothing else does.
-    mcpSet: settings => after(call('mcp-set', settings)),
-    mcpClientAdd: client => after(call('mcp-client-add', client)),
-    mcpClientUpdate: (id, patch) => after(call('mcp-client-update', { id, ...patch })),
-    mcpClientRemove: id => after(call('mcp-client-remove', { id })),
+    apiSet: settings => after(call('api-set', settings)),
+    apiTokenCreate: payload => after(call('api-token-create', payload)),
+    apiTokenUpdate: (keyId, patch) => after(call('api-token-update', { keyId, ...patch })),
+    apiTokenRevoke: keyId => after(call('api-token-revoke', { keyId })),
+    apiAudit: (options = {}) => after(call('api-audit', options)),
+    apiAuditClear: () => call('api-audit-clear', {}),
     imAdd: payload => after(call('im-add', payload)),
     imUpdate: (id, patch) => after(call('im-update', { id, ...patch })),
     imRemove: id => after(call('im-remove', { id })),
@@ -383,7 +410,7 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
         const entry = turns[turn] ?? {}
         const next = key === 'first' && entry.first !== undefined ? Math.min(entry.first, time) : time
         if (entry[key] === next) return state
-        return { ...state, [sessionId]: { ...turns, [turn]: { ...entry, [key]: next } } }
+        return setTurnClock(state, sessionId, { ...turns, [turn]: { ...entry, [key]: next } })
       })
     },
     noteTurnPeer: (sessionId, turn, peerId) => {
@@ -392,7 +419,7 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
         const turns = state[sessionId] ?? {}
         const entry = turns[turn] ?? {}
         if (entry.peer === peerId) return state
-        return { ...state, [sessionId]: { ...turns, [turn]: { ...entry, peer: peerId } } }
+        return setTurnClock(state, sessionId, { ...turns, [turn]: { ...entry, peer: peerId } })
       })
     },
     noteLive: (sessionId, id, entry) => {

@@ -494,12 +494,13 @@ export function installReview(rt, memory) {
     reviewQueue.set(seen.key, seen)
     reviewChain = reviewChain.then(async () => {
       const waited = reviewQueue.get(seen.key)
+      if (waited === undefined) return
       reviewQueue.delete(seen.key)
       reviewsRunning += 1
       try {
         if (!stopped && rt.readOnly() === undefined) await (waited.roomId === undefined ? reviewChat(waited) : reviewGroup(waited))
       } catch (error) {
-        rt.warn('ds-bot: memory review of %s failed: %s', waited.key, error?.message ?? error)
+        rt.warn('ds-bot: memory review of %s failed: %s', waited?.key ?? seen.key, error?.message ?? error)
         const failedAt = error !== null && typeof error === 'object' ? failureThrough.get(error) : undefined
         const fallbackAt = waited.roomId !== undefined ? rt.roomOf(waited.roomId)?.seq : undefined
         noteFailure(waited.key, failedAt ?? fallbackAt, waited)
@@ -509,14 +510,45 @@ export function installReview(rt, memory) {
     })
   }
 
+  // What each running turn gave when it began: a member removed from its group
+  // mid-turn leaves a Session that no longer has one when it ends.
+  /** @type {Map<string, ReturnType<typeof reviewOf>>} */
+  const turnOwners = new Map()
+
+  const dropReviewKeys = (keys, sessionIds) => {
+    for (const id of sessionIds) {
+      turnOwners.delete(id)
+      activeSessions.delete(id)
+    }
+    let changed = false
+    const map = cursorsNow()
+    for (const key of keys) {
+      clearReviewTimer(key)
+      clearFailure(key)
+      overflowed.delete(key)
+      reviewQueue.delete(key)
+      if (Object.hasOwn(map, key)) {
+        delete map[key]
+        changed = true
+      }
+    }
+    if (changed && rt.readOnly() === undefined) {
+      void writeText(cursorsPath, JSON.stringify(cursors)).catch(() => {})
+    }
+  }
+  const forgetBotReview = (sessionIds = []) => {
+    const ids = [...new Set(sessionIds.filter(Boolean))]
+    dropReviewKeys(ids.map(id => `chat:${id}`), ids)
+  }
+  const forgetGroupReview = (roomId, sessionIds = []) => {
+    const ids = [...new Set(sessionIds.filter(Boolean))]
+    dropReviewKeys(roomId === undefined ? [] : [`group:${roomId}`], ids)
+  }
+
   if (reviewOn) {
     const delay = config.memoryReviewDelayMs ?? REVIEW_DELAY_MS
     const groupWaitBase = config.memoryReviewGroupWaitMs ?? Math.max(delay, 50)
     const catchupDelay = config.memoryReviewCatchupDelayMs ?? REVIEW_CATCHUP_DELAY_MS
-    // What each running turn gave when it began: a member removed from its group
-    // mid-turn leaves a Session that no longer has one when it ends.
-    /** @type {Map<string, ReturnType<typeof reviewOf>>} */
-    const turnOwners = new Map()
     function scheduleReview(seen, waitMs = delay, waitTries = 0) {
       const prior = reviewTimers.get(seen.key)
       let merged = seen
@@ -571,6 +603,12 @@ export function installReview(rt, memory) {
       if (seen.roomId !== undefined && groupMembersActive(seen.roomId)) return
       scheduleReview(seen, delay)
     })
+    ctx.on?.('agent/disposed', ({ agent }) => {
+      const id = agent?.id
+      if (id === undefined) return
+      activeSessions.delete(id)
+      turnOwners.delete(id)
+    })
     // Catch up any current chats, recently switched segments with prior cursors, or
     // active groups that hold unreviewed lines after a restart or aborted debounce.
     async function catchUp() {
@@ -619,10 +657,13 @@ export function installReview(rt, memory) {
       reviewTimers.clear()
       for (const timer of retryTimers.values()) clearTimeout(timer)
       retryTimers.clear()
+      reviewFailures.clear()
       activeSessions.clear()
       turnOwners.clear()
+      overflowed.clear()
+      reviewQueue.clear()
     }, 'ds-bot: memory review')
   }
 
-  return { memoryReviews }
+  return { memoryReviews, forgetBotReview, forgetGroupReview }
 }

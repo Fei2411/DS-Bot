@@ -28,7 +28,7 @@ runInNewContext(bundle.outputFiles[0].text, {
   },
   queueMicrotask,
 })
-const { Bubbles, ChatRows, ThinkingRow, syncGroupChains, claimLines, GroupMessage, TriggerCell } = module.exports
+const { Bubbles, ChatRows, ThinkingRow, syncGroupChains, claimLines, GroupMessage, TriggerCell, earlierClosedKey, mergeEarlierPage, earlierItems } = module.exports
 
 const roster = { byId: { b: { id: 'b', name: 'Writer' } }, roomsById: {} }
 const MINUTE = 60_000
@@ -193,4 +193,62 @@ test('a marked final reply stacks onto earlier progress and keeps later messages
   assert.deepEqual(stacked[0].claims, claims)
   assert.deepEqual(stacked[1].texts, ['Follow-up'])
   assert.equal(stacked[1].claims, undefined)
+})
+
+test('consecutive part dividers collapse into one keeping the latest timestamp', () => {
+  const items = [
+    { kind: 'user', text: 'switch model', time: MINUTE },
+    { kind: 'divider', time: 2 * MINUTE },
+    { kind: 'divider', time: 3 * MINUTE },
+    { kind: 'bot', text: 'ready', time: 4 * MINUTE },
+  ]
+  const rows = [...ChatRows({ items, sessionId: 'b', roster, actions: {} })]
+  assert.deepEqual(shape(rows), ['EarlierUser', 'PartLine', 'bot:ready'])
+  assert.equal(rows[1].props.time, 3 * MINUTE)
+})
+
+test('earlierItems drops trailing dividers, drops leading dividers only when fully loaded, and reports empty history', () => {
+  // All-empty earlier parts carry no content and suppress the trailing PartLine.
+  const empty = earlierItems([{ partIndex: 0, items: [{ kind: 'divider', time: MINUTE }], btw: [] }], { cursor: null, loading: false })
+  assert.equal(empty.hasContent, false)
+  assert.equal(empty.items.length, 0)
+
+  // A leading divider stays while older pages still exist or are loading, then drops once done.
+  const paged = [{ partIndex: 1, items: [{ kind: 'divider', time: 2 * MINUTE }, { kind: 'user', text: 'hi', time: 3 * MINUTE }], btw: [] }]
+  const withMore = earlierItems(paged, { cursor: { part: 0 }, loading: false })
+  assert.equal(withMore.hasContent, true)
+  assert.deepEqual([...withMore.items].map(item => item.kind), ['divider', 'user'])
+  const whileLoading = earlierItems(paged, { cursor: null, loading: true })
+  assert.deepEqual([...whileLoading.items].map(item => item.kind), ['divider', 'user'])
+  const allLoaded = earlierItems(paged, { cursor: null, loading: false })
+  assert.deepEqual([...allLoaded.items].map(item => item.kind), ['user'])
+
+  // Deleting the last btw card on an otherwise empty earlier part drops its orphaned trailing divider.
+  const afterBtwDelete = earlierItems([
+    { partIndex: 0, items: [{ kind: 'user', text: 'earlier', time: MINUTE }], btw: [] },
+    { partIndex: 1, items: [{ kind: 'divider', time: 2 * MINUTE }], btw: [] },
+  ], { cursor: null, loading: false })
+  assert.equal(afterBtwDelete.hasContent, true)
+  assert.deepEqual([...afterBtwDelete.items].map(item => item.kind), ['user'])
+})
+
+test('mergeEarlierPage merges multi-page responses under page.partIndex after skipping an empty part', () => {
+  // Part 2 was empty and skipped by the host, so page 1 of part 1 arrives with partIndex: 1 even though fallback was 2.
+  const p1 = mergeEarlierPage([], { partIndex: 1, items: [{ kind: 'bot', text: 'later', time: 2 * MINUTE }], btw: [] }, 2)
+  const p2 = mergeEarlierPage(p1, { partIndex: 1, items: [{ kind: 'user', text: 'earlier', time: MINUTE }], btw: [] }, 1)
+  assert.equal(p2.length, 1)
+  assert.equal(p2[0].partIndex, 1)
+  assert.deepEqual([...p2[0].items].map(item => item.text), ['earlier', 'later'])
+})
+
+test('earlierClosedKey stays stable when newer parts without closed cards append to bot.parts', () => {
+  const closed = { p1: { c1: true } }
+  const k1 = earlierClosedKey(['p1', 'p2'], 'p2', closed)
+  const k2 = earlierClosedKey(['p1', 'p2', 'p3'], 'p2', closed)
+  assert.equal(k1, k2)
+  const k3 = earlierClosedKey(['p1', 'p2', 'p3'], 'p3', closed)
+  assert.equal(k1, k3)
+  // A closed card added to an earlier part still invalidates the key.
+  const k4 = earlierClosedKey(['p1', 'p2', 'p3'], 'p3', { ...closed, p2: { c2: true } })
+  assert.notEqual(k3, k4)
 })

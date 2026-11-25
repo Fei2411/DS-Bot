@@ -727,10 +727,18 @@ export function install(rt) {
     return () => {
       stopped = true
       clearInterval(timer)
+      started.clear()
+      noted.clear()
       // A new host may take over after disposal; finish only writes already queued.
       return writing
     }
   }, 'ds-bot: learning')
+  ctx.on?.('agent/disposed', ({ agent }) => {
+    const id = agent?.id
+    if (id === undefined) return
+    started.delete(id)
+    noted.delete(id)
+  })
 
   // The user's answer to a card. Serialized per proposal id so double-clicks or
   // concurrent windows cannot run applySkill / applyAgents twice for the same proposal.
@@ -854,35 +862,36 @@ export function install(rt) {
     await persist()
   }
 
-  // Per Bot, its proposals waiting for the user.
-  const learningView = () => {
-    const byBot = {}
-    for (const entry of Object.values(data().proposals)) {
-      if (rt.botOf(entry.botId) !== undefined) (byBot[entry.botId] ??= []).push(entry)
-    }
-    return byBot
-  }
-  // Per Bot, the answered proposals of its current chat part.
-  const learningSettledView = () => {
-    const byBot = {}
-    for (const entry of Object.values(data().settled)) {
-      if (rt.botOf(entry.botId) !== undefined && entry.sessionId === rt.chatOf(entry.botId)) (byBot[entry.botId] ??= []).push(entry)
-    }
-    return byBot
-  }
-
   async function dropBot(botId) {
+    const bot = rt.botOf(botId)
+    const sessions = new Set([
+      botId,
+      rt.chatOf?.(botId),
+      ...(bot?.segments ?? []).map(segment => segment?.sessionId),
+      ...(bot?.tasks ?? []).flatMap(task => [task?.sessionId, ...(task?.segments ?? []).map(segment => segment?.sessionId)]),
+    ].filter(Boolean))
+    for (const sessionId of sessions) {
+      started.delete(sessionId)
+      noted.delete(sessionId)
+    }
     if (stuck !== undefined) return
     const store = data()
     if (stuck !== undefined) return
     let changed = false
     if (Object.hasOwn(store.pending, botId)) {
+      for (const sessionId of store.pending[botId] ?? []) sessions.add(sessionId)
       delete store.pending[botId]
       changed = true
     }
     if (Object.hasOwn(store.learned, botId)) {
       delete store.learned[botId]
       changed = true
+    }
+    for (const sessionId of sessions) {
+      if (Object.hasOwn(store.cursors, sessionId)) {
+        delete store.cursors[sessionId]
+        changed = true
+      }
     }
     for (const [id, entry] of Object.entries(store.proposals)) {
       if (entry?.botId === botId) {
@@ -899,6 +908,23 @@ export function install(rt) {
     if (changed) await persist()
   }
   rt.onBotDelete?.(dropBot)
+
+  // Per Bot, its proposals waiting for the user.
+  const learningView = () => {
+    const byBot = {}
+    for (const entry of Object.values(data().proposals)) {
+      if (rt.botOf(entry.botId) !== undefined) (byBot[entry.botId] ??= []).push(entry)
+    }
+    return byBot
+  }
+  // Per Bot, the answered proposals of its current chat part.
+  const learningSettledView = () => {
+    const byBot = {}
+    for (const entry of Object.values(data().settled)) {
+      if (rt.botOf(entry.botId) !== undefined && entry.sessionId === rt.chatOf(entry.botId)) (byBot[entry.botId] ??= []).push(entry)
+    }
+    return byBot
+  }
 
   const capabilityDelete = rt.capabilityDelete
   rt.capabilityDelete = async (...args) => {

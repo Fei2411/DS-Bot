@@ -25,6 +25,7 @@ export function createComputerIndicator({ BrowserWindow, screen, html, ipcMain, 
   })
   let entries = []
   let labels = {}
+  let lastSignature = null
   // Fit the transparent window to the pill: only the pill is painted, so the
   // window shrinks to its width and stays centered on the primary work area.
   const fit = async () => {
@@ -60,13 +61,16 @@ export function createComputerIndicator({ BrowserWindow, screen, html, ipcMain, 
     try { win.setContentProtection(true) } catch (error) { log.warn(`DS Bot: the indicator could not hide from screenshots: ${error instanceof Error ? error.message : String(error)}`) }
     try { win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true }) } catch (error) { log.warn(`DS Bot: the indicator could not join every workspace: ${error instanceof Error ? error.message : String(error)}`) }
     win.once('ready-to-show', () => { win?.showInactive() })
-    win.on('closed', () => { win = null })
+    win.on('closed', () => { win = null; lastSignature = null })
     const page = html(entries, labels)
+    const openingSignature = lastSignature
     win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(page)}`).then(fit).catch((error) => {
+      if (lastSignature === openingSignature) lastSignature = null
       log.warn(`DS Bot: the indicator did not load: ${error instanceof Error ? error.message : String(error)}`)
     })
   }
   const close = () => {
+    lastSignature = null
     if (win === null) return
     const closing = win
     win = null
@@ -78,8 +82,21 @@ export function createComputerIndicator({ BrowserWindow, screen, html, ipcMain, 
       entries = (Array.isArray(next?.rows) ? next.rows : []).map(sanitizeEntry)
       labels = next?.labels ?? {}
       if (entries.length === 0) { close(); return }
+      const signature = JSON.stringify({ entries, labels })
+      if (win !== null && signature === lastSignature) return
+      lastSignature = signature
       if (win === null) { open(); return }
-      try { win.webContents?.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html(entries, labels))}`).then(fit) } catch (error) { log.warn(`DS Bot: the indicator did not update: ${error instanceof Error ? error.message : String(error)}`) }
+      try {
+        Promise.resolve(win.webContents?.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html(entries, labels))}`))
+          .then(fit)
+          .catch((error) => {
+            if (lastSignature === signature) lastSignature = null
+            log.warn(`DS Bot: the indicator did not update: ${error instanceof Error ? error.message : String(error)}`)
+          })
+      } catch (error) {
+        if (lastSignature === signature) lastSignature = null
+        log.warn(`DS Bot: the indicator did not update: ${error instanceof Error ? error.message : String(error)}`)
+      }
     },
     dispose() {
       entries = []

@@ -490,6 +490,8 @@ export function install(rt) {
 
   function dropGroupLines(roomId) {
     backfilled.delete(roomId)
+    laterPosts.delete(roomId)
+    stoppedFinishing.delete(roomId)
     for (const [key, batch] of Object.entries(batches())) {
       if (batch.roomId !== roomId) continue
       wakingBatches.delete(key)
@@ -640,21 +642,8 @@ export function install(rt) {
     if (room !== undefined) ensureRoomLog(room)
     let end = to
     if (end === undefined) {
-      const records = rt.ledger.records(bookOf(roomId))
-      let at = anchor === undefined ? -1 : rt.ledger.anchorAt(bookOf(roomId), anchor)
-      // A window that only reads opens the book again on each call: a rewrite by the writing
-      // host in between moves the anchor, so the index must point at it in these records.
-      if (at !== -1 && (records[at]?.event !== 'anchor' || records[at].id !== anchor)) at = records.findIndex(record => record.event === 'anchor' && record.id === anchor)
-      let next = []
-      if (at === -1) next = records.filter(record => record.event === 'anchor' && record.from > from).map(record => record.from)
-      else {
-        for (let i = at + 1; i < records.length; i += 1) {
-          if (records[i].event !== 'anchor') continue
-          if (records[i].from !== undefined) next = [records[i].from]
-          break
-        }
-      }
-      if (next.length > 0) end = Math.min(...next) - 1
+      const nextFrom = rt.ledger.nextAnchor(bookOf(roomId), from, anchor)
+      if (nextFrom !== undefined) end = nextFrom - 1
     }
     // Not the messages the group's own Session shows itself.
     const rows = rt.ledger.range(bookOf(roomId), from, end).filter(record => record.session !== true).map(rowOf).filter(Boolean)
@@ -1360,9 +1349,11 @@ export function install(rt) {
     const done = new Promise((resolve) => {
       let timer
       let grace
+      const onAbort = () => finish(null)
       const finish = (value) => {
         clearTimeout(timer)
         clearTimeout(grace)
+        signal.removeEventListener('abort', onAbort)
         rt.roomWaiters.delete(exchangeId)
         if (value?.missed === true) rememberMissedExchange(exchangeId)
         resolve(value)
@@ -1391,7 +1382,7 @@ export function install(rt) {
         touch, work, say,
         approval: () => finish({ approval: true }),
       })
-      signal.addEventListener('abort', () => finish(null), { once: true })
+      signal.addEventListener('abort', onAbort, { once: true })
     })
     try {
       await rt.deliver({ fromId: undefined, toId: member.id, sessionId, role: 'room', roomId: room.id, exchangeId, note, text, images, files, steer: busy, ...(by ? { askedBy: by } : {}), ...(slot.resultRef ? { resultRef: slot.resultRef } : {}) })
@@ -1706,11 +1697,18 @@ export function install(rt) {
     return roomNote()
   }
 
+  // A later request can call the same member again once its earlier call is no
+  // longer pending. Zero-work Bot-to-Bot relays still pause on a graph cycle, after
+  // ROOM_IDLE_RELAY_LIMIT ack/status posts, or after ROOM_ZERO_WORK_RELAY_LIMIT
+  // consecutive 0-work Bot-to-Bot turns regardless of wording.
   function callFrom(room, round, member, text, route, called, { worked = false, byBot = false, callerId, idleTurn } = {}) {
     if (route.kind !== 'request') return
     const everyone = room.members.map(rt.botOf).filter(Boolean)
     const named = addressedMembers(route, everyone, member.id)
-    const callees = named.filter(peer => !called.has(peer.id))
+    const callees = named.filter(peer => !called.has(peer.id) || (
+      batchOf(room.id, peer.id, member.id) === undefined
+      && !room.paused?.some(entry => entry.id === peer.id && entry.by === member.id)
+    ))
     let idleStep = false
     let zeroWorkCycle = false
     let zeroWorkLimit = false
@@ -1737,15 +1735,16 @@ export function install(rt) {
         delete room.idleRelays
       }
       // Directed zero-work cycle detection:
-      // - Repeating a zero-work edge (e.g. A -> B -> A -> B) pauses immediately.
+      // - Repeating a zero-work edge in a later turn (e.g. A -> B -> A -> B) pauses immediately.
       // - Closing an N-Bot ring (e.g. A -> B -> C -> A where peer !== direct caller)
       //   pauses immediately.
       // - Legitimate fan-out (User -> Admin -> @B @C -> Admin) and sequential chains
       //   (User -> Admin -> @B -> @Admin -> @C -> @Admin) never repeat an edge and
       //   never trigger a false pause.
-      zeroWorkCycle = callees.some(peer =>
+      zeroWorkCycle = callees.some(peer => !called.has(peer.id) && (
         priorEdges.has(`${member.id}->${peer.id}`)
-        || (peer.id !== callerId && canReachIdleEdge(peer.id, member.id, priorEdges)))
+        || (peer.id !== callerId && canReachIdleEdge(peer.id, member.id, priorEdges))
+      ))
       for (const peer of callees) noteIdleEdge(room, member.id, peer.id)
       zeroWorkLimit = callees.length > 0 && (room.zeroWorkRelays ?? 0) >= ROOM_ZERO_WORK_RELAY_LIMIT
     } else {
@@ -1812,26 +1811,31 @@ export function install(rt) {
     let due = true
     let wake = () => {}
     round.nudge = () => { due = true; wake() }
-    signal.addEventListener('abort', round.nudge, { once: true })
-    while (!signal.aborted) {
-      if (!due) await new Promise((resolve) => { wake = resolve })
-      due = false
-      if (signal.aborted) break
-      drainRoomInbox(room, round, agent)
-      for (const slot of round.slots) {
-        if (!startable(round, slot)) continue
-        const turn = memberTurn(room, round, slot, signal)
-          .catch(error => rt.warn('ds-bot: group turn of %s in %s failed: %s', slot.name, room.name, error))
-          .finally(() => { turns.delete(turn); round.nudge() })
-        turns.add(turn)
+    const onAbort = () => round.nudge?.()
+    signal.addEventListener('abort', onAbort, { once: true })
+    try {
+      while (!signal.aborted) {
+        if (!due) await new Promise((resolve) => { wake = resolve })
+        due = false
+        if (signal.aborted) break
+        drainRoomInbox(room, round, agent)
+        for (const slot of round.slots) {
+          if (!startable(round, slot)) continue
+          const turn = memberTurn(room, round, slot, signal)
+            .catch(error => rt.warn('ds-bot: group turn of %s in %s failed: %s', slot.name, room.name, error))
+            .finally(() => { turns.delete(turn); round.nudge() })
+          turns.add(turn)
+        }
+        // The greeting round leaves the user's messages for a round of their own.
+        if (turns.size === 0 && !round.slots.some(slot => slot.status === 'waiting') && (round.kickoff || waitingLines(agent).length === 0)) break
       }
-      // The greeting round leaves the user's messages for a round of their own.
-      if (turns.size === 0 && !round.slots.some(slot => slot.status === 'waiting') && (round.kickoff || waitingLines(agent).length === 0)) break
+      // No new turns can start once the loop exits; mark closed before draining so late joiners queue for the next round.
+      round.closed = true
+      await Promise.allSettled([...turns])
+    } finally {
+      signal.removeEventListener('abort', onAbort)
+      delete round.nudge
     }
-    // No new turns can start once the loop exits; mark closed before draining so late joiners queue for the next round.
-    round.closed = true
-    await Promise.allSettled([...turns])
-    delete round.nudge
     // The admin was alone with the user's message and passed: the round ends with
     // nothing said. The group says so once, so the user knows to call a member.
     const alone = round.soleAdmin !== undefined && round.slots.find(slot => slot.id === round.soleAdmin.id)?.status === 'passed'
@@ -2087,10 +2091,10 @@ export function install(rt) {
     for (const round of rt.roomProgress.values()) round.abort?.abort()
   }, 'ds-bot: group rounds')
 
-  function startRound(room, queued, agent, key = randomUUID()) {
+  function startRound(room, queued, agent, key = randomUUID(), anchor) {
     const controller = new AbortController()
     // Taken at once, so a call that comes in while this one sets up joins it.
-    const holder = { roomId: room.id, slots: [], starting: true, abort: controller }
+    const holder = { roomId: room.id, slots: [], starting: true, abort: controller, ...(anchor !== undefined ? { anchor } : {}) }
     holder.ready = new Promise((resolve) => { holder.settle = resolve })
     rt.roomProgress.set(key, holder)
     const run = runRoundFrom(room, queued, agent, key, controller.signal, holder)
@@ -2193,6 +2197,7 @@ export function install(rt) {
       slots: [],
       batches: 0,
       from: startSeq,
+      ...(holder.anchor !== undefined ? { anchor: holder.anchor } : {}),
       abort: holder.abort,
       passed: [],
       failed: [],
@@ -2399,7 +2404,7 @@ export function install(rt) {
         // What a stopped round left waiting goes first.
         const left = laterPosts.get(room.id) ?? []
         laterPosts.delete(room.id)
-        startRound(room, [...left, ...queued], exec.agent, exec.callId)
+        startRound(room, [...left, ...queued], exec.agent, exec.callId, anchor)
       }
       exec.concludeTurn?.()
       return JSON.stringify({ from, anchor })
@@ -2451,7 +2456,11 @@ export function install(rt) {
             ? `Part ${number} is the current one; it is in your context.${partsNote}`
             : `Part ${number} is still open and has no closing handoff note yet. Search it with query, or omit query for its latest messages.${partsNote}`
         }
-        return `Part ${number} of your own chat (${rt.clock(part.startedAt)} – ${rt.clock(part.endedAt)}). The handoff note that closed it:\n${rt.noteText(part) ?? '(none: the part ended on a context overflow)'}${partsNote}`
+        const note = rt.noteText(part)
+        if (note === undefined && Number.isInteger(part.throughSeq)) {
+          return `Part ${number} of your own chat (${rt.clock(part.startedAt)} – ${rt.clock(part.endedAt)}) has no closing handoff note. Search it with query, or omit query for its latest messages.${partsNote}`
+        }
+        return `Part ${number} of your own chat (${rt.clock(part.startedAt)} – ${rt.clock(part.endedAt)}). The handoff note that closed it:\n${note ?? '(none: the part ended on a context overflow)'}${partsNote}`
       }
       if (query === '') {
         const lines = await rt.latestOwnChat(botId, { askingId: lookupSession })
@@ -2535,16 +2544,23 @@ export function install(rt) {
       }
       const lines = room.log.slice(-ROOM_READ_MAX)
       if (lines.length === 0) return `"${room.name}" has no messages yet.`
-      let oldestLedgerSeq
-      let hasEarlierLedger = false
+      let hasEarlier = false
       if (lines[0].seq > 1) {
-        for (const record of rt.ledger.records(bookOf(room.id))) {
-          if (!Number.isInteger(record.seq)) continue
-          if (oldestLedgerSeq === undefined || record.seq < oldestLedgerSeq) oldestLedgerSeq = record.seq
-          if (record.seq < lines[0].seq && memberLine(record)) hasEarlierLedger = true
+        const book = bookOf(room.id)
+        const oldestLedgerSeq = rt.ledger.firstSeq(book)
+        if (oldestLedgerSeq !== undefined && oldestLedgerSeq > 1) {
+          hasEarlier = true
+        } else if (oldestLedgerSeq !== undefined && oldestLedgerSeq < lines[0].seq) {
+          const { bySeq } = rt.ledger.open(book)
+          for (let seq = lines[0].seq - 1; seq >= oldestLedgerSeq; seq -= 1) {
+            const record = bySeq.get(seq)
+            if (record !== undefined && memberLine(record)) {
+              hasEarlier = true
+              break
+            }
+          }
         }
       }
-      const hasEarlier = lines[0].seq > 1 && (hasEarlierLedger || (oldestLedgerSeq !== undefined && oldestLedgerSeq > 1))
       const footer = hasEarlier ? `\n(Showing messages #${lines[0].seq}–#${lines.at(-1).seq}; pass before_seq: ${lines[0].seq} to read earlier.)` : ''
       return `Latest in "${room.name}" (oldest first):\n${transcript(lines, short)}${footer}`
     },
@@ -2859,10 +2875,21 @@ export function install(rt) {
   // names a member is kept: that call is why it was written, and the turn calls each
   // member once. Per group Session.
   const held = new Map()
-  ctx.effect(() => () => { for (const entry of held.values()) clearTimeout(entry.timer) }, 'ds-bot: group step lines')
+  const forgetHeldSteps = (sessionId) => {
+    const entry = held.get(sessionId)
+    if (entry === undefined) return
+    clearTimeout(entry.timer)
+    held.delete(sessionId)
+  }
+  rt.forgetHeldSteps = forgetHeldSteps
+  ctx.effect(() => () => {
+    for (const entry of held.values()) clearTimeout(entry.timer)
+    held.clear()
+  }, 'ds-bot: group step lines')
   const stepKey = (sessionId, info) => `${info?.exchangeId ?? ''}:${rt.live?.get(sessionId)?.turn ?? ''}`
   const flushSteps = (sessionId) => {
     const entry = held.get(sessionId)
+    if (entry === undefined) return undefined
     clearTimeout(entry.timer)
     entry.timer = undefined
     if (entry.lines.length === 0) return undefined
@@ -2911,6 +2938,7 @@ export function install(rt) {
     if (entry !== undefined) {
       entry.lastLine = undefined
       entry.posted = undefined
+      if (entry.timer === undefined && entry.lines.length === 0) held.delete(sessionId)
     }
     if (lines === '') return repeated ? '' : reply
     if (isPass(reply) || repeated) return lines
@@ -2922,8 +2950,12 @@ export function install(rt) {
   rt.dropRoomStepEcho = (sessionId) => {
     const entry = held.get(sessionId)
     if (entry === undefined) return
+    clearTimeout(entry.timer)
+    entry.timer = undefined
+    entry.lines.length = 0
     entry.lastLine = undefined
     entry.posted = undefined
+    held.delete(sessionId)
   }
 
   // The user stops a member's work in this group from the group's details, including

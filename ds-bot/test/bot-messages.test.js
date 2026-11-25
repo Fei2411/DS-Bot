@@ -1002,6 +1002,35 @@ test('an earlier part keeps the request its Bot answered', async () => {
   assert.equal(items[0].botId, 'a')
 })
 
+test('earlierPage skips an empty intermediate part so two divider lines never stack', async () => {
+  const writer = {
+    id: 'b', name: 'Writer', createdAt: 1, sessionId: 'b3',
+    segments: [{ sessionId: 'b1', endedAt: 100 }, { sessionId: 'b2', endedAt: 200 }],
+  }
+  const byPart = {
+    b1: [{ type: 'user/message', seq: 1, time: 50, data: { content: [{ type: 'text', text: 'switch model' }], source: { kind: 'user' } } }],
+    // b2 only had a handoff message (no visible rows) before switching on to b3.
+    b2: [{ type: 'user/message', seq: 1, time: 150, data: { content: [{ type: 'text', text: '[Handoff · part 2]' }], source: { kind: 'bot', handoff: true } } }],
+  }
+  const rt = {
+    ctx: { on() {}, effect() {}, get() {}, sessionController: { page: async ({ address }) => ({ records: (byPart[address.sessionId] ?? []).map(event => ({ event })), hasMore: false }) } },
+    config: {},
+    state: { exchangeTurns: {} },
+    chatOwners: new Map([['b3', 'b']]),
+    pastOwners: new Map([['b1', { botId: 'b' }], ['b2', { botId: 'b' }]]),
+    botOf: id => (id === 'b' ? writer : undefined),
+    roomOf: () => undefined,
+    chatOf: () => 'b3',
+    resolveAgent: async id => ({ session: { id, seq: 3 } }),
+  }
+  installParts(rt)
+  const page = await rt.earlierPage('b3')
+  assert.equal(page.partIndex, 0)
+  assert.equal(page.startedAt, 200)
+  assert.equal(page.cursor, null)
+  assert.deepEqual(page.items.map(item => [item.kind, item.text]), [['user', 'switch model']])
+})
+
 // #537: an archived earlier part may have no live agent to resolve; the page
 // still loads from the stored events.
 test('an earlier part loads when its agent is gone', async () => {

@@ -118,8 +118,10 @@ async function start(seed = team()) {
   return { rt, ctx, agents, agentOf, emit, fire, tool, call, exchanges, home, stop }
 }
 
-const settled = async (pred, tries = 100) => {
-  for (let i = 0; i < tries && !pred(); i += 1) await delay(5)
+const settled = async (pred, timeoutMs = 5000, label = 'condition did not settle') => {
+  const deadline = Date.now() + timeoutMs
+  while (!pred() && Date.now() < deadline) await delay(10)
+  assert.ok(pred(), label)
 }
 
 test('isWorkTool excludes meta/memory tools and isSilentTurnText matches silent stubs only', () => {
@@ -293,7 +295,7 @@ test('cancel_work and stop_bot cancel silently via agent.inject without waking t
   // When Writer's cancelled turn emits aborted turn/end, the silent notice flushes via
   // agent.inject() without waking Writer, and Chief is NOT woken with an echo.
   emit('b', 'turn/end', { turn: 1, reason: { kind: 'aborted' } })
-  await delay(20)
+  await settled(() => agents.get('b').calls.length >= 3)
   assert.deepEqual(agents.get('b').calls.map(([kind]) => kind), ['steer', 'cancel', 'inject'])
   assert.equal(agents.get('b').calls[2][1].source.role, 'cancelled')
   assert.equal(agents.get('b').calls[2][1].source.silent, true)
@@ -305,7 +307,7 @@ test('cancel_work and stop_bot cancel silently via agent.inject without waking t
   assert.match(stopped, /not woken to reply/)
   assert.deepEqual(agents.get('c').calls.map(([kind]) => kind), ['cancel'])
   emit('c', 'turn/end', { turn: 1, reason: { kind: 'aborted' } })
-  await delay(20)
+  await settled(() => agents.get('c').calls.length >= 2)
   assert.deepEqual(agents.get('c').calls.map(([kind]) => kind), ['cancel', 'inject'])
   assert.equal(agents.get('c').calls[1][1].source.role, 'stopped')
   assert.equal(agents.get('c').calls[1][1].source.silent, true)
@@ -455,15 +457,13 @@ test('a group answer returns once; mentioning the worker while reporting a resul
   }
   const runRound = (callId, message) => {
     emit('r1', 'user/message', message)
-    let out
     const ac = new AbortController()
     t.after(() => ac.abort())
-    void tool('group_relay', {}, 'r1', { callId, signal: ac.signal }).then(async v => { out = await afterRound(rt, 'r1', v) })
-    return () => out
+    return tool('group_relay', {}, 'r1', { callId, signal: ac.signal }).then(v => afterRound(rt, 'r1', v))
   }
 
   // Case A: legitimate 1-hop Q&A (User -> Chief -> Writer -> Chief -> User) with 0 tools completes without pausing!
-  const qa = runRound('c1', { content: textBlock('@Chief 问下 Writer 配置在哪'), source: { kind: 'user' } })
+  const qaPromise = runRound('c1', { content: textBlock('@Chief 问下 Writer 配置在哪'), source: { kind: 'user' } })
   await settled(() => agentOf('ga').calls.length === 1)
   begin('ga')
   finish('ga', '@Writer 配置在哪？')
@@ -473,12 +473,12 @@ test('a group answer returns once; mentioning the worker while reporting a resul
   await settled(() => agentOf('ga').calls.length === 2)
   begin('ga')
   finish('ga', 'Writer 说在 /etc/app.conf。')
-  await settled(() => qa() !== undefined)
-  assert.equal(qa().replies.filter(r => r.kind === 'paused').length, 0, '1-hop Q&A must NOT pause')
+  const qa = await qaPromise
+  assert.equal(qa.replies.filter(r => r.kind === 'paused').length, 0, '1-hop Q&A must NOT pause')
   assert.equal(rt.state.rooms.r1.idlePaused, undefined)
 
   // Even if both Bots use another tool, their receipt cannot turn back into a request.
-  const cycle = runRound('c2', { content: textBlock('@Chief 核对一下'), source: { kind: 'user' } })
+  const cyclePromise = runRound('c2', { content: textBlock('@Chief 核对一下'), source: { kind: 'user' } })
   await settled(() => agentOf('ga').calls.length === 3)
   begin('ga')
   finish('ga', '@Writer 核对一下')
@@ -492,9 +492,9 @@ test('a group answer returns once; mentioning the worker while reporting a resul
   emit('ga', 'tool/call', { callId: 'mem2', name: 'bot_remember', arguments: '{}' })
   emit('ga', 'tool/result', { callId: 'mem2' })
   finish('ga', '@Writer 好，你确认一下')
-  await settled(() => cycle() !== undefined)
+  const cycle = await cyclePromise
 
-  assert.equal(cycle().replies.filter(r => r.kind === 'paused').length, 0)
+  assert.equal(cycle.replies.filter(r => r.kind === 'paused').length, 0)
   assert.equal(agentOf('gb').calls.length, 2)
   assert.equal(rt.state.rooms.r1.idlePaused, undefined)
   assert.equal(rt.state.rooms.r1.log.at(-1).route.kind, 'note')
@@ -685,40 +685,35 @@ test('P0 #5 & P1 #1: group fan-out completes without pause, alreadyPaused holds 
   }
   const runRound = (callId, message) => {
     emit('r1', 'user/message', message)
-    let out
     const ac = new AbortController()
     t.after(() => ac.abort())
-    void tool('group_relay', {}, 'r1', { callId, signal: ac.signal }).then(async v => { out = await afterRound(rt, 'r1', v) })
-    return () => out
+    return tool('group_relay', {}, 'r1', { callId, signal: ac.signal }).then(v => afterRound(rt, 'r1', v))
   }
 
   // Parallel fan-out: User -> Chief -> @Writer @Reviewer -> both answer @Chief (0 tools) -> Chief answers user.
-  const fanout = runRound('f1', { content: textBlock('@Chief 让 Writer 和 Reviewer 各自说下结论'), source: { kind: 'user' } })
+  const fanoutPromise = runRound('f1', { content: textBlock('@Chief 让 Writer 和 Reviewer 各自说下结论'), source: { kind: 'user' } })
   await settled(() => agentOf('ga').calls.length === 1)
   begin('ga')
   finish('ga', '@Writer @Reviewer 各自给下结论')
   await settled(() => agentOf('gb').calls.length === 1 && agentOf('gc').calls.length === 1)
   begin('gb')
   finish('gb', '@Chief 我这边文案部分 OK')
-  await settled(() => agentOf('ga').calls.length === 2)
-  begin('ga')
-  finish('ga', '收到 Writer，等 Reviewer。')
   begin('gc')
   finish('gc', '@Chief 我这边运维部分 OK')
-  await settled(() => agentOf('ga').calls.length === 3)
+  await settled(() => agentOf('ga').calls.length === 2)
   begin('ga')
   finish('ga', '两边都确认 OK，汇总完毕。')
-  await settled(() => fanout() !== undefined)
-  assert.equal(fanout().replies.filter(r => r.kind === 'paused').length, 0, 'parallel fan-out must NOT false-pause')
+  const fanout = await fanoutPromise
+  assert.equal(fanout.replies.filter(r => r.kind === 'paused').length, 0, 'parallel fan-out must NOT false-pause')
   assert.equal(rt.state.rooms.r1.idlePaused, undefined)
 
   // Already-paused room holds even non-ack byBot calls instead of leaking them.
   rt.state.rooms.r1.idlePaused = { from: 'a', count: 2, noticed: true }
-  const heldRound = runRound('f2', { content: textBlock('@Writer 顺便问一句'), source: { kind: 'bot', role: 'post', senderSessionId: 'a', senderName: 'Chief', roomId: 'r1' } })
+  const heldRoundPromise = runRound('f2', { content: textBlock('@Writer 顺便问一句'), source: { kind: 'bot', role: 'post', senderSessionId: 'a', senderName: 'Chief', roomId: 'r1' } })
   await settled(() => agentOf('gb').calls.length === 2)
   begin('gb')
   finish('gb', '@Reviewer 帮我看一下接口文档第三节细节')
-  await settled(() => heldRound() !== undefined)
+  await heldRoundPromise
   assert.equal(agentOf('gc').calls.length, 1, 'non-ack byBot call in already-paused room must be held, not leaked')
   assert.ok(rt.state.rooms.r1.paused?.some(p => p.id === 'c'))
 
