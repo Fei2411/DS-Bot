@@ -9,22 +9,27 @@ import { parse } from 'yaml'
 import { UUID } from 'builder-util-runtime'
 import { APP_ID, configureIdentity, LEGACY_ARTIFACT_PREFIX, LEGACY_PRODUCT_NAME } from '../src/legacy.mjs'
 
-function fixture({ saved = [], packaged = true } = {}) {
+function fixture({ saved = [], packaged = true, initialSwitches = [] } = {}) {
   const app = new EventEmitter()
   const appData = join(tmpdir(), 'dsbot-identity-fixture')
   const current = join(appData, 'DS Bot')
   const legacy = join(appData, LEGACY_PRODUCT_NAME)
   const paths = { appData, userData: current }
   const names = []
+  const switches = [...initialSwitches]
   Object.assign(app, {
     isPackaged: packaged,
     getPath: name => paths[name],
     setPath: (name, value) => { paths[name] = value },
     setName: name => names.push(name),
     setAppUserModelId: id => { app.id = id },
+    commandLine: {
+      appendSwitch: name => switches.push(name),
+      hasSwitch: name => switches.includes(name),
+    },
   })
   const exists = path => saved.includes(path)
-  return { app, paths, names, current, legacy, exists }
+  return { app, paths, names, switches, current, legacy, exists }
 }
 
 for (const platform of ['win32', 'darwin', 'linux']) {
@@ -73,6 +78,34 @@ test('an isolated data run never probes an installed application', () => {
 test('a source installation also keeps its existing shell data', () => {
   const f = fixture({ packaged: false })
   assert.equal(configureIdentity(f.app, { env: {}, mkdir: () => {}, exists: path => path === f.legacy }).userData, f.legacy)
+})
+
+test('macOS unpackaged and throwaway runs use the mock keychain without affecting normal packaged installs', () => {
+  const unpackaged = fixture({ packaged: false })
+  configureIdentity(unpackaged.app, { env: {}, platform: 'darwin', mkdir: () => {}, exists: () => false })
+  assert.deepEqual(unpackaged.switches, ['use-mock-keychain'])
+
+  const throwaway = fixture({ packaged: true })
+  configureIdentity(throwaway.app, { env: { DS_BOT_HOME: '/tmp/dsbot-test-data' }, platform: 'darwin', mkdir: () => {}, exists: () => false })
+  assert.deepEqual(throwaway.switches, ['use-mock-keychain'])
+
+  const preset = fixture({ packaged: false, initialSwitches: ['use-mock-keychain'] })
+  configureIdentity(preset.app, { env: {}, platform: 'darwin', mkdir: () => {}, exists: () => false })
+  assert.deepEqual(preset.switches, ['use-mock-keychain'])
+
+  const installed = fixture({ packaged: true })
+  configureIdentity(installed.app, { env: {}, platform: 'darwin', mkdir: () => {}, exists: () => false })
+  assert.deepEqual(installed.switches, [])
+
+  const customShell = fixture({ packaged: true })
+  configureIdentity(customShell.app, { env: { DS_BOT_SHELL_DATA: '/tmp/custom-shell' }, platform: 'darwin', mkdir: () => {}, exists: () => false })
+  assert.deepEqual(customShell.switches, [])
+
+  for (const platform of ['win32', 'linux']) {
+    const dev = fixture({ packaged: false })
+    configureIdentity(dev.app, { env: { DS_BOT_HOME: '/tmp/dsbot-test-data' }, platform, mkdir: () => {}, exists: () => false })
+    assert.deepEqual(dev.switches, [], platform)
+  }
 })
 
 for (const suffix of ['mac-arm64.zip', 'mac-x64.zip', 'linux-amd64.deb']) {

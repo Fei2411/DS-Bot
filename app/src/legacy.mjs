@@ -19,6 +19,13 @@ export function configureIdentity(app, { env = process.env, platform = process.p
   mkdir(userData, { recursive: true })
   app.setPath('userData', userData)
   app.setPath('sessionData', userData)
+  // On macOS, an unpackaged run executes the generic Electron binary rather than a packaged
+  // DS Bot.app, and a throwaway run (DS_BOT_HOME) runs in disposable folders. Touching the
+  // login keychain either prompts against an installed app's "DS Bot Safe Storage" entry or
+  // leaves a stale ACL bound to a temporary binary.
+  if (platform === 'darwin' && (!app.isPackaged || Boolean(env.DS_BOT_HOME))) {
+    if (!app.commandLine?.hasSwitch?.('use-mock-keychain')) app.commandLine?.appendSwitch('use-mock-keychain')
+  }
   if (platform === 'win32') app.setAppUserModelId(APP_ID)
   // Electron 44 captures this name for OSCrypt before ready. Restore the visible name
   // before creating menus or windows; the captured keychain identity stays unchanged.

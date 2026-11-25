@@ -144,3 +144,15 @@ test('the script waits for the start window to close and leave one visible windo
   const chatCallIdx = source.indexOf('const chatError = await chat(cdp)')
   assert.ok(revealIdx > 0 && revealIdx < chatCallIdx)
 })
+
+test('macOS check and screenshot scripts isolate Electron from the login keychain', () => {
+  for (const rel of ['../scripts/check-packed.mjs', '../scripts/check-update.mjs', '../scripts/check-lifecycle.mjs', '../scripts/shot.mjs']) {
+    const script = readFileSync(new URL(rel, import.meta.url), 'utf8')
+    assert.match(script, /--use-mock-keychain/, rel)
+  }
+  const spawns = [...source.matchAll(/spawn\(packedApp,\s*\[([^\]]+)\]/gu)]
+  assert.equal(spawns.length, 2)
+  for (const [, args] of spawns) assert.match(args, /\.\.\.macArgs/)
+  const lifecycleMain = readFileSync(new URL('./electron/lifecycle-main.mjs', import.meta.url), 'utf8')
+  assert.match(lifecycleMain, /appendSwitch\('use-mock-keychain'\)/)
+})

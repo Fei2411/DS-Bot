@@ -59,7 +59,8 @@ let connection
 try {
   rmSync(work, { recursive: true, force: true, maxRetries: 10, retryDelay: 500 })
   mkdirSync(work, { recursive: true })
-  child = spawn(electron, [join(here, '..', 'test', 'electron', 'lifecycle-main.mjs')], {
+  const macArgs = process.platform === 'darwin' ? ['--use-mock-keychain'] : []
+  child = spawn(electron, [join(here, '..', 'test', 'electron', 'lifecycle-main.mjs'), ...macArgs], {
     cwd: join(here, '..'),
     env: { ...process.env, DS_BOT_SHELL_DATA: work },
     stdio: ['ignore', 'pipe', 'pipe'],

@@ -610,7 +610,9 @@ try {
     DS_BOT_HOME: join(work, 'home'), DS_BOT_SHELL_DATA: join(work, 'shell'),
     DEEPSEEK_BASE_URL: modelUrl, DEEPSEEK_API_KEY: 'mock-key',
   })
-  const app = spawn(packedApp, [`--remote-debugging-port=${String(port)}`, `--inspect=127.0.0.1:${String(mainPort)}`], { stdio: 'inherit', env })
+  // Never touch the host macOS login keychain with an ad-hoc temporary copy of DS Bot.app.
+  const macArgs = process.platform === 'darwin' ? ['--use-mock-keychain'] : []
+  const app = spawn(packedApp, [...macArgs, `--remote-debugging-port=${String(port)}`, `--inspect=127.0.0.1:${String(mainPort)}`], { stdio: 'inherit', env })
   children.push(app)
   const exited = new Promise((done) => { app.once('exit', (code, signal) => { done({ code, signal }) }) })
   const cdp = devtools((await appPage(port, Date.now() + 120_000)).webSocketDebuggerUrl, problems)
@@ -654,7 +656,7 @@ try {
   console.log('check-packed: the window is hidden and the Host goes on')
   // Starting the app again brings the window back; the second copy ends at once, because the
   // first one holds the lock.
-  const second = spawn(packedApp, [`--remote-debugging-port=${String(await freePort())}`], { stdio: 'ignore', env })
+  const second = spawn(packedApp, [...macArgs, `--remote-debugging-port=${String(await freePort())}`], { stdio: 'ignore', env })
   children.push(second)
   const secondExit = await Promise.race([new Promise((done) => { second.once('exit', (code) => { done(code) }) }), sleep(30_000).then(() => undefined)])
   if (secondExit === undefined) throw new Error('the second copy of the app did not end')
