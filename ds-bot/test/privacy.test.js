@@ -860,6 +860,8 @@ test('guardSecretFiles allows text searches for secret-refs/secret-files in unre
     ['bash', { command: "grep --regexp='secret-refs' README.md", workdir: repoDir }],
     ['bash', { command: "git grep 'secret-refs'", workdir: repoDir }],
     ['pwsh', { command: "Select-String -Pattern 'secret-refs' README.md", workdir: repoDir }],
+    ['pwsh', { command: 'Split-Path -Leaf $env:DSH_SECRET_FILE_DEPLOY_KEY', workdir: repoDir }],
+    ['pwsh', { command: 'Split-Path -LeafBase -Path $env:DSH_SECRET_FILE_DEPLOY_KEY', workdir: repoDir }],
   ]) {
     assert.deepEqual(await run(toolName, args, 'b'), { ran: true }, `expected allowed: ${toolName} ${JSON.stringify(args)}`)
   }
@@ -880,9 +882,32 @@ test('guardSecretFiles allows text searches for secret-refs/secret-files in unre
     ['bash', { command: "grep 'secret-refs' .", workdir: home }],
     ['bash', { command: 'ls "$(dirname "$DSH_SECRET_FILE_OWN_KEY")/.."', workdir: repoDir }],
     ['bash', { command: 'ls "$(DIRNAME "$DSH_SECRET_FILE_OWN_KEY")/.."', workdir: repoDir }],
+    ['pwsh', { command: 'Split-Path $env:DSH_SECRET_FILE_DEPLOY_KEY', workdir: repoDir }],
+    ['pwsh', { command: 'Split-Path -Parent $env:DSH_SECRET_FILE_DEPLOY_KEY', workdir: repoDir }],
+    ['pwsh', { command: 'Split-Path -Leaf -Parent $env:DSH_SECRET_FILE_DEPLOY_KEY', workdir: repoDir }],
+    ['pwsh', { command: 'Split-Path -Leaf "$env:DSH_SECRET_FILE_DEPLOY_KEY/.."', workdir: repoDir }],
   ]) {
     const res = await run(toolName, args, 'b')
     assert.equal(res.ran, false, `expected blocked: ${toolName} ${JSON.stringify(args)}`)
     assert.match(res.error, /secret/i)
   }
+})
+
+test('guardSecretFiles preserves isolation when secret-files is symlinked outside home', { skip: process.platform === 'win32' }, async (t) => {
+  const { run, home, root, stop } = await start({ privateBot: false })
+  t.after(stop)
+  const externalStore = join(root, 'external-secret-files')
+  mkdirSync(join(externalStore, 'a'), { recursive: true })
+  const secretA = join(externalStore, 'a', 'sf-linked.secret')
+  writeFileSync(secretA, 'linked-bot-a-secret-123456')
+  symlinkSync(externalStore, join(home, 'secret-files'))
+
+  // Bot A can read its own file via either symlink or real target; Bot B is blocked on both.
+  assert.deepEqual(await run('read', { file_path: secretA }, 'a'), { ran: true })
+  const blockedRead = await run('read', { file_path: secretA }, 'b')
+  assert.equal(blockedRead.ran, false)
+  assert.match(blockedRead.error, /secret/i)
+  const blockedBash = await run('bash', { command: `cat "${secretA}"` }, 'b')
+  assert.equal(blockedBash.ran, false)
+  assert.match(blockedBash.error, /secret/i)
 })

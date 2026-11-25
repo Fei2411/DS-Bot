@@ -323,10 +323,10 @@ export function install(rt) {
 
   const DATA_ROOTS_TTL_MS = 1_000
   let dataRootsMemo
-  let homeSpellingsMemo
+  let secretRootsMemo
   const clearDataRootsMemo = () => {
     dataRootsMemo = undefined
-    homeSpellingsMemo = undefined
+    secretRootsMemo = undefined
   }
   const offAdopted = rt.onAdopted?.(clearDataRootsMemo)
   ctx.effect?.(() => () => {
@@ -334,16 +334,19 @@ export function install(rt) {
     clearDataRootsMemo()
   }, 'ds-bot: privacy cache')
 
-  const spelledHome = (memo) => {
+  const spelledSecretRoots = (memo) => {
     const now = Date.now()
-    if (homeSpellingsMemo !== undefined && now - homeSpellingsMemo.at < DATA_ROOTS_TTL_MS) {
-      return homeSpellingsMemo.value
+    if (secretRootsMemo !== undefined && now - secretRootsMemo.at < DATA_ROOTS_TTL_MS) {
+      return secretRootsMemo.value
     }
-    const pending = spellings(rt.home, memo).catch((error) => {
-      if (homeSpellingsMemo?.value === pending) homeSpellingsMemo = undefined
+    const pending = Promise.all([
+      spellings(join(rt.home, 'secret-refs'), memo),
+      spellings(join(rt.home, 'secret-files'), memo),
+    ]).then(([refsRoot, filesRoot]) => ({ refsRoot, filesRoot }), (error) => {
+      if (secretRootsMemo?.value === pending) secretRootsMemo = undefined
       throw error
     })
-    homeSpellingsMemo = { at: now, value: pending }
+    secretRootsMemo = { at: now, value: pending }
     return pending
   }
 
@@ -747,29 +750,25 @@ export function install(rt) {
     const getOwnDir = () => (ownDirPromise ??= (typeof self === 'string' && self !== ''
       ? spellings(join(rt.home, 'secret-files', self), memo)
       : Promise.resolve([])))
-    const rootsOf = (homeKeys) => {
-      const refsRoot = homeKeys.map(root => join(root, 'secret-refs'))
-      const filesRoot = homeKeys.map(root => join(root, 'secret-files'))
-      return {
-        refsRoot,
-        filesRoot,
-        inRefs: keys => keys.some(key => refsRoot.some(root => within(key, root))),
-        overlapsRefs: keys => keys.some(key => refsRoot.some(root => overlap(key, root))),
-        inFiles: keys => keys.some(key => filesRoot.some(root => within(key, root))),
-        overlapsFiles: keys => keys.some(key => filesRoot.some(root => overlap(key, root))),
-      }
-    }
+    const rootsOf = ({ refsRoot, filesRoot }) => ({
+      refsRoot,
+      filesRoot,
+      inRefs: keys => keys.some(key => refsRoot.some(root => within(key, root))),
+      overlapsRefs: keys => keys.some(key => refsRoot.some(root => overlap(key, root))),
+      inFiles: keys => keys.some(key => filesRoot.some(root => within(key, root))),
+      overlapsFiles: keys => keys.some(key => filesRoot.some(root => overlap(key, root))),
+    })
     const allOwnSecretFiles = (keys, ownDir) => keys.every(key => ownDir.some(dir => within(key, dir) && key !== dir))
     const allInOwnSecretDir = (keys, ownDir) => keys.every(key => ownDir.some(dir => within(key, dir)))
 
     if (name in FILE_TOOLS) {
       const path = args[FILE_TOOLS[name]]
       const base = folder()
-      const [homeKeys, keys] = await Promise.all([
-        spelledHome(memo),
+      const [roots, keys] = await Promise.all([
+        spelledSecretRoots(memo),
         spellings(base === undefined ? path : resolve(base, path), memo),
       ])
-      const { inRefs, inFiles } = rootsOf(homeKeys)
+      const { inRefs, inFiles } = rootsOf(roots)
       if (inRefs(keys)) throw closedSecret()
       if (inFiles(keys)) {
         if (WRITE_TOOLS.includes(name)) throw closedSecret()
@@ -782,11 +781,11 @@ export function install(rt) {
       const where = typeof args.path === 'string' && args.path !== '' ? args.path : '.'
       const base = folder()
       const searchBase = base === undefined ? where : resolve(base, where)
-      const [homeKeys, keys] = await Promise.all([
-        spelledHome(memo),
+      const [roots, keys] = await Promise.all([
+        spelledSecretRoots(memo),
         spellings(searchBase, memo),
       ])
-      const { overlapsRefs, overlapsFiles } = rootsOf(homeKeys)
+      const { overlapsRefs, overlapsFiles } = rootsOf(roots)
       const checkKeys = async (targetKeys) => {
         if (overlapsRefs(targetKeys)) throw closedSecret()
         if (overlapsFiles(targetKeys)) {
@@ -825,21 +824,21 @@ export function install(rt) {
     }
     if (name === 'subagent' || name === 'subagent_fork') {
       const base = folder()
-      const [homeKeys, keys] = await Promise.all([
-        spelledHome(memo),
+      const [roots, keys] = await Promise.all([
+        spelledSecretRoots(memo),
         spellings(base === undefined ? args.cwd : resolve(base, args.cwd), memo),
       ])
-      const { inRefs, inFiles } = rootsOf(homeKeys)
+      const { inRefs, inFiles } = rootsOf(roots)
       if (inRefs(keys) || inFiles(keys)) throw closedSecret()
       return
     }
     if (name === 'working_directory') {
       const base = folder()
-      const [homeKeys, keys] = await Promise.all([
-        spelledHome(memo),
+      const [roots, keys] = await Promise.all([
+        spelledSecretRoots(memo),
         spellings(base === undefined ? args.cd : resolve(base, args.cd), memo),
       ])
-      const { inRefs, inFiles } = rootsOf(homeKeys)
+      const { inRefs, inFiles } = rootsOf(roots)
       if (inRefs(keys) || inFiles(keys)) throw closedSecret()
       return
     }
@@ -848,11 +847,11 @@ export function install(rt) {
       const dirArgs = [args.workdir, args.cwd].filter(value => typeof value === 'string' && value !== '')
       const effectiveDir = dirArgs.at(-1) ?? base
       const dirsToCheck = [...dirArgs, ...(effectiveDir !== undefined ? [effectiveDir] : [])]
-      const [homeKeys, ...dirKeyList] = await Promise.all([
-        spelledHome(memo),
+      const [roots, ...dirKeyList] = await Promise.all([
+        spelledSecretRoots(memo),
         ...dirsToCheck.map(dirArg => spellings(base === undefined ? dirArg : resolve(base, dirArg), memo)),
       ])
-      const { refsRoot, filesRoot, inRefs, overlapsRefs, inFiles, overlapsFiles } = rootsOf(homeKeys)
+      const { refsRoot, filesRoot, inRefs, overlapsRefs, inFiles, overlapsFiles } = rootsOf(roots)
       for (let i = 0; i < dirArgs.length; i += 1) {
         if (inRefs(dirKeyList[i]) || inFiles(dirKeyList[i])) throw closedSecret()
       }
@@ -872,8 +871,26 @@ export function install(rt) {
         throw closedSecret()
       }
       if (/dsh_secret_file_/i.test(flat)
-        && (/\bdirname\b/i.test(flat) || /\bsplit-path\b/i.test(flat) || /(?:^|[/\\])\.\.(?:$|[/\\\s"'`;|&)])/.test(flat))) {
+        && (/\bdirname\b/i.test(flat) || /(?:^|[/\\])\.\.(?:$|[/\\\s"'`;|&)])/.test(flat))) {
         throw closedSecret()
+      }
+      const isSafeSplitPathLeaf = (segment) => {
+        // Allow only unambiguous filename-only `Split-Path -Leaf` / `-LeafBase` calls;
+        // default `Split-Path` (returns parent), `-Parent`, `-Resolve`, `-Qualifier`, etc. stay blocked.
+        let sawLeaf = false
+        for (const tok of segment) {
+          const lower = tok.value.toLowerCase()
+          if (lower === 'split-path') continue
+          if (lower === '-leaf' || lower === '-leafbase') {
+            sawLeaf = true
+            continue
+          }
+          if (lower.startsWith('-')) {
+            if (lower === '-path' || lower === '-literalpath') continue
+            return false
+          }
+        }
+        return sawLeaf
       }
       const ownPrefix = `/${fold(self)}/`
       const checkRestAfterFilesRoot = (rest) => {
@@ -898,7 +915,16 @@ export function install(rt) {
         else if (val.startsWith('-e') && val.length > 2 && !val.startsWith('--')) val = val.slice(2)
         return !/[/\\]|\.\.|[*?[]/.test(val)
       }
-      for (const segment of splitShellCommands(rawText)) {
+      const segments = splitShellCommands(rawText)
+      if (/dsh_secret_file_/i.test(flat) && /\bsplit-path\b/i.test(flat)) {
+        for (const segment of segments) {
+          const hasSplitPath = segment.some(tok => /\bsplit-path\b/i.test(tok.value))
+          if (hasSplitPath && !isSafeSplitPathLeaf(segment)) {
+            throw closedSecret()
+          }
+        }
+      }
+      for (const segment of segments) {
         const exempt = searchPatternTokenIndices(segment)
         for (let i = 0; i < segment.length; i += 1) {
           const tok = segment[i]
@@ -929,10 +955,8 @@ export function install(rt) {
     }
     if (self !== undefined) {
       const memo = new Map()
-      await Promise.all([
-        guardApiFiles(exec, memo),
-        guardSecretFiles(exec, self, memo),
-      ])
+      await guardApiFiles(exec, memo)
+      await guardSecretFiles(exec, self, memo)
     }
     return next()
   })

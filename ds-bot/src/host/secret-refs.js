@@ -18,6 +18,7 @@ const PARTIAL_MAX_AGE_MS = 5 * 60_000
 const SALT_BYTES = 32
 const MAX_RESTORE_BYTES = 64 * 1024
 const SF_FILE_RE = /^sf-(?:([a-z0-9_]{1,32})-)?([0-9a-f]{32})\.secret$/
+const CONSUMING_REF_RE = /\.json\.consuming-[A-Za-z0-9-]+$/
 
 export function isSecretRef(value) {
   return typeof value === 'string' && SECRET_REF_PATTERN.test(value)
@@ -300,11 +301,13 @@ export function createSecretRefs({
         }
         throw codedError('SECRET_REF_CONSUME_FAILED', `Could not consume secret reference (${error?.code ?? 'error'}).`)
       }
-      // Phase 2: Best-effort delete of staged files (any crash-orphaned `.consuming-*`
-      // file is swept by `sweepExpiredRefs`).
+      // Phase 2: Best-effort delete of staged files; if unlink fails (e.g. transient
+      // Windows handle), scrub the file contents immediately so plaintext does not linger
+      // on disk until `sweepExpiredRefs` or `rekeyRefs` removes it.
       for (const { stagedPath } of staged) {
-        await unlinkFile(stagedPath).catch((error) => {
+        await unlinkFile(stagedPath).catch(async (error) => {
           if (error?.code !== 'ENOENT') {
+            await writeFile(stagedPath, '', { mode: 0o600 }).catch(() => {})
             warn('ds-bot: could not remove staged secret reference (%s)', error?.code ?? 'error')
           }
         })
@@ -334,8 +337,18 @@ export function createSecretRefs({
       }
       let updated = 0
       for (const name of names) {
-        if (!name.endsWith('.json')) continue
         const full = join(refsDir, name)
+        // Leftover `.consuming-*` files are already-consumed handles whose unlink failed;
+        // remove (or scrub) them during rekey so enabling encryption never leaves plaintext behind.
+        if (CONSUMING_REF_RE.test(name)) {
+          await unlinkFile(full).catch(async (error) => {
+            if (error?.code !== 'ENOENT') {
+              await writeFile(full, '', { mode: 0o600 }).catch(() => {})
+            }
+          })
+          continue
+        }
+        if (!name.endsWith('.json')) continue
         let info
         try {
           info = await lstat(full)
@@ -608,7 +621,7 @@ export function createSecretRefs({
           continue
         }
         if (info.isSymbolicLink() || !info.isFile()) continue
-        if (name.endsWith('.partial') || /\.json\.consuming-[A-Za-z0-9-]+$/.test(name)) {
+        if (name.endsWith('.partial') || CONSUMING_REF_RE.test(name)) {
           if (current - info.mtimeMs >= PARTIAL_MAX_AGE_MS) {
             await unlink(full).catch(() => {})
             removed += 1

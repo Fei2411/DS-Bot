@@ -1108,4 +1108,8 @@ test('consumeRefs uses two-phase reversible staging so a mid-batch rename failur
   assert.equal(swept, 1)
   assert.equal(existsSync(staleConsuming), false)
   assert.equal(existsSync(freshConsuming), true)
+
+  // Enabling encryption via rekeyRefs removes leftover `.consuming-*` files so no plaintext lingers.
+  await refs.rekeyRefs({ fromPassphrase: null, toPassphrase: 'encrypt-pass-123' })
+  assert.equal(existsSync(freshConsuming), false, 'rekeyRefs must remove leftover staged consuming files')
 })
