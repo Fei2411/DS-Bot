@@ -351,6 +351,13 @@ export function buildSessionRows(log, { roster, sessionId } = {}) {
     }
   }
 
+  const closedCards = sessionId ? roster?.closedCards?.[sessionId] : undefined
+  // Hidden Bot-to-Bot turns keep their own calls out of the chat, except a question or
+  // view card closed into `closedCards` (dismissed, answered by message, or superseded),
+  // matching plugin-mode `ToolCell` and earlier-part pagination (#2242).
+  const isClosedCard = (name, callId) => (name === 'ask_user' || name === 'show_view')
+    && typeof callId === 'string' && callId !== '' && closedCards?.[callId] !== undefined
+
   for (const item of items) {
     if (item.kind === 'compaction') {
       rows.push({
@@ -516,9 +523,9 @@ export function buildSessionRows(log, { roster, sessionId } = {}) {
     if (item.type === 'tool/call') {
       const turn = item.data?.turn ?? currentTurn
       const step = item.data?.step ?? currentStep
-      if (hidden(turn)) continue
       const callId = item.data?.callId ?? `call-${item.seq}`
       const name = typeof item.data?.name === 'string' ? item.data.name : ''
+      if (hidden(turn) && !isClosedCard(name, callId)) continue
       const argsRaw = stringifyArgs(item.data?.arguments)
       const existing = callsById.get(callId)
       const block = {
@@ -546,14 +553,14 @@ export function buildSessionRows(log, { roster, sessionId } = {}) {
     if (item.type === 'tool/result') {
       const turn = item.data?.turn ?? currentTurn
       const step = item.data?.step ?? currentStep
-      if (hidden(turn)) continue
       const message = item.data?.message ?? item.data ?? {}
       const callId = message.source?.callId ?? message.toolCallId ?? item.data?.callId ?? `result-${item.seq}`
+      const existing = callsById.get(callId)
+      if (hidden(turn) && existing === undefined) continue
       const content = Array.isArray(message.content) ? message.content : []
       const isError = message.isError === true
       const meta = item.data?.meta
       const error = message.error ?? item.data?.error
-      const existing = callsById.get(callId)
       if (existing !== undefined) {
         existing.update(toResultBlock(existing.block, { seq: item.seq, time: item.time, turn, step, content, isError, meta, error }))
       } else {
@@ -585,7 +592,6 @@ export function buildSessionRows(log, { roster, sessionId } = {}) {
     if (item.type === 'tool/ptc-dispatch-start') {
       const turn = currentTurn
       const step = currentStep
-      if (hidden(turn)) continue
       const data = item.data ?? {}
       const subCallId = data.subCallId ?? `ptc-${item.seq}`
       const parentCallId = data.parentCallId ?? data.rootCallId
@@ -595,7 +601,7 @@ export function buildSessionRows(log, { roster, sessionId } = {}) {
       const parentHandle = parentCallId ? callsById.get(parentCallId) : undefined
       const effectiveTurn = parentHandle?.turn ?? turn
       const effectiveStep = parentHandle?.step ?? step
-      if (hidden(effectiveTurn)) continue
+      if (hidden(effectiveTurn) && !isClosedCard(name, subCallId)) continue
       const block = {
         phase: 'start',
         seq: item.seq,
@@ -626,8 +632,8 @@ export function buildSessionRows(log, { roster, sessionId } = {}) {
       const existing = callsById.get(subCallId)
       const effectiveTurn = existing?.turn ?? parentHandle?.turn ?? currentTurn
       const effectiveStep = existing?.step ?? parentHandle?.step ?? currentStep
-      if (hidden(effectiveTurn)) continue
       const name = typeof data.name === 'string' ? data.name : (existing?.block?.name ?? '')
+      if (hidden(effectiveTurn) && existing === undefined && !isClosedCard(name, subCallId)) continue
       const argsRaw = data.arguments !== undefined ? stringifyArgs(data.arguments) : (existing?.block?.argsRaw ?? '')
       const content = Array.isArray(data.content) ? data.content : []
       const isError = data.isError === true

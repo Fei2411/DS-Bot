@@ -173,6 +173,9 @@ export function createRemoteService(rt) {
       if (name.startsWith('plugins-')) {
         return { ok: false, error: { code: 'bot/refused', message: 'Plugins are managed on the computer', details: {} } }
       }
+      if (name.startsWith('speech-')) {
+        return { ok: false, error: { code: 'bot/refused', message: 'Voice input settings and transcription are available on the computer', details: {} } }
+      }
       const answer = plain(await rt.channelCall(name, payload ?? {}, signal, true))
       if (name === 'folders' && answer?.ok === true && answer.value && typeof answer.value === 'object' && Object.hasOwn(answer.value, 'data')) {
         const value = { ...answer.value }

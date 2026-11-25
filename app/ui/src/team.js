@@ -9,6 +9,7 @@ import { workPhrase } from '../../../ds-bot/src/client/cells.js'
 import { language, t } from '../../../ds-bot/src/client/i18n.js'
 import { lookOf, toolState } from '../../../ds-bot/src/client/mark.js'
 import { needsIdleSample } from '../../../ds-bot/src/client/polling.js'
+import { createQuestionDrafts } from '../../../ds-bot/src/client/question-draft.js'
 import { noteLeft, setUnread, sharedMap, toggleReaction } from '../../../ds-bot/src/client/shared-map.js'
 import { createSource, EMPTY_ROSTER, indexRoster } from '../../../ds-bot/src/client/sources.js'
 import { requestPreparation } from '../../../ds-bot/src/client/speech.js'
@@ -258,11 +259,20 @@ export function createTeam() {
     if (value.memoryReviews !== undefined && JSON.stringify(value.memoryReviews) !== JSON.stringify(current.memoryReviews ?? {})) changed.memoryReviews = value.memoryReviews
     if (value.plugins !== undefined && JSON.stringify(value.plugins) !== JSON.stringify(current.plugins ?? null)) changed.plugins = value.plugins
     if (value.speech !== undefined && Boolean(value.speech) !== Boolean(current.speech)) changed.speech = Boolean(value.speech)
-    if (Object.keys(changed).length > 0 && current.ready) roster.set({ ...current, ...changed })
-    if (value.unchanged || (value.revision === current.revision && value.modelsKey === current.modelsKey)) return
+    if (value.unchanged || (value.revision === current.revision && value.modelsKey === current.modelsKey)) {
+      if (Object.keys(changed).length > 0 && current.ready) roster.set({ ...current, ...changed })
+      return
+    }
     // In a window with no visit record yet, everything already there counts as seen.
     if (Object.keys(seenAt).length === 0) leaveVisits([...value.bots, ...value.rooms].map(entry => entry.id))
     const indexed = indexRoster(value)
+    if (current.ready) {
+      const gone = [
+        ...Object.keys(current.byId ?? {}).filter(id => indexed.byId[id] === undefined),
+        ...Object.keys(current.roomsById ?? {}).filter(id => indexed.roomsById[id] === undefined),
+      ]
+      if (gone.length > 0) questionDrafts.pruneChats(gone)
+    }
     roster.set(indexed)
     if ((indexed.agents ?? []).some(agent => (agent.sessions?.length ?? 0) > 0)) {
       void refreshClassicSessions()
@@ -303,7 +313,8 @@ export function createTeam() {
     }
   }
 
-  const baseActions = teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock })
+  const questionDrafts = createQuestionDrafts()
+  const baseActions = teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock, questionDrafts })
   const speechCall = (endpoint, payload, signal) => call(endpoint, payload, signal).then(
     value => ({ ok: true, value }),
     error => ({ ok: false, error: { code: error?.code ?? 'speech/error', message: error?.message ?? String(error) } }),
@@ -1134,6 +1145,14 @@ export function createTeam() {
       })
       if (typeof offAction === 'function') cleanups.push(offAction)
     }
+    cleanups.push(roster.subscribe(() => { questionDrafts.reconcileRoster(roster.getSnapshot()) }))
+    if (typeof window?.addEventListener === 'function') {
+      const onStorage = (event) => {
+        if (event.key === null || event.key === STORAGE.rescuedDrafts) questionDrafts.syncFromStorage()
+      }
+      window.addEventListener('storage', onStorage)
+      cleanups.push(() => window.removeEventListener('storage', onStorage))
+    }
     if (typeof document === 'undefined' || !document.hidden) startTimer()
     if (typeof document?.addEventListener === 'function') document.addEventListener('visibilitychange', onVisibility)
     const onPageHide = () => leaveVisits(Object.keys(ui.getSnapshot().visits ?? {}))
@@ -1164,6 +1183,7 @@ export function createTeam() {
     useLive: use(live),
     useCards: use(cards),
     useHeldCards: use(heldCards),
+    useRescuedDrafts: use(questionDrafts.rescued),
     useTurnClock: use(turnClock),
     useUpdate: use(update),
     useRegistry: use(registry),

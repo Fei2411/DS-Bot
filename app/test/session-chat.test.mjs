@@ -1306,3 +1306,127 @@ test('SessionTranscript in classic DSH mode renders unboxed Markdown prose, soft
     botInst.unmount()
   }
 })
+
+test('buildSessionRows preserves closed/superseded ask_user and show_view cards in hidden Bot-to-Bot turns (#2242)', () => {
+  const snapshot = {
+    type: 'snapshot',
+    header: { id: 'writer', cwd: '/repo' },
+    cursor: 14,
+    hasMore: false,
+    records: [
+      { type: 'event', event: { type: 'turn/start', seq: 1, time: 1000, data: { turn: 2 } } },
+      { type: 'event', event: { type: 'step/start', seq: 2, time: 1001, data: { turn: 2, step: 1 } } },
+      // Regular tool in a hidden Bot-to-Bot turn must stay hidden.
+      { type: 'event', event: { type: 'tool/call', seq: 3, time: 1002, data: { turn: 2, step: 1, callId: 'c-bash', name: 'bash', arguments: { command: 'ls' } } } },
+      { type: 'event', event: { type: 'tool/result', seq: 4, time: 1003, data: { turn: 2, step: 1, callId: 'c-bash', message: { content: [{ type: 'text', text: 'ok' }] } } } },
+      // Closed/superseded ask_user in hidden turn must be kept and settled without INTERRUPTED_ERROR.
+      { type: 'event', event: { type: 'tool/call', seq: 5, time: 1004, data: { turn: 2, step: 1, callId: 'c-ask-closed', name: 'ask_user', arguments: { question: 'Pick a name?', options: [{ label: 'Alpha' }] } } } },
+      { type: 'event', event: { type: 'tool/result', seq: 6, time: 1005, data: { turn: 2, step: 1, callId: 'c-ask-closed', message: { content: [{ type: 'text', text: 'The question is on screen.' }] } } } },
+      // Still-open (unclosed) ask_user in hidden turn stays out of transcript (rendered in dock).
+      { type: 'event', event: { type: 'tool/call', seq: 7, time: 1006, data: { turn: 2, step: 1, callId: 'c-ask-open', name: 'ask_user', arguments: { question: 'Still open?', options: [{ label: 'Yes' }] } } } },
+      { type: 'event', event: { type: 'tool/result', seq: 8, time: 1007, data: { turn: 2, step: 1, callId: 'c-ask-open', message: { content: [{ type: 'text', text: 'The question is on screen.' }] } } } },
+      // Closed show_view dispatched via PTC inside a hidden turn (parent run_code skipped).
+      { type: 'event', event: { type: 'tool/call', seq: 9, time: 1008, data: { turn: 2, step: 1, callId: 'c-ptc-root', name: 'run_code', arguments: { code: 'show_view(...)' } } } },
+      { type: 'event', event: { type: 'tool/ptc-dispatch-start', seq: 10, time: 1009, data: { parentCallId: 'c-ptc-root', rootCallId: 'c-ptc-root', subCallId: 'c-view-closed', name: 'show_view', arguments: { title: 'Pick view', view: {} } } } },
+      { type: 'event', event: { type: 'tool/ptc-dispatch', seq: 11, time: 1010, data: { parentCallId: 'c-ptc-root', rootCallId: 'c-ptc-root', subCallId: 'c-view-closed', name: 'show_view', content: [{ type: 'text', text: 'The view is on screen.' }], isError: false } } },
+      // Paginated PTC closed show_view where dispatch-start fell before the loaded window.
+      { type: 'event', event: { type: 'tool/ptc-dispatch', seq: 12, time: 1011, data: { parentCallId: 'c-ptc-older', rootCallId: 'c-ptc-older', subCallId: 'c-view-paged', name: 'show_view', arguments: { title: 'Earlier view', view: {} }, content: [{ type: 'text', text: 'The view is on screen.' }], isError: false } } },
+      { type: 'event', event: { type: 'step/end', seq: 13, time: 1012, data: { turn: 2, step: 1 } } },
+      { type: 'event', event: { type: 'turn/end', seq: 14, time: 1013, data: { turn: 2, reason: { kind: 'completed' } } } },
+    ],
+  }
+  const { log } = applyFrame(emptyLog(), snapshot)
+  const roster = {
+    exchangeTurns: { writer: [2] },
+    closedCards: {
+      writer: {
+        'c-ask-closed': 'dismissed',
+        'c-view-closed': 'dismissed',
+        'c-view-paged': 'replied',
+      },
+    },
+  }
+  const rows = buildSessionRows(log, { roster, sessionId: 'writer' })
+  const toolRows = rows.filter(r => r.kind === 'tool')
+  assert.deepEqual(plain(toolRows.map(r => r.block.callId)), ['c-ask-closed', 'c-view-closed', 'c-view-paged'])
+  for (const row of toolRows) {
+    assert.equal(row.block.phase, 'result', `${row.block.callId} must settle as result`)
+    assert.equal(row.block.isError, false, `${row.block.callId} must not be marked INTERRUPTED_ERROR on step/turn end`)
+  }
+})
+
+test('createTeam rescues unsubmitted question drafts on external question removal and avoids double roster.set on revision change', async () => {
+  let stateCalls = 0
+  let rosterRenders = 0
+  let intervalFn = null
+  const prevSetInterval = sandbox.setInterval
+  const prevClearInterval = sandbox.clearInterval
+  sandbox.setInterval = (fn) => { intervalFn = fn; return 1 }
+  sandbox.clearInterval = () => {}
+  sandbox.__testCall = async (endpoint) => {
+    if (endpoint === 'state') {
+      stateCalls += 1
+      if (stateCalls === 1) {
+        return {
+          revision: 1,
+          modelsKey: 'm1',
+          bots: [{ id: 'b1', name: 'Chief', sessionId: 'b1', parts: ['b1'] }],
+          rooms: [],
+          prefs: {},
+          questions: { b1: { id: 'q1', callId: 'c1', question: 'Thoughts?' } },
+          speech: false,
+        }
+      }
+      return {
+        revision: 2,
+        modelsKey: 'm1',
+        bots: [{ id: 'b1', name: 'Chief', sessionId: 'b1', parts: ['b1'] }],
+        rooms: [],
+        prefs: {},
+        questions: {},
+        speech: true,
+      }
+    }
+    return {}
+  }
+
+  const team = createTeam()
+  const stop = team.start()
+  try {
+    await tick()
+    await tick()
+    const Probe = () => {
+      rosterRenders += 1
+      const roster = team.hooks.useRoster(s => s)
+      const rescued = team.hooks.useRescuedDrafts(s => s)
+      return react.createElement('div', { roster, rescued })
+    }
+    const probe = mount(Probe, {})
+    probe.render()
+    rosterRenders = 0
+
+    // User types a custom answer into question q1 before the question is superseded/cancelled.
+    team.actions.noteQuestionDraft({ kind: 'ask_user', id: 'q1', sessionId: 'b1', text: 'My half-typed custom answer' })
+    assert.equal(team.actions.readQuestionDraft('ask_user', 'q1'), 'My half-typed custom answer')
+
+    // Next poll advances revision (q1 disappears) AND changes live field `speech`.
+    intervalFn()
+    await tick()
+    await tick()
+    const props = probe.render().props
+    assert.equal(plain(props.rescued).b1, 'My half-typed custom answer', 'question draft is rescued when question vanishes externally')
+    assert.equal(plain(props.roster).revision, 2)
+    assert.equal(plain(props.roster).speech, true)
+    assert.equal(rosterRenders, 1, 'revision change with live field update must commit roster once')
+
+    team.actions.consumeRescuedDraft('b1', 'b1', 'My half-typed custom answer')
+    assert.equal(plain(probe.render().props.rescued).b1, undefined)
+    probe.unmount()
+  } finally {
+    stop()
+    sandbox.setInterval = prevSetInterval
+    sandbox.clearInterval = prevClearInterval
+    sandbox.__testCall = async () => ({})
+    fetchCtrl.reset()
+  }
+})

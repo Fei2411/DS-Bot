@@ -128,6 +128,9 @@ export function remoteAccessError(device, endpoint) {
   if (endpoint.startsWith('plugins-')) {
     return { code: 'bot/refused', message: 'Plugins are managed on the computer', details: {} }
   }
+  if (endpoint.startsWith('speech-')) {
+    return { code: 'bot/refused', message: 'Voice input settings and transcription are available on the computer', details: {} }
+  }
   return undefined
 }
 

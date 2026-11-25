@@ -17,6 +17,7 @@ import { MemberDock } from '../../../ds-bot/src/client/member-status.js'
 import { ModelChoiceDock } from '../../../ds-bot/src/client/model-menu.js'
 import { stepMenuFocus, useLinger, useViewport, viewBottom } from '../../../ds-bot/src/client/motion.js'
 import { PasteCard, foldPastedText, pastedName } from '../../../ds-bot/src/client/paste-card.js'
+import { mergeRescuedDraft, readRescuedForChat } from '../../../ds-bot/src/client/question-draft.js'
 import { QuestionDock } from '../../../ds-bot/src/client/questions.js'
 import { SecretDock } from '../../../ds-bot/src/client/secret-card.js'
 import { writingBlocks } from '../../../ds-bot/src/client/session-log.js'
@@ -445,7 +446,7 @@ function AgentComposerPlus({ disabled, fileInput, actions }) {
     canTerminal ? h('button', { type: 'button', role: 'menuitem', onClick: openTerminal }, h(TerminalIcon), h('span', { className: 'bt-menu-label' }, t('Terminal'))) : null), document.body) : null)
 }
 
-function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, addFilesRef, actions, feed, useUi, useRoster, useSessions }) {
+function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, addFilesRef, actions, feed, useUi, useRoster, useWork, useSessions, useRescuedDrafts }) {
   const roster = useRoster(value => value)
   const sessions = (useSessions ?? NO_SESSIONS_HOOK)(value => value)
   const isTeamChat = Boolean(roster.byId?.[sessionId] || roster.roomsById?.[sessionId])
@@ -478,6 +479,7 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
   textRef.current = text
   const inputActions = useInput(field, textRef, setText, setCaret)
   const enterToSend = sendsOnEnter(roster.prefs)
+  const rescued = useRescuedDrafts?.(state => readRescuedForChat(state, chatId, sessionId)) ?? ''
 
   useLayoutEffect(() => {
     const node = field.current
@@ -575,6 +577,31 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
       }
     }
   }, [chatId, sessionId, buildAttachmentEntries])
+
+  // Land rescued unsubmitted text from an externally cancelled/superseded question card into
+  // the composer draft and persist it before clearing the rescue queue.
+  useEffect(() => {
+    if (disabled || !chatId || hydratedChatRef.current !== chatId || rescued === '') return
+    const base = textRef.current
+    const merged = mergeRescuedDraft(base, rescued)
+    if (merged !== base) {
+      textRef.current = merged
+      skipNextSaveRef.current = true
+      writeDraft({
+        chatId,
+        part: sessionId,
+        text: merged,
+        files: (attachmentsRef.current ?? []).map(item => ({
+          kind: item.isImage ? 'image' : 'file',
+          file: item.file,
+          ...(item.pastedText ? { pastedText: item.pastedText } : {}),
+        })),
+      })
+      setText(merged)
+      setCaret(merged.length)
+    }
+    actions?.consumeRescuedDraft?.(chatId, sessionId, rescued)
+  }, [chatId, sessionId, rescued, disabled, actions])
 
   // Keep unsent draft text (localStorage) & files (in-memory) synced across chat switches and rollovers.
   useEffect(() => {
@@ -811,7 +838,7 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
     h('div', { className: 'dsb-composer-tools' },
       isAgentChat
         ? h(AgentComposerPlus, { disabled, fileInput, actions })
-        : h(ComposerPlus, { sessionId, inputActions, useRoster, actions })),
+        : h(ComposerPlus, { sessionId, inputActions, useRoster, useWork, actions })),
     h('div', { className: 'dsb-composer-input', 'data-input-scroll': '' },
       h('textarea', {
         ref: field,
@@ -1232,6 +1259,8 @@ export function Chat({ sessionId, team, registry, classic = false }) {
       feed,
       useUi: hooks.useUi,
       useRoster: hooks.useRoster,
+      useWork,
       useSessions: hooks.useSessions,
+      useRescuedDrafts: hooks.useRescuedDrafts,
     })))
 }
