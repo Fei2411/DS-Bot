@@ -6,7 +6,7 @@ Thank you for helping. This file explains how the team works, how to set up the 
 
 ## Who can open pull requests
 
-Collaborators of this repository push branches here and open pull requests into `dev` (see [How we work](#how-we-work)). For now, only collaborators can open pull requests. If you are not a collaborator, please open an issue for a bug (see [Report a problem](#report-a-problem)) or use [Discussions](https://github.com/Fei2411/DS-Bot/discussions) for a question or an idea.
+Collaborators of this repository push branches here and open pull requests into `dev` (see [How we work](#how-we-work)). For now, only collaborators can open pull requests. If you are not a collaborator, please open an issue for a bug (see [Report a problem](#report-a-problem)) or use [Discussions](https://github.com/Fei-Craft/DS-Bot/discussions) for a question or an idea.
 
 ## The rules that matter most
 
@@ -86,7 +86,7 @@ You need:
 - For the test bench only: pnpm `11` and a checkout of DeepSeek Harness at the DSH version that the plugin is tested with.
 
 ```sh
-git clone https://github.com/Fei2411/DS-Bot.git ds-bot-repo
+git clone https://github.com/Fei-Craft/DS-Bot.git ds-bot-repo
 cd ds-bot-repo/ds-bot
 
 # The plugin's packages and its build tool (esbuild).
@@ -104,7 +104,7 @@ For the test bench, add the DeepSeek Harness checkout next to the plugin folder 
 ```sh
 cd ..
 git clone https://github.com/deepseek-ai/deepseek-harness.git
-git -C deepseek-harness checkout dsh-v0.2.2-rc.1
+git -C deepseek-harness checkout dsh-v0.2.2-rc.5
 (cd deepseek-harness && pnpm install)
 ```
 
@@ -198,7 +198,7 @@ DS Bot removes API keys, tokens, saved secrets and your home folder from its dia
 
 For a security problem, do not open a public issue. Use **Report a vulnerability** on the repository's **Security** tab.
 
-Issues are for bug reports. Questions, ideas and feature requests belong in [Discussions](https://github.com/Fei2411/DS-Bot/discussions). An idea that the maintainer accepts becomes an issue.
+Issues are for bug reports. Questions, ideas and feature requests belong in [Discussions](https://github.com/Fei-Craft/DS-Bot/discussions). An idea that the maintainer accepts becomes an issue.
 
 ## License
 

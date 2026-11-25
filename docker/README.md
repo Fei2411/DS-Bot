@@ -186,7 +186,7 @@ The packed plugin stays at `/opt/ds-bot/ds-bot.tgz` for later dependency
 installs. `/tmp/ds-bot.tgz` links to it for profiles created by older images.
 A manual dependency install can therefore pick up the plugin bundled in the
 current image; restarting alone does not update the persisted profile.
-The image is built and tested with dsh `0.2.2-rc.1`, the version
+The image is built and tested with dsh `0.2.2-rc.5`, the version
 DS Bot is verified with. The entrypoint translates the default wildcard setting
 to the concrete container address this release requires. A `DSH_VERSION` build
 arg exists, but other releases are untested.
@@ -207,7 +207,7 @@ from the repository root would use the local root Compose file instead.
 ```yaml
 services:
   ds-bot:
-    image: ghcr.io/fei2411/ds-bot:dev
+    image: ghcr.io/fei-craft/ds-bot:dev
     ports:
       - "13080:3080"
     environment:

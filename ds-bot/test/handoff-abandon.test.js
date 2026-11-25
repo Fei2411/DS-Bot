@@ -167,10 +167,10 @@ async function waitingForTester(start) {
   const { agents, emit, tool } = host
   const turns = turnTaker(agents, emit)
   turns.userTurn('a', 'have Writer do it')
-  await tool('message_bot', { to: 'Writer', message: 'carry out the plan' }, 'a')
+  await tool('delegate_work', { to: 'Writer', goal: 'carry out the plan' }, 'a')
   turns.end('a', 'asked Writer')
   turns.take('b')
-  await tool('message_bot', { to: 'Tester', message: 'review my work' }, 'b')
+  await tool('delegate_work', { to: 'Tester', goal: 'review my work' }, 'b')
   turns.end('b', 'handed it on')
   const works = await worksIn(host)
   const parent = Object.entries(works).find(([, work]) => work.to === 'b')
@@ -245,11 +245,11 @@ test('giving up one branch leaves the other open works of the same work', async 
   const { agents, emit, tool, call } = host
   const turns = turnTaker(agents, emit)
   turns.userTurn('a', 'have Writer do it')
-  await tool('message_bot', { to: 'Writer', message: 'carry out the plan' }, 'a')
+  await tool('delegate_work', { to: 'Writer', goal: 'carry out the plan' }, 'a')
   turns.end('a', 'asked Writer')
   turns.take('b')
-  await tool('message_bot', { to: 'Tester', message: 'review my work' }, 'b')
-  await tool('message_bot', { to: 'Editor', message: 'edit the draft' }, 'b')
+  await tool('delegate_work', { to: 'Tester', goal: 'review my work' }, 'b')
+  await tool('delegate_work', { to: 'Editor', goal: 'edit the draft' }, 'b')
   turns.end('b', 'handed both on')
   const works = await worksIn(host)
   const parent = Object.entries(works).find(([, work]) => work.to === 'b')[0]

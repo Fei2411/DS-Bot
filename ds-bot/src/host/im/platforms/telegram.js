@@ -1,6 +1,7 @@
 // Telegram Bot API adapter: getUpdates long polling in, sendMessage out. Parts of the
 // protocol mapping follow dsh-im (MIT, © 2026 xmanrui — see NOTICE).
 import { chunkTelegram } from '../format.js'
+import { discardBody, FILE_LIMIT, IMAGE_LIMIT, readCappedBytes } from './media.js'
 import { retryDelay, retryWait } from './retry.js'
 
 const CLOUD_API = 'https://api.telegram.org'
@@ -44,11 +45,12 @@ export default {
     const inFlight = new Set()
     let selfName = ''
 
-    const call = async (method, params, { download = false, timeout = 30_000 } = {}) => {
+    const call = async (method, params, { download = false, timeout = 30_000, limit = FILE_LIMIT } = {}) => {
       const abort = new AbortController()
       inFlight.add(abort)
       if (stopped) abort.abort(stoppedError())
       const timer = setTimeout(() => abort.abort(new Error('timeout')), timeout)
+      timer.unref?.()
       try {
         const response = await env.fetch(download ? `${fileBase}/${method}` : `${base}/${method}`, download ? { signal: abort.signal } : {
           method: 'POST',
@@ -57,8 +59,15 @@ export default {
           signal: abort.signal,
         })
         if (download) {
-          if (!response.ok) throw Object.assign(new Error(`Telegram answered ${response.status}`), { status: response.status, permanent: response.status >= 400 && response.status < 500 })
-          return new Uint8Array(await response.arrayBuffer())
+          if (!response.ok) {
+            await discardBody(response)
+            throw Object.assign(new Error(`Telegram answered ${response.status}`), { status: response.status, permanent: response.status >= 400 && response.status < 500 })
+          }
+          const got = await readCappedBytes(response, limit)
+          if (got.overLimit || got.bytes === undefined) {
+            throw Object.assign(new Error(`exceeds ${Math.round(limit / (1024 * 1024))} MB download limit`), { permanent: true })
+          }
+          return got.bytes
         }
         const body = await response.json().catch(() => ({}))
         if (!body.ok) {
@@ -109,7 +118,7 @@ export default {
       try {
         const file = await call('getFile', { file_id: item.file_id })
         if (!file?.file_path) throw new Error('Telegram did not return a file path')
-        const data = await call(file.file_path, {}, { download: true, timeout: 60_000 })
+        const data = await call(file.file_path, {}, { download: true, timeout: 60_000, limit: kind === 'photo' ? IMAGE_LIMIT : FILE_LIMIT })
         return { file, data }
       } catch (error) {
         if (error?.stopped || stopped) throw error

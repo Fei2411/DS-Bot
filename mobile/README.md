@@ -4,6 +4,8 @@ The DS Bot app for iOS and Android, also exportable as a browser app. It control
 
 Pair the app with your computer by scanning the QR code in DS Bot's Settings → Phone. The encrypted link to the computer is in [../link](../link); run `npm ci` there too before you build.
 
+Use **Edit Bot** to rename a Bot or change its avatar, including Chief, the initial Main Bot. **Group settings** lets you upload or remove a group photo when the connected host supports group avatars.
+
 ## Run
 
 Use Node 24 (as in CI). iOS needs Xcode on macOS; Android needs the Android SDK and an emulator or a device. Expo Go is not supported, because the app uses native modules.

@@ -78,9 +78,12 @@ export function pushThreadPart(bot, sessionId, freshId, segment) {
 }
 
 // Every session this Bot keeps outside its current thread, for cleanup, memory and usage.
-export const openSessions = bot => (bot?.tasks ?? [])
-  .flatMap(task => [task.sessionId, ...(task.segments ?? []).map(segment => segment.sessionId)])
-  .filter(Boolean)
+export const taskSessionIds = task => [...new Set([task?.sessionId, ...(task?.segments ?? []).map(segment => segment?.sessionId)]
+  .filter(id => typeof id === 'string' && id !== ''))]
+
+export const openSessions = bot => (bot?.tasks ?? []).flatMap(taskSessionIds)
+
+export const retiredTaskSessionIds = bot => Array.isArray(bot.retiredTaskSessions) ? bot.retiredTaskSessions : []
 
 // A part that just moved on records a successor only when it belongs to a task thread:
 // the foreground chat keeps its current part in `bot.sessionId`.

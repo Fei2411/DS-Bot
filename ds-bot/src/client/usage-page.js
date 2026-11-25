@@ -10,6 +10,7 @@ import { ProviderLogo, matchProviderId } from './provider-logos.js'
 import { ownedPopups } from './popup-ownership.js'
 import { SelectMenu } from './select-menu.js'
 import { DAY_MS, HOUR, HOUR_MS, MODEL, OWNER, RANGES, compact, dayKey, hourMs, mondayOf, percent, spanRange, summarize, tokensOf } from './usage-data.js'
+import { memo } from './memo.js'
 
 // Usage page: the host's ledger as hourly rows, summed here by hour, day, week, or
 // month, over a preset range or days picked on a calendar. The overview stacks the
@@ -428,17 +429,21 @@ function SpanPicker({ span, today, oldest, active, near, onPick, onClose }) {
       low === null ? null : h('span', null, h('b', null, spanText(low, high)), ` · ${daysText(count)}`)))
 }
 
+const HEAT_LEVELS = [0.3, 0.52, 0.76, 1]
+
 // Each day of the last year, shaded by its tokens.
-function Heat({ view, keep, paint, index }) {
+const Heat = memo(function Heat({ view, ownerAt, modelAt, paint, index }) {
   const [hover, setHover] = useState(null)
-  const { today, daily, most, months, gridData, active } = useMemo(() => {
+  const activeCell = useRef(null)
+  const { today, daily, months, gridData, active } = useMemo(() => {
     const day = hourMs(`${view.now.slice(0, 10)} 00`)
     const first = mondayOf(day) - (HEAT_WEEKS - 1) * 7 * DAY_MS
     const from = dayKey(first)
     const map = new Map()
     for (const row of view.rows) {
+      if (ownerAt >= 0 ? row[OWNER] !== ownerAt : modelAt >= 0 && row[MODEL] !== modelAt) continue
       const k = row[HOUR].slice(0, 10)
-      if (k >= from && keep(row)) map.set(k, (map.get(k) ?? 0) + tokensOf(row))
+      if (k >= from) map.set(k, (map.get(k) ?? 0) + tokensOf(row))
     }
     const peak = Math.max(0, ...map.values())
     const monthLabels = []
@@ -456,16 +461,32 @@ function Heat({ view, keep, paint, index }) {
       }
     }
     const count = [...map.values()].filter(value => value > 0).length
-    return { today: day, daily: map, most: peak, months: monthLabels, gridData: items, active: count }
-  }, [view.now, view.rows, keep])
-  void most
-  const levels = [0.3, 0.52, 0.76, 1]
-  const cells = gridData.map(({ ms, week, day, level }) => h('span', {
+    return { today: day, daily: map, months: monthLabels, gridData: items, active: count }
+  }, [view.now, view.rows, ownerAt, modelAt])
+  useEffect(() => {
+    if (activeCell.current) {
+      activeCell.current.removeAttribute('data-on')
+      activeCell.current = null
+    }
+    setHover(null)
+  }, [gridData])
+  const cells = useMemo(() => gridData.map(({ ms, week, level }, cellIndex) => h('span', {
     key: ms, className: 'bt-us-cell', style: { '--w': week },
-    'data-on': hover?.ms === ms ? '' : undefined,
+    'data-heat-i': ms > today ? undefined : cellIndex,
     'data-future': ms > today ? '' : undefined, 'data-today': ms === today ? '' : undefined,
-    onMouseEnter: ms > today ? undefined : () => setHover({ ms, week, day }),
-  }, level > 0 ? h('i', { style: { background: soften(paint, levels[level - 1]) } }) : null))
+  }, level > 0 ? h('i', { style: { background: soften(paint, HEAT_LEVELS[level - 1]) } }) : null)), [gridData, today, paint])
+  const setHoverCell = (node, item) => {
+    if (activeCell.current && activeCell.current !== node) activeCell.current.removeAttribute('data-on')
+    activeCell.current = node
+    if (node) node.setAttribute('data-on', '')
+    setHover(prev => (prev?.ms === item?.ms ? prev : item))
+  }
+  const onGridOver = (event) => {
+    const cell = event.target?.closest?.('[data-heat-i]')
+    if (!cell) return
+    const item = gridData[Number(cell.getAttribute('data-heat-i'))]
+    if (item) setHoverCell(cell, item)
+  }
   const tipSide = hover ? {
     ...(hover.week >= HEAT_WEEKS / 2
       ? { right: `calc(${((HEAT_WEEKS - hover.week) / HEAT_WEEKS) * 100}% + 8px)` }
@@ -478,15 +499,15 @@ function Heat({ view, keep, paint, index }) {
   return h('section', { className: 'bt-us-card bt-us-heat', style: { '--i': index } },
     h('div', { className: 'bt-us-card-head' }, h('h3', null, t('Activity')), h('span', { className: 'bt-us-head-note' }, summary)),
     h('div', { className: 'bt-us-heat-months', 'aria-hidden': true }, months),
-    h('div', { className: 'bt-us-heat-plot', onMouseLeave: () => setHover(null) },
-      h('div', { className: 'bt-us-heat-grid', role: 'img', 'aria-label': summary }, cells),
+    h('div', { className: 'bt-us-heat-plot', onMouseLeave: () => setHoverCell(null, null) },
+      h('div', { className: 'bt-us-heat-grid', role: 'img', 'aria-label': summary, onMouseOver: onGridOver }, cells),
       hover ? h('div', { className: 'bt-us-tip bt-us-heat-tip', style: tipSide },
         h('div', { className: 'bt-us-tip-title' }, dates({ month: 'long', day: 'numeric', weekday: 'short' }).format(hover.ms)),
         h('div', { className: 'bt-us-tip-total' }, t('{count} tokens', { count: full(daily.get(dayKey(hover.ms)) ?? 0) }))) : null),
     h('div', { className: 'bt-us-heat-scale', 'aria-hidden': true }, t('Light'),
-      levels.map(level => h('span', { key: level, className: 'bt-us-cell' }, h('i', { style: { background: soften(paint, level) } }))),
+      HEAT_LEVELS.map(level => h('span', { key: level, className: 'bt-us-cell' }, h('i', { style: { background: soften(paint, level) } }))),
       t('Heavy')))
-}
+}, undefined, 'Heat')
 
 function Skeleton() {
   return h('div', { className: 'bt-us', 'aria-busy': true },
@@ -639,7 +660,7 @@ export function UsagePage({ roster, actions, focusId }) {
         h('b', null, view.scanning ? t('Reading your chats…') : t('No usage yet.')),
         h('span', null, t('Token usage shows up here after a model is called.'))))
   }
-  const { faces, models, ownerAt, face, keep, all, part, series, tipSeries, fillOf, columns, ranked, isBot, activeDays, oldest } = shaped
+  const { faces, models, ownerAt, modelAt, face, all, part, series, tipSeries, fillOf, columns, ranked, isBot, activeDays, oldest } = shaped
   const pick = next => actions.openSettings('usage', `${next.kind}:${next.key}`)
   const chooseRange = (id) => {
     if (id !== 'custom') {
@@ -690,7 +711,7 @@ export function UsagePage({ roster, actions, focusId }) {
             kinds.length > 0
               ? kinds.map(([at, sum], index) => h(Row, { key: at, name: kindLabel(view.kinds[at], ownerAt >= 0 && isBot(ownerAt)), sum, whole, index, fill: soften(face.paint, 0.8) }))
               : nothing)),
-        h(Heat, { key: 'heat', view, keep, paint: face.paint, index: 4 })),
+        h(Heat, { key: 'heat', view, ownerAt, modelAt, paint: face.paint, index: 4 })),
     ]
   } else {
     const owners = ranked(all.owners)
@@ -708,7 +729,7 @@ export function UsagePage({ roster, actions, focusId }) {
             bots.length > 0 && rest.length > 0 ? h('div', { className: 'bt-us-split', role: 'separator' }) : null,
             rest.map((entry, index) => ownerRow(entry, bots.length + index))),
           h(ListCard, { title: t('Models'), count: usedModels.length, index: 3 }, usedModels.length > 0 ? usedModels.map(modelRow) : nothing)),
-        h(Heat, { key: 'heat', view, keep, paint: 'var(--bt-accent)', index: 4 })),
+        h(Heat, { key: 'heat', view, ownerAt: -1, modelAt: -1, paint: 'var(--bt-accent)', index: 4 })),
     ]
   }
 
@@ -862,7 +883,8 @@ button.bt-us-row:hover{background:var(--bt-hover)}
 .bt-us-cell[data-future]{visibility:hidden}
 .bt-us-heat-scale{display:flex;align-items:center;justify-content:flex-end;gap:4px;font-size:11px;line-height:14px;color:var(--bt-ink-3)}
 .bt-us-heat-scale .bt-us-cell{width:10px}
-.bt-us-skel{border-radius:16px;background:linear-gradient(90deg,var(--bt-hover) 0%,var(--bt-active) 50%,var(--bt-hover) 100%);background-size:200% 100%;animation:bt-us-shine 1.4s ease-in-out infinite}
+.bt-us-skel{position:relative;overflow:hidden;border-radius:16px;background:var(--bt-hover)}
+.bt-us-skel::after{content:'';position:absolute;inset:0;background:linear-gradient(90deg,transparent 0%,var(--bt-active) 50%,transparent 100%);transform:translateX(-100%);animation:bt-us-shine 1.4s ease-in-out infinite}
 .bt-us-skel-sheet>.bt-us-skel:first-child{border-radius:16px 16px 0 0}
 .bt-us-skel-sheet>.bt-us-skel:not(:first-child){border-radius:0}
 .bt-us-skel-sheet>.bt-us-pair>.bt-us-skel:first-child{border-radius:0 0 0 16px}
@@ -878,8 +900,8 @@ button.bt-us-row:hover{background:var(--bt-hover)}
 @keyframes bt-us-cell{from{opacity:0;transform:scale(.5)}}
 @keyframes bt-us-ring{from{stroke-dasharray:0 ${Math.ceil(RING)}}}
 @keyframes bt-us-pulse{50%{opacity:.25}}
-@keyframes bt-us-shine{from{background-position:200% 0}to{background-position:-200% 0}}
-@media (prefers-reduced-motion:reduce){.bt-us *,.bt-us *::before{animation:none!important;transition:none!important}}
+@keyframes bt-us-shine{from{transform:translateX(-100%)}to{transform:translateX(100%)}}
+@media (prefers-reduced-motion:reduce){.bt-us *,.bt-us *::before,.bt-us *::after{animation:none!important;transition:none!important}}
 /* Narrow and mid-width viewports: stats take two columns, the calendar and heat map shrink or scroll. */
 @media (max-width:780px){
   .bt-us-stats{grid-template-columns:repeat(2,1fr)}

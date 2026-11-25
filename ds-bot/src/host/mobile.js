@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs'
 import { open, readFile, stat } from 'node:fs/promises'
 import { extname, isAbsolute, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { HANDOFF_ACK, HISTORY_TIMEOUT_MS, SOURCE_KIND } from './constants.js'
+import { HANDOFF_ACK, HISTORY_TIMEOUT_MS, isSilentTurnText, SOURCE_KIND } from './constants.js'
 import { within } from './folders.js'
 import { PREVIEW_EDGE, previewImage } from './preview.js'
 import { relayRange } from '../shared/group-replies.js'
@@ -26,6 +26,7 @@ export const CAPABILITIES = [
   'state',
   'state-avatar-refs',
   'avatar',
+  'room-avatars',
   'chat',
   'room-chat',
   'agents',
@@ -52,8 +53,9 @@ export const CAPABILITIES = [
   'markdown-image',
   'file-download-chunks',
   'write-state',
+  'push-register',
 ]
-export const NOTICE_KINDS = ['message', 'group', 'done', 'question', 'view', 'approval']
+export const NOTICE_KINDS = ['message', 'group', 'done', 'question', 'view', 'approval', 'secret', 'connector', 'handoff', 'learning']
 
 // Notices live in memory: a client away longer than this many notices, or across a
 // restart (a new `boot`), reads the team again instead.
@@ -76,7 +78,22 @@ const noticeText = (text) => {
 }
 // DSH names an image's type `mediaType`; older records said `mime`.
 const mediaOf = attachment => attachment?.mediaType ?? attachment?.mime ?? attachment?.mimeType
-export const avatarRef = image => createHash('sha256').update(image).digest('hex').slice(0, 16)
+const AVATAR_REF_MAX = 64
+const avatarRefCache = new Map()
+export const clearAvatarRefCache = () => { avatarRefCache.clear() }
+export const avatarRef = (image) => {
+  if (typeof image !== 'string') return createHash('sha256').update(image).digest('hex').slice(0, 16)
+  let ref = avatarRefCache.get(image)
+  if (ref !== undefined) {
+    avatarRefCache.delete(image)
+    avatarRefCache.set(image, ref)
+    return ref
+  }
+  ref = createHash('sha256').update(image).digest('hex').slice(0, 16)
+  avatarRefCache.set(image, ref)
+  if (avatarRefCache.size > AVATAR_REF_MAX) avatarRefCache.delete(avatarRefCache.keys().next().value)
+  return ref
+}
 
 // The prompts of a due scheduled task, as DSH frames them for the model.
 function reminderText(text) {
@@ -135,7 +152,7 @@ export function roomItems(events, rowsOf = () => []) {
       } else if (source?.kind === SOURCE_KIND && source.role === 'post') {
         // A post a running round logged shows inside that round; a member's late failure,
         // picked-up work, stopped work or finished work is an event of the round it opens.
-        if (source.logged !== undefined || source.failed !== undefined || source.resumed === true || source.stopped === true || source.done === true) continue
+        if (source.logged !== undefined || source.failed !== undefined || source.resumed === true || source.stopped === true || source.done === true || source.resumedPause === true) continue
         const file = source.length === undefined ? undefined : content.find(block => block?.type === 'file')?.attachment
         items.push({
           id: `${seq}`, kind: 'bot', botId: source.senderSessionId ?? null, name: source.senderName ?? null,
@@ -229,6 +246,12 @@ export function install(rt) {
     const room = rt.roomOf(entry.roomId)
     botNotice(entry.botId, { kind: 'approval', sessionId: entry.sessionId, ...(room ? { roomId: room.id, title: room.name } : {}), text: entry.tool })
   }
+  rt.learningProposed = (proposal) => {
+    if (!proposal?.botId) return
+    const label = proposal.kind === 'agents' ? `${proposal.folder}/AGENTS.md` : `skills/${proposal.name}/SKILL.md`
+    const sessionId = rt.chatOf?.(proposal.botId)
+    botNotice(proposal.botId, { kind: 'learning', ...(sessionId ? { sessionId } : {}), text: label })
+  }
 
   ctx.on('session/event', (session, event) => {
     const id = session?.id
@@ -243,6 +266,8 @@ export function install(rt) {
     const botId = rt.chatOwners.get(id)
     if (botId === undefined || rt.taskOwners?.has(id) || (state.exchangeTurns[id] ?? []).includes(event.data?.turn)) return
     const text = textOf(event.data?.message?.content)
+    const info = rt.live?.get(id)?.info
+    if (info?.kind === SOURCE_KIND && info.audience !== 'user' && isSilentTurnText(text)) return
     // The fixed reply that opens a fresh part is not the Bot speaking.
     if (text !== '' && text !== HANDOFF_ACK) botNotice(botId, { kind: 'message', sessionId: id, text })
   })
@@ -256,7 +281,18 @@ export function install(rt) {
     }, LIVE_SIGNAL_MS)
   }
   const offApproval = rt.onApproval?.(() => liveChanged())
-  const offHolds = rt.browserChannel?.subscribeHolds?.(() => liveChanged())
+  const seenHolds = new Map()
+  const offHolds = rt.browserChannel?.subscribeHolds?.((botId, hold) => {
+    liveChanged()
+    if (hold === null || hold?.callId === undefined) {
+      seenHolds.delete(botId)
+      return
+    }
+    if (seenHolds.get(botId) === hold.callId) return
+    seenHolds.set(botId, hold.callId)
+    const sessionId = hold.sessionId ?? rt.chatOf?.(botId)
+    botNotice(botId, { kind: 'handoff', ...(sessionId ? { sessionId } : {}), text: hold.note || hold.reason || '' })
+  })
 
   ctx.effect(() => () => {
     for (const timer of roomTimers.values()) clearTimeout(timer)
@@ -265,6 +301,7 @@ export function install(rt) {
     liveTimer = undefined
     offApproval?.()
     offHolds?.()
+    clearAvatarRefCache()
   }, 'ds-bot: mobile room signals')
 
   rt.apiVersion = API_VERSION
@@ -300,11 +337,25 @@ export function install(rt) {
   }
 
   // A state answer with each photo replaced by its reference; `avatar` sends the image.
-  rt.slimAvatars = value => (Array.isArray(value?.bots)
-    ? { ...value, bots: value.bots.map(bot => (typeof bot.avatar?.image === 'string' ? { ...bot, avatar: { ...bot.avatar, image: undefined, imageRef: avatarRef(bot.avatar.image) } } : bot)) }
-    : value)
+  const avatarByRef = entry => {
+    const image = entry.avatar?.image
+    return typeof image === 'string'
+      ? { ...entry, avatar: { ...entry.avatar, image: undefined, imageRef: avatarRef(image) } }
+      : entry
+  }
+  rt.slimAvatars = value => ({
+    ...value,
+    bots: value.bots.map(avatarByRef),
+    rooms: value.rooms.map(avatarByRef),
+  })
 
   function avatar(body) {
+    if (body.botId === undefined && typeof body.roomId === 'string') {
+      const room = rt.roomOf(body.roomId)
+      if (room === undefined) throw Object.assign(new Error('Unknown group chat'), { code: 'bot/not-found' })
+      const image = room.avatar?.image
+      return typeof image === 'string' ? { roomId: room.id, ref: avatarRef(image), image } : { roomId: room.id, ref: null, image: null }
+    }
     const bot = rt.botOf(String(body.botId ?? ''))
     if (bot === undefined) throw Object.assign(new Error('Unknown Bot'), { code: 'bot/not-found' })
     const image = bot.avatar?.image
@@ -341,7 +392,7 @@ export function install(rt) {
       for (const { callId, at } of open.reverse()) {
         const round = rt.roomProgress.get(callId)
         if (round === undefined) continue
-        const said = Number.isInteger(round.from) ? rt.groupRows?.(room.id, round.from) ?? [] : round.replies ?? []
+        const said = Number.isInteger(round.from) ? rt.groupRows?.(room.id, round.from, undefined, round.anchor) ?? [] : round.replies ?? []
         const live = said.map((reply, index) => replyItem(reply, `${callId}:${index}`, { live: true })).filter(Boolean)
         items.splice(at, 0, ...live)
       }
@@ -393,6 +444,7 @@ export function install(rt) {
     const live = ctx.sessions?.get?.(targetId)
     const rawLive = live?.seq
     if (typeof rawLive === 'number' && Number.isSafeInteger(rawLive) && rawLive >= 0) return rawLive - 1
+    if (typeof rt.resolveAgent !== 'function') return undefined
     const agent = await rt.resolveAgent(targetId).catch(() => undefined)
     const rawSeq = agent?.session?.seq
     return typeof rawSeq === 'number' && Number.isSafeInteger(rawSeq) && rawSeq >= 0 ? rawSeq - 1 : undefined
@@ -426,12 +478,16 @@ export function install(rt) {
           for (const block of content) {
             if (block?.type === 'image' && String(block.attachment?.attachmentId) === String(body.attachmentId)) {
               const key = String(block.attachment.attachmentId)
-              if (body.preview === true && previews.get(key)) return shown(key)
+              const hasCachedPreview = body.preview === true && previews.has(key)
+              if (hasCachedPreview) {
+                if (previews.get(key) !== null) return shown(key)
+                keep(key, null)
+              }
               // An image block's ref names no file: DSH reads it as an image, not a file.
               const bytes = Buffer.from((await attachments.readImage(block.attachment, AbortSignal.timeout(HISTORY_TIMEOUT_MS))).data)
               const mime = mediaOf(block.attachment) ?? 'image/png'
               const { width, height } = block.attachment
-              if (body.preview === true && !(Math.max(width, height) <= PREVIEW_EDGE)) {
+              if (body.preview === true && !hasCachedPreview && !(Math.max(width, height) <= PREVIEW_EDGE)) {
                 // A photo that cannot be shrunk is sent as it is, and remembered as such.
                 const small = await previewImage(bytes, mime).catch(() => null)
                 keep(key, small)

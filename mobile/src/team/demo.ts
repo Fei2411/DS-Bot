@@ -9,7 +9,7 @@ import type { ChatItem } from '../screens/chat/items.tsx'
 // Demo mode (EXPO_PUBLIC_DSB_DEMO=1): no computer, no link. The fixture answers
 // with exactly the shapes the real host returns (channel.js `state` view + live(),
 // parts.js `chat` pages). Only compiled in when the env var is set at bundle time.
-export const DEMO_HELLO = { api: 1, min: 1, capabilities: ['state', 'state-avatar-refs', 'avatar', 'chat', 'room-chat', 'agents', 'send', 'feed', 'feed-room', 'notices', 'questions', 'views', 'approvals', 'stop-member-work', 'memory', 'memory-edit', 'usage-summary', 'stop-chat', 'stop-agent', 'row-meta', 'chat-steps', 'link-feed', 'images', 'write-state'], boot: 'demo', seq: 0 }
+export const DEMO_HELLO = { api: 1, min: 1, capabilities: ['state', 'state-avatar-refs', 'avatar', 'room-avatars', 'chat', 'room-chat', 'agents', 'send', 'feed', 'feed-room', 'notices', 'questions', 'views', 'approvals', 'stop-member-work', 'memory', 'memory-edit', 'usage-summary', 'stop-chat', 'stop-agent', 'row-meta', 'chat-steps', 'link-feed', 'images', 'write-state'], boot: 'demo', seq: 0 }
 
 export function demoLink() {
   const data = useMemo(demoData, [])
@@ -285,7 +285,7 @@ const call = useMemo(() => async (endpoint: string, payload: unknown = {}): Prom
       case 'browser-frame': {
         const hold = state.browserHolds?.[String(body.botId ?? '')]
         if (hold === undefined && body.botId !== 'b-coder') return { ok: false, error: { code: 'bot/not-found', message: 'This Bot has no open browser' } }
-        return { mime: 'image/png', data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', url: 'https://github.com/fei2411/ds-bot', title: 'DS Bot — GitHub' }
+        return { mime: 'image/png', data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', url: 'https://github.com/Fei-Craft/DS-Bot', title: 'DS Bot — GitHub' }
       }
       case 'browser-takeover': { (state.browserHolds ??= {})[String(body.botId ?? '')] = { by: 'user', reason: 'takeover', note: 'The user is controlling this browser.' }; return { ok: true } }
       case 'browser-give-back': { delete (state.browserHolds ??= {})[String(body.botId ?? '')]; return { ok: true } }
@@ -327,5 +327,5 @@ const call = useMemo(() => async (endpoint: string, payload: unknown = {}): Prom
     }
   }, [data])
 
-  return { team: stateRef.current, online: true, error: null, call }
+  return { team: { ...stateRef.current }, online: true, error: null, call }
 }

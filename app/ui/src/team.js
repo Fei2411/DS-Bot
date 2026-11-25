@@ -21,6 +21,7 @@ import { openFeed } from './api.js'
 const CATCH_UP_MS = 15_000
 const READ_AGAIN = new Set(['hello', 'revision', 'live'])
 const NO_WORK = { bots: {}, approvals: [] }
+const EMPTY_PENDING = Object.freeze([])
 
 // A selection from a source. The value is kept per snapshot and selector, so React reads
 // one value until the source changes.
@@ -95,6 +96,8 @@ export function createTeam() {
   let lastAgentSession = null
   const agentNewInFlight = new Map()
   let classicSeq = 0
+  const sessionHooks = new Map()
+  const streamingReply = new Set()
 
   const isAgentSessionId = id => Boolean(id && roster.getSnapshot().agentOf?.[id] !== undefined)
   const latestAgentSession = (agentId) => {
@@ -184,6 +187,40 @@ export function createTeam() {
     ui.set(state => (JSON.stringify(state.unread) === JSON.stringify(unread) ? state : { ...state, unread }))
   }
 
+  const pruneSessions = (indexed) => {
+    const activeShown = shown.getSnapshot()
+    const keep = id => id === activeShown || indexed.byId[id] !== undefined || indexed.roomsById[id] !== undefined || indexed.agentOf?.[id] !== undefined
+    sessions.set((list) => {
+      if (list.ids.every(keep)) return list
+      const ids = list.ids.filter(keep)
+      const byId = {}
+      for (const id of ids) byId[id] = list.byId[id]
+      return { ids, byId }
+    })
+    status.set((map) => {
+      let dirty = false
+      for (const id of map.keys()) { if (!keep(id)) { dirty = true; break } }
+      if (!dirty) return map
+      const next = new Map()
+      for (const [id, entry] of map) if (keep(id)) next.set(id, entry)
+      return next
+    })
+    sent.set((state) => {
+      const keys = Object.keys(state)
+      if (keys.every(keep)) return state
+      const next = {}
+      for (const id of keys) if (keep(id)) next[id] = state[id]
+      return next
+    })
+    for (const id of [...sessionHooks.keys()]) if (!keep(id)) sessionHooks.delete(id)
+    for (const id of [...streamingReply]) {
+      if (!keep(id)) {
+        streamingReply.delete(id)
+        actions.noteLive(id, 'reply', null)
+      }
+    }
+  }
+
   // Reads can overlap (the feed and a finished action); an older answer never wins.
   let pulls = 0
   let applied = 0
@@ -210,7 +247,8 @@ export function createTeam() {
     if (value.btwCards !== undefined && JSON.stringify(value.btwCards) !== JSON.stringify(current.btwCards ?? {})) changed.btwCards = value.btwCards
     if (value.sideChats !== undefined && JSON.stringify(value.sideChats) !== JSON.stringify(current.sideChats ?? {})) changed.sideChats = value.sideChats
     if (value.phone !== undefined && JSON.stringify(value.phone) !== JSON.stringify(current.phone ?? null)) changed.phone = value.phone
-    if (value.mcp !== undefined && JSON.stringify(value.mcp) !== JSON.stringify(current.mcp ?? null)) changed.mcp = value.mcp
+    if (value.api !== undefined && JSON.stringify(value.api) !== JSON.stringify(current.api ?? null)) changed.api = value.api
+    if (value.apiVia !== undefined && JSON.stringify(value.apiVia) !== JSON.stringify(current.apiVia ?? {})) changed.apiVia = value.apiVia
     if (value.imStatus !== undefined && JSON.stringify(value.imStatus) !== JSON.stringify(current.imStatus ?? {})) changed.imStatus = value.imStatus
     if (value.imVia !== undefined && JSON.stringify(value.imVia) !== JSON.stringify(current.imVia ?? {})) changed.imVia = value.imVia
     if (value.secrets !== undefined && JSON.stringify(value.secrets) !== JSON.stringify(current.secrets ?? [])) changed.secrets = value.secrets
@@ -237,6 +275,7 @@ export function createTeam() {
       const latest = firstAgent ? (latestAgentSession(firstAgent.id) ?? firstAgent.sessions?.[0]) : undefined
       if (latest) show(latest)
     }
+    pruneSessions(indexed)
   }
   const after = promise => promise.then(async (value) => { await pull().catch(() => {}); return value })
   const partFor = (id) => {
@@ -681,7 +720,7 @@ export function createTeam() {
       }
     },
     noteSent: (sessionId) => {
-      sent.set(state => ({ ...state, [sessionId]: [...(state[sessionId] ?? []), { placement: 'direct', time: Date.now() }] }))
+      sent.set(state => ({ ...state, [sessionId]: [...(state[sessionId] ?? EMPTY_PENDING), { placement: 'direct', time: Date.now() }] }))
     },
     checkUpdate: async () => {
       const value = await call('update-check', { fresh: true })
@@ -701,6 +740,8 @@ export function createTeam() {
     checkOwnApp: async () => { await globalThis.dsBotApp?.updates?.check?.() },
     installOwnApp: async () => { await globalThis.dsBotApp?.updates?.install?.() },
     openOwnApp: async () => { await globalThis.dsBotApp?.updates?.open?.() },
+    downloadOwnApp: async () => { await globalThis.dsBotApp?.updates?.download?.() },
+    setOwnAppAutoUpdate: async (enabled) => { await globalThis.dsBotApp?.updates?.setAutoUpdate?.(enabled === true) },
   }
 
   // Without the Desktop bridge these stay undefined, and no browser control renders.
@@ -777,6 +818,7 @@ export function createTeam() {
         pick: () => bridge.importPick(),
         paste: typeof bridge.importPaste === 'function' ? (text, defaultUrl) => bridge.importPaste(text, defaultUrl) : null,
         launch: typeof bridge.importLaunch === 'function' ? source => bridge.importLaunch(source) : null,
+        openPermission: typeof bridge.importOpenPermission === 'function' ? () => bridge.importOpenPermission() : null,
         live: (source, close, requestId) => bridge.importLive(source, close, requestId),
         apply: (botId, pending, options) => bridge.importApply(`bot:${botId}`, pending, options),
         cancel: pending => bridge.importCancel(pending),
@@ -816,6 +858,10 @@ export function createTeam() {
   work.subscribe(followWork)
 
   const onFeed = (event, data) => {
+    if (event === 'hello') {
+      for (const sessionId of streamingReply) actions.noteLive(sessionId, 'reply', null)
+      streamingReply.clear()
+    }
     if (event === 'message' && data?.sessionId && data.item) {
       const { sessionId, item } = data
       const text = item.kind === 'bot' || item.kind === 'user' ? item.text : ''
@@ -825,22 +871,50 @@ export function createTeam() {
         // The sidebar's preview line; turn -1 is never a hidden exchange turn.
         projectionValues: text ? { turnOutline: [{ turn: -1, [item.kind === 'bot' ? 'response' : 'prompt']: text }] } : row.projectionValues,
       }))
-      if (item.kind === 'bot' && shown.getSnapshot() !== sessionId) setStatus(sessionId, { completionUnread: true })
+      if (item.kind === 'bot') {
+        if (streamingReply.delete(sessionId)) actions.noteLive(sessionId, 'reply', null)
+        if (shown.getSnapshot() !== sessionId) setStatus(sessionId, { completionUnread: true })
+      }
       if (item.kind === 'user') sent.set(state => (state[sessionId]?.length ? { ...state, [sessionId]: state[sessionId].slice(1) } : state))
     }
-    // While a reply streams in, it stands in for the activity row.
-    if (event === 'stream' && data?.sessionId) actions.noteLive(data.sessionId, 'reply', data.phase === undefined && data.text ? { text: true } : null)
+    // While a reply streams in, it stands in for the activity row; notify only on transitions.
+    if (event === 'stream' && data?.sessionId) {
+      const streaming = data.phase === undefined && Boolean(data.text)
+      if (streaming) {
+        if (!streamingReply.has(data.sessionId)) {
+          streamingReply.add(data.sessionId)
+          actions.noteLive(data.sessionId, 'reply', { text: true })
+        }
+      } else if (streamingReply.delete(data.sessionId)) {
+        actions.noteLive(data.sessionId, 'reply', null)
+      }
+    }
     chat.emit(event, data)
   }
 
   const start = () => {
     let stopped = false
+    let timer
     const read = () => {
       void pull().catch((error) => {
         if (stopped) return
         console.warn('[ds-bot] state', error)
         if (!roster.getSnapshot().ready) actions.reportError(error, 'state')
       })
+    }
+    const startTimer = () => {
+      if (timer !== undefined || stopped) return
+      timer = setInterval(read, CATCH_UP_MS)
+    }
+    const stopTimer = () => {
+      if (timer === undefined) return
+      clearInterval(timer)
+      timer = undefined
+    }
+    const onVisibility = () => {
+      if (stopped) return
+      if (document.hidden) stopTimer()
+      else { read(); startTimer() }
     }
     read()
     let updateTimer
@@ -919,7 +993,8 @@ export function createTeam() {
         browsers.dispose()
       }
     }
-    const timer = setInterval(read, CATCH_UP_MS)
+    if (typeof document === 'undefined' || !document.hidden) startTimer()
+    if (typeof document?.addEventListener === 'function') document.addEventListener('visibilitychange', onVisibility)
     const onPageHide = () => leaveVisits(Object.keys(ui.getSnapshot().visits ?? {}))
     window.addEventListener('pagehide', onPageHide)
     return () => {
@@ -931,7 +1006,8 @@ export function createTeam() {
       closeFeed()
       stopApprovalNotices()
       stopBrowsers?.()
-      clearInterval(timer)
+      stopTimer()
+      if (typeof document?.removeEventListener === 'function') document.removeEventListener('visibilitychange', onVisibility)
       window.removeEventListener('pagehide', onPageHide)
     }
   }
@@ -961,6 +1037,22 @@ export function createTeam() {
     useShown: use(shown),
   }
   // The Session one view shows, as DSH hands it to a view: what was just sent there.
-  const sessionHook = sessionId => selector => useSelect(sent, state => selector({ pendingSubmissions: state[sessionId] ?? [] }))
+  const sessionHook = (sessionId) => {
+    let hook = sessionHooks.get(sessionId)
+    if (hook === undefined) {
+      let lastPending = EMPTY_PENDING
+      let lastSlice = { pendingSubmissions: EMPTY_PENDING }
+      hook = selector => useSelect(sent, (state) => {
+        const pending = state[sessionId] ?? EMPTY_PENDING
+        if (pending !== lastPending) {
+          lastPending = pending
+          lastSlice = { pendingSubmissions: pending }
+        }
+        return selector(lastSlice)
+      })
+      sessionHooks.set(sessionId, hook)
+    }
+    return hook
+  }
   return { actions, hooks, sessionHook, chat, start }
 }

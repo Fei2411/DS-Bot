@@ -101,10 +101,17 @@ export function PasteCard({ text, onPutBack, onRemove }) {
     }, '×'))
 }
 
+const isEditableOnly = records => records.length > 0 && records.every((record) => {
+  const target = record.target
+  const el = target?.nodeType === 1 ? target : target?.parentElement
+  return typeof el?.closest === 'function' && el.closest('[contenteditable=true]') !== null
+})
+
 // The cards of the pastes still in this chat, above the composer.
 export function PasteDock({ sessionId, inputActions, useUi, useInput, actions }) {
   const blocks = useUi(state => state.paste?.[sessionId]) ?? NO_BLOCKS
-  const draft = useInput?.(state => state.draft) ?? ''
+  const draftRef = useRef('')
+  useInput?.((state) => { draftRef.current = state.draft ?? ''; return null })
   if (blocks.length === 0) return null
   const drop = (block) => {
     if (block.attachmentId && typeof inputActions?.removeAttachment === 'function') inputActions.removeAttachment(block.attachmentId)
@@ -112,7 +119,7 @@ export function PasteDock({ sessionId, inputActions, useUi, useInput, actions })
   }
   return h('div', { className: 'bt-paste-dock' }, blocks.map(block => h(PasteCard, {
     key: block.id, text: block.text,
-    onPutBack: () => { if (putBackText({ block, inputActions, draft })) actions.removePaste(sessionId, [block.id]) },
+    onPutBack: () => { if (putBackText({ block, inputActions, draft: draftRef.current })) actions.removePaste(sessionId, [block.id]) },
     onRemove: () => drop(block),
   })))
 }
@@ -122,10 +129,17 @@ export function PasteDock({ sessionId, inputActions, useUi, useInput, actions })
 export function PasteGuard({ sessionId, inputActions, useInput, useUi, actions }) {
   const anchor = useRef(null)
   const blocks = useUi(state => state.paste?.[sessionId]) ?? NO_BLOCKS
-  const ids = useInput?.(state => state.attachmentIds) ?? NO_IDS
-  const draft = useInput?.(state => state.draft) ?? ''
-  const latest = useRef({ blocks, ids, draft })
-  latest.current = { blocks, ids, draft }
+  const idsRef = useRef(NO_IDS)
+  const idsKey = useInput?.((state) => {
+    const list = state.attachmentIds ?? NO_IDS
+    idsRef.current = list
+    return list.length === 0 ? '' : list.join('\0')
+  }) ?? ''
+  const ids = idsRef.current
+  const draftRef = useRef('')
+  useInput?.((state) => { draftRef.current = state.draft ?? ''; return null })
+  const latest = useRef({ blocks, ids })
+  latest.current = { blocks, ids }
   // Bind a waiting card only when its own file shows up in the rail. A file the user
   // attaches while the card waits keeps its id, so dismissing the card cannot delete it.
   // The rail draws after the id lands, and again while the file uploads.
@@ -133,7 +147,8 @@ export function PasteGuard({ sessionId, inputActions, useInput, useUi, actions }
     if (!blocks.some(block => block.attachmentId === null)) return undefined
     const card = anchor.current?.closest('[data-composer-card]')
     if (card === null || card === undefined) return undefined
-    const sync = () => {
+    const sync = (records) => {
+      if (Array.isArray(records) && isEditableOnly(records)) return
       const { blocks: now, ids: nowIds } = latest.current
       if (!now.some(block => block.attachmentId === null)) return
       const links = pasteLinks(now, nowIds, composerLabels(card))
@@ -143,7 +158,7 @@ export function PasteGuard({ sessionId, inputActions, useInput, useUi, actions }
     const observer = new MutationObserver(sync)
     observer.observe(card, { childList: true, subtree: true })
     return () => observer.disconnect()
-  }, [ids, blocks])
+  }, [idsKey, blocks])
   // The shell drops a draft attachment the user removed; the card goes with it. Only the
   // cards' own buttons put text back, so a dropped paste stays dropped. Only ids this
   // composer has shown count: one that opens again starts without the files its draft
@@ -157,17 +172,18 @@ export function PasteGuard({ sessionId, inputActions, useInput, useUi, actions }
     if (stale.length > 0) actions.unlinkPastes(sessionId, stale.map(block => block.id))
   }, [sessionId])
   useEffect(() => {
-    const gone = latest.current.blocks.filter(block => !blockLives(block, ids) && shown.current.has(block.attachmentId))
-    for (const id of ids) shown.current.add(id)
+    const nowIds = latest.current.ids
+    const gone = latest.current.blocks.filter(block => !blockLives(block, nowIds) && shown.current.has(block.attachmentId))
+    for (const id of nowIds) shown.current.add(id)
     if (gone.length > 0) actions.removePaste(sessionId, gone.map(block => block.id))
-  }, [ids])
+  }, [idsKey])
   // A refused upload leaves a card with no attachment; its text goes back into the box
   // so a send never loses it.
   useEffect(() => {
     const waiting = blocks.filter(block => block.attachmentId === null)
     if (waiting.length === 0) return undefined
     const timer = setTimeout(() => {
-      let currentDraft = latest.current.draft
+      let currentDraft = draftRef.current
       for (const block of waiting) {
         const now = latest.current.blocks.find(item => item.id === block.id)
         if (now === undefined || now.attachmentId !== null) continue
@@ -180,14 +196,19 @@ export function PasteGuard({ sessionId, inputActions, useInput, useUi, actions }
   // The shell draws its own file card for the pasted attachment; the card above the box
   // is the same paste, so the shell's copy is hidden rather than drawn twice.
   useEffect(() => {
-    if (!blocks.some(block => block.attachmentId !== null)) return undefined
+    const names = new Set()
+    for (const block of blocks) {
+      if (block.attachmentId !== null && block.name) names.add(block.name)
+    }
+    if (names.size === 0) return undefined
     const card = anchor.current?.closest('[data-composer-card]')
     if (card === null || card === undefined) return undefined
-    const mark = () => {
-      for (const block of blocks) {
-        if (block.attachmentId === null) continue
-        for (const node of card.querySelectorAll('[title]')) {
-          if (node.getAttribute('title') === block.name) node.setAttribute('data-bt-paste', '')
+    const mark = (records) => {
+      if (Array.isArray(records) && isEditableOnly(records)) return
+      const scope = card.querySelector('[data-slot="conversation.input.attachments"]') ?? card
+      for (const node of scope.querySelectorAll('[title]')) {
+        if (names.has(node.getAttribute('title')) && !node.hasAttribute('data-bt-paste')) {
+          node.setAttribute('data-bt-paste', '')
         }
       }
     }
@@ -196,7 +217,7 @@ export function PasteGuard({ sessionId, inputActions, useInput, useUi, actions }
     const observer = new MutationObserver(mark)
     observer.observe(card, { childList: true, subtree: true })
     return () => observer.disconnect()
-  }, [blocks, ids])
+  }, [blocks, idsKey])
   useEffect(() => {
     const card = anchor.current?.closest('[data-composer-card]')
     if (card === null || card === undefined) return undefined

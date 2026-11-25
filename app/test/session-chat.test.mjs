@@ -1088,6 +1088,8 @@ test('createTeam populates useUpdate from host update-check and dsBotApp.updates
       check: async () => { ownAppCalls.push('check') },
       install: async () => { ownAppCalls.push('install') },
       open: async () => { ownAppCalls.push('open') },
+      download: async () => { ownAppCalls.push('download') },
+      setAutoUpdate: async (enabled) => { ownAppCalls.push(['auto', enabled]) },
     },
   }
   sandbox.__testCall = async (endpoint, body) => {
@@ -1140,7 +1142,10 @@ test('createTeam populates useUpdate from host update-check and dsBotApp.updates
     await team.actions.checkOwnApp()
     await team.actions.installOwnApp()
     await team.actions.openOwnApp()
-    assert.deepEqual(ownAppCalls, ['check', 'install', 'open'])
+    await team.actions.downloadOwnApp()
+    await team.actions.setOwnAppAutoUpdate(false)
+    await team.actions.setOwnAppAutoUpdate(true)
+    assert.deepEqual(ownAppCalls, ['check', 'install', 'open', 'download', ['auto', false], ['auto', true]])
     assert.equal(seenCalls.some(([ep, body]) => ep === 'update-check' && body?.fresh === false), true)
     assert.equal(seenCalls.some(([ep, body]) => ep === 'update-check' && body?.fresh === true), true)
     probe.unmount()
@@ -1151,6 +1156,103 @@ test('createTeam populates useUpdate from host update-check and dsBotApp.updates
     fetchCtrl.reset()
   }
   assert.equal(unsubscribed, true, 'stopping team unsubscribes from dsBotApp.updates')
+})
+
+test('createTeam propagates live api/apiVia on unchanged revision, wires browserImport.openPermission, and SessionTranscript attributes API messages', async () => {
+  let stateCalls = 0
+  let permissionOpened = 0
+  let intervalFn = null
+  const prevSetInterval = sandbox.setInterval
+  const prevClearInterval = sandbox.clearInterval
+  sandbox.setInterval = (fn) => { intervalFn = fn; return 1 }
+  sandbox.clearInterval = () => {}
+  sandbox.dsBotApp = {
+    browser: {
+      acquire: async () => 'lease-1',
+      release: async () => {},
+      forget: async () => {},
+      onOpenRequested: () => () => {},
+      importSources: async () => [],
+      importPick: async () => ({ canceled: true }),
+      importOpenPermission: async () => { permissionOpened += 1; return { opened: true } },
+      importLive: async () => ({ canceled: true }),
+      importApply: async () => ({}),
+      importCancel: async () => {},
+    },
+  }
+  sandbox.__testCall = async (endpoint) => {
+    if (endpoint === 'state') {
+      stateCalls += 1
+      if (stateCalls === 1) {
+        return {
+          revision: 3,
+          modelsKey: 'm1',
+          bots: [{ id: 'b1', name: 'Chief', sessionId: 'b1', parts: ['b1'] }],
+          rooms: [],
+          prefs: {},
+          api: { enabled: false, tokens: [] },
+          apiVia: {},
+        }
+      }
+      return {
+        unchanged: true,
+        revision: 3,
+        modelsKey: 'm1',
+        api: { enabled: true, tokens: [{ keyId: 'k1', name: 'CI Runner' }] },
+        apiVia: { b1: { 2: 'Deploy Bot' } },
+      }
+    }
+    return {}
+  }
+
+  const team = createTeam()
+  const stop = team.start()
+  try {
+    await tick()
+    await tick()
+    const Probe = () => react.createElement('div', { roster: team.hooks.useRoster(s => s) })
+    const probe = mount(Probe, {})
+    assert.equal(plain(probe.render().props.roster).api?.enabled, false)
+
+    // Triggering a catch-up poll with unchanged revision must propagate updated api and apiVia.
+    assert.equal(typeof intervalFn, 'function')
+    intervalFn()
+    await tick()
+    await tick()
+    const updated = plain(probe.render().props.roster)
+    assert.equal(updated.api?.enabled, true, 'live api changes propagate on unchanged revision')
+    assert.equal(updated.api?.tokens?.[0]?.name, 'CI Runner')
+    assert.deepEqual(updated.apiVia, { b1: { 2: 'Deploy Bot' } }, 'live apiVia changes propagate on unchanged revision')
+
+    // browserImport.openPermission is wired from dsBotApp.browser.importOpenPermission.
+    assert.equal(typeof team.actions.browserImport?.openPermission, 'function')
+    await team.actions.browserImport.openPermission()
+    assert.equal(permissionOpened, 1)
+
+    // SessionTranscript resolves both rpcId token name via roster.api and roster.apiVia override.
+    const snapshot = {
+      type: 'snapshot',
+      header: { id: 'b1', cwd: '/repo' },
+      cursor: 2,
+      hasMore: false,
+      records: [
+        { type: 'event', event: { type: 'user/message', seq: 1, time: 1_700_000_000_000, data: { source: { kind: 'user', rpcId: 'api:k1' }, content: [{ type: 'text', text: 'From token lookup' }] } } },
+        { type: 'event', event: { type: 'user/message', seq: 2, time: 1_700_000_001_000, data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'From apiVia map' }] } } },
+      ],
+    }
+    const { log } = applyFrame(emptyLog(), snapshot)
+    const rows = buildSessionRows(log, { roster: updated, sessionId: 'b1' })
+    assert.equal(rows[0]?.via, 'api:CI Runner')
+    assert.equal(rows[1]?.via, 'api:Deploy Bot')
+    probe.unmount()
+  } finally {
+    stop()
+    sandbox.setInterval = prevSetInterval
+    sandbox.clearInterval = prevClearInterval
+    delete sandbox.dsBotApp
+    sandbox.__testCall = async () => ({})
+    fetchCtrl.reset()
+  }
 })
 
 test('SessionTranscript in classic DSH mode renders unboxed Markdown prose, soft DSH user bubbles, hover actions, and zero iMessage date separators while keeping Bot DM unchanged', async () => {

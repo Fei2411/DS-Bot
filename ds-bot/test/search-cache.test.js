@@ -4,14 +4,22 @@ import { searchGroupBook } from '../src/host/group-search.js'
 import { install } from '../src/host/ledger.js'
 import { searchTextFor } from '../src/host/search-text.js'
 
-// Frozen search behavior before the lowercase cache.
+// Reference search behavior without the lowercase cache.
 function oldGroupSearch(records, query, options) {
   const lineOf = record => {
-    if (typeof record?.text !== 'string' || record.text.trim() === '') return undefined
+    if (record === undefined || record.event !== undefined || record.kind !== undefined) return undefined
+    if (typeof record.text !== 'string' || record.text.trim() === '') return undefined
     const line = { seq: record.seq, time: record.time, text: record.text }
     if (record.botId !== undefined) line.botId = record.botId
     if (record.who !== undefined) line.name = record.who
     return line
+  }
+  const neighborOf = (start, step) => {
+    for (let i = start; i >= 0 && i < records.length; i += step) {
+      const line = lineOf(records[i])
+      if (line !== undefined) return line
+    }
+    return undefined
   }
   const terms = [...new Set(String(query ?? '').toLowerCase().slice(0, 200).split(/\s+/).filter(Boolean))].slice(0, 8)
   if (terms.length === 0) return { results: [], hasMore: false }
@@ -24,10 +32,10 @@ function oldGroupSearch(records, query, options) {
   for (let at = records.length - 1; at >= 0; at -= 1) {
     const record = records[at]
     if (before !== undefined && !(Number.isInteger(record?.seq) && record.seq < before)) continue
-    const text = typeof record?.text === 'string' ? record.text.toLowerCase() : ''
-    if (text === '' || !terms.every(term => text.includes(term))) continue
     const hit = lineOf(record)
     if (hit === undefined) continue
+    const text = record.text.toLowerCase()
+    if (text === '' || !terms.every(term => text.includes(term))) continue
     if (skipped < offset) {
       skipped += 1
       continue
@@ -36,7 +44,7 @@ function oldGroupSearch(records, query, options) {
       hasMore = true
       break
     }
-    results.push({ ...hit, before: at > 0 ? lineOf(records[at - 1]) : undefined, after: at + 1 < records.length ? lineOf(records[at + 1]) : undefined })
+    results.push({ ...hit, before: neighborOf(at - 1, -1), after: neighborOf(at + 1, 1) })
   }
   return { results, hasMore }
 }

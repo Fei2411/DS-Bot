@@ -14,8 +14,9 @@ import { randomUUID } from 'node:crypto'
 import { mkdir, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
 import { openSessions } from './threads.js'
+import { isLocalAgentRoute } from './local-agents/engines.js'
 
-const LEDGER_VERSION = 4
+const LEDGER_VERSION = 5
 const PAGE_MESSAGES = 400
 const PAGE_TIMEOUT_MS = 20_000
 const SCAN_TIMEOUT_MS = 180_000
@@ -29,6 +30,7 @@ const SEAL_AFTER_MS = 60_000
 const SLOT_MS = 15 * 60_000
 
 const count = value => (Number.isSafeInteger(value) && value > 0 ? value : 0)
+const callCount = value => (Number.isSafeInteger(value) && value > 0 ? value : 1)
 
 export function usageChunk(stream) {
   if (!Array.isArray(stream)) return undefined
@@ -39,11 +41,32 @@ export function usageChunk(stream) {
   return undefined
 }
 
-const tokensOf = usage => ({
+// Local-agent logs recorded before `usage.calls` existed still carry one strictly
+// advancing cumulative usage chunk per internal model call (e.g. Codex) in `stream`.
+// Non-local providers (such as Anthropic message_start + message_delta) split one API
+// call across chunks, so this fallback applies strictly to local-agent routes.
+function streamCallCount(stream, provider) {
+  if (!Array.isArray(stream) || !isLocalAgentRoute(provider)) return 1
+  let steps = 0
+  let prevTotal = 0
+  for (const record of stream) {
+    if (record?.type !== 'chunk' || record.chunk?.type !== 'usage' || record.chunk.usage === null || typeof record.chunk.usage !== 'object') continue
+    const u = record.chunk.usage
+    const total = count(u.inputTokens) + count(u.cacheReadTokens) + count(u.cacheWriteTokens) + count(u.outputTokens)
+    if (total > prevTotal) {
+      steps += 1
+      prevTotal = total
+    }
+  }
+  return steps > 0 ? steps : 1
+}
+
+const tokensOf = (usage, calls) => ({
   input: count(usage.inputTokens),
   cacheRead: count(usage.cacheReadTokens),
   cacheWrite: count(usage.cacheWriteTokens),
   output: count(usage.outputTokens),
+  calls: callCount(calls ?? usage.calls),
 })
 
 // Folds Session events, oldest first, into one row per billed attempt, as DSH's own
@@ -83,7 +106,10 @@ export function foldCalls(events, from = {}) {
         if (usage === undefined || usage === null) break
         const attempt = state.retry?.turn === data.turn && state.retry.step === data.step ? state.retry.count : 0
         const key = `${data.turn}:${data.step}:${attempt}`
-        rows.set(key, { key, time: Number.isFinite(event.time) ? event.time : 0, provider: state.provider, model: state.model, ...tokensOf(usage) })
+        const calls = Number.isSafeInteger(usage.calls) && usage.calls > 0
+          ? usage.calls
+          : streamCallCount(data.stream, state.provider)
+        rows.set(key, { key, time: Number.isFinite(event.time) ? event.time : 0, provider: state.provider, model: state.model, ...tokensOf(usage, calls) })
         break
       }
       default:
@@ -150,35 +176,40 @@ export function sqliteLedger(DatabaseSync, path) {
       try {
         const version = db.prepare('PRAGMA user_version').get().user_version
         if (version !== LEDGER_VERSION) {
-          if (version === 2) db.exec('ALTER TABLE marks ADD COLUMN listed INTEGER')
-          else if (version !== 3) db.exec(`
-            DROP TABLE IF EXISTS calls;
-            DROP TABLE IF EXISTS call_slots;
-            DROP TABLE IF EXISTS marks;
-            DROP TABLE IF EXISTS owners;
-            DROP TABLE IF EXISTS kinds;
-            CREATE TABLE calls (key TEXT PRIMARY KEY, session TEXT NOT NULL, time INTEGER NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL, kind TEXT NOT NULL, live INTEGER NOT NULL, input INTEGER NOT NULL, cache_read INTEGER NOT NULL, cache_write INTEGER NOT NULL, output INTEGER NOT NULL);
-            CREATE INDEX calls_session ON calls (session);
-            CREATE TABLE marks (session TEXT PRIMARY KEY, through INTEGER NOT NULL, fold TEXT NOT NULL, sealed INTEGER NOT NULL, listed INTEGER);
-            CREATE TABLE owners (session TEXT PRIMARY KEY, owner TEXT NOT NULL, name TEXT NOT NULL);
-            CREATE TABLE kinds (session TEXT PRIMARY KEY, kind TEXT NOT NULL);`)
+          if (version === 2 || version === 3 || version === 4) {
+            if (version === 2) db.exec('ALTER TABLE marks ADD COLUMN listed INTEGER')
+            const cols = db.prepare('PRAGMA table_info(calls)').all().map(col => col.name)
+            if (!cols.includes('calls')) db.exec('ALTER TABLE calls ADD COLUMN calls INTEGER NOT NULL DEFAULT 1')
+          } else {
+            db.exec(`
+              DROP TABLE IF EXISTS calls;
+              DROP TABLE IF EXISTS call_slots;
+              DROP TABLE IF EXISTS marks;
+              DROP TABLE IF EXISTS owners;
+              DROP TABLE IF EXISTS kinds;
+              CREATE TABLE calls (key TEXT PRIMARY KEY, session TEXT NOT NULL, time INTEGER NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL, kind TEXT NOT NULL, live INTEGER NOT NULL, input INTEGER NOT NULL, cache_read INTEGER NOT NULL, cache_write INTEGER NOT NULL, output INTEGER NOT NULL, calls INTEGER NOT NULL DEFAULT 1);
+              CREATE INDEX calls_session ON calls (session);
+              CREATE TABLE marks (session TEXT PRIMARY KEY, through INTEGER NOT NULL, fold TEXT NOT NULL, sealed INTEGER NOT NULL, listed INTEGER);
+              CREATE TABLE owners (session TEXT PRIMARY KEY, owner TEXT NOT NULL, name TEXT NOT NULL);
+              CREATE TABLE kinds (session TEXT PRIMARY KEY, kind TEXT NOT NULL);`)
+          }
           const add = `
-            INSERT INTO call_slots VALUES (new.session, new.provider, new.model, new.kind, new.time / ${SLOT_MS}, new.input, new.cache_read, new.cache_write, new.output, 1)
+            INSERT INTO call_slots VALUES (new.session, new.provider, new.model, new.kind, new.time / ${SLOT_MS}, new.input, new.cache_read, new.cache_write, new.output, new.calls)
             ON CONFLICT (session, provider, model, kind, slot) DO UPDATE SET
               input = input + excluded.input, cache_read = cache_read + excluded.cache_read,
-              cache_write = cache_write + excluded.cache_write, output = output + excluded.output, calls = calls + 1;`
+              cache_write = cache_write + excluded.cache_write, output = output + excluded.output, calls = calls + excluded.calls;`
           const remove = (row, from = '') => `
             UPDATE call_slots SET input = call_slots.input - ${row}.input, cache_read = call_slots.cache_read - ${row}.cache_read,
-              cache_write = call_slots.cache_write - ${row}.cache_write, output = call_slots.output - ${row}.output, calls = calls - 1
+              cache_write = call_slots.cache_write - ${row}.cache_write, output = call_slots.output - ${row}.output, calls = call_slots.calls - ${row}.calls
               ${from} WHERE call_slots.session = ${row}.session AND call_slots.provider = ${row}.provider AND call_slots.model = ${row}.model AND call_slots.kind = ${row}.kind AND slot = ${row}.time / ${SLOT_MS};
-            DELETE FROM call_slots WHERE (session, provider, model, kind, slot) = (SELECT ${row}.session, ${row}.provider, ${row}.model, ${row}.kind, ${row}.time / ${SLOT_MS} ${from}) AND calls = 0;`
+            DELETE FROM call_slots WHERE (session, provider, model, kind, slot) = (SELECT ${row}.session, ${row}.provider, ${row}.model, ${row}.kind, ${row}.time / ${SLOT_MS} ${from}) AND calls <= 0;`
           db.exec(`
             DROP TRIGGER IF EXISTS calls_insert;
             DROP TRIGGER IF EXISTS calls_delete;
             DROP TRIGGER IF EXISTS calls_replace;
             DROP TABLE IF EXISTS call_slots;
             CREATE TABLE call_slots (session TEXT NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL, kind TEXT NOT NULL, slot INTEGER NOT NULL, input INTEGER NOT NULL, cache_read INTEGER NOT NULL, cache_write INTEGER NOT NULL, output INTEGER NOT NULL, calls INTEGER NOT NULL, PRIMARY KEY (session, provider, model, kind, slot)) WITHOUT ROWID;
-            INSERT INTO call_slots SELECT session, provider, model, kind, time / ${SLOT_MS}, SUM(input), SUM(cache_read), SUM(cache_write), SUM(output), COUNT(*) FROM calls GROUP BY session, provider, model, kind, time / ${SLOT_MS};
+            INSERT INTO call_slots SELECT session, provider, model, kind, time / ${SLOT_MS}, SUM(input), SUM(cache_read), SUM(cache_write), SUM(output), SUM(calls) FROM calls GROUP BY session, provider, model, kind, time / ${SLOT_MS};
             CREATE TRIGGER calls_insert AFTER INSERT ON calls BEGIN ${add} END;
             CREATE TRIGGER calls_delete AFTER DELETE ON calls BEGIN ${remove('old')} END;
             CREATE TRIGGER calls_replace BEFORE INSERT ON calls WHEN EXISTS (SELECT 1 FROM calls WHERE key = new.key) BEGIN
@@ -192,7 +223,7 @@ export function sqliteLedger(DatabaseSync, path) {
         throw error
       }
     }
-    const put = db.prepare('INSERT OR REPLACE INTO calls (key, session, time, provider, model, kind, live, input, cache_read, cache_write, output) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    const put = db.prepare('INSERT OR REPLACE INTO calls (key, session, time, provider, model, kind, live, input, cache_read, cache_write, output, calls) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
     const dropLogged = db.prepare('DELETE FROM calls WHERE session = ? AND live = 0')
     const getMark = db.prepare('SELECT through, fold, sealed, listed FROM marks WHERE session = ?')
     const setMark = db.prepare('INSERT OR REPLACE INTO marks (session, through, fold, sealed, listed) VALUES (?, ?, ?, ?, ?)')
@@ -201,7 +232,7 @@ export function sqliteLedger(DatabaseSync, path) {
     const allKinds = db.prepare('SELECT session, kind FROM kinds')
     const putKind = db.prepare('INSERT OR REPLACE INTO kinds (session, kind) VALUES (?, ?)')
     const grouped = db.prepare('SELECT session, provider, model, kind, slot, input, cache_read AS cacheRead, cache_write AS cacheWrite, output, calls FROM call_slots ORDER BY session, provider, model, kind, slot')
-    const insert = (row, live) => put.run(row.key, row.session, row.time, row.provider, row.model, row.kind, live ? 1 : 0, row.input, row.cacheRead, row.cacheWrite, row.output)
+    const insert = (row, live) => put.run(row.key, row.session, row.time, row.provider, row.model, row.kind, live ? 1 : 0, row.input, row.cacheRead, row.cacheWrite, row.output, callCount(row.calls))
     return {
       mark(session) {
         const row = getMark.get(session)
@@ -316,6 +347,9 @@ export function install(rt) {
     ledger?.close()
     ledger = undefined
     opening = undefined
+    listed = []
+    journaled.clear()
+    unreadable.clear()
   }, 'ds-bot: usage ledger')
 
   // Who each Session's calls belong to, from the team as it is now. Sessions forked or
@@ -354,7 +388,10 @@ export function install(rt) {
     return owners
   }
 
+  const JOURNALED_MAX = 5_000
+  const UNREADABLE_MAX = 2_000
   let listed = []
+  let listedVersion = 0
   let scanning
   let scannedAt = 0
 
@@ -373,6 +410,11 @@ export function install(rt) {
       : { kind: 'subagent', parentSessionId: item.parentSessionId, childSessionId: item.sessionId, mode: 'unknown' })
   // Sessions that already failed to read, so each one warns once, not every scan.
   const unreadable = new Set()
+  const rememberUnreadable = (sessionId) => {
+    if (unreadable.has(sessionId)) unreadable.delete(sessionId)
+    else if (unreadable.size >= UNREADABLE_MAX) unreadable.delete(unreadable.keys().next().value)
+    unreadable.add(sessionId)
+  }
 
   async function scanSession(ledger, address, asOfSeq, seal, signal) {
     const sessionId = address.kind === 'session' ? address.sessionId : address.childSessionId
@@ -431,8 +473,13 @@ export function install(rt) {
       const ledger = await openLedger()
       await rt.load()
       const signal = AbortSignal.timeout(SCAN_TIMEOUT_MS)
+      let items = []
       try {
-        listed = (await ctx.sessionController.list({}, signal)).items ?? []
+        items = (await ctx.sessionController.list({}, signal)).items ?? []
+        listed = items
+          .filter(item => item?.parentSessionId)
+          .map(item => ({ sessionId: item.sessionId, parentSessionId: item.parentSessionId }))
+        listedVersion += 1
       } catch (error) {
         rt.warn('ds-bot: usage could not list the Sessions: %s', error)
       }
@@ -461,15 +508,15 @@ export function install(rt) {
       // checkpoint, which DSH rewrites at each turn end and when the Session is detached, so
       // the watermark moves when the log does. A cold Session seals at that watermark only:
       // the watermark is compared with an earlier listing, never with a log sequence.
-      const coldWatermarks = new Map(listed
+      const coldWatermarks = new Map(items
         .filter(item => item.agentAvailable !== true && item.running !== true && item.projections?.kind === 'cached' && Number.isSafeInteger(item.projections.asOfSeq))
         .map(item => [item.sessionId, item.projections.asOfSeq]))
       // An ended part is complete, so it seals for good.
       const sealOf = sessionId => (ended.has(sessionId) ? { listed: null } : coldWatermarks.has(sessionId) ? { listed: coldWatermarks.get(sessionId) } : undefined)
       const targets = new Map()
-      for (const item of listed) if (item.blank !== true) targets.set(item.sessionId, listedCursor(item))
+      for (const item of items) if (item.blank !== true) targets.set(item.sessionId, listedCursor(item))
       for (const sessionId of owners.keys()) if (!targets.has(sessionId)) targets.set(sessionId, undefined)
-      const addresses = new Map(listed.map(item => [item.sessionId, addressOf(item)]))
+      const addresses = new Map(items.map(item => [item.sessionId, addressOf(item)]))
       let cut = 0
       const failed = []
       await eachLimited([...targets], SCAN_PARALLEL, async ([sessionId, asOfSeq]) => {
@@ -489,8 +536,9 @@ export function install(rt) {
             cut += 1
             return
           }
+          if (address.kind === 'subagent' && error?.code === 'subagent/catalog-diagnostic' && error.details?.reason === 'unsupported') return
           if (unreadable.has(sessionId)) return
-          unreadable.add(sessionId)
+          rememberUnreadable(sessionId)
           failed.push([sessionId, error])
         }
       })
@@ -609,26 +657,42 @@ export function install(rt) {
   // Owner and group use are journaled with the call itself: a Bot or room that
   // is deleted before the first scan still leaves its calls under its own name.
   const journaled = new Map()
+  const rememberJournaled = (sessionId, entry) => {
+    if (journaled.has(sessionId)) journaled.delete(sessionId)
+    else if (journaled.size >= JOURNALED_MAX) journaled.delete(journaled.keys().next().value)
+    journaled.set(sessionId, entry)
+  }
   const journal = (book, sessionId) => {
     if (typeof sessionId !== 'string' || sessionId === '') return
-    const owner = liveOwners(listed, book.owners()).get(sessionId)
+    const rev = state.revision ?? 0
+    const cached = journaled.get(sessionId)
+    if (cached !== undefined && cached.rev === rev && cached.listedVersion === listedVersion) return
+    let owner = liveOwners(listed).get(sessionId)
+    if (owner === undefined && listed.some(item => item.sessionId === sessionId)) {
+      owner = liveOwners(listed, book.owners()).get(sessionId)
+    }
+    let stamp = cached?.stamp
     if (owner !== undefined && owner.name !== '') {
-      const stamp = `${owner.owner}\n${owner.name}`
-      if (journaled.get(sessionId) !== stamp) {
-        journaled.set(sessionId, stamp)
+      const nextStamp = `${owner.owner}\n${owner.name}`
+      if (stamp !== nextStamp) {
+        stamp = nextStamp
         book.setOwner(sessionId, owner)
       }
     }
-    if (inGroup().has(sessionId) && journaled.get(`${sessionId}\ngroup`) === undefined) {
-      journaled.set(`${sessionId}\ngroup`, true)
+    let group = cached?.group === true
+    if (!group && inGroup().has(sessionId)) {
+      group = true
       book.setKind(sessionId, 'group')
     }
+    rememberJournaled(sessionId, { rev, listedVersion, stamp, group })
   }
   // Plain Session requests skip the meter, so every caller notes its Session
   // here. The journal needs the team state and the ledger; both load behind
   // the request, and `journaled` keeps the repeat calls from writing again.
   const noteSession = (sessionId) => {
     if (typeof sessionId !== 'string' || sessionId === '') return
+    const cached = journaled.get(sessionId)
+    if (ledger !== undefined && rt.hasLoaded?.() !== false && cached !== undefined && cached.rev === (state.revision ?? 0) && cached.listedVersion === listedVersion) return
     void (async () => {
       await rt.load()
       const book = ledger ?? await openLedger().catch(() => undefined)

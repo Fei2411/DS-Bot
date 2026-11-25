@@ -44,7 +44,7 @@ function minutesLeft(until) {
 }
 
 // The phone app ships with each DS Bot release, as the release's Android APK.
-const APP_DOWNLOAD = 'https://github.com/Fei2411/DS-Bot/releases/latest'
+const APP_DOWNLOAD = 'https://github.com/Fei-Craft/DS-Bot/releases/latest'
 
 // Settings → Connect → Phone: the DS Bot phone app reaches this computer through a Relay Server.
 export function PhonePage({ roster, actions, Section, Row }) {

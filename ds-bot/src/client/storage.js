@@ -14,6 +14,7 @@ export const STORAGE = {
   sidebar: 'ds-bot:sidebar',
   browsers: 'ds-bot.browser.v2',
   drafts: 'ds-bot:drafts',
+  rescuedDrafts: 'ds-bot:rescued-drafts',
 }
 
 // Newest legacy name first: when both exist, the more recent value wins.

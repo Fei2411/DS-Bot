@@ -2,6 +2,8 @@
 // actions (the Bot views' own `call`), api/bot/feed for team changes, and api/bot/session
 // for a Session's follow stream (host/session-follow.js).
 const RETRY_MS = [500, 1000, 2000, 5000]
+const HEALTHY_MS = 5_000
+const MAX_SSE_BUFFER_CHARS = 8 * 1024 * 1024
 // A Session that is gone, refused, or malformed stops the follow loop instead of retrying forever.
 const TERMINAL_SESSION_ERRORS = new Set(['bot/not-found', 'bot/refused', 'bot/invalid'])
 
@@ -25,15 +27,24 @@ async function readEventStream(body, onParsed) {
       const { value, done } = await reader.read()
       if (done) break
       buffer = (buffer + decoder.decode(value, { stream: true })).replaceAll('\r\n', '\n')
-      for (let end = buffer.indexOf('\n\n'); end >= 0; end = buffer.indexOf('\n\n')) {
-        const parsed = parseEvent(buffer.slice(0, end))
-        buffer = buffer.slice(end + 2)
+      let start = 0
+      for (let end = buffer.indexOf('\n\n', start); end >= 0; end = buffer.indexOf('\n\n', start)) {
+        const parsed = parseEvent(buffer.slice(start, end))
+        start = end + 2
         if (parsed !== undefined && onParsed(parsed.event, parsed.data) === false) {
           await reader.cancel().catch(() => {})
           return
         }
       }
+      if (start > 0) buffer = buffer.slice(start)
+      if (buffer.length > MAX_SSE_BUFFER_CHARS) {
+        await reader.cancel().catch(() => {})
+        throw new Error('SSE buffer limit exceeded')
+      }
     }
+  } catch (error) {
+    await reader.cancel().catch(() => {})
+    throw error
   } finally {
     try { reader.releaseLock() } catch { /* already released */ }
   }
@@ -44,20 +55,40 @@ async function readEventStream(body, onParsed) {
 export function openFeed(onEvent) {
   let stopped = false
   let controller
+  let retryTimer
+  let wakeRetry
   const run = async () => {
     for (let failures = 0; !stopped;) {
       controller = new AbortController()
+      let receivedEvent = false
+      let connectedAt = 0
       try {
         const response = await fetch('api/bot/feed', { signal: controller.signal, cache: 'no-store' })
         if (!response.ok || response.body === null) throw new Error(`HTTP ${response.status}`)
-        failures = 0
-        await readEventStream(response.body, (event, data) => { onEvent(event, data) })
+        connectedAt = Date.now()
+        await readEventStream(response.body, (event, data) => {
+          receivedEvent = true
+          failures = 0
+          onEvent(event, data)
+        })
       } catch {
         // The engine restarted or the window is going away; the loop decides.
+      } finally {
+        if (receivedEvent || (connectedAt > 0 && Date.now() - connectedAt >= HEALTHY_MS)) failures = 0
+        controller.abort()
       }
       if (stopped) return
       onEvent('lost', {})
-      await new Promise(resolve => setTimeout(resolve, RETRY_MS[Math.min(failures, RETRY_MS.length - 1)]))
+      const delay = RETRY_MS[Math.min(failures, RETRY_MS.length - 1)]
+      await new Promise((resolve) => {
+        wakeRetry = () => {
+          if (retryTimer !== undefined) { clearTimeout(retryTimer); retryTimer = undefined }
+          wakeRetry = undefined
+          resolve()
+        }
+        retryTimer = setTimeout(wakeRetry, delay)
+      })
+      if (stopped) return
       failures += 1
     }
   }
@@ -65,6 +96,7 @@ export function openFeed(onEvent) {
   return () => {
     stopped = true
     controller?.abort()
+    wakeRetry?.()
   }
 }
 
