@@ -1,18 +1,25 @@
 // The Claude Code engine: one process per session, stream-json both ways.
 // stdin takes user/control JSON messages; stdout streams the assistant's
 // events until a `result` ends the turn.
-import { isAbsolute, resolve } from 'node:path'
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { isAbsolute, join, resolve } from 'node:path'
 import { cleanEnv, findEngineExecutable, spawnAgent, terminateChild } from './discover.js'
 import { lineSplitter } from './lines.js'
 
 // Claude Code tools that only read; the rest may change files or run something.
 const READ_TOOLS = new Set(['Read', 'Glob', 'Grep', 'LS', 'WebFetch', 'WebSearch', 'TodoWrite', 'NotebookRead'])
+// On Windows, CreateProcessW caps total command-line length at 32K chars (and .cmd shims at 8K);
+// pass long appended system prompts via `--append-system-prompt-file` to stay well below OS limits.
+const DEFAULT_SYSTEM_FILE_THRESHOLD = process.platform === 'win32' ? 4_000 : 64_000
 
 export class ClaudeEngine {
-  constructor(route, engine, { findExecutable }) {
+  constructor(route, engine, { findExecutable, systemFileThreshold = DEFAULT_SYSTEM_FILE_THRESHOLD } = {}) {
     this.route = route
     this.engine = engine
     this.findExecutable = findExecutable
+    this.systemFileThreshold = systemFileThreshold
+    this.noPromptFile = false
     this.sessions = new Map()
   }
 
@@ -98,7 +105,22 @@ class ClaudeSession {
     // CLI starts an interactive session and never speaks this protocol.
     const args = [...(this.engine.engine.args ?? []), '--print', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose']
     if (resumeId !== undefined) args.push('--resume', resumeId)
-    if (system !== undefined) args.push('--append-system-prompt', system)
+    if (system !== undefined) {
+      const threshold = this.engine.systemFileThreshold ?? DEFAULT_SYSTEM_FILE_THRESHOLD
+      if (!this.engine.noPromptFile && system.length > threshold) {
+        const dir = mkdtempSync(join(tmpdir(), 'dsb-claude-sys-'))
+        try { chmodSync(dir, 0o700) } catch {}
+        const promptFile = join(dir, 'system-prompt.txt')
+        writeFileSync(promptFile, system, { flag: 'wx', mode: 0o600 })
+        this.systemPromptDir = dir
+        this.usedPromptFile = true
+        this.onProcessExit = () => { this.cleanupSystemFile() }
+        process.once('exit', this.onProcessExit)
+        args.push('--append-system-prompt-file', promptFile)
+      } else {
+        args.push('--append-system-prompt', system)
+      }
+    }
     if (mode !== undefined) args.push('--permission-mode', mode)
     if (model !== undefined && model !== 'default') args.push('--model', model)
     // Print mode has no one to ask: without a prompt tool a call that needs
@@ -146,6 +168,7 @@ class ClaudeSession {
     })
     child.on('error', (error) => {
       this.dead = true
+      this.cleanupSystemFile()
       const failure = fail(`${this.engine.engine.name} could not start: ${error.message}`)
       this.rejectStart?.(failure)
       this.rejectStart = undefined
@@ -153,6 +176,12 @@ class ClaudeSession {
     })
     child.on('exit', (code, signal) => {
       this.dead = true
+      this.cleanupSystemFile()
+      // Older Claude CLI builds without `--append-system-prompt-file` reject it before init.
+      if (this.usedPromptFile === true && this.cliSessionId === undefined && /unknown option.*append-system-prompt-file|unrecognized option.*append-system-prompt-file/i.test(stderr)) {
+        this.engine.noPromptFile = true
+        this.promptFileUnsupported = true
+      }
       // Claude Code deletes old conversations; resuming one that is gone exits
       // before init with this line on stderr.
       if (this.resumeId !== undefined && this.cliSessionId === undefined && /no conversation found/i.test(stderr)) this.resumeMissing = true
@@ -282,8 +311,20 @@ class ClaudeSession {
     this.write({ type: 'control_request', request: { subtype: 'interrupt' } })
   }
 
+  cleanupSystemFile() {
+    if (this.onProcessExit !== undefined) {
+      process.off('exit', this.onProcessExit)
+      this.onProcessExit = undefined
+    }
+    const dir = this.systemPromptDir
+    if (dir === undefined) return
+    this.systemPromptDir = undefined
+    try { rmSync(dir, { recursive: true, force: true }) } catch {}
+  }
+
   kill() {
     this.dead = true
+    this.cleanupSystemFile()
     const child = this.child
     this.child = undefined
     terminateChild(child)

@@ -18,6 +18,7 @@ import { randomUUID } from 'node:crypto'
 import { LlmError, createAssistantMessage, createSystemMessage, createUserMessage, isContextWindowExceededError } from '@deepseek-ai/dsh-llm'
 import { openTurnAt } from './btw.js'
 import { HANDOFF_ACK, HISTORY_SCAN_PAGES, HISTORY_TIMEOUT_MS, isSilentTurnText, REPLY_KIND, SOURCE_KIND } from './constants.js'
+import { isContextOnlyMessage, isContextOnlySource, isSilentBotSource } from './context-messages.js'
 import { assembleLlmStream } from './models.js'
 import { compressedRelayPreview, parseReplies, relayRange, stackReplies } from '../shared/group-replies.js'
 import { CHECKPOINT_PROMPT, DEFAULT_CHECK_RATIO, STEWARD_SYSTEM, checkpointCount, checkpointTail, checkpointTailNote, checkpointText, linesFor, parseDecision, selectRetainedRange, stewardRequest } from './steward.js'
@@ -270,10 +271,22 @@ export function install(rt) {
       : measured.nodes.filter(node => session.eventAt(node.seq).type !== 'system/message').reduce((total, node) => total + node.tokens, 0)
     const pending = carry.reduce((total, message) => total + size(message), 0)
     const replacement = size({ role: 'user', content: [{ type: 'text', text }] }) + pending
-    const tokens = measured?.totalTokens
     // A fresh CLI session holds only its own instructions besides the handoff.
-    const used = localPart(session) ? rt.localAgentContext?.(session.id)?.used : undefined
-    if (used !== undefined) return replacement < used
+    // Never fall back to DSH's cumulative tokenMeter on a local part: DSH holds
+    // the full persistent log, not the CLI's working context.
+    if (localPart(session)) {
+      const used = rt.localAgentContext?.(session.id)?.used
+      if (used !== undefined) return replacement < used && (lines === undefined || replacement <= lines.usable)
+      const lastHandoffIdx = messages.findLastIndex(message => message.source?.handoff === true)
+      const afterHandoff = lastHandoffIdx === -1 ? messages : messages.slice(lastHandoffIdx + 1)
+      const work = afterHandoff.filter(message => message.role !== 'system'
+        && !isContextOnlyMessage(message)
+        && !(message.role === 'assistant' && textOf(message.content).trim() === HANDOFF_ACK))
+      const hasShrinkableWork = work.some(message => message.role === 'assistant' || message.role === 'tool')
+        || work.filter(message => message.role === 'user').length > 1
+      return hasShrinkableWork && (lines === undefined || replacement < lines.usable)
+    }
+    const tokens = measured?.totalTokens
     // The system prompt and tool definitions stay; pending input is forwarded whole.
     return replacement < history + pending
       && (lines === undefined || tokens === undefined || tokens - history + replacement <= lines.usable)
@@ -342,6 +355,7 @@ export function install(rt) {
       compactIfNeeded: engine.compactIfNeeded,
       compactNow: engine.compactNow,
       compactRegion: engine.compactRegion,
+      ...(typeof engine.compactPressure === 'function' ? { compactPressure: engine.compactPressure } : {}),
       // compaction-basic's one customization hook; it runs for every summary.
       ...(typeof engine.summarize === 'function' ? { summarize: engine.summarize } : {}),
     }
@@ -353,8 +367,19 @@ export function install(rt) {
       if (ownedByBot(target)) return refuseCompaction()
       return original.compactNow.call(this, target, signal, commandId)
     }
+    if (original.compactPressure !== undefined) {
+      engine.compactPressure = function compactPressureOutsideLocal(target, header, signal, requireBelowThreshold) {
+        if (ownedByBot(target) && (localPart(target.session) || rt.isLocalAgentRoute?.(header?.config?.provider ?? '') === true)) {
+          return Promise.resolve(null)
+        }
+        return original.compactPressure.call(this, target, header, signal, requireBelowThreshold)
+      }
+    }
     engine.compactRegion = function compactRegionOutsideBots(start, end, target, signal) {
       if (!ownedByBot(target)) return original.compactRegion.call(this, start, end, target, signal)
+      // A local-agent part's DSH Session is only the persistent archive for read_own_chat;
+      // never mutate it for a model switch.
+      if (localPart(target.session)) return Promise.resolve(null)
       // Without the summary hook the backend would summarize a Bot conversation itself,
       // so that case keeps the refusal.
       if (original.summarize === undefined) return refuseCompaction()
@@ -972,15 +997,37 @@ export function install(rt) {
     return { problem }
   }
 
+  const PRE_DISPATCH_LOCAL_NOTE_CODES = new Set([
+    'LOCAL_AGENT_BUSY',
+    'LOCAL_AGENT_SESSION_LOST',
+    'LOCAL_AGENT_MISSING',
+    'LOCAL_AGENT_SIGNIN',
+    'LOCAL_AGENT_EXIT',
+    'NO_ADAPTER',
+  ])
+
   // A part on a local agent CLI: the CLI writes the note in its own session, which
   // holds the whole working context, as one more prompt the conversation never sees.
   async function writeLocalNote(agent, signal, { folder = false } = {}) {
     const route = agent.session.requestHeader()?.config ?? {}
+    let reachedCli = false
     const written = await noteAttempts(agent.session, route, folder ? FOLDER_PROMPT : HANDOFF_PROMPT,
-      async prompt => ({ text: String(await rt.localAgentNote(agent.id, prompt, signal) ?? '').trim(), finish: 'stop' }),
+      async (prompt) => {
+        const text = String(await rt.localAgentNote(agent.id, prompt, signal) ?? '').trim()
+        reachedCli = true
+        return { text, finish: 'stop' }
+      },
       { signal, canCompact: false })
+      .catch((error) => {
+        if (error && typeof error === 'object' && error.reachedCli === undefined) {
+          error.reachedCli = reachedCli || !PRE_DISPATCH_LOCAL_NOTE_CODES.has(error.code)
+        }
+        throw error
+      })
     if (written.note !== undefined) return { note: written.note, attempts: written.attempts }
-    throw new Error(`no usable note in ${NOTE_ATTEMPTS} attempts from ${route.provider}/${route.model}; the last one: ${written.problem}`)
+    const error = new Error(`no usable note in ${NOTE_ATTEMPTS} attempts from ${route.provider}/${route.model}; the last one: ${written.problem}`)
+    error.reachedCli = true
+    throw error
   }
 
   // A note is written on the Session's own route — the provider the user chose for this
@@ -1673,17 +1720,18 @@ export function install(rt) {
     }
     const why = segment.fallback === 'overflow' ? 'the part overflowed the model\'s window'
       : segment.fallback === 'cutoff' ? 'the part kept being cut off at the output limit'
-        : segment.fallback === 'failure' ? 'a request in the previous part kept failing'
-          : segment.fallback === 'engine' ? 'what you run on changed'
-            : segment.fallback === 'manual' ? 'a fresh conversation was started'
-            : 'the model did not write a usable note'
+        : segment.fallback === 'runtime-lost' ? 'the local agent session could no longer be resumed'
+          : segment.fallback === 'failure' ? 'a request in the previous part kept failing'
+            : segment.fallback === 'engine' ? 'what you run on changed'
+              : segment.fallback === 'manual' ? 'a fresh conversation was started'
+                : 'the model did not write a usable note'
     const head = `(DS Bot put this note together without the model, because ${why}.`
     return note === undefined
       ? `${head} There was no earlier note to carry over. Go by the messages below, and look up anything else.)`
       : `${head} It is the note written at the end of part ${segment.noteFrom}, carried over unchanged; anything newer is in the messages below, and read_own_chat finds the rest.)\n\n${note}`
   }
 
-  function handoffPackage({ room, self = false, segment, lines, number, resume, overflow, cutoff, failed, bare, folder, engine }) {
+  function handoffPackage({ room, self = false, segment, lines, number, resume, overflow, cutoff, runtimeLost = false, failed, bare, folder, engine }) {
     const where = room === undefined ? 'your own chat with the user'
       : self ? `the group chat "${room.name}"` : `your conversation in the group chat "${room.name}"`
     const lookup = room === undefined
@@ -1691,11 +1739,12 @@ export function install(rt) {
       : self ? 'the earlier part stays in the group\'s saved record.'
         : 'read_group_chat shows the group\'s latest messages, and read_own_chat your own chat.'
     const reason = failed !== undefined ? `a request in the previous part kept failing (${failed})`
-      : overflow ? 'the previous part overflowed the model\'s window'
-        : engine !== undefined ? `the user changed what you run on, to ${engine}`
-          : cutoff ? 'the previous part kept being cut off at the output limit'
-            : folder !== undefined ? `${self ? 'the group\'s' : 'your'} working folder changed to ${folder}`
-              : 'the previous part grew long'
+      : runtimeLost ? 'the local agent session could no longer be resumed'
+        : overflow ? 'the previous part overflowed the model\'s window'
+          : engine !== undefined ? `the user changed what you run on, to ${engine}`
+            : cutoff ? 'the previous part kept being cut off at the output limit'
+              : folder !== undefined ? `${self ? 'the group\'s' : 'your'} working folder changed to ${folder}`
+                : 'the previous part grew long'
     const { recent, earlier, tools = [], unlisted, complete } = lines
     const omitted = [
       ...(unlisted > 0 ? [`(${unlisted} older messages are not listed.)`] : []),
@@ -1728,7 +1777,8 @@ export function install(rt) {
       recent.length > 0 ? recent.join('\n') : '(none)',
       ...(room ? omitted : []),
       '',
-      !resume ? 'Every message above has had its answer. Nothing needs an answer now; wait for the next message.'
+      !resume && bare ? 'This fresh conversation starts without the latest messages from the previous part because it no longer fit in the context window. Wait for the next message.'
+        : !resume ? 'Every message above has had its answer. Nothing needs an answer now; wait for the next message.'
         : bare ? `Your last turn could not finish because the model request kept failing, also in a fresh conversation with the latest messages carried over, so they are left out this time. First tell ${room ? 'the group' : 'the user'} in one short sentence that the last message could not be sent, and ask for it again.`
         : failed !== undefined ? room
           ? 'Your last turn could not finish because the model request kept failing. Go on with it now from the messages above, and first tell the group in one short sentence that the last message could not be sent as it was and you moved on to a fresh conversation, and write your reply to the group.'
@@ -1852,10 +1902,10 @@ export function install(rt) {
   const readOnly = () => rt.readOnly() !== undefined
 
   const WAKING_KINDS = new Set(['user', REPLY_KIND, 'schedule', 'tool-jobs', 'subagent-settled', 'agent-message'])
-  const isSilentSource = source => source?.kind === SOURCE_KIND
-    && (source?.silent === true || ['note', 'cancelled', 'stopped'].includes(source?.role))
+  const isSilentSource = isSilentBotSource
   const isWakingSource = source => source != null
-    && (WAKING_KINDS.has(source.kind) || (source.kind === SOURCE_KIND && !isSilentSource(source)))
+    && !isContextOnlySource(source)
+    && (WAKING_KINDS.has(source.kind) || source.kind === SOURCE_KIND)
   const isSilentRelay = message => isSilentSource(message?.source)
   const isAgentIdle = agent => agent.status === 'idle' && rt.live?.get(agent.id)?.turn === undefined
 
@@ -2098,7 +2148,7 @@ export function install(rt) {
     }
     const folder = meta.folder ? fresh.session?.header?.cwd : undefined
     const engine = meta.engine && bot !== undefined ? rt.engineNameOf?.(bot.model ?? bot.appliedModel) : undefined
-    const resume = meta.resume === true || meta.overflow === true
+    const resume = meta.resume === true || meta.overflow === true || meta.runtimeLost === true
     const text = handoffPackage({
       room: effectiveRoom,
       self: bot === undefined,
@@ -2108,6 +2158,7 @@ export function install(rt) {
       resume,
       overflow: meta.overflow === true,
       cutoff: meta.cutoff === true,
+      runtimeLost: meta.runtimeLost === true,
       failed: meta.failed,
       bare: meta.bare === true,
       folder,
@@ -2153,6 +2204,7 @@ export function install(rt) {
       let resume = false
       let overflow = false
       let cutoff = false
+      let runtimeLost = false
       let folder = newestMeta.folder === true
       let engine = newestMeta.engine === true
       let bare = newestMeta.bare === true
@@ -2163,11 +2215,12 @@ export function install(rt) {
       const seenJoined = new Set()
       for (const entry of entries) {
         const meta = entry.owner.handoffMeta ?? {}
-        const hasResume = meta.resume === true || meta.overflow === true || meta.info !== undefined || (Array.isArray(meta.joined) && meta.joined.length > 0)
+        const hasResume = meta.resume === true || meta.overflow === true || meta.runtimeLost === true || meta.info !== undefined || (Array.isArray(meta.joined) && meta.joined.length > 0)
         if (hasResume) resumedEntry = entry
         if (meta.resume === true) resume = true
         if (meta.overflow === true) overflow = true
         if (meta.cutoff === true) cutoff = true
+        if (meta.runtimeLost === true) runtimeLost = true
         if (meta.folder === true) folder = true
         if (meta.engine === true) engine = true
         if (meta.failed !== undefined) failed = meta.failed
@@ -2189,6 +2242,7 @@ export function install(rt) {
         resume,
         overflow,
         cutoff,
+        runtimeLost,
         folder,
         engine,
         bare,
@@ -2408,12 +2462,12 @@ export function install(rt) {
   // `engine`: because the Bot now runs on something else (see engineMoved).
   // `idle`: initiated after a turn ended (after async checks like decide/canMakeRoom);
   // bail out atomically if a new turn started meanwhile so running work is never killed.
-  function startSwitch(agent, { idle = false, resume = false, carry = [], carriedIds, info, joined, overflow = false, failed, bare = false, folder = false, cutoff = false, engine = false, hard = overflow || folder || engine || cutoff } = {}) {
+  function startSwitch(agent, { idle = false, resume = false, carry = [], carriedIds, info, joined, overflow = false, runtimeLost = false, failed, bare = false, folder = false, cutoff = false, engine = false, hard = overflow || runtimeLost || folder || engine || cutoff } = {}) {
     const place = placeOf(agent.id)
     if (place === undefined || switches.has(agent.id) || readOnly()) return false
     if (idle && !isAgentIdle(agent)) return false
     const resumeOrigin = resume || place.botId === undefined ? rt.holdImOrigin?.(agent.id) : undefined
-    const job = { ...place, carry: [...carry], carriedIds: new Set(carriedIds ?? []), info, joined, resume, resumeOrigin, overflow, failed, bare, folder, engine, hard, cutoff, since: Date.now() }
+    const job = { ...place, carry: [...carry], carriedIds: new Set(carriedIds ?? []), info, joined, resume, resumeOrigin, overflow, runtimeLost, failed, bare, folder, engine, hard, cutoff, since: Date.now() }
     switches.set(agent.id, job)
     const done = runSwitch(agent, job)
       .catch(error => {
@@ -2675,7 +2729,7 @@ export function install(rt) {
     let failure
     const local = localPart(session)
     // The group's own Session only relays; it has no route a note could be written with.
-    if (!job.engine && !job.overflow && job.cutoff !== true && job.failed === undefined && !whole && bot !== undefined) {
+    if (!job.engine && !job.overflow && job.cutoff !== true && job.runtimeLost !== true && job.failed === undefined && !whole && bot !== undefined) {
       try {
         const noteSignal = AbortSignal.any([signal, AbortSignal.timeout(NOTE_TIMEOUT_MS)])
         written = local ? await writeLocalNote(agent, noteSignal, { folder: job.folder }) : await writeNote(agent, noteSignal, { folder: job.folder })
@@ -2685,9 +2739,12 @@ export function install(rt) {
       }
     }
     // Below the hard line a part without a good note stays as it is: it still works,
-    // and a later try may write one. A CLI session that was asked for a note already
-    // reads as moving on, so a part on one moves on with the package instead.
-    if (written === undefined && !job.hard && !job.engine && !local) {
+    // and a later try may write one. On a local CLI, a failure before the note prompt
+    // ever reached the CLI (busy/pending call/process exit/resume failed) also stays
+    // with the same backoff instead of tearing down an active or suspended turn; only
+    // a prompt that actually reached the CLI moves on with the deterministic package.
+    const stayOnNoteFailure = !job.hard && !job.engine && !job.runtimeLost && (!local || failure?.reachedCli === false)
+    if (written === undefined && stayOnNoteFailure) {
       const count = (noteFailures.get(agent.id)?.count ?? 0) + 1
       const wait = NOTE_COOLDOWN_MS[Math.min(count, NOTE_COOLDOWN_MS.length) - 1]
       noteFailures.set(agent.id, { count, until: Date.now() + wait })
@@ -2701,6 +2758,7 @@ export function install(rt) {
     const earlierNote = previousNote ? { note: previousNote, noteFrom: previous.noteFrom ?? previous.number } : {}
     const fallback = written !== undefined ? undefined
       : job.engine ? 'engine'
+      : job.runtimeLost === true ? 'runtime-lost'
       : whole ? 'whole' : job.failed !== undefined ? 'failure' : job.overflow ? 'overflow' : job.cutoff === true ? 'cutoff' : 'failed'
     const noteBody = written !== undefined ? written.note : earlierNote.note
     const noteFrom = written !== undefined ? undefined : earlierNote.noteFrom
@@ -2785,7 +2843,7 @@ export function install(rt) {
         delete state.views[agent.id]
       }
     }
-    const resume = job.resume || job.overflow
+    const resume = job.resume || (job.overflow && !job.bare) || job.runtimeLost
     // Mark handoffPending before flipping the current-part pointer so a crash between
     // rt.save() and flush #1 lets handOnHeld() reconstruct and deliver the same routable
     // handoff package (including reply routing & joined requests, without stale rpcId).
@@ -2796,6 +2854,7 @@ export function install(rt) {
         resume,
         overflow: job.overflow === true,
         cutoff: job.cutoff === true,
+        runtimeLost: job.runtimeLost === true,
         ...(job.failed !== undefined ? { failed: job.failed } : {}),
         bare: job.bare === true,
         folder: job.folder === true,
@@ -2829,7 +2888,7 @@ export function install(rt) {
         rt.warn('ds-bot: the fresh part of %s did not start in %s; it works in %s', name, intended, cwd)
       }
       const engine = job.engine ? rt.engineNameOf?.(bot.model ?? bot.appliedModel) : undefined
-      const text = handoffPackage({ room: effectiveRoom, self: bot === undefined, segment, lines: carried, number: number + 1, resume, overflow: job.overflow, cutoff: job.cutoff === true, failed: job.failed, bare: job.bare, folder, engine })
+      const text = handoffPackage({ room: effectiveRoom, self: bot === undefined, segment, lines: carried, number: number + 1, resume, overflow: job.overflow, cutoff: job.cutoff === true, runtimeLost: job.runtimeLost === true, failed: job.failed, bare: job.bare, folder, engine })
       freshParts.set(freshId, estimateTokens(text))
       fresh.followup(createUserMessage({ content: [{ type: 'text', text }], source: handoffSource(job, resume) }))
       await ctx.sessions.flush(fresh.session)
@@ -3198,10 +3257,26 @@ export function install(rt) {
   }
 
   ctx.on('agent/request-error', async (payload, next) => {
-    if (payload.signal?.aborted || (payload.failure?.code !== OVERFLOW && payload.failure?.code !== 'INVALID_REQUEST')) return next()
+    if (payload.signal?.aborted) return next()
+    const code = payload.failure?.code
+    if (code === 'LOCAL_AGENT_SESSION_LOST') {
+      await rt.load()
+      const { agent } = payload
+      if (!rt.isBotSession(agent.id) || switches.has(agent.id) || readOnly()) return next()
+      const entry = rt.liveOf(agent.id)
+      entry.switched = true
+      startSwitch(agent, { resume: true, info: entry.info, joined: [...(entry.joined ?? [])], runtimeLost: true, hard: true })
+      return undefined
+    }
+    if (code !== OVERFLOW && code !== 'INVALID_REQUEST') return next()
     await rt.load()
     const { agent } = payload
-    if (!rt.isBotSession(agent.id) || switches.has(agent.id) || readOnly() || !await overflowed(agent, payload.failure) || !await canMakeRoom(agent)) return next()
+    if (!rt.isBotSession(agent.id) || switches.has(agent.id) || readOnly() || !await overflowed(agent, payload.failure)) return next()
+    if (!await canMakeRoom(agent)) {
+      const entry = rt.liveOf(agent.id)
+      entry.overflowFailure = true
+      return next()
+    }
     const entry = rt.liveOf(agent.id)
     entry.switched = true
     startSwitch(agent, { resume: true, info: entry.info, joined: [...(entry.joined ?? [])], overflow: true })
@@ -3327,6 +3402,7 @@ export function install(rt) {
     const past = tokens !== undefined && tokens >= lines.check && grown(agent.id, tokens, lines)
     if (!past && !condensed) return
     const hard = tokens !== undefined && tokens >= lines.hard
+    if (!hard && Date.now() < (noteFailures.get(agent.id)?.until ?? 0)) return
     if (!hard && Date.now() < (roomRetry.get(agent.id)?.until ?? 0)) return
     checking.add(agent.id)
     try {
@@ -4043,5 +4119,42 @@ export function install(rt) {
     if (id !== undefined && !rt.isBotSession?.(id) && rt.roomOf?.(id) === undefined) forgetSessionParts(id)
   })
 
-  Object.assign(rt, { clock, partsOf, partsOfThread, historyEntry, partLines, noteText, earlierPage, chatPage, agentPage, taskPage, displayItems, applySteps, followFolder, followEngine, heldBack, openTaskPart, forkForegroundPart, forgetSessionParts, isSwitchingPart: id => switches.has(id), isMovingInboxMessage: id => id !== undefined && movingInboxMessages.has(id), sessionTokens: session => tokensOf(session), switchJobs: () => switches.values() })
+  // User-initiated recovery escape hatch for continuous unrecoverable context overflow
+  // when automatic part switching cannot make room (L6): starts a clean bare part
+  // without carrying the overflowing tail so the user is never stuck.
+  async function recoverOverflowPart(botId, sessionId) {
+    await rt.load()
+    if (readOnly()) throw new Error('DS Bot is read-only in this window')
+    const bot = rt.botOf(botId)
+    if (bot === undefined) throw new Error('Unknown Bot')
+    const targetId = sessionId ?? rt.chatOf(bot.id)
+    const place = placeOf(targetId)
+    if (place === undefined || place.botId !== bot.id) throw new Error('Unknown conversation part')
+    if (switches.has(targetId)) throw new Error('This conversation is already moving to a new part')
+    const agent = await rt.resolveAgent(targetId)
+    if (!isAgentIdle(agent)) throw new Error('Wait for the current turn to finish before starting a new part')
+    const lastFailure = lastTurnEnd(agent)?.data?.reason?.kind === 'error' ? lastTurnEnd(agent).data.reason.error : undefined
+    const recordedOverflow = bot.failures?.[targetId]?.code === OVERFLOW
+    const liveOverflow = lastFailure !== undefined && await overflowed(agent, lastFailure)
+    if (!recordedOverflow && !liveOverflow) {
+      throw new Error('This conversation does not need an overflow recovery switch')
+    }
+    const moved = await startSwitch(agent, { hard: true, idle: true, overflow: true, bare: true, resume: false })
+    if (moved !== true) throw new Error('Could not start a new part right now')
+    let dirty = false
+    if (bot.failures?.[targetId] !== undefined) {
+      delete bot.failures[targetId]
+      if (Object.keys(bot.failures).length === 0) delete bot.failures
+      dirty = true
+    }
+    if (bot.blocked?.code === OVERFLOW) {
+      delete bot.blocked
+      dirty = true
+    }
+    if (dirty) await rt.save()
+    const nextId = place.roomId === undefined ? (threadCurrentOfPart(bot, targetId) ?? rt.chatOf(bot.id)) : rt.roomOf(place.roomId)?.sessions?.[bot.id]
+    return { sessionId: nextId }
+  }
+
+  Object.assign(rt, { clock, partsOf, partsOfThread, historyEntry, partLines, noteText, earlierPage, chatPage, agentPage, taskPage, displayItems, applySteps, followFolder, followEngine, heldBack, openTaskPart, forkForegroundPart, forgetSessionParts, recoverOverflowPart, isSwitchingPart: id => switches.has(id), isMovingInboxMessage: id => id !== undefined && movingInboxMessages.has(id), sessionTokens: session => tokensOf(session), switchJobs: () => switches.values() })
 }

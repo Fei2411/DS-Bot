@@ -2463,7 +2463,7 @@ test('ACP upstream error data preserves code, detail and status (#1806)', async 
       data: { code }, code: 'LOCAL_AGENT_QUOTA', text: 'Internal error',
     })),
     ...[
-      ['Too many tokens', 'CONTEXT_WINDOW_EXCEEDED'],
+      ['Prompt is too long', 'CONTEXT_WINDOW_EXCEEDED'],
       ['Login required', 'LOCAL_AGENT_SIGNIN'],
       ['Rate limit reached', 'LOCAL_AGENT_QUOTA'],
     ].flatMap(([text, code]) => [
@@ -2473,7 +2473,7 @@ test('ACP upstream error data preserves code, detail and status (#1806)', async 
     ...[
       ['Login required', 'LOCAL_AGENT_SIGNIN'],
       ['Rate limit reached', 'LOCAL_AGENT_QUOTA'],
-      ['Too many tokens', 'CONTEXT_WINDOW_EXCEEDED'],
+      ['Prompt is too long', 'CONTEXT_WINDOW_EXCEEDED'],
     ].map(([message, code]) => ({ message, data: { detail }, code, text: detail })),
     { data: { code: '', detail }, code: 'LOCAL_AGENT_ERROR', text: detail },
     { data: { code: 403, detail }, code: 'LOCAL_AGENT_ERROR', text: detail },

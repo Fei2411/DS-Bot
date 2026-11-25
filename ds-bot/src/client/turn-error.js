@@ -51,6 +51,7 @@ export function failureText(code, { name, provider, status }) {
     case 'RATE_LIMIT': return t('Too many requests. Wait a moment, then try again.')
     case 'SERVER': return t('The model service failed.')
     case 'INTERRUPTED': return t('DeepSeek Harness stopped before this turn finished.')
+    case 'CONTEXT_WINDOW_EXCEEDED': return t('This conversation no longer fits in the context window. Start a new part to continue.')
     case 'MODEL_SWITCH_COMPACTION_FAILED': return t("The conversation could not be compacted for this model. Try again or choose another model.")
     default: return knownFailure(code) ?? t('This turn failed.')
   }
@@ -71,6 +72,7 @@ export function fixesFor(code, { canSignIn, official, topUp, onAccount = false }
     case 'CONTENT_REFUSED': return []
     case 'QUOTA': return official ? ['top-up'] : []
     case 'ACCOUNT_QUOTA': return topUp ? ['top-up'] : []
+    case 'CONTEXT_WINDOW_EXCEEDED': return ['new-part', 'model']
     case 'MODEL_SWITCH_COMPACTION_FAILED': return ['model', 'model-settings']
     default: return []
   }
@@ -85,6 +87,7 @@ const FIX_LABELS = {
   'sign-in': signedIn => (signedIn ? t('Use the DeepSeek account') : t('Sign in with a DeepSeek account')),
   'use-account': () => t('Use a DeepSeek account instead'),
   'sign-in-again': () => t('Sign in again'),
+  'new-part': () => t('Start a new part'),
   model: () => t('Pick another model'),
   'top-up': () => t('Top up ↗'),
 }
@@ -172,6 +175,7 @@ export function FailureCell({ node, sessionId, useRoster, useTurnClock, actions 
   const topUp = topUpOf(account)
   const [keying, setKeying] = useState(false)
   const [retry, setRetry] = useState('idle')
+  const [switching, setSwitching] = useState('idle')
   const [error, setError] = useState('')
   // A sign-in started here to leave a failing key route, with the model the Bot was on.
   const [joining, setJoining] = useState(null)
@@ -215,12 +219,19 @@ export function FailureCell({ node, sessionId, useRoster, useTurnClock, actions 
     setJoining({ from: bot.model })
     actions.signIn()
   }
+  const startNewPart = () => {
+    setSwitching('busy')
+    setError('')
+    void Promise.resolve(actions.newPart(bot.id, sessionId))
+      .then(() => setSwitching('sent'), (failure) => { setSwitching('idle'); setError(hostText(failure?.message ?? String(failure))) })
+  }
   const runs = {
     key: keyHere ? () => setKeying(value => !value) : keyElsewhere,
     rekey: keyHere ? () => setKeying(value => !value) : keyElsewhere,
     'sign-in': viaAccount,
     'use-account': viaAccount,
     'sign-in-again': () => actions.signIn(),
+    'new-part': typeof actions.newPart === 'function' ? startNewPart : undefined,
     model: actions.showDetails ? () => actions.showDetails(sessionId) : undefined,
     'model-settings': manageModels(actions),
   }
@@ -241,6 +252,9 @@ export function FailureCell({ node, sessionId, useRoster, useTurnClock, actions 
     const className = primary ? 'bt-send bt-fail-go' : 'bt-soft bt-soft-sm'
     if (fix === 'top-up') {
       return h('a', { key: fix, className: `${className} bt-fail-link`, href: data.code === 'ACCOUNT_QUOTA' ? topUp : TOP_UP_URL, target: '_blank', rel: 'noopener noreferrer' }, FIX_LABELS[fix]())
+    }
+    if (fix === 'new-part') {
+      return h('button', { key: fix, type: 'button', className, disabled: switching !== 'idle', onClick: startNewPart }, switching === 'idle' ? FIX_LABELS[fix]() : t('Starting a new part…'))
     }
     const toggles = keyHere && (fix === 'key' || fix === 'rekey')
     return h('button', { key: fix, type: 'button', className, 'aria-expanded': toggles ? keying : undefined, onClick: () => runs[fix]() }, FIX_LABELS[fix](signedIn))

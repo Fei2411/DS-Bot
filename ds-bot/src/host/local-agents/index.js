@@ -171,6 +171,7 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
     },
     presetFor: sessionId => presetOf(rt, sessionId),
     freshMemoryView: sessionId => rt.freshMemoryView?.(sessionId),
+    switchOnResumeLost: sessionId => rt.isBotSession?.(sessionId) === true && rt.readOnly?.() === undefined,
     cwdFor: async (sessionId) => {
       try {
         const agent = await rt.resolveAgent(sessionId)

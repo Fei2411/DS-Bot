@@ -262,7 +262,7 @@ export class CodexEngine {
         thread.threadId = undefined
         if (resumeOnly) {
           if (created && this.threads.get(dshSessionId) === thread) this.threads.delete(dshSessionId)
-          throw Object.assign(new Error('the saved local agent session could not be resumed for maintenance'), { code: 'LOCAL_AGENT_EXIT' })
+          throw Object.assign(new Error('the saved local agent session could not be resumed'), { code: 'LOCAL_AGENT_SESSION_LOST' })
         }
       }
     }
@@ -277,9 +277,16 @@ export class CodexEngine {
   }
 
   // Follow-up instructions while a thread lives (Codex injects a developer item).
+  // Returns `{ ok, unsupported }` so callers only advance promptHash once delivered.
   async instruct(thread, text) {
-    if (text === '') return
-    await this.peer?.request('thread/inject_items', { threadId: thread.threadId, items: [{ type: 'developerMessage', text }] }, { timeout: 15_000 }).catch(() => {})
+    if (text === '') return { ok: true }
+    if (this.peer === undefined || thread?.threadId === undefined) return { ok: false, unsupported: false }
+    try {
+      await this.peer.request('thread/inject_items', { threadId: thread.threadId, items: [{ type: 'developerMessage', text }] }, { timeout: 15_000 })
+      return { ok: true }
+    } catch (error) {
+      return { ok: false, unsupported: error?.code === -32601 }
+    }
   }
 
   async prompt(thread, blocks, { signal, effort }) {
