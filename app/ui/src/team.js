@@ -246,6 +246,8 @@ export function createTeam() {
     if (value.connectors !== undefined && JSON.stringify(value.connectors) !== JSON.stringify(current.connectors ?? [])) changed.connectors = value.connectors
     if (value.capabilityStatuses !== undefined && JSON.stringify(value.capabilityStatuses) !== JSON.stringify(current.capabilityStatuses ?? {})) changed.capabilityStatuses = value.capabilityStatuses
     if (value.learning !== undefined && JSON.stringify(value.learning) !== JSON.stringify(current.learning ?? {})) changed.learning = value.learning
+    // What waits for the user across the team (ds-bot/src/host/inbox.js).
+    if (value.inbox !== undefined && JSON.stringify(value.inbox) !== JSON.stringify(current.inbox ?? null)) changed.inbox = value.inbox
     if (value.learningSettled !== undefined && JSON.stringify(value.learningSettled) !== JSON.stringify(current.learningSettled ?? {})) changed.learningSettled = value.learningSettled
     if (value.btwCards !== undefined && JSON.stringify(value.btwCards) !== JSON.stringify(current.btwCards ?? {})) changed.btwCards = value.btwCards
     if (value.sideChats !== undefined && JSON.stringify(value.sideChats) !== JSON.stringify(current.sideChats ?? {})) changed.sideChats = value.sideChats
@@ -478,13 +480,13 @@ export function createTeam() {
       const next = partFor(id)
       const switched = next !== shown.getSnapshot()
       ui.set((state) => {
-        const dropOverlay = Boolean(state.newChat || state.exchange || state.menu || state.palette || state.shortcuts)
+        const dropOverlay = Boolean(state.newChat || state.exchange || state.menu || state.palette || state.shortcuts || state.inbox)
         const rp = switched ? pruneStaleWorkspace(state.rightPanel) : state.rightPanel
         const foldWorkspace = switched && state.view === 'workspace' && rp === null
         if (!dropOverlay && rp === state.rightPanel && !foldWorkspace) return state
         return {
           ...state,
-          ...(dropOverlay ? { newChat: null, exchange: null, menu: null, palette: null, shortcuts: false } : {}),
+          ...(dropOverlay ? { newChat: null, exchange: null, menu: null, palette: null, shortcuts: false, inbox: false } : {}),
           ...(foldWorkspace ? { view: 'details' } : {}),
           rightPanel: rp,
         }
@@ -509,6 +511,7 @@ export function createTeam() {
           palette: null,
           groupSearch: null,
           shortcuts: false,
+          inbox: false,
           rightPanel: keepPanel ? rp : null,
         }
       })
