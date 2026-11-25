@@ -300,8 +300,8 @@ export function install(rt) {
 
   function setCliCompactions(sessionId, count) {
     if (typeof sessionId !== 'string' || sessionId === '' || !Number.isInteger(count) || count < 0) return
+    if (cliCompactionsOf(sessionId) === count) return
     const entry = ensureEntry(sessionId)
-    if (entry.cliCompactions === count) return
     entry.cliCompactions = count
     saveSoon()
   }
@@ -311,11 +311,11 @@ export function install(rt) {
     return meta && typeof meta === 'object' ? meta : undefined
   }
 
-  function setGroupMeta(sessionId, meta) {
+  function setGroupMeta(sessionId, meta, { persist = true } = {}) {
     if (typeof sessionId !== 'string' || sessionId === '' || !meta || typeof meta !== 'object') return
     const entry = ensureEntry(sessionId)
     entry.groupMeta = meta
-    saveSoon()
+    if (persist) saveSoon()
   }
 
   function forget(sessionId) {

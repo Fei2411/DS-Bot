@@ -1655,8 +1655,9 @@ export function install(rt) {
     try {
       await rt.deliver({ fromId: undefined, toId: member.id, sessionId, role: 'room', roomId: room.id, exchangeId, note, text, images, files, steer: busy, ...(by ? { askedBy: by } : {}), ...(slot.resultRef ? { resultRef: slot.resultRef } : {}), ...(slot.batchKey ? { batchKey: slot.batchKey } : {}), ...(slot.resumedUpstream ? { resumedUpstream: true } : {}) })
       // The prompt reached the member: its read position and group header snapshot move on.
+      // Persisted together at round end (`await rt.save()`), avoiding a mid-round fsync per member.
       room.seen[member.id] = seenAt
-      if (meta !== undefined) rt.contextRuntime?.setGroupMeta?.(sessionId, meta)
+      if (meta !== undefined) rt.contextRuntime?.setGroupMeta?.(sessionId, meta, { persist: false })
       // Still held by an earlier request: this turn cannot start until the user answers.
       if (rt.state.questions[sessionId] !== undefined || rt.state.views[sessionId] !== undefined) rt.roomWaiters.get(exchangeId)?.resolve({ answer: true })
       else if (rt.waitsForApproval?.(sessionId)) rt.roomWaiters.get(exchangeId)?.approval()
