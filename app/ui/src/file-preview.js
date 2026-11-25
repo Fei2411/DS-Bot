@@ -194,7 +194,7 @@ export function FilePreview({ file, loading, error, onRetry }) {
   }
 
   const badge = file.convertedFrom ? file.convertedFrom.slice(1).toUpperCase()
-    : file.language && file.language !== 'text' ? file.language
+    : file.language && file.language !== 'text' ? file.language.toUpperCase()
       : file.kind === 'table' ? (file.delimiter === '\t' ? 'TSV' : 'CSV')
         : file.kind.toUpperCase()
 
@@ -236,7 +236,8 @@ export function FilePreview({ file, loading, error, onRetry }) {
           : file.kind === 'html'
             ? (mode === 'source'
                 ? h(CodeLines, { text: file.text })
-                : h('iframe', { className: 'dsb-pv-frame dsb-pv-html', sandbox: '', referrerPolicy: 'no-referrer', srcDoc: file.text, title: file.name }))
+                : h('div', { className: 'dsb-pv-html-wrap' },
+                  h('iframe', { className: 'dsb-pv-frame dsb-pv-html', sandbox: '', referrerPolicy: 'no-referrer', srcDoc: file.text, title: file.name })))
             : file.kind === 'svg'
               ? (mode === 'source' || !file.base64 ? h(CodeLines, { text: file.text }) : h(ImagePreview, { file }))
               : file.kind === 'image'

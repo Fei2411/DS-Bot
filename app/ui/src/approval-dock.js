@@ -4,16 +4,27 @@ import { hostText, t } from '../../../ds-bot/src/client/i18n.js'
 const EMPTY_APPROVALS = []
 
 /**
- * Selects pending foreground DM tool approvals for `botId` (excludes group & background-task
- * approvals, which `HeaderPill` already owns via `ApprovalIslandPod` / `TaskIslandPod`).
+ * Selects pending foreground DM or Classic Agent tool approvals (excludes group &
+ * background-task approvals, which `HeaderPill` already owns via `ApprovalIslandPod` / `TaskIslandPod`).
  */
-export function foregroundApprovalsOf(approvals, botId) {
-  if (!botId || !Array.isArray(approvals) || approvals.length === 0) return EMPTY_APPROVALS
-  return approvals.filter(entry => entry
-    && entry.botId === botId
-    && !entry.taskId
-    && !entry.roomId
-    && entry.answerable !== false)
+export function foregroundApprovalsOf(approvals, botId, sessionId = null) {
+  if (!Array.isArray(approvals) || approvals.length === 0) return EMPTY_APPROVALS
+  if (botId) {
+    return approvals.filter(entry => entry
+      && entry.botId === botId
+      && !entry.taskId
+      && !entry.roomId
+      && entry.answerable !== false)
+  }
+  if (sessionId) {
+    return approvals.filter(entry => entry
+      && entry.sessionId === sessionId
+      && !entry.botId
+      && !entry.taskId
+      && !entry.roomId
+      && entry.answerable !== false)
+  }
+  return EMPTY_APPROVALS
 }
 
 function ApprovalCard({ entry, actions, readOnly }) {
@@ -70,9 +81,9 @@ function ApprovalCard({ entry, actions, readOnly }) {
 /**
  * Foreground DM tool approval dock rendered above the composer.
  */
-export function ApprovalDock({ botId, useWork, actions, readOnly = false }) {
+export function ApprovalDock({ botId, sessionId, useWork, actions, readOnly = false }) {
   const approvals = useWork?.(work => work?.approvals) ?? EMPTY_APPROVALS
-  const pending = foregroundApprovalsOf(approvals, botId)
+  const pending = foregroundApprovalsOf(approvals, botId, sessionId)
   if (pending.length === 0) return null
   return h('div', { className: 'dsb-approval-dock', 'data-approval-dock': '' },
     pending.map(entry => h(ApprovalCard, { key: entry.id, entry, actions, readOnly })))

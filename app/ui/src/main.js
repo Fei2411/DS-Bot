@@ -30,7 +30,7 @@ import { SCHEDULE_CSS } from '../../../ds-bot/src/client/schedules.js'
 import { APPEARANCE_PAGE_CSS } from '../../../ds-bot/src/client/appearance-page.js'
 import { SECRET_CSS } from '../../../ds-bot/src/client/secret-card.js'
 import { SIDE_CSS } from '../../../ds-bot/src/client/side-chat.js'
-import { SIDEBAR_CSS } from '../../../ds-bot/src/client/sidebar.js'
+import { RETURN_CSS, SIDEBAR_CSS } from '../../../ds-bot/src/client/sidebar.js'
 import { CONVERSATION_CSS, SHELL_CSS, installStyles } from '../../../ds-bot/src/client/styles.js'
 import { TASK_CSS } from '../../../ds-bot/src/client/task-board.js'
 import { ANNOTATION_CSS } from '../../../ds-bot/src/client/text-annotation.js'
@@ -38,22 +38,30 @@ import { TURN_ERROR_CSS } from '../../../ds-bot/src/client/turn-error.js'
 import { USAGE_CSS } from '../../../ds-bot/src/client/usage-page.js'
 import { USER_MESSAGE_CSS } from '../../../ds-bot/src/client/user-message.js'
 import { WIDGET_CSS } from '../../../ds-bot/src/client/widget-cell.js'
-import { createLocale } from './locale.js'
+import { createLocale, setAppLocaleService } from './locale.js'
 import { App } from './app.js'
 import { registerBuiltinToolViews } from './builtin-tool-views.js'
+import { registerEngineSettingsPlugin } from './engine-settings-bridge.js'
 import { paintMode } from './mode.js'
+import { pluginRuntime } from './plugin-runtime.js'
+import { slots } from './slots.js'
 import './app.css'
 
-installLocale(createLocale(navigator.language))
+const appLocale = createLocale(navigator.language)
+setAppLocaleService(appLocale)
+installLocale(appLocale)
 installMotionRest()
-registerBuiltinToolViews()
-document.documentElement.lang = navigator.language
+pluginRuntime.provide('slots', slots)
+pluginRuntime.use({ id: 'ds-bot.builtin-tool-views', name: 'Built-in tool views' }, () => registerBuiltinToolViews(slots))
+registerEngineSettingsPlugin(pluginRuntime)
+globalThis.dsBotPlugins = pluginRuntime
+document.documentElement.lang = appLocale.getLocale().active
 // macOS puts the window buttons at the band's left end, over the sidebar (app.css).
 if (/mac/iu.test(navigator.userAgentData?.platform ?? navigator.platform)) document.documentElement.dataset.mac = ''
 
 // The Bot views' own stylesheets, the same ones the plugin puts in DSH.
 for (const [tag, text] of [
-  ['shell', SHELL_CSS], ['sidebar', SIDEBAR_CSS],
+  ['shell', SHELL_CSS], ['sidebar', SIDEBAR_CSS + RETURN_CSS],
   ['conversation', CONVERSATION_CSS + PASTE_CSS + OPENING_CSS + USER_MESSAGE_CSS + WIDGET_CSS + CHANGES_CSS + HANDOFF_CSS + TURN_ERROR_CSS + QUEUE_CSS + ANNOTATION_CSS],
   ['secrets', SECRET_CSS], ['providers', PROVIDERS_CSS], ['connectors', CONNECTOR_CSS + CONNECTORS_PAGE_CSS + IM_CSS],
   ['models', MODEL_CSS + FOLDER_CSS + BOT_SETTINGS_CSS + BOT_MODELS_CSS + AGENT_CARDS_CSS + AVATAR_LIBRARY_CSS + GROUP_SETTINGS_CSS],

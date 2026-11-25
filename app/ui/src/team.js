@@ -4,12 +4,14 @@
 import { useRef, useSyncExternalStore } from 'react'
 import { call } from '../../../ds-bot/src/client/api.js'
 import { noticeApprovals } from '../../../ds-bot/src/client/approval-notices.js'
+import { createBotBrowsers, serveBrowserReads } from '../../../ds-bot/src/client/bot-browsers.js'
 import { workPhrase } from '../../../ds-bot/src/client/cells.js'
 import { language, t } from '../../../ds-bot/src/client/i18n.js'
 import { toolState } from '../../../ds-bot/src/client/mark.js'
 import { noteLeft, setUnread, sharedMap, toggleReaction } from '../../../ds-bot/src/client/shared-map.js'
 import { createSource, EMPTY_ROSTER, indexRoster } from '../../../ds-bot/src/client/sources.js'
 import { STORAGE, migrateStorage } from '../../../ds-bot/src/client/storage.js'
+import { readMode, writeMode } from '../../../ds-bot/src/client/surface.js'
 import { teamActions } from '../../../ds-bot/src/client/team-actions.js'
 import { currentPart } from '../../../ds-bot/src/client/text.js'
 import { registry } from '../../../ds-bot/src/client/themes.js'
@@ -56,17 +58,7 @@ export function createTeam() {
   const seenStore = sharedMap(STORAGE.seen)
   let seenAt = seenStore.read()
   const roster = createSource(EMPTY_ROSTER)
-  const ui = createSource({ details: null, view: 'details', renaming: false, tab: null, rightPanel: null, newChat: null, exchange: null, menu: null, voice: null, palette: null, quote: null, settings: null, memory: null, toast: null, signIn: null, renameAgent: null, unread: unreadStore.read(), reactions: reactionStore.read(), visits: {} })
-  // One right-side column at a time: opening BotPanel (details/browser/side/task) closes the workspace right panel.
-  let lastDetails = null
-  ui.subscribe(() => {
-    const snap = ui.getSnapshot()
-    const openedBotPanel = lastDetails === null && snap.details !== null
-    lastDetails = snap.details
-    if (openedBotPanel && snap.rightPanel !== null) {
-      ui.set(state => (state.rightPanel !== null ? { ...state, rightPanel: null } : state))
-    }
-  })
+  const ui = createSource({ details: null, view: 'details', renaming: false, tab: null, side: null, task: null, rightPanel: null, newChat: null, exchange: null, menu: null, voice: null, palette: null, quote: null, settings: null, memory: null, toast: null, signIn: null, renameAgent: null, unread: unreadStore.read(), reactions: reactionStore.read(), visits: {} })
   const activity = createSource({})
   const work = createSource(NO_WORK)
   const memoryNews = createSource({})
@@ -75,11 +67,22 @@ export function createTeam() {
   const heldCards = createSource({})
   const turnClock = createSource({})
   const update = createSource({ available: false, phase: 'idle' })
+  const mergeUpdate = (value) => {
+    if (!value || typeof value !== 'object') return
+    update.set(previous => ({ ...previous, ...value, app: previous.app, ownApp: previous.ownApp }))
+  }
+  let wakeUpdate = () => {}
+  let scheduleUpdate = () => {}
   const computer = createSource({})
-  const browserHolds = createSource({})
-  const browserPages = createSource({})
-  const browserTabs = createSource({})
+  // Bot browsers need a webview bridge: DSH Desktop's, or the desktop app's of the
+  // same shape. The host serves read_browser only in those two (`browser` in the state).
+  const bridge = (globalThis.dshDesktop?.protocolVersion === 1 ? globalThis.dshDesktop.browser : globalThis.dsBotApp?.browser) ?? null
+  const browsers = bridge ? createBotBrowsers({ bridge, createSource }) : null
+  const browserHolds = browsers?.holds ?? createSource({})
+  const browserPages = browsers?.pages ?? createSource({})
+  const browserTabs = browsers?.tabs ?? createSource({})
   const layout = createSource({ wide: true })
+  const surface = createSource({ mode: readMode() })
   // The Session facts: the list (each one's latest entry and change, and which one fills
   // the main view), the status (running, a reply not yet seen) and what was just sent.
   const sessions = createSource({ ids: [], byId: {} })
@@ -87,6 +90,53 @@ export function createTeam() {
   const sent = createSource({})
   const shown = createSource(null)
   const chat = createBus()
+  // Remember positions in both modes so switching Bot <-> Classic preserves each side.
+  let lastTeamSession = null
+  let lastAgentSession = null
+  const agentNewInFlight = new Map()
+  let classicSeq = 0
+
+  const isAgentSessionId = id => Boolean(id && roster.getSnapshot().agentOf?.[id] !== undefined)
+  const latestAgentSession = (agentId) => {
+    const agent = roster.getSnapshot().agentsById?.[agentId]
+    const ids = agent?.sessions ?? []
+    if (ids.length === 0) return undefined
+    const list = sessions.getSnapshot().byId
+    return [...ids].sort((a, b) => {
+      const diff = (list[b]?.updatedAt ?? 0) - (list[a]?.updatedAt ?? 0)
+      return diff !== 0 ? diff : ids.indexOf(b) - ids.indexOf(a)
+    })[0]
+  }
+
+  const refreshClassicSessions = async () => {
+    const mySeq = ++classicSeq
+    try {
+      const res = await call('engine-classic-sessions')
+      if (mySeq !== classicSeq) return
+      const rows = Array.isArray(res?.sessions) ? res.sessions : []
+      if (rows.length === 0) return
+      sessions.set((list) => {
+        const nextIds = [...list.ids]
+        const nextById = { ...list.byId }
+        for (const item of rows) {
+          if (!item?.id) continue
+          if (!nextIds.includes(item.id)) nextIds.push(item.id)
+          const prev = nextById[item.id] ?? { id: item.id }
+          nextById[item.id] = {
+            ...prev,
+            id: item.id,
+            title: item.title || prev.title || '',
+            displayTitle: item.title || prev.displayTitle || '',
+            updatedAt: Math.max(prev.updatedAt ?? 0, item.updatedAt ?? 0),
+            running: item.running === true,
+            blank: item.blank === true,
+            ...(item.workspaceId ? { workspaceId: item.workspaceId } : {}),
+          }
+        }
+        return { ids: nextIds, byId: nextById }
+      })
+    } catch { /* host without classic metadata leaves existing rows intact */ }
+  }
 
   const editRow = (id, edit) => sessions.set((list) => {
     const row = list.byId[id] ?? { id }
@@ -97,7 +147,17 @@ export function createTeam() {
     if (Object.entries(patch).every(([key, value]) => (entry[key] ?? false) === value)) return map
     return new Map(map).set(id, { ...entry, ...patch })
   })
+  const clearShown = () => {
+    const before = shown.getSnapshot()
+    if (before === null) return
+    shown.set(null)
+    editRow(before, row => ({ ...row, retainedBy: { mainView: 0 } }))
+  }
   const show = (id) => {
+    if (!id) return
+    const snap = roster.getSnapshot()
+    if (snap.agentOf?.[id] !== undefined) lastAgentSession = id
+    else if (snap.byId?.[id] !== undefined || snap.roomsById?.[id] !== undefined) lastTeamSession = id
     if (shown.getSnapshot() === id) return
     const before = shown.getSnapshot()
     shown.set(id)
@@ -156,18 +216,26 @@ export function createTeam() {
     if (value.secrets !== undefined && JSON.stringify(value.secrets) !== JSON.stringify(current.secrets ?? [])) changed.secrets = value.secrets
     if (value.secretStore !== undefined && JSON.stringify(value.secretStore) !== JSON.stringify(current.secretStore ?? {})) changed.secretStore = value.secretStore
     if (value.memoryReviews !== undefined && JSON.stringify(value.memoryReviews) !== JSON.stringify(current.memoryReviews ?? {})) changed.memoryReviews = value.memoryReviews
+    if (value.plugins !== undefined && JSON.stringify(value.plugins) !== JSON.stringify(current.plugins ?? null)) changed.plugins = value.plugins
     if (Object.keys(changed).length > 0 && current.ready) roster.set({ ...current, ...changed })
     if (value.unchanged || (value.revision === current.revision && value.modelsKey === current.modelsKey)) return
     // In a window with no visit record yet, everything already there counts as seen.
     if (Object.keys(seenAt).length === 0) leaveVisits([...value.bots, ...value.rooms].map(entry => entry.id))
     const indexed = indexRoster(value)
     roster.set(indexed)
+    if ((indexed.agents ?? []).some(agent => (agent.sessions?.length ?? 0) > 0)) {
+      void refreshClassicSessions()
+    }
     // Follow a Bot or group chat onto its new segment when context rolls over or moves to background.
     const open = shown.getSnapshot()
     if (open) {
       const target = indexed.byId[open] ?? indexed.roomsById[open]
       const nextPart = target ? currentPart(target) : open
       if (nextPart && nextPart !== open) show(nextPart)
+    } else if (surface.getSnapshot().mode === 'agent') {
+      const firstAgent = (indexed.agents ?? [])[0]
+      const latest = firstAgent ? (latestAgentSession(firstAgent.id) ?? firstAgent.sessions?.[0]) : undefined
+      if (latest) show(latest)
     }
   }
   const after = promise => promise.then(async (value) => { await pull().catch(() => {}); return value })
@@ -195,21 +263,80 @@ export function createTeam() {
 
   const baseActions = teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock })
   const clearShortcuts = () => ui.set(state => (state.shortcuts ? { ...state, shortcuts: false } : state))
-  const openRightPanel = (updatePanel) => {
-    ui.set(state => ({
-      ...state,
-      details: null,
-      view: 'details',
-      renaming: false,
-      tab: null,
-      side: null,
-      task: null,
-      rightPanel: typeof updatePanel === 'function' ? updatePanel(state.rightPanel) : updatePanel,
-    }))
+
+  // Unified right sidebar workspace state: coexists with Bot/Group details, browser, side
+  // chats, and tasks inside one shared `BotPanel` strip.
+  const EMPTY_RIGHT_PANEL = { tabs: [], tab: 'files', file: null, fileSessionId: null, fileRoot: null, changes: null, terminalNonce: 0 }
+  const STALE_WORKSPACE_TABS = new Set(['preview', 'changes'])
+  const normalizeRightPanel = (prev) => {
+    if (!prev || typeof prev !== 'object') return { ...EMPTY_RIGHT_PANEL, tabs: [] }
+    const tabs = Array.isArray(prev.tabs)
+      ? prev.tabs.filter(id => typeof id === 'string' && id !== '')
+      : (typeof prev.tab === 'string' && prev.tab !== '' ? [prev.tab] : [])
+    return { ...EMPTY_RIGHT_PANEL, ...prev, tabs }
+  }
+  const pruneStaleWorkspace = (prev) => {
+    if (!prev) return null
+    const normalized = normalizeRightPanel(prev)
+    const keptTabs = normalized.tabs.filter(id => !STALE_WORKSPACE_TABS.has(id))
+    if (keptTabs.length === 0) return null
+    const nextTab = keptTabs.includes(normalized.tab) ? normalized.tab : keptTabs[keptTabs.length - 1]
+    const changed = keptTabs.length !== normalized.tabs.length
+      || nextTab !== prev.tab
+      || prev.file !== null
+      || prev.fileSessionId !== null
+      || prev.fileRoot !== null
+      || prev.changes !== null
+    if (!changed) return prev
+    return {
+      ...normalized,
+      tabs: keptTabs,
+      tab: nextTab,
+      file: null,
+      fileSessionId: null,
+      fileRoot: null,
+      changes: null,
+    }
+  }
+  const openWorkspaceTab = (tabId, updateFn, fallbackSubject = null) => {
+    if (typeof tabId !== 'string' || tabId === '') return
+    const snap = roster.getSnapshot()
+    const fallbackId = shown.getSnapshot() ?? fallbackSubject ?? snap.mainBotId ?? snap.bots?.[0]?.id ?? null
+    ui.set((state) => {
+      const prev = normalizeRightPanel(state.rightPanel)
+      const nextTabs = prev.tabs.includes(tabId) ? prev.tabs : [...prev.tabs, tabId]
+      const base = { ...prev, tabs: nextTabs, tab: tabId }
+      const nextPanel = typeof updateFn === 'function' ? updateFn(base) : base
+      const details = state.details ?? fallbackId
+      return {
+        ...state,
+        details,
+        view: 'workspace',
+        renaming: false,
+        tab: null,
+        panelYield: true,
+        rightPanel: nextPanel,
+      }
+    })
   }
 
   const actions = {
     ...baseActions,
+    closePanel: () => {
+      baseActions.closePanel()
+      ui.set(state => (state.rightPanel !== null ? { ...state, rightPanel: null } : state))
+    },
+    closeOverlay: () => {
+      const hadDialog = Boolean(ui.getSnapshot().newChat || ui.getSnapshot().exchange)
+      baseActions.closeOverlay()
+      if (!hadDialog) {
+        ui.set(state => (state.details === null && state.rightPanel !== null ? { ...state, rightPanel: null } : state))
+      }
+    },
+    toggleDetails: (id, force) => {
+      baseActions.toggleDetails(id, force)
+      ui.set(state => (state.details === null && state.rightPanel !== null ? { ...state, rightPanel: null } : state))
+    },
     openSettings: (...args) => { clearShortcuts(); return baseActions.openSettings(...args) },
     openPalette: (...args) => { clearShortcuts(); return baseActions.openPalette(...args) },
     openGroupSearch: (...args) => { clearShortcuts(); return baseActions.openGroupSearch?.(...args) },
@@ -217,32 +344,206 @@ export function createTeam() {
     learningAnswer: (id, approve) => after(call('learning-answer', { id, approve })),
     // The full-pane overlays sit above the conversation, so opening one dismisses them.
     // Switching conversations also clears any preview/diff belonging to the previous workspace.
+    isAgentSession: id => isAgentSessionId(id),
+    surfaceMode: () => surface.getSnapshot().mode,
+    setSurface: async (mode) => {
+      const nextMode = mode === 'agent' ? 'agent' : 'bot'
+      const prevShown = shown.getSnapshot()
+      if (prevShown) {
+        if (isAgentSessionId(prevShown)) lastAgentSession = prevShown
+        else lastTeamSession = prevShown
+      }
+      if ((nextMode === 'agent' && prevShown && !isAgentSessionId(prevShown))
+        || (nextMode === 'bot' && prevShown && isAgentSessionId(prevShown))) {
+        clearShown()
+      }
+      ui.set(state => ({
+        ...state,
+        details: null,
+        view: 'details',
+        renaming: false,
+        tab: null,
+        side: null,
+        task: null,
+        rightPanel: null,
+        newChat: null,
+        exchange: null,
+        menu: null,
+        palette: null,
+        groupSearch: null,
+        settings: null,
+        shortcuts: false,
+      }))
+      writeMode(nextMode)
+      surface.set({ mode: nextMode })
+      const snap = roster.getSnapshot()
+      if (nextMode === 'agent') {
+        const agent = (snap.agents ?? [])[0]
+        if (lastAgentSession && snap.agentOf?.[lastAgentSession] !== undefined) {
+          actions.openAgentSession(lastAgentSession)
+          return
+        }
+        if (agent) {
+          const latest = latestAgentSession(agent.id)
+          if (latest) { actions.openAgentSession(latest); return }
+          if (!snap.readOnly) {
+            try { await actions.newAgentSession(agent.id) } catch (error) { actions.reportError?.(error, 'agent-session') }
+          }
+          return
+        }
+        if (!snap.readOnly) {
+          try { await actions.addAgent() } catch (error) { actions.reportError?.(error, 'agent-session') }
+        }
+        return
+      }
+      const targetTeam = lastTeamSession && (snap.byId?.[lastTeamSession] !== undefined || snap.roomsById?.[lastTeamSession] !== undefined)
+        ? lastTeamSession
+        : (snap.mainBotId ?? snap.bots?.[0]?.id)
+      if (targetTeam) actions.openSession(targetTeam)
+    },
     openSession: (id) => {
+      if (isAgentSessionId(id)) {
+        actions.openAgentSession(id)
+        return
+      }
       const next = partFor(id)
       const switched = next !== shown.getSnapshot()
       ui.set((state) => {
         const dropOverlay = Boolean(state.newChat || state.exchange || state.menu || state.palette || state.shortcuts)
-        const rp = switched && state.rightPanel && (state.rightPanel.file || state.rightPanel.changes)
-          ? {
-            ...state.rightPanel,
-            file: null,
-            fileSessionId: null,
-            fileRoot: null,
-            changes: null,
-            tab: state.rightPanel.tab === 'preview' || state.rightPanel.tab === 'changes' ? 'files' : state.rightPanel.tab,
-          }
-          : state.rightPanel
-        if (!dropOverlay && rp === state.rightPanel) return state
+        const rp = switched ? pruneStaleWorkspace(state.rightPanel) : state.rightPanel
+        const foldWorkspace = switched && state.view === 'workspace' && rp === null
+        if (!dropOverlay && rp === state.rightPanel && !foldWorkspace) return state
         return {
           ...state,
           ...(dropOverlay ? { newChat: null, exchange: null, menu: null, palette: null, shortcuts: false } : {}),
+          ...(foldWorkspace ? { view: 'details' } : {}),
           rightPanel: rp,
         }
       })
       show(next)
     },
+    openAgentSession: (sessionId) => {
+      if (!sessionId) return
+      const switched = sessionId !== shown.getSnapshot()
+      lastAgentSession = sessionId
+      ui.set((state) => {
+        const rp = switched ? pruneStaleWorkspace(state.rightPanel) : state.rightPanel
+        const keepPanel = Boolean(state.details && rp !== null && rp.tabs.length > 0)
+        return {
+          ...state,
+          ...(keepPanel
+            ? { details: sessionId, view: 'workspace', renaming: false, tab: null, side: null, task: null }
+            : { details: null, view: 'details', renaming: false, tab: null, side: null, task: null }),
+          newChat: null,
+          exchange: null,
+          menu: null,
+          palette: null,
+          groupSearch: null,
+          shortcuts: false,
+          rightPanel: keepPanel ? rp : null,
+        }
+      })
+      show(sessionId)
+    },
+    addAgent: async (options = {}) => {
+      const agentPreset = typeof options?.agentPreset === 'string' && options.agentPreset.trim() !== '' ? options.agentPreset.trim() : undefined
+      const agent = await after(call('add-agent', agentPreset ? { agentPreset } : {}))
+      await refreshClassicSessions()
+      if (agent?.sessions?.[0] !== undefined) actions.openAgentSession(agent.sessions[0])
+      return agent
+    },
+    openAgent: (agentId) => {
+      const agent = roster.getSnapshot().agentsById?.[agentId]
+      if (agent === undefined) return undefined
+      const latest = latestAgentSession(agentId)
+      if (latest === undefined) return actions.newAgentSession(agentId)
+      actions.openAgentSession(latest)
+      return latest
+    },
+    newAgentSession: async (agentId, options = {}) => {
+      const agent = roster.getSnapshot().agentsById?.[agentId]
+      if (agent === undefined) return undefined
+      const agentPreset = typeof options?.agentPreset === 'string' && options.agentPreset.trim() !== '' ? options.agentPreset.trim() : undefined
+      const flightKey = agentPreset ? `${agentId}:${agentPreset}` : agentId
+      const existing = agentNewInFlight.get(flightKey)
+      if (existing) return existing
+      const workPromise = (async () => {
+        const latest = latestAgentSession(agentId)
+        const latestRow = latest ? sessions.getSnapshot().byId[latest] : undefined
+        const { sessionId } = await after(call('agent-session', {
+          agentId,
+          ...(latestRow?.workspaceId ? { workspaceId: latestRow.workspaceId } : {}),
+          ...(agentPreset ? { agentPreset } : {}),
+        }))
+        editRow(sessionId, row => ({ ...row, id: sessionId, updatedAt: Date.now(), blank: true }))
+        actions.openAgentSession(sessionId)
+        void refreshClassicSessions()
+        return sessionId
+      })().finally(() => { agentNewInFlight.delete(flightKey) })
+      agentNewInFlight.set(flightKey, workPromise)
+      return workPromise
+    },
+    archiveAgentSession: async (agentId, sessionId) => {
+      await after(call('agent-archive', { agentId, sessionId }))
+      if (lastAgentSession === sessionId) lastAgentSession = null
+      if (shown.getSnapshot() === sessionId) {
+        const snap = roster.getSnapshot()
+        const rest = snap.agentsById?.[agentId]?.sessions ?? []
+        if (rest.length > 0) actions.openAgent(agentId)
+        else if (surface.getSnapshot().mode === 'agent') shown.set(null)
+        else if (snap.mainBotId) actions.openSession(snap.mainBotId)
+        else shown.set(null)
+      }
+      void refreshClassicSessions()
+    },
+    renameAgentSession: async (agentId, sessionId, title) => {
+      await after(call('agent-rename', { agentId, sessionId, title }))
+      const clean = String(title ?? '').trim()
+      editRow(sessionId, row => ({ ...row, title: clean, displayTitle: clean, blank: false }))
+      void refreshClassicSessions()
+    },
+    beginAgentRename: sessionId => ui.set(state => ({ ...state, renameAgent: sessionId })),
+    endAgentRename: () => ui.set(state => (state.renameAgent ? { ...state, renameAgent: null } : state)),
+    removeAgent: async (agentId) => {
+      const owned = roster.getSnapshot().agentsById?.[agentId]?.sessions ?? []
+      const result = await after(call('remove-agent', { agentId }))
+      if (owned.includes(lastAgentSession)) lastAgentSession = null
+      const currentShown = shown.getSnapshot()
+      if (currentShown !== null && owned.includes(currentShown)) {
+        const snap = roster.getSnapshot()
+        if (surface.getSnapshot().mode === 'agent') shown.set(null)
+        else if (snap.mainBotId) actions.openSession(snap.mainBotId)
+        else shown.set(null)
+      }
+      return result
+    },
+    stopAgent: (agentId, sessionId) => after(call('stop-agent', sessionId ? { agentId, sessionId } : { agentId })),
+    createClassicSession: (options = {}) => {
+      const snap = roster.getSnapshot()
+      if (snap.readOnly) return undefined
+      const agent = (snap.agents ?? [])[0]
+      return agent ? actions.newAgentSession(agent.id, options) : actions.addAgent(options)
+    },
+    startPresetCreator: async () => {
+      const snap = roster.getSnapshot()
+      if (snap.readOnly) return undefined
+      const prevShown = shown.getSnapshot()
+      if (prevShown && !isAgentSessionId(prevShown)) lastTeamSession = prevShown
+      if (surface.getSnapshot().mode !== 'agent') {
+        clearShown()
+        surface.set({ mode: 'agent' })
+        writeMode('agent')
+      }
+      return actions.createClassicSession({ agentPreset: 'cordis' })
+    },
+    refreshLocale: () => pull().catch(() => {}),
+    refreshClassicSessions: async () => {
+      await pull().catch(() => {})
+      await refreshClassicSessions()
+    },
     landOn: id => show(partFor(id)),
     toggleSidebar: () => layout.set(state => ({ ...state, wide: !state.wide })),
+    setSidebarWide: next => layout.set(state => (state.wide === Boolean(next) ? state : { ...state, wide: Boolean(next) })),
     openShortcuts: () => ui.set(state => ({ ...state, shortcuts: true, menu: null, palette: null, groupSearch: null })),
     closeShortcuts: () => ui.set(state => (state.shortcuts ? { ...state, shortcuts: false } : state)),
     markUnread: id => writeUnread(id, true),
@@ -279,26 +580,79 @@ export function createTeam() {
     hasRightSidebar: () => true,
     canOpenFiles: () => true,
     canOpenTerminal: () => !roster.getSnapshot().readOnly,
-    openFiles: () => openRightPanel(prev => ({ ...prev, tab: 'files' })),
+    openFiles: () => openWorkspaceTab('files'),
     openFile: (path) => {
       const target = typeof path === 'string' ? path : (typeof path?.path === 'string' ? path.path : '')
       if (target === '') return
       const fileSessionId = typeof path?.sessionId === 'string' && path.sessionId !== '' ? path.sessionId : null
       const fileRoot = typeof path?.root === 'string' && path.root !== '' ? path.root : null
-      openRightPanel(prev => ({ ...prev, tab: 'preview', file: target, fileSessionId, fileRoot }))
+      openWorkspaceTab('preview', prev => ({ ...prev, file: target, fileSessionId, fileRoot }), fileSessionId)
     },
     openChanges: async (changes) => {
       if (!changes || typeof changes !== 'object' || typeof changes.sessionId !== 'string' || !Number.isInteger(changes.seq)) return
       let available = false
       try { available = (await call('changes-check', { sessionId: changes.sessionId, seq: changes.seq })) === true } catch { available = false }
       if (!available) { actions.notice?.(t('These changes are no longer available')); return }
-      openRightPanel(prev => ({ ...prev, tab: 'changes', changes }))
+      openWorkspaceTab('changes', prev => ({ ...prev, changes }), changes.sessionId)
     },
-    newTerminal: () => openRightPanel(prev => ({ ...prev, tab: 'terminal', terminalNonce: (prev?.terminalNonce ?? 0) + 1 })),
-    setRightPanelTab: (tab) => ui.set(state => (state.rightPanel ? { ...state, rightPanel: { ...state.rightPanel, tab } } : state)),
-    closeRightPanel: () => ui.set(state => (state.rightPanel ? { ...state, rightPanel: null } : state)),
+    newTerminal: () => openWorkspaceTab('terminal', prev => ({ ...prev, terminalNonce: (prev?.terminalNonce ?? 0) + 1 })),
+    setRightPanelTab: (tabId) => openWorkspaceTab(tabId),
+    closeWorkspaceTab: (tabId) => {
+      if (typeof tabId !== 'string' || tabId === '') return
+      const snap = roster.getSnapshot()
+      ui.set((state) => {
+        if (!state.rightPanel) return state
+        const prev = normalizeRightPanel(state.rightPanel)
+        const remaining = prev.tabs.filter(id => id !== tabId)
+        if (remaining.length > 0) {
+          return {
+            ...state,
+            rightPanel: {
+              ...prev,
+              tabs: remaining,
+              tab: prev.tab === tabId ? remaining[remaining.length - 1] : prev.tab,
+              ...(tabId === 'preview' ? { file: null, fileSessionId: null, fileRoot: null } : {}),
+              ...(tabId === 'changes' ? { changes: null } : {}),
+            },
+          }
+        }
+        if (state.view !== 'workspace') return { ...state, rightPanel: null }
+        const subjectId = state.details
+        const bot = subjectId ? snap.byId?.[subjectId] : undefined
+        const room = subjectId ? snap.roomsById?.[subjectId] : undefined
+        if (bot || room) {
+          const hasSide = Boolean(bot && state.side && (snap.sideChats?.[bot.id] ?? []).some(chat => chat?.id === state.side))
+          const hasBrowser = Boolean(
+            bot
+            && snap.browser === true
+            && browsers
+            && (browsers.tabs.getSnapshot()[bot.id]?.ids?.length ?? 0) > 0,
+          )
+          return {
+            ...state,
+            rightPanel: null,
+            view: hasSide ? 'side' : hasBrowser ? 'browser' : 'details',
+            ...(hasSide ? {} : { side: null }),
+            renaming: false,
+            tab: null,
+          }
+        }
+        return {
+          ...state,
+          details: null,
+          view: 'details',
+          renaming: false,
+          tab: null,
+          side: null,
+          task: null,
+          rightPanel: null,
+        }
+      })
+    },
+    closeRightPanel: () => actions.closePanel(),
     toggleRightPanel: () => {
-      if (ui.getSnapshot().rightPanel) actions.closeRightPanel()
+      const state = ui.getSnapshot()
+      if (state.details && state.view === 'workspace') actions.closePanel()
       else actions.openFiles()
     },
     canReferenceChat: () => true,
@@ -329,6 +683,105 @@ export function createTeam() {
     noteSent: (sessionId) => {
       sent.set(state => ({ ...state, [sessionId]: [...(state[sessionId] ?? []), { placement: 'direct', time: Date.now() }] }))
     },
+    checkUpdate: async () => {
+      const value = await call('update-check', { fresh: true })
+      mergeUpdate(value)
+      scheduleUpdate(value)
+    },
+    installUpdate: async () => {
+      const value = await call('update-install')
+      mergeUpdate(value)
+      wakeUpdate()
+    },
+    installDshUpdate: async () => {
+      const dsh = await call('dsh-update-install')
+      update.set(previous => ({ ...previous, dsh }))
+      wakeUpdate()
+    },
+    checkOwnApp: async () => { await globalThis.dsBotApp?.updates?.check?.() },
+    installOwnApp: async () => { await globalThis.dsBotApp?.updates?.install?.() },
+    openOwnApp: async () => { await globalThis.dsBotApp?.updates?.open?.() },
+  }
+
+  // Without the Desktop bridge these stay undefined, and no browser control renders.
+  if (browsers) {
+    Object.assign(actions, {
+      // The globe / `+ -> Browser` trigger: the Bot's active tab in the browser view, or a new tab.
+      openBrowser: (id) => {
+        const bot = roster.getSnapshot().byId[id]
+        if (!bot) return
+        browsers.ensureTabs(bot.id)
+        if (browsers.tabs.getSnapshot()[bot.id]?.active == null) browsers.openTab(bot.id)
+        ui.set(state => ({ ...state, details: id, view: 'browser', renaming: false, tab: null, panelYield: true }))
+      },
+      // `+` on the strip or the drawer's new-tab card: a blank tab in the browser view.
+      browserNewTab: (id) => {
+        const bot = roster.getSnapshot().byId[id]
+        if (!bot) return null
+        browsers.ensureTabs(bot.id)
+        const tabId = browsers.openTab(bot.id)
+        ui.set(state => ({ ...state, details: id, view: 'browser', renaming: false, tab: null, panelYield: true }))
+        return tabId
+      },
+      // A drawer card: its tab active, the panel on the browser view.
+      browserPick: (id, tabId) => {
+        const bot = roster.getSnapshot().byId[id]
+        if (!bot) return
+        browsers.activate(bot.id, tabId)
+        ui.set(state => ({ ...state, details: id, view: 'browser', renaming: false, tab: null, panelYield: true }))
+      },
+      browserEnsure: botId => browsers.ensureTabs(botId),
+      browserCloseTab: async (botId, tabId) => {
+        await browsers.closeTab(botId, tabId)
+        const remaining = browsers.tabs.getSnapshot()[botId]
+        if (remaining && remaining.ids.length > 0) return
+        const snap = roster.getSnapshot()
+        ui.set((state) => {
+          if (!state.details || state.view !== 'browser') return state
+          const subjectBot = snap.byId?.[state.details]
+          if (subjectBot && subjectBot.id !== botId) return state
+          const hasWorkspace = (state.rightPanel?.tabs?.length ?? 0) > 0
+          if (hasWorkspace) return { ...state, view: 'workspace', renaming: false, tab: null }
+          const hasSide = Boolean(subjectBot && state.side && (snap.sideChats?.[subjectBot.id] ?? []).some(chat => chat?.id === state.side))
+          if (hasSide) return { ...state, view: 'side', renaming: false, tab: null }
+          return { ...state, view: 'details', renaming: false, tab: null }
+        })
+      },
+      browserActivate: (botId, tabId) => browsers.activate(botId, tabId),
+      browserShow: (tabId, box) => browsers.show(tabId, box),
+      browserNavigate: (tabId, input) => browsers.navigate(tabId, input),
+      browserCommand: (tabId, name) => browsers.command(tabId, name),
+      browserFocus: tabId => browsers.focus(tabId),
+      browserTakeover: bridge.views ? async (botId) => {
+        const result = await call('browser-takeover', { botId })
+        await bridge.views.hold(botId, true)
+        return result
+      } : undefined,
+      browserStop: bridge.views ? async (botId) => {
+        const result = await call('browser-stop', { botId })
+        await bridge.views.hold(botId, true)
+        return result
+      } : undefined,
+      // `answer` is a handoff card's { callId, outcome }; the panel's Give back sends none.
+      browserGiveBack: bridge.views ? async (botId, answer = {}) => {
+        const result = await call('browser-give-back', { botId, ...answer })
+        await bridge.views.hold(botId, false)
+        return result
+      } : undefined,
+      // Cookie imports, only where the bridge offers them (the desktop app): an installed
+      // browser profile, a file, or pasted cookies/cURL is previewed, then applied into
+      // the Bot's storage key.
+      browserImport: typeof bridge.importSources === 'function' ? {
+        sources: () => bridge.importSources(),
+        probe: typeof bridge.importProbe === 'function' ? source => bridge.importProbe(source) : null,
+        pick: () => bridge.importPick(),
+        paste: typeof bridge.importPaste === 'function' ? (text, defaultUrl) => bridge.importPaste(text, defaultUrl) : null,
+        launch: typeof bridge.importLaunch === 'function' ? source => bridge.importLaunch(source) : null,
+        live: (source, close, requestId) => bridge.importLive(source, close, requestId),
+        apply: (botId, pending, options) => bridge.importApply(`bot:${botId}`, pending, options),
+        cancel: pending => bridge.importCancel(pending),
+      } : null,
+    })
   }
 
   // Running and the tool at work come with the team's state; the plugin reads them from
@@ -337,6 +790,7 @@ export function createTeam() {
     const snap = work.getSnapshot()
     const bots = snap.bots ?? {}
     const rooms = snap.rooms ?? {}
+    const agentsWork = snap.agents ?? {}
     const r = roster.getSnapshot()
     for (const bot of r.bots) {
       const part = currentPart(bot)
@@ -348,6 +802,14 @@ export function createTeam() {
       const part = currentPart(room)
       const busy = (rooms[room.id]?.length ?? 0) > 0
       setStatus(part, { running: busy })
+    }
+    const turns = snap.turns ?? {}
+    for (const agent of r.agents ?? []) {
+      const anyRunning = Object.keys(turns).some(sid => (agent.sessions ?? []).includes(sid))
+      for (const sid of agent.sessions ?? []) {
+        const running = turns[sid] !== undefined || (!anyRunning && agentsWork[agent.id] !== undefined && sid === shown.getSnapshot())
+        setStatus(sid, { running })
+      }
     }
   }
   roster.subscribe(followWork)
@@ -381,6 +843,32 @@ export function createTeam() {
       })
     }
     read()
+    let updateTimer
+    const nextUpdateDelay = value => (value?.phase === 'installing' || value?.dsh?.phase === 'installing' ? 2000 : 60 * 60_000)
+    const armUpdate = (value) => {
+      clearTimeout(updateTimer)
+      if (!stopped) updateTimer = setTimeout(() => { void pollUpdate() }, nextUpdateDelay(value))
+    }
+    const pollUpdate = async () => {
+      clearTimeout(updateTimer)
+      if (stopped) return
+      const value = await call('update-check', { fresh: false }).catch(() => null)
+      if (stopped) return
+      mergeUpdate(value)
+      armUpdate(value)
+    }
+    wakeUpdate = () => { void pollUpdate() }
+    scheduleUpdate = armUpdate
+    void pollUpdate()
+    let unsubscribeOwnApp = null
+    const ownAppUpdates = globalThis.dsBotApp?.updates ?? null
+    if (ownAppUpdates?.state && ownAppUpdates.subscribe) {
+      const takeOwnApp = (ownApp) => {
+        if (!stopped && ownApp) update.set(previous => ({ ...previous, ownApp }))
+      }
+      void Promise.resolve(ownAppUpdates.state()).then(takeOwnApp, () => {})
+      unsubscribeOwnApp = ownAppUpdates.subscribe(takeOwnApp)
+    }
     const closeFeed = openFeed((event, data) => {
       if (READ_AGAIN.has(event)) read()
       onFeed(event, data)
@@ -391,13 +879,58 @@ export function createTeam() {
       shownSession: () => shown.getSnapshot(),
       openSession: actions.openSession,
     })
+    let stopBrowsers = null
+    if (browsers) {
+      let stopReads = null
+      const syncBrowsers = () => {
+        if (stopped) return
+        const snapshot = roster.getSnapshot()
+        if (!snapshot.ready) return
+        const on = snapshot.browser === true
+        if (on && !stopReads) stopReads = serveBrowserReads({ browsers, post: call })
+        if (!on && stopReads) { stopReads(); stopReads = null }
+        // A Bot deleted here or in another window takes its guests and saved tabs along.
+        void browsers.retain(snapshot.bots.map(bot => bot.id)).catch(() => {})
+        // A panel open on a deleted subject or unavailable browser falls back cleanly to
+        // workspace (if open), details (if subject still exists), or closes completely.
+        ui.set((state) => {
+          if (!state.details) return state
+          const hasBot = Boolean(snapshot.byId[state.details])
+          const hasRoom = Boolean(snapshot.roomsById?.[state.details])
+          const hasWorkspace = (state.rightPanel?.tabs?.length ?? 0) > 0
+          if (state.view === 'browser') {
+            if (on && hasBot) return state
+            if (hasWorkspace) return { ...state, view: 'workspace' }
+            if (hasBot || hasRoom) return { ...state, view: 'details' }
+            return { ...state, details: null, view: 'details', renaming: false, tab: null, side: null, task: null, rightPanel: null }
+          }
+          if (!hasBot && !hasRoom && !hasWorkspace) {
+            return { ...state, details: null, view: 'details', renaming: false, tab: null, side: null, task: null, rightPanel: null }
+          }
+          return state
+        })
+      }
+      syncBrowsers()
+      const offBrowserRoster = roster.subscribe(syncBrowsers)
+      stopBrowsers = () => {
+        offBrowserRoster()
+        stopReads?.()
+        stopReads = null
+        browsers.dispose()
+      }
+    }
     const timer = setInterval(read, CATCH_UP_MS)
     const onPageHide = () => leaveVisits(Object.keys(ui.getSnapshot().visits ?? {}))
     window.addEventListener('pagehide', onPageHide)
     return () => {
       stopped = true
+      clearTimeout(updateTimer)
+      wakeUpdate = () => {}
+      scheduleUpdate = () => {}
+      unsubscribeOwnApp?.()
       closeFeed()
       stopApprovalNotices()
+      stopBrowsers?.()
       clearInterval(timer)
       window.removeEventListener('pagehide', onPageHide)
     }
@@ -424,6 +957,7 @@ export function createTeam() {
     useSessionStatus: use(status),
     useSessionRetainInfo: (id, selector) => useSelect(sessions, list => selector(list.byId[id])),
     useLayout: use(layout),
+    useSurface: use(surface),
     useShown: use(shown),
   }
   // The Session one view shows, as DSH hands it to a view: what was just sent there.

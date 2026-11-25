@@ -73,6 +73,8 @@
     "yaml": "2.9.1"
   },
   "devDependencies": {
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
     "electron": "44.7.0",
     "electron-builder": "26.17.0",
     "esbuild": "0.28.2",

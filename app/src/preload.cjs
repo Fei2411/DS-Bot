@@ -721,17 +721,22 @@ function captionColors(mica) {
     return `rgb(${red}, ${green}, ${blue})`
   }
   const column = () => {
-    if (!mica) return document.querySelector('div[class*="_sidebarCol"]')
-    const right = document.querySelector('div[class*="_rightbarCol"]')
-    return right !== null && right.getBoundingClientRect().width > 0 ? right : document.querySelector('div[class*="_centerCol"]')
+    if (!mica) return document.querySelector('.dsb-side, div[class*="_sidebarCol"]')
+    const right = document.querySelector('.bt-panel, div[class*="_rightbarCol"]')
+    return right !== null && right.getBoundingClientRect().width > 0 ? right : document.querySelector('.dsb-main, div[class*="_centerCol"]')
   }
   let frame
   const surface = () => {
     const start = column()
     // Opening or closing the right sidebar changes the frame's columns.
     if (start !== null && frame === undefined) {
-      frame = start.parentElement
-      observer.observe(frame, { attributes: true, attributeFilter: ['style'] })
+      const candidate = start.classList?.contains('bt-panel')
+        ? (document.querySelector('.dsb-frame') ?? start.parentElement)
+        : start.parentElement
+      if (candidate !== null && candidate !== document.body) {
+        frame = candidate
+        observer.observe(frame, { attributes: true, attributeFilter: ['style'] })
+      }
     }
     for (let element = start; element !== null; element = element.parentElement) {
       const color = opaque(getComputedStyle(element).backgroundColor)
@@ -761,7 +766,7 @@ function captionColors(mica) {
     requestAnimationFrame(() => { queued = false; send() })
   }
   const observer = new MutationObserver(queue)
-  observer.observe(document.body, { attributes: true, attributeFilter: ['data-ds-dark-theme', 'style'], childList: true, subtree: true })
+  observer.observe(document.body, { attributes: true, attributeFilter: ['data-ds-dark-theme', 'data-bt-material', 'data-bt-bg', 'style'], childList: true, subtree: true })
   observer.observe(document.head, { childList: true, subtree: true, characterData: true })
   observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-ds-theme-source', 'style'] })
   // A stylesheet link is added before it loads; its rules apply without another mutation.

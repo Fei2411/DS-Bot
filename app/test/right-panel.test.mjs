@@ -13,13 +13,59 @@ const stubs = {
     export const fileExtension = name => /\\.([^./\\\\]+)$/.exec(String(name ?? ''))?.[1] ?? ''
     export const fileSizeText = bytes => (Number.isFinite(bytes) ? bytes + ' B' : '')
   `,
+  '@xterm/xterm': `
+    export class Terminal {
+      constructor(options = {}) {
+        this.options = { ...options }
+        this.cols = 80
+        this.rows = 24
+        this.written = []
+        this.cleared = 0
+        this.focused = 0
+        this.disposed = false
+        this.openedOn = null
+        this.selection = ''
+        this._dataListeners = []
+        this._keyHandler = null
+        globalThis.__xterms.push(this)
+      }
+      loadAddon(addon) { addon?.activate?.(this) }
+      open(el) { this.openedOn = el }
+      attachCustomKeyEventHandler(fn) { this._keyHandler = fn }
+      onData(fn) {
+        this._dataListeners.push(fn)
+        return { dispose: () => { this._dataListeners = this._dataListeners.filter(item => item !== fn) } }
+      }
+      emitData(data) { for (const fn of [...this._dataListeners]) fn(data) }
+      write(chunk) { this.written.push(String(chunk)) }
+      clear() { this.cleared += 1 }
+      focus() { this.focused += 1 }
+      hasSelection() { return Boolean(this.selection) }
+      getSelection() { return this.selection }
+      clearSelection() { this.selection = '' }
+      dispose() { this.disposed = true }
+    }
+  `,
+  '@xterm/addon-fit': `
+    export class FitAddon {
+      activate(term) { this._term = term }
+      fit() {
+        const size = globalThis.__fitSize || { cols: 88, rows: 26 }
+        if (this._term) {
+          this._term.cols = size.cols
+          this._term.rows = size.rows
+        }
+      }
+      dispose() {}
+    }
+  `,
 }
 
 const entryCode = `
   export { parseDelimitedTable, FilePreview } from './ui/src/file-preview.js'
-  export { parseAnsiSpans, WorkspaceTerminal } from './ui/src/workspace-terminal.js'
+  export { createLocalLineEditor, createTerminalKeyHandler, parseAnsiSpans, readXtermTheme, WorkspaceTerminal } from './ui/src/workspace-terminal.js'
   export { ChangesReview } from './ui/src/changes-review.js'
-  export { RightPanel } from './ui/src/right-panel.js'
+  export { RightPanel, WorkspacePaneBody, buildWorkspaceTabs } from './ui/src/right-panel.js'
   export { createSlotRegistry, RIGHT_PANE_TAB_SLOT } from './ui/src/slots.js'
   export { createTeam } from './ui/src/team.js'
 `
@@ -39,6 +85,7 @@ const { outputFiles } = await build({
   plugins: [{
     name: 'right-panel-stubs',
     setup(bundler) {
+      bundler.onResolve({ filter: /^@xterm\/(xterm|addon-fit)$/ }, args => ({ path: args.path, namespace: 'rp-stub' }))
       bundler.onResolve({ filter: /(src\/client\/(cells|api|dsh-primitives)|ui\/src\/primitives)\.js$|^\.\/(dsh-)?primitives\.js$/ }, (args) => {
         const name = args.path.split('/').pop()
         return { path: name === 'dsh-primitives.js' ? 'primitives.js' : name, namespace: 'rp-stub' }
@@ -102,18 +149,28 @@ const react = {
 const storageMap = new Map()
 const createdUrls = []
 const revokedUrls = []
+const windowEvents = []
+const resizeObservers = []
 const mod = { exports: {} }
 const sandbox = {
   module: mod,
   exports: mod.exports,
   __testCall: async () => ({}),
   __copied: [],
+  __xterms: [],
+  __fitSize: { cols: 88, rows: 26 },
+  ResizeObserver: class {
+    constructor(cb) { this.cb = cb; this.targets = []; resizeObservers.push(this) }
+    observe(target) { this.targets.push(target) }
+    disconnect() { this.targets = [] }
+  },
   require: (name) => {
     if (name === 'react') return react
     if (name === 'react-dom') return { createPortal: node => node }
     throw new Error(`unexpected require ${name}`)
   },
   Blob,
+  Event,
   atob: str => Buffer.from(str, 'base64').toString('binary'),
   URL: {
     createObjectURL: () => { const url = `blob:test/${createdUrls.length + 1}`; createdUrls.push(url); return url },
@@ -124,9 +181,14 @@ const sandbox = {
     setItem: (key, value) => { storageMap.set(key, String(value)) },
     removeItem: key => { storageMap.delete(key) },
   },
-  window: { innerWidth: 1280, addEventListener() {}, removeEventListener() {} },
+  window: {
+    innerWidth: 1280,
+    addEventListener() {},
+    removeEventListener() {},
+    dispatchEvent(event) { windowEvents.push(event?.type); return true },
+  },
   document: { body: {}, addEventListener() {}, removeEventListener() {}, documentElement: { addEventListener() {}, removeEventListener() {} } },
-  navigator: { language: 'en' },
+  navigator: { language: 'en', platform: 'MacIntel' },
   console: { error() {}, warn() {}, log() {} },
   setTimeout: () => 0,
   clearTimeout() {},
@@ -138,14 +200,37 @@ runInNewContext(outputFiles[0].text, sandbox)
 const {
   parseDelimitedTable,
   FilePreview,
+  createLocalLineEditor,
+  createTerminalKeyHandler,
   parseAnsiSpans,
+  readXtermTheme,
   WorkspaceTerminal,
   ChangesReview,
   RightPanel,
+  WorkspacePaneBody,
+  buildWorkspaceTabs,
   createSlotRegistry,
   RIGHT_PANE_TAB_SLOT,
   createTeam,
 } = mod.exports
+
+const makeHostEl = (tag) => {
+  const listeners = new Map()
+  return {
+    tagName: tag,
+    offsetWidth: 480,
+    offsetHeight: 320,
+    scrollWidth: 600,
+    clientWidth: 240,
+    scrollLeft: 0,
+    listeners,
+    addEventListener(type, fn) {
+      if (!listeners.has(type)) listeners.set(type, new Set())
+      listeners.get(type).add(fn)
+    },
+    removeEventListener(type, fn) { listeners.get(type)?.delete(fn) },
+  }
+}
 
 const expand = (node, path = 'root') => {
   if (Array.isArray(node)) return node.map((child, idx) => expand(child, `${path}[${child?.props?.key ?? idx}]`))
@@ -180,6 +265,9 @@ const expand = (node, path = 'root') => {
     } finally {
       current.fiber = prev
     }
+  }
+  if (typeof node.type === 'string' && node.props?.ref && typeof node.props.ref === 'object' && node.props.ref.current === null) {
+    node.props.ref.current = makeHostEl(node.type)
   }
   return { ...node, props: { ...node.props, children: expand(node.props?.children, `${path}.c`) } }
 }
@@ -243,19 +331,30 @@ test('parseDelimitedTable handles quoted commas, escaped quotes, empty records, 
   assert.equal(capped.truncatedRows, true)
 })
 
-test('parseAnsiSpans converts ANSI SGR colors, skips 256/RGB params, applies carriage-return overwrites, and strips OSC sequences cleanly', () => {
+test('parseAnsiSpans converts ANSI SGR colors, skips 256/RGB params, handles cursor edits/backspaces/erase sequences, and strips OSC sequences cleanly', () => {
   const raw = '\u001b]0;title\u0007\u001b[1;32mPASS\u001b[0m \u001b[38;5;31mplain\u001b[0m \u001b[38;2;1;2;31mrgb\u001b[0m \u001b[31mFAIL\u001b[39m\r\n%\r50%\r100%'
   const spans = plain(parseAnsiSpans(raw))
   assert.deepEqual(spans, [
     { text: 'PASS', fg: 'green', bold: true },
-    { text: ' ' },
-    { text: 'plain' },
-    { text: ' ' },
-    { text: 'rgb' },
-    { text: ' ' },
+    { text: ' plain rgb ' },
     { text: 'FAIL', fg: 'red' },
     { text: '\n100%' },
   ])
+
+  const text = str => parseAnsiSpans(str).map(span => span.text).join('')
+  // Zsh ZLE echoes first char, backspaces, then rewrites the full command (`lls -la` bug).
+  assert.equal(text('feiz@host workspace % l\bls -la\r\ntotal 24'), 'feiz@host workspace % ls -la\ntotal 24')
+  // Interactive backspace-space-backspace deletion trims cleanly.
+  assert.equal(text('abc\b \b'), 'ab')
+  // CSI CUB (D) + EL (K) rewrites from cursor to end of line.
+  assert.equal(text('feiz@host % l\u001b[1D\u001b[Kls -la'), 'feiz@host % ls -la')
+  // Zsh PROMPT_SP (`%` + padding + CR + 0J) clears trailing spaces cleanly before prompt.
+  assert.equal(text('\u001b[1;7m%\u001b[0m     \r \r\u001b[0Jfeiz@host % '), 'feiz@host % ')
+  // CSI 2J clears prior screen buffer.
+  assert.equal(text('old output\r\n\u001b[2Jfresh'), 'fresh')
+  // CSI CHA (G), DCH (P), and ICH (@) edit inside a line cleanly.
+  assert.equal(text('abcdef\u001b[3G\u001b[2P'), 'abef')
+  assert.equal(text('abef\u001b[3G\u001b[2@cd'), 'abcdef')
 })
 
 test('FilePreview renders Markdown, CSV table, strictly sandboxed HTML, PDF (Office), and revokes Blob URLs', () => {
@@ -277,11 +376,21 @@ test('FilePreview renders Markdown, CSV table, strictly sandboxed HTML, PDF (Off
   const html = mount(FilePreview, { file: { kind: 'html', name: 'demo.html', path: 'demo.html', size: 40, text: '<p>Hello</p>' } })
   try {
     const tree = html.render()
+    assert.equal(all(tree, n => n.props?.className === 'dsb-pv-html-wrap').length, 1, 'HTML preview wraps iframe in framed canvas container')
     const iframe = all(tree, n => n.type === 'iframe')[0]
     assert.equal(iframe.props.sandbox, '', 'HTML preview iframe must be strictly sandboxed with empty sandbox attribute')
     assert.equal(iframe.props.srcDoc, '<p>Hello</p>')
   } finally {
     html.unmount()
+  }
+
+  const code = mount(FilePreview, { file: { kind: 'code', language: 'javascript', name: 'app.js', path: 'src/app.js', size: 64, text: 'export const x = 1' } })
+  try {
+    const tree = code.render()
+    const badge = all(tree, n => n.props?.className === 'dsb-pv-badge')[0]
+    assert.equal(textOf(badge).trim(), 'JAVASCRIPT', 'language badge uses consistent uppercase casing')
+  } finally {
+    code.unmount()
   }
 
   const pdf = mount(FilePreview, {
@@ -298,10 +407,25 @@ test('FilePreview renders Markdown, CSV table, strictly sandboxed HTML, PDF (Off
   assert.equal(revokedUrls.length, 1, 'PDF blob URL must be revoked on unmount')
 })
 
-test('RightPanel renders FileTree, opens preview, isolates crashing sidebar.right.pane.tab plugin, and mutually excludes BotPanel', async () => {
+test('Unified right sidebar coexists across Details, Side chat, Files, Preview, Changes, Terminal, and plugin tabs', async () => {
   const calls = []
+  windowEvents.length = 0
   sandbox.__testCall = async (endpoint, body) => {
     calls.push([endpoint, body])
+    if (endpoint === 'state') {
+      return {
+        revision: 1,
+        modelsKey: 'm1',
+        mainBotId: 'b1',
+        bots: [
+          { id: 'b1', name: 'Alpha', sessions: ['b1'] },
+          { id: 'b2', name: 'Beta', sessions: ['b2'] },
+        ],
+        rooms: [{ id: 'r1', name: 'Crew', members: ['b1', 'b2'], sessions: ['r1'] }],
+        agents: [{ id: 'ag1', name: 'DSH Agent', sessions: ['as1', 'as2'] }],
+        sideChats: { b1: [{ id: 'sc1', entries: [{ question: 'Quick Q' }] }] },
+      }
+    }
     if (endpoint === 'workspace-list') {
       return {
         root: '/repo', rootName: 'repo', path: body.path ?? '', truncated: false,
@@ -330,74 +454,311 @@ test('RightPanel renders FileTree, opens preview, isolates crashing sidebar.righ
   }
 
   const team = createTeam()
-  // Mutual exclusion between BotPanel (details) and RightPanel:
-  team.actions.showDetails('b1')
-  const probe = mount(() => ({ type: 'probe', props: team.hooks.useUi(s => ({ details: s.details, rightPanel: s.rightPanel })) }), {})
-  assert.equal(probe.render().props.details, 'b1')
-  assert.equal(probe.render().props.rightPanel, null)
+  await team.actions.refreshLocale()
+  team.actions.openSession('b1')
 
-  team.actions.openFiles()
-  assert.equal(probe.render().props.details, null, 'opening RightPanel closes BotPanel')
-  assert.equal(probe.render().props.rightPanel.tab, 'files')
+  const probe = mount(() => ({
+    type: 'probe',
+    props: team.hooks.useUi(s => ({ details: s.details, view: s.view, side: s.side, rightPanel: s.rightPanel })),
+  }), {})
+  try {
+    // Details + Files + Side chat + Preview + Terminal + Changes all coexist in ONE panel state.
+    team.actions.showDetails('b1')
+    assert.equal(probe.render().props.details, 'b1')
+    assert.equal(probe.render().props.view, 'details')
+    assert.equal(probe.render().props.rightPanel, null)
 
-  team.actions.showDetails('b1')
-  assert.equal(probe.render().props.details, 'b1')
-  assert.equal(probe.render().props.rightPanel, null, 'opening BotPanel closes RightPanel')
+    team.actions.openFiles()
+    let snap = probe.render().props
+    assert.equal(snap.details, 'b1', 'opening Files keeps unified BotPanel open on the active subject')
+    assert.equal(snap.view, 'workspace')
+    assert.deepEqual(plain(snap.rightPanel.tabs), ['files'])
+    assert.equal(snap.rightPanel.tab, 'files')
 
-  // Opening changes verifies changes-check and activates the changes tab.
-  await team.actions.openChanges({ sessionId: 'b1', seq: 7, turn: 1 })
-  assert.equal(probe.render().props.rightPanel.tab, 'changes')
-  probe.unmount()
+    team.actions.openSideChat('b1', 'sc1')
+    snap = probe.render().props
+    assert.equal(snap.details, 'b1')
+    assert.equal(snap.view, 'side')
+    assert.equal(snap.side, 'sc1')
+    assert.deepEqual(plain(snap.rightPanel.tabs), ['files'], 'switching to Side chat preserves open workspace tabs')
 
-  // Register a crashing `sidebar.right.pane.tab` plugin and confirm SlotErrorBoundary isolates it.
+    team.actions.openFile('src/app.js')
+    team.actions.newTerminal()
+    await team.actions.openChanges({ sessionId: 'b1', seq: 7, turn: 1 })
+    snap = probe.render().props
+    assert.equal(snap.view, 'workspace')
+    assert.equal(snap.side, 'sc1', 'opening workspace tabs keeps active side chat reference intact')
+    assert.deepEqual(plain(snap.rightPanel.tabs), ['files', 'preview', 'terminal', 'changes'])
+    assert.equal(snap.rightPanel.tab, 'changes')
+
+    // Switching back to Details preserves all workspace tabs.
+    team.actions.showDetails('b1')
+    snap = probe.render().props
+    assert.equal(snap.view, 'details')
+    assert.deepEqual(plain(snap.rightPanel.tabs), ['files', 'preview', 'terminal', 'changes'])
+
+    // Switching sessions drops stale preview & changes while preserving Files & Terminal.
+    team.actions.setRightPanelTab('preview')
+    team.actions.openSession('b2')
+    snap = probe.render().props
+    assert.equal(snap.view, 'workspace')
+    assert.deepEqual(plain(snap.rightPanel.tabs), ['files', 'terminal'])
+    assert.equal(snap.rightPanel.tab, 'terminal', 'dropping active preview falls back to last remaining tab')
+    assert.equal(snap.rightPanel.file, null)
+    assert.equal(snap.rightPanel.changes, null)
+
+    // Closing individual tabs removes them and switches active tab cleanly.
+    team.actions.openSession('b1')
+    team.actions.openFile('src/app.js')
+    team.actions.closeWorkspaceTab('preview')
+    snap = probe.render().props
+    assert.deepEqual(plain(snap.rightPanel.tabs), ['files', 'terminal'])
+    assert.equal(snap.rightPanel.file, null)
+    assert.equal(snap.rightPanel.tab, 'terminal')
+
+    // Closing the last workspace tab on a Bot with a live side chat folds to Side chat.
+    team.actions.closeWorkspaceTab('terminal')
+    team.actions.closeWorkspaceTab('files')
+    snap = probe.render().props
+    assert.equal(snap.rightPanel, null)
+    assert.equal(snap.details, 'b1')
+    assert.equal(snap.view, 'side')
+
+    // Without a live side chat, closing the last workspace tab on a Bot folds back to Details.
+    team.actions.closePanel()
+    team.actions.openFiles()
+    assert.equal(probe.render().props.details, 'b1')
+    team.actions.closeWorkspaceTab('files')
+    snap = probe.render().props
+    assert.equal(snap.rightPanel, null)
+    assert.equal(snap.details, 'b1')
+    assert.equal(snap.view, 'details')
+
+    // Toggle closes unified panel when viewing workspace, and opens Files otherwise.
+    team.actions.toggleRightPanel()
+    assert.equal(probe.render().props.view, 'workspace')
+    team.actions.toggleRightPanel()
+    assert.equal(probe.render().props.details, null)
+    assert.equal(probe.render().props.rightPanel, null)
+
+    // Escape (`closeOverlay`) clears both details and rightPanel when no modal dialog is open.
+    team.actions.openFiles()
+    assert.equal(probe.render().props.details, 'b1')
+    team.actions.closeOverlay()
+    assert.equal(probe.render().props.details, null)
+    assert.equal(probe.render().props.rightPanel, null)
+
+    // Classic Agent mode: panel opens with workspace tabs, keeps persistent tabs across agent switches,
+    // and closes the panel completely when the last workspace tab is closed or only stale tabs remain.
+    team.actions.openAgentSession('as1')
+    team.actions.openFiles()
+    team.actions.openFile('src/app.js')
+    snap = probe.render().props
+    assert.equal(snap.details, 'as1')
+    assert.equal(snap.view, 'workspace')
+    assert.deepEqual(plain(snap.rightPanel.tabs), ['files', 'preview'])
+
+    team.actions.openAgentSession('as2')
+    snap = probe.render().props
+    assert.equal(snap.details, 'as2', 'switching Classic Agent sessions keeps persistent workspace tabs open')
+    assert.equal(snap.view, 'workspace')
+    assert.deepEqual(plain(snap.rightPanel.tabs), ['files'])
+
+    team.actions.closeWorkspaceTab('files')
+    snap = probe.render().props
+    assert.equal(snap.details, null, 'closing last workspace tab in Classic Agent mode closes the unified panel')
+    assert.equal(snap.rightPanel, null)
+
+    // Classic Agent switch when only stale preview is open closes the panel cleanly.
+    team.actions.openFile('src/app.js')
+    assert.equal(probe.render().props.details, 'as2')
+    team.actions.openAgentSession('as1')
+    assert.equal(probe.render().props.details, null)
+    assert.equal(probe.render().props.rightPanel, null)
+
+    // Surface switch clears panel and rightPanel cleanly.
+    team.actions.openFiles()
+    assert.equal(probe.render().props.details, 'as1')
+    await team.actions.setSurface('bot')
+    assert.equal(probe.render().props.details, null)
+    assert.equal(probe.render().props.rightPanel, null)
+  } finally {
+    probe.unmount()
+  }
+
+  // `buildWorkspaceTabs` builds ordered descriptors + registered `sidebar.right.pane.tab` plugins.
   const reg = createSlotRegistry()
   function BrokenTab() { throw new Error('plugin crash') }
   reg.register({ name: RIGHT_PANE_TAB_SLOT, id: 'broken', meta: { label: 'Broken' } }, BrokenTab)
 
-  const panelInst = mount(RightPanel, { sessionId: 'b1', panel: { tab: 'files' }, team, registry: reg })
+  assert.deepEqual(plain(buildWorkspaceTabs(null, [])), [])
+  const builtTabs = buildWorkspaceTabs(
+    { tabs: ['files', 'preview', 'changes', 'terminal'], tab: 'preview', file: 'src/app.js', changes: { sessionId: 'b1', seq: 7 } },
+    reg.list(RIGHT_PANE_TAB_SLOT),
+  )
+  assert.deepEqual(
+    plain(builtTabs.map(tab => ({ id: tab.id, label: tab.label, closable: tab.closable }))),
+    [
+      { id: 'files', label: 'Files', closable: true },
+      { id: 'preview', label: 'app.js', closable: true },
+      { id: 'changes', label: 'Changes', closable: true },
+      { id: 'terminal', label: 'Terminal', closable: true },
+      { id: 'plugin:broken', label: 'Broken', closable: false },
+    ],
+  )
+
+  // `WorkspacePaneBody` keeps FileTree & Terminal mounted with `hidden` toggle when `visible` flips,
+  // dispatches resize when Terminal becomes visible, and isolates crashing plugin tabs.
+  const panelInst = mount(WorkspacePaneBody, {
+    sessionId: 'b1',
+    panel: { tabs: ['files', 'terminal'], tab: 'files', terminalNonce: 1 },
+    team,
+    registry: reg,
+    visible: true,
+  })
   try {
     panelInst.render()
     await tick()
     let tree = panelInst.render()
     assert.match(textOf(tree), /README\.md/)
-    // Expand `src` directory and click `src/app.js`.
+    // Expand `src` directory in FileTree.
     const srcBtn = all(tree, n => n.type === 'button' && /src/.test(textOf(n)))[0]
     srcBtn.props.onClick()
     await tick()
     tree = panelInst.render()
     assert.match(textOf(tree), /app\.js/)
 
+    // Hide workspace body (user switched to Side chat / Details) -> panes stay mounted with `hidden: true`.
+    tree = panelInst.render({
+      sessionId: 'b1',
+      panel: { tabs: ['files', 'terminal'], tab: 'files', terminalNonce: 1 },
+      team,
+      registry: reg,
+      visible: false,
+    })
+    const hiddenPanes = all(tree, n => n.props?.className === 'dsb-ws-pane')
+    assert.equal(hiddenPanes.length, 2, 'Files and Terminal remain mounted while panel shows Details/Side chat')
+    assert.equal(hiddenPanes.every(p => p.props.hidden === true), true)
+
+    // Switch back to visible Files -> expanded `app.js` child row is still preserved without reloading!
+    tree = panelInst.render({
+      sessionId: 'b1',
+      panel: { tabs: ['files', 'terminal'], tab: 'files', terminalNonce: 1 },
+      team,
+      registry: reg,
+      visible: true,
+    })
+    assert.match(textOf(tree), /app\.js/, 'expanded FileTree folder survives switching away and back')
+
+    // Switch to visible Terminal -> dispatches resize event for terminal refit.
+    windowEvents.length = 0
+    panelInst.render({
+      sessionId: 'b1',
+      panel: { tabs: ['files', 'terminal'], tab: 'terminal', terminalNonce: 1 },
+      team,
+      registry: reg,
+      visible: true,
+    })
+    assert.equal(windowEvents.includes('resize'), true, 'becoming visible on Terminal triggers resize refit')
+
+    // Switch to Preview tab -> loads file via workspace-read.
+    panelInst.render({
+      sessionId: 'b1',
+      panel: { tabs: ['files', 'preview'], tab: 'preview', file: 'src/app.js' },
+      team,
+      registry: reg,
+      visible: true,
+    })
+    await tick()
+    tree = panelInst.render({
+      sessionId: 'b1',
+      panel: { tabs: ['files', 'preview'], tab: 'preview', file: 'src/app.js' },
+      team,
+      registry: reg,
+      visible: true,
+    })
+    assert.match(textOf(tree), /console\.log\(1\)/)
+
     // Switch to crashing plugin tab -> isolated fallback with Retry.
-    tree = panelInst.render({ sessionId: 'b1', panel: { tab: 'plugin:broken' }, team, registry: reg })
+    tree = panelInst.render({
+      sessionId: 'b1',
+      panel: { tabs: ['files', 'plugin:broken'], tab: 'plugin:broken' },
+      team,
+      registry: reg,
+      visible: true,
+    })
     assert.match(textOf(tree), /This view could not be shown/)
     assert.match(textOf(tree), /Retry/)
 
     // Switch to Changes tab -> loads summary and diff hunk.
-    panelInst.render({ sessionId: 'b1', panel: { tab: 'changes', changes: { sessionId: 'b1', seq: 7, turn: 1 } }, team, registry: reg })
+    panelInst.render({
+      sessionId: 'b1',
+      panel: { tabs: ['files', 'changes'], tab: 'changes', changes: { sessionId: 'b1', seq: 7, turn: 1 } },
+      team,
+      registry: reg,
+      visible: true,
+    })
     await tick()
-    panelInst.render({ sessionId: 'b1', panel: { tab: 'changes', changes: { sessionId: 'b1', seq: 7, turn: 1 } }, team, registry: reg })
+    panelInst.render({
+      sessionId: 'b1',
+      panel: { tabs: ['files', 'changes'], tab: 'changes', changes: { sessionId: 'b1', seq: 7, turn: 1 } },
+      team,
+      registry: reg,
+      visible: true,
+    })
     await tick()
-    tree = panelInst.render({ sessionId: 'b1', panel: { tab: 'changes', changes: { sessionId: 'b1', seq: 7, turn: 1 } }, team, registry: reg })
+    tree = panelInst.render({
+      sessionId: 'b1',
+      panel: { tabs: ['files', 'changes'], tab: 'changes', changes: { sessionId: 'b1', seq: 7, turn: 1 } },
+      team,
+      registry: reg,
+      visible: true,
+    })
     assert.match(textOf(tree), /console\.log\(1\)/)
   } finally {
     panelInst.unmount()
   }
 
-  // Interactive terminal receives live SSE chunks and sends commands.
+  // Interactive direct-input xterm mounts with zero bottom <form>, streams live SSE chunks,
+  // sends keystrokes straight to PTY, and syncs deduped resize dimensions.
+  sandbox.__xterms.length = 0
+  resizeObservers.length = 0
+  sandbox.__fitSize = { cols: 88, rows: 26 }
   const termInst = mount(WorkspaceTerminal, { sessionId: 'b1', feed: team.chat, autoOpenNonce: 1 })
   try {
     termInst.render()
     await tick()
     let tree = termInst.render()
+    assert.equal(all(tree, n => n.type === 'form').length, 0, 'must NOT render legacy bottom command <form>')
+    assert.equal(all(tree, n => n.type === 'input' && n.props?.className === 'dsb-term-input').length, 0)
+    assert.equal(sandbox.__xterms.length, 1, 'mounts persistent xterm Terminal instance')
+    const xterm = sandbox.__xterms[0]
+    assert.ok(xterm.openedOn, 'xterm opened onto host element')
+    assert.equal(calls.some(([ep, b]) => ep === 'terminal-resize' && b.id === 'term-1' && b.cols === 88 && b.rows === 26), true)
+
+    // Repeated resize with identical dimensions is deduped; changed dimensions sync cleanly.
+    const beforeResizeCount = calls.filter(([ep]) => ep === 'terminal-resize').length
+    resizeObservers.at(-1).cb()
+    assert.equal(calls.filter(([ep]) => ep === 'terminal-resize').length, beforeResizeCount, 'identical cols×rows resize is deduped')
+    sandbox.__fitSize = { cols: 104, rows: 32 }
+    resizeObservers.at(-1).cb()
+    await tick()
+    assert.equal(calls.some(([ep, b]) => ep === 'terminal-resize' && b.id === 'term-1' && b.cols === 104 && b.rows === 32), true)
+
+    // Live SSE chunk writes directly to xterm without needing a React buffer re-render.
     team.chat.emit('terminal', { id: 'term-1', chunk: '\u001b[32mhello-term\u001b[0m\n' })
-    tree = termInst.render()
-    assert.match(textOf(tree), /hello-term/)
-    const input = all(tree, n => n.type === 'input' && n.props?.className === 'dsb-term-input')[0]
-    input.props.onChange({ target: { value: 'pwd' } })
-    tree = termInst.render()
-    all(tree, n => n.type === 'form')[0].props.onSubmit({ preventDefault() {} })
+    assert.match(xterm.written.join(''), /hello-term/)
+
+    // Direct on-canvas typing flows straight to terminal-input.
+    xterm.emitData('pwd\r')
     await tick()
     assert.equal(calls.some(([ep, b]) => ep === 'terminal-input' && b.id === 'term-1' && b.data === 'pwd\r'), true)
+
+    // Clear button clears xterm and refocuses it.
+    const clearBtn = all(tree, n => n.type === 'button' && /Clear/.test(textOf(n)))[0]
+    clearBtn.props.onClick()
+    assert.equal(xterm.cleared, 1)
+    assert.ok(xterm.focused >= 2)
   } finally {
     termInst.unmount()
   }
@@ -416,7 +777,8 @@ test('ChangesReview renders summary errors before loading state and guards cycli
     chg.unmount()
   }
 
-  // 2. WorkspaceTerminal preserves new terminal when terminal-list resolves late and replays early SSE output.
+  // 2. WorkspaceTerminal preserves new terminal when terminal-list resolves late and flushes early SSE output into xterm.
+  sandbox.__xterms.length = 0
   let resolveList
   let resolveOpen
   sandbox.__testCall = (endpoint) => {
@@ -442,8 +804,9 @@ test('ChangesReview renders summary errors before loading state and guards cycli
     // Now resolve terminal-list LATE with empty list — must NOT wipe `term-early`!
     resolveList([])
     await tick()
-    const tree = term.render()
-    assert.match(textOf(tree), /early-prompt\$/)
+    term.render()
+    assert.equal(sandbox.__xterms.length, 1)
+    assert.match(sandbox.__xterms[0].written.join(''), /early-prompt\$/)
   } finally {
     term.unmount()
   }
@@ -467,5 +830,130 @@ test('ChangesReview renders summary errors before loading state and guards cycli
     assert.match(textOf(tree), /loop/)
   } finally {
     cyclicPanel.unmount()
+  }
+})
+
+test('WorkspaceTerminal closes sub-tabs reliably on rapid/concurrent clicks, prevents mousedown scroll-shift, supports wheel scroll, and handles non-PTY & shortcuts cleanly', async () => {
+  const closedCalls = []
+  const inputCalls = []
+  let openSeq = 0
+  let resolveLateList
+  sandbox.__xterms.length = 0
+  sandbox.__copied.length = 0
+  sandbox.__testCall = (endpoint, body) => {
+    if (endpoint === 'terminal-list') return new Promise(resolve => { resolveLateList = resolve })
+    if (endpoint === 'terminal-open') {
+      openSeq += 1
+      return Promise.resolve({ id: `t-${openSeq}`, cwd: '/repo', title: 'workspace', cols: 96, rows: 28, pty: openSeq !== 3 })
+    }
+    if (endpoint === 'terminal-close') { closedCalls.push(body.id); return Promise.resolve(true) }
+    if (endpoint === 'terminal-input') { inputCalls.push(body); return Promise.resolve(true) }
+    return Promise.resolve(true)
+  }
+
+  const team = createTeam()
+  const inst = mount(WorkspaceTerminal, { sessionId: 'b1', feed: team.chat, autoOpenNonce: 1 })
+  try {
+    inst.render()
+    await tick()
+    let tree = inst.render()
+    const plusBtn = () => all(tree, n => n.type === 'button' && n.props?.className === 'dsb-term-act-ico')[0]
+
+    // Open two more tabs: t-1 (pty), t-2 (pty), t-3 (non-PTY fallback).
+    plusBtn().props.onClick()
+    await tick()
+    tree = inst.render()
+    plusBtn().props.onClick()
+    await tick()
+    tree = inst.render()
+    assert.equal(all(tree, n => n.props?.className === 'dsb-term-tab').length, 3)
+    assert.equal(sandbox.__xterms.length, 3)
+
+    // Non-PTY t-3 supports direct on-canvas typing (local echo + Backspace + Enter + ArrowUp history), zero <form>.
+    assert.equal(all(tree, n => n.type === 'form').length, 0)
+    const nonPtyTerm = sandbox.__xterms[2]
+    assert.equal(nonPtyTerm.options.convertEol, true)
+    nonPtyTerm.emitData('echx')
+    nonPtyTerm.emitData('\x7f')
+    nonPtyTerm.emitData('o hi\r')
+    await tick()
+    assert.equal(inputCalls.some(c => c.id === 't-3' && c.data === 'echo hi\n'), true)
+    nonPtyTerm.emitData('\x1b[A\r')
+    await tick()
+    assert.equal(inputCalls.filter(c => c.id === 't-3' && c.data === 'echo hi\n').length, 2, 'ArrowUp recalls prior command on non-PTY canvas')
+
+    // `.dsb-term-tabs` translates vertical mouse wheel into horizontal scrollLeft.
+    const tabsNode = all(tree, n => n.props?.className === 'dsb-term-tabs')[0]
+    const tabsEl = tabsNode.props.ref.current
+    const wheelHandlers = [...(tabsEl.listeners.get('wheel') ?? [])]
+    assert.equal(wheelHandlers.length, 1)
+    let wheelPrevented = false
+    wheelHandlers[0]({ deltaY: 42, deltaX: 0, deltaMode: 0, preventDefault() { wheelPrevented = true } })
+    assert.equal(wheelPrevented, true)
+    assert.equal(tabsEl.scrollLeft, 42)
+
+    // `.dsb-term-tab-x` prevents mousedown focus/scroll-shift and reliably handles rapid back-to-back closes without stale closures.
+    const closeBtns = all(tree, n => n.type === 'button' && n.props?.className === 'dsb-term-tab-x')
+    assert.equal(closeBtns.length, 3)
+    let downPrevented = false
+    let downStopped = false
+    closeBtns[2].props.onMouseDown({ preventDefault() { downPrevented = true }, stopPropagation() { downStopped = true } })
+    assert.equal(downPrevented, true, 'mousedown on × prevents Chromium scroll-shift')
+    assert.equal(downStopped, true)
+
+    // Click × on t-3 and t-2 synchronously back-to-back before re-rendering!
+    closeBtns[2].props.onClick({ stopPropagation() {} })
+    closeBtns[1].props.onClick({ stopPropagation() {} })
+    await tick()
+    tree = inst.render()
+    assert.deepEqual(plain(closedCalls), ['t-3', 't-2'])
+    assert.equal(sandbox.__xterms[2].disposed, true)
+    assert.equal(sandbox.__xterms[1].disposed, true)
+    assert.equal(all(tree, n => n.props?.className === 'dsb-term-tab').length, 1, 'both rapidly closed tabs stay removed')
+    const remainingTab = all(tree, n => n.props?.className === 'dsb-term-tab')[0]
+    assert.equal(remainingTab.props['data-active'], true, 'adjacent neighbor t-1 becomes active')
+
+    // Late SSE chunks and late terminal-list entries for closed t-2/t-3 are ignored cleanly.
+    const t2Before = sandbox.__xterms[1].written.length
+    team.chat.emit('terminal', { id: 't-2', chunk: 'zombie output' })
+    resolveLateList([
+      { id: 't-1', cwd: '/repo', title: 'workspace', pty: true, snapshot: '' },
+      { id: 't-2', cwd: '/repo', title: 'workspace', pty: true, snapshot: 'stale' },
+      { id: 't-3', cwd: '/repo', title: 'workspace', pty: false, snapshot: 'stale' },
+    ])
+    await tick()
+    tree = inst.render()
+    assert.equal(sandbox.__xterms[1].written.length, t2Before)
+    assert.equal(all(tree, n => n.props?.className === 'dsb-term-tab').length, 1, 'late terminal-list does not resurrect closed tabs')
+
+    // Key handler lets macOS Cmd+C copy selection, Cmd+V paste natively, Cmd+K bubble, and Ctrl+C flow to PTY.
+    const t1 = sandbox.__xterms[0]
+    t1.selection = 'copied-line'
+    const handler = createTerminalKeyHandler(t1, { mac: true, copy: text => sandbox.__copied.push(text) })
+    assert.equal(handler({ type: 'keydown', metaKey: true, key: 'c', code: 'KeyC', preventDefault() {} }), false)
+    assert.deepEqual(plain(sandbox.__copied), ['copied-line'])
+    assert.equal(t1.hasSelection(), false)
+    assert.equal(handler({ type: 'keydown', metaKey: true, key: 'v', code: 'KeyV' }), false)
+    assert.equal(handler({ type: 'keydown', metaKey: true, key: 'k', code: 'KeyK' }), false)
+    assert.equal(handler({ type: 'keydown', metaKey: true, key: ',', code: 'Comma' }), false)
+    assert.equal(handler({ type: 'keydown', ctrlKey: true, key: 'c', code: 'KeyC' }), true)
+    assert.equal(handler({ type: 'keydown', ctrlKey: true, key: 'd', code: 'KeyD' }), true)
+
+    // Direct unit check on local line editor Ctrl+C/Ctrl+D/Ctrl+L and theme reader fallback.
+    const sent = []
+    let eofs = 0
+    const mockTerm = { written: [], cleared: 0, write(s) { this.written.push(s) }, clear() { this.cleared += 1 } }
+    const editor = createLocalLineEditor(mockTerm, line => sent.push(line), () => { eofs += 1 })
+    editor('ab')
+    editor('\x03')
+    assert.match(mockTerm.written.join(''), /\^C\r\n/)
+    editor('\x04')
+    assert.equal(eofs, 1)
+    editor('\x0c')
+    assert.equal(mockTerm.cleared, 1)
+    const themed = readXtermTheme()
+    assert.ok(themed.theme.background && themed.theme.foreground && themed.theme.cursor)
+  } finally {
+    inst.unmount()
   }
 })

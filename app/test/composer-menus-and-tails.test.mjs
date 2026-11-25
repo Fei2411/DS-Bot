@@ -24,6 +24,7 @@ const stubs = {
   'model-menu.js': 'export const ModelChoiceDock = () => null\nexport const ModelKeyCard = () => null\nexport const ModelMenu = () => null\nexport const Caret = () => null\nexport const useAnchoredMenu = () => ({ open: false, setOpen() {}, triggerRef: { current: null }, menuRef: { current: null }, style: {} })\nexport const modelOf = () => null\nexport const manageModels = () => undefined\n',
   'api.js': 'export const call = (...args) => globalThis.__testCall(...args)\n',
   'primitives.js': `
+    export const FishLogo = ({ size, className }) => ({ type: 'fish-logo', props: { size, className, children: [] } })
     export const MarkdownText = ({ text }) => ({ type: 'markdown', props: { text, children: [text] } })
     export const writeClipboard = async () => true
     export const fileExtension = name => /\\.([^./\\\\]+)$/.exec(String(name ?? ''))?.[1] ?? ''
@@ -349,11 +350,24 @@ test('buildComposerMenuItems populates @ mentions, + -> Reference a chat, and / 
   assert.match(refs[0].insertText, /^@\[Chat with Writer\]\(dsh-session:/)
   assert.match(refs[1].insertText, /^@\[External Chat\]\(dsh-session:/)
 
-  // Slash commands include /goal in group (with admin) and exclude /goal in DM.
+  // Slash commands include /goal in group (with admin) and exclude /goal in DM,
+  // and every command carries a 1-line subtitle so rows keep uniform height.
   const dmCmds = buildComposerMenuItems({ mode: 'command', query: '', roster, sessionId: 'b1', actions })
   assert.deepEqual(plain(dmCmds.map(c => c.code)), ['/scheduled-task', '/details', '/shortcuts'])
+  assert.equal(dmCmds.every(c => typeof c.subtitle === 'string' && c.subtitle.trim().length > 0), true)
   const roomCmds = buildComposerMenuItems({ mode: 'command', query: '', roster, sessionId: 'r1', actions })
   assert.deepEqual(plain(roomCmds.map(c => c.code)), ['/scheduled-task', '/goal', '/details', '/shortcuts'])
+  assert.equal(roomCmds.every(c => typeof c.subtitle === 'string' && c.subtitle.trim().length > 0), true)
+  const agentRoster = { ...roster, agentOf: { 'a-s1': 'a1' } }
+  const agentCmds = buildComposerMenuItems({
+    mode: 'command',
+    query: '',
+    roster: agentRoster,
+    sessionId: 'a-s1',
+    actions: { ...actions, openFiles: () => {}, canOpenTerminal: () => true, newTerminal: () => {} },
+  })
+  assert.deepEqual(plain(agentCmds.map(c => c.code)), ['/files', '/terminal', '/shortcuts'])
+  assert.equal(agentCmds.every(c => typeof c.subtitle === 'string' && c.subtitle.trim().length > 0), true)
   roomCmds.find(c => c.code === '/goal').run()
   roomCmds.find(c => c.code === '/scheduled-task').run()
   roomCmds.find(c => c.code === '/shortcuts').run()

@@ -1,6 +1,6 @@
 import { Component, createElement as h, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { isMainOf } from './sources.js'
-import { BlocksIcon, ChevronDownIcon, ChevronLeftIcon, ChevronRightIcon, ClockIcon, CloseIcon, CompassIcon, ConnectorIcon, GlobeIcon, InfoIcon, LayersIcon, MonitorIcon, OverviewIcon, PaletteIcon, PhoneIcon, PlugIcon, PlusIcon, PuzzleIcon, SearchIcon, SendIcon, SlidersIcon, TerminalIcon, WaveIcon, SETTINGS_ICONS } from './icons.js'
+import { BlocksIcon, CheckIcon, ChevronDownIcon, ChevronLeftIcon, ChevronRightIcon, ClockIcon, CloseIcon, CompassIcon, ConnectorIcon, GlobeIcon, InfoIcon, LayersIcon, MonitorIcon, OverviewIcon, PaletteIcon, PhoneIcon, PlugIcon, PlusIcon, PuzzleIcon, SearchIcon, SendIcon, SlidersIcon, TerminalIcon, WaveIcon, SETTINGS_ICONS } from './icons.js'
 import { IconAgentPresetOutlineMedium, IconArchiveOutlineMedium, IconSettingsOutlineMedium, IconUserOutlineMedium } from './dsh-primitives.js'
 import { AdminStar, BotAvatar, RoomAvatar } from './mark.js'
 import { useEscape } from './overlay-hooks.js'
@@ -18,6 +18,7 @@ import { ImPage } from './im-page.js'
 import { CapabilitiesPage } from './capability-settings.js'
 import { DeepSeekServicesPage } from './services-settings.js'
 import { BrowserPage } from './browser-settings.js'
+import { PluginsPage } from './plugins-page.js'
 import { ComputerPage } from './computer.js'
 import { SchedulesPage } from './schedules.js'
 import { FeedbackIcon, FeedbackPage } from './feedback.js'
@@ -28,6 +29,7 @@ import { BotModelsPage } from './bot-models-page.js'
 import { SettingsTour, canAutoStartTour, hasSectionTour, markTourSeen } from './settings-tour.js'
 import { FolderMenu } from './folder-menu.js'
 import { ModelMenu } from './model-menu.js'
+import { SelectMenu } from './select-menu.js'
 import { isLocalRoute } from './agent-routes.js'
 import { noteClientError } from './diagnostics.js'
 import { t } from './i18n.js'
@@ -38,8 +40,8 @@ import { OverviewPage } from './settings-overview.js'
 
 
 // Settings dialog: a nav rail beside the page, with search on top. A domain with several
-// parts shows them on one scrolling page under a row of anchors; every existing
-// openSettings(page, id) route resolves to its group and scrolls to its part.
+// parts shows them as discrete tabs; every existing openSettings(page, id) route resolves
+// to its group and opens its tab directly.
 const NAV_GROUPS = [
   { id: 'overview', label: 'Overview', icon: 'overview', pages: [['overview', 'Overview']], section: 'top' },
   { id: 'general', label: 'General', icon: 'general', pages: [['general', 'General']], section: 'main' },
@@ -72,12 +74,13 @@ const NAV_GROUPS = [
     pages: [['computer', 'Computer use'], ['browser', 'Browser'], ['capabilities', 'Capabilities'], ['secrets', 'Secrets']],
     section: 'main',
   },
+  { id: 'plugins', label: 'Plugins', icon: 'plugins', pages: [['plugins', 'Plugins']], section: 'main' },
   { id: 'usage', label: 'Usage', icon: 'usage', pages: [['usage', 'Usage']], section: 'main' },
   {
     id: 'about',
     label: 'About DS Bot',
     icon: 'about',
-    pages: [['about', 'About DS Bot'], ['feedback', 'Feedback']],
+    pages: [['about', 'About'], ['feedback', 'Feedback']],
     section: 'last',
   },
 ]
@@ -86,7 +89,7 @@ const NAV_GROUPS = [
 const GROUP_ALIASES = { team: 'bots', connect: 'connectors', tools: 'computer', guide: 'overview' }
 
 // DSH sections DS Bot's own pages already hold.
-const MERGED_SECTIONS = new Set(['general', 'models'])
+const MERGED_SECTIONS = new Set(['general', 'models', 'plugins'])
 // DSH General rows placed in Appearance or Basics; the rest go under Advanced.
 const LOOK_ITEMS = ['appearance', 'font-size']
 const BASIC_ITEMS = ['language', 'composer-enter']
@@ -96,7 +99,7 @@ export const dshPages = dsh => (dsh?.sections ?? []).filter(row => row.id !== ''
 const hasSection = (dsh, id) => (dsh?.sections ?? []).some(row => row.id === id)
 const dshItem = (dsh, id) => h('div', { key: id, className: 'bt-dsh-item', 'data-item': id },
   dsh.preferences && PREFERENCE_ITEMS.has(id) ? h(SettingsPreferences, { id, preferences: dsh.preferences }) : dsh.renderSlot('settings.general.item', {}, { only: id }))
-const PAGE_ICONS = { ...SETTINGS_ICONS, overview: OverviewIcon, appearance: PaletteIcon, models: SlidersIcon, 'bot-models': LayersIcon, 'local-agents': TerminalIcon, connectors: ConnectorIcon, im: SendIcon, phone: PhoneIcon, mcp: PlugIcon, capabilities: BlocksIcon, 'deepseek-services': WaveIcon, browser: GlobeIcon, computer: MonitorIcon, schedules: ClockIcon, secrets: KeyIcon, feedback: FeedbackIcon, about: InfoIcon }
+const PAGE_ICONS = { ...SETTINGS_ICONS, overview: OverviewIcon, appearance: PaletteIcon, models: SlidersIcon, 'bot-models': LayersIcon, 'local-agents': TerminalIcon, connectors: ConnectorIcon, im: SendIcon, phone: PhoneIcon, mcp: PlugIcon, capabilities: BlocksIcon, 'deepseek-services': WaveIcon, browser: GlobeIcon, plugins: PuzzleIcon, computer: MonitorIcon, schedules: ClockIcon, secrets: KeyIcon, feedback: FeedbackIcon, about: InfoIcon }
 
 // What each MEMORY.md holds by default, in characters of entry text.
 const MEMORY_SIZES = [
@@ -155,7 +158,7 @@ function GeneralPage({ roster, actions, run, dsh, openAdvanced = 0 }) {
   const inAgentMode = Boolean(actions.setSurface && actions.surfaceMode?.() === 'agent')
   const [advancedOpen, setAdvancedOpen] = useState(() => Boolean(openAdvanced))
   useEffect(() => { if (openAdvanced) setAdvancedOpen(true) }, [openAdvanced])
-  const advancedSummary = [t('Memory'), t('Background work'), actions.setSurface && !inAgentMode ? t('Classic Agent mode') : null].filter(Boolean).join(' · ')
+  const advancedSummary = [t('Memory'), t('Background work')].join(' · ')
   return [
     // In Agent mode, keep the way back to Bot mode visible at the top.
     inAgentMode ? h(SetSection, { key: 'mode', title: t('Mode') },
@@ -174,6 +177,9 @@ function GeneralPage({ roster, actions, run, dsh, openAdvanced = 0 }) {
         h(Switch, { label: t('Enter sends message'), on: prefs.enterToSend !== false, onChange: enterToSend => run(actions.setPrefs({ enterToSend })) })),
       basicDsh.includes('composer-enter') ? dshItem(dsh, 'composer-enter') : null),
     h(LocationsSection, { key: 'places', actions, run }),
+    actions.setSurface && !inAgentMode ? h(SetSection, { key: 'classic-mode', title: t('Mode') },
+      h(SetRow, { label: t('Classic Agent mode') },
+        h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => actions.setSurface('agent') }, t('Switch')))) : null,
     h(SetSection, { key: 'more', className: 'bt-dsh-items' },
       h('button', {
         type: 'button',
@@ -193,16 +199,13 @@ function GeneralPage({ roster, actions, run, dsh, openAdvanced = 0 }) {
           h(MemorySize, { label: t(label), value: prefs.memoryLimits?.[scope] ?? size, save: value => run(actions.setPrefs({ memoryLimits: { [scope]: value } })) }))),
         h(SetRow, { key: 'bg', label: t('Background commands after (seconds)') },
           h(SecondsField, { label: t('Background commands after (seconds)'), value: prefs.backgroundAfterSec ?? BACKGROUND_AFTER_SEC, save: backgroundAfterSec => run(actions.setPrefs({ backgroundAfterSec })) })),
-        actions.setSurface && !inAgentMode
-          ? h(SetRow, { key: 'classic', label: t('Classic Agent mode') }, h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => actions.setSurface('agent') }, t('Switch')))
-          : null,
         ...more.map(id => dshItem(dsh, id)),
       ] : null),
   ]
 }
 
-// The desktop app's preload hands its window `dsBotApp`; only there does the data location
-// show, since DSH keeps the plugin's data where it runs.
+// The desktop app's preload hands its window `dsBotApp` so data can be moved; in browser
+// or standalone DSH sessions, `folders` still reports the live data path as read-only.
 function LocationsSection({ actions, run }) {
   const app = globalThis.dsBotApp
   const [team, setTeam] = useState(null)
@@ -212,7 +215,10 @@ function LocationsSection({ actions, run }) {
   const [moving, setMoving] = useState(false)
   const busy = useRef(false)
   useEffect(() => {
-    void Promise.resolve(actions.folders()).then(info => setTeam(info?.team ?? null)).catch(() => {})
+    void Promise.resolve(actions.folders()).then((info) => {
+      setTeam(info?.team ?? null)
+      if (app === undefined && info?.data) setData({ path: info.data, fixed: true })
+    }).catch(() => {})
     if (app !== undefined) void Promise.resolve(app.dataLocation()).then(setData).catch(() => {})
   }, [])
   const pickTeam = (path) => {
@@ -234,36 +240,57 @@ function LocationsSection({ actions, run }) {
       data.fixed ? null : h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: moving, onClick: () => { if (!busy.current) void run(app.moveData(team ?? undefined)) } }, t('Change…'))))
 }
 
-// The first Main Bot is the sidebar tile. Picking another Bot there hands it the role
-// in one step; more Main Bots can sit beside it.
+// Multiple Bots can hold the Main Bot role at once; clicking any Bot pill toggles it
+// (the last remaining Main Bot stays selected). When several are selected, the user can
+// pick which one appears as the primary sidebar tile.
 function MainBotsSection({ roster, actions, run }) {
   const mains = (roster.mainBotIds ?? []).map(id => roster.byId[id]).filter(Boolean)
-  const [first, ...others] = mains
-  const candidates = roster.bots.filter(bot => !isMainOf(roster, bot.id))
-  return h(SetSection, { title: t('Main Bot'), tour: 'main-bot' },
-    h(SetRow, { label: t('Main Bot') },
-      h('select', {
-        className: 'bt-select', 'aria-label': t('Main Bot'), value: first?.id ?? '',
-        onChange: event => run(actions.setMain(event.target.value, true, first ? { replace: first.id } : {})),
-      }, first ? null : h('option', { value: '' }, t('Choose a Bot…')), roster.bots.map(bot => h('option', { key: bot.id, value: bot.id }, bot.name)))),
-    others.map(bot => h(SetRow, { key: bot.id, label: bot.name },
-      h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => run(actions.setMain(bot.id, true, { primary: true })) }, t('Move to first')),
-      h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => run(actions.setMain(bot.id, false)) }, t('Remove Main Bot role')))),
-    candidates.length > 0 ? h(SetRow, { label: t('Add a Main Bot') },
-      h('select', {
-        className: 'bt-select', 'aria-label': t('Add a Main Bot'), value: '',
-        onChange: (event) => { if (event.target.value) void run(actions.setMain(event.target.value, true)) },
-      }, h('option', { value: '' }, t('Choose a Bot…')), candidates.map(bot => h('option', { key: bot.id, value: bot.id }, bot.name)))) : null)
+  const first = mains[0]
+  const [confirmed, setConfirmed] = useState(null)
+  const confirmTimer = useRef(0)
+  useEffect(() => () => clearTimeout(confirmTimer.current), [])
+  const toggleMain = (bot, isMain) => {
+    const turningOn = !isMain
+    void Promise.resolve(run(actions.setMain(bot.id, turningOn))).then((ok) => {
+      if (ok === false || !turningOn) return
+      clearTimeout(confirmTimer.current)
+      setConfirmed(bot.id)
+      confirmTimer.current = setTimeout(() => setConfirmed(cur => (cur === bot.id ? null : cur)), 380)
+    })
+  }
+  return h(SetSection, { title: t('Main Bots'), tour: 'main-bot' },
+    h('div', { className: 'bt-main-bots', role: 'group', 'aria-label': t('Main Bots') },
+      roster.bots.map((bot) => {
+        const isMain = isMainOf(roster, bot.id)
+        const isLastMain = isMain && mains.length <= 1
+        return h('button', {
+          key: bot.id,
+          type: 'button',
+          className: 'bt-main-pill',
+          'aria-pressed': isMain,
+          'data-confirm': confirmed === bot.id ? '' : undefined,
+          disabled: isLastMain,
+          title: isLastMain ? t('Keep at least one Main Bot') : undefined,
+          onClick: () => toggleMain(bot, isMain),
+        },
+        h(BotAvatar, { bot, size: 22, badge: false, live: false }),
+        h('span', { className: 'bt-main-pill-name' }, bot.name),
+        h('span', { key: isMain ? 'on' : 'off', className: 'bt-main-pill-mark', 'aria-hidden': true }, isMain ? h(CheckIcon) : h(PlusIcon)))
+      })),
+    mains.length > 1 ? h(SetRow, { label: t('Primary tile') },
+      h(SelectMenu, {
+        'aria-label': t('Primary tile'),
+        value: first?.id ?? '',
+        options: mains.map(bot => ({ value: bot.id, label: bot.name })),
+        onChange: id => { if (id && id !== first?.id) void run(actions.setMain(id, true, { primary: true })) },
+      })) : null)
 }
 
-function BotsPage({ roster, actions, run, startCreating = false }) {
-  const [creating, setCreating] = useState(startCreating)
-  useEffect(() => { if (startCreating) setCreating(true) }, [startCreating])
-  const newBotBtn = creating ? null : h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', 'data-tour': 'new-bot', onClick: () => setCreating(true) }, h(PlusIcon), t('New Bot'))
+function BotsPage({ roster, actions, run }) {
+  const newBotBtn = h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', 'data-tour': 'new-bot', onClick: () => actions.openSettings('bots', 'new') }, h(PlusIcon), t('New Bot'))
   return [
     h(MainBotsSection, { key: 'main', roster, actions, run }),
-    creating ? h(CreateBot, { key: 'create', roster, actions, inline: true, onBack: () => setCreating(false), onCreated: bot => actions.openSettings('bots', bot.id) }) : null,
-    h(SetSection, { key: 'bots', title: t('Bots · {count}', { count: roster.bots.length }), action: newBotBtn, tour: 'bot-list' },
+    h(SetSection, { key: 'bots', title: t('All Bots · {count}', { count: roster.bots.length }), action: newBotBtn, tour: 'bot-list' },
       roster.bots.map(bot => h('button', { key: bot.id, type: 'button', className: 'bt-set-row', onClick: () => actions.openSettings('bots', bot.id) },
         h('span', { className: 'bt-set-bot' },
           h(BotAvatar, { bot, size: 28, badge: false, live: false }),
@@ -283,7 +310,7 @@ function GroupsPage({ roster, actions, run }) {
     creating ? h(NewGroupForm, { key: 'create', roster, actions, run, onCancel: () => setCreating(false), onCreated: room => actions.openSettings('groups', room.id) }) : null,
     h(SetSection, { key: 'groups', title: t('Group chats · {count}', { count: roster.rooms.length }), action: newGroupBtn, tour: 'group-list' },
       roster.rooms.length === 0
-        ? h(SetRow, { label: t('No group chats yet.') })
+        ? h('div', { className: 'bt-set-row' }, h('span', { className: 'bt-set-hint' }, t('No group chats yet.')))
         : roster.rooms.map((room) => {
             const admin = roster.byId[room.admin]
             return h('button', { key: room.id, type: 'button', className: 'bt-set-row', onClick: () => actions.openSettings('groups', room.id) },
@@ -317,8 +344,8 @@ class PageBoundary extends Component {
 function partAt(box) {
   const parts = [...(box?.querySelectorAll?.('[data-part]') ?? [])]
   if (parts.length === 0) return null
-  if (box.scrollTop + box.clientHeight >= box.scrollHeight - 2) return parts.at(-1).dataset.part
-  const top = box.getBoundingClientRect().top + 24
+  if (box.scrollTop > 0 && box.scrollTop + box.clientHeight >= box.scrollHeight - 2) return parts.at(-1).dataset.part
+  const top = box.getBoundingClientRect().top + 36
   let found = parts[0]
   for (const part of parts) if (part.getBoundingClientRect().top <= top) found = part
   return found.dataset.part
@@ -326,6 +353,9 @@ function partAt(box) {
 
 const SCROLL_KEYS = new Set(['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '])
 const reducedMotion = () => typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
+// Parts whose own top section heading already titles the part (promoted directly to
+// Level-2 typography so no duplicate outer heading ever stacks above it).
+const OWN_HEAD_PARTS = new Set(['groups', 'schedules', 'capabilities', 'feedback'])
 
 // While `leaving`, the dialog plays its exit and takes no input.
 export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false, dsh }) {
@@ -393,10 +423,10 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
     setPalette(false)
     go(nextPage)
   }, [go])
-  const [narrowNav, setNarrowNav] = useState(() => (typeof window !== 'undefined' && typeof window.matchMedia === 'function' ? window.matchMedia('(max-width: 640px)').matches : false))
+  const [narrowNav, setNarrowNav] = useState(() => (typeof window !== 'undefined' && typeof window.matchMedia === 'function' ? window.matchMedia('(max-width: 768px)').matches : false))
   useEffect(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return undefined
-    const queryList = window.matchMedia('(max-width: 640px)')
+    const queryList = window.matchMedia('(max-width: 768px)')
     const sync = () => setNarrowNav(queryList.matches)
     sync()
     queryList.addEventListener?.('change', sync)
@@ -416,23 +446,31 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
   })).filter(group => group.pages.length > 0), [hasProviders, hasServices])
 
   const extra = dshPages(dsh)
-  const resolvedPage = GROUP_ALIASES[page] ?? (page === 'models' && !hasProviders ? 'bot-models' : page)
+  const [rawSectionId, rawSubTarget] = typeof id === 'string' && (page === 'dsh' || page === 'plugins') ? id.split(':', 2) : [id, undefined]
+  const legacyEnginePlugins = page === 'dsh' && rawSectionId === 'plugins' && hasSection(dsh, 'plugins')
+  const resolvedPage = legacyEnginePlugins ? 'plugins' : (GROUP_ALIASES[page] ?? (page === 'models' && !hasProviders ? 'bot-models' : page))
+  const [sectionId, subTarget] = legacyEnginePlugins || (resolvedPage === 'plugins' && rawSectionId === 'dsh')
+    ? ['plugins', rawSubTarget]
+    : [rawSectionId, rawSubTarget]
   // A DSH page is `dsh` with its section id; one no longer registered falls back to Overview.
-  const section = resolvedPage === 'dsh' ? extra.find(row => row.id === id) : undefined
+  const section = resolvedPage === 'dsh' ? extra.find(row => row.id === sectionId) : undefined
   // DSH's Models page, one level into Models.
   const advanced = resolvedPage === 'models' && id === 'advanced' && hasSection(dsh, 'models')
+  // DSH's Plugins page (e.g. Web Search API & engine plugin switches), one level into Plugins.
+  const enginePlugins = (legacyEnginePlugins || (resolvedPage === 'plugins' && rawSectionId === 'dsh')) && hasSection(dsh, 'plugins')
   const validPage = groups.some(group => group.pages.some(([key]) => key === resolvedPage))
   const shown = section ? 'dsh' : validPage ? resolvedPage : 'overview'
   // A Bot or group deleted while its form is open leaves its page on the list.
-  const bot = shown === 'bots' && id ? roster.byId[id] : undefined
+  const creatingBot = shown === 'bots' && id === 'new'
+  const bot = shown === 'bots' && id && !creatingBot ? roster.byId[id] : undefined
   const room = shown === 'groups' && id ? roster.roomsById[id] : undefined
   const activeGroup = section ? null : groups.find(group => group.pages.some(([key]) => key === shown)) ?? groups[0]
   const usageFocus = shown === 'usage' && id ? id : null
-  const depth = bot || room || advanced ? 1 : 0
+  const depth = bot || creatingBot || room || advanced || enginePlugins ? 1 : 0
   const atHome = shown === 'overview'
-  const label = section ? section.label : advanced ? t('Advanced settings') : atHome && narrowNav ? t('Settings') : t(activeGroup.label)
+  const label = section ? section.label : creatingBot ? t('New Bot') : advanced ? t('Advanced settings') : enginePlugins ? t('Engine plugins') : atHome && narrowNav ? t('Settings') : t(activeGroup.label)
   // Phone width: the rail hides and Overview lists the pages, so each page leads back there.
-  const back = bot ? t('Back to Bots') : room ? t('Back to group chats') : usageFocus ? t('All usage') : advanced ? t('Back to models') : narrowNav && !atHome ? t('Settings') : null
+  const back = bot || creatingBot ? t('Back to Bots') : room ? t('Back to group chats') : usageFocus ? t('All usage') : advanced ? t('Back to models') : enginePlugins ? t('Back to Plugins') : narrowNav && !atHome ? t('Settings') : null
   const goBack = () => actions.openSettings(depth > 0 || usageFocus ? shown : 'overview')
   const navKey = section ? `dsh:${section.id}` : activeGroup.id
   const nav = useGlide(navKey, { axis: 'y' })
@@ -454,31 +492,30 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
     else go(hit.page, hit.target)
   }
 
-  // The parts of a domain share one scrolling page while none is drilled into.
+  // The parts of a multi-part domain share one scrolling page while none is drilled into,
+  // separated by crisp hairlines and synced with the top anchor bar.
   const parts = !section && depth === 0 && activeGroup.pages.length > 1 ? activeGroup.pages : null
   const partKeys = parts ? parts.map(([key]) => key) : []
   const [spied, setSpied] = useState(null)
   const activePart = parts ? (partKeys.includes(spied) ? spied : shown) : null
   const anchors = useGlide(activePart ?? '', { axis: 'x', selector: '[aria-current="location"]' })
-  // Phone width: the anchor row scrolls sideways, so the current one stays in it.
+  // Phone width: the anchor row scrolls sideways, so the current one stays in view.
   useEffect(() => {
     anchors.box.current?.querySelector?.('[aria-current=location]')?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
   }, [activePart])
 
   // A page enters from the right when it is one level in, from the left when it comes
-  // back out, and from below beside it. Parts of one domain share a page, so moving
-  // between them scrolls instead. Usage keeps its own entrance and its data across its
-  // own levels, so they share one page.
+  // back out, and fades gently beside it. Parts of one domain share one scrolling page so
+  // moving between them scrolls smoothly without replaying the domain entrance. Usage keeps
+  // its own entrance and its data across its own levels, so they share one page.
   const pageKey = parts
     ? `group:${activeGroup.id}`
-    : `${shown}:${bot?.id ?? room?.id ?? section?.id ?? (advanced ? 'advanced' : shown === 'schedules' ? (id ?? '') : '')}`
-  // The part an anchor scrolled to itself; the route it sets does not jump again.
+    : `${shown}:${bot?.id ?? (creatingBot ? 'new' : null) ?? room?.id ?? section?.id ?? (advanced ? 'advanced' : enginePlugins ? 'dsh' : shown === 'schedules' ? (id ?? '') : '')}`
+  // The part an anchor scrolled to itself; the route it sets preserves any saved part request.
   const anchored = useRef(null)
-  // A request a part opened with (a search's model preset, a new-task link) stays with the
-  // part while the user moves between the domain's parts; a new request replaces it, and
-  // another domain or a page of its own starts clean.
-  // It changes only when the route does: a route that names the part again without one
-  // (Scheduled tasks' "Show all", search, the rail) clears it, an anchor does not.
+  // A request a part opened with (a search's model preset, a new-task link, a Bot filter) stays
+  // with the part while the user moves between the domain's parts; a new request replaces it,
+  // and another domain or an explicit direct route (like "Show all") clears it.
   const requests = useRef({ pageKey, route: null, parts: {} })
   if (requests.current.pageKey !== pageKey) requests.current = { pageKey, route: null, parts: {} }
   const route = `${shown}|${id ?? ''}|${jump}`
@@ -501,8 +538,7 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
 
   // Opening a part scrolls to it, the first part to the top; a page's own data can still
   // arrive and move it, so the jump repeats once the page has settled unless the user
-  // scrolled meanwhile. An anchor scrolls smoothly on its own: the route it sets does not
-  // jump again, and the anchor row holds on it until the scroll gets there.
+  // scrolled meanwhile. An anchor scrolls smoothly on its own and holds until arrival.
   const userScrolled = useRef(false)
   const heading = useRef(null)
   const headingTimer = useRef(0)
@@ -511,7 +547,7 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
     const box = scrollRef.current
     const target = box?.querySelector?.(`[data-part="${key}"]`)
     if (!box || !target) return
-    const top = key === partKeys[0] ? 0 : target.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop - 4
+    const top = key === partKeys[0] ? 0 : target.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop
     box.scrollTo?.({ top: Math.max(0, top), behavior: smooth && !reducedMotion() ? 'smooth' : 'auto' })
   }
   useEffect(() => {
@@ -534,7 +570,6 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
     }
     if (next && next !== spied) setSpied(next)
   }
-  // Wheel, touch, scroll keys and the scrollbar all mean the user took over.
   const takeOver = () => {
     userScrolled.current = true
     heading.current = null
@@ -543,8 +578,6 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
     userScrolled.current = true
     heading.current = key
     clearTimeout(headingTimer.current)
-    // The hold lapses without moving the mark: a short last part the box cannot bring to
-    // the top keeps the anchor that was picked until the user scrolls.
     headingTimer.current = setTimeout(() => { heading.current = null }, 900)
     setSpied(key)
     scrollToPart(key, true)
@@ -552,6 +585,21 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
       anchored.current = key
       actions.openSettings(key)
     }
+  }
+  const onAnchorKeyDown = (event) => {
+    if (!parts) return
+    const currentIndex = partKeys.indexOf(activePart ?? shown)
+    if (currentIndex < 0) return
+    let nextIndex = -1
+    if (event.key === 'ArrowRight') nextIndex = (currentIndex + 1) % partKeys.length
+    else if (event.key === 'ArrowLeft') nextIndex = (currentIndex - 1 + partKeys.length) % partKeys.length
+    else if (event.key === 'Home') nextIndex = 0
+    else if (event.key === 'End') nextIndex = partKeys.length - 1
+    if (nextIndex < 0) return
+    event.preventDefault()
+    const nextKey = partKeys[nextIndex]
+    goPart(nextKey)
+    anchors.box.current?.querySelector?.(`#bt-anchor-${nextKey}`)?.focus?.({ preventScroll: true })
   }
 
   const depthRef = useRef({ key: pageKey, depth, move: 'up' })
@@ -570,6 +618,7 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
     if (groupId === 'models' && (needsModel || keyMissing)) return h('span', { className: 'bt-settings-dot', 'data-tone': 'warn', role: 'img', 'aria-label': t('Needs your attention') })
     if (groupId === 'connect' && phoneConnected) return h('span', { className: 'bt-settings-dot', 'data-tone': 'ok', role: 'img', 'aria-label': t('Phone online') })
     if (groupId === 'team' && (roster.bots?.length ?? 0) > 0) return h('span', { className: 'bt-settings-count' }, roster.bots.length)
+    if (groupId === 'plugins' && roster.plugins?.pendingRestart) return h('span', { className: 'bt-settings-dot', 'data-tone': 'warn', role: 'img', 'aria-label': t('Restart required') })
     if (groupId === 'about' && update.available) return h('span', { className: 'bt-settings-chip' }, t('Update'))
     return null
   }
@@ -594,7 +643,7 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
   const topGroups = groups.filter(group => group.section === 'top')
   const mainGroups = groups.filter(group => group.section === 'main')
   const lastGroups = groups.filter(group => group.section === 'last')
-  const guideKey = parts ? activePart : shown
+  const guideKey = activePart ?? shown
   const showSectionGuide = !section && depth === 0 && !usageFocus && hasSectionTour(guideKey)
 
   // Phone width: Overview's list of pages, in the rail's order.
@@ -611,8 +660,12 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
       // A preset opens the page afresh each time search offers it.
       case 'bot-models': return h(BotModelsPage, { key: request('bot-models')?.key ?? 'bot-models', roster, actions, run, Section: SetSection, preset: request('bot-models')?.id ?? null })
       // It reads the DeepSeek key once; a key saved under Providers changes the catalog's key.
-      case 'deepseek-services': return h(DeepSeekServicesPage, { key: roster.modelsKey ?? '', actions, run, Section: SetSection, Row: SetRow, Switch, Segmented })
-      case 'bots': return h(BotsPage, { roster, actions, run, startCreating: shown === 'bots' && id === 'new' })
+      case 'deepseek-services': return h(DeepSeekServicesPage, {
+        key: roster.modelsKey ?? '', actions, run, Section: SetSection, Row: SetRow, Switch, Segmented,
+        onOpenWebSearch: hasSection(dsh, 'plugins') ? () => actions.openSettings('plugins', 'dsh:web-search') : undefined,
+        openEnginePlugins: hasSection(dsh, 'plugins') ? () => actions.openSettings('plugins', 'dsh') : null,
+      })
+      case 'bots': return h(BotsPage, { roster, actions, run })
       case 'groups': return h(GroupsPage, { roster, actions, run })
       case 'schedules': return h(SchedulesPage, { key: request('schedules')?.key ?? 'schedules', roster, actions, start: request('schedules')?.id })
       case 'connectors': return h(ConnectorsPage, { roster, actions })
@@ -624,7 +677,7 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
       case 'capabilities': return h(CapabilitiesPage, { roster, actions, run })
       case 'secrets': return h(SecretsPage, { roster, actions, run, Section: SetSection })
       case 'feedback': return h(FeedbackPage, { actions, run, Section: SetSection, Row: SetRow })
-      case 'about': return h(AboutPage, { useUpdate, actions, run, Section: SetSection, Row: SetRow, onStartTour: () => startTour('full') })
+      case 'about': return h(AboutPage, { useUpdate, actions, run, Section: SetSection, Row: SetRow, onStartTour: () => startTour('full'), inlineFeedback: false })
       default: return null
     }
   }
@@ -633,13 +686,32 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
   const body = () => {
     if (shown === 'usage') return null
     if (parts) {
-      return h('div', { key: pageKey, ref: scrollRef, className: 'bt-settings-scroll bt-settings-page bt-settings-parts', 'data-move': depthRef.current.move, onScroll: onPartsScroll, onWheel: takeOver, onTouchMove: takeOver,
+      return h('div', {
+        key: pageKey,
+        ref: scrollRef,
+        className: 'bt-settings-scroll bt-settings-page bt-settings-parts',
+        'data-move': depthRef.current.move,
+        'data-page': shown,
+        onScroll: onPartsScroll,
+        onWheel: takeOver,
+        onTouchMove: takeOver,
         onKeyDown: (event) => { if (SCROLL_KEYS.has(event.key)) takeOver() },
-        onPointerDown: (event) => { if (event.target === event.currentTarget) takeOver() } },
-        errorLine,
-        parts.map(([key, partLabel]) => h('section', { key, className: 'bt-set-part', 'data-part': key, 'aria-labelledby': `bt-part-${key}` },
-          h('h3', { id: `bt-part-${key}`, className: 'bt-set-part-title' }, t(partLabel), beta(key)),
-          h(PageBoundary, null, partPage(key)))))
+        onPointerDown: (event) => { if (event.target === event.currentTarget) takeOver() },
+      },
+      errorLine,
+      parts.map(([key, partLabel], index) => {
+        const ownHead = index === 0 || OWN_HEAD_PARTS.has(key)
+        return h('section', {
+          key,
+          className: 'bt-set-part',
+          'data-part': key,
+          'data-own-head': ownHead ? '' : undefined,
+          'aria-label': ownHead ? t(partLabel) : undefined,
+          'aria-labelledby': ownHead ? undefined : `bt-part-${key}`,
+        },
+        ownHead ? null : h('h3', { id: `bt-part-${key}`, className: 'bt-part-head' }, t(partLabel), beta(key)),
+        h(PageBoundary, { reset: `${pageKey}:${key}` }, partPage(key)))
+      }))
     }
     return h('div', { key: pageKey, className: 'bt-settings-scroll bt-settings-page', 'data-move': depthRef.current.move, 'data-page': shown },
       errorLine,
@@ -653,12 +725,15 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
           keyMissing,
         }) : null,
         shown === 'general' ? h(GeneralPage, { roster, actions, run, dsh, openAdvanced: advancedToken }) : null,
-        shown === 'appearance' ? h(AppearancePage, { roster, actions, run, Section: SetSection, Row: SetRow, Choice, Switch, ownWindow: dsh === undefined, dshRows: lookRows(dsh) }) : null,
+        shown === 'appearance' ? h(AppearancePage, { roster, actions, run, Section: SetSection, Row: SetRow, Choice, Switch, ownWindow: dsh?.ownWindow ?? (dsh === undefined), dshRows: lookRows(dsh) }) : null,
+        shown === 'plugins' && !enginePlugins ? h(PluginsPage, { roster, actions, Section: SetSection, Row: SetRow, initialFilter: id === 'browser' ? 'browser' : null, openEnginePlugins: hasSection(dsh, 'plugins') ? () => actions.openSettings('plugins', 'dsh') : null }) : null,
+        enginePlugins ? h('div', { className: 'bt-dsh-section' }, dsh.renderSlot('settings.section', { close, subTarget }, { only: 'plugins' })) : null,
         advanced ? h('div', { className: 'bt-dsh-section' }, dsh.renderSlot('settings.section', { close }, { only: 'models' })) : null,
-        section ? h('div', { className: 'bt-dsh-section' }, dsh.renderSlot('settings.section', { close }, { only: section.id })) : null,
+        section ? h('div', { className: 'bt-dsh-section' }, dsh.renderSlot('settings.section', { close, subTarget }, { only: section.id })) : null,
+        creatingBot ? h('div', { className: 'bt-settings-form' }, h(CreateBot, { roster, actions, inline: true, onBack: () => actions.openSettings('bots'), onCreated: created => actions.openSettings('bots', created.id) })) : null,
         bot ? h('div', { className: 'bt-settings-form' }, h(BotSettingsForm, { key: bot.id, bot, roster, actions, run })) : null,
         room ? h('div', { className: 'bt-settings-form' }, h(GroupSettingsForm, { key: room.id, room, roster, actions, run })) : null,
-        !parts && !atHome && !bot && !room && !advanced && !section && !['general', 'appearance', 'usage'].includes(shown) ? partPage(shown) : null))
+        !parts && !atHome && !bot && !creatingBot && !room && !advanced && !enginePlugins && !section && !['general', 'appearance', 'plugins', 'usage'].includes(shown) ? partPage(shown) : null))
   }
 
   return h('div', { className: 'bt-settings-layer', 'data-leaving': leaving || undefined },
@@ -684,7 +759,7 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
       h('div', { className: 'bt-settings-main' },
         h('div', { className: 'bt-settings-head', 'data-parts': parts ? '' : undefined },
           back ? h('button', { type: 'button', className: 'bt-icon-btn', 'aria-label': back, title: back, onClick: goBack }, h(ChevronLeftIcon)) : null,
-          h('h2', { key: bot?.id ?? room?.id ?? section?.id ?? (advanced ? 'advanced' : activeGroup.id) }, bot?.name ?? room?.name ?? label),
+          h('h2', { key: bot?.id ?? (creatingBot ? 'new' : null) ?? room?.id ?? section?.id ?? (advanced ? 'advanced' : enginePlugins ? 'dsh' : activeGroup.id) }, bot?.name ?? room?.name ?? label),
           h('div', { className: 'bt-settings-head-end' },
             dsh ? h('div', { className: 'bt-settings-actions' }, dsh.renderSlot('settings.action', {})) : null,
             showSectionGuide ? h('button', {
@@ -692,17 +767,23 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
               className: 'bt-soft bt-soft-sm bt-with-icon bt-tour-trigger',
               onClick: () => startTour(guideKey),
             }, h(CompassIcon), t('Guide')) : null)),
-        parts ? h('nav', { ref: anchors.box, className: 'bt-settings-anchors', 'aria-label': t('On this page') },
+        parts ? h('nav', {
+          ref: anchors.box,
+          className: 'bt-settings-anchors',
+          'aria-label': t('On this page'),
+          onKeyDown: onAnchorKeyDown,
+        },
           h('span', { ref: anchors.thumb, className: 'bt-thumb', 'aria-hidden': true }),
           parts.map(([key, partLabel]) => h('button', {
             key,
+            id: `bt-anchor-${key}`,
             type: 'button',
             className: 'bt-anchor',
             'aria-current': activePart === key ? 'location' : undefined,
             onClick: () => goPart(key),
           }, t(partLabel), beta(key)))) : null,
         body(),
-        usageOpened ? h('div', { key: 'usage', className: 'bt-settings-scroll bt-settings-usage', 'data-off': shown === 'usage' ? undefined : '', 'aria-hidden': shown === 'usage' ? undefined : true },
+        usageOpened ? h('div', { key: 'usage', className: 'bt-settings-scroll bt-settings-usage', 'data-off': shown === 'usage' ? undefined : '', 'aria-hidden': shown === 'usage' ? undefined : true, inert: shown !== 'usage' },
           shown === 'usage' ? errorLine : null,
           h(PageBoundary, { reset: shown }, h(UsagePage, { roster, actions, focusId: usageFocus }))) : null),
       h('button', { type: 'button', className: 'bt-settings-close', 'aria-label': t('Close settings'), onClick: close }, h(CloseIcon)),
@@ -714,7 +795,7 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
       }) : null,
       leaving ? null : h(SettingsTour, {
         tour,
-        currentPage: shown,
+        currentPage: activePart ?? shown,
         dialogRef,
         hasProviders,
         hasAdvancedModels: hasSection(dsh, 'models'),

@@ -16,7 +16,7 @@ const stubs = {
   'widget-cell.js': 'export const WidgetCell = () => null\nexport const WidgetDock = () => null\nexport const AnsweredReply = () => null\nexport const ViewCard = () => null\n',
   'model-menu.js': 'export const ModelChoiceDock = () => null\nexport const ModelKeyCard = () => null\nexport const ModelMenu = () => null\nexport const Caret = () => null\nexport const useAnchoredMenu = () => ({ open: false, setOpen() {}, triggerRef: { current: null }, menuRef: { current: null }, style: {} })\nexport const modelOf = () => null\nexport const manageModels = () => undefined\n',
   'api.js': 'export const call = (...args) => globalThis.__testCall(...args)\n',
-  'primitives.js': 'export const MarkdownText = ({ text }) => ({ type: "markdown", props: { text, children: [text] } })\nexport const writeClipboard = async () => true\nexport const fileExtension = name => /\\.([^./\\\\]+)$/.exec(String(name ?? ""))?.[1] ?? ""\nexport const fileSizeText = bytes => (Number.isFinite(bytes) ? `${bytes} B` : "")\n',
+  'primitives.js': 'export const FishLogo = ({ size, className }) => ({ type: "fish-logo", props: { size, className, children: [] } })\nexport const MarkdownText = ({ text }) => ({ type: "markdown", props: { text, children: [text] } })\nexport const writeClipboard = async () => true\nexport const fileExtension = name => /\\.([^./\\\\]+)$/.exec(String(name ?? ""))?.[1] ?? ""\nexport const fileSizeText = bytes => (Number.isFinite(bytes) ? `${bytes} B` : "")\n',
 }
 const { outputFiles } = await build({
   entryPoints: [fileURLToPath(new URL('../ui/src/chat.js', import.meta.url))],
@@ -852,5 +852,91 @@ test('composer guards read-only mode, resets Stop on queued turns, preserves blo
   } finally {
     fast.unmount()
     sandbox.__testCall = defaultCall
+  }
+})
+
+test('DSH Agent blank session renders AgentEmptyHero with workspace folder and full + composer menu', async () => {
+  const openedFiles = []
+  const openedTerminals = []
+  const roster = {
+    ready: true,
+    readOnly: null,
+    prefs: { enterToSend: true },
+    bots: [],
+    byId: {},
+    rooms: [],
+    roomsById: {},
+    agents: [{ id: 'a1', name: 'DSH Agent', sessions: ['agent-s1'] }],
+    agentsById: { a1: { id: 'a1', name: 'DSH Agent', sessions: ['agent-s1'] } },
+    agentOf: { 'agent-s1': 'a1' },
+    questions: {},
+    views: {},
+    exchangeTurns: {},
+  }
+  const sessionsState = { ids: ['agent-s1'], byId: { 'agent-s1': { id: 'agent-s1', blank: true } } }
+  const team = {
+    actions: {
+      noteSent() {},
+      noteLive() {},
+      send: async () => {},
+      speech: () => undefined,
+      openVoice() {},
+      clearQuote() {},
+      canReferenceChat: () => false,
+      openFiles: () => { openedFiles.push(true) },
+      canOpenTerminal: () => true,
+      newTerminal: () => { openedTerminals.push(true) },
+    },
+    hooks: {
+      useRoster: s => s(roster),
+      useSessions: s => s(sessionsState),
+      useUi: s => s({}),
+      useSessionStatus: s => s(new Map()),
+    },
+    chat: { on: () => () => {} },
+  }
+
+  const view = mount({ sessionId: 'agent-s1', team })
+  try {
+    let tree = view.render()
+    await tick()
+    sse.get('agent-s1')?.push('frame', {
+      type: 'snapshot',
+      header: { id: 'agent-s1', cwd: '/tmp/project-alpha' },
+      records: [],
+      nextSeq: 1,
+      hasMore: false,
+      activeAttempt: null,
+    })
+    await tick()
+    await tick()
+    tree = view.render()
+
+    // Blank DSH Agent session renders the centered hero with official FishLogo and workspace pill.
+    const hero = all(tree, n => n.props?.['data-agent-hero'] !== undefined)
+    assert.equal(hero.length, 1, 'blank DSH Agent session renders AgentEmptyHero')
+    const folderBtn = all(hero[0], n => n.type === 'button' && n.props?.className === 'dsb-agent-hero-folder')[0]
+    assert.ok(folderBtn, 'hero renders clickable workspace folder pill')
+    assert.equal(folderBtn.props.title, '/tmp/project-alpha')
+    folderBtn.props.onClick()
+    assert.equal(openedFiles.length, 1)
+
+    // Composer exposes the "+" button for DSH Agent sessions, labels the input for DSH Agent,
+    // marks the chat container as classic DSH, and omits DS Bot's live voice-call control.
+    assert.equal(all(tree, n => String(n.props?.className ?? '').includes('dsb-classic-chat')).length, 1, 'DSH Agent chat adds .dsb-classic-chat scope')
+    assert.equal(all(tree, n => n.type === 'voice').length, 0, 'DSH Agent composer omits DS Bot voice-call control')
+    const plusBtns = all(tree, n => n.type === 'button' && n.props?.className === 'bt-plus')
+    assert.equal(plusBtns.length, 1, 'DSH Agent composer renders the + trigger')
+    assert.match(textarea(tree).props.placeholder, /DSH Agent/)
+
+    // Clicking "+" opens the menu with Add files, Files, and Terminal.
+    plusBtns[0].props.onClick()
+    tree = view.render()
+    const menuItems = all(tree, n => n.type === 'button' && n.props?.role === 'menuitem')
+    assert.equal(menuItems.length, 3, 'DSH Agent + menu offers Add files, Files, and Terminal')
+    menuItems[2].props.onClick()
+    assert.equal(openedTerminals.length, 1)
+  } finally {
+    view.unmount()
   }
 })

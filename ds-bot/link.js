@@ -7580,14 +7580,15 @@ var HostLink = class {
     for (const tunnel of [...this.tunnels.values()]) if (tunnel.deviceId === deviceId) this.dropTunnel(tunnel, "DEVICE_REVOKED");
   }
   /** Tells every connected phone that something changed. */
-  emit(event, data) {
-    const message = encodeMessage(createMessage("event", { event, data }));
+  emit(event, data, forDevice) {
+    const shared = forDevice === void 0 ? encodeMessage(createMessage("event", { event, data })) : void 0;
     for (const tunnel of this.tunnels.values()) {
       if (tunnel.stage !== "ready") continue;
       if ((tunnel.emitPending ?? 0) >= MAX_EMIT_PENDING) {
         this.dropTunnel(tunnel, "SEND_FAILED");
         continue;
       }
+      const message = shared ?? encodeMessage(createMessage("event", { event, data: forDevice(tunnel.deviceId) }));
       tunnel.emitPending = (tunnel.emitPending ?? 0) + 1;
       void this.sendSecure(tunnel, message).catch(() => this.dropTunnel(tunnel, "SEND_FAILED")).finally(() => {
         if (tunnel.emitPending !== void 0) tunnel.emitPending -= 1;

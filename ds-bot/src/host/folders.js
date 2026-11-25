@@ -250,8 +250,10 @@ export function install(rt) {
         }
         const present = await Promise.all([...known].map(async ([path, title]) => (await isFolder(path) ? { path, title } : undefined)))
         const kind = picker()?.kind
+        const data = rt.dshHome && resolve(rt.home) === resolve(rt.dshHome, 'bot') ? rt.dshHome : rt.home
         return {
           team,
+          data,
           picker: kind === 'native' || kind === 'browse' ? kind : null,
           folders: present.filter(Boolean),
         }

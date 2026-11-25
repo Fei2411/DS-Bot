@@ -51,6 +51,7 @@ const stubs = {
   'model-menu.js': 'export const ModelChoiceDock = () => null\nexport const ModelKeyCard = () => null\nexport const ModelMenu = () => null\nexport const Caret = () => null\nexport const useAnchoredMenu = () => ({ open: false, setOpen() {}, triggerRef: { current: null }, menuRef: { current: null }, style: {} })\nexport const modelOf = () => null\nexport const manageModels = () => undefined\n',
   'api.js': 'export const call = (...args) => globalThis.__testCall(...args)\n',
   'primitives.js': `
+    export const FishLogo = ({ size, className }) => ({ type: 'fish-logo', props: { size, className, children: [] } })
     export const MarkdownText = ({ text }) => ({ type: 'markdown', props: { text, children: [text] } })
     export const writeClipboard = async () => true
     export const fileExtension = name => /\\.([^./\\\\]+)$/.exec(String(name ?? ''))?.[1] ?? ''
@@ -1069,5 +1070,137 @@ test('DM SessionTranscript projects workspace/changes into ChangesCard wired to 
   } finally {
     inst.unmount()
     sandbox.__testCall = async () => ({})
+  }
+})
+
+test('createTeam populates useUpdate from host update-check and dsBotApp.updates and wires checkUpdate cleanly', async () => {
+  const seenCalls = []
+  let unsubscribed = false
+  let pushOwnApp = null
+  const ownAppCalls = []
+  sandbox.dsBotApp = {
+    updates: {
+      state: async () => ({ phase: 'current', version: '0.3.10' }),
+      subscribe: (listener) => {
+        pushOwnApp = listener
+        return () => { unsubscribed = true }
+      },
+      check: async () => { ownAppCalls.push('check') },
+      install: async () => { ownAppCalls.push('install') },
+      open: async () => { ownAppCalls.push('open') },
+    },
+  }
+  sandbox.__testCall = async (endpoint, body) => {
+    seenCalls.push([endpoint, body])
+    if (endpoint === 'state') {
+      return { revision: 1, modelsKey: 'm1', bots: [], rooms: [], prefs: {} }
+    }
+    if (endpoint === 'update-check') {
+      return {
+        name: 'ds-bot',
+        current: '0.3.10',
+        latest: body?.fresh ? '0.3.11' : null,
+        available: Boolean(body?.fresh),
+        source: 'app',
+        repoUrl: 'https://github.com/Fei2411/DS-Bot',
+        notesUrl: 'https://github.com/Fei2411/DS-Bot/releases',
+        phase: 'idle',
+        dsh: { current: '0.2.2-rc.1', phase: 'idle', available: false },
+      }
+    }
+    return {}
+  }
+
+  const team = createTeam()
+  const stop = team.start()
+  try {
+    await tick()
+    await tick()
+    const Probe = () => react.createElement('div', { update: team.hooks.useUpdate(s => s) })
+    const probe = mount(Probe, {})
+    let snap = plain(probe.render().props.update)
+    assert.equal(snap.current, '0.3.10', 'About page receives live DS Bot version from host update-check')
+    assert.equal(snap.repoUrl, 'https://github.com/Fei2411/DS-Bot')
+    assert.equal(snap.dsh?.current, '0.2.2-rc.1')
+    assert.deepEqual(snap.ownApp, { phase: 'current', version: '0.3.10' })
+
+    // Live ownApp bridge push updates state without losing host fields.
+    pushOwnApp({ phase: 'downloaded', version: '0.3.11' })
+    snap = plain(probe.render().props.update)
+    assert.equal(snap.current, '0.3.10')
+    assert.deepEqual(snap.ownApp, { phase: 'downloaded', version: '0.3.11' })
+
+    // Explicit checkUpdate queries `{ fresh: true }` and preserves ownApp.
+    await team.actions.checkUpdate()
+    snap = plain(probe.render().props.update)
+    assert.equal(snap.latest, '0.3.11')
+    assert.equal(snap.available, true)
+    assert.deepEqual(snap.ownApp, { phase: 'downloaded', version: '0.3.11' })
+
+    await team.actions.checkOwnApp()
+    await team.actions.installOwnApp()
+    await team.actions.openOwnApp()
+    assert.deepEqual(ownAppCalls, ['check', 'install', 'open'])
+    assert.equal(seenCalls.some(([ep, body]) => ep === 'update-check' && body?.fresh === false), true)
+    assert.equal(seenCalls.some(([ep, body]) => ep === 'update-check' && body?.fresh === true), true)
+    probe.unmount()
+  } finally {
+    stop()
+    delete sandbox.dsBotApp
+    sandbox.__testCall = async () => ({})
+    fetchCtrl.reset()
+  }
+  assert.equal(unsubscribed, true, 'stopping team unsubscribes from dsBotApp.updates')
+})
+
+test('SessionTranscript in classic DSH mode renders unboxed Markdown prose, soft DSH user bubbles, hover actions, and zero iMessage date separators while keeping Bot DM unchanged', async () => {
+  const snapshot = {
+    type: 'snapshot',
+    header: { id: 'agent-s1', cwd: '/repo' },
+    cursor: 5,
+    hasMore: false,
+    records: [
+      { type: 'event', event: { type: 'user/message', seq: 1, time: 1_700_000_000_000, data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'Summarize the repo layout.' }] } } },
+      { type: 'event', event: { type: 'turn/start', seq: 2, time: 1_700_000_001_000, data: { turn: 1 } } },
+      { type: 'event', event: { type: 'assistant/message', seq: 3, time: 1_700_000_002_000, data: { turn: 1, step: 1, message: { content: [{ type: 'text', text: 'Here is the summary:\n\n- `app/`\n- `ds-bot/`' }] } } } },
+      { type: 'event', event: { type: 'turn/end', seq: 4, time: 1_700_000_003_000, data: { turn: 1, reason: { kind: 'done' } } } },
+    ],
+  }
+  const { log } = applyFrame(emptyLog(), snapshot)
+  const baseProps = {
+    log,
+    sessionId: 'agent-s1',
+    bot: undefined,
+    roster: { bots: [], rooms: [], byId: {}, roomsById: {}, prefs: {} },
+    actions: {},
+  }
+
+  // Classic DSH Agent mode: unboxed Markdown prose, soft DSH user bubble, zero bt-time-sep / bt-umsg / Bubbles.
+  const classicInst = mount(SessionTranscript, { ...baseProps, classic: true })
+  try {
+    const tree = classicInst.render()
+    assert.equal(all(tree, n => n.props?.className === 'bt-time-sep').length, 0, 'classic DSH transcript omits iMessage date separators')
+    assert.equal(all(tree, n => n.props?.className === 'bt-umsg').length, 0, 'classic DSH user prompt does not render DS Bot bubble')
+    assert.equal(all(tree, n => n.props?.className === 'dsb-dsh-user-bubble').length, 1, 'classic DSH user prompt renders soft-tinted DSH bubble')
+    assert.equal(all(tree, n => n.props?.className === 'dsb-dsh-user-actions').length, 1, 'classic DSH user prompt provides hover action bar')
+    assert.equal(all(tree, n => n.props?.className === 'dsb-dsh-asst').length, 1, 'classic DSH assistant reply renders unboxed editorial container')
+    assert.equal(all(tree, n => n.type === 'markdown').length, 1, 'classic DSH assistant reply renders MarkdownText directly without Bot Bubbles')
+    assert.equal(all(tree, n => n.type === 'bubbles').length, 0, 'classic DSH assistant reply does not wrap prose in DS Bot Bubbles')
+    assert.equal(all(tree, n => n.props?.className === 'dsb-dsh-asst-actions').length, 1, 'classic DSH assistant reply renders subtle tail action bar')
+    assert.equal(all(tree, n => String(n.props?.className ?? '').includes('dsb-dsh-asst-time')).length, 1, 'classic DSH assistant timestamp is hover-scoped')
+  } finally {
+    classicInst.unmount()
+  }
+
+  // Bot DM mode (classic: false): preserves iMessage date separator, DS Bot user bubble, and Bubbles.
+  const botInst = mount(SessionTranscript, { ...baseProps, classic: false })
+  try {
+    const tree = botInst.render()
+    assert.equal(all(tree, n => n.props?.className === 'bt-time-sep').length, 1, 'Bot DM keeps time separator')
+    assert.equal(all(tree, n => n.props?.className === 'bt-umsg').length, 1, 'Bot DM keeps DS Bot user bubble')
+    assert.equal(all(tree, n => n.type === 'bubbles').length, 1, 'Bot DM keeps DS Bot assistant Bubbles')
+    assert.equal(all(tree, n => n.props?.className === 'dsb-dsh-asst').length, 0)
+  } finally {
+    botInst.unmount()
   }
 })

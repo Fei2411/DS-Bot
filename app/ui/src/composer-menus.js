@@ -3,7 +3,7 @@ import { chatRows, mentionRows, sessionMention } from '../../../ds-bot/src/clien
 import { commandEntries } from '../../../ds-bot/src/client/command-actions.js'
 import { canSetGoal } from '../../../ds-bot/src/client/goal.js'
 import { t } from '../../../ds-bot/src/client/i18n.js'
-import { ChatsIcon, ClockIcon, GoalIcon, InfoIcon, PeopleIcon, SlidersIcon } from '../../../ds-bot/src/client/icons.js'
+import { ChatsIcon, ClockIcon, FolderIcon, GoalIcon, InfoIcon, PeopleIcon, SlidersIcon, TerminalIcon } from '../../../ds-bot/src/client/icons.js'
 import { BotMark } from '../../../ds-bot/src/client/mark.js'
 import { relativeShort } from '../../../ds-bot/src/client/text.js'
 import { ALL_WORDS } from '../../../ds-bot/src/shared/mentions.js'
@@ -72,12 +72,51 @@ export function buildSlashCommands({ roster, sessionId, actions, query = '' }) {
   if (!roster?.ready || !sessionId) return []
   const room = roster.roomsById?.[sessionId]
   const bot = roster.byId?.[sessionId]
-  if (!room && !bot) return []
+  const isAgent = !room && !bot && roster.agentOf?.[sessionId] !== undefined
+  if (!room && !bot && !isAgent) return []
+
+  const items = []
+  if (isAgent) {
+    if (typeof actions?.openFiles === 'function') {
+      items.push({
+        key: 'cmd:files',
+        name: '/files',
+        label: t('Files'),
+        description: t('Browse workspace files'),
+        icon: FolderIcon,
+        run: () => actions.openFiles(),
+      })
+    }
+    if (actions?.canOpenTerminal?.() === true && typeof actions?.newTerminal === 'function') {
+      items.push({
+        key: 'cmd:terminal',
+        name: '/terminal',
+        label: t('Terminal'),
+        description: t('Open a workspace terminal'),
+        icon: TerminalIcon,
+        run: () => actions.newTerminal(),
+      })
+    }
+    if (typeof actions?.openShortcuts === 'function') {
+      items.push({
+        key: 'cmd:shortcuts',
+        name: '/shortcuts',
+        label: t('Keyboard shortcuts'),
+        description: t('View keyboard shortcuts'),
+        icon: InfoIcon,
+        run: () => actions.openShortcuts(),
+      })
+    }
+    const needle = query.trim().toLowerCase()
+    if (needle === '') return items
+    return items.filter(item => item.name.toLowerCase().includes(needle)
+      || item.label.toLowerCase().includes(needle)
+      || item.description.toLowerCase().includes(needle))
+  }
 
   const snapshot = { getSnapshot: () => roster }
   const { contributions, decorations } = commandEntries({ roster: snapshot, actions })
   const session = { sessionId }
-  const items = []
 
   for (const contrib of contributions) {
     if (typeof contrib.available === 'function' && !contrib.available(session)) continue
@@ -97,7 +136,7 @@ export function buildSlashCommands({ roster, sessionId, actions, query = '' }) {
       key: 'cmd:goal',
       name: '/goal',
       label: t('Set a goal'),
-      description: '',
+      description: t('Set a goal for this group chat'),
       icon: GoalIcon,
       run: () => goalDec.ui?.run?.(session),
     })
@@ -108,7 +147,7 @@ export function buildSlashCommands({ roster, sessionId, actions, query = '' }) {
       key: 'cmd:details',
       name: '/details',
       label: t('Details'),
-      description: '',
+      description: t('View conversation details'),
       icon: SlidersIcon,
       run: () => actions.showDetails(sessionId),
     })
@@ -119,7 +158,7 @@ export function buildSlashCommands({ roster, sessionId, actions, query = '' }) {
       key: 'cmd:shortcuts',
       name: '/shortcuts',
       label: t('Keyboard shortcuts'),
-      description: '',
+      description: t('View keyboard shortcuts'),
       icon: InfoIcon,
       run: () => actions.openShortcuts(),
     })

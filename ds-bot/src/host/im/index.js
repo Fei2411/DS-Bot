@@ -2095,6 +2095,7 @@ export function install(rt) {
 
   rt.onApproval((kind, data) => {
     if (kind === 'open') {
+      if (data.botId === undefined) return
       void (async () => {
         const sessionId = data.roomId !== undefined ? (rt.roomOf(data.roomId)?.sessionId ?? data.roomId) : chatOfBot(data.botId)
         const origin = data.taskId !== undefined

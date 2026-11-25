@@ -1,35 +1,26 @@
-// Interactive workspace terminal tab for the desktop right panel.
-// Talks to ds-bot host `terminal-*` endpoints and receives live chunks via local `api/bot/feed`.
-import { createElement as h, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+// Interactive direct-input workspace terminal for the desktop right panel.
+// Mounts a persistent @xterm/xterm + @xterm/addon-fit instance per terminal tab,
+// streams live PTY chunks over local `api/bot/feed`, syncs dynamic DS Bot themes,
+// and talks to ds-bot host `terminal-*` endpoints.
+import { FitAddon } from '@xterm/addon-fit'
+import { Terminal } from '@xterm/xterm'
+import { createElement as h, useCallback, useEffect, useRef, useState } from 'react'
 import { call } from '../../../ds-bot/src/client/api.js'
 import { hostText, t } from '../../../ds-bot/src/client/i18n.js'
 import { CloseIcon, PlusIcon, TerminalIcon } from '../../../ds-bot/src/client/icons.js'
+import { writeClipboard } from './primitives.js'
 
 const MAX_CLIENT_BUFFER = 64 * 1024
 const MAX_PENDING_EVENT_IDS = 16
-const ESC = String.fromCharCode(0x1b)
-const BEL = String.fromCharCode(0x07)
-const ANSI_TOKEN_RE = new RegExp(`${ESC}\\[([0-9;?]*)([@-~])|${ESC}\\][^${BEL}${ESC}]*(?:${BEL}|${ESC}\\\\)`, 'g')
+const MAX_LOCAL_HISTORY = 50
+const ESC_CODE = 0x1b
+const BEL_CODE = 0x07
+const DEFAULT_MONO_FONT = 'ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace'
 
 const FG_CODES = new Map([
   [30, 'gray'], [31, 'red'], [32, 'green'], [33, 'yellow'], [34, 'blue'], [35, 'magenta'], [36, 'cyan'], [37, 'ink'],
   [90, 'gray'], [91, 'red'], [92, 'green'], [93, 'yellow'], [94, 'blue'], [95, 'magenta'], [96, 'cyan'], [97, 'ink'],
 ])
-
-function normalizeCarriageReturns(raw) {
-  return String(raw ?? '')
-    .replaceAll('\r\n', '\n')
-    .split('\n')
-    .map((line) => {
-      if (!line.includes('\r')) return line
-      let out = ''
-      for (const part of line.split('\r')) {
-        if (part !== '') out = part
-      }
-      return out
-    })
-    .join('\n')
-}
 
 function shortCwd(cwd, fallback) {
   if (typeof cwd !== 'string' || cwd.trim() === '') return fallback || ''
@@ -39,89 +30,625 @@ function shortCwd(cwd, fallback) {
 }
 
 /**
- * Parses ANSI escape sequences into lightweight styled text spans for terminal output.
- * Applies carriage-return line overwrites, skips 256-color/RGB SGR parameter tuples,
- * and strips OSC / non-SGR CSI control sequences safely.
+ * Parses ANSI escape sequences and terminal cursor edits into styled text spans.
+ * Kept exported for backwards compatibility with callers and tests.
  * @param {string} raw
  * @returns {Array<{ text: string, fg?: string, bold?: boolean, dim?: boolean }>}
  */
 export function parseAnsiSpans(raw) {
-  const input = normalizeCarriageReturns(raw)
-  const spans = []
+  const src = String(raw ?? '')
+  if (src === '') return []
+  const lines = []
+  let line = []
+  let col = 0
   let fg
   let bold = false
   let dim = false
-  let lastIndex = 0
-  ANSI_TOKEN_RE.lastIndex = 0
-  for (let match = ANSI_TOKEN_RE.exec(input); match !== null; match = ANSI_TOKEN_RE.exec(input)) {
-    if (match.index > lastIndex) {
-      spans.push({ text: input.slice(lastIndex, match.index), ...(fg ? { fg } : {}), ...(bold ? { bold } : {}), ...(dim ? { dim } : {}) })
+
+  const finishLine = () => {
+    while (line.length > col) {
+      const tail = line[line.length - 1]
+      if (tail.ch !== ' ' || tail.fg || tail.bold || tail.dim) break
+      line.pop()
     }
-    lastIndex = match.index + match[0].length
-    const params = match[1]
-    const finalByte = match[2]
-    if (finalByte !== 'm') continue
-    const codes = (params === '' ? '0' : params).split(';').map(n => Number.parseInt(n, 10))
-    for (let i = 0; i < codes.length; i += 1) {
-      const code = codes[i]
-      if (Number.isNaN(code) || code === 0) {
-        fg = undefined
-        bold = false
-        dim = false
-      } else if (code === 38 || code === 48) {
-        // Consume 256-color (38;5;n) or truecolor (38;2;r;g;b) parameter tuples cleanly.
-        const mode = codes[i + 1]
-        if (mode === 5) i += 2
-        else if (mode === 2) i += 4
-      } else if (code === 1) {
-        bold = true
-      } else if (code === 2) {
-        dim = true
-      } else if (code === 22) {
-        bold = false
-        dim = false
-      } else if (code === 39) {
-        fg = undefined
-      } else if (FG_CODES.has(code)) {
-        fg = FG_CODES.get(code)
+    lines.push(line)
+    line = []
+    col = 0
+  }
+
+  const putChar = (ch) => {
+    while (line.length < col) line.push({ ch: ' ' })
+    line[col] = { ch, ...(fg ? { fg } : {}), ...(bold ? { bold: true } : {}), ...(dim ? { dim: true } : {}) }
+    col += 1
+  }
+
+  for (let i = 0; i < src.length; i += 1) {
+    const code = src.charCodeAt(i)
+    if (code === 0x0d) {
+      if (src.charCodeAt(i + 1) === 0x0a) {
+        i += 1
+        finishLine()
+      } else {
+        col = 0
       }
+      continue
+    }
+    if (code === 0x0a) {
+      finishLine()
+      continue
+    }
+    if (code === 0x08) {
+      col = Math.max(0, col - 1)
+      continue
+    }
+    if (code === ESC_CODE) {
+      const next = src[i + 1]
+      if (next === '[') {
+        let j = i + 2
+        while (j < src.length && ((src.charCodeAt(j) >= 0x30 && src.charCodeAt(j) <= 0x3f) || (src.charCodeAt(j) >= 0x20 && src.charCodeAt(j) <= 0x2f))) {
+          j += 1
+        }
+        const params = src.slice(i + 2, j)
+        const finalByte = j < src.length ? src[j] : ''
+        i = j < src.length ? j : src.length - 1
+        if (finalByte === 'm') {
+          const codes = (params === '' ? '0' : params).split(';').map(n => Number.parseInt(n, 10))
+          for (let k = 0; k < codes.length; k += 1) {
+            const sgr = codes[k]
+            if (Number.isNaN(sgr) || sgr === 0) {
+              fg = undefined
+              bold = false
+              dim = false
+            } else if (sgr === 38 || sgr === 48) {
+              const mode = codes[k + 1]
+              if (mode === 5) k += 2
+              else if (mode === 2) k += 4
+            } else if (sgr === 1) {
+              bold = true
+            } else if (sgr === 2) {
+              dim = true
+            } else if (sgr === 22) {
+              bold = false
+              dim = false
+            } else if (sgr === 39) {
+              fg = undefined
+            } else if (FG_CODES.has(sgr)) {
+              fg = FG_CODES.get(sgr)
+            }
+          }
+        } else if (finalByte === 'K') {
+          const mode = params === '' ? 0 : Number.parseInt(params.split(';')[0], 10)
+          if (Number.isNaN(mode) || mode === 0) {
+            if (col < line.length) line.length = col
+          } else if (mode === 1) {
+            for (let k = 0; k <= Math.min(col, line.length - 1); k += 1) line[k] = { ch: ' ' }
+          } else if (mode === 2) {
+            line.length = 0
+          }
+        } else if (finalByte === 'J') {
+          const mode = params === '' ? 0 : Number.parseInt(params.split(';')[0], 10)
+          if (Number.isNaN(mode) || mode === 0) {
+            if (col < line.length) line.length = col
+          } else if (mode === 2 || mode === 3) {
+            lines.length = 0
+            line = []
+            col = 0
+          }
+        } else if (finalByte === 'D') {
+          const n = Math.max(1, Number.parseInt(params, 10) || 1)
+          col = Math.max(0, col - n)
+        } else if (finalByte === 'C') {
+          const n = Math.max(1, Number.parseInt(params, 10) || 1)
+          col += n
+        } else if (finalByte === 'G') {
+          const n = Math.max(1, Number.parseInt(params, 10) || 1)
+          col = n - 1
+        } else if (finalByte === 'P') {
+          const n = Math.max(1, Number.parseInt(params, 10) || 1)
+          if (col < line.length) line.splice(col, n)
+        } else if (finalByte === '@') {
+          const n = Math.max(1, Number.parseInt(params, 10) || 1)
+          while (line.length < col) line.push({ ch: ' ' })
+          line.splice(col, 0, ...Array.from({ length: n }, () => ({ ch: ' ' })))
+        }
+        continue
+      }
+      if (next === ']') {
+        let j = i + 2
+        while (j < src.length) {
+          const c = src.charCodeAt(j)
+          if (c === BEL_CODE) { i = j; break }
+          if (c === ESC_CODE && src[j + 1] === '\\') { i = j + 1; break }
+          j += 1
+        }
+        if (j >= src.length) i = src.length - 1
+        continue
+      }
+      if (next === '(' || next === ')' || next === '#') {
+        i = Math.min(src.length - 1, i + 2)
+        continue
+      }
+      i = Math.min(src.length - 1, i + 1)
+      continue
+    }
+    if ((code < 0x20 && code !== 0x09) || code === 0x7f) continue
+    putChar(src[i])
+  }
+  finishLine()
+
+  const spans = []
+  const pushCell = (ch, cellFg, cellBold, cellDim) => {
+    const last = spans[spans.length - 1]
+    if (last && last.fg === cellFg && Boolean(last.bold) === Boolean(cellBold) && Boolean(last.dim) === Boolean(cellDim)) {
+      last.text += ch
+    } else {
+      spans.push({
+        text: ch,
+        ...(cellFg ? { fg: cellFg } : {}),
+        ...(cellBold ? { bold: true } : {}),
+        ...(cellDim ? { dim: true } : {}),
+      })
     }
   }
-  if (lastIndex < input.length) {
-    spans.push({ text: input.slice(lastIndex), ...(fg ? { fg } : {}), ...(bold ? { bold } : {}), ...(dim ? { dim } : {}) })
+  for (let li = 0; li < lines.length; li += 1) {
+    if (li > 0) pushCell('\n', undefined, false, false)
+    for (const cell of lines[li]) {
+      pushCell(cell.ch, cell.fg, cell.bold, cell.dim)
+    }
   }
   return spans
 }
 
 const trimTail = text => (text.length > MAX_CLIENT_BUFFER ? text.slice(text.length - MAX_CLIENT_BUFFER) : text)
 
+const isMacPlatform = () => (typeof navigator !== 'undefined'
+  && /mac|iphone|ipad|ipod/i.test(navigator.userAgentData?.platform ?? navigator.platform ?? navigator.userAgent ?? ''))
+
+/**
+ * Resolves concrete RGB/hex colors from DS Bot's CSS custom properties for xterm.js.
+ * Uses a single temporary hidden probe element so `var(...)` and `color-mix(...)` tokens
+ * evaluate accurately in Light, Dark, and custom Accent themes.
+ */
+export function readXtermTheme() {
+  const dark = Boolean(typeof document !== 'undefined' && document.body?.hasAttribute?.('data-ds-dark-theme'))
+  let fontFamily = DEFAULT_MONO_FONT
+  let resolve = (_expr, fallback) => fallback
+  let probe = null
+  try {
+    if (typeof document !== 'undefined' && document.body && typeof document.createElement === 'function' && typeof getComputedStyle === 'function') {
+      const bodyStyle = getComputedStyle(document.body)
+      const mono = bodyStyle.getPropertyValue('--bt-mono').trim()
+      if (mono) fontFamily = mono
+      probe = document.createElement('span')
+      probe.style.display = 'none'
+      document.body.appendChild(probe)
+      resolve = (expr, fallback) => {
+        probe.style.color = ''
+        probe.style.color = expr
+        const value = getComputedStyle(probe).color
+        return value && value !== '' ? value : fallback
+      }
+    }
+    const background = resolve('var(--bt-sidebar)', dark ? '#181818' : '#f7f7f7')
+    const foreground = resolve('var(--bt-ink)', dark ? '#f0f0f0' : '#141414')
+    const muted = resolve('var(--bt-ink-3)', dark ? '#737373' : '#71717a')
+    const accent = resolve('var(--bt-accent)', '#4d6bfe')
+    const danger = resolve('var(--bt-danger)', dark ? '#ff6b72' : '#e02135')
+    const green = resolve(dark ? 'var(--bt-green)' : 'color-mix(in srgb, var(--bt-green) 80%, var(--bt-ink))', dark ? '#00c972' : '#15803d')
+    const brightGreen = resolve('var(--bt-green)', '#00c972')
+    const yellow = resolve(dark ? 'var(--bt-star)' : 'color-mix(in srgb, var(--bt-star) 78%, var(--bt-ink))', dark ? '#ff9800' : '#a16207')
+    const brightYellow = resolve('var(--bt-star)', '#ff9800')
+    const magenta = resolve('color-mix(in srgb, var(--bt-accent) 62%, var(--bt-danger))', dark ? '#c084fc' : '#9333ea')
+    const brightMagenta = resolve('color-mix(in srgb, var(--bt-accent) 52%, var(--bt-danger))', dark ? '#d8b4fe' : '#a855f7')
+    const selectionBackground = resolve('color-mix(in srgb, var(--bt-accent) 26%, transparent)', 'rgba(77, 107, 254, 0.26)')
+    const selectionInactiveBackground = resolve('var(--bt-hover)', 'rgba(128, 128, 128, 0.16)')
+    return {
+      fontFamily,
+      theme: {
+        background,
+        foreground,
+        cursor: accent,
+        cursorAccent: background,
+        selectionBackground,
+        selectionInactiveBackground,
+        black: dark ? '#27272a' : '#141414',
+        brightBlack: muted,
+        red: danger,
+        brightRed: danger,
+        green,
+        brightGreen,
+        yellow,
+        brightYellow,
+        blue: accent,
+        brightBlue: accent,
+        magenta,
+        brightMagenta,
+        cyan: dark ? '#38bdf8' : '#0284c7',
+        brightCyan: dark ? '#7dd3fc' : '#0369a1',
+        white: dark ? '#d4d4d8' : '#52525b',
+        brightWhite: foreground,
+      },
+    }
+  } finally {
+    probe?.remove?.()
+  }
+}
+
+const MAC_BUBBLE_KEYS = new Set(['k', ',', '\\', 'n', '/'])
+const MAC_BUBBLE_CODES = new Set(['KeyK', 'Comma', 'Backslash', 'KeyN', 'Slash'])
+
+/**
+ * Builds the custom xterm key handler so Cmd+C copies when text is selected,
+ * Cmd+V pastes natively, macOS app shortcuts bubble cleanly, and all terminal
+ * control keys (`Ctrl+C`, `Ctrl+D`, `Ctrl+L`, arrows, Tab, Esc, etc.) flow to the PTY.
+ */
+export function createTerminalKeyHandler(term, { mac = isMacPlatform(), copy = writeClipboard } = {}) {
+  return (event) => {
+    if (!event || event.type !== 'keydown') return true
+    const key = String(event.key ?? '').toLowerCase()
+    const code = String(event.code ?? '')
+    if (mac && event.metaKey && !event.ctrlKey && !event.altKey) {
+      if (key === 'c' || code === 'KeyC') {
+        if (term.hasSelection?.()) {
+          const selected = term.getSelection?.() ?? ''
+          if (selected) void copy(selected)
+          term.clearSelection?.()
+          event.preventDefault?.()
+        }
+        return false
+      }
+      if (key === 'v' || code === 'KeyV') return false
+      if (!event.shiftKey && (MAC_BUBBLE_KEYS.has(key) || MAC_BUBBLE_CODES.has(code))) {
+        return false
+      }
+      return true
+    }
+    if (!mac && event.ctrlKey && event.shiftKey && !event.altKey && !event.metaKey) {
+      if ((key === 'c' || code === 'KeyC') && term.hasSelection?.()) {
+        const selected = term.getSelection?.() ?? ''
+        if (selected) void copy(selected)
+        term.clearSelection?.()
+        event.preventDefault?.()
+        return false
+      }
+      if (key === 'v' || code === 'KeyV') return false
+    }
+    return true
+  }
+}
+
+/**
+ * Local direct-on-canvas line editor for rare non-PTY pipe-backed fallback shells.
+ */
+export function createLocalLineEditor(term, onLine, onEof) {
+  let line = ''
+  const history = []
+  let historyIdx = -1
+
+  const replaceLine = (next) => {
+    if (line.length > 0) term.write('\b \b'.repeat(line.length))
+    line = next
+    if (line.length > 0) term.write(line)
+  }
+
+  return (data) => {
+    if (typeof data !== 'string' || data === '') return
+    const recallPrev = () => {
+      if (history.length === 0) return
+      historyIdx = Math.min(historyIdx + 1, history.length - 1)
+      replaceLine(history[historyIdx] ?? '')
+    }
+    const recallNext = () => {
+      if (historyIdx < 0) return
+      historyIdx -= 1
+      replaceLine(historyIdx < 0 ? '' : (history[historyIdx] ?? ''))
+    }
+
+    for (let i = 0; i < data.length; i += 1) {
+      const ch = data[i]
+      const code = ch.charCodeAt(0)
+      if (ch === '\x1b') {
+        if (data[i + 1] === '[') {
+          let end = i + 2
+          while (end < data.length && (data.charCodeAt(end) < 0x40 || data.charCodeAt(end) > 0x7e)) end += 1
+          const seq = data.slice(i, end + 1)
+          if (seq === '\x1b[A') recallPrev()
+          else if (seq === '\x1b[B') recallNext()
+          i = Math.min(end, data.length - 1)
+        } else if (data[i + 1] === 'O' && i + 2 < data.length) {
+          if (data[i + 2] === 'A') recallPrev()
+          else if (data[i + 2] === 'B') recallNext()
+          i += 2
+        } else if (i + 1 < data.length) {
+          i += 1
+        }
+        continue
+      }
+      if (ch === '\x03') {
+        term.write('^C\r\n')
+        line = ''
+        historyIdx = -1
+      } else if (ch === '\x04') {
+        if (line === '') onEof?.()
+      } else if (ch === '\x0c') {
+        term.clear?.()
+      } else if (ch === '\x15') {
+        replaceLine('')
+        historyIdx = -1
+      } else if (ch === '\r' || ch === '\n') {
+        if (ch === '\r' && data[i + 1] === '\n') i += 1
+        term.write('\r\n')
+        const submitted = line
+        line = ''
+        historyIdx = -1
+        if (submitted.trim() !== '') {
+          history.unshift(submitted)
+          if (history.length > MAX_LOCAL_HISTORY) history.length = MAX_LOCAL_HISTORY
+        }
+        onLine(`${submitted}\n`)
+      } else if (code === 0x7f || code === 0x08) {
+        if (line.length > 0) {
+          line = line.slice(0, -1)
+          term.write('\b \b')
+        }
+      } else if (code >= 0x20 || ch === '\t') {
+        line += ch
+        term.write(ch)
+      }
+    }
+  }
+}
+
+function TerminalPane({
+  term,
+  active,
+  readOnly,
+  writersRef,
+  pendingOutputRef,
+  onSendInput,
+  onResize,
+}) {
+  const paneRef = useRef(null)
+  const hostRef = useRef(null)
+  const activeRef = useRef(active)
+  activeRef.current = active
+  const exitedRef = useRef(term.exited)
+  exitedRef.current = term.exited
+  const readOnlyRef = useRef(readOnly)
+  readOnlyRef.current = readOnly
+  const ptyRef = useRef(term.pty !== false)
+  ptyRef.current = term.pty !== false
+  const sendInputRef = useRef(onSendInput)
+  sendInputRef.current = onSendInput
+  const resizeRef = useRef(onResize)
+  resizeRef.current = onResize
+  const initialSnapshotRef = useRef(term.initialSnapshot ?? '')
+
+  useEffect(() => {
+    const hostEl = hostRef.current
+    if (!hostEl) return undefined
+
+    let disposed = false
+    let fitRaf = 0
+    const lastSize = { cols: 0, rows: 0 }
+    const { theme, fontFamily } = readXtermTheme()
+    const xterm = new Terminal({
+      cursorBlink: true,
+      cursorStyle: 'bar',
+      fontSize: 12.5,
+      lineHeight: 1.4,
+      fontFamily,
+      scrollback: 5000,
+      convertEol: !ptyRef.current,
+      theme,
+    })
+    const fitAddon = new FitAddon()
+    xterm.loadAddon(fitAddon)
+    xterm.open(hostEl)
+    xterm.attachCustomKeyEventHandler(createTerminalKeyHandler(xterm))
+
+    const lineEditor = ptyRef.current
+      ? null
+      : createLocalLineEditor(
+        xterm,
+        line => { if (!exitedRef.current && !readOnlyRef.current) void sendInputRef.current(term.id, line) },
+        () => { if (!exitedRef.current && !readOnlyRef.current) void sendInputRef.current(term.id, '\x04') },
+      )
+
+    const dataSub = xterm.onData((data) => {
+      if (disposed || exitedRef.current || readOnlyRef.current) return
+      if (ptyRef.current) {
+        void sendInputRef.current(term.id, data)
+      } else {
+        lineEditor?.(data)
+      }
+    })
+
+    const runFit = () => {
+      fitRaf = 0
+      if (disposed || !activeRef.current) return
+      const box = paneRef.current ?? hostEl
+      if ((box.offsetWidth ?? 0) <= 0 || (box.offsetHeight ?? 0) <= 0) return
+      try {
+        fitAddon.fit()
+      } catch {
+        return
+      }
+      const cols = xterm.cols ?? 0
+      const rows = xterm.rows ?? 0
+      if (cols >= 20 && rows >= 6 && (cols !== lastSize.cols || rows !== lastSize.rows)) {
+        lastSize.cols = cols
+        lastSize.rows = rows
+        if (ptyRef.current && !exitedRef.current && !readOnlyRef.current) {
+          void resizeRef.current(term.id, cols, rows)
+        }
+      }
+    }
+
+    const scheduleFit = () => {
+      if (disposed) return
+      if (typeof requestAnimationFrame === 'function') {
+        if (fitRaf) cancelAnimationFrame(fitRaf)
+        fitRaf = requestAnimationFrame(runFit)
+      } else {
+        runFit()
+      }
+    }
+
+    const disposeInstance = () => {
+      if (disposed) return
+      disposed = true
+      if (fitRaf && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(fitRaf)
+      fitRaf = 0
+      dataSub?.dispose?.()
+      fitAddon.dispose?.()
+      xterm.dispose?.()
+    }
+
+    const api = {
+      write: chunk => { if (!disposed && chunk) xterm.write(chunk) },
+      clear: () => { if (!disposed) xterm.clear() },
+      focus: () => { if (!disposed) xterm.focus() },
+      fit: scheduleFit,
+      applyTheme: (nextTheme, nextFont) => {
+        if (disposed) return
+        if (xterm.options) {
+          const prevFont = xterm.options.fontFamily
+          xterm.options.theme = nextTheme
+          if (nextFont) xterm.options.fontFamily = nextFont
+          if (nextFont && prevFont !== nextFont) scheduleFit()
+        }
+      },
+      dispose: disposeInstance,
+    }
+    writersRef.current.set(term.id, api)
+
+    const queued = pendingOutputRef.current.get(term.id) ?? ''
+    pendingOutputRef.current.delete(term.id)
+    const initial = `${initialSnapshotRef.current}${queued}`
+    initialSnapshotRef.current = ''
+    if (initial) xterm.write(initial)
+
+    let resizeObserver = null
+    if (typeof ResizeObserver === 'function') {
+      resizeObserver = new ResizeObserver(scheduleFit)
+      resizeObserver.observe(hostEl)
+    }
+    const onWinResize = () => scheduleFit()
+    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+      window.addEventListener('resize', onWinResize)
+    }
+
+    if (activeRef.current) {
+      scheduleFit()
+      xterm.focus()
+    }
+
+    return () => {
+      resizeObserver?.disconnect?.()
+      if (typeof window !== 'undefined' && typeof window.removeEventListener === 'function') {
+        window.removeEventListener('resize', onWinResize)
+      }
+      if (writersRef.current.get(term.id) === api) writersRef.current.delete(term.id)
+      disposeInstance()
+    }
+  }, [term.id, writersRef, pendingOutputRef])
+
+  useEffect(() => {
+    if (!active) return
+    const api = writersRef.current.get(term.id)
+    if (!api) return
+    api.fit()
+    api.focus()
+  }, [active, term.id, writersRef])
+
+  return h('div', {
+    ref: paneRef,
+    className: 'dsb-term-pane',
+    'data-term-id': term.id,
+    hidden: !active,
+    onMouseDown: (event) => {
+      if (event.target === paneRef.current || event.target === hostRef.current) {
+        writersRef.current.get(term.id)?.focus()
+      }
+    },
+  }, h('div', { ref: hostRef, className: 'dsb-term-host' }))
+}
+
 /**
  * Interactive local terminal tabs bound to the active Bot/room workspace folder.
  */
 export function WorkspaceTerminal({ sessionId, feed, readOnly = false, autoOpenNonce = 0 }) {
-  const [terms, setTerms] = useState([])
-  const [activeId, setActiveId] = useState(null)
-  const [command, setCommand] = useState('')
+  const [state, setState] = useState({ terms: [], activeId: null })
   const [opening, setOpening] = useState(false)
   const [error, setError] = useState('')
-  const historyRef = useRef([])
-  const historyIdxRef = useRef(-1)
-  const outputRef = useRef(null)
-  const inputRef = useRef(null)
+  const tabsRef = useRef(null)
   const mountedRef = useRef(true)
   const lastAutoNonceRef = useRef(0)
   const openedOnceRef = useRef(false)
   const openNewRef = useRef(null)
   const autoOpenNonceRef = useRef(autoOpenNonce)
   autoOpenNonceRef.current = autoOpenNonce
-  // Buffers early SSE chunks/exits that arrive before `terminal-open` resolves.
-  const pendingEventsRef = useRef(new Map())
+  // Persistent xterm writers, early-output buffer, exit stash, known ids, and synchronous closed-id guard.
+  const writersRef = useRef(new Map())
+  const pendingOutputRef = useRef(new Map())
+  const pendingExitRef = useRef(new Map())
   const knownIdsRef = useRef(new Set())
-  knownIdsRef.current = new Set(terms.map(item => item.id))
+  const closedIdsRef = useRef(new Set())
+  const { terms, activeId } = state
 
   useEffect(() => {
     mountedRef.current = true
     return () => { mountedRef.current = false }
+  }, [])
+
+  // Keep every live xterm instance synced with DS Bot's theme, dark mode, accent, and code font.
+  useEffect(() => {
+    if (typeof MutationObserver !== 'function' || typeof document === 'undefined') return undefined
+    let raf = 0
+    const sync = () => {
+      raf = 0
+      if (writersRef.current.size === 0) return
+      const { theme, fontFamily } = readXtermTheme()
+      for (const api of writersRef.current.values()) {
+        api.applyTheme(theme, fontFamily)
+      }
+    }
+    const schedule = () => {
+      if (typeof requestAnimationFrame === 'function') {
+        if (raf) cancelAnimationFrame(raf)
+        raf = requestAnimationFrame(sync)
+      } else {
+        sync()
+      }
+    }
+    const observer = new MutationObserver(schedule)
+    if (document.documentElement) observer.observe(document.documentElement, { attributes: true })
+    if (document.body) observer.observe(document.body, { attributes: true, attributeFilter: ['data-ds-dark-theme', 'class', 'style'] })
+    if (document.head) observer.observe(document.head, { childList: true, subtree: true, characterData: true })
+    return () => {
+      observer.disconnect()
+      if (raf && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(raf)
+    }
+  }, [])
+
+  // Translate vertical mouse-wheel scrolling into smooth horizontal scrolling on `.dsb-term-tabs`.
+  useEffect(() => {
+    const box = tabsRef.current
+    if (!box || typeof box.addEventListener !== 'function') return undefined
+    const onWheel = (event) => {
+      if (box.scrollWidth <= box.clientWidth) return
+      if (event.deltaY === 0 || Math.abs(event.deltaY) < Math.abs(event.deltaX)) return
+      const dy = event.deltaMode === 1
+        ? event.deltaY * 24
+        : event.deltaMode === 2
+          ? event.deltaY * box.clientWidth
+          : event.deltaY
+      event.preventDefault()
+      box.scrollLeft += dy
+    }
+    box.addEventListener('wheel', onWheel, { passive: false })
+    return () => box.removeEventListener('wheel', onWheel)
   }, [])
 
   const openNew = useCallback(async () => {
@@ -131,23 +658,30 @@ export function WorkspaceTerminal({ sessionId, feed, readOnly = false, autoOpenN
     setError('')
     try {
       const created = await call('terminal-open', { sessionId, cols: 96, rows: 28 })
-      if (!mountedRef.current) return
-      const pending = pendingEventsRef.current.get(created.id)
-      pendingEventsRef.current.delete(created.id)
-      // Mark id known synchronously before React commits `setTerms` so no SSE chunk arriving
-      // in the micro-window between drain and re-render is stashed back into `pendingEventsRef`.
+      if (!mountedRef.current || closedIdsRef.current.has(created.id)) {
+        if (closedIdsRef.current.has(created.id)) void call('terminal-close', { id: created.id }).catch(() => {})
+        return
+      }
+      const pendingExit = pendingExitRef.current.get(created.id)
+      pendingExitRef.current.delete(created.id)
       knownIdsRef.current.add(created.id)
-      setTerms((current) => {
-        if (current.some(item => item.id === created.id)) return current
-        return [...current, {
-          ...created,
-          exited: pending?.exited === true,
-          exitCode: pending?.exitCode ?? null,
-          buffer: trimTail(pending?.buffer ?? ''),
-        }]
+      setState((current) => {
+        if (current.terms.some(item => item.id === created.id)) {
+          return { ...current, activeId: created.id }
+        }
+        return {
+          terms: [...current.terms, {
+            id: created.id,
+            cwd: created.cwd,
+            title: created.title,
+            pty: created.pty !== false,
+            exited: pendingExit?.exited === true,
+            exitCode: pendingExit?.exitCode ?? null,
+            initialSnapshot: '',
+          }],
+          activeId: created.id,
+        }
       })
-      setActiveId(created.id)
-      setTimeout(() => inputRef.current?.focus?.(), 0)
     } catch (failure) {
       if (mountedRef.current) setError(hostText(failure?.message ?? String(failure)))
     } finally {
@@ -156,37 +690,47 @@ export function WorkspaceTerminal({ sessionId, feed, readOnly = false, autoOpenN
   }, [sessionId, readOnly])
   openNewRef.current = openNew
 
-  // Load existing live terminals once on mount, merging by id so a concurrent `terminal-open`
-  // is never overwritten; auto-open a first shell when none exist and `autoOpenNonce` did not.
+  // Load existing live terminals once on mount, skipping any synchronously closed ids and
+  // merging cleanly so a concurrent `terminal-open` is never overwritten.
   useEffect(() => {
     if (readOnly) return undefined
     let alive = true
     void call('terminal-list', {})
       .then((list) => {
         if (!alive || !Array.isArray(list)) return
-        const mapped = list.map((item) => {
-          const pending = pendingEventsRef.current.get(item.id)
-          pendingEventsRef.current.delete(item.id)
-          knownIdsRef.current.add(item.id)
-          return {
-            id: item.id,
-            cwd: item.cwd,
-            title: item.title,
-            pty: item.pty,
-            exited: item.exited === true || pending?.exited === true,
-            exitCode: item.exitCode ?? pending?.exitCode ?? null,
-            buffer: trimTail(String(item.snapshot ?? '') + (pending?.buffer ?? '')),
-          }
-        })
-        setTerms((current) => {
-          if (current.length === 0) return mapped
-          const existing = new Set(current.map(item => item.id))
+        const mapped = list
+          .filter(item => item && item.id && !closedIdsRef.current.has(item.id))
+          .map((item) => {
+            const pendingExit = pendingExitRef.current.get(item.id)
+            pendingExitRef.current.delete(item.id)
+            knownIdsRef.current.add(item.id)
+            return {
+              id: item.id,
+              cwd: item.cwd,
+              title: item.title,
+              pty: item.pty !== false,
+              exited: item.exited === true || pendingExit?.exited === true,
+              exitCode: item.exitCode ?? pendingExit?.exitCode ?? null,
+              initialSnapshot: trimTail(String(item.snapshot ?? '')),
+            }
+          })
+        setState((current) => {
+          const liveCurrent = current.terms.filter(item => !closedIdsRef.current.has(item.id))
+          const existing = new Set(liveCurrent.map(item => item.id))
           const missing = mapped.filter(item => !existing.has(item.id))
-          return missing.length === 0 ? current : [...missing, ...current]
+          const nextTerms = liveCurrent.length === 0
+            ? mapped
+            : (missing.length === 0 ? liveCurrent : [...missing, ...liveCurrent])
+          const keepActive = current.activeId
+            && !closedIdsRef.current.has(current.activeId)
+            && nextTerms.some(item => item.id === current.activeId)
+          return {
+            terms: nextTerms,
+            activeId: keepActive ? current.activeId : (nextTerms[0]?.id ?? null),
+          }
         })
         if (mapped.length > 0) {
           openedOnceRef.current = true
-          setActiveId(current => current ?? mapped[0].id)
         } else if (!openedOnceRef.current && !autoOpenNonceRef.current) {
           void openNewRef.current?.()
         }
@@ -206,94 +750,102 @@ export function WorkspaceTerminal({ sessionId, feed, readOnly = false, autoOpenN
   // Subscribe to live terminal output and exit events on the shared local SSE feed.
   useEffect(() => {
     if (!feed) return undefined
-    const stash = (id, patch) => {
-      const map = pendingEventsRef.current
+    const stashOutput = (id, chunk) => {
+      const map = pendingOutputRef.current
       if (!map.has(id) && map.size >= MAX_PENDING_EVENT_IDS) {
         const oldest = map.keys().next().value
         if (oldest !== undefined) map.delete(oldest)
       }
-      const prev = map.get(id) ?? { buffer: '', exited: false, exitCode: null }
-      map.set(id, {
-        buffer: patch.chunk ? trimTail(prev.buffer + patch.chunk) : prev.buffer,
-        exited: patch.exited ?? prev.exited,
-        exitCode: patch.exitCode !== undefined ? patch.exitCode : prev.exitCode,
-      })
+      map.set(id, trimTail((map.get(id) ?? '') + chunk))
+    }
+    const stashExit = (id, code) => {
+      const map = pendingExitRef.current
+      if (!map.has(id) && map.size >= MAX_PENDING_EVENT_IDS) {
+        const oldest = map.keys().next().value
+        if (oldest !== undefined) map.delete(oldest)
+      }
+      map.set(id, { exited: true, exitCode: code ?? null })
     }
     return feed.on((event, data) => {
-      if (event === 'terminal' && data?.id && typeof data.chunk === 'string') {
+      if (!data?.id || closedIdsRef.current.has(data.id)) return
+      if (event === 'terminal' && typeof data.chunk === 'string') {
+        const writer = writersRef.current.get(data.id)
+        if (writer) writer.write(data.chunk)
+        else stashOutput(data.id, data.chunk)
+      } else if (event === 'terminal-exit') {
         if (!knownIdsRef.current.has(data.id)) {
-          stash(data.id, { chunk: data.chunk })
+          stashExit(data.id, data.code)
           return
         }
-        setTerms(current => current.map(item => (item.id === data.id
-          ? { ...item, buffer: trimTail(item.buffer + data.chunk) }
-          : item)))
-      } else if (event === 'terminal-exit' && data?.id) {
-        if (!knownIdsRef.current.has(data.id)) {
-          stash(data.id, { exited: true, exitCode: data.code ?? null })
-          return
-        }
-        setTerms(current => current.map(item => (item.id === data.id
-          ? { ...item, exited: true, exitCode: data.code ?? null }
-          : item)))
+        setState(current => ({
+          ...current,
+          terms: current.terms.map(item => (item.id === data.id
+            ? { ...item, exited: true, exitCode: data.code ?? null }
+            : item)),
+        }))
       }
     })
   }, [feed])
 
-  const active = terms.find(item => item.id === activeId) ?? terms[0] ?? null
-  const spans = useMemo(() => parseAnsiSpans(active?.buffer ?? ''), [active?.buffer])
-
-  useEffect(() => {
-    const node = outputRef.current
-    if (node) node.scrollTop = node.scrollHeight
-  }, [active?.id, active?.buffer])
-
-  const sendInput = async (data) => {
-    if (!active || active.exited || readOnly) return
+  const sendInput = useCallback(async (id, data) => {
+    if (readOnly || closedIdsRef.current.has(id)) return
     setError('')
     try {
-      await call('terminal-input', { id: active.id, data })
+      await call('terminal-input', { id, data })
     } catch (failure) {
-      if (mountedRef.current) setError(hostText(failure?.message ?? String(failure)))
+      if (mountedRef.current && !closedIdsRef.current.has(id)) {
+        setError(hostText(failure?.message ?? String(failure)))
+      }
     }
-  }
+  }, [readOnly])
 
-  const submitCommand = async () => {
-    if (!active || active.exited || readOnly) return
-    const line = command
-    setCommand('')
-    if (line.trim() !== '') {
-      historyRef.current = [line, ...historyRef.current.slice(0, 49)]
-    }
-    historyIdxRef.current = -1
-    if (!active.pty) {
-      setTerms(current => current.map(item => (item.id === active.id
-        ? { ...item, buffer: trimTail(`${item.buffer}$ ${line}\n`) }
-        : item)))
-    }
-    // PTYs expect CR (`\r`) for Enter (required on Windows ConPTY and standard on POSIX);
-    // pipe-backed fallback shells expect LF (`\n`).
-    await sendInput(active.pty ? `${line}\r` : `${line}\n`)
-  }
+  const resizeTerm = useCallback(async (id, cols, rows) => {
+    if (readOnly || closedIdsRef.current.has(id)) return
+    try {
+      await call('terminal-resize', { id, cols, rows })
+    } catch { /* terminal closed or non-PTY */ }
+  }, [readOnly])
 
-  const closeTerm = async (id) => {
-    const remaining = terms.filter(item => item.id !== id)
-    pendingEventsRef.current.delete(id)
-    setTerms(remaining)
-    if (active?.id === id) setActiveId(remaining[0]?.id ?? null)
+  const closeTerm = useCallback(async (id) => {
+    if (closedIdsRef.current.has(id)) return
+    closedIdsRef.current.add(id)
+    knownIdsRef.current.delete(id)
+    pendingOutputRef.current.delete(id)
+    pendingExitRef.current.delete(id)
+    const writer = writersRef.current.get(id)
+    writersRef.current.delete(id)
+    writer?.dispose?.()
+    setState((current) => {
+      const idx = current.terms.findIndex(item => item.id === id)
+      if (idx === -1) return current
+      const nextTerms = current.terms.filter(item => item.id !== id)
+      const nextActive = current.activeId === id
+        ? (nextTerms[Math.min(idx, nextTerms.length - 1)]?.id ?? null)
+        : current.activeId
+      return { terms: nextTerms, activeId: nextActive }
+    })
     try {
       await call('terminal-close', { id })
     } catch { /* already closed */ }
-  }
+  }, [])
+
+  const selectTerm = useCallback((id) => {
+    setState(current => (current.activeId === id ? current : { ...current, activeId: id }))
+  }, [])
+
+  const active = terms.find(item => item.id === activeId) ?? terms[0] ?? null
 
   const clearOutput = () => {
     if (!active) return
-    setTerms(current => current.map(item => (item.id === active.id ? { ...item, buffer: '' } : item)))
+    pendingOutputRef.current.delete(active.id)
+    const api = writersRef.current.get(active.id)
+    api?.clear()
+    api?.focus()
   }
 
   return h('div', { className: 'dsb-term' },
     h('div', { className: 'dsb-term-bar' },
-      h('div', { className: 'dsb-term-tabs', role: 'tablist' },
+      h('div', { ref: tabsRef, className: 'dsb-term-tabs', role: 'tablist' },
         terms.map((term, idx) => h('div', {
           key: term.id,
           className: 'dsb-term-tab',
@@ -304,7 +856,7 @@ export function WorkspaceTerminal({ sessionId, feed, readOnly = false, autoOpenN
           role: 'tab',
           className: 'dsb-term-tab-btn',
           'aria-selected': term.id === active?.id,
-          onClick: () => setActiveId(term.id),
+          onClick: () => selectTerm(term.id),
         },
         h(TerminalIcon),
         h('span', null, `${term.title} #${idx + 1}`),
@@ -314,17 +866,18 @@ export function WorkspaceTerminal({ sessionId, feed, readOnly = false, autoOpenN
           className: 'dsb-term-tab-x',
           'aria-label': t('Close'),
           title: t('Close'),
-          onClick: () => { void closeTerm(term.id) },
+          onMouseDown: (event) => { event.preventDefault(); event.stopPropagation() },
+          onClick: (event) => { event.stopPropagation(); void closeTerm(term.id) },
         }, h(CloseIcon))))),
       h('div', { className: 'dsb-term-actions' },
         active ? h('button', {
           type: 'button',
-          className: 'bt-soft bt-soft-sm',
+          className: 'dsb-term-act-btn',
           onClick: clearOutput,
         }, t('Clear')) : null,
         h('button', {
           type: 'button',
-          className: 'bt-icon-btn',
+          className: 'dsb-term-act-ico',
           disabled: opening || readOnly,
           'aria-label': t('New terminal'),
           title: t('New terminal'),
@@ -333,82 +886,23 @@ export function WorkspaceTerminal({ sessionId, feed, readOnly = false, autoOpenN
     error ? h('div', { className: 'dsb-rp-error', role: 'alert' }, h('p', null, error)) : null,
     readOnly
       ? h('div', { className: 'dsb-rp-empty' }, t('Terminals are disabled in a read-only window'))
-      : !active
+      : terms.length === 0
         ? h('div', { className: 'dsb-rp-empty' },
           h('p', null, t('No open terminals')),
           h('button', { type: 'button', className: 'bt-soft', disabled: opening, onClick: () => { void openNew() } },
             h(TerminalIcon), t('New terminal')))
-        : [
-            h('div', {
-              key: 'out',
-              ref: outputRef,
-              className: 'dsb-term-out',
-              onClick: () => inputRef.current?.focus?.(),
-            },
-            h('div', { className: 'dsb-term-cwd', title: active.cwd }, shortCwd(active.cwd, active.title)),
-            h('pre', { className: 'dsb-term-pre' },
-              spans.length === 0
-                ? h('span', { className: 'dsb-term-placeholder' }, t('Ready'))
-                : spans.map((span, idx) => h('span', {
-                  key: idx,
-                  className: [
-                    span.fg ? `is-fg-${span.fg}` : '',
-                    span.bold ? 'is-bold' : '',
-                    span.dim ? 'is-dim' : '',
-                  ].filter(Boolean).join(' ') || undefined,
-                }, span.text)))),
-            h('form', {
-              key: 'in',
-              className: 'dsb-term-input-row',
-              onSubmit: (event) => { event.preventDefault(); void submitCommand() },
-            },
-            h('span', { className: 'dsb-term-prompt', 'aria-hidden': true }, '$'),
-            h('input', {
-              ref: inputRef,
-              type: 'text',
-              className: 'dsb-term-input',
-              value: command,
-              disabled: active.exited || readOnly,
-              placeholder: active.exited ? t('Process exited ({code})', { code: active.exitCode ?? 0 }) : t('Run a command…'),
-              'aria-label': t('Terminal command'),
-              onChange: event => setCommand(event.target.value),
-              onKeyDown: (event) => {
-                if (event.ctrlKey && !event.metaKey && !event.altKey) {
-                  if (event.key.toLowerCase() === 'c' && active.pty) {
-                    event.preventDefault()
-                    void sendInput('\x03')
-                    return
-                  }
-                  if (event.key.toLowerCase() === 'd') {
-                    event.preventDefault()
-                    void sendInput('\x04')
-                    return
-                  }
-                  if (event.key.toLowerCase() === 'l') {
-                    event.preventDefault()
-                    clearOutput()
-                    return
-                  }
-                }
-                if (event.key === 'ArrowUp' && historyRef.current.length > 0) {
-                  event.preventDefault()
-                  const nextIdx = Math.min(historyIdxRef.current + 1, historyRef.current.length - 1)
-                  historyIdxRef.current = nextIdx
-                  setCommand(historyRef.current[nextIdx] ?? '')
-                } else if (event.key === 'ArrowDown') {
-                  event.preventDefault()
-                  const nextIdx = historyIdxRef.current - 1
-                  historyIdxRef.current = nextIdx
-                  setCommand(nextIdx < 0 ? '' : (historyRef.current[nextIdx] ?? ''))
-                }
-              },
-            }),
-            active.pty ? h('button', {
-              type: 'button',
-              className: 'bt-soft bt-soft-sm',
-              disabled: active.exited || readOnly,
-              title: 'Ctrl+C',
-              onClick: () => { void sendInput('\x03') },
-            }, 'Ctrl+C') : null),
-          ])
+        : h('div', { className: 'dsb-term-stage' },
+          active ? h('div', { className: 'dsb-term-cwd-bar' },
+            h('span', { className: 'dsb-term-cwd', title: active.cwd }, shortCwd(active.cwd, active.title)),
+            active.exited ? h('span', { className: 'dsb-term-exited-note' }, t('Process exited ({code})', { code: active.exitCode ?? 0 })) : null) : null,
+          terms.map(term => h(TerminalPane, {
+            key: term.id,
+            term,
+            active: term.id === active?.id,
+            readOnly,
+            writersRef,
+            pendingOutputRef,
+            onSendInput: sendInput,
+            onResize: resizeTerm,
+          }))))
 }

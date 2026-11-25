@@ -1,4 +1,5 @@
-import { createElement as h, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createElement as h, Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { call } from '../../../ds-bot/src/client/api.js'
 import { BtwDock } from '../../../ds-bot/src/client/btw.js'
 import { ChatRows, Shimmer } from '../../../ds-bot/src/client/cells.js'
@@ -10,10 +11,11 @@ import { fileExtension, fileSizeText } from '../../../ds-bot/src/client/dsh-prim
 import { isImeComposing, sendsOnEnter } from '../../../ds-bot/src/client/enter-key.js'
 import { HandoffDock } from '../../../ds-bot/src/client/handoff-card.js'
 import { t } from '../../../ds-bot/src/client/i18n.js'
-import { ArrowUpIcon, CloseIcon, FileIcon, StopIcon } from '../../../ds-bot/src/client/icons.js'
+import { ArrowUpIcon, CloseIcon, FileIcon, FolderIcon, PaperclipIcon, PlusIcon, StopIcon, TerminalIcon } from '../../../ds-bot/src/client/icons.js'
 import { LearningDock } from '../../../ds-bot/src/client/learning-card.js'
 import { MemberDock } from '../../../ds-bot/src/client/member-status.js'
 import { ModelChoiceDock } from '../../../ds-bot/src/client/model-menu.js'
+import { stepMenuFocus, useLinger, useViewport, viewBottom } from '../../../ds-bot/src/client/motion.js'
 import { PasteCard, foldPastedText, pastedName } from '../../../ds-bot/src/client/paste-card.js'
 import { QuestionDock } from '../../../ds-bot/src/client/questions.js'
 import { SecretDock } from '../../../ds-bot/src/client/secret-card.js'
@@ -22,6 +24,7 @@ import { STORAGE } from '../../../ds-bot/src/client/storage.js'
 import { currentPart } from '../../../ds-bot/src/client/text.js'
 import { WidgetDock } from '../../../ds-bot/src/client/widget-cell.js'
 import { ApprovalDock } from './approval-dock.js'
+import { AgentEmptyHero } from './classic-sidebar.js'
 import { ComposerMenu, activeComposerTrigger, applyTriggerText, buildComposerMenuItems } from './composer-menus.js'
 import { SessionTranscript, UserAttachments, useSessionFollow } from './session-chat.js'
 
@@ -358,9 +361,94 @@ function ComposerAttachments({ items, onRemove, onPutBackPaste }) {
   }))
 }
 
+const keepComposerFocus = event => event.preventDefault()
+
+// The composer's "+" menu for DSH Agent sessions (in Bot & group chats, ComposerPlus owns
+// the seat). Shares the exact .bt-plus trigger, spring rotation, and portal menu chrome.
+function AgentComposerPlus({ disabled, fileInput, actions }) {
+  const [open, setOpen] = useState(false)
+  const [shown, leaving] = useLinger(open, 120)
+  const buttonRef = useRef(null)
+  const menuRef = useRef(null)
+  const tick = useViewport()
+
+  useEffect(() => {
+    if (!open) return undefined
+    const onDown = (event) => {
+      if (![buttonRef.current, menuRef.current].some(node => node?.contains?.(event.target))) setOpen(false)
+    }
+    const onKey = (event) => {
+      if (stepMenuFocus(menuRef.current, event, buttonRef.current)) return
+      if (event.key === 'Escape') {
+        event.stopPropagation()
+        setOpen(false)
+      }
+    }
+    window.addEventListener('mousedown', onDown, true)
+    window.addEventListener('keydown', onKey, true)
+    return () => {
+      window.removeEventListener('mousedown', onDown, true)
+      window.removeEventListener('keydown', onKey, true)
+    }
+  }, [open])
+
+  const place = useMemo(() => {
+    if (!shown || !buttonRef.current?.getBoundingClientRect) return null
+    const rect = buttonRef.current.getBoundingClientRect()
+    const cardTop = buttonRef.current.closest?.('[data-composer-card]')?.getBoundingClientRect?.().top
+    const anchorTop = Number.isFinite(cardTop) ? Math.min(rect.top, cardTop) : rect.top
+    return { left: rect.left, bottom: viewBottom() - anchorTop + 8 }
+  }, [shown, open, tick])
+
+  const canAttach = !disabled
+  const canFiles = typeof actions?.openFiles === 'function'
+  const canTerminal = !disabled && actions?.canOpenTerminal?.() === true && typeof actions?.newTerminal === 'function'
+  const hasAny = canAttach || canFiles || canTerminal
+
+  const attach = () => {
+    setOpen(false)
+    fileInput?.current?.click?.()
+  }
+  const openFiles = () => {
+    setOpen(false)
+    actions.openFiles()
+  }
+  const openTerminal = () => {
+    setOpen(false)
+    actions.newTerminal()
+  }
+
+  return h(Fragment, null,
+    h('button', {
+      ref: buttonRef,
+      type: 'button',
+      className: 'bt-plus',
+      disabled: !hasAny,
+      'aria-label': t('Add'),
+      title: t('Add'),
+      'aria-haspopup': 'menu',
+      'aria-expanded': Boolean(open),
+      onMouseDown: keepComposerFocus,
+      onClick: () => { if (hasAny) setOpen(value => !value) },
+    }, h(PlusIcon)),
+    shown ? createPortal(h('div', {
+      ref: menuRef,
+      className: 'bt-menu bt-menu-up bt-plus-menu',
+      role: 'menu',
+      'aria-label': t('Add'),
+      style: place ?? {},
+      'data-leaving': leaving || undefined,
+    },
+    canAttach ? h('button', { type: 'button', role: 'menuitem', onClick: attach }, h(PaperclipIcon), h('span', { className: 'bt-menu-label' }, t('Add files'))) : null,
+    canFiles ? h('button', { type: 'button', role: 'menuitem', onClick: openFiles }, h(FolderIcon), h('span', { className: 'bt-menu-label' }, t('Files'))) : null,
+    canTerminal ? h('button', { type: 'button', role: 'menuitem', onClick: openTerminal }, h(TerminalIcon), h('span', { className: 'bt-menu-label' }, t('Terminal'))) : null), document.body) : null)
+}
+
 function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, addFilesRef, actions, feed, useUi, useRoster, useSessions }) {
   const roster = useRoster(value => value)
   const sessions = (useSessions ?? NO_SESSIONS_HOOK)(value => value)
+  const isTeamChat = Boolean(roster.byId?.[sessionId] || roster.roomsById?.[sessionId])
+  const isAgentChat = roster.agentOf?.[sessionId] !== undefined || (roster.ready === true && !isTeamChat)
   const chatInfo = chatOfSession(roster, sessionId)
   const chatId = chatInfo?.id ?? null
   const [text, setText] = useState(() => readSavedDraftText(chatId))
@@ -719,7 +807,10 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
     },
     h('input', { ref: fileInput, type: 'file', multiple: true, hidden: true, disabled, tabIndex: -1, onChange: onFilePick }),
     h(ComposerAttachments, { items: attachments, onRemove: removeAttachment, onPutBackPaste: putBackPaste }),
-    h('div', { className: 'dsb-composer-tools' }, h(ComposerPlus, { sessionId, inputActions, useRoster, actions })),
+    h('div', { className: 'dsb-composer-tools' },
+      isAgentChat
+        ? h(AgentComposerPlus, { disabled, fileInput, actions })
+        : h(ComposerPlus, { sessionId, inputActions, useRoster, actions })),
     h('div', { className: 'dsb-composer-input', 'data-input-scroll': '' },
       h('textarea', {
         ref: field,
@@ -774,7 +865,7 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
         },
       })),
     h('div', { className: 'dsb-composer-trailing' },
-      h(ComposerVoice, { sessionId, inputActions, actions, useUi, useRoster }),
+      isAgentChat ? null : h(ComposerVoice, { sessionId, inputActions, actions, useUi, useRoster }),
       running && typeof onStop === 'function' ? h('button', {
         type: 'button',
         className: 'dsb-stop',
@@ -794,8 +885,14 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
       }, h(ArrowUpIcon)))))
 }
 
-function PendingUserRows({ items, sessionId }) {
+function PendingUserRows({ items, sessionId, classic = false }) {
   if (!items || items.length === 0) return null
+  if (classic) {
+    return h('div', { className: 'dsb-pending' }, items.map((entry, index) => h('div', { key: `${entry.time}:${index}`, className: 'dsb-dsh-user' },
+      h('div', { className: 'dsb-dsh-user-stack' },
+        entry.attachments?.length ? h(UserAttachments, { attachments: entry.attachments, sessionId }) : null,
+        entry.text !== '' ? h('div', { className: 'dsb-dsh-user-bubble' }, entry.text) : null))))
+  }
   return h('div', { className: 'dsb-pending' }, items.map((entry, index) => h('div', { key: `${entry.time}:${index}`, className: 'bt-umsg' },
     h('div', { className: 'bt-ustack' },
       entry.attachments?.length ? h(UserAttachments, { attachments: entry.attachments, sessionId }) : null,
@@ -805,7 +902,7 @@ function PendingUserRows({ items, sessionId }) {
 // One conversation in the main view, drawn with the Bot views' own rows, cards and docks.
 // DM current segments follow DSH's session log via `api/bot/session` + `session-log.js`;
 // group chats continue to read `room-chat`.
-export function Chat({ sessionId, team, registry }) {
+export function Chat({ sessionId, team, registry, classic = false }) {
   const { actions, hooks, chat: feed } = team
   const roster = hooks.useRoster(value => value)
   const bot = roster.byId[sessionId]
@@ -813,7 +910,12 @@ export function Chat({ sessionId, team, registry }) {
   const isRoom = room !== undefined
   // Always follow the Bot's current segment (parts may roll over mid-conversation).
   const activeSessionId = isRoom ? sessionId : (bot ? currentPart(bot) : sessionId)
-  const name = bot?.name ?? room?.name ?? ''
+  const agentId = !isRoom && !bot ? (roster.agentOf?.[activeSessionId] ?? roster.agentOf?.[sessionId]) : undefined
+  const isAgent = agentId !== undefined
+  const isClassic = Boolean(classic || isAgent)
+  const name = bot?.name ?? room?.name ?? (isAgent ? 'DSH Agent' : '')
+  const useSessions = hooks.useSessions ?? NO_SESSIONS_HOOK
+  const sessionBlank = useSessions(list => list.byId[activeSessionId]?.blank === true)
 
   const [pending, setPending] = useState([])
   const [dragging, setDragging] = useState(false)
@@ -986,7 +1088,9 @@ export function Chat({ sessionId, team, registry }) {
   const onStop = readOnly ? undefined
     : isRoom
       ? (typeof actions.stopRoomWork === 'function' && room?.id ? () => actions.stopRoomWork(room.id) : undefined)
-      : (typeof actions.stopChat === 'function' && bot?.id ? () => actions.stopChat(bot.id) : undefined)
+      : bot?.id && typeof actions.stopChat === 'function'
+        ? () => actions.stopChat(bot.id)
+        : (agentId && typeof actions.stopAgent === 'function' ? () => actions.stopAgent(agentId, activeSessionId) : undefined)
 
   const busy = isRoom ? roomChat.view.loading : (dmChat.loading || dmChat.paging)
   const earlier = isRoom
@@ -1047,8 +1151,21 @@ export function Chat({ sessionId, team, registry }) {
     return h(UserAttachments, { attachments: blocks, sessionId: row.sessionId ?? activeSessionId })
   }, [activeSessionId])
 
+  const hasAgentMessages = !isRoom && Array.isArray(dmChat.log?.events)
+    && dmChat.log.events.some(ev => ev?.type === 'user/message' || ev?.type === 'assistant/message' || ev?.type === 'turn/start' || ev?.type === 'tool/call')
+  const showAgentHero = isAgent
+    && (!dmChat.loading || sessionBlank)
+    && !dmChat.failed
+    && !dmChat.terminalError
+    && !dmChat.hasMore
+    && pending.length === 0
+    && dmChat.log.writing === null
+    && !hasAgentMessages
+  const heroCwd = dmChat.log?.header?.cwd || roster.workspace || ''
+
   return h('div', {
-    className: 'dsb-chat',
+    className: isClassic ? 'dsb-chat dsb-classic-chat' : 'dsb-chat',
+    'data-classic': isClassic ? '' : undefined,
     'data-dragging': dragging || undefined,
     onDragEnter,
     onDragOver,
@@ -1057,7 +1174,8 @@ export function Chat({ sessionId, team, registry }) {
   },
   dragging ? h('div', { className: 'dsb-dropzone', 'aria-hidden': true },
     h('div', { className: 'dsb-dropzone-card' }, t('Drop files to attach'))) : null,
-  h('div', { ref: scroller, className: 'dsb-scroll', 'data-conversation-scroll': '', onScroll },
+  h('div', { ref: scroller, className: 'dsb-scroll', 'data-conversation-scroll': '', 'data-empty-hero': showAgentHero ? '' : undefined, onScroll },
+    showAgentHero ? h(AgentEmptyHero, { cwd: heroCwd, actions, readOnly }) : null,
     h('div', { className: 'dsb-column' },
       earlier ? h('div', { className: 'bt-earlier-top' }, earlier) : null,
       sessionNotice,
@@ -1070,6 +1188,7 @@ export function Chat({ sessionId, team, registry }) {
             bot,
             roster,
             actions,
+            classic: isClassic,
             useUi: hooks.useUi,
             useRoster: hooks.useRoster,
             useWork,
@@ -1083,7 +1202,7 @@ export function Chat({ sessionId, team, registry }) {
             hasMore: dmChat.hasMore,
             registry,
           }),
-        h(PendingUserRows, { items: pending, sessionId: activeSessionId }),
+        h(PendingUserRows, { items: pending, sessionId: activeSessionId, classic: isClassic }),
         // The Bot views' activity row (from the header pill) draws itself in here.
         h('div', { 'data-chat-running': '' })))),
   h('div', { className: 'dsb-composer-root' },
@@ -1097,7 +1216,7 @@ export function Chat({ sessionId, team, registry }) {
     !isRoom ? h(HandoffDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, useBrowserHolds, useBrowserTabs, useBrowserPages, actions }) : null,
     !isRoom ? h(ComputerHandoffDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, useComputer, actions }) : null,
     !isRoom ? h(AppAccessDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, useCards, useHeldCards, useComputer, actions }) : null,
-    !isRoom ? h(ApprovalDock, { botId: bot?.id, useWork, actions, readOnly }) : null,
+    !isRoom ? h(ApprovalDock, { botId: bot?.id, sessionId: activeSessionId, useWork, actions, readOnly }) : null,
     !isRoom && typeof actions.turnFacts === 'function' && typeof actions.watchTurns === 'function' ? h(BtwDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, actions }) : null,
     !isRoom && typeof actions.turnFacts === 'function' && typeof actions.watchTurns === 'function' ? h(LearningDock, { sessionId: activeSessionId, useRoster: hooks.useRoster, actions }) : null,
     h(Composer, {

@@ -23,7 +23,7 @@ const useDefaultFrame = () => ({ viewport: typeof window === 'undefined' ? 0 : w
 const useDefaultSidebarPref = () => 'open'
 const useDefaultFalse = () => false
 
-export function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity, useWork, useComputer, useRegistry, useBrowserPages, useBrowserTabs, useBrowserHolds, useUpdate, useFrame, useSidebarPref, useSettingsShellHeld, actions }) {
+export function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity, useWork, useComputer, useRegistry, useBrowserPages, useBrowserTabs, useBrowserHolds, useUpdate, useFrame, useSidebarPref, useSettingsShellHeld, dsh, actions, workspace }) {
   const roster = useRoster(value => value)
   const ui = useUi(value => value)
   useRegistry(value => value)
@@ -56,7 +56,7 @@ export function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useA
     if (shown) { setKept(shown); return undefined }
     const timer = setTimeout(() => setKept(null), reducedMotion() ? 0 : PANEL_LINGER_MS)
     return () => clearTimeout(timer)
-  }, [ui.details, ui.view, ui.renaming, ui.tab, ui.task, shown === null])
+  }, [ui.details, ui.view, ui.renaming, ui.tab, ui.side, ui.task, shown === null])
   const pane = shown ?? kept
   // The settings shell draws the dialog while DS Bot holds the seat.
   const shellHeld = useReadSettingsShellHeld(value => value)
@@ -83,9 +83,9 @@ export function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useA
       createPortal(h(OpeningCover, { model: opening, column: layout.column }), document.body)) : null,
     pane ? h(OverlayBoundary, {
       name: 'panel', active: shown !== null, notify: shown !== null,
-      reset: `${pane.id}:${pane.view}:${pane.tab ?? ''}:${pane.side ?? ''}:${pane.task?.botId ?? ''}:${pane.task?.taskId ?? ''}`,
+      reset: `${pane.id}:${pane.view}:${pane.tab ?? ''}:${pane.side ?? ''}:${pane.task?.botId ?? ''}:${pane.task?.taskId ?? ''}:${workspace?.active ?? ''}`,
       onDismiss: () => actions.closePanel?.(), actions,
-    }, createPortal(h(BotPanel, { pane, leaving: shown === null, room: layout.room, overlay: layout.panel === 'overlay', roster, actions, useSessions, useSessionStatus, useActivity, useWork, useComputer, useBrowserTabs, useBrowserPages, useBrowserHolds }), document.body)) : null,
+    }, createPortal(h(BotPanel, { pane, leaving: shown === null, room: layout.room, overlay: layout.panel === 'overlay', roster, actions, useSessions, useSessionStatus, useActivity, useWork, useComputer, useBrowserTabs, useBrowserPages, useBrowserHolds, workspace }), document.body)) : null,
     ui.newChat ? h(OverlayBoundary, {
       name: 'new-chat', reset: `${ui.newChat}:${ui.newChatSection ?? ''}`,
       onDismiss: () => (actions.closeNewChat ?? actions.closeOverlay)?.(), actions,
@@ -117,7 +117,7 @@ export function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useA
       name: 'settings', active: !settingsLeaving, notify: !settingsLeaving,
       reset: `${settings.page}:${settings.id ?? ''}`,
       onDismiss: () => actions.closeSettings?.(), actions,
-    }, createPortal(h(SettingsDialog, { page: settings.page, id: settings.id, roster, actions, useUpdate, leaving: settingsLeaving }), document.body)) : null,
+    }, createPortal(h(SettingsDialog, { page: settings.page, id: settings.id, roster, actions, useUpdate, dsh, leaving: settingsLeaving }), document.body)) : null,
     owner ? h(OverlayBoundary, {
       name: 'memory', active: !memoryLeaving, notify: !memoryLeaving,
       reset: owner.id,

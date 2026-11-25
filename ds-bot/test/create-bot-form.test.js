@@ -74,9 +74,9 @@ const collect = (match) => {
   return out
 }
 const button = text => collect(n => n.type === 'button' && flatten(n).join('') === text)[0]
-const render = (roster) => {
+const render = (roster, extra = {}) => {
   slots.length = 0
-  props = { roster: { bots: [], rooms: [], prefs: {}, ...roster }, actions: {}, onBack() {}, onCreated() {} }
+  props = { roster: { bots: [], rooms: [], prefs: {}, ...roster }, actions: {}, onBack() {}, onCreated() {}, ...extra }
   rerender()
 }
 
@@ -85,9 +85,9 @@ const MODELS = [
   { ref: 'local-codex-cli/default', provider: 'local-codex-cli', id: 'default', name: 'CLI default', providerName: 'Codex CLI' },
 ]
 
-test('the form opens on DS Bot models and can create at once', () => {
+test('the form opens on Built-in engine and can create at once', () => {
   render({ models: MODELS })
-  assert.equal(button('DS Bot model').props['aria-pressed'], true)
+  assert.equal(button('Built-in engine').props['aria-pressed'], true)
   assert.equal(button('Local agent').props['aria-pressed'], false)
   assert.equal(button('Create').props.disabled, false)
 })
@@ -107,6 +107,13 @@ test('on Local agent, Create waits for a CLI', () => {
   assert.equal(button('Local agent').props['aria-pressed'], true)
   assert.match(flatten(concrete).join(' '), /Looking for agent CLIs/)
   assert.equal(button('Create').props.disabled, true)
-  button('DS Bot model').props.onClick()
+  button('Built-in engine').props.onClick()
   assert.equal(button('Create').props.disabled, false)
+})
+
+test('inline Settings subpage does not autoFocus Name below the avatar picker', () => {
+  render({ models: MODELS }, { inline: true })
+  assert.equal(collect(n => n.type === 'input' && n.props['aria-label'] === 'Name')[0].props.autoFocus, false)
+  render({ models: MODELS }, { inline: false })
+  assert.equal(collect(n => n.type === 'input' && n.props['aria-label'] === 'Name')[0].props.autoFocus, true)
 })

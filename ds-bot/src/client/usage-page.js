@@ -2,9 +2,13 @@ import { createElement as h, startTransition, useEffect, useLayoutEffect, useMem
 import { colorOf, MAIN_LOOK } from './characters.js'
 import { GRADIENTS, paintCss } from './inks.js'
 import { BotAvatar, BotMark, RoomAvatar } from './mark.js'
+import { FishLogo } from './dsh-primitives.js'
 import { CalendarIcon, ChatsIcon, ChevronLeftIcon, ChevronRightIcon } from './icons.js'
 import { reducedMotion, useGlide } from './motion.js'
-import { dateLocale, t } from './i18n.js'
+import { dateLocale, language, t } from './i18n.js'
+import { ProviderLogo, matchProviderId } from './provider-logos.js'
+import { ownedPopups } from './popup-ownership.js'
+import { SelectMenu } from './select-menu.js'
 import { DAY_MS, HOUR, HOUR_MS, MODEL, OWNER, RANGES, compact, dayKey, hourMs, mondayOf, percent, spanRange, summarize, tokensOf } from './usage-data.js'
 
 // Usage page: the host's ledger as hourly rows, summed here by hour, day, week, or
@@ -115,11 +119,15 @@ function useTween(value, rangeKey) {
 }
 
 const glyphBox = (size, icon) => h('span', { className: 'bt-us-glyph', style: { width: size, height: size } }, h(icon))
-function ModelGlyph({ name, paint, size }) {
+function ModelGlyph({ name, model, provider, providerName, paint, size }) {
+  const providerId = matchProviderId({ provider, providerName, model, name })
+  const logo = providerId ? h(ProviderLogo, { provider, providerName, model, name, size: Math.round(size * 0.58) }) : null
   return h('span', {
-    className: 'bt-us-model', 'aria-hidden': true,
+    className: 'bt-us-model',
+    'data-provider': providerId ?? undefined,
+    'aria-hidden': true,
     style: { width: size, height: size, fontSize: Math.round(size * 0.42), background: `color-mix(in srgb, ${paint} 20%, var(--bt-card))`, color: `color-mix(in srgb, ${paint} 72%, var(--bt-ink))` },
-  }, (name.match(/[\p{L}\p{N}]/u)?.[0] ?? '?').toUpperCase())
+  }, logo ?? (name.match(/[\p{L}\p{N}]/u)?.[0] ?? '?').toUpperCase())
 }
 
 // A Bot shows in its own color and character; a group chat and the other sessions in gray.
@@ -143,7 +151,8 @@ function ownerFace(owner, roster) {
   if (owner.kind === 'agent') {
     return {
       kind: 'agent', name: owner.name || 'DSH Agent', sub: owner.deleted ? t('Deleted') : '',
-      paint: 'var(--bt-us-rest)', glyph: size => glyphBox(size, ChatsIcon),
+      paint: 'var(--bt-us-rest)',
+      glyph: size => h('span', { className: 'bt-us-glyph bt-us-agent', style: { width: size, height: size } }, h(FishLogo, { size: Math.round(size * 0.56) })),
     }
   }
   return { kind: 'other', name: t('Other'), sub: '', paint: 'var(--bt-us-rest)', glyph: size => glyphBox(size, ChatsIcon) }
@@ -186,15 +195,20 @@ function niceTop(max) {
   return [1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10].map(scale => scale * step).find(value => value >= max)
 }
 
-// Stacked bars, one per bucket, each stack a column of rounded pieces. Hovering a bar
-// dims the others and lists its `tip` rows (named by `tipSeries`) beside it.
-function Chart({ range, columns, series, tipSeries, by, onBy, onPick }) {
+// Stacked bars, one per bucket, each stack a cohesive rounded column with hairline seams.
+// Hovering a bar dims the others and lists its `tip` rows (named by `tipSeries`) with share %;
+// hovering a legend pill cross-highlights that series across every bar.
+export function Chart({ range, columns, series, tipSeries, by, onBy, onPick }) {
   const [hover, setHover] = useState(null)
+  const [hoverKey, setHoverKey] = useState(null)
   const top = niceTop(Math.max(0, ...columns.map(column => column.total)))
   const count = columns.length
   const fillOf = new Map(series.map(entry => [entry.key, entry.fill]))
   const tipOf = new Map(tipSeries.map(entry => [entry.key, entry]))
+  const activeSeries = hoverKey && series.some(entry => entry.key === hoverKey) ? hoverKey : null
   const tip = hover === null ? null : columns[hover]
+  const tipRows = tip ? tip.tip.filter(([, value]) => value > 0).sort((a, b) => b[1] - a[1]) : []
+  const showShare = tipRows.length > 1 && (tip?.total ?? 0) > 0
   const tipSide = hover !== null && hover >= count / 2
     ? { right: `calc(${((count - hover) / count) * 100}% + 8px)` }
     : { left: `calc(${((hover + 1) / count) * 100}% + 8px)` }
@@ -203,7 +217,12 @@ function Chart({ range, columns, series, tipSeries, by, onBy, onPick }) {
       h('h3', null, t('Tokens over time'), h('span', null, unitLabel(range.unit))),
       onBy ? h(Tabs, { label: t('Group usage by'), value: by, onChange: onBy, options: [['bot', t('By Bot')], ['model', t('By model')]] }) : null),
     h('div', { className: 'bt-us-chart-body' },
-      h('div', { className: 'bt-us-plot', 'data-hover': hover === null ? undefined : '', onMouseLeave: () => setHover(null) },
+      h('div', {
+        className: 'bt-us-plot',
+        'data-hover': hover === null ? undefined : '',
+        'data-series-hover': activeSeries ? '' : undefined,
+        onMouseLeave: () => setHover(null),
+      },
         [1, 0.5].map(level => h('div', { key: level, className: 'bt-us-grid', style: { bottom: `${level * 100}%` } }, h('span', null, compact(top * level)))),
         h('div', { className: 'bt-us-grid bt-us-base', style: { bottom: 0 } }, h('span', null, '0')),
         h('div', { className: 'bt-us-cols' },
@@ -211,22 +230,40 @@ function Chart({ range, columns, series, tipSeries, by, onBy, onPick }) {
             key: `${range.from ? `${range.from}~${range.to}` : range.id}:${column.key}`, className: 'bt-us-col', 'data-on': hover === at ? '' : undefined, onMouseEnter: () => setHover(at),
           }, column.total > 0
             ? h('div', { className: 'bt-us-stack', style: { height: `${(column.total / top) * 100}%`, '--i': at } },
-                column.parts.map(([key, value]) => (value > 0 ? h('i', { key, style: { flexGrow: value, background: fillOf.get(key) } }) : null)))
+                column.parts.map(([key, value]) => (value > 0 ? h('i', {
+                  key,
+                  'data-series': key,
+                  'data-match': activeSeries === key ? '' : undefined,
+                  style: { flexGrow: value, background: fillOf.get(key) },
+                }) : null)))
             : h('div', { className: 'bt-us-stub' })))),
         tip ? h('div', { className: 'bt-us-tip', style: tipSide },
           h('div', { className: 'bt-us-tip-title' }, tip.title),
           h('div', { className: 'bt-us-tip-total' }, t('{count} tokens', { count: full(tip.total) })),
-          tip.tip.filter(([, value]) => value > 0).sort((a, b) => b[1] - a[1]).map(([key, value]) => h('div', { key, className: 'bt-us-tip-row' },
+          tipRows.map(([key, value]) => h('div', { key, className: 'bt-us-tip-row' },
             h('i', { className: 'bt-us-dot', style: { background: tipOf.get(key)?.fill } }),
             h('span', null, tipOf.get(key)?.name),
-            h('b', null, compact(value))))) : null),
+            h('b', null, compact(value)),
+            showShare ? h('small', { className: 'bt-us-tip-share' }, `${percent(value, tip.total)}%`) : null))) : null),
       h('div', { className: 'bt-us-ticks', 'aria-hidden': true },
         // A preset counts its labels back from now; a picked span forward from its first day.
         columns.map((column, at) => h('span', { key: column.key, 'data-now': at === count - 1 && range.ends !== false ? '' : undefined },
           (range.from ? at : count - 1 - at) % range.stride === 0 ? column.tick : '')))),
-    series.length > 1 || series[0]?.pick ? h('div', { className: 'bt-us-legend' },
+    series.length > 1 || series[0]?.pick ? h('div', { className: 'bt-us-legend', onMouseLeave: () => setHoverKey(null) },
       series.map(entry => h(entry.pick ? 'button' : 'span', {
-        key: entry.key, className: 'bt-us-key', ...(entry.pick ? { type: 'button', onClick: () => onPick(entry.pick) } : {}),
+        key: entry.key,
+        className: 'bt-us-key',
+        'data-series': entry.key,
+        'data-on': activeSeries === entry.key ? '' : undefined,
+        'data-dim': activeSeries && activeSeries !== entry.key ? '' : undefined,
+        onMouseEnter: () => setHoverKey(entry.key),
+        onMouseLeave: () => setHoverKey(prev => (prev === entry.key ? null : prev)),
+        ...(entry.pick ? {
+          type: 'button',
+          onClick: () => onPick(entry.pick),
+          onFocus: () => setHoverKey(entry.key),
+          onBlur: () => setHoverKey(prev => (prev === entry.key ? null : prev)),
+        } : {}),
       }, h('i', { className: 'bt-us-dot', style: { background: entry.fill } }), entry.name))) : null)
 }
 
@@ -276,16 +313,31 @@ const addMonths = (ms, count) => Date.UTC(yearOf(ms), new Date(ms).getUTCMonth()
 
 // Two months of days under the time range. The first press picks one end of the span,
 // the second the other; days with usage carry a dot.
+const YEAR_FIRST_LOCALES = new Set(['zh', 'zh-TW', 'ja', 'ko'])
+
 function SpanPicker({ span, today, oldest, active, near, onPick, onClose }) {
   const box = useRef(null)
   const todayMs = hourMs(today)
   const thisMonth = monthOf(todayMs)
-  const [right, setRight] = useState(() => Math.max(addMonths(oldest, 1), monthOf(hourMs(span?.to ?? today))))
+  const thisYear = yearOf(todayMs)
+  const minYear = Math.min(yearOf(oldest), thisYear - 5)
+  const minMonth = Date.UTC(minYear, 0, 1)
+  const clampRight = ms => Math.min(thisMonth, Math.max(addMonths(minMonth, 1), ms))
+  const [right, setRight] = useState(() => clampRight(monthOf(hourMs(span?.to ?? today))))
   const [anchor, setAnchor] = useState(null)
   const [hover, setHover] = useState(null)
   useEffect(() => {
-    const onDown = (event) => { if (![box, near].some(ref => ref.current?.contains(event.target))) onClose() }
-    const onKey = (event) => { if (event.key === 'Escape') { event.stopPropagation(); onClose() } }
+    const onDown = (event) => {
+      const inside = [box.current, near.current, ...ownedPopups([box.current].filter(Boolean))]
+      if (!inside.some(node => node?.contains(event.target))) onClose()
+    }
+    const onKey = (event) => {
+      if (event.key !== 'Escape' || event.defaultPrevented) return
+      if (ownedPopups([box.current].filter(Boolean)).length > 0) return
+      event.preventDefault()
+      event.stopPropagation()
+      onClose()
+    }
     window.addEventListener('mousedown', onDown)
     window.addEventListener('keydown', onKey, true)
     return () => { window.removeEventListener('mousedown', onDown); window.removeEventListener('keydown', onKey, true) }
@@ -300,7 +352,16 @@ function SpanPicker({ span, today, oldest, active, near, onPick, onClose }) {
     onPick(from, to)
   }
   const weekdays = useMemo(() => Array.from({ length: 7 }, (_, at) => dates({ weekday: 'narrow' }).format(Date.UTC(2024, 0, 1 + at))), [])
+  const years = useMemo(() => Array.from({ length: thisYear - minYear + 1 }, (_, i) => minYear + i), [minYear, thisYear])
+  const monthNames = useMemo(() => Array.from({ length: 12 }, (_, m) => dates({ month: 'short' }).format(Date.UTC(2024, m, 1))), [])
+  const yearFirst = YEAR_FIRST_LOCALES.has(language())
+  const pickYearMonth = (year, monthIndex, side) => {
+    const target = Date.UTC(year, monthIndex, 1)
+    setRight(clampRight(side === 'left' ? addMonths(target, 1) : target))
+  }
   const month = (start, side) => {
+    const startYear = yearOf(start)
+    const startMonth = new Date(start).getUTCMonth()
     const length = new Date(addMonths(start, 1) - DAY_MS).getUTCDate()
     const lead = (new Date(start).getUTCDay() + 6) % 7
     const cells = Array.from({ length: lead }, (_, at) => h('span', { key: `b${at}` }))
@@ -319,11 +380,34 @@ function SpanPicker({ span, today, oldest, active, near, onPick, onClose }) {
         onMouseEnter: () => setHover(key), onClick: () => press(key),
       }, h('b', null, day)))
     }
+    const maxForSide = side === 'left' ? addMonths(thisMonth, -1) : thisMonth
+    const minForSide = side === 'left' ? minMonth : addMonths(minMonth, 1)
     const nav = side === 'left'
-      ? h('button', { type: 'button', className: 'bt-us-month-nav', 'data-side': 'left', 'aria-label': t('Previous month'), disabled: start <= oldest, onClick: () => setRight(addMonths(right, -1)) }, h(ChevronLeftIcon))
-      : h('button', { type: 'button', className: 'bt-us-month-nav', 'data-side': 'right', 'aria-label': t('Next month'), disabled: start >= thisMonth, onClick: () => setRight(addMonths(right, 1)) }, h(ChevronRightIcon))
+      ? h('button', { type: 'button', className: 'bt-us-month-nav', 'data-side': 'left', 'aria-label': t('Previous month'), disabled: start <= minMonth, onClick: () => setRight(clampRight(addMonths(right, -1))) }, h(ChevronLeftIcon))
+      : h('button', { type: 'button', className: 'bt-us-month-nav', 'data-side': 'right', 'aria-label': t('Next month'), disabled: start >= thisMonth, onClick: () => setRight(clampRight(addMonths(right, 1))) }, h(ChevronRightIcon))
+    const monthSelect = h(SelectMenu, {
+      key: 'm',
+      variant: 'compact',
+      'aria-label': t('Month'),
+      value: startMonth,
+      options: monthNames.map((label, m) => {
+        const candidate = Date.UTC(startYear, m, 1)
+        return { value: m, label, disabled: candidate > maxForSide || candidate < minForSide }
+      }),
+      onChange: m => pickYearMonth(startYear, m, side),
+    })
+    const yearSelect = h(SelectMenu, {
+      key: 'y',
+      variant: 'compact',
+      'aria-label': t('Year'),
+      value: startYear,
+      options: years.map(y => ({ value: y, label: dates({ year: 'numeric' }).format(Date.UTC(y, 0, 15)) })),
+      onChange: y => pickYearMonth(y, startMonth, side),
+    })
     return h('div', { key: start, className: 'bt-us-month' },
-      h('div', { className: 'bt-us-month-head' }, nav, h('span', null, dates({ year: 'numeric', month: 'long' }).format(start))),
+      h('div', { className: 'bt-us-month-head' },
+        nav,
+        h('div', { className: 'bt-us-ym' }, yearFirst ? [yearSelect, monthSelect] : [monthSelect, yearSelect])),
       h('div', { className: 'bt-us-weekdays', 'aria-hidden': true }, weekdays.map((name, at) => h('span', { key: at }, name))),
       h('div', { className: 'bt-us-days', onMouseLeave: () => setHover(null) }, cells))
   }
@@ -479,7 +563,13 @@ export function UsagePage({ roster, actions, focusId }) {
     const models = view.models.map((model, at) => {
       const name = model.name || model.model || t('Unknown model')
       const paint = modelPaint.get(at) ?? 'var(--bt-us-rest)'
-      return { kind: 'model', name, sub: model.providerName ?? model.provider, paint, glyph: size => h(ModelGlyph, { name, paint, size }) }
+      return {
+        kind: 'model',
+        name,
+        sub: model.providerName ?? model.provider,
+        paint,
+        glyph: size => h(ModelGlyph, { name, model: model.model, provider: model.provider, providerName: model.providerName, paint, size }),
+      }
     })
     const ownerAt = focus?.kind === 'owner' ? view.owners.findIndex(owner => owner.key === focus.key) : -1
     const modelAt = focus?.kind === 'model' ? view.models.findIndex(model => model.key === focus.key) : -1
@@ -648,6 +738,7 @@ export const USAGE_CSS = `
 .bt-us-pick-months{display:flex;flex-wrap:wrap;gap:8px 28px}
 .bt-us-month{width:252px;animation:bt-us-fade .22s ease}
 .bt-us-month-head{position:relative;display:flex;align-items:center;justify-content:center;height:28px;margin-bottom:4px;font-size:13px;line-height:18px;font-weight:600}
+.bt-us-ym{display:inline-flex;align-items:center;gap:2px}
 .bt-us-month-nav{position:absolute;top:0;width:28px;height:28px;padding:0;border:0;border-radius:8px;background:none;color:var(--bt-ink-2);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;transition:background-color .12s ease}
 .bt-us-month-nav[data-side=left]{left:0}
 .bt-us-month-nav[data-side=right]{right:0}
@@ -702,25 +793,28 @@ export const USAGE_CSS = `
 .bt-us-grid span{position:absolute;right:calc(100% + 8px);top:-8px;font-size:10px;line-height:16px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums;white-space:nowrap}
 .bt-us-cols{position:absolute;inset:0;display:flex;align-items:flex-end}
 .bt-us-col{position:relative;flex:1 1 0;min-width:0;height:100%;display:flex;align-items:flex-end;justify-content:center}
-.bt-us-stack{display:flex;flex-direction:column-reverse;gap:2px;width:56%;min-width:4px;max-width:28px;transform-origin:50% 100%;animation:bt-us-grow .6s var(--bt-us-ease) backwards;animation-delay:calc(var(--i,0) * 14ms);transition:height .45s var(--bt-us-ease),opacity .18s ease}
-.bt-us-stack>i{flex:1 1 0;min-height:2px;border-radius:5px;transition:flex-grow .45s var(--bt-us-ease)}
+.bt-us-stack{display:flex;flex-direction:column-reverse;gap:1px;width:60%;min-width:5px;max-width:28px;border-radius:6px;overflow:hidden;transform-origin:50% 100%;animation:bt-us-grow .6s var(--bt-us-ease) backwards;animation-delay:calc(var(--i,0) * 14ms);transition:height .45s var(--bt-us-ease),opacity .18s ease}
+.bt-us-stack>i{flex:1 1 0;min-height:2px;border-radius:0;transition:flex-grow .45s var(--bt-us-ease),opacity .16s ease}
 .bt-us-plot[data-hover] .bt-us-col:not([data-on]) .bt-us-stack{opacity:.3}
+.bt-us-plot[data-series-hover] .bt-us-stack>i:not([data-match]){opacity:.2}
 .bt-us-stub{width:4px;height:4px;margin-bottom:-2px;border-radius:50%;corner-shape:round;background:var(--bt-line-2)}
 .bt-us-ticks{display:flex;margin-left:40px;font-size:11px;line-height:14px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums}
 .bt-us-ticks span{flex:1 1 0;min-width:0;text-align:center;white-space:nowrap}
 .bt-us-ticks span[data-now]{color:var(--bt-ink);font-weight:500}
-.bt-us-tip{position:absolute;top:6px;z-index:3;min-width:160px;max-width:240px;padding:10px 12px;border-radius:12px;border:.5px solid var(--bt-line-2);background:color-mix(in srgb,var(--bt-card) 90%,transparent);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);box-shadow:0 14px 34px -12px rgba(0,0,0,.28);font-size:12px;line-height:16px;pointer-events:none;animation:bt-us-pop .16s var(--bt-us-ease)}
+.bt-us-tip{position:absolute;top:6px;z-index:3;min-width:176px;max-width:276px;padding:10px 12px;border-radius:12px;border:.5px solid var(--bt-line-2);background:color-mix(in srgb,var(--bt-card) 90%,transparent);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);box-shadow:0 14px 34px -12px rgba(0,0,0,.28);font-size:12px;line-height:16px;pointer-events:none;animation:bt-us-pop .16s var(--bt-us-ease)}
 .bt-us-tip-title{color:var(--bt-ink-3)}
 .bt-us-tip-total{margin:2px 0 8px;font-size:15px;line-height:20px;font-weight:600;font-variant-numeric:tabular-nums}
 .bt-us-tip-total:last-child{margin-bottom:0}
 .bt-us-tip-row{display:flex;align-items:center;gap:8px;color:var(--bt-ink-2)}
 .bt-us-tip-row+.bt-us-tip-row{margin-top:5px}
 .bt-us-tip-row span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.bt-us-tip-row b{font-weight:500;color:var(--bt-ink);font-variant-numeric:tabular-nums}
+.bt-us-tip-row b{flex:none;font-weight:500;color:var(--bt-ink);font-variant-numeric:tabular-nums}
+.bt-us-tip-share{flex:none;min-width:28px;text-align:right;font-size:11px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums}
 .bt-us-legend{display:flex;flex-wrap:wrap;gap:6px}
-.bt-us-key{display:inline-flex;align-items:center;gap:6px;min-width:0;height:24px;padding:0 10px 0 8px;border:0;border-radius:999px;background:var(--bt-hover);color:var(--bt-ink-2);font:inherit;font-size:12px;line-height:24px}
-button.bt-us-key{cursor:pointer;transition:background-color .12s ease,color .12s ease}
-button.bt-us-key:hover{background:var(--bt-active);color:var(--bt-ink)}
+.bt-us-key{display:inline-flex;align-items:center;gap:6px;min-width:28px;height:28px;padding:0 10px 0 8px;border:0;border-radius:999px;background:var(--bt-hover);color:var(--bt-ink-2);font:inherit;font-size:12px;line-height:28px;transition:background-color .14s ease,color .14s ease,box-shadow .14s ease,opacity .16s ease}
+button.bt-us-key{cursor:pointer}
+button.bt-us-key:hover,.bt-us-key[data-on]{background:var(--bt-active);color:var(--bt-ink);box-shadow:inset 0 0 0 1px var(--bt-line-2)}
+.bt-us-key[data-dim]{opacity:.52}
 .bt-us-dot{flex:none;width:8px;height:8px;border-radius:50%;corner-shape:round}
 .bt-us-pair{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:4px}
 .bt-us-rows{display:flex;flex-direction:column;margin:0 -8px}
@@ -740,6 +834,7 @@ button.bt-us-row:hover{background:var(--bt-hover)}
 .bt-us-split{height:1px;margin:6px 8px;background:var(--bt-line)}
 .bt-us-none{padding:18px 8px;font-size:12px;color:var(--bt-ink-3);text-align:center}
 .bt-us-glyph{display:inline-flex;align-items:center;justify-content:center;border-radius:50%;corner-shape:round;background:var(--bt-hover);color:var(--bt-ink-2)}
+.bt-us-glyph.bt-us-agent{color:var(--bt-ink)}
 .bt-us-model{display:inline-flex;align-items:center;justify-content:center;border-radius:30%;font-weight:600;line-height:1}
 .bt-us-profile{display:flex;align-items:center;gap:20px;padding:6px 4px 2px;animation:bt-us-in .45s var(--bt-us-ease) backwards}
 .bt-us-ring{position:relative;flex:none;width:96px;height:96px}

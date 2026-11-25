@@ -529,12 +529,17 @@ export function install(rt) {
     return agents
   }
 
-  // The phone's Stop for a DSH Agent: end the running turn of each of its Sessions.
-  async function stopAgent(agentId) {
+  // Stop for a DSH Agent: cancels only `sessionId` when specified (and owned by this Agent),
+  // or ends every running Session of the Agent when omitted (e.g. phone-wide Stop).
+  async function stopAgent(agentId, sessionId) {
     await rt.load()
-    const running = (rt.agentById?.(agentId)?.sessions ?? []).filter(id => live.get(id)?.turn !== undefined)
-    for (const sessionId of running) {
-      const agent = await rt.resolveAgent(sessionId).catch(() => undefined)
+    const owned = rt.agentById?.(agentId)?.sessions ?? []
+    const scope = typeof sessionId === 'string' && sessionId !== ''
+      ? (owned.includes(sessionId) ? [sessionId] : [])
+      : owned
+    const running = scope.filter(id => live.get(id)?.turn !== undefined)
+    for (const sid of running) {
+      const agent = await rt.resolveAgent(sid).catch(() => undefined)
       agent?.cancel?.({ kind: 'user' })
     }
     return running.length > 0
@@ -756,7 +761,7 @@ export function install(rt) {
       if (job.roomId === undefined) merged[job.botId] = 'thinking'
       else merged[job.botId ?? job.roomId] ??= 'thinking'
     }
-    for (const approval of rt.approvalsView?.() ?? []) merged[approval.botId] = 'alert'
+    for (const approval of rt.approvalsView?.() ?? []) if (approval.botId) merged[approval.botId] = 'alert'
     // Waiting for work it handed on shows only while no turn of the Bot runs.
     for (const botId of Object.keys(rt.waitingView?.() ?? {})) merged[botId] ??= 'waiting'
     return merged

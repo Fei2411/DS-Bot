@@ -111,7 +111,7 @@ export function install(rt) {
     while (stagedTotalBytes() + incomingBytes > STAGED_TOTAL_MAX && evictOldestStaged()) { /* evict oldest across both maps */ }
   }
   const ok = value => ({ ok: true, value })
-  const fail = (message, code = 'bot/error') => ({ ok: false, error: { code, message, details: {} } })
+  const fail = (message, code = 'bot/error', details = {}) => ({ ok: false, error: { code, message, details } })
   // Models come from DSH, not state.json, so a provider added on the Models pages of Settings
   // changes the view without a new revision.
   const modelsKey = () => `${rt.cachedCatalog().map(entry => `${entry.ref}${entry.needsKey ? '!' : ''}${entry.reasoning ? `:${JSON.stringify(entry.reasoning)}` : ''}`).join(',')}|${rt.cachedDefault() ?? ''}`
@@ -220,6 +220,9 @@ export function install(rt) {
     // Browser holds (handoffs and takeovers) change without bumping state.revision,
     // so they ride on live() to reconcile unchanged-revision polls.
     browserHolds: rt.browserChannel?.holdSnapshot?.() ?? {},
+    // Plugin runtime summary (active slots, restart status, installed count) updates
+    // asynchronously as slots reconcile, so it rides on live().
+    plugins: rt.pluginsSummary?.() ?? null,
   })
   // The live fields' sources are spread across the host with no single change
   // counter, so the serialized answer itself is the detector: a poll whose `live`
@@ -237,7 +240,7 @@ export function install(rt) {
   }
   // What a host that only reads the team may still answer.
   // Updates change the dsh profile, not the team, so a reading host may run them too.
-  const READS = new Set(['secret-store', 'secret-unlock', 'state', 'models', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'agent-chat', 'bot-task-read', 'run-stats', 'room-progress', 'group-rows', 'group-relay-replies', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library', 'computer-system-status', 'computer-shot', 'local-agents', 'local-agent-models', 'browser-frame', 'hello', 'notices', 'avatar', 'room-chat', 'usage-summary', 'image', 'markdown-image', 'file-download', 'changes-check', 'deepseek-services', 'deepseek-synthesize', 'background-picture', 'session-page', 'workspace-list', 'workspace-read', 'workspace-changes'])
+  const READS = new Set(['secret-store', 'secret-unlock', 'state', 'models', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'agent-chat', 'bot-task-read', 'run-stats', 'room-progress', 'group-rows', 'group-relay-replies', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library', 'computer-system-status', 'computer-shot', 'local-agents', 'local-agent-models', 'browser-frame', 'hello', 'notices', 'avatar', 'room-chat', 'usage-summary', 'image', 'markdown-image', 'file-download', 'changes-check', 'deepseek-services', 'deepseek-synthesize', 'background-picture', 'session-page', 'workspace-list', 'workspace-read', 'workspace-changes', 'engine-settings-list', 'engine-account-state', 'engine-plugins-list', 'engine-presets-list', 'engine-presets-read', 'engine-archived-list', 'engine-classic-sessions', 'plugins-list', 'plugins-catalog-refresh', 'plugins-versions', 'plugins-detail'])
   READS.add('chatgpt')
 
   // A change is all or nothing: one field the host refuses leaves every other field of it
@@ -336,7 +339,7 @@ export function install(rt) {
     rt.appearancePrefs(body)
   }
 
-  const handle = async (endpoint, payload, signal) => {
+  const handle = async (endpoint, payload, signal, meta) => {
     try {
       const body = payload ?? {}
       await rt.refresh()
@@ -580,13 +583,13 @@ export function install(rt) {
           return ok({ team: await rt.setTeamWorkspace(String(body.path ?? '')) })
         case 'add-agent':
           await rt.load()
-          return ok(await rt.addAgent())
+          return ok(await rt.addAgent(body.agentPreset))
         case 'agent-chat':
           await rt.load()
           return ok(await rt.agentPage(String(body.agentId ?? ''), body.cursor ?? undefined, body.steps === true))
         case 'agent-session':
           await rt.load()
-          return ok({ sessionId: await rt.createAgentSession(body.agentId, body.workspaceId) })
+          return ok({ sessionId: await rt.createAgentSession(body.agentId, body.workspaceId, body.agentPreset) })
         case 'agent-adopt':
           await rt.load()
           return ok({ sessionId: await rt.adoptAgentSession(body.agentId, body.sessionId) })
@@ -674,7 +677,10 @@ export function install(rt) {
         case 'stop-chat':
           return ok(await rt.stopChat(String(body.botId ?? '')))
         case 'stop-agent':
-          return ok(await rt.stopAgent(String(body.agentId ?? '')))
+          return ok(await rt.stopAgent(
+            String(body.agentId ?? ''),
+            typeof body.sessionId === 'string' && body.sessionId !== '' ? body.sessionId : undefined,
+          ))
         case 'dismiss-question':
           await rt.load()
           if (rt.own(state.questions, body.sessionId) !== undefined) {
@@ -1038,17 +1044,22 @@ export function install(rt) {
           if (endpoint.startsWith('session-')) return ok(await rt.sessionEndpoint(endpoint.slice('session-'.length), body, signal))
           if (endpoint.startsWith('workspace-')) return ok(await rt.workspaceEndpoint(endpoint.slice('workspace-'.length), body, signal))
           if (endpoint.startsWith('terminal-')) return ok(await rt.terminalEndpoint(endpoint.slice('terminal-'.length), body, signal))
+          if (endpoint.startsWith('engine-')) return ok(await rt.engineEndpoint(endpoint.slice('engine-'.length), body, signal, meta))
           if (endpoint.startsWith('computer-')) {
             await rt.load()
             return ok(await rt.computerEndpoint(endpoint.slice('computer-'.length), body))
+          }
+          if (endpoint.startsWith('plugins-')) {
+            return ok(await rt.pluginEndpoint(endpoint.slice('plugins-'.length), body, signal))
           }
           return fail(`Unknown endpoint ${endpoint}`, 'bot/not-found')
       }
     } catch (error) {
       const code = errorCode(error)
       const message = error?.message ?? String(error)
+      const details = error?.details && typeof error.details === 'object' ? error.details : {}
       if (code === 'bot/internal') rt.noteFailure({ source: 'api', text: `${endpoint}: ${message}`, code: error?.code ?? error?.name, stack: error?.stack })
-      return fail(message, code)
+      return fail(message, code, details)
     }
   }
 
@@ -1185,7 +1196,9 @@ export function install(rt) {
       fetch: async (request) => {
         let body
         try { body = await request.json() } catch { body = {} }
-        const result = await handle(String(body?.endpoint ?? ''), body?.payload, request.signal)
+        let requestOrigin
+        try { requestOrigin = new URL(request.url).origin } catch { requestOrigin = undefined }
+        const result = await handle(String(body?.endpoint ?? ''), body?.payload, request.signal, { requestOrigin })
         return new Response(JSON.stringify(result), { status: 200, headers: { 'content-type': 'application/json' } })
       },
     })
