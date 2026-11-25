@@ -2839,7 +2839,7 @@ export function install(rt) {
   }
   const stepRoute = (room, member, text, info) => speechRoute(room, member, text, {
     ...info, batch: batchOfTurn(room.id, member.id, info),
-    explicitCalls: rt.roomWaiters.get(info?.exchangeId)?.explicitCalls,
+    explicitCalls: rt.roomWaiters?.get(info?.exchangeId)?.explicitCalls,
   })
   rt.callsRoomMember = (sessionId, info, raw) => {
     const { room, member } = memberIn(sessionId, info) ?? {}
