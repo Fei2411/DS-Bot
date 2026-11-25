@@ -1,11 +1,10 @@
 import assert from 'node:assert/strict'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { Context } from '@deepseek-ai/cordis'
 import { LlmRuntime } from '@deepseek-ai/dsh-llm'
-import { AcpEngine } from '../src/host/local-agents/acp.js'
 import { LocalAgentAdapter } from '../src/host/local-agents/adapter.js'
 import { ClaudeEngine } from '../src/host/local-agents/claude.js'
 import { CodexEngine } from '../src/host/local-agents/codex.js'
@@ -19,10 +18,13 @@ import {
   isLocalAgentRoute,
   isProfileRoute,
   profileEnvFor,
+  profileEnvKeyFor,
   profileRoute,
   signInFor,
   splitProfileRoute,
+  supportsProfiles,
   validateProfile,
+  validateProfileDirUnique,
 } from '../src/host/local-agents/engines.js'
 import { errorCode } from '../src/host/channel.js'
 import { install as installLocalAgents } from '../src/host/local-agents/index.js'
@@ -99,12 +101,32 @@ test('profile route parsing, validation, env isolation, and sign-in hints', (t) 
   assert.throws(() => profileRoute('local-unknown', 'work'))
   assert.throws(() => profileRoute('local-claude-code', '../bad'))
 
-  // Isolated env vars per engine
+  // Only CLIs with verified env-var isolation support profiles (no blind XDG_CONFIG_HOME fallback)
+  assert.equal(profileEnvKeyFor('local-claude-code'), 'CLAUDE_CONFIG_DIR')
+  assert.equal(profileEnvKeyFor('local-codex-cli'), 'CODEX_HOME')
+  assert.equal(supportsProfiles('local-claude-code'), true)
+  assert.equal(supportsProfiles('local-codex-cli'), true)
+  for (const unsupported of [
+    'local-devin-cli',
+    'local-cursor-cli',
+    'local-gemini-cli',
+    'local-qwen-code',
+    'local-codebuddy',
+    'local-antigravity',
+    'local-opencode',
+  ]) {
+    assert.equal(profileEnvKeyFor(unsupported), null, `${unsupported} must not fall back to XDG_CONFIG_HOME`)
+    assert.equal(supportsProfiles(unsupported), false, `${unsupported} must not advertise profile support`)
+    assert.throws(() => profileEnvFor(unsupported, join(home, 'cli-profiles', 'test')), /does not support isolated profiles/)
+    assert.throws(() => validateProfile({ baseRoute: unsupported, name: 'Work' }), /does not support isolated profiles/)
+    assert.equal(engineOf(`${unsupported}@work`, [], [{ id: 'work', baseRoute: unsupported, name: 'Work' }], { home }), undefined)
+  }
+
+  // Isolated env vars per verified engine
   const dir = join(home, 'cli-profiles', 'test')
   assert.deepEqual(profileEnvFor('local-claude-code', dir), { CLAUDE_CONFIG_DIR: dir })
   assert.deepEqual(profileEnvFor('local-codex-cli', dir), { CODEX_HOME: dir })
-  assert.deepEqual(profileEnvFor('local-devin-cli', dir), { XDG_CONFIG_HOME: dir })
-  assert.deepEqual(profileEnvFor('local-gemini-cli', dir, { CUSTOM_FLAG: 'yes' }), { CUSTOM_FLAG: 'yes', XDG_CONFIG_HOME: dir })
+  assert.deepEqual(profileEnvFor('local-codex-cli', dir, { CUSTOM_FLAG: 'yes' }), { CUSTOM_FLAG: 'yes', CODEX_HOME: dir })
   // Isolation key cannot be clobbered by extraEnv (including case-variant keys through cleanEnv)
   assert.deepEqual(profileEnvFor('local-claude-code', dir, { CLAUDE_CONFIG_DIR: '/wrong' }), { CLAUDE_CONFIG_DIR: dir })
   const caseClobber = profileEnvFor('local-claude-code', dir, { CLAUDE_CONFIG_DIR: '/a', claude_config_dir: '/evil', Claude_Config_Dir: '/evil2', CUSTOM_OK: '1' })
@@ -173,13 +195,56 @@ test('profile route parsing, validation, env isolation, and sign-in hints', (t) 
   assert.equal(defaultProfileDir(home, 'local-claude-code', 'work'), join(home, 'cli-profiles', 'claude-code-work'))
   assert.equal(defaultProfileDir(home, 'local-codex-cli', 'personal'), join(home, 'cli-profiles', 'codex-cli-personal'))
 
-  // validateProfile checks
+  // validateProfile checks (including global default dir and duplicate dir guards)
   const valid = validateProfile({ baseRoute: 'local-claude-code', name: 'Work Account' })
   assert.equal(valid.id, 'work-account')
   assert.equal(valid.name, 'Work Account')
   assert.throws(() => validateProfile({ baseRoute: 'local-claude-code', name: '' }))
   assert.throws(() => validateProfile({ baseRoute: 'local-claude-code', name: 'X', configDir: 'relative/path' }))
   assert.throws(() => validateProfile({ baseRoute: 'local-claude-code', name: 'X', configDir: '/' }))
+  assert.throws(() => validateProfile({ baseRoute: 'local-claude-code', name: 'Global', configDir: join(homedir(), '.claude') }), /default global directory/)
+  assert.throws(() => validateProfile({ baseRoute: 'local-claude-code', name: 'GlobalTilde', configDir: '~/.claude' }), /default global directory/)
+  assert.throws(() => validateProfile({ baseRoute: 'local-codex-cli', name: 'GlobalCodex', configDir: join(homedir(), '.codex') }), /default global directory/)
+  const hostClaudeGlobal = join(home, 'host-global-claude')
+  assert.throws(
+    () => validateProfile({ baseRoute: 'local-claude-code', name: 'HostEnv', configDir: hostClaudeGlobal }, { env: { CLAUDE_CONFIG_DIR: hostClaudeGlobal } }),
+    /default global directory/,
+  )
+  // Windows case-insensitive global & sibling directory collision checks
+  assert.throws(
+    () => validateProfile(
+      { baseRoute: 'local-claude-code', name: 'WinGlobal', configDir: 'C:\\Users\\Public\\.CLAUDE\\' },
+      { platform: 'win32', userHome: 'C:\\Users\\Public', env: {} },
+    ),
+    /default global directory/,
+  )
+  assert.throws(
+    () => validateProfileDirUnique(
+      'local-codex-cli',
+      'c:\\profiles\\codex-work\\',
+      [{ id: 'work', baseRoute: 'local-codex-cli', name: 'Work', configDir: 'C:\\Profiles\\Codex-Work' }],
+      { platform: 'win32', userHome: 'C:\\Users\\Public', env: {} },
+    ),
+    /already used by another Codex CLI profile/,
+  )
+  // Editing itself is allowed when ignoreId matches
+  assert.doesNotThrow(() => validateProfileDirUnique(
+    'local-codex-cli',
+    'c:\\profiles\\codex-work\\',
+    [{ id: 'work', baseRoute: 'local-codex-cli', name: 'Work', configDir: 'C:\\Profiles\\Codex-Work' }],
+    { platform: 'win32', userHome: 'C:\\Users\\Public', env: {}, ignoreId: 'work' },
+  ))
+  if (process.platform !== 'win32') {
+    const fakeUserHome = join(home, 'fake-user-home')
+    const realGlobalClaude = join(fakeUserHome, '.claude')
+    const symlinkToGlobal = join(home, 'link-to-claude')
+    mkdirSync(realGlobalClaude, { recursive: true })
+    symlinkSync(realGlobalClaude, symlinkToGlobal)
+    assert.throws(
+      () => validateProfile({ baseRoute: 'local-claude-code', name: 'SymlinkGlobal', configDir: symlinkToGlobal }, { userHome: fakeUserHome, env: {} }),
+      /default global directory/,
+    )
+  }
 
   // engineOf resolves profile specs with merged env, display name, and sign-in hints
   const profiles = [{ id: 'work', baseRoute: 'local-claude-code', name: 'Work', env: { MY_PROFILE_TAG: 'w1' } }]
@@ -248,7 +313,7 @@ test('client agent-routes inherit logos/badges for profiles and isolate model me
   assert.deepEqual(modelsFor(catalog, 'ds/flash').map(m => m.ref), ['ds/flash'])
 })
 
-test('two concurrent profiles of the same CLI spawn isolated processes with distinct config dirs (Claude, Codex, ACP)', async (t) => {
+test('two concurrent profiles of the same CLI spawn isolated processes with distinct config dirs (Claude, Codex)', async (t) => {
   const root = mkdtempSync(join(tmpdir(), 'dsb-multi-prof-'))
   const home = join(root, 'home')
   const spawnedEngines = []
@@ -303,38 +368,11 @@ test('two concurrent profiles of the same CLI spawn isolated processes with dist
     })
   `)
 
-  // Real spawned ACP fixture that echoes its PID and XDG_CONFIG_HOME.
-  const fakeAcp = writeNodeModule(root, 'fake-acp-env.mjs', `
-    let buf = ''
-    const send = obj => process.stdout.write(JSON.stringify(obj) + '\\n')
-    process.stdin.setEncoding('utf8')
-    process.stdin.on('data', chunk => {
-      buf += chunk
-      let nl
-      while ((nl = buf.indexOf('\\n')) !== -1) {
-        const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1)
-        if (!line) continue
-        const { id, method, params = {} } = JSON.parse(line)
-        if (method === 'initialize') {
-          send({ jsonrpc: '2.0', id, result: { protocolVersion: 1, agentCapabilities: {}, authMethods: [] } })
-        } else if (method === 'session/new') {
-          send({ jsonrpc: '2.0', id, result: { sessionId: 'acp-' + process.pid, configOptions: [] } })
-        } else if (method === 'session/prompt') {
-          const text = JSON.stringify({ pid: process.pid, xdg: process.env.XDG_CONFIG_HOME ?? null })
-          send({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: params.sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text } } } })
-          send({ jsonrpc: '2.0', id, result: { stopReason: 'end_turn' } })
-        }
-      }
-    })
-  `)
-
   const profiles = [
     { id: 'work', baseRoute: 'local-claude-code', name: 'Work', env: { PROFILE_TAG: 'work-tag' } },
     { id: 'personal', baseRoute: 'local-claude-code', name: 'Personal', env: { PROFILE_TAG: 'personal-tag' } },
     { id: 'work', baseRoute: 'local-codex-cli', name: 'Work' },
     { id: 'personal', baseRoute: 'local-codex-cli', name: 'Personal' },
-    { id: 'work', baseRoute: 'local-devin-cli', name: 'Work' },
-    { id: 'personal', baseRoute: 'local-devin-cli', name: 'Personal' },
   ]
   const records = {}
   const adapter = new LocalAgentAdapter({
@@ -344,11 +382,11 @@ test('two concurrent profiles of the same CLI spawn isolated processes with dist
     profiles: () => profiles,
     findExecutable: path => path,
     spawnEngine: (kind, route, spec) => {
-      const fixture = kind === 'claude' ? fakeClaude : kind === 'codex' ? fakeCodex : fakeAcp
+      const fixture = kind === 'claude' ? fakeClaude : fakeCodex
       const overridden = { ...spec, command: process.execPath, args: [fixture] }
-      const engine = kind === 'claude' ? new ClaudeEngine(route, overridden, { findExecutable: p => p })
-        : kind === 'codex' ? new CodexEngine(route, overridden, { findExecutable: p => p })
-          : new AcpEngine(route, overridden, { findExecutable: p => p })
+      const engine = kind === 'claude'
+        ? new ClaudeEngine(route, overridden, { findExecutable: p => p })
+        : new CodexEngine(route, overridden, { findExecutable: p => p })
       spawnedEngines.push(engine)
       return engine
     },
@@ -424,17 +462,6 @@ test('two concurrent profiles of the same CLI spawn isolated processes with dist
   assert.equal(parsedCxP.codexHome, join(home, 'cli-profiles', 'codex-cli-personal'))
   assert.notEqual(parsedCxW.pid, parsedCxP.pid)
   assert.notEqual(adapter.engines.get('local-codex-cli@work'), adapter.engines.get('local-codex-cli@personal'))
-
-  // 3. Two concurrent ACP profiles spawn separate processes with distinct XDG_CONFIG_HOME
-  const [acpWork, acpPersonal] = await Promise.all([
-    collect(adapter.stream({ provider: 'local-devin-cli@work', model: 'default', sessionId: 's-acp-w', messages: [userMsg('m1', 'hi')], tools: [] })),
-    collect(adapter.stream({ provider: 'local-devin-cli@personal', model: 'default', sessionId: 's-acp-p', messages: [userMsg('m1', 'hi')], tools: [] })),
-  ])
-  const parsedAcpW = JSON.parse(acpWork.text)
-  const parsedAcpP = JSON.parse(acpPersonal.text)
-  assert.equal(parsedAcpW.xdg, join(home, 'cli-profiles', 'devin-cli-work'))
-  assert.equal(parsedAcpP.xdg, join(home, 'cli-profiles', 'devin-cli-personal'))
-  assert.notEqual(parsedAcpW.pid, parsedAcpP.pid)
 })
 
 test('probeSignIn isolates profile env, file fallbacks, and skips macOS Keychain for isolated profiles', async (t) => {
@@ -487,11 +514,15 @@ test('probeSignIn isolates profile env, file fallbacks, and skips macOS Keychain
   }), null)
   assert.equal(keychainCalls, 0)
 
-  // Isolated Cursor profile with auth.json inside XDG_CONFIG_HOME/cursor/auth.json IS detected
+  // Isolated Cursor profile on darwin must NOT fall back to fake XDG_CONFIG_HOME (or Keychain)
   mkdirSync(join(workDir, 'cursor'), { recursive: true })
   writeFileSync(join(workDir, 'cursor', 'auth.json'), JSON.stringify({ apiKey: 'work-key' }))
   assert.equal(await probeSignIn(cursorOffline, ENGINES['local-cursor-cli'].signedIn, {
     home: globalHome, platform: 'darwin', extraEnv: { XDG_CONFIG_HOME: workDir }, isolated: true, spawnKeychain: fakeKeychain,
+  }), null)
+  // On linux where Cursor explicitly declares `env: 'XDG_CONFIG_HOME'`, its declared entry.env resolves it
+  assert.equal(await probeSignIn(cursorOffline, ENGINES['local-cursor-cli'].signedIn, {
+    home: globalHome, platform: 'linux', extraEnv: { XDG_CONFIG_HOME: workDir }, isolated: true, spawnKeychain: fakeKeychain,
   }), true)
   assert.equal(keychainCalls, 0)
 
@@ -543,8 +574,12 @@ test('profile CRUD endpoints create 0o700 dirs, register routes, probe independe
     if (process.argv.includes('--version')) { console.log('claude 2.0.0'); process.exit(0) }
     console.log(JSON.stringify({ loggedIn: Boolean(process.env.CLAUDE_CONFIG_DIR && process.env.CLAUDE_CONFIG_DIR.includes('custom')) }))
   `)
+  const fakeGemini = makeNodeScript(root, 'fake-gemini-cli.mjs', `
+    if (process.argv.includes('--version')) { console.log('gemini 1.0.0'); process.exit(0) }
+  `)
   for (const route of Object.keys(ENGINES)) delete ENGINES[route]
   ENGINES['local-claude-code'] = { ...savedEngines['local-claude-code'], command: fakeCli, commands: [fakeCli], version: ['--version'] }
+  ENGINES['local-gemini-cli'] = { ...savedEngines['local-gemini-cli'], command: fakeGemini, commands: [fakeGemini], version: ['--version'] }
   t.after(() => {
     for (const route of Object.keys(ENGINES)) delete ENGINES[route]
     Object.assign(ENGINES, savedEngines)
@@ -554,12 +589,14 @@ test('profile CRUD endpoints create 0o700 dirs, register routes, probe independe
   const llm = new LlmRuntime(owner)
   const ctx = fakeContext({ services: { llm } })
   let saves = 0
+  let catalogRefreshes = 0
   const seenProbeEnvs = []
   const rt = {
     ctx,
     home,
     state: { bots: {}, localAgents: { custom: [], profiles: [], sessions: {} } },
     save: async () => { saves += 1 },
+    catalog: async (opts) => { if (opts?.fresh) catalogRefreshes += 1; return [] },
   }
   t.after(async () => {
     try {
@@ -580,14 +617,24 @@ test('profile CRUD endpoints create 0o700 dirs, register routes, probe independe
     },
   })
 
-  // Initial scan sees default global route and empty profiles
+  // Initial scan sees both CLIs with explicit supportsProfiles capability flag
   const initial = await rt.localAgentsEndpoint('local-agents', {})
-  assert.equal(initial.detected.length, 1)
-  assert.equal(initial.detected[0].route, 'local-claude-code')
-  assert.equal(initial.detected[0].signedIn, true)
+  assert.equal(initial.detected.length, 2)
+  const claudeDetected = initial.detected.find(entry => entry.route === 'local-claude-code')
+  const geminiDetected = initial.detected.find(entry => entry.route === 'local-gemini-cli')
+  assert.equal(claudeDetected.signedIn, true)
+  assert.equal(claudeDetected.supportsProfiles, true)
+  assert.equal(geminiDetected.supportsProfiles, false)
   assert.deepEqual(initial.profiles, [])
 
-  // 1. Add profile with default dir -> creates 0o700 dir, registers route, probes independently (signedIn: false while global is true!)
+  // Non-isolated CLI must be explicitly rejected when attempting to add a profile
+  await assert.rejects(
+    rt.localAgentsEndpoint('local-agent-profile-add', { baseRoute: 'local-gemini-cli', name: 'Work' }),
+    err => /does not support isolated profiles/i.test(err.message) && errorCode(err) === 'bot/refused',
+  )
+
+  // 1. Add profile with default dir -> creates 0o700 dir, registers route, refreshes catalog, probes independently
+  const refreshesBeforeAdd = catalogRefreshes
   const added = await rt.localAgentsEndpoint('local-agent-profile-add', { baseRoute: 'local-claude-code', name: 'Work' })
   assert.equal(added.route, 'local-claude-code@work')
   assert.equal(added.displayName, 'Claude Code (Work)')
@@ -602,6 +649,7 @@ test('profile CRUD endpoints create 0o700 dirs, register routes, probe independe
   }
   assert.equal(rt.isLocalAgentAvailable('local-claude-code@work'), true)
   assert.equal(rt.engineNameOf('local-claude-code@work/default'), 'Claude Code (Work)')
+  assert.equal(catalogRefreshes, refreshesBeforeAdd + 1, 'local-agent-profile-add must refresh model catalog')
   assert.ok(saves >= 1)
 
   // Duplicate ID rejected
@@ -609,6 +657,34 @@ test('profile CRUD endpoints create 0o700 dirs, register routes, probe independe
     rt.localAgentsEndpoint('local-agent-profile-add', { baseRoute: 'local-claude-code', id: 'work', name: 'Work 2' }),
     /already exists/,
   )
+
+  // Rejecting global default directory (~/.claude) and duplicate directory across same-CLI profiles
+  await assert.rejects(
+    rt.localAgentsEndpoint('local-agent-profile-add', { baseRoute: 'local-claude-code', id: 'global-dup', name: 'Global', configDir: join(homedir(), '.claude') }),
+    err => /default global directory/i.test(err.message) && errorCode(err) === 'bot/refused',
+  )
+  await assert.rejects(
+    rt.localAgentsEndpoint('local-agent-profile-add', { baseRoute: 'local-claude-code', id: 'dir-dup', name: 'Dup Dir', configDir: added.configDir }),
+    err => /already used by another Claude Code profile/i.test(err.message) && errorCode(err) === 'bot/refused',
+  )
+
+  // Add a second profile with its own folder so we can test cross-profile collision on update
+  const secondDir = join(root, 'second-profile-dir')
+  const second = await rt.localAgentsEndpoint('local-agent-profile-add', { baseRoute: 'local-claude-code', id: 'personal', name: 'Personal', configDir: secondDir })
+  assert.equal(second.route, 'local-claude-code@personal')
+  await assert.rejects(
+    rt.localAgentsEndpoint('local-agent-profile-update', { route: 'local-claude-code@work', configDir: secondDir }),
+    err => /already used by another Claude Code profile/i.test(err.message) && errorCode(err) === 'bot/refused',
+  )
+  if (process.platform !== 'win32') {
+    const symlinkToSecond = join(root, 'link-to-second')
+    symlinkSync(secondDir, symlinkToSecond)
+    await assert.rejects(
+      rt.localAgentsEndpoint('local-agent-profile-update', { route: 'local-claude-code@work', configDir: symlinkToSecond }),
+      err => /already used by another Claude Code profile/i.test(err.message) && errorCode(err) === 'bot/refused',
+    )
+  }
+  await rt.localAgentsEndpoint('local-agent-profile-remove', { route: 'local-claude-code@personal' })
 
   // Rejecting regular file as configDir returns clean validation error (not raw EEXIST)
   const filePath = join(root, 'not-a-folder')
@@ -667,6 +743,18 @@ test('profile CRUD endpoints create 0o700 dirs, register routes, probe independe
   }
   assert.equal(rt.state.localAgents.sessions['sess-work-1'], undefined, 'configDir change must clear stale sessions for that route')
   assert.equal(rt.state.localAgents.sessions['sess-global-1']?.cliSessionId, 'cli-global', 'other routes sessions must stay untouched')
+
+  // Uninstalling the base CLI and refreshing clears stale cached profileProbes (signedIn must not stay true)
+  const savedClaudeSpec = ENGINES['local-claude-code']
+  ENGINES['local-claude-code'] = { ...savedClaudeSpec, command: join(root, 'missing-claude'), commands: [join(root, 'missing-claude')] }
+  const afterUninstall = await rt.localAgentsEndpoint('local-agent-refresh', {})
+  assert.equal(afterUninstall.profiles.length, 1)
+  assert.equal(afterUninstall.profiles[0].available, false)
+  assert.equal(afterUninstall.profiles[0].signedIn, null, 'uninstalled CLI refresh must clear stale profile sign-in probe state')
+  ENGINES['local-claude-code'] = savedClaudeSpec
+  const afterReinstall = await rt.localAgentsEndpoint('local-agent-refresh', {})
+  assert.equal(afterReinstall.profiles[0].available, true)
+  assert.equal(afterReinstall.profiles[0].signedIn, true)
 
   // 3. Remove profile -> clears route sessions, unregisters route, keeps user's credential files intact on disk
   rt.state.localAgents.sessions['sess-work-2'] = { route: 'local-claude-code@work', cliSessionId: 'cli-new-work', handedId: 'm-new' }

@@ -1419,32 +1419,32 @@ async function renderReplay(messages, system, resolveImage, { preserve = [], fre
   const latestHandoff = [...body].reverse().find(message => message.source?.handoff === true)
   const preserveSet = new Set(preserve)
   let full = false
+  const entryTextBytes = blocks => blocks.reduce((sum, block) => sum + (block?.type === 'text' ? utf8Bytes(block.text) : 0), 0)
   for (const message of [...body].reverse()) {
     const sourceKind = message.source?.kind
     const isCurrentInput = message === latest || message === latestNonClock || preserveSet.has(message)
     if (!isCurrentInput && sourceKind === 'runtime-context') continue
     if (sourceKind === GROUP_MEMORY_SOURCE && message !== latestGroupMem) continue
-    const text = textOf(message.content)
     const prefix = `${message.role === 'assistant' ? 'You' : message.role === 'tool' ? `Tool result (${message.toolCallId ?? 'call'})` : 'User'}:`
     if (sourceKind === MEMORY_UPDATE_SOURCE) {
       if (freshMemory !== undefined) continue
-      const len = utf8Bytes(prefix) + 1 + utf8Bytes(text)
-      if (memoryUpdates >= MEMORY_UPDATE_REPLAY_MAX || (memoryUpdates > 0 && memoryUpdateBytes + len > MEMORY_UPDATE_REPLAY_BYTES)) continue
+      if (memoryUpdates >= MEMORY_UPDATE_REPLAY_MAX || (memoryUpdates > 0 && memoryUpdateBytes >= MEMORY_UPDATE_REPLAY_BYTES)) continue
       const maxBytes = Math.max(500, MEMORY_UPDATE_REPLAY_BYTES - memoryUpdateBytes)
       const blocks = await blocksOfMessage(message, { maxBytes, resolveImage, includeToolCalls: true })
       if (blocks.length === 0) continue
       const entry = blocks[0].type === 'text'
         ? [{ type: 'text', text: `${prefix} ${blocks[0].text}` }, ...blocks.slice(1)]
         : [{ type: 'text', text: prefix }, ...blocks]
+      const entryBytes = entryTextBytes(entry)
+      if (memoryUpdates > 0 && memoryUpdateBytes + entryBytes > MEMORY_UPDATE_REPLAY_BYTES) continue
       picked.unshift(entry)
       memoryUpdates += 1
-      memoryUpdateBytes += Math.min(len, maxBytes)
+      memoryUpdateBytes += entryBytes
       continue
     }
     const whole = isCurrentInput || message === latestHandoff || message === latestGroupMem
-    const approxLen = utf8Bytes(prefix) + 1 + (whole ? utf8Bytes(text) : Math.min(utf8Bytes(text), REPLAY_LINE_MAX))
     if (!whole) {
-      full ||= conversationCount >= REPLAY_MESSAGES || picked.length >= REPLAY_TOTAL_MAX || used + approxLen > REPLAY_BYTES
+      full ||= conversationCount >= REPLAY_MESSAGES || picked.length >= REPLAY_TOTAL_MAX || used + utf8Bytes(prefix) + 1 > REPLAY_BYTES
       if (full) continue
     }
     const blocks = await blocksOfMessage(message, { maxBytes: whole ? Infinity : REPLAY_LINE_MAX, resolveImage, includeToolCalls: true })
@@ -1454,8 +1454,13 @@ async function renderReplay(messages, system, resolveImage, { preserve = [], fre
       : blocks.length > 0
         ? [{ type: 'text', text: prefix }, ...blocks]
         : [{ type: 'text', text: `${prefix} ` }]
+    const entryBytes = entryTextBytes(entry)
+    if (!whole && used + entryBytes > REPLAY_BYTES) {
+      full = true
+      continue
+    }
     picked.unshift(entry)
-    if (!whole) used += approxLen
+    if (!whole) used += entryBytes
     if (message.role !== 'tool' && sourceKind !== GROUP_MEMORY_SOURCE && sourceKind !== 'runtime-context') {
       conversationCount += 1
     }

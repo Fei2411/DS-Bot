@@ -44525,11 +44525,23 @@ function ProfileForm({ initial, detected, submit, close }) {
   const [baseRoute, setBaseRoute] = (0, import_react56.useState)(initial?.baseRoute ?? detected[0]?.route ?? "");
   const [name, setName] = (0, import_react56.useState)(initial?.name ?? "");
   const [configDir, setConfigDir] = (0, import_react56.useState)(initial?.customConfigDir ?? "");
+  const [saving, setSaving] = (0, import_react56.useState)(false);
   const [error, setError] = (0, import_react56.useState)("");
+  const savingRef = (0, import_react56.useRef)(false);
   const isEdit = Boolean(initial);
+  const selectedBaseRoute = isEdit ? initial.baseRoute : detected.some((item) => item.route === baseRoute) ? baseRoute : detected[0]?.route ?? "";
+  const canSave = !saving && (isEdit || selectedBaseRoute !== "");
   const save = () => {
-    const payload = isEdit ? { route: initial.route, name, configDir: configDir.trim() === "" ? null : configDir.trim() } : { baseRoute, name, ...configDir.trim() === "" ? {} : { configDir: configDir.trim() } };
-    submit(payload).then(() => close()).catch((failure) => setError(failure?.message ?? String(failure)));
+    if (savingRef.current || !canSave) return;
+    savingRef.current = true;
+    setSaving(true);
+    setError("");
+    const payload = isEdit ? { route: initial.route, name, configDir: configDir.trim() === "" ? null : configDir.trim() } : { baseRoute: selectedBaseRoute, name, ...configDir.trim() === "" ? {} : { configDir: configDir.trim() } };
+    submit(payload).then(() => close()).catch((failure) => {
+      savingRef.current = false;
+      setSaving(false);
+      setError(failure?.message ?? String(failure));
+    });
   };
   return (0, import_react56.createElement)(
     "div",
@@ -44548,7 +44560,7 @@ function ProfileForm({ initial, detected, submit, close }) {
         (0, import_react56.createElement)("span", null, t("Agent")),
         (0, import_react56.createElement)(
           "select",
-          { className: "bt-select", value: baseRoute, onChange: (event) => setBaseRoute(event.target.value) },
+          { className: "bt-select", value: selectedBaseRoute, disabled: saving || detected.length === 0, onChange: (event) => setBaseRoute(event.target.value) },
           detected.map((agent) => (0, import_react56.createElement)("option", { key: agent.route, value: agent.route }, agent.name))
         )
       ),
@@ -44556,21 +44568,21 @@ function ProfileForm({ initial, detected, submit, close }) {
         "label",
         { className: "bt-set-field" },
         (0, import_react56.createElement)("span", null, t("Profile name")),
-        (0, import_react56.createElement)("input", { className: "bt-input", value: name, autoFocus: true, placeholder: "Work", maxLength: 32, onChange: (event) => setName(event.target.value) })
+        (0, import_react56.createElement)("input", { className: "bt-input", value: name, autoFocus: true, disabled: saving, placeholder: "Work", maxLength: 32, onChange: (event) => setName(event.target.value) })
       )
     ),
     (0, import_react56.createElement)(
       "label",
       { className: "bt-set-field" },
       (0, import_react56.createElement)("span", null, t("Config folder")),
-      (0, import_react56.createElement)("input", { className: "bt-input bt-la-code-input", value: configDir, placeholder: t("Default folder"), spellCheck: false, onChange: (event) => setConfigDir(event.target.value) })
+      (0, import_react56.createElement)("input", { className: "bt-input bt-la-code-input", value: configDir, disabled: saving, placeholder: t("Default folder"), spellCheck: false, onChange: (event) => setConfigDir(event.target.value) })
     ),
     error ? (0, import_react56.createElement)("div", { className: "bt-error", role: "alert" }, error) : null,
     (0, import_react56.createElement)(
       "div",
       { className: "bt-set-actions bt-set-form-foot" },
-      (0, import_react56.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: close }, t("Cancel")),
-      (0, import_react56.createElement)("button", { type: "button", className: "bt-send bt-soft-sm", onClick: save }, t("Save"))
+      (0, import_react56.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: saving, onClick: close }, t("Cancel")),
+      (0, import_react56.createElement)("button", { type: "button", className: "bt-send bt-soft-sm", disabled: !canSave, onClick: save }, saving ? t("Saving…") : t("Save"))
     )
   );
 }
@@ -44683,7 +44695,8 @@ function LocalAgentsPage({ run: run2, Row: Row4 }) {
   if (view === null) return null;
   if (view.available === false) return (0, import_react56.createElement)("p", { className: "bt-set-hint" }, t("This DSH cannot register local agent routes."));
   const profiles = view.profiles ?? [];
-  const canAddProfile = view.detected.length > 0;
+  const profileCapable = view.detected.filter((agent) => agent.supportsProfiles === true);
+  const canAddProfile = profileCapable.length > 0;
   return [
     (0, import_react56.createElement)(
       "section",
@@ -44746,7 +44759,7 @@ function LocalAgentsPage({ run: run2, Row: Row4 }) {
         })),
         editing === "profile:new" ? (0, import_react56.createElement)(ProfileForm, {
           key: "profile:new",
-          detected: view.detected,
+          detected: profileCapable,
           close: () => setEditing(null),
           submit: (payload) => call("local-agent-profile-add", payload).then(() => load("local-agents"))
         }) : null

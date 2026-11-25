@@ -24,8 +24,10 @@ import {
   profileRoute,
   signInFor,
   splitProfileRoute,
+  supportsProfiles,
   validateCustom,
   validateProfile,
+  validateProfileDirUnique,
 } from './engines.js'
 import { findEngineExecutable, findExecutable, probeEnv, probeSignIn, probeVersion, refreshSearchDirs } from './discover.js'
 
@@ -67,7 +69,7 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
   const profiles = () => store().profiles
   const customRouteId = () => store().custom.map(agent => customRoute(agent.id))
   const profileRouteId = () => store().profiles
-    .filter(profile => ENGINES[profile?.baseRoute] !== undefined && isValidProfileId(profile?.id))
+    .filter(profile => ENGINES[profile?.baseRoute] !== undefined && supportsProfiles(profile.baseRoute) && isValidProfileId(profile?.id))
     .map(profile => profileRoute(profile.baseRoute, profile.id))
   const allRoutes = () => [...Object.keys(ENGINES), ...profileRouteId(), ...customRouteId()]
 
@@ -77,14 +79,31 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
   const profileProbes = new Map()
   let nextProbeEpoch = 0
   let disposed = false
+  const clearProfileProbe = (route) => {
+    const pState = profileProbes.get(route)
+    pState?.signInAbort?.abort()
+    profileProbes.delete(route)
+  }
+  const clearEngineProfileProbes = (baseRoute) => {
+    for (const route of [...profileProbes.keys()]) {
+      if (splitProfileRoute(route)?.baseRoute === baseRoute) clearProfileProbe(route)
+    }
+  }
   async function scan() {
     await refreshSearchDirs()
     if (disposed) return []
     for (const route of Object.keys(ENGINES)) {
       const spec = ENGINES[route]
       const path = findEngineExecutable(spec, findExecutable)
-      if (path === undefined) found.delete(route)
-      else if (found.get(route)?.path !== path) found.set(route, { route, name: spec.name, path, version: undefined, signIn: signInFor(spec, path) })
+      if (path === undefined) {
+        const prev = found.get(route)
+        prev?.versionAbort?.abort()
+        prev?.signInAbort?.abort()
+        found.delete(route)
+        clearEngineProfileProbes(route)
+      } else if (found.get(route)?.path !== path) {
+        found.set(route, { route, name: spec.name, path, version: undefined, signIn: signInFor(spec, path) })
+      }
     }
     applyRoutes()
     return [...found.values()]
@@ -130,7 +149,10 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
     if (ENGINES[profile?.baseRoute] === undefined || !isValidProfileId(profile?.id)) return
     const route = profileRoute(profile.baseRoute, profile.id)
     const baseFound = found.get(profile.baseRoute)
-    if (baseFound === undefined) return
+    if (baseFound === undefined || !supportsProfiles(profile.baseRoute)) {
+      clearProfileProbe(route)
+      return
+    }
     const spec = engineSpecOf(route, [], store().profiles, { home: rt.home })
     let entry = profileProbes.get(route)
     if (entry === undefined) {
@@ -369,7 +391,7 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
   // ---------------------------------------------------------------------------
   // The Settings page's endpoints.
 
-  const detected = () => [...found.values()].filter(entry => registeredRoutes.has(entry.route)).map(entry => ({ route: entry.route, name: entry.name, path: entry.path, version: entry.version ?? null, signIn: entry.signIn, signedIn: entry.signedIn ?? null }))
+  const detected = () => [...found.values()].filter(entry => registeredRoutes.has(entry.route)).map(entry => ({ route: entry.route, name: entry.name, path: entry.path, version: entry.version ?? null, signIn: entry.signIn, signedIn: entry.signedIn ?? null, supportsProfiles: supportsProfiles(entry.route) }))
   const profileViewOf = (profile) => {
     const route = profileRoute(profile.baseRoute, profile.id)
     const baseFound = found.get(profile.baseRoute)
@@ -388,7 +410,7 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
       path: baseFound?.path ?? null,
       version: baseFound?.version ?? null,
       signIn: signInFor(spec, baseFound?.path),
-      signedIn: pState?.signedIn ?? null,
+      signedIn: baseFound ? (pState?.signedIn ?? null) : null,
     }
   }
   const profilesView = () => store().profiles
@@ -473,11 +495,13 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
         if (existingIds.has(clean.id)) throw new Error(`A profile with ID "${clean.id}" already exists for ${ENGINES[clean.baseRoute].name}`)
         const managed = clean.configDir === undefined
         const dir = clean.configDir ?? defaultProfileDir(rt.home, clean.baseRoute, clean.id)
+        validateProfileDirUnique(clean.baseRoute, dir, store().profiles, { home: rt.home })
         ensureProfileDir(dir, { managed })
         store().profiles.push(clean)
         if (!found.has(clean.baseRoute)) await scan()
         applyRoutes()
         await Promise.all([probeVersions(), probeProfileSignIn(clean, { force: true })])
+        await rt.catalog?.({ fresh: true })
         await rt.save()
         return profileViewOf(clean)
       }
@@ -498,6 +522,7 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
         })
         const managed = clean.configDir === undefined
         const newDir = clean.configDir ?? defaultProfileDir(rt.home, clean.baseRoute, clean.id)
+        validateProfileDirUnique(clean.baseRoute, newDir, store().profiles, { home: rt.home, ignoreId: entry.id })
         const dirChanged = newDir !== prevDir
         const configChanged = dirChanged || JSON.stringify(clean.env ?? {}) !== prevEnv
         ensureProfileDir(newDir, { managed })
@@ -509,9 +534,7 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
         if (configChanged) {
           await adapter.closeRoute(route)
           if (dirChanged) clearRouteSessions(route)
-          const pState = profileProbes.get(route)
-          pState?.signInAbort?.abort()
-          profileProbes.delete(route)
+          clearProfileProbe(route)
           await probeProfileSignIn(entry, { force: true })
         }
         await rt.catalog?.({ fresh: true })
@@ -523,9 +546,7 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
         if (index === -1 || entry === undefined) throw new Error('Unknown profile')
         const route = profileRoute(entry.baseRoute, entry.id)
         store().profiles.splice(index, 1)
-        const pState = profileProbes.get(route)
-        pState?.signInAbort?.abort()
-        profileProbes.delete(route)
+        clearProfileProbe(route)
         await adapter.closeRoute(route, 'the local agent profile was removed')
         clearRouteSessions(route)
         applyRoutes()

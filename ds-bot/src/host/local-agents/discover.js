@@ -76,7 +76,7 @@ export function probeEnv(extra = {}) {
 }
 
 // Builds a probe environment from sanitized host env + explicit caller/profile
-// overrides (CLAUDE_CONFIG_DIR, CODEX_HOME, XDG_CONFIG_HOME, MISE_OFFLINE, etc.)
+// overrides (CLAUDE_CONFIG_DIR, CODEX_HOME, MISE_OFFLINE, etc.)
 // without leaking dropped host secrets or losing PATH when overrideEnv is sparse.
 function probeEnvWithOverride(overrideEnv, extraEnv) {
   const merged = {}
@@ -625,14 +625,7 @@ function resolvePlatformFile(spec, home, platform, env, { isolated = false } = {
   const envRoot = envValue(env, entry.env, platform)
   if (envRoot !== '' && isAbsoluteFor(envRoot, platform)) return join(envRoot, ...entry.path)
   // An isolated profile must not silently fall back to the default global home directory.
-  if (isolated) {
-    const xdgRoot = envValue(env, 'XDG_CONFIG_HOME', platform)
-    if (xdgRoot !== '' && isAbsoluteFor(xdgRoot, platform)) {
-      const xdgEntry = spec.default ?? entry
-      return join(xdgRoot, ...xdgEntry.path)
-    }
-    return undefined
-  }
+  if (isolated) return undefined
   return join(home, ...(entry.base ?? []), ...entry.path)
 }
 
@@ -643,13 +636,7 @@ function resolveSimpleFile(check, home, platform, env, { isolated = false } = {}
       return join(envRoot, ...check.file.slice(1))
     }
   }
-  if (isolated) {
-    const xdgRoot = envValue(env, 'XDG_CONFIG_HOME', platform)
-    if (xdgRoot !== '' && isAbsoluteFor(xdgRoot, platform)) {
-      return join(xdgRoot, ...check.file)
-    }
-    return undefined
-  }
+  if (isolated) return undefined
   return join(home, ...check.file)
 }
 
@@ -657,7 +644,7 @@ function hasIsolatedProfileEnv(env, extraEnv, isolated) {
   if (isolated === true) return true
   const checkKeys = (obj, keys) => obj !== undefined && obj !== null
     && Object.keys(obj).some(key => keys.includes(key.toUpperCase()) && String(obj[key] ?? '').trim() !== '')
-  if (checkKeys(extraEnv, ['CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'XDG_CONFIG_HOME'])) return true
+  if (checkKeys(extraEnv, ['CLAUDE_CONFIG_DIR', 'CODEX_HOME'])) return true
   if (env !== process.env && checkKeys(env, ['CLAUDE_CONFIG_DIR', 'CODEX_HOME'])) return true
   return false
 }

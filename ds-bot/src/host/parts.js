@@ -256,10 +256,13 @@ export function install(rt) {
     const budget = Math.min(RECENT_TOKENS, Math.floor((lines?.check ?? 4 * RECENT_TOKENS) / 4))
     const rawCarried = await handoffLines(agent.id, { budget, group: room !== undefined, number: parts.length })
     const targetWindow = await targetWindowTokensOf(rt.botOf(place.botId), session, lines?.window)
+    const held = [...(agent.inbox?.nextStep ?? []), ...(agent.inbox?.nextTurn ?? [])]
     const carried = applyHandoffBudget(rawCarried, {
+      session,
       targetWindowTokens: targetWindow,
       noteBody: previousNote ?? '',
       carry,
+      held,
       maxHistoryTokens: budget + LIST_TOKENS + TOOL_TRAIL_TOKENS,
     })
     const text = handoffPackage({
@@ -277,7 +280,7 @@ export function install(rt) {
     const history = measured?.nodes === undefined
       ? messages.filter(message => message.role !== 'system').reduce((total, message) => total + size(message), 0)
       : measured.nodes.filter(node => session.eventAt(node.seq).type !== 'system/message').reduce((total, node) => total + node.tokens, 0)
-    const pending = carry.reduce((total, message) => total + size(message), 0)
+    const pending = [...carry, ...held].reduce((total, message) => total + size(message), 0)
     const replacement = size({ role: 'user', content: [{ type: 'text', text }] }) + pending
     const tokens = measured?.totalTokens
     // A fresh CLI session holds only its own instructions besides the handoff.
@@ -318,9 +321,32 @@ export function install(rt) {
     return Number.isInteger(fallbackWindow) && fallbackWindow > 0 ? fallbackWindow : undefined
   }
 
+  // Estimates the fixed prompt/header overhead (system prompt messages + tool
+  // schemas) that stays in the destination session across a handoff.
+  function sessionNativeBytes(session) {
+    let bytes = 0
+    try {
+      const header = session?.requestHeader?.()
+      if (header !== undefined && header !== null) {
+        if (typeof header.system === 'string') bytes += utf8Bytes(header.system)
+        if (typeof header.systemPrompt === 'string') bytes += utf8Bytes(header.systemPrompt)
+        if (Array.isArray(header.tools) && header.tools.length > 0) {
+          bytes += utf8Bytes(JSON.stringify(header.tools))
+        }
+      }
+    } catch {}
+    try {
+      const derived = session?.deriveMessages?.()
+      if (Array.isArray(derived)) {
+        bytes += measureMessagesBytes(derived.filter(message => message?.role === 'system'))
+      }
+    } catch {}
+    return bytes
+  }
+
   // Enforces the exact UTF-8 byte budget on a deterministic handoff payload while
   // strictly preserving the newest message and any carried in-flight turn/attachments.
-  function applyHandoffBudget(carried, { targetWindowTokens, noteBody = '', carry = [], held = [], maxHistoryTokens } = {}) {
+  function applyHandoffBudget(carried, { session, targetWindowTokens, noteBody = '', carry = [], held = [], maxHistoryTokens } = {}) {
     if (!Number.isInteger(targetWindowTokens) || targetWindowTokens <= 0) return carried
     const recent = carried?.recent ?? []
     const earlier = carried?.earlier ?? []
@@ -331,7 +357,7 @@ export function install(rt) {
     const pending = [...(carry ?? []), ...(held ?? [])]
     const currentTurnBytes = measureMessagesBytes(pending) + (newest.length > 0 ? utf8Bytes(newest[0]) : 0)
     const attachmentCount = countMessageAttachments(pending)
-    const nativeUsedBytes = utf8Bytes(noteBody) + 1024
+    const nativeUsedBytes = utf8Bytes(noteBody) + sessionNativeBytes(session) + 1024
     const maxHistoryBytes = maxHistoryTokens !== undefined
       ? Math.floor(maxHistoryTokens * DEFAULT_BYTES_PER_TOKEN) : undefined
     const computed = computeHandoffBudget({
@@ -2197,6 +2223,7 @@ export function install(rt) {
       const engine = job.engine ? rt.engineNameOf?.(bot.model ?? bot.appliedModel) : undefined
       const targetWindow = await targetWindowTokensOf(bot, session, lines?.window)
       budgeted = applyHandoffBudget(carried, {
+        session,
         targetWindowTokens: targetWindow,
         noteBody: noteText(segment) ?? '',
         carry: job.carry,

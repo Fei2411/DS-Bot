@@ -2,9 +2,9 @@
 // name, how it starts, and which driver speaks its protocol: 'acp' (Agent
 // Client Protocol over stdio), 'codex' (the Codex app-server JSON-RPC), or
 // 'claude' (Claude Code's stream-json).
-import { chmodSync, mkdirSync, statSync } from 'node:fs'
+import { chmodSync, mkdirSync, realpathSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { isAbsolute, join, parse, resolve, win32 } from 'node:path'
+import { basename, dirname, isAbsolute, join, parse, posix, resolve, win32 } from 'node:path'
 
 export const KINDS = ['acp', 'codex', 'claude']
 export const PROFILE_SEPARATOR = '@'
@@ -42,8 +42,8 @@ const CLIS = {
       },
     },
   },
-  'claude-code': { name: 'Claude Code', kind: 'claude', command: 'claude', args: [], version: ['--version'], signIn: 'claude', signedIn: { args: ['auth', 'status'], fallback: { file: ['.claude', '.credentials.json'], envDir: 'CLAUDE_CONFIG_DIR' } } },
-  'codex-cli': { name: 'Codex CLI', kind: 'codex', command: 'codex', args: ['app-server', '--listen', 'stdio://'], version: ['--version'], signIn: 'codex login', signedIn: { args: ['login', 'status'] } },
+  'claude-code': { name: 'Claude Code', kind: 'claude', command: 'claude', args: [], version: ['--version'], signIn: 'claude', profileEnv: 'CLAUDE_CONFIG_DIR', defaultConfigDir: ['.claude'], signedIn: { args: ['auth', 'status'], fallback: { file: ['.claude', '.credentials.json'], envDir: 'CLAUDE_CONFIG_DIR' } } },
+  'codex-cli': { name: 'Codex CLI', kind: 'codex', command: 'codex', args: ['app-server', '--listen', 'stdio://'], version: ['--version'], signIn: 'codex login', profileEnv: 'CODEX_HOME', defaultConfigDir: ['.codex'], signedIn: { args: ['login', 'status'] } },
   'cursor-cli': {
     name: 'Cursor CLI', kind: 'acp', command: 'cursor-agent', args: ['acp'], version: ['--version'], signIn: 'cursor-agent login',
     // `cursor-agent status` validates over the network and requires either both OAuth
@@ -163,10 +163,120 @@ export function splitProfileRoute(route) {
 
 export const isProfileRoute = route => splitProfileRoute(route) !== null
 
-export function profileEnvKeyFor(baseRoute) {
-  if (baseRoute === 'local-claude-code') return 'CLAUDE_CONFIG_DIR'
-  if (baseRoute === 'local-codex-cli') return 'CODEX_HOME'
-  return 'XDG_CONFIG_HOME'
+export function profileEnvKeyFor(baseRoute, platform = process.platform) {
+  const spec = ENGINES[baseRoute]
+  if (spec === undefined || spec.profileEnv === undefined || spec.profileEnv === null) return null
+  if (typeof spec.profileEnv === 'string') return spec.profileEnv.trim() || null
+  if (typeof spec.profileEnv === 'object') {
+    const key = spec.profileEnv[platform] ?? spec.profileEnv.default
+    return typeof key === 'string' && key.trim() !== '' ? key.trim() : null
+  }
+  return null
+}
+
+export function supportsProfiles(baseRoute, platform = process.platform) {
+  return profileEnvKeyFor(baseRoute, platform) !== null
+}
+
+function envLookup(env, name, platform) {
+  if (env === undefined || env === null || !name) return ''
+  if (platform !== 'win32') return String(env[name] ?? '').trim()
+  const upper = name.toUpperCase()
+  const key = Object.keys(env).find(candidate => candidate.toUpperCase() === upper)
+  return key === undefined ? '' : String(env[key] ?? '').trim()
+}
+
+function expandHomeDir(raw, userHome, platform) {
+  const pathImpl = platform === 'win32' ? win32 : posix
+  if (raw.startsWith('~/') || raw.startsWith('~\\')) {
+    return platform === process.platform ? join(userHome, raw.slice(2)) : pathImpl.join(userHome, raw.slice(2))
+  }
+  return raw
+}
+
+function isAbsoluteForPlatform(value, platform) {
+  return platform === 'win32' ? win32.isAbsolute(value) : (platform === process.platform ? isAbsolute(value) : posix.isAbsolute(value))
+}
+
+function resolveForPlatform(value, platform) {
+  if (platform === process.platform) return resolve(value)
+  return platform === 'win32' ? win32.resolve(value) : posix.resolve(value)
+}
+
+export function canonicalizeProfileDir(dir, { platform = process.platform } = {}) {
+  const pathImpl = platform === 'win32' ? win32 : posix
+  let resolved = resolveForPlatform(dir, platform)
+  if (platform === process.platform) {
+    // Walk up to the deepest existing ancestor so symlinks (e.g. /tmp -> /private/tmp
+    // or a symlinked config folder) compare identically even before the leaf exists.
+    const tail = []
+    let cursor = resolved
+    while (true) {
+      try {
+        const real = realpathSync(cursor)
+        resolved = tail.length > 0 ? join(real, ...tail.reverse()) : real
+        break
+      } catch (error) {
+        if (error?.code !== 'ENOENT' && error?.code !== 'ENOTDIR') break
+        const parent = dirname(cursor)
+        if (parent === cursor) break
+        tail.push(basename(cursor))
+        cursor = parent
+      }
+    }
+  }
+  const root = (platform === process.platform ? parse(resolved) : pathImpl.parse(resolved)).root
+  while (resolved.length > root.length && (resolved.endsWith('/') || resolved.endsWith('\\'))) {
+    resolved = resolved.slice(0, -1)
+  }
+  return platform === 'win32' ? resolved.toLowerCase() : resolved
+}
+
+export function globalProfileDirsFor(baseRoute, { userHome = homedir(), env = process.env, platform = process.platform } = {}) {
+  const spec = ENGINES[baseRoute]
+  if (spec === undefined) return []
+  const dirs = []
+  const pathImpl = platform === 'win32' ? win32 : posix
+  if (Array.isArray(spec.defaultConfigDir) && spec.defaultConfigDir.length > 0 && userHome) {
+    dirs.push(platform === process.platform ? join(userHome, ...spec.defaultConfigDir) : pathImpl.join(userHome, ...spec.defaultConfigDir))
+  }
+  const envKey = profileEnvKeyFor(baseRoute, platform)
+  if (envKey !== null) {
+    const rawEnvDir = envLookup(env, envKey, platform)
+    if (rawEnvDir !== '' && !hasControlChars(rawEnvDir)) {
+      const expanded = expandHomeDir(rawEnvDir, userHome, platform)
+      if (isAbsoluteForPlatform(expanded, platform)) {
+        dirs.push(resolveForPlatform(expanded, platform))
+      }
+    }
+  }
+  return dirs
+}
+
+export function validateProfileDirUnique(baseRoute, targetDir, profiles = [], {
+  home,
+  userHome = homedir(),
+  env = process.env,
+  platform = process.platform,
+  ignoreId,
+} = {}) {
+  const base = ENGINES[baseRoute]
+  if (base === undefined) throw new Error(`Unknown built-in local agent: ${baseRoute}`)
+  const canonicalTarget = canonicalizeProfileDir(targetDir, { platform })
+  for (const globalDir of globalProfileDirsFor(baseRoute, { userHome, env, platform })) {
+    if (canonicalizeProfileDir(globalDir, { platform }) === canonicalTarget) {
+      throw new Error(`Profile folder cannot be ${base.name}'s default global directory`)
+    }
+  }
+  for (const profile of profiles) {
+    if (profile?.baseRoute !== baseRoute) continue
+    if (ignoreId !== undefined && profile.id === ignoreId) continue
+    const otherDir = profile.configDir ?? (home ? defaultProfileDir(home, baseRoute, profile.id) : undefined)
+    if (otherDir === undefined) continue
+    if (canonicalizeProfileDir(otherDir, { platform }) === canonicalTarget) {
+      throw new Error(`Profile folder is already used by another ${base.name} profile (${profile.name || profile.id})`)
+    }
+  }
 }
 
 export function isBlockedProfileEnvKey(key) {
@@ -190,15 +300,16 @@ export function validateProfileEnv(raw) {
   return clean
 }
 
-export function profileEnvFor(baseRoute, profileDir, extraEnv = {}) {
+export function profileEnvFor(baseRoute, profileDir, extraEnv = {}, { platform = process.platform } = {}) {
   if (ENGINES[baseRoute] === undefined) throw new Error(`Unknown built-in local agent: ${baseRoute}`)
+  const isolationKey = profileEnvKeyFor(baseRoute, platform)
+  if (isolationKey === null) throw new Error(`${ENGINES[baseRoute].name} does not support isolated profiles`)
   const env = validateProfileEnv(extraEnv)
   if (profileDir !== undefined && profileDir !== null && String(profileDir) !== '') {
     if (typeof profileDir !== 'string' || hasControlChars(profileDir)) {
       throw new Error('Profile folder must not contain control characters or newlines')
     }
     if (profileDir.trim() !== '') {
-      const isolationKey = profileEnvKeyFor(baseRoute)
       const upperKey = isolationKey.toUpperCase()
       for (const key of Object.keys(env)) {
         if (key.toUpperCase() === upperKey) delete env[key]
@@ -273,9 +384,20 @@ export function slugifyProfileId(name, existingIds = new Set()) {
   return `p-${Date.now().toString(36)}`
 }
 
-export function validateProfile({ id, baseRoute, name, configDir, env }, { existingIds } = {}) {
+export function validateProfile({ id, baseRoute, name, configDir, env }, {
+  existingIds,
+  existingProfiles,
+  home,
+  userHome = homedir(),
+  env: hostEnv = process.env,
+  platform = process.platform,
+  ignoreId,
+} = {}) {
   const cleanBase = String(baseRoute ?? '').trim()
   if (ENGINES[cleanBase] === undefined) throw new Error('Choose a built-in local agent')
+  if (!supportsProfiles(cleanBase, platform)) {
+    throw new Error(`${ENGINES[cleanBase].name} does not support isolated profiles`)
+  }
   const cleanName = String(name ?? '').trim().slice(0, 32)
   if (cleanName === '') throw new Error('Profile name is required')
   let cleanId
@@ -289,13 +411,27 @@ export function validateProfile({ id, baseRoute, name, configDir, env }, { exist
   if (configDir !== undefined && configDir !== null && String(configDir).trim() !== '') {
     const raw = String(configDir).trim()
     if (hasControlChars(raw)) throw new Error('Profile folder must not contain control characters or newlines')
-    const expanded = raw.startsWith('~/') || raw.startsWith('~\\') ? join(homedir(), raw.slice(2)) : raw
-    if (!isAbsolute(expanded)) throw new Error('Profile folder must be an absolute path')
-    const resolved = resolve(expanded)
-    if (resolved === parse(resolved).root || resolved === resolve(homedir())) {
+    const expanded = expandHomeDir(raw, userHome, platform)
+    if (!isAbsoluteForPlatform(expanded, platform)) throw new Error('Profile folder must be an absolute path')
+    const resolved = resolveForPlatform(expanded, platform)
+    const canonical = canonicalizeProfileDir(resolved, { platform })
+    const rootDir = (platform === process.platform ? parse(resolved) : (platform === 'win32' ? win32 : posix).parse(resolved)).root
+    const canonicalRoot = platform === 'win32' ? rootDir.toLowerCase() : rootDir
+    if (canonical === canonicalRoot || canonical === canonicalizeProfileDir(userHome, { platform })) {
       throw new Error('Profile folder must be a dedicated subfolder, not the root or home directory')
     }
+    for (const globalDir of globalProfileDirsFor(cleanBase, { userHome, env: hostEnv, platform })) {
+      if (canonicalizeProfileDir(globalDir, { platform }) === canonical) {
+        throw new Error(`Profile folder cannot be ${ENGINES[cleanBase].name}'s default global directory`)
+      }
+    }
     cleanDir = resolved
+  }
+  if (existingProfiles !== undefined) {
+    const effectiveDir = cleanDir ?? (home ? defaultProfileDir(home, cleanBase, cleanId) : undefined)
+    if (effectiveDir !== undefined) {
+      validateProfileDirUnique(cleanBase, effectiveDir, existingProfiles, { home, userHome, env: hostEnv, platform, ignoreId })
+    }
   }
   const cleanEnv = validateProfileEnv(env)
   return {
@@ -326,7 +462,7 @@ export const legacyRoute = (provider) => {
 // A custom ACP agent's route id from its list position (stable across edits).
 export const customRoute = (id) => `${CUSTOM_PREFIX}${id}`
 
-export function engineOf(route, custom = [], profiles = [], { home } = {}) {
+export function engineOf(route, custom = [], profiles = [], { home, platform = process.platform } = {}) {
   if (ENGINES[route] !== undefined) return ENGINES[route]
   if (route.startsWith(CUSTOM_PREFIX)) {
     const entry = custom.find(agent => agent.id === route.slice(CUSTOM_PREFIX.length))
@@ -334,12 +470,13 @@ export function engineOf(route, custom = [], profiles = [], { home } = {}) {
   }
   const split = splitProfileRoute(route)
   if (split !== null) {
+    if (!supportsProfiles(split.baseRoute, platform)) return undefined
     const entry = profiles.find(profile => profile?.baseRoute === split.baseRoute && profile?.id === split.profileId)
     if (entry !== undefined) {
       const base = ENGINES[split.baseRoute]
       const profileDir = entry.configDir ?? (home ? defaultProfileDir(home, split.baseRoute, split.profileId) : undefined)
-      const profileEnvKey = profileEnvKeyFor(split.baseRoute)
-      const env = { ...base.env, ...profileEnvFor(split.baseRoute, profileDir, entry.env) }
+      const profileEnvKey = profileEnvKeyFor(split.baseRoute, platform)
+      const env = { ...base.env, ...profileEnvFor(split.baseRoute, profileDir, entry.env, { platform }) }
       return {
         ...base,
         name: `${base.name} (${entry.name})`,

@@ -163,6 +163,41 @@ test('fitHandoffHistory preserves newest turn even at 0 budget and trims earlier
   assert.deepEqual(zero.recent, [])
   assert.equal(zero.usedBytes, 0)
   assert.deepEqual(zero.currentTurn, [currentTurn])
+
+  // 7. Explicit maxEntryBytes === 0 drops all non-empty historical entries (never leaves them uncapped)
+  const zeroEntryCap = fitHandoffHistory({ currentTurn, earlier, tools, recent, availableBytes: 10_000, maxEntryBytes: 0 })
+  assert.deepEqual(zeroEntryCap.earlier, [])
+  assert.deepEqual(zeroEntryCap.tools, [])
+  assert.deepEqual(zeroEntryCap.recent, [])
+  assert.equal(zeroEntryCap.droppedEarlier, earlier.length)
+  assert.equal(zeroEntryCap.droppedTools, tools.length)
+  assert.equal(zeroEntryCap.droppedRecent, recent.length)
+  assert.equal(zeroEntryCap.truncatedEntries, 0)
+  assert.deepEqual(zeroEntryCap.currentTurn, [currentTurn])
+
+  // 8. truncatedEntries counts only entries that survive in the final output (dropped entries are excluded)
+  const truncatedThenDropped = fitHandoffHistory({
+    currentTurn,
+    earlier: ['A'.repeat(100), 'B'.repeat(100)],
+    tools: ['T'.repeat(100)],
+    recent: ['R'.repeat(100), 'short'],
+    maxEntryBytes: 20,
+    availableBytes: 10,
+  })
+  assert.deepEqual(truncatedThenDropped.earlier, [])
+  assert.deepEqual(truncatedThenDropped.tools, [])
+  assert.deepEqual(truncatedThenDropped.recent, ['short'])
+  assert.equal(truncatedThenDropped.truncatedEntries, 0, 'dropped pre-truncated entries must not inflate truncatedEntries')
+
+  // 9. Single remaining entry that truncates to empty string under tiny byte budget is dropped without incrementing truncatedEntries
+  const tinyMultiByte = fitHandoffHistory({
+    currentTurn,
+    recent: ['中文超长内容'],
+    availableBytes: 2, // smaller than 3-byte ellipsis suffix and 3-byte CJK char
+  })
+  assert.deepEqual(tinyMultiByte.recent, [])
+  assert.equal(tinyMultiByte.droppedRecent, 1)
+  assert.equal(tinyMultiByte.truncatedEntries, 0)
 })
 
 test('parts.js moveOn enforces target model UTF-8 byte budget and preserves newest turn on small-window switch', async () => {
@@ -272,9 +307,118 @@ test('parts.js moveOn enforces target model UTF-8 byte budget and preserves newe
   assert.match(pkg, /Older messages were not carried/, 'trimmed handoff must note omission honestly')
 })
 
-test('adapter.js renderReplay truncates multi-byte CJK/emoji history safely without splitting surrogate pairs', async (t) => {
+test('parts.js moveOn accounts for session requestHeader/system prompt overhead in nativeUsedBytes', async () => {
+  const runSwitch = async ({ withHeaderOverhead }) => {
+    const followed = []
+    const historyEvents = [
+      { type: 'user/message', seq: 1, time: 1, data: { content: [{ type: 'text', text: `FIRST_ENTRY_${'A'.repeat(1_200)}` }], source: { kind: 'user' } } },
+      { type: 'assistant/message', seq: 2, time: 2, data: { message: { content: [{ type: 'text', text: `SECOND_ENTRY_${'B'.repeat(1_200)}` }] } } },
+      { type: 'user/message', seq: 3, time: 3, data: { content: [{ type: 'text', text: 'NEWEST_TURN_VERBATIM' }], source: { kind: 'user' } } },
+    ]
+    const ctx = fakeContext({ services: { tokenMeter: { measure: () => ({ totalTokens: 50_000 }) } } })
+    ctx.logger = { warn: () => {}, info: () => {} }
+    ctx.sessions = { flush: async () => {} }
+    ctx.workspaceRegistry = { archiveSession: async () => {} }
+    ctx.llm = { resolveModelInfo: async () => ({ context: { contextWindow: 4_000 } }) }
+
+    const bot = { id: 'b1', name: 'Kai', sessionId: 's1', model: 'small-provider/tiny', appliedModel: 'big-provider/large', segments: [] }
+    const bigTools = withHeaderOverhead
+      ? [{ name: 'heavy_tool', description: 'X'.repeat(5_500), parameters: { type: 'object', properties: {} } }]
+      : []
+    const derivedSystem = withHeaderOverhead
+      ? [{ role: 'system', content: [{ type: 'text', text: 'S'.repeat(2_000) }] }]
+      : []
+    const session = {
+      id: 's1',
+      header: { cwd: '/tmp/team' },
+      requestHeader: () => ({ config: { provider: 'big-provider', model: 'large' }, tools: bigTools }),
+      deriveMessages: () => derivedSystem,
+      toolHistory: () => [],
+    }
+    const agent = {
+      id: 's1', session, status: 'idle',
+      whenIdle: async () => {},
+      runMaintenance: async job => job(AbortSignal.timeout(10_000)),
+      inbox: { nextStep: [], nextTurn: [] },
+      followup: message => followed.push(message),
+      send: async () => {},
+    }
+    const fresh = {
+      id: 's2',
+      session: { id: 's2', header: { cwd: '/tmp/team' }, requestHeader: () => ({ config: {} }), deriveMessages: () => [], toolHistory: () => [] },
+      status: 'idle',
+      whenIdle: async () => {},
+      runMaintenance: async job => job(AbortSignal.timeout(10_000)),
+      inbox: { nextStep: [], nextTurn: [] },
+      followup: message => followed.push(message),
+      send: async () => {},
+    }
+    const rt = {
+      ctx,
+      home: '/unused',
+      config: {},
+      state: { bots: { b1: bot }, rooms: {}, prefs: {}, exchanges: [], capabilities: { items: {} }, switching: {}, questions: {}, views: {} },
+      warn: () => {},
+      async save() {},
+      async load() {},
+      readOnly: () => undefined,
+      botOf: id => rt.state.bots[id],
+      roomOf: () => undefined,
+      selfOf: () => 'b1',
+      isMain: () => false,
+      chatOf: () => 's1',
+      sessionOfRoom: () => undefined,
+      isBotSession: id => ['s1', 's2'].includes(id),
+      isLocalAgentRef: () => false,
+      isLocalAgentRoute: () => false,
+      engineOf: ref => (String(ref).startsWith('small-provider/') ? 'small-engine' : 'big-engine'),
+      engineOfBot: subject => (String(subject?.model).startsWith('small-provider/') ? 'small-engine' : 'big-engine'),
+      engineNameOf: ref => ref,
+      chatOwners: new Map([['s1', 'b1']]),
+      groupOwners: new Map(),
+      pastOwners: new Map(),
+      roomOwners: new Map(),
+      teamTools: [],
+      live: new Map(),
+      groupSessionsOf: () => [],
+      unreadOf: () => [],
+      eventsBackwards: async function* () {
+        for (const event of [...historyEvents].reverse()) yield event
+      },
+      resolveAgent: async id => (id === 's2' ? fresh : agent),
+      createSession: async () => 's2',
+      desiredModel: async subject => subject.model,
+      desiredEffort: async () => undefined,
+      selectSessionModel: async () => {},
+      applyPermission: async () => {},
+      ensureCapabilities: async () => {},
+      renewMemory: () => {},
+      moveSchedules: async () => {},
+      deliver: async () => {},
+      teamFolder: () => '/tmp/team',
+      workDirOf: () => '/tmp/team',
+      isFolder: async () => true,
+      roomProgress: new Map(),
+    }
+    partsInstall(rt)
+    await rt.followEngine('b1')
+    for (let i = 0; i < 100 && bot.sessionId !== 's2'; i += 1) {
+      await new Promise(resolve => setTimeout(resolve, 10))
+    }
+    assert.equal(bot.sessionId, 's2')
+    return followed.map(m => m.content.map(b => b.text).join('')).join('\n')
+  }
+
+  const pkgLight = await runSwitch({ withHeaderOverhead: false })
+  const pkgHeavy = await runSwitch({ withHeaderOverhead: true })
+  assert.ok(pkgLight.includes('FIRST_ENTRY_'), 'without heavy header/system overhead, earlier history fits')
+  assert.equal(pkgHeavy.includes('FIRST_ENTRY_'), false, 'session requestHeader tools + system prompt overhead must tighten availableBytes')
+  assert.ok(pkgHeavy.includes('NEWEST_TURN_VERBATIM'), 'newest turn still survives verbatim')
+})
+
+test('adapter.js renderReplay truncates multi-byte CJK/emoji history safely and counts rendered tool-call bytes', async (t) => {
   const root = mkdtempSync(join(tmpdir(), 'dsb-replay-utf8-'))
-  t.after(() => rmSync(root, { recursive: true, force: true }))
+  const spawnedEngines = []
   const prompts = []
   const origPrompt = AcpEngine.prototype.prompt
   t.after(() => { AcpEngine.prototype.prompt = origPrompt })
@@ -287,7 +431,11 @@ test('adapter.js renderReplay truncates multi-byte CJK/emoji history safely with
     rt: { warn: () => {} },
     customAgents: () => [{ id: 'fake', name: 'Fake', command: 'x', args: [] }],
     findExecutable: p => p,
-    spawnEngine: (_kind, route, spec) => new AcpEngine(route, { ...spec, command: process.execPath, args: [FIXTURE('fake-acp.mjs')] }, { findExecutable: p => p }),
+    spawnEngine: (_kind, route, spec) => {
+      const engine = new AcpEngine(route, { ...spec, command: process.execPath, args: [FIXTURE('fake-acp.mjs')] }, { findExecutable: p => p })
+      spawnedEngines.push(engine)
+      return engine
+    },
     record: () => undefined,
     saveRecord: () => {},
     presetFor: () => 'workspace-write',
@@ -295,7 +443,39 @@ test('adapter.js renderReplay truncates multi-byte CJK/emoji history safely with
     probeCwd: () => root,
     toolsFor: () => [],
   })
-  t.after(() => adapter.dispose())
+  t.after(async () => {
+    const children = []
+    for (const engine of spawnedEngines) {
+      if (engine.child) children.push(engine.child)
+      for (const session of engine.sessions?.values?.() ?? []) {
+        if (session?.child) children.push(session.child)
+      }
+    }
+    const exits = children.map(child => (child.exitCode !== null || child.signalCode !== null
+      ? Promise.resolve()
+      : new Promise((resolve) => {
+        const done = () => { child.off('exit', done); child.off('close', done); resolve() }
+        child.once('exit', done)
+        child.once('close', done)
+      })))
+    try {
+      await adapter.dispose()
+      let timer
+      try {
+        await Promise.race([
+          Promise.all(exits),
+          new Promise((resolve) => {
+            timer = setTimeout(resolve, 3_000)
+            timer.unref?.()
+          }),
+        ])
+      } finally {
+        clearTimeout(timer)
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true, maxRetries: 15, retryDelay: 100 })
+    }
+  })
 
   const messages = [
     { id: 'm1', role: 'user', content: [{ type: 'text', text: '🚀'.repeat(1_200) }], source: { kind: 'user' } },
@@ -309,4 +489,28 @@ test('adapter.js renderReplay truncates multi-byte CJK/emoji history safely with
   assert.ok(prompts[0].includes('LATEST_CURRENT_INPUT_中文_🎉'))
   assert.equal(hasBrokenSurrogates(prompts[0]), false)
   assert.equal(prompts[0].includes('\uFFFD'), false)
+
+  // Pure tool-call historical messages must count their rendered `[tool: ...]` bytes against REPLAY_BYTES (24 KiB)
+  const toolHeavyMessages = []
+  for (let i = 0; i < 20; i += 1) {
+    toolHeavyMessages.push({
+      id: `tc-${i}`,
+      role: 'assistant',
+      content: Array.from({ length: 18 }, (_, j) => ({
+        type: 'tool-call',
+        name: 'read_file',
+        arguments: { path: `/workspace/dir-${i}/segment-${j}/${'x'.repeat(80)}.js` },
+      })),
+    })
+  }
+  toolHeavyMessages.push({ id: 'latest-u', role: 'user', content: [{ type: 'text', text: 'CURRENT_AFTER_TOOLS' }], source: { kind: 'user' } })
+  const seen2 = []
+  for await (const chunk of adapter.stream({ provider: 'local-acp-fake', model: 'default', sessionId: 's2', messages: toolHeavyMessages, tools: [] })) seen2.push(chunk.type)
+  assert.ok(seen2.includes('finish'))
+  assert.equal(prompts.length, 2)
+  assert.ok(prompts[1].includes('CURRENT_AFTER_TOOLS'))
+  // 20 * ~2000 bytes would be ~40 KiB if pure tool-call messages were counted as 5 bytes each;
+  // with rendered entry byte accounting, historical replay stays strictly bounded near REPLAY_BYTES (24 KiB).
+  assert.ok(utf8Bytes(prompts[1]) < 26 * 1024, `expected bounded replay under 26 KiB, got ${utf8Bytes(prompts[1])} bytes`)
+  assert.equal(prompts[1].includes('/dir-0/'), false, 'oldest pure tool-call message must be evicted by REPLAY_BYTES')
 })

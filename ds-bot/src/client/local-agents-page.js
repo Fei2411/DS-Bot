@@ -2,7 +2,7 @@
 // profiles for built-in CLIs, and custom ACP agents the user added. A Bot runs
 // on one of these when the user chooses it: on the Create Bot form, or later
 // under Runs on in the Bot's settings.
-import { createElement as h, useEffect, useState } from 'react'
+import { createElement as h, useEffect, useRef, useState } from 'react'
 import { AgentLogo, shortVersion } from './agent-cards.js'
 import { PlusIcon, TrashIcon } from './icons.js'
 import { call } from './api.js'
@@ -33,13 +33,29 @@ function ProfileForm({ initial, detected, submit, close }) {
   const [baseRoute, setBaseRoute] = useState(initial?.baseRoute ?? detected[0]?.route ?? '')
   const [name, setName] = useState(initial?.name ?? '')
   const [configDir, setConfigDir] = useState(initial?.customConfigDir ?? '')
+  const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const savingRef = useRef(false)
   const isEdit = Boolean(initial)
+  const selectedBaseRoute = isEdit
+    ? initial.baseRoute
+    : (detected.some(item => item.route === baseRoute) ? baseRoute : (detected[0]?.route ?? ''))
+  const canSave = !saving && (isEdit || selectedBaseRoute !== '')
   const save = () => {
+    if (savingRef.current || !canSave) return
+    savingRef.current = true
+    setSaving(true)
+    setError('')
     const payload = isEdit
       ? { route: initial.route, name, configDir: configDir.trim() === '' ? null : configDir.trim() }
-      : { baseRoute, name, ...(configDir.trim() === '' ? {} : { configDir: configDir.trim() }) }
-    submit(payload).then(() => close()).catch(failure => setError(failure?.message ?? String(failure)))
+      : { baseRoute: selectedBaseRoute, name, ...(configDir.trim() === '' ? {} : { configDir: configDir.trim() }) }
+    submit(payload)
+      .then(() => close())
+      .catch((failure) => {
+        savingRef.current = false
+        setSaving(false)
+        setError(failure?.message ?? String(failure))
+      })
   }
   return h('div', { className: 'bt-set-form' },
     h('div', { className: 'bt-set-form-row' },
@@ -49,18 +65,18 @@ function ProfileForm({ initial, detected, submit, close }) {
           h('input', { className: 'bt-input', value: detected.find(item => item.route === initial.baseRoute)?.name ?? initial.baseRoute, disabled: true }))
         : h('label', { className: 'bt-set-field' },
           h('span', null, t('Agent')),
-          h('select', { className: 'bt-select', value: baseRoute, onChange: event => setBaseRoute(event.target.value) },
+          h('select', { className: 'bt-select', value: selectedBaseRoute, disabled: saving || detected.length === 0, onChange: event => setBaseRoute(event.target.value) },
             detected.map(agent => h('option', { key: agent.route, value: agent.route }, agent.name)))),
       h('label', { className: 'bt-set-field' },
         h('span', null, t('Profile name')),
-        h('input', { className: 'bt-input', value: name, autoFocus: true, placeholder: 'Work', maxLength: 32, onChange: event => setName(event.target.value) }))),
+        h('input', { className: 'bt-input', value: name, autoFocus: true, disabled: saving, placeholder: 'Work', maxLength: 32, onChange: event => setName(event.target.value) }))),
     h('label', { className: 'bt-set-field' },
       h('span', null, t('Config folder')),
-      h('input', { className: 'bt-input bt-la-code-input', value: configDir, placeholder: t('Default folder'), spellCheck: false, onChange: event => setConfigDir(event.target.value) })),
+      h('input', { className: 'bt-input bt-la-code-input', value: configDir, disabled: saving, placeholder: t('Default folder'), spellCheck: false, onChange: event => setConfigDir(event.target.value) })),
     error ? h('div', { className: 'bt-error', role: 'alert' }, error) : null,
     h('div', { className: 'bt-set-actions bt-set-form-foot' },
-      h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: close }, t('Cancel')),
-      h('button', { type: 'button', className: 'bt-send bt-soft-sm', onClick: save }, t('Save'))))
+      h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: saving, onClick: close }, t('Cancel')),
+      h('button', { type: 'button', className: 'bt-send bt-soft-sm', disabled: !canSave, onClick: save }, saving ? t('Saving…') : t('Save'))))
 }
 
 function useCopySignIn(command) {
@@ -147,7 +163,8 @@ export function LocalAgentsPage({ run, Row }) {
   if (view === null) return null
   if (view.available === false) return h('p', { className: 'bt-set-hint' }, t('This DSH cannot register local agent routes.'))
   const profiles = view.profiles ?? []
-  const canAddProfile = view.detected.length > 0
+  const profileCapable = view.detected.filter(agent => agent.supportsProfiles === true)
+  const canAddProfile = profileCapable.length > 0
   return [
     h('section', { key: 'found', className: 'bt-set-section', 'data-tour': 'la-detected' },
       h('div', { className: 'bt-la-sec-head' },
@@ -190,7 +207,7 @@ export function LocalAgentsPage({ run, Row }) {
         editing === 'profile:new'
           ? h(ProfileForm, {
             key: 'profile:new',
-            detected: view.detected,
+            detected: profileCapable,
             close: () => setEditing(null),
             submit: payload => call('local-agent-profile-add', payload).then(() => load('local-agents')),
           })

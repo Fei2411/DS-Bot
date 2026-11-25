@@ -186,35 +186,60 @@ export function fitHandoffHistory({
   const sep = Math.floor(nonNegative(delimiterBytes, 1))
   const preserved = Array.isArray(currentTurn) ? [...currentTurn] : (currentTurn === '' || currentTurn == null ? [] : [String(currentTurn)])
 
-  let truncatedEntries = 0
-  const capEntry = (item) => {
-    const str = String(item ?? '')
-    if (maxEntryBytes === undefined) return str
-    const limit = Math.floor(nonNegative(maxEntryBytes, 0))
-    if (limit <= 0 || utf8Bytes(str) <= limit) return str
-    truncatedEntries += 1
-    return truncateUtf8Bytes(str, limit)
+  const hasEntryCap = maxEntryBytes !== undefined && maxEntryBytes !== null && maxEntryBytes !== Infinity
+  const entryCap = hasEntryCap ? Math.floor(nonNegative(maxEntryBytes, 0)) : undefined
+
+  const prepareList = (items) => {
+    const kept = []
+    let dropped = 0
+    for (const item of items ?? []) {
+      const str = String(item ?? '')
+      if (!hasEntryCap || utf8Bytes(str) <= entryCap) {
+        kept.push({ text: str, truncated: false })
+        continue
+      }
+      const cut = truncateUtf8Bytes(str, entryCap)
+      if (cut === '') {
+        dropped += 1
+        continue
+      }
+      kept.push({ text: cut, truncated: true })
+    }
+    return { kept, dropped }
   }
 
-  const keptRecent = (recent ?? []).map(capEntry)
-  const keptEarlier = (earlier ?? []).map(capEntry)
-  const keptTools = (tools ?? []).map(capEntry)
+  const prepRecent = prepareList(recent)
+  const prepEarlier = prepareList(earlier)
+  const prepTools = prepareList(tools)
+  const keptRecent = prepRecent.kept
+  const keptEarlier = prepEarlier.kept
+  const keptTools = prepTools.kept
+
+  const entryListBytes = (items, delimiter) => {
+    if (items.length === 0) return 0
+    let total = 0
+    for (let i = 0; i < items.length; i += 1) {
+      total += utf8Bytes(items[i].text)
+      if (i > 0) total += delimiter
+    }
+    return total
+  }
 
   const totalBytes = () => {
     let sum = 0
     let sections = 0
     for (const list of [keptEarlier, keptTools, keptRecent]) {
       if (list.length === 0) continue
-      sum += listBytes(list, sep)
+      sum += entryListBytes(list, sep)
       sections += 1
     }
     if (sections > 1) sum += (sections - 1) * sep
     return sum
   }
 
-  let droppedEarlier = 0
-  let droppedTools = 0
-  let droppedRecent = 0
+  let droppedEarlier = prepEarlier.dropped
+  let droppedTools = prepTools.dropped
+  let droppedRecent = prepRecent.dropped
 
   while (keptEarlier.length > 0 && totalBytes() > budget) {
     keptEarlier.shift()
@@ -233,20 +258,23 @@ export function fitHandoffHistory({
       keptRecent.shift()
       droppedRecent += 1
     } else {
-      keptRecent[0] = truncateUtf8Bytes(keptRecent[0], budget)
-      truncatedEntries += 1
-      if (keptRecent[0] === '') {
+      const cut = truncateUtf8Bytes(keptRecent[0].text, budget)
+      if (cut === '') {
         keptRecent.shift()
         droppedRecent += 1
+      } else {
+        keptRecent[0] = { text: cut, truncated: true }
       }
     }
   }
 
+  const truncatedEntries = [...keptEarlier, ...keptTools, ...keptRecent].filter(item => item.truncated).length
+
   return {
     currentTurn: preserved,
-    recent: keptRecent,
-    earlier: keptEarlier,
-    tools: keptTools,
+    recent: keptRecent.map(item => item.text),
+    earlier: keptEarlier.map(item => item.text),
+    tools: keptTools.map(item => item.text),
     usedBytes: totalBytes(),
     currentTurnBytes: listBytes(preserved, sep),
     droppedRecent,
