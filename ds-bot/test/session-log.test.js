@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import { AssistantStreamAccumulator } from '@deepseek-ai/dsh-llm/assistant-stream'
 import { compactCheckpointSource } from '@deepseek-ai/dsh-compaction/checkpoint'
-import { addPage, applyFrame, emptyLog, pageBefore, transcriptOf, writingBlocks } from '../src/client/session-log.js'
+import { addPage, applyFrame, emptyLog, isStreamOnlyUpdate, pageBefore, transcriptOf, writingBlocks } from '../src/client/session-log.js'
 
 // What DSH 0.2.2-rc.1 streamed through api/bot/session (dev/record-follow.mjs).
 const RECORDED = JSON.parse(readFileSync(new URL('./fixtures/recorded/dsh-follow-0.2.2-rc.1.json', import.meta.url), 'utf8'))
@@ -161,6 +161,38 @@ test('the transcript keeps what the user saw: a trimmed result stays, a summary 
   const late = transcriptOf(held([...[50, 51, 52].map(appended), replaced(53, 12, 12), replaced(54, 20, 52, { source: compactCheckpointSource('c2') }), appended(55)]))
   assert.deepEqual(late.map(item => item.seq), [50, 51, 52, 54, 55])
   assert.equal(late[3].summary, null)
+})
+
+test('a stream-only transition is the one stream frames make; events frames and reopen paths are not', () => {
+  assert.equal(isStreamOnlyUpdate(null, null), false)
+  assert.equal(isStreamOnlyUpdate(undefined, undefined), false)
+  assert.equal(isStreamOnlyUpdate(emptyLog(), emptyLog()), false)
+
+  let log = emptyLog()
+  const pairs = []
+  for (const frame of LIVE) {
+    const before = log
+    const next = applyFrame(log, frame)
+    log = next.log
+    if (log !== before) pairs.push({ before, after: log, frame, reopen: next.reopen })
+  }
+  const streamFrames = pairs.filter(pair => pair.frame.type === 'assistant-stream' && !pair.reopen)
+  assert.ok(streamFrames.length > 10, 'the recording holds enough stream frames to matter')
+  for (const pair of streamFrames) {
+    assert.equal(isStreamOnlyUpdate(pair.before, pair.after), true, `${pair.frame.frame.type} at revision ${pair.frame.frame.revision} is stream-only`)
+    // Same array reference: the events list never moved across the transition.
+    assert.equal(pair.before.events, pair.after.events)
+  }
+  for (const pair of pairs) {
+    if (pair.frame.type === 'assistant-stream') continue
+    assert.equal(isStreamOnlyUpdate(pair.before, pair.after), false, `${pair.frame.type} is never stream-only`)
+  }
+  // The lookup is exact: swapped, unrelated, and off-by-one log pairs all read false.
+  const one = streamFrames[1]
+  assert.equal(isStreamOnlyUpdate(one.after, one.before), false)
+  assert.equal(isStreamOnlyUpdate(streamFrames[0].before, streamFrames[2].after), false)
+  assert.equal(isStreamOnlyUpdate(one.before, emptyLog()), false)
+  assert.equal(isStreamOnlyUpdate(one.before, null), false)
 })
 
 test('a reply frame counted from 1 again (the Agent started again on this Session) asks to open again', () => {

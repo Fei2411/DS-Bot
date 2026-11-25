@@ -4,7 +4,7 @@
 // user messages, settled card replies, Markdown replies, thinking, tool calls
 // (via `tool.call.toolview` -> `WidgetCell` for `show_view` / `GenericToolCard`),
 // compaction markers, Bot/schedule events, and failed turns (`FailureCell`).
-import { createElement as h, Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createElement as h, Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { call } from '../../../ds-bot/src/client/api.js'
 import { BtwTurnTail } from '../../../ds-bot/src/client/btw.js'
@@ -363,7 +363,12 @@ export function UserAttachments({ attachments, sessionId }) {
   }))
 }
 
-function UserRow({ row, sessionId, roster, actions, classic = false }) {
+// Message rows are memoized: while a reply streams in, the transcript rebuilds per chunk
+// but the rows before it are the very same objects (the committed-row cache in
+// session-transcript.js), so a memoized row renders once and the stream never re-renders
+// the history behind it. Roster, actions, bot, hooks and thinkingAt keep their object
+// identity across stream chunks, which is what the memo relies on.
+const UserRow = memo(function UserRow({ row, sessionId, roster, actions, classic = false }) {
   const { shown, folded, control } = useFold(row.text ?? '', { markdown: false })
   const container = useRef(null)
   const [toolsOpen, setToolsOpen] = useState(false)
@@ -420,9 +425,9 @@ function UserRow({ row, sessionId, roster, actions, classic = false }) {
         row.via ? h(ViaTag, { via: row.via }) : null,
         sentAt) : null),
     row.text === '' ? null : h('div', { className: 'bt-utools', 'data-open': toolsOpen || undefined }, h(CopyTextButton, { text: row.text })))
-}
+})
 
-function CompactionRow({ row }) {
+const CompactionRow = memo(function CompactionRow({ row }) {
   const [open, setOpen] = useState(false)
   const hasSummary = typeof row.summary === 'string' && row.summary !== ''
   const label = Number.isInteger(row.shadowedItemCount) && row.shadowedItemCount > 0
@@ -441,9 +446,9 @@ function CompactionRow({ row }) {
         h('span', { className: 'dsb-compaction-chev', 'aria-hidden': true }, h(ChevronRightIcon)))
         : h('span', { className: 'dsb-compaction-pill', 'data-static': '' }, label)),
     open && hasSummary ? h('div', { className: 'dsb-compaction-summary' }, row.summary) : null)
-}
+})
 
-function SessionEventRow({ row, selfId, roster, actions }) {
+const SessionEventRow = memo(function SessionEventRow({ row, selfId, roster, actions }) {
   switch (row.eventKind) {
     case 'update': return h('div', { className: 'bt-event' }, t('Profile updated'))
     case 'resume': return h('div', { className: 'bt-event' }, t('Picked up its work after a restart'))
@@ -467,7 +472,7 @@ function SessionEventRow({ row, selfId, roster, actions }) {
     }
     default: return null
   }
-}
+})
 
 const activityParts = line => line.split('`').map((part, index) => (index % 2 === 1 ? h('code', { key: index }, part) : part))
 
@@ -477,7 +482,7 @@ function SpeakerHead({ bot, time }) {
     Number.isFinite(time) ? h('span', { className: 'bt-group-time', title: clockLabel(time) }, messageClock(time)) : null)
 }
 
-function AssistantRow({ row, showSpeaker, bot, sessionId, roster, actions, useUi, thinkingAt, classic = false }) {
+const AssistantRow = memo(function AssistantRow({ row, showSpeaker, bot, sessionId, roster, actions, useUi, thinkingAt, classic = false }) {
   const showThinking = thinkingShown(roster.prefs)
   const selfId = bot?.id ?? sessionId
   const flat = layoutOf(roster.prefs) === 'flat'
@@ -515,7 +520,7 @@ function AssistantRow({ row, showSpeaker, bot, sessionId, roster, actions, useUi
         'data-streaming': row.streaming ? '' : undefined,
       },
       h('div', { className: 'dsb-dsh-asst-body', 'data-text-interaction-source': !row.streaming ? '' : undefined },
-        row.texts.map((text, index) => h(MarkdownText, { key: index, text, labels: mdLabels }))),
+        row.texts.map((text, index) => h(MarkdownText, { key: index, text, labels: mdLabels, streaming: row.streaming && index === row.texts.length - 1 }))),
       !row.streaming ? h('div', { className: 'dsb-dsh-asst-actions' },
         h(CopyTextButton, { text: combinedText, className: 'dsb-dsh-act-btn' }),
         hasTime ? h('span', { className: 'dsb-dsh-msg-time dsb-dsh-asst-time', title: clockLabel(row.time) }, messageClock(row.time)) : null) : null) : null)
@@ -545,9 +550,9 @@ function AssistantRow({ row, showSpeaker, bot, sessionId, roster, actions, useUi
       time: flat || row.streaming ? undefined : row.time,
       textInteractionSource: !row.streaming,
     }) : null)
-}
+})
 
-function TurnErrorRow({ row, bot, sessionId, useRoster, useTurnClock, actions }) {
+const TurnErrorRow = memo(function TurnErrorRow({ row, bot, sessionId, useRoster, useTurnClock, actions }) {
   if (typeof useRoster === 'function' && typeof useTurnClock === 'function') {
     return h(FailureCell, {
       node: { data: { ...row.error, turn: row.turn } },
@@ -562,7 +567,7 @@ function TurnErrorRow({ row, bot, sessionId, useRoster, useTurnClock, actions })
   const title = code === 'AUTH' ? code : (row.error?.message || code || undefined)
   return h('div', { className: 'bt-fail', 'data-settled': '', role: 'status', title },
     h('div', { className: 'bt-fail-head' }, h('span', { className: 'bt-fail-dot', 'aria-hidden': true }), h('span', { className: 'bt-fail-text' }, text)))
-}
+})
 
 /**
  * Renders the projected DM session transcript (earlier segments via EarlierParts,
@@ -570,7 +575,7 @@ function TurnErrorRow({ row, bot, sessionId, useRoster, useTurnClock, actions })
  * tool call cards via `tool.call.toolview` / DS Bot `ToolCell` / `GenericToolCard`,
  * compaction checkpoints, Bot/schedule events, and failed turns).
  */
-function DeliverablesRow({ row, sessionId, onOpenFile }) {
+const DeliverablesRow = memo(function DeliverablesRow({ row, sessionId, onOpenFile }) {
   const files = Array.isArray(row.files) ? row.files : []
   if (files.length === 0) return null
   return h('div', { className: 'dsb-deliverables', role: 'region', 'aria-label': t('Delivered files') },
@@ -594,7 +599,7 @@ function DeliverablesRow({ row, sessionId, onOpenFile }) {
           file.description ? h('span', { className: 'dsb-deliverable-desc' }, file.description) : null),
         actionUrl ? h(SaveFileAction, { actionUrl }) : null)
     }))
-}
+})
 
 function turnFactsSignature(facts) {
   if (!facts?.turns) return ''
@@ -605,7 +610,7 @@ function turnFactsSignature(facts) {
   return parts.join('|')
 }
 
-function SessionChangesRow({ row, sessionId, actions }) {
+const SessionChangesRow = memo(function SessionChangesRow({ row, sessionId, actions }) {
   const [changes, setChanges] = useState(null)
   useEffect(() => {
     if (!sessionId || !Number.isInteger(row.seq)) return undefined
@@ -633,14 +638,14 @@ function SessionChangesRow({ row, sessionId, actions }) {
     return () => { alive = false }
   }, [sessionId, row.seq])
   return changes ? h(ChangesCard, { changes, actions }) : null
-}
+})
 
-function TurnTailRow({ row, sessionId, useRoster, actions }) {
+const TurnTailRow = memo(function TurnTailRow({ row, sessionId, useRoster, actions }) {
   if (typeof actions?.turnFacts !== 'function' || typeof actions?.watchTurns !== 'function') return null
   return h(Fragment, null,
     h(BtwTurnTail, { turn: row.turnInfo, sessionId, useRoster, actions }),
     h(LearningTurnTail, { turn: row.turnInfo, sessionId, useRoster, actions }))
-}
+})
 
 export function SessionTranscript({
   log, sessionId, bot, roster, actions, classic = false,
