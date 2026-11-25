@@ -635,8 +635,14 @@ test('regression: epoch opening on delegated wake still sends ROOM_CALLS on the 
   // Pre-seed epoch-0 metadata as recorded by an opening delegated wake (full: true, hasCallRules: false).
   const room = host.rt.roomOf('r1')
   const membersList = 'Members: the user, Writer, Coder and you (admin).'
+  const adminText = [
+    'You are this group\'s admin.',
+    'Plain messages come to you first: answer them, or call the members who should answer with @Name.',
+    '"@all" calls every member. When the user asks, change the group with update_group.',
+    'When the user wants this group to reach a goal, set it with group_goal: align with the user first (goal-grill skill), then start it.',
+  ].join(' ')
   const { createHash } = await import('node:crypto')
-  const payload = { membersList, notice: room.notice, mode: room.mode, leads: true }
+  const payload = { membersList, notice: room.notice, adminText }
   const hash = createHash('sha256').update(JSON.stringify(payload)).digest('hex').slice(0, 16)
   host.rt.contextRuntime.setGroupMeta('gm1', { hash, epoch: 0, full: true, hasCallRules: false, ...payload })
 
@@ -709,4 +715,143 @@ test('regression: mcp-stdio.js subscribes to GET SSE after initialize and forwar
   const exited = new Promise(resolve => child.once('exit', code => resolve(code)))
   child.stdin.end()
   assert.equal(await exited, 0, 'stdio bridge must exit cleanly on stdin close even with notification SSE active')
+})
+
+test('regression: incremental memory-update and memory-recall messages with form:snapshot are preserved in order in pendingContext and pruned on compaction', async (t) => {
+  const { isSnapshotContextSource, isContextOnlySource } = await import('../src/host/context-messages.js')
+  assert.equal(isContextOnlySource({ kind: 'ds-bot-memory-update', form: 'snapshot' }), true)
+  assert.equal(isContextOnlySource({ kind: 'ds-bot-memory-recall', form: 'snapshot' }), true)
+  assert.equal(isSnapshotContextSource({ kind: 'ds-bot-memory-update', form: 'snapshot' }), false, 'incremental memory updates must not overwrite earlier updates')
+  assert.equal(isSnapshotContextSource({ kind: 'ds-bot-memory-recall', form: 'snapshot' }), false, 'per-query auto-recall must not overwrite earlier recalls')
+  assert.equal(isSnapshotContextSource({ kind: 'ds-bot-own-memory', form: 'snapshot' }), true)
+  assert.equal(isSnapshotContextSource({ kind: 'ds-bot-group-memory', form: 'snapshot' }), true)
+
+  const sentPrompts = []
+  let observeFn
+  const fakeEngine = {
+    async open() {
+      return {
+        cliSessionId: 'cli-mem-order-1',
+        resumed: false,
+        next: () => new Promise(() => {}),
+      }
+    },
+    prompt(_session, blocks) {
+      sentPrompts.push(blocks.map(b => b.text ?? '').join('\n'))
+      return Promise.resolve('t1')
+    },
+    canSteer: () => true,
+    close: async () => {},
+  }
+  const adapter = new LocalAgentAdapter({
+    customAgents: () => [],
+    findExecutable: () => process.execPath,
+    spawnEngine: () => fakeEngine,
+    record: () => undefined,
+    saveRecord: () => {},
+    presetFor: () => 'workspace-write',
+    cwdFor: async () => tmpdir(),
+    toolsFor: () => [],
+  })
+  t.after(() => adapter.dispose())
+
+  // Seed a live session with handedId = 'm1'.
+  const live = await adapter.liveFor({ sessionId: 's-mem', provider: 'local-codex-cli', model: 'gpt-5.1-codex' }, 'workspace-write')
+  live.cliSessionId = 'cli-mem-order-1'
+  live.handed = 'm1'
+  live.state = 'idle'
+
+  // Two consecutive real memory-update messages (both carry form: 'snapshot') arrive idle:
+  // neither wakes the CLI, and BOTH must remain in pendingContext (not overwrite each other).
+  const m1 = user('m1', 'initial')
+  const updA = user('u-a', 'Memory update A: use pnpm', { kind: 'ds-bot-memory-update', form: 'snapshot' })
+  const updB = user('u-b', 'Memory update B: deploy Tuesdays', { kind: 'ds-bot-memory-update', form: 'snapshot' })
+  const recA = user('r-a', 'Recalled topic A', { kind: 'ds-bot-memory-recall', form: 'snapshot' })
+  const recB = user('r-b', 'Recalled topic B', { kind: 'ds-bot-memory-recall', form: 'snapshot' })
+  const noteX = user('n-x', 'Silent FYI note', { kind: 'bot', role: 'note', silent: true })
+
+  await collectStream(adapter.stream({ sessionId: 's-mem', provider: 'local-codex-cli', model: 'gpt-5.1-codex', messages: [m1, updA] }))
+  await collectStream(adapter.stream({ sessionId: 's-mem', provider: 'local-codex-cli', model: 'gpt-5.1-codex', messages: [m1, updA, updB, recA, recB, noteX] }))
+  assert.deepEqual(
+    live.pendingContext.map(e => e.text),
+    ['Memory update A: use pnpm', 'Memory update B: deploy Tuesdays', 'Recalled topic A', 'Recalled topic B', 'Silent FYI note'],
+  )
+
+  // When CLI self-compaction completes, stale pre-compaction memory entries are pruned
+  // from pendingContext while non-memory silent notices stay.
+  observeFn = adapter.observe.bind(adapter)
+  observeFn(live, { type: 'compaction', status: 'completed' })
+  assert.deepEqual(live.pendingContext.map(e => e.text), ['Silent FYI note'])
+  assert.equal(sentPrompts.length, 0)
+})
+
+test('regression: notifyToolsChanged only fires when tool set changes and serves live updated tools over tools/list immediately', async (t) => {
+  let currentTools = [{ name: 'list_bots', description: 'List bots', parameters: { type: 'object', properties: {} } }]
+  let mcpHandle
+  const fakeEngine = {
+    async open(_sid, { mcp: server }) {
+      mcpHandle = server
+      return { cliSessionId: 'cli-tools-1', resumed: false, next: () => new Promise(() => {}) }
+    },
+    prompt: () => Promise.resolve('t1'),
+    canSteer: () => true,
+    close: async () => {},
+  }
+  const adapter = new LocalAgentAdapter({
+    customAgents: () => [],
+    findExecutable: () => process.execPath,
+    spawnEngine: () => fakeEngine,
+    record: () => undefined,
+    saveRecord: () => {},
+    presetFor: () => 'workspace-write',
+    cwdFor: async () => tmpdir(),
+    toolsFor: () => currentTools,
+  })
+  t.after(() => adapter.dispose())
+
+  const live = await adapter.liveFor({ sessionId: 's-tools', provider: 'local-codex-cli', model: 'gpt-5.1-codex' }, 'workspace-write')
+  const mcp = await adapter.ensureMcp(live, () => adapter.deps.toolsFor({}, 's-tools'))
+  mcpHandle = mcp
+
+  const ac = new AbortController()
+  t.after(() => ac.abort())
+  const sse = await fetch(mcpHandle.url, {
+    method: 'GET',
+    headers: { authorization: `Bearer ${mcpHandle.token}`, accept: 'text/event-stream' },
+    signal: ac.signal,
+  })
+  const reader = sse.body.getReader()
+  const received = []
+  void (async () => {
+    try {
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        received.push(Buffer.from(value).toString('utf8'))
+      }
+    } catch {}
+  })()
+
+  // Unchanged tool set: notifyToolsChanged must NOT send redundant chatter.
+  adapter.notifyToolsChanged()
+  await new Promise(r => setTimeout(r, 30))
+  assert.equal(received.length, 0, 'unchanged tool set must not emit list_changed')
+
+  // Update tool set dynamically -> notifyToolsChanged fires AND tools/list immediately serves the new tool!
+  currentTools = [
+    ...currentTools,
+    { name: 'delegate_work', description: 'Delegate work', parameters: { type: 'object', properties: {} } },
+  ]
+  adapter.notifyToolsChanged()
+  const end = Date.now() + 2_000
+  while (received.length === 0 && Date.now() < end) await new Promise(r => setTimeout(r, 15))
+  assert.match(received.join(''), /"method":"notifications\/tools\/list_changed"/)
+
+  const listRes = await fetch(mcpHandle.url, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${mcpHandle.token}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} }),
+  })
+  const listBody = await listRes.json()
+  assert.deepEqual(listBody.result.tools.map(tool => tool.name), ['list_bots', 'delegate_work'])
 })

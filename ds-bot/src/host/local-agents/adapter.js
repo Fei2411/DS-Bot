@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os'
 import { basename, dirname, resolve } from 'node:path'
 import { LlmAdapter, LlmError, isContextWindowExceededError, isQuotaExceededError, offloadedImageText, resolveImageAttachmentAccess, resolveRetryPolicy, textOnlyImageText } from '@deepseek-ai/dsh-llm'
 import { isClockSource, isContextOnlyMessage, isSnapshotContextSource } from '../context-messages.js'
-import { GROUP_MEMORY_SOURCE, MEMORY_UPDATE_SOURCE, OWN_HEADING, OWN_MEMORY_SOURCE } from '../memory-copy.js'
+import { GROUP_MEMORY_SOURCE, MEMORY_RECALL_SOURCE, MEMORY_UPDATE_SOURCE, OWN_HEADING, OWN_MEMORY_SOURCE } from '../memory-copy.js'
 import { textOf } from '../text.js'
 import { engineOf, cliMode, signInFor } from './engines.js'
 import { PROBE_FORCE_KILL_AFTER_MS } from './discover.js'
@@ -43,6 +43,8 @@ const TURN_CONFIRMING_EVENTS = new Set(['text', 'thought', 'activity', 'call', '
 const IDLE_CLOSE_MS = 10 * 60_000
 // Brief coalescing window to batch parallel MCP tools/call requests from one CLI step.
 const CALL_BATCH_WINDOW_MS = 8
+const MEMORY_CONTEXT_KINDS = new Set([OWN_MEMORY_SOURCE, GROUP_MEMORY_SOURCE, MEMORY_UPDATE_SOURCE, MEMORY_RECALL_SOURCE])
+const toolSignature = tools => (tools ?? []).map(tool => tool.name).sort().join('\0')
 // A local CLI may have already performed actions before its request fails.
 const LOCAL_RETRY_POLICY = resolveRetryPolicy({ mode: 'normal', maxRetries: 0 }, 'local-agent')
 const APPROVE_TOOL = 'approve_agent_action'
@@ -436,6 +438,11 @@ export class LocalAgentAdapter extends LlmAdapter {
     // An ACP agent read the team instructions as a prompt, which a compaction may
     // have condensed away: the next prompt carries them again.
     if (live.spec.kind === 'acp') live.promptHash = undefined
+    // Drop pre-compaction memory updates/snapshots from pendingContext; the next
+    // step in the new epoch injects fresh full own+group memory snapshots.
+    if (Array.isArray(live.pendingContext) && live.pendingContext.length > 0) {
+      live.pendingContext = live.pendingContext.filter(entry => !MEMORY_CONTEXT_KINDS.has(entry.kind ?? entry.key))
+    }
     this.deps.saveRecord(live.sessionId, this.recordOf(live))
     this.deps.onCompaction?.(live.sessionId, { compactions: live.compactions, kind: live.spec.kind, reason: 'cli-self-compact' })
   }
@@ -562,11 +569,16 @@ export class LocalAgentAdapter extends LlmAdapter {
   }
 
   notifyToolsChanged(sessionId) {
-    if (sessionId !== undefined) {
-      this.live.get(String(sessionId))?.mcp?.notifyToolsChanged()
-      return
+    const targets = sessionId !== undefined
+      ? [this.live.get(String(sessionId))].filter(Boolean)
+      : [...this.live.values()]
+    for (const live of targets) {
+      if (live.mcp === undefined) continue
+      const sig = toolSignature(live.tools?.())
+      if (live.toolNamesSig === sig) continue
+      live.toolNamesSig = sig
+      live.mcp.notifyToolsChanged()
     }
-    for (const live of this.live.values()) live.mcp?.notifyToolsChanged()
   }
 
   // The loopback MCP server for one live session; tools/call lands in its event queue.
@@ -574,7 +586,7 @@ export class LocalAgentAdapter extends LlmAdapter {
   // started it, so tools/list reads the latest one.
   async ensureMcp(live, tools) {
     live.tools = tools
-    const sig = (tools?.() ?? []).map(tool => tool.name).sort().join('\0')
+    const sig = toolSignature(tools?.())
     if (live.mcp !== undefined) {
       if (live.toolNamesSig !== undefined && live.toolNamesSig !== sig) live.mcp.notifyToolsChanged()
       live.toolNamesSig = sig
@@ -675,7 +687,7 @@ export class LocalAgentAdapter extends LlmAdapter {
 
     const rawSystem = messages.filter(message => message.role === 'system').map(message => textOf(message.content)).join('\n').trim()
     const hasMemoryDelta = messages.some(message => message.source?.kind === OWN_MEMORY_SOURCE || message.source?.kind === MEMORY_UPDATE_SOURCE || message.source?.kind === GROUP_MEMORY_SOURCE)
-    const mcp = await this.ensureMcp(live, () => this.deps.toolsFor(options))
+    const mcp = await this.ensureMcp(live, () => this.deps.toolsFor(options, sessionId))
     const cwd = live.cwd ?? await this.deps.cwdFor(sessionId)
     live.cwd = cwd
 
@@ -1623,13 +1635,14 @@ function stagePendingContext(live, messages) {
     const text = textOf(message.content)
     if (text === '') continue
     const id = message.id
+    const kind = message.source?.kind
     if (isSnapshotContextSource(message.source)) {
-      const key = message.source?.kind ?? 'snapshot'
+      const key = kind ?? 'snapshot'
       live.pendingContext = live.pendingContext.filter(entry => entry.key !== key && (id === undefined || entry.id !== id))
-      live.pendingContext.push({ ...(id === undefined ? {} : { id }), key, text })
+      live.pendingContext.push({ ...(id === undefined ? {} : { id }), key, ...(kind === undefined ? {} : { kind }), text })
     } else {
       if (id !== undefined && live.pendingContext.some(entry => entry.id === id)) continue
-      live.pendingContext.push({ ...(id === undefined ? {} : { id }), text })
+      live.pendingContext.push({ ...(id === undefined ? {} : { id }), ...(kind === undefined ? {} : { kind }), text })
     }
   }
 }

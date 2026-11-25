@@ -354,6 +354,7 @@ export function install(rt) {
       const result = await run()
       if (result !== null && result !== undefined) {
         contextRuntime.bumpEpoch(sessionId, forSwitch ? 'model-switch-compact' : 'compact-range')
+        rt.renewMemory?.(sessionId)
       }
       return result
     } finally {
@@ -1967,11 +1968,7 @@ export function install(rt) {
   // Compaction sets partBase from an immediate estimate before the next provider
   // response reports real usage; lower it when measured context shrinks so stale
   // estimates cannot keep checkContext suppressed above the line.
-  const lowerPartBase = (sessionId, tokens) => {
-    if (tokens === undefined) return
-    const base = partBase.get(sessionId)
-    if (base !== undefined && tokens < base) partBase.set(sessionId, tokens)
-  }
+  const lowerPartBase = (sessionId, tokens) => contextRuntime.lowerPartBase(sessionId, tokens)
   const grown = (sessionId, tokens, lines) => {
     const base = partBase.get(sessionId) ?? 0
     // Crossing the hard line from below must still act even when base + check / 4 overshoots it.

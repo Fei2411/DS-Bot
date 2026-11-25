@@ -909,8 +909,7 @@ export function install(rt) {
     // the same epoch send only a delta when group metadata changes plus a compact footer.
     const epoch = sessionId !== undefined ? (rt.contextRuntime?.epochOf?.(sessionId) ?? 0) : 0
     const prevMeta = sessionId !== undefined ? rt.contextRuntime?.groupMetaOf?.(sessionId) : undefined
-    const modeValue = room.mode ?? 'admin'
-    const metaPayload = { membersList, notice: noticeText, mode: modeValue, leads }
+    const metaPayload = { membersList, notice: noticeText, adminText }
     const metaHash = createHash('sha256').update(JSON.stringify(metaPayload)).digest('hex').slice(0, 16)
     const hasSnapshot = prevMeta !== undefined && prevMeta.epoch === epoch && prevMeta.full === true
     const hasCallRules = prevMeta?.hasCallRules === true
@@ -936,8 +935,8 @@ export function install(rt) {
       if (prevMeta.notice !== noticeText) {
         deltas.push(noticeText ? `Updated group notice (shared instructions for every member):\n${noticeText}` : 'Group notice was cleared.')
       }
-      if (prevMeta.leads !== leads || (leads && prevMeta.mode !== modeValue)) {
-        deltas.push(leads ? `Updated group role: ${adminText}` : 'You are no longer this group\'s admin.')
+      if (prevMeta.adminText !== adminText) {
+        deltas.push(adminText ? `Updated group role: ${adminText}` : 'You are no longer this group\'s admin.')
       }
       if (overrideInstructions !== undefined) deltas.push(overrideInstructions)
       else if (needsCallRules) deltas.push(ROOM_CALLS)
