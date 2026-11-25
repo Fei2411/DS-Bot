@@ -4969,4 +4969,58 @@ test('paused nested delegation preserves parentBatchKey across Continue, partial
     assert.deepEqual(finalLine?.route?.to, ['a'])
     assert.deepEqual(Object.values(rt.state.roomBatches ?? {}), [])
   }
+
+  // 5) Removing one of two parked direct callees before Continue keeps parent open for the surviving callee.
+  {
+    const host = await start(t, { members: ['a', 'b', 'c', 'd'], sessions: { a: 'ga', b: 'gb', c: 'gc', d: 'gd' } }, undefined, {}, { d: {} })
+    const room = rt.roomOf('r1')
+    const first = host.round('c1', host.say('@Chief ask Writer for combined checks'))
+    await settle(() => host.agentOf('ga').calls.length === 1)
+    host.begin('ga')
+    await host.tool('delegate_work', { to: 'Writer', goal: 'Check with Tester and Reviewer' }, 'ga')
+    host.finish('ga', '[PASS]')
+
+    await settle(() => host.agentOf('gb').calls.length === 1)
+    const writerCall = host.begin('gb')
+    rt.roomWaiters.get(writerCall.source.exchangeId)?.resolve({ working: true })
+    await settle(() => first() !== undefined)
+
+    const parentBatch = Object.values(rt.state.roomBatches ?? {}).find(b => b.by === 'a' && b.pending.includes('b'))
+    assert.ok(parentBatch)
+    // Simulate both Tester ('c') and Reviewer ('d') parked for Writer's parentBatch, then Tester is removed from room.
+    room.idlePaused = { from: 'b', count: 2, limit: 2, cause: 'cycle', noticed: true }
+    room.paused = [
+      { id: 'c', name: 'Tester', note: 'Writer mentioned you', by: 'b', idle: true, direct: true, parentBatchKey: parentBatch.key },
+      { id: 'd', name: 'Reviewer', note: 'Writer mentioned you', by: 'b', idle: true, direct: true, parentBatchKey: parentBatch.key },
+    ]
+    host.finish('gb', '[PASS]')
+    await new Promise(resolve => setImmediate(resolve))
+    room.members = room.members.filter(id => id !== 'c')
+
+    // User clicks Continue between rounds -> Tester is dropped, Reviewer survives, parentBatch MUST stay open!
+    await rt.resumeRoomPause('r1')
+    await settle(() => host.agentOf('r1').calls.length === 1)
+    const continuePost = host.takePost()
+    const round2 = host.round('c2', continuePost)
+    await settle(() => host.agentOf('gd').calls.length === 1)
+    assert.equal(rt.state.roomBatches?.[parentBatch.key]?.pending.includes('b'), true, 'parent batch must stay open while surviving Reviewer runs')
+
+    host.begin('gd')
+    host.emit('gd', 'tool/call', { callId: 'r-surv', name: 'read', arguments: '{}' })
+    host.emit('gd', 'tool/result', { callId: 'r-surv' })
+    host.finish('gd', 'Reviewer check done.')
+
+    await settle(() => host.agentOf('gb').calls.length === 2)
+    host.begin('gb')
+    host.finish('gb', 'Summary for Chief from surviving Reviewer.')
+
+    await settle(() => host.agentOf('ga').calls.length === 2)
+    host.begin('ga')
+    host.finish('ga', 'Received.')
+    await settle(() => round2() !== undefined)
+    const line = room.log.find(entry => entry.botId === 'b' && entry.text.includes('Summary for Chief from surviving Reviewer'))
+    assert.equal(line?.route?.kind, 'result')
+    assert.deepEqual(line?.route?.to, ['a'])
+    assert.deepEqual(Object.values(rt.state.roomBatches ?? {}), [])
+  }
 })

@@ -1086,18 +1086,19 @@ export function install(rt) {
   // At work in the group: a turn, subagent, or group background task running, a call waiting
   // in a round, a message on its way to the member's group Session that no turn took up yet,
   // or an open child delegation whose result this member is waiting on to finish its own task.
-  const activeInRoom = (room, botId, ignoreTaskId, seen = new Set(), parentBatchKey = undefined) => {
+  const activeInRoom = (room, botId, ignoreTaskId, seen = new Set(), parentBatchKey = undefined, extraRound = undefined) => {
     if (!room.members.includes(botId) || seen.has(botId)) return false
     seen.add(botId)
     const sessionId = room.sessions?.[botId]
     if (sessionId !== undefined && (rt.live.get(sessionId)?.turn !== undefined || rt.hasSubagents?.(sessionId) === true)) return true
     if (rt.hasRoomTasks?.(room.id, botId, ignoreTaskId) === true) return true
     if (sessionId !== undefined && (rt.unreadOf?.(sessionId) ?? []).some(args => !missedExchanges.has(args.exchangeId))) return true
-    if ([...rt.roomProgress.values()].some(round => round.roomId === room.id
+    const rounds = extraRound !== undefined ? [...rt.roomProgress.values(), extraRound] : [...rt.roomProgress.values()]
+    if (rounds.some(round => round.roomId === room.id
       && round.slots.some(slot => slot.id === botId && (slot.status === 'waiting' || slot.status === 'speaking')))) return true
     if (hasPendingDirectRelay(room.id, botId, parentBatchKey)) return true
     if (hasParkedDirectChild(room, botId, parentBatchKey)) return true
-    return openChildBatches(room.id, botId, parentBatchKey).some(child => child.pending.some(peerId => activeInRoom(room, peerId, ignoreTaskId, seen, child.key)))
+    return openChildBatches(room.id, botId, parentBatchKey).some(child => child.pending.some(peerId => activeInRoom(room, peerId, ignoreTaskId, seen, child.key, extraRound)))
   }
 
   const registerBatch = (roomId, by, callees, direct = false, parentBatchKey = undefined) => {
@@ -1321,7 +1322,7 @@ export function install(rt) {
       : { names: [...new Set([...slot.finished.names, ...wake.names])], results: [...slot.finished.results, ...wake.results] }
   }
 
-  const releaseIdleParentBatches = (room, items) => {
+  const releaseIdleParentBatches = (room, items, extraRound = undefined) => {
     const queue = [...items]
     const seen = new Set()
     while (queue.length > 0) {
@@ -1331,7 +1332,7 @@ export function install(rt) {
       if (seen.has(key)) continue
       seen.add(key)
       const parent = upstreamBatchFor(room.id, item.by, item.parentBatchKey)
-      if (parent === undefined || activeInRoom(room, item.by, undefined, new Set(), parent.key)) continue
+      if (parent === undefined || activeInRoom(room, item.by, undefined, new Set(), parent.key, extraRound)) continue
       leaveBatch(room, parent, item.by, { keep: false, settleGoal: false })
       if (parent.pending.length === 0 && parent.by !== undefined && parent.parentBatchKey !== undefined) {
         queue.push({ by: parent.by, parentBatchKey: parent.parentBatchKey })
@@ -1713,7 +1714,7 @@ export function install(rt) {
         }
       }
     }
-    if (droppedParents.length > 0) releaseIdleParentBatches(room, droppedParents)
+    if (droppedParents.length > 0) releaseIdleParentBatches(room, droppedParents, round)
   }
 
   // The user's messages waiting in the group Session's inbox while a round runs, from
