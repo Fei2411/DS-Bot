@@ -1,4 +1,5 @@
 import { Component, createElement as h, Fragment, useCallback, useEffect, useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { sendsOnEnter } from '../../../ds-bot/src/client/enter-key.js'
 import { ErrorToast } from '../../../ds-bot/src/client/feedback.js'
 import { HeaderPill } from '../../../ds-bot/src/client/header.js'
@@ -46,8 +47,10 @@ function useTheme(prefs, chat, actions, registryVersion) {
     else delete document.body.dataset.btMotion
     document.body.dataset.btEffects = effectsOf(prefs)
     document.body.dataset.btLayout = layoutOf(prefs)
-    if (typeof navigator !== 'undefined' && /\bwin/iu.test(navigator.platform || navigator.userAgent)) {
-      document.body.dataset.btOs = 'windows'
+    if (typeof navigator !== 'undefined') {
+      const osAgent = navigator.platform || navigator.userAgent || ''
+      if (/\bwin/iu.test(osAgent)) document.body.dataset.btOs = 'windows'
+      else if (/\bmac/iu.test(osAgent)) document.body.dataset.btOs = 'macos'
     }
     document.body.style.setProperty('--bt-msg-w', String(widthOf(prefs) / 100))
     document.body.style.setProperty('--bt-flat-w', String(flatWidthOf(prefs) / 100))
@@ -109,12 +112,28 @@ function makeTeamUiHook(useUi, isNarrow, drawerOpen) {
   }
 }
 
+function ClassicTitleToggle({ hidden, onToggle }) {
+  if (typeof document === 'undefined') return null
+  const titlebar = document.documentElement.hasAttribute('data-windows-titlebar')
+  if (!titlebar && !hidden) return null
+  const label = t(hidden ? 'Expand sidebar' : 'Collapse sidebar')
+  return createPortal(h('button', {
+    type: 'button',
+    className: titlebar ? 'bt-title-toggle' : 'bt-round bt-title-toggle',
+    'data-left': hidden ? 'hidden' : 'open',
+    'aria-label': label,
+    title: label,
+    onClick: onToggle,
+  }, h(SidebarIcon)), document.body)
+}
+
 export function App() {
   const team = useMemo(createTeam, [])
   useEffect(() => team.start(), [team])
   const { hooks, actions } = team
   const views = { ...hooks, actions }
-  const wide = hooks.useLayout(state => state.wide)
+  const sidebarPref = hooks.useLayout(state => state.pref)
+  const sidebarWidth = hooks.useLayout(state => state.width)
   const surfaceMode = hooks.useSurface(state => state.mode)
   const shown = hooks.useShown(id => id)
   const shortcutsOpen = hooks.useUi(state => state.shortcuts === true)
@@ -146,7 +165,6 @@ export function App() {
     onStartPresetCreator: () => actions.startPresetCreator?.(),
   })
   const [viewportWidth, setViewportWidth] = useState(() => (typeof window === 'undefined' ? 1280 : window.innerWidth))
-  const [sidebarWidth, setSidebarWidth] = useState(280)
   const [drawerOpen, setDrawerOpen] = useState(false)
   useEffect(() => {
     if (typeof window === 'undefined') return undefined
@@ -155,7 +173,8 @@ export function App() {
     return () => window.removeEventListener('resize', onResize)
   }, [])
   const isNarrow = viewportWidth <= 768
-  const macTitlebar = typeof window !== 'undefined' && Boolean(window.dsBotApp)
+  const inClassicMode = surfaceMode === 'agent'
+  const classicHidden = inClassicMode && !isNarrow && sidebarPref === 'hidden'
   const effectiveSideW = isNarrow
     ? Math.min(sidebarWidth, Math.max(264, Math.round(viewportWidth * 0.84)))
     : Math.min(sidebarWidth, Math.max(264, viewportWidth - 420))
@@ -167,15 +186,16 @@ export function App() {
     toggleSidebar: undefined,
     setSidebarPref: (pref) => {
       if (isNarrow) setDrawerOpen(pref === 'open')
-      else actions.setSidebarWide?.(pref !== 'rail' && pref !== 'hidden')
+      else actions.setSidebarPref(pref)
     },
-    setSidebarWidth: (width) => {
-      if (Number.isFinite(width)) setSidebarWidth(Math.max(264, Math.min(420, Math.round(width))))
+    setSidebarWidth: (width) => actions.setSidebarWidth(width),
+    setLeftDrawer: (next) => {
+      if (isNarrow) setDrawerOpen(Boolean(next))
+      else actions.setLeftDrawer(Boolean(next))
     },
-    setLeftDrawer: next => setDrawerOpen(Boolean(next)),
     toggleLeftHidden: () => {
       if (isNarrow) setDrawerOpen(open => !open)
-      else actions.toggleSidebar()
+      else actions.toggleLeftHidden()
     },
     openSettings: (...args) => { setDrawerOpen(false); return actions.openSettings(...args) },
     openNewChat: (...args) => { setDrawerOpen(false); return actions.openNewChat(...args) },
@@ -185,7 +205,7 @@ export function App() {
     ...actions,
     toggleSidebar: () => {
       if (isNarrow) setDrawerOpen(false)
-      else actions.toggleSidebar()
+      else actions.toggleLeftHidden()
     },
     openAgentSession: (...args) => { setDrawerOpen(false); return actions.openAgentSession(...args) },
     newAgentSession: (...args) => { setDrawerOpen(false); return actions.newAgentSession(...args) },
@@ -195,16 +215,22 @@ export function App() {
     () => makeTeamUiHook(hooks.useUi, isNarrow, drawerOpen),
     [hooks.useUi, isNarrow, drawerOpen],
   )
+  // Bot mode renders `.dsb-frame[data-surface=bot]` as a single column and lets TeamSidebar's
+  // portalled `.bt-leftcol` own left offset via `chatRoom.setLeft(pushed)`. Keeping collapsedWidth
+  // at 0 on desktop makes `chatRoom.setLeft` the single source of truth for both layout and drag.
   const useOwnFrame = useMemo(() => {
     const snap = isNarrow
       ? { viewport: Math.min(viewportWidth, 680), sidebarWidth: effectiveSideW, collapsedWidth: drawerOpen ? 88 : 0 }
-      : { viewport: viewportWidth, sidebarWidth: effectiveSideW, collapsedWidth: wide ? effectiveSideW : 88 }
+      : { viewport: viewportWidth, sidebarWidth: effectiveSideW, collapsedWidth: 0 }
     return selector => selector(snap)
-  }, [isNarrow, viewportWidth, effectiveSideW, wide, drawerOpen])
-  const useOwnSidebarPref = useMemo(() => {
-    const pref = isNarrow ? (drawerOpen ? 'open' : 'hidden') : (wide ? 'open' : 'rail')
-    return selector => selector(pref)
-  }, [isNarrow, drawerOpen, wide])
+  }, [isNarrow, viewportWidth, effectiveSideW, drawerOpen])
+  const effectivePref = isNarrow
+    ? (drawerOpen ? 'open' : 'hidden')
+    : (inClassicMode && sidebarPref === 'rail' ? 'open' : sidebarPref)
+  const useOwnSidebarPref = useMemo(
+    () => selector => selector(effectivePref),
+    [effectivePref],
+  )
   useEffect(() => {
     const onKeyDown = (event) => {
       const hit = matchGlobalShortcut(event, { settingsOpen })
@@ -283,46 +309,40 @@ export function App() {
   }), [workspaceTabs, rightPanel, actions, closeWorkspace, shown, team, readOnly])
   // Key the conversation by stable Bot/room id so segment rollovers preserve unsent drafts.
   const chatKey = chat?.id ?? shown
-  const inClassicMode = surfaceMode === 'agent'
   return h('div', {
     className: 'dsb-frame',
     style: { '--dsb-side-w': `${effectiveSideW}px` },
-    'data-rail': wide ? undefined : '',
+    'data-collapsed': classicHidden ? '' : undefined,
     'data-drawer-open': drawerOpen ? '' : undefined,
     'data-surface': surfaceMode,
-    'data-mac-titlebar': macTitlebar ? '' : undefined,
   },
   drawerOpen ? h('div', { className: 'dsb-drawer-scrim', 'aria-hidden': true, onClick: () => setDrawerOpen(false) }) : null,
   inClassicMode
-    ? h('aside', { className: 'dsb-side' },
-      h('div', { className: 'dsb-band' }),
-      h('div', { className: 'dsb-side-list' },
-        wide || isNarrow ? null : h('button', {
-          type: 'button',
-          className: 'bt-round dsb-expand',
-          'aria-label': t('Expand sidebar'),
-          title: t('Expand sidebar'),
-          onClick: () => actions.toggleSidebar(),
-        }, h(SidebarIcon)),
-        h(ClassicSidebar, { ...views, actions: classicSidebarActions, wide: wide || drawerOpen })),
-      h('div', { className: 'dsb-side-foot' },
-        h('button', {
-          type: 'button',
-          className: 'dsb-settings',
-          'aria-label': t('Settings'),
-          title: t('Settings'),
-          onClick: () => { setDrawerOpen(false); actions.openSettings() },
-        }, h(YouAvatar)),
-        h(BotReturn, { ...views, wide: wide || drawerOpen })))
-    : h('aside', { className: 'dsb-side dsb-side-host', 'aria-hidden': true },
-      h(TeamSidebar, {
-        ...views,
-        useUi: useTeamUi,
-        actions: teamSidebarActions,
-        useFrame: useOwnFrame,
-        useSidebarPref: useOwnSidebarPref,
-        wide: isNarrow ? drawerOpen : wide,
-      })),
+    ? h(Fragment, null,
+      isNarrow ? null : h(ClassicTitleToggle, { hidden: classicHidden, onToggle: () => actions.toggleLeftHidden() }),
+      classicHidden
+        ? null
+        : h('aside', { className: 'dsb-side' },
+          h('div', { className: 'dsb-band' }),
+          h('div', { className: 'dsb-side-list' },
+            h(ClassicSidebar, { ...views, actions: classicSidebarActions, wide: true })),
+          h('div', { className: 'dsb-side-foot' },
+            h('button', {
+              type: 'button',
+              className: 'dsb-settings',
+              'aria-label': t('Settings'),
+              title: t('Settings'),
+              onClick: () => { setDrawerOpen(false); actions.openSettings() },
+            }, h(YouAvatar)),
+            h(BotReturn, { ...views, wide: true }))))
+    : h(TeamSidebar, {
+      ...views,
+      useUi: useTeamUi,
+      actions: teamSidebarActions,
+      useFrame: useOwnFrame,
+      useSidebarPref: useOwnSidebarPref,
+      wide: effectivePref === 'open',
+    }),
   // The unified right panel makes room by giving the shell's `_centerCol` column a right margin.
   h('main', { className: 'dsb-main dsb_centerCol', 'data-classic': shownAgent ? '' : undefined },
     h('div', { className: 'dsb-band' }),
@@ -341,7 +361,7 @@ export function App() {
             useUi: hooks.useUi,
             actions,
             readOnly,
-            sidebarWide: isNarrow ? drawerOpen : wide,
+            sidebarWide: isNarrow ? drawerOpen : !classicHidden,
           })
           : h(HeaderPill, { ...views, sessionId: shown, useSession: team.sessionHook(shown) })),
       h(Chat, { key: chatKey, sessionId: shown, team, classic: Boolean(shownAgent) }))

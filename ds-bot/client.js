@@ -31218,6 +31218,7 @@ var MODEL_CSS = `
 .bt-model-trigger:focus-visible{outline:2px solid var(--bt-accent);outline-offset:1px}
 .bt-model-trigger[data-missing] .bt-model-provider{color:var(--bt-danger)}
 .bt-model-trigger[data-wide]{display:flex;flex:0 1 auto;width:auto;min-width:min(200px,100%);max-width:min(340px,100%);height:34px;min-height:34px;box-sizing:border-box;padding:0 10px 0 12px;justify-content:space-between;border-radius:8px;border:.5px solid var(--bt-line-2);background:var(--bt-hover);font-size:13px;font-weight:450;outline:none}
+:is(.bt-drawer-model,.bt-field) .bt-model-trigger[data-wide]{width:100%;max-width:100%}
 .bt-model-trigger[data-wide]:hover,.bt-model-trigger[data-wide][aria-expanded=true]{background:var(--bt-active)}
 .bt-model-trigger[data-wide]:focus-visible{outline:none;border-color:var(--bt-accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--bt-accent) 22%,transparent)}
 .bt-model-trigger[data-wide] .bt-model-copy{flex-direction:row;align-items:center;gap:6px;flex:1}
@@ -40128,7 +40129,7 @@ function LeftColumn({ mode, width, onGrip, leaving, entering, children }) {
     (0, import_react40.createElement)("div", { className: "bt-leftcol-grip", role: "separator", "aria-orientation": "vertical", "aria-label": t("Resize sidebar"), title: t("Resize sidebar"), onPointerDown: onGrip })
   ), document.body);
 }
-function TitleToggle({ hidden, onToggle }) {
+function TitleToggle({ hidden, mode, onToggle }) {
   if (typeof document === "undefined") return null;
   const titlebar = document.documentElement.hasAttribute("data-windows-titlebar");
   if (!titlebar && !hidden) return null;
@@ -40136,6 +40137,7 @@ function TitleToggle({ hidden, onToggle }) {
   return (0, import_react_dom8.createPortal)((0, import_react40.createElement)("button", {
     type: "button",
     className: titlebar ? "bt-title-toggle" : "bt-round bt-title-toggle",
+    "data-left": mode,
     "aria-label": label,
     title: label,
     onClick: onToggle
@@ -40175,7 +40177,7 @@ function TeamSidebar(props) {
     panel: details ? { view, yielded: panelYield } : null
   });
   const [drag, setDrag] = (0, import_react40.useState)(null);
-  const mode = drag?.left ?? layout.left;
+  const mode = layout.left === "hidden" ? "hidden" : drag?.left ?? layout.left;
   const [held, leaving] = useLinger(mode === "hidden" ? null : mode, SPRING_SHAPE.duration);
   const shown = held ?? mode;
   const firstColumn = (0, import_react40.useRef)(true);
@@ -40239,24 +40241,31 @@ function TeamSidebar(props) {
   const openWidth = drag?.width ?? frameSnap.sidebarWidth;
   const ourWidth = shown === "rail" ? RAIL_WIDTH : openWidth;
   const pushed = mode === "open" ? openWidth : mode === "hidden" ? 0 : RAIL_WIDTH;
-  (0, import_react40.useLayoutEffect)(() => {
-    if (typeof document === "undefined") return;
-    chatRoom.setLeft(Math.max(0, pushed - (frameSnap.collapsedWidth ?? 0)));
-  }, [pushed, frameSnap.collapsedWidth]);
-  (0, import_react40.useEffect)(() => () => {
-    if (typeof document !== "undefined") chatRoom.setLeft(null);
-  }, []);
   const settleTimer = (0, import_react40.useRef)(0);
   const springTimer = (0, import_react40.useRef)(0);
+  const activeDrag = (0, import_react40.useRef)(null);
+  const dragRef = (0, import_react40.useRef)(drag);
+  dragRef.current = drag;
+  const collapsedWidthRef = (0, import_react40.useRef)(frameSnap.collapsedWidth ?? 0);
+  collapsedWidthRef.current = frameSnap.collapsedWidth ?? 0;
+  const modeRef = (0, import_react40.useRef)(mode);
+  modeRef.current = mode;
+  (0, import_react40.useLayoutEffect)(() => {
+    if (typeof document === "undefined") return;
+    const current2 = activeDrag.current;
+    if (current2 !== null && (mode === "hidden" || current2.settling && (mode !== current2.landedMode || pushed !== current2.landedPushed))) {
+      current2.cancel(false);
+    }
+    chatRoom.setLeft(Math.max(0, pushed - (frameSnap.collapsedWidth ?? 0)));
+  }, [mode, pushed, frameSnap.collapsedWidth]);
   (0, import_react40.useEffect)(() => () => {
-    clearTimeout(settleTimer.current);
-    clearTimeout(springTimer.current);
+    activeDrag.current?.cancel(false);
+    if (typeof document !== "undefined") chatRoom.setLeft(null);
   }, []);
   const startDrag = (event) => {
     if (event.button !== 0) return;
     event.preventDefault();
-    clearTimeout(settleTimer.current);
-    clearTimeout(springTimer.current);
+    activeDrag.current?.cancel(false);
     const grip = event.currentTarget;
     const column = grip.parentElement;
     delete column.dataset.folding;
@@ -40265,7 +40274,6 @@ function TeamSidebar(props) {
     const columns2 = chatRoom.columns();
     for (const col of columns2) col.style.setProperty("transition", "none", "important");
     const panes = [...document.querySelectorAll(".bt-pane")];
-    const offLeft = frameSnap.collapsedWidth ?? 0;
     let last = null;
     let liveLeft = mode;
     let done = false;
@@ -40274,12 +40282,16 @@ function TeamSidebar(props) {
       column.style.width = `${width}px`;
       column.style.setProperty("--bt-lc-w", `${width}px`);
       const occupied = at.left === "open" ? width : RAIL_WIDTH;
-      const push = Math.max(0, occupied - offLeft);
+      const push = Math.max(0, occupied - collapsedWidthRef.current);
       for (const col of columns2) col.style.setProperty("margin-left", `${push}px`, "important");
       for (const pane of panes) pane.style.left = `${occupied}px`;
     };
     let springUntil = 0;
     const springOff = () => {
+      if (springTimer.current) {
+        clearTimeout(springTimer.current);
+        springTimer.current = 0;
+      }
       springUntil = 0;
       delete column.dataset.folding;
       for (const col of columns2) col.style.setProperty("transition", "none", "important");
@@ -40288,31 +40300,56 @@ function TeamSidebar(props) {
       column.dataset.folding = "";
       for (const col of columns2) col.style.setProperty("transition", `margin-left ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}`, "important");
       springUntil = performance.now() + SPRING_SHAPE.duration;
-      clearTimeout(springTimer.current);
+      if (springTimer.current) clearTimeout(springTimer.current);
       springTimer.current = setTimeout(springOff, SPRING_SHAPE.duration);
     };
     const track = (x) => {
+      const prev = last;
       last = dragColumn(x, window.innerWidth);
       if (last.left !== liveLeft) {
         liveLeft = last.left;
         if (!reducedMotion()) springOn();
         setDrag(last);
+      } else if (springUntil > 0 && prev !== null && last.left !== "rail" && last.width !== prev.width) {
+        springOff();
       }
       write(last);
     };
     const onMove = (move) => track(move.clientX);
-    const finish = () => {
-      clearTimeout(springTimer.current);
-      if (column.isConnected && last !== null) chatRoom.setLeft(Math.max(0, (last.left === "open" ? last.width : RAIL_WIDTH) - offLeft));
-      for (const col of columns2) {
-        col.style.removeProperty("margin-left");
-        col.style.removeProperty("transition");
-      }
-      column.style.removeProperty("--bt-lc-w");
-      delete column.dataset.folding;
-      chatRoom.hold(false);
-    };
     const ends = ["pointerup", "pointercancel", "lostpointercapture"];
+    const dragState = {
+      settling: false,
+      landedMode: null,
+      landedPushed: null,
+      cancel(commitLanded) {
+        if (!done) {
+          done = true;
+          grip.removeEventListener("pointermove", onMove);
+          for (const name of ends) grip.removeEventListener(name, onEnd);
+          if (dragRef.current !== null) setDrag(null);
+        }
+        if (settleTimer.current) {
+          clearTimeout(settleTimer.current);
+          settleTimer.current = 0;
+        }
+        if (springTimer.current) {
+          clearTimeout(springTimer.current);
+          springTimer.current = 0;
+        }
+        if (activeDrag.current === dragState) activeDrag.current = null;
+        if (commitLanded && column.isConnected && !column.hasAttribute("data-leaving") && modeRef.current !== "hidden" && dragState.landedPushed !== null) {
+          chatRoom.setLeft(Math.max(0, dragState.landedPushed - collapsedWidthRef.current));
+        }
+        for (const col of columns2) {
+          col.style.removeProperty("margin-left");
+          col.style.removeProperty("transition");
+        }
+        column.style.removeProperty("--bt-lc-w");
+        delete column.dataset.folding;
+        chatRoom.hold(false);
+      }
+    };
+    activeDrag.current = dragState;
     const onEnd = (end) => {
       if (done) return;
       done = true;
@@ -40321,7 +40358,7 @@ function TeamSidebar(props) {
       for (const name of ends) grip.removeEventListener(name, onEnd);
       setDrag(null);
       if (last === null) {
-        finish();
+        dragState.cancel(false);
         return;
       }
       actions.setPanelYield?.(false);
@@ -40333,8 +40370,11 @@ function TeamSidebar(props) {
         actions.setSidebarPref?.("open");
         actions.setLeftDrawer?.(last.left === "drawer");
       }
-      if (springUntil === 0) finish();
-      else settleTimer.current = setTimeout(finish, Math.max(0, springUntil - performance.now()) + 60);
+      dragState.settling = true;
+      dragState.landedMode = last.left;
+      dragState.landedPushed = last.left === "open" ? last.width : RAIL_WIDTH;
+      if (springUntil === 0) dragState.cancel(true);
+      else settleTimer.current = setTimeout(() => dragState.cancel(true), Math.max(0, springUntil - performance.now()) + 60);
     };
     grip.addEventListener("pointermove", onMove);
     for (const name of ends) grip.addEventListener(name, onEnd);
@@ -40515,7 +40555,7 @@ function TeamSidebar(props) {
   return (0, import_react40.createElement)(
     import_react40.Fragment,
     null,
-    (0, import_react40.createElement)(TitleToggle, { hidden: mode === "hidden", onToggle }),
+    (0, import_react40.createElement)(TitleToggle, { hidden: mode === "hidden", mode, onToggle }),
     shown === "hidden" ? null : (0, import_react40.createElement)(LeftColumn, { mode: shown, width: ourWidth, onGrip: startDrag, leaving, entering: !firstColumn.current }, content)
   );
 }
