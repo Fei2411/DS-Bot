@@ -18,6 +18,8 @@ import { ComposerPlus, ComposerVoice, DraftKeeper, menuIcons } from './composer.
 import { CHATS_SOURCE, atSources } from './at-menu.js'
 import { BtwDock, BtwTurnTail } from './btw.js'
 import { SIDE_CSS, sideSource } from './side-chat.js'
+import { SIDE_APP_CSS } from './side-app-styles.js'
+import { persistAll, restoreAll } from './side-apps.js'
 import { VOICE_BUNDLE, closingReplyText, requestPreparation } from './speech.js'
 import { sameVersion } from './dsh-offer.js'
 import { QuestionCard, QuestionDock } from './questions.js'
@@ -80,6 +82,15 @@ import { installAgentForks } from './agent-fork.js'
 import { createAvatarRefCache } from './avatar-refs.js'
 import { watchBotCompletions } from './bot-completions.js'
 
+// The Canvas and Reader tabs survive a restart as identity and mode only; no text,
+// address or ticket is stored, and the host proves each file again when a tab shows.
+const readFileTabs = () => {
+  try { return restoreAll(JSON.parse(localStorage.getItem(STORAGE.sideApps) ?? 'null')) } catch { return {} }
+}
+const writeFileTabs = (all) => {
+  try { localStorage.setItem(STORAGE.sideApps, JSON.stringify(persistAll(all))) } catch { /* storage unavailable */ }
+}
+
 export const inject = ['sessions', 'uiWorkspace', 'uiConversation', 'slots', 'theme', 'layout']
 
 const WINDOWS = globalThis.navigator?.userAgentData?.platform === 'Windows' || /^Win/u.test(globalThis.navigator?.platform ?? '')
@@ -100,8 +111,19 @@ export function apply(ctx) {
   const seenStore = sharedMap(STORAGE.seen)
   let seenAt = seenStore.read()
   // `details` is the panel's subject (a Session id); `view` picks details or the
-  // subject Bot's browser inside it.
-  const ui = createSource({ details: null, view: 'details', renaming: false, tab: null, side: null, task: null, taskDeck: null, newChat: null, exchange: null, menu: null, voice: null, palette: null, quote: null, paste: {}, pendingOpen: null, settings: null, memory: null, toast: null, signIn: null, renameAgent: null, unread: unreadStore.read(), reactions: reactionStore.read(), visits: {}, panelYield: false, leftDrawer: false, bootFailed: false, goalCompose: null, goalOpen: null, approvalOpen: null })
+  // subject Bot's browser inside it. `fileTabs` holds each subject's Canvas and Reader
+  // tabs (identity and mode only; see side-apps.js), `fileTab` the one on screen.
+  const savedFileTabs = readFileTabs()
+  const ui = createSource({ details: null, view: 'details', renaming: false, tab: null, side: null, task: null, fileTabs: savedFileTabs, fileTab: null, draft: null, taskDeck: null, newChat: null, exchange: null, menu: null, voice: null, palette: null, quote: null, paste: {}, pendingOpen: null, settings: null, memory: null, toast: null, signIn: null, renameAgent: null, unread: unreadStore.read(), reactions: reactionStore.read(), visits: {}, panelYield: false, leftDrawer: false, bootFailed: false, goalCompose: null, goalOpen: null, approvalOpen: null })
+  ctx.effect(() => {
+    let last = ui.getSnapshot().fileTabs
+    return ui.subscribe(() => {
+      const next = ui.getSnapshot().fileTabs
+      if (next === last) return
+      last = next
+      writeFileTabs(next)
+    })
+  }, 'ds-bot: file tabs')
   // The left column's kept preference, and the frame geometry the layout rules
   // in frame-layout.js read: the window and the shell's collapsed track come from
   // installFrameWatch, the open column's width is the user's own.
@@ -243,6 +265,7 @@ export function apply(ctx) {
     if (value.learningSettled !== undefined && JSON.stringify(value.learningSettled) !== JSON.stringify(current.learningSettled ?? {})) live.learningSettled = value.learningSettled
     if (value.btwCards !== undefined && JSON.stringify(value.btwCards) !== JSON.stringify(current.btwCards ?? {})) live.btwCards = value.btwCards
     if (value.sideChats !== undefined && JSON.stringify(value.sideChats) !== JSON.stringify(current.sideChats ?? {})) live.sideChats = value.sideChats
+    if (value.sideAppOpens !== undefined && JSON.stringify(value.sideAppOpens) !== JSON.stringify(current.sideAppOpens ?? {})) live.sideAppOpens = value.sideAppOpens
     if (value.imStatus !== undefined && JSON.stringify(value.imStatus) !== JSON.stringify(current.imStatus ?? {})) live.imStatus = value.imStatus
     if (value.imVia !== undefined && JSON.stringify(value.imVia) !== JSON.stringify(current.imVia ?? {})) live.imVia = value.imVia
     if (value.apiVia !== undefined && JSON.stringify(value.apiVia) !== JSON.stringify(current.apiVia ?? {})) live.apiVia = value.apiVia
@@ -1409,6 +1432,7 @@ export function apply(ctx) {
     [HANDOFF_CSS, 'handoff'],
     [SIDE_CSS, 'side'],
     [BROWSER_CSS, 'browser'],
+    [SIDE_APP_CSS, 'side-apps'],
   ]
   // Settings outside Bot mode (Agent mode) brings DS Bot's own rules and colors while it
   // shows; the shell overrides and DSH's tokens stay as Agent mode has them.

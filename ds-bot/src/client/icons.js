@@ -112,6 +112,11 @@ export const FolderIcon = lineIcon(['M3 6A1.5 1.5 0 0 1 4.5 4.5h3.2l1.8 2h6A1.5 
 // One speech bubble with two text lines: a side chat.
 export const MonitorIcon = lineIcon(['M3.5 4.5h13A1.5 1.5 0 0 1 18 6v7a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 2 13V6a1.5 1.5 0 0 1 1.5-1.5z', 'M8 17.5h4', 'M10 14.5v3'])
 export const SideIcon = lineIcon(['M4.5 4h11A1.5 1.5 0 0 1 17 5.5v6a1.5 1.5 0 0 1-1.5 1.5H9L5.5 16v-3h-1A1.5 1.5 0 0 1 3 11.5v-6A1.5 1.5 0 0 1 4.5 4z', 'M6.5 7h7', 'M6.5 10h4.5'])
+// Side Apps: Canvas is a frame with its corner marks, Reader an open book, Source angle brackets.
+export const CanvasIcon = lineIcon(['M4 6.5V5a1 1 0 0 1 1-1h1.5', 'M13.5 4H15a1 1 0 0 1 1 1v1.5', 'M16 13.5V15a1 1 0 0 1-1 1h-1.5', 'M6.5 16H5a1 1 0 0 1-1-1v-1.5', 'M7.5 12.5l2-2.5 1.5 1.5 1.5-2.5'])
+export const ReaderIcon = lineIcon(['M10 6.2C8.6 5 6.6 4.6 4 4.8v9.4c2.6-.2 4.6.2 6 1.4', 'M10 6.2c1.4-1.2 3.4-1.6 6-1.4v9.4c-2.6-.2-4.6.2-6 1.4z', 'M10 6.2v9.4'])
+export const SourceIcon = lineIcon(['M7.5 6.5L4 10l3.5 3.5', 'M12.5 6.5L16 10l-3.5 3.5'])
+export const RefreshIcon = lineIcon(['M15.5 10a5.5 5.5 0 1 1-1.6-3.9', 'M15.5 3.5v3.5H12'])
 // An arrow stuck in a target: a group's goal.
 export const GoalIcon = lineIcon(['M15.1 8.8A6.5 6.5 0 1 1 11.2 4.9', 'M9 8a3 3 0 1 0 0 6 3 3 0 1 0 0-6', 'M9 11l7.5-7.5', 'M14.6 2.8v2.6h2.6'])
 // Defined here, after the icons: SettingsDialog only reads them at render time.

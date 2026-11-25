@@ -28,6 +28,7 @@ import { QUEUE_CSS } from '../../../ds-bot/src/client/queue-dock.js'
 import { SCHEDULE_CSS } from '../../../ds-bot/src/client/schedules.js'
 import { SECRET_CSS } from '../../../ds-bot/src/client/secret-card.js'
 import { SIDE_CSS } from '../../../ds-bot/src/client/side-chat.js'
+import { SIDE_APP_CSS } from '../../../ds-bot/src/client/side-app-styles.js'
 import { SIDEBAR_CSS } from '../../../ds-bot/src/client/sidebar.js'
 import { CONVERSATION_CSS, SHELL_CSS, installStyles } from '../../../ds-bot/src/client/styles.js'
 import { TASK_CSS } from '../../../ds-bot/src/client/task-board.js'
@@ -52,7 +53,7 @@ for (const [tag, text] of [
   ['conversation', CONVERSATION_CSS + PASTE_CSS + OPENING_CSS + USER_MESSAGE_CSS + WIDGET_CSS + CHANGES_CSS + HANDOFF_CSS + TURN_ERROR_CSS + QUEUE_CSS + ANNOTATION_CSS],
   ['secrets', SECRET_CSS], ['providers', PROVIDERS_CSS], ['connectors', CONNECTOR_CSS + CONNECTORS_PAGE_CSS + IM_CSS],
   ['models', MODEL_CSS + FOLDER_CSS + BOT_SETTINGS_CSS + BOT_MODELS_CSS + AGENT_CARDS_CSS + AVATAR_LIBRARY_CSS + GROUP_SETTINGS_CSS],
-  ['panel', BROWSER_CSS + COMPUTER_CSS + SIDE_CSS + GOAL_CSS + TASK_CSS + LEARNING_CSS],
+  ['panel', BROWSER_CSS + COMPUTER_CSS + SIDE_CSS + SIDE_APP_CSS + GOAL_CSS + TASK_CSS + LEARNING_CSS],
   ['usage', USAGE_CSS], ['schedules', SCHEDULE_CSS],
   ['feedback', FEEDBACK_CSS], ['about', ABOUT_CSS], ['members', MEMBER_CSS],
 ]) installStyles(text, tag)

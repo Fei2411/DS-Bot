@@ -1,6 +1,8 @@
 import { countCards, heldCardKey } from './sources.js'
 import { noteClientError } from './diagnostics.js'
 import { chatOfSession } from './draft-keep.js'
+import { FILE_TABS_MAX, closeFileTab, isFileApp, isSideApp, openFileTab, parseDescriptor, setTabMode, tabFromDescriptor } from './side-apps.js'
+import { dropSession } from './side-file-source.js'
 
 // The actions every window that draws the Bot views shares: dialogs and panels (the `ui`
 // source), requests to the host, and the notes the transcript keeps. The shell around the
@@ -72,7 +74,8 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
         const view = state.view === 'browser' && snap.byId[id] === undefined ? 'details'
           : state.view === 'side' && !(snap.sideChats?.[snap.byId[id]?.id] ?? []).some(chat => chat?.id === state.side) ? 'details'
             : state.view === 'task' ? 'details'
-              : state.view
+              : isFileApp(state.view) && !(state.fileTabs?.[subjectOf(snap, id)] ?? []).some(tab => tab.key === state.fileTab) ? 'details'
+                : state.view
         return { ...state, details: id, view, task: null, renaming: false, tab: null }
       })
     },
@@ -89,9 +92,65 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     hasPlugins: () => true,
     openPlugins: (focus = null) => openSettings('plugins', focus),
     setPanelView: (view) => {
-      if (view !== 'details' && view !== 'browser' && view !== 'side' && view !== 'task') return
+      if (!isSideApp(view)) return
       ui.set(state => (state.details && state.view !== view ? { ...state, view, ...(view === 'details' ? { tab: null } : {}), panelYield: yieldTo(state, view) } : state))
     },
+    // The Canvas and Reader tabs of a subject. A descriptor from a card, a tool result or
+    // an unconsumed open names the file; the host proves it again on every read. `auto`
+    // opens never move the user off the conversation they are in: they only touch the
+    // panel of the subject they belong to.
+    openSideApp: async (sessionId, descriptor, { auto = false } = {}) => {
+      const parsed = parseDescriptor(descriptor)
+      if (parsed === undefined) throw new Error('This card has no file to open.')
+      const tab = tabFromDescriptor(parsed, sessionId)
+      const snap = roster.getSnapshot()
+      const subject = subjectOf(snap, sessionId)
+      let full = false
+      ui.set((state) => {
+        const own = state.fileTabs?.[subject] ?? []
+        const result = openFileTab(own, tab)
+        full = result.full
+        if (result.full) return state
+        const keep = auto && state.details && subjectOf(snap, state.details) !== subject
+        return {
+          ...state,
+          fileTabs: { ...state.fileTabs, [subject]: result.tabs },
+          ...(keep ? {} : { details: state.details && subjectOf(snap, state.details) === subject ? state.details : sessionId, view: tab.app, fileTab: tab.key, renaming: false, tab: null, panelYield: yieldTo(state, tab.app) }),
+        }
+      })
+      if (full) throw new Error(`Close a file tab first: a panel holds at most ${FILE_TABS_MAX}.`)
+      return tab
+    },
+    activateSideApp: (sessionId, key) => {
+      ui.set((state) => {
+        const subject = subjectOf(roster.getSnapshot(), sessionId)
+        const found = (state.fileTabs?.[subject] ?? []).find(tab => tab.key === key)
+        if (!found) return state
+        return { ...state, details: sessionId, view: found.app, fileTab: key, renaming: false, tab: null, panelYield: yieldTo(state, found.app) }
+      })
+    },
+    closeSideAppTab: (sessionId, key) => {
+      dropSession(key)
+      ui.set((state) => {
+        const subject = subjectOf(roster.getSnapshot(), sessionId)
+        const own = state.fileTabs?.[subject] ?? []
+        if (!own.some(tab => tab.key === key)) return state
+        const rest = closeFileTab(own, key)
+        const leaving = state.fileTab === key && isFileApp(state.view)
+        return { ...state, fileTabs: { ...state.fileTabs, [subject]: rest }, ...(leaving ? { view: 'details', fileTab: null } : {}) }
+      })
+    },
+    setSideAppMode: (sessionId, key, mode) => {
+      ui.set((state) => {
+        const subject = subjectOf(roster.getSnapshot(), sessionId)
+        const own = state.fileTabs?.[subject] ?? []
+        return own.some(tab => tab.key === key && tab.mode !== mode) ? { ...state, fileTabs: { ...state.fileTabs, [subject]: setTabMode(own, key, mode) } } : state
+      })
+    },
+    // Text for a chat's composer: the Reader's "Add to chat". Like a quote, the composer
+    // takes it once and clears it.
+    draftInsert: (sessionId, text) => ui.set(state => ({ ...state, draft: { sessionId, text, token: Date.now() } })),
+    clearDraftInsert: token => ui.set(state => (state.draft?.token === token ? { ...state, draft: null } : state)),
     openTaskDeck: (targetId, taskId = null) => {
       if (!targetId) return
       ui.set(state => ({ ...state, taskDeck: { targetId, taskId, token: Date.now() }, approvalOpen: null, goalOpen: null, goalCompose: null, menu: null, palette: null }))
@@ -139,7 +198,7 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
       ui.set(state => (state.details && state.view === 'side' && state.side === chatId ? { ...state, view: 'details', side: null } : state))
       return after(call('side-close', { chatId }))
     },
-    closePanel: () => { ui.set(state => (state.details ? { ...state, details: null, view: 'details', renaming: false, tab: null, side: null, task: null } : state)) },
+    closePanel: () => { ui.set(state => (state.details ? { ...state, details: null, view: 'details', renaming: false, tab: null, side: null, task: null, fileTab: null } : state)) },
     quote: (sessionId, text) => ui.set(state => ({ ...state, quote: { sessionId, text, token: Date.now() } })),
     // A long paste becomes a card; its text stays here until it goes back into the box.
     addPaste: (sessionId, text, name) => {

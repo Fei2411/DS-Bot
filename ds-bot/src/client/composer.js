@@ -89,6 +89,21 @@ export function ComposerVoice({ sessionId, inputActions, actions, useUi, useRost
       selection?.collapseToEnd()
     }
   }, [quote?.token])
+  // The Reader's "Add to chat": text for this composer, put in once and kept beside what
+  // the user already typed.
+  const draft = useUi(state => (state.draft?.sessionId === sessionId ? state.draft : null))
+  useEffect(() => {
+    if (!draft || !inputActions) return
+    actions.clearDraftInsert(draft.token)
+    inputActions.insertText(`${draft.text}\n\n`, inputActions.captureInsertion())
+    const box = document.querySelector('[class*="_centerCol"] [role=textbox][contenteditable=true]')
+    if (box instanceof HTMLElement) {
+      box.focus()
+      const selection = window.getSelection()
+      selection?.selectAllChildren(box)
+      selection?.collapseToEnd()
+    }
+  }, [draft?.token])
   if (sessionId === undefined) return null
   // With the Voice Input plugin on, its own microphone sits in this composer.
   const pluginMic = actions.speech() !== undefined
