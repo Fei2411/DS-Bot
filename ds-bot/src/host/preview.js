@@ -11,55 +11,111 @@ const SHRINKS = new Set(['image/jpeg', 'image/jpg', 'image/png'])
 const JOB_TIMEOUT_MS = 20_000
 // The worker holds a decoded photo's memory; it goes when nothing asked for a while.
 const IDLE_MS = 60_000
+const MAX_CONCURRENT = 2
+const WORKER_RESOURCE_LIMITS = { maxOldGenerationSizeMb: 256, maxYoungGenerationSizeMb: 64 }
 
 let worker = null
 let idle
 let nextId = 0
 const waiting = new Map()
+const queue = []
 
-function failAll(error) {
-  for (const job of waiting.values()) { clearTimeout(job.timer); job.reject(error) }
-  waiting.clear()
+function scheduleIdle() {
+  clearTimeout(idle)
+  if (worker === null || waiting.size > 0 || queue.length > 0) return
+  worker.unref()
+  idle = setTimeout(() => {
+    if (waiting.size === 0 && queue.length === 0) stopWorker()
+  }, IDLE_MS)
+  idle.unref()
 }
 
-function stopWorker() {
-  const running = worker
-  worker = null
-  void running?.terminate()
+function failWorker(target, error) {
+  for (const [id, job] of waiting.entries()) {
+    if (job.worker !== target) continue
+    waiting.delete(id)
+    clearTimeout(job.timer)
+    job.reject(error)
+  }
+}
+
+function stopWorker(target = worker) {
+  if (target === null) return
+  if (worker === target) worker = null
+  clearTimeout(idle)
+  failWorker(target, new Error('The preview worker stopped'))
+  void target.terminate()
 }
 
 function start() {
   if (worker !== null) return worker
-  worker = new Worker(new URL('./preview-worker.js', import.meta.url))
-  worker.unref()
-  worker.on('message', ({ id, data, error }) => {
+  const current = new Worker(new URL('./preview-worker.js', import.meta.url), {
+    resourceLimits: WORKER_RESOURCE_LIMITS,
+  })
+  worker = current
+  current.on('message', ({ id, data, error }) => {
     const job = waiting.get(id)
-    if (job === undefined) return
+    if (job === undefined || job.worker !== current) return
     waiting.delete(id)
     clearTimeout(job.timer)
     if (error !== undefined) job.reject(new Error(error))
     else job.resolve(data === null ? null : Buffer.from(data))
+    pump()
+    scheduleIdle()
   })
-  worker.on('error', error => { failAll(error); stopWorker() })
-  worker.on('exit', () => { failAll(new Error('The preview worker stopped')); worker = null })
-  return worker
+  current.on('error', (error) => {
+    if (worker !== current) return
+    worker = null
+    failWorker(current, error)
+    void current.terminate()
+    pump()
+    scheduleIdle()
+  })
+  current.on('exit', () => {
+    if (worker !== current) return
+    worker = null
+    failWorker(current, new Error('The preview worker stopped'))
+    pump()
+    scheduleIdle()
+  })
+  current.unref()
+  return current
+}
+
+function pump() {
+  while (waiting.size < MAX_CONCURRENT && queue.length > 0) {
+    const item = queue.shift()
+    clearTimeout(idle)
+    const id = nextId++
+    const current = start()
+    current.ref()
+    const timer = setTimeout(() => {
+      const held = waiting.get(id)
+      if (held === undefined) return
+      waiting.delete(id)
+      held.reject(new Error('The preview took too long'))
+      stopWorker(current)
+      pump()
+      scheduleIdle()
+    }, JOB_TIMEOUT_MS)
+    timer.unref()
+    waiting.set(id, { resolve: item.resolve, reject: item.reject, timer, worker: current })
+    current.postMessage({
+      id,
+      bytes: item.bytes,
+      mime: item.mime,
+      edge: PREVIEW_EDGE,
+      quality: QUALITY,
+    })
+  }
 }
 
 /** A JPEG preview of `bytes`, or null when the photo is small already or of a kind kept as it is. */
 export function previewImage(bytes, mime) {
   if (!SHRINKS.has(String(mime).toLowerCase()) || bytes.length < PREVIEW_MIN_BYTES) return Promise.resolve(null)
-  clearTimeout(idle)
-  idle = setTimeout(stopWorker, IDLE_MS)
-  idle.unref()
-  const id = nextId++
+  const normalized = String(mime).toLowerCase() === 'image/png' ? 'image/png' : 'image/jpeg'
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      waiting.delete(id)
-      reject(new Error('The preview took too long'))
-      stopWorker()
-    }, JOB_TIMEOUT_MS)
-    timer.unref()
-    waiting.set(id, { resolve, reject, timer })
-    start().postMessage({ id, bytes, mime: String(mime).toLowerCase() === 'image/png' ? 'image/png' : 'image/jpeg', edge: PREVIEW_EDGE, quality: QUALITY })
+    queue.push({ bytes, mime: normalized, resolve, reject })
+    pump()
   })
 }

@@ -2,9 +2,12 @@ import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
+import fsp from 'node:fs/promises'
+import { syncBuiltinESMExports } from 'node:module'
 import { homedir, tmpdir } from 'node:os'
 import { dirname, join, relative } from 'node:path'
 import { after, before, describe, test } from 'node:test'
+import { setImmediate as nextTurn } from 'node:timers/promises'
 import { entryListSchema } from '@deepseek-ai/cordis-plugin-include'
 import { load } from 'js-yaml'
 import { parse } from 'yaml'
@@ -78,14 +81,38 @@ describe('sessionDirs', () => {
 
   test('keeps the full probe for small batches without listing groups', async (t) => {
     const from = join(root, 'small')
+    const sessions = join(from, 'sessions')
     for (let i = 0; i < 64; i++) mkdirSync(join(from, 'sessions', `g${i}`), { recursive: true })
+    const listings = []
     t.mock.method(disk, 'readdirSync', (path, ...args) => {
-      assert.equal(path, join(from, 'sessions'))
+      listings.push(path)
       return readdirSync(path, ...args)
     })
     const { sessionDirs: discover } = await import('../src/import.mjs?session-small')
     const ids = Array(8).fill('missing')
     assert.deepEqual(discover(from, ids), { found: [], missing: ids })
+    assert.deepEqual(listings, [sessions])
+  })
+
+  test('does not list later groups when the first group finds every Session', async (t) => {
+    const from = join(root, 'first-group')
+    const sessions = join(from, 'sessions')
+    for (let i = 0; i < 16; i++) mkdirSync(join(sessions, `g${i}`), { recursive: true })
+    const first = join(sessions, readdirSync(sessions)[0])
+    const ids = Array.from({ length: 64 }, (_, i) => `s${i}`)
+    for (const id of ids) mkdirSync(join(first, id))
+    const listings = []
+    t.mock.method(disk, 'readdirSync', (path, ...args) => {
+      listings.push(path)
+      return readdirSync(path, ...args)
+    })
+    const { sessionDirs: discover } = await import('../src/import.mjs?session-first')
+    const threshold = ids.slice(0, 32)
+    assert.deepEqual(discover(from, threshold), oldSessionDirs(from, threshold))
+    assert.deepEqual(listings, [sessions])
+    listings.length = 0
+    assert.deepEqual(discover(from, ids), oldSessionDirs(from, ids))
+    assert.deepEqual(listings, process.platform === 'win32' ? [sessions] : [sessions, first])
   })
 
   test('matches the frozen discovery on deterministic randomized trees', () => {
@@ -102,6 +129,155 @@ describe('sessionDirs', () => {
       assert.deepEqual(sessionDirs(from, ids), oldSessionDirs(from, ids))
     }
   })
+})
+
+describe('Session copies', () => {
+  function fixture(t, ids) {
+    const root = mkdtempSync(join(tmpdir(), 'ds-bot-session-copy-'))
+    const from = join(root, 'old')
+    const to = join(root, 'new')
+    const sources = ids.map(id => join(from, 'sessions', 'group', id))
+    const team = { bots: { bot: { id: ids[0], segments: ids.slice(1).map(sessionId => ({ sessionId })) } } }
+    for (const source of sources) mkdirSync(source, { recursive: true })
+    write(join(from, 'bot', 'state.json'), JSON.stringify(team))
+    t.after(() => {
+      t.mock.restoreAll()
+      syncBuiltinESMExports()
+      rmSync(root, { recursive: true, force: true })
+    })
+    return { from, to, sources, team }
+  }
+
+  test('copies four Sessions at a time and counts each completion', async (t) => {
+    const ids = Array.from({ length: 8 }, (_, i) => `session-${i}`)
+    const { from, to, sources, team } = fixture(t, ids)
+    const first = Promise.withResolvers()
+    const completed = []
+    const progress = []
+    let active = 0
+    let peak = 0
+    t.mock.method(fsp, 'cp', async (source, target) => {
+      peak = Math.max(peak, ++active)
+      if (source === sources[0]) await first.promise
+      else await nextTurn()
+      completed.push([source, target])
+      active--
+    })
+    syncBuiltinESMExports()
+    const { copySessions: copy } = await import('../src/import.mjs?session-pool')
+    const pending = copy(from, team, to, undefined, (done, total) => progress.push([done, total, completed.length]))
+    await nextTurn()
+    first.resolve()
+    assert.deepEqual(await pending, ids)
+    assert.equal(peak, 4)
+    assert.notEqual(completed[0]?.[0], sources[0])
+    assert.deepEqual(completed.toSorted(), sources.map((source, i) => [source, join(to, 'sessions', 'group', ids[i])]))
+    assert.deepEqual(progress, ids.map((_, i) => [i + 1, ids.length, i + 1]))
+  })
+
+  test('keeps overlapping Session paths in source order', async (t) => {
+    const ids = ['one', 'one/two']
+    const { from, to, sources, team } = fixture(t, ids)
+    const events = []
+    t.mock.method(fsp, 'cp', async (source, target) => {
+      events.push(['start', source, target])
+      await nextTurn()
+      events.push(['finish', source, target])
+    })
+    syncBuiltinESMExports()
+    const { copySessions: copy } = await import('../src/import.mjs?session-overlap')
+    assert.deepEqual(await copy(from, team, to), ids)
+    assert.deepEqual(events, ids.flatMap((id, i) => ['start', 'finish'].map(event =>
+      [event, sources[i], join(to, 'sessions', 'group', id)])))
+  })
+
+  test('stops reporting progress and rejects when every Session was dispatched before cancellation', async (t) => {
+    const { from, to, sources, team } = fixture(t, ['one', 'two', 'three', 'four'])
+    const controller = new AbortController()
+    const finishOthers = Promise.withResolvers()
+    const dispatched = []
+    const completed = []
+    const progress = []
+    t.mock.method(fsp, 'cp', async (source) => {
+      dispatched.push(source)
+      if (source !== sources[0]) await finishOthers.promise
+      completed.push(source)
+    })
+    syncBuiltinESMExports()
+    const { copySessions: copy } = await import('../src/import.mjs?session-all-dispatched')
+    const pending = copy(from, team, to, controller.signal, (done, total) => {
+      progress.push([done, total])
+      controller.abort()
+    })
+    const settled = pending.then(() => ({ completed: [...completed] }), error => ({ completed: [...completed], error }))
+    await nextTurn()
+    finishOthers.resolve()
+    const result = await settled
+    assert.deepEqual(dispatched, sources)
+    assert.deepEqual(result.completed, sources)
+    assert.deepEqual(progress, [[1, 4]])
+    assert.equal(result.error, controller.signal.reason)
+  })
+
+  for (const outcome of ['abort', 'error']) {
+    test(`drains Session copies before cleaning the stage after an ${outcome}`, async (t) => {
+      const { from, to, sources } = fixture(t, ['one', 'two', 'three', 'four', 'five'])
+      const controller = new AbortController()
+      const reason = Object.assign(new Error(outcome), { code: 'EACCES' })
+      const started = Promise.withResolvers()
+      const stopFirst = Promise.withResolvers()
+      const finishOthers = Promise.withResolvers()
+      const { cp, rm } = fsp
+      const dispatched = []
+      const active = new Set()
+      const pendingAtCleanup = []
+      const bytesAfterAbort = []
+      let stage
+      t.mock.method(fsp, 'cp', async (source, target, options) => {
+        if (source === join(from, 'bot')) {
+          stage = dirname(target)
+          return cp(source, target, options)
+        }
+        dispatched.push(source)
+        active.add(source)
+        try {
+          if (source === sources[0]) {
+            started.resolve()
+            await stopFirst.promise
+          } else {
+            await finishOthers.promise
+            const file = join(source, 'data')
+            writeFileSync(file, 'data')
+            await options.filter(file)
+          }
+        } finally {
+          active.delete(source)
+        }
+      })
+      t.mock.method(fsp, 'rm', (path, ...args) => {
+        if (path === stage) pendingAtCleanup.push([...active])
+        return rm(path, ...args)
+      })
+      syncBuiltinESMExports()
+      const { importTeam: copy } = await import(`../src/import.mjs?session-drain-${outcome}`)
+      const pending = assert.rejects(copy({
+        from, to, workspace: join(to, 'workspace'), signal: controller.signal,
+        onProgress: (bytes) => { if (controller.signal.aborted) bytesAfterAbort.push(bytes) },
+      }), error => error === reason)
+      await started.promise
+      if (outcome === 'abort') controller.abort(reason)
+      if (outcome === 'error') stopFirst.reject(reason)
+      else stopFirst.resolve()
+      await nextTurn()
+      finishOthers.resolve()
+      await pending
+      assert.deepEqual(dispatched, sources.slice(0, 4))
+      assert.deepEqual(pendingAtCleanup, [[]])
+      assert.deepEqual(bytesAfterAbort, [])
+      assert.deepEqual(staged(to), [])
+      assert.equal(existsSync(join(to, 'bot')), false)
+    })
+  }
 })
 
 function treeHash(dir) {

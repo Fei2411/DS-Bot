@@ -202,6 +202,13 @@ async function runPrompt(session, prompt, requestId) {
       ],
     })
     const outcome = answer?.result?.outcome
+    if (process.argv.includes('--stall-after-permission')) {
+      session.pendingPrompt = requestId
+      return
+    }
+    if (process.argv.includes('--compact-after-permission')) {
+      send({ jsonrpc: '2.0', method: '_cognition.ai/compaction', params: { status: 'completed', sessionId } })
+    }
     finish(outcome?.outcome === 'selected' && !outcome.optionId.startsWith('reject') ? `allowed via ${outcome.optionId}` : 'denied')
     return
   }

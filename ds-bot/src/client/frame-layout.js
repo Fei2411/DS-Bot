@@ -8,7 +8,7 @@ import { STORAGE } from './storage.js'
 
 export const MIN_CHAT = 420
 export const RAIL_WIDTH = 88
-export const PANEL_MIN = { details: 320, browser: 360, side: 320 }
+export const PANEL_MIN = { details: 320, browser: 360, side: 320, workspace: 360 }
 // The shell collapses its own sidebar below this width.
 export const DSH_NARROW = 1024
 // What the shell's collapsed track takes from the window. A phone-width shell parks the

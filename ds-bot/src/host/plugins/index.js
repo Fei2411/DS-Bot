@@ -153,6 +153,7 @@ export function install(rt) {
   const runtimeStatus = new Map()
   /** @type {Map<string, { action: string, reason: string, spec?: string }>} */
   const pendingRestartPackages = new Map()
+  const enabledByUsBundles = new Set()
   /** @type {Map<string, any>} */
   let cachedBundles = new Map()
   let mcpPluginPromise = null
@@ -373,6 +374,7 @@ export function install(rt) {
     const rawMcp = entry.install?.mcp ?? entry.mcp
     const config = resolveMcpRuntimeConfig(entry.id, rawMcp)
     const configHash = fingerprint(config)
+    if (stopped || isReadOnly()) return null
     const fiber = ctx.plugin(mcpPlugin, config)
     let promptDispose = null
     try {
@@ -1278,10 +1280,14 @@ export function install(rt) {
     await Promise.all([refreshBundles(), catalogManager.hydrate()])
     const store = pluginStore()
 
+    const previousTarget = desiredSlotTarget(cleanSlot)
+    const previousMount = activeMounts.get(`slot:${cleanSlot}`)
     const catalogEntry = findKnownEntry(id)
     if (catalogEntry && !findCustomEntry(id)) savePluginSnapshot(store, catalogEntry)
+    let nextDshPkg = null
     if ((id.startsWith('dsh:') || catalogEntry?.kind === 'dsh') && pluginManager()) {
       const bundle = catalogEntry ? resolveDshBundleForEntry(catalogEntry) : cachedBundles.get(id.slice('dsh:'.length))
+      nextDshPkg = bundle?.name ?? catalogEntry?.install?.packageName ?? catalogEntry?.packageName ?? id.slice('dsh:'.length)
       if (bundle && !bundle.enabled && typeof pluginManager().setBundleEnabled === 'function') {
         const res = await pluginManager().setBundleEnabled(bundle.name, true)
         if (res?.application === 'failed' || res?.application === 'cancelled') {
@@ -1289,11 +1295,38 @@ export function install(rt) {
         }
         if (res?.application === 'restart-required') {
           pendingRestartPackages.set(bundle.name, { action: 'enable', reason: res.restartReason ?? 'no-hmr' })
+          enabledByUsBundles.add(bundle.name)
         } else if (res?.application === 'applied') {
           pendingRestartPackages.delete(bundle.name)
           delete store.knownPrefixes[bundle.name]
+          enabledByUsBundles.add(bundle.name)
         }
         await refreshBundles()
+      }
+    }
+
+    // Switching the browser slot away from a DSH bundle we enabled disables that bundle
+    // so it does not linger running in DSH after replacement.
+    if (cleanSlot === 'browser' && previousTarget && previousTarget !== id && pluginManager()) {
+      const prevEntry = findKnownEntry(previousTarget)
+      const prevBundle = prevEntry
+        ? resolveDshBundleForEntry(prevEntry)
+        : (previousMount?.packageName ? cachedBundles.get(previousMount.packageName) : cachedBundles.get(previousTarget.replace(/^dsh:/, '')))
+      const prevPkg = prevBundle?.name ?? previousMount?.packageName ?? prevEntry?.install?.packageName ?? prevEntry?.packageName
+      if (prevPkg && prevPkg !== nextDshPkg && enabledByUsBundles.has(prevPkg) && typeof pluginManager().setBundleEnabled === 'function') {
+        try {
+          const res = await pluginManager().setBundleEnabled(prevPkg, false)
+          if (res?.application !== 'failed' && res?.application !== 'cancelled') {
+            enabledByUsBundles.delete(prevPkg)
+            if (res?.application === 'restart-required') {
+              pendingRestartPackages.set(prevPkg, { action: 'disable', reason: res.restartReason ?? 'no-hmr' })
+              if (prevEntry?.toolPrefixes?.length) store.knownPrefixes[prevPkg] = cleanPrefixes(prevEntry.toolPrefixes)
+            }
+            await refreshBundles()
+          }
+        } catch (error) {
+          rt.warn?.('ds-bot: failed to disable replaced browser bundle %s: %s', prevPkg, error?.message ?? error)
+        }
       }
     }
 
@@ -1820,6 +1853,7 @@ export function install(rt) {
 
   ctx.effect(() => async () => {
     stopped = true
+    await reconcileQueue.catch(() => {})
     await unmountAll()
   }, 'ds-bot: plugins')
 

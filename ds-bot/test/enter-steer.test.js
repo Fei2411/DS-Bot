@@ -1,14 +1,26 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { enterSteers, steerable, steerQueued } from '../src/client/enter-steer.js'
+import { emptyAccelQueueKey, enterSteers, steerable, steerQueued } from '../src/client/enter-steer.js'
 
 const input = (over = {}) => ({ phase: 'plain', draft: '', attachmentIds: [], queue: [{ id: 'm1', source: { kind: 'user' } }], ...over })
 const event = (over = {}) => ({ key: 'Enter', ...over })
 
-test('plain Enter on an empty composer with the user\'s queue steers', () => {
+test('plain Enter on an empty composer with the user\'s queue steers only when enterToSend is enabled', () => {
   assert.equal(enterSteers(event(), input()), true)
   assert.equal(enterSteers(event(), input({ draft: '   \n\t  ' })), true)
+  assert.equal(enterSteers(event(), input(), false), false)
   assert.equal(steerable(input()), true)
+})
+
+test('emptyAccelQueueKey intercepts Cmd/Ctrl+Enter on an empty composer with any queued rows so non-user rows are never promoted by DSH', () => {
+  const nonUserQueue = input({ queue: [{ id: 'b1', source: { kind: 'bot' } }] })
+  assert.equal(steerable(nonUserQueue), false)
+  assert.equal(emptyAccelQueueKey(event({ metaKey: true }), nonUserQueue), true)
+  assert.equal(emptyAccelQueueKey(event({ ctrlKey: true }), nonUserQueue), true)
+  assert.equal(emptyAccelQueueKey(event({ metaKey: true, ctrlKey: true }), nonUserQueue), false)
+  assert.equal(emptyAccelQueueKey(event({ metaKey: true }), input({ draft: 'hi' })), false)
+  assert.equal(emptyAccelQueueKey(event({ metaKey: true }), input({ queue: [] })), false)
+  assert.equal(emptyAccelQueueKey(event({ metaKey: true, isComposing: true }), nonUserQueue), false)
 })
 
 test('modifiers, IME and key repeat pass Enter through', () => {
@@ -101,4 +113,26 @@ test('steerQueued on an empty or other-source queue calls nothing', async () => 
   }
   const empty = { projections: { faceOf: () => ({ getSnapshot: () => undefined }) }, updateQueue: () => assert.fail() }
   assert.equal(await steerQueued(empty), 'done')
+})
+
+test('steerQueued uses atomic steerBatch when provided and falls back only on fallback', async () => {
+  const queued = [
+    { id: 'u1', source: { kind: 'user' } },
+    { id: 'b1', source: { kind: 'bot' } },
+    { id: 'u2', source: { kind: 'user' } },
+    { id: 'u3', source: { kind: 'user' } },
+  ]
+  const batched = []
+  const s1 = session(queued)
+  assert.equal(await steerQueued(s1, async (ids) => { batched.push(ids); return 'done' }), 'done')
+  assert.deepEqual(batched, [['u1', 'u2', 'u3']])
+  assert.deepEqual(s1.calls, [])
+
+  const s2 = session(queued)
+  assert.equal(await steerQueued(s2, async () => 'failed'), 'failed')
+  assert.deepEqual(s2.calls, [])
+
+  const s3 = session(queued)
+  assert.equal(await steerQueued(s3, async () => 'fallback'), 'done')
+  assert.deepEqual(s3.calls, [['u1', { kind: 'steer' }], ['u2', { kind: 'steer' }], ['u3', { kind: 'steer' }]])
 })

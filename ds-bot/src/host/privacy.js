@@ -2,11 +2,11 @@
 // what it sends out waits for the user. DSH does not fence reads, so this closes the
 // tools DS Bot owns and checks the paths that the file tools and the shell are given;
 // a shell can still reach any file the account can (see docs/plans).
-import { dirname, join, resolve } from 'node:path'
+import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { manualDirectory } from './manual-skills.js'
 import { within } from './folders.js'
 import { unquote } from './text.js'
-import { openSessions } from './threads.js'
+import { openSessions, retiredTaskSessionIds } from './threads.js'
 
 const FILE_TOOLS = { read: 'file_path', write: 'file_path', edit: 'file_path', read_image: 'file_path', str_replace_editor: 'path', read_document: 'path' }
 const WRITE_TOOLS = ['write', 'edit', 'str_replace_editor']
@@ -35,12 +35,28 @@ export function install(rt) {
   // Every Session a private Bot speaks from: its own chat, the parts it opened while it
   // was busy (a background part reads and writes in that Bot's name), its earlier parts
   // and its groups. A deleted Bot's archive lists them itself.
-  const sessionsOf = bot => [...new Set([bot.id, ...(bot.sessionIds ?? [rt.chatOf(bot.id), ...(bot.segments ?? []).map(segment => segment.sessionId), ...openSessions(bot), ...rt.groupSessionsOf(bot.id)])])]
+  const sessionsOf = bot => [...new Set([bot.id, ...(bot.sessionIds ?? [
+    rt.chatOf(bot.id), ...(bot.segments ?? []).map(segment => segment.sessionId),
+    ...openSessions(bot), ...retiredTaskSessionIds(bot), ...rt.groupSessionsOf(bot.id),
+  ])])]
   const dataRoots = () => [rt.dshHome, rt.home, process.env.DS_BOT_USER_DSH_HOME?.trim()].filter(Boolean)
 
   // A path as it is and as the file system resolves it, folded for comparing. realBeyond
-  // also resolves a link above a file that does not exist yet.
-  const spellings = async (path) => [...new Set([fold(resolve(path)), fold(await rt.realBeyond(resolve(path)))])]
+  // also resolves a link above a file that does not exist yet. A per-call memo deduplicates
+  // repeated paths within one guard check without caching symlink targets across calls.
+  const spellings = (path, memo) => {
+    const resolved = resolve(path)
+    if (memo?.has(resolved)) return memo.get(resolved)
+    const pending = rt.realBeyond(resolved).then(
+      real => [...new Set([fold(resolved), fold(real)])],
+      (error) => {
+        if (memo?.get(resolved) === pending) memo.delete(resolved)
+        throw error
+      },
+    )
+    memo?.set(resolved, pending)
+    return pending
+  }
 
   // The Bot a call speaks for. A subagent speaks for the Bot at the root of its
   // parent chain, however many subagents sit between them.
@@ -59,9 +75,25 @@ export function install(rt) {
     return undefined
   }
 
+  const teamFolder = () => rt.teamFolder() ?? resolve(rt.defaultTeamFolder())
+  const teamMemory = join(rt.home, 'memory', 'team')
+  // The memory of deleted Bots and groups. What a private Bot left there is a region of
+  // its own (archivePath) and is checked first; the rest was never closed, and the
+  // memory of a Bot whose protection the user lifted is in it.
+  const memoryArchive = join(rt.home, 'memory', 'archive')
+
+  const DATA_ROOTS_TTL_MS = 1_000
+  let dataRootsMemo
+  const clearDataRootsMemo = () => { dataRootsMemo = undefined }
+  const offAdopted = rt.onAdopted?.(clearDataRootsMemo)
+  ctx.effect?.(() => () => {
+    offAdopted?.()
+    clearDataRootsMemo()
+  }, 'ds-bot: privacy cache')
+
   // Where a private Bot keeps what must stay closed: its folder and its memory. Its
   // Sessions and its id are in file names under DSH's and the team's data.
-  const regionsOf = async bot => (await Promise.all([
+  const regionsOf = (bot, memo) => Promise.all([
     bot.workDir,
     join(rt.home, 'memory', 'bots', bot.id),
     join(rt.home, 'browser-profiles', bot.id),
@@ -69,8 +101,9 @@ export function install(rt) {
     join(rt.home, 'side', `${bot.id}.json`),
     join(rt.home, 'btw', bot.id),
     bot.archivePath,
-  ].filter(Boolean).map(spellings))).flat()
-  const sharedFiles = async () => (await Promise.all([
+  ].filter(Boolean).map(dir => spellings(dir, memo))).then(list => list.flat())
+
+  const sharedFiles = memo => Promise.all([
     rt.statePath,
     join(rt.home, 'chat-index.sqlite'),
     join(rt.home, 'chat-index.sqlite-wal'),
@@ -82,48 +115,68 @@ export function install(rt) {
     join(rt.home, 'learning', 'state.json'),
     join(rt.home, 'ocr.json'),
     join(rt.home, 'secrets.json'),
+    join(rt.home, 'api-tokens.json'),
+    join(rt.home, 'mcp.json'),
+    join(rt.home, 'api-config.json'),
+    join(rt.home, 'api-audit.jsonl'),
+    join(rt.home, 'api-runs.json'),
+    join(rt.home, 'api-endpoint.json'),
+    join(rt.home, 'api-uploads'),
     join(rt.home, 'task-reports'),
     join(rt.home, 'memory', 'journal.jsonl'),
     join(rt.home, 'memory', 'journal.torn'),
     join(rt.home, 'memory', 'pending.json'),
     join(rt.home, 'logs', 'diagnostics.jsonl'),
-  ].filter(Boolean).map(spellings))).flat()
+    join(rt.home, 'telemetry.json'),
+  ].filter(Boolean).map(file => spellings(file, memo))).then(list => list.flat())
 
-  const teamFolder = () => rt.teamFolder() ?? resolve(rt.defaultTeamFolder())
-  const teamMemory = join(rt.home, 'memory', 'team')
-  // The memory of deleted Bots and groups. What a private Bot left there is a region of
-  // its own (archivePath) and is checked first; the rest was never closed, and the
-  // memory of a Bot whose protection the user lifted is in it.
-  const memoryArchive = join(rt.home, 'memory', 'archive')
+  const spelledDataRoots = (memo) => {
+    const roots = dataRoots()
+    const key = `${state.revision ?? 0}\0${roots.join('\0')}`
+    const now = Date.now()
+    if (dataRootsMemo !== undefined && dataRootsMemo.key === key && now - dataRootsMemo.at < DATA_ROOTS_TTL_MS) {
+      return dataRootsMemo.value
+    }
+    const pending = Promise.all(roots.map(root => spellings(root, memo))).then(list => list.flat(), (error) => {
+      if (dataRootsMemo?.value === pending) dataRootsMemo = undefined
+      throw error
+    })
+    dataRootsMemo = { key, at: now, value: pending }
+    return pending
+  }
+
+  const openFoldersOf = async (self, ownBot, moving, memo) => {
+    const ownRegions = ownBot === undefined ? [] : await regionsOf(ownBot, memo)
+    const open = [rt.workDirOf({ botId: self }), teamFolder(), teamMemory, moving ? undefined : memoryArchive, dirname(manualDirectory())].filter(Boolean)
+    return [...(await Promise.all(open.map(dir => spellings(dir, memo)))).flat(), ...ownRegions]
+  }
 
   // The private Bot that `path` belongs to, other than `self`; undefined when it is open.
   // `search` is for tools that walk a folder: a folder that holds a closed one is closed
   // too, and so are the data folders, where the walk cannot be told which files to skip.
-  async function ownerOfPath(path, { self, search = false, base } = {}) {
+  async function ownerOfPath(path, { self, search = false, base, memo = new Map() } = {}) {
     const bots = protectedBots()
     if (bots.length === 0) return undefined
-    const keys = await spellings(base === undefined ? path : resolve(base, path))
+    const keys = await spellings(base === undefined ? path : resolve(base, path), memo)
     for (const bot of bots) {
       if (bot.id === self) continue
       const needles = sessionsOf(bot).map(fold)
-      const regions = await regionsOf(bot)
+      const regions = await regionsOf(bot, memo)
       for (const key of keys) {
         if (regions.some(region => within(key, region) || (search && within(region, key)))) return bot
         if (needles.some(needle => key.includes(needle))) return bot
       }
     }
     const other = bots.find(bot => bot.id !== self)
-    for (const file of await sharedFiles()) if (other !== undefined && keys.some(key => key.startsWith(file))) return other
+    for (const file of await sharedFiles(memo)) if (other !== undefined && keys.some(key => key.startsWith(file))) return other
     if (other !== undefined) {
       const ownBot = rt.botOf(self)
       const ownIds = ownBot === undefined ? [] : sessionsOf(ownBot).map(fold)
-      const ownRegions = ownBot === undefined ? [] : await regionsOf(ownBot)
       // A walk of the archive stays closed while a private Bot's memory is on its way
       // there: until the path is known, the walk cannot be told which folder to skip.
       const moving = search && bots.some(bot => bot.archiving === true)
-      const open = [rt.workDirOf({ botId: self }), teamFolder(), teamMemory, moving ? undefined : memoryArchive, dirname(manualDirectory()), ...ownRegions].filter(Boolean)
-      const folders = (await Promise.all(open.map(spellings))).flat()
-      const roots = (await Promise.all(dataRoots().map(spellings))).flat()
+      const folders = await openFoldersOf(self, ownBot, moving, memo)
+      const roots = await spelledDataRoots(memo)
       for (const key of keys) {
         if ((!search && ownIds.some(id => key.includes(id))) || folders.some(folder => within(key, folder))) continue
         // Direct reads are closed too, not only walks: an index, pending record or log
@@ -136,33 +189,34 @@ export function install(rt) {
 
   // Text a shell runs: a closed path anywhere in it closes the command. A path that the
   // command builds, or reaches by walking up from a folder, is not seen.
-  async function ownerInText(text, self) {
+  async function ownerInText(text, self, memo = new Map()) {
     const flat = fold(text.replace(/\\/g, '/'))
     const bots = protectedBots()
     for (const bot of bots) {
       if (bot.id === self) continue
-      const spelled = (await regionsOf(bot)).flatMap(asShell)
+      const spelled = (await regionsOf(bot, memo)).flatMap(asShell)
       if (spelled.some(region => flat.includes(region)) || sessionsOf(bot).some(id => flat.includes(fold(id)))) return bot
     }
     const other = bots.find(bot => bot.id !== self)
-    for (const file of await sharedFiles()) if (other !== undefined && asShell(file).some(spelled => flat.includes(spelled))) return other
+    for (const file of await sharedFiles(memo)) if (other !== undefined && asShell(file).some(spelled => flat.includes(spelled))) return other
     return undefined
   }
 
   const closed = (bot, what) => new Error(`${bot.name} is a private Bot, and other Bots cannot reach its ${what}. Ask the user if ${bot.name} should share something.`)
 
   // What a private Bot sends out is shown to the user first, as the user sees it.
-  async function approve(exec, { en, zh }) {
+  async function approve(exec, { en, zh }, evidence = {}) {
     const approval = ctx.get?.('approval')
     if (approval === undefined || exec.agent?.session === undefined) throw new Error('A private Bot needs the user\'s approval for this, and there is no way to ask for it here, so it was not done.')
-    const outcome = await approval.request({
+    const outcome = await (rt.requestActionApproval ?? (request => approval.request(request)))({
       agent: exec.agent,
       toolName: exec.name,
+      privacy: true,
       ...(exec.callId !== undefined ? { callId: exec.callId } : {}),
       reason: en,
       displayReason: { en, zh },
       ...(exec.signal ? { signal: exec.signal } : {}),
-    })
+    }, { kind: 'privacy', arguments: exec.arguments, ...evidence })
     if (outcome === 'allowed-once') return
     throw new Error(outcome === 'rejected' ? 'The user did not allow it, so it was not done.'
       : outcome === 'cancelled' ? 'The approval was cancelled, so it was not done.'
@@ -182,11 +236,60 @@ export function install(rt) {
       return bot !== undefined && isPrivate(bot.id) && bot.id !== self ? bot : undefined
     }
     switch (exec.name) {
+      case 'delegate_work':
       case 'message_bot': {
+        const body = String(args.goal ?? args.message ?? '')
         const bot = target(args.to)
-        if (bot) throw new Error(`Not sent: ${bot.name} is a private Bot, and other Bots cannot message it. Ask the user to pass it on.`)
+        if (bot) throw new Error(`Not sent: ${bot.name} is a private Bot, and other Bots cannot delegate work to it. Ask the user to pass it on.`)
         const to = botNamed(args.to)
-        if (isPrivate(self) && to !== undefined) await approve(exec, { en: `Let ${rt.botOf(self).name} send this to ${to.name}?\n\n${String(args.message ?? '')}`, zh: `允许 ${rt.botOf(self).name} 把下面的内容发给 ${to.name} 吗？\n\n${String(args.message ?? '')}` })
+        if (isPrivate(self) && to !== undefined) await approve(exec, { en: `Let ${rt.botOf(self).name} send this to ${to.name}?\n\n${body}`, zh: `允许 ${rt.botOf(self).name} 把下面的内容发给 ${to.name} 吗？\n\n${body}` })
+        return
+      }
+      case 'note_bot': {
+        const body = String(args.note ?? '')
+        const bot = target(args.to)
+        if (bot) throw new Error(`Not sent: ${bot.name} is a private Bot, and other Bots cannot leave notes for it. Ask the user to pass it on.`)
+        const to = botNamed(args.to)
+        if (isPrivate(self) && to !== undefined) await approve(exec, { en: `Let ${rt.botOf(self).name} leave this note for ${to.name}?\n\n${body}`, zh: `允许 ${rt.botOf(self).name} 给 ${to.name} 留这条静默留言吗？\n\n${body}` })
+        return
+      }
+      case 'ask_back': {
+        const body = String(args.question ?? '')
+        const explicit = typeof args.work_id === 'string' && args.work_id.trim() !== '' ? args.work_id.trim() : undefined
+        const activeId = explicit ?? rt.workOf?.(rt.live?.get(exec.agent?.id)?.info)
+        const active = activeId !== undefined ? rt.resolveWork?.(activeId)?.work : undefined
+        const to = active?.from ? rt.botOf(active.from) : undefined
+        if (to !== undefined && isPrivate(to.id) && to.id !== self) throw new Error(`Not sent: ${to.name} is a private Bot, and other Bots cannot message it.`)
+        if (isPrivate(self) && to !== undefined) await approve(exec, { en: `Let ${rt.botOf(self).name} ask ${to.name} this?\n\n${body}`, zh: `允许 ${rt.botOf(self).name} 向 ${to.name} 追问下面的问题吗？\n\n${body}` })
+        return
+      }
+      case 'answer_work': {
+        const body = String(args.answer ?? '')
+        const explicit = typeof args.work_id === 'string' && args.work_id.trim() !== '' ? args.work_id.trim() : undefined
+        const turnAskWork = rt.live?.get(exec.agent?.id)?.info?.askWork
+        const active = explicit !== undefined
+          ? rt.resolveWork?.(explicit)?.work
+          : turnAskWork !== undefined
+            ? rt.resolveWork?.(turnAskWork)?.work
+            : rt.needInputWorksFor?.(self)?.[0]?.work
+        const to = active?.to ? rt.botOf(active.to) : undefined
+        if (to !== undefined && isPrivate(to.id) && to.id !== self) throw new Error(`Not sent: ${to.name} is a private Bot, and other Bots cannot message it.`)
+        if (isPrivate(self) && to !== undefined) await approve(exec, { en: `Let ${rt.botOf(self).name} send this answer to ${to.name}?\n\n${body}`, zh: `允许 ${rt.botOf(self).name} 把下面的答复发给 ${to.name} 吗？\n\n${body}` })
+        return
+      }
+      case 'cancel_work': {
+        const ref = typeof args.target === 'string' ? args.target.trim() : ''
+        const byRef = ref !== '' ? rt.resolveWork?.(ref)?.work : undefined
+        const byName = botNamed(ref)
+        const touched = [byRef?.to ? rt.botOf(byRef.to) : undefined, byRef?.from ? rt.botOf(byRef.from) : undefined, byName].filter(Boolean)
+        const locked = touched.find(bot => isPrivate(bot.id) && bot.id !== self)
+        if (locked !== undefined) throw new Error(`Not cancelled: ${locked.name} is a private Bot, and other Bots cannot touch its work.`)
+        const to = byRef?.to ? rt.botOf(byRef.to) : byName
+        const reason = String(args.reason ?? '').trim()
+        if (isPrivate(self) && to !== undefined && to.id !== self) {
+          const detail = reason !== '' ? `\n\n${reason}` : ''
+          await approve(exec, { en: `Let ${rt.botOf(self).name} cancel work on ${to.name}?${detail}`, zh: `允许 ${rt.botOf(self).name} 取消发给 ${to.name} 的工单吗？${detail}` })
+        }
         return
       }
       // Every Bot reads the shared capabilities, so saving one shares what is in it.
@@ -250,39 +353,49 @@ export function install(rt) {
     const folder = () => rt.sessionFolder(exec.agent?.session ?? exec.agent)
     const refuse = (bot) => { throw closed(bot, 'files') }
     const name = exec.name
+    const memo = new Map()
     if (name in FILE_TOOLS) {
       const path = args[FILE_TOOLS[name]]
       if (typeof path !== 'string' || path === '') return
-      const bot = await ownerOfPath(path, { self, base: folder() })
+      const bot = await ownerOfPath(path, { self, base: folder(), memo })
       if (bot) refuse(bot)
       // A private Bot's file changes stay in its own folder unless the user allows them.
       if (isPrivate(self) && WRITE_TOOLS.includes(name)) {
-        const own = await spellings(rt.botOf(self).workDir)
+        const own = await spellings(rt.botOf(self).workDir, memo)
         const base = folder()
-        const target = await spellings(base === undefined ? path : resolve(base, path))
-        if (!target.every(key => own.some(root => within(key, root)))) await approve(exec, { en: `Let ${rt.botOf(self).name} change ${path}? It is outside its own folder.`, zh: `允许 ${rt.botOf(self).name} 修改 ${path} 吗？它在自己的文件夹之外。` })
+        if (!isAbsolute(path) && (typeof base !== 'string' || !isAbsolute(base))) throw new Error('The file destination cannot be determined, so it was not changed.')
+        const absolute = resolve(base ?? '.', path)
+        const real = await rt.realBeyond(absolute)
+        const target = [fold(absolute), fold(real)]
+        if (!target.every(key => own.some(root => within(key, root)))) {
+          await approve(exec, { en: `Let ${rt.botOf(self).name} change ${absolute}? It is outside its own folder.`, zh: `允许 ${rt.botOf(self).name} 修改 ${absolute} 吗？它在自己的文件夹之外。` }, { cwd: base, path: absolute, resolvedPath: real })
+          const current = resolve(folder() ?? '.', path)
+          if (current !== absolute || await rt.realBeyond(current) !== real || resolve(folder() ?? '.', path) !== absolute) {
+            throw new Error('The file destination changed during approval, so it was not changed.')
+          }
+        }
       }
       return
     }
     if (SEARCH_TOOLS.includes(name)) {
       const where = typeof args.path === 'string' && args.path !== '' ? args.path : '.'
-      const bot = await ownerOfPath(where, { self, search: true, base: folder() })
-        ?? (typeof args.pattern === 'string' && /^([a-z]:|[\\/]|~)/i.test(args.pattern) ? await ownerOfPath(args.pattern.replace(/[*?[{].*$/, ''), { self, search: true, base: folder() }) : undefined)
+      const bot = await ownerOfPath(where, { self, search: true, base: folder(), memo })
+        ?? (typeof args.pattern === 'string' && /^([a-z]:|[\\/]|~)/i.test(args.pattern) ? await ownerOfPath(args.pattern.replace(/[*?[{].*$/, ''), { self, search: true, base: folder(), memo }) : undefined)
       if (bot) refuse(bot)
       return
     }
     if (SHELL_TOOLS.includes(name)) {
-      const bot = await ownerInText(strings(args).join('\n'), self)
+      const bot = await ownerInText(strings(args).join('\n'), self, memo)
       if (bot) refuse(bot)
       return
     }
     if ((name === 'subagent' || name === 'subagent_fork') && typeof args.cwd === 'string') {
-      const bot = await ownerOfPath(args.cwd, { self, search: true, base: folder() })
+      const bot = await ownerOfPath(args.cwd, { self, search: true, base: folder(), memo })
       if (bot) refuse(bot)
       return
     }
     if (name === 'working_directory' && typeof args.cd === 'string') {
-      const bot = await ownerOfPath(args.cd, { self, search: true, base: folder() })
+      const bot = await ownerOfPath(args.cd, { self, search: true, base: folder(), memo })
       if (bot) refuse(bot)
       return
     }
@@ -301,21 +414,76 @@ export function install(rt) {
     }
   }
 
+  // Host-owned API credential/audit and telemetry consent files are always off-limits
+  // to every Bot, even in teams with no private Bots.
+  const apiProtectedFiles = async (memo = new Map()) => (await Promise.all([
+    join(rt.home, 'api-'),
+    join(rt.home, 'api-endpoint.json'),
+    join(rt.home, 'api-tokens.json'),
+    join(rt.home, 'mcp.json'),
+    join(rt.home, 'api-audit.jsonl'),
+    join(rt.home, 'api-config.json'),
+    join(rt.home, 'api-runs.json'),
+    join(rt.home, 'telemetry.json'),
+  ].map(file => spellings(file, memo)))).flat()
+
+  async function guardApiFiles(exec) {
+    const args = exec.arguments ?? {}
+    const name = exec.name
+    const folder = () => rt.sessionFolder(exec.agent?.session ?? exec.agent)
+    const closedApi = () => new Error('Bots cannot read or modify DS Bot API token, audit, or telemetry consent files.')
+    if (name in FILE_TOOLS) {
+      const path = args[FILE_TOOLS[name]]
+      if (typeof path !== 'string' || path === '') return
+      const base = folder()
+      const keys = await spellings(base === undefined ? path : resolve(base, path))
+      const protectedPaths = await apiProtectedFiles()
+      if (keys.some(key => protectedPaths.some(file => key === file || key.startsWith(file.endsWith('api-') ? file : `${file}.`)))) throw closedApi()
+      return
+    }
+    if (SEARCH_TOOLS.includes(name)) {
+      const where = typeof args.path === 'string' && args.path !== '' ? args.path : '.'
+      const pattern = typeof args.pattern === 'string' ? fold(args.pattern) : ''
+      if (pattern.includes('api-') || pattern.includes('mcp.json')) throw closedApi()
+      const base = folder()
+      const keys = await spellings(base === undefined ? where : resolve(base, where))
+      const protectedPaths = await apiProtectedFiles()
+      if (keys.some(key => protectedPaths.some(file => within(file, key) || key.startsWith(file.endsWith('api-') ? file : `${file}.`)))) throw closedApi()
+      return
+    }
+    if (SHELL_TOOLS.includes(name)) {
+      const flat = fold(strings(args).join('\n').replace(/\\/g, '/'))
+      if (flat.includes('api-') || flat.includes('mcp.json')) throw closedApi()
+      const protectedPaths = await apiProtectedFiles()
+      for (const file of protectedPaths) {
+        if (asShell(file).some(spelled => flat.includes(spelled))) throw closedApi()
+      }
+      if (flat.includes('telemetry.json')) {
+        const base = folder()
+        const homeKeys = await spellings(rt.home)
+        const baseKeys = base === undefined ? [] : await spellings(base)
+        if (base === undefined || baseKeys.some(k => homeKeys.some(h => overlap(k, h)))) throw closedApi()
+      }
+    }
+  }
+
   // Before the tools' own hooks, so that a closed call never reaches a card they show.
   ctx.on('tools/execute', async (exec, next) => {
-    if (protectedBots().length === 0) return next()
     const self = await callerOf(exec)
-    await guardTeam(exec, self)
-    await guardFiles(exec, self)
+    if (protectedBots().length > 0) {
+      await guardTeam(exec, self)
+      await guardFiles(exec, self)
+    }
+    if (self !== undefined) await guardApiFiles(exec)
     return next()
   })
 
   // A folder that a private Bot's folder would overlap, or that overlaps one.
-  async function privateClash(path, { except } = {}) {
-    const keys = await spellings(path)
+  async function privateClash(path, { except, memo = new Map() } = {}) {
+    const keys = await spellings(path, memo)
     for (const bot of protectedBots()) {
       if (bot.id === except || bot.workDir === undefined) continue
-      const dirs = await spellings(bot.workDir)
+      const dirs = await spellings(bot.workDir, memo)
       if (keys.some(key => dirs.some(dir => overlap(key, dir)))) return bot
     }
     return undefined
@@ -325,30 +493,37 @@ export function install(rt) {
   // private Bot's folder is no other Bot's, no group's and not the team workspace —
   // a member's own pick in a group counts as that member's folder — because DSH
   // cannot be told which files of a shared folder to hide.
-  async function checkChange(bot, { flag, moving, workDir }) {
+  // `extraDirs` is the new list of extra folders, or undefined when it stays.
+  async function checkChange(bot, { flag, moving, workDir, extraDirs }) {
+    const memo = new Map()
     const makes = flag === undefined ? bot.private === true : flag
     const dir = moving ? workDir : bot.workDir
+    const extras = extraDirs ?? bot.extraDirs ?? []
     if (!makes) {
-      const clash = moving && dir !== undefined ? await privateClash(dir, { except: bot.id }) : undefined
-      if (clash) throw new Error(`${dir} is in or around the folder of ${clash.name}, a private Bot, so ${bot.name} cannot work there`)
+      const asked = [...(moving && dir !== undefined ? [dir] : []), ...(extraDirs ?? [])]
+      for (const path of asked) {
+        const clash = await privateClash(path, { except: bot.id, memo })
+        if (clash) throw new Error(`${path} is in or around the folder of ${clash.name}, a private Bot, so ${bot.name} cannot work there`)
+      }
       return
     }
     if (rt.isMain(bot.id)) throw new Error(`${bot.name} is a Main Bot, so it cannot be private`)
     if (dir === undefined) throw new Error(`${bot.name} needs a folder of its own to be private`)
+    if (extras.length > 0) throw new Error(`${bot.name} works in extra folders, and a private Bot works in its own folder only. Remove its extra folders first`)
     if (Object.values(state.rooms).some(room => room.members.includes(bot.id))) throw new Error(`${bot.name} is in a group chat, where every member reads what is said. Remove it from its groups first`)
-    const clash = await privateClash(dir, { except: bot.id })
+    const clash = await privateClash(dir, { except: bot.id, memo })
     if (clash) throw new Error(`${dir} is in or around the folder of ${clash.name}, a private Bot, so ${bot.name} cannot work there`)
-    const keys = await spellings(dir)
+    const keys = await spellings(dir, memo)
     const others = [
       ['the team workspace', teamFolder()],
-      ...Object.values(state.bots).filter(other => other.id !== bot.id && other.workDir).map(other => [`the folder of ${other.name}`, other.workDir]),
-      ...Object.values(state.rooms).filter(room => room.workDir).map(room => [`the folder of "${room.name}"`, room.workDir]),
+      ...Object.values(state.bots).filter(other => other.id !== bot.id).flatMap(other => [other.workDir, ...(other.extraDirs ?? [])].filter(Boolean).map(path => [`the folder of ${other.name}`, path])),
+      ...Object.values(state.rooms).flatMap(room => [room.workDir, ...(room.extraDirs ?? [])].filter(Boolean).map(path => [`the folder of "${room.name}"`, path])),
       ...Object.values(state.rooms).flatMap(room => Object.entries(room.memberDirs ?? {})
         .filter(([member, dir]) => room.members.includes(member) && dir !== null)
         .map(([member, dir]) => [`the folder of ${rt.botOf(member)?.name ?? 'a member'} in "${room.name}"`, dir])),
     ]
     for (const [what, path] of others) {
-      const spelled = await spellings(path)
+      const spelled = await spellings(path, memo)
       if (keys.some(key => spelled.some(other => overlap(key, other)))) throw new Error(`${dir} is in or around ${what}, so ${bot.name} cannot be private there. Give it a folder of its own`)
     }
   }

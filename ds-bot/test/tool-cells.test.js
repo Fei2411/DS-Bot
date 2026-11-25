@@ -554,7 +554,7 @@ const notes = (root, options = {}) => {
 test('the live note follows the running sub-call of a program', () => {
   const asking = notes(program([call('message_bot', 'program:ptc:1', { args: { to: 'Writer' }, running: true })], { running: true }))
   assert.deepEqual(asking, [
-    { sessionId: 'chief', id: 'tool:program', entry: { label: 'Asking Writer', state: 'sending' } },
+    { sessionId: 'chief', id: 'tool:program', entry: { label: 'Delegating to Writer', state: 'sending' } },
     { sessionId: 'chief', id: 'tool:program', entry: null },
   ])
   const relaying = notes(program([call('message_bot', 'program:ptc:1', { args: { to: 'Writer' } }), call('group_relay', 'program:ptc:2', { running: true })], { running: true }))
@@ -566,7 +566,7 @@ test('the live note follows the running sub-call of a program', () => {
   assert.deepEqual(notes(program([call('message_bot', 'program:ptc:1', { args: { to: 'Writer' }, running: true })])), [])
   const roster = team({ exchangeTurns: { chief: [1] } })
   assert.deepEqual(notes(program([call('message_bot', 'program:ptc:1', { args: { to: 'Writer' }, running: true })], { running: true }), { roster }), [])
-  assert.equal(notes(call('message_bot', 'direct', { args: { to: 'Writer' }, running: true }))[0].entry.label, 'Asking Writer')
+  assert.equal(notes(call('message_bot', 'direct', { args: { to: 'Writer' }, running: true }))[0].entry.label, 'Delegating to Writer')
 })
 
 // A minimal cards store, as index.js keeps it.

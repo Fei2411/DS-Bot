@@ -2,7 +2,7 @@ import { createElement as h, useEffect, useRef, useState } from 'react'
 import { Segmented } from './motion.js'
 import { t } from './i18n.js'
 
-const LABELS = { 'read-only': 'Read only', 'workspace-write': 'Workspace', 'danger-full-access': 'Full access' }
+const LABELS = { 'read-only': 'Read only', 'workspace-write': 'Workspace', 'danger-full-access': 'Full access', review: 'Review for me' }
 const DANGER = new Set(['danger-full-access'])
 
 export const presetDanger = value => DANGER.has(value)
@@ -38,7 +38,7 @@ export function PermissionPicker({ catalog, saved, onPick, repick = false }) {
     if (flight.current.value !== undefined) { flight.current.latest = value; return }
     send(value)
   }
-  return h(Segmented, { label: t('Permissions'), value: current },
+  return h(Segmented, { label: t('Permissions'), value: current, className: 'bt-permissions' },
     catalog.options.map(option => h('button', {
       key: option.value, type: 'button', 'aria-pressed': option.value === current,
       title: option.description, onClick: () => pick(option.value),

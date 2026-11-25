@@ -92,14 +92,14 @@ test('a group Session changes its own Bot; a Session outside the team changes no
   assert.equal(await tool('update_bot', { name: 'King' }, 'stranger'), 'Only Bots on the team can use update_bot.')
 })
 
-test('every Bot sees the update_bot rule in its identity section', async (t) => {
+test('every Bot sees the update_bot rule in its team rules section', async (t) => {
   const { ctx, tool, stop } = start()
   t.after(stop)
   // The first load indexes the Sessions; without it selfOf finds no Bot.
   await tool('list_bots', {}, 'b2')
-  const text = ctx.sections.get('bot-identity').text({ agent: { id: 'b2' } })
+  const text = ctx.sections.get('bot-team-rules').text({ agent: { id: 'b2' } })
   assert.match(text, /update_bot changes your own settings/)
-  assert.match(ctx.sections.get('bot-identity').text({ agent: { id: 'm1' } }), /update_bot changes your own settings/)
+  assert.match(ctx.sections.get('bot-team-rules').text({ agent: { id: 'm1' } }), /update_bot changes your own settings/)
 })
 
 test('an instructions change lands as a message in the Bot chat', async (t) => {
