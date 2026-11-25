@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { readFileSync, readdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { runInNewContext } from 'node:vm'
 import { chromium } from 'playwright-core'
 import { allThemes, themeCss } from '../../src/client/themes.js'
 import { FONT_DIR } from '../../src/host/fonts.js'
@@ -14,12 +15,18 @@ const packageDir = name => dirname(fileURLToPath(import.meta.resolve(`@deepseek-
 const assets = join(packageDir('dsh-web-frontend'), 'dist', 'assets')
 const frontendCss = readdirSync(assets).filter(file => file.endsWith('.css')).map(file => readFileSync(join(assets, file), 'utf8')).join('\n')
 const themeSource = readFileSync(join(packageDir('dsh-client-ui-theme'), 'lib', 'client.js'), 'utf8')
+// The bundle keeps each sheet in a `var <name>_css_default` string; builds differ in quotes
+// and spacing. The literal is evaluated alone, as a string, after checking it interpolates nothing.
 const tokenSheet = (name) => {
-  const literal = themeSource.match(new RegExp(`var ${name} = ("(?:[^"\\\\]|\\\\.)*");`))
+  const literal = themeSource.match(new RegExp(`var ${name}\\s*=\\s*(\`(?:[^\`\\\\]|\\\\.)*\`|"(?:[^"\\\\]|\\\\.)*")`))?.[1]
   assert.ok(literal, `DSH theme sheet ${name}`)
-  return JSON.parse(literal[1])
+  assert.ok(!literal.includes('${'), `DSH theme sheet ${name} is a plain string`)
+  const css = runInNewContext(literal)
+  assert.equal(typeof css, 'string')
+  return css
 }
 const tokensCss = [tokenSheet('base_css_default'), tokenSheet('gradient_shadow_text_css_default')].join('\n')
+assert.match(tokensCss, /--dsw-font-markdown-base:/)
 // The hashed class names of this DSH build, found by the rules that define them: the
 // Markdown renderer draws its text with the base token (another `_markdown_` class only
 // colors a file icon).
@@ -33,7 +40,7 @@ const reply = `<div class="${markdown}">
   <pre id="pre"><code>const x = 1</code></pre>
 </div>`
 const page = (css) => `<!doctype html><html lang="zh-CN"><head><style>${tokensCss}</style><style>${frontendCss}</style><style>${css}</style></head>
-<body><div class="bt-bubble">${reply}</div><div class="${markdown}"><p id="outside">Not a reply 不是回复</p></div></body></html>`
+<body><div class="bt-bubble">${reply}<span class="bt-fold"><span class="bt-fold-note" id="note">显示全部 · Show all</span></span></div><div class="${markdown}"><p id="outside">Not a reply 不是回复</p></div></body></html>`
 
 async function launchBrowser() {
   const options = { headless: true, ...(process.env.BROWSER_EXECUTABLE_PATH ? { executablePath: process.env.BROWSER_EXECUTABLE_PATH } : {}) }
@@ -75,7 +82,7 @@ test('Celadon draws Bot replies in its bundled serif under DSH\'s own Markdown s
       await document.fonts.ready
       const family = id => getComputedStyle(document.getElementById(id)).fontFamily
       return {
-        ...Object.fromEntries(['p', 'strong', 'em', 'h2', 'th', 'td', 'code', 'pre', 'outside'].map(id => [id, family(id)])),
+        ...Object.fromEntries(['p', 'strong', 'em', 'h2', 'th', 'td', 'code', 'pre', 'outside', 'note'].map(id => [id, family(id)])),
         bodyVariable: getComputedStyle(document.body).getPropertyValue('--dsw-font-family'),
         replyVariable: getComputedStyle(document.querySelector('.bt-bubble')).getPropertyValue('--dsw-font-family'),
         loaded: [...document.fonts].filter(face => face.status === 'loaded').map(face => `${face.style} ${face.weight} ${face.unicodeRange.startsWith('U+3000') ? 'cjk' : 'latin'}`),
@@ -83,7 +90,7 @@ test('Celadon draws Bot replies in its bundled serif under DSH\'s own Markdown s
     })
     const serif = `"${REPLY_FAMILY}"`
     for (const id of ['p', 'strong', 'em', 'h2', 'th', 'td']) assert.ok(fonts[id].startsWith(serif), `${id}: ${fonts[id]}`)
-    for (const id of ['code', 'pre', 'outside']) assert.ok(!fonts[id].includes(REPLY_FAMILY), `${id}: ${fonts[id]}`)
+    for (const id of ['code', 'pre', 'outside', 'note']) assert.ok(!fonts[id].includes(REPLY_FAMILY), `${id}: ${fonts[id]}`)
     // DSH's own font variable is left alone, so code-block chrome keeps the interface font.
     assert.equal(fonts.replyVariable, fonts.bodyVariable)
     // Latin and Chinese load together, upright and bold, and italic Latin.

@@ -11,11 +11,12 @@ const THEME_KEYS = ['bg', 'sidebar', 'bubble', 'card', 'text', 'user', 'userText
 // Bot replies in the bundled serif: Source Serif 4 for Latin, Noto Serif SC for Chinese.
 // DSH resolves its Markdown font tokens on body, so rebinding --dsw-font-family here
 // would not reach them; the reply sets font-family on the Markdown root, headings and
-// table cells instead, which DSH draws with `font` shorthands. Code keeps its own family,
-// and a text font the user set in Settings still wins.
+// table cells instead, which DSH draws with `font` shorthands. Only the Markdown is set:
+// the bubble also holds interface parts (the fold note and button). Code keeps its own
+// family, and a text font the user set in Settings still wins.
 const fontFace = ({ file, style, weight, range }) => `@font-face{font-family:"${REPLY_FAMILY}";src:url(${FONT_ROUTE}/${file}) format("woff2");font-style:${style};font-weight:${weight};font-display:swap;unicode-range:${FONT_RANGES[range]}}`
 export const SERIF_REPLIES = `${REPLY_FACES.map(fontFace).join('\n')}
-.bt-bubble,.bt-look-bot,.bt-bubble [class*="_markdown"],.bt-bubble [class*="_markdown"] :is(h1,h2,h3,h4,h5,h6,th,td){font-family:var(--dsh-font-family-text,"${REPLY_FAMILY}","Source Han Serif SC","Noto Serif CJK SC","Songti SC"),var(--dsh-font-family-text-default,sans-serif)}`
+.bt-look-bot,.bt-bubble [class*="_markdown"],.bt-bubble [class*="_markdown"] :is(h1,h2,h3,h4,h5,h6,th,td){font-family:var(--dsh-font-family-text,"${REPLY_FAMILY}","Source Han Serif SC","Noto Serif CJK SC","Songti SC"),var(--dsh-font-family-text-default,sans-serif)}`
 const THEMES = {
   deepseek: {
     label: 'DeepSeek',
