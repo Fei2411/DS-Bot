@@ -67,112 +67,123 @@ export function install(rt) {
   let openedReadOnly = false
   let schemaReady = false
   let initialReadFailed = false
+  let cachedGen = null
+  let lastSyncedMirrorHash = null
 
   const canWrite = () => !disposed && rt.readOnly?.() === undefined
 
+  const STATEMENT_SQL = {
+    getMeta: 'SELECT value FROM meta WHERE key = ?',
+    setMeta: 'INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)',
+
+    upsertDelivery: `
+      INSERT INTO deliveries (
+        exchange_id, session_id, address_json, role, bot_id, room_id, task_id, work_id,
+        args_json, status, reason, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(exchange_id) DO UPDATE SET
+        session_id = excluded.session_id,
+        address_json = excluded.address_json,
+        role = excluded.role,
+        bot_id = excluded.bot_id,
+        room_id = excluded.room_id,
+        task_id = excluded.task_id,
+        work_id = excluded.work_id,
+        args_json = excluded.args_json,
+        status = excluded.status,
+        reason = excluded.reason,
+        updated_at = excluded.updated_at
+    `,
+    deleteDelivery: 'DELETE FROM deliveries WHERE exchange_id = ?',
+    deleteDeliveriesByTaskStart: "DELETE FROM deliveries WHERE task_id = ? AND role = 'task'",
+    deleteDeliveriesByWork: 'DELETE FROM deliveries WHERE exchange_id = ? OR work_id = ?',
+    clearDeliveries: 'DELETE FROM deliveries',
+    listDeliveries: 'SELECT exchange_id, session_id, address_json, role, bot_id, room_id, task_id, work_id, args_json, status, reason, created_at, updated_at FROM deliveries ORDER BY created_at ASC',
+
+    upsertTurn: `
+      INSERT INTO active_turns (
+        session_id, bot_id, room_id, task_id, turn_num, since,
+        trigger_json, approval_json, resumed, unverified, record_json, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(session_id) DO UPDATE SET
+        bot_id = excluded.bot_id,
+        room_id = excluded.room_id,
+        task_id = excluded.task_id,
+        turn_num = excluded.turn_num,
+        since = excluded.since,
+        trigger_json = excluded.trigger_json,
+        approval_json = excluded.approval_json,
+        resumed = excluded.resumed,
+        unverified = excluded.unverified,
+        record_json = excluded.record_json,
+        updated_at = excluded.updated_at
+    `,
+    deleteTurn: 'DELETE FROM active_turns WHERE session_id = ?',
+    clearTurns: 'DELETE FROM active_turns',
+    listTurns: 'SELECT session_id, bot_id, room_id, task_id, turn_num, since, trigger_json, approval_json, resumed, unverified, record_json, updated_at FROM active_turns ORDER BY since ASC',
+
+    upsertObligation: `
+      INSERT INTO obligations (
+        obligation_id, kind, owner_id, bot_id, address_json, payload_json,
+        status, delivery_id, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(obligation_id) DO UPDATE SET
+        kind = excluded.kind,
+        owner_id = excluded.owner_id,
+        bot_id = excluded.bot_id,
+        address_json = excluded.address_json,
+        payload_json = excluded.payload_json,
+        status = excluded.status,
+        delivery_id = COALESCE(excluded.delivery_id, obligations.delivery_id),
+        updated_at = excluded.updated_at
+    `,
+    updateObligationStatus: 'UPDATE obligations SET status = ?, delivery_id = COALESCE(?, delivery_id), updated_at = ? WHERE obligation_id = ?',
+    deleteObligation: 'DELETE FROM obligations WHERE obligation_id = ?',
+    listPendingObligations: "SELECT obligation_id, kind, owner_id, bot_id, address_json, payload_json, status, delivery_id, created_at, updated_at FROM obligations WHERE status IN ('pending', 'dispatched') ORDER BY created_at ASC",
+    getObligation: 'SELECT obligation_id, kind, owner_id, bot_id, address_json, payload_json, status, delivery_id, created_at, updated_at FROM obligations WHERE obligation_id = ?',
+
+    insertSilentNote: `
+      INSERT OR IGNORE INTO silent_notes (scope, target_key, exchange_id, message_json, ledger_json, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `,
+    deleteSilentByScopeTarget: 'DELETE FROM silent_notes WHERE scope = ? AND target_key = ?',
+    deleteSilentByScope: 'DELETE FROM silent_notes WHERE scope = ?',
+    deleteSilentById: 'DELETE FROM silent_notes WHERE id = ?',
+    deleteSilentByExchange: 'DELETE FROM silent_notes WHERE scope = ? AND target_key = ? AND exchange_id = ?',
+    listSilentByScope: 'SELECT id, scope, target_key, exchange_id, message_json, ledger_json, created_at FROM silent_notes WHERE scope = ? ORDER BY id ASC',
+    listSilentByScopeTarget: 'SELECT id, scope, target_key, exchange_id, message_json, ledger_json, created_at FROM silent_notes WHERE scope = ? AND target_key = ? ORDER BY id ASC',
+    countSilentByScopeTarget: 'SELECT COUNT(*) AS count FROM silent_notes WHERE scope = ? AND target_key = ?',
+
+    upsertTerminalMarker: `
+      INSERT INTO terminal_markers (kind, owner_id, snapshot_json, updated_at)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(kind, owner_id) DO UPDATE SET
+        snapshot_json = excluded.snapshot_json,
+        updated_at = excluded.updated_at
+    `,
+    deleteTerminalMarker: 'DELETE FROM terminal_markers WHERE kind = ? AND owner_id = ?',
+    listTerminalMarkers: 'SELECT kind, owner_id, snapshot_json, updated_at FROM terminal_markers ORDER BY updated_at ASC',
+  }
+
   function prepareStatements(conn) {
-    return {
-      getMeta: conn.prepare('SELECT value FROM meta WHERE key = ?'),
-      setMeta: conn.prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)'),
-
-      upsertDelivery: conn.prepare(`
-        INSERT INTO deliveries (
-          exchange_id, session_id, address_json, role, bot_id, room_id, task_id, work_id,
-          args_json, status, reason, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(exchange_id) DO UPDATE SET
-          session_id = excluded.session_id,
-          address_json = excluded.address_json,
-          role = excluded.role,
-          bot_id = excluded.bot_id,
-          room_id = excluded.room_id,
-          task_id = excluded.task_id,
-          work_id = excluded.work_id,
-          args_json = excluded.args_json,
-          status = excluded.status,
-          reason = excluded.reason,
-          updated_at = excluded.updated_at
-      `),
-      deleteDelivery: conn.prepare('DELETE FROM deliveries WHERE exchange_id = ?'),
-      deleteDeliveriesByTaskStart: conn.prepare("DELETE FROM deliveries WHERE task_id = ? AND role = 'task'"),
-      deleteDeliveriesByWork: conn.prepare('DELETE FROM deliveries WHERE exchange_id = ? OR work_id = ?'),
-      clearDeliveries: conn.prepare('DELETE FROM deliveries'),
-      listDeliveries: conn.prepare('SELECT exchange_id, session_id, address_json, role, bot_id, room_id, task_id, work_id, args_json, status, reason, created_at, updated_at FROM deliveries ORDER BY created_at ASC'),
-
-      upsertTurn: conn.prepare(`
-        INSERT INTO active_turns (
-          session_id, bot_id, room_id, task_id, turn_num, since,
-          trigger_json, approval_json, resumed, unverified, record_json, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(session_id) DO UPDATE SET
-          bot_id = excluded.bot_id,
-          room_id = excluded.room_id,
-          task_id = excluded.task_id,
-          turn_num = excluded.turn_num,
-          since = excluded.since,
-          trigger_json = excluded.trigger_json,
-          approval_json = excluded.approval_json,
-          resumed = excluded.resumed,
-          unverified = excluded.unverified,
-          record_json = excluded.record_json,
-          updated_at = excluded.updated_at
-      `),
-      deleteTurn: conn.prepare('DELETE FROM active_turns WHERE session_id = ?'),
-      clearTurns: conn.prepare('DELETE FROM active_turns'),
-      listTurns: conn.prepare('SELECT session_id, bot_id, room_id, task_id, turn_num, since, trigger_json, approval_json, resumed, unverified, record_json, updated_at FROM active_turns ORDER BY since ASC'),
-
-      upsertObligation: conn.prepare(`
-        INSERT INTO obligations (
-          obligation_id, kind, owner_id, bot_id, address_json, payload_json,
-          status, delivery_id, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(obligation_id) DO UPDATE SET
-          kind = excluded.kind,
-          owner_id = excluded.owner_id,
-          bot_id = excluded.bot_id,
-          address_json = excluded.address_json,
-          payload_json = excluded.payload_json,
-          status = excluded.status,
-          delivery_id = COALESCE(excluded.delivery_id, obligations.delivery_id),
-          updated_at = excluded.updated_at
-      `),
-      updateObligationStatus: conn.prepare('UPDATE obligations SET status = ?, delivery_id = COALESCE(?, delivery_id), updated_at = ? WHERE obligation_id = ?'),
-      deleteObligation: conn.prepare('DELETE FROM obligations WHERE obligation_id = ?'),
-      listPendingObligations: conn.prepare("SELECT obligation_id, kind, owner_id, bot_id, address_json, payload_json, status, delivery_id, created_at, updated_at FROM obligations WHERE status IN ('pending', 'dispatched') ORDER BY created_at ASC"),
-      getObligation: conn.prepare('SELECT obligation_id, kind, owner_id, bot_id, address_json, payload_json, status, delivery_id, created_at, updated_at FROM obligations WHERE obligation_id = ?'),
-
-      insertSilentNote: conn.prepare(`
-        INSERT OR IGNORE INTO silent_notes (scope, target_key, exchange_id, message_json, ledger_json, created_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `),
-      deleteSilentByScopeTarget: conn.prepare('DELETE FROM silent_notes WHERE scope = ? AND target_key = ?'),
-      deleteSilentByScope: conn.prepare('DELETE FROM silent_notes WHERE scope = ?'),
-      deleteSilentById: conn.prepare('DELETE FROM silent_notes WHERE id = ?'),
-      deleteSilentByExchange: conn.prepare('DELETE FROM silent_notes WHERE scope = ? AND target_key = ? AND exchange_id = ?'),
-      listSilentByScope: conn.prepare('SELECT id, scope, target_key, exchange_id, message_json, ledger_json, created_at FROM silent_notes WHERE scope = ? ORDER BY id ASC'),
-      listSilentByScopeTarget: conn.prepare('SELECT id, scope, target_key, exchange_id, message_json, ledger_json, created_at FROM silent_notes WHERE scope = ? AND target_key = ? ORDER BY id ASC'),
-      countSilentByScopeTarget: conn.prepare('SELECT COUNT(*) AS count FROM silent_notes WHERE scope = ? AND target_key = ?'),
-
-      upsertTerminalMarker: conn.prepare(`
-        INSERT INTO terminal_markers (kind, owner_id, snapshot_json, updated_at)
-        VALUES (?, ?, ?, ?)
-        ON CONFLICT(kind, owner_id) DO UPDATE SET
-          snapshot_json = excluded.snapshot_json,
-          updated_at = excluded.updated_at
-      `),
-      deleteTerminalMarker: conn.prepare('DELETE FROM terminal_markers WHERE kind = ? AND owner_id = ?'),
-      listTerminalMarkers: conn.prepare('SELECT kind, owner_id, snapshot_json, updated_at FROM terminal_markers ORDER BY updated_at ASC'),
-    }
+    const cache = Object.create(null)
+    return new Proxy(cache, {
+      get(target, prop) {
+        if (typeof prop !== 'string' || !Object.hasOwn(STATEMENT_SQL, prop)) return undefined
+        return (target[prop] ??= conn.prepare(STATEMENT_SQL[prop]))
+      },
+    })
   }
 
   function initSchema(conn) {
     conn.exec('PRAGMA busy_timeout = 5000')
-    // On Windows we close the handle after each op to avoid EPERM directory locks;
-    // rollback DELETE journal avoids per-close WAL checkpoint + SHM unlink overhead on NTFS
-    // while keeping every transaction fully atomic and crash-safe.
-    conn.exec(CLOSE_AFTER_OP ? 'PRAGMA journal_mode = DELETE' : 'PRAGMA journal_mode = WAL')
     conn.exec('PRAGMA synchronous = NORMAL')
     if (schemaReady) return
+    // On Windows we close the handle after each op to avoid EPERM directory locks;
+    // rollback DELETE journal avoids per-close WAL checkpoint + SHM unlink overhead on NTFS
+    // while keeping every transaction fully atomic and crash-safe. Once set, DELETE is
+    // persisted in the database header so subsequent opens skip re-probing journal_mode.
+    conn.exec(CLOSE_AFTER_OP ? 'PRAGMA journal_mode = DELETE' : 'PRAGMA journal_mode = WAL')
     const current = conn.prepare('PRAGMA user_version').get()?.user_version ?? 0
     if (current !== SCHEMA_VERSION) {
       conn.exec(`
@@ -265,7 +276,11 @@ export function install(rt) {
     if (disposed) return null
     if (write && !canWrite()) return null
     const dbExists = existsSync(dbPath)
-    if (!dbExists) schemaReady = false
+    if (!dbExists) {
+      schemaReady = false
+      cachedGen = null
+      lastSyncedMirrorHash = null
+    }
     const hasHotJournal = dbExists && existsSync(`${dbPath}-journal`)
     const allowWriteRecovery = !write && (initialReadFailed || hasHotJournal) && canWrite() && rt.hasLoaded?.() === true
     const readOnlyMode = (!write && !allowWriteRecovery) || !canWrite()
@@ -279,6 +294,8 @@ export function install(rt) {
       try {
         if (fresh) {
           schemaReady = false
+          cachedGen = null
+          lastSyncedMirrorHash = null
           for (const file of [dbPath, `${dbPath}-wal`, `${dbPath}-shm`, `${dbPath}-journal`]) {
             try { unlinkSync(file) } catch { /* ignore */ }
           }
@@ -292,7 +309,12 @@ export function install(rt) {
           } else {
             initSchema(conn)
           }
-          stmt = prepareStatements(conn)
+          const statements = prepareStatements(conn)
+          // Touch one lightweight statement inside ensureDb so corrupt files and
+          // read-only opens blocked by a hot rollback journal fail here (triggering
+          // rebuild or initialReadFailed) without compiling all 22 statements per op.
+          void statements.getMeta
+          stmt = statements
           db = conn
           openedReadOnly = readOnlyMode
           return db
@@ -325,6 +347,8 @@ export function install(rt) {
     try {
       stmt?.getMeta?.get('coord_gen')
       initialReadFailed = false
+      cachedGen = null
+      lastSyncedMirrorHash = null
       return hadFailure
     } finally {
       if (CLOSE_AFTER_OP) closeDb()
@@ -357,18 +381,24 @@ export function install(rt) {
     }
   }
 
+  const canCache = () => canWrite() && rt.hasLoaded?.() === true
+
   function currentGen() {
-    return withRead((s) => {
+    if (canCache() && cachedGen !== null) return cachedGen
+    const value = withRead((s) => {
       const row = s.getMeta.get('coord_gen')
       const parsed = Number.parseInt(row?.value ?? '0', 10)
       return Number.isFinite(parsed) ? parsed : 0
     }, 0)
+    if (canCache() && existsSync(dbPath)) cachedGen = value
+    return value
   }
 
   function bumpGen(s) {
     const row = s.getMeta.get('coord_gen')
     const next = (Number.isFinite(Number.parseInt(row?.value ?? '0', 10)) ? Number.parseInt(row?.value ?? '0', 10) : 0) + 1
     s.setMeta.run('coord_gen', String(next))
+    if (canCache()) cachedGen = next
     return next
   }
 
@@ -420,6 +450,7 @@ export function install(rt) {
   function importLegacyInflightIfNeeded({ allowWrite = false } = {}) {
     const canCommit = allowWrite && canWrite()
     if (!existsSync(legacyInflightPath)) {
+      lastSyncedMirrorHash = null
       // If a previous mirror existed and was externally removed (e.g. reset/test fixture),
       // clear only mirrored inflight tables while preserving committed SQLite obligations.
       const hadMirror = withRead(s => Boolean(s.getMeta.get('legacy_inflight_hash')?.value), false)
@@ -440,9 +471,12 @@ export function install(rt) {
     }
     let raw
     try { raw = readFileSync(legacyInflightPath, 'utf8') } catch { return { imported: false } }
+    const fileHash = sha256(raw)
+    if (canCache() && lastSyncedMirrorHash !== null && fileHash === lastSyncedMirrorHash) {
+      return { imported: false }
+    }
     const parsed = parseJson(raw)
     if (!parsed || typeof parsed !== 'object') return { imported: false }
-    const fileHash = sha256(raw)
     const obj = value => (value !== null && typeof value === 'object' && !Array.isArray(value) ? value : {})
     const metaCheck = withRead((s) => {
       const lastImportedHash = s.getMeta.get('legacy_inflight_hash')?.value
@@ -452,8 +486,14 @@ export function install(rt) {
     }, null)
     if (metaCheck !== null) {
       const fileGen = typeof parsed._coordGen === 'number' ? parsed._coordGen : undefined
-      if (fileHash === metaCheck.lastImportedHash) return { imported: false }
-      if (fileGen !== undefined && fileGen <= metaCheck.gen) return { imported: false }
+      if (fileHash === metaCheck.lastImportedHash) {
+        if (canCache()) lastSyncedMirrorHash = fileHash
+        return { imported: false }
+      }
+      if (fileGen !== undefined && fileGen <= metaCheck.gen) {
+        if (canCache()) lastSyncedMirrorHash = fileHash
+        return { imported: false }
+      }
     }
     if (!canCommit) {
       return {
@@ -465,7 +505,7 @@ export function install(rt) {
     const turns = obj(parsed.turns)
     const queued = obj(parsed.queued)
     const silent = obj(parsed.silent)
-    withTx((s) => {
+    const committed = withTx((s) => {
       // A fresh legacy snapshot (no `_coordGen`) represents the full pre-SQLite inflight state.
       if (fileGen === undefined) {
         s.clearTurns.run()
@@ -491,8 +531,10 @@ export function install(rt) {
       }
       s.setMeta.run('legacy_inflight_hash', fileHash)
       bumpGen(s)
+      return true
     })
-    return { imported: true }
+    if (committed === true && canCache()) lastSyncedMirrorHash = fileHash
+    return { imported: committed === true }
   }
 
   function loadInitialState() {
@@ -802,10 +844,14 @@ export function install(rt) {
 
   function noteMirrorWritten(jsonText) {
     if (!canWrite() || typeof jsonText !== 'string') return
+    const hash = sha256(jsonText)
+    if (canCache() && lastSyncedMirrorHash === hash) return
     try {
-      withTx((s) => {
-        s.setMeta.run('legacy_inflight_hash', sha256(jsonText))
+      const committed = withTx((s) => {
+        s.setMeta.run('legacy_inflight_hash', hash)
+        return true
       })
+      if (committed === true && canCache()) lastSyncedMirrorHash = hash
     } catch { /* best effort */ }
   }
 
@@ -883,6 +929,13 @@ export function install(rt) {
   }
 
   ctx.effect(() => () => {
+    const flush = rt.flushInflight?.()
+    if (flush && typeof flush.then === 'function') {
+      return Promise.resolve(flush).catch(() => {}).finally(() => {
+        disposed = true
+        closeDb()
+      })
+    }
     disposed = true
     closeDb()
   }, 'ds-bot: coordination store')

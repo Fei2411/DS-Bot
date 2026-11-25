@@ -192,9 +192,11 @@ export function install(rt) {
   /** @type {Record<string, {message:any, ledger?:any}[]>} buffered silent notices awaiting idle flush */
   let silent = interrupted.silent
   let writing = Promise.resolve()
+  let activeWrite = null
   let stopped = false
   let latest
   let due = false
+  rt.flushInflight = () => activeWrite
   const persist = () => {
     // Only the host that saves the team runs its work again.
     if (stopped || rt.readOnly() !== undefined) return
@@ -212,7 +214,7 @@ export function install(rt) {
     due = true
     // Atomic temp + replaceFile (with Windows retry) so the compatibility mirror
     // never leaves a torn inflight.json on disk.
-    writing = writing.then(async () => {
+    const nextWrite = writing.then(async () => {
       due = false
       const snapshot = latest
       const temp = `${file}.${process.pid}.tmp`
@@ -226,6 +228,11 @@ export function install(rt) {
         throw error
       }
     }).catch(error => rt.warn('ds-bot: noting running turns failed: %s', error))
+    writing = nextWrite
+    activeWrite = nextWrite
+    nextWrite.finally(() => {
+      if (activeWrite === nextWrite) activeWrite = null
+    })
   }
   const noteSilent = (sessionId, entries) => {
     if (stopped || rt.readOnly() !== undefined) return
