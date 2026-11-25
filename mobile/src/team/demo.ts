@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from 'react'
+import { demoUsage } from './demo-usage.ts'
 import type { TeamState } from '../connection.ts'
 import { demoData } from './demo-team.ts'
 import { demoFolderListing, demoUpdateRoom } from './demo-folders.ts'
@@ -296,16 +297,7 @@ const call = useMemo(() => async (endpoint: string, payload: unknown = {}): Prom
         return { ok: true }
       }
       case 'file-text': return { text: '# Release notes\n\n- Drawer lands today\n- Mobile cards render natively\n- Needs-you groups the queue\n', truncated: false }
-      case 'usage': return {
-        total: { input: 402100, output: 90300 },
-        bots: [
-          { name: 'Chief', input: 152100, output: 40100 }, { name: 'Writer', input: 120100, output: 30400 },
-          { name: 'Coder', input: 80000, output: 13000 }, { name: 'Researcher', input: 50000, output: 6800 },
-        ],
-        models: [
-          { name: 'DeepSeek v4.1', input: 300100, output: 70100 }, { name: 'DeepSeek Flash', input: 102000, output: 20200 },
-        ],
-      }
+      case 'usage': return demoUsage(bots)
       case 'update-check': return { update: { phase: 'current', latest: '0.1.2', available: false, checkedAt: Date.now() - 3600e3, source: 'registry' }, dsh: { phase: 'installed', installed: '0.0.1', available: false } }
       case 'update-install': case 'dsh-update-install': return { ok: true }
       case 'diagnostics': return { size: 48200, entries: 214, last: 'Turn 96 on Coder failed once and retried.' }

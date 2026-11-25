@@ -122,7 +122,7 @@ async function start(seed) {
 
 const textOf = content => content.map(block => block.text ?? '').join('\n')
 
-test('delegate_work steers by default; on an idle Bot it opens the next turn', async (t) => {
+test('delegate_work opens a turn on an idle Bot and queues a second request without interrupting a busy turn', async (t) => {
   const { agents, emit, tool, stop } = await start(team())
   t.after(stop)
 
@@ -133,11 +133,11 @@ test('delegate_work steers by default; on an idle Bot it opens the next turn', a
   assert.match(textOf(agents.get('b').calls[0][1].content), /^\[Work #W\d+ from Chief/)
   assert.equal(agents.get('b').calls[0][1].source.role, 'request')
 
-  // Running: the work cuts into that turn instead of queuing.
+  // Running: a new assignment queues after the current turn instead of interrupting it.
   emit('b', 'turn/start', { turn: 1 })
   const busy = await tool('delegate_work', { to: 'Writer', goal: 'watch out' }, 'a')
-  assert.match(busy, /^Delegated work #W\d+ to Writer while it is working: it reads this at its next step and returns the result once done\. Do not wait or poll\. Writer now: working in its own chat for less than a minute, for the user; not read yet: 1 from Chief\.$/)
-  assert.deepEqual(agents.get('b').calls.map(([kind]) => kind), ['steer', 'steer'])
+  assert.match(busy, /^Queued work #W\d+ for Writer: it starts after its current work and returns the result once done\. Do not wait or poll\./)
+  assert.deepEqual(agents.get('b').calls.map(([kind]) => kind), ['steer', 'followup'])
 })
 
 test('delegate_work when "queue" waits for the current work, and deliver_to "user" always queues', async (t) => {
@@ -257,36 +257,35 @@ test('a request from a name with brackets keeps its body when replayed after the
   assert.ok(textOf(again.content).endsWith(`\n${body}`))
 })
 
-test('a message its recipient has not read yet takes in the next one, however many come', async (t) => {
+test('a busy worker admits each unread assignment separately and in order', async (t) => {
   const { ctx, agentOf, emit, tool, exchanges, stop } = await start(team())
   t.after(stop)
   // Writer's turn waits on something and never reaches its next step.
   const writer = agentOf('b')
-  writer.steer = (message) => { writer.calls.push(['steer', message]); writer.inbox.nextStep.push(message) }
+  writer.followup = (message) => { writer.calls.push(['followup', message]); writer.inbox.nextTurn.push(message) }
   emit('b', 'turn/start', { turn: 1 })
 
-  await tool('delegate_work', { to: 'Writer', goal: 'task 1' }, 'a')
+  await tool('delegate_work', { to: 'Writer', goal: 'task 1', when: 'queue' }, 'a')
   const second = await tool('delegate_work', { to: 'Writer', goal: 'task 2', when: 'queue' }, 'a')
-  assert.match(second, /Writer had not read your earlier request yet, so this one was added to it, and it handles both at once\. Writer now: working in its own chat for less than a minute, for the user; not read yet: 1 from Chief\.$/)
-  for (let index = 3; index <= 12; index += 1) await tool('delegate_work', { to: 'Writer', goal: `task ${index}` }, 'a')
-  // One message, still steered, under the first one's exchange.
-  assert.equal(writer.inbox.nextStep.length, 1)
-  const [waiting] = writer.inbox.nextStep
-  assert.match(textOf(waiting.content), /^\[Work #W\d+ from Chief[^\n]*\]\n/)
-  assert.ok(textOf(waiting.content).endsWith(`\n${Array.from({ length: 12 }, (_, index) => `task ${index + 1}`).join('\n\n')}`))
+  assert.match(second, /^Queued work #W2 for Writer/)
+  for (let index = 3; index <= 12; index += 1) await tool('delegate_work', { to: 'Writer', goal: `task ${index}`, when: 'queue' }, 'a')
+  assert.equal(writer.inbox.nextTurn.length, 12)
+  const [waiting] = writer.inbox.nextTurn
+  assert.equal(new Set(writer.inbox.nextTurn.map(m => m.source.exchangeId)).size, 12)
+  assert.deepEqual(writer.inbox.nextTurn.map(m => textOf(m.content).split('\n').at(-1)), Array.from({ length: 12 }, (_, i) => `task ${i + 1}`))
   assert.equal(waiting.source.exchangeId, writer.calls[0][1].source.exchangeId)
-  assert.deepEqual((await exchanges()).map(entry => entry.text.split('\n\n').length), [12])
-  assert.match(await tool('list_bots', {}, 'a'), /- Writer \(Write\)\n {2}now: working in its own chat for less than a minute, for the user; not read yet: 1 from Chief\n/)
+  assert.equal((await exchanges()).length, 12)
+  assert.match(await tool('list_bots', {}, 'a'), /not read yet: 12 from Chief/)
 
   // Once a step takes it up, the next message is a new one.
   emit('b', 'user/message', { content: waiting.content, source: waiting.source })
-  writer.inbox.nextStep.length = 0
-  assert.match(await tool('delegate_work', { to: 'Writer', goal: 'task 13' }, 'a'), /^Delegated work #W\d+ to Writer while it is working[^]*Writer now: working in its own chat for less than a minute, for Chief\.$/)
-  assert.equal((await exchanges()).length, 2)
+  writer.inbox.nextTurn.shift()
+  assert.match(await tool('delegate_work', { to: 'Writer', goal: 'task 13', when: 'queue' }, 'a'), /^Queued work #W13 for Writer/)
+  assert.equal((await exchanges()).length, 13)
 
   // An approval the Bot waits for shows in what the sender is told.
   for (const listener of ctx.listeners.get('approval/request')) void listener({ agent: { session: { id: 'b' } }, toolName: 'bash', reason: 'rm' }, () => new Promise(() => {}))
-  assert.match(await tool('delegate_work', { to: 'Writer', goal: 'task 14' }, 'a'), /Writer now: waiting for the user's approval to run bash in its own chat \(for less than a minute\); not read yet: 1 from Chief\.$/)
+  assert.match(await tool('delegate_work', { to: 'Writer', goal: 'task 14', when: 'queue' }, 'a'), /Writer now: waiting for the user's approval to run bash in its own chat/)
 })
 
 test('requests from two Bots, or for different work, stay apart', async (t) => {
@@ -295,18 +294,18 @@ test('requests from two Bots, or for different work, stay apart', async (t) => {
   const { agentOf, emit, tool, stop } = await start(seed)
   t.after(stop)
   const writer = agentOf('b')
-  writer.steer = (message) => { writer.calls.push(['steer', message]); writer.inbox.nextStep.push(message) }
+  writer.followup = (message) => { writer.calls.push(['followup', message]); writer.inbox.nextTurn.push(message) }
   emit('b', 'turn/start', { turn: 1 })
 
-  await tool('delegate_work', { to: 'Writer', goal: 'from Chief' }, 'a')
-  assert.doesNotMatch(await tool('delegate_work', { to: 'Writer', goal: 'from Tester' }, 'c'), /added to it/)
+  await tool('delegate_work', { to: 'Writer', goal: 'from Chief', when: 'queue' }, 'a')
+  assert.doesNotMatch(await tool('delegate_work', { to: 'Writer', goal: 'from Tester', when: 'queue' }, 'c'), /added to it/)
   // Tester, now working on what Chief asked it for, writes for that work.
   await tool('delegate_work', { to: 'Tester', goal: 'check it' }, 'a')
   const ask = agentOf('c').calls.at(-1)[1]
   emit('c', 'turn/start', { turn: 1 })
   emit('c', 'user/message', { content: ask.content, source: ask.source })
-  assert.doesNotMatch(await tool('delegate_work', { to: 'Writer', goal: 'for that check' }, 'c'), /added to it/)
-  assert.equal(writer.inbox.nextStep.length, 3)
+  assert.doesNotMatch(await tool('delegate_work', { to: 'Writer', goal: 'for that check', when: 'queue' }, 'c'), /added to it/)
+  assert.equal(writer.inbox.nextTurn.length, 3)
 })
 
 test('a non-Main Bot can steer a request to a Main Bot', async (t) => {
