@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import fsp from 'node:fs/promises'
 import { syncBuiltinESMExports } from 'node:module'
 import { tmpdir } from 'node:os'
@@ -149,8 +149,9 @@ test('workspace-list inspects eight entries at a time and keeps readdir order fo
   for (const name of ['cafe.md', 'caf\u00e9.md', 'resume.txt', 'r\u00e9sum\u00e9.txt']) writeFileSync(join(workDir, name), name)
   writeFileSync(join(workDir, '.hidden'), '')
 
-  const realWork = realpathSync(workDir)
   const { realpath } = fsp
+  // The listing resolves through fs/promises, which expands Windows 8.3 short names that realpathSync keeps.
+  const realWork = await realpath(workDir)
   let started = 0
   let inspecting = 0
   let peak = 0
