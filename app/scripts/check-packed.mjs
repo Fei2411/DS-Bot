@@ -13,6 +13,7 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { crc32 } from 'node:zlib'
 import { hostExecutable } from '../src/host-process.mjs'
+import { mockKeychainArgs } from '../src/legacy.mjs'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const [given, shotFile] = process.argv.slice(2)
@@ -611,7 +612,7 @@ try {
     DEEPSEEK_BASE_URL: modelUrl, DEEPSEEK_API_KEY: 'mock-key',
   })
   // Never touch the host macOS login keychain with an ad-hoc temporary copy of DS Bot.app.
-  const macArgs = process.platform === 'darwin' ? ['--use-mock-keychain'] : []
+  const macArgs = mockKeychainArgs()
   const app = spawn(packedApp, [...macArgs, `--remote-debugging-port=${String(port)}`, `--inspect=127.0.0.1:${String(mainPort)}`], { stdio: 'inherit', env })
   children.push(app)
   const exited = new Promise((done) => { app.once('exit', (code, signal) => { done({ code, signal }) }) })
@@ -621,11 +622,15 @@ try {
   await main.opened
   const windowState = async expression => {
     const answer = await main.call('Runtime.evaluate', {
-      expression: `(() => { const { BrowserWindow } = process.getBuiltinModule('module').createRequire(process.execPath)('electron'); const win = BrowserWindow.getAllWindows()[0]; return ${expression} })()`,
+      expression: `(() => { const { app, BrowserWindow } = process.getBuiltinModule('module').createRequire(process.execPath)('electron'); const win = BrowserWindow.getAllWindows()[0]; return ${expression} })()`,
       returnByValue: true, awaitPromise: true,
     })
     if (answer.exceptionDetails) throw new Error(answer.exceptionDetails.exception?.description ?? answer.exceptionDetails.text)
     return answer.result?.value
+  }
+  const mockKeychain = await windowState("app.commandLine.hasSwitch('use-mock-keychain')")
+  if (mockKeychain !== (process.platform === 'darwin')) {
+    throw new Error(`expected mock keychain=${String(process.platform === 'darwin')}, got ${String(mockKeychain)}`)
   }
   // Wait until the start window finishes its cross-fade and closes before driving the team window;
   // otherwise the splash teardown on Xvfb drops window focus after the composer was clicked.

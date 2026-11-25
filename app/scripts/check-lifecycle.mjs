@@ -8,6 +8,7 @@ import { mkdirSync, rmSync } from 'node:fs'
 import net from 'node:net'
 import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
+import { mockKeychainArgs } from '../src/legacy.mjs'
 
 const require = createRequire(import.meta.url)
 const electron = require('electron')
@@ -59,8 +60,7 @@ let connection
 try {
   rmSync(work, { recursive: true, force: true, maxRetries: 10, retryDelay: 500 })
   mkdirSync(work, { recursive: true })
-  const macArgs = process.platform === 'darwin' ? ['--use-mock-keychain'] : []
-  child = spawn(electron, [join(here, '..', 'test', 'electron', 'lifecycle-main.mjs'), ...macArgs], {
+  child = spawn(electron, [join(here, '..', 'test', 'electron', 'lifecycle-main.mjs'), ...mockKeychainArgs()], {
     cwd: join(here, '..'),
     env: { ...process.env, DS_BOT_SHELL_DATA: work },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -96,6 +96,7 @@ try {
   if (!first.url?.startsWith('http://127.0.0.1:')) fail(`the window did not reach the Host: ${String(first.url)}`)
   if (first.title !== 'DS Bot') fail(`the page did not load: ${String(first.title)}`)
   if (first.hasTray !== true) fail('the tray is not there')
+  if (first.mockKeychain !== (process.platform === 'darwin')) fail(`unexpected mock keychain state: ${String(first.mockKeychain)}`)
   console.log('check-lifecycle: the window shows the Host and the tray is there')
 
   const closed = await ask('close')

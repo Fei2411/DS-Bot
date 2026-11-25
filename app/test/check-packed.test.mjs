@@ -145,14 +145,23 @@ test('the script waits for the start window to close and leave one visible windo
   assert.ok(revealIdx > 0 && revealIdx < chatCallIdx)
 })
 
-test('macOS check and screenshot scripts isolate Electron from the login keychain', () => {
-  for (const rel of ['../scripts/check-packed.mjs', '../scripts/check-update.mjs', '../scripts/check-lifecycle.mjs', '../scripts/shot.mjs']) {
+test('macOS check and dev Electron scripts pass mockKeychainArgs and verify runtime isolation', () => {
+  for (const rel of [
+    '../scripts/check-packed.mjs',
+    '../scripts/check-update.mjs',
+    '../scripts/check-lifecycle.mjs',
+    '../scripts/shot.mjs',
+    '../scripts/icon.mjs',
+  ]) {
     const script = readFileSync(new URL(rel, import.meta.url), 'utf8')
-    assert.match(script, /--use-mock-keychain/, rel)
+    assert.match(script, /import\s+\{[^}]*\bmockKeychainArgs\b[^}]*\}\s+from\s+'\.\.\/src\/legacy\.mjs'/u, rel)
+    assert.match(script, /\.\.\.(?:macArgs|mockKeychainArgs\(\))/u, rel)
   }
   const spawns = [...source.matchAll(/spawn\(packedApp,\s*\[([^\]]+)\]/gu)]
   assert.equal(spawns.length, 2)
-  for (const [, args] of spawns) assert.match(args, /\.\.\.macArgs/)
+  for (const [, args] of spawns) assert.match(args, /\.\.\.macArgs/u)
+  assert.match(source, /app\.commandLine\.hasSwitch\('use-mock-keychain'\)/u)
   const lifecycleMain = readFileSync(new URL('./electron/lifecycle-main.mjs', import.meta.url), 'utf8')
-  assert.match(lifecycleMain, /appendSwitch\('use-mock-keychain'\)/)
+  assert.match(lifecycleMain, /appendSwitch\('use-mock-keychain'\)/u)
+  assert.match(lifecycleMain, /hasSwitch\('use-mock-keychain'\)/u)
 })
