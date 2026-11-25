@@ -345,10 +345,11 @@ export function install(rt) {
       async cancel() {},
     },
     async transcribe(input, signal) {
-      if (asrReady !== true) await refreshAsrKey()
       if (asrReady !== true) {
-        const key = await describeKey()
-        throw new Error(key.reason ?? `DeepSeek speech recognition needs the DeepSeek API key (${key.ref}); set it under Settings → Models.`)
+        const key = await refreshAsrKey()
+        if (asrReady !== true && key.configured !== true) {
+          throw new Error(key.reason ?? `DeepSeek speech recognition needs the DeepSeek API key (${key.ref}); set it under Settings → Models.`)
+        }
       }
       return transcribe(input, signal)
     },

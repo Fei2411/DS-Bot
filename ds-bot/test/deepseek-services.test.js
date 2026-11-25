@@ -579,6 +579,41 @@ test('ASR readiness follows the key, and transcribe posts the audio', async (t) 
   assert.equal(call.init.body.get('file').name, 'speech.wav')
 })
 
+test('ASR transcribes when a scheduled key check overtakes its own lookup', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const own = Promise.withResolvers()
+  const scheduled = Promise.withResolvers()
+  let describes = 0
+  let provider
+  const ctx = {
+    get: name => ({
+      credentials: {
+        describe: async () => [own.promise, scheduled.promise][describes++] ?? { configured: true },
+        resolve: async () => ({ value: 'sk-1' }),
+      },
+      speechToText: { register: value => { provider = value; return () => {} } },
+    })[name],
+    on: () => () => {},
+    effect: execute => execute(),
+    inject: (_deps, mount) => mount(ctx),
+  }
+  install({ ctx, state: { prefs: {} }, teamTools: [] })
+  const calls = stubFetch(t, () => json({ text: 'hello there' }))
+
+  const result = provider.transcribe({ audio: wav16() })
+  assert.equal(describes, 1)
+  t.mock.timers.tick(100)
+  assert.equal(describes, 2)
+  own.resolve({ configured: true })
+  assert.equal((await result).text, 'hello there')
+  assert.equal(calls.length, 1)
+  assert.equal(provider.preparation.snapshot().phase, 'unprepared')
+
+  scheduled.resolve({ configured: true })
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(provider.preparation.snapshot().phase, 'ready')
+})
+
 test('ASR refuses over-length audio before upload', async (t) => {
   const registered = []
   const inject = (deps, fn) => fn({ effect: execute => execute() })
