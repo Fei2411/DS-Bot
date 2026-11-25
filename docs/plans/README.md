@@ -26,7 +26,8 @@
 | 文档 | 内容 |
 |---|---|
 | [Bot 异步工作](2026-11-16-async-work.md) | 慢 Shell 自动转后台 job、前台忙收新消息转后台、`task_*` 后台任务工具与顶栏灵动岛 |
-| [Bot 之间派活](2026-10-16-bot-handoffs.md) | 同伴状态可见、未读消息合并与派活树（子活交回后再向上交回） |
+| [消息与异步协作底座](2026-11-25-message-coordination.md) | 本机 SQLite 协调真相库（`coordination.sqlite`）、逻辑地址投递、原子终态与报告义务、统一冷历史核实与不打断工作更正（英文） |
+| [Bot 之间派活](2026-10-16-bot-handoffs.md) | 同伴状态可见、独立委托编号与派活树（子活交回后再向上交回） |
 | [本地 Agent CLI 作为 Bot](2026-11-04-local-agents.md) | 将本机编程 CLI 接入为 Bot：运行切换、会话映射、工具桥、审批与记忆（英文） |
 | [Side chat（侧边对话）](2026-10-21-btw.md) | 右侧栏 `/side` 顺手提问：基于快照回答、不执行工具、不打断主对话 |
 | [Bot 聊天和群聊的 `/` 菜单](2026-11-13-bot-slash-commands.md) | agent 作用域命令遮蔽（`commandShield`）与 DS Bot 动作注入（`/scheduled-task`、`/goal`） |
