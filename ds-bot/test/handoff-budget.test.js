@@ -651,7 +651,7 @@ test('parts.js overflow handoff preserves initiating user request and attachment
 
   // 2. Tight budget with room for the interim assistant reply (~50 bytes) but not old turns:
   // both initiating request and interim reply survive in chronological order, while old turns are evicted.
-  const pkgTightWithInterim = await runOverflow({ targetWindowTokens: 6_800 })
+  const pkgTightWithInterim = await runOverflow({ targetWindowTokens: 4_500 })
   assert.ok(pkgTightWithInterim.includes('INITIATING_START_比较两份报告'))
   assert.ok(pkgTightWithInterim.includes('INITIATING_END_完整保留_🚀'))
   assert.ok(pkgTightWithInterim.includes("I'll check both reports."), 'interim reply survives when budget allows')
@@ -814,4 +814,130 @@ test('parts.js folder switch writes handoff summary note when destination byte b
   assert.ok(whole.pkg.includes('every message of the part was carried over word for word'))
   assert.ok(whole.pkg.includes('FIRST_FOLDER_MSG_'))
   assert.ok(whole.pkg.includes('LATEST_FOLDER_MSG'))
+})
+
+test('parts.js idle engine switch preserves the latest completed reply and does not reserve budget for unforwarded historical photos', async () => {
+  const runIdleSwitch = async ({ historyEvents, targetWindowTokens }) => {
+    const followed = []
+    const ctx = fakeContext({ services: { tokenMeter: { measure: () => ({ totalTokens: 800 }) } } })
+    ctx.logger = { warn: () => {}, info: () => {} }
+    ctx.sessions = { flush: async () => {} }
+    ctx.workspaceRegistry = { archiveSession: async () => {} }
+    ctx.llm = {
+      resolveModelInfo: async () => ({ context: { contextWindow: targetWindowTokens } }),
+    }
+    const bot = { id: 'b1', name: 'Kai', sessionId: 's1', model: 'small-provider/small', segments: [] }
+    const session = {
+      id: 's1',
+      header: { cwd: '/tmp/team' },
+      requestHeader: () => ({ config: { provider: 'big-provider', model: 'big' } }),
+      deriveMessages: () => [],
+      toolHistory: () => [],
+    }
+    const agent = {
+      id: 's1', session, status: 'idle',
+      whenIdle: async () => {},
+      runMaintenance: async job => job(AbortSignal.timeout(10_000)),
+      inbox: { nextStep: [], nextTurn: [] },
+      followup: message => followed.push(message),
+      send: async () => {},
+    }
+    const fresh = {
+      id: 's2',
+      session: { id: 's2', header: { cwd: '/tmp/team' }, requestHeader: () => ({ config: {} }), deriveMessages: () => [], toolHistory: () => [] },
+      status: 'idle',
+      whenIdle: async () => {},
+      runMaintenance: async job => job(AbortSignal.timeout(10_000)),
+      inbox: { nextStep: [], nextTurn: [] },
+      followup: message => followed.push(message),
+      send: async () => {},
+    }
+    const rt = {
+      ctx,
+      home: '/unused',
+      config: {},
+      state: { bots: { b1: bot }, rooms: {}, prefs: {}, exchanges: [], capabilities: { items: {} }, switching: {}, questions: {}, views: {} },
+      warn: () => {},
+      async save() {},
+      async load() {},
+      readOnly: () => undefined,
+      botOf: id => rt.state.bots[id],
+      roomOf: () => undefined,
+      selfOf: () => 'b1',
+      isMain: () => false,
+      chatOf: () => 's1',
+      sessionOfRoom: () => undefined,
+      isBotSession: id => ['s1', 's2'].includes(id),
+      isLocalAgentRef: () => false,
+      isLocalAgentRoute: () => false,
+      engineOf: ref => (String(ref).startsWith('small-provider/') ? 'small-engine' : 'big-engine'),
+      engineOfBot: subject => (String(subject?.model).startsWith('small-provider/') ? 'small-engine' : 'big-engine'),
+      engineNameOf: ref => ref,
+      chatOwners: new Map([['s1', 'b1']]),
+      groupOwners: new Map(),
+      pastOwners: new Map(),
+      roomOwners: new Map(),
+      teamTools: [],
+      live: new Map(),
+      groupSessionsOf: () => [],
+      unreadOf: () => [],
+      eventsBackwards: async function* (_sid, _sig, _pages, scan) {
+        for (const event of [...historyEvents].reverse()) yield event
+        if (scan) scan.complete = true
+      },
+      resolveAgent: async id => (id === 's2' ? fresh : agent),
+      createSession: async () => 's2',
+      desiredModel: async subject => subject.model,
+      desiredEffort: async () => undefined,
+      selectSessionModel: async () => {},
+      applyPermission: async () => {},
+      ensureCapabilities: async () => {},
+      renewMemory: () => {},
+      moveSchedules: async () => {},
+      deliver: async () => {},
+      teamFolder: () => '/tmp/team',
+      workDirOf: () => '/tmp/team',
+      isFolder: async () => true,
+      roomProgress: new Map(),
+    }
+    partsInstall(rt)
+    await rt.followEngine('b1')
+    for (let i = 0; i < 100 && bot.sessionId !== 's2'; i += 1) {
+      await new Promise(resolve => setTimeout(resolve, 10))
+    }
+    assert.equal(bot.sessionId, 's2')
+    return followed.map(m => m.content.map(b => b.text).join('')).join('\n')
+  }
+
+  // 1. Idle switch under zero remaining history budget must preserve the latest completed reply.
+  const idlePkg = await runIdleSwitch({
+    targetWindowTokens: 1_500,
+    historyEvents: [
+      { type: 'user/message', seq: 1, time: 1, data: { content: [{ type: 'text', text: `REQUEST_FOR_REPORT_${'X'.repeat(2_000)}` }], source: { kind: 'user' } } },
+      { type: 'assistant/message', seq: 2, time: 2, data: { message: { content: [{ type: 'text', text: 'FINAL_COMPLETED_REPORT_42' }] } } },
+    ],
+  })
+  assert.ok(idlePkg.includes('FINAL_COMPLETED_REPORT_42'), 'idle switch must preserve the newest completed reply even at 0 history budget')
+
+  // 2. Historical request containing multiple photos does not subtract 4 KiB per photo from
+  // availableBytes because moveOn sends history as a text block without forwarding old images.
+  const photoEvents = [
+    { type: 'user/message', seq: 1, time: 1, data: { content: [{ type: 'text', text: `PRIOR_CONTEXT_${'H'.repeat(800)}` }], source: { kind: 'user' } } },
+    {
+      type: 'user/message',
+      seq: 2,
+      time: 2,
+      data: {
+        content: [
+          { type: 'text', text: 'LOOK_AT_PHOTOS' },
+          { type: 'image', attachment: { attachmentId: 'img-1' } },
+          { type: 'image', attachment: { attachmentId: 'img-2' } },
+        ],
+        source: { kind: 'user' },
+      },
+    },
+  ]
+  const photoPkg = await runIdleSwitch({ targetWindowTokens: 3_000, historyEvents: photoEvents })
+  assert.ok(photoPkg.includes('LOOK_AT_PHOTOS'))
+  assert.ok(photoPkg.includes('PRIOR_CONTEXT_'), 'unforwarded historical photos must not consume 4 KiB each and evict fitting history')
 })

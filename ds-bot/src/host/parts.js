@@ -254,7 +254,7 @@ export function install(rt) {
     const previousNote = segmentNoteOf(previous)
     const lines = await contextLines(session).catch(() => undefined)
     const budget = Math.min(RECENT_TOKENS, Math.floor((lines?.check ?? 4 * RECENT_TOKENS) / 4))
-    const rawCarried = await handoffLines(agent.id, { budget, group: room !== undefined, number: parts.length })
+    const rawCarried = await handoffLines(agent.id, { budget, group: room !== undefined, number: parts.length, activeTurn: true })
     const targetWindow = await targetWindowTokensOf(rt.botOf(place.botId), session, lines?.window)
     const held = [...(agent.inbox?.nextStep ?? []), ...(agent.inbox?.nextTurn ?? [])]
     const carried = applyHandoffBudget(rawCarried, {
@@ -362,7 +362,9 @@ export function install(rt) {
     const pending = [...(carry ?? []), ...(held ?? [])]
     const currentTurnTextBytes = currentTurn.reduce((sum, entry) => sum + utf8Bytes(entry), 0)
     const currentTurnBytes = measureMessagesBytes(pending) + currentTurnTextBytes
-    const attachmentCount = countMessageAttachments(pending) + (carried?.currentTurnAttachments ?? 0)
+    // Only pending (`carry` + `held`) messages forward their original content blocks;
+    // historical lines are carried as a single text block without image payloads.
+    const attachmentCount = countMessageAttachments(pending)
     const nativeUsedBytes = utf8Bytes(noteBody) + sessionNativeBytes(session) + 1024
     const maxHistoryBytes = maxHistoryTokens !== undefined
       ? Math.floor(maxHistoryTokens * DEFAULT_BYTES_PER_TOKEN) : undefined
@@ -665,9 +667,8 @@ export function install(rt) {
   // messages word for word, and before them, in the Bot's own chat, every message to
   // the Bot (from the user or another Bot) as an anchored list. A group turn message
   // holds the whole round, so a group part carries only its latest messages.
-  async function handoffLines(sessionId, { budget, group, number }) {
+  async function handoffLines(sessionId, { budget, group, number, activeTurn = false }) {
     let initiating
-    let initiatingAttachments = 0
     const trailing = []
     const olderRecent = []
     const earlier = []
@@ -682,7 +683,7 @@ export function install(rt) {
     const recentClipHint = line => (group ? 'the full text is in the saved record' : `read_own_chat around "part ${number} #${line.seq}" shows all of it`)
     try {
       for await (const line of partLines(sessionId, AbortSignal.timeout(HANDOFF_READ_MS), { group, pages: HISTORY_SCAN_PAGES, read })) {
-        if (initiating === undefined) {
+        if (activeTurn && initiating === undefined) {
           if (line.who === 'you') {
             const text = clip(line.text, RECENT_LINE_MAX, recentClipHint(line))
             if (text !== line.text) clipped = true
@@ -702,7 +703,6 @@ export function install(rt) {
           const text = clip(line.text, RECENT_LINE_MAX, recentClipHint(line))
           if (text !== line.text) clipped = true
           initiating = `${stamp(line)} ${text}`
-          initiatingAttachments = line.attachments ?? 0
           used += estimateTokens(text)
           continue
         }
@@ -710,7 +710,7 @@ export function install(rt) {
           const text = clip(line.text, RECENT_LINE_MAX, recentClipHint(line))
           if (text !== line.text) clipped = true
           const cost = estimateTokens(text)
-          if (used + cost <= budget) {
+          if ((!activeTurn && olderRecent.length === 0) || used + cost <= budget) {
             olderRecent.push(`${stamp(line)} ${text}`)
             used += cost
             continue
@@ -730,7 +730,7 @@ export function install(rt) {
       }
     } catch (error) {
       // The latest messages matter most; what could not be read is only noted.
-      if (initiating === undefined && trailing.length === 0) throw error
+      if (initiating === undefined && trailing.length === 0 && olderRecent.length === 0) throw error
       complete = false
       rt.warn('ds-bot: reading %s for its handoff stopped early: %s', sessionId, error)
     }
@@ -739,9 +739,9 @@ export function install(rt) {
     complete &&= read.complete === true
     const trailingChrono = trailing.reverse()
     const olderChrono = olderRecent.reverse()
-    const recent = initiating !== undefined ? [...olderChrono, initiating, ...trailingChrono] : trailingChrono
-    const currentTurn = initiating !== undefined ? [initiating] : (trailingChrono.length > 0 ? [trailingChrono.at(-1)] : [])
-    const olderBeforeTurn = initiating !== undefined ? olderChrono : trailingChrono.slice(0, -1)
+    const recent = initiating !== undefined ? [...olderChrono, initiating, ...trailingChrono] : [...olderChrono, ...trailingChrono]
+    const currentTurn = initiating !== undefined ? [initiating] : (recent.length > 0 ? [recent.at(-1)] : [])
+    const olderBeforeTurn = initiating !== undefined ? olderChrono : recent.slice(0, -1)
     const afterCurrentTurn = initiating !== undefined ? trailingChrono : []
     return {
       recent,
@@ -753,7 +753,6 @@ export function install(rt) {
       currentTurn,
       olderRecent: olderBeforeTurn,
       trailingRecent: afterCurrentTurn,
-      currentTurnAttachments: initiatingAttachments,
     }
   }
 
@@ -2186,7 +2185,7 @@ export function install(rt) {
     const taskRoom = taskEntry?.roomId !== undefined ? rt.roomOf(taskEntry.roomId) : undefined
     const effectiveRoom = room ?? taskRoom
     const budget = Math.min(RECENT_TOKENS, Math.floor((lines?.check ?? 4 * RECENT_TOKENS) / 4))
-    const readLines = () => (job.bare ? { recent: [], earlier: [], tools: [], unlisted: 0, complete: true } : handoffLines(agent.id, { budget, group: effectiveRoom !== undefined, number }))
+    const readLines = () => (job.bare ? { recent: [], earlier: [], tools: [], unlisted: 0, complete: true } : handoffLines(agent.id, { budget, group: effectiveRoom !== undefined, number, activeTurn: job.resume === true }))
     const previous = parts.slice(0, -1).findLast(part => part?.endedAt !== undefined && !Number.isInteger(part.throughSeq)) ?? parts.at(-2)
     const previousNote = segmentNoteOf(previous)
     const earlierNote = previousNote ? { note: previousNote, noteFrom: previous.noteFrom ?? previous.number } : {}
