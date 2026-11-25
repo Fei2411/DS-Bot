@@ -10,6 +10,7 @@ import { hostText, t } from '../../../ds-bot/src/client/i18n.js'
 import { CloseIcon, PlusIcon, TerminalIcon } from '../../../ds-bot/src/client/icons.js'
 import { matchShortcutEvent } from '../../../ds-bot/src/client/shortcuts-model.js'
 import { writeClipboard } from './primitives.js'
+import { getLiveShortcutContext } from './shortcuts.js'
 
 const MAX_CLIENT_BUFFER = 64 * 1024
 const MAX_PENDING_EVENT_IDS = 16
@@ -280,7 +281,7 @@ export function readXtermTheme() {
  * Cmd+V / Ctrl+Shift+V paste natively, active global app shortcuts bubble cleanly to window,
  * and terminal control keys (`Ctrl+C`, `Ctrl+D`, `Ctrl+L`, arrows, Tab, Esc, etc.) flow to the PTY.
  */
-export function createTerminalKeyHandler(term, { mac = isMacPlatform(), copy = writeClipboard, overrides } = {}) {
+export function createTerminalKeyHandler(term, { mac = isMacPlatform(), copy = writeClipboard, overrides, getContext = getLiveShortcutContext } = {}) {
   return (event) => {
     if (!event || event.type !== 'keydown') return true
     const key = String(event.key ?? '').toLowerCase()
@@ -308,9 +309,11 @@ export function createTerminalKeyHandler(term, { mac = isMacPlatform(), copy = w
       if (key === 'v' || code === 'KeyV') return false
     }
     // Let active global shortcuts (including custom bindings, F1–F12, and allowInTerminal
-    // commands like Ctrl+`) bubble to the window dispatcher; plain non-Mac Ctrl+<key>
+    // commands like Ctrl+`) bubble to the window dispatcher using the same live mode,
+    // capabilities, and modal state as the window listener; plain non-Mac Ctrl+<key>
     // terminal control sequences return null and continue straight to the PTY.
-    if (matchShortcutEvent(event, { mac, inTerminal: true, ...(overrides !== undefined ? { overrides } : {}) })) {
+    const live = typeof getContext === 'function' ? (getContext() ?? {}) : {}
+    if (matchShortcutEvent(event, { ...live, mac, inTerminal: true, ...(overrides !== undefined ? { overrides } : {}) })) {
       return false
     }
     return true

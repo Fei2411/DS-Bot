@@ -18,6 +18,23 @@ import { useShortcutOverrides } from '../../../ds-bot/src/client/shortcuts-page.
 
 export { isMacPlatform }
 
+let liveShortcutContext = null
+
+/**
+ * Registers the desktop window's live shortcut context provider (modal, settingsOpen,
+ * capabilities) so focused embedded views like xterm mirror the window dispatcher exactly.
+ */
+export function setLiveShortcutContext(provider) {
+  liveShortcutContext = typeof provider === 'function' ? provider : null
+  return () => {
+    if (liveShortcutContext === provider) liveShortcutContext = null
+  }
+}
+
+export function getLiveShortcutContext() {
+  return liveShortcutContext ? liveShortcutContext() : {}
+}
+
 /**
  * Matches desktop-wide keyboard shortcuts using the active user bindings.
  * Respects IME composition, already-handled events, recording mode, terminal pass-through,

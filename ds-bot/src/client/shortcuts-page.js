@@ -9,6 +9,7 @@ import {
   formatBindingCaps,
   isCommandAvailable,
   isMacPlatform,
+  isReservedZoomKeyEvent,
   setShortcutRecording,
   shortcutsStore,
 } from './shortcuts-model.js'
@@ -91,6 +92,14 @@ export function ShortcutsPage({ roster, actions, Section, Row, store = shortcuts
       }
       const binding = eventToBinding(event, mac)
       if (!binding) return // modifier-only press or unsupported Meta on Windows/Linux
+      if (isReservedZoomKeyEvent(event, mac)) {
+        setNotice({
+          id: currentId,
+          kind: 'error',
+          message: t('Reserved system shortcut'),
+        })
+        return
+      }
       const result = store.setBinding(currentId, binding)
       if (result.ok) {
         setRecordingId(null)

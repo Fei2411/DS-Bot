@@ -18,7 +18,7 @@ import { AgentEmptyHero, ClassicHeader, ClassicSidebar } from './classic-sidebar
 import { useDshSettingsBridge } from './engine-settings-bridge.js'
 import { getAppLocale } from './locale.js'
 import { WorkspacePaneBody, buildWorkspaceTabs } from './right-panel.js'
-import { ShortcutsDialog, matchGlobalShortcut } from './shortcuts.js'
+import { ShortcutsDialog, matchGlobalShortcut, setLiveShortcutContext } from './shortcuts.js'
 import { SHORTCUT_BY_ID, isCommandAvailable, isShortcutRecording, shortcutsStore, visibleClassicSessions, visibleSidebarTargets } from '../../../ds-bot/src/client/shortcuts-model.js'
 import { RIGHT_PANE_TAB_SLOT, SHELL_OVERLAY_SLOT, SlotErrorBoundary, slots, useSlotEntries } from './slots.js'
 import { createTeam } from './team.js'
@@ -438,21 +438,28 @@ export function App() {
   runShortcutRef.current = runShortcut
 
   useEffect(() => {
-    const onKeyDown = (event) => {
+    const readContext = () => {
       const uiSnap = team.snapshots?.ui?.() ?? {}
       const rosterSnap = team.snapshots?.roster?.() ?? {}
       const mode = team.snapshots?.surface?.()?.mode ?? 'bot'
-      const hit = matchGlobalShortcut(event, {
+      return {
         settingsOpen: Boolean(uiSnap.settings),
         modal: activeModalOf(uiSnap),
         capabilities: capabilitiesOf(rosterSnap, mode),
-      })
+      }
+    }
+    const clearLiveContext = setLiveShortcutContext(readContext)
+    const onKeyDown = (event) => {
+      const hit = matchGlobalShortcut(event, readContext())
       if (!hit) return
       event.preventDefault()
       runShortcutRef.current(hit)
     }
     window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
+    return () => {
+      clearLiveContext()
+      window.removeEventListener('keydown', onKeyDown)
+    }
   }, [team, activeModalOf, capabilitiesOf])
 
   // Keep Electron's main process aware of active global bindings so shortcuts pressed inside

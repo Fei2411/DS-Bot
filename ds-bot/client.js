@@ -52232,12 +52232,10 @@ var RESERVED_MOD_CODES = /* @__PURE__ */ new Set([
   "KeyH",
   "Digit0",
   "Numpad0",
-  "Minus",
-  "Equal",
   "NumpadAdd",
   "NumpadSubtract"
 ]);
-var RESERVED_MAC_MOD_CODES = /* @__PURE__ */ new Set(["KeyM", "KeyR"]);
+var RESERVED_MAC_MOD_CODES = /* @__PURE__ */ new Set(["KeyM", "KeyR", "Minus", "Equal"]);
 var FUNCTION_CODE = /^F(?:[1-9]|1[0-2])$/;
 var CODE_LABELS = {
   Backquote: "`",
@@ -52389,6 +52387,18 @@ function isCommandAvailable(def, { hasSurface = true, hasBrowser = true, hasInbo
 function isAltGraph(event) {
   if (!event) return false;
   return Boolean(event.getModifierState?.("AltGraph")) || event.key === "AltGraph";
+}
+function isReservedZoomKeyEvent(event, mac = isMacPlatform()) {
+  if (mac || !event) return false;
+  const ctrlKey = Boolean(event.ctrlKey ?? event.control);
+  const altKey = Boolean(event.altKey ?? event.alt);
+  const metaKey = Boolean(event.metaKey ?? event.meta);
+  const shiftKey = Boolean(event.shiftKey ?? event.shift);
+  if (!ctrlKey || altKey || metaKey) return false;
+  if (event.key === "=" || event.key === "+") return true;
+  if (event.key === "-" && !shiftKey) return true;
+  if (event.key === "0" && (!shiftKey || event.code === "Digit0")) return true;
+  return false;
 }
 function eventToBinding(event, mac = isMacPlatform()) {
   if (!event || isImeComposing(event) || isAltGraph(event)) return null;
@@ -52756,6 +52766,14 @@ function ShortcutsPage({ roster, actions, Section: Section2, Row: Row4, store = 
       }
       const binding = eventToBinding(event, mac);
       if (!binding) return;
+      if (isReservedZoomKeyEvent(event, mac)) {
+        setNotice({
+          id: currentId,
+          kind: "error",
+          message: t("Reserved system shortcut")
+        });
+        return;
+      }
       const result = store.setBinding(currentId, binding);
       if (result.ok) {
         setRecordingId(null);

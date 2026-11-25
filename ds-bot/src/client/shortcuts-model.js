@@ -74,13 +74,15 @@ const MODIFIER_CODES = new Set([
   'AltLeft', 'AltRight', 'MetaLeft', 'MetaRight', 'OSLeft', 'OSRight', 'CapsLock',
 ])
 
-// Reserved OS / standard text-editing / window-zoom combos that must never be stolen globally.
+// Reserved OS / standard text-editing / physical window-zoom combos that must never be stolen globally.
+// On Windows/Linux, main-row `-`/`=`/`+` zoom keys are character-based (zoom-keys.mjs) so non-US
+// physical Minus/Equal keys like German Ctrl+ß stay assignable; macOS reserves Cmd+-/= in its menu.
 const RESERVED_MOD_CODES = new Set([
   'KeyC', 'KeyV', 'KeyX', 'KeyA', 'KeyZ', 'KeyQ', 'KeyW', 'KeyH',
-  'Digit0', 'Numpad0', 'Minus', 'Equal', 'NumpadAdd', 'NumpadSubtract',
+  'Digit0', 'Numpad0', 'NumpadAdd', 'NumpadSubtract',
 ])
-// Additional macOS native Cocoa menu accelerators (Minimize / Reload).
-const RESERVED_MAC_MOD_CODES = new Set(['KeyM', 'KeyR'])
+// Additional macOS native Cocoa menu accelerators (Minimize / Reload / Zoom Out / Zoom In).
+const RESERVED_MAC_MOD_CODES = new Set(['KeyM', 'KeyR', 'Minus', 'Equal'])
 
 const FUNCTION_CODE = /^F(?:[1-9]|1[0-2])$/
 
@@ -260,6 +262,24 @@ export function isCommandAvailable(def, { hasSurface = true, hasBrowser = true, 
 export function isAltGraph(event) {
   if (!event) return false
   return Boolean(event.getModifierState?.('AltGraph')) || event.key === 'AltGraph'
+}
+
+/**
+ * Returns true if a Windows/Linux key event matches Electron's character-based
+ * page-zoom handler (`app/src/zoom-keys.mjs`), avoiding false positives on non-US
+ * physical `Minus`/`Equal` keys such as German `Ctrl+ß`.
+ */
+export function isReservedZoomKeyEvent(event, mac = isMacPlatform()) {
+  if (mac || !event) return false
+  const ctrlKey = Boolean(event.ctrlKey ?? event.control)
+  const altKey = Boolean(event.altKey ?? event.alt)
+  const metaKey = Boolean(event.metaKey ?? event.meta)
+  const shiftKey = Boolean(event.shiftKey ?? event.shift)
+  if (!ctrlKey || altKey || metaKey) return false
+  if (event.key === '=' || event.key === '+') return true
+  if (event.key === '-' && !shiftKey) return true
+  if (event.key === '0' && (!shiftKey || event.code === 'Digit0')) return true
+  return false
 }
 
 /**

@@ -9,6 +9,7 @@ import {
   findConflict,
   formatBindingAria,
   formatBindingCaps,
+  isReservedZoomKeyEvent,
   matchShortcutEvent,
   setShortcutRecording,
   validateBinding,
@@ -136,12 +137,20 @@ test('validateBinding and eventToBinding reject unsafe combos while allowing mac
   assert.deepEqual(validateBinding({ code: 'Digit7', mod: true, ctrl: false, alt: true, shift: true }, false), { ok: false, reason: 'reserved' })
   assert.deepEqual(validateBinding({ code: 'F8', mod: true, ctrl: false, alt: true, shift: false }, false), { ok: true })
   assert.deepEqual(validateBinding({ code: 'KeyQ', mod: true, ctrl: false, alt: true, shift: false }, true), { ok: true })
-  // Window zoom shortcuts (Mod+0/-/+ and NumpadAdd/Subtract) and macOS Cocoa menu Cmd+M / Cmd+R are reserved.
+  // Physical zoom keys (Mod+0/NumpadAdd/NumpadSubtract) and macOS Cocoa menu Cmd+-/=/M/R are reserved.
   assert.deepEqual(validateBinding({ code: 'Digit0', mod: true, ctrl: false, alt: false, shift: false }, false), { ok: false, reason: 'reserved' })
-  assert.deepEqual(validateBinding({ code: 'Minus', mod: true, ctrl: false, alt: false, shift: false }, false), { ok: false, reason: 'reserved' })
+  assert.deepEqual(validateBinding({ code: 'NumpadAdd', mod: true, ctrl: false, alt: false, shift: false }, false), { ok: false, reason: 'reserved' })
+  assert.deepEqual(validateBinding({ code: 'Minus', mod: true, ctrl: false, alt: false, shift: false }, true), { ok: false, reason: 'reserved' })
   assert.deepEqual(validateBinding({ code: 'Equal', mod: true, ctrl: false, alt: false, shift: false }, true), { ok: false, reason: 'reserved' })
   assert.deepEqual(validateBinding({ code: 'KeyM', mod: true, ctrl: false, alt: false, shift: false }, true), { ok: false, reason: 'reserved' })
   assert.deepEqual(validateBinding({ code: 'KeyR', mod: true, ctrl: false, alt: false, shift: false }, true), { ok: false, reason: 'reserved' })
+  // On Windows/Linux, physical Minus is allowed in validateBinding (German Ctrl+ß), while character-based zoom keys ('-', '=', '+') are caught by isReservedZoomKeyEvent.
+  assert.deepEqual(validateBinding({ code: 'Minus', mod: true, ctrl: false, alt: false, shift: false }, false), { ok: true })
+  assert.equal(isReservedZoomKeyEvent({ ctrlKey: true, code: 'Minus', key: 'ß' }, false), false)
+  assert.equal(isReservedZoomKeyEvent({ ctrlKey: true, code: 'Slash', key: '-' }, false), true)
+  assert.equal(isReservedZoomKeyEvent({ ctrlKey: true, code: 'Minus', key: '-' }, false), true)
+  assert.equal(isReservedZoomKeyEvent({ ctrlKey: true, code: 'Equal', key: '=' }, false), true)
+  assert.equal(isReservedZoomKeyEvent({ ctrlKey: true, shiftKey: true, code: 'Equal', key: '+' }, false), true)
   // Mod+Shift+M (switch-surface) stays allowed since Shift distinguishes it from macOS Cmd+M.
   assert.deepEqual(validateBinding({ code: 'KeyM', mod: true, ctrl: false, alt: false, shift: true }, true), { ok: true })
   // On macOS, Ctrl+Cmd+C is distinct from Cmd+C and stays assignable.
