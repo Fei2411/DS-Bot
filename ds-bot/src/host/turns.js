@@ -1036,7 +1036,7 @@ export function install(rt) {
   // fix lift, and a greeting held for one goes out again. A key lifts the key failures
   // of the providers that read it; one whose provider names no key, or that failed on
   // a provider not known, lifts on any key. A host that only reads the team leaves it
-  // to the one that holds it.
+  // to the one that holds it. A saved `blocked: null` is no block.
   function unblockBots({ ref, signedIn = false, keyed } = {}) {
     if (rt.readOnly?.() !== undefined) return
     let refs
@@ -1044,7 +1044,7 @@ export function install(rt) {
     const fixes = ({ code, provider }) => (signedIn && SIGN_IN_CODES.has(code))
       || (ref !== undefined && KEY_CODES.has(code) && (refs?.get(provider) ?? ref) === ref)
       || (code === 'MISSING_CREDENTIAL' && provider !== undefined && keyed?.has(provider) === true)
-    const lifted = Object.values(state.bots ?? {}).filter(bot => bot.blocked !== undefined && fixes(bot.blocked))
+    const lifted = Object.values(state.bots ?? {}).filter(bot => bot.blocked != null && fixes(bot.blocked))
     if (lifted.length === 0) return
     for (const bot of lifted) delete bot.blocked
     void rt.save().catch(() => {})

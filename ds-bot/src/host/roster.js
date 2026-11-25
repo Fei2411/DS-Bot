@@ -357,7 +357,7 @@ export function install(rt) {
     const bot = rt.botOf(botId)
     const greeting = bot?.kickoff
     if (greeting === undefined || greeting.afterUser) return
-    if (greeting.main && (bot.blocked !== undefined || !rt.isUsable(bot.model))) greeting.afterUser = true
+    if (greeting.main && (bot.blocked != null || !rt.isUsable(bot.model))) greeting.afterUser = true
     else delete bot.kickoff
     void rt.save().catch(() => {})
   }
@@ -545,7 +545,7 @@ export function install(rt) {
     if (moved) void rt.followFolder({ botId: bot.id })
     // A new model lifted what blocked the Bot; a new thinking level alone fixes nothing.
     // releaseKickoff itself leaves when the Bot still lacks a model or holds no greeting.
-    if (modelChanged && bot.blocked === undefined) await releaseKickoff(bot)
+    if (modelChanged && bot.blocked == null) await releaseKickoff(bot)
     return bot
   }
 
