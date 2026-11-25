@@ -1799,6 +1799,40 @@ export function install(rt) {
     return { ...source, imOrigin: job.resumeOrigin }
   }
 
+  // Extracts unread user/request messages from a local part whose CLI session was lost
+  // before seeing them, preserving full text, image attachments, and reply routing with
+  // deterministic transferIds so both normal switching and crash recovery deliver once.
+  function unreadRequestsForRuntimeLost(session, oldSessionId, job = {}, { markOriginSent = false } = {}) {
+    const messages = session?.deriveMessages?.() ?? []
+    if (messages.length === 0) return []
+    const handedId = state.localAgents?.sessions?.[oldSessionId]?.handedId
+    let startIdx = handedId === undefined ? -1 : messages.findIndex(message => message?.id === handedId)
+    if (startIdx === -1) {
+      startIdx = messages.findLastIndex(message => message?.role === 'tool'
+        || (message?.role === 'assistant' && textOf(message.content).trim() !== HANDOFF_ACK))
+    }
+    const raw = messages.slice(startIdx + 1).filter(message => message?.role === 'user'
+      && message.source?.handoff !== true
+      && !isContextOnlyMessage(message)
+      && textOf(message.content) !== PAUSE_NOTE)
+    return raw.map((message, idx) => {
+      const isLast = idx === raw.length - 1
+      const transferId = message.source?.transferId ?? `runtime-lost:${oldSessionId}:${message.id ?? idx}`
+      const baseSource = message.source ?? { kind: 'user' }
+      const merged = {
+        ...baseSource,
+        ...(isLast && job.info?.exchangeId !== undefined && baseSource.exchangeId === undefined ? { exchangeId: job.info.exchangeId } : {}),
+        ...(isLast && Array.isArray(job.joined) && job.joined.length > 0 && !Array.isArray(baseSource.joined) ? { joined: job.joined } : {}),
+      }
+      const originCarrier = markOriginSent ? job : { resumeOrigin: job.resumeOrigin }
+      const source = {
+        ...(isLast ? carryOriginSource(originCarrier, merged) : (() => { const s = { ...merged }; delete s.rpcId; delete s.transferId; return s })()),
+        transferId,
+      }
+      return { ...message, source }
+    })
+  }
+
   // A turn stopped for a switch goes on with its own source, so its reply still
   // reaches whoever asked.
   const handoffSource = (job, resume) => carryOriginSource(job, {
@@ -2148,7 +2182,8 @@ export function install(rt) {
     }
     const folder = meta.folder ? fresh.session?.header?.cwd : undefined
     const engine = meta.engine && bot !== undefined ? rt.engineNameOf?.(bot.model ?? bot.appliedModel) : undefined
-    const resume = meta.resume === true || meta.overflow === true || meta.runtimeLost === true
+    const hasRuntimeLostUnread = meta.runtimeLost === true && meta.runtimeLostHasUnread === true
+    const resume = !hasRuntimeLostUnread && (meta.resume === true || meta.overflow === true || meta.runtimeLost === true)
     const text = handoffPackage({
       room: effectiveRoom,
       self: bot === undefined,
@@ -2205,6 +2240,7 @@ export function install(rt) {
       let overflow = false
       let cutoff = false
       let runtimeLost = false
+      let runtimeLostHasUnread = false
       let folder = newestMeta.folder === true
       let engine = newestMeta.engine === true
       let bare = newestMeta.bare === true
@@ -2221,6 +2257,7 @@ export function install(rt) {
         if (meta.overflow === true) overflow = true
         if (meta.cutoff === true) cutoff = true
         if (meta.runtimeLost === true) runtimeLost = true
+        if (meta.runtimeLostHasUnread === true) runtimeLostHasUnread = true
         if (meta.folder === true) folder = true
         if (meta.engine === true) engine = true
         if (meta.failed !== undefined) failed = meta.failed
@@ -2243,6 +2280,7 @@ export function install(rt) {
         overflow,
         cutoff,
         runtimeLost,
+        ...(runtimeLostHasUnread ? { runtimeLostHasUnread: true } : {}),
         folder,
         engine,
         bare,
@@ -2396,7 +2434,13 @@ export function install(rt) {
         }
         const toForward = []
         for (let i = 0; i < ready.length; i += 1) {
-          for (const msg of ready[i].held) {
+          const entry = ready[i]
+          if (entry.owner.runtimeLost === true && entry.agent?.session !== undefined) {
+            for (const unread of unreadRequestsForRuntimeLost(entry.agent.session, entry.sessionId, entry.owner.runtimeLostContext ?? {})) {
+              toForward.push(unread)
+            }
+          }
+          for (const msg of entry.held) {
             const explicitTransfer = msg.source?.transferId
             const key = transferKeyOf(msg)
             const ex = msg.source?.exchangeId
@@ -2843,18 +2887,29 @@ export function install(rt) {
         delete state.views[agent.id]
       }
     }
+    const hasRuntimeLostUnread = job.runtimeLost === true && !job.bare && unreadRequestsForRuntimeLost(session, agent.id, job).length > 0
     const resume = job.resume || (job.overflow && !job.bare) || job.runtimeLost
+    const handoffResume = resume && !hasRuntimeLostUnread
     // Mark handoffPending before flipping the current-part pointer so a crash between
     // rt.save() and flush #1 lets handOnHeld() reconstruct and deliver the same routable
     // handoff package (including reply routing & joined requests, without stale rpcId).
     if (state.switching[agent.id] !== undefined) {
       const sanitizedInfo = resume && job.info ? carryOriginSource({}, job.info) : undefined
+      if (hasRuntimeLostUnread) {
+        state.switching[agent.id].runtimeLost = true
+        state.switching[agent.id].runtimeLostContext = {
+          ...(sanitizedInfo !== undefined ? { info: sanitizedInfo } : {}),
+          ...(Array.isArray(job.joined) && job.joined.length > 0 ? { joined: job.joined } : {}),
+          ...(job.resumeOrigin !== undefined ? { resumeOrigin: job.resumeOrigin } : {}),
+        }
+      }
       state.switching[agent.id].handoffPending = true
       state.switching[agent.id].handoffMeta = {
         resume,
         overflow: job.overflow === true,
         cutoff: job.cutoff === true,
         runtimeLost: job.runtimeLost === true,
+        ...(hasRuntimeLostUnread ? { runtimeLostHasUnread: true } : {}),
         ...(job.failed !== undefined ? { failed: job.failed } : {}),
         bare: job.bare === true,
         folder: job.folder === true,
@@ -2888,9 +2943,9 @@ export function install(rt) {
         rt.warn('ds-bot: the fresh part of %s did not start in %s; it works in %s', name, intended, cwd)
       }
       const engine = job.engine ? rt.engineNameOf?.(bot.model ?? bot.appliedModel) : undefined
-      const text = handoffPackage({ room: effectiveRoom, self: bot === undefined, segment, lines: carried, number: number + 1, resume, overflow: job.overflow, cutoff: job.cutoff === true, runtimeLost: job.runtimeLost === true, failed: job.failed, bare: job.bare, folder, engine })
+      const text = handoffPackage({ room: effectiveRoom, self: bot === undefined, segment, lines: carried, number: number + 1, resume: handoffResume, overflow: job.overflow, cutoff: job.cutoff === true, runtimeLost: job.runtimeLost === true, failed: job.failed, bare: job.bare, folder, engine })
       freshParts.set(freshId, estimateTokens(text))
-      fresh.followup(createUserMessage({ content: [{ type: 'text', text }], source: handoffSource(job, resume) }))
+      fresh.followup(createUserMessage({ content: [{ type: 'text', text }], source: handoffSource(job, handoffResume) }))
       await ctx.sessions.flush(fresh.session)
       // Handoff package is now durably flushed to the fresh part: clear the pending flag
       // in memory (persisted on the switch's final save; even on a hard crash before that
@@ -2904,7 +2959,10 @@ export function install(rt) {
       for (const message of job.carry.splice(0)) {
         if (message?.id === undefined || !heldIds.has(message.id)) carry.push(message)
       }
-      await forward(job, [...carry, ...held], freshId)
+      const runtimeLostUnread = hasRuntimeLostUnread
+        ? unreadRequestsForRuntimeLost(session, agent.id, job, { markOriginSent: true })
+        : []
+      await forward(job, [...runtimeLostUnread, ...carry, ...held], freshId)
       // Migrate buffered silent entries after forward succeeds so entry.ledger stays
       // intact until freshId actually flushes (or takes them on pre-step), and a failed
       // forward never leaves duplicate silent notes on both old and new parts.
@@ -4141,17 +4199,11 @@ export function install(rt) {
     }
     const moved = await startSwitch(agent, { hard: true, idle: true, overflow: true, bare: true, resume: false })
     if (moved !== true) throw new Error('Could not start a new part right now')
-    let dirty = false
     if (bot.failures?.[targetId] !== undefined) {
       delete bot.failures[targetId]
       if (Object.keys(bot.failures).length === 0) delete bot.failures
-      dirty = true
+      await rt.save()
     }
-    if (bot.blocked?.code === OVERFLOW) {
-      delete bot.blocked
-      dirty = true
-    }
-    if (dirty) await rt.save()
     const nextId = place.roomId === undefined ? (threadCurrentOfPart(bot, targetId) ?? rt.chatOf(bot.id)) : rt.roomOf(place.roomId)?.sessions?.[bot.id]
     return { sessionId: nextId }
   }

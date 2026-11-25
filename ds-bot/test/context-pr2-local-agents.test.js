@@ -276,6 +276,71 @@ test('R1: idle clock-only steps do not prompt ACP; latest snapshot rides with th
   assert.equal(resolvedAnswer?.text, 'Use option B', 'clock message must not hijack open ask_user call')
 })
 
+test('R1/continuation: staged context arriving during a bridged tool continuation is preserved for the next prompt when the turn replies normally', async (t) => {
+  const record = join(mkdtempSync(join(tmpdir(), 'dsb-pr2-tool-ctx-')), 'rpc.jsonl')
+  t.after(() => rmSync(dirname(record), { recursive: true, force: true }))
+  const acpScript = `
+    const { appendFileSync } = require('node:fs')
+    const rec = ${JSON.stringify(record)}
+    let buf = '', prompts = 0
+    const send = obj => process.stdout.write(JSON.stringify(obj) + '\\n')
+    process.stdin.setEncoding('utf8')
+    process.stdin.on('data', chunk => {
+      buf += chunk
+      let i
+      while ((i = buf.indexOf('\\n')) !== -1) {
+        const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1)
+        if (!line) continue
+        const msg = JSON.parse(line)
+        appendFileSync(rec, line + '\\n')
+        const { id, method } = msg
+        if (method === 'initialize') send({ jsonrpc: '2.0', id, result: { protocolVersion: 1, agentCapabilities: {} } })
+        else if (method === 'session/new') send({ jsonrpc: '2.0', id, result: { sessionId: 'acp-c1' } })
+        else if (method === 'session/set_config_option' || method === 'session/set_mode' || method === 'session/set_model') send({ jsonrpc: '2.0', id, result: {} })
+        else if (method === 'session/prompt') {
+          prompts += 1
+          send({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: 'acp-c1', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'reply-' + prompts } } } })
+          send({ jsonrpc: '2.0', id, result: { stopReason: 'end_turn' } })
+        }
+      }
+    })
+  `
+  const records = {}
+  const adapter = makeScriptAdapter('acp', acpScript, { records })
+  t.after(() => adapter.dispose())
+
+  const h1 = [system('sys', 'You are Kai.'), user('m1', 'first question')]
+  await collect(adapter.stream({ provider: 'local-acp-fake', model: 'default', sessionId: 's1', messages: h1, tools: [], signal: AbortSignal.timeout(15_000) }))
+
+  // Suspend the live ACP session on a bridged MCP tool call; while waiting, a memory update
+  // arrives alongside the tool result (no new user message). The CLI replies normally.
+  const live = adapter.live.get('s1')
+  let resolvedTool
+  live.pending.set('call-1', { name: 'check_status', resolve: val => { resolvedTool = val } })
+  live.state = 'suspended'
+  live.engineSession.running = true
+  const memUpdate = user('mem-1', '[Memory update] User prefers Bun over npm.', { kind: 'ds-bot-memory-update' })
+  const toolRes = { id: 'tr-1', role: 'tool', toolCallId: 'call-1', isError: false, content: [{ type: 'text', text: 'status ok' }] }
+  const h2 = [...h1, toolRes, memUpdate]
+  setTimeout(() => {
+    live.push({ type: 'text', text: 'handled tool result' })
+    live.push({ type: 'done', reason: 'end_turn' })
+  }, 20)
+  const contOut = await collect(adapter.stream({ provider: 'local-acp-fake', model: 'default', sessionId: 's1', messages: h2, tools: [], signal: AbortSignal.timeout(15_000) }))
+  assert.equal(resolvedTool?.text, 'status ok')
+  assert.equal(contOut.text, 'handled tool result')
+  assert.equal(live.pendingContext.length, 1, 'staged memory update must stay pending when turn replied without a new prompt')
+
+  // Next real user message carries the preserved memory update into the CLI prompt.
+  const h3 = [...h2, user('m2', 'which package manager should we use?')]
+  await collect(adapter.stream({ provider: 'local-acp-fake', model: 'default', sessionId: 's1', messages: h3, tools: [], signal: AbortSignal.timeout(15_000) }))
+  const prompts = readFileSync(record, 'utf8').trim().split('\n').map(l => JSON.parse(l)).filter(e => e.method === 'session/prompt')
+  assert.equal(prompts.length, 2)
+  const prompt2Text = prompts[1].params.prompt.map(b => b.text ?? '').join('\n')
+  assert.match(prompt2Text, /User prefers Bun over npm/)
+  assert.match(prompt2Text, /which package manager should we use\?/)
+})
+
 // ---------------------------------------------------------------------------
 // R2: Skip adoptEngine model-switch compaction on local parts
 // ---------------------------------------------------------------------------
@@ -388,8 +453,28 @@ test('D2: ACP, Codex, and Claude resume loss throw LOCAL_AGENT_SESSION_LOST (no 
   )
   assert.equal(readFileSync(runs, 'utf8'), '1', 'must not silently retry in-part on Claude resume loss')
 
-  // 4. parts.js agent/request-error catches LOCAL_AGENT_SESSION_LOST and performs a formal runtime-lost switch.
-  const parts = makePartsHarness({ local: true, messages: [user('m1', 'Port the parser')] })
+  // 4. parts.js agent/request-error catches LOCAL_AGENT_SESSION_LOST and performs a formal
+  // runtime-lost switch that preserves full unread request text and image blocks (and is
+  // idempotent across crash recovery via heldBack).
+  const longText = `Compare these two controls carefully: ${'X'.repeat(4500)}`
+  const imageBlock = { type: 'image', attachment: { attachmentId: 'sha256:abc123', mediaType: 'image/png', bytes: 1024 } }
+  const unreadMsg = {
+    id: 'm2',
+    role: 'user',
+    content: [{ type: 'text', text: longText }, imageBlock],
+    source: { kind: 'user' },
+  }
+  const parts = makePartsHarness({
+    local: true,
+    messages: [
+      user('m1', 'Earlier question'),
+      { id: 'a1', role: 'assistant', content: [{ type: 'text', text: 'Earlier answer' }] },
+      unreadMsg,
+    ],
+  })
+  parts.rt.state.localAgents = { custom: [], sessions: { s1: { handedId: 'm1' } } }
+  // Make fresh session reflect already-followed messages so heldBack dedup can verify idempotency.
+  parts.fresh.session.deriveMessages = () => [...parts.followed]
   const handlers = parts.ctx.listeners.get('agent/request-error') ?? []
   let handled = false
   for (const listener of handlers) {
@@ -401,8 +486,46 @@ test('D2: ACP, Codex, and Claude resume loss throw LOCAL_AGENT_SESSION_LOST (no 
   assert.equal(parts.bot.sessionId, 's2')
   assert.equal(parts.bot.segments.at(-1)?.fallback, 'runtime-lost')
   assert.equal(parts.notes.length, 0, 'must not ask a lost CLI session for a note')
-  const handoffText = parts.followed.map(m => m.content.map(b => b.text).join('')).join('\n')
-  assert.match(handoffText, /local agent session could no longer be resumed/)
+  assert.equal(parts.followed.length, 2, 'fresh part receives silent handoff followed by original unread request')
+  assert.equal(parts.followed[0].source?.handoff, true)
+  assert.equal(parts.followed[0].source?.resume, undefined, 'handoff stays silent when unread request wakes the fresh part')
+  assert.match(parts.followed[0].content.map(b => b.text).join(''), /local agent session could no longer be resumed/)
+  assert.equal(parts.followed[1].content[0].text, longText, 'full long unread text must not be clipped')
+  assert.deepEqual(parts.followed[1].content[1], imageBlock, 'unread image attachment block must be preserved')
+  assert.equal(parts.followed[1].source?.transferId, 'runtime-lost:s1:m2')
+
+  // Simulate a crash before switching cleanup completed: re-running heldBack() must NOT duplicate the unread request.
+  parts.rt.state.switching.s1 = { botId: 'b1', next: 's2', runtimeLost: true }
+  await parts.rt.heldBack()
+  assert.equal(parts.followed.length, 2, 'crash recovery must deduplicate already-forwarded runtime-lost request')
+
+  // Simulate a crash after pointer flip and handoff flush, BEFORE forward() ran: heldBack() delivers the unread request once.
+  const crashParts = makePartsHarness({
+    local: true,
+    messages: [
+      user('m1', 'Earlier question'),
+      { id: 'a1', role: 'assistant', content: [{ type: 'text', text: 'Earlier answer' }] },
+      unreadMsg,
+    ],
+  })
+  crashParts.rt.state.localAgents = { custom: [], sessions: { s1: { handedId: 'm1' } } }
+  crashParts.bot.sessionId = 's2'
+  crashParts.bot.segments = [{ sessionId: 's1', endedAt: Date.now(), fallback: 'runtime-lost' }]
+  crashParts.rt.chatOwners.set('s2', 'b1')
+  crashParts.rt.state.switching.s1 = {
+    botId: 'b1',
+    next: 's2',
+    runtimeLost: true,
+    handoffPending: true,
+    handoffMeta: { resume: true, runtimeLost: true, runtimeLostHasUnread: true },
+  }
+  crashParts.fresh.session.deriveMessages = () => [...crashParts.followed]
+  await crashParts.rt.heldBack()
+  assert.equal(crashParts.followed.length, 2, 'crash recovery delivers silent handoff and unread request once')
+  assert.equal(crashParts.followed[0].source?.handoff, true)
+  assert.equal(crashParts.followed[0].source?.resume, undefined)
+  assert.equal(crashParts.followed[1].content[0].text, longText)
+  assert.deepEqual(crashParts.followed[1].content[1], imageBlock)
 })
 
 // ---------------------------------------------------------------------------
@@ -583,6 +706,8 @@ test('L1: Codex turn/start rejection rolls back handedId; ACP pre-event rejectio
             send({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: 'acp-1', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'ok-1' } } } })
             send({ jsonrpc: '2.0', id, result: { stopReason: 'end_turn' } })
           } else if (prompts === 2) {
+            // Emit a housekeeping context update before rejecting: must NOT count as turn confirmation.
+            send({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: 'acp-1', update: { sessionUpdate: 'usage_update', used: 1000, size: 200000 } } })
             send({ jsonrpc: '2.0', id, error: { code: -32000, message: 'rejected before start' } })
           } else {
             send({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: 'acp-1', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'partial work' } } } })
@@ -597,11 +722,15 @@ test('L1: Codex turn/start rejection rolls back handedId; ACP pre-event rejectio
   t.after(() => acpAdapter.dispose())
   await collect(acpAdapter.stream({ provider: 'local-acp-fake', model: 'default', sessionId: 'a1', messages: [user('m1', 'one')], tools: [], signal: AbortSignal.timeout(15_000) }))
   assert.equal(acpRecords.a1.handedId, 'm1')
-  // Prompt 2 rejected before any event -> rolls back to m1.
-  await assert.rejects(collect(acpAdapter.stream({ provider: 'local-acp-fake', model: 'default', sessionId: 'a1', messages: [user('m1', 'one'), user('m2', 'two')], tools: [], signal: AbortSignal.timeout(15_000) })))
-  assert.equal(acpRecords.a1.handedId, 'm1', 'ACP rejection with 0 events must roll back handedId')
+  // Prompt 2 rejected after only a housekeeping usage_update (no output) -> rolls back handedId AND restores flushedContext.
+  const stagedMem = user('mem-rb', '[Memory update] Keep this across rollback', { kind: 'ds-bot-memory-update' })
+  await collect(acpAdapter.stream({ provider: 'local-acp-fake', model: 'default', sessionId: 'a1', messages: [user('m1', 'one'), stagedMem], tools: [], signal: AbortSignal.timeout(15_000) }))
+  assert.equal(acpAdapter.live.get('a1').pendingContext.length, 1)
+  await assert.rejects(collect(acpAdapter.stream({ provider: 'local-acp-fake', model: 'default', sessionId: 'a1', messages: [user('m1', 'one'), stagedMem, user('m2', 'two')], tools: [], signal: AbortSignal.timeout(15_000) })))
+  assert.equal(acpRecords.a1.handedId, 'mem-rb', 'ACP rejection with only housekeeping events must roll back handedId')
+  assert.equal(acpAdapter.live.get('a1').pendingContext.length, 1, 'pre-confirm rejection must restore flushedContext into pendingContext')
   // Prompt 3 emits output then fails -> must NOT roll back (never auto-replay partial side effects).
-  await assert.rejects(collect(acpAdapter.stream({ provider: 'local-acp-fake', model: 'default', sessionId: 'a1', messages: [user('m1', 'one'), user('m2', 'two')], tools: [], signal: AbortSignal.timeout(15_000) })))
+  await assert.rejects(collect(acpAdapter.stream({ provider: 'local-acp-fake', model: 'default', sessionId: 'a1', messages: [user('m1', 'one'), stagedMem, user('m2', 'two')], tools: [], signal: AbortSignal.timeout(15_000) })))
   assert.equal(acpRecords.a1.handedId, 'm2', 'ACP failure after partial work must keep handedId')
 })
 

@@ -35,6 +35,11 @@ const REPLAY_BYTES = 24 * 1024
 const REPLAY_LINE_MAX = 2_000
 const MEMORY_UPDATE_REPLAY_MAX = 4
 const MEMORY_UPDATE_REPLAY_BYTES = 8 * 1024
+// Events that prove the CLI actually accepted and began working on the dispatched turn.
+// Housekeeping notices (effort, status, context, compaction, models) can fire before
+// `session/prompt` is sent or trail a finished turn and must not suppress unread rollback.
+const TURN_CONFIRMING_EVENTS = new Set(['text', 'thought', 'activity', 'call', 'permission', 'usage', 'done'])
+
 const IDLE_CLOSE_MS = 10 * 60_000
 // A local CLI may have already performed actions before its request fails.
 const LOCAL_RETRY_POLICY = resolveRetryPolicy({ mode: 'normal', maxRetries: 0 }, 'local-agent')
@@ -342,7 +347,7 @@ export class LocalAgentAdapter extends LlmAdapter {
     }
     live.push = (event) => {
       if (live.dead) return
-      if (event?.type !== undefined && event.type !== 'error' && event.type !== 'models') {
+      if (TURN_CONFIRMING_EVENTS.has(event?.type)) {
         live.turnConfirmed = true
         live.flushedContext = undefined
       }
@@ -767,13 +772,15 @@ export class LocalAgentAdapter extends LlmAdapter {
 
     const startedFreshCli = freshCli || resumeDropped
     const needsReplay = fresh || resumeDropped
+    const canSteer = live.engine.canSteer?.(live.engineSession) !== false
+    const willDispatchNow = needsReplay || remaining.length > 0 || (settled.length > 0 && !canSteer)
     const supportsImages = live.spec.kind !== 'acp' || live.engine.supportsImages?.(live.engineSession) !== false
     const resolveImage = block => this.resolveImageBlock(block, { supportsImages, signal: options.signal })
     let flushedContext
     let contextText = ''
     if (needsReplay) {
       live.pendingContext.length = 0
-    } else if (remaining.length > 0 || settled.length > 0) {
+    } else if (willDispatchNow) {
       flushedContext = live.pendingContext.splice(0)
       contextText = flushedContext.map(entry => entry.text).join('\n')
     }
@@ -789,7 +796,7 @@ export class LocalAgentAdapter extends LlmAdapter {
       const updated = `Updated team instructions (replace earlier ones):\n\n${instructions}`
       if (live.spec.kind === 'codex') {
         const result = await live.engine.instruct?.(live.engineSession, updated)
-        if (result !== false && result?.ok !== false) {
+        if (result?.ok === true) {
           sentInstructions = true
         } else if (result?.unsupported === true && promptBlocks.length > 0) {
           promptBlocks = mergeTextBlocks([{ type: 'text', text: updated }, ...promptBlocks])
@@ -812,7 +819,7 @@ export class LocalAgentAdapter extends LlmAdapter {
       settledText = `The calls that were waiting on the user are settled:\n\n${answer}\n\nContinue from where the turn stopped.`
     }
     if (flushedContext !== undefined && flushedContext.length > 0) live.flushedContext = flushedContext
-    if (settledText !== '' && live.engine.canSteer?.(live.engineSession) === false) {
+    if (settledText !== '' && !canSteer) {
       // The turn this answer belongs to is over: it needs a turn of its own, in the same
       // prompt as whatever else this call brought — runtime context, a further user
       // message — because context alone would carry the turn without the decision.
@@ -822,10 +829,10 @@ export class LocalAgentAdapter extends LlmAdapter {
       promptBlocks = []
       await this.startTurn(live, blocks, options.signal, options.reasoningEffort)
     } else if (settledText !== '') {
-      // The turn still looks alive; if it ends without reading the answer, the drain
-      // starts the turn that carries it (including any staged context if no user input rode along).
-      const trailingContext = remaining.length === 0 && contextText !== '' ? `${contextText}\n\n` : ''
-      live.continuation = `${trailingContext}${settledText}`
+      // The turn still looks alive; keep any staged context in `live.pendingContext`
+      // until either the fallback continuation actually starts in drain() or a later
+      // prompt/steer carries it, so normal tool-continuation replies never drop it.
+      live.continuation = settledText
       if (remaining.length === 0) promptBlocks = []
     }
     if (promptBlocks.length > 0) {
@@ -1138,8 +1145,12 @@ export class LocalAgentAdapter extends LlmAdapter {
           if (live.continuation !== undefined && index === 0) {
             const continuation = live.continuation
             live.continuation = undefined
+            const staged = live.pendingContext.splice(0)
+            const stagedText = staged.map(entry => entry.text).join('\n')
+            const body = stagedText !== '' ? `${stagedText}\n\n${continuation}` : continuation
+            if (staged.length > 0) live.flushedContext = staged
             this.discardTurnOutput(live)
-            await this.startTurn(live, continuation, options.signal, options.reasoningEffort)
+            await this.startTurn(live, body, options.signal, options.reasoningEffort)
             break
           }
           live.continuation = undefined
