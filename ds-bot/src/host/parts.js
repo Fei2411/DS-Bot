@@ -241,7 +241,7 @@ export function install(rt) {
   const sizeOf = session => (localPart(session) ? rt.localAgentContext?.(session.id)?.used : tokensOf(session))
   const clock = createClock(config.timeZone)
   // Replacing a handoff must shrink the request, not just create another Session.
-  async function canMakeRoom(agent, carry = []) {
+  async function canMakeRoom(agent, carry = [], { activeTurn = false } = {}) {
     const session = agent.session
     const messages = session.deriveMessages()
     if (!messages.some(message => message.source?.handoff === true)) return true
@@ -254,7 +254,7 @@ export function install(rt) {
     const previousNote = segmentNoteOf(previous)
     const lines = await contextLines(session).catch(() => undefined)
     const budget = Math.min(RECENT_TOKENS, Math.floor((lines?.check ?? 4 * RECENT_TOKENS) / 4))
-    const rawCarried = await handoffLines(agent.id, { budget, group: room !== undefined, number: parts.length, activeTurn: true })
+    const rawCarried = await handoffLines(agent.id, { budget, group: room !== undefined, number: parts.length, activeTurn })
     const targetWindow = await targetWindowTokensOf(rt.botOf(place.botId), session, lines?.window)
     const held = [...(agent.inbox?.nextStep ?? []), ...(agent.inbox?.nextTurn ?? [])]
     const carried = applyHandoffBudget(rawCarried, {
@@ -270,7 +270,7 @@ export function install(rt) {
       segment: { fallback: 'overflow', ...(previousNote ? { note: previousNote, noteFrom: previous.noteFrom ?? previous.number } : {}) },
       lines: carried,
       number: parts.length + 1,
-      resume: true,
+      resume: activeTurn,
       overflow: true,
     })
     const meter = ctx.get('tokenMeter')
@@ -669,6 +669,8 @@ export function install(rt) {
   // holds the whole round, so a group part carries only its latest messages.
   async function handoffLines(sessionId, { budget, group, number, activeTurn = false }) {
     let initiating
+    let idleReplyCollected = false
+    let idleExchangePaired = false
     const trailing = []
     const olderRecent = []
     const earlier = []
@@ -710,9 +712,15 @@ export function install(rt) {
           const text = clip(line.text, RECENT_LINE_MAX, recentClipHint(line))
           if (text !== line.text) clipped = true
           const cost = estimateTokens(text)
-          if ((!activeTurn && olderRecent.length === 0) || used + cost <= budget) {
+          // For an idle handoff whose newest line is a completed reply, keep its
+          // immediately preceding initiating request paired before enforcing the
+          // source scan budget so switches to a larger destination model keep both.
+          const pairRequest = !activeTurn && idleReplyCollected && !idleExchangePaired && line.who !== 'you'
+          if ((!activeTurn && olderRecent.length === 0) || pairRequest || used + cost <= budget) {
             olderRecent.push(`${stamp(line)} ${text}`)
             used += cost
+            if (!activeTurn && olderRecent.length === 1 && line.who === 'you') idleReplyCollected = true
+            else if (pairRequest) idleExchangePaired = true
             continue
           }
           full = true
@@ -2484,7 +2492,8 @@ export function install(rt) {
     }
     const outcome = { overflow: false }
     if (await decide(agent, { midTurn: payload.step > 1 }) === 'compact' && await condense(agent, lines, { inTurn: true, signal: payload.signal, outcome })) return next()
-    if (!await canMakeRoom(agent, payload.messages)) return next()
+    const midTurn = payload.step > 1 || rt.liveOf(agent.id).carried === true
+    if (!await canMakeRoom(agent, payload.messages, { activeTurn: midTurn })) return next()
     return switchBeforeStep(agent, payload, { hard: true, ...(outcome.overflow ? { overflow: true } : {}) })
   }, { prepend: true })
 
@@ -2658,7 +2667,7 @@ export function install(rt) {
     if (payload.signal?.aborted || (payload.failure?.code !== OVERFLOW && payload.failure?.code !== 'INVALID_REQUEST')) return next()
     await rt.load()
     const { agent } = payload
-    if (!rt.isBotSession(agent.id) || switches.has(agent.id) || readOnly() || !await overflowed(agent, payload.failure) || !await canMakeRoom(agent)) return next()
+    if (!rt.isBotSession(agent.id) || switches.has(agent.id) || readOnly() || !await overflowed(agent, payload.failure) || !await canMakeRoom(agent, [], { activeTurn: true })) return next()
     const entry = rt.liveOf(agent.id)
     entry.switched = true
     startSwitch(agent, { resume: true, info: entry.info, joined: [...(entry.joined ?? [])], overflow: true })

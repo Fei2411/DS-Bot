@@ -941,3 +941,203 @@ test('parts.js idle engine switch preserves the latest completed reply and does 
   assert.ok(photoPkg.includes('LOOK_AT_PHOTOS'))
   assert.ok(photoPkg.includes('PRIOR_CONTEXT_'), 'unforwarded historical photos must not consume 4 KiB each and evict fitting history')
 })
+
+test('parts.js canMakeRoom uses idle mode on first-step rollover and idle group switch preserves latest request+reply pair', async () => {
+  // 1. First-step pre-step check (`step: 1`, non-carried) must run `canMakeRoom` with
+  // `activeTurn: false` (protecting the latest completed reply, matching `moveOn`):
+  // short request + large reply (~1,600 tokens) + large queued prompt (~1,600 tokens)
+  // over a small 8,192-token model (usable ~6,144) with ~3,000 native tokens must NOT
+  // falsely approve a rollover by dropping the last reply.
+  {
+    let created = 0
+    const largeReply = `LARGE_FINAL_REPLY_${'R'.repeat(6_400)}`
+    const queuedPrompt = `LARGE_QUEUED_PROMPT_${'P'.repeat(6_400)}`
+    const historyEvents = [
+      { type: 'user/message', seq: 1, time: 1, data: { content: [{ type: 'text', text: 'Short request' }], source: { kind: 'user' } } },
+      { type: 'assistant/message', seq: 2, time: 2, data: { message: { content: [{ type: 'text', text: largeReply }] } } },
+    ]
+    const derived = [
+      { role: 'system', content: [{ type: 'text', text: 'S'.repeat(12_000) }] },
+      { role: 'user', content: [{ type: 'text', text: 'prior handoff' }], source: { handoff: true } },
+      { role: 'user', content: [{ type: 'text', text: 'Short request' }], source: { kind: 'user' } },
+      { role: 'assistant', content: [{ type: 'text', text: largeReply }] },
+    ]
+    const estimateMessage = (message) => {
+      const text = (message?.content ?? []).map(b => b.text ?? '').join('')
+      return Math.ceil(text.length / 4)
+    }
+    const ctx = fakeContext({
+      services: {
+        tokenMeter: {
+          estimateMessage,
+          measure: () => ({
+            totalTokens: 3_000 + 200 + 4 + 1_605,
+            nodes: [
+              { seq: 1, tokens: 3_000 },
+              { seq: 2, tokens: 200 },
+              { seq: 3, tokens: 4 },
+              { seq: 4, tokens: 1_605 },
+            ],
+          }),
+        },
+      },
+    })
+    ctx.logger = { warn: () => {}, info: () => {} }
+    ctx.sessions = { flush: async () => {} }
+    ctx.workspaceRegistry = { archiveSession: async () => {} }
+    ctx.llm = {
+      resolveModelInfo: async () => ({ context: { contextWindow: 8_192 }, defaultMaxTokens: 2_048 }),
+    }
+    const bot = { id: 'b1', name: 'Kai', sessionId: 's1', model: 'provider/small', segments: [] }
+    const session = {
+      id: 's1',
+      header: { cwd: '/tmp/team' },
+      requestHeader: () => ({ config: { provider: 'provider', model: 'small' } }),
+      deriveMessages: () => derived,
+      eventAt: seq => ({ type: seq === 1 ? 'system/message' : 'user/message' }),
+      toolHistory: () => [],
+    }
+    const agent = {
+      id: 's1', session, status: 'running',
+      whenIdle: async () => {},
+      runMaintenance: async job => job(AbortSignal.timeout(10_000)),
+      inbox: { nextStep: [], nextTurn: [] },
+      followup: () => {},
+      send: async () => {},
+    }
+    const live = new Map()
+    const rt = {
+      ctx, home: '/unused', config: {},
+      state: { bots: { b1: bot }, rooms: {}, prefs: {}, exchanges: [], capabilities: { items: {} }, switching: {}, questions: {}, views: {} },
+      warn: () => {}, async save() {}, async load() {}, readOnly: () => undefined,
+      botOf: id => rt.state.bots[id], roomOf: () => undefined, selfOf: () => 'b1',
+      isMain: () => false, chatOf: () => 's1', sessionOfRoom: () => undefined,
+      isBotSession: id => id === 's1', isLocalAgentRef: () => false, isLocalAgentRoute: () => false,
+      chatOwners: new Map([['s1', 'b1']]), groupOwners: new Map(), pastOwners: new Map(), roomOwners: new Map(),
+      teamTools: [], live,
+      liveOf: id => {
+        let entry = live.get(id)
+        if (entry === undefined) { entry = { joined: [] }; live.set(id, entry) }
+        return entry
+      },
+      groupSessionsOf: () => [], unreadOf: () => [],
+      eventsBackwards: async function* (_sid, _sig, _pages, scan) {
+        for (const event of [...historyEvents].reverse()) yield event
+        if (scan) scan.complete = true
+      },
+      resolveAgent: async () => agent,
+      createSession: async () => { created += 1; return 's2' },
+      desiredModel: async subject => subject.model,
+      desiredEffort: async () => undefined,
+      selectSessionModel: async () => {}, applyPermission: async () => {}, ensureCapabilities: async () => {},
+      renewMemory: () => {}, moveSchedules: async () => {}, deliver: async () => {},
+      teamFolder: () => '/tmp/team', workDirOf: () => '/tmp/team', isFolder: async () => true,
+      roomProgress: new Map(),
+    }
+    partsInstall(rt)
+    const preStepListeners = ctx.listeners.get('agent/pre-step') ?? []
+    let nextCalled = false
+    const payload = {
+      agent,
+      step: 1,
+      messages: [{ role: 'user', content: [{ type: 'text', text: queuedPrompt }], source: { kind: 'user' } }],
+      modelSelection: { provider: 'provider', model: 'small' },
+      signal: AbortSignal.timeout(5_000),
+    }
+    const dispatch = i => (i < preStepListeners.length
+      ? preStepListeners[i](payload, () => dispatch(i + 1))
+      : Promise.resolve((nextCalled = true)))
+    await dispatch(0)
+    assert.equal(nextCalled, true, 'first-step preflight must reject rollover when protecting last reply exceeds usable limit')
+    assert.equal(created, 0, 'no fresh session should be created when canMakeRoom returns false')
+  }
+
+  // 2. Idle group run-mode switch from a small source model (source scan budget ~1,200 tokens)
+  // to a larger destination model (32,000 tokens) must keep BOTH the 1,300-token group request
+  // and the short reply that answered it.
+  {
+    const followed = []
+    const longGroupReq = `GROUP_REQUEST_START_${'群'.repeat(1_800)}_GROUP_REQUEST_END`
+    const historyEvents = [
+      { type: 'user/message', seq: 1, time: 1, data: { content: [{ type: 'text', text: 'OLDER_GROUP_MSG' }], source: { kind: 'user' } } },
+      { type: 'user/message', seq: 2, time: 2, data: { content: [{ type: 'text', text: longGroupReq }], source: { kind: 'user' } } },
+      { type: 'assistant/message', seq: 3, time: 3, data: { message: { content: [{ type: 'text', text: 'Summary is ready.' }] } } },
+    ]
+    const ctx = fakeContext({ services: { tokenMeter: { measure: () => ({ totalTokens: 1_500 }) } } })
+    ctx.logger = { warn: () => {}, info: () => {} }
+    ctx.sessions = { flush: async () => {} }
+    ctx.workspaceRegistry = { archiveSession: async () => {} }
+    ctx.llm = {
+      resolveModelInfo: async ({ provider }) => ({
+        context: { contextWindow: provider === 'big-provider' ? 32_000 : 8_000 },
+        defaultMaxTokens: 2_000,
+      }),
+    }
+    const bot = { id: 'b1', name: 'Kai', sessionId: 'b1-main', model: 'big-provider/big', segments: [] }
+    const room = { id: 'r1', name: 'Ops', members: ['b1'], sessions: { b1: 'g1' }, segments: {} }
+    const session = {
+      id: 'g1',
+      header: { cwd: '/tmp/team' },
+      requestHeader: () => ({ config: { provider: 'small-provider', model: 'small' } }),
+      deriveMessages: () => [],
+      toolHistory: () => [],
+    }
+    const agent = {
+      id: 'g1', session, status: 'idle',
+      whenIdle: async () => {},
+      runMaintenance: async job => job(AbortSignal.timeout(10_000)),
+      inbox: { nextStep: [], nextTurn: [] },
+      followup: message => followed.push(message),
+      send: async () => {},
+    }
+    const fresh = {
+      id: 'g2',
+      session: { id: 'g2', header: { cwd: '/tmp/team' }, requestHeader: () => ({ config: {} }), deriveMessages: () => [], toolHistory: () => [] },
+      status: 'idle',
+      whenIdle: async () => {},
+      runMaintenance: async job => job(AbortSignal.timeout(10_000)),
+      inbox: { nextStep: [], nextTurn: [] },
+      followup: message => followed.push(message),
+      send: async () => {},
+    }
+    const rt = {
+      ctx, home: '/unused', config: {},
+      state: { bots: { b1: bot }, rooms: { r1: room }, prefs: {}, exchanges: [], capabilities: { items: {} }, switching: {}, questions: {}, views: {} },
+      warn: () => {}, async save() {}, async load() {}, readOnly: () => undefined,
+      botOf: id => rt.state.bots[id], roomOf: id => rt.state.rooms[id],
+      selfOf: id => (id === 'g1' || id === 'g2' ? 'b1' : undefined),
+      isMain: () => false, chatOf: () => 'b1-main', sessionOfRoom: () => undefined,
+      isBotSession: id => ['g1', 'g2'].includes(id), isLocalAgentRef: () => false, isLocalAgentRoute: () => false,
+      engineOf: ref => (String(ref).startsWith('big-provider/') ? 'big-engine' : 'small-engine'),
+      engineOfBot: subject => (String(subject?.model).startsWith('big-provider/') ? 'big-engine' : 'small-engine'),
+      engineNameOf: ref => ref,
+      chatOwners: new Map(),
+      groupOwners: new Map([['g1', { botId: 'b1', roomId: 'r1' }]]),
+      pastOwners: new Map(), roomOwners: new Map(),
+      teamTools: [], live: new Map(),
+      groupSessionsOf: () => ['g1'], unreadOf: () => [],
+      eventsBackwards: async function* (_sid, _sig, _pages, scan) {
+        for (const event of [...historyEvents].reverse()) yield event
+        if (scan) scan.complete = true
+      },
+      resolveAgent: async id => (id === 'g2' ? fresh : agent),
+      createSession: async () => 'g2',
+      desiredModel: async subject => subject.model,
+      desiredEffort: async () => undefined,
+      selectSessionModel: async () => {}, applyPermission: async () => {}, ensureCapabilities: async () => {},
+      renewMemory: () => {}, moveSchedules: async () => {}, deliver: async () => {},
+      teamFolder: () => '/tmp/team', workDirOf: () => '/tmp/team', isFolder: async () => true,
+      roomProgress: new Map(),
+    }
+    partsInstall(rt)
+    await rt.followEngine('b1')
+    for (let i = 0; i < 100 && room.sessions.b1 !== 'g2'; i += 1) {
+      await new Promise(resolve => setTimeout(resolve, 10))
+    }
+    assert.equal(room.sessions.b1, 'g2')
+    const pkg = followed.map(m => m.content.map(b => b.text).join('')).join('\n')
+    assert.ok(pkg.includes('GROUP_REQUEST_START_'), 'idle group switch to larger route must carry the latest group request')
+    assert.ok(pkg.includes('GROUP_REQUEST_END'), 'latest group request must survive verbatim')
+    assert.ok(pkg.includes('Summary is ready.'), 'latest completed reply must survive alongside its request')
+  }
+})
