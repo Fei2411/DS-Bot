@@ -275,8 +275,6 @@ export function install(rt) {
     // Never fall back to DSH's cumulative tokenMeter on a local part: DSH holds
     // the full persistent log, not the CLI's working context.
     if (localPart(session)) {
-      const used = rt.localAgentContext?.(session.id)?.used
-      if (used !== undefined) return replacement < used && (lines === undefined || replacement <= lines.usable)
       const lastHandoffIdx = messages.findLastIndex(message => message.source?.handoff === true)
       const afterHandoff = lastHandoffIdx === -1 ? messages : messages.slice(lastHandoffIdx + 1)
       const work = afterHandoff.filter(message => message.role !== 'system'
@@ -284,7 +282,10 @@ export function install(rt) {
         && !(message.role === 'assistant' && textOf(message.content).trim() === HANDOFF_ACK))
       const hasShrinkableWork = work.some(message => message.role === 'assistant' || message.role === 'tool')
         || work.filter(message => message.role === 'user').length > 1
-      return hasShrinkableWork && (lines === undefined || replacement < lines.usable)
+      if (!hasShrinkableWork) return false
+      const used = rt.localAgentContext?.(session.id)?.used
+      if (used !== undefined) return replacement < used && (lines === undefined || replacement <= lines.usable)
+      return lines === undefined || replacement < lines.usable
     }
     const tokens = measured?.totalTokens
     // The system prompt and tool definitions stay; pending input is forwarded whole.

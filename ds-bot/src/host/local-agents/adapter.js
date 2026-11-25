@@ -312,7 +312,7 @@ export class LocalAgentAdapter extends LlmAdapter {
       queue: [],
       // Context-only messages (clock snapshots, silent notices, memory updates)
       // held until the next real prompt or settled continuation goes out.
-      pendingContext: [],
+      pendingContext: Array.isArray(record?.pendingContext) ? record.pendingContext.map(entry => ({ ...entry })) : [],
       flushedContext: undefined,
       turnConfirmed: true,
       handedRolledBack: false,
@@ -348,8 +348,10 @@ export class LocalAgentAdapter extends LlmAdapter {
     live.push = (event) => {
       if (live.dead) return
       if (TURN_CONFIRMING_EVENTS.has(event?.type)) {
+        const hadFlushed = live.flushedContext !== undefined
         live.turnConfirmed = true
         live.flushedContext = undefined
+        if (hadFlushed) this.deps.saveRecord(live.sessionId, this.recordOf(live))
       }
       this.observe(live, event)
       if (event?.type === 'models') return
@@ -378,6 +380,7 @@ export class LocalAgentAdapter extends LlmAdapter {
       ...(live.effort === undefined ? {} : { effort: live.effort }),
       ...(live.context === undefined ? {} : { context: live.context }),
       ...(live.compactions > 0 ? { compactions: live.compactions } : {}),
+      ...(Array.isArray(live.pendingContext) && live.pendingContext.length > 0 ? { pendingContext: live.pendingContext.map(entry => ({ ...entry })) } : {}),
       ...extra,
     }
   }
@@ -512,7 +515,10 @@ export class LocalAgentAdapter extends LlmAdapter {
   rollbackUnread(live, sessionId) {
     const restoreContext = () => {
       if (Array.isArray(live.flushedContext) && live.flushedContext.length > 0) {
-        live.pendingContext = [...live.flushedContext, ...(live.pendingContext ?? [])]
+        const existing = live.pendingContext ?? []
+        const seenIds = new Set(existing.map(entry => entry.id).filter(Boolean))
+        const restored = live.flushedContext.filter(entry => entry.id === undefined || !seenIds.has(entry.id))
+        live.pendingContext = [...restored, ...existing]
         live.flushedContext = undefined
       }
     }
@@ -818,7 +824,6 @@ export class LocalAgentAdapter extends LlmAdapter {
       const answer = settled.map(entry => `${entry.name} → ${entry.text === '' ? (entry.isError ? 'failed' : 'no result') : entry.text}`).join('\n')
       settledText = `The calls that were waiting on the user are settled:\n\n${answer}\n\nContinue from where the turn stopped.`
     }
-    if (flushedContext !== undefined && flushedContext.length > 0) live.flushedContext = flushedContext
     if (settledText !== '' && !canSteer) {
       // The turn this answer belongs to is over: it needs a turn of its own, in the same
       // prompt as whatever else this call brought — runtime context, a further user
@@ -827,6 +832,7 @@ export class LocalAgentAdapter extends LlmAdapter {
       this.discardTurnOutput(live)
       if (sentInstructions) nextPromptHash = promptHash
       promptBlocks = []
+      if (flushedContext !== undefined && flushedContext.length > 0) live.flushedContext = flushedContext
       await this.startTurn(live, blocks, options.signal, options.reasoningEffort)
     } else if (settledText !== '') {
       // The turn still looks alive; keep any staged context in `live.pendingContext`
@@ -836,7 +842,7 @@ export class LocalAgentAdapter extends LlmAdapter {
       if (remaining.length === 0) promptBlocks = []
     }
     if (promptBlocks.length > 0) {
-      await this.sendInput(live, promptBlocks, options.signal, options.reasoningEffort, settledText)
+      await this.sendInput(live, promptBlocks, options.signal, options.reasoningEffort, settledText, flushedContext)
       if (sentInstructions) nextPromptHash = promptHash
       // ACP only counts instructions once they reach the agent with a prompt.
       if (live.spec.kind === 'acp' && (startedFreshCli || sentInstructions)) nextPromptHash = promptHash
@@ -907,7 +913,7 @@ export class LocalAgentAdapter extends LlmAdapter {
   // started, or the prompt is away. The caller waits for it before reading the CLI,
   // so a steer that fails after the finished turn's `done` arrived still gets a turn
   // of its own instead of being read as this turn's end (#1513).
-  sendInput(live, input, signal, effort, settled) {
+  sendInput(live, input, signal, effort, settled, flushedContext) {
     const blocks = typeof input === 'string' ? [{ type: 'text', text: input }] : input
     const steerInput = typeof input === 'string' ? input : blocks
     live.mute = false
@@ -917,7 +923,11 @@ export class LocalAgentAdapter extends LlmAdapter {
       ? blocks
       : mergeTextBlocks([{ type: 'text', text: settled }, ...blocks])
     if (live.state !== 'idle') {
-      if (live.spec.kind === 'acp') { live.queue.push({ blocks }); return Promise.resolve() }
+      if (live.spec.kind === 'acp') {
+        live.queue.push({ blocks, ...(flushedContext !== undefined && flushedContext.length > 0 ? { flushedContext } : {}) })
+        return Promise.resolve()
+      }
+      if (flushedContext !== undefined && flushedContext.length > 0) live.flushedContext = flushedContext
       // Steering lands on a turn that is still running. When the CLI finished the
       // turn behind a card — the usual case for an answer that arrives late — the
       // steer has nothing to land on, and dropping it leaves the user's answer
@@ -938,11 +948,17 @@ export class LocalAgentAdapter extends LlmAdapter {
       try {
         live.turnConfirmed = false
         return Promise.resolve(live.engine.steer?.(live.engineSession, steerInput))
-          .then(() => { live.turnConfirmed = true; live.flushedContext = undefined }, recover)
+          .then(() => {
+            const hadFlushed = live.flushedContext !== undefined
+            live.turnConfirmed = true
+            live.flushedContext = undefined
+            if (hadFlushed) this.deps.saveRecord(live.sessionId, this.recordOf(live))
+          }, recover)
       } catch {
         return recover()
       }
     }
+    if (flushedContext !== undefined && flushedContext.length > 0) live.flushedContext = flushedContext
     this.startTurn(live, blocks, signal, effort)
     return Promise.resolve()
   }
@@ -970,9 +986,11 @@ export class LocalAgentAdapter extends LlmAdapter {
       const started = Promise.resolve(live.engine.prompt(live.engineSession, blocks, { signal, effort, onProgress: live.scheduleIdle }))
         .then((turnId) => {
           if (live.spec.kind === 'codex') {
+            const hadFlushed = live.flushedContext !== undefined
             live.turnConfirmed = true
             live.flushedContext = undefined
             if (turnId !== undefined) live.turnTag = turnId
+            if (hadFlushed) this.deps.saveRecord(live.sessionId, this.recordOf(live))
           }
         })
         .catch(error => { if (!signal?.aborted) live.push({ type: 'error', error }) })
@@ -1161,7 +1179,7 @@ export class LocalAgentAdapter extends LlmAdapter {
           // inside the same drain (ACP takes one prompt at a time).
           const next = live.queue.shift()
           if (next !== undefined) {
-            this.sendInput(live, next.blocks, options.signal, options.reasoningEffort)
+            this.sendInput(live, next.blocks, options.signal, options.reasoningEffort, undefined, next.flushedContext)
             if (next.delivery !== undefined) {
               const prevPromptHash = live.promptHash
               live.promptHash = next.delivery.promptHash ?? live.promptHash
@@ -1545,12 +1563,14 @@ function stagePendingContext(live, messages) {
   for (const message of messages) {
     const text = textOf(message.content)
     if (text === '') continue
+    const id = message.id
     if (isSnapshotContextSource(message.source)) {
       const key = message.source?.kind ?? 'snapshot'
-      live.pendingContext = live.pendingContext.filter(entry => entry.key !== key)
-      live.pendingContext.push({ key, text })
+      live.pendingContext = live.pendingContext.filter(entry => entry.key !== key && (id === undefined || entry.id !== id))
+      live.pendingContext.push({ ...(id === undefined ? {} : { id }), key, text })
     } else {
-      live.pendingContext.push({ text })
+      if (id !== undefined && live.pendingContext.some(entry => entry.id === id)) continue
+      live.pendingContext.push({ ...(id === undefined ? {} : { id }), text })
     }
   }
 }

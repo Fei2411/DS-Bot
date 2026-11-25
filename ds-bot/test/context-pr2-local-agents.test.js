@@ -296,6 +296,7 @@ test('R1/continuation: staged context arriving during a bridged tool continuatio
         const { id, method } = msg
         if (method === 'initialize') send({ jsonrpc: '2.0', id, result: { protocolVersion: 1, agentCapabilities: {} } })
         else if (method === 'session/new') send({ jsonrpc: '2.0', id, result: { sessionId: 'acp-c1' } })
+        else if (method === 'session/load') send({ jsonrpc: '2.0', id, result: { sessionId: 'acp-c1' } })
         else if (method === 'session/set_config_option' || method === 'session/set_mode' || method === 'session/set_model') send({ jsonrpc: '2.0', id, result: {} })
         else if (method === 'session/prompt') {
           prompts += 1
@@ -330,8 +331,14 @@ test('R1/continuation: staged context arriving during a bridged tool continuatio
   assert.equal(resolvedTool?.text, 'status ok')
   assert.equal(contOut.text, 'handled tool result')
   assert.equal(live.pendingContext.length, 1, 'staged memory update must stay pending when turn replied without a new prompt')
+  assert.equal(records.s1.pendingContext?.length, 1, 'staged memory update must be persisted on record across idle close / restart')
 
-  // Next real user message carries the preserved memory update into the CLI prompt.
+  // Simulate IDLE_CLOSE_MS closing the warm worker before the next user message arrives:
+  // resuming the CLI session must restore pendingContext from the saved record and deliver it.
+  await adapter.closeLive(live, { idle: true })
+  assert.equal(adapter.live.has('s1'), false)
+
+  // Next real user message carries the preserved memory update into the resumed CLI prompt.
   const h3 = [...h2, user('m2', 'which package manager should we use?')]
   await collect(adapter.stream({ provider: 'local-acp-fake', model: 'default', sessionId: 's1', messages: h3, tools: [], signal: AbortSignal.timeout(15_000) }))
   const prompts = readFileSync(record, 'utf8').trim().split('\n').map(l => JSON.parse(l)).filter(e => e.method === 'session/prompt')
@@ -339,6 +346,7 @@ test('R1/continuation: staged context arriving during a bridged tool continuatio
   const prompt2Text = prompts[1].params.prompt.map(b => b.text ?? '').join('\n')
   assert.match(prompt2Text, /User prefers Bun over npm/)
   assert.match(prompt2Text, /which package manager should we use\?/)
+  assert.equal(records.s1.pendingContext, undefined, 'persisted pendingContext must be cleared once delivered and confirmed')
 })
 
 // ---------------------------------------------------------------------------
@@ -612,11 +620,12 @@ test('L6: unrecoverable overflow marks CONTEXT_WINDOW_EXCEEDED and recoverOverfl
     return next()
   }
 
-  // Local part with prior handoff and unreported CLI used:
-  // - single huge user message after handoff with no assistant/tool work -> refuses auto-switch, sets overflowFailure.
+  // Local part with prior handoff and NO shrinkable post-handoff work:
+  // - even when CLI reports a large `used` (fixed CLI overhead + handoff), single huge user
+  //   message with no assistant/tool work refuses auto-switch and sets overflowFailure.
   const postHandoffHuge = makePartsHarness({
     local: true,
-    context: { size: 200_000, compactions: 0 },
+    context: { used: 195_000, size: 200_000, compactions: 0 },
     messages: [handoffMsg, user('u1', 'huge input')],
   })
   const hugeOut = await dispatchRequestError(postHandoffHuge, { code: 'CONTEXT_WINDOW_EXCEEDED', message: 'Prompt is too long' })
@@ -716,7 +725,8 @@ test('L1: Codex turn/start rejection rolls back handedId; ACP pre-event rejectio
             send({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: 'acp-1', update: { sessionUpdate: 'usage_update', used: 1000, size: 200000 } } })
             send({ jsonrpc: '2.0', id, error: { code: -32000, message: 'rejected before start' } })
           } else {
-            send({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: 'acp-1', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'partial work' } } } })
+            const seenCount = (params.prompt ?? []).map(b => b.text ?? '').join('\\n').split('Keep this across rollback').length - 1
+            send({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: 'acp-1', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'partial work count=' + seenCount } } } })
             send({ jsonrpc: '2.0', id, error: { code: -32000, message: 'failed after partial work' } })
           }
         }
@@ -729,15 +739,22 @@ test('L1: Codex turn/start rejection rolls back handedId; ACP pre-event rejectio
   await collect(acpAdapter.stream({ provider: 'local-acp-fake', model: 'default', sessionId: 'a1', messages: [user('m1', 'one')], tools: [], signal: AbortSignal.timeout(15_000) }))
   assert.equal(acpRecords.a1.handedId, 'm1')
   // Prompt 2 rejected after only a housekeeping usage_update (no output) -> rolls back handedId AND restores flushedContext.
+  // Re-sending the same delta `[stagedMem, m2]` must deduplicate `stagedMem` by message id (never duplicate non-snapshot context).
   const stagedMem = user('mem-rb', '[Memory update] Keep this across rollback', { kind: 'ds-bot-memory-update' })
-  await collect(acpAdapter.stream({ provider: 'local-acp-fake', model: 'default', sessionId: 'a1', messages: [user('m1', 'one'), stagedMem], tools: [], signal: AbortSignal.timeout(15_000) }))
-  assert.equal(acpAdapter.live.get('a1').pendingContext.length, 1)
   await assert.rejects(collect(acpAdapter.stream({ provider: 'local-acp-fake', model: 'default', sessionId: 'a1', messages: [user('m1', 'one'), stagedMem, user('m2', 'two')], tools: [], signal: AbortSignal.timeout(15_000) })))
-  assert.equal(acpRecords.a1.handedId, 'mem-rb', 'ACP rejection with only housekeeping events must roll back handedId')
+  assert.equal(acpRecords.a1.handedId, 'm1', 'ACP rejection with only housekeeping events must roll back handedId')
   assert.equal(acpAdapter.live.get('a1').pendingContext.length, 1, 'pre-confirm rejection must restore flushedContext into pendingContext')
-  // Prompt 3 emits output then fails -> must NOT roll back (never auto-replay partial side effects).
-  await assert.rejects(collect(acpAdapter.stream({ provider: 'local-acp-fake', model: 'default', sessionId: 'a1', messages: [user('m1', 'one'), stagedMem, user('m2', 'two')], tools: [], signal: AbortSignal.timeout(15_000) })))
+  // Prompt 3 emits output then fails -> must NOT roll back (never auto-replay partial side effects),
+  // and `stagedMem` must have been deduplicated by id rather than appended twice.
+  let p3Text = ''
+  await assert.rejects((async () => {
+    for await (const chunk of acpAdapter.stream({ provider: 'local-acp-fake', model: 'default', sessionId: 'a1', messages: [user('m1', 'one'), stagedMem, user('m2', 'two')], tools: [], signal: AbortSignal.timeout(15_000) })) {
+      if (chunk.type === 'text-delta') p3Text += chunk.text
+    }
+  })())
+  assert.equal(p3Text, 'partial work count=1', 'rolled-back non-snapshot context must be deduplicated by id on retry')
   assert.equal(acpRecords.a1.handedId, 'm2', 'ACP failure after partial work must keep handedId')
+  assert.equal(acpAdapter.live.get('a1').pendingContext.length, 0)
 })
 
 // ---------------------------------------------------------------------------

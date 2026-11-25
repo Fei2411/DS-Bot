@@ -109,14 +109,19 @@ class ClaudeSession {
       const threshold = this.engine.systemFileThreshold ?? DEFAULT_SYSTEM_FILE_THRESHOLD
       if (!this.engine.noPromptFile && system.length > threshold) {
         const dir = mkdtempSync(join(tmpdir(), 'dsb-claude-sys-'))
-        try { chmodSync(dir, 0o700) } catch {}
-        const promptFile = join(dir, 'system-prompt.txt')
-        writeFileSync(promptFile, system, { flag: 'wx', mode: 0o600 })
         this.systemPromptDir = dir
         this.usedPromptFile = true
         this.onProcessExit = () => { this.cleanupSystemFile() }
         process.once('exit', this.onProcessExit)
-        args.push('--append-system-prompt-file', promptFile)
+        try {
+          try { chmodSync(dir, 0o700) } catch {}
+          const promptFile = join(dir, 'system-prompt.txt')
+          writeFileSync(promptFile, system, { flag: 'wx', mode: 0o600 })
+          args.push('--append-system-prompt-file', promptFile)
+        } catch (error) {
+          this.cleanupSystemFile()
+          throw error
+        }
       } else {
         args.push('--append-system-prompt', system)
       }
@@ -139,12 +144,19 @@ class ClaudeSession {
     cwd = resolve(cwd ?? process.cwd())
     // A resumed conversation may restore a shell directory we cannot observe.
     this.cwd = resumeId === undefined ? cwd : undefined
-    const child = this.child = spawnAgent(bin, args, {
-      env: cleanEnv(this.engine.env ?? {}),
-      cwd,
-      stdio: ['pipe', 'pipe', 'pipe'],
-      windowsHide: true,
-    })
+    let child
+    try {
+      child = this.child = spawnAgent(bin, args, {
+        env: cleanEnv(this.engine.env ?? {}),
+        cwd,
+        stdio: ['pipe', 'pipe', 'pipe'],
+        windowsHide: true,
+      })
+    } catch (error) {
+      this.dead = true
+      this.cleanupSystemFile()
+      throw error
+    }
     // stderr is not part of the protocol, but it is where a CLI that cannot
     // start says why; its tail goes into the error the turn shows.
     let stderr = ''
