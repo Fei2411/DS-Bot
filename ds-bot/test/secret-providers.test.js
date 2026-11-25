@@ -692,3 +692,112 @@ test('invalidateExternal keeps redacting previously resolved external values in 
   assert.equal(disk.includes(oldToken), false)
   assert.equal(disk.includes(newToken), false)
 })
+
+test('deleting or rebinding one external alias key keeps sibling alias cache and Shell File Mode file intact', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsb-op-shared-ref-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const sharedVal = `shared-${fresh()}`
+  const fakeOp = createFakeOpBinary(dir, {
+    values: { 'op://Prod/Deploy/token': sharedVal },
+  })
+  const home = join(dir, 'home')
+  const fs = await import('node:fs')
+  fs.mkdirSync(home, { recursive: true })
+  writeFileSync(join(home, 'state.json'), JSON.stringify({
+    version: 1,
+    mainBotIds: ['m1'],
+    revision: 1,
+    bots: {
+      m1: { id: 'm1', sessionId: 'm1', name: 'Chief', role: 'Main', instructions: '', createdAt: 1 },
+      b2: { id: 'b2', sessionId: 'b2', name: 'Writer', role: 'Writer', instructions: '', createdAt: 2 },
+    },
+    rooms: {},
+    exchanges: [],
+    exchangeTurns: {},
+    questions: {},
+    prefs: { secretShellMode: 'file' },
+  }))
+  writeFileSync(join(home, 'secrets.json'), JSON.stringify({
+    version: 1,
+    secrets: [
+      { name: 'DEPLOY_TOKEN', kind: 'external', providerId: 'onepassword', reference: 'op://Prod/Deploy/token', purpose: 'deploy', scope: 'all', requestedBy: null, createdAt: 1, updatedAt: 1 },
+      { name: 'CI_TOKEN', kind: 'external', providerId: 'onepassword', reference: 'op://Prod/Deploy/token', purpose: 'ci', scope: 'all', requestedBy: null, createdAt: 2, updatedAt: 2 },
+    ],
+  }))
+
+  const contributors = []
+  const shellEnv = {
+    register(contributor) {
+      const entry = { ...contributor, live: true }
+      contributors.push(entry)
+      return () => { entry.live = false }
+    },
+  }
+  const ctx = fakeContext({ services: { shellEnv } })
+  ctx.sessionController = { resolveAgent: async () => ({ agent: { session: {}, followup: () => {} } }) }
+  ctx.sessions = { flush: async () => {} }
+  ctx.workspaceRegistry = { archiveSession: async () => {} }
+  ctx.llm.stream = () => (async function* () {})()
+  let route
+  ctx.connection.fetch.register = (options) => { route = options; return () => {} }
+  const rt = createRuntime(ctx, {
+    home,
+    github: false,
+    diagnosticsFile: false,
+    secretProviders: { onepassword: { bin: fakeOp.bin, binArgs: fakeOp.binArgs } },
+  })
+  t.after(async () => { await ctx.dispose() })
+
+  const call = async (endpoint, payload) => (await route.fetch(new Request('http://localhost/api/bot', {
+    method: 'POST', body: JSON.stringify({ endpoint, payload }),
+  }))).json()
+  const env = (agentId) => contributors.filter(entry => entry.live).at(-1)?.resolve({ agent: { id: agentId, session: { header: { id: agentId } } }, arguments: {} }) ?? {}
+
+  // Resolve both aliases once (1 op call) and materialize both Shell File Mode files for b2.
+  await rt.resolveExternalForBot('b2')
+  assert.equal(fakeOp.readCalls().length, 1)
+  assert.equal(rt.secretValue('DEPLOY_TOKEN'), sharedVal)
+  assert.equal(rt.secretValue('CI_TOKEN'), sharedVal)
+
+  const envBefore = env('b2')
+  const deployFile = envBefore.DSH_SECRET_FILE_DEPLOY_TOKEN
+  const ciFile = envBefore.DSH_SECRET_FILE_CI_TOKEN
+  assert.ok(deployFile && existsSync(deployFile))
+  assert.ok(ciFile && existsSync(ciFile))
+  assert.notEqual(deployFile, ciFile)
+  assert.equal(readFileSync(deployFile, 'utf8'), sharedVal)
+  assert.equal(readFileSync(ciFile, 'utf8'), sharedVal)
+
+  // Deleting DEPLOY_TOKEN unlinks DEPLOY_TOKEN's file, keeps CI_TOKEN's cache & file intact, and never re-spawns op!
+  assert.equal((await call('secret-delete', { name: 'DEPLOY_TOKEN' })).ok, true)
+  assert.equal(existsSync(deployFile), false, 'deleted alias shell file must be removed')
+  assert.equal(rt.secrets.activeShellFilePaths().has(deployFile), false)
+  assert.equal(rt.secretValue('CI_TOKEN'), sharedVal, 'surviving alias must keep its cached value')
+  assert.equal(existsSync(ciFile), true, 'surviving alias shell file must stay on disk')
+  assert.equal(rt.secrets.activeShellFilePaths().has(ciFile), true)
+
+  const envAfterDelete = env('b2')
+  assert.equal(envAfterDelete.DSH_SECRET_FILE_DEPLOY_TOKEN, undefined)
+  assert.equal(envAfterDelete.DSH_SECRET_FILE_CI_TOKEN, ciFile, 'surviving alias shell file path must stay unchanged')
+  await rt.resolveExternalForBot('b2')
+  assert.equal(fakeOp.readCalls().length, 1, 'deleting one alias must not trigger op re-fetch for surviving alias')
+
+  // Adding a third alias pointing to the same ref reuses cache without disrupting CI_TOKEN's file.
+  assert.equal((await call('secret-set', { name: 'THIRD_TOKEN', reference: 'op://Prod/Deploy/token', scope: 'all' })).ok, true)
+  assert.equal(rt.secretValue('CI_TOKEN'), sharedVal)
+  assert.equal(rt.secretValue('THIRD_TOKEN'), sharedVal)
+  assert.equal(existsSync(ciFile), true)
+  assert.equal(env('b2').DSH_SECRET_FILE_CI_TOKEN, ciFile)
+
+  // Replacing THIRD_TOKEN with a local vault value also leaves CI_TOKEN's cache & file intact.
+  assert.equal((await call('secret-set', { name: 'THIRD_TOKEN', value: `local-${fresh()}`, scope: 'all' })).ok, true)
+  assert.equal(rt.secretValue('CI_TOKEN'), sharedVal)
+  assert.equal(existsSync(ciFile), true)
+  assert.equal(fakeOp.readCalls().length, 1)
+
+  // Deleting the last remaining alias (CI_TOKEN) unlinks its file, clears cache, and keeps process redaction.
+  assert.equal((await call('secret-delete', { name: 'CI_TOKEN' })).ok, true)
+  assert.equal(existsSync(ciFile), false)
+  assert.equal(rt.secretValue('CI_TOKEN'), undefined)
+  assert.equal(rt.redactSecrets(`leaked=${sharedVal}`), 'leaked=[secret:CI_TOKEN]')
+})

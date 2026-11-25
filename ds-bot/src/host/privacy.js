@@ -2,6 +2,7 @@
 // what it sends out waits for the user. DSH does not fence reads, so this closes the
 // tools DS Bot owns and checks the paths that the file tools and the shell are given;
 // a shell can still reach any file the account can (see docs/plans).
+import { homedir } from 'node:os'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { manualDirectory } from './manual-skills.js'
 import { within } from './folders.js'
@@ -13,16 +14,254 @@ const WRITE_TOOLS = ['write', 'edit', 'str_replace_editor']
 const SEARCH_TOOLS = ['glob', 'grep']
 const SHELL_TOOLS = ['bash', 'pwsh', 'terminal_open', 'terminal_send']
 const SESSION_TOOLS = ['session_search', 'session_event_search', 'session_trace', 'session_event_trace', 'session_event_read']
+const SECRET_GUARDED_TOOLS = new Set([
+  ...Object.keys(FILE_TOOLS),
+  ...SEARCH_TOOLS,
+  ...SHELL_TOOLS,
+  'subagent',
+  'subagent_fork',
+  'working_directory',
+])
+const SEARCH_SHELL_COMMANDS = new Set(['grep', 'egrep', 'fgrep', 'rg', 'ag', 'ack', 'select-string', 'sls'])
+const GREP_PATTERN_FLAGS = new Set(['-e', '--regexp'])
+const GREP_VALUE_FLAGS = new Set([
+  '-f', '--file', '-m', '--max-count', '-A', '-B', '-C', '--context',
+  '--after-context', '--before-context', '--glob', '--iglob',
+  '--type', '--type-not', '--include', '--exclude',
+  '--exclude-dir', '--exclude-from', '--ignore-file', '--color', '--colour',
+  '-d', '--directories', '-D', '--devices', '--max-depth', '--max-filesize',
+  '--threads', '--encoding', '--label', '--replace',
+  '--max-columns', '--path-separator', '--sort', '--sortr',
+])
+const RG_ONLY_VALUE_FLAGS = new Set(['-g', '-t', '-T', '-r', '-M', '-j'])
 
 // Windows and macOS file systems ignore case.
 const fold = text => (process.platform === 'linux' ? text : text.toLowerCase())
 const overlap = (a, b) => within(a, b) || within(b, a)
+const expandHome = (path) => (path === '~' ? homedir() : /^~[\\/]/.test(path) ? join(homedir(), path.slice(2)) : path)
 const strings = value => (typeof value === 'string' ? [value] : Array.isArray(value) ? value.flatMap(strings) : value && typeof value === 'object' ? Object.values(value).flatMap(strings) : [])
 // The same path as a shell writes it: forward slashes, and on Windows both drive forms.
 const asShell = (path) => {
   const slashed = path.replace(/\\/g, '/')
   const drive = /^([a-z]):\//i.exec(slashed)
   return drive ? [slashed, `/${drive[1]}${slashed.slice(2)}`] : [slashed]
+}
+
+// Splits shell command text into simple-command token arrays. Breaks on unquoted
+// `;`, `\n`, `|`, `&`, `(`, `)`, `` ` ``, and `$(` (even inside double quotes) so
+// subshells and command substitutions are inspected independently.
+function splitShellCommands(text) {
+  const segments = []
+  let current = []
+  let buf = ''
+  let hasToken = false
+  let tokenRedir = false
+  let nextRedir = false
+  let quote = null
+  const subshellQuotes = []
+
+  const flushToken = () => {
+    if (!hasToken) return
+    current.push({ value: buf, redir: tokenRedir })
+    buf = ''
+    hasToken = false
+    tokenRedir = false
+  }
+  const flushSegment = () => {
+    flushToken()
+    if (current.length > 0) {
+      segments.push(current)
+      current = []
+    }
+    nextRedir = false
+  }
+  const startToken = () => {
+    if (!hasToken) {
+      hasToken = true
+      tokenRedir = nextRedir
+      nextRedir = false
+    }
+  }
+
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i]
+    if (quote === "'") {
+      if (ch === "'") {
+        quote = null
+      } else {
+        startToken()
+        buf += ch
+      }
+      continue
+    }
+    if (quote === '"') {
+      if (ch === '"') {
+        quote = null
+      } else if (ch === '\\' && i + 1 < text.length && (text[i + 1] === '"' || text[i + 1] === '\\' || text[i + 1] === '$' || text[i + 1] === '`')) {
+        startToken()
+        buf += text[i + 1]
+        i += 1
+      } else if (ch === '$' && text[i + 1] === '(') {
+        subshellQuotes.push('"')
+        quote = null
+        flushSegment()
+        i += 1
+      } else if (ch === '`') {
+        quote = null
+        flushSegment()
+      } else {
+        startToken()
+        buf += ch
+      }
+      continue
+    }
+    if (ch === "'" || ch === '"') {
+      startToken()
+      quote = ch
+      continue
+    }
+    if (ch === '$' && text[i + 1] === '(') {
+      subshellQuotes.push(null)
+      flushSegment()
+      i += 1
+      continue
+    }
+    if (ch === ')' && subshellQuotes.length > 0) {
+      flushSegment()
+      quote = subshellQuotes.pop()
+      continue
+    }
+    if (ch === ';' || ch === '\n' || ch === '\r' || ch === '|' || ch === '&' || ch === '(' || ch === ')' || ch === '`') {
+      flushSegment()
+      continue
+    }
+    if (ch === '<' || ch === '>') {
+      if (hasToken && /^\d+$/.test(buf)) {
+        buf = ''
+        hasToken = false
+        tokenRedir = false
+      } else {
+        flushToken()
+      }
+      if (text[i + 1] === ch || text[i + 1] === '&') i += 1
+      nextRedir = true
+      continue
+    }
+    if (/\s/.test(ch)) {
+      flushToken()
+      continue
+    }
+    startToken()
+    buf += ch
+  }
+  flushSegment()
+  return segments
+}
+
+// Returns token indices that hold content-search pattern arguments (not file paths)
+// for standard read-only text search commands (`grep`, `rg`, `git grep`, `Select-String`).
+function searchPatternTokenIndices(tokens) {
+  const exempt = new Set()
+  let idx = 0
+  while (idx < tokens.length) {
+    const tok = tokens[idx]
+    if (tok.redir) return exempt
+    if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(tok.value)) {
+      idx += 1
+      continue
+    }
+    const base = tok.value.replace(/\\/g, '/').replace(/^.*\//, '').replace(/\.exe$/i, '').toLowerCase()
+    if (base === 'command' || base === 'env' || base === 'time' || base === 'nice' || base === 'nohup') {
+      idx += 1
+      continue
+    }
+    break
+  }
+  if (idx >= tokens.length) return exempt
+  let cmd = tokens[idx].value.replace(/\\/g, '/').replace(/^.*\//, '').replace(/\.exe$/i, '').toLowerCase()
+  idx += 1
+  if (cmd === 'git') {
+    if (idx < tokens.length && !tokens[idx].redir && tokens[idx].value.toLowerCase() === 'grep') {
+      cmd = 'grep'
+      idx += 1
+    } else {
+      return exempt
+    }
+  }
+  if (!SEARCH_SHELL_COMMANDS.has(cmd)) return exempt
+
+  if (cmd === 'select-string' || cmd === 'sls') {
+    let explicit = false
+    let gotPositional = false
+    for (let i = idx; i < tokens.length; i += 1) {
+      const tok = tokens[i]
+      if (tok.redir) continue
+      const lower = tok.value.toLowerCase()
+      if (lower === '-pattern') {
+        explicit = true
+        if (i + 1 < tokens.length && !tokens[i + 1].redir) {
+          exempt.add(i + 1)
+          i += 1
+        }
+        continue
+      }
+      if (lower.startsWith('-pattern:')) {
+        explicit = true
+        exempt.add(i)
+        continue
+      }
+      if (lower.startsWith('-')) {
+        if (lower === '-path' || lower === '-literalpath' || lower === '-exclude' || lower === '-include' || lower === '-encoding' || lower === '-context') {
+          i += 1
+        }
+        continue
+      }
+      if (!explicit && !gotPositional) {
+        gotPositional = true
+        exempt.add(i)
+      }
+    }
+    return exempt
+  }
+
+  const isRg = cmd === 'rg'
+  let sawDoubleDash = false
+  let sawExplicitPattern = false
+  let gotPositional = false
+  for (let i = idx; i < tokens.length; i += 1) {
+    const tok = tokens[i]
+    if (tok.redir) continue
+    const value = tok.value
+    if (!sawDoubleDash && value === '--') {
+      sawDoubleDash = true
+      continue
+    }
+    if (!sawDoubleDash && value.startsWith('-') && value.length > 1) {
+      if (GREP_PATTERN_FLAGS.has(value)) {
+        sawExplicitPattern = true
+        if (i + 1 < tokens.length && !tokens[i + 1].redir) {
+          exempt.add(i + 1)
+          i += 1
+        }
+        continue
+      }
+      if (value.startsWith('--regexp=') || (value.startsWith('-e') && value.length > 2 && !value.startsWith('--'))) {
+        sawExplicitPattern = true
+        exempt.add(i)
+        continue
+      }
+      if (GREP_VALUE_FLAGS.has(value) || (isRg && RG_ONLY_VALUE_FLAGS.has(value))) {
+        i += 1
+        continue
+      }
+      continue
+    }
+    if (!sawExplicitPattern && !gotPositional) {
+      gotPositional = true
+      exempt.add(i)
+    }
+  }
+  return exempt
 }
 
 export function install(rt) {
@@ -84,12 +323,29 @@ export function install(rt) {
 
   const DATA_ROOTS_TTL_MS = 1_000
   let dataRootsMemo
-  const clearDataRootsMemo = () => { dataRootsMemo = undefined }
+  let homeSpellingsMemo
+  const clearDataRootsMemo = () => {
+    dataRootsMemo = undefined
+    homeSpellingsMemo = undefined
+  }
   const offAdopted = rt.onAdopted?.(clearDataRootsMemo)
   ctx.effect?.(() => () => {
     offAdopted?.()
     clearDataRootsMemo()
   }, 'ds-bot: privacy cache')
+
+  const spelledHome = (memo) => {
+    const now = Date.now()
+    if (homeSpellingsMemo !== undefined && now - homeSpellingsMemo.at < DATA_ROOTS_TTL_MS) {
+      return homeSpellingsMemo.value
+    }
+    const pending = spellings(rt.home, memo).catch((error) => {
+      if (homeSpellingsMemo?.value === pending) homeSpellingsMemo = undefined
+      throw error
+    })
+    homeSpellingsMemo = { at: now, value: pending }
+    return pending
+  }
 
   // Where a private Bot keeps what must stay closed: its folder and its memory. Its
   // Sessions and its id are in file names under DSH's and the team's data.
@@ -426,7 +682,7 @@ export function install(rt) {
     join(rt.home, 'api-runs.json'),
   ].map(file => spellings(file, memo)))).flat()
 
-  async function guardApiFiles(exec) {
+  async function guardApiFiles(exec, memo = new Map()) {
     const args = exec.arguments ?? {}
     const name = exec.name
     const folder = () => rt.sessionFolder(exec.agent?.session ?? exec.agent)
@@ -435,8 +691,10 @@ export function install(rt) {
       const path = args[FILE_TOOLS[name]]
       if (typeof path !== 'string' || path === '') return
       const base = folder()
-      const keys = await spellings(base === undefined ? path : resolve(base, path))
-      const protectedPaths = await apiProtectedFiles()
+      const [keys, protectedPaths] = await Promise.all([
+        spellings(base === undefined ? path : resolve(base, path), memo),
+        apiProtectedFiles(memo),
+      ])
       if (keys.some(key => protectedPaths.some(file => key === file || key.startsWith(file.endsWith('api-') ? file : `${file}.`)))) throw closedApi()
       return
     }
@@ -445,15 +703,17 @@ export function install(rt) {
       const pattern = typeof args.pattern === 'string' ? fold(args.pattern) : ''
       if (pattern.includes('api-') || pattern.includes('mcp.json')) throw closedApi()
       const base = folder()
-      const keys = await spellings(base === undefined ? where : resolve(base, where))
-      const protectedPaths = await apiProtectedFiles()
+      const [keys, protectedPaths] = await Promise.all([
+        spellings(base === undefined ? where : resolve(base, where), memo),
+        apiProtectedFiles(memo),
+      ])
       if (keys.some(key => protectedPaths.some(file => within(file, key) || key.startsWith(file.endsWith('api-') ? file : `${file}.`)))) throw closedApi()
       return
     }
     if (SHELL_TOOLS.includes(name)) {
       const flat = fold(strings(args).join('\n').replace(/\\/g, '/'))
       if (flat.includes('api-') || flat.includes('mcp.json')) throw closedApi()
-      const protectedPaths = await apiProtectedFiles()
+      const protectedPaths = await apiProtectedFiles(memo)
       for (const file of protectedPaths) {
         if (asShell(file).some(spelled => flat.includes(spelled))) throw closedApi()
       }
@@ -463,75 +723,156 @@ export function install(rt) {
   // Per-Bot temporary secret files (`<home>/secret-files/<botId>/`) and host-only secret
   // storage (`<home>/secret-refs/`, `<home>/secret-files/_op/`) are fenced for every Bot,
   // regardless of whether any Bot is marked `private: true`.
-  async function guardSecretFiles(exec, self) {
+  function guardSecretFiles(exec, self, memo = new Map()) {
+    const name = exec.name
+    if (!SECRET_GUARDED_TOOLS.has(name)) return
+    const args = exec.arguments ?? {}
+    if (name in FILE_TOOLS) {
+      const path = args[FILE_TOOLS[name]]
+      if (typeof path !== 'string' || path === '') return
+    } else if (name === 'subagent' || name === 'subagent_fork') {
+      if (typeof args.cwd !== 'string' || args.cwd === '') return
+    } else if (name === 'working_directory') {
+      if (typeof args.cd !== 'string' || args.cd === '') return
+    }
+    return guardSecretFilesAsync(exec, self, memo)
+  }
+
+  async function guardSecretFilesAsync(exec, self, memo) {
     const args = exec.arguments ?? {}
     const name = exec.name
     const folder = () => rt.sessionFolder(exec.agent?.session ?? exec.agent)
     const closedSecret = () => new Error('Bots cannot access secret reference files or another Bot\'s temporary secret files.')
-    const memo = new Map()
-    const refsRoot = await spellings(join(rt.home, 'secret-refs'), memo)
-    const filesRoot = await spellings(join(rt.home, 'secret-files'), memo)
-    const ownDir = await spellings(join(rt.home, 'secret-files', self), memo)
-    const inRefs = keys => keys.some(key => refsRoot.some(root => within(key, root)))
-    const overlapsRefs = keys => keys.some(key => refsRoot.some(root => overlap(key, root)))
-    const inFiles = keys => keys.some(key => filesRoot.some(root => within(key, root)))
-    const overlapsFiles = keys => keys.some(key => filesRoot.some(root => overlap(key, root)))
-    const allOwnSecretFiles = keys => keys.every(key => ownDir.some(dir => within(key, dir) && key !== dir))
-    const allInOwnSecretDir = keys => keys.every(key => ownDir.some(dir => within(key, dir)))
+    let ownDirPromise
+    const getOwnDir = () => (ownDirPromise ??= (typeof self === 'string' && self !== ''
+      ? spellings(join(rt.home, 'secret-files', self), memo)
+      : Promise.resolve([])))
+    const rootsOf = (homeKeys) => {
+      const refsRoot = homeKeys.map(root => join(root, 'secret-refs'))
+      const filesRoot = homeKeys.map(root => join(root, 'secret-files'))
+      return {
+        refsRoot,
+        filesRoot,
+        inRefs: keys => keys.some(key => refsRoot.some(root => within(key, root))),
+        overlapsRefs: keys => keys.some(key => refsRoot.some(root => overlap(key, root))),
+        inFiles: keys => keys.some(key => filesRoot.some(root => within(key, root))),
+        overlapsFiles: keys => keys.some(key => filesRoot.some(root => overlap(key, root))),
+      }
+    }
+    const allOwnSecretFiles = (keys, ownDir) => keys.every(key => ownDir.some(dir => within(key, dir) && key !== dir))
+    const allInOwnSecretDir = (keys, ownDir) => keys.every(key => ownDir.some(dir => within(key, dir)))
 
     if (name in FILE_TOOLS) {
       const path = args[FILE_TOOLS[name]]
-      if (typeof path !== 'string' || path === '') return
       const base = folder()
-      const keys = await spellings(base === undefined ? path : resolve(base, path), memo)
+      const [homeKeys, keys] = await Promise.all([
+        spelledHome(memo),
+        spellings(base === undefined ? path : resolve(base, path), memo),
+      ])
+      const { inRefs, inFiles } = rootsOf(homeKeys)
       if (inRefs(keys)) throw closedSecret()
       if (inFiles(keys)) {
-        if (WRITE_TOOLS.includes(name) || !allOwnSecretFiles(keys)) throw closedSecret()
+        if (WRITE_TOOLS.includes(name)) throw closedSecret()
+        const ownDir = await getOwnDir()
+        if (!allOwnSecretFiles(keys, ownDir)) throw closedSecret()
       }
       return
     }
     if (SEARCH_TOOLS.includes(name)) {
       const where = typeof args.path === 'string' && args.path !== '' ? args.path : '.'
-      const pattern = typeof args.pattern === 'string' ? fold(args.pattern.replace(/\\/g, '/')) : ''
-      if (pattern.includes('secret-refs') || pattern.includes('secret-files/_op')) throw closedSecret()
       const base = folder()
-      const keys = await spellings(base === undefined ? where : resolve(base, where), memo)
-      if (overlapsRefs(keys)) throw closedSecret()
-      if (overlapsFiles(keys) && !allInOwnSecretDir(keys)) throw closedSecret()
-      if (typeof args.pattern === 'string' && /^([a-z]:|[\\/]|~)/i.test(args.pattern)) {
-        const prefix = args.pattern.replace(/[*?[{].*$/, '')
-        const patKeys = await spellings(base === undefined ? prefix : resolve(base, prefix), memo)
-        if (overlapsRefs(patKeys)) throw closedSecret()
-        if (overlapsFiles(patKeys) && !allInOwnSecretDir(patKeys)) throw closedSecret()
+      const searchBase = base === undefined ? where : resolve(base, where)
+      const [homeKeys, keys] = await Promise.all([
+        spelledHome(memo),
+        spellings(searchBase, memo),
+      ])
+      const { overlapsRefs, overlapsFiles } = rootsOf(homeKeys)
+      const checkKeys = async (targetKeys) => {
+        if (overlapsRefs(targetKeys)) throw closedSecret()
+        if (overlapsFiles(targetKeys)) {
+          const ownDir = await getOwnDir()
+          if (!allInOwnSecretDir(targetKeys, ownDir)) throw closedSecret()
+        }
+      }
+      await checkKeys(keys)
+
+      // `grep`'s `pattern` searches file contents, not file paths; only validate
+      // path-like globs (`glob.pattern` or `grep.glob`).
+      const pathPattern = name === 'glob' ? args.pattern : args.glob
+      if (typeof pathPattern === 'string' && pathPattern !== '') {
+        const normalizedPat = pathPattern.replace(/\\/g, '/')
+        const expandedPat = expandHome(normalizedPat)
+        const prefix = expandedPat.replace(/[*?[{].*$/, '')
+        const hasTraversal = /(?:^|\/)\.\.(?:$|\/)/.test(normalizedPat)
+        const isRooted = /^([a-z]:|\/|~)/i.test(normalizedPat)
+        if (prefix !== '') {
+          const patTarget = isAbsolute(prefix) ? prefix : resolve(searchBase, prefix)
+          const patKeys = await spellings(patTarget, memo)
+          await checkKeys(patKeys)
+        }
+        // Catch wildcards placed before `..` (e.g. `*/../secret-refs/*`) where the
+        // static prefix before the first wildcard is empty and cannot be resolved.
+        if (hasTraversal && (prefix === '' || /[*?[{].*\.\./.test(normalizedPat))) {
+          const foldedPat = fold(normalizedPat)
+          if (/(?:^|[^a-z0-9_.-])secret-(?:refs|files)(?:$|[^a-z0-9_.-])/.test(foldedPat) || isRooted) {
+            throw closedSecret()
+          }
+          const parentKeys = await spellings(resolve(searchBase, '..'), memo)
+          await checkKeys(parentKeys)
+        }
       }
       return
     }
-    if ((name === 'subagent' || name === 'subagent_fork') && typeof args.cwd === 'string') {
+    if (name === 'subagent' || name === 'subagent_fork') {
       const base = folder()
-      const keys = await spellings(base === undefined ? args.cwd : resolve(base, args.cwd), memo)
+      const [homeKeys, keys] = await Promise.all([
+        spelledHome(memo),
+        spellings(base === undefined ? args.cwd : resolve(base, args.cwd), memo),
+      ])
+      const { inRefs, inFiles } = rootsOf(homeKeys)
       if (inRefs(keys) || inFiles(keys)) throw closedSecret()
       return
     }
-    if (name === 'working_directory' && typeof args.cd === 'string') {
+    if (name === 'working_directory') {
       const base = folder()
-      const keys = await spellings(base === undefined ? args.cd : resolve(base, args.cd), memo)
+      const [homeKeys, keys] = await Promise.all([
+        spelledHome(memo),
+        spellings(base === undefined ? args.cd : resolve(base, args.cd), memo),
+      ])
+      const { inRefs, inFiles } = rootsOf(homeKeys)
       if (inRefs(keys) || inFiles(keys)) throw closedSecret()
       return
     }
     if (SHELL_TOOLS.includes(name)) {
       const base = folder()
-      for (const dirArg of [args.workdir, args.cwd]) {
-        if (typeof dirArg !== 'string' || dirArg === '') continue
-        const keys = await spellings(base === undefined ? dirArg : resolve(base, dirArg), memo)
-        if (inRefs(keys) || inFiles(keys)) throw closedSecret()
+      const dirArgs = [args.workdir, args.cwd].filter(value => typeof value === 'string' && value !== '')
+      const effectiveDir = dirArgs.at(-1) ?? base
+      const dirsToCheck = [...dirArgs, ...(effectiveDir !== undefined ? [effectiveDir] : [])]
+      const [homeKeys, ...dirKeyList] = await Promise.all([
+        spelledHome(memo),
+        ...dirsToCheck.map(dirArg => spellings(base === undefined ? dirArg : resolve(base, dirArg), memo)),
+      ])
+      const { refsRoot, filesRoot, inRefs, overlapsRefs, inFiles, overlapsFiles } = rootsOf(homeKeys)
+      for (let i = 0; i < dirArgs.length; i += 1) {
+        if (inRefs(dirKeyList[i]) || inFiles(dirKeyList[i])) throw closedSecret()
       }
-      const flat = fold(strings(args).join('\n').replace(/\\/g, '/'))
-      if (refsRoot.flatMap(asShell).some(spelled => flat.includes(spelled))
-        || /(?:^|[^a-z0-9_-])secret-refs(?:$|[^a-z0-9_-])/.test(flat)) {
+      const effectiveKeys = effectiveDir !== undefined ? dirKeyList.at(-1) : undefined
+      let cwdOverlapsProtected = false
+      if (effectiveKeys !== undefined) {
+        if (overlapsRefs(effectiveKeys)) {
+          cwdOverlapsProtected = true
+        } else if (overlapsFiles(effectiveKeys)) {
+          const ownDir = await getOwnDir()
+          if (!allInOwnSecretDir(effectiveKeys, ownDir)) cwdOverlapsProtected = true
+        }
+      }
+      const rawText = strings(args).join('\n')
+      const flat = fold(rawText.replace(/\\/g, '/'))
+      if (refsRoot.flatMap(asShell).some(spelled => flat.includes(spelled))) {
         throw closedSecret()
       }
-      if (flat.includes('dsh_secret_file_')
-        && (/\bdirname\b/.test(flat) || /(?:^|[/\\])\.\.(?:$|[/\\\s"'`;|&)])/.test(flat))) {
+      if (/dsh_secret_file_/i.test(flat)
+        && (/\bdirname\b/i.test(flat) || /\bsplit-path\b/i.test(flat) || /(?:^|[/\\])\.\.(?:$|[/\\\s"'`;|&)])/.test(flat))) {
         throw closedSecret()
       }
       const ownPrefix = `/${fold(self)}/`
@@ -543,19 +884,37 @@ export function install(rt) {
           throw closedSecret()
         }
       }
-      const marker = 'secret-files'
-      for (let at = flat.indexOf(marker); at !== -1; at = flat.indexOf(marker, at + marker.length)) {
-        const before = at === 0 ? '' : flat[at - 1]
-        if (/[a-z0-9_-]/.test(before)) continue
-        const rest = flat.slice(at + marker.length)
-        const first = rest[0] ?? ''
-        if (first !== '' && /[a-z0-9_-]/.test(first)) continue
-        checkRestAfterFilesRoot(rest)
-      }
       for (const spelled of filesRoot.flatMap(asShell)) {
-        if (spelled.endsWith(marker)) continue
         for (let at = flat.indexOf(spelled); at !== -1; at = flat.indexOf(spelled, at + spelled.length)) {
           checkRestAfterFilesRoot(flat.slice(at + spelled.length))
+        }
+      }
+      const markerFiles = 'secret-files'
+      const isPlainSearchPattern = (tok, idx, exempt) => {
+        if (cwdOverlapsProtected || tok.redir || !exempt.has(idx)) return false
+        let val = tok.value
+        if (val.startsWith('--regexp=')) val = val.slice('--regexp='.length)
+        else if (/^-pattern:/i.test(val)) val = val.slice('-pattern:'.length)
+        else if (val.startsWith('-e') && val.length > 2 && !val.startsWith('--')) val = val.slice(2)
+        return !/[/\\]|\.\.|[*?[]/.test(val)
+      }
+      for (const segment of splitShellCommands(rawText)) {
+        const exempt = searchPatternTokenIndices(segment)
+        for (let i = 0; i < segment.length; i += 1) {
+          const tok = segment[i]
+          if (isPlainSearchPattern(tok, i, exempt)) continue
+          const tokFlat = fold(tok.value.replace(/\\/g, '/'))
+          if (/(?:^|[^a-z0-9_.-])secret-refs(?:$|[^a-z0-9_.-])/.test(tokFlat)) {
+            throw closedSecret()
+          }
+          for (let at = tokFlat.indexOf(markerFiles); at !== -1; at = tokFlat.indexOf(markerFiles, at + markerFiles.length)) {
+            const before = at === 0 ? '' : tokFlat[at - 1]
+            if (/[a-z0-9_.-]/.test(before)) continue
+            const rest = tokFlat.slice(at + markerFiles.length)
+            const first = rest[0] ?? ''
+            if (first !== '' && /[a-z0-9_.-]/.test(first)) continue
+            checkRestAfterFilesRoot(rest)
+          }
         }
       }
     }
@@ -569,8 +928,11 @@ export function install(rt) {
       await guardFiles(exec, self)
     }
     if (self !== undefined) {
-      await guardApiFiles(exec)
-      await guardSecretFiles(exec, self)
+      const memo = new Map()
+      await Promise.all([
+        guardApiFiles(exec, memo),
+        guardSecretFiles(exec, self, memo),
+      ])
     }
     return next()
   })

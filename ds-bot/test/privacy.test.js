@@ -836,3 +836,53 @@ test('temporary secret files and secret-refs are isolated per Bot even when no B
     assert.match(res.error, /secret/i)
   }
 })
+
+test('guardSecretFiles allows text searches for secret-refs/secret-files in unrelated workspaces while blocking path operands and traversals', async (t) => {
+  const { run, home, root, stop } = await start({ privateBot: false })
+  t.after(stop)
+  const posix = path => path.replace(/\\/g, '/')
+  const repoDir = join(root, 'unrelated-repo')
+  mkdirSync(join(repoDir, 'docs'), { recursive: true })
+  writeFileSync(join(repoDir, 'README.md'), 'secret-refs and secret-files documentation\n')
+  const workspaceDir = join(home, 'workspace')
+  mkdirSync(workspaceDir, { recursive: true })
+
+  // Content searches in unrelated workspaces must NOT be blocked.
+  for (const [toolName, args] of [
+    ['grep', { pattern: 'secret-refs', path: repoDir }],
+    ['grep', { pattern: 'secret-files/_op', path: repoDir }],
+    ['glob', { pattern: '**/*secret-refs*', path: repoDir }],
+    ['glob', { pattern: 'src/host/secret-refs.js', path: repoDir }],
+    ['bash', { command: "grep 'secret-refs' README.md", workdir: repoDir }],
+    ['bash', { command: 'rg "secret-refs" docs/', workdir: repoDir }],
+    ['bash', { command: "grep -rn 'secret-files' README.md", workdir: repoDir }],
+    ['bash', { command: "grep -e 'secret-refs' README.md", workdir: repoDir }],
+    ['bash', { command: "grep --regexp='secret-refs' README.md", workdir: repoDir }],
+    ['bash', { command: "git grep 'secret-refs'", workdir: repoDir }],
+    ['pwsh', { command: "Select-String -Pattern 'secret-refs' README.md", workdir: repoDir }],
+  ]) {
+    assert.deepEqual(await run(toolName, args, 'b'), { ran: true }, `expected allowed: ${toolName} ${JSON.stringify(args)}`)
+  }
+
+  // Path operands, traversals, redirections, command substitutions, and home-overlapping cwd remain strictly blocked.
+  for (const [toolName, args] of [
+    ['grep', { pattern: 'token', path: workspaceDir, glob: '../secret-refs/*.json' }],
+    ['glob', { pattern: '../secret-refs/*', path: workspaceDir }],
+    ['glob', { pattern: '*/../secret-refs/*', path: workspaceDir }],
+    ['glob', { pattern: `${posix(home)}/secret-refs/*`, path: repoDir }],
+    ['bash', { command: 'grep foo ../secret-refs/x', workdir: repoDir }],
+    ['bash', { command: `grep foo "${posix(join(home, 'secret-refs'))}"`, workdir: repoDir }],
+    ['bash', { command: "grep 'secret-refs' ../secret-refs/x", workdir: repoDir }],
+    ['bash', { command: "grep -f ../secret-refs/x README.md", workdir: repoDir }],
+    ['bash', { command: "grep 'secret-refs' < ../secret-refs/x", workdir: repoDir }],
+    ['bash', { command: 'grep "$(cat ../secret-refs/x)" README.md', workdir: repoDir }],
+    ['bash', { command: "grep 'secret-refs' README.md; ls ../secret-refs", workdir: repoDir }],
+    ['bash', { command: "grep 'secret-refs' .", workdir: home }],
+    ['bash', { command: 'ls "$(dirname "$DSH_SECRET_FILE_OWN_KEY")/.."', workdir: repoDir }],
+    ['bash', { command: 'ls "$(DIRNAME "$DSH_SECRET_FILE_OWN_KEY")/.."', workdir: repoDir }],
+  ]) {
+    const res = await run(toolName, args, 'b')
+    assert.equal(res.ran, false, `expected blocked: ${toolName} ${JSON.stringify(args)}`)
+    assert.match(res.error, /secret/i)
+  }
+})

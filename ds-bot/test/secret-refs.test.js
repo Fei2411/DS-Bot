@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
+import { rename } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { test } from 'node:test'
@@ -866,7 +867,18 @@ test('delivery=file preserves exact bytes including trailing newline for OpenSSH
   assert.equal(Buffer.compare(readFileSync(pasteMatch[1]), Buffer.from(sshKeyPaste, 'utf8')), 0)
   assert.equal(bench.rt.redactSecrets(`sub=${sshKeyPaste.trim()}`), 'sub=[secret:SSH_KEY_PASTE]')
 
-  // 3. Rejects whitespace-only and null bytes on delivery='file'.
+  // 3. Multiline file secret with leading whitespace AND trailing `\n`: exact value,
+  //    POSIX `$(cat "$file")` trailing-newline-stripped form, and trimmed form all redact cleanly.
+  const leadingKey = `  lead-${fresh()}\n  mid-${fresh()}\n\n`
+  const leadingRes = await bench.tool('request_secret', { name: 'LEADING_KEY', purpose: 'Indented key', delivery: 'file', value: leadingKey }, 'b2')
+  const leadingMatch = leadingRes.text.match(/private temporary file \(0600\): ([^\s]+) \(expires/)
+  assert.ok(leadingMatch)
+  assert.equal(readFileSync(leadingMatch[1], 'utf8'), leadingKey)
+  assert.equal(bench.rt.redactSecrets(`raw=${leadingKey}`), 'raw=[secret:LEADING_KEY]')
+  assert.equal(bench.rt.redactSecrets(`sub=${leadingKey.replace(/\n+$/, '')}`), 'sub=[secret:LEADING_KEY]')
+  assert.equal(bench.rt.redactSecrets(`trim=${leadingKey.trim()}`), 'trim=[secret:LEADING_KEY]')
+
+  // 4. Rejects whitespace-only and null bytes on delivery='file'.
   const blankRes = await bench.tool('request_secret', { name: 'BLANK_KEY', purpose: 'bad', delivery: 'file', value: '   \n\t  ' }, 'b2')
   assert.match(blankRes.text, /Type the key first/i)
   const nullRes = await bench.tool('request_secret', { name: 'NULL_KEY', purpose: 'bad', delivery: 'file', value: 'abcd\0efgh\n' }, 'b2')
@@ -1029,4 +1041,71 @@ test('save_capability braced ${DSH_SECRET_<NAME>} placeholders stay unambiguous 
   for (const name of httpSaved.ownedSecrets) {
     assert.ok(rt.secretsView().some(s => s.name === name), `owned secret ${name} must survive edit`)
   }
+})
+
+test('consumeRefs uses two-phase reversible staging so a mid-batch rename failure restores earlier handles for retry', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'dsb-refs-batch-rollback-'))
+  t.after(() => rmSync(home, { recursive: true, force: true }))
+  let clock = 1_700_000_000_000
+  let failOnStageIndex = 1
+  let stageCalls = 0
+  const refs = createSecretRefs({
+    home,
+    now: () => clock,
+    fsOps: {
+      rename: async (from, to) => {
+        // Only count forward staging renames (`*.json` -> `*.json.consuming-*`).
+        if (to.includes('.consuming-')) {
+          const callIndex = stageCalls
+          stageCalls += 1
+          if (callIndex === failOnStageIndex) {
+            const err = new Error('resource busy or locked')
+            err.code = 'EBUSY'
+            throw err
+          }
+        }
+        return rename(from, to)
+      },
+    },
+  })
+  t.after(() => refs.dispose())
+
+  const s1 = fresh()
+  const s2 = fresh()
+  const ref1 = await refs.issueRef({ botId: 'b2', sessionId: 's1', requestId: 'batch-1', field: 'FIRST', value: s1 })
+  const ref2 = await refs.issueRef({ botId: 'b2', sessionId: 's1', requestId: 'batch-2', field: 'SECOND', value: s2 })
+  const path1 = join(refs.refsDir, `${ref1.slice('secret-ref:'.length)}.json`)
+  const path2 = join(refs.refsDir, `${ref2.slice('secret-ref:'.length)}.json`)
+
+  // Inject EBUSY on staging the 2nd handle: batch fails, 1st handle is rolled back intact, 0 consuming files left.
+  await assert.rejects(
+    () => refs.consumeRefs([ref1, ref2], { botId: 'b2' }),
+    err => err.code === 'SECRET_REF_CONSUME_FAILED' && !err.message.includes(s1) && !err.message.includes(s2),
+  )
+  assert.equal(existsSync(path1), true, 'first handle must be restored intact on disk after mid-batch failure')
+  assert.equal(existsSync(path2), true, 'second handle must remain intact on disk')
+  assert.deepEqual(readdirSync(refs.refsDir).filter(name => name.includes('.consuming-')), [])
+
+  // Clear the injected failure and retry the entire batch -> succeeds and removes both handles!
+  failOnStageIndex = -1
+  const consumed = await refs.consumeRefs([ref1, ref2], { botId: 'b2' })
+  assert.equal(consumed.get(ref1), s1)
+  assert.equal(consumed.get(ref2), s2)
+  assert.equal(existsSync(path1), false)
+  assert.equal(existsSync(path2), false)
+  assert.deepEqual(readdirSync(refs.refsDir).filter(name => name.includes('.consuming-')), [])
+
+  // Crash-orphaned aged `.consuming-*` files are cleaned up by sweepExpiredRefs, while fresh ones stay.
+  const staleConsuming = join(refs.refsDir, `${'a'.repeat(32)}.json.consuming-999-abcdef012345`)
+  const freshConsuming = join(refs.refsDir, `${'b'.repeat(32)}.json.consuming-999-fedcba543210`)
+  writeFileSync(staleConsuming, '{}')
+  writeFileSync(freshConsuming, '{}')
+  const oldTime = new Date(clock - 10 * 60_000)
+  const freshTime = new Date(clock)
+  utimesSync(staleConsuming, oldTime, oldTime)
+  utimesSync(freshConsuming, freshTime, freshTime)
+  const swept = await refs.sweepExpiredRefs()
+  assert.equal(swept, 1)
+  assert.equal(existsSync(staleConsuming), false)
+  assert.equal(existsSync(freshConsuming), true)
 })

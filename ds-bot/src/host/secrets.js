@@ -97,8 +97,13 @@ export function redactor(entries) {
     const short = lf.length < WHOLE_VALUE
     const seen = new Set()
     addEncoded(seen, value, label, short, 0)
-    // Cover trimmed form too (e.g. file-delivered SSH key with trailing newline when
-    // bash command substitution `$(cat "$file")` strips the trailing line break).
+    // Cover trailing-newline-stripped and trimmed forms too (e.g. file-delivered
+    // secrets with leading whitespace and trailing `\n` when POSIX command
+    // substitution `$(cat "$file")` strips only trailing newlines).
+    const withoutTrailingNewlines = lf.replace(/\n+$/, '')
+    if (withoutTrailingNewlines !== lf && withoutTrailingNewlines.length >= MIN_VALUE) {
+      addEncoded(seen, withoutTrailingNewlines, label, withoutTrailingNewlines.length < WHOLE_VALUE, 0)
+    }
     const trimmed = lf.trim()
     if (trimmed !== lf && trimmed.length >= MIN_VALUE) {
       addEncoded(seen, trimmed, label, trimmed.length < WHOLE_VALUE, 0)
@@ -107,6 +112,9 @@ export function redactor(entries) {
       const crlf = lf.replace(/\n/g, '\r\n')
       addEncoded(seen, lf, label, short, 0)
       addEncoded(seen, crlf, label, short, 0)
+      if (withoutTrailingNewlines !== lf && withoutTrailingNewlines.includes('\n') && withoutTrailingNewlines.length >= MIN_VALUE) {
+        addEncoded(seen, withoutTrailingNewlines.replace(/\n/g, '\r\n'), label, withoutTrailingNewlines.length < WHOLE_VALUE, 0)
+      }
       // Unquoted shell expansion (`echo $DSH_SECRET_NAME`) and single-line logs fold
       // line breaks into spaces; cover those when long enough not to hit ordinary prose.
       const spaced = lf.replace(/\n/g, ' ')
@@ -266,6 +274,19 @@ export function install(rt) {
       if (secret.kind !== 'external') continue
       if (providerId !== undefined && secret.providerId !== providerId) continue
       retireSecretValue(secret)
+    }
+  }
+  const hasExternalRef = (providerId, reference, { exceptName } = {}) => {
+    for (const secret of secrets.values()) {
+      if (secret.kind === 'external' && secret.providerId === providerId && secret.reference === reference && secret.name !== exceptName) {
+        return true
+      }
+    }
+    return false
+  }
+  const invalidateRefIfUnused = (providerId, reference, options) => {
+    if (!hasExternalRef(providerId, reference, options)) {
+      resolver.invalidateRef(providerId, providerConfigOf(providerId), reference)
     }
   }
   const pruneExpiredEphemeral = (current = Date.now()) => {
@@ -1003,10 +1024,10 @@ export function install(rt) {
             updatedAt: now,
             ...(existing?.lastUsedAt !== undefined ? { lastUsedAt: existing.lastUsedAt } : {}),
           })
-          if (existing?.kind === 'external' && existing.reference !== reference) {
-            resolver.invalidateRef(existing.providerId, providerConfigOf(existing.providerId), existing.reference)
+          if (existing?.kind === 'external' && (existing.providerId !== providerId || existing.reference !== reference)) {
+            invalidateRefIfUnused(existing.providerId, existing.reference)
           }
-          resolver.invalidateRef(providerId, providerConfigOf(providerId), reference)
+          invalidateRefIfUnused(providerId, reference, { exceptName: request.name })
         } else {
           const value = cleanValue(body.value)
           retireSecretValue(existing)
@@ -1021,7 +1042,7 @@ export function install(rt) {
             ...(existing?.lastUsedAt !== undefined ? { lastUsedAt: existing.lastUsedAt } : {}),
           })
           if (existing?.kind === 'external') {
-            resolver.invalidateRef(existing.providerId, providerConfigOf(existing.providerId), existing.reference)
+            invalidateRefIfUnused(existing.providerId, existing.reference)
           }
         }
         settle(botId, request, 'saved')
@@ -1048,10 +1069,10 @@ export function install(rt) {
           updatedAt: now,
           ...(existing?.lastUsedAt !== undefined ? { lastUsedAt: existing.lastUsedAt } : {}),
         })
-        if (existing?.kind === 'external' && existing.reference !== reference) {
-          resolver.invalidateRef(existing.providerId, providerConfigOf(existing.providerId), existing.reference)
+        if (existing?.kind === 'external' && (existing.providerId !== providerId || existing.reference !== reference)) {
+          invalidateRefIfUnused(existing.providerId, existing.reference)
         }
-        resolver.invalidateRef(providerId, providerConfigOf(providerId), reference)
+        invalidateRefIfUnused(providerId, reference, { exceptName: name })
       } else {
         const value = cleanValue(body.value)
         retireSecretValue(existing)
@@ -1066,7 +1087,7 @@ export function install(rt) {
           ...(existing?.lastUsedAt !== undefined ? { lastUsedAt: existing.lastUsedAt } : {}),
         })
         if (existing?.kind === 'external') {
-          resolver.invalidateRef(existing.providerId, providerConfigOf(existing.providerId), existing.reference)
+          invalidateRefIfUnused(existing.providerId, existing.reference)
         }
       }
       reconcile(name, notes)
@@ -1118,9 +1139,11 @@ export function install(rt) {
       if (existing === undefined) throw new Error('No such key')
       if (existing.kind === 'external') {
         retireSecretValue(existing)
-        resolver.invalidateRef(existing.providerId, providerConfigOf(existing.providerId), existing.reference)
       }
       secrets.delete(name)
+      if (existing.kind === 'external') {
+        invalidateRefIfUnused(existing.providerId, existing.reference)
+      }
       const notes = []
       reconcile(name, notes)
       await commit(notes)

@@ -4,7 +4,7 @@
 // never be consumed twice.
 import { createHash, createHmac, randomBytes } from 'node:crypto'
 import { chmodSync, existsSync, mkdirSync, renameSync, rmdirSync, unlinkSync, writeFileSync } from 'node:fs'
-import { chmod, lstat, mkdir, readdir, readFile, rmdir, unlink, writeFile } from 'node:fs/promises'
+import { chmod, lstat, mkdir, readdir, readFile, rename, rmdir, unlink, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { replaceFile } from './files.js'
 import { decryptSecretRecord, encryptSecretRecord, isEncryptedSecretsFile } from './secrets-crypto.js'
@@ -62,6 +62,7 @@ export function createSecretRefs({
   const filesDir = join(home, 'secret-files')
   const saltPath = join(refsDir, '.salt')
   const unlinkFile = fsOps.unlink ?? unlink
+  const renameFile = fsOps.rename ?? rename
 
   let queue = Promise.resolve()
   const serialize = (run) => {
@@ -260,8 +261,9 @@ export function createSecretRefs({
   }
 
   // Atomically validates and consumes a batch of secret-ref handles inside the single
-  // serialized queue. If any handle is invalid, missing, expired, locked, or belongs to
-  // another Bot, zero handles are deleted so callers can fix the bad handle and retry.
+  // serialized queue using two-phase reversible staging. If any handle is invalid, missing,
+  // expired, locked, belongs to another Bot, or cannot be staged (e.g. Windows EBUSY),
+  // every previously staged handle is renamed back in place so zero valid handles are burned.
   function consumeRefs(refs, { botId } = {}) {
     return serialize(async () => {
       if (typeof botId !== 'string' || botId === '') {
@@ -273,16 +275,39 @@ export function createSecretRefs({
       for (const ref of uniqueRefs) {
         validated.push(await readAndValidateRef(ref, botId, { unlinkExpired: false }))
       }
-      // Delete every handle BEFORE returning any plaintext.
-      for (const item of validated) {
-        try {
-          await unlinkFile(item.filePath)
-        } catch (error) {
-          if (error?.code === 'ENOENT') {
-            throw codedError('SECRET_REF_NOT_FOUND', 'This secret reference has already been used.')
-          }
-          throw codedError('SECRET_REF_CONSUME_FAILED', `Could not remove secret reference after reading (${error?.code ?? 'error'}).`)
+      // Phase 1: Stage every validated handle with a reversible rename. Once all renames
+      // succeed, the batch reaches its atomic commit point (no concurrent caller can read
+      // the original paths again).
+      const nonce = `${process.pid}-${randomBytes(6).toString('hex')}`
+      const staged = []
+      try {
+        for (const item of validated) {
+          const stagedPath = `${item.filePath}.consuming-${nonce}`
+          await renameFile(item.filePath, stagedPath)
+          staged.push({ item, stagedPath })
         }
+      } catch (error) {
+        for (let i = staged.length - 1; i >= 0; i -= 1) {
+          const { item, stagedPath } = staged[i]
+          try {
+            await renameFile(stagedPath, item.filePath)
+          } catch (rollbackError) {
+            warn('ds-bot: could not restore staged secret reference during rollback (%s)', rollbackError?.code ?? 'error')
+          }
+        }
+        if (error?.code === 'ENOENT') {
+          throw codedError('SECRET_REF_NOT_FOUND', 'This secret reference has already been used.')
+        }
+        throw codedError('SECRET_REF_CONSUME_FAILED', `Could not consume secret reference (${error?.code ?? 'error'}).`)
+      }
+      // Phase 2: Best-effort delete of staged files (any crash-orphaned `.consuming-*`
+      // file is swept by `sweepExpiredRefs`).
+      for (const { stagedPath } of staged) {
+        await unlinkFile(stagedPath).catch((error) => {
+          if (error?.code !== 'ENOENT') {
+            warn('ds-bot: could not remove staged secret reference (%s)', error?.code ?? 'error')
+          }
+        })
       }
       const values = new Map()
       for (const item of validated) {
@@ -583,7 +608,7 @@ export function createSecretRefs({
           continue
         }
         if (info.isSymbolicLink() || !info.isFile()) continue
-        if (name.endsWith('.partial')) {
+        if (name.endsWith('.partial') || /\.json\.consuming-[A-Za-z0-9-]+$/.test(name)) {
           if (current - info.mtimeMs >= PARTIAL_MAX_AGE_MS) {
             await unlink(full).catch(() => {})
             removed += 1
