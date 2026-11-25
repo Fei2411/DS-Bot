@@ -525,8 +525,9 @@ function makeSwitchFixture({ fail = {}, home: reuse } = {}) {
     },
     sessionTitle: { rename: async () => {} },
     sessions: {
-      flush: async () => {
+      flush: async (session) => {
         flushes += 1
+        if (typeof fail.onFlush === 'function') await fail.onFlush(session, flushes)
         if (fail.flush === true || fail.flush === flushes) throw new Error('transient flush error')
       },
     },
@@ -543,27 +544,31 @@ function makeSwitchFixture({ fail = {}, home: reuse } = {}) {
   return { ctx, rt, home, root, archived, agentOf, preStep, state, fail, stop }
 }
 
-test('B18: crash between pointer flip and handoff flush #1 recovers missing handoff package on restart via handoffPending', async (t) => {
-  // Flush #1 fails right after rt.save() flipped bot.sessionId to s1.
-  const fail = { flush: 1 }
+test('B18: crash between pointer flip and handoff flush #1 recovers missing handoff package with original reply routing on restart', async (t) => {
+  // Flush #1 checkpoints parked input on old part b; Flush #2 fails on s1 handoff after pointer flip.
+  const fail = { flush: 2 }
   const host = makeSwitchFixture({ fail })
   await host.rt.load()
   const msg = { id: 'm-b18', role: 'user', content: [{ type: 'text', text: 'important task' }], source: { kind: 'user', exchangeId: 'ex-b18' } }
+  const entry = host.rt.liveOf('b')
+  entry.info = { kind: 'ds-bot', form: 'relay', role: 'request', exchangeId: 'ex-peer-route', rpcId: 'stale-rpc-1', senderName: 'Kai' }
+  entry.joined = [{ info: { kind: 'ds-bot', role: 'request', exchangeId: 'ex-joined-1' }, text: 'also check this' }]
   host.agentOf('b').status = 'running'
   await host.preStep('b', [msg], 2)
   assert.equal(await waitFor(() => host.state().bots.b.sessionId === 's1'), true)
   await new Promise(resolve => setTimeout(resolve, 40))
 
   // Pointer flipped to s1, handoffPending remained true in state.switching!
-  assert.equal(host.state().switching.b?.handoffPending, true, 'handoffPending must stay persisted when flush #1 fails')
-  // Simulate crash where s1 lost its unflushed handoff message on disk before flush #1 completed.
+  assert.equal(host.state().switching.b?.handoffPending, true, 'handoffPending must stay persisted when handoff flush fails')
+  // Simulate crash where s1 lost its unflushed handoff message on disk before handoff flush completed.
   const inboxFile = join(host.home, 'fake-inbox.json')
   const onDisk = JSON.parse(readFileSync(inboxFile, 'utf8'))
   onDisk.s1 = { nextStep: [], nextTurn: [] }
   writeFileSync(inboxFile, JSON.stringify(onDisk))
   await host.stop({ keep: true })
 
-  // Restart and run heldBack(): must reconstruct & deliver [Handoff · part 2] BEFORE held user input.
+  // Restart and run heldBack(): must reconstruct & deliver [Handoff · part 2] preserving
+  // original reply routing (exchangeId, role, joined, no stale rpcId) BEFORE held user input.
   const second = makeSwitchFixture({ home: host.home })
   t.after(second.stop)
   await second.rt.load()
@@ -572,20 +577,27 @@ test('B18: crash between pointer flip and handoff flush #1 recovers missing hand
   const followups = second.agentOf('s1').calls.filter(([kind]) => kind === 'followup').map(([, m]) => m)
   assert.ok(followups.length >= 2, 'must deliver reconstructed handoff AND held user message')
   assert.equal(followups[0].source?.handoff, true, 'first message on s1 must be reconstructed handoff package')
+  assert.equal(followups[0].source?.exchangeId, 'ex-peer-route', 'recovered handoff must preserve original exchangeId for turn settlement')
+  assert.equal(followups[0].source?.role, 'request', 'recovered handoff must preserve original reply role')
+  assert.equal(followups[0].source?.rpcId, undefined, 'recovered handoff must strip stale rpcId')
+  assert.equal(followups[0].source?.joined?.length, 1, 'recovered handoff must preserve joined requests')
   assert.match(followups[0].content[0].text, /^\[Handoff · part 2\]/)
   assert.equal(followups[1].content[0].text, 'important task', 'held user message must follow handoff')
   assert.deepEqual(second.archived, [['b', { stopActivity: true }]])
   assert.deepEqual(second.state().switching, {})
 })
 
-test('B19: claimed mid-turn step messages are durably parked in old inbox immediately while switch awaits creation', async (t) => {
+test('B19: claimed mid-turn step messages are durably parked AND flushed on old session before new part creation', async (t) => {
+  const order = []
   let releaseCreate
   const createPaused = new Promise(resolve => { releaseCreate = resolve })
   let atCreateResolve
   const atCreate = new Promise(resolve => { atCreateResolve = resolve })
   const host = makeSwitchFixture({
     fail: {
+      onFlush: (session) => { order.push(`flush:${session.id}`) },
       onCreate: async () => {
+        order.push('create')
         atCreateResolve()
         await createPaused
       },
@@ -599,7 +611,8 @@ test('B19: claimed mid-turn step messages are durably parked in old inbox immedi
   await host.preStep('b', [claimed], 2)
   await atCreate
 
-  // While moveOn is still paused in create(), claimed message is ALREADY persisted on disk in old inbox!
+  // Old session flush MUST complete before create() starts!
+  assert.deepEqual(order, ['flush:b', 'create'], 'old session durability flush must precede new part creation')
   const persistedInbox = JSON.parse(readFileSync(join(host.home, 'fake-inbox.json'), 'utf8'))
   const texts = (persistedInbox.b?.nextTurn ?? []).map(m => m.content?.[0]?.text)
   assert.deepEqual(texts, ['do not drop me mid-switch'], 'claimed input must be durable in old inbox before switch completes')
@@ -610,7 +623,7 @@ test('B19: claimed mid-turn step messages are durably parked in old inbox immedi
   assert.equal(userDeliveries.length, 1, 'durably parked message must be forwarded exactly once')
 })
 
-test('B20: failed post-move forward retries automatically via backoff without waiting for restart', async (t) => {
+test('B20: failed post-move forward retries automatically via backoff without duplicating prompts already claimed by target', async (t) => {
   const realSetTimeout = globalThis.setTimeout
   const waitReal = async (predicate, timeoutMs = 3_000) => {
     const deadline = performance.now() + timeoutMs
@@ -623,23 +636,108 @@ test('B20: failed post-move forward retries automatically via backoff without wa
   t.mock.timers.enable({ apis: ['setTimeout'], now: Date.now() })
   t.after(() => t.mock.timers.reset())
 
-  // Flush #1 (handoff) succeeds; Flush #2 (held user message) fails transiently.
-  const fail = { flush: 2 }
+  // Flush #1 (park on b) & Flush #2 (handoff on s1) succeed; Flush #3 (forward to s1) fails
+  // AFTER s1 has already claimed the forwarded message out of its inbox into its session events!
+  const targetEvents = []
+  const fail = {
+    flush: 3,
+    onFlush: (session, n) => {
+      if (n === 3 && session.id === 's1') {
+        // Simulate target agent claiming the forwarded prompt out of s1.inbox right before flush fails.
+        const s1 = host.agentOf('s1')
+        const claimed = s1.inbox.nextTurn.splice(0).find(m => m.content?.[0]?.text === 'append line once')
+        if (claimed) {
+          targetEvents.push({ type: 'user/message', data: { id: claimed.id, source: claimed.source, content: claimed.content } })
+        }
+      }
+    },
+  }
   const host = makeSwitchFixture({ fail })
   t.after(host.stop)
   await host.rt.load()
 
-  const msg = { id: 'm-b20', role: 'user', content: [{ type: 'text', text: 'retry me automatically' }], source: { kind: 'user', exchangeId: 'ex-b20' } }
+  // Expose snapshotEvents on s1 once created so collectTargetSeenKeys sees admitted events.
+  const origResolve = host.ctx.sessionController.resolveAgent
+  host.ctx.sessionController.resolveAgent = async (sid) => {
+    const res = await origResolve(sid)
+    if (sid === 's1' && res.agent?.session) res.agent.session.snapshotEvents = () => targetEvents
+    return res
+  }
+
+  // Prompt without exchangeId (only message.id) — must still deduplicate via transferId!
+  const msg = { id: 'm-b20-no-exid', role: 'user', content: [{ type: 'text', text: 'append line once' }], source: { kind: 'user' } }
   host.agentOf('b').status = 'running'
   await host.preStep('b', [msg], 2)
 
   assert.equal(await waitReal(() => host.state().bots.b.sessionId === 's1' && host.state().switching.b !== undefined), true)
-  assert.deepEqual(host.archived, [], 'old part stays unarchived after transient flush #2 error')
+  assert.deepEqual(host.archived, [], 'old part stays unarchived after transient forward flush error')
 
-  // Clear transient error and advance timer 5s: backoff retry runs heldBack() automatically!
+  // Clear transient error and advance timer 5s: backoff retry runs heldBack() automatically,
+  // sees the prompt was already admitted on s1, flushes s1, archives b, and NEVER duplicates it!
   fail.flush = false
   t.mock.timers.tick(5_000)
 
-  assert.equal(await waitReal(() => host.archived.some(([id]) => id === 'b') && Object.keys(host.state().switching).length === 0), true, 'automatic backoff retry must forward held input and archive old part without restart')
-  assert.ok(host.agentOf('s1').calls.some(([kind, m]) => kind === 'followup' && m.content?.[0]?.text === 'retry me automatically'))
+  assert.equal(await waitReal(() => host.archived.some(([id]) => id === 'b') && Object.keys(host.state().switching).length === 0), true, 'automatic backoff retry must settle and archive old part without restart')
+  const sentToTarget = host.agentOf('s1').calls.filter(([kind, m]) => kind === 'followup' && m.content?.[0]?.text === 'append line once')
+  assert.equal(sentToTarget.length, 1, 'already-claimed prompt must NOT be forwarded a second time on retry')
+})
+
+test('B2-steer: mid-turn pruning uses turn/start so a mid-turn steer does not expose earlier tool results of the same turn', async (t) => {
+  const oldHugeOutput = 'TURN1_OLD_LOG '.repeat(5_000) // ~70k chars (~17.5k tokens)
+  const turn2FirstOutput = `T2_FIRST_HEAD ${'T2_FIRST_KEEP '.repeat(700)} T2_FIRST_TAIL` // ~10k chars (>8192)
+  const turn2SecondOutput = `T2_SECOND_HEAD ${'T2_SECOND_KEEP '.repeat(700)} T2_SECOND_TAIL` // ~10k chars (>8192)
+  const { rt, agent, calls, runTurn } = await bootRealDshBot(t, {
+    contextWindow: 50_000,
+    defaultMaxTokens: 4_000,
+    checkRatio: 0.7, // usable=46k, check=32.2k, hard=43.7k
+    withPruner: true,
+    toolExecute: async ({ path }) => (path === 'old.log' ? oldHugeOutput : path === 't2-first.log' ? turn2FirstOutput : turn2SecondOutput),
+    onTurn: (step) => {
+      if (step === 1) return { toolCall: { id: 'tc-t1', name: 'inspect_file', args: { path: 'old.log' } }, usage: { inputTokens: 2_000, outputTokens: 100 } }
+      if (step === 2) return { text: 'Done turn 1', usage: { inputTokens: 20_000, outputTokens: 100 } }
+      if (step === 3) return { toolCall: { id: 'tc-t2-a', name: 'inspect_file', args: { path: 't2-first.log' } }, usage: { inputTokens: 24_000, outputTokens: 100 } }
+      if (step === 4) {
+        // User steers mid-turn right before step 4 calls another tool!
+        agent.steer(createUserMessage({ content: [{ type: 'text', text: 'also check t2-second.log' }], source: { kind: 'user' } }))
+        return { toolCall: { id: 'tc-t2-b', name: 'inspect_file', args: { path: 't2-second.log' } }, usage: { inputTokens: 44_500, outputTokens: 100 } }
+      }
+      return { text: 'BOTH_TURN2_LOGS_INTACT', usage: { inputTokens: 20_000, outputTokens: 100 } }
+    },
+  })
+
+  await runTurn('Inspect old.log')
+  await runTurn('Inspect t2-first.log')
+  assert.equal(rt.chatOf('m1'), 'm1')
+  assert.equal(calls.filter(c => c.kind === 'steward').length, 0)
+
+  const lastTurnMsgs = calls.filter(c => c.kind === 'turn').at(-1)?.messages ?? []
+  const toolTexts = lastTurnMsgs.filter(m => m.role === 'tool').map(m => (m.content ?? []).map(b => b.text ?? '').join(''))
+  const oldTxt = toolTexts.find(s => s.includes('TURN1_OLD_LOG')) ?? ''
+  const firstTxt = toolTexts.find(s => s.includes('T2_FIRST_HEAD')) ?? ''
+  const secondTxt = toolTexts.find(s => s.includes('T2_SECOND_HEAD')) ?? ''
+  assert.match(oldTxt, /\[\.\.\. tool result middle pruned \.\.\.\]/, 'previous turn tool output must be pruned')
+  assert.doesNotMatch(firstTxt, /\[\.\.\. tool result middle pruned \.\.\.\]/, 'current turn first tool output before mid-turn steer must stay protected')
+  assert.match(firstTxt, /T2_FIRST_KEEP/)
+  assert.doesNotMatch(secondTxt, /\[\.\.\. tool result middle pruned \.\.\.\]/, 'current turn second tool output must stay protected')
+})
+
+test('B6-nonbinding: an explicit checkTokens above the ratio-based check line does not lower the mid-turn threshold', async (t) => {
+  // Window 100k, reserve 4k -> usable 96k, hard 91.2k; checkRatio 0.5 -> ratio check = 48k.
+  // Explicit checkTokens=380k is nonbinding (380k > 48k), so mid-turn must NOT condense at 75k (< hard 91.2k).
+  const { rt, calls, runTurn } = await bootRealDshBot(t, {
+    contextWindow: 100_000,
+    defaultMaxTokens: 4_000,
+    checkRatio: 0.5,
+    withPruner: false,
+    config: { checkTokens: 380_000 },
+    onSteward: async () => ({ text: JSON.stringify({ action: 'compact', reason: 'stay' }) }),
+    onTurn: (step) => {
+      if (step === 1) return { toolCall: { id: 'tc-nb', name: 'inspect_file', args: { path: 'a.js' } }, usage: { inputTokens: 75_000, outputTokens: 100 } }
+      return { text: 'FINISHED_WITHOUT_EARLY_MIDTURN_COMPACT', usage: { inputTokens: 30_000, outputTokens: 100 } }
+    },
+  })
+
+  await runTurn('Run task under nonbinding checkTokens')
+  assert.equal(rt.chatOf('m1'), 'm1')
+  assert.equal(calls.filter(c => c.kind === 'checkpoint').length, 0, 'nonbinding checkTokens must not trigger early mid-turn compaction below hard line')
 })
