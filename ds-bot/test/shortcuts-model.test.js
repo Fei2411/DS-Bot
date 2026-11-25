@@ -130,6 +130,12 @@ test('validateBinding and eventToBinding reject unsafe combos while allowing mac
   assert.deepEqual(validateBinding({ code: 'Enter', mod: true, ctrl: false, alt: false, shift: true }, false), { ok: false, reason: 'reserved' })
   assert.deepEqual(validateBinding({ code: 'Enter', mod: false, ctrl: false, alt: true, shift: false }, true), { ok: false, reason: 'reserved' })
   assert.deepEqual(validateBinding({ code: 'NumpadEnter', mod: true, ctrl: false, alt: false, shift: false }, false), { ok: false, reason: 'reserved' })
+  // Windows/Linux reserves Ctrl+Alt on non-function keys (AltGr character entry) while allowing F-keys and macOS Cmd/Ctrl+Alt.
+  assert.deepEqual(validateBinding({ code: 'KeyQ', mod: true, ctrl: false, alt: true, shift: false }, false), { ok: false, reason: 'reserved' })
+  assert.deepEqual(validateBinding({ code: 'Period', mod: true, ctrl: false, alt: true, shift: false }, false), { ok: false, reason: 'reserved' })
+  assert.deepEqual(validateBinding({ code: 'Digit7', mod: true, ctrl: false, alt: true, shift: true }, false), { ok: false, reason: 'reserved' })
+  assert.deepEqual(validateBinding({ code: 'F8', mod: true, ctrl: false, alt: true, shift: false }, false), { ok: true })
+  assert.deepEqual(validateBinding({ code: 'KeyQ', mod: true, ctrl: false, alt: true, shift: false }, true), { ok: true })
   // On macOS, Ctrl+Cmd+C is distinct from Cmd+C and stays assignable.
   assert.deepEqual(validateBinding({ code: 'KeyC', mod: true, ctrl: true, alt: false, shift: false }, true), { ok: true })
   assert.deepEqual(validateBinding({ code: 'F8', mod: false, ctrl: false, alt: false, shift: false }, true), { ok: true })
@@ -137,6 +143,23 @@ test('validateBinding and eventToBinding reject unsafe combos while allowing mac
 
   // Windows/Linux rejects Super/Meta key instead of silently dropping Meta.
   assert.equal(eventToBinding({ ctrlKey: true, metaKey: true, code: 'KeyK' }, false), null)
+})
+
+test('loadShortcutOverrides drops stale invalid overrides while keeping valid overrides and explicit unbinds', () => {
+  const storage = memoryStorage()
+  storage.setItem('ds-bot.shortcuts.v1', JSON.stringify({
+    other: {
+      browser: { code: 'Enter', mod: true, ctrl: false, alt: false, shift: true },
+      inbox: { code: 'Period', mod: true, ctrl: false, alt: true, shift: false },
+      memory: { code: 'F8', mod: true, ctrl: false, alt: true, shift: false },
+      details: null,
+    },
+  }))
+  const winStore = createShortcutStore({ storage, mac: false })
+  assert.equal(winStore.bindingOf('browser')?.code, 'KeyB')
+  assert.equal(winStore.bindingOf('inbox')?.code, 'KeyI')
+  assert.equal(winStore.bindingOf('memory')?.code, 'F8')
+  assert.equal(winStore.bindingOf('details'), null)
 })
 
 test('createShortcutStore persists per platform, checks conflicts on set and reset, and filters activeBindings', () => {

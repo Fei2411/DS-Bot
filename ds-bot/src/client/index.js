@@ -962,7 +962,11 @@ export function apply(ctx) {
         launch: typeof bridge.importLaunch === 'function' ? (source) => bridge.importLaunch(source) : null,
         openPermission: typeof bridge.importOpenPermission === 'function' ? () => bridge.importOpenPermission() : null,
         live: (source, close, requestId) => bridge.importLive(source, close, requestId),
-        apply: (botId, pending, options) => bridge.importApply(`bot:${botId}`, pending, options),
+        apply: (botId, pending, options) => bridge.importApply(
+          Array.isArray(botId) ? botId.map((id) => `bot:${id}`) : `bot:${botId}`,
+          pending,
+          options,
+        ),
         cancel: (pending) => bridge.importCancel(pending),
       } : null,
     })

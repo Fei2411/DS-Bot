@@ -674,7 +674,17 @@ function browserBridge() {
     importLaunch: (source) => ipcRenderer.invoke('ds-bot:browser-import-launch', String(source)),
     importOpenPermission: () => ipcRenderer.invoke('ds-bot:browser-import-open-permission'),
     importLive: (source, close, requestId) => ipcRenderer.invoke('ds-bot:browser-import-live', String(source), close === true, typeof requestId === 'string' ? requestId : undefined),
-    importApply: (key, pending, options) => ipcRenderer.invoke('ds-bot:browser-import-apply', String(key), String(pending), options && typeof options === 'object' ? options : undefined),
+    importApply: (key, pending, options) => ipcRenderer.invoke(
+      'ds-bot:browser-import-apply',
+      Array.isArray(key) ? key.map(String) : String(key),
+      String(pending),
+      options && typeof options === 'object'
+        ? {
+            ...(Array.isArray(options.sites) ? { sites: options.sites.map(String) } : {}),
+            persistSession: options.persistSession === true,
+          }
+        : undefined,
+    ),
     importCancel: (pending) => ipcRenderer.invoke('ds-bot:browser-import-cancel', typeof pending === 'string' ? pending : ''),
     onOpenRequested(lease, listener) {
       const id = String(lease)

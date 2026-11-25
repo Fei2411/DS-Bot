@@ -279,3 +279,10 @@ The browser plugin marks identify their respective projects. Each is a trademark
 of its owner: Playwright (Microsoft, official SVG mark from playwright.dev,
 Apache-2.0), Ego (CitroLabs, official geometric mark from citrolabs/ego-lite),
 and Chrome (Google). DS Bot is not affiliated with or endorsed by these owners.
+
+Browser logos (ds-bot/src/client/browser-marks.js)
+The browser marks identify browsers installed on the user's machine for cookie
+import. Each is a trademark of its owner: Chrome and Chromium (Google), Edge
+(Microsoft), Safari (Apple), Firefox (Mozilla), Brave (Brave Software), Arc
+(The Browser Company), Opera (Opera Norway), Vivaldi (Vivaldi Technologies),
+and Zen (Zen Browser). DS Bot is not affiliated with or endorsed by these owners.

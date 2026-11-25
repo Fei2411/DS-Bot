@@ -301,6 +301,11 @@ export function validateBinding(binding, mac = isMacPlatform()) {
   if (binding.code === 'Enter' || binding.code === 'NumpadEnter') {
     return { ok: false, reason: 'reserved' }
   }
+  // On Windows/Linux, Ctrl+Alt on non-function keys collides with AltGr character entry
+  // across international keyboard layouts and cannot be distinguished reliably in Electron.
+  if (!mac && mods.ctrl && mods.alt && !FUNCTION_CODE.test(binding.code)) {
+    return { ok: false, reason: 'reserved' }
+  }
   // Bare letters/digits/punctuation (or Shift+letter) would hijack typing.
   const onlyShift = mods.shift && !hasPrimary && !mods.alt
   if ((!hasAnyMod || onlyShift) && !FUNCTION_CODE.test(binding.code)) {
@@ -359,7 +364,7 @@ export function loadShortcutOverrides(storage = typeof localStorage === 'undefin
       if (value === null) clean[id] = null
       else {
         const normalized = normalizeBinding(value)
-        if (normalized) clean[id] = normalized
+        if (normalized && validateBinding(normalized, mac).ok) clean[id] = normalized
       }
     }
     return clean
@@ -383,7 +388,7 @@ export function saveShortcutOverrides(overrides, storage = typeof localStorage =
       if (value === null) clean[id] = null
       else {
         const normalized = normalizeBinding(value)
-        if (normalized) clean[id] = normalized
+        if (normalized && validateBinding(normalized, mac).ok) clean[id] = normalized
       }
     }
     parsed[platformBucket(mac)] = clean
@@ -509,6 +514,7 @@ export function matchShortcutEvent(event, {
   const ctrlKey = Boolean(event.ctrlKey ?? event.control)
   const altKey = Boolean(event.altKey ?? event.alt)
   const shiftKey = Boolean(event.shiftKey ?? event.shift)
+  if (!mac && ctrlKey && altKey && !metaKey && !FUNCTION_CODE.test(code)) return null
 
   // While Settings is open, always reserve Cmd/Ctrl+K for SettingsPalette search
   // regardless of which command is bound to that chord.
