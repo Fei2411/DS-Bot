@@ -1562,6 +1562,9 @@ export function install(rt) {
         .filter(option => option.label !== '')
         .slice(0, 6)
       if (options.length === 0) return 'Give at least one option.'
+      // A card still open (the user has not written since; a Bot's message started this
+      // turn) closes in the chat instead of vanishing from it (#2172).
+      if (state.questions[id]?.callId !== exec.callId) rt.closeCard(id, state.questions[id], 'dismissed')
       state.questions[id] = {
         id: randomUUID(),
         ...(exec.callId ? { callId: exec.callId } : {}),
@@ -1618,6 +1621,8 @@ export function install(rt) {
         return 'The view is on screen.'
       }
       const imOrigin = rt.captureImOrigin?.(owner === undefined ? id : rt.roomOf(owner.roomId)?.sessionId ?? owner.roomId)
+      // As with ask_user: an earlier view still open closes instead of vanishing (#2172).
+      if (state.views[id]?.callId !== exec.callId) rt.closeCard(id, state.views[id], 'dismissed')
       state.views[id] = {
         id: randomUUID(),
         ...(exec.callId ? { callId: exec.callId } : {}),
