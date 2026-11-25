@@ -473,6 +473,7 @@ test('D2: ACP, Codex, and Claude resume loss throw LOCAL_AGENT_SESSION_LOST (no 
     ],
   })
   parts.rt.state.localAgents = { custom: [], sessions: { s1: { handedId: 'm1' } } }
+  parts.rt.holdImOrigin = () => 'im-tok-live'
   // Make fresh session reflect already-followed messages so heldBack dedup can verify idempotency.
   parts.fresh.session.deriveMessages = () => [...parts.followed]
   const handlers = parts.ctx.listeners.get('agent/request-error') ?? []
@@ -489,10 +490,12 @@ test('D2: ACP, Codex, and Claude resume loss throw LOCAL_AGENT_SESSION_LOST (no 
   assert.equal(parts.followed.length, 2, 'fresh part receives silent handoff followed by original unread request')
   assert.equal(parts.followed[0].source?.handoff, true)
   assert.equal(parts.followed[0].source?.resume, undefined, 'handoff stays silent when unread request wakes the fresh part')
+  assert.equal(parts.followed[0].source?.imOrigin, undefined, 'silent handoff must not consume the one-use IM origin token')
   assert.match(parts.followed[0].content.map(b => b.text).join(''), /local agent session could no longer be resumed/)
   assert.equal(parts.followed[1].content[0].text, longText, 'full long unread text must not be clipped')
   assert.deepEqual(parts.followed[1].content[1], imageBlock, 'unread image attachment block must be preserved')
   assert.equal(parts.followed[1].source?.transferId, 'runtime-lost:s1:m2')
+  assert.equal(parts.followed[1].source?.imOrigin, 'im-tok-live', 'forwarded unread request carries the one-use IM origin token')
 
   // Simulate a crash before switching cleanup completed: re-running heldBack() must NOT duplicate the unread request.
   parts.rt.state.switching.s1 = { botId: 'b1', next: 's2', runtimeLost: true }
@@ -516,16 +519,19 @@ test('D2: ACP, Codex, and Claude resume loss throw LOCAL_AGENT_SESSION_LOST (no 
     botId: 'b1',
     next: 's2',
     runtimeLost: true,
+    runtimeLostContext: { resumeOrigin: 'im-tok-crash' },
     handoffPending: true,
-    handoffMeta: { resume: true, runtimeLost: true, runtimeLostHasUnread: true },
+    handoffMeta: { resume: true, runtimeLost: true, runtimeLostHasUnread: true, resumeOrigin: 'im-tok-crash' },
   }
   crashParts.fresh.session.deriveMessages = () => [...crashParts.followed]
   await crashParts.rt.heldBack()
   assert.equal(crashParts.followed.length, 2, 'crash recovery delivers silent handoff and unread request once')
   assert.equal(crashParts.followed[0].source?.handoff, true)
   assert.equal(crashParts.followed[0].source?.resume, undefined)
+  assert.equal(crashParts.followed[0].source?.imOrigin, undefined, 'recovered silent handoff must not consume IM origin token')
   assert.equal(crashParts.followed[1].content[0].text, longText)
   assert.deepEqual(crashParts.followed[1].content[1], imageBlock)
+  assert.equal(crashParts.followed[1].source?.imOrigin, 'im-tok-crash', 'recovered unread request carries the IM origin token')
 })
 
 // ---------------------------------------------------------------------------

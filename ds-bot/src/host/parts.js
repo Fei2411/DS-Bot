@@ -1825,8 +1825,10 @@ export function install(rt) {
         ...(isLast && Array.isArray(job.joined) && job.joined.length > 0 && !Array.isArray(baseSource.joined) ? { joined: job.joined } : {}),
       }
       const originCarrier = markOriginSent ? job : { resumeOrigin: job.resumeOrigin }
+      const cleaned = { ...merged }
+      delete cleaned.imOrigin
       const source = {
-        ...(isLast ? carryOriginSource(originCarrier, merged) : (() => { const s = { ...merged }; delete s.rpcId; delete s.transferId; return s })()),
+        ...(isLast ? carryOriginSource(originCarrier, cleaned) : (() => { delete cleaned.rpcId; delete cleaned.transferId; return cleaned })()),
         transferId,
       }
       return { ...message, source }
@@ -1834,14 +1836,26 @@ export function install(rt) {
   }
 
   // A turn stopped for a switch goes on with its own source, so its reply still
-  // reaches whoever asked.
-  const handoffSource = (job, resume) => carryOriginSource(job, {
-    ...(resume && job.info ? job.info : { kind: SOURCE_KIND, form: 'relay', role: 'handoff', senderName: 'DS Bot' }),
-    exchangeId: job.info?.exchangeId ?? randomUUID(),
-    handoff: true,
-    ...(resume ? { resume: true } : {}),
-    ...(resume && job.joined?.length ? { joined: job.joined } : {}),
-  })
+  // reaches whoever asked. When unread runtime-lost input will drive the new turn,
+  // omit the one-use IM origin token from the silent handoff so only the forwarded
+  // request claims it.
+  const handoffSource = (job, resume, { omitOrigin = false } = {}) => {
+    const base = {
+      ...(resume && job.info ? job.info : { kind: SOURCE_KIND, form: 'relay', role: 'handoff', senderName: 'DS Bot' }),
+      exchangeId: job.info?.exchangeId ?? randomUUID(),
+      handoff: true,
+      ...(resume ? { resume: true } : {}),
+      ...(resume && job.joined?.length ? { joined: job.joined } : {}),
+    }
+    if (omitOrigin) {
+      const cleaned = { ...base }
+      delete cleaned.rpcId
+      delete cleaned.transferId
+      delete cleaned.imOrigin
+      return cleaned
+    }
+    return carryOriginSource(job, base)
+  }
 
   /** @type {Map<string, {botId:string, roomId?:string, carry:any[], info?:any, joined?:any[], resume:boolean, overflow:boolean, cutoff?:boolean, failed?:string, bare?:boolean, folder?:boolean, engine?:boolean, hard:boolean, started?:boolean, moved?:boolean, noteFailed?:boolean}>} */
   const switches = new Map()
@@ -2207,7 +2221,7 @@ export function install(rt) {
     }
     fresh.followup(createUserMessage({
       content: [{ type: 'text', text }],
-      source: handoffSource(recoveredJob, resume),
+      source: handoffSource(recoveredJob, resume, { omitOrigin: hasRuntimeLostUnread }),
     }))
     await ctx.sessions.flush(fresh.session)
   }
@@ -2945,7 +2959,7 @@ export function install(rt) {
       const engine = job.engine ? rt.engineNameOf?.(bot.model ?? bot.appliedModel) : undefined
       const text = handoffPackage({ room: effectiveRoom, self: bot === undefined, segment, lines: carried, number: number + 1, resume: handoffResume, overflow: job.overflow, cutoff: job.cutoff === true, runtimeLost: job.runtimeLost === true, failed: job.failed, bare: job.bare, folder, engine })
       freshParts.set(freshId, estimateTokens(text))
-      fresh.followup(createUserMessage({ content: [{ type: 'text', text }], source: handoffSource(job, handoffResume) }))
+      fresh.followup(createUserMessage({ content: [{ type: 'text', text }], source: handoffSource(job, handoffResume, { omitOrigin: hasRuntimeLostUnread }) }))
       await ctx.sessions.flush(fresh.session)
       // Handoff package is now durably flushed to the fresh part: clear the pending flag
       // in memory (persisted on the switch's final save; even on a hard crash before that
