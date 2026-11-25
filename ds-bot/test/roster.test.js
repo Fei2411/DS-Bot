@@ -10,6 +10,9 @@ import { afterRound } from './relay-rows.js'
 import { format } from 'node:util'
 import { createRuntime } from '../index.js'
 import { fakeContext } from './fake-ctx.js'
+import { API_ACTOR } from '../src/host/roster.js'
+import { createApiRoutes } from '../src/host/api/routes.js'
+import { agentAvatar } from '../src/client/agent-routes.js'
 
 // DSH's settings and credentials for a DeepSeek route that takes an API key. A key set
 // or removed is announced the way DSH announces it. `records` are the stored records
@@ -105,6 +108,27 @@ const until = async (check) => {
     await settle()
   }
 }
+
+test('API-created Bots retain a non-user creator across persistence and receive no Main rights', async t => {
+  const { stop, home, sent } = start(undefined, { models: ['deepseek-v4-flash'] })
+  t.after(stop)
+  await rt.load()
+  await rt.bootstrap()
+  const bot = await rt.createBot({ name: 'API worker', main: true, createdBy: null }, API_ACTOR)
+  assert.equal(bot.createdBy, 'api:external')
+  assert.equal(rt.isMain(bot.id), false)
+  assert.equal(rt.isMain(bot.createdBy), false)
+  await rt.save()
+  const saved = JSON.parse(readFileSync(join(home, 'state.json'), 'utf8')).bots[bot.id]
+  assert.equal(saved.createdBy, 'api:external')
+  await until(() => sent.some(entry => entry.sessionId === bot.id))
+  const kickoff = sent.find(entry => entry.sessionId === bot.id).message
+  assert.equal(kickoff.source.senderName, 'External API')
+  assert.equal(kickoff.source.senderSessionId, 'api:external')
+  assert.match(JSON.stringify(kickoff.content), /external API.*created you/)
+  await assert.rejects(rt.updateBot(bot.id, { private: true }, API_ACTOR), /Only the user/)
+  await assert.rejects(rt.updateBot(bot.id, { browserGrants: [] }, API_ACTOR), /Only the user/)
+})
 
 test('the first Main Bot waits for the user to pick a model, then greets', async (t) => {
   const { call, stop, sent, selected } = start(undefined, { models: ['deepseek-v4-flash', 'deepseek-v4-pro'] })
@@ -1190,6 +1214,50 @@ test('list_bot_models names the thinking levels of the models a Bot runs on', as
 // store it in the same data URL the settings page writes.
 const PNG_BYTES = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(24, 1)])
 const PNG_DATA_URL = `data:image/png;base64,${PNG_BYTES.toString('base64')}`
+
+test('API Bot and group avatars use the roster raster validator and exact badge rules', async t => {
+  const { stop } = start(undefined, { models: ['deepseek-v4-flash'] })
+  t.after(stop)
+  await rt.load()
+  await rt.bootstrap()
+  const principal = {
+    hasScope: () => true,
+    assertBotAccess: () => ({ ok: true }), assertRoomAccess: () => ({ ok: true }),
+    canAccessBot: () => true,
+  }
+  const routes = createApiRoutes(rt, { auth: {}, runs: {}, sseClients: new Set() })
+  t.after(() => routes.dispose())
+  const api = routes.service
+  const bot = await api.createBot(principal, { name: 'Photo worker', avatar: { image: PNG_DATA_URL } })
+  const members = [bot.id, rt.state.mainBotIds[0]]
+  const group = await api.createGroup(principal, { name: 'Photo team', members, avatar: { image: PNG_DATA_URL } })
+  assert.equal(rt.botOf(bot.id).avatar.image, PNG_DATA_URL)
+  assert.equal(rt.roomOf(group.id).avatar.image, PNG_DATA_URL)
+  const updateBot = avatar => api.updateBot(principal, bot.id, { avatar })
+  const updateGroup = avatar => api.updateGroup(principal, group.id, { avatar })
+  const badge = agentAvatar('local-acp-api-test').image
+  const invalid = [
+    `data:image/svg+xml;base64,${Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>').toString('base64')}`,
+    `data:image/png;base64,${Buffer.from('not an image').toString('base64')}`,
+    badge,
+  ]
+  for (const image of invalid) {
+    for (const update of [updateBot, updateGroup]) await assert.rejects(() => update({ image }), /PNG, JPEG, WebP, or GIF/)
+    await assert.rejects(() => api.createBot(principal, { name: 'Bad photo', avatar: { image } }), /PNG, JPEG, WebP, or GIF/)
+    await assert.rejects(() => api.createGroup(principal, { name: 'Bad group photo', members, avatar: { image } }), /PNG, JPEG, WebP, or GIF/)
+  }
+  for (const update of [updateBot, updateGroup]) {
+    await update(null)
+    await update({ image: PNG_DATA_URL })
+    await update(undefined)
+  }
+  assert.equal(rt.botOf(bot.id).avatar.image, PNG_DATA_URL)
+  assert.equal(rt.roomOf(group.id).avatar.image, PNG_DATA_URL)
+  rt.botOf(bot.id).avatar = { image: badge }
+  await updateBot({ image: badge })
+  assert.equal(rt.botOf(bot.id).avatar.image, badge, 'an unchanged stored badge is not an upload')
+  await assert.rejects(() => updateBot({ image: `${badge} ` }), /PNG, JPEG, WebP, or GIF/)
+})
 const tempAvatarDir = (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'ds-bot-avatar-'))
   t.after(() => rmSync(dir, { recursive: true, force: true }))

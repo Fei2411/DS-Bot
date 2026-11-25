@@ -192,6 +192,49 @@ var JA = {
   "Android beta": "Android ベータ版",
   "Cannot reach the Server. Trying again…": "サーバーに接続できません。再試行しています…",
   "No phones yet": "スマートフォンはまだありません",
+  "API": "API",
+  "via API · {name}": "API 経由 · {name}",
+  "Read-only window: API is served by the primary window.": "読み取り専用ウィンドウです。API はメインウィンドウから提供されます。",
+  "Running at {url}": "{url} で稼働中",
+  "Off. External apps cannot reach DS Bot.": "オフです。外部アプリから DS Bot へ接続できません。",
+  "All public": "すべての公開対象",
+  "{count} Bots": "{count} 体の Bot",
+  "{count} groups": "{count} 個のグループ",
+  "No targets": "対象なし",
+  "{count} private": "{count} 体のプライベート",
+  "Never used": "未使用",
+  "Port must be a whole number from 0 to 65535": "ポートは 0 から 65535 の整数で指定してください",
+  "Local API server": "ローカル API サーバー",
+  "Enable local API server": "ローカル API サーバーを有効にする",
+  "OpenAI compatibility": "OpenAI 互換レイヤー",
+  "Expose /compat/openai/v1/* endpoints for existing OpenAI clients.": "既存の OpenAI クライアント向けに /compat/openai/v1/* を公開します。",
+  "Listen address": "リッスンアドレス",
+  "I understand this binds outside 127.0.0.1 and exposes the API on the local network.": "127.0.0.1 以外にバインドし、ローカルネットワークに API が公開されることを理解しました。",
+  "Copy Base URL": "Base URL をコピー",
+  "Copy MCP URL": "MCP URL をコピー",
+  "Copy curl": "curl をコピー",
+  "Copy MCP config": "MCP 設定をコピー",
+  "Token created: {name}": "トークンを作成しました: {name}",
+  "Copy this token now. It will not be shown again.": "今すぐトークンをコピーしてください。再表示はできません。",
+  "Access tokens": "アクセストークン",
+  "New token": "新しいトークン",
+  "Token name": "トークン名",
+  "e.g. Claude Code, CI script": "例: Claude Code、CI スクリプト",
+  "Target scope": "対象範囲",
+  "Selected Bots and groups": "選択した Bot とグループ",
+  "All non-private Bots and groups": "すべての非プライベート Bot とグループ",
+  "Private Bots (excluded by default)": "プライベート Bot（既定で除外）",
+  "Confirm granting this token access to selected private Bots.": "選択したプライベート Bot へのアクセス権をこのトークンに付与することを確認します。",
+  "Scopes": "スコープ",
+  "Confirm granting high-risk permissions (approval or team management).": "高リスク権限（承認またはチーム管理）の付与を確認します。",
+  "Expires in days (optional)": "有効期限（日数・任意）",
+  "Max concurrent runs": "最大同時実行数",
+  "Requests / min": "1分あたりのリクエスト上限",
+  "No tokens yet": "トークンはまだありません",
+  "Recent API activity": "最近の API アクティビティ",
+  "Audit log records metadata only (never tokens or message text).": "監査ログはメタデータのみ記録します（トークンや本文は記録しません）。",
+  "No API requests recorded yet": "API リクエストはまだ記録されていません",
+  "Unauthenticated": "未認証",
   "Off. Phones cannot reach this computer.": "オフ。スマートフォンからこのコンピューターに接続できません。",
   "On. Paired phones can use DS Bot here.": "オン。ペアリング済みのスマートフォンからここで DS Bot を使えます。",
   "Pair a phone": "スマートフォンをペアリング",
@@ -1780,6 +1823,15 @@ var JA = {
   "Waiting for teammate": "仲間の返答待ち",
   "Interrupted": "中断されました",
   "Moved from chat": "メイン会話から移動",
+  "Move to background": "バックグラウンドへ",
+  "Moving…": "移動中…",
+  "Move current work to background": "現在の作業をバックグラウンドへ移動",
+  "Answer or dismiss the open card first": "先に開いているカードに回答するか閉じてください",
+  "Clear or send pending queued messages first": "先に待機中のメッセージを送信または削除してください",
+  "Local agent Bots cannot move running turns to the background": "ローカルエージェント Bot は実行中のターンをバックグラウンドへ移動できません",
+  "Nothing is running right now": "現在実行中の作業はありません",
+  "This conversation has already moved on": "この会話はすでに先へ進んでいます",
+  "This turn has already ended": "このターンはすでに終了しました",
   "Teammate request": "仲間からの依頼",
   "{count} background tasks · {waiting} needs approval": "バックグラウンドタスク {count} 件・承認待ち {waiting} 件",
   "{count} background tasks running": "バックグラウンドタスク {count} 件を実行中",
@@ -3082,6 +3134,49 @@ var KO = {
   "Android beta": "Android 베타",
   "Cannot reach the Server. Trying again…": "서버에 연결할 수 없습니다. 다시 시도하는 중…",
   "No phones yet": "아직 휴대폰이 없습니다",
+  "API": "API",
+  "via API · {name}": "API 경유 · {name}",
+  "Read-only window: API is served by the primary window.": "읽기 전용 창입니다. API는 기본 창에서 제공됩니다.",
+  "Running at {url}": "{url}에서 실행 중",
+  "Off. External apps cannot reach DS Bot.": "꺼짐. 외부 앱에서 DS Bot에 접근할 수 없습니다.",
+  "All public": "전체 공개",
+  "{count} Bots": "Bot {count}개",
+  "{count} groups": "그룹 {count}개",
+  "No targets": "대상 없음",
+  "{count} private": "비공개 {count}개",
+  "Never used": "사용 기록 없음",
+  "Port must be a whole number from 0 to 65535": "포트는 0에서 65535 사이의 정수여야 합니다",
+  "Local API server": "로컬 API 서버",
+  "Enable local API server": "로컬 API 서버 사용",
+  "OpenAI compatibility": "OpenAI 호환 레이어",
+  "Expose /compat/openai/v1/* endpoints for existing OpenAI clients.": "기존 OpenAI 클라이언트를 위해 /compat/openai/v1/* 엔드포인트를 제공합니다.",
+  "Listen address": "수신 주소",
+  "I understand this binds outside 127.0.0.1 and exposes the API on the local network.": "127.0.0.1 외부에 바인딩하여 로컬 네트워크에 API가 노출됨을 이해합니다.",
+  "Copy Base URL": "Base URL 복사",
+  "Copy MCP URL": "MCP URL 복사",
+  "Copy curl": "curl 복사",
+  "Copy MCP config": "MCP 설정 복사",
+  "Token created: {name}": "토큰 생성됨: {name}",
+  "Copy this token now. It will not be shown again.": "지금 이 토큰을 복사하세요. 다시 표시되지 않습니다.",
+  "Access tokens": "액세스 토큰",
+  "New token": "새 토큰",
+  "Token name": "토큰 이름",
+  "e.g. Claude Code, CI script": "예: Claude Code, CI 스크립트",
+  "Target scope": "대상 범위",
+  "Selected Bots and groups": "선택한 Bot 및 그룹",
+  "All non-private Bots and groups": "모든 비공개 제외 Bot 및 그룹",
+  "Private Bots (excluded by default)": "비공개 Bot (기본 제외)",
+  "Confirm granting this token access to selected private Bots.": "선택한 비공개 Bot에 대한 접근 권한을 이 토큰에 부여함을 확인합니다.",
+  "Scopes": "권한 범위",
+  "Confirm granting high-risk permissions (approval or team management).": "고위험 권한(승인 또는 팀 관리) 부여를 확인합니다.",
+  "Expires in days (optional)": "만료 일수 (선택)",
+  "Max concurrent runs": "최대 동시 실행 수",
+  "Requests / min": "분당 요청 제한",
+  "No tokens yet": "아직 토큰이 없습니다",
+  "Recent API activity": "최근 API 활동",
+  "Audit log records metadata only (never tokens or message text).": "감사 로그는 메타데이터만 기록합니다(토큰 및 메시지 내용 제외).",
+  "No API requests recorded yet": "기록된 API 요청이 없습니다",
+  "Unauthenticated": "인증되지 않음",
   "Off. Phones cannot reach this computer.": "꺼짐. 휴대폰에서 이 컴퓨터에 연결할 수 없습니다.",
   "On. Paired phones can use DS Bot here.": "켜짐. 페어링된 휴대폰에서 여기의 DS Bot을 사용할 수 있습니다.",
   "Pair a phone": "휴대폰 페어링",
@@ -4712,6 +4807,15 @@ var KO = {
   "Waiting for teammate": "동료 응답 대기 중",
   "Interrupted": "중단됨",
   "Moved from chat": "메인 대화에서 이동",
+  "Move to background": "백그라운드로",
+  "Moving…": "이동 중…",
+  "Move current work to background": "현재 작업을 백그라운드로 옮기기",
+  "Answer or dismiss the open card first": "열려 있는 카드에 먼저 응답하거나 닫아 주세요",
+  "Clear or send pending queued messages first": "대기 중인 메시지를 먼저 보내거나 지워 주세요",
+  "Local agent Bots cannot move running turns to the background": "로컬 에이전트 Bot은 실행 중인 턴을 백그라운드로 옮길 수 없습니다",
+  "Nothing is running right now": "지금 실행 중인 작업이 없습니다",
+  "This conversation has already moved on": "이 대화는 이미 다음으로 넘어갔습니다",
+  "This turn has already ended": "이 턴은 이미 끝났습니다",
   "Teammate request": "동료 요청",
   "{count} background tasks · {waiting} needs approval": "백그라운드 작업 {count}개 · 승인 대기 {waiting}건",
   "{count} background tasks running": "백그라운드 작업 {count}개 실행 중",
@@ -6017,6 +6121,49 @@ var ES = {
   "Android beta": "Android beta",
   "Cannot reach the Server. Trying again…": "No se puede conectar con el servidor. Reintentando…",
   "No phones yet": "Aún no hay teléfonos",
+  "API": "API",
+  "via API · {name}": "vía API · {name}",
+  "Read-only window: API is served by the primary window.": "Ventana de solo lectura: la API la sirve la ventana principal.",
+  "Running at {url}": "En ejecución en {url}",
+  "Off. External apps cannot reach DS Bot.": "Desactivado. Las aplicaciones externas no pueden acceder a DS Bot.",
+  "All public": "Todos los públicos",
+  "{count} Bots": "{count} Bots",
+  "{count} groups": "{count} grupos",
+  "No targets": "Sin objetivos",
+  "{count} private": "{count} privados",
+  "Never used": "Nunca usado",
+  "Port must be a whole number from 0 to 65535": "El puerto debe ser un número entero entre 0 y 65535",
+  "Local API server": "Servidor API local",
+  "Enable local API server": "Habilitar servidor API local",
+  "OpenAI compatibility": "Compatibilidad con OpenAI",
+  "Expose /compat/openai/v1/* endpoints for existing OpenAI clients.": "Exponer los endpoints /compat/openai/v1/* para clientes de OpenAI existentes.",
+  "Listen address": "Dirección de escucha",
+  "I understand this binds outside 127.0.0.1 and exposes the API on the local network.": "Entiendo que esto enlaza fuera de 127.0.0.1 y expone la API en la red local.",
+  "Copy Base URL": "Copiar URL base",
+  "Copy MCP URL": "Copiar URL de MCP",
+  "Copy curl": "Copiar curl",
+  "Copy MCP config": "Copiar configuración MCP",
+  "Token created: {name}": "Token creado: {name}",
+  "Copy this token now. It will not be shown again.": "Copia este token ahora. No volverá a mostrarse.",
+  "Access tokens": "Tokens de acceso",
+  "New token": "Nuevo token",
+  "Token name": "Nombre del token",
+  "e.g. Claude Code, CI script": "p. ej., Claude Code, script de CI",
+  "Target scope": "Alcance de objetivos",
+  "Selected Bots and groups": "Bots y grupos seleccionados",
+  "All non-private Bots and groups": "Todos los Bots y grupos no privados",
+  "Private Bots (excluded by default)": "Bots privados (excluidos por defecto)",
+  "Confirm granting this token access to selected private Bots.": "Confirmar acceso de este token a los Bots privados seleccionados.",
+  "Scopes": "Permisos",
+  "Confirm granting high-risk permissions (approval or team management).": "Confirmar la concesión de permisos de alto riesgo (aprobación o gestión del equipo).",
+  "Expires in days (optional)": "Expira en días (opcional)",
+  "Max concurrent runs": "Ejecuciones simultáneas máx.",
+  "Requests / min": "Solicitudes / min",
+  "No tokens yet": "Aún no hay tokens",
+  "Recent API activity": "Actividad reciente de la API",
+  "Audit log records metadata only (never tokens or message text).": "El registro de auditoría solo guarda metadatos (nunca tokens ni texto de mensajes).",
+  "No API requests recorded yet": "Aún no se han registrado solicitudes a la API",
+  "Unauthenticated": "No autenticado",
   "Off. Phones cannot reach this computer.": "Desactivado. Los teléfonos no pueden conectarse a este ordenador.",
   "On. Paired phones can use DS Bot here.": "Activado. Los teléfonos vinculados pueden usar DS Bot aquí.",
   "Pair a phone": "Vincular un teléfono",
@@ -7647,6 +7794,15 @@ var ES = {
   "Waiting for teammate": "Esperando a un compañero",
   "Interrupted": "Interrumpida",
   "Moved from chat": "Movida desde el chat",
+  "Move to background": "Pasar a segundo plano",
+  "Moving…": "Moviendo…",
+  "Move current work to background": "Pasar el trabajo actual a segundo plano",
+  "Answer or dismiss the open card first": "Responde o cierra primero la tarjeta abierta",
+  "Clear or send pending queued messages first": "Envía o borra primero los mensajes en cola",
+  "Local agent Bots cannot move running turns to the background": "Los Bots de agente local no pueden pasar turnos activos a segundo plano",
+  "Nothing is running right now": "No hay nada en ejecución ahora mismo",
+  "This conversation has already moved on": "Esta conversación ya ha avanzado",
+  "This turn has already ended": "Este turno ya ha terminado",
   "Teammate request": "Solicitud de compañero",
   "{count} background tasks · {waiting} needs approval": "{count} tareas en segundo plano · {waiting} requieren aprobación",
   "{count} background tasks running": "{count} tareas en segundo plano en curso",
@@ -8952,6 +9108,49 @@ var FR = {
   "Android beta": "Android bêta",
   "Cannot reach the Server. Trying again…": "Impossible de joindre le serveur. Nouvel essai…",
   "No phones yet": "Aucun téléphone pour l’instant",
+  "API": "API",
+  "via API · {name}": "via API · {name}",
+  "Read-only window: API is served by the primary window.": "Fenêtre en lecture seule : l’API est servie par la fenêtre principale.",
+  "Running at {url}": "En cours sur {url}",
+  "Off. External apps cannot reach DS Bot.": "Désactivé. Les applications externes ne peuvent pas accéder à DS Bot.",
+  "All public": "Tous les publics",
+  "{count} Bots": "{count} Bots",
+  "{count} groups": "{count} groupes",
+  "No targets": "Aucune cible",
+  "{count} private": "{count} privés",
+  "Never used": "Jamais utilisé",
+  "Port must be a whole number from 0 to 65535": "Le port doit être un entier entre 0 et 65535",
+  "Local API server": "Serveur API local",
+  "Enable local API server": "Activer le serveur API local",
+  "OpenAI compatibility": "Compatibilité OpenAI",
+  "Expose /compat/openai/v1/* endpoints for existing OpenAI clients.": "Exposer les endpoints /compat/openai/v1/* pour les clients OpenAI existants.",
+  "Listen address": "Adresse d’écoute",
+  "I understand this binds outside 127.0.0.1 and exposes the API on the local network.": "Je comprends que cela lie hors de 127.0.0.1 et expose l’API sur le réseau local.",
+  "Copy Base URL": "Copier l’URL de base",
+  "Copy MCP URL": "Copier l’URL MCP",
+  "Copy curl": "Copier curl",
+  "Copy MCP config": "Copier la config MCP",
+  "Token created: {name}": "Jeton créé : {name}",
+  "Copy this token now. It will not be shown again.": "Copiez ce jeton maintenant. Il ne sera plus affiché.",
+  "Access tokens": "Jetons d’accès",
+  "New token": "Nouveau jeton",
+  "Token name": "Nom du jeton",
+  "e.g. Claude Code, CI script": "ex. : Claude Code, script CI",
+  "Target scope": "Portée cible",
+  "Selected Bots and groups": "Bots et groupes sélectionnés",
+  "All non-private Bots and groups": "Tous les Bots et groupes non privés",
+  "Private Bots (excluded by default)": "Bots privés (exclus par défaut)",
+  "Confirm granting this token access to selected private Bots.": "Confirmer l’accès de ce jeton aux Bots privés sélectionnés.",
+  "Scopes": "Portées",
+  "Confirm granting high-risk permissions (approval or team management).": "Confirmer l’octroi de permissions à haut risque (approbation ou gestion d’équipe).",
+  "Expires in days (optional)": "Expire dans (jours, facultatif)",
+  "Max concurrent runs": "Exécutions simultanées max",
+  "Requests / min": "Requêtes / min",
+  "No tokens yet": "Aucun jeton pour l’instant",
+  "Recent API activity": "Activité API récente",
+  "Audit log records metadata only (never tokens or message text).": "Le journal d’audit enregistre uniquement les métadonnées (jamais les jetons ni les messages).",
+  "No API requests recorded yet": "Aucune requête API enregistrée",
+  "Unauthenticated": "Non authentifié",
   "Off. Phones cannot reach this computer.": "Désactivé. Les téléphones ne peuvent pas joindre cet ordinateur.",
   "On. Paired phones can use DS Bot here.": "Activé. Les téléphones associés peuvent utiliser DS Bot ici.",
   "Pair a phone": "Associer un téléphone",
@@ -10540,6 +10739,15 @@ var FR = {
   "Waiting for teammate": "En attente d'un coéquipier",
   "Interrupted": "Interrompue",
   "Moved from chat": "Déplacée depuis le chat",
+  "Move to background": "En arrière-plan",
+  "Moving…": "Déplacement…",
+  "Move current work to background": "Déplacer le travail en cours en arrière-plan",
+  "Answer or dismiss the open card first": "Répondez ou fermez d’abord la carte ouverte",
+  "Clear or send pending queued messages first": "Envoyez ou effacez d’abord les messages en file d’attente",
+  "Local agent Bots cannot move running turns to the background": "Les Bots d’agent local ne peuvent pas déplacer un tour actif en arrière-plan",
+  "Nothing is running right now": "Rien n’est en cours pour le moment",
+  "This conversation has already moved on": "Cette conversation a déjà avancé",
+  "This turn has already ended": "Ce tour est déjà terminé",
   "Teammate request": "Demande d'un coéquipier",
   "{count} background tasks · {waiting} needs approval": "{count} tâches en arrière-plan · {waiting} en attente d'approbation",
   "{count} background tasks running": "{count} tâches en arrière-plan en cours",
@@ -11842,6 +12050,49 @@ var DE = {
   "Android beta": "Android-Beta",
   "Cannot reach the Server. Trying again…": "Server nicht erreichbar. Neuer Versuch…",
   "No phones yet": "Noch keine Telefone",
+  "API": "API",
+  "via API · {name}": "über API · {name}",
+  "Read-only window: API is served by the primary window.": "Schreibgeschütztes Fenster: Die API wird vom Hauptfenster bereitgestellt.",
+  "Running at {url}": "Läuft unter {url}",
+  "Off. External apps cannot reach DS Bot.": "Aus. Externe Apps können DS Bot nicht erreichen.",
+  "All public": "Alle öffentlichen",
+  "{count} Bots": "{count} Bots",
+  "{count} groups": "{count} Gruppen",
+  "No targets": "Keine Ziele",
+  "{count} private": "{count} private",
+  "Never used": "Nie verwendet",
+  "Port must be a whole number from 0 to 65535": "Der Port muss eine ganze Zahl zwischen 0 und 65535 sein",
+  "Local API server": "Lokaler API-Server",
+  "Enable local API server": "Lokalen API-Server aktivieren",
+  "OpenAI compatibility": "OpenAI-Kompatibilität",
+  "Expose /compat/openai/v1/* endpoints for existing OpenAI clients.": "Endpunkte /compat/openai/v1/* für bestehende OpenAI-Clients bereitstellen.",
+  "Listen address": "Listen-Adresse",
+  "I understand this binds outside 127.0.0.1 and exposes the API on the local network.": "Mir ist bewusst, dass dies außerhalb von 127.0.0.1 bindet und die API im lokalen Netzwerk freigibt.",
+  "Copy Base URL": "Basis-URL kopieren",
+  "Copy MCP URL": "MCP-URL kopieren",
+  "Copy curl": "curl kopieren",
+  "Copy MCP config": "MCP-Konfiguration kopieren",
+  "Token created: {name}": "Token erstellt: {name}",
+  "Copy this token now. It will not be shown again.": "Kopiere dieses Token jetzt. Es wird nicht erneut angezeigt.",
+  "Access tokens": "Zugriffstoken",
+  "New token": "Neues Token",
+  "Token name": "Token-Name",
+  "e.g. Claude Code, CI script": "z. B. Claude Code, CI-Skript",
+  "Target scope": "Zielbereich",
+  "Selected Bots and groups": "Ausgewählte Bots und Gruppen",
+  "All non-private Bots and groups": "Alle nicht-privaten Bots und Gruppen",
+  "Private Bots (excluded by default)": "Private Bots (standardmäßig ausgeschlossen)",
+  "Confirm granting this token access to selected private Bots.": "Zugriff dieses Tokens auf ausgewählte private Bots bestätigen.",
+  "Scopes": "Berechtigungen",
+  "Confirm granting high-risk permissions (approval or team management).": "Erteilung von Hochrisiko-Berechtigungen (Freigabe oder Teamverwaltung) bestätigen.",
+  "Expires in days (optional)": "Läuft ab in Tagen (optional)",
+  "Max concurrent runs": "Max. gleichzeitige Läufe",
+  "Requests / min": "Anfragen / Min.",
+  "No tokens yet": "Noch keine Token",
+  "Recent API activity": "Letzte API-Aktivitäten",
+  "Audit log records metadata only (never tokens or message text).": "Das Audit-Protokoll speichert nur Metadaten (niemals Token oder Nachrichtentexte).",
+  "No API requests recorded yet": "Noch keine API-Anfragen protokolliert",
+  "Unauthenticated": "Nicht authentifiziert",
   "Off. Phones cannot reach this computer.": "Aus. Telefone können diesen Computer nicht erreichen.",
   "On. Paired phones can use DS Bot here.": "An. Gekoppelte Telefone können DS Bot hier nutzen.",
   "Pair a phone": "Telefon koppeln",
@@ -13472,6 +13723,15 @@ var DE = {
   "Waiting for teammate": "Wartet auf Teammitglied",
   "Interrupted": "Unterbrochen",
   "Moved from chat": "Aus dem Chat verschoben",
+  "Move to background": "In den Hintergrund",
+  "Moving…": "Wird verschoben…",
+  "Move current work to background": "Aktuelle Arbeit in den Hintergrund verschieben",
+  "Answer or dismiss the open card first": "Beantworte oder schließe zuerst die offene Karte",
+  "Clear or send pending queued messages first": "Sende oder lösche zuerst wartende Nachrichten",
+  "Local agent Bots cannot move running turns to the background": "Lokale Agent-Bots können laufende Durchläufe nicht in den Hintergrund verschieben",
+  "Nothing is running right now": "Derzeit läuft nichts",
+  "This conversation has already moved on": "Diese Unterhaltung ist bereits weitergegangen",
+  "This turn has already ended": "Dieser Durchlauf ist bereits beendet",
   "Teammate request": "Anfrage eines Teammitglieds",
   "{count} background tasks · {waiting} needs approval": "{count} Hintergrundaufgaben · {waiting} warten auf Freigabe",
   "{count} background tasks running": "{count} Hintergrundaufgaben aktiv",
@@ -15667,6 +15927,50 @@ var ZH = {
   "Turn on phone access first": "请先打开手机访问",
   Phones: "手机",
   "No phones yet": "还没有配对的手机",
+  // External API
+  API: "API",
+  "via API · {name}": "来自 API · {name}",
+  "Read-only window: API is served by the primary window.": "只读窗口：API 由主窗口提供。",
+  "Running at {url}": "运行中：{url}",
+  "Off. External apps cannot reach DS Bot.": "已关闭，外部程序无法访问 DS Bot。",
+  "All public": "全部非隐私",
+  "{count} Bots": "{count} 个 Bot",
+  "{count} groups": "{count} 个群",
+  "No targets": "未指定目标",
+  "{count} private": "{count} 个隐私",
+  "Never used": "尚未使用",
+  "Port must be a whole number from 0 to 65535": "端口必须是 0 到 65535 之间的整数",
+  "Local API server": "本地 API 服务",
+  "Enable local API server": "启用本地 API 服务",
+  "OpenAI compatibility": "OpenAI 兼容层",
+  "Expose /compat/openai/v1/* endpoints for existing OpenAI clients.": "开启 /compat/openai/v1/* 端点，供现有 OpenAI 客户端直接调用。",
+  "Listen address": "监听地址",
+  "I understand this binds outside 127.0.0.1 and exposes the API on the local network.": "我了解这会绑定到 127.0.0.1 之外，并在局域网暴露该 API。",
+  "Copy Base URL": "复制 Base URL",
+  "Copy MCP URL": "复制 MCP URL",
+  "Copy curl": "复制 curl",
+  "Copy MCP config": "复制 MCP 配置",
+  "Token created: {name}": "已创建令牌：{name}",
+  "Copy this token now. It will not be shown again.": "请立即复制此令牌，关闭后将不再显示。",
+  "Access tokens": "访问令牌",
+  "New token": "新建令牌",
+  "Token name": "令牌名称",
+  "e.g. Claude Code, CI script": "例如：Claude Code、CI 脚本",
+  "Target scope": "目标范围",
+  "Selected Bots and groups": "指定的 Bot 与群",
+  "All non-private Bots and groups": "全部非隐私 Bot 与群",
+  "Private Bots (excluded by default)": "隐私 Bot（默认排除）",
+  "Confirm granting this token access to selected private Bots.": "确认授予此令牌访问所选隐私 Bot 的权限。",
+  Scopes: "能力域",
+  "Confirm granting high-risk permissions (approval or team management).": "确认授予高危权限（审批或团队管理）。",
+  "Expires in days (optional)": "过期天数（可选）",
+  "Max concurrent runs": "最大并发 Run",
+  "Requests / min": "每分钟请求上限",
+  "No tokens yet": "还没有访问令牌",
+  "Recent API activity": "近期调用记录",
+  "Audit log records metadata only (never tokens or message text).": "审计日志仅记录元数据，绝不保存令牌明文或消息内容。",
+  "No API requests recorded yet": "暂无 API 调用记录",
+  Unauthenticated: "未认证",
   "Paired on {date}": "{date} 配对",
   // Context menu
   Unpin: "取消置顶",
@@ -16488,6 +16792,15 @@ var ZH = {
   "Waiting for teammate": "等待同伴",
   "Interrupted": "已中断",
   "Moved from chat": "来自主对话",
+  "Move to background": "转到后台",
+  "Moving…": "正在转后台…",
+  "Move current work to background": "将当前工作转到后台",
+  "Answer or dismiss the open card first": "请先回复或关闭当前卡片",
+  "Clear or send pending queued messages first": "请先处理或清除排队中的消息",
+  "Local agent Bots cannot move running turns to the background": "本地 Agent Bot 暂不支持将运行中的轮次转到后台",
+  "Nothing is running right now": "当前没有正在运行的工作",
+  "This conversation has already moved on": "当前对话已切换",
+  "This turn has already ended": "当前轮次已经结束",
   "Teammate request": "同伴请求",
   "{count} background tasks · {waiting} needs approval": "{count} 个后台任务 · {waiting} 项待批准",
   "{count} background tasks running": "{count} 个后台任务运行中",
@@ -18044,8 +18357,11 @@ function commRunOf(order, peers, turn, hiddenTurns = []) {
   }
   return { count, peerIds };
 }
+function turnOutlineOf(list, id) {
+  return list.projectionsBySession?.[id]?.values?.turnOutline ?? list.byId[id]?.projectionValues?.turnOutline;
+}
 function previewOf(list, id, hiddenTurns = []) {
-  const outline = list.projectionsBySession?.[id]?.values?.turnOutline ?? list.byId[id]?.projectionValues?.turnOutline;
+  const outline = turnOutlineOf(list, id);
   if (!Array.isArray(outline)) return "";
   for (let index = outline.length - 1; index >= 0; index -= 1) {
     const entry = outline[index];
@@ -18387,6 +18703,12 @@ function teamActions({ call: call2, after, partFor, roster, ui, live, cards, hel
     stopTask: (botId, taskId) => after(call2("bot-stop-task", { botId, taskId })),
     sendTask: (botId, taskId, text) => after(call2("bot-task-send", { botId, taskId, text })),
     readTask: (botId, taskId, cursor, steps = false) => call2("bot-task-read", { botId, taskId, ...cursor ? { cursor } : {}, ...steps ? { steps: true } : {} }),
+    moveToBackground: (botId, sessionId, expectedTurn) => after(call2("bot-move-to-background", {
+      botId,
+      ...sessionId ? { sessionId } : {},
+      ...typeof expectedTurn === "number" ? { expectedTurn } : {},
+      operationId: typeof globalThis.crypto?.randomUUID === "function" ? globalThis.crypto.randomUUID() : `bg-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    })),
     // A side chat on the panel's own view, opened from the strip, the `···`
     // menus or `/side`. Closing the panel keeps the chats; only a tab's × deletes.
     openSideChat,
@@ -18613,11 +18935,12 @@ function teamActions({ call: call2, after, partFor, roster, ui, live, cards, hel
     phonePair: () => after(call2("phone-pair")),
     phonePairCancel: () => after(call2("phone-pair-cancel")),
     phoneRemove: (id) => after(call2("phone-remove", { id })),
-    // The answer to mcp-client-add carries the new token once; nothing else does.
-    mcpSet: (settings) => after(call2("mcp-set", settings)),
-    mcpClientAdd: (client) => after(call2("mcp-client-add", client)),
-    mcpClientUpdate: (id, patch) => after(call2("mcp-client-update", { id, ...patch })),
-    mcpClientRemove: (id) => after(call2("mcp-client-remove", { id })),
+    apiSet: (settings) => after(call2("api-set", settings)),
+    apiTokenCreate: (payload) => after(call2("api-token-create", payload)),
+    apiTokenUpdate: (keyId, patch) => after(call2("api-token-update", { keyId, ...patch })),
+    apiTokenRevoke: (keyId) => after(call2("api-token-revoke", { keyId })),
+    apiAudit: (options = {}) => after(call2("api-audit", options)),
+    apiAuditClear: () => call2("api-audit-clear", {}),
     imAdd: (payload) => after(call2("im-add", payload)),
     imUpdate: (id, patch) => after(call2("im-update", { id, ...patch })),
     imRemove: (id) => after(call2("im-remove", { id })),
@@ -20351,6 +20674,37 @@ button.bt-set-row:hover .bt-chevron{transform:translateX(2px);color:var(--bt-ink
 .bt-phone-pair-copy{display:flex;flex-direction:column;gap:8px;font-size:14px;line-height:20px}
 .bt-phone-pair-actions{display:flex;flex-wrap:wrap;gap:8px}
 @media(max-width:700px){.bt-phone-pair{flex-direction:column;align-items:flex-start}}
+.bt-api{display:flex;flex-direction:column;gap:16px}
+.bt-api-bind{gap:10px;align-items:flex-end}
+.bt-api-bind-fields{display:flex;flex:1;gap:10px;min-width:0}
+.bt-api-field{display:flex;flex-direction:column;gap:4px;flex:1;min-width:0;font-size:12px;color:var(--bt-ink-3)}
+.bt-api-port{flex:0 0 110px}
+.bt-api-endpoints{padding:10px 14px;border-top:1px solid var(--bt-line);display:flex;flex-direction:column;gap:8px}
+.bt-api-endpoint-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.bt-api-endpoint-row code{font-size:12px;padding:3px 7px;border-radius:6px;background:var(--bt-hover);color:var(--bt-ink);margin-right:auto}
+.bt-api-reveal{padding:12px 14px;border-radius:10px;border:1px solid var(--bt-accent);background:var(--bt-card);display:flex;flex-direction:column;gap:8px}
+.bt-api-reveal-head{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:13px}
+.bt-api-reveal-code{display:flex;align-items:center;gap:8px}
+.bt-api-reveal-code code{flex:1;min-width:0;overflow:auto;padding:6px 8px;border-radius:6px;background:var(--bt-hover);font-size:12px;user-select:all}
+.bt-api-form{padding:14px;display:flex;flex-direction:column;gap:12px;border-bottom:1px solid var(--bt-line)}
+.bt-api-group{display:flex;flex-direction:column;gap:6px}
+.bt-api-group-label{font-size:12px;font-weight:500;color:var(--bt-ink)}
+.bt-api-radios{display:flex;flex-wrap:wrap;gap:14px;font-size:13px}
+.bt-api-targets{display:flex;flex-direction:column;gap:8px}
+.bt-api-checks{display:flex;flex-direction:column;gap:4px}
+.bt-api-chip-grid{display:flex;flex-wrap:wrap;gap:6px}
+.bt-api-chip{display:inline-flex;align-items:center;gap:5px;padding:4px 9px;border-radius:999px;border:1px solid var(--bt-line);font-size:12px;cursor:pointer;user-select:none}
+.bt-api-chip-warn{border-color:color-mix(in srgb,var(--bt-danger) 45%,var(--bt-line))}
+.bt-api-private-box{padding:10px;border-radius:8px;border:1px solid color-mix(in srgb,var(--bt-danger) 35%,var(--bt-line));display:flex;flex-direction:column;gap:6px}
+.bt-api-warn-check{display:flex;align-items:flex-start;gap:6px;padding:6px 14px 10px;font-size:12px;color:var(--bt-danger)}
+.bt-api-form .bt-api-warn-check{padding:2px 0 0}
+.bt-api-limits{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.bt-api-form-actions{display:flex;justify-content:flex-end;gap:8px}
+.bt-api-token-row,.bt-api-audit-row{align-items:center}
+.bt-api-token-title{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.bt-api-token-actions,.bt-api-audit-actions{display:flex;align-items:center;gap:6px}
+.bt-api-status-err{color:var(--bt-danger)}
+@media(max-width:700px){.bt-api-bind{flex-direction:column;align-items:stretch}.bt-api-limits{grid-template-columns:1fr}}
 
 /* Settings → Connectors. */
 .bt-connector{display:flex;flex-direction:column;gap:12px;padding:14px 16px}
@@ -20939,15 +21293,23 @@ body[data-bt-goal="2"] [class*="_scroll"]:has(> [class*="_column"]){padding-top:
 [data-chat-flow]>.bt-typing{margin-top:var(--dsh-chat-flow-gap,12px)!important}
 .bt-typing{display:flex;align-items:center;gap:12px;height:36px;min-width:0;padding-inline-start:8px;transform-origin:0 50%;animation:bt-typing-in ${SPRING_TAP.duration}ms ${SPRING_TAP.easing} backwards}
 .bt-typing[data-exiting]{animation:bt-typing-out .14s cubic-bezier(.22,1,.36,1) forwards}
-.bt-typing>.bt-mark,.bt-typing>.bt-cluster{flex-shrink:0}
-.bt-typing>.bt-mark{cursor:pointer;transition:filter .16s ease-out}
-.bt-typing>.bt-mark:hover{filter:drop-shadow(0 2px 4px rgba(0,0,0,.18))}
-.bt-typing>.bt-mark .bt-eyes{transition:scale .28s cubic-bezier(.4,.06,.18,1)}
-.bt-typing>.bt-mark:hover .bt-eyes{scale:1.18}
-.bt-typing-text{display:flex;align-items:center;flex:1 1 auto;min-width:0;animation:bt-typing-label .22s ease-out .2s backwards}
+.bt-typing>.bt-typing-mark{display:inline-flex;flex-shrink:0}
+.bt-typing>.bt-mark,.bt-typing>.bt-cluster,.bt-typing>.bt-typing-mark>.bt-mark,.bt-typing>.bt-typing-mark>.bt-cluster{flex-shrink:0}
+.bt-typing .bt-mark{cursor:pointer;transition:filter .16s ease-out}
+.bt-typing .bt-mark:hover{filter:drop-shadow(0 2px 4px rgba(0,0,0,.18))}
+.bt-typing .bt-mark .bt-eyes{transition:scale .28s cubic-bezier(.4,.06,.18,1)}
+.bt-typing .bt-mark:hover .bt-eyes{scale:1.18}
+.bt-typing-text{display:flex;align-items:center;flex:0 1 auto;min-width:0;animation:bt-typing-label .22s ease-out .2s backwards}
 .bt-typing-label{display:inline-flex;align-items:center;gap:6px;min-width:0;animation:bt-typing-label .22s ease-out backwards}
 .bt-typing-label>.bt-shimmer{font-size:14px;line-height:22px;font-weight:400;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-typing-time{flex-shrink:0;margin-left:6px;font-size:12px;line-height:22px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums;white-space:nowrap}
+.bt-typing-bg{flex:none;display:inline-flex;align-items:center;gap:5px;height:24px;padding:0 10px 0 8px;margin-left:2px;border:.5px solid var(--bt-line-2);border-radius:999px;background:transparent;color:var(--bt-ink-2);font:inherit;font-size:12px;line-height:16px;font-weight:400;white-space:nowrap;cursor:pointer;transition:background-color .14s ease,color .14s ease,border-color .14s ease}
+.bt-typing-bg:hover:not(:disabled){background:var(--bt-hover);color:var(--bt-ink);border-color:color-mix(in srgb,var(--bt-ink) 22%,transparent)}
+.bt-typing-bg:active:not(:disabled){background:var(--bt-active)}
+.bt-typing-bg:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
+.bt-typing-bg:disabled{opacity:.55;cursor:default}
+.bt-typing-bg-ico{display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;opacity:.8}
+.bt-typing-bg-ico>svg{width:13px;height:13px}
 @keyframes bt-typing-in{from{opacity:0;transform:scale(.9)}}
 @keyframes bt-typing-out{from{opacity:1;transform:scale(1)}to{opacity:0;transform:scale(.92);filter:var(--bt-fx-blur-3,blur(3px))}}
 @keyframes bt-typing-label{from{opacity:0;filter:var(--bt-fx-blur-5,blur(5px));transform:translateY(3px)}}
@@ -21839,6 +22201,7 @@ var MonitorIcon = lineIcon(["M3.5 4.5h13A1.5 1.5 0 0 1 18 6v7a1.5 1.5 0 0 1-1.5 
 var SideIcon = lineIcon(["M4.5 4h11A1.5 1.5 0 0 1 17 5.5v6a1.5 1.5 0 0 1-1.5 1.5H9L5.5 16v-3h-1A1.5 1.5 0 0 1 3 11.5v-6A1.5 1.5 0 0 1 4.5 4z", "M6.5 7h7", "M6.5 10h4.5"]);
 var GoalIcon = lineIcon(["M15.1 8.8A6.5 6.5 0 1 1 11.2 4.9", "M9 8a3 3 0 1 0 0 6 3 3 0 1 0 0-6", "M9 11l7.5-7.5", "M14.6 2.8v2.6h2.6"]);
 var ChatsIcon = lineIcon(["M3.5 5.5A1.5 1.5 0 0 1 5 4h7a1.5 1.5 0 0 1 1.5 1.5V10A1.5 1.5 0 0 1 12 11.5H8L5 14v-2.5A1.5 1.5 0 0 1 3.5 10z", "M13.5 7.5H15A1.5 1.5 0 0 1 16.5 9v4.5A1.5 1.5 0 0 1 15 15v2l-2.5-2h-3A1.5 1.5 0 0 1 8 13.5V13"]);
+var ApiIcon = lineIcon(["M7 6.5L3.5 10 7 13.5", "M13 6.5L16.5 10 13 13.5", "M11 4.5L9 15.5"]);
 var ImIcon = lineIcon(["M6.5 3.5h7A1.5 1.5 0 0 1 15 5v10a1.5 1.5 0 0 1-1.5 1.5h-7A1.5 1.5 0 0 1 5 15V5a1.5 1.5 0 0 1 1.5-1.5z", "M8 15.8h4", "M8 6.5h4A1 1 0 0 1 13 7.5v2a1 1 0 0 1-1 1h-2.5L8 12v-5.5A1 1 0 0 1 8 6.5z"]);
 var QueueIcon = lineIcon(["M4 6h12", "M4 10h12", "M4 14h8", "M14 12.5l2 1.5-2 1.5"]);
 var LayersIcon = lineIcon(["M10 3.5L3 7.25 10 11l7-3.75z", "M3 10.5L10 14.25l7-3.75", "M3 13.75L10 17.5l7-3.75"]);
@@ -33015,8 +33378,24 @@ function CopyButton({ text }) {
   return (0, import_react34.createElement)("button", { type: "button", className: "bt-tool", "aria-label": copied ? t("Copied") : t("Copy"), title: copied ? t("Copied") : t("Copy"), onClick: copy2 }, copied ? (0, import_react34.createElement)(CheckIcon) : (0, import_react34.createElement)(CopyIcon));
 }
 var clock3 = (time) => typeof time === "number" ? new Date(time).toLocaleTimeString(dateLocale(), { hour: "numeric", minute: "2-digit" }) : void 0;
-var viaOf2 = (source) => typeof source?.rpcId === "string" && source.rpcId.startsWith("im:") ? source.rpcId.split(":")[1] : void 0;
-var ViaTag = ({ via }) => (0, import_react34.createElement)("span", { className: "bt-uvia" }, t("via {platform}", { platform: t(imPlatform(via)?.name ?? via) }));
+var viaOf2 = (source, roster) => {
+  const rpcId = source?.rpcId;
+  if (typeof rpcId !== "string") return void 0;
+  if (rpcId.startsWith("im:")) return rpcId.split(":")[1];
+  if (rpcId.startsWith("api:")) {
+    const keyId = rpcId.split(":")[1];
+    const tokenName = roster?.api?.tokens?.find((item) => item.keyId === keyId)?.name;
+    return tokenName ? `api:${tokenName}` : "api";
+  }
+  return void 0;
+};
+var ViaTag = ({ via }) => {
+  if (via === "api") return (0, import_react34.createElement)("span", { className: "bt-uvia" }, t("via {platform}", { platform: "API" }));
+  if (typeof via === "string" && via.startsWith("api:")) {
+    return (0, import_react34.createElement)("span", { className: "bt-uvia" }, t("via API · {name}", { name: via.slice(4) }));
+  }
+  return (0, import_react34.createElement)("span", { className: "bt-uvia" }, t("via {platform}", { platform: t(imPlatform(via)?.name ?? via) }));
+};
 function ProjectedContent({ data, text, shown, folded, control, roster, sessionId, actions, renderMessageImages, openFile, openSkill, onClick }) {
   const { attachments, rest } = contentParts(data.content);
   const referenceLabels = data.referenceLabels ?? [];
@@ -33056,24 +33435,27 @@ function HostContent({ data, prepared, shown, folded, control, loadImage, render
     referenceLabels.length > 0 ? (0, import_react34.createElement)("div", { className: "bt-urefs" }, t("Referenced {labels}", { labels: referenceLabels.join(t(", ")) })) : null
   );
 }
-var USER_ROSTER_FIELDS = ["bots", "byId", "roomsById", "imVia"];
+var USER_ROSTER_FIELDS = ["bots", "byId", "roomsById", "imVia", "apiVia", "api"];
 function UserMessageCell({ node, sessionId, useRoster, actions, renderMessageImages, openFile, openSkill, loadImage, renderFactorySlot }) {
   const data = node.data ?? {};
   const prev = (0, import_react34.useRef)(null);
   const picked = useRoster((value) => {
-    if (!projects) return value.imVia?.[sessionId]?.[data.seq];
+    if (!projects) {
+      const apiName2 = value.apiVia?.[sessionId]?.[data.seq];
+      return (apiName2 ? `api:${apiName2}` : void 0) ?? viaOf2(data.source, value) ?? value.imVia?.[sessionId]?.[data.seq];
+    }
     const last = prev.current;
     if (last !== null && value !== null && value !== void 0 && USER_ROSTER_FIELDS.every((key) => last[key] === value[key])) return last;
     prev.current = value;
     return value;
   });
   const roster = projects ? picked : null;
-  const viaFromRoster = projects ? roster.imVia?.[sessionId]?.[data.seq] : picked;
+  const apiName = projects ? roster.apiVia?.[sessionId]?.[data.seq] : void 0;
   const prepared = projects ? void 0 : hostContent(data.content, data);
   const text = prepared?.text ?? contentParts(data.content).text;
   const steering = node.kind === "steering";
   const sentAt = Number.isFinite(data.time) ? messageClock(data.time) : void 0;
-  const via = viaOf2(data.source) ?? viaFromRoster;
+  const via = projects ? (apiName ? `api:${apiName}` : void 0) ?? viaOf2(data.source, roster) ?? roster.imVia?.[sessionId]?.[data.seq] : picked;
   const { shown, folded, control } = useFold(text, { markdown: false });
   const row = (0, import_react34.useRef)(null);
   const [toolsOpen, setToolsOpen] = (0, import_react34.useState)(false);
@@ -35574,6 +35956,11 @@ function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useLive, us
   else if (runAt.current === 0) runAt.current = Date.now();
   const liveKey = useLive((state) => JSON.stringify(state[sessionId] ?? {}));
   const steeredAt = useWork?.((work) => work.steered?.[sessionId]);
+  const bgInfo = useWork?.((work) => work.canBackground?.[sessionId]);
+  const [movingBg, setMovingBg] = (0, import_react37.useState)(false);
+  (0, import_react37.useEffect)(() => {
+    setMovingBg(false);
+  }, [sessionId, bgInfo?.turn]);
   const pendingInput = useSession((snapshot) => freshInputAt(snapshot?.pendingSubmissions, steeredAt));
   const bot = roster.byId[sessionId];
   const room2 = roster.roomsById[sessionId];
@@ -35640,16 +36027,42 @@ function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useLive, us
   useRowEntrances(() => leaving.current || Date.now() - endedAt.current < 300);
   const host = useRunningHost(running || moveAt !== 0);
   if (!host || phase === null || !shown) return null;
+  const showBgAction = bot !== void 0 && moveAt === 0 && bgInfo !== void 0 && typeof actions?.moveToBackground === "function";
+  const moveToBg = () => {
+    if (movingBg || !bgInfo) return;
+    setMovingBg(true);
+    void Promise.resolve(actions.moveToBackground(bgInfo.botId, sessionId, bgInfo.turn)).catch((error) => {
+      setMovingBg(false);
+      actions.reportError?.(new Error(hostText(error?.message ?? String(error))), "move-to-background");
+    });
+  };
   return (0, import_react_dom5.createPortal)((0, import_react37.createElement)(
     "div",
-    { className: "bt-typing", "data-exiting": phase === "out" ? "" : void 0, "aria-hidden": true },
-    bot ? (0, import_react37.createElement)(BotMark, { bot, size: 28, state: markState.current, live: true, pokeable: true }) : (0, import_react37.createElement)(RoomAvatar, { room: room2, roster, size: 28 }),
+    { className: "bt-typing", "data-exiting": phase === "out" ? "" : void 0 },
     (0, import_react37.createElement)(
       "span",
-      { className: "bt-typing-text" },
+      { className: "bt-typing-mark", "aria-hidden": true },
+      bot ? (0, import_react37.createElement)(BotMark, { bot, size: 28, state: markState.current, live: true, pokeable: true }) : (0, import_react37.createElement)(RoomAvatar, { room: room2, roster, size: 28 })
+    ),
+    (0, import_react37.createElement)(
+      "span",
+      { className: "bt-typing-text", "aria-hidden": true },
       (0, import_react37.createElement)("span", { key: `${shown.key}:${shown.at}`, className: "bt-typing-label" }, (0, import_react37.createElement)(Shimmer, null, `${shown.text}…`)),
       (0, import_react37.createElement)(Elapsed, { at: moveAt !== 0 ? moveAt : Math.max(turnAt ?? runAt.current, inputAt), className: "bt-typing-time" })
-    )
+    ),
+    showBgAction ? (0, import_react37.createElement)(
+      "button",
+      {
+        type: "button",
+        className: "bt-typing-bg",
+        disabled: movingBg,
+        "aria-label": t("Move current work to background"),
+        title: t("Move current work to background"),
+        onClick: moveToBg
+      },
+      (0, import_react37.createElement)("span", { className: "bt-typing-bg-ico", "aria-hidden": true }, (0, import_react37.createElement)(MoveIcon)),
+      (0, import_react37.createElement)("span", null, movingBg ? t("Moving…") : t("Move to background"))
+    ) : null
   ), host);
 }
 
@@ -35848,14 +36261,16 @@ var waitingFor = (roster, waits) => {
   const names = [...(waits?.bots ?? []).map((id) => roster.byId[id]?.name), ...(waits?.rooms ?? []).map((id) => roster.roomsById[id]?.name)].filter(Boolean);
   return names.length === 0 ? "" : t("Waiting for {names}", { names: names.join(t(" and ")) });
 };
-var sameBotRow = (a, b) => a.bot === b.bot && a.wide === b.wide && a.marked === b.marked && a.actions === b.actions && a.onDragStart === b.onDragStart && a.useSessions === b.useSessions && a.useSessionStatus === b.useSessionStatus && a.useSessionRetainInfo === b.useSessionRetainInfo && a.useActivity === b.useActivity && a.useWork === b.useWork && a.useComputer === b.useComputer && a.roster.mainBotId === b.roster.mainBotId && a.roster.mainBotIds === b.roster.mainBotIds && a.roster.byId === b.roster.byId && a.roster.roomsById === b.roster.roomsById && a.roster.exchangeTurns === b.roster.exchangeTurns && a.roster.learning === b.roster.learning && a.roster.secretRequests === b.roster.secretRequests && a.roster.connectorRequests === b.roster.connectorRequests && a.roster.mailRequests === b.roster.mailRequests && a.roster.questions === b.roster.questions && a.roster.views === b.roster.views;
-var BotRow = memo(function BotRow2({ bot, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, useComputer, wide, marked: marked2, onDragStart }) {
+var sameBotRow = (a, b) => a.bot === b.bot && a.wide === b.wide && a.marked === b.marked && a.actions === b.actions && a.onDragStart === b.onDragStart && a.useSessions === b.useSessions && a.useBotCompletions === b.useBotCompletions && a.useSessionStatus === b.useSessionStatus && a.useSessionRetainInfo === b.useSessionRetainInfo && a.useActivity === b.useActivity && a.useWork === b.useWork && a.useComputer === b.useComputer && a.roster.mainBotId === b.roster.mainBotId && a.roster.mainBotIds === b.roster.mainBotIds && a.roster.byId === b.roster.byId && a.roster.roomsById === b.roster.roomsById && a.roster.exchangeTurns === b.roster.exchangeTurns && a.roster.learning === b.roster.learning && a.roster.secretRequests === b.roster.secretRequests && a.roster.connectorRequests === b.roster.connectorRequests && a.roster.mailRequests === b.roster.mailRequests && a.roster.questions === b.roster.questions && a.roster.views === b.roster.views;
+var BotRow = memo(function BotRow2({ bot, roster, actions, useSessions, useBotCompletions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, useComputer, wide, marked: marked2, onDragStart }) {
   const id = bot.id;
   const part = currentPart(bot);
   const preview = useSessions((list) => previewOf(list, part, roster.exchangeTurns[part]));
+  const completionUnread = useBotCompletions((unread2) => unread2[part] === true);
   const running = useSessionStatus((map) => map.get(part)?.running === true);
   const active = useSessionRetainInfo(part, (info) => (info?.retainedBy?.mainView ?? 0) > 0);
-  const unread = useSessionStatus((map) => map.get(part)?.completionUnread === true || map.get(part)?.pendingInteraction !== void 0) || marked2 && !active;
+  const pendingInteraction = useSessionStatus((map) => map.get(part)?.pendingInteraction !== void 0);
+  const unread = pendingInteraction || completionUnread || marked2 && !active;
   useMarkedUnread(id, active, marked2, actions);
   const main = isMainOf(roster, id);
   const tile = roster.mainBotId === id;
@@ -36145,7 +36560,7 @@ function renderSidebarEntry(entry, rowProps, markedUnread, onDragStart) {
   return entry.kind === "bot" ? (0, import_react38.createElement)(BotRow, { key: entry.item.id, ...rowProps, bot: entry.item, marked: markedUnread[entry.item.id] === true, onDragStart }) : entry.kind === "room" ? (0, import_react38.createElement)(RoomRow, { key: entry.item.id, ...rowProps, room: entry.item, marked: markedUnread[entry.item.id] === true, onDragStart }) : (0, import_react38.createElement)(AgentRow, { key: entry.item.id, ...rowProps, agent: entry.item, marked: markedUnread[entry.item.id] === true, onDragStart });
 }
 function SectionBlock({ section, entries: entries2, rowProps, markedUnread, renaming, dropTarget, onDragStart, onDragOverSec, onDropSec }) {
-  const { roster, actions, useSessions, useSessionStatus, useWork, useComputer, wide } = rowProps;
+  const { roster, actions, useSessions, useBotCompletions, useSessionStatus, useWork, useComputer, wide } = rowProps;
   const input = (0, import_react38.useRef)(null);
   (0, import_react38.useLayoutEffect)(() => {
     if (!renaming) return;
@@ -36175,6 +36590,7 @@ function SectionBlock({ section, entries: entries2, rowProps, markedUnread, rena
     return list;
   }, [visibleEntries, roster.byId]);
   const sessionIds = (0, import_react38.useMemo)(() => entries2.flatMap((entry) => entry.kind === "bot" ? [currentPart(entry.item)] : entry.kind === "room" ? [entry.item.sessionId ?? entry.item.id] : entry.item.sessions ?? []), [entries2]);
+  const botParts = (0, import_react38.useMemo)(() => new Set(entries2.filter((entry) => entry.kind === "bot").map((entry) => currentPart(entry.item))), [entries2]);
   const activeSession = useSessions((list) => sessionIds.find((id) => (list.byId[id]?.retainedBy?.mainView ?? 0) > 0) ?? "");
   const activeEntry = (0, import_react38.useMemo)(() => {
     if (activeSession === "") return void 0;
@@ -36183,7 +36599,7 @@ function SectionBlock({ section, entries: entries2, rowProps, markedUnread, rena
   const statusBits = useSessionStatus((map) => JSON.stringify(sessionIds.map((id) => [
     id,
     map.get(id)?.running === true ? 1 : 0,
-    map.get(id)?.completionUnread === true || map.get(id)?.pendingInteraction !== void 0 ? 1 : 0
+    !botParts.has(id) && map.get(id)?.completionUnread === true || map.get(id)?.pendingInteraction !== void 0 ? 1 : 0
   ])));
   const shownEntries = (0, import_react38.useMemo)(() => entries2.filter((entry) => !entry.item.hidden || entry === activeEntry || entry.kind === "bot" && isMainOf(roster, entry.item.id)), [entries2, activeEntry, roster]);
   const useReadSectionWork = useWork ?? useEmptySectionWork;
@@ -36209,7 +36625,8 @@ function SectionBlock({ section, entries: entries2, rowProps, markedUnread, rena
   });
   const hasAlert = hasPendingCard || hasApproval || hasComputerAsk;
   const hasWorking = hasRoomWork || parsedStatuses.some(([, run2]) => run2 === 1);
-  const hasUnread = parsedStatuses.some(([id, , unread]) => unread === 1 && id !== activeSession) || entries2.some((entry) => markedUnread[entry.item.id] === true && entry !== activeEntry);
+  const hasBotUnread = useBotCompletions((unread) => [...botParts].some((id) => id !== activeSession && unread[id] === true));
+  const hasUnread = hasBotUnread || parsedStatuses.some(([id, , unread]) => unread === 1 && id !== activeSession) || entries2.some((entry) => markedUnread[entry.item.id] === true && entry !== activeEntry);
   const statusKind = hasAlert ? "alert" : hasWorking ? "working" : hasUnread ? "unread" : null;
   const toggle = () => {
     void Promise.resolve(actions.saveSection({ id: section.id, collapsed: !section.collapsed })).catch((error) => actions.reportError(error, "section"));
@@ -36694,7 +37111,7 @@ function TeamSidebar(props) {
       newAgentSession: (id) => navigate(actions.newAgentSession, id)
     };
   }, [actions]);
-  const rowProps = { roster, actions: rowActions, useSessions, useUi, useSessionStatus: props.useSessionStatus, useSessionRetainInfo: props.useSessionRetainInfo, useActivity: props.useActivity, useWork: props.useWork, useComputer: props.useComputer, wide: wideContent };
+  const rowProps = { roster, actions: rowActions, useSessions, useUi, useBotCompletions: props.useBotCompletions ?? useFalse, useSessionStatus: props.useSessionStatus, useSessionRetainInfo: props.useSessionRetainInfo, useActivity: props.useActivity, useWork: props.useWork, useComputer: props.useComputer, wide: wideContent };
   const typeToSearch = (event) => {
     if (event.defaultPrevented || event.key.length !== 1 || event.key === " " || event.metaKey || event.ctrlKey || event.altKey || event.nativeEvent.isComposing) return;
     if (event.target instanceof Element && event.target.closest("input,textarea,[contenteditable]")) return;
@@ -41054,7 +41471,7 @@ function QrCode({ text }) {
 function minutesLeft(until) {
   return Math.max(0, Math.ceil((until - Date.now()) / 6e4));
 }
-var APP_DOWNLOAD = "https://github.com/Fei2411/DS-Bot/releases/latest";
+var APP_DOWNLOAD = "https://github.com/Fei-Craft/DS-Bot/releases/latest";
 function PhonePage({ roster, actions, Section: Section2, Row: Row4 }) {
   const phone = roster.phone ?? OFF;
   const [server, setServer] = (0, import_react45.useState)(phone.server);
@@ -41235,105 +41652,502 @@ function PhonePage({ roster, actions, Section: Section2, Row: Row4 }) {
   );
 }
 
-// src/client/mcp-page.js
+// src/client/api-page.js
 var import_react46 = require("react");
-var OFF2 = { on: false, port: 8797, status: "off", error: null, url: "http://127.0.0.1:8797/mcp", clients: [] };
-function statusText4(mcp) {
-  if (mcp.error) return mcp.error;
-  if (!mcp.on) return t("Off. Other agents cannot reach DS Bot.");
-  return mcp.status === "on" ? t("On. Agents with a token can reach DS Bot at {url}", { url: mcp.url }) : t("Connecting…");
+var OFF2 = {
+  enabled: false,
+  host: "127.0.0.1",
+  port: 17830,
+  boundPort: null,
+  openaiCompat: true,
+  lanExposed: false,
+  status: "off",
+  baseUrl: null,
+  mcpUrl: null,
+  openaiUrl: null,
+  tokens: []
+};
+var SCOPE_ITEMS = [
+  { id: "read", label: "read", highRisk: false },
+  { id: "message", label: "message", highRisk: false },
+  { id: "event:ingest", label: "event:ingest", highRisk: false },
+  { id: "memory:write", label: "memory:write", highRisk: false },
+  { id: "approval", label: "approval", highRisk: true },
+  { id: "team:manage", label: "team:manage", highRisk: true }
+];
+function isLoopback(host) {
+  const clean = String(host ?? "").trim().toLowerCase();
+  return clean === "" || clean === "127.0.0.1" || clean === "localhost" || clean === "::1" || clean.startsWith("127.");
 }
-function ScopePicker({ client, bots, rooms, busy, onChange }) {
-  const toggle = (key, id) => {
-    const list = client[key].includes(id) ? client[key].filter((entry) => entry !== id) : [...client[key], id];
-    onChange({ [key]: list });
-  };
-  const box = (key, entry) => (0, import_react46.createElement)(
-    "label",
-    { key: `${key}:${entry.id}`, className: "bt-mcp-scope" },
-    (0, import_react46.createElement)("input", { type: "checkbox", checked: client[key].includes(entry.id), disabled: busy, onChange: () => toggle(key, entry.id) }),
-    (0, import_react46.createElement)("span", null, entry.name)
-  );
-  return (0, import_react46.createElement)("div", { className: "bt-mcp-scopes" }, ...bots.map((entry) => box("bots", entry)), ...rooms.map((entry) => box("rooms", entry)));
+function statusHint(api) {
+  if (api.status === "readonly") return t("Read-only window: API is served by the primary window.");
+  if (api.status === "error" && api.error) return api.error;
+  if (api.status === "running" && api.baseUrl) return t("Running at {url}", { url: api.baseUrl });
+  return t("Off. External apps cannot reach DS Bot.");
 }
-function McpPage({ roster, actions, Section: Section2, Row: Row4 }) {
-  const mcp = roster.mcp ?? OFF2;
-  const [port, setPort] = (0, import_react46.useState)(String(mcp.port));
-  const [name, setName] = (0, import_react46.useState)("");
-  const [token, setToken] = (0, import_react46.useState)(null);
+function targetSummary(token) {
+  const parts = [];
+  if (token.targetScope === "all_public") {
+    parts.push(t("All public"));
+  } else {
+    const bots = token.botIds?.length ?? 0;
+    const rooms = token.roomIds?.length ?? 0;
+    if (bots > 0) parts.push(t("{count} Bots", { count: bots }));
+    if (rooms > 0) parts.push(t("{count} groups", { count: rooms }));
+    if (bots === 0 && rooms === 0 && !(token.privateBotIds?.length > 0)) parts.push(t("No targets"));
+  }
+  if (token.privateBotIds?.length > 0) {
+    parts.push(t("{count} private", { count: token.privateBotIds.length }));
+  }
+  return parts.join(" · ");
+}
+function formatTime(ms) {
+  if (!ms) return t("Never used");
+  try {
+    return new Date(ms).toLocaleString(dateLocale(), { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  } catch {
+    return String(ms);
+  }
+}
+function CopySnippetButton({ label, text }) {
   const [copied, setCopied] = (0, import_react46.useState)(false);
+  const copy2 = () => {
+    void navigator.clipboard?.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    }).catch(() => {
+    });
+  };
+  return (0, import_react46.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: copy2 }, copied ? t("Copied") : label);
+}
+function ApiPage({ roster, actions, Section: Section2, Row: Row4 }) {
+  const api = roster.api ?? OFF2;
+  const readOnly = api.status === "readonly" || Boolean(roster.readOnly);
+  const [host, setHost] = (0, import_react46.useState)(api.host);
+  const [port, setPort] = (0, import_react46.useState)(String(api.port ?? 17830));
+  const [confirmLan, setConfirmLan] = (0, import_react46.useState)(false);
   const [busy, setBusy] = (0, import_react46.useState)(false);
   const [error, setError] = (0, import_react46.useState)(null);
-  const bots = (roster.bots ?? []).filter((bot) => bot.private !== true);
-  const rooms = roster.rooms ?? [];
+  const [creating, setCreating] = (0, import_react46.useState)(false);
+  const [name, setName] = (0, import_react46.useState)("");
+  const [targetScope, setTargetScope] = (0, import_react46.useState)("selected");
+  const [botIds, setBotIds] = (0, import_react46.useState)([]);
+  const [roomIds, setRoomIds] = (0, import_react46.useState)([]);
+  const [privateBotIds, setPrivateBotIds] = (0, import_react46.useState)([]);
+  const [confirmPrivate, setConfirmPrivate] = (0, import_react46.useState)(false);
+  const [scopes, setScopes] = (0, import_react46.useState)(["read", "message"]);
+  const [confirmHighRisk, setConfirmHighRisk] = (0, import_react46.useState)(false);
+  const [expireDays, setExpireDays] = (0, import_react46.useState)("");
+  const [maxConcurrent, setMaxConcurrent] = (0, import_react46.useState)("");
+  const [rateLimit, setRateLimit] = (0, import_react46.useState)("");
+  const [createdToken, setCreatedToken] = (0, import_react46.useState)(null);
+  const [auditOpen, setAuditOpen] = (0, import_react46.useState)(false);
+  const [audit, setAudit] = (0, import_react46.useState)({ entries: [], total: 0 });
+  (0, import_react46.useEffect)(() => {
+    setHost(api.host);
+    setPort(String(api.port ?? 17830));
+    setConfirmLan(false);
+  }, [api.host, api.port]);
   const run2 = (task) => {
     setBusy(true);
     setError(null);
-    return task.catch((failure) => setError(failure?.message ?? String(failure))).finally(() => setBusy(false));
+    return task.catch((failure) => {
+      setError(failure?.message ?? String(failure));
+      return null;
+    }).finally(() => setBusy(false));
   };
-  const add = () => {
-    if (busy || name.trim() === "") return;
-    void run2(actions.mcpClientAdd({ name }).then((view) => {
-      setToken({ name: name.trim(), value: view.token });
-      setCopied(false);
+  const loadAudit = (0, import_react46.useCallback)(() => {
+    void actions.apiAudit({ limit: 50 }).then((data) => {
+      if (data) setAudit(data);
+    }).catch(() => {
+    });
+  }, [actions]);
+  (0, import_react46.useEffect)(() => {
+    if (auditOpen) loadAudit();
+  }, [auditOpen, loadAudit]);
+  const publicBots = (roster.bots ?? []).filter((bot) => bot.private !== true);
+  const privateBots = (roster.bots ?? []).filter((bot) => bot.private === true);
+  const rooms = roster.rooms ?? [];
+  const needsLanConfirm = !isLoopback(host) && host.trim() !== api.host;
+  const bindDirty = host.trim() !== api.host || Number(port) !== api.port;
+  const saveBind = () => {
+    if (busy || readOnly) return;
+    const portNum = Number(port);
+    if (!Number.isInteger(portNum) || portNum < 0 || portNum > 65535) {
+      setError(t("Port must be a whole number from 0 to 65535"));
+      return;
+    }
+    void run2(actions.apiSet({
+      host: host.trim() || "127.0.0.1",
+      port: portNum,
+      confirmLan: !isLoopback(host) ? confirmLan : false
+    }));
+  };
+  const toggleItem = (list, setter, id) => {
+    setter(list.includes(id) ? list.filter((x) => x !== id) : [...list, id]);
+  };
+  const hasHighRisk = scopes.includes("approval") || scopes.includes("team:manage");
+  const submitToken = async () => {
+    if (busy || readOnly) return;
+    const payload = {
+      name: name.trim(),
+      scopes,
+      targetScope,
+      botIds,
+      roomIds,
+      privateBotIds,
+      confirmPrivate,
+      confirmHighRisk,
+      ...expireDays.trim() !== "" ? { expiresAt: Date.now() + Number(expireDays) * 864e5 } : {},
+      ...maxConcurrent.trim() !== "" ? { maxConcurrentRuns: Number(maxConcurrent) } : {},
+      ...rateLimit.trim() !== "" ? { rateLimitPerMin: Number(rateLimit) } : {}
+    };
+    const res = await run2(actions.apiTokenCreate(payload));
+    if (res?.token) {
+      setCreatedToken({ token: res.token, name: res.meta?.name ?? name.trim() });
+      setCreating(false);
       setName("");
-    }));
+      setBotIds([]);
+      setRoomIds([]);
+      setPrivateBotIds([]);
+      setConfirmPrivate(false);
+      setScopes(["read", "message"]);
+      setConfirmHighRisk(false);
+      setExpireDays("");
+      setMaxConcurrent("");
+      setRateLimit("");
+    }
   };
-  const copy2 = () => {
-    void run2((0, import_dsh_client_ui_primitives.writeClipboard)(token.value).then((ok) => {
-      if (!ok) throw new Error(t("Clipboard is not available"));
-      setCopied(true);
-    }));
-  };
-  const names = (client) => [...client.bots.map((id) => bots.find((bot) => bot.id === id)?.name), ...client.rooms.map((id) => rooms.find((room2) => room2.id === id)?.name)].filter(Boolean);
+  const baseUrl = api.baseUrl ?? `http://${api.host}:${api.port}`;
+  const curlSnippet = `curl -H "Authorization: Bearer $DS_BOT_API_TOKEN" ${baseUrl}/v1/bots`;
+  const mcpSnippet = JSON.stringify({
+    mcpServers: {
+      "ds-bot": {
+        command: "ds-bot",
+        args: ["mcp"],
+        env: { DS_BOT_API_TOKEN: "dsb_live_..." }
+      }
+    }
+  }, null, 2);
   return (0, import_react46.createElement)(
     "div",
-    { className: "bt-mcp" },
-    error ? (0, import_react46.createElement)("p", { className: "bt-set-hint bt-danger", role: "alert" }, error) : null,
+    { className: "bt-api" },
     (0, import_react46.createElement)(
       Section2,
-      { title: t("Connection") },
+      { title: t("Local API server") },
       (0, import_react46.createElement)(
         Row4,
-        { label: t("MCP access"), hint: statusText4(mcp), className: mcp.error ? "bt-phone-warn" : "", tour: "mcp-switch" },
-        (0, import_react46.createElement)(Switch, { on: mcp.on, label: t("MCP access"), disabled: busy, onChange: (on) => void run2(actions.mcpSet({ on })) })
+        {
+          label: t("Enable local API server"),
+          tour: "api-switch",
+          hint: statusHint(api),
+          className: api.status === "error" ? "bt-phone-warn" : ""
+        },
+        (0, import_react46.createElement)(Switch, {
+          on: api.enabled === true,
+          label: t("Enable local API server"),
+          disabled: busy || readOnly,
+          onChange: (enabled) => void run2(actions.apiSet({ enabled }))
+        })
       ),
       (0, import_react46.createElement)(
         Row4,
-        { label: t("Port"), hint: t("Only programs on this computer can connect.") },
-        (0, import_react46.createElement)("input", { className: "bt-input bt-set-number", value: port, inputMode: "numeric", "aria-label": t("Port"), onChange: (event) => setPort(event.target.value) }),
-        (0, import_react46.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy || port === String(mcp.port), onClick: () => void run2(actions.mcpSet({ port: Number(port) })) }, t("Save"))
-      )
-    ),
-    (0, import_react46.createElement)(
-      Section2,
-      { title: t("Add a client"), tour: "mcp-add" },
-      (0, import_react46.createElement)(
-        Row4,
-        { label: t("Name") },
-        (0, import_react46.createElement)("input", { className: "bt-input", value: name, placeholder: "Claude Desktop", "aria-label": t("Name"), onChange: (event) => setName(event.target.value), onKeyDown: (event) => {
-          if (event.key === "Enter") add();
-        } }),
-        (0, import_react46.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy || name.trim() === "", onClick: add }, t("Create token"))
+        { label: t("OpenAI compatibility"), hint: t("Expose /compat/openai/v1/* endpoints for existing OpenAI clients.") },
+        (0, import_react46.createElement)(Switch, {
+          on: api.openaiCompat !== false,
+          label: t("OpenAI compatibility"),
+          disabled: busy || readOnly,
+          onChange: (openaiCompat) => void run2(actions.apiSet({ openaiCompat }))
+        })
       ),
-      token ? (0, import_react46.createElement)(
+      (0, import_react46.createElement)(
         "div",
-        { className: "bt-mcp-token" },
-        (0, import_react46.createElement)("span", { className: "bt-set-hint" }, t("Copy the token for {name} now. It is shown once.", { name: token.name })),
-        (0, import_react46.createElement)("code", null, token.value),
-        (0, import_react46.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: copy2 }, copied ? t("Copied") : t("Copy")),
-        (0, import_react46.createElement)("span", { className: "bt-set-hint" }, t("Clients that start a command use: {command}", { command: `DSBOT_MCP_TOKEN=… npx -p ds-bot ds-bot-mcp --url ${mcp.url}` }))
+        { className: "bt-set-row bt-api-bind" },
+        (0, import_react46.createElement)(
+          "div",
+          { className: "bt-api-bind-fields" },
+          (0, import_react46.createElement)(
+            "label",
+            { className: "bt-api-field" },
+            (0, import_react46.createElement)("span", null, t("Listen address")),
+            (0, import_react46.createElement)("input", {
+              className: "bt-input",
+              value: host,
+              disabled: busy || readOnly,
+              placeholder: "127.0.0.1",
+              spellCheck: false,
+              onChange: (e) => {
+                setHost(e.target.value);
+                setConfirmLan(false);
+              }
+            })
+          ),
+          (0, import_react46.createElement)(
+            "label",
+            { className: "bt-api-field bt-api-port" },
+            (0, import_react46.createElement)("span", null, t("Port")),
+            (0, import_react46.createElement)("input", {
+              className: "bt-input bt-set-number",
+              type: "number",
+              min: 0,
+              max: 65535,
+              value: port,
+              disabled: busy || readOnly,
+              onChange: (e) => setPort(e.target.value)
+            })
+          )
+        ),
+        (0, import_react46.createElement)("button", {
+          type: "button",
+          className: "bt-soft bt-soft-sm",
+          disabled: busy || readOnly || !bindDirty || needsLanConfirm && !confirmLan,
+          onClick: saveBind
+        }, t("Save"))
+      ),
+      needsLanConfirm ? (0, import_react46.createElement)(
+        "label",
+        { className: "bt-api-warn-check" },
+        (0, import_react46.createElement)("input", { type: "checkbox", checked: confirmLan, onChange: (e) => setConfirmLan(e.target.checked) }),
+        (0, import_react46.createElement)("span", null, t("I understand this binds outside 127.0.0.1 and exposes the API on the local network."))
+      ) : null,
+      api.status === "running" && api.baseUrl ? (0, import_react46.createElement)(
+        "div",
+        { className: "bt-api-endpoints" },
+        (0, import_react46.createElement)(
+          "div",
+          { className: "bt-api-endpoint-row" },
+          (0, import_react46.createElement)("code", null, api.baseUrl),
+          (0, import_react46.createElement)(CopySnippetButton, { label: t("Copy Base URL"), text: api.baseUrl }),
+          (0, import_react46.createElement)(CopySnippetButton, { label: t("Copy MCP URL"), text: api.mcpUrl }),
+          (0, import_react46.createElement)(CopySnippetButton, { label: t("Copy curl"), text: curlSnippet }),
+          (0, import_react46.createElement)(CopySnippetButton, { label: t("Copy MCP config"), text: mcpSnippet })
+        )
       ) : null
     ),
-    (0, import_react46.createElement)(Section2, { title: t("Clients") }, mcp.clients.length === 0 ? (0, import_react46.createElement)("div", { className: "bt-set-row" }, (0, import_react46.createElement)("span", { className: "bt-set-hint" }, t("No clients yet"))) : mcp.clients.map((client) => (0, import_react46.createElement)(
+    error ? (0, import_react46.createElement)("div", { className: "bt-connector-error", role: "alert" }, error) : null,
+    createdToken ? (0, import_react46.createElement)(
       "div",
-      { key: client.id, className: "bt-mcp-client" },
-      (0, import_react46.createElement)(Row4, {
-        label: client.name,
-        hint: client.lastUsedAt ? t("Last used {date}", { date: new Date(client.lastUsedAt).toLocaleString(dateLocale(), { dateStyle: "medium", timeStyle: "short" }) }) : t("Can reach: {names}", { names: names(client).join(", ") || t("nothing yet") })
-      }, (0, import_react46.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: () => void run2(actions.mcpClientRemove(client.id)) }, t("Remove"))),
-      (0, import_react46.createElement)(ScopePicker, { client, bots, rooms, busy, onChange: (patch) => void run2(actions.mcpClientUpdate(client.id, patch)) })
-    )))
+      { className: "bt-api-reveal", role: "status" },
+      (0, import_react46.createElement)(
+        "div",
+        { className: "bt-api-reveal-head" },
+        (0, import_react46.createElement)("strong", null, t("Token created: {name}", { name: createdToken.name })),
+        (0, import_react46.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => setCreatedToken(null) }, t("Dismiss"))
+      ),
+      (0, import_react46.createElement)("p", { className: "bt-set-hint" }, t("Copy this token now. It will not be shown again.")),
+      (0, import_react46.createElement)(
+        "div",
+        { className: "bt-api-reveal-code" },
+        (0, import_react46.createElement)("code", null, createdToken.token),
+        (0, import_react46.createElement)(CopySnippetButton, { label: t("Copy"), text: createdToken.token })
+      )
+    ) : null,
+    (0, import_react46.createElement)(
+      Section2,
+      {
+        title: t("Access tokens"),
+        tour: "api-add",
+        action: !creating && !readOnly ? (0, import_react46.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => setCreating(true) }, t("New token")) : null
+      },
+      creating ? (0, import_react46.createElement)(
+        "div",
+        { className: "bt-api-form" },
+        (0, import_react46.createElement)(
+          "label",
+          { className: "bt-api-field" },
+          (0, import_react46.createElement)("span", null, t("Token name")),
+          (0, import_react46.createElement)("input", {
+            className: "bt-input",
+            value: name,
+            placeholder: t("e.g. Claude Code, CI script"),
+            onChange: (e) => setName(e.target.value)
+          })
+        ),
+        (0, import_react46.createElement)(
+          "div",
+          { className: "bt-api-group" },
+          (0, import_react46.createElement)("span", { className: "bt-api-group-label" }, t("Target scope")),
+          (0, import_react46.createElement)(
+            "div",
+            { className: "bt-api-radios" },
+            (0, import_react46.createElement)(
+              "label",
+              null,
+              (0, import_react46.createElement)("input", { type: "radio", name: "api-target", checked: targetScope === "selected", onChange: () => setTargetScope("selected") }),
+              " ",
+              t("Selected Bots and groups")
+            ),
+            (0, import_react46.createElement)(
+              "label",
+              null,
+              (0, import_react46.createElement)("input", { type: "radio", name: "api-target", checked: targetScope === "all_public", onChange: () => setTargetScope("all_public") }),
+              " ",
+              t("All non-private Bots and groups")
+            )
+          )
+        ),
+        targetScope === "selected" ? (0, import_react46.createElement)(
+          "div",
+          { className: "bt-api-targets" },
+          publicBots.length > 0 ? (0, import_react46.createElement)(
+            "div",
+            { className: "bt-api-checks" },
+            (0, import_react46.createElement)("span", { className: "bt-set-hint" }, t("Bots")),
+            (0, import_react46.createElement)("div", { className: "bt-api-chip-grid" }, publicBots.map((bot) => (0, import_react46.createElement)(
+              "label",
+              { key: bot.id, className: "bt-api-chip" },
+              (0, import_react46.createElement)("input", { type: "checkbox", checked: botIds.includes(bot.id), onChange: () => toggleItem(botIds, setBotIds, bot.id) }),
+              (0, import_react46.createElement)("span", null, bot.name)
+            )))
+          ) : null,
+          rooms.length > 0 ? (0, import_react46.createElement)(
+            "div",
+            { className: "bt-api-checks" },
+            (0, import_react46.createElement)("span", { className: "bt-set-hint" }, t("Group chats")),
+            (0, import_react46.createElement)("div", { className: "bt-api-chip-grid" }, rooms.map((room2) => (0, import_react46.createElement)(
+              "label",
+              { key: room2.id, className: "bt-api-chip" },
+              (0, import_react46.createElement)("input", { type: "checkbox", checked: roomIds.includes(room2.id), onChange: () => toggleItem(roomIds, setRoomIds, room2.id) }),
+              (0, import_react46.createElement)("span", null, room2.name)
+            )))
+          ) : null
+        ) : null,
+        privateBots.length > 0 ? (0, import_react46.createElement)(
+          "div",
+          { className: "bt-api-private-box" },
+          (0, import_react46.createElement)("span", { className: "bt-api-group-label" }, t("Private Bots (excluded by default)")),
+          (0, import_react46.createElement)("div", { className: "bt-api-chip-grid" }, privateBots.map((bot) => (0, import_react46.createElement)(
+            "label",
+            { key: bot.id, className: "bt-api-chip" },
+            (0, import_react46.createElement)("input", { type: "checkbox", checked: privateBotIds.includes(bot.id), onChange: () => toggleItem(privateBotIds, setPrivateBotIds, bot.id) }),
+            (0, import_react46.createElement)("span", null, bot.name)
+          ))),
+          privateBotIds.length > 0 ? (0, import_react46.createElement)(
+            "label",
+            { className: "bt-api-warn-check" },
+            (0, import_react46.createElement)("input", { type: "checkbox", checked: confirmPrivate, onChange: (e) => setConfirmPrivate(e.target.checked) }),
+            (0, import_react46.createElement)("span", null, t("Confirm granting this token access to selected private Bots."))
+          ) : null
+        ) : null,
+        (0, import_react46.createElement)(
+          "div",
+          { className: "bt-api-group" },
+          (0, import_react46.createElement)("span", { className: "bt-api-group-label" }, t("Scopes")),
+          (0, import_react46.createElement)("div", { className: "bt-api-chip-grid" }, SCOPE_ITEMS.map((item) => (0, import_react46.createElement)(
+            "label",
+            {
+              key: item.id,
+              className: `bt-api-chip${item.highRisk ? " bt-api-chip-warn" : ""}`
+            },
+            (0, import_react46.createElement)("input", {
+              type: "checkbox",
+              checked: scopes.includes(item.id),
+              onChange: () => toggleItem(scopes, setScopes, item.id)
+            }),
+            (0, import_react46.createElement)("span", null, item.label)
+          ))),
+          hasHighRisk ? (0, import_react46.createElement)(
+            "label",
+            { className: "bt-api-warn-check" },
+            (0, import_react46.createElement)("input", { type: "checkbox", checked: confirmHighRisk, onChange: (e) => setConfirmHighRisk(e.target.checked) }),
+            (0, import_react46.createElement)("span", null, t("Confirm granting high-risk permissions (approval or team management)."))
+          ) : null
+        ),
+        (0, import_react46.createElement)(
+          "div",
+          { className: "bt-api-limits" },
+          (0, import_react46.createElement)(
+            "label",
+            { className: "bt-api-field" },
+            (0, import_react46.createElement)("span", null, t("Expires in days (optional)")),
+            (0, import_react46.createElement)("input", { className: "bt-input", type: "number", min: 1, max: 3650, value: expireDays, onChange: (e) => setExpireDays(e.target.value) })
+          ),
+          (0, import_react46.createElement)(
+            "label",
+            { className: "bt-api-field" },
+            (0, import_react46.createElement)("span", null, t("Max concurrent runs")),
+            (0, import_react46.createElement)("input", { className: "bt-input", type: "number", min: 1, max: 500, value: maxConcurrent, onChange: (e) => setMaxConcurrent(e.target.value) })
+          ),
+          (0, import_react46.createElement)(
+            "label",
+            { className: "bt-api-field" },
+            (0, import_react46.createElement)("span", null, t("Requests / min")),
+            (0, import_react46.createElement)("input", { className: "bt-input", type: "number", min: 1, max: 1e4, value: rateLimit, onChange: (e) => setRateLimit(e.target.value) })
+          )
+        ),
+        (0, import_react46.createElement)(
+          "div",
+          { className: "bt-api-form-actions" },
+          (0, import_react46.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => setCreating(false) }, t("Cancel")),
+          (0, import_react46.createElement)("button", {
+            type: "button",
+            className: "bt-primary bt-soft-sm",
+            disabled: busy || name.trim() === "" || scopes.length === 0 || privateBotIds.length > 0 && !confirmPrivate || hasHighRisk && !confirmHighRisk,
+            onClick: () => void submitToken()
+          }, t("Create token"))
+        )
+      ) : null,
+      (api.tokens ?? []).length === 0 ? (0, import_react46.createElement)(Row4, { label: t("No tokens yet") }) : api.tokens.map((token) => (0, import_react46.createElement)(
+        "div",
+        { key: token.keyId, className: "bt-set-row bt-api-token-row" },
+        (0, import_react46.createElement)(
+          "div",
+          { className: "bt-set-copy" },
+          (0, import_react46.createElement)(
+            "div",
+            { className: "bt-api-token-title" },
+            (0, import_react46.createElement)("span", null, token.name),
+            (0, import_react46.createElement)("code", { className: "bt-tag" }, `${token.prefix}…`),
+            token.paused ? (0, import_react46.createElement)("span", { className: "bt-tag" }, t("Paused")) : null
+          ),
+          (0, import_react46.createElement)(
+            "span",
+            { className: "bt-set-hint" },
+            `${targetSummary(token)} · ${(token.scopes ?? []).join(", ")} · ${formatTime(token.lastUsedAt)}`
+          )
+        ),
+        (0, import_react46.createElement)(
+          "div",
+          { className: "bt-set-control bt-api-token-actions" },
+          (0, import_react46.createElement)("button", {
+            type: "button",
+            className: "bt-soft bt-soft-sm",
+            disabled: busy || readOnly,
+            onClick: () => void run2(actions.apiTokenUpdate(token.keyId, { paused: !token.paused }))
+          }, token.paused ? t("Resume") : t("Pause")),
+          (0, import_react46.createElement)("button", {
+            type: "button",
+            className: "bt-soft bt-soft-sm bt-danger",
+            disabled: busy || readOnly,
+            onClick: () => void run2(actions.apiTokenRevoke(token.keyId))
+          }, t("Revoke"))
+        )
+      ))
+    ),
+    (0, import_react46.createElement)(
+      Section2,
+      {
+        title: t("Recent API activity"),
+        action: (0, import_react46.createElement)(
+          "div",
+          { className: "bt-api-audit-actions" },
+          auditOpen ? (0, import_react46.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: loadAudit }, t("Refresh")) : null,
+          auditOpen && !readOnly && audit.entries.length > 0 ? (0, import_react46.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => void run2(actions.apiAuditClear()).then(() => setAudit({ entries: [], total: 0 })) }, t("Clear")) : null,
+          (0, import_react46.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => setAuditOpen((v) => !v) }, auditOpen ? t("Hide") : t("Show"))
+        )
+      },
+      !auditOpen ? (0, import_react46.createElement)(Row4, { label: t("Audit log records metadata only (never tokens or message text).") }) : audit.entries.length === 0 ? (0, import_react46.createElement)(Row4, { label: t("No API requests recorded yet") }) : audit.entries.map((entry, idx) => (0, import_react46.createElement)(
+        "div",
+        { key: `${entry.time}-${idx}`, className: "bt-set-row bt-api-audit-row" },
+        (0, import_react46.createElement)(
+          "div",
+          { className: "bt-set-copy" },
+          (0, import_react46.createElement)("span", null, `${entry.method} ${entry.path}${entry.targetName ? ` → ${entry.targetName}` : ""}`),
+          (0, import_react46.createElement)("span", { className: "bt-set-hint" }, `${entry.tokenName ?? t("Unauthenticated")} · ${formatTime(entry.time)} · ${entry.durationMs}ms`)
+        ),
+        (0, import_react46.createElement)("span", { className: `bt-tag${entry.status >= 400 ? " bt-api-status-err" : ""}` }, String(entry.status))
+      ))
+    )
   );
 }
 
@@ -45262,9 +46076,9 @@ var SECTION_TOURS = {
     { target: "phone-pair", title: "Pair a phone", cue: 'Click "Turn on & pair" to show a one-time QR code, then scan it on your phone.' },
     { target: "phone-server", title: "Server", cue: 'Click "Edit" here only if you host your own relay server.' }
   ],
-  mcp: [
-    { target: "mcp-switch", title: "MCP access", cue: "Turn on this switch so other local agents can reach your Bots." },
-    { target: "mcp-add", title: "Add a client", cue: 'Enter a client name, click "Create token", then pick allowed Bots below.' }
+  api: [
+    { target: "api-switch", title: "Enable local API server", cue: "Turn on this switch so other local agents can reach your Bots." },
+    { target: "api-add", title: "Access tokens", cue: 'Click "New token", then choose the allowed targets and scopes before creating it.' }
   ],
   computer: [
     { target: "comp-switch", title: "Computer use", cue: "Turn on this switch and grant system permissions when prompted." },
@@ -45946,7 +46760,7 @@ var SEARCH_ENTRIES = [
   { id: "connectors", label: "Connectors", group: "Connect", page: "connectors", icon: "connectors", keywords: "github mail email notion figma linear slack 连接器 邮箱 应用" },
   { id: "im", label: "IM", group: "Connect", page: "im", icon: "im", keywords: "wechat weixin feishu dingtalk wecom qq telegram discord slack 微信 飞书 钉钉 企微 聊天软件" },
   { id: "phone", label: "Phone", group: "Connect", page: "phone", icon: "phone", keywords: "mobile app qr relay android ios remote 手机 二维码 远控 配对" },
-  { id: "mcp", label: "MCP access", group: "Connect", page: "mcp", icon: "mcp", keywords: "token port client external agent mcp 端口 令牌" },
+  { id: "api", label: "API", group: "Connect", page: "api", icon: "api", keywords: "token port client external agent mcp api 端口 令牌" },
   { id: "computer", label: "Computer use", group: "Tools", page: "computer", icon: "computer", keywords: "screen accessibility mouse keyboard desktop 电脑操控 屏幕 辅助功能" },
   { id: "browser", label: "Browser", group: "Tools", page: "browser", icon: "browser", keywords: "grants site web interactive 浏览器 权限 网站" },
   { id: "capabilities", label: "Capabilities", group: "Tools", page: "capabilities", icon: "capabilities", keywords: "shared mcp skill pack 能力 技能 包" },
@@ -46420,7 +47234,7 @@ var NAV_GROUPS = [
     id: "connect",
     label: "Connect",
     icon: "connectors",
-    pages: [["connectors", "Connectors"], ["im", "IM"], ["phone", "Phone"], ["mcp", "MCP access"]],
+    pages: [["connectors", "Connectors"], ["im", "IM"], ["phone", "Phone"], ["api", "API"]],
     section: "main"
   },
   {
@@ -46452,7 +47266,7 @@ var dshItem = (dsh, id) => (0, import_react62.createElement)(
   { key: id, className: "bt-dsh-item", "data-item": id },
   dsh.preferences && PREFERENCE_ITEMS.has(id) ? (0, import_react62.createElement)(SettingsPreferences, { id, preferences: dsh.preferences }) : dsh.renderSlot("settings.general.item", {}, { only: id })
 );
-var PAGE_ICONS = { ...SETTINGS_ICONS, overview: OverviewIcon, appearance: PaletteIcon, models: SlidersIcon, "bot-models": LayersIcon, "local-agents": TerminalIcon, connectors: ConnectorIcon, im: SendIcon, phone: PhoneIcon, mcp: PlugIcon, capabilities: BlocksIcon, "deepseek-services": WaveIcon, browser: GlobeIcon, plugins: PuzzleIcon, computer: MonitorIcon, schedules: ClockIcon, secrets: KeyIcon, feedback: FeedbackIcon, about: InfoIcon };
+var PAGE_ICONS = { ...SETTINGS_ICONS, overview: OverviewIcon, appearance: PaletteIcon, models: SlidersIcon, "bot-models": LayersIcon, "local-agents": TerminalIcon, connectors: ConnectorIcon, im: SendIcon, phone: PhoneIcon, api: ApiIcon, capabilities: BlocksIcon, "deepseek-services": WaveIcon, browser: GlobeIcon, plugins: PuzzleIcon, computer: MonitorIcon, schedules: ClockIcon, secrets: KeyIcon, feedback: FeedbackIcon, about: InfoIcon };
 var MEMORY_SIZES = [
   { scope: "group", label: "Group memory size", size: 12e3 },
   { scope: "bot", label: "Bot memory size", size: 8e3 },
@@ -47266,8 +48080,8 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
         return (0, import_react62.createElement)(ImPage, { roster, actions });
       case "phone":
         return (0, import_react62.createElement)(PhonePage, { roster, actions, Section: SetSection, Row: SetRow });
-      case "mcp":
-        return (0, import_react62.createElement)(McpPage, { roster, actions, Section: SetSection, Row: SetRow });
+      case "api":
+        return (0, import_react62.createElement)(ApiPage, { roster, actions, Section: SetSection, Row: SetRow });
       case "computer":
         return (0, import_react62.createElement)(ComputerPage, { roster, actions, run: run2, Section: SetSection, Row: SetRow, Switch });
       case "browser":
@@ -49110,8 +49924,10 @@ function watchAgentTerminals(slots, sessionId, onError) {
 }
 
 // src/client/enter-steer.js
-var steerable = (input) => input !== void 0 && input.phase === "plain" && input.draft.trim() === "" && input.attachmentIds.length === 0 && input.queue.some((message) => message.source?.kind === "user");
-var enterSteers = (event, input) => event.key === "Enter" && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey && !event.getModifierState?.("AltGraph") && !event.isComposing && event.keyCode !== 229 && !event.repeat && steerable(input);
+var emptyPlainDraft = (input) => input !== void 0 && input.phase === "plain" && input.draft.trim() === "" && input.attachmentIds.length === 0;
+var steerable = (input) => emptyPlainDraft(input) && input.queue.some((message) => message.source?.kind === "user");
+var enterSteers = (event, input, enterToSend = true) => enterToSend === true && event.key === "Enter" && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey && !event.getModifierState?.("AltGraph") && !event.isComposing && event.keyCode !== 229 && !event.repeat && steerable(input);
+var emptyAccelQueueKey = (event, input) => event.key === "Enter" && (event.metaKey || event.ctrlKey) && !(event.metaKey && event.ctrlKey) && !event.shiftKey && !event.altKey && !event.getModifierState?.("AltGraph") && !event.isComposing && event.keyCode !== 229 && !event.repeat && emptyPlainDraft(input) && Array.isArray(input.queue) && input.queue.length > 0;
 var steerQueued = async (session) => {
   try {
     const queued = session.projections.faceOf("inbox").getSnapshot()?.["next-turn"] ?? [];
@@ -49263,8 +50079,10 @@ function menuIcons(roster) {
     return Icon;
   };
 }
-function ComposerPlus({ sessionId, inputActions, useInput, useRoster, actions }) {
+function ComposerPlus({ sessionId, inputActions, useInput, useRoster, useWork, actions }) {
   const roster = useRoster((value) => value);
+  const enterToSend = sendsOnEnter(roster.prefs);
+  const bgInfo = useWork?.((work) => work.canBackground?.[sessionId]);
   const [open, setOpen] = (0, import_react68.useState)(null);
   const [shown, leaving] = useLinger(open, 120);
   const button = (0, import_react68.useRef)(null);
@@ -49274,7 +50092,7 @@ function ComposerPlus({ sessionId, inputActions, useInput, useRoster, actions })
   const ready = useInput?.((state) => {
     inputNow.current = state;
     return steerable(state);
-  }) === true;
+  }) === true && enterToSend;
   const target = roster.byId?.[sessionId]?.id ?? roster.roomsById?.[sessionId]?.id;
   (0, import_react68.useEffect)(() => {
     if (!open) return void 0;
@@ -49307,8 +50125,10 @@ function ComposerPlus({ sessionId, inputActions, useInput, useRoster, actions })
   (0, import_react68.useEffect)(() => {
     let steering = false;
     const onKey = (event) => {
-      if (steering || event.defaultPrevented || open) return;
-      if (!enterSteers(event, inputNow.current)) return;
+      if (event.defaultPrevented || open) return;
+      const plainEnter = enterSteers(event, inputNow.current, enterToSend);
+      const accelEnter = !plainEnter && emptyAccelQueueKey(event, inputNow.current);
+      if (!plainEnter && !accelEnter) return;
       const targetEl = event.target;
       if (typeof targetEl?.closest !== "function") return;
       const card = button.current?.closest("[data-composer-card]");
@@ -49318,6 +50138,7 @@ function ComposerPlus({ sessionId, inputActions, useInput, useRoster, actions })
       if (targetEl.ownerDocument?.querySelector('[role="listbox"]')) return;
       event.preventDefault();
       event.stopPropagation();
+      if (steering || !steerable(inputNow.current)) return;
       steering = true;
       void Promise.resolve(actions.steerQueued(sessionId)).finally(() => {
         steering = false;
@@ -49325,7 +50146,7 @@ function ComposerPlus({ sessionId, inputActions, useInput, useRoster, actions })
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [open, sessionId]);
+  }, [open, sessionId, enterToSend]);
   const place = (0, import_react68.useMemo)(() => {
     if (!shown || !button.current) return null;
     const rect = button.current.getBoundingClientRect();
@@ -49358,6 +50179,11 @@ function ComposerPlus({ sessionId, inputActions, useInput, useRoster, actions })
     setOpen(null);
     actions.composeGoal(room2.id);
   };
+  const moveToBackground = () => {
+    setOpen(null);
+    if (!bgInfo || typeof actions.moveToBackground !== "function") return;
+    void Promise.resolve(actions.moveToBackground(bgInfo.botId, sessionId, bgInfo.turn)).catch((error) => actions.reportError?.(new Error(hostText(error?.message ?? String(error))), "move-to-background"));
+  };
   return (0, import_react68.createElement)(
     import_react68.Fragment,
     null,
@@ -49385,6 +50211,7 @@ function ComposerPlus({ sessionId, inputActions, useInput, useRoster, actions })
       shown.files ? (0, import_react68.createElement)("button", { type: "button", role: "menuitem", onClick: attach }, (0, import_react68.createElement)(PaperclipIcon), (0, import_react68.createElement)("span", { className: "bt-menu-label" }, t("Add files"))) : null,
       canReference ? (0, import_react68.createElement)("button", { type: "button", role: "menuitem", onMouseDown: keepComposerFocus, onClick: reference }, (0, import_react68.createElement)(ChatsIcon), (0, import_react68.createElement)("span", { className: "bt-menu-label" }, t("Reference a chat"))) : null,
       canSetGoal(room2, roster) ? (0, import_react68.createElement)("button", { type: "button", role: "menuitem", onClick: goal }, (0, import_react68.createElement)(GoalIcon), (0, import_react68.createElement)("span", { className: "bt-menu-label" }, t("Set a goal"))) : null,
+      bgInfo && typeof actions.moveToBackground === "function" ? (0, import_react68.createElement)("button", { type: "button", role: "menuitem", onMouseDown: keepComposerFocus, onClick: moveToBackground }, (0, import_react68.createElement)(MoveIcon), (0, import_react68.createElement)("span", { className: "bt-menu-label" }, t("Move current work to background"))) : null,
       (0, import_react68.createElement)("button", { type: "button", role: "menuitem", onClick: schedule }, (0, import_react68.createElement)(ClockIcon), (0, import_react68.createElement)("span", { className: "bt-menu-label" }, t("Scheduled task")))
     ), document.body) : null
   );
@@ -57879,6 +58706,60 @@ function createAvatarRefCache(call2) {
   };
 }
 
+// src/client/bot-completions.js
+function watchBotCompletions({ roster, sessions, statuses, unread }) {
+  const seen = /* @__PURE__ */ new Map();
+  const sync = () => {
+    const team = roster.getSnapshot();
+    const list = sessions.getSnapshot();
+    const statusMap = statuses?.getSnapshot();
+    const previous = unread.getSnapshot();
+    const next = {};
+    const parts = /* @__PURE__ */ new Set();
+    for (const bot of team.bots) {
+      const id = currentPart(bot);
+      parts.add(id);
+      const row = list.byId[id];
+      const active = (row?.retainedBy?.mainView ?? 0) > 0;
+      const status = statusMap?.get(id);
+      const hidden = team.exchangeTurns?.[id] ?? [];
+      const outline = turnOutlineOf(list, id);
+      if (!Array.isArray(outline)) {
+        if (!active && (previous[id] === true || !seen.has(id) && hidden.length === 0 && status?.completionUnread === true)) next[id] = true;
+        continue;
+      }
+      const latest = outline.at(-1);
+      const running = status?.running === true || row?.running === true;
+      const end = running && !latest?.response ? outline.length - 2 : outline.length - 1;
+      const closed = outline[end]?.turn ?? -1;
+      if (active) {
+        seen.set(id, Math.max(seen.get(id) ?? -1, closed));
+        continue;
+      }
+      if (!seen.has(id)) {
+        const unreadLatest = status?.completionUnread === true && end === outline.length - 1 && !hidden.includes(closed);
+        seen.set(id, unreadLatest ? outline[end - 1]?.turn ?? -1 : closed);
+      }
+      for (let i = end; i >= 0 && outline[i].turn > seen.get(id); i -= 1) {
+        if (hidden.includes(outline[i].turn)) continue;
+        next[id] = true;
+        break;
+      }
+    }
+    for (const id of seen.keys()) if (!parts.has(id)) seen.delete(id);
+    if (Object.keys(next).length !== Object.keys(previous).length || Object.keys(next).some((id) => previous[id] !== true)) unread.set(next);
+  };
+  const offRoster = roster.subscribe(sync);
+  const offSessions = sessions.subscribe(sync);
+  const offStatus = statuses?.subscribe(sync);
+  sync();
+  return () => {
+    offRoster();
+    offSessions();
+    offStatus?.();
+  };
+}
+
 // src/client/index.js
 var inject = ["sessions", "uiWorkspace", "uiConversation", "slots", "theme", "layout"];
 var WINDOWS = globalThis.navigator?.userAgentData?.platform === "Windows" || /^Win/u.test(globalThis.navigator?.platform ?? "");
@@ -57894,6 +58775,7 @@ function apply(ctx) {
   }
   const roster = createSource({ ...EMPTY_ROSTER, prefs: savedPrefs });
   const unreadStore = sharedMap(STORAGE.unread);
+  const botCompletions = createSource({});
   const reactionStore = sharedMap(STORAGE.reactions);
   const seenStore = sharedMap(STORAGE.seen);
   let seenAt = seenStore.read();
@@ -58014,13 +58896,14 @@ function apply(ctx) {
     if (value.connectors !== void 0 && JSON.stringify(value.connectors) !== JSON.stringify(current2.connectors ?? [])) live2.connectors = value.connectors;
     if (value.capabilityStatuses !== void 0 && JSON.stringify(value.capabilityStatuses) !== JSON.stringify(current2.capabilityStatuses ?? {})) live2.capabilityStatuses = value.capabilityStatuses;
     if (value.phone !== void 0 && JSON.stringify(value.phone) !== JSON.stringify(current2.phone ?? null)) live2.phone = value.phone;
-    if (value.mcp !== void 0 && JSON.stringify(value.mcp) !== JSON.stringify(current2.mcp ?? null)) live2.mcp = value.mcp;
+    if (value.api !== void 0 && JSON.stringify(value.api) !== JSON.stringify(current2.api ?? null)) live2.api = value.api;
     if (value.learning !== void 0 && JSON.stringify(value.learning) !== JSON.stringify(current2.learning ?? {})) live2.learning = value.learning;
     if (value.learningSettled !== void 0 && JSON.stringify(value.learningSettled) !== JSON.stringify(current2.learningSettled ?? {})) live2.learningSettled = value.learningSettled;
     if (value.btwCards !== void 0 && JSON.stringify(value.btwCards) !== JSON.stringify(current2.btwCards ?? {})) live2.btwCards = value.btwCards;
     if (value.sideChats !== void 0 && JSON.stringify(value.sideChats) !== JSON.stringify(current2.sideChats ?? {})) live2.sideChats = value.sideChats;
     if (value.imStatus !== void 0 && JSON.stringify(value.imStatus) !== JSON.stringify(current2.imStatus ?? {})) live2.imStatus = value.imStatus;
     if (value.imVia !== void 0 && JSON.stringify(value.imVia) !== JSON.stringify(current2.imVia ?? {})) live2.imVia = value.imVia;
+    if (value.apiVia !== void 0 && JSON.stringify(value.apiVia) !== JSON.stringify(current2.apiVia ?? {})) live2.apiVia = value.apiVia;
     if (value.plugins !== void 0 && JSON.stringify(value.plugins) !== JSON.stringify(current2.plugins ?? null)) live2.plugins = value.plugins;
     if (value.readOnly !== void 0 && (value.readOnly ?? null) !== (current2.readOnly ?? null)) live2.readOnly = value.readOnly;
     if (value.unchanged || !avatarIncomplete && value.revision === current2.revision && value.modelsKey === current2.modelsKey) {
@@ -59198,7 +60081,7 @@ function apply(ctx) {
     () => installFrameWatch(frame2),
     () => installFrameSync(),
     () => installTheme(),
-    () => shadow("sidebar.workspaces", { priority: BOT_PRIORITY, inject: face }, TeamSidebar),
+    () => shadow("sidebar.workspaces", { priority: BOT_PRIORITY, inject: () => ({ actions, hooks: { ...face().hooks, botCompletions } }) }, TeamSidebar),
     () => shadow("sidebar.brand.mark", { priority: BOT_PRIORITY }, BrandMark),
     () => shadow("sidebar.brand.name", { priority: BOT_PRIORITY }, BrandName),
     () => shadow("sidebar.footer.action", { id: "bot-account", order: -200, inject: face }, FooterAccount),
@@ -59397,6 +60280,12 @@ function apply(ctx) {
       offRoster();
     };
   }, "ds-bot: agent surface");
+  ctx.effect(() => watchBotCompletions({
+    roster,
+    sessions: ctx.sessions.list,
+    statuses: ctx.get("uiSession")?.sessionStatus,
+    unread: botCompletions
+  }), "ds-bot: sidebar completions");
   ctx.effect(() => {
     const groups = surfaceGroups({ shell: installShell, conversation: installConversation }, {
       onError: (_group, error) => actions.reportError(new Error(t("Bot mode could not be set up here: {error}", { error: error?.message ?? String(error) })), "surface")

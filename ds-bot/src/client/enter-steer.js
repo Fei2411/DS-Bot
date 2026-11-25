@@ -2,20 +2,38 @@
 // shell. DS Bot reads it as "steer my queued messages into the running turn" —
 // the queue dock's steer button for every queued row at once (#839).
 
-// The composer can steer: idle draft, no text, no attachments, and at least one
-// queued message of the user's own. Team deliveries and replies also sit in the
-// queue and stay there.
-export const steerable = input => input !== undefined
+// The composer is empty and idle (no text, no attachments, plain editing phase).
+export const emptyPlainDraft = input => input !== undefined
   && input.phase === 'plain'
   && input.draft.trim() === ''
   && input.attachmentIds.length === 0
+
+// The composer can steer: idle draft, no text, no attachments, and at least one
+// queued message of the user's own. Team deliveries and replies also sit in the
+// queue and stay there.
+export const steerable = input => emptyPlainDraft(input)
   && input.queue.some(message => message.source?.kind === 'user')
 
-export const enterSteers = (event, input) => event.key === 'Enter'
+// Plain Enter steers queued user messages only when Enter-to-send is enabled.
+export const enterSteers = (event, input, enterToSend = true) => enterToSend === true
+  && event.key === 'Enter'
   && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey
   && !event.getModifierState?.('AltGraph')
   && !event.isComposing && event.keyCode !== 229 && !event.repeat
   && steerable(input)
+
+// Empty-draft Cmd+Enter / Ctrl+Enter accelerator: DSH's built-in handler walks the
+// entire `next-turn` queue (including Bot relays, task reports, and answer cards).
+// Intercept it whenever an empty Bot composer has any queued items so only user
+// messages can be promoted.
+export const emptyAccelQueueKey = (event, input) => event.key === 'Enter'
+  && (event.metaKey || event.ctrlKey)
+  && !(event.metaKey && event.ctrlKey)
+  && !event.shiftKey && !event.altKey
+  && !event.getModifierState?.('AltGraph')
+  && !event.isComposing && event.keyCode !== 229 && !event.repeat
+  && emptyPlainDraft(input)
+  && Array.isArray(input.queue) && input.queue.length > 0
 
 // Steers the user's queued messages in FIFO order, like the queue dock's steer
 // button per row. An Agent that stopped between read and steer

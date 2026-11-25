@@ -9,7 +9,7 @@ const bundle = await build({
   bundle: true, format: 'cjs', platform: 'node', write: false,
   external: ['react', 'react-dom', '@deepseek-ai/dsh-client-ui-primitives'],
 })
-const ISSUES = 'https://github.com/Fei2411/DS-Bot/issues/new'
+const ISSUES = 'https://github.com/Fei-Craft/DS-Bot/issues/new'
 
 // Settings → Feedback in a window whose `open` is `open`, with every state change kept.
 function page(window) {

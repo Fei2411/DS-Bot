@@ -2,9 +2,10 @@ import { createElement as h, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import { createPortal } from 'react-dom'
 import { BotMark, RoomAvatar } from './mark.js'
 import { Elapsed, Shimmer, PHRASES } from './cells.js'
+import { MoveIcon } from './icons.js'
 import { noteClientError } from './diagnostics.js'
 import { reducedEffects, reducedMotion } from './motion.js'
-import { t } from './i18n.js'
+import { hostText, t } from './i18n.js'
 
 // -------------------------------------------------------------------------
 // The activity row: the Bot's mark and a shimmering phrase at the transcript
@@ -162,6 +163,9 @@ export function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useL
   else if (runAt.current === 0) runAt.current = Date.now()
   const liveKey = useLive(state => JSON.stringify(state[sessionId] ?? {}))
   const steeredAt = useWork?.(work => work.steered?.[sessionId])
+  const bgInfo = useWork?.(work => work.canBackground?.[sessionId])
+  const [movingBg, setMovingBg] = useState(false)
+  useEffect(() => { setMovingBg(false) }, [sessionId, bgInfo?.turn])
   const pendingInput = useSession(snapshot => freshInputAt(snapshot?.pendingSubmissions, steeredAt))
   const bot = roster.byId[sessionId]
   const room = roster.roomsById[sessionId]
@@ -235,9 +239,32 @@ export function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useL
   useRowEntrances(() => leaving.current || Date.now() - endedAt.current < 300)
   const host = useRunningHost(running || moveAt !== 0)
   if (!host || phase === null || !shown) return null
-  return createPortal(h('div', { className: 'bt-typing', 'data-exiting': phase === 'out' ? '' : undefined, 'aria-hidden': true },
-    bot ? h(BotMark, { bot, size: 28, state: markState.current, live: true, pokeable: true }) : h(RoomAvatar, { room, roster, size: 28 }),
-    h('span', { className: 'bt-typing-text' },
+  const showBgAction = bot !== undefined && moveAt === 0 && bgInfo !== undefined && typeof actions?.moveToBackground === 'function'
+  const moveToBg = () => {
+    if (movingBg || !bgInfo) return
+    setMovingBg(true)
+    void Promise.resolve(actions.moveToBackground(bgInfo.botId, sessionId, bgInfo.turn))
+      .catch(error => {
+        setMovingBg(false)
+        actions.reportError?.(new Error(hostText(error?.message ?? String(error))), 'move-to-background')
+      })
+  }
+  return createPortal(h('div', { className: 'bt-typing', 'data-exiting': phase === 'out' ? '' : undefined },
+    h('span', { className: 'bt-typing-mark', 'aria-hidden': true },
+      bot ? h(BotMark, { bot, size: 28, state: markState.current, live: true, pokeable: true }) : h(RoomAvatar, { room, roster, size: 28 })),
+    h('span', { className: 'bt-typing-text', 'aria-hidden': true },
       h('span', { key: `${shown.key}:${shown.at}`, className: 'bt-typing-label' }, h(Shimmer, null, `${shown.text}…`)),
-      h(Elapsed, { at: moveAt !== 0 ? moveAt : Math.max(turnAt ?? runAt.current, inputAt), className: 'bt-typing-time' }))), host)
+      h(Elapsed, { at: moveAt !== 0 ? moveAt : Math.max(turnAt ?? runAt.current, inputAt), className: 'bt-typing-time' })),
+    showBgAction
+      ? h('button', {
+          type: 'button',
+          className: 'bt-typing-bg',
+          disabled: movingBg,
+          'aria-label': t('Move current work to background'),
+          title: t('Move current work to background'),
+          onClick: moveToBg,
+        },
+        h('span', { className: 'bt-typing-bg-ico', 'aria-hidden': true }, h(MoveIcon)),
+        h('span', null, movingBg ? t('Moving…') : t('Move to background')))
+      : null), host)
 }

@@ -153,10 +153,13 @@ export function createRemoteService(rt) {
       if (name.startsWith('phone-')) {
         return { ok: false, error: { code: 'bot/refused', message: 'Phones are paired and removed on the computer', details: {} } }
       }
+      if (name.startsWith('api-')) {
+        return { ok: false, error: { code: 'bot/refused', message: 'External API settings and tokens are managed on the computer', details: {} } }
+      }
       if (name === 'folder-pick') {
         return { ok: false, error: { code: 'bot/refused', message: 'Folders are chosen in a window on the computer', details: {} } }
       }
-      return plain(await rt.channelCall(name, payload ?? {}, signal))
+      return plain(await rt.channelCall(name, payload ?? {}, signal, true))
     }
 
     feed(signal) {

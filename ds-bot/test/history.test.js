@@ -71,6 +71,10 @@ test('termQuery matches long words with FTS5 and short ones with LIKE', () => {
     sql: "SELECT text, session, seq, time, who FROM messages WHERE session IN (SELECT value FROM json_each(?)) AND NOT (session = ? AND seq >= ?) AND text LIKE ? ESCAPE '\\' AND text LIKE ? ESCAPE '\\' ORDER BY time DESC LIMIT 5",
     args: ['["s1","s2"]', 's2', 40, '%会议%', '%5\\%%'],
   })
+  assert.deepEqual(termQuery(['needle'], sessions, 10, undefined, [{ session: 's1', throughSeq: 7 }]), {
+    sql: 'SELECT text, session, seq, time, who FROM lines WHERE lines MATCH ? AND session IN (SELECT value FROM json_each(?)) AND NOT (session = ? AND seq > ?) ORDER BY rank LIMIT 10',
+    args: ['"needle"', '["s1","s2"]', 's1', 7],
+  })
 })
 
 test('a card answer carries its question, so it reads on its own', () => {

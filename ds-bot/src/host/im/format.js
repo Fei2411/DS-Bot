@@ -6,25 +6,58 @@ const escapeHtml = text => String(text).replace(/&/g, '&amp;').replace(/</g, '&l
 
 // Inline Markdown inside one line or block: `code`, **bold**, _italic_, ~~strike~~,
 // [label](url). Code spans are pulled out first so markers inside them stay literal.
-function inlineHtml(line) {
+function withCodeSpans(line, renderCode, renderInline) {
   const spans = []
   const kept = line.replace(/`([^`]+)`/g, (_all, code) => {
-    spans.push(`<code>${escapeHtml(code)}</code>`)
+    spans.push(renderCode(code))
     return `\x00${spans.length - 1}\x00`
   })
-  const html = escapeHtml(kept)
+  return renderInline(kept).replace(/\u0000(\d+)\u0000/g, (_all, index) => spans[Number(index)])
+}
+
+function inlineHtml(line) {
+  return withCodeSpans(line, code => `<code>${escapeHtml(code)}</code>`, kept => escapeHtml(kept)
     .replace(/\[([^\]]*)\]\(([^)\s]+)\)/g, (_all, label, url) => `<a href="${escapeHtml(url)}">${label}</a>`)
     .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
     .replace(/__([^_]+)__/g, '<b>$1</b>')
     .replace(/\*([^*]+)\*/g, '<i>$1</i>')
     .replace(/\b_([^_]+)_\b/g, '<i>$1</i>')
-    .replace(/~~([^~]+)~~/g, '<s>$1</s>')
-  return html.replace(/\u0000(\d+)\u0000/g, (_all, index) => spans[Number(index)])
+    .replace(/~~([^~]+)~~/g, '<s>$1</s>'))
 }
 
-function inlinePlain(line) {
+function boldInlineHtml(line) {
+  const html = inlineHtml(line).replace(/<\/?b>/g, '')
+  const tags = []
+  let rendered = ''
+  let segment = ''
+  let hasText = false
+  let at = 0
+  for (const match of html.matchAll(/<code>[\s\S]*?<\/code>|<a href="[^"]*">|<\/?[ais]>/g)) {
+    const text = html.slice(at, match.index)
+    const tag = match[0]
+    segment += text
+    hasText ||= text !== ''
+    if (tag.startsWith('<code>') && tags.some(open => open.startsWith('<a '))) {
+      segment += tag.slice('<code>'.length, -'</code>'.length)
+      hasText = true
+    } else if (tag.startsWith('<code>')) {
+      if (hasText) rendered += '<b>' + segment + tags.slice().reverse().map(open => '</' + open[1] + '>').join('') + '</b>'
+      rendered += tag
+      segment = tags.join('')
+      hasText = false
+    } else {
+      if (tag[1] === '/') tags.pop()
+      else tags.push(tag)
+      segment += tag
+    }
+    at = match.index + tag.length
+  }
+  const tail = html.slice(at)
+  return hasText || tail !== '' ? rendered + '<b>' + segment + tail + '</b>' : rendered
+}
+
+function stripInlineFormatting(line) {
   return line
-    .replace(/`([^`]+)`/g, '$1')
     .replace(/\[([^\]]*)\]\(([^)\s]+)\)/g, (_all, label, url) => (label === url ? label : `${label} (${url})`))
     .replace(/\*\*([^*]+)\*\*/g, '$1')
     .replace(/__([^_]+)__/g, '$1')
@@ -32,6 +65,9 @@ function inlinePlain(line) {
     .replace(/\b_([^_]+)_\b/g, '$1')
     .replace(/~~([^~]+)~~/g, '$1')
 }
+
+const inlinePlain = line => stripInlineFormatting(line.replace(/`([^`]+)`/g, '$1'))
+const inlineTablePlain = line => withCodeSpans(line, code => code, stripInlineFormatting)
 
 // One Markdown document as blocks: fenced code stays a block of its own so chunking
 // can keep it whole; the rest splits on blank lines.
@@ -63,11 +99,101 @@ function blocks(markdown) {
   return out
 }
 
-const renderHtml = block => (block.kind === 'code'
-  ? `<pre><code${block.lang ? ` class="language-${escapeHtml(block.lang)}"` : ''}>${escapeHtml(block.lines.join('\n'))}</code></pre>`
-  : block.lines.map(inlineHtml).join('\n'))
+const codeHtmlOpen = lang => lang ? `<pre><code class="language-${escapeHtml(lang)}">` : '<pre><code>'
+const renderCodeHtml = block => `${codeHtmlOpen(block.lang)}${escapeHtml(block.lines.join('\n'))}</code></pre>`
 
 const renderPlain = block => (block.kind === 'code' ? block.lines.join('\n') : block.lines.map(inlinePlain).join('\n'))
+
+const ATX_HEADING = /^ {0,3}#{1,6}[ \t]+(.+?)\s*$/
+const LIST_ITEM = /^ {0,3}(?:[-+*]|\d{1,9}[.)])(?:[ \t]|$)/
+const TABLE_DELIMITER = /^:?-+:?$/
+const FENCE_LIKE = /^\s*(?:(?:[-+*]|\d+[.)])\s+|>\s*)*(?:`{3,}|~{3,})/
+
+function tableCells(line) {
+  if (/^ {0,3}[\t>]|^ {4}/.test(line) || ATX_HEADING.test(line)) return undefined
+  const cells = ['']
+  for (const part of line.trim().match(/\\.|(?<!`)(`+)(?!`).*?(?<!`)\1(?!`)|[^\\`|]+|`+|\\|\|/g) ?? []) {
+    if (part === '|') cells.push('')
+    else cells[cells.length - 1] += part.replace(/\\./g, escape => escape === '\\|' ? '|' : escape)
+  }
+  if (cells.length === 1) return undefined
+  const leadingPipe = cells[0] === ''
+  const trailingPipe = cells.at(-1) === ''
+  if (leadingPipe) cells.shift()
+  if (trailingPipe) cells.pop()
+  return { cells: cells.map(cell => cell.trim()), leadingPipe, trailingPipe }
+}
+
+function tableRow(line, header) {
+  if (LIST_ITEM.test(line)) return undefined
+  const row = tableCells(line)
+  if (row === undefined || header === undefined) return row
+  return row.cells.length === header.cells.length
+    && (!header.leadingPipe || row.leadingPipe)
+    && (!header.trailingPipe || row.trailingPipe) ? row : undefined
+}
+
+const renderLine = line => ({ html: inlineHtml(line), text: inlinePlain(line) })
+
+function telegramLines(lines, formatBefore, limit) {
+  const rendered = []
+  const tableLine = at => at < formatBefore ? lines[at] : ''
+  const fits = ({ html, text }) => points(html) <= limit && points(text) <= limit
+  const renderTableRow = (headers, row) => headers.map((header, index) => {
+    const label = row === undefined ? header : header + ':'
+    const value = row?.[index] ?? ''
+    return {
+      html: '• ' + boldInlineHtml(label) + (value ? ' ' + inlineHtml(value) : ''),
+      text: '• ' + inlineTablePlain(label) + (value ? ' ' + inlineTablePlain(value) : ''),
+    }
+  })
+  for (let at = 0; at < lines.length; at += 1) {
+    const line = lines[at]
+    if (at >= formatBefore) {
+      rendered.push(renderLine(line))
+      continue
+    }
+    const next = tableLine(at + 1)
+    if (next.includes('-')) {
+      const delimiters = tableCells(next)?.cells
+      if (delimiters?.length > 0 && delimiters.every(cell => TABLE_DELIMITER.test(cell))) {
+        const header = tableRow(line)
+        if (header?.cells.length === delimiters.length) {
+          const start = at
+          const rows = []
+          at += 1
+          let row = tableRow(tableLine(at + 1), header)
+          if (row === undefined) rows.push(renderTableRow(header.cells))
+          while (row !== undefined) {
+            at += 1
+            rows.push(renderTableRow(header.cells, row.cells))
+            row = tableRow(tableLine(at + 1), header)
+          }
+          const original = lines.slice(start, at + 1).map(renderLine)
+          const converted = {
+            html: rows.map(cells => cells.map(cell => cell.html).join('\n')).join('\n\n'),
+            text: rows.map(cells => cells.map(cell => cell.text).join('\n')).join('\n\n'),
+          }
+          if (fits(converted) && original.every(fits)) rendered.push(converted)
+          else for (const raw of original) rendered.push(raw)
+          continue
+        }
+      }
+    }
+    const original = renderLine(line)
+    const heading = ATX_HEADING.exec(line)
+    if (heading !== null && !/^#+$/.test(heading[1]) && fits(original)) {
+      const content = heading[1].replace(/[ \t]+#+$/, '')
+      const converted = { html: boldInlineHtml(content), text: inlinePlain(content) }
+      if (fits(converted)) {
+        rendered.push(converted)
+        continue
+      }
+    }
+    rendered.push(original)
+  }
+  return rendered
+}
 
 export function toPlain(markdown) {
   return blocks(markdown).map(renderPlain).join('\n')
@@ -75,10 +201,8 @@ export function toPlain(markdown) {
 
 const points = text => Array.from(text).length
 
-// Split a block that alone exceeds the limit: text at line boundaries (a line that
-// is still too long is cut where it lands — Telegram answers it as plain text), a
-// code fence into several fenced blocks.
-function forceCut(block, limit) {
+// Split oversized blocks at line boundaries and code fences into several fenced blocks.
+function forceCut(block, limit, lines) {
   if (block.kind !== 'code') {
     const chunks = []
     let html = ''
@@ -89,33 +213,38 @@ function forceCut(block, limit) {
       html = ''
       text = ''
     }
-    for (const line of block.lines) {
-      const lineHtml = inlineHtml(line)
+    for (const { html: lineHtml, text: lineText } of lines) {
       const candidate = html === '' ? lineHtml : `${html}\n${lineHtml}`
       if (points(candidate) <= limit) {
         html = candidate
-        text = text === '' ? inlinePlain(line) : `${text}\n${inlinePlain(line)}`
+        text = text === '' ? lineText : `${text}\n${lineText}`
         continue
       }
       flush()
-      // A single line over the limit is cut on its rendered text.
-      let rest = lineHtml
-      let restPlain = inlinePlain(line)
-      while (points(rest) > limit) {
-        const part = Array.from(rest).slice(0, limit).join('')
-        const plainPart = Array.from(restPlain).slice(0, limit).join('')
-        chunks.push({ html: part, text: plainPart })
-        rest = Array.from(rest).slice(limit).join('')
-        restPlain = Array.from(restPlain).slice(limit).join('')
+      if (points(lineHtml) <= limit) {
+        html = lineHtml
+        text = lineText
+        continue
       }
-      html = rest
-      text = restPlain
+      const htmlChars = Array.from(lineHtml)
+      const textChars = Array.from(lineText)
+      const width = Math.max(1, Math.trunc(limit))
+      let at = 0
+      while (htmlChars.length - at > limit) {
+        chunks.push({
+          html: htmlChars.slice(at, at + width).join(''),
+          text: textChars.slice(at, at + width).join(''),
+        })
+        at += width
+      }
+      html = htmlChars.slice(at).join('')
+      text = textChars.slice(at).join('')
     }
     flush()
     return chunks
   }
   const chunks = []
-  const open = `<pre><code${block.lang ? ` class="language-${escapeHtml(block.lang)}"` : ''}>`
+  const open = codeHtmlOpen(block.lang)
   const close = '</code></pre>'
   let body = block.lines.join('\n')
   const room = Math.max(1, limit - points(open) - points(close))
@@ -198,6 +327,7 @@ export function chunkMarkdown(markdown, limit) {
 
 export function chunkTelegram(markdown, limit = 4096) {
   const chunks = []
+  let formatProse = true
   let html = ''
   let text = ''
   const flush = () => {
@@ -207,8 +337,17 @@ export function chunkTelegram(markdown, limit = 4096) {
     text = ''
   }
   for (const block of blocks(markdown)) {
-    const blockHtml = renderHtml(block)
-    const blockText = renderPlain(block)
+    let lines = []
+    if (block.kind === 'code') {
+      // A legacy opener can be an inline span or a wider fence, not an ordinary code block.
+      if (block.lang.includes('`')) formatProse = false
+    } else {
+      const fence = formatProse ? block.lines.findIndex(line => FENCE_LIKE.test(line)) : 0
+      formatProse = fence === -1
+      lines = telegramLines(block.lines, formatProse ? block.lines.length : fence, limit)
+    }
+    const blockHtml = block.kind === 'code' ? renderCodeHtml(block) : lines.map(line => line.html).join('\n')
+    const blockText = block.kind === 'code' ? renderPlain(block) : lines.map(line => line.text).join('\n')
     const candidate = html === '' ? blockHtml : `${html}\n${blockHtml}`
     if (points(candidate) <= limit) {
       html = candidate
@@ -221,7 +360,7 @@ export function chunkTelegram(markdown, limit = 4096) {
       text = blockText
       continue
     }
-    chunks.push(...forceCut(block, limit))
+    chunks.push(...forceCut(block, limit, lines))
   }
   flush()
   return chunks

@@ -113,6 +113,14 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     stopTask: (botId, taskId) => after(call('bot-stop-task', { botId, taskId })),
     sendTask: (botId, taskId, text) => after(call('bot-task-send', { botId, taskId, text })),
     readTask: (botId, taskId, cursor, steps = false) => call('bot-task-read', { botId, taskId, ...(cursor ? { cursor } : {}), ...(steps ? { steps: true } : {}) }),
+    moveToBackground: (botId, sessionId, expectedTurn) => after(call('bot-move-to-background', {
+      botId,
+      ...(sessionId ? { sessionId } : {}),
+      ...(typeof expectedTurn === 'number' ? { expectedTurn } : {}),
+      operationId: typeof globalThis.crypto?.randomUUID === 'function'
+        ? globalThis.crypto.randomUUID()
+        : `bg-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    })),
     // A side chat on the panel's own view, opened from the strip, the `···`
     // menus or `/side`. Closing the panel keeps the chats; only a tab's × deletes.
     openSideChat,
@@ -327,11 +335,12 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     phonePair: () => after(call('phone-pair')),
     phonePairCancel: () => after(call('phone-pair-cancel')),
     phoneRemove: id => after(call('phone-remove', { id })),
-    // The answer to mcp-client-add carries the new token once; nothing else does.
-    mcpSet: settings => after(call('mcp-set', settings)),
-    mcpClientAdd: client => after(call('mcp-client-add', client)),
-    mcpClientUpdate: (id, patch) => after(call('mcp-client-update', { id, ...patch })),
-    mcpClientRemove: id => after(call('mcp-client-remove', { id })),
+    apiSet: settings => after(call('api-set', settings)),
+    apiTokenCreate: payload => after(call('api-token-create', payload)),
+    apiTokenUpdate: (keyId, patch) => after(call('api-token-update', { keyId, ...patch })),
+    apiTokenRevoke: keyId => after(call('api-token-revoke', { keyId })),
+    apiAudit: (options = {}) => after(call('api-audit', options)),
+    apiAuditClear: () => call('api-audit-clear', {}),
     imAdd: payload => after(call('im-add', payload)),
     imUpdate: (id, patch) => after(call('im-update', { id, ...patch })),
     imRemove: id => after(call('im-remove', { id })),
