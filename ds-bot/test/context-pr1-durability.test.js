@@ -469,13 +469,16 @@ function makeSwitchFixture({ fail = {}, home: reuse } = {}) {
       const calls = []
       const nextStep = [...saved[sessionId]?.nextStep ?? []]
       const nextTurn = [...saved[sessionId]?.nextTurn ?? []]
+      const tools = new Map()
       agents.set(sessionId, {
         id: sessionId,
         session: { id: sessionId, seq: 0, header: { cwd: cwds.get(sessionId) ?? team }, requestHeader: () => undefined, deriveMessages: () => [] },
-        ctx: { tools: { register: () => () => {} } },
+        ctx: { tools: { register: (def) => { tools.set(def.name, def); return () => tools.delete(def.name) } } },
+        tools,
         calls,
         status: 'idle',
         followup(message) { calls.push(['followup', message]); nextTurn.push(message); persist(agents) },
+        steer(message) { calls.push(['steer', message]); nextStep.push(message); persist(agents) },
         inject(message) { calls.push(['inject', message]); nextStep.push(message); persist(agents) },
         send(message, target, wakeup) {
           ;(target === 'next-turn' ? nextTurn : nextStep).push(message)
@@ -831,4 +834,71 @@ test('startup resend logged on successor before handOnHeld does not duplicate th
   assert.equal(followupsAfter, followupsBefore, 'handOnHeld must not duplicate either transferId-tagged or legacy exchangeId-only Bot requests already logged by startup resend')
   assert.equal(bAgent.inbox.nextTurn.length, 0, 'old part inbox is cleared after confirming target admission')
   assert.equal(host.rt.state.switching.b, undefined, 'switching marker cleared')
+})
+
+test('merging a successor unread request before retrying a failed forward flush preserves transferId and prevents duplicate delivery', async (t) => {
+  let failForwardFlush = false
+  const host = makeSwitchFixture({
+    fail: {
+      onFlush: (session) => {
+        if (failForwardFlush && session.id === 's1') {
+          failForwardFlush = false
+          throw new Error('transient forward flush failure')
+        }
+      },
+    },
+  })
+  t.after(host.stop)
+  await host.rt.load()
+
+  // Call real delegate_work tool as Chief ('a') to delegate "check invoice A" to Writer ('b').
+  const delegateTool = host.rt.teamTools.find(d => d.name === 'delegate_work')
+  assert.ok(delegateTool, 'delegate_work tool registered on runtime')
+
+  await delegateTool.execute({ to: 'Writer', goal: 'check invoice A', when: 'queue' }, { agent: { id: 'a' } })
+  const bAgent = host.agentOf('b')
+  const original = bAgent.inbox.nextTurn.find(m => (m.content?.[0]?.text ?? '').includes('check invoice A'))
+  assert.ok(original, 'original request queued on Writer old part')
+  const origTransferId = original.source?.transferId
+  const origExchangeId = original.source?.exchangeId
+  assert.ok(typeof origTransferId === 'string' && origTransferId.length > 0, 'original request carries transferId')
+
+  // Simulate pointer flip b -> s1 and a forward that queues on s1 before its flush fails,
+  // leaving the original in b.inbox and state.switching.b pending for retry.
+  const bot = host.rt.state.bots.b
+  bot.sessionId = 's1'
+  bot.parts = [{ sessionId: 'b', at: Date.now() - 1_000, reason: 'full' }, { sessionId: 's1', at: Date.now() }]
+  host.rt.state.switching = { b: { botId: 'b', next: 's1' } }
+  await host.rt.save()
+
+  failForwardFlush = true
+  await host.rt.heldBack()
+  const s1Agent = host.agentOf('s1')
+  assert.equal(s1Agent.inbox.nextTurn.length, 1, 's1 received forwarded copy before flush failed')
+  assert.equal(bAgent.inbox.nextTurn.length, 1, 'old part retained original after flush failure')
+  assert.ok(host.rt.state.switching.b !== undefined, 'switching marker kept for retry')
+
+  // Before retry runs, Chief delegates "check invoice B", merging into s1's unread copy.
+  await delegateTool.execute({ to: 'Writer', goal: 'check invoice B', when: 'queue' }, { agent: { id: 'a' } })
+  const mergedOnS1 = [...s1Agent.inbox.nextStep, ...s1Agent.inbox.nextTurn]
+  assert.equal(mergedOnS1.length, 1, 'merged replacement replaced unread copy on s1')
+  assert.equal(mergedOnS1[0].source?.exchangeId, origExchangeId, 'merged request keeps original exchangeId')
+  assert.equal(mergedOnS1[0].source?.transferId, origTransferId, 'merged request preserves original transferId')
+  assert.match(mergedOnS1[0].content[0].text, /check invoice A/)
+  assert.match(mergedOnS1[0].content[0].text, /check invoice B/)
+
+  // Also test when s1 has ALREADY claimed & logged the merged request before heldBack retries.
+  const loggedMerged = mergedOnS1[0]
+  s1Agent.inbox.nextTurn.splice(0)
+  s1Agent.inbox.nextStep.splice(0)
+  s1Agent.session.snapshotEvents = () => [
+    { type: 'user/message', data: { id: loggedMerged.id, source: loggedMerged.source, content: loggedMerged.content } },
+  ]
+  const followupsBefore = s1Agent.calls.filter(([kind]) => kind === 'followup').length
+
+  await host.rt.heldBack()
+
+  assert.equal(s1Agent.calls.filter(([kind]) => kind === 'followup').length, followupsBefore, 'heldBack retry must not re-queue the superseded original beside the merged request')
+  assert.equal(bAgent.inbox.nextTurn.length, 0, 'old part inbox cleared after retry')
+  assert.equal(host.rt.state.switching.b, undefined, 'switching marker cleared after retry')
 })

@@ -383,6 +383,7 @@ export function install(rt) {
         ...(follows ? { follows } : {}),
         steer,
         exchangeId,
+        ...(joins && earlier.message.source?.transferId !== undefined ? { transferId: earlier.message.source.transferId } : {}),
         ...(workRef ? { workRef } : {}),
         ...(joins ? { merged: true } : {}),
         ...(toUser ? { audience: 'user' } : {}),
