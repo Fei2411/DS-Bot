@@ -192,8 +192,12 @@ export function chunkMarkdown(markdown, limit, { unit = 'code-point' } = {}) {
     // platform that counts units instead (Discord) gets a cut measured in them.
     let at = unit === 'utf16' ? unitsWithin(rest, limit) : codeUnitIndex(rest, limit)
     // The halfway mark of the same budget, in the same units: a separator early in the
-    // budget is not worth preferring over a cut that uses it.
-    const half = codeUnitIndex(rest, Math.floor(limit / 2))
+    // budget is not worth preferring over a cut that uses it. A platform that counts units
+    // already has its budget in them, so half of it is that number; converting half the
+    // budget through `codeUnitIndex` instead measured half the *code points*, and astral
+    // characters pushed the mark forward past a newline that sat exactly halfway in the
+    // count the platform uses, so the cut went through a link the newline would have spared.
+    const half = unit === 'utf16' ? Math.floor(limit / 2) : codeUnitIndex(rest, Math.floor(limit / 2))
     const newline = rest.lastIndexOf('\n', at)
     if (newline > half) at = newline
     else {

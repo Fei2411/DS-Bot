@@ -126,3 +126,18 @@ test('chunkMarkdown prefers a separator in the second half of the budget', () =>
   assert.equal(chunks[0], '\u{1F600}\u{1F600}aaaaaa')
   assert.equal(chunks.join('\n'), body)
 })
+
+test('chunkMarkdown measures the halfway separator in the unit the platform counts', () => {
+  // 600 emoji are 600 code points but 1,200 UTF-16 units, so the newline sits at unit
+  // 1,200: past half of Discord's 2,000-unit budget counted in units, but short of half
+  // of it counted in code points. Measuring the mark in code points hid that newline and
+  // the cut went through the link behind it.
+  const label = 'a'.repeat(900)
+  const link = `[${label}](https://example.com/x)`
+  const body = `${'\u{1F600}'.repeat(600)}\n${link}${'b'.repeat(600)}`
+  const chunks = chunkMarkdown(body, 2000, { unit: 'utf16' })
+  assert.equal(chunks.length, 2)
+  assert.equal(chunks[0], '\u{1F600}'.repeat(600))
+  assert.ok(chunks[1].startsWith(link), 'the link is not cut in half')
+  for (const chunk of chunks) assert.ok(chunk.length <= 2000, `chunk of ${chunk.length} units exceeds the limit`)
+})
