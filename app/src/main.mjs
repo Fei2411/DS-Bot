@@ -30,8 +30,11 @@ import { readStartFrame, writeStartFrame } from './start-frame.mjs'
 import { explainOf, StartWindow } from './start-window.mjs'
 import { langOf } from './start/text.mjs'
 import { createDeferredPrompt } from './update-prompt.mjs'
+import { installSocketTosGuard } from 'ds-bot/socket-tos-guard'
 import { CAPTION_HEIGHT, cssColor, frameOptions, framelessOn, keepVibrancy, materialOf, nativeThemeSource } from './window-frame.mjs'
 import { zoomKey, zoomLevel } from './zoom-keys.mjs'
+
+installSocketTosGuard()
 
 const { rm } = disk.promises
 
@@ -90,7 +93,7 @@ if (process.env.DS_BOT_SHELL_DATA) app.setPath('userData', process.env.DS_BOT_SH
 const frameFile = join(app.getPath('userData'), 'start-frame.json')
 
 // Loaded once the start window is up (loadModules).
-let BotBrowserGuests, partitionOf, BotViews, isBotId, probeSource, importFromBrowser, launchBrowserForDebug, listSources, SAFARI_FULL_DISK_ACCESS_URL, safariContainerLibrary, applyCookies, seedOriginsInPartition, CookieImports, parseCookieFile
+let BotBrowserGuests, partitionOf, BotViews, isBotId, probeSource, importFromBrowser, launchBrowserForDebug, listSources, SAFARI_FULL_DISK_ACCESS_URL, safariContainerLibrary, applyCookies, applyImportToTargets, seedOriginsInPartition, CookieImports, parseCookieFile
 let downloadSaver, chooseLocations, defaultPlaces, lang, pickerLabels, pickRoot, programFolder, saveLocations, teamIn, teamsAt, tx, HostProcess
 let copySessions, findTeam, importTeam, restoreSessions, teamInUse, teamSizes, userDshHome, copyData, copyReason, moveProblem, BUNDLES, CHECK_PROFILE, PROFILE, ImportFlow
 let watchReleases, watchUpdates, RELEASE_PAGE, readAutoUpdate, writeAutoUpdate, getDshRuntimeVersion, electronUpdater
@@ -326,7 +329,7 @@ async function loadModules() {
   ;({ BotBrowserGuests, partitionOf } = browser)
   ;({ BotViews, isBotId } = views)
   ;({ probeSource, importFromBrowser, launchBrowserForDebug, listSources, SAFARI_FULL_DISK_ACCESS_URL, safariContainerLibrary } = sources)
-  ;({ applyCookies, seedOriginsInPartition, CookieImports } = cookies)
+  ;({ applyCookies, applyImportToTargets, seedOriginsInPartition, CookieImports } = cookies)
   ;({ parseCookieFile } = cookieFiles)
   ;({ downloadSaver } = downloads)
   ;({ chooseLocations, defaultPlaces, lang, pickerLabels, pickRoot, programFolder, saveLocations, teamIn, teamsAt, tx } = firstRun)
@@ -597,13 +600,22 @@ const hostOutput = (stream, chunk) => {
   rawOutput[stream](/token=/iu.test(chunk) ? logs.redact(chunk) : chunk)
 }
 
+function dshTelemetryEnv(dataDir) {
+  if (process.env.DSH_TELEMETRY_DISABLED !== undefined) return {}
+  try {
+    const saved = JSON.parse(readFileSync(join(dataDir, 'bot', 'telemetry.json'), 'utf8'))
+    if (saved?.dshFeedbackTelemetry === true) return {}
+  } catch { /* default off until the user explicitly opts in */ }
+  return { DSH_TELEMETRY_DISABLED: '1' }
+}
+
 function newHost() {
   // A Host of an attempt that a retry has replaced no longer stands for the start.
   const mine = attempt
   const child = new HostProcess({
     entry: join(here, 'host.mjs'),
     cwd: profileDir(),
-    env: { ...process.env, DSH_HOME: places.dataDir, DS_BOT_PORT: String(port), DS_BOT_APP: '1', DS_BOT_UI_DIR: join(here, '..', 'ui', 'dist'), DS_BOT_USER_DSH_HOME: userDshHome(), DS_BOT_RUNTIME_DIR: runtimeDir(), ...(app.isPackaged && process.platform === 'darwin' ? { DS_BOT_COMPUTER_HELPER_HOME: join(app.getPath('userData'), 'computer-use') } : {}), ...(places.workspace ? { DS_BOT_WORKSPACE: places.workspace } : {}) },
+    env: { ...process.env, ...dshTelemetryEnv(places.dataDir), DSH_HOME: places.dataDir, DS_BOT_PORT: String(port), DS_BOT_APP: '1', DS_BOT_UI_DIR: join(here, '..', 'ui', 'dist'), DS_BOT_USER_DSH_HOME: userDshHome(), DS_BOT_RUNTIME_DIR: runtimeDir(), ...(app.isPackaged && process.platform === 'darwin' ? { DS_BOT_COMPUTER_HELPER_HOME: join(app.getPath('userData'), 'computer-use') } : {}), ...(places.workspace ? { DS_BOT_WORKSPACE: places.workspace } : {}) },
     pnpm: pnpmEntry(),
     onFailure: (error) => { if (mine === attempt) void fail(error) },
     output: hostOutput,
@@ -1059,20 +1071,23 @@ function handleIpc() {
       if (activeLiveImports.get(reqKey) === controller) activeLiveImports.delete(reqKey)
     }
   })
-  ipcMain.handle(IPC.browserImportApply, async (event, key, id, options) => {
+  ipcMain.handle(IPC.browserImportApply, async (event, keyOrKeys, id, options) => {
     assertWindow(event)
-    if (typeof key !== 'string' || !key.startsWith('bot:')) throw new Error('DS Bot: a Bot storage key is required')
-    const pending = cookieImports.take(typeof id === 'string' ? id : '')
-    if (!pending) throw new Error('DS Bot: this import is no longer pending')
-    const sites = Array.isArray(options?.sites) ? options.sites.map(String) : undefined
-    const persistSession = options?.persistSession === true
-    const partition = partitionOf(key)
-    const storage = session.fromPartition(partition)
-    const report = await applyCookies(storage, pending.cookies, { sites, persistSession })
-    const storageReport = (pending.origins ?? []).length > 0
-      ? await seedOriginsInPartition(BrowserWindow, partition, pending.origins, { sites })
-      : { originsStored: 0, entriesStored: 0, failedOrigins: [] }
-    return { ...report, ...storageReport }
+    return applyImportToTargets({
+      keyOrKeys,
+      id,
+      options,
+      store: cookieImports,
+      applyOne: async (key, pending, { sites, persistSession }) => {
+        const partition = partitionOf(key)
+        const storage = session.fromPartition(partition)
+        const report = await applyCookies(storage, pending.cookies, { sites, persistSession })
+        const storageReport = (pending.origins ?? []).length > 0
+          ? await seedOriginsInPartition(BrowserWindow, partition, pending.origins, { sites })
+          : { originsStored: 0, entriesStored: 0, failedOrigins: [] }
+        return { ...report, ...storageReport }
+      },
+    })
   })
   ipcMain.handle(IPC.browserImportCancel, (event, id) => {
     assertWindow(event)

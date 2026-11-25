@@ -191,11 +191,11 @@ test('a closed result cannot create another root delegation without its work ref
   assert.equal(agents.get('b').calls.at(-1)[1].source.follows, 'W1')
 })
 
-test('real work tool resets zero-work streak, and user message resets rework checkpoint', async (t) => {
+test('different goals with real results do not hit a fixed rework limit', async (t) => {
   const { agents, emit, tool, call, stop } = await start()
   t.after(stop)
 
-  // 4 consecutive real-work delegations between Chief and Writer hit the rework checkpoint.
+  // Distinct steps of a project keep going without an arbitrary fixed turn cutoff.
   for (let i = 1; i <= 4; i += 1) {
     const out = await tool('delegate_work', { to: 'Writer', goal: `fix step ${i}` }, 'a')
     assert.match(out, new RegExp(`#W${i}`))
@@ -209,14 +209,12 @@ test('real work tool resets zero-work streak, and user message resets rework che
     await settled(() => (agents.get('a')?.calls.length ?? 0) >= i)
   }
 
-  // 5th consecutive delegation without user input pauses at rework_limit.
   const r5 = await tool('delegate_work', { to: 'Writer', goal: 'fix step 5' }, 'a')
-  assert.match(r5, /^Paused work #W5 before waking Writer/)
+  assert.match(r5, /^Delegated work #W5 to Writer/)
   const paused = (await call('state', {})).value.work.paused
-  assert.equal(paused[0].reason, 'rework_limit')
+  assert.equal(paused.length, 0)
 
-  // Cancel paused work, then user sends a new message to Chief -> resets pair loops.
-  assert.equal((await call('cancel-work', { id: paused[0].id })).ok, true)
+  assert.equal((await call('cancel-work', { id: 'W5' })).ok, true)
   emit('a', 'turn/start', { turn: 99 })
   emit('a', 'user/message', { content: textBlock('continue with Writer'), source: { kind: 'user' } })
   emit('a', 'turn/end', { turn: 99, reason: { kind: 'completed' } })
@@ -798,7 +796,7 @@ test('P1 #2, P1 #3, P1 #5: deliver_to user loop guard, substantive pure-LLM 2-st
   const { rt, emit, tool, stop } = await start()
   t.after(stop)
 
-  // Substantive pure-LLM specialist flow (same direction, non-ack): allowed up to WORK_REWORK_CHECKPOINT (4), pausing at rework_limit on the 5th.
+  // Distinct sections of text are progress even without a tool call.
   rt.noteWorkCompleted('a', 'b', { worked: false, text: 'Here is the complete first draft of section one with detailed technical rationale and examples.' })
   assert.deepEqual(rt.checkPairLoop('a', 'b', { callerWorked: false, text: 'Please expand section two with migration steps and edge cases.' }), { ok: true })
   rt.noteWorkCompleted('a', 'b', { worked: false, text: 'Here is the expanded section two draft covering all migration steps.' })
@@ -806,7 +804,7 @@ test('P1 #2, P1 #3, P1 #5: deliver_to user loop guard, substantive pure-LLM 2-st
   rt.noteWorkCompleted('a', 'b', { worked: false, text: 'Here is the complete section three rollout checklist.' })
   assert.deepEqual(rt.checkPairLoop('a', 'b', { callerWorked: false, text: 'Now translate section four into concise release notes.' }), { ok: true })
   rt.noteWorkCompleted('a', 'b', { worked: false, text: 'Here is the translated section four release note draft.' })
-  assert.deepEqual(rt.checkPairLoop('a', 'b', { callerWorked: false, text: 'Now review section five appendix.' }), { pause: 'rework_limit', bounces: 4 })
+  assert.deepEqual(rt.checkPairLoop('a', 'b', { callerWorked: false, text: 'Now review section five appendix.' }), { ok: true })
 
   // True ack-like or reciprocal alternating zero-work ping-pong still pauses immediately at 2 (idle_loop).
   rt.resetPairLoop('a', 'b')
@@ -1059,7 +1057,7 @@ test('soak findings: resumeRoomPause signals Continue to woken member, and super
   assert.equal(deferredIds.includes('ex-direct-req'), true, 'Bot-to-Bot work request must never be coalesced with room calls')
 })
 
-test('same-direction substantive pure-LLM delegate_work runs 4 sections before rework_limit while ack/ping-pong still pauses at 2', async (t) => {
+test('text-only translations continue beyond four sections while repeated no-progress and ping-pong still pause', async (t) => {
   const { rt, agents, emit, tool, call, stop } = await start()
   t.after(stop)
 
@@ -1075,13 +1073,12 @@ test('same-direction substantive pure-LLM delegate_work runs 4 sections before r
     await settled(() => (agents.get('a')?.calls.length ?? 0) >= i)
   }
 
-  // 5th consecutive pure-LLM delegation pauses at WORK_REWORK_CHECKPOINT (rework_limit).
+  // Distinct section 5 continues cleanly without a fixed 4-turn cutoff.
   const r5 = await tool('delegate_work', { to: 'Writer', goal: 'Translate section 5 of the architecture document.' }, 'a')
-  assert.match(r5, /^Paused work #W5 before waking Writer/)
+  assert.match(r5, /^Delegated work #W5 to Writer/)
   let paused = (await call('state', {})).value.work.paused
-  assert.equal(paused.length, 1)
-  assert.equal(paused[0].reason, 'rework_limit')
-  assert.equal((await call('cancel-work', { id: paused[0].id })).ok, true)
+  assert.equal(paused.length, 0)
+  assert.equal((await call('cancel-work', { id: 'W5' })).ok, true)
 
   // Reciprocal alternating zero-work ping-pong (A -> B then B -> A) still pauses immediately at 2 as idle_loop.
   rt.resetPairLoop('a', 'b')

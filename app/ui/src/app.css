@@ -10,8 +10,7 @@ body[data-ds-dark-theme]{color-scheme:dark}
 ::-webkit-scrollbar-track,::-webkit-scrollbar-corner{background:transparent}
 
 .dsb-frame{display:grid;grid-template-columns:var(--dsb-side-w,280px) minmax(0,1fr);height:100%}
-.dsb-frame[data-rail]{grid-template-columns:56px minmax(0,1fr)}
-.dsb-frame[data-rail][data-surface=bot]{grid-template-columns:88px minmax(0,1fr)}
+.dsb-frame[data-surface=bot],.dsb-frame[data-surface=agent][data-collapsed]{grid-template-columns:minmax(0,1fr)}
 
 /* The window has no title bar. A band along the top of the sidebar and of the conversation
    moves the window (BAND in src/main.mjs); its first row of controls sits centered in it.
@@ -24,18 +23,19 @@ body[data-ds-dark-theme]{color-scheme:dark}
 .bt-panel .bt-ptabs{padding-right:calc(6px + var(--dsb-buttons-w))}
 .bt-pane :is(.bt-to,.bt-create-head){padding-right:calc(12px + var(--dsb-buttons-w))}
 
-/* Sidebar; collapsed, a rail of marks under the brand, which expands it again. */
+/* Classic sidebar; collapses cleanly to 0px rather than a narrow stub. */
 .dsb-side{position:relative;display:flex;flex-direction:column;min-width:0;min-height:0;padding:0 12px 6px;background:var(--bt-sidebar);border-right:1px solid color-mix(in srgb,var(--bt-ink) 12%,transparent);box-sizing:border-box}
-.dsb-side-host{background:transparent;border-right:0;padding:0;pointer-events:none}
 .dsb-side-list{display:flex;flex-direction:column;flex:1 1 auto;min-height:0;margin:0 -12px 0 -4px;padding-left:4px}
 .dsb-side .bt-list{overflow-x:hidden}
-.dsb-frame[data-rail] .dsb-side{padding:0 10px 6px}
-.dsb-frame[data-rail] .dsb-side-host{padding:0}
-.dsb-frame[data-rail] .dsb-side-list{margin:0;padding:0;align-items:center}
-.dsb-expand{margin:6px 0 8px}
-html[data-mac]:not([data-fullscreen]) .dsb-frame[data-mac-titlebar] .dsb-side{padding-top:var(--dsb-band)}
+html[data-windows-titlebar] .dsb-frame[data-surface=agent] .dsb-side{padding-top:var(--dsh-windows-titlebar-height,var(--dsb-band))}
+@media (min-width:769px){html[data-windows-titlebar] .dsb-classic-collapse{display:none}}
+/* macOS non-fullscreen: in the 88px rail, x=88 sits outside the rail in the chat area,
+   so the sidebar toggle moves inside the rail's top stack below the traffic lights. */
+html[data-windows-titlebar]:not([data-fullscreen]) body[data-bt-os=macos] .bt-title-toggle[data-left=rail]{display:none!important}
+html[data-windows-titlebar]:not([data-fullscreen]) body[data-bt-os=macos] .bt-leftcol[data-left=rail] .bt-rail-top>.bt-side-collapse{display:inline-flex!important;width:32px;height:32px;border:0;border-radius:8px;background:transparent;color:var(--bt-ink-2)}
+html[data-windows-titlebar]:not([data-fullscreen]) body[data-bt-os=macos] .bt-leftcol[data-left=rail] .bt-rail-top>.bt-side-collapse:hover{background:var(--bt-hover);color:var(--bt-ink)}
+html[data-windows-titlebar]:not([data-fullscreen]) body[data-bt-os=macos] .bt-leftcol[data-left=rail] .bt-rail-top>.bt-side-collapse svg{width:16px;height:16px}
 .dsb-side-foot{display:flex;align-items:center;gap:9px;padding:8px 6px 6px}
-.dsb-frame[data-rail] .dsb-side-foot{margin:0 -5px;padding:8px 0 6px}
 .dsb-settings{padding:0;border:0;background:none;border-radius:50%;corner-shape:round;cursor:pointer}
 .dsb-settings:hover .bt-you{background:color-mix(in srgb,var(--bt-ink) 9%,var(--bt-sidebar))}
 .dsb-settings:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
@@ -491,6 +491,7 @@ body[data-ds-dark-theme] .dsb-frame[data-surface=agent],body[data-ds-dark-theme]
 .dsb-head.dsb-head-classic{position:relative;top:auto;left:auto;right:auto;flex:none;display:block;padding:env(safe-area-inset-top,0px) 0 0;pointer-events:auto}
 .dsb-head.dsb-head-classic::before{display:none}
 .dsb-classic-bar{position:relative;display:flex;align-items:center;justify-content:center;min-height:48px;padding:0 56px;background:var(--dsb-dsh-bg);border-bottom:.5px solid var(--bt-line);box-sizing:border-box}
+html[data-windows-titlebar] .dsb-frame[data-surface=agent][data-collapsed] .dsb-classic-bar{padding-inline:calc(56px + var(--bt-caption-start,0px))}
 .dsb-classic-bar[data-blank]{background:transparent;border-bottom-color:transparent}
 .dsb-classic-bar-center{display:inline-flex;align-items:center;justify-content:center;gap:6px;max-width:min(680px,100%);min-width:0}
 .dsb-classic-bar-title{min-width:0;font-size:14px;line-height:20px;font-weight:500;color:var(--bt-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -572,8 +573,6 @@ body[data-ds-dark-theme] .dsb-frame[data-surface=agent],body[data-ds-dark-theme]
 .dsb-agent-hero-cta{gap:6px;padding:0 16px 0 14px}
 .dsb-agent-hero-cta svg{width:15px;height:15px}
 .dsb-side-foot .bt-return{flex:1 1 auto;min-width:0;--bt-return-fill:var(--bt-hover);--bt-return-fill-hover:var(--bt-active);color:var(--bt-ink)}
-.dsb-frame[data-rail] .dsb-side-foot{flex-direction:column;gap:6px}
-.dsb-frame[data-rail] .dsb-side-foot .bt-return{width:36px;height:36px;min-height:36px;padding:0;flex:none}
 
 /* Lazy Engine settings pages (Account, Plugins, Presets, Archived). */
 .dsb-engine-page{display:flex;flex-direction:column;gap:14px}
@@ -684,11 +683,10 @@ body[data-bt-effects=off] :is(.dsb-tool-head,.dsb-tool-chev,.dsb-compaction-chev
 .dsb-main[data-classic] .dsb-scroll{padding:20px calc(16px + env(safe-area-inset-right,0px)) 24px calc(16px + env(safe-area-inset-left,0px))}
 
 @media (max-width:768px){
-  .dsb-frame,.dsb-frame[data-rail],.dsb-frame[data-rail][data-surface=bot]{grid-template-columns:minmax(0,1fr)}
-  .dsb-side-host{display:none}
+  .dsb-frame,.dsb-frame[data-surface=bot],.dsb-frame[data-surface=agent][data-collapsed]{grid-template-columns:minmax(0,1fr)}
   html:is([data-windows-titlebar],:not([data-windows-titlebar])) .bt-title-toggle{display:none}
   body>.bt-leftcol[data-left=drawer]{z-index:35}
-  .dsb-side,html[data-mac] .dsb-frame[data-mac-titlebar] .dsb-side{position:fixed;top:0;bottom:0;left:0;z-index:35;width:min(288px,84vw);padding:calc(10px + env(safe-area-inset-top,0px)) 12px calc(6px + env(safe-area-inset-bottom,0px)) calc(12px + env(safe-area-inset-left,0px));transform:translateX(-100%);transition:transform .24s cubic-bezier(.2,0,0,1);box-shadow:none}
+  .dsb-side,html[data-windows-titlebar] .dsb-frame[data-surface=agent] .dsb-side{position:fixed;top:0;bottom:0;left:0;z-index:35;width:min(288px,84vw);padding:calc(10px + env(safe-area-inset-top,0px)) 12px calc(6px + env(safe-area-inset-bottom,0px)) calc(12px + env(safe-area-inset-left,0px));transform:translateX(-100%);transition:transform .24s cubic-bezier(.2,0,0,1);box-shadow:none}
   .dsb-frame[data-drawer-open] .dsb-side{transform:translateX(0);box-shadow:8px 0 28px rgba(0,0,0,.18)}
   .dsb-drawer-scrim{display:block;position:fixed;inset:0;z-index:34;background:rgba(0,0,0,.36)}
   .dsb-mobile-menu{display:inline-flex;align-items:center;justify-content:center;position:absolute;left:calc(12px + env(safe-area-inset-left,0px));top:calc(14px + env(safe-area-inset-top,0px));z-index:10;width:36px;height:36px;padding:0;border:.5px solid var(--bt-glass-rim);border-radius:50%;corner-shape:round;background:var(--bt-glass-bg);-webkit-backdrop-filter:blur(20px) saturate(180%);backdrop-filter:blur(20px) saturate(180%);color:var(--bt-ink);cursor:pointer;box-shadow:var(--bt-glass-shadow);box-sizing:border-box;touch-action:manipulation}
@@ -696,7 +694,6 @@ body[data-bt-effects=off] :is(.dsb-tool-head,.dsb-tool-chev,.dsb-compaction-chev
   .dsb-mobile-menu:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
   .dsb-main[data-classic] .dsb-mobile-menu{top:calc(8px + env(safe-area-inset-top,0px));width:32px;height:32px;border:0;border-radius:8px;corner-shape:auto;background:transparent;-webkit-backdrop-filter:none;backdrop-filter:none;box-shadow:none;color:var(--bt-ink-2)}
   .dsb-main[data-classic] .dsb-mobile-menu:hover{background:var(--bt-hover);color:var(--bt-ink)}
-  .dsb-expand{display:none}
 }
 @media (max-width:600px),(max-width:767px) and (max-height:500px) and (pointer:coarse){
   [data-composer-card] .dsb-composer-tools{order:2;margin-top:4px}

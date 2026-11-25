@@ -20,6 +20,7 @@ const KEY_BYTES = 32
 const SALT_BYTES = 16
 const IV_BYTES = 12
 const AAD = Buffer.from('ds-bot secrets v2', 'utf8')
+const RECORD_AAD = Buffer.from('ds-bot secret-ref v1', 'utf8')
 
 export class SecretsPassphraseError extends Error {
   constructor(message = 'The passphrase did not unlock the secrets file.') {
@@ -69,15 +70,13 @@ const derive = (passphrase, salt, kdf) => scryptSync(Buffer.from(passphrase, 'ut
   N: kdf.N, r: kdf.r, p: kdf.p, maxmem: 256 * 1024 * 1024,
 })
 
-// The payload is the plain file body: { version: 1, secrets: [...] }. It travels only
-// inside the ciphertext; the envelope itself has no secret name, value or purpose.
-export function encryptSecrets(payload, passphrase) {
+function encryptEnvelope(payload, passphrase, aad) {
   cleanPassphrase(passphrase)
   const salt = randomBytes(SALT_BYTES)
   const iv = randomBytes(IV_BYTES)
   const key = derive(passphrase, salt, KDF)
   const cipher = createCipheriv('aes-256-gcm', key, iv)
-  cipher.setAAD(AAD)
+  cipher.setAAD(aad)
   const plaintext = Buffer.from(JSON.stringify(payload), 'utf8')
   const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()])
   return {
@@ -91,7 +90,7 @@ export function encryptSecrets(payload, passphrase) {
   }
 }
 
-export function decryptSecrets(envelope, passphrase) {
+function decryptEnvelope(envelope, passphrase, aad) {
   if (!isEncryptedSecretsFile(envelope)) throw new SecretsFormatError()
   if (typeof passphrase !== 'string' || passphrase === '') throw new SecretsPassphraseError('Type the passphrase first.')
   const kdf = safeKdf(envelope.kdf)
@@ -104,7 +103,7 @@ export function decryptSecrets(envelope, passphrase) {
   let plaintext
   try {
     const decipher = createDecipheriv('aes-256-gcm', key, iv)
-    decipher.setAAD(AAD)
+    decipher.setAAD(aad)
     decipher.setAuthTag(tag)
     plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()])
   } catch {
@@ -112,16 +111,38 @@ export function decryptSecrets(envelope, passphrase) {
     // which byte failed.
     throw new SecretsPassphraseError('The passphrase did not unlock the secrets file, or the file is damaged.')
   }
-  let payload
   try {
-    payload = JSON.parse(plaintext.toString('utf8'))
+    return JSON.parse(plaintext.toString('utf8'))
   } catch {
     throw new SecretsFormatError('The secrets file decrypted to something that is not JSON.')
   }
+}
+
+// The payload is the plain file body: { version: 1, secrets: [...] }. It travels only
+// inside the ciphertext; the envelope itself has no secret name, value or purpose.
+export function encryptSecrets(payload, passphrase) {
+  return encryptEnvelope(payload, passphrase, AAD)
+}
+
+export function decryptSecrets(envelope, passphrase) {
+  const payload = decryptEnvelope(envelope, passphrase, AAD)
   if (payload === null || typeof payload !== 'object' || !Array.isArray(payload.secrets)) {
     throw new SecretsFormatError('The secrets file decrypted to a form this DS Bot does not know.')
   }
   return payload
+}
+
+// Separate AAD prevents swapping a single-use secret-ref file into secrets.json.
+export function encryptSecretRecord(record, passphrase) {
+  return encryptEnvelope(record, passphrase, RECORD_AAD)
+}
+
+export function decryptSecretRecord(envelope, passphrase) {
+  const record = decryptEnvelope(envelope, passphrase, RECORD_AAD)
+  if (record === null || typeof record !== 'object' || Array.isArray(record)) {
+    throw new SecretsFormatError('The secret record decrypted to a form this DS Bot does not know.')
+  }
+  return record
 }
 
 // Unattended starts read the passphrase from the environment, or from a file so it can

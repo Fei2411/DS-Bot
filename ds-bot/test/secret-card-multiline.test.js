@@ -225,3 +225,55 @@ test('SecretCard renders a multiline textarea and submits full multiline text in
   await tick()
   assert.deepEqual(plain(saved), [{ requestId: 'req-1', value: multiValue, scope: 'all' }])
 })
+
+test('SecretCard defaults Replace value to 1Password for external secrets and enforces 512-char op:// length limit', async () => {
+  const { SecretCard, render, findAll } = await loadSecretCard({ cssSupports: true })
+  const saved = []
+  const actions = {
+    holdCard: () => () => {},
+    secretSet: payload => { saved.push(payload); return Promise.resolve(true) },
+    secretCancel: () => Promise.resolve(true),
+    secretAllow: () => Promise.resolve(true),
+  }
+  const props = {
+    sessionId: 'b1',
+    bot: { id: 'b1', name: 'Chief' },
+    request: { id: 'req-ext', kind: 'allow', name: 'OP_TOKEN', purpose: 'Prod API' },
+    roster: {
+      bots: [{ id: 'b1', name: 'Chief' }],
+      byId: { b1: { id: 'b1', name: 'Chief' } },
+      secrets: [{ name: 'OP_TOKEN', kind: 'external', providerId: 'onepassword', reference: 'op://Prod/API/token', scope: ['b2'] }],
+    },
+    actions,
+  }
+
+  let tree = render(SecretCard, props)
+  const replaceBtn = findAll(tree, n => n.type === 'button' && (n.props.children ?? []).includes('Replace value'))[0]
+  assert.ok(replaceBtn)
+  replaceBtn.props.onClick()
+
+  tree = render(SecretCard, props)
+  const refInput = findAll(tree, n => n.type === 'input' && n.props['aria-label'] === '1Password reference')[0]
+  assert.ok(refInput, 'clicking Replace value on an external secret must open the 1Password reference input')
+  assert.equal(refInput.props.value, 'op://Prod/API/token')
+  const submitBtn = () => findAll(tree, n => n.type === 'button' && n.props.className === 'bt-q-submit')[0]
+  assert.equal(submitBtn().props.disabled, false)
+
+  // Exceeding 512 chars disables submit (matching backend MAX_REF_LENGTH = 512).
+  const prefix = 'op://v/i/'
+  const tooLong = prefix + 'a'.repeat(513 - prefix.length)
+  assert.equal(tooLong.length, 513)
+  refInput.props.onChange({ target: { value: tooLong } })
+  tree = render(SecretCard, props)
+  assert.equal(submitBtn().props.disabled, true)
+
+  // Exactly 512 chars is accepted.
+  const exactMax = prefix + 'a'.repeat(512 - prefix.length)
+  assert.equal(exactMax.length, 512)
+  findAll(tree, n => n.type === 'input' && n.props['aria-label'] === '1Password reference')[0].props.onChange({ target: { value: exactMax } })
+  tree = render(SecretCard, props)
+  assert.equal(submitBtn().props.disabled, false)
+  submitBtn().props.onClick()
+  await tick()
+  assert.deepEqual(plain(saved), [{ requestId: 'req-ext', reference: exactMax, scope: 'all' }])
+})

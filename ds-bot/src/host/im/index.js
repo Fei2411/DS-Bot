@@ -1427,6 +1427,11 @@ export function install(rt) {
     if (conn.chats[msg.chat.key] === undefined) {
       conn.chats[msg.chat.key] = { kind: msg.chat.kind, title: msg.chat.title, at: Date.now() }
       await rt.save()
+    } else if (typeof msg.chat.title === 'string' && msg.chat.title !== '' && conn.chats[msg.chat.key].title !== msg.chat.title) {
+      // A group rename (or a first title after the chat was recorded by an older
+      // build): keep the stored name fresh so the settings page shows the real one.
+      conn.chats[msg.chat.key].title = msg.chat.title
+      await rt.save()
     }
     const raw = String(msg.text ?? '')
     const body = raw.trim()

@@ -344,6 +344,7 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     secretUnlock: passphrase => after(call('secret-unlock', { passphrase })),
     secretEncrypt: passphrase => after(call('secret-encrypt', { passphrase })),
     secretDecrypt: passphrase => after(call('secret-decrypt', { passphrase })),
+    secretRefreshExternal: (providerId, resolve = false) => after(call('secret-refresh-external', { ...(providerId ? { providerId } : {}), ...(resolve ? { resolve: true } : {}) })),
     connectorConnect: (id, payload = {}) => after(call('connector-connect', { id, ...payload })),
     connectorDisconnect: id => after(call('connector-disconnect', { id })),
     connectorRetry: id => after(call('connector-retry', { id })),
@@ -431,6 +432,11 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     diagnostics: payload => call('diagnostics', payload),
     diagnosticsLog: () => call('diagnostics-log'),
     diagnosticsClear: () => call('diagnostics-clear'),
+    telemetryStatus: () => call('telemetry-status'),
+    telemetryUpdate: patch => after(call('telemetry-update', patch)),
+    telemetryResetId: () => call('telemetry-reset-id'),
+    telemetryClearLog: () => call('telemetry-clear-log'),
+    telemetryClientError: payload => call('telemetry-client-error', payload).catch(() => {}),
     repoStars: () => call('repo-stars'),
     // A failed action away from any form (a menu, the palette) shows as a toast.
     reportError: (error, where = 'action') => {

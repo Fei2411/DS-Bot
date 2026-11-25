@@ -131,6 +131,9 @@ export function remoteAccessError(device, endpoint) {
   if (endpoint.startsWith('speech-')) {
     return { code: 'bot/refused', message: 'Voice input settings and transcription are available on the computer', details: {} }
   }
+  if (endpoint.startsWith('telemetry-')) {
+    return { code: 'bot/refused', message: 'Privacy and telemetry settings are managed on the computer', details: {} }
+  }
   return undefined
 }
 

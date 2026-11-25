@@ -59,6 +59,7 @@ import { steerQueued } from './enter-steer.js'
 import { installCommandActions } from './command-actions.js'
 import { RIGHTBAR_ATTRIBUTES, columnOpened, createSwitchWindow, drawerOpened, rightColumnOpen } from './right-panel.js'
 import { ErrorToast, FEEDBACK_CSS } from './feedback.js'
+import { PRIVACY_CSS } from './privacy-page.js'
 import { ABOUT_CSS } from './about.js'
 import { MEMBER_CSS, MemberDock } from './member-status.js'
 import { TASK_CSS } from './task-board.js'
@@ -946,7 +947,11 @@ export function apply(ctx) {
         launch: typeof bridge.importLaunch === 'function' ? (source) => bridge.importLaunch(source) : null,
         openPermission: typeof bridge.importOpenPermission === 'function' ? () => bridge.importOpenPermission() : null,
         live: (source, close, requestId) => bridge.importLive(source, close, requestId),
-        apply: (botId, pending, options) => bridge.importApply(`bot:${botId}`, pending, options),
+        apply: (botId, pending, options) => bridge.importApply(
+          Array.isArray(botId) ? botId.map((id) => `bot:${id}`) : `bot:${botId}`,
+          pending,
+          options,
+        ),
         cancel: (pending) => bridge.importCancel(pending),
       } : null,
     })
@@ -1426,6 +1431,7 @@ export function apply(ctx) {
     [SCHEDULE_CSS, 'schedules'],
     [APPEARANCE_PAGE_CSS, 'appearance-page'],
     [FEEDBACK_CSS, 'feedback'],
+    [PRIVACY_CSS, 'privacy'],
     [ABOUT_CSS, 'about'],
     [MEMBER_CSS, 'members'],
     [TASK_CSS, 'tasks'],
