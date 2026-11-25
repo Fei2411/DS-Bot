@@ -105,3 +105,25 @@ test('a card asked in a visible turn stays at its call', async (t) => {
   await ask('writer', 'call-3')
   assert.equal((await questions()).writer.callId, 'call-3')
 })
+
+test('a card carried from an earlier segment closes as dismissed even when the new card reuses the same callId', async (t) => {
+  const { ask, questions, stop } = await start()
+  t.after(stop)
+  // Simulate an open question carried over from an earlier segment (`writer-old`) onto `writer`.
+  rt.state.questions.writer = {
+    id: 'q-carried',
+    callId: 'call-dup',
+    callSessionId: 'writer-old',
+    question: 'Old question?',
+    options: [{ label: 'A' }],
+    askedAt: 1,
+  }
+  await ask('writer', 'call-dup')
+  assert.equal((await questions()).writer.callId, 'call-dup')
+  assert.equal((await questions()).writer.callSessionId, undefined)
+  assert.deepEqual(rt.state.closedCards, { 'writer-old': { 'call-dup': 'dismissed' } })
+
+  // Same-segment same-callId re-entry must NOT mark itself dismissed.
+  await ask('writer', 'call-dup')
+  assert.equal(rt.state.closedCards.writer, undefined)
+})

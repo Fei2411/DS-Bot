@@ -1201,10 +1201,6 @@ export function install(rt) {
             await active?.promise?.catch(() => {})
           }
           if (!stillPending(entry)) continue
-          if (entry.discarded === true) {
-            await clearPendingTransfers([{ key, token }])
-            continue
-          }
           const prepareContext = postSaveContextByInput.get(entry)
           if (prepareContext !== undefined) {
             try {
@@ -1216,6 +1212,10 @@ export function install(rt) {
             }
             postSaveContextByInput.delete(entry)
             if (!stillPending(entry)) continue
+          }
+          if (entry.discarded === true) {
+            await clearPendingTransfers([{ key, token }])
+            continue
           }
           let targetSid
           let label
@@ -1663,8 +1663,8 @@ export function install(rt) {
           if (Number.isSafeInteger(start) && start >= 0 && start <= inbox.length
             && Number.isSafeInteger(removedCount) && removedCount >= 0 && start + removedCount <= inbox.length) {
             const removed = inbox.splice(start, removedCount, ...inserted)
-            // A claim removes an inbox item before its user/message event exists.
-            if (claimed !== undefined && ev.data.outcome !== 'canceled') {
+            // A claim removes an inbox item without replacing it before its user/message event exists.
+            if (claimed !== undefined && inserted.length === 0 && ev.data.outcome !== 'canceled') {
               for (const msg of removed) {
                 claimed.add(msg?.id)
                 claimed.add(msg?.source?.rpcId)
@@ -2580,7 +2580,7 @@ export function install(rt) {
             const movedPromptBlock = movedPrompt !== '' && movedPrompt.length > task.title.length
               ? `\nMoved request: ${movedPrompt}`
               : ''
-            const notice = `[Background task notice] Your earlier turn ("${task.title}", ${task.id}) moved to the background and is still running there; its result will come back here when it finishes. Use task_send(task: "${task.id}", ...) if the user's next message corrects or redirects that work.${movedPromptBlock}${contextNote}`
+            const notice = `[Background task notice] Your earlier turn ("${task.title}", ${task.id}) moved to the background and is still running there; its result will come back here when it finishes. Use task_read(task: "${task.id}") to check its current progress, or task_send(task: "${task.id}", ...) if the user's next message corrects or redirects that work.${movedPromptBlock}${contextNote}`
             await rt.ensureCapabilities(newSid)
             const freshAgent = await rt.resolveAgent(newSid)
             freshAgent.inject?.(createUserMessage({
@@ -2679,6 +2679,7 @@ export function install(rt) {
           rememberMoveOp(id, moveResult)
         }
         for (const id of supersededOpIds) {
+          pendingSaveMoveOps.get(id)?.operationIds.delete(id)
           pendingSaveMoveOps.delete(id)
           rememberMoveOp(id, staleResult)
         }
@@ -2739,7 +2740,7 @@ export function install(rt) {
           && curBot.sessionId === pendingSave.newSid
           && (curBot.tasks ?? []).some(t => t?.id === pendingSave.taskId)
         if (!stillMatches) {
-          const allStaleIds = [...pendingSave.operationIds]
+          const allStaleIds = [...pendingSave.operationIds].filter(id => !pendingSave.savedOperationIds.has(id))
           const staleReceipt = { sessionId: curBot?.sessionId ?? pendingSave.newSid, taskId: null, moved: false, stale: true }
           // Keep superseded entries in `pendingSaveMoveOps` until a required save durably
           // writes their stale tombstones (either here or inside a newer move's retry).
@@ -2759,15 +2760,16 @@ export function install(rt) {
             if (persisted) {
               for (const id of unstagedStaleIds) {
                 pendingSaveMoveOps.delete(id)
+                pendingSave.operationIds.delete(id)
                 rememberMoveOp(id, staleReceipt)
               }
             }
           }
           throw Object.assign(new Error('This conversation has already moved on'), { code: 'bot/stale' })
         }
-        pendingSave.operationIds.add(operationId)
+        if (!pendingSave.savedOperationIds.has(operationId)) pendingSave.operationIds.add(operationId)
         if (pendingSave.savingPromise === undefined) {
-          const retryOpIds = [...pendingSave.operationIds]
+          const retryOpIds = [...pendingSave.operationIds].filter(id => !pendingSave.savedOperationIds.has(id))
           const supersededOpIds = []
           for (const [oldOpId, entry] of pendingSaveMoveOps) {
             if (entry.botId === pendingSave.botId && entry !== pendingSave && !retryOpIds.includes(oldOpId)) {
@@ -2796,10 +2798,12 @@ export function install(rt) {
             }
             for (const id of retryOpIds) {
               pendingSaveMoveOps.delete(id)
+              pendingSave.operationIds.delete(id)
               pendingSave.savedOperationIds.add(id)
               rememberMoveOp(id, result)
             }
             for (const id of supersededOpIds) {
+              pendingSaveMoveOps.get(id)?.operationIds.delete(id)
               pendingSaveMoveOps.delete(id)
               rememberMoveOp(id, staleResult)
             }
@@ -2813,8 +2817,17 @@ export function install(rt) {
         }
         const res = await pendingSave.savingPromise
         if (!pendingSave.savedOperationIds.has(operationId)) {
-          await persistMoveReceipts([operationId], res)
-          pendingSave.savedOperationIds.add(operationId)
+          try {
+            await (inFlightSaveMoveOps.get(operationId) ?? persistMoveReceipts([operationId], res))
+            pendingSave.operationIds.delete(operationId)
+            pendingSave.savedOperationIds.add(operationId)
+          } catch (error) {
+            if (res.moved === true) {
+              pendingSave.operationIds.add(operationId)
+              rememberPendingSaveMoveOp(operationId, pendingSave)
+            }
+            throw error
+          }
         }
         return res
       }
@@ -2827,8 +2840,27 @@ export function install(rt) {
       const sid = await inFlight.promise
       const result = inFlight.savedMoveResult ?? { sessionId: sid, taskId: null, moved: false }
       if (typeof operationId === 'string' && operationId !== '' && !inFlight.savedOperationIds.has(operationId)) {
-        await persistMoveReceipts([operationId], result)
-        inFlight.savedOperationIds.add(operationId)
+        try {
+          await (inFlightSaveMoveOps.get(operationId) ?? persistMoveReceipts([operationId], result))
+          inFlight.pendingReceiptEntry?.operationIds.delete(operationId)
+          inFlight.savedOperationIds.add(operationId)
+        } catch (error) {
+          if (result.moved === true) {
+            const shared = inFlight.pendingReceiptEntry ??= {
+              botId: bot.id,
+              oldSid: inFlight.oldSid,
+              newSid: result.sessionId,
+              taskId: result.taskId,
+              operationIds: new Set(),
+              savedOperationIds: inFlight.savedOperationIds,
+              finishPostSave: async () => {},
+              savingPromise: undefined,
+            }
+            shared.operationIds.add(operationId)
+            rememberPendingSaveMoveOp(operationId, shared)
+          }
+          throw error
+        }
       }
       return result
     }
