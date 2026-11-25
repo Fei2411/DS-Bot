@@ -991,6 +991,11 @@ test('undelivered resume handoff followed by non-resuming folder handoff preserv
   ]
   host.rt.chatOwners.set('s1', 'b')
   host.rt.chatOwners.set('s2', 'b')
+  host.ctx.sessionController.page = async (query) => (
+    query?.address?.sessionId === 'b'
+      ? { records: [{ kind: 'event', event: { seq: 42, time: 1_700_000_000_000, type: 'user/message', data: { content: [{ type: 'text', text: 'Original Planner prompt in part 1' }], source: { kind: 'user' } } } }], hasMore: false }
+      : { records: [], hasMore: false }
+  )
   // Part 1 ('b') had an interrupted turn answering Planner ('ex-planner') with a joined request;
   // Part 2 ('s1') then hit an idle folder switch whose handoff was also interrupted.
   host.rt.state.switching = {
@@ -1033,6 +1038,7 @@ test('undelivered resume handoff followed by non-resuming folder handoff preserv
   assert.equal(handoffs[0].source?.role, 'request', 'consolidated handoff preserves original reply role')
   assert.deepEqual(handoffs[0].source?.joined?.map(item => item.info?.exchangeId), ['ex-joined-2'], 'consolidated handoff preserves joined requests')
   assert.match(handoffs[0].content[0].text, /You were in the middle of a turn/)
+  assert.match(handoffs[0].content[0].text, /\[part 1 #42/, 'borrowed fallback transcript from part 1 keeps part 1 anchor (not part 2)')
   assert.deepEqual(host.rt.state.switching, {}, 'both switching markers cleared only after consolidated handoff is durable')
 })
 
@@ -1110,4 +1116,112 @@ test('same-part rollback after failed create keeps PAUSE_NOTE and claimed input 
   assert.match(queuedTexts[0], /DS Bot paused your turn/, 'PAUSE_NOTE must be first')
   assert.equal(queuedTexts[1], 'earlier claimed input', 'claimed input must precede messages queued during switch')
   assert.equal(queuedTexts[2], 'later follow-up', 'later message stays behind rolled-back turn input')
+})
+
+test('recovery clears acknowledged originals after forward flush even when target switches before reminder cleanup, and keeps distinct pending primary handoffs with accurate part anchors', async (t) => {
+  // 1) Acknowledged originals are removed immediately after forward flush succeeds, so if
+  // target s1 flips to s2 right before reminder cleanup, retry moves reminders to s2 without
+  // replaying prompts s1 already answered.
+  {
+    const host = makeSwitchFixture()
+    t.after(host.stop)
+    await host.rt.load()
+
+    const bot = host.rt.state.bots.b
+    bot.sessionId = 's1'
+    bot.segments = [{ sessionId: 'b', endedAt: Date.now() - 1_000 }]
+    host.rt.chatOwners.set('s1', 'b')
+    host.rt.state.switching = { b: { botId: 'b' } }
+    await host.rt.save()
+
+    const orig = createUserMessage({
+      id: 'm-answered-1',
+      content: [{ type: 'text', text: 'already answered on s1' }],
+      source: { kind: 'user', transferId: 'tr-answered-1' },
+    })
+    host.agentOf('b').inbox.nextTurn.push(orig)
+    // s1 already answered the prompt (present in s1 session log).
+    host.agentOf('s1').session.snapshotEvents = () => [
+      { type: 'user/message', data: { id: 'm-answered-s1', source: orig.source, content: orig.content } },
+    ]
+    // During s1's forward confirmation flush, s1 flips to s2 so cleanup defers.
+    const origFlush = host.ctx.sessions.flush
+    let flippedOnFlush = false
+    host.ctx.sessions.flush = async (session) => {
+      await origFlush(session)
+      if (session.id === 's1' && !flippedOnFlush) {
+        flippedOnFlush = true
+        bot.sessionId = 's2'
+        bot.segments.push({ sessionId: 's1', endedAt: Date.now() })
+        host.rt.chatOwners.set('s2', 'b')
+      }
+    }
+
+    await host.rt.heldBack()
+    assert.equal(host.agentOf('b').inbox.nextTurn.length, 0, 'acknowledged original removed immediately after forward flush')
+    assert.ok(host.rt.state.switching.b !== undefined, 'marker kept until schedule/archive finishes on live s2')
+
+    // Next recovery pass points at s2 (which has no transfer record of tr-answered-1) -> must NOT replay!
+    await host.rt.heldBack()
+    const s2Followups = host.agentOf('s2').calls.filter(([kind]) => kind === 'followup')
+    assert.equal(s2Followups.length, 0, 'already-answered prompt must never replay on s2')
+    assert.deepEqual(host.rt.state.switching, {}, 'switching marker cleared on s2')
+  }
+
+  // 2) Two distinct pending primary handoffs recover as separate full handoffs (no empty-text joined demotion),
+  // and borrowing part 1's transcript stamps anchors with part 1 (not part 2).
+  {
+    const host = makeSwitchFixture()
+    t.after(host.stop)
+    await host.rt.load()
+
+    const bot = host.rt.state.bots.b
+    bot.sessionId = 's2'
+    bot.segments = [
+      { sessionId: 'b', endedAt: Date.now() - 2_000 },
+      { sessionId: 's1', endedAt: Date.now() - 1_000 },
+    ]
+    host.rt.chatOwners.set('s1', 'b')
+    host.rt.chatOwners.set('s2', 'b')
+    host.ctx.sessionController.page = async (query) => {
+      if (query?.address?.sessionId === 'b') {
+        return {
+          records: [
+            { kind: 'event', event: { seq: 42, time: 1_700_000_000_000, type: 'user/message', data: { content: [{ type: 'text', text: 'Inspect attached report from part 1' }], source: { kind: 'user' } } } },
+          ],
+          hasMore: false,
+        }
+      }
+      return { records: [], hasMore: false }
+    }
+    host.rt.state.switching = {
+      b: {
+        botId: 'b',
+        handoffPending: true,
+        handoffMeta: {
+          resume: true,
+          info: { kind: SOURCE_KIND, form: 'relay', role: 'request', exchangeId: 'ex-primary-1', senderName: 'Planner' },
+        },
+      },
+      s1: {
+        botId: 'b',
+        handoffPending: true,
+        handoffMeta: {
+          resume: true,
+          info: { kind: SOURCE_KIND, form: 'relay', role: 'request', exchangeId: 'ex-primary-2', senderName: 'Reviewer' },
+        },
+      },
+    }
+    await host.rt.save()
+
+    await host.rt.heldBack()
+    const p3Handoffs = host.agentOf('s2').calls.filter(([kind, m]) => kind === 'followup' && m.source?.handoff === true).map(([, m]) => m)
+    assert.equal(p3Handoffs.length, 2, 'two distinct primary requests recover as separate handoffs without payload-less joined demotion')
+    assert.equal(p3Handoffs[0].source?.exchangeId, 'ex-primary-1')
+    assert.equal(p3Handoffs[0].source?.joined, undefined, 'primary 1 is not demoted to empty-text joined')
+    assert.match(p3Handoffs[0].content[0].text, /\[part 1 #42/, 'anchors from part 1 use part 1 number')
+    assert.equal(p3Handoffs[1].source?.exchangeId, 'ex-primary-2')
+    assert.equal(p3Handoffs[1].source?.joined, undefined)
+    assert.deepEqual(host.rt.state.switching, {}, 'both switching markers cleared')
+  }
 })

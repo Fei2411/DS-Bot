@@ -2058,8 +2058,15 @@ export function install(rt) {
   async function ensureHandoffDelivered(oldSessionId, owner, targetId, { metaOverride, fallbackSessionId } = {}) {
     await rt.ensureCapabilities(targetId)
     const fresh = await rt.resolveAgent(targetId)
-    const alreadyHasHandoff = (fresh.session?.deriveMessages?.() ?? []).some(m => m?.source?.handoff === true)
-      || [...(fresh.inbox?.nextStep ?? []), ...(fresh.inbox?.nextTurn ?? [])].some(m => m?.source?.handoff === true)
+    const meta = metaOverride ?? owner.handoffMeta ?? {}
+    const expectedExchangeId = meta.info?.exchangeId
+    const matchesExistingHandoff = (m) => {
+      if (m?.source?.handoff !== true) return false
+      if (expectedExchangeId === undefined) return true
+      return m.source?.exchangeId === expectedExchangeId
+    }
+    const alreadyHasHandoff = (fresh.session?.deriveMessages?.() ?? []).some(matchesExistingHandoff)
+      || [...(fresh.inbox?.nextStep ?? []), ...(fresh.inbox?.nextTurn ?? [])].some(matchesExistingHandoff)
     if (alreadyHasHandoff) return
     const bot = owner.botId === undefined ? undefined : rt.botOf(owner.botId)
     const room = rt.roomOf(owner.roomId)
@@ -2068,19 +2075,22 @@ export function install(rt) {
     const effectiveRoom = room ?? taskRoom
     const parts = bot === undefined ? partsOf(undefined, room?.id)
       : room !== undefined ? partsOf(bot.id, room.id) : partsOfThread(bot.id, targetId)
+    const targetPart = parts.find(part => part?.sessionId === targetId)
+    const number = targetPart?.number ?? Math.max(2, parts.length)
     let segment = parts.find(part => part?.sessionId === oldSessionId) ?? { sessionId: oldSessionId, fallback: 'failed' }
-    const number = Math.max(2, parts.length)
-    const meta = metaOverride ?? owner.handoffMeta ?? {}
+    const oldPartNumber = segment.number ?? Math.max(1, number - 1)
     const lines = await contextLines(fresh.session).catch(() => undefined)
     const budget = Math.min(RECENT_TOKENS, Math.floor((lines?.check ?? 4 * RECENT_TOKENS) / 4))
     let carried = meta.bare
       ? { recent: [], earlier: [], tools: [], unlisted: 0, complete: true }
-      : await handoffLines(oldSessionId, { budget, group: effectiveRoom !== undefined, number: number - 1 })
+      : await handoffLines(oldSessionId, { budget, group: effectiveRoom !== undefined, number: oldPartNumber })
     if (!meta.bare && carried.recent.length === 0 && carried.earlier.length === 0 && fallbackSessionId !== undefined && fallbackSessionId !== oldSessionId) {
-      const fallbackCarried = await handoffLines(fallbackSessionId, { budget, group: effectiveRoom !== undefined, number: number - 1 })
+      const fallbackSegment = parts.find(part => part?.sessionId === fallbackSessionId)
+      const fallbackPartNumber = fallbackSegment?.number ?? Math.max(1, oldPartNumber - 1)
+      const fallbackCarried = await handoffLines(fallbackSessionId, { budget, group: effectiveRoom !== undefined, number: fallbackPartNumber })
       if (fallbackCarried.recent.length > 0 || fallbackCarried.earlier.length > 0 || fallbackCarried.tools.length > 0) {
         carried = fallbackCarried
-        segment = parts.find(part => part?.sessionId === fallbackSessionId) ?? segment
+        segment = fallbackSegment ?? segment
       }
     }
     const folder = meta.folder ? fresh.session?.header?.cwd : undefined
@@ -2113,73 +2123,79 @@ export function install(rt) {
     await ctx.sessions.flush(fresh.session)
   }
 
-  // Combines contextual metadata from the newest pending handoff with any unsatisfied
-  // interrupted-turn resume obligations (info, joined, resumeOrigin) from earlier
-  // pending handoffs so an idle folder/engine hop never erases an unrecovered turn route.
-  function mergePendingHandoffMeta(pendingHandoffs) {
-    const newest = pendingHandoffs[pendingHandoffs.length - 1]
-    const newestMeta = newest.owner.handoffMeta ?? {}
-    let resumedEntry
-    let resume = false
-    let overflow = false
-    let cutoff = false
-    let folder = newestMeta.folder === true
-    let engine = newestMeta.engine === true
-    let bare = newestMeta.bare === true
-    let failed = newestMeta.failed
-    let primaryInfo
-    let resumeOrigin
-    const allInfos = []
-    const joined = []
-    const seenJoined = new Set()
-    const addJoined = (item) => {
-      const ex = item?.info?.exchangeId
-      if (ex !== undefined && seenJoined.has(ex)) return
-      if (ex !== undefined) seenJoined.add(ex)
-      joined.push(item)
-    }
+  // Splits stacked pending handoffs into batches with at most one distinct primary
+  // request per handoff (never demoting a primary request to a payload-less joined entry),
+  // while consolidating trailing non-resuming folder/engine hops into the same handoff.
+  function planPendingHandoffs(pendingHandoffs) {
+    const batches = []
+    let current = []
+    let currentPrimaryEx
     for (const entry of pendingHandoffs) {
-      const meta = entry.owner.handoffMeta ?? {}
-      const hasResume = meta.resume === true || meta.overflow === true || meta.info !== undefined || (Array.isArray(meta.joined) && meta.joined.length > 0)
-      if (hasResume) resumedEntry = entry
-      if (meta.resume === true) resume = true
-      if (meta.overflow === true) overflow = true
-      if (meta.cutoff === true) cutoff = true
-      if (meta.folder === true) folder = true
-      if (meta.engine === true) engine = true
-      if (meta.failed !== undefined) failed = meta.failed
-      if (meta.info !== undefined) {
-        allInfos.push(meta.info)
-        primaryInfo = meta.info
-      }
-      if (meta.resumeOrigin !== undefined) resumeOrigin = meta.resumeOrigin
-      if (Array.isArray(meta.joined)) {
-        for (const item of meta.joined) addJoined(item)
+      const ex = entry.owner.handoffMeta?.info?.exchangeId
+      if (ex !== undefined && currentPrimaryEx !== undefined && ex !== currentPrimaryEx) {
+        batches.push(current)
+        current = [entry]
+        currentPrimaryEx = ex
+      } else {
+        current.push(entry)
+        if (ex !== undefined) currentPrimaryEx = ex
       }
     }
-    if (primaryInfo?.exchangeId !== undefined) seenJoined.add(primaryInfo.exchangeId)
-    for (let i = 0; i < allInfos.length - 1; i += 1) {
-      const earlierInfo = allInfos[i]
-      if (earlierInfo?.exchangeId !== undefined && !seenJoined.has(earlierInfo.exchangeId)) {
-        addJoined({ info: earlierInfo, text: '' })
+    if (current.length > 0) batches.push(current)
+
+    return batches.map((entries) => {
+      const newest = entries[entries.length - 1]
+      const newestMeta = newest.owner.handoffMeta ?? {}
+      let resumedEntry
+      let resume = false
+      let overflow = false
+      let cutoff = false
+      let folder = newestMeta.folder === true
+      let engine = newestMeta.engine === true
+      let bare = newestMeta.bare === true
+      let failed = newestMeta.failed
+      let primaryInfo
+      let resumeOrigin
+      const joined = []
+      const seenJoined = new Set()
+      for (const entry of entries) {
+        const meta = entry.owner.handoffMeta ?? {}
+        const hasResume = meta.resume === true || meta.overflow === true || meta.info !== undefined || (Array.isArray(meta.joined) && meta.joined.length > 0)
+        if (hasResume) resumedEntry = entry
+        if (meta.resume === true) resume = true
+        if (meta.overflow === true) overflow = true
+        if (meta.cutoff === true) cutoff = true
+        if (meta.folder === true) folder = true
+        if (meta.engine === true) engine = true
+        if (meta.failed !== undefined) failed = meta.failed
+        if (meta.info !== undefined) primaryInfo = meta.info
+        if (meta.resumeOrigin !== undefined) resumeOrigin = meta.resumeOrigin
+        if (Array.isArray(meta.joined)) {
+          for (const item of meta.joined) {
+            const ex = item?.info?.exchangeId
+            if (ex !== undefined && seenJoined.has(ex)) continue
+            if (ex !== undefined) seenJoined.add(ex)
+            joined.push(item)
+          }
+        }
       }
-    }
-    if (resumedEntry !== undefined && resumedEntry !== newest && resumedEntry.owner.handoffMeta?.bare === true) {
-      bare = true
-    }
-    const mergedMeta = {
-      resume,
-      overflow,
-      cutoff,
-      folder,
-      engine,
-      bare,
-      ...(failed !== undefined ? { failed } : {}),
-      ...(primaryInfo !== undefined ? { info: primaryInfo } : {}),
-      ...(joined.length > 0 ? { joined } : {}),
-      ...(resumeOrigin !== undefined ? { resumeOrigin } : {}),
-    }
-    return { newest, resumedEntry, mergedMeta }
+      if (resumedEntry !== undefined && resumedEntry !== newest && resumedEntry.owner.handoffMeta?.bare === true) {
+        bare = true
+      }
+      const mergedMeta = {
+        resume,
+        overflow,
+        cutoff,
+        folder,
+        engine,
+        bare,
+        ...(failed !== undefined ? { failed } : {}),
+        ...(primaryInfo !== undefined ? { info: primaryInfo } : {}),
+        ...(joined.length > 0 ? { joined } : {}),
+        ...(resumeOrigin !== undefined ? { resumeOrigin } : {}),
+      }
+      return { entries, newest, resumedEntry, mergedMeta }
+    })
   }
 
   let heldBackRun
@@ -2289,20 +2305,22 @@ export function install(rt) {
       }
 
       try {
-        // Deliver the newest pending handoff for this target before forwarding held input,
-        // preserving any unsatisfied interrupted-turn resume obligations from earlier pending handoffs.
+        // Deliver pending handoffs for this target before forwarding held input.
+        // Distinct interrupted primary requests stay separate handoffs (preserving full
+        // source transcripts and reply routing); trailing non-resuming hops consolidate.
         const pendingHandoffs = ready.filter(entry => entry.owner.handoffPending === true)
         if (pendingHandoffs.length > 0) {
-          const { newest, resumedEntry, mergedMeta } = mergePendingHandoffMeta(pendingHandoffs)
-          await ensureHandoffDelivered(newest.sessionId, newest.owner, target, {
-            metaOverride: mergedMeta,
-            fallbackSessionId: resumedEntry?.sessionId,
-          })
-          for (const entry of pendingHandoffs) {
-            delete entry.owner.handoffPending
-            delete entry.owner.handoffMeta
+          for (const { entries, newest, resumedEntry, mergedMeta } of planPendingHandoffs(pendingHandoffs)) {
+            await ensureHandoffDelivered(newest.sessionId, newest.owner, target, {
+              metaOverride: mergedMeta,
+              fallbackSessionId: resumedEntry?.sessionId,
+            })
+            for (const entry of entries) {
+              delete entry.owner.handoffPending
+              delete entry.owner.handoffMeta
+            }
+            await rt.save()
           }
-          await rt.save()
         }
 
         // Resolve competing copies across successive source parts so a newer merged
@@ -2331,23 +2349,27 @@ export function install(rt) {
           }
         }
         await forward(ready[ready.length - 1].owner, toForward, target)
+        // Target admission is now durable on disk: remove acknowledged originals at once
+        // so a later switch of `target` before reminder/archive cleanup cannot replay
+        // prompts `target` already answered.
+        for (const { agent, held } of ready) removeForMove(agent, held)
       } catch (error) {
         retryNeeded = true
         rt.warn('ds-bot: input kept in parts targeting %s was not handed on: %s', target, error)
         continue
       }
 
-      for (const { sessionId, owner, agent, held } of ready) {
+      for (const { sessionId, owner } of ready) {
         try {
           // If the destination switched or started switching while handoff/forward ran,
-          // defer cleanup and schedule migration rather than moving reminders onto a retiring part.
+          // defer silent-note/schedule migration and archive rather than moving reminders
+          // onto a retiring part.
           const liveTarget = threadTargetOf(sessionId, owner)
           if (liveTarget !== target || switches.has(target)) {
             retryNeeded = true
             continue
           }
           await rt.moveSilentNotes?.(sessionId, target, { awaitFlush: true, rethrow: true })
-          removeForMove(agent, held)
           // An interrupted switch may not have finished moving the tasks over; stop
           // the earlier part only after they sit on the part that replaced it.
           // Resolve the live destination again inside the serialized scheduleMoves chain.
