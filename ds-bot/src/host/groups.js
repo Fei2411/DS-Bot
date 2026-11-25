@@ -2452,7 +2452,13 @@ export function install(rt) {
     // lookup that fails leaves every post waiting where the next relay finds it.
     const resolved = agent ?? await rt.resolveAgent(rt.sessionOfRoom(room)).catch(() => undefined)
     if (resolved === undefined) return
+    // The lookup yields. A relay, or another post that waited the same way, may have taken the
+    // queue and opened the round this post belongs to meanwhile: take nothing that has moved.
     const later = laterPosts.get(room.id) ?? []
+    if (later.length === 0 || finalizing.has(room.id)) return
+    const claimed = [...rt.roomProgress.values()].some(other => other.roomId === room.id
+      && other.closed !== true && other.abort?.signal.aborted !== true)
+    if (claimed) return
     laterPosts.delete(room.id)
     startRound(room, later, resolved)
   }
@@ -3357,14 +3363,35 @@ export function install(rt) {
       // The round can close while that write is awaited. A post that would join it now belongs
       // to the next round, which calls its members at the line: one already closed cannot.
       if (!noticeOnly && (running.closed || running.abort?.signal.aborted)) {
-        await holdForNextRound(room, [{
-          ...postExtra,
-          botId: sender.id,
-          name: sender.name,
-          text,
-          ...(files.length > 0 ? { files } : {}),
-          ...(said?.seq === undefined ? {} : { logged: said.seq }),
-        }], undefined, { stopped: running.abort?.signal.aborted === true })
+        // A stop already cleared the queue this post would join, and this one arrived after
+        // that: it ends here rather than wait for a round the user may never call for.
+        if (running.abort?.signal.aborted) {
+          if (postExtra.batchEnd) closeBatch(postExtra.batch)
+          // The stopped round is still in roomProgress while it unwinds, and a settle meanwhile
+          // reads it as work in flight. Its run leaves the map when it is really done.
+          void (async () => {
+            await Promise.allSettled(roundRuns.get(room.id) ?? [])
+            await settleRoomReports(room.id).catch(error => rt.warn('ds-bot: settling reports after a stopped post failed: %s', error?.message ?? error))
+          })()
+        } else {
+          await holdForNextRound(room, [{
+            ...postExtra,
+            botId: sender.id,
+            name: sender.name,
+            text,
+            ...(files.length > 0 ? { files } : {}),
+            ...(said?.seq === undefined ? {} : { logged: said.seq }),
+          }], undefined, { stopped: false })
+        }
+        // The line is said either way, so a failure to keep this state is not a reason to post
+        // it again.
+        try {
+          await rt.save()
+        } catch (error) {
+          const failure = error && typeof error === 'object' ? error : new Error(String(error))
+          failure.delivered = true
+          throw failure
+        }
         return
       }
       let callOutcome
