@@ -281,7 +281,7 @@ export function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, u
         // must not overlap this one.
         window.speechSynthesis?.cancel()
         // The channel takes the whole request body; the player calls per chunk.
-        player.current ??= createSpeechPlayer((text, voice, signal) => actions.synthesizeSpeech({ text, voice }, signal))
+        player.current ??= createSpeechPlayer((text2, voice, signal) => actions.synthesizeSpeech({ text: text2, voice }, signal))
         const own = ++speechSeq.current
         barge.current.hit = false
         barge.current.boundary = false
@@ -335,7 +335,7 @@ export function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, u
       })
   }, [phase, running, lastReply])
   // Talking over the reading stops it and submits what was said instead.
-  useVoiceBarge({ speech, catalog, phase, said, barge, stopSpeech, submit, setPhase, setNote, turn })
+  useVoiceBarge({ speech, catalog, phase, said, barge, stopSpeech, submit, setPhase, setNote, turn, ctl: transcribeCtl })
   // Unmount (close, or the pane's key moving to another Session) invalidates
   // every pending completion before it settles: the late transcript drops and
   // the say's then is stale before its state writes would land.
