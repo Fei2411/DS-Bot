@@ -24,8 +24,31 @@ export const NO_MATCH = 'memory/no-match'
 export const GONE = 'memory/bot-gone'
 export const DENIED = 'memory/denied'
 export const REFUSED = 'memory/refused'
+// A write too close to an entry memory dropped within the re-add guard window.
+export const RECENT_REMOVAL = 'memory/recent-removal'
 // The codes the memory review routes on. A failure that carries one keeps it.
-export const ROUTED = new Set([NO_MATCH, GONE, DENIED, REFUSED])
+export const ROUTED = new Set([NO_MATCH, GONE, DENIED, REFUSED, RECENT_REMOVAL])
+
+// How close two entries read to each other for the re-add guard: the share of
+// words they have in common (word overlap), with `wordsOf` doing the tokenizing —
+// stop words and inflections fall out, so filler rewording of the same fact still
+// matches. At or past `READD_SIMILARITY` one text counts as the other re-added.
+export const READD_SIMILARITY = 0.8
+export function tokenJaccard(a, b) {
+  const first = wordsOf(a)
+  const second = wordsOf(b)
+  if (first.size === 0 || second.size === 0) return squash(a) === squash(b) ? 1 : 0
+  let shared = 0
+  for (const word of first) if (second.has(word)) shared += 1
+  return shared / (first.size + second.size - shared)
+}
+// The entries a write must not silently bring back while the removal is fresh:
+// identical after `squash`, or this close by words.
+export const readdMatch = (text, dropped) => {
+  const candidate = squash(text)
+  if (candidate === '') return false
+  return squash(dropped) === candidate || tokenJaccard(candidate, dropped) >= READD_SIMILARITY
+}
 // What a review shows of memory, in characters of entry text.
 export const REVIEW_MEMORY_MAX = 16_000
 

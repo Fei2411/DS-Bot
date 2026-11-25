@@ -138,7 +138,7 @@ function parseTidy(text) {
 
 export function installTidy(rt, memory) {
   const { ctx, config, state } = rt
-  const { TEAM, ownScope, groupScope, keeperOf, scopeKey, dirOf, today, queued, recoverPending, writable, settled, loadScope, searchEntries, publish, writeStep, removeStep, appendStep, truncateStep, writeText, botShot, languageNow, allEntries, entryProblem, changedSince, noteWindow, windowUsable, USER } = memory
+  const { TEAM, ownScope, groupScope, keeperOf, scopeKey, dirOf, today, queued, recoverPending, writable, settled, loadScope, searchEntries, publish, writeStep, removeStep, appendStep, truncateStep, writeText, botShot, languageNow, allEntries, entryProblem, changedSince, noteWindow, windowUsable, USER, readdGuarded } = memory
   // All of it sits in the memory's own folder: a private Bot's words stay in its own,
   // and an archive of a deleted Bot or group takes them along.
   const statePath = scope => join(dirOf(scope), 'tidied.json')
@@ -260,7 +260,11 @@ export function installTidy(rt, memory) {
         const entries = [...new Set((Array.isArray(change.entries) ? change.entries : []).map(pick))]
         if (entries.some(entry => entry === undefined || used.has(entry))) continue
         const text = cleanEntry(change.text)
+        // A merge writes new text too: it may not silently re-add what memory
+        // dropped within the guard window, or a removed entry would come back
+        // laundered through the tidy itself.
         if (entries.length < 2 || entries.length > budget.left || entryProblem(text) !== undefined) continue
+        if (readdGuarded?.(job.scope, text) !== undefined) continue
         budget.left -= entries.length
         const [first, ...rest] = entries
         const line = formatEntry(text, { ...first.meta, id: entryId(first), merged: entries.map(entryId).join(' ') })
