@@ -5565,3 +5565,233 @@ test('reissued in-flight child batch settles its same-parent successor and unwin
     host.finish('gb', 'Reviewer task finished.')
   }
 })
+
+test('persisted batch replacement survives restart and startup settleRoomBatches keeps parents with waking completed children', async (t) => {
+  // 13) Reissue replacement link (`batch.replaces`) is persisted on the replacement batch:
+  // after a restart (fresh runtime instance), a resumed Tester turn carrying K1 still settles K3 (P1), not K2 (P2).
+  {
+    const host1 = await start(
+      t,
+      { members: ['a', 'b', 'c', 'd'], sessions: { a: 'ga', b: 'gb', c: 'gc', d: 'gd' } },
+      undefined,
+      undefined,
+      { d: {} },
+    )
+    const p1 = {
+      key: 'restart-p1-chief',
+      roomId: 'r1',
+      by: 'a',
+      pending: ['b'],
+      done: [],
+      doneIds: [],
+      results: [],
+      worked: false,
+      direct: true,
+      returnRequested: true,
+      answered: false,
+      at: Date.now(),
+    }
+    const p2 = {
+      key: 'restart-p2-reviewer',
+      roomId: 'r1',
+      by: 'd',
+      pending: ['b'],
+      done: [],
+      doneIds: [],
+      results: [],
+      worked: false,
+      direct: true,
+      returnRequested: true,
+      answered: false,
+      at: Date.now(),
+    }
+    rt.state.roomBatches = { [p1.key]: p1 }
+
+    // Host 1: Writer sends K1 (for P1), Tester starts K1 past grace, then Writer queues K2 (P2) and revises P1 -> K3.
+    host1.agentOf('gb').followup({
+      id: 'w-rs-1',
+      content: [{ type: 'text', text: 'Check release notes' }],
+      source: { kind: 'bot', role: 'room', roomId: 'r1', askedBy: 'a', batchKey: p1.key, exchangeId: 'ex-w-rs-1', senderSessionId: 'r1' },
+    })
+    host1.begin('gb')
+    host1.emit('gb', 'tool/call', { callId: 'w-rs-t1', name: 'read', arguments: '{}' })
+    host1.emit('gb', 'tool/result', { callId: 'w-rs-t1' })
+    await host1.tool('delegate_work', { to: 'Tester', goal: 'initial check' }, 'gb')
+    host1.finish('gb', '[PASS]')
+
+    await settle(() => host1.agentOf('r1').calls.length === 1)
+    const r1 = host1.round('c-rs-1', host1.takePost())
+    await settle(() => host1.agentOf('gc').calls.length === 1)
+    const k1Msg = host1.begin('gc')
+    const k1Key = k1Msg.source.batchKey
+    rt.roomWaiters.get(k1Msg.source.exchangeId)?.resolve({ working: true })
+    await settle(() => r1() !== undefined)
+
+    rt.state.roomBatches[p2.key] = p2
+    host1.agentOf('gb').followup({
+      id: 'w-rs-2',
+      content: [{ type: 'text', text: 'Check migration guide' }],
+      source: { kind: 'bot', role: 'room', roomId: 'r1', askedBy: 'd', batchKey: p2.key, exchangeId: 'ex-w-rs-2', senderSessionId: 'r1' },
+    })
+    host1.begin('gb')
+    host1.emit('gb', 'tool/call', { callId: 'w-rs-t2', name: 'read', arguments: '{}' })
+    host1.emit('gb', 'tool/result', { callId: 'w-rs-t2' })
+    await host1.tool('delegate_work', { to: 'Tester', goal: 'migration check' }, 'gb')
+    host1.finish('gb', '[PASS]')
+
+    host1.agentOf('gb').followup({
+      id: 'w-rs-3',
+      content: [{ type: 'text', text: 'Revise release notes check' }],
+      source: { kind: 'bot', role: 'room', roomId: 'r1', askedBy: 'a', batchKey: p1.key, exchangeId: 'ex-w-rs-3', senderSessionId: 'r1' },
+    })
+    host1.begin('gb')
+    host1.emit('gb', 'tool/call', { callId: 'w-rs-t3', name: 'read', arguments: '{}' })
+    host1.emit('gb', 'tool/result', { callId: 'w-rs-t3' })
+    await host1.tool('delegate_work', { to: 'Tester', goal: 'revised check' }, 'gb')
+    host1.finish('gb', '[PASS]')
+
+    await settle(() => host1.agentOf('r1').calls.length === 2)
+    const p2Post = host1.takePost()
+    const p1RevisePost = host1.takePost()
+    host1.emit('r1', 'user/message', p2Post)
+    const r2 = host1.round('c-rs-2', p1RevisePost)
+    await settle(() => {
+      const children = Object.values(rt.state.roomBatches ?? {}).filter(b => b.by === 'b' && b.pending.includes('c'))
+      return children.length === 2 && rt.state.roomBatches?.[k1Key] === undefined
+    })
+    const k2Batch = Object.values(rt.state.roomBatches).find(b => b.by === 'b' && b.parentBatchKey === p2.key)
+    const k3Batch = Object.values(rt.state.roomBatches).find(b => b.by === 'b' && b.parentBatchKey === p1.key)
+    assert.ok(k2Batch && k3Batch && k3Batch.replaces?.c?.includes(k1Key))
+    await rt.save()
+    const savedBatches = JSON.parse(readFileSync(join(host1.home, 'state.json'), 'utf8')).roomBatches
+    r2.cancel()
+
+    // Host 2 (fresh restart with empty in-memory maps): load persisted roomBatches + inflight queued turns.
+    const host2 = await start(
+      t,
+      { members: ['a', 'b', 'c', 'd'], sessions: { a: 'ga', b: 'gb', c: 'gc', d: 'gd' } },
+      undefined,
+      undefined,
+      { d: {} },
+      undefined,
+      { roomBatches: savedBatches },
+      {
+        'inflight.json': {
+          turns: {},
+          queued: {
+            gc: [
+              { at: Date.now(), args: { toId: 'c', sessionId: 'gc', role: 'room', roomId: 'r1', askedBy: 'b', batchKey: k1Key, exchangeId: 'ex-t-rec-k1', text: 'Recovered check' } },
+              { at: Date.now(), args: { toId: 'c', sessionId: 'gc', role: 'room', roomId: 'r1', askedBy: 'b', batchKey: k2Batch.key, exchangeId: 'ex-t-rec-k2', text: 'Queued migration check' } },
+            ],
+          },
+          silent: {},
+        },
+      },
+    )
+    // Tester's recovered turn still carries k1Key -> must settle K3 (P1), leaving K2 (P2) pending!
+    await settle(() => host2.agentOf('gc').calls.some(msg => msg.source?.exchangeId === 'ex-t-rec-k1'))
+    const k1Recovered = host2.agentOf('gc').calls.find(msg => msg.source?.exchangeId === 'ex-t-rec-k1')
+    host2.agentOf('gc').calls.push(k1Recovered)
+    host2.begin('gc')
+    host2.emit('gc', 'tool/call', { callId: 'c-rec-1', name: 'read', arguments: '{}' })
+    host2.emit('gc', 'tool/result', { callId: 'c-rec-1' })
+    host2.finish('gc', 'Release notes verified after restart.')
+
+    await settle(() => host2.agentOf('r1').calls.length === 1)
+    const wakePost = host2.takePost()
+    assert.equal(wakePost.source.batch, k3Batch.key, 'restarted K1 turn must settle persisted successor K3')
+    assert.equal(wakePost.source.parentBatchKey, p1.key)
+    assert.deepEqual(rt.state.roomBatches?.[k2Batch.key]?.pending, ['c'], 'unrelated K2 must remain pending')
+  }
+
+  // 14) Startup settleRoomBatches visits parent P1 before finished child C1 while Writer is resuming P2:
+  // hasWakingChildBatch protects P1 so C1's replayed wake resumes P1 and delivers the final summary to Chief.
+  {
+    const p1 = {
+      key: 'wake-p1-chief',
+      roomId: 'r1',
+      by: 'a',
+      pending: ['b'],
+      done: [],
+      doneIds: [],
+      results: [],
+      worked: false,
+      direct: true,
+      returnRequested: true,
+      answered: false,
+      at: Date.now() - 2000,
+    }
+    const p2 = {
+      key: 'wake-p2-reviewer',
+      roomId: 'r1',
+      by: 'd',
+      pending: ['b'],
+      done: [],
+      doneIds: [],
+      results: [],
+      worked: false,
+      direct: true,
+      returnRequested: true,
+      answered: false,
+      at: Date.now() - 1000,
+    }
+    const c1 = {
+      key: 'wake-c1-done',
+      roomId: 'r1',
+      by: 'b',
+      pending: [],
+      done: ['Tester'],
+      doneIds: ['c'],
+      results: [{ name: 'Tester', seq: 1 }],
+      worked: true,
+      direct: true,
+      returnRequested: true,
+      parentBatchKey: p1.key,
+      answered: false,
+      at: Date.now(),
+    }
+    const host = await start(
+      t,
+      { members: ['a', 'b', 'c', 'd'], sessions: { a: 'ga', b: 'gb', c: 'gc', d: 'gd' }, log: [{ seq: 1, who: 'Tester', botId: 'c', text: 'Fact-check done.' }], seq: 1 },
+      undefined,
+      undefined,
+      { d: {} },
+      undefined,
+      { roomBatches: { [p1.key]: p1, [p2.key]: p2, [c1.key]: c1 } },
+      {
+        'inflight.json': {
+          turns: {},
+          queued: {
+            gb: [{ at: Date.now(), args: { toId: 'b', sessionId: 'gb', role: 'room', roomId: 'r1', askedBy: 'd', batchKey: p2.key, exchangeId: 'ex-w-res-p2', text: 'Resume Reviewer task' } }],
+          },
+          silent: {},
+        },
+      },
+    )
+
+    // Startup settleRoomBatches automatically runs with P2 queued on Writer and C1 finished for P1.
+    await settle(() => host.agentOf('gb').calls.some(msg => msg.source?.exchangeId === 'ex-w-res-p2'))
+    await settle(() => host.agentOf('r1').calls.length === 1)
+    assert.ok(rt.state.roomBatches?.[p1.key] !== undefined, 'parent P1 with finished waking child C1 must not be pruned')
+    const wakePost = host.takePost()
+    assert.equal(wakePost.source.batch, c1.key)
+    assert.equal(wakePost.source.parentBatchKey, p1.key)
+
+    // Writer runs & finishes its recovered P2 turn, then C1's wake opens a round -> Writer must resume P1 (not resultOnly) and wake Chief!
+    host.begin('gb')
+    host.finish('gb', 'Reviewer summary done.')
+    await settle(() => host.agentOf('r1').calls.length === 1)
+    host.takePost()
+    const gbBefore = host.agentOf('gb').calls.length
+    const r = host.round('c-wake-p1', wakePost)
+    await settle(() => host.agentOf('gb').calls.length === gbBefore + 1)
+    const resumedWriterCall = host.begin('gb')
+    assert.equal(resumedWriterCall.source.batchKey, p1.key, 'replayed child wake must resume P1')
+    assert.equal(resumedWriterCall.source.resumedUpstream, true)
+    host.finish('gb', 'Chief summary ready.')
+    await settle(() => host.agentOf('ga').calls.length === 1)
+    host.begin('ga')
+    host.finish('ga', 'Chief got recovered summary.')
+    await settle(() => r() !== undefined)
+  }
+})

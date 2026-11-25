@@ -1005,26 +1005,17 @@ export function install(rt) {
   // Oldest first.
   const batchesOf = (roomId, botId) => Object.values(batches()).filter(batch => batch.roomId === roomId && batch.pending.includes(botId))
   const unpend = (batch, botId) => { batch.pending = batch.pending.filter(id => id !== botId) }
-  // Tracks same-parent batch replacements `(oldKey, botId) -> newKey` so an already-running
-  // turn whose original batch key was superseded settles its same-parent successor and never
-  // falls back to an unrelated parent's batch from the same caller.
-  const supersededBatches = new Map()
-  const rememberSupersededBatch = (oldKey, botId, nextKey) => {
-    if (!oldKey || !botId || !nextKey || oldKey === nextKey) return
-    supersededBatches.set(`${oldKey}\0${botId}`, nextKey)
-    if (supersededBatches.size > 200) supersededBatches.delete(supersededBatches.keys().next().value)
-  }
+  // Resolves a turn/slot's `batchKey` to its live batch or its persisted same-parent
+  // successor (`batch.replaces[botId]`), never falling back to another parent's batch.
   const resolveBatchKey = (roomId, botId, key) => {
     if (typeof key !== 'string' || key === '') return undefined
-    let cur = key
-    const seen = new Set()
-    while (cur !== undefined && !seen.has(cur)) {
-      seen.add(cur)
-      const exact = batches()[cur]
-      if (exact !== undefined && exact.roomId === roomId && exact.pending.includes(botId)) return exact
-      cur = supersededBatches.get(`${cur}\0${botId}`)
-    }
-    return undefined
+    const exact = batches()[key]
+    if (exact !== undefined && exact.roomId === roomId && exact.pending.includes(botId)) return exact
+    return Object.values(batches()).find(batch =>
+      batch.roomId === roomId
+      && batch.pending.includes(botId)
+      && Array.isArray(batch.replaces?.[botId])
+      && batch.replaces[botId].includes(key))
   }
 
   // Room deliveries whose 4-minute reply timer expired without the member starting a turn:
@@ -1100,9 +1091,18 @@ export function install(rt) {
     return false
   }
 
+  const hasWakingChildBatch = (room, botId, parentBatchKey) => Object.values(batches()).some(child =>
+    child.roomId === room.id
+    && child.by === botId
+    && child.direct === true
+    && batchReadyToWake(room, child)
+    && batchCarrier(room, child) !== undefined
+    && (parentBatchKey === undefined || child.parentBatchKey === parentBatchKey))
+
   const hasPendingChildWork = (room, botId, batch, opts = {}) => {
     if (batch === undefined) return false
     return openChildBatches(room.id, botId, batch.key).length > 0
+      || hasWakingChildBatch(room, botId, batch.key)
       || hasPendingDirectRelay(room.id, botId, batch.key)
       || hasParkedDirectChild(room, botId, batch.key)
       || hasPendingUpstreamWake(room, botId, batch, opts)
@@ -1139,6 +1139,7 @@ export function install(rt) {
         && (parentBatchKey === undefined || batchOfSlot(room.id, slot)?.key === parentBatchKey))) return true
     if (hasPendingDirectRelay(room.id, botId, parentBatchKey)) return true
     if (hasParkedDirectChild(room, botId, parentBatchKey)) return true
+    if (hasWakingChildBatch(room, botId, parentBatchKey)) return true
     return openChildBatches(room.id, botId, parentBatchKey).some(child => child.pending.some(peerId => activeInRoom(room, peerId, ignoreTaskId, seen, child.key, extraRound)))
   }
 
@@ -1173,7 +1174,12 @@ export function install(rt) {
       const prev = batchOf(roomId, peer.id, by, { matchParent: true, parentBatchKey })
       if (prev === undefined) continue
       unpend(prev, peer.id)
-      rememberSupersededBatch(prev.key, peer.id, batch.key)
+      // Persist per-worker replacement keys on the new batch so a resumed turn carrying
+      // `prev.key` still settles this same-parent successor after a host restart.
+      const inherited = Array.isArray(prev.replaces?.[peer.id]) ? prev.replaces[peer.id] : []
+      const replaces = (batch.replaces ??= {})
+      const existing = Array.isArray(replaces[peer.id]) ? replaces[peer.id] : []
+      replaces[peer.id] = [...new Set([...existing, ...inherited, prev.key])]
       // Re-parent this member's child batches, queued direct relays, and parked calls even
       // when `prev` still has other pending members.
       for (const child of Object.values(batches())) {
