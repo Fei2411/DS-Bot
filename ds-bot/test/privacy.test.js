@@ -890,6 +890,10 @@ test('guardSecretFiles allows text searches for secret-refs/secret-files in unre
     ['pwsh', { command: "Split-Path '-Leaf' $env:DSH_SECRET_FILE_DEPLOY_KEY", workdir: repoDir }],
     ['pwsh', { command: 'Split-Path -Path -Leaf $env:DSH_SECRET_FILE_DEPLOY_KEY', workdir: repoDir }],
     ['pwsh', { command: 'Split-Path -- -Leaf $env:DSH_SECRET_FILE_DEPLOY_KEY', workdir: repoDir }],
+    ['pwsh', { command: 'Split-Path $env:DSH_SECRET_FILE_DEPLOY_KEY # -Leaf', workdir: repoDir }],
+    ['pwsh', { command: "Split-Path $env:DSH_SECRET_FILE_DEPLOY_KEY #'x' -Leaf", workdir: repoDir }],
+    ['pwsh', { command: 'Split-Path $env:DSH_SECRET_FILE_DEPLOY_KEY <# -Leaf #>', workdir: repoDir }],
+    ['pwsh', { command: "Split-Path $env:DSH_SECRET_FILE_DEPLOY_KEY <#'x' -Leaf #>", workdir: repoDir }],
   ]) {
     const res = await run(toolName, args, 'b')
     assert.equal(res.ran, false, `expected blocked: ${toolName} ${JSON.stringify(args)}`)
@@ -917,15 +921,22 @@ test('guardSecretFiles preserves isolation when secret-files is symlinked outsid
   assert.deepEqual(await run('bash', { command: 'pwd', workdir: siblingFiles }, 'b'), { ran: true })
   assert.deepEqual(await run('bash', { command: 'pwd', workdir: siblingRefs }, 'b'), { ran: true })
 
-  // Bot A can read its own file via either symlink or real target; Bot B is blocked on both.
+  // Bot A can read its own file via either symlink or real target; Bot B is blocked on both,
+  // including PowerShell comma path lists and shell wildcard/brace/variable expansions.
   assert.deepEqual(await run('read', { file_path: secretA }, 'a'), { ran: true })
-  const blockedRead = await run('read', { file_path: secretA }, 'b')
-  assert.equal(blockedRead.ran, false)
-  assert.match(blockedRead.error, /secret/i)
-  const blockedBash = await run('bash', { command: `cat "${secretA}"` }, 'b')
-  assert.equal(blockedBash.ran, false)
-  assert.match(blockedBash.error, /secret/i)
-  const blockedRefs = await run('bash', { command: `ls "${externalRefs}"` }, 'b')
-  assert.equal(blockedRefs.ran, false)
-  assert.match(blockedRefs.error, /secret/i)
+  for (const [toolName, args] of [
+    ['read', { file_path: secretA }],
+    ['bash', { command: `cat "${secretA}"` }],
+    ['bash', { command: `ls "${externalRefs}"` }],
+    ['bash', { command: `cat ${externalRefs}*/*.json` }],
+    ['bash', { command: `ls ${externalRefs}{,/}` }],
+    ['bash', { command: `ls ${externalRefs}$x` }],
+    ['bash', { command: `cat ${externalStore}*/a/sf-linked.secret` }],
+    ['pwsh', { command: `Get-ChildItem ${externalRefs},${siblingRefs}` }],
+    ['pwsh', { command: `Get-ChildItem ${externalStore},${siblingFiles}` }],
+  ]) {
+    const blocked = await run(toolName, args, 'b')
+    assert.equal(blocked.ran, false, `expected blocked: ${toolName} ${JSON.stringify(args)}`)
+    assert.match(blocked.error, /secret/i)
+  }
 })

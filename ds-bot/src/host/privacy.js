@@ -57,17 +57,19 @@ function splitShellCommands(text) {
   let hasToken = false
   let tokenRedir = false
   let tokenQuoted = false
+  let tokenUnquotedHash = false
   let nextRedir = false
   let quote = null
   const subshellQuotes = []
 
   const flushToken = () => {
     if (!hasToken) return
-    current.push({ value: buf, redir: tokenRedir, quoted: tokenQuoted })
+    current.push({ value: buf, redir: tokenRedir, quoted: tokenQuoted, unquotedHash: tokenUnquotedHash })
     buf = ''
     hasToken = false
     tokenRedir = false
     tokenQuoted = false
+    tokenUnquotedHash = false
   }
   const flushSegment = () => {
     flushToken()
@@ -82,6 +84,7 @@ function splitShellCommands(text) {
       hasToken = true
       tokenRedir = nextRedir
       tokenQuoted = false
+      tokenUnquotedHash = false
       nextRedir = false
     }
   }
@@ -156,6 +159,7 @@ function splitShellCommands(text) {
       continue
     }
     startToken()
+    if (ch === '#') tokenUnquotedHash = true
     buf += ch
   }
   flushSegment()
@@ -254,7 +258,7 @@ function searchPatternTokenIndices(tokens) {
         exempt.add(i)
         continue
       }
-      if (value === '-f' || value === '--file' || value.startsWith('--file=')) {
+      if (value === '-f' || value === '--file' || value.startsWith('--file=') || (value.startsWith('-f') && value.length > 2 && !value.startsWith('--'))) {
         sawExplicitPattern = true
         if (value === '-f' || value === '--file') i += 1
         continue
@@ -822,7 +826,7 @@ export function install(rt) {
         // static prefix before the first wildcard is empty and cannot be resolved.
         if (hasTraversal && (prefix === '' || /[*?[{].*\.\./.test(normalizedPat))) {
           const foldedPat = fold(normalizedPat)
-          if (/(?:^|[^a-z0-9_.-])secret-(?:refs|files)(?:$|[^a-z0-9_.-])/.test(foldedPat) || isRooted) {
+          if (/(?:^|[^a-z0-9_.-])secret-(?:refs|files)(?:$|[^a-z0-9_.-])/i.test(foldedPat) || isRooted) {
             throw closedSecret()
           }
           const parentKeys = await spellings(resolve(searchBase, '..'), memo)
@@ -880,10 +884,10 @@ export function install(rt) {
         const before = at === 0 ? '' : text[at - 1]
         if (before !== '' && /[a-z0-9_.-]/i.test(before)) return false
         const after = at + len >= text.length ? '' : text[at + len]
-        return after === '' || /[\s/"'`;|&)><]/.test(after)
+        return after === '' || !/[a-z0-9_.-]/i.test(after)
       }
       for (const spelled of refsRoot.flatMap(asShell)) {
-        for (let at = flat.indexOf(spelled); at !== -1; at = flat.indexOf(spelled, at + spelled.length)) {
+        for (let at = flat.indexOf(spelled); at !== -1; at = flat.indexOf(spelled, at + 1)) {
           if (hasRootBoundary(flat, at, spelled.length)) throw closedSecret()
         }
       }
@@ -893,12 +897,14 @@ export function install(rt) {
       }
       const isSafeSplitPathLeaf = (segment) => {
         // Allow only unambiguous filename-only `Split-Path -Leaf` / `-LeafBase` calls;
-        // ignore redirection targets, quoted literals, and `-Path` argument values so
-        // default `Split-Path` (parent), `-Parent`, `-Resolve`, `-Qualifier`, etc. stay blocked.
+        // reject PowerShell line/block comments (`#`, `<# ... #>`), ignore redirection
+        // targets, quoted literals, and `-Path` argument values so default `Split-Path`
+        // (parent), `-Parent`, `-Resolve`, `-Qualifier`, etc. stay blocked.
         let sawLeaf = false
         let sawDoubleDash = false
         let expectPathValue = false
         for (const tok of segment) {
+          if (tok.unquotedHash) return false
           if (tok.redir) continue
           if (expectPathValue) {
             expectPathValue = false
@@ -935,7 +941,7 @@ export function install(rt) {
         }
       }
       for (const spelled of filesRoot.flatMap(asShell)) {
-        for (let at = flat.indexOf(spelled); at !== -1; at = flat.indexOf(spelled, at + spelled.length)) {
+        for (let at = flat.indexOf(spelled); at !== -1; at = flat.indexOf(spelled, at + 1)) {
           if (!hasRootBoundary(flat, at, spelled.length)) continue
           checkRestAfterFilesRoot(flat.slice(at + spelled.length))
         }
