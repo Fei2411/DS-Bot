@@ -11,6 +11,7 @@ import { join, resolve } from 'node:path'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { HANDOFF_ACK, HISTORY_TIMEOUT_MS, MESSAGE_INLINE_MAX, SOURCE_KIND, STEER_CUT, TASK_FORK_MAX_EVENTS } from './constants.js'
+import { buildFallbackContext } from './context-pack.js'
 import { within } from './folders.js'
 import { absoluteLinks } from './links.js'
 import { textOf } from './text.js'
@@ -29,6 +30,7 @@ const CONTEXT_FALLBACK_ITEMS = 16
 const MAX_SETTLED_TASKS = 50
 const MAX_REPLACED_IDS = 1000
 const PEER_BUSY_WAIT_MS = 5000
+const TASK_FORK_MAX_RATIO = 0.6
 
 const oneLine = (text, max) => String(text ?? '').replace(/\s+/g, ' ').trim().slice(0, max)
 // Keep only session anchors for read_own_chat history lookups; omit multi-KB segment.note
@@ -593,95 +595,68 @@ export function install(rt) {
     }
     return undefined
   }
-  const resolveTaskForkMaxEvents = (options) => {
+  const resolveExplicitTaskForkMaxEvents = (options) => {
     for (const candidate of [options?.taskForkMaxEvents, rt.config?.taskForkMaxEvents]) {
       if (candidate !== undefined && candidate !== null) {
         const limit = Number(candidate)
         if (Number.isInteger(limit) && limit >= 0) return limit
       }
     }
-    return TASK_FORK_MAX_EVENTS
+    return undefined
+  }
+  const resolveTaskForkMaxRatio = (options) => {
+    for (const candidate of [options?.taskForkMaxRatio, rt.config?.taskForkMaxRatio]) {
+      if (candidate !== undefined && candidate !== null) {
+        const ratio = Number(candidate)
+        if (Number.isFinite(ratio) && ratio > 0 && ratio <= 1) return ratio
+      }
+    }
+    return TASK_FORK_MAX_RATIO
+  }
+
+  // Decides whether a new background task should fork the parent Session.
+  // Uses context window occupancy ratio (`workingTokens / usable <= 0.6`) via
+  // ContextRuntime when measurements are available; honors explicit event-count
+  // overrides and falls back to `TASK_FORK_MAX_EVENTS` when unmeasured.
+  async function shouldForkTask(fromSessionId, options) {
+    const explicitMaxEvents = resolveExplicitTaskForkMaxEvents(options)
+    if (explicitMaxEvents !== undefined) {
+      return sourceEventCountOf(fromSessionId) <= explicitMaxEvents
+    }
+    const sourceSession = sourceSessionOf(fromSessionId)
+    if (sourceSession !== undefined && rt.contextRuntime !== undefined) {
+      const logTokens = rt.sessionTokens?.(sourceSession)
+      const measured = rt.contextRuntime.measure?.(sourceSession, { logTokens })
+      const lines = await rt.contextRuntime.linesForSession?.(sourceSession).catch(() => undefined)
+      if (typeof measured?.workingTokens === 'number' && Number.isFinite(measured.workingTokens) && lines?.usable > 0) {
+        return (measured.workingTokens / lines.usable) <= resolveTaskForkMaxRatio(options)
+      }
+    }
+    return sourceEventCountOf(fromSessionId) <= TASK_FORK_MAX_EVENTS
   }
 
   // Builds a bounded recent-context note when the task could not fork directly
-  // (e.g. first turn with no turn/end, different workdir, local CLI agent, or
-  // parent session above TASK_FORK_MAX_EVENTS).
+  // (e.g. first turn with no turn/end, different workdir, un-forkable local CLI, or
+  // parent session past the fork occupancy threshold).
   // Preserves the latest [Handoff] or [Checkpoint] structured note with headings
   // intact instead of flattening and clipping it to 1,000 characters.
   const fallbackContextSummary = (fromSessionId) => {
     const sourceSession = sourceSessionOf(fromSessionId)
     const events = sourceSession?.snapshotEvents?.() ?? []
-    if (events.length === 0) return ''
-    let latestNote = ''
-    let shadowedEnd = -1
-    for (const event of events) {
-      if (event.type === 'compaction/summary') {
-        const cleaned = cleanStructuredNote(event.data?.summary)
-        if (cleaned !== '') latestNote = cleaned
-        if (Number.isInteger(event.data?.shadowedRange?.end) && event.data.shadowedRange.end > shadowedEnd) {
-          shadowedEnd = event.data.shadowedRange.end
-        }
-      } else if (event.type === 'user/message' && event.data?.source?.kind === SOURCE_KIND && event.data.source.handoff === true) {
-        const raw = textOf(event.data?.message?.content ?? event.data?.content ?? '').trim()
-        const cleaned = cleanStructuredNote(raw, { handoff: true })
-        if (cleaned !== '') latestNote = cleaned
-      }
-    }
-    const lines = []
-    for (const event of events) {
-      if (shadowedEnd >= 0 && Number.isInteger(event.seq) && event.seq <= shadowedEnd) continue
-      if (event.type === 'user/message') {
-        const source = event.data?.source
-        if (source?.kind === 'runtime-context' || source?.kind === 'compact-checkpoint') continue
-        if (source?.kind === SOURCE_KIND && (source.handoff === true || source.role === 'task-handoff' || (source.role === 'request' && source.audience !== 'user'))) continue
-        const text = textOf(event.data?.message?.content ?? event.data?.content ?? '').trim()
-        if (text !== '') lines.push(`User: ${oneLine(text, 1000)}`)
-      } else if (event.type === 'assistant/message') {
-        const text = textOf(event.data?.message?.content ?? []).trim()
-        if (text !== '' && text !== HANDOFF_ACK) lines.push(`Assistant: ${oneLine(text, 1000)}`)
-      }
-    }
-    if (latestNote === '' && lines.length === 0) return ''
-    const tailBudget = latestNote === ''
-      ? CONTEXT_FALLBACK_MAX
-      : Math.max(0, CONTEXT_FALLBACK_MAX - Math.min(latestNote.length, CONTEXT_FALLBACK_NOTE_MIN) - 2)
-    const selected = []
-    let chars = 0
-    let truncated = false
-    const tail = lines.slice(-CONTEXT_FALLBACK_ITEMS)
-    for (let i = tail.length - 1; i >= 0; i -= 1) {
-      const line = tail[i]
-      const extra = selected.length === 0 ? line.length : line.length + 1
-      if (tailBudget === 0) {
-        truncated = true
-        break
-      }
-      if (selected.length > 0 && chars + extra > tailBudget) {
-        truncated = true
-        break
-      }
-      const kept = selected.length === 0 && line.length > tailBudget
-        ? `${line.slice(0, tailBudget)}…`
-        : line
-      selected.push(kept)
-      chars += selected.length === 1 ? kept.length : kept.length + 1
-    }
-    truncated ||= lines.length > CONTEXT_FALLBACK_ITEMS
-    const tailBody = selected.reverse().join('\n')
-    const clippedTail = tailBody === '' ? '' : (truncated ? `…\n${tailBody}` : tailBody)
-    let body
-    if (latestNote !== '') {
-      const noteBudget = clippedTail === ''
-        ? CONTEXT_FALLBACK_MAX
-        : Math.max(CONTEXT_FALLBACK_NOTE_MIN, CONTEXT_FALLBACK_MAX - clippedTail.length - 2)
-      const keptNote = clipStructuredNote(latestNote, noteBudget)
-      body = clippedTail === '' ? keptNote : `${keptNote}\n\n${clippedTail}`
-    } else {
-      body = clippedTail
-    }
     const room = rt.roomOf(rt.groupOwners.get(fromSessionId)?.roomId)
     const label = room !== undefined ? `group "${room.name}"` : 'your own chat'
-    return `\n\n[Recent context from ${label}]\n${body}`
+    return buildFallbackContext({
+      events,
+      label,
+      maxChars: CONTEXT_FALLBACK_MAX,
+      noteMinChars: CONTEXT_FALLBACK_NOTE_MIN,
+      maxItems: CONTEXT_FALLBACK_ITEMS,
+      lineMax: 1000,
+      sourceKind: SOURCE_KIND,
+      handoffAck: HANDOFF_ACK,
+      cleanStructuredNote,
+      clipStructuredNote,
+    })
   }
 
   const lastReplyOf = (session, workDir) => {
@@ -1106,7 +1081,7 @@ export function install(rt) {
       ...(dispatchApprovalOrigin !== undefined ? { dispatchApprovalOrigin } : {}),
     }
 
-    const shouldFork = sourceEventCountOf(fromSessionId) <= resolveTaskForkMaxEvents(options)
+    const shouldFork = await shouldForkTask(fromSessionId, options)
     const fromThroughSeq = room === undefined ? lastSeqOf(sourceSessionOf(fromSessionId)) : undefined
     const { sessionId, forked, task } = await rt.openTaskPart(bot, fromSessionId, baseTask, { workDir: resolvedDir, fork: shouldFork, throughSeq: fromThroughSeq })
     if (taskWorkId !== undefined) {
@@ -1487,6 +1462,13 @@ export function install(rt) {
     inFlightTransferIds.clear()
   }, 'ds-bot: bot-tasks approval bridge')
 
+  const canMoveRuntimeToBackground = (bot, session) => {
+    if (rt.contextRuntime?.capabilitiesFor !== undefined) {
+      return rt.contextRuntime.capabilitiesFor({ bot, session }).canMoveToBackground !== false
+    }
+    return true
+  }
+
   // Audience isolation: a hidden peer-Bot work turn running on a Bot's foreground
   // chat must move to background immediately when human input arrives, so the user's
   // message never injects into or leaks out of the hidden peer-Bot turn (#2139).
@@ -1497,7 +1479,7 @@ export function install(rt) {
     if (rt.groupOwners.has(sessionId) || rt.taskOwners?.has(sessionId)) return false
     if (rt.isSwitchingPart?.(sessionId)) return false
     const session = ctx.get('agents')?.get(sessionId)?.session
-    if (isLocalCliBot(bot, session)) return false
+    if (!canMoveRuntimeToBackground(bot, session)) return false
     const activeHandoff = handoffing.get(bot.id)
     if (activeHandoff !== undefined && !activeHandoff.aborted && activeHandoff.oldSid === sessionId) return true
     const entry = rt.live.get(sessionId)
@@ -1513,7 +1495,7 @@ export function install(rt) {
     if (rt.groupOwners.has(sessionId) || rt.taskOwners?.has(sessionId)) return false
     if (rt.isSwitchingPart?.(sessionId)) return false
     const session = ctx.get('agents')?.get(sessionId)?.session
-    if (isLocalCliBot(bot, session)) return false
+    if (!canMoveRuntimeToBackground(bot, session)) return false
     const activeHandoff = handoffing.get(bot.id)
     if (activeHandoff !== undefined && !activeHandoff.aborted && activeHandoff.oldSid === sessionId) return true
     const entry = rt.live.get(sessionId)
@@ -1533,7 +1515,7 @@ export function install(rt) {
     }
     if (rt.isSwitchingPart?.(sessionId)) return { code: 'bot/busy', message: 'Switching conversation part' }
     const agent = ctx.get('agents')?.get(sessionId)
-    if (isLocalCliBot(bot, agent?.session)) {
+    if (!canMoveRuntimeToBackground(bot, agent?.session)) {
       return { code: 'bot/unsupported', message: 'Local agent Bots cannot move running turns to the background' }
     }
     if (handoffing.get(bot.id)?.oldSid === sessionId) return { code: 'bot/busy', message: 'Already moving to the background' }

@@ -10,9 +10,11 @@
 import { mkdir, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
 import { ANCHOR_LINE_MAX, HISTORY_PAGE, HISTORY_PAGES_MAX, HISTORY_SCAN_PAGES, HISTORY_TIMEOUT_MS, OWN_CHAT_BRIEF, OWN_CHAT_LINE_MAX, OWN_CHAT_READ, OWN_CHAT_SEARCH } from './constants.js'
-import { excerpt } from './text.js'
+import { formatOwnChatBrief } from './context-pack.js'
+import { excerpt, textOf } from './text.js'
 
 const INDEX_VERSION = 5
+const TOOL_OUTPUT_RECALL_MAX = 16_000
 const AROUND_LINES = 6
 const SEARCH_TERMS_MAX = 6
 const ANY_TERM_HITS = 50
@@ -195,17 +197,24 @@ export function install(rt) {
         db.exec(`
           DROP TABLE IF EXISTS lines;
           DROP TABLE IF EXISTS messages;
+          DROP TABLE IF EXISTS tool_outputs;
           DROP TABLE IF EXISTS marks;
           CREATE TABLE messages (id INTEGER PRIMARY KEY, text, session, seq, time, who);
           CREATE INDEX messages_session_seq ON messages (session, seq);
           CREATE INDEX messages_session_time ON messages (session, time DESC);
           CREATE VIRTUAL TABLE lines USING fts5(text, session UNINDEXED, seq UNINDEXED, time UNINDEXED, who UNINDEXED, content = 'messages', content_rowid = 'id', tokenize = 'trigram');
+          CREATE TABLE tool_outputs (call_id TEXT NOT NULL, session TEXT NOT NULL, seq INTEGER NOT NULL, time INTEGER NOT NULL, name TEXT NOT NULL, ok INTEGER NOT NULL, text TEXT NOT NULL, PRIMARY KEY (session, call_id));
+          CREATE INDEX tool_outputs_call_id ON tool_outputs (call_id);
           CREATE TABLE marks (session TEXT PRIMARY KEY, through INTEGER NOT NULL, keep INTEGER NOT NULL, sealed INTEGER NOT NULL, turn INTEGER NOT NULL);
           PRAGMA user_version = ${INDEX_VERSION};`)
       }
-      db.exec('CREATE INDEX IF NOT EXISTS messages_session_time ON messages (session, time DESC)')
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS messages_session_time ON messages (session, time DESC);
+        CREATE TABLE IF NOT EXISTS tool_outputs (call_id TEXT NOT NULL, session TEXT NOT NULL, seq INTEGER NOT NULL, time INTEGER NOT NULL, name TEXT NOT NULL, ok INTEGER NOT NULL, text TEXT NOT NULL, PRIMARY KEY (session, call_id));
+        CREATE INDEX IF NOT EXISTS tool_outputs_call_id ON tool_outputs (call_id);`)
       const insertMessage = db.prepare('INSERT INTO messages (text, session, seq, time, who) VALUES (?, ?, ?, ?, ?)')
       const insertLine = db.prepare('INSERT INTO lines (rowid, text, session, seq, time, who) VALUES (?, ?, ?, ?, ?, ?)')
+      const insertToolOutput = db.prepare('INSERT OR REPLACE INTO tool_outputs (call_id, session, seq, time, name, ok, text) VALUES (?, ?, ?, ?, ?, ?, ?)')
       return {
         db,
         mark: db.prepare('SELECT through, keep, sealed, turn FROM marks WHERE session = ?'),
@@ -214,6 +223,8 @@ export function install(rt) {
           const { lastInsertRowid } = insertMessage.run(...values)
           insertLine.run(lastInsertRowid, ...values)
         },
+        insertToolOutput: (...values) => insertToolOutput.run(...values),
+        toolOutputByCallId: db.prepare('SELECT call_id, session, seq, time, name, ok, text FROM tool_outputs WHERE call_id = ? AND session IN (SELECT value FROM json_each(?)) ORDER BY time DESC LIMIT 1'),
         before: db.prepare('SELECT text, session, seq, time, who FROM messages WHERE session = ? AND seq < ? ORDER BY seq DESC LIMIT ?'),
         from: db.prepare('SELECT text, session, seq, time, who FROM messages WHERE session = ? AND seq >= ? ORDER BY seq LIMIT ?'),
         between: db.prepare('SELECT text, session, seq, time, who FROM messages WHERE session = ? AND seq >= ? AND seq <= ? ORDER BY seq LIMIT ?'),
@@ -232,7 +243,8 @@ export function install(rt) {
   // Adds what a part said since its mark. Reads of one part wait for each other, so no
   // line is added twice.
   const catchingUp = new Map()
-  function catchUp(index, part) {
+  const redactText = text => (typeof rt.redactSecrets === 'function' ? rt.redactSecrets(String(text ?? '')) : String(text ?? ''))
+  function catchUp(index, part, { group = false } = {}) {
     const running = catchingUp.get(part.sessionId)
     if (running) return running
     const job = (async () => {
@@ -254,13 +266,26 @@ export function install(rt) {
         && rt.isBotSession?.(part.sessionId) !== true
         && Date.now() - part.endedAt > SEAL_AFTER_MS
         && rt.isRetiring?.(part.sessionId) !== true
+      const callNames = new Map()
       index.db.exec('BEGIN')
       try {
         let last = through
         for (const event of events) {
           last = event.seq
           if (event.type === 'turn/start') turn = event.seq
-          const entry = rt.historyEntry(event, false)
+          if (event.type === 'tool/call' && typeof event.data?.callId === 'string' && typeof event.data?.name === 'string') {
+            callNames.set(event.data.callId, event.data.name)
+          } else if (event.type === 'tool/result') {
+            const msg = event.data?.message
+            const callId = msg?.toolCallId
+            if (typeof callId === 'string' && callId !== '') {
+              const name = callNames.get(callId) ?? msg?.toolName ?? msg?.name ?? 'tool'
+              const ok = msg?.ok === false || msg?.isError === true ? 0 : 1
+              const body = redactText(textOf(msg?.content))
+              index.insertToolOutput(callId, part.sessionId, event.seq, event.time ?? 0, String(name), ok, body)
+            }
+          }
+          const entry = rt.historyEntry(event, group)
           if (entry === undefined) continue
           if (entry.answer) {
             if (keep) index.insert(entry.text, part.sessionId, event.seq, event.time ?? 0, 'you')
@@ -292,24 +317,31 @@ export function install(rt) {
     return `[${anchorOf(parts, row)} · ${rt.clock(row.time)}] ${excerpt(text, wanted, max)}`
   }
 
+  const resolveParts = (botId, askingId, roomId) => {
+    if (roomId !== undefined) return rt.partsOf(botId, roomId)
+    return askingId === undefined ? rt.partsOf(botId) : rt.partsOfThread(botId, askingId)
+  }
+
   // Every part, caught up. Asked from the current part, the turn that asks is left out
   // (`hidden`): it is in context, and its own question would match.
-  async function indexedParts(botId, askingId) {
+  async function indexedParts(botId, askingId, { roomId } = {}) {
     const index = await openIndex()
     if (index === null) return { index }
-    const parts = askingId === undefined ? rt.partsOf(botId) : rt.partsOfThread(botId, askingId)
+    const parts = resolveParts(botId, askingId, roomId)
+    const group = roomId !== undefined
     // A part that cannot be read now is searched as far as it was indexed.
-    for (const part of parts) await catchUp(index, part).catch(error => rt.warn('ds-bot: indexing %s failed: %s', part.sessionId, error))
+    for (const part of parts) await catchUp(index, part, { group }).catch(error => rt.warn('ds-bot: indexing %s failed: %s', part.sessionId, error))
     const turn = askingId !== undefined && askingId === parts.at(-1)?.sessionId ? index.mark.get(askingId)?.turn : undefined
     return { index, parts, hidden: turn === undefined || turn < 0 ? undefined : { session: askingId, from: turn } }
   }
 
   // Messages with all the words, best first; with none of them having all, those with
   // the most of them. Shown oldest first.
-  async function searchOwnChat(botId, query, { askingId, limit = OWN_CHAT_SEARCH } = {}) {
+  async function searchOwnChat(botId, query, { askingId, limit = OWN_CHAT_SEARCH, roomId } = {}) {
     const terms = [...new Set(query.toLowerCase().split(/\s+/).filter(Boolean))].slice(0, SEARCH_TERMS_MAX)
-    const { index, parts, hidden } = await indexedParts(botId, askingId)
-    if (index === null) return { lines: await scanOwnChat(botId, query, limit, askingId), every: true }
+    const { index, parts, hidden } = await indexedParts(botId, askingId, { roomId })
+    if (index === null) return { lines: await scanOwnChat(botId, query, limit, askingId, { roomId }), every: true }
+    if (parts.length === 0) return { lines: [], every: true }
     const sessions = parts.map(part => part.sessionId)
     const bounds = parts
       .filter(part => Number.isInteger(part.throughSeq))
@@ -358,9 +390,9 @@ export function install(rt) {
   }
 
   // The latest messages across all parts, oldest first.
-  async function latestOwnChat(botId, { askingId, limit = OWN_CHAT_READ } = {}) {
-    const { index, parts, hidden } = await indexedParts(botId, askingId)
-    if (index === null) return scanOwnChat(botId, '', limit, askingId)
+  async function latestOwnChat(botId, { askingId, limit = OWN_CHAT_READ, roomId } = {}) {
+    const { index, parts, hidden } = await indexedParts(botId, askingId, { roomId })
+    if (index === null) return scanOwnChat(botId, '', limit, askingId, { roomId })
     const rows = []
     for (const part of [...parts].reverse()) {
       let below = hidden?.session === part.sessionId ? hidden.from : Number.MAX_SAFE_INTEGER
@@ -373,14 +405,14 @@ export function install(rt) {
   }
 
   // The messages around an anchor, in its part.
-  async function aroundOwnChat(botId, anchor, askingId) {
-    const { index, parts } = await indexedParts(botId, askingId)
+  async function aroundOwnChat(botId, anchor, askingId, { roomId } = {}) {
+    const { index, parts } = await indexedParts(botId, askingId, { roomId })
     if (index === null) return { error: 'Anchors need the chat index, which is unavailable here. Search with words instead.' }
     const found = /(?:part\s*)?(\d+)?\s*#\s*(\d+)/i.exec(anchor)
     if (found === null) return { error: `"${anchor}" is not an anchor. Anchors look like "part 2 #1234", or "#1234" in the current part.` }
     const number = found[1] === undefined ? parts.length : Number(found[1])
     const part = parts[number - 1]
-    if (part === undefined) return { error: `Your own chat has no part ${number}.` }
+    if (part === undefined) return { error: `${roomId !== undefined ? 'Your history in that group' : 'Your own chat'} has no part ${number}.` }
     const seq = Number(found[2])
     const maxSeq = Number.isInteger(part.throughSeq) ? part.throughSeq : undefined
     if (maxSeq !== undefined && maxSeq < 0) return { part, exact: false, lines: [] }
@@ -395,17 +427,89 @@ export function install(rt) {
     return { part, exact: rows.some(row => row.seq === seq), lines: rows.map(row => rowLine(parts, row, [], row.seq === seq ? ANCHOR_LINE_MAX : OWN_CHAT_LINE_MAX)) }
   }
 
+  // Recalls the full saved output of an earlier tool call by callId across the
+  // Bot's authorized parts (own chat thread or a specified group's parts), falling
+  // back to log scanning when SQLite is unavailable or the call is from the current turn.
+  async function recallToolOutput(botId, callId, { askingId, roomId, maxChars = TOOL_OUTPUT_RECALL_MAX } = {}) {
+    const id = String(callId ?? '').trim()
+    if (id === '') return { found: false }
+    const formatHit = (parts, row) => {
+      const part = parts.find(item => item.sessionId === row.session)
+      const raw = String(row.text ?? '')
+      const truncated = raw.length > maxChars
+      const text = truncated ? `${raw.slice(0, maxChars)}\n… (truncated; ${raw.length} characters in all)` : raw
+      return {
+        found: true,
+        callId: row.call_id,
+        session: row.session,
+        partNumber: part?.number ?? 1,
+        seq: row.seq,
+        time: row.time,
+        name: row.name,
+        ok: row.ok === 1 || row.ok === true,
+        text,
+        totalChars: raw.length,
+        truncated,
+      }
+    }
+    const { index, parts: indexed } = await indexedParts(botId, askingId, { roomId })
+    const parts = indexed ?? resolveParts(botId, askingId, roomId)
+    if (parts.length === 0) return { found: false }
+    const bySession = new Map(parts.map(part => [part.sessionId, part]))
+    if (index !== null) {
+      const sessions = parts.map(part => part.sessionId)
+      const row = index.toolOutputByCallId.get(id, JSON.stringify(sessions))
+      if (row !== undefined) {
+        const part = bySession.get(row.session)
+        if (!Number.isInteger(part?.throughSeq) || row.seq <= part.throughSeq) {
+          return formatHit(parts, row)
+        }
+      }
+    }
+    // Scan logs newest-first as fallback (also covers live turns when SQLite is unavailable).
+    const signal = AbortSignal.timeout(HISTORY_TIMEOUT_MS)
+    for (const part of [...parts].reverse()) {
+      let matchedResult
+      let matchedName
+      try {
+        for await (const event of eventsBackwards(part.sessionId, signal, HISTORY_SCAN_PAGES, undefined, part.throughSeq)) {
+          if (matchedResult === undefined && event.type === 'tool/result' && event.data?.message?.toolCallId === id) {
+            matchedResult = event
+          } else if (matchedResult !== undefined && event.type === 'tool/call' && event.data?.callId === id) {
+            matchedName = event.data?.name
+            break
+          }
+        }
+      } catch {
+        continue
+      }
+      if (matchedResult !== undefined) {
+        const msg = matchedResult.data?.message
+        return formatHit(parts, {
+          call_id: id,
+          session: part.sessionId,
+          seq: matchedResult.seq,
+          time: matchedResult.time ?? 0,
+          name: String(matchedName ?? msg?.toolName ?? msg?.name ?? 'tool'),
+          ok: msg?.ok === false || msg?.isError === true ? 0 : 1,
+          text: redactText(textOf(msg?.content)),
+        })
+      }
+    }
+    return { found: false }
+  }
+
   // Without the index: what the user, other Bots, and the Bot itself said, across all
   // parts, oldest first, by reading the logs.
-  async function scanOwnChat(botId, query, limit, askingId) {
+  async function scanOwnChat(botId, query, limit, askingId, { roomId } = {}) {
     const wanted = query.toLowerCase()
-    const parts = askingId === undefined ? rt.partsOf(botId) : rt.partsOfThread(botId, askingId)
+    const parts = resolveParts(botId, askingId, roomId)
     const signal = AbortSignal.timeout(HISTORY_TIMEOUT_MS)
     const lines = []
     let capped = false
     for (const part of [...parts].reverse()) {
       const read = {}
-      for await (const line of rt.partLines(part.sessionId, signal, { pages: HISTORY_SCAN_PAGES, read, throughSeq: part.throughSeq })) {
+      for await (const line of rt.partLines(part.sessionId, signal, { group: roomId !== undefined, pages: HISTORY_SCAN_PAGES, read, throughSeq: part.throughSeq })) {
         if (wanted !== '' && !line.text.toLowerCase().includes(wanted)) continue
         lines.push(`[${parts.length > 1 ? `part ${part.number} · ` : ''}${rt.clock(line.time)}] ${excerpt(line.text, wanted)}`)
         if (lines.length >= limit) break
@@ -422,12 +526,8 @@ export function install(rt) {
   async function ownChatBrief(member) {
     let lines = []
     try { lines = await latestOwnChat(member.id, { limit: OWN_CHAT_BRIEF }) } catch (error) { rt.warn('ds-bot: brief for %s failed: %s', member.name, error) }
-    return [
-      'Your own chat with the user so far (latest messages, oldest first; private, so share only what the group needs):',
-      lines.length > 0 ? lines.join('\n') : 'Nothing yet.',
-      'This brief does not change. Call read_own_chat when you need something newer or older from your own chat.',
-    ].join('\n')
+    return formatOwnChatBrief(lines)
   }
 
-  Object.assign(rt, { eventsBackwards, searchOwnChat, latestOwnChat, aroundOwnChat, partIndex, ownChatBrief })
+  Object.assign(rt, { eventsBackwards, searchOwnChat, latestOwnChat, aroundOwnChat, recallToolOutput, partIndex, ownChatBrief })
 }

@@ -20,6 +20,25 @@ const SIGNED_IN_TTL_MS = 60_000
 const SIGNED_IN_RETRY_MS = 20_000
 const VERSION_FAIL_TTL_MS = 30_000
 
+export function parseCliSemver(raw) {
+  if (typeof raw !== 'string') return undefined
+  const match = /(\d+)\.(\d+)(?:\.(\d+))?/.exec(raw)
+  if (match === null) return undefined
+  return { major: Number(match[1]), minor: Number(match[2]), patch: Number(match[3] ?? 0) }
+}
+
+// Capability detection for native CLI session fork based on probed CLI version:
+// - Codex app-server v2 supports `thread/fork` (>= 0.80.0)
+// - Claude Code supports `--resume <id> --fork-session` (>= 2.0.0)
+// - ACP has no standard session fork RPC
+export function versionSupportsFork(kind, version) {
+  const semver = parseCliSemver(version)
+  if (semver === undefined) return false
+  if (kind === 'codex') return semver.major > 0 || semver.minor >= 80
+  if (kind === 'claude') return semver.major >= 2
+  return false
+}
+
 // The preset a Session runs on: its group's, else its Bot's, else DSH's default — the one
 // a Bot without a preset of its own is shown with (permissions.js keeps it applied to the
 // Session). A hard-coded workspace-write made a local agent open in a stricter mode than
@@ -87,9 +106,13 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
             if (entry.versionEpoch !== epoch || entry.versionProbe !== probe || found.get(entry.route) !== entry) return
             if (result?.version !== undefined) {
               entry.version = result.version
+              entry.supportsFork = versionSupportsFork(spec.kind, result.version)
               delete entry.versionFailedAt
             } else {
-              if (force) entry.version = undefined
+              if (force) {
+                entry.version = undefined
+                entry.supportsFork = false
+              }
               entry.versionFailedAt = now()
             }
           })
@@ -364,10 +387,48 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
     }
   }
 
+  // Cleans up a forgotten or archived session's live CLI handle and persisted record.
+  function forgetLocalAgentSession(sessionId, { persist = true } = {}) {
+    if (typeof sessionId !== 'string' || sessionId === '') return false
+    void adapter.closeSession(sessionId, 'session forgotten').catch(() => {})
+    const sessions = store().sessions
+    if (!Object.hasOwn(sessions, sessionId)) return false
+    delete sessions[sessionId]
+    if (persist && rt.readOnly?.() === undefined) void rt.save().catch(() => {})
+    return true
+  }
+
+  // Prunes orphaned `state.localAgents.sessions` entries whose DS Bot sessions are no
+  // longer active (archived parts, deleted Bots, left groups, or settled tasks).
+  function pruneLocalAgentSessions(liveIds) {
+    if (!(liveIds instanceof Set)) return 0
+    const sessions = store().sessions
+    let removed = 0
+    for (const sid of Object.keys(sessions)) {
+      if (!liveIds.has(sid)) {
+        void adapter.closeSession(sid, 'session pruned').catch(() => {})
+        delete sessions[sid]
+        removed += 1
+      }
+    }
+    if (removed > 0 && rt.readOnly?.() === undefined) void rt.save().catch(() => {})
+    return removed
+  }
+
+  const localAgentSupportsFork = (route) => {
+    if (typeof route !== 'string' || route === '') return false
+    if (adapter.isForkUnsupported(route)) return false
+    return found.get(route)?.supportsFork === true
+  }
+
   Object.assign(rt, {
     isLocalAgentRoute, isLocalAgentRef, engineOf, engineOfBot, localAgentOf, isLocalAgentSession,
     localAgentRoutes: allRoutes, localAgentsEndpoint, localAgentModels,
     isLocalAgentAvailable: route => registeredRoutes.has(route),
+    localAgentSupportsFork,
+    forkLocalAgentSession: (fromSessionId, toSessionId, options) => adapter.forkSession(fromSessionId, toSessionId, options),
+    forgetLocalAgentSession,
+    pruneLocalAgentSessions,
     engineNameOf: ref => (isLocalAgentRef(ref) ? adapter.providerInfo(splitRef(ref).provider).name : `the model ${ref}`),
     closeLocalAgentSession: (sessionId, reason) => adapter.closeSession(sessionId, reason),
     localAgentLaunchPreset: sessionId => adapter.live.get(String(sessionId))?.preset,

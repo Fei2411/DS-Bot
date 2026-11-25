@@ -1324,6 +1324,7 @@ export function install(rt) {
       keep(sw?.next)
     }
     contextRuntime.prune(liveRaw)
+    rt.pruneLocalAgentSessions?.(liveRaw)
     const dir = join(root, 'snapshots')
     let entries
     try {

@@ -96,7 +96,8 @@ export function install(rt) {
     const provider = providerOf(target, route)
     if (provider !== undefined && isLocalProvider(provider)) {
       const spec = engineOf(provider, state?.localAgents?.custom)
-      return capabilitiesForKind(spec?.kind ?? 'acp')
+      const base = capabilitiesForKind(spec?.kind ?? 'acp')
+      return { ...base, canFork: rt.localAgentSupportsFork?.(provider) === true }
     }
     if (provider === undefined) {
       const sid = sessionIdOf(target)
@@ -105,7 +106,8 @@ export function install(rt) {
         const ref = rt.localAgentOf?.(bot) ?? bot?.model ?? bot?.appliedModel
         const parsed = splitRef(ref)
         const spec = parsed?.provider ? engineOf(parsed.provider, state?.localAgents?.custom) : undefined
-        return capabilitiesForKind(spec?.kind ?? 'acp')
+        const base = capabilitiesForKind(spec?.kind ?? 'acp')
+        return { ...base, canFork: parsed?.provider ? rt.localAgentSupportsFork?.(parsed.provider) === true : false }
       }
     }
     return capabilitiesForKind('model')

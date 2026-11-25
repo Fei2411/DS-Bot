@@ -20,18 +20,19 @@ export class ClaudeEngine {
     this.findExecutable = findExecutable
     this.systemFileThreshold = systemFileThreshold
     this.noPromptFile = false
+    this.forkSupported = undefined
     this.sessions = new Map()
   }
 
   // A live process holds its own event queue; the adapter drains it.
-  open(dshSessionId, { cwd, resumeId, system, mode, mcp, model }) {
+  open(dshSessionId, { cwd, resumeId, forkSession = false, system, mode, mcp, model }) {
     let session = this.sessions.get(dshSessionId)
     if (session !== undefined && session.dead) session = undefined
     if (session === undefined) {
       session = new ClaudeSession(this, dshSessionId)
       this.sessions.set(dshSessionId, session)
     }
-    return session.start({ cwd, resumeId, system, mode, mcp, model })
+    return session.start({ cwd, resumeId, forkSession, system, mode, mcp, model })
   }
 
   prompt(session, blocks) {
@@ -96,7 +97,7 @@ class ClaudeSession {
     try { this.child?.stdin.write(`${JSON.stringify(message)}\n`) } catch { this.dead = true }
   }
 
-  async start({ cwd, resumeId, system, mode, mcp, model }) {
+  async start({ cwd, resumeId, forkSession = false, system, mode, mcp, model }) {
     if (this.child !== undefined) return this
     const bin = findEngineExecutable(this.engine.engine, name => this.engine.findExecutable(name))
     if (bin === undefined) throw Object.assign(new Error(`${this.engine.engine.name} is not installed`), { code: 'NO_ADAPTER' })
@@ -104,7 +105,13 @@ class ClaudeSession {
     // The stream-json formats only exist in print mode: without `--print` the
     // CLI starts an interactive session and never speaks this protocol.
     const args = [...(this.engine.engine.args ?? []), '--print', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose']
-    if (resumeId !== undefined) args.push('--resume', resumeId)
+    if (resumeId !== undefined) {
+      args.push('--resume', resumeId)
+      if (forkSession === true && this.engine.forkSupported !== false) {
+        args.push('--fork-session')
+        this.usedForkSession = true
+      }
+    }
     if (system !== undefined) {
       const threshold = this.engine.systemFileThreshold ?? DEFAULT_SYSTEM_FILE_THRESHOLD
       if (!this.engine.noPromptFile && system.length > threshold) {
@@ -193,6 +200,10 @@ class ClaudeSession {
       if (this.usedPromptFile === true && this.cliSessionId === undefined && /unknown option.*append-system-prompt-file|unrecognized option.*append-system-prompt-file/i.test(stderr)) {
         this.engine.noPromptFile = true
         this.promptFileUnsupported = true
+      }
+      if (this.usedForkSession === true && this.cliSessionId === undefined && /unknown option.*fork-session|unrecognized option.*fork-session/i.test(stderr)) {
+        this.engine.forkSupported = false
+        this.forkUnsupported = true
       }
       // Claude Code deletes old conversations; resuming one that is gone exits
       // before init with this line on stderr.
