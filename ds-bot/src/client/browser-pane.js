@@ -10,13 +10,13 @@ import { BotMark } from './mark.js'
 import { STORAGE } from './storage.js'
 import { MIN_CHAT } from './frame-layout.js'
 import { chatRoom } from './frame-watch.js'
-import { SPRING_LEAD, SPRING_SHAPE, SPRING_TRAIL, reducedMotion, stepMenuFocus, useLinger } from './motion.js'
+import { SPRING_LEAD, SPRING_POP, SPRING_SHAPE, SPRING_TAP, SPRING_TRAIL, Segmented, reducedMotion, spring, stepMenuFocus, useLinger, useMorph } from './motion.js'
 import { FLIGHT_ENDS, INTENT_MS, createFlight, flightEnd, flightStart, planFlight, uniqueIds } from './mark-flight.js'
 import { DetailsDrawer } from './details-drawer.js'
 import { SideChatView } from './side-chat.js'
 import { TaskReaderView } from './bot-tasks.js'
 import { panelHasStrip, sideChatsOf, stripMenuKeys } from './side-model.js'
-import { DotsIcon, FolderIcon, SideIcon, TerminalIcon } from './icons.js'
+import { CheckIcon, ChevronLeftIcon, ChevronRightIcon, CompassIcon, CopyIcon, DotsIcon, FolderIcon, InfoIcon, SearchIcon, SideIcon, TerminalIcon } from './icons.js'
 import { t } from './i18n.js'
 import { rectsOverlap } from './browser-overlap.js'
 import { useEscape } from './overlay-hooks.js'
@@ -48,10 +48,10 @@ const StopIcon = icon(['M5.5 5.5l9 9M14.5 5.5l-9 9'])
 const CloseIcon = icon(['M5.5 5.5l9 9M14.5 5.5l-9 9'])
 const PlusTabIcon = icon(['M10 5v10M5 10h10'])
 const LockIcon = icon(['M6.5 9V7a3.5 3.5 0 0 1 7 0v2', 'M5.5 9h9v7h-9z'])
-const ImportIcon = icon(['M10 3.5v8.5', 'M6 8.5l4 4 4-4', 'M4.5 14v1.5a1.5 1.5 0 0 0 1.5 1.5h8a1.5 1.5 0 0 0 1.5-1.5V14'])
-const FileIcon = icon(['M6 3.5h5.5L14.5 6.5v10H6z', 'M11 3.5v3.5h3.5'])
-const WindowIcon = icon(['M4 5h12v9.5H4z', 'M4 7.5h12'])
-const PasteIcon = icon(['M7.5 4.5h5v2h-5z', 'M6 5.5H5a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-9a1 1 0 0 0-1-1h-1'])
+const ImportIcon = icon(['M10 3.5v8', 'M6.75 8.5L10 11.75l3.25-3.25', 'M4.5 13.25v1.25A1.5 1.5 0 0 0 6 16h8a1.5 1.5 0 0 0 1.5-1.5v-1.25'])
+const FileIcon = icon(['M6 3.5h5.2a1 1 0 0 1 .7.3l2.3 2.3a1 1 0 0 1 .3.7V15a1.5 1.5 0 0 1-1.5 1.5H6A1.5 1.5 0 0 1 4.5 15V5A1.5 1.5 0 0 1 6 3.5z', 'M11 3.5V6a1 1 0 0 0 1 1h2.5'])
+const WindowIcon = icon(['M3.5 6.5A2 2 0 0 1 5.5 4.5h9a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-9a2 2 0 0 1-2-2z', 'M3.5 8h13'])
+const PasteIcon = icon(['M7.5 3.75h5a1 1 0 0 1 1 1v1a1 1 0 0 1-1 1h-5a1 1 0 0 1-1-1v-1a1 1 0 0 1 1-1z', 'M6.5 5.25H6A1.5 1.5 0 0 0 4.5 6.75v8A1.5 1.5 0 0 0 6 16.25h8a1.5 1.5 0 0 0 1.5-1.5v-8A1.5 1.5 0 0 0 14 5.25h-.5'])
 
 /** Whether a cookie site belongs to the same host or direct domain hierarchy as the current tab. */
 export function siteMatchesHost(site, host) {
@@ -348,6 +348,7 @@ export function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPa
   const page = useBrowserPages(pages => pages[tabId ?? '']) ?? EMPTY_PAGE
   const frame = useRef(null)
   const input = useRef(null)
+  const importBoxRef = useRef(null)
   const [draft, setDraft] = useState(null)
   const [covered, setCovered] = useState(false)
 
@@ -356,6 +357,8 @@ export function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPa
   // preview → result | error above the guest.
   const imports = actions.browserImport
   const [flow, setFlow] = useState(null)
+  const importStageKey = flow === null ? null : flow === 'menu' ? 'menu' : flow.stage
+  useMorph(importBoxRef, importStageKey)
   // A mirrored flow: the cleanup on leaving the tab or the panel can still cancel
   // an unconfirmed pending import or an in-flight live harvest.
   const flowRef = useRef(null)
@@ -606,40 +609,49 @@ export function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPa
       }, h(PlusTabIcon)),
       imports ? h('button', {
         type: 'button', className: 'bt-icon-btn bt-import-btn', 'aria-label': t('Import cookies'), title: t('Import cookies'),
-        'aria-expanded': flow === 'menu', disabled: busy,
-        onClick: () => { if (flow === 'menu') setFlowTracked(null); else openImport() },
+        'aria-expanded': flow !== null, 'data-open': flow !== null || undefined, disabled: busy,
+        onClick: () => { if (flow !== null) cancelImport(); else openImport() },
       }, h(ImportIcon)) : null,
       page.loading ? h('span', { className: 'bt-browser-progress', 'aria-hidden': true }) : null),
     h('div', { ref: frame, className: 'bt-browser-frame', 'data-guest': showGuest || undefined },
-      flow === 'menu' ? h(ImportMenu, {
-        sources: orderImportSources(sources, lastSourceId),
-        lastSourceId,
-        loading: sources === null,
-        busy,
-        canPaste: Boolean(imports?.paste),
-        onFile: pickFile,
-        onPaste: openPaste,
-        onSource: pickSource,
-        onClose: () => setFlowTracked(null),
-      }) : null,
-      typeof flow === 'object' && flow !== null
-        ? h(ImportCard, {
-          flow,
-          page,
-          busy,
-          imports,
-          onApply: applyImport,
-          onCancel: cancelImport,
-          onCloseAndImport: closeAndImport,
-          onRetrySource: () => { if (flow.source) void pickSource(flow.source) },
-          onLaunchSource: () => { if (flow.source && imports?.launch) void imports.launch(flow.source.id) },
-          onOpenPermission: () => { if (imports?.openPermission) void imports.openPermission() },
-          onFile: pickFile,
-          onSubmitPaste: submitPaste,
-          onDone: () => setFlowTracked(null),
-          onReload: () => actions.browserCommand(tabId, 'reload'),
-        })
-        : null,
+      flow !== null ? h('div', {
+        className: 'bt-import-card',
+        onClick: (event) => {
+          if (event.target !== event.currentTarget || busy) return
+          if (typeof flow === 'object' && flow.stage === 'result') setFlowTracked(null)
+          else cancelImport()
+        },
+      },
+        h('div', { ref: importBoxRef, className: 'bt-import-box', 'data-stage': importStageKey },
+          flow === 'menu'
+            ? h(ImportMenu, {
+              sources: orderImportSources(sources, lastSourceId),
+              lastSourceId,
+              loading: sources === null,
+              busy,
+              canPaste: Boolean(imports?.paste),
+              onFile: pickFile,
+              onPaste: openPaste,
+              onSource: pickSource,
+              onClose: () => setFlowTracked(null),
+            })
+            : h(ImportCard, {
+              flow,
+              page,
+              busy,
+              imports,
+              onApply: applyImport,
+              onCancel: cancelImport,
+              onBack: openImport,
+              onCloseAndImport: closeAndImport,
+              onRetrySource: () => { if (flow.source) void pickSource(flow.source) },
+              onLaunchSource: () => { if (flow.source && imports?.launch) void imports.launch(flow.source.id) },
+              onOpenPermission: () => { if (imports?.openPermission) void imports.openPermission() },
+              onFile: pickFile,
+              onSubmitPaste: submitPaste,
+              onDone: () => setFlowTracked(null),
+              onReload: () => actions.browserCommand(tabId, 'reload'),
+            }))) : null,
       flow === null && page.error
         ? h('div', { className: 'bt-browser-empty' },
             h('div', { className: 'bt-browser-empty-title' }, t('This page didn’t load')),
@@ -668,50 +680,103 @@ function importError(error) {
   return String(error)
 }
 
-// The sources popover: installed browser profiles first (most-recent pinned), then file & paste.
-export function ImportMenu({ sources, lastSourceId, loading, busy, canPaste, onFile, onPaste, onSource, onClose }) {
-  useEscape(onClose)
-  return h('div', { className: 'bt-import-menu', role: 'menu', 'aria-label': t('Import cookies') },
-    h('div', { className: 'bt-import-menu-title' }, t('Import from browser')),
-    loading
-      ? h('div', { className: 'bt-import-menu-note' }, t('Loading…'))
-      : sources.length === 0
-        ? h('div', { className: 'bt-import-menu-note' }, t('No browsers found'))
-        : sources.map((source) => {
-          const isLast = source.id === lastSourceId
-          const needsPerm = Boolean(source.needsPermission)
-          const isReady = Boolean(source.liveDebugReady)
-          const hasCount = typeof source.cookieCount === 'number' && !needsPerm && !isReady
-          const showFallback = !isLast && !needsPerm && !isReady && !hasCount && !source.email
-          const hasMeta = isLast || needsPerm || isReady || hasCount || showFallback
-          return h('button', {
-            key: source.id, type: 'button', className: 'bt-import-item', role: 'menuitem', disabled: busy,
-            title: source.email ? `${source.label} (${source.email})` : source.label,
-            onClick: () => onSource(source),
-          },
-            h(WindowIcon, { className: 'bt-import-item-icon' }),
-            h('span', { className: 'bt-import-item-main' },
-              h('span', { className: 'bt-import-item-name' }, source.label),
-              source.email ? h('span', { className: 'bt-import-item-email' }, source.email) : null),
-            hasMeta ? h('span', { className: 'bt-import-item-meta' },
-              isLast ? h('span', { className: 'bt-import-item-tag' }, t('Last used')) : null,
-              needsPerm ? h('span', { className: 'bt-import-item-sub', 'data-warn': true }, t('Permission needed')) : null,
-              isReady ? h('span', { className: 'bt-import-item-sub', 'data-ready': true }, t('Ready')) : null,
-              hasCount ? h('span', { className: 'bt-import-item-sub' }, t('{count} cookies', { count: source.cookieCount })) : null,
-              showFallback ? h('span', { className: 'bt-import-item-sub' }, t('Browser profile')) : null) : null)
-        }),
-    h('div', { className: 'bt-import-sep', role: 'separator' }),
-    h('button', { type: 'button', className: 'bt-import-item', role: 'menuitem', disabled: busy, onClick: onFile },
-      h(FileIcon, { className: 'bt-import-item-icon' }),
-      h('span', { className: 'bt-import-item-name' }, t('From a file…')),
-      h('span', { className: 'bt-import-item-sub' }, t('cookies.txt, JSON, storageState'))),
-    canPaste ? h('button', { type: 'button', className: 'bt-import-item', role: 'menuitem', disabled: busy, onClick: onPaste },
-      h(PasteIcon, { className: 'bt-import-item-icon' }),
-      h('span', { className: 'bt-import-item-name' }, t('Paste cookies or cURL…')),
-      h('span', { className: 'bt-import-item-sub' }, t('JSON, cURL, header'))) : null)
+function sourceIconFor(source) {
+  const kind = String(source?.engine || source?.kind || '').toLowerCase()
+  if (kind === 'safari') return CompassIcon
+  if (kind === 'firefox' || kind === 'zen') return GlobeIcon
+  return WindowIcon
 }
 
-export function SafariPermissionCard({ flow, busy, imports, onOpenPermission, onPermissionGranted, onRetrySource, onCancel }) {
+function ImportHeader({ title, subtitle, onBack, onClose, busy }) {
+  return h('div', { className: 'bt-import-head' },
+    onBack ? h('button', {
+      type: 'button', className: 'bt-icon-btn bt-import-head-btn', 'aria-label': t('Back'), title: t('Back'),
+      disabled: busy, onClick: onBack,
+    }, h(ChevronLeftIcon)) : null,
+    h('div', { className: 'bt-import-head-text' },
+      h('div', { className: 'bt-import-title' }, title),
+      subtitle ? h('div', { className: 'bt-import-sub' }, subtitle) : null),
+    onClose ? h('button', {
+      type: 'button', className: 'bt-icon-btn bt-import-head-btn', 'aria-label': t('Close'), title: t('Close'),
+      onClick: onClose,
+    }, h(CloseIcon)) : null)
+}
+
+// The source picker: installed browser profiles first (most-recent pinned), then file & paste.
+export function ImportMenu({ sources, lastSourceId, loading, busy, canPaste, onFile, onPaste, onSource, onClose }) {
+  const menuRef = useRef(null)
+  useEscape(onClose)
+  useEffect(() => {
+    const onKey = (event) => { stepMenuFocus(menuRef.current, event) }
+    window.addEventListener('keydown', onKey)
+    return () => { window.removeEventListener('keydown', onKey) }
+  }, [])
+  return h('div', { ref: menuRef, className: 'bt-import-stage bt-import-menu', role: 'menu', 'aria-label': t('Import cookies') },
+    h(ImportHeader, { title: t('Import cookies'), onClose }),
+    h('div', { className: 'bt-import-section' },
+      h('div', { className: 'bt-import-label' }, t('Import from browser')),
+      loading
+        ? h('div', { className: 'bt-import-group bt-import-skel-group', 'aria-busy': true },
+          h('span', { className: 'bt-sr' }, t('Loading…')),
+          h('div', { className: 'bt-import-skel-row' },
+            h('span', { className: 'bt-import-skel-ico' }),
+            h('span', { className: 'bt-import-skel-lines' },
+              h('span', { className: 'bt-import-skel-bar bt-import-skel-w1' }),
+              h('span', { className: 'bt-import-skel-bar bt-import-skel-w2' }))),
+          h('div', { className: 'bt-import-skel-row' },
+            h('span', { className: 'bt-import-skel-ico' }),
+            h('span', { className: 'bt-import-skel-lines' },
+              h('span', { className: 'bt-import-skel-bar bt-import-skel-w3' }))))
+        : sources.length === 0
+          ? h('div', { className: 'bt-import-group' },
+            h('div', { className: 'bt-import-menu-note' }, t('No browsers found')))
+          : h('div', { className: 'bt-import-group' },
+            sources.map((source) => {
+              const isLast = source.id === lastSourceId
+              const needsPerm = Boolean(source.needsPermission)
+              const isReady = Boolean(source.liveDebugReady)
+              const hasCount = typeof source.cookieCount === 'number' && !needsPerm && !isReady
+              const showFallback = !isLast && !needsPerm && !isReady && !hasCount && !source.email
+              const subline = source.email || (showFallback ? t('Browser profile') : null)
+              const hasMeta = needsPerm || isReady || hasCount
+              const Icon = sourceIconFor(source)
+              return h('button', {
+                key: source.id, type: 'button', className: 'bt-import-item', role: 'menuitem', disabled: busy,
+                title: source.email ? `${source.label} (${source.email})` : source.label,
+                onClick: () => onSource(source),
+              },
+                h('span', { className: 'bt-import-tile-ico', 'aria-hidden': true }, h(Icon)),
+                h('span', { className: 'bt-import-item-main' },
+                  h('span', { className: 'bt-import-item-name' }, source.label),
+                  subline || isLast ? h('span', { className: 'bt-import-item-subrow' },
+                    isLast ? h('span', { className: 'bt-import-item-tag' }, t('Last used')) : null,
+                    subline ? h('span', { className: 'bt-import-item-email' }, subline) : null) : null),
+                hasMeta ? h('span', { className: 'bt-import-item-meta' },
+                  needsPerm ? h('span', { className: 'bt-import-item-sub', 'data-warn': true },
+                    h('span', { className: 'bt-import-dot', 'aria-hidden': true }),
+                    t('Permission needed')) : null,
+                  isReady ? h('span', { className: 'bt-import-item-sub', 'data-ready': true },
+                    h('span', { className: 'bt-import-dot', 'aria-hidden': true }),
+                    t('Ready')) : null,
+                  hasCount ? h('span', { className: 'bt-import-item-sub' }, t('{count} cookies', { count: source.cookieCount })) : null) : null,
+                h('span', { className: 'bt-import-chev', 'aria-hidden': true }, h(ChevronRightIcon)))
+            }))),
+    h('div', { className: 'bt-import-group' },
+      h('button', { type: 'button', className: 'bt-import-item bt-import-item-alt', role: 'menuitem', disabled: busy, onClick: onFile },
+        h('span', { className: 'bt-import-tile-ico', 'aria-hidden': true }, h(FileIcon)),
+        h('span', { className: 'bt-import-item-main' },
+          h('span', { className: 'bt-import-item-name' }, t('From a file…')),
+          h('span', { className: 'bt-import-item-email' }, t('cookies.txt, JSON, storageState'))),
+        h('span', { className: 'bt-import-chev', 'aria-hidden': true }, h(ChevronRightIcon))),
+      canPaste ? h('button', { type: 'button', className: 'bt-import-item bt-import-item-alt', role: 'menuitem', disabled: busy, onClick: onPaste },
+        h('span', { className: 'bt-import-tile-ico', 'aria-hidden': true }, h(PasteIcon)),
+        h('span', { className: 'bt-import-item-main' },
+          h('span', { className: 'bt-import-item-name' }, t('Paste cookies or cURL…')),
+          h('span', { className: 'bt-import-item-email' }, t('JSON, cURL, header'))),
+        h('span', { className: 'bt-import-chev', 'aria-hidden': true }, h(ChevronRightIcon))) : null))
+}
+
+export function SafariPermissionCard({ flow, busy, imports, onOpenPermission, onPermissionGranted, onRetrySource, onBack, onCancel }) {
   const { source } = flow
   const [granted, setGranted] = useState(false)
   const notifiedRef = useRef(false)
@@ -745,20 +810,22 @@ export function SafariPermissionCard({ flow, busy, imports, onOpenPermission, on
     return () => { active = false; clearTimeout(timer) }
   }, [imports, source.id])
 
-  return h('div', { className: 'bt-import-card' }, h('div', { className: 'bt-import-box' },
-    h('div', { className: 'bt-import-title' }, t('Allow Safari access')),
+  return h('div', { className: 'bt-import-stage' },
+    h(ImportHeader, { title: t('Allow Safari access'), onBack, onClose: onCancel, busy }),
     h('div', { className: 'bt-import-text' },
       t('macOS protects Safari cookies with Full Disk Access. Enable DS Bot once in System Settings to import from Safari.')),
     h('div', { className: 'bt-import-steps' },
       h('div', { className: 'bt-import-step' }, t('1. Open Full Disk Access in System Settings and turn on DS Bot.')),
       h('div', { className: 'bt-import-step' }, t('2. If macOS asks to quit and reopen DS Bot, click Quit & Reopen, then try again.'))),
-    granted ? h('div', { className: 'bt-import-ready-note' }, t('Full Disk Access granted — ready to import.')) : null,
+    granted ? h('div', { className: 'bt-import-ready-note' },
+      h(CheckIcon),
+      h('span', null, t('Full Disk Access granted — ready to import.'))) : null,
     h('div', { className: 'bt-import-actions' },
       h('button', { type: 'button', className: 'bt-import-plain', disabled: busy, onClick: onCancel }, t('Cancel')),
-      imports?.openPermission
+      granted && imports?.openPermission
         ? h('button', {
             type: 'button',
-            className: granted ? 'bt-import-plain' : 'bt-import-primary',
+            className: 'bt-import-plain',
             disabled: busy,
             onClick: onOpenPermission,
           }, t('Open System Settings'))
@@ -768,10 +835,18 @@ export function SafariPermissionCard({ flow, busy, imports, onOpenPermission, on
         className: granted || !imports?.openPermission ? 'bt-import-primary' : 'bt-import-plain',
         disabled: busy,
         onClick: onRetrySource,
-      }, busy ? t('Reading…') : granted ? t('Import') : t('Try again')))))
+      }, busy ? t('Reading…') : granted ? t('Import') : t('Try again')),
+      !granted && imports?.openPermission
+        ? h('button', {
+            type: 'button',
+            className: 'bt-import-primary',
+            disabled: busy,
+            onClick: onOpenPermission,
+          }, t('Open System Settings'))
+        : null))
 }
 
-export function RemoteDebugCard({ flow, busy, imports, onRetrySource, onLaunchSource, onFile, onCancel }) {
+export function RemoteDebugCard({ flow, busy, imports, onRetrySource, onLaunchSource, onFile, onBack, onCancel }) {
   const { source, info } = flow
   const inspectUrl = info?.inspectUrl || 'chrome://inspect/#remote-debugging'
   const browserName = info?.browserName || source.name
@@ -822,30 +897,34 @@ export function RemoteDebugCard({ flow, busy, imports, onRetrySource, onLaunchSo
     }, () => {})
   }
 
-  return h('div', { className: 'bt-import-card' }, h('div', { className: 'bt-import-box' },
-    h('div', { className: 'bt-import-title' }, t('Connect to {name}', { name: browserName })),
+  return h('div', { className: 'bt-import-stage' },
+    h(ImportHeader, { title: t('Connect to {name}', { name: browserName }), onBack, onClose: onCancel, busy }),
     h('div', { className: 'bt-import-text' },
       t('{name} protects its cookies on Windows. Enable its built-in remote debugging switch once — no extension needed.', { name: browserName })),
     h('div', { className: 'bt-import-steps' },
       h('div', { className: 'bt-import-step' }, t('1. Open this address in {name}:', { name: browserName })),
       h('div', { className: 'bt-import-copy-row' },
         h('code', { className: 'bt-import-code' }, inspectUrl),
-        h('button', { type: 'button', className: 'bt-import-mini', onClick: copyAddress }, copied ? t('Copied') : t('Copy'))),
+        h('button', { type: 'button', className: 'bt-import-mini', onClick: copyAddress },
+          h(copied ? CheckIcon : CopyIcon),
+          copied ? t('Copied') : t('Copy'))),
       h('div', { className: 'bt-import-step' }, t('2. Turn on “Allow remote debugging for this browser instance”, then click Allow when {name} prompts.', { name: browserName }))),
-    detected ? h('div', { className: 'bt-import-ready-note' }, t('Remote debugging detected — ready to import.')) : null,
+    detected ? h('div', { className: 'bt-import-ready-note' },
+      h(CheckIcon),
+      h('span', null, t('Remote debugging detected — ready to import.'))) : null,
     h('div', { className: 'bt-import-actions' },
       !info?.running && info?.hasExe
         ? h('button', { type: 'button', className: 'bt-import-plain', disabled: busy, onClick: onLaunchSource }, t('Open {name}', { name: browserName }))
         : h('button', { type: 'button', className: 'bt-import-plain', disabled: busy, onClick: onFile }, t('From a file…')),
       h('button', { type: 'button', className: 'bt-import-plain', disabled: busy, onClick: onCancel }, t('Cancel')),
-      h('button', { type: 'button', className: 'bt-import-primary', disabled: busy, onClick: onRetrySource }, busy ? t('Connecting…') : t('Connect and import')))))
+      h('button', { type: 'button', className: 'bt-import-primary', disabled: busy, onClick: onRetrySource }, busy ? t('Connecting…') : t('Connect and import'))))
 }
 
-function PasteCard({ flow, busy, onSubmitPaste, onCancel }) {
+function PasteCard({ flow, busy, onSubmitPaste, onBack, onCancel }) {
   const [text, setText] = useState('')
   const [siteUrl, setSiteUrl] = useState(flow.siteUrl || '')
-  return h('div', { className: 'bt-import-card' }, h('div', { className: 'bt-import-box' },
-    h('div', { className: 'bt-import-title' }, t('Paste cookies or cURL')),
+  return h('div', { className: 'bt-import-stage' },
+    h(ImportHeader, { title: t('Paste cookies or cURL'), onBack, onClose: onCancel, busy }),
     h('textarea', {
       className: 'bt-import-textarea',
       rows: 5,
@@ -867,7 +946,7 @@ function PasteCard({ flow, busy, onSubmitPaste, onCancel }) {
       h('button', {
         type: 'button', className: 'bt-import-primary', disabled: busy || !text.trim(),
         onClick: () => onSubmitPaste(text, siteUrl.trim()),
-      }, busy ? t('Reading…') : t('Continue')))))
+      }, busy ? t('Reading…') : t('Continue'))))
 }
 
 export function PreviewCard({ flow, page, busy, onApply, onCancel }) {
@@ -910,120 +989,164 @@ export function PreviewCard({ flow, page, busy, onApply, onCancel }) {
     onApply({ sites: chosen, persistSession: hasSession ? persistSession : false })
   }
 
-  return h('div', { className: 'bt-import-card' }, h('div', { className: 'bt-import-box' },
-    h('div', { className: 'bt-import-title' }, t('Import {count} cookies', { count: selectedCookies })),
-    h('div', { className: 'bt-import-sub' },
-      preview.source?.label ?? '',
-      flow.restarted ? ` · ${t('the browser was restarted')}` : '',
-      selectedStorage > 0 ? ` · ${t('{count} storage entries', { count: selectedStorage })}` : ''),
-    matchingCurrent.length > 0 && sites.length > 1 ? h('div', { className: 'bt-import-scope' },
+  const subtitle = [
+    preview.source?.label || null,
+    flow.restarted ? t('the browser was restarted') : null,
+    selectedStorage > 0 ? t('{count} storage entries', { count: selectedStorage }) : null,
+  ].filter(Boolean).join(' · ')
+  const scopeValue = allSelected ? 'all' : currentOnlySelected ? 'current' : 'custom'
+
+  return h('div', { className: 'bt-import-stage' },
+    h(ImportHeader, {
+      title: t('Import {count} cookies', { count: selectedCookies }),
+      subtitle,
+      onClose: onCancel,
+    }),
+    matchingCurrent.length > 0 && sites.length > 1 ? h(Segmented, {
+      label: t('Import cookies'),
+      value: scopeValue,
+      className: 'bt-import-scope',
+    },
       h('button', {
-        type: 'button', className: 'bt-import-pill', 'aria-pressed': allSelected,
+        type: 'button', 'aria-pressed': allSelected,
         onClick: selectAll,
       }, t('All sites ({count})', { count: sites.length })),
       h('button', {
-        type: 'button', className: 'bt-import-pill', 'aria-pressed': currentOnlySelected,
+        type: 'button', 'aria-pressed': currentOnlySelected,
         onClick: selectCurrent,
       }, t('This site ({host})', { host: currentHost }))) : null,
-    sites.length > 6 ? h('div', { className: 'bt-import-filter-row' },
+    sites.length > 6 ? h('div', { className: 'bt-import-search' },
+      h('span', { className: 'bt-import-search-ico', 'aria-hidden': true }, h(SearchIcon)),
       h('input', {
-        type: 'text', className: 'bt-import-input', spellCheck: false,
+        type: 'text', className: 'bt-import-search-in', spellCheck: false,
         placeholder: t('Filter sites…'),
         value: query,
         onChange: (event) => setQuery(event.target.value),
       }),
       h('button', {
-        type: 'button', className: 'bt-import-mini',
+        type: 'button', className: 'bt-import-search-btn',
         onClick: allSelected ? clearAll : selectAll,
       }, allSelected ? t('Clear') : t('All'))) : null,
     sites.length ? h('div', { className: 'bt-import-list' },
-      visibleSites.map((site) => h('label', { key: site.site, className: 'bt-import-line bt-import-check-row' },
-        h('input', {
-          type: 'checkbox',
-          checked: selected.has(site.site),
-          onChange: () => toggleSite(site.site),
-        }),
-        h('span', { className: 'bt-import-line-name' }, site.site),
-        h('span', { className: 'bt-import-line-count' },
-          t('{count}', { count: site.cookies }),
-          site.localStorage > 0 ? ` · ${t('storage')}` : site.session > 0 ? ` · ${t('{count} session', { count: site.session })}` : '')))) : null,
-    preview.skipped.length ? h('div', { className: 'bt-import-list' },
-      h('div', { className: 'bt-import-note' }, t('{count} skipped', { count: preview.skipped.length })),
-      preview.skipped.slice(0, 5).map((item, index) => h('div', { key: index, className: 'bt-import-line' },
-        h('span', { className: 'bt-import-line-name' }, item.name ?? item.where),
-        h('span', { className: 'bt-import-line-reason' }, item.reason))),
-      preview.skipped.length > 5 ? h('div', { className: 'bt-import-line' }, h('span', { className: 'bt-import-line-reason' }, t('and {count} more', { count: preview.skipped.length - 5 }))) : null) : null,
-    preview.warnings.length ? h('details', { className: 'bt-import-warns' },
-      h('summary', null, t('{count} adjusted', { count: preview.warnings.reduce((n, w) => n + w.count, 0) })),
-      preview.warnings.map((w, index) => h('div', { key: index, className: 'bt-import-line' },
-        h('span', { className: 'bt-import-line-reason' }, `${w.count} × ${w.message}`)))) : null,
-    hasSession ? h('label', { className: 'bt-import-toggle' },
-      h('input', { type: 'checkbox', checked: persistSession, onChange: (event) => setPersistSession(event.target.checked) }),
-      h('span', null, t('Keep session logins after app restart'))) : null,
-    preview.notes.includes('local-storage-left') ? h('div', { className: 'bt-import-note' }, t('Some sites also keep sign-in outside cookies; you may need to sign in again there.')) : null,
+      visibleSites.length === 0
+        ? h('div', { className: 'bt-import-list-empty' }, t('No results'))
+        : visibleSites.map((site) => {
+          const checked = selected.has(site.site)
+          return h('label', { key: site.site, className: 'bt-import-line bt-import-check-row', 'data-checked': checked || undefined },
+            h('input', {
+              type: 'checkbox',
+              className: 'bt-import-cb-input',
+              checked,
+              onChange: () => toggleSite(site.site),
+            }),
+            h('span', { className: 'bt-import-cb', 'aria-hidden': true }, checked ? h(CheckIcon) : null),
+            h('span', { className: 'bt-import-line-name' }, site.site),
+            h('span', { className: 'bt-import-line-count' },
+              t('{count}', { count: site.cookies }),
+              site.localStorage > 0 ? ` · ${t('storage')}` : site.session > 0 ? ` · ${t('{count} session', { count: site.session })}` : ''))
+        })) : null,
+    hasSession ? h('div', { className: 'bt-import-opt-row' },
+      h('span', { className: 'bt-import-opt-label' }, t('Keep session logins after app restart')),
+      h('button', {
+        type: 'button', role: 'switch', className: 'bt-switch',
+        'aria-checked': persistSession,
+        'aria-label': t('Keep session logins after app restart'),
+        onClick: () => setPersistSession((value) => !value),
+      }, h('span', { className: 'bt-switch-knob', 'aria-hidden': true }))) : null,
+    preview.skipped.length || preview.warnings.length ? h('div', { className: 'bt-import-meta-group' },
+      preview.skipped.length ? h('details', { className: 'bt-import-disclosure' },
+        h('summary', null,
+          h('span', { className: 'bt-import-disc-chev', 'aria-hidden': true }, h(ChevronRightIcon)),
+          h('span', null, t('{count} skipped', { count: preview.skipped.length }))),
+        h('div', { className: 'bt-import-disc-body' },
+          preview.skipped.slice(0, 5).map((item, index) => h('div', { key: index, className: 'bt-import-detail-line' },
+            h('span', { className: 'bt-import-detail-name' }, item.name ?? item.where),
+            h('span', { className: 'bt-import-line-reason' }, item.reason))),
+          preview.skipped.length > 5 ? h('div', { className: 'bt-import-detail-line' },
+            h('span', { className: 'bt-import-line-reason' }, t('and {count} more', { count: preview.skipped.length - 5 }))) : null)) : null,
+      preview.warnings.length ? h('details', { className: 'bt-import-disclosure' },
+        h('summary', null,
+          h('span', { className: 'bt-import-disc-chev', 'aria-hidden': true }, h(ChevronRightIcon)),
+          h('span', null, t('{count} adjusted', { count: preview.warnings.reduce((n, w) => n + w.count, 0) }))),
+        h('div', { className: 'bt-import-disc-body' },
+          preview.warnings.map((w, index) => h('div', { key: index, className: 'bt-import-detail-line' },
+            h('span', { className: 'bt-import-line-reason' }, `${w.count} × ${w.message}`))))) : null) : null,
+    preview.notes.includes('local-storage-left') ? h('div', { className: 'bt-import-callout' },
+      h(InfoIcon),
+      h('span', null, t('Some sites also keep sign-in outside cookies; you may need to sign in again there.'))) : null,
     h('div', { className: 'bt-import-actions' },
       h('button', { type: 'button', className: 'bt-import-plain', disabled: busy, onClick: onCancel }, t('Cancel')),
-      h('button', { type: 'button', className: 'bt-import-primary', disabled: busy || (selectedCookies === 0 && selectedStorage === 0), onClick: submit }, busy ? t('Importing…') : t('Import')))))
+      h('button', { type: 'button', className: 'bt-import-primary', disabled: busy || (selectedCookies === 0 && selectedStorage === 0), onClick: submit }, busy ? t('Importing…') : t('Import'))))
 }
 
 // The card that runs an import: connecting / safari-permission / remote-debug / running / paste → preview → result | error.
-function ImportCard({ flow, page, busy, imports, onApply, onCancel, onCloseAndImport, onRetrySource, onLaunchSource, onOpenPermission, onPermissionGranted, onFile, onSubmitPaste, onDone, onReload }) {
+function ImportCard({ flow, page, busy, imports, onApply, onCancel, onBack, onCloseAndImport, onRetrySource, onLaunchSource, onOpenPermission, onPermissionGranted, onFile, onSubmitPaste, onDone, onReload }) {
   const { stage } = flow
+  useEscape(() => { if (stage === 'result') onDone(); else onCancel() })
   if (stage === 'connecting') {
-    return h('div', { className: 'bt-import-card' }, h('div', { className: 'bt-import-box' },
+    return h('div', { className: 'bt-import-stage bt-import-status' },
+      h('div', { className: 'bt-import-status-badge bt-import-status-busy', 'aria-hidden': true },
+        h('span', { className: 'bt-import-spinner bt-loading-spin' })),
       h('div', { className: 'bt-import-title' }, t('Reading {name}…', { name: flow.source.name })),
       h('div', { className: 'bt-import-sub' }, flow.source.label),
       h('div', { className: 'bt-import-text' }, t('If {name} or your system asks for permission, click Allow.', { name: flow.source.name })),
       h('div', { className: 'bt-import-actions' },
-        h('button', { type: 'button', className: 'bt-import-plain', onClick: onCancel }, t('Cancel')))))
+        h('button', { type: 'button', className: 'bt-import-plain', onClick: onCancel }, t('Cancel'))))
   }
   if (stage === 'safari-permission') {
-    return h(SafariPermissionCard, { flow, busy, imports, onOpenPermission, onPermissionGranted, onRetrySource, onCancel })
+    return h(SafariPermissionCard, { flow, busy, imports, onOpenPermission, onPermissionGranted, onRetrySource, onBack, onCancel })
   }
   if (stage === 'remote-debug') {
-    return h(RemoteDebugCard, { flow, busy, imports, onRetrySource, onLaunchSource, onFile, onCancel })
+    return h(RemoteDebugCard, { flow, busy, imports, onRetrySource, onLaunchSource, onFile, onBack, onCancel })
   }
   if (stage === 'paste') {
-    return h(PasteCard, { flow, busy, onSubmitPaste, onCancel })
+    return h(PasteCard, { flow, busy, onSubmitPaste, onBack, onCancel })
   }
   if (stage === 'running') {
-    return h('div', { className: 'bt-import-card' }, h('div', { className: 'bt-import-box' },
-      h('div', { className: 'bt-import-title' }, t('{name} is running', { name: flow.source.name })),
+    return h('div', { className: 'bt-import-stage' },
+      h(ImportHeader, { title: t('{name} is running', { name: flow.source.name }), onBack, onClose: onCancel, busy }),
       h('div', { className: 'bt-import-text' }, t('It must close for a moment so its cookies can be copied. It will reopen with your tabs.')),
       h('div', { className: 'bt-import-actions' },
         h('button', { type: 'button', className: 'bt-import-plain', disabled: busy, onClick: onCancel }, t('Cancel')),
-        h('button', { type: 'button', className: 'bt-import-primary', disabled: busy, onClick: onCloseAndImport }, busy ? t('Closing…') : t('Close {name} and import', { name: flow.source.name })))))
+        h('button', { type: 'button', className: 'bt-import-primary', disabled: busy, onClick: onCloseAndImport }, busy ? t('Closing…') : t('Close {name} and import', { name: flow.source.name }))))
   }
   if (stage === 'error') {
-    return h('div', { className: 'bt-import-card' }, h('div', { className: 'bt-import-box' },
+    return h('div', { className: 'bt-import-stage bt-import-status' },
+      h('div', { className: 'bt-import-status-badge bt-import-status-err', 'aria-hidden': true }, h(CloseIcon)),
       h('div', { className: 'bt-import-title' }, t('Import failed')),
       h('div', { className: 'bt-import-text' }, flow.message),
-      h('div', { className: 'bt-import-actions' }, h('button', { type: 'button', className: 'bt-import-plain', onClick: onCancel }, t('Close')))))
+      h('div', { className: 'bt-import-actions' },
+        onBack ? h('button', { type: 'button', className: 'bt-import-plain', onClick: onBack }, t('Back')) : null,
+        h('button', { type: 'button', className: 'bt-import-primary', onClick: onCancel }, t('Close'))))
   }
   if (stage === 'result') {
     const { report } = flow
     const problems = [...(report.dropped ?? []), ...(report.failed ?? [])]
+    const ok = (report.stored ?? 0) > 0 || (report.originsStored ?? 0) > 0
     const title = report.stored > 0
       ? t('Imported {count} cookies', { count: report.stored })
       : (report.originsStored ?? 0) > 0
         ? t('Imported storage for {count} sites', { count: report.originsStored })
         : t('No cookies were stored')
-    return h('div', { className: 'bt-import-card' }, h('div', { className: 'bt-import-box' },
+    const subtitle = [
+      flow.label,
+      (report.originsStored ?? 0) > 0 ? t('{count} sites storage', { count: report.originsStored }) : null,
+      flow.reloaded ? t('page reloaded') : null,
+    ].filter(Boolean).join(' · ')
+    return h('div', { className: 'bt-import-stage bt-import-status' },
+      h('div', { className: `bt-import-status-badge ${ok ? 'bt-import-status-ok' : 'bt-import-status-muted'}`, 'aria-hidden': true },
+        h(ok ? CheckIcon : InfoIcon)),
       h('div', { className: 'bt-import-title' }, title),
-      h('div', { className: 'bt-import-sub' },
-        [
-          flow.label,
-          (report.originsStored ?? 0) > 0 ? t('{count} sites storage', { count: report.originsStored }) : null,
-          flow.reloaded ? t('page reloaded') : null,
-        ].filter(Boolean).join(' · ')),
-      problems.length ? h('div', { className: 'bt-import-list' },
-        problems.slice(0, 8).map((item, index) => h('div', { key: index, className: 'bt-import-line' },
-          h('span', { className: 'bt-import-line-name' }, item.name ?? '—'),
+      subtitle ? h('div', { className: 'bt-import-sub' }, subtitle) : null,
+      problems.length ? h('div', { className: 'bt-import-list bt-import-problems' },
+        problems.slice(0, 8).map((item, index) => h('div', { key: index, className: 'bt-import-detail-line' },
+          h('span', { className: 'bt-import-detail-name' }, item.name ?? '—'),
           h('span', { className: 'bt-import-line-reason' }, item.reason))),
-        problems.length > 8 ? h('div', { className: 'bt-import-line' }, h('span', { className: 'bt-import-line-reason' }, t('and {count} more', { count: problems.length - 8 }))) : null) : null,
+        problems.length > 8 ? h('div', { className: 'bt-import-detail-line' },
+          h('span', { className: 'bt-import-line-reason' }, t('and {count} more', { count: problems.length - 8 }))) : null) : null,
       h('div', { className: 'bt-import-actions' },
         page.url && !flow.reloaded ? h('button', { type: 'button', className: 'bt-import-plain', onClick: onReload }, t('Reload the page')) : null,
-        h('button', { type: 'button', className: 'bt-import-primary', onClick: onDone }, t('Done')))))
+        h('button', { type: 'button', className: 'bt-import-primary', onClick: onDone }, t('Done'))))
   }
   return h(PreviewCard, { key: flow.id, flow, page, busy, onApply, onCancel })
 }
@@ -1368,65 +1491,135 @@ export const BROWSER_CSS = `
 .bt-bcard-new svg{width:14px;height:14px}
 .bt-browser-empty-mark{display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center}
 /* Cookie imports */
-.bt-import-menu{position:absolute;top:6px;right:6px;z-index:6;width:312px;max-width:calc(100% - 12px);max-height:min(360px,calc(100% - 12px));overflow:auto;padding:6px;border-radius:16px;background:var(--bt-glass-bg);-webkit-backdrop-filter:blur(24px) saturate(180%);backdrop-filter:blur(24px) saturate(180%);border:.5px solid var(--bt-glass-rim);box-shadow:var(--bt-glass-shadow);transform-origin:top right;animation:bt-pop-drop .18s cubic-bezier(.16,1,.3,1),bt-fade .14s ease-out}
-.bt-import-menu-title{padding:6px 10px 8px;font-size:11px;font-weight:500;letter-spacing:.02em;color:var(--bt-ink-3)}
-.bt-import-sep{height:.5px;margin:4px 8px;background:var(--bt-line)}
-.bt-import-item{display:flex;align-items:center;gap:9px;width:100%;min-width:0;padding:8px 10px;border:0;border-radius:8px;background:none;color:var(--bt-ink);font:inherit;font-size:12px;text-align:left;cursor:pointer}
+.bt-import-btn[data-open]{background:var(--bt-active);color:var(--bt-ink)}
+.bt-import-card{position:absolute;inset:0;z-index:6;display:flex;flex-direction:column;padding:20px 16px;background:color-mix(in srgb,var(--bt-sidebar) 55%,var(--bt-main));overflow:auto;animation:bt-fade .14s ease-out}
+.bt-import-box{width:100%;max-width:392px;margin:auto;box-sizing:border-box;padding:18px;border:.5px solid var(--bt-line-2);border-radius:16px;background:var(--bt-card);box-shadow:var(--bt-glass-shadow);animation:bt-import-rise ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing};overflow:hidden}
+@keyframes bt-import-rise{from{translate:0 10px;scale:.97}}
+.bt-import-stage{display:flex;flex-direction:column;gap:12px;animation:bt-veil-in .18s ease-out}
+.bt-import-head{display:flex;align-items:flex-start;gap:8px;min-width:0}
+.bt-import-head-text{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;padding-top:2px}
+.bt-import-head-btn{flex:none;margin:-2px -4px 0 0}
+.bt-import-head-btn:first-child{margin:-2px 0 0 -6px}
+.bt-import-title{font-size:15px;line-height:20px;font-weight:600;letter-spacing:-.01em;color:var(--bt-ink);font-variant-numeric:tabular-nums}
+.bt-import-sub{font-size:12px;line-height:16px;color:var(--bt-ink-3);overflow-wrap:anywhere}
+.bt-import-text{font-size:13px;line-height:19px;color:var(--bt-ink-2);overflow-wrap:anywhere}
+.bt-import-section{display:flex;flex-direction:column;gap:6px}
+.bt-import-label{padding:0 2px;font-size:12px;line-height:16px;font-weight:500;color:var(--bt-ink-3)}
+.bt-import-group{display:flex;flex-direction:column;border-radius:12px;background:var(--bt-main);border:.5px solid var(--bt-line);overflow:hidden}
+.bt-import-item{position:relative;display:flex;align-items:center;gap:10px;width:100%;min-width:0;min-height:46px;padding:8px 10px;border:0;border-radius:0;background:transparent;color:var(--bt-ink);font:inherit;font-size:13px;line-height:18px;text-align:left;cursor:pointer;box-sizing:border-box;transition:background-color .12s ease}
+.bt-import-item+.bt-import-item::before{content:"";position:absolute;left:50px;right:10px;top:0;height:.5px;background:var(--bt-line);transition:opacity .12s ease;pointer-events:none}
+.bt-import-item:hover::before,.bt-import-item:hover+.bt-import-item::before{opacity:0}
 .bt-import-item:hover{background:var(--bt-hover)}
-.bt-import-item:disabled{opacity:.5;cursor:default}
-.bt-import-item-icon,.bt-import-item svg{flex:none;color:var(--bt-ink-3)}
-.bt-import-item-icon svg,.bt-import-item svg{width:15px;height:15px}
-.bt-import-item-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
-.bt-import-item-name{flex:none;max-width:62%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.bt-import-item-main .bt-import-item-name{max-width:none}
-.bt-import-item-email{font-size:11px;line-height:15px;color:var(--bt-ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-import-item:active:not(:disabled){background:var(--bt-active)}
+.bt-import-item:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px;border-radius:8px}
+.bt-import-item:disabled{opacity:.45;cursor:default}
+.bt-import-tile-ico{flex:none;width:30px;height:30px;border-radius:8px;background:var(--bt-hover);border:.5px solid var(--bt-line);color:var(--bt-ink-2);display:inline-flex;align-items:center;justify-content:center;transition:color .12s ease,background-color .12s ease}
+.bt-import-tile-ico svg{width:15px;height:15px}
+.bt-import-item:hover .bt-import-tile-ico{color:var(--bt-ink)}
+.bt-import-item-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.bt-import-item-subrow{display:flex;align-items:center;gap:6px;min-width:0}
+.bt-import-item-name{min-width:0;font-size:13px;line-height:18px;font-weight:500;color:var(--bt-ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-import-item-email{min-width:0;font-size:11px;line-height:15px;color:var(--bt-ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-import-item-meta{flex:none;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
-.bt-import-item-tag{font-size:11px;line-height:15px;padding:1px 6px;border-radius:4px;background:var(--bt-tag-bg);color:var(--bt-tag-ink)}
-.bt-import-item-sub{flex:1;min-width:0;text-align:right;font-size:11px;color:var(--bt-ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.bt-import-item-meta .bt-import-item-sub{flex:none}
+.bt-import-item-tag{flex:none;font-size:10px;line-height:15px;font-weight:500;padding:0 5px;border-radius:4px;background:var(--bt-tag-bg);color:var(--bt-tag-ink)}
+.bt-import-item-sub{display:inline-flex;align-items:center;gap:5px;font-size:12px;line-height:16px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums;white-space:nowrap}
 .bt-import-item-sub[data-ready]{color:var(--bt-green);font-weight:500}
 .bt-import-item-sub[data-warn]{color:var(--bt-warn);font-weight:500}
-.bt-import-menu-note{padding:8px 10px 10px;font-size:12px;color:var(--bt-ink-3)}
-.bt-import-card{position:absolute;inset:0;z-index:5;display:flex;align-items:center;justify-content:center;padding:20px;background:var(--bt-main);overflow:auto;animation:bt-foot-in .2s ease}
-.bt-import-box{width:100%;max-width:380px;max-height:100%;display:flex;flex-direction:column;gap:10px;padding:20px;border:.5px solid var(--bt-line-2);border-radius:16px;background:var(--bt-main);box-shadow:0 12px 36px -12px rgba(0,0,0,.14);overflow:auto}
-.bt-import-title{font-size:15px;line-height:21px;font-weight:600}
-.bt-import-sub{font-size:12px;line-height:17px;color:var(--bt-ink-3);margin-top:-6px}
-.bt-import-text{font-size:13px;line-height:19px;color:var(--bt-ink-2);overflow-wrap:anywhere}
-.bt-import-steps{display:flex;flex-direction:column;gap:8px;padding:10px 12px;border-radius:10px;background:var(--bt-hover)}
-.bt-import-step{font-size:12px;line-height:17px;color:var(--bt-ink-2)}
-.bt-import-copy-row{display:flex;align-items:center;gap:6px;min-width:0}
-.bt-import-code{flex:1;min-width:0;padding:5px 8px;border-radius:6px;border:.5px solid var(--bt-line);background:var(--bt-main);color:var(--bt-ink);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;user-select:all}
-.bt-import-mini{flex:none;height:28px;padding:0 10px;border:.5px solid var(--bt-line-2);border-radius:8px;background:var(--bt-main);color:var(--bt-ink);font:inherit;font-size:12px;cursor:pointer}
-.bt-import-mini:hover{background:var(--bt-hover)}
-.bt-import-ready-note{font-size:12px;line-height:17px;font-weight:500;color:var(--bt-green)}
-.bt-import-textarea{width:100%;box-sizing:border-box;min-height:96px;max-height:200px;resize:vertical;padding:8px 10px;border:.5px solid var(--bt-line-2);border-radius:10px;background:var(--bt-main);color:var(--bt-ink);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:16px;outline:none}
-.bt-import-input{width:100%;box-sizing:border-box;height:30px;padding:0 10px;border:.5px solid var(--bt-line-2);border-radius:8px;background:var(--bt-main);color:var(--bt-ink);font:inherit;font-size:12px;outline:none}
-.bt-import-textarea:focus,.bt-import-input:focus{border-color:var(--bt-accent)}
-.bt-import-input::placeholder,.bt-import-textarea::placeholder{color:var(--bt-ink-3)}
-.bt-import-scope{display:flex;gap:6px;flex-wrap:wrap}
-.bt-import-pill{height:26px;max-width:100%;padding:0 10px;border:.5px solid var(--bt-line-2);border-radius:999px;background:var(--bt-main);color:var(--bt-ink-2);font:inherit;font-size:12px;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.bt-import-pill:hover{background:var(--bt-hover);color:var(--bt-ink)}
-.bt-import-pill[aria-pressed=true]{border-color:var(--bt-accent);background:var(--bt-accent-soft);color:var(--bt-ink);font-weight:500}
-.bt-import-filter-row{display:flex;align-items:center;gap:6px}
-.bt-import-filter-row .bt-import-input{flex:1;min-width:0;height:28px}
-.bt-import-list{max-height:180px;overflow:auto;border:.5px solid var(--bt-line);border-radius:10px;padding:4px 10px}
-.bt-import-line{display:flex;align-items:baseline;gap:8px;padding:4px 0;min-width:0}
-.bt-import-check-row{align-items:center;cursor:pointer}
-.bt-import-check-row input[type=checkbox]{flex:none;margin:0;accent-color:var(--bt-accent);cursor:pointer}
-.bt-import-line-name{flex:none;max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--bt-ink)}
-.bt-import-line-count{flex:1;min-width:0;text-align:right;font-size:11px;color:var(--bt-ink-3);white-space:nowrap}
+.bt-import-dot{flex:none;width:6px;height:6px;border-radius:50%;corner-shape:round;background:currentColor}
+.bt-import-chev{flex:none;display:inline-flex;color:var(--bt-ink-3);transition:transform .12s ease,color .12s ease}
+.bt-import-chev svg{width:14px;height:14px}
+.bt-import-item:hover .bt-import-chev{color:var(--bt-ink-2);transform:translateX(2px)}
+.bt-import-menu-note{padding:14px 12px;font-size:12px;line-height:16px;color:var(--bt-ink-3);text-align:center}
+.bt-import-skel-row{display:flex;align-items:center;gap:10px;padding:10px}
+.bt-import-skel-row+.bt-import-skel-row{border-top:.5px solid var(--bt-line)}
+.bt-import-skel-ico{flex:none;width:30px;height:30px;border-radius:8px;background:var(--bt-hover);animation:bt-import-pulse 1.4s ease-in-out infinite}
+.bt-import-skel-lines{flex:1;display:flex;flex-direction:column;gap:6px}
+.bt-import-skel-bar{height:10px;border-radius:4px;background:var(--bt-hover);animation:bt-import-pulse 1.4s ease-in-out infinite}
+.bt-import-skel-w1{width:54%}
+.bt-import-skel-w2{width:34%;height:8px}
+.bt-import-skel-w3{width:46%}
+@keyframes bt-import-pulse{0%,100%{opacity:.45}50%{opacity:.9}}
+.bt-import-steps{display:flex;flex-direction:column;gap:10px;padding:12px 14px;border-radius:12px;background:var(--bt-main);border:.5px solid var(--bt-line)}
+.bt-import-step{font-size:12px;line-height:18px;color:var(--bt-ink-2)}
+.bt-import-copy-row{display:flex;align-items:center;gap:6px;padding:4px 4px 4px 10px;border-radius:8px;background:var(--bt-hover);border:.5px solid var(--bt-line);min-width:0}
+.bt-import-code{flex:1;min-width:0;color:var(--bt-ink);font-family:var(--bt-mono);font-size:11px;line-height:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;user-select:all}
+.bt-import-mini{flex:none;display:inline-flex;align-items:center;gap:4px;height:26px;padding:0 10px;border:.5px solid var(--bt-line);border-radius:6px;background:var(--bt-card);color:var(--bt-ink);font:inherit;font-size:12px;font-weight:500;cursor:pointer;transition:background-color .12s ease,border-color .12s ease,${spring(SPRING_TAP, 'scale')}}
+.bt-import-mini svg{width:13px;height:13px;color:var(--bt-ink-2)}
+.bt-import-mini:hover{background:var(--bt-main);border-color:var(--bt-line-2)}
+.bt-import-mini:active{scale:.96}
+.bt-import-mini:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
+.bt-import-ready-note{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;background:color-mix(in srgb,var(--bt-green) 12%,transparent);font-size:12px;line-height:16px;font-weight:500;color:var(--bt-green)}
+.bt-import-ready-note svg{flex:none;width:15px;height:15px}
+.bt-import-textarea{width:100%;box-sizing:border-box;min-height:108px;max-height:200px;resize:vertical;padding:10px 12px;border:.5px solid var(--bt-line-2);border-radius:12px;background:var(--bt-main);color:var(--bt-ink);font-family:var(--bt-mono);font-size:12px;line-height:18px;outline:none;transition:border-color .12s ease,box-shadow .12s ease}
+.bt-import-input{width:100%;box-sizing:border-box;height:34px;padding:0 12px;border:.5px solid var(--bt-line-2);border-radius:8px;background:var(--bt-main);color:var(--bt-ink);font:inherit;font-size:13px;outline:none;transition:border-color .12s ease,box-shadow .12s ease}
+.bt-import-textarea:focus,.bt-import-input:focus{border-color:var(--bt-accent);box-shadow:0 0 0 3px var(--bt-accent-soft)}
+.bt-import-input::placeholder,.bt-import-textarea::placeholder,.bt-import-search-in::placeholder{color:var(--bt-ink-3)}
+.bt-import-scope{width:100%;box-sizing:border-box;background:var(--bt-main);border:.5px solid var(--bt-line);padding:3px}
+.bt-import-scope button{min-width:0;height:28px;padding:0 10px;font-size:12px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-import-scope button[aria-pressed=true]{background:var(--bt-nav-thumb-bg);box-shadow:var(--bt-nav-thumb-shadow)}
+.bt-import-scope>.bt-thumb{top:3px;bottom:3px;background:var(--bt-nav-thumb-bg);box-shadow:var(--bt-nav-thumb-shadow)}
+.bt-import-scope[data-glide] button[aria-pressed=true]{background:transparent;box-shadow:none}
+.bt-import-scope>.bt-thumb[data-hidden]{opacity:0}
+.bt-import-search{display:flex;align-items:center;gap:6px;height:34px;padding:0 4px 0 10px;border-radius:8px;background:var(--bt-main);border:.5px solid var(--bt-line);transition:border-color .12s ease,box-shadow .12s ease}
+.bt-import-search:focus-within{border-color:var(--bt-accent);box-shadow:0 0 0 3px var(--bt-accent-soft)}
+.bt-import-search-ico{flex:none;display:inline-flex;color:var(--bt-ink-3)}
+.bt-import-search-ico svg{width:14px;height:14px}
+.bt-import-search-in{flex:1;min-width:0;border:0;background:none;outline:none;color:var(--bt-ink);font:inherit;font-size:12px;line-height:18px;padding:0}
+.bt-import-search-btn{flex:none;height:26px;padding:0 8px;border:0;border-radius:6px;background:transparent;color:var(--bt-ink-2);font:inherit;font-size:12px;font-weight:500;cursor:pointer;transition:background-color .12s ease,color .12s ease}
+.bt-import-search-btn:hover{background:var(--bt-hover);color:var(--bt-ink)}
+.bt-import-search-btn:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
+.bt-import-list{max-height:208px;overflow:auto;border:.5px solid var(--bt-line);border-radius:12px;background:var(--bt-main);padding:4px}
+.bt-import-list-empty{padding:18px 12px;font-size:12px;line-height:16px;color:var(--bt-ink-3);text-align:center}
+.bt-import-line{position:relative;display:flex;align-items:center;gap:10px;min-height:34px;padding:6px 8px;border-radius:8px;min-width:0;box-sizing:border-box;transition:background-color .12s ease}
+.bt-import-check-row{cursor:pointer;user-select:none}
+.bt-import-check-row:hover{background:var(--bt-hover)}
+.bt-import-cb-input{position:absolute;opacity:0;width:1px;height:1px;margin:0;pointer-events:none}
+.bt-import-cb{flex:none;width:16px;height:16px;border-radius:4px;border:1.5px solid var(--bt-line-2);background:var(--bt-card);color:var(--bt-accent-ink);display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;transition:background-color .12s ease,border-color .12s ease}
+.bt-import-cb svg{width:11px;height:11px;stroke-width:2.2;animation:bt-import-pop ${SPRING_POP.duration}ms ${SPRING_POP.easing}}
+@keyframes bt-import-pop{from{scale:.5;opacity:0}}
+.bt-import-check-row[data-checked] .bt-import-cb{border-color:var(--bt-accent);background:var(--bt-accent)}
+.bt-import-check-row:has(.bt-import-cb-input:focus-visible) .bt-import-cb{outline:2px solid var(--bt-accent);outline-offset:2px}
+.bt-import-line-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;line-height:18px;color:var(--bt-ink-3);transition:color .12s ease}
+.bt-import-check-row[data-checked] .bt-import-line-name{color:var(--bt-ink)}
+.bt-import-line-count{flex:none;text-align:right;font-size:12px;line-height:16px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums;white-space:nowrap}
 .bt-import-line-reason{flex:1;min-width:0;font-size:11px;line-height:16px;color:var(--bt-ink-3);overflow-wrap:anywhere}
-.bt-import-toggle{display:flex;align-items:center;gap:8px;font-size:12px;line-height:17px;color:var(--bt-ink-2);cursor:pointer;user-select:none}
-.bt-import-toggle input[type=checkbox]{flex:none;margin:0;accent-color:var(--bt-accent);cursor:pointer}
-.bt-import-note{font-size:12px;line-height:17px;color:var(--bt-ink-3)}
-.bt-import-warns{font-size:12px;color:var(--bt-ink-3)}
-.bt-import-warns summary{cursor:pointer;padding:2px 0}
+.bt-import-opt-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 12px;border-radius:12px;background:var(--bt-main);border:.5px solid var(--bt-line)}
+.bt-import-opt-label{font-size:12px;line-height:16px;color:var(--bt-ink-2)}
+.bt-import-meta-group{display:flex;flex-direction:column;gap:2px}
+.bt-import-disclosure{border-radius:8px;font-size:12px;color:var(--bt-ink-3)}
+.bt-import-disclosure summary{display:flex;align-items:center;gap:4px;padding:3px 2px;list-style:none;cursor:pointer;color:var(--bt-ink-3);user-select:none;transition:color .12s ease}
+.bt-import-disclosure summary::-webkit-details-marker{display:none}
+.bt-import-disclosure summary:hover{color:var(--bt-ink-2)}
+.bt-import-disc-chev{display:inline-flex;color:var(--bt-ink-3);transition:transform .16s ease}
+.bt-import-disc-chev svg{width:13px;height:13px}
+.bt-import-disclosure[open] .bt-import-disc-chev{transform:rotate(90deg)}
+.bt-import-disc-body{display:flex;flex-direction:column;gap:2px;margin-top:4px;padding:6px 10px;border-radius:8px;background:var(--bt-main);border:.5px solid var(--bt-line);max-height:112px;overflow:auto}
+.bt-import-detail-line{display:flex;align-items:baseline;gap:8px;padding:2px 0;min-width:0}
+.bt-import-detail-name{flex:none;max-width:52%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;line-height:16px;color:var(--bt-ink-2)}
+.bt-import-callout{display:flex;align-items:flex-start;gap:6px;padding:0 2px;font-size:11px;line-height:16px;color:var(--bt-ink-3)}
+.bt-import-callout svg{flex:none;width:13px;height:13px;margin-top:1px;color:var(--bt-ink-3)}
+.bt-import-status{align-items:center;text-align:center;padding-top:6px}
+.bt-import-status .bt-import-actions{width:100%;justify-content:center;margin-top:6px}
+.bt-import-status-badge{width:38px;height:38px;border-radius:50%;corner-shape:round;display:inline-flex;align-items:center;justify-content:center;margin-bottom:2px;animation:bt-import-pop ${SPRING_POP.duration}ms ${SPRING_POP.easing}}
+.bt-import-status-badge svg{width:18px;height:18px}
+.bt-import-status-ok{background:color-mix(in srgb,var(--bt-green) 14%,transparent);color:var(--bt-green)}
+.bt-import-status-err{background:var(--bt-danger-soft);color:var(--bt-danger)}
+.bt-import-status-muted,.bt-import-status-busy{background:var(--bt-hover);color:var(--bt-ink-2)}
+.bt-import-spinner{width:18px;height:18px;border-radius:50%;corner-shape:round;border:2px solid var(--bt-line-2);border-top-color:var(--bt-accent);box-sizing:border-box;animation:bt-import-spin .75s linear infinite}
+@keyframes bt-import-spin{to{transform:rotate(360deg)}}
+.bt-import-problems{width:100%;box-sizing:border-box;padding:8px 10px;text-align:left}
 .bt-import-actions{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;margin-top:4px}
-.bt-import-primary{height:32px;padding:0 16px;border:0;border-radius:999px;background:var(--bt-accent);color:var(--bt-accent-ink);font:inherit;font-size:13px;cursor:pointer}
-.bt-import-primary:disabled{opacity:.55;cursor:default}
-.bt-import-plain{height:32px;padding:0 14px;border:.5px solid var(--bt-line-2);border-radius:999px;background:var(--bt-main);color:var(--bt-ink);font:inherit;font-size:13px;cursor:pointer}
-.bt-import-plain:hover{background:var(--bt-hover)}
-.bt-import-plain:disabled{opacity:.55;cursor:default}
+.bt-import-primary{height:34px;padding:0 16px;border:0;border-radius:999px;background:var(--bt-accent);color:var(--bt-accent-ink);font:inherit;font-size:13px;font-weight:500;cursor:pointer;transition:opacity .12s ease,filter .12s ease,${spring(SPRING_TAP, 'scale')}}
+.bt-import-primary:hover:not(:disabled){filter:brightness(1.06)}
+.bt-import-primary:active:not(:disabled){scale:.96}
+.bt-import-primary:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
+.bt-import-primary:disabled{opacity:.4;cursor:default}
+.bt-import-plain{height:34px;padding:0 14px;border:0;border-radius:999px;background:var(--bt-hover);color:var(--bt-ink);font:inherit;font-size:13px;font-weight:500;cursor:pointer;transition:background-color .12s ease,opacity .12s ease,${spring(SPRING_TAP, 'scale')}}
+.bt-import-plain:hover:not(:disabled){background:var(--bt-active)}
+.bt-import-plain:active:not(:disabled){scale:.96}
+.bt-import-plain:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
+.bt-import-plain:disabled{opacity:.4;cursor:default}
+@media (prefers-reduced-motion:reduce){.bt-import-card,.bt-import-box,.bt-import-stage,.bt-import-cb svg,.bt-import-status-badge,.bt-import-skel-ico,.bt-import-skel-bar{animation:none!important}.bt-import-mini,.bt-import-primary,.bt-import-plain,.bt-import-chev,.bt-import-disc-chev{transition:none!important}}
 /* A viewport too narrow to leave the conversation its room: the panel covers it,
    and its close controls get a touch-sized target. */
 .bt-panel[data-overlay]{width:100vw}

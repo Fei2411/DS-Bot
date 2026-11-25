@@ -551,3 +551,75 @@ test('BrowserView enters safari-permission, clears stale rows while refreshing m
   assert.match(errCard.props.flow.message, /cookie database is busy/i)
   inst.unmount()
 })
+
+test('PreviewCard toggles session persistence via DS Bot switch and passes persistSession to onApply', () => {
+  const h = createHarness()
+  const { PreviewCard } = h.exports
+  const applied = []
+  const inst = h.mount(PreviewCard, {
+    flow: {
+      id: 'p2',
+      preview: {
+        source: { label: 'Chrome — Personal' },
+        notes: ['session-cookies'],
+        warnings: [],
+        skipped: [],
+        sites: [{ site: 'github.com', cookies: 5, session: 2, localStorage: 0 }],
+      },
+    },
+    page: { url: 'https://github.com/Fei-Craft/DS-Bot' },
+    busy: false,
+    onApply: (opts) => applied.push(opts),
+    onCancel() {},
+  })
+  let tree = inst.render()
+  const sw = allNodes(tree, (n) => n.type === 'button' && n.props?.role === 'switch')[0]
+  assert.ok(sw, 'expected a role=switch toggle for session persistence')
+  assert.equal(sw.props['aria-checked'], true)
+  sw.props.onClick()
+  tree = inst.render()
+  const swAfter = allNodes(tree, (n) => n.type === 'button' && n.props?.role === 'switch')[0]
+  assert.equal(swAfter.props['aria-checked'], false)
+
+  const submitBtn = allNodes(tree, (n) => n.type === 'button' && n.props?.className === 'bt-import-primary')[0]
+  submitBtn.props.onClick()
+  assert.equal(applied.length, 1)
+  assert.equal(applied[0].sites, undefined)
+  assert.equal(applied[0].persistSession, false)
+  inst.unmount()
+})
+
+test('SafariPermissionCard keeps the primary CTA rightmost before and after permission grant', async () => {
+  const h = createHarness()
+  const { SafariPermissionCard } = h.exports
+  let resolveProbe = null
+  const imports = {
+    probe: () => new Promise((resolve) => { resolveProbe = resolve }),
+    openPermission: async () => ({ opened: true }),
+  }
+  const inst = h.mount(SafariPermissionCard, {
+    flow: { source: { id: 'safari:permission', name: 'Safari', label: 'Safari' }, info: {} },
+    busy: false,
+    imports,
+    onOpenPermission() {},
+    onRetrySource() {},
+    onCancel() {},
+  })
+  let tree = inst.render()
+  const actionsBefore = allNodes(tree, (n) => n.type === 'div' && n.props?.className === 'bt-import-actions')[0]
+  const btnsBefore = allNodes(actionsBefore, (n) => n.type === 'button')
+  assert.equal(btnsBefore.at(-1)?.props?.className, 'bt-import-primary')
+  assert.equal(textOf(btnsBefore.at(-1)), 'Open System Settings')
+
+  const [id, timer] = [...h.timers.entries()][0]
+  h.timers.delete(id)
+  timer.fn()
+  resolveProbe({ permissionGranted: true })
+  await new Promise((r) => setTimeout(r, 0))
+  tree = inst.render()
+  const actionsAfter = allNodes(tree, (n) => n.type === 'div' && n.props?.className === 'bt-import-actions')[0]
+  const btnsAfter = allNodes(actionsAfter, (n) => n.type === 'button')
+  assert.equal(btnsAfter.at(-1)?.props?.className, 'bt-import-primary')
+  assert.equal(textOf(btnsAfter.at(-1)), 'Import')
+  inst.unmount()
+})
