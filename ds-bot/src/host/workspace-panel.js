@@ -14,6 +14,7 @@ import { StringDecoder } from 'node:string_decoder'
 import { within } from './folders.js'
 
 const MAX_LIST_ENTRIES = 500
+const PARALLEL_LIST_INSPECTS = 8
 const MAX_TEXT_BYTES = 512 * 1024
 const MAX_BINARY_BYTES = 16 * 1024 * 1024
 const MAX_OFFICE_INPUT_BYTES = 32 * 1024 * 1024
@@ -262,6 +263,37 @@ export function install(rt) {
     return realTarget
   }
 
+  // One listing row for a folder entry, or undefined when the entry is gone, escapes the
+  // workspace, is protected data, is neither a file nor a folder, or is a folder symlink.
+  const listEntry = async (realRoot, dirPath, entry) => {
+    const full = join(dirPath, entry.name)
+    let realEntry
+    try {
+      realEntry = await realpath(full)
+    } catch {
+      return undefined
+    }
+    if (!withinRoot(realEntry, realRoot) || await isProtectedData(realEntry)) return undefined
+    let info
+    try {
+      info = await stat(realEntry)
+    } catch {
+      return undefined
+    }
+    const kind = info.isDirectory() ? 'dir' : info.isFile() ? 'file' : null
+    if (kind === null) return undefined
+    // Skip directory symlinks to prevent cyclic trees and duplicate branch identities.
+    if (entry.isSymbolicLink() && kind === 'dir') return undefined
+    return {
+      name: entry.name,
+      path: toPosixRel(realRoot, full),
+      kind,
+      size: kind === 'file' ? info.size : 0,
+      mtimeMs: Math.round(info.mtimeMs),
+      ext: kind === 'file' ? extname(entry.name).toLowerCase() : '',
+    }
+  }
+
   async function workspaceEndpoint(name, body = {}, signal) {
     if (name === 'changes') return changesDetail(body, signal)
     const sessionId = typeof body.sessionId === 'string' ? body.sessionId : ''
@@ -289,37 +321,21 @@ export function install(rt) {
       if (!dirInfo.isDirectory()) throw invalid('Path is not a folder')
       const includeHidden = body.includeHidden === true
       const rawEntries = await readdir(dirPath, { withFileTypes: true })
-      const items = []
-      let truncated = false
-      for (const entry of rawEntries) {
-        if (!includeHidden && (entry.name.startsWith('.') || DEFAULT_IGNORED_NAMES.has(entry.name))) continue
-        const full = join(dirPath, entry.name)
-        let realEntry
-        try {
-          realEntry = await realpath(full)
-        } catch {
-          continue
+      const visible = includeHidden
+        ? rawEntries
+        : rawEntries.filter(entry => !entry.name.startsWith('.') && !DEFAULT_IGNORED_NAMES.has(entry.name))
+      // Inspected in parallel but kept in readdir order, so the stable sort breaks name ties as before.
+      const inspected = Array.from({ length: visible.length })
+      let next = 0
+      const inspector = async () => {
+        while (next < visible.length) {
+          const at = next++
+          inspected[at] = await listEntry(realRoot, dirPath, visible[at])
         }
-        if (!withinRoot(realEntry, realRoot) || await isProtectedData(realEntry)) continue
-        let info
-        try {
-          info = await stat(realEntry)
-        } catch {
-          continue
-        }
-        const kind = info.isDirectory() ? 'dir' : info.isFile() ? 'file' : null
-        if (kind === null) continue
-        // Skip directory symlinks to prevent cyclic trees and duplicate branch identities.
-        if (entry.isSymbolicLink() && kind === 'dir') continue
-        items.push({
-          name: entry.name,
-          path: toPosixRel(realRoot, full),
-          kind,
-          size: kind === 'file' ? info.size : 0,
-          mtimeMs: Math.round(info.mtimeMs),
-          ext: kind === 'file' ? extname(entry.name).toLowerCase() : '',
-        })
       }
+      await Promise.all(Array.from({ length: Math.min(PARALLEL_LIST_INSPECTS, visible.length) }, inspector))
+      const items = inspected.filter(item => item !== undefined)
+      let truncated = false
       items.sort((a, b) => {
         if (a.kind !== b.kind) return a.kind === 'dir' ? -1 : 1
         return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
