@@ -282,12 +282,20 @@ export function install(rt) {
         && !(message.role === 'assistant' && textOf(message.content).trim() === HANDOFF_ACK))
       const hasShrinkableWork = work.some(message => message.role === 'assistant' || message.role === 'tool')
         || work.filter(message => message.role === 'user').length > 1
-      // Allow a one-shot shrink when an oversized prior handoff (e.g. from a larger-window
-      // model) is what broke a short first request, while never clipping an oversized first
-      // user message or looping once the handoff is already compact.
+      // Allow a one-shot shrink only when a separate short text-only first request is
+      // preserved verbatim inside the smaller replacement package (never dropping a
+      // pending resume handoff with no separate request, never dropping images, and
+      // never clipping an oversized first user message).
       const oldHandoffSize = lastHandoffIdx === -1 ? 0 : size(messages[lastHandoffIdx])
-      const singleWorkClipped = !hasShrinkableWork && work.length === 1 && textOf(work[0].content).length > RECENT_LINE_MAX
-      const handoffShrinks = lastHandoffIdx !== -1 && !singleWorkClipped && replacement < oldHandoffSize
+      const onlyWork = work.length === 1 && work[0].role === 'user' ? work[0] : undefined
+      const onlyText = onlyWork === undefined ? '' : textOf(onlyWork.content).trim()
+      const hasNonTextBlock = Array.isArray(onlyWork?.content) && onlyWork.content.some(block => block?.type !== 'text')
+      const handoffShrinks = lastHandoffIdx !== -1
+        && onlyWork !== undefined
+        && !hasNonTextBlock
+        && onlyText !== ''
+        && text.includes(onlyText)
+        && replacement < oldHandoffSize
       if (!hasShrinkableWork && !handoffShrinks) return false
       const used = rt.localAgentContext?.(session.id)?.used
       if (used !== undefined) return replacement < used && (lines === undefined || replacement <= lines.usable)

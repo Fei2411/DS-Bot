@@ -633,17 +633,47 @@ test('L6: unrecoverable overflow marks CONTEXT_WINDOW_EXCEEDED and recoverOverfl
   assert.equal(postHandoffHuge.bot.sessionId, 's1')
   assert.equal(postHandoffHuge.rt.liveOf('s1').overflowFailure, true)
 
-  // - oversized incoming handoff + short first request CAN shrink (replacement < old handoff) -> auto-switches to s2.
+  // - oversized incoming handoff + short first request CAN shrink (replacement < old handoff
+  //   and verbatim text preserved in handoff) -> auto-switches to s2.
   const oversizedHandoff = user('h-big', `[Handoff · part 2]\n${'Prior transcript context. '.repeat(2000)}`, { kind: 'bot', role: 'handoff', handoff: true })
   const bigHandoffShortReq = makePartsHarness({
     local: true,
     context: { used: 195_000, size: 200_000, compactions: 0 },
     messages: [oversizedHandoff, user('u-short', 'Summarize the decision.')],
   })
+  bigHandoffShortReq.rt.eventsBackwards = async function* () {
+    yield { type: 'user/message', seq: 2, time: 2, data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'Summarize the decision.' }] } }
+  }
   const shrinkOut = await dispatchRequestError(bigHandoffShortReq, { code: 'CONTEXT_WINDOW_EXCEEDED', message: 'Prompt is too long' })
   assert.equal(shrinkOut, undefined)
   await bigHandoffShortReq.settle()
   assert.equal(bigHandoffShortReq.bot.sessionId, 's2')
+
+  // - oversized incoming handoff + short first request WITH an image refuses auto-switch (never drops image).
+  const bigHandoffImageReq = makePartsHarness({
+    local: true,
+    context: { used: 195_000, size: 200_000, compactions: 0 },
+    messages: [oversizedHandoff, { id: 'u-img', role: 'user', content: [{ type: 'text', text: 'What does this chart show?' }, { type: 'image', attachment: { attachmentId: 'sha256:img1' } }], source: { kind: 'user' } }],
+  })
+  bigHandoffImageReq.rt.eventsBackwards = async function* () {
+    yield { type: 'user/message', seq: 2, time: 2, data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'What does this chart show?' }] } }
+  }
+  const imgReqOut = await dispatchRequestError(bigHandoffImageReq, { code: 'CONTEXT_WINDOW_EXCEEDED', message: 'Prompt is too long' })
+  assert.equal(imgReqOut, 'next')
+  assert.equal(bigHandoffImageReq.bot.sessionId, 's1')
+  assert.equal(bigHandoffImageReq.rt.liveOf('s1').overflowFailure, true)
+
+  // - oversized resume handoff overflowing on its own (no separate post-handoff request) refuses auto-switch.
+  const oversizedResumeHandoff = user('h-resume-big', `[Handoff · part 2]\n${'Prior transcript context. '.repeat(2000)}`, { kind: 'bot', role: 'handoff', handoff: true, resume: true })
+  const resumeHandoffOverflow = makePartsHarness({
+    local: true,
+    context: { used: 195_000, size: 200_000, compactions: 0 },
+    messages: [oversizedResumeHandoff],
+  })
+  const resumeHandoffOut = await dispatchRequestError(resumeHandoffOverflow, { code: 'CONTEXT_WINDOW_EXCEEDED', message: 'Prompt is too long' })
+  assert.equal(resumeHandoffOut, 'next')
+  assert.equal(resumeHandoffOverflow.bot.sessionId, 's1')
+  assert.equal(resumeHandoffOverflow.rt.liveOf('s1').overflowFailure, true)
 
   // - oversized incoming handoff + oversized first user message (> RECENT_LINE_MAX) refuses clipping auto-switch.
   const bigHandoffBigReq = makePartsHarness({
