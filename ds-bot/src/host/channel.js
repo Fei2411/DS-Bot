@@ -156,6 +156,9 @@ export function install(rt) {
     im: rt.imView?.() ?? { connections: [], platforms: [] },
     // The computer-use switch, the provider it mounts, and each Bot's level and app grants.
     computer: rt.computerView?.() ?? { enabled: false },
+    // Side App opens a window has not consumed yet, keyed by the Session they
+    // belong to. Each carries the reopenable descriptor the card in the chat shows.
+    sideAppOpens: rt.sideAppOpensView?.() ?? {},
   })
   // What changes without a new revision, sent with every state answer. `learning`:
   // each Bot's pending skill proposals; `learningSettled`: the answered ones of its
@@ -194,6 +197,9 @@ export function install(rt) {
     // Plugin runtime summary (active slots, restart status, installed count) updates
     // asynchronously as slots reconcile, so it rides on live().
     plugins: rt.pluginsSummary?.() ?? null,
+    // Side App opens no window has claimed yet. An open appears when a tool call ends,
+    // with no revision bump, so it rides on the live fields.
+    sideAppOpens: rt.sideAppOpensView?.() ?? {},
   })
   // The live fields' sources are spread across the host with no single change
   // counter, so the serialized answer itself is the detector: a poll whose `live`
@@ -211,7 +217,7 @@ export function install(rt) {
   }
   // What a host that only reads the team may still answer.
   // Updates change the dsh profile, not the team, so a reading host may run them too.
-  const READS = new Set(['secret-store', 'secret-unlock', 'state', 'models', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'agent-chat', 'bot-task-read', 'run-stats', 'room-progress', 'group-rows', 'group-relay-replies', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'memory-history', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library', 'computer-system-status', 'computer-shot', 'local-agents', 'local-agent-models', 'browser-frame', 'hello', 'notices', 'avatar', 'room-chat', 'usage-summary', 'image', 'markdown-image', 'file-download', 'changes-check', 'deepseek-services', 'deepseek-synthesize', 'api-audit', 'plugins-list', 'plugins-catalog-refresh', 'plugins-versions', 'plugins-detail'])
+  const READS = new Set(['secret-store', 'secret-unlock', 'state', 'models', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'agent-chat', 'bot-task-read', 'run-stats', 'room-progress', 'group-rows', 'group-relay-replies', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'memory-history', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library', 'computer-system-status', 'computer-shot', 'local-agents', 'local-agent-models', 'browser-frame', 'hello', 'notices', 'avatar', 'room-chat', 'usage-summary', 'image', 'markdown-image', 'file-download', 'changes-check', 'deepseek-services', 'deepseek-synthesize', 'api-audit', 'plugins-list', 'plugins-catalog-refresh', 'plugins-versions', 'plugins-detail', 'side-app-open', 'side-app-read', 'side-app-diff', 'side-app-preview', 'side-app-opened', 'side-app-bytes'])
   READS.add('chatgpt')
 
   const modelRequests = { approvalModel: 0, defaultBotModel: 0 }
@@ -831,6 +837,15 @@ export function install(rt) {
           if (typeof body.sessionId !== 'string' || body.sessionId === '' || typeof body.cardId !== 'string' || body.cardId === '') return fail('Nothing to delete', 'bot/invalid')
           await rt.load()
           return ok(await rt.btwDelete({ sessionId: body.sessionId, cardId: body.cardId }))
+        }
+        case 'side-app-open':
+        case 'side-app-read':
+        case 'side-app-diff':
+        case 'side-app-preview':
+        case 'side-app-opened':
+        case 'side-app-bytes': {
+          await rt.load()
+          return ok(await rt.sideAppEndpoint(endpoint, body))
         }
         // Side chats in the Bot's panel: each question is an aside on a fresh
         // snapshot of this Bot's private chat; the earlier finished pairs of

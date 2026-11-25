@@ -62,6 +62,7 @@ import * as issueReport from './src/host/issue-report.js'
 import * as manualSkills from './src/host/manual-skills.js'
 import * as localAgents from './src/host/local-agents/index.js'
 import * as deepseekServices from './src/host/deepseek-services.js'
+import * as sideApp from './src/host/side-app.js'
 
 export { COLORS } from './src/host/constants.js'
 export { defineBotPlugin, defineBrowserProvider } from './src/host/plugins/sdk.js'
@@ -74,7 +75,7 @@ export { name, inject } from './src/host/entry.js'
 // usage meters model requests after every listener that rewrites them. privacy checks a
 // call before the hooks of tools do, so a closed call never reaches a card they show.
 // extraFolders answers an approval ahead of approvals, which would show it to the user.
-const MODULES = [diagnostics, store, ledger, models, providers, permissions, turns, steer, handoffs, requests, delivery, roster, folders, privacy, agents, prompt, timeContext, tools, issueReport, deepseekServices, chatIndex, groups, goals, agentCommands, tasks, approvals, extraFolders, resume, memory, parts, botTasks, changes, images, avatarLibrary, secrets, connectors, capabilities, plugins, learning, schedules, browser, browserPlugins, computer, usage, update, dshUpdate, thinking, mobile, feed, phone, im, externalApi, channel, remote, officeSkills, goalSkills, maintenanceSkills, manualSkills, localAgents]
+const MODULES = [diagnostics, store, ledger, models, providers, permissions, turns, steer, handoffs, requests, delivery, roster, folders, privacy, agents, prompt, timeContext, tools, issueReport, deepseekServices, sideApp, chatIndex, groups, goals, agentCommands, tasks, approvals, extraFolders, resume, memory, parts, botTasks, changes, images, avatarLibrary, secrets, connectors, capabilities, plugins, learning, schedules, browser, browserPlugins, computer, usage, update, dshUpdate, thinking, mobile, feed, phone, im, externalApi, channel, remote, officeSkills, goalSkills, maintenanceSkills, manualSkills, localAgents]
 
 export function apply(ctx, config = {}) {
   createRuntime(ctx, config)
