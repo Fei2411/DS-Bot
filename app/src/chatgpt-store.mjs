@@ -10,9 +10,9 @@ export function createChatGPTStore({ userData, safeStorage, fs = filesystem, pla
   const file = join(userData, 'chatgpt-signin.enc')
   const supported = () => {
     try {
-      return safeStorage.isEncryptionAvailable()
+      return !(platform === 'darwin' && mockKeychain)
+        && safeStorage.isEncryptionAvailable()
         && !(platform === 'linux' && safeStorage.getSelectedStorageBackend() === 'basic_text')
-        && !(platform === 'darwin' && mockKeychain)
     } catch { return false }
   }
   return {

@@ -162,11 +162,12 @@ if (process.versions.electron) {
   const { ELECTRON_RUN_AS_NODE: _runAsNode, ...env } = process.env
   const electron = createRequire(import.meta.url)('electron')
   const work = mkdtempSync(join(tmpdir(), 'ds-bot-icon-'))
+  let status
   try {
-    const run = spawnSync(electron, [here, ...mockKeychainArgs(), `--user-data-dir=${work}`], { stdio: 'inherit', env })
-    if (run.status !== 0) process.exit(run.status ?? 1)
+    status = spawnSync(electron, [here, ...mockKeychainArgs(), `--user-data-dir=${work}`], { stdio: 'inherit', env }).status
   } finally {
-    rmSync(work, { recursive: true, force: true })
+    rmSync(work, { recursive: true, force: true, maxRetries: 10, retryDelay: 500 })
   }
+  if (status !== 0) process.exit(status ?? 1)
   console.log('icon: wrote assets/icon.svg, assets/icon.png, assets/icon.ico, the tray marks and the per-size icons in assets/icons/')
 }
