@@ -18949,7 +18949,7 @@ var REPLY_FACES = [["normal", FONT_FILES.latin], ["italic", FONT_FILES.latinItal
 var THEME_KEYS = ["bg", "sidebar", "bubble", "card", "text", "user", "userText", "accent"];
 var fontFace = ({ file, style, weight, range }) => `@font-face{font-family:"${REPLY_FAMILY}";src:url(${FONT_ROUTE}/${file}) format("woff2");font-style:${style};font-weight:${weight};font-display:swap;unicode-range:${FONT_RANGES[range]}}`;
 var SERIF_REPLIES = `${REPLY_FACES.map(fontFace).join("\n")}
-.bt-look-bot,.bt-bubble [class*="_markdown"],.bt-bubble [class*="_markdown"] :is(h1,h2,h3,h4,h5,h6,th,td){font-family:var(--dsh-font-family-text,"${REPLY_FAMILY}","Source Han Serif SC","Noto Serif CJK SC","Songti SC"),var(--dsh-font-family-text-default,sans-serif)}`;
+.bt-look-bot,.bt-model-dock .bt-bubble,.bt-bubble [class*="_markdown"],.bt-bubble [class*="_markdown"] :is(h1,h2,h3,h4,h5,h6,th,td){font-family:var(--dsh-font-family-text,"${REPLY_FAMILY}","Source Han Serif SC","Noto Serif CJK SC","Songti SC"),var(--dsh-font-family-text-default,sans-serif)}`;
 var THEMES = {
   deepseek: {
     label: "DeepSeek",

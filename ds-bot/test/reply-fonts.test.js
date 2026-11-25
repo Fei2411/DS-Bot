@@ -81,11 +81,13 @@ test('Celadon sets the serif on Bot replies only, and a text font from Settings 
   assert.doesNotMatch(css, /--dsw-font-family:|--ds-font-family-code/)
   // Only the Markdown inside the bubble: the bubble also holds interface parts (the fold note and button).
   assert.ok(!rule.split('{')[0].split(',').includes('.bt-bubble'), rule)
+  // The model picker's greeting stands for the Bot's first message.
+  assert.ok(rule.split('{')[0].split(',').includes('.bt-model-dock .bt-bubble'), rule)
   // Settings installs the theme through botOwnCss, which keeps only its own selectors:
-  // the faces and the Appearance preview rule survive it.
+  // the faces and the rule for the Appearance preview and the model picker survive it.
   const own = botOwnCss(css)
   assert.equal(own.match(/@font-face\{/g)?.length, REPLY_FACES.length)
-  assert.ok(own.includes('.bt-look-bot{font-family:var(--dsh-font-family-text,'))
+  assert.ok(own.includes('.bt-look-bot,.bt-model-dock .bt-bubble{font-family:var(--dsh-font-family-text,'))
   // The other built-in themes keep the interface font.
   for (const id of ['deepseek', 'mono', 'paper', 'moonlight']) assert.doesNotMatch(themeCss(allThemes()[id]), /@font-face/)
 })

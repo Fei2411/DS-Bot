@@ -40,7 +40,7 @@ const reply = `<div class="${markdown}">
   <pre id="pre"><code>const x = 1</code></pre>
 </div>`
 const page = (css) => `<!doctype html><html lang="zh-CN"><head><style>${tokensCss}</style><style>${frontendCss}</style><style>${css}</style></head>
-<body><div class="bt-bubble">${reply}<span class="bt-fold"><span class="bt-fold-note" id="note">显示全部 · Show all</span></span></div><div class="${markdown}"><p id="outside">Not a reply 不是回复</p></div></body></html>`
+<body><div class="bt-bubble">${reply}<span class="bt-fold"><span class="bt-fold-note" id="note">显示全部 · Show all</span></span></div><div class="bt-model-dock"><div class="bt-bubble" id="greeting">你好，我是 Bot。Pick a model</div></div><div class="${markdown}"><p id="outside">Not a reply 不是回复</p></div></body></html>`
 
 async function launchBrowser() {
   const options = { headless: true, ...(process.env.BROWSER_EXECUTABLE_PATH ? { executablePath: process.env.BROWSER_EXECUTABLE_PATH } : {}) }
@@ -82,14 +82,14 @@ test('Celadon draws Bot replies in its bundled serif under DSH\'s own Markdown s
       await document.fonts.ready
       const family = id => getComputedStyle(document.getElementById(id)).fontFamily
       return {
-        ...Object.fromEntries(['p', 'strong', 'em', 'h2', 'th', 'td', 'code', 'pre', 'outside', 'note'].map(id => [id, family(id)])),
+        ...Object.fromEntries(['p', 'strong', 'em', 'h2', 'th', 'td', 'code', 'pre', 'outside', 'note', 'greeting'].map(id => [id, family(id)])),
         bodyVariable: getComputedStyle(document.body).getPropertyValue('--dsw-font-family'),
         replyVariable: getComputedStyle(document.querySelector('.bt-bubble')).getPropertyValue('--dsw-font-family'),
         loaded: [...document.fonts].filter(face => face.status === 'loaded').map(face => `${face.style} ${face.weight} ${face.unicodeRange.startsWith('U+3000') ? 'cjk' : 'latin'}`),
       }
     })
     const serif = `"${REPLY_FAMILY}"`
-    for (const id of ['p', 'strong', 'em', 'h2', 'th', 'td']) assert.ok(fonts[id].startsWith(serif), `${id}: ${fonts[id]}`)
+    for (const id of ['p', 'strong', 'em', 'h2', 'th', 'td', 'greeting']) assert.ok(fonts[id].startsWith(serif), `${id}: ${fonts[id]}`)
     for (const id of ['code', 'pre', 'outside', 'note']) assert.ok(!fonts[id].includes(REPLY_FAMILY), `${id}: ${fonts[id]}`)
     // DSH's own font variable is left alone, so code-block chrome keeps the interface font.
     assert.equal(fonts.replyVariable, fonts.bodyVariable)
