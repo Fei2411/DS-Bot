@@ -3,6 +3,7 @@
 //
 // Turn tracking: which turns were triggered by another Bot, and what they said.
 import { randomUUID } from 'node:crypto'
+import { symbols as cordisSymbols } from '@deepseek-ai/cordis'
 import { carrierKeyOf } from '@deepseek-ai/dsh-scope'
 import { HANDOFF_ACK, isSilentTurnText, isWorkTool, LATE_ANSWER, MESSAGE_INLINE_MAX, REFERENCE_KIND, REPLY_KIND, SOURCE_KIND, STEER_CUT, USER_UI_TOOLS } from './constants.js'
 import { cleanText } from './diagnostics.js'
@@ -1935,9 +1936,11 @@ export function install(rt) {
   // keeps the real cause in details.reason, which the window never shows and the log
   // never saw (#424). For a Session this team owns, the reason is written to the
   // diagnostics and put into the error the user reads.
-  const prompt = ctx.sessionController?.prompt
-  if (typeof prompt === 'function') {
-    const controller = ctx.sessionController
+  const controller = ctx.sessionController
+  const controllerTarget = controller?.[cordisSymbols.original] ?? controller
+  if (controllerTarget !== undefined && typeof controllerTarget.prompt === 'function') {
+    const hadOwnPrompt = Object.hasOwn(controllerTarget, 'prompt')
+    const prompt = controllerTarget.prompt
     const admitted = async function (request, ...rest) {
       try {
         return await prompt.call(this, request, ...rest)
@@ -1967,8 +1970,13 @@ export function install(rt) {
       }
     }
     ctx.effect(() => {
-      controller.prompt = admitted
-      return () => { if (controller.prompt === admitted) controller.prompt = prompt }
+      controllerTarget.prompt = admitted
+      return () => {
+        if (controllerTarget.prompt === admitted) {
+          if (hadOwnPrompt) controllerTarget.prompt = prompt
+          else delete controllerTarget.prompt
+        }
+      }
     }, 'ds-bot: prompt rejection reasons')
   }
 

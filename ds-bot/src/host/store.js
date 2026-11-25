@@ -3,7 +3,7 @@
 // or group chat it belongs to.
 import { createHash, randomUUID } from 'node:crypto'
 import { copyFileSync, mkdirSync, readFileSync, statSync } from 'node:fs'
-import { mkdir, unlink, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { LEGACY_THEMES, MAX_EXCHANGES, ROOM_MODES, SECTION_COLORS, SECTION_NAME_MAX, TEXT_KEPT } from './constants.js'
 import { replaceFile } from './files.js'
@@ -696,6 +696,13 @@ export function install(rt) {
     storeReady = true
     notifyStoreSync()
     if (holder !== undefined) return
+    if (teamWriteAccess() === 'locked') {
+      void readdir(home).then(entries => Promise.all(entries.map((name) => {
+        const match = /^state\.json\.(\d+)(?:\.[a-f0-9]+)?\.tmp$/.exec(name)
+        if (match === null || Number(match[1]) === process.pid) return undefined
+        return unlink(join(home, name)).catch(() => {})
+      }))).catch(() => {})
+    }
     const storageMigrated = stuck === undefined ? await runStorageMigrations() : false
     void retireParts()
     if ((migrated || storageMigrated) && stuck === undefined) {
@@ -870,7 +877,7 @@ export function install(rt) {
       state.revision += 1
       if (state.exchanges.length > MAX_EXCHANGES) state.exchanges = state.exchanges.slice(-MAX_EXCHANGES)
       const snapshot = JSON.stringify(state)
-      const temp = `${statePath}.${process.pid}.tmp`
+      const temp = `${statePath}.${process.pid}.${randomUUID().slice(0, 8)}.tmp`
       try {
         await mkdir(home, { recursive: true })
         const ensureLock = () => {

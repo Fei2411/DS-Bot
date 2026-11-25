@@ -1,0 +1,77 @@
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
+import { Context, Service, symbols as cordisSymbols } from '@deepseek-ai/cordis'
+import { install as installTurns } from '../src/host/turns.js'
+
+test('real Cordis Service proxy: turns.js prompt wrapper unwraps target and restores cleanly on plugin unload', async (t) => {
+  class RealSessionController extends Service {
+    constructor(ctx) {
+      super(ctx, 'sessionController')
+      this.calls = []
+    }
+    async prompt(request) {
+      this.calls.push(request.requestId)
+      if (request.fail) {
+        const err = new Error('session busy')
+        err.code = 'session/agent-busy'
+        err.details = { reason: 'provider timeout' }
+        throw err
+      }
+      return { accepted: true }
+    }
+  }
+
+  const root = new Context()
+  await root.plugin(RealSessionController)
+  t.after(() => root.fiber.dispose())
+
+  const rawTarget = root.sessionController[cordisSymbols.original]
+  assert.ok(rawTarget instanceof RealSessionController)
+  assert.equal(Object.hasOwn(rawTarget, 'prompt'), false)
+
+  const failures = []
+  const makeRt = ctx => ({
+    ctx,
+    state: { bots: {}, rooms: {}, exchanges: [], exchangeTurns: {}, questions: {}, views: {}, prefs: {} },
+    chatOwners: new Map([['dm-a', 'a']]),
+    groupOwners: new Map(),
+    taskOwners: new Map(),
+    botOf: id => (id === 'a' ? { id: 'a', name: 'Chief', sessionId: 'dm-a' } : undefined),
+    roomOf: () => undefined,
+    selfOf: id => (id === 'dm-a' ? 'a' : undefined),
+    isBotSession: id => id === 'dm-a',
+    noteFailure: entry => failures.push(entry),
+    redactSecrets: value => value,
+    warn: () => {},
+  })
+
+  const fiber1 = root.plugin({
+    name: 'turns-reload-1',
+    inject: ['sessionController'],
+    apply(ctx) { installTurns(makeRt(ctx)) },
+  })
+  await fiber1
+  assert.equal(Object.hasOwn(rawTarget, 'prompt'), true)
+
+  await assert.rejects(
+    root.sessionController.prompt({ sessionId: 'dm-a', requestId: 'r1', fail: true }),
+    /provider timeout/,
+  )
+  assert.equal(failures.length, 1)
+
+  await fiber1.dispose()
+  assert.equal(Object.hasOwn(rawTarget, 'prompt'), false, 'prompt wrapper must be deleted on plugin unload')
+  assert.equal(rawTarget.prompt, RealSessionController.prototype.prompt)
+
+  // Reinstall once more to confirm no stacking or leaked listener.
+  const fiber2 = root.plugin({
+    name: 'turns-reload-2',
+    inject: ['sessionController'],
+    apply(ctx) { installTurns(makeRt(ctx)) },
+  })
+  await fiber2
+  await root.sessionController.prompt({ sessionId: 'dm-a', requestId: 'r2' })
+  await fiber2.dispose()
+  assert.equal(Object.hasOwn(rawTarget, 'prompt'), false)
+  assert.deepEqual(rawTarget.calls, ['r1', 'r2'])
+})

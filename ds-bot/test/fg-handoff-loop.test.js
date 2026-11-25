@@ -306,6 +306,14 @@ test('real DSH SessionStore + ReactLoopAgent: explicit moveForegroundToBackgroun
   assert.equal(task?.origin, 'fg-handoff')
   assert.equal(task?.status, 'running')
 
+  // The explicit foreground handoff notice must instruct the new foreground how to inspect
+  // or redirect the background task (`task_read` and `task_send`).
+  const handoffNotice = rig.agents.get(fgSid).inbox.nextStep.find(item => item?.source?.role === 'task-handoff')
+    ?? rig.agents.get(fgSid).session.snapshotEvents().find(ev => ev.type === 'user/message' && ev.data?.source?.role === 'task-handoff')?.data
+  assert.ok(handoffNotice, 'explicit fg-handoff must inject a task-handoff notice on the new foreground')
+  assert.match(textOf(handoffNotice), new RegExp(`task_read\\(task: "${task.id}"\\)`))
+  assert.match(textOf(handoffNotice), new RegExp(`task_send\\(task: "${task.id}"`))
+
   // User chats freely on the new foreground while dm-a keeps running in background.
   rig.agents.get(fgSid).followup(createUserMessage({ content: [{ type: 'text', text: 'What are you doing?' }], source: { kind: 'user' } }))
   await settle(
@@ -1404,4 +1412,126 @@ test('reconcile must not clear moved-source admission when persistence is still 
   await rig.rt.reconcileTasksAfterRestart()
   assert.deepEqual(journal(rig).map(item => item.messageId), [prompt.id])
   flush.mock.restore()
+})
+
+test('reconcile still injects non-forked handoff context when the deferred user input was discarded before writes recovered', async (t) => {
+  const rig = await createRealLoopRig(t, { durable: true, holdFork: true, failFork: true })
+  const old = rig.agents.get('dm-a')
+  old.followup(userPrompt('Please run slow work'))
+  await rig.toolStarted.promise
+  const moved = beginMove(rig)
+  await rig.forkStarted.promise
+  const prompt = userPrompt('Cancelled before replay', 'discarded-before-replay')
+  old.steer(prompt)
+  await rig.rt.save()
+  assert.deepEqual(journal(rig).map(item => item.messageId), [prompt.id])
+
+  const save = rig.rt.save
+  const blocked = t.mock.method(rig.rt, 'save', async (options) => {
+    if (options?.required && rig.rt.botOf('a').sessionId !== 'dm-a') {
+      throw Object.assign(new Error('Foreground commit write blocked'), { code: 'EBUSY' })
+    }
+    return save(options)
+  })
+  rig.forkGate.resolve()
+  assert.equal((await moved).code, 'EBUSY')
+
+  const fresh = rig.agents.get(rig.rt.botOf('a').sessionId)
+  assert.match(fresh.id, /^new-/)
+  const task = rig.rt.botOf('a').tasks.find(item => item.sessionId === 'dm-a')
+  assert.ok(task)
+  // User discarded the queued prompt while writes were blocked.
+  rig.rt.state.pendingHandoffInputs[0].discarded = true
+
+  blocked.mock.restore()
+  await rig.rt.reconcileTasksAfterRestart()
+  assert.deepEqual(journal(rig), [], 'discarded entry must clear once writes recover')
+  const notice = fresh.inbox.nextStep.find(item => item?.source?.role === 'task-handoff' && item.source.taskId === task.id)
+    ?? fresh.session.snapshotEvents().find(ev => ev.type === 'user/message' && ev.data?.source?.role === 'task-handoff' && ev.data.source.taskId === task.id)?.data
+  assert.ok(notice, 'non-forked foreground must still receive task-handoff context even when the deferred prompt was discarded')
+  assert.match(textOf(notice), new RegExp(`task_read\\(task: "${task.id}"\\)`))
+})
+
+test('joinInFlight registers failed move-receipt persistence in pendingSaveMoveOps so retry returns moved:true', async (t) => {
+  const rig = await createRealLoopRig(t, { durable: true })
+  const old = rig.agents.get('dm-a')
+  old.followup(userPrompt('Please run slow work'))
+  await rig.toolStarted.promise
+
+  const commitWritten = Promise.withResolvers()
+  const commitGate = Promise.withResolvers()
+  const save = rig.rt.save
+  let committed = false
+  let failJoinerReceipt = false
+  const blocked = t.mock.method(rig.rt, 'save', async (options) => {
+    if (rig.rt.botOf('a').sessionId === 'dm-a') return save(options)
+    if (options?.required && !committed) {
+      await save(options)
+      committed = true
+      commitWritten.resolve()
+      await commitGate.promise
+      return
+    }
+    if (options?.required && failJoinerReceipt) {
+      throw Object.assign(new Error('Joiner receipt write failed'), { code: 'EBUSY' })
+    }
+    return save(options)
+  })
+
+  const opPrimary = 'op:join-primary'
+  const opJoiner = 'op:join-secondary'
+  const primary = rig.rt.moveForegroundToBackground({ botId: 'a', operationId: opPrimary })
+  await commitWritten.promise
+  // Enable receipt failure right before joiner joins and primary releases commitGate.
+  failJoinerReceipt = true
+  const joiner = rig.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'dm-a', operationId: opJoiner })
+  commitGate.resolve()
+
+  const primaryRes = await primary
+  assert.equal(primaryRes.moved, true)
+  await assert.rejects(joiner, { code: 'EBUSY' })
+
+  // Disk writes recover -> retrying opJoiner must NOT return { moved: false }!
+  blocked.mock.restore()
+  const retryRes = await rig.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'dm-a', operationId: opJoiner })
+  assert.deepEqual(retryRes, primaryRes)
+  const disk = JSON.parse(readFileSync(join(rig.home, 'state.json'), 'utf8'))
+  assert.equal(disk.completedMoveOps?.[opJoiner]?.sessionId, primaryRes.sessionId)
+  assert.equal(disk.completedMoveOps?.[opJoiner]?.taskId, primaryRes.taskId)
+  assert.equal(disk.completedMoveOps?.[opJoiner]?.moved, true)
+})
+
+test('collectAdmittedIdsFromEvents does not mistake an in-place inbox splice replacement for a turn claim', async (t) => {
+  const rig = await createRealLoopRig(t, { durable: true })
+  const agent = rig.agents.get('dm-a')
+  const original = userPrompt('Original queued prompt', 'rpc-replace-check')
+  const replacement = createUserMessage({ content: [{ type: 'text', text: 'Edited queued prompt' }], source: { kind: 'user', rpcId: 'rpc-replace-check' } })
+
+  // Synthetic event sequence: insert original, in-place replace without `outcome: 'canceled'`,
+  // then remove replacement -> neither is pending or committed, and original was NOT claimed!
+  const syntheticEvents = [
+    { type: 'agent/inbox/spliced', data: { target: 'next-turn', start: 0, removedCount: 0, inserted: [original] } },
+    { type: 'agent/inbox/spliced', data: { target: 'next-turn', start: 0, removedCount: 1, inserted: [replacement] } },
+    { type: 'agent/inbox/spliced', data: { target: 'next-turn', start: 0, removedCount: 1, inserted: [], outcome: 'canceled' } },
+  ]
+  const origSnapshot = agent.session.snapshotEvents.bind(agent.session)
+  t.mock.method(agent.session, 'snapshotEvents', () => syntheticEvents)
+
+  // Queue a pending handoff input for that rpcId: because the replace was NOT a claim and
+  // the message is neither pending nor committed, reconcile must replay it rather than dropping it.
+  rig.rt.state.pendingHandoffInputs = [{
+    id: original.source.rpcId,
+    messageId: original.id,
+    botId: 'a',
+    target: 'next-turn',
+    source: original.source,
+    content: original.content,
+  }]
+  await rig.rt.save()
+  await rig.rt.reconcileTasksAfterRestart()
+  agent.session.snapshotEvents = origSnapshot
+  await agent.whenIdle()
+
+  assert.deepEqual(journal(rig), [])
+  assert.ok((rig.repliesBySession.get('dm-a') ?? []).some(r => r.includes('Original queued prompt')), 'reconcile must replay when splice was a replace rather than a claim')
 })

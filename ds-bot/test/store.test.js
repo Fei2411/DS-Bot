@@ -95,10 +95,17 @@ test('a failed state write rejects and leaves the saved file unchanged', async (
   await rt.load()
   await rt.save()
   const original = fs.readFileSync(statePath)
-  fs.mkdirSync(`${statePath}.${process.pid}.tmp`)
-  rt.state.prefs.marker = 'not saved'
-  await assert.rejects(rt.save(), { code: 'EISDIR' })
-  assert.deepEqual(fs.readFileSync(statePath), original)
+  const restore = patch('writeFile', originalWrite => async (path, ...args) => {
+    if (String(path).startsWith(`${statePath}.`)) throw Object.assign(new Error('synthetic write failure'), { code: 'EISDIR' })
+    return originalWrite(path, ...args)
+  })
+  try {
+    rt.state.prefs.marker = 'not saved'
+    await assert.rejects(rt.save(), { code: 'EISDIR' })
+    assert.deepEqual(fs.readFileSync(statePath), original)
+  } finally {
+    restore()
+  }
 })
 
 test('saves made while a write is in flight share one queued write', async (t) => {
@@ -225,13 +232,19 @@ test('model selection witnesses survive a saved store reload', async (t) => {
 
 test('a failed migration write warns but load() still resolves', async (t) => {
   const { rt, statePath, warnings } = runtime(t, { version: 1, mainBotId: 'chief', bots: { chief: { id: 'chief', name: 'Chief' } } })
-  // The migrated team's first write fails: a directory takes the temp file's path.
-  fs.mkdirSync(`${statePath}.${process.pid}.tmp`)
-  await rt.load()
+  // The migrated team's first write fails.
+  const restore = patch('writeFile', originalWrite => async (path, ...args) => {
+    if (String(path).startsWith(`${statePath}.`)) throw Object.assign(new Error('synthetic write failure'), { code: 'EISDIR' })
+    return originalWrite(path, ...args)
+  })
+  try {
+    await rt.load()
+  } finally {
+    restore()
+  }
   assert.equal(rt.readOnly(), undefined)
   assert.ok(warnings.some(args => /saving the migrated Bot team failed/.test(String(args))))
   // Once the disk is free the next save() writes the migrated state.
-  fs.rmSync(`${statePath}.${process.pid}.tmp`, { recursive: true })
   await rt.save()
   const saved = JSON.parse(fs.readFileSync(statePath, 'utf8'))
   assert.equal(saved.mainBotId, undefined)
@@ -258,30 +271,63 @@ test('a failed state rename rejects and preserves the saved file', async (t) => 
 
 // After a crash or power loss, a renamed file whose data never reached the disk can come
 // back empty, and an empty state.json loads as an empty team (#2238).
-test('a state write reaches the disk before it replaces state.json', async (t) => {
+test('a state write reaches the disk before it replaces state.json and uses unique per-write temp names', async (t) => {
   const { rt, statePath } = runtime(t)
   await rt.load()
   const steps = []
+  const temps = []
   const restoreWrite = patch('writeFile', original => async (path, data, options) => {
-    if (String(path).startsWith(`${statePath}.`)) steps.push(['write', path, typeof options === 'object' && options?.flush === true])
-    return original(path, data, options)
+    const result = await original(path, data, options)
+    if (String(path).startsWith(`${statePath}.`)) {
+      temps.push(String(path))
+      steps.push(['write-done', path, typeof options === 'object' && options?.flush === true])
+    }
+    return result
   })
   const restoreRename = patch('rename', original => async (from, to) => {
     if (to === statePath) steps.push(['rename', from])
     return original(from, to)
   })
   try {
-    rt.state.prefs.marker = 'saved'
+    rt.state.prefs.marker = 'saved-1'
+    await rt.save()
+    rt.state.prefs.marker = 'saved-2'
     await rt.save()
   } finally {
     restoreRename()
     restoreWrite()
   }
-  assert.equal(steps.length, 2)
-  const [[write, temp, flushed], [rename, from]] = steps
-  assert.deepEqual([write, rename, from], ['write', 'rename', temp])
-  assert.equal(flushed, true, 'the temp file is flushed before the rename')
-  assert.equal(JSON.parse(fs.readFileSync(statePath, 'utf8')).prefs.marker, 'saved')
+  assert.equal(steps.length, 4)
+  const [[write1, temp1, flushed1], [rename1, from1], [write2, temp2, flushed2], [rename2, from2]] = steps
+  assert.deepEqual([write1, rename1, from1], ['write-done', 'rename', temp1])
+  assert.deepEqual([write2, rename2, from2], ['write-done', 'rename', temp2])
+  assert.equal(flushed1, true, 'first temp file is flushed before rename')
+  assert.equal(flushed2, true, 'second temp file is flushed before rename')
+  assert.notEqual(temp1, temp2, 'consecutive writes must use unique temp paths')
+  assert.match(temp1, new RegExp(`\\.${process.pid}\\.[0-9a-f]{8}\\.tmp$`))
+  assert.equal(JSON.parse(fs.readFileSync(statePath, 'utf8')).prefs.marker, 'saved-2')
+})
+
+test('load() sweeps stale temp files from dead PIDs while keeping current PID temp files intact', async (t) => {
+  const { rt, home } = runtime(t)
+  const otherPid = process.pid + 1
+  const staleLegacy = join(home, `state.json.${otherPid}.tmp`)
+  const staleUnique = join(home, `state.json.${otherPid}.deadbeef.tmp`)
+  const ownTemp = join(home, `state.json.${process.pid}.12345678.tmp`)
+  const unrelated = join(home, 'state.json.broken-123')
+  fs.writeFileSync(staleLegacy, 'stale')
+  fs.writeFileSync(staleUnique, 'stale')
+  fs.writeFileSync(ownTemp, 'in-flight')
+  fs.writeFileSync(unrelated, 'keep-backup')
+  await rt.load()
+  // Cleanup runs fire-and-forget; wait briefly for unlink completion.
+  for (let i = 0; i < 40 && (fs.existsSync(staleLegacy) || fs.existsSync(staleUnique)); i += 1) {
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
+  assert.equal(fs.existsSync(staleLegacy), false, 'stale legacy temp file must be removed')
+  assert.equal(fs.existsSync(staleUnique), false, 'stale unique temp file must be removed')
+  assert.equal(fs.existsSync(ownTemp), true, 'current PID temp file must not be touched')
+  assert.equal(fs.existsSync(unrelated), true, 'unrelated backup files must not be touched')
 })
 
 test('malformed state is backed up before a later save', async (t) => {
