@@ -4792,3 +4792,133 @@ test('nested delegation parentBatchKey scopes child holding and wakes so unrelat
   assert.deepEqual(chiefLine?.route?.to, ['a'])
   assert.deepEqual(Object.values(rt.state.roomBatches ?? {}), [])
 })
+
+test('paused nested delegation preserves parentBatchKey across Continue, partial batch reissue reparents child, and stopRoomWork clears idle parent', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  // 1) Paused queued nested delegation keeps parent open while parked and resumes parent after Continue.
+  {
+    const host = await start(t)
+    const room = rt.roomOf('r1')
+    const first = host.round('c1', host.say('@Chief ask Writer to check'))
+    await settle(() => host.agentOf('ga').calls.length === 1)
+    host.begin('ga')
+    await host.tool('delegate_work', { to: 'Writer', goal: 'Coordinate check' }, 'ga')
+    host.finish('ga', '[PASS]')
+
+    await settle(() => host.agentOf('gb').calls.length === 1)
+    const writerCall = host.begin('gb')
+    // Yield Writer's round early so Writer's nested delegate_work queues to group Session.
+    rt.roomWaiters.get(writerCall.source.exchangeId)?.resolve({ working: true })
+    await settle(() => first() !== undefined)
+
+    // Pre-seed idle pause state so the queued nested delegation is parked by the guard.
+    room.idlePaused = { from: 'a', count: 2, limit: 2, cause: 'cycle', noticed: true }
+    await host.tool('delegate_work', { to: 'Tester', goal: 'Check fact' }, 'gb')
+    await settle(() => host.agentOf('r1').calls.length === 1)
+    const queuedChild = host.takePost()
+    // Writer finishes Turn 1 with [PASS] before queuedChild runs -> parent batch stays open.
+    host.finish('gb', '[PASS]')
+    await new Promise(resolve => setImmediate(resolve))
+    const parentBatch = Object.values(rt.state.roomBatches ?? {}).find(b => b.by === 'a' && b.pending.includes('b'))
+    assert.ok(parentBatch, 'Chief -> Writer batch must remain open while child relay is queued')
+
+    // Queued round parks Tester and preserves parentBatchKey + direct on room.paused!
+    const round2 = host.round('c2', queuedChild)
+    await settle(() => round2() !== undefined)
+    assert.equal(room.paused?.[0]?.id, 'c')
+    assert.equal(room.paused?.[0]?.direct, true)
+    assert.equal(room.paused?.[0]?.parentBatchKey, parentBatch.key)
+    assert.equal(rt.state.roomBatches?.[parentBatch.key]?.pending.includes('b'), true, 'parent batch must stay pending while child is parked')
+
+    // User clicks Continue -> releaseParked opens Tester's batch WITH parentBatchKey -> resumes Writer -> wakes Chief!
+    await rt.resumeRoomPause('r1')
+    await settle(() => host.agentOf('r1').calls.length === 1)
+    const continuePost = host.takePost()
+    const round3 = host.round('c3', continuePost)
+    await settle(() => host.agentOf('gc').calls.length === 1)
+    host.begin('gc')
+    host.emit('gc', 'tool/call', { callId: 't-cont', name: 'read', arguments: '{}' })
+    host.emit('gc', 'tool/result', { callId: 't-cont' })
+    host.finish('gc', 'Fact verified after Continue.')
+
+    await settle(() => host.agentOf('gb').calls.length === 2)
+    host.begin('gb')
+    host.finish('gb', 'Final answer for Chief after Continue.')
+
+    await settle(() => host.agentOf('ga').calls.length === 2)
+    host.begin('ga')
+    host.finish('ga', 'Great, done!')
+    await settle(() => round3() !== undefined)
+    const finalLine = room.log.find(line => line.botId === 'b' && line.text.includes('Final answer for Chief after Continue'))
+    assert.equal(finalLine?.route?.kind, 'result')
+    assert.deepEqual(finalLine?.route?.to, ['a'])
+    assert.deepEqual(Object.values(rt.state.roomBatches ?? {}), [])
+  }
+
+  // 2) Partial batch supersession reparents only the moved member's child batch to the new batch.
+  {
+    const host = await start(t, { members: ['a', 'b', 'c', 'd'], sessions: { a: 'ga', b: 'gb', c: 'gc', d: 'gd' } }, undefined, {}, { d: {} })
+    const first = host.round('c1', host.say('@Chief assign Writer and Reviewer'))
+    await settle(() => host.agentOf('ga').calls.length === 1)
+    host.begin('ga')
+    host.finish('ga', '@Writer @Reviewer please work on your parts')
+
+    await settle(() => host.agentOf('gb').calls.length === 1 && host.agentOf('gd').calls.length === 1)
+    host.begin('gb')
+    host.begin('gd')
+    await host.tool('delegate_work', { to: 'Tester', goal: 'Check Writer part' }, 'gb')
+    await settle(() => host.agentOf('gc').calls.length === 1)
+    host.begin('gc')
+    const oldParent = Object.values(rt.state.roomBatches ?? {}).find(b => b.by === 'a' && b.pending.includes('b') && b.pending.includes('d'))
+    const childBatch = Object.values(rt.state.roomBatches ?? {}).find(b => b.by === 'b' && b.pending.includes('c'))
+    assert.equal(childBatch?.parentBatchKey, oldParent?.key)
+
+    // Chief reissues work to Writer alone while Reviewer is STILL pending in oldParent!
+    await host.tool('delegate_work', { to: 'Writer', goal: 'Updated instructions for Writer' }, 'ga')
+    const newParent = Object.values(rt.state.roomBatches ?? {}).find(b => b.by === 'a' && b.key !== oldParent.key && b.pending.includes('b'))
+    assert.ok(newParent, 'new replacement batch must exist for Writer')
+    assert.deepEqual(oldParent.pending, ['d'], 'old batch still waits for Reviewer')
+    assert.equal(rt.state.roomBatches[childBatch.key].parentBatchKey, newParent.key, 'Writer child batch must reparent to the replacement batch')
+
+    // Finish cleanly so round exits.
+    host.finish('gb', '[PASS]')
+    host.emit('gc', 'tool/call', { callId: 't-re', name: 'read', arguments: '{}' })
+    host.emit('gc', 'tool/result', { callId: 't-re' })
+    host.finish('gc', 'Tester done.')
+    host.finish('gd', 'Reviewer done.')
+    await settle(() => host.agentOf('gb').calls.length >= 2)
+    while (host.agentOf('gb').calls.length > host.turnsOf?.('gb') || rt.live.get('gb')?.turn !== undefined) break
+    host.begin('gb')
+    host.finish('gb', 'Writer final after reissue.')
+    await settle(() => host.agentOf('ga').calls.length >= 2)
+    host.begin('ga')
+    host.finish('ga', 'All done.')
+    await settle(() => first() !== undefined)
+  }
+
+  // 3) stopRoomWork cancels a queued nested relay in roomAgent.inbox and releases the idle parent batch.
+  {
+    const host = await start(t)
+    const first = host.round('c1', host.say('@Chief ask Writer to check'))
+    await settle(() => host.agentOf('ga').calls.length === 1)
+    host.begin('ga')
+    await host.tool('delegate_work', { to: 'Writer', goal: 'Check via Tester' }, 'ga')
+    host.finish('ga', '[PASS]')
+
+    await settle(() => host.agentOf('gb').calls.length === 1)
+    const writerCall = host.begin('gb')
+    rt.roomWaiters.get(writerCall.source.exchangeId)?.resolve({ working: true })
+    await settle(() => first() !== undefined)
+
+    await host.tool('delegate_work', { to: 'Tester', goal: 'Queued child check' }, 'gb')
+    await settle(() => host.agentOf('r1').calls.length === 1)
+    // Writer finishes Turn 1 while Tester's relay is still sitting in r1's inbox.
+    host.finish('gb', '[PASS]')
+    await new Promise(resolve => setImmediate(resolve))
+    assert.equal(Object.values(rt.state.roomBatches ?? {}).length, 1, 'parent batch is held open by queued relay')
+
+    // User clicks Stop -> cancelRoomQueues removes the queued relay AND releases the idle parent batch!
+    await rt.stopRoomWork('r1')
+    assert.deepEqual(Object.values(rt.state.roomBatches ?? {}), [], 'stopRoomWork must clear parent batch once queued nested relay is cancelled')
+  }
+})

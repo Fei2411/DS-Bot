@@ -1040,6 +1040,11 @@ export function install(rt) {
     return false
   }
 
+  const hasParkedDirectChild = (room, botId, parentBatchKey) => (room?.paused ?? []).some(entry =>
+    entry.by === botId
+    && entry.direct === true
+    && (parentBatchKey === undefined || entry.parentBatchKey === parentBatchKey))
+
   const openChildBatches = (roomId, botId, parentBatchKey) => Object.values(batches())
     .filter(batch => batch.roomId === roomId
       && batch.by === botId
@@ -1074,6 +1079,7 @@ export function install(rt) {
     if (batch === undefined) return false
     return openChildBatches(room.id, botId, batch.key).length > 0
       || hasPendingDirectRelay(room.id, botId, batch.key)
+      || hasParkedDirectChild(room, botId, batch.key)
       || hasPendingUpstreamWake(room, botId, batch, opts)
   }
 
@@ -1090,6 +1096,7 @@ export function install(rt) {
     if ([...rt.roomProgress.values()].some(round => round.roomId === room.id
       && round.slots.some(slot => slot.id === botId && (slot.status === 'waiting' || slot.status === 'speaking')))) return true
     if (hasPendingDirectRelay(room.id, botId, parentBatchKey)) return true
+    if (hasParkedDirectChild(room, botId, parentBatchKey)) return true
     return openChildBatches(room.id, botId, parentBatchKey).some(child => child.pending.some(peerId => activeInRoom(room, peerId, ignoreTaskId, seen, child.key)))
   }
 
@@ -1119,10 +1126,22 @@ export function install(rt) {
       answered: false,
       at: Date.now(),
     }
+    const room = rt.roomOf(roomId)
     for (const peer of callees) {
       const prev = batchOf(roomId, peer.id, by)
       if (prev === undefined) continue
       unpend(prev, peer.id)
+      // Re-parent this member's child batches, queued direct relays, and parked calls even
+      // when `prev` still has other pending members.
+      for (const child of Object.values(batches())) {
+        if (child.roomId === roomId && child.by === peer.id && child.parentBatchKey === prev.key) child.parentBatchKey = batch.key
+      }
+      for (const relay of pendingDirectRelays.values()) {
+        if (relay.roomId === roomId && relay.by === peer.id && relay.parentBatchKey === prev.key) relay.parentBatchKey = batch.key
+      }
+      for (const parked of room?.paused ?? []) {
+        if (parked.by === peer.id && parked.parentBatchKey === prev.key) parked.parentBatchKey = batch.key
+      }
       if (prev.pending.length === 0) {
         batch.done.push(...prev.done)
         batch.doneIds.push(...(prev.doneIds ?? []))
@@ -1131,12 +1150,6 @@ export function install(rt) {
         if (prev.returnRequested) batch.returnRequested = true
         if (batch.parentBatchKey === undefined && prev.parentBatchKey !== undefined) batch.parentBatchKey = prev.parentBatchKey
         batch.answered ||= prev.answered
-        for (const child of Object.values(batches())) {
-          if (child.parentBatchKey === prev.key) child.parentBatchKey = batch.key
-        }
-        for (const relay of pendingDirectRelays.values()) {
-          if (relay.parentBatchKey === prev.key) relay.parentBatchKey = batch.key
-        }
         delete batches()[prev.key]
       }
     }
@@ -1308,6 +1321,23 @@ export function install(rt) {
       : { names: [...new Set([...slot.finished.names, ...wake.names])], results: [...slot.finished.results, ...wake.results] }
   }
 
+  const releaseIdleParentBatches = (room, items) => {
+    const queue = [...items]
+    const seen = new Set()
+    while (queue.length > 0) {
+      const item = queue.shift()
+      if (item?.by === undefined || item.parentBatchKey === undefined) continue
+      const key = `${item.by}\0${item.parentBatchKey}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      const parent = upstreamBatchFor(room.id, item.by, item.parentBatchKey)
+      if (parent === undefined || activeInRoom(room, item.by, undefined, new Set(), parent.key)) continue
+      leaveBatch(room, parent, item.by, { keep: false, settleGoal: false })
+      if (parent.pending.length === 0 && parent.by !== undefined && parent.parentBatchKey !== undefined) {
+        queue.push({ by: parent.by, parentBatchKey: parent.parentBatchKey })
+      }
+    }
+  }
   // When a child batch closes without waking its caller (e.g. child failed, passed, or
   // paused), unwind the specific upstream parent batch that depended on it if that caller
   // has no other active work left for that parent assignment.
@@ -1649,14 +1679,16 @@ export function install(rt) {
     for (const entry of due) {
       if (!room.members.includes(entry.id) || rt.botOf(entry.id) === undefined) continue
       if (round.slots.some(slot => slot.id === entry.id && slot.status === 'waiting')) continue
-      const key = entry.by ?? ''
+      const key = `${entry.by ?? ''}\0${entry.direct === true ? '1' : '0'}\0${entry.parentBatchKey ?? ''}`
       if (!byGroups.has(key)) byGroups.set(key, [])
       byGroups.get(key).push(entry)
     }
     for (const group of byGroups.values()) {
       const by = group[0].by
       const peers = group.map(entry => rt.botOf(entry.id)).filter(Boolean)
-      const batchKey = by !== undefined && peers.length > 0 ? registerBatch(room.id, by, peers) : undefined
+      const batchKey = by !== undefined && peers.length > 0
+        ? registerBatch(room.id, by, peers, group[0].direct === true, group[0].parentBatchKey)
+        : undefined
       round.batches = (round.batches ?? 0) + 1
       for (const entry of group) {
         round.slots.push({
@@ -1776,7 +1808,7 @@ export function install(rt) {
   // Whether an idle step must wait for the user: the room is paused, a zero-work cycle
   // formed, or this step reaches the idle/zero-work limit. Every call it would have made
   // waits in `room.paused` and runs once the user continues or writes, never dropped.
-  function holdIdleCalls(room, round, member, callees, { named = [], all = false, force = false, count, cause, limit } = {}) {
+  function holdIdleCalls(room, round, member, callees, { named = [], all = false, force = false, count, cause, limit, direct = false, parentBatchKey } = {}) {
     if (!force && room.idlePaused === undefined && (room.idleRelays ?? 0) < ROOM_IDLE_RELAY_LIMIT) return false
     const resolvedCause = cause ?? room.idlePaused?.cause ?? 'idle'
     const resolvedLimit = limit ?? (resolvedCause === 'zero-work' ? ROOM_ZERO_WORK_RELAY_LIMIT : resolvedCause === 'cycle' ? Math.max(count ?? 2, 2) : ROOM_IDLE_RELAY_LIMIT)
@@ -1789,7 +1821,15 @@ export function install(rt) {
       for (const peer of callees) {
         if (parked.some(entry => entry.id === peer.id)) continue
         const note = named.includes(peer) ? `${member.name} mentioned you` : all ? `${member.name} called everyone` : `${member.name} posted in the group`
-        parked.push({ id: peer.id, name: peer.name, note, by: member.id, idle: true })
+        parked.push({
+          id: peer.id,
+          name: peer.name,
+          note,
+          by: member.id,
+          idle: true,
+          ...(direct ? { direct: true } : {}),
+          ...(parentBatchKey !== undefined ? { parentBatchKey } : {}),
+        })
         added.push(peer)
       }
       room.paused = parked
@@ -1843,6 +1883,8 @@ export function install(rt) {
     all = false,
     called,
     countIdleText = true,
+    direct = false,
+    parentBatchKey,
   } = {}) {
     let idleStep = false
     let zeroWorkCycle = false
@@ -1896,7 +1938,7 @@ export function install(rt) {
       const cause = hitIdle ? 'idle' : zeroWorkCycle ? 'cycle' : zeroWorkLimit ? 'zero-work' : (room.idlePaused?.cause ?? 'idle')
       const limit = cause === 'idle' ? ROOM_IDLE_RELAY_LIMIT : cause === 'zero-work' ? ROOM_ZERO_WORK_RELAY_LIMIT : Math.max(room.zeroWorkRelays ?? 2, 2)
       const pauseCount = cause === 'idle' ? room.idleRelays : cause === 'cycle' ? Math.max(room.zeroWorkRelays ?? 2, 2) : room.zeroWorkRelays
-      if (holdIdleCalls(room, round, member, callees, { named, all, force: alreadyPaused || zeroWorkCycle || zeroWorkLimit, count: pauseCount, cause, limit })) {
+      if (holdIdleCalls(room, round, member, callees, { named, all, force: alreadyPaused || zeroWorkCycle || zeroWorkLimit, count: pauseCount, cause, limit, direct, parentBatchKey })) {
         return true
       }
     }
@@ -2230,7 +2272,11 @@ export function install(rt) {
           say(room, { who: sender.name, botId: sender.id, text, ...(post.route ? { route: post.route } : {}), ...(post.files === undefined ? {} : { files: post.files }), ...(post.claims === undefined ? {} : { claims: post.claims }), ...(post.changes === undefined ? {} : { changes: post.changes }), session: true, ...(post.late !== true && post.progress !== true ? { openingPost: true } : {}) })
           if (post.batch !== undefined && text !== '') recordResult(post.batch, sender.name, room.seq)
         }
-        callPost(room, round, sender, post.text ?? '', post)
+        const trackedRelay = post.exchangeId !== undefined ? pendingDirectRelays.get(post.exchangeId) : undefined
+        const resolvedPost = trackedRelay?.parentBatchKey !== undefined && trackedRelay.parentBatchKey !== post.parentBatchKey
+          ? { ...post, parentBatchKey: trackedRelay.parentBatchKey }
+          : post
+        callPost(room, round, sender, resolvedPost.text ?? '', resolvedPost)
         if (post.exchangeId !== undefined) pendingDirectRelays.delete(post.exchangeId)
         settleQueuedReportInRound(room, post)
         if (post.batchEnd) closeBatch(post.batch)
@@ -2412,8 +2458,11 @@ export function install(rt) {
       const holdsPost = idlePost && room.idlePaused !== undefined
       const opened = openingCall(room, post)
       const afterSeq = post._afterSeq ?? (typeof post.logged === 'number' ? post.logged + 1 : startSeq)
+      const trackedRelay = post.exchangeId !== undefined ? pendingDirectRelays.get(post.exchangeId) : undefined
+      const effectiveParentKey = trackedRelay?.parentBatchKey ?? post.parentBatchKey
       if (holdsPost) {
-        holdIdleCalls(room, round, poster, opened.speakers, { named, all: mentionResult.all === true })
+        holdIdleCalls(room, round, poster, opened.speakers, { named, all: mentionResult.all === true, direct: post.route?.expectsResult === true, parentBatchKey: effectiveParentKey })
+        if (post.exchangeId !== undefined) pendingDirectRelays.delete(post.exchangeId)
         if (post.reportBack && poster !== undefined) {
           if (multiPost) trackScopedReport(room, poster, post, [], afterSeq, { paused: true })
           else trackRoundReport(room, post, afterSeq)
@@ -2435,7 +2484,10 @@ export function install(rt) {
           idleTurn: delegateIdleTurn,
           named,
           countIdleText: false,
+          direct: post.route?.expectsResult === true,
+          parentBatchKey: effectiveParentKey,
         })) {
+          if (post.exchangeId !== undefined) pendingDirectRelays.delete(post.exchangeId)
           if (post.reportBack) {
             if (multiPost) trackScopedReport(room, poster, post, [], afterSeq, { paused: true })
             else trackRoundReport(room, post, afterSeq)
@@ -2454,9 +2506,9 @@ export function install(rt) {
       const ordered = opened.ordered
       // A batch's last result wakes the Bot that asked, with the results of the whole batch.
       const wake = post.batch === undefined || post.askedBy === undefined ? undefined : wakeOf(post.batch)
-      const wakeParentKey = post.parentBatchKey ?? (post.batch === undefined ? undefined : batches()[post.batch]?.parentBatchKey)
+      const wakeParentKey = effectiveParentKey ?? (post.batch === undefined ? undefined : batches()[post.batch]?.parentBatchKey)
       const calledByPost = post.botId !== undefined ? speakers.filter(member => named.includes(member)) : []
-      const openingBatchKey = post.botId !== undefined && calledByPost.length > 0 ? registerBatch(room.id, post.botId, calledByPost, post.route?.expectsResult, post.parentBatchKey) : undefined
+      const openingBatchKey = post.botId !== undefined && calledByPost.length > 0 ? registerBatch(room.id, post.botId, calledByPost, post.route?.expectsResult, effectiveParentKey) : undefined
       if (post.exchangeId !== undefined) pendingDirectRelays.delete(post.exchangeId)
       // The admin's own post that opens a round hands goal tasks the same way a call does.
       if (rt.isAdminOf(room, post.botId)) for (const member of calledByPost) rt.goalTaskWorking?.(room.id, member.id)
@@ -2832,7 +2884,7 @@ export function install(rt) {
     if (extra.worked === true) clearIdleStreak(room)
     else if (!idlePost && !extra.late && room.idlePaused === undefined && room.idleRelays !== undefined) delete room.idleRelays
     const opened = openingCall(room, post)
-    if (idlePost && room.idlePaused !== undefined && holdIdleCalls(room, round, sender, opened.speakers, { named, all: (mentionsOf(post, everyone) ?? mentionsIn(text, everyone)).all === true })) {
+    if (idlePost && room.idlePaused !== undefined && holdIdleCalls(room, round, sender, opened.speakers, { named, all: (mentionsOf(post, everyone) ?? mentionsIn(text, everyone)).all === true, direct: extra.route?.expectsResult === true, parentBatchKey: extra.parentBatchKey })) {
       settleQueuedReportInRound(room, post, { paused: true })
       return 'paused'
     }
@@ -2852,6 +2904,8 @@ export function install(rt) {
         idleTurn: delegateIdleTurn,
         named,
         countIdleText: false,
+        direct: extra.route?.expectsResult === true,
+        parentBatchKey: extra.parentBatchKey,
       })) {
         settleQueuedReportInRound(room, post, { paused: true })
         return 'paused'
@@ -3249,13 +3303,23 @@ export function install(rt) {
 
   // Cancel pending Bot/goal relays while preserving deferred user messages, images, and goal drafts.
   async function cancelRoomQueues(room) {
+    const cancelledParents = []
+    const recordCancelledDirect = (exchangeId, by, parentBatchKey) => {
+      const tracked = exchangeId !== undefined ? pendingDirectRelays.get(exchangeId) : undefined
+      if (exchangeId !== undefined) pendingDirectRelays.delete(exchangeId)
+      const resolvedBy = tracked?.by ?? by
+      const resolvedParent = tracked?.parentBatchKey ?? parentBatchKey
+      if (resolvedBy !== undefined && resolvedParent !== undefined) {
+        cancelledParents.push({ by: resolvedBy, parentBatchKey: resolvedParent })
+      }
+    }
     const cancelPending = (list) => {
       const kept = []
       for (const post of list) {
         if (isBotPendingPost(post)) {
           rememberStoppedRelay(post.exchangeId)
           rememberStoppedRelay(post.reportId)
-          if (post.exchangeId !== undefined) pendingDirectRelays.delete(post.exchangeId)
+          recordCancelledDirect(post.exchangeId, post.botId, post.parentBatchKey)
           if (post.batchEnd && post.batch) closeBatch(post.batch)
         } else {
           kept.push(post)
@@ -3287,13 +3351,14 @@ export function install(rt) {
             if (!cancelable) continue
             rememberStoppedRelay(src.exchangeId)
             rememberStoppedRelay(src.reportId)
-            if (src.exchangeId !== undefined) pendingDirectRelays.delete(src.exchangeId)
+            recordCancelledDirect(src.exchangeId, src.senderSessionId, src.parentBatchKey)
             if (src.batchEnd && src.batch) closeBatch(src.batch)
             roomAgent.inbox.remove(message.id)
           }
         }
       }
     } catch {}
+    releaseIdleParentBatches(room, cancelledParents)
   }
 
   // Stops every other member's work, remaining waiting slots, and queued Bot/goal relays
@@ -3311,6 +3376,9 @@ export function install(rt) {
       }
       running.nudge?.()
     }
+    const parkedParents = (room.paused ?? [])
+      .filter(entry => entry.direct === true && entry.by !== undefined && entry.parentBatchKey !== undefined)
+      .map(entry => ({ by: entry.by, parentBatchKey: entry.parentBatchKey }))
     if (room.paused !== undefined || room.idlePaused !== undefined) {
       unpauseRoomIdle(room)
       delete room.paused
@@ -3327,6 +3395,7 @@ export function install(rt) {
       }
     }
     await cancelRoomQueues(room)
+    releaseIdleParentBatches(room, parkedParents)
     return stopped
   }
   rt.stopOtherRoomWork = stopOtherRoomWork
@@ -3362,6 +3431,9 @@ export function install(rt) {
         failures.push(result.reason)
       }
     }
+    const parkedParents = (room.paused ?? [])
+      .filter(entry => entry.direct === true && entry.by !== undefined && entry.parentBatchKey !== undefined)
+      .map(entry => ({ by: entry.by, parentBatchKey: entry.parentBatchKey }))
     if (room.paused !== undefined || room.idlePaused !== undefined) {
       unpauseRoomIdle(room)
       delete room.paused
@@ -3369,6 +3441,7 @@ export function install(rt) {
     }
     stopRoomReports(room.id)
     await cancelRoomQueues(room)
+    releaseIdleParentBatches(room, parkedParents)
     rt.goalUserStopped?.(room.id)
     void settleRoomReports(room.id).catch(error => rt.warn('ds-bot: settling reports in %s failed: %s', room.name, error))
     if (failures.length > 0) throw failures[0]
