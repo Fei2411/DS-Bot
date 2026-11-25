@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import fsp from 'node:fs/promises'
+import { syncBuiltinESMExports } from 'node:module'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { PassThrough } from 'node:stream'
 import { test } from 'node:test'
 import { install as installFeed } from '../src/host/feed.js'
@@ -132,6 +134,100 @@ test('workspace-list and workspace-read enforce containment, skip symlink cycles
   await assert.rejects(() => rt.workspaceEndpoint('read', { sessionId: 'b1', path: 'README.md\0.txt' }), { code: 'bot/invalid' })
   await assert.rejects(() => rt.workspaceEndpoint('read', { sessionId: 'b1', path: 'does-not-exist.md' }), { code: 'bot/not-found' })
   await assert.rejects(() => rt.workspaceEndpoint('read', { sessionId: 'b1', path: 'escape-link.txt' }), { code: 'bot/refused' })
+})
+
+test('workspace-list inspects eight entries at a time and keeps readdir order for name ties', async (t) => {
+  const workDir = mkdtempSync(join(tmpdir(), 'dsb-wp-par-'))
+  const dshHome = mkdtempSync(join(tmpdir(), 'dsb-wp-dsh-'))
+  t.after(() => {
+    rmSync(workDir, { recursive: true, force: true })
+    rmSync(dshHome, { recursive: true, force: true })
+  })
+  for (let i = 0; i < 36; i++) writeFileSync(join(workDir, `file-${String(i).padStart(2, '0')}.txt`), 'x'.repeat(i))
+  for (let i = 0; i < 4; i++) mkdirSync(join(workDir, `dir-${i}`))
+  // Equal under the listing's base-sensitivity compare, so their order comes from readdir.
+  for (const name of ['cafe.md', 'caf\u00e9.md', 'resume.txt', 'r\u00e9sum\u00e9.txt']) writeFileSync(join(workDir, name), name)
+  writeFileSync(join(workDir, '.hidden'), '')
+
+  const { realpath } = fsp
+  // The listing resolves through fs/promises, which expands Windows 8.3 short names that realpathSync keeps.
+  const realWork = await realpath(workDir)
+  let started = 0
+  let inspecting = 0
+  let peak = 0
+  fsp.realpath = async (path, ...rest) => {
+    if (dirname(String(path)) !== realWork) return realpath(path, ...rest)
+    inspecting++
+    peak = Math.max(peak, inspecting)
+    // Each lookup takes less time than the one started before it, so lookups finish out of order.
+    await new Promise(resolve => setTimeout(resolve, Math.max(0, 45 - started++)))
+    try { return await realpath(path, ...rest) } finally { inspecting-- }
+  }
+  syncBuiltinESMExports()
+  t.after(() => {
+    fsp.realpath = realpath
+    syncBuiltinESMExports()
+  })
+
+  const { rt } = createRuntime(workDir, { dshHome })
+  const list = await rt.workspaceEndpoint('list', { sessionId: 'b1', path: '' })
+
+  const expected = readdirSync(workDir, { withFileTypes: true })
+    .filter(entry => !entry.name.startsWith('.'))
+    .map(entry => ({ name: entry.name, kind: entry.isDirectory() ? 'dir' : 'file' }))
+    .sort((a, b) => {
+      if (a.kind !== b.kind) return a.kind === 'dir' ? -1 : 1
+      return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
+    })
+  assert.deepEqual(list.entries.map(e => e.name), expected.map(e => e.name))
+  const { mtimeMs, ...row } = list.entries.find(e => e.name === 'file-07.txt')
+  assert.deepEqual(row, { name: 'file-07.txt', path: 'file-07.txt', kind: 'file', size: 7, ext: '.txt' })
+  assert.equal(Number.isInteger(mtimeMs), true)
+  assert.equal(list.truncated, false)
+  assert.equal(peak, 8)
+})
+
+test('workspace-list keeps the first 500 sorted entries of a large folder', async (t) => {
+  const workDir = mkdtempSync(join(tmpdir(), 'dsb-wp-big-'))
+  const dshHome = mkdtempSync(join(tmpdir(), 'dsb-wp-dsh-'))
+  t.after(() => {
+    rmSync(workDir, { recursive: true, force: true })
+    rmSync(dshHome, { recursive: true, force: true })
+  })
+  for (let i = 0; i < 520; i++) writeFileSync(join(workDir, `f-${String(i).padStart(3, '0')}.txt`), '')
+  for (let i = 0; i < 3; i++) mkdirSync(join(workDir, `z-dir-${i}`))
+
+  const { rt } = createRuntime(workDir, { dshHome })
+  const list = await rt.workspaceEndpoint('list', { sessionId: 'b1', path: '' })
+  assert.equal(list.truncated, true)
+  assert.equal(list.entries.length, 500)
+  assert.deepEqual(list.entries.slice(0, 4).map(e => e.name), ['z-dir-0', 'z-dir-1', 'z-dir-2', 'f-000.txt'])
+  assert.equal(list.entries.at(-1).name, 'f-496.txt')
+})
+
+test('workspace-list leaves out folder junctions inside and outside the workspace', async (t) => {
+  const workDir = mkdtempSync(join(tmpdir(), 'dsb-wp-jn-'))
+  const outsideDir = mkdtempSync(join(tmpdir(), 'dsb-wp-jn-out-'))
+  const dshHome = mkdtempSync(join(tmpdir(), 'dsb-wp-dsh-'))
+  t.after(() => {
+    rmSync(workDir, { recursive: true, force: true })
+    rmSync(outsideDir, { recursive: true, force: true })
+    rmSync(dshHome, { recursive: true, force: true })
+  })
+  mkdirSync(join(workDir, 'inside'))
+  writeFileSync(join(workDir, 'inside', 'a.txt'), 'a')
+  writeFileSync(join(outsideDir, 'secret.txt'), 'secret')
+  // Junctions need no privilege on Windows; elsewhere the type is ignored and a folder symlink is made.
+  symlinkSync(join(workDir, 'inside'), join(workDir, 'inside-junction'), 'junction')
+  symlinkSync(outsideDir, join(workDir, 'outside-junction'), 'junction')
+  symlinkSync(join(workDir, 'inside'), join(workDir, 'inside', 'loop-junction'), 'junction')
+
+  const { rt } = createRuntime(workDir, { dshHome })
+  const root = await rt.workspaceEndpoint('list', { sessionId: 'b1', path: '' })
+  assert.deepEqual(root.entries.map(e => [e.name, e.path, e.kind]), [['inside', 'inside', 'dir']])
+  const inside = await rt.workspaceEndpoint('list', { sessionId: 'b1', path: 'inside' })
+  assert.deepEqual(inside.entries.map(e => [e.name, e.path, e.kind]), [['a.txt', 'inside/a.txt', 'file']])
+  await assert.rejects(() => rt.workspaceEndpoint('list', { sessionId: 'b1', path: 'outside-junction' }), { code: 'bot/refused' })
 })
 
 test('resolveWorkspaceRoot resolves rolled-over Bot segments, live working_directory subfolders, and refuses inData roots', async (t) => {
