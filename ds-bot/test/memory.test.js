@@ -1126,6 +1126,23 @@ test('the memory panel shows every entry and a summary the Bot\'s model writes o
   assert.equal((await call('memory-view', { botId: 'nope' })).error.message, 'Unknown Bot')
 })
 
+test('a memory call that runs out of time says so instead of "Request was aborted" (#2026)', async (t) => {
+  const { ctx, tool, call, requests, stop } = start({ config: { memoryModelTimeoutMs: 30 } })
+  t.after(() => stop())
+  // Like a slow model behind pi-ai: the request ends only when its signal is aborted.
+  ctx.llm.stream = async function* (request) {
+    requests.push(request)
+    if (!request.signal.aborted) await new Promise(resolve => request.signal.addEventListener('abort', resolve, { once: true }))
+    yield { type: 'finish', reason: { kind: 'aborted', failure: { message: 'Request was aborted' } } }
+  }
+  await tool('bot_remember', { text: 'Likes tea' }, 'b2')
+  await call('memory-view', { botId: 'b2', summarize: true })
+  await summarized(call)
+  const failed = (await call('memory-view', { botId: 'b2' })).value
+  assert.equal(requests.length, 1)
+  assert.equal(failed.error, 'deepseek/v4 did not answer within 0.03 s')
+})
+
 test('a summary cut off at the output limit is written once more with a bigger budget, never kept half', async (t) => {
   const replies = [
     { text: '## Overview\nYou like', finish: 'max-tokens' },

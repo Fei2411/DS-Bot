@@ -850,10 +850,11 @@ export function install(rt) {
         return { status: 'error', error }
       }
     }
-    const inspect = ctx.sessionController?.inspect
-    if (typeof inspect === 'function') {
+    const controller = ctx.sessionController
+    if (typeof controller?.inspect === 'function') {
       try {
-        const seen = await inspect(sessionId, signal)
+        // Call inspect as a method of the controller so `this` stays bound (#2037).
+        const seen = await controller.inspect(sessionId, signal)
         return preferLiveIfNewer({ status: 'ok', events: Array.isArray(seen?.events) ? seen.events : [] })
       } catch (error) {
         if (isMissingSessionError(error)) return preferLiveIfNewer({ status: 'not_found', events: [] })
