@@ -4,6 +4,7 @@
 import { join } from 'node:path'
 import * as diagnostics from './src/host/diagnostics.js'
 import * as store from './src/host/store.js'
+import * as coordination from './src/host/coordination.js'
 import * as models from './src/host/models.js'
 import * as providers from './src/host/providers.js'
 import * as chatgpt from './src/host/chatgpt.js'
@@ -78,7 +79,7 @@ export { name, inject } from './src/host/entry.js'
 // usage meters model requests after every listener that rewrites them. privacy checks a
 // call before the hooks of tools do, so a closed call never reaches a card they show.
 // extraFolders answers an approval ahead of approvals, which would show it to the user.
-const MODULES = [diagnostics, store, ledger, models, providers, permissions, turns, steer, handoffs, requests, delivery, roster, folders, privacy, agents, prompt, timeContext, tools, issueReport, deepseekServices, chatIndex, groups, goals, agentCommands, tasks, approvals, extraFolders, resume, memory, parts, botTasks, changes, images, avatarLibrary, appearance, secrets, connectors, capabilities, plugins, learning, schedules, browser, browserPlugins, computer, usage, update, dshUpdate, thinking, mobile, feed, sessionFollow, workspacePanel, engineSettings, phone, im, externalApi, channel, remote, officeSkills, goalSkills, maintenanceSkills, manualSkills, localAgents]
+const MODULES = [diagnostics, store, ledger, coordination, models, providers, permissions, turns, steer, handoffs, requests, delivery, roster, folders, privacy, agents, prompt, timeContext, tools, issueReport, deepseekServices, chatIndex, groups, goals, agentCommands, tasks, approvals, extraFolders, resume, memory, parts, botTasks, changes, images, avatarLibrary, appearance, secrets, connectors, capabilities, plugins, learning, schedules, browser, browserPlugins, computer, usage, update, dshUpdate, thinking, mobile, feed, sessionFollow, workspacePanel, engineSettings, phone, im, externalApi, channel, remote, officeSkills, goalSkills, maintenanceSkills, manualSkills, localAgents]
 
 export function apply(ctx, config = {}) {
   createRuntime(ctx, config)

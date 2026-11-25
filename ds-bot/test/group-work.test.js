@@ -3790,7 +3790,7 @@ test('pause notices reflect cycle vs zero-work causes, alreadyPaused re-announce
     assert.equal(r1.idlePaused, undefined)
   }
 
-  // 2) Zero-work 4-turn non-cyclic chain notice copy uses real limit 4.
+  // 2) All six members of a non-cyclic text-only handoff chain get their own turn without a fixed 4-hop cap.
   {
     const host = await start(t, {}, undefined, {}, { d: {} })
     const r1 = rt.roomOf('r1')
@@ -3804,7 +3804,6 @@ test('pause notices reflect cycle vs zero-work causes, alreadyPaused re-announce
     rt.groupOwners.set('ge', { botId: 'e', roomId: 'r1' })
     rt.groupOwners.set('gf', { botId: 'f', roomId: 'r1' })
 
-    // Chain: User -> Chief -> Writer (1) -> Tester (2) -> Reviewer (3) -> Editor (4, hits limit) -> @QA (parked).
     const first = host.round('c-zw', host.say('@Chief kick off the chain'))
     await settle(() => host.agentOf('ga').calls.length === 1)
     host.begin('ga')
@@ -3821,12 +3820,12 @@ test('pause notices reflect cycle vs zero-work causes, alreadyPaused re-announce
     await settle(() => host.agentOf('ge').calls.length === 1)
     host.begin('ge')
     host.finish('ge', '@QA please inspect the output')
+    await settle(() => host.agentOf('gf').calls.length === 1)
+    host.begin('gf')
+    host.finish('gf', 'QA verified the output.')
     await settle(() => first() !== undefined)
-    assert.equal(host.agentOf('gf').calls.length, 0, 'QA must be parked after 4th consecutive zero-work hop')
-    const notice = r1.log.find(line => line.kind === 'notice' && line.reason === 'paused')
-    assert.equal(notice?.cause, 'zero-work')
-    assert.equal(notice?.limit, 4)
-    assert.match(await host.tool('read_group_chat', { group: 'Ops' }, 'a'), /exchanged 4 consecutive messages without running any work tool/)
+    assert.equal(host.agentOf('gf').calls.length, 1, 'acyclic text-only chain should reach QA without fixed turn cap')
+    assert.equal(r1.idlePaused, undefined)
   }
 
   // 3) releaseParked merges multiple parked calls from the same caller into ONE batch and skips removed members.

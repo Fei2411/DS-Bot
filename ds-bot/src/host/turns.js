@@ -9,7 +9,7 @@ import { HANDOFF_ACK, isSilentTurnText, isWorkTool, LATE_ANSWER, MESSAGE_INLINE_
 import { cleanText } from './diagnostics.js'
 import { absoluteLinks } from './links.js'
 import { splitRef, textOf } from './text.js'
-import { sameConversation, threadCurrentOfPart } from './threads.js'
+import { returnAddress, sameConversation, threadCurrentOfPart } from './threads.js'
 import { viaOf } from '../shared/im-platforms.js'
 import { reminderText } from './schedules.js'
 import { usageChunk } from './usage.js'
@@ -161,7 +161,7 @@ export function answerSender(rt, id, source, text, long, options = {}) {
   if (replyImOrigin !== undefined) rt.rememberImReplyOrigin?.(source.exchangeId, replyImOrigin)
   const work = rt.closeWork?.(source.exchangeId, name, text, workWorked ? { worked: true } : undefined)
   if (workBeforeClose !== undefined && options.failure === undefined && options.aborted !== true) {
-    rt.noteWorkCompleted?.(workBeforeClose.from, workBeforeClose.to, { worked: workWorked, id: source.exchangeId, text })
+    rt.noteWorkCompleted?.(workBeforeClose.from, workBeforeClose.to, { worked: workWorked, id: source.exchangeId, goalKey: workBeforeClose.goalKey, text })
   }
   if (exchangeKey !== undefined) {
     guards.exchanges.add(exchangeKey)
@@ -179,9 +179,12 @@ export function answerSender(rt, id, source, text, long, options = {}) {
   const marker = late === undefined ? '' : LATE_ANSWER
   const body = marker === '' ? (long?.text ?? text) : `${marker}${long?.text ?? text}`
   const length = long === undefined ? undefined : late === undefined ? long.length : (long.length ?? text.length) + marker.length
-  const exchangeId = randomUUID()
-  void rt.deliver({
+  const exchangeId = source.exchangeId ? `${late ? 'late-reply' : 'reply'}:${source.exchangeId}` : randomUUID()
+  const rawAddress = returnAddress(rt.botOf(toId), source.senderPart, source.senderRoomId)
+  const address = target !== undefined ? rawAddress : { foreground: true }
+  const deliverPayload = {
     fromId,
+    fromName: name,
     toId,
     ...(target ? { sessionId: target } : {}),
     text: body,
@@ -189,11 +192,16 @@ export function answerSender(rt, id, source, text, long, options = {}) {
     role: 'reply',
     replyTo: source.exchangeId,
     exchangeId,
+    address,
     ...(work ? { work } : {}),
     ...(workRef ? { workRef } : {}),
     ...(failureRequestId === undefined ? {} : { failureRequestId }),
-  }).catch((error) => {
+  }
+  void rt.deliver(deliverPayload).catch((error) => {
     rt.warn('ds-bot: reply delivery failed: %s', error)
+    // If admission/flush is uncertain or the target task/room permanently closed,
+    // never emit a second waking message.
+    if (error?.delivered === true || error?.code === 'bot/unresolved-return') return
     // The reply never reached the asker: its note goes — the notice below carries
     // what it answered — the result kept with the work is marked, and the failure
     // reaches the asker the way the reply would have, so the work goes on and its
@@ -203,12 +211,14 @@ export function answerSender(rt, id, source, text, long, options = {}) {
     const said = `${name} could not send its reply to you (${failureLine(turnFailure(error))}); what it had answered:\n`
     void rt.deliver({
       fromId,
+      fromName: name,
       toId,
       ...(target ? { sessionId: target } : {}),
       text: `${said}${long?.text ?? text}`,
       ...(long?.length === undefined ? {} : { files: long.files, length: said.length + long.length }),
       role: 'reply',
       replyTo: source.exchangeId,
+      address,
       ...(work ? { work } : {}),
       ...(failureRequestId === undefined ? {} : { failureRequestId }),
     }).catch((again) => {
@@ -1730,6 +1740,10 @@ export function install(rt) {
           const currentState = rt.workStateOf?.(work)
           if (currentState === 'need_input' || currentState === 'paused' || askedBackWork === work) return
           if (rt.waitsWork(work)) return rt.holdWork(work, reply)
+          const task = rt.taskBySession?.(id)?.task
+          if (task?.origin === 'bot-handoff' && task.exchangeId === work && (rt.runningJobs?.(id)?.length ?? 0) > 0) {
+            return rt.holdWork(work, reply)
+          }
           // With what came back, the answer may pass what one message carries.
           const text = rt.answerText(work, reply, name)
           const opts = { worked: workToolCount > 0 }

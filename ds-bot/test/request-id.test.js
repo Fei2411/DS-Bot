@@ -211,24 +211,24 @@ test('a request whose delivery failed is not sent again', async (t) => {
   assert.equal(writer.calls.length, 0)
 })
 
-test('a request with an id takes in the message before it, and a repeat merges nothing', async (t) => {
+test('separate request IDs get separate assignments; retrying one does not enqueue it again', async (t) => {
   const home = tempHome()
   const { agentOf, emit, tool, stop } = await boot(home, team())
   t.after(async () => { await stop(); cleanup(home) })
 
   const writer = agentOf('b')
-  writer.steer = (message) => { writer.calls.push(['steer', message]); writer.inbox.nextStep.push(message) }
+  writer.followup = (message) => { writer.calls.push(['followup', message]); writer.inbox.nextTurn.push(message) }
   emit('b', 'turn/start', { turn: 1 })
 
-  const first = await tool('delegate_work', { to: 'Writer', goal: 'task 1', request_id: 'r-1' }, 'a')
-  const second = await tool('delegate_work', { to: 'Writer', goal: 'task 2', request_id: 'r-2' }, 'a')
-  assert.match(second, /had not read your earlier request yet/)
-  assert.equal(writer.inbox.nextStep.length, 1)
+  const first = await tool('delegate_work', { to: 'Writer', goal: 'task 1', request_id: 'r-1', when: 'queue' }, 'a')
+  const second = await tool('delegate_work', { to: 'Writer', goal: 'task 2', request_id: 'r-2', when: 'queue' }, 'a')
+  assert.match(second, /#W2/)
+  assert.equal(writer.inbox.nextTurn.length, 2)
 
-  const again = await tool('delegate_work', { to: 'Writer', goal: 'task 1', request_id: 'r-1' }, 'a')
+  const again = await tool('delegate_work', { to: 'Writer', goal: 'task 1', request_id: 'r-1', when: 'queue' }, 'a')
   assert.equal(again, first)
-  assert.equal(writer.inbox.nextStep.length, 1)
-  assert.equal(writer.inbox.nextStep[0].source.exchangeId, writer.calls[0][1].source.exchangeId)
+  assert.equal(writer.inbox.nextTurn.length, 2)
+  assert.equal(writer.inbox.nextTurn[0].source.exchangeId, writer.calls[0][1].source.exchangeId)
 })
 
 test('a request with an id that queues, or that answers the user, goes out once', async (t) => {

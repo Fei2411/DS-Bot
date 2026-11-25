@@ -3,14 +3,14 @@
 import { randomUUID } from 'node:crypto'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { readAvatar } from './avatar.js'
-import { CATALOG_PACK_TOOLS, COLORS, EXTRA_COLORS, GROUP_ONLY_TOOLS, MESSAGE_INLINE_MAX, ROOM_MODES, SOURCE_KIND, TASK_HIDDEN_TEAM_TOOLS, TEXT_KEPT } from './constants.js'
+import { CATALOG_PACK_TOOLS, COLORS, EXTRA_COLORS, GROUP_ONLY_TOOLS, isAckLikeText, MESSAGE_INLINE_MAX, ROOM_MODES, TASK_HIDDEN_TEAM_TOOLS, TEXT_KEPT } from './constants.js'
 import { within } from './folders.js'
 import { missingFileRefs } from './claims.js'
 import { absoluteLinks } from './links.js'
 import { NAME_MAX } from './requests.js'
 import { roomRequest, roomNote, waitsOnMember } from './room-message.js'
 import { unquote } from './text.js'
-import { ownChatSessions, threadCurrentOfPart } from './threads.js'
+import { ownChatSessions, returnAddress, threadCurrentOfPart } from './threads.js'
 import { mentionSpans } from '../shared/mentions.js'
 import { plainToolSchema } from './tool-schema.js'
 import { viewCardText } from './parts.js'
@@ -182,21 +182,6 @@ export function install(rt) {
     if (rt.taskOwners?.has(sessionId)) return 'a background task'
     return 'its own chat'
   }
-  // A Bot request still in the inbox: no step or turn has taken it out yet.
-  const unreadRequest = (agent, senderId, toUser) => {
-    for (const [message, steered] of [...(agent.inbox?.nextStep ?? []).map(message => [message, true]), ...(agent.inbox?.nextTurn ?? []).map(message => [message, false])]) {
-      const source = message.source
-      if (source?.kind === SOURCE_KIND && source.role === 'request' && source.senderSessionId === senderId
-        && (source.audience === 'user') === toUser && !source.deferred && !source.resumed) return { message, steered }
-    }
-    return undefined
-  }
-  // A message's own words and files, without its header line.
-  const bodyOf = (message) => {
-    const content = Array.isArray(message.content) ? message.content : []
-    const first = content.find(block => block?.type === 'text')?.text ?? ''
-    return { text: first.slice(first.indexOf('\n') + 1), files: content.filter(block => block?.type === 'file' && block.attachment !== undefined).map(block => block.attachment) }
-  }
 
   // A tool that throws shows as failed in the chat, instead of as sent or stopped.
   const refuse = (message) => { throw new Error(message) }
@@ -286,34 +271,19 @@ export function install(rt) {
     return `${plain} ${kept}${whole} If you end your turn without writing any text, ${cut ? 'that part' : 'it'} goes up to ${to}; any text you write for this work from now on goes up instead.`
   }
 
-  // Dispatches a delegated work request to `target`, handling unread merging,
-  // long-file attachments, busy-foreground background handoff, and live delivery.
-  // Used by both `delegate_work` and `resumePausedWork` so paused delegations run
-  // through the exact same path when the user clicks Continue.
+  // Each admission is a distinct assignment even when the target already has unread work;
+  // only an explicit request_id retry or resumption reuses an existing assignment.
   async function dispatchDelegation({ sender, target, text, files = [], length, fromPart, parentWork, imOrigin, follows, toUser = false, when = 'now', request, existingWork, callerWorked = false }) {
     const chat = rt.chatOf(target.id)
     const agent = await rt.resolveAgent(chat)
     const status = rt.statusOf(target.id)
-    const earlier = existingWork !== undefined ? undefined : unreadRequest(agent, sender.id, toUser)
-    const joinable = earlier !== undefined
-      && earlier.message.source.follows === follows
-      && (toUser || ((earlier.message.source.senderPart ?? undefined) === fromPart && rt.sameWork(earlier.message.source.exchangeId, parentWork)))
-    const before = joinable ? bodyOf(earlier.message) : undefined
-    // Snapshot prior inflight unread args BEFORE inbox.remove() synchronously emits
-    // `agent/inbox/discarded` (which clears `resume.js`'s queued tracking for exchangeId).
-    const prevUnread = before !== undefined
-      ? (rt.unreadOf?.(chat) ?? []).find(item => item?.exchangeId === earlier.message.source.exchangeId)
-      : undefined
-    let long = length !== undefined && before === undefined
+    const long = length !== undefined
       ? { text, files, length }
-      : await rt.attachLong(before ? `${before.text}\n\n${text}` : text, `Work from ${sender.name}.txt`)
+      : await rt.attachLong(text, `Work from ${sender.name}.txt`)
     if (long === undefined) { if (request !== undefined) request.unsent = true; return tooLong(text) }
-    const joins = before !== undefined && agent.inbox?.remove?.(earlier.message.id) === true
-    if (before !== undefined && !joins) long = await rt.attachLong(text, `Work from ${sender.name}.txt`) ?? long
-    const working = rt.live.get(chat)?.turn !== undefined
-    const steer = (when !== 'queue' && !toUser) || (joins && earlier.steered)
-    const exchangeId = existingWork?.id ?? (joins ? earlier.message.source.exchangeId : randomUUID())
-    const spawnInBackground = working && !toUser && !joins && when !== 'queue'
+    const working = rt.live.get(chat)?.turn !== undefined || agent.status === 'running'
+    const exchangeId = existingWork?.id ?? randomUUID()
+    const spawnInBackground = working && !toUser && when !== 'queue'
       && rt.shouldMoveForeground?.(target, chat, { forPeer: true }) === true
       && typeof rt.spawnBotHandoffTask === 'function'
     if (spawnInBackground) {
@@ -356,14 +326,7 @@ export function install(rt) {
     let workRef = existingWork?.work?.ref
     const prevState = existingWork?.work?.state
     const prevPaused = existingWork?.work?.paused
-    const joinedWork = joins && !toUser ? rt.resolveWork?.(exchangeId)?.work : undefined
-    const prevImOrigin = joinedWork?.imOrigin
-    const prevImOriginMixed = joinedWork?.imOriginMixed
-    if (joins) {
-      rt.forgetDelivery?.(exchangeId)
-      if (!toUser) rt.mergeWorkImOrigin?.(exchangeId, imOrigin)
-      workRef = rt.workRefOf?.(exchangeId)
-    } else if (existingWork !== undefined && !toUser) {
+    if (existingWork !== undefined && !toUser) {
       existingWork.work.state = 'open'
       delete existingWork.work.paused
       void rt.save().catch(() => {})
@@ -377,46 +340,24 @@ export function install(rt) {
         toId: target.id,
         ...(fromPart ? { fromPart } : {}),
         text: long.text,
-        files: [...long.files, ...(joins ? before.files : [])],
+        files: long.files,
         length: long.length,
         role: 'request',
         ...(follows ? { follows } : {}),
-        steer,
+        steer: !working && when !== 'queue' && !toUser,
         exchangeId,
         ...(workRef ? { workRef } : {}),
-        ...(joins ? { merged: true } : {}),
         ...(toUser ? { audience: 'user' } : {}),
       })
     } catch (error) {
-      if (error?.delivered === false) {
-        rt.forgetDelivery?.(exchangeId)
-        if (joins) {
-          // Restore the original unread message and delivery tracking so a failed merge
-          // never strands the already-open work in state.works.
-          const restoreTarget = earlier.steered ? 'next-step' : 'next-turn'
-          try {
-            if (typeof agent.send === 'function') agent.send(earlier.message, restoreTarget, true)
-            else if (earlier.steered) agent.steer?.(earlier.message)
-            else agent.followup?.(earlier.message)
-            await ctx.sessions.flush(agent.session).catch(() => {})
-          } catch {}
-          if (prevUnread !== undefined) rt.restoreDelivery?.(chat, prevUnread)
-          if (joinedWork !== undefined) {
-            if (prevImOrigin !== undefined) joinedWork.imOrigin = prevImOrigin
-            else delete joinedWork.imOrigin
-            if (prevImOriginMixed === true) joinedWork.imOriginMixed = true
-            else delete joinedWork.imOriginMixed
-            void rt.save().catch(() => {})
-          }
-        }
-      }
+      if (error?.delivered === false) rt.forgetDelivery?.(exchangeId)
       if (existingWork !== undefined && !toUser) {
         if (error?.delivered !== true) {
           existingWork.work.state = prevState
           if (prevPaused !== undefined) existingWork.work.paused = prevPaused
           void rt.save().catch(() => {})
         }
-      } else if (!joins && existingWork === undefined && !toUser && (error?.delivered === false || rt.botOf(target.id) === undefined)) {
+      } else if (existingWork === undefined && !toUser && (error?.delivered === false || rt.botOf(target.id) === undefined)) {
         rt.dropWork(exchangeId)
       }
       throw error
@@ -428,14 +369,11 @@ export function install(rt) {
     const label = workRef ? ` work #${workRef}` : ''
     const sent = toUser
       ? `Delegated to ${target.name}. It will answer the user in its own chat; nothing comes back to you, so point the user to ${target.name}'s chat instead of relaying.`
-      : working && steer
-        ? `Delegated${label} to ${target.name} while it is working: it reads this at its next step and returns the result once done. Do not wait or poll.`
-        : working
-          ? `Queued${label} for ${target.name}: it starts after its current work and returns the result once done. Do not wait or poll.`
-          : `Delegated${label} to ${target.name}. Its result returns automatically and closes${label || ' the work'} when done; do not wait or poll.`
+      : working
+        ? `Queued${label} for ${target.name}: it starts after its current work and returns the result once done. Do not wait or poll.`
+        : `Delegated${label} to ${target.name}. Its result returns automatically and closes${label || ' the work'} when done; do not wait or poll.`
     const asker = rt.ownsWork(sender.id, parentWork) ? rt.botOf(state.works[parentWork].from)?.name : undefined
     const notes = [
-      joins ? `${target.name} had not read your earlier request yet, so this one was added to it, and it handles both at once.` : '',
       status === 'idle' ? '' : `${target.name} now: ${status}.`,
       asker ? `When you have handed on everything, end your turn: each completed sub-work brings you back, and your answer goes to ${asker} once all of it is back.` : '',
     ].filter(Boolean)
@@ -548,10 +486,11 @@ export function install(rt) {
             ...(Array.isArray(paused.files) && paused.files.length > 0 ? { files: paused.files } : {}),
             ...(paused.length !== undefined ? { length: paused.length } : {}),
             role: 'ask_back',
+            address: returnAddress(sender, work.fromPart, work.fromRoom),
             askWork: resolved.id,
             ...(work.parent ? { work: work.parent } : {}),
             ...(work.ref ? { workRef: work.ref } : {}),
-            steer: true,
+            steer: false,
             exchangeId: askExchangeId,
           })
         } catch (error) {
@@ -685,6 +624,9 @@ export function install(rt) {
         if (followUp !== resultRef.toUpperCase()) {
           refuse(`Not sent: follow_up_to must identify the completed work that opened this turn (${resultRef}).`)
         }
+        if (isAckLikeText(rawGoal)) {
+          refuse('Not sent: an acknowledgement does not open a follow-up task. The work is already closed.')
+        }
       }
       if (room !== undefined) {
         const refusal = groupRefusal(room, sender, target)
@@ -751,7 +693,7 @@ export function install(rt) {
           if (loop.pause === 'idle_loop') {
             return `Paused work${ref} before waking ${target.name}: you and ${target.name} already went back and forth without running any work tools. If this is just a wrap-up or acknowledgement, stop here (reply [PASS]) or use note_bot for a silent update. Otherwise the user can click Continue on the pause card.`
           }
-          return `Paused work${ref} before waking ${target.name}: you and ${target.name} have completed ${loop.bounces} consecutive delegations since the user last wrote. The user can click Continue on the pause card to keep going.`
+          return `Paused work${ref} before waking ${target.name}: the same assignment returned the same result ${loop.bounces} times. The user can click Continue on the pause card if that repetition is intentional.`
         }
         return dispatchDelegation({ sender, target, text, fromPart, parentWork: work, imOrigin, follows: followUp || undefined, toUser, when, request, callerWorked })
       }
@@ -824,10 +766,11 @@ export function install(rt) {
           files: long.files,
           ...(long.length !== undefined ? { length: long.length } : {}),
           role: 'ask_back',
+          address: returnAddress(caller, fromPart, resolved.work.fromRoom),
           askWork: resolved.id,
           ...(resolved.work.parent ? { work: resolved.work.parent } : {}),
           ...(resolved.work.ref ? { workRef: resolved.work.ref } : {}),
-          steer: true,
+          steer: false,
           exchangeId: askExchangeId,
         })
       } catch (error) {
@@ -910,9 +853,10 @@ export function install(rt) {
           files: long.files,
           ...(long.length !== undefined ? { length: long.length } : {}),
           role: 'answer',
+          address: resolved.work.toTaskId ? { taskId: resolved.work.toTaskId } : returnAddress(worker, resolved.work.toSession),
           work: resolved.id,
           ...(resolved.work.ref ? { workRef: resolved.work.ref } : {}),
-          steer: true,
+          steer: false,
           exchangeId: answerExchangeId,
         })
       } catch (error) {
@@ -950,8 +894,9 @@ export function install(rt) {
       const byRef = rt.resolveWork?.(key)
       let matches = []
       if (byRef !== undefined) {
-        if (byRef.work.from !== sender.id && !rt.isMain(sender.id)) {
-          refuse(`Only ${rt.botOf(byRef.work.from)?.name ?? 'the caller'} or a Main Bot can cancel work #${byRef.work.ref ?? byRef.id}.`)
+        const assigned = byRef.work.to === sender.id && byRef.work.ref !== undefined
+        if (!assigned && byRef.work.from !== sender.id && !rt.isMain(sender.id)) {
+          refuse(`Only the caller, the assigned Bot, or a Main Bot can cancel work #${byRef.work.ref ?? byRef.id}.`)
         }
         matches = [byRef]
       } else {
@@ -966,6 +911,9 @@ export function install(rt) {
             .map(([id, work]) => ({ id, work }))
         }
         if (matches.length === 0) return `No open delegated work for ${bot.name}; nothing to cancel (do not send a wrap-up request).`
+        if (matches.length > 1) {
+          refuse(`Multiple assignments match ${bot.name}. Pass the work reference to stop only that assignment: ${matches.map(({ id, work }) => work.ref ?? id).join(', ')}.`)
+        }
       }
       const cancelledRefs = []
       for (const item of matches) {
@@ -981,18 +929,18 @@ export function install(rt) {
 
   rt.teamTools.push(defineTool({
     name: 'note_bot',
-    description: 'Leave a one-way silent FYI note in another Bot\'s context WITHOUT waking it or triggering a reply. Use this for wrap-ups, status updates, or facts the Bot only needs next time it works.',
+    description: 'Send a one-way silent update without interrupting running commands or requesting a reply. In private chat, pass work_id to update a specific open delegation. In a group chat, the note is public to the group and reaches the addressed member at its next step on your open group assignment.',
     parameters: {
       to: { type: 'string', required: true, description: 'Exact Bot name from list_bots' },
       note: { type: 'string', required: true, description: 'Factual note to leave silently (no reply will come back)' },
+      work_id: { type: 'string', description: 'Optional open work reference (e.g. W7) to update only that work at its next step without stopping it' },
     },
     output,
     async execute(args, exec) {
       await rt.load()
       const sender = callerBot(exec)
       if (sender === undefined) return 'Only Bots on the team can use note_bot.'
-      const room = rt.roomOf(rt.groupOwners.get(exec.agent?.id)?.roomId)
-      if (room !== undefined) refuse('In a group chat, write a normal message without @Name so members see it without waking anyone.')
+      const room = rt.roomOf((rt.groupOwners.get(exec.agent?.id) ?? rt.taskOwners?.get(exec.agent?.id))?.roomId)
       const target = rt.findBot(args.to)
       if (target === undefined) return `No Bot named ${args.to}. Team: ${Object.values(state.bots).map(bot => bot.name).join(', ')}`
       if (target.id === sender.id) return 'You cannot leave a note for yourself.'
@@ -1001,6 +949,9 @@ export function install(rt) {
       const text = absoluteLinks(rawNote, rt.sessionFolder?.(exec.agent?.session ?? exec.agent))
       const long = await rt.attachLong(text, `Note from ${sender.name}.txt`)
       if (long === undefined) return tooLong(text)
+      if (room !== undefined || args.work_id !== undefined) {
+        return rt.enqueueWorkNote(args.work_id, sender, target, long, room)
+      }
       await rt.deliver({
         fromId: sender.id,
         toId: target.id,

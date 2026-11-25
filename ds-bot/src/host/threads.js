@@ -60,6 +60,38 @@ export function threadCurrentOfPart(bot, sessionId) {
   return isActiveTask(task) ? task.sessionId : undefined
 }
 
+// Logical return/delivery address decoupled from any single DSH Session id.
+// A closed task or deleted group resolves to undefined — never to the Bot's private chat.
+export function returnAddress(bot, part, roomId) {
+  if (roomId) return { roomId }
+  const thread = threadOfPart(bot, part)
+  if (thread?.thread === 'task') return { taskId: thread.taskId }
+  if (part && retiredTaskSessionIds(bot).includes(part)) return { retired: true }
+  return { foreground: true }
+}
+
+export function addressedSession(rt, toId, address) {
+  const bot = rt.botOf(toId)
+  if (!bot || !address || typeof address !== 'object') return undefined
+  if (address.retired === true) return undefined
+  if (address.roomId) {
+    const room = rt.roomOf(address.roomId)
+    return room?.members.includes(toId) ? room.sessions?.[toId] : undefined
+  }
+  if (address.taskId) {
+    return bot.tasks?.find(task => task.id === address.taskId && isActiveTask(task))?.sessionId
+  }
+  return address.foreground ? rt.chatOf(toId) : undefined
+}
+
+export function isMissingSessionError(error) {
+  const code = error?.code
+  return code === 'session/not-found'
+    || code === 'SESSION_QUERY_SESSION_NOT_FOUND'
+    || code === 'ENOENT'
+    || /\bsession\b.*\bnot found\b|\bnot found\b/i.test(String(error?.message ?? ''))
+}
+
 // A fresh part replaces a thread's current one; the part it replaces joins that thread's
 // own earlier parts. Returns false for a session that belongs to no thread.
 export function pushThreadPart(bot, sessionId, freshId, segment) {

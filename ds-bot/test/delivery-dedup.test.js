@@ -211,8 +211,11 @@ test('a failed turn with steered follow-ups pushes only one failure notice per r
   await tool('delegate_work', { to: 'Writer', goal: 'Run task 1' }, 'a')
   await settle(() => modes.callCount >= 1 && rt.live.get('b')?.tool === 'wait_step')
 
-  // While Writer is mid-turn, Chief steers a follow-up update (default when: 'now').
-  await tool('delegate_work', { to: 'Writer', goal: 'Also include check 2' }, 'a')
+  // A pre-upgrade inbox may still contain a second request steered into this turn.
+  const previous = agents.get('b').session.snapshotEvents().find(event => event.type === 'user/message' && event.data.source?.role === 'request').data
+  const id = 'earlier-steered-work'
+  const work = rt.openWork(id, { from: 'a', to: 'b', goal: 'Also include check 2' })
+  agents.get('b').steer({ ...previous, id, source: { ...previous.source, exchangeId: id, workRef: work.ref } })
   await settle(() => agents.get('b').inbox.nextStep.length === 1)
 
   // Let wait_step finish so Writer claims the steered follow-up and hits INVALID_REQUEST.

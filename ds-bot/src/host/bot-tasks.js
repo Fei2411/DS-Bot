@@ -10,7 +10,7 @@ import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node
 import { join, resolve } from 'node:path'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { HANDOFF_ACK, HISTORY_TIMEOUT_MS, SOURCE_KIND, STEER_CUT, TASK_FORK_MAX_EVENTS } from './constants.js'
+import { HANDOFF_ACK, HISTORY_TIMEOUT_MS, MESSAGE_INLINE_MAX, SOURCE_KIND, STEER_CUT, TASK_FORK_MAX_EVENTS } from './constants.js'
 import { within } from './folders.js'
 import { absoluteLinks } from './links.js'
 import { textOf } from './text.js'
@@ -726,6 +726,8 @@ export function install(rt) {
     running: isActiveTask(task) && (rt.live.get(task.sessionId)?.turn !== undefined || (rt.runningJobs?.(task.sessionId)?.length ?? 0) > 0),
   }))
 
+  rt.isTaskSettling = taskId => settling.has(taskId)
+
   // Settles a task into a terminal state (`completed`, `failed`, `stopped`, `interrupted`),
   // closes any parent handoff sub-work, notifies the foreground chat via `rt.deliver`
   // (restoring IM origin if captured), and fires `onTaskEvent`.
@@ -770,6 +772,72 @@ export function install(rt) {
         rt.blockTasks?.(task.roomId, bot.id, cause)
       }
 
+      const wantsReport = task.origin !== 'bot-handoff' && task.origin !== 'api' && (notifyForeground || parentWork !== undefined)
+      let reportAddress
+      let reportPayload
+      let reportObligationId
+      if (wantsReport) {
+        let canDeliverReport = true
+        if (task.roomId !== undefined) {
+          const room = rt.roomOf(task.roomId)
+          if (room === undefined || !room.members.includes(bot.id)) canDeliverReport = false
+          else reportAddress = { roomId: task.roomId }
+        } else {
+          reportAddress = { foreground: true }
+        }
+        if (canDeliverReport) {
+          let body
+          let note
+          if (outcome === 'completed') {
+            note = `"${task.title}" (${task.id}) finished`
+            body = fullText.length > REPORT_MAX
+              ? `${fullText.slice(0, REPORT_MAX)}…\n[Truncated at ${REPORT_MAX} characters. Call task_read(task: "${task.id}") for the full report.]`
+              : (fullText || '(no reply text)')
+          } else if (outcome === 'failed') {
+            note = `"${task.title}" (${task.id}) failed`
+            body = `This background task failed: ${task.error ?? 'unknown error'}.${fullText ? `\n\nLast output:\n${fullText.slice(0, REPORT_MAX)}` : ''}`
+          } else if (outcome === 'interrupted') {
+            note = `"${task.title}" (${task.id}) interrupted by restart`
+            body = 'DeepSeek Harness restarted while this background task was waiting on an in-memory background command or pending step, so it did not finish. Tell the user or start a new task if needed.'
+          } else {
+            note = `"${task.title}" (${task.id}) stopped`
+            body = task.error ? `Stopped: ${task.error}` : 'This background task was stopped.'
+          }
+          const exchangeId = `task-report:${task.id}`
+          reportObligationId = exchangeId
+          reportPayload = {
+            toId: bot.id,
+            address: reportAddress,
+            exchangeId,
+            text: body,
+            role: 'task-report',
+            note,
+            taskId: task.id,
+            ...(task.roomId !== undefined ? { roomId: task.roomId } : {}),
+            recordExchange: false,
+            ...(parentWork !== undefined ? { work: parentWork, replyTo: task.workId } : {}),
+          }
+        }
+      }
+
+      // Single SQLite transaction: cancel any unsent `role: 'task'` start delivery AND
+      // durably record any owed foreground/group report before saving `state.json`.
+      rt.coordination?.commitTaskTerminal?.({
+        taskId: task.id,
+        ...(reportPayload !== undefined ? {
+          obligation: {
+            id: reportObligationId,
+            kind: 'task_report',
+            ownerId: task.id,
+            botId: bot.id,
+            address: reportAddress,
+            payload: reportPayload,
+            deliveryId: reportPayload.exchangeId,
+          },
+        } : {}),
+      })
+      rt.forgetTaskStartDeliveries?.(task.id)
+
       await rt.save()
       settled = true
       emitTaskEvent(`task.${outcome}`, bot, task, {
@@ -779,38 +847,47 @@ export function install(rt) {
 
       // A `bot-handoff` task answers the asking Bot through turns.js/handoffs.js and
       // never posts a task-report into the user's foreground chat. If the work is still
-      // open (stopped via stopTask or interrupted by restart before turns.js closed it),
+      // open (held while shell jobs ran, or stopped/interrupted before turns.js closed it),
       // answer the asking Bot once here and clear `liveEntry.info` so any ensuing
       // `turn/end (aborted)` from `agent.cancel()` can never emit a duplicate reply.
       if (task.origin === 'bot-handoff') {
-        // On `completed`, `turns.js` owns the reply delivery (including async `attachLong`
-        // for >20k replies); only send the fallback notice on non-completed outcomes so we
-        // never race `attachLong` with a false "stopped" reply.
-        if (settleWork && outcome !== 'completed' && task.exchangeId !== undefined && rt.ownsWork?.(bot.id, task.exchangeId)) {
+        if (settleWork && task.exchangeId !== undefined && rt.ownsWork?.(bot.id, task.exchangeId)) {
           const asker = rt.workAsker?.(task.exchangeId)
           if (asker !== undefined) {
             const liveEntry = rt.live.get(task.sessionId)
             if (liveEntry?.info !== undefined && rt.workOf?.(liveEntry.info) === task.exchangeId) {
               liveEntry.info = undefined
             }
-            const notice = outcome === 'interrupted'
-              ? `${bot.name} was interrupted by a restart before it could answer your message.`
-              : outcome === 'failed'
-                ? `${bot.name} could not answer your message: ${task.error ?? 'model call failed'}.`
-                : `${bot.name} was stopped before it could answer your message.`
-            answerSender(rt, task.sessionId, asker, notice, undefined, { aborted: true })
+            if (outcome === 'completed') {
+              const answer = rt.answerText?.(task.exchangeId, fullText, bot.name) ?? fullText
+              const long = answer.length > MESSAGE_INLINE_MAX
+                ? await rt.attachLong?.(answer, `Answer from ${bot.name}.txt`).catch(() => undefined)
+                : undefined
+              answerSender(rt, task.sessionId, asker, answer, long)
+            } else {
+              const notice = outcome === 'interrupted'
+                ? `${bot.name} was interrupted by a restart before it could answer your message.`
+                : outcome === 'failed'
+                  ? `${bot.name} could not answer your message: ${task.error ?? 'model call failed'}.`
+                  : `${bot.name} was stopped before it could answer your message.`
+              answerSender(rt, task.sessionId, asker, notice, undefined, { aborted: true })
+            }
           }
         }
         return
       }
 
-      if (task.origin === 'api' || (!notifyForeground && parentWork === undefined)) return
+      if (reportPayload === undefined) return
       let targetSession
       if (task.roomId !== undefined) {
         const room = rt.roomOf(task.roomId)
-        if (room === undefined || !room.members.includes(bot.id)) return
+        if (room === undefined || !room.members.includes(bot.id)) {
+          rt.coordination?.markObligation?.(reportObligationId, 'cancelled')
+          return
+        }
         targetSession = room.sessions?.[bot.id]
         if (targetSession === undefined) {
+          rt.coordination?.markObligation?.(reportObligationId, 'cancelled')
           await rt.reconcileStoppedRoomTask?.(task.roomId, bot.id).catch(() => {})
           return
         }
@@ -821,37 +898,17 @@ export function install(rt) {
           ? rt.chatOf(bot.id)
           : (threadCurrentOfPart(bot, task.from) ?? rt.chatOf(bot.id))
       }
-      let body
-      let note
-      if (outcome === 'completed') {
-        note = `"${task.title}" (${task.id}) finished`
-        body = fullText.length > REPORT_MAX
-          ? `${fullText.slice(0, REPORT_MAX)}…\n[Truncated at ${REPORT_MAX} characters. Call task_read(task: "${task.id}") for the full report.]`
-          : (fullText || '(no reply text)')
-      } else if (outcome === 'failed') {
-        note = `"${task.title}" (${task.id}) failed`
-        body = `This background task failed: ${task.error ?? 'unknown error'}.${fullText ? `\n\nLast output:\n${fullText.slice(0, REPORT_MAX)}` : ''}`
-      } else if (outcome === 'interrupted') {
-        note = `"${task.title}" (${task.id}) interrupted by restart`
-        body = 'DeepSeek Harness restarted while this background task was waiting on an in-memory background command or pending step, so it did not finish. Tell the user or start a new task if needed.'
-      } else {
-        note = `"${task.title}" (${task.id}) stopped`
-        body = task.error ? `Stopped: ${task.error}` : 'This background task was stopped.'
-      }
 
       try {
         await rt.deliver({
-          toId: bot.id,
+          ...reportPayload,
           sessionId: targetSession,
-          text: body,
-          role: 'task-report',
-          note,
-          taskId: task.id,
-          ...(task.roomId !== undefined ? { roomId: task.roomId } : {}),
-          recordExchange: false,
-          ...(parentWork !== undefined ? { work: parentWork, replyTo: task.workId } : {}),
         })
+        rt.coordination?.markObligation?.(reportObligationId, 'settled')
       } catch (error) {
+        if (error?.code === 'bot/unresolved-return') {
+          rt.coordination?.markObligation?.(reportObligationId, 'cancelled')
+        }
         if (task.roomId !== undefined) {
           await rt.reconcileStoppedRoomTask?.(task.roomId, bot.id).catch(() => {})
         }
@@ -984,6 +1041,7 @@ export function install(rt) {
       await rt.deliver({
         toId: bot.id,
         sessionId,
+        address: { taskId: id },
         text: prompt,
         role: 'task',
         note: `"${name}" (${id})`,
@@ -1108,9 +1166,8 @@ export function install(rt) {
     const reason = ended?.reason
     if (reason?.kind === 'aborted' && reason.reason?.kind === 'disposed') return false
     if (reason?.kind === 'blocked') return false
-    const inspect = ctx.sessionController?.inspect
-    const seen = typeof inspect === 'function' ? await inspect(sessionId, AbortSignal.timeout(HISTORY_TIMEOUT_MS)).catch(() => undefined) : undefined
-    const events = Array.isArray(seen?.events) ? seen.events : []
+    const history = await rt.readSessionEvidence(sessionId, AbortSignal.timeout(HISTORY_TIMEOUT_MS))
+    const events = history.status === 'ok' ? history.events : []
     const lastStart = events.findLastIndex(event => event?.type === 'turn/start')
     const slice = lastStart === -1 ? events : events.slice(lastStart)
     const folder = task.workDir !== undefined ? (task.workDir ?? rt.teamFolder?.()) : rt.workDirOf?.({ botId: bot.id, ...(task.roomId ? { roomId: task.roomId } : {}) })
@@ -1738,45 +1795,8 @@ export function install(rt) {
     }
   }
 
-  // Reads events of a cold (unloaded) Session using the real DSH `sessionQuery` service
-  // (`inspectSession` / `readSession`), distinguishing missing sessions from I/O errors
-  // so admission checks fail closed when a stored session cannot be read.
-  const isMissingSessionError = (error) => error?.code === 'SESSION_QUERY_SESSION_NOT_FOUND'
-    || error?.code === 'ENOENT'
-    || /not found/i.test(String(error?.message ?? ''))
-
-  const readColdSessionEvents = async (sid, signal) => {
-    const query = ctx.get?.('sessionQuery') ?? ctx.sessionQuery
-    if (typeof query?.inspectSession === 'function') {
-      try {
-        const events = await query.inspectSession(sid, session => session?.snapshotEvents?.() ?? [], signal)
-        return { status: 'ok', events: Array.isArray(events) ? events : [] }
-      } catch (error) {
-        if (isMissingSessionError(error)) return { status: 'not_found', events: [] }
-        return { status: 'error', error }
-      }
-    }
-    if (typeof query?.readSession === 'function') {
-      try {
-        const seen = await query.readSession(sid)
-        return { status: 'ok', events: Array.isArray(seen?.events) ? seen.events : [] }
-      } catch (error) {
-        if (isMissingSessionError(error)) return { status: 'not_found', events: [] }
-        return { status: 'error', error }
-      }
-    }
-    const inspect = ctx.sessionController?.inspect
-    if (typeof inspect === 'function') {
-      try {
-        const seen = await inspect(sid, signal)
-        return { status: 'ok', events: Array.isArray(seen?.events) ? seen.events : [] }
-      } catch (error) {
-        if (isMissingSessionError(error)) return { status: 'not_found', events: [] }
-        return { status: 'error', error }
-      }
-    }
-    return { status: 'unavailable' }
-  }
+  // Shared cold-session reader provided by `coordination.js` (`sessionQuery` / `sessionController`).
+  const readColdSessionEvents = (sid, signal) => rt.readSessionEvidence(sid, signal)
 
   // Checks whether `requestId` was already admitted on the target logical chat —
   // including across a foreground-to-background move where `ref` moved into `bot.tasks[]`,
@@ -3143,7 +3163,16 @@ export function install(rt) {
     const currentLive = rt.live.get(task.sessionId)
     if (currentLive?.turn !== undefined || currentLive?.retrying === true) return
     const currentAgent = ctx.get('agents')?.get(task.sessionId)
-    if (hasWakingInboxInput(currentAgent) || hasPendingTaskUnread(task.sessionId)) return
+    if (hasWakingInboxInput(currentAgent)) return
+    if (hasPendingTaskUnread(task.sessionId)) {
+      const logged = new Set((currentAgent?.session?.snapshotEvents?.() ?? [])
+        .filter(e => e.type === 'user/message' && e.data?.source?.role === 'request')
+        .map(e => e.data.source.exchangeId))
+      if ((rt.unreadOf?.(task.sessionId) ?? []).some(args => args.role !== 'task'
+        && !(args.role === 'request' && !args.deferred && !args.resumed && args.exchangeId === task.exchangeId && logged.has(args.exchangeId)))) {
+        return
+      }
+    }
     // 6. Still waiting on background shell jobs inside this task.
     if ((rt.runningJobs?.(task.sessionId)?.length ?? 0) > 0) return
     // 7. Still waiting on an approval card.
@@ -3157,6 +3186,7 @@ export function install(rt) {
     }
     // 8. Still waiting on outgoing Bot-to-Bot / group report-back works or ask_back input.
     if (hasOpenOutgoingWorks(bot, task) || isAwaitingHandoffInput(task)
+      || (task.origin === 'bot-handoff' && rt.waitsWork?.(task.exchangeId))
       || (task.origin === 'bot-handoff' && task.exchangeId !== undefined && currentLive?.lastAskedBackWork === task.exchangeId)) {
       if (task.status !== 'waiting_work') {
         task.status = 'waiting_work'
