@@ -2121,25 +2121,143 @@ export function install(rt) {
     })().finally(() => { heldBackRun = undefined })
     return heldBackRun
   }
+  // Orders multiple unfinished switching parts targeting the same successor from
+  // oldest to newest using the thread's recorded parts list (falling back to
+  // state.switching insertion order, with pruned ancient parts sorted earliest).
+  function partOrderIndex(sessionId, owner, target, insertionIndex) {
+    const bot = owner.botId === undefined ? undefined : rt.botOf(owner.botId)
+    const parts = bot === undefined ? partsOf(undefined, owner.roomId)
+      : owner.roomId !== undefined ? partsOf(bot.id, owner.roomId)
+        : partsOfThread(bot.id, target)
+    const idx = parts.findIndex(part => part?.sessionId === sessionId)
+    return idx !== -1 ? idx : -1e9 + insertionIndex
+  }
+
   async function handOnHeld() {
     await rt.load()
     if (rt.readOnly() !== undefined) return
     let retryNeeded = false
+    const samePart = []
+    const byTarget = new Map()
+    let insertionIndex = 0
     for (const [sessionId, owner] of Object.entries(state.switching ?? {})) {
+      const target = threadTargetOf(sessionId, owner)
+      if (target === sessionId) {
+        samePart.push({ sessionId, owner })
+      } else {
+        let group = byTarget.get(target)
+        if (group === undefined) {
+          group = []
+          byTarget.set(target, group)
+        }
+        group.push({ sessionId, owner, order: partOrderIndex(sessionId, owner, target, insertionIndex) })
+      }
+      insertionIndex += 1
+    }
+
+    for (const { sessionId } of samePart) {
       if (switches.has(sessionId)) continue
       try {
         const agent = await rt.resolveAgent(sessionId)
         if (switches.has(sessionId)) continue
-        const held = [...agent.inbox.nextStep, ...agent.inbox.nextTurn]
-        const target = threadTargetOf(sessionId, owner)
-        if (target !== sessionId) {
-          if (owner.handoffPending === true) {
-            await ensureHandoffDelivered(sessionId, owner, target)
-            delete owner.handoffPending
-            delete owner.handoffMeta
-            await rt.save()
+        try { wake(agent) } catch (error) { rt.warn('ds-bot: part %s could not be woken for its kept input: %s', sessionId, error) }
+        delete state.switching[sessionId]
+        await rt.save()
+      } catch (error) {
+        retryNeeded = true
+        rt.warn('ds-bot: input kept in part %s was not handed on: %s', sessionId, error)
+      }
+    }
+
+    for (const [target, group] of byTarget) {
+      group.sort((a, b) => a.order - b.order)
+      let blockedIdx = -1
+      for (let i = 0; i < group.length; i += 1) {
+        const entry = group[i]
+        if (switches.has(entry.sessionId)) {
+          entry.active = true
+          blockedIdx = i
+          continue
+        }
+        try {
+          const agent = await rt.resolveAgent(entry.sessionId)
+          if (switches.has(entry.sessionId)) {
+            entry.active = true
+            blockedIdx = i
+            continue
           }
-          await forward(owner, held, target)
+          entry.agent = agent
+          entry.held = [...agent.inbox.nextStep, ...agent.inbox.nextTurn]
+        } catch (error) {
+          entry.error = error
+          blockedIdx = i
+          retryNeeded = true
+          rt.warn('ds-bot: input kept in part %s was not handed on: %s', entry.sessionId, error)
+        }
+      }
+      // If a newer source part targeting the same successor is actively switching or
+      // failed to resolve, keep earlier parts untouched so stale originals are never
+      // forwarded ahead of a newer merged replacement.
+      if (blockedIdx !== -1 && group.slice(0, blockedIdx).some(entry => !entry.active && entry.error === undefined)) {
+        retryNeeded = true
+      }
+      const ready = group.slice(blockedIdx + 1)
+      if (ready.length === 0) continue
+
+      try {
+        // Deliver the newest pending handoff for this target before forwarding held input.
+        let newestHandoff
+        for (let i = ready.length - 1; i >= 0; i -= 1) {
+          if (ready[i].owner.handoffPending === true) {
+            newestHandoff = ready[i]
+            break
+          }
+        }
+        if (newestHandoff !== undefined) {
+          await ensureHandoffDelivered(newestHandoff.sessionId, newestHandoff.owner, target)
+          for (const entry of ready) {
+            if (entry.owner.handoffPending === true || entry.owner.handoffMeta !== undefined) {
+              delete entry.owner.handoffPending
+              delete entry.owner.handoffMeta
+            }
+          }
+          await rt.save()
+        }
+
+        // Resolve competing copies across successive source parts so a newer merged
+        // payload always supersedes an older retained original for the same transfer.
+        const latestTransferPart = new Map()
+        const latestExchangePart = new Map()
+        for (let i = 0; i < ready.length; i += 1) {
+          for (const msg of ready[i].held) {
+            const key = transferKeyOf(msg)
+            if (key !== undefined) latestTransferPart.set(key, i)
+            const ex = msg.source?.exchangeId
+            if (ex !== undefined && msg.source?.handoff !== true && textOf(msg.content) !== PAUSE_NOTE) {
+              latestExchangePart.set(ex, i)
+            }
+          }
+        }
+        const toForward = []
+        for (let i = 0; i < ready.length; i += 1) {
+          for (const msg of ready[i].held) {
+            const explicitTransfer = msg.source?.transferId
+            const key = transferKeyOf(msg)
+            const ex = msg.source?.exchangeId
+            const superseded = (key !== undefined && latestTransferPart.get(key) > i)
+              || (explicitTransfer === undefined && ex !== undefined && latestExchangePart.get(ex) > i)
+            if (!superseded) toForward.push(msg)
+          }
+        }
+        await forward(ready[ready.length - 1].owner, toForward, target)
+      } catch (error) {
+        retryNeeded = true
+        rt.warn('ds-bot: input kept in parts targeting %s was not handed on: %s', target, error)
+        continue
+      }
+
+      for (const { sessionId, agent, held } of ready) {
+        try {
           await rt.moveSilentNotes?.(sessionId, target, { awaitFlush: true, rethrow: true })
           removeForMove(agent, held)
           // An interrupted switch may not have finished moving the tasks over; stop
@@ -2151,16 +2269,14 @@ export function install(rt) {
               if (finishMove !== undefined) throw error
               rt.warn('ds-bot: earlier part %s not archived: %s', sessionId, error)
             })
-        } else {
-          try { wake(agent) } catch (error) { rt.warn('ds-bot: part %s could not be woken for its kept input: %s', sessionId, error) }
-        }
-        delete state.switching[sessionId]
-        await rt.save()
-      } catch (error) {
-        if (error?.code === 'schedule/pending') noteInfo('ds-bot: keeping earlier part %s until schedules attach', sessionId)
-        else {
-          retryNeeded = true
-          rt.warn('ds-bot: input kept in part %s was not handed on: %s', sessionId, error)
+          delete state.switching[sessionId]
+          await rt.save()
+        } catch (error) {
+          if (error?.code === 'schedule/pending') noteInfo('ds-bot: keeping earlier part %s until schedules attach', sessionId)
+          else {
+            retryNeeded = true
+            rt.warn('ds-bot: input kept in part %s was not handed on: %s', sessionId, error)
+          }
         }
       }
     }
