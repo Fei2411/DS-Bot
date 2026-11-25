@@ -16,6 +16,7 @@ import { useTeam } from '../team/context.tsx'
 import { memorySummaryText } from '../team/memory.ts'
 import { avatarPhoto } from '../team/avatar-photo.ts'
 import { t, timeLabel, weekdayShort } from '../ui/i18n.ts'
+import { roomTitle } from '../ui/phrases.ts'
 import { CheckIcon, ChevronLeftIcon, ChevronRightIcon, GearIcon } from '../ui/icons.tsx'
 import { Avatar, COLOR_PAINT, RoomAvatar } from '../ui/marks.tsx'
 import { inkColor, radius, shadow, type as typeScale, useTheme, type Palette } from '../ui/tokens.ts'
@@ -565,8 +566,9 @@ export function GroupDetails({ route, navigation }: any) {
   const admin = botOf(team, room.admin ?? '')
   const mode = admin !== undefined ? (room.mode ?? 'admin') : 'everyone'
   const notice = (room as { notice?: string }).notice
+  const title = roomTitle(room)
   return (
-    <Screen title={room.name}>
+    <Screen title={title}>
       <View style={[styles.detailTop, { paddingTop: 8 }]}>
         <RoundButton label={t('Back')} onPress={() => navigation.goBack()}><ChevronLeftIcon color={p.ink2} /></RoundButton>
         <View style={{ flex: 1 }} />
@@ -575,7 +577,7 @@ export function GroupDetails({ route, navigation }: any) {
       <ScrollView contentContainerStyle={{ paddingBottom: 40, paddingHorizontal: 18 }}>
         <View style={{ alignItems: 'center', paddingTop: 4 }}>
           <RoomAvatar room={room} bots={bots} dark={dark} size={56} ring={p.main} />
-          <Text style={[typeScale.rowName, { color: p.ink, marginTop: 10, fontSize: 18, textAlign: 'center' }]}>{room.name}</Text>
+          <Text style={[typeScale.rowName, { color: p.ink, marginTop: 10, fontSize: 18, textAlign: 'center' }]}>{title}</Text>
           <Text style={[typeScale.caption, { color: p.ink3, marginTop: 2 }]}>{[t('{count} members', { count: members.length }), admin ? t('Admin {name}', { name: admin.name }) : t('No admin')].join(' · ')}</Text>
         </View>
         {notice
@@ -601,7 +603,7 @@ export function GroupDetails({ route, navigation }: any) {
         {team?.memory === false ? null : (
           <>
             <DetailTitle text={t('Memory')} />
-            <Pressable accessibilityRole="button" onPress={() => navigation.navigate('Memory', { id: room.id, name: room.name, group: true })}
+            <Pressable accessibilityRole="button" onPress={() => navigation.navigate('Memory', { id: room.id, name: title, group: true })}
               style={[styles.dropdown, { backgroundColor: p.card, borderColor: p.line }]}>
               <Text style={[typeScale.settingsRow, { color: p.ink, flex: 1 }]}>{t('Memory')}</Text>
               <Text style={[typeScale.small, { color: p.ink3 }]}>{t('Manage')}</Text>
@@ -636,8 +638,9 @@ export function GroupSettings({ route, navigation }: any) {
     }
   }
   const mode = room.admin !== undefined && bots.some(b => b.id === room.admin) ? (room.mode ?? 'admin') : 'everyone'
+  const title = roomTitle(room)
   return (
-    <Screen title={room.name}>
+    <Screen title={title}>
       <BackRow title={t('Group settings')} onBack={() => navigation.goBack()} />
       <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
         {error || photoError ? <Text style={[typeScale.small, { color: p.danger, marginHorizontal: 18, marginTop: 10 }]}>{error || photoError}</Text> : null}
@@ -694,7 +697,7 @@ export function GroupSettings({ route, navigation }: any) {
           })}
         </Section>
         <Section label={t('Danger')}>
-          <DangerRow label={t('Delete group')} confirm={t('Delete {name}?', { name: room.name })} onConfirm={() => void run('delete-room', { id: room.id }, () => openChat(navigation))} />
+          <DangerRow label={t('Delete group')} confirm={t('Delete {name}?', { name: title })} onConfirm={() => void run('delete-room', { id: room.id }, () => openChat(navigation))} />
         </Section>
       </ScrollView>
     </Screen>
