@@ -2026,8 +2026,53 @@ test('a line the book did not keep calls nobody, and the room hears it', { skip:
   // The caller hears the rejection (and closes its batch); the room hears the notice `say`
   // sent; nobody is woken for a line the book did not keep.
   assert.match(String(refusal?.message), /may not have been saved/, 'the caller hears the line was not saved')
+  assert.notEqual(refusal?.delivered, true, 'a line nobody was called for is not delivered')
   assert.ok(await waitFor(() => rt.roomOf(room.id).log.some(line => line.reason === 'unsaved')), 'the room hears the line was not saved')
   assert.equal(sent.length, turnsBefore, 'the line the book did not keep calls nobody')
+  await answer(first.sessionId, first.message.source.exchangeId, 'fine', 1)
+  const second = await turnFor(sent, first)
+  await answer(second.sessionId, second.message.source.exchangeId, 'done', 2)
+  await running
+})
+
+// #2066 review (Devin blocker 1): the line's own write is awaited before anybody is called,
+// but the running path then settles the report, closes the batch and saves the state. A
+// failure there comes after the members already have the line, so the caller must hear that
+// it was delivered — otherwise it retries a post the room has already seen.
+test('a line the members already have is reported delivered when the round cannot be saved', { skip: process.platform === 'win32' || process.getuid?.() === 0 }, async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  await emit(room.id, userMessage('Start'))
+  const running = relay(room.id, 'relay')
+  const first = await turnFor(sent)
+  assert.ok(first)
+  const live = await waitFor(() => {
+    const round = [...rt.roomProgress.values()].find(entry => entry.roomId === room.id && entry.nudge !== undefined)
+    return round === undefined ? undefined : rt.roomOf(room.id)
+  })
+  assert.ok(live)
+  const sender = rt.botOf(room.members[0])
+  const turnsBefore = sent.length
+  const realSave = rt.save
+  let failures = 1
+  rt.save = (...args) => {
+    if (failures > 0) {
+      failures -= 1
+      return Promise.reject(new Error('the state could not be saved'))
+    }
+    return realSave.apply(rt, args)
+  }
+  let refusal
+  try {
+    await rt.postToRoom(live, sender, 'a line the members will see').catch((error) => { refusal = error })
+  } finally {
+    rt.save = realSave
+  }
+  await new Promise((resolve) => setTimeout(resolve, 100))
+  assert.match(String(refusal?.message), /could not be saved/, 'the caller hears the state was not saved')
+  assert.equal(refusal?.delivered, true, 'the caller hears the line reached the members')
+  assert.equal(sent.length, turnsBefore + 1, 'the member the line calls is woken once')
   await answer(first.sessionId, first.message.source.exchangeId, 'fine', 1)
   const second = await turnFor(sent, first)
   await answer(second.sessionId, second.message.source.exchangeId, 'done', 2)

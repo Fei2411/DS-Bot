@@ -3348,11 +3348,20 @@ export function install(rt) {
           throw new Error(`the last line said may not have been saved: ${error?.message ?? error}`)
         })
       }
-      const callOutcome = callPost(room, running, sender, text, postExtra)
-      // If callPost held or called nobody during a running round, still track the report so it settles cleanly.
-      settleQueuedReportInRound(room, postExtra)
-      if (postExtra.batchEnd) closeBatch(postExtra.batch)
-      await rt.save()
+      let callOutcome
+      try {
+        callOutcome = callPost(room, running, sender, text, postExtra)
+        // If callPost held or called nobody during a running round, still track the report so it settles cleanly.
+        settleQueuedReportInRound(room, postExtra)
+        if (postExtra.batchEnd) closeBatch(postExtra.batch)
+        await rt.save()
+      } catch (error) {
+        // The members have the line by now, so a caller that reads this as "nothing landed"
+        // would post it a second time. Same mark the idle path below sets once a post is out.
+        const failure = error && typeof error === 'object' ? error : new Error(String(error))
+        failure.delivered = true
+        throw failure
+      }
       return callOutcome === 'paused' ? { paused: true } : undefined
     }
     const agent = await rt.resolveAgent(rt.sessionOfRoom(room))
