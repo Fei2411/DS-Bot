@@ -23,6 +23,7 @@ import {
   isValidProfileId,
   profileRoute,
   signInFor,
+  signedInFor,
   splitProfileRoute,
   supportsProfiles,
   validateCustom,
@@ -159,7 +160,7 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
       entry = {}
       profileProbes.set(route, entry)
     }
-    const check = spec?.signedIn
+    const check = signedInFor(spec, baseFound.path)
     if (check === undefined) {
       entry.signedIn = null
       return
@@ -199,7 +200,7 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
   async function probeSignIns({ force = false } = {}) {
     await Promise.all([
       ...[...found.values()].map(async (entry) => {
-        const check = ENGINES[entry.route]?.signedIn
+        const check = signedInFor(ENGINES[entry.route], entry.path)
         if (check === undefined) {
           entry.signedIn = null
           return

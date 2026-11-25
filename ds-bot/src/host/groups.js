@@ -1671,8 +1671,8 @@ export function install(rt) {
   }
 
   // The members a member's message calls: those it names with @, or everyone when the
-  // admin writes "@all" (only the admin, so a member cannot set off a storm). A turn
-  // calls each member once, however many of its lines name it.
+  // admin writes "@all" (only the admin, so a member cannot set off a storm). A later
+  // line can call the same member again once its earlier call is no longer pending.
   // Zero-work Bot-to-Bot relays pause immediately on a graph cycle (calling a Bot that
   // already spoke without running any work tool since the last user message or real work),
   // after ROOM_IDLE_RELAY_LIMIT ack/status posts, or after ROOM_ZERO_WORK_RELAY_LIMIT
@@ -1683,7 +1683,10 @@ export function install(rt) {
     const { all, found: named } = mentionsIn(text, everyone)
     const found = named.filter(other => other.id !== member.id)
     const callees = (rt.isAdminOf(room, member.id) && all ? [...found, ...others.filter(other => !found.includes(other))] : found)
-      .filter(peer => !called.has(peer.id))
+      .filter(peer => !called.has(peer.id) || (
+        batchOf(room.id, peer.id, member.id) === undefined
+        && !room.paused?.some(entry => entry.id === peer.id && entry.by === member.id)
+      ))
     let idleStep = false
     let zeroWorkCycle = false
     let zeroWorkLimit = false
@@ -1710,15 +1713,16 @@ export function install(rt) {
         delete room.idleRelays
       }
       // Directed zero-work cycle detection:
-      // - Repeating a zero-work edge (e.g. A -> B -> A -> B) pauses immediately.
+      // - Repeating a zero-work edge in a later turn (e.g. A -> B -> A -> B) pauses immediately.
       // - Closing an N-Bot ring (e.g. A -> B -> C -> A where peer !== direct caller)
       //   pauses immediately.
       // - Legitimate fan-out (User -> Admin -> @B @C -> Admin) and sequential chains
       //   (User -> Admin -> @B -> @Admin -> @C -> @Admin) never repeat an edge and
       //   never trigger a false pause.
-      zeroWorkCycle = callees.some(peer =>
+      zeroWorkCycle = callees.some(peer => !called.has(peer.id) && (
         priorEdges.has(`${member.id}->${peer.id}`)
-        || (peer.id !== callerId && canReachIdleEdge(peer.id, member.id, priorEdges)))
+        || (peer.id !== callerId && canReachIdleEdge(peer.id, member.id, priorEdges))
+      ))
       for (const peer of callees) noteIdleEdge(room, member.id, peer.id)
       zeroWorkLimit = callees.length > 0 && (room.zeroWorkRelays ?? 0) >= ROOM_ZERO_WORK_RELAY_LIMIT
     } else {
@@ -2420,7 +2424,11 @@ export function install(rt) {
             ? `Part ${number} is the current one; it is in your context.${partsNote}`
             : `Part ${number} is still open and has no closing handoff note yet. Search it with query, or omit query for its latest messages.${partsNote}`
         }
-        return `Part ${number} of your own chat (${rt.clock(part.startedAt)} – ${rt.clock(part.endedAt)}). The handoff note that closed it:\n${rt.noteText(part) ?? '(none: the part ended on a context overflow)'}${partsNote}`
+        const note = rt.noteText(part)
+        if (note === undefined && Number.isInteger(part.throughSeq)) {
+          return `Part ${number} of your own chat (${rt.clock(part.startedAt)} – ${rt.clock(part.endedAt)}) has no closing handoff note. Search it with query, or omit query for its latest messages.${partsNote}`
+        }
+        return `Part ${number} of your own chat (${rt.clock(part.startedAt)} – ${rt.clock(part.endedAt)}). The handoff note that closed it:\n${note ?? '(none: the part ended on a context overflow)'}${partsNote}`
       }
       if (query === '') {
         const lines = await rt.latestOwnChat(botId, { askingId: lookupSession })

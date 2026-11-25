@@ -10,7 +10,7 @@ node node_modules/electron/install.js   # when npm did not download Electron (no
 npm start                               # starts the app
 ```
 
-When GitHub downloads are slow, set `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/` before the Electron download. Unset `ELECTRON_RUN_AS_NODE` before `npm start` if your terminal has it (terminals inside some Electron-based editors do): with it, Electron runs as plain Node and the app does not start.
+When GitHub downloads are slow, set `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/` before the Electron download. Unset `ELECTRON_RUN_AS_NODE` before `npm start` if your terminal has it (terminals inside some Electron-based editors do): with it, Electron runs as plain Node and the app does not start. On macOS, unpackaged source runs with an isolated `DS_BOT_SHELL_DATA` directory automatically enable Chromium's mock keychain (`--use-mock-keychain`) so they neither prompt against nor overwrite an installed `DS Bot.app`'s login keychain entry; ChatGPT sign-in fails closed while the mock keychain is active so credentials are never saved under the mock key. Packaged builds and default shell directories keep the real login keychain unless `--use-mock-keychain` is passed explicitly (as in the automated check scripts).
 
 `npm run runtime` downloads the runtime payload (Python with the document libraries, a standalone Node, the Office skill assets) into `build/runtime`. On Linux, run it before `npm start`: the Host uses this plain Node to keep sharp's libvips out of Electron's process. On macOS and Windows the payload is optional for source runs; without it only the Office skills are unavailable. `beforePack` prepares the payload for every package.
 

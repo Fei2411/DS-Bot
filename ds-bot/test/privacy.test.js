@@ -301,6 +301,27 @@ test('a private Bot\'s background part stays closed to other Bots', async (t) =>
   assert.deepEqual(await run('session_search', { query: 'x', session_ids: ['p-bg'] }, P), { ran: true })
 })
 
+test('pruned private task history stays protected after reloading state and deleting its Bot', async (t) => {
+  const { rt, run, state, stop } = await start()
+  t.after(stop)
+  const bot = rt.botOf(P)
+  bot.tasks = Array.from({ length: 51 }, (_, n) => ({
+    id: `task-${n}`, sessionId: `retired-private-${n}`, status: 'completed',
+  }))
+  bot.tasks[0].segments = [{ sessionId: 'retired-private-earlier' }]
+  await rt.reconcileTasksAfterRestart()
+  const saved = state().bots[P]
+  assert.equal(saved.tasks.length, 50)
+  assert.deepEqual(saved.retiredTaskSessions, ['retired-private-0', 'retired-private-earlier'])
+  rt.state.bots[P] = saved
+  const ids = { session_ids: saved.retiredTaskSessions }
+  assert.match((await run('session_search', ids, 'b')).error, CLOSED)
+  assert.deepEqual(await run('session_search', ids, P), { ran: true })
+  await rt.deleteBot(P)
+  assert.match((await run('session_search', ids, 'b')).error, CLOSED)
+  assert.ok(ids.session_ids.every(id => state().privateArchives[0].sessionIds.includes(id)))
+})
+
 test('other Bots cannot read, write or search what a private Bot keeps', async (t) => {
   const { run, root, dsh, home, diary, team, project, stop } = await start()
   t.after(stop)
@@ -404,8 +425,7 @@ test('the private Bot reads its own and the team\'s files; a Session it starts s
   t.after(stop)
   assert.deepEqual(await run('read', { file_path: join(diary, 'notes.txt') }, P), { ran: true })
   assert.deepEqual(await run('glob', { pattern: '**/*', path: diary }, P), { ran: true })
-  // Its own data is no secret from it: with no other private Bot, the data folder is open to a search.
-  assert.deepEqual(await run('glob', { pattern: '**/*', path: home }, P), { ran: true })
+  assert.equal((await run('glob', { pattern: '**/*', path: home }, P)).ran, false)
   assert.deepEqual(await run('read', { file_path: join(project, 'a.txt') }, P), { ran: true })
   assert.deepEqual(await run('glob', { pattern: '**/*', path: team }, P), { ran: true })
   assert.deepEqual(await run('read', { file_path: join(home, 'memory', 'team', 'MEMORY.md') }, P), { ran: true })
@@ -425,6 +445,7 @@ test('what a private Bot sends to the others waits for the user', async (t) => {
   assert.deepEqual(await run('message_bot', { to: 'Writer', message: 'My secret plan' }, P), { ran: true })
   assert.equal(approval.requests.length, 1)
   assert.equal(approval.requests[0].toolName, 'message_bot')
+  assert.equal(approval.requests[0].privacy, true)
   assert.match(approval.requests[0].reason, /Diary[\s\S]*Writer[\s\S]*My secret plan/)
   assert.match(approval.requests[0].displayReason.zh, /My secret plan/)
   // The Bots that are not private send as before.
@@ -734,5 +755,5 @@ test('with no private Bot the tools run as they did', async (t) => {
   t.after(stop)
   assert.deepEqual(await run('read', { file_path: join(diary, 'notes.txt') }, 'b'), { ran: true })
   assert.deepEqual(await run('message_bot', { to: 'Diary', message: 'hi' }, 'a'), { ran: true })
-  assert.deepEqual(await run('glob', { pattern: '*', path: join(diary, '..') }, 'b'), { ran: true })
+  assert.equal((await run('glob', { pattern: '*', path: join(diary, '..') }, 'b')).ran, false)
 })

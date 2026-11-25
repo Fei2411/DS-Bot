@@ -12,6 +12,24 @@ const ROUTE_WAIT_MS = 30_000
 const ACCOUNT_RECORD = 'deepseek-account-platform/default'
 const TRANSIENT_LLM_CODES = new Set(['TRANSPORT', 'TIMEOUT', 'MALFORMED_RESPONSE'])
 const MALFORMED_RETRIES = 2
+// pi-ai's Google adapters end a Gemini stream that stops on a malformed tool call or response
+// with exactly one of these errors, which dsh-llm-pi-ai classifies as PI_AI_ERROR. It is the
+// same transient failure.
+const GEMINI_MALFORMED = new Set([
+  'Provider stopped with: MALFORMED_FUNCTION_CALL',
+  'Provider stopped with: UNEXPECTED_TOOL_CALL',
+  'Unhandled stop reason: MALFORMED_RESPONSE',
+])
+
+function failureCode(failure) {
+  const code = failure?.code
+  return code === 'PI_AI_ERROR' && GEMINI_MALFORMED.has(failure?.message) ? 'MALFORMED_RESPONSE' : code
+}
+
+// dsh-llm-retry already spends the policy's budget on a failure under its own code.
+function dshRetries(policy, code) {
+  return policy?.mode === 'always' || (policy?.mode === 'normal' && Array.isArray(policy.retryableCodes) && policy.retryableCodes.includes(code))
+}
 
 function retryPolicyOf(ctx, provider) {
   try {
@@ -82,8 +100,8 @@ export async function assembleLlmStream(ctx, options, { signal, backoff, random 
       thrown = error
     }
     if (thrown !== undefined) {
-      const code = thrown?.failure?.code ?? thrown?.code
-      const failure = thrown?.failure ?? { code, message: thrown?.message || String(thrown) }
+      const failure = thrown?.failure ?? { code: thrown?.code, message: thrown?.message || String(thrown) }
+      const code = failureCode(failure) ?? thrown?.code
       if (fused?.aborted || !TRANSIENT_LLM_CODES.has(code)) throw thrown
       const policy = retryPolicyOf(ctx, options.provider)
       if (!canRetryPolicy(policy, code, retry)) throw thrown
@@ -95,7 +113,7 @@ export async function assembleLlmStream(ctx, options, { signal, backoff, random 
     const finish = assembler.finish
     if (finish.kind !== 'error' || fused?.aborted) return assembler
     const failure = finish.failure
-    const code = failure?.code
+    const code = failureCode(failure)
     if (!TRANSIENT_LLM_CODES.has(code)) return assembler
     const policy = retryPolicyOf(ctx, options.provider)
     if (!canRetryPolicy(policy, code, retry)) return assembler
@@ -112,14 +130,16 @@ export function install(rt) {
   ctx.on?.('agent/request-error', async (payload, next) => {
     const decided = await next()
     const { agent, turn, step, signal, failure } = payload
-    if (decided !== undefined || failure?.code !== 'MALFORMED_RESPONSE' || signal?.aborted || !rt.isBotSession(agent.id)) return decided
+    const code = failureCode(failure)
+    if (decided !== undefined || code !== 'MALFORMED_RESPONSE' || signal?.aborted || !rt.isBotSession(agent.id)) return decided
     let retries = malformedRetries.get(agent)
     if (retries?.turn !== turn || retries?.step !== step) {
       retries = { turn, step, count: 0 }
       malformedRetries.set(agent, retries)
     }
     const policy = payload.retryPolicy ?? retryPolicyOf(ctx, payload.provider)
-    if (!canRetryPolicy(policy, failure.code, retries.count + 1)) return undefined
+    if (code !== failure.code && dshRetries(policy, failure.code)) return undefined
+    if (!canRetryPolicy(policy, code, retries.count + 1)) return undefined
     retries.count += 1
     rt.warn(`Retrying malformed model response for ${agent.id} (turn ${turn}, step ${step}, retry ${retries.count}/${MALFORMED_RETRIES})`)
     if (!await waitRetryDelay(250, signal)) return undefined

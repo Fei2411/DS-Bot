@@ -80,6 +80,29 @@ const settled = async (check) => {
   for (let i = 0; i < 50 && !check(); i += 1) await new Promise(resolve => setTimeout(resolve, 10))
 }
 
+test('a pruned task Session stays archived when the DSH Workspace registry reopens', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'dsb-retired-'))
+  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
+  const team = structuredClone(TEAM)
+  team.bots.w1.tasks = Array.from({ length: 51 }, (_, n) => ({
+    id: `old-task-${n}`, sessionId: `task-session-${n}`, origin: 'user', status: 'completed',
+  }))
+  writeFileSync(join(home, 'state.json'), JSON.stringify(team))
+  const dsh = join(home, 'dsh')
+  await t.test('archive during startup reconciliation', async (phase) => {
+    const ctx = fakeContext({})
+    ctx.workspaceRegistry = await dshRegistry(phase, dsh, ['task-session-0'], ctx)
+    const rt = createRuntime(ctx, { home })
+    phase.after(() => ctx.dispose())
+    await rt.load()
+    await rt.reconcileTasksAfterRestart()
+    assert.deepEqual([...ctx.workspaceRegistry.archivedSessionIds], ['task-session-0'])
+    assert.equal(rt.botOf('w1').tasks.length, 50)
+  })
+  const registry = await dshRegistry(t, dsh, [], fakeContext({}))
+  assert.deepEqual([...registry.archivedSessionIds], ['task-session-0'])
+})
+
 test('current team Sessions held archived in DSH are taken back out; earlier parts stay', async (t) => {
   const { registry, call } = await team(t, ['w1', 'w2', 'g1', 'gw', 'outside'])
   await call('state')

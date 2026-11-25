@@ -26,6 +26,9 @@ const BLOCKED_PROFILE_ENV_PREFIX = ['DS_BOT_', 'DSH_', 'ANTIGRAVITY_', 'AGY_', '
 // load with a duplicate adapter.
 export const ROUTE_PREFIX = 'local-'
 
+const QODER_CN_COMMANDS = ['qoderclicn', 'qodercn', 'qoder-cn']
+const QODER_CN_SIGN_IN = { file: ['.qoder-cn', '.auth', 'user'] }
+
 const CLIS = {
   'devin-cli': {
     name: 'Devin CLI', kind: 'acp', command: 'devin', args: ['acp'], version: ['--version'], signIn: 'devin auth login',
@@ -93,7 +96,11 @@ const CLIS = {
     // only accepts a file with a token and an account (the values may be encrypted).
     signedIn: { appDataFile: { path: ['CodeBuddyExtension', 'Data', 'Public', 'auth', 'Tencent-Cloud.coding-copilot.info'], loggedOut: '.logged-out', has: [['auth', 'accessToken'], ['account']] } },
   },
-  'qoder': { name: 'Qoder CLI', kind: 'acp', command: 'qodercli', commands: ['qodercli', 'qoder', 'qoderclicn', 'qodercn', 'qoder-cn'], args: ['--acp'], version: ['--version'], signIn: 'qodercli', signInBy: { qoderclicn: 'qoderclicn', qodercn: 'qoderclicn', 'qoder-cn': 'qoderclicn' } },
+  'qoder': {
+    name: 'Qoder CLI', kind: 'acp', command: 'qodercli', commands: ['qodercli', 'qoder', ...QODER_CN_COMMANDS], args: ['--acp'], version: ['--version'], signIn: 'qodercli',
+    signInBy: Object.fromEntries(QODER_CN_COMMANDS.map(command => [command, 'qoderclicn'])),
+    signedInBy: Object.fromEntries(QODER_CN_COMMANDS.map(command => [command, QODER_CN_SIGN_IN])),
+  },
   'minimax-code': { name: 'MiniMax Code', kind: 'acp', command: 'mcode', args: ['acp'], version: ['--version'], signIn: 'mcode' },
   'glm-cli': { name: 'GLM Agent', kind: 'acp', command: 'glm-acp-agent', args: [], version: ['--version'], signIn: 'glm-acp-agent --setup' },
   'kiro-cli': { name: 'Kiro CLI', kind: 'acp', command: 'kiro-cli', args: ['acp'], version: ['--version'], signIn: 'kiro-cli login' },
@@ -106,6 +113,8 @@ const CLIS = {
 
 // route -> engine, e.g. 'local-codex-cli'. `id` is the CLI's name without the prefix.
 export const ENGINES = Object.fromEntries(Object.entries(CLIS).map(([id, spec]) => [`${ROUTE_PREFIX}${id}`, { ...spec, id }]))
+
+const executableCommand = path => typeof path === 'string' ? win32.basename(path).replace(/\.(cmd|exe|bat|com)$/i, '') : undefined
 
 function hasControlChars(value) {
   for (let i = 0; i < value.length; i += 1) {
@@ -129,8 +138,7 @@ function quotePowerShellSingle(value) {
 // Isolated profile specs include their config directory environment variable so the user
 // signs into that profile instead of the default global account.
 export function signInFor(spec, path, { platform = process.platform } = {}) {
-  const command = typeof path === 'string' ? win32.basename(path).replace(/\.(cmd|exe|bat|com)$/i, '') : undefined
-  const base = spec?.signInBy?.[command] ?? spec?.signIn
+  const base = spec?.signInBy?.[executableCommand(path)] ?? spec?.signIn
   if (!base) return undefined
   if (spec?.profile === true && spec.profileEnvKey && spec.profileDir) {
     if (hasControlChars(String(spec.profileDir))) return undefined
@@ -140,6 +148,8 @@ export function signInFor(spec, path, { platform = process.platform } = {}) {
   }
   return base
 }
+
+export const signedInFor = (spec, path) => spec?.signedInBy?.[executableCommand(path)] ?? spec?.signedIn
 
 export const CUSTOM_PREFIX = `${ROUTE_PREFIX}acp-`
 
