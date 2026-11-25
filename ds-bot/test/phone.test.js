@@ -362,3 +362,80 @@ test('a bare Server host means the link path; a dead Server shows why', async (t
   await desk.call('phone-set', { server: '' })
   assert.equal((await desk.call('state', {})).value.phone.server, DEFAULT_SERVER)
 })
+
+test('paired browsers cannot see or answer Classic Agent approvals in state, live events, or approval-answer, while paired phones can', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'dsb-browser-approvals-'))
+  const ctx = fakeContext()
+  let tap
+  const botApproval = { id: 'appr-bot', sessionId: 'm1', botId: 'm1', tool: 'bash', reason: 'Bot command', answerable: true }
+  const agentApproval = { id: 'appr-agent', sessionId: 'agent-s1', tool: 'bash', reason: 'Classic command', answerable: true }
+  const approvals = [botApproval, agentApproval]
+  const answered = []
+  const rt = {
+    home,
+    ctx,
+    state: { revision: 1 },
+    load: async () => {},
+    readOnly: () => undefined,
+    feedTap: (listener) => { tap = listener; return () => { tap = undefined } },
+    agentOf: id => (id === 'agent-s1' ? { id: 'a1' } : undefined),
+    approvalsView: () => approvals,
+    approvalById: id => approvals.find(entry => entry.id === id),
+  }
+  installPhone(rt)
+  rt.phoneServe(async (endpoint, payload) => {
+    if (endpoint === 'state') return { ok: true, value: { revision: 1, work: { approvals } } }
+    if (endpoint === 'approval-answer') {
+      answered.push(payload)
+      return { ok: true, value: true }
+    }
+    return { ok: true, value: null }
+  })
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  await rt.phoneEndpoint('phone-set', { server: server.url, on: true })
+  await until(async () => rt.phoneView(), view => view.status === 'online')
+
+  const pair1 = await rt.phoneEndpoint('phone-pair', {})
+  const browserLink = phone(parsePairingUri(pair1.pairing.browserUri), { pairingCode: parsePairingUri(pair1.pairing.browserUri).code, name: 'Chrome' })
+  await browserLink.client.connect()
+
+  const pair2 = await rt.phoneEndpoint('phone-pair', {})
+  const phoneLink = phone(parsePairingUri(pair2.pairing.uri), { pairingCode: parsePairingUri(pair2.pairing.uri).code, name: 'Pixel' })
+  await phoneLink.client.connect()
+
+  await until(async () => tap, callback => typeof callback === 'function')
+
+  // `state` strips Classic Agent approvals for browser but keeps them for phone.
+  const browserState = await browserLink.client.rpc('bot', { endpoint: 'state', payload: {} })
+  assert.deepEqual(browserState.value.work.approvals.map(a => a.id), ['appr-bot'])
+  const phoneState = await phoneLink.client.rpc('bot', { endpoint: 'state', payload: {} })
+  assert.deepEqual(phoneState.value.work.approvals.map(a => a.id), ['appr-bot', 'appr-agent'])
+
+  // `live` feed events also filter per device: browser gets only Bot approvals, phone gets both.
+  const browserEvents = []
+  const phoneEvents = []
+  const offBrowser = browserLink.client.onEvent(e => browserEvents.push(e))
+  const offPhone = phoneLink.client.onEvent(e => phoneEvents.push(e))
+  tap('live', { work: { approvals } })
+  const bEvt = await until(async () => browserEvents.find(e => e.event === 'live'), Boolean)
+  const pEvt = await until(async () => phoneEvents.find(e => e.event === 'live'), Boolean)
+  offBrowser()
+  offPhone()
+  assert.deepEqual(bEvt.data.work.approvals.map(a => a.id), ['appr-bot'])
+  assert.deepEqual(pEvt.data.work.approvals.map(a => a.id), ['appr-bot', 'appr-agent'])
+
+  // Browser is refused when trying to answer a Classic Agent approval, but may still answer a Bot approval.
+  const denied = await browserLink.client.rpc('bot', { endpoint: 'approval-answer', payload: { id: 'appr-agent', choice: 'allow' } })
+  assert.equal(denied.ok, false)
+  assert.equal(denied.error.code, 'bot/refused')
+  assert.equal(answered.length, 0)
+
+  const allowedBot = await browserLink.client.rpc('bot', { endpoint: 'approval-answer', payload: { id: 'appr-bot', choice: 'allow' } })
+  assert.equal(allowedBot.ok, true)
+  const allowedAgentOnPhone = await phoneLink.client.rpc('bot', { endpoint: 'approval-answer', payload: { id: 'appr-agent', choice: 'allow' } })
+  assert.equal(allowedAgentOnPhone.ok, true)
+  assert.deepEqual(answered.map(entry => entry.id), ['appr-bot', 'appr-agent'])
+
+  await browserLink.client.close()
+  await phoneLink.client.close()
+})

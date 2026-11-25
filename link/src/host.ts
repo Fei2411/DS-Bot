@@ -150,14 +150,15 @@ export class HostLink {
   }
 
   /** Tells every connected phone that something changed. */
-  emit(event: string, data: unknown): void {
-    const message = encodeMessage(createMessage('event', { event, data }))
+  emit(event: string, data: unknown, forDevice?: (deviceId: string) => unknown): void {
+    const shared = forDevice === undefined ? encodeMessage(createMessage('event', { event, data })) : undefined
     for (const tunnel of this.tunnels.values()) {
       if (tunnel.stage !== 'ready') continue
       if ((tunnel.emitPending ?? 0) >= MAX_EMIT_PENDING) {
         this.dropTunnel(tunnel, 'SEND_FAILED')
         continue
       }
+      const message = shared ?? encodeMessage(createMessage('event', { event, data: forDevice!(tunnel.deviceId) }))
       tunnel.emitPending = (tunnel.emitPending ?? 0) + 1
       void this.sendSecure(tunnel, message)
         .catch(() => this.dropTunnel(tunnel, 'SEND_FAILED'))

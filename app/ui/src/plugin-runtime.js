@@ -262,6 +262,7 @@ export function createPluginRuntime({ slots = defaultSlots, registerTheme: regis
     }
     plugins.clear()
     services.clear()
+    serviceStacks.clear()
     emit()
   }
 

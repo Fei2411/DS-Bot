@@ -667,8 +667,8 @@ test('registerEngineSettingsPlugin removes engine-config and forwards subTarget 
 test('AccountSettingsPage opens view.attempt.authorizeUrl on sign-in and supports cancel and sign-out', async () => {
   const openedUrls = []
   let view = {
-    signedIn: false,
-    account: null,
+    status: 'signed-out',
+    links: { usageUrl: '', topUpUrl: '' },
     attempt: null,
   }
   const calls = []
@@ -677,18 +677,18 @@ test('AccountSettingsPage opens view.attempt.authorizeUrl on sign-in and support
     if (ep === 'engine-account-state') return { available: true, view }
     if (ep === 'engine-account-signin') {
       view = {
-        signedIn: false,
-        account: null,
+        status: 'signing-in',
+        links: { usageUrl: '', topUpUrl: '' },
         attempt: { id: 'att-1', phase: 'waiting-browser', authorizeUrl: 'https://auth.deepseek.com/oauth/start?state=abc' },
       }
       return { available: true, view }
     }
     if (ep === 'engine-account-cancel') {
-      view = { signedIn: false, account: null, attempt: null }
+      view = { status: 'signed-out', links: { usageUrl: '', topUpUrl: '' }, attempt: null }
       return { available: true, view }
     }
     if (ep === 'engine-account-signout') {
-      view = { signedIn: false, account: null, attempt: null }
+      view = { status: 'signed-out', links: { usageUrl: '', topUpUrl: '' }, attempt: null }
       return { available: true, view }
     }
     return {}

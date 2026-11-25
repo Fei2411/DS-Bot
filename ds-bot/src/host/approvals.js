@@ -114,6 +114,7 @@ export function install(rt) {
       answerable: answer !== undefined,
     }
   })
+  const approvalById = id => pending.get(String(id ?? ''))
   const waitsForApproval = sessionId => [...pending.values()].some(entry => entry.sessionId === sessionId)
 
   function answerApproval(id, choice) {
@@ -131,5 +132,5 @@ export function install(rt) {
     }
   }
 
-  Object.assign(rt, { approvalsView, waitsForApproval, answerApproval, cancelApprovals, onApproval })
+  Object.assign(rt, { approvalsView, approvalById, waitsForApproval, answerApproval, cancelApprovals, onApproval })
 }

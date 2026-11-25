@@ -37,15 +37,26 @@ export function remoteAccessError(device, endpoint) {
   return undefined
 }
 
-// A browser may not open DSH Agent chats, so it may not read their media either.
+// A browser may not open DSH Agent chats, so it may not read their media or answer their approvals either.
 const AGENT_MEDIA = new Set(['image', 'file-download', 'markdown-image'])
+const BROWSER_DENIED = { code: 'bot/refused', message: 'Not available from a browser. Use the phone app or the computer.', details: {} }
 const invalid = message => Object.assign(new Error(message), { code: 'bot/invalid' })
 
-function remoteState(state) {
-  if (!state?.phone || !Object.hasOwn(state.phone, 'pairing')) return state
-  const phone = { ...state.phone }
-  delete phone.pairing
-  return { ...state, phone }
+function remoteState(state, { browser = false } = {}) {
+  if (!state || typeof state !== 'object') return state
+  let next = state
+  if (next.phone && Object.hasOwn(next.phone, 'pairing')) {
+    const phone = { ...next.phone }
+    delete phone.pairing
+    next = { ...next, phone }
+  }
+  if (browser && Array.isArray(next.work?.approvals)) {
+    const approvals = next.work.approvals.filter(entry => entry?.botId !== undefined)
+    if (approvals.length !== next.work.approvals.length) {
+      next = { ...next, work: { ...next.work, approvals } }
+    }
+  }
+  return next
 }
 
 function remoteFolders(value) {
@@ -99,9 +110,18 @@ export function install(rt) {
   // When the call carries `state` (the payload the phone would send `state`) and
   // it moved the team, the reply carries the new state too — one round trip
   // through the relay instead of waiting for the revision event and a read.
-  const agentMediaError = (device, endpoint, payload) =>
-    device.kind !== 'phone' && AGENT_MEDIA.has(endpoint) && rt.agentOf?.(String(payload?.sessionId ?? '')) !== undefined
-      ? { code: 'bot/refused', message: 'Not available from a browser. Use the phone app or the computer.', details: {} }
+  const agentApprovalDenied = (endpoint, payload) => {
+    if (endpoint !== 'approval-answer') return false
+    const id = String(payload?.id ?? '')
+    if (id === '') return false
+    const entry = rt.approvalById?.(id) ?? rt.approvalsView?.()?.find(item => item.id === id)
+    return entry !== undefined && (entry.botId === undefined || rt.agentOf?.(entry.sessionId) !== undefined)
+  }
+  const agentAccessError = (device, endpoint, payload) =>
+    device.kind !== 'phone'
+    && ((AGENT_MEDIA.has(endpoint) && rt.agentOf?.(String(payload?.sessionId ?? '')) !== undefined)
+      || agentApprovalDenied(endpoint, payload))
+      ? BROWSER_DENIED
       : undefined
   const callBot = async (params, signal, deviceId) => {
     const endpoint = String(params?.endpoint ?? '')
@@ -109,19 +129,20 @@ export function install(rt) {
     const device = typeof deviceId === 'string' && deviceId !== ''
       ? registry.list().find(entry => entry.deviceId === deviceId)
       : undefined
-    const denied = remoteAccessError(device, endpoint) ?? agentMediaError(device, endpoint, params?.payload)
+    const denied = remoteAccessError(device, endpoint) ?? agentAccessError(device, endpoint, params?.payload)
     if (denied !== undefined) return { ok: false, error: denied }
+    const browser = device.kind !== 'phone'
     const wanted = params?.state !== null && typeof params?.state === 'object' && !Array.isArray(params.state) ? params.state : undefined
     const before = rt.state.revision
     const answer = await serve(endpoint, params?.payload ?? null, signal)
     const result = endpoint === 'state' && answer?.ok === true
-      ? { ...answer, value: remoteState(answer.value) }
+      ? { ...answer, value: remoteState(answer.value, { browser }) }
       : endpoint === 'folders' && answer?.ok === true
         ? { ...answer, value: remoteFolders(answer.value) }
         : answer
     if (wanted === undefined || result?.ok !== true || rt.state.revision === before) return result
     const state = await serve('state', wanted, signal).then(answer => (answer?.ok === true ? answer.value : undefined), () => undefined)
-    return state === undefined ? result : { ...result, state: remoteState(state) }
+    return state === undefined ? result : { ...result, state: remoteState(state, { browser }) }
   }
 
   const stop = () => {
@@ -155,7 +176,14 @@ export function install(rt) {
           const running = link
           feedUntap = rt.feedTap((event, data) => {
             if (event === 'terminal' || event === 'terminal-exit') return
-            running.emit(event, event === 'live' ? remoteState(data) : data)
+            if (event === 'live') {
+              running.emit(event, remoteState(data, { browser: true }), (targetDeviceId) => {
+                const target = registry.list().find(entry => entry.deviceId === targetDeviceId)
+                return remoteState(data, { browser: target?.kind !== 'phone' })
+              })
+              return
+            }
+            running.emit(event, data)
           })
         } else if (count === 0 && feedUntap !== null) {
           feedUntap()
