@@ -716,6 +716,7 @@ export function createTeam() {
     canReferenceChat: () => true,
     referenceChat: (sessionId, insertion) => chat.emit('reference-chat', { sessionId, insertion }),
     speech: () => (roster.getSnapshot().speech === true ? speechClient : undefined),
+    hasPluginMic: () => false,
     voiceSetup: (providerId) => (roster.getSnapshot().speech === true && providerId !== undefined
       ? { prepare: () => requestPreparation(speechClient, providerId) }
       : null),

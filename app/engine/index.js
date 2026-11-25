@@ -112,6 +112,7 @@ function sanitizePathname(decodedPath) {
   if (decodedPath.includes('\\') || decodedPath.includes(':')) return { status: 403 }
   if (!decodedPath.startsWith('/')) return { status: 400 }
   if (decodedPath.startsWith('//')) return { status: 403 }
+  if (decodedPath !== '/' && decodedPath.endsWith('/')) return { status: 404 }
   const segments = decodedPath.slice(1).split('/')
   if (decodedPath !== '/') {
     for (const seg of segments) {
@@ -132,7 +133,7 @@ export function createUiResource({ distDir, authorizeIndex }) {
   const distRoot = resolve(distDir)
   const distRootPrefix = withSep(distRoot)
   const distIndex = join(distRoot, 'index.html')
-  const checkRealpath = !distRoot.includes('.asar')
+  const checkRealpath = !/\.asar(?:[\\/]|$)/u.test(distRoot)
   let realDistRootPromise = null
   const getRealDistRoot = () => {
     if (!checkRealpath) return Promise.resolve(null)

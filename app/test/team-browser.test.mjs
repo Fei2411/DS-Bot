@@ -767,9 +767,10 @@ test('createTeam wires host speech service, switches back from Classic mode on B
     await tick()
     await tick()
 
-    // Speech remote is exposed when host reports `speech: true`.
+    // Speech remote is exposed when host reports `speech: true`, while hasPluginMic stays false so desktop Dictate stays visible.
     const speech = team.actions.speech()
     assert.ok(speech, 'actions.speech() must return a client when host speech service is active')
+    assert.equal(team.actions.hasPluginMic(), false)
     const cat = await speech.catalog()
     assert.equal(cat.ok, true)
     assert.equal(cat.value.selection.providerId, 'sensevoice-local')

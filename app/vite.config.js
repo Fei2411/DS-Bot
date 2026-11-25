@@ -2,11 +2,18 @@ import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vite'
 
 const primitives = fileURLToPath(new URL('./ui/src/primitives.js', import.meta.url))
-const assistantStream = fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-llm/assistant-stream'))
-const utilValues = fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-util-values'))
+const appResolved = new Map([
+  ['@deepseek-ai/dsh-llm/assistant-stream', fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-llm/assistant-stream'))],
+  ['@deepseek-ai/dsh-util-values', fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-util-values'))],
+  ['qrcode-generator', fileURLToPath(import.meta.resolve('qrcode-generator'))],
+  ['deep-view/react', fileURLToPath(import.meta.resolve('deep-view/react'))],
+  ['deep-view/core', fileURLToPath(import.meta.resolve('deep-view/core'))],
+])
 
 // The plugin's Bot views take DSH's interface primitives from one module; the window does
-// not load DSH's interface, so its own module stands in for that one.
+// not load DSH's interface, so its own module stands in for that one. Bare packages imported
+// by ../ds-bot/src/client/ also resolve from app/node_modules so CI packaging works without
+// a separate ds-bot/node_modules install.
 const ownPrimitives = {
   name: 'ds-bot-primitives',
   enforce: 'pre',
@@ -14,9 +21,7 @@ const ownPrimitives = {
     const norm = source.replaceAll('\\', '/')
     if ((norm === './dsh-primitives.js' && importer?.replaceAll('\\', '/').includes('/ds-bot/src/client/'))
       || norm.endsWith('/ds-bot/src/client/dsh-primitives.js')) return primitives
-    if (source === '@deepseek-ai/dsh-llm/assistant-stream') return assistantStream
-    if (source === '@deepseek-ai/dsh-util-values') return utilValues
-    return null
+    return appResolved.get(source) ?? null
   },
 }
 

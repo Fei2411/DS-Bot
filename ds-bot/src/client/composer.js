@@ -10,6 +10,7 @@ import { emptyAccelQueueKey, enterSteers, steerable } from './enter-steer.js'
 import { chatOfSession, flushDrafts, keepDraft, takeDraft } from './draft-keep.js'
 import { lruGet, lruSet } from './memo.js'
 import { mergeRescuedDraft, readRescuedForChat } from './question-draft.js'
+import { openCapture, speechCatalog, transcribeWave } from './speech.js'
 
 // -------------------------------------------------------------------------
 // Composer: dictation mic and the voice-chat button. The shell's send
@@ -73,6 +74,86 @@ export function ComposerVoice({ sessionId, inputActions, actions, useUi, useRost
   const dictation = useDictation((text, final) => {
     if (final && inputActions) inputActions.insertText(text, inputActions.captureInsertion())
   })
+  const [hostListening, setHostListening] = useState(false)
+  const [hostBusy, setHostBusy] = useState(false)
+  const [hostNote, setHostNote] = useState('')
+  const hostCapture = useRef(undefined)
+  const hostCatalog = useRef(undefined)
+  const hostAbort = useRef(undefined)
+  const mounted = useRef(true)
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+      hostAbort.current?.abort?.()
+      hostCapture.current?.cancel?.()
+    }
+  }, [])
+  useEffect(() => {
+    if (!hostNote) return undefined
+    const timer = setTimeout(() => setHostNote(''), 2600)
+    return () => clearTimeout(timer)
+  }, [hostNote])
+  const toggleMic = () => {
+    if (hostBusy) return
+    if (dictation.listening) { dictation.stop(); return }
+    const speech = actions.speech?.()
+    if (!speech) {
+      dictation.start()
+      return
+    }
+    if (hostListening && hostCapture.current) {
+      const cap = hostCapture.current
+      const cat = hostCatalog.current
+      hostCapture.current = null
+      setHostListening(false)
+      setHostBusy(true)
+      const ctl = new AbortController()
+      hostAbort.current = ctl
+      void cap.finish(cat?.maxDurationSeconds ?? 120)
+        .then(async (wave) => {
+          if (!wave || ctl.signal.aborted || !mounted.current) return
+          const text = await transcribeWave(speech, cat, wave, ctl.signal)
+          if (text && inputActions && !ctl.signal.aborted && mounted.current) {
+            inputActions.insertText(text, inputActions.captureInsertion())
+          }
+        })
+        .catch((error) => {
+          if (ctl.signal.aborted || !mounted.current) return
+          const kind = error?.kind
+          setHostNote(kind === 'too-long' ? t('That was too long to recognize') : t("Couldn't reach the speech service"))
+        })
+        .finally(() => {
+          if (hostAbort.current === ctl) hostAbort.current = null
+          if (mounted.current) setHostBusy(false)
+        })
+      return
+    }
+    setHostBusy(true)
+    void speechCatalog(speech)
+      .then(async ({ catalog, usable }) => {
+        if (!mounted.current) return
+        if (!usable) {
+          if (speechApi()) {
+            dictation.start()
+            return
+          }
+          setHostNote(t('Voice input needs its speech model'))
+          return
+        }
+        const cap = await openCapture()
+        if (!mounted.current) { cap.cancel(); return }
+        hostCatalog.current = catalog
+        hostCapture.current = cap
+        setHostListening(true)
+      })
+      .catch((error) => {
+        if (!mounted.current) return
+        const kind = error?.kind
+        setHostNote(kind === 'blocked' ? t('Microphone access is blocked') : t("Couldn't start dictation"))
+      })
+      .finally(() => { if (mounted.current) setHostBusy(false) })
+  }
   // Reply from a message's hover toolbar quotes it into this composer.
   const quote = useUi(state => (state.quote?.sessionId === sessionId ? state.quote : null))
   useEffect(() => {
@@ -90,19 +171,24 @@ export function ComposerVoice({ sessionId, inputActions, actions, useUi, useRost
     }
   }, [quote?.token])
   if (sessionId === undefined) return null
-  // With the Voice Input plugin on, its own microphone sits in this composer.
-  const pluginMic = actions.speech() !== undefined
+  // With DSH Web's Voice Input UI plugin on, its own microphone sits in this composer.
+  // DS Bot's own desktop window provides no separate DSH UI mic, so it keeps this button
+  // and routes dictation straight through the host speech controller.
+  const pluginMic = typeof actions.hasPluginMic === 'function' ? actions.hasPluginMic() : actions.speech() !== undefined
+  const listening = dictation.listening || hostListening
+  const note = hostNote || dictation.note
   return h(Fragment, null,
     pluginMic ? null : h('button', {
-      type: 'button', className: 'bt-mic', 'aria-label': dictation.listening ? t('Stop dictation') : t('Dictate'),
-      'aria-pressed': dictation.listening, title: dictation.listening ? t('Stop dictation') : t('Dictate'),
-      onMouseDown: keepComposerFocus, onClick: () => (dictation.listening ? dictation.stop() : dictation.start()),
+      type: 'button', className: 'bt-mic', 'aria-label': listening ? t('Stop dictation') : t('Dictate'),
+      'aria-pressed': listening, title: listening ? t('Stop dictation') : t('Dictate'),
+      disabled: hostBusy,
+      onMouseDown: keepComposerFocus, onClick: toggleMic,
     }, h(MicIcon)),
     h('button', {
       ref: composerRoot, type: 'button', className: 'bt-voice', 'aria-label': t('Start voice chat'), title: t('Voice chat'),
       onMouseDown: keepComposerFocus, onClick: () => actions.openVoice(sessionId),
     }, h(WaveIcon, { size: 18 })),
-    dictation.note ? h('span', { className: 'bt-mic-note', role: 'status' }, dictation.note) : null)
+    note ? h('span', { className: 'bt-mic-note', role: 'status' }, note) : null)
 }
 
 // Character marks for the "@" menu rows. Each Bot keeps one component, so the menu

@@ -123,9 +123,10 @@ describe('dsbot-engine UI static resource', () => {
     assert.equal(cssRes.status, 200)
     assert.equal(cssRes.headers.get('content-type'), 'text/css; charset=utf-8')
 
-    // Missing file -> 404; directory -> 404.
+    // Missing file -> 404; directory -> 404; trailing slash on non-root path -> 404.
     assert.equal((await resource(new Request('http://127.0.0.1:4123/assets/missing.js'))).status, 404)
     assert.equal((await resource(new Request('http://127.0.0.1:4123/assets'))).status, 404)
+    assert.equal((await resource(new Request('http://127.0.0.1:4123/other.html/'))).status, 404)
 
     // Path traversal (encoded ..%2f surviving URL normalization) -> 403; malformed URI / null byte -> 400; POST -> 405.
     assert.equal((await resource(new Request('http://127.0.0.1:4123/assets/..%2f..%2fsecret.txt'))).status, 403)
