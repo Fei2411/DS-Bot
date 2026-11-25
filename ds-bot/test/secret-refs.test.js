@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -592,11 +592,10 @@ test('in-flight secret-ref files stay valid across secret-encrypt, secret-decryp
   assert.equal(await refs.consumeRef(ref3, { botId: 'b2' }), s3)
 })
 
-test('connectors and mail consume secret-ref end-to-end, disambiguate multiple refs, validate first, and enforce Bot isolation', async (t) => {
+test('HTTP connector and mail endpoints reject secret-ref handles without trusting body.botId and leave owner handles intact', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-conn-refs-'))
   writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))
   const ctx = fakeContext()
-  const mailLogins = []
   ctx.sessionController = { resolveAgent: async () => ({ agent: { session: {}, followup: () => {} } }) }
   ctx.sessions = { flush: async () => {} }
   ctx.workspaceRegistry = { archiveSession: async () => {} }
@@ -606,10 +605,7 @@ test('connectors and mail consume secret-ref end-to-end, disambiguate multiple r
     github: false,
     diagnosticsFile: false,
     mail: {
-      connect: async (account, { password }) => {
-        mailLogins.push({ address: account.address, password })
-        return { usable: true, close: async () => {} }
-      },
+      connect: async () => ({ usable: true, close: async () => {} }),
     },
   })
   t.after(async () => {
@@ -618,114 +614,168 @@ test('connectors and mail consume secret-ref end-to-end, disambiguate multiple r
   })
   await rt.load()
 
-  // 1. connector-add HTTP with TWO distinct secret-ref: handles in ONE header.
-  const u1 = fresh()
-  const p1 = fresh()
-  const rUser = await rt.secrets.issueRef({ botId: 'b2', sessionId: 'b2', requestId: 'c1', field: 'U', value: u1 })
-  const rPass = await rt.secrets.issueRef({ botId: 'b2', sessionId: 'b2', requestId: 'c2', field: 'P', value: p1 })
+  const secret = fresh()
+  const ref = await rt.secrets.issueRef({ botId: 'b2', sessionId: 'b2', requestId: 'http-reject', field: 'KEY', value: secret })
+  const refFile = join(home, 'secret-refs', `${ref.slice('secret-ref:'.length)}.json`)
+  assert.equal(existsSync(refFile), true)
 
-  // Validation failure (insecure URL) must NOT consume refs or pollute CONNECTOR_IDS.
-  await assert.rejects(
-    () => rt.connectorEndpoint('connector-add', {
-      name: 'bad-http-conn',
-      url: 'http://insecure.example/mcp',
-      headers: { Authorization: `Basic ${rUser}:${rPass}` },
-      botId: 'b2',
-    }),
-    /https:\/\//,
-  )
-  assert.equal(CONNECTOR_IDS.has('bad-http-conn'), false)
+  // Every HTTP connector/mail endpoint must reject secret-ref handles (with or without forged body.botId)
+  // and must NEVER consume or delete the owner's handle on disk.
+  for (const [endpoint, body] of [
+    ['connector-connect', { id: 'amap', secretRef: ref, botId: 'b2' }],
+    ['connector-connect', { id: 'amap', key: ref }],
+    ['connector-connect', { id: 'amap', key: `Bearer ${ref}`, botId: 'b2' }],
+    ['connector-client', { id: 'notion', clientId: 'cid', secretRef: ref, botId: 'b2' }],
+    ['connector-client', { id: 'notion', clientId: 'cid', clientSecret: ref }],
+    ['connector-add', { name: 'http-ref', url: 'https://dual.example/mcp', headers: { Authorization: `Bearer ${ref}` }, botId: 'b2' }],
+    ['connector-add', { name: 'http-url-ref', url: `https://dual.example/mcp?k=${ref}` }],
+    ['connector-add', { name: 'stdio-ref', command: 'node', args: ['--token', ref], env: { K: 'v' }, botId: 'b2' }],
+    ['connector-add', { name: 'stdio-env-ref', command: 'node', args: [], env: { API_KEY: ref } }],
+    ['mail-account-add', { address: 'user@custom.example', provider: 'other', secretRef: ref, imapHost: 'imap.custom.example', smtpHost: 'smtp.custom.example', botId: 'b2' }],
+    ['mail-account-add', { address: 'user@custom.example', provider: 'other', password: ref, imapHost: 'imap.custom.example', smtpHost: 'smtp.custom.example' }],
+  ]) {
+    await assert.rejects(
+      () => rt.connectorEndpoint(endpoint, body),
+      /Bot host tools/i,
+      `${endpoint} must reject secret-ref handles`,
+    )
+    assert.equal(existsSync(refFile), true, `${endpoint} must not consume or delete the ref file`)
+  }
+  assert.equal(CONNECTOR_IDS.has('http-ref'), false)
+  assert.equal(CONNECTOR_IDS.has('stdio-ref'), false)
 
-  // Mid-way failure (rUser valid, second ref belongs to another Bot) must roll back rUser's secret and NOT add to CONNECTOR_IDS.
-  const otherRef = await rt.secrets.issueRef({ botId: 'c3', sessionId: 'c3', requestId: 'c-other', field: 'X', value: fresh() })
-  const tempRef = await rt.secrets.issueRef({ botId: 'b2', sessionId: 'b2', requestId: 'c-tmp', field: 'T', value: fresh() })
-  await assert.rejects(
-    () => rt.connectorEndpoint('connector-add', {
-      name: 'rollback-conn',
-      url: 'https://good.example/mcp',
-      headers: { Authorization: `Basic ${tempRef}:${otherRef}` },
-      botId: 'b2',
-    }),
-    /another Bot/i,
-  )
-  assert.equal(CONNECTOR_IDS.has('rollback-conn'), false)
-  assert.equal(rt.secretsView().filter(s => s.name.includes('ROLLBACK_CONN')).length, 0)
+  // Owner Bot can still consume the intact handle via the trusted host tool path (`save_capability`).
+  const saved = await rt.capabilitySave({
+    name: 'trusted-mcp',
+    kind: 'mcp',
+    transport: 'streamable-http',
+    url: 'https://trusted.example/mcp',
+    headers: { Authorization: `Bearer ${ref}` },
+  }, { botId: 'b2' })
+  assert.match(saved.headers.Authorization, /^Bearer \$DSH_SECRET_CAP_TRUSTED_MCP_AUTHORIZATION_[A-F0-9]{8}$/)
+  assert.equal(existsSync(refFile), false)
+})
 
-  // Valid connector-add with TWO distinct refs in ONE header: both stored separately and resolved in upstreamOf!
-  await rt.connectorEndpoint('connector-add', {
-    name: 'dual-auth',
-    url: 'https://dual.example/mcp',
-    headers: { Authorization: `Basic ${rUser}:${rPass}` },
-    botId: 'b2',
-  })
-  const upstream = rt.connectorsInternals.upstreamOf('dual-auth')
-  assert.equal(upstream.headers.Authorization, `Basic ${u1}:${p1}`)
-  assert.equal(CONNECTOR_IDS.has('dual-auth'), true)
+test('loadOrCreateSalt recovers from 0-byte and truncated .salt files via atomic replacement', async (t) => {
+  for (const [label, bytes] of [['zero-byte', Buffer.alloc(0)], ['truncated', Buffer.from('short-salt')]]) {
+    const home = mkdtempSync(join(tmpdir(), `dsb-salt-${label}-`))
+    t.after(() => rmSync(home, { recursive: true, force: true }))
+    const refsDir = join(home, 'secret-refs')
+    mkdirSync(refsDir, { recursive: true, mode: 0o700 })
+    const saltPath = join(refsDir, '.salt')
+    writeFileSync(saltPath, bytes)
 
-  // 2. connector-add stdio scans args AND env.
-  const argVal = fresh()
-  const envVal = fresh()
-  const rArg = await rt.secrets.issueRef({ botId: 'b2', sessionId: 'b2', requestId: 's-arg', field: 'A', value: argVal })
-  const rEnv = await rt.secrets.issueRef({ botId: 'b2', sessionId: 'b2', requestId: 's-env', field: 'E', value: envVal })
-  await rt.connectorEndpoint('connector-add', {
-    name: 'stdio-ref',
+    const warnings = []
+    const refs = createSecretRefs({ home, warn: (...args) => warnings.push(args) })
+    t.after(() => refs.dispose())
+
+    const secret = fresh()
+    const ref = await refs.issueRef({ botId: 'b2', sessionId: 's1', requestId: 'r1', field: 'KEY', value: secret })
+    assert.match(ref, SECRET_REF_PATTERN)
+    assert.equal(readFileSync(saltPath).length, 32, `${label} .salt must be replaced with 32 bytes`)
+    if (process.platform !== 'win32') {
+      assert.equal(statSync(saltPath).mode & 0o777, 0o600)
+    }
+    assert.ok(warnings.length >= 1, `${label} .salt recovery must emit a warning`)
+    assert.equal(await refs.consumeRef(ref, { botId: 'b2' }), secret)
+  }
+})
+
+test('host restart restores unexpired delivery=file redactions and sweep removes expired entries from memory', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-restart-redaction-'))
+  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
+  const activeSecret = fresh()
+  const expiredSecret = fresh()
+  const nonSfSecret = fresh()
+
+  // First runtime writes a delivery=file secret, plus an expired sf- file and a non-sf file.
+  const run1 = start({ home })
+  const saved = await run1.tool('request_secret', { name: 'DEPLOY_KEY', purpose: 'temp', delivery: 'file', value: activeSecret }, 'b2')
+  const match = saved.text.match(/private temporary file \(0600\): ([^\s]+) \(expires/)
+  assert.ok(match)
+  const activePath = match[1]
+  const expiredPath = join(home, 'secret-files', `sf-old_key-${'a'.repeat(32)}.secret`)
+  writeFileSync(expiredPath, expiredSecret)
+  const oldTime = new Date(Date.now() - 48 * 3_600_000)
+  utimesSync(expiredPath, oldTime, oldTime)
+  const unrelatedPath = join(home, 'secret-files', 'notes.txt')
+  writeFileSync(unrelatedPath, nonSfSecret)
+  await run1.ctx.dispose()
+
+  // Second runtime starts on the SAME home directory (simulating host restart).
+  const run2 = start({ home })
+  t.after(async () => { await run2.ctx.dispose() })
+  await run2.rt.load()
+  await run2.rt.loadSecrets()
+
+  // Unexpired sf-*.secret is restored into redactor (both direct redactSecrets and tools/execute).
+  assert.equal(run2.rt.redactSecrets(`leak=${activeSecret}`), 'leak=[secret:DEPLOY_KEY]')
+  const execute = run2.listeners['tools/execute'].filter(listener => listener.name !== 'listOwnSchedules' && listener.name !== 'computerTrack').at(-1)
+  const toolRes = await execute({ name: 'bash', agent: { id: 'b2', session: { header: { id: 'b2' } } } }, async () => ({
+    isError: false,
+    value: { stdout: `out=${activeSecret}` },
+  }))
+  assert.equal(toolRes.value.stdout, 'out=[secret:DEPLOY_KEY]')
+
+  // Expired sf-*.secret was cleaned and is NOT registered; unrelated file is untouched & not registered.
+  assert.equal(existsSync(expiredPath), false)
+  assert.equal(run2.rt.redactSecrets(expiredSecret), expiredSecret)
+  assert.equal(existsSync(unrelatedPath), true)
+  assert.equal(run2.rt.redactSecrets(nonSfSecret), nonSfSecret)
+
+  // Aging the surviving file and running sweepExpiredFiles deletes both the disk file and its in-memory redaction.
+  const aged = new Date(Date.now() - 60_000)
+  utimesSync(activePath, aged, aged)
+  const removed = await run2.rt.secrets.sweepExpiredFiles({ maxAgeMs: 10_000 })
+  assert.equal(removed, 1)
+  assert.equal(existsSync(activePath), false)
+  assert.equal(run2.rt.redactSecrets(`after=${activeSecret}`), `after=${activeSecret}`)
+})
+
+test('capabilities narrow secret-ref scanning by transport and dropOrphanCapabilities deletes ownedSecrets on bot deletion', async (t) => {
+  const bench = start()
+  t.after(bench.stop)
+
+  // 1. stdio transport must NOT scan/consume secret-ref handles in ignored url/headers fields.
+  const unusedHttpRef = await bench.rt.secrets.issueRef({ botId: 'b2', sessionId: 'b2', requestId: 'tr-1', field: 'H', value: fresh() })
+  const stdioEnvVal = fresh()
+  const stdioEnvRef = await bench.rt.secrets.issueRef({ botId: 'b2', sessionId: 'b2', requestId: 'tr-2', field: 'E', value: stdioEnvVal })
+  const stdioCap = await bench.rt.capabilitySave({
+    name: 'stdio-scoped',
+    kind: 'mcp',
+    transport: 'stdio',
     command: 'node',
-    args: ['--token', rArg],
-    env: { API_KEY: rEnv },
-    botId: 'b2',
-  })
-  const savedCustom = rt.state.connectors['stdio-ref'].custom
-  assert.match(savedCustom.args[1], /^\$DSH_SECRET_CONNECTOR_STDIO_REF_ARG_1_[A-F0-9]{8}$/)
-  assert.match(savedCustom.env.API_KEY, /^\$DSH_SECRET_CONNECTOR_STDIO_REF_ENV_API_KEY_[A-F0-9]{8}$/)
-  assert.equal(rt.secretValue(savedCustom.args[1].slice('$DSH_SECRET_'.length)), argVal)
-  assert.equal(rt.secretValue(savedCustom.env.API_KEY.slice('$DSH_SECRET_'.length)), envVal)
+    args: ['server.js'],
+    env: { TOKEN: stdioEnvRef },
+    headers: { Ignored: `Bearer ${unusedHttpRef}` },
+  }, { botId: 'b2' })
+  assert.equal(stdioCap.approved, false)
+  assert.equal(stdioCap.ownedSecrets.length, 1)
+  // unusedHttpRef must STILL exist unconsumed on disk!
+  assert.equal(existsSync(join(bench.home, 'secret-refs', `${unusedHttpRef.slice('secret-ref:'.length)}.json`)), true)
 
-  // 3. connector-connect (key auth) with secretRef and cross-Bot rejection.
-  const amapKey = fresh()
-  const rAmap = await rt.secrets.issueRef({ botId: 'b2', sessionId: 'b2', requestId: 'amap-1', field: 'KEY', value: amapKey })
-  await assert.rejects(
-    () => rt.connectorEndpoint('connector-connect', { id: 'amap', secretRef: rAmap, botId: 'c3' }),
-    /another Bot/i,
-  )
-  await rt.connectorEndpoint('connector-connect', { id: 'amap', secretRef: rAmap, botId: 'b2' })
-  assert.equal(rt.secretValue('CONNECTOR_AMAP_KEY'), amapKey)
+  // 2. streamable-http transport must NOT scan/consume secret-ref handles in ignored args/env fields.
+  const unusedStdioRef = await bench.rt.secrets.issueRef({ botId: 'b2', sessionId: 'b2', requestId: 'tr-3', field: 'A', value: fresh() })
+  const httpCap = await bench.rt.capabilitySave({
+    name: 'http-scoped',
+    kind: 'mcp',
+    transport: 'streamable-http',
+    url: 'https://scoped.example/mcp',
+    headers: { Authorization: `Bearer ${unusedHttpRef}` },
+    args: [unusedStdioRef],
+    env: { IGNORED: unusedStdioRef },
+  }, { botId: 'b2' })
+  assert.equal(httpCap.ownedSecrets.length, 1)
+  assert.equal(existsSync(join(bench.home, 'secret-refs', `${unusedStdioRef.slice('secret-ref:'.length)}.json`)), true)
 
-  // 4. mail-account-add validates IMAP/SMTP hosts BEFORE consuming ref, supports isSecretRef(body.password), and enforces Bot isolation.
-  const mailPw = fresh()
-  const rMail = await rt.secrets.issueRef({ botId: 'b2', sessionId: 'b2', requestId: 'mail-1', field: 'PW', value: mailPw })
-  await assert.rejects(
-    () => rt.connectorEndpoint('mail-account-add', {
-      address: 'user@custom.example',
-      provider: 'other',
-      password: rMail,
-      imapHost: '',
-      smtpHost: '',
-      botId: 'b2',
-    }),
-    /IMAP and SMTP/,
-  )
-  // Cross-Bot rejected while preserving ref for b2.
-  await assert.rejects(
-    () => rt.connectorEndpoint('mail-account-add', {
-      address: 'user@custom.example',
-      provider: 'other',
-      password: rMail,
-      imapHost: 'imap.custom.example',
-      smtpHost: 'smtp.custom.example',
-      botId: 'c3',
-    }),
-    /another Bot/i,
-  )
-  // Owner Bot consumes via body.password containing secret-ref:.
-  await rt.connectorEndpoint('mail-account-add', {
-    address: 'user@custom.example',
-    provider: 'other',
-    password: rMail,
-    imapHost: 'imap.custom.example',
-    smtpHost: 'smtp.custom.example',
-    botId: 'b2',
-  })
-  assert.deepEqual(mailLogins, [{ address: 'user@custom.example', password: mailPw }])
+  // 3. Deleting the Bot that created & attached an unapproved local stdio MCP drops both the capability AND its ownedSecrets.
+  await bench.rt.changeCapabilityAttachment('attach', { name: 'stdio-scoped' }, 'b2')
+  const ownedSecretName = stdioCap.ownedSecrets[0]
+  assert.ok(bench.rt.secretsView().some(s => s.name === ownedSecretName))
+  const deleted = await bench.call('delete-bot', { id: 'b2' })
+  assert.equal(deleted.ok, true, JSON.stringify(deleted.error))
+  assert.equal((await bench.view()).capabilities.find(c => c.name === 'stdio-scoped'), undefined)
+  assert.equal(bench.rt.secretsView().find(s => s.name === ownedSecretName), undefined, 'orphan stdio MCP ownedSecrets must be deleted with the Bot')
 })
 
 test('ephemeral redactor keeps multiple concurrent delivery=file secrets with the same key name redacted', async (t) => {

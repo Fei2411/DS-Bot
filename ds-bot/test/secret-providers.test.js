@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { randomBytes } from 'node:crypto'
-import { chmodSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -315,7 +315,7 @@ test('readSecretsSync stays synchronous with mixed vault + external entries, and
     home,
     github: false,
     diagnosticsFile: false,
-    secretProviders: { onepassword: { bin: fakeOp.bin, binArgs: fakeOp.binArgs, tempDir: dir } },
+    secretProviders: { onepassword: { bin: fakeOp.bin, binArgs: fakeOp.binArgs } },
   })
   t.after(async () => { await ctx.dispose() })
 
@@ -333,20 +333,46 @@ test('readSecretsSync stays synchronous with mixed vault + external entries, and
   const disk = readFileSync(join(home, 'secrets.json'), 'utf8')
   assert.equal(disk.includes(extVal), false)
 
-  // Executing a tool for b2 triggers on-demand external resolution AND rebuilds redactor!
+  // Calling pure host built-in or non-shell tools must NOT trigger `op` (0 spawns, no Touch ID prompt),
+  // while still redacting already-known secrets!
   const execute = listeners['tools/execute'].filter(listener => listener.name !== 'listOwnSchedules' && listener.name !== 'computerTrack').at(-1)
-  const res = await execute({ agent: { id: 'b2', session: { header: { id: 'b2' } } } }, async () => ({
+  for (const toolName of ['list_secrets', 'request_secret', 'ask_user', 'show_view', 'read_own_chat', 'read_group_chat', 'save_capability', 'read_file']) {
+    const builtinRes = await execute({ name: toolName, agent: { id: 'b2', session: { header: { id: 'b2' } } } }, async () => ({
+      isError: false,
+      value: { text: `vault=${vaultVal}` },
+    }))
+    assert.equal(builtinRes.value.text, 'vault=[secret:VAULT_KEY]')
+  }
+  assert.equal(fakeOp.readCalls().length, 0, 'non-shell host built-in tools must spawn op 0 times')
+
+  // Executing a shell tool (`bash`) for b2 triggers 1 batched `op inject` using private `<home>/secret-files` tempDir AND rebuilds redactor!
+  const res = await execute({ name: 'bash', agent: { id: 'b2', session: { header: { id: 'b2' } } } }, async () => ({
     isError: false,
     value: { stdout: `vault=${vaultVal} ext=${extVal}` },
     content: [{ type: 'text', text: `ext=${extVal}` }],
   }))
-  assert.equal(fakeOp.readCalls().length, 1)
+  const calls = fakeOp.readCalls()
+  assert.equal(calls.length, 1)
+  const tplIdx = calls[0].args.indexOf('-i')
+  assert.ok(tplIdx >= 0)
+  const tplPath = calls[0].args[tplIdx + 1]
+  const privateDir = join(home, 'secret-files')
+  assert.equal(tplPath.startsWith(privateDir), true, `inject template must live in private ${privateDir}, got ${tplPath}`)
+  assert.equal(existsSync(tplPath), false, 'inject template must be unlinked after op inject')
+  if (process.platform !== 'win32') {
+    assert.equal(statSync(privateDir).mode & 0o777, 0o700)
+  }
   assert.equal(res.value.stdout, 'vault=[secret:VAULT_KEY] ext=[secret:OP_TOKEN]')
   assert.equal(res.content[0].text, 'ext=[secret:OP_TOKEN]')
 
   // Shell env now has both VAULT_KEY and resolved OP_TOKEN for b2, and only VAULT_KEY for m1.
   assert.deepEqual(env('b2'), { DSH_SECRET_VAULT_KEY: vaultVal, DSH_SECRET_OP_TOKEN: extVal })
   assert.deepEqual(env('m1'), { DSH_SECRET_VAULT_KEY: vaultVal })
+
+  // Invalid 1Password account in set-prefs returns bot/invalid (parameter error).
+  const badPrefs = await call('set-prefs', { secretProviders: { onepassword: { account: '--evil' } } })
+  assert.equal(badPrefs.ok, false)
+  assert.equal(badPrefs.error.code, 'bot/invalid')
 
   // Adding a new external secret via secret-set stores only the reference on disk.
   const added = await call('secret-set', { name: 'NEW_OP', reference: 'op://Prod/API/token', purpose: 'via UI', scope: 'all' })

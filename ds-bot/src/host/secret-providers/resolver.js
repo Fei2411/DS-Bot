@@ -41,10 +41,10 @@ export function createSecretResolver({ registry }) {
       return
     }
     const prefix = `${providerId}\0`
-    for (const key of [...cache.keys()]) {
+    for (const key of cache.keys()) {
       if (key.startsWith(prefix)) cache.delete(key)
     }
-    for (const key of [...keyGenerations.keys()]) {
+    for (const key of keyGenerations.keys()) {
       if (key.startsWith(prefix)) keyGenerations.delete(key)
     }
   }

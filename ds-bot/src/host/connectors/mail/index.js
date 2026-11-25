@@ -9,7 +9,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import { PRESETS, presetOf, mailSecretName } from './presets.js'
 import { connectImap, connectGmail } from './transport.js'
 import { output } from '../../tools.js'
-import { isSecretRef } from '../../secret-refs.js'
+import { matchSecretRefs } from '../../secret-refs.js'
 import { refreshTokens, invalidGrant, discover, beginBrowser, exchange } from '../oauth.js'
 
 const GOOGLE_SCOPES = 'openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/gmail.modify'
@@ -389,8 +389,11 @@ export function install(rt, host) {
       if (adding.has(address)) return adding.get(address)
       const pending = (async () => {
         const passwordRef = typeof body.secretRef === 'string' ? body.secretRef.trim() : typeof body.passwordRef === 'string' ? body.passwordRef.trim() : ''
-        const rawPassword = String(body.password ?? '').trim()
-        if (passwordRef === '' && rawPassword === '') throw new Error('Enter the authorization code or app password')
+        const password = String(body.password ?? '').trim()
+        if (passwordRef !== '' || matchSecretRefs(password).length > 0) {
+          throw new Error('One-time secret-ref handles can only be consumed by Bot host tools (such as save_capability), not via HTTP endpoints.')
+        }
+        if (password === '') throw new Error('Enter the authorization code or app password')
         const preset = presetOf(address)
         const provider = typeof body.provider === 'string' ? body.provider : preset?.id ?? 'other'
         const chosen = PRESETS.find(p => p.id === provider)
@@ -398,12 +401,6 @@ export function install(rt, host) {
         const smtp = chosen && provider !== 'other' ? chosen.smtp : { host: String(body.smtpHost ?? '').trim(), port: Number(body.smtpPort) || 465, secure: body.smtpTls !== false }
         if (imap.host === '' || smtp.host === '') throw new Error('Enter the IMAP and SMTP hosts')
         if (rt.readOnly() !== undefined) throw new Error(rt.readOnly())
-        const password = passwordRef !== ''
-          ? await rt.secrets.consumeRef(passwordRef, { botId: body.botId })
-          : isSecretRef(rawPassword)
-            ? await rt.secrets.consumeRef(rawPassword, { botId: body.botId })
-            : rawPassword
-        if (password === '') throw new Error('Enter the authorization code or app password')
         const existing = accountOf(address)
         const id = existing?.id ?? `m${randomUUID().slice(0, 8)}`
         const account = { ...existing, id, address, provider, auth: 'password', imap, smtp, createdAt: existing?.createdAt ?? Date.now() }

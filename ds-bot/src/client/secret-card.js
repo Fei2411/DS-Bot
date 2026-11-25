@@ -13,13 +13,14 @@ import { heldCardKey } from './sources.js'
 import { CellEmpty } from './cell-empty.js'
 
 const MIN_VALUE = 4
+const MAX_OP_REF_LENGTH = 512
 const MIN_MULTI_HEIGHT = 20
 const MAX_MULTI_HEIGHT = 160
 const NONE = {}
 const OP_REF_RE = /^op:\/\/[A-Za-z0-9._:@+-]+\/[A-Za-z0-9._:@+-]+\/[A-Za-z0-9._:@+-]+(?:\/[A-Za-z0-9._:@+-]+)?$/
 const validOpRef = value => {
   const trimmed = String(value ?? '').trim()
-  if (!OP_REF_RE.test(trimmed)) return false
+  if (trimmed.length === 0 || trimmed.length > MAX_OP_REF_LENGTH || !OP_REF_RE.test(trimmed)) return false
   return !trimmed.slice(5).split('/').some(seg => seg === '.' || seg === '..')
 }
 
@@ -239,7 +240,23 @@ export function SecretCard({ sessionId, bot, request, roster, actions, inline = 
     warn,
     error ? h('div', { className: 'bt-secret-error', role: 'alert' }, error) : null,
     h('div', { className: 'bt-q-foot' },
-      request.kind === 'allow' && !replacing ? h('button', { type: 'button', className: 'bt-q-btn', disabled: busy, onClick: () => { hold(); setReplacing(true) } }, t('Replace value')) : null,
+      request.kind === 'allow' && !replacing
+        ? h('button', {
+            type: 'button',
+            className: 'bt-q-btn',
+            disabled: busy,
+            onClick: () => {
+              hold()
+              if (secret?.kind === 'external') {
+                setSource('onepassword')
+                if (typeof secret.reference === 'string' && secret.reference !== '') {
+                  setReference(prev => (prev === '' ? secret.reference : prev))
+                }
+              }
+              setReplacing(true)
+            },
+          }, t('Replace value'))
+        : null,
       h('button', { type: 'button', className: 'bt-q-btn', disabled: busy, onClick: cancel }, t('Cancel')),
       filling
         ? h('button', { type: 'button', className: 'bt-q-submit', disabled: !ready || busy, onClick: save }, submitLabel)

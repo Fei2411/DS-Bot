@@ -5,7 +5,7 @@
 // calls sharing the same 45s deadline if `inject` fails.
 import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { chmod, unlink, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { findExecutable, launchOf } from '../local-agents/discover.js'
@@ -196,11 +196,13 @@ export function createOnePasswordDriver({
   bin = () => process.env.DS_BOT_OP_BIN || 'op',
   binArgs = [],
   timeoutMs = ONEPASSWORD_TIMEOUT_MS,
-  tempDir = tmpdir(),
+  tempDir,
   env,
 } = {}) {
   const resolveBin = () => (typeof bin === 'function' ? bin() : bin)
   const prefixArgs = Array.isArray(binArgs) ? binArgs.map(String) : []
+  const privateTempDir = typeof tempDir === 'string' && tempDir !== '' ? tempDir : null
+  const resolvedTempDir = privateTempDir ?? tmpdir()
 
   return {
     kind: ONEPASSWORD_KIND,
@@ -223,9 +225,13 @@ export function createOnePasswordDriver({
 
       // Fast path: single `op inject` resolves the entire batch under one biometric prompt.
       const token = randomUUID().replace(/-/g, '')
-      const templatePath = join(tempDir, `dsbot-op-${process.pid}-${token}.tpl`)
+      const templatePath = join(resolvedTempDir, `dsbot-op-${process.pid}-${token}.tpl`)
       let injectError = null
       try {
+        if (privateTempDir !== null) {
+          await mkdir(privateTempDir, { recursive: true, mode: 0o700 })
+          try { await chmod(privateTempDir, 0o700) } catch {}
+        }
         await writeFile(templatePath, buildInjectTemplate(uniqueRefs, token), { encoding: 'utf8', flag: 'wx', mode: 0o600 })
         try { await chmod(templatePath, 0o600) } catch {}
         const output = await runOpProcess(binary, [...baseArgs, 'inject', '-i', templatePath], {

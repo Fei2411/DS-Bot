@@ -26892,13 +26892,14 @@ body[data-bt-layout=flat] .bt-q-inline .dv-view,body[data-bt-layout=flat] .bt-q-
 // src/client/secret-card.js
 var import_react19 = require("react");
 var MIN_VALUE = 4;
+var MAX_OP_REF_LENGTH = 512;
 var MIN_MULTI_HEIGHT = 20;
 var MAX_MULTI_HEIGHT = 160;
 var NONE = {};
 var OP_REF_RE = /^op:\/\/[A-Za-z0-9._:@+-]+\/[A-Za-z0-9._:@+-]+\/[A-Za-z0-9._:@+-]+(?:\/[A-Za-z0-9._:@+-]+)?$/;
 var validOpRef = (value) => {
   const trimmed2 = String(value ?? "").trim();
-  if (!OP_REF_RE.test(trimmed2)) return false;
+  if (trimmed2.length === 0 || trimmed2.length > MAX_OP_REF_LENGTH || !OP_REF_RE.test(trimmed2)) return false;
   return !trimmed2.slice(5).split("/").some((seg) => seg === "." || seg === "..");
 };
 var KeyIcon = () => (0, import_react19.createElement)(
@@ -27152,10 +27153,21 @@ function SecretCard({ sessionId, bot, request, roster, actions, inline = false }
     (0, import_react19.createElement)(
       "div",
       { className: "bt-q-foot" },
-      request.kind === "allow" && !replacing ? (0, import_react19.createElement)("button", { type: "button", className: "bt-q-btn", disabled: busy, onClick: () => {
-        hold();
-        setReplacing(true);
-      } }, t("Replace value")) : null,
+      request.kind === "allow" && !replacing ? (0, import_react19.createElement)("button", {
+        type: "button",
+        className: "bt-q-btn",
+        disabled: busy,
+        onClick: () => {
+          hold();
+          if (secret?.kind === "external") {
+            setSource("onepassword");
+            if (typeof secret.reference === "string" && secret.reference !== "") {
+              setReference((prev) => prev === "" ? secret.reference : prev);
+            }
+          }
+          setReplacing(true);
+        }
+      }, t("Replace value")) : null,
       (0, import_react19.createElement)("button", { type: "button", className: "bt-q-btn", disabled: busy, onClick: cancel }, t("Cancel")),
       filling ? (0, import_react19.createElement)("button", { type: "button", className: "bt-q-submit", disabled: !ready || busy, onClick: save }, submitLabel) : (0, import_react19.createElement)("button", { type: "button", className: "bt-q-submit", disabled: busy, onClick: allow }, busy ? t("Allowing…") : t("Allow"))
     )

@@ -310,12 +310,17 @@ export function install(rt) {
       if (body.secretProviders === null) {
         delete state.prefs.secretProviders
       } else if (typeof body.secretProviders === 'object' && !Array.isArray(body.secretProviders)) {
-        const next = { ...(state.prefs.secretProviders ?? {}) }
+        const next = { ...state.prefs.secretProviders }
         if (body.secretProviders.onepassword !== undefined) {
           if (body.secretProviders.onepassword === null) {
             delete next.onepassword
           } else {
-            const cleaned = validateOnePasswordConfig(body.secretProviders.onepassword)
+            let cleaned
+            try {
+              cleaned = validateOnePasswordConfig(body.secretProviders.onepassword)
+            } catch (error) {
+              throw invalid(error?.message ?? 'Invalid 1Password configuration.')
+            }
             if (cleaned.account === '') delete next.onepassword
             else next.onepassword = cleaned
           }

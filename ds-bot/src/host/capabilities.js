@@ -198,39 +198,43 @@ export function install(rt) {
   const consumeSecretRefsInBody = async (body, { botId }) => {
     if (!body || body.kind !== 'mcp' || !botId) return { body, createdSecrets: [] }
     const capName = String(body.name ?? '').trim() || 'mcp'
+    const transport = body.transport === 'streamable-http' ? 'streamable-http' : 'stdio'
     const consumed = new Map()
     const createdSecrets = []
     const next = { ...body }
     try {
-      if (typeof next.url === 'string') {
-        next.url = await consumeSecretRefsInText(next.url, { botId, capName, field: 'URL', consumed, createdSecrets })
-      }
-      if (Array.isArray(next.args)) {
-        const nextArgs = []
-        for (let i = 0; i < next.args.length; i += 1) {
-          nextArgs.push(typeof next.args[i] === 'string'
-            ? await consumeSecretRefsInText(next.args[i], { botId, capName, field: `ARG_${i}`, consumed, createdSecrets })
-            : next.args[i])
+      if (transport === 'stdio') {
+        if (Array.isArray(next.args)) {
+          const nextArgs = []
+          for (let i = 0; i < next.args.length; i += 1) {
+            nextArgs.push(typeof next.args[i] === 'string'
+              ? await consumeSecretRefsInText(next.args[i], { botId, capName, field: `ARG_${i}`, consumed, createdSecrets })
+              : next.args[i])
+          }
+          next.args = nextArgs
         }
-        next.args = nextArgs
-      }
-      if (next.env && typeof next.env === 'object' && !Array.isArray(next.env)) {
-        const nextEnv = {}
-        for (const [key, val] of Object.entries(next.env)) {
-          nextEnv[key] = typeof val === 'string'
-            ? await consumeSecretRefsInText(val, { botId, capName, field: key, consumed, createdSecrets })
-            : val
+        if (next.env && typeof next.env === 'object' && !Array.isArray(next.env)) {
+          const nextEnv = {}
+          for (const [key, val] of Object.entries(next.env)) {
+            nextEnv[key] = typeof val === 'string'
+              ? await consumeSecretRefsInText(val, { botId, capName, field: key, consumed, createdSecrets })
+              : val
+          }
+          next.env = nextEnv
         }
-        next.env = nextEnv
-      }
-      if (next.headers && typeof next.headers === 'object' && !Array.isArray(next.headers)) {
-        const nextHeaders = {}
-        for (const [key, val] of Object.entries(next.headers)) {
-          nextHeaders[key] = typeof val === 'string'
-            ? await consumeSecretRefsInText(val, { botId, capName, field: key, consumed, createdSecrets })
-            : val
+      } else {
+        if (typeof next.url === 'string') {
+          next.url = await consumeSecretRefsInText(next.url, { botId, capName, field: 'URL', consumed, createdSecrets })
         }
-        next.headers = nextHeaders
+        if (next.headers && typeof next.headers === 'object' && !Array.isArray(next.headers)) {
+          const nextHeaders = {}
+          for (const [key, val] of Object.entries(next.headers)) {
+            nextHeaders[key] = typeof val === 'string'
+              ? await consumeSecretRefsInText(val, { botId, capName, field: key, consumed, createdSecrets })
+              : val
+          }
+          next.headers = nextHeaders
+        }
       }
     } catch (error) {
       for (const secretName of createdSecrets) {
@@ -301,12 +305,18 @@ export function install(rt) {
   const dropOrphanCapabilities = (bot) => {
     const items = library()
     const packed = name => Object.values(items).some(item => item.kind === 'pack' && (item.items ?? []).includes(name))
+    const droppedSecrets = []
     for (const name of new Set([...(bot.capabilities ?? []), ...(bot.packs ?? [])])) {
       const item = own(items, name)
       if (item === undefined || item.kind !== 'mcp' || item.transport !== 'stdio' || item.approved === true) continue
       if (item.createdBy !== bot.id || usedByOthers(name, bot.id) || packed(name)) continue
       delete items[item.name]
+      for (const owned of item.ownedSecrets ?? []) droppedSecrets.push(owned)
     }
+    if (droppedSecrets.length === 0) return undefined
+    return Promise.allSettled(
+      droppedSecrets.map(name => rt.secretEndpoint('secret-delete', { name }).catch(() => {})),
+    )
   }
   const changeAttachment = async (endpoint, { name, bot: targetRef, mode }, callerId) => {
     await rt.load()

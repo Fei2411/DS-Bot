@@ -28,6 +28,7 @@ const MAX_REQUESTS = 20
 const MAX_EPHEMERAL_REDACTIONS = 256
 const USED_SAVE_MS = 5000
 const DELIVERIES = new Set(['vault', 'ref', 'file'])
+const SHELL_ENV_TOOLS = new Set(['bash', 'pwsh', 'terminal_open', 'terminal_send'])
 
 export const envName = name => `${ENV_PREFIX}${name}`
 export const envFileName = name => `${ENV_FILE_PREFIX}${name}`
@@ -217,7 +218,13 @@ export function install(rt) {
 
   /** @type {Map<string, {name:string, value?:string, kind?:'external', providerId?:string, reference?:string, purpose:string, scope:'all'|string[], requestedBy:string|null, createdAt:number, updatedAt:number, lastUsedAt?:number}>} */
   const secrets = new Map()
-  const providerRegistry = createDefaultProviderRegistry(rt.config?.secretProviders)
+  const providerRegistry = createDefaultProviderRegistry({
+    ...rt.config?.secretProviders,
+    onepassword: {
+      tempDir: join(home, 'secret-files'),
+      ...rt.config?.secretProviders?.onepassword,
+    },
+  })
   const resolver = createSecretResolver({ registry: providerRegistry })
   /** @type {Map<string, { name: string, value: string, expiresAt: number }>} */
   const ephemeralRedactions = new Map()
@@ -286,8 +293,12 @@ export function install(rt) {
     getEncryption: () => ({ mode: store.mode, locked: store.locked, passphrase: store.passphrase }),
     warn: (...args) => rt.warn(...args),
     onPlaintext: trackEphemeralPlaintext,
-    onSweep: (current) => {
-      if (pruneExpiredEphemeral(current)) rebuildRedactor()
+    onSweep: (current, removedIds = []) => {
+      let changedEphemeral = pruneExpiredEphemeral(current)
+      for (const id of removedIds) {
+        if (ephemeralRedactions.delete(id)) changedEphemeral = true
+      }
+      if (changedEphemeral) rebuildRedactor()
     },
   })
 
@@ -535,8 +546,21 @@ export function install(rt) {
     if (!loadedReadOnly) try { chmodSync(path, 0o600) } catch {}
     notify({ declare })
   }
+  let restoredFilesPromise = null
+  const ensureRestoredSecretFiles = () => {
+    if (restoredFilesPromise !== null) return restoredFilesPromise
+    const cleanExpired = !readOnlyNow()
+    restoredFilesPromise = secretRefs.restoreSecretFiles({ cleanExpired })
+      .catch(error => {
+        restoredFilesPromise = null
+        rt.warn('ds-bot: secret-files restore failed: %s', reason(error))
+        return 0
+      })
+    return restoredFilesPromise
+  }
   const readSecrets = async () => {
     readSecretsSync({ declare: true })
+    await ensureRestoredSecretFiles()
   }
 
   // Resolves once secrets.json holds the current map; rejects when the write failed.
@@ -895,7 +919,7 @@ export function install(rt) {
           })
           settle(botId, request, 'saved')
           await rt.save()
-          await tell(botId, `The user provided ${request.name} as a one-time secret reference: ${ref}. Pass this handle to a tool that accepts secretRef; it is deleted on first use and expires in 24 hours. You cannot see the value.`)
+          await tell(botId, `The user provided ${request.name} as a one-time secret reference: ${ref}. Pass this handle to a Bot host tool that accepts secret-ref handles (such as save_capability); it is deleted on first use and expires in 24 hours. You cannot see the value.`)
           return { name: request.name, delivery: 'ref', status: 'saved' }
         }
         if (delivery === 'file') {
@@ -1088,7 +1112,7 @@ export function install(rt) {
 
   rt.teamTools.push(defineTool({
     name: 'request_secret',
-    description: 'Ask the user for a key, token, or password through a secure card in your own chat. The user types it into the card; you never see the value. Default delivery ("vault") saves it to Secrets and exposes it to your shell. Use delivery="ref" for a one-time secret-ref handle (not saved to Secrets) to pass to host tools, or delivery="file" for a private 0600 temporary file deleted after 24 hours. Showing a card ends your turn; a note arrives when the user saves or cancels.',
+    description: 'Ask the user for a key, token, or password through a secure card in your own chat. The user types it into the card; you never see the value. Default delivery ("vault") saves it to Secrets and exposes it to your shell. Use delivery="ref" for a one-time secret-ref handle (not saved to Secrets) to pass to Bot host tools that consume secret-ref handles (such as save_capability), or delivery="file" for a private 0600 temporary file deleted after 24 hours. Showing a card ends your turn; a note arrives when the user saves or cancels.',
     parameters: {
       name: { type: 'string', required: true, description: 'Key name in capitals, digits, and underscores, e.g. GITHUB_TOKEN' },
       purpose: { type: 'string', required: true, description: 'One short line for the user: what you need it for' },
@@ -1182,7 +1206,7 @@ export function install(rt) {
   // result (its `content`, `meta`, and `additionalContexts` too), and the registry
   // re-renders a changed success result from its redacted value.
   ctx.on('tools/execute', async (exec, next) => {
-    if (hasExternalSecrets) {
+    if (hasExternalSecrets && SHELL_ENV_TOOLS.has(exec?.name)) {
       const botId = resolveBotId(exec)
       if (botId !== undefined && hasUncachedExternalForBot(botId)) {
         await resolveExternalForBot(botId).catch(error => rt.warn('ds-bot: external secret resolution failed: %s', error?.message ?? 'error'))
@@ -1346,7 +1370,8 @@ export function install(rt) {
   }
 
   ctx.effect(() => {
-    void loadSecrets().then(() => {
+    void loadSecrets().then(async () => {
+      await ensureRestoredSecretFiles()
       if (rt.readOnly() === undefined) secretRefs.startSweeper()
     })
     return () => {
@@ -1362,6 +1387,7 @@ export function install(rt) {
     writeSecretFile: opts => secretRefs.writeSecretFile(opts),
     savePastedFile: opts => secretRefs.savePastedFile(opts),
     activeShellFilePaths: () => secretRefs.activeShellFilePaths(),
+    restoreSecretFiles: opts => secretRefs.restoreSecretFiles(opts),
     sweepExpiredRefs: opts => secretRefs.sweepExpiredRefs(opts),
     sweepExpiredFiles: opts => secretRefs.sweepExpiredFiles(opts),
     resolveExternalForBot,

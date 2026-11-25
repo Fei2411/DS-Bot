@@ -16,6 +16,8 @@ export const DEFAULT_TTL_MS = 86_400_000
 export const SWEEP_INTERVAL_MS = 3_600_000
 const PARTIAL_MAX_AGE_MS = 5 * 60_000
 const SALT_BYTES = 32
+const MAX_RESTORE_BYTES = 64 * 1024
+const SF_FILE_RE = /^sf-(?:([a-z0-9_]{1,32})-)?([0-9a-f]{32})\.secret$/
 
 export function isSecretRef(value) {
   return typeof value === 'string' && SECRET_REF_PATTERN.test(value)
@@ -72,6 +74,7 @@ export function createSecretRefs({
   async function loadOrCreateSalt() {
     if (cachedSalt !== null) return cachedSalt
     await ensurePrivateDir(refsDir)
+    let corruptedBytes = null
     try {
       const existing = await readFile(saltPath)
       if (existing.length === SALT_BYTES) {
@@ -79,10 +82,17 @@ export function createSecretRefs({
         cachedSalt = existing
         return existing
       }
+      corruptedBytes = existing.length
     } catch (error) {
       if (error?.code !== 'ENOENT') throw error
     }
     const fresh = randomBytes(SALT_BYTES)
+    if (corruptedBytes !== null) {
+      warn('ds-bot: secret-refs salt is invalid (%d bytes); replacing atomically', corruptedBytes)
+      await atomicWritePrivate(saltPath, fresh)
+      cachedSalt = fresh
+      return fresh
+    }
     try {
       await writeFile(saltPath, fresh, { flag: 'wx', mode: 0o600 })
       try { await chmod(saltPath, 0o600) } catch {}
@@ -92,9 +102,14 @@ export function createSecretRefs({
       if (error?.code === 'EEXIST') {
         const existing = await readFile(saltPath)
         if (existing.length === SALT_BYTES) {
+          try { await chmod(saltPath, 0o600) } catch {}
           cachedSalt = existing
           return existing
         }
+        warn('ds-bot: secret-refs salt is invalid (%d bytes); replacing atomically', existing.length)
+        await atomicWritePrivate(saltPath, fresh)
+        cachedSalt = fresh
+        return fresh
       }
       throw error
     }
@@ -103,7 +118,10 @@ export function createSecretRefs({
   async function atomicWritePrivate(filePath, contents) {
     const partial = `${filePath}.${process.pid}.${randomBytes(6).toString('hex')}.partial`
     try {
-      await writeFile(partial, contents, { encoding: 'utf8', flag: 'wx', mode: 0o600 })
+      const opts = typeof contents === 'string'
+        ? { encoding: 'utf8', flag: 'wx', mode: 0o600 }
+        : { flag: 'wx', mode: 0o600 }
+      await writeFile(partial, contents, opts)
       try { await chmod(partial, 0o600) } catch {}
       await replaceFile(partial, filePath)
       try { await chmod(filePath, 0o600) } catch {}
@@ -328,7 +346,7 @@ export function createSecretRefs({
   function cleanupShellFiles(options = null) {
     const keepKeys = options instanceof Set ? options : (options?.keepKeys ?? null)
     const keepHashes = options instanceof Set ? null : (options?.keepHashes ?? null)
-    for (const [cacheKey, entry] of [...shellFiles.entries()]) {
+    for (const [cacheKey, entry] of shellFiles.entries()) {
       const keepKey = keepKeys !== null && keepKeys.has(cacheKey)
       const keepHash = keepHashes === null || keepHashes.get(cacheKey) === entry.hash
       if (keepKey && keepHash) continue
@@ -339,6 +357,57 @@ export function createSecretRefs({
 
   function activeShellFilePaths() {
     return new Set([...shellFiles.values()].map(entry => entry.filePath))
+  }
+
+  function restoreSecretFiles({ maxAgeMs = DEFAULT_TTL_MS, cleanExpired = true } = {}) {
+    return serialize(async () => {
+      let names
+      try {
+        names = await readdir(filesDir)
+      } catch (error) {
+        if (error?.code === 'ENOENT') return 0
+        throw error
+      }
+      const current = now()
+      let restored = 0
+      const removedIds = []
+      for (const name of names) {
+        const match = SF_FILE_RE.exec(name)
+        if (match === null) continue
+        const [, rawLabel, token] = match
+        const full = join(filesDir, name)
+        let info
+        try {
+          info = await lstat(full)
+        } catch {
+          continue
+        }
+        if (info.isSymbolicLink() || !info.isFile()) continue
+        if (current - info.mtimeMs >= maxAgeMs) {
+          if (cleanExpired) {
+            await unlink(full).catch(() => {})
+            removedIds.push(`file:${token}`)
+          }
+          continue
+        }
+        if (info.size === 0 || info.size > MAX_RESTORE_BYTES) continue
+        let value
+        try {
+          value = await readFile(full, 'utf8')
+        } catch {
+          continue
+        }
+        if (value.length === 0) continue
+        const label = rawLabel ? rawLabel.toUpperCase() : `FILE_${token.slice(0, 8).toUpperCase()}`
+        onPlaintext(value, label, {
+          id: `file:${token}`,
+          expiresAt: info.mtimeMs + maxAgeMs,
+        })
+        restored += 1
+      }
+      if (removedIds.length > 0) onSweep(current, removedIds)
+      return restored
+    })
   }
 
   function sweepExpiredRefs({ maxAgeMs = DEFAULT_TTL_MS } = {}) {
@@ -352,6 +421,7 @@ export function createSecretRefs({
       }
       const current = now()
       let removed = 0
+      const removedIds = []
       for (const name of names) {
         if (name === '.salt') continue
         const full = join(refsDir, name)
@@ -386,9 +456,10 @@ export function createSecretRefs({
         if (expired) {
           await unlink(full).catch(() => {})
           removed += 1
+          removedIds.push(`ref:${name.slice(0, -'.json'.length)}`)
         }
       }
-      onSweep(current)
+      onSweep(current, removedIds)
       return removed
     })
   }
@@ -405,20 +476,23 @@ export function createSecretRefs({
       const current = now()
       const activeShellPaths = activeShellFilePaths()
       let removed = 0
+      const removedIds = []
       for (const name of names) {
         const full = join(filesDir, name)
         if (activeShellPaths.has(full)) continue
         try {
           const info = await lstat(full)
           if (info.isSymbolicLink() || !info.isFile()) continue
-          const limit = name.endsWith('.partial') ? PARTIAL_MAX_AGE_MS : maxAgeMs
+          const limit = (name.endsWith('.partial') || name.endsWith('.tpl')) ? PARTIAL_MAX_AGE_MS : maxAgeMs
           if (current - info.mtimeMs >= limit) {
             await unlink(full).catch(() => {})
             removed += 1
+            const sfMatch = SF_FILE_RE.exec(name)
+            if (sfMatch !== null) removedIds.push(`file:${sfMatch[2]}`)
           }
         } catch {}
       }
-      onSweep(current)
+      onSweep(current, removedIds)
       return removed
     })
   }
@@ -454,6 +528,7 @@ export function createSecretRefs({
     ensureShellFileSync,
     cleanupShellFiles,
     activeShellFilePaths,
+    restoreSecretFiles,
     sweepExpiredRefs,
     sweepExpiredFiles,
     startSweeper,
