@@ -133,6 +133,7 @@ export class LocalAgentAdapter extends LlmAdapter {
     this.probes = new Map()    // route -> { epoch, promise }
     this.activeProbes = new Set() // active askModels runs, so superseding probes stay protected
     this.sideRequests = new Set()
+    this.forkUnsupportedRoutes = new Set()
     this.disposed = false
   }
 
@@ -514,7 +515,7 @@ export class LocalAgentAdapter extends LlmAdapter {
   }
 
   isForkUnsupported(route) {
-    return this.engines.get(route)?.forkSupported === false
+    return this.forkUnsupportedRoutes.has(route) || this.engines.get(route)?.forkSupported === false
   }
 
   // Forks a local CLI session natively when the engine supports it (Codex `thread/fork`
@@ -531,11 +532,20 @@ export class LocalAgentAdapter extends LlmAdapter {
     if (!route || !sourceCliId) return undefined
     const spec = engineOf(route, this.deps.customAgents())
     if (spec === undefined) return undefined
-    const engine = this.engine(route)
-    if (engine.forkSupported === false) return undefined
+    if (this.isForkUnsupported(route) || sourceLive?.engine?.forkSupported === false) {
+      this.forkUnsupportedRoutes.add(route)
+      return undefined
+    }
     const resolvedCwd = cwd ?? sourceLive?.cwd ?? sourceRecord?.cwd ?? await this.deps.cwdFor(toId)
     const resolvedModel = model ?? sourceLive?.model ?? sourceRecord?.model
-    if (spec.kind === 'codex' && typeof engine.fork === 'function') {
+    if (spec.kind === 'codex') {
+      // Prefer the live parent session's existing Codex app-server so we neither spawn
+      // an extra persistent child process nor miss un-flushed in-memory thread state.
+      const engine = sourceLive?.engine ?? this.engine(route)
+      if (engine.forkSupported === false || typeof engine.fork !== 'function') {
+        if (engine.forkSupported === false) this.forkUnsupportedRoutes.add(route)
+        return undefined
+      }
       const preset = this.deps.presetFor(toId)
       const mode = cliMode('codex', preset)
       const forked = await engine.fork(sourceCliId, toId, {
@@ -544,6 +554,7 @@ export class LocalAgentAdapter extends LlmAdapter {
         model: resolvedModel,
         review: this.deps.reviewFor?.(toId) === true,
       })
+      if (engine.forkSupported === false) this.forkUnsupportedRoutes.add(route)
       if (!forked?.cliSessionId) return undefined
       this.deps.saveRecord(toId, {
         route,
@@ -597,6 +608,7 @@ export class LocalAgentAdapter extends LlmAdapter {
         // conversation before init: never resume the parent without `--fork-session`;
         // drop the parent id and retry once on a clean fresh session with fallback context.
         if (live.forkFrom === true && (session.forkUnsupported === true || session.resumeMissing === true)) {
+          if (session.forkUnsupported === true) this.forkUnsupportedRoutes.add(live.route)
           live.forkFrom = false
           live.cliSessionId = undefined
           live.handed = undefined
@@ -765,7 +777,7 @@ export class LocalAgentAdapter extends LlmAdapter {
     live.cwd = cwd
 
     const mode = cliMode(live.spec.kind, preset)
-    if (live.engineSession === undefined && live.forkFrom === true && live.engine.forkSupported === false) {
+    if (live.engineSession === undefined && live.forkFrom === true && (live.engine.forkSupported === false || this.isForkUnsupported(live.route))) {
       // Another task already discovered this CLI rejects `--fork-session`:
       // convert this staged deferred fork directly to a fresh session with its
       // retained fallbackContext instead of throwing in engine.open().

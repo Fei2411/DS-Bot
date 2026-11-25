@@ -316,6 +316,32 @@ export function buildCompactDigest(messages, { maxBytes = 8 * 1024, maxLineChars
   return `[Earlier conversation, condensed]\n${lines.reverse().join('\n')}`
 }
 
+function clipRecentText(text, max) {
+  const value = String(text ?? '').trim()
+  if (value.length <= max) return value
+  if (max <= 0) return ''
+  const lines = value.split('\n')
+  const kept = []
+  let chars = 0
+  let truncated = false
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    const line = lines[i]
+    const extra = kept.length === 0 ? line.length : line.length + 1
+    if (kept.length > 0 && chars + extra > max) {
+      truncated = true
+      break
+    }
+    const entry = kept.length === 0 && line.length > max
+      ? `…${line.slice(Math.max(0, line.length - Math.max(1, max - 1)))}`
+      : line
+    if (entry !== line) truncated = true
+    kept.push(entry)
+    chars += kept.length === 1 ? entry.length : entry.length + 1
+  }
+  const body = kept.reverse().join('\n')
+  return truncated && !body.startsWith('…') ? `…\n${body}` : body
+}
+
 // Bounded recent-context note for non-forked background tasks and local CLI
 // foreground-to-background handoffs, preserving the latest [Handoff]/[Checkpoint]
 // structured note with headings intact alongside the most recent messages.
@@ -340,22 +366,33 @@ export function buildFallbackContext({
     : events
   if (boundedEvents.length === 0) return ''
   let latestNote = ''
+  let latestNoteStructured = false
   let shadowedEnd = -1
   for (const event of boundedEvents) {
     if (event.type === 'compaction/summary') {
       const cleaned = cleanStructuredNote(event.data?.summary)
-      if (cleaned !== '') latestNote = cleaned
+      if (cleaned !== '') {
+        latestNote = cleaned
+        latestNoteStructured = true
+      }
       if (Number.isInteger(event.data?.shadowedRange?.end) && event.data.shadowedRange.end > shadowedEnd) {
         shadowedEnd = event.data.shadowedRange.end
       }
     } else if (event.type === 'user/message' && event.data?.source?.kind === sourceKind && event.data.source.handoff === true) {
       const raw = textOf(event.data?.message?.content ?? event.data?.content ?? '').trim()
       const cleaned = cleanStructuredNote(raw, { handoff: true })
-      if (cleaned !== '') latestNote = cleaned
+      if (cleaned !== '') {
+        latestNote = cleaned
+        latestNoteStructured = true
+      }
     } else if (event.type === 'user/message' && event.data?.source?.kind === sourceKind && event.data.source.carriedContext === true) {
       const raw = textOf(event.data?.message?.content ?? event.data?.content ?? '').trim()
-      const stripped = raw.replace(/^\[Recent context from [^\]]+\]\s*/i, '').trim()
-      if (stripped !== '') latestNote = stripped
+      const marker = raw.match(/\[Recent context from [^\]]+\]\s*/i)
+      const stripped = (marker ? raw.slice(marker.index + marker[0].length) : raw).trim()
+      if (stripped !== '') {
+        latestNote = stripped
+        latestNoteStructured = /^##\s+/m.test(stripped)
+      }
     }
   }
   const lines = []
@@ -415,7 +452,9 @@ export function buildFallbackContext({
     const noteBudget = clippedTail === ''
       ? maxChars
       : Math.max(noteMinChars, maxChars - clippedTail.length - 2)
-    const keptNote = clipStructuredNote(latestNote, noteBudget)
+    const keptNote = latestNoteStructured
+      ? clipStructuredNote(latestNote, noteBudget)
+      : clipRecentText(latestNote, noteBudget)
     body = clippedTail === '' ? keptNote : `${keptNote}\n\n${clippedTail}`
   } else {
     body = clippedTail

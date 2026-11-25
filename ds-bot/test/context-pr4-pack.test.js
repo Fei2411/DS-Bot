@@ -129,10 +129,12 @@ test('context-pack: buildHandoffPack, buildCheckpointPack, buildCompactDigest, b
   assert.match(fallback, /Assistant: Working on X now\./)
   assert.doesNotMatch(fallback, /SECRET_PEER/, 'excludeTurns must strip hidden peer-Bot turns completely')
 
-  // A second consecutive non-forked bot-handoff preserves prior carriedContext as bounded note.
+  // A second consecutive non-forked bot-handoff or fg-handoff preserves prior carriedContext
+  // (stripping any stale [Background task notice] prefix) and clips plain lines recency-first.
+  const fgNoticeWithContext = `[Background task notice] Your earlier turn ("Build X", t1) moved to the background.${fallback}`
   const secondFallback = buildFallbackContext({
     events: [
-      { seq: 0, type: 'user/message', data: { source: { kind: SOURCE_KIND, role: 'task-handoff', carriedContext: true }, content: [{ type: 'text', text: fallback.trim() }] } },
+      { seq: 0, type: 'user/message', data: { source: { kind: SOURCE_KIND, role: 'task-handoff', carriedContext: true }, content: [{ type: 'text', text: fgNoticeWithContext }] } },
       { seq: 1, type: 'turn/start', data: { turn: 1 } },
       { seq: 2, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'Second user follow-up' }] } },
       { seq: 3, type: 'assistant/message', data: { message: { content: [{ type: 'text', text: 'Second reply.' }] } } },
@@ -142,7 +144,27 @@ test('context-pack: buildHandoffPack, buildCheckpointPack, buildCompactDigest, b
     sourceKind: SOURCE_KIND,
   })
   assert.match(secondFallback, /Build feature X/, 'second non-forked handoff must retain carriedContext from first handoff')
+  assert.doesNotMatch(secondFallback, /\[Background task notice\]/, 'must strip stale background notice wrapper when carrying forward context')
   assert.match(secondFallback, /Second user follow-up/)
+
+  const clippedRecent = buildFallbackContext({
+    events: [
+      {
+        seq: 0,
+        type: 'user/message',
+        data: {
+          source: { kind: SOURCE_KIND, role: 'task-handoff', carriedContext: true },
+          content: [{ type: 'text', text: '[Recent context from your own chat]\nUser: OLDEST_LINE_SHOULD_DROP\nUser: MIDDLE_LINE\nUser: NEWEST_LINE_MUST_STAY' }],
+        },
+      },
+    ],
+    label: 'your own chat',
+    sourceKind: SOURCE_KIND,
+    maxChars: 45,
+    noteMinChars: 45,
+  })
+  assert.match(clippedRecent, /NEWEST_LINE_MUST_STAY/, 'plain carriedContext must clip recency-first (keep tail)')
+  assert.doesNotMatch(clippedRecent, /OLDEST_LINE_SHOULD_DROP/)
 
   assert.match(formatOwnChatBrief(['[#1 · T1] User: Hi']), /User: Hi/)
   assert.match(formatOwnChatBrief([]), /Nothing yet\./)
@@ -680,4 +702,119 @@ test('L9/D9: forgetLocalAgentSession and pruneLocalAgentSessions remove stale st
   const removed = rt.pruneLocalAgentSessions(new Set(['live-1']))
   assert.equal(removed, 1)
   assert.deepEqual(Object.keys(rt.state.localAgents.sessions), ['live-1'])
+})
+
+test('B14/D8 review regressions: reused call_id + SQL throughSeq + offset pagination, and Codex forkSession reuses live parent engine', async (t) => {
+  // 1) Reused short call_id (`call_0`), SQL throughSeq pushdown, and offset pagination.
+  const home = mkdtempSync(join(tmpdir(), 'dsb-pr4-offset-'))
+  const ctx = makeMockCtx()
+  t.after(async () => {
+    await ctx.dispose()
+    rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })
+  })
+  const longPayload = `HEAD_MARKER_${'A'.repeat(40)}_MIDDLE_MARKER_${'B'.repeat(40)}_TAIL_MARKER`
+  writeFileSync(join(home, 'state.json'), JSON.stringify({
+    version: 1, revision: 1,
+    bots: {
+      b1: {
+        id: 'b1', name: 'Coder', sessionId: 'p-live', createdAt: 1,
+        segments: [{ sessionId: 'p-old', endedAt: 100 }],
+        tasks: [{ id: 't1', sessionId: 't-fork', inheritedSegments: [{ sessionId: 'p-old', throughSeq: 3 }] }],
+      },
+    },
+    rooms: {}, exchanges: [], prefs: {},
+  }))
+  const sessionEvents = new Map([
+    ['p-old', [
+      { seq: 0, time: 10, type: 'turn/start', data: { turn: 1 } },
+      { seq: 1, time: 11, type: 'tool/call', data: { callId: 'call_0', name: 'bash', arguments: '{}' } },
+      { seq: 2, time: 12, type: 'tool/result', data: { message: { toolCallId: 'call_0', ok: true, content: [{ type: 'text', text: longPayload }] } } },
+      { seq: 3, time: 13, type: 'turn/end', data: { turn: 1 } },
+      { seq: 4, time: 20, type: 'turn/start', data: { turn: 2 } },
+      { seq: 5, time: 21, type: 'tool/call', data: { callId: 'call_0', name: 'bash', arguments: '{}' } },
+      { seq: 6, time: 22, type: 'tool/result', data: { message: { toolCallId: 'call_0', ok: true, content: [{ type: 'text', text: 'TURN_2_REUSED_CALL_0_OUTPUT' }] } } },
+      { seq: 7, time: 23, type: 'turn/end', data: { turn: 2 } },
+    ]],
+    ['p-live', []],
+    ['t-fork', []],
+  ])
+  ctx.sessionController = {
+    async page({ address, throughSeq, beforeSeq }) {
+      const all = sessionEvents.get(address.sessionId) ?? []
+      const filtered = all.filter(ev => (throughSeq === undefined || ev.seq <= throughSeq) && (beforeSeq === undefined || ev.seq < beforeSeq))
+      return { records: filtered.map(event => ({ event })), hasMore: false, cursor: filtered.at(-1)?.seq }
+    },
+  }
+  const rt = { ctx, home, statePath: join(home, 'state.json'), config: {}, warn() {} }
+  installStore(rt)
+  installContextRuntime(rt)
+  installChatIndex(rt)
+  installParts(rt)
+  await rt.load()
+
+  // Unbounded p-live sees the newer reused `call_0` at seq 6.
+  const latestReuse = await rt.recallToolOutput('b1', 'call_0', { askingId: 'p-live' })
+  assert.equal(latestReuse.found, true)
+  assert.equal(latestReuse.seq, 6)
+  assert.equal(latestReuse.text, 'TURN_2_REUSED_CALL_0_OUTPUT')
+
+  // Forked task with throughSeq=3 sees seq 2 directly via SQL pushdown and can paginate with offset!
+  const page1 = await rt.recallToolOutput('b1', 'call_0', { askingId: 't-fork', maxChars: 50, offset: 0 })
+  assert.equal(page1.found, true)
+  assert.equal(page1.seq, 2)
+  assert.equal(page1.truncated, true)
+  assert.match(page1.text, /HEAD_MARKER/)
+  assert.match(page1.text, /pass offset: 50/)
+
+  const page2 = await rt.recallToolOutput('b1', 'call_0', { askingId: 't-fork', maxChars: 50, offset: 50 })
+  assert.equal(page2.found, true)
+  assert.match(page2.text, /MIDDLE_MARKER/)
+
+  const page3 = await rt.recallToolOutput('b1', 'call_0', { askingId: 't-fork', maxChars: 50, offset: 100 })
+  assert.equal(page3.found, true)
+  assert.equal(page3.truncated, false)
+  assert.match(page3.text, /TAIL_MARKER/)
+
+  // 2) Codex forkSession reuses live parent engine instead of spawning a second shared engine.
+  let spawnCount = 0
+  let parentForkCalls = 0
+  const parentEngine = {
+    forkSupported: undefined,
+    async fork(threadId) {
+      parentForkCalls += 1
+      return { cliSessionId: `forked-from-${threadId}` }
+    },
+    async close() {},
+  }
+  const records = new Map([
+    ['parent-codex', { route: 'local-codex-cli', cliSessionId: 'thr-live-1', cwd: '/repo', model: 'o3' }],
+  ])
+  const adapter = new LocalAgentAdapter({
+    customAgents: () => [],
+    findExecutable: () => '/bin/codex',
+    spawnEngine: () => { spawnCount += 1; return { async fork() { return { cliSessionId: 'wrong-shared' } }, async close() {} } },
+    record: sid => records.get(sid),
+    saveRecord: (sid, rec) => records.set(sid, rec),
+    presetFor: () => 'workspace-write',
+    cwdFor: async () => '/repo',
+    toolsFor: () => [],
+  })
+  t.after(() => adapter.dispose())
+  adapter.live.set('parent-codex', {
+    sessionId: 'parent-codex',
+    route: 'local-codex-cli',
+    cliSessionId: 'thr-live-1',
+    cwd: '/repo',
+    model: 'o3',
+    engine: parentEngine,
+    queue: [],
+    pending: new Map(),
+    waiters: [],
+    events: [],
+    pendingContext: [],
+  })
+  const forked = await adapter.forkSession('parent-codex', 'child-codex')
+  assert.deepEqual(forked, { cliSessionId: 'forked-from-thr-live-1' })
+  assert.equal(parentForkCalls, 1)
+  assert.equal(spawnCount, 0, 'forkSession must reuse live parent CodexEngine without spawning an extra shared engine')
 })

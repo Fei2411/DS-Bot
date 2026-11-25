@@ -204,21 +204,21 @@ export function install(rt) {
           CREATE INDEX messages_session_seq ON messages (session, seq);
           CREATE INDEX messages_session_time ON messages (session, time DESC);
           CREATE VIRTUAL TABLE lines USING fts5(text, session UNINDEXED, seq UNINDEXED, time UNINDEXED, who UNINDEXED, content = 'messages', content_rowid = 'id', tokenize = 'trigram');
-          CREATE TABLE tool_outputs (call_id TEXT NOT NULL, session TEXT NOT NULL, seq INTEGER NOT NULL, time INTEGER NOT NULL, name TEXT NOT NULL, ok INTEGER NOT NULL, text TEXT NOT NULL, PRIMARY KEY (session, call_id));
-          CREATE INDEX tool_outputs_call_id ON tool_outputs (call_id);
+          CREATE TABLE tool_outputs (session TEXT NOT NULL, seq INTEGER NOT NULL, call_id TEXT NOT NULL, time INTEGER NOT NULL, name TEXT NOT NULL, ok INTEGER NOT NULL, text TEXT NOT NULL, PRIMARY KEY (session, seq));
+          CREATE INDEX tool_outputs_call_lookup ON tool_outputs (call_id, session, seq DESC);
           CREATE TABLE tool_marks (session TEXT PRIMARY KEY, through INTEGER NOT NULL, sealed INTEGER NOT NULL);
           CREATE TABLE marks (session TEXT PRIMARY KEY, through INTEGER NOT NULL, keep INTEGER NOT NULL, sealed INTEGER NOT NULL, turn INTEGER NOT NULL);
           PRAGMA user_version = ${INDEX_VERSION};`)
       }
       db.exec(`
         CREATE INDEX IF NOT EXISTS messages_session_time ON messages (session, time DESC);
-        CREATE TABLE IF NOT EXISTS tool_outputs (call_id TEXT NOT NULL, session TEXT NOT NULL, seq INTEGER NOT NULL, time INTEGER NOT NULL, name TEXT NOT NULL, ok INTEGER NOT NULL, text TEXT NOT NULL, PRIMARY KEY (session, call_id));
-        CREATE INDEX IF NOT EXISTS tool_outputs_call_id ON tool_outputs (call_id);
+        CREATE TABLE IF NOT EXISTS tool_outputs (session TEXT NOT NULL, seq INTEGER NOT NULL, call_id TEXT NOT NULL, time INTEGER NOT NULL, name TEXT NOT NULL, ok INTEGER NOT NULL, text TEXT NOT NULL, PRIMARY KEY (session, seq));
+        CREATE INDEX IF NOT EXISTS tool_outputs_call_lookup ON tool_outputs (call_id, session, seq DESC);
         CREATE TABLE IF NOT EXISTS tool_marks (session TEXT PRIMARY KEY, through INTEGER NOT NULL, sealed INTEGER NOT NULL);`)
       const insertMessage = db.prepare('INSERT INTO messages (text, session, seq, time, who) VALUES (?, ?, ?, ?, ?)')
       const insertLine = db.prepare('INSERT INTO lines (rowid, text, session, seq, time, who) VALUES (?, ?, ?, ?, ?, ?)')
-      // INSERT OR IGNORE preserves the original unpruned tool/result if a later surfaceOp replace
-      // or duplicate seq is ever encountered.
+      // Keyed by (session, seq): pruned surfaceOp replacements are skipped before insert,
+      // while short call_ids reused across later turns (e.g. `call_0`) keep every turn's output.
       const insertToolOutput = db.prepare('INSERT OR IGNORE INTO tool_outputs (call_id, session, seq, time, name, ok, text) VALUES (?, ?, ?, ?, ?, ?, ?)')
       return {
         db,
@@ -231,7 +231,8 @@ export function install(rt) {
           insertLine.run(lastInsertRowid, ...values)
         },
         insertToolOutput: (...values) => insertToolOutput.run(...values),
-        toolOutputByCallId: db.prepare('SELECT call_id, session, seq, time, name, ok, text FROM tool_outputs WHERE call_id = ? AND session IN (SELECT value FROM json_each(?)) ORDER BY time DESC LIMIT 1'),
+        deleteToolOutputs: db.prepare('DELETE FROM tool_outputs WHERE session = ?'),
+        deleteToolMarks: db.prepare('DELETE FROM tool_marks WHERE session = ?'),
         before: db.prepare('SELECT text, session, seq, time, who FROM messages WHERE session = ? AND seq < ? ORDER BY seq DESC LIMIT ?'),
         from: db.prepare('SELECT text, session, seq, time, who FROM messages WHERE session = ? AND seq >= ? ORDER BY seq LIMIT ?'),
         between: db.prepare('SELECT text, session, seq, time, who FROM messages WHERE session = ? AND seq >= ? AND seq <= ? ORDER BY seq LIMIT ?'),
@@ -493,14 +494,38 @@ export function install(rt) {
   // Recalls the full saved output of an earlier tool call by callId across the
   // Bot's authorized parts (own chat thread or a specified group's parts), falling
   // back to log scanning when SQLite is unavailable or the call is from the current turn.
-  async function recallToolOutput(botId, callId, { askingId, roomId, maxChars = TOOL_OUTPUT_RECALL_MAX } = {}) {
+  // Supports optional character `offset` pagination for long outputs clipped past maxChars.
+  async function recallToolOutput(botId, callId, { askingId, roomId, offset = 0, maxChars = TOOL_OUTPUT_RECALL_MAX } = {}) {
     const id = String(callId ?? '').trim()
     if (id === '') return { found: false }
+    const start = Number.isInteger(offset) && offset > 0 ? offset : 0
     const formatHit = (parts, row) => {
       const part = parts.find(item => item.sessionId === row.session)
       const raw = String(row.text ?? '')
-      const truncated = raw.length > maxChars
-      const text = truncated ? `${raw.slice(0, maxChars)}\n… (truncated; ${raw.length} characters in all)` : raw
+      if (start >= raw.length && raw.length > 0) {
+        return {
+          found: true,
+          callId: row.call_id,
+          session: row.session,
+          partNumber: part?.number ?? 1,
+          seq: row.seq,
+          time: row.time,
+          name: row.name,
+          ok: row.ok === 1 || row.ok === true,
+          text: `(offset ${start} is past the end of the tool output; ${raw.length} characters in all)`,
+          totalChars: raw.length,
+          offset: start,
+          truncated: false,
+        }
+      }
+      const slice = raw.slice(start, start + maxChars)
+      const end = start + slice.length
+      const hasMore = end < raw.length
+      const text = hasMore
+        ? `${slice}\n… (showing characters ${start}–${end} of ${raw.length}; pass offset: ${end} to read more)`
+        : start > 0
+          ? `${slice}\n… (showing characters ${start}–${end} of ${raw.length})`
+          : slice
       return {
         found: true,
         callId: row.call_id,
@@ -512,25 +537,30 @@ export function install(rt) {
         ok: row.ok === 1 || row.ok === true,
         text,
         totalChars: raw.length,
-        truncated,
+        offset: start,
+        truncated: hasMore,
       }
     }
     const { index, parts: indexed } = await indexedParts(botId, askingId, { roomId })
     const parts = indexed ?? resolveParts(botId, askingId, roomId)
     if (parts.length === 0) return { found: false }
-    const bySession = new Map(parts.map(part => [part.sessionId, part]))
     if (index !== null) {
       for (const part of parts) {
         await catchUpToolOutputs(index, part).catch(error => rt.warn('ds-bot: indexing tool outputs for %s failed: %s', part.sessionId, error))
       }
       const sessions = parts.map(part => part.sessionId)
-      const row = index.toolOutputByCallId.get(id, JSON.stringify(sessions))
-      if (row !== undefined) {
-        const part = bySession.get(row.session)
-        if (!Number.isInteger(part?.throughSeq) || row.seq <= part.throughSeq) {
-          return formatHit(parts, row)
+      const where = ['call_id = ?', sessions.length === 1 ? 'session = ?' : 'session IN (SELECT value FROM json_each(?))']
+      const args = [id, sessions.length === 1 ? sessions[0] : JSON.stringify(sessions)]
+      for (const part of parts) {
+        if (Number.isInteger(part.throughSeq)) {
+          where.push('NOT (session = ? AND seq > ?)')
+          args.push(part.sessionId, part.throughSeq)
         }
       }
+      const row = index.db.prepare(
+        `SELECT call_id, session, seq, time, name, ok, text FROM tool_outputs WHERE ${where.join(' AND ')} ORDER BY time DESC, seq DESC LIMIT 1`
+      ).get(...args)
+      if (row !== undefined) return formatHit(parts, row)
     }
     // Scan logs newest-first as fallback (also covers live turns when SQLite is unavailable),
     // skipping pruned surfaceOp replacement events so original full tool outputs are recovered.
@@ -596,5 +626,18 @@ export function install(rt) {
     return formatOwnChatBrief(lines)
   }
 
-  Object.assign(rt, { eventsBackwards, searchOwnChat, latestOwnChat, aroundOwnChat, recallToolOutput, partIndex, ownChatBrief })
+  function forgetChatIndexSession(sessionId) {
+    if (typeof sessionId !== 'string' || sessionId === '' || chatIndex === undefined) return
+    const index = chatIndex
+    try {
+      index.db.exec('BEGIN')
+      index.deleteToolOutputs.run(sessionId)
+      index.deleteToolMarks.run(sessionId)
+      index.db.exec('COMMIT')
+    } catch {
+      try { index.db.exec('ROLLBACK') } catch {}
+    }
+  }
+
+  Object.assign(rt, { eventsBackwards, searchOwnChat, latestOwnChat, aroundOwnChat, recallToolOutput, forgetChatIndexSession, partIndex, ownChatBrief })
 }

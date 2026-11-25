@@ -2645,7 +2645,7 @@ export function install(rt) {
                 const notice = `[Background task notice] Your earlier turn ("${task.title}", ${task.id}) finished in the background. ${result}${contextNote}`
                 freshAgent.inject?.(createUserMessage({
                   content: [{ type: 'text', text: notice }],
-                  source: { kind: SOURCE_KIND, form: 'relay', role: 'task-handoff', taskId: task.id },
+                  source: { kind: SOURCE_KIND, form: 'relay', role: 'task-handoff', carriedContext: true, taskId: task.id },
                 }))
               } catch (error) {
                 rt.warn('ds-bot: injecting fallback context on %s failed: %s', newSid, error)
@@ -2674,7 +2674,7 @@ export function install(rt) {
             const freshAgent = await rt.resolveAgent(newSid)
             freshAgent.inject?.(createUserMessage({
               content: [{ type: 'text', text: notice }],
-              source: { kind: SOURCE_KIND, form: 'relay', role: 'task-handoff', taskId: task.id },
+              source: { kind: SOURCE_KIND, form: 'relay', role: 'task-handoff', ...(contextNote !== '' ? { carriedContext: true } : {}), taskId: task.id },
             }))
           } catch (error) {
             rt.warn('ds-bot: injecting task-handoff notice on %s failed: %s', newSid, error)

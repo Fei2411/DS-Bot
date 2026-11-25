@@ -2833,6 +2833,7 @@ export function install(rt) {
       around: { type: 'string', description: 'An anchor from an earlier result, such as "part 2 #1234": shows that message in full and the messages just before and after it' },
       part: { type: 'integer', description: 'Number of an earlier part: shows the handoff note you wrote when it ended' },
       call_id: { type: 'string', description: 'Recall the full saved output of an earlier tool call by its call_id (e.g. from Recent tool activity or after tool-output pruning)' },
+      offset: { type: 'integer', description: 'Optional character offset when recalling a long tool output via call_id' },
       group: { type: 'string', description: 'Optional group id or name you belong to: query your own conversation parts in that group instead of your private chat' },
     },
     output,
@@ -2879,7 +2880,8 @@ export function install(rt) {
       }
       const partsNote = parts.length > 1 ? `\n\n${scopeLabel} has ${parts.length} parts: ${rt.partIndex(parts)}. Call read_own_chat with part N for the note that closed an earlier part, or with words to search all parts.` : ''
       if (callId !== '') {
-        const recalled = await rt.recallToolOutput?.(botId, callId, { askingId: askingSession, roomId: targetRoomId })
+        const offset = Number.isInteger(args.offset) && args.offset > 0 ? args.offset : 0
+        const recalled = await rt.recallToolOutput?.(botId, callId, { askingId: askingSession, roomId: targetRoomId, offset })
         if (!recalled?.found) return `No saved tool output with call_id "${callId}" was found in ${scopeLabel.toLowerCase()}.${partsNote}`
         const status = recalled.ok ? 'ok' : 'error'
         return `Tool output [${parts.length > 1 ? `part ${recalled.partNumber} ` : ''}#${recalled.seq} · ${rt.clock(recalled.time)}] ${recalled.name} (${recalled.callId}, ${status}):\n${recalled.text}${partsNote}`

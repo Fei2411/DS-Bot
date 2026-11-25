@@ -512,7 +512,7 @@ export function install(rt) {
     let answers = []
     for await (const event of rt.eventsBackwards(sessionId, signal, pages, scan, bound)) {
       if (bound !== undefined && Number.isInteger(event?.seq) && event.seq > bound) continue
-      if ((event.type === 'user/message' && hasImageBlock(event.data?.content))
+      if ((event.type === 'user/message' && hasImageBlock(event.data?.message?.content ?? event.data?.content))
         || ((event.type === 'assistant/message' || event.type === 'tool/result') && hasImageBlock(event.data?.message?.content))) {
         scan.hasImages = true
       }
@@ -4176,6 +4176,7 @@ export function install(rt) {
     if (typeof sessionId !== 'string' || sessionId === '') return
     contextRuntime.forget(sessionId)
     rt.forgetLocalAgentSession?.(sessionId)
+    rt.forgetChatIndexSession?.(sessionId)
     condensedUnmeasured.delete(sessionId)
     cutOffs.delete(sessionId)
     rescued.delete(sessionId)
