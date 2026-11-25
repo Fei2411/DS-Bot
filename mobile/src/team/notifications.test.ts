@@ -98,6 +98,28 @@ test('formatNoticeNotification respects message preview privacy and localizes EN
   setLang('system')
 })
 
+test('every kind the inbox announces goes to Needs you, and says nothing of its text without preview', () => {
+  setLang('en')
+  const defaults = readNotifyPrefsFromRecord({})
+  for (const [kind, text, shown, hidden] of [
+    ['mail', 'Weekly report', 'Wants to send “Weekly report”', 'Wants to send an email'],
+    ['computer', 'Finder', 'Wants to use Finder', 'Needs your approval'],
+    ['goal', 'Ship it', 'Waiting for you · Ship it', 'Waiting for you'],
+    ['blocked', 'RATE_LIMIT', 'Needs a fix', 'Needs a fix'],
+    ['paused', 'Which version?', 'Which version?', 'Paused'],
+    ['alert', 'No progress for 20 minutes', 'No progress for 20 minutes', 'Waiting for you'],
+  ]) {
+    const notice = { kind, botId: 'b1', name: 'Chief', text }
+    assert.equal(classifyNotice(notice)?.channel, 'needs_you', kind)
+    assert.ok(shouldPostSystemNotification(notice, defaults, { appActive: false, activeChat: null }), kind)
+    assert.equal(formatNoticeNotification(notice, { preview: true }).body, shown, kind)
+    assert.equal(formatNoticeNotification(notice, { preview: false }).body, hidden, kind)
+  }
+  // A group's item opens the group.
+  assert.deepEqual(classifyNotice({ kind: 'goal', botId: 'b1', roomId: 'r1', text: '' })?.target, { kind: 'room', id: 'r1' })
+  setLang('system')
+})
+
 test('parseOpenChatUrl decodes bot, room, and needs notification tap links safely', () => {
   assert.deepEqual(parseOpenChatUrl('dsbot://open?kind=bot&id=b1&host=h1'), { kind: 'bot', id: 'b1', hostId: 'h1' })
   assert.deepEqual(parseOpenChatUrl('dsbot://open?kind=room&id=r9'), { kind: 'room', id: 'r9' })
