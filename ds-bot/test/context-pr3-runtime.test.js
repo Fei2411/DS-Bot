@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { spawn } from 'node:child_process'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -405,7 +406,6 @@ test('L2: system-prompt/assemble strips DSH-only tool sections for local CLIs wh
 
 test('L2: Codex and Claude receive instructions via their native channel without duplicating them in replay prompt, while ACP keeps prompt instructions', async (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'dsb-pr3-l2-'))
-  t.after(() => rmSync(dir, { recursive: true, force: true }))
   const codexRec = join(dir, 'codex.jsonl')
   const acpRec = join(dir, 'acp.jsonl')
 
@@ -425,7 +425,10 @@ test('L2: Codex and Claude receive instructions via their native channel without
   })
 
   const adapter = make()
-  t.after(() => adapter.dispose())
+  t.after(async () => {
+    await adapter.dispose()
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })
+  })
   const sysText = 'UNIQUE_TEAM_INSTRUCTIONS_L2_MARKER'
   const msgs = [system('sys', sysText), user('m1', 'Say hello')]
 
@@ -576,4 +579,134 @@ test('L3: LoopbackMcp advertises tools.listChanged, streams notifications/tools/
   const step2 = await step2Promise
   assert.equal(step2.finish?.kind, 'stop')
   assert.equal(step2.text, 'all 3 batched')
+})
+
+// ---------------------------------------------------------------------------
+// 6. Review regressions: restart group-only memoryUpdate with empty seenAtIds,
+//    delegation-first epoch delivering ROOM_CALLS on first ordinary turn, and
+//    mcp-stdio.js forwarding notifications/tools/list_changed over stdout.
+
+test('regression: group-only memoryUpdate after restart succeeds when .seen has no in-memory seenAtIds', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'dsb-pr3-restart-group-'))
+  const first = startHost({ home })
+  let active = first
+  t.after(() => active.stop())
+  await first.rt.load()
+
+  await first.tool('bot_remember', { text: 'Rollout requires canary check' }, 'gb2')
+  const s1 = await runMemoryPreStep(first.ctx, 'gb3', { history: [] })
+  const ownSnap = s1.messages.find(m => m.source?.kind === 'ds-bot-own-memory')
+  const groupSnap = s1.messages.find(m => m.source?.kind === 'ds-bot-group-memory')
+  assert.ok(ownSnap && groupSnap)
+  // Simulate legacy/post-restart state where .seen exists on disk but ownSnap had no watermark ids.
+  const ownSnapNoIds = { ...ownSnap, source: { kind: 'ds-bot-own-memory', form: 'snapshot', epoch: 0 } }
+
+  await first.stop({ keep: true })
+  const second = startHost({ home, state: JSON.parse(readFileSync(join(home, 'state.json'), 'utf8')) })
+  active = second
+  await second.rt.load()
+
+  // Group-only edit after restart (zero own/team rows matched, seenAtIds empty in memory).
+  await second.tool('bot_remember', { text: 'Rollout window is 14:00 UTC' }, 'gb2')
+  const s2 = await runMemoryPreStep(second.ctx, 'gb3', { history: [ownSnapNoIds, groupSnap] })
+  const upd = s2.messages.find(m => m.source?.kind === 'ds-bot-memory-update')
+  assert.ok(upd, 'group-only memory update after restart must succeed without throwing')
+  assert.match(textOf(upd), /Rollout window is 14:00 UTC/)
+  // Next step must not replay the delivered group edit.
+  const s3 = await runMemoryPreStep(second.ctx, 'gb3', { history: [ownSnapNoIds, groupSnap, upd] })
+  assert.equal(s3.messages.find(m => m.source?.kind === 'ds-bot-memory-update'), undefined)
+})
+
+test('regression: epoch opening on delegated wake still sends ROOM_CALLS on the first ordinary discussion turn', async (t) => {
+  const host = startHost()
+  t.after(async () => {
+    await host.rt.ledger.flush()
+    await host.stop()
+  })
+  await host.rt.load()
+
+  const delivered = []
+  host.rt.deliver = async (args) => {
+    delivered.push(args)
+    setImmediate(() => host.rt.roomWaiters.get(args.exchangeId)?.resolve('Done.'))
+  }
+  host.rt.ensureCapabilities = async () => {}
+
+  // Pre-seed epoch-0 metadata as recorded by an opening delegated wake (full: true, hasCallRules: false).
+  const room = host.rt.roomOf('r1')
+  const membersList = 'Members: the user, Writer, Coder and you (admin).'
+  const { createHash } = await import('node:crypto')
+  const payload = { membersList, notice: room.notice, mode: room.mode, leads: true }
+  const hash = createHash('sha256').update(JSON.stringify(payload)).digest('hex').slice(0, 16)
+  host.rt.contextRuntime.setGroupMeta('gm1', { hash, epoch: 0, full: true, hasCallRules: false, ...payload })
+
+  let eventSeq = 0
+  const runRound = async (callId, userText) => {
+    for (const listener of host.ctx.listeners.get('session/event') ?? []) {
+      if (listener.length >= 2) listener({ id: 'r1' }, { type: 'user/message', seq: ++eventSeq, data: { content: [{ type: 'text', text: userText }], source: { kind: 'user' } } })
+    }
+    await host.tool('group_relay', {}, 'r1', { callId, signal: AbortSignal.timeout(5_000) })
+    const deadline = Date.now() + 3_000
+    while ((delivered.length === 0 || host.rt.roomActive('r1')) && Date.now() < deadline) {
+      await new Promise(resolve => setTimeout(resolve, 10))
+    }
+  }
+
+  // First ordinary discussion turn after delegated opener MUST receive ROOM_CALLS.
+  await runRound('d1', 'Let us discuss the release')
+  const ordinary1 = delivered.find(d => d.sessionId === 'gm1')?.text ?? ''
+  assert.match(ordinary1, /Writing "@Name" calls that member at once/)
+
+  // Subsequent ordinary turn omits ROOM_CALLS again.
+  delivered.length = 0
+  await runRound('d2', 'Any other thoughts?')
+  const ordinary2 = delivered.find(d => d.sessionId === 'gm1')?.text ?? ''
+  assert.doesNotMatch(ordinary2, /Writing "@Name" calls that member at once/)
+})
+
+test('regression: mcp-stdio.js subscribes to GET SSE after initialize and forwards notifications/tools/list_changed to stdout', async (t) => {
+  const mcp = new LoopbackMcp(
+    () => [{ name: 'list_bots', description: 'List bots', parameters: { type: 'object', properties: {} } }],
+    async () => ({ text: 'ok', isError: false }),
+  )
+  await mcp.listen()
+  t.after(() => mcp.close())
+
+  const bridgePath = join(__dirname, '..', 'src', 'host', 'local-agents', 'mcp-stdio.js')
+  const child = spawn(process.execPath, [bridgePath], {
+    env: { ...process.env, DSBOT_MCP_URL: mcp.url, DSBOT_MCP_TOKEN: mcp.token },
+    stdio: ['pipe', 'pipe', 'pipe'],
+  })
+  t.after(() => { try { child.kill() } catch {} })
+
+  const lines = []
+  let rest = ''
+  child.stdout.setEncoding('utf8')
+  child.stdout.on('data', (chunk) => {
+    rest += chunk
+    let at
+    while ((at = rest.indexOf('\n')) !== -1) {
+      const line = rest.slice(0, at).trim()
+      rest = rest.slice(at + 1)
+      if (line !== '') lines.push(JSON.parse(line))
+    }
+  })
+
+  child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} })}\n`)
+  const waitUntil = async (pred, label) => {
+    const end = Date.now() + 5_000
+    while (!pred() && Date.now() < end) await new Promise(r => setTimeout(r, 15))
+    assert.ok(pred(), `timed out waiting for ${label}`)
+  }
+  await waitUntil(() => lines.some(m => m.id === 1), 'initialize response')
+  assert.equal(lines.find(m => m.id === 1).result.capabilities.tools.listChanged, true)
+  // Wait for the background GET SSE stream to register on LoopbackMcp.
+  await waitUntil(() => mcp.streams.size === 1, 'stdio bridge SSE registration')
+
+  mcp.notifyToolsChanged()
+  await waitUntil(() => lines.some(m => m.method === 'notifications/tools/list_changed'), 'tools/list_changed over stdio')
+
+  const exited = new Promise(resolve => child.once('exit', code => resolve(code)))
+  child.stdin.end()
+  assert.equal(await exited, 0, 'stdio bridge must exit cleanly on stdin close even with notification SSE active')
 })

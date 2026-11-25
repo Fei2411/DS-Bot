@@ -913,17 +913,23 @@ export function install(rt) {
     const metaPayload = { membersList, notice: noticeText, mode: modeValue, leads }
     const metaHash = createHash('sha256').update(JSON.stringify(metaPayload)).digest('hex').slice(0, 16)
     const hasSnapshot = prevMeta !== undefined && prevMeta.epoch === epoch && prevMeta.full === true
+    const hasCallRules = prevMeta?.hasCallRules === true
+    const needsCallRules = overrideInstructions === undefined && !hasCallRules
     let headerBlocks
     let footer
     let nextMeta
     if (!hasSnapshot) {
       headerBlocks = [members, notice, adminText]
       footer = ROOM_REPLY
-      nextMeta = sessionId !== undefined ? { hash: metaHash, epoch, full: true, ...metaPayload } : undefined
+      nextMeta = sessionId !== undefined
+        ? { hash: metaHash, epoch, full: true, hasCallRules: overrideInstructions === undefined, ...metaPayload }
+        : undefined
     } else if (prevMeta.hash === metaHash) {
-      headerBlocks = [overrideInstructions ?? '']
+      headerBlocks = [overrideInstructions ?? (needsCallRules ? ROOM_CALLS : '')]
       footer = ROOM_REPLY_COMPACT
-      nextMeta = undefined
+      nextMeta = needsCallRules
+        ? { hash: metaHash, epoch, full: true, hasCallRules: true, ...metaPayload }
+        : undefined
     } else {
       const deltas = []
       if (prevMeta.membersList !== membersList) deltas.push(`Updated group members: ${membersList}`)
@@ -934,9 +940,10 @@ export function install(rt) {
         deltas.push(leads ? `Updated group role: ${adminText}` : 'You are no longer this group\'s admin.')
       }
       if (overrideInstructions !== undefined) deltas.push(overrideInstructions)
+      else if (needsCallRules) deltas.push(ROOM_CALLS)
       headerBlocks = deltas
       footer = ROOM_REPLY_COMPACT
-      nextMeta = { hash: metaHash, epoch, full: true, ...metaPayload }
+      nextMeta = { hash: metaHash, epoch, full: true, hasCallRules: hasCallRules || overrideInstructions === undefined, ...metaPayload }
     }
 
     const goal = rt.goalBlock?.(room, member, { nudge: round.goalNudge === true, resume: round.goalResume === true }) ?? ''

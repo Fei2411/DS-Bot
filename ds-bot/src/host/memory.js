@@ -1359,7 +1359,8 @@ export function install(rt) {
     if (pending.pending === true || pending.failed === true) return undefined
     const path = snapshotPath(sessionId)
     const legacy = frozen.get(sessionId) ?? (existsSync(path) ? sectionRead(path).text : '')
-    const hasLegacySystemEntries = legacy.includes(OWN_HEADING)
+    const marks = [memoryRules(reviewOn), teamRule(rt.isMain(bot.id), writesTeam(bot.id), rt.isPrivate(bot.id))]
+    const hasLegacySystemEntries = legacy.includes(OWN_HEADING) && marks.every(mark => legacy.includes(mark))
     const roomId = roomIdOf(sessionId)
     const member = roomId !== undefined && rt.roomOf(roomId)?.members.includes(bot.id) === true
     const ownKeys = new Set([scopeKey(ownScope(bot.id)), scopeKey(TEAM)])
@@ -1435,7 +1436,6 @@ export function install(rt) {
     const update = ownUnavailable
       ? undefined
       : memoryUpdate(agent, bot, member ? roomId : undefined, {
-          ownRefreshed: ownSnap !== undefined,
           groupRefreshed: snapshot !== undefined,
           historyOf,
         })
@@ -1656,14 +1656,14 @@ export function install(rt) {
   // What changed in the memory a Session has in view since it last looked, as a message
   // of its own at the end of the conversation: the prompt above stays byte for byte, so
   // the provider's prefix cache holds. A Session's own writes are not news to it.
-  function memoryUpdate(agent, bot, roomId, { ownRefreshed = false, groupRefreshed = false, historyOf } = {}) {
+  function memoryUpdate(agent, bot, roomId, { groupRefreshed = false, historyOf } = {}) {
     const sessionId = agent.id
     const own = ownScope(bot.id)
     const keys = new Set([scopeKey(own), scopeKey(TEAM), ...(roomId === undefined ? [] : [scopeKey(groupScope(roomId))])])
     const paths = botJournalPaths(bot.id)
     let seen = seenOf(sessionId)
     let seenIds = seenAtIds.get(sessionId)
-    if (seen === undefined) {
+    if (seen === undefined || seenIds === undefined) {
       const history = historyOf !== undefined
         ? historyOf()
         : (() => { try { return agent.session?.deriveMessages?.() ?? [] } catch { return [] } })()
@@ -1672,10 +1672,14 @@ export function install(rt) {
         || (message?.source?.kind === MEMORY_UPDATE_SOURCE && typeof message?.source?.ownWatermark?.time === 'string'))
       const ownWm = latestOwn?.source?.kind === MEMORY_UPDATE_SOURCE ? latestOwn.source.ownWatermark : latestOwn?.source?.watermark
       if (typeof ownWm?.time === 'string') {
-        seen = ownWm.time
-        seenIds = new Set(Array.isArray(ownWm.ids) ? ownWm.ids : [])
-        seenTimes.set(sessionId, seen)
-        seenAtIds.set(sessionId, seenIds)
+        if (seen === undefined) {
+          seen = ownWm.time
+          seenTimes.set(sessionId, seen)
+        }
+        if (seenIds === undefined && ownWm.time === seen && Array.isArray(ownWm.ids)) {
+          seenIds = new Set(ownWm.ids)
+          seenAtIds.set(sessionId, seenIds)
+        }
       }
     }
     if (seen === undefined) {
@@ -1717,7 +1721,6 @@ export function install(rt) {
         if (groupRefreshed) return gCursor !== undefined && rowAfter(row, gCursor)
         return rowAfter(row, gCursor ?? baseCursor)
       }
-      if (ownRefreshed) return rowAfter(row, baseCursor)
       return rowAfter(row, baseCursor)
     })
     const changes = matched.flatMap(updateChanges)
@@ -1725,20 +1728,21 @@ export function install(rt) {
     const ownTeamMatched = matched.filter(row => !row.scope.startsWith('group:'))
     const groupMatched = matched.filter(row => row.scope.startsWith('group:'))
     const nextGroup = groupMatched.length > 0 && gCursor !== undefined ? advanceCursor(gCursor, groupMatched) : undefined
-    if (nextGroup !== undefined) groupSeen.set(sessionId, nextGroup)
     const nextBase = advanceCursor(baseCursor, gCursor !== undefined ? ownTeamMatched : matched)
-    markSeen(sessionId, nextBase.time, nextBase.ids)
     const text = updateText(changes, bot)
-    return createUserMessage({
+    const message = createUserMessage({
       content: [{ type: 'text', text }],
       source: {
         kind: MEMORY_UPDATE_SOURCE,
         form: 'snapshot',
-        ownWatermark: { time: nextBase.time, ids: [...nextBase.ids] },
-        ...(nextGroup === undefined ? {} : { groupWatermark: { time: nextGroup.time, ids: [...nextGroup.ids] } }),
+        ownWatermark: { time: nextBase.time, ...(nextBase.ids === undefined ? {} : { ids: [...nextBase.ids] }) },
+        ...(nextGroup === undefined ? {} : { groupWatermark: { time: nextGroup.time, ...(nextGroup.ids === undefined ? {} : { ids: [...nextGroup.ids] }) } }),
         sections: [{ name: MEMORY_UPDATE_SOURCE, text }],
       },
     })
+    if (nextGroup !== undefined) groupSeen.set(sessionId, nextGroup)
+    markSeen(sessionId, nextBase.time, nextBase.ids)
+    return message
   }
 
   const rowEntry = line => splitMeta(String(line ?? '').replace(/^\s*[-*]\s+/, ''))
