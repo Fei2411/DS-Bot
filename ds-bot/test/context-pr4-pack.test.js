@@ -122,6 +122,21 @@ test('context-pack: buildHandoffPack, buildCheckpointPack, buildCompactDigest, b
   assert.match(fallback, /Assistant: Working on X now\./)
   assert.doesNotMatch(fallback, /SECRET_PEER/, 'excludeTurns must strip hidden peer-Bot turns completely')
 
+  // A second consecutive non-forked bot-handoff preserves prior carriedContext as bounded note.
+  const secondFallback = buildFallbackContext({
+    events: [
+      { seq: 0, type: 'user/message', data: { source: { kind: SOURCE_KIND, role: 'task-handoff', carriedContext: true }, content: [{ type: 'text', text: fallback.trim() }] } },
+      { seq: 1, type: 'turn/start', data: { turn: 1 } },
+      { seq: 2, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'Second user follow-up' }] } },
+      { seq: 3, type: 'assistant/message', data: { message: { content: [{ type: 'text', text: 'Second reply.' }] } } },
+      { seq: 4, type: 'turn/end', data: { turn: 1 } },
+    ],
+    label: 'your own chat',
+    sourceKind: SOURCE_KIND,
+  })
+  assert.match(secondFallback, /Build feature X/, 'second non-forked handoff must retain carriedContext from first handoff')
+  assert.match(secondFallback, /Second user follow-up/)
+
   assert.match(formatOwnChatBrief(['[#1 · T1] User: Hi']), /User: Hi/)
   assert.match(formatOwnChatBrief([]), /Nothing yet\./)
 })
@@ -252,12 +267,13 @@ test('B14 regressions: pruned replacement never overwrites original tool output,
     rooms: {}, exchanges: [], prefs: {},
   }))
 
-  // p1 contains an original tool/result at seq 2 AND a pruned surfaceOp replace at seq 5 with the same callId.
+  // p1 contains an original tool/result at seq 2 (with real DSH `sourceEventSeqs: [1]` linking its tool/call)
+  // AND a pruned surfaceOp replace at seq 5 with the same callId.
   const sessionEvents = new Map([
     ['p1', [
       { seq: 0, time: 10, type: 'turn/start', data: { turn: 1 } },
       { seq: 1, time: 11, type: 'tool/call', data: { callId: 'tc-big', name: 'read_file', arguments: '{"path":"big.log"}' } },
-      { seq: 2, time: 12, type: 'tool/result', data: { message: { toolCallId: 'tc-big', ok: true, content: [{ type: 'text', text: 'ORIGINAL_FULL_DIAGNOSTIC_PAYLOAD_9999' }] } } },
+      { seq: 2, time: 12, type: 'tool/result', sourceEventSeqs: [1], data: { message: { toolCallId: 'tc-big', ok: true, content: [{ type: 'text', text: 'ORIGINAL_FULL_DIAGNOSTIC_PAYLOAD_9999' }] } } },
       { seq: 3, time: 13, type: 'assistant/message', data: { message: { content: [{ type: 'text', text: 'Reviewed.' }] } } },
       { seq: 4, time: 14, type: 'compaction/prune', data: { shadowedRange: { start: 2, end: 2 }, shadowedSeqs: [2] } },
       { seq: 5, time: 15, type: 'tool/result', surfaceOp: { op: 'replace', startSeq: 2, endSeq: 2 }, sourceEventSeqs: [2], data: { message: { toolCallId: 'tc-big', ok: true, content: [{ type: 'text', text: '[pruned output]' }] } } },
@@ -369,6 +385,9 @@ test('D8 regressions: Claude rejected --fork-session retries once on fresh sessi
 
   const forked = await adapter.forkSession('parent-c', 'child-c', { fallbackContext: '[Recent context from your own chat]\nUser: Keep port 8080' })
   assert.equal(forked.deferred, true)
+  // Stage a second deferred fork BEFORE the first discovers --fork-session is unsupported.
+  const forked2 = await adapter.forkSession('parent-c', 'child-c-2', { fallbackContext: '[Recent context from your own chat]\nUser: Keep port 9090' })
+  assert.equal(forked2.deferred, true)
 
   const chunks = []
   for await (const chunk of adapter.stream({
@@ -387,6 +406,20 @@ test('D8 regressions: Claude rejected --fork-session retries once on fresh sessi
   assert.equal(records.get('child-c')?.cliSessionId, 'cli-fresh-child-2')
   assert.equal(records.get('child-c')?.forkFrom, undefined)
   assert.equal(records.get('child-c')?.forkFallbackContext, undefined)
+
+  // Second already-staged deferred fork opens directly on a fresh session with its fallbackContext.
+  promptCalls.length = 0
+  for await (const _chunk of adapter.stream({
+    sessionId: 'child-c-2',
+    provider: 'local-claude-code',
+    model: 'sonnet',
+    messages: [{ id: 'm2', role: 'user', content: [{ type: 'text', text: 'Run second task' }] }],
+  })) {
+    chunks.push(_chunk)
+  }
+  assert.deepEqual(openCalls[2], { sid: 'child-c-2', resumeId: undefined, forkSession: false }, 'already-staged second fork must convert directly to fresh session')
+  const promptText2 = promptCalls.flat().map(b => b.text ?? '').join('\n')
+  assert.match(promptText2, /Keep port 9090/, 'already-staged second fork must deliver its retained fallbackContext')
 
   // 2) openTaskPart probes fork on demand and preserves bounded parent ref in inheritedSegments for native CLI forks.
   const home = mkdtempSync(join(tmpdir(), 'dsb-pr4-clifork-'))

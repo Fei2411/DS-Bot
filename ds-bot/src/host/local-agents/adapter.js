@@ -765,6 +765,19 @@ export class LocalAgentAdapter extends LlmAdapter {
     live.cwd = cwd
 
     const mode = cliMode(live.spec.kind, preset)
+    if (live.engineSession === undefined && live.forkFrom === true && live.engine.forkSupported === false) {
+      // Another task already discovered this CLI rejects `--fork-session`:
+      // convert this staged deferred fork directly to a fresh session with its
+      // retained fallbackContext instead of throwing in engine.open().
+      live.forkFrom = false
+      live.cliSessionId = undefined
+      live.handed = undefined
+      live.promptHash = undefined
+      if (typeof live.forkFallbackContext === 'string' && live.forkFallbackContext !== '') {
+        live.applyForkFallback = true
+      }
+      this.deps.saveRecord(sessionId, this.recordOf(live))
+    }
     const priorCliId = live.cliSessionId
     const freshCli = priorCliId === undefined
     let freshMemory

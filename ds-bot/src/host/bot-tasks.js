@@ -2695,7 +2695,7 @@ export function install(rt) {
               const freshAgent = await rt.resolveAgent(newSid)
               freshAgent.inject?.(createUserMessage({
                 content: [{ type: 'text', text: sanitized.trim() }],
-                source: { kind: SOURCE_KIND, form: 'relay', role: 'task-handoff', taskId: task.id },
+                source: { kind: SOURCE_KIND, form: 'relay', role: 'task-handoff', carriedContext: true, taskId: task.id },
               }))
             } catch (error) {
               rt.warn('ds-bot: injecting sanitized fallback context on %s failed: %s', newSid, error)

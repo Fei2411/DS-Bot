@@ -40,8 +40,10 @@ export function toolArgSummary(rawArgs, { redact = value => String(value ?? ''),
 // budget-bounded trail of recent tool calls and outcomes, oldest first.
 // Appends `[call_id: ...]` when a callId is present so pruned/archived outputs
 // remain recallable via `read_own_chat({ call_id })`.
+// Only surface replacement events (`surfaceOp.op === 'replace'`) are pruned
+// replacements; ordinary DSH `tool/result` events also carry `sourceEventSeqs`
+// pointing at their originating `tool/call` event and must NOT be skipped.
 export const isReplacementToolResult = event => event?.surfaceOp?.op === 'replace'
-  || (Array.isArray(event?.sourceEventSeqs) && event.sourceEventSeqs.length > 0)
 
 export async function extractToolTrail(events, {
   maxCalls = 18,
@@ -350,6 +352,10 @@ export function buildFallbackContext({
       const raw = textOf(event.data?.message?.content ?? event.data?.content ?? '').trim()
       const cleaned = cleanStructuredNote(raw, { handoff: true })
       if (cleaned !== '') latestNote = cleaned
+    } else if (event.type === 'user/message' && event.data?.source?.kind === sourceKind && event.data.source.carriedContext === true) {
+      const raw = textOf(event.data?.message?.content ?? event.data?.content ?? '').trim()
+      const stripped = raw.replace(/^\[Recent context from [^\]]+\]\s*/i, '').trim()
+      if (stripped !== '') latestNote = stripped
     }
   }
   const lines = []
