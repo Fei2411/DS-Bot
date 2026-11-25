@@ -1155,10 +1155,12 @@ export function BotPanel({ pane, leaving, room, overlay, roster, actions, useSes
 
   // A Bot's strip restores as soon as the panel opens for it.
   useEffect(() => { if (canBrowse) actions.browserEnsure(bot.id) }, [bot?.id, canBrowse])
-  // With the last tab closed the browser view folds back into the details view.
+  // With the last tab closed the browser view folds back into workspace (if open) or details.
   useEffect(() => {
-    if (view === 'browser' && (active === null || !tabState.ids.includes(active))) actions.setPanelView('details')
-  }, [view, active, tabState.ids.length])
+    if (view === 'browser' && (active === null || !tabState.ids.includes(active))) {
+      actions.setPanelView(workspace !== undefined && hasWs ? 'workspace' : 'details')
+    }
+  }, [view, active, tabState.ids.length, workspace, hasWs])
   // A side chat closed here or in another window folds back into details too.
   useEffect(() => {
     if (pane.view === 'side' && sideChat === undefined) actions.setPanelView('details')
@@ -1166,12 +1168,19 @@ export function BotPanel({ pane, leaving, room, overlay, roster, actions, useSes
   useEffect(() => {
     if (pane.view === 'task' && taskEntry === undefined) actions.closeTask?.()
   }, [pane.view, taskEntry])
-  // If workspace tabs clear while open on the workspace view, fold back to details or close.
+  // In standalone desktop mode, close the panel if both subject details and workspace tabs
+  // are gone (e.g. a deleted Bot/room or closing the last workspace tab), or fold workspace
+  // back to details when workspace tabs clear.
   useEffect(() => {
-    if (leaving || pane.view !== 'workspace' || hasWs) return
+    if (leaving) return
+    if (workspace !== undefined && !hasSubjectDetails && !hasWs) {
+      actions.closePanel?.()
+      return
+    }
+    if (pane.view !== 'workspace' || hasWs) return
     if (hasSubjectDetails) actions.setPanelView('details')
     else actions.closePanel?.()
-  }, [leaving, pane.view, hasWs, hasSubjectDetails])
+  }, [leaving, workspace, pane.view, hasWs, hasSubjectDetails])
   // The guest leaves the screen while the details view is up, and on close.
   useEffect(() => {
     if (view !== 'browser' || leaving) void actions.browserShow?.(null)

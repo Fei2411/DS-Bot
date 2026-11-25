@@ -440,20 +440,19 @@ export function install(rt) {
         const ids = Array.isArray(ctx.workspaceRegistry?.archivedSessionIds)
           ? [...ctx.workspaceRegistry.archivedSessionIds]
           : []
-        const byId = ids.length > 0 ? await passiveSessionMap(signal) : new Map()
-        const sessions = ids.reverse().map((id) => {
+        const restorableIds = ids.reverse().filter(id =>
+          rt.selfOf?.(id) === undefined
+          && rt.botOf?.(id) === undefined
+          && rt.roomOf?.(id) === undefined
+          && rt.pastOwners?.has?.(id) !== true)
+        const byId = restorableIds.length > 0 ? await passiveSessionMap(signal) : new Map()
+        const sessions = restorableIds.map((id) => {
           const meta = byId.get(id)
-          const past = rt.pastOwners?.get?.(id)
-          const bot = rt.botOf?.(id) ?? (past?.botId ? rt.botOf?.(past.botId) : undefined)
-          const room = rt.roomOf?.(id) ?? (past?.roomId ? rt.roomOf?.(past.roomId) : undefined)
-          const kind = room ? 'room' : bot ? 'bot' : 'classic'
-          const ownerName = room?.name ?? bot?.name ?? null
           return {
             id,
-            title: meta?.title || ownerName || '',
+            title: meta?.title || '',
             updatedAt: meta?.updatedAt ?? 0,
-            kind,
-            ...(ownerName ? { ownerName } : {}),
+            kind: 'classic',
             ...(meta?.cwd ? { cwd: meta.cwd } : {}),
           }
         })
@@ -468,14 +467,15 @@ export function install(rt) {
           ? ctx.workspaceRegistry.archivedSessionIds
           : []
         if (!archived.includes(sessionId)) throw notFound('This session is not archived')
-        await ctx.workspaceRegistry.unarchiveSession(sessionId)
-        let adoptedAgentId = null
-        const owned = rt.selfOf?.(sessionId) !== undefined
+        const ownedByTeam = rt.selfOf?.(sessionId) !== undefined
           || rt.botOf?.(sessionId) !== undefined
           || rt.roomOf?.(sessionId) !== undefined
           || rt.pastOwners?.has?.(sessionId) === true
-          || rt.agentOf?.(sessionId) !== undefined
-        if (!owned && body.adopt !== false) {
+        if (ownedByTeam) throw refused('Bot and group conversation segments cannot be restored into Classic mode')
+        await ctx.workspaceRegistry.unarchiveSession(sessionId)
+        let adoptedAgentId = null
+        const ownedByAgent = rt.agentOf?.(sessionId) !== undefined
+        if (!ownedByAgent && body.adopt !== false) {
           const agent = Object.values(state.agents ?? {})[0]
           if (agent !== undefined && typeof rt.adoptAgentSession === 'function') {
             try {

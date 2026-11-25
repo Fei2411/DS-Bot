@@ -31,6 +31,9 @@ export function remoteAccessError(device, endpoint) {
   if (endpoint.startsWith('engine-')) {
     return { code: 'bot/refused', message: 'Engine settings are managed on the computer', details: {} }
   }
+  if (endpoint.startsWith('plugins-')) {
+    return { code: 'bot/refused', message: 'Plugins are managed on the computer', details: {} }
+  }
   return undefined
 }
 
@@ -43,6 +46,13 @@ function remoteState(state) {
   const phone = { ...state.phone }
   delete phone.pairing
   return { ...state, phone }
+}
+
+function remoteFolders(value) {
+  if (!value || typeof value !== 'object' || !Object.hasOwn(value, 'data')) return value
+  const copy = { ...value }
+  delete copy.data
+  return copy
 }
 
 export function install(rt) {
@@ -104,7 +114,11 @@ export function install(rt) {
     const wanted = params?.state !== null && typeof params?.state === 'object' && !Array.isArray(params.state) ? params.state : undefined
     const before = rt.state.revision
     const answer = await serve(endpoint, params?.payload ?? null, signal)
-    const result = endpoint === 'state' && answer?.ok === true ? { ...answer, value: remoteState(answer.value) } : answer
+    const result = endpoint === 'state' && answer?.ok === true
+      ? { ...answer, value: remoteState(answer.value) }
+      : endpoint === 'folders' && answer?.ok === true
+        ? { ...answer, value: remoteFolders(answer.value) }
+        : answer
     if (wanted === undefined || result?.ok !== true || rt.state.revision === before) return result
     const state = await serve('state', wanted, signal).then(answer => (answer?.ok === true ? answer.value : undefined), () => undefined)
     return state === undefined ? result : { ...result, state: remoteState(state) }

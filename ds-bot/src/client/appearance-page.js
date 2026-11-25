@@ -379,7 +379,7 @@ export function FontField({ label, value, kind = 'ui', save, fonts = [], load })
     const recList = needle === '' ? recommended : recommended.filter(font => font.toLowerCase().includes(needle))
     const instList = needle === '' ? installed : installed.filter(font => font.toLowerCase().includes(needle))
     const exactMatch = needle !== '' && (recLower.has(needle) || instLower.has(needle) || (value ?? '').toLowerCase() === needle)
-    const customAllowed = trimmed !== '' && !exactMatch && trimmed.length <= MAX_FONT && FONT_TEXT.test(trimmed)
+    const customAllowed = trimmed !== '' && !exactMatch && trimmed.length <= MAX_FONT && FONT_TEXT.test(trimmed) && !/\/\*|\*\//.test(trimmed)
     const items = []
     if (showDef) items.push({ kind: 'default', value: null, label: defaultLabel })
     if (showCurr) items.push({ kind: 'current', value, label: value })

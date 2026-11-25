@@ -31813,7 +31813,7 @@ function FontField({ label, value, kind = "ui", save, fonts = [], load }) {
     const recList = needle === "" ? recommended : recommended.filter((font) => font.toLowerCase().includes(needle));
     const instList = needle === "" ? installed : installed.filter((font) => font.toLowerCase().includes(needle));
     const exactMatch = needle !== "" && (recLower.has(needle) || instLower.has(needle) || (value ?? "").toLowerCase() === needle);
-    const customAllowed = trimmed2 !== "" && !exactMatch && trimmed2.length <= MAX_FONT && FONT_TEXT2.test(trimmed2);
+    const customAllowed = trimmed2 !== "" && !exactMatch && trimmed2.length <= MAX_FONT && FONT_TEXT2.test(trimmed2) && !/\/\*|\*\//.test(trimmed2);
     const items = [];
     if (showDef) items.push({ kind: "default", value: null, label: defaultLabel });
     if (showCurr) items.push({ kind: "current", value, label: value });
@@ -55940,8 +55940,10 @@ function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSes
     if (canBrowse) actions.browserEnsure(bot.id);
   }, [bot?.id, canBrowse]);
   (0, import_react82.useEffect)(() => {
-    if (view === "browser" && (active === null || !tabState.ids.includes(active))) actions.setPanelView("details");
-  }, [view, active, tabState.ids.length]);
+    if (view === "browser" && (active === null || !tabState.ids.includes(active))) {
+      actions.setPanelView(workspace !== void 0 && hasWs ? "workspace" : "details");
+    }
+  }, [view, active, tabState.ids.length, workspace, hasWs]);
   (0, import_react82.useEffect)(() => {
     if (pane.view === "side" && sideChat === void 0) actions.setPanelView("details");
   }, [pane.view, sideChat]);
@@ -55949,10 +55951,15 @@ function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSes
     if (pane.view === "task" && taskEntry === void 0) actions.closeTask?.();
   }, [pane.view, taskEntry]);
   (0, import_react82.useEffect)(() => {
-    if (leaving || pane.view !== "workspace" || hasWs) return;
+    if (leaving) return;
+    if (workspace !== void 0 && !hasSubjectDetails && !hasWs) {
+      actions.closePanel?.();
+      return;
+    }
+    if (pane.view !== "workspace" || hasWs) return;
     if (hasSubjectDetails) actions.setPanelView("details");
     else actions.closePanel?.();
-  }, [leaving, pane.view, hasWs, hasSubjectDetails]);
+  }, [leaving, workspace, pane.view, hasWs, hasSubjectDetails]);
   (0, import_react82.useEffect)(() => {
     if (view !== "browser" || leaving) void actions.browserShow?.(null);
   }, [view, leaving]);
@@ -58312,13 +58319,14 @@ function noticeApprovals({ work, roster, shownSession, openSession, since = Date
       if (document.visibilityState === "visible" && shownSession() === place) continue;
       const { byId, roomsById } = roster.getSnapshot();
       const room2 = entry.roomId ? roomsById[entry.roomId] : void 0;
-      const note = new Notification(t("{name} is waiting for your approval", { name: byId[entry.botId]?.name ?? t("A Bot") }), {
+      const name = entry.botId ? byId[entry.botId]?.name ?? t("A Bot") : "DSH Agent";
+      const note = new Notification(t("{name} is waiting for your approval", { name }), {
         body: [room2?.name, entry.tool].filter(Boolean).join(" · "),
         tag: `ds-bot-approval-${entry.id}`
       });
       note.onclick = () => {
         window.focus();
-        openSession(entry.roomId ?? entry.botId);
+        openSession(entry.roomId ?? entry.botId ?? entry.sessionId);
         note.close();
       };
     }

@@ -396,14 +396,119 @@ test('read-only windows can read engine settings but cannot mutate; phone and re
     assert.equal(res.error.code, 'bot/read-only')
   }
 
-  for (const ep of ['engine-settings-list', 'engine-settings-mutate', 'engine-account-state', 'engine-classic-sessions']) {
+  for (const ep of ['engine-settings-list', 'engine-settings-mutate', 'engine-account-state', 'engine-classic-sessions', 'plugins-list', 'plugins-install', 'plugins-custom-save', 'plugins-source-save']) {
     assert.equal(remoteAccessError({ deviceId: 'p1', kind: 'phone' }, ep).code, 'bot/refused')
     assert.equal(remoteAccessError({ deviceId: 'b1', kind: 'browser' }, ep).code, 'bot/refused')
   }
 
   const RemoteService = createRemoteService(rt)
   const fakeRemote = Object.create(RemoteService.prototype)
-  const rpcRes = await fakeRemote.call('engine-settings-list', {})
-  assert.equal(rpcRes.ok, false)
-  assert.equal(rpcRes.error.code, 'bot/refused')
+  for (const ep of ['engine-settings-list', 'plugins-list', 'plugins-install', 'plugins-custom-save']) {
+    const rpcRes = await fakeRemote.call(ep, {})
+    assert.equal(rpcRes.ok, false, `${ep} must be refused on remote RPC`)
+    assert.equal(rpcRes.error.code, 'bot/refused')
+  }
+
+  // Remote RPC strips `data` from `folders` so host data paths never leak remotely.
+  const folderRemote = createRemoteService({
+    ...rt,
+    channelCall: async (name) => (name === 'folders'
+      ? { ok: true, value: { team: '/tmp/team', data: '/tmp/secret-data', picker: null, folders: [] } }
+      : { ok: false }),
+  })
+  const folderClient = Object.create(folderRemote.prototype)
+  const folderRes = await folderClient.call('folders', {})
+  assert.equal(folderRes.ok, true)
+  assert.equal(folderRes.value.team, '/tmp/team')
+  assert.equal('data' in folderRes.value, false, 'remote folders must strip protected data path')
+})
+
+test('archived-list excludes Bot/group segments and archived-unarchive refuses restoring them', async () => {
+  const unarchived = []
+  const { rt } = makeHarness({
+    workspaceRegistry: {
+      archivedSessionIds: ['s-classic-arch', 's-bot-part', 's-room-part'],
+      list: () => [],
+      unarchiveSession: async sid => unarchived.push(sid),
+    },
+  })
+  rt.roomOf = id => (id === 's-room-part' || id === 'r1' ? { id: 'r1', name: 'Ops' } : undefined)
+  rt.pastOwners = new Map([['s-bot-part', { botId: 'b1' }]])
+
+  const list = await rt.channelCall('engine-archived-list', {})
+  assert.equal(list.ok, true)
+  assert.deepEqual(list.value.sessions.map(entry => entry.id), ['s-classic-arch'])
+
+  for (const ownedSid of ['s-bot-part', 's-room-part']) {
+    const res = await rt.channelCall('engine-archived-unarchive', { sessionId: ownedSid })
+    assert.equal(res.ok, false, `${ownedSid} must be refused`)
+    assert.equal(res.error.code, 'bot/refused')
+  }
+  assert.deepEqual(unarchived, [], 'refused restore must not call workspaceRegistry.unarchiveSession')
+})
+
+test('Classic Agent approvals bridge into approvalsView without botId, and session-scoped stop-agent cancels only the targeted session', async () => {
+  const { install: installApprovals } = await import('../src/host/approvals.js')
+  const { install: installTurns } = await import('../src/host/turns.js')
+  const { fakeContext } = await import('./fake-ctx.js')
+  const ctx = fakeContext()
+  const cancelled = []
+  const approvalWaitCalls = []
+  const rt = {
+    ctx,
+    state: { bots: {}, rooms: {}, agents: { a1: { id: 'a1', sessions: ['cs-1', 'cs-2'] } } },
+    load: async () => {},
+    warn: () => {},
+    groupOwners: new Map(),
+    taskOwners: new Map(),
+    chatOwners: new Map(),
+    botOf: () => undefined,
+    roomOf: () => undefined,
+    selfOf: () => undefined,
+    chatOf: () => undefined,
+    agentById: id => (id === 'a1' ? { id: 'a1', sessions: ['cs-1', 'cs-2'] } : undefined),
+    agentOf: sid => (sid === 'cs-1' || sid === 'cs-2' ? { id: 'a1', sessions: ['cs-1', 'cs-2'] } : undefined),
+    resolveAgent: async sid => ({ cancel: reason => cancelled.push([sid, reason]) }),
+    approvalWaiting: entry => approvalWaitCalls.push(entry),
+    switchJobs: () => [],
+  }
+  installTurns(rt)
+  installApprovals(rt)
+
+  // Classic Agent approval request queues in approvalsView without botId, never triggers bot-only approvalWaiting or activity['undefined'].
+  let nextCalled = false
+  const approvalMiddleware = ctx.listeners.get('approval/request').at(-1)
+  const outcomePromise = approvalMiddleware({
+    agent: { id: 'cs-1', session: { id: 'cs-1' } },
+    toolName: 'bash',
+    reason: 'Run build script',
+    callId: 'c1',
+    signal: new AbortController().signal,
+  }, () => {
+    nextCalled = true
+    return new Promise(() => {})
+  })
+  assert.equal(nextCalled, true, 'Classic Agent approval still races DSH native card when present')
+  const view = rt.approvalsView()
+  assert.equal(view.length, 1)
+  assert.equal(view[0].sessionId, 'cs-1')
+  assert.equal('botId' in view[0], false)
+  assert.equal(view[0].answerable, true)
+  assert.equal(approvalWaitCalls.length, 0, 'Classic Agent approval must not trigger Bot mobile approvalWaiting')
+  assert.equal('undefined' in rt.activityView(), false, 'activityView must not gain an undefined key')
+
+  rt.answerApproval(view[0].id, 'allow')
+  assert.equal(await outcomePromise, 'allowed-once')
+  assert.equal(rt.approvalsView().length, 0)
+
+  // Session-scoped stopAgent cancels only cs-2 and leaves cs-1 running; unscoped stops remaining cs-1.
+  rt.live.set('cs-1', { turn: 1, since: 100, texts: [], shown: 0 })
+  rt.live.set('cs-2', { turn: 2, since: 200, texts: [], shown: 0 })
+  assert.equal(await rt.stopAgent('a1', 'cs-2'), true)
+  assert.deepEqual(cancelled, [['cs-2', { kind: 'user' }]])
+  assert.equal(await rt.stopAgent('a1', 'foreign-session'), false)
+  assert.deepEqual(cancelled, [['cs-2', { kind: 'user' }]])
+  rt.live.delete('cs-2')
+  assert.equal(await rt.stopAgent('a1'), true)
+  assert.deepEqual(cancelled, [['cs-2', { kind: 'user' }], ['cs-1', { kind: 'user' }]])
 })

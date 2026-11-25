@@ -225,6 +225,7 @@ export function install(rt) {
     if (botId !== undefined) botNotice(botId, { kind, sessionId, text })
   }
   rt.approvalWaiting = (entry) => {
+    if (!entry.botId) return
     const room = rt.roomOf(entry.roomId)
     botNotice(entry.botId, { kind: 'approval', sessionId: entry.sessionId, ...(room ? { roomId: room.id, title: room.name } : {}), text: entry.tool })
   }

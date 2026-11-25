@@ -22,8 +22,10 @@ const entryCode = `
     isCoreDsBotEntry,
     isBannedNamespace,
     isExcludedBundle,
+    AccountSettingsPage,
     PluginsSettingsPage,
     AgentPresetsSettingsPage,
+    ArchivedSessionsPage,
     EngineConfigPage,
   } from './ui/src/engine-settings.js'
   export {
@@ -143,7 +145,7 @@ function loadMod(callHandler = async () => ({})) {
   sandbox.exports = sandbox.module.exports
   sandbox.globalThis = sandbox
   runInNewContext(outputFiles[0].text, sandbox)
-  return { mod: sandbox.module.exports, listeners }
+  return { mod: sandbox.module.exports, listeners, sandbox }
 }
 
 function createHarness(Component, props = {}) {
@@ -660,4 +662,67 @@ test('registerEngineSettingsPlugin removes engine-config and forwards subTarget 
   const lazyNodes = findAll(rendered, n => n.type === 'lazy-stub')
   assert.equal(lazyNodes.length, 1)
   assert.equal(lazyNodes[0].props.subTarget, 'web-search')
+})
+
+test('AccountSettingsPage opens view.attempt.authorizeUrl on sign-in and supports cancel and sign-out', async () => {
+  const openedUrls = []
+  let view = {
+    signedIn: false,
+    account: null,
+    attempt: null,
+  }
+  const calls = []
+  const { mod, sandbox } = loadMod(async (ep, body) => {
+    calls.push([ep, body])
+    if (ep === 'engine-account-state') return { available: true, view }
+    if (ep === 'engine-account-signin') {
+      view = {
+        signedIn: false,
+        account: null,
+        attempt: { id: 'att-1', phase: 'waiting-browser', authorizeUrl: 'https://auth.deepseek.com/oauth/start?state=abc' },
+      }
+      return { available: true, view }
+    }
+    if (ep === 'engine-account-cancel') {
+      view = { signedIn: false, account: null, attempt: null }
+      return { available: true, view }
+    }
+    if (ep === 'engine-account-signout') {
+      view = { signedIn: false, account: null, attempt: null }
+      return { available: true, view }
+    }
+    return {}
+  })
+  sandbox.window.open = (url, target, features) => { openedUrls.push([url, target, features]) }
+  sandbox.window.location = { origin: 'http://127.0.0.1:4173' }
+
+  const harness = createHarness(mod.AccountSettingsPage, { readOnly: false })
+  harness.render()
+  await new Promise(resolve => setTimeout(resolve, 15))
+  const initial = harness.render()
+  const signInBtn = findAll(initial, n => n.type === 'button' && /Sign in/i.test(textOf(n)))[0]
+  assert.ok(signInBtn, 'Sign in button renders when signed out')
+
+  await signInBtn.props.onClick()
+  await new Promise(resolve => setTimeout(resolve, 15))
+  assert.deepEqual(openedUrls, [['https://auth.deepseek.com/oauth/start?state=abc', '_blank', 'noopener,noreferrer']])
+
+  const waiting = harness.render()
+  const cancelBtn = findAll(waiting, n => n.type === 'button' && /Cancel/i.test(textOf(n)))[0]
+  assert.ok(cancelBtn, 'Cancel button renders while attempt is active')
+  await cancelBtn.props.onClick()
+  await new Promise(resolve => setTimeout(resolve, 15))
+  harness.render()
+  assert.equal(calls.some(([ep, b]) => ep === 'engine-account-cancel' && b?.attemptId === 'att-1'), true)
+
+  // Signed-in state exposes Sign out (matches DSH view.status === 'credential-stored' contract).
+  view = { status: 'credential-stored', attempt: null }
+  const signedHarness = createHarness(mod.AccountSettingsPage, { readOnly: false })
+  signedHarness.render()
+  await new Promise(resolve => setTimeout(resolve, 15))
+  const signedTree = signedHarness.render()
+  const signOutBtn = findAll(signedTree, n => n.type === 'button' && /Sign out/i.test(textOf(n)))[0]
+  assert.ok(signOutBtn)
+  await signOutBtn.props.onClick()
+  assert.equal(calls.some(([ep]) => ep === 'engine-account-signout'), true)
 })

@@ -147,6 +147,12 @@ export function createTeam() {
     if (Object.entries(patch).every(([key, value]) => (entry[key] ?? false) === value)) return map
     return new Map(map).set(id, { ...entry, ...patch })
   })
+  const clearShown = () => {
+    const before = shown.getSnapshot()
+    if (before === null) return
+    shown.set(null)
+    editRow(before, row => ({ ...row, retainedBy: { mainView: 0 } }))
+  }
   const show = (id) => {
     if (!id) return
     const snap = roster.getSnapshot()
@@ -347,6 +353,10 @@ export function createTeam() {
         if (isAgentSessionId(prevShown)) lastAgentSession = prevShown
         else lastTeamSession = prevShown
       }
+      if ((nextMode === 'agent' && prevShown && !isAgentSessionId(prevShown))
+        || (nextMode === 'bot' && prevShown && isAgentSessionId(prevShown))) {
+        clearShown()
+      }
       ui.set(state => ({
         ...state,
         details: null,
@@ -376,9 +386,13 @@ export function createTeam() {
         if (agent) {
           const latest = latestAgentSession(agent.id)
           if (latest) { actions.openAgentSession(latest); return }
-          if (!snap.readOnly) { await actions.newAgentSession(agent.id); return }
-        } else if (!snap.readOnly) {
-          await actions.addAgent()
+          if (!snap.readOnly) {
+            try { await actions.newAgentSession(agent.id) } catch (error) { actions.reportError?.(error, 'agent-session') }
+          }
+          return
+        }
+        if (!snap.readOnly) {
+          try { await actions.addAgent() } catch (error) { actions.reportError?.(error, 'agent-session') }
         }
         return
       }
@@ -503,7 +517,7 @@ export function createTeam() {
       }
       return result
     },
-    stopAgent: agentId => after(call('stop-agent', { agentId })),
+    stopAgent: (agentId, sessionId) => after(call('stop-agent', sessionId ? { agentId, sessionId } : { agentId })),
     createClassicSession: (options = {}) => {
       const snap = roster.getSnapshot()
       if (snap.readOnly) return undefined
@@ -513,7 +527,10 @@ export function createTeam() {
     startPresetCreator: async () => {
       const snap = roster.getSnapshot()
       if (snap.readOnly) return undefined
+      const prevShown = shown.getSnapshot()
+      if (prevShown && !isAgentSessionId(prevShown)) lastTeamSession = prevShown
       if (surface.getSnapshot().mode !== 'agent') {
+        clearShown()
         surface.set({ mode: 'agent' })
         writeMode('agent')
       }
@@ -873,14 +890,24 @@ export function createTeam() {
         if (on && !stopReads) stopReads = serveBrowserReads({ browsers, post: call })
         if (!on && stopReads) { stopReads(); stopReads = null }
         // A Bot deleted here or in another window takes its guests and saved tabs along.
-        void browsers.retain(snapshot.bots.map(bot => bot.id))
-        // A panel open on the browser view without a browsable subject falls back cleanly
-        // to workspace (if open), else details.
+        void browsers.retain(snapshot.bots.map(bot => bot.id)).catch(() => {})
+        // A panel open on a deleted subject or unavailable browser falls back cleanly to
+        // workspace (if open), details (if subject still exists), or closes completely.
         ui.set((state) => {
-          if (!state.details || state.view !== 'browser') return state
-          if (on && snapshot.byId[state.details]) return state
+          if (!state.details) return state
+          const hasBot = Boolean(snapshot.byId[state.details])
+          const hasRoom = Boolean(snapshot.roomsById?.[state.details])
           const hasWorkspace = (state.rightPanel?.tabs?.length ?? 0) > 0
-          return { ...state, view: hasWorkspace ? 'workspace' : 'details' }
+          if (state.view === 'browser') {
+            if (on && hasBot) return state
+            if (hasWorkspace) return { ...state, view: 'workspace' }
+            if (hasBot || hasRoom) return { ...state, view: 'details' }
+            return { ...state, details: null, view: 'details', renaming: false, tab: null, side: null, task: null, rightPanel: null }
+          }
+          if (!hasBot && !hasRoom && !hasWorkspace) {
+            return { ...state, details: null, view: 'details', renaming: false, tab: null, side: null, task: null, rightPanel: null }
+          }
+          return state
         })
       }
       syncBrowsers()

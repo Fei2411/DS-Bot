@@ -624,3 +624,18 @@ test('ClassicSidebar exposes full-width + New session + hover Rename/Archive; Cl
   const turnsHeader = renderTree(mod.ClassicHeader, { sessionId: 's-turns', agent, useSessions, useSessionStatus, useUi, actions })
   assert.equal(findAll(turnsHeader, n => n.type === 'button' && String(n.props?.className ?? '').includes('dsb-classic-bar-more')).length, 1)
 })
+
+test('createPluginRuntime service stack handles out-of-order disposal without resurrecting disposed providers', () => {
+  const { mod } = loadMod()
+  const runtime = mod.createPluginRuntime()
+  const releaseA = runtime.provide('svc', 'A')
+  const releaseB = runtime.provide('svc', 'B')
+  const releaseC = runtime.provide('svc', 'C')
+  assert.equal(runtime.get('svc'), 'C')
+  releaseB()
+  assert.equal(runtime.get('svc'), 'C')
+  releaseC()
+  assert.equal(runtime.get('svc'), 'A', 'disposing C after B must restore A, never disposed B')
+  releaseA()
+  assert.equal(runtime.get('svc'), undefined)
+})

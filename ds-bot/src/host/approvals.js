@@ -28,14 +28,15 @@ export function install(rt) {
     const owner = sessionId === undefined ? undefined : rt.groupOwners.get(sessionId)
     const taskOwner = sessionId === undefined ? undefined : rt.taskOwners?.get(sessionId)
     const botId = owner?.botId ?? taskOwner?.botId ?? (sessionId === undefined ? undefined : rt.chatOwners.get(sessionId))
-    if (botId === undefined) return next()
+    const agentOwner = botId === undefined && sessionId !== undefined ? rt.agentOf?.(sessionId) : undefined
+    if (botId === undefined && agentOwner === undefined) return next()
     const taskTitle = taskOwner === undefined ? undefined : rt.taskBySession?.(sessionId)?.task?.title
     const id = randomUUID()
     const roomId = owner?.roomId ?? taskOwner?.roomId
     const entry = {
       id,
       sessionId,
-      botId,
+      ...(botId !== undefined ? { botId } : {}),
       ...(roomId ? { roomId } : {}),
       ...(taskOwner ? { taskId: taskOwner.taskId, ...(taskTitle ? { taskTitle } : {}) } : {}),
       tool: String(request.toolName ?? ''),
@@ -45,7 +46,7 @@ export function install(rt) {
     }
     pending.set(id, entry)
     rt.noteApproval?.(sessionId, { tool: entry.tool, reason: entry.reason.slice(0, 200) })
-    rt.approvalWaiting?.(entry)
+    if (botId !== undefined) rt.approvalWaiting?.(entry)
     emit('open', { ...entry, answerable: true })
     const settle = (outcome) => {
       if (!pending.has(id)) return false

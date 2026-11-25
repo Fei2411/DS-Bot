@@ -1090,7 +1090,7 @@ export function Chat({ sessionId, team, registry, classic = false }) {
       ? (typeof actions.stopRoomWork === 'function' && room?.id ? () => actions.stopRoomWork(room.id) : undefined)
       : bot?.id && typeof actions.stopChat === 'function'
         ? () => actions.stopChat(bot.id)
-        : (agentId && typeof actions.stopAgent === 'function' ? () => actions.stopAgent(agentId) : undefined)
+        : (agentId && typeof actions.stopAgent === 'function' ? () => actions.stopAgent(agentId, activeSessionId) : undefined)
 
   const busy = isRoom ? roomChat.view.loading : (dmChat.loading || dmChat.paging)
   const earlier = isRoom

@@ -2,6 +2,7 @@
 // Account, Plugins (with in-page built-in plugin settings), Agent presets,
 // Archived sessions, and Session log upload.
 import { createElement as h, Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { call } from '../../../ds-bot/src/client/api.js'
 import { Switch } from '../../../ds-bot/src/client/bot-settings.js'
 import { MAIN_LOOK } from '../../../ds-bot/src/client/characters.js'
@@ -523,7 +524,7 @@ export function AccountSettingsPage({ readOnly = false }) {
         locale: language(),
         timezoneOffsetSeconds: -new Date().getTimezoneOffset() * 60,
       })
-      const authorizeUrl = safeExternalUrl(result?.view?.authorizeUrl)
+      const authorizeUrl = safeExternalUrl(result?.view?.attempt?.authorizeUrl)
       if (authorizeUrl && typeof window !== 'undefined') window.open?.(authorizeUrl, '_blank', 'noopener,noreferrer')
       await load()
     } catch (failure) {
@@ -1121,6 +1122,7 @@ function presetDisplayCopy(preset) {
 
 function PresetConfigModal({ doc, onClose }) {
   const [copied, setCopied] = useState(false)
+  const copyTimer = useRef(0)
   useEffect(() => {
     const onKey = (event) => {
       if (event.key === 'Escape') {
@@ -1130,17 +1132,21 @@ function PresetConfigModal({ doc, onClose }) {
       }
     }
     window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
+    return () => {
+      window.removeEventListener('keydown', onKey, true)
+      clearTimeout(copyTimer.current)
+    }
   }, [onClose])
 
   const copyYaml = async () => {
     if (await writeClipboard(doc.content)) {
       setCopied(true)
-      setTimeout(() => setCopied(false), 1200)
+      clearTimeout(copyTimer.current)
+      copyTimer.current = setTimeout(() => setCopied(false), 1200)
     }
   }
 
-  return h('div', { className: 'dsb-preset-modal-layer', role: 'dialog', 'aria-modal': true, 'aria-label': `${t('View configuration')} · ${doc.title}` },
+  const modal = h('div', { className: 'dsb-preset-modal-layer', role: 'dialog', 'aria-modal': true, 'aria-label': `${t('View configuration')} · ${doc.title}` },
     h('div', { className: 'dsb-preset-modal-scrim', onMouseDown: onClose }),
     h('div', { className: 'dsb-preset-modal' },
       h('div', { className: 'dsb-preset-modal-head' },
@@ -1153,6 +1159,8 @@ function PresetConfigModal({ doc, onClose }) {
             copied ? t('Copied') : t('Copy')),
           h('button', { type: 'button', className: 'bt-icon-btn', 'aria-label': t('Close'), onClick: onClose }, h(CloseIcon)))),
       h('pre', { className: 'dsb-preset-code' }, doc.content || t('No configuration content.'))))
+  const target = typeof document !== 'undefined' && document.body ? document.body : null
+  return target ? createPortal(modal, target) : modal
 }
 
 export function AgentPresetsSettingsPage({ readOnly = false, close, onStartPresetCreator }) {
@@ -1170,9 +1178,9 @@ export function AgentPresetsSettingsPage({ readOnly = false, close, onStartPrese
     return () => { mounted.current = false }
   }, [])
 
-  const load = useCallback(async () => {
+  const load = useCallback(async ({ clearError = true } = {}) => {
     if (!presetsCache) setLoading(true)
-    setError('')
+    if (clearError) setError('')
     try {
       const next = await call('engine-presets-list')
       presetsCache = next
@@ -1213,7 +1221,7 @@ export function AgentPresetsSettingsPage({ readOnly = false, close, onStartPrese
         if (mounted.current) {
           setData(prevData)
           setError(hostText(failure?.message ?? String(failure)))
-          if (failure?.code === 'bot/stale') await load()
+          await load({ clearError: false })
         }
       }
     } finally {

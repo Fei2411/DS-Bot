@@ -520,12 +520,89 @@ test('paintMode syncs data-ds-dark-theme and html[data-ds-theme-source] for Elec
   assert.equal(sandbox.document.body.hasAttribute('data-ds-dark-theme'), false)
   assert.equal(sandbox.document.documentElement.dataset.dsThemeSource, 'system')
 
-  // Electron material CSS, preload Mica lookup, and CSP allow unified .bt-panel and loopback favicons.
+  // Electron material CSS keeps own-UI selectors merged into DSH rules so check-packed passes;
+  // preload Mica lookup and CSP allow unified .bt-panel and loopback favicons.
   const materialCss = readFileSync(fileURLToPath(new URL('../src/material.css', import.meta.url)), 'utf8')
   const preloadSrc = readFileSync(fileURLToPath(new URL('../src/preload.cjs', import.meta.url)), 'utf8')
   const indexHtml = readFileSync(fileURLToPath(new URL('../ui/index.html', import.meta.url)), 'utf8')
-  assert.match(materialCss, /\.bt-panel\s*\{/)
+  assert.match(materialCss, /_frame.*,\s*body:not\(\[data-bt-material="off"\]\):not\(\[data-bt-bg\]\)\s*\.dsb-frame/s)
+  assert.match(materialCss, /_rightbarCol"\],\s*body:not\(\[data-bt-material="off"\]\):not\(\[data-bt-bg\]\)\s*\.dsb-main,\s*body:not\(\[data-bt-material="off"\]\):not\(\[data-bt-bg\]\)\s*\.bt-panel/s)
   assert.doesNotMatch(materialCss, /\.dsb-rightbar\b/)
   assert.match(preloadSrc, /querySelector\('\.bt-panel, div\[class\*="_rightbarCol"\]'\)/)
   assert.match(indexHtml, /img-src 'self' data: blob: https: http:\/\/127\.0\.0\.1:\* http:\/\/localhost:\*/)
+})
+
+test('setSurface clears stale shown in read-only Classic mode, reports errors, closes deleted-bot panel, and scopes stopAgent', async () => {
+  const calls = []
+  let botsList = [{ id: 'b1', name: 'Alpha', sessionId: 'b1', parts: ['b1'] }]
+  let rosterRevision = 1
+  let readOnly = 'Another dsh holds this team'
+  const bridge = createMockBridge()
+  const { sandbox, exports, readHook } = createHarness()
+  sandbox.__testCall = async (endpoint, payload, signal) => {
+    calls.push([endpoint, payload])
+    if (endpoint === 'state') {
+      return {
+        revision: rosterRevision,
+        mainBotId: botsList[0]?.id ?? null,
+        mainBotIds: botsList[0] ? [botsList[0].id] : [],
+        bots: botsList,
+        rooms: [],
+        agents: [],
+        browser: true,
+        readOnly,
+        prefs: {},
+      }
+    }
+    if (endpoint === 'add-agent') throw new Error('host refused')
+    if (endpoint === 'browser-wait') {
+      return new Promise((_resolve, reject) => {
+        if (signal?.aborted) { reject(new Error('aborted')); return }
+        signal?.addEventListener('abort', () => reject(new Error('aborted')), { once: true })
+      })
+    }
+    return {}
+  }
+  sandbox.dsBotApp = { browser: bridge }
+
+  const team = exports.createTeam()
+  const stop = team.start()
+  try {
+    await tick()
+    team.actions.openSession('b1')
+    assert.equal(readHook(team.hooks.useShown), 'b1')
+
+    // Read-only switch to Classic Agent with no agents clears shown so Bot chat never leaks into Classic mode.
+    await team.actions.setSurface('agent')
+    assert.equal(readHook(team.hooks.useSurface).mode, 'agent')
+    assert.equal(readHook(team.hooks.useShown), null)
+
+    // Writable switch when add-agent rejects reports error through toast instead of throwing unhandled rejection.
+    readOnly = null
+    rosterRevision = 2
+    await team.actions.refreshLocale()
+    await team.actions.setSurface('bot')
+    assert.equal(readHook(team.hooks.useShown), 'b1')
+    await team.actions.setSurface('agent')
+    assert.equal(readHook(team.hooks.useShown), null)
+    assert.ok(readHook(team.hooks.useUi).toast, 'failed addAgent surfaces error toast')
+
+    // Deleting a Bot while right panel is open on its details/browser without workspace tabs closes the panel.
+    await team.actions.setSurface('bot')
+    team.actions.openBrowser('b1')
+    assert.equal(readHook(team.hooks.useUi).details, 'b1')
+    botsList = []
+    rosterRevision = 3
+    await team.actions.refreshLocale()
+    await tick()
+    assert.equal(readHook(team.hooks.useUi).details, null, 'deleted Bot with no workspace closes BotPanel cleanly')
+
+    // Session-scoped stopAgent passes sessionId; unscoped omits it.
+    await team.actions.stopAgent('a1', 'cs-2')
+    await team.actions.stopAgent('a1')
+    const stopCalls = calls.filter(([ep]) => ep === 'stop-agent').map(([, body]) => body)
+    assert.deepEqual(plain(stopCalls), [{ agentId: 'a1', sessionId: 'cs-2' }, { agentId: 'a1' }])
+  } finally {
+    stop()
+  }
 })

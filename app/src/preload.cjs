@@ -730,8 +730,13 @@ function captionColors(mica) {
     const start = column()
     // Opening or closing the right sidebar changes the frame's columns.
     if (start !== null && frame === undefined) {
-      frame = start.parentElement
-      observer.observe(frame, { attributes: true, attributeFilter: ['style'] })
+      const candidate = start.classList?.contains('bt-panel')
+        ? (document.querySelector('.dsb-frame') ?? start.parentElement)
+        : start.parentElement
+      if (candidate !== null && candidate !== document.body) {
+        frame = candidate
+        observer.observe(frame, { attributes: true, attributeFilter: ['style'] })
+      }
     }
     for (let element = start; element !== null; element = element.parentElement) {
       const color = opaque(getComputedStyle(element).backgroundColor)

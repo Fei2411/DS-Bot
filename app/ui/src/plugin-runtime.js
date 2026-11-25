@@ -175,22 +175,43 @@ export function createPluginRuntime({ slots = defaultSlots, registerTheme: regis
     emit()
   }
 
+  const serviceStacks = new Map()
+
   function provide(name, value) {
     if (typeof name !== 'string' || name.trim() === '') {
       throw new TypeError('Service name must be a non-empty string')
     }
-    const hadPrevious = services.has(name)
-    const previous = services.get(name)
+    const token = { value }
+    let stack = serviceStacks.get(name)
+    if (!stack) {
+      stack = []
+      serviceStacks.set(name, stack)
+    }
+    stack.push(token)
     services.set(name, value)
     scheduleReconcile()
     let disposed = false
     return () => {
       if (disposed) return
       disposed = true
-      if (services.get(name) !== value) return
-      if (hadPrevious) services.set(name, previous)
-      else services.delete(name)
-      scheduleReconcile()
+      const currentStack = serviceStacks.get(name)
+      if (!currentStack) return
+      const idx = currentStack.indexOf(token)
+      if (idx === -1) return
+      const wasTop = idx === currentStack.length - 1
+      currentStack.splice(idx, 1)
+      if (currentStack.length === 0) {
+        serviceStacks.delete(name)
+        if (wasTop) {
+          services.delete(name)
+          scheduleReconcile()
+        }
+        return
+      }
+      if (wasTop) {
+        services.set(name, currentStack[currentStack.length - 1].value)
+        scheduleReconcile()
+      }
     }
   }
 

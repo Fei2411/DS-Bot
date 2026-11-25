@@ -677,7 +677,10 @@ export function install(rt) {
         case 'stop-chat':
           return ok(await rt.stopChat(String(body.botId ?? '')))
         case 'stop-agent':
-          return ok(await rt.stopAgent(String(body.agentId ?? '')))
+          return ok(await rt.stopAgent(
+            String(body.agentId ?? ''),
+            typeof body.sessionId === 'string' && body.sessionId !== '' ? body.sessionId : undefined,
+          ))
         case 'dismiss-question':
           await rt.load()
           if (rt.own(state.questions, body.sessionId) !== undefined) {

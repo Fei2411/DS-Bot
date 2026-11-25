@@ -167,7 +167,16 @@ export function createRemoteService(rt) {
       if (name.startsWith('engine-')) {
         return { ok: false, error: { code: 'bot/refused', message: 'Engine settings are managed on the computer', details: {} } }
       }
-      return plain(await rt.channelCall(name, payload ?? {}, signal))
+      if (name.startsWith('plugins-')) {
+        return { ok: false, error: { code: 'bot/refused', message: 'Plugins are managed on the computer', details: {} } }
+      }
+      const answer = plain(await rt.channelCall(name, payload ?? {}, signal))
+      if (name === 'folders' && answer?.ok === true && answer.value && typeof answer.value === 'object' && Object.hasOwn(answer.value, 'data')) {
+        const value = { ...answer.value }
+        delete value.data
+        return { ...answer, value }
+      }
+      return answer
     }
 
     feed(signal) {

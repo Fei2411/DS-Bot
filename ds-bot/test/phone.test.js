@@ -25,6 +25,7 @@ after(() => server.close())
 
 function open(home) {
   const ctx = fakeContext()
+  ctx.workspaceRegistry = { get: () => undefined, list: () => [] }
   const register = ctx.connection.fetch.register
   ctx.connection.fetch.register = (route) => { ctx.route = route; return register(route) }
   apply(ctx, { home, github: false })
@@ -323,6 +324,16 @@ test('a phone write that moved the team carries the new state in its reply', asy
   const failed = await link.client.rpc('bot', { endpoint: 'update-bot', payload: { id: 'ghost', color: '#112233' }, state: { since: before } })
   assert.equal(failed.ok, false)
   assert.equal(failed.state, undefined)
+
+  // Phone link refuses plugins-* endpoints and strips `data` from `folders`.
+  const pluginDenied = await link.client.rpc('bot', { endpoint: 'plugins-install', payload: { id: 'x' } })
+  assert.equal(pluginDenied.ok, false)
+  assert.equal(pluginDenied.error.code, 'bot/refused')
+  const localFolders = await desk.call('folders', {})
+  assert.equal(typeof localFolders.value.data, 'string')
+  const remoteFolders = await link.client.rpc('bot', { endpoint: 'folders', payload: {} })
+  assert.equal(remoteFolders.ok, true)
+  assert.equal('data' in remoteFolders.value, false, 'paired phone must not see protected data path')
 
   await link.client.close()
 })

@@ -9,12 +9,10 @@
 body:not([data-bt-material="off"]):not([data-bt-bg]) {
   background: transparent !important;
 }
-body:not([data-bt-material="off"]):not([data-bt-bg]) div[class*="_frame"]:has(> div[class*="_sidebarCol"]) {
-  padding-top: 0 !important;
-  background: color-mix(in srgb, var(--dsw-specific-sidebar-fill) 45%, transparent) !important;
-}
+body:not([data-bt-material="off"]):not([data-bt-bg]) div[class*="_frame"]:has(> div[class*="_sidebarCol"]),
 body:not([data-bt-material="off"]):not([data-bt-bg]) .dsb-frame {
-  background: color-mix(in srgb, var(--bt-sidebar) 45%, transparent) !important;
+  padding-top: 0 !important;
+  background: color-mix(in srgb, var(--dsw-specific-sidebar-fill, var(--bt-sidebar)) 45%, transparent) !important;
 }
 /* The band stays the drag area, but it no longer paints. */
 body:not([data-bt-material="off"]):not([data-bt-bg]) div[class*="_frame"]:has(> div[class*="_sidebarCol"])::before {
@@ -52,14 +50,12 @@ html:not([data-fullscreen]) div[class*="_centerCol"] {
 }
 /* The caption buttons stand on the right sidebar while it is open. Its panel is placed
    absolutely, which padding does not move, but a border does. */
-div[class*="_rightbarCol"] {
+div[class*="_rightbarCol"],
+body:not([data-bt-material="off"]):not([data-bt-bg]) .dsb-main,
+body:not([data-bt-material="off"]):not([data-bt-bg]) .bt-panel {
   box-sizing: border-box !important;
-  background: var(--dsw-alias-bg-base) !important;
+  background: var(--dsw-alias-bg-base, var(--bt-main)) !important;
 }
 html:not([data-fullscreen]) div[class*="_rightbarCol"] {
   border-top: var(--dsh-windows-titlebar-height) solid var(--dsw-alias-bg-base) !important;
-}
-body:not([data-bt-material="off"]):not([data-bt-bg]) .dsb-main,
-body:not([data-bt-material="off"]):not([data-bt-bg]) .bt-panel {
-  background: var(--bt-main) !important;
 }
