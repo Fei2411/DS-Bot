@@ -1,4 +1,14 @@
 const BASE_SYMBOL_BY_CODE = {
+  Digit0: ['0', ')'],
+  Digit1: ['1', '!'],
+  Digit2: ['2', '@'],
+  Digit3: ['3', '#'],
+  Digit4: ['4', '$'],
+  Digit5: ['5', '%'],
+  Digit6: ['6', '^'],
+  Digit7: ['7', '&'],
+  Digit8: ['8', '*'],
+  Digit9: ['9', '('],
   Period: ['.', '>'],
   Comma: [',', '<'],
   Slash: ['/', '?'],
@@ -13,20 +23,21 @@ const BASE_SYMBOL_BY_CODE = {
 }
 
 function isLikelyAltGrInput(input, platform) {
-  if (input.key === 'AltGraph' || input.key === 'Dead') return true
+  if (input.key === 'AltGraph') return true
   if (Array.isArray(input.modifiers) && input.modifiers.some(m => String(m).toLowerCase() === 'altgraph')) return true
   if (platform === 'darwin' || !input.control || !input.alt || input.meta) return false
+  // Windows/Linux AltGr dead keys (distinct from macOS Option+<key> dead keys, which stay assignable).
+  if (input.key === 'Dead') return true
   if (typeof input.key !== 'string' || input.key.length !== 1) return false
   const code = typeof input.code === 'string' ? input.code : ''
   // When Electron omits the AltGraph modifier bit on Windows/Linux, genuine AltGr
   // character input transforms letters/digits/punctuation into third-level symbols
-  // (e.g. KeyQ -> '@', KeyL -> 'ł', Digit7 -> '{', BracketRight -> '~'), while
-  // ordinary Ctrl+Alt shortcuts preserve ASCII letters (across QWERTY/QWERTZ/AZERTY),
-  // unshifted digits, or the punctuation key's own symbol (e.g. Period -> '.').
+  // (e.g. KeyQ -> '@', KeyL -> 'ł', Digit7 -> '{', unshifted Period -> '>'), while
+  // ordinary Ctrl+Alt shortcuts preserve ASCII letters (across QWERTY/QWERTZ/AZERTY)
+  // or the physical key's base symbol matching the reported Shift state.
   if (/^Key[A-Z]$/.test(code)) return !/^[a-z]$/i.test(input.key)
-  if (/^Digit[0-9]$/.test(code)) return !input.shift && !/^[0-9]$/.test(input.key)
   const expected = BASE_SYMBOL_BY_CODE[code]
-  if (expected) return !expected.includes(input.key)
+  if (expected) return input.key !== (input.shift ? expected[1] : expected[0])
   return false
 }
 

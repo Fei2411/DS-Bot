@@ -93,6 +93,11 @@ test('matchShortcutEvent enforces repeat, capability, modal, terminal, IME, and 
     mac: false,
     overrides: { browser: { code: 'KeyQ', mod: true, ctrl: false, alt: true, shift: false } },
   }), null)
+  // macOS Option+E produces key='Dead' (non-composing) and stays consistent between recorder and matcher.
+  const macOptE = { altKey: true, code: 'KeyE', key: 'Dead' }
+  const macOptEBinding = eventToBinding(macOptE, true)
+  assert.deepEqual(macOptEBinding, { code: 'KeyE', mod: false, ctrl: false, alt: true, shift: false })
+  assert.equal(matchShortcutEvent(macOptE, { mac: true, overrides: { browser: macOptEBinding } }), 'browser')
 
   // Non-Mac xterm passes plain Ctrl+<key> through to PTY, except explicit allowInTerminal (Ctrl+`).
   const xtermTarget = { closest: selector => (selector === '.xterm' ? {} : null) }
@@ -117,16 +122,14 @@ test('validateBinding and eventToBinding reject unsafe combos while allowing mac
   assert.deepEqual(validateBinding({ code: 'KeyC', mod: true, ctrl: false, alt: false, shift: false }, true), { ok: false, reason: 'reserved' })
   assert.deepEqual(validateBinding({ code: 'KeyQ', mod: true, ctrl: false, alt: false, shift: false }, true), { ok: false, reason: 'reserved' })
   assert.deepEqual(validateBinding({ code: 'Escape', mod: false, ctrl: false, alt: false, shift: false }, true), { ok: false, reason: 'reserved' })
-  // Composer Enter / Shift+Enter / Mod+Enter / Ctrl+Enter are reserved so they never become dead keys or send drafts.
+  // Enter / NumpadEnter are reserved across all modifier combinations so custom shortcuts never collide with composer or form/task-note submit handlers.
   assert.deepEqual(validateBinding({ code: 'Enter', mod: false, ctrl: false, alt: false, shift: false }, true), { ok: false, reason: 'reserved' })
   assert.deepEqual(validateBinding({ code: 'Enter', mod: false, ctrl: false, alt: false, shift: true }, true), { ok: false, reason: 'reserved' })
   assert.deepEqual(validateBinding({ code: 'Enter', mod: true, ctrl: false, alt: false, shift: false }, true), { ok: false, reason: 'reserved' })
   assert.deepEqual(validateBinding({ code: 'Enter', mod: false, ctrl: true, alt: false, shift: false }, true), { ok: false, reason: 'reserved' })
+  assert.deepEqual(validateBinding({ code: 'Enter', mod: true, ctrl: false, alt: false, shift: true }, false), { ok: false, reason: 'reserved' })
+  assert.deepEqual(validateBinding({ code: 'Enter', mod: false, ctrl: false, alt: true, shift: false }, true), { ok: false, reason: 'reserved' })
   assert.deepEqual(validateBinding({ code: 'NumpadEnter', mod: true, ctrl: false, alt: false, shift: false }, false), { ok: false, reason: 'reserved' })
-  // Alt+Enter and Mod/Ctrl+Shift+Enter stay allowed since the composer does not intercept them.
-  assert.deepEqual(validateBinding({ code: 'Enter', mod: false, ctrl: false, alt: true, shift: false }, true), { ok: true })
-  assert.deepEqual(validateBinding({ code: 'Enter', mod: true, ctrl: false, alt: false, shift: true }, false), { ok: true })
-  assert.deepEqual(validateBinding({ code: 'Enter', mod: true, ctrl: false, alt: false, shift: true }, true), { ok: true })
   // On macOS, Ctrl+Cmd+C is distinct from Cmd+C and stays assignable.
   assert.deepEqual(validateBinding({ code: 'KeyC', mod: true, ctrl: true, alt: false, shift: false }, true), { ok: true })
   assert.deepEqual(validateBinding({ code: 'F8', mod: false, ctrl: false, alt: false, shift: false }, true), { ok: true })

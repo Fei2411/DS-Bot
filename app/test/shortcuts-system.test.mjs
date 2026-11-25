@@ -199,20 +199,28 @@ test('matchForwardedShortcut and BotViews forward matching whitelist shortcuts a
   assert.equal(matchForwardedShortcut({ type: 'keyUp', meta: true, code: 'KeyB' }, whitelist, 'darwin'), null)
   assert.equal(matchForwardedShortcut({ type: 'keyDown', meta: true, code: 'KeyC' }, whitelist, 'darwin'), null)
   // AltGr (AltGraph) on Windows/Linux must pass through to webpage typing,
-  // while ordinary Ctrl+Alt shortcuts (including punctuation like Period -> '.') still match.
+  // while ordinary Ctrl+Alt shortcuts (including punctuation like Period -> '.') and macOS Option dead keys still match.
   const ctrlAltList = [
     { id: 'browser', code: 'KeyQ', mod: true, ctrl: false, alt: true, shift: false },
     { id: 'inbox', code: 'Period', mod: true, ctrl: false, alt: true, shift: false },
     { id: 'details', code: 'BracketRight', mod: true, ctrl: false, alt: true, shift: false },
     { id: 'memory', code: 'KeyY', mod: true, ctrl: false, alt: true, shift: false },
+    { id: 'settings', code: 'Digit7', mod: true, ctrl: false, alt: true, shift: true },
+    { id: 'terminal', code: 'KeyE', mod: false, ctrl: false, alt: true, shift: false },
   ]
   assert.equal(matchForwardedShortcut({ type: 'keyDown', control: true, alt: true, code: 'KeyQ', key: '@', modifiers: ['control', 'alt', 'altgraph'] }, ctrlAltList, 'win32'), null)
   assert.equal(matchForwardedShortcut({ type: 'keyDown', control: true, alt: true, code: 'KeyQ', key: '@' }, ctrlAltList, 'win32'), null)
   assert.equal(matchForwardedShortcut({ type: 'keyDown', control: true, alt: true, code: 'BracketRight', key: '~' }, ctrlAltList, 'win32'), null)
+  assert.equal(matchForwardedShortcut({ type: 'keyDown', control: true, alt: true, code: 'Period', key: '>' }, ctrlAltList, 'win32'), null)
+  assert.equal(matchForwardedShortcut({ type: 'keyDown', control: true, alt: true, shift: true, code: 'Digit7', key: '÷' }, ctrlAltList, 'win32'), null)
+  assert.equal(matchForwardedShortcut({ type: 'keyDown', control: true, alt: true, code: 'KeyQ', key: 'Dead' }, ctrlAltList, 'win32'), null)
   assert.equal(matchForwardedShortcut({ type: 'keyDown', control: true, alt: true, code: 'KeyQ', key: 'q' }, ctrlAltList, 'win32'), 'browser')
   assert.equal(matchForwardedShortcut({ type: 'keyDown', control: true, alt: true, code: 'Period', key: '.' }, ctrlAltList, 'win32'), 'inbox')
+  assert.equal(matchForwardedShortcut({ type: 'keyDown', control: true, alt: true, shift: true, code: 'Digit7', key: '&' }, ctrlAltList, 'win32'), 'settings')
   assert.equal(matchForwardedShortcut({ type: 'keyDown', control: true, alt: true, code: 'KeyY', key: 'z' }, ctrlAltList, 'win32'), 'memory')
   assert.equal(matchForwardedShortcut({ type: 'keyDown', control: true, alt: true, code: 'Period', key: '.', modifiers: ['control', 'alt', 'altgraph'] }, ctrlAltList, 'win32'), null)
+  // macOS Option+E produces key='Dead' on U.S. layout; must stay consistent with renderer matching.
+  assert.equal(matchForwardedShortcut({ type: 'keyDown', alt: true, code: 'KeyE', key: 'Dead' }, ctrlAltList, 'darwin'), 'terminal')
 
   const received = []
   let focusedMain = 0

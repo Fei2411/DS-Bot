@@ -51052,7 +51052,7 @@ function validateBinding(binding, mac = isMacPlatform()) {
   if (binding.code === "Escape" && !hasAnyMod) {
     return { ok: false, reason: "reserved" };
   }
-  if ((binding.code === "Enter" || binding.code === "NumpadEnter") && !mods.alt && (!hasPrimary || !mods.shift)) {
+  if (binding.code === "Enter" || binding.code === "NumpadEnter") {
     return { ok: false, reason: "reserved" };
   }
   const onlyShift = mods.shift && !hasPrimary && !mods.alt;

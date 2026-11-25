@@ -297,8 +297,8 @@ export function validateBinding(binding, mac = isMacPlatform()) {
   if (binding.code === 'Escape' && !hasAnyMod) {
     return { ok: false, reason: 'reserved' }
   }
-  // Composer intercepts Enter, Shift+Enter, and Mod/Ctrl+Enter (without Shift/Alt).
-  if ((binding.code === 'Enter' || binding.code === 'NumpadEnter') && !mods.alt && (!hasPrimary || !mods.shift)) {
+  // Enter / NumpadEnter submits composers, task notes, dialogs, and buttons across the app.
+  if (binding.code === 'Enter' || binding.code === 'NumpadEnter') {
     return { ok: false, reason: 'reserved' }
   }
   // Bare letters/digits/punctuation (or Shift+letter) would hijack typing.
