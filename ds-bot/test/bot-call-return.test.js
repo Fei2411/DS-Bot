@@ -1101,3 +1101,43 @@ test('same-direction substantive pure-LLM delegate_work runs 4 sections before r
   assert.equal(paused[0].reason, 'idle_loop')
   assert.equal(paused[0].bounces, 2)
 })
+
+test('STEER_CUT during a private reply turn preserves userInput, ordinary user turns allow historical follow_up_to, and ref-less late replies never deadlock', async (t) => {
+  const { rt, agents, emit, tool, stop } = await start()
+  t.after(stop)
+
+  // Work #W1 finishes and wakes Chief with a role: 'reply' turn.
+  await tool('delegate_work', { to: 'Writer', goal: 'Check logs' }, 'a')
+  const req1 = agents.get('b').calls[0][1]
+  emit('b', 'turn/start', { turn: 1 })
+  emit('b', 'user/message', { content: req1.content, source: req1.source })
+  emit('b', 'assistant/message', assistantText('Logs look clean.'))
+  emit('b', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  await settled(() => (agents.get('a')?.calls.length ?? 0) >= 1)
+  const reply1 = agents.get('a').calls[0][1]
+
+  // (a) Human steers during Chief's reply turn -> STEER_CUT carries userInput: true into the fresh turn.
+  emit('a', 'turn/start', { turn: 2 })
+  emit('a', 'user/message', { content: reply1.content, source: reply1.source })
+  rt.markSteerCut('a')
+  emit('a', 'turn/end', { turn: 2, reason: { kind: 'aborted', reason: { kind: 'hook', reason: 'steer' } } })
+  emit('a', 'turn/start', { turn: 3 })
+  // Even before any new user/message event is logged, carry preserves userInput so Chief can delegate freely.
+  const afterSteer = await tool('delegate_work', { to: 'Writer', goal: 'New task requested by human steer' }, 'a')
+  assert.match(afterSteer, /^Delegated work #W2/)
+  emit('a', 'turn/end', { turn: 3, reason: { kind: 'completed' } })
+
+  // (b) Ordinary human turn mentioning a historical work ref in follow_up_to is NOT rejected.
+  emit('a', 'turn/start', { turn: 4 })
+  emit('a', 'user/message', { content: textBlock('Follow up on W1 please'), source: { kind: 'user' } })
+  const withHistoricalRef = await tool('delegate_work', { to: 'Writer', goal: 'Run second pass', follow_up_to: 'W1' }, 'a')
+  assert.match(withHistoricalRef, /^Delegated work #W3/)
+  emit('a', 'turn/end', { turn: 4, reason: { kind: 'completed' } })
+
+  // (c) A legacy/ref-less role: 'reply' turn (no workRef, no replyTo) must NOT deadlock delegate_work.
+  emit('a', 'turn/start', { turn: 5 })
+  emit('a', 'user/message', { content: textBlock('[Late subagent output]\ndone'), source: { kind: 'bot', role: 'reply', exchangeId: 'late-no-ref' } })
+  const fromReflessLate = await tool('delegate_work', { to: 'Writer', goal: 'Act on late subagent output' }, 'a')
+  assert.match(fromReflessLate, /^Delegated work #W4/)
+  emit('a', 'turn/end', { turn: 5, reason: { kind: 'completed' } })
+})

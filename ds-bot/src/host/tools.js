@@ -220,12 +220,22 @@ export function install(rt) {
     return `Not sent: ${target.name} is not in "${room.name}", and work for this group stays in it. Ask the user to add ${target.name} to the group${add}.`
   }
 
-  const callInGroup = async (room, sender, target, message, follows) => {
+  const callInGroup = async (room, sender, target, message, follows, { worked = false, callerExchangeId, callerId } = {}) => {
     if (waitsOnMember(state.roomBatches, room.id, sender.id, target.id)) refuse(`Not sent: ${target.name} is already waiting for your result. Write the result or blocking question in your reply.`)
     const call = `@${target.name}`
     const everyone = room.members.map(rt.botOf).filter(Boolean)
     const alreadyCalls = mentionSpans(message, everyone).some(span => !span.all && span.bot?.id === target.id)
-    await rt.postToRoom(room, sender, alreadyCalls ? message : `${call} ${message}`, { progress: true, route: { ...roomRequest([target.id]), expectsResult: true, ...(follows ? { follows } : {}) } })
+    const posted = await rt.postToRoom(room, sender, alreadyCalls ? message : `${call} ${message}`, {
+      progress: true,
+      explicitDelegate: true,
+      ...(worked ? { worked: true } : {}),
+      ...(callerExchangeId ? { callerExchangeId } : {}),
+      ...(callerId ? { callerId } : {}),
+      route: { ...roomRequest([target.id]), expectsResult: true, ...(follows ? { follows } : {}) },
+    })
+    if (posted?.paused === true) {
+      return `Paused in "${room.name}": consecutive handoffs without running a work tool reached the loop guard. The call to ${target.name} waits until the user continues or writes in the group.`
+    }
     return `Called ${target.name} in "${room.name}". Its result returns in the group. Nothing went to its own chat.`
   }
 
@@ -665,17 +675,30 @@ export function install(rt) {
         const seen = await rt.knownRequest(request)
         if (seen !== undefined) return answer(seen)
       }
-      if (followUp && followUp !== resultRef?.toUpperCase()) refuse('Not sent: follow_up_to must identify the completed work that opened this turn.')
-      if ((trigger?.role === 'reply' || trigger?.resultRef) && !trigger.work && !rt.live.get(exec.agent?.id)?.userInput && !followUp) {
-        refuse(`Not sent: this is a result, not a new request. Report it to the user or leave a silent note. Only for a distinct next task, cite ${resultRef ?? 'the completed work'} in follow_up_to.`)
+      const fromResult = (trigger?.role === 'reply' || Boolean(trigger?.resultRef)) && !trigger?.work
+      const userTurn = rt.live.get(exec.agent?.id)?.userInput === true
+      if (fromResult && !userTurn && resultRef !== undefined) {
+        if (!followUp) {
+          refuse(`Not sent: this is a result, not a new request. Report it to the user or leave a silent note. Only for a distinct next task, cite ${resultRef} in follow_up_to.`)
+        }
+        if (followUp !== resultRef.toUpperCase()) {
+          refuse(`Not sent: follow_up_to must identify the completed work that opened this turn (${resultRef}).`)
+        }
       }
       if (room !== undefined) {
         const refusal = groupRefusal(room, sender, target)
         if (refusal !== undefined) refuse(refusal)
+        if (waitsOnMember(state.roomBatches, room.id, sender.id, target.id)) {
+          refuse(`Not sent: ${target.name} is already waiting for your result. Write the result or blocking question in your reply.`)
+        }
+        const callerWorked = (rt.live.get(exec.agent?.id)?.workToolCount ?? 0) > 0
         const send = async () => {
-          const waiter = rt.roomWaiters.get(trigger?.exchangeId)
-          const receipt = await callInGroup(room, sender, target, text.trim(), followUp)
-          waiter?.explicitCalls?.add(target.id)
+          const receipt = await callInGroup(room, sender, target, text.trim(), followUp, {
+            worked: callerWorked,
+            callerExchangeId: trigger?.exchangeId,
+            callerId: trigger?.askedBy,
+          })
+          rt.markExplicitRoomCall?.(trigger?.exchangeId, target.id)
           return receipt
         }
         return request === undefined ? await send() : answer(await rt.admitRequest(request, send))

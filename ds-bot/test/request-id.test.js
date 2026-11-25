@@ -358,3 +358,34 @@ for (const reason of ['stopped', 'lock lost']) {
     assert.equal(Object.keys(JSON.parse(readFileSync(join(home, 'state.json'), 'utf8')).requests ?? {}).length, 0)
   })
 }
+
+test('a group waitsOnMember refusal does not poison request_id as uncertain', async (t) => {
+  const seed = team({ group: true })
+  seed.rooms.r1.sessions.a = 'ga'
+  seed.rooms.r1.sessions.b = 'gb'
+  const home = tempHome()
+  const { rt, tool, stop } = await boot(home, seed)
+  t.after(async () => { await stop(); cleanup(home) })
+  await rt.load()
+  rt.state.roomBatches = {
+    b1: { key: 'b1', roomId: 'r1', by: 'a', pending: ['b'], done: [], doneIds: [], results: [], worked: false, direct: true, returnRequested: true, answered: false, at: Date.now() },
+  }
+
+  let posts = 0
+  rt.postToRoom = async (_room, _sender, _body, post) => { assert.deepEqual(post.route.to, ['a']); posts += 1 }
+
+  // While Chief ('a') is waiting on Writer ('b'), delegating back to Chief is refused BEFORE admitting request_id.
+  await assert.rejects(
+    tool('delegate_work', { to: 'Chief', goal: 'verify backup', request_id: 'verify-backup' }, 'gb'),
+    /already waiting for your result/,
+  )
+  assert.equal(posts, 0)
+  assert.equal(Object.keys(rt.state.requests ?? {}).length, 0, 'refused upstream wait must not persist an uncertain request_id')
+
+  // Once the upstream wait ends, reusing the exact same request_id succeeds cleanly.
+  delete rt.state.roomBatches.b1
+  await rt.save()
+  const out = await tool('delegate_work', { to: 'Chief', goal: 'verify backup', request_id: 'verify-backup' }, 'gb')
+  assert.match(out, /Called Chief in "Ops"/)
+  assert.equal(posts, 1)
+})

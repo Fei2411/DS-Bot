@@ -4409,3 +4409,157 @@ test('deleting a room mid-round with a partially-completed parallel batch closes
   const wakePosts = host.agentOf('r1').calls.filter(msg => msg.source?.batchEnd === true || msg.source?.askedBy !== undefined)
   assert.deepEqual(wakePosts, [], 'deleting a room mid-batch must never wake callers')
 })
+
+test('nested group delegation (Chief -> Writer -> Tester) keeps upstream batch open and returns Writer summary to Chief as result', async (t) => {
+  const host = await start(t)
+  const first = host.round('c1', host.say('@Chief please coordinate a fact-checked draft review'))
+  await settle(() => host.agentOf('ga').calls.length === 1)
+  host.begin('ga')
+  await host.tool('delegate_work', { to: 'Writer', goal: 'Review the draft with a fact check' }, 'ga')
+  host.finish('ga', '[PASS]')
+
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  host.begin('gb')
+  await host.tool('delegate_work', { to: 'Tester', goal: 'Fact check claim #1' }, 'gb')
+  // Writer ends Turn 1 with [PASS] while waiting for Tester's child batch.
+  host.finish('gb', '[PASS]')
+
+  await settle(() => host.agentOf('gc').calls.length === 1)
+  host.begin('gc')
+  host.emit('gc', 'tool/call', { callId: 't-fact', name: 'read', arguments: '{}' })
+  host.emit('gc', 'tool/result', { callId: 't-fact' })
+  host.finish('gc', 'Claim #1 is verified.')
+
+  // Tester's result resumes Writer with its upstream Chief batch intact.
+  await settle(() => host.agentOf('gb').calls.length === 2)
+  host.begin('gb')
+  host.finish('gb', 'Full review complete: draft is verified and ready.')
+
+  // Chief MUST receive Writer's completed review as a result wake, not lose it to a note.
+  await settle(() => host.agentOf('ga').calls.length === 2)
+  host.begin('ga')
+  host.finish('ga', '@Writer 收到，谢谢！')
+  await settle(() => first() !== undefined)
+
+  // Chief's closing acknowledgement must be a note and must not wake Writer again.
+  assert.equal(host.agentOf('gb').calls.length, 2, 'Chief ack after final result must not re-wake Writer')
+  const writerReview = rt.roomOf('r1').log.find(line => line.botId === 'b' && line.text.includes('Full review complete'))
+  const chiefAck = rt.roomOf('r1').log.find(line => line.botId === 'a' && line.text.includes('收到'))
+  assert.equal(writerReview?.route?.kind, 'result')
+  assert.deepEqual(writerReview?.route?.to, ['a'])
+  assert.equal(chiefAck?.route?.kind, 'note')
+})
+
+test('zero-work group delegate_work with follow_up_to trips the zero-work cycle guard instead of looping forever', async (t) => {
+  const host = await start(t)
+  const first = host.round('c1', host.say('@Chief ask Writer a quick check'))
+  await settle(() => host.agentOf('ga').calls.length === 1)
+  host.begin('ga')
+  const firstReceipt = await host.tool('delegate_work', { to: 'Writer', goal: 'Check detail 1 from context' }, 'ga')
+  assert.match(firstReceipt, /Called Writer/)
+  host.finish('ga', '[PASS]')
+
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  host.begin('gb')
+  // Writer answers from context with 0 substantive work tools.
+  host.finish('gb', 'Detail 1 looks okay from memory.')
+
+  // Chief wakes on Writer's result, runs 0 work tools, and delegates again to Writer via follow_up_to.
+  await settle(() => host.agentOf('ga').calls.length === 2)
+  const chiefSecond = host.begin('ga')
+  const resultRef = chiefSecond.source.resultRef
+  assert.ok(resultRef, 'Chief result wake must include resultRef')
+  const pausedReceipt = await host.tool('delegate_work', { to: 'Writer', goal: 'Check detail 2 from context', follow_up_to: resultRef }, 'ga')
+  assert.match(pausedReceipt, /Paused in "Ops"/)
+  host.finish('ga', '[PASS]')
+  await settle(() => first() !== undefined)
+
+  assert.equal(host.agentOf('gb').calls.length, 1, 'Writer must not be woken again on a 0-work follow_up_to cycle')
+  const pausedNotices = rt.roomOf('r1').log.filter(line => line.kind === 'notice' && line.reason === 'paused')
+  assert.equal(pausedNotices.length, 1)
+  assert.equal(pausedNotices[0].cause, 'cycle')
+  assert.ok(rt.roomOf('r1').paused?.some(entry => entry.id === 'b'))
+})
+
+test('slow group turn past 15s grace preserves explicitCalls so closing @Name in lateRoomReply does not double-wake', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const host = await start(t)
+  const first = host.round('c1', host.say('@Writer please run build and delegate verification'))
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  host.begin('gb')
+  host.emit('gb', 'tool/call', { callId: 'k-slow', name: 'pwsh', arguments: '{}' })
+  // Outlive the 15s grace timer so roomTurn removes the roomWaiter.
+  t.mock.timers.tick(ROOM_WORK_GRACE_MS)
+  await settle(() => first() !== undefined)
+  assert.equal(rt.roomWaiters.size, 0, 'waiter must have been cleaned up after grace expiry')
+
+  // Writer now delegates verification to Tester via delegate_work after grace expiry.
+  await host.tool('delegate_work', { to: 'Tester', goal: 'Verify the build artifacts' }, 'gb')
+  await settle(() => host.agentOf('r1').calls.length === 1)
+  const delegatePost = host.takePost()
+  const round2 = host.round('c2', delegatePost)
+  await settle(() => host.agentOf('gc').calls.length === 1)
+  host.begin('gc')
+  host.emit('gc', 'tool/call', { callId: 'k-test', name: 'read', arguments: '{}' })
+  host.emit('gc', 'tool/result', { callId: 'k-test' })
+  host.finish('gc', 'Verification passed.')
+  await settle(() => round2() !== undefined)
+  assert.equal(host.agentOf('gc').calls.length, 1)
+
+  // Writer closes its original long turn mentioning @Tester in status text -> must NOT wake Tester again!
+  host.emit('gb', 'tool/result', { callId: 'k-slow' })
+  host.finish('gb', '@Tester is handling verification; build finished.')
+  await settle(() => host.agentOf('r1').calls.length === 1)
+  const lateClose = host.takePost()
+  assert.equal(lateClose.source.route?.kind, 'note', 'closing mention of an explicitly delegated member must route as note')
+  const round3 = host.round('c3', lateClose)
+  await settle(() => round3() !== undefined)
+  assert.equal(host.agentOf('gc').calls.length, 1, 'Tester must NOT receive a second wake from lateRoomReply')
+})
+
+test('delegated member starting an active group background task downgrades its interim reply to note without waking caller early', async (t) => {
+  const host = await start(t)
+  const origHasRoomTasks = rt.hasRoomTasks
+  let taskActive = false
+  rt.hasRoomTasks = (roomId, botId) => (roomId === 'r1' && botId === 'b' ? taskActive : (origHasRoomTasks?.(roomId, botId) ?? false))
+  t.after(() => { rt.hasRoomTasks = origHasRoomTasks })
+
+  const first = host.round('c1', host.say('@Chief please ask Writer to run the migration'))
+  await settle(() => host.agentOf('ga').calls.length === 1)
+  host.begin('ga')
+  await host.tool('delegate_work', { to: 'Writer', goal: 'Run the migration in background' }, 'ga')
+  host.finish('ga', '[PASS]')
+
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  host.begin('gb')
+  taskActive = true
+  host.finish('gb', 'Started background migration task; will report when finished.')
+  await settle(() => first() !== undefined)
+
+  // Interim reply while bgRunning must be downgraded to note, and Chief must not be woken yet.
+  const interimLine = rt.roomOf('r1').log.find(line => line.botId === 'b' && line.text.includes('Started background migration'))
+  assert.equal(interimLine?.route?.kind, 'note', 'interim reply while group background task runs must be note, not result')
+  assert.equal(host.agentOf('ga').calls.length, 1, 'Chief must not be woken early while Writer background task runs')
+  assert.ok(Object.values(rt.state.roomBatches ?? {}).some(batch => batch.by === 'a' && batch.pending.includes('b')), 'upstream batch must remain open')
+})
+
+test('nested group delegation unwinds upstream batch cleanly when the child delegate passes without a result', async (t) => {
+  const host = await start(t)
+  const first = host.round('c1', host.say('@Chief delegate nested check'))
+  await settle(() => host.agentOf('ga').calls.length === 1)
+  host.begin('ga')
+  await host.tool('delegate_work', { to: 'Writer', goal: 'Review with Tester' }, 'ga')
+  host.finish('ga', '[PASS]')
+
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  host.begin('gb')
+  await host.tool('delegate_work', { to: 'Tester', goal: 'Check claim' }, 'gb')
+  host.finish('gb', '[PASS]')
+
+  await settle(() => host.agentOf('gc').calls.length === 1)
+  host.begin('gc')
+  host.finish('gc', '[PASS]')
+  await settle(() => first() !== undefined)
+
+  assert.deepEqual(Object.values(rt.state.roomBatches ?? {}), [], 'upstream batch must unwind instead of lingering when child passes')
+})
