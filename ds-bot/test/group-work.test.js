@@ -5023,4 +5023,87 @@ test('paused nested delegation preserves parentBatchKey across Continue, partial
     assert.deepEqual(line?.route?.to, ['a'])
     assert.deepEqual(Object.values(rt.state.roomBatches ?? {}), [])
   }
+
+  // 6) Two distinct callers parking explicit delegate_work to the same target both stay in room.paused and run on Continue.
+  {
+    const host = await start(t)
+    const room = rt.roomOf('r1')
+    room.idleEdges = ['a->b', 'b->a']
+    room.idlePaused = { from: 'a', count: 2, limit: 2, cause: 'cycle', noticed: true }
+    await host.tool('delegate_work', { to: 'Tester', goal: 'Chief parked check' }, 'ga')
+    await host.tool('delegate_work', { to: 'Tester', goal: 'Writer parked check' }, 'gb')
+    await settle(() => host.agentOf('r1').calls.length === 2)
+    const chiefPost = host.takePost()
+    const writerPost = host.takePost()
+
+    const r1 = host.round('c1', chiefPost)
+    await settle(() => r1() !== undefined)
+    const r2 = host.round('c2', writerPost)
+    await settle(() => r2() !== undefined)
+    assert.deepEqual(room.paused.map(entry => [entry.id, entry.by, entry.direct]), [['c', 'a', true], ['c', 'b', true]])
+
+    await rt.resumeRoomPause('r1')
+    await settle(() => host.agentOf('r1').calls.length === 1)
+    const continuePost = host.takePost()
+    const r3 = host.round('c3', continuePost)
+    await settle(() => host.agentOf('gc').calls.length === 1)
+    host.begin('gc')
+    host.emit('gc', 'tool/call', { callId: 't-two-1', name: 'read', arguments: '{}' })
+    host.emit('gc', 'tool/result', { callId: 't-two-1' })
+    host.finish('gc', 'Done for Chief.')
+    await settle(() => host.agentOf('gc').calls.length === 2)
+    host.begin('gc')
+    host.emit('gc', 'tool/call', { callId: 't-two-2', name: 'read', arguments: '{}' })
+    host.emit('gc', 'tool/result', { callId: 't-two-2' })
+    host.finish('gc', 'Done for Writer.')
+
+    await settle(() => host.agentOf('ga').calls.length === 1 && host.agentOf('gb').calls.length === 1)
+    host.begin('ga')
+    host.finish('ga', 'Chief got it.')
+    host.begin('gb')
+    host.finish('gb', 'Writer got it.')
+    await settle(() => r3() !== undefined)
+    assert.deepEqual(Object.values(rt.state.roomBatches ?? {}), [])
+  }
+
+  // 7) Removing the only parked callee and resuming via user `@Writer` mention clears Writer's abandoned parent batch so Writer can delegate back to Chief.
+  {
+    const host = await start(t)
+    const room = rt.roomOf('r1')
+    const first = host.round('c1', host.say('@Chief ask Writer to check'))
+    await settle(() => host.agentOf('ga').calls.length === 1)
+    host.begin('ga')
+    await host.tool('delegate_work', { to: 'Writer', goal: 'Check with Tester' }, 'ga')
+    host.finish('ga', '[PASS]')
+
+    await settle(() => host.agentOf('gb').calls.length === 1)
+    const writerCall = host.begin('gb')
+    rt.roomWaiters.get(writerCall.source.exchangeId)?.resolve({ working: true })
+    await settle(() => first() !== undefined)
+
+    const parentBatch = Object.values(rt.state.roomBatches ?? {}).find(b => b.by === 'a' && b.pending.includes('b'))
+    assert.ok(parentBatch)
+    room.idlePaused = { from: 'b', count: 2, limit: 2, cause: 'cycle', noticed: true }
+    room.paused = [{ id: 'c', name: 'Tester', note: 'Writer mentioned you', by: 'b', idle: true, direct: true, parentBatchKey: parentBatch.key }]
+    host.finish('gb', '[PASS]')
+    await new Promise(resolve => setImmediate(resolve))
+
+    // User removes the only parked callee (Tester) and writes `@Writer Ask Chief which release to document`.
+    room.members = room.members.filter(id => id !== 'c')
+    const r2 = host.round('c2', host.say('@Writer Ask Chief which release to document'))
+    await settle(() => host.agentOf('gb').calls.length === 2)
+    assert.equal(rt.state.roomBatches?.[parentBatch.key], undefined, 'abandoned parent batch must be released even though user mentioned Writer')
+
+    host.begin('gb')
+    const receipt = await host.tool('delegate_work', { to: 'Chief', goal: 'Which release to document?' }, 'gb')
+    assert.match(receipt, /Called Chief/)
+    host.finish('gb', '[PASS]')
+    await settle(() => host.agentOf('ga').calls.length === 2)
+    host.begin('ga')
+    host.finish('ga', 'Document v0.3.11.')
+    await settle(() => host.agentOf('gb').calls.length === 3)
+    host.begin('gb')
+    host.finish('gb', 'Will document v0.3.11.')
+    await settle(() => r2() !== undefined)
+  }
 })

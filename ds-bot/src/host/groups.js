@@ -1093,9 +1093,12 @@ export function install(rt) {
     if (sessionId !== undefined && (rt.live.get(sessionId)?.turn !== undefined || rt.hasSubagents?.(sessionId) === true)) return true
     if (rt.hasRoomTasks?.(room.id, botId, ignoreTaskId) === true) return true
     if (sessionId !== undefined && (rt.unreadOf?.(sessionId) ?? []).some(args => !missedExchanges.has(args.exchangeId))) return true
-    const rounds = extraRound !== undefined ? [...rt.roomProgress.values(), extraRound] : [...rt.roomProgress.values()]
-    if (rounds.some(round => round.roomId === room.id
+    if ([...rt.roomProgress.values()].some(round => round.roomId === room.id
       && round.slots.some(slot => slot.id === botId && (slot.status === 'waiting' || slot.status === 'speaking')))) return true
+    if (extraRound !== undefined && extraRound.roomId === room.id
+      && extraRound.slots.some(slot => slot.id === botId
+        && (slot.status === 'waiting' || slot.status === 'speaking')
+        && (parentBatchKey === undefined || batchOfSlot(room.id, slot)?.key === parentBatchKey))) return true
     if (hasPendingDirectRelay(room.id, botId, parentBatchKey)) return true
     if (hasParkedDirectChild(room, botId, parentBatchKey)) return true
     return openChildBatches(room.id, botId, parentBatchKey).some(child => child.pending.some(peerId => activeInRoom(room, peerId, ignoreTaskId, seen, child.key, extraRound)))
@@ -1835,7 +1838,9 @@ export function install(rt) {
     if (callees.length > 0) {
       const parked = room.paused ?? []
       for (const peer of callees) {
-        if (parked.some(entry => entry.id === peer.id)) continue
+        const sameParked = entry => entry.id === peer.id
+          && (!direct || (entry.direct === true && entry.by === member.id && entry.parentBatchKey === parentBatchKey))
+        if (parked.some(sameParked)) continue
         const note = named.includes(peer) ? `${member.name} mentioned you` : all ? `${member.name} called everyone` : `${member.name} posted in the group`
         parked.push({
           id: peer.id,
