@@ -9,7 +9,8 @@
 // user's voice are the same signal at the microphone. The pairing is what makes
 // it usable — a false hit on the reading itself costs one dropped transcript,
 // never a submitted one.
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
+import { t } from './i18n.js'
 import { openCapture, transcribeWave } from './speech.js'
 
 const CAPTURE_NOTES = {
@@ -36,18 +37,31 @@ const WARM_MS = 250
 const PREROLL_SECONDS = 0.3
 const END_SILENCE_MS = 1100
 
-const plain = text => text.replace(/\s+/g, '')
+// Both sides of the echo check are transcripts of speech: whitespace and
+// punctuation are artifacts of the recognizer, not words. Normalizing them the
+// same way on both sides is what keeps a punctuated reply from matching badly
+// and then being submitted as the user's.
+const plain = text => String(text ?? '').replace(/[\s，。、！？,.!?；;：:“”"'’‘（）()\[\]【】…—–-]+/g, '')
 
 /**
  * Listen while a reply is read aloud and turn that reading into an interruption.
  * Inert unless `phase` is 'speaking', the Voice Input plugin is on, and the pane
  * has not switched the listener off after two misses.
+ *
+ * `ctl` is the pane's shared transcription slot: the abort that pause, close and
+ * unmount send lands on the interruption's own request instead of on a
+ * throwaway controller nothing can reach.
  */
-export function useVoiceBarge({ speech, catalog, phase, said, barge, stopSpeech, submit, setPhase, setNote, turn }) {
+export function useVoiceBarge({ speech, catalog, phase, said, barge, stopSpeech, submit, setPhase, setNote, turn, ctl }) {
+  // The reply being read, read when the listener starts. A ref keeps the effect
+  // from re-running on every render of the text it already captured, while the
+  // value it reads is always the current reply — never the previous one.
+  const saidRef = useRef(said)
+  saidRef.current = said
   useEffect(() => {
     if (!speech || !catalog || phase !== 'speaking' || !barge.current.armed) return undefined
     const own = turn.current
-    const reading = plain(said)
+    const reading = plain(saidRef.current)
     let capture = null
     let frame = 0
     let stopped = false
@@ -65,7 +79,7 @@ export function useVoiceBarge({ speech, catalog, phase, said, barge, stopSpeech,
     // of the reply that was being read when the hit landed. Short interjections
     // are compared the same way — '好' during a reading is that reading.
     const isEcho = (raw) => {
-      const heard = raw.replace(/[\s，。、！？,.!?]+/g, '')
+      const heard = plain(raw)
       if (!heard || !reading) return false
       const at = readAt()
       const around = reading.slice(Math.max(0, at - 4), at + heard.length + 12)
@@ -87,17 +101,22 @@ export function useVoiceBarge({ speech, catalog, phase, said, barge, stopSpeech,
       if (!current) return
       settled = true
       setPhase('transcribing')
+      const controller = new AbortController()
+      ctl.current = controller
       try {
         const wave = await current.finish(catalog.maxDurationSeconds, from)
-        const text = wave ? await transcribeWave(speech, catalog, wave, new AbortController().signal) : ''
-        if (turn.current !== own) return
+        if (controller.signal.aborted) return
+        const text = wave ? await transcribeWave(speech, catalog, wave, controller.signal) : ''
+        if (turn.current !== own || controller.signal.aborted) return
         if (!text || isEcho(text)) { miss(); setPhase('listening'); return }
         submit(text)
       } catch (error) {
-        if (turn.current !== own) return
+        if (turn.current !== own || controller.signal.aborted) return
         miss()
         setPhase('listening')
-        setNote(CAPTURE_NOTES[error?.kind] ?? "Couldn't hear that")
+        setNote(t(CAPTURE_NOTES[error?.kind] ?? "Couldn't hear that"))
+      } finally {
+        if (ctl.current === controller) ctl.current = null
       }
     }
     openCapture().then((opened) => {
@@ -122,7 +141,11 @@ export function useVoiceBarge({ speech, catalog, phase, said, barge, stopSpeech,
         } else {
           if (level >= QUIET) quietSince = 0
           else quietSince ||= now
-          if ((quietSince && now - quietSince >= END_SILENCE_MS) || now - began >= limit) {
+          // The recognizer's limit runs on the audio that is actually kept. A
+          // late interruption discards everything read before the hit, so its
+          // own window starts there instead of at the first frame.
+          const kept = now - began - hitFrom * 1000
+          if ((quietSince && now - quietSince >= END_SILENCE_MS) || kept >= limit) {
             void finish(hitFrom)
             return
           }
@@ -131,7 +154,7 @@ export function useVoiceBarge({ speech, catalog, phase, said, barge, stopSpeech,
       }
       tick()
     }, (error) => {
-      if (!stopped) setNote(CAPTURE_NOTES[error?.kind] ?? "Couldn't hear that")
+      if (!stopped) setNote(t(CAPTURE_NOTES[error?.kind] ?? "Couldn't hear that"))
     })
     return () => {
       stopped = true
