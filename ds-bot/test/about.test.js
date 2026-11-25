@@ -70,7 +70,7 @@ test('the app update states set the DS Bot row\'s hint and button', () => {
       [{ text: 'Restart to update', className: 'bt-fb-primary', action: 'installOwnApp' }]],
     [{ phase: 'available', version: '0.2.2', canDownload: true, autoUpdate: false }, '0.2.2 is available',
       [{ text: 'Download', className: 'bt-soft bt-soft-sm', action: 'downloadOwnApp' }]],
-    [{ phase: 'available', version: '0.2.2', page: 'https://github.com/Fei2411/DS-Bot/releases/tag/v0.2.2', autoUpdate: true }, '0.2.2 is available',
+    [{ phase: 'available', version: '0.2.2', page: 'https://github.com/Fei-Craft/DS-Bot/releases/tag/v0.2.2', autoUpdate: true }, '0.2.2 is available',
       [{ text: 'Download', className: 'bt-soft bt-soft-sm', action: 'openOwnApp' }]],
     [{ phase: 'failed', autoUpdate: true }, 'Could not check for updates.', [{ text: 'Check for updates', className: 'bt-soft bt-soft-sm', action: 'checkOwnApp' }]],
   ]

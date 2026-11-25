@@ -90,7 +90,7 @@ function selectorOf(when) {
 }
 
 export function install(rt) {
-  const { ctx } = rt
+  const { ctx, state } = rt
   const SCHEDULE_ATTACH_GRACE_MS = rt.config?.scheduleAttachWaitMs ?? 10_000
   let service = null
   let disposed = false
@@ -114,6 +114,7 @@ export function install(rt) {
       scheduleGraceTimer = undefined
       if (disposed) return
       void rt.retireParts?.()
+      void rt.retireTasks?.()
       void rt.heldBack?.()?.catch?.(error => rt.warn('ds-bot: handing on input kept in earlier parts failed: %s', error))
     }, wait)
     scheduleGraceTimer.unref?.()
@@ -131,6 +132,7 @@ export function install(rt) {
       }
     }, 'ds-bot: schedule service')
     void rt.retireParts?.()
+    void rt.retireTasks?.()
     void rt.heldBack?.()?.catch?.(error => rt.warn('ds-bot: handing on input kept in earlier parts failed: %s', error))
   }
   if (typeof ctx.inject === 'function') {
@@ -261,9 +263,50 @@ export function install(rt) {
     },
   }
 
-  // A fresh part takes over the earlier part's active tasks: each is created again on
-  // the fresh Session before the old one goes, so a failure leaves it where it was.
-  async function moveSchedules(fromId, toId) {
+  let scheduleMoves = Promise.resolve()
+  const movesFrom = fromId => (state.legacyScheduleMoves ?? []).filter(move => move.fromId === fromId)
+  const saveMoves = moves => {
+    if (moves.length === 0) delete state.legacyScheduleMoves
+    else state.legacyScheduleMoves = moves
+    return rt.save({ required: true })
+  }
+  const forgetMoves = moves => saveMoves((state.legacyScheduleMoves ?? []).filter(move => !moves.includes(move)))
+
+  async function moveLegacySchedules(schedule, fromId, toId, canStopActivity) {
+    const records = await schedule.list({ sessionId: fromId })
+    const active = new Set(records.map(record => record.id))
+    const stale = movesFrom(fromId).filter(move => !active.has(move.id))
+    if (stale.length > 0) await forgetMoves(stale)
+    const toStop = []
+    for (const record of records) {
+      let move = movesFrom(fromId).find(move => move.id === record.id && typeof move.copyId === 'string')
+      if (move === undefined) {
+        const request = requestOf(record)
+        if (request === null || (request.at !== undefined && Date.parse(request.at) <= Date.now())) continue
+        const copy = await schedule.create(toId, request)
+        move = { fromId, id: record.id, copyId: copy.id }
+        const other = (state.legacyScheduleMoves ?? []).filter(item => item.fromId !== fromId || item.id !== record.id)
+        await saveMoves([...other, move])
+      } else {
+        // The earlier destination may already have moved or forwarded its reminders.
+        // Keep the exact copy and ensure its receipt made it to disk before deleting.
+        await rt.save({ required: true })
+      }
+      try {
+        await schedule.delete({ sessionId: fromId, id: record.id })
+      } catch (error) {
+        if (!canStopActivity) throw error
+        toStop.push(move)
+        rt.warn('ds-bot: earlier copy of task %s not removed: %s', record.title, error?.message ?? error)
+        continue
+      }
+      await forgetMoves([move])
+    }
+    if (toStop.length > 0) return () => forgetMoves(toStop)
+  }
+
+  async function moveSchedules(fromId, toId, { stopActivity = false } = {}) {
+    if (fromId === toId) return
     if (service === null) {
       if (schedulesPending()) {
         armGraceRetry()
@@ -271,29 +314,18 @@ export function install(rt) {
       }
       return
     }
-    // A Host-wide task changes its target in place and keeps its next firing; a
-    // paused one moves too, so it resumes in the Bot's current part.
-    if (hostWide(service)) {
-      for (const entry of await service.catalog()) {
+    const schedule = service
+    // A switch must see any reminders moved into its earlier part before it archives it.
+    const move = scheduleMoves.then(async () => {
+      if (!hostWide(schedule)) return moveLegacySchedules(schedule, fromId, toId, stopActivity)
+      // Moving in place keeps the next firing and carries paused tasks forward too.
+      for (const entry of await schedule.catalog()) {
         if (entry.status === 'ended' || sessionOf(entry) !== fromId) continue
-        await service.edit({ id: entry.id, action: 'update', patch: { target: { kind: 'session', sessionId: toId } } })
+        await schedule.edit({ id: entry.id, action: 'update', patch: { target: { kind: 'session', sessionId: toId } } })
       }
-      return
-    }
-    const records = await service.list({ sessionId: fromId })
-    for (const record of records) {
-      const request = requestOf(record)
-      if (request === null || (request.at !== undefined && Date.parse(request.at) <= Date.now())) continue
-      // A failed read or copy must prevent stopActivity from deleting an unmoved
-      // task. Equal requests can be separate tasks; copy each source record.
-      await service.create(toId, request)
-      try {
-        await service.delete({ sessionId: fromId, id: record.id })
-      } catch (error) {
-        // The copy is safe; archiving the earlier part will remove its old task.
-        rt.warn('ds-bot: earlier copy of task %s not removed: %s', record.title, error?.message ?? error)
-      }
-    }
+    })
+    scheduleMoves = move.catch(() => {})
+    return move
   }
 
   // DSH 0.2.2's task ids are Host-wide, so a Bot's schedule tools reach only the tasks

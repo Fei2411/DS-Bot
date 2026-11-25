@@ -1,7 +1,7 @@
 // main.log: the main process's console output and the Host's, in the app's own userData
 // (%APPDATA%\DS Bot\logs on Windows), redacted before it is written and kept to three
 // files of 2 MB (docs/plans/2026-10-26-windows-onboarding.md §3).
-import { closeSync, mkdirSync, openSync, readFileSync, renameSync, statSync, writeSync } from 'node:fs'
+import { closeSync, fstatSync, mkdirSync, openSync, readSync, renameSync, statSync, writeSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
@@ -9,6 +9,7 @@ export const LOG_LIMIT = 2 * 1024 * 1024
 export const LOG_FILES = 3
 // A line without its end (a progress line redrawn with \r) is written once it gets this long.
 const PARTIAL_MAX = 8 * 1024
+const TAIL_BLOCK = 16 * 1024
 
 /** main.log, then main.1.log and main.2.log, newest first. */
 export const logNames = (count = LOG_FILES) => Array.from({ length: count }, (_, index) => (index === 0 ? 'main.log' : `main.${String(index)}.log`))
@@ -77,6 +78,45 @@ export function tailLines(text, count) {
   return lines.slice(-count)
 }
 
+function readTail(file, count) {
+  const fd = openSync(file, 'r')
+  try {
+    // After a truncate, retry from the new EOF once; a second truncate must not hide rotations.
+    return readTailSnapshot(fd, count) ?? readTailSnapshot(fd, count) ?? ''
+  } finally {
+    closeSync(fd)
+  }
+}
+
+function readTailSnapshot(fd, count) {
+  const stat = fstatSync(fd)
+  if (!stat.isFile()) throw new Error('log is not a file')
+  const chunks = []
+  let remaining = Math.trunc(count) || Infinity
+  for (let end = stat.size; end > 0;) {
+    const start = Math.max(0, end - TAIL_BLOCK)
+    const chunk = Buffer.allocUnsafe(end - start)
+    for (let offset = 0; offset < chunk.length;) {
+      const read = readSync(fd, chunk, offset, chunk.length - offset, start + offset)
+      if (read === 0) return undefined
+      offset += read
+    }
+    if (end === stat.size && chunk.at(-1) === 10) remaining += 1
+    let newline = chunk.length
+    while (newline > 0) {
+      newline = chunk.lastIndexOf(10, newline - 1)
+      if (newline < 0) break
+      remaining -= 1
+      if (remaining === 0) break
+    }
+    chunks.push(remaining === 0 ? chunk.subarray(newline + 1) : chunk)
+    if (remaining === 0) break
+    end = start
+  }
+  // A UTF-8 code point can span blocks, but cannot contain the LF delimiter.
+  return (chunks.length === 1 ? chunks[0] : Buffer.concat(chunks.reverse())).toString('utf8')
+}
+
 export class LogFile {
   #dir
   #file
@@ -125,7 +165,7 @@ export class LogFile {
     for (const name of logNames()) {
       let content
       try {
-        content = readFileSync(join(this.#dir, name), 'utf8')
+        content = readTail(join(this.#dir, name), count - total)
       } catch {
         break
       }

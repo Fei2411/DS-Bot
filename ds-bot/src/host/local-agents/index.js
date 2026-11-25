@@ -13,7 +13,7 @@ import { LocalAgentAdapter } from './adapter.js'
 import { AcpEngine } from './acp.js'
 import { CodexEngine } from './codex.js'
 import { ClaudeEngine } from './claude.js'
-import { ENGINES, customRoute, isLocalAgentRoute, signInFor, validateCustom } from './engines.js'
+import { ENGINES, customRoute, isLocalAgentRoute, signInFor, signedInFor, validateCustom } from './engines.js'
 import { findEngineExecutable, findExecutable, probeEnv, probeSignIn, probeVersion, refreshSearchDirs } from './discover.js'
 
 const SIGNED_IN_TTL_MS = 60_000
@@ -109,7 +109,7 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
   // Asked only when the list of CLIs is about to show, never at start or for a menu.
   async function probeSignIns({ force = false } = {}) {
     await Promise.all([...found.values()].map(async (entry) => {
-      const check = ENGINES[entry.route]?.signedIn
+      const check = signedInFor(ENGINES[entry.route], entry.path)
       if (check === undefined) {
         entry.signedIn = null
         return

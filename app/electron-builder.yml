@@ -117,5 +117,5 @@ deb:
 # so the build itself never publishes (--publish never).
 publish:
   provider: github
-  owner: Fei2411
+  owner: Fei-Craft
   repo: DS-Bot

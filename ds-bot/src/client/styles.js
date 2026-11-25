@@ -1046,6 +1046,37 @@ button.bt-set-row:hover .bt-chevron{transform:translateX(2px);color:var(--bt-ink
 .bt-phone-pair-copy{display:flex;flex-direction:column;gap:8px;font-size:14px;line-height:20px}
 .bt-phone-pair-actions{display:flex;flex-wrap:wrap;gap:8px}
 @media(max-width:700px){.bt-phone-pair{flex-direction:column;align-items:flex-start}}
+.bt-api{display:flex;flex-direction:column;gap:16px}
+.bt-api-bind{gap:10px;align-items:flex-end}
+.bt-api-bind-fields{display:flex;flex:1;gap:10px;min-width:0}
+.bt-api-field{display:flex;flex-direction:column;gap:4px;flex:1;min-width:0;font-size:12px;color:var(--bt-ink-3)}
+.bt-api-port{flex:0 0 110px}
+.bt-api-endpoints{padding:10px 14px;border-top:1px solid var(--bt-line);display:flex;flex-direction:column;gap:8px}
+.bt-api-endpoint-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.bt-api-endpoint-row code{font-size:12px;padding:3px 7px;border-radius:6px;background:var(--bt-hover);color:var(--bt-ink);margin-right:auto}
+.bt-api-reveal{padding:12px 14px;border-radius:10px;border:1px solid var(--bt-accent);background:var(--bt-card);display:flex;flex-direction:column;gap:8px}
+.bt-api-reveal-head{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:13px}
+.bt-api-reveal-code{display:flex;align-items:center;gap:8px}
+.bt-api-reveal-code code{flex:1;min-width:0;overflow:auto;padding:6px 8px;border-radius:6px;background:var(--bt-hover);font-size:12px;user-select:all}
+.bt-api-form{padding:14px;display:flex;flex-direction:column;gap:12px;border-bottom:1px solid var(--bt-line)}
+.bt-api-group{display:flex;flex-direction:column;gap:6px}
+.bt-api-group-label{font-size:12px;font-weight:500;color:var(--bt-ink)}
+.bt-api-radios{display:flex;flex-wrap:wrap;gap:14px;font-size:13px}
+.bt-api-targets{display:flex;flex-direction:column;gap:8px}
+.bt-api-checks{display:flex;flex-direction:column;gap:4px}
+.bt-api-chip-grid{display:flex;flex-wrap:wrap;gap:6px}
+.bt-api-chip{display:inline-flex;align-items:center;gap:5px;padding:4px 9px;border-radius:999px;border:1px solid var(--bt-line);font-size:12px;cursor:pointer;user-select:none}
+.bt-api-chip-warn{border-color:color-mix(in srgb,var(--bt-danger) 45%,var(--bt-line))}
+.bt-api-private-box{padding:10px;border-radius:8px;border:1px solid color-mix(in srgb,var(--bt-danger) 35%,var(--bt-line));display:flex;flex-direction:column;gap:6px}
+.bt-api-warn-check{display:flex;align-items:flex-start;gap:6px;padding:6px 14px 10px;font-size:12px;color:var(--bt-danger)}
+.bt-api-form .bt-api-warn-check{padding:2px 0 0}
+.bt-api-limits{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.bt-api-form-actions{display:flex;justify-content:flex-end;gap:8px}
+.bt-api-token-row,.bt-api-audit-row{align-items:center}
+.bt-api-token-title{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.bt-api-token-actions,.bt-api-audit-actions{display:flex;align-items:center;gap:6px}
+.bt-api-status-err{color:var(--bt-danger)}
+@media(max-width:700px){.bt-api-bind{flex-direction:column;align-items:stretch}.bt-api-limits{grid-template-columns:1fr}}
 
 /* Settings → Connectors. */
 .bt-connector{display:flex;flex-direction:column;gap:12px;padding:14px 16px}

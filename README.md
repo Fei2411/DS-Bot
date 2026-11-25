@@ -25,7 +25,7 @@ DS Bot is an open-source project built on [DeepSeek Harness](https://github.com/
 
 **Desktop app (Windows, macOS, Linux)**
 
-The desktop app bundles a pinned DSH, so you do not need to install DSH first. Download the package for your system from [Releases](https://github.com/Fei2411/DS-Bot/releases/latest), open it, and configure a model in Settings (it can also copy your existing bot team from DSH).
+The desktop app bundles a pinned DSH, so you do not need to install DSH first. Download the package for your system from [Releases](https://github.com/Fei-Craft/DS-Bot/releases/latest), open it, and configure a model in Settings (it can also copy your existing bot team from DSH).
 
 If your OS warns about an unsigned app: on Windows select **More info** → **Run anyway**; on macOS open **System Settings** → **Privacy & Security** and select **Open Anyway**.
 
@@ -54,7 +54,7 @@ The easiest way to set up other bots and group chats is to just talk to your Mai
 - **General** & **Appearance** (live preview, 8 UI languages, themes, layout and motion)
 - **Models**: Providers · Local agents · Bot models · DeepSeek services
 - **Team**: Bots · Group chats · Scheduled tasks
-- **Connect**: Connectors · IM · Phone · MCP access
+- **Connect**: Connectors · IM · Phone · API
 - **Tools**: Computer use · Browser · Capabilities · Secrets
 - **Usage** & **About DS Bot** (includes **Feedback**)
 
@@ -63,6 +63,18 @@ In the standalone desktop app, you can use your ChatGPT plan for bot models with
 > **Note on web search**: DS Bot selects its `auto` search provider for the whole profile. If you disable `web-search-auto`, select another registered search provider in that profile too. See [Web search](ds-bot/README.md#web-search) and the [recovery steps](docs/known-issues.md#web-search-fails-everywhere-after-turning-off-web-search-auto).
 
 ## Features
+
+### Browser remote (preview)
+
+Use the phone app's interface in a browser without installing it. On the computer, open **Settings → Connect → Phone**, enable phone access, show a pairing code, then choose **Open in a browser** or **Copy browser link**. You can also paste the pairing link into the web app. The browser pairs as another device over the existing end-to-end encrypted link; remove it from the computer's paired-device list to revoke access.
+
+The Relay Server must serve the web build: run `npm ci && npm run export:web` in `mobile/`, then set `DSBOT_LINK_WEB_DIR` to the absolute `mobile/dist` directory when starting the [Relay Server](link/README.md). Use HTTPS/WSS outside localhost. `relay.dsbot.app` needs this deployment before its browser links work. Browser storage is AES-GCM encrypted with a non-extractable key in IndexedDB, but the browser still runs the Server's page: only use a trusted Server. Sensitive operations require the phone app or computer, and there are no background notifications. See the [design and security limits](docs/plans/2026-11-17-web-remote.md).
+
+### Local API & MCP
+
+Other agents on this computer (Claude Desktop, Cursor, Codex, Antigravity, or your own scripts) can call your Bots and group chats through the unified local API gateway. Open **Settings → Connect → API**, turn it on (off by default, bound to `127.0.0.1:17830`), and create scoped, revocable Bearer tokens. Each token is shown once and stored as a salted hash; private Bots stay excluded unless explicitly confirmed per token.
+
+The same local gateway serves versioned `/v1/*` REST + SSE endpoints, Streamable HTTP MCP (`/mcp`), an optional OpenAI-compatible adapter (`/compat/openai/v1/*`), and the `ds-bot` CLI (`ds-bot mcp` stdio bridge, `ds-bot send`, `ds-bot event`). Existing `mcp.json` setups and `npx -p ds-bot ds-bot-mcp` commands migrate automatically. See the [design](docs/plans/2026-11-21-external-api.md).
 
 ### Bot
 
@@ -128,7 +140,7 @@ Bots can create, inspect and edit Word (`.docx`), PowerPoint (`.pptx`) and Excel
 
 ### Mobile app & browser remote
 
-Control your running bot team from iOS, Android, or a browser over an end-to-end encrypted link (Noise IK)—your computer connects outbound only, with no public IP or open ports. Open **Settings → Connect → Phone**, enable phone access, and scan the QR code in the mobile app (Android APK in [Releases](https://github.com/Fei2411/DS-Bot/releases/latest); see [`mobile/README.md`](mobile/README.md) for iOS).
+Control your running bot team from iOS, Android, or a browser over an end-to-end encrypted link (Noise IK)—your computer connects outbound only, with no public IP or open ports. Open **Settings → Connect → Phone**, enable phone access, and scan the QR code in the mobile app (Android APK in [Releases](https://github.com/Fei-Craft/DS-Bot/releases/latest); see [`mobile/README.md`](mobile/README.md) for iOS).
 
 For **browser remote (preview)**, pick **Open in a browser** or **Copy browser link** on the same pairing screen. Self-hosted relay instructions and security limits are in [`link/README.md`](link/README.md) and [`docs/plans/2026-11-17-web-remote.md`](docs/plans/2026-11-17-web-remote.md).
 
@@ -138,9 +150,6 @@ In **Settings → Connect → IM**, link any bot or group chat to WeChat, Feishu
 
 WeChat supports private chat with the QR-paired account only; WeChat and QQ enforce platform reply windows; WeChat, QQ and DingTalk use numbered replies instead of card buttons; secret cards cannot be submitted from IM apps.
 
-### MCP access (preview)
-
-Let other local agents on this computer (Claude Desktop, Cursor, Codex, or your scripts) talk to selected bots and groups through MCP. Turn it on in **Settings → Connect → MCP access** and issue a per-client bearer token (private bots are never exposed, and approvals, settings and secrets stay on your computer). Connect HTTP MCP clients to `http://127.0.0.1:8797/mcp` with `Authorization: Bearer <token>`, or stdio clients via `DSBOT_MCP_TOKEN=<token> npx -p ds-bot ds-bot-mcp`. See [`docs/plans/2026-11-20-mcp-access.md`](docs/plans/2026-11-20-mcp-access.md).
 
 ### Usage & appearance
 
