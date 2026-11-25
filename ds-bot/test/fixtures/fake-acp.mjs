@@ -43,6 +43,8 @@ const loadThoughtLevel = process.argv.includes('--load-thought-level')
 const agyCatalog = process.argv.includes('--agy-catalog')
 const degradedCatalog = process.argv.includes('--degraded-catalog')
 const emitConfigUpdate = process.argv.includes('--emit-config-update')
+// Marks each emitted config_option_update so a test can wait for it exactly.
+const noticeFile = process.argv.find(arg => arg.startsWith('--notice-file='))?.slice('--notice-file='.length)
 const modelResetsThought = process.argv.includes('--model-resets-thought')
 const preserveThoughtOnModel = process.argv.includes('--preserve-thought-on-model')
 const stateFile = process.argv.find(arg => arg.startsWith('--state-file='))?.slice('--state-file='.length)
@@ -467,7 +469,10 @@ process.stdin.on('data', (chunk) => {
               saveSaved()
               const options = agyConfigOptions(session)
               reply(id, { configOptions: options })
-              setTimeout(() => update(params.sessionId, { sessionUpdate: 'config_option_update', configOptions: options }), 10)
+              setTimeout(() => {
+                update(params.sessionId, { sessionUpdate: 'config_option_update', configOptions: options })
+                if (noticeFile !== undefined) appendFileSync(noticeFile, `${params.sessionId}\n`)
+              }, 10)
               break
             }
             if (modelResetsThought || preserveThoughtOnModel) {

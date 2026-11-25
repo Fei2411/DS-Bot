@@ -3,7 +3,7 @@
 // catalog, the set_config_option(model) reply, the config_option_update notices
 // it emits (config only, no models key), and the matching `agy models` stdout.
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -53,6 +53,17 @@ test('parseModelListing drops headers, progress lines and noise', () => {
   assert.deepEqual(entries, [
     { modelId: 'gemini-4-neon-high', name: 'Gemini 4 Neon (High)' },
     { modelId: 'claude-opus-5-5-high', name: 'Claude Opus 5.5 (High)' },
+    { modelId: 'gpt-oss-120b-medium', name: 'gpt-oss-120b-medium' },
+  ])
+})
+
+test('parseModelListing strips ANSI color codes before reading ids', () => {
+  const entries = parseModelListing([
+    '\x1b[32mgemini-4-neon-high\x1b[0m\t\x1b[1mGemini 4 Neon (High)\x1b[0m',
+    'gpt-oss-120b-medium',
+  ].join('\n'))
+  assert.deepEqual(entries, [
+    { modelId: 'gemini-4-neon-high', name: 'Gemini 4 Neon (High)' },
     { modelId: 'gpt-oss-120b-medium', name: 'gpt-oss-120b-medium' },
   ])
 })
@@ -197,7 +208,7 @@ test('legacy agents without a model config list their entries verbatim', () => {
 
 // --- integration: the fake CLI serving agy's shapes ----------------------------
 
-function makeAgyAdapter({ args = [], cwdPerProcess = false, records = {} } = {}) {
+function makeAgyAdapter({ args = [], cwdPerProcess = false, records = {}, dirs } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'dsb-agy-cwd-'))
   const adapter = new LocalAgentAdapter({
     rt: { warn: () => {} },
@@ -207,17 +218,41 @@ function makeAgyAdapter({ args = [], cwdPerProcess = false, records = {} } = {})
       ...spec,
       command: process.execPath,
       args: [FIXTURE_ACP, '--agy-catalog', ...args],
-      modelsArgs: spec.modelsArgs === null ? undefined : [FIXTURE_ACP, 'models'],
+      modelsArgs: [FIXTURE_ACP, 'models'],
       ...(cwdPerProcess ? { cwdPerProcess: true } : {}),
     }, { findExecutable: path => path }),
     record: sessionId => records[sessionId],
     saveRecord: (sessionId, record) => { records[sessionId] = record },
     presetFor: () => 'workspace-write',
-    cwdFor: async () => dir,
+    cwdFor: async sessionId => dirs?.[sessionId] ?? dir,
     probeCwd: () => dir,
     toolsFor: () => [],
   })
   return adapter
+}
+
+const catalogOf = async (adapter) => Object.fromEntries((await adapter.listModels('local-acp-agyfake')).map(model => [model.id, model]))
+
+function assertFullCatalog(byId) {
+  assert.deepEqual(byId['fake-large'].reasoning.efforts.map(effort => effort.id), ['low', 'medium', 'high', 'xhigh'])
+  assert.deepEqual(byId['fake-carbon'].reasoning.efforts.map(effort => effort.id), ['low', 'medium', 'high'])
+  assert.equal(byId['fake-small'].reasoning, undefined)
+  assert.equal(byId['fake-gpt-medium'].reasoning, undefined)
+}
+
+// The catalog-cache epoch once it has advanced `count` writes past `epoch`.
+// The flattened overwrite of #2145 lands, if at all, in the cache write the
+// config_option_update notice triggers, so waiting for the exact number of
+// writes an open plus its notice produce is the precise race the tests guard —
+// no fixed sleeps.
+async function cacheWritesSince(adapter, epoch, count, timeoutMs = 3_000) {
+  const cacheEpoch = () => Math.max(adapter.nextModelEpoch, adapter.modelEpochs.get('local-acp-agyfake') ?? 0)
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (cacheEpoch() >= epoch + count) return
+    await new Promise(resolve => setTimeout(resolve, 15))
+  }
+  throw new Error('the config_option_update notice never reached the catalog cache')
 }
 
 for (const cwdPerProcess of [false, true]) {
@@ -267,6 +302,11 @@ test('a model switch notice does not flatten the cached catalog levels', async (
   const probed = await adapter.probeModels('local-acp-agyfake')
   assert.deepEqual(probed.find(model => model.id === 'fake-large')?.reasoning?.efforts?.map(effort => effort.id), ['low', 'medium', 'high', 'xhigh'])
 
+  // The open() itself writes the discovered catalog once; the notice the model
+  // switch emits is the write after it. Both must leave the full catalog intact.
+  // The open() writes the catalog once and the notice it emits once more; the
+  // flattened-overwrite regression of #2145 lands, if at all, in the second.
+  const epochBefore = Math.max(adapter.nextModelEpoch, adapter.modelEpochs.get('local-acp-agyfake') ?? 0)
   const turn = await collect(adapter.stream({
     provider: 'local-acp-agyfake',
     model: 'fake-carbon',
@@ -276,13 +316,70 @@ test('a model switch notice does not flatten the cached catalog levels', async (
     signal: AbortSignal.timeout(30_000),
   }))
   assert.match(turn.text, /ok:/)
+  await cacheWritesSince(adapter, epochBefore, 2)
+  assertFullCatalog(await catalogOf(adapter))
+})
 
-  // Let the config_option_update notice land; the catalog must keep per-model
-  // levels instead of flattening to the switched model's three.
-  await new Promise(resolve => setTimeout(resolve, 150))
-  const catalog = await adapter.listModels('local-acp-agyfake')
-  const byId = Object.fromEntries(catalog.map(model => [model.id, model]))
-  assert.deepEqual(byId['fake-large'].reasoning.efforts.map(effort => effort.id), ['low', 'medium', 'high', 'xhigh'])
-  assert.deepEqual(byId['fake-carbon'].reasoning.efforts.map(effort => effort.id), ['low', 'medium', 'high'])
-  assert.equal(byId['fake-gpt-medium'].reasoning, undefined)
+test('cwdPerProcess workers share the probe evidence: a live notice in any folder keeps the full catalog', async (t) => {
+  const dirA = mkdtempSync(join(tmpdir(), 'dsb-agy-a-'))
+  const dirB = mkdtempSync(join(tmpdir(), 'dsb-agy-b-'))
+  t.after(() => { rmSync(dirA, { recursive: true, force: true }); rmSync(dirB, { recursive: true, force: true }) })
+  const adapter = makeAgyAdapter({
+    args: ['--degraded-catalog', '--emit-config-update'],
+    cwdPerProcess: true,
+    dirs: { s1: dirA, s2: dirB },
+  })
+  t.after(() => adapter.dispose())
+
+  // The probe runs against a temporary worker in dirA; the listing merge repairs
+  // the degraded reply. This is the state the regression wiped at the first notice.
+  assert.deepEqual((await adapter.probeModels('local-acp-agyfake')).map(model => model.id), ['default', 'fake-large', 'fake-small', 'fake-carbon', 'fake-gpt-medium'])
+  assertFullCatalog(await catalogOf(adapter))
+
+  // A live session in dirA: its worker shares the family's catalog, so the notice
+  // its model switch emits parses against the merged evidence, not an empty list.
+  // The open writes the catalog once and the notice once more: wait for both.
+  const epochA = Math.max(adapter.nextModelEpoch, adapter.modelEpochs.get('local-acp-agyfake') ?? 0)
+  const turnA = await collect(adapter.stream({
+    provider: 'local-acp-agyfake',
+    model: 'fake-large',
+    sessionId: 's1',
+    messages: [user('m1', 'hello')],
+    tools: [],
+    signal: AbortSignal.timeout(30_000),
+  }))
+  assert.match(turnA.text, /ok:/)
+  await cacheWritesSince(adapter, epochA, 2)
+  assertFullCatalog(await catalogOf(adapter))
+
+  // A second folder spawns a fresh worker whose own process never probed: before
+  // the fix its empty `listed` dropped carbon and gpt-medium at the first notice.
+  const epochB = Math.max(adapter.nextModelEpoch, adapter.modelEpochs.get('local-acp-agyfake') ?? 0)
+  const turnB = await collect(adapter.stream({
+    provider: 'local-acp-agyfake',
+    model: 'fake-large',
+    sessionId: 's2',
+    messages: [user('m1', 'hello again')],
+    tools: [],
+    signal: AbortSignal.timeout(30_000),
+  }))
+  assert.match(turnB.text, /ok:/)
+  await cacheWritesSince(adapter, epochB, 2)
+  assertFullCatalog(await catalogOf(adapter))
+})
+
+test('invalidateListed resets the shared catalog for the whole family and a re-probe repopulates it', async (t) => {
+  const adapter = makeAgyAdapter({ args: [], cwdPerProcess: true })
+  t.after(() => adapter.dispose())
+
+  await adapter.probeModels('local-acp-agyfake')
+  const engine = adapter.engines.get('local-acp-agyfake')
+  assert.ok(engine.listed.models.length > 0)
+  engine.invalidateListed()
+  assert.equal(engine.listed.models.length, 0)
+  for (const worker of engine.workers.values()) assert.equal(worker.listed.models.length, 0)
+
+  // A fresh probe after invalidation is not mistaken for pre-refresh evidence.
+  const catalog = await adapter.probeModels('local-acp-agyfake')
+  assert.deepEqual(catalog.map(model => model.id), ['default', 'fake-large', 'fake-small', 'fake-carbon', 'fake-gpt-medium'])
 })
