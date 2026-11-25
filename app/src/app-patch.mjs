@@ -1,29 +1,21 @@
-// The app's own `--patch` overlay, written next to the profiles as search-patch.mjs does
-// (`<DSH_HOME>/profiles/app-onboarding.patch.yml`) and read by DSH only through `patchFiles`.
-// It turns off DSH Web's automatic credential step: the Bot team connects the model in its
-// own chat instead. `credentialOnboarding` is the documented switch of
-// @deepseek-ai/dsh-client-ui-settings-models.
-//
-// A patch replaces the targeted row's whole `config`, so this row is restated from the
-// pinned DSH whenever it changes. Overlays outrank the profile, and DSH refuses a settings
-// form write that an overlay overrides: the overlay holds no row the Settings page writes
-// (never `ui-settings-general`).
+// Earlier desktop builds mounted @deepseek-ai/dsh-web-app and wrote
+// `<DSH_HOME>/profiles/app-onboarding.patch.yml` to disable DSH Web's
+// `ui-settings-models` credential onboarding modal. With DS Bot's own frontend
+// (`dsbot-engine` + `app/ui/dist`) no DSH Web rows are mounted, so any leftover
+// overlay from an earlier version is removed on launch.
 import { dirname, join } from 'node:path'
-import { writeFileSync } from 'node:fs'
-import { stringify } from 'yaml'
+import { rmSync } from 'node:fs'
 
 export const APP_PATCH_NAME = 'app-onboarding.patch.yml'
-export const APP_PATCH_ROWS = [
-  { id: 'ui-settings-models', name: '@deepseek-ai/dsh-client-ui-settings-models', config: { credentialOnboarding: false } },
-]
+export const APP_PATCH_ROWS = []
 
 /**
- * Write the overlay for this launch; DSH stops when a `patchFiles` entry is missing.
+ * Drop any stale DSH Web onboarding overlay left by an earlier build.
  * @param {import('@deepseek-ai/dsh-app-boot').Profile} profile
- * @returns {string[]} its part of the `patchFiles` argument
+ * @returns {string[]} its part of the `patchFiles` argument (empty for DS Bot's own frontend)
  */
 export function writeAppPatch(profile) {
   const file = join(dirname(profile.dir), APP_PATCH_NAME)
-  writeFileSync(file, stringify(APP_PATCH_ROWS), 'utf8')
-  return [file]
+  rmSync(file, { force: true })
+  return []
 }

@@ -522,14 +522,15 @@ test('paintMode syncs data-ds-dark-theme and html[data-ds-theme-source] for Elec
   assert.equal(sandbox.document.body.hasAttribute('data-ds-dark-theme'), false)
   assert.equal(sandbox.document.documentElement.dataset.dsThemeSource, 'system')
 
-  // Electron material CSS keeps own-UI selectors merged into DSH rules so check-packed passes;
+  // Electron material CSS targets DS Bot's own frame/panel selectors cleanly;
   // preload Mica lookup and CSP allow unified .bt-panel and loopback favicons.
   const materialCss = readFileSync(fileURLToPath(new URL('../src/material.css', import.meta.url)), 'utf8')
   const preloadSrc = readFileSync(fileURLToPath(new URL('../src/preload.cjs', import.meta.url)), 'utf8')
   const indexHtml = readFileSync(fileURLToPath(new URL('../ui/index.html', import.meta.url)), 'utf8')
-  assert.match(materialCss, /_frame.*,\s*body:not\(\[data-bt-material="off"\]\):not\(\[data-bt-bg\]\)\s*\.dsb-frame/s)
-  assert.match(materialCss, /_rightbarCol"\],\s*body:not\(\[data-bt-material="off"\]\):not\(\[data-bt-bg\]\)\s*\.dsb-main,\s*body:not\(\[data-bt-material="off"\]\):not\(\[data-bt-bg\]\)\s*\.bt-panel/s)
-  assert.doesNotMatch(materialCss, /\.dsb-rightbar\b/)
+  assert.match(materialCss, /body:not\(\[data-bt-material="off"\]\):not\(\[data-bt-bg\]\)\s*\.dsb-frame/)
+  assert.match(materialCss, /body:not\(\[data-bt-material="off"\]\):not\(\[data-bt-bg\]\)\s*\.dsb-side/)
+  assert.match(materialCss, /body:not\(\[data-bt-material="off"\]\):not\(\[data-bt-bg\]\)\s*\.dsb-main,\s*body:not\(\[data-bt-material="off"\]\):not\(\[data-bt-bg\]\)\s*\.bt-panel/s)
+  assert.doesNotMatch(materialCss, /_frame|_sidebarCol|_centerCol|_rightbarCol|\.dsb-rightbar\b/)
   assert.match(preloadSrc, /querySelector\('\.bt-panel, div\[class\*="_rightbarCol"\]'\)/)
   assert.match(indexHtml, /img-src 'self' data: blob: https: http:\/\/127\.0\.0\.1:\* http:\/\/localhost:\*/)
 })
@@ -607,4 +608,122 @@ test('setSurface clears stale shown in read-only Classic mode, reports errors, c
   } finally {
     stop()
   }
+})
+
+test('createTeam wires desktop computer-use bridge (indicator, cursor long-poll, idle sample, actions) and cleans up on stop', async () => {
+  const { sandbox, exports } = createHarness()
+  const intervals = []
+  sandbox.setInterval = (fn, ms) => {
+    const id = intervals.length + 1
+    intervals.push({ id, fn, ms, cleared: false })
+    return id
+  }
+  sandbox.clearInterval = (id) => {
+    const entry = intervals.find(item => item.id === id)
+    if (entry) entry.cleared = true
+  }
+
+  const indicatorCalls = []
+  const cursorCalls = []
+  let actionListener = null
+  let actionOffCalled = false
+  let cursorPolls = 0
+  let cursorAborted = false
+  const hostCalls = []
+
+  sandbox.dsBotApp = {
+    computer: payload => indicatorCalls.push(plain(payload)),
+    computerCursor: event => cursorCalls.push(plain(event)),
+    idleSeconds: async () => 12,
+    onComputerAction: (fn) => {
+      actionListener = fn
+      return () => { actionOffCalled = true }
+    },
+  }
+
+  sandbox.__testCall = async (endpoint, body, signal) => {
+    hostCalls.push([endpoint, body])
+    if (endpoint === 'state') {
+      return {
+        revision: 1,
+        modelsKey: 'm1',
+        mainBotId: 'b1',
+        bots: [{ id: 'b1', name: 'Alpha', color: '#4d6bfe', sessions: ['b1'] }],
+        rooms: [],
+        agents: [],
+        computer: { enabled: true, foreground: true },
+        computerLive: {
+          leases: [{ botId: 'b1', kind: 'foreground' }],
+          bots: { b1: { waitingFor: 'user-idle' } },
+        },
+      }
+    }
+    if (endpoint === 'computer-cursor-wait') {
+      cursorPolls += 1
+      if (cursorPolls === 1) {
+        return {
+          now: 10000,
+          events: [
+            { seq: 1, t: 6000, botId: 'b1', x: 10, y: 20, mode: 'point' }, // stale (>3s), ignored
+            { seq: 2, t: 9500, botId: 'b1', x: 120, y: 240, mode: 'point', ripple: true },
+          ],
+        }
+      }
+      return new Promise((_resolve, reject) => {
+        if (signal?.aborted) { cursorAborted = true; reject(new Error('aborted')); return }
+        signal?.addEventListener('abort', () => { cursorAborted = true; reject(new Error('aborted')) }, { once: true })
+      })
+    }
+    return {}
+  }
+
+  const team = exports.createTeam()
+  const stop = team.start()
+  try {
+    await tick()
+    await tick()
+
+    // Indicator receives resolved Bot name & color (even after roster arrives right after computerLive).
+    const lastIndicator = indicatorCalls.at(-1)
+    assert.ok(lastIndicator)
+    assert.equal(lastIndicator.rows.length, 2)
+    assert.equal(lastIndicator.rows[0].botId, 'b1')
+    assert.equal(lastIndicator.rows[0].name, 'Alpha')
+    assert.equal(lastIndicator.rows[1].waiting, true)
+    assert.ok(lastIndicator.labels.stop && lastIndicator.labels.stopAll && lastIndicator.labels.letGo)
+
+    // Cursor long-poll skips stale (>3s) events and forwards fresh events with Bot color.
+    assert.equal(cursorCalls.length, 1)
+    assert.equal(cursorCalls[0].seq, 2)
+    assert.equal(cursorCalls[0].x, 120)
+    assert.equal(cursorCalls[0].y, 240)
+    assert.ok(cursorCalls[0].color)
+
+    // Idle-time sampler fires on the 2s interval and reports to computer-user-active.
+    const idleInterval = intervals.find(item => item.ms === 2000 && !item.cleared)
+    assert.ok(idleInterval, 'idle interval must be armed when computer.enabled is true')
+    idleInterval.fn()
+    await tick()
+    assert.equal(
+      hostCalls.some(([ep, body]) => ep === 'computer-user-active' && body?.idleSeconds === 12),
+      true,
+      'idle sample is posted to computer-user-active',
+    )
+
+    // Tray / floating indicator actions route to computer-stop / computer-allow-foreground.
+    assert.equal(typeof actionListener, 'function')
+    actionListener({ kind: 'stop', botId: 'b1' })
+    actionListener({ kind: 'stopall', botId: null })
+    actionListener({ kind: 'letgo', botId: 'b1' })
+    await tick()
+    assert.equal(hostCalls.some(([ep, body]) => ep === 'computer-stop' && body?.botId === 'b1'), true)
+    assert.equal(hostCalls.some(([ep, body]) => ep === 'computer-stop' && body?.all === true), true)
+    assert.equal(hostCalls.some(([ep, body]) => ep === 'computer-allow-foreground' && body?.botId === 'b1'), true)
+  } finally {
+    stop()
+  }
+
+  assert.equal(actionOffCalled, true, 'onComputerAction listener is unsubscribed on stop')
+  assert.equal(cursorAborted, true, 'in-flight computer-cursor-wait poll is aborted on stop')
+  assert.equal(intervals.filter(item => item.ms === 2000).every(item => item.cleared), true, 'idle interval is cleared on stop')
 })

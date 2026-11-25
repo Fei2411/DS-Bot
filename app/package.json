@@ -13,7 +13,9 @@
   "scripts": {
     "build": "vite build",
     "start": "electron .",
+    "prepack": "npm run build",
     "pack": "electron-builder --dir --publish never",
+    "predist": "npm run build",
     "dist": "node scripts/dist.mjs",
     "check-packed": "node scripts/check-packed.mjs",
     "runtime": "node scripts/prepare-runtime.mjs",
@@ -67,6 +69,7 @@
     "@deepseek-ai/libreoffice-kit": "0.2.3",
     "deep-view": "0.1.2",
     "ds-bot": "file:../ds-bot",
+    "dsbot-engine": "file:./engine",
     "electron-updater": "6.8.10",
     "js-yaml": "4.3.2",
     "pnpm": "11.7.0",

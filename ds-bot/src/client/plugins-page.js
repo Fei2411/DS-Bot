@@ -50,6 +50,7 @@ const SAFE_CLI_SPEC_RE = /^[A-Za-z0-9@._/:#+-]+$/
 // belong only to Engine plugins (or are disallowed in DS Bot) and must never leak into
 // DS Bot's Plugins catalog or Discover section.
 const HIDDEN_ENGINE_BUNDLES = new Set([
+  'dsbot-engine',
   '@deepseek-ai/dsh-acp-app',
   '@deepseek-ai/dsh-headless',
   '@deepseek-ai/dsh-sdk-app',

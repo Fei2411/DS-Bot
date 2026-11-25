@@ -33,7 +33,7 @@ body[data-ds-dark-theme]{color-scheme:dark}
 .dsb-frame[data-rail] .dsb-side-host{padding:0}
 .dsb-frame[data-rail] .dsb-side-list{margin:0;padding:0;align-items:center}
 .dsb-expand{margin:6px 0 8px}
-html[data-mac] .dsb-frame[data-mac-titlebar] .dsb-side{padding-top:var(--dsb-band)}
+html[data-mac]:not([data-fullscreen]) .dsb-frame[data-mac-titlebar] .dsb-side{padding-top:var(--dsb-band)}
 .dsb-side-foot{display:flex;align-items:center;gap:9px;padding:8px 6px 6px}
 .dsb-frame[data-rail] .dsb-side-foot{margin:0 -5px;padding:8px 0 6px}
 .dsb-settings{padding:0;border:0;background:none;border-radius:50%;corner-shape:round;cursor:pointer}

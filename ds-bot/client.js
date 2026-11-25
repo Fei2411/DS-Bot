@@ -46774,6 +46774,7 @@ var SLOT_CHOICES = [
 ];
 var SAFE_CLI_SPEC_RE = /^[A-Za-z0-9@._/:#+-]+$/;
 var HIDDEN_ENGINE_BUNDLES = /* @__PURE__ */ new Set([
+  "dsbot-engine",
   "@deepseek-ai/dsh-acp-app",
   "@deepseek-ai/dsh-headless",
   "@deepseek-ai/dsh-sdk-app",
