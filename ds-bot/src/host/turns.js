@@ -327,6 +327,8 @@ export function install(rt) {
       ...(info?.work ? { work: info.work } : {}),
       ...(keeps && info.audience ? { audience: info.audience } : {}),
       ...(keeps && info.askedBy ? { askedBy: info.askedBy } : {}),
+      ...(keeps && info.batchKey ? { batchKey: info.batchKey } : {}),
+      ...(keeps && info.resumedUpstream ? { resumedUpstream: true } : {}),
       ...(info?.resultRef ? { resultRef: info.resultRef } : {}),
       ...(info?.replyTo ? { replyTo: info.replyTo } : {}),
       ...(info?.workRef ? { workRef: info.workRef } : {}),

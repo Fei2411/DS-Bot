@@ -1005,6 +1005,27 @@ export function install(rt) {
   // Oldest first.
   const batchesOf = (roomId, botId) => Object.values(batches()).filter(batch => batch.roomId === roomId && batch.pending.includes(botId))
   const unpend = (batch, botId) => { batch.pending = batch.pending.filter(id => id !== botId) }
+  // Tracks same-parent batch replacements `(oldKey, botId) -> newKey` so an already-running
+  // turn whose original batch key was superseded settles its same-parent successor and never
+  // falls back to an unrelated parent's batch from the same caller.
+  const supersededBatches = new Map()
+  const rememberSupersededBatch = (oldKey, botId, nextKey) => {
+    if (!oldKey || !botId || !nextKey || oldKey === nextKey) return
+    supersededBatches.set(`${oldKey}\0${botId}`, nextKey)
+    if (supersededBatches.size > 200) supersededBatches.delete(supersededBatches.keys().next().value)
+  }
+  const resolveBatchKey = (roomId, botId, key) => {
+    if (typeof key !== 'string' || key === '') return undefined
+    let cur = key
+    const seen = new Set()
+    while (cur !== undefined && !seen.has(cur)) {
+      seen.add(cur)
+      const exact = batches()[cur]
+      if (exact !== undefined && exact.roomId === roomId && exact.pending.includes(botId)) return exact
+      cur = supersededBatches.get(`${cur}\0${botId}`)
+    }
+    return undefined
+  }
 
   // Room deliveries whose 4-minute reply timer expired without the member starting a turn:
   // ignore their stale unreadOf entry in activeInRoom so batches and roomReports never
@@ -1094,11 +1115,24 @@ export function install(rt) {
     if (!room.members.includes(botId) || seen.has(botId)) return false
     seen.add(botId)
     const sessionId = room.sessions?.[botId]
-    if (sessionId !== undefined && (rt.live.get(sessionId)?.turn !== undefined || rt.hasSubagents?.(sessionId) === true)) return true
+    if (sessionId !== undefined) {
+      const liveEntry = rt.live.get(sessionId)
+      if (liveEntry?.turn !== undefined) {
+        if (parentBatchKey === undefined) return true
+        if (batchOfTurn(room.id, botId, liveEntry.info)?.key === parentBatchKey) return true
+        if ((liveEntry.joined ?? []).some(item => item?.info?.role === 'room' && batchOfTurn(room.id, botId, item.info)?.key === parentBatchKey)) return true
+      }
+      if (liveEntry?.pending !== undefined && (parentBatchKey === undefined || batchOfTurn(room.id, botId, liveEntry.pending)?.key === parentBatchKey)) return true
+      if (rt.hasSubagents?.(sessionId) === true) return true
+    }
     if (rt.hasRoomTasks?.(room.id, botId, ignoreTaskId) === true) return true
-    if (sessionId !== undefined && (rt.unreadOf?.(sessionId) ?? []).some(args => !missedExchanges.has(args.exchangeId))) return true
+    if (sessionId !== undefined && (rt.unreadOf?.(sessionId) ?? []).some(args =>
+      !missedExchanges.has(args.exchangeId)
+      && (parentBatchKey === undefined || batchOfTurn(room.id, botId, args)?.key === parentBatchKey))) return true
     if ([...rt.roomProgress.values()].some(round => round.roomId === room.id
-      && round.slots.some(slot => slot.id === botId && (slot.status === 'waiting' || slot.status === 'speaking')))) return true
+      && round.slots.some(slot => slot.id === botId
+        && (slot.status === 'waiting' || slot.status === 'speaking')
+        && (parentBatchKey === undefined || batchOfSlot(room.id, slot)?.key === parentBatchKey)))) return true
     if (extraRound !== undefined && extraRound.roomId === room.id
       && extraRound.slots.some(slot => slot.id === botId
         && (slot.status === 'waiting' || slot.status === 'speaking')
@@ -1139,6 +1173,7 @@ export function install(rt) {
       const prev = batchOf(roomId, peer.id, by, { matchParent: true, parentBatchKey })
       if (prev === undefined) continue
       unpend(prev, peer.id)
+      rememberSupersededBatch(prev.key, peer.id, batch.key)
       // Re-parent this member's child batches, queued direct relays, and parked calls even
       // when `prev` still has other pending members.
       for (const child of Object.values(batches())) {
@@ -1172,9 +1207,11 @@ export function install(rt) {
     }
   }
 
-  // The batch a call of the round settles into: its own, or when a later call of the same
-  // Bot took the member over, the newest one of that Bot.
-  const batchOfSlot = (roomId, slot) => (slot.batchKey === undefined ? undefined : batches()[slot.batchKey]) ?? batchOf(roomId, slot.id, slot.by)
+  // The batch a call of the round settles into: its own (or same-parent successor when
+  // superseded in-flight), never an unrelated parent's batch from the same caller.
+  const batchOfSlot = (roomId, slot) => slot.batchKey !== undefined
+    ? resolveBatchKey(roomId, slot.id, slot.batchKey)
+    : (slot.by !== undefined ? batchOf(roomId, slot.id, slot.by) : undefined)
   const markSlotWorked = (roomId, slot) => {
     const batch = batchOfSlot(roomId, slot)
     if (batch !== undefined && !batch.worked) {
@@ -1183,14 +1220,10 @@ export function install(rt) {
     }
   }
 
-  // The batch the turn with trigger `info` answers. Exact `batchKey` wins; else the call
-  // names who asked; a turn that names nobody (not a call of the group) answers the oldest
-  // batch the member is in.
+  // The batch the turn with trigger `info` answers. Exact `batchKey` (or its same-parent
+  // successor) wins; a keyed turn never falls back to another parent's batch.
   const batchOfTurn = (roomId, botId, info) => {
-    if (info?.batchKey !== undefined) {
-      const exact = batches()[info.batchKey]
-      if (exact !== undefined && exact.roomId === roomId && exact.pending.includes(botId)) return exact
-    }
+    if (info?.batchKey !== undefined) return resolveBatchKey(roomId, botId, info.batchKey)
     return (info?.askedBy !== undefined ? batchOf(roomId, botId, info.askedBy) : undefined)
       ?? (info?.role !== 'room' ? batchesOf(roomId, botId)[0] : undefined)
   }
@@ -3526,9 +3559,8 @@ export function install(rt) {
     enterLate(room.id)
     try {
       // The failed turn answers one call; without that call, every batch of the member ends.
-      const exact = info?.batchKey !== undefined ? batches()[info.batchKey] : undefined
-      const owed = exact !== undefined && exact.roomId === room.id && exact.pending.includes(member.id)
-        ? [exact]
+      const owed = info?.batchKey !== undefined
+        ? [resolveBatchKey(room.id, member.id, info.batchKey)].filter(Boolean)
         : info.askedBy !== undefined
           ? [batchOf(room.id, member.id, info.askedBy)].filter(Boolean)
           : batchesOf(room.id, member.id)

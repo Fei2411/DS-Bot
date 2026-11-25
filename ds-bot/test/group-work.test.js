@@ -5233,24 +5233,40 @@ test('dual-parent direct requests from the same caller to the same worker surviv
     }
     rt.state.roomBatches = { [p1.key]: p1, [p2.key]: p2 }
 
-    // Generate two real queued delegate_work posts from Writer -> Tester for distinct parents,
-    // then fold both into one runRoundFrom.
-    host.agentOf('gb').followup({
-      id: 'w-turn-p1',
-      content: [{ type: 'text', text: 'Check release notes' }],
-      source: { kind: 'bot', role: 'room', roomId: 'r1', askedBy: 'a', batchKey: p1.key, exchangeId: 'ex-w-fold-1', senderSessionId: 'r1' },
-    })
+    // Deliver both P1 and P2 into gb's unread queue before awaiting so startup settleRoomBatches
+    // sees both deliveries queued on Writer (testing unreadOf parentBatchKey scoping).
+    await Promise.all([
+      rt.deliver({
+        toId: 'b',
+        sessionId: 'gb',
+        role: 'room',
+        roomId: 'r1',
+        askedBy: 'a',
+        batchKey: p1.key,
+        text: 'Check release notes',
+      }),
+      rt.deliver({
+        toId: 'b',
+        sessionId: 'gb',
+        role: 'room',
+        roomId: 'r1',
+        askedBy: 'd',
+        batchKey: p2.key,
+        text: 'Check migration guide',
+      }),
+    ])
+    const gbCalls = host.agentOf('gb').calls
+    const [w1Msg, w2Msg] = gbCalls.slice(-2)
+    // Start w1 first (leaving w2 unread in gb's queue), delegate to Tester, finish w1.
+    host.agentOf('gb').calls.push(w1Msg)
     host.begin('gb')
     host.emit('gb', 'tool/call', { callId: 'w-work-1', name: 'read', arguments: '{}' })
     host.emit('gb', 'tool/result', { callId: 'w-work-1' })
     await host.tool('delegate_work', { to: 'Tester', goal: 'check release notes' }, 'gb')
     host.finish('gb', '[PASS]')
 
-    host.agentOf('gb').followup({
-      id: 'w-turn-p2',
-      content: [{ type: 'text', text: 'Check migration guide' }],
-      source: { kind: 'bot', role: 'room', roomId: 'r1', askedBy: 'd', batchKey: p2.key, exchangeId: 'ex-w-fold-2', senderSessionId: 'r1' },
-    })
+    // Now start w2, delegate to Tester, finish w2.
+    host.agentOf('gb').calls.push(w2Msg)
     host.begin('gb')
     host.emit('gb', 'tool/call', { callId: 'w-work-2', name: 'read', arguments: '{}' })
     host.emit('gb', 'tool/result', { callId: 'w-work-2' })
@@ -5357,5 +5373,195 @@ test('dual-parent direct requests from the same caller to the same worker surviv
     await settle(() => host.agentOf('gc').calls.length >= before + 2)
     const redelivered = host.agentOf('gc').calls.slice(before).map(msg => msg.source?.batchKey)
     assert.deepEqual(redelivered, [c1.key, c2.key], 'both live pending child batches must be re-delivered when busy turn finishes')
+  }
+})
+
+test('reissued in-flight child batch settles its same-parent successor and unwinds orphaned parent while caller runs another parent', async (t) => {
+  // 11) Writer delegates K1 (for Chief P1) to Tester; Tester starts running K1 past the round grace.
+  // Writer also queues K2 (for Reviewer P2) to Tester, then revises P1 creating K3 (superseding & deleting K1,
+  // leaving K2 ahead of K3 in roomBatches). When Tester finishes K1 late, it must settle K3 (Chief P1), NOT K2 (Reviewer P2).
+  {
+    const host = await start(
+      t,
+      { members: ['a', 'b', 'c', 'd'], sessions: { a: 'ga', b: 'gb', c: 'gc', d: 'gd' } },
+      undefined,
+      undefined,
+      { d: {} },
+    )
+    const p1 = {
+      key: 'reissue-p1-chief',
+      roomId: 'r1',
+      by: 'a',
+      pending: ['b'],
+      done: [],
+      doneIds: [],
+      results: [],
+      worked: false,
+      direct: true,
+      returnRequested: true,
+      answered: false,
+      at: Date.now(),
+    }
+    const p2 = {
+      key: 'reissue-p2-reviewer',
+      roomId: 'r1',
+      by: 'd',
+      pending: ['b'],
+      done: [],
+      doneIds: [],
+      results: [],
+      worked: false,
+      direct: true,
+      returnRequested: true,
+      answered: false,
+      at: Date.now(),
+    }
+    rt.state.roomBatches = { [p1.key]: p1 }
+
+    // Round 1: Writer delegates K1 (for P1) to Tester; Tester starts running K1 and passes the grace.
+    host.agentOf('gb').followup({
+      id: 'w-p1-initial',
+      content: [{ type: 'text', text: 'Check release notes' }],
+      source: { kind: 'bot', role: 'room', roomId: 'r1', askedBy: 'a', batchKey: p1.key, exchangeId: 'ex-w-p1-1', senderSessionId: 'r1' },
+    })
+    host.begin('gb')
+    host.emit('gb', 'tool/call', { callId: 'w-r1', name: 'read', arguments: '{}' })
+    host.emit('gb', 'tool/result', { callId: 'w-r1' })
+    await host.tool('delegate_work', { to: 'Tester', goal: 'initial release notes check' }, 'gb')
+    host.finish('gb', '[PASS]')
+
+    await settle(() => host.agentOf('r1').calls.length === 1)
+    const r1 = host.round('c-r1', host.takePost())
+    await settle(() => host.agentOf('gc').calls.length === 1)
+    const k1Msg = host.begin('gc')
+    const k1Key = k1Msg.source.batchKey
+    assert.ok(k1Key)
+    host.emit('gc', 'tool/call', { callId: 'c-work-k1', name: 'read', arguments: '{}' })
+    host.emit('gc', 'tool/result', { callId: 'c-work-k1' })
+    rt.roomWaiters.get(k1Msg.source.exchangeId)?.resolve({ working: true })
+    await settle(() => r1() !== undefined)
+
+    // Reviewer now assigns P2 to Writer: Writer queues K2 (for P2) to Tester, then revises P1
+    // creating K3 (superseding & deleting K1, leaving K2 ahead of K3 in roomBatches).
+    rt.state.roomBatches[p2.key] = p2
+    host.agentOf('gb').followup({
+      id: 'w-p2-initial',
+      content: [{ type: 'text', text: 'Check migration guide' }],
+      source: { kind: 'bot', role: 'room', roomId: 'r1', askedBy: 'd', batchKey: p2.key, exchangeId: 'ex-w-p2-1', senderSessionId: 'r1' },
+    })
+    host.begin('gb')
+    host.emit('gb', 'tool/call', { callId: 'w-r2', name: 'read', arguments: '{}' })
+    host.emit('gb', 'tool/result', { callId: 'w-r2' })
+    await host.tool('delegate_work', { to: 'Tester', goal: 'migration guide check' }, 'gb')
+    host.finish('gb', '[PASS]')
+
+    host.agentOf('gb').followup({
+      id: 'w-p1-revise',
+      content: [{ type: 'text', text: 'Revise release notes check' }],
+      source: { kind: 'bot', role: 'room', roomId: 'r1', askedBy: 'a', batchKey: p1.key, exchangeId: 'ex-w-p1-2', senderSessionId: 'r1' },
+    })
+    host.begin('gb')
+    host.emit('gb', 'tool/call', { callId: 'w-r3', name: 'read', arguments: '{}' })
+    host.emit('gb', 'tool/result', { callId: 'w-r3' })
+    await host.tool('delegate_work', { to: 'Tester', goal: 'revised release notes check' }, 'gb')
+    host.finish('gb', '[PASS]')
+
+    await settle(() => host.agentOf('r1').calls.length === 2)
+    const p2Post = host.takePost()
+    const p1RevisePost = host.takePost()
+    host.emit('r1', 'user/message', p2Post)
+    const r2 = host.round('c-r2', p1RevisePost)
+    await settle(() => {
+      const children = Object.values(rt.state.roomBatches ?? {}).filter(b => b.by === 'b' && b.pending.includes('c'))
+      return children.length === 2 && rt.state.roomBatches?.[k1Key] === undefined
+    })
+    const k2Batch = Object.values(rt.state.roomBatches).find(b => b.by === 'b' && b.parentBatchKey === p2.key)
+    const k3Batch = Object.values(rt.state.roomBatches).find(b => b.by === 'b' && b.parentBatchKey === p1.key)
+    assert.ok(k2Batch && k3Batch && k3Batch.key !== k1Key)
+
+    // Tester finishes the original K1 turn late -> must settle K3 (P1), keeping K2 (P2) pending!
+    host.finish('gc', 'Release notes check complete.')
+    await settle(() => rt.state.roomBatches?.[k3Batch.key]?.pending.length === 0 || rt.state.roomBatches?.[k3Batch.key] === undefined)
+    assert.deepEqual(rt.state.roomBatches?.[k2Batch.key]?.pending, ['c'], 'K2 (Reviewer parent) must stay pending when K1 settles K3 (Chief parent)')
+    r2.cancel()
+  }
+
+  // 12) Writer holds P1 (Chief) and P2 (Reviewer) and is actively running P2's turn when P1's only
+  // child (Tester) exits with [PASS] -> activeInRoom scoped by parentBatchKey must unwind P1 without touching P2.
+  {
+    const host = await start(
+      t,
+      { members: ['a', 'b', 'c', 'd'], sessions: { a: 'ga', b: 'gb', c: 'gc', d: 'gd' } },
+      undefined,
+      undefined,
+      { d: {} },
+    )
+    const p1 = {
+      key: 'unwind-p1-chief',
+      roomId: 'r1',
+      by: 'a',
+      pending: ['b'],
+      done: [],
+      doneIds: [],
+      results: [],
+      worked: false,
+      direct: true,
+      returnRequested: true,
+      answered: false,
+      at: Date.now(),
+    }
+    const p2 = {
+      key: 'unwind-p2-reviewer',
+      roomId: 'r1',
+      by: 'd',
+      pending: ['b'],
+      done: [],
+      doneIds: [],
+      results: [],
+      worked: false,
+      direct: true,
+      returnRequested: true,
+      answered: false,
+      at: Date.now(),
+    }
+    const c1 = {
+      key: 'unwind-c1-tester',
+      roomId: 'r1',
+      by: 'b',
+      pending: ['c'],
+      done: [],
+      doneIds: [],
+      results: [],
+      worked: false,
+      direct: true,
+      returnRequested: true,
+      parentBatchKey: p1.key,
+      answered: false,
+      at: Date.now(),
+    }
+    rt.state.roomBatches = { [p1.key]: p1, [p2.key]: p2, [c1.key]: c1 }
+
+    // Writer is actively running P2's turn (unrelated to P1).
+    host.agentOf('gb').followup({
+      id: 'w-running-p2',
+      content: [{ type: 'text', text: 'Work on Reviewer task' }],
+      source: { kind: 'bot', role: 'room', roomId: 'r1', askedBy: 'd', batchKey: p2.key, exchangeId: 'ex-w-run-p2', senderSessionId: 'r1' },
+    })
+    host.begin('gb')
+
+    // Tester finishes C1 (P1's only child) late with [PASS] -> C1 closes without waking Writer,
+    // and unwindOrphanedCallers must see Writer is NOT working on P1 and clear P1 while keeping P2.
+    host.agentOf('gc').followup({
+      id: 't-running-c1',
+      content: [{ type: 'text', text: 'Check for P1' }],
+      source: { kind: 'bot', role: 'room', roomId: 'r1', askedBy: 'b', batchKey: c1.key, exchangeId: 'ex-t-c1', senderSessionId: 'r1' },
+    })
+    host.begin('gc')
+    host.finish('gc', '[PASS]')
+
+    await settle(() => rt.state.roomBatches?.[p1.key] === undefined)
+    assert.ok(rt.state.roomBatches?.[p2.key] !== undefined, 'active P2 parent batch must remain untouched')
+    assert.deepEqual(rt.state.roomBatches?.[p2.key]?.pending, ['b'])
+    host.finish('gb', 'Reviewer task finished.')
   }
 })
