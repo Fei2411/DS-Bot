@@ -2509,3 +2509,255 @@ test('a Bot post held on its write belongs to the round that follows, not the ro
   await answer(woken.sessionId, woken.message.source.exchangeId, 'fine', 3)
   await running
 })
+
+// #2066 review 6052818736: holdForNextRound with an undefined agent (the post_to_group
+// path) awaits resolveAgent after it has already pushed its posts. The window is a round
+// boundary: nothing may start a second round, and a stop must not be undone by it.
+
+test('two Bot posts held on their writes at once start one round, not an empty second one', async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  await emit(room.id, userMessage('Kick off'))
+  const running = relay(room.id, 'relay-held-pair')
+  const first = await turnFor(sent)
+  assert.ok(first)
+  const round = await waitFor(() => [...rt.roomProgress.values()].find(progress => progress.roomId === room.id && progress.nudge !== undefined))
+  assert.ok(round)
+  const senderA = rt.botOf(room.members[0])
+  const senderB = rt.botOf(room.members[1])
+  let written = 0
+  const releases = []
+  const realWritten = rt.ledger.written
+  rt.ledger.written = (book) => {
+    written += 1
+    if (written === 2 || written === 4) return new Promise(resolve => releases.push(resolve))
+    return realWritten(book)
+  }
+  const pa = rt.postToRoom(rt.roomOf(room.id), senderA, '@Writer A held', { progress: true })
+  const pb = rt.postToRoom(rt.roomOf(room.id), senderB, '@Chief B held', { progress: true })
+  assert.ok(await waitFor(() => written >= 4 ? true : undefined), 'both landed writes are held')
+  await answer(first.sessionId, first.message.source.exchangeId, 'done', 1)
+  const second = await turnFor(sent, first)
+  assert.ok(second, 'the other member is called')
+  await answer(second.sessionId, second.message.source.exchangeId, 'done', 2)
+  assert.ok(await waitFor(() => rt.roomActive(room.id) === false ? true : undefined), 'the round finished all the way')
+  rt.ledger.written = realWritten
+  let resolveCalls = 0
+  let releaseResolve
+  const resolveGate = new Promise(resolve => { releaseResolve = resolve })
+  const realResolve = rt.resolveAgent
+  rt.resolveAgent = async (sessionId) => {
+    resolveCalls += 1
+    if (resolveCalls <= 2) await resolveGate
+    return realResolve(sessionId)
+  }
+  for (const release of releases) release()
+  assert.ok(await waitFor(() => resolveCalls >= 2 ? true : undefined), 'both posts wait on resolveAgent')
+  releaseResolve()
+  await Promise.all([pa, pb])
+  await new Promise(resolve => setTimeout(resolve, 300))
+  const rounds = [...rt.roomProgress.values()].filter(progress => progress.roomId === room.id)
+  const emptyLines = rt.roomOf(room.id).log.filter(line => line.text === '' && line.who === 'User')
+  void running.catch(() => {})
+  assert.equal(rounds.length, 1, 'the two held posts start one round, not a second empty one')
+  assert.equal(emptyLines.length, 0, 'no empty user line is said')
+})
+
+test('a stop that lands while a held post resolves its agent starts no round', async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  await emit(room.id, userMessage('Kick off'))
+  const running = relay(room.id, 'relay-held-stop')
+  const first = await turnFor(sent)
+  assert.ok(first)
+  const round = await waitFor(() => [...rt.roomProgress.values()].find(progress => progress.roomId === room.id && progress.nudge !== undefined))
+  assert.ok(round)
+  const sender = rt.botOf(room.members[0])
+  let written = 0
+  let releaseWrite
+  const writeGate = new Promise(resolve => { releaseWrite = resolve })
+  const realWritten = rt.ledger.written
+  rt.ledger.written = (book) => { written += 1; if (written === 2) return writeGate; return realWritten(book) }
+  const posting = rt.postToRoom(rt.roomOf(room.id), sender, '@Writer held then stopped', { progress: true })
+  assert.ok(await waitFor(() => written >= 2 ? true : undefined), 'the landed write is held')
+  await answer(first.sessionId, first.message.source.exchangeId, 'done', 1)
+  const second = await turnFor(sent, first)
+  assert.ok(second)
+  await answer(second.sessionId, second.message.source.exchangeId, 'done', 2)
+  assert.ok(await waitFor(() => rt.roomActive(room.id) === false ? true : undefined), 'the round finished all the way')
+  rt.ledger.written = realWritten
+  let resolveCalls = 0
+  let releaseResolve
+  const resolveGate = new Promise(resolve => { releaseResolve = resolve })
+  const realResolve = rt.resolveAgent
+  rt.resolveAgent = async (sessionId) => { resolveCalls += 1; if (resolveCalls === 1) await resolveGate; return realResolve(sessionId) }
+  releaseWrite()
+  assert.ok(await waitFor(() => resolveCalls >= 1 ? true : undefined), 'the post waits on resolveAgent')
+  await rt.stopRoomWork(room.id)
+  const beforeStop = sent.length
+  releaseResolve()
+  await posting
+  await new Promise(resolve => setTimeout(resolve, 300))
+  const rounds = [...rt.roomProgress.values()].filter(progress => progress.roomId === room.id)
+  const emptyLines = rt.roomOf(room.id).log.filter(line => line.text === '' && line.who === 'User')
+  const turnsAfterStop = sent.slice(beforeStop).filter(entry => entry.message.source.role === 'room').length
+  void running.catch(() => {})
+  assert.equal(rounds.length, 0, 'a round starts after the user stopped the room')
+  assert.equal(emptyLines.length, 0, 'an empty user line is said after the stop')
+  assert.equal(turnsAfterStop, 0, 'a member is called after the stop')
+})
+
+test('a Bot post held on its write when the room is stopped is not queued and wakes nobody', async (t) => {
+  const { call, emit, userMessage, relay, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  await emit(room.id, userMessage('Kick off'))
+  const running = relay(room.id, 'relay-stopped-post')
+  const first = await turnFor(sent)
+  assert.ok(first)
+  const round = await waitFor(() => [...rt.roomProgress.values()].find(progress => progress.roomId === room.id && progress.nudge !== undefined))
+  assert.ok(round)
+  const sender = rt.botOf(room.members[0])
+  const batchKey = 'stopped-batch'
+  rt.state.roomBatches = { [batchKey]: { key: batchKey, roomId: room.id, by: sender.id, pending: [], done: [], doneIds: [], results: [], worked: false, answered: false, at: Date.now() } }
+  const deliveries = []
+  const realDeliver = rt.deliver
+  rt.deliver = async (args) => { if (args?.role === 'report') deliveries.push(args); return realDeliver(args) }
+  let written = 0
+  let release
+  const gate = new Promise(resolve => { release = resolve })
+  const realWritten = rt.ledger.written
+  rt.ledger.written = (book) => { written += 1; if (written === 2) return gate; return realWritten(book) }
+  const posting = rt.postToRoom(rt.roomOf(room.id), sender, '@Writer held for the stop', { reportBack: true, batch: batchKey, batchEnd: true })
+  assert.ok(await waitFor(() => written >= 2 ? true : undefined), 'the landed write is held')
+  await rt.stopRoomWork(room.id)
+  const beforeRelease = sent.length
+  release()
+  await posting
+  await new Promise(resolve => setTimeout(resolve, 400))
+  const reports = Object.values(rt.state.roomReports ?? {}).filter(report => report.roomId === room.id)
+  const summary = {
+    reports: reports.map(report => ({ status: report.status, stopped: report.stopped, neverStarted: report.neverStarted })),
+    batch: rt.state.roomBatches[batchKey] !== undefined,
+    delivered: deliveries.length,
+    heldLines: rt.ledger.records(`group-${room.id}`).filter(record => record.text === '@Writer held for the stop').length,
+    ghostRound: [...rt.roomProgress.values()].some(progress => progress.roomId === room.id),
+    turnsAfter: sent.slice(beforeRelease).filter(entry => entry.message.source.role === 'room').length,
+  }
+  // Known limit: the stopped receipt is deferred while the caller has unread input (its own
+  // queued turn from the stopped round); consuming that, as the caller's next turn does,
+  // lets the settle deliver it. Deferred, not lost.
+  const callerSid = rt.roomOf(room.id).sessions?.[room.members[0]]
+  for (const unread of rt.unreadOf(callerSid) ?? []) rt.forgetDelivery(unread.exchangeId)
+  await rt.settleRoomReports(room.id)
+  await new Promise(resolve => setTimeout(resolve, 300))
+  const reportAfter = Object.values(rt.state.roomReports ?? {}).filter(report => report.roomId === room.id)
+  const deliveredAfter = deliveries.length
+  rt.deliver = realDeliver
+  void running.catch(() => {})
+  assert.deepEqual(summary.reports, [{ status: 'tracking', stopped: true, neverStarted: true }], 'the receipt is on record as stopped, not dropped')
+  assert.equal(summary.batch, false, 'the batch is closed')
+  assert.equal(summary.heldLines, 1, 'the held post was said once')
+  assert.equal(summary.ghostRound, false, 'no round was opened for the stopped post')
+  assert.equal(summary.turnsAfter, 0, 'no member was called after the stop')
+  assert.equal(summary.delivered, 0, 'nothing is reported while the caller has unread input')
+  assert.equal(deliveredAfter, 1, 'the stopped receipt arrives once the caller\'s unread is consumed')
+  assert.match(String(deliveries[0]?.text ?? ''), /stopped/i)
+  assert.deepEqual(reportAfter, [], 'the settled receipt is gone from the report list')
+})
+
+test('a stopped post without a report id is not replayed by the next message', async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  await emit(room.id, userMessage('Kick off'))
+  const running = relay(room.id, 'relay-no-report')
+  const first = await turnFor(sent)
+  assert.ok(first)
+  const round = await waitFor(() => [...rt.roomProgress.values()].find(progress => progress.roomId === room.id && progress.nudge !== undefined))
+  assert.ok(round)
+  const sender = rt.botOf(room.members[0])
+  const held = '@Writer held for the stop'
+  let written = 0
+  let release
+  const gate = new Promise(resolve => { release = resolve })
+  const realWritten = rt.ledger.written
+  rt.ledger.written = (book) => { written += 1; if (written === 2) return gate; return realWritten(book) }
+  const posting = rt.postToRoom(rt.roomOf(room.id), sender, held, { progress: true })
+  assert.ok(await waitFor(() => written >= 2 ? true : undefined), 'the landed write is held')
+  await rt.stopRoomWork(room.id)
+  release()
+  await posting
+  await new Promise(resolve => setTimeout(resolve, 300))
+  const before = sent.length
+  await emit(room.id, userMessage('@Chief next question'))
+  const running2 = relay(room.id, 'relay-no-report-next')
+  const newTurns = []
+  const deadline = Date.now() + 2500
+  while (Date.now() < deadline) {
+    for (const entry of sent.slice(before)) if (entry.message.source.role === 'room' && !newTurns.includes(entry)) newTurns.push(entry)
+    if (newTurns.length >= 2) break
+    await new Promise(resolve => setTimeout(resolve, 20))
+  }
+  const writerSession = rt.roomOf(room.id).sessions?.[room.members[1]]
+  const writerTurns = newTurns.filter(entry => entry.sessionId === writerSession).length
+  const heldCount = rt.ledger.records(`group-${room.id}`).filter(record => record.text === held).length
+  let turnNo = 10
+  for (const entry of newTurns) await answer(entry.sessionId, entry.message.source.exchangeId, 'answered', turnNo++)
+  void running.catch(() => {})
+  void running2.catch(() => {})
+  assert.equal(writerTurns, 0, 'the stopped post woke the member it names in the next round')
+  assert.equal(heldCount, 1, 'the stopped line is not said a second time')
+})
+
+test('a held post whose state cannot be saved is reported delivered, not posted again', { skip: process.platform === 'win32' || process.getuid?.() === 0 }, async (t) => {
+  const { call, emit, userMessage, relay, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  await emit(room.id, userMessage('Kick off'))
+  const running = relay(room.id, 'relay-held-save')
+  const first = await turnFor(sent)
+  assert.ok(first)
+  const sender = rt.botOf(room.members[0])
+  let written = 0
+  let release
+  const gate = new Promise(resolve => { release = resolve })
+  const realWritten = rt.ledger.written
+  rt.ledger.written = (book) => { written += 1; if (written === 2) return gate; return realWritten(book) }
+  const posting = rt.postToRoom(rt.roomOf(room.id), sender, '@Writer held for a failed save', { reportBack: true })
+  assert.ok(await waitFor(() => written >= 2 ? true : undefined), 'the landed write is held')
+  await rt.stopRoomWork(room.id)
+  const realSave = rt.save
+  let saveCalls = 0
+  let failed = false
+  rt.save = (...args) => {
+    saveCalls += 1
+    // Fail only the save postToRoom awaits: the round's own saves run first and must succeed.
+    if (!failed && (new Error('save').stack ?? '').includes('at Object.postToRoom')) {
+      failed = true
+      return Promise.reject(new Error('the state could not be saved'))
+    }
+    return realSave.apply(rt, args)
+  }
+  const beforeRelease = sent.length
+  release()
+  const refusal = await posting.then(() => undefined, error => error)
+  rt.save = realSave
+  rt.ledger.written = realWritten
+  await new Promise(resolve => setTimeout(resolve, 300))
+  const lines = rt.ledger.records(`group-${room.id}`).filter(record => record.text === '@Writer held for a failed save')
+  const summary = {
+    refused: refusal?.message,
+    delivered: refusal?.delivered,
+    lines: lines.length,
+    saveCalls,
+    turnsAfter: sent.slice(beforeRelease).filter(entry => entry.message.source.role === 'room').length,
+  }
+  void running.catch(() => {})
+  assert.match(String(summary.refused), /could not be saved/, 'the caller hears the state was not saved')
+  assert.equal(summary.delivered, true, 'the caller hears the line reached the book')
+  assert.equal(summary.lines, 1, 'the line is in the book once')
+  assert.equal(summary.turnsAfter, 0, 'no member was called for the held post')
+})
