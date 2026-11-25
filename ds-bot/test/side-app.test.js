@@ -193,7 +193,7 @@ test('endpoint reads cannot escape the root even when the descriptor lies', asyn
 
 test('write/edit results feed the diff base once per turn, first before to last after', async (t) => {
   const root = fixture(t)
-  const target = write(root, 'draft.html', 'v1')
+  write(root, 'draft.html', 'v1')
   const { rt, fireExecute } = harness({ root })
   rt.live.set('s1', { turn: 7 })
   const exec = { name: 'edit', arguments: { file_path: 'draft.html' }, agent: { id: 's1', session: { id: 's1', header: { cwd: root } } } }
