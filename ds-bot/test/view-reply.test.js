@@ -474,6 +474,17 @@ test('dismiss-view drops the open view, keeps it as a closed card, and leaves a 
   assert.deepEqual((await team()).closedCards, { 'writer-now': { 'call-1': 'dismissed', 'q-call': 'dismissed' } })
 })
 
+test('a view shown over one still open closes the earlier view instead of dropping it (#2172)', async (t) => {
+  const { show, team, stop } = await start()
+  t.after(stop)
+  await rt.teamTools.find(d => d.name === 'list_bots').execute({}, { agent: { id: 'chief' } })
+  await show('writer-now', { title: 'Pick', view: CHOICES }, 'v-first')
+  await show('writer-now', { title: 'Pick again', view: CHOICES }, 'v-second')
+  const open = await team()
+  assert.equal(open.views['writer-now'].callId, 'v-second')
+  assert.deepEqual(open.closedCards, { 'writer-now': { 'v-first': 'dismissed' } })
+})
+
 test('an answered view is not kept as a closed card: its reply message carries it', async (t) => {
   const { show, call, team, stop } = await start()
   t.after(stop)
