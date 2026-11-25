@@ -523,15 +523,15 @@ export function install(rt) {
           const sessionId = rt.chatOf(bot.id)
           const agent = await rt.resolveAgent(sessionId)
           const values = projections.snapshot(agent.session, RUN_STATS).values
-          const isLocal = rt.isLocalAgentRoute?.(agent.session?.requestHeader?.()?.config?.provider ?? '') === true
-            || rt.isLocalAgentSession?.(sessionId) === true
+          const measured = rt.contextRuntime?.measure?.(agent.session)
+          const isLocal = measured?.isLocal === true
           if (values && isLocal) {
-            const localContext = rt.localAgentContext?.(sessionId)
-            const contextWindow = localContext?.size ?? values.contextPressure?.contextWindow
+            const resolved = await rt.contextRuntime.resolveWindow(agent.session).catch(() => undefined)
+            const contextWindow = (resolved?.source !== 'default' ? resolved?.window : undefined) ?? values.contextPressure?.contextWindow
             return ok({
               ...values,
-              contextPressure: Number.isFinite(localContext?.used) && contextWindow > 0
-                ? { ...values.contextPressure, pressureTokens: localContext.used, projectedTokens: localContext.used, contextWindow }
+              contextPressure: Number.isFinite(measured.workingTokens) && contextWindow > 0
+                ? { ...values.contextPressure, pressureTokens: measured.workingTokens, projectedTokens: measured.workingTokens, contextWindow }
                 : undefined,
             })
           }

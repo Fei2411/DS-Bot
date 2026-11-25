@@ -171,6 +171,13 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
     },
     presetFor: sessionId => presetOf(rt, sessionId),
     freshMemoryView: sessionId => rt.freshMemoryView?.(sessionId),
+    onCompaction: (sessionId, info) => {
+      rt.contextRuntime?.bumpEpoch(sessionId, info?.reason ?? 'cli-compaction')
+      if (info?.reason === 'resume-dropped' && Number.isInteger(info?.compactions)) {
+        rt.contextRuntime?.setCliCompactions(sessionId, info.compactions)
+      }
+      rt.renewMemory?.(sessionId)
+    },
     switchOnResumeLost: sessionId => rt.isBotSession?.(sessionId) === true && rt.readOnly?.() === undefined,
     cwdFor: async (sessionId) => {
       try {
@@ -181,10 +188,17 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
       }
     },
     probeCwd: () => mkdtempSync(join(tmpdir(), 'dsb-probe-')),
-    toolsFor: (options) => {
+    toolsFor: (options, sessionId = options?.sessionId) => {
       // Only DS Bot's own team tools cross the bridge; the CLI keeps its own.
+      // Read live scoped schemas from the active Agent when available so
+      // `notifications/tools/list_changed` immediately serves fresh tools/list
+      // without waiting for the next adapter.stream() turn.
       const names = new Set([...rt.teamTools.map(def => def.name), 'approve_agent_action'])
-      return (options.tools ?? []).filter(tool => names.has(tool.name))
+      const liveAgent = sessionId === undefined ? undefined : ctx.get?.('agents')?.get?.(sessionId)
+      const schemas = liveAgent !== undefined && typeof ctx.tools?.schemas === 'function'
+        ? ctx.tools.schemas(liveAgent)
+        : (options?.tools ?? [])
+      return schemas.filter(tool => names.has(tool.name))
     },
   })
 
@@ -364,6 +378,7 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
     localAgentCompact: (sessionId, signal) => adapter.compact(String(sessionId), signal),
     localAgentNote: (sessionId, text, signal) => adapter.note(String(sessionId), text, signal),
     localAgentAsk: (sessionId, request) => adapter.ask(String(sessionId), request),
+    notifyLocalAgentToolsChanged: sessionId => adapter.notifyToolsChanged(sessionId),
     localAgentBadge: (ref) => {
       const provider = splitRef(ref)?.provider
       return provider !== undefined && isLocalAgentRoute(provider) ? provider : undefined

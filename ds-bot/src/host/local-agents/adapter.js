@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os'
 import { basename, dirname, resolve } from 'node:path'
 import { LlmAdapter, LlmError, isContextWindowExceededError, isQuotaExceededError, offloadedImageText, resolveImageAttachmentAccess, resolveRetryPolicy, textOnlyImageText } from '@deepseek-ai/dsh-llm'
 import { isClockSource, isContextOnlyMessage, isSnapshotContextSource } from '../context-messages.js'
-import { GROUP_MEMORY_SOURCE, MEMORY_UPDATE_SOURCE } from '../memory-copy.js'
+import { GROUP_MEMORY_SOURCE, MEMORY_RECALL_SOURCE, MEMORY_UPDATE_SOURCE, OWN_HEADING, OWN_MEMORY_SOURCE } from '../memory-copy.js'
 import { textOf } from '../text.js'
 import { engineOf, cliMode, signInFor } from './engines.js'
 import { PROBE_FORCE_KILL_AFTER_MS } from './discover.js'
@@ -41,6 +41,10 @@ const MEMORY_UPDATE_REPLAY_BYTES = 8 * 1024
 const TURN_CONFIRMING_EVENTS = new Set(['text', 'thought', 'activity', 'call', 'permission', 'usage', 'done'])
 
 const IDLE_CLOSE_MS = 10 * 60_000
+// Brief coalescing window to batch parallel MCP tools/call requests from one CLI step.
+const CALL_BATCH_WINDOW_MS = 8
+const MEMORY_CONTEXT_KINDS = new Set([OWN_MEMORY_SOURCE, GROUP_MEMORY_SOURCE, MEMORY_UPDATE_SOURCE, MEMORY_RECALL_SOURCE])
+const toolSignature = tools => (tools ?? []).map(tool => tool.name).sort().join('\0')
 // A local CLI may have already performed actions before its request fails.
 const LOCAL_RETRY_POLICY = resolveRetryPolicy({ mode: 'normal', maxRetries: 0 }, 'local-agent')
 const APPROVE_TOOL = 'approve_agent_action'
@@ -434,7 +438,13 @@ export class LocalAgentAdapter extends LlmAdapter {
     // An ACP agent read the team instructions as a prompt, which a compaction may
     // have condensed away: the next prompt carries them again.
     if (live.spec.kind === 'acp') live.promptHash = undefined
+    // Drop pre-compaction memory updates/snapshots from pendingContext; the next
+    // step in the new epoch injects fresh full own+group memory snapshots.
+    if (Array.isArray(live.pendingContext) && live.pendingContext.length > 0) {
+      live.pendingContext = live.pendingContext.filter(entry => !MEMORY_CONTEXT_KINDS.has(entry.kind ?? entry.key))
+    }
     this.deps.saveRecord(live.sessionId, this.recordOf(live))
+    this.deps.onCompaction?.(live.sessionId, { compactions: live.compactions, kind: live.spec.kind, reason: 'cli-self-compact' })
   }
 
   // {used, size, compactions} of a Session's CLI session; `used` is undefined while
@@ -558,12 +568,31 @@ export class LocalAgentAdapter extends LlmAdapter {
     }
   }
 
+  notifyToolsChanged(sessionId) {
+    const targets = sessionId !== undefined
+      ? [this.live.get(String(sessionId))].filter(Boolean)
+      : [...this.live.values()]
+    for (const live of targets) {
+      if (live.mcp === undefined) continue
+      const sig = toolSignature(live.tools?.())
+      if (live.toolNamesSig === sig) continue
+      live.toolNamesSig = sig
+      live.mcp.notifyToolsChanged()
+    }
+  }
+
   // The loopback MCP server for one live session; tools/call lands in its event queue.
   // `tools` lists the current turn's tools; the server outlives the turn that
   // started it, so tools/list reads the latest one.
   async ensureMcp(live, tools) {
     live.tools = tools
-    if (live.mcp !== undefined) return live.mcp
+    const sig = toolSignature(tools?.())
+    if (live.mcp !== undefined) {
+      if (live.toolNamesSig !== undefined && live.toolNamesSig !== sig) live.mcp.notifyToolsChanged()
+      live.toolNamesSig = sig
+      return live.mcp
+    }
+    live.toolNamesSig = sig
     const mcp = new LoopbackMcp(() => live.tools(), ({ name, arguments: args, callId }) => {
       const dshCallId = `dsbot-${callId}`
       return new Promise((resolve) => {
@@ -657,8 +686,8 @@ export class LocalAgentAdapter extends LlmAdapter {
     }
 
     const rawSystem = messages.filter(message => message.role === 'system').map(message => textOf(message.content)).join('\n').trim()
-    const hasMemoryDelta = messages.some(message => message.source?.kind === MEMORY_UPDATE_SOURCE || message.source?.kind === GROUP_MEMORY_SOURCE)
-    const mcp = await this.ensureMcp(live, () => this.deps.toolsFor(options))
+    const hasMemoryDelta = messages.some(message => message.source?.kind === OWN_MEMORY_SOURCE || message.source?.kind === MEMORY_UPDATE_SOURCE || message.source?.kind === GROUP_MEMORY_SOURCE)
+    const mcp = await this.ensureMcp(live, () => this.deps.toolsFor(options, sessionId))
     const cwd = live.cwd ?? await this.deps.cwdFor(sessionId)
     live.cwd = cwd
 
@@ -738,6 +767,7 @@ export class LocalAgentAdapter extends LlmAdapter {
         live.compactions = 0
         live.promptHash = undefined
         refreshMemory()
+        this.deps.onCompaction?.(sessionId, { compactions: 0, kind: live.spec.kind, reason: 'resume-dropped' })
         this.deps.rt?.warn?.('local-agents: %s did not resume session %s for %s (opened %s); replaying conversation history', live.spec.kind, priorCliId, sessionId, reportedId ?? 'new')
       }
       if (reportedId !== undefined) live.cliSessionId = reportedId
@@ -791,7 +821,15 @@ export class LocalAgentAdapter extends LlmAdapter {
       contextText = flushedContext.map(entry => entry.text).join('\n')
     }
     let promptBlocks = needsReplay
-      ? await renderReplay(messages, system, resolveImage, { preserve: remaining, freshMemory, memoryNote: appliedMemory.note })
+      ? await renderReplay(messages, system, resolveImage, {
+          preserve: remaining,
+          freshMemory,
+          memoryNote: appliedMemory.note,
+          // Codex receives instructions via developer config and Claude via
+          // --append-system-prompt(-file); only ACP needs system instructions in
+          // the replay prompt itself.
+          includeSystem: live.spec.kind === 'acp',
+        })
       : await renderDelta(contextText, remaining, resolveImage)
     let sentInstructions = live.spec.kind !== 'acp' && startedFreshCli && instructions !== undefined
     let nextPromptHash = live.promptHash
@@ -1124,10 +1162,43 @@ export class LocalAgentAdapter extends LlmAdapter {
           break
         case 'usage': yield addUsage(event.usage); break
         case 'call': {
+          const batch = [{ name: event.name, args: event.args, dshCallId: event.dshCallId }]
+          const drainQueuedCalls = () => {
+            let i = 0
+            while (i < live.events.length) {
+              if (live.events[i]?.type === 'call') {
+                const [extra] = live.events.splice(i, 1)
+                batch.push({ name: extra.name, args: extra.args, dshCallId: extra.dshCallId })
+              } else {
+                i += 1
+              }
+            }
+          }
+          drainQueuedCalls()
+          if (!live.dead && !options.signal?.aborted) {
+            await new Promise((resolve) => {
+              const onEarlyAbort = () => {
+                clearTimeout(timer)
+                resolve()
+              }
+              const timer = setTimeout(() => {
+                options.signal?.removeEventListener('abort', onEarlyAbort)
+                resolve()
+              }, CALL_BATCH_WINDOW_MS)
+              options.signal?.addEventListener('abort', onEarlyAbort, { once: true })
+            })
+            if (options.signal?.aborted) {
+              this.stopTurn(live, 'the turn was stopped')
+              yield { type: 'finish', reason: { kind: 'aborted', failure: { code: 'ABORTED', message: 'the turn was stopped' } } }
+              return
+            }
+            drainQueuedCalls()
+          }
           yield* closeBlocks()
           live.state = 'suspended'
-          // A team tool the CLI invoked over the loopback MCP server.
-          for (const chunk of emitCalls([{ name: event.name, args: event.args, dshCallId: event.dshCallId }])) yield chunk
+          // Team tools the CLI invoked over the loopback MCP server (coalesced into
+          // one DSH tool-calls step when parallel requests arrive together).
+          for (const chunk of emitCalls(batch)) yield chunk
           yield { type: 'finish', reason: { kind: 'tool-calls' } }
           return
         }
@@ -1564,13 +1635,14 @@ function stagePendingContext(live, messages) {
     const text = textOf(message.content)
     if (text === '') continue
     const id = message.id
+    const kind = message.source?.kind
     if (isSnapshotContextSource(message.source)) {
-      const key = message.source?.kind ?? 'snapshot'
+      const key = kind ?? 'snapshot'
       live.pendingContext = live.pendingContext.filter(entry => entry.key !== key && (id === undefined || entry.id !== id))
-      live.pendingContext.push({ ...(id === undefined ? {} : { id }), key, text })
+      live.pendingContext.push({ ...(id === undefined ? {} : { id }), key, ...(kind === undefined ? {} : { kind }), text })
     } else {
       if (id !== undefined && live.pendingContext.some(entry => entry.id === id)) continue
-      live.pendingContext.push({ ...(id === undefined ? {} : { id }), text })
+      live.pendingContext.push({ ...(id === undefined ? {} : { id }), ...(kind === undefined ? {} : { kind }), text })
     }
   }
 }
@@ -1593,6 +1665,11 @@ function applyFreshMemory(system, freshMemory) {
       note: updated === system ? '' : 'Note: The "# Your memory" section above reflects current memory and supersedes any earlier memory snapshot or updates.',
     }
   }
+  if (!system.includes(OWN_HEADING)) {
+    // Dynamic resident memory lives in part-opening snapshot messages rather than
+    // the system prompt; renderReplay places freshMemory.own directly in the replay.
+    return { system, note: '' }
+  }
   if (system.includes(freshMemory.own)) return { system, note: '' }
   return {
     system,
@@ -1600,11 +1677,11 @@ function applyFreshMemory(system, freshMemory) {
   }
 }
 
-// The replay a fresh CLI session stands up on: the system prompt, then the
-// recent messages rendered as text and images, newest first, always keeping the
-// current unread input, the latest group memory snapshot, and the latest handoff
-// word for word while bounding historical messages and incremental memory updates.
-async function renderReplay(messages, system, resolveImage, { preserve = [], freshMemory, memoryNote = '' } = {}) {
+// The replay a fresh CLI session stands up on: optional team instructions (for ACP),
+// then the recent messages rendered as text and images, newest first, always keeping
+// the current unread input, the latest memory snapshots, and the latest handoff word
+// for word while bounding historical messages and incremental memory updates.
+async function renderReplay(messages, system, resolveImage, { preserve = [], freshMemory, memoryNote = '', includeSystem = true } = {}) {
   const picked = []
   let used = 0
   let conversationCount = 0
@@ -1613,6 +1690,8 @@ async function renderReplay(messages, system, resolveImage, { preserve = [], fre
   const body = (messages ?? []).filter(message => message.role !== 'system')
   const latest = body.at(-1)
   const latestNonClock = [...body].reverse().find(message => !isClockSource(message.source))
+  const injectFreshOwn = freshMemory?.own !== undefined && !system.includes(OWN_HEADING)
+  const latestOwnMem = injectFreshOwn ? undefined : [...body].reverse().find(message => message.source?.kind === OWN_MEMORY_SOURCE)
   const latestGroupMem = freshMemory?.group !== undefined ? undefined : [...body].reverse().find(message => message.source?.kind === GROUP_MEMORY_SOURCE)
   const latestHandoff = [...body].reverse().find(message => message.source?.handoff === true)
   const preserveSet = new Set(preserve)
@@ -1621,6 +1700,7 @@ async function renderReplay(messages, system, resolveImage, { preserve = [], fre
     const sourceKind = message.source?.kind
     const isCurrentInput = message === latest || message === latestNonClock || preserveSet.has(message)
     if (!isCurrentInput && isClockSource(message.source)) continue
+    if (sourceKind === OWN_MEMORY_SOURCE && message !== latestOwnMem) continue
     if (sourceKind === GROUP_MEMORY_SOURCE && message !== latestGroupMem) continue
     const text = textOf(message.content)
     const prefix = `${message.role === 'assistant' ? 'You' : message.role === 'tool' ? `Tool result (${message.toolCallId ?? 'call'})` : 'User'}:`
@@ -1639,7 +1719,7 @@ async function renderReplay(messages, system, resolveImage, { preserve = [], fre
       memoryUpdateBytes += Math.min(len, maxText)
       continue
     }
-    const whole = isCurrentInput || message === latestHandoff || message === latestGroupMem
+    const whole = isCurrentInput || message === latestHandoff || message === latestOwnMem || message === latestGroupMem
     const approxLen = prefix.length + 1 + (whole ? text.length : Math.min(text.length, REPLAY_LINE_MAX))
     if (!whole) {
       full ||= conversationCount >= REPLAY_MESSAGES || picked.length >= REPLAY_TOTAL_MAX || used + approxLen > REPLAY_BYTES
@@ -1654,14 +1734,15 @@ async function renderReplay(messages, system, resolveImage, { preserve = [], fre
         : [{ type: 'text', text: `${prefix} ` }]
     picked.unshift(entry)
     if (!whole) used += approxLen
-    if (message.role !== 'tool' && sourceKind !== GROUP_MEMORY_SOURCE && !isClockSource(message.source)) {
+    if (message.role !== 'tool' && sourceKind !== OWN_MEMORY_SOURCE && sourceKind !== GROUP_MEMORY_SOURCE && !isClockSource(message.source)) {
       conversationCount += 1
     }
   }
   if (picked.length === 0) return []
   const headerParts = []
-  if (system !== '') headerParts.push(`The team instructions for this conversation:\n${system}`)
+  if (includeSystem && system !== '') headerParts.push(`The team instructions for this conversation:\n${system}`)
   if (memoryNote !== '') headerParts.push(memoryNote)
+  if (injectFreshOwn) headerParts.push(freshMemory.own)
   if (freshMemory?.group !== undefined) headerParts.push(freshMemory.group)
   headerParts.push('The conversation so far (oldest first):')
   return mergeTextBlocks([{ type: 'text', text: headerParts.join('\n\n') }, ...picked.flat()])
