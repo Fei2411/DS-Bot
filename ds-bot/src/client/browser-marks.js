@@ -2,11 +2,11 @@
 // browser installed on the user's machine (see NOTICE). Uses unique per-mount
 // SVG gradient IDs via a module counter so multiple profiles of the same browser
 // never collide in the DOM.
-import { createElement as h, useMemo } from 'react'
+import { createElement as h, useState } from 'react'
 
 let nextGradId = 0
 function useGradPrefix(tag) {
-  return useMemo(() => `bt-bm-${tag}-${++nextGradId}`, [tag])
+  return useState(() => `bt-bm-${tag}-${++nextGradId}`)[0]
 }
 
 const wrap = (size, children, viewBox = '0 0 24 24') => h('svg', {

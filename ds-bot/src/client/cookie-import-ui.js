@@ -103,6 +103,7 @@ export function useCookieImportFlow({ imports, botId = null, botIds = null, page
   // Reset and cancel any in-flight work when leaving the tab/panel/page.
   useEffect(() => {
     reqRef.current += 1
+    sourcesReqRef.current += 1
     cancelPendingImport()
     setBusy(false)
     setFlowTracked(idleFlow)
@@ -112,6 +113,7 @@ export function useCookieImportFlow({ imports, botId = null, botIds = null, page
     }
     return () => {
       reqRef.current += 1
+      sourcesReqRef.current += 1
       cancelPendingImport()
     }
     // The flow controls live in this hook; the effect re-runs only on resetKey / bridge availability.
@@ -131,7 +133,10 @@ export function useCookieImportFlow({ imports, botId = null, botIds = null, page
       if (r?.id) void imports?.cancel(r.id).catch(() => {})
       return
     }
-    if (r?.canceled) return
+    if (r?.canceled) {
+      if (flowRef.current?.stage === 'connecting') setFlowTracked(idleFlow)
+      return
+    }
     if (r?.id) setFlowTracked({ stage: 'preview', id: r.id, preview: r.preview, restarted: r.restarted === true, method: r.method ?? null })
     else if (r?.error) setFlowTracked({ stage: 'error', message: importError(r.error) })
     else setFlowTracked(idleFlow)
@@ -174,7 +179,10 @@ export function useCookieImportFlow({ imports, botId = null, botIds = null, page
       if (r?.id) void imports?.cancel(r.id).catch(() => {})
       return
     }
-    if (r?.canceled) return
+    if (r?.canceled) {
+      if (flowRef.current?.stage === 'connecting') setFlowTracked(idleFlow)
+      return
+    }
     if (r?.needsProfileChoice) {
       setSources(null)
       setFlowTracked('menu')
@@ -194,7 +202,10 @@ export function useCookieImportFlow({ imports, botId = null, botIds = null, page
       if (r?.id) void imports?.cancel(r.id).catch(() => {})
       return
     }
-    if (r?.canceled) return
+    if (r?.canceled) {
+      if (flowRef.current?.stage === 'connecting') setFlowTracked(idleFlow)
+      return
+    }
     if (r?.needsRemoteDebugging) setFlowTracked({ stage: 'remote-debug', source, info: r })
     else showPicked(r, token)
   })
@@ -269,7 +280,7 @@ function ImportHeader({ title, subtitle, mark, onBack, onClose, busy }) {
 // The source picker: installed browser profiles first (most-recent pinned), then file & paste.
 export function ImportMenu({ sources, lastSourceId, loading, busy, canPaste, inline = false, onFile, onPaste, onSource, onClose }) {
   const menuRef = useRef(null)
-  useEscape(onClose, !inline && typeof onClose === 'function')
+  useEscape(() => { if (!busy) onClose?.() }, !inline && typeof onClose === 'function')
   useEffect(() => {
     const onKey = (event) => { stepMenuFocus(menuRef.current, event) }
     window.addEventListener('keydown', onKey)
@@ -281,7 +292,7 @@ export function ImportMenu({ sources, lastSourceId, loading, busy, canPaste, inl
     role: 'menu',
     'aria-label': t('Import cookies'),
   },
-    inline ? null : h(ImportHeader, { title: t('Import cookies'), onClose }),
+    inline ? null : h(ImportHeader, { title: t('Import cookies'), onClose, busy }),
     h('div', { className: 'bt-import-section' },
       h('div', { className: 'bt-import-label' }, t('Import from browser')),
       loading
@@ -702,7 +713,7 @@ export function ImportCard({ flow, page = { url: '' }, busy, canApply = true, im
     const subtitle = [
       flow.label,
       (flow.botCount ?? 1) > 1 ? t('{count} Bots', { count: flow.botCount }) : null,
-      (report.originsStored ?? 0) > 0 ? t('{count} sites storage', { count: report.originsStored }) : null,
+      (report.stored ?? 0) > 0 && (report.originsStored ?? 0) > 0 ? t('{count} sites storage', { count: report.originsStored }) : null,
       flow.reloaded ? t('page reloaded') : null,
     ].filter(Boolean).join(' · ')
     return h('div', { className: 'bt-import-stage bt-import-status' },

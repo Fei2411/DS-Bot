@@ -5,7 +5,14 @@ import { runInNewContext } from 'node:vm'
 import { build } from 'esbuild'
 
 const { outputFiles } = await build({
-  entryPoints: [fileURLToPath(new URL('../src/client/browser-settings.js', import.meta.url))],
+  stdin: {
+    contents: `
+      export { BrowserPage } from './browser-settings.js'
+      export { useEscape } from './overlay-hooks.js'
+    `,
+    resolveDir: fileURLToPath(new URL('../src/client', import.meta.url)),
+    loader: 'js',
+  },
   bundle: true, format: 'cjs', platform: 'browser', write: false, logLevel: 'silent',
   external: ['react', 'react-dom', '@deepseek-ai/dsh-client-ui-primitives'],
 })
@@ -212,11 +219,20 @@ test('BrowserPage renders inline Import cookies section when desktop bridge and 
   assert.ok(menuNode, 'expected inline ImportMenu')
   assert.equal(menuNode.props.sources.length, 1)
 
-  // Idle inline ImportMenu must not register a global Escape handler that blocks Settings dialog Escape.
-  let escapeHandled = 0
-  harness.window.addEventListener('keydown', () => { escapeHandled += 1 })
+  // Verify real useEscape stack behavior against an outer Settings dialog layer:
+  // (a) idle inline ImportMenu does not register on the stack, so outer Settings closes on Escape;
+  // (b) active inline ImportCard in preview intercepts Escape and returns to menu;
+  // (c) busy inline ImportCard in preview swallows Escape without closing Settings or canceling.
+  let outerEscape = 0
+  const OuterDialog = () => { harness.exports.useEscape(() => { outerEscape += 1 }); return null }
+  const outerInst = harness.mount(OuterDialog, {})
+  outerInst.render()
+
+  const menuInst = harness.mount(menuNode.type, menuNode.props)
+  menuInst.render()
   harness.window.dispatch('keydown', { key: 'Escape', isComposing: false, keyCode: 27 })
-  assert.equal(escapeHandled, 1)
+  assert.equal(outerEscape, 1, 'idle inline ImportMenu must let outer Settings Escape run')
+  menuInst.unmount()
 
   // Picking a browser transitions inline to preview.
   await menuNode.props.onSource(menuNode.props.sources[0])
@@ -224,6 +240,25 @@ test('BrowserPage renders inline Import cookies section when desktop bridge and 
   const cardNode = allNodes(tree, (n) => typeof n.type === 'function' && n.props?.flow?.stage === 'preview')[0]
   assert.ok(cardNode, 'expected inline ImportCard in preview stage')
   assert.equal(cardNode.props.inline, true)
+
+  // Busy inline ImportCard swallows Escape without firing outer Settings or onCancel.
+  let busyCanceled = 0
+  const busyCardInst = harness.mount(cardNode.type, { ...cardNode.props, busy: true, onCancel: () => { busyCanceled += 1 } })
+  busyCardInst.render()
+  harness.window.dispatch('keydown', { key: 'Escape', isComposing: false, keyCode: 27 })
+  assert.equal(outerEscape, 1, 'busy inline ImportCard must not leak Escape to outer Settings')
+  assert.equal(busyCanceled, 0, 'busy inline ImportCard must not cancel apply on Escape')
+  busyCardInst.unmount()
+
+  // Non-busy inline ImportCard intercepts Escape and invokes onCancel (without closing Settings).
+  let previewCanceled = 0
+  const activeCardInst = harness.mount(cardNode.type, { ...cardNode.props, busy: false, onCancel: () => { previewCanceled += 1 } })
+  activeCardInst.render()
+  harness.window.dispatch('keydown', { key: 'Escape', isComposing: false, keyCode: 27 })
+  assert.equal(outerEscape, 1, 'active inline ImportCard must consume Escape before outer Settings')
+  assert.equal(previewCanceled, 1)
+  activeCardInst.unmount()
+  outerInst.unmount()
 
   // Switching target Bots mid-preview (batch select) keeps the preview and applies cookies to all selected Bots.
   const selectAllBtn = allNodes(tree, (n) => n.type === 'button' && n.props?.className === 'bt-browser-import-targets-btn')[0]

@@ -871,6 +871,7 @@ body[data-ds-dark-theme] .bt-tour-spot{box-shadow:0 0 0 4px color-mix(in srgb,va
 .bt-browser-import-chip-name{max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-browser-import-chip-check{display:inline-flex;color:var(--bt-accent);animation:bt-import-pop ${SPRING_POP.duration}ms ${SPRING_POP.easing}}
 .bt-browser-import-chip-check svg{width:13px;height:13px;stroke-width:1.9}
+@media (prefers-reduced-motion:reduce){.bt-browser-import-chip{transition:none!important}.bt-browser-import-chip-check{animation:none!important}}
 .bt-browser-import-body{padding:14px 16px 16px}
 .bt-browser-import-body[data-morph]{overflow:hidden}
 .bt-browser-import-body .bt-import-item{width:calc(100% + 16px);margin:0 -8px;padding:8px}

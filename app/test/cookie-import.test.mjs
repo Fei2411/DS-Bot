@@ -447,11 +447,13 @@ test('applyImportToTargets consumes pending once for batch Bots, deduplicates ke
   const parsed = parse('cookie-editor.json')
   const { id } = store.store(parsed, { kind: 'file', label: 'cookie-editor.json' })
 
-  // Invalid target must fail before consuming the pending entry.
-  await assert.rejects(
-    () => applyImportToTargets({ keyOrKeys: ['bot:a', 'not-bot'], id, options: {}, store, applyOne: async () => ({}) }),
-    /Bot storage key is required/,
-  )
+  // Invalid targets (empty array, bare prefix, whitespace-only, non-bot) must fail before consuming pending.
+  for (const bad of [[], 'bot:', 'bot:   ', ['bot:a', 'not-bot'], ['bot:a', 'bot:   ']]) {
+    await assert.rejects(
+      () => applyImportToTargets({ keyOrKeys: bad, id, options: {}, store, applyOne: async () => ({}) }),
+      /Bot storage key is required/,
+    )
+  }
   assert.ok(store.peek(id), 'malformed key list must not consume pending import')
 
   const sessions = new Map([
@@ -478,6 +480,48 @@ test('applyImportToTargets consumes pending once for batch Bots, deduplicates ke
   assert.equal(report.dropped.length, 1)
   assert.equal(sessions.get('bot:a').stored.size, 8)
   assert.equal(sessions.get('bot:b').stored.size, 7)
+
+  // Partial failure records failed Bot and continues applying to remaining Bots; dedup keeps distinct domains.
+  const { id: idPartial } = store.store(parsed, { kind: 'file', label: 'cookie-editor.json' })
+  const partialKeys = []
+  const partialReport = await applyImportToTargets({
+    keyOrKeys: ['bot:ok1', 'bot:boom', 'bot:ok2'],
+    id: idPartial,
+    options: {},
+    store,
+    applyOne: async (key) => {
+      partialKeys.push(key)
+      if (key === 'bot:boom') throw new Error('partition locked')
+      return {
+        stored: 5,
+        originsStored: 1,
+        entriesStored: 2,
+        dropped: [{ name: 'sid', domain: key === 'bot:ok1' ? 'a.example' : 'b.example', path: '/', reason: 'expired' }],
+        failed: [],
+        failedOrigins: [{ origin: 'https://fail.example', reason: 'timeout' }],
+      }
+    },
+  })
+  assert.deepEqual(partialKeys, ['bot:ok1', 'bot:boom', 'bot:ok2'])
+  assert.equal(partialReport.stored, 5)
+  assert.equal(partialReport.botCount, 3)
+  assert.equal(partialReport.dropped.length, 2, 'same cookie name on distinct domains must not collapse')
+  assert.equal(partialReport.failedOrigins.length, 1, 'duplicate failedOrigins must deduplicate')
+  assert.equal(partialReport.failed.length, 1)
+  assert.equal(partialReport.failed[0].name, 'boom')
+
+  // When every Bot in a batch throws, rethrow the first error.
+  const { id: idAllFail } = store.store(parsed, { kind: 'file', label: 'cookie-editor.json' })
+  await assert.rejects(
+    () => applyImportToTargets({
+      keyOrKeys: ['bot:x', 'bot:y'],
+      id: idAllFail,
+      options: {},
+      store,
+      applyOne: async () => { throw new Error('disk full') },
+    }),
+    /disk full/,
+  )
 
   // Single-string caller keeps exact single-Bot shape.
   const { id: id2 } = store.store(parsed, { kind: 'file', label: 'cookie-editor.json' })

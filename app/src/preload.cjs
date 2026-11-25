@@ -654,7 +654,12 @@ function browserBridge() {
       'ds-bot:browser-import-apply',
       Array.isArray(key) ? key.map(String) : String(key),
       String(pending),
-      options && typeof options === 'object' ? options : undefined,
+      options && typeof options === 'object'
+        ? {
+            ...(Array.isArray(options.sites) ? { sites: options.sites.map(String) } : {}),
+            persistSession: options.persistSession === true,
+          }
+        : undefined,
     ),
     importCancel: (pending) => ipcRenderer.invoke('ds-bot:browser-import-cancel', typeof pending === 'string' ? pending : ''),
     onOpenRequested(lease, listener) {

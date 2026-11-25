@@ -583,7 +583,7 @@ export function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPa
               onFile: pickFile,
               onPaste: openPaste,
               onSource: pickSource,
-              onClose: () => setFlowTracked(null),
+              onClose: cancelImport,
             })
             : h(ImportCard, {
               flow,
@@ -1013,6 +1013,7 @@ export const BROWSER_CSS = `
 .bt-import-btn[data-open]{background:var(--bt-active);color:var(--bt-ink)}
 .bt-import-card{position:absolute;inset:0;z-index:6;display:flex;flex-direction:column;padding:28px 24px;background:var(--bt-main);overflow:auto;animation:bt-fade .14s ease-out}
 .bt-import-box{width:100%;max-width:384px;margin:auto;box-sizing:border-box;overflow:visible}
+.bt-import-box[data-morph]{overflow:hidden}
 .bt-import-stage{display:flex;flex-direction:column;gap:14px;animation:bt-veil-in .18s ease-out}
 .bt-import-head{display:flex;align-items:center;gap:10px;min-width:0}
 .bt-import-head-mark{flex:none;display:inline-flex;align-items:center;justify-content:center;filter:drop-shadow(0 1px 2px rgba(0,0,0,.12))}
@@ -1112,7 +1113,7 @@ export const BROWSER_CSS = `
 .bt-import-disclosure summary{display:flex;align-items:center;gap:4px;padding:3px 0;list-style:none;cursor:pointer;color:var(--bt-ink-3);user-select:none;transition:color .12s ease}
 .bt-import-disclosure summary::-webkit-details-marker{display:none}
 .bt-import-disclosure summary:hover{color:var(--bt-ink-2)}
-.bt-import-disc-chev{display:inline-flex;color:var(--bt-ink-3);transition:transform .16s ease}
+.bt-import-disc-chev{display:inline-flex;color:var(--bt-ink-3);transition:${spring(SPRING_SHAPE, 'transform')}}
 .bt-import-disc-chev svg{width:13px;height:13px}
 .bt-import-disclosure[open] .bt-import-disc-chev{transform:rotate(90deg)}
 .bt-import-disc-body{display:flex;flex-direction:column;gap:2px;margin-top:4px;padding:8px 12px;border-radius:10px;background:var(--bt-hover);max-height:112px;overflow:auto}

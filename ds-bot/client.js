@@ -22401,6 +22401,7 @@ body[data-ds-dark-theme] .bt-tour-spot{box-shadow:0 0 0 4px color-mix(in srgb,va
 .bt-browser-import-chip-name{max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-browser-import-chip-check{display:inline-flex;color:var(--bt-accent);animation:bt-import-pop ${SPRING_POP.duration}ms ${SPRING_POP.easing}}
 .bt-browser-import-chip-check svg{width:13px;height:13px;stroke-width:1.9}
+@media (prefers-reduced-motion:reduce){.bt-browser-import-chip{transition:none!important}.bt-browser-import-chip-check{animation:none!important}}
 .bt-browser-import-body{padding:14px 16px 16px}
 .bt-browser-import-body[data-morph]{overflow:hidden}
 .bt-browser-import-body .bt-import-item{width:calc(100% + 16px);margin:0 -8px;padding:8px}
@@ -46413,7 +46414,7 @@ function DeepSeekServicesPage({ actions, run: run2, Section: Section2, Row: Row4
 var import_react52 = require("react");
 var nextGradId = 0;
 function useGradPrefix(tag) {
-  return (0, import_react52.useMemo)(() => `bt-bm-${tag}-${++nextGradId}`, [tag]);
+  return (0, import_react52.useState)(() => `bt-bm-${tag}-${++nextGradId}`)[0];
 }
 var wrap = (size, children, viewBox = "0 0 24 24") => (0, import_react52.createElement)("svg", {
   width: size,
@@ -46796,6 +46797,7 @@ function useCookieImportFlow({ imports, botId = null, botIds = null, pageUrl = "
   };
   (0, import_react53.useEffect)(() => {
     reqRef.current += 1;
+    sourcesReqRef.current += 1;
     cancelPendingImport();
     setBusy(false);
     setFlowTracked(idleFlow);
@@ -46805,6 +46807,7 @@ function useCookieImportFlow({ imports, botId = null, botIds = null, pageUrl = "
     }
     return () => {
       reqRef.current += 1;
+      sourcesReqRef.current += 1;
       cancelPendingImport();
     };
   }, [resetKey, Boolean(imports)]);
@@ -46822,7 +46825,10 @@ function useCookieImportFlow({ imports, botId = null, botIds = null, pageUrl = "
       });
       return;
     }
-    if (r?.canceled) return;
+    if (r?.canceled) {
+      if (flowRef.current?.stage === "connecting") setFlowTracked(idleFlow);
+      return;
+    }
     if (r?.id) setFlowTracked({ stage: "preview", id: r.id, preview: r.preview, restarted: r.restarted === true, method: r.method ?? null });
     else if (r?.error) setFlowTracked({ stage: "error", message: importError(r.error) });
     else setFlowTracked(idleFlow);
@@ -46869,7 +46875,10 @@ function useCookieImportFlow({ imports, botId = null, botIds = null, pageUrl = "
       });
       return;
     }
-    if (r?.canceled) return;
+    if (r?.canceled) {
+      if (flowRef.current?.stage === "connecting") setFlowTracked(idleFlow);
+      return;
+    }
     if (r?.needsProfileChoice) {
       setSources(null);
       setFlowTracked("menu");
@@ -46890,7 +46899,10 @@ function useCookieImportFlow({ imports, botId = null, botIds = null, pageUrl = "
       });
       return;
     }
-    if (r?.canceled) return;
+    if (r?.canceled) {
+      if (flowRef.current?.stage === "connecting") setFlowTracked(idleFlow);
+      return;
+    }
     if (r?.needsRemoteDebugging) setFlowTracked({ stage: "remote-debug", source, info: r });
     else showPicked(r, token);
   });
@@ -46984,7 +46996,9 @@ function ImportHeader({ title, subtitle, mark: mark2, onBack, onClose, busy }) {
 }
 function ImportMenu({ sources, lastSourceId, loading, busy, canPaste, inline = false, onFile, onPaste, onSource, onClose }) {
   const menuRef = (0, import_react53.useRef)(null);
-  useEscape(onClose, !inline && typeof onClose === "function");
+  useEscape(() => {
+    if (!busy) onClose?.();
+  }, !inline && typeof onClose === "function");
   (0, import_react53.useEffect)(() => {
     const onKey = (event) => {
       stepMenuFocus(menuRef.current, event);
@@ -47002,7 +47016,7 @@ function ImportMenu({ sources, lastSourceId, loading, busy, canPaste, inline = f
       role: "menu",
       "aria-label": t("Import cookies")
     },
-    inline ? null : (0, import_react53.createElement)(ImportHeader, { title: t("Import cookies"), onClose }),
+    inline ? null : (0, import_react53.createElement)(ImportHeader, { title: t("Import cookies"), onClose, busy }),
     (0, import_react53.createElement)(
       "div",
       { className: "bt-import-section" },
@@ -47574,7 +47588,7 @@ function ImportCard({ flow, page = { url: "" }, busy, canApply = true, imports, 
     const subtitle = [
       flow.label,
       (flow.botCount ?? 1) > 1 ? t("{count} Bots", { count: flow.botCount }) : null,
-      (report.originsStored ?? 0) > 0 ? t("{count} sites storage", { count: report.originsStored }) : null,
+      (report.stored ?? 0) > 0 && (report.originsStored ?? 0) > 0 ? t("{count} sites storage", { count: report.originsStored }) : null,
       flow.reloaded ? t("page reloaded") : null
     ].filter(Boolean).join(" · ");
     return (0, import_react53.createElement)(
@@ -59784,7 +59798,7 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
             onFile: pickFile,
             onPaste: openPaste,
             onSource: pickSource,
-            onClose: () => setFlowTracked(null)
+            onClose: cancelImport
           }) : (0, import_react87.createElement)(ImportCard, {
             flow,
             page,
@@ -60233,6 +60247,7 @@ var BROWSER_CSS = `
 .bt-import-btn[data-open]{background:var(--bt-active);color:var(--bt-ink)}
 .bt-import-card{position:absolute;inset:0;z-index:6;display:flex;flex-direction:column;padding:28px 24px;background:var(--bt-main);overflow:auto;animation:bt-fade .14s ease-out}
 .bt-import-box{width:100%;max-width:384px;margin:auto;box-sizing:border-box;overflow:visible}
+.bt-import-box[data-morph]{overflow:hidden}
 .bt-import-stage{display:flex;flex-direction:column;gap:14px;animation:bt-veil-in .18s ease-out}
 .bt-import-head{display:flex;align-items:center;gap:10px;min-width:0}
 .bt-import-head-mark{flex:none;display:inline-flex;align-items:center;justify-content:center;filter:drop-shadow(0 1px 2px rgba(0,0,0,.12))}
@@ -60332,7 +60347,7 @@ var BROWSER_CSS = `
 .bt-import-disclosure summary{display:flex;align-items:center;gap:4px;padding:3px 0;list-style:none;cursor:pointer;color:var(--bt-ink-3);user-select:none;transition:color .12s ease}
 .bt-import-disclosure summary::-webkit-details-marker{display:none}
 .bt-import-disclosure summary:hover{color:var(--bt-ink-2)}
-.bt-import-disc-chev{display:inline-flex;color:var(--bt-ink-3);transition:transform .16s ease}
+.bt-import-disc-chev{display:inline-flex;color:var(--bt-ink-3);transition:${spring(SPRING_SHAPE, "transform")}}
 .bt-import-disc-chev svg{width:13px;height:13px}
 .bt-import-disclosure[open] .bt-import-disc-chev{transform:rotate(90deg)}
 .bt-import-disc-body{display:flex;flex-direction:column;gap:2px;margin-top:4px;padding:8px 12px;border-radius:10px;background:var(--bt-hover);max-height:112px;overflow:auto}

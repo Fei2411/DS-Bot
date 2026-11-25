@@ -684,4 +684,28 @@ test('ImportCard disables Close and ignores Escape while apply is busy, but stil
   h.window.dispatch('keydown', { key: 'Escape', isComposing: false, keyCode: 27 })
   assert.equal(canceled, 1, 'Escape must still cancel connecting stage')
   connInst.unmount()
+
+  // Overlay ImportMenu also disables Close and ignores Escape while busy (e.g. pickFile in flight).
+  let menuClosed = 0
+  const { ImportMenu } = h.exports
+  const menuInst = h.mount(ImportMenu, {
+    sources: [],
+    lastSourceId: null,
+    loading: false,
+    busy: true,
+    canPaste: true,
+    onFile() {},
+    onPaste() {},
+    onSource() {},
+    onClose: () => { menuClosed += 1 },
+  })
+  const menuTree = menuInst.render()
+  const menuHeader = allNodes(menuTree, (n) => typeof n.type === 'function' && n.props?.onClose)[0]
+  assert.ok(menuHeader)
+  assert.equal(menuHeader.props.busy, true)
+  const menuCloseBtn = allNodes(menuHeader.type(menuHeader.props), (n) => n.type === 'button' && n.props?.['aria-label'] === 'Close')[0]
+  assert.equal(menuCloseBtn.props.disabled, true)
+  h.window.dispatch('keydown', { key: 'Escape', isComposing: false, keyCode: 27 })
+  assert.equal(menuClosed, 0, 'Escape must not dismiss overlay ImportMenu while busy')
+  menuInst.unmount()
 })
