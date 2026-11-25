@@ -330,7 +330,7 @@ export function ImportMenu({ sources, lastSourceId, loading, busy, canPaste, inl
                     isLast ? h('span', { className: 'bt-import-item-tag' }, t('Last used')) : null,
                     subline ? h('span', { className: 'bt-import-item-email' }, subline) : null) : null),
                 hasMeta ? h('span', { className: 'bt-import-item-meta' },
-                  needsPerm ? h('span', { className: 'bt-import-item-sub', 'data-warn': true },
+                  needsPerm ? h('span', { className: 'bt-import-item-sub', 'data-missing': true },
                     h('span', { className: 'bt-import-dot', 'aria-hidden': true }),
                     t('Permission needed')) : null,
                   isReady ? h('span', { className: 'bt-import-item-sub', 'data-ready': true },
