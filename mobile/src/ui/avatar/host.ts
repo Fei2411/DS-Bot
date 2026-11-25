@@ -1,11 +1,12 @@
-import { AccessibilityInfo, AppState } from 'react-native'
+import { AccessibilityInfo, AppState, Platform } from 'react-native'
 import { Clock, type Host, type Signals } from './clock.ts'
 import { shownState } from './shown.ts'
 
 // The live marks' clock in the app: frames from React Native, idle time for building
 // models, the app's state for the background, and the system's reduced-motion setting.
 // It listens only while some mark is up. Touches reach it through noteInput (the app's
-// root view calls it).
+// root view calls it); in a browser, the mouse, keys and the wheel count too, as on the
+// desktop (avatar/live.js).
 
 // The system setting is read once at start, so the first mark knows it before it moves.
 let reduce = false
@@ -14,6 +15,9 @@ const readReduce = () => AccessibilityInfo.isReduceMotionEnabled()
   .then((on) => { reduce = on; current?.reduceMotion(on) })
   .catch(() => {})
 void readReduce()
+
+const BROWSER_INPUTS = ['pointerdown', 'keydown', 'wheel'] as const
+const page = Platform.OS === 'web' && typeof window !== 'undefined' && typeof window.addEventListener === 'function' ? window : null
 
 const host: Host = {
   now: () => performance.now(),
@@ -35,7 +39,10 @@ const host: Host = {
     const motion = AccessibilityInfo.addEventListener('reduceMotionChanged', (on) => { reduce = on; signals.reduceMotion(on) })
     // It may have changed while no mark was up.
     void readReduce()
+    const onInput = () => signals.input()
+    for (const type of BROWSER_INPUTS) page?.addEventListener(type, onInput, { passive: true, capture: true })
     return () => {
+      for (const type of BROWSER_INPUTS) page?.removeEventListener(type, onInput, { capture: true })
       app.remove()
       motion.remove()
       if (current === signals) current = null

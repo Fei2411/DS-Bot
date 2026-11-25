@@ -74,7 +74,9 @@ export function LiveMark({ look, def, dark, size, seed, state = 'idle', live = f
   const now = useRef({ color: look.color, dark })
   now.current = { color: look.color, dark }
   const photo = look.image !== undefined
-  const shapeKey = photo ? `image:${look.image}` : look.shape
+  // A new character, or another Bot in the same place (the chat header follows the chat):
+  // a new mark.
+  const markKey = `${photo ? `image:${look.image}` : look.shape}|${seed}`
   // The values the mark is made with, without making it again when they change.
   const liveRef = useRef(live)
   liveRef.current = live
@@ -92,7 +94,7 @@ export function LiveMark({ look, def, dark, size, seed, state = 'idle', live = f
     const live = new Live(avatarClock, { look: { shape: photo ? 'image' : look.shape, color: look.color }, def: photo ? undefined : def, size, seed, live: liveRef.current, state: stateRef.current, turns: !photo, visible: onScreenRef.current, paint })
     mark.current = live
     return () => { live.destroy(); mark.current = null; setShown(null) }
-  }, [shapeKey])
+  }, [markKey])
   useEffect(() => { mark.current?.update({ look: photo ? undefined : { shape: look.shape, color: look.color }, def: photo ? undefined : def, size, live, state }) }, [look.color, size, live, state])
   useEffect(() => { mark.current?.setVisible(onScreen) }, [onScreen])
   useEffect(() => { mark.current?.redraw() }, [dark])
@@ -111,12 +113,16 @@ export function LiveMark({ look, def, dark, size, seed, state = 'idle', live = f
       mark.current?.act(engine => engine.pet(false))
     },
     delayLongPress: 280,
+    // Small marks (the chat's activity row) are hard to hit.
+    hitSlop: Math.max(0, Math.round((44 - size) / 2)),
   } : null
 
   const scene = shown !== null && 'scene' in shown ? shown.scene : null
   const pose = shown !== null && 'pose' in shown ? shown.pose : null
-  const art = scene ? null : pose
-    ? <View style={{ width: size, height: size, transformOrigin: FLAT_ORIGIN, transform: [{ translateX: (pose.x / 100) * size }, { translateY: (pose.y / 100) * size }, { rotate: `${pose.roll}deg` }, { scaleX: pose.sx }, { scaleY: pose.sy }] }}>{children}</View>
+  // A photo keeps one box around it from the start, so the image is not loaded again
+  // when it starts to move.
+  const art = scene ? null : photo || pose
+    ? <View style={{ width: size, height: size, transformOrigin: FLAT_ORIGIN, transform: pose ? [{ translateX: (pose.x / 100) * size }, { translateY: (pose.y / 100) * size }, { rotate: `${pose.roll}deg` }, { scaleX: pose.sx }, { scaleY: pose.sy }] : [] }}>{children}</View>
     : children
   const drawing = scene ? (
     <Svg pointerEvents="none" width={size * BOX / 100} height={size * BOX / 100} viewBox={`${ORIGIN} ${ORIGIN} ${BOX} ${BOX}`} style={{ position: 'absolute', left: size * -MARGIN, top: size * -MARGIN }}>

@@ -167,9 +167,15 @@ test('a working mark waits for its model, built in short slices, then draws whil
   const picture = p.paints.at(-1)
   assert.ok(picture?.shapes, 'the model is drawn')
   assert.ok(picture.shapes.body.length > 0 && picture.shapes.eyes.length > 0, 'with its body and its eyes')
+  // A row-sized mark draws 30 times a second; a hero, at the screen's rate.
   const before = p.paints.length
-  for (let i = 0; i < 30; i += 1) p.frame()
-  assert.ok(p.paints.length - before >= 25, 'a working mark keeps moving')
+  for (let i = 0; i < 60; i += 1) p.frame()
+  const drawn = p.paints.length - before
+  assert.ok(drawn >= 28 && drawn <= 31, `a working row mark keeps moving, 30 times a second (${drawn})`)
+  mark.update({ size: 64 })
+  const hero = p.paints.length
+  for (let i = 0; i < 60; i += 1) p.frame()
+  assert.ok(p.paints.length - hero > 45, `a hero mark draws at the screen's rate (${p.paints.length - hero})`)
   mark.destroy()
 })
 
@@ -200,6 +206,27 @@ test('after REST_MS without a touch a working mark finishes and holds still; a t
   assert.equal(p.clock.isResting, false)
   for (let i = 0; i < 240; i += 1) p.frame()
   assert.ok(p.paints.length > drawn, 'a touch wakes it')
+  mark.destroy()
+})
+
+test('woken from rest, marks rest again REST_MS after the last touch, not only at DOZE_MS', () => {
+  const p = phone()
+  const mark = p.mount('puppy', { state: 'working' })
+  assert.ok(built(p, mark))
+  p.skip(REST_MS + 100)
+  assert.equal(p.clock.isResting, true)
+  p.signals.input()
+  assert.equal(p.clock.isResting, false)
+  p.skip(REST_MS - 1000)
+  assert.equal(p.clock.isResting, false, 'not before REST_MS')
+  p.skip(1100)
+  assert.equal(p.clock.isResting, true, 'REST_MS after the touch')
+  // Coming back to the app wakes them the same way.
+  p.signals.shown(false)
+  p.signals.shown(true)
+  assert.equal(p.clock.isResting, false)
+  p.skip(REST_MS + 100)
+  assert.equal(p.clock.isResting, true)
   mark.destroy()
 })
 
@@ -247,6 +274,25 @@ test('a mark off screen is skipped, and draws again when it is back', () => {
   p.frame()
   assert.ok(p.paints.length > drawn)
   mark.destroy()
+})
+
+test('a mark that leaves the screen while its model is built stops the build; the one on screen goes first', () => {
+  const p = phone()
+  const away = p.mount('pebbles', { state: 'working' })
+  const here = p.mount('spark', { state: 'working' })
+  p.frame()
+  p.frame(20)
+  assert.equal(away.rig, undefined)
+  // The drawer closes over the first: the second, still on screen, is built next.
+  away.setVisible(false)
+  assert.ok(built(p, here))
+  for (let i = 0; i < 400; i += 1) p.frame(20)
+  assert.equal(away.rig, undefined, 'nothing is built for a mark off screen')
+  // Back on screen it goes on from where its build stopped.
+  away.setVisible(true)
+  assert.ok(built(p, away))
+  away.destroy()
+  here.destroy()
 })
 
 test('the system reduced-motion setting holds marks still: pokes do nothing, a new state is drawn in place', () => {

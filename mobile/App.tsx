@@ -1,6 +1,6 @@
 import 'react-native-gesture-handler'
 import { StatusBar } from 'expo-status-bar'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, AppState, Linking, Platform, Text, useColorScheme, View } from 'react-native'
 import { takePairingFragment } from './src/team/pair-fragment.ts'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
@@ -69,8 +69,9 @@ function ThemedShell({ lang, openLink, onOpenLinkHandled }: { lang?: string; ope
   const navState = useRef<NavigationState | undefined>(undefined)
   const { team } = useTeam()
   const value = useMemo(() => ({ dark, p: palette(dark, team?.prefs?.theme, team?.prefs?.accent) }), [dark, team?.prefs?.theme, team?.prefs?.accent])
-  // The marks move at the computer's motion levels (Settings → Appearance there).
-  useEffect(() => { avatarClock.setPrefs(team?.prefs as { motion?: string; effects?: string } | undefined) }, [team?.prefs])
+  // The marks move at the computer's motion levels (Settings → Appearance there), set
+  // before the marks below are made (their effects run after this one).
+  useLayoutEffect(() => { avatarClock.setPrefs(team?.prefs) }, [team?.prefs])
   const navTheme = useMemo(() => ({
     dark,
     colors: {

@@ -160,6 +160,8 @@ export class Clock {
         this.resting = false
         this.dozing = false
         for (const mark of this.marks) { mark.engine.rest(false); mark.engine.doze(false); mark.dirty = true }
+        // The timer was set for the doze; resting comes first again.
+        if (this.restTimer !== null) { this.host.cancel(this.restTimer); this.restTimer = null }
         this.kick()
       }
       this.watchRest()
@@ -274,6 +276,16 @@ export class Clock {
     if (this.building === null && this.shown) this.sliceSoon(0)
   }
 
+  // A mark off screen, or back on its flat art, waits for nothing: the build goes on for
+  // the marks on screen (the phone's idle time comes whenever the thread is free, so a
+  // build nobody sees would take it all). Part-built models are kept.
+  unqueue(mark: LiveMark) {
+    const at = this.queue.indexOf(mark)
+    if (at < 0) return
+    this.queue.splice(at, 1)
+    if (this.queue.length === 0) this.pauseBuilding()
+  }
+
   private sliceSoon(gap: number) {
     this.building = this.host.idle ? this.host.idle(this.slice, IDLE_WAIT_MS) : this.host.after(() => this.slice(), gap)
   }
@@ -355,6 +367,7 @@ export class LiveMark {
   private detachRig() {
     this.rig = undefined
     this.scratch = {}
+    this.clock.unqueue(this)
     this.paint(null)
   }
 
@@ -376,7 +389,7 @@ export class LiveMark {
   setVisible(on: boolean) {
     if (on === this.visible) return
     this.visible = on
-    if (on) { this.sync(); this.clock.kick() }
+    if (on) { this.sync(); this.clock.kick() } else this.clock.unqueue(this)
   }
 
   // Draw again (the theme changed the inks).
@@ -385,8 +398,10 @@ export class LiveMark {
   // Called by the clock: moves on and draws. Returns seconds until it needs a frame.
   step(time: number): number {
     const elapsed = this.tickedAt ? (time - this.tickedAt) / 1000 : 1 / 60
-    // Small marks draw at most 30 times a second.
-    if (this.engine.lod === 'chip' && elapsed < 1 / 31 && !this.dirty) return 1 / 30 - elapsed
+    // Marks below hero size draw at most 30 times a second. The desktop holds only chips
+    // to this; on the phone each frame is a new SVG built on the JS thread and parsed
+    // again natively, and a row mark costs about as much as a hero.
+    if (this.engine.lod !== 'hero' && elapsed < 1 / 31 && !this.dirty) return 1 / 30 - elapsed
     // Still on the flat art: time runs on while nothing would move. A move waits for the
     // model; the mark's clock starts again once the model is in (attachRig kicks it).
     if (this.rig === undefined && !(this.engine.atRest && this.engine.wakeIn() > elapsed)) {
