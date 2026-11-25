@@ -403,6 +403,7 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     secretUnlock: passphrase => after(call('secret-unlock', { passphrase })),
     secretEncrypt: passphrase => after(call('secret-encrypt', { passphrase })),
     secretDecrypt: passphrase => after(call('secret-decrypt', { passphrase })),
+    secretRefreshExternal: (providerId, resolve = false) => after(call('secret-refresh-external', { ...(providerId ? { providerId } : {}), ...(resolve ? { resolve: true } : {}) })),
     connectorConnect: (id, payload = {}) => after(call('connector-connect', { id, ...payload })),
     connectorDisconnect: id => after(call('connector-disconnect', { id })),
     connectorRetry: id => after(call('connector-retry', { id })),

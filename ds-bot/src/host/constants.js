@@ -140,9 +140,6 @@ export const isAckLikeText = text => {
 
 // Max ask_back clarification rounds on one delegated work before pausing for the user.
 export const WORK_ASK_BACK_LIMIT = 2
-// Consecutive delegations between the same pair of Bots since the user last wrote before
-// pausing at a checkpoint so the user can continue or stop.
-export const WORK_REWORK_CHECKPOINT = 4
 // Idle/rework pair loop entries expire after this much inactivity between two Bots.
 export const PAIR_LOOP_TTL_MS = 10 * 60_000
 // Consecutive automatic admin wakes with no goal progress before the goal waits
