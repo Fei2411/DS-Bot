@@ -81,10 +81,11 @@
 | [Linux 桌面包](2026-10-21-linux-app-package.md) | 同轮产出 AppImage（自更新）与 deb（沙箱兜底） |
 | [手机 App](2026-10-24-mobile-app.md) | iOS / Android 原生远程端：Noise IK 加密中转、高权限生物解锁与同步规则 |
 | [移动端客户端 API](2026-10-24-mobile-api.md) | 握手版本、头像引用、群聊分页、提醒补发、分块下载与 Gateway Remote 方法 |
-| [浏览器远程客户端](2026-11-17-web-remote.md) | Expo 网页导出与中转同源部署、链接配对与安全允许列表 |
+| [浏览器远程客户端](2026-11-17-web-remote.md) | Expo 网页版与 Relay 同源部署；浏览器链接配对、独立设备身份、localStorage 与 CSP 安全边界 |
 | [iOS 出包与 TestFlight](2026-11-13-ios-release.md) | Apple 账号准备、签名归档与 TestFlight 上传指引 |
 | [IM](2026-11-04-im.md) | 微信、飞书、钉钉、企业微信、QQ、Telegram、Discord、Slack 双向桥接与配对边界 |
-| [MCP 访问](2026-11-20-mcp-access.md) | 本机 `127.0.0.1:8797/mcp` 网关：每客户端独立令牌与作用域、私密隔离 |
+| [MCP 访问](2026-11-20-mcp-access.md) | （已收口至 [对外统一 API](2026-11-21-external-api.md)）初版独立 MCP 访问设计记录；现统一由设置 → API 同端口 `/mcp` 与自动迁移承接 |
+| [对外统一 API](2026-11-21-external-api.md) | 持锁宿主自建本机网关（默认关闭、`127.0.0.1:17830`）：独立可撤销 Bearer Token、Scope × 目标白名单与隐私隔离、统一 `Run` 状态机、`/v1/*` REST+SSE、`/mcp` Streamable HTTP、薄层 `ds-bot` CLI 与可选 OpenAI 兼容层 |
 
 ### 7. 界面与交互
 

@@ -537,6 +537,16 @@ test('full ds-bot runtime serves real hello, state and live feed through TypertG
   assert.equal(rpcState.ok, true)
   assert.equal(rpcState.value.ok, true)
   assert.ok(rpcState.value.value.bots.length >= 1)
+  assert.equal(Object.hasOwn(rpcState.value.value, 'api'), false)
+  assert.ok(Object.hasOwn((await rt.channelCall('state', {})).value, 'api'))
+  const remotePoll = await gateway.dispatchRpc(
+    'dsBot/call',
+    { args: { endpoint: 'state', payload: { since: rt.state.revision, live: 'old' } } },
+    new AbortController().signal,
+    ownerPeer(),
+  )
+  assert.equal(remotePoll.value.value.unchanged, true)
+  assert.equal(Object.hasOwn(remotePoll.value.value, 'api'), false)
 
   // Updating a Bot saves state and emits a `revision` frame over `dsBot/feed`.
   const beforeUpdateRev = rt.state.revision

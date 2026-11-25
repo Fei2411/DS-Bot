@@ -117,6 +117,7 @@ export const GoalIcon = lineIcon(['M15.1 8.8A6.5 6.5 0 1 1 11.2 4.9', 'M9 8a3 3 
 // Defined here, after the icons: SettingsDialog only reads them at render time.
 // Two speech bubbles, the back one peeking out: a group chat.
 export const ChatsIcon = lineIcon(['M3.5 5.5A1.5 1.5 0 0 1 5 4h7a1.5 1.5 0 0 1 1.5 1.5V10A1.5 1.5 0 0 1 12 11.5H8L5 14v-2.5A1.5 1.5 0 0 1 3.5 10z', 'M13.5 7.5H15A1.5 1.5 0 0 1 16.5 9v4.5A1.5 1.5 0 0 1 15 15v2l-2.5-2h-3A1.5 1.5 0 0 1 8 13.5V13'])
+export const ApiIcon = lineIcon(['M7 6.5L3.5 10 7 13.5', 'M13 6.5L16.5 10 13 13.5', 'M11 4.5L9 15.5'])
 // A phone with a speech bubble: an IM chat app talking to a Bot.
 export const ImIcon = lineIcon(['M6.5 3.5h7A1.5 1.5 0 0 1 15 5v10a1.5 1.5 0 0 1-1.5 1.5h-7A1.5 1.5 0 0 1 5 15V5a1.5 1.5 0 0 1 1.5-1.5z', 'M8 15.8h4', 'M8 6.5h4A1 1 0 0 1 13 7.5v2a1 1 0 0 1-1 1h-2.5L8 12v-5.5A1 1 0 0 1 8 6.5z'])
 // Stacked lines with a running start: queued messages.

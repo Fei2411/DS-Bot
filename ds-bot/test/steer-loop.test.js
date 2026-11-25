@@ -24,6 +24,7 @@ async function createSteerLoopRig(t, {
   holdPrepareSteps = new Set(),
   abortExitDelayMs = 0,
   toolOnFirstCall = false,
+  onPrompt = undefined,
 } = {}) {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-steer-loop-'))
   const workDir = join(home, 'team')
@@ -175,6 +176,7 @@ async function createSteerLoopRig(t, {
     selectModel: async () => {},
     page: async () => ({ records: [], hasMore: false }),
     async prompt(request) {
+      if (typeof onPrompt === 'function') await onPrompt(request)
       const message = createUserMessage({
         content: request.content,
         source: { kind: 'user', ...(request.requestId ? { rpcId: request.requestId } : {}) },
@@ -426,6 +428,58 @@ test('real DSH ReactLoopAgent: bot-steer-queue with empty ids does not steer que
 
   rig.callGates.get(1).resolve()
   await rig.agent.whenIdle()
+})
+
+test('real DSH ReactLoopAgent: bot-steer-queue rejects a retired foreground part and concurrent same-requestId steers stay tracked', async (t) => {
+  const secondEntered = Promise.withResolvers()
+  const secondRelease = Promise.withResolvers()
+  let dupCalls = 0
+  const rig = await createSteerLoopRig(t, {
+    holdCallNumbers: new Set([1]),
+    abortExitDelayMs: 60,
+    onPrompt: async (request) => {
+      if (request.requestId === 'dup-req') {
+        dupCalls += 1
+        if (dupCalls === 2) {
+          secondEntered.resolve()
+          await secondRelease.promise
+        }
+      }
+    },
+  })
+  rig.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'BASE' }], source: { kind: 'user' } }))
+  await rig.callStarted.get(1).promise
+
+  // Simulate a switched-away foreground part still present in chatOwners.
+  const origChatOf = rig.rt.chatOf
+  rig.rt.chatOf = () => 'dm-a-part-2'
+  try {
+    const staleRes = await rig.rt.channelCall('bot-steer-queue', { sessionId: 'dm-a', ids: ['any'] })
+    assert.equal(staleRes.ok, false)
+    assert.equal(staleRes.error?.code, 'bot/not-found')
+    assert.deepEqual(rig.rt.steerQueued('dm-a'), { steered: 0 })
+  } finally {
+    rig.rt.chatOf = origChatOf
+  }
+
+  // Concurrent same-requestId steer RPCs: the first finishing must not clear tracking
+  // while the second is still in flight before inserting into the STEER_CUT abort window.
+  rig.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'KEEP_QUEUED' }], source: { kind: 'user' } }))
+  await rig.sessionController.prompt({ sessionId: 'dm-a', requestId: 's-cut', mode: 'steer', content: [{ type: 'text', text: 'STEER_1' }] })
+  await Promise.resolve()
+  await Promise.resolve()
+
+  const p1 = rig.sessionController.prompt({ sessionId: 'dm-a', requestId: 'dup-req', mode: 'steer', content: [{ type: 'text', text: 'STEER_DUP_1' }] })
+  const p2 = rig.sessionController.prompt({ sessionId: 'dm-a', requestId: 'dup-req', mode: 'steer', content: [{ type: 'text', text: 'STEER_DUP_2' }] })
+  await secondEntered.promise
+  await p1
+  secondRelease.resolve()
+  await p2
+  await rig.agent.whenIdle()
+
+  const secondCall = rig.seenPrompts.find(entry => entry.callNo === 2)
+  assert.deepEqual(secondCall?.users, ['BASE', 'STEER_1', 'STEER_DUP_1', 'STEER_DUP_2'])
+  assert.deepEqual(committedUserTexts(rig.agent), ['BASE', 'STEER_1', 'STEER_DUP_1', 'STEER_DUP_2', 'KEEP_QUEUED'])
 })
 
 test('real Cordis Service proxy: steer wrappers intercept through proxy and restore cleanly on plugin reload without leaking', async (t) => {

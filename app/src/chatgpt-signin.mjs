@@ -19,11 +19,11 @@ export class ChatGPTSignInError extends Error {
   }
 }
 
-export async function createChatGPTSignIn({ userData, safeStorage, fs, platform,
+export async function createChatGPTSignIn({ userData, safeStorage, fs, platform, mockKeychain = false,
   fetch: fetcher = globalThis.fetch, discoveryUrl = 'https://auth.openai.com/.well-known/openid-configuration',
   endpoints = {}, now = Date.now, timeoutMs = 5 * 60_000, onChange = () => {},
 }) {
-  const store = createChatGPTStore({ userData, safeStorage, fs, platform })
+  const store = createChatGPTStore({ userData, safeStorage, fs, platform, mockKeychain })
   let record
   let state = 'signed-out'
   let publish = () => {}

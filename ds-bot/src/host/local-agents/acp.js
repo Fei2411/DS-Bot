@@ -249,18 +249,19 @@ export class AcpEngine {
     // kept by the agent's session id rather than on a session not known yet.
     if (params?.update?.sessionUpdate === 'available_commands_update') {
       this.commands.set(params.sessionId, (params.update.availableCommands ?? []).map(command => command?.name).filter(Boolean))
-      return
     }
     const session = [...this.sessions.values()].find(entry => entry.acpSessionId === params?.sessionId)
     if (session === undefined) return
     if (session.promptTurn?.cancelled) return
     // Devin CLI 3000.12 reports its compaction this way, not as compaction_update.
     if (method === '_cognition.ai/compaction') {
+      if (session.running) session.promptTurn?.onProgress?.()
       session.push({ type: 'compaction', status: compactionStatus(params?.status) })
       return
     }
     if (method !== 'session/update') return
     const update = params?.update ?? {}
+    if (session.running && typeof update.sessionUpdate === 'string') session.promptTurn?.onProgress?.()
     switch (update.sessionUpdate) {
       case 'agent_message_chunk':
         if (session.promptTurn !== undefined) session.promptTurn.sawStepWork = true
@@ -371,6 +372,7 @@ export class AcpEngine {
     if (method === 'session/request_permission') {
       const session = [...this.sessions.values()].find(entry => entry.acpSessionId === params?.sessionId)
       if (session === undefined) return Promise.reject({ code: -32603, message: 'unknown session' })
+      if (session.running && !session.promptTurn?.cancelled) session.promptTurn?.onProgress?.()
       const options = (params?.options ?? []).map(option => ({ optionId: option.optionId, name: option.name, kind: option.kind }))
       const call = callOf(session, params?.toolCall)
       // Cursor, Devin and Antigravity ask before MCP tool calls. A call to DS Bot's
@@ -624,9 +626,9 @@ export class AcpEngine {
     signal?.throwIfAborted()
   }
 
-  async prompt(session, blocks, { signal, effort } = {}) {
+  async prompt(session, blocks, { signal, effort, onProgress } = {}) {
     const worker = this.workerOf(session)
-    if (worker !== undefined && worker !== this) return worker.prompt(session, blocks, { signal, effort })
+    if (worker !== undefined && worker !== this) return worker.prompt(session, blocks, { signal, effort, onProgress })
     // ACP notices have no turn id. Give cancellation a bounded grace period
     // before accepting notices for another prompt on the same session.
     await this.waitForPrompt(session, signal)
@@ -652,6 +654,7 @@ export class AcpEngine {
     const turn = session.promptTurn = {
       cancelled: false,
       controller: new AbortController(),
+      onProgress,
       steps: 0,
       lastUsed: undefined,
       sawStepWork: false,
@@ -732,6 +735,11 @@ export class AcpEngine {
       return
     }
     const session = this.sessions.get(dshSessionId)
+    const turn = session?.promptTurn
+    if (turn !== undefined) {
+      turn.cancelled = true
+      turn.controller.abort(new Error('the ACP session was closed'))
+    }
     if (session?.acpSessionId !== undefined) {
       this.commands.delete(session.acpSessionId)
       this.sessionEfforts.delete(session.acpSessionId)

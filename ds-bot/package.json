@@ -99,7 +99,7 @@
     "ws": "8.18.3"
   },
   "bin": {
-    "ds-bot": "./bin/ds-bot-doctor.mjs",
+    "ds-bot": "./bin/ds-bot-cli.mjs",
     "ds-bot-mcp": "./bin/ds-bot-mcp.mjs"
   }
 }

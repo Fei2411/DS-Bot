@@ -79,8 +79,8 @@ export function install(rt) {
         activeKills: new Map(),
         cutting: false,
         cutAnchorId: undefined,
-        pendingSteerRpcs: new Set(),
-        pendingSteerIds: new Set(),
+        pendingSteerRpcs: new Map(),
+        pendingSteerIds: new Map(),
       }
       state.set(id, entry)
     }
@@ -183,6 +183,8 @@ export function install(rt) {
   const steerQueued = (id, ids) => {
     if (id === undefined || rt.readOnly?.() !== undefined) return { steered: 0 }
     if (!privateOf(id) || rt.taskOwners?.has(id)) return { steered: 0 }
+    const botId = rt.chatOwners.get(id)
+    if (botId === undefined || (typeof rt.chatOf === 'function' && rt.chatOf(botId) !== id)) return { steered: 0 }
     const agent = liveAgent(id)
     if (agent === undefined || agent.status !== 'running') return { steered: 0 }
     if (Array.isArray(ids) && ids.length === 0) return { steered: 0 }
@@ -191,7 +193,6 @@ export function install(rt) {
     const selected = nextTurn.filter(message => message?.source?.kind === 'user'
       && (wanted === undefined || wanted.has(message.id)))
     if (selected.length === 0) return { steered: 0 }
-    const botId = rt.chatOwners.get(id)
     if (rt.isHandingOff?.(id) || rt.mustIsolateHiddenWork?.(rt.botOf(botId), id)) {
       // Let the caller fall back to per-row steering so `bot-tasks.js`
       // foreground handoff isolates user input from hidden peer-Bot work.
@@ -634,27 +635,33 @@ export function install(rt) {
     const hadOwnUpdateQueue = Object.hasOwn(controllerTarget, 'updateQueue')
     const origPrompt = typeof controllerTarget.prompt === 'function' ? controllerTarget.prompt : undefined
     const origUpdateQueue = typeof controllerTarget.updateQueue === 'function' ? controllerTarget.updateQueue : undefined
+    const incMap = (map, key) => map.set(key, (map.get(key) ?? 0) + 1)
+    const decMap = (map, key) => {
+      const next = (map.get(key) ?? 0) - 1
+      if (next > 0) map.set(key, next)
+      else map.delete(key)
+    }
     const trackable = (id) => id !== undefined && privateOf(id) && !rt.taskOwners?.has(id)
     const wrappedPrompt = origPrompt === undefined ? undefined : async function (request, ...rest) {
       const id = request?.sessionId
       const rpcId = request?.mode === 'steer' && typeof request?.requestId === 'string' && request.requestId !== '' && trackable(id) ? request.requestId : undefined
       const track = rpcId === undefined ? undefined : stateOf(id)
-      track?.pendingSteerRpcs.add(rpcId)
+      if (rpcId !== undefined) incMap(track.pendingSteerRpcs, rpcId)
       try {
         return await origPrompt.call(this, request, ...rest)
       } finally {
-        track?.pendingSteerRpcs.delete(rpcId)
+        if (rpcId !== undefined) decMap(track.pendingSteerRpcs, rpcId)
       }
     }
     const wrappedUpdateQueue = origUpdateQueue === undefined ? undefined : async function (request, ...rest) {
       const id = request?.sessionId
       const itemId = request?.action?.kind === 'steer' && typeof request?.itemId === 'string' && request.itemId !== '' && trackable(id) ? request.itemId : undefined
       const track = itemId === undefined ? undefined : stateOf(id)
-      track?.pendingSteerIds.add(itemId)
+      if (itemId !== undefined) incMap(track.pendingSteerIds, itemId)
       try {
         return await origUpdateQueue.call(this, request, ...rest)
       } finally {
-        track?.pendingSteerIds.delete(itemId)
+        if (itemId !== undefined) decMap(track.pendingSteerIds, itemId)
       }
     }
     ctx.effect(() => {
@@ -679,8 +686,8 @@ export function install(rt) {
     const track = state.get(id)
     if (track === undefined || !track.cutting || track.cutAnchorId === undefined) return
     if (message.id === track.cutAnchorId) return
-    const matched = track.pendingSteerIds.delete(message.id)
-      || (message.source.rpcId !== undefined && track.pendingSteerRpcs.delete(message.source.rpcId))
+    const matched = (track.pendingSteerIds.get(message.id) ?? 0) > 0
+      || (message.source.rpcId !== undefined && (track.pendingSteerRpcs.get(message.source.rpcId) ?? 0) > 0)
     if (!matched) return
     if ((agent.inbox?.nextTurn ?? []).some(item => item?.id === message.id)) {
       foldIntoCutBatch(id, message.id)

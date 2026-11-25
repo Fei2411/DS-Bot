@@ -148,9 +148,25 @@ function CopyButton({ text }) {
 
 const clock = time => (typeof time === 'number' ? new Date(time).toLocaleTimeString(dateLocale(), { hour: 'numeric', minute: '2-digit' }) : undefined)
 
-// A message that came in over IM names its platform: "via Telegram" by the time.
-export const viaOf = source => (typeof source?.rpcId === 'string' && source.rpcId.startsWith('im:') ? source.rpcId.split(':')[1] : undefined)
-export const ViaTag = ({ via }) => h('span', { className: 'bt-uvia' }, t('via {platform}', { platform: t(imPlatform(via)?.name ?? via) }))
+// A message that came in over IM or the local API names its source: "via Telegram" or "via API · <Token>".
+export const viaOf = (source, roster) => {
+  const rpcId = source?.rpcId
+  if (typeof rpcId !== 'string') return undefined
+  if (rpcId.startsWith('im:')) return rpcId.split(':')[1]
+  if (rpcId.startsWith('api:')) {
+    const keyId = rpcId.split(':')[1]
+    const tokenName = roster?.api?.tokens?.find(item => item.keyId === keyId)?.name
+    return tokenName ? `api:${tokenName}` : 'api'
+  }
+  return undefined
+}
+export const ViaTag = ({ via }) => {
+  if (via === 'api') return h('span', { className: 'bt-uvia' }, t('via {platform}', { platform: 'API' }))
+  if (typeof via === 'string' && via.startsWith('api:')) {
+    return h('span', { className: 'bt-uvia' }, t('via API · {name}', { name: via.slice(4) }))
+  }
+  return h('span', { className: 'bt-uvia' }, t('via {platform}', { platform: t(imPlatform(via)?.name ?? via) }))
+}
 
 // Before DSH 0.2.1-alpha.3: DS Bot draws the attachments, the text and the other blocks.
 function ProjectedContent({ data, text, shown, folded, control, roster, sessionId, actions, renderMessageImages, openFile, openSkill, onClick }) {
@@ -187,26 +203,31 @@ function HostContent({ data, prepared, shown, folded, control, loadImage, render
     referenceLabels.length > 0 ? h('div', { className: 'bt-urefs' }, t('Referenced {labels}', { labels: referenceLabels.join(t(', ')) })) : null)
 }
 
-const USER_ROSTER_FIELDS = ['bots', 'byId', 'roomsById', 'imVia']
+const USER_ROSTER_FIELDS = ['bots', 'byId', 'roomsById', 'imVia', 'apiVia', 'api']
 
 // A sent message, or one that joined a running turn ("steering").
 export function UserMessageCell({ node, sessionId, useRoster, actions, renderMessageImages, openFile, openSkill, loadImage, renderFactorySlot }) {
   const data = node.data ?? {}
   const prev = useRef(null)
   const picked = useRoster((value) => {
-    if (!projects) return value.imVia?.[sessionId]?.[data.seq]
+    if (!projects) {
+      const apiName = value.apiVia?.[sessionId]?.[data.seq]
+      return (apiName ? `api:${apiName}` : undefined) ?? viaOf(data.source, value) ?? value.imVia?.[sessionId]?.[data.seq]
+    }
     const last = prev.current
     if (last !== null && value !== null && value !== undefined && USER_ROSTER_FIELDS.every(key => last[key] === value[key])) return last
     prev.current = value
     return value
   })
   const roster = projects ? picked : null
-  const viaFromRoster = projects ? roster.imVia?.[sessionId]?.[data.seq] : picked
+  const apiName = projects ? roster.apiVia?.[sessionId]?.[data.seq] : undefined
   const prepared = projects ? undefined : hostContent(data.content, data)
   const text = prepared?.text ?? contentParts(data.content).text
   const steering = node.kind === 'steering'
   const sentAt = Number.isFinite(data.time) ? messageClock(data.time) : undefined
-  const via = viaOf(data.source) ?? viaFromRoster
+  const via = projects
+    ? ((apiName ? `api:${apiName}` : undefined) ?? viaOf(data.source, roster) ?? roster.imVia?.[sessionId]?.[data.seq])
+    : picked
   const { shown, folded, control } = useFold(text, { markdown: false })
   const row = useRef(null)
   // Touch has no hover: a tap on the bubble opens its copy tool, a tap elsewhere closes it.

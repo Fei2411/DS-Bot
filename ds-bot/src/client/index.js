@@ -78,6 +78,7 @@ import { agentSessionToReuse, singleFlight } from './agent-new.js'
 import { TextSelectionAction, ANNOTATION_CSS } from './text-annotation.js'
 import { installAgentForks } from './agent-fork.js'
 import { createAvatarRefCache } from './avatar-refs.js'
+import { watchBotCompletions } from './bot-completions.js'
 
 export const inject = ['sessions', 'uiWorkspace', 'uiConversation', 'slots', 'theme', 'layout']
 
@@ -93,6 +94,7 @@ export function apply(ctx) {
   try { savedPrefs = JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}') ?? {} } catch { savedPrefs = {} }
   const roster = createSource({ ...EMPTY_ROSTER, prefs: savedPrefs })
   const unreadStore = sharedMap(STORAGE.unread)
+  const botCompletions = createSource({})
   const reactionStore = sharedMap(STORAGE.reactions)
   // When each conversation was last left; a visit compares new turns against it.
   const seenStore = sharedMap(STORAGE.seen)
@@ -236,13 +238,14 @@ export function apply(ctx) {
     if (value.connectors !== undefined && JSON.stringify(value.connectors) !== JSON.stringify(current.connectors ?? [])) live.connectors = value.connectors
     if (value.capabilityStatuses !== undefined && JSON.stringify(value.capabilityStatuses) !== JSON.stringify(current.capabilityStatuses ?? {})) live.capabilityStatuses = value.capabilityStatuses
     if (value.phone !== undefined && JSON.stringify(value.phone) !== JSON.stringify(current.phone ?? null)) live.phone = value.phone
-    if (value.mcp !== undefined && JSON.stringify(value.mcp) !== JSON.stringify(current.mcp ?? null)) live.mcp = value.mcp
+    if (value.api !== undefined && JSON.stringify(value.api) !== JSON.stringify(current.api ?? null)) live.api = value.api
     if (value.learning !== undefined && JSON.stringify(value.learning) !== JSON.stringify(current.learning ?? {})) live.learning = value.learning
     if (value.learningSettled !== undefined && JSON.stringify(value.learningSettled) !== JSON.stringify(current.learningSettled ?? {})) live.learningSettled = value.learningSettled
     if (value.btwCards !== undefined && JSON.stringify(value.btwCards) !== JSON.stringify(current.btwCards ?? {})) live.btwCards = value.btwCards
     if (value.sideChats !== undefined && JSON.stringify(value.sideChats) !== JSON.stringify(current.sideChats ?? {})) live.sideChats = value.sideChats
     if (value.imStatus !== undefined && JSON.stringify(value.imStatus) !== JSON.stringify(current.imStatus ?? {})) live.imStatus = value.imStatus
     if (value.imVia !== undefined && JSON.stringify(value.imVia) !== JSON.stringify(current.imVia ?? {})) live.imVia = value.imVia
+    if (value.apiVia !== undefined && JSON.stringify(value.apiVia) !== JSON.stringify(current.apiVia ?? {})) live.apiVia = value.apiVia
     if (value.plugins !== undefined && JSON.stringify(value.plugins) !== JSON.stringify(current.plugins ?? null)) live.plugins = value.plugins
     // The read-only notice goes once this host takes the team over from a dsh that
     // closed, without a reload: the window holds the answer's live fields until then.
@@ -1439,7 +1442,7 @@ export function apply(ctx) {
     () => installFrameWatch(frame),
     () => installFrameSync(),
     () => installTheme(),
-    () => shadow('sidebar.workspaces', { priority: BOT_PRIORITY, inject: face }, TeamSidebar),
+    () => shadow('sidebar.workspaces', { priority: BOT_PRIORITY, inject: () => ({ actions, hooks: { ...face().hooks, botCompletions } }) }, TeamSidebar),
     () => shadow('sidebar.brand.mark', { priority: BOT_PRIORITY }, BrandMark),
     () => shadow('sidebar.brand.name', { priority: BOT_PRIORITY }, BrandName),
     () => shadow('sidebar.footer.action', { id: 'bot-account', order: -200, inject: face }, FooterAccount),
@@ -1643,6 +1646,10 @@ export function apply(ctx) {
     sync()
     return () => { offList(); offRoster() }
   }, 'ds-bot: agent surface')
+
+  ctx.effect(() => watchBotCompletions({
+    roster, sessions: ctx.sessions.list, statuses: ctx.get('uiSession')?.sessionStatus, unread: botCompletions,
+  }), 'ds-bot: sidebar completions')
 
   ctx.effect(() => {
     const groups = surfaceGroups({ shell: installShell, conversation: installConversation }, {
