@@ -248,6 +248,9 @@ export class LogFile {
 export function captureStdio(log, streams = { stdout: process.stdout, stderr: process.stderr }) {
   const raw = {}
   for (const [name, stream] of Object.entries(streams)) {
+    // A pipe whose reader went away fails a write later, as an 'error' event; unheard, it
+    // would be an uncaught exception, whose own logging fails the same way again (#2171).
+    stream.on?.('error', () => { /* no console */ })
     const write = stream.write.bind(stream)
     raw[name] = (text) => { try { write(text) } catch { /* no console */ } }
     stream.write = (chunk, encoding, callback) => {

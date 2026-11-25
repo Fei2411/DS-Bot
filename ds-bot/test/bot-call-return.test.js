@@ -159,7 +159,7 @@ test('note_bot leaves silent zero-wake context via agent.inject without waking t
   assert.equal(log[0].role, 'note')
 })
 
-test('zero-work ping-pong guard pauses empty back-and-forth (including bot_remember) and supports Continue', async (t) => {
+test('a closed result cannot create another root delegation without its work reference', async (t) => {
   const { rt, agents, emit, tool, call, stop } = await start()
   t.after(stop)
 
@@ -181,23 +181,14 @@ test('zero-work ping-pong guard pauses empty back-and-forth (including bot_remem
   // Chief wakes on W1 completion, runs 0 work tools, and tries to bounce "好。" back to Writer.
   emit('a', 'turn/start', { turn: 2 })
   emit('a', 'user/message', { content: reply1.content, source: reply1.source })
-  const r2 = await tool('delegate_work', { to: 'Writer', goal: '好。' }, 'a')
-  assert.match(r2, /^Paused work #W2 before waking Writer/)
-  // Writer was NOT woken a second time!
+  await assert.rejects(tool('delegate_work', { to: 'Writer', goal: '好。' }, 'a'), /Not sent: this is a result/)
+  await assert.rejects(tool('delegate_work', { to: 'Writer', goal: 'check again', follow_up_to: 'W99' }, 'a'), /must identify the completed work/)
   assert.equal(agents.get('b').calls.length, 1)
-
-  const paused = (await call('state', {})).value.work.paused
-  assert.equal(paused.length, 1)
-  assert.equal(paused[0].ref, 'W2')
-  assert.equal(paused[0].reason, 'idle_loop')
-  assert.equal(paused[0].goal, '好。')
-
-  // Clicking Continue dispatches the held delegation verbatim without losing it.
-  const resumed = await call('resume-work', { id: paused[0].id })
-  assert.equal(resumed.ok, true)
-  assert.equal(agents.get('b').calls.length, 2)
-  assert.equal(agents.get('b').calls[1][0], 'steer')
+  assert.deepEqual((await call('state', {})).value.work.paused, [])
   assert.equal(rt.pausedWorksView().length, 0)
+  const next = await tool('delegate_work', { to: 'Writer', goal: 'Which backup can be restored?', follow_up_to: '#W1' }, 'a')
+  assert.match(next, /^Delegated work #W2/)
+  assert.equal(agents.get('b').calls.at(-1)[1].source.follows, 'W1')
 })
 
 test('real work tool resets zero-work streak, and user message resets rework checkpoint', async (t) => {
@@ -441,7 +432,7 @@ test('nested ask_back tree keeps parent waiting, pauses on 2nd zero-work ask_bac
   assert.deepEqual(Object.keys(rt.state.works ?? {}), [])
 })
 
-test('group zero-work cycle pauses (even with bot_remember), preserves 1-hop Q&A, and supports resume-room-pause', async (t) => {
+test('a group answer returns once; mentioning the worker while reporting a result does not call it', async (t) => {
   const seed = team()
   seed.rooms = {
     r1: {
@@ -449,7 +440,7 @@ test('group zero-work cycle pauses (even with bot_remember), preserves 1-hop Q&A
       sessions: { a: 'ga', b: 'gb', c: 'gc' }, log: [], seq: 0, seen: {},
     },
   }
-  const { rt, agentOf, emit, tool, call, stop } = await start(seed)
+  const { rt, agentOf, emit, tool, stop } = await start(seed)
   t.after(stop)
   const turns = new Map()
   const begin = (sid) => {
@@ -486,7 +477,7 @@ test('group zero-work cycle pauses (even with bot_remember), preserves 1-hop Q&A
   assert.equal(qa.replies.filter(r => r.kind === 'paused').length, 0, '1-hop Q&A must NOT pause')
   assert.equal(rt.state.rooms.r1.idlePaused, undefined)
 
-  // Case B: zero-work cycle (Chief -> Writer -> Chief -> Writer) calling ONLY bot_remember pauses immediately!
+  // Even if both Bots use another tool, their receipt cannot turn back into a request.
   const cyclePromise = runRound('c2', { content: textBlock('@Chief 核对一下'), source: { kind: 'user' } })
   await settled(() => agentOf('ga').calls.length === 3)
   begin('ga')
@@ -503,23 +494,10 @@ test('group zero-work cycle pauses (even with bot_remember), preserves 1-hop Q&A
   finish('ga', '@Writer 好，你确认一下')
   const cycle = await cyclePromise
 
-  assert.equal(cycle.replies.filter(r => r.kind === 'paused').length, 1, 'zero-work cycle with bot_remember must pause')
-  assert.equal(agentOf('gb').calls.length, 2, 'Writer must NOT be woken again on cycle pause')
-  assert.ok(rt.state.rooms.r1.idlePaused !== undefined)
-  assert.equal(rt.state.rooms.r1.paused?.length, 1)
-
-  // Case C: clicking Continue (resume-room-pause) clears idlePaused and triggers a new round with parked @Writer.
-  const res = await call('resume-room-pause', { roomId: 'r1' })
-  assert.equal(res.ok, true)
-  assert.equal(res.value, true)
+  assert.equal(cycle.replies.filter(r => r.kind === 'paused').length, 0)
+  assert.equal(agentOf('gb').calls.length, 2)
   assert.equal(rt.state.rooms.r1.idlePaused, undefined)
-  assert.equal(agentOf('r1').calls.length, 1, 'resume-room-pause posts a quiet resume trigger to the room Session')
-  const resumePost = agentOf('r1').calls[0][1]
-  const resumedRoundPromise = runRound('c3', { content: resumePost.content, source: resumePost.source })
-  await settled(() => agentOf('gb').calls.length === 3)
-  begin('gb')
-  finish('gb', '已继续核对完成。')
-  await resumedRoundPromise
+  assert.equal(rt.state.rooms.r1.log.at(-1).route.kind, 'note')
   assert.equal(rt.state.rooms.r1.paused, undefined)
 })
 
@@ -720,12 +698,9 @@ test('P0 #5 & P1 #1: group fan-out completes without pause, alreadyPaused holds 
   await settled(() => agentOf('gb').calls.length === 1 && agentOf('gc').calls.length === 1)
   begin('gb')
   finish('gb', '@Chief 我这边文案部分 OK')
-  await settled(() => agentOf('ga').calls.length === 2)
-  begin('ga')
-  finish('ga', '收到 Writer，等 Reviewer。')
   begin('gc')
   finish('gc', '@Chief 我这边运维部分 OK')
-  await settled(() => agentOf('ga').calls.length === 3)
+  await settled(() => agentOf('ga').calls.length === 2)
   begin('ga')
   finish('ga', '两边都确认 OK，汇总完毕。')
   const fanout = await fanoutPromise
@@ -1125,4 +1100,44 @@ test('same-direction substantive pure-LLM delegate_work runs 4 sections before r
   assert.equal(paused.length, 1)
   assert.equal(paused[0].reason, 'idle_loop')
   assert.equal(paused[0].bounces, 2)
+})
+
+test('STEER_CUT during a private reply turn preserves userInput, ordinary user turns allow historical follow_up_to, and ref-less late replies never deadlock', async (t) => {
+  const { rt, agents, emit, tool, stop } = await start()
+  t.after(stop)
+
+  // Work #W1 finishes and wakes Chief with a role: 'reply' turn.
+  await tool('delegate_work', { to: 'Writer', goal: 'Check logs' }, 'a')
+  const req1 = agents.get('b').calls[0][1]
+  emit('b', 'turn/start', { turn: 1 })
+  emit('b', 'user/message', { content: req1.content, source: req1.source })
+  emit('b', 'assistant/message', assistantText('Logs look clean.'))
+  emit('b', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  await settled(() => (agents.get('a')?.calls.length ?? 0) >= 1)
+  const reply1 = agents.get('a').calls[0][1]
+
+  // (a) Human steers during Chief's reply turn -> STEER_CUT carries userInput: true into the fresh turn.
+  emit('a', 'turn/start', { turn: 2 })
+  emit('a', 'user/message', { content: reply1.content, source: reply1.source })
+  rt.markSteerCut('a')
+  emit('a', 'turn/end', { turn: 2, reason: { kind: 'aborted', reason: { kind: 'hook', reason: 'steer' } } })
+  emit('a', 'turn/start', { turn: 3 })
+  // Even before any new user/message event is logged, carry preserves userInput so Chief can delegate freely.
+  const afterSteer = await tool('delegate_work', { to: 'Writer', goal: 'New task requested by human steer' }, 'a')
+  assert.match(afterSteer, /^Delegated work #W2/)
+  emit('a', 'turn/end', { turn: 3, reason: { kind: 'completed' } })
+
+  // (b) Ordinary human turn mentioning a historical work ref in follow_up_to is NOT rejected.
+  emit('a', 'turn/start', { turn: 4 })
+  emit('a', 'user/message', { content: textBlock('Follow up on W1 please'), source: { kind: 'user' } })
+  const withHistoricalRef = await tool('delegate_work', { to: 'Writer', goal: 'Run second pass', follow_up_to: 'W1' }, 'a')
+  assert.match(withHistoricalRef, /^Delegated work #W3/)
+  emit('a', 'turn/end', { turn: 4, reason: { kind: 'completed' } })
+
+  // (c) A legacy/ref-less role: 'reply' turn (no workRef, no replyTo) must NOT deadlock delegate_work.
+  emit('a', 'turn/start', { turn: 5 })
+  emit('a', 'user/message', { content: textBlock('[Late subagent output]\ndone'), source: { kind: 'bot', role: 'reply', exchangeId: 'late-no-ref' } })
+  const fromReflessLate = await tool('delegate_work', { to: 'Writer', goal: 'Act on late subagent output' }, 'a')
+  assert.match(fromReflessLate, /^Delegated work #W4/)
+  emit('a', 'turn/end', { turn: 5, reason: { kind: 'completed' } })
 })

@@ -13,10 +13,11 @@ export function install(rt) {
     const main = rt.isMain?.(botId) === true
     const hasRooms = Object.keys(rt.state?.rooms ?? {}).length > 0
     const inRoom = botId !== undefined && (rt.roomsOf?.(botId)?.length ?? 0) > 0
+    const isGroup = rt.groupOwners?.has(id) === true
     const isTask = rt.taskOwners?.has(id) === true
     const hasTaskRoom = isTask && rt.taskOwners?.get(id)?.roomId !== undefined
     const hasPacks = (bot?.packs?.length ?? 0) > 0 || rt.hasLoadedPacks?.(id) === true
-    return { main, hasRooms, inRoom, isTask, hasTaskRoom, hasPacks }
+    return { main, hasRooms, inRoom, isGroup, isTask, hasTaskRoom, hasPacks }
   }
   rt.toolScopeForTurn = id => scopeBySession.get(id) ?? computeScope(id)
   rt.isMainForTurn = id => rt.toolScopeForTurn(id).main

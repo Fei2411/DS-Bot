@@ -195,7 +195,7 @@ test('the account menu opens the connectors and the automation panel', () => {
   const side = launcher({ actions: { openConnectors: () => calls.push('connectors'), selectPanel: id => calls.push(id) } })
   const menu = side.open()
   side.item(menu, 'Connectors').props.onClick()
-  side.item(menu, 'Automation tasks').props.onClick()
+  side.item(menu, 'Scheduled tasks').props.onClick()
   assert.deepEqual(calls, ['connectors', 'schedules'])
 })
 

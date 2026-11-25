@@ -890,11 +890,22 @@ test('a host that loses its lock to another dsh refuses changes instead of makin
 
 test('a delete whose save fails still stops the Sessions, and the next save writes it', async (t) => {
   const { call, stop, home, archived } = start(TEAM_WITH_PART, { models: ['deepseek-v4-flash'] })
-  t.after(stop)
+  const statePath = join(home, 'state.json')
+  const writeFile = fsp.writeFile
+  let failWrite = false
+  fsp.writeFile = async (path, ...args) => {
+    if (failWrite && String(path).startsWith(`${statePath}.`)) throw Object.assign(new Error('disk error'), { code: 'EISDIR' })
+    return writeFile(path, ...args)
+  }
+  syncBuiltinESMExports()
+  t.after(async () => {
+    fsp.writeFile = writeFile
+    syncBuiltinESMExports()
+    await stop()
+  })
   await call('state', {})
   archived.length = 0
-  const blocker = join(home, `state.json.${process.pid}.tmp`)
-  mkdirSync(blocker)
+  failWrite = true
   const answer = await call('delete-bot', { id: 'w1' })
   assert.equal(answer.ok, false)
   // The Bot is gone from the team, so nothing could stop its tasks later.
@@ -902,9 +913,9 @@ test('a delete whose save fails still stops the Sessions, and the next save writ
     ['w1', { stopActivity: true }],
     ['w2', { stopActivity: true }],
   ])
-  rmSync(blocker, { recursive: true })
+  failWrite = false
   await call('set-prefs', { theme: 'dark' })
-  const saved = JSON.parse(readFileSync(join(home, 'state.json'), 'utf8'))
+  const saved = JSON.parse(readFileSync(statePath, 'utf8'))
   assert.equal(saved.bots.w1, undefined)
 })
 
@@ -951,7 +962,19 @@ test('a rolled-back Bot does not come back with a save queued before the rollbac
 
 test('a write that fails at save time archives the Session it made', async (t) => {
   const { call, stop, home, ctx } = start({ version: 1, mainBotIds: ['chief'], bots: { chief: { id: 'chief', name: 'Chief' } } })
-  t.after(stop)
+  const statePath = join(home, 'state.json')
+  const writeFile = fsp.writeFile
+  let failWrite = false
+  fsp.writeFile = async (path, ...args) => {
+    if (failWrite && String(path).startsWith(`${statePath}.`)) throw Object.assign(new Error('disk error'), { code: 'EISDIR' })
+    return writeFile(path, ...args)
+  }
+  syncBuiltinESMExports()
+  t.after(async () => {
+    fsp.writeFile = writeFile
+    syncBuiltinESMExports()
+    await stop()
+  })
   await call('state', {})
   const created = []
   const create = ctx.sessionController.create
@@ -959,7 +982,7 @@ test('a write that fails at save time archives the Session it made', async (t) =
     const made = await create(...args)
     created.push(made.sessionId)
     // The disk write fails after this request's refresh, before its save.
-    mkdirSync(join(home, `state.json.${process.pid}.tmp`))
+    failWrite = true
     return made
   }
   const archived = []
@@ -969,9 +992,10 @@ test('a write that fails at save time archives the Session it made', async (t) =
   assert.equal(answer.ok, false)
   assert.equal(answer.error.code, 'bot/internal')
   assert.deepEqual(archived, created)
+  failWrite = false
   const team = (await call('state', {})).value
   assert.equal(team.bots.some(bot => bot.name === 'Phantom'), false)
-  const saved = JSON.parse(readFileSync(join(home, 'state.json'), 'utf8'))
+  const saved = JSON.parse(readFileSync(statePath, 'utf8'))
   assert.equal(Object.values(saved.bots).some(bot => bot.name === 'Phantom'), false)
 })
 

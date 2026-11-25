@@ -1306,7 +1306,7 @@ test('index.js pull loop keeps retrying avatar on transient failure without adva
 
   // Next poll must NOT advance `since` to 5 (must pass -1) so avatar self-heals!
   const runNextPoll = async () => {
-    const entry = [...app.timers.entries()].find(([, t]) => t.ms >= 1500 && t.ms < 30000)
+    const entry = [...app.timers.entries()].find(([, t]) => t.ms === 1500 || t.ms === 3000 || t.ms === 5000)
     assert.ok(entry)
     app.timers.delete(entry[0])
     entry[1].fn()
@@ -1397,7 +1397,7 @@ test('index.js pull loop keeps retrying avatar on transient failure without adva
   const style2 = () => [...app2.document.querySelectorAll('style')].find(s => s.dataset.dshBot === 'mentions')?.textContent ?? ''
   assert.equal(style2().includes(img1), false, 'initial rev 8 avatar fetch failed')
   // Pull #1 (order = 2) starts via timer and pauses inside call('avatar').
-  const pollEntry = [...app2.timers.entries()].find(([, t]) => t.ms >= 1500 && t.ms < 30000)
+  const pollEntry = [...app2.timers.entries()].find(([, t]) => t.ms === 1500 || t.ms === 3000 || t.ms === 5000)
   assert.ok(pollEntry)
   app2.timers.delete(pollEntry[0])
   pollEntry[1].fn()

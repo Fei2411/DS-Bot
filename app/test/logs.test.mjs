@@ -3,6 +3,7 @@ import fs, { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFi
 import { syncBuiltinESMExports } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { Writable } from 'node:stream'
 import { test } from 'node:test'
 import { captureStdio, LogFile, logNames, redactor, rotate, shouldRotate, splitLines, tailLines } from '../src/logs.mjs'
 
@@ -274,6 +275,25 @@ test('the console goes on as before and into the log', (t) => {
   log.close()
   assert.deepEqual(seen, ['hello sk-test-ok\n', 'bytes\n', 'only the console\n'])
   assert.equal(readFileSync(join(dir, 'main.log'), 'utf8'), '2026-10-28T08:00:00.000Z [main] hello sk-<hidden>\n2026-10-28T08:00:00.000Z [main] bytes\n')
+})
+
+test('a console whose reader went away fails its writes quietly (#2171)', async (t) => {
+  const dir = folder(t)
+  const log = new LogFile({ dir, now: at })
+  t.after(() => { log.close() })
+  // Like stdout on a pipe nobody reads any more: the write fails later, as an 'error' event.
+  const stream = new Writable({ write: (chunk, encoding, done) => { done(Object.assign(new Error('write EPIPE'), { code: 'EPIPE' })) } })
+  const uncaught = []
+  const record = (error) => { uncaught.push(error) }
+  process.on('uncaughtException', record)
+  t.after(() => { process.off('uncaughtException', record) })
+  captureStdio(log, { stdout: stream })
+  stream.write('Checking for update\n')
+  stream.write('Checking for update\n')
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(stream.destroyed, true)
+  assert.deepEqual(uncaught, [])
+  assert.match(readFileSync(join(dir, 'main.log'), 'utf8'), /\[main\] Checking for update\n/)
 })
 
 test('write(..., { redacted: true }) skips redundant redaction and tail(0) returns empty', (t) => {

@@ -473,3 +473,78 @@ export class CookieImports {
     for (const [id, entry] of this.#pending) if (entry.expiresAt < now) this.#pending.delete(id)
   }
 }
+
+/**
+ * Consume a pending import once and apply it to one Bot key or a batch of Bot keys.
+ * Validates every key before consuming `store.take(id)` so malformed calls never drop pending cookies.
+ */
+export async function applyImportToTargets({ keyOrKeys, id, options, store, applyOne }) {
+  const isBatch = Array.isArray(keyOrKeys)
+  const rawKeys = isBatch ? keyOrKeys : [keyOrKeys]
+  const keys = []
+  const seenKeys = new Set()
+  for (const key of rawKeys) {
+    if (typeof key !== 'string' || !key.startsWith('bot:') || key.length > 4096 || key.slice(4).trim().length === 0) {
+      throw new Error('DS Bot: a Bot storage key is required')
+    }
+    if (!seenKeys.has(key)) {
+      seenKeys.add(key)
+      keys.push(key)
+    }
+  }
+  if (keys.length === 0) throw new Error('DS Bot: a Bot storage key is required')
+  const pending = store.take(typeof id === 'string' ? id : '')
+  if (!pending) throw new Error('DS Bot: this import is no longer pending')
+  const sites = Array.isArray(options?.sites) ? options.sites.map(String) : undefined
+  const persistSession = options?.persistSession === true
+
+  if (!isBatch) return applyOne(keys[0], pending, { sites, persistSession })
+
+  const perBot = []
+  let firstError = null
+  let succeeded = 0
+  for (const key of keys) {
+    try {
+      perBot.push({ key, ...(await applyOne(key, pending, { sites, persistSession })) })
+      succeeded += 1
+    } catch (error) {
+      if (!firstError) firstError = error
+      perBot.push({
+        key,
+        stored: 0,
+        originsStored: 0,
+        entriesStored: 0,
+        dropped: [],
+        failed: [{ name: key.slice(4), reason: friendlyCookieError(error) }],
+        failedOrigins: [],
+      })
+    }
+  }
+  if (succeeded === 0 && firstError) throw firstError
+  if (perBot.length === 1) return { ...perBot[0], botCount: 1 }
+
+  const stored = perBot.reduce((max, r) => Math.max(max, r.stored ?? 0), 0)
+  const originsStored = perBot.reduce((max, r) => Math.max(max, r.originsStored ?? 0), 0)
+  const entriesStored = perBot.reduce((max, r) => Math.max(max, r.entriesStored ?? 0), 0)
+  const dedupBy = (items, keyOf) => {
+    const seen = new Set()
+    return items.filter((item) => {
+      const k = keyOf(item)
+      if (seen.has(k)) return false
+      seen.add(k)
+      return true
+    })
+  }
+  const cookieItemKey = (item) => `${item?.domain ?? ''}\0${item?.path ?? ''}\0${item?.name ?? ''}\0${item?.reason ?? ''}`
+  const originItemKey = (item) => `${item?.origin ?? ''}\0${item?.reason ?? ''}`
+  return {
+    stored,
+    originsStored,
+    entriesStored,
+    dropped: dedupBy(perBot.flatMap((r) => r.dropped ?? []), cookieItemKey),
+    failed: dedupBy(perBot.flatMap((r) => r.failed ?? []), cookieItemKey),
+    failedOrigins: dedupBy(perBot.flatMap((r) => r.failedOrigins ?? []), originItemKey),
+    botCount: perBot.length,
+    bots: perBot,
+  }
+}

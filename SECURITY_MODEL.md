@@ -37,6 +37,8 @@ Trust boundaries:
 - Content the Bot reads: web pages (Bot browser, `read_browser`, web search), files in the work folder, connector/MCP tool results, messages from other Bots and group chats, scheduled-task prompts. **Attacker-controlled.**
 - `/api/bot` HTTP endpoints and DSH Web UI: the local user; in Docker, anyone who can reach port 13080 (DSH trusted-host list + launch token).
 - Electron IPC from the app window.
+- IM messages (`ds-bot/src/host/im/`, adapters in `im/platforms/`): each connection is an IM bot account bound to a Bot; only senders the user has paired in Settings reach it, and replies go out only to the chat whose message started the turn. How far a paired sender is trusted is an open question below.
+- Paired phones and browser clients over the phone link (`link/`, `mobile/`, host side `phone.js`, `mobile.js`): X25519 identities, pairing by QR code plus a one-time code sent inside the encrypted handshake. The Relay Server (`link/server`, default `wss://relay.dsbot.app/v1/link`) is reachable from the internet and only forwards encrypted frames; browser clients also run the page it serves.
 - Local API & MCP gateway (`ds-bot/src/host/api/`), off by default: local programs holding a revocable, hashed Bearer token (`Authorization` header only; URL query tokens are rejected), bound to `127.0.0.1` by default (non-loopback binding requires explicit confirmation); requests with an `Origin` header or a non-local `Host` (on loopback) are refused with `403`. Each token is bounded by explicit scopes (`read`, `message`, `event:ingest`, `memory:write`, and confirmation-gated `approval` / `team:manage`) and a target whitelist. Private Bots are excluded by default and return `404` when unauthorized; turning a Bot private immediately revokes access for tokens that did not explicitly confirm it. Secrets plaintext, deleting Bots, changing Bot privacy, changing computer-use policy, and managing API tokens themselves are never exposed via the API or remote phone/web channels; `privacy.js` also blocks Bots' own file and shell tools from reading `api-tokens.json`, `mcp.json`, or `api-audit.jsonl`. External events submitted to `POST /v1/events` are marked `external_untrusted` in the ledger and carry no user command authority.
 
 ## Assets (maintainer-ranked)
@@ -62,6 +64,7 @@ Trust boundaries:
 - HTML widgets in `sandbox="allow-scripts"` iframes; Electron webviews sandboxed with contextIsolation and own partitions; IPC handlers call `assertWindow(event)`.
 - Cookie values stay in the Electron main process (`cookie-import.mjs`).
 - Launch token redacted from host logs (`host-process.mjs`).
+- Telemetry (`ds-bot/src/host/telemetry.js`, `telemetry/`): strictly gated behind explicit user confirmation of the privacy notice (`noticeAccepted`) and environment kill switches (`DS_BOT_TELEMETRY_DISABLED`, `DO_NOT_TRACK`). Sends only allowlisted daily aggregates (monthly rotating random UUID, coarse buckets, built-in enums) and optional structured error fingerprints (relative `ds-bot/`/`app/`/`link/`/`mobile/` stack frames only, no raw `error.message`). Private Bots are excluded from both DS Bot telemetry and upstream DSH `session-log-deepseek` / `session-telemetry/record` uploads; DSH session-log and feedback telemetry default to off in DS Bot. Telemetry settings are computer-only (refused over remote links) and `bot/telemetry.json` is off-limits to Bot file/shell tools.
 
 ## Out of scope / accepted risk (maintainer)
 
@@ -72,5 +75,7 @@ Trust boundaries:
 
 ## Open questions
 
+- IM: is a paired IM sender trusted like the user, or untrusted input like a message from another Bot?
+- Phone link: is a paired phone trusted like the user, and is the public Relay Server in scope (denial of service, metadata, pairing abuse)?
 - Is the Docker web UI expected to be reachable only on a trusted LAN?
 - Should a secret scoped to one Bot be treated as hidden from Main Bots too?
