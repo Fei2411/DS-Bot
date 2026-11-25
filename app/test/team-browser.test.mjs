@@ -807,3 +807,54 @@ test('createTeam wires host speech service, switches back from Classic mode on B
   const appSrc = readFileSync(fileURLToPath(new URL('../ui/src/app.js', import.meta.url)), 'utf8')
   assert.doesNotMatch(appSrc, /\bNotificationWatcher\b/)
 })
+
+test('sidebar toggles cleanly between shown and 0px hidden, persists width, and keeps single-column Bot layout and macOS rail toggle rules', () => {
+  const { sandbox, exports, readHook } = createHarness()
+  const team = exports.createTeam()
+  assert.equal(readHook(team.hooks.useLayout).pref, 'open')
+  assert.equal(readHook(team.hooks.useLayout).wide, true)
+  assert.equal(readHook(team.hooks.useLayout).width, 280)
+
+  // Toggling from open collapses completely to 'hidden' (0px), never to 'rail'.
+  team.actions.toggleLeftHidden()
+  assert.equal(readHook(team.hooks.useLayout).pref, 'hidden')
+  assert.equal(readHook(team.hooks.useLayout).wide, false)
+  team.actions.toggleSidebar()
+  assert.equal(readHook(team.hooks.useLayout).pref, 'open')
+  assert.equal(readHook(team.hooks.useLayout).wide, true)
+
+  // Dragging to rail remembers 'rail' as shown; toggling hides completely and restores 'rail'.
+  team.actions.setSidebarPref('rail')
+  assert.equal(readHook(team.hooks.useLayout).pref, 'rail')
+  team.actions.toggleLeftHidden()
+  assert.equal(readHook(team.hooks.useLayout).pref, 'hidden')
+  team.actions.toggleLeftHidden()
+  assert.equal(readHook(team.hooks.useLayout).pref, 'rail')
+
+  // Width clamps to [264, 420] and persists via localStorage.
+  team.actions.setSidebarWidth(700)
+  assert.equal(readHook(team.hooks.useLayout).width, 420)
+  team.actions.setSidebarWidth(120)
+  assert.equal(readHook(team.hooks.useLayout).width, 264)
+  team.actions.setSidebarWidth(340)
+  assert.equal(readHook(team.hooks.useLayout).width, 340)
+  assert.equal(readHook(team.hooks.useLayout).pref, 'rail')
+  const persisted = JSON.parse(sandbox.localStorage.getItem('ds-bot:sidebar'))
+  assert.deepEqual(persisted, { pref: 'rail', shown: 'rail', width: 340 })
+
+  // A fresh team reloads the persisted sidebar state.
+  const reloaded = exports.createTeam()
+  assert.equal(readHook(reloaded.hooks.useLayout).pref, 'rail')
+  assert.equal(readHook(reloaded.hooks.useLayout).width, 340)
+
+  // Single-source-of-truth Bot layout (no double grid column / collapsedWidth: 0 on desktop),
+  // full 0px Classic collapse, and macOS rail toggle staying inside the 88px rail.
+  const appSrc = readFileSync(fileURLToPath(new URL('../ui/src/app.js', import.meta.url)), 'utf8')
+  const appCss = readFileSync(fileURLToPath(new URL('../ui/src/app.css', import.meta.url)), 'utf8')
+  const macosCss = readFileSync(fileURLToPath(new URL('../src/macos.css', import.meta.url)), 'utf8')
+  assert.doesNotMatch(appSrc, /\bdsb-side-host\b/)
+  assert.match(appSrc, /sidebarWidth:\s*effectiveSideW,\s*collapsedWidth:\s*0/)
+  assert.match(appCss, /\.dsb-frame\[data-surface=bot\],\.dsb-frame\[data-surface=agent\]\[data-collapsed\]\{grid-template-columns:minmax\(0,1fr\)\}/)
+  assert.match(macosCss, /\.bt-title-toggle\[data-left="rail"\]\s*\{[^}]*display:\s*none\s*!important/)
+  assert.match(macosCss, /\.bt-leftcol\[data-left="rail"\]\s+\.bt-rail-top\s*>\s*\.bt-side-collapse\s*\{[^}]*display:\s*inline-flex\s*!important/)
+})

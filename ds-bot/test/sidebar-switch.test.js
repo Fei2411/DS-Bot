@@ -56,7 +56,7 @@ const module = { exports: {} }
 const viewport = { innerWidth: 1280 }
 const sandbox = {
   module, exports: module.exports,
-  require: name => (name === 'react' ? react : {}),
+  require: name => (name === 'react' ? react : name === 'react-dom' ? { createPortal: tree => tree } : {}),
   window: viewport,
 }
 runInNewContext(outputFiles[0].text, sandbox)
@@ -1032,4 +1032,118 @@ test('TeamSidebar leaves an already-collapsed DSH Desktop sidebar alone', async 
       document.documentElement.removeAttribute('data-bt-collapsing')
     }
   })
+})
+
+test('TitleToggle exposes data-left for each sidebar mode', () => {
+  viewport.innerWidth = 1280
+  const roster = { bots: [], rooms: [], agents: [], byId: {}, ready: true }
+  const findToggle = (node) => {
+    if (Array.isArray(node)) return node.map(findToggle).find(Boolean)
+    if (!node || typeof node !== 'object') return undefined
+    return node.type?.name === 'TitleToggle' ? node : findToggle(node.props?.children)
+  }
+  const dom = new JSDOM('<!doctype html><html data-windows-titlebar><body></body></html>')
+  const prevDoc = sandbox.document
+  sandbox.document = dom.window.document
+  try {
+    for (const pref of ['open', 'rail', 'hidden']) {
+      const tree = TeamSidebar({
+        wide: pref === 'open',
+        useRoster: pick => pick(roster),
+        useUi: pick => pick({ unread: {} }),
+        useRegistry: pick => pick({}),
+        useSessions: pick => pick({ ids: [], byId: {} }),
+        useUpdate: () => ({}),
+        useSidebarPref: pick => pick(pref),
+        actions: { toggleLeftHidden() {} },
+      })
+      const toggle = findToggle(tree)
+      assert.equal(toggle.props.mode, pref)
+      assert.equal(toggle.props.hidden, pref === 'hidden')
+      const rendered = toggle.type(toggle.props)
+      assert.equal(rendered.props['data-left'], pref)
+    }
+  } finally {
+    sandbox.document = prevDoc
+  }
+})
+
+test('continuing to drag width right after unfolding from rail clears spring lag immediately', async () => {
+  await edgeDrag({ start: { pref: 'rail', width: 280 } }, async ({ column, center, leftColumn, press, move, release, settle }) => {
+    press()
+    move(200)
+    assert.equal(column.dataset.folding, '')
+    // Keep dragging width right away without waiting for SPRING_SHAPE to expire.
+    move(310)
+    assert.equal(column.hasAttribute('data-folding'), false)
+    assert.equal(center.style.getPropertyValue('transition'), 'none')
+    assert.equal(column.style.width, '310px')
+    assert.equal(center.style.getPropertyValue('margin-left'), '310px')
+    release(310)
+    await settle(60)
+    assert.equal(leftColumn().mode, 'open')
+    assert.equal(leftColumn().width, 310)
+  })
+})
+
+test('hiding the sidebar during post-drag settle clears inline drag styles and does not restore rail margin', async () => {
+  const dom = new JSDOM('<!doctype html><body><div class="x_centerCol"></div><div class="bt-leftcol"><div class="bt-leftcol-grip"></div></div></body>')
+  const { document } = dom.window
+  const column = document.querySelector('.bt-leftcol')
+  const grip = column.querySelector('.bt-leftcol-grip')
+  const center = document.querySelector('.x_centerCol')
+  const frame = { viewport: 1280, sidebarWidth: 320, collapsedWidth: 0, collapsed: false }
+  const stored = { pref: 'open' }
+  const roster = { bots: [], rooms: [], agents: [], byId: {}, ready: true }
+  const refs = []
+  const actions = {
+    setPanelYield() {}, setLeftDrawer() {}, toggleSidebar() {}, toggleLeftHidden() {},
+    setSidebarWidth: (width) => { frame.sidebarWidth = width },
+    setSidebarPref: (pref) => { stored.pref = pref },
+  }
+  const render = () => {
+    renderRefs = refs
+    refIndex = 0
+    layoutEffects = []
+    try {
+      const tree = TeamSidebar({
+        wide: stored.pref === 'open', actions,
+        useRoster: pick => pick(roster), useUi: pick => pick({ unread: {} }), useRegistry: pick => pick({}),
+        useSessions: pick => pick({ ids: [], byId: {} }), useUpdate: () => ({}),
+        useFrame: pick => pick(frame), useSidebarPref: pick => pick(stored.pref),
+      })
+      const effects = layoutEffects
+      layoutEffects = undefined
+      effects.forEach(effect => effect())
+      return tree
+    } finally {
+      renderRefs = undefined
+      layoutEffects = undefined
+    }
+  }
+  const findLeft = (node) => {
+    if (Array.isArray(node)) return node.map(findLeft).find(Boolean)
+    if (!node || typeof node !== 'object') return undefined
+    return node.type?.name === 'LeftColumn' ? node : findLeft(node.props?.children)
+  }
+  const globals = { document, performance, setTimeout, clearTimeout, requestAnimationFrame: next => setTimeout(next, 0), cancelAnimationFrame: clearTimeout, CSS: { escape: value => value } }
+  Object.assign(sandbox, globals)
+  viewport.innerWidth = 1280
+  try {
+    const first = findLeft(render())
+    first.props.onGrip({ button: 0, pointerId: 1, currentTarget: grip, preventDefault() {} })
+    grip.dispatchEvent(new dom.window.MouseEvent('pointermove', { clientX: 120 }))
+    grip.dispatchEvent(new dom.window.MouseEvent('pointerup', { clientX: 120 }))
+    assert.equal(stored.pref, 'rail')
+    // Hide the sidebar before the post-drag spring settle timer fires.
+    stored.pref = 'hidden'
+    render()
+    assert.equal(center.style.getPropertyValue('margin-left'), '', 'inline drag margin-left must be cleared immediately on hide')
+    await new Promise(resolve => setTimeout(resolve, 600))
+    const chatRoomSheet = [...document.head.querySelectorAll('style')].map(el => el.sheet?.cssRules?.[0]?.style?.marginLeft ?? '').find(Boolean)
+    assert.equal(chatRoomSheet, '0px', 'stale settle timer must not overwrite hidden margin-left with rail width')
+  } finally {
+    document.head.replaceChildren()
+    for (const name of Object.keys(globals)) delete sandbox[name]
+  }
 })

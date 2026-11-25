@@ -580,13 +580,13 @@ function LeftColumn({ mode, width, onGrip, leaving, entering, children }) {
 // Windows title bar it takes the shell's own place in the title band; elsewhere
 // it shows only while the column is hidden, since the column's own top row
 // carries it otherwise.
-function TitleToggle({ hidden, onToggle }) {
+function TitleToggle({ hidden, mode, onToggle }) {
   if (typeof document === 'undefined') return null
   const titlebar = document.documentElement.hasAttribute('data-windows-titlebar')
   if (!titlebar && !hidden) return null
   const label = t(hidden ? 'Expand sidebar' : 'Collapse sidebar')
   return createPortal(h('button', {
-    type: 'button', className: titlebar ? 'bt-title-toggle' : 'bt-round bt-title-toggle', 'aria-label': label, title: label, onClick: onToggle,
+    type: 'button', className: titlebar ? 'bt-title-toggle' : 'bt-round bt-title-toggle', 'data-left': mode, 'aria-label': label, title: label, onClick: onToggle,
   }, h(SidebarIcon)), document.body)
 }
 
@@ -712,15 +712,28 @@ export function TeamSidebar(props) {
   // keeps going afterwards follows the cursor frame by frame again.
   const settleTimer = useRef(0)
   const springTimer = useRef(0)
+  const pendingFinish = useRef(null)
+  const collapsedWidthRef = useRef(frameSnap.collapsedWidth ?? 0)
+  collapsedWidthRef.current = frameSnap.collapsedWidth ?? 0
+  const modeRef = useRef(mode)
+  modeRef.current = mode
+  useLayoutEffect(() => {
+    if (mode !== 'hidden') return
+    if (settleTimer.current) { clearTimeout(settleTimer.current); settleTimer.current = 0 }
+    if (springTimer.current) { clearTimeout(springTimer.current); springTimer.current = 0 }
+    pendingFinish.current?.()
+  }, [mode])
   useEffect(() => () => {
     clearTimeout(settleTimer.current)
     clearTimeout(springTimer.current)
+    pendingFinish.current = null
   }, [])
   const startDrag = (event) => {
     if (event.button !== 0) return
     event.preventDefault()
     clearTimeout(settleTimer.current)
     clearTimeout(springTimer.current)
+    pendingFinish.current = null
     const grip = event.currentTarget
     const column = grip.parentElement
     // A re-grab can land while a previous spring still stands: the new drag owns
@@ -731,7 +744,6 @@ export function TeamSidebar(props) {
     const columns = chatRoom.columns()
     for (const col of columns) col.style.setProperty('transition', 'none', 'important')
     const panes = [...document.querySelectorAll('.bt-pane')]
-    const offLeft = frameSnap.collapsedWidth ?? 0
     let last = null
     let liveLeft = mode
     let done = false
@@ -740,14 +752,16 @@ export function TeamSidebar(props) {
       column.style.width = `${width}px`
       column.style.setProperty('--bt-lc-w', `${width}px`)
       const occupied = at.left === 'open' ? width : RAIL_WIDTH
-      const push = Math.max(0, occupied - offLeft)
+      const push = Math.max(0, occupied - collapsedWidthRef.current)
       for (const col of columns) col.style.setProperty('margin-left', `${push}px`, 'important')
       for (const pane of panes) pane.style.left = `${occupied}px`
     }
     // A snap crossing arms the spring for the switch's glide; the timer takes it
-    // back off once the switch has had its duration.
+    // back off once the switch has had its duration, or immediately if the pointer
+    // keeps resizing the open column past its minimum width.
     let springUntil = 0
     const springOff = () => {
+      clearTimeout(springTimer.current)
       springUntil = 0
       delete column.dataset.folding
       for (const col of columns) col.style.setProperty('transition', 'none', 'important')
@@ -760,11 +774,14 @@ export function TeamSidebar(props) {
       springTimer.current = setTimeout(springOff, SPRING_SHAPE.duration)
     }
     const track = (x) => {
+      const prev = last
       last = dragColumn(x, window.innerWidth)
       if (last.left !== liveLeft) {
         liveLeft = last.left
         if (!reducedMotion()) springOn()
         setDrag(last)
+      } else if (springUntil > 0 && prev !== null && last.left !== 'rail' && last.width !== prev.width) {
+        springOff()
       }
       write(last)
     }
@@ -775,8 +792,12 @@ export function TeamSidebar(props) {
     // prop only when the value changes, so removing it would leave the edge at
     // its CSS fallback (57px on the rail).
     const finish = () => {
+      clearTimeout(settleTimer.current)
       clearTimeout(springTimer.current)
-      if (column.isConnected && last !== null) chatRoom.setLeft(Math.max(0, (last.left === 'open' ? last.width : RAIL_WIDTH) - offLeft))
+      if (pendingFinish.current === finish) pendingFinish.current = null
+      if (column.isConnected && !column.hasAttribute('data-leaving') && modeRef.current !== 'hidden' && last !== null) {
+        chatRoom.setLeft(Math.max(0, (last.left === 'open' ? last.width : RAIL_WIDTH) - collapsedWidthRef.current))
+      }
       for (const col of columns) { col.style.removeProperty('margin-left'); col.style.removeProperty('transition') }
       column.style.removeProperty('--bt-lc-w')
       delete column.dataset.folding
@@ -800,7 +821,10 @@ export function TeamSidebar(props) {
         actions.setLeftDrawer?.(last.left === 'drawer')
       }
       if (springUntil === 0) finish()
-      else settleTimer.current = setTimeout(finish, Math.max(0, springUntil - performance.now()) + 60)
+      else {
+        pendingFinish.current = finish
+        settleTimer.current = setTimeout(finish, Math.max(0, springUntil - performance.now()) + 60)
+      }
     }
     grip.addEventListener('pointermove', onMove)
     for (const name of ends) grip.addEventListener(name, onEnd)
@@ -978,7 +1002,7 @@ export function TeamSidebar(props) {
       }))),
     foot)
   return h(Fragment, null,
-    h(TitleToggle, { hidden: mode === 'hidden', onToggle }),
+    h(TitleToggle, { hidden: mode === 'hidden', mode, onToggle }),
     shown === 'hidden' ? null : h(LeftColumn, { mode: shown, width: ourWidth, onGrip: startDrag, leaving, entering: !firstColumn.current }, content))
 }
 

@@ -6,6 +6,7 @@ import { call } from '../../../ds-bot/src/client/api.js'
 import { noticeApprovals } from '../../../ds-bot/src/client/approval-notices.js'
 import { createBotBrowsers, serveBrowserReads } from '../../../ds-bot/src/client/bot-browsers.js'
 import { workPhrase } from '../../../ds-bot/src/client/cells.js'
+import { readSidebar, SIDEBAR_MAX, SIDEBAR_MIN, toggledPref, writeSidebar } from '../../../ds-bot/src/client/frame-layout.js'
 import { language, t } from '../../../ds-bot/src/client/i18n.js'
 import { lookOf, toolState } from '../../../ds-bot/src/client/mark.js'
 import { needsIdleSample } from '../../../ds-bot/src/client/polling.js'
@@ -85,7 +86,8 @@ export function createTeam() {
   const browserHolds = browsers?.holds ?? createSource({})
   const browserPages = browsers?.pages ?? createSource({})
   const browserTabs = browsers?.tabs ?? createSource({})
-  const layout = createSource({ wide: true })
+  let sidebarSaved = readSidebar()
+  const layout = createSource({ ...sidebarSaved, wide: sidebarSaved.pref === 'open' })
   const surface = createSource({ mode: readMode() })
   // The Session facts: the list (each one's latest entry and change, and which one fills
   // the main view), the status (running, a reply not yet seen) and what was just sent.
@@ -388,7 +390,7 @@ export function createTeam() {
     ...baseActions,
     closePanel: () => {
       baseActions.closePanel()
-      ui.set(state => (state.rightPanel !== null ? { ...state, rightPanel: null } : state))
+      ui.set(state => (state.rightPanel !== null || state.panelYield ? { ...state, rightPanel: null, panelYield: false } : state))
     },
     closeOverlay: () => {
       const hadDialog = Boolean(ui.getSnapshot().newChat || ui.getSnapshot().exchange)
@@ -611,8 +613,28 @@ export function createTeam() {
       await refreshClassicSessions()
     },
     landOn: id => show(partFor(id)),
-    toggleSidebar: () => layout.set(state => ({ ...state, wide: !state.wide })),
-    setSidebarWide: next => layout.set(state => (state.wide === Boolean(next) ? state : { ...state, wide: Boolean(next) })),
+    setSidebarPref: (pref) => {
+      const next = pref === 'rail' || pref === 'hidden' ? pref : 'open'
+      sidebarSaved = { ...sidebarSaved, pref: next, ...(next === 'hidden' ? {} : { shown: next }) }
+      writeSidebar(sidebarSaved)
+      layout.set({ ...sidebarSaved, wide: next === 'open' })
+    },
+    setSidebarWidth: (width) => {
+      if (!Number.isFinite(width)) return
+      const clamped = Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, Math.round(width)))
+      if (sidebarSaved.width === clamped) return
+      sidebarSaved = { ...sidebarSaved, width: clamped }
+      writeSidebar(sidebarSaved)
+      layout.set(state => (state.width === clamped ? state : { ...sidebarSaved, wide: state.pref === 'open' }))
+    },
+    toggleLeftHidden: () => {
+      ui.set(state => (state.leftDrawer || state.panelYield ? { ...state, leftDrawer: false, panelYield: false } : state))
+      actions.setSidebarPref(toggledPref(layout.getSnapshot().pref, sidebarSaved.shown))
+    },
+    setLeftDrawer: on => ui.set(state => (state.leftDrawer === Boolean(on) ? state : { ...state, leftDrawer: Boolean(on) })),
+    setPanelYield: on => ui.set(state => (state.panelYield === Boolean(on) ? state : { ...state, panelYield: Boolean(on) })),
+    toggleSidebar: () => actions.toggleLeftHidden(),
+    setSidebarWide: next => actions.setSidebarPref(next ? 'open' : 'hidden'),
     openShortcuts: () => ui.set(state => ({ ...state, shortcuts: true, menu: null, palette: null, groupSearch: null })),
     closeShortcuts: () => ui.set(state => (state.shortcuts ? { ...state, shortcuts: false } : state)),
     markUnread: id => writeUnread(id, true),
