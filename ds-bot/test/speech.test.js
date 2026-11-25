@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { base64Of, closingReplyText, preparationStep, requestPreparation, speechCatalog, transcribeWave, turnDetector, waveBytes } from '../src/client/speech.js'
+import { spacedDictation } from '../src/client/composer.js'
 
 const catalog = (phase, extra = {}) => ({
   providers: [{ id: 'sensevoice', preparation: { phase } }],
@@ -114,4 +115,15 @@ test('turnDetector ends a turn after a pause that follows speech', () => {
   assert.equal(detect(0.3, 1150), 'speech')
   assert.equal(detect(0.01, 1200), 'speech')
   assert.equal(detect(0.01, 2200), 'done')
+})
+
+test('spacedDictation separates adjacent Latin/numeric words without adding spaces around CJK or punctuation', () => {
+  assert.equal(spacedDictation('world', 'o', ''), ' world')
+  assert.equal(spacedDictation('world', ' ', ''), 'world')
+  assert.equal(spacedDictation('world', '', 's'), 'world ')
+  assert.equal(spacedDictation('world', 'o', 's'), ' world ')
+  assert.equal(spacedDictation('world', '.', ''), 'world')
+  assert.equal(spacedDictation('世界', '好', ''), '世界')
+  assert.equal(spacedDictation('世界', '', '呀'), '世界')
+  assert.equal(spacedDictation('API', '用', ''), 'API')
 })

@@ -506,6 +506,11 @@ test('PluginsPage hides uninstalled engine bundles and internal DSH profile/suba
       category: 'other', slot: null, kind: 'dsh', installed: false, enabled: false, active: false,
       status: 'inactive', builtin: false, sourceId: 'installed', packageName: '@deepseek-ai/dsh-headless',
     },
+    {
+      id: 'dsh:dsbot-engine', name: 'DS Bot Engine', description: 'Internal desktop engine bundle',
+      category: 'other', slot: null, kind: 'dsh', installed: true, enabled: true, active: true,
+      status: 'ready', builtin: false, sourceId: 'installed', packageName: 'dsbot-engine',
+    },
   ]
 
   // When only browser plugins + leaked engine bundles are present, Discover is empty and shows the clean invite card.
@@ -518,7 +523,7 @@ test('PluginsPage hides uninstalled engine bundles and internal DSH profile/suba
   await flush()
   const emptyTree = emptyMount.draw()
   const emptyText = textOf(emptyTree)
-  assert.doesNotMatch(emptyText, /ACP Profile|Agent Team|Subagent Core|Developer Tools|Headless Profile/)
+  assert.doesNotMatch(emptyText, /ACP Profile|Agent Team|Subagent Core|Developer Tools|Headless Profile|DS Bot Engine/)
   assert.match(emptyText, /Extend Bots with more capabilities/)
   // Category bar must not include an empty "Other" tab from hidden engine bundles.
   const catLabels = findAll(emptyTree, n => n.props?.className === 'bt-plg-cats')[0]
@@ -542,5 +547,5 @@ test('PluginsPage hides uninstalled engine bundles and internal DSH profile/suba
   const catalogText = textOf(catalogMount.draw())
   assert.match(catalogText, /Discover/)
   assert.match(catalogText, /DS Bot Notes/)
-  assert.doesNotMatch(catalogText, /ACP Profile|Agent Team|Subagent Core|Developer Tools|Headless Profile/)
+  assert.doesNotMatch(catalogText, /ACP Profile|Agent Team|Subagent Core|Developer Tools|Headless Profile|DS Bot Engine/)
 })

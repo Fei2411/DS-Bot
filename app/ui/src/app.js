@@ -46,6 +46,9 @@ function useTheme(prefs, chat, actions, registryVersion) {
     else delete document.body.dataset.btMotion
     document.body.dataset.btEffects = effectsOf(prefs)
     document.body.dataset.btLayout = layoutOf(prefs)
+    if (typeof navigator !== 'undefined' && /\bwin/iu.test(navigator.platform || navigator.userAgent)) {
+      document.body.dataset.btOs = 'windows'
+    }
     document.body.style.setProperty('--bt-msg-w', String(widthOf(prefs) / 100))
     document.body.style.setProperty('--bt-flat-w', String(flatWidthOf(prefs) / 100))
     return () => {
@@ -119,7 +122,13 @@ export function App() {
   const paletteOpen = hooks.useUi(state => Boolean(state.palette))
   const rightPanel = hooks.useUi(state => state.rightPanel)
   const readOnly = hooks.useRoster(value => Boolean(value.readOnly))
+  const rosterReady = hooks.useRoster(value => Boolean(value.ready))
   const registryVersion = hooks.useRegistry(value => value)
+  // TeamSidebar calls dsBotApp.ready(place) in Bot mode; if the window boots directly into
+  // Classic Agent mode (where TeamSidebar is unmounted), signal ready once the team arrives.
+  useEffect(() => {
+    if (surfaceMode === 'agent' && rosterReady) globalThis.dsBotApp?.ready?.()
+  }, [surfaceMode, rosterReady])
   const [localeVersion, setLocaleVersion] = useState(0)
   useEffect(() => {
     const svc = getAppLocale()

@@ -46774,6 +46774,7 @@ var SLOT_CHOICES = [
 ];
 var SAFE_CLI_SPEC_RE = /^[A-Za-z0-9@._/:#+-]+$/;
 var HIDDEN_ENGINE_BUNDLES = /* @__PURE__ */ new Set([
+  "dsbot-engine",
   "@deepseek-ai/dsh-acp-app",
   "@deepseek-ai/dsh-headless",
   "@deepseek-ai/dsh-sdk-app",
@@ -53311,11 +53312,191 @@ var steerQueued = async (session) => {
   }
 };
 
+// src/client/speech.js
+var VOICE_BUNDLE = "@deepseek-ai/dsh-experimental-voice-input-bundle";
+var USABLE = /* @__PURE__ */ new Set(["ready", "standby", "waking"]);
+async function speechCatalog(speech) {
+  const result = await speech.catalog();
+  if (!result?.ok) throw new Error(result?.error?.message ?? "Speech catalog failed");
+  const catalog = result.value;
+  const provider = catalog.providers.find((item) => item.id === catalog.selection.providerId);
+  return { catalog, usable: provider !== void 0 && (provider.preparation === void 0 || USABLE.has(provider.preparation.phase)) };
+}
+async function requestPreparation(speech, providerId) {
+  try {
+    const result = await speech.prepare(providerId);
+    return result?.ok !== false;
+  } catch {
+    return false;
+  }
+}
+function preparationStep(catalog) {
+  const provider = catalog.providers.find((item) => item.id === catalog.selection.providerId);
+  if (provider === void 0) return { state: "done", failed: false };
+  const { preparation } = provider;
+  if (preparation === void 0) return { state: "usable" };
+  if (USABLE.has(preparation.phase)) return { state: "usable" };
+  if (preparation.phase === "failed" || preparation.phase === "cancelled" || preparation.phase === "unprepared") {
+    return { state: "done", failed: preparation.phase === "failed" };
+  }
+  const pct = preparation.phase === "downloading" && preparation.totalBytes ? Math.floor(preparation.completedBytes / preparation.totalBytes * 100) : void 0;
+  return { state: "waiting", pct };
+}
+function waveBytes(samples, rate = 16e3) {
+  const bytes = new Uint8Array(44 + samples.length * 2);
+  const view = new DataView(bytes.buffer);
+  const ascii = (at, text) => {
+    for (let index = 0; index < text.length; index += 1) bytes[at + index] = text.charCodeAt(index);
+  };
+  ascii(0, "RIFF");
+  view.setUint32(4, 36 + samples.length * 2, true);
+  ascii(8, "WAVEfmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, rate, true);
+  view.setUint32(28, rate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  ascii(36, "data");
+  view.setUint32(40, samples.length * 2, true);
+  samples.forEach((sample, index) => {
+    const value = Math.max(-1, Math.min(1, sample));
+    view.setInt16(44 + index * 2, value < 0 ? Math.round(value * 32768) : Math.round(value * 32767), true);
+  });
+  return bytes;
+}
+function base64Of(bytes) {
+  let text = "";
+  for (let index = 0; index < bytes.length; index += 32768) text += String.fromCharCode(...bytes.subarray(index, index + 32768));
+  return btoa(text);
+}
+var captureError = (kind, cause) => Object.assign(new Error(kind), { kind, cause });
+async function openCapture() {
+  const devices = navigator.mediaDevices;
+  if (!devices?.getUserMedia || typeof MediaRecorder === "undefined") throw captureError("unavailable");
+  let stream;
+  try {
+    stream = await devices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true }, video: false });
+  } catch (error) {
+    throw captureError(error?.name === "NotAllowedError" ? "blocked" : "failed", error);
+  }
+  let audio = null;
+  let analyser;
+  let frame2;
+  let recorder;
+  const chunks = [];
+  try {
+    audio = new AudioContext();
+    analyser = audio.createAnalyser();
+    analyser.fftSize = 512;
+    audio.createMediaStreamSource(stream).connect(analyser);
+    frame2 = new Float32Array(analyser.fftSize);
+    recorder = new MediaRecorder(stream);
+    recorder.ondataavailable = (event) => {
+      if (event.data.size > 0) chunks.push(event.data);
+    };
+    recorder.start();
+  } catch (error) {
+    stream.getTracks().forEach((track) => track.stop());
+    void audio?.close().catch(() => {
+    });
+    throw error;
+  }
+  let closed = false;
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    if (recorder.state !== "inactive") recorder.stop();
+    stream.getTracks().forEach((track) => track.stop());
+    void audio.close().catch(() => {
+    });
+  };
+  return {
+    level() {
+      if (closed) return 0;
+      analyser.getFloatTimeDomainData(frame2);
+      let sum = 0;
+      for (const sample of frame2) sum += sample * sample;
+      return Math.min(1, Math.sqrt(sum / frame2.length) * 4);
+    },
+    cancel: close,
+    async finish(maxSeconds) {
+      if (closed || recorder.state === "inactive") {
+        close();
+        return null;
+      }
+      try {
+        await new Promise((resolve2) => {
+          recorder.onstop = resolve2;
+          recorder.stop();
+        });
+        stream.getTracks().forEach((track) => track.stop());
+        const blob = new Blob(chunks, { type: recorder.mimeType });
+        if (blob.size === 0) return null;
+        const decoded = await audio.decodeAudioData(await blob.arrayBuffer());
+        const length = Math.max(1, Math.floor(Math.min(decoded.duration, maxSeconds) * 16e3));
+        const offline = new OfflineAudioContext(1, length, 16e3);
+        const source = offline.createBufferSource();
+        source.buffer = decoded;
+        source.connect(offline.destination);
+        source.start();
+        return waveBytes((await offline.startRendering()).getChannelData(0));
+      } finally {
+        close();
+      }
+    }
+  };
+}
+async function transcribeWave(speech, catalog, wave, signal) {
+  if (wave.byteLength > catalog.maxAudioBytes) throw captureError("too-long");
+  const result = await speech.transcribe({ audioBase64: base64Of(wave), ...catalog.selection }, signal);
+  if (!result?.ok) throw Object.assign(new Error(result?.error?.message ?? "Transcription failed"), { kind: "service" });
+  return String(result.value?.text ?? "").trim();
+}
+function closingReplyText(chat, turn) {
+  const location2 = chat?.timeline?.turns?.get(turn);
+  if (location2 === void 0) return void 0;
+  const closing = location2.data?.get("turn-tail")?.closing;
+  if (closing === void 0) return void 0;
+  if (closing === null) return "";
+  return (closing.blocks ?? []).filter((block) => block.kind === "text" && block.text.trim() !== "").map((block) => block.text).join("\n\n");
+}
+function turnDetector({ loud = 0.12, quiet = 0.06, quietMs = 1200 } = {}) {
+  let spokeAt = 0;
+  let quietSince = 0;
+  return (level, now) => {
+    if (level >= loud) {
+      spokeAt ||= now;
+      quietSince = 0;
+      return "speech";
+    }
+    if (!spokeAt) return "waiting";
+    if (level < quiet) quietSince ||= now;
+    return quietSince && now - quietSince >= quietMs ? "done" : "speech";
+  };
+}
+
 // src/client/composer.js
 var import_react71 = require("react");
 var import_react_dom13 = require("react-dom");
 var speechApi = () => window.SpeechRecognition ?? window.webkitSpeechRecognition;
 var keepComposerFocus = (event) => event.preventDefault();
+var WORD_EDGE = /[\p{L}\p{N}]/u;
+var NON_SPACED = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Thai}\p{Script=Lao}\p{Script=Khmer}\p{Script=Myanmar}]/u;
+function spacedDictation(text, beforeChar = "", afterChar = "") {
+  if (!text) return "";
+  const first = text[0];
+  const last = text[text.length - 1];
+  const needBefore = Boolean(beforeChar) && WORD_EDGE.test(beforeChar) && WORD_EDGE.test(first) && !NON_SPACED.test(beforeChar) && !NON_SPACED.test(first);
+  const needAfter = Boolean(afterChar) && WORD_EDGE.test(last) && WORD_EDGE.test(afterChar) && !NON_SPACED.test(last) && !NON_SPACED.test(afterChar);
+  return `${needBefore ? " " : ""}${text}${needAfter ? " " : ""}`;
+}
+function dictationLimitMs(catalog) {
+  const byDuration = Number.isFinite(catalog?.maxDurationSeconds) ? catalog.maxDurationSeconds : 120;
+  const byBytes = Number.isFinite(catalog?.maxAudioBytes) ? Math.max(1, (catalog.maxAudioBytes - 44) / 32e3) : byDuration;
+  return Math.max(1e3, Math.floor((Math.min(byDuration, byBytes) - 0.5) * 1e3));
+}
 function useDictation(onText) {
   const [listening, setListening] = (0, import_react71.useState)(false);
   const [note, setNote] = (0, import_react71.useState)("");
@@ -53385,6 +53566,141 @@ function ComposerVoice({ sessionId, inputActions, actions, useUi, useRoster }) {
   const dictation = useDictation((text, final) => {
     if (final && inputActions) inputActions.insertText(text, inputActions.captureInsertion());
   });
+  const [hostListening, setHostListening] = (0, import_react71.useState)(false);
+  const [hostBusy, setHostBusy] = (0, import_react71.useState)(false);
+  const [hostNote, setHostNote] = (0, import_react71.useState)("");
+  const hostCapture = (0, import_react71.useRef)(void 0);
+  const hostCatalog = (0, import_react71.useRef)(void 0);
+  const hostAbort = (0, import_react71.useRef)(void 0);
+  const hostTimer = (0, import_react71.useRef)(void 0);
+  const hostGen = (0, import_react71.useRef)(0);
+  const mounted = (0, import_react71.useRef)(true);
+  const clearHostTimer = () => {
+    if (hostTimer.current !== void 0) {
+      clearTimeout(hostTimer.current);
+      hostTimer.current = void 0;
+    }
+  };
+  const cancelHostDictation = () => {
+    hostGen.current += 1;
+    clearHostTimer();
+    hostAbort.current?.abort?.();
+    hostAbort.current = void 0;
+    hostCapture.current?.cancel?.();
+    hostCapture.current = void 0;
+    hostCatalog.current = void 0;
+    if (mounted.current) {
+      setHostListening(false);
+      setHostBusy(false);
+    }
+  };
+  (0, import_react71.useEffect)(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      hostGen.current += 1;
+      clearHostTimer();
+      hostAbort.current?.abort?.();
+      hostCapture.current?.cancel?.();
+    };
+  }, []);
+  (0, import_react71.useEffect)(() => {
+    if (!hostNote) return void 0;
+    const timer = setTimeout(() => setHostNote(""), 2600);
+    return () => clearTimeout(timer);
+  }, [hostNote]);
+  const finishHostDictation = (limitReached = false) => {
+    clearHostTimer();
+    const cap = hostCapture.current;
+    const cat = hostCatalog.current;
+    if (!cap) return;
+    hostCapture.current = void 0;
+    setHostListening(false);
+    const speech = actions.speech?.();
+    if (!speech) {
+      cap.cancel?.();
+      return;
+    }
+    setHostBusy(true);
+    const ctl = new AbortController();
+    hostAbort.current = ctl;
+    const maxSec = Math.min(
+      Number.isFinite(cat?.maxDurationSeconds) ? cat.maxDurationSeconds : 120,
+      Number.isFinite(cat?.maxAudioBytes) ? Math.max(1, (cat.maxAudioBytes - 44) / 32e3) : 120
+    );
+    void cap.finish(maxSec).then(async (wave) => {
+      if (!wave || ctl.signal.aborted || !mounted.current) return;
+      const text = await transcribeWave(speech, cat, wave, ctl.signal);
+      if (text && inputActions && !ctl.signal.aborted && mounted.current) {
+        const at = inputActions.captureInsertion();
+        const area = composerRoot.current?.closest?.("[data-composer-card]")?.querySelector?.("textarea");
+        const value = typeof area?.value === "string" ? area.value : "";
+        const beforeChar = at && at.start > 0 ? value[at.start - 1] ?? "" : "";
+        const afterChar = at && at.end < value.length ? value[at.end] ?? "" : "";
+        inputActions.insertText(spacedDictation(text, beforeChar, afterChar), at);
+      }
+      if (limitReached && mounted.current) setHostNote(t("That was too long to recognize"));
+    }).catch((error) => {
+      if (ctl.signal.aborted || !mounted.current) return;
+      const kind = error?.kind;
+      setHostNote(kind === "too-long" ? t("That was too long to recognize") : t("Couldn't reach the speech service"));
+    }).finally(() => {
+      if (hostAbort.current === ctl) hostAbort.current = void 0;
+      if (mounted.current) setHostBusy(false);
+    });
+  };
+  const toggleMic = () => {
+    if (hostBusy) return;
+    if (dictation.listening) {
+      dictation.stop();
+      return;
+    }
+    if (hostListening && hostCapture.current) {
+      finishHostDictation(false);
+      return;
+    }
+    const speech = actions.speech?.();
+    if (!speech) {
+      dictation.start();
+      return;
+    }
+    const gen = ++hostGen.current;
+    setHostBusy(true);
+    void speechCatalog(speech).then(async ({ catalog, usable }) => {
+      if (!mounted.current || hostGen.current !== gen) return;
+      if (!usable) {
+        if (speechApi()) {
+          dictation.start();
+          return;
+        }
+        setHostNote(t("Voice input needs its speech model"));
+        return;
+      }
+      const cap = await openCapture();
+      if (!mounted.current || hostGen.current !== gen) {
+        cap.cancel();
+        return;
+      }
+      hostCatalog.current = catalog;
+      hostCapture.current = cap;
+      setHostListening(true);
+      clearHostTimer();
+      hostTimer.current = setTimeout(() => {
+        finishHostDictation(true);
+      }, dictationLimitMs(catalog));
+    }).catch((error) => {
+      if (!mounted.current || hostGen.current !== gen) return;
+      const kind = error?.kind;
+      setHostNote(kind === "blocked" ? t("Microphone access is blocked") : t("Couldn't start dictation"));
+    }).finally(() => {
+      if (mounted.current && hostGen.current === gen) setHostBusy(false);
+    });
+  };
+  const openVoiceChat = () => {
+    if (dictation.listening) dictation.stop();
+    if (hostListening || hostBusy || hostCapture.current || hostAbort.current) cancelHostDictation();
+    actions.openVoice(sessionId);
+  };
   const quote = useUi((state) => state.quote?.sessionId === sessionId ? state.quote : null);
   (0, import_react71.useEffect)(() => {
     if (!quote || !inputActions) return;
@@ -53403,18 +53719,21 @@ function ComposerVoice({ sessionId, inputActions, actions, useUi, useRoster }) {
     }
   }, [quote?.token]);
   if (sessionId === void 0) return null;
-  const pluginMic = actions.speech() !== void 0;
+  const pluginMic = typeof actions.hasPluginMic === "function" ? actions.hasPluginMic() : actions.speech() !== void 0;
+  const listening = dictation.listening || hostListening;
+  const note = hostNote || dictation.note;
   return (0, import_react71.createElement)(
     import_react71.Fragment,
     null,
     pluginMic ? null : (0, import_react71.createElement)("button", {
       type: "button",
       className: "bt-mic",
-      "aria-label": dictation.listening ? t("Stop dictation") : t("Dictate"),
-      "aria-pressed": dictation.listening,
-      title: dictation.listening ? t("Stop dictation") : t("Dictate"),
+      "aria-label": listening ? t("Stop dictation") : t("Dictate"),
+      "aria-pressed": listening,
+      title: listening ? t("Stop dictation") : t("Dictate"),
+      disabled: hostBusy,
       onMouseDown: keepComposerFocus,
-      onClick: () => dictation.listening ? dictation.stop() : dictation.start()
+      onClick: toggleMic
     }, (0, import_react71.createElement)(MicIcon)),
     (0, import_react71.createElement)("button", {
       ref: composerRoot,
@@ -53423,9 +53742,9 @@ function ComposerVoice({ sessionId, inputActions, actions, useUi, useRoster }) {
       "aria-label": t("Start voice chat"),
       title: t("Voice chat"),
       onMouseDown: keepComposerFocus,
-      onClick: () => actions.openVoice(sessionId)
+      onClick: openVoiceChat
     }, (0, import_react71.createElement)(WaveIcon, { size: 18 })),
-    dictation.note ? (0, import_react71.createElement)("span", { className: "bt-mic-note", role: "status" }, dictation.note) : null
+    note ? (0, import_react71.createElement)("span", { className: "bt-mic-note", role: "status" }, note) : null
   );
 }
 var MAX_MENU_MARKS = 200;
@@ -54130,171 +54449,6 @@ var SIDE_CSS = `
 .bt-pmenu-item svg{flex:none;width:15px;height:15px;color:var(--bt-ink-3)}
 .bt-pmenu-sep{height:.5px;flex:none;margin:4px 8px;background:var(--bt-line-2)}
 `;
-
-// src/client/speech.js
-var VOICE_BUNDLE = "@deepseek-ai/dsh-experimental-voice-input-bundle";
-var USABLE = /* @__PURE__ */ new Set(["ready", "standby", "waking"]);
-async function speechCatalog(speech) {
-  const result = await speech.catalog();
-  if (!result?.ok) throw new Error(result?.error?.message ?? "Speech catalog failed");
-  const catalog = result.value;
-  const provider = catalog.providers.find((item) => item.id === catalog.selection.providerId);
-  return { catalog, usable: provider !== void 0 && (provider.preparation === void 0 || USABLE.has(provider.preparation.phase)) };
-}
-async function requestPreparation(speech, providerId) {
-  try {
-    const result = await speech.prepare(providerId);
-    return result?.ok !== false;
-  } catch {
-    return false;
-  }
-}
-function preparationStep(catalog) {
-  const provider = catalog.providers.find((item) => item.id === catalog.selection.providerId);
-  if (provider === void 0) return { state: "done", failed: false };
-  const { preparation } = provider;
-  if (preparation === void 0) return { state: "usable" };
-  if (USABLE.has(preparation.phase)) return { state: "usable" };
-  if (preparation.phase === "failed" || preparation.phase === "cancelled" || preparation.phase === "unprepared") {
-    return { state: "done", failed: preparation.phase === "failed" };
-  }
-  const pct = preparation.phase === "downloading" && preparation.totalBytes ? Math.floor(preparation.completedBytes / preparation.totalBytes * 100) : void 0;
-  return { state: "waiting", pct };
-}
-function waveBytes(samples, rate = 16e3) {
-  const bytes = new Uint8Array(44 + samples.length * 2);
-  const view = new DataView(bytes.buffer);
-  const ascii = (at, text) => {
-    for (let index = 0; index < text.length; index += 1) bytes[at + index] = text.charCodeAt(index);
-  };
-  ascii(0, "RIFF");
-  view.setUint32(4, 36 + samples.length * 2, true);
-  ascii(8, "WAVEfmt ");
-  view.setUint32(16, 16, true);
-  view.setUint16(20, 1, true);
-  view.setUint16(22, 1, true);
-  view.setUint32(24, rate, true);
-  view.setUint32(28, rate * 2, true);
-  view.setUint16(32, 2, true);
-  view.setUint16(34, 16, true);
-  ascii(36, "data");
-  view.setUint32(40, samples.length * 2, true);
-  samples.forEach((sample, index) => {
-    const value = Math.max(-1, Math.min(1, sample));
-    view.setInt16(44 + index * 2, value < 0 ? Math.round(value * 32768) : Math.round(value * 32767), true);
-  });
-  return bytes;
-}
-function base64Of(bytes) {
-  let text = "";
-  for (let index = 0; index < bytes.length; index += 32768) text += String.fromCharCode(...bytes.subarray(index, index + 32768));
-  return btoa(text);
-}
-var captureError = (kind, cause) => Object.assign(new Error(kind), { kind, cause });
-async function openCapture() {
-  const devices = navigator.mediaDevices;
-  if (!devices?.getUserMedia || typeof MediaRecorder === "undefined") throw captureError("unavailable");
-  let stream;
-  try {
-    stream = await devices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true }, video: false });
-  } catch (error) {
-    throw captureError(error?.name === "NotAllowedError" ? "blocked" : "failed", error);
-  }
-  let audio = null;
-  let analyser;
-  let frame2;
-  let recorder;
-  const chunks = [];
-  try {
-    audio = new AudioContext();
-    analyser = audio.createAnalyser();
-    analyser.fftSize = 512;
-    audio.createMediaStreamSource(stream).connect(analyser);
-    frame2 = new Float32Array(analyser.fftSize);
-    recorder = new MediaRecorder(stream);
-    recorder.ondataavailable = (event) => {
-      if (event.data.size > 0) chunks.push(event.data);
-    };
-    recorder.start();
-  } catch (error) {
-    stream.getTracks().forEach((track) => track.stop());
-    void audio?.close().catch(() => {
-    });
-    throw error;
-  }
-  let closed = false;
-  const close = () => {
-    if (closed) return;
-    closed = true;
-    if (recorder.state !== "inactive") recorder.stop();
-    stream.getTracks().forEach((track) => track.stop());
-    void audio.close().catch(() => {
-    });
-  };
-  return {
-    level() {
-      if (closed) return 0;
-      analyser.getFloatTimeDomainData(frame2);
-      let sum = 0;
-      for (const sample of frame2) sum += sample * sample;
-      return Math.min(1, Math.sqrt(sum / frame2.length) * 4);
-    },
-    cancel: close,
-    async finish(maxSeconds) {
-      if (closed || recorder.state === "inactive") {
-        close();
-        return null;
-      }
-      try {
-        await new Promise((resolve2) => {
-          recorder.onstop = resolve2;
-          recorder.stop();
-        });
-        stream.getTracks().forEach((track) => track.stop());
-        const blob = new Blob(chunks, { type: recorder.mimeType });
-        if (blob.size === 0) return null;
-        const decoded = await audio.decodeAudioData(await blob.arrayBuffer());
-        const length = Math.max(1, Math.floor(Math.min(decoded.duration, maxSeconds) * 16e3));
-        const offline = new OfflineAudioContext(1, length, 16e3);
-        const source = offline.createBufferSource();
-        source.buffer = decoded;
-        source.connect(offline.destination);
-        source.start();
-        return waveBytes((await offline.startRendering()).getChannelData(0));
-      } finally {
-        close();
-      }
-    }
-  };
-}
-async function transcribeWave(speech, catalog, wave, signal) {
-  if (wave.byteLength > catalog.maxAudioBytes) throw captureError("too-long");
-  const result = await speech.transcribe({ audioBase64: base64Of(wave), ...catalog.selection }, signal);
-  if (!result?.ok) throw Object.assign(new Error(result?.error?.message ?? "Transcription failed"), { kind: "service" });
-  return String(result.value?.text ?? "").trim();
-}
-function closingReplyText(chat, turn) {
-  const location2 = chat?.timeline?.turns?.get(turn);
-  if (location2 === void 0) return void 0;
-  const closing = location2.data?.get("turn-tail")?.closing;
-  if (closing === void 0) return void 0;
-  if (closing === null) return "";
-  return (closing.blocks ?? []).filter((block) => block.kind === "text" && block.text.trim() !== "").map((block) => block.text).join("\n\n");
-}
-function turnDetector({ loud = 0.12, quiet = 0.06, quietMs = 1200 } = {}) {
-  let spokeAt = 0;
-  let quietSince = 0;
-  return (level, now) => {
-    if (level >= loud) {
-      spokeAt ||= now;
-      quietSince = 0;
-      return "speech";
-    }
-    if (!spokeAt) return "waiting";
-    if (level < quiet) quietSince ||= now;
-    return quietSince && now - quietSince >= quietMs ? "done" : "speech";
-  };
-}
 
 // src/client/work-pause-card.js
 var import_react73 = require("react");

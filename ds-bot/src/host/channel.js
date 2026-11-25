@@ -225,6 +225,8 @@ export function install(rt) {
     // Plugin runtime summary (active slots, restart status, installed count) updates
     // asynchronously as slots reconcile, so it rides on live().
     plugins: rt.pluginsSummary?.() ?? null,
+    // Whether DSH's speech-to-text controller (Voice Input plugin) is active on this host.
+    speech: Boolean(ctx.get?.('speechController')),
   })
   // The live fields' sources are spread across the host with no single change
   // counter, so the serialized answer itself is the detector: a poll whose `live`
@@ -242,7 +244,7 @@ export function install(rt) {
   }
   // What a host that only reads the team may still answer.
   // Updates change the dsh profile, not the team, so a reading host may run them too.
-  const READS = new Set(['secret-store', 'secret-unlock', 'state', 'models', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'agent-chat', 'bot-task-read', 'run-stats', 'room-progress', 'group-rows', 'group-relay-replies', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'memory-history', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library', 'computer-system-status', 'computer-shot', 'local-agents', 'local-agent-models', 'browser-frame', 'hello', 'notices', 'avatar', 'room-chat', 'usage-summary', 'image', 'markdown-image', 'file-download', 'changes-check', 'deepseek-services', 'deepseek-synthesize', 'api-audit', 'background-picture', 'session-page', 'workspace-list', 'workspace-read', 'workspace-changes', 'engine-settings-list', 'engine-account-state', 'engine-plugins-list', 'engine-presets-list', 'engine-presets-read', 'engine-archived-list', 'engine-classic-sessions', 'plugins-list', 'plugins-catalog-refresh', 'plugins-versions', 'plugins-detail'])
+  const READS = new Set(['secret-store', 'secret-unlock', 'state', 'models', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'agent-chat', 'bot-task-read', 'run-stats', 'room-progress', 'group-rows', 'group-relay-replies', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'memory-history', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library', 'computer-system-status', 'computer-shot', 'local-agents', 'local-agent-models', 'browser-frame', 'hello', 'notices', 'avatar', 'room-chat', 'usage-summary', 'image', 'markdown-image', 'file-download', 'changes-check', 'deepseek-services', 'deepseek-synthesize', 'speech-catalog', 'speech-configure', 'speech-prepare', 'speech-cancel', 'speech-transcribe', 'api-audit', 'background-picture', 'session-page', 'workspace-list', 'workspace-read', 'workspace-changes', 'engine-settings-list', 'engine-account-state', 'engine-plugins-list', 'engine-presets-list', 'engine-presets-read', 'engine-archived-list', 'engine-classic-sessions', 'plugins-list', 'plugins-catalog-refresh', 'plugins-versions', 'plugins-detail'])
   READS.add('chatgpt')
 
   const modelRequests = { approvalModel: 0, defaultBotModel: 0 }
@@ -1114,6 +1116,38 @@ export function install(rt) {
         case 'deepseek-services-config':
         case 'deepseek-synthesize':
           return ok(await rt.deepseekEndpoint(endpoint, body, signal))
+        case 'speech-catalog':
+        case 'speech-configure':
+        case 'speech-prepare':
+        case 'speech-cancel':
+        case 'speech-transcribe': {
+          const speech = ctx.get?.('speechController')
+          if (!speech) return fail('Speech recognition service is not available on this host', 'bot/unavailable')
+          if (endpoint === 'speech-catalog') return ok(await speech.catalog())
+          if (endpoint === 'speech-configure') {
+            if (!body || typeof body !== 'object' || Array.isArray(body)) return fail('Speech config patch is required', 'bot/invalid')
+            return ok(await speech.configure(body))
+          }
+          if (endpoint === 'speech-prepare') {
+            const providerId = String(body?.providerId ?? '').trim()
+            if (!providerId) return fail('Speech provider id is required', 'bot/invalid')
+            await speech.prepare(providerId, body?.options)
+            return ok(true)
+          }
+          if (endpoint === 'speech-cancel') {
+            const providerId = String(body?.providerId ?? '').trim()
+            if (!providerId) return fail('Speech provider id is required', 'bot/invalid')
+            return ok(await speech.cancelPreparation(providerId))
+          }
+          const audioBase64 = typeof body?.audioBase64 === 'string' ? body.audioBase64 : ''
+          if (!audioBase64) return fail('Audio data is required', 'bot/invalid')
+          const req = {
+            audioBase64,
+            ...(body?.providerId === undefined ? {} : { providerId: String(body.providerId) }),
+            ...(body?.language === undefined ? {} : { language: String(body.language) }),
+          }
+          return ok(await speech.transcribe(req, signal ?? new AbortController().signal))
+        }
         case 'diagnostics':
           await rt.load()
           return ok(await rt.diagnostics.report(body))

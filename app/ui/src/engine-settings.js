@@ -71,6 +71,7 @@ const BANNED_NAMESPACES = new Set([
 const HIDDEN_BUNDLES = new Set([
   '@deepseek-ai/dsh-base',
   '@deepseek-ai/dsh-web-app',
+  'dsbot-engine',
   '@deepseek-ai/dsh-headless',
   '@deepseek-ai/dsh-sdk-app',
   '@deepseek-ai/dsh-acp-app',

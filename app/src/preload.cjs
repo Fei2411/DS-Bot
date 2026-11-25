@@ -68,12 +68,14 @@ if (startPage !== undefined) {
     computer: (entries) => { ipcRenderer.send('ds-bot:computer', computerEntriesOf(entries)) },
     computerCursor: (event) => { const clean = cursorEventOf(event); if (clean !== undefined) ipcRenderer.send('ds-bot:computer-cursor', clean) },
     onComputerAction: (run) => {
-      if (typeof run !== 'function') return
+      if (typeof run !== 'function') return () => {}
       ipcRenderer.removeAllListeners('ds-bot:computer-action')
-      ipcRenderer.on('ds-bot:computer-action', (_event, action) => {
+      const handler = (_event, action) => {
         if (action === null || typeof action !== 'object' || typeof action.kind !== 'string') return
         run({ kind: action.kind, botId: typeof action.botId === 'string' ? action.botId : null })
-      })
+      }
+      ipcRenderer.on('ds-bot:computer-action', handler)
+      return () => { ipcRenderer.removeListener('ds-bot:computer-action', handler) }
     },
   })
   // Only plain numbers cross; the main process checks that they make a box inside the page.
@@ -115,11 +117,16 @@ if (startPage !== undefined) {
     return {
       rows: rows.map((entry) => {
         if (entry === null || typeof entry !== 'object' || typeof entry.label !== 'string') return undefined
-        return {
+        const clean = {
           label: String(entry.label).slice(0, 80),
           botId: typeof entry.botId === 'string' ? entry.botId : null,
           waiting: entry.waiting === true,
         }
+        if (typeof entry.name === 'string' && entry.name.trim() !== '') clean.name = entry.name.slice(0, 60)
+        if (typeof entry.app === 'string' && entry.app.trim() !== '') clean.app = entry.app.slice(0, 60)
+        if (typeof entry.color === 'string' && /^#[0-9a-fA-F]{3,8}$/.test(entry.color)) clean.color = entry.color
+        if (typeof entry.avatar === 'string' && /^data:image\/(png|jpeg|webp|svg\+xml);base64,[a-zA-Z0-9+/=]+$/.test(entry.avatar) && entry.avatar.length <= 12000) clean.avatar = entry.avatar
+        return clean
       }).filter(entry => entry !== undefined),
       labels: {
         stop: typeof labels.stop === 'string' ? String(labels.stop).slice(0, 30) : undefined,

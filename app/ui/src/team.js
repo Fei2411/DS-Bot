@@ -7,9 +7,11 @@ import { noticeApprovals } from '../../../ds-bot/src/client/approval-notices.js'
 import { createBotBrowsers, serveBrowserReads } from '../../../ds-bot/src/client/bot-browsers.js'
 import { workPhrase } from '../../../ds-bot/src/client/cells.js'
 import { language, t } from '../../../ds-bot/src/client/i18n.js'
-import { toolState } from '../../../ds-bot/src/client/mark.js'
+import { lookOf, toolState } from '../../../ds-bot/src/client/mark.js'
+import { needsIdleSample } from '../../../ds-bot/src/client/polling.js'
 import { noteLeft, setUnread, sharedMap, toggleReaction } from '../../../ds-bot/src/client/shared-map.js'
 import { createSource, EMPTY_ROSTER, indexRoster } from '../../../ds-bot/src/client/sources.js'
+import { requestPreparation } from '../../../ds-bot/src/client/speech.js'
 import { STORAGE, migrateStorage } from '../../../ds-bot/src/client/storage.js'
 import { readMode, writeMode } from '../../../ds-bot/src/client/surface.js'
 import { teamActions } from '../../../ds-bot/src/client/team-actions.js'
@@ -255,6 +257,7 @@ export function createTeam() {
     if (value.secretStore !== undefined && JSON.stringify(value.secretStore) !== JSON.stringify(current.secretStore ?? {})) changed.secretStore = value.secretStore
     if (value.memoryReviews !== undefined && JSON.stringify(value.memoryReviews) !== JSON.stringify(current.memoryReviews ?? {})) changed.memoryReviews = value.memoryReviews
     if (value.plugins !== undefined && JSON.stringify(value.plugins) !== JSON.stringify(current.plugins ?? null)) changed.plugins = value.plugins
+    if (value.speech !== undefined && Boolean(value.speech) !== Boolean(current.speech)) changed.speech = Boolean(value.speech)
     if (Object.keys(changed).length > 0 && current.ready) roster.set({ ...current, ...changed })
     if (value.unchanged || (value.revision === current.revision && value.modelsKey === current.modelsKey)) return
     // In a window with no visit record yet, everything already there counts as seen.
@@ -301,6 +304,17 @@ export function createTeam() {
   }
 
   const baseActions = teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock })
+  const speechCall = (endpoint, payload, signal) => call(endpoint, payload, signal).then(
+    value => ({ ok: true, value }),
+    error => ({ ok: false, error: { code: error?.code ?? 'speech/error', message: error?.message ?? String(error) } }),
+  )
+  const speechClient = {
+    catalog: () => speechCall('speech-catalog', {}),
+    configure: patch => speechCall('speech-configure', patch ?? {}),
+    prepare: (providerId, options) => speechCall('speech-prepare', { providerId, ...(options === undefined ? {} : { options }) }),
+    cancelPreparation: providerId => speechCall('speech-cancel', { providerId }),
+    transcribe: (request, signal) => speechCall('speech-transcribe', request ?? {}, signal),
+  }
   const clearShortcuts = () => ui.set(state => (state.shortcuts ? { ...state, shortcuts: false } : state))
 
   // Unified right sidebar workspace state: coexists with Bot/Group details, browser, side
@@ -445,6 +459,11 @@ export function createTeam() {
         actions.openAgentSession(id)
         return
       }
+      if (surface.getSnapshot().mode === 'agent') {
+        writeMode('bot')
+        surface.set({ mode: 'bot' })
+      }
+      lastTeamSession = id
       const next = partFor(id)
       const switched = next !== shown.getSnapshot()
       ui.set((state) => {
@@ -696,8 +715,11 @@ export function createTeam() {
     },
     canReferenceChat: () => true,
     referenceChat: (sessionId, insertion) => chat.emit('reference-chat', { sessionId, insertion }),
-    speech: () => undefined,
-    voiceSetup: () => null,
+    speech: () => (roster.getSnapshot().speech === true ? speechClient : undefined),
+    hasPluginMic: () => false,
+    voiceSetup: (providerId) => (roster.getSnapshot().speech === true && providerId !== undefined
+      ? { prepare: () => requestPreparation(speechClient, providerId) }
+      : null),
     noteTurnFacts: (sessionId, facts) => {
       if (!sessionId) return
       if (!facts) {
@@ -993,6 +1015,125 @@ export function createTeam() {
         browsers.dispose()
       }
     }
+    // Computer use desktop bridge: floating indicator + tray rows, cursor long-poll,
+    // OS idle-time sampling for foreground gate, and tray/indicator stop actions.
+    const cleanups = []
+    const appComputer = globalThis.dsBotApp
+    if (typeof appComputer?.computer === 'function') {
+      const nameOf = id => roster.getSnapshot().byId[id]?.name ?? 'a Bot'
+      const syncComputer = () => {
+        if (stopped) return
+        const live = computer.getSnapshot()
+        const look = id => lookOf(roster.getSnapshot().byId[id])
+        const rows = (live.leases ?? []).map(entry => ({
+          botId: entry.botId,
+          name: nameOf(entry.botId),
+          app: entry.kind === 'foreground' ? t('In the foreground') : entry.appName,
+          label: entry.kind === 'foreground' ? t('{name} · foreground', { name: nameOf(entry.botId) }) : `${nameOf(entry.botId)} · ${entry.appName}`,
+          color: look(entry.botId).color,
+          avatar: look(entry.botId).image,
+        }))
+        for (const [botId, entry] of Object.entries(live.bots ?? {})) {
+          if (entry.waitingFor === 'user-idle') rows.push({ botId, waiting: true, name: nameOf(botId), app: t('waits for the computer'), label: t('{name} waits for the computer', { name: nameOf(botId) }), color: look(botId).color, avatar: look(botId).image })
+        }
+        appComputer.computer({
+          rows,
+          labels: { stop: t('Stop'), stopAll: t('Stop all'), letGo: t('Let it continue') },
+        })
+      }
+      syncComputer()
+      cleanups.push(computer.subscribe(syncComputer))
+      cleanups.push(roster.subscribe(() => {
+        const live = computer.getSnapshot()
+        if ((live.leases?.length ?? 0) > 0 || Object.values(live.bots ?? {}).some(entry => entry?.waitingFor === 'user-idle')) {
+          syncComputer()
+        }
+      }))
+    }
+    if (typeof appComputer?.computerCursor === 'function') {
+      let pollAbort = null
+      let wakeEnabled = null
+      let cancelPause = null
+      const abortPoll = () => {
+        if (pollAbort) { const ctrl = pollAbort; pollAbort = null; ctrl.abort() }
+      }
+      const waitEnabled = () => new Promise((resolve) => {
+        if (stopped || roster.getSnapshot().computer?.enabled === true) { resolve(); return }
+        wakeEnabled = resolve
+      })
+      const pause = ms => new Promise((resolve) => {
+        if (stopped) { resolve(); return }
+        const delay = setTimeout(() => {
+          if (cancelPause === cancel) cancelPause = null
+          resolve()
+        }, ms)
+        const cancel = () => {
+          clearTimeout(delay)
+          if (cancelPause === cancel) cancelPause = null
+          resolve()
+        }
+        cancelPause = cancel
+      })
+      const notifyEnabled = () => {
+        if (wakeEnabled) { const fn = wakeEnabled; wakeEnabled = null; fn() }
+      }
+      const offCursorRoster = roster.subscribe(() => {
+        if (roster.getSnapshot().computer?.enabled === true) notifyEnabled()
+        else abortPoll()
+      })
+      const runCursor = async () => {
+        let after = 0
+        while (!stopped) {
+          if (roster.getSnapshot().computer?.enabled !== true) { await waitEnabled(); continue }
+          const ctrl = new AbortController()
+          pollAbort = ctrl
+          try {
+            const reply = await call('computer-cursor-wait', { after }, ctrl.signal)
+            if (pollAbort === ctrl) pollAbort = null
+            if (stopped || ctrl.signal.aborted) continue
+            for (const event of reply?.events ?? []) {
+              if (Number.isFinite(event.seq) && event.seq > after) after = event.seq
+              if (Number.isFinite(event.t) && Number.isFinite(reply?.now) && reply.now - event.t > 3000) continue
+              const botLook = lookOf(roster.getSnapshot().byId[event.botId])
+              appComputer.computerCursor({ ...event, color: botLook.color, avatar: botLook.image })
+            }
+          } catch {
+            if (pollAbort === ctrl) pollAbort = null
+            if (!stopped && roster.getSnapshot().computer?.enabled === true) await pause(2000)
+          }
+        }
+      }
+      void runCursor()
+      cleanups.push(() => { abortPoll(); offCursorRoster(); notifyEnabled(); cancelPause?.() })
+    }
+    if (typeof appComputer?.idleSeconds === 'function') {
+      let idleTimer = 0
+      const pushIdle = () => {
+        if (stopped) return
+        const current = roster.getSnapshot()
+        if (current.computer?.enabled !== true) return
+        if (!needsIdleSample(computer.getSnapshot(), current.computer)) return
+        void Promise.resolve(appComputer.idleSeconds()).then((idle) => {
+          if (!stopped && Number.isFinite(idle)) call('computer-user-active', { idleSeconds: idle }).catch(() => {})
+        }).catch(() => {})
+      }
+      const syncIdle = () => {
+        const enabled = roster.getSnapshot().computer?.enabled === true
+        if (enabled && !idleTimer) idleTimer = setInterval(pushIdle, 2000)
+        else if (!enabled && idleTimer) { clearInterval(idleTimer); idleTimer = 0 }
+      }
+      syncIdle()
+      const offIdleRoster = roster.subscribe(syncIdle)
+      cleanups.push(() => { offIdleRoster(); if (idleTimer) clearInterval(idleTimer) })
+    }
+    if (typeof appComputer?.onComputerAction === 'function') {
+      const offAction = appComputer.onComputerAction(({ kind, botId }) => {
+        if (kind === 'stop') void actions.computerStop(botId)
+        else if (kind === 'stopall') void actions.computerStop(null, true)
+        else if (kind === 'letgo') void actions.computerAllowForeground(botId)
+      })
+      if (typeof offAction === 'function') cleanups.push(offAction)
+    }
     if (typeof document === 'undefined' || !document.hidden) startTimer()
     if (typeof document?.addEventListener === 'function') document.addEventListener('visibilitychange', onVisibility)
     const onPageHide = () => leaveVisits(Object.keys(ui.getSnapshot().visits ?? {}))
@@ -1006,6 +1147,7 @@ export function createTeam() {
       closeFeed()
       stopApprovalNotices()
       stopBrowsers?.()
+      for (const cleanup of cleanups) cleanup()
       stopTimer()
       if (typeof document?.removeEventListener === 'function') document.removeEventListener('visibilitychange', onVisibility)
       window.removeEventListener('pagehide', onPageHide)
