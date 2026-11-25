@@ -10,6 +10,7 @@
 //   idle     fidgets for a resting mark; they only play at the lively level
 //   blink    seconds between blinks [min, max]; false keeps the eyes as they are
 //   accent   a flourish drawn around large marks while in the state
+//   A pose turns the body (yaw) by TURN degrees at most (clips.js).
 //   next / hold   the state moves on to `next` after `hold` seconds
 //   settle   how fast the body eases into the pose (1 = normal; dozing is slow)
 // Bags list clip names with weights; the engine draws without repeating the last one.
@@ -23,7 +24,7 @@ export const STATES = {
   },
   thinking: {
     face: 'think',
-    pose: { pitch: -7, roll: 7, gx: 0.45, gy: -0.7 },
+    pose: { pitch: -7, roll: 7, gx: 0.3, gy: -0.65 },
     loop: { bag: { ponder: 3, ponderSwap: 1, hmm: 1.5 }, gap: [0.3, 1.4] },
     compact: { bag: { ponder: 1, hmm: 1 }, gap: [0.6, 2] },
     blink: [3, 7],
@@ -63,10 +64,10 @@ export const STATES = {
     compact: { bag: { tap: 1, patient: 1 }, gap: [2, 5] },
     blink: [2, 5],
   },
-  // Needs your answer: turns to you, eyes wide, and catches your eye.
+  // Needs your answer: sits up, eyes wide and on you, and catches your eye.
   alert: {
     face: 'wide',
-    pose: { yaw: -30, pitch: -6 },
+    pose: { pitch: -5, y: -1, scale: 0.03 },
     enter: { attention: 1 },
     lively: { bag: { nudge: 1 }, gap: [3.5, 7] },
     blink: [2, 4.5],

@@ -7,10 +7,10 @@ import { fileURLToPath } from 'node:url'
 import { CHARACTERS, PICKER_SHAPES, SHAPES } from '../src/client/characters.js'
 import { flatten } from '../src/client/avatar/sdf.js'
 import { rigFor } from '../src/client/avatar/rig.js'
-import { shapesOf, pathsOf } from '../src/client/avatar/render.js'
+import { drawShapes, shapesOf, pathsOf } from '../src/client/avatar/render.js'
 import { silhouette } from '../src/client/avatar/silhouette.js'
-import { Avatar } from '../src/client/avatar/engine.js'
-import { CLIPS, blinkClip } from '../src/client/avatar/clips.js'
+import { Avatar, random } from '../src/client/avatar/engine.js'
+import { CLIPS, TURN, blinkClip } from '../src/client/avatar/clips.js'
 import { FACES, eyePolygons } from '../src/client/avatar/face.js'
 import { STATES } from '../src/client/avatar/states.js'
 
@@ -191,7 +191,7 @@ test('each state shows its own face and pose', () => {
   assert.equal(avatar.tick(1 / 60), false)
 })
 
-test('done celebrates once and goes back to rest; a question turns the Bot to you', () => {
+test('done celebrates once and goes back to rest; a question makes the Bot sit up and look at you', () => {
   const avatar = new Avatar({ seed: 4, size: 60 })
   avatar.setState('done')
   assert.ok(avatar.clips.some(play => ['celebrate', 'nodHappy', 'hopHappy'].includes(play.name)))
@@ -200,7 +200,8 @@ test('done celebrates once and goes back to rest; a question turns the Bot to yo
   avatar.setState('alert')
   assert.ok(avatar.clips.some(play => play.name === 'attention'))
   run(avatar, 2)
-  assert.ok(avatar.frame.yaw < -25, 'faces you')
+  assert.ok(avatar.frame.scale > 0.02 && avatar.frame.y < 0, 'sits up')
+  assert.ok(Math.abs(avatar.frame.yaw) <= TURN && Math.abs(avatar.frame.gx) < 0.1, 'eyes on you, body not turned')
   assert.equal(avatar.face.name, 'wide')
 })
 
@@ -240,16 +241,19 @@ test('a resting window starts nothing new, and a lively mark dozes off and wakes
   assert.ok(avatar.clips.some(play => play.name === 'wake'))
 })
 
-test('the pointer: eyes follow it, petting turns the Bot to you with a smile', () => {
+test('the pointer: eyes follow it and the body leans, petting leans into the hand with a smile', () => {
   const avatar = new Avatar({ seed: 1, size: 64, live: true })
   avatar.gaze({ x: -6, y: 0 })
   run(avatar, 1)
-  assert.ok(avatar.frame.gx < -0.5 && avatar.frame.yaw < -10)
+  assert.ok(avatar.frame.gx < -0.9, 'the eyes look left')
+  assert.ok(avatar.frame.roll > 2 && avatar.frame.x < -1, 'the body leans and shifts left')
+  assert.ok(Math.abs(avatar.frame.yaw) <= TURN, 'without turning')
   avatar.gaze(null)
   avatar.pet(true, 1)
   run(avatar, 1)
   assert.equal(avatar.face.name, 'happy')
-  assert.ok(avatar.frame.yaw < -15)
+  assert.ok(avatar.frame.roll < -3 && avatar.frame.sq > 0.02, 'leans right into the hand and sinks under it')
+  assert.ok(Math.abs(avatar.frame.yaw) <= TURN)
   avatar.pet(false)
   run(avatar, 1)
   assert.equal(avatar.face.name, 'neutral')
@@ -277,4 +281,176 @@ test('done hands back to idle with motion off or the window resting, and reduced
   run(calm, 20, (a) => { repeated += a.clips.length + (a.frame.accent ? 1 : 0) })
   assert.equal(repeated, 0, 'no loop, blink or flourish under reduced motion')
   assert.equal(calm.wakeIn(), Infinity)
+})
+
+// The characters are flat art seen from one side: a turn of more than a few degrees
+// shows the flat side, with both eyes slid to one edge.
+test('only a spin turns the body: poses, clips, following and petting stay within TURN', () => {
+  for (const [name, def] of Object.entries(STATES)) assert.ok(Math.abs(def.pose.yaw ?? 0) <= TURN, `${name} pose`)
+  for (const [name, make] of Object.entries(CLIPS)) {
+    for (let seed = 1; seed <= 6; seed += 1) {
+      const keys = make(random(seed)).tracks.yaw ?? [[0, 0]]
+      const most = Math.max(...keys.map(([, value]) => Math.abs(value)))
+      if (most >= 360) continue
+      assert.ok(most <= TURN, `${name} turns ${most}°`)
+    }
+  }
+  const avatar = new Avatar({ seed: 2, size: 64, live: true })
+  for (const point of [{ x: -6, y: 0 }, { x: 0.2, y: 0.1 }, { x: 3, y: -4 }, { x: 0, y: 6 }]) {
+    avatar.gaze(point)
+    run(avatar, 1)
+    assert.ok(Math.abs(avatar.frame.yaw) <= TURN, `following ${JSON.stringify(point)}`)
+  }
+  avatar.gaze(null)
+  for (const side of [-1, 1]) {
+    avatar.pet(true, side)
+    run(avatar, 1)
+    assert.ok(Math.abs(avatar.frame.yaw) <= TURN, 'petting')
+    avatar.pet(false)
+  }
+})
+
+// How tight an outline's tightest bend is, in eye widths: the outline is walked in even
+// steps, and at each step a circle passes through the points a tenth of the width before
+// and after. A square corner gives under 0.1.
+const tightest = (points, W) => {
+  const step = 0.02 * W
+  const pts = []
+  for (let i = 0; i < points.length; i += 2) {
+    const a = [points[i], points[i + 1]]
+    const b = [points[(i + 2) % points.length], points[(i + 3) % points.length]]
+    const length = Math.hypot(b[0] - a[0], b[1] - a[1])
+    for (let s = 0; s < length; s += step) pts.push([a[0] + ((b[0] - a[0]) * s) / length, a[1] + ((b[1] - a[1]) * s) / length])
+  }
+  let worst = Infinity
+  pts.forEach((b, i) => {
+    const a = pts.at(i - 5), c = pts[(i + 5) % pts.length]
+    const twice = Math.abs((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]))
+    if (twice < 1e-9) return
+    const sides = Math.hypot(b[0] - a[0], b[1] - a[1]) * Math.hypot(c[0] - b[0], c[1] - b[1]) * Math.hypot(a[0] - c[0], a[1] - c[1])
+    worst = Math.min(worst, sides / (2 * twice) / W)
+  })
+  return worst
+}
+
+test('a lid meets the eye in a round corner, so no expression has square eyes', () => {
+  for (const [name, face] of Object.entries(FACES)) {
+    face.forEach((shape, index) => {
+      if (shape.kind !== 'capsule') return
+      for (const [W, H] of [[10, 23], [9, 22], [12, 18]]) {
+        const bend = tightest(eyePolygons(shape, W, H, index ? 1 : -1)[0], W)
+        assert.ok(bend > 0.13, `${name} eye ${index} at ${W}×${H} bends at ${bend.toFixed(2)} eye widths`)
+      }
+    })
+  }
+})
+
+test('a spin throws confetti that stays on the canvas; a bounce and reduced effects throw none', () => {
+  const avatar = new Avatar({ seed: 9, size: 64 })
+  avatar.poke()
+  assert.equal(avatar.frame.accent, null, 'a single poke only bounces')
+  run(avatar, 0.3)
+  avatar.poke()
+  assert.equal(avatar.frame.accent?.kind, 'confetti')
+  const { seed } = avatar.frame.accent
+  run(avatar, 1)
+  assert.equal(avatar.frame.accent?.kind, 'confetti')
+  run(avatar, 1)
+  assert.equal(avatar.frame.accent, null, 'and it is over')
+  // Where each piece is drawn, from start to end, in the mark's box: the canvas reaches
+  // 30 units past it on each side (MARGIN in live.js).
+  const at = []
+  let origin = [0, 0]
+  const stack = []
+  const ctx = new Proxy({}, {
+    get: (target, key) => {
+      if (key === 'save') return () => stack.push(origin)
+      if (key === 'restore') return () => { origin = stack.pop() }
+      if (key === 'translate') return (x, y) => { origin = [origin[0] + x, origin[1] + y]; at.push(origin) }
+      return key in target ? target[key] : () => {}
+    },
+    set: (target, key, value) => { target[key] = value; return true },
+  })
+  for (let t = 0; t < 1.7; t += 0.05) drawShapes(ctx, { body: [], paints: [], eyes: [], accent: { kind: 'confetti', t, seed }, offset: [0, 0] }, '#000', ['#111'])
+  assert.ok(at.length > 0)
+  for (const [x, y] of at) assert.ok(x > -25 && x < 125 && y > -25 && y < 125, `piece at ${x.toFixed(0)}, ${y.toFixed(0)}`)
+  const calm = new Avatar({ seed: 9, size: 64, effects: 'reduced' })
+  for (let i = 0; i < 3; i += 1) { calm.poke(); run(calm, 0.8) }
+  assert.equal(calm.frame.accent, null)
+})
+
+test('asleep, a lively mark peeks now and then, less often the longer it sleeps, also while the window rests', () => {
+  const avatar = new Avatar({ seed: 7, size: 64, live: true, tier: 'lively' })
+  avatar.rest(true)
+  avatar.doze(true)
+  const peeks = []
+  let peeked = false
+  let opened = false
+  for (let t = 0; t < 240; t += 1 / 30) {
+    // Ticked the way the clock does: frames while moving, else a jump to the next move.
+    const wait = avatar.wakeIn()
+    avatar.tick(wait === 0 ? 1 / 30 : Math.min(wait + 0.01, 5))
+    if (avatar.clips.some(play => play.name === 'sneak') && !peeked) peeks.push(avatar.time)
+    peeked = avatar.clips.some(play => play.name === 'sneak')
+    const shown = avatar.shownFace()
+    if (shown.filter(eye => eye.kind === 'capsule').length === 1) opened = true
+  }
+  assert.ok(opened, 'one eye opens, the other stays shut')
+  assert.ok(peeks.length >= 3, `peeks at ${peeks.map(t => t.toFixed(0))}`)
+  const gaps = peeks.slice(1).map((t, i) => t - peeks[i])
+  for (let i = 1; i < gaps.length; i += 1) assert.ok(gaps[i] > gaps[i - 1], `gaps grow: ${gaps.map(g => g.toFixed(0))}`)
+  assert.equal(avatar.state, 'sleeping')
+  assert.ok(Number.isFinite(avatar.wakeIn()), 'the next peek wakes the clock')
+  // Reduced effects and smaller levels never peek.
+  const calm = new Avatar({ seed: 7, size: 64, live: true, tier: 'lively', effects: 'reduced' })
+  calm.doze(true)
+  run(calm, 60)
+  assert.ok(!calm.clips.some(play => play.name === 'sneak'))
+  assert.equal(calm.wakeIn(), Infinity)
+})
+
+// Nonzero winding of the body's loops around a point.
+const winding = (loops, x, y) => {
+  let w = 0
+  for (const pts of loops) {
+    const n = pts.length / 2
+    for (let i = 0, j = n - 1; i < n; j = i, i += 1) {
+      const ax = pts[j * 2], ay = pts[j * 2 + 1], bx = pts[i * 2], by = pts[i * 2 + 1]
+      if ((ay <= y) !== (by <= y)) {
+        const cross = (bx - ax) * (y - ay) - (x - ax) * (by - ay)
+        if (ay <= y && cross > 0) w += 1
+        else if (ay > y && cross < 0) w -= 1
+      }
+    }
+  }
+  return w
+}
+
+test('a glance moves the eyes across the face at their own size, and they stay on it', () => {
+  for (const id of [...PICKER_SHAPES, 'magnet', 'ring', 'gem']) {
+    const rig = rigFor(id, SHAPES[id])
+    const rest = shapesOf(rig, REST)
+    const restBoxes = rest.eyes.map(box)
+    let moved = 0
+    for (const [gx, gy] of [[-1, 0], [1, 0], [0, -1], [0, 1], [-1, -1], [1, 1], [0.6, -0.8], [-0.3, 0.9]]) {
+      const shapes = shapesOf(rig, { ...REST, gx, gy })
+      shapes.eyes.forEach((eye, index) => {
+        const b = box(eye)
+        const was = restBoxes[index]
+        assert.ok(Math.abs((b.x1 - b.x0) - (was.x1 - was.x0)) < 1e-3 && Math.abs((b.y1 - b.y0) - (was.y1 - was.y0)) < 1e-3, `${id} eye ${index} keeps its size looking ${gx},${gy}`)
+        moved = Math.max(moved, Math.hypot(b.cx - was.cx, b.cy - was.cy))
+      })
+      // No point of an eye that is on the body leaves it; bigger eyes look less far.
+      for (const big of [{}, { face: FACES.surprised, pupil: 0.1 }]) {
+        const still = shapesOf(rig, { ...REST, ...big }).eyes
+        shapesOf(rig, { ...REST, ...big, gx, gy }).eyes.forEach((eye, index) => {
+          for (let i = 0; i < eye.length; i += 2) {
+            if (winding(rest.body, still[index][i], still[index][i + 1]) === 0) continue
+            assert.notEqual(winding(rest.body, eye[i], eye[i + 1]), 0, `${id} eye ${index} stays on the body looking ${gx},${gy}${big.face ? ', surprised' : ''}`)
+          }
+        })
+      }
+    }
+    assert.ok(moved > 3, `${id} eyes can look somewhere (${moved.toFixed(1)})`)
+  }
 })

@@ -4,8 +4,9 @@
 // (a capsule W wide and H tall), already shrunk by how far the spot turns away.
 //
 // Two kinds of shape:
-// - capsule: the neutral eye, resized and cut by an upper and a lower lid line. Any
-//   two capsules blend, so neutral → focused → sleepy is one smooth change.
+// - capsule: the neutral eye, resized and cut by an upper and a lower lid. A lid meets
+//   the eye in a rounded corner, so a lidded eye stays soft and never turns into a
+//   box. Any two capsules blend, so neutral → focused → sleepy is one smooth change.
 // - stroke: a curve with round ends (closed happy eyes, closed sleeping eyes, a cross).
 //   A change to or from a stroke happens behind a blink.
 
@@ -42,6 +43,8 @@ export const FACES = {
   // Closed and at rest: gentle downturned arcs.
   asleep: [{ kind: 'stroke', curve: 'rest' }, { kind: 'stroke', curve: 'rest' }],
   wink: [{ kind: 'stroke', curve: 'arch' }, eye({ w: 1.04, h: 1.04 })],
+  // Pretending to sleep: one eye open a crack.
+  peek: [{ kind: 'stroke', curve: 'rest' }, eye({ w: 0.96, top: 0.46, topTilt: 4, bottom: 0.06, bottomCurve: 0.03 })],
   dizzy: [{ kind: 'stroke', curve: 'cross' }, { kind: 'stroke', curve: 'cross' }],
 }
 export const FACE_NAMES = Object.keys(FACES)
@@ -58,24 +61,100 @@ export function mixEye(a, b, t) {
 }
 export const blendable = (a, b) => a.every((shape, index) => shape.kind === 'capsule' && b[index].kind === 'capsule')
 
-const CAPSULE_POINTS = 28
+// Points per cap, and per straight side, of the neutral eye.
+const CAP_POINTS = 16
+const SIDE_POINTS = 8
 
 // A capsule outline W wide and H tall around (0, 0), as [x0, y0, x1, y1, ...].
 function capsule(W, H) {
   const r = W / 2
   const a = Math.max(0, H / 2 - r)
+  const ry = Math.min(r, H / 2)
   const points = []
-  const quarter = CAPSULE_POINTS / 4
   // Top cap (left to right), right side down, bottom cap (right to left), left side up.
-  for (let i = 0; i <= quarter * 2; i += 1) {
-    const angle = Math.PI + (Math.PI * i) / (quarter * 2)
-    points.push(Math.cos(angle) * r, -a + Math.sin(angle) * Math.min(r, H / 2))
+  for (let i = 0; i <= CAP_POINTS; i += 1) {
+    const angle = Math.PI + (Math.PI * i) / CAP_POINTS
+    points.push(Math.cos(angle) * r, -a + Math.sin(angle) * ry)
   }
-  for (let i = 0; i <= quarter * 2; i += 1) {
-    const angle = (Math.PI * i) / (quarter * 2)
-    points.push(Math.cos(angle) * r, a + Math.sin(angle) * Math.min(r, H / 2))
+  for (let i = 1; i < SIDE_POINTS; i += 1) points.push(r, -a + (2 * a * i) / SIDE_POINTS)
+  for (let i = 0; i <= CAP_POINTS; i += 1) {
+    const angle = (Math.PI * i) / CAP_POINTS
+    points.push(Math.cos(angle) * r, a + Math.sin(angle) * ry)
+  }
+  for (let i = 1; i < SIDE_POINTS; i += 1) points.push(-r, a - (2 * a * i) / SIDE_POINTS)
+  return points
+}
+
+// A lidded eye is the capsule and its lids as one distance (negative inside), joined
+// with rounded corners (LID_ROUND eye widths), and traced along rays from its middle in
+// EYE_POINTS points. A lid never cuts a square corner, and where lids close in on a
+// side the eye narrows to a round end instead of folding.
+const LID_ROUND = 0.6
+const EYE_POINTS = 56
+function liddedEye(w, h, top, bottom) {
+  const r = w / 2
+  const a = Math.max(0, h / 2 - r)
+  const ry = Math.min(r, h / 2)
+  const k = LID_ROUND * w
+  const body = (x, y) => (a > 0 ? Math.hypot(x, Math.max(Math.abs(y) - a, 0)) - r : (Math.hypot(x / r, y / ry) - 1) * ry)
+  const inside = (x, y) => {
+    let d = body(x, y)
+    if (top) d = smoothMax(d, top.distance(x, y, 1), k)
+    if (bottom) d = smoothMax(d, bottom.distance(x, y, -1), k)
+    return d
+  }
+  const upper = top ? Math.max(-h / 2, top.at(0)) : -h / 2
+  const lower = bottom ? Math.min(h / 2, bottom.at(0)) : h / 2
+  const cy = (upper + lower) / 2
+  const reach = Math.hypot(w, h)
+  const points = []
+  for (let i = 0; i < EYE_POINTS; i += 1) {
+    const angle = Math.PI + (2 * Math.PI * i) / EYE_POINTS
+    const dx = Math.cos(angle)
+    const dy = Math.sin(angle)
+    const t = edgeAlong(s => inside(dx * s, cy + dy * s), reach)
+    points.push(dx * t, cy + dy * t)
   }
   return points
+}
+// Where a distance along a ray from inside (at 0) crosses zero before `reach`
+// (regula falsi, Illinois).
+function edgeAlong(f, reach) {
+  let lo = 0, hi = reach
+  let flo = f(lo), fhi = f(hi)
+  if (flo >= 0) return 0
+  let t = hi
+  let last = 0
+  for (let i = 0; i < 24; i += 1) {
+    t = (lo * fhi - hi * flo) / (fhi - flo)
+    const ft = f(t)
+    if (Math.abs(ft) < 1e-4) break
+    if (ft < 0) { lo = t; flo = ft; if (last < 0) fhi /= 2; last = -1 }
+    else { hi = t; fhi = ft; if (last > 0) flo /= 2; last = 1 }
+  }
+  return t
+}
+
+// A lid: its height `at(x)` (y down) across a `width` wide eye, a line through y0 or,
+// with `bow`, a curve that rises by `bow` at the middle; and the distance of a point
+// from it, negative on the eye's side (`side` 1 for the upper lid, -1 for the lower).
+function lidOf(y0, slope, bow, width) {
+  const at = (x) => {
+    const k = (2 * x) / width
+    return y0 + slope * x - bow * Math.max(0, 1 - k * k)
+  }
+  const tilt = (x) => {
+    const k = (2 * x) / width
+    return slope + (Math.abs(k) < 1 ? (8 * bow * x) / (width * width) : 0)
+  }
+  return { at, distance: (x, y, side) => (side * (at(x) - y)) / Math.hypot(1, tilt(x)) }
+}
+
+// The larger of a and b, rounded over k (a quadratic blend).
+function smoothMax(a, b, k) {
+  if (k <= 0) return Math.max(a, b)
+  const h = Math.max(k - Math.abs(a - b), 0) / k
+  return Math.max(a, b) + (h * h * k) / 4
 }
 
 // A curve as a filled stroke with round ends.
@@ -121,16 +200,6 @@ function quadratic(x0, y0, cx, cy, x1, y1, steps = 10) {
   return points
 }
 
-// Cuts an outline with a lid: points past the lid move onto it. The lid is a line, or
-// with `bow` a curve that rises (y down) by `bow` at the middle of a `width` wide eye.
-function lid(points, y0, slope, below, bow = 0, width = 1) {
-  for (let i = 0; i < points.length; i += 2) {
-    const k = (2 * points[i]) / width
-    const limit = y0 + slope * points[i] - bow * Math.max(0, 1 - k * k)
-    if (below ? points[i + 1] > limit : points[i + 1] < limit) points[i + 1] = limit
-  }
-}
-
 // The polygons of one eye in its own box. `side` is -1 for the eye on the character's
 // left (the viewer's left at rest), 1 for the other; a lid's inner corner faces the
 // other eye. `closed` (0–1) is the blink: the eye flattens toward a line a little below
@@ -140,11 +209,11 @@ export function eyePolygons(shape, W, H, side, closed = 0) {
   if (shape.kind === 'capsule') {
     const w = W * shape.w
     const h = H * shape.h
-    const points = capsule(w, h)
     // Inner corner: toward the other eye, so slope sign follows the side.
     const inner = -side
-    if (shape.top > 0) lid(points, -h / 2 + shape.top * h, Math.tan((shape.topTilt * Math.PI) / 180) * -inner, false)
-    if (shape.bottom > 0) lid(points, h / 2 - shape.bottom * h, Math.tan((shape.bottomTilt * Math.PI) / 180) * -inner, true, shape.bottomCurve * h, w)
+    const top = shape.top > 0 ? lidOf(-h / 2 + shape.top * h, Math.tan((shape.topTilt * Math.PI) / 180) * -inner, 0, w) : null
+    const bottom = shape.bottom > 0 ? lidOf(h / 2 - shape.bottom * h, Math.tan((shape.bottomTilt * Math.PI) / 180) * -inner, shape.bottomCurve * h, w) : null
+    const points = top || bottom ? liddedEye(w, h, top, bottom) : capsule(w, h)
     for (let i = 0; i < points.length; i += 2) { points[i] += shape.dx * W; points[i + 1] += shape.dy * H }
     out.push(points)
   } else if (shape.curve === 'arch') {

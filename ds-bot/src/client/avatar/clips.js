@@ -12,6 +12,12 @@
 // Events: `face` [[time, name or null]] holds an expression (null hands it back to the
 // state); `blink` [time, ...] blinks; `commit` clips finish even when the state moves
 // on (a spin can't stop halfway); `accent` names a flourish drawn around the body.
+//
+// The characters are drawn as flat art, seen from one side. Turned more than a few
+// degrees, one shows its flat side and both eyes slide to one edge, so a clip looks
+// with the eyes and leans or shifts the body; only a spin turns all the way round.
+// TURN is the most a clip or a pose turns the body (yaw) without spinning.
+export const TURN = 5
 
 // Cubic-bezier eases, by name.
 function bezier(x1, y1, x2, y2) {
@@ -97,23 +103,29 @@ export const CLIPS = {
     return mirror(clip(hold + 0.62, {
       gx: [[0, 0], [0.1, gx, 'snap'], [0.1 + hold, gx, 'linear'], [0.28 + hold, 0, 'inOut']],
       gy: [[0, 0], [0.1, gy, 'snap'], [0.1 + hold, gy, 'linear'], [0.28 + hold, 0, 'inOut']],
-      yaw: [[0, 0], [0.12, 0, 'linear'], [0.5, 6, 'inOut'], [0.1 + hold, 6, 'linear'], [0.62 + hold, 0, 'inOut']],
+      yaw: [[0, 0], [0.12, 0, 'linear'], [0.5, 2.5, 'inOut'], [0.1 + hold, 2.5, 'linear'], [0.62 + hold, 0, 'inOut']],
+      roll: [[0, 0], [0.12, 0, 'linear'], [0.5, -1.5, 'inOut'], [0.1 + hold, -1.5, 'linear'], [0.62 + hold, 0, 'inOut']],
     }), s)
   },
   lookAround(rng) {
     const k = jitter(rng, 1, 0.12)
     return mirror(clip(2.3 * k, {
       gx: at([[0, 0], [0.1, 0.8, 'snap'], [0.9, 0.8, 'linear'], [1.05, -0.7, 'snap'], [1.8, -0.7, 'linear'], [2.05, 0, 'inOut'], [2.3, 0]], k),
-      yaw: at([[0, 0], [0.5, 14, 'inOut'], [0.95, 14, 'linear'], [1.55, -12, 'inOut'], [1.85, -12, 'linear'], [2.3, 0, 'inOut']], k),
+      yaw: at([[0, 0], [0.5, 4, 'inOut'], [0.95, 4, 'linear'], [1.55, -3.5, 'inOut'], [1.85, -3.5, 'linear'], [2.3, 0, 'inOut']], k),
+      x: at([[0, 0], [0.5, 1.4, 'inOut'], [0.95, 1.4, 'linear'], [1.55, -1.2, 'inOut'], [1.85, -1.2, 'linear'], [2.3, 0, 'inOut']], k),
+      roll: at([[0, 0], [0.5, -2.5, 'inOut'], [0.95, -2.5, 'linear'], [1.55, 2, 'inOut'], [1.85, 2, 'linear'], [2.3, 0, 'inOut']], k),
       pitch: at([[0, 0], [0.5, -2], [1.55, -1], [2.3, 0]], k),
     }, { blink: [0.98 * k] }), side(rng))
   },
-  // Turns to face you for a moment, as if checking in.
+  // Looks up at you for a moment, as if checking in: a glance away, then straight
+  // out of the screen, a little taller.
   checkIn(rng) {
     const hold = 0.9 + rng() * 0.8
     return clip(hold + 1, {
       gx: [[0, 0], [0.12, -0.5, 'snap'], [0.45, 0, 'inOut'], [hold + 1, 0]],
-      yaw: [[0, 0], [0.5, -30, 'back'], [0.5 + hold, -30, 'linear'], [hold + 1, 0, 'inOut']],
+      gy: [[0, 0], [0.45, -0.12, 'inOut'], [0.5 + hold, -0.12, 'linear'], [hold + 1, 0, 'inOut']],
+      y: [[0, 0], [0.5, -1.6, 'back'], [0.5 + hold, -1.6, 'linear'], [hold + 1, 0, 'inOut']],
+      scale: [[0, 0], [0.5, 0.03, 'back'], [0.5 + hold, 0.03, 'linear'], [hold + 1, 0, 'inOut']],
       pitch: [[0, 0], [0.5, -5, 'inOut'], [0.5 + hold, -5, 'linear'], [hold + 1, 0, 'inOut']],
     }, { blink: [0.22], face: [[0.55, 'content'], [hold + 0.45, null]] })
   },
@@ -170,7 +182,7 @@ export const CLIPS = {
     return clip(2.4, {
       roll: [[0, 0], [0.6, -14], [1.8, -14, 'linear'], [2.4, 0]],
       gx: [[0, 0], [0.16, -0.95, 'snap'], [1.8, -0.95, 'linear'], [2.15, 0]],
-      yaw: [[0, 0], [0.6, -6], [1.8, -6, 'linear'], [2.4, 0]],
+      yaw: [[0, 0], [0.6, -3], [1.8, -3, 'linear'], [2.4, 0]],
     }, { blink: [0.3] })
   },
   hmm() {
@@ -184,7 +196,8 @@ export const CLIPS = {
   scan(rng) {
     return mirror(clip(1.4, {
       gx: [[0, 0], [0.08, 0.9, 'snap'], [0.58, 0.9, 'linear'], [0.66, -0.9, 'snap'], [1.05, -0.9, 'linear'], [1.25, 0]],
-      yaw: [[0, 0], [0.35, 16], [0.95, -16], [1.4, 0]],
+      yaw: [[0, 0], [0.35, 4], [0.95, -4], [1.4, 0]],
+      x: [[0, 0], [0.35, 1.2], [0.95, -1.2], [1.4, 0]],
       pitch: [[0, 0], [0.35, 2], [0.95, 2], [1.4, 0]],
     }, { blink: [0.6] }), side(rng))
   },
@@ -223,7 +236,7 @@ export const CLIPS = {
     return mirror(clip(1.8, {
       gx: [[0, 0], [0.12, -0.5, 'snap'], [1.5, 0.5, 'linear'], [1.8, 0]],
       roll: [[0, 0], [0.9, 2], [1.8, 0]],
-      yaw: [[0, 0], [0.4, -4], [1.5, 5], [1.8, 0]],
+      yaw: [[0, 0], [0.4, -2], [1.5, 2.5], [1.8, 0]],
     }, { blink: [1.55] }), side(rng))
   },
   bob() {
@@ -236,7 +249,7 @@ export const CLIPS = {
       x: [[0, 0], [0.22, -3.5], [0.36, 8, 'snap'], [0.62, 8, 'linear'], [0.9, -1], [1.1, 0]],
       roll: [[0, 0], [0.22, -7], [0.36, 9, 'snap'], [0.62, 6], [0.9, -2], [1.1, 0]],
       sq: [[0, 0], [0.22, 0.06], [0.34, -0.1, 'out'], [0.5, 0], [1.1, 0]],
-      yaw: [[0, 0], [0.22, -6], [0.36, 8, 'snap'], [0.9, 0], [1.1, 0]],
+      yaw: [[0, 0], [0.22, -3], [0.36, 4, 'snap'], [0.9, 0], [1.1, 0]],
       gx: [[0, 0], [0.18, 0.9, 'snap'], [0.8, 0.9, 'linear'], [1, 0]],
     })
   },
@@ -244,9 +257,10 @@ export const CLIPS = {
   // ---- Relaying in a group: turns from one side to the other, passing words along.
   relay(rng) {
     return mirror(clip(2, {
-      yaw: [[0, 0], [0.4, -22], [0.75, -22, 'linear'], [1.2, 18], [1.6, 18, 'linear'], [2, 0]],
+      yaw: [[0, 0], [0.4, -4.5], [0.75, -4.5, 'linear'], [1.2, 4], [1.6, 4, 'linear'], [2, 0]],
+      x: [[0, 0], [0.4, -1.8], [0.75, -1.8, 'linear'], [1.2, 1.6], [1.6, 1.6, 'linear'], [2, 0]],
       gx: [[0, 0], [0.1, -0.85, 'snap'], [0.75, -0.85, 'linear'], [0.85, 0.85, 'snap'], [1.6, 0.85, 'linear'], [1.9, 0]],
-      roll: [[0, 0], [0.4, -3], [1.2, 3], [2, 0]],
+      roll: [[0, 0], [0.4, 3], [1.2, -3], [2, 0]],
     }, { blink: [0.8] }), side(rng))
   },
 
@@ -259,7 +273,7 @@ export const CLIPS = {
   },
   patient(rng) {
     return mirror(clip(2, {
-      yaw: [[0, 0], [0.6, 10], [1.4, 10, 'linear'], [2, 0]],
+      yaw: [[0, 0], [0.6, 3], [1.4, 3, 'linear'], [2, 0]],
       gx: [[0, 0], [0.12, 0.6, 'snap'], [1.5, 0.6, 'linear'], [1.9, 0]],
       roll: [[0, 0], [0.6, 2], [1.4, 2, 'linear'], [2, 0]],
     }), side(rng))
@@ -304,6 +318,20 @@ export const CLIPS = {
     return clip(0.84, { ...hopTracks(jitter(rng, 10)), pupil: [[0, 0], [0.3, 0.06], [0.84, 0]] }, { face: [[0.08, 'happy']], accent: 'sparkle' })
   },
 
+  // ---- Asleep: now and then one eye opens a crack, looks to one side, then at you,
+  // and shuts quickly, as if it was never awake.
+  sneak(rng) {
+    const s = side(rng)
+    const hold = 0.45 + rng() * 0.5
+    const back = 0.95 + hold
+    return clip(back + 1, {
+      gx: [[0, 0], [0.32, 0, 'linear'], [0.44, 0.7 * s, 'snap'], [0.44 + hold, 0.7 * s, 'linear'], [0.58 + hold, 0, 'snap'], [back + 0.4, 0, 'linear'], [back + 0.75, 0]],
+      gy: [[0, 0], [0.32, 0, 'linear'], [0.44, 0.15, 'snap'], [0.44 + hold, 0.15, 'linear'], [0.58 + hold, 0, 'snap'], [back + 1, 0]],
+      pitch: [[0, 0], [0.4, -2.5], [back + 0.3, -2.5, 'linear'], [back + 1, 0]],
+      y: [[0, 0], [0.4, -0.6], [back + 0.3, -0.6, 'linear'], [back + 1, 0]],
+    }, { face: [[0.12, 'peek'], [back + 0.35, null]] })
+  },
+
   // ---- Waking from a doze.
   wake() {
     return clip(1.2, {
@@ -322,18 +350,18 @@ export const CLIPS = {
     return clip(0.9, {
       ...hopTracks(8),
       yaw: [[0, 0], [0.08, -10, 'out'], [0.62, 360, 'inOut'], [0.9, 360, 'linear']],
-    }, { commit: true, face: [[0.1, 'happy'], [0.82, null]] })
+    }, { commit: true, face: [[0.1, 'happy'], [0.82, null]], accent: 'confetti' })
   },
   pokeSpin2() {
     return clip(1.25, {
       ...hopTracks(12),
       yaw: [[0, 0], [0.1, -14, 'out'], [0.95, 720, 'inOut'], [1.25, 720, 'linear']],
-    }, { commit: true, face: [[0.1, 'happy'], [1.15, null]] })
+    }, { commit: true, face: [[0.1, 'happy'], [1.15, null]], accent: 'confetti' })
   },
   dizzy() {
     return clip(1.9, {
       roll: [[0, 0], [0.2, 12], [0.45, -10], [0.7, 8], [0.95, -6], [1.2, 4], [1.45, -2], [1.7, 0]],
-      yaw: [[0, 0], [0.3, -10], [0.6, 8], [0.9, -6], [1.2, 4], [1.6, 0]],
+      yaw: [[0, 0], [0.3, -5], [0.6, 4], [0.9, -3], [1.2, 2], [1.6, 0]],
       x: [[0, 0], [0.25, 2], [0.55, -2], [0.85, 1.5], [1.15, -1], [1.5, 0]],
       y: [[0, 0], [0.4, 1], [1.9, 0]],
     }, { commit: true, face: [[0, 'dizzy'], [1.65, null]], blink: [1.66] })

@@ -37,13 +37,18 @@ export function random(seed) {
 export const lodOf = size => (size >= 48 ? 'hero' : size >= 28 ? 'row' : 'chip')
 
 const FACE_BLEND = 0.22
-// A done sparkle's length, and how long a state's accent keeps moving with no input.
-const SPARKLE = 1.1
+// One-shot flourishes and their lengths: a done sparkle, the confetti of a spin. A
+// state's accent keeps moving for ACCENT_RUN seconds with no input.
+const ONE_SHOT = { sparkle: 1.1, confetti: 1.7 }
 const ACCENT_RUN = 600
 // A dozing mark's z drifts a few times, then holds still mid-air.
 const Z_RUN = 8
 const SWAP_CLOSE = 0.075
 const POKE_WINDOW = 1.6
+// A sleeping mark peeks after SNEAK_FIRST seconds [min, max], then less and less often:
+// each wait is SNEAK_DEEPER times the last, so it sleeps deeper the longer nobody comes.
+const SNEAK_FIRST = [7, 14]
+const SNEAK_DEEPER = 1.7
 
 export class Avatar {
   constructor({ seed = 1, size = 36, live = false, tier = 'normal', effects = 'full', state = 'idle' } = {}) {
@@ -94,7 +99,7 @@ export class Avatar {
     if (this.still) this.clips = []
     if (!this.follows) { this.gazeTarget = null; this.petting = null }
     // Reduced motion keeps one-shots (a sparkle) but no running flourish.
-    if (this.calm && this.frame.accent && this.frame.accent.kind !== 'sparkle') this.frame.accent = null
+    if (this.calm && this.frame.accent && !ONE_SHOT[this.frame.accent.kind]) this.frame.accent = null
     if (!Number.isFinite(this.nextLoop)) this.nextLoop = this.time + 0.3
     this.retarget()
   }
@@ -110,6 +115,7 @@ export class Avatar {
     // Clips of the last state fade out unless they must finish (a spin).
     for (const play of this.clips) if (!play.commit && !play.blink) play.fade = -1
     if (was === 'sleeping' && next !== 'sleeping' && !this.still) this.play('wake')
+    if (next === 'sleeping') this.sneak = { wait: SNEAK_FIRST[0] + this.rng() * (SNEAK_FIRST[1] - SNEAK_FIRST[0]), at: 0 }
     if (!this.still && !instant) {
       const enter = this.lod === 'chip' && def.compactEnter ? def.compactEnter : def.enter
       if (enter) this.play(this.draw(enter))
@@ -135,7 +141,7 @@ export class Avatar {
     const clip = make(this.rng)
     const play = { name, clip, t: 0, weight: 1, fade: 0, commit: !!clip.commit, blink: false, ...options }
     this.clips.push(play)
-    if (clip.accent && this.lod !== 'chip') this.frame.accent = { kind: clip.accent, t: 0 }
+    if (clip.accent && this.lod !== 'chip') this.frame.accent = { kind: clip.accent, t: 0, seed: Math.floor(this.rng() * 2 ** 31) }
     return play
   }
 
@@ -271,12 +277,12 @@ export class Avatar {
     // runs while someone is around and holds still once the window rests.
     const held = STATES[this.state].accent
     let accent = this.frame.accent
-    if (accent && accent.kind !== 'sparkle' && (accent.kind !== held || this.calm)) accent = this.frame.accent = null
+    if (accent && !ONE_SHOT[accent.kind] && (accent.kind !== held || this.calm)) accent = this.frame.accent = null
     if (!accent && held && this.lod === 'hero' && !this.calm) accent = this.frame.accent = { kind: held, t: 0 }
     if (accent) {
-      if (accent.kind === 'sparkle') {
+      if (ONE_SHOT[accent.kind]) {
         accent.t += dt
-        if (accent.t > SPARKLE) this.frame.accent = null
+        if (accent.t > ONE_SHOT[accent.kind]) this.frame.accent = null
         moving = true
       } else if ((!this.resting || (accent.kind === 'z' && accent.t < Z_RUN)) && accent.t < ACCENT_RUN) {
         accent.t += dt
@@ -296,6 +302,7 @@ export class Avatar {
     const def = STATES[this.state]
     if (def.next) times.push(this.stateSince + def.hold)
     if (this.override.face) times.push(this.override.faceUntil)
+    if (this.sneaks()) times.push(this.sneakAt())
     if (this.still || this.resting) return Math.max(0, Math.min(...times) - this.time)
     if (this.loopOf(STATES[this.state])) times.push(this.nextLoop)
     if (this.blinks()) times.push(this.nextBlink)
@@ -314,6 +321,12 @@ export class Avatar {
   schedule() {
     if (this.still) return
     const def = STATES[this.state]
+    // A sleeping mark peeks even while the window rests: that is when someone may be
+    // reading, not touching anything.
+    if (this.sneaks() && this.time >= this.sneakAt() && !this.clips.some(play => !play.blink)) {
+      this.play('sneak')
+      this.sneak = { wait: this.sneak.wait * SNEAK_DEEPER, at: this.time }
+    }
     if (this.resting) return
     if (this.blinks() && this.time >= this.nextBlink) {
       this.blink()
@@ -349,6 +362,12 @@ export class Avatar {
     return !!def.blink && !this.calm && (!ambient || !!this.petting || (this.live && this.tier === 'lively'))
   }
 
+  // Peeks while asleep, on large lively marks (only they doze off).
+  sneaks() {
+    return this.state === 'sleeping' && !!this.sneak && this.live && this.tier === 'lively' && !this.calm && this.lod !== 'chip'
+  }
+  sneakAt() { return (this.sneak.at || this.stateSince) + this.sneak.wait }
+
   // Small glances while resting, on large lively marks.
   glances() {
     return this.state === 'idle' && this.live && this.tier === 'lively' && !this.calm && this.lod !== 'chip' && !this.gazeTarget && !this.petting
@@ -383,21 +402,26 @@ export class Avatar {
     const target = Object.fromEntries(CHANNELS.map(name => [name, pose[name] ?? 0]))
     const g = this.gazeTarget
     if (g) {
-      const d = Math.hypot(g.x, g.y)
-      // Near the mark it turns toward you; further off it looks where the pointer is.
-      const near = clamp(1 - d / 3, 0, 1)
-      target.gx = clamp(g.x / 3, -1, 1) * 0.9 * (1 - near * 0.6)
-      target.gy = clamp(g.y / 3, -1, 1) * 0.8 * (1 - near * 0.6)
-      target.yaw += clamp(g.x / 4, -1, 1) * 16 - near * 26
-      target.pitch += clamp(g.y / 4, -1, 1) * 10 - near * 4
+      // The eyes follow the pointer across the face; the body only leans and shifts a
+      // little toward it (see TURN in clips.js). Right on the mark, the eyes look out
+      // of the screen, at you.
+      const fx = clamp(g.x / 2.5, -1, 1)
+      const fy = clamp(g.y / 2.5, -1, 1)
+      target.gx = fx
+      target.gy = fy * 0.85
+      target.x += fx * 1.4
+      target.roll -= fx * 3
+      target.pitch += fy * 3
     } else if (this.saccade.until > this.time) {
       target.gx += this.saccade.gx
       target.gy += this.saccade.gy
     }
     if (this.petting) {
-      target.yaw = Math.min(target.yaw, 0) - 24
-      target.pitch -= 4
-      target.roll += this.petting.side * 5
+      // Leans into the hand and sinks under it a little, eyes on you.
+      target.x = (pose.x ?? 0) + this.petting.side * 1.2
+      target.roll = (pose.roll ?? 0) - this.petting.side * 5
+      target.pitch -= 2
+      target.sq += 0.03
       target.gx = 0
       target.gy = 0
     }

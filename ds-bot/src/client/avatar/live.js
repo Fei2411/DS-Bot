@@ -22,6 +22,8 @@ import { REST_MS } from '../motion-rest.js'
 export const DOZE_MS = 150_000
 // The canvas reaches past the mark on each side, so hops and spins are not cut off.
 export const MARGIN = 0.3
+// Confetti colors besides the body's own.
+const CONFETTI_INKS = ['rose', 'sky', 'yellow', 'green', 'violet']
 
 const marks = new Set()
 let frame = 0
@@ -396,6 +398,15 @@ export class LiveMark {
     return value
   }
 
+  // The colors a spin's confetti mixes with the body's: the theme's inks.
+  confetti() {
+    if (this.confettiEpoch === themeEpoch && this.confettiValue) return this.confettiValue
+    const style = getComputedStyle(this.host)
+    this.confettiValue = CONFETTI_INKS.map(name => style.getPropertyValue(`--bt-ink-${name}`).trim() || INKS[name][0])
+    this.confettiEpoch = themeEpoch
+    return this.confettiValue
+  }
+
   draw() {
     this.dirty = false
     if (this.flat) { this.flat.style.transform = flatTransform(this.engine.frame); return }
@@ -404,7 +415,8 @@ export class LiveMark {
     ctx.setTransform(1, 0, 0, 1, 0, 0)
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height)
     ctx.setTransform(this.scale, 0, 0, this.scale, MARGIN * 100 * this.scale, MARGIN * 100 * this.scale)
-    drawShapes(ctx, shapesOf(this.rig, this.engine.frame, this.scratch ??= {}), this.ink())
+    const shapes = shapesOf(this.rig, this.engine.frame, this.scratch ??= {})
+    drawShapes(ctx, shapes, this.ink(), shapes.accent?.kind === 'confetti' ? this.confetti() : undefined)
   }
 
   // Actions, each answered with a frame.

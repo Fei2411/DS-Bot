@@ -21110,6 +21110,7 @@ body{--bt-return-fill:rgba(127,127,127,.08);--bt-return-fill-hover:rgba(127,127,
 `;
 
 // src/client/avatar/clips.js
+var TURN = 5;
 function bezier(x1, y1, x2, y2) {
   const cx = 3 * x1, bx = 3 * (x2 - x1) - cx, ax = 1 - cx - bx;
   const cy = 3 * y1, by = 3 * (y2 - y1) - cy, ay = 1 - cy - by;
@@ -21182,23 +21183,29 @@ var CLIPS = {
     return mirror(clip(hold + 0.62, {
       gx: [[0, 0], [0.1, gx, "snap"], [0.1 + hold, gx, "linear"], [0.28 + hold, 0, "inOut"]],
       gy: [[0, 0], [0.1, gy, "snap"], [0.1 + hold, gy, "linear"], [0.28 + hold, 0, "inOut"]],
-      yaw: [[0, 0], [0.12, 0, "linear"], [0.5, 6, "inOut"], [0.1 + hold, 6, "linear"], [0.62 + hold, 0, "inOut"]]
+      yaw: [[0, 0], [0.12, 0, "linear"], [0.5, 2.5, "inOut"], [0.1 + hold, 2.5, "linear"], [0.62 + hold, 0, "inOut"]],
+      roll: [[0, 0], [0.12, 0, "linear"], [0.5, -1.5, "inOut"], [0.1 + hold, -1.5, "linear"], [0.62 + hold, 0, "inOut"]]
     }), s);
   },
   lookAround(rng) {
     const k = jitter(rng, 1, 0.12);
     return mirror(clip(2.3 * k, {
       gx: at([[0, 0], [0.1, 0.8, "snap"], [0.9, 0.8, "linear"], [1.05, -0.7, "snap"], [1.8, -0.7, "linear"], [2.05, 0, "inOut"], [2.3, 0]], k),
-      yaw: at([[0, 0], [0.5, 14, "inOut"], [0.95, 14, "linear"], [1.55, -12, "inOut"], [1.85, -12, "linear"], [2.3, 0, "inOut"]], k),
+      yaw: at([[0, 0], [0.5, 4, "inOut"], [0.95, 4, "linear"], [1.55, -3.5, "inOut"], [1.85, -3.5, "linear"], [2.3, 0, "inOut"]], k),
+      x: at([[0, 0], [0.5, 1.4, "inOut"], [0.95, 1.4, "linear"], [1.55, -1.2, "inOut"], [1.85, -1.2, "linear"], [2.3, 0, "inOut"]], k),
+      roll: at([[0, 0], [0.5, -2.5, "inOut"], [0.95, -2.5, "linear"], [1.55, 2, "inOut"], [1.85, 2, "linear"], [2.3, 0, "inOut"]], k),
       pitch: at([[0, 0], [0.5, -2], [1.55, -1], [2.3, 0]], k)
     }, { blink: [0.98 * k] }), side(rng));
   },
-  // Turns to face you for a moment, as if checking in.
+  // Looks up at you for a moment, as if checking in: a glance away, then straight
+  // out of the screen, a little taller.
   checkIn(rng) {
     const hold = 0.9 + rng() * 0.8;
     return clip(hold + 1, {
       gx: [[0, 0], [0.12, -0.5, "snap"], [0.45, 0, "inOut"], [hold + 1, 0]],
-      yaw: [[0, 0], [0.5, -30, "back"], [0.5 + hold, -30, "linear"], [hold + 1, 0, "inOut"]],
+      gy: [[0, 0], [0.45, -0.12, "inOut"], [0.5 + hold, -0.12, "linear"], [hold + 1, 0, "inOut"]],
+      y: [[0, 0], [0.5, -1.6, "back"], [0.5 + hold, -1.6, "linear"], [hold + 1, 0, "inOut"]],
+      scale: [[0, 0], [0.5, 0.03, "back"], [0.5 + hold, 0.03, "linear"], [hold + 1, 0, "inOut"]],
       pitch: [[0, 0], [0.5, -5, "inOut"], [0.5 + hold, -5, "linear"], [hold + 1, 0, "inOut"]]
     }, { blink: [0.22], face: [[0.55, "content"], [hold + 0.45, null]] });
   },
@@ -21254,7 +21261,7 @@ var CLIPS = {
     return clip(2.4, {
       roll: [[0, 0], [0.6, -14], [1.8, -14, "linear"], [2.4, 0]],
       gx: [[0, 0], [0.16, -0.95, "snap"], [1.8, -0.95, "linear"], [2.15, 0]],
-      yaw: [[0, 0], [0.6, -6], [1.8, -6, "linear"], [2.4, 0]]
+      yaw: [[0, 0], [0.6, -3], [1.8, -3, "linear"], [2.4, 0]]
     }, { blink: [0.3] });
   },
   hmm() {
@@ -21267,7 +21274,8 @@ var CLIPS = {
   scan(rng) {
     return mirror(clip(1.4, {
       gx: [[0, 0], [0.08, 0.9, "snap"], [0.58, 0.9, "linear"], [0.66, -0.9, "snap"], [1.05, -0.9, "linear"], [1.25, 0]],
-      yaw: [[0, 0], [0.35, 16], [0.95, -16], [1.4, 0]],
+      yaw: [[0, 0], [0.35, 4], [0.95, -4], [1.4, 0]],
+      x: [[0, 0], [0.35, 1.2], [0.95, -1.2], [1.4, 0]],
       pitch: [[0, 0], [0.35, 2], [0.95, 2], [1.4, 0]]
     }, { blink: [0.6] }), side(rng));
   },
@@ -21305,7 +21313,7 @@ var CLIPS = {
     return mirror(clip(1.8, {
       gx: [[0, 0], [0.12, -0.5, "snap"], [1.5, 0.5, "linear"], [1.8, 0]],
       roll: [[0, 0], [0.9, 2], [1.8, 0]],
-      yaw: [[0, 0], [0.4, -4], [1.5, 5], [1.8, 0]]
+      yaw: [[0, 0], [0.4, -2], [1.5, 2.5], [1.8, 0]]
     }, { blink: [1.55] }), side(rng));
   },
   bob() {
@@ -21317,16 +21325,17 @@ var CLIPS = {
       x: [[0, 0], [0.22, -3.5], [0.36, 8, "snap"], [0.62, 8, "linear"], [0.9, -1], [1.1, 0]],
       roll: [[0, 0], [0.22, -7], [0.36, 9, "snap"], [0.62, 6], [0.9, -2], [1.1, 0]],
       sq: [[0, 0], [0.22, 0.06], [0.34, -0.1, "out"], [0.5, 0], [1.1, 0]],
-      yaw: [[0, 0], [0.22, -6], [0.36, 8, "snap"], [0.9, 0], [1.1, 0]],
+      yaw: [[0, 0], [0.22, -3], [0.36, 4, "snap"], [0.9, 0], [1.1, 0]],
       gx: [[0, 0], [0.18, 0.9, "snap"], [0.8, 0.9, "linear"], [1, 0]]
     });
   },
   // ---- Relaying in a group: turns from one side to the other, passing words along.
   relay(rng) {
     return mirror(clip(2, {
-      yaw: [[0, 0], [0.4, -22], [0.75, -22, "linear"], [1.2, 18], [1.6, 18, "linear"], [2, 0]],
+      yaw: [[0, 0], [0.4, -4.5], [0.75, -4.5, "linear"], [1.2, 4], [1.6, 4, "linear"], [2, 0]],
+      x: [[0, 0], [0.4, -1.8], [0.75, -1.8, "linear"], [1.2, 1.6], [1.6, 1.6, "linear"], [2, 0]],
       gx: [[0, 0], [0.1, -0.85, "snap"], [0.75, -0.85, "linear"], [0.85, 0.85, "snap"], [1.6, 0.85, "linear"], [1.9, 0]],
-      roll: [[0, 0], [0.4, -3], [1.2, 3], [2, 0]]
+      roll: [[0, 0], [0.4, 3], [1.2, -3], [2, 0]]
     }, { blink: [0.8] }), side(rng));
   },
   // ---- Waiting on other Bots.
@@ -21338,7 +21347,7 @@ var CLIPS = {
   },
   patient(rng) {
     return mirror(clip(2, {
-      yaw: [[0, 0], [0.6, 10], [1.4, 10, "linear"], [2, 0]],
+      yaw: [[0, 0], [0.6, 3], [1.4, 3, "linear"], [2, 0]],
       gx: [[0, 0], [0.12, 0.6, "snap"], [1.5, 0.6, "linear"], [1.9, 0]],
       roll: [[0, 0], [0.6, 2], [1.4, 2, "linear"], [2, 0]]
     }), side(rng));
@@ -21380,6 +21389,19 @@ var CLIPS = {
   hopHappy(rng) {
     return clip(0.84, { ...hopTracks(jitter(rng, 10)), pupil: [[0, 0], [0.3, 0.06], [0.84, 0]] }, { face: [[0.08, "happy"]], accent: "sparkle" });
   },
+  // ---- Asleep: now and then one eye opens a crack, looks to one side, then at you,
+  // and shuts quickly, as if it was never awake.
+  sneak(rng) {
+    const s = side(rng);
+    const hold = 0.45 + rng() * 0.5;
+    const back = 0.95 + hold;
+    return clip(back + 1, {
+      gx: [[0, 0], [0.32, 0, "linear"], [0.44, 0.7 * s, "snap"], [0.44 + hold, 0.7 * s, "linear"], [0.58 + hold, 0, "snap"], [back + 0.4, 0, "linear"], [back + 0.75, 0]],
+      gy: [[0, 0], [0.32, 0, "linear"], [0.44, 0.15, "snap"], [0.44 + hold, 0.15, "linear"], [0.58 + hold, 0, "snap"], [back + 1, 0]],
+      pitch: [[0, 0], [0.4, -2.5], [back + 0.3, -2.5, "linear"], [back + 1, 0]],
+      y: [[0, 0], [0.4, -0.6], [back + 0.3, -0.6, "linear"], [back + 1, 0]]
+    }, { face: [[0.12, "peek"], [back + 0.35, null]] });
+  },
   // ---- Waking from a doze.
   wake() {
     return clip(1.2, {
@@ -21397,18 +21419,18 @@ var CLIPS = {
     return clip(0.9, {
       ...hopTracks(8),
       yaw: [[0, 0], [0.08, -10, "out"], [0.62, 360, "inOut"], [0.9, 360, "linear"]]
-    }, { commit: true, face: [[0.1, "happy"], [0.82, null]] });
+    }, { commit: true, face: [[0.1, "happy"], [0.82, null]], accent: "confetti" });
   },
   pokeSpin2() {
     return clip(1.25, {
       ...hopTracks(12),
       yaw: [[0, 0], [0.1, -14, "out"], [0.95, 720, "inOut"], [1.25, 720, "linear"]]
-    }, { commit: true, face: [[0.1, "happy"], [1.15, null]] });
+    }, { commit: true, face: [[0.1, "happy"], [1.15, null]], accent: "confetti" });
   },
   dizzy() {
     return clip(1.9, {
       roll: [[0, 0], [0.2, 12], [0.45, -10], [0.7, 8], [0.95, -6], [1.2, 4], [1.45, -2], [1.7, 0]],
-      yaw: [[0, 0], [0.3, -10], [0.6, 8], [0.9, -6], [1.2, 4], [1.6, 0]],
+      yaw: [[0, 0], [0.3, -5], [0.6, 4], [0.9, -3], [1.2, 2], [1.6, 0]],
       x: [[0, 0], [0.25, 2], [0.55, -2], [0.85, 1.5], [1.15, -1], [1.5, 0]],
       y: [[0, 0], [0.4, 1], [1.9, 0]]
     }, { commit: true, face: [[0, "dizzy"], [1.65, null]], blink: [1.66] });
@@ -21464,6 +21486,8 @@ var FACES = {
   // Closed and at rest: gentle downturned arcs.
   asleep: [{ kind: "stroke", curve: "rest" }, { kind: "stroke", curve: "rest" }],
   wink: [{ kind: "stroke", curve: "arch" }, eye({ w: 1.04, h: 1.04 })],
+  // Pretending to sleep: one eye open a crack.
+  peek: [{ kind: "stroke", curve: "rest" }, eye({ w: 0.96, top: 0.46, topTilt: 4, bottom: 0.06, bottomCurve: 0.03 })],
   dizzy: [{ kind: "stroke", curve: "cross" }, { kind: "stroke", curve: "cross" }]
 };
 var FACE_NAMES = Object.keys(FACES);
@@ -21477,21 +21501,92 @@ function mixEye(a, b, t2) {
   return out;
 }
 var blendable = (a, b) => a.every((shape, index) => shape.kind === "capsule" && b[index].kind === "capsule");
-var CAPSULE_POINTS = 28;
+var CAP_POINTS = 16;
+var SIDE_POINTS = 8;
 function capsule(W, H) {
   const r = W / 2;
   const a = Math.max(0, H / 2 - r);
+  const ry2 = Math.min(r, H / 2);
   const points = [];
-  const quarter = CAPSULE_POINTS / 4;
-  for (let i = 0; i <= quarter * 2; i += 1) {
-    const angle = Math.PI + Math.PI * i / (quarter * 2);
-    points.push(Math.cos(angle) * r, -a + Math.sin(angle) * Math.min(r, H / 2));
+  for (let i = 0; i <= CAP_POINTS; i += 1) {
+    const angle = Math.PI + Math.PI * i / CAP_POINTS;
+    points.push(Math.cos(angle) * r, -a + Math.sin(angle) * ry2);
   }
-  for (let i = 0; i <= quarter * 2; i += 1) {
-    const angle = Math.PI * i / (quarter * 2);
-    points.push(Math.cos(angle) * r, a + Math.sin(angle) * Math.min(r, H / 2));
+  for (let i = 1; i < SIDE_POINTS; i += 1) points.push(r, -a + 2 * a * i / SIDE_POINTS);
+  for (let i = 0; i <= CAP_POINTS; i += 1) {
+    const angle = Math.PI * i / CAP_POINTS;
+    points.push(Math.cos(angle) * r, a + Math.sin(angle) * ry2);
+  }
+  for (let i = 1; i < SIDE_POINTS; i += 1) points.push(-r, a - 2 * a * i / SIDE_POINTS);
+  return points;
+}
+var LID_ROUND = 0.6;
+var EYE_POINTS = 56;
+function liddedEye(w, h84, top, bottom) {
+  const r = w / 2;
+  const a = Math.max(0, h84 / 2 - r);
+  const ry2 = Math.min(r, h84 / 2);
+  const k = LID_ROUND * w;
+  const body = (x, y) => a > 0 ? Math.hypot(x, Math.max(Math.abs(y) - a, 0)) - r : (Math.hypot(x / r, y / ry2) - 1) * ry2;
+  const inside = (x, y) => {
+    let d = body(x, y);
+    if (top) d = smoothMax(d, top.distance(x, y, 1), k);
+    if (bottom) d = smoothMax(d, bottom.distance(x, y, -1), k);
+    return d;
+  };
+  const upper = top ? Math.max(-h84 / 2, top.at(0)) : -h84 / 2;
+  const lower = bottom ? Math.min(h84 / 2, bottom.at(0)) : h84 / 2;
+  const cy = (upper + lower) / 2;
+  const reach = Math.hypot(w, h84);
+  const points = [];
+  for (let i = 0; i < EYE_POINTS; i += 1) {
+    const angle = Math.PI + 2 * Math.PI * i / EYE_POINTS;
+    const dx = Math.cos(angle);
+    const dy = Math.sin(angle);
+    const t2 = edgeAlong((s) => inside(dx * s, cy + dy * s), reach);
+    points.push(dx * t2, cy + dy * t2);
   }
   return points;
+}
+function edgeAlong(f, reach) {
+  let lo = 0, hi = reach;
+  let flo = f(lo), fhi = f(hi);
+  if (flo >= 0) return 0;
+  let t2 = hi;
+  let last = 0;
+  for (let i = 0; i < 24; i += 1) {
+    t2 = (lo * fhi - hi * flo) / (fhi - flo);
+    const ft = f(t2);
+    if (Math.abs(ft) < 1e-4) break;
+    if (ft < 0) {
+      lo = t2;
+      flo = ft;
+      if (last < 0) fhi /= 2;
+      last = -1;
+    } else {
+      hi = t2;
+      fhi = ft;
+      if (last > 0) flo /= 2;
+      last = 1;
+    }
+  }
+  return t2;
+}
+function lidOf(y0, slope, bow, width) {
+  const at2 = (x) => {
+    const k = 2 * x / width;
+    return y0 + slope * x - bow * Math.max(0, 1 - k * k);
+  };
+  const tilt = (x) => {
+    const k = 2 * x / width;
+    return slope + (Math.abs(k) < 1 ? 8 * bow * x / (width * width) : 0);
+  };
+  return { at: at2, distance: (x, y, side2) => side2 * (at2(x) - y) / Math.hypot(1, tilt(x)) };
+}
+function smoothMax(a, b, k) {
+  if (k <= 0) return Math.max(a, b);
+  const h84 = Math.max(k - Math.abs(a - b), 0) / k;
+  return Math.max(a, b) + h84 * h84 * k / 4;
 }
 function stroke(centerline, width, out) {
   const n = centerline.length / 2;
@@ -21534,22 +21629,15 @@ function quadratic(x0, y0, cx, cy, x1, y1, steps = 10) {
   }
   return points;
 }
-function lid(points, y0, slope, below, bow = 0, width = 1) {
-  for (let i = 0; i < points.length; i += 2) {
-    const k = 2 * points[i] / width;
-    const limit = y0 + slope * points[i] - bow * Math.max(0, 1 - k * k);
-    if (below ? points[i + 1] > limit : points[i + 1] < limit) points[i + 1] = limit;
-  }
-}
 function eyePolygons(shape, W, H, side2, closed = 0) {
   const out = [];
   if (shape.kind === "capsule") {
     const w = W * shape.w;
     const h84 = H * shape.h;
-    const points = capsule(w, h84);
     const inner = -side2;
-    if (shape.top > 0) lid(points, -h84 / 2 + shape.top * h84, Math.tan(shape.topTilt * Math.PI / 180) * -inner, false);
-    if (shape.bottom > 0) lid(points, h84 / 2 - shape.bottom * h84, Math.tan(shape.bottomTilt * Math.PI / 180) * -inner, true, shape.bottomCurve * h84, w);
+    const top = shape.top > 0 ? lidOf(-h84 / 2 + shape.top * h84, Math.tan(shape.topTilt * Math.PI / 180) * -inner, 0, w) : null;
+    const bottom = shape.bottom > 0 ? lidOf(h84 / 2 - shape.bottom * h84, Math.tan(shape.bottomTilt * Math.PI / 180) * -inner, shape.bottomCurve * h84, w) : null;
+    const points = top || bottom ? liddedEye(w, h84, top, bottom) : capsule(w, h84);
     for (let i = 0; i < points.length; i += 2) {
       points[i] += shape.dx * W;
       points[i + 1] += shape.dy * H;
@@ -21590,7 +21678,7 @@ var STATES = {
   },
   thinking: {
     face: "think",
-    pose: { pitch: -7, roll: 7, gx: 0.45, gy: -0.7 },
+    pose: { pitch: -7, roll: 7, gx: 0.3, gy: -0.65 },
     loop: { bag: { ponder: 3, ponderSwap: 1, hmm: 1.5 }, gap: [0.3, 1.4] },
     compact: { bag: { ponder: 1, hmm: 1 }, gap: [0.6, 2] },
     blink: [3, 7],
@@ -21630,10 +21718,10 @@ var STATES = {
     compact: { bag: { tap: 1, patient: 1 }, gap: [2, 5] },
     blink: [2, 5]
   },
-  // Needs your answer: turns to you, eyes wide, and catches your eye.
+  // Needs your answer: sits up, eyes wide and on you, and catches your eye.
   alert: {
     face: "wide",
-    pose: { yaw: -30, pitch: -6 },
+    pose: { pitch: -5, y: -1, scale: 0.03 },
     enter: { attention: 1 },
     lively: { bag: { nudge: 1 }, gap: [3.5, 7] },
     blink: [2, 4.5]
@@ -21686,11 +21774,13 @@ function random(seed) {
 }
 var lodOf = (size) => size >= 48 ? "hero" : size >= 28 ? "row" : "chip";
 var FACE_BLEND = 0.22;
-var SPARKLE = 1.1;
+var ONE_SHOT = { sparkle: 1.1, confetti: 1.7 };
 var ACCENT_RUN = 600;
 var Z_RUN = 8;
 var SWAP_CLOSE = 0.075;
 var POKE_WINDOW = 1.6;
+var SNEAK_FIRST = [7, 14];
+var SNEAK_DEEPER = 1.7;
 var Avatar = class {
   constructor({ seed = 1, size = 36, live = false, tier = "normal", effects = "full", state = "idle" } = {}) {
     this.rng = random(seed);
@@ -21749,7 +21839,7 @@ var Avatar = class {
       this.gazeTarget = null;
       this.petting = null;
     }
-    if (this.calm && this.frame.accent && this.frame.accent.kind !== "sparkle") this.frame.accent = null;
+    if (this.calm && this.frame.accent && !ONE_SHOT[this.frame.accent.kind]) this.frame.accent = null;
     if (!Number.isFinite(this.nextLoop)) this.nextLoop = this.time + 0.3;
     this.retarget();
   }
@@ -21763,6 +21853,7 @@ var Avatar = class {
     const def = STATES[next];
     for (const play of this.clips) if (!play.commit && !play.blink) play.fade = -1;
     if (was === "sleeping" && next !== "sleeping" && !this.still) this.play("wake");
+    if (next === "sleeping") this.sneak = { wait: SNEAK_FIRST[0] + this.rng() * (SNEAK_FIRST[1] - SNEAK_FIRST[0]), at: 0 };
     if (!this.still && !instant) {
       const enter = this.lod === "chip" && def.compactEnter ? def.compactEnter : def.enter;
       if (enter) this.play(this.draw(enter));
@@ -21786,7 +21877,7 @@ var Avatar = class {
     const clip3 = make(this.rng);
     const play = { name, clip: clip3, t: 0, weight: 1, fade: 0, commit: !!clip3.commit, blink: false, ...options };
     this.clips.push(play);
-    if (clip3.accent && this.lod !== "chip") this.frame.accent = { kind: clip3.accent, t: 0 };
+    if (clip3.accent && this.lod !== "chip") this.frame.accent = { kind: clip3.accent, t: 0, seed: Math.floor(this.rng() * 2 ** 31) };
     return play;
   }
   blink(double = this.rng() < 0.18) {
@@ -21932,12 +22023,12 @@ var Avatar = class {
     });
     const held = STATES[this.state].accent;
     let accent = this.frame.accent;
-    if (accent && accent.kind !== "sparkle" && (accent.kind !== held || this.calm)) accent = this.frame.accent = null;
+    if (accent && !ONE_SHOT[accent.kind] && (accent.kind !== held || this.calm)) accent = this.frame.accent = null;
     if (!accent && held && this.lod === "hero" && !this.calm) accent = this.frame.accent = { kind: held, t: 0 };
     if (accent) {
-      if (accent.kind === "sparkle") {
+      if (ONE_SHOT[accent.kind]) {
         accent.t += dt;
-        if (accent.t > SPARKLE) this.frame.accent = null;
+        if (accent.t > ONE_SHOT[accent.kind]) this.frame.accent = null;
         moving = true;
       } else if ((!this.resting || accent.kind === "z" && accent.t < Z_RUN) && accent.t < ACCENT_RUN) {
         accent.t += dt;
@@ -21954,6 +22045,7 @@ var Avatar = class {
     const def = STATES[this.state];
     if (def.next) times.push(this.stateSince + def.hold);
     if (this.override.face) times.push(this.override.faceUntil);
+    if (this.sneaks()) times.push(this.sneakAt());
     if (this.still || this.resting) return Math.max(0, Math.min(...times) - this.time);
     if (this.loopOf(STATES[this.state])) times.push(this.nextLoop);
     if (this.blinks()) times.push(this.nextBlink);
@@ -21973,6 +22065,10 @@ var Avatar = class {
   schedule() {
     if (this.still) return;
     const def = STATES[this.state];
+    if (this.sneaks() && this.time >= this.sneakAt() && !this.clips.some((play) => !play.blink)) {
+      this.play("sneak");
+      this.sneak = { wait: this.sneak.wait * SNEAK_DEEPER, at: this.time };
+    }
     if (this.resting) return;
     if (this.blinks() && this.time >= this.nextBlink) {
       this.blink();
@@ -22013,6 +22109,13 @@ var Avatar = class {
     const ambient = this.state === "idle" || this.state === "sleeping";
     return !!def.blink && !this.calm && (!ambient || !!this.petting || this.live && this.tier === "lively");
   }
+  // Peeks while asleep, on large lively marks (only they doze off).
+  sneaks() {
+    return this.state === "sleeping" && !!this.sneak && this.live && this.tier === "lively" && !this.calm && this.lod !== "chip";
+  }
+  sneakAt() {
+    return (this.sneak.at || this.stateSince) + this.sneak.wait;
+  }
   // Small glances while resting, on large lively marks.
   glances() {
     return this.state === "idle" && this.live && this.tier === "lively" && !this.calm && this.lod !== "chip" && !this.gazeTarget && !this.petting;
@@ -22047,20 +22150,22 @@ var Avatar = class {
     const target = Object.fromEntries(CHANNELS.map((name) => [name, pose[name] ?? 0]));
     const g = this.gazeTarget;
     if (g) {
-      const d = Math.hypot(g.x, g.y);
-      const near = clamp(1 - d / 3, 0, 1);
-      target.gx = clamp(g.x / 3, -1, 1) * 0.9 * (1 - near * 0.6);
-      target.gy = clamp(g.y / 3, -1, 1) * 0.8 * (1 - near * 0.6);
-      target.yaw += clamp(g.x / 4, -1, 1) * 16 - near * 26;
-      target.pitch += clamp(g.y / 4, -1, 1) * 10 - near * 4;
+      const fx = clamp(g.x / 2.5, -1, 1);
+      const fy = clamp(g.y / 2.5, -1, 1);
+      target.gx = fx;
+      target.gy = fy * 0.85;
+      target.x += fx * 1.4;
+      target.roll -= fx * 3;
+      target.pitch += fy * 3;
     } else if (this.saccade.until > this.time) {
       target.gx += this.saccade.gx;
       target.gy += this.saccade.gy;
     }
     if (this.petting) {
-      target.yaw = Math.min(target.yaw, 0) - 24;
-      target.pitch -= 4;
-      target.roll += this.petting.side * 5;
+      target.x = (pose.x ?? 0) + this.petting.side * 1.2;
+      target.roll = (pose.roll ?? 0) - this.petting.side * 5;
+      target.pitch -= 2;
+      target.sq += 0.03;
       target.gx = 0;
       target.gy = 0;
     }
@@ -23006,9 +23111,141 @@ function* rigSteps(model, { view = VIEW, cell = model.cell ?? 0.05 } = {}) {
     const v = cross(n, u);
     return { p, u, v, size: model.eye ?? 1, w: 10, h: 23 };
   });
+  const box = (wx, wy) => [50 + (wx - cx) * scale, 50 - (wy - cy) * scale];
+  const outline2 = loops.map((loop2) => {
+    const out = new Float32Array(loop2.length / 3 * 2);
+    for (let i = 0, j = 0; i < loop2.length; i += 3, j += 2) {
+      const [bx, by] = box(R[0] * loop2[i] + R[1] * loop2[i + 1] + R[2] * loop2[i + 2], R[3] * loop2[i] + R[4] * loop2[i + 1] + R[5] * loop2[i + 2]);
+      out[j] = bx;
+      out[j + 1] = by;
+    }
+    return out;
+  });
   const paints = [];
   for (const paint of model.paints ?? []) paints.push({ fill: paint.fill, opacity: paint.opacity ?? 1, faces: yield* clipSteps(mesh, paint.region) });
-  return { sdf: model.sdf, mesh, view, cx, cy, scale, bottom: 50 + (cy - y0) * scale, eyes, paints };
+  yield;
+  const decals = [];
+  for (const { faces } of paints) {
+    for (const { points, normal } of faces) {
+      if (normal[0] * R[6] + normal[1] * R[7] + normal[2] * R[8] <= 0) continue;
+      const out = new Float32Array(points.length / 3 * 2);
+      for (let i = 0, j = 0; i < points.length; i += 3, j += 2) {
+        const [bx, by] = box(R[0] * points[i] + R[1] * points[i + 1] + R[2] * points[i + 2], R[3] * points[i] + R[4] * points[i + 1] + R[5] * points[i + 2]);
+        out[j] = bx;
+        out[j + 1] = by;
+      }
+      decals.push(out);
+    }
+  }
+  yield;
+  const free = yield* freeSteps(outline2, decals);
+  yield;
+  const look = yield* lookSteps(free, eyes.map((eye2) => {
+    const n = cross(eye2.u, eye2.v);
+    const facing = n[0] * R[6] + n[1] * R[7] + n[2] * R[8];
+    const across = (d) => Math.hypot(R[0] * d[0] + R[1] * d[1] + R[2] * d[2], R[3] * d[0] + R[4] * d[1] + R[5] * d[2]);
+    const [x, y] = box(R[0] * eye2.p[0] + R[1] * eye2.p[1] + R[2] * eye2.p[2], R[3] * eye2.p[0] + R[4] * eye2.p[1] + R[5] * eye2.p[2]);
+    const tilt = Math.atan2(R[0] * eye2.v[0] + R[1] * eye2.v[1] + R[2] * eye2.v[2], R[3] * eye2.v[0] + R[4] * eye2.v[1] + R[5] * eye2.v[2]);
+    return { x, y, tilt, w: eye2.w * eye2.size * across(eye2.u) * Math.min(1, facing / 0.15), h: eye2.h * eye2.size * across(eye2.v) };
+  }));
+  return { sdf: model.sdf, mesh, view, cx, cy, scale, bottom: 50 + (cy - y0) * scale, eyes, look, paints };
+}
+var FREE_CELL = 0.5;
+var FREE_SIZE = Math.ceil(100 / FREE_CELL);
+function* freeSteps(outline2, decals) {
+  const cells = new Uint8Array(FREE_SIZE * FREE_SIZE);
+  let since = clock2();
+  function* fill2(loops, value, nonzero, top = 0, bottom = 100) {
+    const first = Math.max(0, Math.floor(top / FREE_CELL - 0.5));
+    const last = Math.min(FREE_SIZE - 1, Math.ceil(bottom / FREE_CELL - 0.5));
+    for (let row = first; row <= last; row += 1) {
+      if (clock2() - since > STEP_MS) {
+        yield;
+        since = clock2();
+      }
+      const y = (row + 0.5) * FREE_CELL;
+      const hits = [];
+      for (const pts of loops) {
+        const n = pts.length / 2;
+        for (let i = 0, j = n - 1; i < n; j = i, i += 1) {
+          const ay = pts[j * 2 + 1], by = pts[i * 2 + 1];
+          if (ay <= y === by <= y) continue;
+          const ax = pts[j * 2], bx = pts[i * 2];
+          hits.push(ax + (y - ay) / (by - ay) * (bx - ax), by > ay ? 1 : -1);
+        }
+      }
+      if (hits.length === 0) continue;
+      const order = [...Array(hits.length / 2).keys()].sort((p, q) => hits[p * 2] - hits[q * 2]);
+      let winding = 0;
+      for (let k = 0; k < order.length; k += 1) {
+        const before = winding;
+        winding += nonzero ? hits[order[k] * 2 + 1] : 1;
+        const inside = nonzero ? before !== 0 : before % 2 === 1;
+        if (!inside || k === 0) continue;
+        const from = Math.max(0, Math.ceil(hits[order[k - 1] * 2] / FREE_CELL - 0.5));
+        const to = Math.min(FREE_SIZE - 1, Math.floor(hits[order[k] * 2] / FREE_CELL - 0.5));
+        for (let col = from; col <= to; col += 1) cells[row * FREE_SIZE + col] = value;
+      }
+    }
+  }
+  yield* fill2(outline2, 1, true);
+  for (const decal of decals) {
+    let top = Infinity, bottom = -Infinity;
+    for (let i = 1; i < decal.length; i += 2) {
+      top = Math.min(top, decal[i]);
+      bottom = Math.max(bottom, decal[i]);
+    }
+    if (bottom - top < FREE_CELL / 4) continue;
+    yield* fill2([decal], 0, false, top, bottom);
+  }
+  return (x, y) => {
+    const col = Math.floor(x / FREE_CELL);
+    const row = Math.floor(y / FREE_CELL);
+    return col >= 0 && row >= 0 && col < FREE_SIZE && row < FREE_SIZE && cells[row * FREE_SIZE + col] === 1;
+  };
+}
+var LOOK_WAYS = 16;
+var LOOK_BIG = 1.35;
+var LOOK_RAMP = 0.08;
+var LOOK_MAX = 9;
+var EYE_EDGE = 1.5;
+function* lookSteps(free, eyes) {
+  const room2 = {};
+  let since = clock2();
+  const reach = (x, y, dx, dy, most) => {
+    let t2 = 0;
+    while (t2 < most && free(x + dx * (t2 + FREE_CELL / 2), y + dy * (t2 + FREE_CELL / 2))) t2 += FREE_CELL / 2;
+    return t2;
+  };
+  for (const [name, grown] of [["ways", 1], ["big", LOOK_BIG]]) {
+    const ways = room2[name] = new Float64Array(LOOK_WAYS).fill(LOOK_MAX);
+    const rims = [];
+    for (const eye2 of eyes) {
+      if (!free(eye2.x, eye2.y)) continue;
+      const c = Math.cos(eye2.tilt), s = Math.sin(eye2.tilt);
+      const rim = eyePolygons(FACES.neutral[0], eye2.w * grown, eye2.h * grown, 1)[0];
+      for (let i = 0; i < rim.length; i += 2) {
+        const ox = rim[i] * c - rim[i + 1] * s;
+        const oy = rim[i] * s + rim[i + 1] * c;
+        const length = Math.hypot(ox, oy);
+        const edge = Math.min(length, reach(eye2.x, eye2.y, ox / length, oy / length, length));
+        rims.push(eye2.x + ox / length * edge, eye2.y + oy / length * edge);
+      }
+    }
+    for (let k = 0; k < LOOK_WAYS; k += 1) {
+      if (clock2() - since > STEP_MS) {
+        yield;
+        since = clock2();
+      }
+      const angle = 2 * Math.PI * k / LOOK_WAYS;
+      const dx = Math.cos(angle);
+      const dy = Math.sin(angle);
+      for (let i = 0; i < rims.length; i += 2) ways[k] = Math.min(ways[k], Math.max(0, reach(rims[i], rims[i + 1], dx, dy, LOOK_MAX + EYE_EDGE) - EYE_EDGE));
+    }
+    const each = Float64Array.from(ways);
+    for (let k = 0; k < LOOK_WAYS; k += 1) ways[k] = Math.min(each[(k + LOOK_WAYS - 1) % LOOK_WAYS], each[k], each[(k + 1) % LOOK_WAYS]);
+  }
+  return room2;
 }
 function* clipSteps(mesh, region) {
   const { pos, tri } = mesh;
@@ -23068,10 +23305,8 @@ function rigJob(id, def) {
 var rigReady = (id, def) => !turns(id, def) || rigs.has(id);
 
 // src/client/avatar/render.js
-var GAZE_X = 0.17;
-var GAZE_Y = 0.12;
 function shapesOf(rig, frame3, scratch = {}) {
-  const { view, cx, cy, scale, bottom, mesh, sdf } = rig;
+  const { view, cx, cy, scale, bottom, mesh, sdf, look } = rig;
   const R = rotation(view.yaw + frame3.yaw, view.pitch + frame3.pitch, view.roll + frame3.roll, scratch.R);
   scratch.R = R;
   const dir = [R[6], R[7], R[8]];
@@ -23119,15 +23354,23 @@ function shapesOf(rig, frame3, scratch = {}) {
   });
   const eyes = [];
   const pupil = 1 + frame3.pupil;
+  let gx = 0;
+  let gy = 0;
+  const reach = Math.min(1, Math.hypot(frame3.gx, frame3.gy));
+  if (reach > 0) {
+    const angle = Math.atan2(frame3.gy, frame3.gx);
+    const at2 = (angle / (2 * Math.PI) * LOOK_WAYS % LOOK_WAYS + LOOK_WAYS) % LOOK_WAYS;
+    const k = Math.floor(at2);
+    const grown = Math.min(1, Math.max(0, pupil * Math.max(...frame3.face.map((eye2) => Math.max(eye2.w ?? 1, eye2.h ?? 1))) - 1) / LOOK_RAMP);
+    const way = (i) => look.ways[i] + (look.big[i] - look.ways[i]) * grown;
+    const room2 = way(k) + (way((k + 1) % LOOK_WAYS) - way(k)) * (at2 - k);
+    gx = Math.cos(angle) * reach * room2;
+    gy = Math.sin(angle) * reach * room2;
+  }
+  const lean = frame3.roll * Math.PI / 180;
+  const glance = [s * sx * (gx * Math.cos(lean) + gy * Math.sin(lean)), s * sy * (gy * Math.cos(lean) - gx * Math.sin(lean))];
   rig.eyes.forEach((eye2, index) => {
-    const gx = frame3.gx * GAZE_X;
-    const gy = frame3.gy * GAZE_Y;
-    const p = [
-      eye2.p[0] + gx * eye2.u[0] - gy * eye2.v[0],
-      eye2.p[1] + gx * eye2.u[1] - gy * eye2.v[1],
-      eye2.p[2] + gx * eye2.u[2] - gy * eye2.v[2]
-    ];
-    if (gx !== 0 || gy !== 0) onSurface(sdf, p);
+    const { p } = eye2;
     const { n, u, v } = surfaceFrame(sdf, p);
     const facing = n[0] * dir[0] + n[1] * dir[1] + n[2] * dir[2];
     if (facing <= 0.02) return;
@@ -23141,6 +23384,8 @@ function shapesOf(rig, frame3, scratch = {}) {
     const c = Math.cos(tilt), sn = Math.sin(tilt);
     const center = [0, 0];
     place(R[0] * p[0] + R[1] * p[1] + R[2] * p[2], R[3] * p[0] + R[4] * p[1] + R[5] * p[2], center, 0);
+    center[0] += glance[0];
+    center[1] += glance[1];
     const shape = frame3.face[index] ?? frame3.face[0];
     for (const poly of eyePolygons(shape, W, H, index === 0 ? -1 : 1, frame3.closed[index] ?? 0)) {
       const out = new Float32Array(poly.length);
@@ -23178,16 +23423,6 @@ function normalAt(sdf, p) {
   const l = Math.hypot(g[0], g[1], g[2]) || 1;
   return [g[0] / l, g[1] / l, g[2] / l];
 }
-function onSurface(sdf, p) {
-  for (let step = 0; step < 3; step += 1) {
-    const d = sdf(p);
-    if (Math.abs(d) < 1e-4) return;
-    const n = normalAt(sdf, p);
-    p[0] -= n[0] * d;
-    p[1] -= n[1] * d;
-    p[2] -= n[2] * d;
-  }
-}
 var clamp2 = (value, lo, hi) => Math.max(lo, Math.min(hi, value));
 function smoothLoop(ctx, pts) {
   const n = pts.length / 2;
@@ -23212,7 +23447,8 @@ function* decalPolys(paint) {
     from = paint.ends[k];
   }
 }
-function drawShapes(ctx, shapes, ink) {
+function drawShapes(ctx, shapes, ink, confetti = []) {
+  if (shapes.accent?.kind === "confetti") drawConfetti(ctx, shapes.accent, [ink, ...confetti]);
   ctx.fillStyle = ink;
   ctx.beginPath();
   for (const loop2 of shapes.body) smoothLoop(ctx, loop2);
@@ -23236,7 +23472,46 @@ function drawShapes(ctx, shapes, ink) {
     ctx.fill("nonzero");
     ctx.globalCompositeOperation = "source-over";
   }
-  if (shapes.accent) drawAccent(ctx, shapes.accent, ink, shapes.offset);
+  if (shapes.accent && shapes.accent.kind !== "confetti") drawAccent(ctx, shapes.accent, ink, shapes.offset);
+}
+var CONFETTI = 18;
+function drawConfetti(ctx, { t: t2, seed = 1 }, colors) {
+  const rng = random(seed);
+  const drag = 2.4;
+  const flight = (1 - Math.exp(-drag * t2)) / drag;
+  const fall = 0.5 * 75 * t2 * t2;
+  const alpha = Math.min(1, t2 / 0.06) * Math.max(0, Math.min(1, (1.7 - t2) / 0.5));
+  if (alpha <= 0) return;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.lineCap = "round";
+  for (let index = 0; index < CONFETTI; index += 1) {
+    const angle = -Math.PI / 2 + (rng() * 2 - 1) * 1.2;
+    const speed = 100 + rng() * 60;
+    const spin = (rng() * 2 - 1) * 9;
+    const tilt = rng() * Math.PI;
+    const x = 50 + Math.cos(angle) * speed * flight;
+    const y = 40 + Math.sin(angle) * speed * flight + fall;
+    const color = colors[index % colors.length];
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(tilt + spin * t2);
+    if (index % 3 === 0) {
+      const curl = Math.sin(t2 * 11 + tilt * 3) * 2.6;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.7;
+      ctx.beginPath();
+      ctx.moveTo(-5, 0);
+      ctx.bezierCurveTo(-2, -curl, 2, curl, 5, 0);
+      ctx.stroke();
+    } else {
+      const w = 4.4 * Math.max(0.15, Math.abs(Math.cos(t2 * 13 + tilt)));
+      ctx.fillStyle = color;
+      ctx.fillRect(-w / 2, -1.3, w, 2.6);
+    }
+    ctx.restore();
+  }
+  ctx.restore();
 }
 var wave = (t2) => 0.5 - 0.5 * Math.cos(t2 * Math.PI * 2);
 function drawAccent(ctx, accent, ink, [ox, oy]) {
@@ -23506,6 +23781,7 @@ function installMotionRest({ doc = document, win = window, restMs = REST_MS, now
 // src/client/avatar/live.js
 var DOZE_MS = 15e4;
 var MARGIN = 0.3;
+var CONFETTI_INKS = ["rose", "sky", "yellow", "green", "violet"];
 var marks = /* @__PURE__ */ new Set();
 var frame = 0;
 var timer = 0;
@@ -23876,6 +24152,14 @@ var LiveMark = class {
     this.inkEpoch = themeEpoch;
     return value;
   }
+  // The colors a spin's confetti mixes with the body's: the theme's inks.
+  confetti() {
+    if (this.confettiEpoch === themeEpoch && this.confettiValue) return this.confettiValue;
+    const style = getComputedStyle(this.host);
+    this.confettiValue = CONFETTI_INKS.map((name) => style.getPropertyValue(`--bt-ink-${name}`).trim() || INKS[name][0]);
+    this.confettiEpoch = themeEpoch;
+    return this.confettiValue;
+  }
   draw() {
     this.dirty = false;
     if (this.flat) {
@@ -23887,7 +24171,8 @@ var LiveMark = class {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     ctx.setTransform(this.scale, 0, 0, this.scale, MARGIN * 100 * this.scale, MARGIN * 100 * this.scale);
-    drawShapes(ctx, shapesOf(this.rig, this.engine.frame, this.scratch ??= {}), this.ink());
+    const shapes = shapesOf(this.rig, this.engine.frame, this.scratch ??= {});
+    drawShapes(ctx, shapes, this.ink(), shapes.accent?.kind === "confetti" ? this.confetti() : void 0);
   }
   // Actions, each answered with a frame.
   act(fn) {

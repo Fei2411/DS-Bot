@@ -1,17 +1,14 @@
+import { random } from './engine.js'
 import { eyePolygons } from './face.js'
-import { rotation } from './rig.js'
+import { LOOK_RAMP, LOOK_WAYS, rotation } from './rig.js'
 import { silhouette } from './silhouette.js'
 
 // Turns a rig and an engine frame into flat shapes in the mark's 100-unit box (y down):
 // the body's loops (filled with the nonzero rule), the decals, and the eyes, which
 // are cut out of everything so they show what lies behind the mark.
 
-// How far the eyes travel across the face at full glance, in object units.
-const GAZE_X = 0.17
-const GAZE_Y = 0.12
-
 export function shapesOf(rig, frame, scratch = {}) {
-  const { view, cx, cy, scale, bottom, mesh, sdf } = rig
+  const { view, cx, cy, scale, bottom, mesh, sdf, look } = rig
   const R = rotation(view.yaw + frame.yaw, view.pitch + frame.pitch, view.roll + frame.roll, scratch.R)
   scratch.R = R
   const dir = [R[6], R[7], R[8]]
@@ -63,16 +60,25 @@ export function shapesOf(rig, frame, scratch = {}) {
 
   const eyes = []
   const pupil = 1 + frame.pupil
+  // A glance moves the eyes across the picture, as far as the face has room that way
+  // for eyes this big (rig.look), turned with the body's lean.
+  let gx = 0
+  let gy = 0
+  const reach = Math.min(1, Math.hypot(frame.gx, frame.gy))
+  if (reach > 0) {
+    const angle = Math.atan2(frame.gy, frame.gx)
+    const at = (((angle / (2 * Math.PI)) * LOOK_WAYS) % LOOK_WAYS + LOOK_WAYS) % LOOK_WAYS
+    const k = Math.floor(at)
+    const grown = Math.min(1, Math.max(0, pupil * Math.max(...frame.face.map(eye => Math.max(eye.w ?? 1, eye.h ?? 1))) - 1) / LOOK_RAMP)
+    const way = (i) => look.ways[i] + (look.big[i] - look.ways[i]) * grown
+    const room = way(k) + (way((k + 1) % LOOK_WAYS) - way(k)) * (at - k)
+    gx = Math.cos(angle) * reach * room
+    gy = Math.sin(angle) * reach * room
+  }
+  const lean = (frame.roll * Math.PI) / 180
+  const glance = [s * sx * (gx * Math.cos(lean) + gy * Math.sin(lean)), s * sy * (gy * Math.cos(lean) - gx * Math.sin(lean))]
   rig.eyes.forEach((eye, index) => {
-    // The spot, moved across the surface by the glance.
-    const gx = frame.gx * GAZE_X
-    const gy = frame.gy * GAZE_Y
-    const p = [
-      eye.p[0] + gx * eye.u[0] - gy * eye.v[0],
-      eye.p[1] + gx * eye.u[1] - gy * eye.v[1],
-      eye.p[2] + gx * eye.u[2] - gy * eye.v[2],
-    ]
-    if (gx !== 0 || gy !== 0) onSurface(sdf, p)
+    const { p } = eye
     const { n, u, v } = surfaceFrame(sdf, p)
     const facing = n[0] * dir[0] + n[1] * dir[1] + n[2] * dir[2]
     if (facing <= 0.02) return
@@ -88,6 +94,8 @@ export function shapesOf(rig, frame, scratch = {}) {
     const c = Math.cos(tilt), sn = Math.sin(tilt)
     const center = [0, 0]
     place(R[0] * p[0] + R[1] * p[1] + R[2] * p[2], R[3] * p[0] + R[4] * p[1] + R[5] * p[2], center, 0)
+    center[0] += glance[0]
+    center[1] += glance[1]
     const shape = frame.face[index] ?? frame.face[0]
     for (const poly of eyePolygons(shape, W, H, index === 0 ? -1 : 1, frame.closed[index] ?? 0)) {
       const out = new Float32Array(poly.length)
@@ -129,15 +137,6 @@ function normalAt(sdf, p) {
   return [g[0] / l, g[1] / l, g[2] / l]
 }
 
-function onSurface(sdf, p) {
-  for (let step = 0; step < 3; step += 1) {
-    const d = sdf(p)
-    if (Math.abs(d) < 1e-4) return
-    const n = normalAt(sdf, p)
-    p[0] -= n[0] * d; p[1] -= n[1] * d; p[2] -= n[2] * d
-  }
-}
-
 const clamp = (value, lo, hi) => Math.max(lo, Math.min(hi, value))
 
 // ---------------------------------------------------------------------------
@@ -169,8 +168,11 @@ function* decalPolys(paint) {
   }
 }
 
-// `ink` is the body's paint: a color string or a CanvasGradient.
-export function drawShapes(ctx, shapes, ink) {
+// `ink` is the body's paint: a color string or a CanvasGradient. `confetti` lists the
+// colors a spin's confetti mixes with the body's own.
+export function drawShapes(ctx, shapes, ink, confetti = []) {
+  // Confetti comes from behind the body.
+  if (shapes.accent?.kind === 'confetti') drawConfetti(ctx, shapes.accent, [ink, ...confetti])
   ctx.fillStyle = ink
   ctx.beginPath()
   for (const loop of shapes.body) smoothLoop(ctx, loop)
@@ -197,7 +199,52 @@ export function drawShapes(ctx, shapes, ink) {
     ctx.fill('nonzero')
     ctx.globalCompositeOperation = 'source-over'
   }
-  if (shapes.accent) drawAccent(ctx, shapes.accent, ink, shapes.offset)
+  if (shapes.accent && shapes.accent.kind !== 'confetti') drawAccent(ctx, shapes.accent, ink, shapes.offset)
+}
+
+// A spin throws confetti: paper bits that tumble and streamers that curl, bursting up
+// from behind the body, slowing in the air and falling. Each burst is its own (accent.seed),
+// and it stays inside the canvas margin (MARGIN in live.js).
+const CONFETTI = 18
+function drawConfetti(ctx, { t, seed = 1 }, colors) {
+  const rng = random(seed)
+  const drag = 2.4
+  const flight = (1 - Math.exp(-drag * t)) / drag
+  const fall = 0.5 * 75 * t * t
+  const alpha = Math.min(1, t / 0.06) * Math.max(0, Math.min(1, (1.7 - t) / 0.5))
+  if (alpha <= 0) return
+  ctx.save()
+  ctx.globalAlpha = alpha
+  ctx.lineCap = 'round'
+  for (let index = 0; index < CONFETTI; index += 1) {
+    const angle = -Math.PI / 2 + (rng() * 2 - 1) * 1.2
+    const speed = 100 + rng() * 60
+    const spin = (rng() * 2 - 1) * 9
+    const tilt = rng() * Math.PI
+    const x = 50 + Math.cos(angle) * speed * flight
+    const y = 40 + Math.sin(angle) * speed * flight + fall
+    const color = colors[index % colors.length]
+    ctx.save()
+    ctx.translate(x, y)
+    ctx.rotate(tilt + spin * t)
+    if (index % 3 === 0) {
+      // A streamer: a short ribbon that curls as it flutters.
+      const curl = Math.sin(t * 11 + tilt * 3) * 2.6
+      ctx.strokeStyle = color
+      ctx.lineWidth = 1.7
+      ctx.beginPath()
+      ctx.moveTo(-5, 0)
+      ctx.bezierCurveTo(-2, -curl, 2, curl, 5, 0)
+      ctx.stroke()
+    } else {
+      // A paper bit, turning over: its width narrows as it shows its edge.
+      const w = 4.4 * Math.max(0.15, Math.abs(Math.cos(t * 13 + tilt)))
+      ctx.fillStyle = color
+      ctx.fillRect(-w / 2, -1.3, w, 2.6)
+    }
+    ctx.restore()
+  }
+  ctx.restore()
 }
 
 const wave = t => 0.5 - 0.5 * Math.cos(t * Math.PI * 2)
