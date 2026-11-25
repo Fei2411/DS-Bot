@@ -2449,52 +2449,95 @@ export function install(rt) {
         if (folder) folderRetry.set(agent.id, Date.now() + FOLDER_RETRY_MS)
         if (job.engine) engineRetry.set(agent.id, Date.now() + FOLDER_RETRY_MS)
         if (!job.noteFailed) partBase.set(agent.id, sizeOf(agent.session) ?? 0)
-        // Collect any claimed messages that were durably parked in agent.inbox along
-        // with any remaining in-memory carry so failed-switch recovery preserves exact order.
-        const parked = []
-        if (job.carriedIds.size > 0) {
-          for (const message of [...agent.inbox.nextStep, ...agent.inbox.nextTurn]) {
-            if (message?.id !== undefined && job.carriedIds.has(message.id)) parked.push(message)
-          }
-          removeForMove(agent, parked)
-          job.carriedIds.clear()
-        }
-        const back = [...parked, ...job.carry.splice(0)]
-        const noted = [...agent.inbox.nextStep, ...agent.inbox.nextTurn].some(message => textOf(message.content) === PAUSE_NOTE)
-        if (job.resume && !back.some(message => textOf(message.content) === PAUSE_NOTE) && !noted) {
-          const carried = job.joined?.length ? { joined: job.joined } : {}
-          back.unshift(createUserMessage({
-            content: [{ type: 'text', text: PAUSE_NOTE }],
-            source: {
-              ...carryOriginSource(job, job.info
-                ? { ...job.info, ...carried }
-                : { kind: SOURCE_KIND, form: 'relay', role: 'resume', exchangeId: randomUUID(), senderName: 'DS Bot', ...carried }),
-              transferId: randomUUID(),
-            },
-          }))
-        }
         const rollbackTarget = threadTargetOf(agent.id, job)
-        // When staying on the same part, pull any newer messages that arrived while
-        // the failed switch waited so [PAUSE_NOTE, ...parked, ...carry] stays ahead
-        // of them instead of being appended behind them by followup().
-        const later = rollbackTarget === agent.id && back.length > 0
-          ? [...agent.inbox.nextStep, ...agent.inbox.nextTurn].filter(m => m?.source?.kind !== 'working-directory' && removeMessageForMove(agent, m))
-          : []
-        const orderedBack = [...back, ...later]
-        await forward(job, orderedBack, rollbackTarget).then(() => {
-          delete state.switching[agent.id]
-        }).catch((error) => {
-          job.kept = true
-          try { restore(agent, orderedBack) } catch {}
-          if (unloaded(error)) {
-            job.unloaded = true
-            return noteInfo('ds-bot: plugin unloaded during the switch of %s; input kept in part %s', agent.id, agent.id)
+        const noted = [...agent.inbox.nextStep, ...agent.inbox.nextTurn].some(message => textOf(message.content) === PAUSE_NOTE)
+        const pauseMessage = job.resume && !noted
+          ? createUserMessage({
+              content: [{ type: 'text', text: PAUSE_NOTE }],
+              source: {
+                ...carryOriginSource(job, job.info
+                  ? { ...job.info, ...(job.joined?.length ? { joined: job.joined } : {}) }
+                  : { kind: SOURCE_KIND, form: 'relay', role: 'resume', exchangeId: randomUUID(), senderName: 'DS Bot', ...(job.joined?.length ? { joined: job.joined } : {}) }),
+                transferId: randomUUID(),
+              },
+            })
+          : undefined
+        if (rollbackTarget === agent.id) {
+          // Handle same-part rollback in place: parked messages stay at the head of
+          // agent.inbox and later queued prompts stay behind them without ever being
+          // removed across async awaits.
+          job.carriedIds.clear()
+          const toPrepend = [...job.carry.splice(0)]
+          if (pauseMessage !== undefined && !toPrepend.some(message => textOf(message.content) === PAUSE_NOTE)) {
+            toPrepend.unshift(pauseMessage)
           }
-          rt.warn('ds-bot: input for %s was not handed on: %s', agent.id, error)
-          // The input is back where it was; the turn that owns it goes on at once.
-          try { wake(agent) } catch {}
-          scheduleHeldBackRetry()
-        })
+          restore(agent, toPrepend)
+          const inboxAccepted = toPrepend.length === 0
+            || [...agent.inbox.nextStep, ...agent.inbox.nextTurn].some(m => toPrepend.some(p => p.id === m.id))
+          if (!inboxAccepted) {
+            await forward(job, toPrepend, rollbackTarget).then(() => {
+              delete state.switching[agent.id]
+            }).catch((error) => {
+              job.kept = true
+              if (unloaded(error)) {
+                job.unloaded = true
+                return noteInfo('ds-bot: plugin unloaded during the switch of %s; input kept in part %s', agent.id, agent.id)
+              }
+              rt.warn('ds-bot: input for %s was not handed on: %s', agent.id, error)
+              scheduleHeldBackRetry()
+            })
+          } else {
+            await (async () => {
+              await rt.ensureCapabilities(agent.id)
+              await ctx.sessions.flush(agent.session)
+              if (agent.inbox.nextStep.length > 0 || agent.inbox.nextTurn.length > 0) {
+                wake(agent)
+                await ctx.sessions.flush(agent.session)
+              }
+            })().then(() => {
+              delete state.switching[agent.id]
+            }).catch((error) => {
+              job.kept = true
+              if (unloaded(error)) {
+                job.unloaded = true
+                return noteInfo('ds-bot: plugin unloaded during the switch of %s; input kept in part %s', agent.id, agent.id)
+              }
+              rt.warn('ds-bot: input for %s was not handed on: %s', agent.id, error)
+              // The input is already in exact order in agent.inbox; wake it at once.
+              try { wake(agent) } catch {}
+              scheduleHeldBackRetry()
+            })
+          }
+        } else {
+          // Collect any claimed messages that were durably parked in agent.inbox along
+          // with any remaining in-memory carry so failed-switch recovery preserves exact order.
+          const parked = []
+          if (job.carriedIds.size > 0) {
+            for (const message of [...agent.inbox.nextStep, ...agent.inbox.nextTurn]) {
+              if (message?.id !== undefined && job.carriedIds.has(message.id)) parked.push(message)
+            }
+            removeForMove(agent, parked)
+            job.carriedIds.clear()
+          }
+          const back = [...parked, ...job.carry.splice(0)]
+          if (pauseMessage !== undefined && !back.some(message => textOf(message.content) === PAUSE_NOTE)) {
+            back.unshift(pauseMessage)
+          }
+          await forward(job, back, rollbackTarget).then(() => {
+            delete state.switching[agent.id]
+          }).catch((error) => {
+            job.kept = true
+            try { restore(agent, back) } catch {}
+            if (unloaded(error)) {
+              job.unloaded = true
+              return noteInfo('ds-bot: plugin unloaded during the switch of %s; input kept in part %s', agent.id, agent.id)
+            }
+            rt.warn('ds-bot: input for %s was not handed on: %s', agent.id, error)
+            // The input is back where it was; the turn that owns it goes on at once.
+            try { wake(agent) } catch {}
+            scheduleHeldBackRetry()
+          })
+        }
         if (!job.originSent) rt.dropImOrigin?.(job.resumeOrigin)
         await rt.save()
         if (job.roomId !== undefined) void rt.settleRoomReports?.(job.roomId).catch(error => rt.warn('ds-bot: settling reports after part switch failed: %s', error))
@@ -2944,7 +2987,12 @@ export function install(rt) {
       }
       const condensed = engineOf(agent) !== undefined
         && await condense(agent, lines, { inTurn: true, signal: payload.signal, outcome: { overflow: false } })
-      if (!condensed) partBase.set(agent.id, afterPrune ?? tokens)
+      if (!condensed) {
+        partBase.set(agent.id, afterPrune ?? tokens)
+        // Throttle further mid-turn retries below hard without suppressing the idle
+        // checkContext pass when the turn ends (idle check can switch parts).
+        midTurnCondensed.add(agent.id)
+      }
       return next()
     }
     const pruned = await pruneToolResults(agent, { inTurn: true, target: lines.hard })

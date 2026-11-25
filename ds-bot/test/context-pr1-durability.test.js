@@ -767,9 +767,9 @@ test('rollback after failed fresh-part creation still delivers PAUSE_NOTE when t
   bAgent.status = 'running'
 
   await host.preStep('b', [], 2)
-  assert.equal(await waitFor(() => bAgent.calls.some(([kind, m]) => kind === 'followup' && (m.content?.[0]?.text ?? '').includes('DS Bot paused your turn'))), true, 'PAUSE_NOTE must not be dropped as a duplicate of the logged ex-42 request')
+  assert.equal(await waitFor(() => bAgent.calls.some(([kind, m]) => (kind === 'send' || kind === 'followup') && (m.content?.[0]?.text ?? '').includes('DS Bot paused your turn'))), true, 'PAUSE_NOTE must not be dropped as a duplicate of the logged ex-42 request')
 
-  const pauseMsg = bAgent.calls.find(([kind, m]) => kind === 'followup' && (m.content?.[0]?.text ?? '').includes('DS Bot paused your turn'))[1]
+  const pauseMsg = bAgent.calls.find(([kind, m]) => (kind === 'send' || kind === 'followup') && (m.content?.[0]?.text ?? '').includes('DS Bot paused your turn'))[1]
   assert.equal(pauseMsg.source?.exchangeId, 'ex-42', 'PAUSE_NOTE keeps original exchangeId for reply routing')
   assert.ok(typeof pauseMsg.source?.transferId === 'string' && pauseMsg.source.transferId !== 'ex-42' && pauseMsg.source.transferId !== 'tr-orig-42', 'PAUSE_NOTE uses its own distinct transferId')
 })
@@ -1116,6 +1116,93 @@ test('same-part rollback after failed create keeps PAUSE_NOTE and claimed input 
   assert.match(queuedTexts[0], /DS Bot paused your turn/, 'PAUSE_NOTE must be first')
   assert.equal(queuedTexts[1], 'earlier claimed input', 'claimed input must precede messages queued during switch')
   assert.equal(queuedTexts[2], 'later follow-up', 'later message stays behind rolled-back turn input')
+})
+
+test('same-part rollback keeps queued prompts durable on disk if host stops before waking', async (t) => {
+  let atCapsResolve
+  const atCaps = new Promise(resolve => { atCapsResolve = resolve })
+  let releaseCaps
+  const capsPaused = new Promise(resolve => { releaseCaps = resolve })
+  const host = makeSwitchFixture({
+    fail: {
+      onCreate: async () => {
+        host.agentOf('b').inbox.nextTurn.push(createUserMessage({
+          id: 'm-later-crash',
+          content: [{ type: 'text', text: 'Also check the totals' }],
+          source: { kind: 'user', exchangeId: 'ex-later-crash' },
+        }))
+        throw new Error('disk full')
+      },
+    },
+  })
+  await host.rt.load()
+
+  let pausedOnce = false
+  const origEnsure = host.rt.ensureCapabilities
+  host.rt.ensureCapabilities = async (sid) => {
+    if (sid === 'b' && !pausedOnce) {
+      pausedOnce = true
+      atCapsResolve()
+      await capsPaused
+    }
+    return origEnsure(sid)
+  }
+
+  const bAgent = host.agentOf('b')
+  bAgent.status = 'running'
+  await host.preStep('b', [createUserMessage({
+    id: 'm-claimed-crash',
+    content: [{ type: 'text', text: 'Finish current draft' }],
+    source: { kind: 'user', exchangeId: 'ex-claimed-crash' },
+  })], 2)
+
+  // Pause right inside rollback's ensureCapabilities (before waking) and inspect persisted inbox on disk!
+  await atCaps
+  const persisted = JSON.parse(readFileSync(join(host.home, 'fake-inbox.json'), 'utf8'))
+  const diskTexts = (persisted.b?.nextTurn ?? []).map(m => m.content?.[0]?.text ?? '')
+  assert.equal(diskTexts.length, 3, 'all three prompts must remain in inbox on disk while rollback awaits')
+  assert.match(diskTexts[0], /DS Bot paused your turn/)
+  assert.equal(diskTexts[1], 'Finish current draft')
+  assert.equal(diskTexts[2], 'Also check the totals')
+
+  releaseCaps()
+  await host.stop({ keep: true })
+
+  // Reload from disk and verify handOnHeld wakes all three prompts in exact order.
+  const second = makeSwitchFixture({ home: host.home })
+  t.after(second.stop)
+  await second.rt.load()
+  await second.rt.heldBack()
+  const wokenTexts = second.agentOf('b').calls.filter(([kind]) => kind === 'send').map(([, m]) => m.content?.[0]?.text ?? '')
+  assert.equal(wokenTexts.length, 3)
+  assert.match(wokenTexts[0], /DS Bot paused your turn/)
+  assert.equal(wokenTexts[1], 'Finish current draft')
+  assert.equal(wokenTexts[2], 'Also check the totals')
+})
+
+test('failed midTurnSoft compaction throttles further mid-turn retries without suppressing idle checkContext switch', async (t) => {
+  // 100k usable (104k window, 4k reserve), explicit checkTokens: 40_000 (< 0.8*100k=80k), hard = 95_000, midTurnSoft = 60_000.
+  const { rt, calls, runTurn } = await bootRealDshBot(t, {
+    contextWindow: 104_000,
+    defaultMaxTokens: 4_000,
+    checkRatio: 0.8,
+    withPruner: false,
+    config: { checkTokens: 40_000 },
+    // Compaction engine declines/fails (condense returns false).
+    onCheckpoint: async () => { throw new Error('compaction unavailable') },
+    onSteward: async () => ({ text: JSON.stringify({ action: 'switch', reason: 'move on after failed soft compact' }) }),
+    onNote: async () => ({ text: validNote('SOFT_FALLBACK_SWITCH') }),
+    onTurn: (step) => {
+      if (step === 1) return { toolCall: { id: 'tc-s1', name: 'inspect_file', args: { path: 'a.js' } }, usage: { inputTokens: 60_000, outputTokens: 100 } }
+      if (step === 2) return { toolCall: { id: 'tc-s2', name: 'inspect_file', args: { path: 'b.js' } }, usage: { inputTokens: 61_000, outputTokens: 100 } }
+      return { text: 'TURN_ENDED_AT_61K', usage: { inputTokens: 61_000, outputTokens: 100 } }
+    },
+  })
+
+  await runTurn('Trigger binding soft line with uncondensable history')
+  assert.equal(await waitFor(() => rt.chatOf('m1') !== 'm1', 5_000), true, 'idle checkContext must still run after failed midTurnSoft compaction and switch parts')
+  assert.equal(calls.filter(c => c.kind === 'checkpoint').length, 1, 'midTurnSoft must not retry compaction on every subsequent mid-turn step')
+  assert.equal(calls.filter(c => c.kind === 'steward').length, 1, 'idle steward must be asked once when turn ends')
 })
 
 test('recovery clears acknowledged originals after forward flush even when target switches before reminder cleanup, and keeps distinct pending primary handoffs with accurate part anchors', async (t) => {
