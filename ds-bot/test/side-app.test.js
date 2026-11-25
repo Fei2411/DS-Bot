@@ -207,10 +207,13 @@ test('write/edit results feed the diff base once per turn, first before to last 
   assert.equal(entry.before, 'v1')
   assert.equal(entry.after, 'v3')
   assert.equal(entry.turn, 7)
-  // served only when the requested revision matches the captured after text
+  // served only when the requested revision matches the captured after text.
+  // The tag must come from the same production path the endpoints use: realpath
+  // normalization of a raw root string is not reproducible on every Windows fs.
   const { rt: rt2 } = harness({ root })
   rt2.sideAppInternals.diffBases.set(baseKey, entry)
-  const descriptor = { app: 'canvas', sessionId: 's1', displayPath: 'draft.html', workspaceTag: rt2.sideAppInternals.rootTag(root) }
+  const root2 = await rt2.sideAppInternals.workRootOf({ id: 's1', header: { cwd: root } })
+  const descriptor = { app: 'canvas', sessionId: 's1', displayPath: 'draft.html', workspaceTag: rt2.sideAppInternals.rootTag(root2) }
   const miss = await rt2.sideAppEndpoint('side-app-diff', { file: descriptor, revision: 'nope' })
   assert.equal(miss.kind, 'unavailable')
   const hit = await rt2.sideAppEndpoint('side-app-diff', { file: descriptor, revision: entry.afterRevision })
