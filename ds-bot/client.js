@@ -53482,6 +53482,21 @@ var import_react71 = require("react");
 var import_react_dom13 = require("react-dom");
 var speechApi = () => window.SpeechRecognition ?? window.webkitSpeechRecognition;
 var keepComposerFocus = (event) => event.preventDefault();
+var WORD_EDGE = /[\p{L}\p{N}]/u;
+var NON_SPACED = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Thai}\p{Script=Lao}\p{Script=Khmer}\p{Script=Myanmar}]/u;
+function spacedDictation(text, beforeChar = "", afterChar = "") {
+  if (!text) return "";
+  const first = text[0];
+  const last = text[text.length - 1];
+  const needBefore = Boolean(beforeChar) && WORD_EDGE.test(beforeChar) && WORD_EDGE.test(first) && !NON_SPACED.test(beforeChar) && !NON_SPACED.test(first);
+  const needAfter = Boolean(afterChar) && WORD_EDGE.test(last) && WORD_EDGE.test(afterChar) && !NON_SPACED.test(last) && !NON_SPACED.test(afterChar);
+  return `${needBefore ? " " : ""}${text}${needAfter ? " " : ""}`;
+}
+function dictationLimitMs(catalog) {
+  const byDuration = Number.isFinite(catalog?.maxDurationSeconds) ? catalog.maxDurationSeconds : 120;
+  const byBytes = Number.isFinite(catalog?.maxAudioBytes) ? Math.max(1, (catalog.maxAudioBytes - 44) / 32e3) : byDuration;
+  return Math.max(1e3, Math.floor((Math.min(byDuration, byBytes) - 0.5) * 1e3));
+}
 function useDictation(onText) {
   const [listening, setListening] = (0, import_react71.useState)(false);
   const [note, setNote] = (0, import_react71.useState)("");
@@ -53557,11 +53572,34 @@ function ComposerVoice({ sessionId, inputActions, actions, useUi, useRoster }) {
   const hostCapture = (0, import_react71.useRef)(void 0);
   const hostCatalog = (0, import_react71.useRef)(void 0);
   const hostAbort = (0, import_react71.useRef)(void 0);
+  const hostTimer = (0, import_react71.useRef)(void 0);
+  const hostGen = (0, import_react71.useRef)(0);
   const mounted = (0, import_react71.useRef)(true);
+  const clearHostTimer = () => {
+    if (hostTimer.current !== void 0) {
+      clearTimeout(hostTimer.current);
+      hostTimer.current = void 0;
+    }
+  };
+  const cancelHostDictation = () => {
+    hostGen.current += 1;
+    clearHostTimer();
+    hostAbort.current?.abort?.();
+    hostAbort.current = void 0;
+    hostCapture.current?.cancel?.();
+    hostCapture.current = void 0;
+    hostCatalog.current = void 0;
+    if (mounted.current) {
+      setHostListening(false);
+      setHostBusy(false);
+    }
+  };
   (0, import_react71.useEffect)(() => {
     mounted.current = true;
     return () => {
       mounted.current = false;
+      hostGen.current += 1;
+      clearHostTimer();
       hostAbort.current?.abort?.();
       hostCapture.current?.cancel?.();
     };
@@ -53571,10 +53609,54 @@ function ComposerVoice({ sessionId, inputActions, actions, useUi, useRoster }) {
     const timer = setTimeout(() => setHostNote(""), 2600);
     return () => clearTimeout(timer);
   }, [hostNote]);
+  const finishHostDictation = (limitReached = false) => {
+    clearHostTimer();
+    const cap = hostCapture.current;
+    const cat = hostCatalog.current;
+    if (!cap) return;
+    hostCapture.current = void 0;
+    setHostListening(false);
+    const speech = actions.speech?.();
+    if (!speech) {
+      cap.cancel?.();
+      return;
+    }
+    setHostBusy(true);
+    const ctl = new AbortController();
+    hostAbort.current = ctl;
+    const maxSec = Math.min(
+      Number.isFinite(cat?.maxDurationSeconds) ? cat.maxDurationSeconds : 120,
+      Number.isFinite(cat?.maxAudioBytes) ? Math.max(1, (cat.maxAudioBytes - 44) / 32e3) : 120
+    );
+    void cap.finish(maxSec).then(async (wave) => {
+      if (!wave || ctl.signal.aborted || !mounted.current) return;
+      const text = await transcribeWave(speech, cat, wave, ctl.signal);
+      if (text && inputActions && !ctl.signal.aborted && mounted.current) {
+        const at = inputActions.captureInsertion();
+        const area = composerRoot.current?.closest?.("[data-composer-card]")?.querySelector?.("textarea");
+        const value = typeof area?.value === "string" ? area.value : "";
+        const beforeChar = at && at.start > 0 ? value[at.start - 1] ?? "" : "";
+        const afterChar = at && at.end < value.length ? value[at.end] ?? "" : "";
+        inputActions.insertText(spacedDictation(text, beforeChar, afterChar), at);
+      }
+      if (limitReached && mounted.current) setHostNote(t("That was too long to recognize"));
+    }).catch((error) => {
+      if (ctl.signal.aborted || !mounted.current) return;
+      const kind = error?.kind;
+      setHostNote(kind === "too-long" ? t("That was too long to recognize") : t("Couldn't reach the speech service"));
+    }).finally(() => {
+      if (hostAbort.current === ctl) hostAbort.current = void 0;
+      if (mounted.current) setHostBusy(false);
+    });
+  };
   const toggleMic = () => {
     if (hostBusy) return;
     if (dictation.listening) {
       dictation.stop();
+      return;
+    }
+    if (hostListening && hostCapture.current) {
+      finishHostDictation(false);
       return;
     }
     const speech = actions.speech?.();
@@ -53582,33 +53664,10 @@ function ComposerVoice({ sessionId, inputActions, actions, useUi, useRoster }) {
       dictation.start();
       return;
     }
-    if (hostListening && hostCapture.current) {
-      const cap = hostCapture.current;
-      const cat = hostCatalog.current;
-      hostCapture.current = null;
-      setHostListening(false);
-      setHostBusy(true);
-      const ctl = new AbortController();
-      hostAbort.current = ctl;
-      void cap.finish(cat?.maxDurationSeconds ?? 120).then(async (wave) => {
-        if (!wave || ctl.signal.aborted || !mounted.current) return;
-        const text = await transcribeWave(speech, cat, wave, ctl.signal);
-        if (text && inputActions && !ctl.signal.aborted && mounted.current) {
-          inputActions.insertText(text, inputActions.captureInsertion());
-        }
-      }).catch((error) => {
-        if (ctl.signal.aborted || !mounted.current) return;
-        const kind = error?.kind;
-        setHostNote(kind === "too-long" ? t("That was too long to recognize") : t("Couldn't reach the speech service"));
-      }).finally(() => {
-        if (hostAbort.current === ctl) hostAbort.current = null;
-        if (mounted.current) setHostBusy(false);
-      });
-      return;
-    }
+    const gen = ++hostGen.current;
     setHostBusy(true);
     void speechCatalog(speech).then(async ({ catalog, usable }) => {
-      if (!mounted.current) return;
+      if (!mounted.current || hostGen.current !== gen) return;
       if (!usable) {
         if (speechApi()) {
           dictation.start();
@@ -53618,20 +53677,29 @@ function ComposerVoice({ sessionId, inputActions, actions, useUi, useRoster }) {
         return;
       }
       const cap = await openCapture();
-      if (!mounted.current) {
+      if (!mounted.current || hostGen.current !== gen) {
         cap.cancel();
         return;
       }
       hostCatalog.current = catalog;
       hostCapture.current = cap;
       setHostListening(true);
+      clearHostTimer();
+      hostTimer.current = setTimeout(() => {
+        finishHostDictation(true);
+      }, dictationLimitMs(catalog));
     }).catch((error) => {
-      if (!mounted.current) return;
+      if (!mounted.current || hostGen.current !== gen) return;
       const kind = error?.kind;
       setHostNote(kind === "blocked" ? t("Microphone access is blocked") : t("Couldn't start dictation"));
     }).finally(() => {
-      if (mounted.current) setHostBusy(false);
+      if (mounted.current && hostGen.current === gen) setHostBusy(false);
     });
+  };
+  const openVoiceChat = () => {
+    if (dictation.listening) dictation.stop();
+    if (hostListening || hostBusy || hostCapture.current || hostAbort.current) cancelHostDictation();
+    actions.openVoice(sessionId);
   };
   const quote = useUi((state) => state.quote?.sessionId === sessionId ? state.quote : null);
   (0, import_react71.useEffect)(() => {
@@ -53674,7 +53742,7 @@ function ComposerVoice({ sessionId, inputActions, actions, useUi, useRoster }) {
       "aria-label": t("Start voice chat"),
       title: t("Voice chat"),
       onMouseDown: keepComposerFocus,
-      onClick: () => actions.openVoice(sessionId)
+      onClick: openVoiceChat
     }, (0, import_react71.createElement)(WaveIcon, { size: 18 })),
     note ? (0, import_react71.createElement)("span", { className: "bt-mic-note", role: "status" }, note) : null
   );

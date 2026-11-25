@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { after, before, describe, test } from 'node:test'
 import { pathToFileURL } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
@@ -139,8 +139,8 @@ describe('dsbot-engine UI static resource', () => {
   })
 
   test('resolveDistDir honors explicit config, DS_BOT_UI_DIR env, and node_modules/engine layouts', () => {
-    assert.equal(resolveDistDir({ distDir: '/custom/ui' }, { env: {} }), '/custom/ui')
-    assert.equal(resolveDistDir({}, { env: { DS_BOT_UI_DIR: '/env/ui' } }), '/env/ui')
+    assert.equal(resolveDistDir({ distDir: '/custom/ui' }, { env: {} }), resolve('/custom/ui'))
+    assert.equal(resolveDistDir({}, { env: { DS_BOT_UI_DIR: '/env/ui' } }), resolve('/env/ui'))
 
     const nmModule = pathToFileURL(join(root, 'app', 'node_modules', 'dsbot-engine', 'index.js')).href
     const nmDist = join(root, 'app', 'ui', 'dist')

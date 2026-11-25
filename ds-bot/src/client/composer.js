@@ -19,6 +19,25 @@ import { openCapture, speechCatalog, transcribeWave } from './speech.js'
 
 export const speechApi = () => window.SpeechRecognition ?? window.webkitSpeechRecognition
 const keepComposerFocus = event => event.preventDefault()
+const WORD_EDGE = /[\p{L}\p{N}]/u
+const NON_SPACED = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Thai}\p{Script=Lao}\p{Script=Khmer}\p{Script=Myanmar}]/u
+
+/** Add boundary spaces when dictating space-delimited words next to existing word characters. */
+export function spacedDictation(text, beforeChar = '', afterChar = '') {
+  if (!text) return ''
+  const first = text[0]
+  const last = text[text.length - 1]
+  const needBefore = Boolean(beforeChar) && WORD_EDGE.test(beforeChar) && WORD_EDGE.test(first) && !NON_SPACED.test(beforeChar) && !NON_SPACED.test(first)
+  const needAfter = Boolean(afterChar) && WORD_EDGE.test(last) && WORD_EDGE.test(afterChar) && !NON_SPACED.test(last) && !NON_SPACED.test(afterChar)
+  return `${needBefore ? ' ' : ''}${text}${needAfter ? ' ' : ''}`
+}
+
+function dictationLimitMs(catalog) {
+  const byDuration = Number.isFinite(catalog?.maxDurationSeconds) ? catalog.maxDurationSeconds : 120
+  // 16 kHz mono PCM16 WAV = 32,000 bytes/sec + 44-byte header.
+  const byBytes = Number.isFinite(catalog?.maxAudioBytes) ? Math.max(1, (catalog.maxAudioBytes - 44) / 32000) : byDuration
+  return Math.max(1000, Math.floor((Math.min(byDuration, byBytes) - 0.5) * 1000))
+}
 
 export function useDictation(onText) {
   const [listening, setListening] = useState(false)
@@ -80,11 +99,34 @@ export function ComposerVoice({ sessionId, inputActions, actions, useUi, useRost
   const hostCapture = useRef(undefined)
   const hostCatalog = useRef(undefined)
   const hostAbort = useRef(undefined)
+  const hostTimer = useRef(undefined)
+  const hostGen = useRef(0)
   const mounted = useRef(true)
+  const clearHostTimer = () => {
+    if (hostTimer.current !== undefined) {
+      clearTimeout(hostTimer.current)
+      hostTimer.current = undefined
+    }
+  }
+  const cancelHostDictation = () => {
+    hostGen.current += 1
+    clearHostTimer()
+    hostAbort.current?.abort?.()
+    hostAbort.current = undefined
+    hostCapture.current?.cancel?.()
+    hostCapture.current = undefined
+    hostCatalog.current = undefined
+    if (mounted.current) {
+      setHostListening(false)
+      setHostBusy(false)
+    }
+  }
   useEffect(() => {
     mounted.current = true
     return () => {
       mounted.current = false
+      hostGen.current += 1
+      clearHostTimer()
       hostAbort.current?.abort?.()
       hostCapture.current?.cancel?.()
     }
@@ -94,45 +136,63 @@ export function ComposerVoice({ sessionId, inputActions, actions, useUi, useRost
     const timer = setTimeout(() => setHostNote(''), 2600)
     return () => clearTimeout(timer)
   }, [hostNote])
+  const finishHostDictation = (limitReached = false) => {
+    clearHostTimer()
+    const cap = hostCapture.current
+    const cat = hostCatalog.current
+    if (!cap) return
+    hostCapture.current = undefined
+    setHostListening(false)
+    const speech = actions.speech?.()
+    if (!speech) {
+      cap.cancel?.()
+      return
+    }
+    setHostBusy(true)
+    const ctl = new AbortController()
+    hostAbort.current = ctl
+    const maxSec = Math.min(
+      Number.isFinite(cat?.maxDurationSeconds) ? cat.maxDurationSeconds : 120,
+      Number.isFinite(cat?.maxAudioBytes) ? Math.max(1, (cat.maxAudioBytes - 44) / 32000) : 120,
+    )
+    void cap.finish(maxSec)
+      .then(async (wave) => {
+        if (!wave || ctl.signal.aborted || !mounted.current) return
+        const text = await transcribeWave(speech, cat, wave, ctl.signal)
+        if (text && inputActions && !ctl.signal.aborted && mounted.current) {
+          const at = inputActions.captureInsertion()
+          const area = composerRoot.current?.closest?.('[data-composer-card]')?.querySelector?.('textarea')
+          const value = typeof area?.value === 'string' ? area.value : ''
+          const beforeChar = at && at.start > 0 ? value[at.start - 1] ?? '' : ''
+          const afterChar = at && at.end < value.length ? value[at.end] ?? '' : ''
+          inputActions.insertText(spacedDictation(text, beforeChar, afterChar), at)
+        }
+        if (limitReached && mounted.current) setHostNote(t('That was too long to recognize'))
+      })
+      .catch((error) => {
+        if (ctl.signal.aborted || !mounted.current) return
+        const kind = error?.kind
+        setHostNote(kind === 'too-long' ? t('That was too long to recognize') : t("Couldn't reach the speech service"))
+      })
+      .finally(() => {
+        if (hostAbort.current === ctl) hostAbort.current = undefined
+        if (mounted.current) setHostBusy(false)
+      })
+  }
   const toggleMic = () => {
     if (hostBusy) return
     if (dictation.listening) { dictation.stop(); return }
+    if (hostListening && hostCapture.current) { finishHostDictation(false); return }
     const speech = actions.speech?.()
     if (!speech) {
       dictation.start()
       return
     }
-    if (hostListening && hostCapture.current) {
-      const cap = hostCapture.current
-      const cat = hostCatalog.current
-      hostCapture.current = null
-      setHostListening(false)
-      setHostBusy(true)
-      const ctl = new AbortController()
-      hostAbort.current = ctl
-      void cap.finish(cat?.maxDurationSeconds ?? 120)
-        .then(async (wave) => {
-          if (!wave || ctl.signal.aborted || !mounted.current) return
-          const text = await transcribeWave(speech, cat, wave, ctl.signal)
-          if (text && inputActions && !ctl.signal.aborted && mounted.current) {
-            inputActions.insertText(text, inputActions.captureInsertion())
-          }
-        })
-        .catch((error) => {
-          if (ctl.signal.aborted || !mounted.current) return
-          const kind = error?.kind
-          setHostNote(kind === 'too-long' ? t('That was too long to recognize') : t("Couldn't reach the speech service"))
-        })
-        .finally(() => {
-          if (hostAbort.current === ctl) hostAbort.current = null
-          if (mounted.current) setHostBusy(false)
-        })
-      return
-    }
+    const gen = ++hostGen.current
     setHostBusy(true)
     void speechCatalog(speech)
       .then(async ({ catalog, usable }) => {
-        if (!mounted.current) return
+        if (!mounted.current || hostGen.current !== gen) return
         if (!usable) {
           if (speechApi()) {
             dictation.start()
@@ -142,17 +202,24 @@ export function ComposerVoice({ sessionId, inputActions, actions, useUi, useRost
           return
         }
         const cap = await openCapture()
-        if (!mounted.current) { cap.cancel(); return }
+        if (!mounted.current || hostGen.current !== gen) { cap.cancel(); return }
         hostCatalog.current = catalog
         hostCapture.current = cap
         setHostListening(true)
+        clearHostTimer()
+        hostTimer.current = setTimeout(() => { finishHostDictation(true) }, dictationLimitMs(catalog))
       })
       .catch((error) => {
-        if (!mounted.current) return
+        if (!mounted.current || hostGen.current !== gen) return
         const kind = error?.kind
         setHostNote(kind === 'blocked' ? t('Microphone access is blocked') : t("Couldn't start dictation"))
       })
-      .finally(() => { if (mounted.current) setHostBusy(false) })
+      .finally(() => { if (mounted.current && hostGen.current === gen) setHostBusy(false) })
+  }
+  const openVoiceChat = () => {
+    if (dictation.listening) dictation.stop()
+    if (hostListening || hostBusy || hostCapture.current || hostAbort.current) cancelHostDictation()
+    actions.openVoice(sessionId)
   }
   // Reply from a message's hover toolbar quotes it into this composer.
   const quote = useUi(state => (state.quote?.sessionId === sessionId ? state.quote : null))
@@ -186,7 +253,7 @@ export function ComposerVoice({ sessionId, inputActions, actions, useUi, useRost
     }, h(MicIcon)),
     h('button', {
       ref: composerRoot, type: 'button', className: 'bt-voice', 'aria-label': t('Start voice chat'), title: t('Voice chat'),
-      onMouseDown: keepComposerFocus, onClick: () => actions.openVoice(sessionId),
+      onMouseDown: keepComposerFocus, onClick: openVoiceChat,
     }, h(WaveIcon, { size: 18 })),
     note ? h('span', { className: 'bt-mic-note', role: 'status' }, note) : null)
 }
