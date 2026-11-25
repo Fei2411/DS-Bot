@@ -355,7 +355,7 @@ export function HandoffCard({ handoff, botId, onView, call, p , bare = false }: 
   )
 }
 
-export function ActionRow({ bot, doing, p, dark, active = true }: { bot: Bot; doing: string; p: Palette; dark: boolean; active?: boolean }) {
+export function ActionRow({ bot, doing, state = 'thinking', p, dark, active = true }: { bot: Bot; doing: string; state?: string; p: Palette; dark: boolean; active?: boolean }) {
   const reduced = useReducedMotion()
   const opacityRef = useRef<Animated.Value | null>(null)
   if (opacityRef.current === null) {
@@ -370,7 +370,7 @@ export function ActionRow({ bot, doing, p, dark, active = true }: { bot: Bot; do
   }), [opacity, reduced, active])
   return (
     <View style={styles.action}>
-      <Avatar bot={bot} dark={dark} size={28} ring={p.main} working />
+      <Avatar bot={bot} dark={dark} size={28} ring={p.main} working state={state} live pokeable />
       <Animated.Text style={[type.rowPreview, { color: p.ink2, marginLeft: 8, flex: 1, opacity }]} numberOfLines={1}>{doing}…</Animated.Text>
     </View>
   )

@@ -4,6 +4,7 @@ import { drawShapes, shapesOf } from './render.js'
 import { GRADIENTS, INKS, inkName, isHex } from '../inks.js'
 import { reducedEffects, reducedMotion } from '../effects.js'
 import { REST_MS } from '../motion-rest.js'
+import { CONFETTI_INKS, DOZE_MS, FLAT_ORIGIN, flatPose, MARGIN } from './stage.js'
 
 // Live marks in the page: a canvas over the mark's flat art, drawn by one shared clock.
 //
@@ -19,11 +20,8 @@ import { REST_MS } from '../motion-rest.js'
 // model built (in idle slices) and the canvas put over the art; the move waits for
 // the model, so it never starts on the art and jumps.
 
-export const DOZE_MS = 150_000
-// The canvas reaches past the mark on each side, so hops and spins are not cut off.
-export const MARGIN = 0.3
-// Confetti colors besides the body's own.
-const CONFETTI_INKS = ['rose', 'sky', 'yellow', 'green', 'violet']
+// DOZE_MS and MARGIN live in stage.js: the phone app's clock shares them.
+export { DOZE_MS, MARGIN }
 
 const marks = new Set()
 let frame = 0
@@ -270,13 +268,10 @@ function buildSoon(mark) {
   idleSoon(work)
 }
 
-// A mark with nothing to turn (an uploaded photo, a shape another plugin draws) moves
-// as a whole: hops, squash, lean, and a turn that narrows it like a coin.
+// A mark with nothing to turn moves as a whole (flatPose in stage.js).
 export function flatTransform(frame) {
-  const sy = 1 - Math.max(-0.4, Math.min(0.4, frame.sq))
-  const s = 1 + frame.scale
-  const turn = Math.max(0.15, Math.abs(Math.cos((frame.yaw * Math.PI) / 180)))
-  return `translate(${frame.x.toFixed(2)}%,${frame.y.toFixed(2)}%) rotate(${(frame.roll * 0.6).toFixed(2)}deg) scale(${(s * turn / sy).toFixed(4)},${(s * sy).toFixed(4)})`
+  const { x, y, roll, sx, sy } = flatPose(frame)
+  return `translate(${x.toFixed(2)}%,${y.toFixed(2)}%) rotate(${roll.toFixed(2)}deg) scale(${sx.toFixed(4)},${sy.toFixed(4)})`
 }
 
 export class LiveMark {
@@ -320,7 +315,7 @@ export class LiveMark {
     if (!ctx) this.rig = null
     if (!this.rig) {
       this.flat = this.host.firstElementChild
-      if (this.flat) this.flat.style.transformOrigin = '50% 92%'
+      if (this.flat) this.flat.style.transformOrigin = FLAT_ORIGIN
       this.dirty = true
       kick()
       return

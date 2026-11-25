@@ -1,6 +1,7 @@
 import { createElement as h, useEffect, useRef, useState } from 'react'
 import { fnv1a, lookOf, shapeId, shapeOf, MASK_ID, nextMarkSerial, characterMarkup } from './characters.js'
 import { LiveMark } from './avatar/live.js'
+import { MARK_STATES as STATES } from './mark-states.js'
 import { memo } from './memo.js'
 import { t } from './i18n.js'
 
@@ -13,14 +14,9 @@ export { colorOf, lookOf } from './characters.js'
 // moves gets a live layer (avatar/live.js): the character's 3D model turned and drawn
 // by the avatar engine, from the same pose, so nothing jumps when it takes over.
 
-// Mark states: what the Bot is doing picks the motion (avatar/states.js). `waiting`:
-// no turn runs, but work it handed on has not come back yet. `orbit`: relaying
-// messages in a group.
-const STATES = ['idle', 'thinking', 'searching', 'working', 'sending', 'orbit', 'waiting', 'alert', 'done']
-export const botState = (running, activity, alert) => (running ? (STATES.includes(activity) && activity !== 'waiting' ? activity : 'working')
-  : alert ? 'alert' : activity === 'waiting' ? 'waiting' : 'idle')
-export const toolState = name => (/^(message_bot|delegate_work|ask_back|answer_work|cancel_work|note_bot|stop_bot|create_bot|update_bot|create_group|update_group|delete_group|post_to_group)$/.test(name) ? 'sending'
-  : /search|fetch|browse|read|grep|glob|list|recall/i.test(name) ? 'searching' : 'working')
+// Mark states (mark-states.js, shared with the phone app): what the Bot is doing picks
+// the motion.
+export { botState, toolState } from './mark-states.js'
 
 // Where petting happens: a sidebar avatar or the About mark with a ring around it
 // (`.bt-pet-zone`), or a mark that can be poked.

@@ -18,6 +18,7 @@ import { setNativeUiState } from './src/team/notifications-native'
 import { loadSeen } from './src/team/seen.ts'
 import { DEMO, DemoProvider, TeamProvider, useTeam } from './src/team/context.tsx'
 import { ErrorBoundary } from './src/ui/error-boundary.tsx'
+import { avatarClock, noteInput } from './src/ui/avatar/host.ts'
 import { palette, ThemeContext, useTheme } from './src/ui/tokens.ts'
 import { Pair } from './src/screens/Pair.tsx'
 import ShellB from './src/nav/ShellB.tsx'
@@ -68,6 +69,8 @@ function ThemedShell({ lang, openLink, onOpenLinkHandled }: { lang?: string; ope
   const navState = useRef<NavigationState | undefined>(undefined)
   const { team } = useTeam()
   const value = useMemo(() => ({ dark, p: palette(dark, team?.prefs?.theme, team?.prefs?.accent) }), [dark, team?.prefs?.theme, team?.prefs?.accent])
+  // The marks move at the computer's motion levels (Settings → Appearance there).
+  useEffect(() => { avatarClock.setPrefs(team?.prefs as { motion?: string; effects?: string } | undefined) }, [team?.prefs])
   const navTheme = useMemo(() => ({
     dark,
     colors: {
@@ -215,7 +218,8 @@ export default function App() {
   const lang = useLang()
   const rootTheme = useMemo(() => ({ dark, p: palette(dark) }), [dark])
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
+    // A touch anywhere keeps the marks awake (avatar/clock.ts rests them after a while).
+    <GestureHandlerRootView style={{ flex: 1 }} onTouchStart={noteInput}>
       <SafeAreaProvider>
         <ThemeContext.Provider value={rootTheme}>
           <ErrorBoundary>

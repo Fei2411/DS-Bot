@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text, View, SectionList } from 'react-native'
 import type { Agent, Bot, Room } from '../connection.ts'
 import { useTeam } from '../team/context.tsx'
 import { botHasPending, roomHasPending } from '../nav/pending.ts'
+import { botRunning } from '../team/mark-state.ts'
 import { isUnread, seenVersion, subscribeSeen } from '../team/seen.ts'
 import { t } from '../ui/i18n.ts'
 import { radius, type as typeScale, useTheme } from '../ui/tokens.ts'
@@ -83,7 +84,7 @@ export function TeamList({ onOpen, query = '', current }: { onOpen: (target: Cha
             {mainList.map(main => (
               <Pressable key={main.id} accessibilityRole="button" accessibilityLabel={`${main.name}, ${t('Main Bot')}`} onPress={() => onOpen({ kind: 'bot', id: main.id })}
                 style={({ pressed }) => [styles.tile, { backgroundColor: pressed || current === main.id ? p.active : p.hover }]}>
-                <Avatar bot={main} dark={dark} size={52} ring={p.hover} main working={workBots[main.id] !== undefined} waiting={botHasPending(team, main)} />
+                <Avatar bot={main} dark={dark} size={52} ring={p.hover} main working={botRunning(team, main.id)} waiting={botHasPending(team, main)} live />
                 <Text style={[typeScale.small, { color: p.ink, fontWeight: '600', marginTop: 6 }]} numberOfLines={1}>{main.name}</Text>
                 {main.role ? <View style={[styles.tag, { backgroundColor: p.active }]}><Text style={{ fontSize: 11, lineHeight: 15, color: p.ink2 }} numberOfLines={1}>{main.role}</Text></View> : null}
               </Pressable>
@@ -93,7 +94,7 @@ export function TeamList({ onOpen, query = '', current }: { onOpen: (target: Cha
           </View>
         ) : undefined}
         renderItem={({ item: entry }) => entry.kind === 'bot' ? (
-          <BotRow bot={entry.item} p={p} dark={dark} mains={mains} waiting={botHasPending(team, entry.item)} workBots={workBots} preview={preview(entry.item)} selected={current === entry.item.id} unread={isUnread(hostId, entry.item.id, entry.item.lastAt, current === entry.item.id)} onPress={() => onOpen({ kind: 'bot', id: entry.item.id })} />
+          <BotRow bot={entry.item} p={p} dark={dark} mains={mains} waiting={botHasPending(team, entry.item)} working={botRunning(team, entry.item.id)} preview={preview(entry.item)} selected={current === entry.item.id} unread={isUnread(hostId, entry.item.id, entry.item.lastAt, current === entry.item.id)} onPress={() => onOpen({ kind: 'bot', id: entry.item.id })} />
         ) : (
           <RoomRow room={entry.item} bots={bots} p={p} dark={dark} waiting={roomHasPending(team, entry.item)} preview={roomPreview(entry.item)} selected={current === entry.item.id} unread={isUnread(hostId, entry.item.id, entry.item.lastAt, current === entry.item.id)} working={(workRooms[entry.item.id] ?? []).length > 0} onPress={() => onOpen({ kind: 'room', id: entry.item.id })} />
         )}
@@ -103,13 +104,13 @@ export function TeamList({ onOpen, query = '', current }: { onOpen: (target: Cha
   )
 }
 
-function BotRow({ bot, p, dark, mains, waiting, workBots, preview, unread, selected, onPress }: {
+function BotRow({ bot, p, dark, mains, waiting, working, preview, unread, selected, onPress }: {
   bot: Bot; p: ReturnType<typeof useTheme>['p']; dark: boolean; mains: Set<string>
-  waiting: boolean; workBots: Record<string, unknown>; preview?: string; unread?: boolean; selected?: boolean; onPress: () => void
+  waiting: boolean; working: boolean; preview?: string; unread?: boolean; selected?: boolean; onPress: () => void
 }) {
   return (
     <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.row, (pressed || selected) && { backgroundColor: p.hover }]}>
-      <Avatar bot={bot} dark={dark} size={36} ring={p.sidebar} main={mains.has(bot.id)} working={workBots[bot.id] !== undefined} waiting={waiting} />
+      <Avatar bot={bot} dark={dark} size={36} ring={p.sidebar} main={mains.has(bot.id)} working={working} waiting={waiting} live />
       <View style={styles.rowBody}>
         <View style={styles.nameRow}>
           <Text style={[typeScale.rowName, { color: p.ink, flexShrink: 1 }]} numberOfLines={1}>{bot.name}</Text>
