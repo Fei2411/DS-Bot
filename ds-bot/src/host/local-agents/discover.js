@@ -372,6 +372,7 @@ function shimLaunch(shim, dir, { exists, find }) {
   if (paths.length === 0) return undefined
   const expand = path => win32.resolve(dir, path.replace(/^%~?dp0%?\\?/iu, ''))
   const target = expand(paths.at(-1))
+  if (!exists(target)) return undefined
   if (paths.length === 1 && /\.exe$/iu.test(target)) return { file: target }
   const named = paths.length > 1 && paths[0] !== '%_prog%' ? expand(paths[0]) : undefined
   const program = SHIM_PROGRAM.exec(shim)?.[1] ?? 'node'
