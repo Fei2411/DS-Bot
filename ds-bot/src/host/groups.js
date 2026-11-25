@@ -1274,6 +1274,8 @@ export function install(rt) {
     batches,
     closeBatch,
     exitMemberBatches: (room, botId) => exitMemberBatches(room, botId),
+    releaseIdleParentBatches: (room, items) => releaseIdleParentBatches(room, items),
+    pendingDirectRelays,
     activeInRoom,
     runningRound: roomId => runningRound(roomId),
     isFinalizing: roomId => finalizing.has(roomId),

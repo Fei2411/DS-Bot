@@ -5794,4 +5794,115 @@ test('persisted batch replacement survives restart and startup settleRoomBatches
     host.finish('ga', 'Chief got recovered summary.')
     await settle(() => r() !== undefined)
   }
+
+  // 15) Discarding a queued batchEnd wake closes the child AND releases its idle parent batch,
+  // while keeping the parent alive if another child for that same parent is still active.
+  {
+    const pIdle = {
+      key: 'discard-p-idle',
+      roomId: 'r1',
+      by: 'a',
+      pending: ['b'],
+      done: [],
+      doneIds: [],
+      results: [],
+      worked: false,
+      direct: true,
+      returnRequested: true,
+      answered: false,
+      at: Date.now() - 2000,
+    }
+    const cIdle = {
+      key: 'discard-c-idle',
+      roomId: 'r1',
+      by: 'b',
+      pending: [],
+      done: ['Tester'],
+      doneIds: ['c'],
+      results: [{ name: 'Tester', seq: 1 }],
+      worked: true,
+      direct: true,
+      returnRequested: true,
+      parentBatchKey: pIdle.key,
+      answered: false,
+      at: Date.now(),
+    }
+    const pBusy = {
+      key: 'discard-p-busy',
+      roomId: 'r1',
+      by: 'd',
+      pending: ['b'],
+      done: [],
+      doneIds: [],
+      results: [],
+      worked: false,
+      direct: true,
+      returnRequested: true,
+      answered: false,
+      at: Date.now() - 2000,
+    }
+    const cDone = {
+      key: 'discard-c-done',
+      roomId: 'r1',
+      by: 'b',
+      pending: [],
+      done: ['Tester'],
+      doneIds: ['c'],
+      results: [{ name: 'Tester', seq: 1 }],
+      worked: true,
+      direct: true,
+      returnRequested: true,
+      parentBatchKey: pBusy.key,
+      answered: false,
+      at: Date.now(),
+    }
+    const cStillWorking = {
+      key: 'discard-c-working',
+      roomId: 'r1',
+      by: 'b',
+      pending: ['c'],
+      done: [],
+      doneIds: [],
+      results: [],
+      worked: false,
+      direct: true,
+      returnRequested: true,
+      parentBatchKey: pBusy.key,
+      answered: false,
+      at: Date.now(),
+    }
+    const host = await start(
+      t,
+      { members: ['a', 'b', 'c', 'd'], sessions: { a: 'ga', b: 'gb', c: 'gc', d: 'gd' }, log: [{ seq: 1, who: 'Tester', botId: 'c', text: 'Done.' }], seq: 1 },
+      undefined,
+      undefined,
+      { d: {} },
+      undefined,
+      { roomBatches: { [pIdle.key]: pIdle, [cIdle.key]: cIdle, [pBusy.key]: pBusy, [cDone.key]: cDone, [cStillWorking.key]: cStillWorking } },
+      {
+        'inflight.json': {
+          turns: {},
+          queued: {
+            gc: [{ at: Date.now(), args: { toId: 'c', sessionId: 'gc', role: 'room', roomId: 'r1', askedBy: 'b', batchKey: cStillWorking.key, exchangeId: 'ex-still-working', text: 'Keep working' } }],
+          },
+          silent: {},
+        },
+      },
+    )
+
+    await settle(() => host.agentOf('r1').calls.length === 2)
+    const wakeIdle = host.agentOf('r1').calls.find(m => m.source?.batch === cIdle.key)
+    const wakeBusy = host.agentOf('r1').calls.find(m => m.source?.batch === cDone.key)
+    assert.ok(wakeIdle && wakeBusy)
+
+    // Genuine discard of wakeIdle must close cIdle AND release idle parent pIdle.
+    rt.roomRelayDiscarded(wakeIdle.source, 'r1')
+    assert.equal(rt.state.roomBatches?.[cIdle.key], undefined)
+    assert.equal(rt.state.roomBatches?.[pIdle.key], undefined, 'idle parent must be released when its only waking child result is discarded')
+
+    // Genuine discard of wakeBusy closes cDone, but pBusy stays open because cStillWorking is still queued on Tester!
+    rt.roomRelayDiscarded(wakeBusy.source, 'r1')
+    assert.equal(rt.state.roomBatches?.[cDone.key], undefined)
+    assert.ok(rt.state.roomBatches?.[pBusy.key] !== undefined, 'parent with another live child must stay open')
+  }
 })
