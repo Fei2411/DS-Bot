@@ -346,7 +346,7 @@ export function findExecutable(name, { platform = process.platform, env = proces
   for (const dir of dirs) {
     if (seen !== undefined) {
       if (!win32.isAbsolute(dir)) continue
-      const key = win32.normalize(dir).replace(/\\+$/u, '').toLowerCase()
+      const key = win32.normalize(dir).replace(/\\+$/u, '')
       if (seen.has(key)) continue
       seen.add(key)
     }

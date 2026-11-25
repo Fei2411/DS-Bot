@@ -34,15 +34,20 @@ test('Windows lookup skips relative PATH directories', () => {
   assert.equal(findExecutable('pi', { platform: 'win32', env: { PATH: '.;bin', PATHEXT: '.EXE' }, isFile: path => ['pi.exe', 'bin\\pi.exe'].includes(path) }), undefined)
 })
 
-test('Windows lookup probes each absolute PATH directory once in first-seen order', () => {
+test('Windows lookup deduplicates normalized PATH entries without folding case', () => {
   const checked = []
   const path = findExecutable('pi', {
     platform: 'win32',
-    env: { Path: 'C:;C:\\;c:/;D:\\Tools;d:/TOOLS///;D:\\alternate\\..\\Tools;late;E:\\Dev', PATHEXT: '.CMD;.EXE' },
+    env: { Path: 'C:;C:\\;C:/;D:\\Tools;D:\\Tools;D:/Tools///;D:/tools///;D:\\alternate\\..\\Tools;late;E:\\Dev', PATHEXT: '.CMD;.EXE' },
     isFile: candidate => { checked.push(candidate); return candidate === 'E:\\Dev\\pi.exe' },
   })
   assert.equal(path, 'E:\\Dev\\pi.exe')
-  assert.deepEqual(checked, ['C:\\pi.cmd', 'C:\\pi.exe', 'D:\\Tools\\pi.cmd', 'D:\\Tools\\pi.exe', 'E:\\Dev\\pi.cmd', 'E:\\Dev\\pi.exe'])
+  assert.deepEqual(checked, [
+    'C:\\pi.cmd', 'C:\\pi.exe',
+    'D:\\Tools\\pi.cmd', 'D:\\Tools\\pi.exe',
+    'D:\\tools\\pi.cmd', 'D:\\tools\\pi.exe',
+    'E:\\Dev\\pi.cmd', 'E:\\Dev\\pi.exe',
+  ])
 })
 
 test('Windows lookup only returns executable or batch extensions', () => {
