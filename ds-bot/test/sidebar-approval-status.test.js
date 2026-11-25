@@ -10,7 +10,7 @@ import { createSource } from '../src/client/sources.js'
 const PLUGIN = dirname(dirname(fileURLToPath(import.meta.url)))
 
 const { outputFiles } = await build({
-  stdin: { contents: "export { TeamSidebar, botPendingOf } from './src/client/sidebar.js'", resolveDir: PLUGIN },
+  stdin: { contents: "export { TeamSidebar } from './src/client/sidebar.js'; export { waitsOf, waitLineOf } from './src/client/inbox.js'", resolveDir: PLUGIN },
   bundle: true, format: 'cjs', platform: 'browser', write: false, logLevel: 'silent',
   external: ['react', 'react-dom', '@deepseek-ai/dsh-client-ui-primitives'],
 })
@@ -30,7 +30,17 @@ runInNewContext(outputFiles[0].text, {
   document: { body: {}, documentElement: { hasAttribute: () => false }, querySelector: () => null },
   require: name => (name === 'react' ? react : name === 'react-dom' ? { createPortal: child => child } : {}),
 })
-const { TeamSidebar, botPendingOf } = module.exports
+const { TeamSidebar, waitsOf, waitLineOf } = module.exports
+
+// What waits for the user, as the host's inbox lists it (src/host/inbox.js; its items'
+// shape is pinned by test/inbox.test.js against the state each module writes).
+const GROUPS = { learning: 'suggest', blocked: 'fix', model: 'fix', paused: 'fix', 'room-paused': 'fix' }
+const waiting = (...entries) => {
+  const items = entries.map(([kind, ref, place], index) => ({ id: `${kind}:${ref}`, kind, group: GROUPS[kind] ?? 'decide', ref, at: index + 1, ...place }))
+  const counts = { decide: 0, fix: 0, suggest: 0 }
+  for (const item of items) counts[item.group] += 1
+  return { inbox: { count: items.length, counts, items } }
+}
 
 const expand = (node) => {
   if (Array.isArray(node)) return node.map(expand)
@@ -213,28 +223,35 @@ test('a collapsed section does not show a completion dot for a hidden exchange',
   }
 })
 
-test('botPendingOf detects learning proposals, pending request cards, questions and views on current part', () => {
-  const bot = { id: 'reviewer', sessionId: 'reviewer-p2', name: 'Reviewer' }
-  const plain = value => ({ ...value })
-  assert.deepEqual(plain(botPendingOf({}, bot)), { learning: false, cardApproval: false, question: false })
-  assert.deepEqual(plain(botPendingOf({ learning: { reviewer: [{ id: 'p1', kind: 'skill', name: 's1' }] } }, bot)), { learning: true, cardApproval: false, question: false })
-  assert.deepEqual(plain(botPendingOf({ learning: { reviewer: [] } }, bot)), { learning: false, cardApproval: false, question: false })
-  assert.deepEqual(plain(botPendingOf({ secretRequests: { reviewer: [{ id: 's1', status: 'answered' }] } }, bot)), { learning: false, cardApproval: false, question: false })
-  assert.deepEqual(plain(botPendingOf({ secretRequests: { reviewer: [{ id: 's1', status: 'pending' }] } }, bot)), { learning: false, cardApproval: true, question: false })
-  assert.deepEqual(plain(botPendingOf({ connectorRequests: { reviewer: [{ id: 'c1', status: 'pending' }] } }, bot)), { learning: false, cardApproval: true, question: false })
-  assert.deepEqual(plain(botPendingOf({ mailRequests: { reviewer: [{ id: 'm1', status: 'pending' }] } }, bot)), { learning: false, cardApproval: true, question: false })
-  assert.deepEqual(plain(botPendingOf({ questions: { 'reviewer-p2': { id: 'q1' } } }, bot)), { learning: false, cardApproval: false, question: true })
-  assert.deepEqual(plain(botPendingOf({ views: { 'reviewer-p2': { id: 'v1' } } }, bot)), { learning: false, cardApproval: false, question: true })
-  // An old part's question does not mark the current part.
-  assert.deepEqual(plain(botPendingOf({ questions: { reviewer: { id: 'q0' } } }, bot)), { learning: false, cardApproval: false, question: false })
+test('a chat\'s marks come from the inbox: what stops it, what does not, and its line', () => {
+  const lines = (roster, place) => {
+    const waits = waitsOf(roster, place)
+    return [waitLineOf(waits.blocking), waitLineOf(waits.deferred), waits.any]
+  }
+  assert.deepEqual(lines({}, { botId: 'reviewer' }), [null, null, false])
+  assert.deepEqual(lines(waiting(['learning', 'p1', { botId: 'reviewer' }]), { botId: 'reviewer' }), [null, 'Waiting for your approval', true])
+  for (const kind of ['secret', 'connector', 'mail', 'approval', 'computer']) {
+    assert.deepEqual(lines(waiting([kind, 'r1', { botId: 'reviewer' }]), { botId: 'reviewer' }), ['Waiting for your approval', null, true], kind)
+  }
+  for (const kind of ['question', 'view']) {
+    assert.deepEqual(lines(waiting([kind, 'q1', { botId: 'reviewer', sessionId: 'reviewer-p2' }]), { botId: 'reviewer' }), ['Waiting for your answer', null, true], kind)
+  }
+  assert.deepEqual(lines(waiting(['handoff', 'call-1', { botId: 'reviewer' }]), { botId: 'reviewer' }), ['Waiting for you', null, true])
+  assert.deepEqual(lines(waiting(['blocked', 'reviewer', { botId: 'reviewer' }]), { botId: 'reviewer' }), [null, 'Needs a fix', true])
+  // A background task's card does not stop the chat.
+  assert.deepEqual(lines(waiting(['question', 'q2', { botId: 'reviewer', taskId: 't1' }]), { botId: 'reviewer' }), [null, 'Waiting for your answer', true])
+  // A card asked in a group marks the group, not the member's own chat (#1623).
+  const group = waiting(['question', 'q3', { botId: 'reviewer', roomId: 'r1' }], ['room-paused', 'r1', { roomId: 'r1' }], ['goal', 'g1', { botId: 'reviewer', roomId: 'r1' }])
+  assert.deepEqual(lines(group, { botId: 'reviewer' }), [null, null, false])
+  assert.deepEqual(lines(group, { roomId: 'r1' }), ['Waiting for your answer', 'Paused', true])
 })
 
 test('a Bot with a pending skill learning proposal shows alert badge, approval status text, and wait dot', () => {
   const reviewer = { id: 'reviewer', name: 'Reviewer', createdAt: 1 }
-  const learning = { reviewer: [{ id: 'p1', kind: 'skill', name: 'stateful-regression-review' }] }
+  const learning = waiting(['learning', 'p1', { botId: 'reviewer' }])
 
   // Inactive in wide sidebar: avatar ? badge, "Waiting for your approval" line, and amber wait dot.
-  const inactiveWide = renderSidebar({ bots: [reviewer], rosterExtra: { learning } })
+  const inactiveWide = renderSidebar({ bots: [reviewer], rosterExtra: learning })
   const [row] = walk(inactiveWide, node => node.props?.['data-bot-id'] === 'reviewer')
   assert.ok(row !== undefined)
   assert.equal(walk(row, node => classes(node).includes('bt-badge-alert')).length, 1)
@@ -245,14 +262,14 @@ test('a Bot with a pending skill learning proposal shows alert badge, approval s
   assert.equal(walk(row, node => classes(node).includes('bt-unread-wait')).length, 1)
 
   // Active in wide sidebar: still shows avatar ? badge and "Waiting for your approval", hides unread dot.
-  const activeWide = renderSidebar({ bots: [reviewer], rosterExtra: { learning }, activeSession: 'reviewer' })
+  const activeWide = renderSidebar({ bots: [reviewer], rosterExtra: learning, activeSession: 'reviewer' })
   const [activeRow] = walk(activeWide, node => node.props?.['data-bot-id'] === 'reviewer')
   assert.equal(walk(activeRow, node => classes(node).includes('bt-badge-alert')).length, 1)
   assert.equal(textOf(walk(activeRow, node => classes(node).includes('bt-row-preview-wait'))[0]), 'Waiting for your approval')
   assert.equal(walk(activeRow, node => classes(node).includes('bt-unread-wait')).length, 0)
 
   // Inactive on narrow rail: amber wait dot.
-  const rail = renderSidebar({ bots: [reviewer], rosterExtra: { learning }, wide: false })
+  const rail = renderSidebar({ bots: [reviewer], rosterExtra: learning, wide: false })
   const [railRow] = walk(rail, node => node.props?.['data-bot-id'] === 'reviewer')
   assert.equal(walk(railRow, node => classes(node).includes('bt-dot-wait')).length, 1)
 })
@@ -261,7 +278,7 @@ test('a Bot running a new turn while a non-blocking learning proposal waits keep
   const reviewer = { id: 'reviewer', name: 'Reviewer', createdAt: 1 }
   const tree = renderSidebar({
     bots: [reviewer],
-    rosterExtra: { learning: { reviewer: [{ id: 'p1', kind: 'agents' }] } },
+    rosterExtra: waiting(['learning', 'p1', { botId: 'reviewer' }]),
     activity: { reviewer: 'working' },
     statusMap: new Map([['reviewer', { running: true }]]),
   })
@@ -278,15 +295,15 @@ test('a running Bot paused on a tool approval shows "Waiting for your approval",
     bots: [bot],
     activity: { coder: 'alert' },
     statusMap: new Map([['coder', { running: true }]]),
-    work: { waiting: {}, rooms: {}, approvals: [{ id: 'a1', botId: 'coder' }] },
+    rosterExtra: waiting(['approval', 'a1', { botId: 'coder', sessionId: 'coder', tool: 'bash' }]),
   })
   const [row] = walk(tree, node => node.props?.['data-bot-id'] === 'coder')
   assert.equal(walk(row, node => classes(node).includes('bt-badge-alert')).length, 1)
   const [preview] = walk(row, node => classes(node).includes('bt-row-preview-wait'))
   assert.equal(textOf(preview), 'Waiting for your approval')
 
-  // Unanswerable approvals do not mark the Bot, Room, or collapsed Section as waiting for approval,
-  // even when host activityView() reports 'alert' for that Bot.
+  // Unanswerable approvals are not the user's (the inbox leaves them out), so nothing marks
+  // the Bot, Room, or collapsed Section, even when host activityView() reports 'alert'.
   const room = { id: 'r1', name: 'Ops Room', members: ['coder'], sectionId: 'sec-1', createdAt: 2 }
   const unanswerable = renderSidebar({
     bots: [{ ...bot, sectionId: 'sec-1' }],
@@ -319,10 +336,9 @@ test('a group approval does not leak alert badge onto a running DM Bot that also
   const tree = renderSidebar({
     bots: [reviewer],
     rooms: [room],
-    rosterExtra: { learning: { reviewer: [{ id: 'p1', kind: 'skill', name: 's1' }] } },
+    rosterExtra: waiting(['learning', 'p1', { botId: 'reviewer' }], ['approval', 'a1', { botId: 'reviewer', roomId: 'r1', tool: 'bash' }]),
     activity: { reviewer: 'alert' },
     statusMap: new Map([['reviewer', { running: true }]]),
-    work: { waiting: {}, rooms: {}, approvals: [{ id: 'a1', botId: 'reviewer', roomId: 'r1' }] },
   })
   const [botRow] = walk(tree, node => node.props?.['data-bot-id'] === 'reviewer')
   assert.equal(walk(botRow, node => classes(node).includes('bt-badge-alert')).length, 0)
@@ -333,10 +349,7 @@ test('a Bot with both a blocking question and a non-blocking learning proposal r
   const ops = { id: 'ops', name: 'Ops', createdAt: 1 }
   const tree = renderSidebar({
     bots: [ops],
-    rosterExtra: {
-      learning: { ops: [{ id: 'p1', kind: 'skill', name: 's1' }] },
-      questions: { ops: { id: 'q1', question: 'Confirm?' } },
-    },
+    rosterExtra: waiting(['question', 'q1', { botId: 'ops', sessionId: 'ops', text: 'Confirm?' }], ['learning', 'p1', { botId: 'ops' }]),
   })
   const [row] = walk(tree, node => node.props?.['data-bot-id'] === 'ops')
   assert.equal(textOf(walk(row, node => classes(node).includes('bt-row-preview-wait'))[0]), 'Waiting for your answer')
@@ -347,11 +360,11 @@ test('a Bot with both a blocking question and a non-blocking learning proposal r
 test('a running Bot paused on a secret, connector, mail, question, or view card wears the alert mark and status line', () => {
   const bot = { id: 'ops', name: 'Ops', createdAt: 1 }
   const cases = [
-    [{ secretRequests: { ops: [{ id: 's1', status: 'pending' }] } }, 'Waiting for your approval'],
-    [{ connectorRequests: { ops: [{ id: 'c1', status: 'pending' }] } }, 'Waiting for your approval'],
-    [{ mailRequests: { ops: [{ id: 'm1', status: 'pending' }] } }, 'Waiting for your approval'],
-    [{ questions: { ops: { id: 'q1', question: 'Which env?' } } }, 'Waiting for your answer'],
-    [{ views: { ops: { id: 'v1', title: 'Review' } } }, 'Waiting for your answer'],
+    [waiting(['secret', 's1', { botId: 'ops', sessionId: 'ops' }]), 'Waiting for your approval'],
+    [waiting(['connector', 'c1', { botId: 'ops', sessionId: 'ops' }]), 'Waiting for your approval'],
+    [waiting(['mail', 'm1', { botId: 'ops', sessionId: 'ops' }]), 'Waiting for your approval'],
+    [waiting(['question', 'q1', { botId: 'ops', sessionId: 'ops' }]), 'Waiting for your answer'],
+    [waiting(['view', 'v1', { botId: 'ops', sessionId: 'ops' }]), 'Waiting for your answer'],
   ]
   for (const [rosterExtra, expected] of cases) {
     // Host clears `activity` on ask_user / request_secret while the turn is still running.
@@ -374,7 +387,8 @@ test('a group approval shows "Waiting for your approval" on the group row withou
     bots: [bot],
     rooms: [room],
     activity: { reviewer: 'alert' },
-    work: { waiting: {}, rooms: { r1: [{ botId: 'reviewer', tool: 'bash' }] }, approvals: [{ id: 'a1', botId: 'reviewer', roomId: 'r1' }] },
+    work: { waiting: {}, rooms: { r1: [{ botId: 'reviewer', tool: 'bash' }] }, approvals: [] },
+    rosterExtra: waiting(['approval', 'a1', { botId: 'reviewer', roomId: 'r1', tool: 'bash' }]),
   })
   const [botRow] = walk(tree, node => node.props?.['data-bot-id'] === 'reviewer')
   const [roomRow] = walk(tree, node => node.props?.['data-room-id'] === 'r1')
@@ -390,7 +404,7 @@ test('a collapsed sidebar section surfaces alert status for pending learning and
   const wideTree = renderSidebar({
     bots: [bot],
     sections,
-    rosterExtra: { learning: { reviewer: [{ id: 'p1', kind: 'skill', name: 'stateful-regression-review' }] } },
+    rosterExtra: waiting(['learning', 'p1', { botId: 'reviewer' }]),
   })
   const [status] = walk(wideTree, node => classes(node).includes('bt-sec-status'))
   assert.ok(status !== undefined)
@@ -399,7 +413,7 @@ test('a collapsed sidebar section surfaces alert status for pending learning and
   const railTree = renderSidebar({
     bots: [bot],
     sections,
-    rosterExtra: { secretRequests: { reviewer: [{ id: 's1', status: 'pending' }] } },
+    rosterExtra: waiting(['secret', 's1', { botId: 'reviewer' }]),
     wide: false,
   })
   const [railDot] = walk(railTree, node => classes(node).includes('bt-dot-wait'))
@@ -412,7 +426,7 @@ test('a collapsed sidebar section surfaces alert status for pending learning and
       { id: 'visible-bot', name: 'Visible', sectionId: 'sec-1', createdAt: 2 },
     ],
     sections,
-    rosterExtra: { learning: { 'hidden-bot': [{ id: 'p1', kind: 'skill', name: 's1' }] } },
+    rosterExtra: waiting(['learning', 'p1', { botId: 'hidden-bot' }]),
   })
   assert.equal(walk(hiddenOnly, node => classes(node).includes('bt-sec-status')).length, 0)
 })
@@ -424,9 +438,8 @@ test('a background task approval does not mask a foreground question, and still 
   }
   const withQuestion = renderSidebar({
     bots: [ops],
-    rosterExtra: { questions: { ops: { id: 'q1', question: 'Which env?' } } },
+    rosterExtra: waiting(['approval', 'a1', { botId: 'ops', taskId: 't1', tool: 'bash' }], ['question', 'q1', { botId: 'ops', sessionId: 'ops' }]),
     activity: { ops: 'alert' },
-    work: { waiting: {}, rooms: {}, approvals: [{ id: 'a1', botId: 'ops', taskId: 't1' }] },
   })
   const [qRow] = walk(withQuestion, node => node.props?.['data-bot-id'] === 'ops')
   assert.equal(textOf(walk(qRow, node => classes(node).includes('bt-row-preview-wait'))[0]), 'Waiting for your answer')
@@ -435,7 +448,7 @@ test('a background task approval does not mask a foreground question, and still 
   const idleBg = renderSidebar({
     bots: [ops],
     activity: { ops: 'alert' },
-    work: { waiting: {}, rooms: {}, approvals: [{ id: 'a1', botId: 'ops', taskId: 't1' }] },
+    rosterExtra: waiting(['approval', 'a1', { botId: 'ops', taskId: 't1', tool: 'bash' }]),
   })
   const [idleRow] = walk(idleBg, node => node.props?.['data-bot-id'] === 'ops')
   assert.equal(walk(idleRow, node => classes(node).includes('bt-badge-alert')).length, 1)

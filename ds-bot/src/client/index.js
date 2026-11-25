@@ -60,6 +60,7 @@ import { installCommandActions } from './command-actions.js'
 import { RIGHTBAR_ATTRIBUTES, columnOpened, createSwitchWindow, drawerOpened, rightColumnOpen } from './right-panel.js'
 import { ErrorToast, FEEDBACK_CSS } from './feedback.js'
 import { ABOUT_CSS } from './about.js'
+import { INBOX_CSS } from './inbox.js'
 import { MEMBER_CSS, MemberDock } from './member-status.js'
 import { TASK_CSS } from './task-board.js'
 import { IM_CSS } from './im-page.js'
@@ -103,7 +104,7 @@ export function apply(ctx) {
   let seenAt = seenStore.read()
   // `details` is the panel's subject (a Session id); `view` picks details or the
   // subject Bot's browser inside it.
-  const ui = createSource({ details: null, view: 'details', renaming: false, tab: null, side: null, task: null, taskDeck: null, newChat: null, exchange: null, menu: null, voice: null, palette: null, quote: null, paste: {}, pendingOpen: null, settings: null, memory: null, toast: null, signIn: null, renameAgent: null, unread: unreadStore.read(), reactions: reactionStore.read(), visits: {}, panelYield: false, leftDrawer: false, bootFailed: false, goalCompose: null, goalOpen: null, approvalOpen: null })
+  const ui = createSource({ details: null, view: 'details', renaming: false, tab: null, side: null, task: null, taskDeck: null, newChat: null, exchange: null, menu: null, voice: null, palette: null, quote: null, paste: {}, pendingOpen: null, settings: null, memory: null, toast: null, signIn: null, renameAgent: null, unread: unreadStore.read(), reactions: reactionStore.read(), visits: {}, panelYield: false, leftDrawer: false, bootFailed: false, goalCompose: null, goalOpen: null, approvalOpen: null, inbox: false })
   // The left column's kept preference, and the frame geometry the layout rules
   // in frame-layout.js read: the window and the shell's collapsed track come from
   // installFrameWatch, the open column's width is the user's own.
@@ -249,6 +250,7 @@ export function apply(ctx) {
     if (value.imVia !== undefined && JSON.stringify(value.imVia) !== JSON.stringify(current.imVia ?? {})) live.imVia = value.imVia
     if (value.apiVia !== undefined && JSON.stringify(value.apiVia) !== JSON.stringify(current.apiVia ?? {})) live.apiVia = value.apiVia
     if (value.plugins !== undefined && JSON.stringify(value.plugins) !== JSON.stringify(current.plugins ?? null)) live.plugins = value.plugins
+    if (value.inbox !== undefined && JSON.stringify(value.inbox) !== JSON.stringify(current.inbox ?? null)) live.inbox = value.inbox
     // The read-only notice goes once this host takes the team over from a dsh that
     // closed, without a reload: the window holds the answer's live fields until then.
     if (value.readOnly !== undefined && (value.readOnly ?? null) !== (current.readOnly ?? null)) live.readOnly = value.readOnly
@@ -715,7 +717,7 @@ export function apply(ctx) {
       // A DSH Agent Session id lands on the plain surface, not the Bot skin.
       if (isAgentSessionId(id)) return actions.openAgentSession(id)
       navSeq += 1
-      ui.set(state => (state.newChat || state.exchange || state.menu || state.palette || state.groupSearch ? { ...state, newChat: null, exchange: null, menu: null, palette: null, groupSearch: null } : state))
+      ui.set(state => (state.newChat || state.exchange || state.menu || state.palette || state.groupSearch || state.inbox ? { ...state, newChat: null, exchange: null, menu: null, palette: null, groupSearch: null, inbox: false } : state))
       setPlain(false)
       const target = partFor(id)
       show(target)
@@ -724,7 +726,7 @@ export function apply(ctx) {
     // before the navigation so the Bot skin never flashes.
     openAgentSession: (sessionId) => {
       navSeq += 1
-      ui.set(state => ({ ...state, newChat: null, exchange: null, menu: null, palette: null, groupSearch: null, details: null, view: 'details', renaming: false, tab: null, task: null, taskDeck: null }))
+      ui.set(state => ({ ...state, newChat: null, exchange: null, menu: null, palette: null, groupSearch: null, inbox: false, details: null, view: 'details', renaming: false, tab: null, task: null, taskDeck: null }))
       setPlain(true)
       show(sessionId)
     },
@@ -853,7 +855,7 @@ export function apply(ctx) {
         return
       }
       if (mode === 'agent') {
-        ui.set(state => ({ ...state, details: null, view: 'details', task: null, taskDeck: null, settings: null, palette: null, groupSearch: null, newChat: null, menu: null, voice: null, exchange: null, memory: null, toast: null, goalOpen: null, goalCompose: null, approvalOpen: null }))
+        ui.set(state => ({ ...state, details: null, view: 'details', task: null, taskDeck: null, settings: null, palette: null, groupSearch: null, newChat: null, inbox: false, menu: null, voice: null, exchange: null, memory: null, toast: null, goalOpen: null, goalCompose: null, approvalOpen: null }))
       }
       writeMode(mode)
       surface.set(state => ({ ...state, mode }))
@@ -1136,7 +1138,7 @@ export function apply(ctx) {
       return () => { if (typeof off === 'function') off() }
     }, 'ds-bot: computer actions')
   }
-  const face = () => ({ actions, hooks: { roster, ui, activity, work, memoryNews, registry, turnClock, live, computer, cards, heldCards, rescuedDrafts: questionDrafts.rescued, browserPages, browserTabs, browserHolds, surface, update, frame, sidebarPref, settingsShellHeld } })
+  const face = () => ({ actions, hooks: { roster, ui, activity, work, memoryNews, registry, turnClock, live, computer, cards, heldCards, rescuedDrafts: questionDrafts.rescued, browserPages, browserTabs, browserHolds, botCompletions, surface, update, frame, sidebarPref, settingsShellHeld } })
   // Since DSH 0.2.1-alpha.3 user text is drawn by rules and a content factory, not the
   // primitives' text projection; the user's bubble draws with either (user-message.js).
   const hostDrawsUserText = typeof ctx.uiConversation.userText?.register === 'function'
@@ -1419,6 +1421,7 @@ export function apply(ctx) {
   const SHELL_SHEETS = [
     [SHELL_CSS, 'shell'],
     [SIDEBAR_CSS, 'sidebar'],
+    [INBOX_CSS, 'inbox'],
     [SECRET_CSS + CONNECTOR_CSS + CONNECTORS_PAGE_CSS + PROVIDERS_CSS, 'secrets'],
     [LEARNING_CSS, 'learning'],
     [MODEL_CSS + FOLDER_CSS + BOT_SETTINGS_CSS + BOT_MODELS_CSS + AGENT_CARDS_CSS + GROUP_SETTINGS_CSS + AVATAR_LIBRARY_CSS, 'models'],

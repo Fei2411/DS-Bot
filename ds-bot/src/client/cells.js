@@ -1004,8 +1004,8 @@ export function Shimmer({ children }) {
 }
 
 // The time since `at`, from 1s. It ticks on its own whole seconds, so its parent does
-// not render again each second.
-export function Elapsed({ at, className }) {
+// not render again each second. `dot` leads it with a separator, for a line it ends.
+export function Elapsed({ at, className, dot = true }) {
   const [now, setNow] = useState(Date.now)
   useEffect(() => {
     let timer = 0
@@ -1017,7 +1017,8 @@ export function Elapsed({ at, className }) {
     tick()
     return () => clearTimeout(timer)
   }, [at])
-  return h('span', { className }, `· ${elapsedLabel(Math.max(1000, now - at))}`)
+  const label = elapsedLabel(Math.max(1000, now - at))
+  return h('span', { className }, dot ? `· ${label}` : label)
 }
 
 // Status phrases. A running tool names what it does; otherwise one

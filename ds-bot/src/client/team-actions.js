@@ -39,7 +39,10 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
   }
   return {
     // The pane starts at the rail's edge, so a floating drawer would stick out from under it.
-    openNewChat: (mode, sectionId = null) => { ui.set(state => ({ ...state, newChat: mode, newChatSection: sectionId ?? null, menu: null, palette: null, leftDrawer: false })) },
+    openNewChat: (mode, sectionId = null) => { ui.set(state => ({ ...state, newChat: mode, newChatSection: sectionId ?? null, inbox: false, menu: null, palette: null, leftDrawer: false })) },
+    // The inbox page sits over the conversation column like New chat (inbox.js).
+    openInbox: () => { ui.set(state => ({ ...state, inbox: true, newChat: null, newChatSection: null, exchange: null, menu: null, palette: null, groupSearch: null, leftDrawer: false })) },
+    closeInbox: () => { ui.set(state => (state.inbox ? { ...state, inbox: false } : state)) },
     openPalette: (query = '') => { ui.set(state => ({ ...state, palette: { query, token: Date.now() }, newChat: null, menu: null })) },
     // The token keeps a late exit timer from closing a palette opened again since.
     closePalette: (token) => { ui.set(state => (state.palette && (token === undefined || state.palette.token === token) ? { ...state, palette: null } : state)) },
@@ -313,6 +316,7 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
       approvalOpen: state.goalOpen === roomId ? state.approvalOpen : null,
       taskDeck: state.goalOpen === roomId ? state.taskDeck : null,
     })),
+    openGoal: roomId => ui.set(state => ({ ...state, goalOpen: roomId, approvalOpen: null, taskDeck: null })),
     closeGoal: () => ui.set(state => (state.goalOpen ? { ...state, goalOpen: null } : state)),
     toggleApproval: roomId => ui.set(state => ({
       ...state,
