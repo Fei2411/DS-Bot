@@ -8,5 +8,8 @@
     "oxlint": "1.76.0",
     "@deepseek-ai/dsh-agent-loop-testkit": "0.2.2-rc.5",
     "yaml": "2.9.1"
+  },
+  "overrides": {
+    "@earendil-works/pi-ai": "1.6.0"
   }
 }
