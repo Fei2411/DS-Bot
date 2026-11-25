@@ -338,6 +338,7 @@ export function App() {
       const bot = rosterSnap.byId?.[shownId]
       const agentId = !bot && !room ? rosterSnap.agentOf?.[shownId] : null
       if (room && typeof actions.stopRoomWork === 'function') {
+        if (statusMap && statusMap.get(shownId)?.running !== true) return
         void Promise.resolve(actions.stopRoomWork(room.id)).catch(error => actions.reportError?.(error, 'stop'))
       } else if (bot && typeof actions.stopChat === 'function') {
         if (statusMap && statusMap.get(shownId)?.running !== true) return
@@ -423,6 +424,8 @@ export function App() {
 
   // Keep Electron's main process aware of active global bindings so shortcuts pressed inside
   // a focused Bot browser WebContentsView still reach the window without churn on chat switches.
+  const hasSurfaceCap = typeof actions.setSurface === 'function'
+  const hasInboxCap = typeof actions.openInbox === 'function'
   useEffect(() => {
     const bridge = globalThis.dsBotApp
     if (!bridge) return undefined
@@ -446,7 +449,7 @@ export function App() {
       offStore()
       if (typeof offShortcut === 'function') offShortcut()
     }
-  }, [team, activeModalOf, capabilitiesOf, browserEnabled])
+  }, [team, activeModalOf, capabilitiesOf, browserEnabled, hasSurfaceCap, hasInboxCap])
   const prefs = hooks.useRoster(value => value.prefs)
   // The open chat's own background, over the team's.
   const chat = hooks.useRoster(value => (shown ? value.byId?.[shown] ?? value.roomsById?.[shown] : undefined))

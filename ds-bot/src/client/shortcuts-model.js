@@ -254,13 +254,18 @@ export function isCommandAvailable(def, { hasSurface = true, hasBrowser = true, 
   return true
 }
 
+export function isAltGraph(event) {
+  if (!event) return false
+  return Boolean(event.getModifierState?.('AltGraph')) || event.key === 'AltGraph'
+}
+
 /**
  * Converts a DOM KeyboardEvent (or Electron input event) into a normalized binding.
- * Returns null if the event is modifier-only, uses unsupported Meta on Windows/Linux,
- * or cannot produce a valid code.
+ * Returns null if the event is modifier-only, uses AltGr/AltGraph, uses unsupported Meta
+ * on Windows/Linux, or cannot produce a valid code.
  */
 export function eventToBinding(event, mac = isMacPlatform()) {
-  if (!event || isImeComposing(event)) return null
+  if (!event || isImeComposing(event) || isAltGraph(event)) return null
   const code = codeOfEvent(event)
   if (!code || MODIFIER_CODES.has(code)) return null
   const metaKey = Boolean(event.metaKey ?? event.meta)
@@ -290,6 +295,10 @@ export function validateBinding(binding, mac = isMacPlatform()) {
   const hasPrimary = mods.meta || mods.ctrl
   const hasAnyMod = hasPrimary || mods.alt || mods.shift
   if (binding.code === 'Escape' && !hasAnyMod) {
+    return { ok: false, reason: 'reserved' }
+  }
+  // Composer intercepts Enter, Shift+Enter, and Mod/Ctrl+Enter to submit or insert a newline.
+  if ((binding.code === 'Enter' || binding.code === 'NumpadEnter') && !mods.alt) {
     return { ok: false, reason: 'reserved' }
   }
   // Bare letters/digits/punctuation (or Shift+letter) would hijack typing.
@@ -491,7 +500,7 @@ export function matchShortcutEvent(event, {
   capabilities = {},
   ignoreRecording = false,
 } = {}) {
-  if (!event || event.defaultPrevented || event.repeat || isImeComposing(event)) return null
+  if (!event || event.defaultPrevented || event.repeat || isImeComposing(event) || isAltGraph(event)) return null
   if (!ignoreRecording && isShortcutRecording()) return null
   const code = codeOfEvent(event)
   if (!code || MODIFIER_CODES.has(code)) return null
@@ -500,6 +509,12 @@ export function matchShortcutEvent(event, {
   const ctrlKey = Boolean(event.ctrlKey ?? event.control)
   const altKey = Boolean(event.altKey ?? event.alt)
   const shiftKey = Boolean(event.shiftKey ?? event.shift)
+
+  // While Settings is open, always reserve Cmd/Ctrl+K for SettingsPalette search
+  // regardless of which command is bound to that chord.
+  const isSettingsSearchChord = code === 'KeyK' && !altKey && !shiftKey
+    && (mac ? (metaKey && !ctrlKey) : (ctrlKey && !metaKey))
+  if (settingsOpen && isSettingsSearchChord) return null
 
   const inTerminal = Boolean(
     event.target?.closest?.('.xterm')
@@ -519,10 +534,6 @@ export function matchShortcutEvent(event, {
     // On Windows/Linux, let plain Ctrl+<key> (without Shift/Alt) pass through to a focused xterm PTY,
     // except commands explicitly marked `allowInTerminal` (e.g. Ctrl+` terminal toggle).
     if (!mac && inTerminal && !def.allowInTerminal && ctrlKey && !altKey && !shiftKey) {
-      return null
-    }
-    // When Settings is open, reserve Cmd/Ctrl+K for SettingsPalette search.
-    if (settingsOpen && def.id === 'palette' && binding.code === 'KeyK' && binding.mod && !binding.alt && !binding.shift && !binding.ctrl) {
       return null
     }
     // Respect foreground modal dialogs so shortcuts behind a modal do not silently switch state.

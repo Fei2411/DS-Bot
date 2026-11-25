@@ -50622,8 +50622,12 @@ function isCommandAvailable(def, { hasSurface = true, hasBrowser = true, hasInbo
   if (def.requiresInbox && !hasInbox) return false;
   return true;
 }
+function isAltGraph(event) {
+  if (!event) return false;
+  return Boolean(event.getModifierState?.("AltGraph")) || event.key === "AltGraph";
+}
 function eventToBinding(event, mac = isMacPlatform()) {
-  if (!event || isImeComposing(event)) return null;
+  if (!event || isImeComposing(event) || isAltGraph(event)) return null;
   const code = codeOfEvent(event);
   if (!code || MODIFIER_CODES.has(code)) return null;
   const metaKey = Boolean(event.metaKey ?? event.meta);
@@ -50647,6 +50651,9 @@ function validateBinding(binding, mac = isMacPlatform()) {
   const hasPrimary = mods.meta || mods.ctrl;
   const hasAnyMod = hasPrimary || mods.alt || mods.shift;
   if (binding.code === "Escape" && !hasAnyMod) {
+    return { ok: false, reason: "reserved" };
+  }
+  if ((binding.code === "Enter" || binding.code === "NumpadEnter") && !mods.alt) {
     return { ok: false, reason: "reserved" };
   }
   const onlyShift = mods.shift && !hasPrimary && !mods.alt;
@@ -50819,7 +50826,7 @@ function matchShortcutEvent(event, {
   capabilities = {},
   ignoreRecording = false
 } = {}) {
-  if (!event || event.defaultPrevented || event.repeat || isImeComposing(event)) return null;
+  if (!event || event.defaultPrevented || event.repeat || isImeComposing(event) || isAltGraph(event)) return null;
   if (!ignoreRecording && isShortcutRecording()) return null;
   const code = codeOfEvent(event);
   if (!code || MODIFIER_CODES.has(code)) return null;
@@ -50827,6 +50834,8 @@ function matchShortcutEvent(event, {
   const ctrlKey = Boolean(event.ctrlKey ?? event.control);
   const altKey = Boolean(event.altKey ?? event.alt);
   const shiftKey = Boolean(event.shiftKey ?? event.shift);
+  const isSettingsSearchChord = code === "KeyK" && !altKey && !shiftKey && (mac ? metaKey && !ctrlKey : ctrlKey && !metaKey);
+  if (settingsOpen && isSettingsSearchChord) return null;
   const inTerminal = Boolean(
     event.target?.closest?.(".xterm") || !event.target?.closest && typeof document !== "undefined" && document.activeElement?.closest?.(".xterm")
   );
@@ -50840,9 +50849,6 @@ function matchShortcutEvent(event, {
       continue;
     }
     if (!mac && inTerminal && !def.allowInTerminal && ctrlKey && !altKey && !shiftKey) {
-      return null;
-    }
-    if (settingsOpen && def.id === "palette" && binding.code === "KeyK" && binding.mod && !binding.alt && !binding.shift && !binding.ctrl) {
       return null;
     }
     if (activeModal && !(def.allowInModal && def.allowInModal.includes(activeModal))) {
@@ -64297,6 +64303,19 @@ function apply(ctx) {
         if (browsers.tabs.getSnapshot()[bot.id]?.active == null) browsers.openTab(bot.id);
         ui.set((state) => ({ ...state, details: id, view: "browser", renaming: false, tab: null, panelYield: yieldBrowser(state) }));
       },
+      toggleBrowser: (id) => {
+        const snap = roster.getSnapshot();
+        if (snap.browser === false) return;
+        const bot = snap.byId?.[id];
+        if (!bot) return;
+        const state = ui.getSnapshot();
+        const detailsBotId = state.details ? snap.byId?.[state.details]?.id ?? state.details : null;
+        if (state.details && state.view === "browser" && detailsBotId === bot.id) {
+          actions.closePanel();
+          return;
+        }
+        actions.openBrowser(bot.id);
+      },
       // '+' on the strip or the drawer's new-tab card: a blank tab in the browser view.
       browserNewTab: (id) => {
         const bot = roster.getSnapshot().byId[id];
@@ -64622,12 +64641,7 @@ function apply(ctx) {
             if (!botId) return { status: "blocked", reason: "unavailable" };
             return {
               status: "handled",
-              run: () => {
-                const state = ui.getSnapshot();
-                const detailsBotId = state.details ? snap.byId?.[state.details]?.id ?? state.details : null;
-                if (state.details && state.view === "browser" && detailsBotId === botId) actions.closePanel();
-                else actions.openBrowser(botId);
-              }
+              run: () => actions.toggleBrowser(botId)
             };
           }
         })] : [],

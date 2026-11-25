@@ -1,10 +1,19 @@
 /**
  * Matches an Electron `before-input-event` input record from a focused child Bot
  * WebContentsView against the active desktop shortcut whitelist synced from the window.
+ * Guards IME composition, auto-repeat, and AltGr (AltGraph) character input on Windows/Linux.
  * @returns {string | null} matched shortcut command id, or null if not matched
  */
 export function matchForwardedShortcut(input, bindings, platform = process.platform) {
   if (!input || input.type !== 'keyDown' || input.isComposing || input.isAutoRepeat) return null
+  if (input.key === 'AltGraph') return null
+  if (Array.isArray(input.modifiers) && input.modifiers.some(m => String(m).toLowerCase() === 'altgraph')) return null
+  // On Windows/Linux, AltGr emits Ctrl+Alt with a printable character (e.g. '@' on AltGr+Q);
+  // never hijack printable AltGr characters inside a webpage.
+  if (platform !== 'darwin' && input.control && input.alt && !input.meta
+    && typeof input.key === 'string' && input.key.length === 1 && !/^[a-z0-9]$/i.test(input.key)) {
+    return null
+  }
   if (!Array.isArray(bindings) || bindings.length === 0) return null
   const mac = platform === 'darwin'
   for (const entry of bindings) {
