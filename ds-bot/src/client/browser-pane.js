@@ -16,7 +16,8 @@ import { DetailsDrawer } from './details-drawer.js'
 import { SideChatView } from './side-chat.js'
 import { TaskReaderView } from './bot-tasks.js'
 import { panelHasStrip, sideChatsOf, stripMenuKeys } from './side-model.js'
-import { CheckIcon, ChevronLeftIcon, ChevronRightIcon, CompassIcon, CopyIcon, DotsIcon, FolderIcon, InfoIcon, SearchIcon, SideIcon, TerminalIcon } from './icons.js'
+import { CheckIcon, ChevronLeftIcon, ChevronRightIcon, CopyIcon, DotsIcon, FolderIcon, InfoIcon, SearchIcon, SideIcon, TerminalIcon } from './icons.js'
+import { BrowserMark } from './browser-marks.js'
 import { t } from './i18n.js'
 import { rectsOverlap } from './browser-overlap.js'
 import { useEscape } from './overlay-hooks.js'
@@ -50,7 +51,6 @@ const PlusTabIcon = icon(['M10 5v10M5 10h10'])
 const LockIcon = icon(['M6.5 9V7a3.5 3.5 0 0 1 7 0v2', 'M5.5 9h9v7h-9z'])
 const ImportIcon = icon(['M10 3.5v8', 'M6.75 8.5L10 11.75l3.25-3.25', 'M4.5 13.25v1.25A1.5 1.5 0 0 0 6 16h8a1.5 1.5 0 0 0 1.5-1.5v-1.25'])
 const FileIcon = icon(['M6 3.5h5.2a1 1 0 0 1 .7.3l2.3 2.3a1 1 0 0 1 .3.7V15a1.5 1.5 0 0 1-1.5 1.5H6A1.5 1.5 0 0 1 4.5 15V5A1.5 1.5 0 0 1 6 3.5z', 'M11 3.5V6a1 1 0 0 0 1 1h2.5'])
-const WindowIcon = icon(['M3.5 6.5A2 2 0 0 1 5.5 4.5h9a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-9a2 2 0 0 1-2-2z', 'M3.5 8h13'])
 const PasteIcon = icon(['M7.5 3.75h5a1 1 0 0 1 1 1v1a1 1 0 0 1-1 1h-5a1 1 0 0 1-1-1v-1a1 1 0 0 1 1-1z', 'M6.5 5.25H6A1.5 1.5 0 0 0 4.5 6.75v8A1.5 1.5 0 0 0 6 16.25h8a1.5 1.5 0 0 0 1.5-1.5v-8A1.5 1.5 0 0 0 14 5.25h-.5'])
 
 /** Whether a cookie site belongs to the same host or direct domain hierarchy as the current tab. */
@@ -680,19 +680,13 @@ function importError(error) {
   return String(error)
 }
 
-function sourceIconFor(source) {
-  const kind = String(source?.engine || source?.kind || '').toLowerCase()
-  if (kind === 'safari') return CompassIcon
-  if (kind === 'firefox' || kind === 'zen') return GlobeIcon
-  return WindowIcon
-}
-
-function ImportHeader({ title, subtitle, onBack, onClose, busy }) {
+function ImportHeader({ title, subtitle, mark, onBack, onClose, busy }) {
   return h('div', { className: 'bt-import-head' },
     onBack ? h('button', {
       type: 'button', className: 'bt-icon-btn bt-import-head-btn', 'aria-label': t('Back'), title: t('Back'),
       disabled: busy, onClick: onBack,
     }, h(ChevronLeftIcon)) : null,
+    mark ? h('span', { className: 'bt-import-head-mark', 'aria-hidden': true }, mark) : null,
     h('div', { className: 'bt-import-head-text' },
       h('div', { className: 'bt-import-title' }, title),
       subtitle ? h('div', { className: 'bt-import-sub' }, subtitle) : null),
@@ -716,7 +710,7 @@ export function ImportMenu({ sources, lastSourceId, loading, busy, canPaste, onF
     h('div', { className: 'bt-import-section' },
       h('div', { className: 'bt-import-label' }, t('Import from browser')),
       loading
-        ? h('div', { className: 'bt-import-group bt-import-skel-group', 'aria-busy': true },
+        ? h('div', { className: 'bt-import-rows', 'aria-busy': true },
           h('span', { className: 'bt-sr' }, t('Loading…')),
           h('div', { className: 'bt-import-skel-row' },
             h('span', { className: 'bt-import-skel-ico' }),
@@ -728,9 +722,8 @@ export function ImportMenu({ sources, lastSourceId, loading, busy, canPaste, onF
             h('span', { className: 'bt-import-skel-lines' },
               h('span', { className: 'bt-import-skel-bar bt-import-skel-w3' }))))
         : sources.length === 0
-          ? h('div', { className: 'bt-import-group' },
-            h('div', { className: 'bt-import-menu-note' }, t('No browsers found')))
-          : h('div', { className: 'bt-import-group' },
+          ? h('div', { className: 'bt-import-menu-note' }, t('No browsers found'))
+          : h('div', { className: 'bt-import-rows' },
             sources.map((source) => {
               const isLast = source.id === lastSourceId
               const needsPerm = Boolean(source.needsPermission)
@@ -739,13 +732,12 @@ export function ImportMenu({ sources, lastSourceId, loading, busy, canPaste, onF
               const showFallback = !isLast && !needsPerm && !isReady && !hasCount && !source.email
               const subline = source.email || (showFallback ? t('Browser profile') : null)
               const hasMeta = needsPerm || isReady || hasCount
-              const Icon = sourceIconFor(source)
               return h('button', {
                 key: source.id, type: 'button', className: 'bt-import-item', role: 'menuitem', disabled: busy,
                 title: source.email ? `${source.label} (${source.email})` : source.label,
                 onClick: () => onSource(source),
               },
-                h('span', { className: 'bt-import-tile-ico', 'aria-hidden': true }, h(Icon)),
+                h('span', { className: 'bt-import-mark', 'aria-hidden': true }, h(BrowserMark, { source, size: 26 })),
                 h('span', { className: 'bt-import-item-main' },
                   h('span', { className: 'bt-import-item-name' }, source.label),
                   subline || isLast ? h('span', { className: 'bt-import-item-subrow' },
@@ -761,19 +753,16 @@ export function ImportMenu({ sources, lastSourceId, loading, busy, canPaste, onF
                   hasCount ? h('span', { className: 'bt-import-item-sub' }, t('{count} cookies', { count: source.cookieCount })) : null) : null,
                 h('span', { className: 'bt-import-chev', 'aria-hidden': true }, h(ChevronRightIcon)))
             }))),
-    h('div', { className: 'bt-import-group' },
+    h('div', { className: 'bt-import-sep', role: 'separator' }),
+    h('div', { className: 'bt-import-rows bt-import-alt-rows' },
       h('button', { type: 'button', className: 'bt-import-item bt-import-item-alt', role: 'menuitem', disabled: busy, onClick: onFile },
-        h('span', { className: 'bt-import-tile-ico', 'aria-hidden': true }, h(FileIcon)),
-        h('span', { className: 'bt-import-item-main' },
-          h('span', { className: 'bt-import-item-name' }, t('From a file…')),
-          h('span', { className: 'bt-import-item-email' }, t('cookies.txt, JSON, storageState'))),
-        h('span', { className: 'bt-import-chev', 'aria-hidden': true }, h(ChevronRightIcon))),
+        h('span', { className: 'bt-import-alt-ico', 'aria-hidden': true }, h(FileIcon)),
+        h('span', { className: 'bt-import-item-name' }, t('From a file…')),
+        h('span', { className: 'bt-import-alt-hint' }, t('cookies.txt, JSON, storageState'))),
       canPaste ? h('button', { type: 'button', className: 'bt-import-item bt-import-item-alt', role: 'menuitem', disabled: busy, onClick: onPaste },
-        h('span', { className: 'bt-import-tile-ico', 'aria-hidden': true }, h(PasteIcon)),
-        h('span', { className: 'bt-import-item-main' },
-          h('span', { className: 'bt-import-item-name' }, t('Paste cookies or cURL…')),
-          h('span', { className: 'bt-import-item-email' }, t('JSON, cURL, header'))),
-        h('span', { className: 'bt-import-chev', 'aria-hidden': true }, h(ChevronRightIcon))) : null))
+        h('span', { className: 'bt-import-alt-ico', 'aria-hidden': true }, h(PasteIcon)),
+        h('span', { className: 'bt-import-item-name' }, t('Paste cookies or cURL…')),
+        h('span', { className: 'bt-import-alt-hint' }, t('JSON, cURL, header'))) : null))
 }
 
 export function SafariPermissionCard({ flow, busy, imports, onOpenPermission, onPermissionGranted, onRetrySource, onBack, onCancel }) {
@@ -811,7 +800,7 @@ export function SafariPermissionCard({ flow, busy, imports, onOpenPermission, on
   }, [imports, source.id])
 
   return h('div', { className: 'bt-import-stage' },
-    h(ImportHeader, { title: t('Allow Safari access'), onBack, onClose: onCancel, busy }),
+    h(ImportHeader, { title: t('Allow Safari access'), mark: h(BrowserMark, { source: { kind: 'safari' }, size: 22 }), onBack, onClose: onCancel, busy }),
     h('div', { className: 'bt-import-text' },
       t('macOS protects Safari cookies with Full Disk Access. Enable DS Bot once in System Settings to import from Safari.')),
     h('div', { className: 'bt-import-steps' },
@@ -898,7 +887,7 @@ export function RemoteDebugCard({ flow, busy, imports, onRetrySource, onLaunchSo
   }
 
   return h('div', { className: 'bt-import-stage' },
-    h(ImportHeader, { title: t('Connect to {name}', { name: browserName }), onBack, onClose: onCancel, busy }),
+    h(ImportHeader, { title: t('Connect to {name}', { name: browserName }), mark: h(BrowserMark, { source, size: 22 }), onBack, onClose: onCancel, busy }),
     h('div', { className: 'bt-import-text' },
       t('{name} protects its cookies on Windows. Enable its built-in remote debugging switch once — no extension needed.', { name: browserName })),
     h('div', { className: 'bt-import-steps' },
@@ -1000,6 +989,7 @@ export function PreviewCard({ flow, page, busy, onApply, onCancel }) {
     h(ImportHeader, {
       title: t('Import {count} cookies', { count: selectedCookies }),
       subtitle,
+      mark: preview.source ? h(BrowserMark, { source: preview.source, size: 22 }) : null,
       onClose: onCancel,
     }),
     matchingCurrent.length > 0 && sites.length > 1 ? h(Segmented, {
@@ -1085,8 +1075,9 @@ function ImportCard({ flow, page, busy, imports, onApply, onCancel, onBack, onCl
   useEscape(() => { if (stage === 'result') onDone(); else onCancel() })
   if (stage === 'connecting') {
     return h('div', { className: 'bt-import-stage bt-import-status' },
-      h('div', { className: 'bt-import-status-badge bt-import-status-busy', 'aria-hidden': true },
-        h('span', { className: 'bt-import-spinner bt-loading-spin' })),
+      h('div', { className: 'bt-import-status-orbit', 'aria-hidden': true },
+        h('span', { className: 'bt-import-orbit-ring bt-loading-spin' }),
+        h(BrowserMark, { source: flow.source, size: 30 })),
       h('div', { className: 'bt-import-title' }, t('Reading {name}…', { name: flow.source.name })),
       h('div', { className: 'bt-import-sub' }, flow.source.label),
       h('div', { className: 'bt-import-text' }, t('If {name} or your system asks for permission, click Allow.', { name: flow.source.name })),
@@ -1104,7 +1095,7 @@ function ImportCard({ flow, page, busy, imports, onApply, onCancel, onBack, onCl
   }
   if (stage === 'running') {
     return h('div', { className: 'bt-import-stage' },
-      h(ImportHeader, { title: t('{name} is running', { name: flow.source.name }), onBack, onClose: onCancel, busy }),
+      h(ImportHeader, { title: t('{name} is running', { name: flow.source.name }), mark: h(BrowserMark, { source: flow.source, size: 22 }), onBack, onClose: onCancel, busy }),
       h('div', { className: 'bt-import-text' }, t('It must close for a moment so its cookies can be copied. It will reopen with your tabs.')),
       h('div', { className: 'bt-import-actions' },
         h('button', { type: 'button', className: 'bt-import-plain', disabled: busy, onClick: onCancel }, t('Cancel')),
@@ -1138,7 +1129,7 @@ function ImportCard({ flow, page, busy, imports, onApply, onCancel, onBack, onCl
         h(ok ? CheckIcon : InfoIcon)),
       h('div', { className: 'bt-import-title' }, title),
       subtitle ? h('div', { className: 'bt-import-sub' }, subtitle) : null,
-      problems.length ? h('div', { className: 'bt-import-list bt-import-problems' },
+      problems.length ? h('div', { className: 'bt-import-problems' },
         problems.slice(0, 8).map((item, index) => h('div', { key: index, className: 'bt-import-detail-line' },
           h('span', { className: 'bt-import-detail-name' }, item.name ?? '—'),
           h('span', { className: 'bt-import-line-reason' }, item.reason))),
@@ -1492,89 +1483,91 @@ export const BROWSER_CSS = `
 .bt-browser-empty-mark{display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center}
 /* Cookie imports */
 .bt-import-btn[data-open]{background:var(--bt-active);color:var(--bt-ink)}
-.bt-import-card{position:absolute;inset:0;z-index:6;display:flex;flex-direction:column;padding:20px 16px;background:color-mix(in srgb,var(--bt-sidebar) 55%,var(--bt-main));overflow:auto;animation:bt-fade .14s ease-out}
-.bt-import-box{width:100%;max-width:392px;margin:auto;box-sizing:border-box;padding:18px;border:.5px solid var(--bt-line-2);border-radius:16px;background:var(--bt-card);box-shadow:var(--bt-glass-shadow);animation:bt-import-rise ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing};overflow:hidden}
-@keyframes bt-import-rise{from{translate:0 10px;scale:.97}}
-.bt-import-stage{display:flex;flex-direction:column;gap:12px;animation:bt-veil-in .18s ease-out}
-.bt-import-head{display:flex;align-items:flex-start;gap:8px;min-width:0}
-.bt-import-head-text{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;padding-top:2px}
-.bt-import-head-btn{flex:none;margin:-2px -4px 0 0}
-.bt-import-head-btn:first-child{margin:-2px 0 0 -6px}
-.bt-import-title{font-size:15px;line-height:20px;font-weight:600;letter-spacing:-.01em;color:var(--bt-ink);font-variant-numeric:tabular-nums}
+.bt-import-card{position:absolute;inset:0;z-index:6;display:flex;flex-direction:column;padding:28px 24px;background:var(--bt-main);overflow:auto;animation:bt-fade .14s ease-out}
+.bt-import-box{width:100%;max-width:384px;margin:auto;box-sizing:border-box;overflow:visible}
+.bt-import-stage{display:flex;flex-direction:column;gap:14px;animation:bt-veil-in .18s ease-out}
+.bt-import-head{display:flex;align-items:center;gap:10px;min-width:0}
+.bt-import-head-mark{flex:none;display:inline-flex;align-items:center;justify-content:center;filter:drop-shadow(0 1px 2px rgba(0,0,0,.12))}
+.bt-import-head-text{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.bt-import-head-btn{flex:none;margin-right:-6px}
+.bt-import-head-btn:first-child{margin-left:-6px;margin-right:0}
+.bt-import-title{font-size:15px;line-height:20px;font-weight:600;letter-spacing:-.015em;color:var(--bt-ink);font-variant-numeric:tabular-nums}
 .bt-import-sub{font-size:12px;line-height:16px;color:var(--bt-ink-3);overflow-wrap:anywhere}
-.bt-import-text{font-size:13px;line-height:19px;color:var(--bt-ink-2);overflow-wrap:anywhere}
-.bt-import-section{display:flex;flex-direction:column;gap:6px}
-.bt-import-label{padding:0 2px;font-size:12px;line-height:16px;font-weight:500;color:var(--bt-ink-3)}
-.bt-import-group{display:flex;flex-direction:column;border-radius:12px;background:var(--bt-main);border:.5px solid var(--bt-line);overflow:hidden}
-.bt-import-item{position:relative;display:flex;align-items:center;gap:10px;width:100%;min-width:0;min-height:46px;padding:8px 10px;border:0;border-radius:0;background:transparent;color:var(--bt-ink);font:inherit;font-size:13px;line-height:18px;text-align:left;cursor:pointer;box-sizing:border-box;transition:background-color .12s ease}
-.bt-import-item+.bt-import-item::before{content:"";position:absolute;left:50px;right:10px;top:0;height:.5px;background:var(--bt-line);transition:opacity .12s ease;pointer-events:none}
-.bt-import-item:hover::before,.bt-import-item:hover+.bt-import-item::before{opacity:0}
+.bt-import-text{font-size:13px;line-height:20px;color:var(--bt-ink-2);overflow-wrap:anywhere}
+.bt-import-section{display:flex;flex-direction:column;gap:4px}
+.bt-import-label{padding:0 0 2px;font-size:12px;line-height:16px;font-weight:500;color:var(--bt-ink-3)}
+.bt-import-rows{display:flex;flex-direction:column;gap:2px}
+.bt-import-item{position:relative;display:flex;align-items:center;gap:12px;width:calc(100% + 20px);margin:0 -10px;min-width:0;min-height:48px;padding:8px 10px;border:0;border-radius:12px;background:transparent;color:var(--bt-ink);font:inherit;font-size:13px;line-height:18px;text-align:left;cursor:pointer;box-sizing:border-box;transition:background-color .12s ease,${spring(SPRING_TAP, 'scale')}}
 .bt-import-item:hover{background:var(--bt-hover)}
-.bt-import-item:active:not(:disabled){background:var(--bt-active)}
-.bt-import-item:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px;border-radius:8px}
+.bt-import-item:active:not(:disabled){background:var(--bt-active);scale:.99}
+.bt-import-item:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
 .bt-import-item:disabled{opacity:.45;cursor:default}
-.bt-import-tile-ico{flex:none;width:30px;height:30px;border-radius:8px;background:var(--bt-hover);border:.5px solid var(--bt-line);color:var(--bt-ink-2);display:inline-flex;align-items:center;justify-content:center;transition:color .12s ease,background-color .12s ease}
-.bt-import-tile-ico svg{width:15px;height:15px}
-.bt-import-item:hover .bt-import-tile-ico{color:var(--bt-ink)}
+.bt-import-mark{flex:none;width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;filter:drop-shadow(0 1px 2px rgba(0,0,0,.14))}
 .bt-import-item-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
 .bt-import-item-subrow{display:flex;align-items:center;gap:6px;min-width:0}
-.bt-import-item-name{min-width:0;font-size:13px;line-height:18px;font-weight:500;color:var(--bt-ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.bt-import-item-email{min-width:0;font-size:11px;line-height:15px;color:var(--bt-ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-import-item-name{min-width:0;font-size:14px;line-height:20px;font-weight:500;color:var(--bt-ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-import-item-email{min-width:0;font-size:12px;line-height:16px;color:var(--bt-ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-import-item-meta{flex:none;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
-.bt-import-item-tag{flex:none;font-size:10px;line-height:15px;font-weight:500;padding:0 5px;border-radius:4px;background:var(--bt-tag-bg);color:var(--bt-tag-ink)}
+.bt-import-item-tag{flex:none;font-size:11px;line-height:16px;font-weight:500;padding:0 6px;border-radius:4px;background:var(--bt-tag-bg);color:var(--bt-tag-ink)}
 .bt-import-item-sub{display:inline-flex;align-items:center;gap:5px;font-size:12px;line-height:16px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums;white-space:nowrap}
 .bt-import-item-sub[data-ready]{color:var(--bt-green);font-weight:500}
 .bt-import-item-sub[data-warn]{color:var(--bt-warn);font-weight:500}
 .bt-import-dot{flex:none;width:6px;height:6px;border-radius:50%;corner-shape:round;background:currentColor}
-.bt-import-chev{flex:none;display:inline-flex;color:var(--bt-ink-3);transition:transform .12s ease,color .12s ease}
-.bt-import-chev svg{width:14px;height:14px}
-.bt-import-item:hover .bt-import-chev{color:var(--bt-ink-2);transform:translateX(2px)}
-.bt-import-menu-note{padding:14px 12px;font-size:12px;line-height:16px;color:var(--bt-ink-3);text-align:center}
-.bt-import-skel-row{display:flex;align-items:center;gap:10px;padding:10px}
-.bt-import-skel-row+.bt-import-skel-row{border-top:.5px solid var(--bt-line)}
-.bt-import-skel-ico{flex:none;width:30px;height:30px;border-radius:8px;background:var(--bt-hover);animation:bt-import-pulse 1.4s ease-in-out infinite}
+.bt-import-chev{flex:none;display:inline-flex;align-items:center;justify-content:flex-end;width:0;margin-left:-12px;overflow:hidden;color:var(--bt-ink-3);opacity:0;transform:translateX(-4px);transition:${spring(SPRING_SHAPE, 'width', 'margin-left', 'transform')},opacity .14s ease}
+.bt-import-chev svg{flex:none;width:14px;height:14px}
+.bt-import-item:hover .bt-import-chev,.bt-import-item:focus-visible .bt-import-chev{width:14px;margin-left:0;opacity:.7;transform:none}
+.bt-import-sep{height:1px;background:var(--bt-line);margin:2px 0}
+.bt-import-item-alt{min-height:40px;padding:7px 10px;border-radius:10px;gap:10px}
+.bt-import-item-alt .bt-import-item-name{font-size:13px;line-height:18px;font-weight:400;flex:none}
+.bt-import-alt-ico{flex:none;width:28px;display:inline-flex;align-items:center;justify-content:center;color:var(--bt-ink-2);transition:color .12s ease}
+.bt-import-alt-ico svg{width:16px;height:16px}
+.bt-import-item-alt:hover .bt-import-alt-ico{color:var(--bt-ink)}
+.bt-import-alt-hint{flex:1;min-width:0;text-align:right;font-size:11px;line-height:16px;color:var(--bt-ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-import-menu-note{padding:16px 0;font-size:13px;line-height:18px;color:var(--bt-ink-3)}
+.bt-import-skel-row{display:flex;align-items:center;gap:12px;padding:10px 0}
+.bt-import-skel-ico{flex:none;width:26px;height:26px;border-radius:50%;corner-shape:round;background:var(--bt-hover);animation:bt-import-pulse 1.4s ease-in-out infinite}
 .bt-import-skel-lines{flex:1;display:flex;flex-direction:column;gap:6px}
 .bt-import-skel-bar{height:10px;border-radius:4px;background:var(--bt-hover);animation:bt-import-pulse 1.4s ease-in-out infinite}
 .bt-import-skel-w1{width:54%}
 .bt-import-skel-w2{width:34%;height:8px}
 .bt-import-skel-w3{width:46%}
 @keyframes bt-import-pulse{0%,100%{opacity:.45}50%{opacity:.9}}
-.bt-import-steps{display:flex;flex-direction:column;gap:10px;padding:12px 14px;border-radius:12px;background:var(--bt-main);border:.5px solid var(--bt-line)}
-.bt-import-step{font-size:12px;line-height:18px;color:var(--bt-ink-2)}
-.bt-import-copy-row{display:flex;align-items:center;gap:6px;padding:4px 4px 4px 10px;border-radius:8px;background:var(--bt-hover);border:.5px solid var(--bt-line);min-width:0}
-.bt-import-code{flex:1;min-width:0;color:var(--bt-ink);font-family:var(--bt-mono);font-size:11px;line-height:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;user-select:all}
-.bt-import-mini{flex:none;display:inline-flex;align-items:center;gap:4px;height:26px;padding:0 10px;border:.5px solid var(--bt-line);border-radius:6px;background:var(--bt-card);color:var(--bt-ink);font:inherit;font-size:12px;font-weight:500;cursor:pointer;transition:background-color .12s ease,border-color .12s ease,${spring(SPRING_TAP, 'scale')}}
+.bt-import-steps{display:flex;flex-direction:column;gap:10px;padding:14px 16px;border-radius:12px;background:var(--bt-hover)}
+.bt-import-step{font-size:13px;line-height:19px;color:var(--bt-ink-2)}
+.bt-import-copy-row{display:flex;align-items:center;gap:8px;padding:5px 5px 5px 12px;border-radius:8px;background:var(--bt-card);box-shadow:var(--bt-card-shadow);min-width:0}
+.bt-import-code{flex:1;min-width:0;color:var(--bt-ink);font-family:var(--bt-mono);font-size:12px;line-height:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;user-select:all}
+.bt-import-mini{flex:none;display:inline-flex;align-items:center;gap:4px;height:26px;padding:0 10px;border:0;border-radius:6px;background:var(--bt-hover);color:var(--bt-ink);font:inherit;font-size:12px;font-weight:500;cursor:pointer;transition:background-color .12s ease,${spring(SPRING_TAP, 'scale')}}
 .bt-import-mini svg{width:13px;height:13px;color:var(--bt-ink-2)}
-.bt-import-mini:hover{background:var(--bt-main);border-color:var(--bt-line-2)}
+.bt-import-mini:hover{background:var(--bt-active)}
 .bt-import-mini:active{scale:.96}
 .bt-import-mini:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
-.bt-import-ready-note{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;background:color-mix(in srgb,var(--bt-green) 12%,transparent);font-size:12px;line-height:16px;font-weight:500;color:var(--bt-green)}
+.bt-import-ready-note{display:flex;align-items:center;gap:8px;padding:9px 12px;border-radius:10px;background:color-mix(in srgb,var(--bt-green) 12%,transparent);font-size:12px;line-height:16px;font-weight:500;color:var(--bt-green)}
 .bt-import-ready-note svg{flex:none;width:15px;height:15px}
-.bt-import-textarea{width:100%;box-sizing:border-box;min-height:108px;max-height:200px;resize:vertical;padding:10px 12px;border:.5px solid var(--bt-line-2);border-radius:12px;background:var(--bt-main);color:var(--bt-ink);font-family:var(--bt-mono);font-size:12px;line-height:18px;outline:none;transition:border-color .12s ease,box-shadow .12s ease}
-.bt-import-input{width:100%;box-sizing:border-box;height:34px;padding:0 12px;border:.5px solid var(--bt-line-2);border-radius:8px;background:var(--bt-main);color:var(--bt-ink);font:inherit;font-size:13px;outline:none;transition:border-color .12s ease,box-shadow .12s ease}
-.bt-import-textarea:focus,.bt-import-input:focus{border-color:var(--bt-accent);box-shadow:0 0 0 3px var(--bt-accent-soft)}
+.bt-import-textarea{width:100%;box-sizing:border-box;min-height:120px;max-height:220px;resize:vertical;padding:12px 14px;border:1px solid transparent;border-radius:12px;background:var(--bt-hover);color:var(--bt-ink);font-family:var(--bt-mono);font-size:12px;line-height:18px;outline:none;transition:background-color .12s ease,border-color .12s ease,box-shadow .12s ease}
+.bt-import-input{width:100%;box-sizing:border-box;height:36px;padding:0 12px;border:1px solid transparent;border-radius:10px;background:var(--bt-hover);color:var(--bt-ink);font:inherit;font-size:13px;outline:none;transition:background-color .12s ease,border-color .12s ease,box-shadow .12s ease}
+.bt-import-textarea:focus,.bt-import-input:focus{background:var(--bt-card);border-color:var(--bt-accent);box-shadow:0 0 0 3px var(--bt-accent-soft)}
 .bt-import-input::placeholder,.bt-import-textarea::placeholder,.bt-import-search-in::placeholder{color:var(--bt-ink-3)}
-.bt-import-scope{width:100%;box-sizing:border-box;background:var(--bt-main);border:.5px solid var(--bt-line);padding:3px}
-.bt-import-scope button{min-width:0;height:28px;padding:0 10px;font-size:12px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-import-scope{width:100%;box-sizing:border-box}
+.bt-import-scope button{min-width:0;padding:0 10px;font-size:12px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-import-scope button[aria-pressed=true]{background:var(--bt-nav-thumb-bg);box-shadow:var(--bt-nav-thumb-shadow)}
-.bt-import-scope>.bt-thumb{top:3px;bottom:3px;background:var(--bt-nav-thumb-bg);box-shadow:var(--bt-nav-thumb-shadow)}
+.bt-import-scope>.bt-thumb{background:var(--bt-nav-thumb-bg);box-shadow:var(--bt-nav-thumb-shadow)}
 .bt-import-scope[data-glide] button[aria-pressed=true]{background:transparent;box-shadow:none}
 .bt-import-scope>.bt-thumb[data-hidden]{opacity:0}
-.bt-import-search{display:flex;align-items:center;gap:6px;height:34px;padding:0 4px 0 10px;border-radius:8px;background:var(--bt-main);border:.5px solid var(--bt-line);transition:border-color .12s ease,box-shadow .12s ease}
-.bt-import-search:focus-within{border-color:var(--bt-accent);box-shadow:0 0 0 3px var(--bt-accent-soft)}
+.bt-import-search{display:flex;align-items:center;gap:6px;height:34px;padding:0 4px 0 11px;border-radius:10px;background:var(--bt-hover);border:1px solid transparent;transition:background-color .12s ease,border-color .12s ease,box-shadow .12s ease}
+.bt-import-search:focus-within{background:var(--bt-card);border-color:var(--bt-accent);box-shadow:0 0 0 3px var(--bt-accent-soft)}
 .bt-import-search-ico{flex:none;display:inline-flex;color:var(--bt-ink-3)}
 .bt-import-search-ico svg{width:14px;height:14px}
-.bt-import-search-in{flex:1;min-width:0;border:0;background:none;outline:none;color:var(--bt-ink);font:inherit;font-size:12px;line-height:18px;padding:0}
+.bt-import-search-in{flex:1;min-width:0;border:0;background:none;outline:none;color:var(--bt-ink);font:inherit;font-size:13px;line-height:18px;padding:0}
 .bt-import-search-btn{flex:none;height:26px;padding:0 8px;border:0;border-radius:6px;background:transparent;color:var(--bt-ink-2);font:inherit;font-size:12px;font-weight:500;cursor:pointer;transition:background-color .12s ease,color .12s ease}
 .bt-import-search-btn:hover{background:var(--bt-hover);color:var(--bt-ink)}
 .bt-import-search-btn:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
-.bt-import-list{max-height:208px;overflow:auto;border:.5px solid var(--bt-line);border-radius:12px;background:var(--bt-main);padding:4px}
-.bt-import-list-empty{padding:18px 12px;font-size:12px;line-height:16px;color:var(--bt-ink-3);text-align:center}
-.bt-import-line{position:relative;display:flex;align-items:center;gap:10px;min-height:34px;padding:6px 8px;border-radius:8px;min-width:0;box-sizing:border-box;transition:background-color .12s ease}
+.bt-import-list{max-height:220px;overflow:auto;margin:0 -8px;padding:2px 0;display:flex;flex-direction:column;gap:1px}
+.bt-import-list-empty{padding:20px 12px;font-size:12px;line-height:16px;color:var(--bt-ink-3);text-align:center}
+.bt-import-line{position:relative;display:flex;align-items:center;gap:10px;min-height:36px;padding:6px 8px;border-radius:8px;min-width:0;box-sizing:border-box;transition:background-color .12s ease}
 .bt-import-check-row{cursor:pointer;user-select:none}
 .bt-import-check-row:hover{background:var(--bt-hover)}
 .bt-import-cb-input{position:absolute;opacity:0;width:1px;height:1px;margin:0;pointer-events:none}
-.bt-import-cb{flex:none;width:16px;height:16px;border-radius:4px;border:1.5px solid var(--bt-line-2);background:var(--bt-card);color:var(--bt-accent-ink);display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;transition:background-color .12s ease,border-color .12s ease}
+.bt-import-cb{flex:none;width:16px;height:16px;border-radius:4px;border:1.5px solid var(--bt-line-2);background:transparent;color:var(--bt-accent-ink);display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;transition:background-color .12s ease,border-color .12s ease}
 .bt-import-cb svg{width:11px;height:11px;stroke-width:2.2;animation:bt-import-pop ${SPRING_POP.duration}ms ${SPRING_POP.easing}}
 @keyframes bt-import-pop{from{scale:.5;opacity:0}}
 .bt-import-check-row[data-checked] .bt-import-cb{border-color:var(--bt-accent);background:var(--bt-accent)}
@@ -1583,43 +1576,44 @@ export const BROWSER_CSS = `
 .bt-import-check-row[data-checked] .bt-import-line-name{color:var(--bt-ink)}
 .bt-import-line-count{flex:none;text-align:right;font-size:12px;line-height:16px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums;white-space:nowrap}
 .bt-import-line-reason{flex:1;min-width:0;font-size:11px;line-height:16px;color:var(--bt-ink-3);overflow-wrap:anywhere}
-.bt-import-opt-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 12px;border-radius:12px;background:var(--bt-main);border:.5px solid var(--bt-line)}
-.bt-import-opt-label{font-size:12px;line-height:16px;color:var(--bt-ink-2)}
+.bt-import-opt-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-top:12px;border-top:1px solid var(--bt-line)}
+.bt-import-opt-label{font-size:13px;line-height:18px;color:var(--bt-ink-2)}
 .bt-import-meta-group{display:flex;flex-direction:column;gap:2px}
-.bt-import-disclosure{border-radius:8px;font-size:12px;color:var(--bt-ink-3)}
-.bt-import-disclosure summary{display:flex;align-items:center;gap:4px;padding:3px 2px;list-style:none;cursor:pointer;color:var(--bt-ink-3);user-select:none;transition:color .12s ease}
+.bt-import-disclosure{font-size:12px;color:var(--bt-ink-3)}
+.bt-import-disclosure summary{display:flex;align-items:center;gap:4px;padding:3px 0;list-style:none;cursor:pointer;color:var(--bt-ink-3);user-select:none;transition:color .12s ease}
 .bt-import-disclosure summary::-webkit-details-marker{display:none}
 .bt-import-disclosure summary:hover{color:var(--bt-ink-2)}
 .bt-import-disc-chev{display:inline-flex;color:var(--bt-ink-3);transition:transform .16s ease}
 .bt-import-disc-chev svg{width:13px;height:13px}
 .bt-import-disclosure[open] .bt-import-disc-chev{transform:rotate(90deg)}
-.bt-import-disc-body{display:flex;flex-direction:column;gap:2px;margin-top:4px;padding:6px 10px;border-radius:8px;background:var(--bt-main);border:.5px solid var(--bt-line);max-height:112px;overflow:auto}
+.bt-import-disc-body{display:flex;flex-direction:column;gap:2px;margin-top:4px;padding:8px 12px;border-radius:10px;background:var(--bt-hover);max-height:112px;overflow:auto}
 .bt-import-detail-line{display:flex;align-items:baseline;gap:8px;padding:2px 0;min-width:0}
 .bt-import-detail-name{flex:none;max-width:52%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;line-height:16px;color:var(--bt-ink-2)}
-.bt-import-callout{display:flex;align-items:flex-start;gap:6px;padding:0 2px;font-size:11px;line-height:16px;color:var(--bt-ink-3)}
-.bt-import-callout svg{flex:none;width:13px;height:13px;margin-top:1px;color:var(--bt-ink-3)}
-.bt-import-status{align-items:center;text-align:center;padding-top:6px}
+.bt-import-callout{display:flex;align-items:flex-start;gap:6px;font-size:12px;line-height:16px;color:var(--bt-ink-3)}
+.bt-import-callout svg{flex:none;width:14px;height:14px;margin-top:1px;color:var(--bt-ink-3)}
+.bt-import-status{align-items:center;text-align:center}
 .bt-import-status .bt-import-actions{width:100%;justify-content:center;margin-top:6px}
-.bt-import-status-badge{width:38px;height:38px;border-radius:50%;corner-shape:round;display:inline-flex;align-items:center;justify-content:center;margin-bottom:2px;animation:bt-import-pop ${SPRING_POP.duration}ms ${SPRING_POP.easing}}
-.bt-import-status-badge svg{width:18px;height:18px}
+.bt-import-status-orbit{position:relative;width:54px;height:54px;display:inline-flex;align-items:center;justify-content:center;margin-bottom:4px}
+.bt-import-orbit-ring{position:absolute;inset:0;border-radius:50%;corner-shape:round;border:1.5px solid var(--bt-line);border-top-color:var(--bt-accent);box-sizing:border-box;animation:bt-import-spin .85s linear infinite}
+.bt-import-status-badge{width:44px;height:44px;border-radius:50%;corner-shape:round;display:inline-flex;align-items:center;justify-content:center;margin-bottom:4px;animation:bt-import-pop ${SPRING_POP.duration}ms ${SPRING_POP.easing}}
+.bt-import-status-badge svg{width:20px;height:20px}
 .bt-import-status-ok{background:color-mix(in srgb,var(--bt-green) 14%,transparent);color:var(--bt-green)}
 .bt-import-status-err{background:var(--bt-danger-soft);color:var(--bt-danger)}
-.bt-import-status-muted,.bt-import-status-busy{background:var(--bt-hover);color:var(--bt-ink-2)}
-.bt-import-spinner{width:18px;height:18px;border-radius:50%;corner-shape:round;border:2px solid var(--bt-line-2);border-top-color:var(--bt-accent);box-sizing:border-box;animation:bt-import-spin .75s linear infinite}
+.bt-import-status-muted{background:var(--bt-hover);color:var(--bt-ink-2)}
 @keyframes bt-import-spin{to{transform:rotate(360deg)}}
-.bt-import-problems{width:100%;box-sizing:border-box;padding:8px 10px;text-align:left}
+.bt-import-problems{width:100%;box-sizing:border-box;padding:10px 12px;border-radius:10px;background:var(--bt-hover);text-align:left;max-height:140px;overflow:auto}
 .bt-import-actions{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;margin-top:4px}
-.bt-import-primary{height:34px;padding:0 16px;border:0;border-radius:999px;background:var(--bt-accent);color:var(--bt-accent-ink);font:inherit;font-size:13px;font-weight:500;cursor:pointer;transition:opacity .12s ease,filter .12s ease,${spring(SPRING_TAP, 'scale')}}
+.bt-import-primary{height:36px;padding:0 18px;border:0;border-radius:999px;background:var(--bt-accent);color:var(--bt-accent-ink);font:inherit;font-size:13px;font-weight:500;cursor:pointer;transition:opacity .12s ease,filter .12s ease,${spring(SPRING_TAP, 'scale')}}
 .bt-import-primary:hover:not(:disabled){filter:brightness(1.06)}
 .bt-import-primary:active:not(:disabled){scale:.96}
 .bt-import-primary:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
 .bt-import-primary:disabled{opacity:.4;cursor:default}
-.bt-import-plain{height:34px;padding:0 14px;border:0;border-radius:999px;background:var(--bt-hover);color:var(--bt-ink);font:inherit;font-size:13px;font-weight:500;cursor:pointer;transition:background-color .12s ease,opacity .12s ease,${spring(SPRING_TAP, 'scale')}}
+.bt-import-plain{height:36px;padding:0 16px;border:0;border-radius:999px;background:var(--bt-hover);color:var(--bt-ink);font:inherit;font-size:13px;font-weight:500;cursor:pointer;transition:background-color .12s ease,opacity .12s ease,${spring(SPRING_TAP, 'scale')}}
 .bt-import-plain:hover:not(:disabled){background:var(--bt-active)}
 .bt-import-plain:active:not(:disabled){scale:.96}
 .bt-import-plain:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
 .bt-import-plain:disabled{opacity:.4;cursor:default}
-@media (prefers-reduced-motion:reduce){.bt-import-card,.bt-import-box,.bt-import-stage,.bt-import-cb svg,.bt-import-status-badge,.bt-import-skel-ico,.bt-import-skel-bar{animation:none!important}.bt-import-mini,.bt-import-primary,.bt-import-plain,.bt-import-chev,.bt-import-disc-chev{transition:none!important}}
+@media (prefers-reduced-motion:reduce){.bt-import-card,.bt-import-stage,.bt-import-cb svg,.bt-import-status-badge,.bt-import-skel-ico,.bt-import-skel-bar{animation:none!important}.bt-import-item,.bt-import-mini,.bt-import-primary,.bt-import-plain,.bt-import-chev,.bt-import-disc-chev{transition:none!important}}
 /* A viewport too narrow to leave the conversation its room: the panel covers it,
    and its close controls get a touch-sized target. */
 .bt-panel[data-overlay]{width:100vw}

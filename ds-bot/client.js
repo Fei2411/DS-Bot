@@ -17625,8 +17625,8 @@ function bodyOf(def, paint, flat = false) {
     return "";
   }
 }
-var eyeMarkup = ([cx, cy, w, h84, tilt]) => `<g transform="translate(${cx} ${cy}) rotate(${tilt})"><rect class="bt-eye" x="${-w / 2}" y="${-h84 / 2}" width="${w}" height="${h84}" rx="${w / 2}"/></g>`;
-var happyEyeMarkup = ([cx, cy, w, h84, tilt]) => `<g transform="translate(${cx} ${cy}) rotate(${tilt})"><path class="bt-eye-happy" opacity="0" d="M${-w * 0.62} ${h84 * 0.14}Q0 ${-h84 * 0.42} ${w * 0.62} ${h84 * 0.14}" fill="none" stroke="#000" stroke-width="${w * 0.5}" stroke-linecap="round"/></g>`;
+var eyeMarkup = ([cx, cy, w, h85, tilt]) => `<g transform="translate(${cx} ${cy}) rotate(${tilt})"><rect class="bt-eye" x="${-w / 2}" y="${-h85 / 2}" width="${w}" height="${h85}" rx="${w / 2}"/></g>`;
+var happyEyeMarkup = ([cx, cy, w, h85, tilt]) => `<g transform="translate(${cx} ${cy}) rotate(${tilt})"><path class="bt-eye-happy" opacity="0" d="M${-w * 0.62} ${h85 * 0.14}Q0 ${-h85 * 0.42} ${w * 0.62} ${h85 * 0.14}" fill="none" stroke="#000" stroke-width="${w * 0.5}" stroke-linecap="round"/></g>`;
 var maskBox = (size) => `maskUnits="userSpaceOnUse" x="${-size}" y="${-size}" width="${size * 3}" height="${size * 3}"`;
 var holes = (def, eyes) => `<rect x="${-def.size}" y="${-def.size}" width="${def.size * 3}" height="${def.size * 3}" fill="#fff"/>${eyes}`;
 var MASK_ID = "%MASK%";
@@ -19208,12 +19208,12 @@ function liveSprings(apply2) {
     const dt = Math.min(0.5, Math.max(1e-3, (now - last) / 1e3));
     last = now;
     const steps = Math.ceil(dt * 240);
-    const h84 = dt / steps;
+    const h85 = dt / steps;
     let moving = false;
     for (const [key, value] of values) {
       for (let index = 0; index < steps; index += 1) {
-        value.v += (-value.k * (value.x - value.to) - value.c * value.v) * h84;
-        value.x += value.v * h84;
+        value.v += (-value.k * (value.x - value.to) - value.c * value.v) * h85;
+        value.x += value.v * h85;
       }
       if (Math.abs(value.x - value.to) < 0.05 && Math.abs(value.v) < 1) {
         value.x = value.to;
@@ -53811,13 +53811,303 @@ function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, a
   ];
 }
 
+// src/client/browser-marks.js
+var import_react82 = require("react");
+var nextGradId = 0;
+function useGradPrefix(tag) {
+  return (0, import_react82.useMemo)(() => `bt-bm-${tag}-${++nextGradId}`, [tag]);
+}
+var wrap = (size, children, viewBox = "0 0 24 24") => (0, import_react82.createElement)("svg", {
+  width: size,
+  height: size,
+  viewBox,
+  fill: "none",
+  "aria-hidden": true
+}, ...children);
+function ChromeMark({ size, colors }) {
+  const [top, right, left, core] = colors;
+  return wrap(size, [
+    (0, import_react82.createElement)("path", { key: "t", d: "M3.51 7.1A9.8 9.8 0 0 1 20.49 7.1H12a4.9 4.9 0 0 0-4.24 7.35Z", fill: top }),
+    (0, import_react82.createElement)("path", { key: "r", d: "M20.49 7.1A9.8 9.8 0 0 1 12 21.8l4.24-7.35A4.9 4.9 0 0 0 12 7.1Z", fill: right }),
+    (0, import_react82.createElement)("path", { key: "l", d: "M12 21.8A9.8 9.8 0 0 1 3.51 7.1l4.25 7.35a4.9 4.9 0 0 0 8.48 0Z", fill: left }),
+    (0, import_react82.createElement)("circle", { key: "w", cx: 12, cy: 12, r: 5.05, fill: "#FFFFFF" }),
+    (0, import_react82.createElement)("circle", { key: "c", cx: 12, cy: 12, r: 3.9, fill: core })
+  ]);
+}
+var CHROME_PALETTES = {
+  chrome: ["#EA4335", "#FBBC04", "#34A853", "#4285F4"],
+  canary: ["#E37400", "#F9AB00", "#FDD663", "#F29900"],
+  chromium: ["#396BD7", "#6199F6", "#A8C7FA", "#4285F4"]
+};
+var SAFARI_TICKS = Array.from({ length: 16 }, (_, i) => {
+  const a = i * Math.PI / 8;
+  const major = i % 2 === 0;
+  const r1 = major ? 7.35 : 7.9;
+  const r2 = 8.95;
+  return {
+    key: i,
+    x1: (12 + r1 * Math.cos(a)).toFixed(2),
+    y1: (12 + r1 * Math.sin(a)).toFixed(2),
+    x2: (12 + r2 * Math.cos(a)).toFixed(2),
+    y2: (12 + r2 * Math.sin(a)).toFixed(2),
+    opacity: major ? 0.85 : 0.45
+  };
+});
+function SafariMark({ size }) {
+  const id = useGradPrefix("saf");
+  return wrap(size, [
+    (0, import_react82.createElement)(
+      "defs",
+      { key: "d" },
+      (0, import_react82.createElement)(
+        "linearGradient",
+        { id, x1: "12", y1: "2", x2: "12", y2: "22", gradientUnits: "userSpaceOnUse" },
+        (0, import_react82.createElement)("stop", { offset: "0%", stopColor: "#2AC6FF" }),
+        (0, import_react82.createElement)("stop", { offset: "100%", stopColor: "#1B6CE5" })
+      )
+    ),
+    (0, import_react82.createElement)("circle", { key: "bg", cx: 12, cy: 12, r: 10, fill: `url(#${id})` }),
+    ...SAFARI_TICKS.map((t2) => (0, import_react82.createElement)("line", {
+      key: `t${t2.key}`,
+      x1: t2.x1,
+      y1: t2.y1,
+      x2: t2.x2,
+      y2: t2.y2,
+      stroke: "#FFFFFF",
+      strokeWidth: 0.75,
+      strokeLinecap: "round",
+      strokeOpacity: t2.opacity
+    })),
+    (0, import_react82.createElement)("polygon", { key: "n1", points: "10.45,10.45 17.55,6.45 13.55,13.55", fill: "#FF3B30" }),
+    (0, import_react82.createElement)("polygon", { key: "n2", points: "10.45,10.45 6.45,17.55 13.55,13.55", fill: "#FFFFFF" }),
+    (0, import_react82.createElement)("circle", { key: "p", cx: 12, cy: 12, r: 0.85, fill: "#E5E7EB" })
+  ]);
+}
+function EdgeMark({ size }) {
+  const id = useGradPrefix("edg");
+  const g1 = `${id}-1`;
+  const g2 = `${id}-2`;
+  const g3 = `${id}-3`;
+  return wrap(size, [
+    (0, import_react82.createElement)(
+      "defs",
+      { key: "d" },
+      (0, import_react82.createElement)(
+        "linearGradient",
+        { id: g1, x1: "4", y1: "16", x2: "20", y2: "16", gradientUnits: "userSpaceOnUse" },
+        (0, import_react82.createElement)("stop", { offset: "0%", stopColor: "#0C59A4" }),
+        (0, import_react82.createElement)("stop", { offset: "100%", stopColor: "#114A8B" })
+      ),
+      (0, import_react82.createElement)(
+        "radialGradient",
+        { id: g2, cx: "9", cy: "14", r: "10", gradientUnits: "userSpaceOnUse" },
+        (0, import_react82.createElement)("stop", { offset: "0%", stopColor: "#1B9DE2" }),
+        (0, import_react82.createElement)("stop", { offset: "100%", stopColor: "#0078D4" })
+      ),
+      (0, import_react82.createElement)(
+        "linearGradient",
+        { id: g3, x1: "5", y1: "3", x2: "21", y2: "14", gradientUnits: "userSpaceOnUse" },
+        (0, import_react82.createElement)("stop", { offset: "0%", stopColor: "#35C1F1" }),
+        (0, import_react82.createElement)("stop", { offset: "55%", stopColor: "#25B8E6" }),
+        (0, import_react82.createElement)("stop", { offset: "100%", stopColor: "#4EE09B" })
+      )
+    ),
+    // Bottom navy curl
+    (0, import_react82.createElement)("path", {
+      key: "b",
+      d: "M20.6 16.5A9.9 9.9 0 0 1 6.3 20.1c2.4 1.1 5.6 1.1 8.3-.2 2.4-1.1 4.2-2.7 6-3.4Z",
+      fill: `url(#${g1})`
+    }),
+    // Left azure body
+    (0, import_react82.createElement)("path", {
+      key: "l",
+      d: "M11.6 2.1A9.9 9.9 0 0 0 2.1 12a9.9 9.9 0 0 0 9.9 9.9c2.7 0 5.3-1.1 7.1-2.9-2.8 1-5.8.7-8.1-.9-2.2-1.5-3.4-4-3.1-6.5.2-1.8 1.2-3.4 2.7-4.4 1.2-.8 2.8-1 4.1-.5-.9-2.5-3.1-4.6-3.1-4.6Z",
+      fill: `url(#${g2})`
+    }),
+    // Top-right mint-cyan wave crest
+    (0, import_react82.createElement)("path", {
+      key: "t",
+      d: "M12 2.1c5.1 0 9.4 3.8 9.9 8.8.1 1.2-.1 2.5-.7 3.5-1.4 2.4-4.7 3-7.3 2-1.8-.7-3.1-2.1-3.3-3.7-.2-1.3.4-2.6 1.5-3.2 1.1-.6 2.6-.4 3.4.5.4.5.6 1.1.5 1.8.8-.8 1.1-2 .7-3.2-.6-1.9-2.4-3.3-4.6-3.4-2.5-.1-4.9 1.3-6.1 3.5C7 5 9.3 2.1 12 2.1Z",
+      fill: `url(#${g3})`
+    })
+  ]);
+}
+function FirefoxMark({ size }) {
+  const id = useGradPrefix("ffx");
+  const gGlobe = `${id}-g`;
+  const gTail = `${id}-t`;
+  const gCrest = `${id}-c`;
+  return wrap(size, [
+    (0, import_react82.createElement)(
+      "defs",
+      { key: "d" },
+      (0, import_react82.createElement)(
+        "radialGradient",
+        { id: gGlobe, cx: "14", cy: "10", r: "8", gradientUnits: "userSpaceOnUse" },
+        (0, import_react82.createElement)("stop", { offset: "0%", stopColor: "#9059FF" }),
+        (0, import_react82.createElement)("stop", { offset: "60%", stopColor: "#5B2C91" }),
+        (0, import_react82.createElement)("stop", { offset: "100%", stopColor: "#312A75" })
+      ),
+      (0, import_react82.createElement)(
+        "linearGradient",
+        { id: gTail, x1: "20", y1: "4", x2: "5", y2: "21", gradientUnits: "userSpaceOnUse" },
+        (0, import_react82.createElement)("stop", { offset: "0%", stopColor: "#FFD60A" }),
+        (0, import_react82.createElement)("stop", { offset: "48%", stopColor: "#FF8A00" }),
+        (0, import_react82.createElement)("stop", { offset: "100%", stopColor: "#FF2D55" })
+      ),
+      (0, import_react82.createElement)(
+        "linearGradient",
+        { id: gCrest, x1: "18", y1: "3", x2: "10", y2: "13", gradientUnits: "userSpaceOnUse" },
+        (0, import_react82.createElement)("stop", { offset: "0%", stopColor: "#FFF066" }),
+        (0, import_react82.createElement)("stop", { offset: "100%", stopColor: "#FF7A00" })
+      )
+    ),
+    (0, import_react82.createElement)("circle", { key: "g", cx: 12.2, cy: 12.4, r: 6.1, fill: `url(#${gGlobe})` }),
+    (0, import_react82.createElement)("path", {
+      key: "f",
+      d: "M20.6 7.5c-.5-1.1-1.6-2.4-2.5-2.9.7 1.3 1 2.7.9 4.1-.3-1.2-1.1-2.5-2.3-3.4-1.3-1-2.6-1.3-3.6-1.4 1.6.9 2.2 2.4 2.1 3.7-.7-.4-1.7-.5-2.6-.2-1.8.6-3 2.3-2.9 4.2.1 2.1 1.7 3.7 3.8 3.9 1.6.1 3.1-.6 3.9-1.9-.6 2.1-2.4 3.7-4.8 3.8-3 .2-5.7-2-6-5-.2-2 .7-4 2.3-5.2-.9-.1-1.9.1-2.8.6.5-1.4 1.5-2.7 2.8-3.5-2.5.4-4.7 2-5.9 4.3A9.8 9.8 0 0 0 12 22c5.4 0 9.8-4.4 9.8-9.8 0-1.7-.4-3.3-1.2-4.7Z",
+      fill: `url(#${gTail})`
+    }),
+    (0, import_react82.createElement)("path", {
+      key: "c",
+      d: "M17.8 4.4c1.5 1.3 2.5 3.1 2.8 5.2-1-2.1-2.8-3.4-5.1-3.7 1-.7 1.8-1.1 2.3-1.5Z",
+      fill: `url(#${gCrest})`
+    })
+  ]);
+}
+function BraveMark({ size }) {
+  const id = useGradPrefix("brv");
+  return wrap(size, [
+    (0, import_react82.createElement)(
+      "defs",
+      { key: "d" },
+      (0, import_react82.createElement)(
+        "linearGradient",
+        { id, x1: "12", y1: "2", x2: "12", y2: "22", gradientUnits: "userSpaceOnUse" },
+        (0, import_react82.createElement)("stop", { offset: "0%", stopColor: "#FF7629" }),
+        (0, import_react82.createElement)("stop", { offset: "100%", stopColor: "#F3391E" })
+      )
+    ),
+    (0, import_react82.createElement)("path", {
+      key: "s",
+      d: "M12 2.4 18.8 5l1.1 2.3-1.1 1.7.8 2.4-2.2 6.8L12 21.8l-5.4-3.6-2.2-6.8.8-2.4-1.1-1.7L5.2 5 12 2.4Z",
+      fill: `url(#${id})`
+    }),
+    (0, import_react82.createElement)("path", {
+      key: "f",
+      d: "M12 6.5 8.1 8.4l.9 2.3 1.7-.7-.4 2.1 1.7 1.3 1.7-1.3-.4-2.1 1.7.7.9-2.3L12 6.5Zm0 8.5-2.6-1.4.8 3.2L12 18.4l1.8-1.6.8-3.2L12 15Z",
+      fill: "#FFFFFF"
+    })
+  ]);
+}
+function ArcMark({ size }) {
+  return wrap(size, [
+    (0, import_react82.createElement)("path", {
+      key: "a1",
+      d: "M5.2 19.6 10.6 4.4c.5-1.3 2.3-1.3 2.8 0l5.4 15.2a1.3 1.3 0 0 1-1.9 1.5c-1.5-.8-3.2-1.3-4.9-1.3s-3.4.5-4.9 1.3a1.3 1.3 0 0 1-1.9-1.5Z",
+      fill: "#3B5BFF"
+    }),
+    (0, import_react82.createElement)("path", {
+      key: "a2",
+      d: "M7.7 18.8 11.4 8.2c.2-.6 1-.6 1.2 0l3.7 10.6c-1.3-.5-2.8-.8-4.3-.8s-3 .3-4.3.8Z",
+      fill: "#89A4FF"
+    }),
+    (0, import_react82.createElement)("path", {
+      key: "a3",
+      d: "M9.8 18.1 12 12l2.2 6.1c-.7-.1-1.5-.2-2.2-.2s-1.5.1-2.2.2Z",
+      fill: "#FFFFFF"
+    })
+  ]);
+}
+function OperaMark({ size, gx }) {
+  const id = useGradPrefix("opr");
+  return wrap(size, [
+    (0, import_react82.createElement)(
+      "defs",
+      { key: "d" },
+      (0, import_react82.createElement)(
+        "linearGradient",
+        { id, x1: "12", y1: "2", x2: "12", y2: "22", gradientUnits: "userSpaceOnUse" },
+        (0, import_react82.createElement)("stop", { offset: "0%", stopColor: gx ? "#FF2A5F" : "#FF1B2D" }),
+        (0, import_react82.createElement)("stop", { offset: "100%", stopColor: gx ? "#C80D3E" : "#A70014" })
+      )
+    ),
+    (0, import_react82.createElement)("path", {
+      key: "o",
+      fillRule: "evenodd",
+      clipRule: "evenodd",
+      d: "M12 2.2a9.8 9.8 0 1 0 0 19.6 9.8 9.8 0 0 0 0-19.6Zm0 3.2c-2.5 0-4.3 2.9-4.3 6.6s1.8 6.6 4.3 6.6 4.3-2.9 4.3-6.6-1.8-6.6-4.3-6.6Z",
+      fill: `url(#${id})`
+    })
+  ]);
+}
+function VivaldiMark({ size }) {
+  return wrap(size, [
+    (0, import_react82.createElement)("rect", { key: "r", x: 2.2, y: 2.2, width: 19.6, height: 19.6, rx: 5.2, fill: "#EF3939" }),
+    (0, import_react82.createElement)("path", {
+      key: "v",
+      d: "M6.8 7.8a1.45 1.45 0 0 1 2.7-.6l2.4 4.8c.5 1 1.9 1 2.4 0l1.1-2.2a1.45 1.45 0 1 1 2.6 1.3l-4.6 8.6a1.55 1.55 0 0 1-2.7 0L6.8 9.1a1.5 1.5 0 0 1 0-1.3Z",
+      fill: "#FFFFFF"
+    })
+  ]);
+}
+function ZenMark({ size }) {
+  return wrap(size, [
+    (0, import_react82.createElement)("circle", { key: "c1", cx: 12, cy: 12, r: 9.2, stroke: "var(--bt-ink)", strokeWidth: 2 }),
+    (0, import_react82.createElement)("circle", { key: "c2", cx: 12, cy: 12, r: 5.6, stroke: "var(--bt-ink)", strokeWidth: 1.7 }),
+    (0, import_react82.createElement)("circle", { key: "c3", cx: 12, cy: 12, r: 2.4, stroke: "var(--bt-ink)", strokeWidth: 1.5 })
+  ]);
+}
+function FallbackBrowserMark({ size }) {
+  return wrap(size, [
+    (0, import_react82.createElement)("circle", { key: "c", cx: 12, cy: 12, r: 9.2, stroke: "var(--bt-ink-2)", strokeWidth: 1.6 }),
+    (0, import_react82.createElement)("path", { key: "p", d: "M3 12h18M12 2.8c2.6 2.5 3.9 5.6 3.9 9.2s-1.3 6.7-3.9 9.2c-2.6-2.5-3.9-5.6-3.9-9.2S9.4 5.3 12 2.8Z", stroke: "var(--bt-ink-2)", strokeWidth: 1.4 })
+  ]);
+}
+function browserKindOf(source) {
+  const kind = String(source?.kind || "").toLowerCase();
+  if (kind) return kind;
+  const idPrefix = String(source?.id || "").split(":")[0].toLowerCase();
+  if (idPrefix) return idPrefix;
+  const name = String(source?.name || source?.label || "").toLowerCase();
+  if (name.includes("canary")) return "chrome-canary";
+  if (name.includes("chromium")) return "chromium";
+  if (name.includes("chrome")) return "chrome";
+  if (name.includes("edge")) return "edge";
+  if (name.includes("safari")) return "safari";
+  if (name.includes("firefox")) return "firefox";
+  if (name.includes("brave")) return "brave";
+  if (name.includes("arc")) return "arc";
+  if (name.includes("opera gx")) return "opera-gx";
+  if (name.includes("opera")) return "opera";
+  if (name.includes("vivaldi")) return "vivaldi";
+  if (name.includes("zen")) return "zen";
+  return "";
+}
+function BrowserMark({ source, size = 24 }) {
+  const kind = browserKindOf(source);
+  if (kind === "chrome-canary") return (0, import_react82.createElement)(ChromeMark, { size, colors: CHROME_PALETTES.canary });
+  if (kind === "chromium") return (0, import_react82.createElement)(ChromeMark, { size, colors: CHROME_PALETTES.chromium });
+  if (kind.startsWith("chrome")) return (0, import_react82.createElement)(ChromeMark, { size, colors: CHROME_PALETTES.chrome });
+  if (kind.startsWith("edge")) return (0, import_react82.createElement)(EdgeMark, { size });
+  if (kind === "safari") return (0, import_react82.createElement)(SafariMark, { size });
+  if (kind === "firefox") return (0, import_react82.createElement)(FirefoxMark, { size });
+  if (kind === "brave") return (0, import_react82.createElement)(BraveMark, { size });
+  if (kind === "arc") return (0, import_react82.createElement)(ArcMark, { size });
+  if (kind === "opera-gx") return (0, import_react82.createElement)(OperaMark, { size, gx: true });
+  if (kind === "opera") return (0, import_react82.createElement)(OperaMark, { size, gx: false });
+  if (kind === "vivaldi") return (0, import_react82.createElement)(VivaldiMark, { size });
+  if (kind === "zen") return (0, import_react82.createElement)(ZenMark, { size });
+  return (0, import_react82.createElement)(FallbackBrowserMark, { size });
+}
+
 // src/client/browser-overlap.js
 function rectsOverlap(a, b) {
   return a.width > 0 && a.height > 0 && b.width > 0 && b.height > 0 && a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
 }
 
 // src/client/browser-pane.js
-var import_react82 = require("react");
+var import_react83 = require("react");
 var import_react_dom12 = require("react-dom");
 var PANEL_LINGER_MS = 300;
 var WIDTH_KEY = STORAGE.browserWidth;
@@ -53829,10 +54119,10 @@ var READ_FLASH_MS = 2400;
 var EMPTY_PAGE = { url: "", title: "", favicon: null, loading: false, canGoBack: false, canGoForward: false, error: null, excerpt: "" };
 var EMPTY_TABS2 = { ids: [], active: null };
 var icon = (paths) => function BrowserIcon() {
-  return (0, import_react82.createElement)(
+  return (0, import_react83.createElement)(
     "svg",
     { width: 16, height: 16, viewBox: "0 0 20 20", fill: "none", stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true },
-    paths.map((d, index) => (0, import_react82.createElement)("path", { key: index, d }))
+    paths.map((d, index) => (0, import_react83.createElement)("path", { key: index, d }))
   );
 };
 var GlobeIcon2 = icon(["M10 3a7 7 0 1 0 0 14 7 7 0 0 0 0-14z", "M3 10h14", "M10 3c2 2.2 2.9 4.5 2.9 7S12 14.8 10 17c-2-2.2-2.9-4.5-2.9-7S8 5.2 10 3z"]);
@@ -53845,15 +54135,14 @@ var PlusTabIcon = icon(["M10 5v10M5 10h10"]);
 var LockIcon2 = icon(["M6.5 9V7a3.5 3.5 0 0 1 7 0v2", "M5.5 9h9v7h-9z"]);
 var ImportIcon = icon(["M10 3.5v8", "M6.75 8.5L10 11.75l3.25-3.25", "M4.5 13.25v1.25A1.5 1.5 0 0 0 6 16h8a1.5 1.5 0 0 0 1.5-1.5v-1.25"]);
 var FileIcon = icon(["M6 3.5h5.2a1 1 0 0 1 .7.3l2.3 2.3a1 1 0 0 1 .3.7V15a1.5 1.5 0 0 1-1.5 1.5H6A1.5 1.5 0 0 1 4.5 15V5A1.5 1.5 0 0 1 6 3.5z", "M11 3.5V6a1 1 0 0 0 1 1h2.5"]);
-var WindowIcon = icon(["M3.5 6.5A2 2 0 0 1 5.5 4.5h9a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-9a2 2 0 0 1-2-2z", "M3.5 8h13"]);
 var PasteIcon = icon(["M7.5 3.75h5a1 1 0 0 1 1 1v1a1 1 0 0 1-1 1h-5a1 1 0 0 1-1-1v-1a1 1 0 0 1 1-1z", "M6.5 5.25H6A1.5 1.5 0 0 0 4.5 6.75v8A1.5 1.5 0 0 0 6 16.25h8a1.5 1.5 0 0 0 1.5-1.5v-8A1.5 1.5 0 0 0 14 5.25h-.5"]);
 function siteMatchesHost(site, host) {
   const s = String(site ?? "").replace(/^\.+/, "").toLowerCase();
-  const h84 = String(host ?? "").replace(/^\.+/, "").toLowerCase();
-  if (!s || !h84) return false;
-  if (s === h84) return true;
-  if (s.includes(".") && h84.endsWith(`.${s}`)) return true;
-  if (h84.includes(".") && s.endsWith(`.${h84}`)) return true;
+  const h85 = String(host ?? "").replace(/^\.+/, "").toLowerCase();
+  if (!s || !h85) return false;
+  if (s === h85) return true;
+  if (s.includes(".") && h85.endsWith(`.${s}`)) return true;
+  if (h85.includes(".") && s.endsWith(`.${h85}`)) return true;
   return false;
 }
 var hostOfUrl = (url) => {
@@ -53885,9 +54174,9 @@ function orderImportSources(sources, lastId) {
   return [sources[index], ...sources.slice(0, index), ...sources.slice(index + 1)];
 }
 function Favicon({ src, className }) {
-  const [failed, setFailed] = (0, import_react82.useState)(null);
-  if (!src || failed === src) return (0, import_react82.createElement)("span", { className: `${className} bt-ptab-globe` }, (0, import_react82.createElement)(GlobeIcon2));
-  return (0, import_react82.createElement)("img", { className, src, alt: "", "aria-hidden": true, onError: () => setFailed(src) });
+  const [failed, setFailed] = (0, import_react83.useState)(null);
+  if (!src || failed === src) return (0, import_react83.createElement)("span", { className: `${className} bt-ptab-globe` }, (0, import_react83.createElement)(GlobeIcon2));
+  return (0, import_react83.createElement)("img", { className, src, alt: "", "aria-hidden": true, onError: () => setFailed(src) });
 }
 var savedWidth = () => {
   try {
@@ -53902,21 +54191,21 @@ var fitWidth = (width, [low, high]) => Math.round(Math.max(low, Math.min(width, 
 var shortAddress = (url) => String(url ?? "").replace(/^https?:\/\//i, "").replace(/^www\./i, "").replace(/\/$/, "");
 var tabLabel = (page) => page.title || shortAddress(page.url) || t("New tab");
 function PanelMenu({ items, className, "aria-label": label }) {
-  const [open, setOpen] = (0, import_react82.useState)(false);
+  const [open, setOpen] = (0, import_react83.useState)(false);
   const [shown, leaving] = useLinger(open, 120);
-  const wrap = (0, import_react82.useRef)(null);
-  const button = (0, import_react82.useRef)(null);
+  const wrap2 = (0, import_react83.useRef)(null);
+  const button = (0, import_react83.useRef)(null);
   useEscape(() => {
     setOpen(false);
     button.current?.focus();
   }, open);
-  (0, import_react82.useEffect)(() => {
+  (0, import_react83.useEffect)(() => {
     if (!open) return void 0;
     const onDown = (event) => {
-      if (wrap.current && !wrap.current.contains(event.target)) setOpen(false);
+      if (wrap2.current && !wrap2.current.contains(event.target)) setOpen(false);
     };
     const onKey = (event) => {
-      stepMenuFocus(wrap.current, event, button.current);
+      stepMenuFocus(wrap2.current, event, button.current);
     };
     window.addEventListener("pointerdown", onDown);
     window.addEventListener("keydown", onKey);
@@ -53926,10 +54215,10 @@ function PanelMenu({ items, className, "aria-label": label }) {
     };
   }, [open]);
   if (items.length === 0) return null;
-  return (0, import_react82.createElement)(
+  return (0, import_react83.createElement)(
     "span",
-    { className: "bt-pmenu", ref: wrap },
-    (0, import_react82.createElement)("button", {
+    { className: "bt-pmenu", ref: wrap2 },
+    (0, import_react83.createElement)("button", {
       ref: button,
       type: "button",
       className,
@@ -53938,11 +54227,11 @@ function PanelMenu({ items, className, "aria-label": label }) {
       "aria-haspopup": "menu",
       "aria-expanded": open,
       onClick: () => setOpen((value) => !value)
-    }, (0, import_react82.createElement)(DotsIcon)),
-    shown ? (0, import_react82.createElement)(
+    }, (0, import_react83.createElement)(DotsIcon)),
+    shown ? (0, import_react83.createElement)(
       "div",
       { className: "bt-pmenu-pop", role: "menu", "data-leaving": leaving || void 0 },
-      items.map((item, index) => item.sep ? (0, import_react82.createElement)("span", { key: `sep-${index}`, className: "bt-pmenu-sep", role: "separator" }) : (0, import_react82.createElement)("button", {
+      items.map((item, index) => item.sep ? (0, import_react83.createElement)("span", { key: `sep-${index}`, className: "bt-pmenu-sep", role: "separator" }) : (0, import_react83.createElement)("button", {
         key: item.key,
         type: "button",
         role: "menuitem",
@@ -53951,7 +54240,7 @@ function PanelMenu({ items, className, "aria-label": label }) {
           setOpen(false);
           item.onPick();
         }
-      }, (0, import_react82.createElement)(item.icon), (0, import_react82.createElement)("span", null, item.label)))
+      }, (0, import_react83.createElement)(item.icon), (0, import_react83.createElement)("span", null, item.label)))
     ) : null
   );
 }
@@ -53977,12 +54266,12 @@ function menuItemFor(key, actions, subject) {
 var sideTitle = (chat) => chat?.entries?.[0]?.question?.trim() || t("Side chat");
 function PanelStrip({ bot, roomSubject, subject, view, ids, active, sides, side, task, canBrowse, reading, onView, actions, useBrowserPages }) {
   const pages = useBrowserPages((map) => map);
-  const wrap = (0, import_react82.useRef)(null);
-  const ind = (0, import_react82.useRef)(null);
-  const spot = (0, import_react82.useRef)(null);
-  const under = (0, import_react82.useRef)(null);
-  const watcher = (0, import_react82.useRef)(null);
-  const observed = (0, import_react82.useRef)(/* @__PURE__ */ new Set());
+  const wrap2 = (0, import_react83.useRef)(null);
+  const ind = (0, import_react83.useRef)(null);
+  const spot = (0, import_react83.useRef)(null);
+  const under = (0, import_react83.useRef)(null);
+  const watcher = (0, import_react83.useRef)(null);
+  const observed = (0, import_react83.useRef)(/* @__PURE__ */ new Set());
   const stripKey = [
     bot?.name ?? roomSubject?.name ?? "",
     ids.map((tabId) => `${tabId}:${tabLabel(pages[tabId] ?? EMPTY_PAGE)}`).join("\0"),
@@ -53991,7 +54280,7 @@ function PanelStrip({ bot, roomSubject, subject, view, ids, active, sides, side,
   ].join("");
   const syncObserved = () => {
     const observer = watcher.current;
-    const box = wrap.current;
+    const box = wrap2.current;
     if (!observer || !box) return;
     const next = new Set(box.querySelectorAll(".bt-ptab-bot, .bt-ptab-wrap"));
     for (const el of observed.current) {
@@ -54007,8 +54296,8 @@ function PanelStrip({ bot, roomSubject, subject, view, ids, active, sides, side,
       }
     }
   };
-  (0, import_react82.useLayoutEffect)(() => {
-    const box = wrap.current;
+  (0, import_react83.useLayoutEffect)(() => {
+    const box = wrap2.current;
     const capsule = ind.current;
     if (!box || !capsule) return void 0;
     const node = view === "details" ? box.querySelector(".bt-ptab-bot") : view === "side" ? box.querySelector(`[data-side="${side}"]`) : view === "task" && task ? box.querySelector(`[data-task="${task.id}"]`) : box.querySelector(`[data-tab="${active}"]`);
@@ -54037,8 +54326,8 @@ function PanelStrip({ bot, roomSubject, subject, view, ids, active, sides, side,
       trail.cancel();
     };
   }, [view, active, side, stripKey]);
-  (0, import_react82.useEffect)(() => {
-    const box = wrap.current;
+  (0, import_react83.useEffect)(() => {
+    const box = wrap2.current;
     if (!box) return void 0;
     const observer = new ResizeObserver(() => {
       const node = under.current;
@@ -54063,13 +54352,13 @@ function PanelStrip({ bot, roomSubject, subject, view, ids, active, sides, side,
     canTerminal: actions.canOpenTerminal?.() === true,
     canFiles: actions.canOpenFiles?.() === true
   }).map((key) => menuItemFor(key, actions, subject));
-  return (0, import_react82.createElement)(
+  return (0, import_react83.createElement)(
     "div",
     { className: "bt-ptabs", role: "tablist", "data-window-drag": true, "aria-label": t("Panel tabs") },
-    (0, import_react82.createElement)(
+    (0, import_react83.createElement)(
       "div",
-      { className: "bt-ptabs-in", ref: wrap },
-      (0, import_react82.createElement)(
+      { className: "bt-ptabs-in", ref: wrap2 },
+      (0, import_react83.createElement)(
         "button",
         {
           type: "button",
@@ -54079,13 +54368,13 @@ function PanelStrip({ bot, roomSubject, subject, view, ids, active, sides, side,
           title: bot?.name ?? roomSubject?.name ?? t("Details"),
           onClick: () => onView("details")
         },
-        bot ? (0, import_react82.createElement)(BotMark, { bot, size: 20, state: reading ? "searching" : "idle" }) : null,
-        view === "details" || !bot ? (0, import_react82.createElement)("span", { className: "bt-ptab-name" }, bot?.name ?? roomSubject?.name ?? t("Details")) : null
+        bot ? (0, import_react83.createElement)(BotMark, { bot, size: 20, state: reading ? "searching" : "idle" }) : null,
+        view === "details" || !bot ? (0, import_react83.createElement)("span", { className: "bt-ptab-name" }, bot?.name ?? roomSubject?.name ?? t("Details")) : null
       ),
       ids.map((tabId) => {
         const page = pages[tabId] ?? EMPTY_PAGE;
         const on = view === "browser" && tabId === active;
-        return (0, import_react82.createElement)(
+        return (0, import_react83.createElement)(
           "div",
           {
             key: tabId,
@@ -54094,7 +54383,7 @@ function PanelStrip({ bot, roomSubject, subject, view, ids, active, sides, side,
             "data-selected": on || void 0,
             className: "bt-ptab-wrap"
           },
-          (0, import_react82.createElement)(
+          (0, import_react83.createElement)(
             "button",
             {
               type: "button",
@@ -54113,10 +54402,10 @@ function PanelStrip({ bot, roomSubject, subject, view, ids, active, sides, side,
                 }
               }
             },
-            (0, import_react82.createElement)(Favicon, { src: page.favicon, className: "bt-ptab-fav" }),
-            (0, import_react82.createElement)("span", { className: "bt-ptab-title" }, tabLabel(page))
+            (0, import_react83.createElement)(Favicon, { src: page.favicon, className: "bt-ptab-fav" }),
+            (0, import_react83.createElement)("span", { className: "bt-ptab-title" }, tabLabel(page))
           ),
-          (0, import_react82.createElement)("button", {
+          (0, import_react83.createElement)("button", {
             type: "button",
             className: "bt-ptab-x",
             "aria-label": t("Close tab"),
@@ -54129,7 +54418,7 @@ function PanelStrip({ bot, roomSubject, subject, view, ids, active, sides, side,
       }),
       sides.map((chat) => {
         const on = view === "side" && chat.id === side;
-        return (0, import_react82.createElement)(
+        return (0, import_react83.createElement)(
           "div",
           {
             key: chat.id,
@@ -54138,7 +54427,7 @@ function PanelStrip({ bot, roomSubject, subject, view, ids, active, sides, side,
             "data-selected": on || void 0,
             className: "bt-ptab-wrap bt-ptab-side"
           },
-          (0, import_react82.createElement)(
+          (0, import_react83.createElement)(
             "button",
             {
               type: "button",
@@ -54154,10 +54443,10 @@ function PanelStrip({ bot, roomSubject, subject, view, ids, active, sides, side,
                 }
               }
             },
-            (0, import_react82.createElement)("span", { className: "bt-ptab-globe", "aria-hidden": true }, (0, import_react82.createElement)(SideIcon)),
-            (0, import_react82.createElement)("span", { className: "bt-ptab-title" }, sideTitle(chat))
+            (0, import_react83.createElement)("span", { className: "bt-ptab-globe", "aria-hidden": true }, (0, import_react83.createElement)(SideIcon)),
+            (0, import_react83.createElement)("span", { className: "bt-ptab-title" }, sideTitle(chat))
           ),
-          (0, import_react82.createElement)("button", {
+          (0, import_react83.createElement)("button", {
             type: "button",
             className: "bt-ptab-x",
             "aria-label": t("Close side chat"),
@@ -54168,7 +54457,7 @@ function PanelStrip({ bot, roomSubject, subject, view, ids, active, sides, side,
           }, "×")
         );
       }),
-      task ? (0, import_react82.createElement)(
+      task ? (0, import_react83.createElement)(
         "div",
         {
           key: `task:${task.id}`,
@@ -54177,7 +54466,7 @@ function PanelStrip({ bot, roomSubject, subject, view, ids, active, sides, side,
           "data-selected": view === "task" || void 0,
           className: "bt-ptab-wrap bt-ptab-side"
         },
-        (0, import_react82.createElement)(
+        (0, import_react83.createElement)(
           "button",
           {
             type: "button",
@@ -54193,10 +54482,10 @@ function PanelStrip({ bot, roomSubject, subject, view, ids, active, sides, side,
               }
             }
           },
-          (0, import_react82.createElement)("span", { className: "bt-task-dot", "data-status": task.status, "aria-hidden": true }),
-          (0, import_react82.createElement)("span", { className: "bt-ptab-title" }, task.title)
+          (0, import_react83.createElement)("span", { className: "bt-task-dot", "data-status": task.status, "aria-hidden": true }),
+          (0, import_react83.createElement)("span", { className: "bt-ptab-title" }, task.title)
         ),
-        (0, import_react82.createElement)("button", {
+        (0, import_react83.createElement)("button", {
           type: "button",
           className: "bt-ptab-x",
           "aria-label": t("Close"),
@@ -54206,11 +54495,11 @@ function PanelStrip({ bot, roomSubject, subject, view, ids, active, sides, side,
           }
         }, "×")
       ) : null,
-      (0, import_react82.createElement)("span", { ref: ind, className: "bt-ptab-ind", "aria-hidden": true })
+      (0, import_react83.createElement)("span", { ref: ind, className: "bt-ptab-ind", "aria-hidden": true })
     ),
     // The `···` and Close stay outside the scrolling tabs, so a narrow panel keeps both.
-    items.length > 0 ? (0, import_react82.createElement)(PanelMenu, { items, className: "bt-ptab-new", "aria-label": t("More") }) : null,
-    (0, import_react82.createElement)("button", { type: "button", className: "bt-icon-btn bt-ptab-close", "aria-label": t("Close panel"), title: t("Close panel"), onClick: () => actions.closePanel() }, (0, import_react82.createElement)(CloseIcon3))
+    items.length > 0 ? (0, import_react83.createElement)(PanelMenu, { items, className: "bt-ptab-new", "aria-label": t("More") }) : null,
+    (0, import_react83.createElement)("button", { type: "button", className: "bt-icon-btn bt-ptab-close", "aria-label": t("Close panel"), title: t("Close panel"), onClick: () => actions.closePanel() }, (0, import_react83.createElement)(CloseIcon3))
   );
 }
 var OVERLAY_SELECTOR = '[role="dialog"],[role="menu"],[role="listbox"]';
@@ -54238,21 +54527,21 @@ function shouldCheckBrowserCover(records) {
 }
 function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, hold }) {
   const page = useBrowserPages((pages) => pages[tabId ?? ""]) ?? EMPTY_PAGE;
-  const frame2 = (0, import_react82.useRef)(null);
-  const input = (0, import_react82.useRef)(null);
-  const importBoxRef = (0, import_react82.useRef)(null);
-  const [draft, setDraft] = (0, import_react82.useState)(null);
-  const [covered, setCovered] = (0, import_react82.useState)(false);
+  const frame2 = (0, import_react83.useRef)(null);
+  const input = (0, import_react83.useRef)(null);
+  const importBoxRef = (0, import_react83.useRef)(null);
+  const [draft, setDraft] = (0, import_react83.useState)(null);
+  const [covered, setCovered] = (0, import_react83.useState)(false);
   const imports = actions.browserImport;
-  const [flow, setFlow] = (0, import_react82.useState)(null);
+  const [flow, setFlow] = (0, import_react83.useState)(null);
   const importStageKey = flow === null ? null : flow === "menu" ? "menu" : flow.stage;
   useMorph(importBoxRef, importStageKey);
-  const flowRef = (0, import_react82.useRef)(null);
-  const reqRef = (0, import_react82.useRef)(0);
-  const liveReqIdRef = (0, import_react82.useRef)(null);
-  const [sources, setSources] = (0, import_react82.useState)(null);
-  const [lastSourceId, setLastSourceId] = (0, import_react82.useState)(lastImportSource);
-  const [busy, setBusy] = (0, import_react82.useState)(false);
+  const flowRef = (0, import_react83.useRef)(null);
+  const reqRef = (0, import_react83.useRef)(0);
+  const liveReqIdRef = (0, import_react83.useRef)(null);
+  const [sources, setSources] = (0, import_react83.useState)(null);
+  const [lastSourceId, setLastSourceId] = (0, import_react83.useState)(lastImportSource);
+  const [busy, setBusy] = (0, import_react83.useState)(false);
   const setFlowTracked = (next) => {
     flowRef.current = typeof next === "function" ? next(flowRef.current) : next;
     setFlow(flowRef.current);
@@ -54267,7 +54556,7 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
     });
   };
   const showGuest = landed && !leaving && !covered && Boolean(page.url) && !page.error && flow === null;
-  (0, import_react82.useEffect)(() => {
+  (0, import_react83.useEffect)(() => {
     let raf = 0;
     const update = () => {
       raf = 0;
@@ -54290,7 +54579,7 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
       window.removeEventListener("resize", schedule);
     };
   }, []);
-  (0, import_react82.useEffect)(() => {
+  (0, import_react83.useEffect)(() => {
     reqRef.current += 1;
     cancelPendingImport();
     setFlowTracked(null);
@@ -54299,7 +54588,7 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
       cancelPendingImport();
     };
   }, [tabId]);
-  const sourcesReqRef = (0, import_react82.useRef)(0);
+  const sourcesReqRef = (0, import_react83.useRef)(0);
   const refreshSources = () => {
     if (!imports) return;
     const req = ++sourcesReqRef.current;
@@ -54423,7 +54712,7 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
     cancelPendingImport();
     setFlowTracked(null);
   };
-  (0, import_react82.useLayoutEffect)(() => {
+  (0, import_react83.useLayoutEffect)(() => {
     const element = frame2.current;
     if (!element || leaving || !tabId) {
       void actions.browserShow(null);
@@ -54449,7 +54738,7 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
       window.removeEventListener("resize", schedule);
     };
   }, [tabId, showGuest, leaving]);
-  (0, import_react82.useEffect)(() => {
+  (0, import_react83.useEffect)(() => {
     setDraft(null);
     if (landed && !page.url) input.current?.focus();
   }, [tabId, landed]);
@@ -54469,38 +54758,38 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
     input.current?.blur();
   }, editing);
   const secure = /^https:/i.test(page.url);
-  return (0, import_react82.createElement)(
+  return (0, import_react83.createElement)(
     "div",
     { className: "bt-panel-view bt-panel-browser", "aria-label": t("{name}'s browser", { name: bot.name }) },
-    actions.browserTakeover ? (0, import_react82.createElement)(
+    actions.browserTakeover ? (0, import_react83.createElement)(
       "div",
       { className: "bt-browser-takeover", "data-held": hold?.by === "user" || void 0 },
-      (0, import_react82.createElement)("span", null, hold?.by === "user" ? t("You control this browser") : hold?.by === "bot" ? t("The Bot handed this browser to you: {reason}", { reason: hold.reason }) : t("The Bot controls this browser")),
-      hold?.by ? (0, import_react82.createElement)("button", { type: "button", onClick: () => void actions.browserGiveBack(bot.id) }, t("Give back")) : (0, import_react82.createElement)(
+      (0, import_react83.createElement)("span", null, hold?.by === "user" ? t("You control this browser") : hold?.by === "bot" ? t("The Bot handed this browser to you: {reason}", { reason: hold.reason }) : t("The Bot controls this browser")),
+      hold?.by ? (0, import_react83.createElement)("button", { type: "button", onClick: () => void actions.browserGiveBack(bot.id) }, t("Give back")) : (0, import_react83.createElement)(
         "span",
         { className: "bt-browser-takeover-actions" },
-        (0, import_react82.createElement)("button", { type: "button", onClick: () => void actions.browserTakeover(bot.id) }, t("Take over")),
-        (0, import_react82.createElement)("button", { type: "button", onClick: () => void actions.browserStop(bot.id) }, t("Stop"))
+        (0, import_react83.createElement)("button", { type: "button", onClick: () => void actions.browserTakeover(bot.id) }, t("Take over")),
+        (0, import_react83.createElement)("button", { type: "button", onClick: () => void actions.browserStop(bot.id) }, t("Stop"))
       )
     ) : null,
-    (0, import_react82.createElement)(
+    (0, import_react83.createElement)(
       "div",
       { className: "bt-browser-bar" },
-      (0, import_react82.createElement)("button", { type: "button", className: "bt-icon-btn", "aria-label": t("Back"), title: t("Back"), disabled: !page.canGoBack, onClick: () => actions.browserCommand(tabId, "back") }, (0, import_react82.createElement)(BackIcon)),
-      (0, import_react82.createElement)("button", { type: "button", className: "bt-icon-btn", "aria-label": t("Forward"), title: t("Forward"), disabled: !page.canGoForward, onClick: () => actions.browserCommand(tabId, "forward") }, (0, import_react82.createElement)(ForwardIcon)),
-      (0, import_react82.createElement)("button", {
+      (0, import_react83.createElement)("button", { type: "button", className: "bt-icon-btn", "aria-label": t("Back"), title: t("Back"), disabled: !page.canGoBack, onClick: () => actions.browserCommand(tabId, "back") }, (0, import_react83.createElement)(BackIcon)),
+      (0, import_react83.createElement)("button", { type: "button", className: "bt-icon-btn", "aria-label": t("Forward"), title: t("Forward"), disabled: !page.canGoForward, onClick: () => actions.browserCommand(tabId, "forward") }, (0, import_react83.createElement)(ForwardIcon)),
+      (0, import_react83.createElement)("button", {
         type: "button",
         className: "bt-icon-btn",
         disabled: !page.url,
         "aria-label": page.loading ? t("Stop") : t("Reload"),
         title: page.loading ? t("Stop") : t("Reload"),
         onClick: () => actions.browserCommand(tabId, page.loading ? "stop" : "reload")
-      }, (0, import_react82.createElement)(page.loading ? StopIcon : ReloadIcon)),
-      (0, import_react82.createElement)(
+      }, (0, import_react83.createElement)(page.loading ? StopIcon : ReloadIcon)),
+      (0, import_react83.createElement)(
         "form",
         { className: "bt-browser-address", onSubmit: go, "data-editing": editing || void 0 },
-        (0, import_react82.createElement)("span", { className: "bt-browser-scheme", "aria-hidden": true }, (0, import_react82.createElement)(secure && !editing ? LockIcon2 : GlobeIcon2)),
-        (0, import_react82.createElement)("input", {
+        (0, import_react83.createElement)("span", { className: "bt-browser-scheme", "aria-hidden": true }, (0, import_react83.createElement)(secure && !editing ? LockIcon2 : GlobeIcon2)),
+        (0, import_react83.createElement)("input", {
           ref: input,
           type: "text",
           spellCheck: false,
@@ -54526,14 +54815,14 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
           }
         })
       ),
-      (0, import_react82.createElement)("button", {
+      (0, import_react83.createElement)("button", {
         type: "button",
         className: "bt-icon-btn",
         "aria-label": t("New browser tab"),
         title: t("New browser tab"),
         onClick: () => actions.browserNewTab(bot.id)
-      }, (0, import_react82.createElement)(PlusTabIcon)),
-      imports ? (0, import_react82.createElement)("button", {
+      }, (0, import_react83.createElement)(PlusTabIcon)),
+      imports ? (0, import_react83.createElement)("button", {
         type: "button",
         className: "bt-icon-btn bt-import-btn",
         "aria-label": t("Import cookies"),
@@ -54545,13 +54834,13 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
           if (flow !== null) cancelImport();
           else openImport();
         }
-      }, (0, import_react82.createElement)(ImportIcon)) : null,
-      page.loading ? (0, import_react82.createElement)("span", { className: "bt-browser-progress", "aria-hidden": true }) : null
+      }, (0, import_react83.createElement)(ImportIcon)) : null,
+      page.loading ? (0, import_react83.createElement)("span", { className: "bt-browser-progress", "aria-hidden": true }) : null
     ),
-    (0, import_react82.createElement)(
+    (0, import_react83.createElement)(
       "div",
       { ref: frame2, className: "bt-browser-frame", "data-guest": showGuest || void 0 },
-      flow !== null ? (0, import_react82.createElement)(
+      flow !== null ? (0, import_react83.createElement)(
         "div",
         {
           className: "bt-import-card",
@@ -54561,10 +54850,10 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
             else cancelImport();
           }
         },
-        (0, import_react82.createElement)(
+        (0, import_react83.createElement)(
           "div",
           { ref: importBoxRef, className: "bt-import-box", "data-stage": importStageKey },
-          flow === "menu" ? (0, import_react82.createElement)(ImportMenu, {
+          flow === "menu" ? (0, import_react83.createElement)(ImportMenu, {
             sources: orderImportSources(sources, lastSourceId),
             lastSourceId,
             loading: sources === null,
@@ -54574,7 +54863,7 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
             onPaste: openPaste,
             onSource: pickSource,
             onClose: () => setFlowTracked(null)
-          }) : (0, import_react82.createElement)(ImportCard, {
+          }) : (0, import_react83.createElement)(ImportCard, {
             flow,
             page,
             busy,
@@ -54599,21 +54888,21 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
           })
         )
       ) : null,
-      flow === null && page.error ? (0, import_react82.createElement)(
+      flow === null && page.error ? (0, import_react83.createElement)(
         "div",
         { className: "bt-browser-empty" },
-        (0, import_react82.createElement)("div", { className: "bt-browser-empty-title" }, t("This page didn’t load")),
-        (0, import_react82.createElement)("div", { className: "bt-browser-empty-text" }, t(page.error)),
-        page.url ? (0, import_react82.createElement)("button", { type: "button", className: "bt-browser-retry", onClick: () => {
+        (0, import_react83.createElement)("div", { className: "bt-browser-empty-title" }, t("This page didn’t load")),
+        (0, import_react83.createElement)("div", { className: "bt-browser-empty-text" }, t(page.error)),
+        page.url ? (0, import_react83.createElement)("button", { type: "button", className: "bt-browser-retry", onClick: () => {
           void actions.browserNavigate(tabId, page.url);
         } }, t("Try again")) : null
-      ) : flow === null && !page.url ? (0, import_react82.createElement)(
+      ) : flow === null && !page.url ? (0, import_react83.createElement)(
         "div",
         { className: "bt-browser-empty" },
-        (0, import_react82.createElement)(BotMark, { bot, size: 48, state: "idle", live: true }),
-        (0, import_react82.createElement)("div", { className: "bt-browser-empty-title" }, t("{name}'s browser", { name: bot.name })),
-        (0, import_react82.createElement)("div", { className: "bt-browser-empty-text" }, t("Open a page here and {name} can read it with you. Logins and cookies stay with {name}; other Bots never see them.", { name: bot.name })),
-        imports ? (0, import_react82.createElement)("button", { type: "button", className: "bt-browser-retry", onClick: openImport }, t("Import cookies")) : null
+        (0, import_react83.createElement)(BotMark, { bot, size: 48, state: "idle", live: true }),
+        (0, import_react83.createElement)("div", { className: "bt-browser-empty-title" }, t("{name}'s browser", { name: bot.name })),
+        (0, import_react83.createElement)("div", { className: "bt-browser-empty-text" }, t("Open a page here and {name} can read it with you. Logins and cookies stay with {name}; other Bots never see them.", { name: bot.name })),
+        imports ? (0, import_react83.createElement)("button", { type: "button", className: "bt-browser-retry", onClick: openImport }, t("Import cookies")) : null
       ) : null
     )
   );
@@ -54630,43 +54919,38 @@ function importError(error) {
   if (error === "safari-corrupt") return t("Safari cookies could not be read. Try again or import from a file.");
   return String(error);
 }
-function sourceIconFor(source) {
-  const kind = String(source?.engine || source?.kind || "").toLowerCase();
-  if (kind === "safari") return CompassIcon;
-  if (kind === "firefox" || kind === "zen") return GlobeIcon2;
-  return WindowIcon;
-}
-function ImportHeader({ title, subtitle, onBack, onClose, busy }) {
-  return (0, import_react82.createElement)(
+function ImportHeader({ title, subtitle, mark: mark2, onBack, onClose, busy }) {
+  return (0, import_react83.createElement)(
     "div",
     { className: "bt-import-head" },
-    onBack ? (0, import_react82.createElement)("button", {
+    onBack ? (0, import_react83.createElement)("button", {
       type: "button",
       className: "bt-icon-btn bt-import-head-btn",
       "aria-label": t("Back"),
       title: t("Back"),
       disabled: busy,
       onClick: onBack
-    }, (0, import_react82.createElement)(ChevronLeftIcon)) : null,
-    (0, import_react82.createElement)(
+    }, (0, import_react83.createElement)(ChevronLeftIcon)) : null,
+    mark2 ? (0, import_react83.createElement)("span", { className: "bt-import-head-mark", "aria-hidden": true }, mark2) : null,
+    (0, import_react83.createElement)(
       "div",
       { className: "bt-import-head-text" },
-      (0, import_react82.createElement)("div", { className: "bt-import-title" }, title),
-      subtitle ? (0, import_react82.createElement)("div", { className: "bt-import-sub" }, subtitle) : null
+      (0, import_react83.createElement)("div", { className: "bt-import-title" }, title),
+      subtitle ? (0, import_react83.createElement)("div", { className: "bt-import-sub" }, subtitle) : null
     ),
-    onClose ? (0, import_react82.createElement)("button", {
+    onClose ? (0, import_react83.createElement)("button", {
       type: "button",
       className: "bt-icon-btn bt-import-head-btn",
       "aria-label": t("Close"),
       title: t("Close"),
       onClick: onClose
-    }, (0, import_react82.createElement)(CloseIcon3)) : null
+    }, (0, import_react83.createElement)(CloseIcon3)) : null
   );
 }
 function ImportMenu({ sources, lastSourceId, loading, busy, canPaste, onFile, onPaste, onSource, onClose }) {
-  const menuRef = (0, import_react82.useRef)(null);
+  const menuRef = (0, import_react83.useRef)(null);
   useEscape(onClose);
-  (0, import_react82.useEffect)(() => {
+  (0, import_react83.useEffect)(() => {
     const onKey = (event) => {
       stepMenuFocus(menuRef.current, event);
     };
@@ -54675,46 +54959,42 @@ function ImportMenu({ sources, lastSourceId, loading, busy, canPaste, onFile, on
       window.removeEventListener("keydown", onKey);
     };
   }, []);
-  return (0, import_react82.createElement)(
+  return (0, import_react83.createElement)(
     "div",
     { ref: menuRef, className: "bt-import-stage bt-import-menu", role: "menu", "aria-label": t("Import cookies") },
-    (0, import_react82.createElement)(ImportHeader, { title: t("Import cookies"), onClose }),
-    (0, import_react82.createElement)(
+    (0, import_react83.createElement)(ImportHeader, { title: t("Import cookies"), onClose }),
+    (0, import_react83.createElement)(
       "div",
       { className: "bt-import-section" },
-      (0, import_react82.createElement)("div", { className: "bt-import-label" }, t("Import from browser")),
-      loading ? (0, import_react82.createElement)(
+      (0, import_react83.createElement)("div", { className: "bt-import-label" }, t("Import from browser")),
+      loading ? (0, import_react83.createElement)(
         "div",
-        { className: "bt-import-group bt-import-skel-group", "aria-busy": true },
-        (0, import_react82.createElement)("span", { className: "bt-sr" }, t("Loading…")),
-        (0, import_react82.createElement)(
+        { className: "bt-import-rows", "aria-busy": true },
+        (0, import_react83.createElement)("span", { className: "bt-sr" }, t("Loading…")),
+        (0, import_react83.createElement)(
           "div",
           { className: "bt-import-skel-row" },
-          (0, import_react82.createElement)("span", { className: "bt-import-skel-ico" }),
-          (0, import_react82.createElement)(
+          (0, import_react83.createElement)("span", { className: "bt-import-skel-ico" }),
+          (0, import_react83.createElement)(
             "span",
             { className: "bt-import-skel-lines" },
-            (0, import_react82.createElement)("span", { className: "bt-import-skel-bar bt-import-skel-w1" }),
-            (0, import_react82.createElement)("span", { className: "bt-import-skel-bar bt-import-skel-w2" })
+            (0, import_react83.createElement)("span", { className: "bt-import-skel-bar bt-import-skel-w1" }),
+            (0, import_react83.createElement)("span", { className: "bt-import-skel-bar bt-import-skel-w2" })
           )
         ),
-        (0, import_react82.createElement)(
+        (0, import_react83.createElement)(
           "div",
           { className: "bt-import-skel-row" },
-          (0, import_react82.createElement)("span", { className: "bt-import-skel-ico" }),
-          (0, import_react82.createElement)(
+          (0, import_react83.createElement)("span", { className: "bt-import-skel-ico" }),
+          (0, import_react83.createElement)(
             "span",
             { className: "bt-import-skel-lines" },
-            (0, import_react82.createElement)("span", { className: "bt-import-skel-bar bt-import-skel-w3" })
+            (0, import_react83.createElement)("span", { className: "bt-import-skel-bar bt-import-skel-w3" })
           )
         )
-      ) : sources.length === 0 ? (0, import_react82.createElement)(
+      ) : sources.length === 0 ? (0, import_react83.createElement)("div", { className: "bt-import-menu-note" }, t("No browsers found")) : (0, import_react83.createElement)(
         "div",
-        { className: "bt-import-group" },
-        (0, import_react82.createElement)("div", { className: "bt-import-menu-note" }, t("No browsers found"))
-      ) : (0, import_react82.createElement)(
-        "div",
-        { className: "bt-import-group" },
+        { className: "bt-import-rows" },
         sources.map((source) => {
           const isLast = source.id === lastSourceId;
           const needsPerm = Boolean(source.needsPermission);
@@ -54723,8 +55003,7 @@ function ImportMenu({ sources, lastSourceId, loading, busy, canPaste, onFile, on
           const showFallback = !isLast && !needsPerm && !isReady && !hasCount && !source.email;
           const subline = source.email || (showFallback ? t("Browser profile") : null);
           const hasMeta = needsPerm || isReady || hasCount;
-          const Icon = sourceIconFor(source);
-          return (0, import_react82.createElement)(
+          return (0, import_react83.createElement)(
             "button",
             {
               key: source.id,
@@ -54735,77 +55014,68 @@ function ImportMenu({ sources, lastSourceId, loading, busy, canPaste, onFile, on
               title: source.email ? `${source.label} (${source.email})` : source.label,
               onClick: () => onSource(source)
             },
-            (0, import_react82.createElement)("span", { className: "bt-import-tile-ico", "aria-hidden": true }, (0, import_react82.createElement)(Icon)),
-            (0, import_react82.createElement)(
+            (0, import_react83.createElement)("span", { className: "bt-import-mark", "aria-hidden": true }, (0, import_react83.createElement)(BrowserMark, { source, size: 26 })),
+            (0, import_react83.createElement)(
               "span",
               { className: "bt-import-item-main" },
-              (0, import_react82.createElement)("span", { className: "bt-import-item-name" }, source.label),
-              subline || isLast ? (0, import_react82.createElement)(
+              (0, import_react83.createElement)("span", { className: "bt-import-item-name" }, source.label),
+              subline || isLast ? (0, import_react83.createElement)(
                 "span",
                 { className: "bt-import-item-subrow" },
-                isLast ? (0, import_react82.createElement)("span", { className: "bt-import-item-tag" }, t("Last used")) : null,
-                subline ? (0, import_react82.createElement)("span", { className: "bt-import-item-email" }, subline) : null
+                isLast ? (0, import_react83.createElement)("span", { className: "bt-import-item-tag" }, t("Last used")) : null,
+                subline ? (0, import_react83.createElement)("span", { className: "bt-import-item-email" }, subline) : null
               ) : null
             ),
-            hasMeta ? (0, import_react82.createElement)(
+            hasMeta ? (0, import_react83.createElement)(
               "span",
               { className: "bt-import-item-meta" },
-              needsPerm ? (0, import_react82.createElement)(
+              needsPerm ? (0, import_react83.createElement)(
                 "span",
                 { className: "bt-import-item-sub", "data-warn": true },
-                (0, import_react82.createElement)("span", { className: "bt-import-dot", "aria-hidden": true }),
+                (0, import_react83.createElement)("span", { className: "bt-import-dot", "aria-hidden": true }),
                 t("Permission needed")
               ) : null,
-              isReady ? (0, import_react82.createElement)(
+              isReady ? (0, import_react83.createElement)(
                 "span",
                 { className: "bt-import-item-sub", "data-ready": true },
-                (0, import_react82.createElement)("span", { className: "bt-import-dot", "aria-hidden": true }),
+                (0, import_react83.createElement)("span", { className: "bt-import-dot", "aria-hidden": true }),
                 t("Ready")
               ) : null,
-              hasCount ? (0, import_react82.createElement)("span", { className: "bt-import-item-sub" }, t("{count} cookies", { count: source.cookieCount })) : null
+              hasCount ? (0, import_react83.createElement)("span", { className: "bt-import-item-sub" }, t("{count} cookies", { count: source.cookieCount })) : null
             ) : null,
-            (0, import_react82.createElement)("span", { className: "bt-import-chev", "aria-hidden": true }, (0, import_react82.createElement)(ChevronRightIcon))
+            (0, import_react83.createElement)("span", { className: "bt-import-chev", "aria-hidden": true }, (0, import_react83.createElement)(ChevronRightIcon))
           );
         })
       )
     ),
-    (0, import_react82.createElement)(
+    (0, import_react83.createElement)("div", { className: "bt-import-sep", role: "separator" }),
+    (0, import_react83.createElement)(
       "div",
-      { className: "bt-import-group" },
-      (0, import_react82.createElement)(
+      { className: "bt-import-rows bt-import-alt-rows" },
+      (0, import_react83.createElement)(
         "button",
         { type: "button", className: "bt-import-item bt-import-item-alt", role: "menuitem", disabled: busy, onClick: onFile },
-        (0, import_react82.createElement)("span", { className: "bt-import-tile-ico", "aria-hidden": true }, (0, import_react82.createElement)(FileIcon)),
-        (0, import_react82.createElement)(
-          "span",
-          { className: "bt-import-item-main" },
-          (0, import_react82.createElement)("span", { className: "bt-import-item-name" }, t("From a file…")),
-          (0, import_react82.createElement)("span", { className: "bt-import-item-email" }, t("cookies.txt, JSON, storageState"))
-        ),
-        (0, import_react82.createElement)("span", { className: "bt-import-chev", "aria-hidden": true }, (0, import_react82.createElement)(ChevronRightIcon))
+        (0, import_react83.createElement)("span", { className: "bt-import-alt-ico", "aria-hidden": true }, (0, import_react83.createElement)(FileIcon)),
+        (0, import_react83.createElement)("span", { className: "bt-import-item-name" }, t("From a file…")),
+        (0, import_react83.createElement)("span", { className: "bt-import-alt-hint" }, t("cookies.txt, JSON, storageState"))
       ),
-      canPaste ? (0, import_react82.createElement)(
+      canPaste ? (0, import_react83.createElement)(
         "button",
         { type: "button", className: "bt-import-item bt-import-item-alt", role: "menuitem", disabled: busy, onClick: onPaste },
-        (0, import_react82.createElement)("span", { className: "bt-import-tile-ico", "aria-hidden": true }, (0, import_react82.createElement)(PasteIcon)),
-        (0, import_react82.createElement)(
-          "span",
-          { className: "bt-import-item-main" },
-          (0, import_react82.createElement)("span", { className: "bt-import-item-name" }, t("Paste cookies or cURL…")),
-          (0, import_react82.createElement)("span", { className: "bt-import-item-email" }, t("JSON, cURL, header"))
-        ),
-        (0, import_react82.createElement)("span", { className: "bt-import-chev", "aria-hidden": true }, (0, import_react82.createElement)(ChevronRightIcon))
+        (0, import_react83.createElement)("span", { className: "bt-import-alt-ico", "aria-hidden": true }, (0, import_react83.createElement)(PasteIcon)),
+        (0, import_react83.createElement)("span", { className: "bt-import-item-name" }, t("Paste cookies or cURL…")),
+        (0, import_react83.createElement)("span", { className: "bt-import-alt-hint" }, t("JSON, cURL, header"))
       ) : null
     )
   );
 }
 function SafariPermissionCard({ flow, busy, imports, onOpenPermission, onPermissionGranted, onRetrySource, onBack, onCancel }) {
   const { source } = flow;
-  const [granted, setGranted] = (0, import_react82.useState)(false);
-  const notifiedRef = (0, import_react82.useRef)(false);
-  const onGrantedRef = (0, import_react82.useRef)(onPermissionGranted);
+  const [granted, setGranted] = (0, import_react83.useState)(false);
+  const notifiedRef = (0, import_react83.useRef)(false);
+  const onGrantedRef = (0, import_react83.useRef)(onPermissionGranted);
   onGrantedRef.current = onPermissionGranted;
-  (0, import_react82.useEffect)(() => {
+  (0, import_react83.useEffect)(() => {
     const canProbe = typeof imports?.probe === "function";
     if (!canProbe) return void 0;
     let active = true;
@@ -54835,44 +55105,44 @@ function SafariPermissionCard({ flow, busy, imports, onOpenPermission, onPermiss
       clearTimeout(timer);
     };
   }, [imports, source.id]);
-  return (0, import_react82.createElement)(
+  return (0, import_react83.createElement)(
     "div",
     { className: "bt-import-stage" },
-    (0, import_react82.createElement)(ImportHeader, { title: t("Allow Safari access"), onBack, onClose: onCancel, busy }),
-    (0, import_react82.createElement)(
+    (0, import_react83.createElement)(ImportHeader, { title: t("Allow Safari access"), mark: (0, import_react83.createElement)(BrowserMark, { source: { kind: "safari" }, size: 22 }), onBack, onClose: onCancel, busy }),
+    (0, import_react83.createElement)(
       "div",
       { className: "bt-import-text" },
       t("macOS protects Safari cookies with Full Disk Access. Enable DS Bot once in System Settings to import from Safari.")
     ),
-    (0, import_react82.createElement)(
+    (0, import_react83.createElement)(
       "div",
       { className: "bt-import-steps" },
-      (0, import_react82.createElement)("div", { className: "bt-import-step" }, t("1. Open Full Disk Access in System Settings and turn on DS Bot.")),
-      (0, import_react82.createElement)("div", { className: "bt-import-step" }, t("2. If macOS asks to quit and reopen DS Bot, click Quit & Reopen, then try again."))
+      (0, import_react83.createElement)("div", { className: "bt-import-step" }, t("1. Open Full Disk Access in System Settings and turn on DS Bot.")),
+      (0, import_react83.createElement)("div", { className: "bt-import-step" }, t("2. If macOS asks to quit and reopen DS Bot, click Quit & Reopen, then try again."))
     ),
-    granted ? (0, import_react82.createElement)(
+    granted ? (0, import_react83.createElement)(
       "div",
       { className: "bt-import-ready-note" },
-      (0, import_react82.createElement)(CheckIcon),
-      (0, import_react82.createElement)("span", null, t("Full Disk Access granted — ready to import."))
+      (0, import_react83.createElement)(CheckIcon),
+      (0, import_react83.createElement)("span", null, t("Full Disk Access granted — ready to import."))
     ) : null,
-    (0, import_react82.createElement)(
+    (0, import_react83.createElement)(
       "div",
       { className: "bt-import-actions" },
-      (0, import_react82.createElement)("button", { type: "button", className: "bt-import-plain", disabled: busy, onClick: onCancel }, t("Cancel")),
-      granted && imports?.openPermission ? (0, import_react82.createElement)("button", {
+      (0, import_react83.createElement)("button", { type: "button", className: "bt-import-plain", disabled: busy, onClick: onCancel }, t("Cancel")),
+      granted && imports?.openPermission ? (0, import_react83.createElement)("button", {
         type: "button",
         className: "bt-import-plain",
         disabled: busy,
         onClick: onOpenPermission
       }, t("Open System Settings")) : null,
-      (0, import_react82.createElement)("button", {
+      (0, import_react83.createElement)("button", {
         type: "button",
         className: granted || !imports?.openPermission ? "bt-import-primary" : "bt-import-plain",
         disabled: busy,
         onClick: onRetrySource
       }, busy ? t("Reading…") : granted ? t("Import") : t("Try again")),
-      !granted && imports?.openPermission ? (0, import_react82.createElement)("button", {
+      !granted && imports?.openPermission ? (0, import_react83.createElement)("button", {
         type: "button",
         className: "bt-import-primary",
         disabled: busy,
@@ -54885,18 +55155,18 @@ function RemoteDebugCard({ flow, busy, imports, onRetrySource, onLaunchSource, o
   const { source, info } = flow;
   const inspectUrl = info?.inspectUrl || "chrome://inspect/#remote-debugging";
   const browserName = info?.browserName || source.name;
-  const [copied, setCopied] = (0, import_react82.useState)(false);
-  const [detected, setDetected] = (0, import_react82.useState)(false);
-  const copyTimerRef = (0, import_react82.useRef)(null);
-  const mountedRef = (0, import_react82.useRef)(true);
-  (0, import_react82.useEffect)(() => {
+  const [copied, setCopied] = (0, import_react83.useState)(false);
+  const [detected, setDetected] = (0, import_react83.useState)(false);
+  const copyTimerRef = (0, import_react83.useRef)(null);
+  const mountedRef = (0, import_react83.useRef)(true);
+  (0, import_react83.useEffect)(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
       clearTimeout(copyTimerRef.current);
     };
   }, []);
-  (0, import_react82.useEffect)(() => {
+  (0, import_react83.useEffect)(() => {
     const canProbe = typeof imports?.probe === "function";
     const canList = typeof imports?.sources === "function";
     if (!canProbe && !canList) return void 0;
@@ -54933,55 +55203,55 @@ function RemoteDebugCard({ flow, busy, imports, onRetrySource, onLaunchSource, o
     }, () => {
     });
   };
-  return (0, import_react82.createElement)(
+  return (0, import_react83.createElement)(
     "div",
     { className: "bt-import-stage" },
-    (0, import_react82.createElement)(ImportHeader, { title: t("Connect to {name}", { name: browserName }), onBack, onClose: onCancel, busy }),
-    (0, import_react82.createElement)(
+    (0, import_react83.createElement)(ImportHeader, { title: t("Connect to {name}", { name: browserName }), mark: (0, import_react83.createElement)(BrowserMark, { source, size: 22 }), onBack, onClose: onCancel, busy }),
+    (0, import_react83.createElement)(
       "div",
       { className: "bt-import-text" },
       t("{name} protects its cookies on Windows. Enable its built-in remote debugging switch once — no extension needed.", { name: browserName })
     ),
-    (0, import_react82.createElement)(
+    (0, import_react83.createElement)(
       "div",
       { className: "bt-import-steps" },
-      (0, import_react82.createElement)("div", { className: "bt-import-step" }, t("1. Open this address in {name}:", { name: browserName })),
-      (0, import_react82.createElement)(
+      (0, import_react83.createElement)("div", { className: "bt-import-step" }, t("1. Open this address in {name}:", { name: browserName })),
+      (0, import_react83.createElement)(
         "div",
         { className: "bt-import-copy-row" },
-        (0, import_react82.createElement)("code", { className: "bt-import-code" }, inspectUrl),
-        (0, import_react82.createElement)(
+        (0, import_react83.createElement)("code", { className: "bt-import-code" }, inspectUrl),
+        (0, import_react83.createElement)(
           "button",
           { type: "button", className: "bt-import-mini", onClick: copyAddress },
-          (0, import_react82.createElement)(copied ? CheckIcon : CopyIcon),
+          (0, import_react83.createElement)(copied ? CheckIcon : CopyIcon),
           copied ? t("Copied") : t("Copy")
         )
       ),
-      (0, import_react82.createElement)("div", { className: "bt-import-step" }, t("2. Turn on “Allow remote debugging for this browser instance”, then click Allow when {name} prompts.", { name: browserName }))
+      (0, import_react83.createElement)("div", { className: "bt-import-step" }, t("2. Turn on “Allow remote debugging for this browser instance”, then click Allow when {name} prompts.", { name: browserName }))
     ),
-    detected ? (0, import_react82.createElement)(
+    detected ? (0, import_react83.createElement)(
       "div",
       { className: "bt-import-ready-note" },
-      (0, import_react82.createElement)(CheckIcon),
-      (0, import_react82.createElement)("span", null, t("Remote debugging detected — ready to import."))
+      (0, import_react83.createElement)(CheckIcon),
+      (0, import_react83.createElement)("span", null, t("Remote debugging detected — ready to import."))
     ) : null,
-    (0, import_react82.createElement)(
+    (0, import_react83.createElement)(
       "div",
       { className: "bt-import-actions" },
-      !info?.running && info?.hasExe ? (0, import_react82.createElement)("button", { type: "button", className: "bt-import-plain", disabled: busy, onClick: onLaunchSource }, t("Open {name}", { name: browserName })) : (0, import_react82.createElement)("button", { type: "button", className: "bt-import-plain", disabled: busy, onClick: onFile }, t("From a file…")),
-      (0, import_react82.createElement)("button", { type: "button", className: "bt-import-plain", disabled: busy, onClick: onCancel }, t("Cancel")),
-      (0, import_react82.createElement)("button", { type: "button", className: "bt-import-primary", disabled: busy, onClick: onRetrySource }, busy ? t("Connecting…") : t("Connect and import"))
+      !info?.running && info?.hasExe ? (0, import_react83.createElement)("button", { type: "button", className: "bt-import-plain", disabled: busy, onClick: onLaunchSource }, t("Open {name}", { name: browserName })) : (0, import_react83.createElement)("button", { type: "button", className: "bt-import-plain", disabled: busy, onClick: onFile }, t("From a file…")),
+      (0, import_react83.createElement)("button", { type: "button", className: "bt-import-plain", disabled: busy, onClick: onCancel }, t("Cancel")),
+      (0, import_react83.createElement)("button", { type: "button", className: "bt-import-primary", disabled: busy, onClick: onRetrySource }, busy ? t("Connecting…") : t("Connect and import"))
     )
   );
 }
 function PasteCard2({ flow, busy, onSubmitPaste, onBack, onCancel }) {
-  const [text, setText] = (0, import_react82.useState)("");
-  const [siteUrl, setSiteUrl] = (0, import_react82.useState)(flow.siteUrl || "");
-  return (0, import_react82.createElement)(
+  const [text, setText] = (0, import_react83.useState)("");
+  const [siteUrl, setSiteUrl] = (0, import_react83.useState)(flow.siteUrl || "");
+  return (0, import_react83.createElement)(
     "div",
     { className: "bt-import-stage" },
-    (0, import_react82.createElement)(ImportHeader, { title: t("Paste cookies or cURL"), onBack, onClose: onCancel, busy }),
-    (0, import_react82.createElement)("textarea", {
+    (0, import_react83.createElement)(ImportHeader, { title: t("Paste cookies or cURL"), onBack, onClose: onCancel, busy }),
+    (0, import_react83.createElement)("textarea", {
       className: "bt-import-textarea",
       rows: 5,
       spellCheck: false,
@@ -54989,7 +55259,7 @@ function PasteCard2({ flow, busy, onSubmitPaste, onBack, onCancel }) {
       value: text,
       onChange: (event) => setText(event.target.value)
     }),
-    (0, import_react82.createElement)("input", {
+    (0, import_react83.createElement)("input", {
       type: "text",
       className: "bt-import-input",
       spellCheck: false,
@@ -54997,11 +55267,11 @@ function PasteCard2({ flow, busy, onSubmitPaste, onBack, onCancel }) {
       value: siteUrl,
       onChange: (event) => setSiteUrl(event.target.value)
     }),
-    (0, import_react82.createElement)(
+    (0, import_react83.createElement)(
       "div",
       { className: "bt-import-actions" },
-      (0, import_react82.createElement)("button", { type: "button", className: "bt-import-plain", disabled: busy, onClick: onCancel }, t("Cancel")),
-      (0, import_react82.createElement)("button", {
+      (0, import_react83.createElement)("button", { type: "button", className: "bt-import-plain", disabled: busy, onClick: onCancel }, t("Cancel")),
+      (0, import_react83.createElement)("button", {
         type: "button",
         className: "bt-import-primary",
         disabled: busy || !text.trim(),
@@ -55015,9 +55285,9 @@ function PreviewCard({ flow, page, busy, onApply, onCancel }) {
   const sites = (preview.sites ?? []).filter((s) => (s.cookies ?? 0) > 0 || (s.localStorage ?? 0) > 0);
   const currentHost = hostOfUrl(page.url);
   const matchingCurrent = currentHost ? sites.filter((s) => siteMatchesHost(s.site, currentHost)).map((s) => s.site) : [];
-  const [selected, setSelected] = (0, import_react82.useState)(() => new Set(sites.map((s) => s.site)));
-  const [query, setQuery] = (0, import_react82.useState)("");
-  const [persistSession, setPersistSession] = (0, import_react82.useState)(true);
+  const [selected, setSelected] = (0, import_react83.useState)(() => new Set(sites.map((s) => s.site)));
+  const [query, setQuery] = (0, import_react83.useState)("");
+  const [persistSession, setPersistSession] = (0, import_react83.useState)(true);
   const hasSession = preview.notes.includes("session-cookies");
   const allSelected = selected.size === sites.length;
   const currentOnlySelected = matchingCurrent.length > 0 && selected.size === matchingCurrent.length && matchingCurrent.every((s) => selected.has(s));
@@ -55045,37 +55315,38 @@ function PreviewCard({ flow, page, busy, onApply, onCancel }) {
     selectedStorage > 0 ? t("{count} storage entries", { count: selectedStorage }) : null
   ].filter(Boolean).join(" · ");
   const scopeValue = allSelected ? "all" : currentOnlySelected ? "current" : "custom";
-  return (0, import_react82.createElement)(
+  return (0, import_react83.createElement)(
     "div",
     { className: "bt-import-stage" },
-    (0, import_react82.createElement)(ImportHeader, {
+    (0, import_react83.createElement)(ImportHeader, {
       title: t("Import {count} cookies", { count: selectedCookies }),
       subtitle,
+      mark: preview.source ? (0, import_react83.createElement)(BrowserMark, { source: preview.source, size: 22 }) : null,
       onClose: onCancel
     }),
-    matchingCurrent.length > 0 && sites.length > 1 ? (0, import_react82.createElement)(
+    matchingCurrent.length > 0 && sites.length > 1 ? (0, import_react83.createElement)(
       Segmented,
       {
         label: t("Import cookies"),
         value: scopeValue,
         className: "bt-import-scope"
       },
-      (0, import_react82.createElement)("button", {
+      (0, import_react83.createElement)("button", {
         type: "button",
         "aria-pressed": allSelected,
         onClick: selectAll
       }, t("All sites ({count})", { count: sites.length })),
-      (0, import_react82.createElement)("button", {
+      (0, import_react83.createElement)("button", {
         type: "button",
         "aria-pressed": currentOnlySelected,
         onClick: selectCurrent
       }, t("This site ({host})", { host: currentHost }))
     ) : null,
-    sites.length > 6 ? (0, import_react82.createElement)(
+    sites.length > 6 ? (0, import_react83.createElement)(
       "div",
       { className: "bt-import-search" },
-      (0, import_react82.createElement)("span", { className: "bt-import-search-ico", "aria-hidden": true }, (0, import_react82.createElement)(SearchIcon)),
-      (0, import_react82.createElement)("input", {
+      (0, import_react83.createElement)("span", { className: "bt-import-search-ico", "aria-hidden": true }, (0, import_react83.createElement)(SearchIcon)),
+      (0, import_react83.createElement)("input", {
         type: "text",
         className: "bt-import-search-in",
         spellCheck: false,
@@ -55083,29 +55354,29 @@ function PreviewCard({ flow, page, busy, onApply, onCancel }) {
         value: query,
         onChange: (event) => setQuery(event.target.value)
       }),
-      (0, import_react82.createElement)("button", {
+      (0, import_react83.createElement)("button", {
         type: "button",
         className: "bt-import-search-btn",
         onClick: allSelected ? clearAll : selectAll
       }, allSelected ? t("Clear") : t("All"))
     ) : null,
-    sites.length ? (0, import_react82.createElement)(
+    sites.length ? (0, import_react83.createElement)(
       "div",
       { className: "bt-import-list" },
-      visibleSites.length === 0 ? (0, import_react82.createElement)("div", { className: "bt-import-list-empty" }, t("No results")) : visibleSites.map((site) => {
+      visibleSites.length === 0 ? (0, import_react83.createElement)("div", { className: "bt-import-list-empty" }, t("No results")) : visibleSites.map((site) => {
         const checked = selected.has(site.site);
-        return (0, import_react82.createElement)(
+        return (0, import_react83.createElement)(
           "label",
           { key: site.site, className: "bt-import-line bt-import-check-row", "data-checked": checked || void 0 },
-          (0, import_react82.createElement)("input", {
+          (0, import_react83.createElement)("input", {
             type: "checkbox",
             className: "bt-import-cb-input",
             checked,
             onChange: () => toggleSite(site.site)
           }),
-          (0, import_react82.createElement)("span", { className: "bt-import-cb", "aria-hidden": true }, checked ? (0, import_react82.createElement)(CheckIcon) : null),
-          (0, import_react82.createElement)("span", { className: "bt-import-line-name" }, site.site),
-          (0, import_react82.createElement)(
+          (0, import_react83.createElement)("span", { className: "bt-import-cb", "aria-hidden": true }, checked ? (0, import_react83.createElement)(CheckIcon) : null),
+          (0, import_react83.createElement)("span", { className: "bt-import-line-name" }, site.site),
+          (0, import_react83.createElement)(
             "span",
             { className: "bt-import-line-count" },
             t("{count}", { count: site.cookies }),
@@ -55114,78 +55385,78 @@ function PreviewCard({ flow, page, busy, onApply, onCancel }) {
         );
       })
     ) : null,
-    hasSession ? (0, import_react82.createElement)(
+    hasSession ? (0, import_react83.createElement)(
       "div",
       { className: "bt-import-opt-row" },
-      (0, import_react82.createElement)("span", { className: "bt-import-opt-label" }, t("Keep session logins after app restart")),
-      (0, import_react82.createElement)("button", {
+      (0, import_react83.createElement)("span", { className: "bt-import-opt-label" }, t("Keep session logins after app restart")),
+      (0, import_react83.createElement)("button", {
         type: "button",
         role: "switch",
         className: "bt-switch",
         "aria-checked": persistSession,
         "aria-label": t("Keep session logins after app restart"),
         onClick: () => setPersistSession((value) => !value)
-      }, (0, import_react82.createElement)("span", { className: "bt-switch-knob", "aria-hidden": true }))
+      }, (0, import_react83.createElement)("span", { className: "bt-switch-knob", "aria-hidden": true }))
     ) : null,
-    preview.skipped.length || preview.warnings.length ? (0, import_react82.createElement)(
+    preview.skipped.length || preview.warnings.length ? (0, import_react83.createElement)(
       "div",
       { className: "bt-import-meta-group" },
-      preview.skipped.length ? (0, import_react82.createElement)(
+      preview.skipped.length ? (0, import_react83.createElement)(
         "details",
         { className: "bt-import-disclosure" },
-        (0, import_react82.createElement)(
+        (0, import_react83.createElement)(
           "summary",
           null,
-          (0, import_react82.createElement)("span", { className: "bt-import-disc-chev", "aria-hidden": true }, (0, import_react82.createElement)(ChevronRightIcon)),
-          (0, import_react82.createElement)("span", null, t("{count} skipped", { count: preview.skipped.length }))
+          (0, import_react83.createElement)("span", { className: "bt-import-disc-chev", "aria-hidden": true }, (0, import_react83.createElement)(ChevronRightIcon)),
+          (0, import_react83.createElement)("span", null, t("{count} skipped", { count: preview.skipped.length }))
         ),
-        (0, import_react82.createElement)(
+        (0, import_react83.createElement)(
           "div",
           { className: "bt-import-disc-body" },
-          preview.skipped.slice(0, 5).map((item, index) => (0, import_react82.createElement)(
+          preview.skipped.slice(0, 5).map((item, index) => (0, import_react83.createElement)(
             "div",
             { key: index, className: "bt-import-detail-line" },
-            (0, import_react82.createElement)("span", { className: "bt-import-detail-name" }, item.name ?? item.where),
-            (0, import_react82.createElement)("span", { className: "bt-import-line-reason" }, item.reason)
+            (0, import_react83.createElement)("span", { className: "bt-import-detail-name" }, item.name ?? item.where),
+            (0, import_react83.createElement)("span", { className: "bt-import-line-reason" }, item.reason)
           )),
-          preview.skipped.length > 5 ? (0, import_react82.createElement)(
+          preview.skipped.length > 5 ? (0, import_react83.createElement)(
             "div",
             { className: "bt-import-detail-line" },
-            (0, import_react82.createElement)("span", { className: "bt-import-line-reason" }, t("and {count} more", { count: preview.skipped.length - 5 }))
+            (0, import_react83.createElement)("span", { className: "bt-import-line-reason" }, t("and {count} more", { count: preview.skipped.length - 5 }))
           ) : null
         )
       ) : null,
-      preview.warnings.length ? (0, import_react82.createElement)(
+      preview.warnings.length ? (0, import_react83.createElement)(
         "details",
         { className: "bt-import-disclosure" },
-        (0, import_react82.createElement)(
+        (0, import_react83.createElement)(
           "summary",
           null,
-          (0, import_react82.createElement)("span", { className: "bt-import-disc-chev", "aria-hidden": true }, (0, import_react82.createElement)(ChevronRightIcon)),
-          (0, import_react82.createElement)("span", null, t("{count} adjusted", { count: preview.warnings.reduce((n, w) => n + w.count, 0) }))
+          (0, import_react83.createElement)("span", { className: "bt-import-disc-chev", "aria-hidden": true }, (0, import_react83.createElement)(ChevronRightIcon)),
+          (0, import_react83.createElement)("span", null, t("{count} adjusted", { count: preview.warnings.reduce((n, w) => n + w.count, 0) }))
         ),
-        (0, import_react82.createElement)(
+        (0, import_react83.createElement)(
           "div",
           { className: "bt-import-disc-body" },
-          preview.warnings.map((w, index) => (0, import_react82.createElement)(
+          preview.warnings.map((w, index) => (0, import_react83.createElement)(
             "div",
             { key: index, className: "bt-import-detail-line" },
-            (0, import_react82.createElement)("span", { className: "bt-import-line-reason" }, `${w.count} × ${w.message}`)
+            (0, import_react83.createElement)("span", { className: "bt-import-line-reason" }, `${w.count} × ${w.message}`)
           ))
         )
       ) : null
     ) : null,
-    preview.notes.includes("local-storage-left") ? (0, import_react82.createElement)(
+    preview.notes.includes("local-storage-left") ? (0, import_react83.createElement)(
       "div",
       { className: "bt-import-callout" },
-      (0, import_react82.createElement)(InfoIcon),
-      (0, import_react82.createElement)("span", null, t("Some sites also keep sign-in outside cookies; you may need to sign in again there."))
+      (0, import_react83.createElement)(InfoIcon),
+      (0, import_react83.createElement)("span", null, t("Some sites also keep sign-in outside cookies; you may need to sign in again there."))
     ) : null,
-    (0, import_react82.createElement)(
+    (0, import_react83.createElement)(
       "div",
       { className: "bt-import-actions" },
-      (0, import_react82.createElement)("button", { type: "button", className: "bt-import-plain", disabled: busy, onClick: onCancel }, t("Cancel")),
-      (0, import_react82.createElement)("button", { type: "button", className: "bt-import-primary", disabled: busy || selectedCookies === 0 && selectedStorage === 0, onClick: submit }, busy ? t("Importing…") : t("Import"))
+      (0, import_react83.createElement)("button", { type: "button", className: "bt-import-plain", disabled: busy, onClick: onCancel }, t("Cancel")),
+      (0, import_react83.createElement)("button", { type: "button", className: "bt-import-primary", disabled: busy || selectedCookies === 0 && selectedStorage === 0, onClick: submit }, busy ? t("Importing…") : t("Import"))
     )
   );
 }
@@ -55196,59 +55467,60 @@ function ImportCard({ flow, page, busy, imports, onApply, onCancel, onBack, onCl
     else onCancel();
   });
   if (stage === "connecting") {
-    return (0, import_react82.createElement)(
+    return (0, import_react83.createElement)(
       "div",
       { className: "bt-import-stage bt-import-status" },
-      (0, import_react82.createElement)(
+      (0, import_react83.createElement)(
         "div",
-        { className: "bt-import-status-badge bt-import-status-busy", "aria-hidden": true },
-        (0, import_react82.createElement)("span", { className: "bt-import-spinner bt-loading-spin" })
+        { className: "bt-import-status-orbit", "aria-hidden": true },
+        (0, import_react83.createElement)("span", { className: "bt-import-orbit-ring bt-loading-spin" }),
+        (0, import_react83.createElement)(BrowserMark, { source: flow.source, size: 30 })
       ),
-      (0, import_react82.createElement)("div", { className: "bt-import-title" }, t("Reading {name}…", { name: flow.source.name })),
-      (0, import_react82.createElement)("div", { className: "bt-import-sub" }, flow.source.label),
-      (0, import_react82.createElement)("div", { className: "bt-import-text" }, t("If {name} or your system asks for permission, click Allow.", { name: flow.source.name })),
-      (0, import_react82.createElement)(
+      (0, import_react83.createElement)("div", { className: "bt-import-title" }, t("Reading {name}…", { name: flow.source.name })),
+      (0, import_react83.createElement)("div", { className: "bt-import-sub" }, flow.source.label),
+      (0, import_react83.createElement)("div", { className: "bt-import-text" }, t("If {name} or your system asks for permission, click Allow.", { name: flow.source.name })),
+      (0, import_react83.createElement)(
         "div",
         { className: "bt-import-actions" },
-        (0, import_react82.createElement)("button", { type: "button", className: "bt-import-plain", onClick: onCancel }, t("Cancel"))
+        (0, import_react83.createElement)("button", { type: "button", className: "bt-import-plain", onClick: onCancel }, t("Cancel"))
       )
     );
   }
   if (stage === "safari-permission") {
-    return (0, import_react82.createElement)(SafariPermissionCard, { flow, busy, imports, onOpenPermission, onPermissionGranted, onRetrySource, onBack, onCancel });
+    return (0, import_react83.createElement)(SafariPermissionCard, { flow, busy, imports, onOpenPermission, onPermissionGranted, onRetrySource, onBack, onCancel });
   }
   if (stage === "remote-debug") {
-    return (0, import_react82.createElement)(RemoteDebugCard, { flow, busy, imports, onRetrySource, onLaunchSource, onFile, onBack, onCancel });
+    return (0, import_react83.createElement)(RemoteDebugCard, { flow, busy, imports, onRetrySource, onLaunchSource, onFile, onBack, onCancel });
   }
   if (stage === "paste") {
-    return (0, import_react82.createElement)(PasteCard2, { flow, busy, onSubmitPaste, onBack, onCancel });
+    return (0, import_react83.createElement)(PasteCard2, { flow, busy, onSubmitPaste, onBack, onCancel });
   }
   if (stage === "running") {
-    return (0, import_react82.createElement)(
+    return (0, import_react83.createElement)(
       "div",
       { className: "bt-import-stage" },
-      (0, import_react82.createElement)(ImportHeader, { title: t("{name} is running", { name: flow.source.name }), onBack, onClose: onCancel, busy }),
-      (0, import_react82.createElement)("div", { className: "bt-import-text" }, t("It must close for a moment so its cookies can be copied. It will reopen with your tabs.")),
-      (0, import_react82.createElement)(
+      (0, import_react83.createElement)(ImportHeader, { title: t("{name} is running", { name: flow.source.name }), mark: (0, import_react83.createElement)(BrowserMark, { source: flow.source, size: 22 }), onBack, onClose: onCancel, busy }),
+      (0, import_react83.createElement)("div", { className: "bt-import-text" }, t("It must close for a moment so its cookies can be copied. It will reopen with your tabs.")),
+      (0, import_react83.createElement)(
         "div",
         { className: "bt-import-actions" },
-        (0, import_react82.createElement)("button", { type: "button", className: "bt-import-plain", disabled: busy, onClick: onCancel }, t("Cancel")),
-        (0, import_react82.createElement)("button", { type: "button", className: "bt-import-primary", disabled: busy, onClick: onCloseAndImport }, busy ? t("Closing…") : t("Close {name} and import", { name: flow.source.name }))
+        (0, import_react83.createElement)("button", { type: "button", className: "bt-import-plain", disabled: busy, onClick: onCancel }, t("Cancel")),
+        (0, import_react83.createElement)("button", { type: "button", className: "bt-import-primary", disabled: busy, onClick: onCloseAndImport }, busy ? t("Closing…") : t("Close {name} and import", { name: flow.source.name }))
       )
     );
   }
   if (stage === "error") {
-    return (0, import_react82.createElement)(
+    return (0, import_react83.createElement)(
       "div",
       { className: "bt-import-stage bt-import-status" },
-      (0, import_react82.createElement)("div", { className: "bt-import-status-badge bt-import-status-err", "aria-hidden": true }, (0, import_react82.createElement)(CloseIcon3)),
-      (0, import_react82.createElement)("div", { className: "bt-import-title" }, t("Import failed")),
-      (0, import_react82.createElement)("div", { className: "bt-import-text" }, flow.message),
-      (0, import_react82.createElement)(
+      (0, import_react83.createElement)("div", { className: "bt-import-status-badge bt-import-status-err", "aria-hidden": true }, (0, import_react83.createElement)(CloseIcon3)),
+      (0, import_react83.createElement)("div", { className: "bt-import-title" }, t("Import failed")),
+      (0, import_react83.createElement)("div", { className: "bt-import-text" }, flow.message),
+      (0, import_react83.createElement)(
         "div",
         { className: "bt-import-actions" },
-        onBack ? (0, import_react82.createElement)("button", { type: "button", className: "bt-import-plain", onClick: onBack }, t("Back")) : null,
-        (0, import_react82.createElement)("button", { type: "button", className: "bt-import-primary", onClick: onCancel }, t("Close"))
+        onBack ? (0, import_react83.createElement)("button", { type: "button", className: "bt-import-plain", onClick: onBack }, t("Back")) : null,
+        (0, import_react83.createElement)("button", { type: "button", className: "bt-import-primary", onClick: onCancel }, t("Close"))
       )
     );
   }
@@ -55262,40 +55534,40 @@ function ImportCard({ flow, page, busy, imports, onApply, onCancel, onBack, onCl
       (report.originsStored ?? 0) > 0 ? t("{count} sites storage", { count: report.originsStored }) : null,
       flow.reloaded ? t("page reloaded") : null
     ].filter(Boolean).join(" · ");
-    return (0, import_react82.createElement)(
+    return (0, import_react83.createElement)(
       "div",
       { className: "bt-import-stage bt-import-status" },
-      (0, import_react82.createElement)(
+      (0, import_react83.createElement)(
         "div",
         { className: `bt-import-status-badge ${ok ? "bt-import-status-ok" : "bt-import-status-muted"}`, "aria-hidden": true },
-        (0, import_react82.createElement)(ok ? CheckIcon : InfoIcon)
+        (0, import_react83.createElement)(ok ? CheckIcon : InfoIcon)
       ),
-      (0, import_react82.createElement)("div", { className: "bt-import-title" }, title),
-      subtitle ? (0, import_react82.createElement)("div", { className: "bt-import-sub" }, subtitle) : null,
-      problems.length ? (0, import_react82.createElement)(
+      (0, import_react83.createElement)("div", { className: "bt-import-title" }, title),
+      subtitle ? (0, import_react83.createElement)("div", { className: "bt-import-sub" }, subtitle) : null,
+      problems.length ? (0, import_react83.createElement)(
         "div",
-        { className: "bt-import-list bt-import-problems" },
-        problems.slice(0, 8).map((item, index) => (0, import_react82.createElement)(
+        { className: "bt-import-problems" },
+        problems.slice(0, 8).map((item, index) => (0, import_react83.createElement)(
           "div",
           { key: index, className: "bt-import-detail-line" },
-          (0, import_react82.createElement)("span", { className: "bt-import-detail-name" }, item.name ?? "—"),
-          (0, import_react82.createElement)("span", { className: "bt-import-line-reason" }, item.reason)
+          (0, import_react83.createElement)("span", { className: "bt-import-detail-name" }, item.name ?? "—"),
+          (0, import_react83.createElement)("span", { className: "bt-import-line-reason" }, item.reason)
         )),
-        problems.length > 8 ? (0, import_react82.createElement)(
+        problems.length > 8 ? (0, import_react83.createElement)(
           "div",
           { className: "bt-import-detail-line" },
-          (0, import_react82.createElement)("span", { className: "bt-import-line-reason" }, t("and {count} more", { count: problems.length - 8 }))
+          (0, import_react83.createElement)("span", { className: "bt-import-line-reason" }, t("and {count} more", { count: problems.length - 8 }))
         ) : null
       ) : null,
-      (0, import_react82.createElement)(
+      (0, import_react83.createElement)(
         "div",
         { className: "bt-import-actions" },
-        page.url && !flow.reloaded ? (0, import_react82.createElement)("button", { type: "button", className: "bt-import-plain", onClick: onReload }, t("Reload the page")) : null,
-        (0, import_react82.createElement)("button", { type: "button", className: "bt-import-primary", onClick: onDone }, t("Done"))
+        page.url && !flow.reloaded ? (0, import_react83.createElement)("button", { type: "button", className: "bt-import-plain", onClick: onReload }, t("Reload the page")) : null,
+        (0, import_react83.createElement)("button", { type: "button", className: "bt-import-primary", onClick: onDone }, t("Done"))
       )
     );
   }
-  return (0, import_react82.createElement)(PreviewCard, { key: flow.id, flow, page, busy, onApply, onCancel });
+  return (0, import_react83.createElement)(PreviewCard, { key: flow.id, flow, page, busy, onApply, onCancel });
 }
 function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSessions, useSessionStatus, useActivity, useWork, useBrowserTabs, useBrowserPages, useBrowserHolds, useComputer }) {
   const bot = roster.byId[pane.id];
@@ -55311,45 +55583,45 @@ function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSes
   const active = tabState.active;
   const page = useBrowserPages((pages) => (active ? pages[active] : null) ?? EMPTY_PAGE);
   const hold = useBrowserHolds?.((map) => bot ? map[bot.id] ?? null : null) ?? null;
-  const root = (0, import_react82.useRef)(null);
-  const [flight] = (0, import_react82.useState)(() => createFlight({ shape: SPRING_SHAPE }));
-  const intent = (0, import_react82.useRef)(null);
-  const [landed, setLanded] = (0, import_react82.useState)(false);
-  const [settling, setSettling] = (0, import_react82.useState)(false);
-  const [width, setWidth] = (0, import_react82.useState)(savedWidth);
-  const [dragging, setDragging] = (0, import_react82.useState)(false);
-  const [resizing, setResizing] = (0, import_react82.useState)(false);
+  const root = (0, import_react83.useRef)(null);
+  const [flight] = (0, import_react83.useState)(() => createFlight({ shape: SPRING_SHAPE }));
+  const intent = (0, import_react83.useRef)(null);
+  const [landed, setLanded] = (0, import_react83.useState)(false);
+  const [settling, setSettling] = (0, import_react83.useState)(false);
+  const [width, setWidth] = (0, import_react83.useState)(savedWidth);
+  const [dragging, setDragging] = (0, import_react83.useState)(false);
+  const [resizing, setResizing] = (0, import_react83.useState)(false);
   const instant = dragging || resizing;
-  const [reading, setReading] = (0, import_react82.useState)(false);
+  const [reading, setReading] = (0, import_react83.useState)(false);
   const panelWidth = fitWidth(width ?? (view === "browser" ? DEFAULT_WIDTH : DETAILS_WIDTH), widthRange(view, room2));
-  (0, import_react82.useLayoutEffect)(() => {
+  (0, import_react83.useLayoutEffect)(() => {
     if (view === "browser" && width === null) setWidth(DEFAULT_WIDTH);
   }, [view, width]);
-  (0, import_react82.useLayoutEffect)(() => {
+  (0, import_react83.useLayoutEffect)(() => {
     chatRoom.hold(instant);
   }, [instant]);
-  const [last, setLast] = (0, import_react82.useState)({ view, width: panelWidth });
+  const [last, setLast] = (0, import_react83.useState)({ view, width: panelWidth });
   if (last.view !== view || last.width !== panelWidth) {
     setLast({ view, width: panelWidth });
     if (last.view !== view) setSettling(last.width !== panelWidth && !instant && !overlay);
   }
-  const shownView = (0, import_react82.useRef)(view);
-  (0, import_react82.useLayoutEffect)(() => {
+  const shownView = (0, import_react83.useRef)(view);
+  (0, import_react83.useLayoutEffect)(() => {
     const switched = settling && shownView.current !== view;
     shownView.current = view;
     if (switched) chatRoom.hold(true);
     chatRoom.setRight(leaving || overlay ? null : panelWidth);
     if (switched) chatRoom.hold(false);
   }, [view, panelWidth, leaving, overlay]);
-  const dragCleanup = (0, import_react82.useRef)(null);
+  const dragCleanup = (0, import_react83.useRef)(null);
   useEscape(() => actions.closeOverlay(), !leaving, { priority: -1 });
-  (0, import_react82.useEffect)(() => () => {
+  (0, import_react83.useEffect)(() => () => {
     dragCleanup.current?.();
     chatRoom.setRight(null);
     chatRoom.hold(false);
   }, []);
-  const mounted = (0, import_react82.useRef)(false);
-  (0, import_react82.useEffect)(() => {
+  const mounted = (0, import_react83.useRef)(false);
+  (0, import_react83.useEffect)(() => {
     if (!mounted.current) {
       mounted.current = true;
       return void 0;
@@ -55358,34 +55630,34 @@ function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSes
     const timer = setTimeout(() => setResizing(false), 160);
     return () => clearTimeout(timer);
   }, [room2]);
-  (0, import_react82.useEffect)(() => {
+  (0, import_react83.useEffect)(() => {
     if (!settling) return void 0;
     const timer = setTimeout(() => setSettling(false), SPRING_SHAPE.duration + 40);
     return () => clearTimeout(timer);
   }, [settling, view]);
-  (0, import_react82.useEffect)(() => {
+  (0, import_react83.useEffect)(() => {
     const timer = setTimeout(() => setLanded(true), 360);
     return () => clearTimeout(timer);
   }, []);
-  (0, import_react82.useEffect)(() => {
+  (0, import_react83.useEffect)(() => {
     if (canBrowse) actions.browserEnsure(bot.id);
   }, [bot?.id, canBrowse]);
-  (0, import_react82.useEffect)(() => {
+  (0, import_react83.useEffect)(() => {
     if (view === "browser" && (active === null || !tabState.ids.includes(active))) actions.setPanelView("details");
   }, [view, active, tabState.ids.length]);
-  (0, import_react82.useEffect)(() => {
+  (0, import_react83.useEffect)(() => {
     if (pane.view === "side" && sideChat === void 0) actions.setPanelView("details");
   }, [pane.view, sideChat]);
-  (0, import_react82.useEffect)(() => {
+  (0, import_react83.useEffect)(() => {
     if (pane.view === "task" && taskEntry === void 0) actions.closeTask?.();
   }, [pane.view, taskEntry]);
-  (0, import_react82.useEffect)(() => {
+  (0, import_react83.useEffect)(() => {
     if (view !== "browser" || leaving) void actions.browserShow?.(null);
   }, [view, leaving]);
-  (0, import_react82.useEffect)(() => () => {
+  (0, import_react83.useEffect)(() => () => {
     void actions.browserShow?.(null);
   }, []);
-  (0, import_react82.useEffect)(() => {
+  (0, import_react83.useEffect)(() => {
     if (!page.readAt || Date.now() - page.readAt > READ_FLASH_MS) return void 0;
     setReading(true);
     const timer = setTimeout(() => setReading(false), READ_FLASH_MS);
@@ -55432,11 +55704,11 @@ function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSes
     beginSwitch(next);
     actions.setPanelView(next);
   };
-  const viewRef = (0, import_react82.useRef)(view);
+  const viewRef = (0, import_react83.useRef)(view);
   viewRef.current = view;
-  const beginSwitchRef = (0, import_react82.useRef)(beginSwitch);
+  const beginSwitchRef = (0, import_react83.useRef)(beginSwitch);
   beginSwitchRef.current = beginSwitch;
-  const panelActions = (0, import_react82.useMemo)(() => {
+  const panelActions = (0, import_react83.useMemo)(() => {
     const next = { ...actions };
     for (const name of ["openBrowser", "browserNewTab", "browserPick"]) {
       if (actions[name]) next[name] = (...args) => {
@@ -55452,7 +55724,7 @@ function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSes
     }
     return next;
   }, [actions]);
-  (0, import_react82.useLayoutEffect)(() => {
+  (0, import_react83.useLayoutEffect)(() => {
     const note = intent.current;
     intent.current = null;
     const current2 = note !== null && note.next === view && note.id === subjectId && performance.now() - note.at < INTENT_MS && !instant && !leaving && !reducedMotion();
@@ -55467,10 +55739,10 @@ function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSes
     }
     flight.begin({ panel: root.current, end: note.end, node: note.node, from: note.from });
   }, [view, subjectId]);
-  (0, import_react82.useLayoutEffect)(() => {
+  (0, import_react83.useLayoutEffect)(() => {
     if (instant || leaving) flight.finish();
   }, [instant, leaving]);
-  (0, import_react82.useEffect)(() => flight.finish, []);
+  (0, import_react83.useEffect)(() => flight.finish, []);
   const startResize = (event) => {
     if (event.button !== 0 || leaving || overlay) return;
     event.preventDefault();
@@ -55520,7 +55792,7 @@ function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSes
     for (const name of ends) grip.addEventListener(name, onEnd);
   };
   const hasStrip = panelHasStrip(canBrowse, tabState.ids.length, sideChats.length, taskEntry !== void 0);
-  return (0, import_react82.createElement)(
+  return (0, import_react83.createElement)(
     "aside",
     {
       ref: root,
@@ -55538,15 +55810,15 @@ function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSes
         if (event.target === event.currentTarget) setLanded(true);
       }
     },
-    leaving || overlay ? null : (0, import_react82.createElement)("div", { className: "bt-panel-grip", role: "separator", "aria-orientation": "vertical", "aria-label": t("Resize panel"), onPointerDown: startResize }),
+    leaving || overlay ? null : (0, import_react83.createElement)("div", { className: "bt-panel-grip", role: "separator", "aria-orientation": "vertical", "aria-label": t("Resize panel"), onPointerDown: startResize }),
     // Over the whole window while dragging: the cursor stays a resize cursor and the
     // pages underneath (the chat, the guest) see no pointer.
-    dragging ? (0, import_react_dom12.createPortal)((0, import_react82.createElement)("div", { className: "bt-drag-shield", "aria-hidden": true }), document.body) : null,
-    hasStrip ? (0, import_react82.createElement)(PanelStrip, { bot, roomSubject, subject: pane.id, view, ids: tabState.ids, active, sides: sideChats, side: pane.side, task: taskEntry, canBrowse, reading, onView: switchView, actions: panelActions, useBrowserPages }) : null,
-    view === "browser" && bot ? (0, import_react82.createElement)(BrowserView, { key: `browser:${active}`, bot, tabId: active, leaving, landed: landed && !settling, actions, useBrowserPages, hold }) : view === "side" && sideChat ? (0, import_react82.createElement)("div", { key: `side:${sideChat.id}`, className: "bt-panel-view" }, (0, import_react82.createElement)(SideChatView, { subject: pane.id, chat: sideChat, roster, actions: panelActions })) : view === "task" && taskEntry && taskBot ? (0, import_react82.createElement)("div", { key: `task:${taskEntry.id}`, className: "bt-panel-view" }, (0, import_react82.createElement)(TaskReaderView, { bot: taskBot, task: taskEntry, actions: panelActions })) : (0, import_react82.createElement)(
+    dragging ? (0, import_react_dom12.createPortal)((0, import_react83.createElement)("div", { className: "bt-drag-shield", "aria-hidden": true }), document.body) : null,
+    hasStrip ? (0, import_react83.createElement)(PanelStrip, { bot, roomSubject, subject: pane.id, view, ids: tabState.ids, active, sides: sideChats, side: pane.side, task: taskEntry, canBrowse, reading, onView: switchView, actions: panelActions, useBrowserPages }) : null,
+    view === "browser" && bot ? (0, import_react83.createElement)(BrowserView, { key: `browser:${active}`, bot, tabId: active, leaving, landed: landed && !settling, actions, useBrowserPages, hold }) : view === "side" && sideChat ? (0, import_react83.createElement)("div", { key: `side:${sideChat.id}`, className: "bt-panel-view" }, (0, import_react83.createElement)(SideChatView, { subject: pane.id, chat: sideChat, roster, actions: panelActions })) : view === "task" && taskEntry && taskBot ? (0, import_react83.createElement)("div", { key: `task:${taskEntry.id}`, className: "bt-panel-view" }, (0, import_react83.createElement)(TaskReaderView, { bot: taskBot, task: taskEntry, actions: panelActions })) : (0, import_react83.createElement)(
       "div",
       { key: `details:${subjectId}:${pane.renaming ? "rename" : ""}:${pane.tab ?? ""}`, className: "bt-panel-view" },
-      (0, import_react82.createElement)(DetailsDrawer, {
+      (0, import_react83.createElement)(DetailsDrawer, {
         sessionId: pane.id,
         startRenaming: pane.renaming,
         startTab: pane.tab,
@@ -55652,89 +55924,91 @@ var BROWSER_CSS = `
 .bt-browser-empty-mark{display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center}
 /* Cookie imports */
 .bt-import-btn[data-open]{background:var(--bt-active);color:var(--bt-ink)}
-.bt-import-card{position:absolute;inset:0;z-index:6;display:flex;flex-direction:column;padding:20px 16px;background:color-mix(in srgb,var(--bt-sidebar) 55%,var(--bt-main));overflow:auto;animation:bt-fade .14s ease-out}
-.bt-import-box{width:100%;max-width:392px;margin:auto;box-sizing:border-box;padding:18px;border:.5px solid var(--bt-line-2);border-radius:16px;background:var(--bt-card);box-shadow:var(--bt-glass-shadow);animation:bt-import-rise ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing};overflow:hidden}
-@keyframes bt-import-rise{from{translate:0 10px;scale:.97}}
-.bt-import-stage{display:flex;flex-direction:column;gap:12px;animation:bt-veil-in .18s ease-out}
-.bt-import-head{display:flex;align-items:flex-start;gap:8px;min-width:0}
-.bt-import-head-text{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;padding-top:2px}
-.bt-import-head-btn{flex:none;margin:-2px -4px 0 0}
-.bt-import-head-btn:first-child{margin:-2px 0 0 -6px}
-.bt-import-title{font-size:15px;line-height:20px;font-weight:600;letter-spacing:-.01em;color:var(--bt-ink);font-variant-numeric:tabular-nums}
+.bt-import-card{position:absolute;inset:0;z-index:6;display:flex;flex-direction:column;padding:28px 24px;background:var(--bt-main);overflow:auto;animation:bt-fade .14s ease-out}
+.bt-import-box{width:100%;max-width:384px;margin:auto;box-sizing:border-box;overflow:visible}
+.bt-import-stage{display:flex;flex-direction:column;gap:14px;animation:bt-veil-in .18s ease-out}
+.bt-import-head{display:flex;align-items:center;gap:10px;min-width:0}
+.bt-import-head-mark{flex:none;display:inline-flex;align-items:center;justify-content:center;filter:drop-shadow(0 1px 2px rgba(0,0,0,.12))}
+.bt-import-head-text{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.bt-import-head-btn{flex:none;margin-right:-6px}
+.bt-import-head-btn:first-child{margin-left:-6px;margin-right:0}
+.bt-import-title{font-size:15px;line-height:20px;font-weight:600;letter-spacing:-.015em;color:var(--bt-ink);font-variant-numeric:tabular-nums}
 .bt-import-sub{font-size:12px;line-height:16px;color:var(--bt-ink-3);overflow-wrap:anywhere}
-.bt-import-text{font-size:13px;line-height:19px;color:var(--bt-ink-2);overflow-wrap:anywhere}
-.bt-import-section{display:flex;flex-direction:column;gap:6px}
-.bt-import-label{padding:0 2px;font-size:12px;line-height:16px;font-weight:500;color:var(--bt-ink-3)}
-.bt-import-group{display:flex;flex-direction:column;border-radius:12px;background:var(--bt-main);border:.5px solid var(--bt-line);overflow:hidden}
-.bt-import-item{position:relative;display:flex;align-items:center;gap:10px;width:100%;min-width:0;min-height:46px;padding:8px 10px;border:0;border-radius:0;background:transparent;color:var(--bt-ink);font:inherit;font-size:13px;line-height:18px;text-align:left;cursor:pointer;box-sizing:border-box;transition:background-color .12s ease}
-.bt-import-item+.bt-import-item::before{content:"";position:absolute;left:50px;right:10px;top:0;height:.5px;background:var(--bt-line);transition:opacity .12s ease;pointer-events:none}
-.bt-import-item:hover::before,.bt-import-item:hover+.bt-import-item::before{opacity:0}
+.bt-import-text{font-size:13px;line-height:20px;color:var(--bt-ink-2);overflow-wrap:anywhere}
+.bt-import-section{display:flex;flex-direction:column;gap:4px}
+.bt-import-label{padding:0 0 2px;font-size:12px;line-height:16px;font-weight:500;color:var(--bt-ink-3)}
+.bt-import-rows{display:flex;flex-direction:column;gap:2px}
+.bt-import-item{position:relative;display:flex;align-items:center;gap:12px;width:calc(100% + 20px);margin:0 -10px;min-width:0;min-height:48px;padding:8px 10px;border:0;border-radius:12px;background:transparent;color:var(--bt-ink);font:inherit;font-size:13px;line-height:18px;text-align:left;cursor:pointer;box-sizing:border-box;transition:background-color .12s ease,${spring(SPRING_TAP, "scale")}}
 .bt-import-item:hover{background:var(--bt-hover)}
-.bt-import-item:active:not(:disabled){background:var(--bt-active)}
-.bt-import-item:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px;border-radius:8px}
+.bt-import-item:active:not(:disabled){background:var(--bt-active);scale:.99}
+.bt-import-item:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
 .bt-import-item:disabled{opacity:.45;cursor:default}
-.bt-import-tile-ico{flex:none;width:30px;height:30px;border-radius:8px;background:var(--bt-hover);border:.5px solid var(--bt-line);color:var(--bt-ink-2);display:inline-flex;align-items:center;justify-content:center;transition:color .12s ease,background-color .12s ease}
-.bt-import-tile-ico svg{width:15px;height:15px}
-.bt-import-item:hover .bt-import-tile-ico{color:var(--bt-ink)}
+.bt-import-mark{flex:none;width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;filter:drop-shadow(0 1px 2px rgba(0,0,0,.14))}
 .bt-import-item-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
 .bt-import-item-subrow{display:flex;align-items:center;gap:6px;min-width:0}
-.bt-import-item-name{min-width:0;font-size:13px;line-height:18px;font-weight:500;color:var(--bt-ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.bt-import-item-email{min-width:0;font-size:11px;line-height:15px;color:var(--bt-ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-import-item-name{min-width:0;font-size:14px;line-height:20px;font-weight:500;color:var(--bt-ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-import-item-email{min-width:0;font-size:12px;line-height:16px;color:var(--bt-ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-import-item-meta{flex:none;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
-.bt-import-item-tag{flex:none;font-size:10px;line-height:15px;font-weight:500;padding:0 5px;border-radius:4px;background:var(--bt-tag-bg);color:var(--bt-tag-ink)}
+.bt-import-item-tag{flex:none;font-size:11px;line-height:16px;font-weight:500;padding:0 6px;border-radius:4px;background:var(--bt-tag-bg);color:var(--bt-tag-ink)}
 .bt-import-item-sub{display:inline-flex;align-items:center;gap:5px;font-size:12px;line-height:16px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums;white-space:nowrap}
 .bt-import-item-sub[data-ready]{color:var(--bt-green);font-weight:500}
 .bt-import-item-sub[data-warn]{color:var(--bt-warn);font-weight:500}
 .bt-import-dot{flex:none;width:6px;height:6px;border-radius:50%;corner-shape:round;background:currentColor}
-.bt-import-chev{flex:none;display:inline-flex;color:var(--bt-ink-3);transition:transform .12s ease,color .12s ease}
-.bt-import-chev svg{width:14px;height:14px}
-.bt-import-item:hover .bt-import-chev{color:var(--bt-ink-2);transform:translateX(2px)}
-.bt-import-menu-note{padding:14px 12px;font-size:12px;line-height:16px;color:var(--bt-ink-3);text-align:center}
-.bt-import-skel-row{display:flex;align-items:center;gap:10px;padding:10px}
-.bt-import-skel-row+.bt-import-skel-row{border-top:.5px solid var(--bt-line)}
-.bt-import-skel-ico{flex:none;width:30px;height:30px;border-radius:8px;background:var(--bt-hover);animation:bt-import-pulse 1.4s ease-in-out infinite}
+.bt-import-chev{flex:none;display:inline-flex;align-items:center;justify-content:flex-end;width:0;margin-left:-12px;overflow:hidden;color:var(--bt-ink-3);opacity:0;transform:translateX(-4px);transition:${spring(SPRING_SHAPE, "width", "margin-left", "transform")},opacity .14s ease}
+.bt-import-chev svg{flex:none;width:14px;height:14px}
+.bt-import-item:hover .bt-import-chev,.bt-import-item:focus-visible .bt-import-chev{width:14px;margin-left:0;opacity:.7;transform:none}
+.bt-import-sep{height:1px;background:var(--bt-line);margin:2px 0}
+.bt-import-item-alt{min-height:40px;padding:7px 10px;border-radius:10px;gap:10px}
+.bt-import-item-alt .bt-import-item-name{font-size:13px;line-height:18px;font-weight:400;flex:none}
+.bt-import-alt-ico{flex:none;width:28px;display:inline-flex;align-items:center;justify-content:center;color:var(--bt-ink-2);transition:color .12s ease}
+.bt-import-alt-ico svg{width:16px;height:16px}
+.bt-import-item-alt:hover .bt-import-alt-ico{color:var(--bt-ink)}
+.bt-import-alt-hint{flex:1;min-width:0;text-align:right;font-size:11px;line-height:16px;color:var(--bt-ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-import-menu-note{padding:16px 0;font-size:13px;line-height:18px;color:var(--bt-ink-3)}
+.bt-import-skel-row{display:flex;align-items:center;gap:12px;padding:10px 0}
+.bt-import-skel-ico{flex:none;width:26px;height:26px;border-radius:50%;corner-shape:round;background:var(--bt-hover);animation:bt-import-pulse 1.4s ease-in-out infinite}
 .bt-import-skel-lines{flex:1;display:flex;flex-direction:column;gap:6px}
 .bt-import-skel-bar{height:10px;border-radius:4px;background:var(--bt-hover);animation:bt-import-pulse 1.4s ease-in-out infinite}
 .bt-import-skel-w1{width:54%}
 .bt-import-skel-w2{width:34%;height:8px}
 .bt-import-skel-w3{width:46%}
 @keyframes bt-import-pulse{0%,100%{opacity:.45}50%{opacity:.9}}
-.bt-import-steps{display:flex;flex-direction:column;gap:10px;padding:12px 14px;border-radius:12px;background:var(--bt-main);border:.5px solid var(--bt-line)}
-.bt-import-step{font-size:12px;line-height:18px;color:var(--bt-ink-2)}
-.bt-import-copy-row{display:flex;align-items:center;gap:6px;padding:4px 4px 4px 10px;border-radius:8px;background:var(--bt-hover);border:.5px solid var(--bt-line);min-width:0}
-.bt-import-code{flex:1;min-width:0;color:var(--bt-ink);font-family:var(--bt-mono);font-size:11px;line-height:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;user-select:all}
-.bt-import-mini{flex:none;display:inline-flex;align-items:center;gap:4px;height:26px;padding:0 10px;border:.5px solid var(--bt-line);border-radius:6px;background:var(--bt-card);color:var(--bt-ink);font:inherit;font-size:12px;font-weight:500;cursor:pointer;transition:background-color .12s ease,border-color .12s ease,${spring(SPRING_TAP, "scale")}}
+.bt-import-steps{display:flex;flex-direction:column;gap:10px;padding:14px 16px;border-radius:12px;background:var(--bt-hover)}
+.bt-import-step{font-size:13px;line-height:19px;color:var(--bt-ink-2)}
+.bt-import-copy-row{display:flex;align-items:center;gap:8px;padding:5px 5px 5px 12px;border-radius:8px;background:var(--bt-card);box-shadow:var(--bt-card-shadow);min-width:0}
+.bt-import-code{flex:1;min-width:0;color:var(--bt-ink);font-family:var(--bt-mono);font-size:12px;line-height:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;user-select:all}
+.bt-import-mini{flex:none;display:inline-flex;align-items:center;gap:4px;height:26px;padding:0 10px;border:0;border-radius:6px;background:var(--bt-hover);color:var(--bt-ink);font:inherit;font-size:12px;font-weight:500;cursor:pointer;transition:background-color .12s ease,${spring(SPRING_TAP, "scale")}}
 .bt-import-mini svg{width:13px;height:13px;color:var(--bt-ink-2)}
-.bt-import-mini:hover{background:var(--bt-main);border-color:var(--bt-line-2)}
+.bt-import-mini:hover{background:var(--bt-active)}
 .bt-import-mini:active{scale:.96}
 .bt-import-mini:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
-.bt-import-ready-note{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;background:color-mix(in srgb,var(--bt-green) 12%,transparent);font-size:12px;line-height:16px;font-weight:500;color:var(--bt-green)}
+.bt-import-ready-note{display:flex;align-items:center;gap:8px;padding:9px 12px;border-radius:10px;background:color-mix(in srgb,var(--bt-green) 12%,transparent);font-size:12px;line-height:16px;font-weight:500;color:var(--bt-green)}
 .bt-import-ready-note svg{flex:none;width:15px;height:15px}
-.bt-import-textarea{width:100%;box-sizing:border-box;min-height:108px;max-height:200px;resize:vertical;padding:10px 12px;border:.5px solid var(--bt-line-2);border-radius:12px;background:var(--bt-main);color:var(--bt-ink);font-family:var(--bt-mono);font-size:12px;line-height:18px;outline:none;transition:border-color .12s ease,box-shadow .12s ease}
-.bt-import-input{width:100%;box-sizing:border-box;height:34px;padding:0 12px;border:.5px solid var(--bt-line-2);border-radius:8px;background:var(--bt-main);color:var(--bt-ink);font:inherit;font-size:13px;outline:none;transition:border-color .12s ease,box-shadow .12s ease}
-.bt-import-textarea:focus,.bt-import-input:focus{border-color:var(--bt-accent);box-shadow:0 0 0 3px var(--bt-accent-soft)}
+.bt-import-textarea{width:100%;box-sizing:border-box;min-height:120px;max-height:220px;resize:vertical;padding:12px 14px;border:1px solid transparent;border-radius:12px;background:var(--bt-hover);color:var(--bt-ink);font-family:var(--bt-mono);font-size:12px;line-height:18px;outline:none;transition:background-color .12s ease,border-color .12s ease,box-shadow .12s ease}
+.bt-import-input{width:100%;box-sizing:border-box;height:36px;padding:0 12px;border:1px solid transparent;border-radius:10px;background:var(--bt-hover);color:var(--bt-ink);font:inherit;font-size:13px;outline:none;transition:background-color .12s ease,border-color .12s ease,box-shadow .12s ease}
+.bt-import-textarea:focus,.bt-import-input:focus{background:var(--bt-card);border-color:var(--bt-accent);box-shadow:0 0 0 3px var(--bt-accent-soft)}
 .bt-import-input::placeholder,.bt-import-textarea::placeholder,.bt-import-search-in::placeholder{color:var(--bt-ink-3)}
-.bt-import-scope{width:100%;box-sizing:border-box;background:var(--bt-main);border:.5px solid var(--bt-line);padding:3px}
-.bt-import-scope button{min-width:0;height:28px;padding:0 10px;font-size:12px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-import-scope{width:100%;box-sizing:border-box}
+.bt-import-scope button{min-width:0;padding:0 10px;font-size:12px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-import-scope button[aria-pressed=true]{background:var(--bt-nav-thumb-bg);box-shadow:var(--bt-nav-thumb-shadow)}
-.bt-import-scope>.bt-thumb{top:3px;bottom:3px;background:var(--bt-nav-thumb-bg);box-shadow:var(--bt-nav-thumb-shadow)}
+.bt-import-scope>.bt-thumb{background:var(--bt-nav-thumb-bg);box-shadow:var(--bt-nav-thumb-shadow)}
 .bt-import-scope[data-glide] button[aria-pressed=true]{background:transparent;box-shadow:none}
 .bt-import-scope>.bt-thumb[data-hidden]{opacity:0}
-.bt-import-search{display:flex;align-items:center;gap:6px;height:34px;padding:0 4px 0 10px;border-radius:8px;background:var(--bt-main);border:.5px solid var(--bt-line);transition:border-color .12s ease,box-shadow .12s ease}
-.bt-import-search:focus-within{border-color:var(--bt-accent);box-shadow:0 0 0 3px var(--bt-accent-soft)}
+.bt-import-search{display:flex;align-items:center;gap:6px;height:34px;padding:0 4px 0 11px;border-radius:10px;background:var(--bt-hover);border:1px solid transparent;transition:background-color .12s ease,border-color .12s ease,box-shadow .12s ease}
+.bt-import-search:focus-within{background:var(--bt-card);border-color:var(--bt-accent);box-shadow:0 0 0 3px var(--bt-accent-soft)}
 .bt-import-search-ico{flex:none;display:inline-flex;color:var(--bt-ink-3)}
 .bt-import-search-ico svg{width:14px;height:14px}
-.bt-import-search-in{flex:1;min-width:0;border:0;background:none;outline:none;color:var(--bt-ink);font:inherit;font-size:12px;line-height:18px;padding:0}
+.bt-import-search-in{flex:1;min-width:0;border:0;background:none;outline:none;color:var(--bt-ink);font:inherit;font-size:13px;line-height:18px;padding:0}
 .bt-import-search-btn{flex:none;height:26px;padding:0 8px;border:0;border-radius:6px;background:transparent;color:var(--bt-ink-2);font:inherit;font-size:12px;font-weight:500;cursor:pointer;transition:background-color .12s ease,color .12s ease}
 .bt-import-search-btn:hover{background:var(--bt-hover);color:var(--bt-ink)}
 .bt-import-search-btn:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
-.bt-import-list{max-height:208px;overflow:auto;border:.5px solid var(--bt-line);border-radius:12px;background:var(--bt-main);padding:4px}
-.bt-import-list-empty{padding:18px 12px;font-size:12px;line-height:16px;color:var(--bt-ink-3);text-align:center}
-.bt-import-line{position:relative;display:flex;align-items:center;gap:10px;min-height:34px;padding:6px 8px;border-radius:8px;min-width:0;box-sizing:border-box;transition:background-color .12s ease}
+.bt-import-list{max-height:220px;overflow:auto;margin:0 -8px;padding:2px 0;display:flex;flex-direction:column;gap:1px}
+.bt-import-list-empty{padding:20px 12px;font-size:12px;line-height:16px;color:var(--bt-ink-3);text-align:center}
+.bt-import-line{position:relative;display:flex;align-items:center;gap:10px;min-height:36px;padding:6px 8px;border-radius:8px;min-width:0;box-sizing:border-box;transition:background-color .12s ease}
 .bt-import-check-row{cursor:pointer;user-select:none}
 .bt-import-check-row:hover{background:var(--bt-hover)}
 .bt-import-cb-input{position:absolute;opacity:0;width:1px;height:1px;margin:0;pointer-events:none}
-.bt-import-cb{flex:none;width:16px;height:16px;border-radius:4px;border:1.5px solid var(--bt-line-2);background:var(--bt-card);color:var(--bt-accent-ink);display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;transition:background-color .12s ease,border-color .12s ease}
+.bt-import-cb{flex:none;width:16px;height:16px;border-radius:4px;border:1.5px solid var(--bt-line-2);background:transparent;color:var(--bt-accent-ink);display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;transition:background-color .12s ease,border-color .12s ease}
 .bt-import-cb svg{width:11px;height:11px;stroke-width:2.2;animation:bt-import-pop ${SPRING_POP.duration}ms ${SPRING_POP.easing}}
 @keyframes bt-import-pop{from{scale:.5;opacity:0}}
 .bt-import-check-row[data-checked] .bt-import-cb{border-color:var(--bt-accent);background:var(--bt-accent)}
@@ -55743,43 +56017,44 @@ var BROWSER_CSS = `
 .bt-import-check-row[data-checked] .bt-import-line-name{color:var(--bt-ink)}
 .bt-import-line-count{flex:none;text-align:right;font-size:12px;line-height:16px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums;white-space:nowrap}
 .bt-import-line-reason{flex:1;min-width:0;font-size:11px;line-height:16px;color:var(--bt-ink-3);overflow-wrap:anywhere}
-.bt-import-opt-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 12px;border-radius:12px;background:var(--bt-main);border:.5px solid var(--bt-line)}
-.bt-import-opt-label{font-size:12px;line-height:16px;color:var(--bt-ink-2)}
+.bt-import-opt-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-top:12px;border-top:1px solid var(--bt-line)}
+.bt-import-opt-label{font-size:13px;line-height:18px;color:var(--bt-ink-2)}
 .bt-import-meta-group{display:flex;flex-direction:column;gap:2px}
-.bt-import-disclosure{border-radius:8px;font-size:12px;color:var(--bt-ink-3)}
-.bt-import-disclosure summary{display:flex;align-items:center;gap:4px;padding:3px 2px;list-style:none;cursor:pointer;color:var(--bt-ink-3);user-select:none;transition:color .12s ease}
+.bt-import-disclosure{font-size:12px;color:var(--bt-ink-3)}
+.bt-import-disclosure summary{display:flex;align-items:center;gap:4px;padding:3px 0;list-style:none;cursor:pointer;color:var(--bt-ink-3);user-select:none;transition:color .12s ease}
 .bt-import-disclosure summary::-webkit-details-marker{display:none}
 .bt-import-disclosure summary:hover{color:var(--bt-ink-2)}
 .bt-import-disc-chev{display:inline-flex;color:var(--bt-ink-3);transition:transform .16s ease}
 .bt-import-disc-chev svg{width:13px;height:13px}
 .bt-import-disclosure[open] .bt-import-disc-chev{transform:rotate(90deg)}
-.bt-import-disc-body{display:flex;flex-direction:column;gap:2px;margin-top:4px;padding:6px 10px;border-radius:8px;background:var(--bt-main);border:.5px solid var(--bt-line);max-height:112px;overflow:auto}
+.bt-import-disc-body{display:flex;flex-direction:column;gap:2px;margin-top:4px;padding:8px 12px;border-radius:10px;background:var(--bt-hover);max-height:112px;overflow:auto}
 .bt-import-detail-line{display:flex;align-items:baseline;gap:8px;padding:2px 0;min-width:0}
 .bt-import-detail-name{flex:none;max-width:52%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;line-height:16px;color:var(--bt-ink-2)}
-.bt-import-callout{display:flex;align-items:flex-start;gap:6px;padding:0 2px;font-size:11px;line-height:16px;color:var(--bt-ink-3)}
-.bt-import-callout svg{flex:none;width:13px;height:13px;margin-top:1px;color:var(--bt-ink-3)}
-.bt-import-status{align-items:center;text-align:center;padding-top:6px}
+.bt-import-callout{display:flex;align-items:flex-start;gap:6px;font-size:12px;line-height:16px;color:var(--bt-ink-3)}
+.bt-import-callout svg{flex:none;width:14px;height:14px;margin-top:1px;color:var(--bt-ink-3)}
+.bt-import-status{align-items:center;text-align:center}
 .bt-import-status .bt-import-actions{width:100%;justify-content:center;margin-top:6px}
-.bt-import-status-badge{width:38px;height:38px;border-radius:50%;corner-shape:round;display:inline-flex;align-items:center;justify-content:center;margin-bottom:2px;animation:bt-import-pop ${SPRING_POP.duration}ms ${SPRING_POP.easing}}
-.bt-import-status-badge svg{width:18px;height:18px}
+.bt-import-status-orbit{position:relative;width:54px;height:54px;display:inline-flex;align-items:center;justify-content:center;margin-bottom:4px}
+.bt-import-orbit-ring{position:absolute;inset:0;border-radius:50%;corner-shape:round;border:1.5px solid var(--bt-line);border-top-color:var(--bt-accent);box-sizing:border-box;animation:bt-import-spin .85s linear infinite}
+.bt-import-status-badge{width:44px;height:44px;border-radius:50%;corner-shape:round;display:inline-flex;align-items:center;justify-content:center;margin-bottom:4px;animation:bt-import-pop ${SPRING_POP.duration}ms ${SPRING_POP.easing}}
+.bt-import-status-badge svg{width:20px;height:20px}
 .bt-import-status-ok{background:color-mix(in srgb,var(--bt-green) 14%,transparent);color:var(--bt-green)}
 .bt-import-status-err{background:var(--bt-danger-soft);color:var(--bt-danger)}
-.bt-import-status-muted,.bt-import-status-busy{background:var(--bt-hover);color:var(--bt-ink-2)}
-.bt-import-spinner{width:18px;height:18px;border-radius:50%;corner-shape:round;border:2px solid var(--bt-line-2);border-top-color:var(--bt-accent);box-sizing:border-box;animation:bt-import-spin .75s linear infinite}
+.bt-import-status-muted{background:var(--bt-hover);color:var(--bt-ink-2)}
 @keyframes bt-import-spin{to{transform:rotate(360deg)}}
-.bt-import-problems{width:100%;box-sizing:border-box;padding:8px 10px;text-align:left}
+.bt-import-problems{width:100%;box-sizing:border-box;padding:10px 12px;border-radius:10px;background:var(--bt-hover);text-align:left;max-height:140px;overflow:auto}
 .bt-import-actions{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;margin-top:4px}
-.bt-import-primary{height:34px;padding:0 16px;border:0;border-radius:999px;background:var(--bt-accent);color:var(--bt-accent-ink);font:inherit;font-size:13px;font-weight:500;cursor:pointer;transition:opacity .12s ease,filter .12s ease,${spring(SPRING_TAP, "scale")}}
+.bt-import-primary{height:36px;padding:0 18px;border:0;border-radius:999px;background:var(--bt-accent);color:var(--bt-accent-ink);font:inherit;font-size:13px;font-weight:500;cursor:pointer;transition:opacity .12s ease,filter .12s ease,${spring(SPRING_TAP, "scale")}}
 .bt-import-primary:hover:not(:disabled){filter:brightness(1.06)}
 .bt-import-primary:active:not(:disabled){scale:.96}
 .bt-import-primary:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
 .bt-import-primary:disabled{opacity:.4;cursor:default}
-.bt-import-plain{height:34px;padding:0 14px;border:0;border-radius:999px;background:var(--bt-hover);color:var(--bt-ink);font:inherit;font-size:13px;font-weight:500;cursor:pointer;transition:background-color .12s ease,opacity .12s ease,${spring(SPRING_TAP, "scale")}}
+.bt-import-plain{height:36px;padding:0 16px;border:0;border-radius:999px;background:var(--bt-hover);color:var(--bt-ink);font:inherit;font-size:13px;font-weight:500;cursor:pointer;transition:background-color .12s ease,opacity .12s ease,${spring(SPRING_TAP, "scale")}}
 .bt-import-plain:hover:not(:disabled){background:var(--bt-active)}
 .bt-import-plain:active:not(:disabled){scale:.96}
 .bt-import-plain:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
 .bt-import-plain:disabled{opacity:.4;cursor:default}
-@media (prefers-reduced-motion:reduce){.bt-import-card,.bt-import-box,.bt-import-stage,.bt-import-cb svg,.bt-import-status-badge,.bt-import-skel-ico,.bt-import-skel-bar{animation:none!important}.bt-import-mini,.bt-import-primary,.bt-import-plain,.bt-import-chev,.bt-import-disc-chev{transition:none!important}}
+@media (prefers-reduced-motion:reduce){.bt-import-card,.bt-import-stage,.bt-import-cb svg,.bt-import-status-badge,.bt-import-skel-ico,.bt-import-skel-bar{animation:none!important}.bt-import-item,.bt-import-mini,.bt-import-primary,.bt-import-plain,.bt-import-chev,.bt-import-disc-chev{transition:none!important}}
 /* A viewport too narrow to leave the conversation its room: the panel covers it,
    and its close controls get a touch-sized target. */
 .bt-panel[data-overlay]{width:100vw}
@@ -55796,7 +56071,7 @@ var BROWSER_CSS = `
 `;
 
 // src/client/opening.js
-var import_react83 = require("react");
+var import_react84 = require("react");
 var OPENING_WAIT_MS = 5e3;
 function openingPastWait(pending, target) {
   if (!pending || pending.target !== target || pending.slow === true) return pending ?? null;
@@ -55850,7 +56125,7 @@ function openingModel({ pending, current: current2, roster }) {
 }
 function OpeningCover({ model, column }) {
   if (model === null) return null;
-  return (0, import_react83.createElement)(
+  return (0, import_react84.createElement)(
     "div",
     {
       className: "bt-opening",
@@ -55858,12 +56133,12 @@ function OpeningCover({ model, column }) {
       role: "status",
       "aria-live": "polite"
     },
-    (0, import_react83.createElement)(
+    (0, import_react84.createElement)(
       "div",
       { className: "bt-opening-card" },
-      (0, import_react83.createElement)("span", { className: "bt-opening-mark" }, model.bot ? (0, import_react83.createElement)(BotMark, { bot: model.bot, size: 44 }) : (0, import_react83.createElement)(PeopleIcon)),
-      model.name ? (0, import_react83.createElement)("span", { className: "bt-opening-name" }, model.name) : null,
-      (0, import_react83.createElement)("span", { className: "bt-opening-note" }, t(model.slow ? "Still opening…" : "Opening…"))
+      (0, import_react84.createElement)("span", { className: "bt-opening-mark" }, model.bot ? (0, import_react84.createElement)(BotMark, { bot: model.bot, size: 44 }) : (0, import_react84.createElement)(PeopleIcon)),
+      model.name ? (0, import_react84.createElement)("span", { className: "bt-opening-name" }, model.name) : null,
+      (0, import_react84.createElement)("span", { className: "bt-opening-note" }, t(model.slow ? "Still opening…" : "Opening…"))
     )
   );
 }
@@ -55877,7 +56152,7 @@ var OPENING_CSS = `
 `;
 
 // src/client/overlays.js
-var import_react84 = require("react");
+var import_react85 = require("react");
 var import_react_dom13 = require("react-dom");
 var DIALOG_EXIT_MS2 = 160;
 var MENU_EXIT_MS3 = 120;
@@ -55894,8 +56169,8 @@ function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity
   const frameSnap = useReadFrame((value) => value);
   const pref = useReadSidebarPref((value) => value);
   const current2 = useSessions((list) => Object.values(list.byId).find((session) => (session?.retainedBy?.mainView ?? 0) > 0)?.id ?? null);
-  const previous = (0, import_react84.useRef)(current2);
-  (0, import_react84.useEffect)(() => {
+  const previous = (0, import_react85.useRef)(current2);
+  (0, import_react85.useEffect)(() => {
     if (previous.current === current2) return;
     previous.current = current2;
     if (current2) actions.followPanel?.(current2);
@@ -55909,8 +56184,8 @@ function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity
     panel: open ? { view: open.view, yielded: ui.panelYield === true } : null
   });
   const shown = open !== null && layout.panel !== "folded" ? open : null;
-  const [kept, setKept] = (0, import_react84.useState)(shown);
-  (0, import_react84.useEffect)(() => {
+  const [kept, setKept] = (0, import_react85.useState)(shown);
+  (0, import_react85.useEffect)(() => {
     if (shown) {
       setKept(shown);
       return void 0;
@@ -55933,81 +56208,81 @@ function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity
   const opening = openingModel({ pending: ui.pendingOpen ?? null, current: current2, roster });
   const paletteToken = ui.palette?.token;
   const groupSearchToken = ui.groupSearch?.token;
-  return (0, import_react84.createElement)(
-    import_react84.Fragment,
+  return (0, import_react85.createElement)(
+    import_react85.Fragment,
     null,
-    (0, import_react84.createElement)(
+    (0, import_react85.createElement)(
       OverlayBoundary,
       { key: "ds-bot:notifications", name: "notifications", notify: false },
-      (0, import_react84.createElement)(NotificationWatcher, { useSessions, useSessionStatus, useRoster, useWork, actions })
+      (0, import_react85.createElement)(NotificationWatcher, { useSessions, useSessionStatus, useRoster, useWork, actions })
     ),
-    opening ? (0, import_react84.createElement)(
+    opening ? (0, import_react85.createElement)(
       OverlayBoundary,
       { name: "opening", reset: opening.id, notify: false },
-      (0, import_react_dom13.createPortal)((0, import_react84.createElement)(OpeningCover, { model: opening, column: layout.column }), document.body)
+      (0, import_react_dom13.createPortal)((0, import_react85.createElement)(OpeningCover, { model: opening, column: layout.column }), document.body)
     ) : null,
-    pane ? (0, import_react84.createElement)(OverlayBoundary, {
+    pane ? (0, import_react85.createElement)(OverlayBoundary, {
       name: "panel",
       active: shown !== null,
       notify: shown !== null,
       reset: `${roster.byId[pane.id]?.id ?? roster.roomsById[pane.id]?.id ?? pane.id}:${pane.view}:${pane.tab ?? ""}:${pane.side ?? ""}:${pane.task?.botId ?? ""}:${pane.task?.taskId ?? ""}`,
       onDismiss: () => actions.closePanel?.(),
       actions
-    }, (0, import_react_dom13.createPortal)((0, import_react84.createElement)(BotPanel, { pane, leaving: shown === null, room: layout.room, overlay: layout.panel === "overlay", roster, actions, useSessions, useSessionStatus, useActivity, useWork, useComputer, useBrowserTabs, useBrowserPages, useBrowserHolds }), document.body)) : null,
-    ui.newChat ? (0, import_react84.createElement)(OverlayBoundary, {
+    }, (0, import_react_dom13.createPortal)((0, import_react85.createElement)(BotPanel, { pane, leaving: shown === null, room: layout.room, overlay: layout.panel === "overlay", roster, actions, useSessions, useSessionStatus, useActivity, useWork, useComputer, useBrowserTabs, useBrowserPages, useBrowserHolds }), document.body)) : null,
+    ui.newChat ? (0, import_react85.createElement)(OverlayBoundary, {
       name: "new-chat",
       reset: `${ui.newChat}:${ui.newChatSection ?? ""}`,
       onDismiss: () => (actions.closeNewChat ?? actions.closeOverlay)?.(),
       actions
-    }, (0, import_react_dom13.createPortal)((0, import_react84.createElement)(NewChat, { key: `${ui.newChat}:${ui.newChatSection ?? ""}`, mode: ui.newChat, sectionId: ui.newChatSection ?? null, paneLeft: layout.column, roster, actions }), document.body)) : null,
-    ui.palette ? (0, import_react84.createElement)(OverlayBoundary, {
+    }, (0, import_react_dom13.createPortal)((0, import_react85.createElement)(NewChat, { key: `${ui.newChat}:${ui.newChatSection ?? ""}`, mode: ui.newChat, sectionId: ui.newChatSection ?? null, paneLeft: layout.column, roster, actions }), document.body)) : null,
+    ui.palette ? (0, import_react85.createElement)(OverlayBoundary, {
       name: "palette",
       reset: paletteToken,
       onDismiss: () => actions.closePalette?.(paletteToken),
       actions
-    }, (0, import_react_dom13.createPortal)((0, import_react84.createElement)(CommandPalette, { key: ui.palette.token, start: ui.palette.query, token: ui.palette.token, roster, actions, useSessions }), document.body)) : null,
-    ui.groupSearch && roster.roomsById[ui.groupSearch.roomId] ? (0, import_react84.createElement)(OverlayBoundary, {
+    }, (0, import_react_dom13.createPortal)((0, import_react85.createElement)(CommandPalette, { key: ui.palette.token, start: ui.palette.query, token: ui.palette.token, roster, actions, useSessions }), document.body)) : null,
+    ui.groupSearch && roster.roomsById[ui.groupSearch.roomId] ? (0, import_react85.createElement)(OverlayBoundary, {
       name: "group-search",
       reset: groupSearchToken,
       onDismiss: () => actions.closeGroupSearch?.(groupSearchToken),
       actions
-    }, (0, import_react_dom13.createPortal)((0, import_react84.createElement)(GroupSearch, { key: ui.groupSearch.token, room: roster.roomsById[ui.groupSearch.roomId], roster, token: ui.groupSearch.token, actions }), document.body)) : null,
-    ui.exchange ? (0, import_react84.createElement)(OverlayBoundary, {
+    }, (0, import_react_dom13.createPortal)((0, import_react85.createElement)(GroupSearch, { key: ui.groupSearch.token, room: roster.roomsById[ui.groupSearch.roomId], roster, token: ui.groupSearch.token, actions }), document.body)) : null,
+    ui.exchange ? (0, import_react85.createElement)(OverlayBoundary, {
       name: "exchange",
       reset: Array.isArray(ui.exchange) ? ui.exchange.join(":") : String(ui.exchange),
       onDismiss: () => (actions.closeExchange ?? actions.closeOverlay)?.(),
       actions
-    }, (0, import_react_dom13.createPortal)((0, import_react84.createElement)(ExchangeDialog, { pair: ui.exchange, paneLeft: layout.column, roster, actions, useWork }), document.body)) : null,
-    ui.voice ? (0, import_react84.createElement)(OverlayBoundary, {
+    }, (0, import_react_dom13.createPortal)((0, import_react85.createElement)(ExchangeDialog, { pair: ui.exchange, paneLeft: layout.column, roster, actions, useWork }), document.body)) : null,
+    ui.voice ? (0, import_react85.createElement)(OverlayBoundary, {
       name: "voice",
       reset: ui.voice,
       onDismiss: () => actions.closeVoice?.(),
       actions
-    }, (0, import_react_dom13.createPortal)((0, import_react84.createElement)(VoiceMode, { key: ui.voice, sessionId: ui.voice, paneLeft: layout.column, roster, actions, useSessions, useSessionStatus }), document.body)) : null,
-    menu ? (0, import_react84.createElement)(OverlayBoundary, {
+    }, (0, import_react_dom13.createPortal)((0, import_react85.createElement)(VoiceMode, { key: ui.voice, sessionId: ui.voice, paneLeft: layout.column, roster, actions, useSessions, useSessionStatus }), document.body)) : null,
+    menu ? (0, import_react85.createElement)(OverlayBoundary, {
       name: "menu",
       active: !menuLeaving,
       notify: !menuLeaving,
       reset: `${menu.kind ?? ""}:${menu.id}:${menu.x}:${menu.y}`,
       onDismiss: () => actions.closeMenu?.(),
       actions
-    }, (0, import_react_dom13.createPortal)((0, import_react84.createElement)(ContextMenu, { key: `${menu.kind ?? ""}:${menu.id}:${menu.x}:${menu.y}`, menu, roster, actions, useWork, leaving: menuLeaving }), document.body)) : null,
-    settings ? (0, import_react84.createElement)(OverlayBoundary, {
+    }, (0, import_react_dom13.createPortal)((0, import_react85.createElement)(ContextMenu, { key: `${menu.kind ?? ""}:${menu.id}:${menu.x}:${menu.y}`, menu, roster, actions, useWork, leaving: menuLeaving }), document.body)) : null,
+    settings ? (0, import_react85.createElement)(OverlayBoundary, {
       name: "settings",
       active: !settingsLeaving,
       notify: !settingsLeaving,
       reset: `${settings.page}:${settings.id ?? ""}`,
       onDismiss: () => actions.closeSettings?.(),
       actions
-    }, (0, import_react_dom13.createPortal)((0, import_react84.createElement)(SettingsDialog, { page: settings.page, id: settings.id, roster, actions, useUpdate, leaving: settingsLeaving }), document.body)) : null,
-    owner ? (0, import_react84.createElement)(OverlayBoundary, {
+    }, (0, import_react_dom13.createPortal)((0, import_react85.createElement)(SettingsDialog, { page: settings.page, id: settings.id, roster, actions, useUpdate, leaving: settingsLeaving }), document.body)) : null,
+    owner ? (0, import_react85.createElement)(OverlayBoundary, {
       name: "memory",
       active: !memoryLeaving,
       notify: !memoryLeaving,
       reset: owner.id,
       onDismiss: () => actions.closeMemory?.(),
       actions
-    }, (0, import_react_dom13.createPortal)((0, import_react84.createElement)(MemoryDialog, { key: owner.id, owner, actions, leaving: memoryLeaving }), document.body)) : null
+    }, (0, import_react_dom13.createPortal)((0, import_react85.createElement)(MemoryDialog, { key: owner.id, owner, actions, leaving: memoryLeaving }), document.body)) : null
   );
 }
 
@@ -57155,24 +57430,24 @@ function proposalCards({ proposals = [], settled = [], failures = {} }) {
 }
 
 // src/client/learning-card.js
-var import_react85 = require("react");
+var import_react86 = require("react");
 var failedAnswers = /* @__PURE__ */ new Map();
 function PendingLearning({ sessionId, useRoster, actions }) {
   const roster = useRoster((value) => value);
   const bot = roster.byId?.[sessionId];
   const proposals = bot && currentPart(bot) === sessionId ? roster.learning?.[bot.id] ?? [] : [];
   const settledIds = (bot === void 0 ? [] : roster.learningSettled?.[bot.id] ?? []).map((entry) => entry.id);
-  const [open, setOpen] = (0, import_react85.useState)(false);
-  const root = (0, import_react85.useRef)(null);
+  const [open, setOpen] = (0, import_react86.useState)(false);
+  const root = (0, import_react86.useRef)(null);
   const [shown, leaving] = useLinger(open, 120);
-  (0, import_react85.useEffect)(() => {
+  (0, import_react86.useEffect)(() => {
     setOpen(false);
   }, [sessionId, proposals.length === 0]);
-  (0, import_react85.useEffect)(() => {
+  (0, import_react86.useEffect)(() => {
     if (settledIds.length === 0) return;
     for (const id of settledIds) failedAnswers.delete(id);
   }, [settledIds.join("|")]);
-  (0, import_react85.useEffect)(() => {
+  (0, import_react86.useEffect)(() => {
     if (!open) return;
     const outside = (event) => {
       if (!root.current?.contains(event.target)) setOpen(false);
@@ -57188,16 +57463,16 @@ function PendingLearning({ sessionId, useRoster, actions }) {
   const onResolved = (id) => {
     failedAnswers.delete(id);
   };
-  return (0, import_react85.createElement)(
+  return (0, import_react86.createElement)(
     "div",
     { className: "bt-learning-pending", ref: root },
-    (0, import_react85.createElement)(
+    (0, import_react86.createElement)(
       "button",
       { type: "button", className: "bt-learning-pending-toggle", "aria-expanded": open, onClick: () => setOpen(!open) },
-      (0, import_react85.createElement)("span", { className: "bt-learning-dot", "aria-hidden": true }),
-      (0, import_react85.createElement)("span", { className: "bt-learning-pending-label" }, t("Awaiting approval"), ` · ${proposals.length}`)
+      (0, import_react86.createElement)("span", { className: "bt-learning-dot", "aria-hidden": true }),
+      (0, import_react86.createElement)("span", { className: "bt-learning-pending-label" }, t("Awaiting approval"), ` · ${proposals.length}`)
     ),
-    shown ? (0, import_react85.createElement)(PendingLearningPanel, { proposals, actions, onFailure, onResolved, leaving, close: () => {
+    shown ? (0, import_react86.createElement)(PendingLearningPanel, { proposals, actions, onFailure, onResolved, leaving, close: () => {
       setOpen(false);
       root.current?.querySelector("button")?.focus();
     } }) : null
@@ -57205,10 +57480,10 @@ function PendingLearning({ sessionId, useRoster, actions }) {
 }
 function PendingLearningPanel({ proposals, actions, onFailure, onResolved, close, leaving }) {
   useEscape(close);
-  return (0, import_react85.createElement)(
+  return (0, import_react86.createElement)(
     "div",
     { className: "bt-learning-pending-panel", "data-leaving": leaving || void 0, role: "region", "aria-label": t("Awaiting approval") },
-    proposals.map((proposal) => (0, import_react85.createElement)(ProposalCard, {
+    proposals.map((proposal) => (0, import_react86.createElement)(ProposalCard, {
       key: proposal.id,
       proposal,
       initialError: failedAnswers.get(proposal.id)?.error,
@@ -57220,11 +57495,11 @@ function PendingLearningPanel({ proposals, actions, onFailure, onResolved, close
 }
 function ProposalCard({ proposal, initialError = "", onFailure, onResolved, actions }) {
   const outcome = proposal.outcome;
-  const [busy, setBusy] = (0, import_react85.useState)(false);
-  const [error, setError] = (0, import_react85.useState)(initialError);
-  const [open, setOpen] = (0, import_react85.useState)(false);
-  const busyRef = (0, import_react85.useRef)(false);
-  const titleId = (0, import_react85.useId)();
+  const [busy, setBusy] = (0, import_react86.useState)(false);
+  const [error, setError] = (0, import_react86.useState)(initialError);
+  const [open, setOpen] = (0, import_react86.useState)(false);
+  const busyRef = (0, import_react86.useRef)(false);
+  const titleId = (0, import_react86.useId)();
   const answer = (approve) => {
     if (busyRef.current) return;
     busyRef.current = true;
@@ -57240,65 +57515,65 @@ function ProposalCard({ proposal, initialError = "", onFailure, onResolved, acti
   };
   const update = proposal.action === "update";
   const agents = proposal.kind === "agents";
-  const rows2 = (0, import_react85.useMemo)(() => lineDiff(update ? proposal.previous?.content : "", proposal.content), [update, proposal.previous?.content, proposal.content]);
+  const rows2 = (0, import_react86.useMemo)(() => lineDiff(update ? proposal.previous?.content : "", proposal.content), [update, proposal.previous?.content, proposal.content]);
   const change = agents ? [
-    (0, import_react85.createElement)(FileBox, { key: "file", name: "AGENTS.md", path: proposal.folder, state: proposal.exists === false ? "Added" : "Modified", blocks: proposal.edits.map(agentEditRows) }),
-    ...proposal.edits.map((edit, index) => edit.why ? (0, import_react85.createElement)("p", { className: "bt-learning-why", key: `why-${index}` }, edit.why) : null)
+    (0, import_react86.createElement)(FileBox, { key: "file", name: "AGENTS.md", path: proposal.folder, state: proposal.exists === false ? "Added" : "Modified", blocks: proposal.edits.map(agentEditRows) }),
+    ...proposal.edits.map((edit, index) => edit.why ? (0, import_react86.createElement)("p", { className: "bt-learning-why", key: `why-${index}` }, edit.why) : null)
   ] : [
-    (0, import_react85.createElement)(FileBox, { key: "file", name: "SKILL.md", path: `skills/${proposal.name}`, state: update ? "Updated" : "Added", blocks: [rows2] }),
-    proposal.why ? (0, import_react85.createElement)("p", { className: "bt-learning-why", key: "why" }, proposal.why) : null
+    (0, import_react86.createElement)(FileBox, { key: "file", name: "SKILL.md", path: `skills/${proposal.name}`, state: update ? "Updated" : "Added", blocks: [rows2] }),
+    proposal.why ? (0, import_react86.createElement)("p", { className: "bt-learning-why", key: "why" }, proposal.why) : null
   ];
   const kind = t(agents ? "AGENTS.md update" : update ? "Skill update" : "New skill");
   if (outcome) {
     const what = agents ? proposal.folder : proposal.name;
-    return (0, import_react85.createElement)(
+    return (0, import_react86.createElement)(
       "section",
       { className: "bt-q bt-q-settled bt-learning-card bt-learning-settled", role: "group", "aria-label": `${kind} · ${what}`, "data-outcome": outcome },
-      (0, import_react85.createElement)(
+      (0, import_react86.createElement)(
         "button",
         { type: "button", className: "bt-learning-fold", "aria-expanded": open, onClick: () => setOpen(!open) },
-        (0, import_react85.createElement)("span", { className: "bt-learning-icon", "aria-hidden": true }, (0, import_react85.createElement)(agents ? PencilIcon : MemoryIcon)),
-        (0, import_react85.createElement)("span", { className: "bt-learning-kind" }, kind),
-        (0, import_react85.createElement)("span", { className: "bt-learning-sum" }, `${t(outcome === "approved" ? "Approved" : "Declined")} · ${what}`)
+        (0, import_react86.createElement)("span", { className: "bt-learning-icon", "aria-hidden": true }, (0, import_react86.createElement)(agents ? PencilIcon : MemoryIcon)),
+        (0, import_react86.createElement)("span", { className: "bt-learning-kind" }, kind),
+        (0, import_react86.createElement)("span", { className: "bt-learning-sum" }, `${t(outcome === "approved" ? "Approved" : "Declined")} · ${what}`)
       ),
       open ? change : null
     );
   }
   const oldDetail = update && typeof proposal.previous?.description === "string" && proposal.previous.description !== proposal.description ? proposal.previous.description : void 0;
-  return (0, import_react85.createElement)(
+  return (0, import_react86.createElement)(
     "section",
     { className: "bt-q bt-learning-card", role: "group", "aria-labelledby": titleId, "aria-busy": busy },
-    agents ? (0, import_react85.createElement)(ProposalHead, { titleId, icon: PencilIcon, title: kind }) : (0, import_react85.createElement)(ProposalHead, { titleId, title: proposal.name, kind, detail: proposal.description, oldDetail }),
+    agents ? (0, import_react86.createElement)(ProposalHead, { titleId, icon: PencilIcon, title: kind }) : (0, import_react86.createElement)(ProposalHead, { titleId, title: proposal.name, kind, detail: proposal.description, oldDetail }),
     change,
-    error ? (0, import_react85.createElement)("div", { className: "bt-learning-error", role: "alert" }, error) : null,
-    (0, import_react85.createElement)(ProposalFoot, { busy, answer })
+    error ? (0, import_react86.createElement)("div", { className: "bt-learning-error", role: "alert" }, error) : null,
+    (0, import_react86.createElement)(ProposalFoot, { busy, answer })
   );
 }
 function ProposalHead({ titleId, icon: icon2 = MemoryIcon, title, kind, detail, oldDetail }) {
-  return (0, import_react85.createElement)(
+  return (0, import_react86.createElement)(
     "div",
     { className: "bt-q-head" },
-    (0, import_react85.createElement)("span", { className: "bt-learning-icon", "aria-hidden": true }, (0, import_react85.createElement)(icon2)),
-    (0, import_react85.createElement)(
+    (0, import_react86.createElement)("span", { className: "bt-learning-icon", "aria-hidden": true }, (0, import_react86.createElement)(icon2)),
+    (0, import_react86.createElement)(
       "div",
       { className: "bt-q-text" },
-      (0, import_react85.createElement)("p", { className: "bt-q-title", id: titleId }, title),
-      kind ? (0, import_react85.createElement)("div", { className: "bt-q-detail" }, kind) : null,
-      oldDetail ? (0, import_react85.createElement)("p", { className: "bt-learning-description bt-learning-old" }, (0, import_react85.createElement)("del", null, oldDetail)) : null,
-      detail ? (0, import_react85.createElement)("p", { className: "bt-learning-description" }, detail) : null
+      (0, import_react86.createElement)("p", { className: "bt-q-title", id: titleId }, title),
+      kind ? (0, import_react86.createElement)("div", { className: "bt-q-detail" }, kind) : null,
+      oldDetail ? (0, import_react86.createElement)("p", { className: "bt-learning-description bt-learning-old" }, (0, import_react86.createElement)("del", null, oldDetail)) : null,
+      detail ? (0, import_react86.createElement)("p", { className: "bt-learning-description" }, detail) : null
     ),
-    (0, import_react85.createElement)("span", { className: "bt-q-badge bt-learning-status" }, (0, import_react85.createElement)("span", { className: "bt-learning-dot", "aria-hidden": true }), t("Awaiting approval"))
+    (0, import_react86.createElement)("span", { className: "bt-q-badge bt-learning-status" }, (0, import_react86.createElement)("span", { className: "bt-learning-dot", "aria-hidden": true }), t("Awaiting approval"))
   );
 }
 function ProposalFoot({ busy, answer }) {
-  return (0, import_react85.createElement)(
+  return (0, import_react86.createElement)(
     "div",
     { className: "bt-q-foot bt-learning-foot" },
-    (0, import_react85.createElement)("button", { type: "button", className: "bt-learning-btn bt-learning-decline", disabled: busy, onClick: () => answer(false) }, t("Decline")),
-    (0, import_react85.createElement)(
+    (0, import_react86.createElement)("button", { type: "button", className: "bt-learning-btn bt-learning-decline", disabled: busy, onClick: () => answer(false) }, t("Decline")),
+    (0, import_react86.createElement)(
       "button",
       { type: "button", className: "bt-learning-btn bt-learning-approve", disabled: busy, onClick: () => answer(true) },
-      (0, import_react85.createElement)(CheckIcon),
+      (0, import_react86.createElement)(CheckIcon),
       t("Approve")
     )
   );
@@ -57306,43 +57581,43 @@ function ProposalFoot({ busy, answer }) {
 var COLLAPSE_ROWS = 8;
 var SIGNS = { added: "+", removed: "−", same: "" };
 function FileBox({ name, path: path2, state, blocks }) {
-  const [open, setOpen] = (0, import_react85.useState)(false);
+  const [open, setOpen] = (0, import_react86.useState)(false);
   const all = blocks.flat();
   const added = all.filter((row) => row.kind === "added").length;
   const removed = all.filter((row) => row.kind === "removed").length;
   const folds = all.length > COLLAPSE_ROWS;
   const shut = folds && !open;
-  return (0, import_react85.createElement)(
+  return (0, import_react86.createElement)(
     "div",
     { className: "bt-learning-file" },
-    (0, import_react85.createElement)(
+    (0, import_react86.createElement)(
       "div",
       { className: "bt-learning-filehead" },
-      (0, import_react85.createElement)("span", { className: "bt-learning-name" }, name),
-      path2 ? (0, import_react85.createElement)("span", { className: "bt-learning-path" }, path2) : null,
-      (0, import_react85.createElement)("span", { className: "bt-learning-spacer" }),
-      added > 0 ? (0, import_react85.createElement)("span", { className: "bt-learning-plus" }, `+${added}`) : null,
-      removed > 0 ? (0, import_react85.createElement)("span", { className: "bt-learning-minus" }, `−${removed}`) : null,
-      (0, import_react85.createElement)("span", { className: `bt-learning-state bt-learning-state-${state.toLowerCase()}` }, t(state))
+      (0, import_react86.createElement)("span", { className: "bt-learning-name" }, name),
+      path2 ? (0, import_react86.createElement)("span", { className: "bt-learning-path" }, path2) : null,
+      (0, import_react86.createElement)("span", { className: "bt-learning-spacer" }),
+      added > 0 ? (0, import_react86.createElement)("span", { className: "bt-learning-plus" }, `+${added}`) : null,
+      removed > 0 ? (0, import_react86.createElement)("span", { className: "bt-learning-minus" }, `−${removed}`) : null,
+      (0, import_react86.createElement)("span", { className: `bt-learning-state bt-learning-state-${state.toLowerCase()}` }, t(state))
     ),
-    (0, import_react85.createElement)(
+    (0, import_react86.createElement)(
       "div",
       { className: shut ? "bt-learning-code bt-learning-shut" : "bt-learning-code" },
       blocks.map((rows2, blockIndex) => [
-        blockIndex > 0 ? (0, import_react85.createElement)("div", { className: "bt-learning-gap", key: `gap-${blockIndex}` }) : null,
-        ...rows2.map((row, rowIndex) => (0, import_react85.createElement)(
+        blockIndex > 0 ? (0, import_react86.createElement)("div", { className: "bt-learning-gap", key: `gap-${blockIndex}` }) : null,
+        ...rows2.map((row, rowIndex) => (0, import_react86.createElement)(
           "div",
           { className: `bt-learning-row bt-learning-${row.kind}`, key: `${blockIndex}-${rowIndex}` },
-          (0, import_react85.createElement)("span", { className: "bt-learning-num", "aria-hidden": true }, row.number ?? ""),
-          (0, import_react85.createElement)("span", { className: "bt-learning-sign", "aria-hidden": true }, SIGNS[row.kind]),
-          (0, import_react85.createElement)("span", { className: "bt-learning-text" }, row.line || " ")
+          (0, import_react86.createElement)("span", { className: "bt-learning-num", "aria-hidden": true }, row.number ?? ""),
+          (0, import_react86.createElement)("span", { className: "bt-learning-sign", "aria-hidden": true }, SIGNS[row.kind]),
+          (0, import_react86.createElement)("span", { className: "bt-learning-text" }, row.line || " ")
         ))
       ])
     ),
-    folds ? (0, import_react85.createElement)(
+    folds ? (0, import_react86.createElement)(
       "div",
       { className: shut ? "bt-learning-morebar bt-learning-morebar-shut" : "bt-learning-morebar" },
-      (0, import_react85.createElement)(
+      (0, import_react86.createElement)(
         "button",
         { type: "button", className: "bt-learning-more", "aria-expanded": open, onClick: () => setOpen(!open) },
         t(open ? "Show less" : "Show all {count} lines", { count: all.length })
@@ -57353,10 +57628,10 @@ function FileBox({ name, path: path2, state, blocks }) {
 function LearningProposals({ turn, dock, sessionId, useRoster, actions }) {
   const roster = useRoster((value) => value);
   const facts = useTurnFacts(sessionId, actions);
-  const [failed, setFailed] = (0, import_react85.useState)({});
+  const [failed, setFailed] = (0, import_react86.useState)({});
   const bot = roster.byId?.[sessionId];
   const settledIds = (bot === void 0 ? [] : roster.learningSettled?.[bot.id] ?? []).map((entry) => entry.id);
-  (0, import_react85.useEffect)(() => {
+  (0, import_react86.useEffect)(() => {
     if (settledIds.length === 0) return;
     for (const id of settledIds) failedAnswers.delete(id);
     setFailed((current2) => settledIds.reduce((next, id) => withoutEntry(next, id), current2));
@@ -57380,10 +57655,10 @@ function LearningProposals({ turn, dock, sessionId, useRoster, actions }) {
     failedAnswers.delete(id);
     return withoutEntry(current2, id);
   });
-  return (0, import_react85.createElement)("div", { className: dock ? "bt-learning-stack bt-learning-dock" : "bt-learning-stack" }, cards.map((proposal) => (0, import_react85.createElement)(
+  return (0, import_react86.createElement)("div", { className: dock ? "bt-learning-stack bt-learning-dock" : "bt-learning-stack" }, cards.map((proposal) => (0, import_react86.createElement)(
     "div",
     { className: "bt-q-inline", key: proposal.id },
-    (0, import_react85.createElement)(ProposalCard, {
+    (0, import_react86.createElement)(ProposalCard, {
       proposal,
       initialError: failed[proposal.id]?.error ?? failedAnswers.get(proposal.id)?.error,
       onFailure,
@@ -57393,10 +57668,10 @@ function LearningProposals({ turn, dock, sessionId, useRoster, actions }) {
   )));
 }
 function LearningTurnTail(props) {
-  return (0, import_react85.createElement)(LearningProposals, { ...props, dock: false });
+  return (0, import_react86.createElement)(LearningProposals, { ...props, dock: false });
 }
 function LearningDock(props) {
-  return (0, import_react85.createElement)(LearningProposals, { ...props, dock: true });
+  return (0, import_react86.createElement)(LearningProposals, { ...props, dock: true });
 }
 var LEARNING_CSS = `
 .bt-learning-pending{pointer-events:auto;position:static;flex:0 1 auto;min-width:0;max-width:45%;margin-left:8px;-webkit-app-region:no-drag}
@@ -57592,7 +57867,7 @@ function installBotMentionRule(userText, roster) {
 }
 
 // src/client/queue-dock.js
-var import_react86 = require("react");
+var import_react87 = require("react");
 var OWN_QUEUE_KINDS = /* @__PURE__ */ new Set(["user", "schedule", "user-question-reply"]);
 var EMPTY_QUEUE = [];
 var QUEUE_TEXT_FACTS = { collapseWhitespace: true, trimWhitespace: true };
@@ -57609,17 +57884,17 @@ function queueAttachments(content) {
 var fileSizeText2 = (bytes) => typeof bytes !== "number" || !Number.isFinite(bytes) ? "" : bytes < 1024 ? `${bytes} B` : bytes < 1048576 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1048576).toFixed(1)} MB`;
 function QueueFile({ attachment, label }) {
   const size = fileSizeText2(attachment.bytes);
-  return (0, import_react86.createElement)(
+  return (0, import_react87.createElement)(
     "span",
     { className: "bt-queue-file", "aria-label": label, title: attachment.name },
-    (0, import_react86.createElement)("span", { className: "bt-queue-fileicon", "aria-hidden": true }, (0, import_react86.createElement)(PaperclipIcon)),
-    (0, import_react86.createElement)("span", { className: "bt-queue-filename" }, attachment.name),
-    size !== "" ? (0, import_react86.createElement)("span", { className: "bt-queue-filesize" }, size) : null
+    (0, import_react87.createElement)("span", { className: "bt-queue-fileicon", "aria-hidden": true }, (0, import_react87.createElement)(PaperclipIcon)),
+    (0, import_react87.createElement)("span", { className: "bt-queue-filename" }, attachment.name),
+    size !== "" ? (0, import_react87.createElement)("span", { className: "bt-queue-filesize" }, size) : null
   );
 }
 function QueueThumb({ attachment, loadImage, label }) {
-  const [url, setUrl] = (0, import_react86.useState)(null);
-  (0, import_react86.useEffect)(() => {
+  const [url, setUrl] = (0, import_react87.useState)(null);
+  (0, import_react87.useEffect)(() => {
     let alive = true;
     loadImage(attachment).then((resolved) => {
       if (alive) setUrl(resolved);
@@ -57629,22 +57904,22 @@ function QueueThumb({ attachment, loadImage, label }) {
       alive = false;
     };
   }, [attachment, loadImage]);
-  return url === null ? (0, import_react86.createElement)("span", { className: "bt-queue-thumb", "aria-hidden": true }) : (0, import_react86.createElement)("img", { className: "bt-queue-thumb", src: url, alt: label });
+  return url === null ? (0, import_react87.createElement)("span", { className: "bt-queue-thumb", "aria-hidden": true }) : (0, import_react87.createElement)("img", { className: "bt-queue-thumb", src: url, alt: label });
 }
 function Preview({ text, renderFactorySlot }) {
   const rendered = renderFactorySlot?.("conversation.user.text", { text, facts: QUEUE_TEXT_FACTS, interactive: false, ellipsis: true });
-  return (0, import_react86.createElement)("span", { className: "bt-queue-preview" }, rendered ?? text);
+  return (0, import_react87.createElement)("span", { className: "bt-queue-preview" }, rendered ?? text);
 }
 function EditField({ text, onChange, onSave, onCancel }) {
-  const field = (0, import_react86.useRef)(null);
-  (0, import_react86.useEffect)(() => {
+  const field = (0, import_react87.useRef)(null);
+  (0, import_react87.useEffect)(() => {
     const node = field.current;
     if (node === null) return;
     node.focus();
     node.style.height = "auto";
     node.style.height = `${node.scrollHeight}px`;
   }, [text]);
-  return (0, import_react86.createElement)("textarea", {
+  return (0, import_react87.createElement)("textarea", {
     ref: field,
     className: "bt-queue-edit",
     value: text,
@@ -57663,28 +57938,28 @@ function EditField({ text, onChange, onSave, onCancel }) {
   });
 }
 function RowButton({ label, title, disabled, onClick, children }) {
-  return (0, import_react86.createElement)("button", { type: "button", className: "bt-queue-action", "aria-label": label, title: title ?? label, disabled, onClick }, children);
+  return (0, import_react87.createElement)("button", { type: "button", className: "bt-queue-action", "aria-label": label, title: title ?? label, disabled, onClick }, children);
 }
 function QueueDock({ useSession, useProjection, updateQueue, loadImage, renderFactorySlot, actions }) {
   const inbox = useProjection?.("inbox");
   const pendingSubmissions = useSession?.((s) => s.pendingSubmissions) ?? EMPTY_QUEUE;
-  const queue = (0, import_react86.useMemo)(() => {
+  const queue = (0, import_react87.useMemo)(() => {
     const rows2 = (inbox?.["next-turn"] ?? EMPTY_QUEUE).filter((row) => OWN_QUEUE_KINDS.has(row.source?.kind));
     const inChat = new Set(pendingSubmissions.filter((item) => item.placement === "transcript").map((item) => item.requestId));
     return inChat.size === 0 ? rows2 : rows2.filter(({ source }) => source === null || typeof source !== "object" || !("rpcId" in source) || !inChat.has(source.rpcId));
   }, [inbox, pendingSubmissions]);
-  const pendingQueue = (0, import_react86.useMemo)(() => {
+  const pendingQueue = (0, import_react87.useMemo)(() => {
     const admitted = new Set(queue.flatMap(({ source }) => source !== null && typeof source === "object" && "rpcId" in source ? [source.rpcId] : []));
     return pendingSubmissions.filter((submission) => submission.placement === "queued" && !admitted.has(submission.requestId));
   }, [pendingSubmissions, queue]);
   const rowCount = queue.length + pendingQueue.length;
   const running = useSession?.((s) => s.running) === true;
   const queueMutable = useSession?.((s) => s.subagent === null || s.subagent === void 0 || s.subagent.address?.mode === "continuable") ?? true;
-  const [editing, setEditing] = (0, import_react86.useState)(null);
-  const [busy, setBusy] = (0, import_react86.useState)(null);
-  const [collapsed, setCollapsed] = (0, import_react86.useState)(true);
-  const listId = (0, import_react86.useId)();
-  (0, import_react86.useEffect)(() => {
+  const [editing, setEditing] = (0, import_react87.useState)(null);
+  const [busy, setBusy] = (0, import_react87.useState)(null);
+  const [collapsed, setCollapsed] = (0, import_react87.useState)(true);
+  const listId = (0, import_react87.useId)();
+  (0, import_react87.useEffect)(() => {
     if (rowCount === 0 && !collapsed) setCollapsed(true);
     if (editing !== null && (!queueMutable || !queue.some((row) => row.id === editing.id))) setEditing(null);
   }, [collapsed, editing, queue, queueMutable, rowCount]);
@@ -57712,77 +57987,77 @@ function QueueDock({ useSession, useProjection, updateQueue, loadImage, renderFa
     if (editing === null || editing.text.trim() === "") return;
     if (await applyAction(editing.id, { kind: "edit", content: [{ type: "text", text: editing.text }] }, t("Couldn’t edit the queued message — it may have started already."))) setEditing(null);
   };
-  return (0, import_react86.createElement)(
+  return (0, import_react87.createElement)(
     "div",
     { className: "bt-queue-dock", "data-queue-dock": "" },
-    (0, import_react86.createElement)(
+    (0, import_react87.createElement)(
       "div",
       { className: "bt-queue-panel" },
-      rowCount > 1 && (0, import_react86.createElement)(
+      rowCount > 1 && (0, import_react87.createElement)(
         "button",
         { type: "button", className: "bt-queue-head", "aria-controls": listId, "aria-expanded": expanded, disabled: interactionActive, onClick: () => setCollapsed((value) => !value) },
-        (0, import_react86.createElement)("span", { className: "bt-queue-lead", "aria-hidden": true }, (0, import_react86.createElement)(QueueIcon)),
-        (0, import_react86.createElement)("span", { className: "bt-queue-count" }, t("{n} queued messages", { n: rowCount })),
-        !listVisible && pendingQueue.length > 0 && (0, import_react86.createElement)("span", { className: "bt-queue-status", role: "status" }, t("Sending…")),
-        (0, import_react86.createElement)("span", { className: "bt-queue-chev", "aria-hidden": true }, expanded ? (0, import_react86.createElement)(ChevronDownIcon) : (0, import_react86.createElement)(ChevronUpIcon))
+        (0, import_react87.createElement)("span", { className: "bt-queue-lead", "aria-hidden": true }, (0, import_react87.createElement)(QueueIcon)),
+        (0, import_react87.createElement)("span", { className: "bt-queue-count" }, t("{n} queued messages", { n: rowCount })),
+        !listVisible && pendingQueue.length > 0 && (0, import_react87.createElement)("span", { className: "bt-queue-status", role: "status" }, t("Sending…")),
+        (0, import_react87.createElement)("span", { className: "bt-queue-chev", "aria-hidden": true }, expanded ? (0, import_react87.createElement)(ChevronDownIcon) : (0, import_react87.createElement)(ChevronUpIcon))
       ),
-      (0, import_react86.createElement)(
+      (0, import_react87.createElement)(
         "ul",
         { id: listId, className: "bt-queue-list", hidden: !listVisible },
         listVisible && queue.map((row) => {
           const attachments = queueAttachments(row.content);
           const text = textOf(row.content);
-          return (0, import_react86.createElement)(
+          return (0, import_react87.createElement)(
             "li",
             { key: row.id, className: "bt-queue-row" },
-            rowCount === 1 && (0, import_react86.createElement)("span", { className: "bt-queue-lead", "aria-hidden": true }, (0, import_react86.createElement)(QueueIcon)),
-            editing?.id === row.id ? (0, import_react86.createElement)(EditField, { text: editing.text, onChange: (text2) => setEditing({ id: row.id, text: text2 }), onSave: saveEdit, onCancel: () => setEditing(null) }) : (0, import_react86.createElement)(
-              import_react86.Fragment,
+            rowCount === 1 && (0, import_react87.createElement)("span", { className: "bt-queue-lead", "aria-hidden": true }, (0, import_react87.createElement)(QueueIcon)),
+            editing?.id === row.id ? (0, import_react87.createElement)(EditField, { text: editing.text, onChange: (text2) => setEditing({ id: row.id, text: text2 }), onSave: saveEdit, onCancel: () => setEditing(null) }) : (0, import_react87.createElement)(
+              import_react87.Fragment,
               null,
-              attachments.length > 0 && (0, import_react86.createElement)(
+              attachments.length > 0 && (0, import_react87.createElement)(
                 "span",
                 { className: "bt-queue-attachments" },
-                attachments.map((item, index) => item.type === "image" ? (0, import_react86.createElement)(QueueThumb, { key: `${item.attachment.attachmentId}:${index}`, attachment: item.attachment, loadImage, label: t("Queued image") }) : (0, import_react86.createElement)(QueueFile, { key: `${item.attachment.attachmentId}:${item.attachment.name}:${index}`, attachment: item.attachment, label: t("Queued file {name}", { name: item.attachment.name }) }))
+                attachments.map((item, index) => item.type === "image" ? (0, import_react87.createElement)(QueueThumb, { key: `${item.attachment.attachmentId}:${index}`, attachment: item.attachment, loadImage, label: t("Queued image") }) : (0, import_react87.createElement)(QueueFile, { key: `${item.attachment.attachmentId}:${item.attachment.name}:${index}`, attachment: item.attachment, label: t("Queued file {name}", { name: item.attachment.name }) }))
               ),
-              (0, import_react86.createElement)(Preview, { text: row.content.filter((block) => block.type === "text").map((block) => block.text).join(""), renderFactorySlot })
+              (0, import_react87.createElement)(Preview, { text: row.content.filter((block) => block.type === "text").map((block) => block.text).join(""), renderFactorySlot })
             ),
-            queueMutable && (0, import_react86.createElement)(
+            queueMutable && (0, import_react87.createElement)(
               "div",
               { className: "bt-queue-actions" },
-              editing?.id === row.id ? (0, import_react86.createElement)(
-                import_react86.Fragment,
+              editing?.id === row.id ? (0, import_react87.createElement)(
+                import_react87.Fragment,
                 null,
-                (0, import_react86.createElement)(RowButton, { label: t("Save queued message"), disabled: busy !== null || editing.text.trim() === "", onClick: saveEdit }, (0, import_react86.createElement)(CheckIcon)),
-                (0, import_react86.createElement)(RowButton, { label: t("Cancel editing"), disabled: busy !== null, onClick: () => setEditing(null) }, (0, import_react86.createElement)(CloseIcon))
-              ) : (0, import_react86.createElement)(
-                import_react86.Fragment,
+                (0, import_react87.createElement)(RowButton, { label: t("Save queued message"), disabled: busy !== null || editing.text.trim() === "", onClick: saveEdit }, (0, import_react87.createElement)(CheckIcon)),
+                (0, import_react87.createElement)(RowButton, { label: t("Cancel editing"), disabled: busy !== null, onClick: () => setEditing(null) }, (0, import_react87.createElement)(CloseIcon))
+              ) : (0, import_react87.createElement)(
+                import_react87.Fragment,
                 null,
-                (0, import_react86.createElement)(RowButton, { label: t("Edit queued message"), title: text === null ? t("Contains non-text content, so editing is not supported yet") : void 0, disabled: busy !== null || text === null, onClick: () => {
+                (0, import_react87.createElement)(RowButton, { label: t("Edit queued message"), title: text === null ? t("Contains non-text content, so editing is not supported yet") : void 0, disabled: busy !== null || text === null, onClick: () => {
                   if (text !== null) setEditing({ id: row.id, text });
-                } }, (0, import_react86.createElement)(PencilIcon)),
-                (0, import_react86.createElement)(RowButton, { label: t("Delete queued message"), disabled: busy !== null, onClick: () => applyAction(row.id, { kind: "remove" }, t("Couldn’t delete the queued message — it may have started already.")) }, (0, import_react86.createElement)(TrashIcon)),
-                (0, import_react86.createElement)(RowButton, { label: t("Steer queued message"), title: running ? void 0 : t("Only while a turn is running"), disabled: busy !== null || !running, onClick: () => applyAction(row.id, { kind: "steer" }, t("Couldn’t steer the queued message. Try again.")) }, (0, import_react86.createElement)(ArrowUpIcon))
+                } }, (0, import_react87.createElement)(PencilIcon)),
+                (0, import_react87.createElement)(RowButton, { label: t("Delete queued message"), disabled: busy !== null, onClick: () => applyAction(row.id, { kind: "remove" }, t("Couldn’t delete the queued message — it may have started already.")) }, (0, import_react87.createElement)(TrashIcon)),
+                (0, import_react87.createElement)(RowButton, { label: t("Steer queued message"), title: running ? void 0 : t("Only while a turn is running"), disabled: busy !== null || !running, onClick: () => applyAction(row.id, { kind: "steer" }, t("Couldn’t steer the queued message. Try again.")) }, (0, import_react87.createElement)(ArrowUpIcon))
               )
             )
           );
         }),
-        listVisible && pendingQueue.map((submission) => (0, import_react86.createElement)(
+        listVisible && pendingQueue.map((submission) => (0, import_react87.createElement)(
           "li",
           { key: submission.requestId, className: "bt-queue-row bt-queue-pending" },
-          rowCount === 1 && (0, import_react86.createElement)("span", { className: "bt-queue-lead", "aria-hidden": true }, (0, import_react86.createElement)(QueueIcon)),
-          submission.attachments.length > 0 && (0, import_react86.createElement)(
+          rowCount === 1 && (0, import_react87.createElement)("span", { className: "bt-queue-lead", "aria-hidden": true }, (0, import_react87.createElement)(QueueIcon)),
+          submission.attachments.length > 0 && (0, import_react87.createElement)(
             "span",
             { className: "bt-queue-attachments" },
-            submission.attachments.map((attachment, index) => attachment.type === "image" ? (0, import_react86.createElement)("img", { key: `${attachment.value.previewUrl}:${index}`, className: "bt-queue-thumb", src: attachment.value.previewUrl, alt: t("Queued image") }) : (0, import_react86.createElement)(QueueFile, { key: `${attachment.value.attachmentId}:${attachment.value.name}:${index}`, attachment: attachment.value, label: t("Queued file {name}", { name: attachment.value.name }) }))
+            submission.attachments.map((attachment, index) => attachment.type === "image" ? (0, import_react87.createElement)("img", { key: `${attachment.value.previewUrl}:${index}`, className: "bt-queue-thumb", src: attachment.value.previewUrl, alt: t("Queued image") }) : (0, import_react87.createElement)(QueueFile, { key: `${attachment.value.attachmentId}:${attachment.value.name}:${index}`, attachment: attachment.value, label: t("Queued file {name}", { name: attachment.value.name }) }))
           ),
-          (0, import_react86.createElement)(Preview, { text: submission.text, renderFactorySlot }),
-          (0, import_react86.createElement)("span", { className: "bt-queue-status", role: "status" }, t("Sending…")),
-          queueMutable && (0, import_react86.createElement)(
+          (0, import_react87.createElement)(Preview, { text: submission.text, renderFactorySlot }),
+          (0, import_react87.createElement)("span", { className: "bt-queue-status", role: "status" }, t("Sending…")),
+          queueMutable && (0, import_react87.createElement)(
             "div",
             { className: "bt-queue-actions" },
-            (0, import_react86.createElement)(RowButton, { label: t("Edit queued message"), title: t("Sending…"), disabled: true }, (0, import_react86.createElement)(PencilIcon)),
-            (0, import_react86.createElement)(RowButton, { label: t("Delete queued message"), title: t("Sending…"), disabled: true }, (0, import_react86.createElement)(TrashIcon)),
-            (0, import_react86.createElement)(RowButton, { label: t("Steer queued message"), title: t("Sending…"), disabled: true }, (0, import_react86.createElement)(ArrowUpIcon))
+            (0, import_react87.createElement)(RowButton, { label: t("Edit queued message"), title: t("Sending…"), disabled: true }, (0, import_react87.createElement)(PencilIcon)),
+            (0, import_react87.createElement)(RowButton, { label: t("Delete queued message"), title: t("Sending…"), disabled: true }, (0, import_react87.createElement)(TrashIcon)),
+            (0, import_react87.createElement)(RowButton, { label: t("Steer queued message"), title: t("Sending…"), disabled: true }, (0, import_react87.createElement)(ArrowUpIcon))
           )
         ))
       )
@@ -58119,7 +58394,7 @@ function singleFlight(map, key, run2) {
 }
 
 // src/client/text-annotation.js
-var import_react87 = require("react");
+var import_react88 = require("react");
 var quoteMarkdown = (text) => text.replace(/\r\n?/gu, "\n").split("\n").map((line) => `> ${line}`).join("\n");
 var withAnnotation = (text, annotation) => annotation.trim() ? `${text}
 
@@ -58132,23 +58407,23 @@ function insertAnnotation(inputActions, text, annotation) {
 function TextSelectionAction({ sessionId, dismiss, readText, clearSelection, inputActions, useSession, useRoster, actions, t: hostT }) {
   const enabled = useSession((state) => !state.removed && (state.subagent === null || state.subagent.address.mode === "continuable" && state.subagent.parentAvailable === true));
   const team = useRoster((state) => state.byId[sessionId] !== void 0 || state.roomsById[sessionId] !== void 0);
-  const [editing, setEditing] = (0, import_react87.useState)(false);
-  const [excerpt, setExcerpt] = (0, import_react87.useState)(null);
-  const [annotation, setAnnotation] = (0, import_react87.useState)("");
-  const [sending, setSending] = (0, import_react87.useState)(false);
-  const [closing, setClosing] = (0, import_react87.useState)(false);
-  const field = (0, import_react87.useRef)(null);
-  const pending = (0, import_react87.useRef)(false);
-  const closeTimer = (0, import_react87.useRef)(null);
-  (0, import_react87.useEffect)(() => {
+  const [editing, setEditing] = (0, import_react88.useState)(false);
+  const [excerpt, setExcerpt] = (0, import_react88.useState)(null);
+  const [annotation, setAnnotation] = (0, import_react88.useState)("");
+  const [sending, setSending] = (0, import_react88.useState)(false);
+  const [closing, setClosing] = (0, import_react88.useState)(false);
+  const field = (0, import_react88.useRef)(null);
+  const pending = (0, import_react88.useRef)(false);
+  const closeTimer = (0, import_react88.useRef)(null);
+  (0, import_react88.useEffect)(() => {
     if (!enabled) dismiss();
   }, [enabled, dismiss]);
-  (0, import_react87.useEffect)(() => {
+  (0, import_react88.useEffect)(() => {
     if (!team || !enabled || !editing) return;
     field.current?.focus();
     if (typeof window !== "undefined") window.dispatchEvent(new Event("resize"));
   }, [team, enabled, editing]);
-  (0, import_react87.useEffect)(() => () => clearTimeout(closeTimer.current), []);
+  (0, import_react88.useEffect)(() => () => clearTimeout(closeTimer.current), []);
   if (!enabled) return null;
   const close = () => {
     clearSelection();
@@ -58221,7 +58496,7 @@ function TextSelectionAction({ sessionId, dismiss, readText, clearSelection, inp
     else void send();
   };
   if (!team) {
-    return (0, import_react87.createElement)("button", {
+    return (0, import_react88.createElement)("button", {
       type: "button",
       className: "bt-quote-plain",
       "aria-label": hostT("quote.add"),
@@ -58230,17 +58505,17 @@ function TextSelectionAction({ sessionId, dismiss, readText, clearSelection, inp
     }, hostT("quote.add"));
   }
   if (!editing) {
-    return (0, import_react87.createElement)(
+    return (0, import_react88.createElement)(
       "div",
       { className: "bt-selection-actions" },
-      (0, import_react87.createElement)("button", {
+      (0, import_react88.createElement)("button", {
         type: "button",
         className: "bt-selection-action",
         "aria-label": hostT("quote.add"),
         onPointerDown: (event) => event.preventDefault(),
         onClick: quoteOnly
       }, hostT("quote.add")),
-      (0, import_react87.createElement)("button", {
+      (0, import_react88.createElement)("button", {
         type: "button",
         className: "bt-selection-action bt-quote-annotate",
         "aria-label": t("Annotate"),
@@ -58249,7 +58524,7 @@ function TextSelectionAction({ sessionId, dismiss, readText, clearSelection, inp
       }, t("Annotate"))
     );
   }
-  return (0, import_react87.createElement)(
+  return (0, import_react88.createElement)(
     "section",
     {
       className: "bt-annotation",
@@ -58264,9 +58539,9 @@ function TextSelectionAction({ sessionId, dismiss, readText, clearSelection, inp
         }
       }
     },
-    (0, import_react87.createElement)("label", { className: "bt-annotation-label", htmlFor: "bt-annotation-field" }, t("Annotation")),
-    (0, import_react87.createElement)("blockquote", { className: "bt-annotation-quote" }, quoteText()),
-    (0, import_react87.createElement)("textarea", {
+    (0, import_react88.createElement)("label", { className: "bt-annotation-label", htmlFor: "bt-annotation-field" }, t("Annotation")),
+    (0, import_react88.createElement)("blockquote", { className: "bt-annotation-quote" }, quoteText()),
+    (0, import_react88.createElement)("textarea", {
       id: "bt-annotation-field",
       ref: field,
       value: annotation,
@@ -58277,11 +58552,11 @@ function TextSelectionAction({ sessionId, dismiss, readText, clearSelection, inp
       onChange: (event) => setAnnotation(event.target.value),
       onKeyDown
     }),
-    (0, import_react87.createElement)(
+    (0, import_react88.createElement)(
       "div",
       { className: "bt-annotation-actions" },
-      (0, import_react87.createElement)("button", { type: "button", className: "bt-annotation-add", disabled: sending || closing, onClick: add, title: t("Add quote and annotation to the composer · Enter") }, t("Add")),
-      (0, import_react87.createElement)("button", { type: "button", className: "bt-annotation-send", disabled: sending || closing, onClick: () => void send(), title: (() => {
+      (0, import_react88.createElement)("button", { type: "button", className: "bt-annotation-add", disabled: sending || closing, onClick: add, title: t("Add quote and annotation to the composer · Enter") }, t("Add")),
+      (0, import_react88.createElement)("button", { type: "button", className: "bt-annotation-send", disabled: sending || closing, onClick: () => void send(), title: (() => {
         const label = t("Send quote and annotation · Ctrl+Enter");
         return typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent || "") ? label.replace("Ctrl+Enter", "⌘↵") : label;
       })() }, sending ? t("Sending…") : t("Send"))
