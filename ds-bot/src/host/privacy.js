@@ -127,6 +127,7 @@ export function install(rt) {
     join(rt.home, 'memory', 'journal.torn'),
     join(rt.home, 'memory', 'pending.json'),
     join(rt.home, 'logs', 'diagnostics.jsonl'),
+    join(rt.home, 'telemetry.json'),
   ].filter(Boolean).map(file => spellings(file, memo))).then(list => list.flat())
 
   const spelledDataRoots = (memo) => {

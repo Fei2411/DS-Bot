@@ -168,6 +168,18 @@ export function install(rt) {
     fresh.push(entry)
     if (fresh.length > KEEP) fresh = fresh.slice(-KEEP)
     append(entry)
+    if (level === 'error' || (level === 'warn' && typeof stack === 'string' && stack !== '')) {
+      const errName = /^([A-Za-z][A-Za-z0-9_]*Error)\b/.exec(String(text ?? ''))?.[1]
+      void rt.telemetry?.noteError({
+        source: source === 'api' ? 'host' : source,
+        errorName: errName ?? 'Error',
+        code: fields.code,
+        where: fields.where,
+        stack,
+        botId: fields.botId,
+        sessionId: fields.sessionId,
+      })
+    }
     return entry
   }
 
