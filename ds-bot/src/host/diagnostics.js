@@ -16,7 +16,8 @@ const LOG_MAX_BYTES = 1 << 20
 const STACK_LINES = 8
 const TEXT_MAX = 2000
 export const REPORT_ENTRIES = 20
-export const ISSUES_URL = 'https://github.com/Fei-Craft/DS-Bot/issues/new'
+export const DS_BOT_REPO = 'Fei-Craft/DS-Bot'
+export const ISSUES_URL = `https://github.com/${DS_BOT_REPO}/issues/new`
 
 const quote = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
