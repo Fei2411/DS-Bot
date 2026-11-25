@@ -1,6 +1,6 @@
 import { Component, createElement as h, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { isMainOf } from './sources.js'
-import { ApiIcon, BlocksIcon, CheckIcon, ChevronDownIcon, ChevronLeftIcon, ChevronRightIcon, ClockIcon, CloseIcon, CompassIcon, ConnectorIcon, GlobeIcon, InfoIcon, KeyboardIcon, LayersIcon, MonitorIcon, OverviewIcon, PaletteIcon, PhoneIcon, PlusIcon, PuzzleIcon, SearchIcon, SendIcon, SlidersIcon, TerminalIcon, WaveIcon, SETTINGS_ICONS } from './icons.js'
+import { ApiIcon, BlocksIcon, CheckIcon, ChevronDownIcon, ChevronLeftIcon, ChevronRightIcon, ClockIcon, CloseIcon, CompassIcon, ConnectorIcon, GlobeIcon, InfoIcon, KeyboardIcon, LayersIcon, MonitorIcon, OverviewIcon, PaletteIcon, PhoneIcon, PlusIcon, PuzzleIcon, SearchIcon, SendIcon, ShieldIcon, SlidersIcon, TerminalIcon, WaveIcon, SETTINGS_ICONS } from './icons.js'
 import { IconAgentPresetOutlineMedium, IconArchiveOutlineMedium, IconSettingsOutlineMedium, IconUserOutlineMedium } from './dsh-primitives.js'
 import { AdminStar, BotAvatar, RoomAvatar } from './mark.js'
 import { useEscape } from './overlay-hooks.js'
@@ -22,6 +22,7 @@ import { PluginsPage } from './plugins-page.js'
 import { ComputerPage } from './computer.js'
 import { SchedulesPage } from './schedules.js'
 import { FeedbackIcon, FeedbackPage } from './feedback.js'
+import { PrivacyPage } from './privacy-page.js'
 import { AboutPage } from './about.js'
 import { ProvidersPage } from './providers-page.js'
 import { LocalAgentsPage } from './local-agents-page.js'
@@ -83,7 +84,7 @@ const NAV_GROUPS = [
     id: 'about',
     label: 'About DS Bot',
     icon: 'about',
-    pages: [['about', 'About'], ['feedback', 'Feedback']],
+    pages: [['about', 'About'], ['privacy', 'Privacy'], ['feedback', 'Feedback']],
     section: 'last',
   },
 ]
@@ -93,16 +94,17 @@ const GROUP_ALIASES = { team: 'bots', connect: 'connectors', tools: 'computer', 
 
 // DSH sections DS Bot's own pages already hold.
 const MERGED_SECTIONS = new Set(['general', 'models', 'plugins'])
-// DSH General rows placed in Appearance or Basics; the rest go under Advanced.
+// DSH General rows placed in Appearance, Basics, or Privacy; the rest go under Advanced.
 const LOOK_ITEMS = ['appearance', 'font-size']
 const BASIC_ITEMS = ['language', 'composer-enter']
+const PRIVACY_ITEMS = ['session-log-deepseek']
 const lookRows = dsh => LOOK_ITEMS.filter(id => (dsh?.items ?? []).some(row => row.id === id)).map(id => dshItem(dsh, id))
 const DSH_ICONS = { account: IconUserOutlineMedium, 'agent-presets': IconAgentPresetOutlineMedium, plugins: PuzzleIcon, 'archived-sessions': IconArchiveOutlineMedium }
 export const dshPages = dsh => (dsh?.sections ?? []).filter(row => row.id !== '' && !MERGED_SECTIONS.has(row.id))
 const hasSection = (dsh, id) => (dsh?.sections ?? []).some(row => row.id === id)
 const dshItem = (dsh, id) => h('div', { key: id, className: 'bt-dsh-item', 'data-item': id },
   dsh.preferences && PREFERENCE_ITEMS.has(id) ? h(SettingsPreferences, { id, preferences: dsh.preferences }) : dsh.renderSlot('settings.general.item', {}, { only: id }))
-const PAGE_ICONS = { ...SETTINGS_ICONS, overview: OverviewIcon, shortcuts: KeyboardIcon, appearance: PaletteIcon, models: SlidersIcon, 'bot-models': LayersIcon, 'local-agents': TerminalIcon, connectors: ConnectorIcon, im: SendIcon, phone: PhoneIcon, api: ApiIcon, capabilities: BlocksIcon, 'deepseek-services': WaveIcon, browser: GlobeIcon, plugins: PuzzleIcon, computer: MonitorIcon, schedules: ClockIcon, secrets: KeyIcon, feedback: FeedbackIcon, about: InfoIcon }
+const PAGE_ICONS = { ...SETTINGS_ICONS, overview: OverviewIcon, shortcuts: KeyboardIcon, appearance: PaletteIcon, models: SlidersIcon, 'bot-models': LayersIcon, 'local-agents': TerminalIcon, connectors: ConnectorIcon, im: SendIcon, phone: PhoneIcon, api: ApiIcon, capabilities: BlocksIcon, 'deepseek-services': WaveIcon, browser: GlobeIcon, plugins: PuzzleIcon, computer: MonitorIcon, schedules: ClockIcon, secrets: KeyIcon, privacy: ShieldIcon, feedback: FeedbackIcon, about: InfoIcon }
 
 // What each MEMORY.md holds by default, in characters of entry text.
 const MEMORY_SIZES = [
@@ -156,7 +158,7 @@ function Choice({ label, value, options, pick, className = 'bt-look-seg' }) {
 function GeneralPage({ roster, actions, run, dsh, openAdvanced = 0 }) {
   const items = (dsh?.items ?? []).map(row => row.id).filter(id => id !== '')
   const basicDsh = BASIC_ITEMS.filter(id => items.includes(id))
-  const more = items.filter(id => !LOOK_ITEMS.includes(id) && !BASIC_ITEMS.includes(id))
+  const more = items.filter(id => !LOOK_ITEMS.includes(id) && !BASIC_ITEMS.includes(id) && !PRIVACY_ITEMS.includes(id))
   const prefs = roster.prefs ?? {}
   const inAgentMode = Boolean(actions.setSurface && actions.surfaceMode?.() === 'agent')
   const [advancedOpen, setAdvancedOpen] = useState(() => Boolean(openAdvanced))
@@ -691,6 +693,7 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
       case 'browser': return h(BrowserPage, { roster, actions, run, Section: SetSection, Row: SetRow })
       case 'capabilities': return h(CapabilitiesPage, { roster, actions, run })
       case 'secrets': return h(SecretsPage, { roster, actions, run, Section: SetSection })
+      case 'privacy': return h(PrivacyPage, { actions, run, Section: SetSection, Row: SetRow })
       case 'feedback': return h(FeedbackPage, { actions, run, Section: SetSection, Row: SetRow })
       case 'about': return h(AboutPage, { useUpdate, actions, run, Section: SetSection, Row: SetRow, Switch, onStartTour: () => startTour('full'), inlineFeedback: false })
       default: return null

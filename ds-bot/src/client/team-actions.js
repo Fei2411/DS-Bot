@@ -431,6 +431,11 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     diagnostics: payload => call('diagnostics', payload),
     diagnosticsLog: () => call('diagnostics-log'),
     diagnosticsClear: () => call('diagnostics-clear'),
+    telemetryStatus: () => call('telemetry-status'),
+    telemetryUpdate: patch => after(call('telemetry-update', patch)),
+    telemetryResetId: () => call('telemetry-reset-id'),
+    telemetryClearLog: () => call('telemetry-clear-log'),
+    telemetryClientError: payload => call('telemetry-client-error', payload).catch(() => {}),
     repoStars: () => call('repo-stars'),
     // A failed action away from any form (a menu, the palette) shows as a toast.
     reportError: (error, where = 'action') => {

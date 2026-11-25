@@ -39,6 +39,7 @@ export const SEARCH_ENTRIES = [
   { id: 'plugins', label: 'Plugins', group: 'Plugins', page: 'plugins', icon: 'plugins', keywords: 'plugin extension browser ego playwright mcp registry catalog web search shell bash agent loop 插件 扩展 浏览器 市场 仓库 网页搜索 命令执行 运行' },
   { id: 'usage', label: 'Usage', group: 'Usage', page: 'usage', icon: 'usage', keywords: 'tokens cost stats chart 用量 统计 消耗' },
   { id: 'about', label: 'About DS Bot', group: 'About DS Bot', page: 'about', icon: 'about', keywords: 'version update auto-update automatic release github guide walkthrough 关于 版本 更新 自动更新 引导' },
+  { id: 'privacy', label: 'Privacy', group: 'About DS Bot', page: 'privacy', icon: 'privacy', keywords: 'telemetry analytics usage crash bug error log dsh session log opt out 隐私 遥测 统计 崩溃 错误 日志 数据 关闭' },
   { id: 'feedback', label: 'Feedback', group: 'About DS Bot', page: 'feedback', icon: 'feedback', keywords: 'bug error log diagnostics issue 反馈 报错 日志 诊断' },
 ]
 

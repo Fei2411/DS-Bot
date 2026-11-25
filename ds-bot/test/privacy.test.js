@@ -757,3 +757,31 @@ test('with no private Bot the tools run as they did', async (t) => {
   assert.deepEqual(await run('message_bot', { to: 'Diary', message: 'hi' }, 'a'), { ran: true })
   assert.equal((await run('glob', { pattern: '*', path: join(diary, '..') }, 'b')).ran, false)
 })
+
+test('telemetry consent file stays protected from Bots even when no Bot is private', async (t) => {
+  const { run, home, project, agentOf, stop } = await start({ privateBot: false })
+  t.after(stop)
+  const telFile = join(home, 'telemetry.json')
+  writeFileSync(telFile, JSON.stringify({ noticeAccepted: false, usage: false, errors: false }))
+  for (const [toolName, args] of [
+    ['read', { file_path: telFile }],
+    ['write', { file_path: telFile, content: '{"noticeAccepted":true,"usage":true}' }],
+    ['write', { file_path: `${telFile}.tmp`, content: '{}' }],
+    ['edit', { file_path: telFile, old_string: 'false', new_string: 'true' }],
+    ['grep', { pattern: 'telemetry.json', path: home }],
+    ['glob', { pattern: '*', path: home }],
+    ['bash', { command: `cat "${telFile}"` }],
+    ['bash', { command: 'cat ../telemetry.json' }],
+  ]) {
+    const res = await run(toolName, args, 'b')
+    assert.equal(res.ran, false, `${toolName} must not access telemetry.json`)
+    assert.match(res.error, /telemetry consent/)
+  }
+  // Searching an unrelated workspace for references to `telemetry.json` stays allowed.
+  const agent = agentOf('b')
+  agent.session.header.cwd = project
+  assert.deepEqual(await run('grep', { pattern: 'telemetry.json', path: project }, 'b', agent), { ran: true })
+  assert.deepEqual(await run('bash', { command: 'rg telemetry.json src/' }, 'b', agent), { ran: true })
+  // Direct host path in bash is still blocked even from an unrelated cwd.
+  assert.equal((await run('bash', { command: `cat "${telFile}"` }, 'b', agent)).ran, false)
+})

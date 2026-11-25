@@ -157,9 +157,11 @@ Bot 可直接创建、检查和编辑 Word（`.docx`）、PowerPoint（`.pptx`�
 
 ![用量页](docs/images/usage.zh.png)
 
-## 数据
+## 数据与隐私
 
 所有数据都留在你自己的电脑上：桌面应用存在首次启动选定的数据目录（默认 `~/.ds-bot`），插件版存在 DSH 主目录（默认 `~/.dsh`）的 `bot/` 和 `sessions/` 下。卸载应用或插件不会删除这些数据。
+
+可选的匿名遥测在首次隐私告知卡确认前不会发送任何数据；你随时可以在 **设置 → 关于 DS Bot → 隐私** 中调整、查看本机最近发出的 20 条完整 JSON 原文或一键关闭（也支持 `DS_BOT_TELEMETRY_DISABLED=1` / `DO_NOT_TRACK=1` 环境变量）。对话、记忆、密钥、文件路径、Bot 名称、隐私 Bot、报错原文与 IP 地址绝不收集。DS Bot 同时默认关闭 DSH 上游的官方 API Session Log 与反馈会话上传，并永久排除隐私 Bot。详见 [`docs/plans/2026-11-25-telemetry-and-privacy.md`](docs/plans/2026-11-25-telemetry-and-privacy.md) 与开源接收端 [`telemetry/`](telemetry/)。
 
 ## 文档与开发
 
