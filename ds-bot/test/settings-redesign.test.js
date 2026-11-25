@@ -273,7 +273,7 @@ test('SettingsDialog opens on Overview, lists 10 nav groups, and scrolls domain 
       ['connectors', 'Connect', 'Connectors'],
       ['im', 'Connect', 'IM'],
       ['phone', 'Connect', 'Phone'],
-      ['mcp', 'Connect', 'MCP access'],
+      ['api', 'Connect', 'API'],
       ['computer', 'Tools', 'Computer use'],
       ['browser', 'Tools', 'Browser'],
       ['capabilities', 'Tools', 'Capabilities'],
@@ -530,7 +530,7 @@ test('SettingsTour auto-runs once on first open, catches Escape before Settings,
     // Every data-tour target referenced by settings-tour.js exists in client source.
     const clientDir = join(repoRoot, 'ds-bot/src/client')
     const allClientSource = readdirSync(clientDir).filter(f => f.endsWith('.js') && f !== 'settings-tour.js').map(f => readFileSync(join(clientDir, f), 'utf8')).join('\n')
-    const modes = ['full', 'general', 'appearance', 'models', 'bot-models', 'local-agents', 'deepseek-services', 'bots', 'groups', 'schedules', 'connectors', 'im', 'phone', 'mcp', 'computer', 'browser', 'capabilities', 'secrets', 'usage']
+    const modes = ['full', 'general', 'appearance', 'models', 'bot-models', 'local-agents', 'deepseek-services', 'bots', 'groups', 'schedules', 'connectors', 'im', 'phone', 'api', 'computer', 'browser', 'capabilities', 'secrets', 'usage']
     for (const mode of modes) {
       for (const step of stepsForTour(mode, { hasProviders: true, hasAdvancedModels: true })) {
         const present = allClientSource.includes(`'${step.target}'`) || allClientSource.includes(`"${step.target}"`)

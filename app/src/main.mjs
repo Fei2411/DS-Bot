@@ -294,6 +294,7 @@ async function start() {
 async function prepare() {
   if (!chatgpt) {
     const signIn = await createChatGPTSignIn({ userData: app.getPath('userData'), safeStorage,
+      mockKeychain: process.platform === 'darwin' && Boolean(app.commandLine?.hasSwitch('use-mock-keychain')),
       onChange: status => host?.send({ type: 'chatgpt:changed', status }),
     })
     const relay = await createChatGPTRelay({ signIn })

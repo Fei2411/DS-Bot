@@ -910,8 +910,10 @@ test('F8: worked propagates up 3-Bot chain, task_start sub-work, and group repor
   rt.resetBotLoops('a')
   rt.resetBotLoops('b')
   rt.resetBotLoops('c')
-  await tool('delegate_work', { to: 'Writer', goal: '收到，收工吧' }, 'dm-a')
-  const zeroW = agents.get('dm-b').calls.at(-1)[1]
+  const goal = '收到，收工吧'
+  await tool('delegate_work', { to: 'Writer', goal }, 'dm-a')
+  const zeroW = agents.get('dm-b').calls.findLast(([, message]) => message?.source?.role === 'request' && textOf(message.content).endsWith(goal))?.[1]
+  assert.ok(zeroW, 'Writer received the zero-work request')
   emit('dm-b', 'turn/start', { turn: 80 })
   emit('dm-b', 'user/message', { content: zeroW.content, source: zeroW.source })
   emit('dm-b', 'assistant/message', assistantText('收到，已收工。'))

@@ -117,6 +117,13 @@ export function install(rt) {
     join(rt.home, 'learning', 'state.json'),
     join(rt.home, 'ocr.json'),
     join(rt.home, 'secrets.json'),
+    join(rt.home, 'api-tokens.json'),
+    join(rt.home, 'mcp.json'),
+    join(rt.home, 'api-config.json'),
+    join(rt.home, 'api-audit.jsonl'),
+    join(rt.home, 'api-runs.json'),
+    join(rt.home, 'api-endpoint.json'),
+    join(rt.home, 'api-uploads'),
     join(rt.home, 'task-reports'),
     join(rt.home, 'memory', 'journal.jsonl'),
     join(rt.home, 'memory', 'journal.torn'),
@@ -205,6 +212,7 @@ export function install(rt) {
     const outcome = await (rt.requestActionApproval ?? (request => approval.request(request)))({
       agent: exec.agent,
       toolName: exec.name,
+      privacy: true,
       ...(exec.callId !== undefined ? { callId: exec.callId } : {}),
       reason: en,
       displayReason: { en, zh },
@@ -407,12 +415,60 @@ export function install(rt) {
     }
   }
 
+  // Host-owned API credential/audit files are always off-limits to every Bot, even in teams
+  // with no private Bots.
+  const apiProtectedFiles = async (memo = new Map()) => (await Promise.all([
+    join(rt.home, 'api-'),
+    join(rt.home, 'api-endpoint.json'),
+    join(rt.home, 'api-tokens.json'),
+    join(rt.home, 'mcp.json'),
+    join(rt.home, 'api-audit.jsonl'),
+    join(rt.home, 'api-config.json'),
+    join(rt.home, 'api-runs.json'),
+  ].map(file => spellings(file, memo)))).flat()
+
+  async function guardApiFiles(exec) {
+    const args = exec.arguments ?? {}
+    const name = exec.name
+    const folder = () => rt.sessionFolder(exec.agent?.session ?? exec.agent)
+    const closedApi = () => new Error('Bots cannot read or modify DS Bot API token or audit files.')
+    if (name in FILE_TOOLS) {
+      const path = args[FILE_TOOLS[name]]
+      if (typeof path !== 'string' || path === '') return
+      const base = folder()
+      const keys = await spellings(base === undefined ? path : resolve(base, path))
+      const protectedPaths = await apiProtectedFiles()
+      if (keys.some(key => protectedPaths.some(file => key === file || key.startsWith(file.endsWith('api-') ? file : `${file}.`)))) throw closedApi()
+      return
+    }
+    if (SEARCH_TOOLS.includes(name)) {
+      const where = typeof args.path === 'string' && args.path !== '' ? args.path : '.'
+      const pattern = typeof args.pattern === 'string' ? fold(args.pattern) : ''
+      if (pattern.includes('api-') || pattern.includes('mcp.json')) throw closedApi()
+      const base = folder()
+      const keys = await spellings(base === undefined ? where : resolve(base, where))
+      const protectedPaths = await apiProtectedFiles()
+      if (keys.some(key => protectedPaths.some(file => within(file, key) || key.startsWith(file.endsWith('api-') ? file : `${file}.`)))) throw closedApi()
+      return
+    }
+    if (SHELL_TOOLS.includes(name)) {
+      const flat = fold(strings(args).join('\n').replace(/\\/g, '/'))
+      if (flat.includes('api-') || flat.includes('mcp.json')) throw closedApi()
+      const protectedPaths = await apiProtectedFiles()
+      for (const file of protectedPaths) {
+        if (asShell(file).some(spelled => flat.includes(spelled))) throw closedApi()
+      }
+    }
+  }
+
   // Before the tools' own hooks, so that a closed call never reaches a card they show.
   ctx.on('tools/execute', async (exec, next) => {
-    if (protectedBots().length === 0) return next()
     const self = await callerOf(exec)
-    await guardTeam(exec, self)
-    await guardFiles(exec, self)
+    if (protectedBots().length > 0) {
+      await guardTeam(exec, self)
+      await guardFiles(exec, self)
+    }
+    if (self !== undefined) await guardApiFiles(exec)
     return next()
   })
 

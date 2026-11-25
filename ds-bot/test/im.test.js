@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict'
 import { fork } from 'node:child_process'
+import { EventEmitter } from 'node:events'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { setTimeout as delay } from 'node:timers/promises'
+import { setImmediate as nextTurn, setTimeout as delay } from 'node:timers/promises'
 import { test } from 'node:test'
 import { Context } from '@deepseek-ai/cordis'
 import LocalJobRegistry from '@deepseek-ai/dsh-jobs-local'
@@ -22,6 +23,7 @@ import { adapters } from '../src/host/im/platforms/index.js'
 // sent; it is off by default, like most platforms.
 const fakeAdapter = ({ buttons = true, quote = false } = {}) => {
   const sent = []
+  const sends = new EventEmitter()
   const edited = []
   const typed = []
   const fails = []
@@ -36,6 +38,14 @@ const fakeAdapter = ({ buttons = true, quote = false } = {}) => {
     edited,
     typed,
     handlers: null,
+    waitForSend: match => new Promise(resolve => {
+      const observe = job => {
+        if (!match(job)) return
+        sends.off('send', observe)
+        resolve(job)
+      }
+      sends.on('send', observe)
+    }),
     async check(fields) {
       if (fields.token === 'bad-token') throw new Error('platform refused the token')
       return { account: { id: 'bot1', name: '@fakebot' } }
@@ -49,6 +59,7 @@ const fakeAdapter = ({ buttons = true, quote = false } = {}) => {
         send: async (chat, body) => {
           const messageId = String(++nextMessage)
           sent.push({ chat, messageId, ...body })
+          sends.emit('send', sent.at(-1))
           jobs.push(body)
           const next = fails.shift()
           if (next !== undefined) throw next
@@ -1505,6 +1516,7 @@ test('pending legacy code cards receive the new reply instructions once with the
 
 test('only reserved card commands answer forms and all malformed or unknown commands stay out of ordinary chat', async (t) => {
   const s = await start()
+  const isRejection = job => job.chat.key === 'g2' && /Invalid|no longer answerable/.test(job.text)
   t.after(s.stop)
   const { one } = await pairedConn(s)
   one.chats.g1 = { kind: 'group', target: { botId: 'a' }, at: 1 }
@@ -1541,11 +1553,12 @@ test('only reserved card commands answer forms and all malformed or unknown comm
   for (const text of ['!card', '!card invalid', '!card V999999\n1: private', '/card', '/card invalid', '/card V999999\n1: private', `!card ${codes[0]}\n1: wrong chat`, `!card ${codes[1]} prose is not an answer`]) {
     const prompts = s.prompts.length
     const sent = s.fake.sent.length
+    const rejected = s.fake.waitForSend(isRejection)
     await gm(s, 'u1', text, { chat: { key: 'g2', kind: 'group' } })
-    await s.flush()
+    await rejected
     assert.equal(s.prompts.length, prompts)
     assert.equal(s.rt.state.views.b.id, pending)
-    assert.ok(s.fake.sent.slice(sent).some(job => job.chat.key === 'g2' && /Invalid|no longer answerable/.test(job.text)))
+    assert.ok(s.fake.sent.slice(sent).some(isRejection))
   }
   await gm(s, 'u1', `!card ${codes[1]}\n1: Bob`, { chat: { key: 'g2', kind: 'group' } })
   assert.equal(s.rt.state.views.b, undefined)
@@ -1661,8 +1674,9 @@ test('legacy bare replies stay private after delivery pruning, rebind and restar
     for (const text of [`${code.toLowerCase()}\n1: Private value`, `${code} 1,3`, `${code} 2\n1: Private value`, `${code} cancel`, `${code} 2 cancel`]) {
       const prompts = s.prompts.length
       const sent = s.fake.sent.length
+      const refused = s.fake.waitForSend(job => job.chat.key === 'g1' && job.text.includes(`use !card ${code}`))
       await gm(s, 'u1', text)
-      await s.flush()
+      await refused
       assert.equal(s.prompts.length, prompts, text)
       assert.equal(s.rt.state.views.b.id, pending)
       assert.ok(s.fake.sent.slice(sent).some(job => job.chat.key === 'g1' && job.text.includes(`use !card ${code}`)), text)
@@ -2249,6 +2263,19 @@ test('reply origin: a Web turn does not reach IM', async (t) => {
   s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'answer to the browser' }] } })
   await s.flush()
   assert.equal(s.fake.sent.length, 0)
+})
+
+test('API turns cannot acquire an IM origin from input arriving during their output', async t => {
+  const s = await start()
+  t.after(s.stop)
+  await pairedConn(s)
+  s.emitEvent('a', 'turn/start', {})
+  s.emitEvent('a', 'user/message', { source: { kind: 'user', rpcId: 'api:key:run' }, content: [{ type: 'text', text: 'API work' }] })
+  await dm(s, 'u1', 'IM input after API admission')
+  s.emitEvent('a', 'user/message', { source: { kind: 'user', rpcId: s.prompts.at(-1).requestId }, content: [{ type: 'text', text: 'IM input' }] })
+  s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'API-only output' }] } })
+  await s.flush()
+  assert.equal(s.fake.sent.some(entry => entry.text.includes('API-only output')), false)
 })
 
 test('reply origin: a peer Bot message and a scheduled task do not reach IM', async (t) => {
@@ -2849,16 +2876,61 @@ test('reply origin: a message that waited in the queue past any window still nam
 // group keeps its chat while its members still work after the relay turn, and
 // unpairing stops a running turn from replying.
 
+test('IM idle waits for an existing drain and another connection queued while waiting', async (t) => {
+  const gatedAdapter = () => {
+    const adapter = fakeAdapter()
+    const entered = Promise.withResolvers()
+    const release = Promise.withResolvers()
+    t.after(release.resolve)
+    const connect = adapter.connect
+    adapter.connect = (...args) => {
+      const handle = connect(...args)
+      return { ...handle, send: async (...sendArgs) => {
+        entered.resolve()
+        await release.promise
+        return handle.send(...sendArgs)
+      } }
+    }
+    return { adapter, entered: entered.promise, release: release.resolve }
+  }
+  const telegram = gatedAdapter()
+  const dingtalk = gatedAdapter()
+  const original = adapters.dingtalk
+  adapters.dingtalk = dingtalk.adapter
+  t.after(() => { adapters.dingtalk = original })
+  const s = await start({ adapter: telegram.adapter })
+  t.after(s.stop)
+  await add(s)
+  await s.rt.imEndpoint('im-add', { platform: 'dingtalk', botId: 'a', fields: FIELDS.dingtalk })
+  await s.rt.imWhenIdle()
+
+  await dm(s, 'u1', 'hi')
+  await telegram.entered
+  let idle = false
+  const done = s.rt.imWhenIdle().then(() => { idle = true })
+  await nextTurn()
+  assert.equal(idle, false, 'the existing Telegram drain is still active')
+
+  await dm({ fake: dingtalk.adapter }, 'u2', 'hi')
+  await dingtalk.entered
+  telegram.release()
+  await nextTurn()
+  assert.equal(idle, false, 'the new DingTalk drain is still active')
+  dingtalk.release()
+  await done
+  assert.equal(dingtalk.adapter.sent.length, 1)
+})
+
 test('reply origin: cards and approvals leave only on the connection whose chat asked', async (t) => {
   const s = await start()
   t.after(s.stop)
   const telegram = s.fake
-  const dingtalk = fakeAdapter()
+  const dingtalk = fakeAdapter({ buttons: false })
   const original = adapters.dingtalk
   adapters.dingtalk = dingtalk
   t.after(() => { adapters.dingtalk = original })
-  const connA = await add(s)
   const connB = await s.rt.imEndpoint('im-add', { platform: 'dingtalk', botId: 'a', fields: FIELDS.dingtalk })
+  const connA = await add(s)
   for (const id of [connA.id, connB.id]) {
     const one = s.rt.state.im.connections[id]
     one.paired.push({ id: 'u1', name: 'U1', at: 1 })
@@ -2871,33 +2943,40 @@ test('reply origin: cards and approvals leave only on the connection whose chat 
   telegram.sent.length = 0
   dingtalk.sent.length = 0
 
+  const questionSent = telegram.waitForSend(entry => entry.buttons?.[0]?.data.startsWith('q:'))
   s.rt.state.questions.a = { id: 'q1', question: 'Which?', options: [{ label: 'yes' }, { label: 'no' }] }
   await s.rt.save()
-  await s.flush()
+  await questionSent
   assert.equal(telegram.sent.filter(entry => entry.buttons?.[0]?.data.startsWith('q:')).length, 1, 'the asking chat got its question card')
   assert.equal(dingtalk.sent.filter(entry => entry.buttons?.[0]?.data.startsWith('q:')).length, 0, 'the other connection got no question card')
   delete s.rt.state.questions.a
 
+  const secretSent = telegram.waitForSend(entry => entry.text.includes('MY_KEY'))
   s.rt.state.secretRequests = { a: [{ id: 's1', name: 'MY_KEY', purpose: 'for tests', status: 'pending', askedAt: 1 }] }
   await s.rt.save()
-  await s.flush()
+  await secretSent
   assert.equal(telegram.sent.filter(entry => entry.text.includes('MY_KEY')).length, 1, 'the asking chat got the secret request')
   assert.equal(dingtalk.sent.filter(entry => entry.text.includes('MY_KEY')).length, 0, 'the other connection got no secret request')
   s.rt.state.secretRequests = {}
 
+  const viewSent = telegram.waitForSend(entry => entry.text.includes('Pick'))
   s.rt.state.views.a = { id: 'v1', title: 'Pick', view: { type: 'text', text: 'Answer me' } }
   await s.rt.save()
-  await s.flush()
+  await viewSent
   assert.equal(telegram.sent.filter(entry => entry.text.includes('Pick')).length, 1, 'the asking chat got the view card')
   assert.equal(dingtalk.sent.filter(entry => entry.text.includes('Pick')).length, 0, 'the other connection got no view card')
   delete s.rt.state.views.a
 
   telegram.sent.length = 0
   dingtalk.sent.length = 0
-  void s.fireApprovals({ agent: { id: 'a' }, toolName: 'bash', reason: 'run it', signal: new AbortController().signal }, () => new Promise(() => {}))
-  await s.flush()
-  assert.equal(telegram.sent.filter(entry => entry.buttons?.[0]?.data.startsWith('a:')).length, 1, 'the asking chat got the approval card')
-  assert.equal(dingtalk.sent.filter(entry => entry.buttons?.[0]?.data.startsWith('a:')).length, 0, 'the other connection got no approval card')
+  const reason = 'run the approval routing test'
+  const isApproval = entry => entry.text.includes(reason) || entry.buttons?.some(button => button.data.startsWith('a:'))
+  const approvalSent = telegram.waitForSend(entry => entry.chat.key === 'dm-u1' && entry.buttons?.some(button => button.data.startsWith('a:')))
+  void s.fireApprovals({ agent: { id: 'a' }, toolName: 'bash', reason, signal: new AbortController().signal }, () => new Promise(() => {}))
+  await approvalSent
+  await s.rt.imWhenIdle()
+  assert.deepEqual(telegram.sent.filter(isApproval).map(entry => entry.chat.key), ['dm-u1'], 'only the asking chat got the approval card')
+  assert.equal(dingtalk.sent.filter(isApproval).length, 0, 'the other connection got no approval card')
 })
 
 test('reply origin: an answer from IM keeps its chat for the turn the answer continues', async (t) => {
