@@ -2372,8 +2372,8 @@ export function install(rt) {
         }
       }
     }
-    if (Object.keys(state.switching ?? {}).length === 0) heldRetryCount = 0
-    else if (retryNeeded) scheduleHeldBackRetry()
+    if (!retryNeeded) heldRetryCount = 0
+    else scheduleHeldBackRetry()
   }
 
   // `hard`: past the hard line or the window, the part moves on even without a note
@@ -2451,11 +2451,19 @@ export function install(rt) {
             },
           }))
         }
-        await forward(job, back, threadTargetOf(agent.id, job)).then(() => {
+        const rollbackTarget = threadTargetOf(agent.id, job)
+        // When staying on the same part, pull any newer messages that arrived while
+        // the failed switch waited so [PAUSE_NOTE, ...parked, ...carry] stays ahead
+        // of them instead of being appended behind them by followup().
+        const later = rollbackTarget === agent.id && back.length > 0
+          ? [...agent.inbox.nextStep, ...agent.inbox.nextTurn].filter(m => m?.source?.kind !== 'working-directory' && removeMessageForMove(agent, m))
+          : []
+        const orderedBack = [...back, ...later]
+        await forward(job, orderedBack, rollbackTarget).then(() => {
           delete state.switching[agent.id]
         }).catch((error) => {
           job.kept = true
-          try { restore(agent, back) } catch {}
+          try { restore(agent, orderedBack) } catch {}
           if (unloaded(error)) {
             job.unloaded = true
             return noteInfo('ds-bot: plugin unloaded during the switch of %s; input kept in part %s', agent.id, agent.id)
@@ -2912,9 +2920,9 @@ export function install(rt) {
         else lowerPartBase(agent.id, afterPrune)
         return next()
       }
-      if (engineOf(agent) !== undefined) {
-        await condense(agent, lines, { inTurn: true, signal: payload.signal, outcome: { overflow: false } })
-      }
+      const condensed = engineOf(agent) !== undefined
+        && await condense(agent, lines, { inTurn: true, signal: payload.signal, outcome: { overflow: false } })
+      if (!condensed) partBase.set(agent.id, afterPrune ?? tokens)
       return next()
     }
     const pruned = await pruneToolResults(agent, { inTurn: true, target: lines.hard })

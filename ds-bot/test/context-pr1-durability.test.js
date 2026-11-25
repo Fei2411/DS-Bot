@@ -40,7 +40,7 @@ async function bootRealDshBot(t, {
   toolExecute,
   config = {},
 } = {}) {
-  const home = mkdtempSync(join(tmpdir(), 'dsb-pr1-ctx-'))
+  const home = realpathSync.native(mkdtempSync(join(tmpdir(), 'dsb-pr1-ctx-')))
   const root = new Context()
   await mountAgentLoopTestDependencies(root)
   await root.plugin(TokenMeter)
@@ -194,7 +194,7 @@ async function bootRealDshBot(t, {
   })
   t.after(async () => {
     await root.fiber.dispose()
-    rmSync(home, { recursive: true, force: true, maxRetries: 5 })
+    rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   })
 
   const runTurn = async (text, targetAgent = agent) => {
@@ -543,7 +543,7 @@ function makeSwitchFixture({ fail = {}, home: reuse } = {}) {
   const state = () => JSON.parse(readFileSync(join(home, 'state.json'), 'utf8'))
   const stop = async ({ keep = false } = {}) => {
     await ctx.dispose()
-    if (!keep) rmSync(root, { recursive: true, force: true, maxRetries: 5 })
+    if (!keep) rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
   return { ctx, rt, home, root, archived, agentOf, preStep, state, fail, stop }
 }
@@ -1077,4 +1077,37 @@ test('handOnHeld re-checks destination after source resolution and never moves r
   await host.rt.heldBack()
   assert.deepEqual(movedSchedules, [['b', 's2']], 'retry moves reminders directly onto live part s2')
   assert.deepEqual(host.rt.state.switching, {}, 'switching marker cleared after moving to s2')
+})
+
+test('same-part rollback after failed create keeps PAUSE_NOTE and claimed input ahead of messages queued during the switch', async (t) => {
+  const host = makeSwitchFixture({
+    fail: {
+      onCreate: async () => {
+        // Simulate a newer user message arriving while create() awaits before failing.
+        host.agentOf('b').inbox.nextTurn.push(createUserMessage({
+          id: 'm-later-1',
+          content: [{ type: 'text', text: 'later follow-up' }],
+          source: { kind: 'user', exchangeId: 'ex-later-1' },
+        }))
+        throw new Error('disk full')
+      },
+    },
+  })
+  t.after(host.stop)
+  await host.rt.load()
+
+  const bAgent = host.agentOf('b')
+  bAgent.status = 'running'
+  const claimed = createUserMessage({
+    id: 'm-claimed-1',
+    content: [{ type: 'text', text: 'earlier claimed input' }],
+    source: { kind: 'user', exchangeId: 'ex-claimed-1' },
+  })
+  await host.preStep('b', [claimed], 2)
+
+  assert.equal(await waitFor(() => bAgent.inbox.nextTurn.length === 3 && !host.rt.isSwitchingPart('b')), true)
+  const queuedTexts = bAgent.inbox.nextTurn.map(m => m.content?.[0]?.text ?? '')
+  assert.match(queuedTexts[0], /DS Bot paused your turn/, 'PAUSE_NOTE must be first')
+  assert.equal(queuedTexts[1], 'earlier claimed input', 'claimed input must precede messages queued during switch')
+  assert.equal(queuedTexts[2], 'later follow-up', 'later message stays behind rolled-back turn input')
 })
