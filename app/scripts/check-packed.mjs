@@ -13,6 +13,7 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { crc32 } from 'node:zlib'
 import { hostExecutable } from '../src/host-process.mjs'
+import { mockKeychainArgs } from '../src/legacy.mjs'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const [given, shotFile] = process.argv.slice(2)
@@ -610,7 +611,9 @@ try {
     DS_BOT_HOME: join(work, 'home'), DS_BOT_SHELL_DATA: join(work, 'shell'),
     DEEPSEEK_BASE_URL: modelUrl, DEEPSEEK_API_KEY: 'mock-key',
   })
-  const app = spawn(packedApp, [`--remote-debugging-port=${String(port)}`, `--inspect=127.0.0.1:${String(mainPort)}`], { stdio: 'inherit', env })
+  // Never touch the host macOS login keychain with an ad-hoc temporary copy of DS Bot.app.
+  const macArgs = mockKeychainArgs()
+  const app = spawn(packedApp, [...macArgs, `--remote-debugging-port=${String(port)}`, `--inspect=127.0.0.1:${String(mainPort)}`], { stdio: 'inherit', env })
   children.push(app)
   const exited = new Promise((done) => { app.once('exit', (code, signal) => { done({ code, signal }) }) })
   const cdp = devtools((await appPage(port, Date.now() + 120_000)).webSocketDebuggerUrl, problems)
@@ -619,11 +622,15 @@ try {
   await main.opened
   const windowState = async expression => {
     const answer = await main.call('Runtime.evaluate', {
-      expression: `(() => { const { BrowserWindow } = process.getBuiltinModule('module').createRequire(process.execPath)('electron'); const win = BrowserWindow.getAllWindows()[0]; return ${expression} })()`,
+      expression: `(() => { const { app, BrowserWindow } = process.getBuiltinModule('module').createRequire(process.execPath)('electron'); const win = BrowserWindow.getAllWindows()[0]; return ${expression} })()`,
       returnByValue: true, awaitPromise: true,
     })
     if (answer.exceptionDetails) throw new Error(answer.exceptionDetails.exception?.description ?? answer.exceptionDetails.text)
     return answer.result?.value
+  }
+  const mockKeychain = await windowState("app.commandLine.hasSwitch('use-mock-keychain')")
+  if (mockKeychain !== (process.platform === 'darwin')) {
+    throw new Error(`expected mock keychain=${String(process.platform === 'darwin')}, got ${String(mockKeychain)}`)
   }
   // Wait until the start window finishes its cross-fade and closes before driving the team window;
   // otherwise the splash teardown on Xvfb drops window focus after the composer was clicked.
@@ -654,7 +661,7 @@ try {
   console.log('check-packed: the window is hidden and the Host goes on')
   // Starting the app again brings the window back; the second copy ends at once, because the
   // first one holds the lock.
-  const second = spawn(packedApp, [`--remote-debugging-port=${String(await freePort())}`], { stdio: 'ignore', env })
+  const second = spawn(packedApp, [...macArgs, `--remote-debugging-port=${String(await freePort())}`], { stdio: 'ignore', env })
   children.push(second)
   const secondExit = await Promise.race([new Promise((done) => { second.once('exit', (code) => { done(code) }) }), sleep(30_000).then(() => undefined)])
   if (secondExit === undefined) throw new Error('the second copy of the app did not end')

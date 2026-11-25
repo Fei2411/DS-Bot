@@ -6,11 +6,12 @@ export class ChatGPTStoreError extends Error {
   constructor() { super('ChatGPT credentials could not be stored or read securely.'); this.name = 'ChatGPTStoreError' }
 }
 
-export function createChatGPTStore({ userData, safeStorage, fs = filesystem, platform = process.platform }) {
+export function createChatGPTStore({ userData, safeStorage, fs = filesystem, platform = process.platform, mockKeychain = false }) {
   const file = join(userData, 'chatgpt-signin.enc')
   const supported = () => {
     try {
-      return safeStorage.isEncryptionAvailable()
+      return !(platform === 'darwin' && mockKeychain)
+        && safeStorage.isEncryptionAvailable()
         && !(platform === 'linux' && safeStorage.getSelectedStorageBackend() === 'basic_text')
     } catch { return false }
   }
