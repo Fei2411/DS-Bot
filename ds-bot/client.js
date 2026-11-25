@@ -47520,7 +47520,7 @@ function ImportCard({ flow, page = { url: "" }, busy, canApply = true, imports, 
   const { stage } = flow;
   useEscape(() => {
     if (stage === "result") onDone();
-    else if (!busy || stage === "connecting") onCancel();
+    else if (!busy || stage === "connecting" || stage === "running") onCancel();
   });
   if (stage === "connecting") {
     return (0, import_react53.createElement)(
@@ -47560,7 +47560,7 @@ function ImportCard({ flow, page = { url: "" }, busy, canApply = true, imports, 
       (0, import_react53.createElement)(
         "div",
         { className: "bt-import-actions" },
-        (0, import_react53.createElement)("button", { type: "button", className: "bt-import-plain", disabled: busy, onClick: onCancel }, t("Cancel")),
+        (0, import_react53.createElement)("button", { type: "button", className: "bt-import-plain", onClick: onCancel }, t("Cancel")),
         (0, import_react53.createElement)("button", { type: "button", className: "bt-import-primary", disabled: busy, onClick: onCloseAndImport }, busy ? t("Closing…") : t("Close {name} and import", { name: flow.source.name }))
       )
     );

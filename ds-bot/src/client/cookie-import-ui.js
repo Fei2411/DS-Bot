@@ -662,7 +662,7 @@ export function ImportCard({ flow, page = { url: '' }, busy, canApply = true, im
   const { stage } = flow
   useEscape(() => {
     if (stage === 'result') onDone()
-    else if (!busy || stage === 'connecting') onCancel()
+    else if (!busy || stage === 'connecting' || stage === 'running') onCancel()
   })
   if (stage === 'connecting') {
     return h('div', { className: 'bt-import-stage bt-import-status' },
@@ -689,7 +689,7 @@ export function ImportCard({ flow, page = { url: '' }, busy, canApply = true, im
       h(ImportHeader, { title: t('{name} is running', { name: flow.source.name }), mark: h(BrowserMark, { source: flow.source, size: 22 }), onBack, onClose: inline ? null : onCancel, busy }),
       h('div', { className: 'bt-import-text' }, t('It must close for a moment so its cookies can be copied. It will reopen with your tabs.')),
       h('div', { className: 'bt-import-actions' },
-        h('button', { type: 'button', className: 'bt-import-plain', disabled: busy, onClick: onCancel }, t('Cancel')),
+        h('button', { type: 'button', className: 'bt-import-plain', onClick: onCancel }, t('Cancel')),
         h('button', { type: 'button', className: 'bt-import-primary', disabled: busy, onClick: onCloseAndImport }, busy ? t('Closing…') : t('Close {name} and import', { name: flow.source.name }))))
   }
   if (stage === 'error') {

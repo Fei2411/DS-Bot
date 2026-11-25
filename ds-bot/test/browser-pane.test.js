@@ -685,6 +685,25 @@ test('ImportCard disables Close and ignores Escape while apply is busy, but stil
   assert.equal(canceled, 1, 'Escape must still cancel connecting stage')
   connInst.unmount()
 
+  // Running stage (closeAndImport live read) remains cancellable via Escape and Cancel button.
+  const runInst = h.mount(ImportCard, {
+    flow: { stage: 'running', source: { id: 'chrome:Default', name: 'Chrome', label: 'Chrome — Default' } },
+    page: { url: '' },
+    busy: true,
+    imports: {},
+    onApply() {},
+    onCancel: () => { canceled += 1 },
+    onCloseAndImport() {},
+    onDone() {},
+  })
+  const runTree = runInst.render()
+  const runCancelBtn = allNodes(runTree, (n) => n.type === 'button' && textOf(n) === 'Cancel')[0]
+  assert.ok(runCancelBtn)
+  assert.notEqual(runCancelBtn.props.disabled, true)
+  h.window.dispatch('keydown', { key: 'Escape', isComposing: false, keyCode: 27 })
+  assert.equal(canceled, 2, 'Escape must still cancel busy running close-and-import read')
+  runInst.unmount()
+
   // Overlay ImportMenu also disables Close and ignores Escape while busy (e.g. pickFile in flight).
   let menuClosed = 0
   const { ImportMenu } = h.exports
