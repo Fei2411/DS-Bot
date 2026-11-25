@@ -868,10 +868,11 @@ export const BROWSER_CSS = `
 .bt-import-item-email{min-width:0;font-size:12px;line-height:16px;color:var(--bt-ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-import-item-meta{flex:none;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
 .bt-import-item-tag{flex:none;font-size:11px;line-height:16px;font-weight:500;padding:0 6px;border-radius:4px;background:var(--bt-tag-bg);color:var(--bt-tag-ink)}
-.bt-import-item-sub{display:inline-flex;align-items:center;gap:5px;font-size:12px;line-height:16px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums;white-space:nowrap}
-.bt-import-item-sub[data-ready]{color:var(--bt-green);font-weight:500}
-.bt-import-item-sub[data-warn]{color:var(--bt-warn);font-weight:500}
-.bt-import-dot{flex:none;width:6px;height:6px;border-radius:50%;corner-shape:round;background:currentColor}
+.bt-import-item-sub{display:inline-flex;align-items:center;gap:6px;font-size:12px;line-height:16px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums;white-space:nowrap}
+.bt-import-item-sub[data-ready],.bt-import-item-sub[data-warn]{color:var(--bt-ink-2)}
+.bt-import-dot{flex:none;width:6px;height:6px;border-radius:50%;corner-shape:round;background:var(--bt-ink-3)}
+.bt-import-item-sub[data-ready] .bt-import-dot{background:var(--bt-green)}
+.bt-import-item-sub[data-warn] .bt-import-dot{background:var(--bt-warn)}
 .bt-import-chev{flex:none;display:inline-flex;align-items:center;justify-content:flex-end;width:0;margin-left:-12px;overflow:hidden;color:var(--bt-ink-3);opacity:0;transform:translateX(-4px);transition:${spring(SPRING_SHAPE, 'width', 'margin-left', 'transform')},opacity .14s ease}
 .bt-import-chev svg{flex:none;width:14px;height:14px}
 .bt-import-item:hover .bt-import-chev,.bt-import-item:focus-visible .bt-import-chev{width:14px;margin-left:0;opacity:.7;transform:none}
@@ -900,8 +901,8 @@ export const BROWSER_CSS = `
 .bt-import-mini:hover{background:var(--bt-active)}
 .bt-import-mini:active{scale:.96}
 .bt-import-mini:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
-.bt-import-ready-note{display:flex;align-items:center;gap:8px;padding:9px 12px;border-radius:10px;background:color-mix(in srgb,var(--bt-green) 12%,transparent);font-size:12px;line-height:16px;font-weight:500;color:var(--bt-green)}
-.bt-import-ready-note svg{flex:none;width:15px;height:15px}
+.bt-import-ready-note{display:flex;align-items:center;gap:8px;padding:9px 12px;border-radius:10px;background:color-mix(in srgb,var(--bt-green) 10%,transparent);font-size:12px;line-height:16px;font-weight:500;color:var(--bt-ink-2)}
+.bt-import-ready-note svg{flex:none;width:15px;height:15px;color:var(--bt-green)}
 .bt-import-textarea{width:100%;box-sizing:border-box;min-height:120px;max-height:220px;resize:vertical;padding:12px 14px;border:1px solid transparent;border-radius:12px;background:var(--bt-hover);color:var(--bt-ink);font-family:var(--bt-mono);font-size:12px;line-height:18px;outline:none;transition:background-color .12s ease,border-color .12s ease,box-shadow .12s ease}
 .bt-import-input{width:100%;box-sizing:border-box;height:36px;padding:0 12px;border:1px solid transparent;border-radius:10px;background:var(--bt-hover);color:var(--bt-ink);font:inherit;font-size:13px;outline:none;transition:background-color .12s ease,border-color .12s ease,box-shadow .12s ease}
 .bt-import-textarea:focus,.bt-import-input:focus{background:var(--bt-card);border-color:var(--bt-accent);box-shadow:0 0 0 3px var(--bt-accent-soft)}

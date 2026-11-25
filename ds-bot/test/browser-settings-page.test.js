@@ -207,30 +207,48 @@ test('BrowserPage renders inline Import cookies section when desktop bridge and 
   assert.ok(cardNode, 'expected inline ImportCard in preview stage')
   assert.equal(cardNode.props.inline, true)
 
-  // Switching target Bot mid-preview keeps the preview and applies cookies to the newly selected Bot.
-  const botSelect = allNodes(tree, (n) => n.type === 'select' && n.props?.value === 'bot-a')[0]
-  assert.ok(botSelect)
-  botSelect.props.onChange({ target: { value: 'bot-b' } })
+  // Switching target Bots mid-preview (batch select) keeps the preview and applies cookies to all selected Bots.
+  const selectAllBtn = allNodes(tree, (n) => n.type === 'button' && n.props?.className === 'bt-browser-import-targets-btn')[0]
+  assert.ok(selectAllBtn, 'expected Select all button for multiple Bots')
+  selectAllBtn.props.onClick()
   tree = inst.render()
-  const cardAfterSwitch = allNodes(tree, (n) => typeof n.type === 'function' && n.props?.flow?.stage === 'preview')[0]
-  assert.ok(cardAfterSwitch, 'switching target Bot during preview must preserve harvested preview')
+  const cardAfterBatch = allNodes(tree, (n) => typeof n.type === 'function' && n.props?.flow?.stage === 'preview')[0]
+  assert.ok(cardAfterBatch, 'batch-selecting Bots during preview must preserve harvested preview')
+  assert.equal(cardAfterBatch.props.canApply, true)
   assert.equal(canceled.length, 0)
 
-  await cardAfterSwitch.props.onApply({ sites: undefined, persistSession: true })
+  // Clearing all Bots disables apply cleanly without dropping the preview.
+  const clearBtn = allNodes(tree, (n) => n.type === 'button' && n.props?.className === 'bt-browser-import-targets-btn')[0]
+  clearBtn.props.onClick()
+  tree = inst.render()
+  const cardNoBots = allNodes(tree, (n) => typeof n.type === 'function' && n.props?.flow?.stage === 'preview')[0]
+  assert.equal(cardNoBots.props.canApply, false)
+
+  // Re-select both Bots via individual chips and apply in one batch.
+  const chips = allNodes(tree, (n) => n.type === 'button' && n.props?.role === 'checkbox')
+  assert.equal(chips.length, 2)
+  chips[0].props.onClick()
+  chips[1].props.onClick()
+  tree = inst.render()
+  const cardReady = allNodes(tree, (n) => typeof n.type === 'function' && n.props?.flow?.stage === 'preview')[0]
+  assert.equal(cardReady.props.canApply, true)
+
+  await cardReady.props.onApply({ sites: undefined, persistSession: true })
   tree = inst.render()
   assert.equal(applied.length, 1)
-  assert.equal(applied[0].botId, 'bot-b')
+  assert.deepEqual(Array.from(applied[0].botId), ['bot-a', 'bot-b'])
   assert.equal(applied[0].pendingId, 'pending-1')
   assert.equal(applied[0].persistSession, true)
 
   const resultCard = allNodes(tree, (n) => typeof n.type === 'function' && n.props?.flow?.stage === 'result')[0]
   assert.ok(resultCard, 'expected result stage after apply')
+  assert.equal(resultCard.props.flow.botCount, 2)
 
-  // Switching target Bot on result stage returns cleanly to inline source menu for the next Bot.
-  const botSelectAfter = allNodes(tree, (n) => n.type === 'select' && n.props?.value === 'bot-b')[0]
-  botSelectAfter.props.onChange({ target: { value: 'bot-a' } })
+  // Toggling a Bot chip on result stage returns cleanly to inline source menu for the next import.
+  const chipsAfter = allNodes(tree, (n) => n.type === 'button' && n.props?.role === 'checkbox')
+  chipsAfter[0].props.onClick()
   tree = inst.render()
   const menuAgain = allNodes(tree, (n) => typeof n.type === 'function' && n.props?.inline === true && Array.isArray(n.props?.sources))[0]
-  assert.ok(menuAgain, 'switching Bot on result stage should return to source menu')
+  assert.ok(menuAgain, 'toggling Bot on result stage should return to source menu')
   inst.unmount()
 })

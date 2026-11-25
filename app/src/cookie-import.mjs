@@ -473,3 +473,59 @@ export class CookieImports {
     for (const [id, entry] of this.#pending) if (entry.expiresAt < now) this.#pending.delete(id)
   }
 }
+
+/**
+ * Consume a pending import once and apply it to one Bot key or a batch of Bot keys.
+ * Validates every key before consuming `store.take(id)` so malformed calls never drop pending cookies.
+ */
+export async function applyImportToTargets({ keyOrKeys, id, options, store, applyOne }) {
+  const isBatch = Array.isArray(keyOrKeys)
+  const rawKeys = isBatch ? keyOrKeys : [keyOrKeys]
+  const keys = []
+  const seenKeys = new Set()
+  for (const key of rawKeys) {
+    if (typeof key !== 'string' || !key.startsWith('bot:') || key.length <= 4) {
+      throw new Error('DS Bot: a Bot storage key is required')
+    }
+    if (!seenKeys.has(key)) {
+      seenKeys.add(key)
+      keys.push(key)
+    }
+  }
+  if (keys.length === 0) throw new Error('DS Bot: a Bot storage key is required')
+  const pending = store.take(typeof id === 'string' ? id : '')
+  if (!pending) throw new Error('DS Bot: this import is no longer pending')
+  const sites = Array.isArray(options?.sites) ? options.sites.map(String) : undefined
+  const persistSession = options?.persistSession === true
+
+  if (!isBatch) return applyOne(keys[0], pending, { sites, persistSession })
+
+  const perBot = []
+  for (const key of keys) {
+    perBot.push({ key, ...(await applyOne(key, pending, { sites, persistSession })) })
+  }
+  if (perBot.length === 1) return { ...perBot[0], botCount: 1 }
+
+  const stored = perBot.reduce((max, r) => Math.max(max, r.stored ?? 0), 0)
+  const originsStored = perBot.reduce((max, r) => Math.max(max, r.originsStored ?? 0), 0)
+  const entriesStored = perBot.reduce((max, r) => Math.max(max, r.entriesStored ?? 0), 0)
+  const dedup = (items) => {
+    const seen = new Set()
+    return items.filter((item) => {
+      const k = `${item?.name ?? ''}\0${item?.reason ?? ''}`
+      if (seen.has(k)) return false
+      seen.add(k)
+      return true
+    })
+  }
+  return {
+    stored,
+    originsStored,
+    entriesStored,
+    dropped: dedup(perBot.flatMap((r) => r.dropped ?? [])),
+    failed: dedup(perBot.flatMap((r) => r.failed ?? [])),
+    failedOrigins: perBot.flatMap((r) => r.failedOrigins ?? []),
+    botCount: perBot.length,
+    bots: perBot,
+  }
+}

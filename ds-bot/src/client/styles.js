@@ -835,8 +835,24 @@ body[data-ds-dark-theme] .bt-tour-spot{box-shadow:0 0 0 4px color-mix(in srgb,va
 .bt-theme-check{display:inline-flex;color:var(--bt-accent)}
 .bt-theme-check>svg{width:13px;height:13px}
 .bt-browser-settings{display:flex;flex-direction:column;gap:20px}
-.bt-browser-import-bot{display:inline-flex;align-items:center;gap:8px;min-width:0}
-.bt-browser-import-bot .bt-select{width:auto;min-width:150px;max-width:240px}
+.bt-browser-import-targets{display:flex;flex-direction:column;gap:10px;padding:12px 16px 14px}
+.bt-browser-import-targets-head{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:24px}
+.bt-browser-import-targets-label{display:inline-flex;align-items:center;gap:8px;font-size:13px;line-height:18px;color:var(--bt-ink)}
+.bt-browser-import-targets-count{font-size:12px;line-height:16px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums}
+.bt-browser-import-targets-btn{flex:none;height:26px;padding:0 8px;margin-right:-8px;border:0;border-radius:6px;background:transparent;color:var(--bt-ink-2);font:inherit;font-size:12px;font-weight:500;cursor:pointer;transition:background-color .12s ease,color .12s ease}
+.bt-browser-import-targets-btn:hover:not(:disabled){background:var(--bt-hover);color:var(--bt-ink)}
+.bt-browser-import-targets-btn:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
+.bt-browser-import-targets-btn:disabled{opacity:.45;cursor:default}
+.bt-browser-import-bots{display:flex;flex-wrap:wrap;gap:6px}
+.bt-browser-import-chip{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 10px 0 5px;border-radius:999px;border:.5px solid var(--bt-line);background:transparent;color:var(--bt-ink-2);font:inherit;font-size:12px;line-height:16px;cursor:pointer;transition:background-color .12s ease,color .12s ease,border-color .12s ease,${spring(SPRING_TAP, 'scale')}}
+.bt-browser-import-chip:hover:not(:disabled){background:var(--bt-hover);color:var(--bt-ink)}
+.bt-browser-import-chip:active:not(:disabled){scale:.97}
+.bt-browser-import-chip:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
+.bt-browser-import-chip[aria-checked=true]{background:var(--bt-active);border-color:var(--bt-line-2);color:var(--bt-ink)}
+.bt-browser-import-chip:disabled{opacity:.45;cursor:default}
+.bt-browser-import-chip-name{max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-browser-import-chip-check{display:inline-flex;color:var(--bt-accent);animation:bt-import-pop ${SPRING_POP.duration}ms ${SPRING_POP.easing}}
+.bt-browser-import-chip-check svg{width:13px;height:13px;stroke-width:1.9}
 .bt-browser-import-body{padding:14px 16px 16px}
 .bt-browser-import-body[data-morph]{overflow:hidden}
 .bt-browser-import-body .bt-import-item{width:calc(100% + 16px);margin:0 -8px;padding:8px}

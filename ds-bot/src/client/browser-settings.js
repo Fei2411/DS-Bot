@@ -1,6 +1,6 @@
 import { createElement as h, useEffect, useRef, useState } from 'react'
 import { BotAvatar } from './mark.js'
-import { PlusIcon } from './icons.js'
+import { CheckIcon, PlusIcon } from './icons.js'
 import { Segmented, useMorph } from './motion.js'
 import { ImportCard, ImportMenu, useCookieImportFlow } from './cookie-import-ui.js'
 import { dateLocale, t } from './i18n.js'
@@ -31,18 +31,20 @@ function grantKinds(grant) {
 export function BrowserPage({ roster, actions, run, Section, Row }) {
   const bots = roster.bots ?? []
   const [botId, setBotId] = useState(bots[0]?.id ?? '')
-  const [importBotId, setImportBotId] = useState(bots[0]?.id ?? '')
+  const [importBotIds, setImportBotIds] = useState(() => (bots[0] ? [bots[0].id] : []))
+  const prevBotsCountRef = useRef(bots.length)
   const [site, setSite] = useState('')
   const [kinds, setKinds] = useState(['post'])
   const [duration, setDuration] = useState('hour')
   const [adding, setAdding] = useState(false)
   const [busy, setBusy] = useState(false)
   const selectedBot = bots.find(bot => bot.id === botId)
-  const importBot = bots.find(bot => bot.id === importBotId) ?? bots[0] ?? null
-  const imports = importBot ? (actions.browserImport ?? null) : null
+  const selectedImportBotIds = importBotIds.filter(id => bots.some(bot => bot.id === id))
+  const allImportBotsSelected = bots.length > 0 && selectedImportBotIds.length === bots.length
+  const imports = bots.length > 0 ? (actions.browserImport ?? null) : null
   const importFlow = useCookieImportFlow({
     imports,
-    botId: importBot?.id ?? null,
+    botIds: selectedImportBotIds,
     resetKey: 'settings',
     idleFlow: 'menu',
   })
@@ -52,8 +54,27 @@ export function BrowserPage({ roster, actions, run, Section, Row }) {
 
   useEffect(() => {
     if (!bots.some(bot => bot.id === botId)) setBotId(bots[0]?.id ?? '')
-    if (!bots.some(bot => bot.id === importBotId)) setImportBotId(bots[0]?.id ?? '')
-  }, [bots, botId, importBotId])
+    if (prevBotsCountRef.current === 0 && bots.length > 0) {
+      setImportBotIds([bots[0].id])
+    } else {
+      setImportBotIds((current) => {
+        const next = current.filter(id => bots.some(bot => bot.id === id))
+        return next.length === current.length ? current : next
+      })
+    }
+    prevBotsCountRef.current = bots.length
+  }, [bots, botId])
+
+  const toggleImportBot = (id) => {
+    if (importFlow.busy) return
+    setImportBotIds(current => (current.includes(id) ? current.filter(item => item !== id) : [...current, id]))
+    if (importFlow.flow?.stage === 'result') importFlow.doneImport()
+  }
+  const toggleAllImportBots = () => {
+    if (importFlow.busy) return
+    setImportBotIds(allImportBotsSelected ? [] : bots.map(bot => bot.id))
+    if (importFlow.flow?.stage === 'result') importFlow.doneImport()
+  }
 
   const grants = bots.flatMap(bot => (bot.browserGrants ?? []).map((grant, index) => ({
     bot, grant, index, expired: expired(grant),
@@ -129,25 +150,45 @@ export function BrowserPage({ roster, actions, run, Section, Row }) {
         ? t('With an interactive plugin, Bots browse, click and fill in forms. Posting, uploading, downloading and deleting ask you first unless you allow them here. Payments are always yours: the Bot hands the page to you.')
         : t('External browser plugins (DSH / MCP) manage their own browser actions and approvals; the action grants below apply only to built-in Playwright plugins.'))),
     imports ? h(Section, { title: t('Import cookies') },
-      bots.length > 0 ? h(Row, { label: t('Bot') },
-        h('div', { className: 'bt-browser-import-bot' },
-          importBot ? h(BotAvatar, { bot: importBot, size: 22 }) : null,
-          h('select', {
-            className: 'bt-select',
-            value: importBot?.id ?? '',
-            disabled: importFlow.busy || bots.length === 0,
-            onChange: event => {
-              setImportBotId(event.target.value)
-              if (importFlow.flow?.stage === 'result') importFlow.doneImport()
+      h('div', { className: 'bt-browser-import-targets' },
+        h('div', { className: 'bt-browser-import-targets-head' },
+          h('span', { className: 'bt-browser-import-targets-label' },
+            h('span', null, t('Bots')),
+            bots.length > 1
+              ? h('span', { className: 'bt-browser-import-targets-count' },
+                t('{selected} of {total} selected', { selected: selectedImportBotIds.length, total: bots.length }))
+              : null),
+          bots.length > 1
+            ? h('button', {
+              type: 'button',
+              className: 'bt-browser-import-targets-btn',
+              disabled: importFlow.busy,
+              onClick: toggleAllImportBots,
+            }, allImportBotsSelected ? t('Clear') : t('Select all'))
+            : null),
+        h('div', { className: 'bt-browser-import-bots', role: 'group', 'aria-label': t('Select Bots') },
+          bots.map((bot) => {
+            const checked = selectedImportBotIds.includes(bot.id)
+            return h('button', {
+              key: bot.id,
+              type: 'button',
+              role: 'checkbox',
+              className: 'bt-browser-import-chip',
+              'aria-checked': checked,
+              disabled: importFlow.busy,
+              onClick: () => toggleImportBot(bot.id),
             },
-          }, bots.map(bot => h('option', { key: bot.id, value: bot.id }, bot.name))))) : null,
+            h(BotAvatar, { bot, size: 20, badge: false, live: false }),
+            h('span', { className: 'bt-browser-import-chip-name' }, bot.name),
+            checked ? h('span', { className: 'bt-browser-import-chip-check', 'aria-hidden': true }, h(CheckIcon)) : null)
+          }))),
       h('div', { ref: importBoxRef, className: 'bt-browser-import-body' },
         importFlow.flow === 'menu' || !importFlow.flow
           ? h(ImportMenu, {
             sources: importFlow.sources,
             lastSourceId: importFlow.lastSourceId,
             loading: importFlow.loadingSources,
-            busy: importFlow.busy || !importBot,
+            busy: importFlow.busy || selectedImportBotIds.length === 0,
             canPaste: Boolean(imports.paste),
             inline: true,
             onFile: importFlow.pickFile,
@@ -157,6 +198,7 @@ export function BrowserPage({ roster, actions, run, Section, Row }) {
           : h(ImportCard, {
             flow: importFlow.flow,
             busy: importFlow.busy,
+            canApply: selectedImportBotIds.length > 0,
             imports,
             inline: true,
             onApply: importFlow.applyImport,

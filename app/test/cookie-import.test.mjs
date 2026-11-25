@@ -8,7 +8,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { runInNewContext } from 'node:vm'
 import test from 'node:test'
-import { applyCookies, applyOrigins, CookieImports, filterCookiesBySites, friendlyCookieError, previewOf, seedOriginsInPartition, splitPartitionedCookies, toSetDetails } from '../src/cookie-import.mjs'
+import { applyCookies, applyImportToTargets, applyOrigins, CookieImports, filterCookiesBySites, friendlyCookieError, previewOf, seedOriginsInPartition, splitPartitionedCookies, toSetDetails } from '../src/cookie-import.mjs'
 import { parseCookieFile } from '../src/cookie-parse.mjs'
 
 const fixtures = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'cookies')
@@ -440,4 +440,55 @@ test('CHIPS partitioned and opaque-partitioned cookies are skipped without overw
   assert.equal([...ses.stored.values()][0].value, 'real-login')
   assert.equal(report.skipped.length, 2)
   assert.deepEqual(report.skipped.map((s) => s.code), ['partitioned', 'partitioned'])
+})
+
+test('applyImportToTargets consumes pending once for batch Bots, deduplicates keys, and validates before taking', async () => {
+  const store = new CookieImports()
+  const parsed = parse('cookie-editor.json')
+  const { id } = store.store(parsed, { kind: 'file', label: 'cookie-editor.json' })
+
+  // Invalid target must fail before consuming the pending entry.
+  await assert.rejects(
+    () => applyImportToTargets({ keyOrKeys: ['bot:a', 'not-bot'], id, options: {}, store, applyOne: async () => ({}) }),
+    /Bot storage key is required/,
+  )
+  assert.ok(store.peek(id), 'malformed key list must not consume pending import')
+
+  const sessions = new Map([
+    ['bot:a', fakeSession()],
+    ['bot:b', fakeSession({ drop: ['p_strict'] })],
+  ])
+  const appliedKeys = []
+  const report = await applyImportToTargets({
+    keyOrKeys: ['bot:a', 'bot:b', 'bot:a'],
+    id,
+    options: { persistSession: true },
+    store,
+    applyOne: async (key, pending, opts) => {
+      appliedKeys.push(key)
+      const r = await applyCookies(sessions.get(key), pending.cookies, opts)
+      return { ...r, originsStored: 0, entriesStored: 0, failedOrigins: [] }
+    },
+  })
+
+  assert.deepEqual(appliedKeys, ['bot:a', 'bot:b'])
+  assert.equal(store.peek(id), null, 'pending import must be consumed once')
+  assert.equal(report.botCount, 2)
+  assert.equal(report.stored, 8)
+  assert.equal(report.dropped.length, 1)
+  assert.equal(sessions.get('bot:a').stored.size, 8)
+  assert.equal(sessions.get('bot:b').stored.size, 7)
+
+  // Single-string caller keeps exact single-Bot shape.
+  const { id: id2 } = store.store(parsed, { kind: 'file', label: 'cookie-editor.json' })
+  const singleSession = fakeSession()
+  const singleReport = await applyImportToTargets({
+    keyOrKeys: 'bot:solo',
+    id: id2,
+    options: {},
+    store,
+    applyOne: async (_key, pending, opts) => applyCookies(singleSession, pending.cookies, opts),
+  })
+  assert.equal(singleReport.stored, 8)
+  assert.equal(singleReport.botCount, undefined)
 })

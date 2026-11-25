@@ -20324,8 +20324,24 @@ body[data-ds-dark-theme] .bt-tour-spot{box-shadow:0 0 0 4px color-mix(in srgb,va
 .bt-theme-check{display:inline-flex;color:var(--bt-accent)}
 .bt-theme-check>svg{width:13px;height:13px}
 .bt-browser-settings{display:flex;flex-direction:column;gap:20px}
-.bt-browser-import-bot{display:inline-flex;align-items:center;gap:8px;min-width:0}
-.bt-browser-import-bot .bt-select{width:auto;min-width:150px;max-width:240px}
+.bt-browser-import-targets{display:flex;flex-direction:column;gap:10px;padding:12px 16px 14px}
+.bt-browser-import-targets-head{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:24px}
+.bt-browser-import-targets-label{display:inline-flex;align-items:center;gap:8px;font-size:13px;line-height:18px;color:var(--bt-ink)}
+.bt-browser-import-targets-count{font-size:12px;line-height:16px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums}
+.bt-browser-import-targets-btn{flex:none;height:26px;padding:0 8px;margin-right:-8px;border:0;border-radius:6px;background:transparent;color:var(--bt-ink-2);font:inherit;font-size:12px;font-weight:500;cursor:pointer;transition:background-color .12s ease,color .12s ease}
+.bt-browser-import-targets-btn:hover:not(:disabled){background:var(--bt-hover);color:var(--bt-ink)}
+.bt-browser-import-targets-btn:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
+.bt-browser-import-targets-btn:disabled{opacity:.45;cursor:default}
+.bt-browser-import-bots{display:flex;flex-wrap:wrap;gap:6px}
+.bt-browser-import-chip{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 10px 0 5px;border-radius:999px;border:.5px solid var(--bt-line);background:transparent;color:var(--bt-ink-2);font:inherit;font-size:12px;line-height:16px;cursor:pointer;transition:background-color .12s ease,color .12s ease,border-color .12s ease,${spring(SPRING_TAP, "scale")}}
+.bt-browser-import-chip:hover:not(:disabled){background:var(--bt-hover);color:var(--bt-ink)}
+.bt-browser-import-chip:active:not(:disabled){scale:.97}
+.bt-browser-import-chip:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
+.bt-browser-import-chip[aria-checked=true]{background:var(--bt-active);border-color:var(--bt-line-2);color:var(--bt-ink)}
+.bt-browser-import-chip:disabled{opacity:.45;cursor:default}
+.bt-browser-import-chip-name{max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-browser-import-chip-check{display:inline-flex;color:var(--bt-accent);animation:bt-import-pop ${SPRING_POP.duration}ms ${SPRING_POP.easing}}
+.bt-browser-import-chip-check svg{width:13px;height:13px;stroke-width:1.9}
 .bt-browser-import-body{padding:14px 16px 16px}
 .bt-browser-import-body[data-morph]{overflow:hidden}
 .bt-browser-import-body .bt-import-item{width:calc(100% + 16px);margin:0 -8px;padding:8px}
@@ -42950,7 +42966,7 @@ function importError(error) {
   if (error === "safari-corrupt") return t("Safari cookies could not be read. Try again or import from a file.");
   return String(error);
 }
-function useCookieImportFlow({ imports, botId, pageUrl = "", resetKey = null, idleFlow = null, onReload }) {
+function useCookieImportFlow({ imports, botId = null, botIds = null, pageUrl = "", resetKey = null, idleFlow = null, onReload }) {
   const [flow, setFlow] = (0, import_react50.useState)(idleFlow);
   const flowRef = (0, import_react50.useRef)(idleFlow);
   const reqRef = (0, import_react50.useRef)(0);
@@ -42959,6 +42975,7 @@ function useCookieImportFlow({ imports, botId, pageUrl = "", resetKey = null, id
   const [sources, setSources] = (0, import_react50.useState)(null);
   const [lastSourceId, setLastSourceId] = (0, import_react50.useState)(lastImportSource);
   const [busy, setBusy] = (0, import_react50.useState)(false);
+  const targetBotIds = Array.isArray(botIds) ? botIds.filter(Boolean) : botId ? [botId] : [];
   const setFlowTracked = (next) => {
     flowRef.current = typeof next === "function" ? next(flowRef.current) : next;
     setFlow(flowRef.current);
@@ -43086,8 +43103,9 @@ function useCookieImportFlow({ imports, botId, pageUrl = "", resetKey = null, id
   });
   const applyImport = (options) => job(async (token) => {
     const current2 = flowRef.current;
-    if (!current2?.id || !botId) return;
-    const report = await imports.apply(botId, current2.id, options);
+    if (!current2?.id || targetBotIds.length === 0) return;
+    const target = targetBotIds.length === 1 ? targetBotIds[0] : targetBotIds;
+    const report = await imports.apply(target, current2.id, options);
     if (token !== reqRef.current) return;
     const sourceId = current2.preview?.source?.id;
     if (sourceId) {
@@ -43100,6 +43118,7 @@ function useCookieImportFlow({ imports, botId, pageUrl = "", resetKey = null, id
       stage: "result",
       report,
       label: current2.preview?.source?.label ?? null,
+      botCount: report?.botCount ?? targetBotIds.length,
       reloaded: shouldReload
     });
   });
@@ -43507,7 +43526,7 @@ function PasteCard({ flow, busy, inline = false, onSubmitPaste, onBack, onCancel
     )
   );
 }
-function PreviewCard({ flow, page = { url: "" }, busy, inline = false, onApply, onBack, onCancel }) {
+function PreviewCard({ flow, page = { url: "" }, busy, canApply = true, inline = false, onApply, onBack, onCancel }) {
   const { preview } = flow;
   const sites = (preview.sites ?? []).filter((s) => (s.cookies ?? 0) > 0 || (s.localStorage ?? 0) > 0);
   const currentHost = hostOfUrl(page?.url);
@@ -43685,11 +43704,11 @@ function PreviewCard({ flow, page = { url: "" }, busy, inline = false, onApply, 
       "div",
       { className: "bt-import-actions" },
       (0, import_react50.createElement)("button", { type: "button", className: "bt-import-plain", disabled: busy, onClick: onCancel }, t("Cancel")),
-      (0, import_react50.createElement)("button", { type: "button", className: "bt-import-primary", disabled: busy || selectedCookies === 0 && selectedStorage === 0, onClick: submit }, busy ? t("Importing…") : t("Import"))
+      (0, import_react50.createElement)("button", { type: "button", className: "bt-import-primary", disabled: busy || !canApply || selectedCookies === 0 && selectedStorage === 0, onClick: submit }, busy ? t("Importing…") : t("Import"))
     )
   );
 }
-function ImportCard({ flow, page = { url: "" }, busy, imports, inline = false, onApply, onCancel, onBack, onCloseAndImport, onRetrySource, onLaunchSource, onOpenPermission, onPermissionGranted, onFile, onSubmitPaste, onDone, onReload }) {
+function ImportCard({ flow, page = { url: "" }, busy, canApply = true, imports, inline = false, onApply, onCancel, onBack, onCloseAndImport, onRetrySource, onLaunchSource, onOpenPermission, onPermissionGranted, onFile, onSubmitPaste, onDone, onReload }) {
   const { stage } = flow;
   useEscape(() => {
     if (stage === "result") onDone();
@@ -43760,6 +43779,7 @@ function ImportCard({ flow, page = { url: "" }, busy, imports, inline = false, o
     const title = report.stored > 0 ? t("Imported {count} cookies", { count: report.stored }) : (report.originsStored ?? 0) > 0 ? t("Imported storage for {count} sites", { count: report.originsStored }) : t("No cookies were stored");
     const subtitle = [
       flow.label,
+      (flow.botCount ?? 1) > 1 ? t("{count} Bots", { count: flow.botCount }) : null,
       (report.originsStored ?? 0) > 0 ? t("{count} sites storage", { count: report.originsStored }) : null,
       flow.reloaded ? t("page reloaded") : null
     ].filter(Boolean).join(" · ");
@@ -43796,7 +43816,7 @@ function ImportCard({ flow, page = { url: "" }, busy, imports, inline = false, o
       )
     );
   }
-  return (0, import_react50.createElement)(PreviewCard, { key: flow.id, flow, page, busy, inline, onApply, onBack, onCancel });
+  return (0, import_react50.createElement)(PreviewCard, { key: flow.id, flow, page, busy, canApply, inline, onApply, onBack, onCancel });
 }
 
 // src/client/browser-settings.js
@@ -43820,18 +43840,20 @@ function grantKinds(grant) {
 function BrowserPage({ roster, actions, run: run2, Section: Section2, Row: Row4 }) {
   const bots = roster.bots ?? [];
   const [botId, setBotId] = (0, import_react51.useState)(bots[0]?.id ?? "");
-  const [importBotId, setImportBotId] = (0, import_react51.useState)(bots[0]?.id ?? "");
+  const [importBotIds, setImportBotIds] = (0, import_react51.useState)(() => bots[0] ? [bots[0].id] : []);
+  const prevBotsCountRef = (0, import_react51.useRef)(bots.length);
   const [site, setSite] = (0, import_react51.useState)("");
   const [kinds, setKinds] = (0, import_react51.useState)(["post"]);
   const [duration, setDuration] = (0, import_react51.useState)("hour");
   const [adding, setAdding] = (0, import_react51.useState)(false);
   const [busy, setBusy] = (0, import_react51.useState)(false);
   const selectedBot = bots.find((bot) => bot.id === botId);
-  const importBot = bots.find((bot) => bot.id === importBotId) ?? bots[0] ?? null;
-  const imports = importBot ? actions.browserImport ?? null : null;
+  const selectedImportBotIds = importBotIds.filter((id) => bots.some((bot) => bot.id === id));
+  const allImportBotsSelected = bots.length > 0 && selectedImportBotIds.length === bots.length;
+  const imports = bots.length > 0 ? actions.browserImport ?? null : null;
   const importFlow = useCookieImportFlow({
     imports,
-    botId: importBot?.id ?? null,
+    botIds: selectedImportBotIds,
     resetKey: "settings",
     idleFlow: "menu"
   });
@@ -43840,8 +43862,26 @@ function BrowserPage({ roster, actions, run: run2, Section: Section2, Row: Row4 
   useMorph(importBoxRef, importStageKey);
   (0, import_react51.useEffect)(() => {
     if (!bots.some((bot) => bot.id === botId)) setBotId(bots[0]?.id ?? "");
-    if (!bots.some((bot) => bot.id === importBotId)) setImportBotId(bots[0]?.id ?? "");
-  }, [bots, botId, importBotId]);
+    if (prevBotsCountRef.current === 0 && bots.length > 0) {
+      setImportBotIds([bots[0].id]);
+    } else {
+      setImportBotIds((current2) => {
+        const next = current2.filter((id) => bots.some((bot) => bot.id === id));
+        return next.length === current2.length ? current2 : next;
+      });
+    }
+    prevBotsCountRef.current = bots.length;
+  }, [bots, botId]);
+  const toggleImportBot = (id) => {
+    if (importFlow.busy) return;
+    setImportBotIds((current2) => current2.includes(id) ? current2.filter((item) => item !== id) : [...current2, id]);
+    if (importFlow.flow?.stage === "result") importFlow.doneImport();
+  };
+  const toggleAllImportBots = () => {
+    if (importFlow.busy) return;
+    setImportBotIds(allImportBotsSelected ? [] : bots.map((bot) => bot.id));
+    if (importFlow.flow?.stage === "result") importFlow.doneImport();
+  };
   const grants = bots.flatMap((bot) => (bot.browserGrants ?? []).map((grant, index) => ({
     bot,
     grant,
@@ -43922,24 +43962,52 @@ function BrowserPage({ roster, actions, run: run2, Section: Section2, Row: Row4 
     imports ? (0, import_react51.createElement)(
       Section2,
       { title: t("Import cookies") },
-      bots.length > 0 ? (0, import_react51.createElement)(
-        Row4,
-        { label: t("Bot") },
+      (0, import_react51.createElement)(
+        "div",
+        { className: "bt-browser-import-targets" },
         (0, import_react51.createElement)(
           "div",
-          { className: "bt-browser-import-bot" },
-          importBot ? (0, import_react51.createElement)(BotAvatar, { bot: importBot, size: 22 }) : null,
-          (0, import_react51.createElement)("select", {
-            className: "bt-select",
-            value: importBot?.id ?? "",
-            disabled: importFlow.busy || bots.length === 0,
-            onChange: (event) => {
-              setImportBotId(event.target.value);
-              if (importFlow.flow?.stage === "result") importFlow.doneImport();
-            }
-          }, bots.map((bot) => (0, import_react51.createElement)("option", { key: bot.id, value: bot.id }, bot.name)))
+          { className: "bt-browser-import-targets-head" },
+          (0, import_react51.createElement)(
+            "span",
+            { className: "bt-browser-import-targets-label" },
+            (0, import_react51.createElement)("span", null, t("Bots")),
+            bots.length > 1 ? (0, import_react51.createElement)(
+              "span",
+              { className: "bt-browser-import-targets-count" },
+              t("{selected} of {total} selected", { selected: selectedImportBotIds.length, total: bots.length })
+            ) : null
+          ),
+          bots.length > 1 ? (0, import_react51.createElement)("button", {
+            type: "button",
+            className: "bt-browser-import-targets-btn",
+            disabled: importFlow.busy,
+            onClick: toggleAllImportBots
+          }, allImportBotsSelected ? t("Clear") : t("Select all")) : null
+        ),
+        (0, import_react51.createElement)(
+          "div",
+          { className: "bt-browser-import-bots", role: "group", "aria-label": t("Select Bots") },
+          bots.map((bot) => {
+            const checked = selectedImportBotIds.includes(bot.id);
+            return (0, import_react51.createElement)(
+              "button",
+              {
+                key: bot.id,
+                type: "button",
+                role: "checkbox",
+                className: "bt-browser-import-chip",
+                "aria-checked": checked,
+                disabled: importFlow.busy,
+                onClick: () => toggleImportBot(bot.id)
+              },
+              (0, import_react51.createElement)(BotAvatar, { bot, size: 20, badge: false, live: false }),
+              (0, import_react51.createElement)("span", { className: "bt-browser-import-chip-name" }, bot.name),
+              checked ? (0, import_react51.createElement)("span", { className: "bt-browser-import-chip-check", "aria-hidden": true }, (0, import_react51.createElement)(CheckIcon)) : null
+            );
+          })
         )
-      ) : null,
+      ),
       (0, import_react51.createElement)(
         "div",
         { ref: importBoxRef, className: "bt-browser-import-body" },
@@ -43947,7 +44015,7 @@ function BrowserPage({ roster, actions, run: run2, Section: Section2, Row: Row4 
           sources: importFlow.sources,
           lastSourceId: importFlow.lastSourceId,
           loading: importFlow.loadingSources,
-          busy: importFlow.busy || !importBot,
+          busy: importFlow.busy || selectedImportBotIds.length === 0,
           canPaste: Boolean(imports.paste),
           inline: true,
           onFile: importFlow.pickFile,
@@ -43956,6 +44024,7 @@ function BrowserPage({ roster, actions, run: run2, Section: Section2, Row: Row4 
         }) : (0, import_react51.createElement)(ImportCard, {
           flow: importFlow.flow,
           busy: importFlow.busy,
+          canApply: selectedImportBotIds.length > 0,
           imports,
           inline: true,
           onApply: importFlow.applyImport,
@@ -56098,10 +56167,11 @@ var BROWSER_CSS = `
 .bt-import-item-email{min-width:0;font-size:12px;line-height:16px;color:var(--bt-ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-import-item-meta{flex:none;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
 .bt-import-item-tag{flex:none;font-size:11px;line-height:16px;font-weight:500;padding:0 6px;border-radius:4px;background:var(--bt-tag-bg);color:var(--bt-tag-ink)}
-.bt-import-item-sub{display:inline-flex;align-items:center;gap:5px;font-size:12px;line-height:16px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums;white-space:nowrap}
-.bt-import-item-sub[data-ready]{color:var(--bt-green);font-weight:500}
-.bt-import-item-sub[data-warn]{color:var(--bt-warn);font-weight:500}
-.bt-import-dot{flex:none;width:6px;height:6px;border-radius:50%;corner-shape:round;background:currentColor}
+.bt-import-item-sub{display:inline-flex;align-items:center;gap:6px;font-size:12px;line-height:16px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums;white-space:nowrap}
+.bt-import-item-sub[data-ready],.bt-import-item-sub[data-warn]{color:var(--bt-ink-2)}
+.bt-import-dot{flex:none;width:6px;height:6px;border-radius:50%;corner-shape:round;background:var(--bt-ink-3)}
+.bt-import-item-sub[data-ready] .bt-import-dot{background:var(--bt-green)}
+.bt-import-item-sub[data-warn] .bt-import-dot{background:var(--bt-warn)}
 .bt-import-chev{flex:none;display:inline-flex;align-items:center;justify-content:flex-end;width:0;margin-left:-12px;overflow:hidden;color:var(--bt-ink-3);opacity:0;transform:translateX(-4px);transition:${spring(SPRING_SHAPE, "width", "margin-left", "transform")},opacity .14s ease}
 .bt-import-chev svg{flex:none;width:14px;height:14px}
 .bt-import-item:hover .bt-import-chev,.bt-import-item:focus-visible .bt-import-chev{width:14px;margin-left:0;opacity:.7;transform:none}
@@ -56130,8 +56200,8 @@ var BROWSER_CSS = `
 .bt-import-mini:hover{background:var(--bt-active)}
 .bt-import-mini:active{scale:.96}
 .bt-import-mini:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
-.bt-import-ready-note{display:flex;align-items:center;gap:8px;padding:9px 12px;border-radius:10px;background:color-mix(in srgb,var(--bt-green) 12%,transparent);font-size:12px;line-height:16px;font-weight:500;color:var(--bt-green)}
-.bt-import-ready-note svg{flex:none;width:15px;height:15px}
+.bt-import-ready-note{display:flex;align-items:center;gap:8px;padding:9px 12px;border-radius:10px;background:color-mix(in srgb,var(--bt-green) 10%,transparent);font-size:12px;line-height:16px;font-weight:500;color:var(--bt-ink-2)}
+.bt-import-ready-note svg{flex:none;width:15px;height:15px;color:var(--bt-green)}
 .bt-import-textarea{width:100%;box-sizing:border-box;min-height:120px;max-height:220px;resize:vertical;padding:12px 14px;border:1px solid transparent;border-radius:12px;background:var(--bt-hover);color:var(--bt-ink);font-family:var(--bt-mono);font-size:12px;line-height:18px;outline:none;transition:background-color .12s ease,border-color .12s ease,box-shadow .12s ease}
 .bt-import-input{width:100%;box-sizing:border-box;height:36px;padding:0 12px;border:1px solid transparent;border-radius:10px;background:var(--bt-hover);color:var(--bt-ink);font:inherit;font-size:13px;outline:none;transition:background-color .12s ease,border-color .12s ease,box-shadow .12s ease}
 .bt-import-textarea:focus,.bt-import-input:focus{background:var(--bt-card);border-color:var(--bt-accent);box-shadow:0 0 0 3px var(--bt-accent-soft)}
@@ -59896,7 +59966,11 @@ function apply(ctx) {
         launch: typeof bridge2.importLaunch === "function" ? (source) => bridge2.importLaunch(source) : null,
         openPermission: typeof bridge2.importOpenPermission === "function" ? () => bridge2.importOpenPermission() : null,
         live: (source, close, requestId) => bridge2.importLive(source, close, requestId),
-        apply: (botId, pending, options) => bridge2.importApply(`bot:${botId}`, pending, options),
+        apply: (botId, pending, options) => bridge2.importApply(
+          Array.isArray(botId) ? botId.map((id) => `bot:${id}`) : `bot:${botId}`,
+          pending,
+          options
+        ),
         cancel: (pending) => bridge2.importCancel(pending)
       } : null
     });

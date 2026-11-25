@@ -67,7 +67,7 @@ export function importError(error) {
  * `idleFlow` is `null` for the browser overlay (closing returns to the web page) and `'menu'`
  * for Settings → Browser (where the source list stays inline on the page).
  */
-export function useCookieImportFlow({ imports, botId, pageUrl = '', resetKey = null, idleFlow = null, onReload }) {
+export function useCookieImportFlow({ imports, botId = null, botIds = null, pageUrl = '', resetKey = null, idleFlow = null, onReload }) {
   const [flow, setFlow] = useState(idleFlow)
   // A mirrored flow: cleanup on leaving the tab/panel/dialog still cancels
   // an unconfirmed pending import or an in-flight live harvest.
@@ -78,6 +78,7 @@ export function useCookieImportFlow({ imports, botId, pageUrl = '', resetKey = n
   const [sources, setSources] = useState(null)
   const [lastSourceId, setLastSourceId] = useState(lastImportSource)
   const [busy, setBusy] = useState(false)
+  const targetBotIds = Array.isArray(botIds) ? botIds.filter(Boolean) : (botId ? [botId] : [])
 
   const setFlowTracked = (next) => {
     flowRef.current = typeof next === 'function' ? next(flowRef.current) : next
@@ -199,8 +200,9 @@ export function useCookieImportFlow({ imports, botId, pageUrl = '', resetKey = n
   })
   const applyImport = (options) => job(async (token) => {
     const current = flowRef.current
-    if (!current?.id || !botId) return
-    const report = await imports.apply(botId, current.id, options)
+    if (!current?.id || targetBotIds.length === 0) return
+    const target = targetBotIds.length === 1 ? targetBotIds[0] : targetBotIds
+    const report = await imports.apply(target, current.id, options)
     if (token !== reqRef.current) return
     const sourceId = current.preview?.source?.id
     if (sourceId) { saveLastImportSource(sourceId); setLastSourceId(sourceId) }
@@ -210,6 +212,7 @@ export function useCookieImportFlow({ imports, botId, pageUrl = '', resetKey = n
       stage: 'result',
       report,
       label: current.preview?.source?.label ?? null,
+      botCount: report?.botCount ?? targetBotIds.length,
       reloaded: shouldReload,
     })
   })
@@ -510,7 +513,7 @@ function PasteCard({ flow, busy, inline = false, onSubmitPaste, onBack, onCancel
       }, busy ? t('Reading…') : t('Continue'))))
 }
 
-export function PreviewCard({ flow, page = { url: '' }, busy, inline = false, onApply, onBack, onCancel }) {
+export function PreviewCard({ flow, page = { url: '' }, busy, canApply = true, inline = false, onApply, onBack, onCancel }) {
   const { preview } = flow
   const sites = (preview.sites ?? []).filter((s) => (s.cookies ?? 0) > 0 || (s.localStorage ?? 0) > 0)
   const currentHost = hostOfUrl(page?.url)
@@ -640,11 +643,11 @@ export function PreviewCard({ flow, page = { url: '' }, busy, inline = false, on
       h('span', null, t('Some sites also keep sign-in outside cookies; you may need to sign in again there.'))) : null,
     h('div', { className: 'bt-import-actions' },
       h('button', { type: 'button', className: 'bt-import-plain', disabled: busy, onClick: onCancel }, t('Cancel')),
-      h('button', { type: 'button', className: 'bt-import-primary', disabled: busy || (selectedCookies === 0 && selectedStorage === 0), onClick: submit }, busy ? t('Importing…') : t('Import'))))
+      h('button', { type: 'button', className: 'bt-import-primary', disabled: busy || !canApply || (selectedCookies === 0 && selectedStorage === 0), onClick: submit }, busy ? t('Importing…') : t('Import'))))
 }
 
 // The card that runs an import: connecting / safari-permission / remote-debug / running / paste → preview → result | error.
-export function ImportCard({ flow, page = { url: '' }, busy, imports, inline = false, onApply, onCancel, onBack, onCloseAndImport, onRetrySource, onLaunchSource, onOpenPermission, onPermissionGranted, onFile, onSubmitPaste, onDone, onReload }) {
+export function ImportCard({ flow, page = { url: '' }, busy, canApply = true, imports, inline = false, onApply, onCancel, onBack, onCloseAndImport, onRetrySource, onLaunchSource, onOpenPermission, onPermissionGranted, onFile, onSubmitPaste, onDone, onReload }) {
   const { stage } = flow
   useEscape(() => { if (stage === 'result') onDone(); else onCancel() })
   if (stage === 'connecting') {
@@ -695,6 +698,7 @@ export function ImportCard({ flow, page = { url: '' }, busy, imports, inline = f
         : t('No cookies were stored')
     const subtitle = [
       flow.label,
+      (flow.botCount ?? 1) > 1 ? t('{count} Bots', { count: flow.botCount }) : null,
       (report.originsStored ?? 0) > 0 ? t('{count} sites storage', { count: report.originsStored }) : null,
       flow.reloaded ? t('page reloaded') : null,
     ].filter(Boolean).join(' · ')
@@ -713,5 +717,5 @@ export function ImportCard({ flow, page = { url: '' }, busy, imports, inline = f
         page?.url && !flow.reloaded && onReload ? h('button', { type: 'button', className: 'bt-import-plain', onClick: onReload }, t('Reload the page')) : null,
         h('button', { type: 'button', className: 'bt-import-primary', onClick: onDone }, t('Done'))))
   }
-  return h(PreviewCard, { key: flow.id, flow, page, busy, inline, onApply, onBack, onCancel })
+  return h(PreviewCard, { key: flow.id, flow, page, busy, canApply, inline, onApply, onBack, onCancel })
 }
