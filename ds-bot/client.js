@@ -18571,6 +18571,7 @@ function teamActions({ call: call2, after, partFor, roster, ui, live, cards, hel
       ...typeof expectedTurn === "number" ? { expectedTurn } : {},
       operationId: typeof globalThis.crypto?.randomUUID === "function" ? globalThis.crypto.randomUUID() : `bg-${Date.now()}-${Math.random().toString(36).slice(2)}`
     })),
+    steerQueueBatch: (sessionId, ids) => call2("bot-steer-queue", { sessionId, ids }),
     // A side chat on the panel's own view, opened from the strip, the `···`
     // menus or `/side`. Closing the panel keeps the chats; only a tab's × deletes.
     openSideChat,
@@ -49538,11 +49539,16 @@ var emptyPlainDraft = (input) => input !== void 0 && input.phase === "plain" && 
 var steerable = (input) => emptyPlainDraft(input) && input.queue.some((message) => message.source?.kind === "user");
 var enterSteers = (event, input, enterToSend = true) => enterToSend === true && event.key === "Enter" && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey && !event.getModifierState?.("AltGraph") && !event.isComposing && event.keyCode !== 229 && !event.repeat && steerable(input);
 var emptyAccelQueueKey = (event, input) => event.key === "Enter" && (event.metaKey || event.ctrlKey) && !(event.metaKey && event.ctrlKey) && !event.shiftKey && !event.altKey && !event.getModifierState?.("AltGraph") && !event.isComposing && event.keyCode !== 229 && !event.repeat && emptyPlainDraft(input) && Array.isArray(input.queue) && input.queue.length > 0;
-var steerQueued = async (session) => {
+var steerQueued = async (session, steerBatch) => {
   try {
     const queued = session.projections.faceOf("inbox").getSnapshot()?.["next-turn"] ?? [];
-    for (const item of queued) {
-      if (item.source?.kind !== "user") continue;
+    const userItems = queued.filter((item) => item.source?.kind === "user");
+    if (userItems.length === 0) return "done";
+    if (typeof steerBatch === "function") {
+      const outcome = await steerBatch(userItems.map((item) => item.id));
+      if (outcome === "done" || outcome === "failed") return outcome;
+    }
+    for (const item of userItems) {
       const result = await session.updateQueue(item.id, { kind: "steer" });
       if (result.ok) continue;
       return result.error.code === "session/steer-unavailable" || result.error.code === "session/queue-item-not-found" ? "done" : "failed";
@@ -59500,7 +59506,15 @@ function apply(ctx) {
   actions.steerQueued = async (sessionId) => {
     const session = ctx.sessions.binding(sessionId)?.session;
     if (session === void 0) return;
-    if (await steerQueued(session) === "failed") {
+    const steerBatch = roster.getSnapshot().byId?.[sessionId] !== void 0 ? async (ids) => {
+      try {
+        const result = await actions.steerQueueBatch(sessionId, ids);
+        return result?.fallback === true ? "fallback" : "done";
+      } catch (error) {
+        return error?.code === "bot/not-found" ? "fallback" : "failed";
+      }
+    } : void 0;
+    if (await steerQueued(session, steerBatch) === "failed") {
       actions.reportError(new Error(t("Couldn’t steer the queued messages. Try again.")), "steer-queue");
     }
   };

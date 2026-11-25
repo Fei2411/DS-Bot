@@ -171,7 +171,7 @@ test('Remote feed subscriptions replay active replies after hello without HTTP l
   t.after(stop)
   await rt.channelCall('state', {})
   rt.chatOwners.set('s1', 'b1')
-  const onStream = ctx.listeners.get('agent/assistant-stream')[0]
+  const onStream = ctx.listeners.get('agent/assistant-stream').at(-1)
   const emit = frame => onStream({ agent: { id: 's1' }, frame: { attemptId: 'active', ...frame } })
   emit({ type: 'start', turn: 1 })
   const empty = []

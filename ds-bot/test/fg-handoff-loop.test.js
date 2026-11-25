@@ -93,7 +93,7 @@ async function createRealLoopRig(t, { prefs = {}, failFork = false, failForkAndC
       modelCallsBySession.set(options.sessionId, (modelCallsBySession.get(options.sessionId) ?? 0) + 1)
       const callNo = modelCalls
       const last = options.messages.at(-1)
-      const lastUser = options.messages.findLast(m => m.role === 'user' && (m.source?.kind === 'user' || m.source?.role === 'task-report'))
+      const lastUser = options.messages.findLast(m => m.role === 'user' && (m.source?.kind === 'user' || m.source?.role === 'task-report' || m.source?.role === 'request'))
       const lastText = textOf(lastUser ?? last)
 
       if (holdFirstModel && options.sessionId === 'dm-a' && callNo === 1) {
@@ -206,6 +206,11 @@ async function createRealLoopRig(t, { prefs = {}, failFork = false, failForkAndC
   })
   root.on('agent/inbox/inserted', (payload) => {
     for (const listener of ctx.listeners.get('agent/inbox/inserted') ?? []) {
+      listener(payload)
+    }
+  })
+  root.on('agent/assistant-stream', (payload) => {
+    for (const listener of ctx.listeners.get('agent/assistant-stream') ?? []) {
       listener(payload)
     }
   })
@@ -1534,4 +1539,57 @@ test('collectAdmittedIdsFromEvents does not mistake an in-place inbox splice rep
 
   assert.deepEqual(journal(rig), [])
   assert.ok((rig.repliesBySession.get('dm-a') ?? []).some(r => r.includes('Original queued prompt')), 'reconcile must replay when splice was a replace rather than a claim')
+})
+
+test('real DSH ReactLoopAgent: steering queued user messages behind hidden peer-Bot work preserves [Q1, Q2] FIFO order', async (t) => {
+  const rig = await createRealLoopRig(t, { holdFirstModel: true })
+  const dmA = rig.agents.get('dm-a')
+
+  // Turn 1: ordinary user turn pauses in model stream so a peer request + two user followups queue behind it.
+  dmA.followup(userPrompt('NORMAL_TURN'))
+  await rig.firstModelStarted.promise
+
+  const peerReq = createUserMessage({
+    content: [{ type: 'text', text: '[Message from Peer]\nPlease run slow work for peer' }],
+    source: { kind: 'bot', role: 'request', senderSessionId: 'dm-b', senderName: 'Peer', exchangeId: 'ex-hidden-fifo' },
+  })
+  const q1 = userPrompt('FIRST_QUEUED')
+  const q2 = userPrompt('SECOND_QUEUED')
+  dmA.followup(peerReq)
+  dmA.followup(q1)
+  dmA.followup(q2)
+  assert.equal(rig.rt.botOf('a').sessionId, 'dm-a', 'ordinary busy turn must keep queued messages on dm-a')
+
+  // Finish Turn 1 -> Turn 2 starts the hidden peer request and pauses inside slow_check with [q1, q2] still queued.
+  rig.firstModelGate.resolve()
+  await rig.toolStarted.promise
+  assert.deepEqual(dmA.inbox.nextTurn.map(item => item.id), [q1.id, q2.id])
+
+  // Atomic batch steer signals fallback so per-row steering triggers foreground handoff.
+  assert.deepEqual(rig.rt.steerQueued('dm-a', [q1.id, q2.id]), { steered: 0, fallback: true })
+
+  // Per-row fallback steers q1 first; interceptForegroundUserMessage pulls q2 too
+  // and must forward [q1, q2] in FIFO order (not [q2, q1]).
+  assert.equal(dmA.inbox.remove(q1.id), true)
+  dmA.steer(q1)
+
+  await settle(() => {
+    const fgSid = rig.rt.botOf('a').sessionId
+    if (fgSid === 'dm-a') return false
+    const fresh = rig.agents.get(fgSid)
+    const users = fresh?.session?.snapshotEvents?.()
+      .filter(ev => ev.type === 'user/message' && ev.data?.source?.kind === 'user')
+      .map(ev => textOf(ev.data)) ?? []
+    return fresh?.status === 'idle' && users.includes('FIRST_QUEUED') && users.includes('SECOND_QUEUED')
+  }, 5000, 'new foreground must consume both forwarded user messages')
+
+  const fgSid = rig.rt.botOf('a').sessionId
+  const fresh = rig.agents.get(fgSid)
+  const users = fresh.session.snapshotEvents()
+    .filter(ev => ev.type === 'user/message' && ev.data?.source?.kind === 'user')
+    .map(ev => textOf(ev.data))
+  assert.deepEqual(users.slice(-2), ['FIRST_QUEUED', 'SECOND_QUEUED'])
+
+  rig.toolGate.resolve()
+  await dmA.whenIdle()
 })
