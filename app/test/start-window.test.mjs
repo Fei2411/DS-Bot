@@ -144,7 +144,7 @@ test('the snapshot carries the phase, the stages done and the clock', () => {
   assert.deepEqual(booting, {
     v: 1, lang: 'zh', start: 'first', motion: 'normal', effects: 'full', frame: 'band', view: 'boot', phases: ['data', 'engine', 'team'], phase: 'data', done: [],
     clock: { ms: 6400, at: now, running: true, rate: 1 },
-    explain: { mode: 'new', nextStep: true, previewNotice: true }, celebrate: true, shown: false,
+    explain: { mode: 'new', nextStep: true, previewNotice: false }, celebrate: true, shown: false,
   })
   assert.equal(startSnapshot(state({ effects: 'off' }), now).effects, 'off')
   assert.equal(startSnapshot(state({ done: ['data'] }), now).phase, 'engine')
@@ -173,8 +173,7 @@ test('the snapshot carries the phase, the stages done and the clock', () => {
 })
 
 test('what the hint row can prepare for: a new team, a reinstall or an import', () => {
-  // DSH shows its preview notice on a data folder without a team, which has no Session yet.
-  assert.deepEqual(explainOf(), { mode: 'new', nextStep: true, previewNotice: true })
+  assert.deepEqual(explainOf(), { mode: 'new', nextStep: true, previewNotice: false })
   assert.deepEqual(explainOf({ team: { bots: 6, rooms: 2 } }), { mode: 'reinstall', bots: 6, groups: 2, nextStep: false, previewNotice: false })
   assert.deepEqual(explainOf({ offered: true }), { mode: 'import', nextStep: false, previewNotice: false })
   assert.deepEqual(explainOf({ offered: true, team: { bots: 1, rooms: 0 } }).mode, 'import')

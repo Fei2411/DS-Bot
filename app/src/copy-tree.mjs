@@ -11,7 +11,7 @@ const { cp, lstat, readlink, realpath, stat, symlink } = disk.promises
 
 export const within = (inner, outer) => {
   const path = relative(resolve(outer), resolve(inner))
-  return path === '' || (!path.startsWith('..') && !path.startsWith(sep) && !/^[a-z]:/iu.test(path))
+  return path !== '..' && !path.startsWith(`..${sep}`) && !isAbsolute(path)
 }
 
 /**
@@ -41,22 +41,39 @@ export function real(path) {
   return join(realpathSync.native(at), ...rest)
 }
 
+const physicalTarget = path => realpath(path).catch(() => undefined)
+const targetIsFolder = source => stat(source).then(info => info.isDirectory(), () => undefined)
+
+async function inspectLink(source, roots) {
+  const text = (await readlink(source)).replace(/^\\\\\?\\UNC\\/u, '\\\\').replace(/^\\\\\?\\/u, '')
+  const written = resolve(dirname(source), text)
+  const direct = roots.some(folder => within(written, folder))
+  const [physical, folder] = await Promise.all([direct ? undefined : physicalTarget(written), targetIsFolder(source)])
+  return { text, written, direct, physical, folder }
+}
+
 // A link that leads inside the copied folder leads to the same place inside the copy: a relative
 // one keeps its text, an absolute one is moved over. One that leads outside keeps leading
 // there, as an absolute link. Windows gives a junction's target with \\?\, and makes only
 // junctions, which hold absolute paths, without special rights.
-async function relink(source, path, roots, to) {
-  const text = (await readlink(source)).replace(/^\\\\\?\\UNC\\/u, '\\\\').replace(/^\\\\\?\\/u, '')
-  const written = resolve(dirname(source), text)
-  // Through another link the target can lead inside the copied folder too.
-  const physical = await realpath(written).catch(() => written)
-  const direct = roots.some(folder => within(written, folder))
-  const target = direct ? written : physical
+async function linkTarget(source, roots, to, inspected, refresh) {
+  const { text, written, direct } = inspected
+  let { physical, folder } = inspected
+  // An earlier write can make a missing target reachable through another link.
+  if (refresh && (folder === undefined || (!direct && physical === undefined))) {
+    [physical, folder] = await Promise.all([
+      direct ? undefined : physical ?? physicalTarget(written),
+      folder ?? targetIsFolder(source),
+    ])
+  }
+  const target = direct ? written : physical ?? written
   const root = roots.find(folder => within(target, folder))
-  const folder = (await stat(source).catch(() => undefined))?.isDirectory() === true
   const windows = process.platform === 'win32'
   const inside = root === undefined ? written : join(to, relative(root, target))
-  await symlink(direct && !isAbsolute(text) && !(windows && folder) ? text : inside, path, folder ? (windows ? 'junction' : 'dir') : 'file')
+  return {
+    target: direct && !isAbsolute(text) && !(windows && folder) ? text : inside,
+    type: folder ? (windows ? 'junction' : 'dir') : 'file',
+  }
 }
 
 /**
@@ -93,14 +110,51 @@ export async function copyTree(from, into, { force = true, skip = false, leave =
     },
   })
   const roots = [...new Set([resolve(from), origin])]
-  for (const path of links) {
-    signal?.throwIfAborted()
-    const at = join(into, path)
-    if (!force && await lstat(at).then(() => true, () => false)) continue
-    await relink(join(origin, path), at, roots, resolve(as)).catch((error) => {
-      if (!skip) throw error
-      skipped.push(path)
-    })
+  const to = resolve(as)
+  signal?.throwIfAborted()
+  let writes = 0
+  const prepare = path => {
+    const source = join(origin, path)
+    const before = writes
+    return inspectLink(source, roots).then(inspected => {
+      // A Windows junction can briefly exist as a regular directory during creation.
+      if (process.platform === 'win32' && before !== writes) {
+        inspected.physical = undefined
+        inspected.folder = undefined
+      }
+      return { source, before, inspected }
+    }, error => ({ error }))
+  }
+  const pending = links.slice(0, 4).map(prepare)
+  try {
+    for (const [index, path] of links.entries()) {
+      signal?.throwIfAborted()
+      const slot = index % pending.length
+      const at = join(into, path)
+      // Only the destination filesystem knows which names alias. Publish in discovery order.
+      const keep = !force && await lstat(at).then(() => true, () => false)
+      const prepared = await pending[slot]
+      signal?.throwIfAborted()
+      if (!keep) {
+        try {
+          if ('error' in prepared) throw prepared.error
+          const { source, before, inspected } = prepared
+          const { target, type } = await linkTarget(source, roots, to, inspected, before !== writes)
+          if (!signal?.aborted) {
+            writes++
+            await symlink(target, at, type)
+          }
+        } catch (error) {
+          if (!skip) throw error
+          skipped.push(path)
+        }
+      }
+      signal?.throwIfAborted()
+      const next = index + pending.length
+      if (next < links.length) pending[slot] = prepare(links[next])
+    }
+  } finally {
+    await Promise.all(pending)
   }
   return skipped
 }

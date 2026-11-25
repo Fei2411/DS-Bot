@@ -245,6 +245,25 @@ test('a Bot without a model of its own still moves to a CLI only by the user, co
   assert.equal(env.state().bots.d.model, 'ds/pro')
 })
 
+test('moving to a local agent clears extra folders and excludes group grants', async (t) => {
+  const env = await start(t)
+  const extra = join(env.root, 'extra')
+  mkdirSync(extra)
+  assert.equal((await env.call('update-bot', { id: 'b', extraDirs: [extra] })).ok, true)
+  assert.equal((await env.call('update-room', { id: 'r1', extraDirs: [extra] })).ok, true)
+  assert.deepEqual(env.rt.extraDirsOfSession('b'), [extra])
+  assert.deepEqual(env.rt.extraDirsOfSession('gb'), [extra])
+  assert.equal((await env.call('update-bot', { id: 'b', model: CLI, changeEngine: true })).ok, true)
+  assert.equal(env.state().bots.b.extraDirs, undefined)
+  assert.deepEqual(env.rt.extraDirsOfSession('b'), [])
+  assert.deepEqual(env.rt.extraDirsOfSession('gb'), [])
+  assert.equal(env.ctx.sections.get('bot-extra-folders').text({ agent: { id: 'gb' } }), '')
+  const refused = await env.call('update-bot', { id: 'b', extraDirs: [extra] })
+  assert.equal(refused.ok, false)
+  assert.match(refused.error.message, /runs on a local agent/)
+  assert.equal(env.state().bots.b.extraDirs, undefined)
+})
+
 test('a Bot on a CLI keeps a model of it', async (t) => {
   const env = await start(t, { saved: team({ c: { id: 'c', name: 'Local', role: '', sessionId: 'c', createdAt: 3, model: CLI, appliedModel: CLI } }) })
   const cleared = await env.call('update-bot', { id: 'c', model: null })
@@ -684,10 +703,31 @@ test('closing a Session answers what its CLI waits on and lets the process go', 
   for await (const chunk of first) if (chunk.type === 'finish') assert.equal(chunk.reason.kind, 'tool-calls')
   assert.equal(adapter.live.get('s1').pending.size, 1)
   const child = engines[0].child
+  const exited = child.exitCode !== null || child.signalCode !== null
+    ? Promise.resolve()
+    : new Promise((resolve) => {
+      const done = () => { child.off('exit', done); child.off('close', done); resolve() }
+      child.once('exit', done)
+      child.once('close', done)
+    })
   await adapter.closeSession('s1', 'moved on')
   assert.equal(adapter.live.has('s1'), false)
   assert.equal(engines[0].child, undefined)
-  assert.notEqual(child.killed, false)
+  if (!child.killed && child.exitCode === null && child.signalCode === null) {
+    let timer
+    try {
+      await Promise.race([
+        exited,
+        new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new Error('child process did not exit after closeSession')), 5_000)
+          timer.unref?.()
+        }),
+      ])
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+  assert.ok(child.killed || child.exitCode !== null || child.signalCode !== null, 'CLI child process should be terminated or exited')
   // The record stays, so opening that part again resumes the CLI session.
   assert.ok(records.s1.cliSessionId)
 })
