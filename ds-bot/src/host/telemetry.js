@@ -394,7 +394,21 @@ export function install(rt) {
     if (event?.type === 'turn/end' && session?.id) noteTurn(String(session.id))
   })
 
-  const buildDailyPayload = (now = nowFn()) => {
+  const isNoticeCurrent = () => data.noticeAccepted === true && (data.noticeVersion ?? 0) >= NOTICE_VERSION
+
+  const isPrivateBotRef = (botRef) => {
+    if (typeof botRef !== 'string' || botRef === '') return false
+    if (rt.isPrivate?.(botRef)) return true
+    for (const bot of Object.values(rt.state?.bots ?? {})) {
+      if (bot?.private === true && (bot.id === botRef || bot.name === botRef)) return true
+    }
+    for (const archive of rt.state?.privateArchives ?? []) {
+      if (archive?.id === botRef || archive?.name === botRef) return true
+    }
+    return false
+  }
+
+  const buildDailyPayload = async (now = nowFn()) => {
     rotateIfNeeded(now)
     const state = rt.state ?? { bots: {}, rooms: {}, prefs: {} }
     const publicBots = Object.values(state.bots ?? {}).filter(bot => bot?.private !== true)
@@ -418,8 +432,13 @@ export function install(rt) {
     if (rooms.length > 0) features.add('group_chat')
     if (rt.browserEnabled === true) features.add('bot_browser')
     if (rt.computerView?.()?.enabled === true) features.add('computer_use')
-    if (Array.isArray(rt.schedulesView?.()) && rt.schedulesView().length > 0) features.add('schedule')
-    if (rt.phoneView?.()?.paired === true || (rt.phoneView?.()?.devices?.length ?? 0) > 0) features.add('phone_link')
+    try {
+      const sched = await rt.scheduleEndpoint?.('schedules')
+      const tasks = Array.isArray(sched?.tasks) ? sched.tasks : []
+      if (tasks.some(t => t?.state !== 'finished' && !isPrivateSession(t?.sessionId))) features.add('schedule')
+    } catch { /* schedule service optional */ }
+    const phone = rt.phoneView?.()
+    if (phone?.on === true || (Array.isArray(phone?.phones) && phone.phones.length > 0)) features.add('phone_link')
     const imConns = rt.imView?.()?.connections ?? []
     const imPlatforms = new Set()
     if (imConns.length > 0) {
@@ -430,11 +449,13 @@ export function install(rt) {
       }
     }
     if (rt.apiView?.()?.enabled === true) features.add('local_api')
-    const connectors = rt.connectorsView?.() ?? []
-    const connectedCount = Array.isArray(connectors) ? connectors.filter(c => c?.connected === true || c?.status === 'connected').length : 0
+    const connView = rt.connectorsView?.()
+    const connectorRows = Array.isArray(connView?.connectors) ? connView.connectors : []
+    const mailAccounts = Array.isArray(connView?.mail?.accounts) ? connView.mail.accounts : []
+    const connectedCount = connectorRows.filter(c => c?.state === 'ready' || c?.state === 'connecting').length + mailAccounts.length
     if (connectedCount > 0) features.add('connectors')
     if (Object.keys(state.capabilities?.items ?? {}).length > 0) features.add('capabilities')
-    if ((rt.pluginsSummary?.()?.installed ?? 0) > 0) features.add('plugins')
+    if ((rt.pluginsSummary?.()?.installedCount ?? 0) > 0) features.add('plugins')
     if ((rt.secretsView?.()?.length ?? 0) > 0) features.add('secrets')
     if (state.prefs?.memoryAutoRecall !== false && rt.memoryEnabled !== false) features.add('memory_recall')
     if (ctx.get?.('speechController')) features.add('voice_input')
@@ -496,14 +517,14 @@ export function install(rt) {
 
   const maybeSendDaily = async () => {
     if (pingInFlight || stopped || isDisabled() || rt.readOnly?.() !== undefined) return false
-    if (!data.noticeAccepted || !data.usage) return false
+    if (!isNoticeCurrent() || !data.usage) return false
     const now = nowFn()
     rotateIfNeeded(now)
     const day = utcDay(now)
     if (data.lastPingDay === day) return false
     pingInFlight = true
     try {
-      const payload = buildDailyPayload(now)
+      const payload = await buildDailyPayload(now)
       const ok = await sendPayload(payload)
       if (ok) {
         data.lastPingDay = day
@@ -515,10 +536,10 @@ export function install(rt) {
     }
   }
 
-  const noteError = async ({ source = 'host', errorName, code, where, stack, botId, sessionId } = {}) => {
+  const noteError = async ({ source = 'host', errorName, code, where, stack, bot, botId, sessionId } = {}) => {
     if (stopped || isDisabled() || rt.readOnly?.() !== undefined) return false
-    if (!data.noticeAccepted || !data.errors) return false
-    if (botId && rt.isPrivate?.(botId)) return false
+    if (!isNoticeCurrent() || !data.errors) return false
+    if (isPrivateBotRef(botId) || isPrivateBotRef(bot)) return false
     if (sessionId && isPrivateSession(sessionId)) return false
 
     const safeSource = ERROR_SOURCES.has(source) ? source : 'host'
@@ -595,7 +616,7 @@ export function install(rt) {
   }
 
   const update = async (patch = {}) => {
-    const wasAccepted = data.noticeAccepted
+    const wasCurrent = isNoticeCurrent()
     const wasUsage = data.usage
     if (typeof patch.noticeAccepted === 'boolean') {
       data.noticeAccepted = patch.noticeAccepted
@@ -611,7 +632,7 @@ export function install(rt) {
       data.dshFeedbackTelemetry = patch.dshFeedbackTelemetry
     }
     await persist()
-    if (data.noticeAccepted && data.usage && (!wasAccepted || !wasUsage)) {
+    if (isNoticeCurrent() && data.usage && (!wasCurrent || !wasUsage)) {
       void maybeSendDaily()
     }
     return status()
@@ -630,7 +651,7 @@ export function install(rt) {
     return status()
   }
 
-  const shouldPromptNotice = () => !data.noticeAccepted && !isDisabled() && rt.readOnly?.() === undefined
+  const shouldPromptNotice = () => !isNoticeCurrent() && !isDisabled() && rt.readOnly?.() === undefined
 
   if (!configDisabled) {
     startTimer = setTimeout(() => { void maybeSendDaily() }, STARTUP_DELAY_MS)

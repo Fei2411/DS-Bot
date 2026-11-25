@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { createRuntime } from '../index.js'
 import { install as installTelemetry, sanitizeStack, envDisabledReason, botCountBucket, turnsBucket, normalizeProvider, normalizeWhere } from '../src/host/telemetry.js'
 import { validatePayload } from '../../telemetry/src/validate.js'
+import { fakeContext } from './fake-ctx.js'
 
 function makeRt(home, opts = {}) {
   const listeners = new Map()
@@ -66,14 +68,29 @@ function makeRt(home, opts = {}) {
     readOnly: () => opts.readOnly,
     redactSecrets: text => String(text).replaceAll('super-secret-token-999', '[secret:DEMO]'),
     uiLocale: () => 'zh-CN',
-    connectorsView: () => [{ id: 'github', connected: true }],
-    imView: () => ({ connections: [{ platform: 'telegram' }, { platform: 'unknown-custom' }] }),
+    connectorsView: () => ({
+      connectors: [
+        { id: 'github', state: 'ready' },
+        { id: 'linear', state: 'off' },
+      ],
+      mail: { accounts: [{ id: 'm1', state: 'ready' }], google: false },
+    }),
+    imView: () => ({ connections: [{ platform: 'telegram' }, { platform: 'unknown-custom' }], platforms: ['telegram'] }),
     computerView: () => ({ enabled: false }),
-    phoneView: () => ({ paired: false, devices: [] }),
+    phoneView: () => ({ server: 'wss://relay.dsbot.app/link', on: true, status: 'online', phones: [{ id: 'p1', name: 'Phone' }] }),
     apiView: () => ({ enabled: false }),
     secretsView: () => [{ name: 'DEMO' }],
-    schedulesView: () => [],
-    pluginsSummary: () => ({ installed: 0 }),
+    scheduleEndpoint: async endpoint => (endpoint === 'schedules'
+      ? {
+          available: true,
+          canPause: true,
+          tasks: [
+            { id: 't1', sessionId: 'pub1', state: 'scheduled' },
+            { id: 't2', sessionId: 'priv1', state: 'scheduled' },
+          ],
+        }
+      : { available: false, tasks: [] }),
+    pluginsSummary: () => ({ managerAvailable: true, installedCount: 2, pendingRestart: false, slots: {} }),
     browserEnabled: true,
     memoryEnabled: true,
   }
@@ -111,8 +128,20 @@ test('sends nothing before noticeAccepted, then sends valid daily payload accept
 
     // Private Bot (priv1, anthropic) must be completely excluded; custom provider mapped to 'custom'.
     assert.equal(payload.bot_count_bucket, '2-3')
+    assert.equal(payload.connectors_count_bucket, '1-2')
     assert.deepEqual(payload.providers_used, ['custom', 'deepseek-official'])
     assert.deepEqual(payload.im_platforms, ['telegram'])
+    assert.deepEqual(payload.features_active, [
+      'bot_browser',
+      'connectors',
+      'group_chat',
+      'im_bridge',
+      'memory_recall',
+      'phone_link',
+      'plugins',
+      'schedule',
+      'secrets',
+    ])
     assert.equal(JSON.stringify(payload).includes('SecretBotName'), false)
     assert.equal(JSON.stringify(payload).includes('PrivateDiary'), false)
     assert.equal(JSON.stringify(payload).includes('my-corp-llm'), false)
@@ -164,8 +193,9 @@ test('error telemetry is opt-in, omits raw error.message, excludes private Bots,
     // Enable error reporting.
     await env.rt.telemetry.update({ errors: true })
 
-    // Private Bot error is always dropped.
+    // Private Bot error is always dropped (whether identified by botId, bot name from diagnostics, or sessionId).
     assert.equal(await env.rt.telemetry.noteError({ source: 'turn', errorName: 'TypeError', botId: 'priv1', stack: 'at f (/x/ds-bot/src/host/turns.js:10:2)' }), false)
+    assert.equal(await env.rt.telemetry.noteError({ source: 'turn', errorName: 'TypeError', bot: 'PrivateDiary', stack: 'at f (/x/ds-bot/src/host/turns.js:10:2)' }), false)
     assert.equal(await env.rt.telemetry.noteError({ source: 'turn', errorName: 'TypeError', sessionId: 'priv-seg-1', stack: 'at f (/x/ds-bot/src/host/turns.js:10:2)' }), false)
     assert.equal(env.sent.length, 0)
 
@@ -295,4 +325,63 @@ test('envDisabledReason and bucketing helpers behave predictably', () => {
   assert.equal(normalizeWhere('overlay.settings'), 'overlay')
   assert.equal(normalizeWhere('turns'), 'turns')
   assert.equal(normalizeWhere('secret-custom-name'), undefined)
+})
+
+test('real createRuntime wires every host view into a schema-valid daily payload and enforces noticeVersion', async (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'dsb-tel-real-'))
+  const dsh = join(root, 'dsh')
+  const home = join(dsh, 'bot')
+  mkdirSync(home, { recursive: true })
+  const prevHome = process.env.DSH_HOME
+  process.env.DSH_HOME = dsh
+
+  // Seed outdated noticeVersion: 0 so we verify re-prompting before sends resume.
+  writeFileSync(join(home, 'telemetry.json'), JSON.stringify({
+    version: 1,
+    noticeAccepted: true,
+    noticeVersion: 0,
+    usage: true,
+    errors: false,
+    anonId: '11111111-2222-4333-8444-555555555555',
+    anonMonth: '2026-11',
+  }))
+
+  const ctx = fakeContext()
+  const sent = []
+  const now = Date.parse('2026-11-25T10:00:00Z')
+  const rt = createRuntime(ctx, {
+    home,
+    github: false,
+    diagnosticsFile: false,
+    telemetryUrl: 'http://127.0.0.1:8787/v1/collect',
+    telemetryNow: () => now,
+    telemetryFetch: async (_url, init) => {
+      sent.push(JSON.parse(init.body))
+      return { ok: true, status: 204 }
+    },
+  })
+  t.after(async () => {
+    await ctx.dispose()
+    if (prevHome === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = prevHome
+    rmSync(root, { recursive: true, force: true, maxRetries: 5 })
+  })
+
+  // Outdated noticeVersion must prompt again and block daily send.
+  assert.equal(rt.telemetry.shouldPromptNotice(), true)
+  assert.equal(await rt.telemetry.maybeSendDaily(), false)
+  assert.equal(sent.length, 0)
+
+  // Re-accepting updates noticeVersion and triggers a real daily payload using real host views.
+  await rt.telemetry.update({ noticeAccepted: true, usage: true })
+  await new Promise(resolve => setTimeout(resolve, 40))
+  assert.equal(rt.telemetry.shouldPromptNotice(), false)
+  assert.equal(sent.length, 1)
+  const payload = sent[0]
+  const validated = validatePayload(payload, now)
+  assert.equal(validated.ok, true, validated.error)
+  assert.equal(payload.connectors_count_bucket, '0')
+  assert.equal(payload.features_active.includes('plugins'), true)
+  assert.equal(payload.features_active.includes('schedule'), false)
+  assert.equal(payload.features_active.includes('phone_link'), false)
 })

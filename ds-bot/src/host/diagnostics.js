@@ -176,6 +176,7 @@ export function install(rt) {
         code: fields.code,
         where: fields.where,
         stack,
+        bot: fields.bot,
         botId: fields.botId,
         sessionId: fields.sessionId,
       })
