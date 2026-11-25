@@ -1,11 +1,15 @@
-// The engine's frontend server: claims the webserver fallback seat to exchange
-// DSH's one-time launch token for the Host cookie on `/` and serve DS Bot's
-// own built interface (app/ui/dist) on the same loopback origin as `/api/bot`.
+// The engine's frontend server and host-only directory picker: claims the
+// webserver fallback seat to exchange DSH's one-time launch token for the Host
+// cookie on `/` and serve DS Bot's own built interface (app/ui/dist) on the
+// same loopback origin as `/api/bot`, and mounts only the host-side directory
+// picker backend (never DSH Web's `dsh-client-ui-directory-picker-*` rows).
 import { createHash } from 'node:crypto'
-import { existsSync } from 'node:fs'
-import { readFile } from 'node:fs/promises'
-import { dirname, extname, join, normalize, resolve, sep } from 'node:path'
+import { accessSync, constants, existsSync } from 'node:fs'
+import { readFile, realpath } from 'node:fs/promises'
+import { delimiter, dirname, extname, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import BrowseDirectoryPicker from '@deepseek-ai/dsh-host-directory-picker-browse'
+import NativeDirectoryPicker from '@deepseek-ai/dsh-host-directory-picker-native'
 
 export const name = 'dsbot-engine'
 export const inject = ['webServer', 'connection']
@@ -49,6 +53,31 @@ export function resolveDistDir(config, { env = process.env, moduleUrl = import.m
   return resolve(join(here, '..', '..', 'ui', 'dist'))
 }
 
+function canExecute(file) {
+  try {
+    accessSync(file, constants.X_OK)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** True when the local desktop host can open a native OS folder chooser without DSH Web UI. */
+export function shouldUseNativeDirectoryPicker({
+  platform = process.platform,
+  env = process.env,
+  executable = canExecute,
+} = {}) {
+  if (platform === 'darwin' || platform === 'win32') return true
+  if (platform !== 'linux') return false
+  if (!env.DISPLAY && !env.WAYLAND_DISPLAY) return false
+  const dirs = String(env.PATH ?? '').split(delimiter).filter(Boolean)
+  for (const dir of dirs) {
+    if (executable(join(dir, 'zenity')) || executable(join(dir, 'kdialog'))) return true
+  }
+  return false
+}
+
 function bytesBody(bytes) {
   return new ReadableStream({
     start(controller) {
@@ -58,14 +87,61 @@ function bytesBody(bytes) {
   })
 }
 
+function withSep(dir) {
+  return dir.endsWith(sep) ? dir : dir + sep
+}
+
+function etagMatches(header, etag) {
+  if (typeof header !== 'string' || header.trim() === '') return false
+  const target = etag.replace(/^W\//u, '')
+  for (const raw of header.split(',')) {
+    const token = raw.trim()
+    if (token === '*') return true
+    if (token === etag || token.replace(/^W\//u, '') === target) return true
+  }
+  return false
+}
+
+/**
+ * Validate a decoded URL pathname before touching the filesystem:
+ * blocks null bytes, Windows backslashes, NTFS Alternate Data Streams (`:`),
+ * `.` / `..` traversal segments, and NTFS trailing-dot / trailing-space aliases.
+ */
+function sanitizePathname(decodedPath) {
+  if (decodedPath.includes('\0')) return { status: 400 }
+  if (decodedPath.includes('\\') || decodedPath.includes(':')) return { status: 403 }
+  if (!decodedPath.startsWith('/')) return { status: 400 }
+  if (decodedPath.startsWith('//')) return { status: 403 }
+  const segments = decodedPath.slice(1).split('/')
+  if (decodedPath !== '/') {
+    for (const seg of segments) {
+      if (seg === '.' || seg === '..') return { status: 403 }
+      if (seg !== '' && /[. ]$/u.test(seg)) return { status: 403 }
+    }
+  }
+  return { ok: true }
+}
+
 /**
  * Create the Fetch resource serving DS Bot's built UI from `distDir`.
- * Index requests pass `authorizeIndex` first so the Host launch token is traded
- * for the session cookie; static assets are strictly confined inside `distDir`.
+ * Index and HTML requests pass `authorizeIndex` first (case-insensitively) so
+ * the Host launch token is traded for the session cookie; static assets are
+ * strictly confined inside `distDir` (including `realpath` checks outside asar).
  */
 export function createUiResource({ distDir, authorizeIndex }) {
   const distRoot = resolve(distDir)
+  const distRootPrefix = withSep(distRoot)
   const distIndex = join(distRoot, 'index.html')
+  const checkRealpath = !distRoot.includes('.asar')
+  let realDistRootPromise = null
+  const getRealDistRoot = () => {
+    if (!checkRealpath) return Promise.resolve(null)
+    realDistRootPromise ??= realpath(distRoot).catch(() => {
+      realDistRootPromise = null
+      return null
+    })
+    return realDistRootPromise
+  }
 
   return async (request, peer) => {
     if (request.method !== 'GET' && request.method !== 'HEAD') {
@@ -77,35 +153,53 @@ export function createUiResource({ distDir, authorizeIndex }) {
     } catch {
       return new Response(null, { status: 400, headers: SECURITY_HEADERS })
     }
-    if (decodedPath.includes('\0')) {
-      return new Response(null, { status: 400, headers: SECURITY_HEADERS })
+    const checked = sanitizePathname(decodedPath)
+    if (!checked.ok) {
+      return new Response(null, { status: checked.status, headers: SECURITY_HEADERS })
     }
-    const target = resolve(normalize(join(distRoot, decodedPath)))
-    if (target !== distRoot && !target.startsWith(distRoot + sep)) {
-      return new Response(null, { status: 403, headers: SECURITY_HEADERS })
+
+    const lowerPath = decodedPath.toLowerCase()
+    const isIndex = lowerPath === '/' || lowerPath === '/index.html'
+    const isHtml = isIndex || extname(lowerPath) === '.html' || extname(lowerPath) === '.htm'
+
+    if (isHtml && peer === undefined) {
+      const refusal = authorizeIndex(request)
+      if (refusal !== undefined) return refusal
     }
 
     let body
     let headers
     try {
-      if (target === distRoot || target === distIndex) {
-        if (peer === undefined) {
-          const refusal = authorizeIndex(request)
-          if (refusal !== undefined) return refusal
-        }
+      if (isIndex) {
         body = await readFile(distIndex, 'utf8')
         headers = { ...SECURITY_HEADERS, 'content-type': HTML_MIME, 'cache-control': 'no-store' }
       } else {
-        body = await readFile(target)
-        const etag = `W/"${createHash('sha1').update(body).digest('base64url')}"`
-        const cache = { 'cache-control': 'no-cache', etag }
-        if (request.headers.get('if-none-match') === etag) {
-          return new Response(null, { status: 304, headers: { ...SECURITY_HEADERS, ...cache } })
+        const target = resolve(distRoot, decodedPath.slice(1))
+        if (!target.startsWith(distRootPrefix) || target.toLowerCase() === distIndex.toLowerCase()) {
+          return new Response(null, { status: 403, headers: SECURITY_HEADERS })
         }
-        headers = {
-          ...SECURITY_HEADERS,
-          'content-type': MIME[extname(target).toLowerCase()] ?? 'application/octet-stream',
-          ...cache,
+        if (checkRealpath) {
+          const realRoot = await getRealDistRoot()
+          if (realRoot === null) return new Response(null, { status: 404, headers: SECURITY_HEADERS })
+          const realTarget = await realpath(target)
+          if (!realTarget.startsWith(withSep(realRoot))) {
+            return new Response(null, { status: 403, headers: SECURITY_HEADERS })
+          }
+        }
+        body = await readFile(target)
+        if (isHtml) {
+          headers = { ...SECURITY_HEADERS, 'content-type': HTML_MIME, 'cache-control': 'no-store' }
+        } else {
+          const etag = `W/"${createHash('sha1').update(body).digest('base64url')}"`
+          const cache = { 'cache-control': 'no-cache', etag }
+          if (etagMatches(request.headers.get('if-none-match'), etag)) {
+            return new Response(null, { status: 304, headers: { ...SECURITY_HEADERS, ...cache } })
+          }
+          headers = {
+            ...SECURITY_HEADERS,
+            'content-type': MIME[extname(target).toLowerCase()] ?? 'application/octet-stream',
+            ...cache,
+          }
         }
       }
     } catch (error) {
@@ -119,6 +213,10 @@ export function createUiResource({ distDir, authorizeIndex }) {
 }
 
 export function apply(ctx, config) {
+  // Host-only directory picker: provides `ctx.directoryPicker` for DS Bot's folder chooser
+  // without dynamically mounting DSH Web's `dsh-client-ui-directory-picker-*` front-end rows.
+  ctx.plugin(shouldUseNativeDirectoryPicker() ? NativeDirectoryPicker : BrowseDirectoryPicker)
+
   const distDir = resolveDistDir(config)
   const authorizeIndex = (request) => {
     let status = 401

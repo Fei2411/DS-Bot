@@ -727,3 +727,82 @@ test('createTeam wires desktop computer-use bridge (indicator, cursor long-poll,
   assert.equal(cursorAborted, true, 'in-flight computer-cursor-wait poll is aborted on stop')
   assert.equal(intervals.filter(item => item.ms === 2000).every(item => item.cleared), true, 'idle interval is cleared on stop')
 })
+
+test('createTeam wires host speech service, switches back from Classic mode on Bot openSession, and avoids duplicate NotificationWatcher', async () => {
+  const { sandbox, exports, readHook } = createHarness()
+  const hostCalls = []
+  let speechOn = true
+  let revision = 1
+
+  sandbox.__testCall = async (endpoint, body) => {
+    hostCalls.push([endpoint, body])
+    if (endpoint === 'state') {
+      return {
+        revision,
+        modelsKey: 'm1',
+        mainBotId: 'b1',
+        bots: [{ id: 'b1', name: 'Alpha', sessions: ['b1'] }],
+        rooms: [],
+        agents: [{ id: 'a1', name: 'Agent', sessions: ['cs-1'] }],
+        speech: speechOn,
+      }
+    }
+    if (endpoint === 'speech-catalog') {
+      return {
+        providers: [{ id: 'sensevoice-local', preparation: { phase: 'unprepared' } }, { id: 'deepseek-asr' }],
+        selection: { providerId: 'sensevoice-local', language: 'auto' },
+        maxAudioBytes: 4 * 1024 * 1024,
+        maxDurationSeconds: 120,
+      }
+    }
+    if (endpoint === 'speech-configure') return { providerId: body.providerId, language: body.language }
+    if (endpoint === 'speech-prepare') return true
+    if (endpoint === 'speech-transcribe') return { text: 'hello voice' }
+    return {}
+  }
+
+  const team = exports.createTeam()
+  const stop = team.start()
+  try {
+    await tick()
+    await tick()
+
+    // Speech remote is exposed when host reports `speech: true`.
+    const speech = team.actions.speech()
+    assert.ok(speech, 'actions.speech() must return a client when host speech service is active')
+    const cat = await speech.catalog()
+    assert.equal(cat.ok, true)
+    assert.equal(cat.value.selection.providerId, 'sensevoice-local')
+    const cfg = await speech.configure({ providerId: 'deepseek-asr', language: 'auto' })
+    assert.equal(cfg.ok, true)
+    assert.equal(cfg.value.providerId, 'deepseek-asr')
+    const tx = await speech.transcribe({ audioBase64: 'AAAA', providerId: 'deepseek-asr' })
+    assert.equal(tx.ok, true)
+    assert.equal(tx.value.text, 'hello voice')
+
+    const setup = team.actions.voiceSetup('sensevoice-local')
+    assert.equal(typeof setup?.prepare, 'function')
+    assert.equal(await setup.prepare(), true)
+    assert.equal(hostCalls.some(([ep, b]) => ep === 'speech-prepare' && b?.providerId === 'sensevoice-local'), true)
+
+    // When speech turns off on host, actions.speech() returns undefined and voiceSetup returns null.
+    speechOn = false
+    revision = 2
+    await team.actions.refreshLocale()
+    assert.equal(team.actions.speech(), undefined)
+    assert.equal(team.actions.voiceSetup('sensevoice-local'), null)
+
+    // Clicking a Bot OS notification (actions.openSession(botId)) while in Classic mode switches surface back to 'bot'.
+    await team.actions.setSurface('agent')
+    assert.equal(readHook(team.hooks.useSurface).mode, 'agent')
+    team.actions.openSession('b1')
+    assert.equal(readHook(team.hooks.useSurface).mode, 'bot')
+    assert.equal(readHook(team.hooks.useShown), 'b1')
+  } finally {
+    stop()
+  }
+
+  // Overlays already mounts NotificationWatcher; App must not mount a second copy.
+  const appSrc = readFileSync(fileURLToPath(new URL('../ui/src/app.js', import.meta.url)), 'utf8')
+  assert.doesNotMatch(appSrc, /\bNotificationWatcher\b/)
+})

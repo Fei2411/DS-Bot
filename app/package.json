@@ -12,6 +12,7 @@
   "main": "src/main.mjs",
   "scripts": {
     "build": "vite build",
+    "prestart": "npm run build",
     "start": "electron .",
     "prepack": "npm run build",
     "pack": "electron-builder --dir --publish never",
@@ -84,6 +85,7 @@
     "esbuild": "0.28.2",
     "extract-zip": "2.0.1",
     "papaparse": "5.5.3",
+    "qrcode-generator": "2.0.4",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "react-markdown": "10.1.0",

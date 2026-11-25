@@ -59,9 +59,12 @@
     - id: session-controller
       name: '@deepseek-ai/dsh-api-session-controller'
 
-    # ds-bot's folder chooser for Bot and group working folders.
-    - id: directory-picker
-      name: '@deepseek-ai/dsh-host-directory-picker-auto'
+    # Host-only Cordis runtime & inspect providers for the cordis preset (Creator Mode).
+    - id: cordis-host-runner
+      name: '@deepseek-ai/dsh-cordis-host-runner'
+
+    - id: cordis-inspect-providers
+      name: '@deepseek-ai/dsh-tool-cordis/host'
 
     # Session projections read by DS Bot's own UI and sidebar.
     - id: session-stats

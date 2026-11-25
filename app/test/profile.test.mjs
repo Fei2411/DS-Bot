@@ -8,7 +8,10 @@ import { composeEntries } from '@deepseek-ai/dsh-app-boot'
 import { BUNDLES, claimBundles, loadAppProfile } from '../src/profile.mjs'
 
 // Packages of DSH's own Web front end and its browser runtime, which the desktop app must never load.
-const DSH_WEB_FRONT_END = /^@deepseek-ai\/dsh-(client-ui-|web-app|web-frontend|client-modules|host-frontend-static|cordis-client-runner|client-hmr)/u
+// Also forbids dsh-host-directory-picker-auto, which dynamically loads dsh-client-ui-directory-picker-* at runtime.
+// Note: @deepseek-ai/dsh-experimental-voice-input-bundle carries a no-op stub `ui-voice-input` (empty `apply()`)
+// alongside the host SenseVoice/ASR service; no browser surface is served.
+const DSH_WEB_FRONT_END = /^@deepseek-ai\/dsh-(client-ui-|web-app|web-frontend|client-modules|host-frontend-static|cordis-client-runner|client-hmr|host-directory-picker-auto)/u
 
 // Every row of an entry list, with the rows inside groups and agent presets.
 function rows(entries) {
@@ -36,8 +39,9 @@ describe('the app profile', () => {
     const on = new Set(entries.filter((entry) => entry.disabled !== true).map((entry) => entry.id))
     for (const id of [
       'webserver', 'connection', 'engine-index', 'workspace', 'workspace-changes',
-      'session-controller', 'session-stats', 'session-turn-outline', 'agent-preset-registry',
-      'preset-standard', 'bot',
+      'session-controller', 'cordis-host-runner', 'cordis-inspect-providers',
+      'session-stats', 'session-turn-outline', 'agent-preset-registry',
+      'preset-standard', 'preset-ptc', 'preset-minimal', 'preset-cordis', 'bot',
     ]) assert.ok(on.has(id), `${id} is mounted`)
     const leaked = rows(entries)
       .filter((entry) => entry.disabled !== true && DSH_WEB_FRONT_END.test(entry.name ?? ''))

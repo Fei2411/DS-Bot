@@ -4,7 +4,6 @@ import { ErrorToast } from '../../../ds-bot/src/client/feedback.js'
 import { HeaderPill } from '../../../ds-bot/src/client/header.js'
 import { t } from '../../../ds-bot/src/client/i18n.js'
 import { SidebarIcon } from '../../../ds-bot/src/client/icons.js'
-import { NotificationWatcher } from '../../../ds-bot/src/client/notifications.js'
 import { Overlays } from '../../../ds-bot/src/client/overlays.js'
 import { useEscape } from '../../../ds-bot/src/client/overlay-hooks.js'
 import { BotReturn, TeamSidebar, YouAvatar } from '../../../ds-bot/src/client/sidebar.js'
@@ -47,6 +46,9 @@ function useTheme(prefs, chat, actions, registryVersion) {
     else delete document.body.dataset.btMotion
     document.body.dataset.btEffects = effectsOf(prefs)
     document.body.dataset.btLayout = layoutOf(prefs)
+    if (typeof navigator !== 'undefined' && /\bwin/iu.test(navigator.platform || navigator.userAgent)) {
+      document.body.dataset.btOs = 'windows'
+    }
     document.body.style.setProperty('--bt-msg-w', String(widthOf(prefs) / 100))
     document.body.style.setProperty('--bt-flat-w', String(flatWidthOf(prefs) / 100))
     return () => {
@@ -348,6 +350,5 @@ export function App() {
     h(Overlays, { ...views, useFrame: useOwnFrame, useSidebarPref: useOwnSidebarPref, workspace, dsh: dshBridge }),
     h(ShortcutsDialog, { open: shortcutsOpen, enterToSend: sendsOnEnter(prefs), onClose: actions.closeShortcuts }),
     h(ShellOverlayHost, { registry: slots, views })),
-  h(NotificationWatcher, views),
   h(ErrorToast, views))
 }
