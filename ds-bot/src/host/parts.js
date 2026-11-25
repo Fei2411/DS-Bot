@@ -2469,7 +2469,7 @@ export function install(rt) {
           // Handle same-part rollback in place: parked messages stay at the head of
           // agent.inbox and later queued prompts stay behind them without ever being
           // removed across async awaits.
-          const toPrepend = [...job.carry.splice(0)]
+          const toPrepend = job.carry.splice(0)
           if (pauseMessage !== undefined && !toPrepend.some(message => textOf(message.content) === PAUSE_NOTE)) {
             toPrepend.unshift(pauseMessage)
           }
