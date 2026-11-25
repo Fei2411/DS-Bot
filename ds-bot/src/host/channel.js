@@ -607,6 +607,13 @@ export function install(rt) {
           await rt.resumeBot(bot)
           return ok(true)
         }
+        // Recovery escape hatch when continuous context overflow prevents auto-switching.
+        case 'new-part': {
+          await rt.load()
+          const botId = String(body.botId ?? '')
+          const sessionId = typeof body.sessionId === 'string' && body.sessionId.trim() !== '' ? body.sessionId.trim() : undefined
+          return ok(await rt.recoverOverflowPart(botId, sessionId))
+        }
         // Background pictures and a chat's own background (appearance.js).
         case 'background-add':
           await rt.load()
