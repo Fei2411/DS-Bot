@@ -338,7 +338,7 @@ test('DSH PluginManager contract: recognizes manual Ego alias, handles restart-r
       installed: true,
       optional: false,
       removable: true,
-      updatable: true,
+      update: 'registry',
       rows: [],
       overrides: [],
     },
@@ -397,6 +397,7 @@ test('DSH PluginManager contract: recognizes manual Ego alias, handles restart-r
   assert.ok(ego, 'catalog entry for Ego should exist')
   assert.equal(ego.installed, true)
   assert.equal(ego.packageName, '@dshworks/dsh-ego-browser')
+  assert.equal(ego.updatable, true)
 
   // While browser slot is builtin:readonly, Ego's tool prefixes are masked.
   const rulesWhileReadonly = rt.pluginDeniedRules('bot-1')

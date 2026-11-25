@@ -79,6 +79,16 @@ Error: configured web provider "auto" is not registered
 
 另见插件 README 的 [Web search](../ds-bot/README.md#web-search) 一节和 issue [#128](https://github.com/Fei-Craft/DS-Bot/issues/128)。
 
+## DeepSeek 模型不记录「web/deepseek-search-llm-request」事件
+
+**在哪里：** 在 DeepSeek 模型的会话里搜索时。DeepSeek Harness 0.2.2-rc.4 的升级指南说这类搜索会往会话日志追加 `web/deepseek-search-llm-request` 事件；装了 DS Bot 之后始终不会出现。
+
+**原因：** DS Bot 的 `cordis.patch.yml` 指定了 `searchProvider: auto`，覆盖了基础组合里的选择。因此 DeepSeek Harness 不会在 DeepSeek 路由上选中它自带的 `deepseek-official` 提供者：`auto` 先调该路由的 DeepSeek Search API，只有失败时才用 Messages 服务端搜索。
+
+**怎么处理：** 不需要处理，除非你要的是 DeepSeek Harness 的提供者和那条记录。那就照上一条，在 profile 的 `cordis.patch.yml` 里给 `web` 行指定 `searchProvider: deepseek-official`（`fetchProvider` 照写）。它会对所有模型生效，而 DeepSeek 路由之外的搜索会走 `deepseek-search-api`，不再有 `auto` 的无 Key 回退。
+
+另见插件 README 的 [Web search](../ds-bot/README.md#web-search) 一节。
+
 ## Linux：加载 libghostty-vt.so 报「GLIBC_2.27 not found」
 
 **在哪里：** 在 glibc 低于 2.28 的 Linux 系统上（CentOS 7 自带 glibc 2.17），桌面 AppImage、deb 或本机装的 `dsh web` 启动即失败。动态加载器报告缺少某个 glibc 版本，例如：

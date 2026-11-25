@@ -79,6 +79,16 @@ To check the result, run `npx @deepseek-ai/dsh@0.2.2-rc.5 --profile web --dump-c
 
 See also [Web search](../ds-bot/README.md#web-search) in the plugin README and issue [#128](https://github.com/Fei-Craft/DS-Bot/issues/128).
 
+## DeepSeek models record no "web/deepseek-search-llm-request" event
+
+**Where:** a search in a session on a DeepSeek model. DeepSeek Harness's 0.2.2-rc.4 upgrade guide says such a search appends a `web/deepseek-search-llm-request` event to the Session log; with DS Bot installed it never does.
+
+**Why:** DS Bot's `cordis.patch.yml` names `searchProvider: auto`, which replaces the base composition's choice. DeepSeek Harness therefore never selects its own `deepseek-official` provider on a DeepSeek route: `auto` calls the route's DeepSeek Search API, and the Messages server-side search only after that fails.
+
+**What to do:** nothing, unless you want DeepSeek Harness's provider and its record. Then name it for the `web` row in the profile's `cordis.patch.yml`, restating `fetchProvider` as in the entry above (`searchProvider: deepseek-official`). It then serves every model, and a search outside a DeepSeek route runs `deepseek-search-api` rather than `auto`'s keyless fallback.
+
+See also [Web search](../ds-bot/README.md#web-search) in the plugin README.
+
 ## Linux: "GLIBC_2.27 not found" loading libghostty-vt.so
 
 **Where:** on a Linux system whose glibc is older than 2.28 (CentOS 7 ships glibc 2.17), the desktop AppImage or deb, or a host-installed `dsh web`, fails at start. The loader reports a missing glibc version, for example:

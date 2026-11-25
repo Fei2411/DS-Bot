@@ -8,7 +8,7 @@ import { ownChatSessions } from './threads.js'
 
 const CATALOG_TTL_MS = 10_000
 const ROUTE_WAIT_MS = 30_000
-// The DeepSeek account's sign-in grant (dsh-deepseek-account-platform).
+// The DeepSeek account's sign-in grant (dsh-deepseek-account).
 const ACCOUNT_RECORD = 'deepseek-account-platform/default'
 const TRANSIENT_LLM_CODES = new Set(['TRANSPORT', 'TIMEOUT', 'MALFORMED_RESPONSE'])
 const MALFORMED_RETRIES = 2
@@ -443,7 +443,9 @@ export function install(rt) {
       if (cache?.cachedSnapshot === undefined) return undefined
       const record = (await listedSessions())?.get(sessionId)
       if (record === undefined || !record.persisted || record.live) return undefined
-      if (ctx.sessions?.get?.(sessionId) !== undefined || ctx.agents?.get?.(sessionId) !== undefined) return undefined
+      // Read through serviceOf: a plain `ctx.sessions` / `ctx.agents` getter throws
+      // outside an injected context, which would drop every Session to a resume.
+      if (serviceOf(ctx, 'sessions')?.get?.(sessionId) !== undefined || serviceOf(ctx, 'agents')?.get?.(sessionId) !== undefined) return undefined
       const selection = cache.cachedSnapshot(record.header, ['modelSelection'])?.values?.modelSelection
       return selection?.next ?? selection?.lastUsed ?? undefined
     } catch (error) {

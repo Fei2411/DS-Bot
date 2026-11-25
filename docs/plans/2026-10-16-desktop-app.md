@@ -21,7 +21,7 @@
 | 引擎（子进程） | 通过 `@deepseek-ai/dsh/profile-boot` 的 `runProfile()` 启动 `ds-bot` profile，仅监听 `127.0.0.1` 固定空闲端口（保持本地存储稳定）；Linux 使用随包独立 Node 避免 native 库冲突，macOS/Windows 使用 Electron Node；携带 `DS_BOT_APP=1` |
 | Profile 组合 | 每次启动置顶 `@deepseek-ai/dsh-base`、`@deepseek-ai/dsh-web-app`、`ds-bot` 三个 bundle，用户后续安装的插件排在其后；通过 `patchFiles` 注入关闭自动凭据引导、绑定 Office 运行时、移除 DSH `/goal` 及修复搜索选择器的补丁 |
 
-- 安装包锁定 DSH rc 版本（当前 `0.2.2-rc.1`），安装包与 `ds-bot` 共用版本号。
+- 安装包锁定 DSH rc 版本（当前 `0.2.2-rc.5`），安装包与 `ds-bot` 共用版本号。
 - 桌面应用随包内置 Office 离线运行时（Python、独立 Node、LibreOffice 引擎放于 `resources/node_modules` 以便子进程启动）。
 
 ### 窗口、托盘与自建控件

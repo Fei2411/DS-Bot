@@ -22,6 +22,9 @@ const MCP_CLIENT = '@deepseek-ai/dsh-mcp-client'
 const CUSTOM_ID_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/i
 const SLOT_RE = /^[a-z][a-z0-9-]{0,31}$/
 
+// DSH 0.2.2-rc.1 replaced a bundle's `updatable` flag with `update` ('registry' or 'git').
+const canUpdateBundle = bundle => Boolean(bundle?.updatable) || typeof bundle?.update === 'string'
+
 // DSH core/management bundles that belong to the host shell itself and are never
 // shown or toggled as user-installable Bot plugins.
 const SYSTEM_BUNDLES = new Set([
@@ -1097,7 +1100,7 @@ export function install(rt) {
         verified: entry.verified === true,
         featured: entry.featured === true,
         removable: Boolean(bundle?.removable || entry.custom),
-        updatable: Boolean(bundle?.updatable),
+        updatable: canUpdateBundle(bundle),
         supportsPerBot: slot === null && cleanPrefixes(entry.toolPrefixes).length > 0,
         supportsGrants: Boolean(nativeBacking?.supportsGrants),
         offFor: slot === null ? [...(own(store.offFor, entry.id) ?? [])] : [],
@@ -1193,7 +1196,7 @@ export function install(rt) {
         verified: false,
         featured: false,
         removable: Boolean(bundle.removable),
-        updatable: Boolean(bundle.updatable),
+        updatable: canUpdateBundle(bundle),
         supportsPerBot: false,
         supportsGrants: false,
         offFor: [...(own(store.offFor, id) ?? [])],
