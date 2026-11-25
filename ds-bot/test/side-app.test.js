@@ -199,13 +199,17 @@ test('write/edit results feed the diff base once per turn, first before to last 
   const exec = { name: 'edit', arguments: { file_path: 'draft.html' }, agent: { id: 's1', session: { id: 's1', header: { cwd: root } } } }
   await fireExecute(exec, { value: { before: 'v1', after: 'v2' } })
   await fireExecute(exec, { value: { before: 'v2', after: 'v3' } })
-  const entry = rt.sideAppInternals.diffBases.get(target.toLowerCase()) ?? rt.sideAppInternals.diffBases.get(target)
+  // The module keys bases by the real path as the platform spells it; tests must
+  // seed with the same key, never a hand-folded one (Linux does not fold case).
+  const entries = [...rt.sideAppInternals.diffBases.entries()]
+  assert.equal(entries.length, 1)
+  const [baseKey, entry] = entries[0]
   assert.equal(entry.before, 'v1')
   assert.equal(entry.after, 'v3')
   assert.equal(entry.turn, 7)
   // served only when the requested revision matches the captured after text
   const { rt: rt2 } = harness({ root })
-  rt2.sideAppInternals.diffBases.set((await realpath(target)).toLowerCase(), entry)
+  rt2.sideAppInternals.diffBases.set(baseKey, entry)
   const descriptor = { app: 'canvas', sessionId: 's1', displayPath: 'draft.html', workspaceTag: rt2.sideAppInternals.rootTag(root) }
   const miss = await rt2.sideAppEndpoint('side-app-diff', { file: descriptor, revision: 'nope' })
   assert.equal(miss.kind, 'unavailable')

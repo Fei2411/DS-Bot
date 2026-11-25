@@ -99,7 +99,19 @@ test('createTeam pauses catch-up polling while hidden, caches sessionHook, prune
         bundler.onResolve({ filter: /src\/client\/cells\.js$/ }, () => ({ path: 'cells-stub', namespace: 'team-stub' }))
         bundler.onLoad({ filter: /^cells-stub$/, namespace: 'team-stub' }, () => ({ contents: 'export const workPhrase = () => "working"', loader: 'js' }))
         bundler.onResolve({ filter: /^\.\/api\.js$/ }, () => ({ path: 'feed-stub', namespace: 'team-stub' }))
-        bundler.onLoad({ filter: /^feed-stub$/, namespace: 'team-stub' }, () => ({ contents: 'export const openFeed = (cb) => { globalThis.__feedCb = cb; return () => { globalThis.__feedClosed = true } }', loader: 'js' }))
+        // The Side App modules also import `./api.js` for `call`; the api-stub already
+        // resolved for them loses to this one because onResolve order is registration
+        // order, so the feed stub must carry both names.
+        bundler.onLoad({ filter: /^feed-stub$/, namespace: 'team-stub' }, () => ({
+          contents: [
+            'export function openFeed(cb) {',
+            '  globalThis.__feedCb = cb',
+            '  return () => { globalThis.__feedClosed = true }',
+            '}',
+            'export const call = (...args) => globalThis.__call(...args)',
+          ].join('\n'),
+          loader: 'js',
+        }))
       },
     }],
   })
