@@ -71,6 +71,7 @@ export function install(rt) {
 
   // The DSH interface language of the last browser that asked for the team.
   let uiLocale
+  rt.uiLocale = () => uiLocale
   rt.uiLanguage = () => {
     if (uiLocale === undefined) return undefined
     const lower = uiLocale.toLowerCase()
@@ -227,6 +228,8 @@ export function install(rt) {
     plugins: rt.pluginsSummary?.() ?? null,
     // Whether DSH's speech-to-text controller (Voice Input plugin) is active on this host.
     speech: Boolean(ctx.get?.('speechController')),
+    // True once until the user confirms or declines the telemetry privacy notice.
+    telemetryPrompt: rt.telemetry?.shouldPromptNotice?.() === true,
   })
   // The live fields' sources are spread across the host with no single change
   // counter, so the serialized answer itself is the detector: a poll whose `live`
@@ -244,7 +247,7 @@ export function install(rt) {
   }
   // What a host that only reads the team may still answer.
   // Updates change the dsh profile, not the team, so a reading host may run them too.
-  const READS = new Set(['secret-store', 'secret-unlock', 'state', 'models', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'agent-chat', 'bot-task-read', 'run-stats', 'room-progress', 'group-rows', 'group-relay-replies', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'memory-history', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library', 'computer-system-status', 'computer-shot', 'local-agents', 'local-agent-models', 'browser-frame', 'hello', 'notices', 'avatar', 'room-chat', 'usage-summary', 'image', 'markdown-image', 'file-download', 'changes-check', 'deepseek-services', 'deepseek-synthesize', 'speech-catalog', 'api-audit', 'background-picture', 'session-page', 'workspace-list', 'workspace-read', 'workspace-changes', 'engine-settings-list', 'engine-account-state', 'engine-plugins-list', 'engine-presets-list', 'engine-presets-read', 'engine-archived-list', 'engine-classic-sessions', 'plugins-list', 'plugins-catalog-refresh', 'plugins-versions', 'plugins-detail'])
+  const READS = new Set(['secret-store', 'secret-unlock', 'state', 'models', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'agent-chat', 'bot-task-read', 'run-stats', 'room-progress', 'group-rows', 'group-relay-replies', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'memory-history', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'telemetry-status', 'telemetry-client-error', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library', 'computer-system-status', 'computer-shot', 'local-agents', 'local-agent-models', 'browser-frame', 'hello', 'notices', 'avatar', 'room-chat', 'usage-summary', 'image', 'markdown-image', 'file-download', 'changes-check', 'deepseek-services', 'deepseek-synthesize', 'speech-catalog', 'api-audit', 'background-picture', 'session-page', 'workspace-list', 'workspace-read', 'workspace-changes', 'engine-settings-list', 'engine-account-state', 'engine-plugins-list', 'engine-presets-list', 'engine-presets-read', 'engine-archived-list', 'engine-classic-sessions', 'plugins-list', 'plugins-catalog-refresh', 'plugins-versions', 'plugins-detail'])
   READS.add('chatgpt')
 
   const modelRequests = { approvalModel: 0, defaultBotModel: 0 }
@@ -380,7 +383,7 @@ export function install(rt) {
           await rt.catalog()
           await rt.loadSecrets()
           const answer = liveAnswer()
-          const { api: _, ...remoteLive } = answer.value
+          const { api: _, telemetryPrompt: _tp, ...remoteLive } = answer.value
           const liveValue = remote ? remoteLive : answer.value
           if (body.since === state.revision && (body.models === undefined || body.models === modelsKey())) {
             if (body.live === answer.key) return ok({ revision: state.revision, unchanged: true, liveKey: answer.key })
@@ -1167,6 +1170,37 @@ export function install(rt) {
           return ok(await rt.diagnostics.logText())
         case 'diagnostics-clear':
           await rt.diagnostics.clear()
+          return ok(true)
+        case 'telemetry-status':
+          if (remote) return fail('Privacy settings can only be viewed on this computer', 'bot/refused')
+          return ok(rt.telemetry.status())
+        case 'telemetry-update': {
+          if (remote) return fail('Privacy settings can only be changed on this computer', 'bot/refused')
+          const readOnly = rt.readOnly()
+          if (readOnly !== undefined) return fail(readOnly, 'bot/read-only')
+          return ok(await rt.telemetry.update(body ?? {}))
+        }
+        case 'telemetry-reset-id': {
+          if (remote) return fail('Privacy settings can only be changed on this computer', 'bot/refused')
+          const readOnly = rt.readOnly()
+          if (readOnly !== undefined) return fail(readOnly, 'bot/read-only')
+          return ok(await rt.telemetry.resetId())
+        }
+        case 'telemetry-clear-log': {
+          if (remote) return fail('Privacy settings can only be changed on this computer', 'bot/refused')
+          const readOnly = rt.readOnly()
+          if (readOnly !== undefined) return fail(readOnly, 'bot/read-only')
+          return ok(await rt.telemetry.clearLog())
+        }
+        case 'telemetry-client-error':
+          if (remote) return fail('Privacy settings can only be changed on this computer', 'bot/refused')
+          await rt.telemetry.noteError({
+            source: 'renderer',
+            errorName: typeof body?.errorName === 'string' ? body.errorName : 'Error',
+            code: typeof body?.errorCode === 'string' ? body.errorCode : undefined,
+            where: typeof body?.where === 'string' ? body.where : undefined,
+            stack: typeof body?.stack === 'string' ? body.stack : undefined,
+          })
           return ok(true)
         default:
           if (endpoint.startsWith('session-')) return ok(await rt.sessionEndpoint(endpoint.slice('session-'.length), body, signal))

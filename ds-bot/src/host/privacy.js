@@ -131,6 +131,7 @@ export function install(rt) {
     join(rt.home, 'memory', 'journal.torn'),
     join(rt.home, 'memory', 'pending.json'),
     join(rt.home, 'logs', 'diagnostics.jsonl'),
+    join(rt.home, 'telemetry.json'),
   ].filter(Boolean).map(file => spellings(file, memo))).then(list => list.flat())
 
   const spelledDataRoots = (memo) => {
@@ -417,8 +418,8 @@ export function install(rt) {
     }
   }
 
-  // Host-owned API credential/audit files are always off-limits to every Bot, even in teams
-  // with no private Bots.
+  // Host-owned API credential/audit and telemetry consent files are always off-limits
+  // to every Bot, even in teams with no private Bots.
   const apiProtectedFiles = async (memo = new Map()) => (await Promise.all([
     join(rt.home, 'api-'),
     join(rt.home, 'api-endpoint.json'),
@@ -427,13 +428,14 @@ export function install(rt) {
     join(rt.home, 'api-audit.jsonl'),
     join(rt.home, 'api-config.json'),
     join(rt.home, 'api-runs.json'),
+    join(rt.home, 'telemetry.json'),
   ].map(file => spellings(file, memo)))).flat()
 
   async function guardApiFiles(exec) {
     const args = exec.arguments ?? {}
     const name = exec.name
     const folder = () => rt.sessionFolder(exec.agent?.session ?? exec.agent)
-    const closedApi = () => new Error('Bots cannot read or modify DS Bot API token or audit files.')
+    const closedApi = () => new Error('Bots cannot read or modify DS Bot API token, audit, or telemetry consent files.')
     if (name in FILE_TOOLS) {
       const path = args[FILE_TOOLS[name]]
       if (typeof path !== 'string' || path === '') return
@@ -459,6 +461,12 @@ export function install(rt) {
       const protectedPaths = await apiProtectedFiles()
       for (const file of protectedPaths) {
         if (asShell(file).some(spelled => flat.includes(spelled))) throw closedApi()
+      }
+      if (flat.includes('telemetry.json')) {
+        const base = folder()
+        const homeKeys = await spellings(rt.home)
+        const baseKeys = base === undefined ? [] : await spellings(base)
+        if (base === undefined || baseKeys.some(k => homeKeys.some(h => overlap(k, h)))) throw closedApi()
       }
     }
   }
