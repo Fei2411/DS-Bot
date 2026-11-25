@@ -1152,8 +1152,12 @@ export function install(rt) {
 // the Bot's Sessions are selected again on the new route. An old `opencode/...`
 // ref is also DSH's own OpenCode provider: it moves only for a Bot that ran on
 // the local CLI (a CLI record for one of its Sessions) or on its "CLI default".
-// Returns whether anything changed.
+// The move runs once per team: afterwards a local agent is only saved under
+// `local-`, so an unprefixed CLI name is a provider of that name (#2104). The
+// mark is saved with the team's next write. Returns whether anything changed.
 export function migrateLocalRoutes(state) {
+  if (state.localRoutesMoved === true) return false
+  state.localRoutesMoved = true
   let changed = false
   const ranOn = new Map() // old route -> Session ids the CLI served
   for (const [sessionId, record] of Object.entries(state.localAgents?.sessions ?? {})) {

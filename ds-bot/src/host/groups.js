@@ -1002,6 +1002,23 @@ export function install(rt) {
     && batch.by === by
     && batch.pending.includes(botId)
     && (!matchParent || batch.parentBatchKey === parentBatchKey))
+  rt.pendingGroupAssignment = (roomId, botId, by) => batchOf(roomId, botId, by)
+  rt.pendingGroupAssignments = (roomId, botId, by) => Object.values(batches()).filter(batch =>
+    batch.roomId === roomId
+    && batch.by === by
+    && batch.pending.includes(botId))
+  rt.resolveGroupBatch = (roomId, botId, key) => resolveBatchKey(roomId, botId, key)
+  rt.recordGroupNote = async (room, sender, target, long) => {
+    say(room, {
+      who: sender.name,
+      botId: sender.id,
+      text: long.text,
+      route: { ...roomNote(), to: [target.id] },
+      ...(long.files?.length ? { files: long.files } : {}),
+    })
+    await rt.ledger.written(bookOf(room.id))
+    await rt.save({ required: true })
+  }
   // Oldest first.
   const batchesOf = (roomId, botId) => Object.values(batches()).filter(batch => batch.roomId === roomId && batch.pending.includes(botId))
   const unpend = (batch, botId) => { batch.pending = batch.pending.filter(id => id !== botId) }
@@ -1353,7 +1370,8 @@ export function install(rt) {
       wakingBatches.add(batch.key)
       await postToRoom(room, last, '', { late: true, done: true, askedBy: batch.by, batch: batch.key, batchEnd: true, ...(batch.parentBatchKey ? { parentBatchKey: batch.parentBatchKey } : {}) })
         .catch((error) => {
-          closeBatch(batch.key)
+          // Leave the batch open for retry on transient wake failures instead of silently dropping results.
+          wakingBatches.delete(batch.key)
           rt.warn('ds-bot: a batch in %s left by a restart did not wake its caller: %s', room.name, error)
         })
     }
@@ -1968,7 +1986,6 @@ export function install(rt) {
   } = {}) {
     let idleStep = false
     let zeroWorkCycle = false
-    let zeroWorkLimit = false
     const alreadyPaused = !worked && byBot && room.idlePaused !== undefined && callees.length > 0
     if (worked) {
       clearIdleStreak(room)
@@ -2006,7 +2023,6 @@ export function install(rt) {
         || (peer.id !== callerId && canReachIdleEdge(peer.id, member.id, priorEdges))
       ))
       for (const peer of callees) noteIdleEdge(room, member.id, peer.id)
-      zeroWorkLimit = callees.length > 0 && (room.zeroWorkRelays ?? 0) >= ROOM_ZERO_WORK_RELAY_LIMIT
     } else {
       const everyone = room.members.map(rt.botOf).filter(Boolean)
       const norm = normalizeRelayBody(text, everyone)
@@ -2014,11 +2030,11 @@ export function install(rt) {
       for (const peer of callees) noteIdleEdge(room, member.id, peer.id)
     }
     const hitIdle = idleStep && (room.idleRelays ?? 0) >= ROOM_IDLE_RELAY_LIMIT
-    if (byBot && (alreadyPaused || hitIdle || zeroWorkCycle || zeroWorkLimit)) {
-      const cause = hitIdle ? 'idle' : zeroWorkCycle ? 'cycle' : zeroWorkLimit ? 'zero-work' : (room.idlePaused?.cause ?? 'idle')
+    if (byBot && (alreadyPaused || hitIdle || zeroWorkCycle)) {
+      const cause = hitIdle ? 'idle' : zeroWorkCycle ? 'cycle' : (room.idlePaused?.cause ?? 'idle')
       const limit = cause === 'idle' ? ROOM_IDLE_RELAY_LIMIT : cause === 'zero-work' ? ROOM_ZERO_WORK_RELAY_LIMIT : Math.max(room.zeroWorkRelays ?? 2, 2)
       const pauseCount = cause === 'idle' ? room.idleRelays : cause === 'cycle' ? Math.max(room.zeroWorkRelays ?? 2, 2) : room.zeroWorkRelays
-      if (holdIdleCalls(room, round, member, callees, { named, all, force: alreadyPaused || zeroWorkCycle || zeroWorkLimit, count: pauseCount, cause, limit, direct, parentBatchKey })) {
+      if (holdIdleCalls(room, round, member, callees, { named, all, force: alreadyPaused || zeroWorkCycle, count: pauseCount, cause, limit, direct, parentBatchKey })) {
         return true
       }
     }
