@@ -174,7 +174,7 @@ export function ConnectorsPage({ roster, actions }) {
   }
   if (view === 'custom') {
     return h(Subview, { title: t('Other MCP server'), onBack: back }, banner,
-      h('div', { className: 'bt-set-card bt-connectors-card' }, h(AddMenu, { actions, run })))
+      h('div', { className: 'bt-set-card bt-connectors-card' }, h(AddMenu, { actions, run, initialKind: 'url', onCancel: back })))
   }
 
   const inCategory = id => apps.filter(app => app.category === id)
@@ -231,13 +231,14 @@ export const CONNECTORS_PAGE_CSS = `
 .bt-app-chips button:hover{background:var(--bt-active)}
 .bt-app-chips button[aria-pressed=true]{background:var(--bt-ink);color:var(--bt-main)}
 .bt-app-section{display:flex;flex-direction:column;gap:4px;margin-top:6px}
-.bt-app-section-head{display:flex;align-items:center;justify-content:space-between;min-height:24px}
+.bt-app-section-head{display:flex;align-items:center;justify-content:space-between;min-height:28px}
 .bt-app-section-head h3{margin:0;font-size:14px;line-height:20px;font-weight:600}
-.bt-app-all{border:0;background:none;padding:2px 4px;color:var(--bt-ink-3);font:inherit;font-size:12px;cursor:pointer}
-.bt-app-all:hover{color:var(--bt-ink)}
-.bt-app-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:28px;align-items:start}
+.bt-app-all{display:inline-flex;align-items:center;min-height:28px;border:0;border-radius:6px;background:none;padding:0 8px;margin-right:-8px;color:var(--bt-ink-3);font:inherit;font-size:12px;cursor:pointer;transition:background-color .12s ease,color .12s ease}
+.bt-app-all:hover{color:var(--bt-ink);background:var(--bt-hover)}
+.bt-app-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;align-items:start}
 @container (max-width:520px){.bt-app-grid{grid-template-columns:minmax(0,1fr)}}
-.bt-app{position:relative;display:flex;align-items:center;gap:10px;min-height:60px;border-radius:12px}
+.bt-app{position:relative;display:flex;align-items:center;gap:10px;min-height:60px;padding:10px 12px;border:.5px solid var(--bt-glass-rim);border-radius:12px;background:var(--bt-card);box-shadow:var(--bt-card-shadow);box-sizing:border-box;transition:border-color .14s ease,background-color .14s ease}
+.bt-app:hover{border-color:var(--bt-line-2);background:color-mix(in srgb,var(--bt-hover) 45%,var(--bt-card))}
 .bt-app-main{flex:1;min-width:0;display:flex;align-items:center;gap:12px;padding:0;border:0;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer}
 .bt-app-icon{--bt-mark-ink:var(--bt-ink);flex:none;display:inline-flex;align-items:center;justify-content:center;border-radius:10px;background:var(--bt-card);box-shadow:inset 0 0 0 .5px var(--bt-line-2)}
 .bt-app-icon svg{width:22px;height:22px}

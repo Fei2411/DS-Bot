@@ -114,3 +114,25 @@ test('steerQueued on an empty or other-source queue calls nothing', async () => 
   const empty = { projections: { faceOf: () => ({ getSnapshot: () => undefined }) }, updateQueue: () => assert.fail() }
   assert.equal(await steerQueued(empty), 'done')
 })
+
+test('steerQueued uses atomic steerBatch when provided and falls back only on fallback', async () => {
+  const queued = [
+    { id: 'u1', source: { kind: 'user' } },
+    { id: 'b1', source: { kind: 'bot' } },
+    { id: 'u2', source: { kind: 'user' } },
+    { id: 'u3', source: { kind: 'user' } },
+  ]
+  const batched = []
+  const s1 = session(queued)
+  assert.equal(await steerQueued(s1, async (ids) => { batched.push(ids); return 'done' }), 'done')
+  assert.deepEqual(batched, [['u1', 'u2', 'u3']])
+  assert.deepEqual(s1.calls, [])
+
+  const s2 = session(queued)
+  assert.equal(await steerQueued(s2, async () => 'failed'), 'failed')
+  assert.deepEqual(s2.calls, [])
+
+  const s3 = session(queued)
+  assert.equal(await steerQueued(s3, async () => 'fallback'), 'done')
+  assert.deepEqual(s3.calls, [['u1', { kind: 'steer' }], ['u2', { kind: 'steer' }], ['u3', { kind: 'steer' }]])
+})

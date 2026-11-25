@@ -7,7 +7,7 @@ import { CheckIcon, CloseIcon, PlusIcon, TrashIcon } from './icons.js'
 import { BotAvatar, BotMark } from './mark.js'
 import { contentText, currentPart } from './text.js'
 import { dateLocale, t } from './i18n.js'
-import { SPRING_POP, SPRING_SHAPE, spring } from './motion.js'
+import { SPRING_POP, SPRING_SHAPE, reducedMotion, spring } from './motion.js'
 import { useDockHold } from './card-hold.js'
 import { heldCardKey } from './sources.js'
 import { CellEmpty } from './cell-empty.js'
@@ -437,6 +437,8 @@ function AddSecret({ actions, run, onDone }) {
   const [source, setSource] = useState('value')
   const [value, setValue] = useState('')
   const [reference, setReference] = useState('')
+  const root = useRef(null)
+  useEffect(() => { root.current?.scrollIntoView?.({ block: 'nearest', behavior: reducedMotion() ? 'auto' : 'smooth' }) }, [])
   const nameReady = /^[A-Za-z][\w-]{0,63}$/.test(name.trim())
   const ready = nameReady && (source === 'onepassword' ? validOpRef(reference) : value.trim().length >= MIN_VALUE)
   const save = () => {
@@ -446,7 +448,7 @@ function AddSecret({ actions, run, onDone }) {
       : { name, purpose, value, scope: 'all' }
     void run(actions.secretSet(payload)).then(ok => { if (ok) { setValue(''); setReference(''); onDone() } })
   }
-  return h('div', { className: 'bt-set-row bt-set-paste bt-secret-add' },
+  return h('div', { ref: root, className: 'bt-set-row bt-set-paste bt-secret-add' },
     h(SourceSwitch, { value: source, onChange: setSource }),
     h('input', { className: 'bt-input', 'aria-label': t('Key name'), placeholder: t('NAME, e.g. GITHUB_TOKEN'), value: name, spellCheck: false, autoComplete: 'off', autoFocus: true, onChange: event => setName(event.target.value.toUpperCase()) }),
     h('input', { className: 'bt-input', 'aria-label': t('What it is for'), placeholder: t('What it is for'), value: purpose, autoComplete: 'off', onChange: event => setPurpose(event.target.value) }),
@@ -605,16 +607,12 @@ export function SecretsPage({ roster, actions, run, Section }) {
   const [open, setOpen] = useState(null)
   const [adding, setAdding] = useState(false)
   const secrets = roster.secrets ?? []
-  const shellFileMode = roster?.prefs?.secretShellMode === 'file'
   const hasExternal = secrets.some(secret => secret.kind === 'external')
   const addBtn = adding ? null : h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', 'data-tour': 'secret-add', onClick: () => setAdding(true) }, h(PlusIcon), t('Add a key'))
   return [
     h(SecretStoreCard, { key: 'store', store: roster.secretStore, actions, run, Section }),
-    h('p', { key: 'about', className: 'bt-secret-about' },
-      t('Keys your Bots asked for. Bots never see the values: they use them as '), h('code', null, shellFileMode ? '$DSH_SECRET_FILE_NAME' : '$DSH_SECRET_NAME'),
-      t(' in their shell, and every value is replaced by '), h('code', null, '[secret:NAME]'), t(' before anything goes to a model.')),
-    h(Section, { key: 'list', title: t('Secrets · {count}', { count: secrets.length }), action: addBtn },
-      secrets.length === 0 && !adding ? h('div', { className: 'bt-set-row' }, h('span', { className: 'bt-set-hint' }, t('No keys yet. When a Bot needs one, it shows a card in its chat.'))) : null,
+    h(Section, { key: 'list', title: t('Saved keys · {count}', { count: secrets.length }), action: addBtn },
+      secrets.length === 0 && !adding ? h('div', { className: 'bt-set-row' }, h('span', { className: 'bt-set-hint' }, t('No keys yet.'))) : null,
       secrets.map(secret => h(SecretRow, { key: secret.name, secret, roster, actions, run, open: open === secret.name, onToggle: () => setOpen(open === secret.name ? null : secret.name) })),
       adding ? h(AddSecret, { actions, run, onDone: () => setAdding(false) }) : null),
     h(SecretOptionsCard, { key: 'options', prefs: roster.prefs, hasExternal, actions, run, Section }),
@@ -651,7 +649,7 @@ export const SECRET_CSS = `
 @keyframes bt-secret-in{from{opacity:0;transform:translateY(-2px)}}
 .bt-secret-saved{display:flex;align-items:center;gap:6px;font-size:13px;line-height:18px;color:var(--bt-ink-2)}
 .bt-secret-note{font-size:12px;line-height:17px;color:var(--bt-ink-3)}
-.bt-secret-note code,.bt-secret-about code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px}
+.bt-secret-note code{font-family:var(--bt-mono);font-size:11px}
 .bt-secret-warn{display:flex;align-items:center;gap:6px;padding:6px 10px;border-radius:8px;font-size:12px;line-height:16px;color:var(--bt-warn);background:color-mix(in srgb,var(--bt-warn) 14%,transparent)}
 .bt-secret-warn svg{flex:none}
 .bt-secret-error{font-size:12px;line-height:16px;color:var(--bt-danger)}
@@ -666,7 +664,6 @@ export const SECRET_CSS = `
 .bt-secret-event{display:inline-flex;align-items:center;gap:5px}
 .bt-secret-dock{flex-direction:column;align-items:center}
 .bt-secret-dock .bt-q{max-width:min(550px,calc(100% - 32px))}
-.bt-secret-about{margin:0 0 -4px;padding:0 4px;font-size:12px;line-height:18px;color:var(--bt-ink-2)}
 .bt-secret-title{display:flex;align-items:center;gap:6px;min-width:0;color:var(--bt-ink)}
 .bt-secret-title svg{flex:none;color:var(--bt-ink-2)}
 .bt-secret-purpose{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--bt-ink-2)}

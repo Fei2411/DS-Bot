@@ -1,11 +1,15 @@
 ---
 name: report-ds-bot-issue
-description: Offer to report a DS Bot bug when a user hits an error or asks to report one. Prepare a redacted draft and show it for approval before DS Bot can publish it on GitHub.
+description: Report a bug in DS Bot itself when the user explicitly asks to file a DS Bot issue or confirms they want to report a suspected DS Bot defect. Do not use for user code errors, shell/tool failures, external APIs/websites, model provider/network errors, missing config, or permission denials. Never open the approval card before the user agrees to file a report.
 ---
 
 # Report a DS Bot bug
 
-Offer to report a DS Bot bug when the user runs into one or asks you to report it. Use your own chat to show the approval card; if the bug surfaced in a group or a background task, bring the draft back to your own chat with the user.
+Use this skill only for bugs in DS Bot itself — not for user code errors, shell or script failures, third-party APIs or websites, model provider or network errors, missing configuration, or permission denials.
+
+- If the user **explicitly asks** to report a DS Bot bug, proceed to step 1.
+- If you **suspect** a bug in DS Bot itself while helping with something else, finish addressing or explaining the problem first, then offer in one short sentence to draft a DS Bot bug report. **Do not** call `prepare_ds_bot_issue` or show an approval card until the user says they want to report it.
+- Use your own chat to show the approval card; if the bug surfaced in a group or a background task, bring the draft back to your own chat with the user.
 
 Never write a public issue for a security problem. Point the user to [Report a vulnerability](https://github.com/Fei-Craft/DS-Bot/security/advisories/new). Route questions and feature ideas to [GitHub Discussions](https://github.com/Fei-Craft/DS-Bot/discussions).
 

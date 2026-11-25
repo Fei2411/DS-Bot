@@ -909,7 +909,8 @@ test('fg-handoff carries bounded moved prompt + task_send hint, and injects fall
   const freshSid = env.rt.botOf('a').sessionId
   const notice = env.agentMap.get(freshSid).injected[0]?.content?.[0]?.text ?? ''
   assert.match(notice, /Moved request: Please audit all authentication middleware files/)
-  assert.match(notice, /Use task_send\(task: "/)
+  assert.match(notice, /Use task_read\(task: "/)
+  assert.match(notice, /task_send\(task: "/)
 
   // 2) When fork is unavailable (!forked) AND the moved turn finishes during forkForegroundPart,
   //    the fresh foreground still receives fallbackContextSummary instead of starting blank.

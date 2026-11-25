@@ -264,7 +264,7 @@ export default {
 
     return {
       send: async (chat, { text, buttons }) => {
-        const chunks = chunkMarkdown(String(text ?? ''), TEXT_LIMIT)
+        const chunks = chunkMarkdown(String(text ?? ''), TEXT_LIMIT, { unit: 'utf16' })
         let messageId
         for (const [index, chunk] of chunks.entries()) {
           const components = index === chunks.length - 1 && buttons?.length > 0
@@ -306,7 +306,7 @@ export default {
         // Discord renders Markdown in `content`, so an edit that goes through `toPlain`
         // silently drops every emphasis, code fence and link the message had: a streamed
         // reply looked formatted while it was being sent and plain once it was edited.
-        const body = chunkMarkdown(String(text ?? ''), TEXT_LIMIT)[0] ?? ''
+        const body = chunkMarkdown(String(text ?? ''), TEXT_LIMIT, { unit: 'utf16' })[0] ?? ''
         await rest(`/channels/${chat.key}/messages/${messageId}`, { method: 'PATCH', body: { content: body, components } })
       },
       typing: async (chat) => rest(`/channels/${chat.key}/typing`).then(() => {}, () => {}),

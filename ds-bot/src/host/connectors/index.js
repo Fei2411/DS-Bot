@@ -15,6 +15,7 @@ import { createGateway } from './gateway.js'
 import { install as installMail } from './mail/index.js'
 import { CONNECTOR_IDS } from '../capabilities.js'
 import { matchSecretRefs } from '../secret-refs.js'
+import { DS_BOT_REPO } from '../diagnostics.js'
 import { output } from '../tools.js'
 
 export const GITHUB_SECRET = 'GITHUB_TOKEN'
@@ -667,7 +668,7 @@ export function install(rt) {
       || statuses.get(id)?.state === 'needs-sign-in') return undefined
     const headers = credentialOf(id)
     if (headers === undefined) return undefined
-    const response = await fetch(GITHUB_API + '/repos/Fei2411/DS-Bot/issues', {
+    const response = await fetch(`${GITHUB_API}/repos/${DS_BOT_REPO}/issues`, {
       method: 'POST',
       headers: { ...headers, 'Content-Type': 'application/json', Accept: 'application/vnd.github+json', 'User-Agent': 'ds-bot', 'X-GitHub-Api-Version': '2022-11-28' },
       body: JSON.stringify({ title, body, labels: ['bug'] }),
@@ -678,7 +679,7 @@ export function install(rt) {
     if (!response.ok) return undefined
     const { number } = await response.json()
     if (!Number.isSafeInteger(number) || number < 1) throw new Error('GitHub did not return an issue number')
-    return `https://github.com/Fei2411/DS-Bot/issues/${number}`
+    return `https://github.com/${DS_BOT_REPO}/issues/${number}`
   }
 
   // --- import -------------------------------------------------------------

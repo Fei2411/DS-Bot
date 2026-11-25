@@ -37,6 +37,7 @@ const makeReact = (overrides = {}) => {
     useContext: ctx => ctx.value,
     useCallback: fn => fn,
     useEffect() {},
+    useId: () => 'ui-motion-id',
     useLayoutEffect() {},
     useMemo: make => make(),
     useRef: current => ({ current }),
@@ -249,11 +250,11 @@ test('SettingsDialog renders Interface motion choices in Appearance and updates 
   const buttons = []
   walk(group, (node) => { if (node.type === 'button') buttons.push(node) })
   assert.deepEqual(buttons.map(btn => [textOf(btn), btn.props['aria-pressed']]), [
-    ['Full', false],
-    ['Reduced', true],
     ['None', false],
+    ['Reduced', true],
+    ['Full', false],
   ])
-  buttons[2].props.onClick()
+  buttons[0].props.onClick()
   assert.deepEqual(JSON.parse(JSON.stringify(calls)), [{ effects: 'off' }])
 })
 
