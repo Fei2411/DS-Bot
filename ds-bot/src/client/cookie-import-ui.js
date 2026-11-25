@@ -262,7 +262,7 @@ function ImportHeader({ title, subtitle, mark, onBack, onClose, busy }) {
       subtitle ? h('div', { className: 'bt-import-sub' }, subtitle) : null),
     onClose ? h('button', {
       type: 'button', className: 'bt-icon-btn bt-import-head-btn', 'aria-label': t('Close'), title: t('Close'),
-      onClick: onClose,
+      disabled: busy, onClick: onClose,
     }, h(CloseIcon)) : null)
 }
 
@@ -649,7 +649,10 @@ export function PreviewCard({ flow, page = { url: '' }, busy, canApply = true, i
 // The card that runs an import: connecting / safari-permission / remote-debug / running / paste → preview → result | error.
 export function ImportCard({ flow, page = { url: '' }, busy, canApply = true, imports, inline = false, onApply, onCancel, onBack, onCloseAndImport, onRetrySource, onLaunchSource, onOpenPermission, onPermissionGranted, onFile, onSubmitPaste, onDone, onReload }) {
   const { stage } = flow
-  useEscape(() => { if (stage === 'result') onDone(); else onCancel() })
+  useEscape(() => {
+    if (stage === 'result') onDone()
+    else if (!busy || stage === 'connecting') onCancel()
+  })
   if (stage === 'connecting') {
     return h('div', { className: 'bt-import-stage bt-import-status' },
       h('div', { className: 'bt-import-status-orbit', 'aria-hidden': true },

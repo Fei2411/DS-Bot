@@ -46977,6 +46977,7 @@ function ImportHeader({ title, subtitle, mark: mark2, onBack, onClose, busy }) {
       className: "bt-icon-btn bt-import-head-btn",
       "aria-label": t("Close"),
       title: t("Close"),
+      disabled: busy,
       onClick: onClose
     }, (0, import_react53.createElement)(CloseIcon)) : null
   );
@@ -47505,7 +47506,7 @@ function ImportCard({ flow, page = { url: "" }, busy, canApply = true, imports, 
   const { stage } = flow;
   useEscape(() => {
     if (stage === "result") onDone();
-    else onCancel();
+    else if (!busy || stage === "connecting") onCancel();
   });
   if (stage === "connecting") {
     return (0, import_react53.createElement)(

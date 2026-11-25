@@ -623,3 +623,65 @@ test('SafariPermissionCard keeps the primary CTA rightmost before and after perm
   assert.equal(textOf(btnsAfter.at(-1)), 'Import')
   inst.unmount()
 })
+
+test('ImportCard disables Close and ignores Escape while apply is busy, but still lets connecting cancel on Escape', () => {
+  const h = createHarness()
+  const { ImportCard, PreviewCard } = h.exports
+  let canceled = 0
+  const previewFlow = {
+    stage: 'preview',
+    id: 'p-busy',
+    preview: {
+      source: { label: 'Chrome — Personal' },
+      notes: [],
+      warnings: [],
+      skipped: [],
+      sites: [{ site: 'github.com', cookies: 5, session: 0, localStorage: 0 }],
+    },
+  }
+  const inst = h.mount(ImportCard, {
+    flow: previewFlow,
+    page: { url: '' },
+    busy: true,
+    imports: {},
+    onApply() {},
+    onCancel: () => { canceled += 1 },
+    onDone() {},
+  })
+  inst.render()
+  h.window.dispatch('keydown', { key: 'Escape', isComposing: false, keyCode: 27 })
+  assert.equal(canceled, 0, 'Escape must not dismiss preview while apply is busy')
+  inst.unmount()
+
+  // PreviewCard header Close button is also disabled while busy.
+  const prevInst = h.mount(PreviewCard, {
+    flow: previewFlow,
+    page: { url: '' },
+    busy: true,
+    onApply() {},
+    onCancel: () => { canceled += 1 },
+  })
+  const prevTree = prevInst.render()
+  const headerNode = allNodes(prevTree, (n) => typeof n.type === 'function' && n.props?.onClose)[0]
+  assert.ok(headerNode, 'expected ImportHeader with onClose in non-inline PreviewCard')
+  assert.equal(headerNode.props.busy, true)
+  const closeBtn = allNodes(headerNode.type(headerNode.props), (n) => n.type === 'button' && n.props?.['aria-label'] === 'Close')[0]
+  assert.ok(closeBtn, 'expected Close button in non-inline PreviewCard header')
+  assert.equal(closeBtn.props.disabled, true)
+  prevInst.unmount()
+
+  // Connecting stage remains cancellable via Escape so live harvest can be aborted.
+  const connInst = h.mount(ImportCard, {
+    flow: { stage: 'connecting', source: { id: 'chrome:Default', name: 'Chrome', label: 'Chrome — Default' } },
+    page: { url: '' },
+    busy: true,
+    imports: {},
+    onApply() {},
+    onCancel: () => { canceled += 1 },
+    onDone() {},
+  })
+  connInst.render()
+  h.window.dispatch('keydown', { key: 'Escape', isComposing: false, keyCode: 27 })
+  assert.equal(canceled, 1, 'Escape must still cancel connecting stage')
+  connInst.unmount()
+})
