@@ -4887,7 +4887,6 @@ test('paused nested delegation preserves parentBatchKey across Continue, partial
     host.finish('gc', 'Tester done.')
     host.finish('gd', 'Reviewer done.')
     await settle(() => host.agentOf('gb').calls.length >= 2)
-    while (host.agentOf('gb').calls.length > host.turnsOf?.('gb') || rt.live.get('gb')?.turn !== undefined) break
     host.begin('gb')
     host.finish('gb', 'Writer final after reissue.')
     await settle(() => host.agentOf('ga').calls.length >= 2)
@@ -4920,5 +4919,54 @@ test('paused nested delegation preserves parentBatchKey across Continue, partial
     // User clicks Stop -> cancelRoomQueues removes the queued relay AND releases the idle parent batch!
     await rt.stopRoomWork('r1')
     assert.deepEqual(Object.values(rt.state.roomBatches ?? {}), [], 'stopRoomWork must clear parent batch once queued nested relay is cancelled')
+  }
+
+  // 4) Lifting a nested pause by user `@Tester` mention still attaches the parked direct batch so Writer & Chief resume.
+  {
+    const host = await start(t)
+    const room = rt.roomOf('r1')
+    const first = host.round('c1', host.say('@Chief ask Writer to check'))
+    await settle(() => host.agentOf('ga').calls.length === 1)
+    host.begin('ga')
+    await host.tool('delegate_work', { to: 'Writer', goal: 'Coordinate check' }, 'ga')
+    host.finish('ga', '[PASS]')
+
+    await settle(() => host.agentOf('gb').calls.length === 1)
+    const writerCall = host.begin('gb')
+    rt.roomWaiters.get(writerCall.source.exchangeId)?.resolve({ working: true })
+    await settle(() => first() !== undefined)
+
+    room.idlePaused = { from: 'a', count: 2, limit: 2, cause: 'cycle', noticed: true }
+    await host.tool('delegate_work', { to: 'Tester', goal: 'Check fact' }, 'gb')
+    await settle(() => host.agentOf('r1').calls.length === 1)
+    const queuedChild = host.takePost()
+    host.finish('gb', '[PASS]')
+    await new Promise(resolve => setImmediate(resolve))
+
+    const round2 = host.round('c2', queuedChild)
+    await settle(() => round2() !== undefined)
+    assert.equal(room.paused?.[0]?.id, 'c')
+    assert.equal(room.paused?.[0]?.direct, true)
+
+    // User lifts pause by directly mentioning `@Tester` -> releaseParked must attach the parked batch to Tester's slot!
+    const round3 = host.round('c3', host.say('@Tester please go ahead'))
+    await settle(() => host.agentOf('gc').calls.length === 1)
+    host.begin('gc')
+    host.emit('gc', 'tool/call', { callId: 't-mention', name: 'read', arguments: '{}' })
+    host.emit('gc', 'tool/result', { callId: 't-mention' })
+    host.finish('gc', 'Fact verified on user mention.')
+
+    await settle(() => host.agentOf('gb').calls.length === 2)
+    host.begin('gb')
+    host.finish('gb', 'Summary for Chief after user mention.')
+
+    await settle(() => host.agentOf('ga').calls.length === 2)
+    host.begin('ga')
+    host.finish('ga', 'Thanks!')
+    await settle(() => round3() !== undefined)
+    const finalLine = room.log.find(line => line.botId === 'b' && line.text.includes('Summary for Chief after user mention'))
+    assert.equal(finalLine?.route?.kind, 'result')
+    assert.deepEqual(finalLine?.route?.to, ['a'])
+    assert.deepEqual(Object.values(rt.state.roomBatches ?? {}), [])
   }
 })

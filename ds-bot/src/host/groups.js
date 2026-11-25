@@ -1676,9 +1676,15 @@ export function install(rt) {
     if (left.length > 0) room.paused = left
     else delete room.paused
     const byGroups = new Map()
+    const droppedParents = []
     for (const entry of due) {
-      if (!room.members.includes(entry.id) || rt.botOf(entry.id) === undefined) continue
-      if (round.slots.some(slot => slot.id === entry.id && slot.status === 'waiting')) continue
+      if (!room.members.includes(entry.id) || rt.botOf(entry.id) === undefined) {
+        if (entry.direct === true && entry.by !== undefined && entry.parentBatchKey !== undefined) {
+          droppedParents.push({ by: entry.by, parentBatchKey: entry.parentBatchKey })
+        }
+        continue
+      }
+      if (entry.direct !== true && round.slots.some(slot => slot.id === entry.id && slot.status === 'waiting')) continue
       const key = `${entry.by ?? ''}\0${entry.direct === true ? '1' : '0'}\0${entry.parentBatchKey ?? ''}`
       if (!byGroups.has(key)) byGroups.set(key, [])
       byGroups.get(key).push(entry)
@@ -1691,14 +1697,23 @@ export function install(rt) {
         : undefined
       round.batches = (round.batches ?? 0) + 1
       for (const entry of group) {
-        round.slots.push({
-          id: entry.id, name: entry.name, status: 'waiting', batch: round.batches,
-          ...(batchKey !== undefined ? { batchKey } : {}),
-          ...(entry.note !== undefined ? { note: entry.note } : {}),
-          ...(by !== undefined ? { by } : {}),
-        })
+        const waiting = round.slots.find(slot => slot.id === entry.id && slot.status === 'waiting' && (by === undefined || slot.by === undefined || slot.by === by))
+        if (waiting !== undefined) {
+          delete waiting.resultOnly
+          if (batchKey !== undefined) waiting.batchKey = batchKey
+          if (by !== undefined) waiting.by = by
+          if (waiting.note === undefined && entry.note !== undefined) waiting.note = entry.note
+        } else {
+          round.slots.push({
+            id: entry.id, name: entry.name, status: 'waiting', batch: round.batches,
+            ...(batchKey !== undefined ? { batchKey } : {}),
+            ...(entry.note !== undefined ? { note: entry.note } : {}),
+            ...(by !== undefined ? { by } : {}),
+          })
+        }
       }
     }
+    if (droppedParents.length > 0) releaseIdleParentBatches(room, droppedParents)
   }
 
   // The user's messages waiting in the group Session's inbox while a round runs, from
