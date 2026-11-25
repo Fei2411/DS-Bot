@@ -122,23 +122,41 @@ const textOf = (node) => {
   return ''
 }
 
-test('the Browser page says default browsing is read-only and names browserPlugin', () => {
+test('the Browser page shows the active Browser plugin row with Switch and omits legacy prose', () => {
   const harness = createHarness()
+  const opened = []
   const inst = harness.mount(harness.exports.BrowserPage, {
-    roster: { bots: [] }, actions: {}, run: () => {}, Section, Row,
+    roster: { bots: [] },
+    actions: { openSettings: (page, id) => opened.push([page, id]) },
+    run: () => {},
+    Section,
+    Row,
   })
-  const text = textOf(expand(inst.render()))
-  assert.match(text, /A Bot can read the page you have open/)
-  assert.match(text, /cannot click, type, scroll or open pages/)
-  assert.match(text, /How to enable interactive browsing/)
-  assert.match(text, /browserPlugin/)
-  assert.match(text, /refs, script or task/)
-  assert.match(text, /restart DS Bot/)
-  assert.match(text, /With an interactive plugin, Bots browse, click and fill in forms/)
-  assert.match(text, /These grants apply only after an interactive browser plugin is enabled/)
-  assert.doesNotMatch(text, /Bots browse, click and fill in forms freely\./)
-  assert.doesNotMatch(text, /freely/)
+  const tree = expand(inst.render())
+  const text = textOf(tree)
+  assert.match(text, /Browser plugin/)
+  assert.match(text, /Read-only Browser/)
+  assert.match(text, /Allowed actions/)
+  assert.match(text, /Nothing allowed yet\./)
+  assert.doesNotMatch(text, /browserPlugin/)
+  assert.doesNotMatch(text, /DSH profile/)
+  assert.doesNotMatch(text, /A Bot can read the page you have open/)
+  assert.doesNotMatch(text, /restart DS Bot/)
   assert.doesNotMatch(text, /Import cookies/)
+
+  const findBtn = (node, label) => {
+    if (Array.isArray(node)) {
+      for (const child of node) { const hit = findBtn(child, label); if (hit) return hit }
+      return null
+    }
+    if (!node || typeof node !== 'object') return null
+    if (node.type === 'button' && textOf(node) === label) return node
+    return findBtn(node.props?.children, label)
+  }
+  const switchBtn = findBtn(tree, 'Switch')
+  assert.ok(switchBtn, 'Switch button should appear when openSettings is available')
+  switchBtn.props.onClick()
+  assert.deepEqual(opened, [['plugins', 'browser']])
   inst.unmount()
 })
 

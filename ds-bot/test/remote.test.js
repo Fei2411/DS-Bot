@@ -171,7 +171,7 @@ test('Remote feed subscriptions replay active replies after hello without HTTP l
   t.after(stop)
   await rt.channelCall('state', {})
   rt.chatOwners.set('s1', 'b1')
-  const onStream = ctx.listeners.get('agent/assistant-stream')[0]
+  const onStream = ctx.listeners.get('agent/assistant-stream').at(-1)
   const emit = frame => onStream({ agent: { id: 's1' }, frame: { attemptId: 'active', ...frame } })
   emit({ type: 'start', turn: 1 })
   const empty = []
@@ -348,9 +348,9 @@ test('createRemoteService serves dsBot/call and dsBot/feed through real DSH Type
   assert.deepEqual(omittedPayload.value, { ok: true, value: { id: 'b1', avatar: { shape: 'whale' } } })
   assert.equal('image' in omittedPayload.value.value.avatar, false)
 
-  // 3. Computer-only endpoints (`phone-*` and `folder-pick`) are refused before reaching channelCall
+  // 3. Computer-only endpoints (`phone-*`, `folder-pick`, `session-*`, `speech-*`) are refused before reaching channelCall
   const beforeRefusedCount = received.length
-  for (const forbidden of ['phone-set', 'phone-pair', 'phone-pair-cancel', 'phone-remove', 'folder-pick']) {
+  for (const forbidden of ['phone-set', 'phone-pair', 'phone-pair-cancel', 'phone-remove', 'folder-pick', 'session-page', 'speech-catalog', 'speech-configure', 'speech-prepare', 'speech-cancel', 'speech-transcribe']) {
     const refused = await gateway.dispatchRpc(
       `${RPC_NAMESPACE}/call`,
       { args: { endpoint: forbidden, payload: { on: false } } },

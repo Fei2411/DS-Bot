@@ -111,7 +111,7 @@ for (const scenario of ['chunk', 'start', 'end']) {
     await call('state')
     t.mock.timers.enable({ apis: ['setTimeout'] })
     const connect = async () => reader(await routes['/api/bot/feed'].fetch(new Request('http://localhost/api/bot/feed')))
-    const onStream = ctx.listeners.get('agent/assistant-stream')[0]
+    const onStream = ctx.listeners.get('agent/assistant-stream').at(-1)
     const emit = frame => onStream({ agent: { id: 'm1c' }, frame: { attemptId: 'gap', ...frame } })
     const first = await connect()
     assert.equal((await first()).event, 'hello')
@@ -145,7 +145,7 @@ for (const outcome of [{ kind: 'committed', eventType: 'assistant/message', seq:
     await call('state')
     t.mock.timers.enable({ apis: ['setTimeout'] })
     const connect = async () => reader(await routes['/api/bot/feed'].fetch(new Request('http://localhost/api/bot/feed')))
-    const onStream = ctx.listeners.get('agent/assistant-stream')[0]
+    const onStream = ctx.listeners.get('agent/assistant-stream').at(-1)
     const emit = frame => onStream({ agent: { id: 'm1c' }, frame: { attemptId: 'rotating', ...frame } })
     const target = { botId: 'm1', sessionId: 'm1c', attemptId: 'rotating' }
     const first = await connect()
@@ -237,7 +237,7 @@ test('the live feed tells a window about saves, new chat entries and the reply b
   onEvent({ id: 'm1' }, userMessage('old', 1))
   onEvent({ id: 'm1c' }, botMessage('hidden', 61, 7))
 
-  const [onStream] = ctx.listeners.get('agent/assistant-stream')
+  const onStream = ctx.listeners.get('agent/assistant-stream').at(-1)
   const agent = { id: 'm1c' }
   onStream({ agent, frame: { type: 'start', attemptId: 'a7', turn: 7 } })
   onStream({ agent, frame: { type: 'chunk', attemptId: 'a7', chunk: { type: 'text-delta', text: 'hidden' } } })

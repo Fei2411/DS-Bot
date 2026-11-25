@@ -147,7 +147,7 @@ export function createRemoteService(rt) {
     }
 
     // Simple identifier parameters with no defaults match DSH Gateway source-mode parsing.
-    // Computer-only actions (phone pairing and the native desktop folder dialog) stay local.
+    // Computer-only actions (phone pairing, the native desktop folder dialog, Session logs) stay local.
     async call(endpoint, payload, signal) {
       const name = typeof endpoint === 'string' ? endpoint : ''
       if (name.startsWith('phone-')) {
@@ -159,11 +159,37 @@ export function createRemoteService(rt) {
       if (name === 'folder-pick') {
         return { ok: false, error: { code: 'bot/refused', message: 'Folders are chosen in a window on the computer', details: {} } }
       }
-      return plain(await rt.channelCall(name, payload ?? {}, signal, true))
+      // A Session's whole log, any Session's, is for the window on the computer, as on the
+      // phone link (phone.js); a remote client reads the team's chats.
+      if (name.startsWith('session-')) {
+        return { ok: false, error: { code: 'bot/refused', message: 'Session logs are read on the computer', details: {} } }
+      }
+      if (name.startsWith('workspace-') || name.startsWith('terminal-')) {
+        return { ok: false, error: { code: 'bot/refused', message: 'Workspace files and terminals are available on the computer', details: {} } }
+      }
+      if (name.startsWith('engine-')) {
+        return { ok: false, error: { code: 'bot/refused', message: 'Engine settings are managed on the computer', details: {} } }
+      }
+      if (name.startsWith('plugins-')) {
+        return { ok: false, error: { code: 'bot/refused', message: 'Plugins are managed on the computer', details: {} } }
+      }
+      if (name.startsWith('speech-')) {
+        return { ok: false, error: { code: 'bot/refused', message: 'Voice input settings and transcription are available on the computer', details: {} } }
+      }
+      const answer = plain(await rt.channelCall(name, payload ?? {}, signal, true))
+      if (name === 'folders' && answer?.ok === true && answer.value && typeof answer.value === 'object' && Object.hasOwn(answer.value, 'data')) {
+        const value = { ...answer.value }
+        delete value.data
+        return { ...answer, value }
+      }
+      return answer
     }
 
     feed(signal) {
-      return feedEvents(rt.subscribeFeed, signal, this[STOP])
+      return feedEvents((listener) => rt.subscribeFeed((event, data) => {
+        if (event === 'terminal' || event === 'terminal-exit') return
+        listener(event, data)
+      }), signal, this[STOP])
     }
   }
   const initializers = [

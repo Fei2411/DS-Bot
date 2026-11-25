@@ -134,6 +134,13 @@ const start = async ({ services = {}, def = shellDef() } = {}) => {
     }
     await new Promise(r => setTimeout(r, 0))
   }
+  const emitStream = async (id, frame) => {
+    const target = agentMap.get(id) ?? { id }
+    for (const listener of ctx.listeners.get('agent/assistant-stream') ?? []) {
+      await listener({ agent: target, frame })
+    }
+    await new Promise(r => setTimeout(r, 0))
+  }
   const stop = async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) }
   const shadowOf = (target = agentById) => {
     const handler = (target.agentListeners?.get('tools/execute') ?? []).at(-1)
@@ -152,7 +159,7 @@ const start = async ({ services = {}, def = shellDef() } = {}) => {
       },
     }
   }
-  return { ctx, emit, stop, rt, agent: agentById, agentMap, calls, deliveries, shadowOf, call }
+  return { ctx, emit, emitStream, stop, rt, agent: agentById, agentMap, calls, deliveries, shadowOf, call }
 }
 
 const userMessage = text => ({ id: `m-${text}`, content: [{ type: 'text', text }], source: { kind: 'user' }, role: 'user' })
@@ -468,13 +475,14 @@ test('steer carry: a pending request survives a carry that reclaims the trigger'
 })
 
 test('steer cut: a running part switch blocks the cut', async () => {
-  const { emit, stop, rt, agent, calls } = await start()
+  const { emit, emitStream, stop, rt, agent, calls } = await start()
   const dm = 'dm-a'
   // switchJobs() hands back a Map values iterator, never an array.
   const original = rt.switchJobs
   rt.switchJobs = () => new Map([['job', { botId: rt.chatOwners.get(dm) }]]).values()
   await emit(dm, 'turn/start', { turn: 1 })
   await emit(dm, 'step/start', { turn: 1, step: 1 })
+  await emitStream(dm, { type: 'start', turn: 1, step: 1 })
   const steer = userMessage('还没好吗')
   agent.inbox.nextStep.push(steer)
   await emit(dm, 'agent/inbox/spliced', { target: 'next-step', inserted: [steer] })
@@ -488,11 +496,28 @@ test('steer cut: a running part switch blocks the cut', async () => {
 })
 
 // Model-cut tests.
-test('steer cut: user steer during model phase cancels with hook and moves steer to next-turn', async () => {
-  const { emit, stop, agent, calls } = await start()
+test('steer cut: does not cut during prepare phase before agent/assistant-stream start', async () => {
+  const { emit, emitStream, stop, agent, calls } = await start()
   const dm = 'dm-a'
   await emit(dm, 'turn/start', { turn: 1 })
   await emit(dm, 'step/start', { turn: 1, step: 1 })
+  const steer = userMessage('second')
+  agent.inbox.nextStep.push(steer)
+  await emit(dm, 'agent/inbox/spliced', { target: 'next-step', inserted: [steer] })
+  assert.equal(calls.find(c => c[0] === 'cancel'), undefined, 'must not cut before claimed user/message commits')
+  await emitStream(dm, { type: 'start', turn: 1, step: 1 })
+  const cancel = calls.find(c => c[0] === 'cancel')
+  assert.deepEqual(cancel?.[1], { kind: 'hook', reason: STEER_CUT })
+  assert.deepEqual(agent.inbox.nextTurn.map(m => m.id), [steer.id])
+  await stop()
+})
+
+test('steer cut: user steer during model phase cancels with hook and moves steer to next-turn', async () => {
+  const { emit, emitStream, stop, agent, calls } = await start()
+  const dm = 'dm-a'
+  await emit(dm, 'turn/start', { turn: 1 })
+  await emit(dm, 'step/start', { turn: 1, step: 1 })
+  await emitStream(dm, { type: 'start', turn: 1, step: 1 })
   const steer = userMessage('还没好吗')
   agent.inbox.nextStep.push(steer)
   await emit(dm, 'agent/inbox/spliced', { target: 'next-step', inserted: [steer] })
@@ -504,10 +529,11 @@ test('steer cut: user steer during model phase cancels with hook and moves steer
 })
 
 test('steer cut: no cut during tools phase or for a non-Bot session', async () => {
-  const { emit, stop, agent, calls } = await start()
+  const { emit, emitStream, stop, agent, calls } = await start()
   const dm = 'dm-a'
   await emit(dm, 'turn/start', { turn: 1 })
   await emit(dm, 'step/start', { turn: 1, step: 1 })
+  await emitStream(dm, { type: 'start', turn: 1, step: 1 })
   await emit(dm, 'assistant/message', { turn: 1, step: 1, message: { role: 'assistant', content: [{ type: 'tool-call' }] } })
   const steer = userMessage('go')
   agent.inbox.nextStep.push(steer)
@@ -519,10 +545,11 @@ test('steer cut: no cut during tools phase or for a non-Bot session', async () =
 })
 
 test('steer cut: earlier steers and queued next-turn keep order', async () => {
-  const { emit, stop, agent } = await start()
+  const { emit, emitStream, stop, agent } = await start()
   const dm = 'dm-a'
   await emit(dm, 'turn/start', { turn: 1 })
   await emit(dm, 'step/start', { turn: 1, step: 1 })
+  await emitStream(dm, { type: 'start', turn: 1, step: 1 })
   const s1 = userMessage('one'); const s2 = userMessage('two')
   agent.inbox.nextStep.push(s1, s2)
   agent.inbox.nextTurn.push(userMessage('queued'))
