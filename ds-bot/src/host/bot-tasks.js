@@ -3006,7 +3006,16 @@ export function install(rt) {
       return false
     }
     clearSteeredAt()
-    const pulled = [...earlier, { msg, target, oldAgent: agent }]
+    // Keep steered (`next-step`) input ahead of still-queued (`next-turn`) items so
+    // steering the first of several queued user messages preserves [Q1, Q2] FIFO order.
+    const nextStepCount = target === 'next-step'
+      ? earlier.filter(item => item.target === 'next-step').length
+      : earlier.length
+    const pulled = [
+      ...earlier.slice(0, nextStepCount),
+      { msg, target, oldAgent: agent },
+      ...earlier.slice(nextStepCount),
+    ]
     recordPendingTransfers(pulled, { botId: bot.id })
 
     void handoffForeground(bot, id, pulled).catch((error) => {
