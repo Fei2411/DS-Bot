@@ -673,7 +673,9 @@ test('B20: failed post-move forward retries automatically via backoff without du
   host.agentOf('b').status = 'running'
   await host.preStep('b', [msg], 2)
 
-  assert.equal(await waitReal(() => host.state().bots.b.sessionId === 's1' && host.state().switching.b !== undefined), true)
+  assert.equal(await waitReal(() => host.state().bots.b.sessionId === 's1' && host.state().switching.b !== undefined && targetEvents.length === 1 && !host.rt.isSwitchingPart('b')), true)
+  // Yield one real microtask/tick so startSwitch.finally has registered the 5s retry timer.
+  await new Promise(resolve => realSetTimeout(resolve, 10))
   assert.deepEqual(host.archived, [], 'old part stays unarchived after transient forward flush error')
 
   // Clear transient error and advance timer 5s: backoff retry runs heldBack() automatically,

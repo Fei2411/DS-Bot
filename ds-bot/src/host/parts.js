@@ -2316,8 +2316,11 @@ export function install(rt) {
           if (job.kept !== true) {
             delete state.switching[agent.id]
             await rt.save()
-          } else if (job.schedulePending !== true && job.unloaded !== true) {
-            scheduleHeldBackRetry()
+          } else {
+            if (job.handoffCleared === true) await rt.save().catch(() => {})
+            if (job.schedulePending !== true && job.unloaded !== true) {
+              scheduleHeldBackRetry()
+            }
           }
           forgetSessionParts(agent.id)
           rt.forgetSessionTurn?.(agent.id)
@@ -2658,11 +2661,12 @@ export function install(rt) {
       fresh.followup(createUserMessage({ content: [{ type: 'text', text }], source: handoffSource(job, resume) }))
       await ctx.sessions.flush(fresh.session)
       // Handoff package is now durably flushed to the fresh part: clear the pending flag
-      // before forwarding held input so state.switching stays minimal on downstream failures.
+      // in memory (persisted on the switch's final save; even on a hard crash before that
+      // save, ensureHandoffDelivered sees the flushed handoff on fresh and skips cleanly).
       if (state.switching[agent.id] !== undefined) {
         delete state.switching[agent.id].handoffPending
         delete state.switching[agent.id].handoffMeta
-        await rt.save()
+        job.handoffCleared = true
       }
       const heldIds = new Set(held.map(m => m?.id).filter(Boolean))
       for (const message of job.carry.splice(0)) {
@@ -2676,6 +2680,10 @@ export function install(rt) {
     } catch (error) {
       job.kept = true
       try { restore(agent, [...carry, ...job.carry.splice(0)]) } catch {}
+      if (job.handoffCleared === true) {
+        job.handoffCleared = false
+        await rt.save().catch(() => {})
+      }
       throw error
     }
     removeForMove(agent, held)
