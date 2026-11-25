@@ -2566,8 +2566,12 @@ export function install(rt) {
           const isResultWake = by === undefined && (post.route?.kind === 'result' || (wake !== undefined && member.id === post.askedBy))
           const upstream = isResultWake ? upstreamBatchFor(room.id, member.id, wakeParentKey) : undefined
           const effectiveBy = upstream !== undefined ? upstream.by : by
+          const effectiveBatchKey = upstream !== undefined ? upstream.key : (by !== undefined ? openingBatchKey : undefined)
           const memberNote = wake !== undefined && member.id === post.askedBy && by === undefined ? finishedNote(wake.names) : postNote
-          const waiting = round.slots.findIndex(slot => slot.id === member.id && slot.status === 'waiting' && (effectiveBy === undefined || slot.by === undefined || slot.by === effectiveBy))
+          const waiting = round.slots.findIndex(slot => slot.id === member.id
+            && slot.status === 'waiting'
+            && (effectiveBy === undefined || slot.by === undefined || slot.by === effectiveBy)
+            && sameBatchSlot(slot, effectiveBatchKey))
           const moves = waiting === -1 || (ordered && round.slots[waiting].ordered === true)
           const slot = waiting === -1 ? { id: member.id, name: member.name, status: 'waiting' } : round.slots[waiting]
           if (upstream !== undefined) {

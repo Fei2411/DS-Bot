@@ -5106,7 +5106,9 @@ test('paused nested delegation preserves parentBatchKey across Continue, partial
     host.finish('gb', 'Will document v0.3.11.')
     await settle(() => r2() !== undefined)
   }
+})
 
+test('dual-parent direct requests from the same caller to the same worker survive Continue, folded runRoundFrom, and busy activeJoined', async (t) => {
   // 8) Clicking Continue with two parked direct requests from the same caller to the same worker
   // serving two different upstream parents keeps both child batches and resumes both parents.
   {
@@ -5189,5 +5191,171 @@ test('paused nested delegation preserves parentBatchKey across Continue, partial
     host.finish('gd', 'Reviewer done.')
     await settle(() => r() !== undefined)
     assert.deepEqual(Object.values(rt.state.roomBatches ?? {}), [])
+  }
+
+  // 9) Two queued direct posts from the same caller to the same worker for distinct parents
+  // folded into one runRoundFrom keep separate waiting slots and resume both parents.
+  {
+    const host = await start(
+      t,
+      { members: ['a', 'b', 'c', 'd'], sessions: { a: 'ga', b: 'gb', c: 'gc', d: 'gd' } },
+      undefined,
+      undefined,
+      { d: {} },
+    )
+    const p1 = {
+      key: 'fold-parent-chief',
+      roomId: 'r1',
+      by: 'a',
+      pending: ['b'],
+      done: [],
+      doneIds: [],
+      results: [],
+      worked: false,
+      direct: true,
+      returnRequested: true,
+      answered: false,
+      at: Date.now(),
+    }
+    const p2 = {
+      key: 'fold-parent-reviewer',
+      roomId: 'r1',
+      by: 'd',
+      pending: ['b'],
+      done: [],
+      doneIds: [],
+      results: [],
+      worked: false,
+      direct: true,
+      returnRequested: true,
+      answered: false,
+      at: Date.now(),
+    }
+    rt.state.roomBatches = { [p1.key]: p1, [p2.key]: p2 }
+
+    // Generate two real queued delegate_work posts from Writer -> Tester for distinct parents,
+    // then fold both into one runRoundFrom.
+    host.agentOf('gb').followup({
+      id: 'w-turn-p1',
+      content: [{ type: 'text', text: 'Check release notes' }],
+      source: { kind: 'bot', role: 'room', roomId: 'r1', askedBy: 'a', batchKey: p1.key, exchangeId: 'ex-w-fold-1', senderSessionId: 'r1' },
+    })
+    host.begin('gb')
+    host.emit('gb', 'tool/call', { callId: 'w-work-1', name: 'read', arguments: '{}' })
+    host.emit('gb', 'tool/result', { callId: 'w-work-1' })
+    await host.tool('delegate_work', { to: 'Tester', goal: 'check release notes' }, 'gb')
+    host.finish('gb', '[PASS]')
+
+    host.agentOf('gb').followup({
+      id: 'w-turn-p2',
+      content: [{ type: 'text', text: 'Check migration guide' }],
+      source: { kind: 'bot', role: 'room', roomId: 'r1', askedBy: 'd', batchKey: p2.key, exchangeId: 'ex-w-fold-2', senderSessionId: 'r1' },
+    })
+    host.begin('gb')
+    host.emit('gb', 'tool/call', { callId: 'w-work-2', name: 'read', arguments: '{}' })
+    host.emit('gb', 'tool/result', { callId: 'w-work-2' })
+    await host.tool('delegate_work', { to: 'Tester', goal: 'check migration guide' }, 'gb')
+    host.finish('gb', '[PASS]')
+
+    await settle(() => host.agentOf('r1').calls.length === 2)
+    const post1 = host.takePost()
+    const post2 = host.takePost()
+    const gbBefore = host.agentOf('gb').calls.length
+    host.emit('r1', 'user/message', post1)
+    const r = host.round('c-fold', post2)
+
+    await settle(() => host.agentOf('gc').calls.length === 1)
+    const childBatches = Object.values(rt.state.roomBatches ?? {}).filter(b => b.by === 'b' && b.pending.includes('c'))
+    assert.equal(childBatches.length, 2, 'folded direct posts with distinct parentBatchKey must keep both child batches')
+    host.begin('gc')
+    host.emit('gc', 'tool/call', { callId: 't-fold-1', name: 'read', arguments: '{}' })
+    host.emit('gc', 'tool/result', { callId: 't-fold-1' })
+    host.finish('gc', 'Release notes verified.')
+
+    await settle(() => host.agentOf('gc').calls.length === 2)
+    host.begin('gc')
+    host.emit('gc', 'tool/call', { callId: 't-fold-2', name: 'read', arguments: '{}' })
+    host.emit('gc', 'tool/result', { callId: 't-fold-2' })
+    host.finish('gc', 'Migration guide verified.')
+
+    await settle(() => host.agentOf('gb').calls.length === gbBefore + 1)
+    host.begin('gb')
+    host.finish('gb', 'Summary for Chief.')
+    await settle(() => host.agentOf('gb').calls.length === gbBefore + 2)
+    host.begin('gb')
+    host.finish('gb', 'Summary for Reviewer.')
+
+    await settle(() => host.agentOf('ga').calls.length === 1 && host.agentOf('gd').calls.length === 1)
+    host.begin('ga')
+    host.finish('ga', 'Chief got summary.')
+    host.begin('gd')
+    host.finish('gd', 'Reviewer got summary.')
+    await settle(() => r() !== undefined)
+    assert.deepEqual(Object.values(rt.state.roomBatches ?? {}), [])
+  }
+
+  // 10) Busy Tester receiving two waiterless room deliveries from the same caller for distinct
+  // live pending child batches re-delivers BOTH when its current turn ends (activeJoined).
+  {
+    const host = await start(
+      t,
+      { members: ['a', 'b', 'c', 'd'], sessions: { a: 'ga', b: 'gb', c: 'gc', d: 'gd' } },
+      undefined,
+      undefined,
+      { d: {} },
+    )
+    const c1 = {
+      key: 'child-batch-1',
+      roomId: 'r1',
+      by: 'b',
+      pending: ['c'],
+      done: [],
+      doneIds: [],
+      results: [],
+      worked: false,
+      direct: true,
+      returnRequested: true,
+      parentBatchKey: 'parent-1',
+      answered: false,
+      at: Date.now(),
+    }
+    const c2 = {
+      key: 'child-batch-2',
+      roomId: 'r1',
+      by: 'b',
+      pending: ['c'],
+      done: [],
+      doneIds: [],
+      results: [],
+      worked: false,
+      direct: true,
+      returnRequested: true,
+      parentBatchKey: 'parent-2',
+      answered: false,
+      at: Date.now(),
+    }
+    rt.state.roomBatches = { [c1.key]: c1, [c2.key]: c2 }
+
+    // Tester is busy on an earlier room turn while both waiterless calls from Writer join it.
+    host.agentOf('gc').followup({
+      id: 'u-busy',
+      content: [{ type: 'text', text: 'Busy room turn' }],
+      source: { kind: 'bot', role: 'room', roomId: 'r1', exchangeId: 'ex-busy-other', senderSessionId: 'r1' },
+    })
+    host.begin('gc')
+    host.emit('gc', 'user/message', {
+      content: [{ type: 'text', text: 'Check release notes' }],
+      source: { kind: 'bot', role: 'room', roomId: 'r1', askedBy: 'b', batchKey: c1.key, exchangeId: 'ex-join-c1', senderSessionId: 'r1' },
+    })
+    host.emit('gc', 'user/message', {
+      content: [{ type: 'text', text: 'Check migration guide' }],
+      source: { kind: 'bot', role: 'room', roomId: 'r1', askedBy: 'b', batchKey: c2.key, exchangeId: 'ex-join-c2', senderSessionId: 'r1' },
+    })
+
+    const before = host.agentOf('gc').calls.length
+    host.finish('gc', 'Finished unrelated busy turn.')
+    await settle(() => host.agentOf('gc').calls.length >= before + 2)
+    const redelivered = host.agentOf('gc').calls.slice(before).map(msg => msg.source?.batchKey)
+    assert.deepEqual(redelivered, [c1.key, c2.key], 'both live pending child batches must be re-delivered when busy turn finishes')
   }
 })

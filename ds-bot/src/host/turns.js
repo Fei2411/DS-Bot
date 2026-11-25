@@ -1834,19 +1834,31 @@ export function install(rt) {
         }
         const liveWaiterRooms = new Set()
         const liveWaiterScopes = new Set()
+        const liveWaiterBatchScopes = new Set()
         const latestWaiterlessRoom = new Map()
         const latestWaiterlessScope = new Map()
+        const latestWaiterlessBatchScope = new Map()
+        const selfId = rt.selfOf(id)
+        const liveBatchScopeOf = (info) => {
+          if (info.batchKey === undefined || selfId === undefined) return undefined
+          const batch = rt.state?.roomBatches?.[info.batchKey]
+          if (batch === undefined || batch.roomId !== info.roomId || !Array.isArray(batch.pending) || !batch.pending.includes(selfId)) return undefined
+          return `${info.roomId}\0${info.askedBy ?? ''}\0${info.batchKey}`
+        }
         for (const request of activeJoined) {
           if (request.info.role !== 'room' || request.info.roomId === undefined) continue
           const scope = request.info.askedBy !== undefined ? `${request.info.roomId}\0${request.info.askedBy}` : undefined
+          const batchScope = liveBatchScopeOf(request.info)
           if (roomWaiters.has(request.info.exchangeId)) {
             if (failure === undefined && reason?.kind !== 'aborted') {
               liveWaiterRooms.add(request.info.roomId)
               if (scope !== undefined) liveWaiterScopes.add(scope)
+              if (batchScope !== undefined) liveWaiterBatchScopes.add(batchScope)
             }
           } else {
             latestWaiterlessRoom.set(request.info.roomId, request.info.exchangeId)
             if (scope !== undefined) latestWaiterlessScope.set(scope, request.info.exchangeId)
+            if (batchScope !== undefined) latestWaiterlessBatchScope.set(batchScope, request.info.exchangeId)
           }
         }
         for (const request of activeJoined) {
@@ -1875,7 +1887,10 @@ export function install(rt) {
             }
           }
           if (request.info.role === 'room' && request.info.roomId !== undefined && !roomWaiters.has(request.info.exchangeId)) {
-            if (request.info.askedBy !== undefined) {
+            const batchScope = liveBatchScopeOf(request.info)
+            if (batchScope !== undefined) {
+              if (liveWaiterBatchScopes.has(batchScope) || latestWaiterlessBatchScope.get(batchScope) !== request.info.exchangeId) continue
+            } else if (request.info.askedBy !== undefined) {
               const scope = `${request.info.roomId}\0${request.info.askedBy}`
               if (liveWaiterScopes.has(scope) || latestWaiterlessScope.get(scope) !== request.info.exchangeId) continue
             } else if (liveWaiterRooms.has(request.info.roomId) || latestWaiterlessRoom.get(request.info.roomId) !== request.info.exchangeId) {
