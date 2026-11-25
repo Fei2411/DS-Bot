@@ -2396,11 +2396,15 @@ export function install(rt) {
     const holder = { roomId: room.id, slots: [], starting: true, abort: controller, ...(anchor !== undefined ? { anchor } : {}) }
     holder.ready = new Promise((resolve) => { holder.settle = resolve })
     rt.roomProgress.set(key, holder)
+    rt.publishFeed?.('live', {})
     const run = runRoundFrom(room, queued, agent, key, controller.signal, holder)
       .catch(error => rt.warn('ds-bot: group round in %s failed: %s', room.name, error))
       .finally(() => {
         holder.settle(undefined)
-        if (rt.roomProgress.get(key) === holder) rt.roomProgress.delete(key)
+        if (rt.roomProgress.get(key) === holder) {
+          rt.roomProgress.delete(key)
+          rt.publishFeed?.('live', {})
+        }
       })
     const runs = roundRuns.get(room.id) ?? new Set()
     runs.add(run)
@@ -2721,6 +2725,7 @@ export function install(rt) {
         laterPosts.delete(room.id)
         startRound(room, later, agent)
       } else if (!disposed) {
+        rt.publishFeed?.('live', {})
         void settleRoomReports(room.id).catch(error => rt.warn('ds-bot: settling reports in %s failed: %s', room.name, error))
       }
     }

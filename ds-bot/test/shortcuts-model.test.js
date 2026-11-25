@@ -118,11 +118,15 @@ test('validateBinding and eventToBinding reject unsafe combos while allowing mac
   assert.deepEqual(validateBinding({ code: 'KeyQ', mod: true, ctrl: false, alt: false, shift: false }, true), { ok: false, reason: 'reserved' })
   assert.deepEqual(validateBinding({ code: 'Escape', mod: false, ctrl: false, alt: false, shift: false }, true), { ok: false, reason: 'reserved' })
   // Composer Enter / Shift+Enter / Mod+Enter / Ctrl+Enter are reserved so they never become dead keys or send drafts.
+  assert.deepEqual(validateBinding({ code: 'Enter', mod: false, ctrl: false, alt: false, shift: false }, true), { ok: false, reason: 'reserved' })
+  assert.deepEqual(validateBinding({ code: 'Enter', mod: false, ctrl: false, alt: false, shift: true }, true), { ok: false, reason: 'reserved' })
   assert.deepEqual(validateBinding({ code: 'Enter', mod: true, ctrl: false, alt: false, shift: false }, true), { ok: false, reason: 'reserved' })
   assert.deepEqual(validateBinding({ code: 'Enter', mod: false, ctrl: true, alt: false, shift: false }, true), { ok: false, reason: 'reserved' })
   assert.deepEqual(validateBinding({ code: 'NumpadEnter', mod: true, ctrl: false, alt: false, shift: false }, false), { ok: false, reason: 'reserved' })
-  // Alt+Enter stays allowed since composer leaves Alt+Enter alone.
+  // Alt+Enter and Mod/Ctrl+Shift+Enter stay allowed since the composer does not intercept them.
   assert.deepEqual(validateBinding({ code: 'Enter', mod: false, ctrl: false, alt: true, shift: false }, true), { ok: true })
+  assert.deepEqual(validateBinding({ code: 'Enter', mod: true, ctrl: false, alt: false, shift: true }, false), { ok: true })
+  assert.deepEqual(validateBinding({ code: 'Enter', mod: true, ctrl: false, alt: false, shift: true }, true), { ok: true })
   // On macOS, Ctrl+Cmd+C is distinct from Cmd+C and stays assignable.
   assert.deepEqual(validateBinding({ code: 'KeyC', mod: true, ctrl: true, alt: false, shift: false }, true), { ok: true })
   assert.deepEqual(validateBinding({ code: 'F8', mod: false, ctrl: false, alt: false, shift: false }, true), { ok: true })

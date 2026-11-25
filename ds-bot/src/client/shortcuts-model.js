@@ -297,8 +297,8 @@ export function validateBinding(binding, mac = isMacPlatform()) {
   if (binding.code === 'Escape' && !hasAnyMod) {
     return { ok: false, reason: 'reserved' }
   }
-  // Composer intercepts Enter, Shift+Enter, and Mod/Ctrl+Enter to submit or insert a newline.
-  if ((binding.code === 'Enter' || binding.code === 'NumpadEnter') && !mods.alt) {
+  // Composer intercepts Enter, Shift+Enter, and Mod/Ctrl+Enter (without Shift/Alt).
+  if ((binding.code === 'Enter' || binding.code === 'NumpadEnter') && !mods.alt && (!hasPrimary || !mods.shift)) {
     return { ok: false, reason: 'reserved' }
   }
   // Bare letters/digits/punctuation (or Shift+letter) would hijack typing.

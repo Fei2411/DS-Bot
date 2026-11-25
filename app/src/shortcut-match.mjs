@@ -1,3 +1,35 @@
+const BASE_SYMBOL_BY_CODE = {
+  Period: ['.', '>'],
+  Comma: [',', '<'],
+  Slash: ['/', '?'],
+  Semicolon: [';', ':'],
+  Quote: ["'", '"'],
+  BracketLeft: ['[', '{'],
+  BracketRight: [']', '}'],
+  Backslash: ['\\', '|'],
+  Minus: ['-', '_'],
+  Equal: ['=', '+'],
+  Backquote: ['`', '~'],
+}
+
+function isLikelyAltGrInput(input, platform) {
+  if (input.key === 'AltGraph' || input.key === 'Dead') return true
+  if (Array.isArray(input.modifiers) && input.modifiers.some(m => String(m).toLowerCase() === 'altgraph')) return true
+  if (platform === 'darwin' || !input.control || !input.alt || input.meta) return false
+  if (typeof input.key !== 'string' || input.key.length !== 1) return false
+  const code = typeof input.code === 'string' ? input.code : ''
+  // When Electron omits the AltGraph modifier bit on Windows/Linux, genuine AltGr
+  // character input transforms letters/digits/punctuation into third-level symbols
+  // (e.g. KeyQ -> '@', KeyL -> 'ł', Digit7 -> '{', BracketRight -> '~'), while
+  // ordinary Ctrl+Alt shortcuts preserve ASCII letters (across QWERTY/QWERTZ/AZERTY),
+  // unshifted digits, or the punctuation key's own symbol (e.g. Period -> '.').
+  if (/^Key[A-Z]$/.test(code)) return !/^[a-z]$/i.test(input.key)
+  if (/^Digit[0-9]$/.test(code)) return !input.shift && !/^[0-9]$/.test(input.key)
+  const expected = BASE_SYMBOL_BY_CODE[code]
+  if (expected) return !expected.includes(input.key)
+  return false
+}
+
 /**
  * Matches an Electron `before-input-event` input record from a focused child Bot
  * WebContentsView against the active desktop shortcut whitelist synced from the window.
@@ -6,14 +38,7 @@
  */
 export function matchForwardedShortcut(input, bindings, platform = process.platform) {
   if (!input || input.type !== 'keyDown' || input.isComposing || input.isAutoRepeat) return null
-  if (input.key === 'AltGraph') return null
-  if (Array.isArray(input.modifiers) && input.modifiers.some(m => String(m).toLowerCase() === 'altgraph')) return null
-  // On Windows/Linux, AltGr emits Ctrl+Alt with a printable character (e.g. '@' on AltGr+Q);
-  // never hijack printable AltGr characters inside a webpage.
-  if (platform !== 'darwin' && input.control && input.alt && !input.meta
-    && typeof input.key === 'string' && input.key.length === 1 && !/^[a-z0-9]$/i.test(input.key)) {
-    return null
-  }
+  if (isLikelyAltGrInput(input, platform)) return null
   if (!Array.isArray(bindings) || bindings.length === 0) return null
   const mac = platform === 'darwin'
   for (const entry of bindings) {

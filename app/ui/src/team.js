@@ -912,9 +912,10 @@ export function createTeam() {
       setStatus(part, { running: doing !== undefined })
       actions.noteLive(part, 'tool', doing?.tool ? { label: workPhrase(doing), state: toolState(doing.tool) } : null)
     }
+    const activeRooms = new Set(snap.activeRooms ?? [])
     for (const room of r.rooms ?? []) {
       const part = currentPart(room)
-      const busy = (rooms[room.id]?.length ?? 0) > 0
+      const busy = activeRooms.has(room.id) || (rooms[room.id]?.length ?? 0) > 0
       setStatus(part, { running: busy })
     }
     const turns = snap.turns ?? {}

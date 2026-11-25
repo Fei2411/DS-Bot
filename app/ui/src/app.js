@@ -306,9 +306,14 @@ export function App() {
       return
     }
     if (hit === 'browser') {
-      if (typeof actions.openBrowser !== 'function' || rosterSnap.browser === false) return
+      if (rosterSnap.browser === false) return
       const currentBot = shownId ? rosterSnap.byId?.[shownId] : null
       const botId = currentBot?.id ?? rosterSnap.mainBotId ?? rosterSnap.bots?.[0]?.id
+      if (typeof actions.toggleBrowser === 'function') {
+        if (botId) actions.toggleBrowser(botId)
+        return
+      }
+      if (typeof actions.openBrowser !== 'function') return
       const detailsBotId = uiSnap.details ? (rosterSnap.byId?.[uiSnap.details]?.id ?? uiSnap.details) : null
       if (uiSnap.details && uiSnap.view === 'browser' && (!botId || detailsBotId === botId)) {
         actions.closePanel()
