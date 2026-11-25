@@ -53,9 +53,10 @@ export function Bubbles({ texts, roster, selfId, actions, streaming, sessionId, 
   const reactions = useReadUi(state => (msgKey ? state.reactions?.[msgKey] ?? null : null))
   return h('div', { className: 'bt-astack', 'data-lead': lead ? '' : undefined, onClickCapture: onClick },
     cleaned.map((text, index) => {
+      const first = index === 0
       const last = index === cleaned.length - 1
       return h(Bubble, {
-        key: index, text, index, roster, selfId, actions, sessionId, msgKey, mentions, fold, textInteractionSource,
+        key: index, text, index, first, last, roster, selfId, actions, sessionId, msgKey, mentions, fold, textInteractionSource,
         picked: msgKey ? reactions?.[index] ?? [] : [],
         live: streaming && last,
         lead: lead && last ? lead : null,
@@ -97,7 +98,7 @@ const foldArea = (body, code, codeHead, actions) => (code === undefined ? body
     h('pre', { className: 'bt-fold-pre' }, h('code', null, codeHead)),
     h(FoldCodeCopy, { code, actions })))
 
-function Bubble({ text, index, roster, selfId, actions, sessionId, msgKey, mentions, fold, picked, live, lead, whole, textInteractionSource }) {
+function Bubble({ text, index, first = true, last = true, roster, selfId, actions, sessionId, msgKey, mentions, fold, picked, live, lead, whole, textInteractionSource }) {
   const { shown, folded, control, code, codeHead } = useFold(text, { limit: fold, whole, live })
   const key = msgKey ? `${msgKey}:${index}` : undefined
   const body = shown === '' ? null : h(MarkdownText, { text: linkMentions(normalizeFileLinks(shown), roster.bots, selfId), streaming: live, labels: mdLabels(), variant: 'compact', fileMentions: mentions })
@@ -112,7 +113,15 @@ function Bubble({ text, index, roster, selfId, actions, sessionId, msgKey, menti
   }
   const bubble = useRef(null)
   const area = foldArea(body, code, codeHead, actions)
-  return h('div', { ref: row, className: 'bt-msg', onClick: tapTools },
+  return h('div', {
+    ref: row,
+    className: 'bt-msg',
+    'data-first': first ? '' : undefined,
+    'data-last': last ? '' : undefined,
+    'data-join-top': first ? undefined : '',
+    'data-join-bottom': last ? undefined : '',
+    onClick: tapTools,
+  },
     h('div', { className: 'bt-msg-line' },
       lead,
       h('div', { ref: bubble, className: 'bt-bubble', 'data-folded': folded || undefined, 'data-text-interaction-source': textInteractionSource ? '' : undefined },

@@ -200,7 +200,7 @@ test('the host enforces a default-deny browser allowlist across every channel ro
   assert.equal(remoteAccessError({ deviceId: 'x', kind: 'phone' }, 'connector-add'), undefined)
   assert.equal(remoteAccessError({ deviceId: 'x', kind: 'phone' }, 'session-page').code, 'bot/refused')
   assert.equal(BROWSER_ALLOWED.has('session-page'), false)
-  for (const localOnly of ['workspace-list', 'workspace-read', 'workspace-changes', 'terminal-open']) {
+  for (const localOnly of ['workspace-list', 'workspace-read', 'workspace-changes', 'terminal-open', 'engine-settings-list', 'engine-settings-mutate', 'engine-account-state']) {
     assert.equal(remoteAccessError({ deviceId: 'x', kind: 'phone' }, localOnly).code, 'bot/refused')
     assert.equal(remoteAccessError({ deviceId: 'x', kind: 'browser' }, localOnly).code, 'bot/refused')
     assert.equal(BROWSER_ALLOWED.has(localOnly), false)

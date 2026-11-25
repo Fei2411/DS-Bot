@@ -10,7 +10,7 @@ import { call } from '../../../ds-bot/src/client/api.js'
 import { BtwTurnTail } from '../../../ds-bot/src/client/btw.js'
 import { Bubbles, EarlierParts, PartLine, ThinkingRow, ToolCell, isBotTool } from '../../../ds-bot/src/client/cells.js'
 import { ChangesCard } from '../../../ds-bot/src/client/changes-card.js'
-import { fileExtension, fileSizeText, writeClipboard } from '../../../ds-bot/src/client/dsh-primitives.js'
+import { MarkdownText, fileExtension, fileSizeText, writeClipboard } from '../../../ds-bot/src/client/dsh-primitives.js'
 import { SaveFileAction } from '../../../ds-bot/src/client/file-save.js'
 import { FOLD_HUGE, useFold } from '../../../ds-bot/src/client/fold.js'
 import { CheckIcon, ChevronRightIcon, CloseIcon, CopyIcon, FileIcon, ImageIcon } from '../../../ds-bot/src/client/icons.js'
@@ -259,7 +259,7 @@ export function useSessionFollow({ sessionId, enabled, feed, readOnly, onUserMes
   }
 }
 
-function CopyTextButton({ text }) {
+function CopyTextButton({ text, className = 'bt-tool' }) {
   const [copied, setCopied] = useState(false)
   const copy = () => {
     void writeClipboard(text).then((ok) => {
@@ -270,7 +270,7 @@ function CopyTextButton({ text }) {
   }
   return h('button', {
     type: 'button',
-    className: 'bt-tool',
+    className,
     'aria-label': copied ? t('Copied') : t('Copy'),
     title: copied ? t('Copied') : t('Copy'),
     onClick: copy,
@@ -363,7 +363,7 @@ export function UserAttachments({ attachments, sessionId }) {
   }))
 }
 
-function UserRow({ row, sessionId, roster, actions }) {
+function UserRow({ row, sessionId, roster, actions, classic = false }) {
   const { shown, folded, control } = useFold(row.text ?? '', { markdown: false })
   const container = useRef(null)
   const [toolsOpen, setToolsOpen] = useState(false)
@@ -388,6 +388,28 @@ function UserRow({ row, sessionId, roster, actions }) {
   const hasTime = Number.isFinite(row.time)
   const sentAt = hasTime ? messageClock(row.time) : undefined
   const timeTitle = hasTime ? clockLabel(row.time) : undefined
+  if (classic) {
+    return h('div', {
+      ref: container,
+      className: 'dsb-dsh-user',
+      'data-chat-flow-kind': 'user',
+      'data-open': toolsOpen || undefined,
+    },
+    h('div', { className: 'dsb-dsh-user-stack' },
+      h(UserAttachments, { attachments: row.attachments, sessionId }),
+      row.text !== '' ? h('div', {
+        className: 'dsb-dsh-user-bubble',
+        title: timeTitle,
+        'data-folded': folded || undefined,
+        'data-text-interaction-source': '',
+        onClick: tapTools,
+      },
+      control ? h('div', { className: 'bt-fold-body' }, body) : body,
+      control) : null),
+    (row.text !== '' || sentAt) ? h('div', { className: 'dsb-dsh-user-actions' },
+      sentAt ? h('span', { className: 'dsb-dsh-msg-time', title: timeTitle }, sentAt) : null,
+      row.text !== '' ? h(CopyTextButton, { text: row.text, className: 'dsb-dsh-act-btn' }) : null) : null)
+  }
   return h('div', { ref: container, className: 'bt-umsg' },
     h('div', { className: 'bt-ustack' },
       h(UserAttachments, { attachments: row.attachments, sessionId }),
@@ -455,7 +477,7 @@ function SpeakerHead({ bot, time }) {
     Number.isFinite(time) ? h('span', { className: 'bt-group-time', title: clockLabel(time) }, messageClock(time)) : null)
 }
 
-function AssistantRow({ row, showSpeaker, bot, sessionId, roster, actions, useUi, thinkingAt }) {
+function AssistantRow({ row, showSpeaker, bot, sessionId, roster, actions, useUi, thinkingAt, classic = false }) {
   const showThinking = thinkingShown(roster.prefs)
   const selfId = bot?.id ?? sessionId
   const flat = layoutOf(roster.prefs) === 'flat'
@@ -472,6 +494,32 @@ function AssistantRow({ row, showSpeaker, bot, sessionId, roster, actions, useUi
   const hasTexts = row.texts.length > 0
   if (!hasThinking && !hasActivity && !hasTexts) return null
   const liveAt = row.thinkingLive ? thinkingAt?.[row.attemptId ?? 'live'] : undefined
+  if (classic) {
+    const combinedText = row.texts.join('\n\n')
+    const mdLabels = { code: { copyLabel: t('Copy'), copiedLabel: t('Copied') } }
+    const hasTime = Number.isFinite(row.time)
+    return h(Fragment, null,
+      hasActivity ? h('div', { className: 'bt-agent-activity' }, row.activity.map((line, index) => h('div', { key: index, className: 'bt-agent-act', title: line },
+        h('span', { className: 'bt-agent-act-mark', 'aria-hidden': true }),
+        h('span', { className: 'bt-agent-act-text' }, activityParts(line))))) : null,
+      hasThinking ? h(ThinkingRow, {
+        text: row.reasoning,
+        live: row.thinkingLive,
+        viewKey: `${sessionId}:${row.turn ?? 't'}:${row.step ?? row.seq ?? row.attemptId ?? 'live'}`,
+        textInteractionSource: !row.streaming,
+        ...(row.thinkingLive ? { at: liveAt } : { ms: row.reasoningMs }),
+      }) : null,
+      hasTexts ? h('div', {
+        className: 'dsb-dsh-asst',
+        'data-chat-flow-kind': 'assistant',
+        'data-streaming': row.streaming ? '' : undefined,
+      },
+      h('div', { className: 'dsb-dsh-asst-body', 'data-text-interaction-source': !row.streaming ? '' : undefined },
+        row.texts.map((text, index) => h(MarkdownText, { key: index, text, labels: mdLabels }))),
+      !row.streaming ? h('div', { className: 'dsb-dsh-asst-actions' },
+        h(CopyTextButton, { text: combinedText, className: 'dsb-dsh-act-btn' }),
+        hasTime ? h('span', { className: 'dsb-dsh-msg-time dsb-dsh-asst-time', title: clockLabel(row.time) }, messageClock(row.time)) : null) : null) : null)
+  }
   return h(Fragment, null,
     showSpeaker && flat && bot ? h(SpeakerHead, { bot, time: row.time }) : null,
     hasActivity ? h('div', { className: 'bt-agent-activity' }, row.activity.map((line, index) => h('div', { key: index, className: 'bt-agent-act', title: line },
@@ -595,7 +643,7 @@ function TurnTailRow({ row, sessionId, useRoster, actions }) {
 }
 
 export function SessionTranscript({
-  log, sessionId, bot, roster, actions,
+  log, sessionId, bot, roster, actions, classic = false,
   useUi, useRoster, useWork, useTurnClock, useHeldCards,
   useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer,
   thinkingAt, hasMore = false, registry = defaultSlots,
@@ -679,7 +727,7 @@ export function SessionTranscript({
       }
     }
 
-    const pause = Number.isFinite(row.time) && (prevTime === undefined || row.time - prevTime >= SEPARATOR_GAP_MS)
+    const pause = !classic && Number.isFinite(row.time) && (prevTime === undefined || row.time - prevTime >= SEPARATOR_GAP_MS)
     if (Number.isFinite(row.time)) prevTime = row.time
 
     const renderToolFallback = (ownerProps) => {
@@ -720,9 +768,9 @@ export function SessionTranscript({
 
     const renderDefault = () => {
       switch (row.kind) {
-        case 'user': return h(UserRow, { row, sessionId, roster, actions })
+        case 'user': return h(UserRow, { row, sessionId, roster, actions, classic })
         case 'answer': return h(AnsweredReply, { node: { data: row.data } })
-        case 'assistant': return h(AssistantRow, { row, showSpeaker, bot, sessionId, roster, actions, useUi, thinkingAt })
+        case 'assistant': return h(AssistantRow, { row, showSpeaker, bot, sessionId, roster, actions, useUi, thinkingAt, classic })
         case 'tool': return renderTool()
         case 'compaction': return h(CompactionRow, { row })
         case 'event': return h(SessionEventRow, { row, selfId, roster, actions })

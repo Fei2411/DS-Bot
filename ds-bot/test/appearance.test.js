@@ -254,7 +254,7 @@ test('the page stylesheet follows the appearance, and safe appearance drops the 
   const wait = (fn) => { timers.set(++ids, fn); return ids }
   const unwait = id => timers.delete(id)
   // Fires the Shift holds; timer 1 is the one that closes the watch after the first seconds.
-  const elapse = () => { for (const [id, fn] of [...timers]) { if (id === 1) continue; timers.delete(id); fn() } }
+  const elapse = () => { for (const [id, fn] of Array.from(timers)) { if (id === 1) continue; timers.delete(id); fn() } }
   const key = (type, fields) => target.dispatchEvent(Object.assign(new Event(type), fields))
   const stop = watchSafeAppearance(target, () => clock, wait, unwait)
   key('keydown', { key: 'Shift', shiftKey: true })
@@ -408,7 +408,7 @@ test('the Appearance page words are its own, not a word from another page that r
   for (const word of ['Background', 'From', 'To', 'Light']) {
     assert.doesNotMatch(page, new RegExp(`t\\('${word}'\\)|, '${word}'\\]`), word)
   }
-  for (const word of ['Window background', 'Start color', 'End color', 'Light mode', 'Dark mode', 'Background color', 'Text color', 'More colors', 'Fewer colors']) {
+  for (const word of ['Window background', 'Start color', 'End color', 'Light mode', 'Dark mode', 'Background color', 'Text color', 'More settings', 'Fewer settings']) {
     for (const lang of ['zh', 'ja', 'ko', 'es', 'fr', 'de']) assert.ok(Object.hasOwn(DICTIONARY[lang], word), `${lang}: ${word}`)
   }
 })

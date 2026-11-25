@@ -177,7 +177,8 @@ export function ComposerPlus({ sessionId, inputActions, useInput, useRoster, act
   const place = useMemo(() => {
     if (!shown || !button.current) return null
     const rect = button.current.getBoundingClientRect()
-    return { left: rect.left, bottom: viewBottom() - rect.top + 8 }
+    const cardTop = button.current.closest?.('[data-composer-card]')?.getBoundingClientRect?.().top ?? rect.top
+    return { left: rect.left, bottom: viewBottom() - Math.min(rect.top, cardTop) + 8 }
   }, [shown, open, tick])
   const target = roster.byId?.[sessionId]?.id ?? roster.roomsById?.[sessionId]?.id
   if (sessionId === undefined || target === undefined) return null

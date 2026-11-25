@@ -39,7 +39,7 @@ const expand = (node) => {
   if (Array.isArray(node)) return node.map(expand)
   if (typeof node !== 'object') return node
   if (typeof node.type === 'function') return expand(node.type(node.props))
-  return { ...node, props: { ...(node.props ?? {}), children: expand(node.props?.children) } }
+  return { ...node, props: { ...node.props, children: expand(node.props?.children) } }
 }
 let active = () => expand(AgentSignInRow(props))
 const rerender = () => { idx = 0; concrete = active() }
@@ -48,7 +48,7 @@ const react = {
   useContext: ctx => ctx.value,
   useCallback: fn => fn,
   useSyncExternalStore: (_subscribe, getSnapshot) => getSnapshot(),
-  createElement: (type, p, ...children) => ({ type, props: { ...(p ?? {}), children } }),
+  createElement: (type, p, ...children) => ({ type, props: { ...p, children } }),
   Fragment: 'fragment',
   useEffect() {}, useLayoutEffect() {},
   useState: (init) => {
@@ -142,6 +142,21 @@ test('conflicted custom agents stay manageable but are absent from CLI choices',
   slots.push({ detected: [], custom: [] }, false)
   idx = 0
   assert.equal(module.exports.useLocalAgents(false).agents.length, 0)
+})
+
+test('LocalAgentsPage renders a loading state while scanning and Retry on error instead of a blank void', () => {
+  slots.length = 0
+  slots.push(null, null, null, false)
+  active = () => expand(module.exports.LocalAgentsPage({ run: () => {}, Row }))
+  rerender()
+  assert.match(text(concrete), /Checking local agents…/)
+  assert.equal(note('status') !== undefined, true)
+
+  slots.length = 0
+  slots.push(null, null, null, true)
+  rerender()
+  assert.match(text(concrete), /Could not load local agents\./)
+  assert.equal(collect(n => n.type === 'button' && text(n) === 'Try again').length, 1)
 })
 
 test('clicking Sign in says the command was copied and where to run it', async () => {

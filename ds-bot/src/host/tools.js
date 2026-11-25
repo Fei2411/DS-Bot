@@ -1039,6 +1039,14 @@ export function install(rt) {
     if (held === undefined) return
     scoped.delete(id)
     clearTimeout(held.retryTimer)
+    for (const lift of held.connectorLifts ?? []) {
+      try { lift() } catch { /* already lifted */ }
+    }
+    held.connectorLifts = []
+    for (const lift of held.pluginLifts ?? []) {
+      try { lift() } catch { /* already lifted */ }
+    }
+    held.pluginLifts = []
     for (const dispose of held.disposers) {
       try {
         dispose()
@@ -1102,9 +1110,15 @@ export function install(rt) {
     // loading the plugin again walks the live Agents from the load the memory module
     // starts, and the tools added after it (memory, secrets, connectors) would never
     // join that scope. Register what it is missing, so the next request is whole.
+    const botId = owns ? rt.selfOf(id) : undefined
+    const scopedDenied = botId ? (rt.pluginDeniedRules?.(botId)?.scopedDenied ?? new Set()) : new Set()
     if (held?.tools === true) {
       for (const def of [...rt.teamTools, ...(localBot ? (rt.localAgentTools ?? []) : [])]) {
         if (relayOnly && def.name !== 'group_relay') continue
+        if (!relayOnly && scopedDenied.has(def.name)) {
+          ;(held.pluginHiddenScoped ??= new Set()).add(def.name)
+          continue
+        }
         if (held.added?.has(def.name) === true) continue
         try {
           const dispose = agent.ctx.tools.register(def)
@@ -1126,7 +1140,7 @@ export function install(rt) {
           rt.warn('ds-bot: team tool %s not added to %s: %s', def.name, id, error)
         }
       }
-      if ([...rt.teamTools, ...(localBot ? (rt.localAgentTools ?? []) : [])].some(def => (!relayOnly || def.name === 'group_relay') && !held.added?.has(def.name))) {
+      if ([...rt.teamTools, ...(localBot ? (rt.localAgentTools ?? []) : [])].some(def => (!relayOnly || def.name === 'group_relay') && !scopedDenied.has(def.name) && !held.added?.has(def.name))) {
         retryBotTools(agent, held)
       } else {
         clearTimeout(held.retryTimer)
@@ -1147,6 +1161,10 @@ export function install(rt) {
     const registered = []
     for (const def of [...rt.teamTools, ...(localBot ? (rt.localAgentTools ?? []) : [])]) {
       if (relayOnly && def.name !== 'group_relay') continue
+      if (!relayOnly && scopedDenied.has(def.name)) {
+        ;(held.pluginHiddenScoped ??= new Set()).add(def.name)
+        continue
+      }
       try {
         const dispose = agent.ctx.tools.register(def)
         if (typeof dispose === 'function') {
@@ -1214,8 +1232,13 @@ export function install(rt) {
   const addTeamTool = (def) => {
     if (rt.teamTools.some(tool => tool.name === def.name)) return
     rt.teamTools.push(def)
-    for (const held of scoped.values()) {
+    for (const [id, held] of scoped) {
       if (held.relay || held.tools !== true || held.added?.has(def.name) || typeof held.agent?.ctx?.tools?.register !== 'function') continue
+      const botId = rt.selfOf(id)
+      if (botId && rt.pluginDeniedRules?.(botId)?.scopedDenied?.has(def.name)) {
+        ;(held.pluginHiddenScoped ??= new Set()).add(def.name)
+        continue
+      }
       try {
         const dispose = held.agent.ctx.tools.register(def)
         if (typeof dispose === 'function') {
@@ -1293,11 +1316,112 @@ export function install(rt) {
       }
     }
   }
+  // Plugin masks:
+  // 1. Scoped team tools (`read_browser` when external browser is active, or per-Bot disabled
+  //    native plugin tools) are mounted/unmounted directly on the Agent's own scope because
+  //    DSH's `restrict()` only masks inherited global tools.
+  // 2. Global external tools (inactive slot DSH bundles, pending-restart bundles, per-Bot
+  //    disabled DSH/MCP plugins) are masked via `agent.ctx.tools.restrict()` with re-entrancy
+  //    protection against synchronous `tools/change` emissions.
+  const maskingPlugins = new WeakSet()
+  const maskPluginTools = (agent, held) => {
+    if (maskingPlugins.has(agent)) return
+    maskingPlugins.add(agent)
+    try {
+      const botId = rt.selfOf(agent.session?.id)
+      const rules = rt.pluginDeniedRules?.(botId)
+      const prefixes = rules?.prefixes ?? []
+      const exact = rules?.exact ?? []
+      const scopedDenied = rules?.scopedDenied ?? new Set()
+      const protectedTools = rules?.protectedTools ?? new Set()
+
+      // 1. Sync Agent-scoped team tools (`read_browser` and native plugin tools).
+      // Only re-register tools that were explicitly hidden by plugin rules (`pluginHiddenScoped`)
+      // so unrelated registration failures stay governed by `retryBotTools`.
+      if (held.tools === true && !held.relay && typeof agent.ctx?.tools?.register === 'function') {
+        const hiddenScoped = (held.pluginHiddenScoped ??= new Set())
+        for (const def of rt.teamTools) {
+          const shouldHide = scopedDenied.has(def.name)
+          const hasLift = held.toolLifts?.has(def.name) === true
+          if (shouldHide) {
+            hiddenScoped.add(def.name)
+            if (hasLift) {
+              const dispose = held.toolLifts.get(def.name)
+              held.toolLifts.delete(def.name)
+              const idx = held.disposers.indexOf(dispose)
+              if (idx !== -1) held.disposers.splice(idx, 1)
+              held.added?.delete(def.name)
+              held.unlisted?.delete(def.name)
+              try { dispose() } catch { /* already disposed */ }
+            }
+          } else if (hiddenScoped.has(def.name)) {
+            hiddenScoped.delete(def.name)
+            if (!held.added?.has(def.name)) {
+              try {
+                const dispose = agent.ctx.tools.register(def)
+                if (typeof dispose === 'function') {
+                  held.disposers.push(dispose)
+                  ;(held.toolLifts ??= new Map()).set(def.name, dispose)
+                }
+                ;(held.added ??= new Set()).add(def.name)
+                held.unlisted?.add(def.name)
+              } catch { /* ignore if unavailable */ }
+            }
+          }
+        }
+      }
+
+      // 2. Mask inherited global tools via `agent.ctx.tools.restrict()`.
+      if (typeof agent.ctx?.tools?.restrict !== 'function' || typeof ctx.tools?.schemas !== 'function') return
+      if (prefixes.length === 0 && exact.length === 0 && (held.pluginLifts?.length ?? 0) === 0 && (held.pluginDenied?.size ?? 0) === 0) return
+      const served = new Set([...ctx.tools.schemas(agent).map(schema => schema.name), ...(held.pluginDenied ?? [])])
+      const deny = new Set()
+      for (const name of exact) {
+        if (served.has(name) && !held.added?.has(name)) deny.add(name)
+      }
+      for (const prefix of prefixes) {
+        if (!prefix) continue
+        for (const name of served) {
+          if (deny.has(name) || protectedTools.has(name) || held.added?.has(name)) continue
+          if (name.startsWith(prefix)) deny.add(name)
+        }
+      }
+      const before = held.pluginDenied ?? new Set()
+      if (deny.size === before.size && [...deny].every(name => before.has(name))) return
+
+      // Clear state BEFORE invoking old lifts so synchronous `tools/change` cannot lose new lifts.
+      const prevLifts = held.pluginLifts ?? []
+      held.pluginLifts = []
+      held.pluginDenied = new Set()
+      for (const lift of prevLifts) { try { lift() } catch { /* already lifted */ } }
+
+      if (deny.size === 0) return
+      const names = [...deny]
+      const applied = new Set()
+      try {
+        const lift = agent.ctx.tools.restrict({ deny: names })
+        if (typeof lift === 'function') held.pluginLifts.push(lift)
+        for (const name of names) applied.add(name)
+      } catch {
+        for (const name of names) {
+          try {
+            const lift = agent.ctx.tools.restrict({ deny: [name] })
+            if (typeof lift === 'function') held.pluginLifts.push(lift)
+            applied.add(name)
+          } catch { /* scoped tool cannot be restricted via inherited deny */ }
+        }
+      }
+      held.pluginDenied = applied
+    } finally {
+      maskingPlugins.delete(agent)
+    }
+  }
   const reapplyToolMasks = () => {
     for (const held of scoped.values()) {
       if (held.agent === undefined) continue
       try { rt.refreshShellShadows?.(held.agent) } catch (error) { rt.warn('ds-bot: shell shadow refresh failed: %s', error) }
       try { maskConnectorTools(held.agent, held) } catch (error) { rt.warn('ds-bot: connector mask failed: %s', error) }
+      try { maskPluginTools(held.agent, held) } catch (error) { rt.warn('ds-bot: plugin mask failed: %s', error) }
     }
   }
 
@@ -1354,6 +1478,7 @@ export function install(rt) {
       maskHiddenTools(agent, held, new Set(ctx.tools.schemas(agent).map(schema => schema.name)))
     }
     maskConnectorTools(agent, held)
+    maskPluginTools(agent, held)
   }
   ctx.on('tools/change', () => reapplyToolMasks())
   // A new Bot, part, or group Session gets its Agent before ds-bot records it, so the
@@ -1363,6 +1488,10 @@ export function install(rt) {
   ctx.tools.guard((exec) => {
     if (!rt.isBotSession(exec.agent?.id)) return undefined
     if (exec.name === BLOCKING_QUESTION_TOOL) return `Bots cannot use ${BLOCKING_QUESTION_TOOL}. Ask with ask_user in your own chat, or ask in your reply.`
+    const botId = rt.selfOf(exec.agent?.id)
+    if (botId && rt.isPluginToolBlockedForBot?.(botId, exec.name)) {
+      return `Tool "${exec.name}" is disabled for this Bot by the current plugin configuration.`
+    }
     if (rt.taskOwners?.has(exec.agent?.id)) {
       if (exec.name === 'browser_handoff') return 'Background tasks cannot hand the browser to the user. Report back to your own chat so it can ask the user to take over.'
       if (SCHEDULE_TARGET_TOOLS.includes(exec.name)) return 'Background tasks cannot create or change schedules on a temporary task session. Report back to your own chat so it can manage schedules there.'

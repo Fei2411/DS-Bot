@@ -374,8 +374,8 @@ export function MailCatalogRow({ mail, actions }) {
 }
 
 // Your own MCP servers: an address, a command, or ones found in other apps.
-export function AddMenu({ actions, run }) {
-  const [kind, setKind] = useState(null)
+export function AddMenu({ actions, run, initialKind = null, onCancel = null }) {
+  const [kind, setKind] = useState(initialKind)
   const [name, setName] = useState('')
   const [url, setUrl] = useState('')
   const [oauth, setOauth] = useState(false)
@@ -384,7 +384,16 @@ export function AddMenu({ actions, run }) {
   const [picked, setPicked] = useState([])
   const row = useRef(null)
   useMorph(row, `${kind}:${found === null}`)
-  const reset = () => { setKind(null); setName(''); setUrl(''); setOauth(false); setCommand(''); setFound(null); setPicked([]) }
+  const reset = () => {
+    setKind(initialKind)
+    setName('')
+    setUrl('')
+    setOauth(false)
+    setCommand('')
+    setFound(null)
+    setPicked([])
+    if (initialKind !== null) onCancel?.()
+  }
   const choose = (next) => {
     setKind(next)
     // Only an address can sign in, so leaving that kind drops the choice with it.

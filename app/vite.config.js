@@ -28,6 +28,22 @@ export default defineConfig({
   // The Bot views come from the plugin's interface code in ../ds-bot, which has no React
   // of its own.
   resolve: { dedupe: ['react', 'react-dom'] },
-  // One bundle: the window loads it from disk, not over a network.
-  build: { outDir: 'dist', emptyOutDir: true, chunkSizeWarningLimit: 2048 },
+  // Code-split heavy vendor, locale, and on-demand page chunks cleanly for fast startup.
+  build: {
+    outDir: 'dist',
+    emptyOutDir: true,
+    chunkSizeWarningLimit: 2048,
+    rolldownOptions: {
+      output: {
+        codeSplitting: {
+          groups: [
+            { name: 'vendor-react', test: /node_modules[\\/](react|react-dom|scheduler)[\\/]/, priority: 30 },
+            { name: 'vendor-markdown', test: /node_modules[\\/](react-markdown|remark-|rehype-|micromark|mdast-|hast-|unist-|unified|vfile|property-information|comma-separated-tokens|space-separated-tokens)/, priority: 25 },
+            { name: 'vendor-xterm', test: /node_modules[\\/]@xterm[\\/]/, priority: 24 },
+            { name: 'ds-bot-locales', test: /ds-bot[\\/]src[\\/]client[\\/]locales[\\/]/, priority: 20 },
+          ],
+        },
+      },
+    },
+  },
 })

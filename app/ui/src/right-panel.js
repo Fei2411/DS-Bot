@@ -1,11 +1,11 @@
-// Desktop workspace right panel: File Tree, Multi-Format Document Preview, Turn Changes
-// Diff Review, Interactive Terminal, and `sidebar.right.pane.tab` plugin slot support.
+// Workspace right-panel body and tab builders hosted inside unified `BotPanel`:
+// File Tree, Multi-Format Document Preview, Turn Changes Diff Review, Interactive
+// Terminal, and `sidebar.right.pane.tab` plugin slot support.
 import { createElement as h, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { call } from '../../../ds-bot/src/client/api.js'
 import { fileSizeText } from '../../../ds-bot/src/client/dsh-primitives.js'
 import { hostText, t } from '../../../ds-bot/src/client/i18n.js'
-import { ChevronRightIcon, CloseIcon, DiffIcon, FileIcon, FolderIcon, SearchIcon, TerminalIcon } from '../../../ds-bot/src/client/icons.js'
-import { useEscape } from '../../../ds-bot/src/client/overlay-hooks.js'
+import { ChevronRightIcon, DiffIcon, FileIcon, FolderIcon, SearchIcon, TerminalIcon } from '../../../ds-bot/src/client/icons.js'
 import { ChangesReview } from './changes-review.js'
 import { FilePreview } from './file-preview.js'
 import { defaultSlots, RIGHT_PANE_TAB_SLOT, SlotErrorBoundary, useSlotEntries } from './slots.js'
@@ -16,44 +16,64 @@ const RefreshIcon = () => h('svg', {
   strokeWidth: 1.6, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true,
 }, h('path', { d: 'M15.5 10a5.5 5.5 0 1 1-1.6-3.9' }), h('path', { d: 'M15.5 3.5v3.5H12' }))
 
-const WIDTH_STORAGE_KEY = 'dsb:right-panel-w'
-const DEFAULT_WIDTH = 440
-const MIN_WIDTH = 340
-const MAX_WIDTH = 760
-const MIN_CHAT_WIDTH = 420
-const SIDEBAR_WIDE_WIDTH = 280
-const SIDEBAR_RAIL_WIDTH = 56
 const MAX_TREE_DEPTH = 32
 
-function loadSavedWidth() {
-  try {
-    const raw = Number(globalThis.localStorage?.getItem?.(WIDTH_STORAGE_KEY))
-    if (Number.isFinite(raw) && raw >= MIN_WIDTH && raw <= MAX_WIDTH) return Math.round(raw)
-  } catch { /* storage unavailable */ }
-  return DEFAULT_WIDTH
+function resolvePluginTabs(pluginEntries) {
+  if (!Array.isArray(pluginEntries)) return []
+  return pluginEntries
+    .filter(entry => entry && typeof entry.id === 'string' && entry.component)
+    .map(entry => ({
+      id: `plugin:${entry.id}`,
+      slotId: entry.id,
+      label: typeof entry.meta?.label === 'function' ? entry.meta.label() : (entry.meta?.label ?? entry.id),
+      icon: entry.meta?.icon ?? FileIcon,
+      component: entry.component,
+      closable: false,
+    }))
 }
 
-function saveWidth(width) {
-  try {
-    globalThis.localStorage?.setItem?.(WIDTH_STORAGE_KEY, String(Math.round(width)))
-  } catch { /* storage unavailable */ }
+function openTabIds(panel) {
+  if (!panel || typeof panel !== 'object') return []
+  if (Array.isArray(panel.tabs)) return panel.tabs.filter(id => typeof id === 'string' && id !== '')
+  return typeof panel.tab === 'string' && panel.tab !== '' ? [panel.tab] : []
 }
 
-function viewportWidth() {
-  return typeof window !== 'undefined' && Number.isFinite(window.innerWidth) ? window.innerWidth : 1440
-}
-
-function measureMainLeft(vpWidth, wide) {
-  if (typeof document !== 'undefined') {
-    const main = document.querySelector?.('.dsb-main')
-    const left = main?.getBoundingClientRect?.().left
-    if (Number.isFinite(left) && left >= 0) return Math.round(left)
+/**
+ * Builds the ordered workspace tab descriptors rendered in unified `BotPanel`'s tab strip.
+ */
+export function buildWorkspaceTabs(panel, pluginEntries = []) {
+  const plugins = resolvePluginTabs(pluginEntries)
+  const pluginById = new Map(plugins.map(tab => [tab.id, tab]))
+  const tabs = []
+  const seen = new Set()
+  const filePath = panel?.file ?? null
+  for (const id of openTabIds(panel)) {
+    if (seen.has(id)) continue
+    if (id === 'files') {
+      seen.add(id)
+      tabs.push({ id: 'files', label: t('Files'), icon: FolderIcon, closable: true })
+    } else if (id === 'preview' && filePath) {
+      seen.add(id)
+      const name = String(filePath).split(/[\\/]/).filter(Boolean).at(-1) || t('Preview')
+      tabs.push({ id: 'preview', label: name, icon: FileIcon, closable: true })
+    } else if (id === 'changes' && panel?.changes) {
+      seen.add(id)
+      tabs.push({ id: 'changes', label: t('Changes'), icon: DiffIcon, closable: true })
+    } else if (id === 'terminal') {
+      seen.add(id)
+      tabs.push({ id: 'terminal', label: t('Terminal'), icon: TerminalIcon, closable: true })
+    } else if (pluginById.has(id)) {
+      seen.add(id)
+      const plugin = pluginById.get(id)
+      tabs.push({ id: plugin.id, label: plugin.label, icon: plugin.icon, closable: false })
+    }
   }
-  return vpWidth <= 768 ? 0 : (wide ? SIDEBAR_WIDE_WIDTH : SIDEBAR_RAIL_WIDTH)
-}
-
-function maxDockedWidth(vpWidth, leftOffset) {
-  return Math.min(MAX_WIDTH, Math.round(vpWidth * 0.55), Math.max(0, vpWidth - leftOffset - MIN_CHAT_WIDTH))
+  for (const plugin of plugins) {
+    if (seen.has(plugin.id)) continue
+    seen.add(plugin.id)
+    tabs.push({ id: plugin.id, label: plugin.label, icon: plugin.icon, closable: false })
+  }
+  return tabs
 }
 
 function TreeBranch({ entries, depth, ancestors, expanded, childrenByPath, loadingDirs, selectedPath, filter, onToggleDir, onSelectFile }) {
@@ -239,72 +259,48 @@ function FileTree({ sessionId, selectedPath, onOpenFile }) {
 }
 
 /**
- * Resizable workspace right panel hosting Files, Preview, Changes, Terminal, and
- * `sidebar.right.pane.tab` slot contributions.
+ * Inner workspace body mounted inside unified `BotPanel`'s `.bt-panel-workspace` view.
+ * Keeps `FileTree` and `WorkspaceTerminal` mounted while their tabs stay open so expanded
+ * folders and live PTY sessions survive switching across Details, Side chat, Browser, and
+ * other workspace tabs.
  */
-export function RightPanel({ sessionId, panel, team, registry = defaultSlots, readOnly = false, wide = true }) {
+export function WorkspacePaneBody({ sessionId, panel, team, registry = defaultSlots, readOnly = false, visible = true }) {
   const { actions, chat: feed } = team
-  const [savedWidth, setSavedWidth] = useState(loadSavedWidth)
-  const [metrics, setMetrics] = useState(() => {
-    const vp = viewportWidth()
-    return { vp, left: measureMainLeft(vp, wide) }
-  })
-  const [resizing, setResizing] = useState(false)
   const [fileState, setFileState] = useState({ path: null, data: null, loading: false, error: '' })
-  const [reloadNonce, setReloadNonce] = useState(0)
-  const [terminalMounted, setTerminalMounted] = useState(false)
+  const [retryState, setRetryState] = useState({ key: null, count: 0 })
   const pluginEntries = useSlotEntries(registry, RIGHT_PANE_TAB_SLOT)
   const fileReqRef = useRef(0)
-  const dragCleanupRef = useRef(null)
 
-  const open = panel !== null && panel !== undefined
-  const activeTab = panel?.tab ?? 'files'
+  const openIds = useMemo(() => openTabIds(panel), [panel])
+  const openSet = useMemo(() => new Set(openIds), [openIds])
   const filePath = panel?.file ?? null
   const fileSessionId = panel?.fileSessionId ?? sessionId
   const fileRoot = panel?.fileRoot ?? null
   const changes = panel?.changes ?? null
   const terminalNonce = panel?.terminalNonce ?? 0
 
-  const maxDock = maxDockedWidth(metrics.vp, metrics.left)
-  const overlay = metrics.vp <= 960 || maxDock < MIN_WIDTH
-  const renderedWidth = overlay
-    ? Math.min(savedWidth, Math.round(metrics.vp * 0.92))
-    : Math.max(MIN_WIDTH, Math.min(savedWidth, maxDock))
+  const hasFiles = openSet.has('files')
+  const hasPreview = openSet.has('preview') && Boolean(filePath)
+  const hasChanges = openSet.has('changes') && Boolean(changes)
+  const hasTerminal = openSet.has('terminal')
 
+  const fileKey = hasPreview ? `${fileSessionId ?? ''}:${fileRoot ?? ''}:${filePath}` : null
+  const retryCount = retryState.key === fileKey ? retryState.count : 0
+
+  const pluginTabs = useMemo(() => resolvePluginTabs(pluginEntries), [pluginEntries])
+  const rawTab = panel?.tab ?? openIds[0] ?? null
+  const activePlugin = pluginTabs.find(tab => tab.id === rawTab) ?? null
+  const activeTab = rawTab === 'preview' && !hasPreview
+    ? (hasFiles ? 'files' : openIds.find(id => id !== 'preview') ?? null)
+    : rawTab
+
+  const openWorkspaceFile = useCallback((path) => {
+    actions.openFile?.(path)
+  }, [actions])
+
+  // Load workspace file contents whenever a preview tab is open and `panel.file` or retry updates.
   useEffect(() => {
-    if (open && activeTab === 'terminal') setTerminalMounted(true)
-  }, [open, activeTab])
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return undefined
-    const sync = () => {
-      const vp = viewportWidth()
-      const left = measureMainLeft(vp, wide)
-      setMetrics(prev => (prev.vp === vp && prev.left === left ? prev : { vp, left }))
-    }
-    sync()
-    window.addEventListener('resize', sync)
-    let ro = null
-    if (typeof ResizeObserver === 'function') {
-      const main = document.querySelector?.('.dsb-main')
-      if (main) {
-        ro = new ResizeObserver(sync)
-        ro.observe(main)
-      }
-    }
-    return () => {
-      window.removeEventListener('resize', sync)
-      ro?.disconnect()
-    }
-  }, [wide, open])
-  useEffect(() => () => { dragCleanupRef.current?.() }, [])
-
-  // Intercept Escape whenever the right panel floats over the conversation as an overlay.
-  useEscape(() => actions.closeRightPanel?.(), open && overlay)
-
-  // Load workspace file contents whenever `panel.file` or `reloadNonce` updates.
-  useEffect(() => {
-    if (!open || !filePath) return undefined
+    if (!hasPreview || !filePath) return undefined
     const reqId = ++fileReqRef.current
     setFileState(current => ({
       path: filePath,
@@ -313,8 +309,8 @@ export function RightPanel({ sessionId, panel, team, registry = defaultSlots, re
       error: '',
     }))
     // Enforce `expectedRoot` on the initial click from FileTree so a mid-session `working_directory`
-    // move never opens a different file; an explicit Retry (`reloadNonce > 0`) reads the live root.
-    const expectedRoot = reloadNonce === 0 && fileRoot ? fileRoot : undefined
+    // move never opens a different file; an explicit Retry (`retryCount > 0`) reads the live root.
+    const expectedRoot = retryCount === 0 && fileRoot ? fileRoot : undefined
     void call('workspace-read', { sessionId: fileSessionId, path: filePath, ...(expectedRoot ? { expectedRoot } : {}) })
       .then((res) => {
         if (fileReqRef.current !== reqId) return
@@ -327,120 +323,52 @@ export function RightPanel({ sessionId, panel, team, registry = defaultSlots, re
     return () => {
       if (fileReqRef.current === reqId) fileReqRef.current += 1
     }
-  }, [open, fileSessionId, filePath, fileRoot, reloadNonce])
+  }, [hasPreview, fileSessionId, filePath, fileRoot, retryCount])
 
-  const pluginTabs = useMemo(() => pluginEntries
-    .filter(entry => entry && typeof entry.id === 'string' && entry.component)
-    .map(entry => ({
-      id: `plugin:${entry.id}`,
-      slotId: entry.id,
-      label: typeof entry.meta?.label === 'function' ? entry.meta.label() : (entry.meta?.label ?? entry.id),
-      icon: entry.meta?.icon ?? FileIcon,
-      component: entry.component,
-    })), [pluginEntries])
-
-  const onDragStart = (event) => {
-    if (overlay) return
-    event.preventDefault()
-    dragCleanupRef.current?.()
-    const handleEl = event.currentTarget
-    const pointerId = event.pointerId
-    try { handleEl?.setPointerCapture?.(pointerId) } catch { /* pointer capture optional */ }
-    const startX = event.clientX
-    const startW = renderedWidth
-    let latest = startW
-    setResizing(true)
-    const onMove = (moveEvent) => {
-      const vp = viewportWidth()
-      const cap = Math.max(MIN_WIDTH, maxDockedWidth(vp, measureMainLeft(vp, wide)))
-      latest = Math.max(MIN_WIDTH, Math.min(cap, startW + (startX - moveEvent.clientX)))
-      setSavedWidth(latest)
+  // Notify terminal layout whenever the terminal pane becomes visible again after hiding.
+  useEffect(() => {
+    if (!visible || !hasTerminal || activeTab !== 'terminal') return undefined
+    if (typeof window === 'undefined' || typeof window.dispatchEvent !== 'function' || typeof Event !== 'function') return undefined
+    const fire = () => { window.dispatchEvent(new Event('resize')) }
+    if (typeof requestAnimationFrame === 'function') {
+      const raf = requestAnimationFrame(fire)
+      return () => { if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(raf) }
     }
-    const stop = () => {
-      window.removeEventListener('pointermove', onMove)
-      window.removeEventListener('pointerup', stop)
-      window.removeEventListener('pointercancel', stop)
-      window.removeEventListener('blur', stop)
-      try { handleEl?.releasePointerCapture?.(pointerId) } catch { /* already released */ }
-      dragCleanupRef.current = null
-      setResizing(false)
-      saveWidth(latest)
-    }
-    dragCleanupRef.current = stop
-    window.addEventListener('pointermove', onMove)
-    window.addEventListener('pointerup', stop)
-    window.addEventListener('pointercancel', stop)
-    window.addEventListener('blur', stop)
-  }
+    fire()
+    return undefined
+  }, [visible, hasTerminal, activeTab])
 
-  if (!open) return null
+  if (!panel && !activePlugin) return null
 
-  const tabs = [
-    { id: 'files', label: t('Files'), icon: FolderIcon },
-    ...(filePath ? [{ id: 'preview', label: filePath.split(/[\\/]/).filter(Boolean).at(-1) || t('Preview'), icon: FileIcon }] : []),
-    ...(changes ? [{ id: 'changes', label: t('Changes'), icon: DiffIcon }] : []),
-    { id: 'terminal', label: t('Terminal'), icon: TerminalIcon },
-    ...pluginTabs,
-  ]
-
-  const activePlugin = pluginTabs.find(tab => tab.id === activeTab)
-  const showFiles = activeTab === 'files' || (!activePlugin && activeTab !== 'preview' && activeTab !== 'changes' && activeTab !== 'terminal')
-
-  return h('aside', {
-    className: 'dsb-rightbar',
-    'data-rightbar-col': '',
-    'data-overlay': overlay ? '' : undefined,
-    'data-resizing': resizing ? '' : undefined,
-    style: { '--dsb-right-w': `${renderedWidth}px` },
-    'aria-label': t('Workspace'),
-  },
-  overlay ? null : h('div', {
-    className: 'dsb-rightbar-resize',
-    role: 'separator',
-    'aria-orientation': 'vertical',
-    'aria-label': t('Resize panel'),
-    onPointerDown: onDragStart,
-  }),
-  h('div', { className: 'dsb-rightbar-head' },
-    h('div', { className: 'dsb-rightbar-tabs', role: 'tablist' },
-      tabs.map(tab => h('button', {
-        key: tab.id,
-        type: 'button',
-        role: 'tab',
-        className: 'dsb-rightbar-tab',
-        'aria-selected': activeTab === tab.id,
-        title: tab.label,
-        onClick: () => actions.setRightPanelTab?.(tab.id),
-      },
-      h('span', { className: 'dsb-rightbar-tab-ico', 'aria-hidden': true }, h(tab.icon)),
-      h('span', { className: 'dsb-rightbar-tab-label' }, tab.label)))),
-    h('button', {
-      type: 'button',
-      className: 'bt-icon-btn dsb-rightbar-close',
-      'aria-label': t('Close'),
-      title: t('Close'),
-      onClick: () => actions.closeRightPanel?.(),
-    }, h(CloseIcon))),
-  h('div', { className: 'dsb-rightbar-body' },
-    h('div', { className: 'dsb-rightbar-pane', hidden: !showFiles },
-      h(FileTree, { sessionId, selectedPath: filePath, onOpenFile: path => actions.openFile?.(path) })),
-    activeTab === 'preview'
-      ? h(FilePreview, {
-        file: fileState.data,
-        loading: fileState.loading,
-        error: fileState.error,
-        onRetry: () => setReloadNonce(n => n + 1),
-      })
+  return h('div', { className: 'dsb-ws-body' },
+    hasFiles
+      ? h('div', { className: 'dsb-ws-pane', hidden: !visible || activeTab !== 'files' },
+        h(FileTree, { sessionId, selectedPath: filePath, onOpenFile: openWorkspaceFile }))
       : null,
-    activeTab === 'changes'
-      ? h(ChangesReview, { changes, onOpenFile: path => actions.openFile?.(path) })
+    hasPreview
+      ? h('div', { className: 'dsb-ws-pane', hidden: !visible || activeTab !== 'preview' },
+        h(FilePreview, {
+          file: fileState.data,
+          loading: fileState.loading,
+          error: fileState.error,
+          onRetry: () => setRetryState(prev => ({ key: fileKey, count: prev.key === fileKey ? prev.count + 1 : 1 })),
+        }))
       : null,
-    terminalMounted || activeTab === 'terminal'
-      ? h('div', { className: 'dsb-rightbar-pane', hidden: activeTab !== 'terminal' },
+    hasChanges
+      ? h('div', { className: 'dsb-ws-pane', hidden: !visible || activeTab !== 'changes' },
+        h(ChangesReview, { changes, onOpenFile: openWorkspaceFile }))
+      : null,
+    hasTerminal
+      ? h('div', { className: 'dsb-ws-pane', hidden: !visible || activeTab !== 'terminal' },
         h(WorkspaceTerminal, { sessionId, feed, readOnly, autoOpenNonce: terminalNonce }))
       : null,
     activePlugin
-      ? h(SlotErrorBoundary, { key: activePlugin.id, slotName: `${RIGHT_PANE_TAB_SLOT}:${activePlugin.slotId}`, resetKey: `${activePlugin.id}:${sessionId ?? ''}` },
-        h(activePlugin.component, { sessionId, team, actions }))
-      : null))
+      ? h('div', { className: 'dsb-ws-pane', hidden: !visible },
+        h(SlotErrorBoundary, { key: activePlugin.id, slotName: `${RIGHT_PANE_TAB_SLOT}:${activePlugin.slotId}`, resetKey: `${activePlugin.id}:${sessionId ?? ''}` },
+          h(activePlugin.component, { sessionId, team, actions })))
+      : null)
+}
+
+export function RightPanel(props) {
+  return h(WorkspacePaneBody, props)
 }

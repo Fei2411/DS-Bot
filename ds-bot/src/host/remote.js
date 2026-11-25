@@ -164,6 +164,9 @@ export function createRemoteService(rt) {
       if (name.startsWith('workspace-') || name.startsWith('terminal-')) {
         return { ok: false, error: { code: 'bot/refused', message: 'Workspace files and terminals are available on the computer', details: {} } }
       }
+      if (name.startsWith('engine-')) {
+        return { ok: false, error: { code: 'bot/refused', message: 'Engine settings are managed on the computer', details: {} } }
+      }
       return plain(await rt.channelCall(name, payload ?? {}, signal))
     }
 

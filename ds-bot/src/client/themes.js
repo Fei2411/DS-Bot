@@ -11,7 +11,7 @@ const THEMES = {
   deepseek: {
     label: 'DeepSeek',
     light: { bg: '#fcfcfc', sidebar: '#f7f7f7', bubble: '#eeeeee', card: '#ffffff', text: '#141414', user: '#070707', userText: '#fcfcfc', accent: '#4d6bfe' },
-    dark: { bg: '#141414', sidebar: '#1b1b1b', bubble: '#262626', card: '#1f1f1f', text: '#f2f2f2', user: '#f2f2f2', userText: '#141414', accent: '#5b7bff' },
+    dark: { bg: '#141414', sidebar: '#1b1b1b', bubble: '#262626', card: '#1f1f1f', text: '#f2f2f2', user: '#f2f2f2', userText: '#141414', accent: '#4d6bfe' },
   },
   mono: {
     label: 'Mono',
@@ -29,10 +29,12 @@ const THEMES = {
     dark: { bg: '#0b1020', sidebar: '#10172a', bubble: '#1a2340', card: '#141c33', text: '#e8edf7', user: '#3b6fd8', userText: '#ffffff', accent: '#4f9dff' },
   },
 }
-// Text on the accent: near-black or white, whichever has the higher WCAG contrast.
-// (L + .05)² > 1.05 × (L(#141414) + .05) is "dark ink reads better".
+// Text on the accent: prefer crisp white whenever it reads cleanly (>= 4.2:1, e.g. DeepSeek blue);
+// fall back to near-black only on genuinely bright accents (such as Mono dark #f4f4f4).
 const DARK_INK = '#141414'
-const accentInk = accent => ((luminance(accent) + 0.05) ** 2 > 1.05 * (luminance(DARK_INK) + 0.05) ? DARK_INK : '#ffffff')
+const accentInk = accent => (contrast('#ffffff', accent) >= 4.2
+  ? '#ffffff'
+  : (luminance(accent) + 0.05) ** 2 > 1.05 * (luminance(DARK_INK) + 0.05) ? DARK_INK : '#ffffff')
 const rgba = (hex, alpha) => `rgba(${[1, 3, 5].map(index => parseInt(hex.slice(index, index + 2), 16)).join(',')},${alpha})`
 // While a background shows (appearance.js): one wash of the main color at the chosen
 // opacity lies over the picture, and the page panes on top of it are clear (`--bt-pane`,

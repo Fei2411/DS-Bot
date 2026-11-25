@@ -19,6 +19,12 @@ export function matchGlobalShortcut(event, { mac = isMacPlatform(), settingsOpen
   if (!event || event.defaultPrevented || isImeComposing(event)) return null
   const primary = mac ? (event.metaKey && !event.ctrlKey) : (event.ctrlKey && !event.metaKey)
   if (!primary || event.altKey || event.shiftKey) return null
+  // On Windows/Linux, let Ctrl+<key> combinations pass through to a focused xterm terminal PTY.
+  const inTerminal = Boolean(
+    event.target?.closest?.('.xterm')
+    || (!event.target?.closest && typeof document !== 'undefined' && document.activeElement?.closest?.('.xterm')),
+  )
+  if (!mac && inTerminal) return null
   const key = String(event.key ?? '').toLowerCase()
   const code = String(event.code ?? '')
   if (key === 'k' || code === 'KeyK') return settingsOpen ? null : 'palette'

@@ -721,9 +721,9 @@ function captionColors(mica) {
     return `rgb(${red}, ${green}, ${blue})`
   }
   const column = () => {
-    if (!mica) return document.querySelector('div[class*="_sidebarCol"]')
-    const right = document.querySelector('div[class*="_rightbarCol"]')
-    return right !== null && right.getBoundingClientRect().width > 0 ? right : document.querySelector('div[class*="_centerCol"]')
+    if (!mica) return document.querySelector('.dsb-side, div[class*="_sidebarCol"]')
+    const right = document.querySelector('.bt-panel, div[class*="_rightbarCol"]')
+    return right !== null && right.getBoundingClientRect().width > 0 ? right : document.querySelector('.dsb-main, div[class*="_centerCol"]')
   }
   let frame
   const surface = () => {
@@ -761,7 +761,7 @@ function captionColors(mica) {
     requestAnimationFrame(() => { queued = false; send() })
   }
   const observer = new MutationObserver(queue)
-  observer.observe(document.body, { attributes: true, attributeFilter: ['data-ds-dark-theme', 'style'], childList: true, subtree: true })
+  observer.observe(document.body, { attributes: true, attributeFilter: ['data-ds-dark-theme', 'data-bt-material', 'data-bt-bg', 'style'], childList: true, subtree: true })
   observer.observe(document.head, { childList: true, subtree: true, characterData: true })
   observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-ds-theme-source', 'style'] })
   // A stylesheet link is added before it loads; its rules apply without another mutation.

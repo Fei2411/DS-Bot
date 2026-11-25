@@ -252,6 +252,7 @@ export function install(rt) {
         const kind = picker()?.kind
         return {
           team,
+          data: rt.dshHome ?? rt.home,
           picker: kind === 'native' || kind === 'browse' ? kind : null,
           folders: present.filter(Boolean),
         }

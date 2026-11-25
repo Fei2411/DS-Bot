@@ -1,25 +1,29 @@
-import { Component, createElement as h, Fragment, useEffect, useMemo, useState } from 'react'
+import { Component, createElement as h, Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { sendsOnEnter } from '../../../ds-bot/src/client/enter-key.js'
 import { ErrorToast } from '../../../ds-bot/src/client/feedback.js'
 import { HeaderPill } from '../../../ds-bot/src/client/header.js'
 import { t } from '../../../ds-bot/src/client/i18n.js'
-import { FolderIcon, SidebarIcon } from '../../../ds-bot/src/client/icons.js'
+import { SidebarIcon } from '../../../ds-bot/src/client/icons.js'
 import { Overlays } from '../../../ds-bot/src/client/overlays.js'
 import { useEscape } from '../../../ds-bot/src/client/overlay-hooks.js'
-import { BrandMark, TeamSidebar, YouAvatar } from '../../../ds-bot/src/client/sidebar.js'
+import { BotReturn, TeamSidebar, YouAvatar } from '../../../ds-bot/src/client/sidebar.js'
 import { allThemes, effectsOf, flatWidthOf, layoutOf, themeCss, themesOf, widthOf } from '../../../ds-bot/src/client/themes.js'
 import { appearanceCss, onSafeAppearance, pictureUrl, safeAppearance, watchSafeAppearance } from '../../../ds-bot/src/client/appearance.js'
 import { call } from '../../../ds-bot/src/client/api.js'
 import { readAppearance } from '../../../ds-bot/src/shared/appearance.js'
 import { paintMode } from './mode.js'
 import { Chat } from './chat.js'
-import { RightPanel } from './right-panel.js'
+import { AgentEmptyHero, ClassicHeader, ClassicSidebar } from './classic-sidebar.js'
+import { useDshSettingsBridge } from './engine-settings-bridge.js'
+import { getAppLocale } from './locale.js'
+import { WorkspacePaneBody, buildWorkspaceTabs } from './right-panel.js'
 import { ShortcutsDialog, matchGlobalShortcut } from './shortcuts.js'
+import { RIGHT_PANE_TAB_SLOT, SHELL_OVERLAY_SLOT, SlotErrorBoundary, slots, useSlotEntries } from './slots.js'
 import { createTeam } from './team.js'
 
-// The team's theme, accent and appearance. The window owns fonts, sizes and light or dark
-// here; in DSH those are DSH's settings (docs/plans/2026-11-21-appearance.md).
-function useTheme(prefs, chat, actions) {
+// The team's theme, accent and appearance. The window owns fonts, sizes, window material
+// and light or dark here; in DSH those are DSH's settings (docs/plans/2026-11-21-appearance.md).
+function useTheme(prefs, chat, actions, registryVersion) {
   const [loaded, setLoaded] = useState(0)
   const [safe, setSafe] = useState(safeAppearance)
   useEffect(() => onSafeAppearance((on) => {
@@ -28,6 +32,7 @@ function useTheme(prefs, chat, actions) {
   }), [])
   useEffect(() => watchSafeAppearance(), [])
   useEffect(() => {
+    const appearance = readAppearance(prefs?.appearance)
     const theme = themesOf(prefs)[prefs?.theme] ?? allThemes().deepseek
     const style = document.createElement('style')
     style.textContent = themeCss(theme, prefs?.accent) + '\n' + appearanceCss({
@@ -35,6 +40,8 @@ function useTheme(prefs, chat, actions) {
       pictureUrl: id => pictureUrl(id, call, () => setLoaded(count => count + 1)),
     })
     document.head.append(style)
+    const effectiveBackground = safe ? undefined : (chat?.background ?? appearance.background)
+    document.body.dataset.btMaterial = (appearance.material === false || Boolean(effectiveBackground)) ? 'off' : 'on'
     if (prefs?.motion) document.body.dataset.btMotion = prefs.motion
     else delete document.body.dataset.btMotion
     document.body.dataset.btEffects = effectsOf(prefs)
@@ -42,13 +49,14 @@ function useTheme(prefs, chat, actions) {
     document.body.style.setProperty('--bt-msg-w', String(widthOf(prefs) / 100))
     document.body.style.setProperty('--bt-flat-w', String(flatWidthOf(prefs) / 100))
     return () => {
+      delete document.body.dataset.btMaterial
       delete document.body.dataset.btEffects
       delete document.body.dataset.btLayout
       document.body.style.removeProperty('--bt-msg-w')
       document.body.style.removeProperty('--bt-flat-w')
       style.remove()
     }
-  }, [prefs, chat?.background, safe, loaded])
+  }, [prefs, chat?.background, safe, loaded, registryVersion])
   const mode = readAppearance(prefs?.appearance).mode
   useEffect(() => paintMode(mode), [mode])
 }
@@ -73,21 +81,121 @@ class Contain extends Component {
   render() { return this.state.failed ? null : this.props.children }
 }
 
+function ShellOverlayHost({ registry = slots, views }) {
+  const entries = useSlotEntries(registry, SHELL_OVERLAY_SLOT)
+  if (entries.length === 0) return null
+  return h(Fragment, null, entries.map((entry, idx) => h(SlotErrorBoundary, {
+    key: entry.id ?? entry.key ?? idx,
+    slotName: `${SHELL_OVERLAY_SLOT}:${entry.id ?? idx}`,
+    resetKey: entry.id ?? entry.key ?? idx,
+  }, h(entry.component, views))))
+}
+
+function makeTeamUiHook(useUi, isNarrow, drawerOpen) {
+  let lastState = null
+  let lastPatched = null
+  return function useTeamUi(selector) {
+    return useUi((state) => {
+      if (!isNarrow || state.leftDrawer === drawerOpen) return selector(state)
+      if (state !== lastState) {
+        lastState = state
+        lastPatched = { ...state, leftDrawer: drawerOpen }
+      }
+      return selector(lastPatched)
+    })
+  }
+}
+
 export function App() {
   const team = useMemo(createTeam, [])
   useEffect(() => team.start(), [team])
   const { hooks, actions } = team
   const views = { ...hooks, actions }
   const wide = hooks.useLayout(state => state.wide)
+  const surfaceMode = hooks.useSurface(state => state.mode)
   const shown = hooks.useShown(id => id)
   const shortcutsOpen = hooks.useUi(state => state.shortcuts === true)
   const settingsOpen = hooks.useUi(state => Boolean(state.settings))
   const paletteOpen = hooks.useUi(state => Boolean(state.palette))
   const rightPanel = hooks.useUi(state => state.rightPanel)
   const readOnly = hooks.useRoster(value => Boolean(value.readOnly))
+  const registryVersion = hooks.useRegistry(value => value)
+  const [localeVersion, setLocaleVersion] = useState(0)
+  useEffect(() => {
+    const svc = getAppLocale()
+    if (!svc?.subscribe) return undefined
+    return svc.subscribe(() => {
+      setLocaleVersion(v => v + 1)
+      void actions.refreshLocale?.()
+    })
+  }, [actions])
+  const dshBridge = useDshSettingsBridge(slots, {
+    readOnly,
+    surfaceMode,
+    localeVersion,
+    onRestoredSession: () => actions.refreshClassicSessions?.(),
+    onStartPresetCreator: () => actions.startPresetCreator?.(),
+  })
+  const [viewportWidth, setViewportWidth] = useState(() => (typeof window === 'undefined' ? 1280 : window.innerWidth))
+  const [sidebarWidth, setSidebarWidth] = useState(280)
   const [drawerOpen, setDrawerOpen] = useState(false)
-  useEffect(() => { setDrawerOpen(false) }, [shown])
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined
+    const onResize = () => setViewportWidth(window.innerWidth)
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+  const isNarrow = viewportWidth <= 768
+  const macTitlebar = typeof window !== 'undefined' && Boolean(window.dsBotApp)
+  const effectiveSideW = isNarrow
+    ? Math.min(sidebarWidth, Math.max(264, Math.round(viewportWidth * 0.84)))
+    : Math.min(sidebarWidth, Math.max(264, viewportWidth - 420))
+  useEffect(() => { setDrawerOpen(false) }, [shown, surfaceMode])
+  useEffect(() => { if (!isNarrow) setDrawerOpen(false) }, [isNarrow])
   useEscape(() => setDrawerOpen(false), drawerOpen)
+  const teamSidebarActions = useMemo(() => ({
+    ...actions,
+    toggleSidebar: undefined,
+    setSidebarPref: (pref) => {
+      if (isNarrow) setDrawerOpen(pref === 'open')
+      else actions.setSidebarWide?.(pref !== 'rail' && pref !== 'hidden')
+    },
+    setSidebarWidth: (width) => {
+      if (Number.isFinite(width)) setSidebarWidth(Math.max(264, Math.min(420, Math.round(width))))
+    },
+    setLeftDrawer: next => setDrawerOpen(Boolean(next)),
+    toggleLeftHidden: () => {
+      if (isNarrow) setDrawerOpen(open => !open)
+      else actions.toggleSidebar()
+    },
+    openSettings: (...args) => { setDrawerOpen(false); return actions.openSettings(...args) },
+    openNewChat: (...args) => { setDrawerOpen(false); return actions.openNewChat(...args) },
+    openPalette: (...args) => { setDrawerOpen(false); return actions.openPalette(...args) },
+  }), [actions, isNarrow])
+  const classicSidebarActions = useMemo(() => ({
+    ...actions,
+    toggleSidebar: () => {
+      if (isNarrow) setDrawerOpen(false)
+      else actions.toggleSidebar()
+    },
+    openAgentSession: (...args) => { setDrawerOpen(false); return actions.openAgentSession(...args) },
+    newAgentSession: (...args) => { setDrawerOpen(false); return actions.newAgentSession(...args) },
+    addAgent: (...args) => { setDrawerOpen(false); return actions.addAgent(...args) },
+  }), [actions, isNarrow])
+  const useTeamUi = useMemo(
+    () => makeTeamUiHook(hooks.useUi, isNarrow, drawerOpen),
+    [hooks.useUi, isNarrow, drawerOpen],
+  )
+  const useOwnFrame = useMemo(() => {
+    const snap = isNarrow
+      ? { viewport: Math.min(viewportWidth, 680), sidebarWidth: effectiveSideW, collapsedWidth: drawerOpen ? 88 : 0 }
+      : { viewport: viewportWidth, sidebarWidth: effectiveSideW, collapsedWidth: wide ? effectiveSideW : 88 }
+    return selector => selector(snap)
+  }, [isNarrow, viewportWidth, effectiveSideW, wide, drawerOpen])
+  const useOwnSidebarPref = useMemo(() => {
+    const pref = isNarrow ? (drawerOpen ? 'open' : 'hidden') : (wide ? 'open' : 'rail')
+    return selector => selector(pref)
+  }, [isNarrow, drawerOpen, wide])
   useEffect(() => {
     const onKeyDown = (event) => {
       const hit = matchGlobalShortcut(event, { settingsOpen })
@@ -107,66 +215,131 @@ export function App() {
         else actions.openSettings()
       } else if (hit === 'new-chat') {
         if (settingsOpen) actions.closeSettings()
-        actions.openNewChat('new')
-      } else if (hit === 'sidebar') actions.toggleSidebar()
+        if (surfaceMode === 'agent') {
+          void Promise.resolve(actions.createClassicSession?.()).catch(error => actions.reportError?.(error, 'agent-session'))
+        } else {
+          actions.openNewChat('new')
+        }
+      } else if (hit === 'sidebar') {
+        if (isNarrow) setDrawerOpen(open => !open)
+        else actions.toggleSidebar()
+      }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [actions, settingsOpen, shortcutsOpen, paletteOpen])
+  }, [actions, settingsOpen, shortcutsOpen, paletteOpen, surfaceMode, isNarrow])
   const prefs = hooks.useRoster(value => value.prefs)
   // The open chat's own background, over the team's.
   const chat = hooks.useRoster(value => (shown ? value.byId?.[shown] ?? value.roomsById?.[shown] : undefined))
-  useTheme(prefs, chat, actions)
+  const shownAgent = hooks.useRoster((value) => {
+    if (!shown || value.byId?.[shown] || value.roomsById?.[shown]) return undefined
+    const agentId = value.agentOf?.[shown]
+    return agentId ? value.agentsById?.[agentId] : undefined
+  })
+  useTheme(prefs, chat, actions, registryVersion)
   const closeOverlays = (error) => {
     actions.closeSettings()
     actions.closeMemory()
     actions.closeMenu()
     actions.closePanel()
-    actions.closeRightPanel()
     actions.closePalette()
     actions.closeVoice()
     actions.closeShortcuts()
     actions.closeOverlay()
     actions.reportError(error, 'overlay')
   }
+  const closeWorkspace = useCallback((error) => {
+    actions.closePanel()
+    actions.reportError(error, 'workspace')
+  }, [actions])
+  const rightPluginEntries = useSlotEntries(slots, RIGHT_PANE_TAB_SLOT)
+  const workspaceTabs = useMemo(
+    () => buildWorkspaceTabs(rightPanel, rightPluginEntries),
+    [rightPanel, rightPluginEntries, localeVersion],
+  )
+  const workspace = useMemo(() => ({
+    tabs: workspaceTabs,
+    active: rightPanel?.tab ?? null,
+    onSelect: tabId => actions.setRightPanelTab(tabId),
+    onCloseTab: tabId => actions.closeWorkspaceTab(tabId),
+    render: (_activeTabId, visible) => h(Contain, { onError: closeWorkspace },
+      h(WorkspacePaneBody, {
+        sessionId: shown,
+        panel: rightPanel,
+        team,
+        registry: slots,
+        readOnly,
+        visible,
+      })),
+  }), [workspaceTabs, rightPanel, actions, closeWorkspace, shown, team, readOnly])
   // Key the conversation by stable Bot/room id so segment rollovers preserve unsent drafts.
   const chatKey = chat?.id ?? shown
+  const inClassicMode = surfaceMode === 'agent'
   return h('div', {
     className: 'dsb-frame',
+    style: { '--dsb-side-w': `${effectiveSideW}px` },
     'data-rail': wide ? undefined : '',
     'data-drawer-open': drawerOpen ? '' : undefined,
-    'data-right-open': rightPanel ? '' : undefined,
+    'data-surface': surfaceMode,
+    'data-mac-titlebar': macTitlebar ? '' : undefined,
   },
   drawerOpen ? h('div', { className: 'dsb-drawer-scrim', 'aria-hidden': true, onClick: () => setDrawerOpen(false) }) : null,
-  h('aside', { className: 'dsb-side' },
-    h('div', { className: 'dsb-band' }),
-    h('div', { className: 'dsb-side-list' },
-      wide ? null : h('button', { type: 'button', className: 'dsb-expand', 'aria-label': t('Expand sidebar'), title: t('Expand sidebar'), onClick: () => actions.toggleSidebar() }, h(BrandMark, { size: 22 })),
-      h(TeamSidebar, { ...views, wide: wide || drawerOpen })),
-    h('div', { className: 'dsb-side-foot' },
-      h('button', { type: 'button', className: 'dsb-settings', title: t('Settings'), onClick: () => { setDrawerOpen(false); actions.openSettings() } }, h(YouAvatar)))),
-  // The details panel makes room by giving the shell's `_centerCol` column a right margin.
-  h('main', { className: 'dsb-main dsb_centerCol' },
+  inClassicMode
+    ? h('aside', { className: 'dsb-side' },
+      h('div', { className: 'dsb-band' }),
+      h('div', { className: 'dsb-side-list' },
+        wide || isNarrow ? null : h('button', {
+          type: 'button',
+          className: 'bt-round dsb-expand',
+          'aria-label': t('Expand sidebar'),
+          title: t('Expand sidebar'),
+          onClick: () => actions.toggleSidebar(),
+        }, h(SidebarIcon)),
+        h(ClassicSidebar, { ...views, actions: classicSidebarActions, wide: wide || drawerOpen })),
+      h('div', { className: 'dsb-side-foot' },
+        h('button', {
+          type: 'button',
+          className: 'dsb-settings',
+          'aria-label': t('Settings'),
+          title: t('Settings'),
+          onClick: () => { setDrawerOpen(false); actions.openSettings() },
+        }, h(YouAvatar)),
+        h(BotReturn, { ...views, wide: wide || drawerOpen })))
+    : h('aside', { className: 'dsb-side dsb-side-host', 'aria-hidden': true },
+      h(TeamSidebar, {
+        ...views,
+        useUi: useTeamUi,
+        actions: teamSidebarActions,
+        useFrame: useOwnFrame,
+        useSidebarPref: useOwnSidebarPref,
+        wide: isNarrow ? drawerOpen : wide,
+      })),
+  // The unified right panel makes room by giving the shell's `_centerCol` column a right margin.
+  h('main', { className: 'dsb-main dsb_centerCol', 'data-classic': shownAgent ? '' : undefined },
     h('div', { className: 'dsb-band' }),
     h('button', {
       type: 'button', className: 'dsb-mobile-menu', 'aria-label': t('Expand sidebar'), 'aria-expanded': drawerOpen,
       onClick: () => setDrawerOpen(open => !open),
     }, h(SidebarIcon)),
-    shown ? h('button', {
-      type: 'button',
-      className: 'bt-icon-btn dsb-right-toggle',
-      'aria-label': t('Files'),
-      'aria-pressed': Boolean(rightPanel),
-      title: t('Files'),
-      onClick: () => actions.toggleRightPanel(),
-    }, h(FolderIcon)) : null,
     shown ? h(Fragment, { key: chatKey },
-      h('div', { className: 'dsb-head' }, h(HeaderPill, { ...views, sessionId: shown, useSession: team.sessionHook(shown) })),
-      h(Chat, { key: chatKey, sessionId: shown, team })) : null),
+      h('div', { className: shownAgent ? 'dsb-head dsb-head-classic' : 'dsb-head' },
+        shownAgent
+          ? h(ClassicHeader, {
+            sessionId: shown,
+            agent: shownAgent,
+            useSessions: hooks.useSessions,
+            useSessionStatus: hooks.useSessionStatus,
+            useUi: hooks.useUi,
+            actions,
+            readOnly,
+            sidebarWide: isNarrow ? drawerOpen : wide,
+          })
+          : h(HeaderPill, { ...views, sessionId: shown, useSession: team.sessionHook(shown) })),
+      h(Chat, { key: chatKey, sessionId: shown, team, classic: Boolean(shownAgent) }))
+      : (inClassicMode ? h('div', { className: 'dsb-classic-none' }, h(AgentEmptyHero, { actions, readOnly, noSession: true })) : null)),
   h(Contain, { onError: closeOverlays },
-    h(RightPanel, { sessionId: shown, panel: rightPanel, team, readOnly, wide })),
-  h(Contain, { onError: closeOverlays },
-    h(Overlays, views),
-    h(ShortcutsDialog, { open: shortcutsOpen, enterToSend: sendsOnEnter(prefs), onClose: actions.closeShortcuts })),
+    h(Overlays, { ...views, useFrame: useOwnFrame, useSidebarPref: useOwnSidebarPref, workspace, dsh: dshBridge }),
+    h(ShortcutsDialog, { open: shortcutsOpen, enterToSend: sendsOnEnter(prefs), onClose: actions.closeShortcuts }),
+    h(ShellOverlayHost, { registry: slots, views })),
   h(ErrorToast, views))
 }

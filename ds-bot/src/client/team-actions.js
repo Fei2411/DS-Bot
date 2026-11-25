@@ -40,20 +40,30 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
         // A folded panel is open but not shown: its opener then means "show it"
         // (the column yields it room), not "close it".
         if (details === null && panelFolded?.('details') === true) return { ...state, renaming: false, tab: null, details: id, view: 'details', panelYield: true }
-        return { ...state, renaming: false, tab: null, details, view: 'details' }
+        return { ...state, renaming: false, tab: null, details, view: 'details', ...(details === null && state.rightPanel !== undefined ? { rightPanel: null } : {}) }
       })
     },
     // The open panel follows the main view; a subject with no browser (a group
     // chat, an outside Session) settles on the details view. So does one that
-    // does not own the open side chat.
+    // does not own the open side chat. Workspace tabs persist across sessions;
+    // a non-team session (e.g. Classic Agent) keeps workspace when tabs exist
+    // and closes the panel otherwise.
     followPanel: (id) => {
       ui.set((state) => {
         if (!state.details || state.details === id) return state
         const snap = roster.getSnapshot()
-        const view = state.view === 'browser' && snap.byId[id] === undefined ? 'details'
-          : state.view === 'side' && !(snap.sideChats?.[snap.byId[id]?.id] ?? []).some(chat => chat?.id === state.side) ? 'details'
-            : state.view === 'task' ? 'details'
-              : state.view
+        const hasSubject = snap.byId[id] !== undefined || snap.roomsById?.[id] !== undefined
+        const hasWorkspace = (state.rightPanel?.tabs?.length ?? 0) > 0
+        if (!hasSubject) {
+          if (hasWorkspace) return { ...state, details: id, view: 'workspace', task: null, renaming: false, tab: null, side: null }
+          if (state.rightPanel !== undefined) return { ...state, details: null, view: 'details', task: null, renaming: false, tab: null, side: null }
+        }
+        const view = state.view === 'workspace'
+          ? (state.rightPanel !== undefined && !hasWorkspace ? 'details' : 'workspace')
+          : state.view === 'browser' && snap.byId[id] === undefined ? 'details'
+            : state.view === 'side' && !(snap.sideChats?.[snap.byId[id]?.id] ?? []).some(chat => chat?.id === state.side) ? 'details'
+              : state.view === 'task' ? 'details'
+                : state.view
         return { ...state, details: id, view, task: null, renaming: false, tab: null }
       })
     },
@@ -67,8 +77,10 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     openMemory: (id) => { ui.set(state => ({ ...state, memory: id, menu: null, palette: null })) },
     closeMemory: () => { ui.set(state => (state.memory ? { ...state, memory: null } : state)) },
     openConnectors: () => { ui.set(state => ({ ...state, settings: { page: 'connectors', id: null }, menu: null, palette: null, newChat: null })) },
+    hasPlugins: () => true,
+    openPlugins: (focus = null) => openSettings('plugins', focus),
     setPanelView: (view) => {
-      if (view !== 'details' && view !== 'browser' && view !== 'side' && view !== 'task') return
+      if (view !== 'details' && view !== 'browser' && view !== 'side' && view !== 'task' && view !== 'workspace') return
       ui.set(state => (state.details && state.view !== view ? { ...state, view, ...(view === 'details' ? { tab: null } : {}), panelYield: yieldTo(state, view) } : state))
     },
     openTaskDeck: (targetId, taskId = null) => {
@@ -109,7 +121,11 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
       ui.set(state => (state.details && state.view === 'side' && state.side === chatId ? { ...state, view: 'details', side: null } : state))
       return after(call('side-close', { chatId }))
     },
-    closePanel: () => { ui.set(state => (state.details ? { ...state, details: null, view: 'details', renaming: false, tab: null, side: null, task: null } : state)) },
+    closePanel: () => {
+      ui.set(state => (state.details || state.rightPanel
+        ? { ...state, details: null, ...(state.rightPanel !== undefined ? { rightPanel: null } : {}), view: 'details', renaming: false, tab: null, side: null, task: null }
+        : state))
+    },
     quote: (sessionId, text) => ui.set(state => ({ ...state, quote: { sessionId, text, token: Date.now() } })),
     // A long paste becomes a card; its text stays here until it goes back into the box.
     addPaste: (sessionId, text, name) => {
@@ -162,7 +178,19 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     closeMenu: () => { ui.set(state => (state.menu ? { ...state, menu: null } : state)) },
     closeNewChat: () => { ui.set(state => (state.newChat || state.newChatSection ? { ...state, newChat: null, newChatSection: null } : state)) },
     closeExchange: () => { ui.set(state => (state.exchange ? { ...state, exchange: null } : state)) },
-    closeOverlay: () => { ui.set(state => ({ ...state, newChat: null, newChatSection: null, exchange: null, details: state.newChat || state.exchange ? state.details : null })) },
+    closeOverlay: () => {
+      ui.set((state) => {
+        const keepPanel = Boolean(state.newChat || state.exchange)
+        return {
+          ...state,
+          newChat: null,
+          newChatSection: null,
+          exchange: null,
+          details: keepPanel ? state.details : null,
+          ...(keepPanel || state.rightPanel === undefined ? {} : { rightPanel: null }),
+        }
+      })
+    },
     createBot: payload => after(call('create-bot', payload)),
     // The avatar library: photos the user imported once, kept by the host.
     avatarLibrary: (options = {}) => call('avatar-library', options),
@@ -326,6 +354,18 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     deleteCapability: name => after(call('capability-delete', { name })),
     approveCapability: name => after(call('capability-approve', { name })),
     setBotCapability: (botId, name, attached, mode = 'always') => after(call('bot-capability', { botId, name, attached, mode })),
+    pluginsList: (refresh = false) => call('plugins-list', { refresh }),
+    pluginsCatalogRefresh: () => call('plugins-catalog-refresh', {}),
+    pluginsInstall: body => after(call('plugins-install', body)),
+    pluginsToggle: (id, enabled) => after(call('plugins-toggle', { id, enabled })),
+    pluginsRemove: id => after(call('plugins-remove', { id })),
+    pluginsUpdate: (id, version) => after(call('plugins-update', { id, ...(version ? { version } : {}) })),
+    pluginsSlotSet: (slot, id) => after(call('plugins-slot-set', { slot, id })),
+    pluginsBotToggle: (id, botId, enabled) => after(call('plugins-bot-toggle', { id, botId, enabled })),
+    pluginsCustomSave: body => after(call('plugins-custom-save', body)),
+    pluginsSourceSave: body => after(call('plugins-source-save', body)),
+    pluginsSourceRemove: id => after(call('plugins-source-remove', { id })),
+    pluginsRetry: () => after(call('plugins-retry', {})),
     schedules: () => call('schedules'),
     scheduleCreate: task => call('schedule-create', task),
     scheduleDelete: (sessionId, id) => call('schedule-delete', { sessionId, id }),

@@ -202,5 +202,24 @@ export function watchSafeAppearance(target = globalThis.window, now = () => Date
   return () => { unwait(timer); unwait(hold); stop() }
 }
 
+/**
+ * Briefly enables smooth color-morph transitions on accent/theme surfaces when the user
+ * switches theme, accent, or color mode. Honors `effects === 'off'` and reduced motion.
+ */
+let morphTimer = 0
+export function triggerColorMorph(durationMs = 280, targetDocument = globalThis.document, targetWindow = globalThis.window) {
+  const body = targetDocument?.body
+  if (!body || typeof body.setAttribute !== 'function') return false
+  if (body.dataset?.btEffects === 'off') return false
+  if (targetWindow?.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches) return false
+  body.setAttribute('data-bt-color-morph', '')
+  clearTimeout(morphTimer)
+  morphTimer = setTimeout(() => {
+    body.removeAttribute?.('data-bt-color-morph')
+    morphTimer = 0
+  }, durationMs)
+  return true
+}
+
 /** The change "Restore default appearance" sends: theme, accent and every appearance field back to default; user themes stay. */
 export const DEFAULT_APPEARANCE_CHANGE = { theme: 'deepseek', accent: null, appearance: { radius: null, density: null, background: null, css: null, mode: null, uiFont: null, codeFont: null, fontSize: null, lineHeight: null, material: null } }

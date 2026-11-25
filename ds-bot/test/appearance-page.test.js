@@ -7,7 +7,10 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 const REST_MS = 400
 
 async function load() {
-  const code = await loadClientBundle("export { BackgroundEditor, ColorsSection } from './src/client/appearance-page.js'")
+  const code = await loadClientBundle(`
+    export { APPEARANCE_PAGE_CSS, AppearancePage, BackgroundEditor, CODE_FONT_PRESETS, ColorsSection, FontField, UI_FONT_PRESETS } from './src/client/appearance-page.js'
+    export { triggerColorMorph } from './src/client/appearance.js'
+  `)
   const harness = makeStatefulReact()
   const mod = { exports: {} }
   new Function('module', 'exports', 'require', code)(mod, mod.exports, id => (id === 'react-dom' ? { createPortal: el => el } : harness.React))
@@ -165,4 +168,193 @@ test('two quick color changes both land when the first comes back before the sec
   assert.equal(sent[1].themes['my-dawn'].light.bg, '#203040')
   assert.equal(sent[1].themes['my-dawn'].light.text, '#eeeeee')
   harness.unmount()
+})
+
+test('AppearancePage makes the entire ThemeCard clickable, removes noisy notes, and labels More/Fewer settings', async (t) => {
+  withDocument(t)
+  const { harness, AppearancePage } = await load()
+  const textOf = node => (typeof node === 'string' || typeof node === 'number' ? String(node) : Array.isArray(node) ? node.map(textOf).join('') : (node?.children ?? []).map(textOf).join(''))
+  const findAll = (node, match, out = []) => {
+    if (Array.isArray(node)) { for (const c of node) findAll(c, match, out); return out }
+    if (!node || typeof node !== 'object') return out
+    if (match(node)) out.push(node)
+    findAll(node.children ?? [], match, out)
+    return out
+  }
+  const picked = []
+  const actions = { setPrefs: change => { picked.push(change); return Promise.resolve() } }
+  const colors = { bg: '#fafafa', sidebar: '#f0f0f0', bubble: '#eeeeee', card: '#ffffff', text: '#111111', user: '#222222', userText: '#ffffff', accent: '#4d6bfe' }
+  const roster = {
+    bots: [{ id: 'chief', name: 'Chief' }],
+    byId: { chief: { id: 'chief', name: 'Chief' } },
+    mainBotIds: ['chief'],
+    prefs: { theme: 'deepseek', themes: { 'my-custom': { label: 'Custom', light: colors, dark: colors } } },
+  }
+  const RowWithHint = ({ label, hint, children }) => harness.React.createElement('div', { 'data-row': label, 'data-hint': hint }, children)
+  const SwitchStub = () => null
+  const draw = () => harness.render(harness.React.createElement(AppearancePage, {
+    roster, actions, run: p => p, Section, Row: RowWithHint, Choice, Switch: SwitchStub, ownWindow: true,
+  }))
+  let tree = draw()
+  const fullText = textOf(tree)
+  assert.equal(fullText.includes('Changing a color saves a theme of your own'), false)
+  assert.equal(find(tree, n => n.props?.['data-row'] === 'Accent').props['data-hint'], undefined)
+
+  // Built-in theme card (Mono) is one full-card <button> containing both swatch and label.
+  const monoBtn = findAll(tree, n => n.type === 'button' && n.props?.className === 'bt-look-theme' && textOf(n) === 'Mono')[0]
+  assert.ok(monoBtn, 'built-in ThemeCard should be a full-card button')
+  assert.ok(find(monoBtn, n => n.props?.className === 'bt-look-tname'), 'label lives inside the clickable button')
+  monoBtn.props.onClick()
+  assert.deepEqual(picked.at(-1), { theme: 'mono' })
+
+  // Custom theme card wraps swatch + name in a pick button and isolates OwnThemeActions without nested buttons.
+  const customPick = findAll(tree, n => n.type === 'button' && n.props?.className === 'bt-look-theme-pick' && textOf(n) === 'Custom')[0]
+  assert.ok(customPick, 'custom ThemeCard should expose a full-width pick button covering swatch + title')
+  assert.equal(findAll(customPick, n => n.type === 'button' && n !== customPick).length, 0, 'no nested <button> tags')
+  customPick.props.onClick({ stopPropagation() {} })
+  assert.deepEqual(picked.at(-1), { theme: 'my-custom' })
+
+  // Row 1 uses "Color mode" instead of repeating the page title "Appearance".
+  assert.ok(find(tree, n => n.props?.['data-row'] === 'Color mode'), 'first row should be labeled Color mode')
+
+  // More settings / Fewer settings full-width footer button toggles cleanly.
+  const moreBtn = () => findAll(tree, n => n.type === 'button' && String(n.props?.className ?? '').split(' ').includes('bt-look-more'))[0]
+  assert.equal(textOf(moreBtn()), 'More settings')
+  moreBtn().props.onClick()
+  tree = draw()
+  assert.equal(textOf(moreBtn()), 'Fewer settings')
+
+  // Corners slider and misnamed "Shape and density" section are removed; Density stays cleanly.
+  assert.equal(find(tree, n => n.props?.['data-row'] === 'Corners'), undefined, 'Corners slider must be removed')
+  assert.equal(fullText.includes('Shape and density'), false, 'Shape and density heading must be removed')
+  assert.ok(find(tree, n => n.props?.['data-row'] === 'Density'), 'Density control stays rendered')
+
+  // Custom CSS renders label, hint, and textarea in one unified stacked row without a split divider.
+  const cssRow = find(tree, n => String(n.props?.className ?? '').includes('bt-look-css-row'))
+  assert.ok(cssRow, 'StylesheetField wraps label + hint + textarea in bt-look-css-row')
+  assert.ok(find(cssRow, n => n.type === 'textarea' && n.props?.['aria-label'] === 'Your stylesheet'))
+  assert.equal(find(tree, n => n.props?.['data-row'] === 'Your stylesheet'), undefined, 'no separate header Row above textarea')
+
+  // Interface motion and Bot animation both increase monotonically from left to right.
+  const choices = new Map()
+  const CaptureChoice = ({ label, options }) => { choices.set(label, options); return null }
+  harness.render(harness.React.createElement(AppearancePage, {
+    roster, actions, run: p => p, Section, Row: RowWithHint, Choice: CaptureChoice, Switch: SwitchStub, ownWindow: true,
+  }))
+  assert.deepEqual(choices.get('Interface motion').map(([id]) => id), ['off', 'reduced', 'full'])
+  assert.deepEqual(choices.get('Bot animation').map(([id]) => id), ['quiet', 'normal', 'lively'])
+  harness.unmount()
+})
+
+test('FontField provides a searchable portaled dropdown with presets, local fonts, and custom font fallback', async (t) => {
+  withDocument(t)
+  const { harness, FontField, UI_FONT_PRESETS, CODE_FONT_PRESETS } = await load()
+  const textOf = node => (typeof node === 'string' || typeof node === 'number' ? String(node) : Array.isArray(node) ? node.map(textOf).join('') : (node?.children ?? []).map(textOf).join(''))
+  const findAll = (node, match, out = []) => {
+    if (Array.isArray(node)) { for (const c of node) findAll(c, match, out); return out }
+    if (!node || typeof node !== 'object') return out
+    if (match(node)) out.push(node)
+    findAll(node.children ?? [], match, out)
+    return out
+  }
+  const saved = []
+  let loadedCount = 0
+  let currentValue = undefined
+  const draw = (kind = 'ui') => harness.render(harness.React.createElement(FontField, {
+    label: kind === 'code' ? 'Code font' : 'Interface font',
+    kind,
+    value: currentValue,
+    fonts: ['Inter', 'Avenir Next', 'Menlo', 'Zed Sans'],
+    load: () => { loadedCount += 1 },
+    save: next => { saved.push(next); currentValue = next ?? undefined },
+  }))
+
+  let tree = draw('ui')
+  assert.equal(find(tree, n => n.type === 'datalist'), undefined, 'no raw datalist')
+  const trigger = find(tree, n => n.type === 'button' && String(n.props?.className ?? '').includes('bt-look-font-btn'))
+  assert.ok(trigger, 'renders SelectMenu-style trigger button')
+  assert.equal(textOf(trigger), 'System default')
+
+  // Opening triggers local font discovery and renders Recommended + deduplicated Installed groups.
+  trigger.props.onClick()
+  tree = draw('ui')
+  assert.equal(loadedCount, 1)
+  const options = findAll(tree, n => n.type === 'button' && n.props?.role === 'option')
+  assert.ok(options.some(opt => opt.props['data-font-value'] === '' && opt.props['aria-selected'] === true))
+  for (const preset of UI_FONT_PRESETS) {
+    assert.ok(options.some(opt => opt.props['data-font-value'] === preset), `includes UI preset ${preset}`)
+  }
+  // Inter is deduplicated out of Installed fonts; Avenir Next and Zed Sans stay in Installed fonts.
+  assert.equal(options.filter(opt => opt.props['data-font-value'] === 'Inter').length, 1)
+  assert.ok(options.some(opt => opt.props['data-font-value'] === 'Avenir Next'))
+  assert.ok(options.some(opt => opt.props['data-font-value'] === 'Zed Sans'))
+
+  // Picking a preset saves it and renders it in its own fontFamily on the trigger.
+  options.find(opt => opt.props['data-font-value'] === 'Inter').props.onClick()
+  assert.deepEqual(saved, ['Inter'])
+  tree = draw('ui')
+  const triggerAfter = find(tree, n => n.type === 'button' && String(n.props?.className ?? '').includes('bt-look-font-btn'))
+  assert.equal(textOf(triggerAfter), 'Inter')
+
+  // Reopen, search for a custom font not in list, and pick via Enter.
+  triggerAfter.props.onClick()
+  tree = draw('ui')
+  const searchInput = find(tree, n => n.type === 'input' && n.props?.className === 'bt-font-search-input')
+  assert.ok(searchInput)
+  searchInput.props.onChange({ target: { value: 'IBM Plex Sans' } })
+  tree = draw('ui')
+  const customOpt = find(tree, n => n.type === 'button' && String(n.props?.className ?? '').includes('bt-font-custom-opt'))
+  assert.ok(customOpt, 'shows Custom font… option for unmatched valid font')
+  find(tree, n => n.type === 'input' && n.props?.className === 'bt-font-search-input').props.onKeyDown({
+    key: 'Enter', isComposing: false, preventDefault() {}, stopPropagation() {},
+  })
+  assert.deepEqual(saved, ['Inter', 'IBM Plex Sans'])
+
+  // Invalid CSS characters yield No matching fonts and no custom option.
+  tree = draw('ui')
+  find(tree, n => n.type === 'button' && String(n.props?.className ?? '').includes('bt-look-font-btn')).props.onClick()
+  tree = draw('ui')
+  find(tree, n => n.type === 'input' && n.props?.className === 'bt-font-search-input').props.onChange({ target: { value: 'Bad;Font{}' } })
+  tree = draw('ui')
+  assert.equal(find(tree, n => String(n.props?.className ?? '').includes('bt-font-custom-opt')), undefined)
+  assert.ok(find(tree, n => n.props?.className === 'bt-font-empty'))
+
+  // Code font picker shows code presets (JetBrains Mono, SF Mono, etc.).
+  harness.unmount()
+  currentValue = undefined
+  tree = draw('code')
+  find(tree, n => n.type === 'button' && String(n.props?.className ?? '').includes('bt-look-font-btn')).props.onClick()
+  tree = draw('code')
+  const codeOptions = findAll(tree, n => n.type === 'button' && n.props?.role === 'option')
+  for (const preset of CODE_FONT_PRESETS) {
+    assert.ok(codeOptions.some(opt => opt.props['data-font-value'] === preset), `includes code preset ${preset}`)
+  }
+  harness.unmount()
+})
+
+test('triggerColorMorph sets and clears data-bt-color-morph and respects effects=off and reduced motion', async () => {
+  const { APPEARANCE_PAGE_CSS, triggerColorMorph } = await load()
+  assert.match(APPEARANCE_PAGE_CSS, /@keyframes bt-swatch-pop/)
+  assert.match(APPEARANCE_PAGE_CSS, /body\[data-bt-color-morph\]/)
+
+  const attrs = new Map()
+  const body = {
+    dataset: {},
+    setAttribute: (k, v) => attrs.set(k, v),
+    removeAttribute: k => attrs.delete(k),
+  }
+  assert.equal(triggerColorMorph(20, { body }, { matchMedia: () => ({ matches: false }) }), true)
+  assert.equal(attrs.has('data-bt-color-morph'), true)
+  await sleep(35)
+  assert.equal(attrs.has('data-bt-color-morph'), false)
+
+  // Disabled when effects=off.
+  body.dataset.btEffects = 'off'
+  assert.equal(triggerColorMorph(20, { body }, { matchMedia: () => ({ matches: false }) }), false)
+  assert.equal(attrs.has('data-bt-color-morph'), false)
+
+  // Disabled when prefers-reduced-motion: reduce.
+  delete body.dataset.btEffects
+  assert.equal(triggerColorMorph(20, { body }, { matchMedia: () => ({ matches: true }) }), false)
+  assert.equal(attrs.has('data-bt-color-morph'), false)
 })

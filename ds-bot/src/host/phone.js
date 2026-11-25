@@ -28,6 +28,9 @@ export function remoteAccessError(device, endpoint) {
   if (endpoint.startsWith('workspace-') || endpoint.startsWith('terminal-')) {
     return { code: 'bot/refused', message: 'Workspace files and terminals are available on the computer', details: {} }
   }
+  if (endpoint.startsWith('engine-')) {
+    return { code: 'bot/refused', message: 'Engine settings are managed on the computer', details: {} }
+  }
   return undefined
 }
 

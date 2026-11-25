@@ -268,19 +268,20 @@ const navLabels = tree => walk(walk(tree, node => node.type === 'nav')[0], node 
 test('one Settings: DS Bot\'s grouped pages, then DSH\'s, then About DS Bot; no Harness settings', () => {
   const labels = navLabels(dialog().tree)
   assert.ok(!labels.includes('Harness settings'))
-  assert.deepEqual(labels.slice(-4), ['Account', 'Plugins', 'Agent presets', 'About DS Bot'])
+  assert.deepEqual(labels.slice(-3), ['Account', 'Agent presets', 'About DS Bot'])
   assert.equal(labels.filter(label => label === 'General').length, 1)
   assert.equal(labels.filter(label => label === 'Models').length, 1)
+  assert.equal(labels.filter(label => label === 'Plugins').length, 1)
   assert.equal(labels[0], 'Overview')
 })
 
 test('a DSH page opens in the dialog and draws that section', () => {
   const nav = dialog()
-  walk(nav.tree, node => node.type === 'button' && textOf(node) === 'Plugins')[0].props.onClick()
-  assert.deepEqual(nav.calls, [['dsh', 'plugins']])
-  const page = dialog({ page: 'dsh', id: 'plugins' })
-  assert.ok(page.drawn.some(([name, only]) => name === 'settings.section' && only === 'plugins'))
-  assert.equal(textOf(walk(page.tree, node => node.type === 'h2')[0]), 'Plugins')
+  walk(nav.tree, node => node.type === 'button' && textOf(node) === 'Agent presets')[0].props.onClick()
+  assert.deepEqual(nav.calls, [['dsh', 'agent-presets']])
+  const page = dialog({ page: 'dsh', id: 'agent-presets' })
+  assert.ok(page.drawn.some(([name, only]) => name === 'settings.section' && only === 'agent-presets'))
+  assert.equal(textOf(walk(page.tree, node => node.type === 'h2')[0]), 'Agent presets')
 })
 
 test('a DSH page that left the ledger falls back to Overview', () => {
@@ -298,6 +299,17 @@ test('DSH\'s Models page is Models → Advanced settings, with a way back', () =
   const providersOf = tree => walk(tree, node => typeof node.type === 'function' && node.type.name === 'ProvidersPage')[0]
   assert.equal(typeof providersOf(dialog({ page: 'models' }).tree).props.advanced, 'function')
   assert.equal(providersOf(dialog({ page: 'models', sections: [] }).tree).props.advanced, null)
+})
+
+test('DSH\'s Plugins page is Plugins → Engine plugins, with a way back', () => {
+  const page = dialog({ page: 'plugins', id: 'dsh' })
+  assert.ok(page.drawn.some(([name, only]) => name === 'settings.section' && only === 'plugins'))
+  const [back] = walk(page.tree, node => node.type === 'button' && node.props['aria-label'] === 'Back to Plugins')
+  back.props.onClick()
+  assert.deepEqual(page.calls, [['plugins']])
+  // Legacy deep links `('dsh', 'plugins')` from scheduling & onboarding also land on Engine plugins.
+  const legacy = dialog({ page: 'dsh', id: 'plugins' })
+  assert.ok(legacy.drawn.some(([name, only]) => name === 'settings.section' && only === 'plugins'))
 })
 
 test('DSH\'s General rows join Appearance (look), General Basics (language), and Advanced (rest)', () => {
@@ -329,15 +341,15 @@ test('header actions from DSH and plugins sit beside the title', () => {
   assert.ok(dialog().drawn.some(([name]) => name === 'settings.action'))
 })
 
-test('General settings keeps the Classic Agent mode switch under Advanced', () => {
+test('General settings puts the Classic Agent mode switch at top level (outside Advanced)', () => {
   const calls = []
   const tree = SettingsDialog({
     page: 'general', id: null, roster, useUpdate: pick => pick({}),
     actions: { closeSettings() {}, openSettings() {}, setSurface: mode => calls.push(mode) },
   })
   const [general] = walk(tree, node => typeof node.type === 'function' && node.type.name === 'GeneralPage')
-  const [row] = walk(general.type({ ...general.props, openAdvanced: true }), node => node.props?.label === 'Classic Agent mode')
-  assert.ok(row !== undefined)
+  const [row] = walk(general.type({ ...general.props, openAdvanced: false }), node => node.props?.label === 'Classic Agent mode')
+  assert.ok(row !== undefined, 'Classic Agent mode must be visible without expanding Advanced')
   const [button] = walk(row, node => node.type === 'button' && textOf(node) === 'Switch')
   button.props.onClick()
   assert.deepEqual(calls, ['agent'])

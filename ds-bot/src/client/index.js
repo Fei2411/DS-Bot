@@ -235,6 +235,7 @@ export function apply(ctx) {
     if (value.sideChats !== undefined && JSON.stringify(value.sideChats) !== JSON.stringify(current.sideChats ?? {})) live.sideChats = value.sideChats
     if (value.imStatus !== undefined && JSON.stringify(value.imStatus) !== JSON.stringify(current.imStatus ?? {})) live.imStatus = value.imStatus
     if (value.imVia !== undefined && JSON.stringify(value.imVia) !== JSON.stringify(current.imVia ?? {})) live.imVia = value.imVia
+    if (value.plugins !== undefined && JSON.stringify(value.plugins) !== JSON.stringify(current.plugins ?? null)) live.plugins = value.plugins
     // The read-only notice goes once this host takes the team over from a dsh that
     // closed, without a reload: the window holds the answer's live fields until then.
     if (value.readOnly !== undefined && (value.readOnly ?? null) !== (current.readOnly ?? null)) live.readOnly = value.readOnly
@@ -856,10 +857,9 @@ export function apply(ctx) {
   actions.signIn = () => ui.set(state => ({ ...state, signIn: (state.signIn ?? 0) + 1 }))
   actions.closeSignIn = () => ui.set(state => ({ ...state, signIn: null }))
   actions.accountT = () => ctx.get('locale').bind('settings.account')
-  // DSH's Plugins page (bundle install and management): its navigation face is
-  // absent where the peer may not list bundles, such as the app's own profile.
-  actions.hasPlugins = () => ctx.get('pluginNavigation') !== undefined
-  actions.openPlugins = () => ctx.get('pluginNavigation')?.openList()
+  // DS Bot's own Plugins panel works consistently in both the desktop app and plugin mode.
+  actions.hasPlugins = () => true
+  actions.openPlugins = (focus = null) => actions.openSettings('plugins', focus)
   // The Voice Input plugin's speech Remote; absent while that plugin is off.
   actions.speech = () => ctx.get('remote.speech') ?? undefined
   // One of DSH's onboarding editors, such as the DeepSeek API key form, opened by id
