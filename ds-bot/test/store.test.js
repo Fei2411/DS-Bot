@@ -256,6 +256,34 @@ test('a failed state rename rejects and preserves the saved file', async (t) => 
   }
 })
 
+// After a crash or power loss, a renamed file whose data never reached the disk can come
+// back empty, and an empty state.json loads as an empty team (#2238).
+test('a state write reaches the disk before it replaces state.json', async (t) => {
+  const { rt, statePath } = runtime(t)
+  await rt.load()
+  const steps = []
+  const restoreWrite = patch('writeFile', original => async (path, data, options) => {
+    if (String(path).startsWith(`${statePath}.`)) steps.push(['write', path, typeof options === 'object' && options?.flush === true])
+    return original(path, data, options)
+  })
+  const restoreRename = patch('rename', original => async (from, to) => {
+    if (to === statePath) steps.push(['rename', from])
+    return original(from, to)
+  })
+  try {
+    rt.state.prefs.marker = 'saved'
+    await rt.save()
+  } finally {
+    restoreRename()
+    restoreWrite()
+  }
+  assert.equal(steps.length, 2)
+  const [[write, temp, flushed], [rename, from]] = steps
+  assert.deepEqual([write, rename, from], ['write', 'rename', temp])
+  assert.equal(flushed, true, 'the temp file is flushed before the rename')
+  assert.equal(JSON.parse(fs.readFileSync(statePath, 'utf8')).prefs.marker, 'saved')
+})
+
 test('malformed state is backed up before a later save', async (t) => {
   const original = '{"version":1,'
   const { rt, statePath } = runtime(t, original)
