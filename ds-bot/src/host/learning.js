@@ -610,7 +610,7 @@ export function install(rt) {
           if (lines.length > 0) succeeded += 1
           if (proposal !== undefined) {
             store.proposals[proposal.id] = proposal
-            rt.learningProposed?.(proposal)
+            rt.inboxChanged?.()
             made += 1
           }
           if (config.agentsMd !== false) {
@@ -681,7 +681,7 @@ export function install(rt) {
             succeeded += 1
             if (proposal !== undefined) {
               store.proposals[proposal.id] = proposal
-              rt.learningProposed?.(proposal)
+              rt.inboxChanged?.()
               made += 1
             }
             const queue = store.agentsPending[folder]

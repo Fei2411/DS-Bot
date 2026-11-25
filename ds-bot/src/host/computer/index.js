@@ -773,6 +773,7 @@ export function install(rt) {
       },
     }
     pendingAsks.set(id, entry)
+    rt.inboxChanged?.()
     const ctl = controlOf(botId)
     if (ctl.state !== 'user') {
       ctl.state = 'waiting'
@@ -1109,10 +1110,12 @@ export function install(rt) {
         reason: HANDOFF_REASONS.includes(args.reason) ? args.reason : 'other',
         note: String(args.note ?? '').slice(0, 500),
         ...(callId !== undefined ? { callId } : {}),
+        at: Date.now(),
       })
       const ctl = controlOf(bot.id)
       ctl.state = 'waiting'
       ctl.waitingFor = 'handoff'
+      rt.inboxChanged?.()
       return 'Handed to the user. End your turn now; their answer arrives as a new message.'
     },
   })

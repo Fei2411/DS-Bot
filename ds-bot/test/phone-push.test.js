@@ -136,7 +136,7 @@ test('offline phone receives host-authenticated E2E sealed UnifiedPush notices a
   assert.equal(JSON.stringify(view).includes('up-token-1'), false)
 
   // While phone is connected, notices travel over live tunnel, NOT offline push.
-  desk.rt.approvalWaiting({ botId: 'm1', sessionId: 'm1', tool: 'run_shell_command' })
+  desk.rt.addNotice({ botId: 'm1', name: 'Chief', kind: 'approval', sessionId: 'm1', text: 'run_shell_command' })
   await new Promise(resolve => setTimeout(resolve, 100))
   assert.equal(received.length, 0)
 
@@ -144,10 +144,11 @@ test('offline phone receives host-authenticated E2E sealed UnifiedPush notices a
   await link.client.close()
   await until(() => desk.call('state', {}), state => state.value.phone.phones[0].connected === false)
 
-  desk.rt.approvalWaiting({ botId: 'm1', sessionId: 'm1', tool: 'write_file' })
-  desk.rt.cardShown('m1', 'secret', 'GITHUB_TOKEN')
-  desk.rt.cardShown('m1', 'connector', 'Gmail')
-  desk.rt.learningProposed({ id: 'p1', botId: 'm1', kind: 'skill', name: 'deploy' })
+  // Inbox items reach the phone as notices (inbox.js → mobile.js); the push path is the same for each.
+  desk.rt.addNotice({ botId: 'm1', name: 'Chief', kind: 'approval', sessionId: 'm1', text: 'write_file' })
+  desk.rt.addNotice({ botId: 'm1', name: 'Chief', kind: 'secret', sessionId: 'm1', text: 'GITHUB_TOKEN' })
+  desk.rt.addNotice({ botId: 'm1', name: 'Chief', kind: 'connector', sessionId: 'm1', text: 'Gmail' })
+  desk.rt.addNotice({ botId: 'm1', name: 'Chief', kind: 'learning', sessionId: 'm1', text: 'skills/deploy/SKILL.md' })
   desk.rt.addNotice({ botId: 'm1', name: 'Chief', kind: 'message', sessionId: 'm1', text: '很长的回复内容'.repeat(200) })
 
   await until(() => received.length, count => count >= 5)
@@ -177,7 +178,7 @@ test('offline phone receives host-authenticated E2E sealed UnifiedPush notices a
 
   // 410 Gone automatically clears the stale push subscription.
   nextStatus = 410
-  desk.rt.cardShown('m1', 'question', 'Ship v0.4.0?')
+  desk.rt.addNotice({ botId: 'm1', name: 'Chief', kind: 'question', sessionId: 'm1', text: 'Ship v0.4.0?' })
   await until(() => desk.call('state', {}), state => state.value.phone.phones[0].push === undefined)
 })
 
@@ -220,13 +221,13 @@ test('push-unregister clears subscription and FCM gone cleans up registered toke
   await phone.client.close()
   await until(() => desk.call('state', {}), state => state.value.phone.phones[0].connected === false)
 
-  desk.rt.approvalWaiting({ botId: 'm1', sessionId: 'm1', tool: 'bash' })
+  desk.rt.addNotice({ botId: 'm1', name: 'Chief', kind: 'approval', sessionId: 'm1', text: 'bash' })
   await until(() => fcmCalls.length, n => n >= 1)
   const opened = openPushEnvelope(phone.keys.privateKey, phone.keys.publicKey, offer.hostKey, fcmCalls[0].envelope)
   assert.equal(opened.payload.notice.kind, 'approval')
 
   fcmResult = { ok: false, gone: true, code: 'UNREGISTERED' }
-  desk.rt.cardShown('m1', 'question', 'Retry?')
+  desk.rt.addNotice({ botId: 'm1', name: 'Chief', kind: 'question', sessionId: 'm1', text: 'Retry?' })
   await until(() => desk.call('state', {}), state => state.value.phone.phones[0].push === undefined)
 })
 
