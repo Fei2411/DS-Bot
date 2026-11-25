@@ -370,11 +370,12 @@ function shimLaunch(shim, dir, { exists, find }) {
   const line = shim.split(/\r?\n/u).filter(text => text.includes('%*')).at(-1) ?? ''
   const paths = [...line.matchAll(/"([^"]+)"/gu)].map(match => match[1])
   if (paths.length === 0) return undefined
-  const expand = path => win32.resolve(dir, path.replace(/^%~?dp0%?\\?/iu, ''))
-  const target = expand(paths.at(-1))
-  if (!exists(target)) return undefined
+  const stripShimDir = path => path.replace(/^%~?dp0%?\\?/iu, '')
+  const script = stripShimDir(paths.at(-1))
+  if (/%[^%\\/]+%/u.test(script)) return undefined
+  const target = win32.resolve(dir, script)
   if (paths.length === 1 && /\.exe$/iu.test(target)) return { file: target }
-  const named = paths.length > 1 && paths[0] !== '%_prog%' ? expand(paths[0]) : undefined
+  const named = paths.length > 1 && paths[0] !== '%_prog%' ? win32.resolve(dir, stripShimDir(paths[0])) : undefined
   const program = SHIM_PROGRAM.exec(shim)?.[1] ?? 'node'
   const runner = named !== undefined && exists(named) ? named : exists(win32.join(dir, `${program}.exe`)) ? win32.join(dir, `${program}.exe`) : find(program)
   return runner !== undefined && /\.exe$/iu.test(runner) ? { file: runner, script: target } : undefined

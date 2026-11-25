@@ -77,23 +77,31 @@ const SYSTEM = 'Line one.\nSay "hi" & 100% done | <ok>'
 test('on Windows an npm shim starts its Node script with the arguments intact (spawn EINVAL)', () => {
   const exe = 'C:\\Users\\me\\AppData\\Roaming\\npm\\opencode.cmd'
   const script = 'C:\\Users\\me\\AppData\\Roaming\\npm\\node_modules\\opencode-ai\\bin\\opencode'
-  assert.deepEqual(launchOf(exe, ['acp', SYSTEM], onWindows('npm-node.cmd', { exists: path => path === script, find: name => (name === 'node' ? 'C:\\Program Files\\nodejs\\node.exe' : undefined) })),
+  assert.deepEqual(launchOf(exe, ['acp', SYSTEM], onWindows('npm-node.cmd', { find: name => (name === 'node' ? 'C:\\Program Files\\nodejs\\node.exe' : undefined) })),
     { file: 'C:\\Program Files\\nodejs\\node.exe', args: [script, 'acp', SYSTEM] })
   const beside = 'C:\\Users\\me\\AppData\\Roaming\\npm\\node.exe'
-  assert.deepEqual(launchOf(exe, ['acp'], onWindows('npm-node.cmd', { exists: path => path === script || path === beside })), { file: beside, args: [script, 'acp'] })
+  assert.deepEqual(launchOf(exe, ['acp'], onWindows('npm-node.cmd', { exists: path => path === beside })), { file: beside, args: [script, 'acp'] })
 })
 
 test('on Windows an npm shim for a program starts the program', () => {
-  const target = 'C:\\tools\\node_modules\\fake\\bin\\fake.exe'
-  assert.deepEqual(launchOf('C:\\tools\\fake.cmd', ['--version'], onWindows('npm-exe.cmd', { exists: path => path === target })),
-    { file: target, args: ['--version'] })
+  assert.deepEqual(launchOf('C:\\tools\\fake.cmd', ['--version'], onWindows('npm-exe.cmd')),
+    { file: 'C:\\tools\\node_modules\\fake\\bin\\fake.exe', args: ['--version'] })
 })
 
 test('on Windows a pnpm shim starts its Node script', () => {
   const exe = 'C:\\Users\\me\\AppData\\Local\\pnpm\\opencode.cmd'
-  const script = 'C:\\Users\\me\\AppData\\Local\\pnpm\\global\\5\\node_modules\\opencode-ai\\bin\\opencode'
-  assert.deepEqual(launchOf(exe, ['acp'], onWindows('pnpm-node.cmd', { exists: path => path === script, find: () => 'C:\\nodejs\\node.exe' })),
-    { file: 'C:\\nodejs\\node.exe', args: [script, 'acp'] })
+  assert.deepEqual(launchOf(exe, ['acp'], onWindows('pnpm-node.cmd', { find: () => 'C:\\nodejs\\node.exe' })),
+    { file: 'C:\\nodejs\\node.exe', args: ['C:\\Users\\me\\AppData\\Local\\pnpm\\global\\5\\node_modules\\opencode-ai\\bin\\opencode', 'acp'] })
+})
+
+test('on Windows a Node batch launcher leaves extensionless entrypoint resolution to Node', () => {
+  const args = ['--config=C:\\config\\日本語.json']
+  assert.deepEqual(launchOf('C:\\tools\\agent.cmd', args, {
+    platform: 'win32',
+    readFile: () => '@node "%~dp0agent" %*\r\n',
+    exists: path => path === 'C:\\tools\\agent.js',
+    find: name => name === 'node' ? 'C:\\nodejs\\node.exe' : undefined,
+  }), { file: 'C:\\nodejs\\node.exe', args: ['C:\\tools\\agent', ...args] })
 })
 
 test('on Windows the Cursor CLI batch launcher runs through cmd.exe even with Node on PATH', () => {
