@@ -4812,22 +4812,25 @@ test('merged Web + IM delegate_work work stores mixed marker and drops IM origin
   const dispatchId = firstSent.source.exchangeId
   s.emitEvent('a', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
 
-  // 2) Before Writer reads it, a Web turn sends another delegate_work to Writer -> merges into the same work and marks imOriginMixed.
+  // Before Writer reads the first request, receive an unrelated Web assignment.
   s.emitEvent('a', 'turn/start', { turn: 2 })
   s.emitEvent('a', 'user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'Web private check' }] })
   await tool('delegate_work', { to: 'Writer', goal: 'Web 私密内容' }, 'a')
-  assert.deepEqual(s.rt.workImOrigin(dispatchId), { mixed: true })
+  assert.ok(s.rt.workImOrigin(dispatchId)?.connId)
   s.emitEvent('a', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
 
-  // 3) Writer answers the merged work -> imReplyOrigins records { mixed: true }.
+  // Reply to the Web assignment first. It must not inherit the other work's IM origin.
   const mergedSent = s.agentOf('b').lastFollowup
+  const webId = mergedSent.source.exchangeId
+  assert.notEqual(webId, dispatchId)
+  assert.equal(s.rt.workImOrigin(webId), undefined)
   s.emitEvent('b', 'turn/start', { turn: 1 })
   s.emitEvent('b', 'user/message', { source: mergedSent.source, content: mergedSent.content })
   s.emitEvent('b', 'assistant/message', { message: { content: [{ type: 'text', text: '包含 Web 私密内容的合并答复' }] } })
   s.emitEvent('b', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
-  await waitFor(() => s.agentOf('a').lastFollowup?.source?.replyTo === dispatchId)
+  await waitFor(() => s.agentOf('a').lastFollowup?.source?.replyTo === webId)
   const mixedReply = s.agentOf('a').lastFollowup
-  assert.equal(s.rt.imReplyOrigin(dispatchId)?.mixed, true)
+  assert.equal(s.rt.imReplyOrigin(webId), undefined)
 
   // 4) Even if the mixed reply coalesces into an active IM DM turn on Chief, dropOrigin prevents any leak to dm-u1.
   s.fake.sent.length = 0
