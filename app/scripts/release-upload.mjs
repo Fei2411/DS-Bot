@@ -7,11 +7,16 @@ import { fileURLToPath } from 'node:url'
 
 const DEFAULT_CONCURRENCY = 5
 const DEFAULT_RETRY_DELAYS_MS = [5_000, 15_000, 30_000]
+// GitHub returns HTTP 403 for primary/secondary rate limits and HTTP 422 with
+// `ReleaseAsset.name already exists` when an earlier 502 leaves an empty starter asset;
+// both are transient and recoverable via a fresh `gh release upload --clobber` attempt.
+const RETRYABLE_OVERRIDE_STDERR = /rate limit|secondary rate|abuse detection|ReleaseAsset\.name already exists|\balready_exists\b/iu
 // Deterministic client/auth/target errors will not succeed on retry (408 and 429 are transient).
 const NON_RETRYABLE_STDERR = /\bHTTP (?:400|401|403|404|405|410|413|422)\b|release not found|not found \(HTTP 404\)|authentication|Bad credentials/iu
 
 export function isRetryableUploadError(stderr) {
   if (typeof stderr !== 'string' || stderr.trim() === '') return true
+  if (RETRYABLE_OVERRIDE_STDERR.test(stderr)) return true
   return !NON_RETRYABLE_STDERR.test(stderr)
 }
 

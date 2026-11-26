@@ -46,30 +46,36 @@ test('isRetryableUploadError distinguishes transient errors from deterministic 4
   assert.equal(isRetryableUploadError('HTTP 408 Request Timeout'), true)
   assert.equal(isRetryableUploadError('connection reset by peer'), true)
   assert.equal(isRetryableUploadError(''), true)
-  assert.equal(isRetryableUploadError('HTTP 403 Forbidden'), false)
+  assert.equal(isRetryableUploadError('HTTP 403: API rate limit exceeded for installation'), true)
+  assert.equal(isRetryableUploadError('HTTP 403: You have exceeded a secondary rate limit'), true)
+  assert.equal(isRetryableUploadError('HTTP 422: Validation Failed\nReleaseAsset.name already exists'), true)
+  assert.equal(isRetryableUploadError('HTTP 403: Resource not accessible by integration'), false)
   assert.equal(isRetryableUploadError('HTTP 404 Not Found'), false)
   assert.equal(isRetryableUploadError('release not found'), false)
-  assert.equal(isRetryableUploadError('HTTP 422 Unprocessable Entity'), false)
+  assert.equal(isRetryableUploadError('HTTP 422: Validation Failed\nReleaseAsset.name is invalid'), false)
 })
 
-test('uploadReleaseAssets retries transient upload errors and succeeds', async () => {
+test('uploadReleaseAssets retries transient upload errors including 403 rate limits and 422 duplicate starter assets', async () => {
   const attempts = new Map()
   const delays = []
-  await uploadReleaseAssets('v0.3.11', ['a.exe', 'b.zip'], {
-    concurrency: 2,
+  await uploadReleaseAssets('v0.3.11', ['a.exe', 'b.zip', 'c.apk'], {
+    concurrency: 3,
     retryDelaysMs: [100, 200],
     log: () => {},
     sleepImpl: async (ms) => { delays.push(ms) },
     runImpl: async (_tag, file) => {
       const count = (attempts.get(file) ?? 0) + 1
       attempts.set(file, count)
+      if (file === 'a.exe' && count === 1) return { code: 1, signal: null, stderr: 'HTTP 403: You have exceeded a secondary rate limit' }
       if (file === 'b.zip' && count === 1) return { code: 1, signal: null, stderr: 'HTTP 502' }
+      if (file === 'c.apk' && count === 1) return { code: 1, signal: null, stderr: 'HTTP 422: Validation Failed\nReleaseAsset.name already exists' }
       return { code: 0, signal: null, stderr: '' }
     },
   })
-  assert.equal(attempts.get('a.exe'), 1)
+  assert.equal(attempts.get('a.exe'), 2)
   assert.equal(attempts.get('b.zip'), 2)
-  assert.deepEqual(delays, [100])
+  assert.equal(attempts.get('c.apk'), 2)
+  assert.deepEqual(delays, [100, 100, 100])
 })
 
 test('uploadReleaseAssets does not retry deterministic 4xx errors', async () => {
