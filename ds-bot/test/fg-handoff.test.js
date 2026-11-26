@@ -2414,6 +2414,65 @@ test('round-1 review invariants: repeat cold lookup preserves durable, non-im sc
   assert.equal(flushCount4, 2, 'even if user/message became visible before post-flush check, flush #2 must run')
   assert.equal(confirmedWhenFlush2Succeeds, true)
 
+  // Remove + reinsert rollback across flush #1 barrier MUST also require flush #2 (cannot trust flush #1!).
+  const reinsertReqId = 'im:telegram:c1:dm-u1:remove-reinsert-1'
+  dmA4.session.events.length = 0
+  dmA4.session.events.push({
+    type: 'agent/inbox/spliced',
+    seq: 1,
+    data: {
+      target: 'next-turn',
+      start: 0,
+      inserted: [{ id: 'm-reins-1', role: 'user', content: [{ type: 'text', text: 'Reinserted' }], source: { kind: 'user', rpcId: reinsertReqId } }],
+    },
+  })
+  flushCount4 = 0
+  env4.ctx.sessions.flush = async () => {
+    flushCount4 += 1
+    if (flushCount4 === 1) {
+      // Removal included in flush #1; rollback reinsertion lands right after barrier #1 resolves!
+      dmA4.session.events.push({ type: 'agent/inbox/spliced', seq: 2, data: { target: 'next-turn', start: 0, removedCount: 1, inserted: [], outcome: 'canceled' } })
+      queueMicrotask(() => {
+        dmA4.session.events.push({
+          type: 'agent/inbox/spliced',
+          seq: 3,
+          data: {
+            target: 'next-turn',
+            start: 0,
+            inserted: [{ id: 'm-reins-1', role: 'user', content: [{ type: 'text', text: 'Reinserted' }], source: { kind: 'user', rpcId: reinsertReqId } }],
+          },
+        })
+      })
+      return true
+    }
+    return false
+  }
+  const reinsertFlush2Fails = await env4.rt.confirmSessionFlushed('dm-a', reinsertReqId)
+  assert.equal(flushCount4, 2, 'remove+reinsert across flush #1 must trigger a second flush barrier')
+  assert.equal(reinsertFlush2Fails, false, 'failed second flush after reinsert must return false')
+
+  // When flush #2 succeeds with no further splices, confirmSessionFlushed returns true on flush #2.
+  flushCount4 = 0
+  env4.ctx.sessions.flush = async () => {
+    flushCount4 += 1
+    if (flushCount4 === 1) {
+      dmA4.session.events.push({ type: 'agent/inbox/spliced', seq: 4, data: { target: 'next-turn', start: 0, removedCount: 1, inserted: [], outcome: 'canceled' } })
+      dmA4.session.events.push({
+        type: 'agent/inbox/spliced',
+        seq: 5,
+        data: {
+          target: 'next-turn',
+          start: 0,
+          inserted: [{ id: 'm-reins-1', role: 'user', content: [{ type: 'text', text: 'Reinserted' }], source: { kind: 'user', rpcId: reinsertReqId } }],
+        },
+      })
+    }
+    return true
+  }
+  const reinsertFlush2Succeeds = await env4.rt.confirmSessionFlushed('dm-a', reinsertReqId)
+  assert.equal(flushCount4, 2)
+  assert.equal(reinsertFlush2Succeeds, true)
+
   // Verify real DSH `agent/disposed` payload `{ agent }` exits waitForClaimedAdmission immediately (not 5s timeout).
   const disposeReqId = 'im:telegram:c1:dm-u1:dispose-fast-1'
   dmA4.session.events.length = 0

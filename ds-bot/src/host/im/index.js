@@ -1468,10 +1468,15 @@ export function install(rt) {
         })
       } catch (error) {
         // When an unrelated Bot's cold archive is unreadable, check both this chat's current
-        // target AND any recorded former bindings (`chat.pastTargets`) so a corrupt unrelated
-        // Bot never bricks cards here while a corrupt former binding still fails closed.
+        // target AND any recorded former bindings (`chat.pastTargets` and connection-level
+        // `conn.pastBotIds` for direct chats) so a corrupt unrelated Bot never bricks cards
+        // here while a corrupt former explicit or implicit binding still fails closed.
         if (!allowTargetOnlyFallback || targetRef === undefined) throw error
-        const relevantRefs = [targetRef, ...(Array.isArray(chat?.pastTargets) ? chat.pastTargets : [])]
+        const relevantRefs = [
+          targetRef,
+          ...(Array.isArray(chat?.pastTargets) ? chat.pastTargets : []),
+          ...(msg.chat.kind === 'direct' && Array.isArray(conn.pastBotIds) ? conn.pastBotIds : []),
+        ]
         admitted = await rt.findAdmittedForSend({
           ref: targetRef,
           refs: relevantRefs,
@@ -2117,6 +2122,13 @@ export function install(rt) {
       if (body.botId !== undefined) {
         const bot = rt.botOf(String(body.botId))
         if (bot === undefined) throw new Error('Choose a Bot first')
+        if (typeof conn.botId === 'string' && conn.botId !== '' && conn.botId !== bot.id) {
+          const past = Array.isArray(conn.pastBotIds) ? conn.pastBotIds : (conn.pastBotIds = [])
+          const idx = past.indexOf(conn.botId)
+          if (idx !== -1) past.splice(idx, 1)
+          past.push(conn.botId)
+          while (past.length > 16) past.shift()
+        }
         conn.botId = bot.id
       }
       if (body.enabled !== undefined) conn.enabled = body.enabled === true

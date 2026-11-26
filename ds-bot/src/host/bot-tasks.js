@@ -1995,10 +1995,14 @@ export function install(rt) {
 
   // Confirms that the exact physical session `sessionId` has flushed to disk (`flush() === true`)
   // and — when `requestId` is supplied on a real session with event/inbox inspection — proves
-  // the request's durable representation (`user/message` OR still-pending `agent/inbox/spliced`)
-  // was covered by a completed flush barrier. If an inbox-pending item transitions across the
-  // first flush (claimed by `preStep()` and appended as `user/message` after barrier #1), an
-  // unconditional second flush is required after `user/message` exists so barrier #2 covers it.
+  // the request's durable representation was covered by a completed flush barrier using the
+  // pre-flush event prefix:
+  //   1. An append-only `user/message` already present before `flush()` started is covered by
+  //      that flush barrier;
+  //   2. A pending `agent/inbox/spliced` entry present before `flush()` started is covered ONLY
+  //      if zero new `agent/inbox/spliced` events were appended at or after `beforeLen`;
+  //   3. Any splice across the barrier (claim -> `user/message`, remove -> reinsert rollback, or
+  //      edit/replace) re-enters the loop so a subsequent flush covers the new stable event.
   const confirmSessionFlushed = async (sessionId, requestId) => {
     if (typeof ctx.sessions?.flush !== 'function') return false
     if (typeof sessionId !== 'string' || sessionId === '') return false
@@ -2015,47 +2019,45 @@ export function install(rt) {
         return false
       }
     }
-    const hasUserMessageOnSession = () => (session.snapshotEvents?.() ?? []).some(
+    const hasUserMessageIn = (events) => events.some(
       ev => ev?.type === 'user/message' && (
         ev.data?.id === requestId
         || ev.data?.message?.id === requestId
         || ev.data?.source?.rpcId === requestId
       ),
     )
-    const hasDurablePendingInbox = () => !hasUserMessageOnSession()
-      && collectAdmittedIdsFromEvents(session.snapshotEvents?.()).has(requestId)
-    let hadUserMessageBeforeFlush = hasUserMessageOnSession()
-    const hadDurableInboxBeforeFlush = !hadUserMessageBeforeFlush && hasDurablePendingInbox()
-    if (!hadUserMessageBeforeFlush && !hadDurableInboxBeforeFlush) {
-      if (agent === undefined || !handoffInputClaimed(agent, requestId)) return false
-      if (!(await waitForClaimedAdmission(sessionId, agent, requestId, hasUserMessageOnSession))) return false
-      hadUserMessageBeforeFlush = hasUserMessageOnSession()
-      if (!hadUserMessageBeforeFlush) return false
-    }
+    const hasUserMessageNow = () => hasUserMessageIn(session.snapshotEvents?.() ?? [])
     try {
-      if ((await ctx.sessions.flush(session)) !== true) return false
-      // Append-only `user/message` already existed before flush #1 started -> covered by barrier #1.
-      if (hadUserMessageBeforeFlush) {
-        noteLogicalAdmittedRpc(sessionId, requestId, { durable: true })
-        return true
+      for (let pass = 0; pass < 4; pass += 1) {
+        let before = session.snapshotEvents?.() ?? []
+        let hadUserMessageBeforeFlush = hasUserMessageIn(before)
+        const hadDurableInboxBeforeFlush = !hadUserMessageBeforeFlush
+          && collectAdmittedIdsFromEvents(before).has(requestId)
+        if (!hadUserMessageBeforeFlush && !hadDurableInboxBeforeFlush) {
+          if (agent === undefined || !handoffInputClaimed(agent, requestId)) return false
+          if (!(await waitForClaimedAdmission(sessionId, agent, requestId, hasUserMessageNow))) return false
+          before = session.snapshotEvents?.() ?? []
+          hadUserMessageBeforeFlush = hasUserMessageIn(before)
+          if (!hadUserMessageBeforeFlush) return false
+        }
+        const beforeLen = before.length
+        if ((await ctx.sessions.flush(session)) !== true) return false
+        // Append-only `user/message` already existed in `[0..beforeLen)` -> covered by this barrier.
+        if (hadUserMessageBeforeFlush) {
+          noteLogicalAdmittedRpc(sessionId, requestId, { durable: true })
+          return true
+        }
+        // Durable inbox insert existed before flush; prove ZERO inbox splices occurred at or
+        // after `beforeLen` so remove+reinsert or claim+append across the barrier can never pass.
+        const after = session.snapshotEvents?.() ?? []
+        const spliceMutatedDuringFlush = after.length < beforeLen
+          || after.slice(beforeLen).some(ev => ev?.type === 'agent/inbox/spliced')
+        if (!spliceMutatedDuringFlush && !hasUserMessageIn(after) && collectAdmittedIdsFromEvents(after).has(requestId)) {
+          noteLogicalAdmittedRpc(sessionId, requestId, { durable: true })
+          return true
+        }
       }
-      // Durable inbox insert existed before flush #1 AND no claim/remove splice happened -> covered by barrier #1.
-      if (hadDurableInboxBeforeFlush && hasDurablePendingInbox()) {
-        noteLogicalAdmittedRpc(sessionId, requestId, { durable: true })
-        return true
-      }
-      // The inbox-pending item transitioned during flush #1 (claimed in `preStep()`, possibly
-      // already appended as `user/message` AFTER flush #1's barrier resolved). Wait if still
-      // claimed, then unconditionally run flush #2 AFTER `user/message` exists.
-      if (!hasUserMessageOnSession()) {
-        if (agent === undefined || !handoffInputClaimed(agent, requestId)) return false
-        if (!(await waitForClaimedAdmission(sessionId, agent, requestId, hasUserMessageOnSession))) return false
-        if (!hasUserMessageOnSession()) return false
-      }
-      if ((await ctx.sessions.flush(session)) !== true) return false
-      if (!hasUserMessageOnSession()) return false
-      noteLogicalAdmittedRpc(sessionId, requestId, { durable: true })
-      return true
+      return false
     } catch {
       return false
     }

@@ -4400,6 +4400,20 @@ test('IM /steer, /background, and platform messageId redelivery deduplication (#
   assert.equal(sRestart.rt.state.questions['a-moved-fg']?.id, 'q-rebound-corrupt', 'question card must remain unanswered when former binding history is corrupt')
   assert.equal(sRestart.prompts.length, promptsBeforeCorruptRebound, 'failed precheck must not fall through to sendUser')
   delete sRestart.rt.state.questions['a-moved-fg']
+
+  // 9) Implicit direct-chat rebind via `im-update` changing `conn.botId` records former default Bot in `conn.pastBotIds`,
+  //    so a direct chat without explicit `chat.target` also fails closed when its former default Bot has corrupt history.
+  delete oneR.chats['dm-u1'].target
+  delete oneR.chats['dm-u1'].pastTargets
+  await sRestart.rt.imEndpoint('im-update', { id: one.id, botId: 'b' })
+  await sRestart.rt.imEndpoint('im-update', { id: one.id, botId: 'a' })
+  assert.ok(oneR.pastBotIds?.includes('b'), 'im-update changing conn.botId must record former default Bot in conn.pastBotIds')
+  sRestart.rt.state.questions['a-moved-fg'] = { id: 'q-implicit-rebound-corrupt', question: 'Confirm implicit?', options: [{ label: 'Yes' }, { label: 'No' }] }
+  await sRestart.rt.save()
+  await sRestart.flush()
+  await dm(sRestart, 'u1', '1', { messageId: 'maybe-implicit-rebound-1' })
+  assert.equal(sRestart.rt.state.questions['a-moved-fg']?.id, 'q-implicit-rebound-corrupt', 'implicit direct-chat rebind via conn.botId must fail closed when former default Bot is corrupt')
+  delete sRestart.rt.state.questions['a-moved-fg']
   sRestart.ctx.get = origGetR
   s.rt.confirmSessionFlushed = origConfirm
 })
