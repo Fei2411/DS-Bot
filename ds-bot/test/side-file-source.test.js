@@ -20,7 +20,7 @@ runInNewContext(outputFiles[0].text, {
   fetch: async () => { throw new Error('no network in tests') },
   require: name => (name === 'react' ? react : name === 'react-dom' ? { createPortal: node => node } : {}),
 })
-const { createFileSession, startPolling, sessionFor, dropSession, chooseBase, POLL_MS } = module.exports
+const { createFileSession, startPolling, sessionFor, dropSession, chooseBase, nextPreview, POLL_MS } = module.exports
 const plain = value => JSON.parse(JSON.stringify(value))
 // Promises made in the bundle's context take extra turns; a macrotask lets them all land.
 const settle = () => new Promise(resolve => setImmediate(resolve))
@@ -237,6 +237,40 @@ test('the host\'s base is used only for the text on screen, and never after a re
   assert.deepEqual(plain(chooseBase({ file: { ...file, reviewed: true, base: 'after' }, host })), { text: 'after', source: 'snapshot' })
 })
 
+test('after a review the host base is used again once it starts at the reviewed version', () => {
+  const reviewed = { text: 'v2', revision: 'r2', base: 'v2', baseRevision: 'r2', reviewed: true }
+  // The Bot edits again: the host's before is the reviewed text itself.
+  const edit = { kind: 'host', before: 'v2', baseRevision: 'r2', revision: 'r3' }
+  assert.deepEqual(plain(chooseBase({ file: { ...reviewed, text: 'v3', revision: 'r3' }, host: edit })), { text: 'v2', source: 'host' })
+  // A base that reaches back past the review would show reviewed changes as new again.
+  const wide = { kind: 'host', before: 'v1', baseRevision: 'r1', revision: 'r3' }
+  assert.deepEqual(plain(chooseBase({ file: { ...reviewed, text: 'v3', revision: 'r3', base: 'v2' }, host: wide })), { text: 'v2', source: 'snapshot' })
+})
+
+test('the same file in two conversations keeps two sessions, and closing the tab drops both', () => {
+  const base = { key: 'reader\0t\0a.md', app: 'reader', displayPath: 'a.md', workspaceTag: 't' }
+  const read = () => Promise.resolve(text('x', 'r1'))
+  const one = sessionFor({ ...base, sessionId: 's1' }, read)
+  const two = sessionFor({ ...base, sessionId: 's2' }, read)
+  assert.notEqual(one, two)
+  assert.equal(sessionFor({ ...base, sessionId: 's1' }, read), one)
+  dropSession(base.key)
+  assert.notEqual(sessionFor({ ...base, sessionId: 's1' }, read), one)
+  assert.notEqual(sessionFor({ ...base, sessionId: 's2' }, read), two)
+  dropSession(base.key)
+})
+
+test('a renewed ticket for unchanged content moves the frame to the new address', () => {
+  const ready = { status: 'ready', frameUrl: '/t/old/index.html', previewRevision: 'p1', error: null, unavailable: null }
+  const renewed = nextPreview(ready, { kind: 'unchanged', previewRevision: 'p1', frameUrl: '/t/new/index.html' })
+  assert.equal(renewed.frameUrl, '/t/new/index.html')
+  assert.equal(renewed.previewRevision, 'p1', 'the content did not change')
+  assert.equal(nextPreview(ready, { kind: 'unchanged', previewRevision: 'p1', frameUrl: '/t/old/index.html' }), ready, 'nothing moved, nothing re-renders')
+  assert.equal(nextPreview(ready, { kind: 'preview', previewRevision: 'p2', frameUrl: '/t/old/index.html' }).previewRevision, 'p2')
+  const failed = { ...ready, error: { code: 'bot/error' } }
+  assert.equal(nextPreview(failed, { kind: 'unchanged', previewRevision: 'p1', frameUrl: '/t/old/index.html' }).error, null)
+})
+
 const { fetchImage, IMAGE_MIMES, IMAGE_MAX_BYTES } = module.exports
 const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).toString('base64')
 const tab = { key: 'k', sessionId: 's1', app: 'reader', displayPath: 'docs/a.md', workspaceTag: 'w1' }
@@ -244,7 +278,7 @@ const tab = { key: 'k', sessionId: 's1', app: 'reader', displayPath: 'docs/a.md'
 test('a picture is requested for its own path with the tab\'s authority', async () => {
   const seen = []
   const got = await fetchImage(tab, 'docs/img/a.png', undefined, async (body) => { seen.push(plain(body)); return { kind: 'bytes', revision: 'r1', mime: 'image/png', data: PNG, size: 8 } })
-  assert.deepEqual(seen, [{ sessionId: 's1', file: { app: 'reader', displayPath: 'docs/img/a.png', workspaceTag: 'w1' } }])
+  assert.deepEqual(seen, [{ sessionId: 's1', file: { app: 'reader', displayPath: 'docs/img/a.png', article: 'docs/a.md', workspaceTag: 'w1' } }])
   assert.equal(got.kind, 'image')
   assert.equal(got.revision, 'r1')
   assert.equal(got.blob.type, 'image/png')

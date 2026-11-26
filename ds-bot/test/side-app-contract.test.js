@@ -298,6 +298,134 @@ test('preview tickets bind to one entry directory and cannot be transferred acro
   assert.match(first.id, /^[A-Za-z0-9_-]{32}$/)
 })
 
+test('a diff base never answers a different session that happens to share the same file', async (t) => {
+  const root = tempRoot(t)
+  const { rt, fireExecute } = harness({ root })
+  rt.chatOwners.set('s2', 'b2')
+  write(root, 'shared.html', 'v0')
+  await writeFile(join(root, 'shared.html'), 'v1')
+  const exec = { name: 'edit', arguments: { file_path: 'shared.html' }, agent: { id: 's1', session: { id: 's1', header: { cwd: root } } } }
+  rt.live.set('s1', { turn: 4 })
+  await fireExecute(exec, { value: { before: 'v0', after: 'v1' } })
+  const entry = [...rt.sideAppInternals.diffBases.values()][0]
+  const descriptor = await openWithTool(rt, root, 'shared.html')
+  const foreign = { ...descriptor, sessionId: 's2' }
+  const answer = await rt.sideAppEndpoint('side-app-diff', { ...fileBody(foreign), revision: entry.afterRevision })
+  assert.equal(answer.kind, 'unavailable', "another session's card must not read this session's diff base")
+  const own = await rt.sideAppEndpoint('side-app-diff', { ...fileBody(descriptor), revision: entry.afterRevision })
+  assert.equal(own.kind, 'host', 'the owning session still gets its own base')
+})
+
+test('an expired diff base is not served even when its revision still matches', async (t) => {
+  const root = tempRoot(t)
+  const { rt, fireExecute } = harness({ root })
+  write(root, 'aged.html', 'v0')
+  await writeFile(join(root, 'aged.html'), 'v1')
+  const exec = { name: 'edit', arguments: { file_path: 'aged.html' }, agent: { id: 's1', session: { id: 's1', header: { cwd: root } } } }
+  rt.live.set('s1', { turn: 2 })
+  await fireExecute(exec, { value: { before: 'v0', after: 'v1' } })
+  const entry = [...rt.sideAppInternals.diffBases.values()][0]
+  entry.at = Date.now() - 61 * 60_000
+  const descriptor = await openWithTool(rt, root, 'aged.html')
+  const answer = await rt.sideAppEndpoint('side-app-diff', { ...fileBody(descriptor), revision: entry.afterRevision })
+  assert.equal(answer.kind, 'unavailable', 'a stale in-memory base must not resurrect as host truth')
+})
+
+test('the canvas asset route also refuses content inside harness or team data roots', async (t) => {
+  const { root, target: site } = copyFixture(t, 'canvas-basic', 'site')
+  const { rt } = harness({ root })
+  rt.inData = async path => path.endsWith('secret-data.css')
+  write(site, 'secret-data.css', 'body{color:red}')
+  const entryReal = await realpath(join(site, 'index.html'))
+  const ticket = rt.sideAppInternals.issueTicket({ entryReal, displayPath: 'site/index.html', sessionId: 's1' })
+  const response = await rt.sideAppInternals.serveAsset(ticket, `/api/bot-canvas/${ticket.id}/secret-data.css`)
+  assert.equal(response.status, 404)
+})
+
+test('reader images inside harness or team data roots are refused even when the type is allowed', async (t) => {
+  const { root } = copyFixture(t, 'reader-long')
+  const { rt } = harness({ root })
+  rt.inData = async path => path.endsWith('diagram.svg')
+  const descriptor = await openWithTool(rt, root, 'article.md', 'open_reader')
+  const image = { app: 'reader', sessionId: 's1', displayPath: 'assets/diagram.svg', workspaceTag: descriptor.workspaceTag }
+  await assert.rejects(
+    rt.sideAppEndpoint('side-app-bytes', { file: image }),
+    error => error?.code === 'bot/forbidden',
+  )
+})
+
+test('a renewed preview after ticket expiry always carries a fresh frameUrl, never an unchanged dead address', async (t) => {
+  const root = copyFixture(t, 'canvas-basic', 'site').root
+  const { rt } = harness({ root })
+  const descriptor = await openWithTool(rt, root, 'site/index.html')
+  const first = await rt.sideAppEndpoint('side-app-preview', fileBody(descriptor))
+  assert.equal(first.kind, 'preview')
+  const stale = first.frameUrl
+  for (const ticket of rt.sideAppInternals.tickets.values()) ticket.expiresAt = Date.now() - 1
+  const renewed = await rt.sideAppEndpoint('side-app-preview', { ...fileBody(descriptor), knownPreviewRevision: first.previewRevision })
+  assert.notEqual(renewed.kind, 'unchanged', 'an expired ticket must never answer unchanged with the old address')
+  assert.equal(renewed.kind, 'preview')
+  assert.notEqual(renewed.frameUrl, stale)
+})
+
+test('reader image bytes bind to their own article directory, never to the workspace at large', async (t) => {
+  const root = tempRoot(t)
+  write(root, 'docs/post.md', '![fig](img/a.png)')
+  write(root, 'docs/img/a.png', 'png')
+  write(root, 'elsewhere.png', 'png')
+  const { rt } = harness({ root })
+  const descriptor = await openWithTool(rt, root, 'docs/post.md', 'open_reader')
+  const base = { app: 'reader', sessionId: 's1', workspaceTag: descriptor.workspaceTag }
+
+  await assert.rejects(
+    rt.sideAppEndpoint('side-app-bytes', { file: { ...base, displayPath: 'docs/img/a.png' } }),
+    error => error?.code === 'bot/invalid' && /article/.test(error.message),
+    'an image request that names no article is refused',
+  )
+  const nested = await rt.sideAppEndpoint('side-app-bytes', { file: { ...base, displayPath: 'docs/img/a.png', article: 'docs/post.md' } })
+  assert.equal(nested.kind, 'bytes', 'an image inside the article directory serves')
+  await assert.rejects(
+    rt.sideAppEndpoint('side-app-bytes', { file: { ...base, displayPath: 'elsewhere.png', article: 'docs/post.md' } }),
+    error => error?.code === 'bot/forbidden' || error?.code === 'bot/invalid',
+    'an image outside the article directory never widens into a workspace read',
+  )
+  await assert.rejects(
+    rt.sideAppEndpoint('side-app-bytes', { file: { ...base, displayPath: 'docs/img/a.png', article: 'docs/img/a.png' } }),
+    error => error?.code === 'bot/invalid',
+    'the article must be a Markdown document, not the image itself',
+  )
+  const canvasDescriptor = await openWithTool(rt, root, 'page.html', 'open_canvas').catch(() => undefined)
+  write(root, 'page.html', '<h1>x</h1>')
+  const canvasOpen = await openWithTool(rt, root, 'page.html')
+  await assert.rejects(
+    rt.sideAppEndpoint('side-app-bytes', { file: { app: 'canvas', sessionId: 's1', displayPath: 'docs/img/a.png', article: 'docs/post.md', workspaceTag: canvasOpen.workspaceTag } }),
+    error => error?.code === 'bot/invalid',
+    'a canvas card never reads reader image bytes',
+  )
+  void canvasDescriptor
+})
+
+test('file kind binds the card app: a rewritten displayPath cannot cross canvas and reader types', async (t) => {
+  const root = tempRoot(t)
+  write(root, 'page.html', '<h1>x</h1>')
+  write(root, 'notes.md', '# notes')
+  const { rt } = harness({ root })
+  const canvasOpen = await openWithTool(rt, root, 'page.html')
+  const readerOpen = await openWithTool(rt, root, 'notes.md', 'open_reader')
+  await assert.rejects(
+    rt.sideAppEndpoint('side-app-read', fileBody({ ...canvasOpen, displayPath: 'notes.md' })),
+    error => error?.code === 'bot/invalid' && /HTML/.test(error.message),
+    'a canvas card never reads Markdown even when displayPath is rewritten',
+  )
+  await assert.rejects(
+    rt.sideAppEndpoint('side-app-read', fileBody({ ...readerOpen, displayPath: 'page.html' })),
+    error => error?.code === 'bot/invalid' && /Markdown/.test(error.message),
+    'a reader card never reads HTML even when displayPath is rewritten',
+  )
+  const own = await rt.sideAppEndpoint('side-app-read', fileBody(canvasOpen))
+  assert.equal(own.kind, 'text', 'the original file still reads')
+})
+
 test('fixture reader files exercise the extension matrix without weakening .txt refusal', async (t) => {
   const { root } = copyFixture(t, 'reader-long')
   const { rt } = harness({ root })

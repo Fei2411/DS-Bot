@@ -60,10 +60,13 @@ const MARK = { add: '+', del: '−', same: '' }
 
 /** Which base a diff reads from, and what it says about it. */
 export function chooseBase({ file, host }) {
-  // The host's base is only used while it describes exactly the text on screen. Once
-  // the user has marked a version reviewed, that snapshot wins: what was reviewed is
-  // not new again, whatever the host still remembers of the Bot's edit.
-  if (file.reviewed !== true && host?.kind === 'host' && host.revision === file.revision && typeof host.before === 'string') return { text: host.before, source: 'host' }
+  // The host's base is used only while it describes exactly the text on screen. After
+  // the user marks a version reviewed, what was reviewed is not new again, so the host's
+  // base is trusted only if it starts at that same version: a later Bot edit then reads
+  // from the Bot's own before-text again, while an older base that reaches back past the
+  // review is left out.
+  const matches = host?.kind === 'host' && host.revision === file.revision && typeof host.before === 'string'
+  if (matches && (file.reviewed !== true || host.baseRevision === file.baseRevision)) return { text: host.before, source: 'host' }
   return { text: file.base, source: 'snapshot' }
 }
 

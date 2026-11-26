@@ -178,6 +178,38 @@ test('a real canvas iframe loads same-directory assets and scripts but keeps net
   }
 })
 
+test('a preview document opened directly, outside the iframe, keeps sandbox constraints', async (t) => {
+  const { root } = copyFixture(t, 'canvas-basic', 'site')
+  const { rt } = harness({ root })
+  const descriptor = await openCanvas(rt, root, 'site/index.html')
+  const preview = await rt.sideAppEndpoint('side-app-preview', fileBody(descriptor))
+  const server = await canvasServer(rt)
+  t.after(server.close)
+  const browser = await launchBrowser(t)
+  if (browser === undefined) return
+  t.after(() => browser.close())
+  const page = await browser.newPage()
+  const responses = []
+  page.on('response', response => responses.push(response))
+  try {
+    const framePath = preview.frameUrl.startsWith('/') ? preview.frameUrl : new URL(preview.frameUrl).pathname
+    const response = await page.goto(`${server.baseUrl}${framePath}`)
+    assert.ok(response, 'the direct preview answers')
+    const csp = response.headers()['content-security-policy'] ?? ''
+    assert.match(csp, /sandbox/, 'a directly opened preview carries its own sandbox directive and does not rely on the iframe')
+    await page.locator('body[data-fixture-ready="app"]').waitFor({ timeout: 5000 })
+    await page.locator('#submit-probe').click({ force: true })
+    await page.waitForTimeout(300)
+    assert.equal(await page.locator('body').evaluate(node => node.dataset.formSubmitted ?? 'no'), 'no', 'form submission stays blocked when the document is opened directly')
+    await page.evaluate(() => window.probeNetwork())
+    await page.locator('body[data-fetch-result]').waitFor({ timeout: 5000 })
+    assert.equal(await page.locator('body').evaluate(node => node.dataset.fetchResult), 'rejected', 'connect-src none still rejects fetch without an iframe')
+    assert.equal(await page.locator('#external-image').evaluate(node => node.complete && node.naturalWidth > 0), false, 'external images still do not load directly')
+  } finally {
+    await page.close()
+  }
+})
+
 test('an expired canvas ticket in a real browser shows the unavailable page rather than the file', async (t) => {
   const { root } = copyFixture(t, 'canvas-basic', 'site')
   const { rt } = harness({ root })

@@ -53,7 +53,7 @@ const textOf = (node) => {
 const plain = value => JSON.parse(JSON.stringify(value))
 
 const views = await load("export * from './src/client/side-file-views.js'")
-const card = await load("export * from './src/client/side-app-card.js'; export { opensToClaim } from './src/client/side-app-opens.js'")
+const card = await load("export * from './src/client/side-app-card.js'; export { opensToClaim, stillInFront } from './src/client/side-app-opens.js'")
 const canvas = await load("export * from './src/client/canvas-app.js'")
 
 const descriptor = { v: 1, app: 'canvas', workspaceTag: 't1', displayPath: 'site/index.html', sessionId: 's1' }
@@ -166,4 +166,12 @@ test('the preview frame loads the ticketed address with the revision that made i
   assert.deepEqual(plain(flags), ['allow-scripts'])
   for (const forbidden of ['allow-same-origin', 'allow-top-navigation', 'allow-popups', 'allow-downloads', 'allow-modals', 'allow-forms']) assert.equal(flags.includes(forbidden), false, forbidden)
   assert.deepEqual(plain(DEVICES.map(device => device[0])), ['fit', 'phone', 'tablet'])
+})
+
+test('a claimed open only opens the panel while its conversation is still in front', () => {
+  const { stillInFront } = card.exports
+  assert.equal(stillInFront({ sessionId: 's1', current: 's1', hidden: false }), true)
+  assert.equal(stillInFront({ sessionId: 's1', current: 's2', hidden: false }), false, 'the user switched chats while the claim was out')
+  assert.equal(stillInFront({ sessionId: 's1', current: null, hidden: false }), false)
+  assert.equal(stillInFront({ sessionId: 's1', current: 's1', hidden: true }), false, 'a window that went to the back does not open')
 })

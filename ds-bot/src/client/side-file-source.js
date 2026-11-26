@@ -74,22 +74,32 @@ export function createFileSession(read) {
   }
 }
 
-// One session per tab, for as long as the tab is open.
+// One session per tab and conversation, for as long as the tab is open. The conversation
+// is part of the key: the same file opened from another conversation (or from an older
+// part with another root) must not inherit what this one read.
 const sessions = new Map()
+const KEY_SEP = '\u0001'
+export const sessionKey = tab => `${tab.sessionId ?? ''}${KEY_SEP}${tab.key}`
 export function sessionFor(tab, readFile = (file, subject, known) => call('side-app-read', { sessionId: subject, file, ...(known ? { knownRevision: known } : {}) })) {
-  let session = sessions.get(tab.key)
+  const key = sessionKey(tab)
+  let session = sessions.get(key)
   if (session === undefined) {
     session = createFileSession(known => readFile(fileOf(tab), tab.sessionId, known))
-    sessions.set(tab.key, session)
+    sessions.set(key, session)
   }
   return session
 }
-export function dropSession(key) {
-  sessions.get(key)?.stop()
-  sessions.delete(key)
+// Closing a tab drops the sessions of that file from every conversation.
+export function dropSession(tabKey) {
+  for (const key of [...sessions.keys()]) {
+    if (key.endsWith(`${KEY_SEP}${tabKey}`)) { sessions.get(key)?.stop(); sessions.delete(key) }
+  }
 }
 export const dropSessionsExcept = (keys) => {
-  for (const key of [...sessions.keys()]) if (!keys.has(key)) dropSession(key)
+  for (const key of [...sessions.keys()]) {
+    const tabKey = key.slice(key.indexOf(KEY_SEP) + 1)
+    if (!keys.has(tabKey)) dropSession(tabKey)
+  }
 }
 
 /**
@@ -125,7 +135,7 @@ export function startPolling({ tick, delay, active, doc = typeof document === 'u
  * not paused; the file is read only then, so a hidden tab costs nothing.
  */
 export function useWorkspaceFile(tab, active) {
-  const session = useMemo(() => sessionFor(tab), [tab.key])
+  const session = useMemo(() => sessionFor(tab), [tab.key, tab.sessionId])
   const snapshot = useSyncExternalStore(session.subscribe, session.getSnapshot, session.getSnapshot)
   const on = useRef(active)
   on.current = active
@@ -152,7 +162,7 @@ export function useHostBase(tab, revision, wanted, request = (body) => call('sid
       () => { if (current) setAnswer({ kind: 'unavailable', forRevision: revision }) },
     )
     return () => { current = false }
-  }, [tab.key, revision, wanted])
+  }, [tab.key, tab.sessionId, revision, wanted])
   return answer?.forRevision === revision ? answer : null
 }
 
@@ -175,7 +185,9 @@ function decodeBase64(data) {
  * @returns {Promise<{kind:'unchanged'}|{kind:'image', blob: Blob, revision: string, mime: string}>}
  */
 export async function fetchImage(tab, path, known, request = (body) => call('side-app-bytes', body)) {
-  const answer = await request({ sessionId: tab.sessionId, file: { ...fileOf(tab), displayPath: path }, ...(known ? { knownRevision: known } : {}) })
+  // The host only serves images inside the article's own directory, so the request
+  // names that article: the picture's path alone would read as a general workspace read.
+  const answer = await request({ sessionId: tab.sessionId, file: { ...fileOf(tab), displayPath: path, article: fileOf(tab).displayPath }, ...(known ? { knownRevision: known } : {}) })
   if (answer?.kind === 'unchanged') return { kind: 'unchanged' }
   const mime = String(answer?.mime ?? '').toLowerCase()
   if (answer?.kind !== 'bytes' || !IMAGE_MIMES.has(mime) || typeof answer.data !== 'string') throw Object.assign(new Error('unexpected answer'), { code: 'bot/invalid' })
@@ -220,6 +232,18 @@ export function useArticleImage(tab, path, version, request, make = typeof URL =
 export const RENEW_BEFORE_MS = 60_000
 
 /**
+ * The preview state after a host answer. The ticket's address and the content's revision
+ * move independently: a renewed ticket comes back `unchanged` with a new address, and the
+ * frame has to follow it or it keeps asking an address the host has let expire.
+ */
+export function nextPreview(prev, answer) {
+  const frameUrl = answer.frameUrl ?? prev.frameUrl
+  const previewRevision = answer.previewRevision ?? prev.previewRevision
+  if (prev.status === 'ready' && prev.frameUrl === frameUrl && prev.previewRevision === previewRevision && prev.error === null) return prev
+  return { status: 'ready', frameUrl, previewRevision, error: null, unavailable: null }
+}
+
+/**
  * The preview frame's address and revision for a Canvas tab. `frame` changes only when
  * the host reports a new `previewRevision`, which is when the iframe should swap.
  */
@@ -234,8 +258,10 @@ export function usePreview(tab, active, request = (body) => call('side-app-previ
       if (mine < order.current) return
       if (answer?.kind === 'preview-unavailable') { setState(prev => ({ ...prev, status: 'unavailable', unavailable: answer.reason ?? '' })); return }
       if (answer?.previewRevision) known.current = answer.previewRevision
-      if (answer?.kind === 'preview') setState({ status: 'ready', frameUrl: answer.frameUrl, previewRevision: answer.previewRevision, error: null, unavailable: null })
-      else setState(prev => (prev.status === 'ready' ? prev : { ...prev, status: 'ready', frameUrl: answer.frameUrl, previewRevision: answer.previewRevision }))
+      // The ticket's address and the content's revision move on their own: a renewed ticket
+      // comes back `unchanged` with a new address, and the frame has to follow it or it keeps
+      // asking an address the host has let expire.
+      if (answer?.kind === 'preview' || answer?.kind === 'unchanged') setState(prev => nextPreview(prev, answer))
     } catch (error) {
       if (mine < order.current) return
       setState(prev => ({ ...prev, status: String(error?.code) === 'bot/not-found' ? 'missing' : 'error', error: { code: error?.code, message: String(error?.message ?? '') } }))
@@ -252,8 +278,8 @@ export function usePreview(tab, active, request = (body) => call('side-app-previ
       delay: () => POLL_MS,
       active: () => on.current,
     })
-  }, [tab.key, active])
+  }, [tab.key, tab.sessionId, active])
   // Leaving the tab drops what points at the ticket.
-  useEffect(() => () => { known.current = null }, [tab.key])
+  useEffect(() => () => { known.current = null }, [tab.key, tab.sessionId])
   return { ...state, refresh: pull }
 }

@@ -101,7 +101,22 @@ test('file tab keys never contain absolute paths and duplicate opens focus inste
   assert.equal(result.active, key)
   assert.equal(result.tabs[0].mode, 'diff')
   result = openFileTab(result.tabs, { ...tab, mode: 'preview' })
-  assert.equal(result.tabs[0].mode, 'diff', 'a later default open does not erase the explicit mode')
+  assert.equal(result.tabs[0].mode, 'preview', 'an explicitly asked preview switches the tab back to preview')
+})
+
+test('an explicit preview reopens an open tab in preview while a silent open leaves its mode alone', () => {
+  const diffTab = tabFromDescriptor({ ...descriptor, tab: 'diff' })
+  let tabs = openFileTab([], diffTab).tabs
+  assert.equal(tabs[0].mode, 'diff')
+
+  const silent = openFileTab(tabs, tabFromDescriptor({ v: 1, app: descriptor.app, workspaceTag: descriptor.workspaceTag, displayPath: descriptor.displayPath, sessionId: 's1' }))
+  assert.equal(silent.tabs[0].mode, 'diff', 'an open that names no mode leaves the tab where the user put it')
+
+  const explicit = openFileTab(tabs, tabFromDescriptor({ ...descriptor, tab: 'preview' }))
+  assert.equal(explicit.tabs[0].mode, 'preview', 'a card that explicitly asks for preview switches back to it')
+
+  const askedDiff = openFileTab(explicit.tabs, tabFromDescriptor({ ...descriptor, tab: 'diff' }))
+  assert.equal(askedDiff.tabs[0].mode, 'diff')
 })
 
 test('the strip holds at most eight file tabs and refuses overflow instead of dropping one', () => {
@@ -342,6 +357,49 @@ test('file session cache is keyed by tab and drops with the tab lifecycle', () =
   assert.notEqual(fresh, first)
 })
 
+test('file sessions never bleed across two sessions that share one workspace file', () => {
+  const own = tabFromDescriptor({ ...descriptor, displayPath: 'shared.md', sessionId: 's1' })
+  const other = tabFromDescriptor({ ...descriptor, displayPath: 'shared.md', sessionId: 's2' })
+  const readFile = async () => ({ kind: 'unchanged', revision: 'r' })
+  const first = sessionFor(own, readFile)
+  const second = sessionFor(other, readFile)
+  assert.notEqual(first, second, 'the same file in a different conversation must not reuse the reading state')
+})
+
+test('marking one version reviewed does not suppress the host base of a later version', async () => {
+  const bundledViews = await bundled('side-file-views.js')
+  const answers = [
+    { kind: 'text', revision: 'r1', text: 'one' },
+    { kind: 'text', revision: 'r2', text: 'two' },
+  ]
+  const session = createFileSession(async () => answers.shift())
+  await session.poll()
+  await session.poll()
+  session.markReviewed()
+  answers.push({ kind: 'text', revision: 'r3', text: 'three' })
+  await session.poll()
+  const file = session.getSnapshot()
+  assert.equal(file.revision, 'r3')
+  // The host's before-text for r3 starts at r2, the version the user reviewed.
+  const host = { kind: 'host', before: 'host-before-r3', baseRevision: 'r2', revision: 'r3' }
+  const chosen = bundledViews.chooseBase({ file, host })
+  assert.equal(chosen.source, 'host', 'a newer revision was never reviewed, so the host base applies again')
+  assert.equal(chosen.text, 'host-before-r3')
+  const reachesBack = bundledViews.chooseBase({ file, host: { ...host, baseRevision: 'r1', before: 'one' } })
+  assert.equal(reachesBack.source, 'snapshot', 'a base from before the review would show reviewed changes as new')
+  const sameReviewed = bundledViews.chooseBase({ file: { ...file, revision: 'r2' }, host: { kind: 'host', before: 'wrong', baseRevision: 'r1', revision: 'r2' } })
+  assert.equal(sameReviewed.source, 'snapshot', 'the version the user actually reviewed stays snapshot-backed')
+})
+
+test('a claimed open re-checks the front conversation before opening the panel', async () => {
+  const opensModule = await bundled('side-app-opens.js')
+  assert.equal(typeof opensModule.stillInFront, 'function')
+  assert.equal(opensModule.stillInFront({ sessionId: 's1', current: 's1', hidden: false }), true)
+  assert.equal(opensModule.stillInFront({ sessionId: 's1', current: 's2', hidden: false }), false, 'the user moved to another conversation while the claim was out')
+  assert.equal(opensModule.stillInFront({ sessionId: 's1', current: null, hidden: false }), false)
+  assert.equal(opensModule.stillInFront({ sessionId: 's1', current: 's1', hidden: true }), false, 'a hidden window never opens the panel behind the user')
+})
+
 test('diffLines produces numbered rows, counts changes and normalizes line endings', () => {
   const diff = diffLines('one\r\ntwo\nthree\n', 'one\ntwo changed\nthree\nfour')
   assert.equal(diff.tooLarge, undefined)
@@ -378,4 +436,13 @@ test('foldRows hides long unchanged runs with context and can reopen them', () =
   assert.equal(open.some(row => row.kind === 'fold'), false, 'the fold row id actually reopens its hidden rows')
   assert.equal(open.length, rows.length, 'opening the fold renders the whole row list')
   assert.equal(open.some(row => row.kind === 'same' && row.text === 'line 12'), true, 'the hidden middle rows are visible once opened')
+})
+
+test('a card that names preview takes an open diff tab back to preview, a plain open leaves it', () => {
+  const { tab: _named, ...plain } = descriptor
+  const diff = openFileTab([], tabFromDescriptor({ ...plain, tab: 'diff' })).tabs
+  assert.equal(diff[0].mode, 'diff')
+  assert.equal(openFileTab(diff, tabFromDescriptor(plain)).tabs[0].mode, 'diff', 'no view named: the tab stays')
+  assert.equal(openFileTab(diff, tabFromDescriptor({ ...plain, tab: 'preview' })).tabs[0].mode, 'preview', 'preview named: the tab goes back')
+  assert.equal('asked' in diff[0], false, 'the request flag is not kept on the tab')
 })

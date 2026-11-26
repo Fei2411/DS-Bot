@@ -20601,17 +20601,20 @@ var tabFromDescriptor = (descriptor, sessionId) => ({
   workspaceTag: descriptor.workspaceTag,
   displayPath: descriptor.displayPath,
   sessionId: descriptor.sessionId ?? sessionId,
-  mode: modeOf(descriptor.tab)
+  mode: modeOf(descriptor.tab),
+  asked: MODES.includes(descriptor.tab)
 });
 var fileOf = (tab) => ({ app: tab.app, displayPath: tab.displayPath, workspaceTag: tab.workspaceTag });
 function openFileTab(tabs, tab) {
   const at = tabs.findIndex((item) => item.key === tab.key);
+  const stored = ({ asked: _asked, ...rest }) => rest;
   if (at >= 0) {
-    const next = tabs.map((item, index) => index === at ? { ...item, sessionId: tab.sessionId ?? item.sessionId, ...tab.mode !== "preview" ? { mode: tab.mode } : {} } : item);
+    const asked = tab.asked === true || tab.mode !== "preview";
+    const next = tabs.map((item, index) => index === at ? { ...item, sessionId: tab.sessionId ?? item.sessionId, ...asked ? { mode: tab.mode } : {} } : item);
     return { tabs: next, active: tab.key, full: false };
   }
   if (tabs.length >= FILE_TABS_MAX) return { tabs, active: null, full: true };
-  return { tabs: [...tabs, tab], active: tab.key, full: false };
+  return { tabs: [...tabs, stored(tab)], active: tab.key, full: false };
 }
 var closeFileTab = (tabs, key) => tabs.filter((item) => item.key !== key);
 var setTabMode = (tabs, key, mode) => tabs.map((item) => item.key === key ? { ...item, mode: modeOf(mode) } : item);
@@ -20836,20 +20839,30 @@ function createFileSession(read) {
   };
 }
 var sessions = /* @__PURE__ */ new Map();
+var KEY_SEP = "";
+var sessionKey = (tab) => `${tab.sessionId ?? ""}${KEY_SEP}${tab.key}`;
 function sessionFor(tab, readFile2 = (file, subject, known) => call("side-app-read", { sessionId: subject, file, ...known ? { knownRevision: known } : {} })) {
-  let session = sessions.get(tab.key);
+  const key = sessionKey(tab);
+  let session = sessions.get(key);
   if (session === void 0) {
     session = createFileSession((known) => readFile2(fileOf(tab), tab.sessionId, known));
-    sessions.set(tab.key, session);
+    sessions.set(key, session);
   }
   return session;
 }
-function dropSession(key) {
-  sessions.get(key)?.stop();
-  sessions.delete(key);
+function dropSession(tabKey) {
+  for (const key of [...sessions.keys()]) {
+    if (key.endsWith(`${KEY_SEP}${tabKey}`)) {
+      sessions.get(key)?.stop();
+      sessions.delete(key);
+    }
+  }
 }
 var dropSessionsExcept = (keys) => {
-  for (const key of [...sessions.keys()]) if (!keys.has(key)) dropSession(key);
+  for (const key of [...sessions.keys()]) {
+    const tabKey = key.slice(key.indexOf(KEY_SEP) + 1);
+    if (!keys.has(tabKey)) dropSession(tabKey);
+  }
 };
 function startPolling({ tick, delay, active, doc = typeof document === "undefined" ? void 0 : document, timers = { set: setTimeout, clear: clearTimeout } }) {
   let timer = null;
@@ -20886,7 +20899,7 @@ function startPolling({ tick, delay, active, doc = typeof document === "undefine
   };
 }
 function useWorkspaceFile(tab, active) {
-  const session = (0, import_react.useMemo)(() => sessionFor(tab), [tab.key]);
+  const session = (0, import_react.useMemo)(() => sessionFor(tab), [tab.key, tab.sessionId]);
   const snapshot = (0, import_react.useSyncExternalStore)(session.subscribe, session.getSnapshot, session.getSnapshot);
   const on = (0, import_react.useRef)(active);
   on.current = active;
@@ -20912,7 +20925,7 @@ function useHostBase(tab, revision, wanted, request = (body) => call("side-app-d
     return () => {
       current2 = false;
     };
-  }, [tab.key, revision, wanted]);
+  }, [tab.key, tab.sessionId, revision, wanted]);
   return answer?.forRevision === revision ? answer : null;
 }
 var IMAGE_MIMES = /* @__PURE__ */ new Set(["image/png", "image/jpeg", "image/gif", "image/webp", "image/svg+xml", "image/avif"]);
@@ -20924,7 +20937,7 @@ function decodeBase64(data) {
   return bytes;
 }
 async function fetchImage(tab, path2, known, request = (body) => call("side-app-bytes", body)) {
-  const answer = await request({ sessionId: tab.sessionId, file: { ...fileOf(tab), displayPath: path2 }, ...known ? { knownRevision: known } : {} });
+  const answer = await request({ sessionId: tab.sessionId, file: { ...fileOf(tab), displayPath: path2, article: fileOf(tab).displayPath }, ...known ? { knownRevision: known } : {} });
   if (answer?.kind === "unchanged") return { kind: "unchanged" };
   const mime = String(answer?.mime ?? "").toLowerCase();
   if (answer?.kind !== "bytes" || !IMAGE_MIMES.has(mime) || typeof answer.data !== "string") throw Object.assign(new Error("unexpected answer"), { code: "bot/invalid" });
@@ -20958,6 +20971,12 @@ function useArticleImage(tab, path2, version, request, make = typeof URL === "un
   return state;
 }
 var RENEW_BEFORE_MS = 6e4;
+function nextPreview(prev, answer) {
+  const frameUrl = answer.frameUrl ?? prev.frameUrl;
+  const previewRevision = answer.previewRevision ?? prev.previewRevision;
+  if (prev.status === "ready" && prev.frameUrl === frameUrl && prev.previewRevision === previewRevision && prev.error === null) return prev;
+  return { status: "ready", frameUrl, previewRevision, error: null, unavailable: null };
+}
 function usePreview(tab, active, request = (body) => call("side-app-preview", body)) {
   const [state, setState] = (0, import_react.useState)({ status: "loading", frameUrl: null, previewRevision: null, error: null, unavailable: null });
   const known = (0, import_react.useRef)(null);
@@ -20972,8 +20991,7 @@ function usePreview(tab, active, request = (body) => call("side-app-preview", bo
         return;
       }
       if (answer?.previewRevision) known.current = answer.previewRevision;
-      if (answer?.kind === "preview") setState({ status: "ready", frameUrl: answer.frameUrl, previewRevision: answer.previewRevision, error: null, unavailable: null });
-      else setState((prev) => prev.status === "ready" ? prev : { ...prev, status: "ready", frameUrl: answer.frameUrl, previewRevision: answer.previewRevision });
+      if (answer?.kind === "preview" || answer?.kind === "unchanged") setState((prev) => nextPreview(prev, answer));
     } catch (error) {
       if (mine < order.current) return;
       setState((prev) => ({ ...prev, status: String(error?.code) === "bot/not-found" ? "missing" : "error", error: { code: error?.code, message: String(error?.message ?? "") } }));
@@ -20992,10 +21010,10 @@ function usePreview(tab, active, request = (body) => call("side-app-preview", bo
       delay: () => POLL_MS,
       active: () => on.current
     });
-  }, [tab.key, active]);
+  }, [tab.key, tab.sessionId, active]);
   (0, import_react.useEffect)(() => () => {
     known.current = null;
-  }, [tab.key]);
+  }, [tab.key, tab.sessionId]);
   return { ...state, refresh: pull };
 }
 
@@ -60967,7 +60985,8 @@ function SourceView({ text, label }) {
 }
 var MARK = { add: "+", del: "−", same: "" };
 function chooseBase({ file, host }) {
-  if (file.reviewed !== true && host?.kind === "host" && host.revision === file.revision && typeof host.before === "string") return { text: host.before, source: "host" };
+  const matches3 = host?.kind === "host" && host.revision === file.revision && typeof host.before === "string";
+  if (matches3 && (file.reviewed !== true || host.baseRevision === file.baseRevision)) return { text: host.before, source: "host" };
   return { text: file.base, source: "snapshot" };
 }
 function DiffView({ file, host, onReviewed }) {
@@ -62949,16 +62968,20 @@ function opensToClaim({ opens, current: current2, hidden, claimed }) {
   const descriptor = parseDescriptor({ v: 1, ...entry });
   return descriptor === void 0 ? [] : [{ openId: entry.openId, descriptor, sessionId: current2 }];
 }
+var stillInFront = ({ sessionId, current: current2, hidden }) => hidden !== true && current2 === sessionId;
 function SideAppOpens({ useRoster, useSessions, actions }) {
   const opens = useRoster((state) => state.sideAppOpens ?? null);
   const current2 = useSessions((list) => Object.values(list.byId).find((session) => (session?.retainedBy?.mainView ?? 0) > 0)?.id ?? null);
   const claimed = (0, import_react95.useRef)(/* @__PURE__ */ new Set());
+  const front = (0, import_react95.useRef)(current2);
+  front.current = current2;
   (0, import_react95.useEffect)(() => {
     const hidden = typeof document !== "undefined" && document.hidden === true;
     for (const open of opensToClaim({ opens, current: current2, hidden, claimed: claimed.current })) {
       claimed.current.add(open.openId);
       void call("side-app-opened", { openId: open.openId }).then((answer) => {
         if (answer?.consumed !== true) return void 0;
+        if (!stillInFront({ sessionId: open.sessionId, current: front.current, hidden: typeof document !== "undefined" && document.hidden === true })) return void 0;
         return actions.openSideApp(open.sessionId, open.descriptor, { auto: true });
       }).catch((error) => actions.reportError?.(error, "side-app-open"));
     }

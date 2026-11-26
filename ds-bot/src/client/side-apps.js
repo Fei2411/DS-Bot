@@ -68,6 +68,8 @@ export function descriptorFromResult(text) {
   try { return parseDescriptor(JSON.parse(first)) } catch { return undefined }
 }
 
+// `asked` is whether the card or tool named a view: an open that names none leaves an
+// open tab where it is, one that names `preview` too is a request to go back to it.
 export const tabFromDescriptor = (descriptor, sessionId) => ({
   key: fileTabKey(descriptor.app, descriptor.workspaceTag, descriptor.displayPath),
   app: descriptor.app,
@@ -75,6 +77,7 @@ export const tabFromDescriptor = (descriptor, sessionId) => ({
   displayPath: descriptor.displayPath,
   sessionId: descriptor.sessionId ?? sessionId,
   mode: modeOf(descriptor.tab),
+  asked: MODES.includes(descriptor.tab),
 })
 
 /** The file descriptor the host endpoints take, from a tab. */
@@ -88,12 +91,14 @@ export const fileOf = tab => ({ app: tab.app, displayPath: tab.displayPath, work
  */
 export function openFileTab(tabs, tab) {
   const at = tabs.findIndex(item => item.key === tab.key)
+  const stored = ({ asked: _asked, ...rest }) => rest
   if (at >= 0) {
-    const next = tabs.map((item, index) => (index === at ? { ...item, sessionId: tab.sessionId ?? item.sessionId, ...(tab.mode !== 'preview' ? { mode: tab.mode } : {}) } : item))
+    const asked = tab.asked === true || tab.mode !== 'preview'
+    const next = tabs.map((item, index) => (index === at ? { ...item, sessionId: tab.sessionId ?? item.sessionId, ...(asked ? { mode: tab.mode } : {}) } : item))
     return { tabs: next, active: tab.key, full: false }
   }
   if (tabs.length >= FILE_TABS_MAX) return { tabs, active: null, full: true }
-  return { tabs: [...tabs, tab], active: tab.key, full: false }
+  return { tabs: [...tabs, stored(tab)], active: tab.key, full: false }
 }
 
 export const closeFileTab = (tabs, key) => tabs.filter(item => item.key !== key)
