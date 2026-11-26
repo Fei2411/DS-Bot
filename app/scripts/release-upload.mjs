@@ -8,11 +8,22 @@ import { fileURLToPath } from 'node:url'
 const DEFAULT_CONCURRENCY = 5
 const DEFAULT_RETRY_DELAYS_MS = [5_000, 15_000, 30_000]
 
-function sleep(ms) {
-  return new Promise((done) => { setTimeout(done, ms) })
+function sleep(ms, signal) {
+  return new Promise((done) => {
+    if (signal?.aborted) { done(); return }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort)
+      done()
+    }, ms)
+    const onAbort = () => {
+      clearTimeout(timer)
+      done()
+    }
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
 }
 
-function runGhUpload(tag, file) {
+export function runGhUpload(tag, file) {
   return new Promise((done, fail) => {
     const child = spawn('gh', ['release', 'upload', tag, file, '--clobber'], { stdio: ['ignore', 'pipe', 'pipe'] })
     let stderr = ''
@@ -23,22 +34,26 @@ function runGhUpload(tag, file) {
   })
 }
 
-async function uploadOne(tag, file, { runImpl, sleepImpl, retryDelaysMs, log }) {
+async function uploadOne(tag, file, { runImpl, sleepImpl, retryDelaysMs, log, abortSignal }) {
   const label = basename(file)
   const attempts = retryDelaysMs.length + 1
   for (let attempt = 1; ; attempt += 1) {
+    if (abortSignal.aborted) return
     const { code, signal, stderr } = await runImpl(tag, file)
     if (code === 0 && signal === null) {
       log(`release-upload: uploaded ${label}`)
       return
     }
     const detail = signal !== null ? `signal ${signal}` : `exit ${String(code)}${stderr ? `: ${stderr}` : ''}`
+    if (signal !== null) {
+      throw new Error(`release-upload: ${label} terminated (${detail})`)
+    }
     const delay = retryDelaysMs[attempt - 1]
-    if (delay === undefined) {
-      throw new Error(`release-upload: failed ${label} after ${String(attempts)} attempts (${detail})`)
+    if (delay === undefined || abortSignal.aborted) {
+      throw new Error(`release-upload: failed ${label} after ${String(attempt)}/${String(attempts)} attempts (${detail})`)
     }
     log(`release-upload: ${label} attempt ${String(attempt)}/${String(attempts)} failed (${detail}); retrying in ${String(delay / 1000)} s`)
-    await sleepImpl(delay)
+    await sleepImpl(delay, abortSignal)
   }
 }
 
@@ -46,23 +61,29 @@ export async function uploadReleaseAssets(tag, files, options = {}) {
   if (!tag || !Array.isArray(files) || files.length === 0) {
     throw new Error('release-upload: usage: node scripts/release-upload.mjs <tag> <file>...')
   }
-  const concurrency = Math.max(1, Math.min(files.length, options.concurrency ?? DEFAULT_CONCURRENCY))
+  const requested = options.concurrency ?? DEFAULT_CONCURRENCY
+  if (!Number.isSafeInteger(requested) || requested < 1) {
+    throw new Error('release-upload: concurrency must be a positive integer')
+  }
+  const concurrency = Math.min(files.length, requested)
   const runImpl = options.runImpl ?? runGhUpload
   const sleepImpl = options.sleepImpl ?? sleep
   const retryDelaysMs = options.retryDelaysMs ?? DEFAULT_RETRY_DELAYS_MS
   const log = options.log ?? ((line) => { console.error(line) })
 
+  const controller = new AbortController()
   let next = 0
   let failure
   const worker = async () => {
-    while (failure === undefined) {
+    while (!controller.signal.aborted) {
       const index = next
       if (index >= files.length) return
       next += 1
       try {
-        await uploadOne(tag, files[index], { runImpl, sleepImpl, retryDelaysMs, log })
+        await uploadOne(tag, files[index], { runImpl, sleepImpl, retryDelaysMs, log, abortSignal: controller.signal })
       } catch (error) {
-        failure ??= error
+        if (failure === undefined) failure = error
+        controller.abort()
         return
       }
     }
@@ -73,6 +94,10 @@ export async function uploadReleaseAssets(tag, files, options = {}) {
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const [tag, ...files] = process.argv.slice(2)
+  if (!tag || files.length === 0) {
+    console.error('release-upload: usage: node scripts/release-upload.mjs <tag> <file>...')
+    process.exit(2)
+  }
   const raw = process.env.DS_BOT_UPLOAD_CONCURRENCY
   const parsed = raw === undefined || raw === '' ? undefined : Number(raw)
   if (parsed !== undefined && (!Number.isSafeInteger(parsed) || parsed < 1)) {

@@ -171,6 +171,10 @@ jobs:
             ~/AppData/Local/electron-builder/Cache
           key: ${{ steps.downloads-key.outputs.key }}
       - run: npm ci --no-fund --no-audit
+        env:
+          # Packaging downloads/reuses Electron via @electron/get after seed-electron-checksums.mjs
+          # under dist.mjs retries, and avoids electron/install.js Rosetta arch overrides.
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
       - run: node scripts/seed-electron-checksums.mjs
       - name: Restore the locked runtime archives
         id: runtime-cache
@@ -248,6 +252,10 @@ jobs:
             ~/Library/Caches/electron-builder
           key: ${{ steps.downloads-key.outputs.key }}
       - run: npm ci --no-fund --no-audit
+        env:
+          # Packaging downloads/reuses Electron via @electron/get after seed-electron-checksums.mjs
+          # under dist.mjs retries, and avoids electron/install.js Rosetta arch overrides.
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
       - run: node scripts/seed-electron-checksums.mjs
       - name: Restore the locked runtime archives
         id: runtime-cache
@@ -322,6 +330,10 @@ jobs:
             ~/.cache/electron-builder
           key: ${{ steps.downloads-key.outputs.key }}
       - run: npm ci --no-fund --no-audit
+        env:
+          # Packaging downloads/reuses Electron via @electron/get after seed-electron-checksums.mjs
+          # under dist.mjs retries, and avoids electron/install.js Rosetta arch overrides.
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
       - run: node scripts/seed-electron-checksums.mjs
       - name: Restore the locked runtime archives
         id: runtime-cache
@@ -409,7 +421,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ~/.ccache
-          key: android-ccache-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('mobile/package-lock.json', 'mobile/app.json', 'mobile/plugins/**') }}
+          key: android-ccache-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('mobile/package-lock.json', 'mobile/app.json', 'mobile/plugins/**', '.github/gradle/ccache.init.gradle') }}
           restore-keys: android-ccache-${{ runner.os }}-${{ runner.arch }}-
       - uses: gradle/actions/setup-gradle@v4
         with:

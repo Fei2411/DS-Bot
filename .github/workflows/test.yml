@@ -131,6 +131,7 @@ jobs:
             if has '^app/'; then app_update=true; fi
             if has '^(mobile/|link/|ds-bot/package\.json$|ds-bot/src/shared/|ds-bot/src/client/(i18n|themes|inks|characters|usage-data)\.js$)'; then mobile=true; fi
             if has '^(mobile/|ds-bot/package\.json$)'; then mobile_ios=true; fi
+            if has '^\.github/gradle/'; then mobile_android=true; fi
             if has '^link/'; then link=true; fi
             if has '^(docker/|docker-compose.*\.yml$|\.dockerignore$|ds-bot/package\.json$|ds-bot/package-lock\.json$|ds-bot/\.npmrc$|ds-bot/cordis\.patch\.yml$|ds-bot/plugin\.js$)'; then docker=true; fi
             # Rapid merges to dev can supersede intermediate queued pushes, so always run the
@@ -427,7 +428,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ~/.ccache
-          key: android-ccache-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('mobile/package-lock.json', 'mobile/app.json', 'mobile/plugins/**') }}
+          key: android-ccache-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('mobile/package-lock.json', 'mobile/app.json', 'mobile/plugins/**', '.github/gradle/ccache.init.gradle') }}
           restore-keys: android-ccache-${{ runner.os }}-${{ runner.arch }}-
       - uses: gradle/actions/setup-gradle@v4
         with:
@@ -531,6 +532,10 @@ jobs:
             ~/AppData/Local/electron-builder/Cache
           key: ${{ steps.downloads-key.outputs.key }}
       - run: npm ci --no-fund --no-audit
+        env:
+          # Packaging downloads/reuses Electron via @electron/get after seed-electron-checksums.mjs
+          # under dist.mjs retries, and avoids electron/install.js Rosetta arch overrides.
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
       - name: Run desktop app unit tests (Windows)
         run: npm test
       - run: node scripts/seed-electron-checksums.mjs
@@ -685,6 +690,10 @@ jobs:
             ~/Library/Caches/electron-builder
           key: ${{ steps.downloads-key.outputs.key }}
       - run: npm ci --no-fund --no-audit
+        env:
+          # Packaging downloads/reuses Electron via @electron/get after seed-electron-checksums.mjs
+          # under dist.mjs retries, and avoids electron/install.js Rosetta arch overrides.
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
       - name: Run desktop app unit tests (macOS)
         if: matrix.arch == 'arm64'
         run: npm test
@@ -764,6 +773,10 @@ jobs:
             ~/.cache/electron-builder
           key: ${{ steps.downloads-key.outputs.key }}
       - run: npm ci --no-fund --no-audit
+        env:
+          # Packaging downloads/reuses Electron via @electron/get after seed-electron-checksums.mjs
+          # under dist.mjs retries, and avoids electron/install.js Rosetta arch overrides.
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
       - run: node scripts/seed-electron-checksums.mjs
       - name: Restore the locked runtime archives
         id: runtime-cache
