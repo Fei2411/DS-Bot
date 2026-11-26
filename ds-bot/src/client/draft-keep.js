@@ -208,10 +208,10 @@ function normalizeQuoteText(text) {
   const lines = normalized.split('\n')
   const out = []
   let prevKind = null
-  let blankCount = 0
+  let pendingBlanks = []
   for (const line of lines) {
     if (line.trim() === '') {
-      blankCount += 1
+      pendingBlanks.push(line)
       continue
     }
     const kind = isQuoteLine(line) ? 'quote' : 'text'
@@ -222,12 +222,13 @@ function normalizeQuoteText(text) {
         if (prevKind === 'text') out[out.length - 1] = out[out.length - 1].trimEnd()
         out.push('\n\n')
       } else {
-        out.push('\n'.repeat(blankCount + 1))
+        for (const blank of pendingBlanks) out.push('\n', blank)
+        out.push('\n')
       }
     }
     out.push(prevKind === 'quote' && kind === 'text' ? line.trimStart() : line)
     prevKind = kind
-    blankCount = 0
+    pendingBlanks = []
   }
   return out.join('')
 }
@@ -237,7 +238,7 @@ function quoteBoundarySegments(text) {
   const segments = []
   let current = []
   let currentKind = null
-  let blankCount = 0
+  let pendingBlanks = []
   const flush = () => {
     if (current.length === 0) return
     segments.push({ kind: currentKind, text: current.join('\n') })
@@ -245,22 +246,22 @@ function quoteBoundarySegments(text) {
   }
   for (const line of lines) {
     if (line.trim() === '') {
-      blankCount += 1
+      pendingBlanks.push(line)
       continue
     }
     const kind = isQuoteLine(line) ? 'quote' : 'text'
     if (currentKind === null) {
       currentKind = kind
       current.push(line)
-    } else if (kind !== currentKind || (kind === 'quote' && blankCount > 0)) {
+    } else if (kind !== currentKind || (kind === 'quote' && pendingBlanks.length > 0)) {
       flush()
       currentKind = kind
       current.push(line)
     } else {
-      if (blankCount > 0) current.push('\n'.repeat(blankCount - 1))
+      if (pendingBlanks.length > 0) current.push(...pendingBlanks)
       current.push(line)
     }
-    blankCount = 0
+    pendingBlanks = []
   }
   flush()
   return segments
@@ -346,15 +347,24 @@ export function captureAdmissionBaseline({ chat, maxUserSeq, pendingSubmissions,
     if (typeof item?.requestId === 'string') pendingIds.add(item.requestId)
   }
   const queueIds = new Set()
+  const queueTexts = []
   for (const list of [queue, nextStep]) {
     for (const item of list ?? []) {
-      if (typeof item?.id === 'string') queueIds.add(item.id)
+      const id = typeof item?.id === 'string' ? item.id : undefined
+      const rpcId = typeof item?.source?.rpcId === 'string' ? item.source.rpcId : undefined
+      if (id !== undefined) queueIds.add(id)
+      if (rpcId !== undefined) pendingIds.add(rpcId)
+      if (item?.source?.kind === undefined || item.source.kind === 'user') {
+        const text = contentText(item?.content)
+        if (text !== '') queueTexts.push({ id, rpcId, text })
+      }
     }
   }
   return {
     maxUserSeq: typeof maxUserSeq === 'number' ? maxUserSeq : maxUserSeqOf(chat),
     pendingIds,
     queueIds,
+    queueTexts,
   }
 }
 
@@ -363,7 +373,10 @@ export function captureAdmissionBaseline({ chat, maxUserSeq, pendingSubmissions,
  * pendingSubmission echo, a new user queue or steering inbox item, or a durable
  * user/steering message after the send's baseline whose text matches what was sent
  * (normalized for DSH's serializeDraftPrompt trimming and quote boundaries).
- * @param {{ text: string, baseline?: { maxUserSeq: number, pendingIds: Set<string>, queueIds: Set<string> }, admitted?: boolean } | undefined} watch
+ * Baseline queued/pending items are excluded across inbox-to-transcript drains via
+ * durable messageId / source.rpcId identity, with a drained-count guard for any
+ * synthetic transcript nodes lacking those IDs.
+ * @param {{ text: string, baseline?: { maxUserSeq: number, pendingIds: Set<string>, queueIds: Set<string>, queueTexts?: readonly { id?: string, rpcId?: string, text: string }[] }, admitted?: boolean } | undefined} watch
  * @param {{ chat?: object, pendingSubmissions?: readonly object[], queue?: readonly object[], nextStep?: readonly object[] }} [state]
  * @returns {boolean}
  */
@@ -376,17 +389,45 @@ export function isSentAdmitted(watch, { chat, pendingSubmissions, queue, nextSte
     if (typeof sub?.requestId === 'string' && baseline?.pendingIds?.has(sub.requestId)) continue
     if (matchesAdmittedText(watch.text, sub?.text)) return true
   }
+  const liveQueueIds = new Set()
   for (const list of [queue, nextStep]) {
     for (const item of list ?? []) {
+      if (typeof item?.id === 'string') liveQueueIds.add(item.id)
       if (typeof item?.id === 'string' && baseline?.queueIds?.has(item.id)) continue
+      if (typeof item?.source?.rpcId === 'string' && baseline?.pendingIds?.has(item.source.rpcId)) continue
       if (item?.source?.kind !== undefined && item.source.kind !== 'user') continue
       if (matchesAdmittedText(watch.text, contentText(item?.content))) return true
     }
   }
   const minSeq = baseline?.maxUserSeq ?? 0
+  const seenBaselineQueueIds = new Set()
+  const seenBaselineRpcIds = new Set()
+  let unidentifiedMatches = 0
   for (const node of chatUserNodes(chat)) {
     if (nodeSeq(node) <= minSeq) continue
-    if (matchesAdmittedText(watch.text, contentText(node?.data?.content))) return true
+    if (node?.data?.source?.kind !== undefined && node.data.source.kind !== 'user') continue
+    const msgId = typeof node?.data?.messageId === 'string' ? node.data.messageId : undefined
+    const rpcId = typeof node?.data?.source?.rpcId === 'string' ? node.data.source.rpcId : undefined
+    if (msgId !== undefined && baseline?.queueIds?.has(msgId)) {
+      seenBaselineQueueIds.add(msgId)
+      continue
+    }
+    if (rpcId !== undefined && baseline?.pendingIds?.has(rpcId)) {
+      seenBaselineRpcIds.add(rpcId)
+      continue
+    }
+    if (!matchesAdmittedText(watch.text, contentText(node?.data?.content))) continue
+    if (msgId !== undefined || rpcId !== undefined) return true
+    unidentifiedMatches += 1
+  }
+  if (unidentifiedMatches > 0) {
+    let drainedBaselineQueued = 0
+    for (const item of baseline?.queueTexts ?? []) {
+      if (item.id !== undefined && (liveQueueIds.has(item.id) || seenBaselineQueueIds.has(item.id))) continue
+      if (item.rpcId !== undefined && seenBaselineRpcIds.has(item.rpcId)) continue
+      if (matchesAdmittedText(watch.text, item.text)) drainedBaselineQueued += 1
+    }
+    if (unidentifiedMatches > drainedBaselineQueued) return true
   }
   return false
 }

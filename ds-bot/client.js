@@ -20472,10 +20472,10 @@ function normalizeQuoteText(text) {
   const lines = normalized.split("\n");
   const out = [];
   let prevKind = null;
-  let blankCount = 0;
+  let pendingBlanks = [];
   for (const line of lines) {
     if (line.trim() === "") {
-      blankCount += 1;
+      pendingBlanks.push(line);
       continue;
     }
     const kind = isQuoteLine(line) ? "quote" : "text";
@@ -20486,12 +20486,13 @@ function normalizeQuoteText(text) {
         if (prevKind === "text") out[out.length - 1] = out[out.length - 1].trimEnd();
         out.push("\n\n");
       } else {
-        out.push("\n".repeat(blankCount + 1));
+        for (const blank3 of pendingBlanks) out.push("\n", blank3);
+        out.push("\n");
       }
     }
     out.push(prevKind === "quote" && kind === "text" ? line.trimStart() : line);
     prevKind = kind;
-    blankCount = 0;
+    pendingBlanks = [];
   }
   return out.join("");
 }
@@ -20500,7 +20501,7 @@ function quoteBoundarySegments(text) {
   const segments = [];
   let current2 = [];
   let currentKind = null;
-  let blankCount = 0;
+  let pendingBlanks = [];
   const flush = () => {
     if (current2.length === 0) return;
     segments.push({ kind: currentKind, text: current2.join("\n") });
@@ -20508,22 +20509,22 @@ function quoteBoundarySegments(text) {
   };
   for (const line of lines) {
     if (line.trim() === "") {
-      blankCount += 1;
+      pendingBlanks.push(line);
       continue;
     }
     const kind = isQuoteLine(line) ? "quote" : "text";
     if (currentKind === null) {
       currentKind = kind;
       current2.push(line);
-    } else if (kind !== currentKind || kind === "quote" && blankCount > 0) {
+    } else if (kind !== currentKind || kind === "quote" && pendingBlanks.length > 0) {
       flush();
       currentKind = kind;
       current2.push(line);
     } else {
-      if (blankCount > 0) current2.push("\n".repeat(blankCount - 1));
+      if (pendingBlanks.length > 0) current2.push(...pendingBlanks);
       current2.push(line);
     }
-    blankCount = 0;
+    pendingBlanks = [];
   }
   flush();
   return segments;
@@ -20592,15 +20593,24 @@ function captureAdmissionBaseline({ chat, maxUserSeq, pendingSubmissions, queue,
     if (typeof item?.requestId === "string") pendingIds.add(item.requestId);
   }
   const queueIds = /* @__PURE__ */ new Set();
+  const queueTexts = [];
   for (const list of [queue, nextStep]) {
     for (const item of list ?? []) {
-      if (typeof item?.id === "string") queueIds.add(item.id);
+      const id = typeof item?.id === "string" ? item.id : void 0;
+      const rpcId = typeof item?.source?.rpcId === "string" ? item.source.rpcId : void 0;
+      if (id !== void 0) queueIds.add(id);
+      if (rpcId !== void 0) pendingIds.add(rpcId);
+      if (item?.source?.kind === void 0 || item.source.kind === "user") {
+        const text = contentText2(item?.content);
+        if (text !== "") queueTexts.push({ id, rpcId, text });
+      }
     }
   }
   return {
     maxUserSeq: typeof maxUserSeq === "number" ? maxUserSeq : maxUserSeqOf(chat),
     pendingIds,
-    queueIds
+    queueIds,
+    queueTexts
   };
 }
 function isSentAdmitted(watch, { chat, pendingSubmissions, queue, nextStep } = {}) {
@@ -20612,17 +20622,45 @@ function isSentAdmitted(watch, { chat, pendingSubmissions, queue, nextStep } = {
     if (typeof sub?.requestId === "string" && baseline?.pendingIds?.has(sub.requestId)) continue;
     if (matchesAdmittedText(watch.text, sub?.text)) return true;
   }
+  const liveQueueIds = /* @__PURE__ */ new Set();
   for (const list of [queue, nextStep]) {
     for (const item of list ?? []) {
+      if (typeof item?.id === "string") liveQueueIds.add(item.id);
       if (typeof item?.id === "string" && baseline?.queueIds?.has(item.id)) continue;
+      if (typeof item?.source?.rpcId === "string" && baseline?.pendingIds?.has(item.source.rpcId)) continue;
       if (item?.source?.kind !== void 0 && item.source.kind !== "user") continue;
       if (matchesAdmittedText(watch.text, contentText2(item?.content))) return true;
     }
   }
   const minSeq = baseline?.maxUserSeq ?? 0;
+  const seenBaselineQueueIds = /* @__PURE__ */ new Set();
+  const seenBaselineRpcIds = /* @__PURE__ */ new Set();
+  let unidentifiedMatches = 0;
   for (const node of chatUserNodes(chat)) {
     if (nodeSeq(node) <= minSeq) continue;
-    if (matchesAdmittedText(watch.text, contentText2(node?.data?.content))) return true;
+    if (node?.data?.source?.kind !== void 0 && node.data.source.kind !== "user") continue;
+    const msgId = typeof node?.data?.messageId === "string" ? node.data.messageId : void 0;
+    const rpcId = typeof node?.data?.source?.rpcId === "string" ? node.data.source.rpcId : void 0;
+    if (msgId !== void 0 && baseline?.queueIds?.has(msgId)) {
+      seenBaselineQueueIds.add(msgId);
+      continue;
+    }
+    if (rpcId !== void 0 && baseline?.pendingIds?.has(rpcId)) {
+      seenBaselineRpcIds.add(rpcId);
+      continue;
+    }
+    if (!matchesAdmittedText(watch.text, contentText2(node?.data?.content))) continue;
+    if (msgId !== void 0 || rpcId !== void 0) return true;
+    unidentifiedMatches += 1;
+  }
+  if (unidentifiedMatches > 0) {
+    let drainedBaselineQueued = 0;
+    for (const item of baseline?.queueTexts ?? []) {
+      if (item.id !== void 0 && (liveQueueIds.has(item.id) || seenBaselineQueueIds.has(item.id))) continue;
+      if (item.rpcId !== void 0 && seenBaselineRpcIds.has(item.rpcId)) continue;
+      if (matchesAdmittedText(watch.text, item.text)) drainedBaselineQueued += 1;
+    }
+    if (unidentifiedMatches > drainedBaselineQueued) return true;
   }
   return false;
 }
@@ -57553,12 +57591,14 @@ function DraftKeeper({
   const lastUserSeq = typeof chatOrSeq === "number" ? chatOrSeq : maxUserSeqOf(chat);
   const keyRef = (0, import_react75.useRef)(key);
   const restored = (0, import_react75.useRef)("");
+  const deferredRestore = (0, import_react75.useRef)(false);
   const pending = (0, import_react75.useRef)({ text: false, staleDraft: null, files: false });
   const latestDraft = (0, import_react75.useRef)(draft);
   const preSendBaseline = (0, import_react75.useRef)(null);
   (0, import_react75.useEffect)(() => {
     if (keyRef.current !== key) {
       keyRef.current = key;
+      deferredRestore.current = false;
       pending.current = { text: false, staleDraft: null, files: false };
       latestDraft.current = draft;
     } else if (!pending.current.text || draft !== pending.current.staleDraft) {
@@ -57613,6 +57653,7 @@ function DraftKeeper({
         effectiveDraft = "";
         clearSent = true;
       } else if (openState === "cold" || openState === "loading") {
+        deferredRestore.current = true;
         return;
       } else {
         dropSentDraft({ chatId, sessionId });
@@ -57660,6 +57701,11 @@ function DraftKeeper({
     }
     pending.current = { text: restoredText, staleDraft: restoredText ? draft : null, files: restoredFiles };
     restored.current = key;
+    const wasDeferred = deferredRestore.current;
+    deferredRestore.current = false;
+    if (wasDeferred && !restoredText && !restoredFiles && (draft !== "" || ids.length > 0)) {
+      keepDraft({ chatId, part: sessionId, text: draft, files: actions.draftFiles?.(ids) ?? [] }, void 0, { deferMs: DRAFT_DEBOUNCE_MS });
+    }
     if (!ok && back.files.length > 0) actions.notice?.(t("The files attached to this draft could not be put back."));
   }, [current2, frozen, rescueBlocked, hasChips, chatId, sessionId, key, inputActions, draft, rescued, openState, chat, lastUserSeq, pendingSubmissions, queue, nextStep]);
   (0, import_react75.useEffect)(() => {
@@ -57691,19 +57737,32 @@ function DraftKeeper({
   }, [current2, rescueBlocked, hasChips, chatId, sessionId, key, inputActions, rescued]);
   (0, import_react75.useEffect)(() => {
     if (!current2) return;
-    if (frozen) {
-      if (sending && draft !== "") {
-        const existing = peekSentDraft({ chatId, sessionId });
-        const admissionState = { chat, pendingSubmissions, queue, nextStep };
-        if (existing?.text === draft) {
-          if (isSentAdmitted(existing, admissionState)) markSentAdmitted({ chatId, sessionId });
-        } else {
-          const baseline = preSendBaseline.current?.key === key ? preSendBaseline.current.baseline : captureAdmissionBaseline({ ...admissionState, maxUserSeq: lastUserSeq });
-          keepSentDraft({ chatId, sessionId, text: draft, baseline });
-          const created = peekSentDraft({ chatId, sessionId });
-          if (isSentAdmitted(created, admissionState)) markSentAdmitted({ chatId, sessionId });
-        }
+    const existing = peekSentDraft({ chatId, sessionId });
+    if (!sending) {
+      if (existing !== void 0 && !existing.admitted && isSentAdmitted(existing, { chat, pendingSubmissions, queue, nextStep })) {
+        markSentAdmitted({ chatId, sessionId });
       }
+      return;
+    }
+    const admissionState = { chat, pendingSubmissions, queue, nextStep };
+    if (draft === "") {
+      if (existing !== void 0 && !existing.admitted && isSentAdmitted(existing, admissionState)) {
+        markSentAdmitted({ chatId, sessionId });
+      }
+      return;
+    }
+    if (existing?.text === draft) {
+      if (!existing.admitted && isSentAdmitted(existing, admissionState)) markSentAdmitted({ chatId, sessionId });
+      return;
+    }
+    const baseline = preSendBaseline.current?.key === key ? preSendBaseline.current.baseline : captureAdmissionBaseline({ ...admissionState, maxUserSeq: lastUserSeq });
+    keepSentDraft({ chatId, sessionId, text: draft, baseline });
+    const created = peekSentDraft({ chatId, sessionId });
+    if (isSentAdmitted(created, admissionState)) markSentAdmitted({ chatId, sessionId });
+  }, [current2, sending, key, chatId, sessionId, draft, chat, lastUserSeq, pendingSubmissions, queue, nextStep]);
+  (0, import_react75.useEffect)(() => {
+    if (!current2) return;
+    if (frozen) {
       if (restored.current === key) keepDraft({ chatId, part: sessionId, text: "", files: [] });
       else if (sending) dropPartDraft({ chatId, part: sessionId });
       return;
@@ -57714,7 +57773,7 @@ function DraftKeeper({
     if (pending.current.files && ids.length === 0) return;
     pending.current = { text: false, staleDraft: null, files: false };
     keepDraft({ chatId, part: sessionId, text: draft, files: actions.draftFiles(ids) }, void 0, { deferMs: DRAFT_DEBOUNCE_MS });
-  }, [current2, sending, frozen, key, chatId, sessionId, draft, ids, chat, lastUserSeq, pendingSubmissions, queue, nextStep]);
+  }, [current2, sending, frozen, key, chatId, sessionId, draft, ids]);
   return null;
 }
 

@@ -155,10 +155,10 @@ test('admission verification distinguishes new Host admissions from pre-existing
   const admittedChat = {
     order: ['u1', 's2'],
     nodes: {
-      get: k => (k === 's2' ? { kind: 'steering', anchorSeq: 7, data: { seq: 7, content: [{ type: 'text', text: '继续' }] } } : oldChat.nodes.get(k)),
+      get: k => (k === 's2' ? { kind: 'steering', anchorSeq: 7, data: { seq: 7, messageId: 'new-steer', source: { kind: 'user', rpcId: 'new-req' }, content: [{ type: 'text', text: '继续' }] } } : oldChat.nodes.get(k)),
       values: () => [
         ...oldChat.nodes.values(),
-        { kind: 'steering', anchorSeq: 7, data: { seq: 7, content: [{ type: 'text', text: '继续' }] } },
+        { kind: 'steering', anchorSeq: 7, data: { seq: 7, messageId: 'new-steer', source: { kind: 'user', rpcId: 'new-req' }, content: [{ type: 'text', text: '继续' }] } },
       ],
     },
   }
@@ -250,8 +250,12 @@ test('the pinned DSH conversation service has the draft intake the keeper uses',
   assert.match(input, /addAttachments\(ids: readonly DraftAttachmentId\[\]\): boolean;/)
   assert.match(input, /readonly phase: 'plain' \| 'adjudicating' \| 'claimed' \| 'submitting' \| 'sending';/)
   assert.match(input, /readonly queue: InboxState\['next-turn'\];/)
+  const records = await readFile(join(dirname(types), 'lib', 'types', 'client', 'contract', 'records.d.ts'), 'utf8')
+  assert.match(records, /export interface UserMessageNode \{[\s\S]*?messageId\?: MessageId;/)
+  assert.match(records, /export interface SteeringMessageNode \{[\s\S]*?messageId: MessageId;/)
   const sessionTypes = require.resolve('@deepseek-ai/dsh-api-session-controller/package.json')
   const sessionSnap = await readFile(join(dirname(sessionTypes), 'lib', 'types', 'client', 'contract', 'snapshot.d.ts'), 'utf8')
+  assert.match(sessionSnap, /readonly requestId: SessionRequestId;/)
   assert.match(sessionSnap, /readonly pendingSubmissions: readonly PendingSubmission\[\];/)
   assert.match(sessionSnap, /readonly openState: OpenState;/)
   const chatTypes = require.resolve('@deepseek-ai/dsh-client-ui-chat/package.json')
@@ -497,9 +501,10 @@ const chatSnapshot = (messages = []) => {
       anchorSeq: msg.seq,
       data: {
         kind: msg.kind ?? 'user',
+        ...(msg.messageId !== undefined ? { messageId: msg.messageId } : {}),
         seq: msg.seq,
         content: [{ type: 'text', text: msg.text }],
-        source: { kind: 'user' },
+        source: { kind: 'user', ...(msg.rpcId !== undefined ? { rpcId: msg.rpcId } : {}) },
       },
     })
   }
@@ -1077,4 +1082,175 @@ test('maxUserSeqOf skips trailing synthetic user nodes without seq and works wit
     { text: 'hello', baseline: { maxUserSeq: 5, pendingIds: new Set(), queueIds: new Set() }, admitted: false },
     { chat: chatWithPlainIterable },
   ), true)
+})
+
+test('a pre-existing baseline-queued message draining into the transcript does not satisfy admission of an identical unsent retry (#2003 review)', () => {
+  const baseline = captureAdmissionBaseline({
+    chat: chatSnapshot([{ seq: 2, messageId: 'm-1', text: 'earlier' }]).views.get('chat'),
+    pendingSubmissions: [{ requestId: 'rpc-pending', text: '继续' }],
+    queue: [{ id: 'q-old', source: { kind: 'user', rpcId: 'rpc-old' }, content: [{ type: 'text', text: '继续' }] }],
+  })
+  const watch = { text: '继续', baseline, admitted: false }
+
+  // 1) Real DSH path: baseline-queued item drains into transcript carrying its messageId / source.rpcId.
+  assert.equal(isSentAdmitted(watch, {
+    queue: [],
+    chat: chatSnapshot([
+      { seq: 2, messageId: 'm-1', text: 'earlier' },
+      { seq: 8, messageId: 'q-old', rpcId: 'rpc-old', text: '继续' },
+    ]).views.get('chat'),
+  }), false, 'baseline-queued message moved into transcript must NOT confirm a new send')
+
+  // Same check when only messageId or only rpcId is present, or when a baseline pendingSubmission enters queue/transcript.
+  assert.equal(isSentAdmitted(watch, {
+    queue: [],
+    chat: chatSnapshot([{ seq: 8, messageId: 'q-old', text: '继续' }]).views.get('chat'),
+  }), false, 'messageId alone excludes drained baseline queue item')
+  assert.equal(isSentAdmitted(watch, {
+    queue: [{ id: 'q-from-pending', source: { kind: 'user', rpcId: 'rpc-pending' }, content: [{ type: 'text', text: '继续' }] }],
+  }), false, 'source.rpcId excludes baseline pendingSubmission moving into queue')
+  assert.equal(isSentAdmitted(watch, {
+    queue: [],
+    chat: chatSnapshot([{ seq: 8, messageId: 'm-from-pending', rpcId: 'rpc-pending', text: '继续' }]).views.get('chat'),
+  }), false, 'source.rpcId excludes baseline pendingSubmission moving into transcript')
+
+  // 2) Synthetic/unidentified transcript node path (no messageId or rpcId): count-based guard blocks a single drain.
+  assert.equal(isSentAdmitted(watch, {
+    queue: [],
+    chat: chatSnapshot([{ seq: 8, text: '继续' }]).views.get('chat'),
+  }), false, 'single unidentified transcript node cannot confirm admission when one baseline-queued item drained')
+  assert.equal(isSentAdmitted(watch, {
+    queue: [],
+    chat: chatSnapshot([{ seq: 8, text: '继续' }, { seq: 10, text: '继续' }]).views.get('chat'),
+  }), true, 'second matching transcript node beyond drained baseline count confirms new send')
+
+  // 3) Once a genuinely new message (distinct messageId) also arrives in transcript, admission is confirmed.
+  assert.equal(isSentAdmitted(watch, {
+    queue: [],
+    chat: chatSnapshot([
+      { seq: 8, messageId: 'q-old', rpcId: 'rpc-old', text: '继续' },
+      { seq: 10, messageId: 'q-new', rpcId: 'rpc-new', text: '继续' },
+    ]).views.get('chat'),
+  }), true, 'distinct new messageId confirms admission even after old queued message drained')
+
+  // 4) End-to-end DraftKeeper: aborted repeat send while baseline queued message drains preserves unsent retry draft.
+  const ls = memoryStorage()
+  const { render, remount } = loadKeeper(ls)
+  const setDrafts = []
+  const state = {
+    draft: '继续',
+    attachmentIds: [],
+    phase: 'plain',
+    queue: [{ id: 'q-old', source: { kind: 'user', rpcId: 'rpc-old' }, content: [{ type: 'text', text: '继续' }] }],
+  }
+  const host = sessionHooks({ messages: [{ seq: 2, messageId: 'm-1', text: 'earlier' }] })
+  const props = draftKeeperProps(state, setDrafts, host)
+
+  render(props)
+  state.phase = 'sending'
+  render(props)
+
+  // User leaves mid-send (aborted before admission); while away, q-old runs and enters the transcript at seq 8.
+  state.phase = 'plain'
+  state.queue = []
+  host.conv.messages = [
+    { seq: 2, messageId: 'm-1', text: 'earlier' },
+    { seq: 8, messageId: 'q-old', rpcId: 'rpc-old', text: '继续' },
+  ]
+  remount(props)
+  assert.deepEqual(setDrafts, [], 'unsent retry draft must NOT be wiped when only pre-existing queued message drained')
+  assert.deepEqual(JSON.parse(ls.getItem(STORAGE.drafts)), { bee: { part: 'bee-2', text: '继续' } })
+})
+
+test('unrelated queue or transcript updates on an untouched empty composer do not erase another tab\'s saved draft (#2003 review)', async () => {
+  const ls = memoryStorage()
+  const storageListeners = []
+  const fakeWindow = {
+    addEventListener: (type, fn) => { if (type === 'storage') storageListeners.push(fn) },
+    removeEventListener: () => {},
+  }
+  const tabA = loadKeeper(ls, { window: fakeWindow, setTimeout, clearTimeout })
+  const tabB = loadKeeper(ls, { setTimeout, clearTimeout })
+  const hostA = sessionHooks({ messages: [{ seq: 1, messageId: 'm-1', text: 'hi' }] })
+  const hostB = sessionHooks({ messages: [{ seq: 1, messageId: 'm-1', text: 'hi' }] })
+  const stateA = {
+    draft: '',
+    attachmentIds: [],
+    phase: 'plain',
+    queue: [{ id: 'q-1', source: { kind: 'user' }, content: [{ type: 'text', text: 'queued work' }] }],
+  }
+  const stateB = { draft: 'Check the deployment notes', attachmentIds: [], phase: 'plain', queue: stateA.queue }
+  const setA = []
+  const setB = []
+  const propsA = draftKeeperProps(stateA, setA, hostA)
+  const propsB = draftKeeperProps(stateB, setB, hostB)
+
+  // Tab A opens with an empty composer and settles.
+  tabA.render(propsA)
+  await new Promise(resolve => setTimeout(resolve, 350))
+
+  // Tab B types and saves a fresh draft in shared storage; browser notifies Tab A via storage event.
+  tabB.render(propsB)
+  await new Promise(resolve => setTimeout(resolve, 350))
+  const savedRaw = ls.getItem(STORAGE.drafts)
+  assert.deepEqual(JSON.parse(savedRaw), { bee: { part: 'bee-2', text: 'Check the deployment notes' } })
+  for (const fn of storageListeners) fn({ key: STORAGE.drafts, newValue: savedRaw })
+
+  // In Tab A, user deletes the queued item and new host messages / steering / pendingSubmissions arrive
+  // without ever editing Tab A's empty composer.
+  stateA.queue = []
+  hostA.conv.messages = [
+    { seq: 1, messageId: 'm-1', text: 'hi' },
+    { seq: 2, messageId: 'm-2', text: 'incoming message' },
+  ]
+  hostA.inbox['next-step'] = [{ id: 'st-1', source: { kind: 'user' }, content: [{ type: 'text', text: 'steer' }] }]
+  hostA.session.pendingSubmissions = [{ requestId: 'req-other', placement: 'transcript', time: 2, text: 'other', attachments: [] }]
+  tabA.render(propsA)
+  await new Promise(resolve => setTimeout(resolve, 350))
+
+  assert.deepEqual(JSON.parse(ls.getItem(STORAGE.drafts)), { bee: { part: 'bee-2', text: 'Check the deployment notes' } }, 'Tab B carry-over draft must survive Tab A queue/transcript updates')
+  assert.equal(takeDraft({ chatId: 'bee', part: 'bee-3', text: '', attached: 0 }, ls).text, 'Check the deployment notes')
+})
+
+test('deferred restore after loading persists an unadmitted retry draft without needing another edit (#2003 review)', () => {
+  const ls = memoryStorage()
+  const { render, remount } = loadKeeper(ls)
+  const setDrafts = []
+  const state = { draft: 'retry me', attachmentIds: [], phase: 'plain', queue: [] }
+  const host = sessionHooks()
+  const props = draftKeeperProps(state, setDrafts, host)
+
+  render(props)
+  state.phase = 'sending'
+  render(props)
+
+  // Return while session is still loading, then open with NO admission (aborted send).
+  state.phase = 'plain'
+  host.session.openState = 'loading'
+  remount(props)
+  assert.deepEqual(setDrafts, [])
+  assert.deepEqual(JSON.parse(ls.getItem(STORAGE.drafts)), {})
+
+  host.session.openState = 'open'
+  render(props)
+  assert.deepEqual(setDrafts, [], 'unadmitted retry draft stays in composer')
+  assert.deepEqual(JSON.parse(ls.getItem(STORAGE.drafts)), { bee: { part: 'bee-2', text: 'retry me' } }, 'deferred restore persists recovered retry draft')
+})
+
+test('isSentAdmitted matches inline quote replies whose body contains whitespace-only lines (#2003 review)', () => {
+  const baseline = captureAdmissionBaseline()
+  // Inline quote followed by body containing a spaces-only line vs DSH serialized blank-line boundary.
+  assert.equal(isSentAdmitted(
+    { text: '> quote Explain\n \nMore', baseline, admitted: false },
+    { pendingSubmissions: [{ requestId: 'r-ws-1', text: '> quote\n\nExplain\n \nMore' }] },
+  ), true)
+  assert.equal(isSentAdmitted(
+    { text: '> quote\nExplain\n \nMore', baseline, admitted: false },
+    { chat: chatSnapshot([{ seq: 1, messageId: 'm-ws-1', text: '> quote\n\nExplain\n \nMore' }]).views.get('chat') },
+  ), true)
+  // Distinct body whitespace must not falsely match.
+  assert.equal(isSentAdmitted(
+    { text: '> quote Explain\n\nMore', baseline, admitted: false },
+    { pendingSubmissions: [{ requestId: 'r-ws-2', text: '> quote\n\nExplain\n \nMore' }] },
+  ), false)
 })

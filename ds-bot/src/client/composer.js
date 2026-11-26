@@ -468,6 +468,7 @@ export function DraftKeeper({
 
   const keyRef = useRef(key)
   const restored = useRef('')
+  const deferredRestore = useRef(false)
   // What was just put back (or cleared) and has not reached the input state yet.
   const pending = useRef({ text: false, staleDraft: null, files: false })
   const latestDraft = useRef(draft)
@@ -478,6 +479,7 @@ export function DraftKeeper({
   useEffect(() => {
     if (keyRef.current !== key) {
       keyRef.current = key
+      deferredRestore.current = false
       pending.current = { text: false, staleDraft: null, files: false }
       latestDraft.current = draft
     } else if (!pending.current.text || draft !== pending.current.staleDraft) {
@@ -540,6 +542,7 @@ export function DraftKeeper({
         effectiveDraft = ''
         clearSent = true
       } else if (openState === 'cold' || openState === 'loading') {
+        deferredRestore.current = true
         return
       } else {
         dropSentDraft({ chatId, sessionId })
@@ -589,6 +592,11 @@ export function DraftKeeper({
     // draft is kept from what the box holds now, and the user hears the files are gone.
     pending.current = { text: restoredText, staleDraft: restoredText ? draft : null, files: restoredFiles }
     restored.current = key
+    const wasDeferred = deferredRestore.current
+    deferredRestore.current = false
+    if (wasDeferred && !restoredText && !restoredFiles && (draft !== '' || ids.length > 0)) {
+      keepDraft({ chatId, part: sessionId, text: draft, files: actions.draftFiles?.(ids) ?? [] }, undefined, { deferMs: DRAFT_DEBOUNCE_MS })
+    }
     if (!ok && back.files.length > 0) actions.notice?.(t('The files attached to this draft could not be put back.'))
   }, [current, frozen, rescueBlocked, hasChips, chatId, sessionId, key, inputActions, draft, rescued, openState, chat, lastUserSeq, pendingSubmissions, queue, nextStep])
 
@@ -621,28 +629,41 @@ export function DraftKeeper({
     }
   }, [current, rescueBlocked, hasChips, chatId, sessionId, key, inputActions, rescued])
 
+  // Observe Host admission for an in-flight send (or an existing un-admitted watch) without
+  // re-running draft persistence on unrelated queue, steering, or transcript updates.
+  useEffect(() => {
+    if (!current) return
+    const existing = peekSentDraft({ chatId, sessionId })
+    if (!sending) {
+      if (existing !== undefined && !existing.admitted && isSentAdmitted(existing, { chat, pendingSubmissions, queue, nextStep })) {
+        markSentAdmitted({ chatId, sessionId })
+      }
+      return
+    }
+    const admissionState = { chat, pendingSubmissions, queue, nextStep }
+    if (draft === '') {
+      if (existing !== undefined && !existing.admitted && isSentAdmitted(existing, admissionState)) {
+        markSentAdmitted({ chatId, sessionId })
+      }
+      return
+    }
+    if (existing?.text === draft) {
+      if (!existing.admitted && isSentAdmitted(existing, admissionState)) markSentAdmitted({ chatId, sessionId })
+      return
+    }
+    const baseline = preSendBaseline.current?.key === key
+      ? preSendBaseline.current.baseline
+      : captureAdmissionBaseline({ ...admissionState, maxUserSeq: lastUserSeq })
+    keepSentDraft({ chatId, sessionId, text: draft, baseline })
+    const created = peekSentDraft({ chatId, sessionId })
+    if (isSentAdmitted(created, admissionState)) markSentAdmitted({ chatId, sessionId })
+  }, [current, sending, key, chatId, sessionId, draft, chat, lastUserSeq, pendingSubmissions, queue, nextStep])
+
+  // Persist draft edits and phase transitions only; never subscribe to queue or transcript
+  // churn here so an untouched empty composer cannot overwrite another tab's fresh draft.
   useEffect(() => {
     if (!current) return
     if (frozen) {
-      // A message on its way out is not a draft any more: this page remembers its text
-      // and pre-send admission baseline for this Session so a composer that closes before
-      // the shell commits the empty draft clears it on return only once Host admission is
-      // confirmed. An aborted or refused send returns to plain without admission, so its
-      // draft stays.
-      if (sending && draft !== '') {
-        const existing = peekSentDraft({ chatId, sessionId })
-        const admissionState = { chat, pendingSubmissions, queue, nextStep }
-        if (existing?.text === draft) {
-          if (isSentAdmitted(existing, admissionState)) markSentAdmitted({ chatId, sessionId })
-        } else {
-          const baseline = preSendBaseline.current?.key === key
-            ? preSendBaseline.current.baseline
-            : captureAdmissionBaseline({ ...admissionState, maxUserSeq: lastUserSeq })
-          keepSentDraft({ chatId, sessionId, text: draft, baseline })
-          const created = peekSentDraft({ chatId, sessionId })
-          if (isSentAdmitted(created, admissionState)) markSentAdmitted({ chatId, sessionId })
-        }
-      }
       // Before the take, an earlier part's draft still waits to be carried; only a draft
       // this part owns is dropped.
       if (restored.current === key) keepDraft({ chatId, part: sessionId, text: '', files: [] })
@@ -658,6 +679,6 @@ export function DraftKeeper({
     if (pending.current.files && ids.length === 0) return
     pending.current = { text: false, staleDraft: null, files: false }
     keepDraft({ chatId, part: sessionId, text: draft, files: actions.draftFiles(ids) }, undefined, { deferMs: DRAFT_DEBOUNCE_MS })
-  }, [current, sending, frozen, key, chatId, sessionId, draft, ids, chat, lastUserSeq, pendingSubmissions, queue, nextStep])
+  }, [current, sending, frozen, key, chatId, sessionId, draft, ids])
   return null
 }
