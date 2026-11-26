@@ -7,7 +7,7 @@ import { isMainOf } from './sources.js'
 import { currentPart, previewOf, relativeShort } from './text.js'
 import { PlusIcon, SearchIcon, SidebarIcon, GaugeIcon, ClockIcon, GearIcon, PinMarkIcon, ConnectorIcon, PlugIcon, SwitchIcon, CloudDownloadIcon, SignInIcon, SignOutIcon, SlidersIcon, ChevronRightIcon, DotsIcon, FolderIcon } from './icons.js'
 import { lookOf, MAIN_LOOK } from './characters.js'
-import { botPendingOf, dmMarkState, isBrowserHandoff, isComputerHandoff, lastTurnFailed, latestTurnOf, useBotHandoff, BotMark, BotAvatar, RoomAvatar } from './mark.js'
+import { botState, lastTurnFailed, latestTurnOf, BotMark, BotAvatar, RoomAvatar } from './mark.js'
 export { botPendingOf } from './mark.js'
 import { AgentBadge } from './agent-badge.js'
 import { SidebarTaskPill, taskCountsOf } from './bot-tasks.js'
@@ -21,6 +21,7 @@ import { quietly } from './diagnostics.js'
 import { frameLayout, dragColumn, RAIL_WIDTH, FALLBACK_SIDEBAR_WIDTH, userSidebarToggle } from './frame-layout.js'
 import { chatRoom, dshCollapsed } from './frame-watch.js'
 import { useEscape } from './overlay-hooks.js'
+import { InboxEntry, waitLineOf, waitsOf } from './inbox.js'
 
 // Maximum retries to collapse DSH's own sidebar before stopping, so a shell that
 // stays uncollapsed never spins data-bt-collapsing and re-renders forever (#2050).
@@ -50,17 +51,10 @@ const nameIfCut = (event) => {
 const useFalse = () => false
 const useEmptyArrayJson = () => '[]'
 const useNullJson = () => 'null'
-const useEmptySectionWork = () => '0|0'
 
-// Whether an approval waits for the user: for a Bot, in its own chat; for a group,
-// from any of its members in that group (both DSH tool approvals and computer-use asks).
-const useApproval = (useWork, useComputer, matchApproval, matchAsk) => {
-  const useReadWork = useWork ?? useFalse
-  const useReadComputer = useComputer ?? useFalse
-  const tool = useReadWork(work => (work.approvals ?? []).some(matchApproval))
-  const app = useReadComputer(comp => Object.values(comp?.asks ?? {}).some(matchAsk))
-  return tool || app
-}
+// What waits for the user in a Bot's own chat or a group chat comes from the host's
+// one list (inbox.js), the same one the inbox page, the phone and the notifications
+// read: a group's cards mark the group's row, not the member's own chat (#1623).
 
 // Work running in group Sessions, as "botId|tool" keys so a row redraws only when it
 // changes: the groups one Bot works in, or the members at work in one group.
@@ -91,21 +85,14 @@ const sameBotRow = (a, b) => a.bot === b.bot
   && a.useSessionRetainInfo === b.useSessionRetainInfo
   && a.useActivity === b.useActivity
   && a.useWork === b.useWork
-  && a.useComputer === b.useComputer
-  && a.useBrowserHolds === b.useBrowserHolds
   && a.roster.mainBotId === b.roster.mainBotId
   && a.roster.mainBotIds === b.roster.mainBotIds
   && a.roster.byId === b.roster.byId
   && a.roster.roomsById === b.roster.roomsById
   && a.roster.exchangeTurns === b.roster.exchangeTurns
-  && a.roster.learning === b.roster.learning
-  && a.roster.secretRequests === b.roster.secretRequests
-  && a.roster.connectorRequests === b.roster.connectorRequests
-  && a.roster.mailRequests === b.roster.mailRequests
-  && a.roster.questions === b.roster.questions
-  && a.roster.views === b.roster.views
+  && a.roster.inbox === b.roster.inbox
 
-const BotRow = memo(function BotRow({ bot, roster, actions, useSessions, useBotCompletions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, useComputer, useBrowserHolds, wide, marked, onDragStart }) {
+const BotRow = memo(function BotRow({ bot, roster, actions, useSessions, useBotCompletions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, wide, marked, onDragStart }) {
   const id = bot.id
   const part = currentPart(bot)
   const preview = useSessions(list => previewOf(list, part, roster.exchangeTurns[part]))
@@ -118,20 +105,10 @@ const BotRow = memo(function BotRow({ bot, roster, actions, useSessions, useBotC
   useMarkedUnread(id, active, marked, actions)
   const main = isMainOf(roster, id)
   const tile = roster.mainBotId === id
-  const fgApproval = useApproval(
-    useWork,
-    useComputer,
-    entry => entry.roomId === undefined && entry.botId === id && entry.taskId === undefined && entry.answerable !== false,
-    ask => ask.roomId === undefined && ask.botId === id,
-  )
-  const useReadBgWork = useWork ?? useFalse
-  const bgApproval = useReadBgWork(work => (work.approvals ?? []).some(entry => entry.roomId === undefined && entry.botId === id && entry.taskId !== undefined && entry.answerable !== false))
-  const handoff = useBotHandoff(id, useBrowserHolds, useComputer)
-  const pending = botPendingOf(roster, bot)
-  const blockingApproval = fgApproval || pending.cardApproval
-  const nonBlockingApproval = bgApproval || pending.learning
-  const approval = blockingApproval || nonBlockingApproval
-  const alert = approval || pending.question || handoff
+  // What stops this chat (an approval, a card, a hand-off) overrides what it is doing;
+  // a background task's approval, a proposal or a fix shows only while it is idle.
+  const asks = waitsOf(roster, { botId: id })
+  const alert = asks.any
   const doing = useActivity(map => map[id])
   // Work in a group runs in a Session of its own, so the Bot's chat stays idle meanwhile.
   const groups = useGroupWork(useWork, rooms => Object.entries(rooms).flatMap(([roomId, entries]) => entries.filter(entry => entry.botId === id).map(entry => ({ id: roomId, ...doingOf(entry) }))))
@@ -143,26 +120,17 @@ const BotRow = memo(function BotRow({ bot, roster, actions, useSessions, useBotC
   // and is stripped while the foreground turn runs.
   const taskCounts = taskCountsOf({ bot })
   const failed = lastTurnFailed(bot, useSessions(list => latestTurnOf(list, part)))
-  const blockingAlert = blockingApproval || pending.question || handoff
-  const dmDoing = blockingAlert ? 'alert' : doing === 'alert' ? undefined : doing
-  const state = dmMarkState({
-    running: running || away,
-    doing,
+  const dmDoing = asks.blocking ? 'alert' : doing === 'alert' ? undefined : doing
+  const markAlert = Boolean(asks.blocking) || (asks.deferred !== undefined && asks.deferred.kind !== 'blocked') || taskCounts.waitingApproval > 0
+  const state = botState(running || away, dmDoing, markAlert, {
     failed,
     background: taskCounts.active > 0,
-    waitingApproval: taskCounts.waitingApproval > 0,
     replied: finished,
-    fgApproval,
-    bgApproval,
-    handoff,
-    pending,
   })
-  const waitLine = blockingApproval ? t('Waiting for your approval')
-    : pending.question ? t('Waiting for your answer')
-      : handoff ? t('Waiting for you') : null
-  const deferredWaitLine = nonBlockingApproval ? t('Waiting for your approval') : null
+  const waitLine = waitLineOf(asks.blocking)
+  const deferredWaitLine = waitLineOf(asks.deferred)
   // A Bot running in its own chat previews what it is doing, like a group's row.
-  const runningLine = running && !blockingAlert ? doingLine(dmDoing ?? 'working') : null
+  const runningLine = running && !asks.blocking ? doingLine(dmDoing ?? 'working') : null
   const awayLine = away ? workLine(roster.roomsById[groups[0].id]?.name ?? t('a group chat'), groups[0], groups.length - 1) : null
   const useReadWaits = useWork ?? useNullJson
   const waitsRaw = useReadWaits(work => JSON.stringify(work.waiting?.[id] ?? null))
@@ -218,10 +186,10 @@ const sameRoomRow = (a, b) => a.room === b.room
   && a.useSessionStatus === b.useSessionStatus
   && a.useSessionRetainInfo === b.useSessionRetainInfo
   && a.useWork === b.useWork
-  && a.useComputer === b.useComputer
   && a.roster.byId === b.roster.byId
+  && a.roster.inbox === b.roster.inbox
 
-const RoomRow = memo(function RoomRow({ room, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useWork, useComputer, wide, marked, onDragStart }) {
+const RoomRow = memo(function RoomRow({ room, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useWork, wide, marked, onDragStart }) {
   const id = room.id
   // The group's own Session is a chain of parts; the row shows the current one.
   const sessionId = room.sessionId ?? id
@@ -230,7 +198,10 @@ const RoomRow = memo(function RoomRow({ room, roster, actions, useSessions, useS
   const active = useSessionRetainInfo(sessionId, info => (info?.retainedBy?.mainView ?? 0) > 0)
   const unread = useSessionStatus(map => map.get(sessionId)?.completionUnread === true) || (marked && !active)
   useMarkedUnread(id, active, marked, actions)
-  const approval = useApproval(useWork, useComputer, entry => entry.roomId === id && entry.answerable !== false, ask => ask.roomId === id)
+  // Anything a member asked here, the group's goal, a relay pause.
+  const waits = waitsOf(roster, { roomId: id })
+  const approval = waits.any
+  const waitLine = waitLineOf(waits.blocking ?? waits.deferred)
   const members = useGroupWork(useWork, rooms => (rooms[id] ?? []).filter(entry => entry.botId !== undefined).map(entry => ({ id: entry.botId, ...doingOf(entry) })))
   const first = roster.byId[members[0]?.id]
   const workingLine = first ? workLine(first.name, members[0], members.length - 1) : null
@@ -238,7 +209,7 @@ const RoomRow = memo(function RoomRow({ room, roster, actions, useSessions, useS
   const pinned = room.pinned === true
   const taskCounts = taskCountsOf({ room, roster })
   const openTasks = () => { actions.openSession(id); actions.openTaskDeck?.(id) }
-  const label = [room.name, pinned ? t('Pinned') : '', members.length > 0 ? t('Working') : '', taskCounts.active > 0 ? t('{count} background tasks running', { count: taskCounts.active }) : '', approval ? t('Waiting for your approval') : ''].filter(Boolean).join(', ')
+  const label = [room.name, pinned ? t('Pinned') : '', members.length > 0 ? t('Working') : '', taskCounts.active > 0 ? t('{count} background tasks running', { count: taskCounts.active }) : '', waitLine ?? ''].filter(Boolean).join(', ')
   return h('button', {
     type: 'button', className: 'bt-row', 'aria-label': label, 'aria-current': active ? 'page' : undefined,
     'data-room-id': id, title: wide ? undefined : room.name,
@@ -251,7 +222,7 @@ const RoomRow = memo(function RoomRow({ room, roster, actions, useSessions, useS
   pinned && !wide ? h(PinMark) : null,
   wide ? h('span', { className: 'bt-row-body' },
     h('span', { className: 'bt-row-name' }, h('span', { className: 'bt-row-title' }, room.name), pinned ? h(PinMark) : null, h(SidebarTaskPill, { active: taskCounts.active, waitingApproval: taskCounts.waitingApproval, onClick: openTasks })),
-    approval ? h('span', { className: 'bt-row-preview bt-row-preview-wait' }, t('Waiting for your approval'))
+    approval ? h('span', { className: 'bt-row-preview bt-row-preview-wait' }, waitLine)
       : workingLine ? h('span', { className: 'bt-row-preview' }, workingLine)
         : preview ? h('span', { className: 'bt-row-preview' }, preview) : null) : null,
   wide && approval && !active ? h('span', { className: 'bt-unread bt-unread-wait', 'aria-hidden': true })
@@ -383,7 +354,7 @@ const entrySessionIds = entry => (
 )
 
 function SectionBlock({ section, entries, rowProps, markedUnread, renaming, dropTarget, onDragStart, onDragOverSec, onDropSec }) {
-  const { roster, actions, useSessions, useBotCompletions, useSessionStatus, useWork, useComputer, useBrowserHolds, wide } = rowProps
+  const { roster, actions, useSessions, useBotCompletions, useSessionStatus, useWork, wide } = rowProps
   const input = useRef(null)
   useLayoutEffect(() => {
     if (!renaming) return
@@ -429,42 +400,17 @@ function SectionBlock({ section, entries, rowProps, markedUnread, renaming, drop
     map.get(id)?.running === true ? 1 : 0,
     (!shownBotParts.has(id) && map.get(id)?.completionUnread === true) || map.get(id)?.pendingInteraction !== undefined ? 1 : 0,
   ])))
-  const useReadSectionWork = useWork ?? useEmptySectionWork
-  const workBits = useReadSectionWork(work => {
+  const useReadSectionWork = useWork ?? useFalse
+  const hasRoomWork = useReadSectionWork((work) => {
     const botIds = new Set(shownEntries.filter(e => e.kind === 'bot').map(e => e.item.id))
     const roomIds = new Set(shownEntries.filter(e => e.kind === 'room').map(e => e.item.id))
-    const approval = (work.approvals ?? []).some(a => a.answerable !== false && ((a.roomId === undefined && botIds.has(a.botId)) || roomIds.has(a.roomId)))
-    const roomWorking = Object.entries(work.rooms ?? {}).some(([rId, list]) => (
+    return Object.entries(work.rooms ?? {}).some(([rId, list]) => (
       (roomIds.has(rId) && list.some(e => e.botId !== undefined)) || list.some(e => botIds.has(e.botId))
     ))
-    return `${approval ? 1 : 0}|${roomWorking ? 1 : 0}`
-  })
-  const useReadSectionComputer = useComputer ?? useFalse
-  const hasComputerAlert = useReadSectionComputer((comp) => {
-    const botIds = new Set(shownEntries.filter(e => e.kind === 'bot').map(e => e.item.id))
-    const roomIds = new Set(shownEntries.filter(e => e.kind === 'room').map(e => e.item.id))
-    if (Object.values(comp?.asks ?? {}).some(ask => (ask.roomId === undefined && botIds.has(ask.botId)) || roomIds.has(ask.roomId))) return true
-    for (const botId of botIds) {
-      if (isComputerHandoff(comp?.holds?.[botId])) return true
-    }
-    return false
-  })
-  const useReadSectionBrowserHolds = useBrowserHolds ?? useFalse
-  const hasBrowserHandoff = useReadSectionBrowserHolds((map) => {
-    const botIds = new Set(shownEntries.filter(e => e.kind === 'bot').map(e => e.item.id))
-    for (const botId of botIds) {
-      if (isBrowserHandoff(map?.[botId])) return true
-    }
-    return false
   })
   const parsedStatuses = JSON.parse(statusBits)
-  const [hasApproval, hasRoomWork] = workBits.split('|').map(v => v === '1')
-  const hasPendingCard = shownEntries.some((entry) => {
-    if (entry.kind !== 'bot') return false
-    const pending = botPendingOf(roster, entry.item)
-    return pending.learning || pending.cardApproval || pending.question
-  })
-  const hasAlert = hasPendingCard || hasApproval || hasComputerAlert || hasBrowserHandoff
+  const hasAlert = shownEntries.some(entry => (entry.kind === 'bot' || entry.kind === 'room')
+    && waitsOf(roster, entry.kind === 'bot' ? { botId: entry.item.id } : { roomId: entry.item.id }).any)
   const hasWorking = hasRoomWork || parsedStatuses.some(([, run]) => run === 1)
   const useReadSectionBotCompletions = useBotCompletions ?? useFalse
   const hasBotUnread = useReadSectionBotCompletions(unread => [...shownBotParts].some(id => id !== activeSession && unread[id] === true))
@@ -643,6 +589,7 @@ export function TeamSidebar(props) {
   const panelYield = useUi(value => value.panelYield === true)
   const bootFailed = useUi(value => value.bootFailed === true)
   const renameSection = useUi(value => value.renameSection)
+  const inboxOpen = useUi(value => value.inbox === true)
   props.useRegistry(value => value)
   const frameSnap = props.useFrame ? props.useFrame(value => value) : { viewport: typeof window === 'undefined' ? 0 : window.innerWidth, sidebarWidth: FALLBACK_SIDEBAR_WIDTH, collapsedWidth: 0 }
   const pref = props.useSidebarPref ? props.useSidebarPref(value => value) : 'open'
@@ -951,9 +898,14 @@ export function TeamSidebar(props) {
       openAgent: id => navigate(actions.openAgent, id),
       openAgentSession: id => navigate(actions.openAgentSession, id),
       newAgentSession: id => navigate(actions.newAgentSession, id),
+      openInbox: () => {
+        const result = actions.openInbox?.()
+        if (leftDrawerRef.current) actions.setLeftDrawer?.(false)
+        return result
+      },
     }
   }, [actions])
-  const rowProps = { roster, actions: rowActions, useSessions, useUi, useBotCompletions: props.useBotCompletions ?? useFalse, useSessionStatus: props.useSessionStatus, useSessionRetainInfo: props.useSessionRetainInfo, useActivity: props.useActivity, useWork: props.useWork, useComputer: props.useComputer, useBrowserHolds: props.useBrowserHolds ?? useFalse, wide: wideContent }
+  const rowProps = { roster, actions: rowActions, useSessions, useUi, useBotCompletions: props.useBotCompletions ?? useFalse, useSessionStatus: props.useSessionStatus, useSessionRetainInfo: props.useSessionRetainInfo, useActivity: props.useActivity, useWork: props.useWork, wide: wideContent }
   // Typing while the sidebar has focus starts a search.
   const typeToSearch = (event) => {
     if (event.defaultPrevented || event.key.length !== 1 || event.key === ' ' || event.metaKey || event.ctrlKey || event.altKey || event.nativeEvent.isComposing) return
@@ -986,6 +938,7 @@ export function TeamSidebar(props) {
         h('span', { className: 'bt-brand' }, h(BrandName)),
         h(UpdateButton, { useUpdate: props.useUpdate, actions }),
         h('button', { type: 'button', className: 'bt-round', 'aria-label': t('Search'), title: t('Search'), onClick: () => actions.openPalette() }, h(SearchIcon)),
+        h(InboxEntry, { roster, open: inboxOpen, actions: rowActions }),
         h('button', { type: 'button', className: 'bt-round', 'aria-label': t('New…'), title: t('New…'), onClick: () => actions.openNewChat('new') }, h(PlusIcon)),
         h('button', { type: 'button', className: 'bt-round bt-side-collapse', 'aria-label': t('Collapse sidebar'), title: t('Collapse sidebar'), onClick: onToggle }, h(SidebarIcon)))
     : h('div', { className: 'bt-rail-top' },
@@ -994,10 +947,11 @@ export function TeamSidebar(props) {
         main ? h(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : bootFailed ? h(BootFailed, { actions }) : h('div', { className: 'bt-hint' }, t('Setting up your Main Bot…')),
         h('span', { className: 'bt-rail-sep', 'aria-hidden': true }))
   // The foot stands in for the shell's hidden footer: the account avatar, and on
-  // the rail the new-chat button above it.
+  // the rail the inbox and new-chat buttons above it.
   const foot = wideContent
     ? h('div', { className: 'bt-leftcol-foot' }, h(AccountLauncher, { seat: false, actions }), h(PluginsButton, { actions }))
     : h('div', { className: 'bt-leftcol-foot bt-leftcol-foot-rail' },
+        h(InboxEntry, { roster, open: inboxOpen, rail: true, actions: rowActions }),
         h('button', { type: 'button', className: 'bt-round', 'aria-label': t('New…'), title: t('New…'), onClick: () => actions.openNewChat('new') }, h(PlusIcon)),
         h(AccountLauncher, { seat: false, actions }),
         h(PluginsButton, { actions }))
