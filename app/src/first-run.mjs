@@ -2,7 +2,7 @@
 // one folder picked from the start page), and whether it copies the Bot team of the user's own
 // DSH. The answers are kept in the app's own data.
 import { app } from 'electron'
-import { constants, copyFileSync, existsSync, mkdirSync, renameSync, writeFileSync } from 'node:fs'
+import { constants, copyFileSync, existsSync, linkSync, mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { findTeam, userDshHome } from './import.mjs'
@@ -90,12 +90,29 @@ function offerOf(dataDir) {
   }
 }
 
+function linkOrCopy(file, backup) {
+  try {
+    linkSync(file, backup)
+    return
+  } catch (error) {
+    if (!['EPERM', 'ENOTSUP', 'EXDEV', 'ENOSYS', 'EOPNOTSUPP'].includes(error?.code)) throw error
+  }
+  try {
+    copyFileSync(file, backup, constants.COPYFILE_EXCL)
+  } catch (error) {
+    if (error?.code !== 'EEXIST') {
+      try { rmSync(backup, { force: true }) } catch { /* keep the original copy error */ }
+    }
+    throw error
+  }
+}
+
 function backUpCorruptLocations(file) {
   const base = `${file}.corrupt-${String(Date.now())}`
   for (let attempt = 0; ; attempt += 1) {
     const backup = attempt === 0 ? base : `${base}-${String(attempt)}`
     try {
-      copyFileSync(file, backup, constants.COPYFILE_EXCL)
+      linkOrCopy(file, backup)
       return backup
     } catch (error) {
       if (error?.code !== 'EEXIST') throw error
