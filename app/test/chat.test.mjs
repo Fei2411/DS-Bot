@@ -64,9 +64,11 @@ class TestComponent {
   constructor(props) { this.props = props; this.state = {} }
   setState(next) { this.state = { ...this.state, ...(typeof next === 'function' ? next(this.state, this.props) : next) } }
 }
+const MEMO_TYPE = Symbol.for('react.memo')
 const react = {
   Component: TestComponent,
   Fragment: 'fragment',
+  memo: fn => ({ $$typeof: MEMO_TYPE, type: fn }),
   createElement: (type, props, ...children) => ({ type, props: { ...props, children } }),
   useState: (initial) => {
     const cell = slot(() => ({ value: typeof initial === 'function' ? initial() : initial }))
@@ -148,22 +150,25 @@ const { Chat } = module.exports
 
 // Function children stay inert in the React stand-in, so the tree is expanded by
 // calling them with per-component fiber buckets so dynamic siblings never shift hook slots.
+const resolveType = type => (type && typeof type === 'object' && type.$$typeof === MEMO_TYPE ? type.type : type)
+
 const expand = (node, path = 'root') => {
   if (Array.isArray(node)) return node.map((child, idx) => expand(child, `${path}[${child?.props?.key ?? idx}]`))
   if (!node || typeof node !== 'object') return node
-  if (typeof node.type === 'function') {
-    const id = `${path}/${node.type.name || 'fn'}:${node.props?.key ?? ''}`
+  const fn = resolveType(node.type)
+  if (typeof fn === 'function') {
+    const id = `${path}/${fn.name || 'fn'}:${node.props?.key ?? ''}`
     let bucket = current.fibers.get(id)
     if (!bucket) { bucket = { slots: [], index: 0 }; current.fibers.set(id, bucket) }
     bucket.index = 0
     const prev = current.fiber
     current.fiber = bucket
     try {
-      if (node.type.prototype instanceof TestComponent) {
-        const comp = new node.type(node.props)
+      if (fn.prototype instanceof TestComponent) {
+        const comp = new fn(node.props)
         return expand(comp.render(), id)
       }
-      return expand(node.type(node.props), id)
+      return expand(fn(node.props), id)
     } finally {
       current.fiber = prev
     }

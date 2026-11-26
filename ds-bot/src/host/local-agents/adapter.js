@@ -7,6 +7,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, dirname, resolve } from 'node:path'
+import { isDeepStrictEqual } from 'node:util'
 import { LlmAdapter, LlmError, isContextWindowExceededError, isQuotaExceededError, offloadedImageText, resolveImageAttachmentAccess, resolveRetryPolicy, textOnlyImageText } from '@deepseek-ai/dsh-llm'
 import { isClockSource, isContextOnlyMessage, isSnapshotContextSource } from '../context-messages.js'
 import { buildCompactDigest, buildReplayPack } from '../context-pack.js'
@@ -135,6 +136,7 @@ export class LocalAgentAdapter extends LlmAdapter {
     this.activeProbes = new Set() // active askModels runs, so superseding probes stay protected
     this.sideRequests = new Set()
     this.forkUnsupportedRoutes = new Set()
+    this.syncingSecrets = false
     this.disposed = false
   }
 
@@ -290,9 +292,21 @@ export class LocalAgentAdapter extends LlmAdapter {
   // The live bridge for one DS Bot Session.
   async liveFor(options, preset) {
     const sessionId = String(options.sessionId)
-    let live = this.live.get(sessionId)
-    const record = this.deps.record(sessionId)
     const route = options.provider
+    const spec = this.specOf(route)
+    if (spec === undefined) {
+      const existing = this.live.get(sessionId)
+      if (existing !== undefined) await this.closeLive(existing)
+      throw new LlmError(`Unknown local agent ${route}`, 'LOCAL_AGENT_MISSING')
+    }
+    if (spec.kind === 'codex' && this.deps.prepareSecretEnvForSession !== undefined) {
+      await this.deps.prepareSecretEnvForSession(sessionId, options.signal)
+      options.signal?.throwIfAborted()
+    }
+    const resolveSecrets = () => spec.kind === 'codex' ? this.deps.secretEnvForSession?.(sessionId) ?? {} : {}
+    let live = this.live.get(sessionId)
+    let orphanedPending
+    let carriedContext
     if (live !== undefined && !live.dead && live.route === route) {
       // An agent CLI can exit between the spawn and its first message (a failed
       // sign-in, for one): the cached bridge is dead, so the next call starts a
@@ -305,18 +319,45 @@ export class LocalAgentAdapter extends LlmAdapter {
         // instead of reading its exit as the new turn's failure.
         live.events.length = 0
       }
-      // A CLI takes its model and permission mode when its session opens. Another
-      // model or preset reopens the same CLI session as soon as no turn runs in it.
-      if ((live.model === options.model && live.preset === preset) || live.state !== 'idle') return live
+      // A CLI takes its model and permission mode when its session opens. A
+      // changed secret set also requires replacing the Codex process, even mid-turn.
+      if (isDeepStrictEqual(live.secrets, resolveSecrets())) {
+        if ((live.model === options.model && live.preset === preset) || live.state !== 'idle') return live
+      } else {
+        if (live.pending.size > 0 || live.orphanedPending?.size > 0) {
+          orphanedPending = new Map([
+            ...(live.orphanedPending?.entries() ?? []),
+            ...[...live.pending.entries()].map(([id, entry]) => [id, { name: entry.name }]),
+          ])
+        }
+        if (Array.isArray(live.pendingContext) && live.pendingContext.length > 0) {
+          carriedContext = live.pendingContext.map(entry => ({ ...entry }))
+        }
+        if (live.state !== 'idle') {
+          await Promise.resolve(this.stopTurn(live, 'secret access changed for this conversation')).catch(() => {})
+        }
+      }
       await this.closeLive(live, { idle: true })
     } else if (live !== undefined) await this.closeLive(live)
-    const spec = this.specOf(route)
-    if (spec === undefined) throw new LlmError(`Unknown local agent ${route}`, 'LOCAL_AGENT_MISSING')
-    // Codex warm-resumes a loaded thread with its old MCP address (#2110).
-    // Let closing this bridge stop its app-server without stopping other Sessions.
-    const engine = spec.kind === 'codex' ? this.deps.spawnEngine(spec.kind, route, spec) : this.engine(route)
+    if (this.disposed) throw new LlmError('the local agents adapter is disposed', 'NO_ADAPTER')
+    const record = this.deps.record(sessionId)
+    const secrets = resolveSecrets()
+    // Codex warm-resumes a loaded thread with its old MCP address (#2110), and all
+    // threads in one app-server share its process environment. Each live Session
+    // gets its own app-server, with its authorized secrets merged into spec.env.
+    const engine = spec.kind === 'codex'
+      ? this.deps.spawnEngine(spec.kind, route, Object.keys(secrets).length === 0 ? spec : { ...spec, env: { ...spec.env, ...secrets } })
+      : this.engine(route)
+    const pendingContext = Array.isArray(record?.pendingContext) ? record.pendingContext.map(entry => ({ ...entry })) : []
+    if (carriedContext !== undefined) {
+      const seenIds = new Set(pendingContext.map(entry => entry.id).filter(Boolean))
+      for (const entry of carriedContext) {
+        if (entry.id !== undefined && seenIds.has(entry.id)) continue
+        pendingContext.push(entry)
+      }
+    }
     live = {
-      sessionId, route, spec, engine, dead: false,
+      sessionId, route, spec, engine, secrets, dead: false,
       record,
       cliSessionId: record?.cliSessionId,
       handed: record?.handedId,
@@ -328,6 +369,7 @@ export class LocalAgentAdapter extends LlmAdapter {
       events: [],
       waiters: [],
       pending: new Map(),   // dshCallId -> {name, mcpCallId?, reply?}
+      ...(orphanedPending !== undefined ? { orphanedPending } : {}),
       started: false,
       // 'idle': no CLI turn. 'running': a prompt is in flight. 'suspended': the
       // turn waits on a bridged tool call or a permission answer.
@@ -337,7 +379,7 @@ export class LocalAgentAdapter extends LlmAdapter {
       queue: [],
       // Context-only messages (clock snapshots, silent notices, memory updates)
       // held until the next real prompt or settled continuation goes out.
-      pendingContext: Array.isArray(record?.pendingContext) ? record.pendingContext.map(entry => ({ ...entry })) : [],
+      pendingContext,
       flushedContext: undefined,
       turnConfirmed: true,
       handedRolledBack: false,
@@ -535,6 +577,28 @@ export class LocalAgentAdapter extends LlmAdapter {
     return stopped
   }
 
+  // Close idle Codex app-servers whose secret environment changed so revoked or
+  // rotated values do not linger in a live process for the idle window. Active
+  // or suspended turns replace their process on the next step in liveFor().
+  async secretsChanged() {
+    if (this.disposed || this.syncingSecrets) return
+    this.syncingSecrets = true
+    try {
+      const closing = []
+      for (const live of Array.from(this.live.values())) {
+        if (live.dead || live.spec.kind !== 'codex') continue
+        if (live.state !== 'idle' || live.pending.size > 0) continue
+        const next = this.deps.secretEnvForSession?.(live.sessionId) ?? {}
+        if (!isDeepStrictEqual(live.secrets, next)) {
+          closing.push(this.closeLive(live, { idle: true }).catch(() => {}))
+        }
+      }
+      if (closing.length > 0) await Promise.all(closing)
+    } finally {
+      this.syncingSecrets = false
+    }
+  }
+
   // The Session left this CLI: its part moved on. Its process leaves; the CLI session
   // and its record stay, so opening that part again resumes it.
   async closeSession(sessionId, reason = 'the conversation moved on') {
@@ -560,7 +624,7 @@ export class LocalAgentAdapter extends LlmAdapter {
     const route = sourceLive?.route ?? sourceRecord?.route
     const sourceCliId = sourceLive?.cliSessionId ?? sourceRecord?.cliSessionId
     if (!route || !sourceCliId) return undefined
-    const spec = engineOf(route, this.deps.customAgents())
+    const spec = this.specOf(route)
     if (spec === undefined) return undefined
     if (this.isForkUnsupported(route) || sourceLive?.engine?.forkSupported === false) {
       this.forkUnsupportedRoutes.add(route)
@@ -757,11 +821,18 @@ export class LocalAgentAdapter extends LlmAdapter {
     for (const message of delta) {
       if (message.role !== 'tool') continue
       const pending = live.pending.get(message.toolCallId)
-      if (pending === undefined) continue
-      live.pending.delete(message.toolCallId)
+      if (pending !== undefined) {
+        live.pending.delete(message.toolCallId)
+        const text = textOf(message.content) || (message.isError ? 'the call failed' : '')
+        pending.resolve({ text, isError: message.isError === true })
+        settled.push({ name: pending.name, text, isError: message.isError === true })
+        continue
+      }
+      const orphaned = live.orphanedPending?.get(message.toolCallId)
+      if (orphaned === undefined) continue
+      live.orphanedPending.delete(message.toolCallId)
       const text = textOf(message.content) || (message.isError ? 'the call failed' : '')
-      pending.resolve({ text, isError: message.isError === true })
-      settled.push({ name: pending.name, text, isError: message.isError === true })
+      settled.push({ name: orphaned.name, text, isError: message.isError === true })
     }
     // Runtime/time context snapshots, memory context messages, and silent Bot notices
     // are context, not input: keep the latest snapshot per source, fold them into the
@@ -1003,6 +1074,9 @@ export class LocalAgentAdapter extends LlmAdapter {
         sentInstructions = true
       }
     }
+    if (live.spec.kind === 'codex' && live.dead) {
+      throw live.closeFailure?.error ?? new LlmError('the Codex session closed before its prompt was sent', 'LOCAL_AGENT_EXIT')
+    }
     // A card can outlive the CLI's turn: the CLI finished — often by timing out on the
     // call it bridged out — while the user was still deciding. The answer then has to
     // start a turn of its own, or the user's decision never reaches the agent and the
@@ -1050,6 +1124,8 @@ export class LocalAgentAdapter extends LlmAdapter {
       live.promptHash = nextPromptHash
       if (last !== undefined && live.closeFailure === undefined) this.markHanded(live, last.id, nextPromptHash ?? promptHash, prevPromptHash)
     }
+
+    if (settled.length > 0 || remaining.length > 0 || needsReplay) live.orphanedPending = undefined
 
     try {
       if (settled.length > 0 && live.state === 'suspended' && live.pending.size === 0) {
@@ -1473,9 +1549,12 @@ export class LocalAgentAdapter extends LlmAdapter {
     let live = this.live.get(sessionId)
     const record = live === undefined ? this.deps.record(sessionId) : undefined
     if (live === undefined && record?.cliSessionId === undefined) throw new LlmError('this conversation has no session of its local agent yet', 'LOCAL_AGENT_ERROR')
+    if (live?.spec.kind === 'codex' && live.state === 'idle' && live.pending.size === 0) {
+      live = await this.liveFor({ sessionId, provider: live.route, model: live.model, signal }, this.deps.presetFor(sessionId))
+    }
     let opened = false
     if (live === undefined || live.engineSession === undefined || live.engineSession.dead === true) {
-      live ??= await this.liveFor({ sessionId, provider: record.route, model: record.model }, this.deps.presetFor(sessionId))
+      live ??= await this.liveFor({ sessionId, provider: record.route, model: record.model, signal }, this.deps.presetFor(sessionId))
       opened = true
       try {
         await this.openFor(live, sessionId)
@@ -1512,6 +1591,7 @@ export class LocalAgentAdapter extends LlmAdapter {
       resumeOnly: priorCliId !== undefined,
       mode: cliMode(live.spec.kind, live.preset),
       preset: live.preset,
+      review: this.deps.reviewFor?.(sessionId) === true,
       model: live.model,
       defaultEffort: live.record === undefined || live.record.model === live.model ? live.defaultEffort : undefined,
       effort: live.effort,
