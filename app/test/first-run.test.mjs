@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { paths } from './helpers/fake-electron.mjs'
@@ -7,7 +7,7 @@ import { installHooks } from './helpers/register.mjs'
 
 await installHooks()
 
-const { chooseLocations } = await import('../src/first-run.mjs')
+const { chooseLocations, saveLocations } = await import('../src/first-run.mjs')
 const file = join(paths.userData, 'locations.json')
 const defaults = { dataDir: join(paths.root, '.ds-bot'), workspace: join(paths.root, 'DS Bot') }
 
@@ -39,3 +39,16 @@ for (const [name, contents] of [
     assert.equal(warn.mock.callCount(), 1)
   })
 }
+
+test('an unreadable locations file is not treated as corrupt or replaced', (t) => {
+  rmSync(file, { force: true })
+  mkdirSync(file)
+  t.after(() => { rmSync(file, { recursive: true }) })
+  const warn = t.mock.method(console, 'warn', () => {})
+
+  assert.throws(() => chooseLocations(), { code: 'EISDIR' })
+  assert.throws(() => saveLocations(defaults), { code: 'EISDIR' })
+  assert.equal(statSync(file).isDirectory(), true)
+  assert.equal(existsSync(`${file}.tmp`), false)
+  assert.equal(warn.mock.callCount(), 0)
+})

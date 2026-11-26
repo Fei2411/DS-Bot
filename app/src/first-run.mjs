@@ -100,7 +100,7 @@ export function saveLocations({ dataDir, workspace }) {
   const file = locationsFile()
   mkdirSync(dirname(file), { recursive: true })
   const saved = readSaved(file)
-  const kept = saved !== undefined && resolve(saved.dataDir) === resolve(dataDir) && roomOf(saved.freeAtStart) !== undefined
+  const kept = saved && resolve(saved.dataDir) === resolve(dataDir) && roomOf(saved.freeAtStart) !== undefined
   // A full drive gives no room to measure a fifth of: the next save measures again.
   const freeAtStart = kept ? saved.freeAtStart : roomOf(freeSpace(dataDir))
   // A write that fails half way leaves the places that were there.
@@ -111,11 +111,19 @@ export function saveLocations({ dataDir, workspace }) {
 const roomOf = bytes => (Number.isFinite(bytes) && bytes > 0 ? bytes : undefined)
 
 function readSaved(file) {
+  let text
   try {
-    const saved = JSON.parse(readFileSync(file, 'utf8'))
-    return typeof saved?.dataDir === 'string' && saved.dataDir !== '' ? saved : undefined
-  } catch {
-    return undefined
+    text = readFileSync(file, 'utf8')
+  } catch (error) {
+    if (error?.code === 'ENOENT') return undefined
+    throw error
+  }
+  try {
+    const saved = JSON.parse(text)
+    return typeof saved?.dataDir === 'string' && saved.dataDir !== '' ? saved : null
+  } catch (error) {
+    if (error instanceof SyntaxError) return null
+    throw error
   }
 }
 
@@ -131,12 +139,9 @@ function readSaved(file) {
  */
 export function chooseLocations() {
   if (process.env.DS_BOT_HOME) return { dataDir: process.env.DS_BOT_HOME, workspace: process.env.DS_BOT_WORKSPACE || undefined }
-  const file = locationsFile()
-  if (existsSync(file)) {
-    const saved = readSaved(file)
-    if (saved !== undefined) return { dataDir: saved.dataDir, workspace: saved.workspace, freeAtStart: roomOf(saved.freeAtStart) }
-    console.warn('DS Bot: ignoring invalid locations.json; using default locations')
-  }
+  const saved = readSaved(locationsFile())
+  if (saved) return { dataDir: saved.dataDir, workspace: saved.workspace, freeAtStart: roomOf(saved.freeAtStart) }
+  if (saved === null) console.warn('DS Bot: ignoring invalid locations.json; using default locations')
   const { dataDir, workspace } = defaultPlaces()
   const offer = offerOf(dataDir)
   if (offer !== undefined) return { dataDir, workspace, offer }
