@@ -74,6 +74,15 @@ export function openingModel({ pending, current, roster }) {
   if (current === pending.target) return null
   const bot = roster?.byId?.[pending.id]
   const room = roster?.roomsById?.[pending.id]
+  // Moving to a fresh part of the same Bot or group chat is already showing that
+  // conversation, so keep it visible until the fresh part lands instead of flashing
+  // a full-screen cover over it. If the earlier part is archived first (`current`
+  // clears), or if the wait failed, the cover steps in so the failure and recovery
+  // button are never hidden behind an earlier segment.
+  if (pending.failed !== true && current !== null && current !== undefined) {
+    if (bot !== undefined && roster?.byId?.[current]?.id === bot.id) return null
+    if (room !== undefined && roster?.roomsById?.[current]?.id === room.id) return null
+  }
   return {
     id: pending.id,
     name: bot?.name ?? room?.name ?? pending.name ?? '',
@@ -86,12 +95,13 @@ export function openingModel({ pending, current, roster }) {
 
 // A failed wait keeps the cover for the same Bot, says its Session is gone, and lets the
 // user start a new one; a group chat's lost Session has no such move here.
-export function OpeningCover({ model, column, actions }) {
+export function OpeningCover({ model, column, onNewSession, actions }) {
   if (model === null) return null
+  const recover = onNewSession ?? actions?.recoverOpening
   const recovery = model.failed && model.bot !== undefined
     ? h('button', {
       type: 'button', className: 'bt-soft bt-soft-sm bt-opening-new',
-      onClick: () => actions?.recoverOpening?.(model.bot.id),
+      onClick: () => recover?.(model.bot.id),
     }, t('New session'))
     : null
   return h('div', {

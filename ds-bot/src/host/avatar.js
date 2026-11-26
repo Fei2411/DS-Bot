@@ -18,7 +18,7 @@ const ascii = (bytes, start, end) => Buffer.from(bytes.subarray(start, end)).toS
 
 // The real format, from the bytes themselves: an extension, a Content-Type header, or
 // the mime in a data URL can all be wrong.
-function mimeOf(bytes) {
+export function mimeOf(bytes) {
   if (bytes.length >= 8 && ascii(bytes, 0, 8) === '\x89PNG\r\n\x1a\n') return 'image/png'
   if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg'
   if (bytes.length >= 6 && /^GIF8[79]a$/.test(ascii(bytes, 0, 6))) return 'image/gif'
@@ -29,12 +29,14 @@ function mimeOf(bytes) {
 const tooLarge = size => `The avatar image is too large: ${size} bytes, and the limit is ${MAX_BYTES} bytes (about 120 KB). ${HINT}`
 const NOT_IMAGE = `The avatar must be a PNG, JPEG, WebP, or GIF image. ${HINT}`
 
+export class AvatarValidationError extends Error {}
+
 function toDataUrl(bytes) {
-  if (bytes.length > MAX_BYTES) throw new Error(tooLarge(bytes.length))
+  if (bytes.length > MAX_BYTES) throw new AvatarValidationError(tooLarge(bytes.length))
   const mime = mimeOf(bytes)
-  if (mime === undefined) throw new Error(NOT_IMAGE)
+  if (mime === undefined) throw new AvatarValidationError(NOT_IMAGE)
   const url = `data:${mime};base64,${bytes.toString('base64')}`
-  if (url.length > MAX_AVATAR_IMAGE) throw new Error(tooLarge(bytes.length))
+  if (url.length > MAX_AVATAR_IMAGE) throw new AvatarValidationError(tooLarge(bytes.length))
   return url
 }
 
@@ -72,14 +74,14 @@ async function readLocal(path, baseDir, isData) {
 
 function readDataUrl(value) {
   const comma = value.indexOf(',')
-  if (comma === -1) throw new Error(`The avatar data URL has no comma before its image data. ${HINT}`)
+  if (comma === -1) throw new AvatarValidationError(`The avatar data URL has no comma before its image data. ${HINT}`)
   const header = value.slice('data:'.length, comma)
   const [mime = '', ...params] = header.split(';').map(part => part.trim().toLowerCase())
-  if (!MIMES.has(mime)) throw new Error(`The avatar data URL must hold a PNG, JPEG, WebP, or GIF image. ${HINT}`)
-  if (!params.includes('base64')) throw new Error('The avatar data URL must be base64 encoded, as in data:image/png;base64,...')
+  if (!MIMES.has(mime)) throw new AvatarValidationError(`The avatar data URL must hold a PNG, JPEG, WebP, or GIF image. ${HINT}`)
+  if (!params.includes('base64')) throw new AvatarValidationError('The avatar data URL must be base64 encoded, as in data:image/png;base64,...')
   const payload = value.slice(comma + 1).replace(/\s/g, '')
   if (payload === '' || payload.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(payload)) {
-    throw new Error('The avatar data URL does not hold valid base64 image data.')
+    throw new AvatarValidationError('The avatar data URL does not hold valid base64 image data.')
   }
   const bytes = Buffer.from(payload, 'base64')
   return { url: toDataUrl(bytes), bytes, mime: mimeOf(bytes) }
@@ -89,6 +91,12 @@ function readDataUrl(value) {
 // canonical data URL. The same checks as for a Bot's own avatar apply.
 export function avatarBytes(value) {
   return readDataUrl(String(value ?? ''))
+}
+
+export function cleanAvatarImage(value) {
+  if (typeof value !== 'string' || !value.startsWith('data:')) throw new AvatarValidationError('An avatar must contain an image data URL')
+  if (value.length > MAX_AVATAR_IMAGE) throw new AvatarValidationError('Avatar image is too large')
+  return avatarBytes(value).url
 }
 
 // Returns the data URL for avatar.image, or throws with a line the user can read.

@@ -1,12 +1,14 @@
-import { createElement as h, useEffect, useState } from 'react'
+import { createElement as h, useCallback, useEffect, useState } from 'react'
 import { isMainOf } from './sources.js'
-import { PlusIcon, ChevronRightIcon } from './icons.js'
+import { PlusIcon, ChevronRightIcon, PencilIcon } from './icons.js'
 import { AdminStar, BotAvatar, BotMark, RoomAvatar } from './mark.js'
-import { Card, Row, InlineText, SwitchRow } from './bot-settings.js'
-import { Segmented } from './motion.js'
-import { FolderMenu } from './folder-menu.js'
+import { AvatarEditor, Card, Row, InlineText, SwitchRow } from './bot-settings.js'
+import { Segmented, useLinger } from './motion.js'
+import { ExtraFolders, FolderMenu } from './folder-menu.js'
 import { PermissionPicker } from './permission-picker.js'
+import { ChatBackgroundSection } from './appearance-page.js'
 import { t } from './i18n.js'
+import { ApprovalSettings } from './approval-settings.js'
 
 export const ROOM_MODES = [
   ['admin', 'Admin leads', 'Plain messages go to the admin, who calls others with @Name.'],
@@ -66,6 +68,9 @@ export function GroupTodos({ room, actions }) {
 // members and admin, its permissions, its sidebar place, and deleting it. The user may
 // change all of it; the host enforces what Bots may change.
 export function GroupSettingsForm({ room, roster, actions, run, onDeleted }) {
+  const [editing, setEditing] = useState(false)
+  const [editorShown, editorLeaving] = useLinger(editing, 120)
+  const closeEditor = useCallback(() => setEditing(false), [])
   const [adding, setAdding] = useState(false)
   const [confirming, setConfirming] = useState(false)
   useEffect(() => {
@@ -86,7 +91,11 @@ export function GroupSettingsForm({ room, roster, actions, run, onDeleted }) {
   }
   return h('div', { className: 'bt-bs' },
     h('div', { className: 'bt-bs-hero' },
-      h(RoomAvatar, { room, roster, size: 64 }),
+      h('div', { className: 'bt-avatar-anchor' },
+        h('button', { type: 'button', className: 'bt-avatar-trigger', 'aria-label': t('Edit group avatar'), 'aria-expanded': editing, onClick: () => setEditing(value => !value) },
+          h(RoomAvatar, { room, roster, size: 64 }),
+          h('span', { className: 'bt-avatar-pencil', 'aria-hidden': true }, h(PencilIcon))),
+        editorShown ? h(AvatarEditor, { room, actions, run, onClose: closeEditor, leaving: editorLeaving }) : null),
       h('div', { className: 'bt-bs-who' },
         h('span', { className: 'bt-bs-name' }, room.name),
         h('span', { className: 'bt-bs-sub' }, roomSubtitle(room, roster)))),
@@ -106,8 +115,10 @@ export function GroupSettingsForm({ room, roster, actions, run, onDeleted }) {
     h(Card, { title: t('Working folder') },
       h('div', { className: 'bt-set-row bt-bs-row' },
         h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-bs-label' }, t('Folder'))),
-        h(FolderMenu, { value: room.workDir, group: true, actions, run, onPick: workDir => update({ workDir }) }))),
+        h(FolderMenu, { value: room.workDir, group: true, actions, run, onPick: workDir => update({ workDir }) })),
+      h(ExtraFolders, { value: room.extraDirs, group: true, actions, run, onSave: extraDirs => update({ extraDirs }) })),
     h(GroupPermission, { room, catalog: roster.permissions, update }),
+    h(ApprovalSettings, { target: room, group: true, roster, Card }),
     h(Card, { title: t('Members · {count}', { count: members.length }) },
       members.map((member) => {
         const leads = room.admin === member.id
@@ -135,6 +146,7 @@ export function GroupSettingsForm({ room, roster, actions, run, onDeleted }) {
         members.length < 2 ? t('Add a Bot first: a group chat needs at least two.')
           : admin ? t('{name} leads this group: it can call members with @Name, change the group, and post here.', { name: admin.name })
             : t('No admin yet. An admin can call members with @Name, change the group, and post here.')))),
+    h(ChatBackgroundSection, { owner: room, ownerKind: 'room', actions, run, Section: Card }),
     h(Card, { title: t('Sidebar') },
       h(SwitchRow, { label: t('Pin'), hint: t('Kept above the other chats.'), on: room.pinned === true, onChange: pinned => run(actions.setFlags(room.id, { pinned })) }),
       h(SwitchRow, { label: t('Hide from sidebar'), hint: t('Search still finds it.'), on: room.hidden === true, onChange: hidden => run(actions.setFlags(room.id, { hidden })) })),
@@ -202,7 +214,6 @@ export const GROUP_SETTINGS_CSS = `
 .bt-gs-add{gap:8px;color:var(--bt-ink-2)}
 .bt-gs-pick{gap:10px;animation:bt-rise .16s ease-out}
 .bt-bs-stack .bt-seg{align-self:stretch}
-.bt-gs-perm .bt-seg button{flex:auto;white-space:nowrap}
 .bt-gt{display:flex;flex-direction:column;gap:4px}
 .bt-gt-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px}
 .bt-gt-head>.bt-section-title{margin:0}

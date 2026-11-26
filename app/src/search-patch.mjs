@@ -27,10 +27,12 @@ export function searchSelectorPatch(profile) {
   const web = entries.find(entry => entry.id === 'web')
   if (web?.config?.searchProvider !== 'auto') return undefined
   // The web row as it composes from the bundles alone, before ds-bot's selection.
+  // DSH 0.2.2-rc.5 omits `searchProvider` on `@deepseek-ai/dsh-base` so `dsh-web` selects by
+  // model route; restoring that config clears `searchProvider: auto` via whole-config replacement.
   const base = layers.filter(({ packageName }) => packageName !== 'ds-bot')
   const original = composeEntries(base.map(layer => layer.patches)).find(entry => entry.id === 'web')
-  if (original?.config?.searchProvider === undefined || original.config.searchProvider === 'auto') return undefined
-  return [{ id: 'web', name: original.name, config: original.config }]
+  if (original === undefined || original.config?.searchProvider === 'auto') return undefined
+  return [{ id: 'web', name: original.name, config: original.config ?? {} }]
 }
 
 /**

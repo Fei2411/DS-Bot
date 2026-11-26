@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { hostname, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { Context } from '@deepseek-ai/cordis'
@@ -13,9 +13,9 @@ import WorkspaceRegistry from '@deepseek-ai/dsh-workspace'
 import { createRuntime } from '../index.js'
 import { fakeContext } from './fake-ctx.js'
 
-// #1501: a Bot's own chat can keep a second part live. The current part stays
-// `chatOf`; parts opened while the Bot was busy stay live in `openParts` with their own
-// earlier parts, and neither is archived or stopped when the other one takes over.
+// A Bot has one continuous conversation. Parallel parts (#1548), session switching, and
+// manual new sessions were withdrawn: a team saved with parallel parts folds them into
+// the Bot's earlier parts and archives them.
 
 const SessionPersistence = typeof Jsonl.apply === 'function' ? Jsonl : Jsonl.default
 
@@ -45,19 +45,14 @@ async function dshRegistry(t, root, live, plugin) {
   })
 }
 
-// Writer's foreground thread is `w2` (earlier part `w1`); a part opened while it was
-// busy is `w3`, with its own earlier part `w4`.
+// Writer's chat is `w2` with its earlier part `w1`.
 const TEAM = {
   version: 1,
   mainBotIds: ['m1'],
   revision: 1,
   bots: {
     m1: { id: 'm1', sessionId: 'm1', name: 'Chief', role: 'Chief of Staff', instructions: '', createdAt: 1 },
-    w1: {
-      id: 'w1', sessionId: 'w2', name: 'Writer', role: '', instructions: '', createdAt: 2,
-      segments: [{ sessionId: 'w1', endedAt: 3 }],
-      openParts: [{ sessionId: 'w3', segments: [{ sessionId: 'w4', endedAt: 5 }], startedAt: 6 }],
-    },
+    w1: { id: 'w1', sessionId: 'w2', name: 'Writer', role: '', instructions: '', createdAt: 2, segments: [{ sessionId: 'w1', endedAt: 3 }] },
   },
   rooms: {},
   exchanges: [],
@@ -65,19 +60,28 @@ const TEAM = {
   questions: {},
 }
 
-async function team(t, archived = [], state = TEAM, live = ['m1', 'w1', 'w2', 'w3', 'w4']) {
-  const home = mkdtempSync(join(tmpdir(), 'dsb-parallel-'))
-  writeFileSync(join(home, 'state.json'), JSON.stringify(state))
-  const ctx = fakeContext({})
+// A team saved by a version with parallel parts: `w3` was opened while Writer was busy,
+// with its own earlier part `w4`.
+const LEGACY = JSON.parse(JSON.stringify(TEAM))
+LEGACY.bots.w1.openParts = [{ sessionId: 'w3', segments: [{ sessionId: 'w4', endedAt: 5 }], startedAt: 6 }]
+
+async function team(t, archived = [], state = TEAM, live = ['m1', 'w1', 'w2', 'w3', 'w4', 'w5'], { home = mkdtempSync(join(tmpdir(), 'dsb-parallel-')), before, services, lock } = {}) {
+  if (state !== null) writeFileSync(join(home, 'state.json'), JSON.stringify(state))
+  // A lock another dsh holds, written before this host loads the team.
+  if (lock !== undefined) writeFileSync(join(home, 'state.lock'), JSON.stringify(lock))
+  const ctx = fakeContext({ services })
   const registry = await dshRegistry(t, join(home, 'dsh'), live, ctx)
   for (const id of archived) await registry.archiveSession(SessionId(id), { stopActivity: true })
   ctx.workspaceRegistry = registry
+  before?.(registry, ctx)
   const register = ctx.connection.fetch.register
   ctx.connection.fetch.register = (route) => { ctx.route = route; return register(route) }
   const rt = createRuntime(ctx, { home })
-  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  let disposed = false
+  const stop = async () => { if (!disposed) { disposed = true; await ctx.dispose() } }
+  t.after(async () => { await stop(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
   const call = async (endpoint, payload = {}) => (await ctx.route.fetch(new Request('http://localhost/api/bot', { method: 'POST', body: JSON.stringify({ endpoint, payload }) }))).json()
-  return { home, registry, call, ctx, rt }
+  return { home, registry, call, ctx, rt, stop }
 }
 
 const saved = home => JSON.parse(readFileSync(join(home, 'state.json'), 'utf8'))
@@ -89,190 +93,199 @@ const until = async (check, ms = 2000) => {
   }
 }
 
-test('the state lists the live open part and reads its run state, while chatOf stays the current part', async (t) => {
-  const { call, rt } = await team(t)
-  const first = (await call('state')).value
-  assert.equal(first.bots.find(bot => bot.id === 'w1').sessionId, 'w2')
-  assert.deepEqual(first.bots.find(bot => bot.id === 'w1').openParts.map(part => part.sessionId), ['w3'])
-  assert.equal(first.partsRunning.w3, undefined)
-  rt.live.set('w3', { turn: {} })
-  const second = (await call('state')).value
-  const writer = second.bots.find(bot => bot.id === 'w1')
+test('a team saved with parallel parts keeps them as earlier parts and archives them', async (t) => {
+  const { home, registry, call, rt } = await team(t, [], LEGACY)
+  const state = await call('state')
+    const writer = state.value.bots.find(bot => bot.id === 'w1')
+  assert.equal(writer.openParts, undefined)
   assert.equal(writer.sessionId, 'w2')
-  // The run state comes from the live turns, not from the stored part.
-  assert.equal(second.partsRunning.w3, true)
-  assert.equal(second.partsRunning.w2, undefined)
-  assert.deepEqual(writer.openParts[0].parts, ['w4'])
-  // A read inside a thread lists that thread's own parts, not the foreground chain.
-  assert.deepEqual(rt.partsOfThread('w1', 'w2').map(part => part.sessionId), ['w1', 'w2'])
-  assert.deepEqual(rt.partsOfThread('w1', 'w3').map(part => part.sessionId), ['w4', 'w3'])
+  assert.deepEqual(writer.parts, ['w1', 'w4', 'w3'])
+  assert.equal(rt.chatOf('w1'), 'w2')
+  // Still the Bot's, so its history reads, but no longer a live chat of its own.
+  assert.equal(rt.selfOf('w3'), 'w1')
+  assert.equal(rt.chatOwners.get('w3'), undefined)
+  await until(() => [...registry.archivedSessionIds].includes('w3'))
+  const kept = saved(home).bots.w1
+  assert.equal(Object.hasOwn(kept, 'openParts'), false)
+  assert.deepEqual(kept.segments.map(segment => segment.sessionId), ['w1', 'w4', 'w3'])
 })
 
-// A background thread that moved on twice keeps its own earlier parts: reading one of
-// them goes on in that thread, not in the foreground chain.
-const MOVED_BACK = {
-  ...TEAM,
-  bots: {
-    ...TEAM.bots,
-    w1: {
-      ...TEAM.bots.w1,
-      openParts: [{ sessionId: 'w3', segments: [{ sessionId: 'w4', endedAt: 5 }, { sessionId: 'w5', endedAt: 6 }], startedAt: 7 }],
+// The retired part's reminders go to the Bot's chat before its Session is archived:
+// archiving stops the Session, and DSH drops what is scheduled on it.
+test('a retired parallel part hands its scheduled tasks to the Bot chat before it is archived', async (t) => {
+  const order = []
+  const schedule = {
+    catalog: async () => [{ id: 's1', status: 'active', target: { kind: 'session', sessionId: 'w3' } }],
+    edit: async (request) => { order.push(['move', request.id, request.patch?.target?.sessionId]); return { id: request.id } },
+    list: async () => [],
+  }
+  let archivedRegistry
+  await team(t, [], LEGACY, undefined, {
+    services: { schedule },
+    before: (registry) => {
+      archivedRegistry = registry
+      const archive = registry.archiveSession.bind(registry)
+      registry.archiveSession = async (id, options) => { order.push(['archive', String(id)]); return archive(id, options) }
     },
-  },
-}
-
-test('an earlier part of a background thread reads that thread\'s history', async (t) => {
-  const { ctx, call, rt } = await team(t, [], MOVED_BACK, ['m1', 'w1', 'w2', 'w3', 'w4', 'w5'])
-  await call('state')
-  // The part is the Bot's, so its history can be resolved at all.
-  assert.deepEqual(rt.pastOwners.get('w4'), { botId: 'w1' })
-  assert.deepEqual(rt.partsOfThread('w1', 'w5').map(part => part.sessionId), ['w4', 'w5', 'w3'])
-  // Every part says what it is when it is read, so the page shows which one was read.
-  ctx.sessionController = { page: async ({ address }) => ({
-    records: [{ event: { type: 'user/message', seq: 1, time: 1, data: { content: [{ type: 'text', text: address.sessionId }], source: { kind: 'user' } } } }],
-    hasMore: false,
-  }) }
-  const page = await rt.earlierPage('w5')
-  assert.deepEqual(page.items.map(item => [item.kind, item.text]), [['user', 'w4']])
+  })
+  await until(() => [...archivedRegistry.archivedSessionIds].includes('w3'))
+  assert.deepEqual(order, [['move', 's1', 'w2'], ['archive', 'w3']])
 })
 
-test('opening a live part swaps the threads and archives nothing', async (t) => {
-  const { home, registry, call } = await team(t, ['w1'])
-  await call('state')
-  const result = await call('bot-open-part', { botId: 'w1', sessionId: 'w3' })
-  assert.equal(result.ok, true, JSON.stringify(result))
-  const writer = saved(home).bots.w1
-  assert.equal(writer.sessionId, 'w3')
-  assert.deepEqual(writer.segments.map(segment => segment.sessionId), ['w4'])
-  assert.equal(writer.openParts[0].sessionId, 'w2')
-  assert.deepEqual(writer.openParts[0].segments.map(segment => segment.sessionId), ['w1'])
-  // Neither part was archived or stopped: both are still live.
-  assert.deepEqual([...registry.archivedSessionIds], ['w1'])
+// A part that could not be retired stays listed in the saved team, and a later start
+// that saves the team finishes it.
+test('a retired parallel part whose archive fails is retried at the next start', async (t) => {
+  const first = await team(t, [], LEGACY, undefined, {
+    before: (registry) => { registry.archiveSession = async () => { throw new Error('busy disk') } },
+  })
+  await first.call('state')
+  await until(() => saved(first.home).retiredParts !== undefined && saved(first.home).bots.w1.openParts === undefined)
+  assert.deepEqual(saved(first.home).retiredParts, [{ sessionId: 'w3', botId: 'w1' }])
+  await first.stop()
+  const again = await team(t, [], null, undefined, { home: first.home })
+  await again.call('state')
+  await until(() => [...again.registry.archivedSessionIds].includes('w3') && saved(first.home).retiredParts === undefined)
+  assert.deepEqual(saved(first.home).bots.w1.segments.map(segment => segment.sessionId), ['w1', 'w4', 'w3'])
 })
 
-test('a new part made while the Bot works starts at once and leaves the running part live', async (t) => {
-  const { home, registry, call, rt } = await team(t)
-  await call('state')
-  rt.live.set('w2', { turn: {} })
-  rt.resolveAgent = async () => ({ id: 'w2', status: 'running', session: { requestHeader: () => undefined } })
-  rt.createSession = async () => 'w5'
-  const result = await call('bot-new-part', { botId: 'w1' })
-  assert.equal(result.ok, true, JSON.stringify(result))
-  const writer = saved(home).bots.w1
-  assert.equal(writer.sessionId, 'w5')
-  assert.deepEqual(writer.segments, [])
-  assert.deepEqual(writer.openParts.map(part => part.sessionId), ['w3', 'w2'])
-  assert.deepEqual(writer.openParts.at(-1).segments.map(segment => segment.sessionId), ['w1'])
-  // The running part is not archived and its turn is left alone.
-  assert.deepEqual([...registry.archivedSessionIds], [])
-  assert.deepEqual(rt.live.get('w2'), { turn: {} })
-  assert.equal(rt.chatOwners.get('w5'), 'w1')
-})
-
-// A model picked while the new part is being made must reach it: at that moment it is
-// not registered as the Bot's yet, so the sync that ran meanwhile did not see it (and
-// recorded the new model as applied), and the route this part was made with is the old
-// one. The part reads the route again once it is the Bot's, as a switch does.
-test('a new part takes a model picked while the part was being made', async (t) => {
+test('manual session-switch and new-session endpoints are removed', async (t) => {
   const { call, rt } = await team(t)
-  await call('state')
-  const bot = rt.botOf('w1')
-  const selections = []
-  rt.createSession = async () => 'w5'
-  rt.resolveAgent = async () => ({ id: 'w2', status: 'running', session: { id: 'w2', requestHeader: () => undefined } })
-  rt.desiredModel = async owner => owner.model
-  rt.desiredEffort = async () => undefined
-  rt.selectSessionModel = async (sessionId, route) => { selections.push(`${sessionId}:${route.provider}/${route.model}`) }
-  // The permission write is where the user's model change lands, before the part is the
-  // Bot's.
-  let release
-  rt.applyPermission = () => new Promise(resolve => { release = resolve })
-  bot.model = 'deepseek/old'
-  const opened = call('bot-new-part', { botId: 'w1' })
-  await until(() => release !== undefined)
-  // The user picks another model now: the sync applies it to what is registered (the
-  // foreground part) and records it as the Bot's applied model.
-  bot.model = 'deepseek/new'
-  bot.appliedModel = 'deepseek/new'
-  await rt.selectSessionModel('w2', { provider: 'deepseek', model: 'new' })
-  release()
-  assert.equal((await opened).ok, true)
-  assert.equal(bot.sessionId, 'w5')
-  // The new part was made with the old model, then given the newer one: it does not stay
-  // on the route the sync never reached.
-  assert.deepEqual(selections, ['w5:deepseek/old', 'w2:deepseek/new', 'w5:deepseek/new'])
+  const openRes = await call('bot-open-part', { botId: 'w1', sessionId: 'w1' })
+  assert.equal(openRes.ok, false)
+  assert.equal(openRes.error.code, 'bot/not-found')
+  const newRes = await call('bot-new-part', { botId: 'w1' })
+  assert.equal(newRes.ok, false)
+  assert.equal(newRes.error.code, 'bot/not-found')
+  assert.equal(rt.switchPart, undefined)
+  assert.equal(rt.newPart, undefined)
 })
 
-test('a foreground switch to an archived part does not touch the background part', async (t) => {
-  const { home, registry, call, rt } = await team(t, ['w1'])
+test('folding legacy openParts never archives the Bot current foreground session', async (t) => {
+  const corrupt = JSON.parse(JSON.stringify(TEAM))
+  corrupt.bots.w1.openParts = [{ sessionId: 'w2', segments: [{ sessionId: 'w1', endedAt: 3 }, { sessionId: 'w4', endedAt: 5 }], startedAt: 6 }]
+  const { home, registry, call } = await team(t, [], corrupt)
   await call('state')
-  rt.live.set('w3', { turn: {} })
-  const result = await call('bot-open-part', { botId: 'w1', sessionId: 'w1' })
-  assert.equal(result.ok, true, JSON.stringify(result))
-  const writer = saved(home).bots.w1
-  assert.equal(writer.sessionId, 'w1')
-  assert.deepEqual(writer.segments.map(segment => segment.sessionId), ['w2'])
-  // The background part and its chain stay exactly where they were.
-  assert.equal(writer.openParts[0].sessionId, 'w3')
-  assert.deepEqual(writer.openParts[0].segments.map(segment => segment.sessionId), ['w4'])
-  // Only the part the foreground left is archived; the background part stays live.
-  assert.deepEqual([...registry.archivedSessionIds], ['w2'])
+  await new Promise(resolve => setTimeout(resolve, 30))
+  assert.equal([...registry.archivedSessionIds].includes('w2'), false)
+  const kept = saved(home).bots.w1
+  assert.equal(kept.sessionId, 'w2')
+  assert.equal(Object.hasOwn(kept, 'openParts'), false)
+  assert.deepEqual(kept.segments.map(segment => segment.sessionId), ['w1', 'w4'])
 })
 
+test('a retired parallel part absent from DSH live and persisted sessions clears retiredParts without stalling', async (t) => {
+  // Real DSH WorkspaceRegistry throws WorkspaceUnknownSessionError when w3 does not exist.
+  const { home, registry, call } = await team(t, [], LEGACY, ['m1', 'w1', 'w2', 'w4'])
+  await call('state')
+  await until(() => !Object.hasOwn(saved(home), 'retiredParts') && !Object.hasOwn(saved(home).bots.w1, 'openParts'))
+  assert.equal([...registry.archivedSessionIds].includes('w3'), false)
+  assert.deepEqual(saved(home).bots.w1.segments.map(segment => segment.sessionId), ['w1', 'w4', 'w3'])
+})
 
-test('send, answer-question, and view-reply on an earlier segment of an openPart route to that openPart', async (t) => {
-  const seed = {
-    ...MOVED_BACK,
-    questions: {
-      w3: {
-        id: 'q1',
-        callId: 'q-call',
-        question: 'Which option?',
-        options: [{ label: 'yes' }, { label: 'no' }],
-        askedAt: 1,
-      },
-    },
-    views: {
-      w3: {
-        id: 'v1',
-        callId: 'v-call',
-        title: 'Pick',
-        view: { type: 'options', id: 'pick', options: [{ label: 'A' }, { label: 'B' }] },
-        askedAt: 1,
-      },
-    },
+test('legacy openParts or retiredParts matching an active background task session never archives or moves that task', async (t) => {
+  const moved = []
+  const schedule = {
+    catalog: async () => [{ id: 's1', status: 'active', target: { kind: 'session', sessionId: 'w-task' } }],
+    edit: async (request) => { moved.push(request); return { id: request.id } },
+    list: async () => [],
   }
-  const { call, ctx } = await team(t, [], seed)
-  const routed = []
-  ctx.sessionController = {
-    ...ctx.sessionController,
-    prompt: async (address) => {
-      routed.push(['send', address.sessionId])
+  const withTask = JSON.parse(JSON.stringify(TEAM))
+  withTask.bots.w1.tasks = [{ id: 't1', title: 'Audit', sessionId: 'w-task', status: 'running', segments: [] }]
+  withTask.bots.w1.openParts = [{ sessionId: 'w-task', segments: [], startedAt: 6 }]
+  withTask.retiredParts = [{ sessionId: 'w-task', botId: 'w1' }]
+  const { home, registry, call } = await team(t, [], withTask, ['m1', 'w1', 'w2', 'w-task'], { services: { schedule } })
+  await call('state')
+  await until(() => !Object.hasOwn(saved(home), 'retiredParts') && !Object.hasOwn(saved(home).bots.w1, 'openParts'))
+  assert.equal([...registry.archivedSessionIds].includes('w-task'), false)
+  assert.deepEqual(moved, [])
+  assert.equal(saved(home).bots.w1.tasks[0].sessionId, 'w-task')
+})
+
+test('retireParts handles shutdown and disk-failure without unhandled rejections or spurious saves', async (t) => {
+  let rejections = 0
+  const onRejection = () => { rejections += 1 }
+  process.on('unhandledRejection', onRejection)
+  t.after(() => process.off('unhandledRejection', onRejection))
+
+  const host = await team(t, [], LEGACY, undefined, {
+    before: (registry) => {
+      registry.archiveSession = async () => { throw new Error('temporary io error') }
     },
-    resolveAgent: async (sessionId) => ({
-      agent: {
-        id: sessionId,
-        session: { id: sessionId },
-        followup() {
-          routed.push(['followup', sessionId])
-        },
-      },
-    }),
+  })
+  await host.call('state')
+  const revBefore = saved(host.home).revision
+  await new Promise(resolve => setTimeout(resolve, 40))
+  // Failed archive does not bump revision with a spurious save.
+  assert.equal(saved(host.home).revision, revBefore)
+  await host.stop()
+  assert.equal(rejections, 0)
+})
+
+// A host that starts while another dsh saves the team only reads it; once that dsh
+// closes and this host takes over, it retires the parts the other one left.
+test('a host that takes over the team later retires the withdrawn parallel parts', async (t) => {
+  const { home, registry, call } = await team(t, [], LEGACY, undefined, {
+    lock: { pid: process.ppid, host: hostname(), token: 'other-dsh' },
+  })
+  assert.match((await call('state')).value.readOnly, /another dsh/)
+  await new Promise(resolve => setTimeout(resolve, 50))
+  assert.equal([...registry.archivedSessionIds].includes('w3'), false)
+  rmSync(join(home, 'state.lock'))
+  assert.equal((await call('state')).value.readOnly, null)
+  await until(() => [...registry.archivedSessionIds].includes('w3'))
+  await until(() => !Object.hasOwn(saved(home), 'retiredParts') && !Object.hasOwn(saved(home).bots.w1, 'openParts'))
+})
+
+// The schedule service can attach after the team loads: the part waits for it, so its
+// reminders move before the archive drops them.
+test('a retired parallel part waits for a schedule service that attaches late', async (t) => {
+  const order = []
+  const schedule = {
+    catalog: async () => [{ id: 's1', status: 'active', target: { kind: 'session', sessionId: 'w3' } }],
+    edit: async (request) => { order.push(['move', request.id, request.patch?.target?.sessionId]); return { id: request.id } },
+    list: async () => [],
   }
-  ctx.sessions = { flush: async () => {} }
+  let attach
+  const { registry, rt } = await team(t, [], LEGACY, undefined, {
+    before: (inner, ctx) => {
+      ctx.inject = (names, callback) => { if (Array.isArray(names) && names.includes('schedule')) attach = callback }
+      const archive = inner.archiveSession.bind(inner)
+      inner.archiveSession = async (id, options) => { order.push(['archive', String(id)]); return archive(id, options) }
+    },
+  })
+  await new Promise(resolve => setTimeout(resolve, 50))
+  assert.deepEqual(order, [])
+  assert.equal(rt.isRetiring('w3'), true)
+  attach({ schedule, effect: () => {} })
+  await until(() => [...registry.archivedSessionIds].includes('w3'))
+  assert.deepEqual(order, [['move', 's1', 'w2'], ['archive', 'w3']])
+  await until(() => rt.isRetiring('w3') === false)
+})
 
-  const sent = await call('send', { sessionId: 'w4', text: 'continue bg part' })
-  assert.equal(sent.ok, true, JSON.stringify(sent))
+// A plugin that stops while it waits for the schedule service leaves the part listed
+// for the next start instead of archiving it with its reminders.
+test('a retired parallel part is left for the next start when the plugin stops first', async (t) => {
+  let attach
+  const { registry, home, stop } = await team(t, [], LEGACY, undefined, {
+    before: (inner, ctx) => {
+      ctx.inject = (names, callback) => { if (Array.isArray(names) && names.includes('schedule')) attach = callback }
+    },
+  })
+  await until(() => !Object.hasOwn(saved(home).bots.w1, 'openParts'))
+  await stop()
+  attach?.({ schedule: { catalog: async () => [], edit: async () => ({}), list: async () => [] }, effect: () => {} })
+  await new Promise(resolve => setTimeout(resolve, 50))
+  assert.equal([...registry.archivedSessionIds].includes('w3'), false)
+  assert.deepEqual(saved(home).retiredParts.map(entry => entry.sessionId), ['w3'])
+})
 
-  const answered = await call('answer-question', { sessionId: 'w4', questionId: 'q1', answer: { selected: ['yes'] } })
-  assert.equal(answered.ok, true, JSON.stringify(answered))
-
-  const replied = await call('view-reply', { sessionId: 'w4', viewId: 'v1', action: 'pick', values: { selected: ['A'] } })
-  assert.equal(replied.ok, true, JSON.stringify(replied))
-
-  assert.deepEqual(routed, [
-    ['send', 'w3'],
-    ['followup', 'w3'],
-    ['followup', 'w3'],
-  ])
+// Parts opened while the Bot was busy can predate its earlier parts: the fold keeps
+// them in time order and places a live one where its last Session began.
+test('a folded parallel part keeps its place in time among the earlier parts', async (t) => {
+  const legacy = JSON.parse(JSON.stringify(TEAM))
+  legacy.bots.w1.segments = [{ sessionId: 'w1', endedAt: 10 }]
+  legacy.bots.w1.openParts = [{ sessionId: 'w3', segments: [{ sessionId: 'w4', endedAt: 5 }], startedAt: 4 }]
+  const { home } = await team(t, [], legacy)
+  await until(() => !Object.hasOwn(saved(home).bots.w1, 'openParts'))
+  assert.deepEqual(saved(home).bots.w1.segments, [{ sessionId: 'w4', endedAt: 5 }, { sessionId: 'w3', endedAt: 5 }, { sessionId: 'w1', endedAt: 10 }])
 })

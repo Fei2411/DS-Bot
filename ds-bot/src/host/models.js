@@ -4,7 +4,7 @@
 import { BlockAssembler, resolveRetryPolicy } from '@deepseek-ai/dsh-llm'
 import { normalize, splitRef } from './text.js'
 import { serviceOf } from './services.js'
-import { ownChatSessions, sessionGone } from './threads.js'
+import { isMissingSessionError, ownChatSessions } from './threads.js'
 
 const CATALOG_TTL_MS = 10_000
 const ROUTE_WAIT_MS = 30_000
@@ -12,6 +12,24 @@ const ROUTE_WAIT_MS = 30_000
 const ACCOUNT_RECORD = 'deepseek-account-platform/default'
 const TRANSIENT_LLM_CODES = new Set(['TRANSPORT', 'TIMEOUT', 'MALFORMED_RESPONSE'])
 const MALFORMED_RETRIES = 2
+// pi-ai's Google adapters end a Gemini stream that stops on a malformed tool call or response
+// with exactly one of these errors, which dsh-llm-pi-ai classifies as PI_AI_ERROR. It is the
+// same transient failure.
+const GEMINI_MALFORMED = new Set([
+  'Provider stopped with: MALFORMED_FUNCTION_CALL',
+  'Provider stopped with: UNEXPECTED_TOOL_CALL',
+  'Unhandled stop reason: MALFORMED_RESPONSE',
+])
+
+function failureCode(failure) {
+  const code = failure?.code
+  return code === 'PI_AI_ERROR' && GEMINI_MALFORMED.has(failure?.message) ? 'MALFORMED_RESPONSE' : code
+}
+
+// dsh-llm-retry already spends the policy's budget on a failure under its own code.
+function dshRetries(policy, code) {
+  return policy?.mode === 'always' || (policy?.mode === 'normal' && Array.isArray(policy.retryableCodes) && policy.retryableCodes.includes(code))
+}
 
 function retryPolicyOf(ctx, provider) {
   try {
@@ -82,8 +100,8 @@ export async function assembleLlmStream(ctx, options, { signal, backoff, random 
       thrown = error
     }
     if (thrown !== undefined) {
-      const code = thrown?.failure?.code ?? thrown?.code
-      const failure = thrown?.failure ?? { code, message: thrown?.message || String(thrown) }
+      const failure = thrown?.failure ?? { code: thrown?.code, message: thrown?.message || String(thrown) }
+      const code = failureCode(failure) ?? thrown?.code
       if (fused?.aborted || !TRANSIENT_LLM_CODES.has(code)) throw thrown
       const policy = retryPolicyOf(ctx, options.provider)
       if (!canRetryPolicy(policy, code, retry)) throw thrown
@@ -95,7 +113,7 @@ export async function assembleLlmStream(ctx, options, { signal, backoff, random 
     const finish = assembler.finish
     if (finish.kind !== 'error' || fused?.aborted) return assembler
     const failure = finish.failure
-    const code = failure?.code
+    const code = failureCode(failure)
     if (!TRANSIENT_LLM_CODES.has(code)) return assembler
     const policy = retryPolicyOf(ctx, options.provider)
     if (!canRetryPolicy(policy, code, retry)) return assembler
@@ -109,20 +127,36 @@ export function install(rt) {
   const { ctx, state } = rt
 
   const malformedRetries = new WeakMap()
+  const singleToolRetries = new WeakMap()
+  serviceOf(ctx, 'systemPrompt')?.context?.({
+    name: 'ds-bot:single-tool-retry',
+    order: 0,
+    required: true,
+    text: ({ agent, signal }) => {
+      if (agent === undefined || signal === undefined || signal.aborted || singleToolRetries.get(signal) !== agent.id) return ''
+      singleToolRetries.delete(signal)
+      return 'For this response only, call at most one tool. If you need more than one tool, wait for the result before calling another.'
+    },
+  })
   ctx.on?.('agent/request-error', async (payload, next) => {
     const decided = await next()
     const { agent, turn, step, signal, failure } = payload
-    if (decided !== undefined || failure?.code !== 'MALFORMED_RESPONSE' || signal?.aborted || !rt.isBotSession(agent.id)) return decided
+    const code = failureCode(failure)
+    if (decided !== undefined || code !== 'MALFORMED_RESPONSE' || signal?.aborted || !rt.isBotSession(agent.id)) return decided
     let retries = malformedRetries.get(agent)
     if (retries?.turn !== turn || retries?.step !== step) {
       retries = { turn, step, count: 0 }
       malformedRetries.set(agent, retries)
     }
     const policy = payload.retryPolicy ?? retryPolicyOf(ctx, payload.provider)
-    if (!canRetryPolicy(policy, failure.code, retries.count + 1)) return undefined
+    if (code !== failure.code && dshRetries(policy, failure.code)) return undefined
+    if (!canRetryPolicy(policy, code, retries.count + 1)) return undefined
     retries.count += 1
     rt.warn(`Retrying malformed model response for ${agent.id} (turn ${turn}, step ${step}, retry ${retries.count}/${MALFORMED_RETRIES})`)
     if (!await waitRetryDelay(250, signal)) return undefined
+    if (signal !== undefined && failure.code === 'MALFORMED_RESPONSE' && failure.message?.startsWith('Tool call "')) {
+      singleToolRetries.set(signal, agent.id)
+    }
     return { kind: 'retry' }
   }, { prepend: true })
 
@@ -186,8 +220,9 @@ export function install(rt) {
   // The thinking levels a model serves: `{efforts: [{id, name, description?}],
   // defaultEffort?}`, or undefined when it has none or the provider cannot say.
   async function reasoningOf(ref) {
+    const now = Date.now()
     const cached = reasoningCache.get(ref)
-    if (cached !== undefined && Date.now() - cached.at < CATALOG_TTL_MS) return cached.value
+    if (cached !== undefined && now - cached.at < CATALOG_TTL_MS) return cached.value
     const route = splitRef(ref)
     const service = llm()
     if (service === undefined) return undefined
@@ -196,7 +231,11 @@ export function install(rt) {
       efforts: (info.reasoning.efforts ?? []).map(effort => ({ id: effort.id, name: effort.name ?? effort.id, ...(effort.description ? { description: effort.description } : {}) })),
       ...(info.reasoning.defaultEffort === undefined ? {} : { defaultEffort: info.reasoning.defaultEffort }),
     }
-    reasoningCache.set(ref, { at: Date.now(), value })
+    const at = Date.now()
+    for (const [key, entry] of reasoningCache) {
+      if (at - entry.at >= CATALOG_TTL_MS) reasoningCache.delete(key)
+    }
+    reasoningCache.set(ref, { at, value })
     return value
   }
 
@@ -418,7 +457,7 @@ export function install(rt) {
       if (cache?.cachedSnapshot === undefined) return undefined
       const record = (await listedSessions())?.get(sessionId)
       if (record === undefined || !record.persisted || record.live) return undefined
-      if (ctx.sessions?.get?.(sessionId) !== undefined || ctx.agents?.get?.(sessionId) !== undefined) return undefined
+      if (ctx.sessions?.get?.(sessionId) !== undefined || serviceOf(ctx, 'agents')?.get?.(sessionId) !== undefined) return undefined
       const selection = cache.cachedSnapshot(record.header, ['modelSelection'])?.values?.modelSelection
       return selection?.next ?? selection?.lastUsed ?? undefined
     } catch (error) {
@@ -484,9 +523,9 @@ export function install(rt) {
     if (llm() === undefined) return
     const ownChanged = force || bot.appliedModel !== ref || (bot.appliedEffort ?? undefined) !== effort
     const route = { ...splitRef(ref), ...(effort === undefined ? {} : { reasoningEffort: effort }) }
-    // A Bot's model is the model of every part of its own chat, the background ones
-    // included: a part left on the old route would keep answering with the old model
-    // while the settings show the new one. A part that cannot take it fails the change.
+    // A Bot's model is the model of its foreground chat and active background tasks:
+    // a task left on the old route would keep answering with the old model while the
+    // settings show the new one. A Session that cannot take it fails the change.
     let currentMissed = false
     if (ownChanged) for (const sessionId of ownChatSessions(bot)) {
       // A Session the library no longer holds cannot take a model, and retrying it
@@ -500,15 +539,15 @@ export function install(rt) {
       try {
         await selectSessionModel(sessionId, route, { force })
       } catch (error) {
-        if (!sessionGone(error)) throw error
+        if (!isMissingSessionError(error)) throw error
         if (sessionId === rt.chatOf(bot.id)) {
           bot.sessionMissing = sessionId
           currentMissed = true
           rt.warn('ds-bot: the Session of %s is gone; a new session can replace it: %s', bot.name, sessionId)
-          await rt.save().catch(() => {})
+          if (rt.readOnly?.() === undefined) await rt.save().catch(() => {})
         } else {
           goneParts.add(sessionId)
-          rt.warn('ds-bot: a background part of %s is gone; its model cannot be applied: %s', bot.name, sessionId)
+          rt.warn('ds-bot: a task Session of %s is gone; its model cannot be applied: %s', bot.name, sessionId)
         }
       }
     }
@@ -557,11 +596,18 @@ export function install(rt) {
 
   // The Sessions whose selection failed. The models may not change again, so the next
   // sync tries them once more instead of waiting for a change that never comes.
+  // Sessions that are permanently gone (`session/not-found`) are dropped from retries
+  // and logged once instead of spamming diagnostics on every sync tick (#2265).
   const roomRetry = new Set()
-  // Own-chat parts (not the current one) whose Session is gone: their model cannot be
-  // applied again this run, and by name they are not the Bot's marker either.
+  const missingRoomSessions = new Set()
+  // Active task Sessions (not the foreground chat) whose Session is gone: their model
+  // cannot be applied again this run, and they do not set `bot.sessionMissing`.
   const goneParts = new Set()
   async function selectRoomSession(sessionId, room = rt.roomOf?.(sessionId)) {
+    if (missingRoomSessions.has(sessionId)) {
+      roomRetry.delete(sessionId)
+      return
+    }
     try {
       const ref = await roomModel(sessionId, room)
       if (ref === undefined) return
@@ -571,6 +617,12 @@ export function install(rt) {
       await selectSessionModel(sessionId, route)
       roomRetry.delete(sessionId)
     } catch (error) {
+      if (isMissingSessionError(error)) {
+        roomRetry.delete(sessionId)
+        missingRoomSessions.add(sessionId)
+        rt.warn('ds-bot: group Session %s no longer exists; stopped retrying model selection: %s', sessionId, error)
+        return
+      }
       roomRetry.add(sessionId)
       rt.warn('ds-bot: model for the group Session %s not applied: %s', sessionId, error)
     }
@@ -580,6 +632,7 @@ export function install(rt) {
     const current = new Set(rooms.map(room => rt.sessionOfRoom(room)))
     // A deleted group, or one moved on to a fresh part, no longer needs its old Session.
     for (const sessionId of roomRetry) if (!current.has(sessionId)) roomRetry.delete(sessionId)
+    for (const sessionId of missingRoomSessions) if (!current.has(sessionId)) missingRoomSessions.delete(sessionId)
     for (const room of rooms) await selectRoomSession(rt.sessionOfRoom(room), room)
   }
 
@@ -628,7 +681,7 @@ export function install(rt) {
       changed = true
       if (owned) healed.add(bot.id)
     }
-    if (changed) await rt.save().catch(() => {})
+    if (changed && rt.readOnly?.() === undefined) await rt.save().catch(() => {})
     return healed
   }
   async function syncAll() {
@@ -662,8 +715,34 @@ export function install(rt) {
     if (bot !== undefined) await applyModel(bot, { force: true })
   }
 
+  const forgetSessionModel = (sessionId) => {
+    if (typeof sessionId !== 'string' || sessionId === '') return
+    sessionSelections.delete(sessionId)
+    selectedSessions.delete(sessionId)
+    roomRetry.delete(sessionId)
+    missingRoomSessions.delete(sessionId)
+    goneParts.delete(sessionId)
+    if (state.sessionModelSelections !== undefined) delete state.sessionModelSelections[sessionId]
+  }
+  ctx.on?.('agent/disposed', ({ agent }) => {
+    const id = agent?.id
+    if (id === undefined) return
+    sessionSelections.delete(id)
+    selectedSessions.delete(id)
+  })
+
   const lifetime = new AbortController()
-  ctx.effect?.(() => () => { closing = true; lifetime.abort() }, 'ds-bot: auxiliary llm retry')
+  ctx.effect?.(() => () => {
+    closing = true
+    lifetime.abort()
+    reasoningCache.clear()
+    sessionSelections.clear()
+    selectedSessions.clear()
+    roomRetry.clear()
+    missingRoomSessions.clear()
+    goneParts.clear()
+    refused.clear()
+  }, 'ds-bot: auxiliary llm retry')
   const assembleLlm = options => assembleLlmStream(ctx, options, { signal: lifetime.signal, backoff: rt.config?.llmRetryBackoff })
 
   Object.assign(rt, {
@@ -671,6 +750,6 @@ export function install(rt) {
     hostClosing: () => llm() === undefined,
     catalog, cachedCatalog: () => answerable(catalogCache.value), cachedDefault: () => pickDefault(catalogCache.value),
     defaultRef, defaultModel, defaultBotModel, defaultEffort, isUsable, resolveModel, desiredModel, reasoningOf, resolveEffort, desiredEffort,
-    selectSessionModel, applyModel, selectRoomSession, syncRoomSessions, waitForModel, syncModels, routeRefused, dropCatalog, assembleLlm,
+    selectSessionModel, applyModel, selectRoomSession, syncRoomSessions, waitForModel, syncModels, routeRefused, dropCatalog, assembleLlm, forgetSessionModel,
   })
 }

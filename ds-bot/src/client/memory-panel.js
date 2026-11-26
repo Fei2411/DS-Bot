@@ -8,17 +8,19 @@ import { ArrowUpIcon, CheckIcon, ChevronLeftIcon, ChevronRightIcon, CloseIcon, D
 import { dateLocale, hostText, t } from './i18n.js'
 import { summaryBlocks } from './text.js'
 import { stepMenuFocus, useLinger } from './motion.js'
+import { lruSet } from './memo.js'
 
 const POLL_MS = 1500
 const MENU_EXIT_MS = 120
 const MOVE_MENU_GAP = 12
+const MAX_COUNTS = 200
 
 // Entry counts per Bot or group, for the details pane; the dialog updates them as it loads.
-const counts = new Map()
+export const counts = new Map()
 const countListeners = new Set()
 function noteCount(id, count) {
   if (counts.get(id) === count) return
-  counts.set(id, count)
+  lruSet(counts, id, count, MAX_COUNTS)
   for (const listener of countListeners) listener()
 }
 

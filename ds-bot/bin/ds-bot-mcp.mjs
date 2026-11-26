@@ -1,19 +1,28 @@
 #!/usr/bin/env node
-// ds-bot-mcp: the stdio side of DS Bot's MCP access, for MCP clients that only start a
-// command (Claude Desktop and others). It forwards each JSON-RPC line to the MCP server
-// that DS Bot runs on 127.0.0.1 while dsh is open. Settings → MCP access shows the
-// address and makes the token.
-//   DSBOT_MCP_TOKEN=<token> npx -p ds-bot ds-bot-mcp [--url http://127.0.0.1:8797/mcp]
+// Compatibility shim for `npx -p ds-bot ds-bot-mcp`: delegates to the unified
+// `ds-bot mcp` stdio bridge while continuing to honor DSBOT_MCP_TOKEN / DSBOT_MCP_URL / --url.
+import { main } from './ds-bot-cli.mjs'
+
 const args = process.argv.slice(2)
-const at = args.indexOf('--url')
-if (at >= 0 && args[at + 1] === undefined) {
+const urlFlag = args.indexOf('--url')
+if (urlFlag >= 0 && args[urlFlag + 1] === undefined) {
   console.error('ds-bot-mcp: --url needs a value.')
   process.exit(2)
 }
-if (!process.env.DSBOT_MCP_TOKEN) {
-  console.error('ds-bot-mcp: set DSBOT_MCP_TOKEN to the token from Settings → MCP access in DS Bot.')
-  process.exit(2)
+
+if (!process.env.DS_BOT_API_TOKEN && process.env.DSBOT_MCP_TOKEN) {
+  process.env.DS_BOT_API_TOKEN = process.env.DSBOT_MCP_TOKEN
 }
-process.env.DSBOT_MCP_URL = at >= 0 ? args[at + 1] : (process.env.DSBOT_MCP_URL || 'http://127.0.0.1:8797/mcp')
-process.argv.splice(2)
-await import('../src/host/local-agents/mcp-stdio.js')
+
+const rawUrl = urlFlag >= 0 ? args[urlFlag + 1] : process.env.DSBOT_MCP_URL
+const forwarded = ['mcp']
+if (rawUrl) {
+  const base = String(rawUrl).replace(/\/mcp\/?$/i, '')
+  forwarded.push('--endpoint', base)
+}
+for (let i = 0; i < args.length; i += 1) {
+  if (i === urlFlag) { i += 1; continue }
+  forwarded.push(args[i])
+}
+
+main([process.argv[0], process.argv[1], ...forwarded]).then(code => process.exit(code))

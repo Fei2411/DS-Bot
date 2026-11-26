@@ -314,7 +314,7 @@ export const contentText = content => (content ?? [])
   .join('\n')
 // A name can contain brackets. Generated headers end at the newline; without a
 // newline, a legacy inline header still stops at its first closing bracket.
-export const HEADER = /^\[(Message from|Reply from|Group chat|Group post from|Bot team setup|Handoff · part|Secret card)(?:[^\r\n]*\]\r?\n|[^\]\r\n]*\])/
+export const HEADER = /^\[(Message from|Reply from|Work(?:\s+#W\d+)?(?:\s+from|\s+completed\s+by|\s+cancelled\s+by|\s+·)|Note from|Stopped by|Waiting given up|Group chat|Group post from|Bot team setup|Handoff · part|Secret card)(?:[^\r\n]*\]\r?\n|[^\]\r\n]*\])/
 export const currentPart = bot => bot.sessionId ?? bot.id
 // The prompts in a due scheduled task's message. DSH frames it for the model: one
 // task as `reminder_prompt_json: "…"`, several as `reminders_json: [{reminder_prompt}]`.
@@ -393,11 +393,11 @@ export function toolArgs(root) {
 // parts) are not events in the chat, nor is a request handed back after its line was
 // already shown: deferred, resumed after a restart, or retried after a tool call
 // written as text.
-const RELAY_ROLES = new Set(['request', 'reply', 'stopped'])
+const RELAY_ROLES = new Set(['request', 'reply', 'stopped', 'ask_back', 'answer'])
 export const isRelayContext = (data) => {
   const source = data?.source
   if (source === null || typeof source !== 'object' || source.kind !== 'bot' || source.handoff === true) return false
-  if (source.deferred === true || source.resumed === true || source.retried === true) return false
+  if (source.deferred === true || source.resumed === true || source.retried === true || source.silent === true) return false
   return RELAY_ROLES.has(source.role) && typeof source.senderSessionId === 'string'
 }
 
@@ -463,9 +463,13 @@ export function commRunOf(order, peers, turn, hiddenTurns = []) {
   return { count, peerIds }
 }
 
+export function turnOutlineOf(list, id) {
+  return list.projectionsBySession?.[id]?.values?.turnOutline ?? list.byId[id]?.projectionValues?.turnOutline
+}
+
 // Latest visible line for a sidebar row; Bot-to-Bot exchange turns stay out of it.
 export function previewOf(list, id, hiddenTurns = []) {
-  const outline = list.projectionsBySession?.[id]?.values?.turnOutline ?? list.byId[id]?.projectionValues?.turnOutline
+  const outline = turnOutlineOf(list, id)
   if (!Array.isArray(outline)) return ''
   for (let index = outline.length - 1; index >= 0; index -= 1) {
     const entry = outline[index]

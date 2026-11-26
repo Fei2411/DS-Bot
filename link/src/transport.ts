@@ -53,9 +53,13 @@ const nextSends = new WeakMap<object, number>()
 /** Bounds Relay buffering without changing frame order. Call from serialized sends. */
 export async function waitForRelayCapacity(socket: { readonly readyState: number; readonly bufferedAmount?: number }, wireBytes = 0): Promise<void> {
   const started = Date.now()
+  let waitMs = 25
   while ((socket.bufferedAmount ?? 0) > 512 * 1024) {
-    if (socket.readyState !== 1 || Date.now() - started > 10_000) throw new Error('Relay consumer is too slow or disconnected')
-    await new Promise<void>(resolve => setTimeout(resolve, 10))
+    const elapsed = Date.now() - started
+    if (socket.readyState !== 1 || elapsed > 10_000) throw new Error('Relay consumer is too slow or disconnected')
+    const sleepMs = Math.min(waitMs, Math.max(1, 10_000 - elapsed))
+    await new Promise<void>(resolve => setTimeout(resolve, sleepMs))
+    waitMs = Math.min(waitMs * 2, 200)
   }
   if (wireBytes > 0) {
     // Pace encoded envelopes across all tunnels on a socket. A full frame of

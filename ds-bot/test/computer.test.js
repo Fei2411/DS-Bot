@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { createRuntime } from '../index.js'
 import { fakeContext } from './fake-ctx.js'
+import { restoreReleasedV4Artifact } from '@deepseek-ai/dsh-session-format-v3-to-v4'
 import { classify, levelAllows, isComputerTool } from '../src/host/computer/catalog.js'
 import { createLeases } from '../src/host/computer/leases.js'
 import { isProtectedApp } from '../src/host/computer/index.js'
@@ -387,6 +388,64 @@ const maskingAgent = (ctx, id, denied) => ({
   },
 })
 
+test('tools/change bursts refresh masking once without scheduling another refresh for their own restrictions', async (t) => {
+  const { ctx, home, rt } = setup()
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  await rt.load()
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const masked = new Map()
+  const agents = ['m1', 'w1'].map(id => {
+    const agent = maskingAgent(ctx, id, [])
+    agent.ctx.tools.restrict = ({ deny: [name] }) => {
+      const names = masked.get(id) ?? new Set()
+      masked.set(id, names)
+      names.add(name)
+      ctx.emit('tools/change')
+      return () => {
+        names.delete(name)
+        ctx.emit('tools/change')
+      }
+    }
+    return agent
+  })
+  let listed = 0
+  ctx.get = name => name === 'agents' ? { list: () => { listed++; return agents } } : undefined
+  let schemas = 0
+  let tools = [{ name: 'cua' }]
+  ctx.tools.schemas = () => { schemas++; return tools }
+
+  for (let i = 0; i < 20; i++) ctx.emit('tools/change')
+  t.mock.timers.tick(49)
+  assert.equal(listed, 0)
+  tools = [...tools, { name: 'cua_driver_native__click' }]
+  ctx.emit('tools/change')
+  t.mock.timers.tick(1)
+  assert.equal(listed, 1)
+  assert.equal(schemas, agents.length)
+  assert.deepEqual([...masked], agents.map(({ id }) => [id, new Set(tools.map(({ name }) => name))]))
+  t.mock.timers.tick(50)
+  assert.equal(listed, 1)
+
+  ctx.emit('agent/disposed', { agent: agents[0] })
+  assert.equal(masked.get('m1').size, 0)
+  t.mock.timers.tick(50)
+  assert.equal(listed, 1)
+
+  tools.push({ name: 'cua_driver_native__list_windows' })
+  ctx.emit('tools/change')
+  assert.equal(masked.get('w1').has('cua_driver_native__list_windows'), false)
+  ctx.emit('agent/status', { agent: agents[1], status: 'running' })
+  assert.equal(masked.get('w1').has('cua_driver_native__list_windows'), true)
+  tools.push({ name: 'cua_driver_native__list_apps' })
+  ctx.emit('tools/change')
+  assert.equal(masked.get('w1').has('cua_driver_native__list_apps'), true)
+  assert.equal(listed, 1)
+  await ctx.dispose()
+  const listedAtDispose = listed
+  t.mock.timers.tick(50)
+  assert.equal(listed, listedAtDispose)
+})
+
 test('a plain Session keeps DSH\'s own computer use while the DS Bot switch is off (#1101)', async (t) => {
   const { ctx, home, rt } = setup()
   t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
@@ -631,6 +690,50 @@ test('takeover refuses the Bot and handback delivers a message with nothing the 
   const text = last.content?.[0]?.text ?? JSON.stringify(last)
   assert.match(text, /handed|back/i)
   assert.doesNotMatch(text, /typed|clicked|password/i)
+})
+
+test('handback writes a non-relay source that v4 restore accepts and earlier parts ignore', async (t) => {
+  const { ctx, home, rt } = setup()
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  await rt.load()
+  await rt.computerEndpoint('set-enabled', { enabled: true })
+  await rt.computerEndpoint('set-level', { botId: 'w1', level: 'foreground' })
+  const followups = []
+  ctx.sessions = { flush: async () => {} }
+  rt.resolveAgent = async () => ({ followup: message => followups.push(message), session: { id: 'w1' } })
+  rt.chatOf = () => 'w1'
+  await rt.computerEndpoint('handback', { botId: 'w1' })
+  const message = followups.at(-1)
+  // Every stored message needs a producer-owned source kind, or the whole session
+  // fails to load with a SessionFormatError. Use a dedicated non-relay role so
+  // neither the chat nor earlier-part history renders a Bot-to-Bot relay line.
+  assert.deepEqual(message?.source, { kind: 'bot', role: 'handback' })
+  const at = Date.now()
+  const knownEventTypes = new Set(['turn/start', 'user/message'])
+  const artifact = (data) => ({
+    header: { version: 4, id: 'w1', createdAt: at, isSeeded: false, delegationDepth: 0 },
+    inheritedEventCount: 0,
+    events: [
+      { type: 'turn/start', seq: 0, time: at, data: { turn: 1 } },
+      { type: 'user/message', seq: 1, time: at, surfaceOp: 'append', data },
+    ],
+  })
+  assert.doesNotThrow(() => restoreReleasedV4Artifact(artifact(message), knownEventTypes))
+  const { source, ...withoutSource } = message
+  assert.throws(() => restoreReleasedV4Artifact(artifact(withoutSource), knownEventTypes), /producer-owned source kind/)
+  // Earlier-part history (partHistory) ignores the handback notice and keeps the continuation reply.
+  const items = rt.displayItems('w1', [
+    { type: 'turn/start', seq: 0, time: at, data: { turn: 1 } },
+    { type: 'user/message', seq: 1, time: at, data: message },
+    { type: 'assistant/message', seq: 2, time: at + 1, data: { turn: 1, message: { content: [{ type: 'text', text: 'Continuing now.' }] } } },
+  ])
+  assert.deepEqual(items.map(item => [item.kind, item.text ?? item.role]), [['bot', 'Continuing now.']])
+  // A handback turn is not marked as a hidden Bot-to-Bot exchange turn.
+  for (const listener of ctx.listeners.get('session/event') ?? []) {
+    await listener({ id: 'w1' }, { type: 'turn/start', time: at, data: { turn: 1 } })
+    await listener({ id: 'w1' }, { type: 'user/message', time: at, data: message })
+  }
+  assert.equal((rt.state.exchangeTurns?.w1 ?? []).includes(1), false)
 })
 
 test('Stop all stops only Bots that hold a lease, are in-flight, or are bot/waiting', async (t) => {

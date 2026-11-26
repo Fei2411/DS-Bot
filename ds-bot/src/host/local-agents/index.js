@@ -13,10 +13,31 @@ import { LocalAgentAdapter } from './adapter.js'
 import { AcpEngine } from './acp.js'
 import { CodexEngine } from './codex.js'
 import { ClaudeEngine } from './claude.js'
-import { ENGINES, customRoute, isLocalAgentRoute, signInFor, validateCustom } from './engines.js'
-import { cleanEnv, findEngineExecutable, findExecutable, probeSignIn, probeVersion, refreshSearchDirs } from './discover.js'
+import { ENGINES, customRoute, isLocalAgentRoute, signInFor, signedInFor, validateCustom } from './engines.js'
+import { findEngineExecutable, findExecutable, probeEnv, probeSignIn, probeVersion, refreshSearchDirs } from './discover.js'
 
 const SIGNED_IN_TTL_MS = 60_000
+const SIGNED_IN_RETRY_MS = 20_000
+const VERSION_FAIL_TTL_MS = 30_000
+
+export function parseCliSemver(raw) {
+  if (typeof raw !== 'string') return undefined
+  const match = /(\d+)\.(\d+)(?:\.(\d+))?/.exec(raw)
+  if (match === null) return undefined
+  return { major: Number(match[1]), minor: Number(match[2]), patch: Number(match[3] ?? 0) }
+}
+
+// Capability detection for native CLI session fork based on probed CLI version:
+// - Codex app-server v2 supports `thread/fork` (>= 0.80.0)
+// - Claude Code supports `--resume <id> --fork-session` (>= 2.0.0)
+// - ACP has no standard session fork RPC
+export function versionSupportsFork(kind, version) {
+  const semver = parseCliSemver(version)
+  if (semver === undefined) return false
+  if (kind === 'codex') return semver.major > 0 || semver.minor >= 80
+  if (kind === 'claude') return semver.major >= 2
+  return false
+}
 
 // The preset a Session runs on: its group's, else its Bot's, else DSH's default — the one
 // a Bot without a preset of its own is shown with (permissions.js keeps it applied to the
@@ -26,14 +47,17 @@ const SIGNED_IN_TTL_MS = 60_000
 export function presetOf(rt, sessionId) {
   const bot = rt.botOf(rt.selfOf(sessionId))
   const room = rt.roomOf(rt.groupOwners.get(sessionId)?.roomId ?? rt.taskOwners?.get(sessionId)?.roomId)
-  return room?.permission ?? bot?.permission ?? rt.permissionCatalog?.()?.defaultPreset ?? 'workspace-write'
+  // Approval review is DS Bot's own policy, not a sandbox preset: the Session
+  // runs on workspace-write while the review policy does the asking.
+  const permission = room?.permission ?? bot?.permission ?? rt.permissionCatalog?.()?.defaultPreset ?? 'workspace-write'
+  return permission === 'review' ? 'workspace-write' : permission
 }
 
 const spawnEngine = (kind, route, spec) => (kind === 'acp' ? new AcpEngine(route, spec, { findExecutable })
   : kind === 'codex' ? new CodexEngine(route, spec, { findExecutable })
     : new ClaudeEngine(route, spec, { findExecutable }))
 
-export function install(rt) {
+export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersion: checkVersion = probeVersion, now = Date.now } = {}) {
   const { ctx, state } = rt
   // state.localAgents is replaced by the state load after install; read it
   // each time instead of holding the pre-load object.
@@ -50,6 +74,7 @@ export function install(rt) {
 
   // Only CLIs found on this machine get a route; the scan result feeds the page.
   const found = new Map()
+  let nextProbeEpoch = 0
   let disposed = false
   async function scan() {
     await refreshSearchDirs()
@@ -63,25 +88,91 @@ export function install(rt) {
     applyRoutes()
     return [...found.values()]
   }
-  async function probeVersions() {
-    await Promise.all([...found.values()].map(async (entry) => {
-      if (entry.version !== undefined) return
+  async function probeEntryVersion(entry, { force = false } = {}) {
+    if (entry === undefined) return
+    if (!force && entry.version !== undefined) return
+    if (!force && entry.versionFailedAt !== undefined && now() - entry.versionFailedAt < VERSION_FAIL_TTL_MS) return
+    if (force || entry.versionProbe === undefined) {
+      const epoch = ++nextProbeEpoch
+      entry.versionEpoch = epoch
+      entry.versionAbort?.abort()
+      const controller = new AbortController()
+      entry.versionAbort = controller
       const spec = ENGINES[entry.route]
-      const result = await probeVersion(entry.path, spec.version ?? ['--version'], cleanEnv(spec.env ?? {})).catch(() => undefined)
-      entry.version = result?.version
-    }))
+      const probe = Promise.resolve()
+        .then(() => checkVersion(entry.path, spec.version ?? ['--version'], probeEnv(spec.env ?? {}), { signal: controller.signal }))
+        .catch(() => undefined)
+        .then((result) => {
+          if (entry.versionEpoch !== epoch || entry.versionProbe !== probe || found.get(entry.route) !== entry) return
+          if (result?.version !== undefined) {
+            entry.version = result.version
+            entry.supportsFork = versionSupportsFork(spec.kind, result.version)
+            delete entry.versionFailedAt
+          } else {
+            if (force) {
+              entry.version = undefined
+              entry.supportsFork = false
+            }
+            entry.versionFailedAt = now()
+          }
+        })
+        .finally(() => {
+          if (entry.versionProbe === probe) {
+            delete entry.versionProbe
+            delete entry.versionAbort
+          }
+        })
+      entry.versionProbe = probe
+    }
+    while (entry.versionProbe !== undefined) {
+      await entry.versionProbe
+    }
+  }
+  async function probeVersions({ force = false } = {}) {
+    await Promise.all([...found.values()].map(entry => probeEntryVersion(entry, { force })))
   }
   // Asked only when the list of CLIs is about to show, never at start or for a menu.
-  async function probeSignIns() {
+  async function probeSignIns({ force = false } = {}) {
     await Promise.all([...found.values()].map(async (entry) => {
-      if (entry.signedIn !== undefined && Date.now() - entry.signedInAt < SIGNED_IN_TTL_MS) return
-      entry.signedIn = await probeSignIn(entry.path, ENGINES[entry.route].signedIn)
-      entry.signedInAt = Date.now()
+      const check = signedInFor(ENGINES[entry.route], entry.path)
+      if (check === undefined) {
+        entry.signedIn = null
+        return
+      }
+      if (!force) {
+        const ttl = entry.signedIn === null ? SIGNED_IN_RETRY_MS : SIGNED_IN_TTL_MS
+        if (entry.signedIn !== undefined && now() - entry.signedInAt < ttl) return
+      }
+      if (force || entry.signInProbe === undefined) {
+        const epoch = ++nextProbeEpoch
+        entry.signInEpoch = epoch
+        entry.signInAbort?.abort()
+        const controller = new AbortController()
+        entry.signInAbort = controller
+        const probe = Promise.resolve()
+          .then(() => checkSignIn(entry.path, check, { signal: controller.signal }))
+          .catch(() => null)
+          .then((result) => {
+            if (entry.signInEpoch !== epoch || entry.signInProbe !== probe || found.get(entry.route) !== entry) return
+            entry.signedIn = result
+            entry.signedInAt = now()
+          })
+          .finally(() => {
+            if (entry.signInProbe === probe) {
+              delete entry.signInProbe
+              delete entry.signInAbort
+            }
+          })
+        entry.signInProbe = probe
+      }
+      while (entry.signInProbe !== undefined) {
+        await entry.signInProbe
+      }
     }))
   }
   // A signed-out CLI or a slow one never holds back the list for long: each check is bounded.
-  async function freshList() {
-    await Promise.all([probeVersions(), probeSignIns()])
+  async function freshList({ forceSignIn = false, forceVersion = forceSignIn } = {}) {
+    await Promise.all([probeVersions({ force: forceVersion }), probeSignIns({ force: forceSignIn })])
     return { available: supported(), detected: detected(), custom: customView() }
   }
 
@@ -104,6 +195,15 @@ export function install(rt) {
       if (record !== undefined) Object.assign(record, patch)
     },
     presetFor: sessionId => presetOf(rt, sessionId),
+    freshMemoryView: sessionId => rt.freshMemoryView?.(sessionId),
+    onCompaction: (sessionId, info) => {
+      rt.contextRuntime?.bumpEpoch(sessionId, info?.reason ?? 'cli-compaction')
+      if (info?.reason === 'resume-dropped' && Number.isInteger(info?.compactions)) {
+        rt.contextRuntime?.setCliCompactions(sessionId, info.compactions)
+      }
+      rt.renewMemory?.(sessionId)
+    },
+    switchOnResumeLost: sessionId => rt.isBotSession?.(sessionId) === true && rt.readOnly?.() === undefined,
     cwdFor: async (sessionId) => {
       try {
         const agent = await rt.resolveAgent(sessionId)
@@ -113,10 +213,17 @@ export function install(rt) {
       }
     },
     probeCwd: () => mkdtempSync(join(tmpdir(), 'dsb-probe-')),
-    toolsFor: (options) => {
+    toolsFor: (options, sessionId = options?.sessionId) => {
       // Only DS Bot's own team tools cross the bridge; the CLI keeps its own.
+      // Read live scoped schemas from the active Agent when available so
+      // `notifications/tools/list_changed` immediately serves fresh tools/list
+      // without waiting for the next adapter.stream() turn.
       const names = new Set([...rt.teamTools.map(def => def.name), 'approve_agent_action'])
-      return (options.tools ?? []).filter(tool => names.has(tool.name))
+      const liveAgent = sessionId === undefined ? undefined : ctx.get?.('agents')?.get?.(sessionId)
+      const schemas = liveAgent !== undefined && typeof ctx.tools?.schemas === 'function'
+        ? ctx.tools.schemas(liveAgent)
+        : (options?.tools ?? [])
+      return schemas.filter(tool => names.has(tool.name))
     },
   })
 
@@ -156,6 +263,10 @@ export function install(rt) {
   // setup would leave the adapter disposed from the moment it installs.
   ctx.effect(() => async () => {
     disposed = true
+    for (const entry of found.values()) {
+      entry.versionAbort?.abort()
+      entry.signInAbort?.abort()
+    }
     registration?.()
     await Promise.all([initialScan, adapter.dispose()])
   }, 'ds-bot: local agents')
@@ -200,14 +311,18 @@ export function install(rt) {
       const approval = ctx.get?.('approval')
       if (approval === undefined || exec.agent?.session === undefined) return 'denied: approvals are not available here'
       const text = `${args.action}${args.detail ? `\n${args.detail}` : ''}`
-      const outcome = await approval.request({
+      const request = {
         agent: exec.agent,
         toolName: exec.name,
         ...(exec.callId !== undefined ? { callId: exec.callId } : {}),
         reason: text.slice(0, 500),
         displayReason: { en: text.slice(0, 500) },
         ...(exec.signal ? { signal: exec.signal } : {}),
-      })
+      }
+      const evidence = adapter.approvalEvidence(exec.agent.session.id, exec.callId)
+      const outcome = await (rt.requestActionApproval
+        ? rt.requestActionApproval(request, evidence)
+        : approval.request(request))
       // The adapter decides the CLI's option from this structured result;
       // only an explicit {"decision":"allow"} counts.
       return JSON.stringify({ decision: outcome === 'allowed-once' ? 'allow' : 'deny' })
@@ -231,10 +346,9 @@ export function install(rt) {
       }
       case 'local-agent-refresh': {
         adapter.dropModelCache()
-        for (const entry of found.values()) delete entry.signedIn
         await scan()
         await rt.catalog?.({ fresh: true })
-        return freshList()
+        return freshList({ forceSignIn: true, forceVersion: true })
       }
       case 'local-agent-models': {
         const models = await localAgentModels(String(body.route ?? ''))
@@ -275,12 +389,65 @@ export function install(rt) {
     }
   }
 
+  // Cleans up a forgotten or archived session's live CLI handle and persisted record.
+  function forgetLocalAgentSession(sessionId, { persist = true } = {}) {
+    if (typeof sessionId !== 'string' || sessionId === '') return false
+    void adapter.closeSession(sessionId, 'session forgotten').catch(() => {})
+    const sessions = store().sessions
+    if (!Object.hasOwn(sessions, sessionId)) return false
+    delete sessions[sessionId]
+    if (persist && rt.readOnly?.() === undefined) void rt.save().catch(() => {})
+    return true
+  }
+
+  // Prunes orphaned `state.localAgents.sessions` entries whose DS Bot sessions are no
+  // longer active (archived parts, deleted Bots, left groups, or settled tasks).
+  function pruneLocalAgentSessions(liveIds) {
+    if (!(liveIds instanceof Set)) return 0
+    const sessions = store().sessions
+    let removed = 0
+    for (const sid of Object.keys(sessions)) {
+      if (!liveIds.has(sid)) {
+        void adapter.closeSession(sid, 'session pruned').catch(() => {})
+        delete sessions[sid]
+        removed += 1
+      }
+    }
+    if (removed > 0 && rt.readOnly?.() === undefined) void rt.save().catch(() => {})
+    return removed
+  }
+
+  const localAgentSupportsFork = (route) => {
+    if (typeof route !== 'string' || route === '') return false
+    if (adapter.isForkUnsupported(route)) return false
+    return found.get(route)?.supportsFork === true
+  }
+
+  // On-demand version probe for one route when starting a fork-eligible task,
+  // reusing the cached/in-flight probe so native forks work immediately after restart
+  // without waiting for Settings -> Local agents to be opened.
+  async function ensureLocalAgentForkCapability(route) {
+    if (typeof route !== 'string' || route === '' || adapter.isForkUnsupported(route)) return false
+    await initialScan.catch(() => {})
+    const entry = found.get(route)
+    if (entry === undefined) return false
+    if (entry.supportsFork !== undefined) return entry.supportsFork === true
+    await probeEntryVersion(entry).catch(() => {})
+    return !adapter.isForkUnsupported(route) && entry.supportsFork === true
+  }
+
   Object.assign(rt, {
     isLocalAgentRoute, isLocalAgentRef, engineOf, engineOfBot, localAgentOf, isLocalAgentSession,
     localAgentRoutes: allRoutes, localAgentsEndpoint, localAgentModels,
     isLocalAgentAvailable: route => registeredRoutes.has(route),
+    localAgentSupportsFork,
+    ensureLocalAgentForkCapability,
+    forkLocalAgentSession: (fromSessionId, toSessionId, options) => adapter.forkSession(fromSessionId, toSessionId, options),
+    forgetLocalAgentSession,
+    pruneLocalAgentSessions,
     engineNameOf: ref => (isLocalAgentRef(ref) ? adapter.providerInfo(splitRef(ref).provider).name : `the model ${ref}`),
     closeLocalAgentSession: (sessionId, reason) => adapter.closeSession(sessionId, reason),
+    localAgentLaunchPreset: sessionId => adapter.live.get(String(sessionId))?.preset,
     // The parts module's view of a CLI session's context, and the requests it makes of
     // the CLI when the conversation grows long: condense, write the handoff note, and
     // answer the context steward when the team has no model of its own.
@@ -288,6 +455,7 @@ export function install(rt) {
     localAgentCompact: (sessionId, signal) => adapter.compact(String(sessionId), signal),
     localAgentNote: (sessionId, text, signal) => adapter.note(String(sessionId), text, signal),
     localAgentAsk: (sessionId, request) => adapter.ask(String(sessionId), request),
+    notifyLocalAgentToolsChanged: sessionId => adapter.notifyToolsChanged(sessionId),
     localAgentBadge: (ref) => {
       const provider = splitRef(ref)?.provider
       return provider !== undefined && isLocalAgentRoute(provider) ? provider : undefined

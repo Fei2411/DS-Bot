@@ -18,6 +18,7 @@ export function createTray({ Tray, Menu, platform, image, tooltip, open, quit, c
   const tray = new Tray(image)
   let disposed = false
   let entries = []
+  let computerKey = '[]'
   const relabel = () => {
     tray.setToolTip(tooltip)
     const rows = entries.map(entry => ({
@@ -43,7 +44,11 @@ export function createTray({ Tray, Menu, platform, image, tooltip, open, quit, c
     relabel,
     /** The same entries the floating indicator shows, while any Bot is on the computer. */
     setComputer(next) {
-      entries = Array.isArray(next) ? next.filter(entry => entry && typeof entry.label === 'string') : []
+      const filtered = Array.isArray(next) ? next.filter(entry => entry && typeof entry.label === 'string') : []
+      const nextKey = JSON.stringify(filtered.map(entry => [entry.label, entry.botId ?? null]))
+      if (nextKey === computerKey) return
+      computerKey = nextKey
+      entries = filtered
       if (!disposed) relabel()
     },
     /** Take the icon away; the app leaves no dead icon behind. */

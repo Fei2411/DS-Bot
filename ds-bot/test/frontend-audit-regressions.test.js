@@ -3,23 +3,10 @@ import { readdirSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { build } from 'esbuild'
+import { loadClientBundle, makeStatefulReact } from './stateful-react.js'
 
 const repoRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))))
 const clientDir = join(repoRoot, 'ds-bot', 'src', 'client')
-
-async function loadClientBundle(contents) {
-  const { outputFiles } = await build({
-    stdin: { contents, resolveDir: join(repoRoot, 'ds-bot') },
-    bundle: true,
-    format: 'cjs',
-    platform: 'browser',
-    write: false,
-    logLevel: 'silent',
-    external: ['react', 'react-dom', '@deepseek-ai/dsh-client-ui-primitives'],
-  })
-  return outputFiles[0].text
-}
 
 function makeFakeReact() {
   const hooks = []
@@ -341,121 +328,6 @@ test('app/ui locale maps all 8 supported languages accurately', async () => {
   assert.equal(createLocale('pt-BR').getLocale().active, 'en')
 })
 
-// Stateful React harness that tracks per-instance hook slots, effect deps/cleanups,
-// and child-before-parent effect commit order (matching React's commit phase).
-function makeStatefulReact() {
-  let active = null
-  const instances = new Map()
-  const sameDeps = (a, b) => Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((v, i) => Object.is(v, b[i]))
-  const slot = (init) => {
-    const i = active.idx++
-    if (!(i in active.hooks)) active.hooks[i] = init()
-    return active.hooks[i]
-  }
-  const scheduleEffect = (fn, deps) => {
-    const cell = slot(() => ({ deps: undefined, cleanup: undefined }))
-    if (deps === undefined || !sameDeps(cell.deps, deps)) {
-      active.pending.push(() => {
-        if (typeof cell.cleanup === 'function') cell.cleanup()
-        cell.deps = deps
-        cell.cleanup = fn()
-      })
-    }
-  }
-  class Component {
-    constructor(props) { this.props = props; this.state = {} }
-    setState(next) { this.state = { ...this.state, ...(typeof next === 'function' ? next(this.state) : next) } }
-  }
-  const React = {
-    Component,
-    Fragment: Symbol('Fragment'),
-    createElement(type, props, ...children) {
-      return { type, props: props ?? {}, children: children.flat(Infinity).filter(c => c !== null && c !== undefined && c !== false && c !== true) }
-    },
-    useState(init) {
-      const cell = slot(() => ({ value: typeof init === 'function' ? init() : init }))
-      return [cell.value, (next) => { cell.value = typeof next === 'function' ? next(cell.value) : next }]
-    },
-    useRef(init) { return slot(() => ({ current: init })) },
-    useMemo(fn, deps) {
-      const cell = slot(() => ({ deps: undefined, value: undefined, ready: false }))
-      if (!cell.ready || deps === undefined || !sameDeps(cell.deps, deps)) {
-        cell.deps = deps
-        cell.value = fn()
-        cell.ready = true
-      }
-      return cell.value
-    },
-    useCallback(fn, deps) { return React.useMemo(() => fn, deps) },
-    useId() { return 'bt-test-id' },
-    useSyncExternalStore(_sub, getSnapshot) { return getSnapshot() },
-    createContext(v) { return { Provider: ({ children }) => children, _v: v } },
-    useContext(c) { return c?._v },
-    useEffect: scheduleEffect,
-    useLayoutEffect: scheduleEffect,
-  }
-  function renderNode(node, path, seen, effects) {
-    if (Array.isArray(node)) return node.map((child, i) => renderNode(child, `${path}[${i}]`, seen, effects))
-    if (!node || typeof node !== 'object') return node
-    if (typeof node.type === 'function') {
-      const key = `${path}:${node.type.name || 'fn'}:${node.props?.key ?? ''}`
-      seen.add(key)
-      let inst = instances.get(key)
-      if (!inst) { inst = { hooks: [], idx: 0, pending: [] }; instances.set(key, inst) }
-      let out
-      if (node.type.prototype && typeof node.type.prototype.render === 'function') {
-        const clsProps = { ...node.props, children: node.children }
-        if (!inst.cls) inst.cls = new node.type(clsProps)
-        inst.cls.props = clsProps
-        out = inst.cls.render()
-      } else {
-        const prev = active
-        active = inst
-        inst.idx = 0
-        inst.pending = []
-        try {
-          out = node.type({ ...node.props, children: node.children })
-        } finally {
-          active = prev
-        }
-      }
-      // Children commit effects BEFORE their parent, matching React.
-      const expanded = renderNode(out, key, seen, effects)
-      effects.push(...inst.pending)
-      inst.pending = []
-      return expanded
-    }
-    return {
-      ...node,
-      children: (node.children ?? []).map((child, i) => renderNode(child, `${path}/${i}`, seen, effects)),
-    }
-  }
-  function render(element, attachRefs) {
-    const seen = new Set()
-    const effects = []
-    const tree = renderNode(element, 'root', seen, effects)
-    for (const [key, inst] of [...instances.entries()]) {
-      if (!seen.has(key)) {
-        for (const hook of inst.hooks) {
-          if (hook && typeof hook.cleanup === 'function') hook.cleanup()
-        }
-        instances.delete(key)
-      }
-    }
-    if (attachRefs) attachRefs(tree)
-    for (const run of effects) run()
-    return tree
-  }
-  function unmount() {
-    for (const inst of instances.values()) {
-      for (const hook of inst.hooks) {
-        if (hook && typeof hook.cleanup === 'function') hook.cleanup()
-      }
-    }
-    instances.clear()
-  }
-  return { React, render, unmount }
-}
 
 test('BrowserView detects inline [role="menu"] added/removed inside [data-chat-flow] while skipping plain chat streaming', async () => {
   const code = await loadClientBundle("export { BrowserView, shouldCheckBrowserCover } from './src/client/browser-pane.js'")
@@ -578,7 +450,7 @@ test('BrowserView detects inline [role="menu"] added/removed inside [data-chat-f
   }
 })
 
-test('GeneralPage preset and default accent swatches cancel pending debounced custom accent', async () => {
+test('AppearancePage preset and default accent swatches cancel pending debounced custom accent', async () => {
   const code = await loadClientBundle("export { SettingsDialog } from './src/client/settings.js'")
   const harness = makeStatefulReact()
   const mod = { exports: {} }
@@ -624,7 +496,7 @@ test('GeneralPage preset and default accent swatches cancel pending debounced cu
         folders: () => Promise.resolve({ team: '/tmp/work' }),
       }
       const tree = harness.render(harness.React.createElement(SettingsDialog, {
-        page: 'general', id: null, roster, actions, useUpdate: sel => sel({}),
+        page: 'appearance', id: null, roster, actions, useUpdate: sel => sel({}),
       }))
       const colorInput = findAll(tree, n => n.type === 'input' && n.props?.type === 'color')[0]
       assert.ok(colorInput, 'custom accent color input should render')
@@ -683,7 +555,7 @@ test('PanelStrip repositions active capsule when sibling tab titles grow, tabs s
     disconnect() { observed.clear() }
   }
   globalThis.window = { addEventListener() {}, removeEventListener() {}, matchMedia: () => ({ matches: true }) }
-  globalThis.document = { body: { dataset: {} }, querySelectorAll: () => [] }
+  globalThis.document = { body: { dataset: {} }, querySelectorAll: () => [], addEventListener() {}, removeEventListener() {} }
 
   try {
     const botTab = { isConnected: true, offsetLeft: 0, offsetWidth: 40 }
@@ -939,8 +811,12 @@ test('room-chat adapter renders distinct group members and round events in ChatR
     writeClipboard: async () => true,
     UserMessageContent: () => null,
   }
+  const emptyArgs = { keys: () => [], has: () => false, complete: () => true, closed: () => true, text: () => undefined, textPrefix: () => undefined, value: () => undefined }
   new Function('module', 'exports', 'require', code)(mod, mod.exports, id => (
-    id === '@deepseek-ai/dsh-client-ui-primitives' ? primitives : id === 'react-dom' ? { createPortal: el => el } : harness.React
+    id === '@deepseek-ai/dsh-client-ui-primitives' ? primitives
+      : id === '@deepseek-ai/dsh-llm/assistant-stream' ? { assembleAssistantStream: () => ({ push() {}, blocks: () => [] }) }
+        : id === '@deepseek-ai/dsh-util-values' ? { PartialArguments: class { static EMPTY = emptyArgs; static fromText() { return emptyArgs } static fromObject() { return emptyArgs } append() {} } }
+          : id === 'react-dom' ? { createPortal: el => el } : harness.React
   ))
   const { ChatRows, adaptRoomItems } = mod.exports
 
@@ -966,7 +842,7 @@ test('room-chat adapter renders distinct group members and round events in ChatR
   const origWin = globalThis.window
   const origDoc = globalThis.document
   globalThis.window = { addEventListener() {}, removeEventListener() {}, innerWidth: 1200, innerHeight: 800 }
-  globalThis.document = { body: { dataset: {} }, querySelectorAll: () => [] }
+  globalThis.document = { body: { dataset: {} }, querySelectorAll: () => [], addEventListener() {}, removeEventListener() {} }
   try {
     const adapted = adaptRoomItems(roomChatItems)
     const tree = harness.render(harness.React.createElement(ChatRows, {
@@ -996,5 +872,493 @@ test('room-chat adapter renders distinct group members and round events in ChatR
   } finally {
     globalThis.window = origWin
     globalThis.document = origDoc
+  }
+})
+
+test('Settings nav icons are unique and KeyIcon uses valid circle geometry', async () => {
+  const settingsSrc = readFileSync(join(clientDir, 'settings.js'), 'utf8')
+  const pageIconsMatch = settingsSrc.match(/const PAGE_ICONS = \{([^}]+)\}/)
+  assert.ok(pageIconsMatch, 'PAGE_ICONS map should exist in settings.js')
+  assert.doesNotMatch(pageIconsMatch[1], /\bim:\s*ChatsIcon\b/, 'IM must not reuse ChatsIcon (Group chats)')
+  assert.doesNotMatch(pageIconsMatch[1], /\bcapabilities:\s*PlugIcon\b/, 'Capabilities must not reuse PlugIcon (MCP)')
+  assert.doesNotMatch(pageIconsMatch[1], /'bot-models':\s*IconPersonalizationOutlineMedium\b/, 'Bot models must not reuse DSH plugins icon')
+  const pairs = [...pageIconsMatch[1].matchAll(/(?:'([^']+)'|([A-Za-z_]\w*))\s*:\s*([A-Za-z_]\w*)/g)]
+  const seenIcons = new Map()
+  for (const [, quoted, bare, icon] of pairs) {
+    const page = quoted ?? bare
+    assert.ok(!seenIcons.has(icon), `Settings page "${page}" shares icon "${icon}" with "${seenIcons.get(icon)}"`)
+    seenIcons.set(icon, page)
+  }
+
+  const code = await loadClientBundle("export { KeyIcon, SecretsPage } from './src/client/secret-card.js'")
+  const fake = makeFakeReact()
+  const mod = { exports: {} }
+  new Function('module', 'exports', 'require', code)(mod, mod.exports, () => fake.React)
+  const { KeyIcon, SecretsPage } = mod.exports
+
+  const keyTree = KeyIcon()
+  const circles = findAll(keyTree, n => n.type === 'circle')
+  assert.equal(circles.length, 1, 'KeyIcon should render a real circle for the key bow')
+  assert.doesNotMatch(JSON.stringify(keyTree), /\.01z/, 'KeyIcon must not use degenerate .01z arc')
+
+  const Section = ({ title, children }) => fake.React.createElement('section', { className: 'bt-set-section' },
+    fake.React.createElement('h3', null, title),
+    fake.React.createElement('div', { className: 'bt-set-card' }, children))
+  for (const mode of ['plaintext', 'encrypted']) {
+    fake.clear()
+    const tree = fake.React.createElement('div', null, SecretsPage({
+      roster: { bots: [], byId: {}, secrets: [], secretStore: { mode } },
+      actions: {},
+      run: p => p,
+      Section,
+    }))
+    const cards = findAll(tree, n => n.props?.className === 'bt-set-card')
+    for (const card of cards) {
+      for (const child of card.children) {
+        assert.notEqual(child.props?.className, 'bt-actions', `SecretStoreCard (${mode}) must not put unpadded .bt-actions directly inside .bt-set-card`)
+      }
+    }
+  }
+})
+
+test('styles.js places .bt-set-card divider rule after .bt-set-row and preserves .bt-phone-server override', async () => {
+  const code = await loadClientBundle("export { SHELL_CSS } from './src/client/styles.js'")
+  const mod = { exports: {} }
+  new Function('module', 'exports', 'require', code)(mod, mod.exports, () => ({}))
+  const { SHELL_CSS } = mod.exports
+  const rowPos = SHELL_CSS.indexOf('.bt-set-row{')
+  const dividerPos = SHELL_CSS.indexOf('.bt-set-card>*+*{border-top:')
+  const phonePos = SHELL_CSS.indexOf('.bt-set-card>.bt-set-row.bt-phone-server{border-top:0;padding-top:0}')
+  assert.ok(rowPos > 0 && dividerPos > rowPos, '.bt-set-card>*+* must follow .bt-set-row so border:0 does not strip card dividers')
+  assert.ok(phonePos > dividerPos, '.bt-phone-server must override .bt-set-card>*+* without clipping input padding')
+})
+
+test('BotPanel and PanelStrip unify workspace tabs with Details/Side chat, keep workspace mounted while hidden, and stay unchanged when workspace is omitted', async () => {
+  const code = await loadClientBundle(`
+    export { BotPanel, PanelStrip, BROWSER_CSS } from './src/client/browser-pane.js'
+  `)
+  const harness = makeStatefulReact()
+  const mod = { exports: {} }
+  const origWin = globalThis.window
+  const origDoc = globalThis.document
+  const origRO = globalThis.ResizeObserver
+  const origLS = globalThis.localStorage
+  const origRaf = globalThis.requestAnimationFrame
+  const origCancelRaf = globalThis.cancelAnimationFrame
+  globalThis.requestAnimationFrame = () => 0
+  globalThis.cancelAnimationFrame = () => {}
+  globalThis.window = {
+    addEventListener() {},
+    removeEventListener() {},
+    matchMedia: () => ({ matches: true }),
+  }
+  globalThis.document = {
+    body: { dataset: {} },
+    head: { appendChild() {} },
+    createElement: () => ({
+      dataset: {},
+      style: {},
+      textContent: '',
+      sheet: { cssRules: [{ style: { setProperty() {}, removeProperty() {} } }], insertRule() { return 0 } },
+      remove() {},
+    }),
+    documentElement: { style: { setProperty() {}, removeProperty() {} } },
+    querySelector: () => null,
+    querySelectorAll: () => [],
+    addEventListener() {},
+    removeEventListener() {},
+  }
+  globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} }
+  globalThis.localStorage = { getItem: () => null, setItem() {} }
+
+  try {
+    new Function('module', 'exports', 'require', code)(mod, mod.exports, id => (
+      id === 'react-dom' ? { createPortal: el => el } : harness.React
+    ))
+    const { BotPanel, PanelStrip, BROWSER_CSS } = mod.exports
+
+    assert.match(BROWSER_CSS, /\.bt-panel-view\[hidden\]\{display:none\}/, 'hidden panel views must collapse display:flex')
+    assert.match(BROWSER_CSS, /\.bt-ptabs-in\{[^}]*flex:0 1 auto;[^}]*padding:4px 2px 4px 0/, 'panel strip must size to tabs with browser-style flex and omit left padding')
+    assert.match(BROWSER_CSS, /\.bt-ptabs-in\[data-overflow-right\]\{mask-image:linear-gradient/, 'right-edge fade mask must apply only when strip overflows right')
+    assert.match(BROWSER_CSS, /\.bt-ptabs-in>\.bt-ptab-bot\{[^}]*box-shadow:[^}]*var\(--bt-main\)/, 'sticky Bot tab must mask scrolled-under tabs behind its edges and rounded corners')
+    assert.match(BROWSER_CSS, /\.bt-ptabs-in>\.bt-ptab-bot\[aria-selected=true\]\{background:color-mix\(in srgb,var\(--bt-ink\) 6%,var\(--bt-main\)\);box-shadow:[^}]*var\(--bt-main\)/, 'selected sticky Bot tab must keep opaque surface and mask shadow so scrolling never bleeds behind it')
+    assert.match(BROWSER_CSS, /\.bt-ptab-close\{flex:none;margin-left:auto\}/, 'close button must stay pinned right while + follows the tab strip')
+
+    const roster = {
+      bots: [{ id: 'b1', name: 'Scout' }],
+      rooms: [],
+      byId: { b1: { id: 'b1', name: 'Scout', parts: [] } },
+      roomsById: {},
+      mainBotIds: ['b1'],
+      exchangeTurns: {},
+      models: [],
+      sideChats: { b1: [{ id: 's1', entries: [{ id: 'e1', question: 'Check API', answer: 'Done', status: 'done' }] }] },
+      browser: false,
+    }
+    const viewsSet = []
+    const selectedTabs = []
+    const closedTabs = []
+    let panelClosed = 0
+    const actions = {
+      closeOverlay() {},
+      closePanel() { panelClosed += 1 },
+      setPanelView(next) { viewsSet.push(next) },
+      openSideChat() {},
+      closeSideChat() {},
+      browserShow: () => Promise.resolve(),
+    }
+    const DummyIcon = () => harness.React.createElement('svg', { width: 14, height: 14 })
+    const renderCalls = []
+    const wsTabs = [
+      { id: 'files', label: 'Files', icon: DummyIcon, closable: true },
+      { id: 'terminal', label: 'Terminal', icon: DummyIcon, closable: true },
+      { id: 'plugin:ext', label: 'Inspector', icon: DummyIcon, closable: false },
+    ]
+    const makeWorkspace = (active, tabs = wsTabs) => ({
+      tabs,
+      active,
+      onSelect: id => selectedTabs.push(id),
+      onCloseTab: id => closedTabs.push(id),
+      render: (activeTabId, visible) => {
+        renderCalls.push({ activeTabId, visible })
+        return harness.React.createElement('div', { className: 'test-ws-body', 'data-active': activeTabId, 'data-visible': String(visible) })
+      },
+    })
+    const baseProps = {
+      leaving: false,
+      room: 1200,
+      overlay: false,
+      roster,
+      actions,
+      useSessions: sel => sel({ byId: {}, projectionsBySession: {} }),
+      useSessionStatus: sel => sel(new Map()),
+      useActivity: sel => sel({}),
+      useWork: sel => sel({ bots: {}, rooms: {}, approvals: [], waiting: {} }),
+      useBrowserTabs: sel => sel({}),
+      useBrowserPages: sel => sel({}),
+      useBrowserHolds: sel => sel({}),
+      useComputer: sel => sel({}),
+    }
+
+    // 1. DSH plugin mode (workspace omitted): zero workspace DOM, no strip when no tabs/sides/task.
+    let tree = harness.render(harness.React.createElement(BotPanel, {
+      ...baseProps,
+      roster: { ...roster, sideChats: {} },
+      pane: { id: 'b1', view: 'details', renaming: false, tab: null, side: null },
+    }))
+    assert.equal(findAll(tree, n => n.props?.className === 'bt-ptabs').length, 0)
+    assert.equal(findAll(tree, n => String(n.props?.className ?? '').includes('bt-panel-workspace')).length, 0)
+    assert.equal(tree.props['data-view'], 'details')
+    assert.equal(tree.props.style['--bt-panel-w'], '320px')
+
+    // 2. Unified BotPanel with workspace tabs: renders strip + Bot tab + workspace tabs, wide default 440px.
+    harness.unmount()
+    tree = harness.render(harness.React.createElement(BotPanel, {
+      ...baseProps,
+      pane: { id: 'b1', view: 'workspace', renaming: false, tab: null, side: null },
+      workspace: makeWorkspace('terminal'),
+    }))
+    assert.equal(tree.props['data-view'], 'workspace')
+    assert.equal(tree.props['aria-label'], 'Terminal')
+    assert.equal(tree.props.style['--bt-panel-w'], '440px')
+    assert.equal(findAll(tree, n => n.props?.className === 'bt-ptab bt-ptab-bot').length, 1)
+    assert.equal(findAll(tree, n => n.props?.['data-ws-tab'] !== undefined).length, 3)
+    const wsWrap = findAll(tree, n => String(n.props?.className ?? '').includes('bt-panel-workspace'))[0]
+    assert.equal(wsWrap.props.hidden, false)
+    assert.deepEqual(renderCalls.at(-1), { activeTabId: 'terminal', visible: true })
+
+    // Non-closable plugin tab omits close button and carries bt-ptab-fixed.
+    const pluginWrap = findAll(tree, n => n.props?.['data-ws-tab'] === 'plugin:ext')[0]
+    assert.match(pluginWrap.props.className, /bt-ptab-fixed/)
+    assert.equal(findAll(pluginWrap, n => n.props?.className === 'bt-ptab-x').length, 0)
+
+    // Clicking Close on Files tab calls onCloseTab('files'); middle-clicking Terminal calls onCloseTab('terminal').
+    const filesWrap = findAll(tree, n => n.props?.['data-ws-tab'] === 'files')[0]
+    findAll(filesWrap, n => n.props?.className === 'bt-ptab-x')[0].props.onClick()
+    const termWrap = findAll(tree, n => n.props?.['data-ws-tab'] === 'terminal')[0]
+    findAll(termWrap, n => n.props?.role === 'tab')[0].props.onAuxClick({ button: 1, preventDefault() {} })
+    assert.deepEqual(closedTabs, ['files', 'terminal'])
+
+    // 3. Switching to Details keeps workspace mounted with hidden=true and visible=false!
+    tree = harness.render(harness.React.createElement(BotPanel, {
+      ...baseProps,
+      pane: { id: 'b1', view: 'details', renaming: false, tab: null, side: null },
+      workspace: makeWorkspace('terminal'),
+    }))
+    assert.equal(tree.props['data-view'], 'details')
+    const hiddenWsWrap = findAll(tree, n => String(n.props?.className ?? '').includes('bt-panel-workspace'))[0]
+    assert.ok(hiddenWsWrap, 'workspace container must stay mounted while hidden')
+    assert.equal(hiddenWsWrap.props.hidden, true)
+    assert.deepEqual(renderCalls.at(-1), { activeTabId: 'terminal', visible: false })
+
+    // Clicking a workspace tab while on Details switches view to workspace AND selects the tab.
+    const pluginBtn = findAll(findAll(tree, n => n.props?.['data-ws-tab'] === 'plugin:ext')[0], n => n.props?.role === 'tab')[0]
+    pluginBtn.props.onClick()
+    assert.deepEqual(viewsSet, ['workspace'])
+    assert.deepEqual(selectedTabs, ['plugin:ext'])
+
+    // 4. Classic Agent mode (!bot && !roomSubject): omits .bt-ptab-bot, resolves workspace view, hides DetailsDrawer.
+    harness.unmount()
+    tree = harness.render(harness.React.createElement(BotPanel, {
+      ...baseProps,
+      pane: { id: 'agent-1', view: 'workspace', renaming: false, tab: null, side: null },
+      workspace: makeWorkspace('files'),
+    }))
+    assert.equal(tree.props['data-view'], 'workspace')
+    assert.equal(tree.props['aria-label'], 'Files')
+    assert.equal(findAll(tree, n => n.props?.className === 'bt-ptabs').length, 1)
+    assert.equal(findAll(tree, n => n.props?.className === 'bt-ptab bt-ptab-bot').length, 0)
+    assert.equal(findAll(tree, n => n.props?.className === 'bt-drawer-body').length, 0)
+
+    // Leaving after closePanel clears workspace.tabs: stays on workspace without flashing DetailsDrawer.
+    tree = harness.render(harness.React.createElement(BotPanel, {
+      ...baseProps,
+      leaving: true,
+      pane: { id: 'agent-1', view: 'workspace', renaming: false, tab: null, side: null },
+      workspace: makeWorkspace(null, []),
+    }))
+    assert.equal(tree.props['data-view'], 'workspace')
+    assert.equal(findAll(tree, n => n.props?.className === 'bt-drawer-body').length, 0)
+
+    // 5. PanelStrip active capsule tracks [data-ws-tab="..."] including plugin IDs with colons.
+    harness.unmount()
+    const wsNodeA = { isConnected: true, offsetLeft: 50, offsetWidth: 70 }
+    const wsNodeB = { isConnected: true, offsetLeft: 124, offsetWidth: 90 }
+    const box = {
+      offsetWidth: 400,
+      scrollLeft: 0,
+      querySelector(sel) {
+        if (sel === '[data-ws-tab="files"]') return wsNodeA
+        if (sel === '[data-ws-tab="plugin:ext"]') return wsNodeB
+        return null
+      },
+      querySelectorAll: () => [wsNodeA, wsNodeB],
+    }
+    const capsule = { style: {}, animate: () => ({ cancel() {} }) }
+    const renderStrip = (active) => {
+      harness.render(harness.React.createElement(PanelStrip, {
+        bot: undefined,
+        roomSubject: undefined,
+        subject: 'agent-1',
+        view: 'workspace',
+        ids: [],
+        active: null,
+        sides: [],
+        side: null,
+        hasSubjectDetails: false,
+        workspace: makeWorkspace(active),
+        canBrowse: false,
+        reading: false,
+        onView() {},
+        actions,
+        useBrowserPages: sel => sel({}),
+      }), (stripTree) => {
+        const wrapNode = findAll(stripTree, n => n.props?.className === 'bt-ptabs-in')[0]
+        const indNode = findAll(stripTree, n => n.props?.className === 'bt-ptab-ind')[0]
+        if (!wrapNode.props.ref.current) {
+          wrapNode.props.ref.current = box
+          indNode.props.ref.current = capsule
+        }
+      })
+    }
+    renderStrip('files')
+    assert.equal(capsule.style.left, '50px')
+    assert.equal(capsule.style.right, '280px')
+    renderStrip('plugin:ext')
+    assert.equal(capsule.style.left, '124px')
+    assert.equal(capsule.style.right, '186px')
+    assert.equal(panelClosed, 0)
+    harness.unmount()
+  } finally {
+    harness.unmount()
+    globalThis.window = origWin
+    globalThis.document = origDoc
+    globalThis.ResizeObserver = origRO
+    globalThis.localStorage = origLS
+    globalThis.requestAnimationFrame = origRaf
+    globalThis.cancelAnimationFrame = origCancelRaf
+  }
+})
+
+test('PanelStrip translates vertical wheel to horizontal scroll, tracks overflow flags, keeps sticky Chief aligned, and macOS/sidebar styles stay clean', async () => {
+  const code = await loadClientBundle(`
+    export { PanelMenu, PanelStrip, PlusTabIcon } from './src/client/browser-pane.js'
+    export { DetailsDrawer } from './src/client/details-drawer.js'
+    export { SHELL_CSS } from './src/client/styles.js'
+    export { SIDEBAR_CSS } from './src/client/sidebar.js'
+  `)
+  const harness = makeStatefulReact()
+  const mod = { exports: {} }
+  let roCallback = null
+  const origWin = globalThis.window
+  const origDoc = globalThis.document
+  const origRO = globalThis.ResizeObserver
+  const origRaf = globalThis.requestAnimationFrame
+  const origCancelRaf = globalThis.cancelAnimationFrame
+  globalThis.requestAnimationFrame = () => 0
+  globalThis.cancelAnimationFrame = () => {}
+  globalThis.window = { addEventListener() {}, removeEventListener() {}, matchMedia: () => ({ matches: true }), innerWidth: 1280 }
+  globalThis.document = { body: { dataset: {} }, querySelectorAll: () => [], addEventListener() {}, removeEventListener() {} }
+  globalThis.ResizeObserver = class {
+    constructor(cb) { roCallback = cb }
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+
+  try {
+    new Function('module', 'exports', 'require', code)(mod, mod.exports, id => (
+      id === 'react-dom' ? { createPortal: el => el } : harness.React
+    ))
+    const { PanelMenu, PanelStrip, DetailsDrawer, SHELL_CSS, SIDEBAR_CSS } = mod.exports
+
+    // macOS drag rule excludes .bt-ptabs-in so wheel/trackpad scrolling is never swallowed.
+    assert.match(SHELL_CSS, /html\[data-platform=darwin\] \.bt-panel \[data-window-drag\] :is\([^)]*\.bt-ptabs-in[^)]*\)\{-webkit-app-region:no-drag\}/)
+    // DSH Agent whale sits cleanly on transparent background without a fake-selected grey disc.
+    assert.match(SIDEBAR_CSS, /\.bt-agent-ava\{[^}]*background:transparent/)
+    assert.doesNotMatch(SIDEBAR_CSS, /\.bt-agent-ava\{[^}]*background:var\(--bt-hover\)/)
+
+    const listeners = new Map()
+    const botTab = { isConnected: true, offsetLeft: 0, offsetWidth: 64 }
+    const tabFiles = { isConnected: true, offsetLeft: 68, offsetWidth: 96 }
+    const box = {
+      offsetWidth: 260,
+      clientWidth: 260,
+      scrollWidth: 520,
+      scrollLeft: 0,
+      dataset: {},
+      addEventListener(type, fn, opts) { listeners.set(type, { fn, opts }) },
+      removeEventListener(type) { listeners.delete(type) },
+      querySelector(sel) {
+        if (sel === '.bt-ptab-bot') return botTab
+        if (sel === '[data-ws-tab="files"]') return tabFiles
+        return null
+      },
+      querySelectorAll: () => [botTab, tabFiles],
+    }
+    const capsule = { style: {}, animate: () => ({ cancel() {} }) }
+    const DummyIcon = () => harness.React.createElement('svg', { width: 14, height: 14 })
+    const renderStrip = (view) => harness.render(harness.React.createElement(PanelStrip, {
+      bot: { id: 'b1', name: 'Chief' },
+      subject: 'b1',
+      view,
+      ids: [],
+      active: null,
+      sides: [],
+      side: null,
+      workspace: { tabs: [{ id: 'files', label: 'Files', icon: DummyIcon }], active: 'files', onSelect() {}, onCloseTab() {} },
+      canBrowse: false,
+      reading: false,
+      onView() {},
+      actions: { closePanel() {}, canOpenFiles: () => true, canOpenTerminal: () => true, openFiles() {}, newTerminal() {}, newSideChat() {} },
+      useBrowserPages: sel => sel({}),
+    }), (tree) => {
+      const wrapNode = findAll(tree, n => n.props?.className === 'bt-ptabs-in')[0]
+      const indNode = findAll(tree, n => n.props?.className === 'bt-ptab-ind')[0]
+      if (!wrapNode.props.ref.current) {
+        wrapNode.props.ref.current = box
+        indNode.props.ref.current = capsule
+      }
+    })
+
+    const stripTree = renderStrip('details')
+    const newTabBtn = findAll(stripTree, n => n.props?.className === 'bt-ptab-new')[0]
+    assert.ok(newTabBtn, 'PanelStrip renders crisp + new-tab button')
+    assert.equal(newTabBtn.props['aria-label'], 'New tab')
+    assert.equal(listeners.get('wheel')?.opts?.passive, false, 'wheel listener must be non-passive so preventDefault works')
+    assert.equal('overflowRight' in box.dataset, true, 'overflowing strip marks data-overflow-right')
+    assert.equal('overflowLeft' in box.dataset, false)
+
+    // Vertical wheel scroll translates deltaY (pixel, line, and page modes) to scrollLeft.
+    let prevented = 0
+    listeners.get('wheel').fn({ deltaX: 0, deltaY: 40, deltaMode: 0, preventDefault() { prevented += 1 } })
+    assert.equal(box.scrollLeft, 40)
+    assert.equal(prevented, 1)
+    assert.equal('overflowLeft' in box.dataset, true)
+    assert.equal('overflowRight' in box.dataset, true)
+
+    listeners.get('wheel').fn({ deltaX: 0, deltaY: 2, deltaMode: 1, preventDefault() { prevented += 1 } })
+    assert.equal(box.scrollLeft, 88, 'line deltaMode multiplies by 24px')
+    assert.equal(prevented, 2)
+
+    // Horizontal trackpad swipe (|deltaX| > |deltaY|) is left to native scrolling.
+    listeners.get('wheel').fn({ deltaX: 50, deltaY: 10, deltaMode: 0, preventDefault() { prevented += 1 } })
+    assert.equal(box.scrollLeft, 88)
+    assert.equal(prevented, 2)
+
+    // While Chief is selected and strip is scrolled right, sticky offsetLeft must not drift capsule; capsule hides until scrolled back.
+    botTab.offsetLeft = 88
+    listeners.get('scroll').fn()
+    assert.equal(capsule.style.opacity, '0', 'capsule hides under sticky Chief when scrolled right')
+    roCallback()
+    assert.equal(capsule.style.left, '0px', 'ResizeObserver keeps sticky Chief spot anchored at 0px')
+
+    // Scrolling to the far right clears data-overflow-right; shrinking content clears both.
+    box.scrollLeft = 260
+    listeners.get('scroll').fn()
+    assert.equal('overflowRight' in box.dataset, false)
+    assert.equal('overflowLeft' in box.dataset, true)
+    box.scrollWidth = 220
+    box.scrollLeft = 0
+    roCallback()
+    assert.equal('overflowRight' in box.dataset, false)
+    assert.equal('overflowLeft' in box.dataset, false)
+    listeners.get('wheel').fn({ deltaX: 0, deltaY: 40, deltaMode: 0, preventDefault() { prevented += 1 } })
+    assert.equal(prevented, 2, 'non-overflowing strip does not hijack wheel')
+
+    // DetailsDrawer top row uses the same crisp `+` ("New tab") trigger under data-info-row="more".
+    harness.unmount()
+    const drawerTree = harness.render(harness.React.createElement(DetailsDrawer, {
+      sessionId: 'b1',
+      startRenaming: false,
+      startTab: null,
+      hasStrip: false,
+      roster: { bots: [{ id: 'b1', name: 'Chief' }], rooms: [], byId: { b1: { id: 'b1', name: 'Chief', parts: [] } }, roomsById: {}, mainBotIds: [], exchangeTurns: {}, models: [], sideChats: {}, browser: false },
+      actions: { closeOverlay() {}, canOpenFiles: () => true, openFiles() {}, newSideChat() {} },
+      useSessions: sel => sel({ byId: {}, projectionsBySession: {} }),
+      useSessionStatus: sel => sel(new Map()),
+      useActivity: sel => sel({}),
+      useWork: sel => sel({ bots: {}, rooms: {}, approvals: [], waiting: {} }),
+      useBrowserTabs: sel => sel({}),
+      useBrowserPages: sel => sel({}),
+      useComputer: sel => sel({}),
+    }))
+    const moreWrap = findAll(drawerTree, n => n.props?.['data-info-row'] === 'more')[0]
+    assert.ok(moreWrap, 'DetailsDrawer keeps data-info-row="more"')
+    const moreBtn = findAll(moreWrap, n => n.type === 'button')[0]
+    assert.equal(moreBtn.props['aria-label'], 'New tab')
+
+    // PanelMenu clamps popover inside [panel.left + 8, panel.right - 8] even when centered in a 320px panel.
+    harness.unmount()
+    const panelRect = { left: 800, right: 1120 }
+    const triggerWrap = {
+      getBoundingClientRect: () => ({ left: 948, right: 976 }),
+      closest: sel => (sel === '.bt-panel' ? { getBoundingClientRect: () => panelRect } : null),
+      contains: () => true,
+    }
+    const popEl = { offsetWidth: 184, style: {} }
+    const renderMenu = () => harness.render(harness.React.createElement(PanelMenu, {
+      items: [{ key: 'files', icon: DummyIcon, label: 'Files', onPick() {} }],
+      className: 'bt-ptab-new',
+      'aria-label': 'New tab',
+    }), (tree) => {
+      const span = findAll(tree, n => n.props?.className === 'bt-pmenu')[0]
+      if (span && !span.props.ref.current) span.props.ref.current = triggerWrap
+      const pop = findAll(tree, n => n.props?.className === 'bt-pmenu-pop')[0]
+      if (pop && !pop.props.ref.current) pop.props.ref.current = popEl
+    })
+    const closedMenuTree = renderMenu()
+    findAll(closedMenuTree, n => n.props?.className === 'bt-ptab-new')[0].props.onClick()
+    renderMenu()
+    // 976 - 184 = 792 < 808 -> clamped left to 808 -> right = 976 - (808 + 184) = -16px.
+    assert.equal(popEl.style.right, '-16px', 'centered + popover on 320px panel must clamp 8px inside left border')
+    harness.unmount()
+  } finally {
+    harness.unmount()
+    globalThis.window = origWin
+    globalThis.document = origDoc
+    globalThis.ResizeObserver = origRO
+    globalThis.requestAnimationFrame = origRaf
+    globalThis.cancelAnimationFrame = origCancelRaf
   }
 })

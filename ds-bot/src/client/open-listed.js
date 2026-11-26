@@ -13,12 +13,19 @@ export const OPENING_FAIL_MS = 10_000
 
 export function listedOpener({ list, open, refresh, current, begin, done, fail, gone, waitMs = OPENING_FAIL_MS, schedule = setTimeout, clear = clearTimeout }) {
   let drop = () => {}
+  let waitingTarget = null
   return (target) => {
+    // Re-requesting the Session we are already waiting for keeps the wait and its
+    // cover steady instead of tearing them down and flashing them back in. Once a wait
+    // has failed, `waitingTarget` is cleared so clicking the same target retries.
+    if (waitingTarget === target) return
     drop()
     drop = () => {}
+    if (current?.() === target) return
     const listed = () => list.getSnapshot().byId?.[target] !== undefined
     if (listed()) { open(target); return }
     const from = current?.()
+    waitingTarget = target
     begin?.(target)
     let state = 'waiting'
     let timer
@@ -33,11 +40,14 @@ export function listedOpener({ list, open, refresh, current, begin, done, fail, 
     }
     // Every wait settles once: opened, dismissed by another navigation (through here or
     // via the native shell), or taken over by a newer wait. Entering the failed state stops
-    // the deadline timer but keeps observing `list` so external navigation lifts the cover
-    // and a Session that arrives late still opens.
+    // the deadline timer and clears `waitingTarget` (so clicking the same target retries),
+    // while keeping the list listener so external navigation lifts the cover and a Session
+    // that arrives late still opens.
     const settle = () => {
       if (state === 'settled') return false
       state = 'settled'
+      if (waitingTarget === target) waitingTarget = null
+      drop = () => {}
       clearTimer()
       unsubscribe()
       done?.(target)
@@ -46,13 +56,18 @@ export function listedOpener({ list, open, refresh, current, begin, done, fail, 
     const failWait = () => {
       if (state !== 'waiting') return false
       state = 'failed'
+      if (waitingTarget === target) waitingTarget = null
       clearTimer()
       fail?.(target)
       return true
     }
     drop = () => { settle() }
     off = list.subscribe(() => {
-      if (current?.() !== from) { settle(); return }
+      const now = current?.()
+      if (now === target) { settle(); return }
+      // Clearing `from` (e.g. an archived earlier part during a part switch) is not a
+      // navigation elsewhere; only landing on another real Session drops the wait.
+      if (now !== undefined && now !== from) { settle(); return }
       if (!listed()) return
       if (settle()) open(target)
     })

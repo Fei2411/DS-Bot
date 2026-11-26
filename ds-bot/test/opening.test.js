@@ -157,7 +157,7 @@ test('no model draws nothing at all', () => {
   assert.equal(module.exports.OpeningCover({ model: null, column: 0 }), null)
 })
 
-// 公开#1929: a Session gone from the library must not leave the cover up forever.
+// #1929: a Session gone from the library must not leave the cover up forever.
 test('a wait that cannot succeed keeps the cover as a failure with a way out', () => {
   const { ui, wait, queued } = waitRig()
   wait.begin({ target: 'bot-2', id: 'bot-2', name: 'Newcomer' })
@@ -169,7 +169,7 @@ test('a wait that cannot succeed keeps the cover as a failure with a way out', (
   assert.equal(model.failed, true)
   assert.equal(model.slow, false)
   const recovered = []
-  const tree = module.exports.OpeningCover({ model, column: 260, actions: { recoverOpening: id => recovered.push(id) } })
+  const tree = module.exports.OpeningCover({ model, column: 260, onNewSession: id => recovered.push(id) })
   const nodes = flat(tree)
   const text = nodes.filter(node => typeof node === 'string')
   assert.ok(text.includes('Newcomer'))
@@ -197,8 +197,30 @@ test('a group chat whose Session is gone says so without a Bot action', () => {
   assert.equal(model.group, true)
   assert.equal(model.failed, true)
   assert.equal(model.bot, undefined)
-  const tree = module.exports.OpeningCover({ model, column: 260, actions: { recoverOpening: () => { throw new Error('a group has no new Bot session to offer') } } })
+  const tree = module.exports.OpeningCover({ model, column: 260, onNewSession: () => { throw new Error('a group has no new Bot session to offer') } })
   const text = flat(tree).filter(node => typeof node === 'string')
   assert.ok(text.includes('This session is no longer available.'))
   assert.equal(text.includes('New session'), false)
+})
+
+test('a part switch within the same Bot or group does not cover the current chat until it clears, unless the wait failed', () => {
+  const chief = { id: 'bot-1', name: 'Chief', sessionId: 'part-2', parts: ['part-1'] }
+  const ops = { id: 'room-1', name: 'Ops', sessionId: 'room-2', ownParts: ['room-1'] }
+  const multiPart = {
+    byId: { 'bot-1': chief, 'part-1': chief, 'part-2': chief },
+    roomsById: { 'room-1': ops, 'room-2': ops },
+  }
+  // While part-1 is still on screen, keep showing Chief instead of flashing a cover.
+  assert.equal(openingModel({ pending: { target: 'part-2', id: 'bot-1', name: 'Chief' }, current: 'part-1', roster: multiPart }), null)
+  assert.equal(openingModel({ pending: { target: 'room-2', id: 'room-1', name: 'Ops' }, current: 'room-1', roster: multiPart }), null)
+  // Once part-1 clears (archived before part-2 lands), the cover steps in.
+  const covered = openingModel({ pending: { target: 'part-2', id: 'bot-1', name: 'Chief' }, current: null, roster: multiPart })
+  assert.equal(covered?.name, 'Chief')
+  // A failed wait must never be suppressed behind an earlier segment of the same Bot or group.
+  const failedBot = openingModel({ pending: { target: 'part-2', id: 'bot-1', name: 'Chief', failed: true }, current: 'part-1', roster: multiPart })
+  assert.equal(failedBot?.failed, true)
+  assert.equal(failedBot?.bot?.id, 'bot-1')
+  const failedRoom = openingModel({ pending: { target: 'room-2', id: 'room-1', name: 'Ops', failed: true }, current: 'room-1', roster: multiPart })
+  assert.equal(failedRoom?.failed, true)
+  assert.equal(failedRoom?.group, true)
 })

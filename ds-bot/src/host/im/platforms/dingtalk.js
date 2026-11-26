@@ -17,6 +17,7 @@ const OAPI = 'https://oapi.dingtalk.com'
 const TEXT_LIMIT = 5000
 const SOCKET_TIMEOUT = 30_000
 const IDLE_TIMEOUT = 10 * 60_000
+const SESSION_WEBHOOKS_MAX = 500
 
 const gatewayBase = env => String(env.config?.gateway ?? env.config?.api ?? GATEWAY).replace(/\/+$/, '')
 const oapiBase = env => String(env.config?.oapi ?? env.config?.api ?? OAPI).replace(/\/+$/, '')
@@ -128,7 +129,13 @@ export default {
       const mentioned = direct ? false : data.isInAtList === true
       const key = String(direct ? data.senderStaffId ?? data.senderId ?? '' : data.conversationId ?? '')
       if (data.sessionWebhook !== undefined) {
-        sessionWebhooks.set(key, { url: String(data.sessionWebhook), until: Date.now() + 20 * 60_000 })
+        const now = Date.now()
+        for (const [k, entry] of sessionWebhooks) {
+          if (entry.until <= now) sessionWebhooks.delete(k)
+        }
+        sessionWebhooks.delete(key)
+        sessionWebhooks.set(key, { url: String(data.sessionWebhook), until: now + 20 * 60_000 })
+        while (sessionWebhooks.size > SESSION_WEBHOOKS_MAX) sessionWebhooks.delete(sessionWebhooks.keys().next().value)
       }
       const sender = String(data.senderStaffId ?? data.senderId ?? '')
       const robotCode = String(data.robotCode || clientId)
@@ -185,7 +192,7 @@ export default {
           }
         }
         await handlers.onMessage({
-          chat: { key, kind: direct ? 'direct' : 'group', title: '' },
+          chat: { key, kind: direct ? 'direct' : 'group', title: direct ? '' : String(data.conversationTitle ?? '').trim() },
           sender: { id: sender, name: String(data.senderNick ?? sender) },
           text: texts.join('\n').trim(), images, files,
           mentioned, messageId: String(data.msgId ?? ''),
@@ -358,6 +365,7 @@ export default {
         generation += 1
         clearTimeout(reconnectTimer)
         clearSocketTimers()
+        sessionWebhooks.clear()
         const previous = socket
         socket = undefined
         try { previous?.close(1000, 'stop') } catch { /* not open */ }

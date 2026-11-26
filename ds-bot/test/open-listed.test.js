@@ -203,3 +203,63 @@ test('a Session that arrives late after failure lifts the card and opens once', 
   assert.deepEqual(finished, ['bot-2'])
   assert.deepEqual(opened, ['bot-2'])
 })
+
+test('re-requesting a failed target starts a fresh retry instead of staying locked', () => {
+  const list = store(['bot-1'])
+  list.setMain('bot-1')
+  const { show, opened, began, failed, finished, refreshCount, lastTimer } = rig(list)
+  show('bot-2')
+  assert.equal(refreshCount(), 1)
+  lastTimer().fn()
+  assert.deepEqual(failed, ['bot-2'])
+  // Clicking the same Bot again retries the wait and asks for a fresh list.
+  show('bot-2')
+  assert.deepEqual(finished, ['bot-2'])
+  assert.deepEqual(began, ['bot-2', 'bot-2'])
+  assert.equal(refreshCount(), 2)
+  list.set('bot-2')
+  assert.deepEqual(opened, ['bot-2'])
+  assert.deepEqual(finished, ['bot-2', 'bot-2'])
+})
+
+test('repeating the same unlisted target keeps the wait steady without flashing', () => {
+  const list = store(['bot-1'])
+  list.setMain('bot-1')
+  const { show, opened, began, finished, refreshCount } = rig(list)
+  show('bot-2')
+  show('bot-2')
+  show('bot-2')
+  assert.deepEqual(began, ['bot-2'])
+  assert.deepEqual(finished, [])
+  assert.equal(refreshCount(), 1)
+  list.set('bot-2')
+  assert.deepEqual(opened, ['bot-2'])
+  assert.deepEqual(finished, ['bot-2'])
+})
+
+test('requesting the already-active session does not reopen it', () => {
+  const list = store(['bot-1'])
+  list.setMain('bot-1')
+  const { show, opened, began, refreshCount } = rig(list)
+  show('bot-1')
+  assert.deepEqual(opened, [])
+  assert.deepEqual(began, [])
+  assert.equal(refreshCount(), 0)
+})
+
+test('clearing the old main view while waiting for a fresh part keeps the wait alive', () => {
+  const list = store(['part-1'])
+  list.setMain('part-1')
+  const { show, opened, began, finished } = rig(list)
+  show('part-2')
+  assert.deepEqual(began, ['part-2'])
+  assert.deepEqual(finished, [])
+  // Archiving part-1 clears mainView before part-2 arrives in the list.
+  delete list.getSnapshot().byId['part-1']
+  list.set('unrelated')
+  assert.deepEqual(finished, [])
+  assert.deepEqual(opened, [])
+  list.set('part-2')
+  assert.deepEqual(opened, ['part-2'])
+  assert.deepEqual(finished, ['part-2'])
+})

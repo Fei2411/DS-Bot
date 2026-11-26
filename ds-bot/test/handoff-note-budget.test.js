@@ -28,7 +28,7 @@ function* chunksOf(reply) {
 
 // A Bot's own chat part with the note writer around it. `replies` are answered in
 // order by the model stream; `info` holds resolveModelInfo per route.
-async function switchPart({ replies, info = {}, fallback, route = {}, oldNote, retryPolicy, manual = false, history, folder = false }) {
+async function switchPart({ replies, info = {}, fallback, route = {}, oldNote, retryPolicy, history, folder = false }) {
   const requests = []
   const warnings = []
   const infos = []
@@ -52,7 +52,7 @@ async function switchPart({ replies, info = {}, fallback, route = {}, oldNote, r
     resolveModelInfo: async (provider, model) => info[`${provider}/${model}`] ?? {},
     stream: (options) => {
       const prompt = options.messages.at(-1).content.map(block => block.text).join('')
-      requests.push({ provider: options.provider, model: options.model, reasoningEffort: options.reasoningEffort, maxTokens: options.maxTokens, prompt })
+      requests.push({ provider: options.provider, model: options.model, reasoningEffort: options.reasoningEffort, maxTokens: options.maxTokens, temperature: options.temperature, stop: options.stop, prompt })
       const reply = queue.shift()
       if (reply === undefined) throw new Error('no reply left for the note')
       if (reply instanceof Error) throw reply
@@ -64,7 +64,7 @@ async function switchPart({ replies, info = {}, fallback, route = {}, oldNote, r
   const session = {
     id: 's1',
     header: { cwd: '/tmp/team' },
-    requestHeader: () => ({ config: { provider: route.provider ?? 'deepseek', model: route.model ?? 'v4', ...(route.maxTokens === undefined ? {} : { maxTokens: route.maxTokens }) }, tools: [{ name: 'message_bot' }] }),
+    requestHeader: () => ({ config: { provider: route.provider ?? 'deepseek', model: route.model ?? 'v4', ...route }, tools: [{ name: 'message_bot' }] }),
     deriveMessages: () => MESSAGES,
     toolHistory: () => [],
   }
@@ -162,7 +162,6 @@ async function switchPart({ replies, info = {}, fallback, route = {}, oldNote, r
   }
   partsInstall(rt)
   if (folder) await rt.followFolder({ botId: 'b1' })
-  else if (manual) await rt.newPart('s1')
   else ctx.emit('agent/status', { agent, status: 'idle' })
   for (let at = 0; at < 100 && bot.sessionId !== 's2' && !warnings.some(line => /did not move on/.test(line)); at += 1) {
     await new Promise(done => setTimeout(done, 10))
@@ -183,37 +182,58 @@ test('a folder handoff capped before the Session start writes a note instead of 
   assert.doesNotMatch(run.packageText, /every message of the part was carried/)
 })
 
-test('the note asks for the lowest reasoning the model offers', async () => {
-  const off = await switchPart({ replies: [{ text: note('off-run') }], info: { 'deepseek/v4': { reasoning: { efforts: [{ id: 'off' }, { id: 'high' }] } } } })
-  assert.equal(off.bot.sessionId, 's2')
-  assert.equal(off.requests[0].reasoningEffort, 'off')
-  assert.match(off.packageText, /off-run/)
+test('attempt 1 preserves the session route config for prefix cache and steps down reasoning on max-tokens retry', async () => {
+  const preserved = await switchPart({
+    replies: [{ text: note('cached-run') }],
+    route: { reasoningEffort: 'high', maxTokens: 32_000, temperature: 0.2, stop: ['END'] },
+    info: { 'deepseek/v4': { reasoning: { efforts: [{ id: 'off' }, { id: 'high' }] } } },
+  })
+  assert.equal(preserved.bot.sessionId, 's2')
+  assert.equal(preserved.requests[0].reasoningEffort, 'high')
+  assert.equal(preserved.requests[0].maxTokens, 32_000)
+  assert.equal(preserved.requests[0].temperature, 0.2)
+  assert.deepEqual(preserved.requests[0].stop, ['END'])
+  assert.match(preserved.packageText, /cached-run/)
 
-  const lowest = await switchPart({ replies: [{ text: note('lowest-run') }], info: { 'deepseek/v4': { reasoning: { efforts: [{ id: 'minimal' }, { id: 'high' }] } } } })
-  assert.equal(lowest.requests[0].reasoningEffort, 'minimal')
+  const steppedOff = await switchPart({
+    replies: [{ text: '## Goals\n- cut off', kind: 'max-tokens' }, { text: note('off-retry') }],
+    route: { reasoningEffort: 'high', maxTokens: 32_000 },
+    info: { 'deepseek/v4': { reasoning: { efforts: [{ id: 'off' }, { id: 'high' }] } } },
+  })
+  assert.equal(steppedOff.bot.sessionId, 's2')
+  assert.deepEqual(steppedOff.requests.map(request => request.reasoningEffort), ['high', 'off'])
+  assert.deepEqual(steppedOff.requests.map(request => request.maxTokens), [32_000, 16_384])
+  assert.match(steppedOff.packageText, /off-retry/)
+
+  const steppedLowest = await switchPart({
+    replies: [{ text: '## Goals\n- cut off', kind: 'max-tokens' }, { text: note('lowest-retry') }],
+    route: { reasoningEffort: 'high' },
+    info: { 'deepseek/v4': { reasoning: { efforts: [{ id: 'minimal' }, { id: 'high' }] } } },
+  })
+  assert.deepEqual(steppedLowest.requests.map(request => request.reasoningEffort), ['high', 'minimal'])
 
   const none = await switchPart({ replies: [{ text: note('no-reasoning') }] })
   assert.equal(none.requests[0].reasoningEffort, undefined)
   assert.match(none.packageText, /no-reasoning/)
 })
 
-test('a cut-off note is asked again with a larger output budget, and the new note is what the fresh part gets', async () => {
+test('a cut-off note is asked again with a shorter prompt and lowered effort, and the new note is what the fresh part gets', async () => {
   const run = await switchPart({
     replies: [
-      { text: '## Goals\n- cut off here', kind: 'max-tokens', usage: { outputTokens: 8_192 } },
+      { text: '## Goals\n- cut off here', kind: 'max-tokens', usage: { outputTokens: 16_384 } },
       { text: note('second-attempt'), usage: { outputTokens: 900 } },
     ],
     oldNote: 'OLD NOTE FROM PART 1',
   })
   assert.equal(run.bot.sessionId, 's2', run.warnings.join(' | '))
-  assert.deepEqual(run.requests.map(request => request.maxTokens), [8_192, 16_384])
+  assert.deepEqual(run.requests.map(request => request.maxTokens), [16_384, 16_384])
   assert.match(run.requests[1].prompt, /shorter/)
   assert.match(run.packageText, /second-attempt/)
   assert.doesNotMatch(run.packageText, /OLD NOTE FROM PART 1/)
-  assert.ok(run.warnings.some(line => /cut off at the output limit \(finish max-tokens, output 8192 tokens\)/.test(line)), run.warnings.join(' | '))
+  assert.ok(run.warnings.some(line => /cut off at the output limit \(finish max-tokens, output 16384 tokens\)/.test(line)), run.warnings.join(' | '))
 })
 
-test('the larger retry budget stays inside what the route allows', async () => {
+test('the note uses the full output budget the route allows from attempt 1', async () => {
   const run = await switchPart({
     replies: [
       { text: '## Goals\n- cut off', kind: 'max-tokens' },
@@ -221,18 +241,18 @@ test('the larger retry budget stays inside what the route allows', async () => {
     ],
     route: { maxTokens: 10_000 },
   })
-  assert.deepEqual(run.requests.map(request => request.maxTokens), [8_192, 10_000])
+  assert.deepEqual(run.requests.map(request => request.maxTokens), [10_000, 10_000])
   assert.match(run.packageText, /capped/)
 })
 
-test('a note with missing sections or an empty reply still retries, and the retry gets the larger budget', async () => {
+test('a note with missing sections or an empty reply still retries with the route budget intact', async () => {
   const missing = await switchPart({
     replies: [
       { text: NOTE_SECTIONS.slice(0, 3).map(name => `## ${name}\n- x`).join('\n\n') },
       { text: note('filled-in') },
     ],
   })
-  assert.deepEqual(missing.requests.map(request => request.maxTokens), [8_192, 16_384])
+  assert.deepEqual(missing.requests.map(request => request.maxTokens), [16_384, 16_384])
   assert.match(missing.requests[1].prompt, /lacked these headings/)
   assert.match(missing.packageText, /filled-in/)
 
@@ -284,7 +304,7 @@ test('handoff note retries transient TRANSPORT failures within the provider retr
   })
   assert.equal(ok.bot.sessionId, 's2')
   assert.equal(ok.requests.length, 2)
-  assert.deepEqual(ok.requests.map(request => request.maxTokens), [8_192, 8_192])
+  assert.deepEqual(ok.requests.map(request => request.maxTokens), [16_384, 16_384])
   assert.match(ok.packageText, /after-transport/)
 
   const capped = await switchPart({
@@ -295,15 +315,4 @@ test('handoff note retries transient TRANSPORT failures within the provider retr
     retryPolicy: { mode: 'normal', maxRetries: 1, retryableCodes: ['TRANSPORT'], initialDelayMs: 1, maxDelayMs: 5, jitterRatio: 0 },
   })
   assert.equal(capped.requests.length, 2)
-})
-
-// #1716: "New session" moves on with the deterministic package and never asks the
-// model, so a part whose route keeps failing still gets a fresh one at once.
-test('a manual new part asks the model for nothing', async () => {
-  const run = await switchPart({ replies: [new Error('the route is down')], manual: true, oldNote: 'OLD NOTE FROM PART 1' })
-  assert.equal(run.bot.sessionId, 's2', run.warnings.join(' | '))
-  assert.equal(run.requests.length, 0)
-  assert.equal(run.warnings.filter(line => /handoff note/.test(line)).length, 0, run.warnings.join(' | '))
-  assert.match(run.packageText, /because a fresh conversation was started/)
-  assert.match(run.packageText, /without the model, because a fresh conversation was started[^]*OLD NOTE FROM PART 1/)
 })

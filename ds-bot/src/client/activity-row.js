@@ -2,9 +2,10 @@ import { createElement as h, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import { createPortal } from 'react-dom'
 import { BotMark, RoomAvatar } from './mark.js'
 import { Elapsed, Shimmer, PHRASES } from './cells.js'
+import { MoveIcon } from './icons.js'
 import { noteClientError } from './diagnostics.js'
 import { reducedEffects, reducedMotion } from './motion.js'
-import { t } from './i18n.js'
+import { hostText, t } from './i18n.js'
 
 // -------------------------------------------------------------------------
 // The activity row: the Bot's mark and a shimmering phrase at the transcript
@@ -33,10 +34,18 @@ export const freshInputAt = (submissions, steeredAt) => Math.max(0, steeredAt ??
 // descendant one; a flow without a slot falls back to the first flow. No flow at all
 // is a mount failure, noted once per page — the observer keeps retrying in case the
 // transcript is only mid-mount.
+// The slot sits at the end of the flow, so the search walks the whole transcript; it
+// runs every frame the transcript changes, so the last slot found is kept while it
+// stays in its flow and running. The row lets it go when it stops, so a chat left
+// behind is not held in memory.
 let mountMissed = false
+let runningSlot = null
 export function findHost() {
-  const node = document.querySelector('[data-chat-flow] [data-chat-running]')?.closest('[data-chat-flow]')
-    ?? document.querySelector('[data-chat-flow]')
+  const kept = runningSlot?.slot
+  if (kept?.ownerDocument === document && kept?.isConnected && runningSlot.host?.isConnected && kept.hasAttribute('data-chat-running') && kept.closest('[data-chat-flow]') === runningSlot.host) return runningSlot.host
+  const slot = document.querySelector('[data-chat-flow] [data-chat-running]')
+  const node = slot?.closest('[data-chat-flow]') ?? document.querySelector('[data-chat-flow]')
+  runningSlot = slot ? { slot, host: node } : null
   if (node === null && !mountMissed) {
     mountMissed = true
     noteClientError('activity row', new Error('[data-chat-flow] not found'))
@@ -44,22 +53,31 @@ export function findHost() {
   return node
 }
 
+export function releaseHost() {
+  runningSlot = null
+}
+
 function useRunningHost(active) {
   const [host, setHost] = useState(null)
   useEffect(() => {
-    if (!active) { setHost(null); return undefined }
+    if (!active) { releaseHost(); setHost(null); return undefined }
     let frame = 0
+    let currentHost = null
+    let currentSlot = null
     const find = () => {
       frame = 0
-      setHost(prev => {
-        const node = findHost()
-        return prev === node ? prev : node
-      })
+      const node = findHost()
+      currentHost = node
+      currentSlot = node && runningSlot?.host === node ? runningSlot.slot : null
+      setHost(prev => (prev === node ? prev : node))
     }
-    const observer = new MutationObserver(() => { if (!frame) frame = requestAnimationFrame(find) })
+    const observer = new MutationObserver(() => {
+      if (currentHost?.isConnected && currentSlot?.isConnected && currentSlot.hasAttribute('data-chat-running') && currentHost.contains(currentSlot)) return
+      if (!frame) frame = requestAnimationFrame(find)
+    })
     observer.observe(document.querySelector('[data-conversation-scroll]') ?? document.body, { childList: true, subtree: true })
     find()
-    return () => { cancelAnimationFrame(frame); observer.disconnect() }
+    return () => { cancelAnimationFrame(frame); observer.disconnect(); releaseHost() }
   }, [active])
   return host
 }
@@ -82,7 +100,7 @@ function useRowEntrances(replacing) {
     }
     const scan = () => {
       frame = 0
-      const next = document.querySelector('[data-chat-flow]')
+      const next = column?.isConnected ? column : document.querySelector('[data-chat-flow]')
       if (next !== column) {
         observer.disconnect()
         column = next
@@ -98,15 +116,31 @@ function useRowEntrances(replacing) {
         }
         return
       }
-      const items = [...column.querySelectorAll(':scope > [data-chat-flow-key]')]
+      const items = []
+      for (const child of column.children) {
+        if (child.hasAttribute('data-chat-flow-key')) items.push(child)
+      }
       let last = -1
-      items.forEach((item, index) => { if (seen.has(item)) last = index })
+      for (let index = 0; index < items.length; index += 1) {
+        if (seen.has(items[index])) last = index
+      }
       if (reducedEffects()) return
-      const fresh = items.filter(item => !seen.has(item) && item.offsetHeight > 0)
-      for (const item of fresh) seen.add(item)
-      if (last < 0 || Date.now() - started < 800 || fresh.length > 3) return
-      for (const item of fresh) {
-        if (items.indexOf(item) < last) continue
+      if (last < 0 || Date.now() - started < 800) {
+        for (const item of items) {
+          if (!seen.has(item) && item.offsetHeight > 0) seen.add(item)
+        }
+        return
+      }
+      const fresh = []
+      for (let index = 0; index < items.length; index += 1) {
+        const item = items[index]
+        if (seen.has(item)) continue
+        if (item.offsetHeight > 0) fresh.push({ item, index })
+      }
+      for (const entry of fresh) seen.add(entry.item)
+      if (fresh.length > 3) return
+      for (const { item, index } of fresh) {
+        if (index < last) continue
         const reply = [undefined, 'assistant-step', 'tool-call'].includes(item.dataset.chatFlowKind)
         item.dataset.btEnter = reply && check.current() ? 'after-collapse' : 'new'
         item.addEventListener('animationend', settle)
@@ -129,6 +163,9 @@ export function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useL
   else if (runAt.current === 0) runAt.current = Date.now()
   const liveKey = useLive(state => JSON.stringify(state[sessionId] ?? {}))
   const steeredAt = useWork?.(work => work.steered?.[sessionId])
+  const bgInfo = useWork?.(work => work.canBackground?.[sessionId])
+  const [movingBg, setMovingBg] = useState(false)
+  useEffect(() => { setMovingBg(false) }, [sessionId, bgInfo?.turn])
   const pendingInput = useSession(snapshot => freshInputAt(snapshot?.pendingSubmissions, steeredAt))
   const bot = roster.byId[sessionId]
   const room = roster.roomsById[sessionId]
@@ -202,9 +239,32 @@ export function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useL
   useRowEntrances(() => leaving.current || Date.now() - endedAt.current < 300)
   const host = useRunningHost(running || moveAt !== 0)
   if (!host || phase === null || !shown) return null
-  return createPortal(h('div', { className: 'bt-typing', 'data-exiting': phase === 'out' ? '' : undefined, 'aria-hidden': true },
-    bot ? h(BotMark, { bot, size: 28, state: markState.current, live: true, pokeable: true }) : h(RoomAvatar, { room, roster, size: 28 }),
-    h('span', { className: 'bt-typing-text' },
+  const showBgAction = bot !== undefined && moveAt === 0 && bgInfo !== undefined && typeof actions?.moveToBackground === 'function'
+  const moveToBg = () => {
+    if (movingBg || !bgInfo) return
+    setMovingBg(true)
+    void Promise.resolve(actions.moveToBackground(bgInfo.botId, sessionId, bgInfo.turn))
+      .catch(error => {
+        setMovingBg(false)
+        actions.reportError?.(new Error(hostText(error?.message ?? String(error))), 'move-to-background')
+      })
+  }
+  return createPortal(h('div', { className: 'bt-typing', 'data-exiting': phase === 'out' ? '' : undefined },
+    h('span', { className: 'bt-typing-mark', 'aria-hidden': true },
+      bot ? h(BotMark, { bot, size: 28, state: markState.current, live: true, pokeable: true }) : h(RoomAvatar, { room, roster, size: 28 })),
+    h('span', { className: 'bt-typing-text', 'aria-hidden': true },
       h('span', { key: `${shown.key}:${shown.at}`, className: 'bt-typing-label' }, h(Shimmer, null, `${shown.text}…`)),
-      h(Elapsed, { at: moveAt !== 0 ? moveAt : Math.max(turnAt ?? runAt.current, inputAt), className: 'bt-typing-time' }))), host)
+      h(Elapsed, { at: moveAt !== 0 ? moveAt : Math.max(turnAt ?? runAt.current, inputAt), className: 'bt-typing-time' })),
+    showBgAction
+      ? h('button', {
+          type: 'button',
+          className: 'bt-typing-bg',
+          disabled: movingBg,
+          'aria-label': t('Move current work to background'),
+          title: t('Move current work to background'),
+          onClick: moveToBg,
+        },
+        h('span', { className: 'bt-typing-bg-ico', 'aria-hidden': true }, h(MoveIcon)),
+        h('span', null, movingBg ? t('Moving…') : t('Move to background')))
+      : null), host)
 }

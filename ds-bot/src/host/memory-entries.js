@@ -23,8 +23,56 @@ const META = /\s*\[([A-Za-z][\w-]*:[^\];]*(?:;\s*[A-Za-z][\w-]*:[^\];]*)*)\]\s*$
 export const NO_MATCH = 'memory/no-match'
 export const GONE = 'memory/bot-gone'
 export const DENIED = 'memory/denied'
+export const REFUSED = 'memory/refused'
+// A write too close to an entry memory dropped within the re-add guard window.
+export const RECENT_REMOVAL = 'memory/recent-removal'
 // The codes the memory review routes on. A failure that carries one keeps it.
-export const ROUTED = new Set([NO_MATCH, GONE, DENIED])
+export const ROUTED = new Set([NO_MATCH, GONE, DENIED, REFUSED, RECENT_REMOVAL])
+
+// How close two entries read to each other for the re-add guard. The measure is
+// containment, not Jaccard: what matters is how much of the smaller text the
+// larger one carries, because filler rewording of the same fact — "the user
+// likes the plain black tea", "用户比较喜欢红茶" — adds tokens rather than
+// replacing them, and Jaccard punishes exactly that. Stop words and inflections
+// fall out in `wordsOf`, so what is compared is the fact's own words. At or past
+// `READD_SIMILARITY` of the smaller text shared, one counts as the other
+// re-added. One guard keeps the measure honest: fewer than `READD_SHARED_MIN`
+// shared words is coincidence, not closeness. There is deliberately no smarter
+// exception: a lexical scan cannot tell "does not like" the correction apart
+// from "no doubt" the filler, and any such door is the guard's own bypass —
+// a real correction is the user's, and the user's own writes never face the
+// guard at all.
+export const READD_SIMILARITY = 0.8
+export const READD_SHARED_MIN = 2
+
+// The share of the smaller text's words the larger one carries: 1 when the
+// shorter text is word-for-word inside the longer. Empty token sets fall back
+// to the exact `squash` comparison the caller already makes, so they score 0 here.
+export function tokenOverlap(a, b) {
+  const first = wordsOf(a)
+  const second = wordsOf(b)
+  if (first.size === 0 || second.size === 0) return 0
+  let shared = 0
+  for (const word of first) if (second.has(word)) shared += 1
+  return shared / Math.min(first.size, second.size)
+}
+const sharedTokens = (a, b) => {
+  const first = wordsOf(a)
+  const second = wordsOf(b)
+  let shared = 0
+  for (const word of first) if (second.has(word)) shared += 1
+  return shared
+}
+
+// The entries a write must not silently bring back while the removal is fresh:
+// identical after `squash`, or this close by words.
+export const readdMatch = (text, dropped) => {
+  const candidate = squash(text)
+  if (candidate === '') return false
+  if (squash(dropped) === candidate) return true
+  if (sharedTokens(candidate, dropped) < READD_SHARED_MIN) return false
+  return tokenOverlap(candidate, dropped) >= READD_SIMILARITY
+}
 // What a review shows of memory, in characters of entry text.
 export const REVIEW_MEMORY_MAX = 16_000
 
@@ -48,8 +96,14 @@ export const bodySize = parsed => parsed.entries.reduce((sum, entry) => sum + en
 export const entryId = entry => entry.meta?.id ?? createHash('sha256').update(squash(entry.text)).digest('hex').slice(0, 4)
 export function newEntryId(entries) {
   const taken = new Set(entries.map(entryId))
+  if (taken.size < 32_768) {
+    for (let tries = 0; tries < 256; tries += 1) {
+      const id = randomBytes(2).toString('hex')
+      if (!taken.has(id)) return id
+    }
+  }
   for (;;) {
-    const id = randomBytes(2).toString('hex')
+    const id = randomBytes(3).toString('hex')
     if (!taken.has(id)) return id
   }
 }
@@ -91,11 +145,19 @@ export function formatEntry(text, meta = {}) {
   return `- ${text}${pairs.length > 0 ? ` [${pairs.join('; ')}]` : ''}`
 }
 
-// One line, without a bullet or metadata of its own: the tool adds those.
+const KNOWN_META_KEYS = new Set(['id', 'source', 'by', 'added', 'until', 'pinned', 'merged'])
+
+// One line, without a bullet or DS Bot metadata of its own: the tool adds those.
+// Arbitrary bracketed suffixes (e.g. "[timeout: 30]") stay untouched.
 export function cleanEntry(raw) {
   const line = String(raw ?? '').replace(/\s+/g, ' ').trim().replace(/^(?:[-*•]\s+)+/, '')
-  return splitMeta(line).text
+  const parsed = splitMeta(line)
+  const keys = Object.keys(parsed.meta)
+  return keys.length > 0 && keys.every(key => KNOWN_META_KEYS.has(key)) ? parsed.text : line
 }
+
+// A topic file with no entries left (only blank lines, headings, or `> about` notes).
+export const isEmptyTopic = lines => lines.every(line => line.trim() === '' || HEADING.test(line) || /^>(?:\s|$)/.test(line))
 
 // A flat file name: case folds on some file systems, so names are lower case.
 export function cleanTopic(raw) {
@@ -164,15 +226,21 @@ export function removeLink(lines, topic) {
 
 export const squash = text => String(text ?? '').replace(/\s+/g, ' ').trim().toLowerCase()
 
-// The entry a request means: the one with that exact text, else every entry that
-// contains it.
+// The entry a request means: exact text first, else id (returning collisions and
+// whole-word text conflicts for disambiguation), else every entry containing it.
 export function matchEntries(entries, wanted) {
   const key = squash(cleanEntry(wanted))
   if (key === '') return []
-  const named = entries.find(entry => entry.meta?.id === key || (/^[0-9a-f]{4}$/.test(key) && entryId(entry) === key))
-  if (named !== undefined) return [named]
-  const exact = entries.find(entry => squash(entry.text) === key)
-  if (exact !== undefined) return [exact]
+  const exact = entries.filter(entry => squash(entry.text) === key)
+  if (exact.length > 0) return exact
+  const isHexId = /^[0-9a-f]{4,6}$/.test(key)
+  const byId = entries.filter(entry => entry.meta?.id === key || (isHexId && entryId(entry) === key))
+  if (byId.length > 0) {
+    if (!isHexId) return byId
+    const wholeWord = new RegExp(`(?:^|[^a-z0-9])${key}(?:$|[^a-z0-9])`)
+    const textHits = entries.filter(entry => !byId.includes(entry) && wholeWord.test(squash(entry.text)))
+    return textHits.length > 0 ? [...byId, ...textHits] : byId
+  }
   return entries.filter(entry => squash(entry.text).includes(key))
 }
 
@@ -234,12 +302,65 @@ export function parseAsk(text) {
   return { reply: text.trim(), changes: [] }
 }
 
-// Words to compare by: Latin words of three letters or more, and pairs of Han
-// characters, which Chinese writes without spaces.
+// Closed-class English glue words omitted so common grammar does not drown out signal
+// words in auto-recall or BM25 scoring.
+const STOP_SHORT = new Set([
+  'am', 'an', 'as', 'at', 'be', 'by', 'do', 'he', 'if', 'in', 'is', 'it',
+  'me', 'my', 'no', 'of', 'on', 'or', 'so', 'to', 'up', 'us', 'we',
+])
+const STOP_WORDS = new Set([
+  'the', 'and', 'for', 'with', 'from', 'that', 'this', 'these', 'those',
+  'are', 'was', 'were', 'been', 'being', 'have', 'has', 'had', 'will', 'would',
+  'could', 'should', 'shall', 'must', 'can', 'may', 'might', 'not', 'but', 'nor',
+  'yet', 'than', 'then', 'into', 'onto', 'upon', 'over', 'under', 'between',
+  'through', 'during', 'before', 'after', 'above', 'below', 'about', 'against',
+  'because', 'while', 'where', 'when', 'what', 'which', 'who', 'whom', 'whose',
+  'why', 'how', 'they', 'them', 'their', 'there', 'here', 'your', 'yours', 'you',
+  'our', 'ours', 'her', 'hers', 'his', 'its', 'she', 'him', 'each', 'every',
+  'both', 'few', 'more', 'most', 'other', 'some', 'such', 'only', 'own', 'same',
+  'too', 'very', 'just', 'also',
+])
+const STOP_HAN_SINGLE = new Set('的了在是我有和就不人都一个上也很到说要去你会着没看好这那他她它吗呢吧啊哦嗯把被让给用从对为与及或但而之以于中下大小多少日月年')
+
+// Light English suffix folding so inflections ("flights"/"flight", "deploying"/"deploy")
+// share one token without needing a dictionary.
+function stemWord(word) {
+  if (word.length <= 4 || !/^[a-z]+$/.test(word)) return word
+  if (word.endsWith('ies') && word.length >= 6) return `${word.slice(0, -3)}y`
+  if (word.endsWith('ing') && word.length >= 6) return word.slice(0, -3)
+  if (word.endsWith('ed') && word.length >= 5) return word.slice(0, -2)
+  if (word.endsWith('es') && word.length >= 5 && /(?:sh|ch|x|z|s)es$/.test(word)) return word.slice(0, -2)
+  if (word.endsWith('s') && !word.endsWith('ss') && !word.endsWith('us') && !word.endsWith('is')) return word.slice(0, -1)
+  return word
+}
+
+// Words to compare by: Unicode words of 2+ letters/digits (keeping short tech terms such
+// as AI/PR/CI/Go/UI/TS/DB/M4 while dropping closed-class glue), Han/Kana bigrams (and
+// meaningful isolated Han chars or ASCII+Han compounds such as A股/B站).
 export const wordsOf = (text) => {
   const lower = squash(text)
-  const words = new Set(lower.match(/[a-z0-9]{3,}/g) ?? [])
-  for (const run of lower.match(/[\u4e00-\u9fff]{2,}/g) ?? []) for (let at = 0; at + 1 < run.length; at += 1) words.add(run.slice(at, at + 2))
+  const words = new Set()
+  const nonCjk = lower.replace(/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]+/gu, ' ')
+  for (const tok of nonCjk.match(/[\p{L}\p{N}]+/gu) ?? []) {
+    if (tok.length >= 3) {
+      if (!STOP_WORDS.has(tok)) words.add(stemWord(tok))
+    } else if (tok.length === 2 && /\p{L}/u.test(tok) && !STOP_SHORT.has(tok)) {
+      words.add(tok)
+    }
+  }
+  for (const run of lower.match(/\p{Script=Han}+/gu) ?? []) {
+    if (run.length >= 2) {
+      for (let at = 0; at + 1 < run.length; at += 1) words.add(run.slice(at, at + 2))
+    } else if (!STOP_HAN_SINGLE.has(run)) {
+      words.add(run)
+    }
+  }
+  for (const compound of lower.match(/(?<![a-z0-9])[a-z0-9]\p{Script=Han}|\p{Script=Han}[a-z0-9](?![a-z0-9])/gu) ?? []) {
+    words.add(compound)
+  }
+  for (const run of lower.match(/[\p{Script=Hiragana}\p{Script=Katakana}]{2,}/gu) ?? []) {
+    for (let at = 0; at + 1 < run.length; at += 1) words.add(run.slice(at, at + 2))
+  }
   return words
 }
 
@@ -267,18 +388,10 @@ export function reviewEntries(home, team, budget = REVIEW_MEMORY_MAX, about = ''
   return { numbered: [...main, ...topics.filter(entry => shown.has(entry))], left: topics.length - shown.size }
 }
 
-// The memory review's answer: {"changes": […]}, perhaps in a code fence. `changes`
-// are the well-formed ones; `leftOut` the rest, so a malformed change does not
-// take the whole answer down — it is set aside and said, and the well-formed ones
-// are saved. Anything else is no answer: the review says so and moves on — the
-// same lines are not read again.
-export function parseReview(text) {
-  const start = text.indexOf('{')
-  const end = text.lastIndexOf('}')
-  if (start === -1 || end <= start) return undefined
+function parseReviewJson(candidate) {
   let value
   try {
-    value = JSON.parse(text.slice(start, end + 1))
+    value = JSON.parse(candidate)
   } catch {
     return undefined
   }
@@ -287,6 +400,59 @@ export function parseReview(text) {
   const leftOut = []
   for (const change of value.changes) (wellFormed(change) ? changes : leftOut).push(change)
   return { changes, leftOut }
+}
+
+function extractJsonObjectAt(raw, start) {
+  let depth = 0
+  let inString = false
+  let escaped = false
+  for (let i = start; i < raw.length; i += 1) {
+    const ch = raw[i]
+    if (inString) {
+      if (escaped) escaped = false
+      else if (ch === '\\') escaped = true
+      else if (ch === '"') inString = false
+      continue
+    }
+    if (ch === '"') { inString = true; continue }
+    if (ch === '{') depth += 1
+    else if (ch === '}') {
+      depth -= 1
+      if (depth === 0) return raw.slice(start, i + 1)
+    }
+  }
+  return undefined
+}
+
+// The memory review's answer: {"changes": […]}, perhaps in a code fence or surrounded
+// by prose that may contain braces or quotes. `changes` are the well-formed ones;
+// `leftOut` the rest, so a malformed change does not take the whole answer down — it
+// is set aside and said, and the well-formed ones are saved. Anything else is no
+// answer: the review says so and moves on — the same lines are not read again.
+export function parseReview(text) {
+  const raw = String(text ?? '')
+  for (const match of [...raw.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)].reverse()) {
+    const parsed = parseReviewJson(match[1].trim())
+    if (parsed !== undefined) return parsed
+  }
+  const start = raw.indexOf('{')
+  const end = raw.lastIndexOf('}')
+  if (start === -1 || end <= start) return undefined
+  const direct = parseReviewJson(raw.slice(start, end + 1))
+  if (direct !== undefined) return direct
+  // Fallback: test candidate `{...}` objects independently from last to first so
+  // unmatched quotes or stray `{` in preceding prose never corrupt JSON extraction.
+  const starts = []
+  for (let i = 0; i < raw.length; i += 1) {
+    if (raw[i] === '{') starts.push(i)
+  }
+  for (let i = starts.length - 1; i >= 0; i -= 1) {
+    const candidate = extractJsonObjectAt(raw, starts[i])
+    if (candidate === undefined || !candidate.includes('"changes"')) continue
+    const parsed = parseReviewJson(candidate)
+    if (parsed !== undefined) return parsed
+  }
+  return undefined
 }
 const wellFormed = (change) => {
   if (change === null || typeof change !== 'object') return false

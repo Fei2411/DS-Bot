@@ -35,7 +35,7 @@ seconds, which also works with Docker Desktop bind mounts.
 
 - `src/client/`, `src/office/` and `src/shared/`: rebuild `client.js`
   and `office.js`; refresh the browser to load the new bundle.
-- `src/host/`, `src/shared/`, `index.js`, `web-search.js`,
+- `src/host/`, `src/shared/`, `plugin.js`, `index.js`, `web-search.js`,
   `package.json` and `cordis.patch.yml`: restart DSH to load the new host
   code. The restart interrupts a turn that is running.
 - The generated bundles are written in the checkout, so the host and container
