@@ -208,6 +208,8 @@ var JA = {
   "A new reply is waiting": "新しい返信があります",
   "Opening…": "開いています…",
   "Still opening…": "まだ開いています…",
+  "This session is not available yet.": "このセッションはまだ開けません。",
+  "This session is no longer available.": "このセッションはもう存在しません。",
   "Android beta": "Android ベータ版",
   "Cannot reach the Server. Trying again…": "サーバーに接続できません。再試行しています…",
   "No phones yet": "スマートフォンはまだありません",
@@ -293,6 +295,19 @@ var JA = {
   "Another dsh has this Bot team open, so phones connect to that one": "別の dsh がこの Bot チームを開いているため、スマートフォンはそちらに接続します",
   "This dsh runs on a Node without WebSocket": "この dsh は WebSocket のない Node 上で動作しています",
   "Phones are paired and removed on the computer": "スマートフォンのペアリングと削除はコンピューターで行います",
+  "Session logs are read on the computer": "Session ログはコンピューターで確認します",
+  "External API settings and tokens are managed on the computer": "外部 API 設定とトークンはコンピューターで管理します",
+  "MCP access is set up on the computer": "MCP アクセスはコンピューターで設定します",
+  "Workspace files and terminals are available on the computer": "ワークスペースのファイルとターミナルはコンピューターで利用できます",
+  "Engine settings are managed on the computer": "エンジン設定はコンピューターで管理します",
+  "Plugins are managed on the computer": "プラグインはコンピューターで管理します",
+  "Voice input settings and transcription are available on the computer": "音声入力設定と文字起こしはコンピューターで利用できます",
+  "Privacy and telemetry settings are managed on the computer": "プライバシーとテレメトリの設定はコンピューターで管理します",
+  "Folders are chosen in a window on the computer": "フォルダーはコンピューターのウィンドウで選択します",
+  "Computer use is controlled on the computer": "コンピューター操作はコンピューターで制御します",
+  "Connector imports read apps on this computer": "コネクターのインポートはこのコンピューター上のアプリを読み取ります",
+  "This action is available in the window on the computer": "この操作はコンピューターのウィンドウで利用できます",
+  "This endpoint has not been approved for paired devices": "この端点はペアリング済みデバイスでの使用が承認されていません",
   "Your phone scans it once. After that it connects by itself.": "スキャンは 1 回だけです。その後は自動で接続します。",
   "Beta": "ベータ",
   "Main Bot": "メイン Bot",
@@ -2534,6 +2549,7 @@ var JA = {
   "Showing first {count} rows": "先頭 {count} 行を表示",
   "Converted from {ext}": "{ext} から変換済み",
   "Preview unavailable in this environment": "この環境ではプレビューできません",
+  "Scripts and external or local resources are blocked in this preview": "このプレビューではスクリプトと外部またはローカルのリソースがブロックされています",
   "Select a file to preview": "プレビューするファイルを選択",
   "Preview": "プレビュー",
   "File truncated for preview": "プレビュー用に一部のみ表示しています",
@@ -2705,6 +2721,7 @@ var JA = {
   "Built-in engine": "内蔵エンジン"
 };
 var HOST_ERRORS_JA = [
+  [/^These appearance fields can only be changed on this computer: (.+)$/, "これらの外観設定はこのコンピューターでのみ変更できます: $1"],
   [/^The agent preset "(.+)" is not available in this DeepSeek Harness\. Pick another preset in the Bot's settings\.$/, "Agent プリセット「$1」は現在の DeepSeek Harness で利用できません。Bot の設定で別のプリセットを選んでください。"],
   [/^The agent preset "(.+)" cannot run: (.+)\. Pick another preset in the Bot's settings\.$/, "Agent プリセット「$1」は実行できません: $2。Bot の設定で別のプリセットを選んでください。"],
   [/^An agent preset must be named by its id$/, "Agent プリセットは id で指定する必要があります"],
@@ -3514,6 +3531,8 @@ var KO = {
   "A new reply is waiting": "새 답변이 도착했습니다",
   "Opening…": "여는 중…",
   "Still opening…": "아직 여는 중…",
+  "This session is not available yet.": "이 세션을 아직 열 수 없습니다.",
+  "This session is no longer available.": "이 세션은 더 이상 존재하지 않습니다.",
   "Android beta": "Android 베타",
   "Cannot reach the Server. Trying again…": "서버에 연결할 수 없습니다. 다시 시도하는 중…",
   "No phones yet": "아직 휴대폰이 없습니다",
@@ -3599,6 +3618,19 @@ var KO = {
   "Another dsh has this Bot team open, so phones connect to that one": "다른 dsh에서 이 Bot 팀을 열어 두고 있어 휴대폰이 그쪽에 연결됩니다",
   "This dsh runs on a Node without WebSocket": "이 dsh는 WebSocket이 없는 Node에서 실행 중입니다",
   "Phones are paired and removed on the computer": "휴대폰 페어링 및 제거는 컴퓨터에서 수행합니다",
+  "Session logs are read on the computer": "Session 로그는 컴퓨터에서 확인합니다",
+  "External API settings and tokens are managed on the computer": "외부 API 설정과 토큰은 컴퓨터에서 관리합니다",
+  "MCP access is set up on the computer": "MCP 접근은 컴퓨터에서 설정합니다",
+  "Workspace files and terminals are available on the computer": "작업 공간 파일과 터미널은 컴퓨터에서 사용할 수 있습니다",
+  "Engine settings are managed on the computer": "엔진 설정은 컴퓨터에서 관리합니다",
+  "Plugins are managed on the computer": "플러그인은 컴퓨터에서 관리합니다",
+  "Voice input settings and transcription are available on the computer": "음성 입력 설정과 전사는 컴퓨터에서 사용할 수 있습니다",
+  "Privacy and telemetry settings are managed on the computer": "개인 정보 및 원격 측정 설정은 컴퓨터에서 관리합니다",
+  "Folders are chosen in a window on the computer": "폴더는 컴퓨터 창에서 선택합니다",
+  "Computer use is controlled on the computer": "컴퓨터 사용은 컴퓨터에서 제어합니다",
+  "Connector imports read apps on this computer": "커넥터 가져오기는 이 컴퓨터의 앱을 읽습니다",
+  "This action is available in the window on the computer": "이 작업은 컴퓨터 창에서 사용할 수 있습니다",
+  "This endpoint has not been approved for paired devices": "이 엔드포인트는 페어링된 기기에서 사용하도록 승인되지 않았습니다",
   "Your phone scans it once. After that it connects by itself.": "한 번만 스캔하면 됩니다. 그 후에는 자동으로 연결됩니다.",
   "Beta": "베타",
   // Shared
@@ -5884,6 +5916,7 @@ var KO = {
   "Showing first {count} rows": "처음 {count}행 표시",
   "Converted from {ext}": "{ext}에서 변환됨",
   "Preview unavailable in this environment": "이 환경에서는 미리 보기를 사용할 수 없습니다",
+  "Scripts and external or local resources are blocked in this preview": "이 미리 보기에서는 스크립트와 외부 또는 로컬 리소스가 차단됩니다",
   "Select a file to preview": "미리 볼 파일을 선택하세요",
   "Preview": "미리 보기",
   "File truncated for preview": "미리 보기를 위해 파일 일부만 표시됩니다",
@@ -6055,6 +6088,7 @@ var KO = {
   "Built-in engine": "내장 엔진"
 };
 var HOST_ERRORS_KO = [
+  [/^These appearance fields can only be changed on this computer: (.+)$/, "이러한 모양 설정은 이 컴퓨터에서만 변경할 수 있습니다: $1"],
   [/^The agent preset "(.+)" is not available in this DeepSeek Harness\. Pick another preset in the Bot's settings\.$/, 'Agent 프리셋 "$1"은(는) 현재 DeepSeek Harness에서 사용할 수 없습니다. Bot 설정에서 다른 프리셋을 선택하세요.'],
   [/^The agent preset "(.+)" cannot run: (.+)\. Pick another preset in the Bot's settings\.$/, 'Agent 프리셋 "$1"을(를) 실행할 수 없습니다: $2. Bot 설정에서 다른 프리셋을 선택하세요.'],
   [/^An agent preset must be named by its id$/, "Agent 프리셋은 id로 지정해야 합니다"],
@@ -6865,6 +6899,8 @@ var ES = {
   "A new reply is waiting": "Tienes una nueva respuesta",
   "Opening…": "Abriendo…",
   "Still opening…": "Sigue abriendo…",
+  "This session is not available yet.": "Esta sesión aún no está disponible.",
+  "This session is no longer available.": "Esta sesión ya no está disponible.",
   "Android beta": "Android beta",
   "Cannot reach the Server. Trying again…": "No se puede conectar con el servidor. Reintentando…",
   "No phones yet": "Aún no hay teléfonos",
@@ -6950,6 +6986,19 @@ var ES = {
   "Another dsh has this Bot team open, so phones connect to that one": "Otro dsh tiene abierto este equipo de Bots, así que los teléfonos se conectan a ese",
   "This dsh runs on a Node without WebSocket": "Este dsh se ejecuta en un Node sin WebSocket",
   "Phones are paired and removed on the computer": "Los teléfonos se vinculan y eliminan desde el ordenador",
+  "Session logs are read on the computer": "Los registros de Session se leen en el ordenador",
+  "External API settings and tokens are managed on the computer": "La configuración y los tokens de API externas se gestionan en el ordenador",
+  "MCP access is set up on the computer": "El acceso MCP se configura en el ordenador",
+  "Workspace files and terminals are available on the computer": "Los archivos del espacio de trabajo y los terminales están disponibles en el ordenador",
+  "Engine settings are managed on the computer": "La configuración del motor se gestiona en el ordenador",
+  "Plugins are managed on the computer": "Los plugins se gestionan en el ordenador",
+  "Voice input settings and transcription are available on the computer": "La configuración de entrada de voz y la transcripción están disponibles en el ordenador",
+  "Privacy and telemetry settings are managed on the computer": "La configuración de privacidad y telemetría se gestiona en el ordenador",
+  "Folders are chosen in a window on the computer": "Las carpetas se eligen en una ventana del ordenador",
+  "Computer use is controlled on the computer": "El uso del ordenador se controla en el ordenador",
+  "Connector imports read apps on this computer": "Las importaciones de conectores leen aplicaciones de este ordenador",
+  "This action is available in the window on the computer": "Esta acción está disponible en la ventana del ordenador",
+  "This endpoint has not been approved for paired devices": "Este endpoint no está aprobado para dispositivos emparejados",
   "Your phone scans it once. After that it connects by itself.": "Tu teléfono lo escanea una vez. Después se conecta solo.",
   "Beta": "Beta",
   // Shared
@@ -9235,6 +9284,7 @@ var ES = {
   "Showing first {count} rows": "Mostrando las primeras {count} filas",
   "Converted from {ext}": "Convertido de {ext}",
   "Preview unavailable in this environment": "Vista previa no disponible en este entorno",
+  "Scripts and external or local resources are blocked in this preview": "Los scripts y los recursos externos o locales están bloqueados en esta vista previa",
   "Select a file to preview": "Selecciona un archivo para previsualizar",
   "Preview": "Vista previa",
   "File truncated for preview": "Archivo truncado para la vista previa",
@@ -9406,6 +9456,7 @@ var ES = {
   "Built-in engine": "Motor integrado"
 };
 var HOST_ERRORS_ES = [
+  [/^These appearance fields can only be changed on this computer: (.+)$/, "Estos ajustes de apariencia solo se pueden cambiar en este ordenador: $1"],
   [/^The agent preset "(.+)" is not available in this DeepSeek Harness\. Pick another preset in the Bot's settings\.$/, 'El preajuste de Agent "$1" no está disponible en este DeepSeek Harness. Elige otro en los ajustes del Bot.'],
   [/^The agent preset "(.+)" cannot run: (.+)\. Pick another preset in the Bot's settings\.$/, 'El preajuste de Agent "$1" no puede ejecutarse: $2. Elige otro en los ajustes del Bot.'],
   [/^An agent preset must be named by its id$/, "Un preajuste de Agent debe indicarse por su id"],
@@ -10216,6 +10267,8 @@ var FR = {
   "A new reply is waiting": "Une nouvelle réponse vous attend",
   "Opening…": "Ouverture…",
   "Still opening…": "Toujours en cours d’ouverture…",
+  "This session is not available yet.": "Cette session n’est pas encore disponible.",
+  "This session is no longer available.": "Cette session n’est plus disponible.",
   "Android beta": "Android bêta",
   "Cannot reach the Server. Trying again…": "Impossible de joindre le serveur. Nouvel essai…",
   "No phones yet": "Aucun téléphone pour l’instant",
@@ -10301,6 +10354,19 @@ var FR = {
   "Another dsh has this Bot team open, so phones connect to that one": "Un autre dsh a déjà ouvert cette équipe de Bots, les téléphones s’y connectent donc",
   "This dsh runs on a Node without WebSocket": "Ce dsh s’exécute sur un Node sans WebSocket",
   "Phones are paired and removed on the computer": "L’association et la suppression des téléphones se font sur l’ordinateur",
+  "Session logs are read on the computer": "Les journaux de Session se lisent sur l’ordinateur",
+  "External API settings and tokens are managed on the computer": "Les réglages et jetons des API externes se gèrent sur l’ordinateur",
+  "MCP access is set up on the computer": "L’accès MCP se configure sur l’ordinateur",
+  "Workspace files and terminals are available on the computer": "Les fichiers de l’espace de travail et les terminaux sont disponibles sur l’ordinateur",
+  "Engine settings are managed on the computer": "Les réglages du moteur se gèrent sur l’ordinateur",
+  "Plugins are managed on the computer": "Les plugins se gèrent sur l’ordinateur",
+  "Voice input settings and transcription are available on the computer": "Les réglages de saisie vocale et la transcription sont disponibles sur l’ordinateur",
+  "Privacy and telemetry settings are managed on the computer": "Les réglages de confidentialité et de télémétrie se gèrent sur l’ordinateur",
+  "Folders are chosen in a window on the computer": "Les dossiers se choisissent dans une fenêtre de l’ordinateur",
+  "Computer use is controlled on the computer": "Le contrôle de l’ordinateur se gère sur l’ordinateur",
+  "Connector imports read apps on this computer": "Les importations de connecteurs lisent les apps de cet ordinateur",
+  "This action is available in the window on the computer": "Cette action est disponible dans la fenêtre de l’ordinateur",
+  "This endpoint has not been approved for paired devices": "Ce point de terminaison n’est pas approuvé pour les appareils associés",
   "Your phone scans it once. After that it connects by itself.": "Votre téléphone le scanne une seule fois. Ensuite, il se connecte tout seul.",
   "Beta": "Bêta",
   "Main Bot": "Bot principal",
@@ -12542,6 +12608,7 @@ var FR = {
   "Showing first {count} rows": "Affichage des {count} premières lignes",
   "Converted from {ext}": "Converti depuis {ext}",
   "Preview unavailable in this environment": "Aperçu indisponible dans cet environnement",
+  "Scripts and external or local resources are blocked in this preview": "Les scripts et les ressources externes ou locales sont bloqués dans cet aperçu",
   "Select a file to preview": "Sélectionnez un fichier à prévisualiser",
   "Preview": "Aperçu",
   "File truncated for preview": "Fichier tronqué pour l'aperçu",
@@ -12713,6 +12780,7 @@ var FR = {
   "Built-in engine": "Moteur intégré"
 };
 var HOST_ERRORS_FR = [
+  [/^These appearance fields can only be changed on this computer: (.+)$/, "Ces réglages d’apparence ne peuvent être modifiés que sur cet ordinateur : $1"],
   [/^The agent preset "(.+)" is not available in this DeepSeek Harness\. Pick another preset in the Bot's settings\.$/, "Le préréglage Agent « $1 » n’est pas disponible dans ce DeepSeek Harness. Choisissez-en un autre dans les paramètres du Bot."],
   [/^The agent preset "(.+)" cannot run: (.+)\. Pick another preset in the Bot's settings\.$/, "Le préréglage Agent « $1 » ne peut pas fonctionner : $2. Choisissez-en un autre dans les paramètres du Bot."],
   [/^An agent preset must be named by its id$/, "Un préréglage Agent doit être désigné par son id"],
@@ -13522,6 +13590,8 @@ var DE = {
   "A new reply is waiting": "Eine neue Antwort wartet auf dich",
   "Opening…": "Wird geöffnet…",
   "Still opening…": "Wird noch geöffnet…",
+  "This session is not available yet.": "Diese Sitzung ist noch nicht verfügbar.",
+  "This session is no longer available.": "Diese Sitzung ist nicht mehr verfügbar.",
   "Android beta": "Android-Beta",
   "Cannot reach the Server. Trying again…": "Server nicht erreichbar. Neuer Versuch…",
   "No phones yet": "Noch keine Telefone",
@@ -13607,6 +13677,19 @@ var DE = {
   "Another dsh has this Bot team open, so phones connect to that one": "Ein anderes dsh hat dieses Bot-Team geöffnet, daher verbinden sich Telefone mit diesem",
   "This dsh runs on a Node without WebSocket": "Dieses dsh läuft auf einem Node ohne WebSocket",
   "Phones are paired and removed on the computer": "Telefone werden auf dem Computer gekoppelt und entfernt",
+  "Session logs are read on the computer": "Session-Protokolle werden auf dem Computer gelesen",
+  "External API settings and tokens are managed on the computer": "Externe API-Einstellungen und Tokens werden auf dem Computer verwaltet",
+  "MCP access is set up on the computer": "MCP-Zugriff wird auf dem Computer eingerichtet",
+  "Workspace files and terminals are available on the computer": "Arbeitsbereichsdateien und Terminals sind auf dem Computer verfügbar",
+  "Engine settings are managed on the computer": "Engine-Einstellungen werden auf dem Computer verwaltet",
+  "Plugins are managed on the computer": "Plugins werden auf dem Computer verwaltet",
+  "Voice input settings and transcription are available on the computer": "Spracheingabeeinstellungen und Transkription sind auf dem Computer verfügbar",
+  "Privacy and telemetry settings are managed on the computer": "Datenschutz- und Telemetrieeinstellungen werden auf dem Computer verwaltet",
+  "Folders are chosen in a window on the computer": "Ordner werden in einem Fenster auf dem Computer ausgewählt",
+  "Computer use is controlled on the computer": "Die Computersteuerung wird auf dem Computer kontrolliert",
+  "Connector imports read apps on this computer": "Connector-Importe lesen Apps auf diesem Computer",
+  "This action is available in the window on the computer": "Diese Aktion ist im Fenster auf dem Computer verfügbar",
+  "This endpoint has not been approved for paired devices": "Dieser Endpunkt ist nicht für gekoppelte Geräte freigegeben",
   "Your phone scans it once. After that it connects by itself.": "Dein Telefon scannt ihn einmal. Danach verbindet es sich von selbst.",
   "Beta": "Beta",
   // Shared
@@ -15892,6 +15975,7 @@ var DE = {
   "Showing first {count} rows": "Erste {count} Zeilen werden angezeigt",
   "Converted from {ext}": "Aus {ext} konvertiert",
   "Preview unavailable in this environment": "Vorschau in dieser Umgebung nicht verfügbar",
+  "Scripts and external or local resources are blocked in this preview": "Skripte sowie externe oder lokale Ressourcen sind in dieser Vorschau blockiert",
   "Select a file to preview": "Datei für Vorschau auswählen",
   "Preview": "Vorschau",
   "File truncated for preview": "Datei für Vorschau gekürzt",
@@ -16063,6 +16147,7 @@ var DE = {
   "Built-in engine": "Integrierte Engine"
 };
 var HOST_ERRORS_DE = [
+  [/^These appearance fields can only be changed on this computer: (.+)$/, "Diese Darstellungseinstellungen können nur auf diesem Computer geändert werden: $1"],
   [/^The agent preset "(.+)" is not available in this DeepSeek Harness\. Pick another preset in the Bot's settings\.$/, 'Die Agent-Voreinstellung "$1" ist in diesem DeepSeek Harness nicht verfügbar. Wähle eine andere in den Bot-Einstellungen.'],
   [/^The agent preset "(.+)" cannot run: (.+)\. Pick another preset in the Bot's settings\.$/, 'Die Agent-Voreinstellung "$1" kann nicht ausgeführt werden: $2. Wähle eine andere in den Bot-Einstellungen.'],
   [/^An agent preset must be named by its id$/, "Eine Agent-Voreinstellung muss über ihre ID benannt werden"],
@@ -18538,6 +18623,8 @@ var ZH = {
   // A Session that is still landing
   "Opening…": "正在打开…",
   "Still opening…": "还在打开…",
+  "This session is not available yet.": "这个会话暂时还打不开。",
+  "This session is no longer available.": "这个会话已不存在。",
   "Add files": "添加文件",
   "Reference a chat": "引用对话",
   "Chat with {name}": "与 {name} 的对话",
@@ -19057,6 +19144,7 @@ var ZH = {
   "Showing first {count} rows": "仅显示前 {count} 行",
   "Converted from {ext}": "已从 {ext} 转换",
   "Preview unavailable in this environment": "当前环境暂不支持预览",
+  "Scripts and external or local resources are blocked in this preview": "此预览已阻止脚本以及外部或本地资源",
   "Select a file to preview": "选择一个文件进行预览",
   "Preview": "预览",
   "File truncated for preview": "文件较大，仅展示预览片段",
@@ -19228,6 +19316,7 @@ var ZH = {
   "Built-in engine": "内置引擎"
 };
 var HOST_ERRORS = [
+  [/^These appearance fields can only be changed on this computer: (.+)$/, "这些外观设置只能在电脑上修改：$1"],
   [/^Plugin disabled by the kill list: (.+)$/, "插件已被安全拦截列表停用：$1"],
   [/^Plugin disabled by the kill list\.$/, "插件已被安全拦截列表停用。"],
   [/^This plugin changed since it was approved \(capabilities, execution tier, executable entry, content, or placement\)\. It needs explicit approval before it can run again\.$/, "这个插件在批准后发生了变化（能力、执行层级、可执行入口、内容或位置）。需要明确批准后才能重新运行。"],
@@ -19333,6 +19422,19 @@ var HOST_ZH = {
   "Another dsh has this Bot team open, so phones connect to that one": "另一个 dsh 打开了这个 Bot 团队，手机会连到那一个",
   "This dsh runs on a Node without WebSocket": "这个 dsh 用的 Node 不支持 WebSocket",
   "Phones are paired and removed on the computer": "配对和删除手机只能在电脑上做",
+  "Session logs are read on the computer": "Session 日志只能在电脑上查看",
+  "External API settings and tokens are managed on the computer": "外部 API 设置和令牌只能在电脑上管理",
+  "MCP access is set up on the computer": "MCP 访问只能在电脑上设置",
+  "Workspace files and terminals are available on the computer": "工作区文件和终端只能在电脑上使用",
+  "Engine settings are managed on the computer": "引擎设置只能在电脑上管理",
+  "Plugins are managed on the computer": "插件只能在电脑上管理",
+  "Voice input settings and transcription are available on the computer": "语音输入设置和转写只能在电脑上使用",
+  "Privacy and telemetry settings are managed on the computer": "隐私和遥测设置只能在电脑上管理",
+  "Folders are chosen in a window on the computer": "文件夹只能在电脑窗口里选择",
+  "Computer use is controlled on the computer": "电脑操控只能在电脑上控制",
+  "Connector imports read apps on this computer": "连接器导入会读取这台电脑上的应用",
+  "This action is available in the window on the computer": "此操作只能在电脑窗口里使用",
+  "This endpoint has not been approved for paired devices": "此端点尚未允许配对设备使用",
   "Request failed": "请求失败",
   "Permissions are not available in this DeepSeek Harness": "这个 DeepSeek Harness 不支持权限设置",
   "Avatar image is too large": "头像图片太大了",
@@ -20728,9 +20830,12 @@ function chatOfSession(roster, sessionId) {
   if (room2 !== void 0) return { id: room2.id, part: room2.sessionId ?? room2.id };
   return void 0;
 }
-function keepDraft({ chatId, part, text, files }, storage = globalThis.localStorage, { deferMs = 0 } = {}) {
+function keepDraftFiles({ chatId, part, files }) {
   if (files.length === 0) keptFiles.delete(chatId);
   else keptFiles.set(chatId, { part, files: [...files] });
+}
+function keepDraft({ chatId, part, text, files }, storage = globalThis.localStorage, { deferMs = 0 } = {}) {
+  keepDraftFiles({ chatId, part, files });
   const entry = entryFor(storage);
   const texts2 = entry.texts;
   const before = texts2[chatId];
@@ -20759,6 +20864,245 @@ function keepDraft({ chatId, part, text, files }, storage = globalThis.localStor
   }
   writeEntry(storage, entry);
 }
+function dropPartDraft({ chatId, part }, storage = globalThis.localStorage) {
+  if (keptFiles.get(chatId)?.part === part) keptFiles.delete(chatId);
+  const entry = entryFor(storage, { sync: true });
+  if (entry.texts[chatId]?.part !== part) return;
+  delete entry.texts[chatId];
+  entry.dirtyKeys.add(chatId);
+  writeEntry(storage, entry);
+}
+function hasLivePartDraft({ chatId, part }, storage = globalThis.localStorage) {
+  const entry = entryFor(storage, { sync: true }).texts[chatId];
+  return textEntry(entry) && entry.part === part && entry.text !== "";
+}
+function hasOtherTabPartDraft({ chatId, part, text }, storage = globalThis.localStorage) {
+  const entry = entryFor(storage, { sync: true }).texts[chatId];
+  return textEntry(entry) && entry.part === part && entry.text !== "" && entry.text !== text;
+}
+var contentText2 = (content) => Array.isArray(content) ? content.filter((block) => block?.type === "text" && typeof block.text === "string").map((block) => block.text).join("") : "";
+var isQuoteLine = (line) => line.startsWith(">");
+function normalizeQuoteText(text) {
+  const normalized = text.replace(/\r\n?/gu, "\n").trim();
+  if (!normalized.includes(">")) return normalized;
+  const lines = normalized.split("\n");
+  const out = [];
+  let prevKind = null;
+  let pendingBlanks = [];
+  for (const line of lines) {
+    if (line.trim() === "") {
+      pendingBlanks.push(line);
+      continue;
+    }
+    const kind = isQuoteLine(line) ? "quote" : "text";
+    if (prevKind !== null) {
+      if (prevKind === "quote" && kind === "quote") {
+        out.push("\n");
+      } else if (prevKind === "quote" || kind === "quote") {
+        if (prevKind === "text") out[out.length - 1] = out[out.length - 1].trimEnd();
+        out.push("\n\n");
+      } else {
+        for (const blank3 of pendingBlanks) out.push("\n", blank3);
+        out.push("\n");
+      }
+    }
+    out.push(prevKind === "quote" && kind === "text" ? line.trimStart() : line);
+    prevKind = kind;
+    pendingBlanks = [];
+  }
+  return out.join("");
+}
+function quoteBoundarySegments(text) {
+  const lines = text.replace(/\r\n?/gu, "\n").trim().split("\n");
+  const segments = [];
+  let current2 = [];
+  let currentKind = null;
+  let pendingBlanks = [];
+  const flush = () => {
+    if (current2.length === 0) return;
+    segments.push({ kind: currentKind, text: current2.join("\n") });
+    current2 = [];
+  };
+  for (const line of lines) {
+    if (line.trim() === "") {
+      pendingBlanks.push(line);
+      continue;
+    }
+    const kind = isQuoteLine(line) ? "quote" : "text";
+    if (currentKind === null) {
+      currentKind = kind;
+      current2.push(line);
+    } else if (kind !== currentKind || kind === "quote" && pendingBlanks.length > 0) {
+      flush();
+      currentKind = kind;
+      current2.push(line);
+    } else {
+      if (pendingBlanks.length > 0) current2.push(...pendingBlanks);
+      current2.push(line);
+    }
+    pendingBlanks = [];
+  }
+  flush();
+  return segments;
+}
+function matchesAdmittedText(draft, candidate) {
+  if (typeof draft !== "string" || typeof candidate !== "string") return false;
+  const wanted = normalizeQuoteText(draft);
+  if (wanted === "") return false;
+  const actual = normalizeQuoteText(candidate);
+  if (actual === wanted) return true;
+  if (!actual.includes(">") || !draft.includes(">")) return false;
+  const segments = quoteBoundarySegments(candidate);
+  if (segments.length < 2 || !segments.some((seg) => seg.kind === "quote")) return false;
+  const rawDraft = draft.replace(/\r\n?/gu, "\n").trim();
+  let pos = 0;
+  for (let i = 0; i < segments.length; i += 1) {
+    if (i > 0) {
+      while (pos < rawDraft.length && /\s/u.test(rawDraft[pos])) pos += 1;
+    }
+    const seg = segments[i].text;
+    if (!rawDraft.startsWith(seg, pos)) return false;
+    pos += seg.length;
+  }
+  return pos === rawDraft.length;
+}
+var nodeSeq = (node) => typeof node?.data?.seq === "number" ? node.data.seq : typeof node?.anchorSeq === "number" ? node.anchorSeq : 0;
+function chatUserNodes(chat) {
+  if (chat?.nodes === void 0) return [];
+  const out = [];
+  if (typeof chat.nodes.values === "function") {
+    for (const node of chat.nodes.values()) {
+      if (node?.kind === "user" || node?.kind === "steering") out.push(node);
+    }
+    return out;
+  }
+  if (Array.isArray(chat.order) && typeof chat.nodes.get === "function") {
+    for (const key of chat.order) {
+      const node = chat.nodes.get(key);
+      if (node?.kind === "user" || node?.kind === "steering") out.push(node);
+    }
+    return out;
+  }
+  return out;
+}
+function maxUserSeqOf(chat) {
+  if (chat?.nodes === void 0) return 0;
+  if (Array.isArray(chat.order) && typeof chat.nodes.get === "function") {
+    for (let i = chat.order.length - 1; i >= 0; i -= 1) {
+      const node = chat.nodes.get(chat.order[i]);
+      if (node?.kind !== "user" && node?.kind !== "steering") continue;
+      const seq = nodeSeq(node);
+      if (seq > 0) return seq;
+    }
+    return 0;
+  }
+  let max = 0;
+  for (const node of chatUserNodes(chat)) {
+    const seq = nodeSeq(node);
+    if (seq > max) max = seq;
+  }
+  return max;
+}
+function captureAdmissionBaseline({ chat, maxUserSeq, pendingSubmissions, queue: queue2, nextStep } = {}) {
+  const pendingIds = /* @__PURE__ */ new Set();
+  for (const item of pendingSubmissions ?? []) {
+    if (typeof item?.requestId === "string") pendingIds.add(item.requestId);
+  }
+  const queueIds = /* @__PURE__ */ new Set();
+  const queueTexts = [];
+  for (const list of [queue2, nextStep]) {
+    for (const item of list ?? []) {
+      const id = typeof item?.id === "string" ? item.id : void 0;
+      const rpcId = typeof item?.source?.rpcId === "string" ? item.source.rpcId : void 0;
+      if (id !== void 0) queueIds.add(id);
+      if (rpcId !== void 0) pendingIds.add(rpcId);
+      if (item?.source?.kind === void 0 || item.source.kind === "user") {
+        const text = contentText2(item?.content);
+        if (text !== "") queueTexts.push({ id, rpcId, text });
+      }
+    }
+  }
+  return {
+    maxUserSeq: typeof maxUserSeq === "number" ? maxUserSeq : maxUserSeqOf(chat),
+    pendingIds,
+    queueIds,
+    queueTexts
+  };
+}
+function isSentAdmitted(watch2, { chat, pendingSubmissions, queue: queue2, nextStep } = {}) {
+  if (watch2 === void 0 || watch2.text === "") return false;
+  if (watch2.admitted === true) return true;
+  if (watch2.text.trim() === "") return false;
+  const baseline = watch2.baseline;
+  for (const sub2 of pendingSubmissions ?? []) {
+    if (typeof sub2?.requestId === "string" && baseline?.pendingIds?.has(sub2.requestId)) continue;
+    if (matchesAdmittedText(watch2.text, sub2?.text)) return true;
+  }
+  const liveQueueIds = /* @__PURE__ */ new Set();
+  for (const list of [queue2, nextStep]) {
+    for (const item of list ?? []) {
+      if (typeof item?.id === "string") liveQueueIds.add(item.id);
+      if (typeof item?.id === "string" && baseline?.queueIds?.has(item.id)) continue;
+      if (typeof item?.source?.rpcId === "string" && baseline?.pendingIds?.has(item.source.rpcId)) continue;
+      if (item?.source?.kind !== void 0 && item.source.kind !== "user") continue;
+      if (matchesAdmittedText(watch2.text, contentText2(item?.content))) return true;
+    }
+  }
+  const minSeq = baseline?.maxUserSeq ?? 0;
+  const seenBaselineQueueIds = /* @__PURE__ */ new Set();
+  const seenBaselineRpcIds = /* @__PURE__ */ new Set();
+  let unidentifiedMatches = 0;
+  for (const node of chatUserNodes(chat)) {
+    if (nodeSeq(node) <= minSeq) continue;
+    if (node?.data?.source?.kind !== void 0 && node.data.source.kind !== "user") continue;
+    const msgId = typeof node?.data?.messageId === "string" ? node.data.messageId : void 0;
+    const rpcId = typeof node?.data?.source?.rpcId === "string" ? node.data.source.rpcId : void 0;
+    if (msgId !== void 0 && baseline?.queueIds?.has(msgId)) {
+      seenBaselineQueueIds.add(msgId);
+      continue;
+    }
+    if (rpcId !== void 0 && baseline?.pendingIds?.has(rpcId)) {
+      seenBaselineRpcIds.add(rpcId);
+      continue;
+    }
+    if (!matchesAdmittedText(watch2.text, contentText2(node?.data?.content))) continue;
+    if (msgId !== void 0 || rpcId !== void 0) return true;
+    unidentifiedMatches += 1;
+  }
+  if (unidentifiedMatches > 0) {
+    let drainedBaselineQueued = 0;
+    for (const item of baseline?.queueTexts ?? []) {
+      if (item.id !== void 0 && (liveQueueIds.has(item.id) || seenBaselineQueueIds.has(item.id))) continue;
+      if (item.rpcId !== void 0 && seenBaselineRpcIds.has(item.rpcId)) continue;
+      if (matchesAdmittedText(watch2.text, item.text)) drainedBaselineQueued += 1;
+    }
+    if (unidentifiedMatches > drainedBaselineQueued) return true;
+  }
+  return false;
+}
+var sentTexts = /* @__PURE__ */ new Map();
+var sentKey = (chatId, sessionId) => `${chatId}:${sessionId ?? ""}`;
+function keepSentDraft({ chatId, sessionId, text, baseline }) {
+  const key = sentKey(chatId, sessionId);
+  if (text === "") sentTexts.delete(key);
+  else sentTexts.set(key, { text, baseline, admitted: false });
+}
+function peekSentDraft({ chatId, sessionId }) {
+  return sentTexts.get(sentKey(chatId, sessionId));
+}
+function markSentAdmitted({ chatId, sessionId }) {
+  const entry = sentTexts.get(sentKey(chatId, sessionId));
+  if (entry !== void 0) entry.admitted = true;
+}
+function takeSentDraft({ chatId, sessionId }) {
+  const key = sentKey(chatId, sessionId);
+  const entry = sentTexts.get(key);
+  sentTexts.delete(key);
+  return entry;
+}
+function dropSentDraft({ chatId, sessionId }) {
+  sentTexts.delete(sentKey(chatId, sessionId));
+}
 function takeDraft({ chatId, part, text, attached }, storage = globalThis.localStorage) {
   const kept = keptFiles.get(chatId);
   const files = attached === 0 && kept !== void 0 ? kept.files : NO_FILES;
@@ -20768,7 +21112,11 @@ function takeDraft({ chatId, part, text, attached }, storage = globalThis.localS
 }
 function pruneDrafts(gone, storage = globalThis.localStorage) {
   if (gone.length === 0) return;
-  for (const chatId of gone) keptFiles.delete(chatId);
+  for (const chatId of gone) {
+    keptFiles.delete(chatId);
+    const prefix = `${chatId}:`;
+    for (const key of sentTexts.keys()) if (key.startsWith(prefix)) sentTexts.delete(key);
+  }
   const entry = entryFor(storage, { sync: true });
   const texts2 = entry.texts;
   const listed = gone.filter((chatId) => texts2[chatId] !== void 0);
@@ -20781,6 +21129,7 @@ function pruneDrafts(gone, storage = globalThis.localStorage) {
 }
 function forgetKeptFiles() {
   keptFiles.clear();
+  sentTexts.clear();
 }
 
 // src/client/team-actions.js
@@ -21436,6 +21785,7 @@ var FIELDS = {
   }
 };
 var APPEARANCE_FIELDS = Object.keys(FIELDS);
+var COMPUTER_APPEARANCE_FIELDS = /* @__PURE__ */ new Set(["css", "mode", "uiFont", "codeFont", "fontSize", "lineHeight", "material"]);
 function patchAppearance(current2, patch) {
   if (patch === null || typeof patch !== "object" || Array.isArray(patch)) refuse("An appearance change names its fields");
   const next = { ...current2 };
@@ -21761,8 +22111,9 @@ var flatWidthOf = (prefs) => percent(prefs?.flatWidth, 100);
 // src/shared/theme-css.js
 var isCssSpace = (ch) => ch === " " || ch === "	" || ch === "\n" || ch === "\f" || ch === "\r";
 var isNameCode = (code) => code === 45 || code === 95 || code >= 48 && code <= 57 || code >= 65 && code <= 90 || code >= 97 && code <= 122 || code >= 128;
+var urlAllowedByDefault = (content) => content.startsWith("#") || content.length >= 5 && content.slice(0, 5).toLowerCase() === "data:";
 var REMOTE_FUNCTIONS = /* @__PURE__ */ new Set(["image-set", "-webkit-image-set", "image", "src"]);
-function scanThemeCss(text) {
+function scanThemeCss(text, allowUrl = urlAllowedByDefault) {
   const source = String(text ?? "");
   const n = source.length;
   let fetches = false;
@@ -21876,8 +22227,7 @@ function scanThemeCss(text) {
       fetches = true;
       return;
     }
-    if (content.startsWith("#")) return;
-    if (content.length >= 5 && content.slice(0, 5).toLowerCase() === "data:") return;
+    if (allowUrl(content)) return;
     fetches = true;
   };
   while (i < n) {
@@ -21954,8 +22304,8 @@ function scanThemeCss(text) {
   }
   return { fetches, imports };
 }
-var themeCssValueFetches = (value) => scanThemeCss(value).fetches;
-var themeCssLoadsRemoteFiles = (css) => scanThemeCss(css).fetches;
+var themeCssValueFetches = (value, allowUrl) => scanThemeCss(value, allowUrl).fetches;
+var themeCssLoadsRemoteFiles = (css, allowUrl) => scanThemeCss(css, allowUrl).fetches;
 function themeCssWithoutImports(css) {
   const source = String(css ?? "");
   const { imports } = scanThemeCss(source);
@@ -21992,16 +22342,16 @@ function declarationItems(style) {
   return names;
 }
 var URL_SHORTHANDS = ["background", "border-image", "-webkit-border-image", "list-style", "mask", "-webkit-mask", "-webkit-mask-box-image", "marker", "offset"];
-function cleanStyle(style) {
+function cleanStyle(style, allowUrl) {
   if (!style || typeof style.getPropertyValue !== "function" || typeof style.removeProperty !== "function") return;
   for (const name of declarationItems(style)) {
-    if (themeCssValueFetches(style.getPropertyValue(name))) style.removeProperty(name);
+    if (themeCssValueFetches(style.getPropertyValue(name), allowUrl)) style.removeProperty(name);
   }
   for (const name of URL_SHORTHANDS) {
     const value = style.getPropertyValue(name);
-    if (value !== "" && themeCssValueFetches(value)) style.removeProperty(name);
+    if (value !== "" && themeCssValueFetches(value, allowUrl)) style.removeProperty(name);
   }
-  if (typeof style.cssText === "string" && themeCssLoadsRemoteFiles(style.cssText)) {
+  if (typeof style.cssText === "string" && themeCssLoadsRemoteFiles(style.cssText, allowUrl)) {
     try {
       style.cssText = "";
     } catch {
@@ -22012,7 +22362,8 @@ function cleanStyle(style) {
     }
   }
 }
-function sanitizeUserSheet(sheet, view) {
+var sanitizeStyleDeclarations = cleanStyle;
+function sanitizeUserSheet(sheet, view, allowUrl) {
   const cleanList = (owner) => {
     const list = owner?.cssRules;
     if (!list || typeof list.length !== "number") return;
@@ -22031,11 +22382,11 @@ function sanitizeUserSheet(sheet, view) {
       if (type === "CSSPropertyRule") {
         const initial = typeof rule.initialValue === "string" ? rule.initialValue : "";
         const styleInitial = style && typeof style.getPropertyValue === "function" ? style.getPropertyValue("initial-value") : "";
-        if (themeCssValueFetches(initial) || themeCssValueFetches(styleInitial)) drop(index);
-        else if (style) cleanStyle(style);
+        if (themeCssValueFetches(initial, allowUrl) || themeCssValueFetches(styleInitial, allowUrl)) drop(index);
+        else if (style) cleanStyle(style, allowUrl);
         continue;
       }
-      if (style) cleanStyle(style);
+      if (style) cleanStyle(style, allowUrl);
       if (type !== void 0 && CONTAINERS.has(type)) {
         cleanList(rule);
         if (type !== "CSSKeyframesRule" && type !== "CSSLayerBlockRule" && (rule.cssRules?.length ?? 0) === 0) drop(index);
@@ -61515,7 +61866,9 @@ function useDictation(onText) {
   const [note, setNote] = (0, import_react76.useState)("");
   const recognition = (0, import_react76.useRef)(null);
   const latest = (0, import_react76.useRef)(onText);
-  latest.current = onText;
+  (0, import_react76.useEffect)(() => {
+    latest.current = onText;
+  }, [onText]);
   (0, import_react76.useEffect)(() => () => recognition.current?.abort(), []);
   (0, import_react76.useEffect)(() => {
     if (!note) return void 0;
@@ -61847,11 +62200,15 @@ function ComposerPlus({ sessionId, inputActions, useInput, useRoster, useWork, a
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
   }, [open, sessionId, enterToSend]);
-  const place = (0, import_react76.useMemo)(() => {
-    if (!shown || !button.current) return null;
+  const [place, setPlace] = (0, import_react76.useState)(void 0);
+  (0, import_react76.useLayoutEffect)(() => {
+    if (!shown || !button.current) {
+      setPlace(void 0);
+      return;
+    }
     const rect = button.current.getBoundingClientRect();
     const cardTop = button.current.closest?.("[data-composer-card]")?.getBoundingClientRect?.().top ?? rect.top;
-    return { left: rect.left, bottom: viewBottom() - Math.min(rect.top, cardTop) + 8 };
+    setPlace({ left: rect.left, bottom: viewBottom() - Math.min(rect.top, cardTop) + 8 });
   }, [shown, open, tick]);
   if (sessionId === void 0 || target === void 0) return null;
   const fileInput = () => button.current?.closest("[data-composer-card]")?.querySelector("input[type=file]");
@@ -61918,6 +62275,8 @@ function ComposerPlus({ sessionId, inputActions, useInput, useRoster, useWork, a
   );
 }
 var NO_IDS = [];
+var NO_QUEUE = [];
+var NO_SUBMISSIONS = [];
 var FROZEN_PHASES = /* @__PURE__ */ new Set(["adjudicating", "submitting", "sending"]);
 var DRAFT_DEBOUNCE_MS = 300;
 var appendRescuedPreservingChips = (inputActions, base, rescued) => {
@@ -61934,29 +62293,71 @@ var appendRescuedPreservingChips = (inputActions, base, rescued) => {
   const ok = inputActions.insertText(addition, { start: span.end, end: span.end, draftRev: span.draftRev });
   return { applied: ok === true, changed: ok === true, nextText: ok === true ? merged : base };
 };
-function DraftKeeper({ sessionId, inputActions, useInput, useRoster, useRescuedDrafts, actions }) {
+function DraftKeeper({
+  sessionId,
+  inputActions,
+  useInput,
+  useSession,
+  useConversation,
+  useProjection,
+  useRoster,
+  useRescuedDrafts,
+  actions
+}) {
   const chatId = useRoster((roster) => chatOfSession(roster, sessionId)?.id);
   const current2 = useRoster((roster) => chatOfSession(roster, sessionId)?.part === sessionId);
   const draft = useInput?.((state) => state.draft) ?? "";
   const ids = useInput?.((state) => state.attachmentIds) ?? NO_IDS;
   const phase = useInput?.((state) => state.phase) ?? "plain";
+  const queue2 = useInput?.((state) => state.queue) ?? NO_QUEUE;
   const occurrences = useInput?.((state) => state.occurrences) ?? NO_IDS;
   const hasChips = Array.isArray(occurrences) && occurrences.length > 0;
+  const openState = useSession?.((state) => state?.openState);
+  const pendingSubmissions = useSession?.((state) => state?.pendingSubmissions) ?? NO_SUBMISSIONS;
+  const nextStep = useProjection?.("inbox", (inbox) => inbox?.["next-step"]) ?? NO_QUEUE;
   const rescued = useRescuedDrafts?.((state) => readRescuedForChat(state, chatId, sessionId)) ?? "";
   const frozen = FROZEN_PHASES.has(phase);
+  const sending = phase === "sending";
   const rescueBlocked = frozen || phase === "claimed";
   const key = `${chatId}:${sessionId}`;
+  const chatOrSeq = useConversation?.((conversation) => {
+    const chatSnapshot = conversation?.views?.get?.("chat");
+    if (!current2) return 0;
+    if (!sending && peekSentDraft({ chatId, sessionId }) === void 0) return maxUserSeqOf(chatSnapshot);
+    return chatSnapshot;
+  }) ?? 0;
+  const chat = typeof chatOrSeq === "object" && chatOrSeq !== null ? chatOrSeq : void 0;
+  const lastUserSeq = typeof chatOrSeq === "number" ? chatOrSeq : maxUserSeqOf(chat);
   const keyRef = (0, import_react76.useRef)(key);
   const restored = (0, import_react76.useRef)("");
+  const deferredRestore = (0, import_react76.useRef)(false);
+  const skippedLiveDraft = (0, import_react76.useRef)(null);
   const pending = (0, import_react76.useRef)({ text: false, staleDraft: null, files: false });
   const latestDraft = (0, import_react76.useRef)(draft);
-  if (keyRef.current !== key) {
-    keyRef.current = key;
-    pending.current = { text: false, staleDraft: null, files: false };
-    latestDraft.current = draft;
-  } else if (!pending.current.text || draft !== pending.current.staleDraft) {
-    latestDraft.current = draft;
-  }
+  const preSendBaseline = (0, import_react76.useRef)(null);
+  (0, import_react76.useEffect)(() => {
+    if (keyRef.current !== key) {
+      keyRef.current = key;
+      deferredRestore.current = false;
+      skippedLiveDraft.current = null;
+      pending.current = { text: false, staleDraft: null, files: false };
+      latestDraft.current = draft;
+    } else if (!pending.current.text || draft !== pending.current.staleDraft) {
+      latestDraft.current = draft;
+    }
+  }, [key, draft]);
+  (0, import_react76.useEffect)(() => {
+    if (!current2 || frozen) return;
+    preSendBaseline.current = {
+      key,
+      baseline: captureAdmissionBaseline({
+        maxUserSeq: lastUserSeq,
+        pendingSubmissions,
+        queue: queue2,
+        nextStep
+      })
+    };
+  }, [current2, frozen, key, lastUserSeq, pendingSubmissions, queue2, nextStep]);
   (0, import_react76.useEffect)(() => {
     const flush = () => flushDrafts();
     const onVisibility2 = () => {
@@ -61982,11 +62383,30 @@ function DraftKeeper({ sessionId, inputActions, useInput, useRoster, useRescuedD
   (0, import_react76.useEffect)(() => {
     if (!current2 || frozen || inputActions === void 0) return;
     if (restored.current === key) return;
-    const back = takeDraft({ chatId, part: sessionId, text: draft, attached: ids.length });
-    const canLandRescueHere = rescued !== "" && !rescueBlocked && (!hasChips || back.text !== "");
-    const baseText = back.text !== "" ? back.text : draft;
+    let effectiveDraft = draft;
+    let clearSent = false;
+    const watch2 = peekSentDraft({ chatId, sessionId });
+    if (watch2 !== void 0) {
+      const livePartDraft = hasLivePartDraft({ chatId, part: sessionId });
+      if (draft !== watch2.text || livePartDraft) {
+        dropSentDraft({ chatId, sessionId });
+      } else if (isSentAdmitted(watch2, { chat, pendingSubmissions, queue: queue2, nextStep })) {
+        takeSentDraft({ chatId, sessionId });
+        effectiveDraft = "";
+        clearSent = true;
+      } else if (openState === "cold" || openState === "loading") {
+        deferredRestore.current = true;
+        return;
+      } else {
+        dropSentDraft({ chatId, sessionId });
+      }
+    }
+    const back = takeDraft({ chatId, part: sessionId, text: effectiveDraft, attached: ids.length });
+    const canLandRescueHere = rescued !== "" && !rescueBlocked && (!hasChips || back.text !== "" || clearSent);
+    const baseText = back.text !== "" ? back.text : effectiveDraft;
     const mergedText = canLandRescueHere ? mergeRescuedDraft(baseText, rescued) : back.text;
-    const applyText = canLandRescueHere ? mergedText !== draft : back.text !== "";
+    const nextText2 = canLandRescueHere ? mergedText : back.text !== "" ? back.text : clearSent ? "" : null;
+    const applyText = nextText2 !== null && nextText2 !== draft;
     if (canLandRescueHere) rescuedHandled = true;
     let added = [];
     let attached = false;
@@ -61995,9 +62415,9 @@ function DraftKeeper({ sessionId, inputActions, useInput, useRoster, useRescuedD
     let ok = true;
     try {
       if (applyText) {
-        inputActions.setDraft(mergedText);
+        inputActions.setDraft(nextText2);
         restoredText = true;
-        latestDraft.current = mergedText;
+        latestDraft.current = nextText2;
       }
       if (canLandRescueHere) {
         actions.consumeRescuedDraft?.(chatId, sessionId, rescued);
@@ -62023,8 +62443,21 @@ function DraftKeeper({ sessionId, inputActions, useInput, useRoster, useRescuedD
     }
     pending.current = { text: restoredText, staleDraft: restoredText ? draft : null, files: restoredFiles };
     restored.current = key;
+    if (!restoredText && !clearSent && hasOtherTabPartDraft({ chatId, part: sessionId, text: draft })) {
+      skippedLiveDraft.current = { key, draft };
+    }
+    const wasDeferred = deferredRestore.current;
+    deferredRestore.current = false;
+    if (wasDeferred && !restoredText && !restoredFiles && (draft !== "" || ids.length > 0)) {
+      const files = actions.draftFiles?.(ids) ?? [];
+      if (hasLivePartDraft({ chatId, part: sessionId })) {
+        if (files.length > 0) keepDraftFiles({ chatId, part: sessionId, files });
+      } else {
+        keepDraft({ chatId, part: sessionId, text: draft, files }, void 0, { deferMs: DRAFT_DEBOUNCE_MS });
+      }
+    }
     if (!ok && back.files.length > 0) actions.notice?.(t("The files attached to this draft could not be put back."));
-  }, [current2, frozen, chatId, sessionId, inputActions]);
+  }, [current2, frozen, rescueBlocked, hasChips, chatId, sessionId, key, inputActions, draft, rescued, openState, chat, lastUserSeq, pendingSubmissions, queue2, nextStep]);
   (0, import_react76.useEffect)(() => {
     if (rescuedHandled || !current2 || rescueBlocked || inputActions === void 0 || rescued === "" || restored.current !== key) return;
     const base = latestDraft.current;
@@ -62051,18 +62484,53 @@ function DraftKeeper({ sessionId, inputActions, useInput, useRoster, useRescuedD
     } catch (error) {
       console.warn("[ds-bot] could not return the question draft", error);
     }
-  }, [current2, rescueBlocked, hasChips, chatId, sessionId, inputActions, rescued]);
+  }, [current2, rescueBlocked, hasChips, chatId, sessionId, key, inputActions, rescued]);
   (0, import_react76.useEffect)(() => {
-    if (!current2 || restored.current !== key) return;
-    if (frozen) {
-      keepDraft({ chatId, part: sessionId, text: "", files: [] });
+    if (!current2) return;
+    const existing = peekSentDraft({ chatId, sessionId });
+    if (!sending) {
+      if (existing !== void 0 && !existing.admitted && isSentAdmitted(existing, { chat, pendingSubmissions, queue: queue2, nextStep })) {
+        markSentAdmitted({ chatId, sessionId });
+      }
       return;
     }
+    const admissionState = { chat, pendingSubmissions, queue: queue2, nextStep };
+    if (draft === "") {
+      if (existing !== void 0 && !existing.admitted && isSentAdmitted(existing, admissionState)) {
+        markSentAdmitted({ chatId, sessionId });
+      }
+      return;
+    }
+    if (existing?.text === draft) {
+      if (!existing.admitted && isSentAdmitted(existing, admissionState)) markSentAdmitted({ chatId, sessionId });
+      return;
+    }
+    const baseline = preSendBaseline.current?.key === key ? preSendBaseline.current.baseline : captureAdmissionBaseline({ ...admissionState, maxUserSeq: lastUserSeq });
+    keepSentDraft({ chatId, sessionId, text: draft, baseline });
+    const created = peekSentDraft({ chatId, sessionId });
+    if (isSentAdmitted(created, admissionState)) markSentAdmitted({ chatId, sessionId });
+  }, [current2, sending, key, chatId, sessionId, draft, chat, lastUserSeq, pendingSubmissions, queue2, nextStep]);
+  (0, import_react76.useEffect)(() => {
+    if (!current2) return;
+    if (frozen) {
+      if (restored.current === key) keepDraft({ chatId, part: sessionId, text: "", files: [] });
+      else if (sending) dropPartDraft({ chatId, part: sessionId });
+      return;
+    }
+    if (restored.current !== key) return;
+    dropSentDraft({ chatId, sessionId });
     if (pending.current.text && draft === pending.current.staleDraft) return;
     if (pending.current.files && ids.length === 0) return;
     pending.current = { text: false, staleDraft: null, files: false };
+    if (skippedLiveDraft.current?.key === key) {
+      if (draft === skippedLiveDraft.current.draft) {
+        keepDraftFiles({ chatId, part: sessionId, files: actions.draftFiles?.(ids) ?? [] });
+        return;
+      }
+      skippedLiveDraft.current = null;
+    }
     keepDraft({ chatId, part: sessionId, text: draft, files: actions.draftFiles(ids) }, void 0, { deferMs: DRAFT_DEBOUNCE_MS });
-  }, [current2, frozen, chatId, sessionId, draft, ids]);
+  }, [current2, sending, frozen, key, chatId, sessionId, draft, ids]);
   return null;
 }
 
@@ -67150,6 +67618,17 @@ function bindOpeningWait(ui, { waitMs = OPENING_WAIT_MS, schedule = setTimeout, 
     end() {
       stop();
       ui.set((state) => state.pendingOpen === null ? state : { ...state, pendingOpen: null });
+    },
+    // The wait ended without the Session and cannot succeed: keep the cover, mark it
+    // failed, so the card says what happened and offers a way out. A newer navigation
+    // lifts it the same way `end` does.
+    fail(target, reason = "missing") {
+      stop();
+      ui.set((state) => {
+        const pending = state.pendingOpen;
+        if (!pending || pending.target !== target || pending.failed === true && pending.reason === reason) return state;
+        return { ...state, pendingOpen: { ...pending, failed: true, reason } };
+      });
     }
   };
 }
@@ -67158,20 +67637,45 @@ function openingModel({ pending, current: current2, roster }) {
   if (current2 === pending.target) return null;
   const bot = roster?.byId?.[pending.id];
   const room2 = roster?.roomsById?.[pending.id];
-  if (current2 !== null && current2 !== void 0) {
+  if (pending.failed !== true && current2 !== null && current2 !== void 0) {
     if (bot !== void 0 && roster?.byId?.[current2]?.id === bot.id) return null;
     if (room2 !== void 0 && roster?.roomsById?.[current2]?.id === room2.id) return null;
   }
   return {
     id: pending.id,
+    target: pending.target,
     name: bot?.name ?? room2?.name ?? pending.name ?? "",
     bot,
     group: room2 !== void 0,
-    slow: pending.slow === true
+    slow: pending.slow === true,
+    failed: pending.failed === true,
+    reason: pending.failed === true ? pending.reason ?? "missing" : void 0
   };
 }
-function OpeningCover({ model, column }) {
+function OpeningCover({ model, column, onNewSession, onRetry, actions }) {
   if (model === null) return null;
+  const recover = onNewSession ?? actions?.recoverOpening;
+  const retry = onRetry ?? actions?.retryOpening;
+  const timedOut = model.failed && model.reason === "timeout";
+  const buttons = [];
+  if (timedOut && retry) {
+    buttons.push((0, import_react91.createElement)("button", {
+      key: "retry",
+      type: "button",
+      className: "bt-soft bt-soft-sm bt-opening-retry",
+      onClick: () => retry(model.target)
+    }, t("Try again")));
+  }
+  if (model.failed && model.bot !== void 0) {
+    buttons.push((0, import_react91.createElement)("button", {
+      key: "new",
+      type: "button",
+      className: "bt-soft bt-soft-sm bt-opening-new",
+      onClick: () => recover?.(model.bot.id)
+    }, t("New session")));
+  }
+  const controls = buttons.length === 0 ? null : buttons.length === 1 ? buttons[0] : (0, import_react91.createElement)("div", { className: "bt-opening-actions" }, buttons);
+  const note = timedOut ? "This session is not available yet." : model.failed ? "This session is no longer available." : model.slow ? "Still opening…" : "Opening…";
   return (0, import_react91.createElement)(
     "div",
     {
@@ -67185,7 +67689,8 @@ function OpeningCover({ model, column }) {
       { className: "bt-opening-card" },
       (0, import_react91.createElement)("span", { className: "bt-opening-mark" }, model.bot ? (0, import_react91.createElement)(BotMark, { bot: model.bot, size: 44 }) : (0, import_react91.createElement)(PeopleIcon)),
       model.name ? (0, import_react91.createElement)("span", { className: "bt-opening-name" }, model.name) : null,
-      (0, import_react91.createElement)("span", { className: "bt-opening-note" }, t(model.slow ? "Still opening…" : "Opening…"))
+      (0, import_react91.createElement)("span", { className: "bt-opening-note" }, t(note)),
+      controls
     )
   );
 }
@@ -67195,6 +67700,9 @@ var OPENING_CSS = `
 .bt-opening-mark{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;color:var(--bt-ink-3)}
 .bt-opening-name{font-size:15px;font-weight:600;line-height:20px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-opening-note{font-size:13px;line-height:18px;color:var(--bt-ink-3)}
+.bt-opening-actions{display:flex;align-items:center;gap:8px;margin-top:2px}
+.bt-opening-new,.bt-opening-retry{margin-top:2px}
+.bt-opening-actions .bt-opening-new,.bt-opening-actions .bt-opening-retry{margin-top:0}
 @keyframes bt-opening-in{from{opacity:0}to{opacity:1}}
 `;
 
@@ -67269,7 +67777,7 @@ function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity
     opening ? (0, import_react92.createElement)(
       OverlayBoundary,
       { name: "opening", reset: opening.id, notify: false },
-      (0, import_react_dom16.createPortal)((0, import_react92.createElement)(OpeningCover, { model: opening, column: layout.column }), document.body)
+      (0, import_react_dom16.createPortal)((0, import_react92.createElement)(OpeningCover, { model: opening, column: layout.column, onNewSession: actions?.recoverOpening, onRetry: actions?.retryOpening }), document.body)
     ) : null,
     pane ? (0, import_react92.createElement)(OverlayBoundary, {
       name: "panel",
@@ -69314,7 +69822,8 @@ function noticeApprovals({ work, roster, shownSession, openSession, since = Date
 }
 
 // src/client/open-listed.js
-function listedOpener({ list, open, refresh, current: current2, begin, done }) {
+var OPENING_FAIL_MS = 1e4;
+function listedOpener({ list, open, refresh, current: current2, begin, done, fail: fail2, gone, waitMs = OPENING_FAIL_MS, schedule = setTimeout, clear = clearTimeout }) {
   let drop = () => {
   };
   let waitingTarget = null;
@@ -69332,36 +69841,65 @@ function listedOpener({ list, open, refresh, current: current2, begin, done }) {
     const from = current2?.();
     waitingTarget = target;
     begin?.(target);
-    let waiting = true;
+    let state = "waiting";
+    let timer2;
+    let off = () => {
+    };
+    const clearTimer = () => {
+      if (timer2 !== void 0) {
+        clear(timer2);
+        timer2 = void 0;
+      }
+    };
+    const unsubscribe = () => {
+      const fn = off;
+      off = () => {
+      };
+      fn();
+    };
     const settle = () => {
-      if (!waiting) return;
-      waiting = false;
-      waitingTarget = null;
+      if (state === "settled") return false;
+      state = "settled";
+      if (waitingTarget === target) waitingTarget = null;
       drop = () => {
       };
+      clearTimer();
+      unsubscribe();
       done?.(target);
+      return true;
     };
-    const off = list.subscribe(() => {
+    const failWait = (reason) => {
+      if (state !== "waiting") return false;
+      state = "failed";
+      if (waitingTarget === target) waitingTarget = null;
+      clearTimer();
+      fail2?.(target, reason);
+      return true;
+    };
+    drop = () => {
+      settle();
+    };
+    off = list.subscribe(() => {
       const now2 = current2?.();
       if (now2 === target) {
-        off();
         settle();
         return;
       }
       if (now2 !== void 0 && now2 !== from) {
-        off();
         settle();
         return;
       }
       if (!listed()) return;
-      off();
-      settle();
-      open(target);
+      if (settle()) open(target);
     });
-    drop = () => {
-      off();
-      settle();
-    };
+    if (gone?.(target) === true) {
+      failWait("missing");
+      return;
+    }
+    timer2 = schedule(() => {
+      if (state !== "waiting" || listed()) return;
+      failWait("timeout");
+    }, waitMs);
     refresh?.();
   };
 }
@@ -70497,10 +71035,20 @@ function apply(ctx) {
   const endOpening = () => {
     openingWait.end();
   };
+  const failOpening = (target, reason = "missing") => {
+    if (ownerOfSession(target) === void 0) {
+      endOpening();
+      actions.reportError(new Error(t(reason === "timeout" ? "This session is not available yet." : "This session is no longer available.")), "open-session");
+      return;
+    }
+    openingWait.fail(target, reason);
+  };
+  const lostSession = (target) => (roster.getSnapshot().bots ?? []).some((bot) => bot.sessionMissing === target);
+  const recovering = /* @__PURE__ */ new Set();
   const show2 = listedOpener({ list: ctx.sessions.list, refresh: () => Promise.resolve(ctx.sessions.refresh?.()).catch(quietly("refresh sessions")), open: (target) => {
     expected2 = target;
     ctx.uiWorkspace.openSession(target);
-  }, current: mainView, begin: beginOpening, done: endOpening });
+  }, current: mainView, begin: beginOpening, done: endOpening, fail: failOpening, gone: lostSession });
   const panelFolded = (view) => {
     const state = ui.getSnapshot();
     if (state.details === null) return false;
@@ -70563,6 +71111,34 @@ function apply(ctx) {
       setPlain(false);
       const target = partFor(id);
       show2(target);
+    },
+    retryOpening: (target) => {
+      if (!target) return;
+      show2(target);
+    },
+    // The Bot's current Session is gone from the library: a fresh part takes its place
+    // (the Host makes it without the lost part), then that part is opened. The failure
+    // card stays meanwhile, so a failed try leaves the way out on screen.
+    recoverOpening: async (botId) => {
+      if (recovering.has(botId)) return;
+      recovering.add(botId);
+      const seq = ++navSeq;
+      try {
+        await after(call("recover-session", { botId }));
+        if (seq !== navSeq) return;
+        const bot = roster.getSnapshot().byId[botId];
+        if (bot === void 0) {
+          endOpening();
+          return;
+        }
+        navSeq += 1;
+        setPlain(false);
+        show2(currentPart(bot));
+      } catch (error) {
+        actions.reportError(error, "reopen-session");
+      } finally {
+        recovering.delete(botId);
+      }
     },
     // The conversation replacements withdraw for a plain Session; set the surface
     // before the navigation so the Bot skin never flashes.

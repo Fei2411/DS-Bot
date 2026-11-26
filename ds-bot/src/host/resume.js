@@ -1660,14 +1660,38 @@ export function install(rt) {
       || Object.keys(recoveredSilent).length > 0
   }
 
+  let recoveredSnapshotPending = false
+  const ensureRecoveredBeforeReplay = () => {
+    if (stopped || rt.readOnly?.() !== undefined || !rt.hasLoaded?.()) return
+    if (coord?.recoverAfterLock?.() === true) {
+      coord?.syncLegacyInflight?.()
+      if (mergeRecoveredSnapshot(coord.loadInitialState?.())) recoveredSnapshotPending = true
+    } else {
+      coord?.syncLegacyInflight?.()
+    }
+  }
+  const peekStartupSilent = (sessionId) => {
+    if (typeof sessionId !== 'string' || sessionId === '') return []
+    ensureRecoveredBeforeReplay()
+    const list = interrupted.silent?.[sessionId]
+    return Array.isArray(list) ? list : []
+  }
+  const clearStartupSilent = (sessionId) => {
+    if (typeof sessionId !== 'string' || sessionId === '') return
+    if (interrupted.silent !== undefined && Object.hasOwn(interrupted.silent, sessionId)) {
+      const next = { ...interrupted.silent }
+      delete next[sessionId]
+      interrupted = { ...interrupted, silent: next }
+    }
+  }
+  rt.peekStartupSilent = peekStartupSilent
+  rt.clearStartupSilent = clearStartupSilent
+
   async function resumeAll() {
     await rt.load()
     if (rt.readOnly() !== undefined) return
-    if (coord?.recoverAfterLock?.() === true) {
-      coord?.syncLegacyInflight?.()
-      mergeRecoveredSnapshot(coord.loadInitialState?.())
-    }
-    coord?.syncLegacyInflight?.()
+    ensureRecoveredBeforeReplay()
+    recoveredSnapshotPending = false
     if ((coord?.listTerminalMarkers?.().length ?? 0) > 0) {
       await reconcileTerminalMarkers().catch(error => rt.warn('ds-bot: reconciling terminal markers failed: %s', error))
     }
@@ -1826,9 +1850,10 @@ export function install(rt) {
       : setTimeout(() => {
         fastStartup = rt.load()
           .then(() => {
-            if (rt.readOnly() === undefined && coord?.recoverAfterLock?.() === true) {
-              coord?.syncLegacyInflight?.()
-              if (mergeRecoveredSnapshot(coord.loadInitialState?.())) {
+            if (rt.readOnly() === undefined) {
+              ensureRecoveredBeforeReplay()
+              if (recoveredSnapshotPending) {
+                recoveredSnapshotPending = false
                 return resumeAll()
               }
             }

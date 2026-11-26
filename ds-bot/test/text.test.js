@@ -49,6 +49,36 @@ test('excerpt keeps the match in view', () => {
   assert.equal(excerpt(long, '', 10), `${'a'.repeat(10)}…`)
 })
 
+test('excerpt never cuts an astral character in half', () => {
+  // An offset can land between the two halves of a pair. Slicing there put a lone
+  // surrogate into the chat line, and every platform draws a replacement character.
+  const whole = (value) => {
+    for (let i = 0; i < value.length; i += 1) {
+      const code = value.charCodeAt(i)
+      if (code >= 0xd800 && code <= 0xdbff) {
+        const next = value.charCodeAt(i + 1)
+        if (!(next >= 0xdc00 && next <= 0xdfff)) return false
+        i += 1
+      } else if (code >= 0xdc00 && code <= 0xdfff) return false
+    }
+    return true
+  }
+
+  const text = `${'a'.repeat(200)}${'\u{1F600}'.repeat(200)}`
+  const cut = excerpt(text, '', 301)
+  const cutBody = cut.slice(0, -1)
+  assert.equal(cutBody.length, 300, 'one unit is given up, not the rest of the line')
+  assert.ok(whole(cutBody), 'the cut ends on a character boundary')
+  assert.ok(/[\u{1F600}]/u.test(cutBody), 'the emoji are still in the excerpt')
+
+  // The window around a match starts on the low half just as easily.
+  const around = `${'b'.repeat(121)}${'\u{1F600}'.repeat(80)}needle`
+  const window = excerpt(around, 'needle', 200)
+  const windowBody = window.slice(1, -1)
+  assert.ok(windowBody.includes('needle'), 'the match stays in view')
+  assert.ok(whole(windowBody), 'the window starts and ends on a character boundary')
+})
+
 test('estimateTokens counts CJK as one token and other text as a third', () => {
   assert.equal(estimateTokens(''), 0)
   assert.equal(estimateTokens('你好'), 2)

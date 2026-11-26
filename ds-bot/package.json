@@ -30,6 +30,7 @@
     "./plugin-sdk": "./src/host/plugins/sdk.js",
     "./browser-provider": "./src/host/plugins/sdk.js",
     "./web-search": "./web-search.js",
+    "./code-mode": "./code-mode.js",
     "./package.json": "./package.json"
   },
   "files": [
@@ -47,6 +48,7 @@
     "link.js",
     "office.js",
     "web-search.js",
+    "code-mode.js",
     "cordis.patch.yml",
     "assets/pwa/",
     "README.md",
@@ -65,14 +67,22 @@
     "@deepseek-ai/cordis": "*",
     "@deepseek-ai/dsh-fs-patch": "*",
     "@deepseek-ai/dsh-llm": "*",
+    "@deepseek-ai/dsh-ptc-runtime": "*",
     "@deepseek-ai/dsh-sandbox-policy": "*",
     "@deepseek-ai/dsh-scope": "*",
     "@deepseek-ai/dsh-tools": "*",
+    "@deepseek-ai/dsh-tool-executor-native": "*",
+    "@deepseek-ai/dsh-tool-executor-ptc": "*",
     "@deepseek-ai/dsh-typert-protocol": "*",
-    "@deepseek-ai/dsh-web": "*"
+    "@deepseek-ai/dsh-web": "*",
+    "@deepseek-ai/schemastery": "*"
   },
   "peerDependenciesMeta": {
-    "@deepseek-ai/dsh-fs-patch": { "optional": true }
+    "@deepseek-ai/dsh-fs-patch": { "optional": true },
+    "@deepseek-ai/dsh-ptc-runtime": { "optional": true },
+    "@deepseek-ai/dsh-tool-executor-native": { "optional": true },
+    "@deepseek-ai/dsh-tool-executor-ptc": { "optional": true },
+    "@deepseek-ai/schemastery": { "optional": true }
   },
   "dsh": {
     "client": {
