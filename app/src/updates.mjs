@@ -10,12 +10,20 @@ const MB = 1024 * 1024
 
 function decodeEntities(text) {
   return text
-    .replace(/&amp;/gu, '&')
+    .replace(/&#x([0-9a-f]+);/giu, (match, hex) => {
+      const cp = Number.parseInt(hex, 16)
+      return Number.isFinite(cp) && cp >= 0 && cp <= 0x10ffff ? String.fromCodePoint(cp) : match
+    })
+    .replace(/&#(\d+);/gu, (match, dec) => {
+      const cp = Number.parseInt(dec, 10)
+      return Number.isFinite(cp) && cp >= 0 && cp <= 0x10ffff ? String.fromCodePoint(cp) : match
+    })
     .replace(/&lt;/gu, '<')
     .replace(/&gt;/gu, '>')
     .replace(/&quot;/gu, '"')
-    .replace(/&#39;/gu, "'")
+    .replace(/&apos;/gu, "'")
     .replace(/&nbsp;/gu, ' ')
+    .replace(/&amp;/gu, '&')
 }
 
 function cleanNoteLine(raw) {
@@ -52,6 +60,8 @@ export function summarizeReleaseNotes(raw, { maxItems = 4, maxChars = 280 } = {}
   // Convert HTML fragments (electron-updater may supply HTML from GitHub releases) to lines.
   if (/<[a-z][\s\S]*>/iu.test(text)) {
     text = text
+      .replace(/<\s*table\b[^>]*>[\s\S]*?<\s*\/\s*table\s*>/giu, '\n')
+      .replace(/<\s*h([1-6])\b[^>]*>/giu, (_, level) => `\n${'#'.repeat(Number(level))} `)
       .replace(/<\s*br\s*\/?>/giu, '\n')
       .replace(/<\s*\/(?:li|p|div|h[1-6]|tr)\s*>/giu, '\n')
       .replace(/<\s*li\b[^>]*>/giu, '- ')

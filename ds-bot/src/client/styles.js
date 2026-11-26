@@ -1617,10 +1617,6 @@ body[data-bt-effects=off] :is([class^="bt-"],[class*=" bt-"]):not(.bt-spin):not(
 .bt-rn-close{flex:none}
 .bt-rn-body{flex:1;min-height:0;overflow-y:auto;padding:2px 20px 18px;display:flex;flex-direction:column;gap:16px;scrollbar-width:thin;scrollbar-color:var(--bt-line-2) transparent}
 .bt-rn-section{display:flex;flex-direction:column;gap:10px}
-.bt-rn-section+.bt-rn-section{padding-top:14px;border-top:1px solid var(--bt-line)}
-.bt-rn-ver-head{display:flex;align-items:center;gap:8px}
-.bt-rn-ver-pill{display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:999px;background:var(--bt-tag-bg);color:var(--bt-ink);font-size:11px;line-height:16px;font-weight:600;font-variant-numeric:tabular-nums}
-.bt-rn-ver-date{font-size:11px;line-height:16px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums}
 .bt-rn-intro{margin:0;font-size:13px;line-height:20px;color:var(--bt-ink-2)}
 .bt-rn-list{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:10px}
 .bt-rn-item{display:flex;align-items:flex-start;gap:10px;font-size:14px;line-height:22px;color:var(--bt-ink)}
@@ -1628,11 +1624,6 @@ body[data-bt-effects=off] :is([class^="bt-"],[class*=" bt-"]):not(.bt-spin):not(
 .bt-rn-text{flex:1;min-width:0}
 .bt-rn-outro{margin:2px 0 0;font-size:12px;line-height:18px;color:var(--bt-ink-3)}
 .bt-rn-empty{margin:4px 0;font-size:13px;line-height:20px;color:var(--bt-ink-2)}
-.bt-rn-history{display:flex;flex-direction:column;gap:12px;padding-top:12px;border-top:1px solid var(--bt-line)}
-.bt-rn-history-toggle{align-self:flex-start;height:28px;padding:0 10px;border:0;border-radius:999px;background:var(--bt-hover);color:var(--bt-ink-2);font:inherit;font-size:12px;line-height:16px;font-weight:500;cursor:pointer;transition:background-color .12s ease,color .12s ease}
-.bt-rn-history-toggle:hover{background:var(--bt-active);color:var(--bt-ink)}
-.bt-rn-history-toggle:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
-.bt-rn-history-list{display:flex;flex-direction:column;gap:14px}
 .bt-rn-foot{flex:none;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 20px 16px;border-top:1px solid var(--bt-line)}
 .bt-rn-link{font-size:12px;line-height:16px;color:var(--bt-ink-2);text-decoration:none;transition:color .12s ease}
 .bt-rn-link:hover{color:var(--bt-accent);text-decoration:underline}

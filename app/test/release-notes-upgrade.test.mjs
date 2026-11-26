@@ -34,6 +34,15 @@ describe('pre-update release notes summary', () => {
       { version: '0.3.10', note: '<ul><li><strong>Clean UI</strong> (<a href="https://x">#12</a>)</li><li>Fast startup</li></ul>' },
     ])
     assert.equal(htmlSummary, '• Clean UI\n• Fast startup')
+
+    const htmlWithDownloadsAndEntities = summarizeReleaseNotes(
+      '<h2>Download / 下载</h2><table><tr><th>System</th><th>File</th></tr><tr><td>macOS</td><td>DS-Bot.zip</td></tr></table>'
+      + '<p>Manual download instructions should be skipped</p>'
+      + '<h2>Highlights</h2><ul><li>It&#x27;s faster &amp;amp; &#39;cleaner&#39;</li><li>Keep &amp;lt;tag&amp;gt; literal</li></ul>',
+    )
+    assert.equal(htmlWithDownloadsAndEntities, "• It's faster &amp; 'cleaner'\n• Keep &lt;tag&gt; literal")
+    assert.doesNotMatch(htmlWithDownloadsAndEntities, /Download|DS-Bot\.zip|Manual download/)
+
     assert.equal(summarizeReleaseNotes(''), '')
     assert.equal(summarizeReleaseNotes(null), '')
   })

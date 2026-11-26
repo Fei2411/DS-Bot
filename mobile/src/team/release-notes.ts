@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useSyncExternalStore } from 'react'
 import * as SecureStore from '../storage'
 import {
   cleanSemver,
@@ -33,11 +33,30 @@ const defaultStorage: ReleaseNotesStorage = {
 }
 
 /**
+ * Record the installed version silently on a fresh install (when no identity existed yet)
+ * so closing the app on the pairing screen never turns the next launch into a false upgrade.
+ */
+export async function seedFreshInstallReleaseNotes({
+  currentVersion,
+  storage = defaultStorage,
+}: {
+  currentVersion: string
+  storage?: ReleaseNotesStorage
+}): Promise<void> {
+  const current = cleanSemver(currentVersion)
+  if (current === null) return
+  const rawSeen = await storage.getItemAsync(RELEASE_NOTES_SEEN_KEY).catch(() => null)
+  if (rawSeen && cleanSemver(rawSeen) !== null) return
+  await storage.setItemAsync(RELEASE_NOTES_SEEN_KEY, current).catch(() => {})
+}
+
+/**
  * Evaluate whether the phone app should auto-show post-upgrade release notes and update
  * the device-local `lastSeenVersion` key:
  * - Fresh install (no seen key and no existing identity): silently record current version.
- * - Upgrade from older build without seen key (`hadExistingIdentity === true`): show current release once.
- * - Normal / multi-version upgrade (`lastSeen < current`): show `lastSeen < v <= current` once.
+ * - Upgrade from older build without seen key (`hadExistingIdentity === true`) or from
+ *   any older version (`lastSeen < current`): show only the current release once (never pile
+ *   earlier versions).
  * - Same version, build-metadata-only change, or downgrade: silent, never roll back `lastSeenVersion`.
  * - Storage write failure: leave unseen and do not show so the next launch retries cleanly.
  */
@@ -58,25 +77,12 @@ export async function checkMobileReleaseNotes({
   const rawSeen = await storage.getItemAsync(RELEASE_NOTES_SEEN_KEY).catch(() => null)
   const lastSeen = rawSeen ? cleanSemver(rawSeen) : null
 
-  if (lastSeen === null) {
-    if (!hadExistingIdentity) {
-      await storage.setItemAsync(RELEASE_NOTES_SEEN_KEY, current).catch(() => {})
-      return { show: false, current, versions: [] }
-    }
-    const versions = pendingReleaseVersions({ current, lastSeenVersion: null, releases })
-    if (versions.length === 0) {
-      await storage.setItemAsync(RELEASE_NOTES_SEEN_KEY, current).catch(() => {})
-      return { show: false, current, versions: [] }
-    }
-    try {
-      await storage.setItemAsync(RELEASE_NOTES_SEEN_KEY, current)
-    } catch {
-      return { show: false, current, versions: [] }
-    }
-    return { show: true, current, versions }
+  if (lastSeen === null && !hadExistingIdentity) {
+    await storage.setItemAsync(RELEASE_NOTES_SEEN_KEY, current).catch(() => {})
+    return { show: false, current, versions: [] }
   }
 
-  if (compareSemver(current, lastSeen) <= 0) {
+  if (lastSeen !== null && compareSemver(current, lastSeen) <= 0) {
     return { show: false, current, versions: [] }
   }
 
@@ -97,14 +103,12 @@ export interface MobileReleaseNotesModalState {
   open: boolean
   mode: 'auto' | 'manual'
   current: string | null
-  versions: string[] | null
 }
 
 let modalState: MobileReleaseNotesModalState = {
   open: false,
   mode: 'manual',
   current: null,
-  versions: null,
 }
 const listeners = new Set<() => void>()
 
@@ -113,12 +117,20 @@ function publish(next: MobileReleaseNotesModalState): void {
   listeners.forEach(fn => fn())
 }
 
-export function openMobileReleaseNotes(options: { current?: string | null; versions?: string[] | null; mode?: 'auto' | 'manual' } = {}): void {
+function subscribeModal(listener: () => void): () => void {
+  listeners.add(listener)
+  return () => { listeners.delete(listener) }
+}
+
+function getModalSnapshot(): MobileReleaseNotesModalState {
+  return modalState
+}
+
+export function openMobileReleaseNotes(options: { current?: string | null; mode?: 'auto' | 'manual' } = {}): void {
   publish({
     open: true,
     mode: options.mode ?? 'manual',
     current: options.current ?? null,
-    versions: options.versions ?? null,
   })
 }
 
@@ -128,11 +140,5 @@ export function closeMobileReleaseNotes(): void {
 }
 
 export function useMobileReleaseNotes(): MobileReleaseNotesModalState {
-  const [snap, setSnap] = useState(modalState)
-  useEffect(() => {
-    const sync = () => setSnap(modalState)
-    listeners.add(sync)
-    return () => { listeners.delete(sync) }
-  }, [])
-  return snap
+  return useSyncExternalStore(subscribeModal, getModalSnapshot, getModalSnapshot)
 }

@@ -20,14 +20,22 @@ const FALLBACK_MAX_ITEMS = 8
 export function cleanChangelogLine(raw) {
   let text = String(raw ?? '').trim()
   if (text === '') return ''
+  // Protect inline code spans before stripping HTML tags so tokens like `</DSML …>` survive.
+  const codeSpans = []
+  text = text.replace(/`([^`]+)`/gu, (_, code) => {
+    const idx = codeSpans.length
+    codeSpans.push(code)
+    return `\uE000${idx}\uE001`
+  })
   // Unwrap Markdown links `[label](url)` -> `label`.
   text = text.replace(/\[([^\]]+)\]\((?:[^()\\]|\\.)*\)/gu, '$1')
   // Remove inline HTML tags like `<br>` or `<code>`.
   text = text.replace(/<[^>]+>/gu, ' ')
-  // Remove bold/italic/code wrappers.
+  // Remove bold/italic wrappers.
   text = text.replace(/\*\*([^*]+)\*\*/gu, '$1')
   text = text.replace(/__([^_]+)__/gu, '$1')
-  text = text.replace(/`([^`]+)`/gu, '$1')
+  // Restore unwrapped inline code spans.
+  text = text.replace(/\uE000(\d+)\uE001/gu, (_, idx) => codeSpans[Number(idx)] ?? '')
   // Strip trailing parentheticals referencing PRs, issues, or contributor credits:
   // e.g. "(#123, #456)", "(by @alice; #123)", "(reported by @bob; #123, reverts #456)".
   while (/\s*\((?:[^()]*?(?:#\d+|@\w+|reverts?\b)[^()]*)\)\s*$/iu.test(text)) {

@@ -84,7 +84,11 @@ export function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useA
     document.addEventListener('visibilitychange', sync)
     return () => document.removeEventListener('visibilitychange', sync)
   }, [])
+  // A Session the Host made a moment ago is not in the shell's list yet: the asked-for
+  // Bot fills the conversation area instead of the chat that was there before.
+  const opening = openingModel({ pending: ui.pendingOpen ?? null, current, roster })
   const [autoReleaseNotes, setAutoReleaseNotes] = useState(null)
+  const [settledClaimVersion, setSettledClaimVersion] = useState(null)
   const claimedVersionRef = useRef(null)
   const mountedRef = useRef(true)
   useEffect(() => {
@@ -94,20 +98,46 @@ export function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useA
   const rnState = roster.releaseNotes
   const rnCurrent = typeof rnState?.current === 'string' ? rnState.current : null
   const rnPending = Array.isArray(rnState?.pending) ? rnState.pending : []
-  const rnPendingKey = rnPending.join(',')
+  // While SettingsShell holds the seat, it renders manual release notes (including in Classic
+  // Agent mode where Overlays is unmounted). Overlays still owns post-upgrade auto-pop and
+  // handles manual release notes whenever SettingsShell is not mounted.
+  const manualReleaseNotes = shellHeld ? null : ui.releaseNotes
+  const releaseNotesTarget = manualReleaseNotes ?? autoReleaseNotes
+  const [releaseNotesOpen, releaseNotesLeaving] = useLinger(releaseNotesTarget, DIALOG_EXIT_MS)
+  const closeReleaseNotes = () => {
+    if (manualReleaseNotes) actions.closeReleaseNotes?.()
+    else setAutoReleaseNotes(null)
+  }
+
+  const [noticeDismissed, setNoticeDismissed] = useState(false)
+  const releaseNotesPendingHere = roster.ready === true
+    && !roster.readOnly
+    && rnCurrent !== null
+    && rnPending.length > 0
+    && settledClaimVersion !== rnCurrent
+    && typeof actions.claimReleaseNotes === 'function'
+  const showNotice = roster.ready === true && roster.telemetryPrompt === true && !noticeDismissed
+    && !settings && !ui.settings && !owner && !ui.newChat && !ui.palette && !ui.inbox && !ui.voice && !ui.exchange && !ui.groupSearch && !ui.shortcuts && !opening
+    && !ui.releaseNotes && !releaseNotesOpen && !releaseNotesTarget && !releaseNotesPendingHere
+  const [noticeOpen, noticeLeaving] = useLinger(showNotice ? 'notice' : null, DIALOG_EXIT_MS)
+
   const canAutoRelease = roster.ready === true
     && !roster.readOnly
     && pageVisible
     && rnCurrent !== null
     && rnPending.length > 0
     && !settings
-    && !shellHeld
+    && !ui.settings
     && !owner
     && !ui.newChat
+    && !ui.inbox
     && !ui.palette
     && !ui.groupSearch
     && !ui.exchange
     && !ui.voice
+    && !ui.shortcuts
+    && !opening
+    && !noticeOpen
     && !ui.releaseNotes
     && autoReleaseNotes === null
     && claimedVersionRef.current !== rnCurrent
@@ -115,7 +145,6 @@ export function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useA
   useEffect(() => {
     if (!canAutoRelease) return undefined
     const version = rnCurrent
-    const versions = rnPendingKey === '' ? [] : rnPendingKey.split(',')
     // Let the desktop start-window whale handoff glide finish before rising the card.
     const delayMs = globalThis.dsBotApp ? 650 : 0
     const run = () => {
@@ -127,12 +156,13 @@ export function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useA
       void Promise.resolve(actions.claimReleaseNotes(version))
         .then((result) => {
           if (!mountedRef.current) return
+          setSettledClaimVersion(version)
           if (result?.claimed === true) {
-            setAutoReleaseNotes({ mode: 'auto', current: version, versions })
+            setAutoReleaseNotes({ mode: 'auto', current: version })
           }
         })
         .catch(() => {
-          if (claimedVersionRef.current === version) claimedVersionRef.current = null
+          if (mountedRef.current) setSettledClaimVersion(version)
         })
     }
     if (delayMs === 0) {
@@ -141,45 +171,7 @@ export function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useA
     }
     const timer = setTimeout(run, delayMs)
     return () => clearTimeout(timer)
-  }, [canAutoRelease, rnCurrent, rnPendingKey, actions])
-
-  const activeReleaseNotes = ui.releaseNotes
-    ? {
-        mode: 'manual',
-        current: ui.releaseNotes.current ?? rnCurrent,
-        versions: ui.releaseNotes.versions ?? null,
-        notesUrl: ui.releaseNotes.notesUrl ?? updateNotesUrl,
-      }
-    : autoReleaseNotes
-      ? {
-          mode: 'auto',
-          current: autoReleaseNotes.current,
-          versions: autoReleaseNotes.versions,
-          notesUrl: updateNotesUrl,
-        }
-      : null
-  const [releaseNotesOpen, releaseNotesLeaving] = useLinger(activeReleaseNotes, DIALOG_EXIT_MS)
-  const closeReleaseNotes = () => {
-    if (ui.releaseNotes) actions.closeReleaseNotes?.()
-    else setAutoReleaseNotes(null)
-  }
-
-  const [noticeDismissed, setNoticeDismissed] = useState(false)
-  const releaseNotesPendingHere = roster.ready === true && !roster.readOnly && rnCurrent !== null && rnPending.length > 0 && claimedVersionRef.current !== rnCurrent
-  const showNotice = roster.ready === true
-    && roster.telemetryPrompt === true
-    && !noticeDismissed
-    && !settings
-    && !owner
-    && !ui.newChat
-    && !ui.palette
-    && !releaseNotesOpen
-    && !activeReleaseNotes
-    && !releaseNotesPendingHere
-  const [noticeOpen, noticeLeaving] = useLinger(showNotice ? 'notice' : null, DIALOG_EXIT_MS)
-  // A Session the Host made a moment ago is not in the shell's list yet: the asked-for
-  // Bot fills the conversation area instead of the chat that was there before.
-  const opening = openingModel({ pending: ui.pendingOpen ?? null, current, roster })
+  }, [canAutoRelease, rnCurrent, actions])
   const paletteToken = ui.palette?.token
   const groupSearchToken = ui.groupSearch?.token
   return h(Fragment, null,
@@ -239,13 +231,12 @@ export function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useA
     }, createPortal(h(TelemetryNotice, { actions, leaving: noticeLeaving, onDone: () => setNoticeDismissed(true) }), document.body)) : null,
     releaseNotesOpen ? h(OverlayBoundary, {
       name: 'release-notes', active: !releaseNotesLeaving, notify: !releaseNotesLeaving,
-      reset: `${releaseNotesOpen.mode}:${releaseNotesOpen.current ?? ''}`,
+      reset: `${releaseNotesOpen.mode ?? 'manual'}:${releaseNotesOpen.current ?? rnCurrent ?? ''}`,
       onDismiss: closeReleaseNotes, actions,
     }, createPortal(h(ReleaseNotesDialog, {
-      mode: releaseNotesOpen.mode,
-      current: releaseNotesOpen.current,
-      versions: releaseNotesOpen.versions,
-      notesUrl: releaseNotesOpen.notesUrl,
+      mode: releaseNotesOpen.mode ?? 'manual',
+      current: releaseNotesOpen.current ?? rnCurrent,
+      notesUrl: releaseNotesOpen.notesUrl ?? updateNotesUrl,
       leaving: releaseNotesLeaving,
       onClose: closeReleaseNotes,
     }), document.body)) : null)

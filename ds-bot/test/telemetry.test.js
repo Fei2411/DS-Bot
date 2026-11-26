@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { createRuntime } from '../index.js'
-import { install as installTelemetry, sanitizeStack, envDisabledReason, botCountBucket, turnsBucket, normalizeProvider, normalizeWhere, normalizeErrorName, normalizeErrorCode } from '../src/host/telemetry.js'
+import { install as installTelemetry, sanitizeStack, envDisabledReason, automatedEnvReason, botCountBucket, turnsBucket, normalizeProvider, normalizeWhere, normalizeErrorName, normalizeErrorCode } from '../src/host/telemetry.js'
 import { validatePayload } from '../../telemetry/src/validate.js'
 import { fakeContext } from './fake-ctx.js'
 
@@ -340,7 +340,15 @@ test('envDisabledReason and bucketing helpers behave predictably', () => {
   assert.equal(normalizeErrorCode('ENOENT'), 'ENOENT')
   assert.equal(normalizeErrorCode('HTTP_502'), 'HTTP_502')
   assert.equal(normalizeErrorCode('bot/refused'), 'bot/refused')
+  assert.equal(normalizeErrorCode('SERVER'), 'SERVER')
+  assert.equal(normalizeErrorCode('gateway/internal'), 'gateway/internal')
+  assert.equal(normalizeErrorCode('CONTEXT_WINDOW_EXCEEDED'), 'CONTEXT_WINDOW_EXCEEDED')
   assert.equal(normalizeErrorCode('USER_SECRET_TOKEN'), undefined)
+  assert.equal(automatedEnvReason({}), null)
+  assert.equal(automatedEnvReason({ CI: 'true' }), 'CI')
+  assert.equal(automatedEnvReason({ GITHUB_ACTIONS: 'true' }), 'GITHUB_ACTIONS')
+  assert.equal(automatedEnvReason({ NODE_TEST_CONTEXT: 'child-v8' }), 'NODE_TEST_CONTEXT')
+  assert.equal(automatedEnvReason({ PLAYWRIGHT_TEST: '1' }), 'PLAYWRIGHT_TEST')
 })
 
 test('enabling only error reports before notice acceptance never enables usage statistics', async () => {

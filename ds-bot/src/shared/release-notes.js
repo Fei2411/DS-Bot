@@ -22,12 +22,11 @@ export function getReleaseEntry(version, releases = RELEASE_NOTES) {
 }
 
 /**
- * Determine which versions should be shown automatically after an upgrade.
+ * Determine whether the current release should be shown automatically after an upgrade.
  * - Unknown current version -> []
- * - Existing install upgrading from before lastSeenVersion existed (`lastSeenVersion == null`):
- *   show only the current release (if present in bundled notes) instead of dumping full history.
- * - Normal / multi-version upgrade (`lastSeenVersion < current`):
- *   return every release with `lastSeenVersion < v <= current`, newest first.
+ * - Existing install upgrading from before lastSeenVersion existed (`lastSeenVersion == null`),
+ *   or upgrading from any older version (`lastSeenVersion < current`):
+ *   return `[current]` when the current release has bundled notes (never pile older versions).
  * - Same version, build-metadata-only change, or downgrade (`lastSeenVersion >= current`): [].
  * @param {{ current?: string | null, lastSeenVersion?: string | null, releases?: ReadonlyArray<ReleaseNotesEntry> }} [options]
  * @returns {string[]}
@@ -39,39 +38,10 @@ export function pendingReleaseVersions({ current, lastSeenVersion = null, releas
     ? null
     : cleanSemver(lastSeenVersion)
 
-  if (seen === null) {
-    const match = getReleaseEntry(cur, releases)
-    return match ? [match.version] : []
-  }
+  if (seen !== null && compareSemver(cur, seen) <= 0) return []
 
-  if (compareSemver(cur, seen) <= 0) return []
-
-  return releases
-    .filter((entry) => {
-      const v = cleanSemver(entry?.version)
-      return v !== null && compareSemver(v, seen) > 0 && compareSemver(v, cur) <= 0
-    })
-    .sort((a, b) => compareSemver(b.version, a.version))
-    .map(entry => entry.version)
-}
-
-/**
- * List releases up to `current` (newest first) for the About replay view.
- * @param {string | null | undefined} current
- * @param {ReadonlyArray<ReleaseNotesEntry>} [releases]
- * @returns {ReleaseNotesEntry[]}
- */
-export function releasesUpTo(current, releases = RELEASE_NOTES) {
-  if (!Array.isArray(releases)) return []
-  const cur = cleanSemver(current)
-  const list = cur === null
-    ? [...releases]
-    : releases.filter((entry) => {
-      const v = cleanSemver(entry?.version)
-      return v !== null && compareSemver(v, cur) <= 0
-    })
-  const base = list.length > 0 ? list : [...releases]
-  return base.sort((a, b) => compareSemver(b.version, a.version))
+  const match = getReleaseEntry(cur, releases)
+  return match ? [match.version] : []
 }
 
 function normalizeNoteValue(value) {

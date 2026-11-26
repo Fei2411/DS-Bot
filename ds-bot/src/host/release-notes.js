@@ -61,8 +61,10 @@ export function install(rt) {
       try {
         await rt.save({ required: true })
       } catch (error) {
-        if (previous === undefined) delete state.lastSeenVersion
-        else state.lastSeenVersion = previous
+        if (error?.code !== 'ELOCKLOST' && state.lastSeenVersion === liveCurrent) {
+          if (previous === undefined) delete state.lastSeenVersion
+          else state.lastSeenVersion = previous
+        }
         throw error
       }
       return { claimed: true, version: liveCurrent }

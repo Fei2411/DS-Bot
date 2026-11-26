@@ -1651,12 +1651,9 @@ const ZH = {
   'Source code': '源代码',
   'Release notes': '发布说明',
   "What's new in v{version}": 'v{version} 更新内容',
-  'Updated to v{version}': '已更新到 v{version}',
   'Got it': '知道了',
   'Full changelog': '完整更新日志',
-  'Earlier versions': '查看更早版本',
-  'Hide earlier versions': '收起更早版本',
-  'No release notes for this version yet.': '这个版本还没有更新说明。',
+  'No release notes for this version yet.': '当前版本暂无更新说明。',
   Open: '打开',
   // Feedback and errors
   Feedback: '反馈',

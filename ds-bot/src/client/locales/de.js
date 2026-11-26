@@ -2,11 +2,8 @@
 
 export const DE = {
   "What's new in v{version}": 'Neu in v{version}',
-  'Updated to v{version}': 'Auf v{version} aktualisiert',
   'Got it': 'Verstanden',
   'Full changelog': 'Vollständiges Änderungsprotokoll',
-  'Earlier versions': 'Frühere Versionen',
-  'Hide earlier versions': 'Frühere Versionen ausblenden',
   'No release notes for this version yet.': 'Für diese Version gibt es noch keine Versionshinweise.',
   'Agent preset': 'Agent-Voreinstellung',
   'Agent preset: {preset}': 'Agent-Voreinstellung: {preset}',

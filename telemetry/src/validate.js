@@ -37,7 +37,11 @@ export const SAFE_ERROR_NAMES = new Set([
 export const SAFE_ERROR_CODES = new Set([
   'bot/invalid', 'bot/not-found', 'bot/refused', 'bot/read-only', 'bot/stale',
   'bot/busy', 'bot/conflict', 'bot/timeout', 'bot/internal', 'schedule/pending',
+  'gateway/internal', 'gateway/timeout', 'gateway/unavailable',
+  'session/not-found', 'session/agent-busy', 'session/archived', 'subagent/unauthorized',
   'AUTH', 'QUOTA', 'RATE_LIMIT', 'NETWORK', 'TIMEOUT', 'CONTENT_POLICY', 'ABORTED', 'UNKNOWN',
+  'SERVER', 'MAX_TOKENS', 'CONTEXT_WINDOW_EXCEEDED', 'BAD_REQUEST', 'FORBIDDEN', 'NOT_FOUND',
+  'OVERLOADED', 'PROVIDER', 'MODEL',
   'ENOENT', 'EACCES', 'EPERM', 'EEXIST', 'EISDIR', 'ENOTDIR', 'EMFILE', 'ENOSPC', 'EPIPE',
   'ECONNRESET', 'ECONNREFUSED', 'ECONNABORTED', 'ETIMEDOUT', 'EHOSTUNREACH', 'ENETUNREACH',
   'EADDRINUSE', 'EADDRNOTAVAIL', 'EAI_AGAIN', 'ENOTFOUND', 'EBUSY', 'EXDEV', 'EINVAL',
