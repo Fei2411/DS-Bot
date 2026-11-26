@@ -55,6 +55,7 @@ export function makeStatefulReact() {
   const React = {
     Component,
     Fragment: Symbol('Fragment'),
+    memo: fn => ({ $$typeof: Symbol.for('react.memo'), type: fn }),
     createElement(type, props, ...children) {
       return { type, props: props ?? {}, children: children.flat(Infinity).filter(c => c !== null && c !== undefined && c !== false && c !== true) }
     },
@@ -80,18 +81,20 @@ export function makeStatefulReact() {
     useEffect: scheduleEffect,
     useLayoutEffect: scheduleEffect,
   }
+  const resolveType = type => (type && typeof type === 'object' && type.$$typeof === Symbol.for('react.memo') ? type.type : type)
   function renderNode(node, path, seen, effects) {
     if (Array.isArray(node)) return node.map((child, i) => renderNode(child, `${path}[${i}]`, seen, effects))
     if (!node || typeof node !== 'object') return node
-    if (typeof node.type === 'function') {
-      const key = `${path}:${node.type.name || 'fn'}:${node.props?.key ?? ''}`
+    const fn = resolveType(node.type)
+    if (typeof fn === 'function') {
+      const key = `${path}:${fn.name || 'fn'}:${node.props?.key ?? ''}`
       seen.add(key)
       let inst = instances.get(key)
       if (!inst) { inst = { hooks: [], idx: 0, pending: [] }; instances.set(key, inst) }
       let out
-      if (node.type.prototype && typeof node.type.prototype.render === 'function') {
+      if (fn.prototype && typeof fn.prototype.render === 'function') {
         const clsProps = { ...node.props, children: node.children }
-        if (!inst.cls) inst.cls = new node.type(clsProps)
+        if (!inst.cls) inst.cls = new fn(clsProps)
         inst.cls.props = clsProps
         out = inst.cls.render()
       } else {
@@ -100,7 +103,7 @@ export function makeStatefulReact() {
         inst.idx = 0
         inst.pending = []
         try {
-          out = node.type({ ...node.props, children: node.children })
+          out = fn({ ...node.props, children: node.children })
         } finally {
           active = prev
         }
