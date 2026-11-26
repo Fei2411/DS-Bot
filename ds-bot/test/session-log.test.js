@@ -163,6 +163,22 @@ test('the transcript keeps what the user saw: a trimmed result stays, a summary 
   assert.equal(late[3].summary, null)
 })
 
+test('stream frames never clone the events array, and only events clones do', () => {
+  let log = emptyLog()
+  const streamClones = []
+  const otherClones = []
+  for (const frame of LIVE) {
+    const before = log
+    const next = applyFrame(log, frame)
+    log = next.log
+    if (log === before || log.events === before.events) continue
+    if (frame.type === 'assistant-stream') streamClones.push(frame)
+    else otherClones.push(frame)
+  }
+  assert.deepEqual(streamClones, [], 'no stream frame ever replaces the events array')
+  assert.ok(otherClones.length > 0, 'event and snapshot frames do replace it')
+})
+
 test('a reply frame counted from 1 again (the Agent started again on this Session) asks to open again', () => {
   const { log } = run(LIVE)
   const start = LIVE.find(frame => frame.type === 'assistant-stream' && frame.frame.type === 'start')
