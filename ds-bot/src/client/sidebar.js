@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { memo } from './memo.js'
 import { FishLogo } from './dsh-primitives.js'
 import { inkFill } from './inks.js'
-import { isMainOf } from './sources.js'
+import { isMainOf, sectionCollapsed } from './sources.js'
 import { currentPart, previewOf, relativeShort } from './text.js'
 import { PlusIcon, SearchIcon, SidebarIcon, GaugeIcon, ClockIcon, GearIcon, PinMarkIcon, ConnectorIcon, PlugIcon, SwitchIcon, CloudDownloadIcon, SignInIcon, SignOutIcon, SlidersIcon, ChevronRightIcon, DotsIcon, FolderIcon } from './icons.js'
 import { lookOf, MAIN_LOOK } from './characters.js'
@@ -627,8 +627,8 @@ export function TeamSidebar(props) {
   const sections = useMemo(() => {
     const sections = roster.sections ?? []
     return sectionFolds ? sections.map(section => {
-      const collapsed = sectionFolds[section.id]
-      return collapsed === undefined ? section : { ...section, collapsed }
+      const collapsed = sectionCollapsed(section, sectionFolds)
+      return collapsed === section.collapsed ? section : { ...section, collapsed }
     }) : sections
   }, [roster.sections, sectionFolds])
   const sectionSet = useMemo(() => new Set(sections.map(sec => sec.id)), [sections])

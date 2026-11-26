@@ -20334,6 +20334,7 @@ function createSource(initial) {
 }
 var EMPTY_ROSTER = { revision: -1, mainBotId: null, mainBotIds: [], bots: [], rooms: [], agents: [], sections: [], exchangeTurns: {}, questions: {}, views: {}, btwCards: {}, sideChats: {}, learning: {}, secrets: [], capabilities: [], capabilityStatuses: {}, phone: null, secretRequests: {}, connectorRequests: {}, mailRequests: {}, models: [], defaultModel: null, modelsKey: null, prefs: {}, byId: {}, roomsById: {}, agentsById: {}, agentOf: {}, ready: false };
 var isMainOf = (roster, id) => id !== void 0 && (roster.mainBotIds ?? []).includes(id);
+var sectionCollapsed = (section, sectionFolds) => sectionFolds?.[section.id] ?? section.collapsed;
 function indexRoster(value) {
   const byId = {};
   for (const bot of value.bots) {
@@ -47501,8 +47502,8 @@ function TeamSidebar(props) {
   const sections = (0, import_react45.useMemo)(() => {
     const sections2 = roster.sections ?? [];
     return sectionFolds ? sections2.map((section) => {
-      const collapsed = sectionFolds[section.id];
-      return collapsed === void 0 ? section : { ...section, collapsed };
+      const collapsed = sectionCollapsed(section, sectionFolds);
+      return collapsed === section.collapsed ? section : { ...section, collapsed };
     }) : sections2;
   }, [roster.sections, sectionFolds]);
   const sectionSet = (0, import_react45.useMemo)(() => new Set(sections.map((sec) => sec.id)), [sections]);
@@ -59955,7 +59956,7 @@ function matchShortcutEvent(event, {
   }
   return null;
 }
-function visibleSidebarTargets(roster, sessionsById = {}, activeId = null) {
+function visibleSidebarTargets(roster, sessionsById = {}, activeId = null, sectionFolds) {
   if (!roster) return [];
   const stamps = {};
   for (const [id, entry] of Object.entries(sessionsById ?? {})) {
@@ -59993,7 +59994,7 @@ function visibleSidebarTargets(roster, sessionsById = {}, activeId = null) {
     }
   }
   for (const section of sections) {
-    if (section.collapsed) continue;
+    if (sectionCollapsed(section, sectionFolds)) continue;
     for (const entry of ordered) {
       if (entry.item.sectionId === section.id) {
         targets.push({ kind: entry.kind, id: entry.id, name: entry.item.name ?? "DSH Agent" });
@@ -70363,7 +70364,7 @@ function buildPluginShortcutCommands({ roster, ui, surface, actions, mainView, s
       resolve: ({ modal }) => {
         if (surface.getSnapshot().mode !== "bot") return { status: "blocked", reason: "unavailable" };
         if (modal !== null) return { status: "blocked", reason: "modal" };
-        const targets = visibleSidebarTargets(roster.getSnapshot(), sessionsById(), mainView());
+        const targets = visibleSidebarTargets(roster.getSnapshot(), sessionsById(), mainView(), ui.getSnapshot().sectionFolds);
         const target = targets[index];
         if (!target) return { status: "blocked", reason: "unavailable" };
         return {
