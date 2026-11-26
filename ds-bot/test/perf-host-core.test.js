@@ -851,8 +851,11 @@ test('memory-review.js does not cancel pending review timer on agent/disposed', 
   onDisposed({ agent: { id: 'a' } })
   assert.equal(rt.memoryReviews(), 1, 'agent/disposed must NOT cancel pending memory review timer')
 
-  // Wait for timer to fire and run the review.
-  await new Promise(resolve => setTimeout(resolve, 90))
+  // Wait for the timer's asynchronous transcript read and review call to finish.
+  const reviewDeadline = Date.now() + 2000
+  while ((partLinesCalls === 0 || llmCalls === 0) && Date.now() < reviewDeadline) {
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
   assert.equal(partLinesCalls >= 1, true, 'final turn memory review actually executed after agent/disposed')
   assert.equal(llmCalls >= 1, true, 'review LLM call ran after agent/disposed')
 })
