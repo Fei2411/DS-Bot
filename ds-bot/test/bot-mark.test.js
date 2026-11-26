@@ -7,7 +7,7 @@ import { build } from 'esbuild'
 import { STATES, stateName } from '../src/client/avatar/states.js'
 
 const bundle = await build({
-  stdin: { contents: "export { botState, lastTurnFailed, latestTurnOf, BotAvatar, BotMark, RoomAvatar } from './src/client/mark.js'", resolveDir: dirname(dirname(fileURLToPath(import.meta.url))) },
+  stdin: { contents: "export { botPendingOf, botState, dmMarkState, lastTurnFailed, latestTurnOf, BotAvatar, BotMark, RoomAvatar } from './src/client/mark.js'", resolveDir: dirname(dirname(fileURLToPath(import.meta.url))) },
   bundle: true, format: 'cjs', platform: 'node', write: false, logLevel: 'silent',
   external: ['react', 'react-dom', '@deepseek-ai/dsh-client-ui-primitives'],
 })
@@ -40,7 +40,7 @@ const advance = (ms) => {
   }
 }
 runInNewContext(bundle.outputFiles[0].text, { module, exports: module.exports, require: name => (name === 'react' ? react : {}), ...timers })
-const { botState, lastTurnFailed, latestTurnOf, BotAvatar, BotMark, RoomAvatar } = module.exports
+const { botPendingOf, botState, dmMarkState, lastTurnFailed, latestTurnOf, BotAvatar, BotMark, RoomAvatar } = module.exports
 
 test('a group photo replaces its collage at all sizes and a broken photo falls back', () => {
   const image = 'data:image/png;base64,iVBORw0KGgo='
@@ -96,6 +96,21 @@ test('between turns a Bot shows, in order: a question, a failed turn, work hande
   for (const state of ['background', 'failed', 'replied']) assert.equal(stateName(state), state)
 })
 
+test('dmMarkState alerts on background task approvals when idle without overriding foreground work', () => {
+  // Single waiting_approval background task: alerts instead of calm background nod.
+  assert.equal(dmMarkState({ running: false, background: true, waitingApproval: true }), 'alert')
+  assert.equal(dmMarkState({ running: false, background: true, bgApproval: true }), 'alert')
+  // Plain running background task with no pending approval stays calm background.
+  assert.equal(dmMarkState({ running: false, background: true }), 'background')
+  // Non-blocking background approval does not override an active foreground turn.
+  assert.equal(dmMarkState({ running: true, doing: 'working', background: true, waitingApproval: true, bgApproval: true }), 'working')
+  // Foreground approval / pending card / question overrides even a running foreground turn.
+  assert.equal(dmMarkState({ running: true, doing: 'working', fgApproval: true }), 'alert')
+  assert.equal(dmMarkState({ running: true, doing: 'working', pending: botPendingOf({ questions: { b: { id: 'q1' } } }, { id: 'b' }) }), 'alert')
+  // Group approval activity ('alert' without DM blocker) is stripped during foreground work (#1623).
+  assert.equal(dmMarkState({ running: true, doing: 'alert' }), 'working')
+})
+
 test('a last turn failed until a later turn of that chat shows in its live outline', () => {
   // The host's shapes (turns.js): a failure under the part and turn it happened in, a
   // block on the Bot. The outline is DSH's turnOutline, numbered by the same turn/start.
@@ -114,13 +129,14 @@ test('a last turn failed until a later turn of that chat shows in its live outli
   // A block stands for the whole Bot, from wherever it came (a group, a task)...
   assert.equal(lastTurnFailed({ id: 'b', blocked: { code: 'QUOTA', provider: 'deepseek', at: 10 } }, 7), true)
   assert.equal(lastTurnFailed({ ...failed, blocked: { code: 'QUOTA', provider: 'deepseek', at: 12 } }, 4), true)
-  // ...and one from this part's failure goes with it: the host writes both in the same
-  // turn end, a few milliseconds apart.
+  // A block stands for the whole Bot until the host lifts it, even when a retry turn
+  // starts or is manually stopped in the live outline.
   const auth = { id: 'b', failures: { b: { turn: 3, code: 'AUTH', at: 1_000_000 } }, blocked: { code: 'AUTH', provider: 'deepseek', at: 1_000_002 } }
   assert.equal(lastTurnFailed(auth, 3), true)
-  assert.equal(lastTurnFailed(auth, 4), false)
-  // A block with the same code from a later failure elsewhere (a group) still stands
-  // after this part's failure is behind it.
+  assert.equal(lastTurnFailed(auth, 4), true)
+  // Once the host lifts the block, the superseded failure no longer holds failed.
+  assert.equal(lastTurnFailed({ ...auth, blocked: undefined }, 4), false)
+  // A block with the same code from a later failure elsewhere (a group) still stands.
   assert.equal(lastTurnFailed({ ...auth, blocked: { ...auth.blocked, at: 1_045_000 } }, 4), true)
   // The newest turn of a part, from the live list.
   assert.equal(latestTurnOf({ byId: { b: { projectionValues: { turnOutline: [{ turn: 2, seq: 5, prompt: 'hi', response: '' }, { turn: 3, seq: 9, prompt: 'again', response: '' }] } } } }, 'b'), 3)

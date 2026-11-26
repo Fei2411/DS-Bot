@@ -35,25 +35,57 @@ export const latestTurnOf = (list, part) => {
 }
 // Whether the Bot's last turn in its chat failed. The host keeps the failure under the
 // part and turn it happened in until a turn there goes through, but the roster that
-// carries it is polled, while the part's turn outline is live. So a failure counts until
-// a later turn shows in the outline: a retry under way, finished or stopped leaves it
-// behind at once, as the chat's failure card does (turn-error.js). A turn the host
-// could not number (picked up after a restart) cannot be placed, so it counts. A block
-// (a key, a balance) stands for the whole Bot, wherever it came from (its chat, a group,
-// a task), until the host lifts it; one from this part's failure goes with it. The host
-// writes that block right after the failure, in the same turn end (turns.js
-// rememberFailure, blockBot), so their times are within SAME_FAILURE_MS; a block from a
-// later failure elsewhere comes after another request to the model.
-const SAME_FAILURE_MS = 1000
+// carries it is polled, while the part's turn outline is live. So a non-blocking failure
+// counts until a later turn shows in the outline: a retry under way, finished or stopped
+// leaves it behind at once, as the chat's failure card does (turn-error.js). A turn the
+// host could not number (picked up after a restart) cannot be placed, so it counts. A
+// block (a key, a balance) stands for the whole Bot until the host clears it on a
+// completed turn or provider fix: turnOutline records turn/start, so a retry that is
+// manually stopped must not hide an active block.
 export function lastTurnFailed(bot, latestTurn) {
   if (bot === undefined) return false
+  if (bot.blocked !== undefined) return true
   const failure = bot.failures?.[currentPart(bot)]
-  const past = failure !== undefined && failure.turn >= 1 && latestTurn > failure.turn
-  if (failure !== undefined && !past) return true
-  const block = bot.blocked
-  if (block === undefined) return false
-  const fromThisFailure = past && block.code === failure.code && Math.abs(block.at - failure.at) < SAME_FAILURE_MS
-  return !fromThisFailure
+  if (failure === undefined) return false
+  return !(failure.turn >= 1 && latestTurn > failure.turn)
+}
+
+const useFalse = () => false
+const hasPendingRequest = list => Array.isArray(list) && list.some(entry => entry?.status === 'pending')
+
+// Pending user-action cards stored on the roster for one Bot's DM:
+// skill / AGENTS.md learning proposals, secret / connector / mail approvals,
+// and ask_user / show_view cards.
+export function botPendingOf(roster, bot) {
+  if (bot === undefined) return { learning: false, cardApproval: false, question: false }
+  const id = bot.id
+  const part = currentPart(bot)
+  const learning = (roster?.learning?.[id]?.length ?? 0) > 0
+  const cardApproval = hasPendingRequest(roster?.secretRequests?.[id])
+    || hasPendingRequest(roster?.connectorRequests?.[id])
+    || hasPendingRequest(roster?.mailRequests?.[id])
+  const question = roster?.questions?.[part] !== undefined || roster?.views?.[part] !== undefined
+  return { learning, cardApproval, question }
+}
+
+// Direct-chat foreground and background approvals for one Bot (excluding group approvals #1623).
+export function useBotApprovals(botId, useWork, useComputer) {
+  const useReadWork = useWork ?? useFalse
+  const useReadComputer = useComputer ?? useFalse
+  const fgTool = useReadWork(work => botId !== undefined && (work.approvals ?? []).some(entry => entry.roomId === undefined && entry.botId === botId && entry.taskId === undefined && entry.answerable !== false))
+  const fgComputer = useReadComputer(comp => botId !== undefined && Object.values(comp?.asks ?? {}).some(ask => ask.roomId === undefined && ask.botId === botId))
+  const bgApproval = useReadWork(work => botId !== undefined && (work.approvals ?? []).some(entry => entry.roomId === undefined && entry.botId === botId && entry.taskId !== undefined && entry.answerable !== false))
+  return { fgApproval: fgTool || fgComputer, bgApproval }
+}
+
+// Unified direct-chat mark state shared by the sidebar row, header pill and details drawer.
+// Blocking DM approvals/questions override a running foreground turn; non-blocking items
+// (background-task approvals, learning proposals) alert once idle without hiding foreground work.
+export function dmMarkState({ running = false, doing, failed = false, background = false, waitingApproval = false, replied = false, fgApproval = false, bgApproval = false, pending = {} }) {
+  const blockingAlert = Boolean(fgApproval || pending.cardApproval || pending.question)
+  const alert = blockingAlert || Boolean(bgApproval || pending.learning || waitingApproval)
+  const dmDoing = blockingAlert ? 'alert' : doing === 'alert' ? undefined : doing
+  return botState(running, dmDoing, alert, { failed, background, replied })
 }
 export const toolState = name => (/^(message_bot|delegate_work|ask_back|answer_work|cancel_work|note_bot|stop_bot|create_bot|update_bot|create_group|update_group|delete_group|post_to_group)$/.test(name) ? 'sending'
   : /search|fetch|browse|read|grep|glob|list|recall/i.test(name) ? 'searching' : 'working')

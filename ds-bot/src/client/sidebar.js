@@ -7,7 +7,8 @@ import { isMainOf } from './sources.js'
 import { currentPart, previewOf, relativeShort } from './text.js'
 import { PlusIcon, SearchIcon, SidebarIcon, GaugeIcon, ClockIcon, GearIcon, PinMarkIcon, ConnectorIcon, PlugIcon, SwitchIcon, CloudDownloadIcon, SignInIcon, SignOutIcon, SlidersIcon, ChevronRightIcon, DotsIcon, FolderIcon } from './icons.js'
 import { lookOf, MAIN_LOOK } from './characters.js'
-import { botState, lastTurnFailed, latestTurnOf, BotMark, BotAvatar, RoomAvatar } from './mark.js'
+import { botPendingOf, dmMarkState, lastTurnFailed, latestTurnOf, BotMark, BotAvatar, RoomAvatar } from './mark.js'
+export { botPendingOf } from './mark.js'
 import { AgentBadge } from './agent-badge.js'
 import { SidebarTaskPill, taskCountsOf } from './bot-tasks.js'
 import { reducedMotion } from './activity-row.js'
@@ -59,22 +60,6 @@ const useApproval = (useWork, useComputer, matchApproval, matchAsk) => {
   const tool = useReadWork(work => (work.approvals ?? []).some(matchApproval))
   const app = useReadComputer(comp => Object.values(comp?.asks ?? {}).some(matchAsk))
   return tool || app
-}
-
-const hasPendingRequest = list => Array.isArray(list) && list.some(entry => entry?.status === 'pending')
-
-// Pending user-action cards stored on the roster for one Bot's DM:
-// skill / AGENTS.md learning proposals, secret / connector / mail approvals,
-// and ask_user / show_view cards.
-export function botPendingOf(roster, bot) {
-  const id = bot.id
-  const part = currentPart(bot)
-  const learning = (roster?.learning?.[id]?.length ?? 0) > 0
-  const cardApproval = hasPendingRequest(roster?.secretRequests?.[id])
-    || hasPendingRequest(roster?.connectorRequests?.[id])
-    || hasPendingRequest(roster?.mailRequests?.[id])
-  const question = roster?.questions?.[part] !== undefined || roster?.views?.[part] !== undefined
-  return { learning, cardApproval, question }
 }
 
 // Work running in group Sessions, as "botId|tool" keys so a row redraws only when it
@@ -154,11 +139,19 @@ const BotRow = memo(function BotRow({ bot, roster, actions, useSessions, useBotC
   // a running turn paused on a card still wears the alert mark; any remaining
   // 'alert' activity comes from a group, background-task, or unanswerable approval
   // and is stripped while the foreground turn runs.
-  const blockingAlert = blockingApproval || pending.question
-  const dmDoing = blockingAlert ? 'alert' : doing === 'alert' ? undefined : doing
   const taskCounts = taskCountsOf({ bot })
   const failed = lastTurnFailed(bot, useSessions(list => latestTurnOf(list, part)))
-  const state = botState(running || away, dmDoing, alert, { failed, background: taskCounts.active > 0, replied: finished })
+  const state = dmMarkState({
+    running: running || away,
+    doing,
+    failed,
+    background: taskCounts.active > 0,
+    waitingApproval: taskCounts.waitingApproval > 0,
+    replied: finished,
+    fgApproval,
+    bgApproval,
+    pending,
+  })
   const waitLine = blockingApproval ? t('Waiting for your approval') : pending.question ? t('Waiting for your answer') : null
   const deferredWaitLine = nonBlockingApproval ? t('Waiting for your approval') : null
   // A Bot running in its own chat previews what it is doing, like a group's row.

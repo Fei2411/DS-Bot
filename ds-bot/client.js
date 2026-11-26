@@ -27575,16 +27575,37 @@ var latestTurnOf = (list, part) => {
   const outline2 = turnOutlineOf(list, part);
   return Array.isArray(outline2) && outline2.length > 0 ? outline2.at(-1).turn : void 0;
 };
-var SAME_FAILURE_MS = 1e3;
 function lastTurnFailed(bot, latestTurn) {
   if (bot === void 0) return false;
+  if (bot.blocked !== void 0) return true;
   const failure = bot.failures?.[currentPart(bot)];
-  const past = failure !== void 0 && failure.turn >= 1 && latestTurn > failure.turn;
-  if (failure !== void 0 && !past) return true;
-  const block = bot.blocked;
-  if (block === void 0) return false;
-  const fromThisFailure = past && block.code === failure.code && Math.abs(block.at - failure.at) < SAME_FAILURE_MS;
-  return !fromThisFailure;
+  if (failure === void 0) return false;
+  return !(failure.turn >= 1 && latestTurn > failure.turn);
+}
+var useFalse = () => false;
+var hasPendingRequest = (list) => Array.isArray(list) && list.some((entry) => entry?.status === "pending");
+function botPendingOf(roster, bot) {
+  if (bot === void 0) return { learning: false, cardApproval: false, question: false };
+  const id = bot.id;
+  const part = currentPart(bot);
+  const learning = (roster?.learning?.[id]?.length ?? 0) > 0;
+  const cardApproval = hasPendingRequest(roster?.secretRequests?.[id]) || hasPendingRequest(roster?.connectorRequests?.[id]) || hasPendingRequest(roster?.mailRequests?.[id]);
+  const question = roster?.questions?.[part] !== void 0 || roster?.views?.[part] !== void 0;
+  return { learning, cardApproval, question };
+}
+function useBotApprovals(botId, useWork, useComputer) {
+  const useReadWork = useWork ?? useFalse;
+  const useReadComputer = useComputer ?? useFalse;
+  const fgTool = useReadWork((work) => botId !== void 0 && (work.approvals ?? []).some((entry) => entry.roomId === void 0 && entry.botId === botId && entry.taskId === void 0 && entry.answerable !== false));
+  const fgComputer = useReadComputer((comp) => botId !== void 0 && Object.values(comp?.asks ?? {}).some((ask) => ask.roomId === void 0 && ask.botId === botId));
+  const bgApproval = useReadWork((work) => botId !== void 0 && (work.approvals ?? []).some((entry) => entry.roomId === void 0 && entry.botId === botId && entry.taskId !== void 0 && entry.answerable !== false));
+  return { fgApproval: fgTool || fgComputer, bgApproval };
+}
+function dmMarkState({ running = false, doing, failed = false, background = false, waitingApproval = false, replied = false, fgApproval = false, bgApproval = false, pending = {} }) {
+  const blockingAlert = Boolean(fgApproval || pending.cardApproval || pending.question);
+  const alert = blockingAlert || Boolean(bgApproval || pending.learning || waitingApproval);
+  const dmDoing = blockingAlert ? "alert" : doing === "alert" ? void 0 : doing;
+  return botState(running, dmDoing, alert, { failed, background, replied });
 }
 var toolState = (name) => /^(message_bot|delegate_work|ask_back|answer_work|cancel_work|note_bot|stop_bot|create_bot|update_bot|create_group|update_group|delete_group|post_to_group)$/.test(name) ? "sending" : /search|fetch|browse|read|grep|glob|list|recall/i.test(name) ? "searching" : "working";
 var PET_ZONE = ":is(.bt-row,.bt-tile)>:is(.bt-mark,.bt-cluster),.bt-pet-zone";
@@ -43378,26 +43399,17 @@ var nameIfCut = (event) => {
   if (name && name.scrollWidth > name.clientWidth) row.title = name.textContent;
   else row.removeAttribute("title");
 };
-var useFalse = () => false;
+var useFalse2 = () => false;
 var useEmptyArrayJson = () => "[]";
 var useNullJson = () => "null";
 var useEmptySectionWork = () => "0|0";
 var useApproval = (useWork, useComputer, matchApproval, matchAsk) => {
-  const useReadWork = useWork ?? useFalse;
-  const useReadComputer = useComputer ?? useFalse;
+  const useReadWork = useWork ?? useFalse2;
+  const useReadComputer = useComputer ?? useFalse2;
   const tool = useReadWork((work) => (work.approvals ?? []).some(matchApproval));
   const app = useReadComputer((comp) => Object.values(comp?.asks ?? {}).some(matchAsk));
   return tool || app;
 };
-var hasPendingRequest = (list) => Array.isArray(list) && list.some((entry) => entry?.status === "pending");
-function botPendingOf(roster, bot) {
-  const id = bot.id;
-  const part = currentPart(bot);
-  const learning = (roster?.learning?.[id]?.length ?? 0) > 0;
-  const cardApproval = hasPendingRequest(roster?.secretRequests?.[id]) || hasPendingRequest(roster?.connectorRequests?.[id]) || hasPendingRequest(roster?.mailRequests?.[id]);
-  const question = roster?.questions?.[part] !== void 0 || roster?.views?.[part] !== void 0;
-  return { learning, cardApproval, question };
-}
 var useGroupWork = (useWork, pick2) => {
   const useReadWork = useWork ?? useEmptyArrayJson;
   const raw = useReadWork((work) => JSON.stringify(pick2(work.rooms ?? {})));
@@ -43430,7 +43442,7 @@ var BotRow = memo(function BotRow2({ bot, roster, actions, useSessions, useBotCo
     (entry) => entry.roomId === void 0 && entry.botId === id && entry.taskId === void 0 && entry.answerable !== false,
     (ask) => ask.roomId === void 0 && ask.botId === id
   );
-  const useReadBgWork = useWork ?? useFalse;
+  const useReadBgWork = useWork ?? useFalse2;
   const bgApproval = useReadBgWork((work) => (work.approvals ?? []).some((entry) => entry.roomId === void 0 && entry.botId === id && entry.taskId !== void 0 && entry.answerable !== false));
   const pending = botPendingOf(roster, bot);
   const blockingApproval = fgApproval || pending.cardApproval;
@@ -43440,11 +43452,19 @@ var BotRow = memo(function BotRow2({ bot, roster, actions, useSessions, useBotCo
   const doing = useActivity((map) => map[id]);
   const groups = useGroupWork(useWork, (rooms) => Object.entries(rooms).flatMap(([roomId, entries2]) => entries2.filter((entry) => entry.botId === id).map((entry) => ({ id: roomId, ...doingOf(entry) }))));
   const away = !running && groups.length > 0;
-  const blockingAlert = blockingApproval || pending.question;
-  const dmDoing = blockingAlert ? "alert" : doing === "alert" ? void 0 : doing;
   const taskCounts = taskCountsOf({ bot });
   const failed = lastTurnFailed(bot, useSessions((list) => latestTurnOf(list, part)));
-  const state = botState(running || away, dmDoing, alert, { failed, background: taskCounts.active > 0, replied: finished });
+  const state = dmMarkState({
+    running: running || away,
+    doing,
+    failed,
+    background: taskCounts.active > 0,
+    waitingApproval: taskCounts.waitingApproval > 0,
+    replied: finished,
+    fgApproval,
+    bgApproval,
+    pending
+  });
   const waitLine = blockingApproval ? t("Waiting for your approval") : pending.question ? t("Waiting for your answer") : null;
   const deferredWaitLine = nonBlockingApproval ? t("Waiting for your approval") : null;
   const runningLine = running && doing && doing !== "alert" ? doingLine(doing) : null;
@@ -43761,7 +43781,7 @@ function SectionBlock({ section, entries: entries2, rowProps, markedUnread, rena
     const roomWorking = Object.entries(work.rooms ?? {}).some(([rId, list]) => roomIds.has(rId) && list.some((e) => e.botId !== void 0) || list.some((e) => botIds.has(e.botId)));
     return `${approval ? 1 : 0}|${roomWorking ? 1 : 0}`;
   });
-  const useReadSectionComputer = useComputer ?? useFalse;
+  const useReadSectionComputer = useComputer ?? useFalse2;
   const hasComputerAsk = useReadSectionComputer((comp) => {
     const botIds = new Set(shownEntries.filter((e) => e.kind === "bot").map((e) => e.item.id));
     const roomIds = new Set(shownEntries.filter((e) => e.kind === "room").map((e) => e.item.id));
@@ -44296,7 +44316,7 @@ function TeamSidebar(props) {
       newAgentSession: (id) => navigate(actions.newAgentSession, id)
     };
   }, [actions]);
-  const rowProps = { roster, actions: rowActions, useSessions, useUi, useBotCompletions: props.useBotCompletions ?? useFalse, useSessionStatus: props.useSessionStatus, useSessionRetainInfo: props.useSessionRetainInfo, useActivity: props.useActivity, useWork: props.useWork, useComputer: props.useComputer, wide: wideContent };
+  const rowProps = { roster, actions: rowActions, useSessions, useUi, useBotCompletions: props.useBotCompletions ?? useFalse2, useSessionStatus: props.useSessionStatus, useSessionRetainInfo: props.useSessionRetainInfo, useActivity: props.useActivity, useWork: props.useWork, useComputer: props.useComputer, wide: wideContent };
   const typeToSearch = (event) => {
     if (event.defaultPrevented || event.key.length !== 1 || event.key === " " || event.metaKey || event.ctrlKey || event.altKey || event.nativeEvent.isComposing) return;
     if (event.target instanceof Element && event.target.closest("input,textarea,[contenteditable]")) return;
@@ -59436,6 +59456,18 @@ function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSe
   const doing = useActivity((map) => map[owner]);
   const bot = roster.byId[sessionId];
   const failed = lastTurnFailed(bot, useSessions((list) => bot ? latestTurnOf(list, currentPart(bot)) : void 0));
+  const { fgApproval, bgApproval } = useBotApprovals(bot?.id, useWork, useComputer);
+  const botTaskCounts = bot ? taskCountsOf({ bot }) : { active: 0, waitingApproval: 0 };
+  const botMarkState = bot ? dmMarkState({
+    running,
+    doing,
+    failed,
+    background: botTaskCounts.active > 0,
+    waitingApproval: botTaskCounts.waitingApproval > 0,
+    fgApproval,
+    bgApproval,
+    pending: botPendingOf(roster, bot)
+  }) : "idle";
   const room2 = roster.roomsById[sessionId];
   const goal = room2?.goal;
   const goalCompose = useUi((state) => room2 !== void 0 && state.goalCompose === room2.id);
@@ -59512,7 +59544,7 @@ function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSe
       title: away ? name : void 0,
       onClick: () => away ? selectView("chat") : memoryNotice ? actions.openMemory(changed) : actions.toggleDetails(sessionId)
     },
-    bot ? (0, import_react74.createElement)(BotAvatar, { bot, size: 24, state: botState(running, doing, roster.questions?.[currentPart(bot)] !== void 0, { failed, background: taskCountsOf({ bot }).active > 0 }), badge: false }) : room2 ? (0, import_react74.createElement)(RoomAvatar, { room: room2, roster, size: 24 }) : null,
+    bot ? (0, import_react74.createElement)(BotAvatar, { bot, size: 24, state: botMarkState, badge: false }) : room2 ? (0, import_react74.createElement)(RoomAvatar, { room: room2, roster, size: 24 }) : null,
     goalShown ? (0, import_react74.createElement)(
       "span",
       { className: "bt-pill-swap" },
@@ -64077,6 +64109,18 @@ function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, a
   const running = useSessionStatus((map) => map.get(part)?.running === true);
   const failed = lastTurnFailed(bot, useSessions((list) => latestTurnOf(list, part)));
   const doing = useActivity((map) => map[bot?.id ?? sessionId]);
+  const { fgApproval, bgApproval } = useBotApprovals(bot?.id, useWork, useComputer);
+  const botTaskCounts = bot ? taskCountsOf({ bot }) : { active: 0, waitingApproval: 0 };
+  const botMarkState = bot ? dmMarkState({
+    running,
+    doing,
+    failed,
+    background: botTaskCounts.active > 0,
+    waitingApproval: botTaskCounts.waitingApproval > 0,
+    fgApproval,
+    bgApproval,
+    pending: botPendingOf(roster, bot)
+  }) : "idle";
   const sessionsRef = (0, import_react88.useRef)(null);
   useSessions((list) => {
     sessionsRef.current = list;
@@ -64154,7 +64198,7 @@ function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, a
     (0, import_react88.createElement)(
       "div",
       { key: "id", className: "bt-drawer-id", "data-move": side2 },
-      bot ? (0, import_react88.createElement)(BotAvatar, { bot, size: 64, state: botState(running, doing, roster.questions?.[part] !== void 0, { failed, background: taskCountsOf({ bot }).active > 0 }), main: isMainBot, badge: false, gaze: true, pokeable: true }) : (0, import_react88.createElement)(MemberPile, { room: room2, roster }),
+      bot ? (0, import_react88.createElement)(BotAvatar, { bot, size: 64, state: botMarkState, main: isMainBot, badge: false, gaze: true, pokeable: true }) : (0, import_react88.createElement)(MemberPile, { room: room2, roster }),
       editing ? (0, import_react88.createElement)("input", {
         className: "bt-drawer-name-input",
         autoFocus: true,
