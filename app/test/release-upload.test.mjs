@@ -55,7 +55,7 @@ test('isRetryableUploadError distinguishes transient errors from deterministic 4
   assert.equal(isRetryableUploadError('HTTP 422: Validation Failed\nReleaseAsset.name is invalid'), false)
 })
 
-test('uploadReleaseAssets retries transient upload errors including 403 rate limits and 422 duplicate starter assets', async () => {
+test('uploadReleaseAssets retries transient upload errors with >=60s backoff for rate limits and normal backoff for 502/422', async () => {
   const attempts = new Map()
   const delays = []
   await uploadReleaseAssets('v0.3.11', ['a.exe', 'b.zip', 'c.apk'], {
@@ -75,7 +75,7 @@ test('uploadReleaseAssets retries transient upload errors including 403 rate lim
   assert.equal(attempts.get('a.exe'), 2)
   assert.equal(attempts.get('b.zip'), 2)
   assert.equal(attempts.get('c.apk'), 2)
-  assert.deepEqual(delays, [100, 100, 100])
+  assert.deepEqual(delays.sort((x, y) => x - y), [100, 100, 60_000])
 })
 
 test('uploadReleaseAssets does not retry deterministic 4xx errors', async () => {

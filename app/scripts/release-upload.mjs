@@ -7,12 +7,20 @@ import { fileURLToPath } from 'node:url'
 
 const DEFAULT_CONCURRENCY = 5
 const DEFAULT_RETRY_DELAYS_MS = [5_000, 15_000, 30_000]
+// GitHub's REST rate-limit guidance requires waiting at least 60s after a secondary rate limit
+// when Retry-After is unavailable, increasing the backoff on repeated throttles.
+const DEFAULT_RATE_LIMIT_RETRY_DELAYS_MS = [60_000, 120_000, 180_000]
+const RATE_LIMIT_STDERR = /\bHTTP 429\b|rate limit|secondary rate|abuse detection/iu
 // GitHub returns HTTP 403 for primary/secondary rate limits and HTTP 422 with
 // `ReleaseAsset.name already exists` when an earlier 502 leaves an empty starter asset;
 // both are transient and recoverable via a fresh `gh release upload --clobber` attempt.
 const RETRYABLE_OVERRIDE_STDERR = /rate limit|secondary rate|abuse detection|ReleaseAsset\.name already exists|\balready_exists\b/iu
 // Deterministic client/auth/target errors will not succeed on retry (408 and 429 are transient).
 const NON_RETRYABLE_STDERR = /\bHTTP (?:400|401|403|404|405|410|413|422)\b|release not found|not found \(HTTP 404\)|authentication|Bad credentials/iu
+
+export function isRateLimitError(stderr) {
+  return typeof stderr === 'string' && RATE_LIMIT_STDERR.test(stderr)
+}
 
 export function isRetryableUploadError(stderr) {
   if (typeof stderr !== 'string' || stderr.trim() === '') return true
@@ -49,9 +57,8 @@ export function runGhUpload(tag, file) {
   })
 }
 
-async function uploadOne(tag, file, { runImpl, sleepImpl, retryDelaysMs, log, abortSignal }) {
+async function uploadOne(tag, file, { runImpl, sleepImpl, retryDelaysMs, rateLimitRetryDelaysMs, log, abortSignal }) {
   const label = basename(file)
-  const attempts = retryDelaysMs.length + 1
   for (let attempt = 1; ; attempt += 1) {
     if (abortSignal.aborted) return
     const { code, signal, stderr } = await runImpl(tag, file)
@@ -64,7 +71,9 @@ async function uploadOne(tag, file, { runImpl, sleepImpl, retryDelaysMs, log, ab
     if (signal !== null) {
       throw new Error(`release-upload: ${label} terminated (${detail})`)
     }
-    const delay = isRetryableUploadError(stderr) ? retryDelaysMs[attempt - 1] : undefined
+    const schedule = isRateLimitError(stderr) ? rateLimitRetryDelaysMs : retryDelaysMs
+    const attempts = schedule.length + 1
+    const delay = isRetryableUploadError(stderr) ? schedule[attempt - 1] : undefined
     if (delay === undefined || abortSignal.aborted) {
       throw new Error(`release-upload: failed ${label} after ${String(attempt)}/${String(attempts)} attempts (${detail})`)
     }
@@ -85,6 +94,8 @@ export async function uploadReleaseAssets(tag, files, options = {}) {
   const runImpl = options.runImpl ?? runGhUpload
   const sleepImpl = options.sleepImpl ?? sleep
   const retryDelaysMs = options.retryDelaysMs ?? DEFAULT_RETRY_DELAYS_MS
+  const rateLimitRetryDelaysMs = options.rateLimitRetryDelaysMs
+    ?? (retryDelaysMs.length === 0 ? [] : DEFAULT_RATE_LIMIT_RETRY_DELAYS_MS)
   const log = options.log ?? ((line) => { console.error(line) })
 
   const controller = new AbortController()
@@ -96,7 +107,7 @@ export async function uploadReleaseAssets(tag, files, options = {}) {
       if (index >= files.length) return
       next += 1
       try {
-        await uploadOne(tag, files[index], { runImpl, sleepImpl, retryDelaysMs, log, abortSignal: controller.signal })
+        await uploadOne(tag, files[index], { runImpl, sleepImpl, retryDelaysMs, rateLimitRetryDelaysMs, log, abortSignal: controller.signal })
       } catch (error) {
         if (failure === undefined) failure = error
         controller.abort()
