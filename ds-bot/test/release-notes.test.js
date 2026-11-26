@@ -771,6 +771,23 @@ test('Overlays triggers auto release notes when shellHeld is true (DSH plugin), 
   await act(async () => { root.render(React.createElement(Overlays, caseD.props)) })
   await act(async () => { await new Promise(resolve => setTimeout(resolve, 10)) })
   assert.ok(dom.window.document.querySelector('.bt-priv-dialog'), 'TelemetryNotice is not blocked when claimReleaseNotes is absent')
+
+  // Subcase E: an active foreign modal defers auto release notes until the modal closes, then resumes automatically.
+  await act(async () => { root.render(null) })
+  const foreignModal = dom.window.document.createElement('div')
+  foreignModal.setAttribute('role', 'alertdialog')
+  foreignModal.setAttribute('aria-modal', 'true')
+  dom.window.document.body.appendChild(foreignModal)
+  const caseE = makeProps({ claimResult: { claimed: true, version: '0.3.10' } })
+  await act(async () => { root.render(React.createElement(Overlays, caseE.props)) })
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 15)) })
+  assert.deepEqual(caseE.claimCalls, [], 'Auto release notes waits while a foreign modal is open')
+  assert.equal(dom.window.document.querySelector('.bt-rn-dialog'), null)
+
+  await act(async () => { foreignModal.remove() })
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)) })
+  assert.deepEqual(caseE.claimCalls, ['0.3.10'], 'Auto release notes claims automatically once the foreign modal closes')
+  assert.ok(dom.window.document.querySelector('.bt-rn-dialog'), 'ReleaseNotesDialog opens after the foreign modal leaves')
 }))
 
 test('SettingsShell renders manual ReleaseNotesDialog in Classic Agent mode (without Overlays), holds styles, and isolates Escape', withDom(async ({ dom, root }) => {

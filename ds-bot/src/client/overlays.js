@@ -149,9 +149,37 @@ export function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useA
     const version = rnCurrent
     // Let the desktop start-window whale handoff glide finish before rising the card.
     const delayMs = globalThis.dsBotApp ? 650 : 0
+    let cancelled = false
+    let timer = null
+    let observer = null
+    const stopWait = () => {
+      if (timer !== null) { clearTimeout(timer); timer = null }
+      if (observer !== null) { observer.disconnect(); observer = null }
+    }
     const run = () => {
-      if (!mountedRef.current || claimedVersionRef.current === version) return
-      if (!settingsOwnsKeyboard(null)) return
+      if (cancelled || !mountedRef.current || claimedVersionRef.current === version) return
+      if (!settingsOwnsKeyboard(null)) {
+        // Wait for any active host modal/alertdialog to leave before claiming, so we neither
+        // stack over it nor abandon the upgrade notice (or stall TelemetryNotice) once it closes.
+        if (observer === null && typeof MutationObserver === 'function' && typeof document !== 'undefined' && document.body) {
+          observer = new MutationObserver(() => {
+            if (!cancelled && settingsOwnsKeyboard(null)) {
+              stopWait()
+              run()
+            }
+          })
+          observer.observe(document.body, {
+            childList: true,
+            subtree: true,
+            attributes: true,
+            attributeFilter: ['aria-modal', 'role', 'data-leaving'],
+          })
+        } else if (observer === null && timer === null) {
+          timer = setTimeout(() => { timer = null; run() }, 250)
+        }
+        return
+      }
+      stopWait()
       claimedVersionRef.current = version
       // Note: claimReleaseNotes triggers a state pull that clears rnPending before resolving,
       // which re-runs this effect's cleanup. Guard with mountedRef (component unmount only)
@@ -170,10 +198,13 @@ export function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useA
     }
     if (delayMs === 0) {
       run()
-      return undefined
+    } else {
+      timer = setTimeout(() => { timer = null; run() }, delayMs)
     }
-    const timer = setTimeout(run, delayMs)
-    return () => clearTimeout(timer)
+    return () => {
+      cancelled = true
+      stopWait()
+    }
   }, [canAutoRelease, rnCurrent, actions])
   const paletteToken = ui.palette?.token
   const groupSearchToken = ui.groupSearch?.token

@@ -69942,9 +69942,44 @@ function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity
     if (!canAutoRelease) return void 0;
     const version = rnCurrent;
     const delayMs = globalThis.dsBotApp ? 650 : 0;
+    let cancelled = false;
+    let timer2 = null;
+    let observer2 = null;
+    const stopWait = () => {
+      if (timer2 !== null) {
+        clearTimeout(timer2);
+        timer2 = null;
+      }
+      if (observer2 !== null) {
+        observer2.disconnect();
+        observer2 = null;
+      }
+    };
     const run2 = () => {
-      if (!mountedRef.current || claimedVersionRef.current === version) return;
-      if (!settingsOwnsKeyboard(null)) return;
+      if (cancelled || !mountedRef.current || claimedVersionRef.current === version) return;
+      if (!settingsOwnsKeyboard(null)) {
+        if (observer2 === null && typeof MutationObserver === "function" && typeof document !== "undefined" && document.body) {
+          observer2 = new MutationObserver(() => {
+            if (!cancelled && settingsOwnsKeyboard(null)) {
+              stopWait();
+              run2();
+            }
+          });
+          observer2.observe(document.body, {
+            childList: true,
+            subtree: true,
+            attributes: true,
+            attributeFilter: ["aria-modal", "role", "data-leaving"]
+          });
+        } else if (observer2 === null && timer2 === null) {
+          timer2 = setTimeout(() => {
+            timer2 = null;
+            run2();
+          }, 250);
+        }
+        return;
+      }
+      stopWait();
       claimedVersionRef.current = version;
       void Promise.resolve(actions.claimReleaseNotes(version)).then((result) => {
         if (!mountedRef.current) return;
@@ -69958,10 +69993,16 @@ function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity
     };
     if (delayMs === 0) {
       run2();
-      return void 0;
+    } else {
+      timer2 = setTimeout(() => {
+        timer2 = null;
+        run2();
+      }, delayMs);
     }
-    const timer2 = setTimeout(run2, delayMs);
-    return () => clearTimeout(timer2);
+    return () => {
+      cancelled = true;
+      stopWait();
+    };
   }, [canAutoRelease, rnCurrent, actions]);
   const paletteToken = ui.palette?.token;
   const groupSearchToken = ui.groupSearch?.token;
