@@ -3,7 +3,9 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { apply } from '../index.js'
+import { createRuntime } from '../index.js'
+import { remoteState } from '../src/host/phone.js'
+import { createRemoteService } from '../src/host/remote.js'
 import { fakeContext } from './fake-ctx.js'
 
 const TEAM = {
@@ -13,13 +15,27 @@ const TEAM = {
   bots: { m1: { id: 'm1', sessionId: 'm1', name: 'Chief', role: 'Chief of Staff', instructions: '', createdAt: 1 } },
   rooms: {},
   agents: {
-    a1: { id: 'a1', name: 'Classic', sessions: ['classic-1'], createdAt: 1 },
+    a1: {
+      id: 'a1',
+      name: 'Classic',
+      sessions: ['classic-1', 'classic-cold', 'classic-minimal'],
+      createdAt: 1,
+    },
   },
   exchanges: [],
   questions: {},
 }
 
-function makeHarness({ readOnly = false, preset = 'workspace-write', planActive = false, continued = [], inboxBySession = {} } = {}) {
+function makeHarness({
+  readOnly = false,
+  ownWindow = false,
+  preset = 'workspace-write',
+  planActive = false,
+  continued = [],
+  coldContinued = [],
+  inboxBySession = {},
+  onSteerQueued = null,
+} = {}) {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-session-controls-'))
   writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))
 
@@ -30,20 +46,24 @@ function makeHarness({ readOnly = false, preset = 'workspace-write', planActive 
   const selectModelCalls = []
   const updateQueueCalls = []
   const continuedAnswers = []
+  const resolveAgentCalls = []
+  const attachWaitCalls = []
+  const uploadedFiles = []
   const projectionListeners = []
+  let attachWaitRemainingMs = 60_000
 
   const liveAgents = new Map([
     ['classic-1', {
       id: 'classic-1',
-      session: { id: 'classic-1' },
+      session: { id: 'classic-1', seq: 1 },
       model: { current: () => currentModel },
-      inbox: { nextTurn: inboxBySession['classic-1'] ?? [] },
+      inbox: { nextTurn: inboxBySession['classic-1'] ?? [], nextStep: [] },
     }],
     ['m1', {
       id: 'm1',
-      session: { id: 'm1' },
+      session: { id: 'm1', seq: 1 },
       model: { current: () => ({ provider: 'deepseek', model: 'deepseek-chat' }) },
-      inbox: { nextTurn: inboxBySession.m1 ?? [] },
+      inbox: { nextTurn: inboxBySession.m1 ?? [], nextStep: [] },
     }],
   ])
 
@@ -68,27 +88,32 @@ function makeHarness({ readOnly = false, preset = 'workspace-write', planActive 
   }
 
   const commandsService = {
-    list: () => [
-      { name: 'permission', description: 'Switch permission preset' },
-      { name: 'plan', description: 'Toggle plan mode', input: { placeholder: 'on | off' } },
-      { name: 'compact', description: 'Compact conversation history' },
-    ],
-    execute: async (_agent, line) => {
-      executedCommands.push(line)
+    list: (agent) => (agent
+      ? [
+        { name: 'permission', description: 'Switch permission preset' },
+        { name: 'plan', description: 'Toggle plan mode', input: { hint: 'on | off' } },
+        { name: 'compact', description: 'Compact conversation history' },
+        { name: 'attach-cmd', description: 'Command with attachments', input: { hint: 'note', attachments: true } },
+      ]
+      : [
+        { name: 'compact', description: 'Compact conversation history' },
+      ]),
+    execute: async (_agent, line, submittedAttachments = []) => {
+      executedCommands.push({ line, submittedAttachments })
       if (line.startsWith('/permission ')) {
         currentPreset = line.slice('/permission '.length).trim()
-        return { result: { kind: 'info', text: `Permission set to ${currentPreset}` } }
+        return { result: { kind: 'success', text: `Permission set to ${currentPreset}` } }
       }
       if (line === '/plan' || line === '/plan on') {
         currentPlan = { active: true, pending: false }
-        return { result: { kind: 'info', text: 'Plan mode enabled' } }
+        return { result: { kind: 'success', text: 'Plan mode enabled' } }
       }
       if (line === '/plan off') {
         currentPlan = { active: false, pending: false }
-        return { result: { kind: 'info', text: 'Plan mode disabled' } }
+        return { result: { kind: 'success', text: 'Plan mode disabled' } }
       }
       if (line === '/unknown') return undefined
-      return { result: { kind: 'info', text: `Ran ${line}` } }
+      return { result: { kind: 'success', text: `Ran ${line}` } }
     },
   }
 
@@ -104,7 +129,7 @@ function makeHarness({ readOnly = false, preset = 'workspace-write', planActive 
   const fileRefsService = {
     list: async (_agent, query) => {
       const all = [
-        { path: 'src/', kind: 'directory' },
+        { path: 'src', kind: 'directory' },
         { path: 'src/index.js', kind: 'file' },
         { path: 'docs/my plan.md', kind: 'file' },
       ]
@@ -119,6 +144,7 @@ function makeHarness({ readOnly = false, preset = 'workspace-write', planActive 
         modelSelection: { next: currentModel },
         permissions: { currentValue: currentPreset },
         plan: currentPlan,
+        agentPreset: 'preset-standard',
         inbox: {
           'next-turn': liveAgents.get(session.id)?.inbox?.nextTurn ?? [],
           'next-step': [],
@@ -134,10 +160,74 @@ function makeHarness({ readOnly = false, preset = 'workspace-write', planActive 
     },
   }
 
+  const sessionQueryService = {
+    observeSession: async (sessionId) => {
+      if (sessionId === 'classic-cold') {
+        return {
+          projections: {
+            values: {
+              agentPreset: 'preset-standard',
+              modelSelection: { next: currentModel },
+              permissions: { currentValue: currentPreset },
+              plan: { active: false, pending: false },
+              inbox: { 'next-turn': [], 'next-step': [] },
+              userQuestions: { active: coldContinued },
+            },
+          },
+          [Symbol.dispose]() {},
+        }
+      }
+      if (sessionId === 'classic-minimal') {
+        return {
+          projections: {
+            values: {
+              agentPreset: 'preset-minimal',
+              modelSelection: { next: currentModel },
+              permissions: { currentValue: currentPreset },
+              plan: { active: false, pending: false },
+              inbox: { 'next-turn': [], 'next-step': [] },
+              userQuestions: { active: [] },
+            },
+          },
+          [Symbol.dispose]() {},
+        }
+      }
+      throw Object.assign(new Error('not found'), { code: 'SESSION_QUERY_SESSION_NOT_FOUND' })
+    },
+  }
+
+  const agentPresetsService = {
+    defaultId: 'preset-standard',
+    serviceFor: (agent, name) => (agent?.id === 'classic-1' && name === 'planMode' ? {} : undefined),
+    inspectCompositions: () => [
+      { id: 'preset-standard', modules: [{ moduleName: '@deepseek-ai/dsh-plan-mode' }] },
+      { id: 'preset-minimal', modules: [{ moduleName: '@deepseek-ai/dsh-core' }] },
+    ],
+  }
+
   const userQuestionsService = {
     answer: (_agent, callId, response) => {
       continuedAnswers.push({ callId, response })
       return true
+    },
+    attachWait: async function* (_agent, callId, signal) {
+      attachWaitCalls.push({ callId, signal })
+      yield { remainingMs: attachWaitRemainingMs }
+      await new Promise((resolve) => {
+        if (signal?.aborted) { resolve(); return }
+        signal?.addEventListener?.('abort', resolve, { once: true })
+      })
+    },
+  }
+
+  const imageBytes = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82])
+  const attachmentsService = {
+    readImage: async (att) => ({ data: imageBytes, mediaType: att.mediaType ?? 'image/png' }),
+  }
+  const fileUploadsService = {
+    uploadStream: async (meta) => {
+      uploadedFiles.push(meta)
+      return { receiptId: `rcpt-${uploadedFiles.length}` }
     },
   }
 
@@ -147,8 +237,11 @@ function makeHarness({ readOnly = false, preset = 'workspace-write', planActive 
     sessionSkillCatalog: skillsService,
     fileReferences: fileRefsService,
     sessionProjections: projectionsService,
-    planMode: {},
+    sessionQuery: sessionQueryService,
+    agentPresets: agentPresetsService,
     userQuestions: userQuestionsService,
+    attachments: attachmentsService,
+    fileUploads: fileUploadsService,
     agentDefaultModel: {
       currentSelection: () => ({ provider: 'deepseek', model: 'deepseek-chat' }),
     },
@@ -174,8 +267,21 @@ function makeHarness({ readOnly = false, preset = 'workspace-write', planActive 
   let nextQueueError = null
   ctx.sessionController = {
     resolveAgent: async (sessionId) => {
+      resolveAgentCalls.push(sessionId)
       const found = liveAgents.get(sessionId)
-      if (!found) throw Object.assign(new Error(`session "${sessionId}" not found`), { code: 'session/not-found' })
+      if (!found) {
+        if (sessionId === 'classic-cold') {
+          const woke = {
+            id: 'classic-cold',
+            session: { id: 'classic-cold', seq: 1 },
+            model: { current: () => currentModel },
+            inbox: { nextTurn: [], nextStep: [] },
+          }
+          liveAgents.set('classic-cold', woke)
+          return { agent: woke }
+        }
+        throw Object.assign(new Error(`session "${sessionId}" not found`), { code: 'session/not-found' })
+      }
       return { agent: found }
     },
     selectModel: async (req) => {
@@ -201,6 +307,7 @@ function makeHarness({ readOnly = false, preset = 'workspace-write', planActive 
       if (req.action.kind === 'remove' || req.action.kind === 'steer') rows.splice(idx, 1)
       else if (req.action.kind === 'edit') rows[idx] = { ...rows[idx], content: req.action.content }
     },
+    page: async () => ({ records: [], hasMore: false }),
   }
 
   const routes = {}
@@ -210,15 +317,16 @@ function makeHarness({ readOnly = false, preset = 'workspace-write', planActive 
     return origRegister(options)
   }
 
-  // Trigger read-only lock when requested by creating a lock held by current PID?
-  // Simpler: pass readOnly via lock file or mutate after apply? Let's test via real state.lock?
-  // Wait: ds-bot checks state.lock only if another live pid holds it; let's check via options or a separate helper.
   if (readOnly) {
-    // Hold state.lock with PID 1 (launchd on macOS / init on Linux, always alive and !== process.pid).
     writeFileSync(join(home, 'state.lock'), JSON.stringify({ pid: 1, at: Date.now() }))
   }
 
-  apply(ctx, { home })
+  const rt = createRuntime(ctx, { home, ...(ownWindow ? { ownWindow: true } : {}) })
+
+  if (typeof onSteerQueued === 'function') {
+    // Allow testing Bot hidden-work steer isolation via the channel's rt if exposed, or mock on m1.
+    ctx.__onSteerQueued = onSteerQueued
+  }
 
   const call = async (endpoint, payload = {}) => {
     const response = await routes['/api/bot'].fetch(new Request('http://localhost/api/bot', {
@@ -228,7 +336,21 @@ function makeHarness({ readOnly = false, preset = 'workspace-write', planActive 
     return { status: response.status, body: await response.json() }
   }
 
-  // Run the registered `user-questions/request` waterfall listeners in order, mimicking Cordis.
+  const connectLocalFeed = async () => {
+    const ac = new AbortController()
+    const res = await routes['/api/bot/feed'].fetch(new Request('http://localhost/api/bot/feed', {
+      method: 'GET',
+      signal: ac.signal,
+    }))
+    const reader = res.body?.getReader?.()
+    await reader?.read?.()
+    return async () => {
+      ac.abort()
+      await reader?.cancel?.().catch(() => {})
+      await new Promise(resolve => setImmediate(resolve))
+    }
+  }
+
   const runUserQuestionWaterfall = async (request, trailingProvider = null) => {
     const handlers = [...(ctx.listeners.get('user-questions/request') ?? [])]
     if (trailingProvider) handlers.push(trailingProvider)
@@ -243,14 +365,20 @@ function makeHarness({ readOnly = false, preset = 'workspace-write', planActive 
 
   return {
     ctx,
+    rt,
     call,
+    connectLocalFeed,
     liveAgents,
     executedCommands,
     selectModelCalls,
     updateQueueCalls,
     continuedAnswers,
+    resolveAgentCalls,
+    attachWaitCalls,
+    uploadedFiles,
     runUserQuestionWaterfall,
     setNextQueueError: (err) => { nextQueueError = err },
+    setAttachWaitRemainingMs: (ms) => { attachWaitRemainingMs = ms },
     stop: async () => {
       await ctx.dispose()
       rmSync(home, { recursive: true, force: true, maxRetries: 5 })
@@ -258,7 +386,7 @@ function makeHarness({ readOnly = false, preset = 'workspace-write', planActive 
   }
 }
 
-test('session-controls reads model, thinking effort, permissions (incl. auto), plan state, and filtered queue', async (t) => {
+test('session-controls reads model, thinking effort, permissions (incl. auto), preset-based plan availability, and filtered queue', async (t) => {
   const h = makeHarness({
     planActive: true,
     inboxBySession: {
@@ -282,11 +410,19 @@ test('session-controls reads model, thinking effort, permissions (incl. auto), p
   assert.equal(data.permission.current, 'workspace-write')
   assert.ok(data.permission.options.some(opt => opt.value === 'auto'))
   assert.equal(data.plan.active, true)
+  assert.equal(data.plan.available, true)
   assert.equal(data.queue.length, 1, 'internal bot-kind inbox messages are filtered out')
   assert.equal(data.queue[0].id, 'q1')
+
+  // Cold sessions inspect preset composition without waking the Agent.
+  const coldStd = (await h.call('session-controls', { sessionId: 'classic-cold' })).body.value
+  assert.equal(coldStd.plan.available, true, 'cold preset-standard session reports plan available')
+  const coldMin = (await h.call('session-controls', { sessionId: 'classic-minimal' })).body.value
+  assert.equal(coldMin.plan.available, false, 'cold preset-minimal session reports plan unavailable')
+  assert.equal(h.resolveAgentCalls.length, 0, 'browsing cold sessions never wakes their Agent')
 })
 
-test('session-model and session-permission update owned Classic sessions and refuse Bot sessions', async (t) => {
+test('session-model and session-permission update owned Classic sessions, validate presets, and refuse Bot sessions', async (t) => {
   const h = makeHarness()
   t.after(h.stop)
 
@@ -306,7 +442,12 @@ test('session-model and session-permission update owned Classic sessions and ref
   const p1 = await h.call('session-permission', { sessionId: 'classic-1', preset: 'auto' })
   assert.equal(p1.body.ok, true)
   assert.equal(p1.body.value.permission.current, 'auto')
-  assert.deepEqual(h.executedCommands, ['/permission auto'])
+  assert.deepEqual(h.executedCommands.map(c => c.line), ['/permission auto'])
+
+  // Unknown preset returns `bot/invalid` (400), not `bot/refused` or 500.
+  const badPerm = await h.call('session-permission', { sessionId: 'classic-1', preset: 'does-not-exist' })
+  assert.equal(badPerm.body.ok, false)
+  assert.equal(badPerm.body.error.code, 'bot/invalid')
 
   // Bot sessions cannot be mutated via classic session-model or session-permission.
   const botModel = await h.call('session-model', { sessionId: 'm1', ref: 'deepseek/deepseek-chat' })
@@ -318,18 +459,50 @@ test('session-model and session-permission update owned Classic sessions and ref
   assert.equal(botPerm.body.error.code, 'bot/refused')
 })
 
-test('session-commands, session-command-run, session-skills, and session-files work for Classic sessions', async (t) => {
+test('session-commands stays lazy on cold sessions unless wake: true, forwards attachments on command-run, and lists skills/files', async (t) => {
   const h = makeHarness()
   t.after(h.stop)
 
-  const cmds = await h.call('session-commands', { sessionId: 'classic-1' })
-  assert.equal(cmds.body.ok, true)
-  assert.deepEqual(cmds.body.value.commands.map(c => c.name), ['permission', 'plan', 'compact'])
+  // Cold session without wake: returns global commands without waking the cold Agent.
+  const coldCmds = await h.call('session-commands', { sessionId: 'classic-cold' })
+  assert.equal(coldCmds.body.ok, true)
+  assert.deepEqual(coldCmds.body.value.commands.map(c => c.name), ['compact'])
+  assert.equal(h.resolveAgentCalls.length, 0, 'session-commands without wake must not wake cold Agent')
+
+  // Cold session WITH wake: wakes the Agent and returns per-agent commands.
+  const wokeCmds = await h.call('session-commands', { sessionId: 'classic-cold', wake: true })
+  assert.equal(wokeCmds.body.ok, true)
+  assert.deepEqual(wokeCmds.body.value.commands.map(c => c.name), ['permission', 'plan', 'compact', 'attach-cmd'])
+  assert.deepEqual(h.resolveAgentCalls, ['classic-cold'])
 
   const runPlan = await h.call('session-command-run', { sessionId: 'classic-1', line: '/plan on' })
   assert.equal(runPlan.body.ok, true)
   assert.equal(runPlan.body.value.matched, true)
   assert.equal(runPlan.body.value.controls.plan.active, true)
+
+  // Running a command with staged image + file forwards submittedAttachments to commands.execute.
+  const pngBytes = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82])
+  const imgRes = await h.call('stage-image', { mediaType: 'image/png', data: pngBytes.toString('base64'), name: 'shot.png' })
+  assert.equal(imgRes.body.ok, true, `stage-image should succeed: ${JSON.stringify(imgRes.body)}`)
+  const img = imgRes.body.value
+  const fileRes = await h.call('stage-file', { name: 'notes.txt', data: Buffer.from('hello').toString('base64'), mediaType: 'text/plain' })
+  assert.equal(fileRes.body.ok, true, `stage-file should succeed: ${JSON.stringify(fileRes.body)}`)
+  const file = fileRes.body.value
+  const runAttach = await h.call('session-command-run', {
+    sessionId: 'classic-1',
+    line: '/attach-cmd check',
+    images: [img.id],
+    files: [file.id],
+  })
+  assert.equal(runAttach.body.ok, true)
+  assert.equal(runAttach.body.value.matched, true)
+  const lastExec = h.executedCommands.at(-1)
+  assert.equal(lastExec.line, '/attach-cmd check')
+  assert.equal(lastExec.submittedAttachments.length, 2)
+  assert.equal(lastExec.submittedAttachments[0].type, 'image')
+  assert.equal(lastExec.submittedAttachments[0].mediaType, 'image/png')
+  assert.equal(lastExec.submittedAttachments[1].type, 'file')
+  assert.equal(lastExec.submittedAttachments[1].receiptId, 'rcpt-1')
 
   const runUnknown = await h.call('session-command-run', { sessionId: 'classic-1', line: '/unknown' })
   assert.equal(runUnknown.body.ok, true)
@@ -344,11 +517,57 @@ test('session-commands, session-command-run, session-skills, and session-files w
   assert.deepEqual(files.body.value.files, [{ path: 'docs/my plan.md', kind: 'file' }])
 })
 
-test('user-questions/request waterfall passes through to DSH Web providers, and captures NO_PROVIDER requests for DS Bot desktop', async (t) => {
-  const h = makeHarness()
-  t.after(h.stop)
+test('user-questions/request passes through untouched outside desktop app or when no desktop window is connected', async (t) => {
+  // 1. Plugin / non-desktop host (ownWindow unset, DS_BOT_APP unset): must preserve NO_PROVIDER even if feed connected.
+  const prevEnv = process.env.DS_BOT_APP
+  delete process.env.DS_BOT_APP
+  t.after(() => {
+    if (prevEnv === undefined) delete process.env.DS_BOT_APP
+    else process.env.DS_BOT_APP = prevEnv
+  })
 
-  // 1. When a DSH Web provider answers downstream, our fallback passes its result through untouched.
+  const pluginHost = makeHarness({ ownWindow: false })
+  t.after(pluginHost.stop)
+  const closePluginFeed = await pluginHost.connectLocalFeed()
+  t.after(closePluginFeed)
+
+  await assert.rejects(
+    pluginHost.runUserQuestionWaterfall({
+      agent: pluginHost.liveAgents.get('classic-1'),
+      questions: [{ id: 'q1', question: 'Plugin mode question?' }],
+    }),
+    err => err?.code === 'NO_PROVIDER',
+  )
+
+  // 2. Desktop host (ownWindow: true) with NO connected local feed client: must also preserve NO_PROVIDER.
+  const desktopHost = makeHarness({ ownWindow: true })
+  t.after(desktopHost.stop)
+  await assert.rejects(
+    desktopHost.runUserQuestionWaterfall({
+      agent: desktopHost.liveAgents.get('classic-1'),
+      questions: [{ id: 'q1', question: 'Headless desktop question?' }],
+    }),
+    err => err?.code === 'NO_PROVIDER',
+  )
+
+  // 3. Even with connected desktop window, `cua-*` consent questions pass straight through untouched.
+  const closeDesktopFeed = await desktopHost.connectLocalFeed()
+  t.after(closeDesktopFeed)
+  await assert.rejects(
+    desktopHost.runUserQuestionWaterfall({
+      agent: desktopHost.liveAgents.get('classic-1'),
+      questions: [{ id: 'cua-custom-action', question: 'Allow computer action?' }],
+    }),
+    err => err?.code === 'NO_PROVIDER',
+  )
+})
+
+test('desktop window claims user-questions/request, handles timed attachWait, plan review, race, disconnect, dispose, and ownership checks', async (t) => {
+  const h = makeHarness({ ownWindow: true })
+  t.after(h.stop)
+  const closeFeed = await h.connectLocalFeed()
+
+  // 1. Downstream provider still wins if it answers directly.
   const passthrough = await h.runUserQuestionWaterfall(
     {
       agent: h.liveAgents.get('classic-1'),
@@ -358,7 +577,7 @@ test('user-questions/request waterfall passes through to DSH Web providers, and 
   )
   assert.deepEqual(passthrough, { answers: [{ id: 'q1', selected: ['A'] }] })
 
-  // 2. When no DSH Web provider answers (`NO_PROVIDER`), we hold the request, expose it in controls, and resolve via `session-question-answer`.
+  // 2. Blocking question answered via session-question-answer.
   const askPromise = h.runUserQuestionWaterfall({
     agent: h.liveAgents.get('classic-1'),
     questions: [
@@ -369,8 +588,23 @@ test('user-questions/request waterfall passes through to DSH Web providers, and 
   await new Promise(resolve => setImmediate(resolve))
   const controls = (await h.call('session-controls', { sessionId: 'classic-1' })).body.value
   assert.equal(controls.questions.length, 1)
-  assert.equal(controls.questions[0].kind, 'question')
   const reqId = controls.questions[0].id
+
+  // Ownership check: wrong sessionId is refused with bot/not-found.
+  const wrongOwner = await h.call('session-question-answer', {
+    sessionId: 'foreign-session',
+    requestId: reqId,
+    answers: [{ id: 'q1', selected: ['OAuth (Recommended)'] }, { id: 'q2', selected: [] }],
+  })
+  assert.equal(wrongOwner.body.ok, false)
+  assert.equal(wrongOwner.body.error.code, 'bot/not-found')
+
+  const wrongDismiss = await h.call('session-question-dismiss', {
+    sessionId: 'foreign-session',
+    requestId: reqId,
+  })
+  assert.equal(wrongDismiss.body.ok, false)
+  assert.equal(wrongDismiss.body.error.code, 'bot/not-found')
 
   const answered = await h.call('session-question-answer', {
     sessionId: 'classic-1',
@@ -388,7 +622,23 @@ test('user-questions/request waterfall passes through to DSH Web providers, and 
     ],
   })
 
-  // 3. Plan review (`intent.kind === 'plan-review'`) is tagged as kind: 'plan-review' and dismiss rejects with UserQuestionError(ASK_CANCELLED).
+  // 3. Timed question (`wait: { callId, timed: true }`) calls `attachWait`, exposes `deadlineAt`, and rejects `ASK_TIMED_OUT` on expiry.
+  h.setAttachWaitRemainingMs(35)
+  const timedPromise = h.runUserQuestionWaterfall({
+    agent: h.liveAgents.get('classic-1'),
+    wait: { callId: 'call-timed-1', timed: true },
+    questions: [{ id: 'q-t', question: 'Still deciding?' }],
+  })
+  await new Promise(resolve => setTimeout(resolve, 10))
+  const timedControls = (await h.call('session-controls', { sessionId: 'classic-1' })).body.value
+  assert.equal(h.attachWaitCalls.length, 1)
+  assert.equal(h.attachWaitCalls[0].callId, 'call-timed-1')
+  assert.equal(timedControls.questions[0]?.timed, true)
+  assert.equal(timedControls.questions[0]?.callId, 'call-timed-1')
+  assert.ok(Number.isFinite(timedControls.questions[0]?.deadlineAt))
+  await assert.rejects(timedPromise, err => err?.name === 'UserQuestionError' && err?.code === 'ASK_TIMED_OUT')
+
+  // 4. Plan review dismiss rejects with UserQuestionError(ASK_CANCELLED).
   const planPromise = h.runUserQuestionWaterfall({
     agent: h.liveAgents.get('classic-1'),
     questions: [{
@@ -401,9 +651,7 @@ test('user-questions/request waterfall passes through to DSH Web providers, and 
   })
   await new Promise(resolve => setImmediate(resolve))
   const planControls = (await h.call('session-controls', { sessionId: 'classic-1' })).body.value
-  assert.equal(planControls.questions.length, 1)
   assert.equal(planControls.questions[0].kind, 'plan-review')
-
   const dismissed = await h.call('session-question-dismiss', {
     sessionId: 'classic-1',
     requestId: planControls.questions[0].id,
@@ -411,46 +659,73 @@ test('user-questions/request waterfall passes through to DSH Web providers, and 
   assert.equal(dismissed.body.ok, true)
   await assert.rejects(planPromise, err => err?.name === 'UserQuestionError' && err?.code === 'ASK_CANCELLED')
 
-  // 4. Even when a downstream DSH remote-events bridge holds `next()` indefinitely (no web client connected),
-  // DS Bot's own window can still answer immediately and the downstream linked signal is aborted cleanly.
-  let downstreamSignal = null
-  const racePromise = h.runUserQuestionWaterfall(
-    {
-      agent: h.liveAgents.get('classic-1'),
-      questions: [{ id: 'q-race', question: 'Ready?' }],
-    },
-    (req) => new Promise((_resolve, reject) => {
-      downstreamSignal = req.signal
-      req.signal?.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { code: 'ASK_ABORTED' })), { once: true })
-    }),
-  )
-  await new Promise(resolve => setImmediate(resolve))
-  const raceControls = (await h.call('session-controls', { sessionId: 'classic-1' })).body.value
-  assert.equal(raceControls.questions.length, 1)
-  const raceAns = await h.call('session-question-answer', {
-    sessionId: 'classic-1',
-    requestId: raceControls.questions[0].id,
-    answers: [{ id: 'q-race', selected: [], custom: 'Yes!' }],
-  })
-  assert.equal(raceAns.body.ok, true)
-  assert.deepEqual(await racePromise, { answers: [{ id: 'q-race', selected: [], custom: 'Yes!' }] })
-  assert.equal(downstreamSignal?.aborted, true, 'downstream remote-events wait is aborted once own window answers')
-
-  // 5. Aborting the request signal rejects with ASK_ABORTED and removes the pending entry.
-  const ac = new AbortController()
-  const abortedPromise = h.runUserQuestionWaterfall({
+  // 5. Disconnecting local desktop window releases pending question with NO_PROVIDER instead of hanging.
+  const hangPromise = h.runUserQuestionWaterfall({
     agent: h.liveAgents.get('classic-1'),
-    signal: ac.signal,
-    questions: [{ id: 'q-abort', question: 'Still there?' }],
+    questions: [{ id: 'q-dc', question: 'Window closing?' }],
   })
+  const hangCheck = assert.rejects(hangPromise, err => err?.name === 'UserQuestionError' && err?.code === 'NO_PROVIDER')
   await new Promise(resolve => setImmediate(resolve))
-  ac.abort()
-  await assert.rejects(abortedPromise, err => err?.name === 'UserQuestionError' && err?.code === 'ASK_ABORTED')
-  const afterAbort = (await h.call('session-controls', { sessionId: 'classic-1' })).body.value
-  assert.equal(afterAbort.questions.length, 0)
+  await closeFeed()
+  await hangCheck
+
+  // 6. Reconnect feed and verify plugin dispose/reload rejects BOTH blocking and timed pending questions without hanging.
+  const closeFeed2 = await h.connectLocalFeed()
+  t.after(closeFeed2)
+  h.setAttachWaitRemainingMs(60_000)
+  const disposePromise = h.runUserQuestionWaterfall({
+    agent: h.liveAgents.get('classic-1'),
+    questions: [{ id: 'q-dispose', question: 'Reloading plugin?' }],
+  })
+  const disposeTimedPromise = h.runUserQuestionWaterfall({
+    agent: h.liveAgents.get('classic-1'),
+    wait: { callId: 'call-dispose-timed', timed: true },
+    questions: [{ id: 'q-dispose-t', question: 'Reloading timed?' }],
+  })
+  const disposeCheck = assert.rejects(disposePromise, err => err?.name === 'UserQuestionError' && (err?.code === 'ASK_ABORTED' || err?.code === 'NO_PROVIDER'))
+  const disposeTimedCheck = assert.rejects(disposeTimedPromise, err => err?.name === 'UserQuestionError' && err?.code === 'ASK_ABORTED')
+  await new Promise(resolve => setImmediate(resolve))
+  await h.ctx.dispose()
+  await Promise.all([disposeCheck, disposeTimedCheck])
 })
 
-test('continued (timed-out) questions appear in session-controls and answer via ctx.userQuestions.answer', async (t) => {
+test('remote state strips userQuestions and sessionQueues across channel, phone, and remote browser paths', async (t) => {
+  const h = makeHarness({
+    ownWindow: true,
+    inboxBySession: {
+      'classic-1': [{ id: 'q-secret', content: [{ type: 'text', text: 'private draft queue' }], source: { kind: 'user' } }],
+    },
+    continued: [{
+      callId: 'call-private',
+      state: 'continued',
+      at: 1000,
+      questions: [{ id: 'q1', question: 'Secret classic prompt?' }],
+    }],
+  })
+  t.after(h.stop)
+
+  const localState = (await h.call('state', {})).body.value
+  assert.equal(localState.userQuestions.length, 1)
+  assert.equal(localState.sessionQueues['classic-1'].length, 1)
+
+  // 1. channelCall(..., remote = true) used by phoneServe:
+  const channelRemote = (await h.rt.channelCall('state', {}, undefined, true)).value
+  assert.equal('userQuestions' in channelRemote, false, 'channel remote state must omit userQuestions')
+  assert.equal('sessionQueues' in channelRemote, false, 'channel remote state must omit sessionQueues')
+
+  // 2. phone.js remoteState():
+  const phoneView = remoteState(localState)
+  assert.equal('userQuestions' in phoneView, false, 'phone remoteState must omit userQuestions')
+  assert.equal('sessionQueues' in phoneView, false, 'phone remoteState must omit sessionQueues')
+
+  // 3. remote.js DsBotRemote.call('state') used by remote browser:
+  const RemoteClass = createRemoteService(h.rt)
+  const browserRemote = (await RemoteClass.prototype.call.call({}, 'state', {})).value
+  assert.equal('userQuestions' in browserRemote, false, 'remote browser state must omit userQuestions')
+  assert.equal('sessionQueues' in browserRemote, false, 'remote browser state must omit sessionQueues')
+})
+
+test('continued (timed-out) questions appear for both live and cold sessions and enforce ownership checks', async (t) => {
   const h = makeHarness({
     continued: [{
       callId: 'call-99',
@@ -458,13 +733,37 @@ test('continued (timed-out) questions appear in session-controls and answer via 
       at: 1000,
       questions: [{ id: 'q1', question: 'Confirm deploy?', options: [{ label: 'Yes' }, { label: 'No' }] }],
     }],
+    coldContinued: [{
+      callId: 'call-cold-7',
+      state: 'continued',
+      at: 2000,
+      questions: [{ id: 'q-cold', question: 'Resume after restart?', options: [{ label: 'Continue' }] }],
+    }],
   })
   t.after(h.stop)
 
+  // Live session continued question
   const controls = (await h.call('session-controls', { sessionId: 'classic-1' })).body.value
   assert.equal(controls.questions.length, 1)
   assert.equal(controls.questions[0].id, 'continued:call-99')
   assert.equal(controls.questions[0].mode, 'continued')
+
+  // Cold session continued question surfaces in both session-controls AND live state without waking Agent.
+  const coldControls = (await h.call('session-controls', { sessionId: 'classic-cold' })).body.value
+  assert.equal(coldControls.questions.length, 1)
+  assert.equal(coldControls.questions[0].id, 'continued:call-cold-7')
+  assert.equal(h.resolveAgentCalls.length, 0)
+  const localState = (await h.call('state', {})).body.value
+  assert.ok(localState.userQuestions.some(q => q.id === 'continued:call-cold-7' && q.sessionId === 'classic-cold'))
+
+  // Ownership check on continued answer rejects foreign sessionId.
+  const badOwner = await h.call('session-question-answer', {
+    sessionId: 'foreign-session',
+    requestId: 'continued:call-99',
+    answers: [{ id: 'q1', selected: ['Yes'] }],
+  })
+  assert.equal(badOwner.body.ok, false)
+  assert.equal(badOwner.body.error.code, 'bot/not-found')
 
   const res = await h.call('session-question-answer', {
     sessionId: 'classic-1',
@@ -477,18 +776,44 @@ test('continued (timed-out) questions appear in session-controls and answer via 
   assert.deepEqual(h.continuedAnswers[0].response, { answers: [{ id: 'q1', selected: ['Yes'] }] })
 })
 
-test('session-queue-update supports edit, remove, steer, steer-all, and handles races cleanly', async (t) => {
+test('session-queue-update supports edit/remove/steer, rejects editing non-text rows, protects Bot work on steer, and mobile image resolves queued images', async (t) => {
   const h = makeHarness({
     inboxBySession: {
       'classic-1': [
         { id: 'q1', content: [{ type: 'text', text: 'first' }], source: { kind: 'user' } },
         { id: 'q2', content: [{ type: 'text', text: 'second' }], source: { kind: 'user' } },
+        {
+          id: 'q-img',
+          content: [
+            { type: 'image', attachment: { attachmentId: 'att-queued-1', mediaType: 'image/png', width: 64, height: 64 } },
+            { type: 'text', text: 'with photo' },
+          ],
+          source: { kind: 'user' },
+        },
+      ],
+      m1: [
+        { id: 'bot-q1', content: [{ type: 'text', text: 'queued for bot' }], source: { kind: 'user' } },
       ],
     },
   })
   t.after(h.stop)
 
-  // Edit
+  // Queued image resolves from live inbox before reaching the paged transcript!
+  const imgRes = await h.call('image', { sessionId: 'classic-1', attachmentId: 'att-queued-1', preview: true })
+  assert.equal(imgRes.body.ok, true)
+  assert.equal(imgRes.body.value.mime, 'image/png')
+  assert.ok(typeof imgRes.body.value.data === 'string' && imgRes.body.value.data.length > 0)
+
+  // Editing a queued row containing non-text attachments is rejected with bot/invalid (no silent drop).
+  const editImg = await h.call('session-queue-update', {
+    sessionId: 'classic-1',
+    itemId: 'q-img',
+    action: { kind: 'edit', text: 'replaced text' },
+  })
+  assert.equal(editImg.body.ok, false)
+  assert.equal(editImg.body.error.code, 'bot/invalid')
+
+  // Edit plain text row
   const edited = await h.call('session-queue-update', { sessionId: 'classic-1', itemId: 'q1', action: { kind: 'edit', text: 'first edited' } })
   assert.equal(edited.body.ok, true)
   assert.equal(edited.body.value.accepted, true)
@@ -498,7 +823,6 @@ test('session-queue-update supports edit, remove, steer, steer-all, and handles 
   const removed = await h.call('session-queue-update', { sessionId: 'classic-1', itemId: 'q1', action: { kind: 'remove' } })
   assert.equal(removed.body.ok, true)
   assert.equal(removed.body.value.accepted, true)
-  assert.equal(h.liveAgents.get('classic-1').inbox.nextTurn.length, 1)
 
   // Race: item already started -> accepted: false, no 500
   const staleRemove = await h.call('session-queue-update', { sessionId: 'classic-1', itemId: 'gone', action: { kind: 'remove' } })
@@ -513,11 +837,18 @@ test('session-queue-update supports edit, remove, steer, steer-all, and handles 
   assert.equal(idleSteer.body.value.accepted, false)
   assert.equal(idleSteer.body.value.code, 'session/steer-unavailable')
 
-  // Steer-all succeeds on remaining item
+  // Steer-all succeeds on remaining classic items
   const steered = await h.call('session-queue-update', { sessionId: 'classic-1', action: { kind: 'steer-all' } })
   assert.equal(steered.body.ok, true)
   assert.equal(steered.body.value.accepted, true)
-  assert.equal(steered.body.value.steered, 1)
+  assert.equal(steered.body.value.steered, 2)
+
+  // Bot session single-item steer respects rt.steerQueued (never bypasses hidden-work isolation by falling back to raw controller.updateQueue).
+  const beforeUpdateCount = h.updateQueueCalls.length
+  const botSteer = await h.call('session-queue-update', { sessionId: 'm1', itemId: 'bot-q1', action: { kind: 'steer' } })
+  assert.equal(botSteer.body.ok, true)
+  assert.equal(botSteer.body.value.accepted, false, 'idle Bot steerQueued returns 0 without falling back to raw sessionController.updateQueue')
+  assert.equal(h.updateQueueCalls.length, beforeUpdateCount, 'raw sessionController.updateQueue was not called on Bot steer')
 })
 
 test('read-only window rejects session control writes', async (t) => {

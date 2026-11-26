@@ -142,7 +142,14 @@ var JA = {
   "I understand the risks": "リスクを理解しました",
   "Switch preset": "プリセットを切り替え",
   "Plan mode": "プランモード",
+  "Enter plan mode": "プランモードを開始",
   "Exit plan mode": "プランモードを終了",
+  "Plan before making changes": "変更する前に計画を作成します",
+  "Leave plan mode": "プランモードを終了して通常モードに戻ります",
+  "Read files without editing": "ファイルを編集せずに読み取ります",
+  "Edit inside the workspace; wider actions ask": "ワークスペース内のみ編集し、範囲外の操作は確認します",
+  "Run commands and edit files without asking": "確認なしでコマンド実行とファイル編集を行います",
+  "Model reviews actions for this session only": "このセッションに限りモデルが操作を審査します",
   "Entering plan mode…": "プランモードに入っています…",
   "Leaving plan mode…": "プランモードを終了しています…",
   "Plan review": "プランのレビュー",
@@ -160,7 +167,6 @@ var JA = {
   "Minimize": "最小化",
   "Expand": "展開",
   "Withdraw to input": "入力欄に戻す",
-  "Send now": "今すぐ割り込んで送信",
   "Contains non-text content": "テキスト以外の内容を含みます",
   "Message could not be sent": "メッセージを送信できませんでした",
   "Restore to input": "入力欄に復元",
@@ -172,20 +178,13 @@ var JA = {
   "Dismiss failed message": "失敗したメッセージを閉じる",
   "Skills": "スキル",
   "Compact conversation": "会話を圧縮",
-  "Toggle plan mode": "プランモードを切り替え",
   "Switch permission preset": "権限プリセットを切り替え",
   "Export conversation": "会話をエクスポート",
-  "Start or exit plan mode": "プランモードを開始または終了します",
   "Summarize earlier messages to free context": "以前のメッセージを要約してコンテキストを空けます",
   "Change permission level for this session": "このセッションの権限レベルを変更します",
-  "No matching files.": "一致するファイルがありません。",
-  "Couldn’t send message": "メッセージを送信できませんでした",
   "Couldn’t update permission": "権限を更新できませんでした",
-  "Couldn’t change model": "モデルを切り替えできませんでした",
   "Couldn’t submit answer": "回答を送信できませんでした",
   "Couldn’t dismiss question": "質問を閉じられませんでした",
-  "Review plan": "プランを確認",
-  "Hide plan": "プランを隠す",
   "Copy plan": "プランをコピー",
   "Submit ({answered}/{total})": "送信 ({answered}/{total})",
   "Workspace files": "ワークスペースのファイル",
@@ -3509,7 +3508,14 @@ var KO = {
   "I understand the risks": "위험을 이해했습니다",
   "Switch preset": "프리셋 전환",
   "Plan mode": "계획 모드",
+  "Enter plan mode": "계획 모드 시작",
   "Exit plan mode": "계획 모드 종료",
+  "Plan before making changes": "변경하기 전에 계획을 세웁니다",
+  "Leave plan mode": "계획 모드를 종료하고 기본 모드로 돌아갑니다",
+  "Read files without editing": "파일을 수정하지 않고 읽기만 합니다",
+  "Edit inside the workspace; wider actions ask": "작업 공간 내에서만 편집하고 범위 밖 작업은 확인합니다",
+  "Run commands and edit files without asking": "확인 없이 명령을 실행하고 파일을 편집합니다",
+  "Model reviews actions for this session only": "현재 세션에 한해 모델이 작업을 검토합니다",
   "Entering plan mode…": "계획 모드 진입 중…",
   "Leaving plan mode…": "계획 모드 종료 중…",
   "Plan review": "계획 검토",
@@ -3527,7 +3533,6 @@ var KO = {
   "Minimize": "최소화",
   "Expand": "펼치기",
   "Withdraw to input": "입력창으로 되돌리기",
-  "Send now": "지금 끼어들어 전송",
   "Contains non-text content": "텍스트 외 콘텐츠 포함",
   "Message could not be sent": "메시지를 보내지 못했습니다",
   "Restore to input": "입력창으로 복원",
@@ -3539,20 +3544,13 @@ var KO = {
   "Dismiss failed message": "실패 알림 닫기",
   "Skills": "스킬",
   "Compact conversation": "대화 압축",
-  "Toggle plan mode": "계획 모드 전환",
   "Switch permission preset": "권한 프리셋 변경",
   "Export conversation": "대화 내보내기",
-  "Start or exit plan mode": "계획 모드를 시작하거나 종료합니다",
   "Summarize earlier messages to free context": "이전 메시지를 요약해 컨텍스트를 확보합니다",
   "Change permission level for this session": "이 세션의 권한 수준을 변경합니다",
-  "No matching files.": "일치하는 파일이 없습니다.",
-  "Couldn’t send message": "메시지를 보내지 못했습니다",
   "Couldn’t update permission": "권한을 변경하지 못했습니다",
-  "Couldn’t change model": "모델을 변경하지 못했습니다",
   "Couldn’t submit answer": "답변을 제출하지 못했습니다",
   "Couldn’t dismiss question": "질문을 닫지 못했습니다",
-  "Review plan": "계획 검토",
-  "Hide plan": "계획 숨기기",
   "Copy plan": "계획 복사",
   "Submit ({answered}/{total})": "제출 ({answered}/{total})",
   "Workspace files": "작업 공간 파일",
@@ -6921,7 +6919,14 @@ var ES = {
   "I understand the risks": "Entiendo los riesgos",
   "Switch preset": "Cambiar preajuste",
   "Plan mode": "Modo plan",
+  "Enter plan mode": "Activar modo plan",
   "Exit plan mode": "Salir del modo plan",
+  "Plan before making changes": "Planificar antes de aplicar cambios",
+  "Leave plan mode": "Salir del modo plan y volver al modo normal",
+  "Read files without editing": "Leer archivos sin editar",
+  "Edit inside the workspace; wider actions ask": "Editar dentro del espacio de trabajo; acciones más amplias preguntan",
+  "Run commands and edit files without asking": "Ejecutar comandos y editar archivos sin preguntar",
+  "Model reviews actions for this session only": "Un modelo revisa las acciones solo en esta sesión",
   "Entering plan mode…": "Entrando en modo plan…",
   "Leaving plan mode…": "Saliendo del modo plan…",
   "Plan review": "Revisión del plan",
@@ -6939,7 +6944,6 @@ var ES = {
   "Minimize": "Minimizar",
   "Expand": "Expandir",
   "Withdraw to input": "Devolver al campo de entrada",
-  "Send now": "Enviar ahora",
   "Contains non-text content": "Contiene contenido que no es texto",
   "Message could not be sent": "No se pudo enviar el mensaje",
   "Restore to input": "Restaurar al campo de entrada",
@@ -6951,20 +6955,13 @@ var ES = {
   "Dismiss failed message": "Descartar aviso de error",
   "Skills": "Habilidades",
   "Compact conversation": "Compactar conversación",
-  "Toggle plan mode": "Alternar modo plan",
   "Switch permission preset": "Cambiar preajuste de permisos",
   "Export conversation": "Exportar conversación",
-  "Start or exit plan mode": "Iniciar o salir del modo plan",
   "Summarize earlier messages to free context": "Resumir mensajes anteriores para liberar contexto",
   "Change permission level for this session": "Cambiar el nivel de permisos de esta sesión",
-  "No matching files.": "No hay archivos coincidentes.",
-  "Couldn’t send message": "No se pudo enviar el mensaje",
   "Couldn’t update permission": "No se pudieron actualizar los permisos",
-  "Couldn’t change model": "No se pudo cambiar el modelo",
   "Couldn’t submit answer": "No se pudo enviar la respuesta",
   "Couldn’t dismiss question": "No se pudo cerrar la pregunta",
-  "Review plan": "Revisar plan",
-  "Hide plan": "Ocultar plan",
   "Copy plan": "Copiar plan",
   "Submit ({answered}/{total})": "Enviar ({answered}/{total})",
   "Workspace files": "Archivos del espacio de trabajo",
@@ -10333,7 +10330,14 @@ var FR = {
   "I understand the risks": "Je comprends les risques",
   "Switch preset": "Changer de préréglage",
   "Plan mode": "Mode plan",
+  "Enter plan mode": "Activer le mode plan",
   "Exit plan mode": "Quitter le mode plan",
+  "Plan before making changes": "Planifier avant de faire des modifications",
+  "Leave plan mode": "Quitter le mode plan et revenir au mode normal",
+  "Read files without editing": "Lire les fichiers sans les modifier",
+  "Edit inside the workspace; wider actions ask": "Modifier dans l’espace de travail ; demander pour le reste",
+  "Run commands and edit files without asking": "Exécuter des commandes et modifier des fichiers sans demander",
+  "Model reviews actions for this session only": "Un modèle vérifie les actions uniquement pour cette session",
   "Entering plan mode…": "Activation du mode plan…",
   "Leaving plan mode…": "Sortie du mode plan…",
   "Plan review": "Revue du plan",
@@ -10351,7 +10355,6 @@ var FR = {
   "Minimize": "Réduire",
   "Expand": "Déplier",
   "Withdraw to input": "Renvoyer dans la saisie",
-  "Send now": "Envoyer maintenant",
   "Contains non-text content": "Contient du contenu non textuel",
   "Message could not be sent": "Impossible d’envoyer le message",
   "Restore to input": "Restaurer dans la saisie",
@@ -10363,20 +10366,13 @@ var FR = {
   "Dismiss failed message": "Fermer l’avis d’échec",
   "Skills": "Compétences",
   "Compact conversation": "Compacter la conversation",
-  "Toggle plan mode": "Basculer le mode plan",
   "Switch permission preset": "Changer le préréglage de permissions",
   "Export conversation": "Exporter la conversation",
-  "Start or exit plan mode": "Activer ou quitter le mode plan",
   "Summarize earlier messages to free context": "Résumer les anciens messages pour libérer du contexte",
   "Change permission level for this session": "Modifier le niveau de permissions de cette session",
-  "No matching files.": "Aucun fichier correspondant.",
-  "Couldn’t send message": "Impossible d’envoyer le message",
   "Couldn’t update permission": "Impossible de mettre à jour les permissions",
-  "Couldn’t change model": "Impossible de changer de modèle",
   "Couldn’t submit answer": "Impossible d’envoyer la réponse",
   "Couldn’t dismiss question": "Impossible de fermer la question",
-  "Review plan": "Examiner le plan",
-  "Hide plan": "Masquer le plan",
   "Copy plan": "Copier le plan",
   "Submit ({answered}/{total})": "Envoyer ({answered}/{total})",
   "Workspace files": "Fichiers de l’espace de travail",
@@ -13700,7 +13696,14 @@ var DE = {
   "I understand the risks": "Ich verstehe die Risiken",
   "Switch preset": "Profil wechseln",
   "Plan mode": "Planmodus",
+  "Enter plan mode": "Planmodus starten",
   "Exit plan mode": "Planmodus beenden",
+  "Plan before making changes": "Vor Änderungen zuerst planen",
+  "Leave plan mode": "Planmodus verlassen und zum Standardmodus zurückkehren",
+  "Read files without editing": "Dateien lesen, ohne sie zu ändern",
+  "Edit inside the workspace; wider actions ask": "Im Arbeitsbereich bearbeiten; weitergehende Aktionen fragen nach",
+  "Run commands and edit files without asking": "Befehle ausführen und Dateien ohne Rückfrage ändern",
+  "Model reviews actions for this session only": "Modell prüft Aktionen nur für diese Sitzung",
   "Entering plan mode…": "Planmodus wird gestartet…",
   "Leaving plan mode…": "Planmodus wird beendet…",
   "Plan review": "Planprüfung",
@@ -13718,7 +13721,6 @@ var DE = {
   "Minimize": "Minimieren",
   "Expand": "Ausklappen",
   "Withdraw to input": "In das Eingabefeld zurückziehen",
-  "Send now": "Jetzt einschieben",
   "Contains non-text content": "Enthält Nicht-Text-Inhalte",
   "Message could not be sent": "Nachricht konnte nicht gesendet werden",
   "Restore to input": "In Eingabefeld wiederherstellen",
@@ -13730,20 +13732,13 @@ var DE = {
   "Dismiss failed message": "Fehlerhinweis schließen",
   "Skills": "Skills",
   "Compact conversation": "Unterhaltung komprimieren",
-  "Toggle plan mode": "Planmodus umschalten",
   "Switch permission preset": "Berechtigungsprofil wechseln",
   "Export conversation": "Unterhaltung exportieren",
-  "Start or exit plan mode": "Planmodus starten oder beenden",
   "Summarize earlier messages to free context": "Frühere Nachrichten zusammenfassen, um Kontext freizugeben",
   "Change permission level for this session": "Berechtigungsstufe für diese Sitzung ändern",
-  "No matching files.": "Keine passenden Dateien.",
-  "Couldn’t send message": "Nachricht konnte nicht gesendet werden",
   "Couldn’t update permission": "Berechtigung konnte nicht geändert werden",
-  "Couldn’t change model": "Modell konnte nicht gewechselt werden",
   "Couldn’t submit answer": "Antwort konnte nicht gesendet werden",
   "Couldn’t dismiss question": "Frage konnte nicht geschlossen werden",
-  "Review plan": "Plan prüfen",
-  "Hide plan": "Plan ausblenden",
   "Copy plan": "Plan kopieren",
   "Submit ({answered}/{total})": "Senden ({answered}/{total})",
   "Workspace files": "Arbeitsbereich-Dateien",
@@ -17113,7 +17108,14 @@ var ZH = {
   "I understand the risks": "我了解相关风险",
   "Switch preset": "切换模式",
   "Plan mode": "规划模式",
+  "Enter plan mode": "进入规划模式",
   "Exit plan mode": "退出规划模式",
+  "Plan before making changes": "先制定方案再执行改动",
+  "Leave plan mode": "退出规划模式并恢复默认模式",
+  "Read files without editing": "仅读取文件，不作修改",
+  "Edit inside the workspace; wider actions ask": "可在工作区内编辑，超出范围需确认",
+  "Run commands and edit files without asking": "无需确认即可运行命令并编辑文件",
+  "Model reviews actions for this session only": "由模型代审操作，仅对当前会话生效",
   "Entering plan mode…": "正在进入规划模式…",
   "Leaving plan mode…": "正在退出规划模式…",
   "Plan review": "方案审阅",
@@ -17131,7 +17133,6 @@ var ZH = {
   "Minimize": "收起",
   "Expand": "展开",
   "Withdraw to input": "撤回到输入框",
-  "Send now": "立即插话发送",
   "Contains non-text content": "包含非文本内容",
   "Message could not be sent": "消息发送失败",
   "Restore to input": "放回输入框",
@@ -17143,20 +17144,13 @@ var ZH = {
   "Dismiss failed message": "关闭失败提示",
   "Skills": "技能",
   "Compact conversation": "压缩对话上下文",
-  "Toggle plan mode": "切换规划模式",
   "Switch permission preset": "切换权限模式",
   "Export conversation": "导出对话",
-  "Start or exit plan mode": "开启或退出规划模式",
   "Summarize earlier messages to free context": "总结较早的消息以释放上下文",
   "Change permission level for this session": "修改当前会话的权限级别",
-  "No matching files.": "没有匹配的文件。",
-  "Couldn’t send message": "消息未能发送",
   "Couldn’t update permission": "未能更新权限模式",
-  "Couldn’t change model": "未能切换模型",
   "Couldn’t submit answer": "未能提交回答",
   "Couldn’t dismiss question": "未能关闭问题",
-  "Review plan": "审阅方案",
-  "Hide plan": "收起方案",
   "Copy plan": "复制方案",
   "Submit ({answered}/{total})": "提交 ({answered}/{total})",
   "Workspace files": "工作区文件",
@@ -21100,6 +21094,25 @@ function chatOfSession(roster, sessionId) {
 function keepDraftFiles({ chatId, part, files }) {
   if (files.length === 0) keptFiles.delete(chatId);
   else keptFiles.set(chatId, { part, files: [...files] });
+}
+function keepDraftText({ chatId, part, text }, storage = globalThis.localStorage) {
+  const entry = entryFor(storage, { sync: true });
+  const texts2 = entry.texts;
+  const before = texts2[chatId];
+  let changed = false;
+  if (text === "") {
+    if (before !== void 0) {
+      delete texts2[chatId];
+      changed = true;
+    }
+  } else if (before?.part !== part || before?.text !== text) {
+    texts2[chatId] = { part, text };
+    changed = true;
+  }
+  if (changed) {
+    entry.dirtyKeys.add(chatId);
+    writeEntry(storage, entry);
+  }
 }
 function keepDraft({ chatId, part, text, files }, storage = globalThis.localStorage, { deferMs = 0 } = {}) {
   keepDraftFiles({ chatId, part, files });
@@ -69855,17 +69868,26 @@ var import_react94 = require("react");
 var OWN_QUEUE_KINDS = /* @__PURE__ */ new Set(["user", "schedule", "user-question-reply"]);
 var EMPTY_QUEUE = [];
 var QUEUE_TEXT_FACTS = { collapseWhitespace: true, trimWhitespace: true };
-var textOf = (content) => content.every((block) => block.type === "text") ? content.map((block) => block.text).join("") : null;
+var queueRowText = (content) => Array.isArray(content) ? content.filter((block) => block?.type === "text" && typeof block.text === "string").map((block) => block.text).join("") : "";
+var textOf = (content) => Array.isArray(content) && content.length > 0 && content.every((block) => block?.type === "text") ? content.map((block) => block.text).join("") : null;
 function queueAttachments(content) {
   const attachments = [];
-  for (const block of content) {
-    if (block.type === "image" || block.type === "file") {
+  for (const block of Array.isArray(content) ? content : []) {
+    if (block?.type === "image" || block?.type === "file") {
       if (block.attachment !== void 0) attachments.push({ type: block.type, attachment: block.attachment });
     }
   }
   return attachments;
 }
 var fileSizeText2 = (bytes) => typeof bytes !== "number" || !Number.isFinite(bytes) ? "" : bytes < 1024 ? `${bytes} B` : bytes < 1048576 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1048576).toFixed(1)} MB`;
+function WithdrawIcon() {
+  return (0, import_react94.createElement)(
+    "svg",
+    { width: 15, height: 15, viewBox: "0 0 20 20", fill: "none", stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true },
+    (0, import_react94.createElement)("path", { d: "M7.5 6.5L4 10l3.5 3.5" }),
+    (0, import_react94.createElement)("path", { d: "M4.5 10h7a4 4 0 0 1 0 8H9" })
+  );
+}
 function QueueFile({ attachment, label }) {
   const size = fileSizeText2(attachment.bytes);
   return (0, import_react94.createElement)(
@@ -69879,9 +69901,10 @@ function QueueFile({ attachment, label }) {
 function QueueThumb({ attachment, loadImage, label }) {
   const [url, setUrl] = (0, import_react94.useState)(null);
   (0, import_react94.useEffect)(() => {
+    if (typeof loadImage !== "function") return void 0;
     let alive = true;
-    loadImage(attachment).then((resolved) => {
-      if (alive) setUrl(resolved);
+    Promise.resolve(loadImage(attachment)).then((resolved) => {
+      if (alive && resolved) setUrl(resolved);
     }, () => {
     });
     return () => {
@@ -69892,10 +69915,11 @@ function QueueThumb({ attachment, loadImage, label }) {
 }
 function Preview({ text, renderFactorySlot }) {
   const rendered = renderFactorySlot?.("conversation.user.text", { text, facts: QUEUE_TEXT_FACTS, interactive: false, ellipsis: true });
-  return (0, import_react94.createElement)("span", { className: "bt-queue-preview" }, rendered ?? text);
+  return (0, import_react94.createElement)("span", { className: "bt-queue-preview", title: rendered ? void 0 : text || void 0 }, rendered ?? text);
 }
 function EditField({ text, onChange, onSave, onCancel }) {
   const field = (0, import_react94.useRef)(null);
+  useEscape(onCancel, true, { priority: 20 });
   (0, import_react94.useEffect)(() => {
     const node = field.current;
     if (node === null) return;
@@ -69911,10 +69935,8 @@ function EditField({ text, onChange, onSave, onCancel }) {
     "aria-label": t("Edit queued message"),
     onChange: (event) => onChange(event.target.value),
     onKeyDown: (event) => {
-      if (event.key === "Escape" && !event.nativeEvent.isComposing && event.keyCode !== 229) {
-        event.stopPropagation();
-        onCancel();
-      } else if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && event.keyCode !== 229) {
+      if (isImeComposing(event)) return;
+      if (event.key === "Enter" && !event.shiftKey) {
         event.preventDefault();
         onSave();
       }
@@ -69924,21 +69946,20 @@ function EditField({ text, onChange, onSave, onCancel }) {
 function RowButton({ label, title, disabled, onClick, children }) {
   return (0, import_react94.createElement)("button", { type: "button", className: "bt-queue-action", "aria-label": label, title: title ?? label, disabled, onClick }, children);
 }
-function QueueDock({ useSession, useProjection, updateQueue, loadImage, renderFactorySlot, actions }) {
-  const inbox = useProjection?.("inbox");
-  const pendingSubmissions = useSession?.((s) => s.pendingSubmissions) ?? EMPTY_QUEUE;
-  const queue2 = (0, import_react94.useMemo)(() => {
-    const rows2 = (inbox?.["next-turn"] ?? EMPTY_QUEUE).filter((row) => OWN_QUEUE_KINDS.has(row.source?.kind));
-    const inChat = new Set(pendingSubmissions.filter((item) => item.placement === "transcript").map((item) => item.requestId));
-    return inChat.size === 0 ? rows2 : rows2.filter(({ source }) => source === null || typeof source !== "object" || !("rpcId" in source) || !inChat.has(source.rpcId));
-  }, [inbox, pendingSubmissions]);
-  const pendingQueue = (0, import_react94.useMemo)(() => {
-    const admitted = new Set(queue2.flatMap(({ source }) => source !== null && typeof source === "object" && "rpcId" in source ? [source.rpcId] : []));
-    return pendingSubmissions.filter((submission) => submission.placement === "queued" && !admitted.has(submission.requestId));
-  }, [pendingSubmissions, queue2]);
+function QueueDockPresenter({
+  queue: queue2,
+  pendingQueue = EMPTY_QUEUE,
+  running = false,
+  queueMutable = true,
+  updateQueue,
+  loadImage,
+  renderFactorySlot,
+  actions,
+  onWithdraw = null,
+  className = "bt-queue-dock",
+  actionsClassName = "bt-queue-actions"
+}) {
   const rowCount = queue2.length + pendingQueue.length;
-  const running = useSession?.((s) => s.running) === true;
-  const queueMutable = useSession?.((s) => s.subagent === null || s.subagent === void 0 || s.subagent.address?.mode === "continuable") ?? true;
   const [editing, setEditing] = (0, import_react94.useState)(null);
   const [busy, setBusy] = (0, import_react94.useState)(null);
   const [collapsed, setCollapsed] = (0, import_react94.useState)(true);
@@ -69955,25 +69976,33 @@ function QueueDock({ useSession, useProjection, updateQueue, loadImage, renderFa
     setBusy(itemId);
     try {
       const result = await updateQueue(itemId, action);
-      if (result && result.ok === false && result.error?.code !== "session/queue-item-not-found" && result.error?.code !== "session/steer-unavailable") {
-        actions.reportError(new Error(failure), "queue");
-        return false;
+      if (result && result.ok === false) {
+        if (result.error?.code !== "session/queue-item-not-found" && result.error?.code !== "session/steer-unavailable") {
+          actions?.reportError?.(new Error(failure), "queue");
+        }
+        return { settled: result.error?.code === "session/queue-item-not-found" || result.error?.code === "session/steer-unavailable", accepted: false };
       }
-      return true;
+      return { settled: true, accepted: result?.accepted !== false };
     } catch {
-      actions.reportError(new Error(failure), "queue");
-      return false;
+      actions?.reportError?.(new Error(failure), "queue");
+      return { settled: false, accepted: false };
     } finally {
       setBusy((current2) => current2 === itemId ? null : current2);
     }
   };
+  const withdrawRow = async (row) => {
+    const text = queueRowText(row.content);
+    const outcome = await applyAction(row.id, { kind: "remove" }, t("Couldn’t delete the queued message — it may have started already."));
+    if (outcome.accepted && text !== "") onWithdraw?.(text);
+  };
   const saveEdit = async () => {
     if (editing === null || editing.text.trim() === "") return;
-    if (await applyAction(editing.id, { kind: "edit", content: [{ type: "text", text: editing.text }] }, t("Couldn’t edit the queued message — it may have started already."))) setEditing(null);
+    const outcome = await applyAction(editing.id, { kind: "edit", content: [{ type: "text", text: editing.text }] }, t("Couldn’t edit the queued message — it may have started already."));
+    if (outcome.settled) setEditing(null);
   };
   return (0, import_react94.createElement)(
     "div",
-    { className: "bt-queue-dock", "data-queue-dock": "" },
+    { className, "data-queue-dock": "" },
     (0, import_react94.createElement)(
       "div",
       { className: "bt-queue-panel" },
@@ -69991,23 +70020,25 @@ function QueueDock({ useSession, useProjection, updateQueue, loadImage, renderFa
         listVisible && queue2.map((row) => {
           const attachments = queueAttachments(row.content);
           const text = textOf(row.content);
+          const plain = queueRowText(row.content);
+          const canWithdraw = plain.trim() !== "" && attachments.length === 0;
           return (0, import_react94.createElement)(
             "li",
-            { key: row.id, className: "bt-queue-row" },
+            { key: row.id, className: "bt-queue-row", "data-queue-id": row.id },
             rowCount === 1 && (0, import_react94.createElement)("span", { className: "bt-queue-lead", "aria-hidden": true }, (0, import_react94.createElement)(QueueIcon)),
-            editing?.id === row.id ? (0, import_react94.createElement)(EditField, { text: editing.text, onChange: (text2) => setEditing({ id: row.id, text: text2 }), onSave: saveEdit, onCancel: () => setEditing(null) }) : (0, import_react94.createElement)(
+            editing?.id === row.id ? (0, import_react94.createElement)(EditField, { text: editing.text, onChange: (next) => setEditing({ id: row.id, text: next }), onSave: saveEdit, onCancel: () => setEditing(null) }) : (0, import_react94.createElement)(
               import_react94.Fragment,
               null,
               attachments.length > 0 && (0, import_react94.createElement)(
                 "span",
                 { className: "bt-queue-attachments" },
-                attachments.map((item, index) => item.type === "image" ? (0, import_react94.createElement)(QueueThumb, { key: `${item.attachment.attachmentId}:${index}`, attachment: item.attachment, loadImage, label: t("Queued image") }) : (0, import_react94.createElement)(QueueFile, { key: `${item.attachment.attachmentId}:${item.attachment.name}:${index}`, attachment: item.attachment, label: t("Queued file {name}", { name: item.attachment.name }) }))
+                attachments.map((item, index) => item.type === "image" ? (0, import_react94.createElement)(QueueThumb, { key: `${item.attachment.attachmentId ?? index}:${index}`, attachment: item.attachment, loadImage, label: t("Queued image") }) : (0, import_react94.createElement)(QueueFile, { key: `${item.attachment.attachmentId ?? item.attachment.name}:${item.attachment.name}:${index}`, attachment: item.attachment, label: t("Queued file {name}", { name: item.attachment.name }) }))
               ),
-              (0, import_react94.createElement)(Preview, { text: row.content.filter((block) => block.type === "text").map((block) => block.text).join(""), renderFactorySlot })
+              (0, import_react94.createElement)(Preview, { text: plain, renderFactorySlot })
             ),
             queueMutable && (0, import_react94.createElement)(
               "div",
-              { className: "bt-queue-actions" },
+              { className: actionsClassName },
               editing?.id === row.id ? (0, import_react94.createElement)(
                 import_react94.Fragment,
                 null,
@@ -70016,11 +70047,18 @@ function QueueDock({ useSession, useProjection, updateQueue, loadImage, renderFa
               ) : (0, import_react94.createElement)(
                 import_react94.Fragment,
                 null,
+                typeof onWithdraw === "function" && (0, import_react94.createElement)(RowButton, { label: t("Withdraw to input"), title: canWithdraw ? t("Withdraw to input") : t("Contains non-text content"), disabled: busy !== null || !canWithdraw, onClick: () => {
+                  void withdrawRow(row);
+                } }, (0, import_react94.createElement)(WithdrawIcon)),
                 (0, import_react94.createElement)(RowButton, { label: t("Edit queued message"), title: text === null ? t("Contains non-text content, so editing is not supported yet") : void 0, disabled: busy !== null || text === null, onClick: () => {
                   if (text !== null) setEditing({ id: row.id, text });
                 } }, (0, import_react94.createElement)(PencilIcon)),
-                (0, import_react94.createElement)(RowButton, { label: t("Delete queued message"), disabled: busy !== null, onClick: () => applyAction(row.id, { kind: "remove" }, t("Couldn’t delete the queued message — it may have started already.")) }, (0, import_react94.createElement)(TrashIcon)),
-                (0, import_react94.createElement)(RowButton, { label: t("Steer queued message"), title: running ? void 0 : t("Only while a turn is running"), disabled: busy !== null || !running, onClick: () => applyAction(row.id, { kind: "steer" }, t("Couldn’t steer the queued message. Try again.")) }, (0, import_react94.createElement)(ArrowUpIcon))
+                (0, import_react94.createElement)(RowButton, { label: t("Delete queued message"), disabled: busy !== null, onClick: () => {
+                  void applyAction(row.id, { kind: "remove" }, t("Couldn’t delete the queued message — it may have started already."));
+                } }, (0, import_react94.createElement)(TrashIcon)),
+                (0, import_react94.createElement)(RowButton, { label: t("Steer queued message"), title: running ? void 0 : t("Only while a turn is running"), disabled: busy !== null || !running, onClick: () => {
+                  void applyAction(row.id, { kind: "steer" }, t("Couldn’t steer the queued message. Try again."));
+                } }, (0, import_react94.createElement)(ArrowUpIcon))
               )
             )
           );
@@ -70032,13 +70070,14 @@ function QueueDock({ useSession, useProjection, updateQueue, loadImage, renderFa
           submission.attachments.length > 0 && (0, import_react94.createElement)(
             "span",
             { className: "bt-queue-attachments" },
-            submission.attachments.map((attachment, index) => attachment.type === "image" ? (0, import_react94.createElement)("img", { key: `${attachment.value.previewUrl}:${index}`, className: "bt-queue-thumb", src: attachment.value.previewUrl, alt: t("Queued image") }) : (0, import_react94.createElement)(QueueFile, { key: `${attachment.value.attachmentId}:${attachment.value.name}:${index}`, attachment: attachment.value, label: t("Queued file {name}", { name: attachment.value.name }) }))
+            submission.attachments.map((attachment, index) => attachment.type === "image" ? (0, import_react94.createElement)("img", { key: `${attachment.value.previewUrl}:${index}`, className: "bt-queue-thumb", src: attachment.value.previewUrl, alt: t("Queued image") }) : (0, import_react94.createElement)(QueueFile, { key: `${attachment.value.attachmentId ?? attachment.value.name}:${attachment.value.name}:${index}`, attachment: attachment.value, label: t("Queued file {name}", { name: attachment.value.name }) }))
           ),
           (0, import_react94.createElement)(Preview, { text: submission.text, renderFactorySlot }),
           (0, import_react94.createElement)("span", { className: "bt-queue-status", role: "status" }, t("Sending…")),
           queueMutable && (0, import_react94.createElement)(
             "div",
-            { className: "bt-queue-actions" },
+            { className: actionsClassName },
+            typeof onWithdraw === "function" && (0, import_react94.createElement)(RowButton, { label: t("Withdraw to input"), title: t("Sending…"), disabled: true }, (0, import_react94.createElement)(WithdrawIcon)),
             (0, import_react94.createElement)(RowButton, { label: t("Edit queued message"), title: t("Sending…"), disabled: true }, (0, import_react94.createElement)(PencilIcon)),
             (0, import_react94.createElement)(RowButton, { label: t("Delete queued message"), title: t("Sending…"), disabled: true }, (0, import_react94.createElement)(TrashIcon)),
             (0, import_react94.createElement)(RowButton, { label: t("Steer queued message"), title: t("Sending…"), disabled: true }, (0, import_react94.createElement)(ArrowUpIcon))
@@ -70047,6 +70086,32 @@ function QueueDock({ useSession, useProjection, updateQueue, loadImage, renderFa
       )
     )
   );
+}
+function QueueDock({ useSession, useProjection, updateQueue, loadImage, renderFactorySlot, actions }) {
+  const inbox = useProjection?.("inbox");
+  const pendingSubmissions = useSession?.((s) => s.pendingSubmissions) ?? EMPTY_QUEUE;
+  const queue2 = (0, import_react94.useMemo)(() => {
+    const rows2 = (inbox?.["next-turn"] ?? EMPTY_QUEUE).filter((row) => OWN_QUEUE_KINDS.has(row.source?.kind));
+    const inChat = new Set(pendingSubmissions.filter((item) => item.placement === "transcript").map((item) => item.requestId));
+    return inChat.size === 0 ? rows2 : rows2.filter(({ source }) => source === null || typeof source !== "object" || !("rpcId" in source) || !inChat.has(source.rpcId));
+  }, [inbox, pendingSubmissions]);
+  const pendingQueue = (0, import_react94.useMemo)(() => {
+    const admitted = new Set(queue2.flatMap(({ source }) => source !== null && typeof source === "object" && "rpcId" in source ? [source.rpcId] : []));
+    return pendingSubmissions.filter((submission) => submission.placement === "queued" && !admitted.has(submission.requestId));
+  }, [pendingSubmissions, queue2]);
+  const running = useSession?.((s) => s.running) === true;
+  const queueMutable = useSession?.((s) => s.subagent === null || s.subagent === void 0 || s.subagent.address?.mode === "continuable") ?? true;
+  if (queue2.length + pendingQueue.length === 0) return null;
+  return (0, import_react94.createElement)(QueueDockPresenter, {
+    queue: queue2,
+    pendingQueue,
+    running,
+    queueMutable,
+    updateQueue,
+    loadImage,
+    renderFactorySlot,
+    actions
+  });
 }
 var QUEUE_CSS = `
 .bt-queue-dock{box-sizing:border-box;width:calc(100% - var(--dsh-composer-side-clearance,0px) - var(--dsh-composer-side-clearance,0px) - var(--dsh-composer-dock-inset,0px) - var(--dsh-composer-dock-inset,0px));max-width:calc(var(--dsh-composer-card-max-width,748px) - var(--dsh-composer-dock-inset,0px) - var(--dsh-composer-dock-inset,0px));margin:0 auto calc(0px - var(--dsh-composer-stack-gap,8px) - 3px);padding:0 var(--dsh-composer-dock-inset,0px);flex:none}

@@ -180,11 +180,19 @@ export function createRemoteService(rt) {
         return { ok: false, error: { code: 'bot/refused', message: 'Voice input settings and transcription are available on the computer', details: {} } }
       }
       const answer = plain(await rt.channelCall(name, payload ?? {}, signal, true))
-      if (name === 'state' && answer?.ok === true && answer.value && typeof answer.value === 'object'
-        && answer.value.phone && typeof answer.value.phone === 'object' && Object.hasOwn(answer.value.phone, 'pairing')) {
-        const phone = { ...answer.value.phone }
-        delete phone.pairing
-        return { ...answer, value: { ...answer.value, phone } }
+      if (name === 'state' && answer?.ok === true && answer.value && typeof answer.value === 'object') {
+        let value = answer.value
+        if (Object.hasOwn(value, 'userQuestions') || Object.hasOwn(value, 'sessionQueues')) {
+          value = { ...value }
+          delete value.userQuestions
+          delete value.sessionQueues
+        }
+        if (value.phone && typeof value.phone === 'object' && Object.hasOwn(value.phone, 'pairing')) {
+          const phone = { ...value.phone }
+          delete phone.pairing
+          value = { ...value, phone }
+        }
+        if (value !== answer.value) return { ...answer, value }
       }
       if (name === 'folders' && answer?.ok === true && answer.value && typeof answer.value === 'object' && Object.hasOwn(answer.value, 'data')) {
         const value = { ...answer.value }

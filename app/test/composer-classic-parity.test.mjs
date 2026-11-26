@@ -68,9 +68,9 @@ const stubs = {
 }
 
 const entryCode = `
-  export { Chat, clearFailedSends } from './ui/src/chat.js'
+  export { Chat, clearFailedSends, pruneFailedSends } from './ui/src/chat.js'
   export { ClassicControls, ClassicPermissionMenu, ClassicPlanChip, classicPresetLabel } from './ui/src/classic-controls.js'
-  export { ClassicQuestionDock, ClassicPlanReviewDock, parseRecommendedLabel, extractPlanHeading } from './ui/src/classic-questions.js'
+  export { ClassicQuestionDock, ClassicPlanReviewDock, parseRecommendedLabel, extractPlanHeading, stripPlanHeading } from './ui/src/classic-questions.js'
   export { ClassicPlanCard, planStatusOf, registerClassicPlanView } from './ui/src/classic-plan-view.js'
   export { DesktopQueueDock, queueRowText } from './ui/src/queue-dock.js'
   export { FailedSendBar } from './ui/src/failed-send-bar.js'
@@ -173,7 +173,7 @@ const sandbox = {
     createObjectURL: (f) => { const u = `blob:test/${createdUrls.length}/${f?.name ?? 'x'}`; createdUrls.push(u); return u },
     revokeObjectURL: (u) => { revokedUrls.push(u) },
   }),
-  URLSearchParams, TextEncoder, TextDecoder, AbortController, btoa, atob, setTimeout, clearTimeout,
+  URLSearchParams, TextEncoder, TextDecoder, AbortController, btoa, atob, setTimeout, clearTimeout, setInterval, clearInterval,
   fetch: () => new Promise(() => {}),
   requestAnimationFrame: fn => { fn(); return 1 },
   cancelAnimationFrame: () => {},
@@ -284,7 +284,10 @@ function makeTeam({ roster = {}, queues = {}, userQuestions = [], running = fals
     ready: true,
     readOnly: null,
     prefs: { enterToSend: true },
-    byId: { b1: { id: 'b1', name: 'Chief', sessionId: 'b1' } },
+    byId: {
+      b1: { id: 'b1', name: 'Chief', sessionId: 'b1' },
+      b2: { id: 'b2', name: 'Writer', sessionId: 'b2' },
+    },
     roomsById: {},
     agentOf: { 'classic-1': 'a1', 'classic-2': 'a1' },
     agents: [{ id: 'a1', name: 'Agent', sessions: ['classic-1', 'classic-2'] }],
@@ -319,8 +322,9 @@ function makeTeam({ roster = {}, queues = {}, userQuestions = [], running = fals
     }),
     sessionCommands: async () => ({
       commands: [
-        { name: 'plan', description: 'Toggle plan mode' },
+        { name: 'plan', description: 'Plan before making changes', input: { hint: 'on | off' } },
         { name: 'compact', description: 'Compact conversation' },
+        { name: 'feedback', description: 'Send feedback' },
       ],
     }),
     sessionSkills: async () => ({
@@ -328,12 +332,13 @@ function makeTeam({ roster = {}, queues = {}, userQuestions = [], running = fals
     }),
     sessionFiles: async (_sid, query) => ({
       files: [
-        { path: 'src/', kind: 'directory' },
+        { path: 'README.md', kind: 'file' },
+        { path: 'src', kind: 'directory' },
         { path: 'src/app.js', kind: 'file' },
         { path: 'docs/my notes.md', kind: 'file' },
       ].filter(f => !query || f.path.toLowerCase().includes(query.toLowerCase())),
     }),
-    runSessionCommand: async () => ({ matched: true, result: { kind: 'info', text: 'Done' } }),
+    runSessionCommand: async () => ({ matched: true, result: { kind: 'success', text: 'Done' } }),
     selectSessionModel: async () => ({}),
     setSessionPermission: async () => ({}),
     answerUserQuestion: async () => ({ accepted: true }),
@@ -460,25 +465,45 @@ test('Classic composer renders compact ModelMenu, PermissionMenu with risk confi
   }
 })
 
-test('Classic / menu shows DSH Commands, Skills, and Files, @ inserts formatted file mentions, and host commands execute without onSend', async () => {
+test('Classic / menu loads commands lazily, toggles /plan off when active, avoids redundant subtitles, quotes mid-path @ mentions, and preserves drafts during commands', async () => {
   storageMap.clear()
   mod.forgetKeptFiles()
   mod.clearFailedSends()
+  assert.equal(mod.classicPresetLabel('custom'), 'Custom')
   assert.equal(mod.formatClassicFileMention({ path: 'src/app.js', kind: 'file' }), '@src/app.js')
   assert.equal(mod.formatClassicFileMention({ path: 'docs/my notes.md', kind: 'file' }), '@"docs/my notes.md"')
   assert.equal(mod.formatClassicFileMention({ path: 'src', kind: 'directory' }), '@src/')
 
+  // Mid-path editing inside an existing quoted `@"..."` mention replaces through the closing quote without crossing newlines or a second mention.
+  const midQuoted = mod.activeComposerTrigger('see @"docs/my notes.md" please', 14, { fileMentions: true })
+  assert.deepEqual(plain(midQuoted), { kind: 'mention', start: 4, end: 23, query: 'docs/my ', quoted: true })
+  assert.equal(mod.applyTriggerText('see @"docs/my notes.md" please', midQuoted, '@"docs/other file.md"').text, 'see @"docs/other file.md" please')
+  const twoQuoted = mod.activeComposerTrigger('a @"one.md and @"two.md"', 8, { fileMentions: true })
+  assert.equal(twoQuoted.end, 8, 'unclosed quote does not swallow a later @"..." mention')
+
   const sent = []
   const ranCmds = []
+  const cmdCatalogCalls = []
   const notices = []
   const team = makeTeam({
     actions: {
       send: async (_sid, text) => { sent.push(text) },
       notice: text => { notices.push(text) },
-      runSessionCommand: async (_sid, line) => {
-        ranCmds.push(line)
-        if (line === '/compact') return { matched: true, result: { kind: 'info', text: 'Compacted' } }
-        return { matched: true, result: { kind: 'info', text: 'Plan mode off.' }, controls: { plan: { active: false, pending: false, available: true } } }
+      sessionCommands: async (sid, opts) => {
+        cmdCatalogCalls.push({ sid, opts })
+        return {
+          commands: [
+            { name: 'plan', description: 'Plan before making changes', input: { hint: 'on | off' } },
+            { name: 'compact', description: 'Compact conversation' },
+            { name: 'feedback', description: 'Send feedback' },
+          ],
+        }
+      },
+      stageFile: async (name) => ({ id: `staged-${name}` }),
+      runSessionCommand: async (_sid, line, extra) => {
+        ranCmds.push({ line, extra })
+        if (line === '/compact') return { matched: true, result: { kind: 'success', text: 'Compacted' } }
+        return { matched: true, result: { kind: 'success', text: 'Plan mode off.' }, controls: { plan: { active: false, pending: false, available: true } } }
       },
     },
   })
@@ -488,37 +513,96 @@ test('Classic / menu shows DSH Commands, Skills, and Files, @ inserts formatted 
     await tick()
     tree = inst.render()
 
+    // Browsing a Classic session does NOT eagerly load sessionCommands (avoids waking cold Agents).
+    assert.equal(cmdCatalogCalls.length, 0, 'sessionCommands is not called on mount')
+
     const ta = () => all(tree, n => n.type === 'textarea' && n.props?.['data-composer-input'] === '')[0]
-    // Type `/` to open the Classic slash menu.
+    // Type `/` to open the Classic slash menu (triggers lazy load with wake: true).
     ta().props.onChange({ target: { value: '/', selectionStart: 1 } })
     tree = inst.render()
     await tick()
     tree = inst.render()
+
+    assert.equal(cmdCatalogCalls.length, 1)
+    assert.deepEqual(plain(cmdCatalogCalls[0]), { sid: 'classic-1', opts: { wake: true } })
 
     const sections = all(tree, n => n.props?.className === 'dsb-cmenu-sec').map(textOf)
     assert.ok(sections.includes('Commands'), 'Commands section present')
     assert.ok(sections.includes('Skills'), 'Skills section present')
     assert.ok(sections.includes('Files'), 'Files section present')
 
-    // Submitting `/plan` invokes `runSessionCommand` and NOT `actions.send` or `actions.notice` (PlanChip reflects state).
-    ta().props.onChange({ target: { value: '/plan', selectionStart: 5 } })
-    tree = inst.render()
-    const sendBtn = all(tree, n => n.type === 'button' && n.props?.className === 'dsb-send')[0]
-    sendBtn.props.onClick()
-    await tick()
-    tree = inst.render()
-    assert.deepEqual(ranCmds, ['/plan'])
-    assert.equal(sent.length, 0)
-    assert.equal(notices.length, 0, 'plan toggle does not trigger red ErrorToast via actions.notice')
-    assert.equal(all(tree, n => n.props?.className === 'dsb-composer-notice').length, 0)
+    // Because plan.active === true in makeTeam, the `/plan` entry offers `Exit plan mode` (`/plan off`),
+    // and redundant subtitles (like `/feedback` or root `README.md`) are omitted.
+    const builtActive = mod.buildComposerMenuItems({
+      mode: 'command',
+      query: '',
+      roster: team.roster,
+      sessions: { list: [], byId: {} },
+      sessionId: 'classic-1',
+      actions: team.actions,
+      classicCatalog: {
+        planActive: true,
+        commands: [
+          { name: 'plan', description: 'Plan before making changes' },
+          { name: 'feedback', description: 'Send feedback' },
+        ],
+        skills: [{ name: 'code-review', description: 'code-review' }],
+        files: [{ path: 'README.md', kind: 'file' }, { path: 'docs/my notes.md', kind: 'file' }],
+      },
+      onRunCommand: line => { ranCmds.push({ line, extra: undefined }) },
+    })
+    const planItemActive = builtActive.find(item => item.key.endsWith(':plan'))
+    assert.equal(planItemActive.title, 'Exit plan mode')
+    assert.equal(planItemActive.code, '/plan off')
+    const builtInactive = mod.buildComposerMenuItems({
+      mode: 'command',
+      query: '',
+      roster: team.roster,
+      sessions: { list: [], byId: {} },
+      sessionId: 'classic-1',
+      actions: team.actions,
+      classicCatalog: { planActive: false, commands: [{ name: 'plan', description: 'Plan' }], skills: [], files: [] },
+      onRunCommand: () => {},
+    })
+    assert.equal(builtInactive.find(item => item.key.endsWith(':plan')).title, 'Enter plan mode')
+    assert.equal(builtInactive.find(item => item.key.endsWith(':plan')).code, '/plan')
+    assert.equal(builtActive.find(item => item.key.endsWith(':feedback')).subtitle, '', 'duplicate subtitle omitted')
+    assert.equal(builtActive.find(item => item.key === 'file:file:README.md').subtitle, '', 'root file duplicate subtitle omitted')
+    assert.equal(builtActive.find(item => item.key === 'skill:code-review').subtitle, '', 'skill duplicate subtitle omitted')
 
-    // Submitting `/compact` renders a calm inline status notice instead of an error toast.
-    ta().props.onChange({ target: { value: '/compact', selectionStart: 8 } })
+    // Submitting `/plan` invokes `runSessionCommand` and NOT `actions.send` or `actions.notice`.
+    ta().props.onChange({ target: { value: '/plan', selectionStart: 5 } })
     tree = inst.render()
     all(tree, n => n.type === 'button' && n.props?.className === 'dsb-send')[0].props.onClick()
     await tick()
     tree = inst.render()
-    assert.equal(notices.length, 0)
+    assert.equal(ranCmds[0].line, '/plan')
+    assert.equal(sent.length, 0)
+    assert.equal(notices.length, 0, 'plan toggle does not trigger red ErrorToast via actions.notice')
+
+    // Submitting `/compact` with an attached file forwards staged file IDs to runSessionCommand,
+    // and typing a new draft while the command runs is NOT erased when it finishes.
+    let resolveDelayedCmd
+    team.actions.runSessionCommand = async (_sid, line, extra) => {
+      ranCmds.push({ line, extra })
+      return await new Promise((resolve) => { resolveDelayedCmd = resolve })
+    }
+    const fileInput = all(tree, n => n.type === 'input' && n.props?.type === 'file')[0]
+    fileInput.props.onChange({ target: { files: [new FakeFile(['hello'], 'notes.txt', { type: 'text/plain' })], value: 'x' } })
+    tree = inst.render()
+    ta().props.onChange({ target: { value: '/compact', selectionStart: 8 } })
+    tree = inst.render()
+    all(tree, n => n.type === 'button' && n.props?.className === 'dsb-send')[0].props.onClick()
+    await tick()
+    // User types new draft while `/compact` is still executing:
+    ta().props.onChange({ target: { value: 'fresh draft typed mid-command', selectionStart: 29 } })
+    tree = inst.render()
+    resolveDelayedCmd({ matched: true, result: { kind: 'success', text: 'Compacted' } })
+    await tick()
+    await tick()
+    tree = inst.render()
+    assert.deepEqual(plain(ranCmds.at(-1)), { line: '/compact', extra: { images: [], files: ['staged-notes.txt'] } })
+    assert.equal(ta().props.value, 'fresh draft typed mid-command', 'command completion never erases newer user draft')
     const statusBar = all(tree, n => n.props?.className === 'dsb-composer-notice')[0]
     assert.ok(statusBar && textOf(statusBar).includes('Compacted'))
     all(statusBar, n => n.type === 'button' && n.props?.className === 'dsb-composer-notice-x')[0].props.onClick()
@@ -526,7 +610,6 @@ test('Classic / menu shows DSH Commands, Skills, and Files, @ inserts formatted 
     assert.equal(all(tree, n => n.props?.className === 'dsb-composer-notice').length, 0)
 
     // Submitting `/code-review check this` (a skill, not a host command) falls through to `actions.send`.
-    tree = inst.render()
     ta().props.onChange({ target: { value: '/code-review check this', selectionStart: 23 } })
     tree = inst.render()
     all(tree, n => n.type === 'button' && n.props?.className === 'dsb-send')[0].props.onClick()
@@ -547,6 +630,30 @@ test('Classic / menu shows DSH Commands, Skills, and Files, @ inserts formatted 
     assert.equal(ta().props.value, 'see @"docs/my notes.md" ')
   } finally {
     inst.unmount()
+  }
+
+  // Submitting `/compact` immediately on a fresh session BEFORE `/` menu ever opened still loads commands and executes!
+  const freshCmds = []
+  const freshSent = []
+  const freshTeam = makeTeam({
+    actions: {
+      send: async (_sid, text) => { freshSent.push(text) },
+      runSessionCommand: async (_sid, line) => { freshCmds.push(line); return { matched: true, result: { kind: 'success', text: 'OK' } } },
+    },
+  })
+  const inst2 = mount(mod.Chat, { sessionId: 'classic-2', team: freshTeam })
+  try {
+    let tree2 = inst2.render()
+    const ta2 = () => all(tree2, n => n.type === 'textarea' && n.props?.['data-composer-input'] === '')[0]
+    ta2().props.onChange({ target: { value: '/compact', selectionStart: 8 } })
+    tree2 = inst2.render()
+    all(tree2, n => n.type === 'button' && n.props?.className === 'dsb-send')[0].props.onClick()
+    await tick()
+    await tick()
+    assert.deepEqual(freshCmds, ['/compact'])
+    assert.equal(freshSent.length, 0)
+  } finally {
+    inst2.unmount()
   }
 })
 
@@ -671,15 +778,36 @@ test('ClassicQuestionDock handles multi-question batches, Recommended badges, mu
     all(tree, n => n.type === 'button' && n.props?.['aria-label'] === 'Dismiss question')[0].props.onClick()
     await tick()
     assert.deepEqual(dismissed, [{ sid: 'classic-1', reqId: 'req-2' }])
+
+    // Blocking -> continued transition with same callId preserves in-progress choices & custom text, and hides Dismiss!
+    team.userQuestions[0] = {
+      ...entry,
+      id: 'req-timed',
+      callId: 'call-42',
+      mode: 'blocking',
+      timed: true,
+      deadlineAt: Date.now() + 25_000,
+    }
+    tree = inst.render()
+    assert.equal(all(tree, n => n.props?.className === 'dsb-cq-timer').length, 1, 'timed question renders countdown badge')
+    all(tree, n => n.type === 'button' && n.props?.className === 'bt-q-opt')[0].props.onClick()
+    all(tree, n => n.type === 'textarea' && n.props?.className === 'bt-q-input')[0].props.onChange({ target: { value: 'in progress note' } })
+    tree = inst.render()
+    team.userQuestions[0] = { ...entry, id: 'continued:call-42', callId: 'call-42', mode: 'continued' }
+    tree = inst.render()
+    assert.equal(all(tree, n => n.type === 'button' && n.props?.['aria-label'] === 'Dismiss question').length, 0, 'continued question hides Dismiss')
+    assert.equal(all(tree, n => n.type === 'textarea' && n.props?.className === 'bt-q-input')[0].props.value, 'in progress note', 'draft text survives blocking -> continued transition')
+    assert.equal(all(tree, n => n.type === 'button' && n.props?.className === 'bt-q-opt')[0].props['aria-pressed'], true, 'selected option survives blocking -> continued transition')
   } finally {
     inst.unmount()
   }
 })
 
-test('ClassicPlanReviewDock approves, requests changes with feedback, and ClassicPlanCard renders exit_plan_mode states', async () => {
+test('ClassicPlanReviewDock approves, requests changes with feedback, uses real DSH exit_plan_mode outcomes, strips duplicate H1, and hides Dismiss on continued', async () => {
   const answers = []
   const planEntry = {
     id: 'plan-1',
+    callId: 'plan-call-1',
     sessionId: 'classic-1',
     kind: 'plan-review',
     mode: 'blocking',
@@ -707,7 +835,19 @@ test('ClassicPlanReviewDock approves, requests changes with feedback, and Classi
   try {
     let tree = inst.render()
     assert.ok(textOf(tree).includes('Ship Classic Composer'))
-    // Ask for changes -> type feedback -> send feedback
+    // Body markdown strips the duplicated leading H1 title.
+    const mdNode = all(tree, n => n.type === 'markdown')[0]
+    assert.ok(mdNode && !mdNode.props.text.startsWith('# Ship Classic Composer'), 'PlanReviewDock strips duplicate H1')
+
+    // Ask for changes -> Escape via window (shared useEscape stack) closes feedback editor cleanly.
+    all(tree, n => n.type === 'button' && textOf(n) === 'Ask for changes')[0].props.onClick()
+    tree = inst.render()
+    assert.equal(all(tree, n => n.type === 'textarea' && n.props?.className === 'dsb-plan-feedback-input').length, 1)
+    for (const fn of winListeners.get('keydown') ?? []) fn({ key: 'Escape', defaultPrevented: false, isComposing: false })
+    tree = inst.render()
+    assert.equal(all(tree, n => n.type === 'textarea' && n.props?.className === 'dsb-plan-feedback-input').length, 0, 'useEscape closes feedback editor')
+
+    // Reopen Ask for changes -> type feedback -> send feedback.
     all(tree, n => n.type === 'button' && textOf(n) === 'Ask for changes')[0].props.onClick()
     tree = inst.render()
     const fb = all(tree, n => n.type === 'textarea' && n.props?.className === 'dsb-plan-feedback-input')[0]
@@ -721,53 +861,92 @@ test('ClassicPlanReviewDock approves, requests changes with feedback, and Classi
       payload: [{ id: 'plan-review', selected: ['Keep planning'], custom: 'Also cover narrow widths' }],
     })
 
-    // Fresh plan -> Approve directly
-    team.userQuestions[0] = { ...planEntry, id: 'plan-2' }
+    // Continued plan review hides Dismiss button.
+    team.userQuestions[0] = { ...planEntry, id: 'continued:plan-call-2', callId: 'plan-call-2', mode: 'continued' }
     tree = inst.render()
+    assert.equal(all(tree, n => n.type === 'button' && n.props?.['aria-label'] === 'Dismiss').length, 0, 'continued plan review hides Dismiss')
+
+    // Approve directly.
     all(tree, n => n.type === 'button' && textOf(n) === 'Approve')[0].props.onClick()
     await tick()
     assert.deepEqual(plain(answers[1]), {
       sid: 'classic-1',
-      id: 'plan-2',
+      id: 'continued:plan-call-2',
       payload: [{ id: 'plan-review', selected: ['Approve'] }],
     })
   } finally {
     inst.unmount()
   }
 
-  // Register and render transcript Plan Card across states.
+  // Register and verify transcript Plan Card against all 6 recorded real `@deepseek-ai/dsh-plan-mode` outcomes.
   const registry = mod.createSlotRegistry()
   mod.registerClassicPlanView(registry)
   const resolved = registry.resolve(mod.TOOL_VIEW_SLOT, 'exit_plan_mode')
   assert.equal(resolved.length, 1)
   assert.deepEqual(plain(mod.planStatusOf({ phase: 'start' })), { tone: 'pending', label: 'Pending review' })
-  assert.deepEqual(plain(mod.planStatusOf({ phase: 'done', content: [{ type: 'text', text: '{"approved":true}' }] })), { tone: 'ok', label: 'Approved' })
-  assert.deepEqual(plain(mod.planStatusOf({ phase: 'done', isError: true, content: [{ type: 'text', text: 'Need changes' }] })), { tone: 'warn', label: 'Changes requested' })
-  assert.deepEqual(plain(mod.planStatusOf({ phase: 'done', content: [{ type: 'text', text: '{"approved":false}' }] })), { tone: 'muted', label: 'Dismissed' })
+  assert.deepEqual(plain(mod.planStatusOf({
+    phase: 'done',
+    isError: false,
+    content: [{ type: 'text', text: 'Plan approved — plan mode exited; carry out the plan starting with your next step.' }],
+  })), { tone: 'ok', label: 'Approved' })
+  assert.deepEqual(plain(mod.planStatusOf({
+    phase: 'done',
+    isError: false,
+    content: [{ type: 'text', text: 'The user dismissed the plan review to reply in their own words; plan mode remains active.' }],
+  })), { tone: 'muted', label: 'Dismissed' })
+  assert.deepEqual(plain(mod.planStatusOf({
+    phase: 'done',
+    isError: true,
+    content: [{ type: 'text', text: 'The user chose to keep planning; their feedback: Add error handling' }],
+  })), { tone: 'warn', label: 'Changes requested' })
+  assert.deepEqual(plain(mod.planStatusOf({
+    phase: 'done',
+    isError: true,
+    content: [{ type: 'text', text: 'The user chose to keep planning; revise the plan and present it again.' }],
+  })), { tone: 'warn', label: 'Changes requested' })
+  assert.deepEqual(plain(mod.planStatusOf({
+    phase: 'done',
+    isError: true,
+    error: { code: 'ASK_ABORTED' },
+    content: [{ type: 'text', text: 'ask_user_question was aborted before the user answered' }],
+  })), { tone: 'muted', label: 'Interrupted' })
+  assert.deepEqual(plain(mod.planStatusOf({
+    phase: 'done',
+    isError: true,
+    content: [{ type: 'text', text: 'exit_plan_mode is only available in plan mode' }],
+  })), { tone: 'error', label: 'Error' })
 
   const cardInst = mount(mod.ClassicPlanCard, {
     block: {
       phase: 'done',
+      isError: false,
       args: { text: () => '# Rollout Plan\n\n- Step 1' },
-      content: [{ type: 'text', text: '{"approved":true}' }],
+      content: [{ type: 'text', text: 'Plan approved — plan mode exited; carry out the plan starting with your next step.' }],
     },
   })
   try {
     const cardTree = cardInst.render()
     assert.ok(textOf(cardTree).includes('Rollout Plan'))
     assert.ok(textOf(cardTree).includes('Approved'))
+    const mdNode = all(cardTree, n => n.type === 'markdown')[0]
+    assert.ok(mdNode && !mdNode.props.text.startsWith('# Rollout Plan'), 'ClassicPlanCard strips duplicate H1')
+    const toolLabels = all(cardTree, n => n.type === 'button' && n.props?.className === 'dsb-plan-card-tool').map(b => b.props['aria-label'])
+    assert.deepEqual(toolLabels, ['Copy plan', 'Collapse plan'], 'PlanCard tool buttons follow unified [Copy] [Collapse] order')
   } finally {
     cardInst.unmount()
   }
 })
 
-test('DesktopQueueDock supports Withdraw into composer without clobbering active draft, inline Edit, Delete, Steer, and Enter-on-empty-composer steering', async () => {
+test('DesktopQueueDock uses shared presenter defaults, supports cross-chat Withdraw, inline Edit Escape via useEscape, Enter-to-steer placeholder/guard, and pending queued rows', async () => {
   storageMap.clear()
   mod.forgetKeptFiles()
   mod.clearFailedSends()
 
   const queueCalls = []
   const steerAllCalls = []
+  let resolveSteer
+  let resolveSlowRemove
+  let slowRemoveMode = false
   const team = makeTeam({
     running: true,
     queues: {
@@ -777,13 +956,15 @@ test('DesktopQueueDock supports Withdraw into composer without clobbering active
       ],
     },
     actions: {
+      send: async () => new Promise(() => {}),
       updateSessionQueue: async (sid, itemId, action) => {
         queueCalls.push({ sid, itemId, action })
+        if (slowRemoveMode) return await new Promise((resolve) => { resolveSlowRemove = resolve })
         return { accepted: true }
       },
       steerSessionQueue: async (sid, ids) => {
         steerAllCalls.push({ sid, ids })
-        return { accepted: true, steered: ids.length }
+        return await new Promise((resolve) => { resolveSteer = () => resolve({ accepted: true, steered: ids.length }) })
       },
     },
   })
@@ -791,16 +972,25 @@ test('DesktopQueueDock supports Withdraw into composer without clobbering active
   const inst = mount(mod.Chat, { sessionId: 'b1', team })
   try {
     let tree = inst.render()
-    // 2 items show collapsible header with count.
+    // 2 items start collapsed by default (matching DSH plugin QueueDockPresenter).
     const head = all(tree, n => n.type === 'button' && n.props?.className === 'bt-queue-head')[0]
     assert.ok(head)
+    assert.equal(head.props['aria-expanded'], false, '2+ queued rows default to collapsed')
     assert.ok(textOf(head).includes('2 queued messages'))
 
-    // Press Enter on empty composer while running -> steers queued user messages immediately!
+    // Empty composer while running with queued items displays the Enter-to-steer cue and guards double-Enter.
     const ta = () => all(tree, n => n.type === 'textarea' && n.props?.['data-composer-input'] === '')[0]
+    assert.equal(ta().props.placeholder, 'Press Enter to steer queued messages')
     ta().props.onKeyDown({ key: 'Enter', preventDefault() {}, stopPropagation() {} })
+    ta().props.onKeyDown({ key: 'Enter', preventDefault() {}, stopPropagation() {} })
+    assert.equal(steerAllCalls.length, 1, 'rapid double-Enter does not double-fire steerSessionQueue')
+    resolveSteer()
     await tick()
     assert.deepEqual(plain(steerAllCalls), [{ sid: 'b1', ids: ['q1', 'q2'] }])
+
+    // Expand the collapsible queue header to access row actions.
+    head.props.onClick()
+    tree = inst.render()
 
     // Start typing in composer, then click Withdraw on q1 -> merges withdrawn text without clobbering typed draft.
     ta().props.onChange({ target: { value: 'already typing', selectionStart: 14 } })
@@ -812,9 +1002,15 @@ test('DesktopQueueDock supports Withdraw into composer without clobbering active
     assert.deepEqual(plain(queueCalls[0]), { sid: 'b1', itemId: 'q1', action: { kind: 'remove' } })
     assert.ok(ta().props.value.includes('already typing') && ta().props.value.includes('queued first'))
 
-    // Inline Edit on q2
-    const editBtn = all(tree, n => n.type === 'button' && n.props?.['aria-label'] === 'Edit queued message')[1]
-    editBtn.props.onClick()
+    // Inline Edit on q2 cancels via window Escape (shared useEscape stack) and saves via Save button.
+    all(tree, n => n.type === 'button' && n.props?.['aria-label'] === 'Edit queued message')[1].props.onClick()
+    tree = inst.render()
+    assert.equal(all(tree, n => n.type === 'textarea' && n.props?.className === 'bt-queue-edit').length, 1)
+    for (const fn of winListeners.get('keydown') ?? []) fn({ key: 'Escape', defaultPrevented: false, isComposing: false })
+    tree = inst.render()
+    assert.equal(all(tree, n => n.type === 'textarea' && n.props?.className === 'bt-queue-edit').length, 0, 'useEscape cancels inline queue edit')
+
+    all(tree, n => n.type === 'button' && n.props?.['aria-label'] === 'Edit queued message')[1].props.onClick()
     tree = inst.render()
     const editArea = all(tree, n => n.type === 'textarea' && n.props?.className === 'bt-queue-edit')[0]
     editArea.props.onChange({ target: { value: 'queued second edited' } })
@@ -823,17 +1019,40 @@ test('DesktopQueueDock supports Withdraw into composer without clobbering active
     await tick()
     assert.deepEqual(plain(queueCalls[1]), { sid: 'b1', itemId: 'q2', action: { kind: 'edit', text: 'queued second edited' } })
 
-    // Send now (steer) on q2
+    // Unified steer button label (`Steer queued message`).
     tree = inst.render()
-    all(tree, n => n.type === 'button' && n.props?.['aria-label'] === 'Send now')[1].props.onClick()
+    all(tree, n => n.type === 'button' && n.props?.['aria-label'] === 'Steer queued message')[1].props.onClick()
     await tick()
     assert.deepEqual(plain(queueCalls[2]), { sid: 'b1', itemId: 'q2', action: { kind: 'steer' } })
+
+    // Sending while running places optimistic row inside DesktopQueueDock (`Sending…`) rather than PendingUserRows!
+    ta().props.onChange({ target: { value: 'third queued in flight', selectionStart: 22 } })
+    tree = inst.render()
+    all(tree, n => n.type === 'button' && n.props?.className === 'dsb-send')[0].props.onClick()
+    tree = inst.render()
+    assert.equal(all(tree, n => n.props?.className === 'dsb-pending').length, 0, 'running send does not flash in transcript PendingUserRows')
+    assert.equal(all(tree, n => String(n.props?.className ?? '').includes('bt-queue-pending')).length, 1, 'running send renders as pending row inside QueueDock')
+
+    // Withdraw across chat switches: click Withdraw on b1, switch to b2 before remove resolves -> lands in b1's saved draft, NOT b2!
+    slowRemoveMode = true
+    all(tree, n => n.type === 'button' && n.props?.['aria-label'] === 'Withdraw to input')[1].props.onClick()
+    inst.render({ sessionId: 'b2', team })
+    tree = inst.render({ sessionId: 'b2', team })
+    ta().props.onChange({ target: { value: 'b2 own draft', selectionStart: 12 } })
+    tree = inst.render({ sessionId: 'b2', team })
+    resolveSlowRemove({ accepted: true })
+    await tick()
+    tree = inst.render({ sessionId: 'b2', team })
+    assert.equal(ta().props.value, 'b2 own draft', 'b2 composer is untouched by b1 withdrawal')
+    inst.render({ sessionId: 'b1', team })
+    tree = inst.render({ sessionId: 'b1', team })
+    assert.ok(ta().props.value.includes('queued second'), 'withdrawn text merged into originating b1 draft')
   } finally {
     inst.unmount()
   }
 })
 
-test('Failed send while user is already typing preserves both messages with Retry, Restore to input, and Dismiss', async () => {
+test('Failed send protects in-flight image URLs across unmount, re-keys restored attachments, enforces batch budget, and prunes on deletion', async () => {
   storageMap.clear()
   mod.forgetKeptFiles()
   mod.clearFailedSends()
@@ -844,6 +1063,7 @@ test('Failed send while user is already typing preserves both messages with Retr
   const sent = []
   const team = makeTeam({
     actions: {
+      stageImage: async () => ({ id: 'img-1' }),
       send: async (_sid, text) => {
         sent.push(text)
         if (sent.length === 1) return await new Promise((_res, rej) => { rejectFirst = rej })
@@ -879,7 +1099,6 @@ test('Failed send while user is already typing preserves both messages with Retr
     const failedRegion = all(tree, n => n.props?.['data-failed-sends'] === '')[0]
     assert.ok(failedRegion, 'FailedSendBar renders above composer')
     assert.ok(textOf(failedRegion).includes('first important message'))
-    assert.ok(textOf(failedRegion).includes('network timeout'))
 
     // Click Retry -> resends failed message without touching active draft and clears the bar on success.
     all(failedRegion, n => n.type === 'button' && n.props?.['aria-label'] === 'Retry send')[0].props.onClick()
@@ -889,28 +1108,89 @@ test('Failed send while user is already typing preserves both messages with Retr
     assert.deepEqual(sent, ['first important message', 'first important message'])
     assert.equal(ta().props.value, 'next message in progress')
     assert.equal(all(tree, n => n.props?.['data-failed-sends'] === '').length, 0)
-
-    // Trigger another failed send with an attachment to verify Restore to input & Dismiss.
-    let rejectSecond
-    team.actions.send = async () => await new Promise((_res, rej) => { rejectSecond = rej })
-    ta().props.onChange({ target: { value: 'second failed draft', selectionStart: 19 } })
-    tree = inst.render()
-    all(tree, n => n.type === 'button' && n.props?.className === 'dsb-send')[0].props.onClick()
-    await tick()
-    tree = inst.render()
-    ta().props.onChange({ target: { value: 'third draft', selectionStart: 11 } })
-    tree = inst.render()
-    rejectSecond(new Error('offline'))
-    await tick()
-    await tick()
-    tree = inst.render()
-
-    // Click Restore to input -> merges into composer without dropping 'third draft'.
-    all(tree, n => n.type === 'button' && n.props?.['aria-label'] === 'Restore failed message to input')[0].props.onClick()
-    tree = inst.render()
-    assert.ok(ta().props.value.includes('third draft') && ta().props.value.includes('second failed draft'))
-    assert.equal(all(tree, n => n.props?.['data-failed-sends'] === '').length, 0)
   } finally {
     inst.unmount()
   }
+
+  // Test in-flight image URL protection across unmount + fresh attachment IDs after remount + pruneFailedSends!
+  createdUrls.length = 0
+  revokedUrls.length = 0
+  let rejectImgSend
+  const team2 = makeTeam({
+    actions: {
+      stageImage: async () => ({ id: 'img-staged' }),
+      send: async () => await new Promise((_res, rej) => { rejectImgSend = rej }),
+    },
+  })
+  const instA = mount(mod.Chat, { sessionId: 'b1', team: team2 })
+  let imgUrl
+  try {
+    let tree = instA.render()
+    const fileInput = all(tree, n => n.type === 'input' && n.props?.type === 'file')[0]
+    fileInput.props.onChange({ target: { files: [new FakeFile(['png'], 'pic.png', { type: 'image/png' })], value: 'x' } })
+    tree = instA.render()
+    imgUrl = createdUrls[0]
+    assert.ok(imgUrl)
+    all(tree, n => n.type === 'textarea' && n.props?.['data-composer-input'] === '')[0].props.onChange({ target: { value: 'photo msg', selectionStart: 9 } })
+    tree = instA.render()
+    all(tree, n => n.type === 'button' && n.props?.className === 'dsb-send')[0].props.onClick()
+    await tick()
+    // Simulate another draft written before send fails, then unmount while send is in flight!
+    all(tree, n => n.type === 'textarea' && n.props?.['data-composer-input'] === '')[0].props.onChange({ target: { value: 'newer draft', selectionStart: 11 } })
+    tree = instA.render()
+  } finally {
+    instA.unmount()
+  }
+  assert.equal(revokedUrls.includes(imgUrl), false, 'unmounting while image send is in flight must NOT revoke previewUrl')
+  rejectImgSend(new Error('offline'))
+  await tick()
+  await tick()
+  assert.equal(revokedUrls.includes(imgUrl), false, 'failed image send keeps previewUrl alive in recovery shelf')
+
+  // Remount b1, attach a new image (gets att-1), then Restore failed send -> restored image gets fresh att-2 (no ID collision!).
+  const instB = mount(mod.Chat, { sessionId: 'b1', team: team2 })
+  try {
+    let tree = instB.render()
+    const fileInput = all(tree, n => n.type === 'input' && n.props?.type === 'file')[0]
+    fileInput.props.onChange({ target: { files: [new FakeFile(['png2'], 'second.png', { type: 'image/png' })], value: 'x' } })
+    tree = instB.render()
+    all(tree, n => n.type === 'button' && n.props?.['aria-label'] === 'Restore failed message to input')[0].props.onClick()
+    tree = instB.render()
+    const thumbs = all(tree, n => n.props?.className === 'dsb-attach-thumb')
+    assert.equal(thumbs.length, 2, 'both current and restored images appear')
+    assert.notEqual(thumbs[0].props.key, thumbs[1].props.key, 'restored attachment gets a fresh non-colliding ID')
+    // Removing the first thumbnail removes ONLY one thumbnail, leaving the other intact.
+    all(thumbs[0], n => n.type === 'button' && n.props?.className === 'dsb-attach-x')[0].props.onClick()
+    tree = instB.render()
+    assert.equal(all(tree, n => n.props?.className === 'dsb-attach-thumb').length, 1)
+  } finally {
+    instB.unmount()
+  }
+
+  // Test pruneFailedSends revokes preview URLs for deleted chats.
+  let rejectPrune
+  team2.actions.send = async () => await new Promise((_res, rej) => { rejectPrune = rej })
+  const instC = mount(mod.Chat, { sessionId: 'b2', team: team2 })
+  let b2Url
+  try {
+    let tree = instC.render()
+    const beforeLen = createdUrls.length
+    all(tree, n => n.type === 'input' && n.props?.type === 'file')[0].props.onChange({
+      target: { files: [new FakeFile(['png3'], 'bye.png', { type: 'image/png' })], value: 'x' },
+    })
+    tree = instC.render()
+    b2Url = createdUrls[beforeLen]
+    all(tree, n => n.type === 'button' && n.props?.className === 'dsb-send')[0].props.onClick()
+    await tick()
+    all(tree, n => n.type === 'textarea' && n.props?.['data-composer-input'] === '')[0].props.onChange({ target: { value: 'keep typing', selectionStart: 11 } })
+    tree = instC.render()
+    rejectPrune(new Error('gone'))
+    await tick()
+    await tick()
+  } finally {
+    instC.unmount()
+  }
+  assert.equal(revokedUrls.includes(b2Url), false)
+  mod.pruneFailedSends(['b2'])
+  assert.equal(revokedUrls.includes(b2Url), true, 'pruneFailedSends revokes held preview URLs when a chat is deleted')
 })

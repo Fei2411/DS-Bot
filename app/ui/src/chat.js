@@ -6,7 +6,7 @@ import { ChatRows, Shimmer } from '../../../ds-bot/src/client/cells.js'
 import { ComposerPlus, ComposerVoice } from '../../../ds-bot/src/client/composer.js'
 import { AppAccessDock, ComputerHandoffDock } from '../../../ds-bot/src/client/computer.js'
 import { ConnectorDock, MailDock } from '../../../ds-bot/src/client/connectors.js'
-import { chatOfSession, keepDraft, takeDraft } from '../../../ds-bot/src/client/draft-keep.js'
+import { chatOfSession, keepDraft, keepDraftText, takeDraft } from '../../../ds-bot/src/client/draft-keep.js'
 import { fileExtension, fileSizeText } from '../../../ds-bot/src/client/dsh-primitives.js'
 import { isImeComposing, sendsOnEnter } from '../../../ds-bot/src/client/enter-key.js'
 import { HandoffDock } from '../../../ds-bot/src/client/handoff-card.js'
@@ -30,7 +30,17 @@ import { ClassicControls } from './classic-controls.js'
 import { ClassicPlanReviewDock, ClassicQuestionDock } from './classic-questions.js'
 import { AgentEmptyHero } from './classic-sidebar.js'
 import { ComposerMenu, activeComposerTrigger, applyTriggerText, buildComposerMenuItems } from './composer-menus.js'
-import { FailedSendBar } from './failed-send-bar.js'
+import {
+  FailedSendBar,
+  clearFailedSends,
+  heldFailedUrls,
+  inFlightUrls,
+  pendingFailedByChat,
+  pruneFailedSends,
+  revokeUrl,
+  trackFailedUrls,
+  trackInFlightUrls,
+} from './failed-send-bar.js'
 import { DesktopQueueDock, queueRowText } from './queue-dock.js'
 import { SessionTranscript, UserAttachments, useSessionFollow } from './session-chat.js'
 
@@ -49,34 +59,49 @@ const NO_LIST_HOOK = selector => selector(EMPTY_LIST)
 const MemoChatRows = typeof memo === 'function' ? memo(ChatRows) : ChatRows
 const NO_WORK_HOOK = selector => selector(EMPTY_WORK)
 
-// Failed sends held per chat when a send rejects while the user is already typing
-// or after switching away to another chat. Keeps their preview URLs alive until
-// retried, restored into the composer, or explicitly dismissed.
-const pendingFailedByChat = new Map()
-const heldFailedUrls = new Set()
-let failedSendSeq = 0
+export { clearFailedSends, pruneFailedSends }
 
-function trackFailedUrls(items, hold) {
-  for (const item of items ?? []) {
-    if (!item?.previewUrl) continue
-    if (hold) heldFailedUrls.add(item.previewUrl)
-    else heldFailedUrls.delete(item.previewUrl)
+let failedSendSeq = 0
+let pendingSendSeq = 0
+const liveWithdrawByChat = new Map()
+
+function withdrawQueuedText({ chatId, chatKey, sessionId, text }) {
+  const incoming = String(text ?? '').trim()
+  if (incoming === '') return
+  const live = liveWithdrawByChat.get(chatKey)
+  if (typeof live === 'function') {
+    live(incoming)
+    return
   }
+  if (!chatId) return
+  const merged = mergeRescuedDraft(readSavedDraftText(chatId), incoming)
+  draftRevisions.set(chatId, (draftRevisions.get(chatId) ?? 0) + 1)
+  keepDraftText({ chatId, part: sessionId, text: merged })
 }
 
-export function clearFailedSends() {
-  for (const list of pendingFailedByChat.values()) {
-    for (const entry of list) {
-      for (const item of entry.items ?? []) {
-        if (item?.previewUrl) {
-          heldFailedUrls.delete(item.previewUrl)
-          revokeUrl(item.previewUrl)
-        }
-      }
+async function stageAttachmentItems(items, actions) {
+  if (!Array.isArray(items) || items.length === 0) return { images: [], files: [] }
+  const batchCost = items.reduce((sum, item) => sum + stagedByteCost(item.size, item.isImage), 0)
+  if (batchCost > MAX_BATCH_STAGED_BYTES) {
+    throw new Error(t('File too large (max {size})', { size: '64 MB' }))
+  }
+  const images = []
+  const files = []
+  for (const item of items) {
+    const base64 = await fileToBase64(item.file)
+    if (item.isImage) {
+      const staged = await (typeof actions?.stageImage === 'function'
+        ? actions.stageImage(item.mediaType, base64, item.name)
+        : call('stage-image', { mediaType: item.mediaType, data: base64, name: item.name }))
+      images.push(staged.id)
+    } else {
+      const staged = await (typeof actions?.stageFile === 'function'
+        ? actions.stageFile(item.name, base64, item.mediaType)
+        : call('stage-file', { name: item.name, data: base64, mediaType: item.mediaType }))
+      files.push(staged.id)
     }
   }
-  pendingFailedByChat.clear()
-  heldFailedUrls.clear()
+  return { images, files }
 }
 
 export function bytesToBase64(bytes) {
@@ -133,10 +158,6 @@ function hasFileDrag(dataTransfer) {
   if (!types) return false
   if (typeof types.includes === 'function') return types.includes('Files')
   return Array.from(types).includes('Files')
-}
-
-function revokeUrl(url) {
-  if (url && typeof URL?.revokeObjectURL === 'function') URL.revokeObjectURL(url)
 }
 
 function revokeEntryUrls(entry) {
@@ -337,7 +358,7 @@ function readSavedDraftText(chatId) {
 
 // What the Bot views' voice/quote/paste helpers ask of a composer:
 // where the caret is, text insertion at caret, and focusing the textarea.
-function useInput(field, textRef, setText, setCaret) {
+function useInput(field, textRef, setText, setCaret, onEdit) {
   return useMemo(() => ({
     captureInsertion: () => (field.current ? { start: field.current.selectionStart, end: field.current.selectionEnd } : null),
     insertText: (value, at) => {
@@ -346,6 +367,7 @@ function useInput(field, textRef, setText, setCaret) {
       const end = Math.max(start, Math.min(at?.end ?? start, current.length))
       const nextText = current.slice(0, start) + value + current.slice(end)
       const nextCaret = start + value.length
+      onEdit?.()
       textRef.current = nextText
       setText(nextText)
       setCaret?.(nextCaret)
@@ -359,7 +381,7 @@ function useInput(field, textRef, setText, setCaret) {
       else restore()
       return true
     },
-  }), [field, textRef, setText, setCaret])
+  }), [field, textRef, setText, setCaret, onEdit])
 }
 
 function ComposerAttachments({ items, onRemove, onPutBackPaste }) {
@@ -520,6 +542,13 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
   const fileInput = useRef(null)
   const seqRef = useRef(0)
   const fileQuerySeq = useRef(0)
+  const draftEditSeqRef = useRef(0)
+  const steeringRef = useRef(false)
+  const classicCommandsRef = useRef(EMPTY_LIST)
+  const commandsLoadedForRef = useRef(null)
+  const commandsPromiseRef = useRef(null)
+  const skillsLoadedForRef = useRef(null)
+  const skillsPromiseRef = useRef(null)
   const hydratedChatRef = useRef(null)
   const skipNextSaveRef = useRef(false)
   const ownedUrlsRef = useRef(undefined)
@@ -539,7 +568,8 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
   attachmentsRef.current = attachments
   const textRef = useRef(text)
   textRef.current = text
-  const inputActions = useInput(field, textRef, setText, setCaret)
+  const noteDraftEdit = useCallback(() => { draftEditSeqRef.current += 1 }, [])
+  const inputActions = useInput(field, textRef, setText, setCaret, noteDraftEdit)
   const enterToSend = sendsOnEnter(roster.prefs)
   const rescued = useRescuedDrafts?.(state => readRescuedForChat(state, chatId, sessionId)) ?? ''
 
@@ -549,7 +579,9 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
     setCommandNotice(null)
   }, [chatKey])
 
-  // Load classic session controls (model, effort, permissions, plan state) and slash catalog.
+  // Load classic session controls (model, effort, permissions, plan state).
+  // Slash commands & skills load lazily when `/` opens or is submitted so browsing cold
+  // Classic sessions never wakes their Agent on Host.
   const refreshClassicControls = useCallback(() => {
     if (!isAgentChat || !sessionId || typeof actions?.sessionControls !== 'function') return
     void Promise.resolve(actions.sessionControls(sessionId))
@@ -559,38 +591,77 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
       .catch(() => {})
   }, [isAgentChat, sessionId, chatKey, actions])
 
+  const ensureClassicCommands = useCallback(async () => {
+    if (!isAgentChat || !sessionId || typeof actions?.sessionCommands !== 'function') return EMPTY_LIST
+    if (commandsLoadedForRef.current === sessionId) return classicCommandsRef.current
+    if (commandsPromiseRef.current?.sessionId === sessionId) return commandsPromiseRef.current.promise
+    const targetSession = sessionId
+    const promise = Promise.resolve(actions.sessionCommands(targetSession, { wake: true }))
+      .then((value) => {
+        const list = Array.isArray(value?.commands) ? value.commands : EMPTY_LIST
+        if (mountedRef.current && sessionIdRef.current === targetSession) {
+          classicCommandsRef.current = list
+          commandsLoadedForRef.current = targetSession
+          setClassicCommands(list)
+        }
+        return list
+      })
+      .catch(() => EMPTY_LIST)
+      .finally(() => {
+        if (commandsPromiseRef.current?.promise === promise) commandsPromiseRef.current = null
+      })
+    commandsPromiseRef.current = { sessionId: targetSession, promise }
+    return promise
+  }, [isAgentChat, sessionId, actions])
+
+  const ensureClassicSkills = useCallback(async () => {
+    if (!isAgentChat || !sessionId || typeof actions?.sessionSkills !== 'function') return EMPTY_LIST
+    if (skillsLoadedForRef.current === sessionId) return EMPTY_LIST
+    if (skillsPromiseRef.current?.sessionId === sessionId) return skillsPromiseRef.current.promise
+    const targetSession = sessionId
+    const promise = Promise.resolve(actions.sessionSkills(targetSession))
+      .then((value) => {
+        const list = Array.isArray(value?.skills) ? value.skills : EMPTY_LIST
+        if (mountedRef.current && sessionIdRef.current === targetSession) {
+          skillsLoadedForRef.current = targetSession
+          setClassicSkills(list)
+        }
+        return list
+      })
+      .catch(() => EMPTY_LIST)
+      .finally(() => {
+        if (skillsPromiseRef.current?.promise === promise) skillsPromiseRef.current = null
+      })
+    skillsPromiseRef.current = { sessionId: targetSession, promise }
+    return promise
+  }, [isAgentChat, sessionId, actions])
+
+  const refreshClassicControlsRef = useRef(refreshClassicControls)
+  refreshClassicControlsRef.current = refreshClassicControls
+  const ensureClassicCommandsRef = useRef(ensureClassicCommands)
+  ensureClassicCommandsRef.current = ensureClassicCommands
+  const ensureClassicSkillsRef = useRef(ensureClassicSkills)
+  ensureClassicSkillsRef.current = ensureClassicSkills
+
   useEffect(() => {
+    classicCommandsRef.current = EMPTY_LIST
+    commandsLoadedForRef.current = null
+    commandsPromiseRef.current = null
+    skillsLoadedForRef.current = null
+    skillsPromiseRef.current = null
+    setClassicCommands(EMPTY_LIST)
+    setClassicSkills(EMPTY_LIST)
+    setClassicFiles(EMPTY_LIST)
     if (!isAgentChat || !sessionId) {
       setClassicControls(null)
-      setClassicCommands(EMPTY_LIST)
-      setClassicSkills(EMPTY_LIST)
-      setClassicFiles(EMPTY_LIST)
       return undefined
     }
-    let alive = true
-    if (typeof actions?.sessionControls === 'function') {
-      void Promise.resolve(actions.sessionControls(sessionId))
-        .then((value) => { if (alive && value) setClassicControls(value) })
-        .catch(() => {})
-    }
-    if (typeof actions?.sessionCommands === 'function') {
-      void Promise.resolve(actions.sessionCommands(sessionId))
-        .then((value) => { if (alive && Array.isArray(value?.commands)) setClassicCommands(value.commands) })
-        .catch(() => {})
-    }
-    if (typeof actions?.sessionSkills === 'function') {
-      void Promise.resolve(actions.sessionSkills(sessionId))
-        .then((value) => { if (alive && Array.isArray(value?.skills)) setClassicSkills(value.skills) })
-        .catch(() => {})
-    }
+    refreshClassicControlsRef.current()
     const offFeed = feed?.on?.((event) => {
-      if (event === 'live' || event === 'revision' || event === 'hello') refreshClassicControls()
+      if (event === 'live' || event === 'revision' || event === 'hello') refreshClassicControlsRef.current()
     })
-    return () => {
-      alive = false
-      offFeed?.()
-    }
-  }, [isAgentChat, sessionId, actions, feed, refreshClassicControls])
+    return () => { offFeed?.() }
+  }, [isAgentChat, sessionId, feed])
 
   useLayoutEffect(() => {
     const node = field.current
@@ -603,7 +674,7 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
     const owned = ownedUrlsRef.current
     return () => {
       for (const url of owned) {
-        if (!heldFailedUrls.has(url)) revokeUrl(url)
+        if (!heldFailedUrls.has(url) && !inFlightUrls.has(url)) revokeUrl(url)
       }
       owned.clear()
     }
@@ -658,7 +729,7 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
       for (const item of attachmentsRef.current ?? []) {
         if (item.previewUrl) {
           ownedUrlsRef.current.delete(item.previewUrl)
-          revokeUrl(item.previewUrl)
+          if (!heldFailedUrls.has(item.previewUrl) && !inFlightUrls.has(item.previewUrl)) revokeUrl(item.previewUrl)
         }
       }
       attachmentsRef.current = []
@@ -758,17 +829,21 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
     if (oversized) setError(t('File too large (max {size})', { size: '16 MB' }))
     else if (overBudget) setError(t('File too large (max {size})', { size: '64 MB' }))
     else if (next.length > 0) setError(null)
-    if (next.length > 0) setAttachments(current => [...current, ...next])
+    if (next.length > 0) {
+      draftEditSeqRef.current += 1
+      setAttachments(current => [...current, ...next])
+    }
   }, [disabled, buildAttachmentEntries])
 
   if (addFilesRef) addFilesRef.current = addFiles
 
   const removeAttachment = useCallback((id) => {
+    draftEditSeqRef.current += 1
     const current = attachmentsRef.current ?? []
     const target = current.find(item => item.id === id)
     if (target?.previewUrl) {
       ownedUrlsRef.current.delete(target.previewUrl)
-      revokeUrl(target.previewUrl)
+      if (!heldFailedUrls.has(target.previewUrl) && !inFlightUrls.has(target.previewUrl)) revokeUrl(target.previewUrl)
     }
     const next = current.filter(item => item.id !== id)
     attachmentsRef.current = next
@@ -819,6 +894,7 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
   const withdrawIntoComposer = useCallback((withdrawnText) => {
     const incoming = String(withdrawnText ?? '').trim()
     if (incoming === '') return
+    draftEditSeqRef.current += 1
     const merged = mergeRescuedDraft(textRef.current ?? '', incoming)
     textRef.current = merged
     setText(merged)
@@ -830,6 +906,16 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
     if (typeof requestAnimationFrame === 'function') requestAnimationFrame(focusEnd)
     else focusEnd()
   }, [])
+
+  const withdrawFnRef = useRef(withdrawIntoComposer)
+  withdrawFnRef.current = withdrawIntoComposer
+  useEffect(() => {
+    const handler = incoming => withdrawFnRef.current(incoming)
+    liveWithdrawByChat.set(chatKey, handler)
+    return () => {
+      if (liveWithdrawByChat.get(chatKey) === handler) liveWithdrawByChat.delete(chatKey)
+    }
+  }, [chatKey])
 
   if (withdrawRef) withdrawRef.current = withdrawIntoComposer
 
@@ -866,10 +952,13 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
     const targetKey = chatKeyRef.current
     setRetryingFailedId(entry.id)
     setError(null)
+    trackInFlightUrls(entry.items, true)
     try {
       await onSend(entry.text, entry.items)
+      trackInFlightUrls(entry.items, false)
       removeFailedSend(entry.id, { revoke: false, targetKey })
     } catch (failure) {
+      trackInFlightUrls(entry.items, false)
       const msg = failure?.message ?? String(failure)
       const next = (pendingFailedByChat.get(targetKey) ?? []).map(item => (
         item.id === entry.id ? { ...item, error: msg } : item
@@ -882,19 +971,32 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
   }, [disabled, retryingFailedId, onSend, removeFailedSend])
 
   const restoreFailedSend = useCallback((entry) => {
+    const currentItems = attachmentsRef.current ?? []
+    const incomingItems = entry.items ?? []
+    if (incomingItems.length > 0) {
+      const usedCost = currentItems.reduce((sum, item) => sum + stagedByteCost(item.size, item.isImage), 0)
+      const addCost = incomingItems.reduce((sum, item) => sum + stagedByteCost(item.size, item.isImage), 0)
+      if (usedCost + addCost > MAX_BATCH_STAGED_BYTES) {
+        setError(t('File too large (max {size})', { size: '64 MB' }))
+        return
+      }
+    }
+    draftEditSeqRef.current += 1
     const nextText = entry.text ? mergeRescuedDraft(textRef.current ?? '', entry.text) : (textRef.current ?? '')
     textRef.current = nextText
     setText(nextText)
     setCaret(nextText.length)
-    if (entry.items?.length > 0) {
-      for (const item of entry.items) {
+    if (incomingItems.length > 0) {
+      const rekeyed = incomingItems.map((item) => {
         if (item?.previewUrl) {
           heldFailedUrls.delete(item.previewUrl)
           ownedUrlsRef.current.add(item.previewUrl)
         }
-      }
+        seqRef.current += 1
+        return { ...item, id: `att-${seqRef.current}` }
+      })
       setAttachments((current) => {
-        const next = [...current, ...entry.items]
+        const next = [...current, ...rekeyed]
         attachmentsRef.current = next
         return next
       })
@@ -913,13 +1015,16 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
     else focusEnd()
   }, [])
 
-  const runClassicCommand = useCallback(async (line) => {
+  const runClassicCommand = useCallback(async (line, items = []) => {
     if (!isAgentChat || disabled || typeof actions?.runSessionCommand !== 'function') return false
     setError(null)
     setCommandNotice(null)
     const prevPlanActive = Boolean(classicControlsRef.current?.plan?.active)
     try {
-      const res = await actions.runSessionCommand(sessionId, line)
+      const extra = items.length > 0 ? await stageAttachmentItems(items, actions) : null
+      const res = extra && (extra.images.length > 0 || extra.files.length > 0)
+        ? await actions.runSessionCommand(sessionId, line, extra)
+        : await actions.runSessionCommand(sessionId, line)
       if (res?.controls && mountedRef.current && chatKeyRef.current === chatKey) {
         setClassicControls(res.controls)
       }
@@ -950,6 +1055,12 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
   const trigger = rawTrigger && dismissedKey !== triggerKey ? rawTrigger : null
 
   useEffect(() => {
+    if (!isAgentChat || trigger?.kind !== 'command') return
+    void ensureClassicCommandsRef.current()
+    void ensureClassicSkillsRef.current()
+  }, [isAgentChat, sessionId, trigger?.kind])
+
+  useEffect(() => {
     if (!isAgentChat || !trigger || (trigger.kind !== 'command' && trigger.kind !== 'mention')) return undefined
     if (typeof actions?.sessionFiles !== 'function') return undefined
     const seq = ++fileQuerySeq.current
@@ -963,11 +1074,13 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
     return undefined
   }, [isAgentChat, sessionId, trigger?.kind, trigger?.query, actions])
 
+  const planActive = Boolean(classicControls?.plan && (classicControls.plan.pending ? !classicControls.plan.active : classicControls.plan.active))
   const classicCatalog = useMemo(() => (isAgentChat ? {
     commands: classicCommands,
     skills: classicSkills,
     files: classicFiles,
-  } : null), [isAgentChat, classicCommands, classicSkills, classicFiles])
+    planActive,
+  } : null), [isAgentChat, classicCommands, classicSkills, classicFiles, planActive])
 
   const menuItems = useMemo(() => (trigger
     ? buildComposerMenuItems({
@@ -992,6 +1105,7 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
 
   const selectMenuItem = (item) => {
     if (!item || !trigger) return
+    draftEditSeqRef.current += 1
     setReferenceTrigger(null)
     setDismissedKey(null)
     if (item.kind === 'insert') {
@@ -1022,38 +1136,67 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
     setError(null)
     setReferenceTrigger(null)
     setDismissedKey(null)
-    // In Classic mode, a leading `/cmd` matching a registered DSH host command executes
-    // through `session-command-run` rather than sending as an ordinary user message.
-    if (isAgentChat && value.startsWith('/') && items.length === 0 && typeof actions?.runSessionCommand === 'function') {
-      const match = /^\/([a-z][a-z0-9_-]*)(?=$|\s)/i.exec(value)
-      const cmdName = match?.[1]?.toLowerCase()
-      if (cmdName && classicCommands.some(cmd => cmd?.name === cmdName)) {
-        const ok = await runClassicCommand(value)
-        if (ok && mountedRef.current) {
-          textRef.current = ''
-          setText('')
-          setCaret(0)
-          if (chatId) writeDraft({ chatId, part: sessionId, text: '', files: [] })
-        }
-        return
-      }
-    }
     const originChatId = chatId
     const originChatKey = chatKey
     const originSessionId = sessionId
+    // In Classic mode, a leading `/cmd` matching a registered DSH host command executes
+    // through `session-command-run` (forwarding any staged attachments) rather than sending
+    // as an ordinary user message. Ensure commands are loaded even if the user submitted immediately.
+    if (isAgentChat && value.startsWith('/') && typeof actions?.runSessionCommand === 'function') {
+      const match = /^\/([a-z][a-z0-9_-]*)(?=$|\s)/i.exec(value)
+      const cmdName = match?.[1]?.toLowerCase()
+      if (cmdName) {
+        const submitEditSeq = draftEditSeqRef.current
+        const startDraftRev = originChatId ? (draftRevisions.get(originChatId) ?? 0) : null
+        const commands = commandsLoadedForRef.current === originSessionId
+          ? classicCommandsRef.current
+          : await ensureClassicCommands()
+        if (commands.some(cmd => cmd?.name === cmdName)) {
+          const ok = await runClassicCommand(value, items)
+          if (ok) {
+            const untouchedLive = mountedRef.current
+              && chatKeyRef.current === originChatKey
+              && draftEditSeqRef.current === submitEditSeq
+            if (untouchedLive) {
+              for (const item of items) {
+                if (item.previewUrl) {
+                  ownedUrlsRef.current.delete(item.previewUrl)
+                  revokeUrl(item.previewUrl)
+                }
+              }
+              textRef.current = ''
+              attachmentsRef.current = []
+              setText('')
+              setCaret(0)
+              setAttachments([])
+              if (originChatId) writeDraft({ chatId: originChatId, part: originSessionId, text: '', files: [] })
+            } else if (originChatId && (draftRevisions.get(originChatId) ?? 0) === startDraftRev) {
+              writeDraft({ chatId: originChatId, part: originSessionId, text: '', files: [] })
+            }
+          }
+          return
+        }
+        if (!mountedRef.current || chatKeyRef.current !== originChatKey || draftEditSeqRef.current !== submitEditSeq) {
+          return
+        }
+      }
+    }
     textRef.current = ''
     attachmentsRef.current = []
     setText('')
     setCaret(0)
     setAttachments([])
     const clearedRev = originChatId ? writeDraft({ chatId: originChatId, part: originSessionId, text: '', files: [] }) : null
+    trackInFlightUrls(items, true)
     try {
       await onSend(value, items)
+      trackInFlightUrls(items, false)
       // Hand previewUrl cleanup to Chat's pending-message lifecycle on success.
       for (const item of items) {
         if (item.previewUrl) ownedUrlsRef.current.delete(item.previewUrl)
       }
     } catch (failure) {
+      trackInFlightUrls(items, false)
       const errMsg = failure?.message ?? String(failure)
       const activeBot = rosterRef.current?.byId?.[sessionIdRef.current]
       const activeRoom = rosterRef.current?.roomsById?.[sessionIdRef.current]
@@ -1072,6 +1215,13 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
               ...(item.pastedText ? { pastedText: item.pastedText } : {}),
             })),
           })
+          // `writeDraft` keeps the raw File objects; returning to this chat creates fresh URLs.
+          for (const item of items) {
+            if (item.previewUrl) {
+              ownedUrlsRef.current.delete(item.previewUrl)
+              if (!heldFailedUrls.has(item.previewUrl)) revokeUrl(item.previewUrl)
+            }
+          }
         } else {
           // A newer draft was written while this send was in flight: preserve the failed
           // message in the recovery shelf so neither the new draft nor the failed send is lost.
@@ -1138,6 +1288,14 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
     () => (Array.isArray(sessionQueue) ? sessionQueue.filter(item => item?.source?.kind === 'user').map(item => item.id) : EMPTY_LIST),
     [sessionQueue],
   )
+  const canEnterSteer = enterToSend
+    && !disabled
+    && text === ''
+    && attachments.length === 0
+    && running
+    && userQueuedIds.length > 0
+    && typeof actions?.steerSessionQueue === 'function'
+  const effectivePlaceholder = canEnterSteer ? t('Press Enter to steer queued messages') : placeholder
 
   const inputField = h('div', { className: 'dsb-composer-input', 'data-input-scroll': '' },
     h('textarea', {
@@ -1145,10 +1303,11 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
       rows: 1,
       value: text,
       disabled,
-      placeholder,
-      'aria-label': placeholder,
+      placeholder: effectivePlaceholder,
+      'aria-label': effectivePlaceholder,
       'data-composer-input': '',
       onChange: (event) => {
+        draftEditSeqRef.current += 1
         setText(event.target.value)
         setReferenceTrigger(null)
         setDismissedKey(null)
@@ -1210,7 +1369,11 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
           // On an empty composer while running with queued user messages, Enter steers them now.
           if (text.trim() === '' && attachments.length === 0 && running && userQueuedIds.length > 0 && typeof actions?.steerSessionQueue === 'function') {
             event.preventDefault()
-            void actions.steerSessionQueue(sessionId, userQueuedIds).catch(err => actions?.reportError?.(err, 'queue'))
+            if (steeringRef.current) return
+            steeringRef.current = true
+            void Promise.resolve(actions.steerSessionQueue(sessionId, userQueuedIds))
+              .catch(err => actions?.reportError?.(err, 'queue'))
+              .finally(() => { steeringRef.current = false })
             return
           }
           event.preventDefault()
@@ -1438,6 +1601,8 @@ export function Chat({ sessionId, team, registry, classic = false }) {
     const imageCount = items.filter(item => item.isImage).length
     const fileCount = items.length - imageCount
     const entry = {
+      requestId: `pending-${++pendingSendSeq}`,
+      queued: running && !isRoom,
       kind: 'user',
       text,
       attachments: pendingAttachments,
@@ -1452,26 +1617,7 @@ export function Chat({ sessionId, team, registry, classic = false }) {
     setPending(list => [...list, entry])
     actions.noteSent(activeSessionId)
     try {
-      const batchCost = items.reduce((sum, item) => sum + stagedByteCost(item.size, item.isImage), 0)
-      if (batchCost > MAX_BATCH_STAGED_BYTES) {
-        throw new Error(t('File too large (max {size})', { size: '64 MB' }))
-      }
-      const imageIds = []
-      const fileIds = []
-      for (const item of items) {
-        const base64 = await fileToBase64(item.file)
-        if (item.isImage) {
-          const staged = await (typeof actions.stageImage === 'function'
-            ? actions.stageImage(item.mediaType, base64, item.name)
-            : call('stage-image', { mediaType: item.mediaType, data: base64, name: item.name }))
-          imageIds.push(staged.id)
-        } else {
-          const staged = await (typeof actions.stageFile === 'function'
-            ? actions.stageFile(item.name, base64, item.mediaType)
-            : call('stage-file', { name: item.name, data: base64, mediaType: item.mediaType }))
-          fileIds.push(staged.id)
-        }
-      }
+      const { images: imageIds, files: fileIds } = await stageAttachmentItems(items, actions)
       if (imageIds.length > 0 || fileIds.length > 0) {
         await actions.send(activeSessionId, text, { images: imageIds, files: fileIds })
       } else {
@@ -1589,6 +1735,20 @@ export function Chat({ sessionId, team, registry, classic = false }) {
     && !hasAgentMessages
   const heroCwd = dmChat.log?.header?.cwd || roster.workspace || ''
 
+  const activeChatId = chatOfSession(roster, activeSessionId)?.id ?? null
+  const activeChatKey = activeChatId ?? activeSessionId
+  const transcriptPending = useMemo(() => pending.filter(entry => !entry.queued), [pending])
+  const pendingQueue = useMemo(
+    () => pending.filter(entry => entry.queued).map(entry => ({
+      requestId: entry.requestId,
+      text: entry.text,
+      attachments: (entry.attachments ?? []).map(att => (att.type === 'image'
+        ? { type: 'image', value: { previewUrl: att.attachment?.previewUrl, name: att.attachment?.name } }
+        : { type: 'file', value: { name: att.attachment?.name, bytes: att.attachment?.bytes } })),
+    })),
+    [pending],
+  )
+
   return h('div', {
     className: isClassic ? 'dsb-chat dsb-classic-chat' : 'dsb-chat',
     'data-classic': isClassic ? '' : undefined,
@@ -1628,7 +1788,7 @@ export function Chat({ sessionId, team, registry, classic = false }) {
             hasMore: dmChat.hasMore,
             registry,
           }),
-        h(PendingUserRows, { items: pending, sessionId: activeSessionId, classic: isClassic }),
+        h(PendingUserRows, { items: transcriptPending, sessionId: activeSessionId, classic: isClassic }),
         // The Bot views' activity row (from the header pill) draws itself in here.
         h('div', { 'data-chat-running': '' })))),
   h('div', { className: 'dsb-composer-root' },
@@ -1652,9 +1812,10 @@ export function Chat({ sessionId, team, registry, classic = false }) {
       running,
       readOnly,
       useSessionQueues,
+      pendingQueue,
       actions,
       classic: isClassic,
-      onWithdraw: text => withdrawRef.current?.(text),
+      onWithdraw: text => withdrawQueuedText({ chatId: activeChatId, chatKey: activeChatKey, sessionId: activeSessionId, text }),
     }),
     h(Composer, {
       sessionId: activeSessionId,

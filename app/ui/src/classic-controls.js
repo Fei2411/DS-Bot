@@ -7,6 +7,7 @@ import { createPortal } from 'react-dom'
 import { t } from '../../../ds-bot/src/client/i18n.js'
 import { CheckIcon, CloseIcon, ShieldIcon } from '../../../ds-bot/src/client/icons.js'
 import { Caret, ModelMenu, useAnchoredMenu } from '../../../ds-bot/src/client/model-menu.js'
+import { useLinger } from '../../../ds-bot/src/client/motion.js'
 import { useEscape } from '../../../ds-bot/src/client/overlay-hooks.js'
 
 const PRESET_LABELS = {
@@ -14,6 +15,14 @@ const PRESET_LABELS = {
   'workspace-write': 'Workspace',
   'danger-full-access': 'Full access',
   auto: 'Auto review',
+  custom: 'Custom',
+}
+
+const PRESET_DESCRIPTIONS = {
+  'read-only': 'Read files without editing',
+  'workspace-write': 'Edit inside the workspace; wider actions ask',
+  'danger-full-access': 'Run commands and edit files without asking',
+  auto: 'Model reviews actions for this session only',
 }
 
 const RISKY_PRESETS = new Set(['danger-full-access', 'auto'])
@@ -22,6 +31,11 @@ export function classicPresetLabel(value, options) {
   if (PRESET_LABELS[value]) return t(PRESET_LABELS[value])
   const found = (options ?? []).find(opt => opt.value === value)
   return found?.name ?? value ?? ''
+}
+
+function classicPresetDescription(opt) {
+  if (opt?.value && PRESET_DESCRIPTIONS[opt.value]) return t(PRESET_DESCRIPTIONS[opt.value])
+  return opt?.description ?? ''
 }
 
 // Original minimal permission icons drawn on the 20x20 stroke grid used by ds-bot/icons.js.
@@ -63,6 +77,7 @@ function presetIcon(value) {
 }
 
 function RiskConfirmDialog({ preset, busy, error, onConfirm, onCancel }) {
+  const [shown, leaving] = useLinger(preset, 160)
   const [ack, setAck] = useState(false)
   const titleId = useId()
   const descId = useId()
@@ -70,6 +85,7 @@ function RiskConfirmDialog({ preset, busy, error, onConfirm, onCancel }) {
   const previousFocus = useRef(null)
 
   useEffect(() => {
+    if (!preset) return undefined
     setAck(false)
     previousFocus.current = typeof document !== 'undefined' ? document.activeElement : null
     cancelRef.current?.focus?.()
@@ -79,10 +95,10 @@ function RiskConfirmDialog({ preset, busy, error, onConfirm, onCancel }) {
     }
   }, [preset])
 
-  useEscape(() => { if (!busy) onCancel() }, Boolean(preset))
+  useEscape(() => { if (!busy) onCancel() }, Boolean(preset), { priority: 30 })
 
-  if (!preset) return null
-  const isFull = preset === 'danger-full-access'
+  if (!shown) return null
+  const isFull = shown === 'danger-full-access'
   const title = isFull ? t('Switch to Full access?') : t('Switch to Auto review?')
   const body = isFull
     ? t('Full access lets the agent run commands and edit files outside this workspace without asking.')
@@ -91,7 +107,8 @@ function RiskConfirmDialog({ preset, busy, error, onConfirm, onCancel }) {
   const dialog = h('div', {
     className: 'dsb-risk-layer',
     role: 'presentation',
-    onMouseDown: (event) => { if (event.target === event.currentTarget && !busy) onCancel() },
+    'data-leaving': leaving ? '' : undefined,
+    onMouseDown: (event) => { if (event.target === event.currentTarget && !busy && !leaving) onCancel() },
   },
   h('div', {
     className: 'dsb-risk-dialog',
@@ -102,14 +119,14 @@ function RiskConfirmDialog({ preset, busy, error, onConfirm, onCancel }) {
     'data-danger': isFull ? '' : undefined,
   },
   h('div', { className: 'dsb-risk-head' },
-    h('span', { className: 'dsb-risk-ico', 'aria-hidden': true }, presetIcon(preset)),
+    h('span', { className: 'dsb-risk-ico', 'aria-hidden': true }, presetIcon(shown)),
     h('h3', { id: titleId, className: 'dsb-risk-title' }, title)),
   h('p', { id: descId, className: 'dsb-risk-body' }, body),
   h('label', { className: 'dsb-risk-check' },
     h('input', {
       type: 'checkbox',
       checked: ack,
-      disabled: busy,
+      disabled: busy || leaving,
       onChange: event => setAck(event.target.checked),
     }),
     h('span', null, t('I understand the risks'))),
@@ -119,14 +136,14 @@ function RiskConfirmDialog({ preset, busy, error, onConfirm, onCancel }) {
       ref: cancelRef,
       type: 'button',
       className: 'bt-q-btn',
-      disabled: busy,
+      disabled: busy || leaving,
       onClick: onCancel,
     }, t('Cancel')),
     h('button', {
       type: 'button',
       className: isFull ? 'bt-q-submit dsb-risk-danger-btn' : 'bt-q-submit',
-      disabled: !ack || busy,
-      onClick: () => onConfirm(preset),
+      disabled: !ack || busy || leaving,
+      onClick: () => onConfirm(shown),
     }, t('Switch preset')))))
 
   return typeof document !== 'undefined' && document.body ? createPortal(dialog, document.body) : dialog
@@ -201,6 +218,7 @@ export function ClassicPermissionMenu({ sessionId, permission, disabled, actions
     }, options.map((opt) => {
       const selected = opt.value === current
       const label = classicPresetLabel(opt.value, options)
+      const description = classicPresetDescription(opt)
       return h('button', {
         key: opt.value,
         type: 'button',
@@ -215,7 +233,7 @@ export function ClassicPermissionMenu({ sessionId, permission, disabled, actions
         h('span', { className: 'dsb-perm-row-head' },
           h('span', { className: 'bt-menu-label' }, label),
           opt.value === 'auto' ? h('span', { className: 'dsb-perm-badge' }, t('Session only')) : null),
-        opt.description ? h('span', { className: 'dsb-perm-row-desc' }, opt.description) : null),
+        description ? h('span', { className: 'dsb-perm-row-desc' }, description) : null),
       h('span', { className: 'bt-model-tick', 'aria-hidden': true }, selected ? h(CheckIcon) : null))
     })), document.body) : null,
     h(RiskConfirmDialog, {
@@ -278,20 +296,21 @@ export function ClassicControls({ sessionId, controls, roster, actions, disabled
   // Merge session-fetched reasoning info into the model catalog entry if the catalog omitted it.
   const effectiveRoster = useMemo(() => {
     const reasoning = controls?.model?.reasoning
-    if (!modelRef || !reasoning || !Array.isArray(roster?.models)) return roster
-    const existing = roster.models.find(m => m.ref === modelRef)
-    if (!existing || existing.reasoning !== undefined) return roster
-    return {
-      ...roster,
-      models: roster.models.map(m => (m.ref === modelRef ? { ...m, reasoning } : m)),
-    }
-  }, [roster, modelRef, controls?.model?.reasoning])
+    if (!reasoning || !modelRef || !Array.isArray(roster?.catalog)) return roster
+    let changed = false
+    const catalog = roster.catalog.map((entry) => {
+      if (entry?.ref !== modelRef || entry.reasoning) return entry
+      changed = true
+      return { ...entry, reasoning }
+    })
+    return changed ? { ...roster, catalog } : roster
+  }, [roster, controls?.model?.reasoning, modelRef])
 
   const pickModel = async (ref) => {
-    if (disabled || savingModel || !ref) return
+    if (disabled || savingModel || typeof actions?.selectSessionModel !== 'function') return
     setSavingModel(true)
     try {
-      const next = await actions?.selectSessionModel?.(sessionId, ref)
+      const next = await actions.selectSessionModel(sessionId, ref)
       if (next) onUpdated?.(next)
     } catch (error) {
       actions?.reportError?.(error, 'session-model')
@@ -301,14 +320,15 @@ export function ClassicControls({ sessionId, controls, roster, actions, disabled
   }
 
   const pickEffort = async (effort) => {
-    if (disabled || !modelRef) return false
+    if (disabled || savingModel || typeof actions?.selectSessionModel !== 'function') return
+    setSavingModel(true)
     try {
-      const next = await actions?.selectSessionModel?.(sessionId, modelRef, effort ?? null)
+      const next = await actions.selectSessionModel(sessionId, modelRef, effort)
       if (next) onUpdated?.(next)
-      return true
     } catch (error) {
-      actions?.reportError?.(error, 'session-effort')
-      return false
+      actions?.reportError?.(error, 'session-model')
+    } finally {
+      setSavingModel(false)
     }
   }
 
@@ -320,21 +340,19 @@ export function ClassicControls({ sessionId, controls, roster, actions, disabled
       compact: true,
       align: 'left',
       disabled: disabled || savingModel,
-      withEfforts: true,
-      fallbackModel: roster?.defaultModel ?? undefined,
       onPick: ref => { void pickModel(ref) },
-      onPickEffort: pickEffort,
+      onPickEffort: effort => { void pickEffort(effort) },
     }),
     h(ClassicPermissionMenu, {
       sessionId,
-      permission: controls?.permission ?? null,
+      permission: controls?.permission,
       disabled,
       actions,
       onUpdated,
     }),
     h(ClassicPlanChip, {
       sessionId,
-      plan: controls?.plan ?? null,
+      plan: controls?.plan,
       disabled,
       actions,
       onUpdated,

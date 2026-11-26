@@ -457,11 +457,59 @@ export function install(rt) {
     if (botId === undefined && room === undefined && rt.agentOf?.(sessionId) === undefined) throw Object.assign(new Error('Unknown session'), { code: 'bot/not-found' })
     const attachments = ctx.get?.('attachments')
     if (attachments === undefined) throw Object.assign(new Error('Attachments unavailable'), { code: 'bot/refused' })
+    const wantedId = String(body.attachmentId)
+    const serveImageBlock = async (block) => {
+      const key = String(block.attachment.attachmentId)
+      const hasCachedPreview = body.preview === true && previews.has(key)
+      if (hasCachedPreview) {
+        if (previews.get(key) !== null) return shown(key)
+        keep(key, null)
+      }
+      // An image block's ref names no file: DSH reads it as an image, not a file.
+      const bytes = Buffer.from((await attachments.readImage(block.attachment, AbortSignal.timeout(HISTORY_TIMEOUT_MS))).data)
+      const mime = mediaOf(block.attachment) ?? 'image/png'
+      const { width, height } = block.attachment
+      if (body.preview === true && !hasCachedPreview && !(Math.max(width, height) <= PREVIEW_EDGE)) {
+        // A photo that cannot be shrunk is sent as it is, and remembered as such.
+        const small = await previewImage(bytes, mime).catch(() => null)
+        keep(key, small)
+        if (small !== null) return shown(key)
+      }
+      return { mime, data: bytes.toString('base64') }
+    }
     const sessions = [...new Set([
       ...(room !== undefined ? [rt.sessionOfRoom(room)] : []),
       sessionId,
       ...rt.partsOf(botId, room?.id).map(part => part.sessionId).reverse(),
     ])]
+    // Check live and retained session inboxes first so queued images render previews
+    // before the agent claims them into the paged transcript.
+    const liveAgents = ctx.get?.('agents') ?? ctx.agents
+    const projections = ctx.get?.('sessionProjections') ?? ctx.sessionProjections
+    const liveSessions = ctx.get?.('sessions') ?? ctx.sessions
+    for (const targetId of sessions) {
+      const liveAgent = liveAgents?.get?.(targetId)
+      const queuedMsgs = liveAgent
+        ? [...(liveAgent.inbox?.nextTurn ?? []), ...(liveAgent.inbox?.nextStep ?? [])]
+        : (() => {
+            const retained = liveSessions?.list?.()?.find?.(item => item?.id === targetId)
+            if (!retained || typeof projections?.snapshot !== 'function') return []
+            try {
+              const inbox = projections.snapshot(retained, ['inbox']).values?.inbox
+              return [...(inbox?.['next-turn'] ?? []), ...(inbox?.['next-step'] ?? [])]
+            } catch {
+              return []
+            }
+          })()
+      for (const msg of queuedMsgs) {
+        const content = Array.isArray(msg?.content) ? msg.content : []
+        for (const block of content) {
+          if (block?.type === 'image' && String(block.attachment?.attachmentId) === wantedId) {
+            return await serveImageBlock(block)
+          }
+        }
+      }
+    }
     for (const targetId of sessions) {
       const throughSeq = await throughSeqOf(targetId)
       if (throughSeq !== undefined && throughSeq < 0) continue
@@ -476,24 +524,8 @@ export function install(rt) {
         for (const record of page.records) {
           const content = Array.isArray(record.event?.data?.content) ? record.event.data.content : []
           for (const block of content) {
-            if (block?.type === 'image' && String(block.attachment?.attachmentId) === String(body.attachmentId)) {
-              const key = String(block.attachment.attachmentId)
-              const hasCachedPreview = body.preview === true && previews.has(key)
-              if (hasCachedPreview) {
-                if (previews.get(key) !== null) return shown(key)
-                keep(key, null)
-              }
-              // An image block's ref names no file: DSH reads it as an image, not a file.
-              const bytes = Buffer.from((await attachments.readImage(block.attachment, AbortSignal.timeout(HISTORY_TIMEOUT_MS))).data)
-              const mime = mediaOf(block.attachment) ?? 'image/png'
-              const { width, height } = block.attachment
-              if (body.preview === true && !hasCachedPreview && !(Math.max(width, height) <= PREVIEW_EDGE)) {
-                // A photo that cannot be shrunk is sent as it is, and remembered as such.
-                const small = await previewImage(bytes, mime).catch(() => null)
-                keep(key, small)
-                if (small !== null) return shown(key)
-              }
-              return { mime, data: bytes.toString('base64') }
+            if (block?.type === 'image' && String(block.attachment?.attachmentId) === wantedId) {
+              return await serveImageBlock(block)
             }
           }
         }

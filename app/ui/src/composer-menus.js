@@ -13,12 +13,21 @@ import { ALL_WORDS } from '../../../ds-bot/src/shared/mentions.js'
 import { PlanModeIcon } from './classic-controls.js'
 
 const CLASSIC_COMMAND_FACES = {
-  plan: { label: 'Toggle plan mode', description: 'Start or exit plan mode', icon: PlanModeIcon },
   compact: { label: 'Compact conversation', description: 'Summarize earlier messages to free context', icon: LayersIcon },
   permission: { label: 'Switch permission preset', description: 'Change permission level for this session', icon: ShieldIcon },
-  goal: { label: 'Set a goal', description: 'Set a goal', icon: GoalIcon },
-  export: { label: 'Export conversation', description: 'Export conversation', icon: DownloadIcon },
-  feedback: { label: 'Send feedback', description: 'Send feedback', icon: SendIcon },
+  goal: { label: 'Set a goal', description: '', icon: GoalIcon },
+  export: { label: 'Export conversation', description: '', icon: DownloadIcon },
+  feedback: { label: 'Send feedback', description: '', icon: SendIcon },
+}
+
+function cleanSubtitle(raw, ...duplicates) {
+  const value = typeof raw === 'string' ? raw.trim() : ''
+  if (value === '') return ''
+  const lower = value.toLowerCase()
+  for (const other of duplicates) {
+    if (typeof other === 'string' && other.trim().toLowerCase() === lower) return ''
+  }
+  return value
 }
 
 const SLASH_FILES_LIMIT_EMPTY = 10
@@ -71,7 +80,15 @@ export function activeComposerTrigger(text, caret, { fileMentions = false } = {}
     if (quotedMatch?.[1] !== undefined && quotedMatch[2] !== undefined) {
       const start = pos - quotedMatch[1].length
       let end = pos
-      if (text[end] === '"') end += 1
+      const closeQuote = text.indexOf('"', pos)
+      // Extend through the matching closing quote on the same line (without crossing another `@"` mention),
+      // so completing mid-path replaces the full quoted mention cleanly without swallowing unclosed prose.
+      if (closeQuote >= pos) {
+        const between = text.slice(pos, closeQuote)
+        if (!/[\r\n]/.test(between) && !text.slice(pos, closeQuote + 1).includes('@"')) {
+          end = closeQuote + 1
+        }
+      }
       return { kind: 'mention', start, end, query: quotedMatch[2], quoted: true }
     }
   }
@@ -144,28 +161,51 @@ export function buildSlashCommands({ roster, sessionId, actions, query = '', cla
     const files = Array.isArray(classicCatalog?.files) ? classicCatalog.files : []
     const hasRichCatalog = hostCommands.length > 0 || skills.length > 0 || files.length > 0
 
+    const planActive = classicCatalog?.planActive === true
     for (const cmd of hostCommands) {
       if (!cmd?.name || seenCmds.has(cmd.name)) continue
       seenCmds.add(cmd.name)
+      if (cmd.name === 'plan') {
+        const code = planActive ? '/plan off' : '/plan'
+        const label = planActive ? t('Exit plan mode') : t('Enter plan mode')
+        const description = cleanSubtitle(
+          planActive ? t('Leave plan mode') : t('Plan before making changes'),
+          label,
+          code,
+        )
+        if (!matchesQuery(needle, '/plan', code, 'plan', label, description)) continue
+        items.push({
+          key: 'host-cmd:plan',
+          kind: 'command',
+          name: code,
+          label,
+          description,
+          icon: PlanModeIcon,
+          ...(hasRichCatalog ? { section: t('Commands') } : {}),
+          run: () => onRunCommand?.(code),
+        })
+        continue
+      }
       const face = CLASSIC_COMMAND_FACES[cmd.name]
-      const label = face ? t(face.label) : `/${cmd.name}`
-      const description = face ? t(face.description) : (cmd.description || `/${cmd.name}`)
+      const code = `/${cmd.name}`
+      const label = face ? t(face.label) : code
+      const rawDescription = face ? (face.description ? t(face.description) : '') : (cmd.description || '')
+      const description = cleanSubtitle(rawDescription, label, code)
       const icon = face?.icon ?? TerminalIcon
-      // Commands with an input hint insert `/<name> ` so the user can supply arguments,
-      // except `/plan` which toggles plan mode directly on a bare pick.
-      const insertOnly = cmd.input !== undefined && cmd.name !== 'plan'
-      if (!matchesQuery(needle, `/${cmd.name}`, cmd.name, label, description)) continue
+      // Commands with an input hint insert `/<name> ` so the user can supply arguments.
+      const insertOnly = cmd.input !== undefined
+      if (!matchesQuery(needle, code, cmd.name, label, description)) continue
       items.push({
         key: `host-cmd:${cmd.name}`,
         kind: insertOnly ? 'insert' : 'command',
-        name: `/${cmd.name}`,
+        name: code,
         label,
         description,
         icon,
         ...(hasRichCatalog ? { section: t('Commands') } : {}),
         ...(insertOnly
-          ? { insertText: `/${cmd.name} ` }
-          : { run: () => onRunCommand?.(`/${cmd.name}`) }),
+          ? { insertText: `${code} ` }
+          : { run: () => onRunCommand?.(code) }),
       })
     }
 
@@ -220,17 +260,18 @@ export function buildSlashCommands({ roster, sessionId, actions, query = '', cla
 
     for (const skill of skills) {
       if (!skill?.name) continue
-      const desc = skill.description || skill.whenToUse || ''
-      if (!matchesQuery(needle, `/${skill.name}`, skill.name, desc)) continue
+      const code = `/${skill.name}`
+      const desc = cleanSubtitle(skill.description || skill.whenToUse || '', skill.name, code)
+      if (!matchesQuery(needle, code, skill.name, desc)) continue
       items.push({
         key: `skill:${skill.name}`,
         kind: 'insert',
-        name: `/${skill.name}`,
+        name: code,
         label: skill.name,
-        description: desc || `/${skill.name}`,
+        description: desc,
         icon: BlocksIcon,
         section: t('Skills'),
-        insertText: `/${skill.name} `,
+        insertText: `${code} `,
       })
     }
 
@@ -243,12 +284,13 @@ export function buildSlashCommands({ roster, sessionId, actions, query = '', cla
       const formatted = formatClassicFileMention(entry, false)
       if (!formatted) continue
       const { title, dir } = fileTitleAndDir(entry.path)
+      const label = entry.kind === 'directory' ? `${title}/` : title
       items.push({
         key: `file:${entry.kind}:${entry.path}`,
         kind: 'insert',
         name: entry.kind === 'directory' ? `${entry.path}/` : entry.path,
-        label: entry.kind === 'directory' ? `${title}/` : title,
-        description: dir || entry.path,
+        label,
+        description: cleanSubtitle(dir, label, title),
         icon: entry.kind === 'directory' ? FolderIcon : FileIcon,
         section: t('Files'),
         insertText: entry.kind === 'directory' ? formatted : `${formatted} `,
@@ -332,12 +374,13 @@ export function buildComposerMenuItems({ mode, query = '', quoted = false, roste
         const formatted = formatClassicFileMention(entry, quoted)
         if (!formatted) continue
         const { title, dir } = fileTitleAndDir(entry.path)
+        const label = entry.kind === 'directory' ? `${title}/` : title
         out.push({
           key: `atfile:${entry.kind}:${entry.path}`,
           kind: 'insert',
           icon: entry.kind === 'directory' ? FolderIcon : FileIcon,
-          title: entry.kind === 'directory' ? `${title}/` : title,
-          subtitle: dir || entry.path,
+          title: label,
+          subtitle: cleanSubtitle(dir, label, title),
           section: t('Workspace files'),
           insertText: entry.kind === 'directory' ? formatted : `${formatted} `,
         })

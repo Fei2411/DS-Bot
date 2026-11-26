@@ -141,6 +141,33 @@ export function keepDraftFiles({ chatId, part, files }) {
 }
 
 /**
+ * Update only the stored text draft for a chat while keeping any in-memory files
+ * already held for that chat intact (e.g. a queued-message withdrawal that finishes
+ * after the user switched to another chat).
+ * @param {{ chatId: string, part: string, text: string }} draft
+ * @param {Storage} [storage]
+ */
+export function keepDraftText({ chatId, part, text }, storage = globalThis.localStorage) {
+  const entry = entryFor(storage, { sync: true })
+  const texts = entry.texts
+  const before = texts[chatId]
+  let changed = false
+  if (text === '') {
+    if (before !== undefined) {
+      delete texts[chatId]
+      changed = true
+    }
+  } else if (before?.part !== part || before?.text !== text) {
+    texts[chatId] = { part, text }
+    changed = true
+  }
+  if (changed) {
+    entry.dirtyKeys.add(chatId)
+    writeEntry(storage, entry)
+  }
+}
+
+/**
  * Keep the draft of a chat's current part. A send or a cleared box leaves nothing.
  * @param {{ chatId: string, part: string, text: string, files: readonly { kind: string, file: File }[] }} draft
  * @param {Storage} [storage]

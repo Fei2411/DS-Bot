@@ -1,7 +1,10 @@
 // Per-session controls, queue management, slash/skill/file discovery, and DSH
 // user-questions/plan-review bridging for DS Bot's own desktop window over `/api/bot`.
-// Keeps DSH Web plugin mode untouched: the `user-questions/request` listener runs after
-// Typert and only claims a request when no DSH Web UI provider answered (`NO_PROVIDER`).
+// The `user-questions/request` bridge prepends like `approvals.js`, but claims a request
+// ONLY when running under DS Bot's own desktop app (`DS_BOT_APP=1` / `config.ownWindow`)
+// with a local window connected (`rt.hasLocalFeedClient()`). In DSH Web/Desktop plugin
+// mode, headless hosts, or when no window is connected, it passes requests through
+// untouched so DSH's own providers and `NO_PROVIDER` semantics remain unchanged.
 import { randomUUID } from 'node:crypto'
 import { serviceOf } from './services.js'
 import { splitRef } from './text.js'
@@ -121,8 +124,12 @@ function normalizeAnswers(rawAnswers, questions) {
 
 export function install(rt) {
   const { ctx } = rt
-  /** @type {Map<string, { id: string, sessionId: string, callId?: string, kind: 'question' | 'plan-review', questions: object[], at: number, resolve: (value: object) => void, reject: (error: Error) => void, cleanup: () => void }>} */
+  /** @type {Map<string, { id: string, sessionId: string, callId?: string, kind: 'question' | 'plan-review', timed: boolean, deadlineAt?: number, questions: object[], at: number, resolve: (value: object) => void, reject: (error: Error) => void, releaseWindow: () => void }>} */
   const pendingQuestions = new Map()
+  // Persisted `continued` questions observed on cold sessions (via `readControls`),
+  // cleared as soon as the session wakes or its projection settles them.
+  /** @type {Map<string, object[]>} */
+  const observedColdQuestions = new Map()
 
   const notify = () => { rt.notifyLive?.() }
 
@@ -133,28 +140,31 @@ export function install(rt) {
     || rt.roomOf?.(sessionId) !== undefined
     || rt.botOf?.(sessionId) !== undefined
 
+  const isDesktopApp = () => rt.config?.ownWindow === true || process.env.DS_BOT_APP === '1'
+  const ownWindowActive = () => isDesktopApp() && rt.hasLocalFeedClient?.() === true
+
   const writeCheck = () => {
     const reason = rt.readOnly?.()
     if (reason !== undefined) throw Object.assign(new Error(reason), { code: 'bot/read-only' })
   }
 
   // Answerer bridge for DSH `user-questions/request` (`ask_user_question` and `exit_plan_mode`
-  // plan review). Prepend like `approvals.js` and `computer/index.js`: DSH's remote-events
-  // bridge registers ahead of ds-bot and holds requests waiting for a DSH Web client that
-  // DS Bot's own desktop window never connects. We race `next()` with a linked AbortController
-  // so DS Bot's own window can answer immediately while DSH Web plugin mode still answers
-  // seamlessly through `next()` (cancelling the other side as soon as either settles).
+  // plan review). Claims a request ONLY when DS Bot's own desktop window is running and
+  // connected to this Host; in DSH Web/Desktop plugin mode, headless DSH, or with no window
+  // connected, passes through to `next()` untouched (preserving `NO_PROVIDER`).
   ctx.on?.('user-questions/request', async (request, next) => {
     const rawQuestions = Array.isArray(request?.questions) ? request.questions : []
-    // Leave computer-use consent and approval-intent questions to `computer/index.js` and DSH.
-    if (rawQuestions.some(q => q?.id === 'cua-mouse-control' || q?.id === 'cua-app-access' || q?.intent?.kind === 'approval')) {
+    // Leave computer-use consent (`cua-*`) and approval-intent questions to `computer/index.js` and DSH.
+    if (rawQuestions.some(q => q?.id?.startsWith?.('cua-') || q?.intent?.kind === 'approval')) {
       return await next()
     }
+    if (!ownWindowActive()) return await next()
     const agent = request?.agent
     const sessionId = agent?.session?.id ?? agent?.id
     if (typeof sessionId !== 'string' || sessionId === '') return await next()
     await rt.load()
     if (!isOwnedSession(sessionId)) return await next()
+    if (!ownWindowActive()) return await next()
     if (request.signal?.aborted) {
       throw userQuestionError('ask_user_question was aborted before the user answered', 'ASK_ABORTED')
     }
@@ -164,13 +174,19 @@ export function install(rt) {
     }
     const id = randomUUID()
     const callId = request.wait?.callId ?? questions[0]?.intent?.callId
+    const isTimed = request.wait?.timed === true && typeof request.wait?.callId === 'string' && request.wait.callId !== ''
     const original = request.signal
     const linked = new AbortController()
+    const waitAbort = new AbortController()
     return await new Promise((resolve, reject) => {
       let settled = false
+      let waitTimer
       const cleanup = () => {
+        clearTimeout(waitTimer)
+        waitTimer = undefined
         original?.removeEventListener?.('abort', onAbort)
         if (request.signal === linked.signal) request.signal = original
+        waitAbort.abort()
       }
       const finish = (cb) => {
         if (settled) return false
@@ -185,24 +201,58 @@ export function install(rt) {
       const onAbort = () => {
         finish(() => reject(userQuestionError('ask_user_question was aborted before the user answered', 'ASK_ABORTED')))
       }
-      pendingQuestions.set(id, {
+      const entry = {
         id,
         sessionId,
         ...(typeof callId === 'string' && callId !== '' ? { callId } : {}),
         kind: kindOfQuestions(questions),
+        timed: isTimed,
         questions,
         at: Date.now(),
         resolve: value => finish(() => resolve(value)),
         reject: err => finish(() => reject(err)),
-        cleanup: () => {
-          settled = true
-          cleanup()
-          linked.abort()
+        releaseWindow: () => {
+          // When the local desktop window disconnects, release the timed-wait claim so the Host
+          // resumes its unattended timer, or reject with NO_PROVIDER if no other provider answered.
+          waitAbort.abort()
+          clearTimeout(waitTimer)
+          waitTimer = undefined
+          if (!isTimed) {
+            finish(() => reject(userQuestionError('no user-questions answerer accepted the request', 'NO_PROVIDER')))
+          }
         },
-      })
+      }
+      pendingQuestions.set(id, entry)
       original?.addEventListener?.('abort', onAbort, { once: true })
       notify()
       if (original?.aborted) { onAbort(); return }
+
+      // For timed questions (`askTimed`), attach a foreground wait claim via `ctx.userQuestions.attachWait`
+      // so the Host pauses its unattended fallback timer while the desktop window shows the card and
+      // sends us the authoritative remaining duration.
+      const userQuestions = serviceOf(ctx, 'userQuestions')
+      if (isTimed && typeof userQuestions?.attachWait === 'function') {
+        void (async () => {
+          try {
+            for await (const frame of userQuestions.attachWait(agent, request.wait.callId, waitAbort.signal)) {
+              if (settled || waitAbort.signal.aborted) break
+              const remainingMs = Number(frame?.remainingMs)
+              if (Number.isFinite(remainingMs) && remainingMs >= 0) {
+                entry.deadlineAt = Date.now() + remainingMs
+                notify()
+                clearTimeout(waitTimer)
+                waitTimer = setTimeout(() => {
+                  finish(() => reject(userQuestionError('ask_user_question timed out before the user answered', 'ASK_TIMED_OUT')))
+                }, remainingMs)
+                waitTimer.unref?.()
+              }
+            }
+          } catch {
+            // Wait closed or aborted; original signal / settlement handles completion.
+          }
+        })()
+      }
+
       request.signal = linked.signal
       Promise.resolve().then(next).then(
         (value) => { finish(() => resolve(value)) },
@@ -214,6 +264,12 @@ export function install(rt) {
     })
   }, { prepend: true })
 
+  const onLocalFeedLost = () => {
+    for (const entry of Array.from(pendingQuestions.values())) {
+      entry.releaseWindow()
+    }
+  }
+
   ctx.on?.('session/event', (session, event) => {
     if (!session?.id || !CONTROL_EVENTS.has(event?.type)) return
     if (isOwnedSession(session.id)) notify()
@@ -222,20 +278,13 @@ export function install(rt) {
   const PROJECTION_KEYS = new Set(['inbox', 'plan', 'permissions', 'modelSelection', 'userQuestions'])
   const offProjections = serviceOf(ctx, 'sessionProjections')?.onEventChanged?.((session, changes) => {
     if (!session?.id || !isOwnedSession(session.id) || !changes || typeof changes !== 'object') return
+    if ('userQuestions' in changes) observedColdQuestions.delete(session.id)
     for (const key of Object.keys(changes)) {
       if (PROJECTION_KEYS.has(key)) { notify(); break }
     }
   })
 
-  function continuedQuestionsFor(agent, inboxOverride) {
-    const projections = serviceOf(ctx, 'sessionProjections')
-    if (projections === undefined || agent?.session === undefined) return []
-    let values
-    try {
-      values = projections.snapshot(agent.session, ['userQuestions', 'inbox']).values
-    } catch {
-      return []
-    }
+  function continuedQuestionsFromValues(sessionId, values, inboxOverride) {
     const active = values?.userQuestions?.active
     if (!Array.isArray(active) || active.length === 0) return []
     const inbox = inboxOverride ?? values?.inbox
@@ -247,7 +296,7 @@ export function install(rt) {
     }
     const blockingCalls = new Set(
       [...pendingQuestions.values()]
-        .filter(item => item.sessionId === agent.session.id && item.callId)
+        .filter(item => item.sessionId === sessionId && item.callId)
         .map(item => item.callId),
     )
     const out = []
@@ -258,7 +307,7 @@ export function install(rt) {
       if (questions.length === 0) continue
       out.push({
         id: `continued:${row.callId}`,
-        sessionId: agent.session.id,
+        sessionId,
         callId: row.callId,
         kind: kindOfQuestions(questions),
         mode: 'continued',
@@ -269,23 +318,72 @@ export function install(rt) {
     return out
   }
 
+  function continuedQuestionsFor(agent, inboxOverride) {
+    const projections = serviceOf(ctx, 'sessionProjections')
+    if (projections === undefined || agent?.session === undefined) return []
+    let values
+    try {
+      values = projections.snapshot(agent.session, ['userQuestions', 'inbox']).values
+    } catch {
+      return []
+    }
+    return continuedQuestionsFromValues(agent.session.id, values, inboxOverride)
+  }
+
   function userQuestionsView() {
     const list = []
+    const seenKeys = new Set()
     for (const entry of pendingQuestions.values()) {
+      seenKeys.add(`${entry.sessionId}:${entry.callId ?? entry.id}`)
       list.push({
         id: entry.id,
         sessionId: entry.sessionId,
         ...(entry.callId !== undefined ? { callId: entry.callId } : {}),
         kind: entry.kind,
         mode: 'blocking',
+        ...(entry.timed ? { timed: true } : {}),
+        ...(entry.deadlineAt !== undefined ? { deadlineAt: entry.deadlineAt } : {}),
         questions: entry.questions,
         at: entry.at,
       })
     }
+    const seenSessions = new Set()
     const agents = serviceOf(ctx, 'agents')?.list?.() ?? []
     for (const agent of agents) {
       if (!agent?.session?.id || !isOwnedSession(agent.session.id)) continue
-      list.push(...continuedQuestionsFor(agent))
+      seenSessions.add(agent.session.id)
+      observedColdQuestions.delete(agent.session.id)
+      for (const item of continuedQuestionsFor(agent)) {
+        const key = `${item.sessionId}:${item.callId}`
+        if (!seenKeys.has(key)) { seenKeys.add(key); list.push(item) }
+      }
+    }
+    // Retained non-live sessions with durable `userQuestions` projection state.
+    const projections = serviceOf(ctx, 'sessionProjections')
+    const sessions = serviceOf(ctx, 'sessions')?.list?.() ?? []
+    if (projections !== undefined) {
+      for (const session of sessions) {
+        if (!session?.id || seenSessions.has(session.id) || !isOwnedSession(session.id)) continue
+        seenSessions.add(session.id)
+        try {
+          const values = projections.snapshot(session, ['userQuestions', 'inbox']).values
+          for (const item of continuedQuestionsFromValues(session.id, values)) {
+            const key = `${item.sessionId}:${item.callId}`
+            if (!seenKeys.has(key)) { seenKeys.add(key); list.push(item) }
+          }
+        } catch { /* ignore unreadable projections */ }
+      }
+    }
+    // Cold sessions already observed via `readControls` (`observeSession`) after a Host restart.
+    for (const [sid, items] of observedColdQuestions.entries()) {
+      if (seenSessions.has(sid) || !isOwnedSession(sid)) {
+        if (!isOwnedSession(sid)) observedColdQuestions.delete(sid)
+        continue
+      }
+      for (const item of items) {
+        const key = `${item.sessionId}:${item.callId}`
+        if (!seenKeys.has(key)) { seenKeys.add(key); list.push(item) }
+      }
     }
     return list
   }
@@ -317,16 +415,43 @@ export function install(rt) {
     return queues
   }
 
+  function isPlanAvailable(liveAgent, projValues) {
+    if (projValues?.plan?.active === true || projValues?.plan?.pending === true) return true
+    if (serviceOf(ctx, 'planMode') !== undefined) return true
+    const commands = serviceOf(ctx, 'commands')
+    const presets = serviceOf(ctx, 'agentPresets')
+    if (liveAgent !== undefined) {
+      if (presets?.serviceFor?.(liveAgent, 'planMode') !== undefined) return true
+      if (typeof commands?.list === 'function' && commands.list(liveAgent).some(cmd => cmd?.name === 'plan')) return true
+      return false
+    }
+    // Cold session: inspect its recorded or default preset composition without waking the Agent.
+    const presetId = (typeof projValues?.agentPreset === 'string' && projValues.agentPreset !== '' ? projValues.agentPreset : null)
+      ?? presets?.defaultId
+    if (presetId && typeof presets?.inspectCompositions === 'function') {
+      try {
+        const compositions = presets.inspectCompositions()
+        if (Array.isArray(compositions) && compositions.some(comp => comp?.id === presetId
+          && Array.isArray(comp.modules) && comp.modules.some(mod => mod?.moduleName === '@deepseek-ai/dsh-plan-mode'))) {
+          return true
+        }
+      } catch { /* ignore unavailable composition inventory */ }
+    }
+    if (typeof commands?.list === 'function' && commands.list(undefined).some(cmd => cmd?.name === 'plan')) return true
+    return false
+  }
+
   async function readControls(sessionId, signal) {
     await rt.load()
     if (!isOwnedSession(sessionId)) throw notFound('Unknown session')
     const liveAgent = serviceOf(ctx, 'agents')?.get?.(sessionId)
     let projValues = {}
     if (liveAgent?.session !== undefined) {
+      observedColdQuestions.delete(sessionId)
       try {
         projValues = serviceOf(ctx, 'sessionProjections')?.snapshot?.(
           liveAgent.session,
-          ['modelSelection', 'permissions', 'plan', 'inbox'],
+          ['modelSelection', 'permissions', 'plan', 'inbox', 'userQuestions', 'agentPreset'],
         )?.values ?? {}
       } catch {
         projValues = {}
@@ -379,17 +504,28 @@ export function install(rt) {
       }
     }
 
-    // Plan mode projection state.
+    // Plan mode projection state & preset availability.
     const planRaw = projValues?.plan
     const plan = {
       active: planRaw?.active === true,
       pending: planRaw?.pending === true,
-      available: Boolean(serviceOf(ctx, 'planMode')) || planRaw?.active === true || planRaw?.pending === true,
+      available: isPlanAvailable(liveAgent, projValues),
     }
 
     const queue = liveAgent !== undefined
       ? serializeQueueRows(liveAgent.inbox?.nextTurn)
       : serializeQueueRows(projValues?.inbox?.['next-turn'])
+
+    // Surface persisted `continued` questions for cold sessions too, and remember them for `live()`
+    // so `ClassicQuestionDock` sees them immediately without waking the cold Agent.
+    if (liveAgent === undefined) {
+      const coldContinued = continuedQuestionsFromValues(sessionId, projValues)
+      const prevJson = JSON.stringify(observedColdQuestions.get(sessionId) ?? [])
+      const nextJson = JSON.stringify(coldContinued)
+      if (coldContinued.length > 0) observedColdQuestions.set(sessionId, coldContinued)
+      else observedColdQuestions.delete(sessionId)
+      if (prevJson !== nextJson) notify()
+    }
 
     const questions = userQuestionsView().filter(item => item.sessionId === sessionId)
 
@@ -460,7 +596,11 @@ export function install(rt) {
     const permService = serviceOf(ctx, 'permissionPresets')
     if (permService === undefined) throw refused('Permissions are not available on this host')
     // Validate preset name against DSH's registry before touching the session.
-    permService.resolve(preset)
+    try {
+      permService.resolve(preset)
+    } catch (error) {
+      throw invalid(error?.message || `Unknown permission preset "${preset}"`)
+    }
     const agent = await rt.resolveAgent(sessionId)
     const commands = serviceOf(ctx, 'commands')
     const hasPermissionCmd = typeof commands?.list === 'function'
@@ -482,8 +622,12 @@ export function install(rt) {
     const commands = serviceOf(ctx, 'commands')
     if (typeof commands?.list !== 'function') return { commands: [] }
     const liveAgent = serviceOf(ctx, 'agents')?.get?.(sessionId)
-    if (liveAgent === undefined && rt.readOnly?.() !== undefined) return { commands: [] }
-    const agent = liveAgent ?? await rt.resolveAgent(sessionId)
+    // Never wake a cold Agent from browsing sessions; only resolve when explicitly asked (`wake: true`)
+    // and the host is writable. Otherwise return global commands (`commands.list(undefined)`).
+    let agent = liveAgent
+    if (agent === undefined && body?.wake === true && rt.readOnly?.() === undefined) {
+      agent = await rt.resolveAgent(sessionId)
+    }
     const list = commands.list(agent) ?? []
     return {
       commands: list.map(item => ({
@@ -505,7 +649,8 @@ export function install(rt) {
     const commands = serviceOf(ctx, 'commands')
     if (typeof commands?.execute !== 'function') throw refused('Commands are not available on this host')
     const agent = await rt.resolveAgent(sessionId)
-    const execution = await commands.execute(agent, line, [], signal ?? AbortSignal.timeout(30_000))
+    const submittedAttachments = Array.isArray(body?.submittedAttachments) ? body.submittedAttachments : []
+    const execution = await commands.execute(agent, line, submittedAttachments, signal ?? AbortSignal.timeout(30_000))
     notify()
     if (execution === undefined) {
       return { matched: false, result: null }
@@ -560,6 +705,7 @@ export function install(rt) {
     writeCheck()
     await rt.load()
     const sessionId = requireSessionId(body?.sessionId)
+    if (!isOwnedSession(sessionId)) throw notFound('Unknown session')
     const requestId = typeof body?.requestId === 'string' ? body.requestId.trim() : ''
     if (requestId === '') throw invalid('A question id is required')
 
@@ -577,6 +723,7 @@ export function install(rt) {
       const userQuestions = serviceOf(ctx, 'userQuestions')
       if (typeof userQuestions?.answer !== 'function') throw stale('This question is no longer open')
       const agent = await rt.resolveAgent(sessionId)
+      observedColdQuestions.delete(sessionId)
       const match = continuedQuestionsFor(agent).find(item => item.callId === callId)
       if (match === undefined) throw stale('This question is no longer open')
       const answers = normalizeAnswers(body?.answers, match.questions)
@@ -593,6 +740,7 @@ export function install(rt) {
     writeCheck()
     await rt.load()
     const sessionId = requireSessionId(body?.sessionId)
+    if (!isOwnedSession(sessionId)) throw notFound('Unknown session')
     const requestId = typeof body?.requestId === 'string' ? body.requestId.trim() : ''
     if (requestId === '') throw invalid('A question id is required')
     const entry = pendingQuestions.get(requestId)
@@ -652,12 +800,9 @@ export function install(rt) {
     if (action.kind === 'steer') {
       if (isForegroundBot() && typeof rt.steerQueued === 'function') {
         const outcome = rt.steerQueued(sessionId, [itemId])
-        if (outcome?.steered > 0) {
-          notify()
-          return { accepted: true, steered: outcome.steered }
-        }
         if (outcome?.fallback !== true) {
-          // Item may no longer be pending or agent stopped; verify cleanly through DSH.
+          notify()
+          return { accepted: (outcome?.steered ?? 0) > 0, steered: outcome?.steered ?? 0 }
         }
       }
       try {
@@ -690,6 +835,22 @@ export function install(rt) {
     if (action.kind === 'edit') {
       const text = typeof action.text === 'string' ? action.text : ''
       if (text.trim() === '') throw invalid('Message text is required')
+      // Defense in depth: reject editing queued rows that contain non-text blocks so attachments are never dropped.
+      const liveAgent = serviceOf(ctx, 'agents')?.get?.(sessionId)
+      const existingRow = liveAgent?.inbox?.nextTurn?.find?.(row => row?.id === itemId)
+        ?? (() => {
+          const retained = serviceOf(ctx, 'sessions')?.list?.()?.find?.(item => item?.id === sessionId)
+          const projections = serviceOf(ctx, 'sessionProjections')
+          if (!retained || typeof projections?.snapshot !== 'function') return undefined
+          try {
+            return projections.snapshot(retained, ['inbox']).values?.inbox?.['next-turn']?.find?.(row => row?.id === itemId)
+          } catch {
+            return undefined
+          }
+        })()
+      if (Array.isArray(existingRow?.content) && existingRow.content.some(block => block?.type !== 'text')) {
+        throw invalid('Queued messages with non-text content cannot be edited')
+      }
       try {
         await controller.updateQueue({ sessionId, itemId, action: { kind: 'edit', content: [{ type: 'text', text }] } })
         notify()
@@ -748,9 +909,8 @@ export function install(rt) {
 
   ctx.effect?.(() => () => {
     offProjections?.()
+    observedColdQuestions.clear()
     for (const entry of Array.from(pendingQuestions.values())) {
-      pendingQuestions.delete(entry.id)
-      entry.cleanup()
       entry.reject(userQuestionError('DS Bot is shutting down', 'ASK_ABORTED'))
     }
     pendingQuestions.clear()
@@ -761,5 +921,6 @@ export function install(rt) {
     sessionControlsEndpoint,
     userQuestionsView,
     sessionQueuesView,
+    onLocalFeedLost,
   })
 }

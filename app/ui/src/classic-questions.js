@@ -6,11 +6,13 @@ import { MarkdownText, writeClipboard } from '../../../ds-bot/src/client/dsh-pri
 import { isImeComposing, sendsOnEnter } from '../../../ds-bot/src/client/enter-key.js'
 import { t } from '../../../ds-bot/src/client/i18n.js'
 import { CheckIcon, ChevronDownIcon, ChevronLeftIcon, ChevronRightIcon, ChevronUpIcon, CloseIcon, CopyIcon } from '../../../ds-bot/src/client/icons.js'
+import { useEscape } from '../../../ds-bot/src/client/overlay-hooks.js'
 import { keyLetter, useOptionKeys } from '../../../ds-bot/src/client/questions.js'
 import { PlanModeIcon } from './classic-controls.js'
 
 const RECOMMENDED_SUFFIX = /\s*(?:\((?:recommended|推荐)\)|（(?:recommended|推荐)）)\s*$/iu
 const HEADING_RE = /^#{1,6}\s+(.+?)\s*$/m
+const LEADING_H1_RE = /^\s*#\s+(.+?)\s*(?:\r?\n|$)/
 
 export function parseRecommendedLabel(rawLabel) {
   const label = String(rawLabel ?? '')
@@ -23,6 +25,19 @@ export function extractPlanHeading(markdown) {
   if (typeof markdown !== 'string') return ''
   const match = HEADING_RE.exec(markdown)
   return match?.[1]?.trim() ?? ''
+}
+
+// Strip the leading `# Heading` when it matches the header title so Plan cards
+// never display the exact same title twice in a row.
+export function stripPlanHeading(markdown, heading) {
+  if (typeof markdown !== 'string') return ''
+  const trimmed = markdown.trim()
+  if (trimmed === '') return ''
+  const match = LEADING_H1_RE.exec(trimmed)
+  if (!match) return trimmed
+  const firstTitle = match[1]?.trim() ?? ''
+  if (heading && firstTitle !== heading) return trimmed
+  return trimmed.slice(match[0].length).replace(/^\s+/, '')
 }
 
 function emptyDraftFor(question) {
@@ -50,24 +65,50 @@ function buildAnswerPayload(drafts) {
   })
 }
 
+function formatCountdown(ms) {
+  const secs = Math.max(0, Math.ceil(ms / 1000))
+  const mins = Math.floor(secs / 60)
+  const rem = secs % 60
+  return mins > 0 ? `${mins}:${String(rem).padStart(2, '0')}` : `${secs}s`
+}
+
 function ClassicQuestionCard({ entry, enterToSend, readOnly, actions }) {
   const questions = entry.questions ?? []
   const total = questions.length
+  const stableKey = entry.callId ?? entry.id
   const [index, setIndex] = useState(0)
   const [drafts, setDrafts] = useState(() => questions.map(emptyDraftFor))
   const [minimized, setMinimized] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [remainingMs, setRemainingMs] = useState(() => (
+    entry.mode === 'blocking' && Number.isFinite(entry.deadlineAt)
+      ? Math.max(0, entry.deadlineAt - Date.now())
+      : null
+  ))
   const ownRef = useRef(null)
   const titleId = useId()
 
+  // Reset in-progress answers only when a genuinely different question arrives (`callId ?? id`),
+  // never when a timed question transitions from blocking `<uuid>` to `continued:<callId>`.
   useEffect(() => {
     setIndex(0)
     setDrafts(questions.map(emptyDraftFor))
     setMinimized(false)
     setBusy(false)
     setError('')
-  }, [entry.id])
+  }, [stableKey])
+
+  useEffect(() => {
+    if (entry.mode !== 'blocking' || !Number.isFinite(entry.deadlineAt)) {
+      setRemainingMs(null)
+      return undefined
+    }
+    const update = () => setRemainingMs(Math.max(0, entry.deadlineAt - Date.now()))
+    update()
+    const timer = setInterval(update, 1000)
+    return () => clearInterval(timer)
+  }, [entry.mode, entry.deadlineAt])
 
   const safeIndex = Math.max(0, Math.min(index, Math.max(0, total - 1)))
   const question = questions[safeIndex]
@@ -231,6 +272,7 @@ function ClassicQuestionCard({ entry, enterToSend, readOnly, actions }) {
       question.detail ? h('div', { className: 'bt-q-detail' }, question.detail) : null,
       multi ? h('div', { className: 'bt-q-detail' }, t('Choose all that apply')) : null),
     h('div', { className: 'dsb-cq-head-acts' },
+      remainingMs !== null ? h('span', { className: 'dsb-cq-timer', 'aria-live': 'off' }, formatCountdown(remainingMs)) : null,
       h('button', {
         type: 'button',
         className: 'bt-q-x',
@@ -337,15 +379,17 @@ export function ClassicQuestionDock({ sessionId, useUserQuestions, useRoster, ac
     [list, sessionId],
   )
   if (!entry) return null
-  return h(ClassicQuestionCard, { key: entry.id, entry, enterToSend, readOnly, actions })
+  return h(ClassicQuestionCard, { key: entry.callId ?? entry.id, entry, enterToSend, readOnly, actions })
 }
 
 function ClassicPlanReviewCard({ entry, enterToSend, readOnly, actions }) {
   const question = entry.questions?.[0]
   const planMarkdown = question?.detail ?? ''
   const title = extractPlanHeading(planMarkdown) || t('Plan review')
+  const bodyMarkdown = stripPlanHeading(planMarkdown, title)
   const approveLabel = question?.intent?.approve ?? question?.options?.[0]?.label ?? 'Approve'
   const keepLabel = question?.options?.find(opt => opt.label !== approveLabel)?.label ?? 'Keep planning'
+  const stableKey = entry.callId ?? entry.id
 
   const [expanded, setExpanded] = useState(false)
   const [askingChanges, setAskingChanges] = useState(false)
@@ -363,11 +407,20 @@ function ClassicPlanReviewCard({ entry, enterToSend, readOnly, actions }) {
     setCopied(false)
     setBusy(false)
     setError('')
-  }, [entry.id])
+  }, [stableKey])
 
   useEffect(() => {
     if (askingChanges) feedbackRef.current?.focus?.()
   }, [askingChanges])
+
+  // Coordinate Escape through the shared overlay stack so cancelling feedback
+  // never closes drawers or panels behind the plan card.
+  useEscape(() => {
+    if (!busy) {
+      setAskingChanges(false)
+      setError('')
+    }
+  }, askingChanges, { priority: 20 })
 
   if (!question) return null
 
@@ -401,7 +454,7 @@ function ClassicPlanReviewCard({ entry, enterToSend, readOnly, actions }) {
   }
 
   const dismiss = async () => {
-    if (busy || readOnly) return
+    if (busy || readOnly || entry.mode === 'continued') return
     setBusy(true)
     setError('')
     try {
@@ -439,7 +492,7 @@ function ClassicPlanReviewCard({ entry, enterToSend, readOnly, actions }) {
         title: copied ? t('Copied') : t('Copy plan'),
         onClick: () => { void copyPlan() },
       }, copied ? h(CheckIcon) : h(CopyIcon)) : null,
-      planMarkdown ? h('button', {
+      bodyMarkdown ? h('button', {
         type: 'button',
         className: 'bt-q-x',
         'aria-label': expanded ? t('Collapse plan') : t('Show full plan'),
@@ -447,18 +500,18 @@ function ClassicPlanReviewCard({ entry, enterToSend, readOnly, actions }) {
         'aria-expanded': expanded,
         onClick: () => setExpanded(value => !value),
       }, expanded ? h(ChevronUpIcon) : h(ChevronDownIcon)) : null,
-      h('button', {
+      entry.mode !== 'continued' ? h('button', {
         type: 'button',
         className: 'bt-q-x',
         'aria-label': t('Dismiss'),
         title: t('Dismiss'),
         disabled: busy || readOnly,
         onClick: () => { void dismiss() },
-      }, h(CloseIcon)))),
-  planMarkdown ? h('div', {
+      }, h(CloseIcon)) : null)),
+  bodyMarkdown ? h('div', {
     className: 'dsb-plan-review-body',
     'data-expanded': expanded ? '' : undefined,
-  }, h(MarkdownText, { text: planMarkdown })) : null,
+  }, h(MarkdownText, { text: bodyMarkdown })) : null,
   askingChanges ? h('div', { className: 'dsb-plan-feedback' },
     h('textarea', {
       ref: feedbackRef,
@@ -470,11 +523,6 @@ function ClassicPlanReviewCard({ entry, enterToSend, readOnly, actions }) {
       placeholder: t('Describe the changes you want…'),
       onChange: event => { setFeedback(event.target.value); setError('') },
       onKeyDown: (event) => {
-        if (event.key === 'Escape' && !isImeComposing(event)) {
-          event.stopPropagation()
-          setAskingChanges(false)
-          return
-        }
         if (event.key !== 'Enter' || event.shiftKey || isImeComposing(event)) return
         const modEnter = event.metaKey || event.ctrlKey
         if (!enterToSend && !modEnter) return
@@ -521,5 +569,5 @@ export function ClassicPlanReviewDock({ sessionId, useUserQuestions, useRoster, 
     [list, sessionId],
   )
   if (!entry) return null
-  return h(ClassicPlanReviewCard, { key: entry.id, entry, enterToSend, readOnly, actions })
+  return h(ClassicPlanReviewCard, { key: entry.callId ?? entry.id, entry, enterToSend, readOnly, actions })
 }
