@@ -156,10 +156,13 @@ test('queued calls finish later streams', async (t) => {
   t.after(() => adapter.dispose())
   const first = await collect(adapter.stream(options('s1', [user('m1', 'two-calls')])))
   assert.equal(first.finish.kind, 'tool-calls')
-  assert.equal(first.calls.length, 1)
-  const seen = [user('m1', 'two-calls'), toolResult('m2', first.calls[0].id, 'one back')]
+  assert.ok(first.calls.length === 1 || first.calls.length === 2, JSON.stringify(first.calls))
+  const seen = [
+    user('m1', 'two-calls'),
+    ...first.calls.map((call, index) => toolResult(`m${index + 2}`, call.id, index === 0 ? 'one back' : 'two back')),
+  ]
   const second = await collect(adapter.stream(options('s1', seen)))
-  // The second queued call is emitted (or the agent already got both answered).
+  // Either both parallel calls were batched in one step and finished here, or the second queued call is emitted now.
   assert.ok(second.finish.kind === 'tool-calls' || /tool said/.test(second.text), JSON.stringify(second))
 })
 
@@ -1556,23 +1559,33 @@ test('acp tries HTTP MCP when mcpCapabilities is omitted (#1073), bridges stdio 
   const stdioOnly = makeAdapter({ acpArgs: ['--no-http-mcp'] })
   t.after(() => stdioOnly.dispose())
   const stdio1 = await collect(stdioOnly.stream(options('s-stdio', [user('m1', 'two-calls')])))
-  assert.equal(stdio1.calls.length, 1)
+  assert.ok(stdio1.calls.length === 1 || stdio1.calls.length === 2, JSON.stringify(stdio1.calls))
   assert.equal(stdio1.calls[0]?.name, 'message_bot')
-  const msg1 = JSON.parse(stdio1.calls[0].arguments).message
-  const reply1 = msg1 === 'hi 0' ? 'zero' : 'one'
-  const stdio2 = await collect(stdioOnly.stream(options('s-stdio', [
-    user('m1', 'two-calls'),
-    toolResult('m2', stdio1.calls[0].id, reply1),
-  ])))
-  assert.equal(stdio2.calls.length, 1)
-  const msg2 = JSON.parse(stdio2.calls[0].arguments).message
-  assert.notEqual(msg1, msg2)
-  const reply2 = msg2 === 'hi 0' ? 'zero' : 'one'
-  const stdioDone = await collect(stdioOnly.stream(options('s-stdio', [
-    user('m1', 'two-calls'),
-    toolResult('m2', stdio1.calls[0].id, reply1),
-    toolResult('m3', stdio2.calls[0].id, reply2),
-  ])))
+  const replyFor = (call) => (JSON.parse(call.arguments).message === 'hi 0' ? 'zero' : 'one')
+  let stdioDone
+  if (stdio1.calls.length === 2) {
+    assert.notEqual(JSON.parse(stdio1.calls[0].arguments).message, JSON.parse(stdio1.calls[1].arguments).message)
+    stdioDone = await collect(stdioOnly.stream(options('s-stdio', [
+      user('m1', 'two-calls'),
+      toolResult('m2', stdio1.calls[0].id, replyFor(stdio1.calls[0])),
+      toolResult('m3', stdio1.calls[1].id, replyFor(stdio1.calls[1])),
+    ])))
+  } else {
+    const msg1 = JSON.parse(stdio1.calls[0].arguments).message
+    const reply1 = replyFor(stdio1.calls[0])
+    const stdio2 = await collect(stdioOnly.stream(options('s-stdio', [
+      user('m1', 'two-calls'),
+      toolResult('m2', stdio1.calls[0].id, reply1),
+    ])))
+    assert.equal(stdio2.calls.length, 1)
+    const msg2 = JSON.parse(stdio2.calls[0].arguments).message
+    assert.notEqual(msg1, msg2)
+    stdioDone = await collect(stdioOnly.stream(options('s-stdio', [
+      user('m1', 'two-calls'),
+      toolResult('m2', stdio1.calls[0].id, reply1),
+      toolResult('m3', stdio2.calls[0].id, replyFor(stdio2.calls[0])),
+    ])))
+  }
   assert.match(stdioDone.text, /tool said: zero \| one/)
 
   const records = {}
@@ -2463,7 +2476,7 @@ test('ACP upstream error data preserves code, detail and status (#1806)', async 
       data: { code }, code: 'LOCAL_AGENT_QUOTA', text: 'Internal error',
     })),
     ...[
-      ['Too many tokens', 'CONTEXT_WINDOW_EXCEEDED'],
+      ['Prompt is too long', 'CONTEXT_WINDOW_EXCEEDED'],
       ['Login required', 'LOCAL_AGENT_SIGNIN'],
       ['Rate limit reached', 'LOCAL_AGENT_QUOTA'],
     ].flatMap(([text, code]) => [
@@ -2473,7 +2486,7 @@ test('ACP upstream error data preserves code, detail and status (#1806)', async 
     ...[
       ['Login required', 'LOCAL_AGENT_SIGNIN'],
       ['Rate limit reached', 'LOCAL_AGENT_QUOTA'],
-      ['Too many tokens', 'CONTEXT_WINDOW_EXCEEDED'],
+      ['Prompt is too long', 'CONTEXT_WINDOW_EXCEEDED'],
     ].map(([message, code]) => ({ message, data: { detail }, code, text: detail })),
     { data: { code: '', detail }, code: 'LOCAL_AGENT_ERROR', text: detail },
     { data: { code: 403, detail }, code: 'LOCAL_AGENT_ERROR', text: detail },
