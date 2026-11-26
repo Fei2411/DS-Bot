@@ -17,7 +17,8 @@ const TRANSIENT_LLM_CODES = new Set(['TRANSPORT', 'TIMEOUT', 'MALFORMED_RESPONSE
 const MALFORMED_RETRIES = 2
 // pi-ai's Google adapters end a Gemini stream that stops on a malformed tool call or response
 // with exactly one of these errors, which dsh-llm-pi-ai classifies as PI_AI_ERROR. It is the
-// same transient failure.
+// same transient failure. Up to pi-ai 1.6.0 MALFORMED_RESPONSE throws "Unhandled stop reason";
+// 1.6.1 reports it like the other two.
 const GEMINI_MALFORMED = new Set([
   'Provider stopped with: MALFORMED_FUNCTION_CALL',
   'Provider stopped with: UNEXPECTED_TOOL_CALL',
@@ -142,25 +143,38 @@ export function install(rt) {
       return 'For this response only, call at most one tool. If you need more than one tool, wait for the result before calling another.'
     },
   })
+  // A retry after malformed tool-call arguments (often parallel calls fused into one) asks for
+  // one tool call, whoever decided the retry.
+  const askOneTool = (agent, signal, failure) => {
+    if (signal !== undefined && failure.code === 'MALFORMED_RESPONSE' && failure.message?.startsWith('Tool call "')) {
+      singleToolRetries.set(signal, agent.id)
+    }
+  }
   ctx.on?.('agent/request-error', async (payload, next) => {
     const decided = await next()
     const { agent, turn, step, signal, failure } = payload
     const code = failureCode(failure)
-    if (decided !== undefined || code !== 'MALFORMED_RESPONSE' || signal?.aborted || !rt.isBotSession(agent.id)) return decided
+    if (code !== 'MALFORMED_RESPONSE' || signal?.aborted || !rt.isBotSession(agent.id)) return decided
+    // Newer DSH lets a retry policy name MALFORMED_RESPONSE, so dsh-llm-retry may retry first.
+    if (decided !== undefined) {
+      if (decided.kind === 'retry') askOneTool(agent, signal, failure)
+      return decided
+    }
     let retries = malformedRetries.get(agent)
     if (retries?.turn !== turn || retries?.step !== step) {
       retries = { turn, step, count: 0 }
       malformedRetries.set(agent, retries)
     }
     const policy = payload.retryPolicy ?? retryPolicyOf(ctx, payload.provider)
+    // One retry budget: the DS Bot budget does not follow a DSH budget already spent on this
+    // failure, a Gemini stop's PI_AI_ERROR or a MALFORMED_RESPONSE that a normal policy names.
     if (code !== failure.code && dshRetries(policy, failure.code)) return undefined
+    if (code === failure.code && policy?.mode === 'normal' && dshRetries(policy, code)) return undefined
     if (!canRetryPolicy(policy, code, retries.count + 1)) return undefined
     retries.count += 1
     rt.warn(`Retrying malformed model response for ${agent.id} (turn ${turn}, step ${step}, retry ${retries.count}/${MALFORMED_RETRIES})`)
     if (!await waitRetryDelay(250, signal)) return undefined
-    if (signal !== undefined && failure.code === 'MALFORMED_RESPONSE' && failure.message?.startsWith('Tool call "')) {
-      singleToolRetries.set(signal, agent.id)
-    }
+    askOneTool(agent, signal, failure)
     return { kind: 'retry' }
   }, { prepend: true })
 

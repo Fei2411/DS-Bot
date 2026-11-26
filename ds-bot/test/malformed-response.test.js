@@ -109,18 +109,25 @@ test('a Bot retries the malformed stream and completes on the next response', as
   assert.equal(result.events.findLast(event => event.type === 'turn/end').data.reason.kind, 'completed')
 })
 
-test('a Bot recovers when the provider repeats malformed parallel calls unless advised to use one tool', async t => {
-  const hints = []
-  const provider = {
+// The runtime context DSH admits for a request is its newest user message. DSH 0.2.2-rc.5 wraps
+// it in <system-reminder>, rc.1 sends the bare text, and 0.2.3-alpha.2 sends text parts.
+const textOf = content => typeof content === 'string' ? content : Array.isArray(content) ? content.map(part => part?.type === 'text' ? part.text : '').join('') : ''
+const advisedOneTool = messages => textOf(messages.findLast(({ role }) => role === 'user')?.content).includes('call at most one tool')
+
+// An OpenAI provider that fuses two parallel calls into one malformed call unless the newest
+// runtime context asks for one tool; with `ignoreHint` it always does.
+function parallelCalls(hints, { ignoreHint = false } = {}) {
+  return {
     ...openAI,
     respond(_attempt, res, { messages }) {
-      const reminder = messages.findLast(({ role, content }) => role === 'user' && typeof content === 'string' && content.startsWith('<system-reminder>'))
-      const singleCall = reminder?.content.includes('call at most one tool') ?? false
-      hints.push(singleCall)
-      openAIStream(messages.some(message => message.role === 'tool') ? 2 : 1, res, { singleCall })
+      const advised = advisedOneTool(messages)
+      hints.push(advised)
+      openAIStream(messages.some(message => message.role === 'tool') ? 2 : 1, res, { singleCall: advised && !ignoreHint })
     },
   }
-  const result = await boot(t, true, provider, { retryPolicy: { mode: 'normal', maxRetries: 2 } })
+}
+
+function assertRecoveredWithOneTool(result, hints) {
   const turnEnd = result.events.findLast(event => event.type === 'turn/end')
   assert.equal(turnEnd.data.reason.kind, 'completed', JSON.stringify({ hints, attempts: result.attempts, failures: result.failures }))
   assert.deepEqual(hints, [false, true, false])
@@ -129,6 +136,36 @@ test('a Bot recovers when the provider repeats malformed parallel calls unless a
   assert.deepEqual(toolCalls.map(({ id, name, arguments: args }) => [id, name, JSON.parse(args)]), [
     ['call_A', 'bash', { command: 'ls', description: 'a' }],
   ])
+}
+
+const fastBackoff = { initialDelayMs: 1, maxDelayMs: 1, jitterRatio: 0 }
+
+test('a Bot recovers when the provider repeats malformed parallel calls unless advised to use one tool', async t => {
+  const hints = []
+  const result = await boot(t, true, parallelCalls(hints), { retryPolicy: { mode: 'normal', maxRetries: 2 } })
+  assertRecoveredWithOneTool(result, hints)
+  assert.equal(result.events.some(event => event.type === 'llm/retry'), false)
+})
+
+for (const retryPolicy of [
+  { mode: 'normal', maxRetries: 2, retryableCodes: ['MALFORMED_RESPONSE'], backoff: fastBackoff },
+  { mode: 'always', backoff: fastBackoff },
+]) {
+  test(`a Bot asks for one tool call when DSH's ${retryPolicy.mode} policy retries malformed parallel calls`, async t => {
+    const hints = []
+    const result = await boot(t, true, parallelCalls(hints), { retryPolicy })
+    assertRecoveredWithOneTool(result, hints)
+    assert.equal(result.events.filter(event => event.type === 'llm/retry').length, 1)
+  })
+}
+
+test('a malformed response keeps one retry budget when the policy already retries MALFORMED_RESPONSE', async t => {
+  const hints = []
+  const retryPolicy = { mode: 'normal', maxRetries: 1, retryableCodes: ['MALFORMED_RESPONSE'], backoff: fastBackoff }
+  const result = await boot(t, true, parallelCalls(hints, { ignoreHint: true }), { retryPolicy })
+  assert.equal(result.attempts, 2, JSON.stringify(hints))
+  assert.deepEqual(hints, [false, true])
+  assert.equal(result.events.findLast(event => event.type === 'turn/end').data.reason.kind, 'error')
 })
 
 for (const [finishReason, messages] of [
@@ -169,8 +206,11 @@ test('a Gemini malformed stop keeps one retry budget when the policy already ret
 function handler(providerPolicy) {
   const listeners = new Map()
   const warnings = []
-  install({ ctx: { on: (name, fn) => listeners.set(name, fn), llm: { providerRetryPolicy: () => providerPolicy } }, state: { bots: {} }, isBotSession: id => id === 'bot', warn: message => warnings.push(message) })
-  return { run: listeners.get('agent/request-error'), warnings }
+  const contexts = []
+  const systemPrompt = { context: entry => contexts.push(entry) }
+  install({ ctx: { on: (name, fn) => listeners.set(name, fn), llm: { providerRetryPolicy: () => providerPolicy }, systemPrompt }, state: { bots: {} }, isBotSession: id => id === 'bot', warn: message => warnings.push(message) })
+  const hint = ({ agent, signal }) => contexts.map(entry => entry.text({ agent, signal })).join('')
+  return { run: listeners.get('agent/request-error'), warnings, hint }
 }
 
 const payload = () => ({ agent: { id: 'bot' }, turn: 1, step: 1, failure: { code: 'MALFORMED_RESPONSE' }, signal: new AbortController().signal })
@@ -214,6 +254,31 @@ test('only Gemini malformed stops among PI_AI_ERROR failures consume malformed r
   assert.equal(warnings.length, 0)
   assert.deepEqual(await run({ ...p, failure: { code: 'PI_AI_ERROR', message: 'Unhandled stop reason: MALFORMED_RESPONSE' } }, next), { kind: 'retry' })
   assert.deepEqual(await run({ ...p, failure: { code: 'PI_AI_ERROR', message: 'Provider stopped with: MALFORMED_RESPONSE' } }, next), { kind: 'retry' })
+})
+
+test('a retry decided downstream asks for one tool call only after malformed tool-call arguments', async () => {
+  const toolArgs = { code: 'MALFORMED_RESPONSE', message: 'Tool call "bash": Unexpected non-whitespace character after JSON at position 34' }
+  const retry = { kind: 'retry' }
+  const { run, warnings, hint } = handler()
+  const p = { ...payload(), failure: toolArgs }
+  assert.equal(await run(p, async () => retry), retry)
+  assert.match(hint(p), /call at most one tool/)
+  assert.equal(hint(p), '')
+  for (const other of [{ ...payload(), failure: { code: 'MALFORMED_RESPONSE', message: 'bad arguments' } }, { ...payload(), agent: { id: 'human' }, failure: toolArgs }]) {
+    assert.equal(await run(other, async () => retry), retry)
+    assert.equal(hint(other), '')
+  }
+  const declined = { ...payload(), failure: toolArgs }
+  assert.equal(await run(declined, async () => ({ kind: 'fail' })).then(decision => decision.kind), 'fail')
+  assert.equal(hint(declined), '')
+  assert.equal(warnings.length, 0)
+})
+
+test('malformed responses leave the retry to a normal policy that already retries MALFORMED_RESPONSE', async () => {
+  const { run, warnings } = handler()
+  assert.equal(await run({ ...payload(), retryPolicy: { mode: 'normal', maxRetries: 1, retryableCodes: ['MALFORMED_RESPONSE'] } }, next), undefined)
+  assert.equal(warnings.length, 0)
+  assert.deepEqual(await run({ ...payload(), retryPolicy: { mode: 'normal', maxRetries: 1, retryableCodes: ['TIMEOUT'] } }, next), { kind: 'retry' })
 })
 
 test('Gemini malformed stops leave the retry to a policy that already retries PI_AI_ERROR', async () => {
