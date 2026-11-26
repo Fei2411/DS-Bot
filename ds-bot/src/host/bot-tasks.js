@@ -928,8 +928,11 @@ export function install(rt) {
 
       // Single-source-of-truth SQLite settlement: transition the task work in `coordination.sqlite`
       // before saving `state.json` or emitting foreground/peer replies.
+      // When a `bot-handoff` task is answering its asking Bot via `answerSender` below,
+      // `answerSender` closes the work in `coordDb` atomically (`deliverDirect: true`) so
+      // `closedWorkOf` is not prematurely marked cancelled before `answerSender` runs.
       const coordWorkId = taskWorkIdOf(task)
-      if (writableCoordDb() && coordWorkId !== undefined) {
+      if (writableCoordDb() && coordWorkId !== undefined && handoffPlan === undefined) {
         try {
           const dbWork = rt.coordDb.getWork(coordWorkId)
           if (dbWork !== undefined && !['done', 'failed', 'stopped'].includes(dbWork.status)) {
@@ -3308,7 +3311,7 @@ export function install(rt) {
   // Spawns a dedicated background task (`origin: 'bot-handoff'`) for an incoming peer
   // Bot request while the target Bot's foreground chat is busy, without switching the
   // user's visible foreground session or interrupting desktop drafts/IME.
-  async function spawnBotHandoffTask(target, fromSessionId, { fromBot, fromPart, parentWork, imOrigin, follows, text, files = [], length, exchangeId, reuseWork = false }) {
+  async function spawnBotHandoffTask(target, fromSessionId, { fromBot, fromPart, parentWork, imOrigin, follows, text, files = [], length, exchangeId, reuseWork = false, deliver = true }) {
     const id = newId()
     const now = Date.now()
     const title = oneLine(`From ${fromBot.name}: ${text}`, TITLE_MAX)
@@ -3326,36 +3329,40 @@ export function install(rt) {
       updatedAt: now,
     }
     const { sessionId, task } = await rt.openTaskPart(target, fromSessionId, baseTask, { fork: false })
-    const prevWork = reuseWork ? rt.resolveWork?.(exchangeId)?.work : undefined
+    const alreadyInCoord = writableCoordDb() && rt.coordDb.getWork(exchangeId) !== undefined
+    const effectiveReuse = reuseWork || alreadyInCoord
+    const prevWork = effectiveReuse ? rt.resolveWork?.(exchangeId)?.work : undefined
     const prevToSession = prevWork?.toSession
     const prevToTaskId = prevWork?.toTaskId
-    const opened = reuseWork
+    const opened = effectiveReuse
       ? (rt.setWorkTargetSession?.(exchangeId, sessionId, task.id), rt.resolveWork?.(exchangeId)?.work)
       : rt.openWork?.(exchangeId, { from: fromBot.id, to: target.id, parent: parentWork, ...(fromPart ? { fromPart } : {}), ...(imOrigin ? { imOrigin } : {}), toSession: sessionId, toTaskId: task.id, goal: text })
     const workRef = opened?.ref ?? rt.workRefOf?.(exchangeId)
-    try {
-      await rt.deliver({
-        fromId: fromBot.id,
-        toId: target.id,
-        sessionId,
-        ...(fromPart ? { fromPart } : {}),
-        text,
-        files,
-        ...(length === undefined ? {} : { length }),
-        role: 'request',
-        ...(follows ? { follows } : {}),
-        steer: false,
-        exchangeId,
-        ...(workRef ? { workRef } : {}),
-      })
-    } catch (error) {
-      if (error?.delivered !== true) {
-        rt.forgetDelivery?.(exchangeId)
-        if (reuseWork) rt.setWorkTargetSession?.(exchangeId, prevToSession ?? null, prevToTaskId ?? null)
-        else rt.dropWork?.(exchangeId)
-        await settleTask(target, task, 'failed', { error: error?.message ?? String(error), notifyForeground: false, settleWork: false })
+    if (deliver) {
+      try {
+        await rt.deliver({
+          fromId: fromBot.id,
+          toId: target.id,
+          sessionId,
+          ...(fromPart ? { fromPart } : {}),
+          text,
+          files,
+          ...(length === undefined ? {} : { length }),
+          role: 'request',
+          ...(follows ? { follows } : {}),
+          steer: false,
+          exchangeId,
+          ...(workRef ? { workRef } : {}),
+        })
+      } catch (error) {
+        if (error?.delivered !== true) {
+          rt.forgetDelivery?.(exchangeId)
+          if (effectiveReuse) rt.setWorkTargetSession?.(exchangeId, prevToSession ?? null, prevToTaskId ?? null)
+          else rt.dropWork?.(exchangeId)
+          await settleTask(target, task, 'failed', { error: error?.message ?? String(error), notifyForeground: false, settleWork: false })
+        }
+        throw error
       }
-      throw error
     }
     if (writableCoordDb() && rt.coordDb.getWork(exchangeId) !== undefined) {
       try {

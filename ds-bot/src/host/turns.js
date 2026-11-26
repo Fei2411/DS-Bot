@@ -77,7 +77,12 @@ export function answerSender(rt, id, source, text, long, options = {}) {
   const workWorked = workBeforeClose?.worked === true || options.worked === true
   const replyImOrigin = rt.workImOrigin?.(source.exchangeId)
   if (replyImOrigin !== undefined) rt.rememberImReplyOrigin?.(source.exchangeId, replyImOrigin)
-  const work = rt.closeWork?.(source.exchangeId, name, text, workWorked ? { worked: true } : undefined)
+  const work = rt.closeWork?.(source.exchangeId, name, text, {
+    ...(workWorked ? { worked: true } : {}),
+    ...(options.aborted === true ? { abandoned: true } : {}),
+    ...(options.failure !== undefined ? { failed: true, error: options.failure } : {}),
+    deliverDirect: true,
+  })
   if (workBeforeClose !== undefined && options.failure === undefined && options.aborted !== true) {
     rt.noteWorkCompleted?.(workBeforeClose.from, workBeforeClose.to, { worked: workWorked, id: source.exchangeId, text })
   }
@@ -1001,14 +1006,20 @@ export function install(rt) {
         entry.askedBackWork = undefined
         entry.lastAskedBackWork = undefined
         entry.claimed = []
+        entry.joined = []
+        entry.later = []
         entry.retrying = false
         entry.answers = false
         entry.opened = false
         entry.userInput = false
         entry.steeredAt = undefined
         entry.carried = false
-        if (entry.pending !== undefined) {
-          claimTrigger(id, entry, entry.pending)
+        const claimedPending = entry.pending
+        const claimedPendingText = entry.pendingText
+        const claimedPendingImages = entry.pendingImages
+        const claimedPendingFiles = entry.pendingFiles
+        if (claimedPending !== undefined) {
+          claimTrigger(id, entry, claimedPending)
           entry.pending = undefined
           entry.pendingText = undefined
           entry.pendingImages = undefined
@@ -1020,6 +1031,8 @@ export function install(rt) {
           entry.texts = carry.texts
           entry.shown = carry.shown
           entry.answers = carry.answers
+          entry.joined = carry.joined ?? []
+          entry.later = carry.later ?? []
           entry.toolCount = carry.toolCount ?? 0
           entry.workToolCount = carry.workToolCount ?? 0
           entry.uiToolCount = carry.uiToolCount ?? 0
@@ -1027,6 +1040,16 @@ export function install(rt) {
           entry.carried = true
           entry.userInput = Boolean(entry.userInput || carry.userInput)
           if (carry.info !== undefined) claimTrigger(id, entry, carry.info)
+          if (carry.info !== undefined && claimedPending !== undefined
+            && claimedPending.exchangeId !== carry.info.exchangeId
+            && (expectsReply(claimedPending) || claimedPending.role === 'room') && !answersUser(claimedPending)) {
+            entry.joined = [...entry.joined, {
+              info: claimedPending,
+              text: claimedPendingText ?? '',
+              ...(claimedPendingImages?.length ? { images: claimedPendingImages } : {}),
+              ...(claimedPendingFiles?.length ? { files: claimedPendingFiles } : {}),
+            }]
+          }
         }
         rt.notifyTurnLifecycle?.({
           type: 'turn/started',
@@ -1117,6 +1140,7 @@ export function install(rt) {
             botId: source.senderSessionId,
             name: source.senderName,
             reportBack: source.reportBack === true,
+            ...(source.externalPost === true ? { externalPost: true } : {}),
             ...(source.exchangeId ? { exchangeId: source.exchangeId } : {}),
             ...(source.reportId ? { reportId: source.reportId } : {}),
             ...(source.fromTaskId ? { fromTaskId: source.fromTaskId } : {}),
@@ -1183,6 +1207,18 @@ export function install(rt) {
           } else if (!opened) {
             markTaken()
             claimTrigger(id, entry, source)
+          } else if ((source.role === 'reply' || source.role === 'answer' || source.role === 'ask_back')
+            && source.work !== undefined && source.work !== rt.workOf?.(entry.info)
+            && !(entry.later ?? []).some(item => item.info.exchangeId === source.exchangeId)) {
+            // Arrived mid-turn for a different work than the one currently running:
+            // defer handback until the running turn finishes instead of losing it.
+            entry.later = [...(entry.later ?? []), { info: source, ...extractRelayPayload(event.data.content) }]
+          } else if ((expectsReply(source) || source.role === 'room') && !answersUser(source)
+            && source.exchangeId !== entry.info?.exchangeId
+            && !(entry.joined ?? []).some(joined => joined.info.exchangeId === source.exchangeId)) {
+            // A request that lands inside a running turn is answered in its own hidden turn
+            // once the running turn finishes so the sender never receives the wrong turn's text.
+            entry.joined = [...(entry.joined ?? []), { info: source, ...extractRelayPayload(event.data.content) }]
           } else {
             markTaken()
           }
@@ -1270,9 +1306,11 @@ export function install(rt) {
         const steerCut = cut !== undefined && event.data?.reason?.kind === 'aborted'
           && event.data.reason.reason?.kind === 'hook' && event.data.reason.reason.reason === STEER_CUT
         if (steerCut) {
-          entry.carry = { info: entry.info, texts: entry.texts.slice(0, cut.texts), shown: entry.shown, answers: entry.answers, toolCount: entry.toolCount ?? 0, workToolCount: entry.workToolCount ?? 0, uiToolCount: entry.uiToolCount ?? 0, userInput: true }
+          entry.carry = { info: entry.info, joined: entry.joined ?? [], later: entry.later ?? [], texts: entry.texts.slice(0, cut.texts), shown: entry.shown, answers: entry.answers, toolCount: entry.toolCount ?? 0, workToolCount: entry.workToolCount ?? 0, uiToolCount: entry.uiToolCount ?? 0, userInput: true }
         }
         const info = entry.info
+        const joined = entry.joined ?? []
+        const later = entry.later ?? []
         const claimed = entry.claimed ?? []
         const askedBackWork = entry.askedBackWork
         const texts = entry.texts.slice(entry.shown)
@@ -1304,6 +1342,8 @@ export function install(rt) {
         entry.askedBackWork = undefined
         entry.lastAskedBackWork = askedBackWork
         entry.claimed = []
+        entry.joined = []
+        entry.later = []
         entry.since = undefined
         entry.steeredAt = undefined
         entry.tool = undefined
@@ -1338,6 +1378,12 @@ export function install(rt) {
           if (bot !== undefined) {
             void Promise.resolve(rt.reapplyModel?.(bot, id))
               .catch(error => rt.warn('ds-bot: model for %s still not applied: %s', bot.name, error))
+          } else {
+            const room = rt.roomOf?.(id)
+            if (room !== undefined) {
+              void Promise.resolve(rt.selectRoomSession?.(id, room, { force: true }))
+                .catch(error => rt.warn('ds-bot: model for the group Session %s not applied: %s', id, error))
+            }
           }
         }
         const held = rt.groupOwners.has(id) ? rt.takeRoomSteps?.(id) ?? '' : ''
@@ -1509,6 +1555,104 @@ export function install(rt) {
             }
             finish(source, '')
           }
+        }
+
+        // Hand back deferred replies/answers/ask_backs that landed inside another work's turn.
+        for (const item of later) {
+          if (item.info.coordWorkId !== undefined) continue
+          void rt.deliver({
+            fromId: item.info.senderSessionId,
+            fromName: item.info.senderName,
+            toId: rt.selfOf(id),
+            sessionId: id,
+            text: item.text,
+            ...(item.images?.length ? { images: item.images } : {}),
+            ...(item.files?.length ? { files: item.files } : {}),
+            role: item.info.role,
+            exchangeId: item.info.exchangeId,
+            ...(item.info.replyTo ? { replyTo: item.info.replyTo } : {}),
+            ...(item.info.work ? { work: item.info.work } : {}),
+            ...(item.info.workRef ? { workRef: item.info.workRef } : {}),
+            ...(item.info.askWork ? { askWork: item.info.askWork } : {}),
+            ...(item.info.senderRoomId ? { fromRoomId: item.info.senderRoomId } : {}),
+            ...(item.info.senderPart ? { fromPart: item.info.senderPart } : {}),
+            deferred: true,
+          }).catch(error => rt.warn('ds-bot: deferred later delivery failed: %s', error))
+        }
+
+        // Hand back requests/room calls that joined a running turn (and settle live roomWaiters on abort/fail).
+        const activeJoined = []
+        for (const request of joined) {
+          if (request.info.role === 'room' && stoppedRoomTurns.delete(request.info.exchangeId)) {
+            const waiter = roomWaiters.get(request.info.exchangeId)
+            roomWaiters.delete(request.info.exchangeId)
+            waiter?.resolve(null)
+            continue
+          }
+          if (request.info.role !== 'room' && rt.closedWorkOf?.(request.info.exchangeId)?.status === 'cancelled') continue
+          activeJoined.push(request)
+        }
+        const liveWaiterRooms = new Set()
+        const liveWaiterScopes = new Set()
+        const latestWaiterlessRoom = new Map()
+        const latestWaiterlessScope = new Map()
+        for (const request of activeJoined) {
+          if (request.info.role !== 'room' || request.info.roomId === undefined) continue
+          const scope = request.info.askedBy !== undefined ? `${request.info.roomId}\0${request.info.askedBy}` : undefined
+          if (roomWaiters.has(request.info.exchangeId)) {
+            if (failure === undefined && reason?.kind !== 'aborted') {
+              liveWaiterRooms.add(request.info.roomId)
+              if (scope !== undefined) liveWaiterScopes.add(scope)
+            }
+          } else {
+            latestWaiterlessRoom.set(request.info.roomId, request.info.exchangeId)
+            if (scope !== undefined) latestWaiterlessScope.set(scope, request.info.exchangeId)
+          }
+        }
+        for (const request of activeJoined) {
+          if (failure !== undefined || reason?.kind === 'aborted') {
+            if (request.info.role === 'room') {
+              const waiter = roomWaiters.get(request.info.exchangeId)
+              if (failure !== undefined) {
+                roomWaiters.delete(request.info.exchangeId)
+                if (waiter !== undefined) waiter.fail(failure)
+                else void rt.lateRoomFailure?.(id, request.info, failure)
+                continue
+              }
+              if (waiter !== undefined) {
+                roomWaiters.delete(request.info.exchangeId)
+                waiter.resolve(null)
+                continue
+              }
+              if (reason?.reason?.kind === 'disposed') continue
+            } else {
+              answer(request.info, '')
+              continue
+            }
+          }
+          if (request.info.role === 'room' && request.info.roomId !== undefined && !roomWaiters.has(request.info.exchangeId)) {
+            if (request.info.askedBy !== undefined) {
+              const scope = `${request.info.roomId}\0${request.info.askedBy}`
+              if (liveWaiterScopes.has(scope) || latestWaiterlessScope.get(scope) !== request.info.exchangeId) continue
+            } else if (liveWaiterRooms.has(request.info.roomId) || latestWaiterlessRoom.get(request.info.roomId) !== request.info.exchangeId) {
+              continue
+            }
+          }
+          void rt.deliver({
+            fromId: request.info.senderSessionId,
+            toId: rt.selfOf(id),
+            sessionId: id,
+            text: request.text,
+            ...(request.images?.length ? { images: request.images } : {}),
+            ...(request.files?.length ? { files: request.files } : {}),
+            role: request.info.role,
+            exchangeId: request.info.exchangeId,
+            ...(request.info.workRef ? { workRef: request.info.workRef } : {}),
+            ...(request.info.role === 'room' ? { roomId: request.info.roomId, askedBy: request.info.askedBy, resultRef: request.info.resultRef, ...(request.info.batchKey ? { batchKey: request.info.batchKey } : {}), ...(request.info.resumedUpstream ? { resumedUpstream: true } : {}), note: 'you read this call during your last task; answer it now' } : {}),
+            ...(request.info.senderRoomId ? { fromRoomId: request.info.senderRoomId } : {}),
+            ...(request.info.senderPart ? { fromPart: request.info.senderPart } : {}),
+            deferred: true,
+          }).catch(error => rt.warn('ds-bot: deferred request delivery failed: %s', error))
         }
 
         if (!echoed && !retry) rt.dropRoomStepEcho?.(id)

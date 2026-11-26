@@ -314,8 +314,16 @@ export function install(rt) {
     return work.status === 'queued' || work.status === 'running' || work.activeDeliveryKey !== null
   }
   const hasPendingTaskReport = (taskId) => {
+    if (!taskId) return false
+    for (const map of pendingDirectBySession.values()) {
+      for (const entry of map.values()) {
+        if (entry.role === 'task-report' && (entry.taskId === taskId || entry.exchangeId === `task-report:${taskId}`)) {
+          return true
+        }
+      }
+    }
     const coordDb = rt.coordDb
-    if (!coordDb || coordDb.isClosed() || !taskId) return false
+    if (!coordDb || coordDb.isClosed()) return false
     const work = coordDb.getWork(`task:${taskId}`) ?? coordDb.getWork(taskId)
     if (!work) return false
     return coordDb.listCalls({ childWorkId: work.workId, deliveryStatus: 'pending' }).length > 0

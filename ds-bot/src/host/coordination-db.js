@@ -1972,6 +1972,7 @@ export function openCoordinationDb({
     error,
     explicitPublish = false,
     archiveLate = true,
+    notifyParents = true,
   }) {
     nonEmptyString(workId, 'workId')
     oneOf(outcome, ['done', 'failed', 'stopped'], 'outcome')
@@ -2195,7 +2196,7 @@ export function openCoordinationDb({
                 visibleScope: effectiveScope,
                 ...(error !== undefined ? { error } : {}),
               }),
-              parentLive ? null : ts,
+              (parentLive && notifyParents) ? null : ts,
               null,
               ts,
             )
@@ -2213,7 +2214,7 @@ export function openCoordinationDb({
             )
             const afterReq = stmt.countOpenRequiredWaits.get(parent.work_id).n
             const latestParent = stmt.getWork.get(parent.work_id)
-            if (parentLive && beforeReq > 0 && afterReq === 0) {
+            if (parentLive && notifyParents && beforeReq > 0 && afterReq === 0) {
               if (latestParent.status === 'waiting' || latestParent.status === 'idle') {
                 satisfiedParents.push(parent.work_id)
                 db.prepare("UPDATE works SET status = 'queued', updated_at = ? WHERE work_id = ?").run(ts, parent.work_id)

@@ -1374,10 +1374,27 @@ export function install(rt) {
     return { status: 'unavailable' }
   }
 
+  // Rebinds any SQLite works attached to `fromSessionId` onto `toSessionId` so unread
+  // zero-wake notes survive part switches and missing-session recovery (#2004).
+  const moveSilentNotes = async (fromSessionId, toSessionId) => {
+    if (typeof fromSessionId !== 'string' || fromSessionId === '' || typeof toSessionId !== 'string' || toSessionId === '' || fromSessionId === toSessionId) return
+    const coordDb = rt.coordDb
+    if (!coordDb || coordDb.readonly || coordDb.isClosed()) return
+    try {
+      const works = coordDb.listWorks({ limit: 500 }).filter(w => w.sessionId === fromSessionId)
+      if (works.length > 0) {
+        coordDb.transaction(() => {
+          for (const w of works) coordDb.rebindSession(w.workId, toSessionId)
+        })
+      }
+    } catch { /* best-effort */ }
+  }
+
   Object.assign(rt, {
     dshCapabilities,
     kickScheduler,
     dispatchNote,
+    moveSilentNotes,
     queryDeliveryStatus,
     readSessionEvidence,
     registerPromptGate,

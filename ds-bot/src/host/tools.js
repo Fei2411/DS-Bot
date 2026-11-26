@@ -458,21 +458,31 @@ export function install(rt) {
         throw error
       }
 
-      // If target Bot's foreground chat is busy or already owns an active peer work (and is
-      // not a local CLI Bot), bind this delegation to an isolated `bot-handoff` task session
-      // before the scheduler dispatches it.
+      // If target Bot's foreground chat is busy (and not `when: 'queue'` or local CLI),
+      // bind this delegation to an isolated `bot-handoff` background task session before
+      // the scheduler dispatches it, keeping the user's foreground chat untouched.
       let boundSessionId = targetChat
-      if (targetChat !== undefined && rt.shouldSpawnPeerTask?.(target, targetChat, { ignoreWorkId: created.workId })) {
-        const spawned = await rt.spawnBotHandoffTask?.(target, targetChat, {
-          fromBot: sender,
-          text: long.text,
-          exchangeId,
-          workId: created.workId,
-        }).catch((error) => {
-          rt.warn?.('ds-bot: spawning peer handoff task for %s failed: %s', target.name, error)
-          return undefined
-        })
-        if (spawned?.sessionId) boundSessionId = spawned.sessionId
+      let spawnedTask
+      if (when !== 'queue' && targetChat !== undefined && rt.shouldSpawnPeerTask?.(target, targetChat, { ignoreWorkId: created.workId })) {
+        try {
+          spawnedTask = await rt.spawnBotHandoffTask?.(target, targetChat, {
+            fromBot: sender,
+            fromPart,
+            parentWork: parentWorkId,
+            imOrigin,
+            follows,
+            text: long.text,
+            files: long.files,
+            length: long.length,
+            exchangeId,
+            reuseWork: true,
+            deliver: false,
+          })
+        } catch (error) {
+          rt.dropWork?.(created.workId)
+          throw error
+        }
+        if (spawnedTask?.sessionId) boundSessionId = spawnedTask.sessionId
       }
 
       rt.recordPairExchange?.({
@@ -493,9 +503,11 @@ export function install(rt) {
       const label = created.workRef ? ` work #${created.workRef}` : ''
       const parentResolved = parentWorkId ? rt.resolveWork?.(parentWorkId) : undefined
       const asker = parentResolved !== undefined && rt.ownsWork?.(sender.id, parentWorkId) ? rt.botOf(parentResolved.work.from)?.name : undefined
-      const sent = when === 'queue'
-        ? `Queued${label} for ${target.name}: it will run and return the result once done. Do not wait or poll.`
-        : `Delegated${label} to ${target.name}. Its result returns automatically and closes${label || ' the work'} when done; do not wait or poll.`
+      const sent = spawnedTask !== undefined
+        ? `Delegated${label} to ${target.name} (started in a background task while its foreground chat is busy). Its result returns automatically and closes${label || ' the work'} when done; do not wait or poll.`
+        : when === 'queue'
+          ? `Queued${label} for ${target.name}: it will run and return the result once done. Do not wait or poll.`
+          : `Delegated${label} to ${target.name}. Its result returns automatically and closes${label || ' the work'} when done; do not wait or poll.`
       const notes = [
         status === 'idle' ? '' : `${target.name} now: ${status}.`,
         asker ? `When you have handed on everything, end your turn: each completed sub-work brings you back, and your answer goes to ${asker} once all of it is back.` : '',
@@ -1448,6 +1460,7 @@ export function install(rt) {
       try {
         await rt.postToRoom(room, sender, long.text, {
           mentions,
+          externalPost: true,
           ...(notice ? { route: roomNote(), quiet: true } : named.length > 0 ? { route: roomRequest(named) } : {}),
           ...(claims ? { claims } : {}),
           ...(callerOrigin ? { callerOrigin } : {}),

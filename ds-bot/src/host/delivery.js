@@ -379,7 +379,7 @@ export function install(rt) {
         if (steer) agent.steer(message, { idempotencyKey: idemKey })
         else agent.followup(message, { idempotencyKey: idemKey })
         enqueued = true
-        rt.notePendingDelivery?.(targetSessionId, { exchangeId, transferId: resolvedTransferId, role, work, replyTo })
+        rt.notePendingDelivery?.(targetSessionId, { exchangeId, transferId: resolvedTransferId, role, work, replyTo, ...(taskId ? { taskId } : {}) })
         await ctx.sessions.flush(agent.session)
       }
     } catch (error) {

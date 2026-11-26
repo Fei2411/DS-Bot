@@ -2685,7 +2685,7 @@ export function install(rt) {
     if (opener.route) {
       if (isVisibleRoute(opener.route)) return at([], 'visible')
       if (isResultRoute(opener.route)) return at(addressedMembers(opener.route, everyone, opener.botId), 'result')
-      if (isCallRoute(opener.route)) return at(explicitCallees(opener.route, everyone, opener.botId), 'call', opener.route.ordered === true)
+      if (isCallRoute(opener.route)) return at(explicitCallees(opener.route, everyone, opener.botId), opener.externalPost ? 'invite' : 'call', opener.route.ordered === true)
       if (isInviteRoute(opener.route)) return at(addressedMembers(opener.route, everyone, opener.botId), 'invite', opener.route.ordered === true)
     }
     if (opener.done || opener.stopped || opener.failed) {
@@ -2694,7 +2694,7 @@ export function install(rt) {
     if (opener.goal !== undefined) return at(admin ? [admin] : [], 'invite')
 
     // Bot-authored post without an explicit `call` or `result` envelope:
-    // Only `post_to_group` carrying explicit `mentions` (non-notice request) can open a `call`;
+    // Only `post_to_group` carrying explicit `mentions` (non-notice request) can open work;
     // ordinary Bot replies / progress / late posts never parse body `@Name` into new wakes.
     if (opener.botId !== undefined) {
       if (opener.late || opener.progress) {
@@ -2702,13 +2702,14 @@ export function install(rt) {
       }
       const saved = mentionsOf(opener, everyone)
       if (saved !== undefined) {
+        const postKind = opener.externalPost ? 'invite' : 'call'
         const found = saved.found.filter(bot => bot.id !== opener.botId)
-        if (found.length > 0 && !saved.all) return at(found, 'call')
-        if (saved.all && !opener.member) return at(members, 'call')
-        if (opener.member) return at(found, 'call')
-        if (room.mode === 'admin' && admin) return at([admin], 'call')
+        if (found.length > 0 && !saved.all) return at(found, postKind)
+        if (saved.all && !opener.member) return at(members, postKind)
+        if (opener.member) return at(found, postKind)
+        if (room.mode === 'admin' && admin) return at([admin], postKind)
         const ordered = admin ? [admin, ...members.filter(bot => bot !== admin)] : members
-        return at(ordered, 'call', ordered.length > 1)
+        return at(ordered, postKind, ordered.length > 1)
       }
       return at([], 'visible')
     }
@@ -3339,7 +3340,7 @@ export function install(rt) {
     // Pure `visible` (zero-wake) post when no round is running and the room already has an
     // anchor: write directly to the group ledger without waking the group Session.
     const hasAnchor = rt.ledger.records(bookOf(room.id)).some(record => record.event === 'anchor')
-    if (hasAnchor && isVisibleRoute(postExtra.route) && postExtra.reportBack !== true && !noticeOnly && postExtra.done !== true && postExtra.stopped !== true && postExtra.failed === undefined) {
+    if (hasAnchor && isVisibleRoute(postExtra.route) && postExtra.reportBack !== true && postExtra.late !== true && !noticeOnly && postExtra.done !== true && postExtra.stopped !== true && postExtra.failed === undefined) {
       const line = [text, ...files.map(fileLine)].filter(Boolean).join('\n')
       say(room, {
         who: sender.name,
@@ -3492,23 +3493,22 @@ export function install(rt) {
 
       const askedBy = info.role === 'room' ? info.askedBy : (info.askedBy ?? work?.meta?.callerBotId)
       if (askedBy === room.admin && (!isPass(text) || shown)) rt.goalTaskReported?.(room.id, member.id)
-      let postedSeq
-      if (!isPass(text)) {
-        const line = say(room, {
-          who: member.name,
-          botId: member.id,
-          text,
-          route: classifyBotGroupSpeech({ resultRef: info.resultRef, activeCallId: workId, askedBy }),
-          ...(claims === undefined ? {} : { claims }),
-          ...(changes === undefined ? {} : { changes }),
-        })
-        postedSeq = line.seq
-      } else if (changes !== undefined) {
-        const line = say(room, { who: member.name, botId: member.id, kind: 'done', text: '', changes })
-        postedSeq = line.seq
-      }
-
       if (workId !== undefined && work !== undefined) {
+        let postedSeq
+        if (!isPass(text)) {
+          const line = say(room, {
+            who: member.name,
+            botId: member.id,
+            text,
+            route: classifyBotGroupSpeech({ resultRef: info.resultRef, activeCallId: workId, askedBy }),
+            ...(claims === undefined ? {} : { claims }),
+            ...(changes === undefined ? {} : { changes }),
+          })
+          postedSeq = line.seq
+        } else if (changes !== undefined) {
+          const line = say(room, { who: member.name, botId: member.id, kind: 'done', text: '', changes })
+          postedSeq = line.seq
+        }
         if (!isPass(text) || shown) {
           const prog = checkProgressStagnation(room, workId, {
             callerId: askedBy,
@@ -3531,8 +3531,23 @@ export function install(rt) {
           seq: postedSeq,
           worked: toolCount > 0,
         })
+        if (postedSeq !== undefined) await rt.save()
+      } else if (!isPass(text)) {
+        await postToRoom(room, member, text, {
+          late: true,
+          route: roomVisible(),
+          ...(claims === undefined ? {} : { claims }),
+          ...(changes === undefined ? {} : { changes }),
+        })
+      } else if (changes !== undefined) {
+        await postToRoom(room, member, '', {
+          late: true,
+          done: true,
+          quiet: true,
+          route: roomVisible(),
+          changes,
+        })
       }
-      if (postedSeq !== undefined) await rt.save()
     } finally {
       if (!keepExplicit && info?.exchangeId !== undefined) explicitCallsByExchange.delete(info.exchangeId)
       leaveLate(room.id)
@@ -3836,6 +3851,8 @@ export function install(rt) {
           error: failure,
           firstPost: () => ({ text: failText, extra: failExtra }),
         })
+      } else {
+        await postToRoom(room, member, failText, { ...failExtra, quiet: true, route: roomVisible() })
       }
       await rt.save()
     } finally {

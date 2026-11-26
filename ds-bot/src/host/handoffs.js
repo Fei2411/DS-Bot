@@ -756,8 +756,9 @@ export function install(rt) {
       summary: headOf(body, TEXT_KEPT),
       ...(file ? { resultRef: file } : {}),
       ...(extra?.error ? { error: extra.error } : {}),
+      ...(extra?.deliverDirect === true ? { notifyParents: false } : {}),
     })
-    if (res.wokenParents?.length > 0 || res.wokenAskers?.length > 0) {
+    if (extra?.deliverDirect !== true && (res.wokenParents?.length > 0 || res.wokenAskers?.length > 0)) {
       void rt.kickScheduler?.().catch(() => {})
     }
     return work.parentWorkId ?? undefined
