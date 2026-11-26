@@ -19,7 +19,8 @@ export const luminance = hex => [1, 3, 5]
   .map(index => parseInt(hex.slice(index, index + 2), 16) / 255)
   .map(channel => (channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4))
   .reduce((sum, channel, index) => sum + channel * [0.2126, 0.7152, 0.0722][index], 0)
-const inkName = color => (INKS[color] ? color : INKS[LEGACY_INKS[color]] ? LEGACY_INKS[color] : 'gray')
+// The ink a color name stands for: itself, the new name of a renamed ink, else gray.
+export const inkName = color => (INKS[color] ? color : INKS[LEGACY_INKS[color]] ? LEGACY_INKS[color] : 'gray')
 export const inkFill = color => (isHex(color) ? color : `var(--bt-ink-${inkName(color)})`)
 // Text in a Bot's color; pure black reads as a heading, so it falls back to gray.
 export const inkText = color => (color === 'black' ? 'var(--bt-ink-gray)' : inkFill(color))
