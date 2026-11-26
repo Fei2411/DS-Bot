@@ -1133,6 +1133,9 @@ export function install(rt) {
         case 'local-agent-add':
         case 'local-agent-update':
         case 'local-agent-remove':
+        case 'local-agent-profile-add':
+        case 'local-agent-profile-update':
+        case 'local-agent-profile-remove':
           await rt.load()
           return ok(await rt.localAgentsEndpoint(endpoint, body))
         case 'bot-move-to-background': {
