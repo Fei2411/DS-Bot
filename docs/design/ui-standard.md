@@ -44,6 +44,7 @@
 | Mono | `#ffffff` / `#0d0d0d` / `#0d0d0d` | `#0f0f0f` / `#f4f4f4` / `#f4f4f4` |
 | Paper | `#faf9f5` / `#1f1e1b` / `#d97757` | `#1f1e1b` / `#f3f0e8` / `#e08a6d` |
 | Moonlight | `#f7f9fc` / `#121826` / `#1e86ff` | `#0b1020` / `#e8edf7` / `#4f9dff` |
+| Celadon（天青） | `#faf6ee` / `#211f1b` / `#1e8294` | `#1d1c19` / `#f2ede3` / `#3fa9ba` |
 
 用户可在 **设置 → 外观** 覆盖强调色（7 种预设或自选色）。预设色在浅色用 `INKS[ink][0]`、深色用 `INKS[ink][1]`；自选色在深浅模式同值。深色模式由宿主在 `body` 上标 `data-ds-dark-theme`。
 
@@ -100,6 +101,7 @@ Bot 形象色定义在 `inks.js`（均含浅色、深色双值）：
 - 代码、密钥、路径：`ui-monospace, SFMono-Regular, Menlo, Consolas, monospace`。
 - 对话正文跟随 `--dsh-content-font-size`（默认 14px）。
 - 桌面应用通过 `app/src/fonts.css` 移除硬编码中文字体名，中文交由操作系统原生回退。
+- 主题可用 `css` 给 Bot 回复换字族：Celadon 的回复正文与标题用随插件分发的衬线字族 `DS Bot Serif`（由 Source Serif 4 与思源宋体 Noto Serif SC 精简改名而来，中文为 GB2312 汉字加 Big5 常用字，中文以 500 字重显示为常规），字体文件在 `ds-bot/assets/fonts/`，由 `api/bot/fonts/` 提供，离线可用。它只在回复范围（Markdown 根、标题与表格单元格）上设字族，不改写 DSH 的 `--dsw-font-family`：代码仍用代码字族，用户在设置里填了文字字体时以用户的为准，子集外的字回退到系统宋体再到界面字体。界面、用户气泡与输入框保持界面字族。
 
 ### 3.2 字号档
 
