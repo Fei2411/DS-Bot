@@ -163,6 +163,43 @@ test('a request that names no Session, or a bad size, is refused before DSH is a
   assert.equal(asked.follow.length, 0)
 })
 
+
+test('a reconnect fills a gap wider than the opening before the opening and live frames', async (t) => {
+  const logEvents = Array.from({ length: 22 }, (_, seq) => ({ type: 'event', seq, time: seq, data: {} }))
+  const record = event => ({ type: 'event', event })
+  const opening = {
+    type: 'snapshot',
+    header: { id: 'session-main', cwd: '/bench' },
+    cursor: 20,
+    records: logEvents.slice(17, 21).map(record),
+    hasMore: true,
+    projections: { asOfSeq: 20, values: {} },
+    assistantStream: { revision: 8 },
+  }
+  const live = { type: 'assistant-stream', frame: { type: 'start', attemptId: 'a1', revision: 9, startedAfterSeq: 20, turn: 3, step: 1 } }
+  const follow = async function* () {
+    yield opening
+    yield { type: 'event', event: logEvents[21] }
+    yield live
+  }
+  const page = async ({ beforeSeq, throughSeq, maxMessages }) => {
+    assert.equal(throughSeq, 20)
+    const end = Math.max(0, beforeSeq - 1)
+    const start = Math.max(0, end - maxMessages + 1)
+    return { cursor: 20, records: logEvents.slice(start, end + 1).map(record), hasMore: start > 0 }
+  }
+  const { open, asked, stop } = start({ follow, page })
+  t.after(stop)
+  const got = await events(await open('id=session-main&max=4&after=10'))
+  assert.deepEqual(got.filter(({ event }) => event === 'frame').map(({ data }) => data), [
+    ...logEvents.slice(11, 17).map(event => ({ type: 'event', event })),
+    opening,
+    { type: 'event', event: logEvents[21] },
+    live,
+  ])
+  assert.deepEqual(asked.page.map(({ beforeSeq }) => beforeSeq), [17, 13])
+})
+
 test('a subagent\'s Session is read under its parent', () => {
   assert.deepEqual(addressOf({ sessionId: 'child', parent: 'p1', mode: 'one-shot' }), { kind: 'subagent', parentSessionId: 'p1', childSessionId: 'child', mode: 'one-shot' })
   assert.equal(addressOf({ sessionId: 'child', parent: 'p1' }).mode, 'unknown')

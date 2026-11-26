@@ -2449,6 +2449,7 @@ export const KO = {
   "Changed files": "변경된 파일",
   "Open file": "파일 열기",
   "File is too large for diff preview": "파일이 너무 커서 차이를 미리 볼 수 없습니다",
+  "Earlier output was trimmed": "이전 출력이 생략되었습니다",
   "New terminal": "새 터미널",
   "Terminals are disabled in a read-only window": "읽기 전용 창에서는 터미널이 비활성화됩니다",
   "No open terminals": "열린 터미널이 없습니다",

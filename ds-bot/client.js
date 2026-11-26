@@ -2543,6 +2543,7 @@ var JA = {
   "Changed files": "変更されたファイル",
   "Open file": "ファイルを開く",
   "File is too large for diff preview": "ファイルが大きすぎて差分を表示できません",
+  "Earlier output was trimmed": "以前の出力は省略されました",
   "New terminal": "新しいターミナル",
   "Terminals are disabled in a read-only window": "読み取り専用ウィンドウではターミナルを使えません",
   "No open terminals": "開いているターミナルはありません",
@@ -5892,6 +5893,7 @@ var KO = {
   "Changed files": "변경된 파일",
   "Open file": "파일 열기",
   "File is too large for diff preview": "파일이 너무 커서 차이를 미리 볼 수 없습니다",
+  "Earlier output was trimmed": "이전 출력이 생략되었습니다",
   "New terminal": "새 터미널",
   "Terminals are disabled in a read-only window": "읽기 전용 창에서는 터미널이 비활성화됩니다",
   "No open terminals": "열린 터미널이 없습니다",
@@ -9242,6 +9244,7 @@ var ES = {
   "Changed files": "Archivos modificados",
   "Open file": "Abrir archivo",
   "File is too large for diff preview": "El archivo es demasiado grande para ver diferencias",
+  "Earlier output was trimmed": "La salida anterior se omitió",
   "New terminal": "Nueva terminal",
   "Terminals are disabled in a read-only window": "Las terminales están desactivadas en una ventana de solo lectura",
   "No open terminals": "No hay terminales abiertas",
@@ -12548,6 +12551,7 @@ var FR = {
   "Changed files": "Fichiers modifiés",
   "Open file": "Ouvrir le fichier",
   "File is too large for diff preview": "Fichier trop volumineux pour l'aperçu des différences",
+  "Earlier output was trimmed": "La sortie précédente a été omise",
   "New terminal": "Nouveau terminal",
   "Terminals are disabled in a read-only window": "Les terminaux sont désactivés en lecture seule",
   "No open terminals": "Aucun terminal ouvert",
@@ -15897,6 +15901,7 @@ var DE = {
   "Changed files": "Geänderte Dateien",
   "Open file": "Datei öffnen",
   "File is too large for diff preview": "Datei zu groß für Diff-Vorschau",
+  "Earlier output was trimmed": "Frühere Ausgabe wurde ausgelassen",
   "New terminal": "Neues Terminal",
   "Terminals are disabled in a read-only window": "Terminals sind im schreibgeschützten Fenster deaktiviert",
   "No open terminals": "Keine offenen Terminals",
@@ -19061,6 +19066,7 @@ var ZH = {
   "Changed files": "改动的文件",
   "Open file": "打开文件",
   "File is too large for diff preview": "文件过大，暂不支持差异预览",
+  "Earlier output was trimmed": "已省略较早的输出",
   "New terminal": "新建终端",
   "Terminals are disabled in a read-only window": "只读窗口中已禁用终端",
   "No open terminals": "暂无已打开的终端",
@@ -28652,10 +28658,10 @@ var CUSTOM_PREFIX = `${PREFIX}acp-`;
 var PROFILE_ID_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 function splitProfileRoute(route) {
   if (typeof route !== "string") return null;
-  const at = route.indexOf("@");
-  if (at <= 0 || route.indexOf("@", at + 1) !== -1) return null;
-  const baseRoute = route.slice(0, at);
-  const profileId = route.slice(at + 1);
+  const at2 = route.indexOf("@");
+  if (at2 <= 0 || route.indexOf("@", at2 + 1) !== -1) return null;
+  const baseRoute = route.slice(0, at2);
+  const profileId = route.slice(at2 + 1);
   if (!baseRoute.startsWith(PREFIX) || baseRoute.startsWith(CUSTOM_PREFIX)) return null;
   const cli = baseRoute.slice(PREFIX.length);
   if (!Object.hasOwn(AGENT_BADGES, cli) || !PROFILE_ID_RE.test(profileId)) return null;

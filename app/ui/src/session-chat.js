@@ -26,7 +26,7 @@ import { ViaTag, contentParts, mentionableBots, userTextParts } from '../../../d
 import { AnsweredReply } from '../../../ds-bot/src/client/widget-cell.js'
 import { openSessionFollow } from './api.js'
 import { getAppLocale } from './locale.js'
-import { buildSessionRows, extractTurnFacts } from './session-transcript.js'
+import { buildSessionRowParts, extractTurnFacts } from './session-transcript.js'
 import { CHAT_NODE_SLOT, SlotOutlet, slots as defaultSlots } from './slots.js'
 
 const NO_LOCALE = () => {}
@@ -163,7 +163,7 @@ export function useSessionFollow({ sessionId, enabled, feed, readOnly, onUserMes
     setState({ log: fresh, thinkingAt: {}, loading: enabled, paging: false, failed: false, pageFailed: false, terminalError: null })
     if (!enabled || !sessionId) return undefined
 
-    const handle = openFollowRef.current({ sessionId, max: PAGE_SIZE }, (event, data) => {
+    const handle = openFollowRef.current({ sessionId, max: PAGE_SIZE, after: () => logRef.current.cursor }, (event, data) => {
       if (genRef.current !== myGen) return
       if (event === 'frame') {
         const next = applyFrame(logRef.current, data)
@@ -716,7 +716,8 @@ export function SessionTranscript({
   // The memoized rows read `t()` at render time, so the language travels as a prop:
   // a switch re-renders them in the new language, and a stream chunk never changes it.
   const lang = useUiLanguage()
-  const rows = useMemo(() => buildSessionRows(log, { roster, sessionId }), [log, roster, sessionId])
+  const rowParts = useMemo(() => buildSessionRowParts(log, { roster, sessionId }), [log, roster, sessionId])
+  const rows = rowParts.live.length === 0 ? rowParts.committed : [...rowParts.committed, ...rowParts.live]
   const turnFacts = useMemo(() => extractTurnFacts(log?.events, { roster, sessionId }), [log?.events, roster, sessionId])
   const turnSig = turnFactsSignature(turnFacts)
   const turnFactsRef = useRef(turnFacts)

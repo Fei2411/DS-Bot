@@ -63,6 +63,63 @@ export function install(rt) {
   /** @type {Set<() => void>} */
   const open = new Set()
 
+  const stale = message => Object.assign(new Error(message), { code: 'bot/stale' })
+
+  // A reconnect names the last committed seq the window holds. DSH's follow always opens
+  // at the current end, so a gap wider than its opening is filled from cold-safe pages
+  // before the opening and any live frames reach the window.
+  const gapBefore = async (address, after, opening, maxMessages, signal) => {
+    const boundary = opening.records[0]?.event?.seq ?? opening.cursor + 1
+    if (!Number.isSafeInteger(boundary) || after >= boundary - 1) return []
+    const pages = []
+    let beforeSeq = boundary
+    for (;;) {
+      const request = {
+        address,
+        beforeSeq,
+        throughSeq: opening.cursor,
+        ...(maxMessages === undefined ? {} : { maxMessages }),
+      }
+      const page = await controller().events(request, signal).catch((error) => { throw windowError(error) })
+      const events = (page.records ?? []).map(record => record.event).filter(event => Number.isSafeInteger(event?.seq))
+      if (events.length === 0) {
+        if (page.hasMore) throw stale('Session history could not be paged to the reconnect position')
+        break
+      }
+      pages.unshift(events)
+      const oldest = events[0].seq
+      if (oldest <= after + 1) {
+        return pages.flat()
+          .filter(event => event.seq > after && event.seq < boundary)
+          .map(event => ({ type: 'event', event }))
+      }
+      if (!page.hasMore) break
+      beforeSeq = oldest
+    }
+    throw stale('Session history no longer reaches the reconnect position')
+  }
+
+  async function* resumedFollow(request, after, signal) {
+    const stream = controller().follow(request, signal)
+    const iterator = stream[Symbol.asyncIterator]()
+    try {
+      const first = await iterator.next()
+      if (first.done) return
+      const opening = first.value
+      if (opening?.type === 'snapshot' && after !== undefined) {
+        for (const frame of await gapBefore(request.address, after, opening, request.maxMessages, signal)) yield frame
+      }
+      yield opening
+      for (;;) {
+        const next = await iterator.next()
+        if (next.done) return
+        yield next.value
+      }
+    } finally {
+      await iterator.return?.()
+    }
+  }
+
   rt.sessionEndpoint = async (name, body, signal) => {
     if (name !== 'page') throw missing(`Unknown endpoint session-${name}`)
     const request = {
@@ -84,7 +141,11 @@ export function install(rt) {
       let follow
       try {
         const max = whole(query.get('max'), 'max', 1)
-        follow = { address: addressOf({ sessionId: query.get('id'), parent: query.get('parent'), mode: query.get('mode') }), assistantStream: true, ...(max === undefined ? {} : { maxMessages: max }) }
+        const after = whole(query.get('after'), 'after', 0)
+        follow = {
+          request: { address: addressOf({ sessionId: query.get('id'), parent: query.get('parent'), mode: query.get('mode') }), assistantStream: true, ...(max === undefined ? {} : { maxMessages: max }) },
+          after,
+        }
       } catch (error) {
         return Response.json({ ok: false, error: { code: error.code ?? 'bot/invalid', message: error.message, details: {} } }, { status: 400 })
       }
@@ -105,7 +166,7 @@ export function install(rt) {
           keepalive.unref?.()
           open.add(ended)
           try {
-            for await (const frame of controller().follow(follow, stop.signal)) {
+            for await (const frame of resumedFollow(follow.request, follow.after, stop.signal)) {
               if (stop.signal.aborted) break
               write('frame', frame)
             }

@@ -105,16 +105,20 @@ export function openFeed(onEvent) {
  * Reconnects with backoff on transient drops, stops on terminal errors (`bot/not-found`,
  * `bot/refused`, `bot/invalid`), and supports an immediate `reopen()` when the window sees
  * a frame gap or a read-only refresh signal.
- * @param {{ sessionId: string, parent?: string, mode?: string, max?: number }} request
+ * @param {{ sessionId: string, parent?: string, mode?: string, max?: number, after?: () => number }} request
  * @param {(event: 'frame' | 'error' | 'end' | 'lost', data: any) => void} onEvent
  * @returns {{ close: () => void, reopen: () => void }}
  */
-export function openSessionFollow({ sessionId, parent, mode, max }, onEvent) {
-  const params = new URLSearchParams({ id: sessionId })
-  if (parent) params.set('parent', parent)
-  if (mode) params.set('mode', mode)
-  if (max !== undefined) params.set('max', String(max))
-  const url = `api/bot/session?${params.toString()}`
+export function openSessionFollow({ sessionId, parent, mode, max, after }, onEvent) {
+  const followUrl = () => {
+    const params = new URLSearchParams({ id: sessionId })
+    if (parent) params.set('parent', parent)
+    if (mode) params.set('mode', mode)
+    if (max !== undefined) params.set('max', String(max))
+    const cursor = typeof after === 'function' ? after() : after
+    if (Number.isSafeInteger(cursor) && cursor >= 0) params.set('after', String(cursor))
+    return `api/bot/session?${params.toString()}`
+  }
 
   let stopped = false
   let terminal = false
@@ -144,7 +148,7 @@ export function openSessionFollow({ sessionId, parent, mode, max }, onEvent) {
         const myController = controller
         let sawFrame = false
         try {
-          const response = await fetch(url, { signal: myController.signal, cache: 'no-store' })
+          const response = await fetch(followUrl(), { signal: myController.signal, cache: 'no-store' })
           if (!response.ok) {
             let body = null
             try { body = await response.json() } catch { /* plain status */ }
