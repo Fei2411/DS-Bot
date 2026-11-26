@@ -1467,11 +1467,14 @@ export function install(rt) {
           callerSupplied: true,
         })
       } catch (error) {
-        // When an unrelated Bot's cold archive is unreadable, do not permanently brick card
-        // replies for this chat if this chat's own target history is readable and clean.
+        // When an unrelated Bot's cold archive is unreadable, check both this chat's current
+        // target AND any recorded former bindings (`chat.pastTargets`) so a corrupt unrelated
+        // Bot never bricks cards here while a corrupt former binding still fails closed.
         if (!allowTargetOnlyFallback || targetRef === undefined) throw error
+        const relevantRefs = [targetRef, ...(Array.isArray(chat?.pastTargets) ? chat.pastTargets : [])]
         admitted = await rt.findAdmittedForSend({
           ref: targetRef,
+          refs: relevantRefs,
           requestId: priorRequestId,
           callerSupplied: true,
           targetOnly: true,
@@ -2187,6 +2190,15 @@ export function install(rt) {
       if (conn === undefined) throw new Error('No such IM bot')
       const chat = conn.chats?.[String(body.chatKey ?? '')]
       if (chat === undefined) throw new Error('No such chat')
+      const rememberPastTarget = (prevTarget) => {
+        const prevRef = prevTarget?.botId ?? prevTarget?.roomId
+        if (typeof prevRef !== 'string' || prevRef === '') return
+        const past = Array.isArray(chat.pastTargets) ? chat.pastTargets : (chat.pastTargets = [])
+        const idx = past.indexOf(prevRef)
+        if (idx !== -1) past.splice(idx, 1)
+        past.push(prevRef)
+        while (past.length > 16) past.shift()
+      }
       if (body.remove === true) {
         const chatKey = String(body.chatKey ?? '')
         delete conn.chats[chatKey]
@@ -2197,12 +2209,18 @@ export function install(rt) {
           scheduleWrite(conn.id)
         }
       } else if (body.target === null) {
+        rememberPastTarget(resolveTarget(conn, chat))
         delete chat.target
       } else if (body.target !== undefined) {
         const target = body.target
         if (target.botId !== undefined && rt.botOf(target.botId) === undefined) throw new Error('Choose a Bot or a group')
         if (target.roomId !== undefined && rt.roomOf(target.roomId) === undefined) throw new Error('Choose a Bot or a group')
-        chat.target = target.botId !== undefined ? { botId: String(target.botId) } : { roomId: String(target.roomId) }
+        const nextTarget = target.botId !== undefined ? { botId: String(target.botId) } : { roomId: String(target.roomId) }
+        const prevTarget = resolveTarget(conn, chat)
+        if ((prevTarget?.botId ?? prevTarget?.roomId) !== (nextTarget.botId ?? nextTarget.roomId)) {
+          rememberPastTarget(prevTarget)
+        }
+        chat.target = nextTarget
       }
       await rt.save()
       return true

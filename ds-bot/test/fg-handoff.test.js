@@ -292,6 +292,28 @@ test('Mobile/IM sendUser does NOT auto-move ordinary busy foreground, supports s
   assert.equal(env.prompts[2].sessionId, 'fork-1')
 })
 
+test('IM sendUser keeps the message queued on the current chat when a hidden-work fresh preset session fails before commit', async (t) => {
+  const env = await startEnv({ forkImpl: async () => { throw new Error('no completed turn to fork') } })
+  t.after(env.stop)
+  const dmB = env.agentMap.get('dm-b')
+  dmB.status = 'running'
+  env.rt.openWork('w-preset-fallback', { from: 'a', to: 'b' })
+  await env.emit('dm-b', 'turn/start', { turn: 1 })
+  env.rt.live.get('dm-b').info = { kind: SOURCE_KIND, role: 'request', exchangeId: 'w-preset-fallback', senderSessionId: 'a', senderName: 'Chief' }
+  await env.emit('dm-b', 'tool/call', { callId: 'tc1', name: 'bash', arguments: '{}' })
+  env.rt.botOf('b').agentPreset = 'removed-from-profile'
+  assert.equal(env.rt.mustIsolateHiddenWork(env.rt.botOf('b'), 'dm-b'), true)
+
+  await env.rt.sendUser({ sessionId: 'dm-b', content: [{ type: 'text', text: 'IM follow-up' }], requestId: 'req-im-fallback', mode: 'steer' })
+  assert.equal(env.rt.botOf('b').sessionId, 'dm-b')
+  assert.deepEqual(env.rt.botOf('b').tasks ?? [], [])
+  assert.equal(env.createdSessions.length, 0, 'the unavailable preset still refuses a fresh Session')
+  assert.equal(env.prompts.length, 1, 'the incoming IM is queued exactly once')
+  assert.deepEqual(env.prompts[0], {
+    requestId: 'req-im-fallback', sessionId: 'dm-b', mode: 'queue', content: [{ type: 'text', text: 'IM follow-up' }],
+  })
+})
+
 test('canMoveForeground blocks open interactive cards and supports local CLI backgrounding, while peer spawn keeps busy heuristic', async (t) => {
   const env = await startEnv()
   t.after(env.stop)
@@ -2321,4 +2343,89 @@ test('round-1 review invariants: repeat cold lookup preserves durable, non-im sc
   errKind = 'notfound'
   await env3.rt.sendUser({ sessionId: 'b', content: [{ type: 'text', text: 'Test' }], requestId: 'im:telegram:c1:dm-u1:enoent-3' })
   assert.equal(env3.prompts.length, 1, 'SessionPersistenceNotFoundError must be treated as missing session')
+
+  // 4) Busy-boundary flush barrier race: when an inbox-pending item transitions to claimed + user/message
+  //    around flush #1, confirmSessionFlushed MUST perform an unconditional second flush (and return false
+  //    if flush #2 fails), and agent/disposed `{ agent }` payload must exit waitForClaimedAdmission immediately.
+  const env4 = await startEnv()
+  t.after(env4.stop)
+  const dmA4 = env4.agentMap.get('dm-a')
+  dmA4.status = 'running'
+  const raceReqId = 'im:telegram:c1:dm-u1:busy-barrier-1'
+  dmA4.session.events.push({
+    type: 'agent/inbox/spliced',
+    seq: 1,
+    data: {
+      target: 'next-turn',
+      start: 0,
+      inserted: [{ id: 'm-barrier-1', role: 'user', content: [{ type: 'text', text: 'Queued' }], source: { kind: 'user', rpcId: raceReqId } }],
+    },
+  })
+  let flushCount4 = 0
+  let flush2Result = false
+  env4.ctx.sessions.flush = async () => {
+    flushCount4 += 1
+    if (flushCount4 === 1) {
+      // Simulate claim splice inside barrier #1, then user/message appended AFTER barrier #1 resolves!
+      dmA4.session.events.push({ type: 'agent/inbox/spliced', seq: 2, data: { target: 'next-turn', start: 0, removedCount: 1, inserted: [] } })
+      queueMicrotask(() => {
+        dmA4.session.events.push({
+          type: 'user/message',
+          seq: 3,
+          data: { id: 'm-barrier-1', content: [{ type: 'text', text: 'Queued' }], source: { kind: 'user', rpcId: raceReqId } },
+        })
+      })
+      return true
+    }
+    return flush2Result
+  }
+  const confirmedWhenFlush2Fails = await env4.rt.confirmSessionFlushed('dm-a', raceReqId)
+  assert.equal(flushCount4, 2, 'transitioning inbox item must trigger an unconditional second flush')
+  assert.equal(confirmedWhenFlush2Fails, false, 'failing flush #2 must return false instead of trusting flush #1')
+
+  // Reset to inbox-pending and let flush #2 succeed -> must invoke 2 flushes and confirm true!
+  const raceReqId2 = 'im:telegram:c1:dm-u1:busy-barrier-2'
+  dmA4.session.events.length = 0
+  dmA4.session.events.push({
+    type: 'agent/inbox/spliced',
+    seq: 1,
+    data: {
+      target: 'next-turn',
+      start: 0,
+      inserted: [{ id: 'm-barrier-2', role: 'user', content: [{ type: 'text', text: 'Queued 2' }], source: { kind: 'user', rpcId: raceReqId2 } }],
+    },
+  })
+  flushCount4 = 0
+  flush2Result = true
+  env4.ctx.sessions.flush = async () => {
+    flushCount4 += 1
+    if (flushCount4 === 1) {
+      dmA4.session.events.push({ type: 'agent/inbox/spliced', seq: 2, data: { target: 'next-turn', start: 0, removedCount: 1, inserted: [] } })
+      dmA4.session.events.push({
+        type: 'user/message',
+        seq: 3,
+        data: { id: 'm-barrier-2', content: [{ type: 'text', text: 'Queued 2' }], source: { kind: 'user', rpcId: raceReqId2 } },
+      })
+      return true
+    }
+    return flush2Result
+  }
+  const confirmedWhenFlush2Succeeds = await env4.rt.confirmSessionFlushed('dm-a', raceReqId2)
+  assert.equal(flushCount4, 2, 'even if user/message became visible before post-flush check, flush #2 must run')
+  assert.equal(confirmedWhenFlush2Succeeds, true)
+
+  // Verify real DSH `agent/disposed` payload `{ agent }` exits waitForClaimedAdmission immediately (not 5s timeout).
+  const disposeReqId = 'im:telegram:c1:dm-u1:dispose-fast-1'
+  dmA4.session.events.length = 0
+  dmA4.session.events.push(
+    { type: 'agent/inbox/spliced', seq: 1, data: { target: 'next-turn', start: 0, inserted: [{ id: 'm-disp-1', role: 'user', content: [{ type: 'text', text: 'Claimed' }], source: { kind: 'user', rpcId: disposeReqId } }] } },
+    { type: 'agent/inbox/spliced', seq: 2, data: { target: 'next-turn', start: 0, removedCount: 1, inserted: [] } },
+  )
+  const startedAt = Date.now()
+  const waitPromise = env4.rt.confirmSessionFlushed('dm-a', disposeReqId)
+  await new Promise(r => setTimeout(r, 20))
+  for (const listener of env4.ctx.listeners.get('agent/disposed') ?? []) listener({ agent: dmA4 })
+  const disposedResult = await waitPromise
+  assert.equal(disposedResult, false)
+  assert.ok(Date.now() - startedAt < 1000, 'agent/disposed { agent } payload must settle confirmSessionFlushed immediately')
 })

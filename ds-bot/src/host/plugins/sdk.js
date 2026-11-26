@@ -1,6 +1,9 @@
 // Public SDK helpers for authoring DS Bot plugins and replaceable browser providers.
 // Third-party DSH plugins can import these helpers from `ds-bot/plugin-sdk` or
 // `ds-bot/browser-provider` and register via `ctx.dsBotPlugins` / `ctx.dsBotBrowser`.
+import { normalizeExecution } from './tiers.js'
+
+export { EXECUTION_TIERS, EXECUTION_CAPABILITIES, normalizeExecution, validateExecutionCapabilities } from './tiers.js'
 
 const ID_RE = /^[a-z0-9][a-z0-9:._-]{0,79}$/i
 const SLOT_RE = /^[a-z][a-z0-9-]{0,31}$/
@@ -28,6 +31,9 @@ function cleanPrefixes(list) {
  *   supportsPerBot?: boolean,
  *   supportsGrants?: boolean,
  *   packageName?: string,
+ *   execution?: string,
+ *   capabilities?: string[],
+ *   replaces?: string[],
  *   locales?: Record<string, { name?: string, description?: string }>,
  *   mount: (host: any) => Promise<any> | any,
  * }} spec
@@ -39,6 +45,17 @@ export function defineBotPlugin(spec) {
   const name = String(spec.name ?? '').trim()
   if (!name) throw new TypeError('Plugin name is required.')
   if (typeof spec.mount !== 'function') throw new TypeError('Plugin definition must provide a mount(host) function.')
+  // A native `mount()` always executes inside the host process, so a native plugin
+  // IS a trusted worker; declaring a confined tier would be a lie the consent
+  // fingerprint would then bind. The execution tier is validated here anyway so
+  // the canonical vocabulary is the only spelling that exists.
+  const normalizedExecution = normalizeExecution({ execution: spec.execution, capabilities: spec.capabilities })
+  if (normalizedExecution.execution !== 'trusted-worker') {
+    throw new TypeError(
+      `Native plugin "${id}" declares execution tier "${normalizedExecution.execution}" but a mount() function always ` +
+      'runs as a trusted worker. Confined tiers (data / declarative / sandboxed-ui) belong to registry-delivered plugin shapes.',
+    )
+  }
   const slot = spec.slot == null || spec.slot === '' ? null : String(spec.slot).trim().toLowerCase()
   if (slot !== null && !SLOT_RE.test(slot)) throw new TypeError(`Invalid plugin slot "${spec.slot}".`)
   const rawCategory = String(spec.category ?? (slot === 'browser' ? 'browser' : 'tools')).trim().toLowerCase()
@@ -52,10 +69,13 @@ export function defineBotPlugin(spec) {
     homepage: spec.homepage ? String(spec.homepage).trim() : undefined,
     category,
     slot,
+    execution: normalizedExecution.execution,
+    capabilities: normalizedExecution.capabilities,
     toolPrefixes: cleanPrefixes(spec.toolPrefixes),
     supportsPerBot: slot === null ? spec.supportsPerBot !== false : false,
     supportsGrants: spec.supportsGrants === true,
     packageName: spec.packageName ? String(spec.packageName).trim() : undefined,
+    replaces: cleanPrefixes(spec.replaces),
     locales: spec.locales && typeof spec.locales === 'object' ? spec.locales : undefined,
     mount: spec.mount,
   })

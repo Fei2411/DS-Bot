@@ -1984,8 +1984,9 @@ export function install(rt) {
           check()
         }
       })
-      offDisposed = ctx.on('agent/disposed', (evAgent) => {
-        if ((evAgent?.id ?? evAgent?.session?.id) === sessionId) finish(holdsRequest())
+      offDisposed = ctx.on('agent/disposed', (ev) => {
+        const disposedAgent = ev?.agent ?? ev
+        if ((disposedAgent?.id ?? disposedAgent?.session?.id) === sessionId) finish(holdsRequest())
       })
       // Re-check synchronously after subscribing so an event emitted just before subscribe is never missed.
       check()
@@ -1993,10 +1994,11 @@ export function install(rt) {
   }
 
   // Confirms that the exact physical session `sessionId` has flushed to disk (`flush() === true`)
-  // and — when `requestId` is supplied on a real session with event/inbox inspection — still
-  // holds that request both before and after flush. When a real DSH `ReactLoopAgent` has
-  // synchronously claimed the message into `preStep()` before `step()` writes `user/message`,
-  // waits (bounded) for `user/message` before flushing so idle IM deliveries still confirm durability.
+  // and — when `requestId` is supplied on a real session with event/inbox inspection — proves
+  // the request's durable representation (`user/message` OR still-pending `agent/inbox/spliced`)
+  // was covered by a completed flush barrier. If an inbox-pending item transitions across the
+  // first flush (claimed by `preStep()` and appended as `user/message` after barrier #1), an
+  // unconditional second flush is required after `user/message` exists so barrier #2 covers it.
   const confirmSessionFlushed = async (sessionId, requestId) => {
     if (typeof ctx.sessions?.flush !== 'function') return false
     if (typeof sessionId !== 'string' || sessionId === '') return false
@@ -2004,33 +2006,56 @@ export function install(rt) {
     const session = agent?.session ?? ctx.sessions?.get?.(sessionId)
     if (session === undefined) return false
     const canVerifyAdmission = requestId !== undefined && typeof session.snapshotEvents === 'function'
-    const holdsRequest = () => {
-      if (!canVerifyAdmission) return true
-      return agent !== undefined
-        ? hasSessionAdmission(agent, requestId)
-        : isAdmittedOnSession(session, requestId)
+    if (!canVerifyAdmission) {
+      try {
+        if ((await ctx.sessions.flush(session)) !== true) return false
+        if (requestId !== undefined) noteLogicalAdmittedRpc(sessionId, requestId, { durable: true })
+        return true
+      } catch {
+        return false
+      }
     }
-    if (!holdsRequest()) {
-      if (!canVerifyAdmission || agent === undefined || !handoffInputClaimed(agent, requestId)) return false
-      if (!(await waitForClaimedAdmission(sessionId, agent, requestId, holdsRequest))) return false
+    const hasUserMessageOnSession = () => (session.snapshotEvents?.() ?? []).some(
+      ev => ev?.type === 'user/message' && (
+        ev.data?.id === requestId
+        || ev.data?.message?.id === requestId
+        || ev.data?.source?.rpcId === requestId
+      ),
+    )
+    const hasDurablePendingInbox = () => !hasUserMessageOnSession()
+      && collectAdmittedIdsFromEvents(session.snapshotEvents?.()).has(requestId)
+    let hadUserMessageBeforeFlush = hasUserMessageOnSession()
+    const hadDurableInboxBeforeFlush = !hadUserMessageBeforeFlush && hasDurablePendingInbox()
+    if (!hadUserMessageBeforeFlush && !hadDurableInboxBeforeFlush) {
+      if (agent === undefined || !handoffInputClaimed(agent, requestId)) return false
+      if (!(await waitForClaimedAdmission(sessionId, agent, requestId, hasUserMessageOnSession))) return false
+      hadUserMessageBeforeFlush = hasUserMessageOnSession()
+      if (!hadUserMessageBeforeFlush) return false
     }
     try {
       if ((await ctx.sessions.flush(session)) !== true) return false
-      if (holdsRequest()) {
-        if (requestId !== undefined) noteLogicalAdmittedRpc(sessionId, requestId, { durable: true })
+      // Append-only `user/message` already existed before flush #1 started -> covered by barrier #1.
+      if (hadUserMessageBeforeFlush) {
+        noteLogicalAdmittedRpc(sessionId, requestId, { durable: true })
         return true
       }
-      // A busy agent can cross a turn boundary and claim the queued prompt while `flush()` is
-      // awaiting; wait for `user/message` to append, then flush once more so the event is on disk.
-      if (canVerifyAdmission && agent !== undefined && handoffInputClaimed(agent, requestId)) {
-        if (!(await waitForClaimedAdmission(sessionId, agent, requestId, holdsRequest))) return false
-        if ((await ctx.sessions.flush(session)) !== true) return false
-        if (holdsRequest()) {
-          noteLogicalAdmittedRpc(sessionId, requestId, { durable: true })
-          return true
-        }
+      // Durable inbox insert existed before flush #1 AND no claim/remove splice happened -> covered by barrier #1.
+      if (hadDurableInboxBeforeFlush && hasDurablePendingInbox()) {
+        noteLogicalAdmittedRpc(sessionId, requestId, { durable: true })
+        return true
       }
-      return false
+      // The inbox-pending item transitioned during flush #1 (claimed in `preStep()`, possibly
+      // already appended as `user/message` AFTER flush #1's barrier resolved). Wait if still
+      // claimed, then unconditionally run flush #2 AFTER `user/message` exists.
+      if (!hasUserMessageOnSession()) {
+        if (agent === undefined || !handoffInputClaimed(agent, requestId)) return false
+        if (!(await waitForClaimedAdmission(sessionId, agent, requestId, hasUserMessageOnSession))) return false
+        if (!hasUserMessageOnSession()) return false
+      }
+      if ((await ctx.sessions.flush(session)) !== true) return false
+      if (!hasUserMessageOnSession()) return false
+      noteLogicalAdmittedRpc(sessionId, requestId, { durable: true })
+      return true
     } catch {
       return false
     }
@@ -2053,7 +2078,7 @@ export function install(rt) {
   // after a host restart when completed handoff sessions are unloaded on disk, and across
   // IM chat rebindings for globally unique `im:` platform message IDs.
   // Returns `{ admitted, sessionId?, durable? }` so callers know the exact admitting session.
-  const findAdmittedForSend = async ({ ref, sessionId, requestId, callerSupplied = true, targetOnly = false } = {}) => {
+  const findAdmittedForSend = async ({ ref, refs, sessionId, requestId, callerSupplied = true, targetOnly = false } = {}) => {
     if (requestId === undefined) return { admitted: false }
     const owner = logicalOwnerOf(sessionId) ?? logicalOwnerOf(ref)
     const ownerKey = transferOwnerKey(owner)
@@ -2075,6 +2100,20 @@ export function install(rt) {
           return {
             admitted: true,
             sessionId: hit.sessionId ?? findLiveAdmittedSession(requestId),
+            durable: hit.durable === true,
+          }
+        }
+      }
+    }
+    if (Array.isArray(refs) && refs.length > 0) {
+      for (const extraRef of refs) {
+        const extraKey = transferOwnerKey(logicalOwnerOf(extraRef))
+        if (extraKey === undefined) continue
+        const hit = admittedLogicalRpcIds.get(extraKey)?.get(requestId)
+        if (hit !== undefined) {
+          return {
+            admitted: true,
+            sessionId: hit.sessionId ?? findLiveAdmittedSession(requestId, extraKey),
             durable: hit.durable === true,
           }
         }
@@ -2133,6 +2172,14 @@ export function install(rt) {
       addBotCandidates(rt.botOf(owner.botId))
     } else if (owner?.roomId !== undefined) {
       addRoomCandidates(rt.roomOf(owner.roomId))
+    }
+    if (Array.isArray(refs) && refs.length > 0) {
+      for (const extraRef of refs) {
+        const extraOwner = logicalOwnerOf(extraRef)
+        if (extraOwner?.botId !== undefined) addBotCandidates(rt.botOf(extraOwner.botId))
+        else if (extraOwner?.roomId !== undefined) addRoomCandidates(rt.roomOf(extraOwner.roomId))
+        else addCandidate(extraRef, false)
+      }
     }
     // An IM platform message ID (`im:<platform>:<connId>:<chatKey>:<msgId>`) belongs to a
     // single inbound platform event even if the chat was rebound to another Bot/group after restart.
@@ -2831,6 +2878,7 @@ export function install(rt) {
       // those inherited turns so previously hidden [PASS]/Bot-to-Bot turns never leak
       // back into the user's chat after an fg-handoff or bot-handoff fork.
       if (forked) {
+        if (bot.agentPresetDefaultPending?.includes(oldSid)) rt.noteDefaultPresetPending?.(bot, newSid)
         let inheritedTurns = priorTurns
         let inheritedCallIds = priorCallIds
         const hasEventBounds = forkedEvents.length > 0 || oldEvents.length > 0

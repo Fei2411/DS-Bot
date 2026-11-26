@@ -4386,6 +4386,20 @@ test('IM /steer, /background, and platform messageId redelivery deduplication (#
   assert.ok(viewCode, 'view card with !card code must be sent to IM')
   await dm(sRestart, 'u1', `!card ${viewCode}\n1: Alice`, { messageId: 'fresh-view-card-1' })
   assert.equal(sRestart.rt.state.views['a-moved-fg'], undefined, 'unrelated corrupt cold archive on Bot B must NOT block !card view reply on Bot A')
+
+  // 8) Rebinding a chat from corrupt Bot B to Bot A records Bot B in `pastTargets`, so a bare
+  //    numeric redelivery FAILS CLOSED instead of answering Bot A's open card.
+  await sRestart.rt.imEndpoint('im-chat', { id: one.id, chatKey: 'dm-u1', target: { botId: 'b' } })
+  await sRestart.rt.imEndpoint('im-chat', { id: one.id, chatKey: 'dm-u1', target: { botId: 'a' } })
+  assert.ok(oneR.chats['dm-u1'].pastTargets?.includes('b'), 'rebinding must record former target in chat.pastTargets')
+  sRestart.rt.state.questions['a-moved-fg'] = { id: 'q-rebound-corrupt', question: 'Confirm rebound?', options: [{ label: 'Yes' }, { label: 'No' }] }
+  await sRestart.rt.save()
+  await sRestart.flush()
+  const promptsBeforeCorruptRebound = sRestart.prompts.length
+  await dm(sRestart, 'u1', '1', { messageId: 'maybe-rebound-redelivery-1' })
+  assert.equal(sRestart.rt.state.questions['a-moved-fg']?.id, 'q-rebound-corrupt', 'question card must remain unanswered when former binding history is corrupt')
+  assert.equal(sRestart.prompts.length, promptsBeforeCorruptRebound, 'failed precheck must not fall through to sendUser')
+  delete sRestart.rt.state.questions['a-moved-fg']
   sRestart.ctx.get = origGetR
   s.rt.confirmSessionFlushed = origConfirm
 })
