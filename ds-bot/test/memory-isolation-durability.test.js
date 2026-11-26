@@ -286,12 +286,14 @@ test('P0-4: memoryRestore into empty MEMORY.md uses # Memory (not # undefined) a
 })
 
 test('P0-4 + G-10: causal memoryUpdate delivers same-ms & externally appended rows, guards pending groupSnapshot, and deduplicates compacted group refresh', async (t) => {
-  const { ctx, home, tool, section, read, stop } = start({ config: { memoryReview: false } })
+  const { ctx, home, tool, read, stop } = start({ config: { memoryReview: false } })
   let stoppedFirst = false
   t.after(() => (stoppedFirst ? undefined : stop()))
 
-  // Prime b2 snapshot and verify two externally appended rows with the EXACT SAME millisecond timestamp both deliver.
-  section('b2')
+  // Prime b2 part-opening snapshot and verify two externally appended rows with the EXACT SAME millisecond timestamp both deliver.
+  const seedStep = await runPreStep(ctx, 'b2')
+  const ownSnap = seedStep.messages.find(m => m.source?.kind === 'ds-bot-own-memory')
+  assert.ok(ownSnap, 'part-opening own memory snapshot must be emitted')
   const seenIso = read('snapshots', 'b2.seen').trim()
   assert.ok(Number.isFinite(Date.parse(seenIso)), '.seen must stay a parseable ISO timestamp')
   const sameMs = new Date(Date.parse(seenIso) + 50).toISOString()
@@ -299,20 +301,22 @@ test('P0-4 + G-10: causal memoryUpdate delivers same-ms & externally appended ro
   writeFileSync(journalPath, `${[
     JSON.stringify({ id: 'same-ms-1', time: sameMs, scope: 'team', op: 'add', file: 'MEMORY.md', actor: 'user', after: '- First same-ms team fact' }),
   ].join('\n')}\n`)
-  const firstStep = await runPreStep(ctx, 'b2')
+  const firstStep = await runPreStep(ctx, 'b2', { history: [ownSnap] })
   const upd1 = firstStep.messages.find(m => m.source?.kind === 'ds-bot-memory-update')
   assert.match(textOf(upd1), /First same-ms team fact/)
 
   // Append a second row with the IDENTICAL timestamp to journal.jsonl (simulating external writer or sub-ms burst).
   writeFileSync(journalPath, `${readFileSync(journalPath, 'utf8')}${JSON.stringify({ id: 'same-ms-2', time: sameMs, scope: 'team', op: 'add', file: 'MEMORY.md', actor: 'user', after: '- Second same-ms team fact' })}\n`)
-  const secondStep = await runPreStep(ctx, 'b2')
+  const secondStep = await runPreStep(ctx, 'b2', { history: [ownSnap, upd1] })
   const upd2 = secondStep.messages.find(m => m.source?.kind === 'ds-bot-memory-update')
   assert.match(textOf(upd2), /Second same-ms team fact/, 'same-millisecond row appended after previous update must still deliver')
 
   // G-10: groupSnapshot guards pending.json AND suppresses duplicate group: update on fresh compacted snapshot while keeping team: update!
   await tool('bot_remember', { text: 'Group rule alpha', scope: 'group' }, 'g2')
   await tool('bot_remember', { text: 'Team rule beta', scope: 'team', always: true }, 'm1')
-  section('g3')
+  const g3Seed = await runPreStep(ctx, 'g3')
+  const g3Own = g3Seed.messages.find(m => m.source?.kind === 'ds-bot-own-memory')
+  assert.ok(g3Own)
   // Create a pending.json record -> groupSnapshot must return undefined while pending exists.
   writeFileSync(join(home, 'memory', PENDING_FILE), JSON.stringify(pendingRecord({
     id: 'pending-group-test',
@@ -322,15 +326,15 @@ test('P0-4 + G-10: causal memoryUpdate delivers same-ms & externally appended ro
     steps: [{ action: 'write', path: 'groups/r1/MEMORY.md', text: '# Memory\n\n- Group rule alpha\n\n## Index\n' }],
     row: { id: 'pending-group-row', time: new Date().toISOString(), op: 'add', scope: 'group:r1', file: 'MEMORY.md', actor: 'b2', actorName: 'Writer', after: '- Group rule alpha' },
   })))
-  const duringPending = await runPreStep(ctx, 'g3', { history: [] })
+  const duringPending = await runPreStep(ctx, 'g3', { history: [g3Own] })
   assert.equal(duringPending.messages.find(m => m.source?.kind === 'ds-bot-group-memory'), undefined, 'groupSnapshot must not freeze while pending.json exists')
   rmSync(join(home, 'memory', PENDING_FILE), { force: true })
 
-  // Now simulate post-compaction step (empty derived history, so groupSnapshot injects fresh group memory):
+  // Now simulate post-compaction step (ownSnap kept, groupSnap compacted away -> groupSnapshot injects fresh group memory):
   // group: update for "Group rule alpha" MUST be suppressed, while unseen team: update MUST still appear!
   await tool('bot_remember', { text: 'Fresh team rule gamma', scope: 'team', always: true }, 'm1')
   await tool('bot_remember', { text: 'Fresh group rule delta', scope: 'group' }, 'g2')
-  const postCompact = await runPreStep(ctx, 'g3', { history: [] })
+  const postCompact = await runPreStep(ctx, 'g3', { history: [g3Own] })
   const groupSnap = postCompact.messages.find(m => m.source?.kind === 'ds-bot-group-memory')
   const postUpd = postCompact.messages.find(m => m.source?.kind === 'ds-bot-memory-update')
   assert.ok(groupSnap, 'fresh groupSnapshot must be injected after compaction')
@@ -341,7 +345,7 @@ test('P0-4 + G-10: causal memoryUpdate delivers same-ms & externally appended ro
 
   // Subsequent group change AFTER the fresh groupSnapshot IS delivered cleanly.
   await tool('bot_remember', { text: 'Later group rule epsilon', scope: 'group' }, 'g2')
-  const nextStep = await runPreStep(ctx, 'g3', { history: [groupSnap] })
+  const nextStep = await runPreStep(ctx, 'g3', { history: [g3Own, groupSnap] })
   const nextUpd = nextStep.messages.find(m => m.source?.kind === 'ds-bot-memory-update')
   assert.match(textOf(nextUpd), /Later group rule epsilon/)
   assert.ok(nextUpd.source?.groupWatermark?.time, 'group update carries persisted groupWatermark')
@@ -352,7 +356,7 @@ test('P0-4 + G-10: causal memoryUpdate delivers same-ms & externally appended ro
   const restarted = start({ home, config: { memoryReview: false } })
   t.after(() => restarted.stop())
   await restarted.call('state', {})
-  const afterRestart = await runPreStep(restarted.ctx, 'g3', { history: [groupSnap, nextUpd] })
+  const afterRestart = await runPreStep(restarted.ctx, 'g3', { history: [g3Own, groupSnap, nextUpd] })
   assert.equal(afterRestart.messages.find(m => m.source?.kind === 'ds-bot-memory-update'), undefined, 'already-delivered group update must not replay after restart')
 })
 
@@ -370,7 +374,8 @@ test('P0-4: read-only host promotion observes external journal writes and surviv
   mkdirSync(join(home, 'memory'), { recursive: true })
   const t0 = new Date(Date.now() - 10_000).toISOString()
   writeFileSync(journalPath, `${JSON.stringify({ id: 'seed-0', time: t0, scope: 'team', op: 'add', file: 'MEMORY.md', actor: 'user', after: '- Initial team note' })}\n`)
-  await runPreStep(ctx, 'b2')
+  const roStep = await runPreStep(ctx, 'b2')
+  const roOwn = roStep.messages.find(m => m.source?.kind === 'ds-bot-own-memory')
 
   // Simulate another host writing an important team update PLUS 2,050 unrelated rows (> RECENT_ROWS_MAX = 2000).
   const baseMs = Date.now()
@@ -395,7 +400,7 @@ test('P0-4: read-only host promotion observes external journal writes and surviv
   assert.equal(rt.readOnly(), undefined)
 
   // memoryUpdate must detect the changed journal stat AND fall back to disk scan past RECENT_ROWS_MAX eviction!
-  const step = await runPreStep(ctx, 'b2')
+  const step = await runPreStep(ctx, 'b2', { history: [roOwn] })
   const upd = step.messages.find(m => m.source?.kind === 'ds-bot-memory-update')
   assert.match(textOf(upd), /External host critical team rule/)
 })
@@ -408,7 +413,8 @@ test('P0-4: readTail recovers >512KB (<2000 rows) truncation, split partial appe
   let stoppedBig = false
   t.after(() => (stoppedBig ? undefined : rBig.stop()))
   await rBig.call('state', {})
-  rBig.section('b2')
+  const bigSeed = await runPreStep(rBig.ctx, 'b2')
+  const bigOwn = bigSeed.messages.find(m => m.source?.kind === 'ds-bot-own-memory')
   const bigJournal = join(bigHome, 'memory', 'journal.jsonl')
   mkdirSync(join(bigHome, 'memory'), { recursive: true })
   const tBase = Date.now() + 1_000
@@ -432,7 +438,7 @@ test('P0-4: readTail recovers >512KB (<2000 rows) truncation, split partial appe
   const rBig2 = start({ home: bigHome, config: { memoryReview: false } })
   t.after(() => rBig2.stop())
   await rBig2.call('state', {})
-  const bigStep = await runPreStep(rBig2.ctx, 'b2')
+  const bigStep = await runPreStep(rBig2.ctx, 'b2', { history: [bigOwn] })
   const bigUpd = bigStep.messages.find(m => m.source?.kind === 'ds-bot-memory-update')
   assert.match(textOf(bigUpd), /Crucial pre-tail team fact/, 'unseen row before 512 KB tail must trigger full scan even with <2000 rows')
 
@@ -440,10 +446,10 @@ test('P0-4: readTail recovers >512KB (<2000 rows) truncation, split partial appe
   const splitLine = `${JSON.stringify({ id: 'split-1', time: new Date(tBase + 5_000).toISOString(), scope: 'team', op: 'add', file: 'MEMORY.md', actor: 'user', after: '- Split append completed rule' })}\n`
   const cut = Math.floor(splitLine.length / 2)
   appendFileSync(bigJournal, splitLine.slice(0, cut))
-  const midStep = await runPreStep(rBig2.ctx, 'b2')
+  const midStep = await runPreStep(rBig2.ctx, 'b2', { history: [bigOwn] })
   assert.equal(midStep.messages.find(m => m.source?.kind === 'ds-bot-memory-update'), undefined, 'partial append must not emit broken update')
   appendFileSync(bigJournal, splitLine.slice(cut))
-  const doneStep = await runPreStep(rBig2.ctx, 'b2')
+  const doneStep = await runPreStep(rBig2.ctx, 'b2', { history: [bigOwn] })
   const doneUpd = doneStep.messages.find(m => m.source?.kind === 'ds-bot-memory-update')
   assert.match(textOf(doneUpd), /Split append completed rule/, 'completed split line must deliver on the very next step')
 
@@ -452,7 +458,7 @@ test('P0-4: readTail recovers >512KB (<2000 rows) truncation, split partial appe
   const swapRow = JSON.stringify({ id: 'swap-1', time: new Date(tBase + 10_000).toISOString(), scope: 'team', op: 'add', file: 'MEMORY.md', actor: 'user', after: '- Atomic inode swap rule' })
   writeFileSync(replacedTmp, `${readFileSync(bigJournal, 'utf8')}${swapRow}\n`)
   renameSync(replacedTmp, bigJournal)
-  const swapStep = await runPreStep(rBig2.ctx, 'b2')
+  const swapStep = await runPreStep(rBig2.ctx, 'b2', { history: [bigOwn] })
   const swapUpd = swapStep.messages.find(m => m.source?.kind === 'ds-bot-memory-update')
   assert.match(textOf(swapUpd), /Atomic inode swap rule/, 'atomic journal replacement must be observed via inode check')
 })
@@ -830,15 +836,16 @@ test('P2-2: memory-history works read-only, orphan snapshots are pruned, and Pri
   assert.ok(hist.some(row => row.text === 'Public era new fact'))
 
   // 2. Orphaned snapshots (settled task / archived segment / deleted session) are pruned while live sessions stay.
-  rPriv.section('b2')
+  await runPreStep(rPriv.ctx, 'b2')
   const snapDir = join(rPriv.home, 'memory', 'snapshots')
+  mkdirSync(snapDir, { recursive: true })
   writeFileSync(join(snapDir, 'settled-task-99.md'), '# stale')
   writeFileSync(join(snapDir, 'settled-task-99.seen'), new Date().toISOString())
   const pruned = rPriv.rt.pruneMemorySnapshots()
   assert.equal(pruned, 2)
   assert.equal(existsSync(join(snapDir, 'settled-task-99.md')), false)
   assert.equal(existsSync(join(snapDir, 'settled-task-99.seen')), false)
-  assert.equal(existsSync(join(snapDir, 'b2.md')), true, 'live session snapshot must stay')
+  assert.equal(existsSync(join(snapDir, 'b2.seen')), true, 'live session seen watermark must stay')
 
   // 3. memory-history succeeds in a read-only window (channel.js READS).
   const roHome = mkdtempSync(join(tmpdir(), 'ds-bot-mem-dur-'))

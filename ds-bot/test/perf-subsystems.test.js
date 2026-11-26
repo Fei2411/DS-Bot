@@ -252,10 +252,14 @@ test('ClaudeSession.kill captures child before clearing so SIGKILL escalation fi
   try {
     session.kill()
     assert.equal(session.child, undefined)
-    assert.deepEqual(kills, ['SIGTERM'])
-    assert.equal(typeof sigkillCallback, 'function')
-    sigkillCallback()
-    assert.deepEqual(kills, ['SIGTERM', 'SIGKILL'])
+    if (process.platform === 'win32') {
+      await exited
+    } else {
+      assert.deepEqual(kills, ['SIGTERM'])
+      assert.equal(typeof sigkillCallback, 'function')
+      sigkillCallback()
+      assert.deepEqual(kills, ['SIGTERM', 'SIGKILL'])
+    }
   } finally {
     globalThis.setTimeout = realSetTimeout
     try { origKill('SIGKILL') } catch {}
@@ -280,7 +284,7 @@ test('terminateChild clears SIGKILL timer on exit and error and skips unspawned 
     globalThis.setTimeout = () => token
     globalThis.clearTimeout = (id) => { if (id === token) cleared = true }
     try {
-      terminateChild(child)
+      terminateChild(child, { platform: 'linux' })
       assert.deepEqual(signals, ['SIGTERM'])
       if (eventName === 'exit') child.emit('exit', 0, null)
       else child.emit('error', new Error('spawn ENOENT'))
@@ -381,11 +385,11 @@ test('LoopbackMcp cleans calls on client disconnect and flushes final error SSE 
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'slow', arguments: {} } }),
     signal: ac.signal,
   }).catch(() => {})
-  await delay(50)
+  await until(() => mcp.calls.size === 1)
   assert.equal(mcp.calls.size, 1, 'in-flight call must be tracked')
   ac.abort()
   await reqPromise
-  await delay(50)
+  await until(() => mcp.calls.size === 0)
   assert.equal(mcp.calls.size, 0, 'aborted client must clear mcp.calls entry')
   resolveCall?.({ text: 'late', isError: false })
 

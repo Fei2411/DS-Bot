@@ -430,7 +430,7 @@ test('F1 (real ReactLoopAgent): user steer during <5s zero-tool hidden peer-Bot 
   )
 })
 
-test('F1 (local CLI Bot): user next-step steer during hidden peer-Bot turn demotes to next-turn and steer.js refuses STEER_CUT', async (t) => {
+test('F1 (non-movable runtime): user next-step steer during hidden peer-Bot turn demotes to next-turn and steer.js refuses STEER_CUT', async (t) => {
   const { rt, agents, emit, tool } = await startHost(t, {
     team: makeTeam({
       bots: {
@@ -439,7 +439,9 @@ test('F1 (local CLI Bot): user next-step steer during hidden peer-Bot turn demot
       },
     }),
   })
-  // Mark Writer's model as a local CLI route so foreground handoff is disabled.
+  // Local CLI Bots now support moving hidden peer work to background (D8);
+  // simulate a runtime/state where foreground handoff is disabled to verify the
+  // defensive next-step -> next-turn demotion fallback.
   t.mock.method(rt, 'isLocalAgentRef', ref => ref === 'local-cli/claude')
 
   await tool('delegate_work', { to: 'Writer', goal: 'inspect logs' }, 'dm-a')
@@ -451,9 +453,12 @@ test('F1 (local CLI Bot): user next-step steer during hidden peer-Bot turn demot
   emit('dm-b', 'user/message', { content: req.content, source: req.source })
   emit('dm-b', 'step/start', { turn: 1, step: 1 })
 
+  assert.equal(rt.shouldMoveForeground(rt.botOf('b'), 'dm-b'), true, 'local CLI Bot supports isolating hidden peer work to background')
+
+  t.mock.method(rt.contextRuntime, 'capabilitiesFor', () => ({ isLocal: true, canMoveToBackground: false }))
   assert.equal(rt.shouldMoveForeground(rt.botOf('b'), 'dm-b'), false)
 
-  // User sends a next-step steer while local CLI Bot runs hidden #W1.
+  // User sends a next-step steer while foreground handoff is disabled during hidden #W1.
   const userMsg = createUserMessage({ content: textBlock('User question for Writer'), source: { kind: 'user' } })
   dmB.send(userMsg, 'next-step')
   await realDelay(30)
@@ -910,8 +915,10 @@ test('F8: worked propagates up 3-Bot chain, task_start sub-work, and group repor
   rt.resetBotLoops('a')
   rt.resetBotLoops('b')
   rt.resetBotLoops('c')
-  await tool('delegate_work', { to: 'Writer', goal: '收到，收工吧' }, 'dm-a')
-  const zeroW = agents.get('dm-b').calls.at(-1)[1]
+  const goal = '收到，收工吧'
+  await tool('delegate_work', { to: 'Writer', goal }, 'dm-a')
+  const zeroW = agents.get('dm-b').calls.findLast(([, message]) => message?.source?.role === 'request' && textOf(message.content).endsWith(goal))?.[1]
+  assert.ok(zeroW, 'Writer received the zero-work request')
   emit('dm-b', 'turn/start', { turn: 80 })
   emit('dm-b', 'user/message', { content: zeroW.content, source: zeroW.source })
   emit('dm-b', 'assistant/message', assistantText('收到，已收工。'))
@@ -1043,11 +1050,11 @@ test('Empirical #2 & ctx-arch P1-5: lightweight inheritedSegments without segmen
   const task1 = rt.botOf('a').tasks[0]
 
   // 1) Lightweight inheritedSegments: keeps sessionId + endedAt, strips multi-KB note,
-  // and for non-forked own-chat task_start appends a slim ref to the live parent foreground part.
+  // and for non-forked own-chat task_start appends a branch-bounded ref to the live parent foreground part.
   assert.deepEqual(task1.inheritedSegments, [
     { sessionId: 'dm-a-p1', endedAt: 100 },
     { sessionId: 'dm-a-p2', endedAt: 200 },
-    { sessionId: 'dm-a' },
+    { sessionId: 'dm-a', throughSeq: 2 },
   ])
   assert.equal('note' in task1.inheritedSegments[0], false, 'inheritedSegments must not clone segment.note')
 
@@ -1081,7 +1088,7 @@ test('Empirical #2 & ctx-arch P1-5: lightweight inheritedSegments without segmen
   emit('dm-b', 'user/message', { content: textBlock('Check v2 tests'), source: { kind: 'user' } })
   await tool('task_start', { title: 'Check v2', brief: 'Run API tests' }, 'dm-b')
   const taskB = rt.botOf('b').tasks[0]
-  assert.deepEqual(taskB.inheritedSegments, [{ sessionId: 'dm-b-p1', endedAt: 50 }, { sessionId: 'dm-b' }])
+  assert.deepEqual(taskB.inheritedSegments, [{ sessionId: 'dm-b-p1', endedAt: 50 }, { sessionId: 'dm-b', throughSeq: 6 }])
   const promptB = textOf(agents.get(taskB.sessionId).calls[0][1].content)
   assert.match(promptB, /\[Checkpoint 1\]\n## Decisions\n- Keep API v2 compatibility intact\./)
   assert.doesNotMatch(promptB, /\[object Object\]/, 'TextBlock[] compaction/summary must never stringify to [object Object]')

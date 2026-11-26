@@ -661,37 +661,7 @@ export function Capabilities({ navigation }: any) {
   )
 }
 
-export function TeamUsage({ navigation }: any) {
-  const { call } = useTeam()
-  // The computer's usage view (usage.js): hourly rows of
-  // [hour, owner, model, kind, input, cacheRead, cacheWrite, output, calls].
-  const [view, setView] = useState<{ owners?: { name: string; kind: string; deleted?: boolean }[]; models?: { name: string }[]; rows?: number[][] } | null>(null)
-  useEffect(() => {
-    void call('usage', { timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }).then(v => setView(v as typeof view)).catch(() => {})
-  }, [])
-  const rows = (view?.rows ?? []) as unknown as [string, number, number, string, number, number, number, number, number][]
-  const sum = (pick: (row: typeof rows[number]) => boolean) => rows.filter(pick).reduce((total, row) => ({ input: total.input + row[4] + row[5] + row[6], output: total.output + row[7] }), { input: 0, output: 0 })
-  const all = sum(() => true)
-  const fmt = (n: number) => n.toLocaleString()
-  const owners = (view?.owners ?? []).map((owner, index) => ({ owner, total: sum(row => row[1] === index) })).filter(entry => entry.total.input + entry.total.output > 0)
-  const models = (view?.models ?? []).map((model, index) => ({ model, total: sum(row => row[2] === index) })).filter(entry => entry.total.input + entry.total.output > 0)
-  return (
-    <Screen><Back title={t('Usage')} onBack={() => navigation.goBack()} />
-      <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
-        <Section label={t('Usage')}>
-          <Row label={t('Tokens in')} value={view === null ? '—' : fmt(all.input)} />
-          <Row label={t('Tokens out')} value={view === null ? '—' : fmt(all.output)} />
-        </Section>
-        <Section label={t('Bots')}>
-          {owners.map(({ owner, total }, index) => <Row key={index} label={owner.name} value={fmt(total.input + total.output)} />)}
-        </Section>
-        <Section label={t('Models')}>
-          {models.map(({ model, total }, index) => <Row key={index} label={model.name} value={fmt(total.input + total.output)} />)}
-        </Section>
-      </ScrollView>
-    </Screen>
-  )
-}
+export { TeamUsage } from './usage.tsx'
 
 export function Location({ navigation }: any) {
   const { call, team } = useTeam()
@@ -814,8 +784,8 @@ export function About({ navigation }: any) {
           <Row label={t('Computer')} value={computer?.name ?? '—'} />
         </Section>
         <Section label={t('Licenses')}>
-          <Row label={t('DS Bot')} hint={t('Apache License 2.0')} onPress={() => void Linking.openURL('https://github.com/Fei2411/DS-Bot/blob/main/LICENSE')} />
-          <Row label={t('Repository')} hint="github.com/Fei2411/DS-Bot" onPress={() => void Linking.openURL('https://github.com/Fei2411/DS-Bot')} />
+          <Row label={t('DS Bot')} hint={t('Apache License 2.0')} onPress={() => void Linking.openURL('https://github.com/Fei-Craft/DS-Bot/blob/main/LICENSE')} />
+          <Row label={t('Repository')} hint="github.com/Fei-Craft/DS-Bot" onPress={() => void Linking.openURL('https://github.com/Fei-Craft/DS-Bot')} />
         </Section>
       </ScrollView>
     </Screen>

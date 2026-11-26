@@ -43,7 +43,7 @@ export function install(rt) {
       try { listener(kind, data) } catch (error) { rt.warn('ds-bot: approval listener failed: %s', error) }
     }
   }
-  const view = ({ answer, cancelReview, ownerSessionId, lineageSessionIds, ...entry }) => {
+  const view = ({ answer, cancelReview, ownerSessionId, lineageSessionIds, privacy: _, ...entry }) => {
     const taskSessionId = rt.taskOwners?.has(entry.sessionId) ? entry.sessionId : ownerSessionId ?? entry.sessionId
     const liveTask = entry.taskId === undefined ? rt.taskOwners?.get(taskSessionId) : undefined
     const liveEntry = liveTask === undefined ? undefined : rt.taskBySession?.(taskSessionId)?.task
@@ -97,7 +97,11 @@ export function install(rt) {
     const group = rt.groupOwners.get(id)
     const taskOwner = rt.taskOwners?.get(id)
     const botId = group?.botId ?? taskOwner?.botId ?? rt.chatOwners.get(id)
-    if (botId === undefined) return undefined
+    if (botId === undefined) {
+      const agentOwner = rt.agentOf?.(id)
+      if (agentOwner === undefined) return undefined
+      return { sessionId, ownerSessionId: id, lineageSessionIds: [...seen] }
+    }
     const task = taskOwner === undefined ? undefined : rt.taskBySession?.(id)?.task
     const taskTitle = task?.title
     const roomId = group ? group.roomId : (taskOwner?.roomId ?? task?.roomId)
@@ -138,7 +142,7 @@ export function install(rt) {
     if (parent && agent.session.header.origin === 'subagent') return followParent
     return undefined
   }
-  const enabled = owner => (rt.roomOf(owner.roomId)?.permission ?? rt.botOf(owner.botId)?.permission) === 'review'
+  const enabled = owner => owner.botId !== undefined && (rt.roomOf(owner.roomId)?.permission ?? rt.botOf(owner.botId)?.permission) === 'review'
 
   async function record(entry, decision) {
     const item = {
@@ -174,10 +178,12 @@ export function install(rt) {
     const linked = new AbortController()
     const reviewer = new AbortController()
     const entry = {
-      id, sessionId: owner.sessionId, ownerSessionId: owner.ownerSessionId, lineageSessionIds: owner.lineageSessionIds, botId: owner.botId,
+      id, sessionId: owner.sessionId, ownerSessionId: owner.ownerSessionId, lineageSessionIds: owner.lineageSessionIds,
+      ...(owner.botId !== undefined ? { botId: owner.botId } : {}),
       ...(owner.roomId ? { roomId: owner.roomId } : {}),
       ...(owner.taskId ? { taskId: owner.taskId, ...(owner.taskTitle ? { taskTitle: owner.taskTitle } : {}) } : {}),
       tool: String(request.toolName ?? ''), reason: String(request.reason ?? '').slice(0, 500),
+      ...(request.privacy === true ? { privacy: true } : {}),
       detail: rt.callDetail?.(owner.sessionId, request.callId) ?? {}, at: Date.now(),
     }
     const automatic = enabled(owner)
@@ -228,8 +234,8 @@ export function install(rt) {
       entry.answer = complete
       entry.cancelReview = () => reviewer.abort()
       pending.set(id, entry)
-      rt.noteApproval?.(owner.ownerSessionId, { tool: entry.tool, reason: entry.reason.slice(0, 200) })
-      rt.approvalWaiting?.(entry)
+      rt.noteApproval?.(owner.ownerSessionId, { tool: entry.tool, reason: entry.reason.slice(0, 200), ...(entry.privacy ? { privacy: true } : {}) })
+      if (owner.botId !== undefined) rt.approvalWaiting?.(entry)
       original?.addEventListener('abort', abort, { once: true })
       emit('open', view(entry))
       if (original?.aborted) return complete('cancelled')
@@ -273,6 +279,7 @@ export function install(rt) {
   }
 
   const approvalsView = () => [...pending.values()].map(view)
+  const approvalById = id => pending.get(String(id ?? ''))
   const approvalReviewsView = () => rt.state.approvalReviews ?? []
   const waitsForApproval = sessionId => [...pending.values()].some(entry => entry.sessionId === sessionId)
   function answerApproval(id, choice) {
@@ -299,5 +306,6 @@ export function install(rt) {
     actionScope.disable()
   }, 'ds-bot: approval review')
   const onApproval = listener => { approvalListeners.add(listener); return () => approvalListeners.delete(listener) }
-  Object.assign(rt, { approvalsView, approvalReviewsView, waitsForApproval, answerApproval, cancelApprovals, cancelApprovalReviews, onApproval, requestActionApproval })
+  const isPrivacyApproval = id => pending.get(id)?.privacy === true
+  Object.assign(rt, { approvalsView, approvalById, approvalReviewsView, waitsForApproval, answerApproval, cancelApprovals, cancelApprovalReviews, onApproval, requestActionApproval, isPrivacyApproval })
 }

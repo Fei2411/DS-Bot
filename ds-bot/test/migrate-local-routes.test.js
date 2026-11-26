@@ -21,18 +21,13 @@ test('a plugin provider that shares its name with a local CLI keeps its model', 
   }
 })
 
-test('a Bot that ran on the Qoder CLI still follows the route it moved to', () => {
-  const state = team('qoder/qmodel_latest', { s1: { route: 'qoder' } })
+test('a plugin default named like the Qoder CLI keeps its model', () => {
+  // The Qoder CLI shipped as `local-qoder`, so no bare `qoder` ref was ever the CLI.
+  const state = team('qoder/default', { s1: { route: 'qoder' } })
   state.bots.b1.sessionId = 's1'
-  assert.equal(migrateLocalRoutes(state), true)
-  assert.equal(state.bots.b1.model, 'local-qoder/qmodel_latest')
-  assert.equal(state.bots.b1.appliedModel, undefined)
-})
-
-test('the CLI default moves even without a Session of its own', () => {
-  const state = team('qoder/default')
-  assert.equal(migrateLocalRoutes(state), true)
-  assert.equal(state.bots.b1.model, 'local-qoder/default')
+  assert.equal(migrateLocalRoutes(state), false)
+  assert.equal(state.bots.b1.model, 'qoder/default')
+  assert.equal(state.bots.b1.appliedModel, 'qoder/default')
 })
 
 test('a plugin provider that shares the Antigravity CLI name keeps its model', () => {
@@ -47,18 +42,14 @@ test('a plugin provider that shares the Antigravity CLI name keeps its model', (
   }
 })
 
-test('a Bot that ran on the Antigravity CLI still follows the route it moved to', () => {
-  const state = team('antigravity/gemini-4-neon', { s1: { route: 'antigravity' } })
+test('a plugin default named like the Antigravity CLI keeps its model', () => {
+  // The Antigravity CLI shipped as `local-antigravity`, so no bare `antigravity`
+  // ref was ever the CLI.
+  const state = team('antigravity/default', { s1: { route: 'antigravity' } })
   state.bots.b1.sessionId = 's1'
-  assert.equal(migrateLocalRoutes(state), true)
-  assert.equal(state.bots.b1.model, 'local-antigravity/gemini-4-neon')
-  assert.equal(state.bots.b1.appliedModel, undefined)
-})
-
-test('the Antigravity CLI default moves even without a Session of its own', () => {
-  const state = team('antigravity/default')
-  assert.equal(migrateLocalRoutes(state), true)
-  assert.equal(state.bots.b1.model, 'local-antigravity/default')
+  assert.equal(migrateLocalRoutes(state), false)
+  assert.equal(state.bots.b1.model, 'antigravity/default')
+  assert.equal(state.bots.b1.appliedModel, 'antigravity/default')
 })
 
 test('a route already on local-antigravity is left alone', () => {
@@ -74,4 +65,43 @@ test('a CLI that no provider shares is still migrated for every Bot', () => {
   const state = team('codex-cli/gpt-5')
   assert.equal(migrateLocalRoutes(state), true)
   assert.equal(state.bots.b1.model, 'local-codex-cli/gpt-5')
+})
+
+test('a plugin provider that shares the Mistral Vibe CLI name keeps its model', () => {
+  // llm-pi-ai can register a remote provider called `mistral-vibe`; the Mistral Vibe
+  // CLI is `mistral-vibe` too (#2104). Without evidence that this Bot ran on the
+  // CLI, the ref belongs to the provider.
+  const state = team('mistral-vibe/deepseek-v4-1-flash-1017')
+  assert.equal(migrateLocalRoutes(state), false)
+  assert.equal(state.bots.b1.model, 'mistral-vibe/deepseek-v4-1-flash-1017')
+  assert.equal(state.bots.b1.appliedModel, 'mistral-vibe/deepseek-v4-1-flash-1017')
+})
+
+test('a CLI added after the prefix never had an old route', () => {
+  // Mistral Vibe shipped as `local-mistral-vibe`, so even its "CLI default" or a
+  // CLI record under the bare name belongs to a provider called `mistral-vibe`.
+  const state = team('mistral-vibe/default', { s1: { route: 'mistral-vibe' } })
+  assert.equal(migrateLocalRoutes(state), false)
+  assert.equal(state.bots.b1.model, 'mistral-vibe/default')
+  assert.equal(state.bots.b1.appliedModel, 'mistral-vibe/default')
+  assert.equal(state.localAgents.sessions.s1.route, 'mistral-vibe')
+})
+
+test('a ref saved after the team moved its routes is never migrated', () => {
+  // Since the move, a local agent is only ever saved under `local-`, so an
+  // unprefixed CLI name is a provider of the same name (#2104).
+  const state = team('codex-cli/gpt-5')
+  state.localRoutesMoved = true
+  assert.equal(migrateLocalRoutes(state), false)
+  assert.equal(state.bots.b1.model, 'codex-cli/gpt-5')
+  assert.equal(state.bots.b1.appliedModel, 'codex-cli/gpt-5')
+})
+
+test('a migrated team is marked so later loads leave its refs alone', () => {
+  const state = team('codex-cli/gpt-5')
+  assert.equal(migrateLocalRoutes(state), true)
+  assert.equal(state.localRoutesMoved, true)
+  state.bots.b1.model = 'codex-cli/remote-model'
+  assert.equal(migrateLocalRoutes(state), false)
+  assert.equal(state.bots.b1.model, 'codex-cli/remote-model')
 })

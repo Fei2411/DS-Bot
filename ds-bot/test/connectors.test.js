@@ -102,9 +102,9 @@ test('approved DS Bot bug reports honor GitHub access and post only to the fixed
   rt.connectorsInternals.statuses.delete('github')
   assert.equal(writes.length, 0)
 
-  assert.equal(await rt.publishDsBotIssue('m1', draft), 'https://github.com/Fei2411/DS-Bot/issues/42')
+  assert.equal(await rt.publishDsBotIssue('m1', draft), 'https://github.com/Fei-Craft/DS-Bot/issues/42')
   assert.equal(writes.length, 1)
-  assert.equal(writes[0].url, 'https://api.github.com/repos/Fei2411/DS-Bot/issues')
+  assert.equal(writes[0].url, 'https://api.github.com/repos/Fei-Craft/DS-Bot/issues')
   assert.equal(writes[0].init.method, 'POST')
   assert.equal(writes[0].init.redirect, 'error')
   assert.equal(writes[0].init.headers.Authorization, `Bearer ${token}`)

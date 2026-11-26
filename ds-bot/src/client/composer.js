@@ -1,15 +1,16 @@
 import { createElement as h, Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { ChatsIcon, ClockIcon, GoalIcon, MicIcon, PaperclipIcon, PeopleIcon, PlusIcon, WaveIcon } from './icons.js'
+import { ChatsIcon, ClockIcon, GoalIcon, MicIcon, MoveIcon, PaperclipIcon, PeopleIcon, PlusIcon, WaveIcon } from './icons.js'
 import { canSetGoal } from './goal.js'
 import { BotMark } from './mark.js'
 import { stepMenuFocus, useLinger, useViewport, viewBottom } from './motion.js'
-import { t } from './i18n.js'
+import { hostText, t } from './i18n.js'
 import { insertComposerNewline, sendsOnEnter } from './enter-key.js'
-import { enterSteers, steerable } from './enter-steer.js'
+import { emptyAccelQueueKey, enterSteers, steerable } from './enter-steer.js'
 import { chatOfSession, flushDrafts, keepDraft, takeDraft } from './draft-keep.js'
 import { lruGet, lruSet } from './memo.js'
 import { mergeRescuedDraft, readRescuedForChat } from './question-draft.js'
+import { openCapture, speechCatalog, transcribeWave } from './speech.js'
 
 // -------------------------------------------------------------------------
 // Composer: dictation mic and the voice-chat button. The shell's send
@@ -18,6 +19,25 @@ import { mergeRescuedDraft, readRescuedForChat } from './question-draft.js'
 
 export const speechApi = () => window.SpeechRecognition ?? window.webkitSpeechRecognition
 const keepComposerFocus = event => event.preventDefault()
+const WORD_EDGE = /[\p{L}\p{N}]/u
+const NON_SPACED = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Thai}\p{Script=Lao}\p{Script=Khmer}\p{Script=Myanmar}]/u
+
+/** Add boundary spaces when dictating space-delimited words next to existing word characters. */
+export function spacedDictation(text, beforeChar = '', afterChar = '') {
+  if (!text) return ''
+  const first = text[0]
+  const last = text[text.length - 1]
+  const needBefore = Boolean(beforeChar) && WORD_EDGE.test(beforeChar) && WORD_EDGE.test(first) && !NON_SPACED.test(beforeChar) && !NON_SPACED.test(first)
+  const needAfter = Boolean(afterChar) && WORD_EDGE.test(last) && WORD_EDGE.test(afterChar) && !NON_SPACED.test(last) && !NON_SPACED.test(afterChar)
+  return `${needBefore ? ' ' : ''}${text}${needAfter ? ' ' : ''}`
+}
+
+function dictationLimitMs(catalog) {
+  const byDuration = Number.isFinite(catalog?.maxDurationSeconds) ? catalog.maxDurationSeconds : 120
+  // 16 kHz mono PCM16 WAV = 32,000 bytes/sec + 44-byte header.
+  const byBytes = Number.isFinite(catalog?.maxAudioBytes) ? Math.max(1, (catalog.maxAudioBytes - 44) / 32000) : byDuration
+  return Math.max(1000, Math.floor((Math.min(byDuration, byBytes) - 0.5) * 1000))
+}
 
 export function useDictation(onText) {
   const [listening, setListening] = useState(false)
@@ -73,6 +93,134 @@ export function ComposerVoice({ sessionId, inputActions, actions, useUi, useRost
   const dictation = useDictation((text, final) => {
     if (final && inputActions) inputActions.insertText(text, inputActions.captureInsertion())
   })
+  const [hostListening, setHostListening] = useState(false)
+  const [hostBusy, setHostBusy] = useState(false)
+  const [hostNote, setHostNote] = useState('')
+  const hostCapture = useRef(undefined)
+  const hostCatalog = useRef(undefined)
+  const hostAbort = useRef(undefined)
+  const hostTimer = useRef(undefined)
+  const hostGen = useRef(0)
+  const mounted = useRef(true)
+  const clearHostTimer = () => {
+    if (hostTimer.current !== undefined) {
+      clearTimeout(hostTimer.current)
+      hostTimer.current = undefined
+    }
+  }
+  const cancelHostDictation = () => {
+    hostGen.current += 1
+    clearHostTimer()
+    hostAbort.current?.abort?.()
+    hostAbort.current = undefined
+    hostCapture.current?.cancel?.()
+    hostCapture.current = undefined
+    hostCatalog.current = undefined
+    if (mounted.current) {
+      setHostListening(false)
+      setHostBusy(false)
+    }
+  }
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+      hostGen.current += 1
+      clearHostTimer()
+      hostAbort.current?.abort?.()
+      hostCapture.current?.cancel?.()
+    }
+  }, [])
+  useEffect(() => {
+    if (!hostNote) return undefined
+    const timer = setTimeout(() => setHostNote(''), 2600)
+    return () => clearTimeout(timer)
+  }, [hostNote])
+  const finishHostDictation = (limitReached = false) => {
+    clearHostTimer()
+    const cap = hostCapture.current
+    const cat = hostCatalog.current
+    if (!cap) return
+    hostCapture.current = undefined
+    setHostListening(false)
+    const speech = actions.speech?.()
+    if (!speech) {
+      cap.cancel?.()
+      return
+    }
+    setHostBusy(true)
+    const ctl = new AbortController()
+    hostAbort.current = ctl
+    const maxSec = Math.min(
+      Number.isFinite(cat?.maxDurationSeconds) ? cat.maxDurationSeconds : 120,
+      Number.isFinite(cat?.maxAudioBytes) ? Math.max(1, (cat.maxAudioBytes - 44) / 32000) : 120,
+    )
+    void cap.finish(maxSec)
+      .then(async (wave) => {
+        if (!wave || ctl.signal.aborted || !mounted.current) return
+        const text = await transcribeWave(speech, cat, wave, ctl.signal)
+        if (text && inputActions && !ctl.signal.aborted && mounted.current) {
+          const at = inputActions.captureInsertion()
+          const area = composerRoot.current?.closest?.('[data-composer-card]')?.querySelector?.('textarea')
+          const value = typeof area?.value === 'string' ? area.value : ''
+          const beforeChar = at && at.start > 0 ? value[at.start - 1] ?? '' : ''
+          const afterChar = at && at.end < value.length ? value[at.end] ?? '' : ''
+          inputActions.insertText(spacedDictation(text, beforeChar, afterChar), at)
+        }
+        if (limitReached && mounted.current) setHostNote(t('That was too long to recognize'))
+      })
+      .catch((error) => {
+        if (ctl.signal.aborted || !mounted.current) return
+        const kind = error?.kind
+        setHostNote(kind === 'too-long' ? t('That was too long to recognize') : t("Couldn't reach the speech service"))
+      })
+      .finally(() => {
+        if (hostAbort.current === ctl) hostAbort.current = undefined
+        if (mounted.current) setHostBusy(false)
+      })
+  }
+  const toggleMic = () => {
+    if (hostBusy) return
+    if (dictation.listening) { dictation.stop(); return }
+    if (hostListening && hostCapture.current) { finishHostDictation(false); return }
+    const speech = actions.speech?.()
+    if (!speech) {
+      dictation.start()
+      return
+    }
+    const gen = ++hostGen.current
+    setHostBusy(true)
+    void speechCatalog(speech)
+      .then(async ({ catalog, usable }) => {
+        if (!mounted.current || hostGen.current !== gen) return
+        if (!usable) {
+          if (speechApi()) {
+            dictation.start()
+            return
+          }
+          setHostNote(t('Voice input needs its speech model'))
+          return
+        }
+        const cap = await openCapture()
+        if (!mounted.current || hostGen.current !== gen) { cap.cancel(); return }
+        hostCatalog.current = catalog
+        hostCapture.current = cap
+        setHostListening(true)
+        clearHostTimer()
+        hostTimer.current = setTimeout(() => { finishHostDictation(true) }, dictationLimitMs(catalog))
+      })
+      .catch((error) => {
+        if (!mounted.current || hostGen.current !== gen) return
+        const kind = error?.kind
+        setHostNote(kind === 'blocked' ? t('Microphone access is blocked') : t("Couldn't start dictation"))
+      })
+      .finally(() => { if (mounted.current && hostGen.current === gen) setHostBusy(false) })
+  }
+  const openVoiceChat = () => {
+    if (dictation.listening) dictation.stop()
+    if (hostListening || hostBusy || hostCapture.current || hostAbort.current) cancelHostDictation()
+    actions.openVoice(sessionId)
+  }
   // Reply from a message's hover toolbar quotes it into this composer.
   const quote = useUi(state => (state.quote?.sessionId === sessionId ? state.quote : null))
   useEffect(() => {
@@ -90,19 +238,24 @@ export function ComposerVoice({ sessionId, inputActions, actions, useUi, useRost
     }
   }, [quote?.token])
   if (sessionId === undefined) return null
-  // With the Voice Input plugin on, its own microphone sits in this composer.
-  const pluginMic = actions.speech() !== undefined
+  // With DSH Web's Voice Input UI plugin on, its own microphone sits in this composer.
+  // DS Bot's own desktop window provides no separate DSH UI mic, so it keeps this button
+  // and routes dictation straight through the host speech controller.
+  const pluginMic = typeof actions.hasPluginMic === 'function' ? actions.hasPluginMic() : actions.speech() !== undefined
+  const listening = dictation.listening || hostListening
+  const note = hostNote || dictation.note
   return h(Fragment, null,
     pluginMic ? null : h('button', {
-      type: 'button', className: 'bt-mic', 'aria-label': dictation.listening ? t('Stop dictation') : t('Dictate'),
-      'aria-pressed': dictation.listening, title: dictation.listening ? t('Stop dictation') : t('Dictate'),
-      onMouseDown: keepComposerFocus, onClick: () => (dictation.listening ? dictation.stop() : dictation.start()),
+      type: 'button', className: 'bt-mic', 'aria-label': listening ? t('Stop dictation') : t('Dictate'),
+      'aria-pressed': listening, title: listening ? t('Stop dictation') : t('Dictate'),
+      disabled: hostBusy,
+      onMouseDown: keepComposerFocus, onClick: toggleMic,
     }, h(MicIcon)),
     h('button', {
       ref: composerRoot, type: 'button', className: 'bt-voice', 'aria-label': t('Start voice chat'), title: t('Voice chat'),
-      onMouseDown: keepComposerFocus, onClick: () => actions.openVoice(sessionId),
+      onMouseDown: keepComposerFocus, onClick: openVoiceChat,
     }, h(WaveIcon, { size: 18 })),
-    dictation.note ? h('span', { className: 'bt-mic-note', role: 'status' }, dictation.note) : null)
+    note ? h('span', { className: 'bt-mic-note', role: 'status' }, note) : null)
 }
 
 // Character marks for the "@" menu rows. Each Bot keeps one component, so the menu
@@ -132,8 +285,10 @@ export function menuIcons(roster) {
 // menu, whose plan, permission, model and compact rows reach past what DS Bot keeps
 // for its Bots; "/" still opens that menu. Files go through the shell's own file
 // input beside it.
-export function ComposerPlus({ sessionId, inputActions, useInput, useRoster, actions }) {
+export function ComposerPlus({ sessionId, inputActions, useInput, useRoster, useWork, actions }) {
   const roster = useRoster(value => value)
+  const enterToSend = sendsOnEnter(roster.prefs)
+  const bgInfo = useWork?.(work => work.canBackground?.[sessionId])
   const [open, setOpen] = useState(null)
   const [shown, leaving] = useLinger(open, 120)
   const button = useRef(null)
@@ -142,7 +297,7 @@ export function ComposerPlus({ sessionId, inputActions, useInput, useRoster, act
   // The selector runs on every input change, so inputNow stays live for the key
   // handler while `ready` re-renders only when steerability flips.
   const inputNow = useRef(undefined)
-  const ready = useInput?.((state) => { inputNow.current = state; return steerable(state) }) === true
+  const ready = useInput?.((state) => { inputNow.current = state; return steerable(state) }) === true && enterToSend
   const target = roster.byId?.[sessionId]?.id ?? roster.roomsById?.[sessionId]?.id
   useEffect(() => {
     if (!open) return undefined
@@ -167,9 +322,11 @@ export function ComposerPlus({ sessionId, inputActions, useInput, useRoster, act
   useEffect(() => {
     let steering = false
     const onKey = (event) => {
-      if (steering || event.defaultPrevented || open) return
+      if (event.defaultPrevented || open) return
       // Check key/steerability before touching the DOM so regular typing does zero queries (#1812).
-      if (!enterSteers(event, inputNow.current)) return
+      const plainEnter = enterSteers(event, inputNow.current, enterToSend)
+      const accelEnter = !plainEnter && emptyAccelQueueKey(event, inputNow.current)
+      if (!plainEnter && !accelEnter) return
       const targetEl = event.target
       if (typeof targetEl?.closest !== 'function') return
       const card = button.current?.closest('[data-composer-card]')
@@ -179,12 +336,13 @@ export function ComposerPlus({ sessionId, inputActions, useInput, useRoster, act
       if (targetEl.ownerDocument?.querySelector('[role="listbox"]')) return
       event.preventDefault()
       event.stopPropagation()
+      if (steering || !steerable(inputNow.current)) return
       steering = true
       void Promise.resolve(actions.steerQueued(sessionId)).finally(() => { steering = false })
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [open, sessionId])
+  }, [open, sessionId, enterToSend])
   // Hooks stay above the early return below: the roster may not know the Bot yet, and a
   // render that skips a hook breaks the composer's slot when the roster arrives.
   // Anchored to the "+" each render: the visible viewport can move (on-screen
@@ -192,7 +350,8 @@ export function ComposerPlus({ sessionId, inputActions, useInput, useRoster, act
   const place = useMemo(() => {
     if (!shown || !button.current) return null
     const rect = button.current.getBoundingClientRect()
-    return { left: rect.left, bottom: viewBottom() - rect.top + 8 }
+    const cardTop = button.current.closest?.('[data-composer-card]')?.getBoundingClientRect?.().top ?? rect.top
+    return { left: rect.left, bottom: viewBottom() - Math.min(rect.top, cardTop) + 8 }
   }, [shown, open, tick])
   if (sessionId === undefined || target === undefined) return null
   const fileInput = () => button.current?.closest('[data-composer-card]')?.querySelector('input[type=file]')
@@ -221,6 +380,12 @@ export function ComposerPlus({ sessionId, inputActions, useInput, useRoster, act
     setOpen(null)
     actions.composeGoal(room.id)
   }
+  const moveToBackground = () => {
+    setOpen(null)
+    if (!bgInfo || typeof actions.moveToBackground !== 'function') return
+    void Promise.resolve(actions.moveToBackground(bgInfo.botId, sessionId, bgInfo.turn))
+      .catch(error => actions.reportError?.(new Error(hostText(error?.message ?? String(error))), 'move-to-background'))
+  }
   return h(Fragment, null,
     h('button', {
       ref: button, type: 'button', className: 'bt-plus', 'aria-label': t('Add'), title: t('Add'),
@@ -233,6 +398,7 @@ export function ComposerPlus({ sessionId, inputActions, useInput, useRoster, act
     shown.files ? h('button', { type: 'button', role: 'menuitem', onClick: attach }, h(PaperclipIcon), h('span', { className: 'bt-menu-label' }, t('Add files'))) : null,
     canReference ? h('button', { type: 'button', role: 'menuitem', onMouseDown: keepComposerFocus, onClick: reference }, h(ChatsIcon), h('span', { className: 'bt-menu-label' }, t('Reference a chat'))) : null,
     canSetGoal(room, roster) ? h('button', { type: 'button', role: 'menuitem', onClick: goal }, h(GoalIcon), h('span', { className: 'bt-menu-label' }, t('Set a goal'))) : null,
+    bgInfo && typeof actions.moveToBackground === 'function' ? h('button', { type: 'button', role: 'menuitem', onMouseDown: keepComposerFocus, onClick: moveToBackground }, h(MoveIcon), h('span', { className: 'bt-menu-label' }, t('Move current work to background'))) : null,
     h('button', { type: 'button', role: 'menuitem', onClick: schedule }, h(ClockIcon), h('span', { className: 'bt-menu-label' }, t('Scheduled task')))), document.body) : null)
 }
 

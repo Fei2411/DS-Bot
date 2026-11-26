@@ -12,6 +12,7 @@ try { run = Number(readFileSync(stateFile, 'utf8')) } catch {}
 run += 1
 writeFileSync(stateFile, String(run))
 if (failOn.split(',').includes(String(run))) process.exit(1)
+const stallBeforeInit = run === 1 && process.argv.includes('--stall-first')
 
 const resumeAt = process.argv.indexOf('--resume')
 const resumed = resumeAt === -1 ? 'none' : process.argv[resumeAt + 1]
@@ -36,6 +37,7 @@ process.stdin.on('data', (chunk) => {
     let message
     try { message = JSON.parse(line) } catch { continue }
     if (message.type !== 'user') continue
+    if (stallBeforeInit) continue
     if (!inited) {
       inited = true
       send({ type: 'system', subtype: 'init', session_id: sessionId })

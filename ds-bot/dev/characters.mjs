@@ -1,15 +1,15 @@
 // Source of DS Bot's characters. Each one is a small 3D model made of
-// signed-distance primitives (spheres, ellipsoids, round cones, a torus, extrusions, and
-// the first mascots' design outlines inflated into soft slabs), seen from one fixed
-// three-quarter view and traced into flat layers in a 100-unit box: the body, decals,
-// a shade on the side away from the light, and a highlight facing it. The eyes are
-// capsules laid on the model's front surface and projected the same way, so the near
-// eye is wider than the far one and both lean with the surface.
+// signed-distance primitives (spheres, ellipsoids, round cones, a torus, and extrusions),
+// seen from one fixed three-quarter view and traced into flat layers in a 100-unit box:
+// the body silhouette and optional decals. The eyes are capsules laid on the model's front
+// surface and projected the same way, so the near eye is wider than the far one and both
+// lean with the surface. The whale also keeps its shade and highlight layers for the
+// desktop app's start-window animation.
 //
 //   node dev/characters.mjs                   prints the CHARACTERS block for src/client/characters.js
 //   node dev/characters.mjs --preview a.html  also writes a preview gallery
 import { writeFileSync } from 'node:fs'
-import { BLOSSOM_PETALS, MOON_BODY, SQUIRCLE_BODY, STAR_BODY, WAVE_BODY } from './mascot-outlines.mjs'
+import { SQUIRCLE_BODY, STAR_BODY } from './mascot-outlines.mjs'
 
 // ---------------------------------------------------------------------------
 // Vectors and the view.
@@ -218,14 +218,6 @@ const box512 = (cx, cy, per = 190) => ({ map: (x, y) => [cx + x * per, cy - y * 
 
 // A soft slab: the outline pushed back and forth `depth`, its rim rounded by `round`.
 const puffy = (profile, depth, round) => extrude((x, y) => profile(x, y) + round, depth, round)
-// A 2D distance seen on the front of a model as a decal.
-const segment2 = (ax, ay, bx, by) => (x, y) => {
-  const dx = bx - ax
-  const dy = by - ay
-  const h = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / (dx * dx + dy * dy)))
-  return Math.hypot(x - ax - dx * h, y - ay - dy * h)
-}
-const polyline2 = (points, width) => (x, y) => Math.min(...points.slice(1).map((p, k) => segment2(...points[k], ...p)(x, y))) - width
 const circle2 = (cx, cy, r) => (x, y) => Math.hypot(x - cx, y - cy) - r
 
 // ---------------------------------------------------------------------------
@@ -233,14 +225,13 @@ const circle2 = (cx, cy, r) => (x, y) => Math.hypot(x - cx, y - cy) - r
 // scales the capsule (1 = 10 by 23 units at a face-on spot).
 // `paints` are decals on the model's front: a region (negative inside) of the hit
 // point, drawn in a fixed color over the body color.
-const decal = (region2, fill, opacity = 1) => ({ region: p => region2(p[0], p[1]), fill, opacity })
-// The wave's heart, drawn freehand in a 100-unit box (y down), a little lopsided on purpose.
-const WAVE_HEART = 'M50 78C38 70 22 59 20 45C18.5 35 25 27 34 27C41 27 46.5 31.5 50 37.5C53.5 31 59.5 26.5 66.5 27C75.5 27.5 81.5 35.5 80 45.5C78 59.5 62 70.5 50 78Z'
 
-// The first mascots: their original outlines, inflated into soft 3D bodies.
+// Core characters: the Main Bot whale, original sky/creature/nature characters, and
+// clean geometric forms. None use third-party mascot outlines or logos.
 const MASCOTS = {
   whale: {
     label: 'Whale',
+    keepShading: true,
     sdf: smin(0.14,
       ellipsoid([0.12, -0.06, 0], [0.8, 0.68, 0.66]),
       roundCone([-0.42, -0.34, 0], [-1.0, 0.16, 0], 0.18, 0.065),
@@ -249,48 +240,86 @@ const MASCOTS = {
     eyes: [[-0.06, 0.12], [0.34, 0.12]],
     paints: [{ region: p => Math.max(sphere([0.42, -0.98, 0.52], 0.72)(p), -0.04 - p[2]), fill: '#fff', opacity: 1 }],
   },
-  moon: {
-    label: 'Moon',
-    sdf: puffy(outline([MOON_BODY], box512(244, 288)), 0.1, 0.24),
-    eyes: [[-0.2, 0.04], [0.22, 0.04]],
-    paints: [decal((x, y) => Math.max(circle2(0.232, 0.674, 0.147)(x, y), -circle2(0.3, 0.747, 0.127)(x, y)), '#1783FF')],
-  },
-  zed: {
-    label: 'Bull',
-    sdf: smin(0.1,
-      ellipsoid([0, -0.12, 0], [0.74, 0.68, 0.62]),
-      roundCone([0.4, 0.3, 0], [0.78, 0.5, 0], 0.18, 0.12),
-      roundCone([0.78, 0.5, 0], [0.86, 0.86, 0], 0.12, 0.05),
-      roundCone([-0.4, 0.3, 0], [-0.78, 0.5, 0], 0.18, 0.12),
-      roundCone([-0.78, 0.5, 0], [-0.86, 0.86, 0], 0.12, 0.05),
-      ellipsoid([0.76, 0.02, -0.08], [0.26, 0.12, 0.1], -14),
-      ellipsoid([-0.76, 0.02, -0.08], [0.26, 0.12, 0.1], 14)),
-    eyes: [[-0.22, -0.1], [0.22, -0.1]],
-    paints: [decal(polyline2([[-0.1, 0.44], [0.1, 0.44], [-0.09, 0.3], [0.11, 0.3]], 0.034), '#fff')],
-  },
-  wave: {
-    label: 'Wave',
-    sdf: puffy(outline([WAVE_BODY], box512(256, 262)), 0.1, 0.24),
-    eyes: [[-0.2, 0.34], [0.2, 0.34]],
-    // A hand-drawn heart, low on the body.
-    paints: [decal(outline([WAVE_HEART], { map: (x, y) => [50 + x * 120, 50 - (y + 0.22) * 120], unit: 120 }), '#fff', 0.4)],
-  },
   star: {
     label: 'Star',
     sdf: puffy(outline([STAR_BODY], { ...box512(256, 262), grow: 22 }), 0.1, 0.2),
     eyes: [[-0.17, -0.02], [0.17, -0.02]],
     eye: 0.85,
   },
+  moon: {
+    label: 'Moon',
+    sdf: extrude((x, y) => {
+      const outer = circle2(0.06, 0, 0.88)(x, y)
+      const inner = circle2(-0.52, 0.24, 0.69)(x, y)
+      const k = 0.14
+      const h = Math.max(k - Math.abs(outer + inner), 0) / k
+      return Math.max(outer, -inner) + (h * h * k) / 4
+    }, 0.14, 0.22),
+    eyes: [[0.14, -0.1], [0.48, -0.1]],
+    eye: 0.82,
+  },
+  cloud: {
+    label: 'Cloud',
+    sdf: smin(0.18,
+      ellipsoid([0, -0.06, 0.04], [0.76, 0.54, 0.52]),
+      ellipsoid([0, 0.34, -0.02], [0.48, 0.46, 0.44]),
+      ellipsoid([-0.58, -0.1, -0.02], [0.43, 0.42, 0.4]),
+      ellipsoid([0.58, -0.1, -0.02], [0.43, 0.42, 0.4])),
+    eyes: [[-0.26, -0.04], [0.18, -0.04]],
+    eye: 0.9,
+  },
+  spark: {
+    label: 'Spark',
+    sdf: smin(0.14,
+      ellipsoid([0, -0.24, 0], [0.74, 0.66, 0.66]),
+      roundCone([0.04, -0.08, 0], [-0.14, 0.88, 0], 0.54, 0.11),
+      roundCone([0.36, -0.16, 0.02], [0.54, 0.36, 0], 0.28, 0.09)),
+    eyes: [[-0.2, -0.2], [0.2, -0.2]],
+    eye: 0.88,
+  },
+  bear: {
+    label: 'Bear',
+    sdf: smin(0.12,
+      ellipsoid([0, -0.14, 0], [0.86, 0.76, 0.72]),
+      sphere([-0.58, 0.56, -0.04], 0.3),
+      sphere([0.58, 0.56, -0.04], 0.3)),
+    eyes: [[-0.24, -0.08], [0.24, -0.08]],
+    eye: 0.95,
+  },
+  puppy: {
+    label: 'Puppy',
+    sdf: smin(0.06,
+      ellipsoid([0, 0.02, 0], [0.74, 0.68, 0.66]),
+      capsule([-0.68, 0.3, -0.04], [-0.94, -0.34, -0.06], 0.21),
+      capsule([0.68, 0.3, -0.04], [0.94, -0.34, -0.06], 0.21)),
+    eyes: [[-0.22, 0.06], [0.22, 0.06]],
+    eye: 0.92,
+  },
+  sprout: {
+    label: 'Sprout',
+    sdf: smin(0.06,
+      ellipsoid([0, -0.22, 0], [0.76, 0.68, 0.68]),
+      capsule([0, 0.36, 0], [0, 0.74, 0], 0.08),
+      ellipsoid([0.38, 0.76, 0], [0.36, 0.16, 0.12], 22),
+      ellipsoid([-0.34, 0.72, 0], [0.3, 0.14, 0.1], -26)),
+    eyes: [[-0.22, -0.18], [0.22, -0.18]],
+    eye: 0.92,
+  },
+  bloom: {
+    label: 'Blossom',
+    sdf: smin(0.05,
+      ellipsoid([0, 0, 0], [0.46, 0.46, 0.38]),
+      ...[0, 1, 2, 3, 4].map((i) => {
+        const a = rad(90 + i * 72)
+        return ellipsoid([Math.cos(a) * 0.56, Math.sin(a) * 0.56, 0], [0.38, 0.38, 0.32])
+      })),
+    eyes: [[-0.19, 0], [0.19, 0]],
+    eye: 0.82,
+  },
   squircle: {
     label: 'Squircle',
     sdf: puffy(outline([SQUIRCLE_BODY], box512(256, 256)), 0.12, 0.26),
     eyes: [[-0.2, 0.06], [0.2, 0.06]],
-  },
-  hex: {
-    label: 'Blossom',
-    sdf: puffy(outline(BLOSSOM_PETALS, { map: (x, y) => [9.86 + x * 9.6, 10 - y * 9.6], unit: 9.6, grow: 0.6 }), 0.08, 0.12),
-    eyes: [[-0.16, -0.04], [0.18, -0.04]],
-    eye: 0.8,
   },
 }
 
@@ -342,10 +371,6 @@ const GEOMETRIC = {
     eyes: [[-0.16, 0.38], [0.24, 0.38]],
     eye: 0.82,
   },
-  cushion: {
-    sdf: roundBox([0, 0, 0], [0.92, 0.78, 0.38], 0.36),
-    eyes: [[-0.26, -0.02], [0.22, -0.02]],
-  },
   ring: {
     sdf: torus([0, 0, 0], 0.64, 0.3),
     eyes: [[-0.2, -0.64], [0.2, -0.64]],
@@ -358,112 +383,26 @@ const GEOMETRIC = {
   },
   octopus: {
     label: 'Octopus',
-    sdf: smin(0.16,
-      ellipsoid([0, 0.26, 0.02], [0.56, 0.48, 0.5]),
-      roundCone([-0.3, 0.0, 0.0], [-0.58, -0.5, 0.04], 0.17, 0.08),
-      roundCone([-0.1, -0.04, 0.06], [-0.18, -0.64, 0.1], 0.16, 0.08),
-      roundCone([0.12, -0.04, 0.04], [0.24, -0.6, 0.08], 0.16, 0.08),
-      roundCone([0.32, 0.0, -0.02], [0.62, -0.44, 0.0], 0.16, 0.08)),
-    eyes: [[-0.17, 0.2], [0.17, 0.2]],
-    eye: 0.82,
-    paints: [decal(circle2(0.04, -0.24, 0.12), '#fff')],
-  },
-  jelly: {
-    label: 'Jellyfish',
-    sdf: smin(0.1,
-      clipBelow(ellipsoid([0, 0.42, 0], [0.74, 0.34, 0.58]), 0.16),
-      torus([0, 0.2, 0], 0.52, 0.12),
-      roundCone([-0.34, 0.14, 0.02], [-0.42, -0.34, 0.04], 0.12, 0.075),
-      roundCone([-0.1, 0.12, 0.05], [-0.12, -0.46, 0.08], 0.12, 0.075),
-      roundCone([0.14, 0.12, 0.04], [0.18, -0.4, 0.05], 0.12, 0.075),
-      roundCone([0.36, 0.14, 0], [0.44, -0.3, 0.02], 0.11, 0.07)),
-    eyes: [[-0.16, 0.52], [0.16, 0.52]],
-    eye: 0.74,
-  },
-  starfish: {
-    label: 'Starfish',
-    // One point up. The extrude's round is most of the thickness, so the tips stay bulbs.
-    sdf: smin(0.22,
-      extrude((x, y) => polygonDistance([[[0, 0.58], [-0.16, 0.23], [-0.55, 0.18], [-0.27, -0.09], [-0.34, -0.47], [0, -0.28], [0.34, -0.47], [0.27, -0.09], [0.55, 0.18], [0.16, 0.23]]], x, y), 0.08, 0.18),
-      ellipsoid([0, 0.02, 0.08], [0.36, 0.32, 0.3])),
-    eyes: [[-0.12, 0.02], [0.12, 0.02]],
-    eye: 0.75,
-  },
-  turtle: {
-    label: 'Turtle',
-    sdf: smin(0.16,
-      clipBelow(ellipsoid([-0.08, 0.12, 0], [0.56, 0.44, 0.5]), -0.06),
-      ellipsoid([0.62, 0.0, 0.3], [0.3, 0.27, 0.26]),
-      roundCone([-0.22, 0.02, 0.04], [-0.84, -0.1, 0.08], 0.16, 0.09),
-      roundCone([0.08, 0.0, 0.12], [0.2, -0.48, 0.2], 0.16, 0.09)),
-    eyes: [[0.5, 0.04], [0.72, 0.06]],
-    eye: 0.7,
-    paints: [decal(circle2(-0.2, 0.2, 0.12), '#fff')],
-  },
-  // Aquatic set. Beak, snout and claws sit toward +x, the same way the whale faces.
-  dolphin: {
-    label: 'Dolphin',
-    sdf: smin(0.13,
-      ellipsoid([0.02, -0.02, 0], [0.56, 0.4, 0.4]),
-      roundCone([0.34, 0.0, 0.05], [0.84, 0.02, 0.16], 0.18, 0.08),
-      ellipsoid([-0.1, 0.36, -0.04], [0.11, 0.28, 0.07], 18),
-      roundCone([-0.38, -0.02, 0], [-0.72, 0.02, 0], 0.16, 0.07),
-      ellipsoid([-0.8, 0.18, 0], [0.1, 0.22, 0.06], 36),
-      ellipsoid([-0.82, -0.14, 0], [0.09, 0.18, 0.055], -40),
-      ellipsoid([0.16, -0.22, 0.24], [0.2, 0.07, 0.05], 22)),
-    eyes: [[-0.12, 0.08], [0.18, 0.08]],
-    eye: 0.78,
-    paints: [decal((x, y) => Math.max(circle2(0.08, -0.18, 0.2)(x, y), y), '#fff')],
-  },
-  puffer: {
-    label: 'Pufferfish',
-    sdf: smin(0.08,
-      sphere([0, 0, 0], 0.62),
-      roundCone([0.0, 0.48, 0.08], [0.02, 0.78, 0.1], 0.13, 0.05),
-      roundCone([0.36, 0.28, 0.16], [0.56, 0.46, 0.2], 0.12, 0.05),
-      roundCone([-0.32, 0.32, 0.08], [-0.5, 0.52, 0.1], 0.12, 0.05),
-      roundCone([0.48, -0.12, 0.16], [0.74, -0.16, 0.2], 0.12, 0.045),
-      roundCone([-0.48, -0.08, 0.1], [-0.74, -0.06, 0.12], 0.12, 0.045),
-      roundCone([0.16, 0.44, 0.2], [0.26, 0.66, 0.26], 0.11, 0.045),
-      roundCone([0.06, -0.48, 0.18], [0.08, -0.72, 0.24], 0.12, 0.045),
-      roundCone([-0.24, -0.36, 0.18], [-0.38, -0.56, 0.24], 0.11, 0.04),
-      ellipsoid([0.2, -0.4, 0.24], [0.18, 0.07, 0.05], 18)),
-    eyes: [[-0.18, 0.1], [0.18, 0.1]],
-    eye: 0.95,
-    paints: [decal((x, y) => Math.max(circle2(0.02, -0.34, 0.18)(x, y), y + 0.14), '#fff')],
-  },
-  seahorse: {
-    label: 'Seahorse',
-    sdf: smin(0.18,
-      ellipsoid([0.0, 0.44, 0.06], [0.38, 0.34, 0.3]),
-      roundCone([0.2, 0.36, 0.16], [0.62, 0.28, 0.28], 0.16, 0.09),
-      roundCone([0.02, 0.66, 0.06], [0.16, 0.86, 0.1], 0.12, 0.07),
-      roundCone([0.02, 0.16, 0.04], [-0.2, -0.04, 0.04], 0.22, 0.26),
-      roundCone([-0.2, -0.04, 0.04], [0.18, -0.32, 0.08], 0.26, 0.22),
-      roundCone([0.18, -0.32, 0.08], [-0.08, -0.52, 0.04], 0.18, 0.12),
-      roundCone([-0.08, -0.52, 0.04], [0.22, -0.72, 0.08], 0.12, 0.08),
-      sphere([0.3, -0.8, 0.08], 0.1)),
-    eyes: [[-0.12, 0.5], [0.12, 0.48]],
-    eye: 0.78,
-    paints: [decal(circle2(0.04, -0.3, 0.12), '#fff', 0.35)],
-  },
-  crab: {
-    label: 'Crab',
-    sdf: smin(0.055,
-      clipBelow(ellipsoid([0, 0.02, 0], [0.62, 0.32, 0.46]), -0.14),
-      smin(0.05, sphere([0.62, 0.02, 0.34], 0.2), roundCone([0.78, 0.1, 0.42], [0.94, 0.24, 0.46], 0.11, 0.055)),
-      smin(0.05, sphere([-0.72, -0.14, 0.16], 0.26), roundCone([-0.86, -0.24, 0.2], [-1.02, -0.4, 0.26], 0.12, 0.055)),
-      roundCone([0.22, -0.04, 0.2], [0.38, -0.38, 0.34], 0.13, 0.065),
-      roundCone([-0.24, -0.02, 0.14], [-0.4, -0.36, 0.24], 0.13, 0.065)),
-    eyes: [[-0.2, 0.12], [0.2, 0.12]],
-    eye: 0.78,
-    paints: [decal(polyline2([[-0.14, -0.06], [0, -0.14], [0.14, -0.06]], 0.05), '#fff')],
+    sdf: smin(0.15,
+      ellipsoid([0, 0.18, 0], [0.74, 0.64, 0.66]),
+      capsule([-0.46, -0.32, 0.08], [-0.76, -0.6, 0.18], 0.19),
+      capsule([-0.16, -0.38, 0.14], [-0.24, -0.72, 0.22], 0.19),
+      capsule([0.18, -0.38, 0.12], [0.26, -0.72, 0.18], 0.19),
+      capsule([0.48, -0.32, 0.04], [0.76, -0.58, 0.08], 0.19)),
+    eyes: [[-0.22, 0.18], [0.22, 0.18]],
+    eye: 0.9,
   },
 }
 
-// Picker order: the mascots lead, the star second, then the sea's other animals so the
-// whale is not the only one. The rest of GEOMETRIC follows in its own order.
-const ORDER = ['whale', 'star', 'dolphin', 'octopus', 'turtle', 'crab', 'puffer', 'jelly', 'starfish', 'seahorse', 'moon', 'wave', 'squircle', 'zed', 'hex']
+// Picker order (4 rows of 5): hero & sky, cute creatures, nature & soft forms, then
+// classic toys. Legacy shapes (magnet, ring, gem) follow at the end so existing Bots
+// keep rendering while staying out of the picker.
+const ORDER = [
+  'whale', 'star', 'moon', 'cloud', 'spark',
+  'bear', 'puppy', 'kitty', 'bunny', 'octopus',
+  'sprout', 'bloom', 'acorn', 'squircle', 'gumdrop',
+  'peanut', 'saucer', 'beacon', 'pebbles', 'plus',
+]
 const MODELS = { ...Object.fromEntries(ORDER.map(id => [id, MASCOTS[id] ?? GEOMETRIC[id]])), ...GEOMETRIC }
 
 function contours(field) {
@@ -654,8 +593,7 @@ function build(model) {
     ...(model.label ? { label: model.label } : {}),
     body: toPath(loops),
     ...(paints.length ? { paints: paints.map((paint, index) => [toPath(contours(layers.paints[index])), paint.fill, paint.opacity]) } : {}),
-    shade: toPath(contours(layers.shade)),
-    light: toPath(contours(layers.light)),
+    ...(model.keepShading ? { shade: toPath(contours(layers.shade)), light: toPath(contours(layers.light)) } : {}),
     eyes,
   }
 }
@@ -668,18 +606,17 @@ console.log(`export const CHARACTERS = {\n${block}\n}`)
 const out = process.argv.indexOf('--preview')
 if (out > 0) {
   const colors = ['#A27952', '#FF3E51', '#FF781C', '#FFAF38', '#00C972', '#1CC3B0', '#2A92FE', '#A97EFE', '#FF5EB1', '#959595']
-  const INK = { whale: '#4D6BFE', moon: '#141416', zed: '#2D2D2D', wave: '#EC2F6B', star: '#0AA8D6', squircle: '#FF6900', hex: '#082DFF' }
-  const INK_DARK = { moon: '#F1F2F4', zed: '#D6D6DA' }
+  const INK = { whale: '#4D6BFE', star: '#0AA8D6', moon: '#FFAF38', cloud: '#38BDF8', spark: '#FF781C', bear: '#A27952', puppy: '#D98A4E', octopus: '#FF3E51', sprout: '#00C972', bloom: '#A97EFE', squircle: '#FF6900' }
   let serial = 0
   const mark = (c, color, size) => {
     serial += 1
     const holes = c.eyes.map(([ex, ey, w, h, tilt]) => `<g transform="translate(${ex} ${ey}) rotate(${tilt})"><rect x="${-w / 2}" y="${-h / 2}" width="${w}" height="${h}" rx="${w / 2}" fill="#000"/></g>`).join('')
     const paint = (c.paints ?? []).map(([d, fill, opacity]) => `<path d="${d}" fill="${fill}" fill-opacity="${opacity}"/>`).join('')
-    return `<svg width="${size}" height="${size}" viewBox="0 0 100 100"><defs><mask id="m${serial}" maskUnits="userSpaceOnUse" x="-100" y="-100" width="300" height="300"><rect x="-100" y="-100" width="300" height="300" fill="#fff"/>${holes}</mask></defs><g mask="url(#m${serial})" fill-rule="evenodd"><path d="${c.body}" fill="${color}"/>${paint}<path d="${c.shade}" fill="#000" fill-opacity=".07"/></g></svg>`
+    return `<svg width="${size}" height="${size}" viewBox="0 0 100 100"><defs><mask id="m${serial}" maskUnits="userSpaceOnUse" x="-100" y="-100" width="300" height="300"><rect x="-100" y="-100" width="300" height="300" fill="#fff"/>${holes}</mask></defs><g mask="url(#m${serial})" fill-rule="evenodd"><path d="${c.body}" fill="${color}"/>${paint}</g></svg>`
   }
   const cells = dark => Object.entries(CHARACTERS).map(([id, c], index) => {
-    const color = (dark && INK_DARK[id]) || INK[id] || colors[index % colors.length]
+    const color = INK[id] || colors[index % colors.length]
     return `<div class="cell"><div>${mark(c, color, 96)}</div><div class="row">${mark(c, color, 40)}${mark(c, dark ? '#fff' : '#000', 28)}${mark(c, color, 20)}</div><div class="name">${id}</div></div>`
   }).join('')
-  writeFileSync(process.argv[out + 1], `<!doctype html><meta charset="utf-8"><style>body{margin:0;font:13px -apple-system,system-ui,sans-serif;background:#fcfcfc}section{padding:12px 20px;display:grid;grid-template-columns:repeat(7,104px);gap:4px}.dark{background:#141414}.cell{display:flex;flex-direction:column;align-items:center;gap:6px;padding:6px 0}.row{display:flex;align-items:center;gap:6px}.name{color:#777}</style><section>${cells(false)}</section><section class="dark">${cells(true)}</section>`)
+  writeFileSync(process.argv[out + 1], `<!doctype html><meta charset="utf-8"><style>body{margin:0;font:13px -apple-system,system-ui,sans-serif;background:#fcfcfc}section{padding:12px 20px;display:grid;grid-template-columns:repeat(5,104px);gap:4px}.dark{background:#141414}.cell{display:flex;flex-direction:column;align-items:center;gap:6px;padding:6px 0}.row{display:flex;align-items:center;gap:6px}.name{color:#777}</style><section>${cells(false)}</section><section class="dark">${cells(true)}</section>`)
 }

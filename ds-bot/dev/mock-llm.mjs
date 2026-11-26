@@ -114,12 +114,17 @@ function isSummary(body) {
 function decide(body) {
   const system = systemText(body.system) + '\n' + (body.messages ?? []).filter(m => m.role === 'system').map(m => textOf(m.content)).join('\n')
   const tools = new Set((body.tools ?? []).map(entry => entry.name))
-  // Clock snapshots and a group's memory snapshot are context, not a new scripted user command.
+  // Clock snapshots and conversation-layer memory snapshots/updates are context, not a new scripted user command.
   const messages = (body.messages ?? []).filter(m => m.role !== 'system').map(message => {
     if (message.role !== 'user') return message
-    const isClock = value => value.startsWith('Current time: ') || value.startsWith('Time sampled while preparing turn ') || value.startsWith('## Group memory, shared by the members of this group chat')
-    const content = typeof message.content === 'string' ? (isClock(message.content) ? '' : message.content)
-      : message.content.filter(block => block.type !== 'text' || !isClock(block.text))
+    const isContext = value => value.startsWith('Current time: ')
+      || value.startsWith('Time sampled while preparing turn ')
+      || value.startsWith('## Group memory, shared by the members of this group chat')
+      || value.startsWith('## Your memory (MEMORY.md)')
+      || value.startsWith('## Memory update')
+      || value.startsWith('## Possibly relevant memory')
+    const content = typeof message.content === 'string' ? (isContext(message.content) ? '' : message.content)
+      : message.content.filter(block => block.type !== 'text' || !isContext(block.text))
     return { ...message, content }
   }).filter(message => message.role !== 'user' || message.content.length > 0)
   const last = messages.at(-1)
@@ -361,9 +366,18 @@ function decide(body) {
       .map(line => /^[^:\n]{1,40}: \D*?(\d+)/.exec(line)?.[1])
       .filter(Boolean).map(Number)
     const mentioner = /^\[Group chat [^\]]*· (\S+) mentioned you\]/.exec(userText)?.[1]
-    const peer = /^Members: the user, ([^,\n]+?)(?:,| and you)/m.exec(userText)?.[1]?.replace(/ \(admin\)$/, '')
+    const latestMembersLine = [...messages].reverse()
+      .filter(m => m.role === 'user')
+      .map(m => /^Members: .*/m.exec(textOf(m.content))?.[0])
+      .find(Boolean) ?? ''
+    const peer = /^Members: the user, ([^,\n]+?)(?:,| and you)/.exec(latestMembersLine)?.[1]?.replace(/ \(admin\)$/, '')
     const room = /^\[Group chat "([^"]+)"/.exec(userText)?.[1] ?? ''
-    const leads = /^Members: .* and you \(admin\)\./m.test(userText)
+    const leads = /^Members: .* and you \(admin\)\./.test(latestMembersLine)
+    if (userText.includes('route-contract:')) {
+      if (leads && userLine.includes('route-contract: start')) return [tool('delegate_work', { to: 'Writer', goal: 'route-contract: check the note from @Coder' })]
+      if (me === 'Writer' && block.includes('route-contract: check')) return [text('@Chief @Coder route-contract: the backup is ready')]
+      if (leads && block.includes('route-contract: the backup is ready')) return [text('@Writer route-contract: received, no reply needed')]
+    }
     let ask
     if ((ask = /把\s*(\S+?)\s*拉进群/.exec(userLine))) return [tool('update_group', { group: room, add_members: [ask[1]] })]
     if ((ask = /把\s*(\S+?)\s*踢出群/.exec(userLine))) return [tool('update_group', { group: room, remove_members: [ask[1]] })]
@@ -481,6 +495,10 @@ function decide(body) {
     return [text(all.includes(order[1]) ? `上下文里有「${order[1]}」。` : `上下文里没有「${order[1]}」。`)]
   }
   let match
+  if (/^\[Work #W\d+ from [^\n]+\]\nroute-contract: check backup/.test(userText)) return [text('route-contract: backup complete')]
+  if ((match = /^\[Work #W\d+ completed by (.+?) · [^\n]+\]\nroute-contract: backup complete/.exec(userText))) {
+    return [tool('delegate_work', { to: match[1], goal: 'route-contract: acknowledgement' })]
+  }
   if ((match = /^\[(?:Message|Work) from ([^\]·]+?) · the user sees your reply here\]/.exec(userText))) {
     const asked = userText.split('\n').slice(1).join(' ').trim().replace(/[。.!！?？]+$/u, '')
     return [text(`${match[1]} 转来一句话：「${asked}」。我先说打算：把手头已有的材料理一遍，列出还缺什么，再和你确认先后顺序；你确认之前我不会动手。`)]
@@ -617,6 +635,8 @@ function decide(body) {
   if (card && tools.has('ask_user')) {
     return [text(filler(Number(card[1] ?? 4) * 1000, '卡片前')), tool('ask_user', { question: '接下来先做哪个？', options: ['写正文', '改标题', '先停'] })]
   }
+  // A message that starts with 想想 thinks first, whatever the reminders after it say.
+  if (/^想想/.test(userText)) return [think('用户想让我认真想一下。先拆成三件事：目标、约束、下一步。'), text('想了一下，建议分三步走：先定目标，再看约束，最后定下一步。')]
   if (/团队|班底|team/i.test(userText) && tools.has('list_bots')) return [tool('list_bots', {})]
   if (/想想|思考|think/i.test(userText)) {
     return [think('用户想让我认真想一下。先拆成三件事：目标、约束、下一步。'), text('想了一下，建议分三步走：先定目标，再看约束，最后定下一步。')]
