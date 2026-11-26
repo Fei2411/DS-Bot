@@ -22,4 +22,4 @@ const implementation = await import('./src/host/code-mode.js').catch(error => {
   throw new Error(`${requirement}; ${error.message}`, { cause: error })
 })
 
-export const { name, inject, Config, apply } = implementation
+export const { name, inject, Config, apply, createFallbackExecutor } = implementation

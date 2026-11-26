@@ -87,7 +87,7 @@ const MODULES = [diagnostics, store, contextRuntime, ledger, coordination, model
 
 export function apply(ctx, config = {}) {
   ctx.effect(() => installSocketTosGuard(), 'ds-bot: socket type of service')
-  createRuntime(ctx, config)
+  return createRuntime(ctx, config)
 }
 
 export function createRuntime(ctx, config = {}, codeMode) {

@@ -968,3 +968,158 @@ test('telemetry consent file stays protected from Bots even when no Bot is priva
   // Direct host path in bash is still blocked even from an unrelated cwd.
   assert.equal((await run('bash', { command: `cat "${telFile}"` }, 'b', agent)).ran, false)
 })
+
+test('apply_patch enforces private Bot, shared-state, API, secret fences and private outbound approval', async (t) => {
+  const approval = fakeApproval('allowed-once')
+  const { rt, run, home, diary, team, project, agentOf, stop } = await start({ services: { approval } })
+  t.after(stop)
+  const notes = join(diary, 'notes.txt')
+  const addPatch = path => `*** Begin Patch\n*** Add File: ${path}\n+hello\n*** End Patch`
+  const updatePatch = path => `*** Begin Patch\n*** Update File: ${path}\n@@\n-secret\n+leaked\n*** End Patch`
+  const deletePatch = path => `*** Begin Patch\n*** Delete File: ${path}\n*** End Patch`
+  const movePatch = (from, to) => `*** Begin Patch\n*** Update File: ${from}\n*** Move to: ${to}\n@@\n-a\n+b\n*** End Patch`
+
+  // Non-private Bot cannot add, update, delete, or move into/out of a private Bot's folder or shared state.
+  for (const input of [
+    addPatch(join(diary, 'injected.txt')),
+    updatePatch(notes),
+    deletePatch(notes),
+    movePatch(join(team, 'open.txt'), join(diary, 'moved.txt')),
+    movePatch(notes, join(team, 'stolen.txt')),
+    updatePatch(relative(team, notes)),
+    addPatch(join(home, 'memory', 'bots', P, 'MEMORY.md')),
+    updatePatch(join(home, 'state.json')),
+    updatePatch(join(home, 'secrets.json')),
+    deletePatch(join(home, 'chat-index.sqlite')),
+  ]) {
+    const res = await run('apply_patch', { input }, 'b')
+    assert.equal(res.ran, false, `expected private block for:\n${input}`)
+    assert.match(res.error, CLOSED)
+  }
+
+  // Symlink into private Bot's folder is also blocked for apply_patch.
+  if (process.platform !== 'win32') {
+    symlinkSync(diary, join(project, 'patch-link'))
+    const viaLink = await run('apply_patch', { input: addPatch(join(project, 'patch-link', 'via-link.txt')) }, 'b')
+    assert.equal(viaLink.ran, false)
+    assert.match(viaLink.error, CLOSED)
+  }
+
+  // API, telemetry, and secret storage files are blocked for apply_patch.
+  for (const file of [join(home, 'api-tokens.json'), join(home, 'mcp.json'), join(home, 'telemetry.json')]) {
+    const res = await run('apply_patch', { input: addPatch(file) }, 'b')
+    assert.equal(res.ran, false, `expected API/telemetry block for ${file}`)
+    assert.match(res.error, /API token|telemetry|private Bot/)
+  }
+  for (const file of [join(home, 'secret-refs', 'ref.json'), join(home, 'secret-files', 'a', 'k.secret'), join(home, 'secret-files', 'b', 'own.secret')]) {
+    const res = await run('apply_patch', { input: addPatch(file) }, 'b')
+    assert.equal(res.ran, false, `expected secret block for ${file}`)
+    assert.match(res.error, /secret|private Bot/i)
+  }
+
+  // Normal open files stay allowed for non-private Bots.
+  assert.deepEqual(await run('apply_patch', { input: addPatch(join(team, 'ok.txt')) }, 'b'), { ran: true })
+  assert.deepEqual(await run('apply_patch', { input: movePatch(join(project, 'a.txt'), join(project, 'b.txt')) }, 'b'), { ran: true })
+
+  // Private Bot can apply_patch inside its own folder without approval.
+  assert.deepEqual(await run('apply_patch', { input: addPatch(join(diary, 'inside.txt')) }, P), { ran: true })
+  assert.deepEqual(await run('apply_patch', { input: movePatch('notes.txt', 'notes2.txt') }, P), { ran: true })
+  assert.equal(approval.requests.length, 0)
+
+  // Private Bot changing or moving files outside its folder requires user approval.
+  assert.deepEqual(await run('apply_patch', { input: addPatch(join(project, 'out.txt')) }, P), { ran: true })
+  assert.equal(approval.requests.length, 1)
+  assert.match(approval.requests[0].reason, /outside its own folder/)
+  assert.deepEqual(await run('apply_patch', { input: movePatch('notes.txt', join(project, 'exported.txt')) }, P), { ran: true })
+  assert.equal(approval.requests.length, 2)
+
+  // TOCTOU: if effective cwd changes during approval, apply_patch must fail closed.
+  const privateAgent = agentOf(P)
+  privateAgent.session.header.cwd = project
+  rt.requestActionApproval = async () => { privateAgent.session.header.cwd = team; return 'allowed-once' }
+  const shifted = await run('apply_patch', { input: addPatch('rel.txt') }, P, privateAgent)
+  assert.equal(shifted.ran, false)
+  assert.match(shifted.error, /destination changed/)
+})
+
+test('run_code enforces private Bot, shared-state, API, secret fences and private Bot escalation approval', async (t) => {
+  const approval = fakeApproval('allowed-once')
+  let standingMode = 'workspace-write'
+  const { run, home, diary, team, project, agentOf, stop } = await start({
+    services: {
+      approval,
+      sandboxPolicy: { resolve: () => ({ mode: standingMode }) },
+    },
+  })
+  t.after(stop)
+  const notes = join(diary, 'notes.txt')
+  const posix = path => path.replace(/\\/g, '/')
+  const writerAgent = agentOf('b')
+  writerAgent.session.header.cwd = project
+
+  // Non-private Bot cannot reference private Bot files, relative traversals, symlinks, memory, or shared files in run_code.
+  for (const code of [
+    `const fs = await import('node:fs'); return fs.readFileSync(${JSON.stringify(notes)}, 'utf8')`,
+    `const fs = await import('node:fs'); return fs.readFileSync('${posix(notes)}', 'utf8')`,
+    `const fs = await import('node:fs'); return fs.readFileSync('../diary/notes.txt', 'utf8')`,
+    `return '${join(home, 'memory', 'bots', P, 'MEMORY.md')}'`,
+    `return '${P}'`,
+    `const fs = await import('node:fs'); return fs.readFileSync(${JSON.stringify(join(home, 'state.json'))}, 'utf8')`,
+    `const fs = await import('node:fs'); return fs.readFileSync(${JSON.stringify(join(home, 'chat-index.sqlite'))}, 'utf8')`,
+  ]) {
+    const res = await run('run_code', { code, description: 'Read file' }, 'b', writerAgent)
+    assert.equal(res.ran, false, `expected private block for run_code: ${code}`)
+    assert.match(res.error, CLOSED)
+  }
+
+  if (process.platform !== 'win32') {
+    symlinkSync(diary, join(project, 'code-link'))
+    const viaLink = await run('run_code', { code: "return fs.readFileSync('code-link/notes.txt', 'utf8')", description: 'Read link' }, 'b', writerAgent)
+    assert.equal(viaLink.ran, false)
+    assert.match(viaLink.error, CLOSED)
+  }
+
+  // API, telemetry, and secret storage references are blocked in run_code.
+  for (const code of [
+    `return fs.readFileSync(${JSON.stringify(join(home, 'api-tokens.json'))}, 'utf8')`,
+    `return fs.readFileSync(${JSON.stringify(join(home, 'mcp.json'))}, 'utf8')`,
+    `return fs.readFileSync(${JSON.stringify(join(home, 'telemetry.json'))}, 'utf8')`,
+  ]) {
+    const res = await run('run_code', { code, description: 'Read api' }, 'b', writerAgent)
+    assert.equal(res.ran, false)
+    assert.match(res.error, /API token|telemetry|private Bot/)
+  }
+  for (const code of [
+    `return fs.readFileSync(${JSON.stringify(join(home, 'secret-refs', 'ref.json'))}, 'utf8')`,
+    `return fs.readFileSync(${JSON.stringify(join(home, 'secret-files', 'a', 'k.secret'))}, 'utf8')`,
+  ]) {
+    const res = await run('run_code', { code, description: 'Read secret' }, 'b', writerAgent)
+    assert.equal(res.ran, false)
+    assert.match(res.error, /secret|private Bot/i)
+  }
+
+  // Normal open code in run_code stays allowed for non-private Bots.
+  assert.deepEqual(await run('run_code', { code: "return await tools.read({ file_path: 'src/index.js' })", description: 'Read open file' }, 'b', writerAgent), { ran: true })
+
+  // Private Bot inside its own folder under workspace-write runs without extra approval.
+  const privateAgent = agentOf(P)
+  privateAgent.session.header.cwd = diary
+  assert.deepEqual(await run('run_code', { code: 'return 1 + 1', description: 'Compute locally' }, P, privateAgent), { ran: true })
+  assert.equal(approval.requests.length, 0)
+
+  // Private Bot requesting danger-full-access requires user approval.
+  assert.deepEqual(await run('run_code', { code: 'return 1', description: 'Escalate', sandbox_permissions: 'danger-full-access', justification: 'test' }, P, privateAgent), { ran: true })
+  assert.equal(approval.requests.length, 1)
+  assert.match(approval.requests[0].reason, /outside its own folder fence/)
+
+  // Private Bot with standing danger-full-access requires user approval.
+  standingMode = 'danger-full-access'
+  assert.deepEqual(await run('run_code', { code: 'return 1', description: 'Standing full' }, P, privateAgent), { ran: true })
+  assert.equal(approval.requests.length, 2)
+  standingMode = 'workspace-write'
+
+  // Private Bot with cwd outside its own folder requires user approval.
+  privateAgent.session.header.cwd = team
+  assert.deepEqual(await run('run_code', { code: 'return 1', description: 'Outside cwd' }, P, privateAgent), { ran: true })
+  assert.equal(approval.requests.length, 3)
+})

@@ -2197,7 +2197,11 @@ export function install(rt) {
   // and delegation tools. The restricts are kept with the Session's scope, so they
   // lift with it.
   const hideBotUnusedTools = (agent) => {
-    rt.scopeCodeMode?.(agent)
+    try {
+      rt.scopeCodeMode?.(agent)
+    } catch (error) {
+      rt.warn?.('ds-bot: scoping code-mode for %s failed: %s', agent?.session?.id, error)
+    }
     shareBotTools(agent)
     const id = agent?.session?.id
     // The shell shadows go with the scope, so a reload or a Session that leaves
@@ -2531,5 +2535,6 @@ export function install(rt) {
     }))
   }
 
-  Object.assign(rt, { pickRoom, hideBotUnusedTools, syncScopedTools, syncScopedSession, hiddenTeamToolsFor, hiddenSessionTools, addTeamTool, removeTeamTool, reapplyToolMasks, resumePausedWork, cancelWorkByUser, abortWorkExecution })
+  const hiddenToolsFor = id => new Set([...HIDDEN_TOOLS, ...hiddenSessionTools(id)])
+  Object.assign(rt, { pickRoom, hideBotUnusedTools, syncScopedTools, syncScopedSession, hiddenTeamToolsFor, hiddenSessionTools, hiddenToolsFor, addTeamTool, removeTeamTool, reapplyToolMasks, resumePausedWork, cancelWorkByUser, abortWorkExecution })
 }

@@ -27,10 +27,15 @@ export const isProgramTool = tool => PROGRAM_TOOLS.has(tool.name) || tool.name.s
 
 function withoutDescriptions(value) {
   if (value === null || typeof value !== 'object') return value
+  if (Array.isArray(value)) return value.map(withoutDescriptions)
   const { description: _description, ...schema } = value
-  if (schema.properties) schema.properties = Object.fromEntries(Object.entries(schema.properties).map(([key, child]) => [key, withoutDescriptions(child)]))
+  for (const mapKey of ['properties', '$defs', 'definitions']) {
+    if (schema[mapKey] && typeof schema[mapKey] === 'object' && !Array.isArray(schema[mapKey])) {
+      schema[mapKey] = Object.fromEntries(Object.entries(schema[mapKey]).map(([key, child]) => [key, withoutDescriptions(child)]))
+    }
+  }
   for (const key of ['items', 'additionalProperties']) if (schema[key] && typeof schema[key] === 'object') schema[key] = withoutDescriptions(schema[key])
-  for (const key of ['anyOf', 'oneOf', 'allOf']) if (Array.isArray(schema[key])) schema[key] = schema[key].map(withoutDescriptions)
+  for (const key of ['anyOf', 'oneOf', 'allOf', 'prefixItems']) if (Array.isArray(schema[key])) schema[key] = schema[key].map(withoutDescriptions)
   return schema
 }
 
@@ -59,7 +64,8 @@ export function renderCompactSdk(tools, mode = 'hybrid', programFormat = 'functi
 
 export function capResultText(text, maxChars) {
   const chars = Array.from(text)
-  if (chars.length <= maxChars) return text
+  const budget = Math.max(0, Math.floor(maxChars))
+  if (chars.length <= budget) return text
   let omitted = chars.length
   let marker
   let kept
@@ -67,9 +73,10 @@ export function capResultText(text, maxChars) {
   do {
     previous = omitted
     marker = `\n[code-mode: ${omitted} characters omitted. Filter in code and return only what is needed instead of raw dumps.]\n`
-    kept = maxChars - marker.length
+    kept = Math.max(0, budget - marker.length)
     omitted = chars.length - kept
   } while (omitted !== previous)
+  if (kept === 0) return Array.from(marker).slice(0, budget).join('')
   const head = Math.ceil(kept * 0.7)
   const tail = kept - head
   return chars.slice(0, head).join('') + marker + (tail > 0 ? chars.slice(-tail).join('') : '')
@@ -89,9 +96,10 @@ function capContent(content, maxChars) {
 }
 
 export class CodeModeExecutor {
-  constructor(ctx, config = {}) {
+  constructor(ctx, config = {}, options = {}) {
     this.ctx = ctx
     this.config = Config(config)
+    this.filterTools = typeof options.filterTools === 'function' ? options.filterTools : undefined
     if (ctx.ptcRuntime.language !== 'typescript') throw new Error('DS Bot code-mode requires a TypeScript PTC runtime')
     this.native = new NativeToolExecutor(ctx)
     this.program = new PtcExecutor(ctx)
@@ -103,7 +111,7 @@ export class CodeModeExecutor {
       name: 'tools:code-mode',
       order: ctx.systemPrompt.getSectionOrder('TOOLS_SDK'),
       interpolate: false,
-      text: tools => renderCompactSdk(tools, this.config.mode, ctx.ptcRuntime.programFormat),
+      text: tools => renderCompactSdk(this.filterTools ? this.filterTools(tools) : tools, this.config.mode, ctx.ptcRuntime.programFormat),
     }]
   }
 
@@ -122,20 +130,30 @@ export class CodeModeExecutor {
     }
   }
 
-  programToolSet(input) {
+  programToolSet(input, { hybrid = true } = {}) {
     const tools = this.ctx.tools
+    const filterTools = this.filterTools
     return {
       dispose() {},
       view(scope) {
         if (scope !== input.agent) return new Map()
         const admitted = input.toolSet?.view(scope) ?? new Map(tools.definitions(scope)
           .filter(tool => tools.executable(tool.name, scope) === tool).map(tool => [tool.name, tool]))
-        return new Map([...admitted].filter(([, tool]) => isProgramTool(tool)))
+        let entries = [...admitted]
+        if (hybrid) entries = entries.filter(([, tool]) => isProgramTool(tool))
+        if (filterTools !== undefined) {
+          const allowed = new Set(filterTools(entries.map(([, tool]) => tool)).map(tool => tool.name))
+          entries = entries.filter(([name]) => allowed.has(name))
+        }
+        return new Map(entries)
       },
     }
   }
 
   async execute(input) {
+    if (input.maxParallelToolCalls !== undefined && (!Number.isInteger(input.maxParallelToolCalls) || input.maxParallelToolCalls < 1)) {
+      throw new RangeError('maxParallelToolCalls must be a positive integer')
+    }
     const combined = { results: [], additionalContexts: [], concluded: false }
     const collect = (batch, program, callSeq) => {
       for (const item of batch.results) {
@@ -157,9 +175,12 @@ export class CodeModeExecutor {
       const program = this.config.mode === 'code-only' || input.calls[offset].name === 'run_code'
       let end = offset + 1
       if (!program) while (end < input.calls.length && input.calls[end].name !== 'run_code') end++
-      const toolSet = program && this.config.mode === 'hybrid' ? this.programToolSet(input) : input.toolSet
+      const toolSet = program && (this.config.mode === 'hybrid' || this.filterTools !== undefined)
+        ? this.programToolSet(input, { hybrid: this.config.mode === 'hybrid' })
+        : input.toolSet
       const block = input.calls[offset]
-      // Own only program root logging so the cap also covers pre-dispatch denials.
+      // Own only program root logging (mirroring DSH's BatchSettlement event shape) so the cap
+      // also covers pre-dispatch denials.
       let callSeq
       try {
         if (program && input.log) callSeq = input.agent.session.append('tool/call', {
@@ -168,8 +189,19 @@ export class CodeModeExecutor {
         const result = await (program ? this.program : this.native).execute({ ...input, calls: input.calls.slice(offset, end), toolSet, ...(program ? { log: undefined } : {}) })
         collect(result, program, callSeq)
       } catch (error) {
-        if (error instanceof ToolBatchExecutionError) collect(error.partial, program, callSeq)
-        throw new ToolBatchExecutionError(error, combined)
+        const isBatchError = error instanceof ToolBatchExecutionError
+        if (isBatchError) collect(error.partial, program, callSeq)
+        const cause = isBatchError ? error.cause : error
+        if (!isBatchError && program && input.log && callSeq !== undefined && !combined.results.some(item => item.callId === block.id)) {
+          const message = cause instanceof Error ? cause.message : String(cause)
+          input.agent.session.append('tool/result', {
+            ...input.log,
+            message: createToolResultMessage({ callId: block.id, content: [{ type: 'text', text: capResultText(`Error: ${message}`, this.config.maxResultChars) }], isError: true }),
+          }, { surfaceOp: 'append', sourceEventSeqs: [callSeq] })
+        }
+        const hasProgress = combined.results.length > 0 || combined.additionalContexts.length > 0 || combined.concluded
+        if (!isBatchError && !hasProgress && !input.signal?.aborted) throw cause
+        throw new ToolBatchExecutionError(cause, combined)
       }
       offset = end
     }
@@ -177,6 +209,8 @@ export class CodeModeExecutor {
   }
 }
 
-export function apply(ctx, config) {
-  ctx.tools.setExecutor(new CodeModeExecutor(ctx, config))
+export const createFallbackExecutor = ctx => new NativeToolExecutor(ctx)
+
+export function apply(ctx, config, options) {
+  ctx.tools.setExecutor(new CodeModeExecutor(ctx, config, options))
 }

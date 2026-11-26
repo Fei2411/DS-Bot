@@ -9,13 +9,17 @@ import { within } from './folders.js'
 import { unquote } from './text.js'
 import { openSessions, retiredTaskSessionIds } from './threads.js'
 
+// Older DSH releases lack @deepseek-ai/dsh-fs-patch; patchPathsOf also scans headers directly.
+const { parsePatch } = await import('@deepseek-ai/dsh-fs-patch').catch(() => ({}))
+
 const FILE_TOOLS = { read: 'file_path', write: 'file_path', edit: 'file_path', read_image: 'file_path', str_replace_editor: 'path', read_document: 'path' }
 const WRITE_TOOLS = ['write', 'edit', 'str_replace_editor']
 const SEARCH_TOOLS = ['glob', 'grep']
-const SHELL_TOOLS = ['bash', 'pwsh', 'terminal_open', 'terminal_send']
+const SHELL_TOOLS = ['bash', 'pwsh', 'terminal_open', 'terminal_send', 'run_code']
 const SESSION_TOOLS = ['session_search', 'session_event_search', 'session_trace', 'session_event_trace', 'session_event_read']
 const SECRET_GUARDED_TOOLS = new Set([
   ...Object.keys(FILE_TOOLS),
+  'apply_patch',
   ...SEARCH_TOOLS,
   ...SHELL_TOOLS,
   'subagent',
@@ -45,6 +49,44 @@ const asShell = (path) => {
   const slashed = path.replace(/\\/g, '/')
   const drive = /^([a-z]):\//i.exec(slashed)
   return drive ? [slashed, `/${drive[1]}${slashed.slice(2)}`] : [slashed]
+}
+
+// Extract every source and destination path from an apply_patch input.
+function patchPathsOf(args) {
+  const input = args?.input
+  if (typeof input !== 'string' || input === '') return []
+  const paths = new Set()
+  if (typeof parsePatch === 'function') {
+    try {
+      for (const op of parsePatch(input)) {
+        if (typeof op.path === 'string' && op.path !== '') paths.add(expandHome(op.path))
+        if (typeof op.moveTo === 'string' && op.moveTo !== '') paths.add(expandHome(op.moveTo))
+      }
+    } catch {
+      // Fall through to header scan so malformed or partial patches still cannot bypass fences.
+    }
+  }
+  for (const line of input.split(/\r?\n/)) {
+    const match = /^\s*\*\*\*\s+(?:Add File|Update File|Delete File|Move to):\s*(.+?)\s*$/.exec(line)
+    if (match !== null && match[1] !== '') paths.add(expandHome(match[1]))
+  }
+  return [...paths]
+}
+
+// Extract quoted path-like literals from run_code text so relative traversals and symlinks
+// into closed folders are caught alongside literal absolute paths.
+function codePathCandidates(text) {
+  const found = new Set()
+  for (const match of text.matchAll(/(["'`])((?:\\.|(?!\1)[^\\\r\n])*)\1/g)) {
+    const raw = match[2]
+    if (raw === '' || raw.includes('${')) continue
+    const unescaped = raw.replace(/\\([\\'"`])/g, '$1')
+    if (/^[a-z][a-z0-9+.-]*:\/\//i.test(unescaped)) continue
+    if (/(?:^|[\\/])\.\.(?:$|[\\/])/.test(unescaped) || /^([a-z]:|[\\/]|~)/i.test(unescaped) || /[\\/]/.test(unescaped)) {
+      found.add(expandHome(unescaped))
+    }
+  }
+  return [...found]
 }
 
 // Splits shell command text into simple-command token arrays. Breaks on unquoted
@@ -654,6 +696,50 @@ export function install(rt) {
       }
       return
     }
+    if (name === 'apply_patch') {
+      const paths = patchPathsOf(args)
+      if (paths.length === 0) return
+      const base = folder()
+      for (const path of paths) {
+        const bot = await ownerOfPath(path, { self, base, memo })
+        if (bot) refuse(bot)
+      }
+      if (isPrivate(self)) {
+        const own = await spellings(rt.botOf(self).workDir, memo)
+        const outside = []
+        for (const path of paths) {
+          if (!isAbsolute(path) && (typeof base !== 'string' || !isAbsolute(base))) {
+            throw new Error('The file destination cannot be determined, so it was not changed.')
+          }
+          const absolute = resolve(base ?? '.', path)
+          const real = await rt.realBeyond(absolute)
+          const target = [fold(absolute), fold(real)]
+          if (!target.every(key => own.some(root => within(key, root)))) {
+            outside.push({ path, absolute, real })
+          }
+        }
+        if (outside.length > 0) {
+          const list = outside.map(item => item.absolute).join(', ')
+          const botName = rt.botOf(self).name
+          await approve(exec, {
+            en: `Let ${botName} change ${list}? It is outside its own folder.`,
+            zh: `允许 ${botName} 修改 ${list} 吗？它在自己的文件夹之外。`,
+          }, {
+            cwd: base,
+            path: outside[0].absolute,
+            resolvedPath: outside[0].real,
+            ...(outside.length > 1 ? { paths: outside.map(item => item.absolute), resolvedPaths: outside.map(item => item.real) } : {}),
+          })
+          for (const item of outside) {
+            const current = resolve(folder() ?? '.', item.path)
+            if (current !== item.absolute || await rt.realBeyond(current) !== item.real || resolve(folder() ?? '.', item.path) !== item.absolute) {
+              throw new Error('The file destination changed during approval, so it was not changed.')
+            }
+          }
+        }
+      }
+      return
+    }
     if (SEARCH_TOOLS.includes(name)) {
       const where = typeof args.path === 'string' && args.path !== '' ? args.path : '.'
       const bot = await ownerOfPath(where, { self, search: true, base: folder(), memo })
@@ -662,8 +748,30 @@ export function install(rt) {
       return
     }
     if (SHELL_TOOLS.includes(name)) {
-      const bot = await ownerInText(strings(args).join('\n'), self, memo)
+      const text = strings(args).join('\n')
+      const bot = await ownerInText(text, self, memo)
       if (bot) refuse(bot)
+      if (name === 'run_code') {
+        const base = folder()
+        for (const candidate of codePathCandidates(text)) {
+          const targetBot = await ownerOfPath(candidate, { self, base, memo })
+          if (targetBot) refuse(targetBot)
+        }
+        if (isPrivate(self)) {
+          const own = await spellings(rt.botOf(self).workDir, memo)
+          const policyMode = args.sandbox_permissions ?? ctx.get?.('sandboxPolicy')?.resolve?.({ session: exec.agent?.session })?.mode
+          const baseOutside = typeof base !== 'string' || !isAbsolute(base)
+            || !(await spellings(base, memo)).every(key => own.some(root => within(key, root)))
+          if (baseOutside || policyMode === 'danger-full-access') {
+            const botName = rt.botOf(self).name
+            const summary = typeof args.description === 'string' && args.description.trim() !== '' ? args.description.trim() : 'run_code'
+            await approve(exec, {
+              en: `Let ${botName} run code (${summary}) outside its own folder fence?`,
+              zh: `允许 ${botName} 在自己的文件夹围栏之外运行代码（${summary}）吗？`,
+            }, { cwd: base, ...(policyMode === undefined ? {} : { sandboxMode: policyMode }) })
+          }
+        }
+      }
       return
     }
     if ((name === 'subagent' || name === 'subagent_fork') && typeof args.cwd === 'string') {
@@ -720,6 +828,17 @@ export function install(rt) {
       if (keys.some(key => protectedPaths.some(file => key === file || key.startsWith(file.endsWith('api-') ? file : `${file}.`)))) throw closedApi()
       return
     }
+    if (name === 'apply_patch') {
+      const paths = patchPathsOf(args)
+      if (paths.length === 0) return
+      const base = folder()
+      const protectedPaths = await apiProtectedFiles(memo)
+      for (const path of paths) {
+        const keys = await spellings(base === undefined ? path : resolve(base, path), memo)
+        if (keys.some(key => protectedPaths.some(file => key === file || key.startsWith(file.endsWith('api-') ? file : `${file}.`)))) throw closedApi()
+      }
+      return
+    }
     if (SEARCH_TOOLS.includes(name)) {
       const where = typeof args.path === 'string' && args.path !== '' ? args.path : '.'
       const pattern = typeof args.pattern === 'string' ? fold(args.pattern) : ''
@@ -733,11 +852,19 @@ export function install(rt) {
       return
     }
     if (SHELL_TOOLS.includes(name)) {
-      const flat = fold(strings(args).join('\n').replace(/\\/g, '/'))
+      const rawText = strings(args).join('\n')
+      const flat = fold(rawText.replace(/\\/g, '/'))
       if (flat.includes('api-') || flat.includes('mcp.json')) throw closedApi()
       const protectedPaths = await apiProtectedFiles(memo)
       for (const file of protectedPaths) {
         if (asShell(file).some(spelled => flat.includes(spelled))) throw closedApi()
+      }
+      if (name === 'run_code') {
+        const base = folder()
+        for (const candidate of codePathCandidates(rawText)) {
+          const keys = await spellings(base === undefined ? candidate : resolve(base, candidate), memo)
+          if (keys.some(key => protectedPaths.some(file => key === file || key.startsWith(file.endsWith('api-') ? file : `${file}.`)))) throw closedApi()
+        }
       }
       if (flat.includes('telemetry.json')) {
         const base = folder()
@@ -758,6 +885,8 @@ export function install(rt) {
     if (name in FILE_TOOLS) {
       const path = args[FILE_TOOLS[name]]
       if (typeof path !== 'string' || path === '') return
+    } else if (name === 'apply_patch') {
+      if (typeof args.input !== 'string' || args.input === '') return
     } else if (name === 'subagent' || name === 'subagent_fork') {
       if (typeof args.cwd !== 'string' || args.cwd === '') return
     } else if (name === 'working_directory') {
@@ -799,6 +928,18 @@ export function install(rt) {
         if (WRITE_TOOLS.includes(name)) throw closedSecret()
         const ownDir = await getOwnDir()
         if (!allOwnSecretFiles(keys, ownDir)) throw closedSecret()
+      }
+      return
+    }
+    if (name === 'apply_patch') {
+      const paths = patchPathsOf(args)
+      if (paths.length === 0) return
+      const base = folder()
+      const roots = await spelledSecretRoots(memo)
+      const { inRefs, inFiles } = rootsOf(roots)
+      for (const path of paths) {
+        const keys = await spellings(base === undefined ? path : resolve(base, path), memo)
+        if (inRefs(keys) || inFiles(keys)) throw closedSecret()
       }
       return
     }
@@ -992,6 +1133,16 @@ export function install(rt) {
             const first = rest[0] ?? ''
             if (first !== '' && /[a-z0-9_.-]/i.test(first)) continue
             checkRestAfterFilesRoot(rest)
+          }
+        }
+      }
+      if (name === 'run_code') {
+        for (const candidate of codePathCandidates(rawText)) {
+          const keys = await spellings(base === undefined ? candidate : resolve(base, candidate), memo)
+          if (inRefs(keys)) throw closedSecret()
+          if (inFiles(keys)) {
+            const ownDir = await getOwnDir()
+            if (!allOwnSecretFiles(keys, ownDir)) throw closedSecret()
           }
         }
       }
