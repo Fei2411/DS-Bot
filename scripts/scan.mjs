@@ -10,6 +10,7 @@
 // environment variable and from a `.scan-extra` file at the root of the checkout (ignored by
 // Git). They hold markers that must not appear in this repository and must not be named in it
 // either, such as a maintainer's machine or account names.
+import { spawnSync } from 'node:child_process'
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -28,6 +29,7 @@ const NOT_PUBLIC = /(^|[\s(`'"]|\.\.\/)(spec|research|backup|shots|attachments|w
 // color keys) to move saved data over; there, and on lines that say "legacy" (旧版), old names stay.
 const LEGACY_FILES = /(^|\/)(src\/client\/storage\.js|src\/legacy\.mjs|test\/legacy[\w-]*\.test\.(?:js|mjs))$/
 
+const scanExtraTracked = scanExtraIsTracked()
 const extra = extraPatterns()
 
 const TEXT_RULES = [
@@ -89,7 +91,7 @@ const files = walk(root).map(path => relative(root, path).split('\\').join('/'))
 
 for (const file of files) {
   for (const rule of FORBIDDEN_FILES) {
-    if (file !== '.scan-extra' && rule.re.test(file)) add(MUST, 'forbidden-file', file, 0, rule.why)
+    if ((file === '.scan-extra' ? scanExtraTracked : rule.re.test(file))) add(MUST, 'forbidden-file', file, 0, rule.why)
   }
   // The scanner and the local pattern file name the patterns they look for.
   if (file === SELF || file === '.scan-extra') continue
@@ -135,6 +137,12 @@ for (const name of ['README.md', 'README.zh.md', 'CONTRIBUTING.md', 'CHANGELOG.m
 
 report()
 
+function scanExtraIsTracked() {
+  const checkout = join(dirname(fileURLToPath(import.meta.url)), '..')
+  const inside = spawnSync('git', ['rev-parse', '--is-inside-work-tree'], { cwd: checkout, stdio: 'ignore' })
+  if (inside.status !== 0) return true
+  return spawnSync('git', ['ls-files', '--error-unmatch', '.scan-extra'], { cwd: checkout, stdio: 'ignore' }).status === 0
+}
 function extraPatterns() {
   const local = join(dirname(fileURLToPath(import.meta.url)), '..', '.scan-extra')
   const lines = [process.env.SCAN_EXTRA_PATTERNS ?? '', existsSync(local) ? readFileSync(local, 'utf8') : '']

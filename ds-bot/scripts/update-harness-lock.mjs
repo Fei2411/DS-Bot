@@ -31,7 +31,7 @@ function versionsByName(lock) {
 
 function npm(args) {
   const result = spawnSync(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['install', '--prefix', harnessDir, '--legacy-peer-deps=false', '--package-lock-only', '--ignore-scripts', '--no-fund', '--no-audit', ...args], { stdio: 'inherit' })
-  if (result.status !== 0) process.exit(result.status ?? 1)
+  return result.status === 0
 }
 
 function compare() {
@@ -60,23 +60,39 @@ if (version !== undefined) {
 delete pkg.overrides
 writeJson(packageFile, pkg)
 
+const direct = new Set(Object.keys(pkg.dependencies ?? {}))
+const appPkg = readJson(join(repo, 'app', 'package.json'))
+const sameDsh = appPkg.dependencies?.['@deepseek-ai/dsh'] === pkg.dependencies['@deepseek-ai/dsh']
+// DSH-owned packages belong to the requested release. Pin them to the app only when the
+// app is on that same release; forcing an older app pin onto a newer harness makes npm
+// reject the direct dependency. Direct dependencies are never overridden.
+const canPin = name => !direct.has(name) && (sameDsh || !name.startsWith('@deepseek-ai/'))
+
 // First resolve the dependency graph of the requested DSH release, then pin every
 // shared package that the app lock has at one unambiguous version. The second resolve
 // writes those choices into the lock; the overrides themselves stay out of package.json,
 // because they describe today's app lock, not a requirement of the harness.
-npm([])
+if (!npm([])) process.exit(1)
 const first = compare()
-if (first.missing.length > 0) {
-  pkg.overrides = Object.fromEntries(first.missing.map(name => [name, [...first.app.get(name)][0]]))
+const pins = first.missing.filter(canPin)
+if (pins.length > 0) {
+  pkg.overrides = Object.fromEntries(pins.map(name => [name, [...first.app.get(name)][0]]))
   writeJson(packageFile, pkg)
-  npm([])
-  delete pkg.overrides
-  writeJson(packageFile, pkg)
+  let ok = false
+  try {
+    ok = npm([])
+  } finally {
+    // A failed resolve must not leave today's app pins in the harness manifest.
+    delete pkg.overrides
+    writeJson(packageFile, pkg)
+  }
+  if (!ok) process.exit(1)
 }
 
 const final = compare()
-if (final.missing.length > 0) {
-  console.error(`harness lock could not align these packages with app/package-lock.json: ${final.missing.join(', ')}`)
+const unaligned = final.missing.filter(canPin)
+if (unaligned.length > 0) {
+  console.error(`harness lock could not align these packages with app/package-lock.json: ${unaligned.join(', ')}`)
   process.exit(1)
 }
 console.log(`harness lock: ${final.same}/${final.overlap} shared packages match the desktop app lock${final.multi.length > 0 ? ` (${final.multi.length} names have several app versions and are left to npm)` : ''}`)
