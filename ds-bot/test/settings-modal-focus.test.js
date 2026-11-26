@@ -16,8 +16,9 @@ const { outputFiles } = await build({
   stdin: {
     contents: `
       export { SettingsDialog, settingsOwnsKeyboard } from './src/client/settings.js'
-      export { ESCAPE_PRIORITY, useEscape } from './src/client/overlay-hooks.js'
+      export { ESCAPE_PRIORITY, useEscape, useModalFocusTrap } from './src/client/overlay-hooks.js'
       export { TOUR_SEEN_KEY } from './src/client/settings-tour.js'
+      export { ShortcutsDialog } from '../app/ui/src/shortcuts.js'
     `,
     resolveDir: join(repoRoot, 'ds-bot'),
   },
@@ -374,6 +375,177 @@ test('Two-phase Escape preserves plugin-mode DSH Modal layering and SettingsTour
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 30)) })
     assert.equal(Boolean(sibling.inert), true, 'SettingsTour restores isolation after foreground modal closes')
     sibling.remove()
+  } finally {
+    act(() => { root.unmount() })
+    dom.window.close()
+    globalThis.window = prev.window
+    globalThis.document = prev.document
+    if (prev.navigator) Object.defineProperty(globalThis, 'navigator', prev.navigator)
+    else delete globalThis.navigator
+    globalThis.HTMLElement = prev.HTMLElement
+    globalThis.Element = prev.Element
+    globalThis.Node = prev.Node
+    globalThis.MutationObserver = prev.MutationObserver
+    globalThis.ResizeObserver = prev.ResizeObserver
+    globalThis.KeyboardEvent = prev.KeyboardEvent
+    globalThis.Event = prev.Event
+    globalThis.localStorage = prev.localStorage
+    globalThis.getComputedStyle = prev.getComputedStyle
+    globalThis.requestAnimationFrame = prev.requestAnimationFrame
+    globalThis.cancelAnimationFrame = prev.cancelAnimationFrame
+    globalThis.IS_REACT_ACT_ENVIRONMENT = prev.IS_REACT_ACT_ENVIRONMENT
+  }
+})
+
+test('ShortcutsDialog traps Tab/Shift+Tab, blocks SettingsTour ArrowRight/ArrowLeft, and preserves ref-counted inert isolation over SettingsTour', async () => {
+  const dom = new JSDOM('<!doctype html><html><body><div id="app-shell-bg"><button id="bg-btn" type="button">Main Pill</button></div><div id="root"></div></body></html>', { url: 'http://localhost/' })
+  const prev = {
+    window: globalThis.window,
+    document: globalThis.document,
+    navigator: Object.getOwnPropertyDescriptor(globalThis, 'navigator'),
+    HTMLElement: globalThis.HTMLElement,
+    Element: globalThis.Element,
+    Node: globalThis.Node,
+    MutationObserver: globalThis.MutationObserver,
+    ResizeObserver: globalThis.ResizeObserver,
+    KeyboardEvent: globalThis.KeyboardEvent,
+    Event: globalThis.Event,
+    localStorage: globalThis.localStorage,
+    getComputedStyle: globalThis.getComputedStyle,
+    requestAnimationFrame: globalThis.requestAnimationFrame,
+    cancelAnimationFrame: globalThis.cancelAnimationFrame,
+    IS_REACT_ACT_ENVIRONMENT: globalThis.IS_REACT_ACT_ENVIRONMENT,
+  }
+
+  globalThis.window = dom.window
+  globalThis.document = dom.window.document
+  Object.defineProperty(globalThis, 'navigator', {
+    configurable: true,
+    value: { platform: 'MacIntel', userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)' },
+  })
+  globalThis.HTMLElement = dom.window.HTMLElement
+  globalThis.Element = dom.window.Element
+  globalThis.Node = dom.window.Node
+  globalThis.MutationObserver = dom.window.MutationObserver
+  globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} }
+  globalThis.KeyboardEvent = dom.window.KeyboardEvent
+  globalThis.Event = dom.window.Event
+  globalThis.localStorage = dom.window.localStorage
+  globalThis.getComputedStyle = dom.window.getComputedStyle
+  globalThis.requestAnimationFrame = cb => setTimeout(cb, 0)
+  globalThis.cancelAnimationFrame = id => clearTimeout(id)
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true
+
+  const { createRoot } = await import('react-dom/client')
+  const { SettingsDialog, ShortcutsDialog } = loadSettingsModule()
+  const container = dom.window.document.getElementById('root')
+  const bgShell = dom.window.document.getElementById('app-shell-bg')
+  const root = createRoot(container)
+
+  let settingsPage = 'overview'
+  let shortcutsOpen = false
+  const openedPages = []
+
+  const actions = {
+    openSettings(nextPage) {
+      openedPages.push(nextPage)
+      settingsPage = nextPage ?? 'overview'
+      shortcutsOpen = false
+    },
+    closeSettings() {},
+    providers: () => Promise.resolve({ available: true, providers: [], revision: 1 }),
+    folders: () => Promise.resolve({ team: '/work' }),
+    setPrefs: () => Promise.resolve(),
+  }
+
+  const renderAll = () => act(() => {
+    root.render(React.createElement(React.Fragment, null,
+      React.createElement(SettingsDialog, {
+        page: settingsPage,
+        id: null,
+        roster: baseRoster,
+        actions,
+        useUpdate: sel => sel({}),
+      }),
+      React.createElement(ShortcutsDialog, {
+        open: shortcutsOpen,
+        onCustomize: () => { actions.openSettings('shortcuts') },
+        onClose: () => { shortcutsOpen = false },
+      }),
+    ))
+  })
+
+  try {
+    // 1. Open Settings -> SettingsTour auto-starts at step 1 and marks background inert.
+    renderAll()
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 30)) })
+    const initialStep = dom.window.document.querySelector('.bt-tour-count')?.textContent?.trim()
+    assert.ok(initialStep && initialStep.startsWith('1 /'), `tour starts at step 1 (got ${initialStep})`)
+    assert.equal(Boolean(bgShell.inert), true, 'SettingsTour marks main shell inert')
+
+    // 2. Open real ShortcutsDialog over SettingsDialog + SettingsTour.
+    shortcutsOpen = true
+    renderAll()
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 30)) })
+
+    const shortcutsEl = dom.window.document.querySelector('.dsb-shortcuts')
+    const closeBtn = dom.window.document.querySelector('.dsb-shortcuts-close')
+    const customizeBtn = dom.window.document.querySelector('.dsb-shortcuts-customize')
+    assert.ok(shortcutsEl && closeBtn && customizeBtn, 'ShortcutsDialog controls rendered')
+    assert.equal(shortcutsEl.closest('[inert]'), null, 'ShortcutsDialog itself is never inert')
+    assert.equal(Boolean(bgShell.inert), true, 'background shell stays inert while ShortcutsDialog is open over SettingsTour')
+    assert.equal(dom.window.document.activeElement, closeBtn, 'initial focus lands on ShortcutsDialog Close button')
+
+    // 3. ArrowRight / ArrowLeft must NOT advance hidden SettingsTour or close ShortcutsDialog!
+    act(() => {
+      dom.window.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }))
+      dom.window.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true }))
+    })
+    renderAll()
+    assert.equal(shortcutsOpen, true, 'ArrowRight/ArrowLeft must NOT close ShortcutsDialog')
+    assert.equal(openedPages.length, 0, 'ArrowRight/ArrowLeft must NOT navigate Settings behind ShortcutsDialog')
+    assert.equal(dom.window.document.querySelector('.bt-tour-count')?.textContent?.trim(), initialStep, 'hidden SettingsTour step must NOT advance')
+
+    // 4. Tab / Shift+Tab cycles strictly between ShortcutsDialog controls and NEVER escapes to background!
+    const pressTab = (shiftKey = false) => {
+      const evt = new dom.window.KeyboardEvent('keydown', { key: 'Tab', shiftKey, bubbles: true, cancelable: true })
+      act(() => {
+        (dom.window.document.activeElement || dom.window.document.body).dispatchEvent(evt)
+      })
+      return evt
+    }
+    // From closeBtn -> Tab wraps to customizeBtn -> Tab cycles back to closeBtn.
+    const t1 = pressTab(false)
+    assert.equal(t1.defaultPrevented, true)
+    assert.equal(dom.window.document.activeElement, customizeBtn, 'Tab from Close cycles to Customize')
+    const t2 = pressTab(false)
+    assert.equal(t2.defaultPrevented, true)
+    assert.equal(dom.window.document.activeElement, closeBtn, 'Tab from Customize cycles back to Close without escaping dialog')
+    const t3 = pressTab(true)
+    assert.equal(t3.defaultPrevented, true)
+    assert.equal(dom.window.document.activeElement, customizeBtn, 'Shift+Tab from Close cycles to Customize')
+    assert.equal(shortcutsEl.contains(dom.window.document.activeElement), true)
+
+    // 5. Close ShortcutsDialog -> SettingsTour regains keyboard control and ArrowRight advances step.
+    shortcutsOpen = false
+    renderAll()
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 30)) })
+    assert.equal(dom.window.document.querySelector('.dsb-shortcuts'), null)
+    assert.equal(Boolean(bgShell.inert), true, 'SettingsTour retains background isolation after ShortcutsDialog closes')
+
+    act(() => {
+      dom.window.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }))
+    })
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 30)) })
+    const nextStep = dom.window.document.querySelector('.bt-tour-count')?.textContent?.trim()
+    assert.ok(nextStep && nextStep.startsWith('2 /'), `ArrowRight advances SettingsTour once ShortcutsDialog is closed (got ${nextStep})`)
+
+    // 6. Dismiss SettingsTour -> background inert clears completely (zero leaked ref-counted inert locks).
+    const tourCloseBtn = dom.window.document.querySelector('.bt-tour-close')
+    assert.ok(tourCloseBtn)
+    act(() => { tourCloseBtn.click() })
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 30)) })
+    assert.equal(Boolean(bgShell.inert), false, 'dismissing tour releases all ref-counted inert locks')
   } finally {
     act(() => { root.unmount() })
     dom.window.close()

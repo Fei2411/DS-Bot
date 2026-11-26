@@ -21,7 +21,8 @@ import { pluginRuntime, usePluginPage } from './plugin-runtime.js'
 import { WorkspacePaneBody, buildWorkspaceTabs } from './right-panel.js'
 import { ShortcutsDialog, matchGlobalShortcut, setLiveShortcutContext } from './shortcuts.js'
 import { SHORTCUT_BY_ID, isCommandAvailable, isShortcutRecording, shortcutsStore, visibleClassicSessions, visibleSidebarTargets } from '../../../ds-bot/src/client/shortcuts-model.js'
-import { RIGHT_PANE_TAB_SLOT, SHELL_OVERLAY_SLOT, SlotErrorBoundary, slots, useSlotEntries } from './slots.js'
+import { RIGHT_PANE_TAB_SLOT, ShellOverlayHost, slots, useSlotEntries } from './slots.js'
+export { ShellOverlayHost }
 import { createTeam } from './team.js'
 
 const CLASSIC_BROWSER_OWNER = 'classic'
@@ -89,18 +90,6 @@ class Contain extends Component {
   }
 
   render() { return this.state.failed ? null : this.props.children }
-}
-
-function ShellOverlayHost({ registry = slots, views }) {
-  const entries = useSlotEntries(registry, SHELL_OVERLAY_SLOT)
-  if (entries.length === 0) return null
-  return h(Fragment, null, entries.map((entry, idx) => h(SlotErrorBoundary, {
-    key: entry.id ?? entry.key ?? idx,
-    slotName: `${SHELL_OVERLAY_SLOT}:${entry.id ?? idx}`,
-    resetKey: entry.id ?? entry.key ?? idx,
-    pluginId: entry.meta?.pluginId ?? null,
-    runtime: entry.meta?.runtime ?? null,
-  }, h(entry.component, views))))
 }
 
 function makeTeamUiHook(useUi, isNarrow, drawerOpen) {

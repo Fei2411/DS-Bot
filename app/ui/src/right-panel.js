@@ -42,8 +42,9 @@ function resolvePluginTabs(pluginEntries) {
     .map(entry => ({
       id: `plugin:${entry.id}`,
       slotId: entry.id,
-      pluginId: entry.meta?.pluginId ?? null,
-      runtime: entry.meta?.runtime ?? null,
+      pluginId: entry.pluginId ?? entry.meta?.pluginId ?? null,
+      runtime: entry.runtime ?? entry.meta?.runtime ?? null,
+      onRetry: typeof entry.onRetry === 'function' ? entry.onRetry : null,
       label: typeof entry.meta?.label === 'function' ? entry.meta.label() : (entry.meta?.label ?? entry.id),
       icon: entry.meta?.icon ?? FileIcon,
       component: entry.component,
@@ -321,6 +322,7 @@ function FileTree({ sessionId, feed, actions, selectedPath, onOpenFile, active =
   const listRef = useRef(null)
   const watchIdRef = useRef(null)
   const watchRecursiveRef = useRef(true)
+  const syncedDirsKeyRef = useRef('')
   const prevSessionRef = useRef(sessionId)
   const prevActiveRef = useRef(active)
 
@@ -472,9 +474,11 @@ function FileTree({ sessionId, feed, actions, selectedPath, onOpenFile, active =
     let activeWatchId = null
     watchIdRef.current = null
     watchRecursiveRef.current = true
+    const initialDirs = [...expandedRef.current].sort()
+    syncedDirsKeyRef.current = initialDirs.join('\0')
     void call('workspace-watch', {
       sessionId,
-      dirs: [...expandedRef.current],
+      dirs: initialDirs,
       ...(rootInfo.root ? { expectedRoot: rootInfo.root } : {}),
     })
       .then((res) => {
@@ -485,6 +489,19 @@ function FileTree({ sessionId, feed, actions, selectedPath, onOpenFile, active =
         activeWatchId = res?.watchId ?? null
         watchIdRef.current = activeWatchId
         watchRecursiveRef.current = res?.recursive === true
+        // Sync folders expanded while the initial non-recursive watch request was still in flight.
+        if (activeWatchId && !watchRecursiveRef.current) {
+          const currentDirs = [...expandedRef.current].sort()
+          const currentKey = currentDirs.join('\0')
+          if (currentKey !== syncedDirsKeyRef.current) {
+            syncedDirsKeyRef.current = currentKey
+            void call('workspace-watch', {
+              sessionId,
+              watchId: activeWatchId,
+              dirs: currentDirs,
+            }).catch(() => {})
+          }
+        }
       })
       .catch(() => {})
 
@@ -507,8 +524,9 @@ function FileTree({ sessionId, feed, actions, selectedPath, onOpenFile, active =
       const toClose = activeWatchId ?? watchIdRef.current
       if (!toClose || typeof fetch !== 'function') return
       try {
-        void fetch('/api/bot', {
+        void fetch('api/bot', {
           method: 'POST',
+          credentials: 'same-origin',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ endpoint: 'workspace-unwatch', payload: { watchId: toClose } }),
           keepalive: true,
@@ -529,6 +547,7 @@ function FileTree({ sessionId, feed, actions, selectedPath, onOpenFile, active =
       }
       const toClose = activeWatchId ?? watchIdRef.current
       watchIdRef.current = null
+      syncedDirsKeyRef.current = ''
       if (toClose) void call('workspace-unwatch', { watchId: toClose }).catch(() => {})
     }
   }, [sessionId, active, rootInfo.root, feed])
@@ -536,10 +555,14 @@ function FileTree({ sessionId, feed, actions, selectedPath, onOpenFile, active =
   // On platforms without recursive fs.watch (e.g. Linux), keep expanded directories registered with the watch.
   useEffect(() => {
     if (!active || watchRecursiveRef.current || !watchIdRef.current) return
+    const currentDirs = [...expanded].sort()
+    const currentKey = currentDirs.join('\0')
+    if (currentKey === syncedDirsKeyRef.current) return
+    syncedDirsKeyRef.current = currentKey
     void call('workspace-watch', {
       sessionId,
       watchId: watchIdRef.current,
-      dirs: [...expanded],
+      dirs: currentDirs,
     }).catch(() => {})
   }, [sessionId, active, expanded])
 
@@ -763,6 +786,12 @@ export function WorkspacePaneBody({ sessionId, panel, team, registry = defaultSl
           resetKey: `${activePlugin.id}:${sessionId ?? ''}`,
           pluginId: activePlugin.pluginId,
           runtime: activePlugin.runtime,
+          onRetry: (typeof activePlugin.component?.reset === 'function' || typeof activePlugin.onRetry === 'function')
+            ? () => {
+              activePlugin.component?.reset?.()
+              activePlugin.onRetry?.()
+            }
+            : undefined,
         },
         h(activePlugin.component, { sessionId, team, actions })))
       : null)

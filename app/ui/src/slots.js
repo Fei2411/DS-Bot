@@ -166,3 +166,21 @@ export function SlotOutlet({ registry = slots, name, slotKey, resetKey, props, f
   }
   return typeof fallback === 'function' ? fallback() : (fallback ?? null)
 }
+
+export function ShellOverlayHost({ registry = slots, views }) {
+  const entries = useSlotEntries(registry, SHELL_OVERLAY_SLOT)
+  if (entries.length === 0) return null
+  return h(Fragment, null, entries.map((entry, idx) => h(SlotErrorBoundary, {
+    key: entry.id ?? entry.key ?? idx,
+    slotName: `${SHELL_OVERLAY_SLOT}:${entry.id ?? idx}`,
+    resetKey: entry.id ?? entry.key ?? idx,
+    pluginId: entry.pluginId ?? entry.meta?.pluginId ?? null,
+    runtime: entry.runtime ?? entry.meta?.runtime ?? null,
+    onRetry: (typeof entry.component?.reset === 'function' || typeof entry.onRetry === 'function')
+      ? () => {
+        entry.component?.reset?.()
+        entry.onRetry?.()
+      }
+      : undefined,
+  }, h(entry.component, views))))
+}

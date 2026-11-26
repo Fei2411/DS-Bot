@@ -1,8 +1,8 @@
-import { createElement as h, useEffect, useMemo, useRef } from 'react'
+import { createElement as h, useMemo, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { t } from '../../../ds-bot/src/client/i18n.js'
 import { CloseIcon } from '../../../ds-bot/src/client/icons.js'
-import { ESCAPE_PRIORITY, useEscape } from '../../../ds-bot/src/client/overlay-hooks.js'
+import { ESCAPE_PRIORITY, useEscape, useModalFocusTrap } from '../../../ds-bot/src/client/overlay-hooks.js'
 import {
   SHORTCUT_DEFS,
   SHORTCUT_GROUPS,
@@ -67,25 +67,11 @@ export function ShortcutsDialog({
   onClose,
   store = shortcutsStore,
 }) {
+  const dialogRef = useRef(null)
   const closeBtn = useRef(null)
-  const returnFocus = useRef(null)
   const overrides = useShortcutOverrides(store)
   useEscape(onClose, open, { priority: ESCAPE_PRIORITY.SHORTCUTS })
-  useEffect(() => {
-    if (open) {
-      returnFocus.current = typeof document !== 'undefined' ? document.activeElement : null
-      closeBtn.current?.focus?.()
-      return undefined
-    }
-    const prev = returnFocus.current
-    returnFocus.current = null
-    const active = typeof document !== 'undefined' ? document.activeElement : null
-    if (prev && prev.isConnected !== false && typeof prev.focus === 'function'
-      && (!active || active === document.body || active === document.documentElement)) {
-      prev.focus()
-    }
-    return undefined
-  }, [open])
+  useModalFocusTrap(dialogRef, open, { initialFocusRef: closeBtn })
 
   const mac = isMacPlatform()
   const mod = mac ? '⌘' : 'Ctrl'
@@ -152,7 +138,7 @@ export function ShortcutsDialog({
     className: 'dsb-shortcuts-layer',
     onClick: (event) => { if (event.target === event.currentTarget) onClose?.() },
   },
-  h('div', { className: 'dsb-shortcuts', role: 'dialog', 'aria-modal': true, 'aria-label': t('Keyboard shortcuts') },
+  h('div', { ref: dialogRef, tabIndex: -1, className: 'dsb-shortcuts', role: 'dialog', 'aria-modal': true, 'aria-label': t('Keyboard shortcuts') },
     h('div', { className: 'dsb-shortcuts-head' },
       h('h2', { className: 'dsb-shortcuts-title' }, t('Keyboard shortcuts')),
       h('div', { className: 'dsb-shortcuts-head-actions' },

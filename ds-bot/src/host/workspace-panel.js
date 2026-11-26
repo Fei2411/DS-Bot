@@ -27,10 +27,14 @@ const MAX_WATCHES = 16
 const MAX_WATCH_ROOTS = 8
 const MAX_WATCH_DIRS = 32
 const MAX_WATCH_PATHS_PER_EVENT = 64
+const MAX_POLL_DIR_ENTRIES = MAX_LIST_ENTRIES
 const WATCH_DEBOUNCE_MS = 180
 const WATCH_MAX_WAIT_MS = 900
 const WATCH_POLL_MS = 1_500
 const ORPHAN_WATCH_GRACE_MS = 30_000
+const OPEN_OS_STDERR_BYTES = 4 * 1024
+const OPEN_OS_SETTLE_MS = 1_500
+const OPEN_OS_EXIT_TIMEOUT_MS = 10_000
 const TERMINAL_SCROLLBACK_CHARS = 64 * 1024
 const TERMINAL_BATCH_MS = 16
 const TERMINAL_GRACE_MS = 3000
@@ -190,12 +194,26 @@ async function convertOfficeToPdf(inputRealPath, ext, signal) {
   }
 }
 
+function scrubbedOpenEnv(extra = {}) {
+  const out = {}
+  for (const [key, value] of Object.entries(process.env)) {
+    if (typeof value !== 'string') continue
+    if (SENSITIVE_ENV_RE.test(key) || STRIPPED_ENV_RE.test(key)) continue
+    out[key] = value
+  }
+  for (const [key, value] of Object.entries(extra)) {
+    if (typeof value === 'string') out[key] = value
+  }
+  return out
+}
+
 export function buildOpenOsCommand(target, action, isDirectory, platform = process.platform) {
   if (platform === 'darwin') {
     return {
       command: 'open',
       args: action === 'reveal' ? ['-R', target] : [target],
-      options: { detached: true, stdio: 'ignore', shell: false },
+      options: { detached: true, stdio: ['ignore', 'ignore', 'pipe'], shell: false, env: scrubbedOpenEnv() },
+      waitForExit: true,
     }
   }
   if (platform === 'win32') {
@@ -204,7 +222,8 @@ export function buildOpenOsCommand(target, action, isDirectory, platform = proce
         return {
           command: 'explorer.exe',
           args: [target],
-          options: { detached: true, stdio: 'ignore', shell: false },
+          options: { detached: true, stdio: ['ignore', 'ignore', 'pipe'], shell: false, env: scrubbedOpenEnv() },
+          allowExit1: true,
         }
       }
       // Explorer expects `/select,"C:\path\with spaces,commas"` verbatim on its command line.
@@ -212,37 +231,107 @@ export function buildOpenOsCommand(target, action, isDirectory, platform = proce
       return {
         command: 'explorer.exe',
         args: [`/select,"${safe}"`],
-        options: { detached: true, stdio: 'ignore', shell: false, windowsVerbatimArguments: true },
+        options: { detached: true, stdio: ['ignore', 'ignore', 'pipe'], shell: false, windowsVerbatimArguments: true, env: scrubbedOpenEnv() },
+        allowExit1: true,
       }
     }
-    // Pass path through an env var + `-LiteralPath` so `%`, `#`, `[`, `]`, commas, and spaces stay literal.
+    // Pass path through an env var + `Invoke-Item -LiteralPath` so `%`, `#`, `[`, `]`,
+    // commas, and spaces stay literal (`Start-Process` has no `-LiteralPath` parameter).
     return {
       command: 'powershell.exe',
-      args: ['-NoProfile', '-NonInteractive', '-Command', 'Start-Process -LiteralPath $env:DSB_OPEN_TARGET'],
-      options: { detached: true, stdio: 'ignore', shell: false, windowsHide: true, env: { ...process.env, DSB_OPEN_TARGET: target } },
+      args: ['-NoProfile', '-NonInteractive', '-Command', 'Invoke-Item -LiteralPath $env:DSB_OPEN_TARGET -ErrorAction Stop'],
+      options: {
+        detached: true,
+        stdio: ['ignore', 'ignore', 'pipe'],
+        shell: false,
+        windowsHide: true,
+        env: scrubbedOpenEnv({ DSB_OPEN_TARGET: target }),
+      },
+      waitForExit: true,
     }
   }
   return {
     command: 'xdg-open',
     args: [action === 'reveal' && !isDirectory ? dirname(target) : target],
-    options: { detached: true, stdio: 'ignore', shell: false },
+    options: { detached: true, stdio: ['ignore', 'ignore', 'pipe'], shell: false, env: scrubbedOpenEnv() },
+    waitForExit: false,
   }
 }
 
-function openOsPath(target, action, isDirectory) {
-  const { command, args, options } = buildOpenOsCommand(target, action, isDirectory)
+export function openOsPath(target, action, isDirectory, opts = {}) {
+  const spec = buildOpenOsCommand(target, action, isDirectory, opts.platform ?? process.platform)
+  const spawnFn = typeof opts.spawnFn === 'function' ? opts.spawnFn : spawn
+  const settleMs = Number.isFinite(opts.settleMs) && opts.settleMs >= 0
+    ? opts.settleMs
+    : (spec.waitForExit ? OPEN_OS_EXIT_TIMEOUT_MS : OPEN_OS_SETTLE_MS)
+
   return new Promise((resolveOpen, rejectOpen) => {
     let settled = false
-    const child = spawn(command, args, options)
-    child.once('error', (error) => {
-      if (!settled) { settled = true; rejectOpen(error) }
+    let timer = null
+    let stderrText = ''
+    const cleanup = () => {
+      if (timer !== null) {
+        clearTimeout(timer)
+        timer = null
+      }
+    }
+    const finishOk = () => {
+      if (settled) return
+      settled = true
+      cleanup()
+      resolveOpen(true)
+    }
+    const finishErr = (error) => {
+      if (settled) return
+      settled = true
+      cleanup()
+      rejectOpen(error)
+    }
+
+    let child
+    try {
+      child = spawnFn(spec.command, spec.args, spec.options)
+    } catch (error) {
+      finishErr(error)
+      return
+    }
+
+    child.stderr?.on?.('data', (chunk) => {
+      if (stderrText.length >= OPEN_OS_STDERR_BYTES) return
+      const piece = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk)
+      stderrText += piece.slice(0, OPEN_OS_STDERR_BYTES - stderrText.length)
     })
+
+    child.once('error', (error) => {
+      finishErr(error)
+    })
+
+    child.once('close', (code) => {
+      if (settled) return
+      const trimmedErr = stderrText.trim()
+      if (code === 0 || (spec.allowExit1 && code === 1 && trimmedErr === '')) {
+        finishOk()
+        return
+      }
+      finishErr(new Error(trimmedErr || `Failed to open path (${spec.command} exited with code ${code ?? 'unknown'})`))
+    })
+
     child.once('spawn', () => {
-      child.unref?.()
-      if (!settled) { settled = true; resolveOpen(true) }
+      if (settled) return
+      timer = setTimeout(() => {
+        timer = null
+        if (settled) return
+        child.stderr?.resume?.()
+        child.stderr?.destroy?.()
+        child.unref?.()
+        finishOk()
+      }, settleMs)
+      timer.unref?.()
     })
   })
 }
+
+const isWatchLimitError = error => error?.code === 'ENOSPC' || error?.code === 'EMFILE' || error?.code === 'ENOSYS'
 
 function isIgnoredWatchRel(rel) {
   if (!rel) return false
@@ -523,18 +612,39 @@ export function install(rt) {
       return [...merged]
     }
 
-    const dirFingerprint = async (dirAbs) => {
+    const maxPollEntries = Number.isInteger(rt.workspaceWatchPollMaxEntries) && rt.workspaceWatchPollMaxEntries > 0
+      ? rt.workspaceWatchPollMaxEntries
+      : MAX_POLL_DIR_ENTRIES
+
+    const dirFingerprint = async (dirAbs, rootWatch) => {
+      const dirInfo = await stat(dirAbs)
       const entries = await readdir(dirAbs, { withFileTypes: true })
-      const parts = []
+      const visibleNames = []
       for (const entry of entries) {
         if (DEFAULT_IGNORED_NAMES.has(entry.name)) continue
-        try {
-          const info = await stat(join(dirAbs, entry.name))
-          parts.push(`${entry.name}:${info.isDirectory() ? 'd' : 'f'}:${info.size}:${Math.round(info.mtimeMs)}`)
-        } catch { /* entry vanished mid-poll */ }
+        visibleNames.push(entry.name)
       }
-      parts.sort()
-      return parts.join('|')
+      visibleNames.sort()
+      const overflow = visibleNames.length > maxPollEntries
+      const bounded = overflow ? visibleNames.slice(0, maxPollEntries) : visibleNames
+      const parts = Array.from({ length: bounded.length })
+      let next = 0
+      const inspect = async () => {
+        while (next < bounded.length && !rootWatch.closed && !disposed) {
+          const at = next++
+          const name = bounded[at]
+          try {
+            const info = await stat(join(dirAbs, name))
+            parts[at] = `${name}:${info.isDirectory() ? 'd' : 'f'}:${info.size}:${Math.round(info.mtimeMs)}`
+          } catch { /* entry vanished mid-poll */ }
+        }
+      }
+      await Promise.all(Array.from({ length: Math.min(PARALLEL_LIST_INSPECTS, bounded.length) }, inspect))
+      const header = `${Math.round(dirInfo.mtimeMs)}:${visibleNames.length}`
+      return {
+        fingerprint: `${header}|${parts.filter(Boolean).join('|')}`,
+        overflow,
+      }
     }
 
     const switchToPoll = (rootWatch) => {
@@ -567,11 +677,12 @@ export function install(rt) {
           for (const dirAbs of targets) {
             if (rootWatch.closed || disposed) return
             try {
-              const fp = await dirFingerprint(dirAbs)
+              const { fingerprint: fp, overflow } = await dirFingerprint(dirAbs, rootWatch)
               if (rootWatch.closed || disposed) return
               const prev = rootWatch.pollSnapshot.get(dirAbs)
               rootWatch.pollSnapshot.set(dirAbs, fp)
               if (prev !== undefined && prev !== fp) {
+                if (overflow) rootWatch.overflow = true
                 queueChange(rootWatch, toPosixRel(rootWatch.root, dirAbs))
               }
             } catch { /* dir removed */ }
@@ -606,7 +717,7 @@ export function install(rt) {
       watcher.on?.('error', (error) => {
         try { watcher.close() } catch { /* ignore */ }
         rootWatch.watchers.delete(dirAbs)
-        if (!rootWatch.closed && !disposed && (error?.code === 'ENOSPC' || error?.code === 'EMFILE' || error?.code === 'ENOSYS')) {
+        if (!rootWatch.closed && !disposed && isWatchLimitError(error)) {
           switchToPoll(rootWatch)
         }
       })
@@ -629,9 +740,12 @@ export function install(rt) {
           wanted.add(resolved)
           try {
             attachDirWatcher(rootWatch, resolved, toPosixRel(rootWatch.root, resolved), false)
-          } catch {
-            switchToPoll(rootWatch)
-            return
+          } catch (error) {
+            if (isWatchLimitError(error)) {
+              switchToPoll(rootWatch)
+              return
+            }
+            /* skip transient per-dir errors (e.g. ENOENT / EACCES) without downgrading healthy dirs */
           }
         } catch { /* skip missing/invalid dir */ }
       }
@@ -655,6 +769,10 @@ export function install(rt) {
         existingSession.lastActiveAt = Date.now()
         if (rootWatch.mode === 'dirs') {
           await trackWatchOp(syncDirsForRoot(rootWatch))
+        }
+        if (disposed || rootWatch.closed || existingSession.closed) {
+          if (rootWatch.sessions.size === 0) closeRootWatch(rootWatch)
+          return { watchId: null, root: realRoot, recursive: false, mode: 'closed' }
         }
         return {
           watchId: existingSession.id,

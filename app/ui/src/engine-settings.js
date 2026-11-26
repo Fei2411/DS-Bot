@@ -25,7 +25,7 @@ import {
 } from '../../../ds-bot/src/client/icons.js'
 import { toTraditional } from '../../../ds-bot/src/client/locales/zh-tw.js'
 import { BotMark } from '../../../ds-bot/src/client/mark.js'
-import { ESCAPE_PRIORITY, useEscape } from '../../../ds-bot/src/client/overlay-hooks.js'
+import { ESCAPE_PRIORITY, useEscape, useModalFocusTrap } from '../../../ds-bot/src/client/overlay-hooks.js'
 import { SelectMenu } from '../../../ds-bot/src/client/select-menu.js'
 import { relativeShort } from '../../../ds-bot/src/client/text.js'
 import { pluginRuntime, usePlugins } from './plugin-runtime.js'
@@ -1033,6 +1033,17 @@ function billingOptions() {
   ]
 }
 
+function dropKeysFromMap(map, keys) {
+  if (!keys || keys.size === 0) return map
+  let changed = false
+  const next = {}
+  for (const [key, val] of Object.entries(map)) {
+    if (keys.has(key)) { changed = true; continue }
+    next[key] = val
+  }
+  return changed ? next : map
+}
+
 function WebSearchDetailForm({ entries, disabled, onSaveNamespaces, onSecretMutate }) {
   const byNs = useMemo(() => new Map(entries.map(e => [e.descriptor.ns, e])), [entries])
   const webEntry = byNs.get('web')
@@ -1165,10 +1176,16 @@ function WebSearchDetailForm({ entries, disabled, onSaveNamespaces, onSecretMuta
   const invalid = !countCheck.ok || !maxUsesCheck.ok
 
   // Build ordered mutations: provider config namespaces first, then `web` selection last.
+  // Track exact field keys per namespace so saving visible fields never discards unsaved edits
+  // under hidden providers (or unrelated keys in a shared namespace).
   const pendingByNs = []
+  const visibleKeys = new Set()
   if (apiEntry) {
     const ops = []
+    const keys = []
     if (showSearchApiFields) {
+      keys.push('web-deepseek-api:count')
+      visibleKeys.add('web-deepseek-api:count')
       if (resetFlags['web-deepseek-api:count']) {
         if (hasPath(apiEntry.descriptor.user, ['count']) || storedCount !== baseCount) {
           ops.push({ op: 'unset', path: ['count'] })
@@ -1178,6 +1195,8 @@ function WebSearchDetailForm({ entries, disabled, onSaveNamespaces, onSecretMuta
         else if (!countCheck.empty && countCheck.value !== storedCount) ops.push({ op: 'set', path: ['count'], value: countCheck.value })
       }
       if (!hasCustomSearchEndpoint) {
+        keys.push('web-deepseek-api:searchBilling')
+        visibleKeys.add('web-deepseek-api:searchBilling')
         if (resetFlags['web-deepseek-api:searchBilling']) {
           if (hasPath(apiEntry.descriptor.user, ['searchBilling']) || storedSearchBilling !== baseSearchBilling) {
             ops.push({ op: 'unset', path: ['searchBilling'] })
@@ -1188,6 +1207,8 @@ function WebSearchDetailForm({ entries, disabled, onSaveNamespaces, onSecretMuta
       }
     }
     if (showFetchApiFields && !hasCustomFetchEndpoint) {
+      keys.push('web-deepseek-api:fetchBilling')
+      visibleKeys.add('web-deepseek-api:fetchBilling')
       if (resetFlags['web-deepseek-api:fetchBilling']) {
         if (hasPath(apiEntry.descriptor.user, ['fetchBilling']) || storedFetchBilling !== baseFetchBilling) {
           ops.push({ op: 'unset', path: ['fetchBilling'] })
@@ -1196,11 +1217,14 @@ function WebSearchDetailForm({ entries, disabled, onSaveNamespaces, onSecretMuta
         ops.push({ op: 'set', path: ['fetchBilling'], value: fetchBilling })
       }
     }
-    if (ops.length > 0) pendingByNs.push({ descriptor: apiEntry.descriptor, ops })
+    if (ops.length > 0) pendingByNs.push({ descriptor: apiEntry.descriptor, ops, keys })
   }
 
   if (legacyEntry && showLegacyFields) {
     const ops = []
+    const keys = ['web-search-deepseek:maxUses', 'web-search-deepseek:baseURL']
+    visibleKeys.add('web-search-deepseek:maxUses')
+    visibleKeys.add('web-search-deepseek:baseURL')
     if (resetFlags['web-search-deepseek:maxUses']) {
       if (hasPath(legacyEntry.descriptor.user, ['maxUses']) || storedMaxUses !== baseMaxUses) {
         ops.push({ op: 'unset', path: ['maxUses'] })
@@ -1216,11 +1240,14 @@ function WebSearchDetailForm({ entries, disabled, onSaveNamespaces, onSecretMuta
     } else if (baseUrlText !== storedBaseUrl) {
       ops.push(baseUrlText.trim() === '' ? { op: 'unset', path: ['baseURL'] } : { op: 'set', path: ['baseURL'], value: baseUrlText.trim() })
     }
-    if (ops.length > 0) pendingByNs.push({ descriptor: legacyEntry.descriptor, ops })
+    if (ops.length > 0) pendingByNs.push({ descriptor: legacyEntry.descriptor, ops, keys })
   }
 
   if (webEntry) {
     const ops = []
+    const keys = ['web:searchProvider', 'web:fetchProvider']
+    visibleKeys.add('web:searchProvider')
+    visibleKeys.add('web:fetchProvider')
     if (searchProvider !== storedSearchProvider) {
       ops.push(searchProvider === '' || searchProvider === baseSearchProvider
         ? { op: 'unset', path: ['searchProvider'] }
@@ -1231,7 +1258,7 @@ function WebSearchDetailForm({ entries, disabled, onSaveNamespaces, onSecretMuta
         ? { op: 'unset', path: ['fetchProvider'] }
         : { op: 'set', path: ['fetchProvider'], value: fetchProvider })
     }
-    if (ops.length > 0) pendingByNs.push({ descriptor: webEntry.descriptor, ops })
+    if (ops.length > 0) pendingByNs.push({ descriptor: webEntry.descriptor, ops, keys })
   }
 
   const dirty = pendingByNs.length > 0 || invalid
@@ -1244,16 +1271,24 @@ function WebSearchDetailForm({ entries, disabled, onSaveNamespaces, onSecretMuta
       const res = await onSaveNamespaces(pendingByNs)
       const ok = res === true || res?.ok === true
       const savedList = Array.isArray(res?.saved) ? res.saved : (ok ? pendingByNs.map(item => item.descriptor.ns) : [])
+      const savedNs = new Set(savedList)
+      const keysToClear = new Set()
+      for (const item of pendingByNs) {
+        if (!savedNs.has(item.descriptor.ns)) continue
+        for (const key of item.keys ?? []) keysToClear.add(key)
+      }
       if (ok) {
-        setOverrides({})
-        setResetFlags({})
+        for (const key of visibleKeys) keysToClear.add(key)
+        if (keysToClear.size > 0) {
+          setOverrides(prev => dropKeysFromMap(prev, keysToClear))
+          setResetFlags(prev => dropKeysFromMap(prev, keysToClear))
+        }
         setSaved(true)
         clearTimeout(savedTimer.current)
         savedTimer.current = setTimeout(() => setSaved(false), 2200)
-      } else if (savedList.length > 0) {
-        const savedNs = new Set(savedList)
-        setOverrides(prev => dropNamespacesFromMap(prev, savedNs))
-        setResetFlags(prev => dropNamespacesFromMap(prev, savedNs))
+      } else if (keysToClear.size > 0) {
+        setOverrides(prev => dropKeysFromMap(prev, keysToClear))
+        setResetFlags(prev => dropKeysFromMap(prev, keysToClear))
       }
     } finally {
       setSaving(false)
@@ -2235,7 +2270,10 @@ function presetDisplayCopy(preset) {
 function PresetConfigModal({ doc, onClose }) {
   const [copied, setCopied] = useState(false)
   const copyTimer = useRef(0)
+  const modalRef = useRef(null)
+  const closeBtnRef = useRef(null)
   useEscape(onClose, true, { priority: ESCAPE_PRIORITY.MODAL_CHILD })
+  useModalFocusTrap(modalRef, true, { initialFocusRef: closeBtnRef })
   useEffect(() => () => clearTimeout(copyTimer.current), [])
 
   const copyYaml = async () => {
@@ -2246,7 +2284,7 @@ function PresetConfigModal({ doc, onClose }) {
     }
   }
 
-  const modal = h('div', { className: 'dsb-preset-modal-layer', role: 'dialog', 'aria-modal': true, 'aria-label': `${t('View configuration')} · ${doc.title}` },
+  const modal = h('div', { ref: modalRef, tabIndex: -1, className: 'dsb-preset-modal-layer', role: 'dialog', 'aria-modal': true, 'aria-label': `${t('View configuration')} · ${doc.title}` },
     h('div', { className: 'dsb-preset-modal-scrim', onMouseDown: onClose }),
     h('div', { className: 'dsb-preset-modal' },
       h('div', { className: 'dsb-preset-modal-head' },
@@ -2257,7 +2295,7 @@ function PresetConfigModal({ doc, onClose }) {
           h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', onClick: () => { void copyYaml() } },
             copied ? h(CheckIcon) : h(CopyIcon),
             copied ? t('Copied') : t('Copy')),
-          h('button', { type: 'button', className: 'bt-icon-btn', 'aria-label': t('Close'), onClick: onClose }, h(CloseIcon)))),
+          h('button', { ref: closeBtnRef, type: 'button', className: 'bt-icon-btn', 'aria-label': t('Close'), onClick: onClose }, h(CloseIcon)))),
       h('pre', { className: 'dsb-preset-code' }, doc.content || t('No configuration content.'))))
   const target = typeof document !== 'undefined' && document.body ? document.body : null
   return target ? createPortal(modal, target) : modal

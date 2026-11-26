@@ -24,6 +24,7 @@ const entryCode = `
   export { bustImportUrl, createPluginRuntime } from './ui/src/plugin-runtime.js'
   export {
     createSlotRegistry,
+    ShellOverlayHost,
     SlotErrorBoundary,
     SETTINGS_SECTION_SLOT,
     SETTINGS_GENERAL_ITEM_SLOT,
@@ -855,4 +856,43 @@ test('Classic mode browser pane opens, toggles, creates, and closes tabs under C
   team.actions.toggleBrowser('classic')
   renderTree(Probe, {})
   assert.equal(snap.details, null)
+})
+
+test('ShellOverlayHost Retry calls runtime.retry() and resets plugin overlay components registered via runtime.use()', () => {
+  const { mod } = loadMod()
+  const slots = mod.createSlotRegistry()
+  const runtime = mod.createPluginRuntime({ slots })
+
+  let applyCount = 0
+  let onRetryCalls = 0
+  let resetCalls = 0
+  let shouldCrash = true
+
+  runtime.use({ id: 'ext.crash-overlay' }, (ctx) => {
+    applyCount += 1
+    const OverlayView = () => {
+      if (shouldCrash) throw new Error('overlay render boom')
+      return { type: 'div', props: { className: 'recovered-overlay', children: [`gen-${applyCount}`] } }
+    }
+    OverlayView.reset = () => { resetCalls += 1 }
+    ctx.slot({
+      name: mod.SHELL_OVERLAY_SLOT,
+      id: 'crash-overlay',
+      onRetry: () => { onRetryCalls += 1 },
+    }, OverlayView)
+  })
+
+  assert.equal(applyCount, 1)
+  const failedTree = renderTree(mod.ShellOverlayHost, { registry: slots, views: {} })
+  const retryBtn = findAll(failedTree, node => node.type === 'button' && node.props?.children?.includes('Retry'))[0]
+  assert.ok(retryBtn, 'ShellOverlayHost renders SlotErrorBoundary Retry button')
+
+  shouldCrash = false
+  retryBtn.props.onClick()
+  assert.equal(applyCount, 2, 'ShellOverlayHost Retry must invoke runtime.retry() using top-level entry.pluginId/runtime')
+  assert.equal(resetCalls, 1, 'ShellOverlayHost Retry calls component.reset()')
+  assert.equal(onRetryCalls, 1, 'ShellOverlayHost Retry calls entry.onRetry()')
+
+  const recoveredTree = renderTree(mod.ShellOverlayHost, { registry: slots, views: {} })
+  assert.equal(findAll(recoveredTree, node => node.props?.className === 'recovered-overlay').length, 1)
 })

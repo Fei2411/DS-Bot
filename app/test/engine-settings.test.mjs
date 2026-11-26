@@ -1204,3 +1204,117 @@ test('Engine settings staged forms preserve unsaved drafts across revalidation, 
   assert.deepEqual(Array.from(mutated, m => m.ns), ['web'], 'retry commits only the previously failed namespace')
   assert.equal(formSaveBtn().props.disabled, true)
 })
+
+test('WebSearchDetailForm preserves unsaved hidden provider edits across full and partial saves', async () => {
+  let failWebNs = false
+  let apiState = { count: 10, searchBilling: 'auto', fetchBilling: 'auto' }
+  let webState = { searchProvider: 'deepseek-search-api', fetchProvider: 'deepseek-fetch-api' }
+  let apiRev = 1
+  let webRev = 1
+  const mutated = []
+
+  const { mod } = loadMod(async (endpoint, payload) => {
+    if (endpoint === 'engine-plugins-list') return { available: true, bundles: [], plugins: [] }
+    if (endpoint === 'engine-web-providers') {
+      return {
+        available: true,
+        search: [
+          { id: 'deepseek-search-api', title: 'DeepSeek Search API', kind: 'search', available: true },
+          { id: 'deepseek-official', title: 'DeepSeek Messages', kind: 'search', available: true },
+        ],
+        fetch: [
+          { id: 'http', title: 'Direct HTTP', kind: 'fetch', available: true },
+          { id: 'deepseek-fetch-api', title: 'DeepSeek Fetch API', kind: 'fetch', available: true },
+        ],
+      }
+    }
+    if (endpoint === 'engine-settings-list') {
+      return {
+        available: true,
+        writable: true,
+        namespaces: [
+          { ns: 'web', autoGenerate: true, revision: webRev, value: { ...webState }, base: {}, user: { ...webState }, secrets: [], schema: { type: 'object', dict: {} } },
+          { ns: 'web-deepseek-api', autoGenerate: true, revision: apiRev, value: { ...apiState }, base: { count: 10, searchBilling: 'auto', fetchBilling: 'auto' }, user: {}, secrets: [], schema: { type: 'object', dict: {} } },
+          { ns: 'web-search-deepseek', autoGenerate: true, revision: 1, value: { maxUses: 5, baseURL: '' }, base: { maxUses: 5 }, user: {}, secrets: [], schema: { type: 'object', dict: {} } },
+        ],
+      }
+    }
+    if (endpoint === 'engine-settings-mutate') {
+      mutated.push(payload)
+      if (payload.ns === 'web-deepseek-api') {
+        apiRev += 1
+        for (const op of payload.ops) {
+          if (op.op === 'set') apiState[op.path[0]] = op.value
+        }
+        return { ns: 'web-deepseek-api', autoGenerate: true, revision: apiRev, value: { ...apiState }, base: { count: 10, searchBilling: 'auto', fetchBilling: 'auto' }, user: { ...apiState }, secrets: [], schema: { type: 'object', dict: {} } }
+      }
+      if (payload.ns === 'web') {
+        if (failWebNs) throw new Error('web save rejected')
+        webRev += 1
+        for (const op of payload.ops) {
+          if (op.op === 'set') webState[op.path[0]] = op.value
+        }
+        return { ns: 'web', autoGenerate: true, revision: webRev, value: { ...webState }, base: {}, user: { ...webState }, secrets: [], schema: { type: 'object', dict: {} } }
+      }
+    }
+    return {}
+  })
+
+  const harness = createHarness(mod.PluginsSettingsPage, { readOnly: false, subTarget: 'web-search' })
+  harness.render()
+  await new Promise(resolve => setTimeout(resolve, 20))
+  harness.render({ readOnly: false, subTarget: 'web-search' })
+  await new Promise(resolve => setTimeout(resolve, 20))
+  let tree = harness.render({ readOnly: false, subTarget: 'web-search' })
+
+  const pickMenu = (ariaLabel, optionText) => {
+    const trigger = findAll(tree, n => n.type === 'button' && n.props?.['aria-label'] === ariaLabel)[0]
+    assert.ok(trigger, `trigger ${ariaLabel} exists`)
+    if (trigger.props.ref) {
+      trigger.props.ref.current = { getBoundingClientRect: () => ({ left: 400, right: 620, top: 180, bottom: 212, width: 220, height: 32 }), focus() {} }
+    }
+    trigger.props.onClick({ detail: 1 })
+    tree = harness.render({ readOnly: false, subTarget: 'web-search' })
+    tree = harness.render({ readOnly: false, subTarget: 'web-search' })
+    const opt = findAll(tree, n => n.props?.role === 'option' && textOf(n) === optionText)[0]
+    assert.ok(opt, `option ${optionText} exists`)
+    opt.props.onClick()
+    tree = harness.render({ readOnly: false, subTarget: 'web-search' })
+  }
+
+  // 1. Edit Results per search (count=18) under DeepSeek Search API, then switch Search provider to DeepSeek Messages
+  //    AND edit Fetch billing (same `web-deepseek-api` namespace!).
+  const countInput = () => findAll(tree, n => n.type === 'input' && n.props?.['aria-label'] === 'Results per search')[0]
+  countInput().props.onChange({ target: { value: '18' } })
+  tree = harness.render({ readOnly: false, subTarget: 'web-search' })
+  pickMenu('Search provider', 'DeepSeek Messages search')
+  pickMenu('Fetch billing', 'API key')
+
+  // 2. Partial save: `web-deepseek-api` saves ONLY `fetchBilling`, `web` fails.
+  //    Hidden `web-deepseek-api:count` draft MUST NOT be wiped even though its namespace partially succeeded!
+  failWebNs = true
+  const formSaveBtn = () => findAll(tree, n => n.type === 'button' && textOf(n) === 'Save').at(-1)
+  formSaveBtn().props.onClick()
+  await new Promise(resolve => setTimeout(resolve, 20))
+  tree = harness.render({ readOnly: false, subTarget: 'web-search' })
+  assert.deepEqual(
+    structuredClone(mutated.find(m => m.ns === 'web-deepseek-api').ops),
+    [{ op: 'set', path: ['fetchBilling'], value: 'api-key' }],
+    'hidden count must not be submitted',
+  )
+
+  // 3. Retry Save (full success `ok === true`) while DeepSeek Messages is active.
+  //    Hidden `count=18` draft MUST STILL survive full save!
+  failWebNs = false
+  mutated.length = 0
+  formSaveBtn().props.onClick()
+  await new Promise(resolve => setTimeout(resolve, 20))
+  tree = harness.render({ readOnly: false, subTarget: 'web-search' })
+  assert.deepEqual(Array.from(mutated, m => m.ns), ['web'])
+  assert.equal(formSaveBtn().props.disabled, true, 'Save disabled after visible changes saved')
+
+  // 4. Switch back to DeepSeek Search API -> hidden draft `18` is still intact and ready to save!
+  pickMenu('Search provider', 'DeepSeek Search API')
+  assert.equal(countInput().props.value, '18', 'hidden Results per search draft survives both partial and full saves')
+  assert.equal(formSaveBtn().props.disabled, false)
+})

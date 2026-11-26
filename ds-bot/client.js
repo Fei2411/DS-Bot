@@ -29467,8 +29467,204 @@ var CHANGES_CSS = `
 @media (max-width:640px){.bt-changes{margin-left:0}}
 `;
 
+// src/client/popup-ownership.js
+var owners = /* @__PURE__ */ new Map();
+function registerPopupOwner(owner, popup) {
+  owners.set(popup, owner);
+  return () => {
+    owners.delete(popup);
+  };
+}
+function ownedPopups(roots) {
+  const allowed2 = [...roots];
+  for (let index = 0; index < allowed2.length; index += 1) {
+    for (const [popup, owner] of owners) {
+      const element = popup.current;
+      if (element?.isConnected && !element.hasAttribute("data-leaving") && allowed2[index].contains(owner.current) && !allowed2.some((root) => root.contains(element))) allowed2.push(element);
+    }
+  }
+  return allowed2.slice(roots.length);
+}
+
 // src/client/overlay-hooks.js
 var import_react6 = require("react");
+var useSafeLayoutEffect = typeof window !== "undefined" && typeof document !== "undefined" && typeof import_react6.useLayoutEffect === "function" ? import_react6.useLayoutEffect : import_react6.useEffect;
+var inertLocks = /* @__PURE__ */ new WeakMap();
+function acquireInert(element) {
+  if (!element || typeof element !== "object") return;
+  const existing = inertLocks.get(element);
+  if (existing) {
+    existing.count += 1;
+    element.inert = true;
+    return;
+  }
+  inertLocks.set(element, { count: 1, initial: Boolean(element.inert) });
+  element.inert = true;
+}
+function releaseInert(element) {
+  if (!element || typeof element !== "object") return;
+  const existing = inertLocks.get(element);
+  if (!existing) return;
+  existing.count -= 1;
+  if (existing.count <= 0) {
+    inertLocks.delete(element);
+    element.inert = existing.initial;
+  }
+}
+var FOCUSABLE_SELECTOR = "button,input,select,textarea,a[href],[tabindex],[contenteditable],summary,audio[controls],video[controls]";
+function isElementFocusable(element, doc, requireRects) {
+  if (!element || typeof element.focus !== "function") return false;
+  if (element.tabIndex < 0) return false;
+  if (typeof element.matches === "function" && element.matches(":disabled")) return false;
+  if (element.disabled === true || element.hidden === true) return false;
+  if (typeof element.closest === "function" && (element.closest("[inert]") || element.closest("[hidden]"))) return false;
+  const style = doc?.defaultView?.getComputedStyle?.(element);
+  if (style && (style.display === "none" || style.visibility === "hidden")) return false;
+  if (requireRects && typeof element.getClientRects === "function" && element.getClientRects().length === 0) return false;
+  return true;
+}
+function collectFocusableControls(roots, doc) {
+  const seen = /* @__PURE__ */ new Set();
+  const controls = [];
+  for (const root of roots) {
+    if (!root || typeof root.querySelectorAll !== "function") continue;
+    const requireRects = typeof root.getClientRects === "function" && root.getClientRects().length > 0;
+    const candidates = [root, ...root.querySelectorAll(FOCUSABLE_SELECTOR)];
+    for (const element of candidates) {
+      if (seen.has(element)) continue;
+      if (!isElementFocusable(element, doc, requireRects)) continue;
+      seen.add(element);
+      controls.push(element);
+    }
+  }
+  return controls;
+}
+function activeModalsIn(doc) {
+  if (!doc || typeof doc.querySelectorAll !== "function") return [];
+  return [...doc.querySelectorAll('[aria-modal="true"], [role="alertdialog"]')].filter((modal) => !(typeof modal.closest === "function" && modal.closest("[data-leaving]")));
+}
+function hasHigherModalThan(container, doc) {
+  const modals = activeModalsIn(doc);
+  if (modals.length === 0) return false;
+  let selfIdx = -1;
+  for (let i = 0; i < modals.length; i += 1) {
+    const modal = modals[i];
+    if (modal === container || typeof container.contains === "function" && container.contains(modal)) {
+      selfIdx = i;
+    }
+  }
+  if (selfIdx < 0) return modals.length > 0;
+  for (let i = selfIdx + 1; i < modals.length; i += 1) {
+    const modal = modals[i];
+    if (modal === container || typeof container.contains === "function" && container.contains(modal)) continue;
+    return true;
+  }
+  return false;
+}
+function useModalFocusTrap(containerRef, active = true, { initialFocusRef } = {}) {
+  useSafeLayoutEffect(() => {
+    if (!active) return void 0;
+    const container = containerRef?.current;
+    const doc = container?.ownerDocument;
+    if (!container || !doc?.body || typeof doc.addEventListener !== "function") return void 0;
+    const returnFocus = doc.activeElement;
+    const held = /* @__PURE__ */ new Set();
+    let allowedRoots = [container];
+    let disposed = false;
+    const releaseAll = () => {
+      for (const el of held) releaseInert(el);
+      held.clear();
+    };
+    const isolateBody = (roots) => {
+      const nextHeld = /* @__PURE__ */ new Set();
+      const walk2 = (element) => {
+        if (!element || roots.includes(element)) return;
+        if (roots.some((root) => typeof element.contains === "function" && element.contains(root))) {
+          for (const child of element.children ?? []) walk2(child);
+        } else {
+          nextHeld.add(element);
+        }
+      };
+      walk2(doc.body);
+      for (const el of nextHeld) {
+        if (!held.has(el)) {
+          acquireInert(el);
+          held.add(el);
+        }
+      }
+      for (const el of held) {
+        if (!nextHeld.has(el)) {
+          releaseInert(el);
+          held.delete(el);
+        }
+      }
+    };
+    const focusInside = () => {
+      const preferred = initialFocusRef?.current;
+      if (preferred && container.contains(preferred) && !preferred.closest?.("[inert]")) {
+        preferred.focus?.({ preventScroll: true });
+        return;
+      }
+      const controls = collectFocusableControls(allowedRoots, doc);
+      (controls[0] ?? container).focus?.({ preventScroll: true });
+    };
+    const isAllowed = (element) => Boolean(element) && allowedRoots.some((root) => root.contains(element));
+    const sync = () => {
+      if (disposed) return;
+      if (hasHigherModalThan(container, doc)) {
+        releaseAll();
+        allowedRoots = [container];
+        return;
+      }
+      allowedRoots = [container, ...ownedPopups([container])];
+      isolateBody(allowedRoots);
+      if (!isAllowed(doc.activeElement)) focusInside();
+    };
+    const onFocusIn = () => {
+      queueMicrotask(() => {
+        if (!disposed) sync();
+      });
+    };
+    const onKeyDown = (event) => {
+      if (event.key !== "Tab") return;
+      if (hasHigherModalThan(container, doc)) return;
+      sync();
+      const controls = collectFocusableControls(allowedRoots, doc);
+      event.preventDefault();
+      event.stopPropagation();
+      if (controls.length === 0) {
+        container.focus?.({ preventScroll: true });
+        return;
+      }
+      const current2 = controls.indexOf(doc.activeElement);
+      const nextIndex = current2 < 0 ? event.shiftKey ? controls.length - 1 : 0 : (current2 + (event.shiftKey ? -1 : 1) + controls.length) % controls.length;
+      controls[nextIndex]?.focus?.({ preventScroll: true });
+    };
+    sync();
+    let observer2 = null;
+    if (typeof MutationObserver === "function") {
+      observer2 = new MutationObserver(sync);
+      observer2.observe(doc.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-leaving", "aria-modal", "role"] });
+    }
+    doc.addEventListener("focusin", onFocusIn, true);
+    doc.addEventListener("keydown", onKeyDown, true);
+    return () => {
+      disposed = true;
+      observer2?.disconnect();
+      doc.removeEventListener("focusin", onFocusIn, true);
+      doc.removeEventListener("keydown", onKeyDown, true);
+      releaseAll();
+      const activeEl = doc.activeElement;
+      const shouldRestore = !activeEl || activeEl === doc.body || activeEl === doc.documentElement || container.contains(activeEl);
+      if (shouldRestore && returnFocus && returnFocus.isConnected !== false && typeof returnFocus.focus === "function" && !returnFocus.closest?.("[inert]")) {
+        const remainingModals = activeModalsIn(doc).filter((m) => m !== container && !container.contains(m));
+        if (remainingModals.length === 0 || remainingModals.some((m) => m.contains(returnFocus))) {
+          returnFocus.focus({ preventScroll: true });
+        }
+      }
+    };
+  }, [active, containerRef, initialFocusRef]);
+}
 var ESCAPE_PRIORITY = {
   PANEL: -1,
   DRAWER: 0,
@@ -29493,6 +29689,7 @@ function settingsOwnsKeyboard(dialog, doc = typeof document === "undefined" ? nu
   if (!doc || typeof doc.querySelectorAll !== "function") return true;
   for (const modal of doc.querySelectorAll('[aria-modal="true"], [role="alertdialog"]')) {
     if (modal === dialog) continue;
+    if (dialog && typeof dialog.contains === "function" && dialog.contains(modal)) continue;
     if (typeof modal.closest === "function" && modal.closest("[data-leaving]")) continue;
     return false;
   }
@@ -31067,25 +31264,6 @@ var HANDOFF_CSS = `
 .bt-handoff.bt-q-raised .bt-q-head{padding-bottom:12px}
 .bt-handoff .bt-q-foot{flex-wrap:wrap}
 `;
-
-// src/client/popup-ownership.js
-var owners = /* @__PURE__ */ new Map();
-function registerPopupOwner(owner, popup) {
-  owners.set(popup, owner);
-  return () => {
-    owners.delete(popup);
-  };
-}
-function ownedPopups(roots) {
-  const allowed2 = [...roots];
-  for (let index = 0; index < allowed2.length; index += 1) {
-    for (const [popup, owner] of owners) {
-      const element = popup.current;
-      if (element?.isConnected && !element.hasAttribute("data-leaving") && allowed2[index].contains(owner.current) && !allowed2.some((root) => root.contains(element))) allowed2.push(element);
-    }
-  }
-  return allowed2.slice(roots.length);
-}
 
 // src/client/select-menu.js
 var import_react12 = require("react");
@@ -57318,26 +57496,18 @@ function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAdvancedM
     const card = cardRef.current;
     const layer = layerRef.current;
     if (!doc?.body || !card || !layer) return void 0;
-    const inert = /* @__PURE__ */ new Map();
+    const held = /* @__PURE__ */ new Set();
     let interactive = [card];
     let disposed = false;
     const restore = () => {
-      for (const [element, previous] of inert) element.inert = previous;
-      inert.clear();
+      for (const element of held) releaseInert(element);
+      held.clear();
     };
-    const externalModalOpen = () => {
-      if (typeof doc.querySelectorAll !== "function") return false;
-      for (const modal of doc.querySelectorAll('[aria-modal="true"], [role="alertdialog"]')) {
-        if (modal === dialog || dialog.contains(modal)) continue;
-        if (typeof modal.closest === "function" && modal.closest("[data-leaving]")) continue;
-        return true;
-      }
-      return false;
-    };
+    const externalModalOpen = () => !settingsOwnsKeyboard(dialog, doc);
     const allowed2 = (element) => interactive.some((root) => root.contains(element));
     const sync = () => {
-      restore();
       if (externalModalOpen()) {
+        restore();
         interactive = [card];
         return;
       }
@@ -57345,16 +57515,28 @@ function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAdvancedM
       interactive = [target, card].filter(Boolean);
       interactive.push(...ownedPopups(interactive));
       const roots = [layer, ...interactive];
+      const nextHeld = /* @__PURE__ */ new Set();
       const isolate = (element) => {
         if (roots.includes(element)) return;
         if (roots.some((root) => element.contains(root))) {
           for (const child of element.children) isolate(child);
         } else {
-          inert.set(element, element.inert);
-          element.inert = true;
+          nextHeld.add(element);
         }
       };
       isolate(doc.body);
+      for (const element of nextHeld) {
+        if (!held.has(element)) {
+          acquireInert(element);
+          held.add(element);
+        }
+      }
+      for (const element of held) {
+        if (!nextHeld.has(element)) {
+          releaseInert(element);
+          held.delete(element);
+        }
+      }
       if (!allowed2(doc.activeElement)) card.focus({ preventScroll: true });
     };
     const onFocus = () => {
@@ -57391,6 +57573,8 @@ function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAdvancedM
     if (!active || typeof window === "undefined") return void 0;
     const onKeyDown = (event) => {
       if (event.defaultPrevented || isImeComposing(event) || event.metaKey || event.ctrlKey || event.altKey) return;
+      const dialog = dialogRef?.current ?? layerRef.current?.closest?.(".bt-settings");
+      if (!settingsOwnsKeyboard(dialog, dialog?.ownerDocument)) return;
       const tag = event.target?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || event.target?.isContentEditable) return;
       if (event.key === "ArrowRight") {
@@ -57403,7 +57587,7 @@ function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAdvancedM
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [active, next, prev]);
+  }, [active, next, prev, dialogRef]);
   (0, import_react65.useEffect)(() => {
     if (!active || !step?.page || step.page === currentPageRef.current) return;
     onNavigateRef.current(step.page);

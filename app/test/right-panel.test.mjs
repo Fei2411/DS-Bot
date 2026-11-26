@@ -66,6 +66,7 @@ const entryCode = `
   export { createLocalLineEditor, createTerminalKeyHandler, parseAnsiSpans, readXtermTheme, WorkspaceTerminal } from './ui/src/workspace-terminal.js'
   export { ChangesReview } from './ui/src/changes-review.js'
   export { RightPanel, WorkspacePaneBody, buildWorkspaceTabs } from './ui/src/right-panel.js'
+  export { createPluginRuntime } from './ui/src/plugin-runtime.js'
   export { createSlotRegistry, RIGHT_PANE_TAB_SLOT } from './ui/src/slots.js'
   export { createTeam } from './ui/src/team.js'
 `
@@ -227,6 +228,7 @@ const {
   RightPanel,
   WorkspacePaneBody,
   buildWorkspaceTabs,
+  createPluginRuntime,
   createSlotRegistry,
   RIGHT_PANE_TAB_SLOT,
   createTeam,
@@ -1271,5 +1273,124 @@ test('FilePreview renders SpreadsheetPreview with sheet tabs, merges, formula ba
     assert.match(textOf(tree), /Preview truncated for size/)
   } finally {
     view.unmount()
+  }
+})
+
+test('WorkspacePaneBody plugin tab Retry calls runtime.retry(), FileTree syncs mid-flight Linux expansions, and pagehide unwatch uses relative credentials fetch', async () => {
+  // 1. Crashing `sidebar.right.pane.tab` plugin registered via runtime.use() recovers when clicking Retry.
+  const reg = createSlotRegistry()
+  const runtime = createPluginRuntime({ slots: reg })
+  let applyCount = 0
+  let onRetryCalls = 0
+  let resetCalls = 0
+  let shouldCrash = true
+
+  runtime.use({ id: 'ext.crash-tab' }, (ctx) => {
+    applyCount += 1
+    const TabComp = () => {
+      if (shouldCrash) throw new Error('right pane plugin crash')
+      return { type: 'div', props: { className: 'recovered-tab', children: [`tab-gen-${applyCount}`] } }
+    }
+    TabComp.reset = () => { resetCalls += 1 }
+    ctx.slot({
+      name: RIGHT_PANE_TAB_SLOT,
+      id: 'crash-tab',
+      meta: { label: 'Crash Tab' },
+      onRetry: () => { onRetryCalls += 1 },
+    }, TabComp)
+  })
+  assert.equal(applyCount, 1)
+
+  const team = createTeam()
+  const tabInst = mount(WorkspacePaneBody, {
+    sessionId: 'b1',
+    panel: { tabs: ['plugin:crash-tab'], tab: 'plugin:crash-tab' },
+    team,
+    registry: reg,
+    visible: true,
+  })
+  try {
+    let tree = tabInst.render()
+    const retryBtn = all(tree, n => n.type === 'button' && /Retry/.test(textOf(n)))[0]
+    assert.ok(retryBtn, 'WorkspacePaneBody renders SlotErrorBoundary Retry button')
+    shouldCrash = false
+    retryBtn.props.onClick()
+    assert.equal(applyCount, 2, 'WorkspacePaneBody Retry must invoke runtime.retry() using top-level entry.pluginId/runtime')
+    assert.equal(resetCalls, 1, 'WorkspacePaneBody Retry calls component.reset()')
+    assert.equal(onRetryCalls, 1, 'WorkspacePaneBody Retry calls entry.onRetry()')
+    tree = tabInst.render()
+    assert.match(textOf(tree), /tab-gen-2/)
+  } finally {
+    tabInst.unmount()
+  }
+
+  // 2. Linux (recursive: false) mid-flight folder expansion syncs immediately when initial workspace-watch resolves,
+  //    and pagehide unwatch uses document-relative `api/bot` with `credentials: 'same-origin'`.
+  const watchCalls = []
+  const fetchCalls = []
+  const prevFetch = sandbox.fetch
+  sandbox.fetch = (url, init) => { fetchCalls.push([url, init]); return Promise.resolve({}) }
+  winListeners.clear()
+  let resolveInitialWatch
+  sandbox.__testCall = (endpoint, body) => {
+    if (endpoint === 'workspace-watch') {
+      watchCalls.push(body)
+      if (!body.watchId) {
+        return new Promise((resolve) => { resolveInitialWatch = resolve })
+      }
+      return Promise.resolve({ watchId: body.watchId, root: '/repo', recursive: false })
+    }
+    if (endpoint === 'workspace-unwatch') return Promise.resolve({ ok: true })
+    if (endpoint === 'workspace-list') {
+      return Promise.resolve({
+        root: '/repo',
+        rootName: 'repo',
+        path: body.path ?? '',
+        truncated: false,
+        entries: body.path === 'src'
+          ? [{ name: 'index.js', path: 'src/index.js', kind: 'file', size: 10, ext: '.js' }]
+          : [{ name: 'src', path: 'src', kind: 'dir', size: 0, ext: '' }],
+      })
+    }
+    return Promise.resolve({})
+  }
+
+  const ftInst = mount(WorkspacePaneBody, {
+    sessionId: 'b1',
+    panel: { tabs: ['files'], tab: 'files' },
+    team,
+    visible: true,
+  })
+  try {
+    ftInst.render()
+    await tick()
+    let tree = ftInst.render()
+    assert.equal(watchCalls.length >= 1, true, 'initial workspace-watch started')
+    // Expand `src` BEFORE initial workspace-watch has resolved!
+    const srcBtn = all(tree, n => n.type === 'button' && String(n.props?.className ?? '').includes('dsb-ft-row') && /src/.test(textOf(n)))[0]
+    assert.ok(srcBtn)
+    srcBtn.props.onClick()
+    await tick()
+    tree = ftInst.render()
+    assert.match(textOf(tree), /index\.js/)
+
+    // Now resolve the initial watch as Linux non-recursive -> must immediately send follow-up watch with dirs: ['src']!
+    resolveInitialWatch({ watchId: 'w-linux', root: '/repo', recursive: false })
+    await tick()
+    assert.equal(
+      watchCalls.some(c => c.watchId === 'w-linux' && Array.isArray(c.dirs) && c.dirs.includes('src')),
+      true,
+      'folder expanded while initial Linux watch was in flight must be synced once watchId resolves',
+    )
+
+    // Verify pagehide unwatch uses document-relative `api/bot` and `credentials: 'same-origin'`.
+    for (const fn of [...(winListeners.get('pagehide') ?? [])]) fn()
+    assert.equal(fetchCalls.length, 1)
+    assert.equal(fetchCalls[0][0], 'api/bot')
+    assert.equal(fetchCalls[0][1].credentials, 'same-origin')
+  } finally {
+    ftInst.unmount()
+    if (prevFetch === undefined) delete sandbox.fetch
+    else sandbox.fetch = prevFetch
   }
 })

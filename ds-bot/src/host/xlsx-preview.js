@@ -28,17 +28,31 @@ const LFH_SIG = 0x04034b50
 
 // Standard OOXML built-in date/time numFmtIds (ECMA-376 §18.8.30).
 const BUILTIN_DATE_FMT_IDS = new Set([14, 15, 16, 17, 18, 19, 20, 21, 22, 45, 46, 47])
-
-function localName(raw) {
-  const idx = raw.indexOf(':')
-  return idx === -1 ? raw : raw.slice(idx + 1)
-}
+// Transitional (ECMA-376) and Strict (ISO/IEC 29500) OOXML relationship namespaces.
+const OOXML_REL_NS = new Set([
+  'http://schemas.openxmlformats.org/officeDocument/2006/relationships',
+  'http://purl.oclc.org/ooxml/officeDocument/relationships',
+])
 
 function attrOf(attrs, ...names) {
   for (const name of names) {
-    if (Object.hasOwn(attrs, name)) return attrs[name]
+    if (Object.hasOwn(attrs, name)) {
+      const entry = attrs[name]
+      return typeof entry === 'string' ? entry : entry?.value
+    }
   }
   return undefined
+}
+
+function relIdOf(attrs) {
+  let bareId = ''
+  for (const attr of Object.values(attrs)) {
+    if (!attr || typeof attr !== 'object') continue
+    if (attr.local !== 'id') continue
+    if (OOXML_REL_NS.has(attr.uri)) return attr.value ?? ''
+    if (attr.uri === '' && bareId === '') bareId = attr.value ?? ''
+  }
+  return bareId
 }
 
 function findEocd(buf) {
@@ -176,54 +190,63 @@ function readExactEntryText(buf, entry, budget, maxEntryBytes) {
   return data.toString('utf8')
 }
 
+const ABORT_PARSE = Symbol('abort-xlsx-parse')
+
 function createStrictParser(handlers) {
-  const parser = new SaxesParser({ xmlns: false })
+  const parser = new SaxesParser({ xmlns: true })
   let depth = 0
   let aborted = false
   let fatalError = null
 
-  const abort = () => { aborted = true }
+  const abort = () => {
+    aborted = true
+    throw ABORT_PARSE
+  }
   const fail = (err) => {
     if (!fatalError) fatalError = err instanceof Error ? err : new Error(String(err))
     aborted = true
+    throw ABORT_PARSE
   }
 
   parser.on('error', (err) => { fail(err) })
   parser.on('opentag', (node) => {
-    if (aborted) return
+    if (aborted) throw ABORT_PARSE
     depth += 1
     if (depth > MAX_XML_DEPTH) {
       fail(new Error('XML nesting exceeds preview safety limit'))
-      return
     }
     try {
-      handlers.onOpen?.(localName(node.name), node.attributes, node.isSelfClosing, abort)
+      handlers.onOpen?.(node.local, node.attributes, node.isSelfClosing, abort)
     } catch (err) {
+      if (err === ABORT_PARSE) throw err
       fail(err)
     }
   })
   parser.on('text', (text) => {
-    if (aborted) return
+    if (aborted) throw ABORT_PARSE
     try {
       handlers.onText?.(text, abort)
     } catch (err) {
+      if (err === ABORT_PARSE) throw err
       fail(err)
     }
   })
   parser.on('cdata', (text) => {
-    if (aborted) return
+    if (aborted) throw ABORT_PARSE
     try {
       handlers.onText?.(text, abort)
     } catch (err) {
+      if (err === ABORT_PARSE) throw err
       fail(err)
     }
   })
   parser.on('closetag', (node) => {
-    if (aborted) return
+    if (aborted) throw ABORT_PARSE
     depth = Math.max(0, depth - 1)
     try {
-      handlers.onClose?.(localName(node.name), abort)
+      handlers.onClose?.(node.local, abort)
     } catch (err) {
+      if (err === ABORT_PARSE) throw err
       fail(err)
     }
   })
@@ -231,7 +254,14 @@ function createStrictParser(handlers) {
   return {
     write(chunk) {
       if (aborted) return false
-      parser.write(chunk)
+      try {
+        parser.write(chunk)
+      } catch (err) {
+        if (err !== ABORT_PARSE && !fatalError) {
+          fatalError = err instanceof Error ? err : new Error(String(err))
+          aborted = true
+        }
+      }
       if (fatalError) throw fatalError
       return !aborted
     },
@@ -240,7 +270,14 @@ function createStrictParser(handlers) {
         if (fatalError) throw fatalError
         return
       }
-      parser.close()
+      try {
+        parser.close()
+      } catch (err) {
+        if (err !== ABORT_PARSE && !fatalError) {
+          fatalError = err instanceof Error ? err : new Error(String(err))
+          aborted = true
+        }
+      }
       if (fatalError) throw fatalError
     },
     isAborted: () => aborted,
@@ -541,7 +578,7 @@ function parseWorkbook(xmlText) {
         inSheets = true
       } else if (inSheets && tag === 'sheet') {
         const name = attrOf(attrs, 'name') ?? ''
-        const rId = attrOf(attrs, 'r:id', 'id') ?? ''
+        const rId = relIdOf(attrs)
         const state = attrOf(attrs, 'state') ?? 'visible'
         if (name !== '' && rId !== '') sheets.push({ name, rId, state })
       }

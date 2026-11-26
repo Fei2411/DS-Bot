@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { execFileSync, spawn } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import fsp from 'node:fs/promises'
 import { syncBuiltinESMExports } from 'node:module'
@@ -9,7 +10,7 @@ import { test } from 'node:test'
 import { deflateRawSync } from 'node:zlib'
 import { install as installFeed } from '../src/host/feed.js'
 import { install as installFolders } from '../src/host/folders.js'
-import { buildOpenOsCommand, install as installWorkspacePanel } from '../src/host/workspace-panel.js'
+import { buildOpenOsCommand, install as installWorkspacePanel, openOsPath } from '../src/host/workspace-panel.js'
 import { parseXlsxBuffer } from '../src/host/xlsx-preview.js'
 
 function createRuntime(rootDir, { dshHome, workspaceChanges, subprocess, bots, liveSessions, chatOwners, extraRt } = {}) {
@@ -681,22 +682,180 @@ test('workspace-watch never passes recursive:true on Linux, falls back to pollin
   await assert.rejects(() => watchPending, { code: 'bot/refused' })
   await disposePending
   assert.equal(raceWatchers.length, 0, 'disposed runtime must never create late OS watchers')
+  // 5. Linux per-dir transient errors (ENOENT/EACCES) skip that subdir without downgrading healthy watchers to poll.
+  mkdirSync(join(workDir, 'good'), { recursive: true })
+  mkdirSync(join(workDir, 'unreadable'), { recursive: true })
+  const partialWatchers = []
+  const { rt: rtPartial } = createRuntime(workDir, { dshHome })
+  rtPartial.watchPlatform = 'linux'
+  rtPartial.watchWorkspaceDir = (dir, opts, onEvent) => {
+    if (dir.endsWith('unreadable')) {
+      const err = new Error('permission denied')
+      err.code = 'EACCES'
+      throw err
+    }
+    const w = { dir, opts, onEvent, closed: false, close() { this.closed = true } }
+    partialWatchers.push(w)
+    return w
+  }
+  const wPartial = await rtPartial.workspaceEndpoint('watch', { sessionId: 'b1', dirs: ['unreadable', 'good'] })
+  assert.equal(wPartial.mode, 'dirs', 'single subdir EACCES must keep healthy Linux dir watchers instead of downgrading to poll')
+  assert.equal(partialWatchers.length, 2, 'root + healthy subdir watchers stay active')
+  assert.equal(partialWatchers.every(w => !w.closed), true)
+  await rtPartial.terminalDispose()
+  assert.equal(partialWatchers.every(w => w.closed), true)
+
+  // 6. Existing-session reuse checks disposed/closed state after awaiting syncDirsForRoot.
+  const { rt: rtReuse } = createRuntime(workDir, { dshHome })
+  rtReuse.watchPlatform = 'linux'
+  rtReuse.watchWorkspaceDir = (dir, opts, onEvent) => ({ dir, opts, onEvent, closed: false, close() { this.closed = true } })
+  const firstReuse = await rtReuse.workspaceEndpoint('watch', { sessionId: 'b1' })
+  assert.ok(firstReuse.watchId)
+  const origReuseInData = rtReuse.inData
+  let holdSync
+  let enteredSync = false
+  rtReuse.inData = async (p) => {
+    if (p.endsWith('good') && !enteredSync) {
+      enteredSync = true
+      await new Promise((resolve) => { holdSync = resolve })
+    }
+    return origReuseInData(p)
+  }
+  const reusePending = rtReuse.workspaceEndpoint('watch', { sessionId: 'b1', watchId: firstReuse.watchId, dirs: ['good'] })
+  await new Promise(resolve => setTimeout(resolve, 15))
+  const reuseDispose = rtReuse.terminalDispose()
+  holdSync?.()
+  const reuseRes = await reusePending
+  await reuseDispose
+  assert.equal(reuseRes.watchId, null)
+  assert.equal(reuseRes.mode, 'closed')
+
+  // 7. Bounded poll-mode stat caps entries per directory and sets overflow: true on changes in large folders.
+  const bigDir = mkdtempSync(join(tmpdir(), 'dsb-wp-pollcap-'))
+  t.after(() => rmSync(bigDir, { recursive: true, force: true }))
+  for (let i = 0; i < 8; i += 1) writeFileSync(join(bigDir, `item-${i}.txt`), 'v1')
+  const { rt: rtCap, localFeedEvents: capEvents } = createRuntime(bigDir, { dshHome })
+  rtCap.watchPlatform = 'linux'
+  rtCap.workspaceWatchDebounceMs = 20
+  rtCap.workspaceWatchPollMs = 30
+  rtCap.workspaceWatchPollMaxEntries = 4
+  rtCap.watchWorkspaceDir = () => {
+    const err = new Error('inotify limit reached')
+    err.code = 'ENOSPC'
+    throw err
+  }
+  const wCap = await rtCap.workspaceEndpoint('watch', { sessionId: 'b1' })
+  assert.equal(wCap.mode, 'poll')
+  writeFileSync(join(bigDir, 'item-0.txt'), 'v2-changed')
+  await new Promise(resolve => setTimeout(resolve, 110))
+  const capEvent = capEvents.find(e => e.event === 'workspace-changed')
+  assert.ok(capEvent, 'bounded poll still detects file change')
+  assert.equal(capEvent.data.overflow, true, 'poll exceeding max entries marks overflow: true')
+  await rtCap.terminalDispose()
 })
 
-test('buildOpenOsCommand safely formats Windows reveal/open commands with spaces, commas, %, and #', () => {
+test('buildOpenOsCommand safely formats Windows reveal/open commands, scrubs sensitive env, and openOsPath checks exit status', async (t) => {
+  const prevSecret = process.env.DEEPSEEK_API_KEY
+  const prevToken = process.env.DS_BOT_TEST_TOKEN
+  process.env.DEEPSEEK_API_KEY = 'sk-must-not-leak'
+  process.env.DS_BOT_TEST_TOKEN = 'tok-must-not-leak'
+  t.after(() => {
+    if (prevSecret === undefined) delete process.env.DEEPSEEK_API_KEY
+    else process.env.DEEPSEEK_API_KEY = prevSecret
+    if (prevToken === undefined) delete process.env.DS_BOT_TEST_TOKEN
+    else process.env.DS_BOT_TEST_TOKEN = prevToken
+  })
+
   const reveal = buildOpenOsCommand('C:\\Users\\Alice, Bob\\100% #1\\doc.txt', 'reveal', false, 'win32')
   assert.equal(reveal.command, 'explorer.exe')
   assert.equal(reveal.options.windowsVerbatimArguments, true)
+  assert.equal(reveal.allowExit1, true)
   assert.deepEqual(reveal.args, ['/select,"C:\\Users\\Alice, Bob\\100% #1\\doc.txt"'])
+  assert.equal(reveal.options.env.DEEPSEEK_API_KEY, undefined, 'sensitive env vars scrubbed from launcher')
 
-  const openWin = buildOpenOsCommand('C:\\Users\\Alice\\100% #1\\doc.txt', 'open', false, 'win32')
+  const openWin = buildOpenOsCommand('C:\\Users\\Alice\\100% #1 [draft]\\doc.txt', 'open', false, 'win32')
   assert.equal(openWin.command, 'powershell.exe')
-  assert.equal(openWin.options.env.DSB_OPEN_TARGET, 'C:\\Users\\Alice\\100% #1\\doc.txt')
-  assert.ok(openWin.args.some(a => a.includes('Start-Process -LiteralPath $env:DSB_OPEN_TARGET')))
+  assert.equal(openWin.waitForExit, true)
+  assert.equal(openWin.options.env.DSB_OPEN_TARGET, 'C:\\Users\\Alice\\100% #1 [draft]\\doc.txt')
+  assert.equal(openWin.options.env.DEEPSEEK_API_KEY, undefined)
+  assert.equal(openWin.options.env.DS_BOT_TEST_TOKEN, undefined)
+  assert.ok(openWin.args.some(a => a.includes('Invoke-Item -LiteralPath $env:DSB_OPEN_TARGET -ErrorAction Stop')))
+  assert.equal(openWin.args.some(a => a.includes('Start-Process -LiteralPath')), false, 'must never use invalid Start-Process -LiteralPath')
 
   const revealMac = buildOpenOsCommand('/tmp/a b.txt', 'reveal', false, 'darwin')
   assert.equal(revealMac.command, 'open')
   assert.deepEqual(revealMac.args, ['-R', '/tmp/a b.txt'])
+
+  // openOsPath rejects with captured stderr on non-zero exit instead of silently resolving true on spawn.
+  await assert.rejects(
+    () => openOsPath('/tmp/demo.txt', 'open', false, {
+      platform: 'win32',
+      spawnFn: () => spawn(process.execPath, ['-e', 'process.stderr.write("cannot bind parameter\\n"); process.exit(1)'], { stdio: ['ignore', 'ignore', 'pipe'] }),
+    }),
+    /cannot bind parameter/,
+  )
+
+  // Exit 0 resolves cleanly.
+  assert.equal(
+    await openOsPath('/tmp/demo.txt', 'open', false, {
+      platform: 'win32',
+      spawnFn: () => spawn(process.execPath, ['-e', 'process.exit(0)'], { stdio: ['ignore', 'ignore', 'pipe'] }),
+    }),
+    true,
+  )
+
+  // Windows explorer.exe exit 1 with empty stderr resolves cleanly (known Explorer shell handoff code).
+  assert.equal(
+    await openOsPath('C:\\demo.txt', 'reveal', false, {
+      platform: 'win32',
+      spawnFn: () => spawn(process.execPath, ['-e', 'process.exit(1)'], { stdio: ['ignore', 'ignore', 'pipe'] }),
+    }),
+    true,
+  )
+
+  // Long-running Linux xdg-open detaches cleanly once settleMs elapses.
+  let longChild = null
+  t.after(() => { try { longChild?.kill() } catch { /* already exited */ } })
+  assert.equal(
+    await openOsPath('/tmp/demo.txt', 'open', false, {
+      platform: 'linux',
+      settleMs: 30,
+      spawnFn: () => {
+        longChild = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 5000)'], { stdio: ['ignore', 'ignore', 'pipe'] })
+        return longChild
+      },
+    }),
+    true,
+  )
+})
+
+test('Windows PowerShell open command validates real cmdlet parameter binding and literal paths on win32', { skip: process.platform !== 'win32' }, async (t) => {
+  const workDir = mkdtempSync(join(tmpdir(), 'dsb-wp-ps-'))
+  t.after(() => rmSync(workDir, { recursive: true, force: true }))
+  const weirdPath = join(workDir, '100% #1 [test], copy.txt')
+  writeFileSync(weirdPath, 'hello')
+
+  const spec = buildOpenOsCommand(weirdPath, 'open', false, 'win32')
+  const cmd = spec.args[spec.args.indexOf('-Command') + 1]
+  assert.ok(cmd && cmd.includes('Invoke-Item'))
+
+  // 1. Validate PowerShell AST syntax & real Get-Command parameter binding + -WhatIf resolution on literal special chars.
+  const verifyScript = [
+    '$errors = $null',
+    '[void][System.Management.Automation.Language.Parser]::ParseInput($env:DSB_CMD, [ref]$null, [ref]$errors)',
+    'if ($errors.Count -gt 0) { throw ($errors | Out-String) }',
+    '$meta = Get-Command Invoke-Item -ErrorAction Stop',
+    'if (-not $meta.Parameters.ContainsKey("LiteralPath")) { throw "Invoke-Item missing -LiteralPath" }',
+    'Invoke-Item -LiteralPath $env:DSB_OPEN_TARGET -WhatIf -ErrorAction Stop',
+  ].join('; ')
+  execFileSync(spec.command, ['-NoProfile', '-NonInteractive', '-Command', verifyScript], {
+    env: { ...spec.options.env, DSB_CMD: cmd },
+    stdio: 'pipe',
+  })
+
+  // 2. Real openOsPath against a missing file must reject with PowerShell error rather than returning true.
+  const missingPath = join(workDir, 'missing [100%] #1.txt')
+  await assert.rejects(() => openOsPath(missingPath, 'open', false), /Cannot find path|ItemNotFound|exited with code/i)
 })
 
 test('workspace-open enforces containment and dispatches reveal/open actions', async (t) => {
@@ -882,8 +1041,8 @@ test('parseXlsxBuffer handles hostile and edge-case OOXML workbooks safely via s
   })
   await assert.rejects(() => parseXlsxBuffer(malformedZip), /malformed|XML|tag/i)
 
-  // 6. Oversized sharedStrings.xml (> 24 MiB) throws explicitly rather than silently blanking every cell.
-  const hugeSst = Buffer.alloc(25 * 1024 * 1024, 0x20)
+  // 6. Oversized sharedStrings.xml throws explicitly rather than silently blanking every cell.
+  const hugeSst = Buffer.alloc(8 * 1024, 0x20)
   hugeSst.write('<sst><si><t>A</t></si>', 0)
   hugeSst.write('</sst>', hugeSst.length - 6)
   const hugeSstZip = buildZip({
@@ -892,7 +1051,7 @@ test('parseXlsxBuffer handles hostile and edge-case OOXML workbooks safely via s
     'xl/sharedStrings.xml': hugeSst,
     'xl/worksheets/sheet1.xml': `<worksheet><sheetData><row r="1"><c r="A1" t="s"><v>0</v></c></row></sheetData></worksheet>`,
   })
-  await assert.rejects(() => parseXlsxBuffer(hugeSstZip), /size limit/i)
+  await assert.rejects(() => parseXlsxBuffer(hugeSstZip, { maxEntryBytes: 4096 }), /size limit/i)
 
   // 7. Zip bomb whose DEFLATE payload inflates past declared uncompressed size rejects explicitly.
   const bombPayload = Buffer.alloc(64 * 1024, 0x41)
@@ -905,4 +1064,31 @@ test('parseXlsxBuffer handles hostile and edge-case OOXML workbooks safely via s
   tampered.writeUInt32LE(100, 22)
   tampered.writeUInt32LE(100, cdSig + 24)
   await assert.rejects(() => parseXlsxBuffer(tampered), /zip entry|size|XML/i)
+
+  // 8. Valid OOXML workbooks with alternate relationship namespace prefixes (transitional + strict) decode cleanly.
+  const altPrefixZip = buildZip({
+    'xl/workbook.xml': `<?xml version="1.0" encoding="UTF-8"?>
+      <x:workbook xmlns:x="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+        xmlns:rel="http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+        xmlns:strict="http://purl.oclc.org/ooxml/officeDocument/relationships"
+        xmlns:other="http://example.com/unrelated">
+        <x:sheets>
+          <x:sheet name="Q1" sheetId="1" other:id="wrong" rel:id="rId1"/>
+          <x:sheet name="Strict" sheetId="2" strict:id="rId2"/>
+        </x:sheets>
+      </x:workbook>`,
+    'xl/_rels/workbook.xml.rels': `<?xml version="1.0" encoding="UTF-8"?>
+      <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+        <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/custom-a.xml"/>
+        <Relationship Id="rId2" Type="http://purl.oclc.org/ooxml/officeDocument/relationships/worksheet" Target="worksheets/custom-b.xml"/>
+      </Relationships>`,
+    'xl/worksheets/custom-a.xml': `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>Alt Prefix OK</t></is></c></row></sheetData></worksheet>`,
+    'xl/worksheets/custom-b.xml': `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>Strict NS OK</t></is></c></row></sheetData></worksheet>`,
+  })
+  const altParsed = await parseXlsxBuffer(altPrefixZip)
+  assert.equal(altParsed.sheets.length, 2)
+  assert.equal(altParsed.sheets[0].name, 'Q1')
+  assert.equal(altParsed.sheets[0].rows[0][0].v, 'Alt Prefix OK')
+  assert.equal(altParsed.sheets[1].name, 'Strict')
+  assert.equal(altParsed.sheets[1].rows[0][0].v, 'Strict NS OK')
 })
