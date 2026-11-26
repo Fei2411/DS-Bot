@@ -114,12 +114,17 @@ function isSummary(body) {
 function decide(body) {
   const system = systemText(body.system) + '\n' + (body.messages ?? []).filter(m => m.role === 'system').map(m => textOf(m.content)).join('\n')
   const tools = new Set((body.tools ?? []).map(entry => entry.name))
-  // Clock snapshots and a group's memory snapshot are context, not a new scripted user command.
+  // Clock snapshots and conversation-layer memory snapshots/updates are context, not a new scripted user command.
   const messages = (body.messages ?? []).filter(m => m.role !== 'system').map(message => {
     if (message.role !== 'user') return message
-    const isClock = value => value.startsWith('Current time: ') || value.startsWith('Time sampled while preparing turn ') || value.startsWith('## Group memory, shared by the members of this group chat')
-    const content = typeof message.content === 'string' ? (isClock(message.content) ? '' : message.content)
-      : message.content.filter(block => block.type !== 'text' || !isClock(block.text))
+    const isContext = value => value.startsWith('Current time: ')
+      || value.startsWith('Time sampled while preparing turn ')
+      || value.startsWith('## Group memory, shared by the members of this group chat')
+      || value.startsWith('## Your memory (MEMORY.md)')
+      || value.startsWith('## Memory update')
+      || value.startsWith('## Possibly relevant memory')
+    const content = typeof message.content === 'string' ? (isContext(message.content) ? '' : message.content)
+      : message.content.filter(block => block.type !== 'text' || !isContext(block.text))
     return { ...message, content }
   }).filter(message => message.role !== 'user' || message.content.length > 0)
   const last = messages.at(-1)
@@ -361,9 +366,13 @@ function decide(body) {
       .map(line => /^[^:\n]{1,40}: \D*?(\d+)/.exec(line)?.[1])
       .filter(Boolean).map(Number)
     const mentioner = /^\[Group chat [^\]]*· (\S+) mentioned you\]/.exec(userText)?.[1]
-    const peer = /^Members: the user, ([^,\n]+?)(?:,| and you)/m.exec(userText)?.[1]?.replace(/ \(admin\)$/, '')
+    const latestMembersLine = [...messages].reverse()
+      .filter(m => m.role === 'user')
+      .map(m => /^Members: .*/m.exec(textOf(m.content))?.[0])
+      .find(Boolean) ?? ''
+    const peer = /^Members: the user, ([^,\n]+?)(?:,| and you)/.exec(latestMembersLine)?.[1]?.replace(/ \(admin\)$/, '')
     const room = /^\[Group chat "([^"]+)"/.exec(userText)?.[1] ?? ''
-    const leads = /^Members: .* and you \(admin\)\./m.test(userText)
+    const leads = /^Members: .* and you \(admin\)\./.test(latestMembersLine)
     if (userText.includes('route-contract:')) {
       if (leads && userLine.includes('route-contract: start')) return [tool('delegate_work', { to: 'Writer', goal: 'route-contract: check the note from @Coder' })]
       if (me === 'Writer' && block.includes('route-contract: check')) return [text('@Chief @Coder route-contract: the backup is ready')]

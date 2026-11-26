@@ -399,7 +399,7 @@ test('P0-2: group autoRecall parses "This round so far" past long notice headers
 })
 
 test('P0-2: autoRecall surfaces MEMORY.md entries omitted by the 2% prompt cap without duplicating shown entries', async (t) => {
-  const { ctx, tool, section, stop } = start({
+  const { ctx, tool, stop } = start({
     modelInfo: () => ({ context: { contextWindow: 5_000 } }),
   })
   t.after(() => stop())
@@ -408,19 +408,20 @@ test('P0-2: autoRecall surfaces MEMORY.md entries omitted by the 2% prompt cap w
   for (let i = 0; i < 12; i += 1) {
     await tool('bot_remember', { text: `Newer resident memory entry number ${i} occupying budget slots` }, 'b2')
   }
-  // Prime noteWindow + freeze section.
-  await runPreStep(ctx, 'b2', [])
-  const prompt = section('b2')
+  // Prime noteWindow + part-opening resident memory snapshot.
+  const firstStep = await runPreStep(ctx, 'b2', [])
+  const ownSnap = firstStep.messages.find(item => item.source?.kind === 'ds-bot-own-memory')
+  const prompt = textOf(ownSnap)
   assert.match(prompt, /more entries are saved here; bot_recall finds them/)
   assert.doesNotMatch(prompt, /Tokyo ANA aisle seat/)
 
   // Omitted MEMORY.md entry is surfaced automatically on a relevant turn.
-  const hit = await recallOf(ctx, 'b2', 'Book Tokyo ANA aisle seat')
+  const hit = await recallOf(ctx, 'b2', 'Book Tokyo ANA aisle seat', { history: [ownSnap] })
   assert.match(textOf(hit), /\(yours · MEMORY\.md\) Tokyo ANA aisle seat preference/)
-  // An entry already shown in the frozen snapshot must NOT be duplicated into auto-recall.
+  // An entry already shown in the part-opening snapshot must NOT be duplicated into auto-recall.
   const shownMatch = /Newer resident memory entry number (\d+)/.exec(prompt)
   assert.ok(shownMatch)
-  const dup = await recallOf(ctx, 'b2', `Newer resident memory entry number ${shownMatch[1]} occupying budget slots`)
+  const dup = await recallOf(ctx, 'b2', `Newer resident memory entry number ${shownMatch[1]} occupying budget slots`, { history: [ownSnap] })
   assert.doesNotMatch(textOf(dup), new RegExp(`entry number ${shownMatch[1]}`))
 })
 
@@ -429,7 +430,7 @@ test('P0-2: autoRecall surfaces MEMORY.md entries omitted by the 2% prompt cap w
 // local-agent window support, and model-switch cache invalidation.
 
 test('P1-1: full Chinese MEMORY.md reserves topic-index budget and reports omitted topics instead of dropping them silently', async (t) => {
-  const { ctx, tool, section, stop } = start({
+  const { ctx, tool, stop } = start({
     modelInfo: () => ({ context: { contextWindow: 128_000 }, defaultMaxTokens: 8_000 }),
   })
   t.after(() => stop())
@@ -440,8 +441,8 @@ test('P1-1: full Chinese MEMORY.md reserves topic-index budget and reports omitt
   for (let i = 0; i < 6; i += 1) {
     await tool('bot_remember', { text: `Topic fact ${i}`, topic: `topic-${i}` }, 'b2')
   }
-  await runPreStep(ctx, 'b2', [])
-  const own = section('b2').split('## Your memory (MEMORY.md)\n')[1].split('\n\n## Team memory')[0]
+  const bigStep = await runPreStep(ctx, 'b2', [])
+  const own = textOf(bigStep.messages.find(item => item.source?.kind === 'ds-bot-own-memory')).split('## Your memory (MEMORY.md)\n')[1].split('\n\n## Team memory')[0]
   assert.match(own, /more entries are saved here; bot_recall finds them/)
   assert.match(own, /Topic \[\[topic-0\]\]/, 'topic links must remain visible even when MEMORY.md fills the 2% budget')
   assert.ok(estimateTokens(own) <= 2_400, `own section tokens ${estimateTokens(own)} exceeded budget 2400`)
@@ -451,8 +452,8 @@ test('P1-1: full Chinese MEMORY.md reserves topic-index budget and reports omitt
   t.after(() => small.stop())
   for (let i = 0; i < 15; i += 1) await small.tool('bot_remember', { text: `Resident entry ${i} occupying tight prompt budget` }, 'b2')
   for (let i = 0; i < 25; i += 1) await small.tool('bot_remember', { text: `Ref ${i}`, topic: `ref-${i}` }, 'b2')
-  await runPreStep(small.ctx, 'b2', [])
-  const ownSmall = small.section('b2').split('## Your memory (MEMORY.md)\n')[1].split('\n\n## Team memory')[0]
+  const smallStep = await runPreStep(small.ctx, 'b2', [])
+  const ownSmall = textOf(smallStep.messages.find(item => item.source?.kind === 'ds-bot-own-memory')).split('## Your memory (MEMORY.md)\n')[1].split('\n\n## Team memory')[0]
   assert.match(ownSmall, /more entries are saved here; bot_recall finds them/)
   assert.match(ownSmall, /Topic \[\[ref-0\]\]/)
   assert.match(ownSmall, /more topics? (?:is|are) saved here; call bot_recall with no arguments to list them/)
@@ -467,52 +468,47 @@ test('P1-1: noteWindow applies steward usable floor, reads localAgentContext onl
     'deepseek/unknown': {},
   }
   const lookups = []
-  const { ctx, rt, tool, section, stop } = start({
+  const { ctx, rt, tool, stop } = start({
     modelInfo: (provider, model) => {
       lookups.push(`${provider}/${model}`)
       return models[`${provider}/${model}`] ?? {}
     },
   })
   t.after(() => stop())
+  const snapOf = async () => textOf((await runPreStep(ctx, 'b2', [])).messages.find(item => item.source?.kind === 'ds-bot-own-memory'))
   await tool('bot_remember', { text: 'Critical preference that must remain visible' }, 'b2')
   // defaultMaxTokens === contextWindow must clamp usable to contextWindow / 2 (16,384 -> 327 tokens), never 0!
-  await runPreStep(ctx, 'b2', [])
-  assert.match(section('b2'), /Critical preference that must remain visible/)
+  assert.match(await snapOf(), /Critical preference that must remain visible/)
 
   // Switching model immediately refreshes noteWindow (not cached for 10 min under old bot.id).
   for (let i = 0; i < 12; i += 1) await tool('bot_remember', { text: `Extra resident item ${i} with descriptive words` }, 'b2')
   rt.botOf('b2').model = 'deepseek/small'
   rt.renewMemory('b2')
-  await runPreStep(ctx, 'b2', [])
-  assert.match(section('b2'), /more entries are saved here/, 'switching to small model must enforce 100-token cap immediately')
+  assert.match(await snapOf(), /more entries are saved here/, 'switching to small model must enforce 100-token cap immediately')
 
   // Switching to a model with unknown contextWindow must CLEAR the stale small-model cap AND cache the negative lookup.
   rt.botOf('b2').model = 'deepseek/unknown'
   rt.renewMemory('b2')
-  await runPreStep(ctx, 'b2', [])
-  assert.doesNotMatch(section('b2'), /more entries are saved here/, 'unknown-window model must not inherit stale cap')
+  assert.doesNotMatch(await snapOf(), /more entries are saved here/, 'unknown-window model must not inherit stale cap')
   const unknownLookupsAfterFirst = lookups.filter(ref => ref === 'deepseek/unknown').length
   await runPreStep(ctx, 'b2', [])
   assert.equal(lookups.filter(ref => ref === 'deepseek/unknown').length, unknownLookupsAfterFirst, 'negative modelInfo lookup must be throttled')
 
   rt.botOf('b2').model = 'deepseek/large'
   rt.renewMemory('b2')
-  await runPreStep(ctx, 'b2', [])
-  assert.doesNotMatch(section('b2'), /more entries are saved here/, 'switching to large model must lift cap immediately')
+  assert.doesNotMatch(await snapOf(), /more entries are saved here/, 'switching to large model must lift cap immediately')
 
   // A stale localAgentContext record must NOT override a served API model!
   rt.localAgentContext = sessionId => (sessionId === 'b2' ? { size: 5_000 } : undefined)
   rt.isLocalAgentRoute = provider => provider === 'local-cli'
   rt.renewMemory('b2')
-  await runPreStep(ctx, 'b2', [])
-  assert.doesNotMatch(section('b2'), /more entries are saved here/, 'served API model must ignore stale localAgentContext')
+  assert.doesNotMatch(await snapOf(), /more entries are saved here/, 'served API model must ignore stale localAgentContext')
 
   // When routed to a local-agent provider, localAgentContext size governs the 2% prompt cap.
   const prevDesired = rt.desiredModel
   rt.desiredModel = async bot => (bot.id === 'b2' ? 'local-cli/default' : prevDesired(bot))
   rt.renewMemory('b2')
-  await runPreStep(ctx, 'b2', [])
-  assert.match(section('b2'), /more entries are saved here/, 'localAgentContext size must govern 2% prompt cap for local-agent routes')
+  assert.match(await snapOf(), /more entries are saved here/, 'localAgentContext size must govern 2% prompt cap for local-agent routes')
 })
 
 // ---------------------------------------------------------------------------

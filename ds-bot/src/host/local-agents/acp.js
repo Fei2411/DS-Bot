@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { JsonRpcPeer, wireProcess, EventQueue } from './jsonrpc.js'
-import { PROBE_FORCE_KILL_AFTER_MS, cleanEnv, findEngineExecutable, probeEnv, spawnAgent, terminateChild } from './discover.js'
+import { PROBE_FORCE_KILL_AFTER_MS, cleanEnv, findEngineExecutable, launchOf, probeEnv, runProbeCommand, spawnAgent, terminateChild } from './discover.js'
 import { acpMode } from './engines.js'
 
 const CLIENT = { name: 'ds-bot', version: '1' }
@@ -46,7 +46,7 @@ const REPORTED_TOOL_CALLS_MAX = 1_000
 // {type:'context',used?,size?} (how full the CLI's own context is) |
 // {type:'compaction',status:'started'|'completed'|'failed'}
 export class AcpEngine {
-  constructor(route, engine, { findExecutable, defaultEfforts = new Map(), sessionEfforts, cancelAckTimeoutMs = CANCEL_ACK_TIMEOUT_MS, onListedUpdate } = {}) {
+  constructor(route, engine, { findExecutable, defaultEfforts = new Map(), sessionEfforts, cancelAckTimeoutMs = CANCEL_ACK_TIMEOUT_MS, onListedUpdate, catalog } = {}) {
     this.route = route
     this.engine = engine
     this.findExecutable = findExecutable
@@ -61,11 +61,14 @@ export class AcpEngine {
     this.starting = undefined
     this.sessions = new Map()
     this.caps = {}
-    // The modes, options and models this CLI listed last, for a reply that lists none.
-    this.listed = { modes: [], configOptions: [], models: [] }
-    // Monotonic generation incremented on live updates and cache invalidations so a
-    // slow background probe never overwrites fresher capabilities or models.
-    this.listedEpoch = 0
+    // What the CLI listed: its modes, config options and model variants. None of it
+    // is per-process state — every worker of a cwdPerProcess engine runs the same
+    // CLI — so the workers of one family share one catalog object, and a partial
+    // or bare answer from one process cannot erase what another already listed
+    // (#2145). A probe's temporary worker gets no catalog: its evidence reaches
+    // the family only through the guarded sync in listModels().
+    this.catalog = catalog ?? { listed: { modes: [], configOptions: [], models: [] }, writeEpoch: 0, invalidateEpoch: 0 }
+    this.listed = this.catalog.listed
     // The commands each agent session lists, by the agent's session id.
     this.commands = new Map()
     // For CLIs whose commands follow their process cwd (`cwdPerProcess`): one
@@ -122,7 +125,7 @@ export class AcpEngine {
     return this.maybeRetireWorker(worker) ? worker : undefined
   }
 
-  spawnWorker(cwd) {
+  spawnWorker(cwd, { isolated = false } = {}) {
     return new AcpEngine(
       this.route,
       { ...this.engine, cwdPerProcess: false, ...(cwd ? { spawnCwd: cwd } : {}) },
@@ -132,8 +135,17 @@ export class AcpEngine {
         sessionEfforts: this.sessionEfforts,
         cancelAckTimeoutMs: this.cancelAckTimeoutMs,
         onListedUpdate: update => this.remember(update),
+        ...(isolated ? {} : { catalog: this.catalog }),
       },
     )
+  }
+
+  catalogEpoch() {
+    return { write: this.catalog.writeEpoch, invalidate: this.catalog.invalidateEpoch }
+  }
+
+  catalogEpochMatches(epoch) {
+    return epoch.write === this.catalog.writeEpoch && epoch.invalidate === this.catalog.invalidateEpoch
   }
 
   workerOf(session, dshSessionId = session?.dshSessionId) {
@@ -355,7 +367,10 @@ export class AcpEngine {
           if (update.configOptions.length > 0) {
             this.remember(update)
             this.onListedUpdate?.(update)
-            const discovered = modelsFromProbe(update)
+            // Notices carry the config but no model variants, so the catalog is
+            // parsed from what the CLI has listed so far, not this update alone:
+            // parsing it bare would drop the per-model thinking tiers (#2145).
+            const discovered = modelsFromProbe({ configOptions: update.configOptions, models: { availableModels: this.listed.models } })
             if (discovered.length > 0) session.push({ type: 'models', models: discovered })
           }
         }
@@ -441,11 +456,15 @@ export class AcpEngine {
       session._worker = worker
       this.sessionWorkers.set(dshSessionId, worker)
       this.caps.image = worker.caps.image
-      this.remember({
-        configOptions: worker.listed.configOptions,
-        modes: { availableModes: worker.listed.modes },
-        models: { availableModels: worker.listed.models },
-      })
+      // A family worker shares the catalog object, so what it listed is already
+      // here; only a legacy isolated worker would need the copy.
+      if (worker.catalog !== this.catalog) {
+        this.remember({
+          configOptions: worker.listed.configOptions,
+          modes: { availableModes: worker.listed.modes },
+          models: { availableModels: worker.listed.models },
+        })
+      }
       if (retiredPrev !== undefined) void retiredPrev.close().catch(() => {})
       return session
     } finally {
@@ -507,7 +526,7 @@ export class AcpEngine {
         const text = String(error?.message ?? error)
         if (AUTH_ERROR.test(text) || TIMEOUT_ERROR.test(text)) throw error
         if (i === modes.length - 1) {
-          if (resumeOnly) throw Object.assign(new Error('the saved local agent session could not be resumed for maintenance'), { code: 'LOCAL_AGENT_EXIT' })
+          if (resumeOnly) throw Object.assign(new Error('the saved local agent session could not be resumed'), { code: 'LOCAL_AGENT_SESSION_LOST' })
           return { reply: await this.newSession(peer, { cwd, mcp }), loaded: false }
         }
       }
@@ -678,7 +697,10 @@ export class AcpEngine {
       if (session.promptTurn === turn) session.running = false
       signal?.removeEventListener('abort', onAbort)
     })
-    return reply.catch((error) => { if (!turn.cancelled) throw error })
+    // Errors from `session/prompt` are already delivered in FIFO order through
+    // `session.push({ type: 'error', error })` above; re-throwing here would let
+    // callers push a duplicate error ahead of already-queued `session/update` events.
+    return reply.catch(() => {})
   }
 
   canSteer(session) {
@@ -778,51 +800,103 @@ export class AcpEngine {
 
   invalidateListed() {
     // Advance generation to reject late pre-refresh probes without wiping already-
-    // discovered modes needed by concurrent session/load resumes before re-probe completes.
-    this.listedEpoch += 1
-    this.listed = { ...this.listed, models: [] }
-    for (const worker of this.workers.values()) worker.invalidateListed()
+    // discovered modes needed by concurrent session/load resumes before re-probe
+    // completes. The catalog object is shared across the family's workers, so
+    // invalidating it once resets them all; only an isolated probe worker would
+    // need its own, and probe workers never join this.workers.
+    this.catalog.invalidateEpoch += 1
+    this.catalog.writeEpoch += 1
+    this.listed.models = []
+    for (const worker of this.workers.values()) {
+      if (worker.catalog !== this.catalog) worker.invalidateListed()
+    }
   }
 
   remember(reply, { epoch } = {}) {
-    if (epoch !== undefined && epoch !== this.listedEpoch) return this.listed
-    const configOptions = Array.isArray(reply?.configOptions) && reply.configOptions.length > 0 ? reply.configOptions : undefined
+    // A probe passes the generation it started in. After an invalidation its
+    // evidence is from before the refresh and drops entirely; after ordinary
+    // concurrent writes only its replacing slots (config, modes) drop, while
+    // its variant evidence still unions in — a slower probe's `agy models`
+    // listing is additive either way and losing it would re-degrade notices.
+    const preRefresh = epoch !== undefined && epoch.invalidate !== this.catalog.invalidateEpoch
+    if (preRefresh) return this.listed
+    const stale = epoch !== undefined && epoch.write !== this.catalog.writeEpoch
+    const configOptions = !stale && Array.isArray(reply?.configOptions) && reply.configOptions.length > 0 ? reply.configOptions : undefined
     if (configOptionsOf(configOptions ?? [], 'model') !== undefined) this.hasModelConfig = true
-    const rawModes = reply?.modes?.availableModes ?? configOptionsOf(configOptions ?? [], 'mode')?.options
+    const rawModes = !stale ? reply?.modes?.availableModes ?? configOptionsOf(configOptions ?? [], 'mode')?.options : undefined
     const modes = Array.isArray(rawModes) && rawModes.length > 0 ? rawModes : undefined
     const rawModels = reply?.models?.availableModels
     const models = Array.isArray(rawModels) && rawModels.length > 0 ? rawModels : undefined
     if (configOptions !== undefined || modes !== undefined || models !== undefined) {
-      this.listedEpoch += 1
-      this.listed = {
-        configOptions: configOptions ?? this.listed.configOptions,
-        modes: modes ?? this.listed.modes,
-        models: models ?? this.listed.models,
-      }
+      if (!stale) this.catalog.writeEpoch += 1
+      // Variant evidence merges by union within an invalidation epoch: the CLI
+      // can answer mid-build with a partial catalog (#2145), and a partial
+      // answer must not erase what a fuller one already listed. The config
+      // keeps last-write-wins: its entries are the CLI's select state, and
+      // variant families it omits still surface through the parse. A real
+      // removal joins with the next invalidation, which clears this state.
+      if (configOptions !== undefined) this.listed.configOptions = configOptions
+      if (modes !== undefined) this.listed.modes = modes
+      if (models !== undefined) this.listed.models = unionById(this.listed.models, models)
     }
     return this.listed
   }
 
   discoveredModels(session) {
+    const seen = new Set()
+    const availableModels = []
+    for (const list of [session?.models, this.listed.models]) {
+      if (!Array.isArray(list)) continue
+      for (const entry of list) {
+        const id = String(entry?.modelId ?? entry?.id ?? '')
+        if (id === '' || seen.has(id)) continue
+        seen.add(id)
+        availableModels.push(entry)
+      }
+    }
     return modelsFromProbe({
-      configOptions: session?.configOptions,
-      models: Array.isArray(session?.models) ? { availableModels: session.models } : undefined,
+      configOptions: session?.configOptions ?? this.listed.configOptions,
+      models: availableModels.length > 0 ? { availableModels } : undefined,
     })
   }
 
   async probeOnOwnPeer({ cwd, mcp, probe }) {
     const peer = await this.ensure({ probe })
+    const listing = this.probeModelsListing()
     const reply = await this.newSession(peer, { cwd, mcp })
     if (reply?.sessionId !== undefined) {
       this.commands.delete(reply.sessionId)
       if (this.caps.close) await peer.request('session/close', { sessionId: reply.sessionId }, { timeout: 15_000 }).catch(() => {})
     }
-    return reply
+    return mergeModelEvidence(reply, await listing)
+  }
+
+  // Some CLIs advertise their catalog in two places at once: the ACP session reply
+  // and a plain listing command (`agy models`). The ACP reply can be a partial
+  // snapshot while the CLI's own catalog is still being built (#2145): the listing
+  // then carries the variants the reply lacks, so both are merged before parsing.
+  async probeModelsListing() {
+    const args = this.engine.modelsArgs
+    if (!Array.isArray(args) || args.length === 0) return []
+    try {
+      const bin = this.bin ?? findEngineExecutable(this.engine, name => this.findExecutable(name))
+      if (bin === undefined) return []
+      const launch = launchOf(bin, args)
+      const result = await runProbeCommand(launch.file, launch.args, {
+        timeoutMs: 10_000,
+        forceKillAfterMs: PROBE_FORCE_KILL_AFTER_MS,
+        spawnOptions: launch.options,
+      })
+      return result.ok ? parseModelListing(result.stdout) : []
+    } catch {
+      return []
+    }
   }
 
   // Models (and per-model thinking levels) the agent advertises on a probe session.
   async listModels({ cwd, mcp }) {
-    const epoch = this.listedEpoch
+    const epoch = this.catalogEpoch()
+    const fresherModels = () => modelsFromProbe({ configOptions: this.listed.configOptions, models: { availableModels: this.listed.models } })
     if (this.engine.cwdPerProcess) {
       const live = this.activeWorker()
       if (live !== undefined) {
@@ -830,33 +904,38 @@ export class AcpEngine {
         try {
           const target = live.engine.spawnCwd && existsSync(live.engine.spawnCwd) ? live.engine.spawnCwd : cwd
           const models = await live.listModels({ cwd: target, mcp })
-          if (this.listedEpoch === epoch) {
+          if (this.catalogEpochMatches(epoch)) {
             this.caps.image = live.caps.image
-            this.remember({
-              configOptions: live.listed.configOptions,
-              modes: { availableModes: live.listed.modes },
-              models: { availableModels: live.listed.models },
-            }, { epoch })
+            if (live.catalog !== this.catalog) {
+              this.remember({
+                configOptions: live.listed.configOptions,
+                modes: { availableModes: live.listed.modes },
+                models: { availableModels: live.listed.models },
+              }, { epoch })
+            }
             return models
           }
-          const fresher = modelsFromProbe({ configOptions: this.listed.configOptions, models: { availableModels: this.listed.models } })
+          const fresher = fresherModels()
           return fresher.length > 0 ? fresher : models
         } finally {
           live.inFlight -= 1
           if (this.maybeRetireWorker(live)) await live.close().catch(() => {})
         }
       }
-      const temp = this.spawnWorker(cwd)
+      const temp = this.spawnWorker(cwd, { isolated: true })
       this.probeWorkers.add(temp)
       try {
         const reply = await temp.probeOnOwnPeer({ cwd, mcp, probe: true })
         const models = modelsFromProbe(reply)
-        if (this.listedEpoch === epoch) {
+        if (this.catalogEpochMatches(epoch)) {
           this.caps.image = temp.caps.image
           this.remember(reply, { epoch })
           return models
         }
-        const fresher = modelsFromProbe({ configOptions: this.listed.configOptions, models: { availableModels: this.listed.models } })
+        // Even when fresher writes landed mid-probe the evidence unions in; only
+        // an invalidation discards a probe wholesale (see remember()).
+        this.remember(reply, { epoch })
+        const fresher = fresherModels()
         return fresher.length > 0 ? fresher : models
       } finally {
         this.probeWorkers.delete(temp)
@@ -868,10 +947,10 @@ export class AcpEngine {
     // never inherits MISE_OFFLINE=1 on the shared engine peer.
     if (this.peer !== undefined || this.starting !== undefined) {
       const probe = await this.probeOnOwnPeer({ cwd, mcp, probe: false })
-      const stale = this.listedEpoch !== epoch
+      const stale = !this.catalogEpochMatches(epoch)
       this.remember(probe, { epoch })
       if (stale) {
-        const fresher = modelsFromProbe({ configOptions: this.listed.configOptions, models: { availableModels: this.listed.models } })
+        const fresher = fresherModels()
         if (fresher.length > 0) return fresher
       }
       return modelsFromProbe(probe)
@@ -884,13 +963,13 @@ export class AcpEngine {
     this.probeWorkers.add(temp)
     try {
       const probe = await temp.probeOnOwnPeer({ cwd, mcp, probe: true })
-      const stale = this.listedEpoch !== epoch
+      const stale = !this.catalogEpochMatches(epoch)
+      this.remember(probe, { epoch })
       if (!stale) {
         this.caps.image = temp.caps.image
-        this.remember(probe, { epoch })
         return modelsFromProbe(probe)
       }
-      const fresher = modelsFromProbe({ configOptions: this.listed.configOptions, models: { availableModels: this.listed.models } })
+      const fresher = fresherModels()
       return fresher.length > 0 ? fresher : modelsFromProbe(probe)
     } finally {
       this.probeWorkers.delete(temp)
@@ -911,12 +990,70 @@ function acpPrompt(blocks) {
   return out.length > 0 ? out : [{ type: 'text', text: '' }]
 }
 
+// The trailing token of a concrete variant id, when it is a known thinking level.
+const tierSuffixOf = (id, vocabulary) => vocabulary.find(token => id.endsWith(`-${token}`))
+
+const catalogEntryId = entry => String(entry?.modelId ?? entry?.id ?? entry?.value ?? entry?.name ?? '')
+function unionById(previous = [], next = []) {
+  const seen = new Set()
+  const out = []
+  for (const entry of [...previous, ...next]) {
+    const id = catalogEntryId(entry)
+    if (id === '' || seen.has(id)) continue
+    seen.add(id)
+    out.push(entry)
+  }
+  return out
+}
+
+// Model entries of a CLI's plain listing command output (`agy models` style):
+// one model per line, the id first, its display name after a tab or spacing.
+// Header and progress lines have no id-shaped first token and drop out.
+export function parseModelListing(stdout) {
+  const entries = []
+  const seen = new Set()
+  for (const raw of String(stdout ?? '').split(/\r?\n/u)) {
+    // A listing printed for a terminal may carry color; the id is read uncolored.
+    // eslint-disable-next-line no-control-regex
+    const trimmed = raw.replace(/\x1b\[[0-9;]*m/gu, '').trim()
+    if (trimmed === '') continue
+    const match = /^(\S+)(?:[\t ]{2,}|\t)(.+)$/u.exec(trimmed) ?? /^(\S+)$/u.exec(trimmed)
+    if (match === null) continue
+    const id = match[1]
+    // Model ids carry a digit or a separator; a word alone is a header or noise.
+    if (!/^[\w][\w./-]*$/u.test(id) || !/[\d._-]/u.test(id) || seen.has(id)) continue
+    seen.add(id)
+    entries.push({ modelId: id, name: (match[2] ?? '').trim() || id })
+  }
+  return entries
+}
+
+// The probe reply plus the CLI's own listing entries merged into one evidence set:
+// variant ids either source knows count as variant evidence for the parse.
+function mergeModelEvidence(reply, listingEntries = []) {
+  if (!Array.isArray(listingEntries) || listingEntries.length === 0) return reply ?? {}
+  const availableModels = [...(reply?.models?.availableModels ?? [])]
+  const seen = new Set(availableModels.map(entry => String(entry?.modelId ?? entry?.id ?? '')))
+  for (const entry of listingEntries) {
+    const id = String(entry?.modelId ?? entry?.id ?? '')
+    if (id === '' || seen.has(id)) continue
+    seen.add(id)
+    availableModels.push(entry)
+  }
+  return { ...reply, models: { ...reply?.models, availableModels } }
+}
+
+// The catalog one probe's evidence describes. Base models come from the model
+// config's options when the CLI lists them; `models.availableModels` is variant
+// evidence: an entry `<base>-<level>` proves that base serves that thinking level.
+// The config and the variants can disagree when the CLI answered mid-build (#2145),
+// so variant families the config does not list become bases of their own (when the
+// family shows at least two levels, which tells a real tier suffix from a trailing
+// word of the model's own name), and a concrete entry neither config nor family
+// explains is listed as itself.
 export function modelsFromProbe(probe) {
   const option = configOptionsOf(probe?.configOptions ?? [], 'model')
   const available = probe?.models?.availableModels ?? []
-  const baseModels = (option?.options ?? []).length > 0
-    ? option.options.map(entry => ({ id: String(entry.id ?? entry.value ?? entry.name), name: String(entry.name ?? entry.id ?? entry.value) }))
-    : available.map(entry => ({ id: String(entry.modelId ?? entry.id ?? entry.name), name: String(entry.name ?? entry.modelId ?? entry.id) }))
   const thought = configOptionsOf(probe?.configOptions ?? [], 'thought_level')
   const thoughtOptions = (thought?.options ?? []).map(entry => ({
     id: String(entry.id ?? entry.value ?? entry.name),
@@ -924,20 +1061,78 @@ export function modelsFromProbe(probe) {
     ...(entry.description ? { description: String(entry.description) } : {}),
   }))
   const thoughtById = new Map(thoughtOptions.map(entry => [entry.id, entry]))
-  const availableIds = new Set(available.map(entry => String(entry.modelId ?? entry.id ?? '')).filter(Boolean))
-  const knownEfforts = [...new Set([...EFFORT_ORDER, ...thoughtOptions.map(entry => entry.id)])]
-  const hasVariantMap = (option?.options ?? []).length > 0
-    && availableIds.size > 0
-    && baseModels.some(base => knownEfforts.some(effortId => availableIds.has(`${base.id}-${effortId}`)))
-  return baseModels.map((model) => {
-    // Leave defaultEffort unset so a Bot without a chosen level keeps the CLI's default.
-    if (hasVariantMap) {
-      const efforts = knownEfforts
-        .filter(effortId => availableIds.has(`${model.id}-${effortId}`))
-        .map(effortId => thoughtById.get(effortId) ?? { id: effortId, name: EFFORT_NAMES[effortId] ?? effortId })
-      return efforts.length > 0 ? { ...model, reasoning: { efforts } } : model
+  const vocabulary = [...new Set([...EFFORT_ORDER, ...thoughtOptions.map(entry => entry.id)])]
+  const effortOf = id => thoughtById.get(id) ?? { id, name: EFFORT_NAMES[id] ?? id }
+  const configBases = (option?.options ?? []).map(entry => ({ id: String(entry.id ?? entry.value ?? entry.name), name: String(entry.name ?? entry.id ?? entry.value) }))
+
+  // Group the available entries that end in a known level token by their base id.
+  const groups = new Map() // baseId -> Map(tierId -> entry)
+  const groupOf = (baseId) => {
+    let group = groups.get(baseId)
+    if (group === undefined) {
+      group = new Map()
+      groups.set(baseId, group)
     }
-    return thoughtOptions.length > 0 ? { ...model, reasoning: { efforts: thoughtOptions } } : model
+    return group
+  }
+  const entries = available.map((entry) => {
+    const id = String(entry.modelId ?? entry.id ?? entry.name)
+    const tier = tierSuffixOf(id, vocabulary)
+    if (tier !== undefined && id.length > tier.length + 1) groupOf(id.slice(0, -(tier.length + 1))).set(tier, entry)
+    return { entry, id, tier, baseId: tier === undefined ? undefined : id.slice(0, -(tier.length + 1)) }
+  })
+
+  const configIds = new Set(configBases.map(base => base.id))
+  const variantMode = configBases.some(base => groups.has(base.id))
+  if (!variantMode) {
+    // No evidence this CLI publishes one id per level: every model serves the
+    // thinking levels the config lists, like before variant-aware parsing.
+    const baseModels = configBases.length > 0
+      ? configBases
+      : entries.map(({ entry, id }) => ({ id, name: String(entry.name ?? id) }))
+    return baseModels.map(model => (thoughtOptions.length > 0 ? { ...model, reasoning: { efforts: thoughtOptions } } : model))
+  }
+
+  const consumed = new Set()
+  const tiersOf = (baseId) => {
+    const group = groups.get(baseId)
+    if (group === undefined) return []
+    for (const tier of group.keys()) consumed.add(`${baseId}-${tier}`)
+    return vocabulary.filter(tier => group.has(tier)).map(effortOf)
+  }
+  const out = configBases.map((model) => {
+    // Leave defaultEffort unset so a Bot without a chosen level keeps the CLI's default.
+    const efforts = tiersOf(model.id)
+    return efforts.length > 0 ? { ...model, reasoning: { efforts } } : model
+  })
+
+  // A variant family the config does not list at all: the CLI's own model ids,
+  // collapsed to their base so a pick reaches it the way the config entries do.
+  for (const [baseId, group] of groups) {
+    if (configIds.has(baseId) || group.size < 2) continue
+    for (const tier of group.keys()) consumed.add(`${baseId}-${tier}`)
+    const first = group.values().next().value
+    const stripped = String(first?.name ?? '').replace(/\s*\([^()]*\)\s*$/u, '').trim()
+    out.push({
+      id: baseId,
+      name: stripped !== '' ? stripped : baseId,
+      reasoning: { efforts: vocabulary.filter(tier => group.has(tier)).map(effortOf) },
+    })
+  }
+
+  // Whatever is left over is a concrete model of its own (a single-level model
+  // whose id happens to end in a level word, or a variant of a family too thin
+  // to read). It is listed as itself, untiered, rather than dropped.
+  for (const { entry, id } of entries) {
+    if (consumed.has(id) || configIds.has(id)) continue
+    out.push({ id, name: String(entry.name ?? id) })
+  }
+
+  const seen = new Set()
+  return out.filter((model) => {
+    if (seen.has(model.id)) return false
+    seen.add(model.id)
+    return true
   })
 }
 

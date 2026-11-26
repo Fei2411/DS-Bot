@@ -262,7 +262,7 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, ro
     ...(bot && roster.computer?.enabled === true ? ['computer'] : []),
   ]
   const activeTab = tabs.includes(tab) ? tab : 'details'
-  const glide = useGlide(`${activeTab}:${tabs.join(',')}`)
+  const glide = useGlide(`${activeTab}:${tabs.join(',')}`, { axis: 'both', syncKey: `${tabs.map(key => t(TAB_LABELS[key])).join(',')}:${activeTaskCount}` })
   // The settings view comes in from the right and the overview back from the left; a
   // new tab clears from a blur. The first view arrives with the panel.
   const last = useRef({ view, tab: activeTab, move: undefined })

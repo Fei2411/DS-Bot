@@ -4,7 +4,7 @@
 import { BlockAssembler, resolveRetryPolicy } from '@deepseek-ai/dsh-llm'
 import { normalize, splitRef } from './text.js'
 import { serviceOf } from './services.js'
-import { ownChatSessions } from './threads.js'
+import { isMissingSessionError, ownChatSessions } from './threads.js'
 
 const CATALOG_TTL_MS = 10_000
 const ROUTE_WAIT_MS = 30_000
@@ -127,6 +127,17 @@ export function install(rt) {
   const { ctx, state } = rt
 
   const malformedRetries = new WeakMap()
+  const singleToolRetries = new WeakMap()
+  serviceOf(ctx, 'systemPrompt')?.context?.({
+    name: 'ds-bot:single-tool-retry',
+    order: 0,
+    required: true,
+    text: ({ agent, signal }) => {
+      if (agent === undefined || signal === undefined || signal.aborted || singleToolRetries.get(signal) !== agent.id) return ''
+      singleToolRetries.delete(signal)
+      return 'For this response only, call at most one tool. If you need more than one tool, wait for the result before calling another.'
+    },
+  })
   ctx.on?.('agent/request-error', async (payload, next) => {
     const decided = await next()
     const { agent, turn, step, signal, failure } = payload
@@ -143,6 +154,9 @@ export function install(rt) {
     retries.count += 1
     rt.warn(`Retrying malformed model response for ${agent.id} (turn ${turn}, step ${step}, retry ${retries.count}/${MALFORMED_RETRIES})`)
     if (!await waitRetryDelay(250, signal)) return undefined
+    if (signal !== undefined && failure.code === 'MALFORMED_RESPONSE' && failure.message?.startsWith('Tool call "')) {
+      singleToolRetries.set(signal, agent.id)
+    }
     return { kind: 'retry' }
   }, { prepend: true })
 
@@ -556,8 +570,15 @@ export function install(rt) {
 
   // The Sessions whose selection failed. The models may not change again, so the next
   // sync tries them once more instead of waiting for a change that never comes.
+  // Sessions that are permanently gone (`session/not-found`) are dropped from retries
+  // and logged once instead of spamming diagnostics on every sync tick (#2265).
   const roomRetry = new Set()
+  const missingRoomSessions = new Set()
   async function selectRoomSession(sessionId, room = rt.roomOf?.(sessionId)) {
+    if (missingRoomSessions.has(sessionId)) {
+      roomRetry.delete(sessionId)
+      return
+    }
     try {
       const ref = await roomModel(sessionId, room)
       if (ref === undefined) return
@@ -567,6 +588,12 @@ export function install(rt) {
       await selectSessionModel(sessionId, route)
       roomRetry.delete(sessionId)
     } catch (error) {
+      if (isMissingSessionError(error)) {
+        roomRetry.delete(sessionId)
+        missingRoomSessions.add(sessionId)
+        rt.warn('ds-bot: group Session %s no longer exists; stopped retrying model selection: %s', sessionId, error)
+        return
+      }
       roomRetry.add(sessionId)
       rt.warn('ds-bot: model for the group Session %s not applied: %s', sessionId, error)
     }
@@ -576,6 +603,7 @@ export function install(rt) {
     const current = new Set(rooms.map(room => rt.sessionOfRoom(room)))
     // A deleted group, or one moved on to a fresh part, no longer needs its old Session.
     for (const sessionId of roomRetry) if (!current.has(sessionId)) roomRetry.delete(sessionId)
+    for (const sessionId of missingRoomSessions) if (!current.has(sessionId)) missingRoomSessions.delete(sessionId)
     for (const room of rooms) await selectRoomSession(rt.sessionOfRoom(room), room)
   }
 

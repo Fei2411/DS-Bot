@@ -203,8 +203,9 @@ const moveWriter = async (host, input, step = 2) => {
 }
 
 test('a move that fails while the plugin unloads hands its input back to the part it left', async (t) => {
-  // The first flush writes the fresh part's handoff; the second moves the input.
-  const fail = { flush: 2 }
+  // Flush 1 checkpoints the parked input on the old part, flush 2 writes the fresh
+  // part's handoff, and flush 3 moves the input.
+  const fail = { flush: 3 }
   const host = await start({ fail, services })
   t.after(host.stop)
   host.agentOf('b').inbox.nextTurn.push(said('h1', 'waiting input', 'e-held'))
@@ -290,7 +291,7 @@ test('an ordinary failure in the move that never started wakes the part at once'
 })
 
 test('a marked earlier part hands its kept input on after a restart, once, and is archived', async (t) => {
-  const fail = { flush: 2 }
+  const fail = { flush: 3 }
   const host = await start({ fail, services })
   host.agentOf('b').inbox.nextTurn.push(said('h1', 'waiting input', 'e-held'))
   await moveWriter(host, [said('m1', 'Now build it', 'e-carry')])
