@@ -51,9 +51,14 @@ export function validateKillListDocument(raw, { now = Date.now } = {}) {
   }
   const entries = []
   const seen = new Set()
-  for (const item of raw.entries.slice(0, KILL_LIST_MAX_ENTRIES)) {
+  // Invalid entries are filtered BEFORE the cap so a padded document cannot push
+  // valid kills past the entry limit.
+  for (const item of raw.entries) {
+    if (entries.length >= KILL_LIST_MAX_ENTRIES) break
     if (!item || typeof item !== 'object' || Array.isArray(item)) continue
-    const id = String(item.id ?? '').trim()
+    // Ids are normalized to lowercase at the validation boundary; evaluation compares
+    // lowercase too, so casing can never split or duplicate a kill.
+    const id = String(item.id ?? '').trim().toLowerCase()
     if (!ENTRY_ID_RE.test(id)) continue
     if (seen.has(id)) continue
     const entry = { id }
@@ -88,20 +93,19 @@ export function validateKillListDocument(raw, { now = Date.now } = {}) {
  */
 export function evaluateKillEntry(list, { id, version = null, contentHash = null } = {}) {
   if (!list || !Array.isArray(list.entries) || typeof id !== 'string' || !id) return null
+  const needle = id.toLowerCase()
   for (const entry of list.entries) {
-    if (entry.id !== id) continue
+    if (entry.id !== needle) continue
     // A content-hash match is exact regardless of version.
     if (typeof contentHash === 'string' && entry.contentHashes?.includes(contentHash.toLowerCase())) {
       return entry
     }
     if (entry.versions) {
-      // A version range can only match a concrete known version; unknown versions do
-      // not silently escape the range because absence of a version is not absence of risk —
-      // but treating unknown as matched would make every unpackaged plugin unstartable,
-      // so range matching stays exact-semver-only.
+      // `*` kills every version of the id, including installs whose version is unknown
+      // or floating — the only range shape that can honestly claim that. Other ranges
+      // match exact semver only: an unknown version neither satisfies nor escapes them.
+      if (entry.versions === '*') return entry
       if (version && semverValid(version) && semverSatisfies(version, entry.versions)) return entry
-      // Content-hash-only or version-only entries that did not match keep looking.
-      if (!entry.contentHashes) continue
       continue
     }
     if (entry.contentHashes) {
@@ -126,7 +130,9 @@ export function mergeKillLists(documents) {
     if (!doc) continue
     newest = Math.max(newest, doc.issuedAtMs ?? 0)
     for (const entry of doc.entries ?? []) {
-      const key = `${entry.id}${entry.versions ?? ''}${(entry.contentHashes ?? []).join(',')}`
+      // Structured dedupe key: distinct version ranges of one id are distinct kills,
+      // and no delimiter collision is possible.
+      const key = JSON.stringify([entry.id, entry.versions ?? null, entry.contentHashes ?? null])
       if (seen.has(key)) continue
       seen.add(key)
       entries.push(entry)
@@ -141,7 +147,7 @@ export function mergeKillLists(documents) {
  * document when it is at least as new as the cached one for that source, and
  * `evaluate()` answers synchronously from memory.
  */
-export function createKillListStore({ cachePath, now = Date.now } = {}) {
+export function createKillListStore({ cachePath, now = Date.now, writable = true } = {}) {
   /** @type {Map<string, { schemaVersion: 1, issuedAt: string, issuedAtMs: number, entries: object[] }>} */
   const perSource = new Map()
   let loadPromise = null
@@ -175,7 +181,12 @@ export function createKillListStore({ cachePath, now = Date.now } = {}) {
   }
 
   async function persist() {
+    // Read-only windows share the team directory and must never write into it; their
+    // kill evaluation is in-memory for the session, and the writable window owns the
+    // cache. `writable` may be a function evaluated lazily because read-only state is
+    // assigned after plugin-module creation.
     if (!cachePath) return
+    if (typeof writable === 'function' ? !writable() : writable === false) return
     writeChain = writeChain.then(async () => {
       try {
         await mkdir(dirname(cachePath), { recursive: true })

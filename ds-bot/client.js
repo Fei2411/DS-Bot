@@ -2256,6 +2256,14 @@ var JA = {
   "Dictation provider": "音声入力プロバイダー",
   "Use DeepSeek for dictation": "音声入力に DeepSeek を使う",
   "In use": "使用中",
+  "Stopped by the security kill list": "セキュリティキルリストによって停止されました",
+  "Approval needed": "再承認が必要",
+  "Unverifiable": "検証できません",
+  "Plugin files cannot be verified": "プラグインファイルを検証できません",
+  "Approving…": "承認中…",
+  "Execution tier": "実行ティア",
+  "This plugin changed since it was approved — its capabilities, execution tier, executable entry, content, or placement. It stays stopped until you approve the plugin exactly as it is now.": "このプラグインは承認後に変更されました：機能、実行ティア、実行エントリ、コンテンツ、または配置。現状のまま承認するまで停止したままです。",
+  "Runs the latest published version at start time; approval does not pin exact bytes.": "起動時に公開された最新バージョンを実行します。承認は正確なバイトを固定しません。",
   "Not ready": "準備未完了",
   "Couldn't read the reply": "返信を読み上げられませんでした",
   "Couldn't reach the speech service": "音声認識サービスに接続できません",
@@ -2641,6 +2649,10 @@ var JA = {
   "Built-in engine": "内蔵エンジン"
 };
 var HOST_ERRORS_JA = [
+  [/^Plugin disabled by the kill list: (.+)$/, "プラグインはセキュリティキルリストによって無効化されました：$1"],
+  [/^Plugin disabled by the kill list\.$/, "プラグインはセキュリティキルリストによって無効化されました。"],
+  [/^This plugin changed since it was approved \(capabilities, execution tier, executable entry, content, or placement\)\. It needs explicit approval before it can run again\.$/, "このプラグインは承認後に変更されました（機能、実行ティア、実行エントリ、コンテンツ、または配置）。明示的な承認なしには再実行できません。"],
+  [/^Plugin files cannot be verified \((.+)\)\. It cannot run until its directory is safe to read\.$/, "プラグインファイルを検証できません（$1）。ディレクトリが安全に読み取れるようになるまで実行できません。"],
   [/^Could not reach the mail server at (.+)\. Check the server address\.$/, "メールサーバー $1 に接続できませんでした。サーバーアドレスを確認してください。"],
   [/^Model (.+) is not available\. Available: (.*)$/, "モデル $1 は利用できません。利用可能: $2"],
   [/^The API key for (.+) is set outside DS Bot and cannot be changed here$/, "$1 の API キーは DS Bot の外部で設定されているため、ここでは変更できません"],
@@ -5532,6 +5544,14 @@ var KO = {
   "Dictation provider": "받아쓰기 제공자",
   "Use DeepSeek for dictation": "받아쓰기에 DeepSeek 사용",
   "In use": "사용 중",
+  "Stopped by the security kill list": "보안 킬 리스트에 의해 중지됨",
+  "Approval needed": "재승인 필요",
+  "Unverifiable": "검증할 수 없음",
+  "Plugin files cannot be verified": "플러그인 파일을 검증할 수 없습니다",
+  "Approving…": "승인 중…",
+  "Execution tier": "실행 계층",
+  "This plugin changed since it was approved — its capabilities, execution tier, executable entry, content, or placement. It stays stopped until you approve the plugin exactly as it is now.": "이 플러그인은 승인 후 변경되었습니다: 기능, 실행 계층, 실행 진입점, 콘텐츠 또는 위치. 현재 상태 그대로 승인할 때까지 중지 상태를 유지합니다.",
+  "Runs the latest published version at start time; approval does not pin exact bytes.": "시작 시 최신 게시 버전을 실행합니다. 승인은 정확한 바이트를 고정하지 않습니다.",
   "Not ready": "준비되지 않음",
   "Couldn't read the reply": "답변을 읽지 못했습니다",
   "Couldn't reach the speech service": "음성 인식 서비스에 연결할 수 없습니다",
@@ -5917,6 +5937,10 @@ var KO = {
   "Built-in engine": "내장 엔진"
 };
 var HOST_ERRORS_KO = [
+  [/^Plugin disabled by the kill list: (.+)$/, "플러그인이 보안 킬 리스트에 의해 비활성화되었습니다: $1"],
+  [/^Plugin disabled by the kill list\.$/, "플러그인이 보안 킬 리스트에 의해 비활성화되었습니다."],
+  [/^This plugin changed since it was approved \(capabilities, execution tier, executable entry, content, or placement\)\. It needs explicit approval before it can run again\.$/, "이 플러그인은 승인 후 변경되었습니다(기능, 실행 계층, 실행 진입점, 콘텐츠 또는 위치). 명시적 승인 전까지 다시 실행할 수 없습니다."],
+  [/^Plugin files cannot be verified \((.+)\)\. It cannot run until its directory is safe to read\.$/, "플러그인 파일을 검증할 수 없습니다($1). 디렉터리를 안전하게 읽을 수 있을 때까지 실행할 수 없습니다."],
   [/^Could not reach the mail server at (.+)\. Check the server address\.$/, "메일 서버 $1에 연결할 수 없습니다. 서버 주소를 확인하세요."],
   [/^Model (.+) is not available\. Available: (.*)$/, "모델 $1을(를) 사용할 수 없습니다. 사용 가능: $2"],
   [/^The API key for (.+) is set outside DS Bot and cannot be changed here$/, "$1의 API 키는 DS Bot 외부에서 설정되어 여기서 변경할 수 없습니다"],
@@ -8809,6 +8833,14 @@ var ES = {
   "Dictation provider": "Proveedor de dictado",
   "Use DeepSeek for dictation": "Usar DeepSeek para el dictado",
   "In use": "En uso",
+  "Stopped by the security kill list": "Detenido por la lista de bloqueo de seguridad",
+  "Approval needed": "Requiere aprobación",
+  "Unverifiable": "No verificable",
+  "Plugin files cannot be verified": "No se pueden verificar los archivos del plugin",
+  "Approving…": "Aprobando…",
+  "Execution tier": "Nivel de ejecución",
+  "This plugin changed since it was approved — its capabilities, execution tier, executable entry, content, or placement. It stays stopped until you approve the plugin exactly as it is now.": "Este plugin cambió desde que fue aprobado: sus capacidades, nivel de ejecución, entrada ejecutable, contenido o ubicación. Permanecerá detenido hasta que apruebes el plugin tal como está ahora.",
+  "Runs the latest published version at start time; approval does not pin exact bytes.": "Ejecuta la última versión publicada al iniciarse; la aprobación no fija los bytes exactos.",
   "Not ready": "No listo",
   "Couldn't read the reply": "No se pudo leer la respuesta",
   "Couldn't reach the speech service": "No se pudo conectar con el servicio de voz",
@@ -9194,6 +9226,10 @@ var ES = {
   "Built-in engine": "Motor integrado"
 };
 var HOST_ERRORS_ES = [
+  [/^Plugin disabled by the kill list: (.+)$/, "Plugin desactivado por la lista de bloqueo: $1"],
+  [/^Plugin disabled by the kill list\.$/, "Plugin desactivado por la lista de bloqueo."],
+  [/^This plugin changed since it was approved \(capabilities, execution tier, executable entry, content, or placement\)\. It needs explicit approval before it can run again\.$/, "Este plugin cambió desde que fue aprobado (capacidades, nivel de ejecución, entrada ejecutable, contenido o ubicación). Necesita aprobación explícita antes de poder ejecutarse de nuevo."],
+  [/^Plugin files cannot be verified \((.+)\)\. It cannot run until its directory is safe to read\.$/, "No se pueden verificar los archivos del plugin ($1). No puede ejecutarse hasta que su directorio sea seguro de leer."],
   [/^Could not reach the mail server at (.+)\. Check the server address\.$/, "No se pudo conectar con el servidor de correo en $1. Comprueba la dirección del servidor."],
   [/^Model (.+) is not available\. Available: (.*)$/, "El modelo $1 no está disponible. Disponibles: $2"],
   [/^The API key for (.+) is set outside DS Bot and cannot be changed here$/, "La clave API de $1 está configurada fuera de DS Bot y no se puede cambiar aquí"],
@@ -12042,6 +12078,14 @@ var FR = {
   "Dictation provider": "Fournisseur de dictée",
   "Use DeepSeek for dictation": "Utiliser DeepSeek pour la dictée",
   "In use": "En cours d’utilisation",
+  "Stopped by the security kill list": "Arrêté par la liste de blocage de sécurité",
+  "Approval needed": "Approbation requise",
+  "Unverifiable": "Invérifiable",
+  "Plugin files cannot be verified": "Les fichiers du plugin ne peuvent pas être vérifiés",
+  "Approving…": "Approbation…",
+  "Execution tier": "Niveau d'exécution",
+  "This plugin changed since it was approved — its capabilities, execution tier, executable entry, content, or placement. It stays stopped until you approve the plugin exactly as it is now.": "Ce plugin a changé depuis son approbation : capacités, niveau d'exécution, entrée exécutable, contenu ou emplacement. Il reste arrêté jusqu'à ce que vous approuviez le plugin tel qu'il est maintenant.",
+  "Runs the latest published version at start time; approval does not pin exact bytes.": "Exécute la dernière version publiée au démarrage ; l'approbation ne fige pas les octets exacts.",
   "Not ready": "Pas prêt",
   "Couldn't read the reply": "Impossible de lire la réponse",
   "Couldn't reach the speech service": "Impossible de joindre le service vocal",
@@ -12427,6 +12471,10 @@ var FR = {
   "Built-in engine": "Moteur intégré"
 };
 var HOST_ERRORS_FR = [
+  [/^Plugin disabled by the kill list: (.+)$/, "Plugin désactivé par la liste de blocage : $1"],
+  [/^Plugin disabled by the kill list\.$/, "Plugin désactivé par la liste de blocage."],
+  [/^This plugin changed since it was approved \(capabilities, execution tier, executable entry, content, or placement\)\. It needs explicit approval before it can run again\.$/, "Ce plugin a changé depuis son approbation (capacités, niveau d'exécution, entrée exécutable, contenu ou emplacement). Il nécessite une approbation explicite avant de pouvoir s'exécuter à nouveau."],
+  [/^Plugin files cannot be verified \((.+)\)\. It cannot run until its directory is safe to read\.$/, "Les fichiers du plugin ne peuvent pas être vérifiés ($1). Il ne peut pas s’exécuter tant que son répertoire ne peut pas être lu en toute sécurité."],
   [/^Could not reach the mail server at (.+)\. Check the server address\.$/, "Impossible de joindre le serveur de messagerie à l’adresse $1. Vérifiez l’adresse du serveur."],
   [/^Model (.+) is not available\. Available: (.*)$/, "Le modèle $1 n’est pas disponible. Disponibles : $2"],
   [/^The API key for (.+) is set outside DS Bot and cannot be changed here$/, "La clé API de $1 est définie hors de DS Bot et ne peut pas être modifiée ici"],
@@ -15318,6 +15366,14 @@ var DE = {
   "Dictation provider": "Diktatanbieter",
   "Use DeepSeek for dictation": "DeepSeek für das Diktat verwenden",
   "In use": "In Verwendung",
+  "Stopped by the security kill list": "Von der Sicherheits-Kill-Liste gestoppt",
+  "Approval needed": "Genehmigung erforderlich",
+  "Unverifiable": "Nicht verifizierbar",
+  "Plugin files cannot be verified": "Plugin-Dateien können nicht verifiziert werden",
+  "Approving…": "Genehmigen…",
+  "Execution tier": "Ausführungsebene",
+  "This plugin changed since it was approved — its capabilities, execution tier, executable entry, content, or placement. It stays stopped until you approve the plugin exactly as it is now.": "Dieses Plugin hat sich seit der Genehmigung geändert: Fähigkeiten, Ausführungsebene, ausführbarer Einstieg, Inhalt oder Platzierung. Es bleibt gestoppt, bis du das Plugin genau so genehmigst, wie es jetzt ist.",
+  "Runs the latest published version at start time; approval does not pin exact bytes.": "Führt beim Start die neueste veröffentlichte Version aus; die Genehmigung fixiert keine exakten Bytes.",
   "Not ready": "Nicht bereit",
   "Couldn't read the reply": "Antwort konnte nicht vorgelesen werden",
   "Couldn't reach the speech service": "Sprachdienst nicht erreichbar",
@@ -15703,6 +15759,10 @@ var DE = {
   "Built-in engine": "Integrierte Engine"
 };
 var HOST_ERRORS_DE = [
+  [/^Plugin disabled by the kill list: (.+)$/, "Plugin von der Kill-Liste deaktiviert: $1"],
+  [/^Plugin disabled by the kill list\.$/, "Plugin von der Kill-Liste deaktiviert."],
+  [/^This plugin changed since it was approved \(capabilities, execution tier, executable entry, content, or placement\)\. It needs explicit approval before it can run again\.$/, "Dieses Plugin hat sich seit der Genehmigung geändert (Fähigkeiten, Ausführungsebene, ausführbarer Einstieg, Inhalt oder Platzierung). Es benötigt eine explizite Genehmigung, bevor es wieder ausgeführt werden kann."],
+  [/^Plugin files cannot be verified \((.+)\)\. It cannot run until its directory is safe to read\.$/, "Plugin-Dateien können nicht verifiziert werden ($1). Es kann nicht ausgeführt werden, bis sein Verzeichnis sicher gelesen werden kann."],
   [/^Could not reach the mail server at (.+)\. Check the server address\.$/, "Mailserver unter $1 nicht erreichbar. Bitte prüfe die Serveradresse."],
   [/^Model (.+) is not available\. Available: (.*)$/, "Modell $1 ist nicht verfügbar. Verfügbar: $2"],
   [/^The API key for (.+) is set outside DS Bot and cannot be changed here$/, "Der API-Schlüssel für $1 wurde außerhalb von DS Bot gesetzt und kann hier nicht geändert werden"],
@@ -17338,6 +17398,14 @@ var ZH = {
   "Dictation provider": "听写提供方",
   "Use DeepSeek for dictation": "用 DeepSeek 听写",
   "In use": "使用中",
+  "Stopped by the security kill list": "已被安全拦截列表停用",
+  "Approval needed": "需要重新批准",
+  Unverifiable: "无法验证",
+  "Plugin files cannot be verified": "插件文件无法验证",
+  "Approving…": "批准中…",
+  "Execution tier": "执行层级",
+  "This plugin changed since it was approved — its capabilities, execution tier, executable entry, content, or placement. It stays stopped until you approve the plugin exactly as it is now.": "这个插件在批准后发生了变化：能力、执行层级、可执行入口、内容或位置。它已停止运行，确认按现在的样子批准后才会重新运行。",
+  "Runs the latest published version at start time; approval does not pin exact bytes.": "每次启动时运行最新发布的版本；批准不固定具体代码。",
   // Phone
   Phone: "手机",
   "Off. Phones cannot reach this computer.": "已关闭。手机连不上这台电脑。",
@@ -18793,6 +18861,10 @@ var ZH = {
   "Built-in engine": "内置引擎"
 };
 var HOST_ERRORS = [
+  [/^Plugin disabled by the kill list: (.+)$/, "插件已被安全拦截列表停用：$1"],
+  [/^Plugin disabled by the kill list\.$/, "插件已被安全拦截列表停用。"],
+  [/^This plugin changed since it was approved \(capabilities, execution tier, executable entry, content, or placement\)\. It needs explicit approval before it can run again\.$/, "这个插件在批准后发生了变化（能力、执行层级、可执行入口、内容或位置）。需要明确批准后才能重新运行。"],
+  [/^Plugin files cannot be verified \((.+)\)\. It cannot run until its directory is safe to read\.$/, "插件文件无法验证（$1）。目录可安全读取前它不能运行。"],
   [/^Could not reach the mail server at (.+)\. Check the server address\.$/, "连不上邮件服务器 $1，请检查服务器地址。"],
   [/^Model (.+) is not available\. Available: (.*)$/, "模型 $1 不可用。可用的：$2"],
   [/^The API key for (.+) is set outside DS Bot and cannot be changed here$/, "$1 的 API key 是在 DS Bot 之外设置的，这里改不了"],
@@ -20733,6 +20805,7 @@ function teamActions({ call: call2, after, partFor, roster, ui, live, cards, hel
     pluginsToggle: (id, enabled) => after(call2("plugins-toggle", { id, enabled })),
     pluginsRemove: (id) => after(call2("plugins-remove", { id })),
     pluginsUpdate: (id, version) => after(call2("plugins-update", { id, ...version ? { version } : {} })),
+    pluginsConsent: (id) => after(call2("plugins-consent", { id })),
     pluginsSlotSet: (slot, id) => after(call2("plugins-slot-set", { slot, id })),
     pluginsBotToggle: (id, botId, enabled) => after(call2("plugins-bot-toggle", { id, botId, enabled })),
     pluginsCustomSave: (body) => after(call2("plugins-custom-save", body)),
@@ -22860,6 +22933,11 @@ button.bt-set-row:hover .bt-chevron{transform:translateX(2px);color:var(--bt-ink
 .bt-plg-btn:disabled{opacity:.5;cursor:default}
 .bt-plg-btn svg{width:13px;height:13px}
 .bt-plg-btn-done{background:none;color:var(--bt-ink-2);box-shadow:inset 0 0 0 1px var(--bt-line);cursor:default}
+.bt-plg-btn-approve{background:var(--bt-accent-soft);color:var(--bt-accent)}
+.bt-plg-btn-approve:hover:not(:disabled){background:color-mix(in srgb,var(--bt-accent) 22%,transparent)}
+.bt-tag[data-tone=error]{background:color-mix(in srgb,var(--bt-danger) 12%,transparent);color:var(--bt-danger)}
+.bt-tag[data-tone=warn]{background:color-mix(in srgb,var(--bt-warn) 14%,transparent);color:var(--bt-warn)}
+.bt-plg-note{margin:4px 2px 0;font-size:12px;line-height:18px;color:var(--bt-ink-3)}
 .bt-plg-ext-card{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:12px;border:1px dashed var(--bt-line-2);background:color-mix(in srgb,var(--bt-card) 60%,transparent)}
 .bt-plg-ext-mark{flex:none;width:36px;height:36px;display:inline-flex;align-items:center;justify-content:center;border-radius:10px;background:var(--bt-card);box-shadow:inset 0 0 0 .5px var(--bt-line-2)}
 .bt-plg-ext-mark svg{width:20px;height:20px}
@@ -48956,11 +49034,20 @@ function Subview3({ title, onBack, end = null, children }) {
     children
   );
 }
-function PluginAction({ plugin, managerAvailable, busyId, readOnly, onActivateSlot, onInstall, onToggle, onCopy }) {
+function PluginAction({ plugin, managerAvailable, busyId, readOnly, onActivateSlot, onInstall, onToggle, onCopy, onConsent }) {
   const name = localizedField(plugin, "name") || plugin.name || plugin.id;
   const isBusy = busyId === plugin.id;
   const disabled = readOnly || busyId !== null;
   const isSlot = Boolean(plugin.slot);
+  if (plugin.killed || plugin.status === "unverifiable") return null;
+  if (plugin.consentRequired) {
+    return (0, import_react56.createElement)("button", {
+      type: "button",
+      className: "bt-plg-btn bt-plg-btn-approve",
+      disabled,
+      onClick: () => onConsent(plugin.id)
+    }, isBusy ? t("Approving…") : t("Approve"));
+  }
   if (isSlot) {
     if (plugin.active && plugin.desired !== false) {
       return (0, import_react56.createElement)("span", { className: "bt-plg-btn bt-plg-btn-done" }, (0, import_react56.createElement)(CheckIcon), t("In use"));
@@ -49021,13 +49108,13 @@ function PluginAction({ plugin, managerAvailable, busyId, readOnly, onActivateSl
     onChange: (next) => onToggle(plugin.id, next)
   });
 }
-function PluginTile({ plugin, managerAvailable, busyId, readOnly, onOpen, onActivateSlot, onInstall, onToggle, onCopy }) {
+function PluginTile({ plugin, managerAvailable, busyId, readOnly, onOpen, onActivateSlot, onInstall, onToggle, onCopy, onConsent }) {
   const name = localizedField(plugin, "name") || plugin.name || plugin.id;
   const desc = localizedField(plugin, "description") || plugin.description || "";
   const isActive = Boolean(plugin.slot ? plugin.active && plugin.desired !== false : plugin.installed && plugin.enabled);
   const fresh = useJustActivated(isActive);
   const subtitle = plugin.error ? hostText(plugin.error) : plugin.status === "restart-required" ? t("Restart required") : desc;
-  const tone = plugin.status === "error" || plugin.error ? "error" : plugin.status === "restart-required" ? "warn" : void 0;
+  const tone = plugin.status === "error" || plugin.killed || plugin.status === "unverifiable" || plugin.error && !plugin.consentRequired ? "error" : plugin.status === "restart-required" || plugin.consentRequired ? "warn" : void 0;
   return (0, import_react56.createElement)(
     "div",
     {
@@ -49052,15 +49139,18 @@ function PluginTile({ plugin, managerAvailable, busyId, readOnly, onOpen, onActi
           "span",
           { className: "bt-plg-name" },
           name,
-          plugin.custom ? (0, import_react56.createElement)("span", { className: "bt-tag" }, t("Added")) : null
+          plugin.custom ? (0, import_react56.createElement)("span", { className: "bt-tag" }, t("Added")) : null,
+          plugin.killed ? (0, import_react56.createElement)("span", { className: "bt-tag", "data-tone": "error" }, t("Stopped")) : null,
+          plugin.consentRequired ? (0, import_react56.createElement)("span", { className: "bt-tag", "data-tone": "warn" }, t("Approval needed")) : null,
+          plugin.status === "unverifiable" ? (0, import_react56.createElement)("span", { className: "bt-tag", "data-tone": "error" }, t("Unverifiable")) : null
         ),
         subtitle ? (0, import_react56.createElement)("span", { className: "bt-plg-sub" }, subtitle) : null
       )
     ),
-    (0, import_react56.createElement)(PluginAction, { plugin, managerAvailable, busyId, readOnly, onActivateSlot, onInstall, onToggle, onCopy })
+    (0, import_react56.createElement)(PluginAction, { plugin, managerAvailable, busyId, readOnly, onActivateSlot, onInstall, onToggle, onCopy, onConsent })
   );
 }
-function PluginDetailView({ plugin, bots, managerAvailable, busyId, readOnly, onBack, onActivateSlot, onInstall, onToggle, onUpdate, onRemove, onBotToggle, onCopy, Section: Section2, Row: Row4 }) {
+function PluginDetailView({ plugin, bots, managerAvailable, busyId, readOnly, onBack, onActivateSlot, onInstall, onToggle, onUpdate, onRemove, onBotToggle, onCopy, onConsent, Section: Section2, Row: Row4 }) {
   const [confirmRemove, setConfirmRemove] = (0, import_react56.useState)(false);
   const name = localizedField(plugin, "name") || plugin.name || plugin.id;
   const desc = localizedField(plugin, "description") || plugin.description || "";
@@ -49094,11 +49184,31 @@ function PluginDetailView({ plugin, bots, managerAvailable, busyId, readOnly, on
           (0, import_react56.createElement)("span", { className: "bt-plg-detail-name" }, name),
           metaParts ? (0, import_react56.createElement)("span", { className: "bt-plg-detail-meta" }, metaParts) : null
         ),
-        (0, import_react56.createElement)(PluginAction, { plugin, managerAvailable, busyId, readOnly, onActivateSlot, onInstall, onToggle, onCopy })
+        (0, import_react56.createElement)(PluginAction, { plugin, managerAvailable, busyId, readOnly, onActivateSlot, onInstall, onToggle, onCopy, onConsent })
       ),
       plugin.error ? (0, import_react56.createElement)("div", { className: "bt-plg-detail-err", role: "alert" }, hostText(plugin.error)) : null
     ),
+    plugin.consentRequired ? (0, import_react56.createElement)(
+      "div",
+      { className: "bt-plg-banner", "data-tone": "warn", role: "alert" },
+      (0, import_react56.createElement)("span", null, t("This plugin changed since it was approved — its capabilities, execution tier, executable entry, content, or placement. It stays stopped until you approve the plugin exactly as it is now.")),
+      (0, import_react56.createElement)(
+        "div",
+        { className: "bt-plg-banner-actions" },
+        (0, import_react56.createElement)("button", {
+          type: "button",
+          className: "bt-send bt-soft-sm",
+          disabled,
+          onClick: () => onConsent(plugin.id)
+        }, busyId === plugin.id ? t("Approving…") : t("Approve"))
+      )
+    ) : null,
     desc ? (0, import_react56.createElement)("p", { className: "bt-plg-about" }, desc) : null,
+    plugin.unpinnedSpec ? (0, import_react56.createElement)(
+      "p",
+      { className: "bt-plg-note" },
+      t("Runs the latest published version at start time; approval does not pin exact bytes.")
+    ) : null,
     plugin.supportsPerBot && plugin.installed && bots.length > 0 ? (0, import_react56.createElement)(
       Section2,
       { title: t("Bot access") },
@@ -49125,6 +49235,7 @@ function PluginDetailView({ plugin, bots, managerAvailable, busyId, readOnly, on
       plugin.mcp?.url ? (0, import_react56.createElement)(Row4, { label: t("URL") }, (0, import_react56.createElement)("code", { className: "bt-plg-code" }, plugin.mcp.url)) : null,
       plugin.mcp?.command ? (0, import_react56.createElement)(Row4, { label: t("Command") }, (0, import_react56.createElement)("code", { className: "bt-plg-code" }, [plugin.mcp.command, ...plugin.mcp.args ?? []].join(" "))) : null,
       plugin.toolPrefixes?.length ? (0, import_react56.createElement)(Row4, { label: t("Tools") }, (0, import_react56.createElement)("code", { className: "bt-plg-code" }, plugin.toolPrefixes.join(", "))) : null,
+      plugin.execution ? (0, import_react56.createElement)(Row4, { label: t("Execution tier") }, (0, import_react56.createElement)("span", { className: "bt-chip" }, plugin.execution)) : null,
       homepageUrl ? (0, import_react56.createElement)(Row4, { label: t("Homepage") }, (0, import_react56.createElement)("a", { className: "bt-plg-link", href: homepageUrl, target: "_blank", rel: "noopener noreferrer" }, homepageUrl)) : null,
       repoUrl && repoUrl !== homepageUrl ? (0, import_react56.createElement)(Row4, { label: t("Repository") }, (0, import_react56.createElement)("a", { className: "bt-plg-link", href: repoUrl, target: "_blank", rel: "noopener noreferrer" }, repoUrl)) : null,
       plugin.updatable && plugin.installed || plugin.removable ? (0, import_react56.createElement)(
@@ -49539,6 +49650,10 @@ function PluginsPage({ roster, actions, Section: Section2, Row: Row4, initialFil
     void exec(id, actions.pluginsToggle(id, enabled)).catch(() => {
     });
   };
+  const handleConsent = (id) => {
+    void exec(id, actions.pluginsConsent(id)).catch(() => {
+    });
+  };
   const handleUpdate = (id) => {
     void exec(id, actions.pluginsUpdate(id)).catch(() => {
     });
@@ -49663,6 +49778,7 @@ function PluginsPage({ roster, actions, Section: Section2, Row: Row4, initialFil
         onRemove: handleRemove,
         onBotToggle: handleBotToggle,
         onCopy: handleCopy,
+        onConsent: handleConsent,
         Section: Section2,
         Row: Row4
       })
@@ -49721,7 +49837,8 @@ function PluginsPage({ roster, actions, Section: Section2, Row: Row4, initialFil
               onActivateSlot: handleActivateSlot,
               onInstall: handleInstall,
               onToggle: handleToggle,
-              onCopy: handleCopy
+              onCopy: handleCopy,
+              onConsent: handleConsent
             }))
           )
         ) : null,
@@ -49742,7 +49859,8 @@ function PluginsPage({ roster, actions, Section: Section2, Row: Row4, initialFil
               onActivateSlot: handleActivateSlot,
               onInstall: handleInstall,
               onToggle: handleToggle,
-              onCopy: handleCopy
+              onCopy: handleCopy,
+              onConsent: handleConsent
             }))
           )
         ) : null
@@ -49841,7 +49959,8 @@ function PluginsPage({ roster, actions, Section: Section2, Row: Row4, initialFil
             onActivateSlot: handleActivateSlot,
             onInstall: handleInstall,
             onToggle: handleToggle,
-            onCopy: handleCopy
+            onCopy: handleCopy,
+            onConsent: handleConsent
           }))
         )
       ) : null,
@@ -49866,7 +49985,8 @@ function PluginsPage({ roster, actions, Section: Section2, Row: Row4, initialFil
             onActivateSlot: handleActivateSlot,
             onInstall: handleInstall,
             onToggle: handleToggle,
-            onCopy: handleCopy
+            onCopy: handleCopy,
+            onConsent: handleConsent
           }))
         )
       ) : null,
@@ -49892,7 +50012,8 @@ function PluginsPage({ roster, actions, Section: Section2, Row: Row4, initialFil
             onActivateSlot: handleActivateSlot,
             onInstall: handleInstall,
             onToggle: handleToggle,
-            onCopy: handleCopy
+            onCopy: handleCopy,
+            onConsent: handleConsent
           }))
         )
       ) : null,

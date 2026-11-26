@@ -3,10 +3,21 @@
 // The hash feeds the plugin consent fingerprint: when the executable bytes of a
 // locally installed plugin change, the fingerprint changes and prior consent no
 // longer covers the new code. Hashing is deterministic across platforms and runs:
-// entries are visited in sorted byte order, file content is hashed together with
-// its relative path and entry kind, and symlink targets are hashed as text without
-// following them. A symlink that would escape the plugin directory is rejected
-// outright, and zip/symlink bombs are capped by file-count and byte limits.
+// entries are visited in sorted byte order and NFC-normalized form (macOS stores
+// filenames in NFD), file content is hashed together with its relative path and
+// entry kind, and symlink targets are hashed as text without following them. A
+// symlink that would escape the plugin directory is rejected outright, and
+// zip/symlink bombs are capped by file-count and byte limits.
+//
+// `node_modules` and `.git` directory CONTENTS are deliberately excluded: registry
+// and file installs carry dependency trees a fingerprint cannot meaningfully bind
+// (pnpm hardlink stores are shared across packages), and a local `link:` plugin's
+// development dependencies would blow the file-count cap without adding any signal
+// about the plugin's own executable surface. Their presence is still structural:
+// the directory entry itself is hashed, only its children are skipped. A plugin
+// that smuggles executable code into `node_modules` is covered indirectly — the
+// version pin and the package's own files are what executes first, and the kill
+// list covers supply-chain incidents by id, range, or hash.
 import { createHash } from 'node:crypto'
 import { lstat, readdir, readlink, realpath } from 'node:fs/promises'
 import { createReadStream } from 'node:fs'
@@ -69,15 +80,24 @@ export async function hashPluginTree(dir, { maxFiles = CONTENT_HASH_LIMITS.maxFi
   const remaining = { bytes: maxBytes }
   let files = 0
 
+  // Directory names whose contents are excluded from the hash (see module header).
+  const SKIP_DIR_CONTENTS = new Set(['node_modules', '.git'])
+
   // The hash covers structure + content: for each entry, its kind, its root-relative
-  // path (posix-separated so hashes are platform-stable), and either the file bytes
-  // or the symlink target text. Directory names matter because file paths do.
+  // path (posix-separated and NFC-normalized so hashes are platform-stable), and either
+  // the file bytes or the symlink target text. Directory names matter because file paths do.
   const walk = async (current) => {
     const entries = await readdir(current, { withFileTypes: true })
-    entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
+    // Sort on NFC-normalized names in codepoint order so macOS (NFD filenames) and
+    // Linux/Windows (usually NFC) hash one tree identically.
+    entries.sort((a, b) => {
+      const an = a.name.normalize('NFC')
+      const bn = b.name.normalize('NFC')
+      return an < bn ? -1 : an > bn ? 1 : 0
+    })
     for (const entry of entries) {
       const full = join(current, entry.name)
-      const rel = relative(rootReal, full).split(sep).join('/')
+      const rel = relative(rootReal, full).split(sep).join('/').normalize('NFC')
       const stat = await lstat(full)
       if (stat.isSymbolicLink()) {
         const target = await readlink(full)
@@ -93,7 +113,7 @@ export async function hashPluginTree(dir, { maxFiles = CONTENT_HASH_LIMITS.maxFi
         hash.update('link\0')
         hash.update(rel, 'utf8')
         hash.update('\0')
-        hash.update(target, 'utf8')
+        hash.update(target.normalize('NFC'), 'utf8')
         hash.update('\0')
         files += 1
       } else if (stat.isDirectory()) {
@@ -104,7 +124,9 @@ export async function hashPluginTree(dir, { maxFiles = CONTENT_HASH_LIMITS.maxFi
         if (files > maxFiles) {
           throw new ContentHashError('too-many-files', `Plugin directory exceeds the ${maxFiles} file content hash limit.`)
         }
-        await walk(full)
+        if (!SKIP_DIR_CONTENTS.has(entry.name)) {
+          await walk(full)
+        }
         continue
       } else if (stat.isFile()) {
         hash.update('file\0')

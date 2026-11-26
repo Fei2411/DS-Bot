@@ -2158,6 +2158,14 @@ export const KO = {
   'Dictation provider': '받아쓰기 제공자',
   'Use DeepSeek for dictation': '받아쓰기에 DeepSeek 사용',
   'In use': '사용 중',
+  'Stopped by the security kill list': '보안 킬 리스트에 의해 중지됨',
+  'Approval needed': '재승인 필요',
+  'Unverifiable': '검증할 수 없음',
+  'Plugin files cannot be verified': '플러그인 파일을 검증할 수 없습니다',
+  'Approving…': '승인 중…',
+  'Execution tier': '실행 계층',
+  'This plugin changed since it was approved — its capabilities, execution tier, executable entry, content, or placement. It stays stopped until you approve the plugin exactly as it is now.': '이 플러그인은 승인 후 변경되었습니다: 기능, 실행 계층, 실행 진입점, 콘텐츠 또는 위치. 현재 상태 그대로 승인할 때까지 중지 상태를 유지합니다.',
+  'Runs the latest published version at start time; approval does not pin exact bytes.': '시작 시 최신 게시 버전을 실행합니다. 승인은 정확한 바이트를 고정하지 않습니다.',
   'Not ready': '준비되지 않음',
   "Couldn't read the reply": '답변을 읽지 못했습니다',
   "Couldn't reach the speech service": '음성 인식 서비스에 연결할 수 없습니다',
@@ -2544,6 +2552,10 @@ export const KO = {
 }
 
 export const HOST_ERRORS_KO = [
+  [/^Plugin disabled by the kill list: (.+)$/, '플러그인이 보안 킬 리스트에 의해 비활성화되었습니다: $1'],
+  [/^Plugin disabled by the kill list\.$/, '플러그인이 보안 킬 리스트에 의해 비활성화되었습니다.'],
+  [/^This plugin changed since it was approved \(capabilities, execution tier, executable entry, content, or placement\)\. It needs explicit approval before it can run again\.$/, '이 플러그인은 승인 후 변경되었습니다(기능, 실행 계층, 실행 진입점, 콘텐츠 또는 위치). 명시적 승인 전까지 다시 실행할 수 없습니다.'],
+  [/^Plugin files cannot be verified \((.+)\)\. It cannot run until its directory is safe to read\.$/, '플러그인 파일을 검증할 수 없습니다($1). 디렉터리를 안전하게 읽을 수 있을 때까지 실행할 수 없습니다.'],
   [/^Could not reach the mail server at (.+)\. Check the server address\.$/, '메일 서버 $1에 연결할 수 없습니다. 서버 주소를 확인하세요.'],
   [/^Model (.+) is not available\. Available: (.*)$/, '모델 $1을(를) 사용할 수 없습니다. 사용 가능: $2'],
   [/^The API key for (.+) is set outside DS Bot and cannot be changed here$/, '$1의 API 키는 DS Bot 외부에서 설정되어 여기서 변경할 수 없습니다'],

@@ -719,3 +719,625 @@ test('plugins view exposes execution tiers and defaults legacy entries to truste
   assert.equal(pw.execution, 'trusted-worker')
   assert.deepEqual(pw.capabilities ?? undefined, undefined) // view exposes tier only; capabilities stay in fingerprints
 })
+
+// --- 7. Pin analysis, nullification overlay, and spawn contract ---
+
+test('analyzePackageSpecPin distinguishes exact pinned versions from floating specs', async () => {
+  const { analyzePackageSpecPin } = await import('../src/host/plugins/catalog.js')
+  assert.deepEqual(analyzePackageSpecPin('@playwright/mcp@0.0.56'), { pinned: '0.0.56', floating: false })
+  assert.deepEqual(analyzePackageSpecPin('plain-pkg@1.2.3'), { pinned: '1.2.3', floating: false })
+  assert.deepEqual(analyzePackageSpecPin('pkg@1.2.3-beta.1'), { pinned: '1.2.3-beta.1', floating: false })
+  assert.deepEqual(analyzePackageSpecPin('@playwright/mcp@latest'), { pinned: null, floating: true })
+  assert.deepEqual(analyzePackageSpecPin('@playwright/mcp'), { pinned: null, floating: true })
+  assert.deepEqual(analyzePackageSpecPin('pkg@^1.2.3'), { pinned: null, floating: true })
+  assert.deepEqual(analyzePackageSpecPin('pkg@~1'), { pinned: null, floating: true })
+  assert.deepEqual(analyzePackageSpecPin('pkg@beta'), { pinned: null, floating: true })
+  assert.deepEqual(analyzePackageSpecPin(''), { pinned: null, floating: false })
+  assert.deepEqual(analyzePackageSpecPin(null), { pinned: null, floating: false })
+})
+
+test('hashPluginTree skips node_modules and .git contents while recording their presence', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ds-bot-tree-nm-'))
+  try {
+    mkdirSync(join(dir, 'node_modules', 'dep'), { recursive: true })
+    writeFileSync(join(dir, 'node_modules', 'dep', 'index.js'), 'module.exports = 1\n')
+    mkdirSync(join(dir, '.git'))
+    writeFileSync(join(dir, '.git', 'HEAD'), 'ref: refs/heads/main\n')
+    writeFileSync(join(dir, 'main.js'), 'export const x = 1\n')
+    const first = await hashPluginTree(dir)
+    // node_modules + .git entries themselves are hashed structurally, contents excluded:
+    // main.js + the two directory entries, never the files inside them.
+    assert.equal(first.files, 3)
+
+    // Mutating dependency or git contents does not move the hash.
+    writeFileSync(join(dir, 'node_modules', 'dep', 'index.js'), 'module.exports = 2\n')
+    writeFileSync(join(dir, '.git', 'HEAD'), 'ref: refs/heads/other\n')
+    const after = await hashPluginTree(dir)
+    assert.equal(after.hash, first.hash)
+
+    // But the presence of the directories is structural: removing one changes it.
+    rmSync(join(dir, 'node_modules'), { recursive: true, force: true })
+    const pruned = await hashPluginTree(dir)
+    assert.notEqual(pruned.hash, first.hash)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('envNullificationOverlay empties capability variables and declared env re-enables them consciously', async () => {
+  const { envNullificationOverlay } = await import('../src/host/plugins/env.js')
+  const overlay = envNullificationOverlay({
+    PATH: '/usr/bin',
+    SSH_AUTH_SOCK: '/tmp/agent.sock',
+    KUBECONFIG: '/home/user/.kube/config',
+    DOCKER_HOST: 'unix:///var/run/docker.sock',
+    LD_PRELOAD: '/evil.so',
+    DEEPSEEK_API_KEY: 'sk-x',
+    NPM_TOKEN: 'npm-x',
+  })
+  // Capability and credential-shaped ambient variables are neutralized to empty strings.
+  for (const key of ['SSH_AUTH_SOCK', 'KUBECONFIG', 'DOCKER_HOST', 'LD_PRELOAD', 'DEEPSEEK_API_KEY', 'NPM_TOKEN']) {
+    assert.equal(overlay[key], '', `${key} must be nullified`)
+  }
+  // Innocent runtime variables are not part of the overlay at all.
+  assert.equal('PATH' in overlay, false)
+  // Empty parent env produces an empty overlay.
+  assert.deepEqual(envNullificationOverlay({}), {})
+  assert.deepEqual(envNullificationOverlay(null), {})
+})
+
+test('spawn contract: what actually reaches a stdio MCP child through the real merge order', async (t) => {
+  const { scrubbedParentEnv } = await import('@deepseek-ai/dsh-subprocess')
+  const { envNullificationOverlay } = await import('../src/host/plugins/env.js')
+
+  const probe = join(tmpdir(), `ds-bot-envprobe-${process.pid}.mjs`)
+  writeFileSync(probe, 'process.stdout.write(JSON.stringify(process.env))')
+  t.after(() => rmSync(probe, { force: true }))
+
+  const previous = {
+    SSH_AUTH_SOCK: process.env.SSH_AUTH_SOCK,
+    KUBECONFIG: process.env.KUBECONFIG,
+    DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY,
+    LD_PRELOAD: process.env.LD_PRELOAD,
+  }
+  process.env.SSH_AUTH_SOCK = '/tmp/probe-agent.sock'
+  process.env.KUBECONFIG = '/tmp/probe-kubeconfig'
+  process.env.DEEPSEEK_API_KEY = 'sk-probe-secret'
+  process.env.LD_PRELOAD = '/tmp/probe-evil.so'
+  try {
+    // The exact production layering: scrubbedParentEnv first, our config env over it.
+    // Honest boundary asserted, not assumed: the scrub drops credential-shaped names,
+    // and capability variables that are not credential-shaped survive it unless
+    // our nullification overlay empties them.
+    const scrubbed = scrubbedParentEnv()
+    assert.equal(scrubbed.DEEPSEEK_API_KEY, undefined, 'the name-pattern scrub drops credential-shaped names')
+    assert.equal(scrubbed.SSH_AUTH_SOCK, '/tmp/probe-agent.sock', 'capability variables survive the scrub — the documented residual')
+
+    const configEnv = {
+      ...envNullificationOverlay(),
+      ...sanitizePluginEnv({}, { PLUGIN_MODE: 'x', SSH_AUTH_SOCK: '/tmp/conscious.sock' }),
+    }
+    const childEnv = { ...scrubbed, ...configEnv }
+    const { spawnSync } = await import('node:child_process')
+    const out = spawnSync(process.execPath, [probe], { env: childEnv, encoding: 'utf8' })
+    assert.equal(out.status, 0, out.stderr)
+    const received = JSON.parse(out.stdout)
+
+    // Deliberate manifest declaration re-enables the variable consciously.
+    assert.equal(received.SSH_AUTH_SOCK, '/tmp/conscious.sock')
+    // Nullified capability variables arrive empty — a mitigation, not erasure.
+    assert.equal(received.KUBECONFIG, '', 'nullification overlay empties the inherited value')
+    assert.equal(received.LD_PRELOAD, '')
+    // Credential-shaped names reach the child EMPTY, not absent: the overlay
+    // nullification deliberately overrides what the name-scrub already dropped.
+    // Empty-not-absent is the documented mitigation boundary (env.js header).
+    assert.equal(received.DEEPSEEK_API_KEY, '')
+    assert.equal(received.PLUGIN_MODE, 'x')
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+  }
+})
+
+test('spawn contract: without a declared override the overlay wins over the scrubbed parent', async (t) => {
+  const { scrubbedParentEnv } = await import('@deepseek-ai/dsh-subprocess')
+  const { envNullificationOverlay } = await import('../src/host/plugins/env.js')
+
+  const probe = join(tmpdir(), `ds-bot-envprobe2-${process.pid}.mjs`)
+  writeFileSync(probe, 'process.stdout.write(JSON.stringify(process.env))')
+  t.after(() => rmSync(probe, { force: true }))
+
+  const previous = process.env.SSH_AUTH_SOCK
+  process.env.SSH_AUTH_SOCK = '/tmp/probe-agent.sock'
+  try {
+    const configEnv = {
+      ...envNullificationOverlay(),
+      ...sanitizePluginEnv({}, {}),
+    }
+    const childEnv = { ...scrubbedParentEnv(), ...configEnv }
+    const { spawnSync } = await import('node:child_process')
+    const out = spawnSync(process.execPath, [probe], { env: childEnv, encoding: 'utf8' })
+    const received = JSON.parse(out.stdout)
+    assert.equal(received.SSH_AUTH_SOCK, '', 'the agent socket is neutralized in the child')
+  } finally {
+    if (previous === undefined) delete process.env.SSH_AUTH_SOCK
+    else process.env.SSH_AUTH_SOCK = previous
+  }
+})
+
+test('resolveMcpRuntimeConfig layers nullification, runner allowlist, and declared env in order', async (t) => {
+  const mountedConfigs = []
+  const fakeLoader = { async import() { return { apply() {} } } }
+  const { ctx, rt, call, stop } = startRuntime({
+    services: { loader: fakeLoader },
+    config: {
+      mcpCommandProbe: bin => bin === '/app/runner',
+      mcpPackageManager: { command: '/app/runner', args: [], env: { ELECTRON_RUN_AS_NODE: '1', DEEPSEEK_API_KEY: 'must-not-cross' } },
+    },
+  })
+  t.after(stop)
+  ctx.plugin = (_plugin, cfg) => {
+    mountedConfigs.push(cfg)
+    return { async await() {}, async dispose() {} }
+  }
+  await rt.load()
+
+  const previous = process.env.SSH_AUTH_SOCK
+  process.env.SSH_AUTH_SOCK = '/tmp/ambient-agent.sock'
+  try {
+    const saved = await call('plugins-custom-save', {
+      kind: 'mcp',
+      name: 'Layered MCP',
+      transport: 'stdio',
+      packageSpec: 'layered-mcp@1.2.3',
+      args: [],
+      env: { MODE: 'prod' },
+    })
+    assert.equal(saved.ok, true)
+    await call('plugins-retry', {})
+    assert.ok(mountedConfigs.length > 0)
+    const env = mountedConfigs.at(-1).env
+    // The ambient capability variable is nullified in the explicit layer the SDK
+    // merges over its scrubbed parent environment.
+    assert.equal(env.SSH_AUTH_SOCK, '')
+    assert.equal(env.MODE, 'prod')
+    assert.equal(env.ELECTRON_RUN_AS_NODE, '1')
+    assert.equal(env.DEEPSEEK_API_KEY, undefined)
+    // The exact pinned version in the spec feeds consent inputs through the view.
+    const view = await call('plugins-list', {})
+    const item = view.value.plugins.find(p => p.name === 'Layered MCP')
+    assert.equal(item.unpinnedSpec, false)
+  } finally {
+    if (previous === undefined) delete process.env.SSH_AUTH_SOCK
+    else process.env.SSH_AUTH_SOCK = previous
+  }
+})
+
+test('floating package specs surface unpinnedSpec and pinned specs feed kill-list version matching', async (t) => {
+  const fakeLoader = { async import() { return { apply() {} } } }
+  const { ctx, rt, call, stop } = startRuntime({ services: { loader: fakeLoader } })
+  t.after(stop)
+  ctx.plugin = () => ({ async await() {}, async dispose() {} })
+  await rt.load()
+
+  const saved = await call('plugins-custom-save', {
+    kind: 'mcp',
+    name: 'Floating MCP',
+    transport: 'stdio',
+    packageSpec: 'float-mcp@latest',
+    args: [],
+  })
+  assert.equal(saved.ok, true)
+  const view = await call('plugins-list', {})
+  const floating = view.value.plugins.find(p => p.id === saved.value.entry.id)
+  assert.equal(floating.unpinnedSpec, true)
+
+  // An id-only kill stops a floating plugin whose version can never be known.
+  const killStore = createKillListStore({ cachePath: null })
+  await killStore.updateFromSource('official', {
+    schemaVersion: 1,
+    issuedAt: new Date().toISOString(),
+    entries: [{ id: saved.value.entry.id }],
+  })
+  assert.ok(killStore.evaluate({ id: saved.value.entry.id, version: null, contentHash: null }), 'id-only kill matches without a version')
+  // `*` version ranges match unknown/floating versions too — the only honest shape for that claim.
+  const starStore = createKillListStore({ cachePath: null })
+  await starStore.updateFromSource('official', {
+    schemaVersion: 1,
+    issuedAt: new Date().toISOString(),
+    entries: [{ id: 'mcp:star', versions: '*' }],
+  })
+  assert.ok(starStore.evaluate({ id: 'mcp:star', version: null }), '* range matches an unknown version')
+  // Concrete ranges still do not match unknown versions.
+  const rangeStore = createKillListStore({ cachePath: null })
+  await rangeStore.updateFromSource('official', {
+    schemaVersion: 1,
+    issuedAt: new Date().toISOString(),
+    entries: [{ id: 'mcp:ranged', versions: '<2.0.0' }],
+  })
+  assert.equal(rangeStore.evaluate({ id: 'mcp:ranged', version: null }), null)
+  assert.ok(rangeStore.evaluate({ id: 'mcp:ranged', version: '1.5.0' }))
+})
+
+// --- 8. Installed-dir hashing and fail-closed verification ---
+
+test('unverifiable plugin trees (symlink escape) fail closed instead of binding consent to unhashable bytes', async (t) => {
+  const pluginDir = mkdtempSync(join(tmpdir(), 'ds-bot-esc-plugin-'))
+  writeFileSync(join(pluginDir, 'index.js'), 'export {}\n')
+  symlinkSync('/etc', join(pluginDir, 'escape'), 'dir')
+  t.after(() => rmSync(pluginDir, { recursive: true, force: true, maxRetries: 5 }))
+
+  const bundle = {
+    name: 'escape-plugin',
+    official: false,
+    availability: 'profile',
+    version: '0.0.0',
+    enabled: true,
+    installed: true,
+    optional: false,
+    removable: true,
+    updatable: false,
+    rows: [],
+    overrides: [],
+    source: `link:${pluginDir}`,
+  }
+  const fakePm = { async listBundles() { return [{ ...bundle }] } }
+  const { rt, call, stop } = startRuntime({ services: { pluginManager: fakePm } })
+  t.after(stop)
+  await rt.load()
+
+  const res = await call('plugins-slot-set', { slot: 'browser', id: 'dsh:escape-plugin' })
+  assert.equal(res.ok, true)
+  assert.equal(res.value.slots.browser.status, 'unverifiable')
+  assert.match(res.value.slots.browser.error, /cannot be verified/)
+  assert.equal(rt.plugins.getSlotActiveId('browser'), 'builtin:readonly', 'unverifiable bytes never activate')
+
+  // The consent endpoint refuses outright: approval can never be recorded for bytes
+  // that cannot be verified — that is the whole point of failing closed.
+  const consent = await call('plugins-consent', { id: 'dsh:escape-plugin' })
+  assert.equal(consent.ok, false)
+  assert.match(consent.error.message, /cannot be verified/)
+  const view = await call('plugins-list', {})
+  assert.equal(view.value.slots.browser.status, 'unverifiable')
+})
+
+test('content hashing binds the installed bundle directory and byte drift invalidates consent without a version move', async (t) => {
+  const pluginDir = mkdtempSync(join(tmpdir(), 'ds-bot-drift-plugin-'))
+  writeFileSync(join(pluginDir, 'index.js'), 'export const v = 1\n')
+  writeFileSync(join(pluginDir, 'package.json'), JSON.stringify({ name: 'drift-plugin', version: '1.0.0' }))
+  t.after(() => rmSync(pluginDir, { recursive: true, force: true, maxRetries: 5 }))
+
+  const bundle = {
+    name: 'drift-plugin',
+    official: false,
+    availability: 'profile',
+    version: '1.0.0',
+    enabled: true,
+    installed: true,
+    optional: false,
+    removable: true,
+    updatable: false,
+    rows: [],
+    overrides: [],
+    source: `link:${pluginDir}`,
+  }
+  const fakePm = { async listBundles() { return [{ ...bundle }] } }
+  const { rt, call, stop } = startRuntime({ services: { pluginManager: fakePm } })
+  t.after(stop)
+  await rt.load()
+
+  // Activate: baseline consent covers the exact bytes of the tree.
+  const act = await call('plugins-slot-set', { slot: 'browser', id: 'dsh:drift-plugin' })
+  assert.equal(act.ok, true)
+  assert.equal(act.value.slots.browser.status, 'ready')
+  const fingerprintBefore = rt.state.plugins.consent['dsh:drift-plugin']?.fingerprint
+  assert.ok(fingerprintBefore)
+
+  // Bytes mutate underneath without the version moving — the classic link:/dev-tree
+  // and tampering case. Reconciliation re-hashes, the fast path breaks, and the
+  // consent gate refuses reactivation under the stale approval.
+  writeFileSync(join(pluginDir, 'index.js'), 'export const v = 2\n')
+  const retry = await call('plugins-retry', {})
+  assert.equal(retry.ok, true)
+  assert.equal(retry.value.slots.browser.status, 'consent-required')
+  assert.equal(rt.plugins.getSlotActiveId('browser'), 'builtin:readonly')
+
+  // Explicit approval of the new bytes restores activation.
+  const consent = await call('plugins-consent', { id: 'dsh:drift-plugin' })
+  assert.equal(consent.ok, true)
+  const after = await call('plugins-list', {})
+  assert.equal(after.value.slots.browser.status, 'ready')
+  assert.notEqual(rt.state.plugins.consent['dsh:drift-plugin'].fingerprint, fingerprintBefore)
+})
+
+// --- 9. Bundle-level enforcement ---
+
+test('enforcement disables consent-invalid bundles in the profile and re-enables them on approval', async (t) => {
+  const bundle = {
+    name: 'enforced-browser',
+    official: false,
+    availability: 'profile',
+    version: '1.0.0',
+    enabled: true,
+    installed: true,
+    optional: false,
+    removable: true,
+    updatable: false,
+    rows: [],
+    overrides: [],
+  }
+  const pmCalls = []
+  const fakePm = {
+    async listBundles() { return [{ ...bundle }] },
+    async setBundleEnabled(name, enabled) {
+      pmCalls.push(['setBundleEnabled', name, enabled])
+      bundle.enabled = enabled
+      return { changed: true, application: 'applied', stage: 'enable', target: name, enabled }
+    },
+  }
+  const { rt, call, stop } = startRuntime({ services: { pluginManager: fakePm } })
+  t.after(stop)
+  await rt.load()
+
+  // Activate and baseline version 1.0.0.
+  const act = await call('plugins-slot-set', { slot: 'browser', id: 'dsh:enforced-browser' })
+  assert.equal(act.value.slots.browser.status, 'ready')
+
+  // The bundle updates underneath: consent invalidates, and enforcement disables the
+  // bundle in the DSH profile itself — the startup precondition for not executing it.
+  bundle.version = '2.0.0'
+  await call('plugins-retry', {})
+  assert.ok(pmCalls.some(c => c[0] === 'setBundleEnabled' && c[1] === 'enforced-browser' && c[2] === false),
+    'enforcement disables the consent-invalid bundle in the profile')
+  assert.equal(bundle.enabled, false)
+
+  // Approval re-enables exactly the approved bytes.
+  const consent = await call('plugins-consent', { id: 'dsh:enforced-browser' })
+  assert.equal(consent.ok, true)
+  assert.ok(pmCalls.some(c => c[0] === 'setBundleEnabled' && c[1] === 'enforced-browser' && c[2] === true),
+    'approval re-enables the bundle it consented')
+  assert.equal(bundle.enabled, true)
+  const view = await call('plugins-list', {})
+  assert.equal(view.value.slots.browser.status, 'ready')
+})
+
+test('enforcement does not disable system bundles or unknown packages, and leaves user-disabled bundles alone', async (t) => {
+  const systemBundle = {
+    name: 'ds-bot',
+    official: true,
+    availability: 'installation',
+    version: '1.0.0',
+    enabled: true,
+    installed: true,
+    optional: false,
+    removable: false,
+    updatable: false,
+    rows: [],
+    overrides: [],
+  }
+  const pmCalls = []
+  const fakePm = {
+    async listBundles() { return [{ ...systemBundle }] },
+    async setBundleEnabled(name, enabled) {
+      pmCalls.push(['setBundleEnabled', name, enabled])
+      systemBundle.enabled = enabled
+      return { changed: true, application: 'applied', stage: 'enable', target: name, enabled }
+    },
+  }
+  const { rt, call, stop } = startRuntime({ services: { pluginManager: fakePm } })
+  t.after(stop)
+  await rt.load()
+  await call('plugins-retry', {})
+  // The host's own runtime bundle is never a kill/consent target: no disable call for it.
+  assert.equal(pmCalls.filter(c => c[1] === 'ds-bot' && c[2] === false).length, 0)
+  assert.equal(systemBundle.enabled, true)
+})
+
+test('killed install refuses before the plugin manager runs, and installs request enabled:false', async (t) => {
+  const now = Date.now()
+  const killDoc = {
+    schemaVersion: 1,
+    issuedAt: new Date(now).toISOString(),
+    entries: [{ id: 'dsh:evil-browser', reason: 'compromised package' }],
+  }
+  const installCalls = []
+  const fakePm = {
+    async listBundles() { return [] },
+    async installBundle(spec, options) {
+      installCalls.push([spec, options])
+      return { changed: true, application: 'applied', stage: 'enable', target: spec, bundle: spec, version: '1.0.0' }
+    },
+    async setBundleEnabled() { return { changed: true, application: 'applied', stage: 'enable', target: 'x', enabled: true } },
+  }
+  const { rt, call, stop } = startRuntime({
+    services: { pluginManager: fakePm },
+    config: {
+      pluginFetch: async () => new Response(JSON.stringify({ schemaVersion: 1, killList: killDoc, plugins: [] }), { status: 200 }),
+    },
+  })
+  t.after(stop)
+  await rt.load()
+
+  // A kill-named registry spec is refused before installBundle ever runs.
+  const killed = await call('plugins-install', { spec: 'evil-browser' })
+  assert.equal(killed.ok, false)
+  assert.match(killed.error.message, /kill list/i)
+  assert.equal(installCalls.length, 0, 'the plugin manager never runs for a killed package')
+
+  // A clean install requests activation disabled — consent gates the enablement.
+  const clean = await call('plugins-install', { spec: 'honest-browser' })
+  assert.equal(clean.ok, true)
+  assert.equal(installCalls.length, 1)
+  assert.equal(installCalls[0][1].enabled, false, 'installations never activate before the consent gate evaluates')
+})
+
+test('update pre-disables the bundle, and post-update re-consent re-enables it', async (t) => {
+  const bundle = {
+    name: 'updatable-plugin',
+    official: false,
+    availability: 'profile',
+    version: '1.0.0',
+    enabled: true,
+    installed: true,
+    optional: false,
+    removable: true,
+    updatable: true,
+    rows: [],
+    overrides: [],
+  }
+  const order = []
+  const fakePm = {
+    async listBundles() { return [{ ...bundle }] },
+    async listVersions() {
+      return {
+        status: 'listed',
+        installed: bundle.version,
+        registry: null,
+        attempts: [],
+        versions: [{ version: '2.0.0', tags: ['latest'], prerelease: false, bundle: true }],
+        omitted: 0,
+      }
+    },
+    async setBundleEnabled(name, enabled) {
+      order.push(['setBundleEnabled', enabled])
+      bundle.enabled = enabled
+      return { changed: true, application: 'applied', stage: 'enable', target: name, enabled }
+    },
+    async updateBundle(name, version) {
+      order.push(['updateBundle', version])
+      // DSH updates install with the bundle's CURRENT selection: enabled state at
+      // update time decides whether new bytes activate. The pre-disable is what
+      // guarantees they do not.
+      assert.equal(bundle.enabled, false, 'the bundle must be disabled before its bytes are replaced')
+      bundle.version = version
+      return {
+        from: '1.0.0',
+        to: version,
+        step: 'install',
+        result: { changed: true, application: 'applied', stage: 'enable', target: `${name}@${version}`, enabled: false },
+      }
+    },
+  }
+  const { rt, call, stop } = startRuntime({ services: { pluginManager: fakePm } })
+  t.after(stop)
+  await rt.load()
+
+  // Activate: consent baseline covers 1.0.0.
+  const act = await call('plugins-slot-set', { slot: 'browser', id: 'dsh:updatable-plugin' })
+  assert.equal(act.value.slots.browser.status, 'ready')
+
+  const upd = await call('plugins-update', { id: 'dsh:updatable-plugin', version: '2.0.0' })
+  assert.equal(upd.ok, true)
+  const disableIdx = order.findIndex(c => c[0] === 'setBundleEnabled' && c[1] === false)
+  const updateIdx = order.findIndex(c => c[0] === 'updateBundle')
+  assert.ok(disableIdx !== -1 && updateIdx !== -1 && disableIdx < updateIdx, 'disable precedes the byte replacement')
+  // The user clicking update is the consent: the new version's fingerprint is recorded
+  // and the bundle is re-enabled, so the slot runs 2.0.0 without a redundant prompt.
+  assert.equal(bundle.enabled, true)
+  const view = await call('plugins-list', {})
+  assert.equal(view.value.slots.browser.status, 'ready')
+  assert.equal(rt.plugins.getSlotActiveId('browser'), 'dsh:updatable-plugin')
+})
+
+test('update failure restores the previous version without re-enabling unapproved bytes silently', async (t) => {
+  const bundle = {
+    name: 'failing-update-plugin',
+    official: false,
+    availability: 'profile',
+    version: '1.0.0',
+    enabled: true,
+    installed: true,
+    optional: false,
+    removable: true,
+    updatable: true,
+    rows: [],
+    overrides: [],
+  }
+  const enableCalls = []
+  const fakePm = {
+    async listBundles() { return [{ ...bundle }] },
+    async setBundleEnabled(name, enabled) {
+      enableCalls.push(enabled)
+      bundle.enabled = enabled
+      return { changed: true, application: 'applied', stage: 'enable', target: name, enabled }
+    },
+    async updateBundle(name, version) {
+      return {
+        from: '1.0.0',
+        to: version,
+        step: 'install',
+        result: {
+          changed: false,
+          application: 'failed',
+          stage: 'install',
+          target: `${name}@${version}`,
+          error: { code: 'operation-error', diagnostic: 'registry unreachable' },
+        },
+        restore: { changed: true, application: 'applied', stage: 'install', target: `${name}@1.0.0`, enabled: false },
+      }
+    },
+  }
+  const { rt, call, stop } = startRuntime({ services: { pluginManager: fakePm } })
+  t.after(stop)
+  await rt.load()
+
+  const act = await call('plugins-slot-set', { slot: 'browser', id: 'dsh:failing-update-plugin' })
+  assert.equal(act.value.slots.browser.status, 'ready')
+  enableCalls.length = 0
+
+  const upd = await call('plugins-update', { id: 'dsh:failing-update-plugin', version: '2.0.0' })
+  assert.equal(upd.ok, false)
+  assert.match(upd.error.message, /registry unreachable/)
+  // The restore reinstalls the SAME version the consent covers: re-enabling it is the
+  // consented state, not new code — so the plugin comes back rather than dying silently.
+  assert.equal(enableCalls.includes(true), true, 'the restored consented version is re-enabled')
+  assert.equal(bundle.enabled, true)
+})
+
+test('non-slot install enables the bundle after the gate clears, and a killed post-install bundle never enables', async (t) => {
+  const bundles = new Map()
+  const pmCalls = []
+  const fakePm = {
+    async listBundles() { return [...bundles.values()].map(b => ({ ...b })) },
+    async installBundle(spec) {
+      pmCalls.push(['installBundle', spec])
+      bundles.set(spec, {
+        name: spec,
+        official: false,
+        availability: 'profile',
+        version: '1.0.0',
+        enabled: false,
+        installed: true,
+        optional: false,
+        removable: true,
+        updatable: false,
+        rows: [],
+        overrides: [],
+      })
+      return { changed: true, application: 'applied', stage: 'install', target: spec, bundle: spec, version: '1.0.0' }
+    },
+    async setBundleEnabled(name, enabled) {
+      pmCalls.push(['setBundleEnabled', name, enabled])
+      const b = bundles.get(name)
+      if (b) b.enabled = enabled
+      return { changed: true, application: 'applied', stage: 'enable', target: name, enabled }
+    },
+  }
+  const { rt, call, stop } = startRuntime({ services: { pluginManager: fakePm } })
+  t.after(stop)
+  await rt.load()
+
+  // A clean non-slot install: the gate clears on first activation (baseline) and the
+  // bundle is enabled — installing a plugin is the user's intent to run it.
+  const clean = await call('plugins-install', { spec: 'honest-tools' })
+  assert.equal(clean.ok, true)
+  assert.ok(pmCalls.some(c => c[0] === 'setBundleEnabled' && c[1] === 'honest-tools' && c[2] === true),
+    'the installed bundle is enabled after the gate clears')
+  const view = await call('plugins-list', {})
+  const item = view.value.plugins.find(p => p.packageName === 'honest-tools')
+  assert.equal(item.enabled, true)
+  assert.equal(item.consentRequired, false)
+  assert.ok(rt.state.plugins.consent['dsh:honest-tools']?.fingerprint, 'first activation baselines consent')
+})

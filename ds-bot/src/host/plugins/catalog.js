@@ -477,6 +477,31 @@ export function resolveMcpPresetCommand(mcp, {
 }
 
 /**
+ * Analyze an npm package spec for pinning. Exact semver (`name@1.2.3`, including
+ * scoped names) is pinned: the version is executable truth and can feed the consent
+ * fingerprint and kill-list version matching. Dist-tags (`@latest`, `@beta`), ranges
+ * (`@^1`, `@~1.2`), bare names, and wildcard/tag forms are floating: what runs is
+ * whatever the registry serves at spawn time, which no local consent can pre-bind.
+ *
+ * @returns {{ pinned: string | null, floating: boolean }}
+ */
+export function analyzePackageSpecPin(spec) {
+  const text = String(spec ?? '').trim()
+  if (!text) return { pinned: null, floating: false }
+  const at = text.startsWith('@') ? text.indexOf('@', 1) : text.indexOf('@')
+  if (at === -1) {
+    // A bare package name resolves through the default dist-tag: floating.
+    return { pinned: null, floating: true }
+  }
+  const range = text.slice(at + 1).trim()
+  // Exact pinned semver: one release version, optionally with prerelease/build.
+  if (/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(range)) {
+    return { pinned: range, floating: false }
+  }
+  return { pinned: null, floating: true }
+}
+
+/**
  * Parse and validate a DS Bot plugin registry document (schemaVersion: 1).
  */
 export function parsePluginRegistry(doc, { sourceId = 'official', sourceName = 'Official', sourceUrl = null } = {}) {

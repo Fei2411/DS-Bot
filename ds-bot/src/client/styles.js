@@ -1008,6 +1008,11 @@ button.bt-set-row:hover .bt-chevron{transform:translateX(2px);color:var(--bt-ink
 .bt-plg-btn:disabled{opacity:.5;cursor:default}
 .bt-plg-btn svg{width:13px;height:13px}
 .bt-plg-btn-done{background:none;color:var(--bt-ink-2);box-shadow:inset 0 0 0 1px var(--bt-line);cursor:default}
+.bt-plg-btn-approve{background:var(--bt-accent-soft);color:var(--bt-accent)}
+.bt-plg-btn-approve:hover:not(:disabled){background:color-mix(in srgb,var(--bt-accent) 22%,transparent)}
+.bt-tag[data-tone=error]{background:color-mix(in srgb,var(--bt-danger) 12%,transparent);color:var(--bt-danger)}
+.bt-tag[data-tone=warn]{background:color-mix(in srgb,var(--bt-warn) 14%,transparent);color:var(--bt-warn)}
+.bt-plg-note{margin:4px 2px 0;font-size:12px;line-height:18px;color:var(--bt-ink-3)}
 .bt-plg-ext-card{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:12px;border:1px dashed var(--bt-line-2);background:color-mix(in srgb,var(--bt-card) 60%,transparent)}
 .bt-plg-ext-mark{flex:none;width:36px;height:36px;display:inline-flex;align-items:center;justify-content:center;border-radius:10px;background:var(--bt-card);box-shadow:inset 0 0 0 .5px var(--bt-line-2)}
 .bt-plg-ext-mark svg{width:20px;height:20px}

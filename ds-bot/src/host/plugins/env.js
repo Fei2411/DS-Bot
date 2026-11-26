@@ -1,20 +1,36 @@
-// Strict environment allowlist for plugin worker / MCP subprocess spawning.
+// Environment hygiene for plugin worker / MCP subprocess spawning.
 //
-// Anything spawned on behalf of a plugin must never inherit host secrets implicitly.
-// `sanitizePluginEnv` builds the child environment from two explicit layers:
-//   - `baseEnv` (usually the ambient process environment) passes only through a
-//     closed allowlist of names a spawned runtime genuinely needs (loader paths,
-//     locales, temp and profile locations, proxy routing). Everything else —
-//     `*_API_KEY`, `*_TOKEN`, `*_SECRET`, `DSH_SECRET_*`, `DEEPSEEK_*`, cloud and
-//     agent credentials, session sockets — is dropped regardless of name casing.
-//   - `declaredEnv` (the plugin manifest's own `env` map) is applied verbatim on
-//     top: those entries are deliberate configuration the user wrote or approved,
-//     and plaintext credentials in them are already rejected at validation time
-//     (see `validateMcpConfig`), with `$DSH_SECRET_<NAME>` expansion happening
-//     before this layer.
+// Honest boundary, verified against `@deepseek-ai/dsh-mcp-client`'s real contract:
+// the MCP SDK spawns stdio servers with `{ ...scrubbedParentEnv(), ...config.env }`
+// and `spawn` semantics REPLACE the child environment wholesale with that map —
+// nothing outside the map exists in the child. DSH's `scrubbedParentEnv` drops
+// credential-shaped names (`KEY|PASSWORD|SECRET|TOKEN` patterns and `DSH_*`) but
+// deliberately keeps the rest of the parent environment, including capability
+// variables that are not secrets by shape: `SSH_AUTH_SOCK` (agent sign-in),
+// `KUBECONFIG` / `DOCKER_HOST` (cluster and daemon authority), `LD_PRELOAD` /
+// `DYLD_INSERT_LIBRARIES` (code injection into other children).
+//
+// What DS Bot controls, and what this module honestly does:
+//   1. `sanitizePluginEnv` constructs the EXPLICIT layer of the child env: the
+//      plugin manifest's declared env passes verbatim (plaintext credentials in it
+//      are already rejected at validation, `$DSH_SECRET_*` references expand before
+//      this point), merged over an allowlisted base when there is one.
+//   2. `envNullificationOverlay` neutralizes capability variables the parent may
+//      carry by overriding them to empty strings inside `config.env`. Because the
+//      SDK merges `config.env` last, the child receives those names empty — a real
+//      mitigation that disables agent sockets, preload injection, and credential
+//      file discovery, but NOT a guarantee: empty is not identical to absent for
+//      every conceivable consumer, and unusual names outside the blocked list
+//      still pass through DSH's scrub. Deleting inherited ambient variables from
+//      the spawn environment entirely requires an authoritative-env option in
+//      `@deepseek-ai/dsh-mcp-client` upstream; until then this module never claims
+//      full ambient isolation.
+//   3. Non-secret runtime requirements survive: `ELECTRON_RUN_AS_NODE` is
+//      allowlisted because the desktop-bundled pnpm runner cannot start without it.
+//
 // Comparison is case-insensitive because Windows environment names are.
 
-// Exact names (case-insensitive) a child runtime needs from its parent.
+// Exact names (case-insensitive) a child runtime needs from an ambient base layer.
 const SAFE_EXACT = new Set([
   // Loader and runtime paths.
   'PATH', 'PATHEXT', 'SYSTEMROOT', 'SYSTEMDRIVE', 'COMSPEC', 'WINDIR',
@@ -35,12 +51,11 @@ const SAFE_EXACT = new Set([
 ])
 
 // Names carrying credentials or implicit authority must never cross implicitly,
-// regardless of casing. The allowlist above already excludes them; this explicit
-// list exists so a future allowlist addition cannot silently re-admit them and so
-// audits have the threat model in one place. Exported for tests and documentation.
+// regardless of casing. Exported for tests and documentation.
 export const SENSITIVE_ENV_PATTERN = /^(?:.*_)?(?:api[_-]?key|auth[_-]?token|access[_-]?token|secret(?:[_-]key)?|token|password|passwd|credential(?:s)?|private[_-]?key|session[_-]?key)$/i
 
-// Prefixes of host identity and vendor credentials that are never forwarded.
+// Prefixes of host identity and vendor credentials that are never forwarded, and
+// capability variables neutralized by the nullification overlay.
 const BLOCKED_PREFIXES = [
   'DSH_SECRET_', 'DSH_', 'DS_BOT_SECRET', 'DEEPSEEK_', 'OPENAI_', 'ANTHROPIC_',
   'AWS_', 'AZURE_', 'GCP_', 'GOOGLE_APPLICATION_CREDENTIALS', 'GITHUB_', 'GH_',
@@ -59,11 +74,15 @@ function isBlockedName(key) {
 }
 
 /**
- * Build the environment a plugin worker / MCP subprocess may start from.
+ * Build the explicit environment layer a plugin worker / MCP subprocess config
+ * carries. `baseEnv` passes only through the closed allowlist (used for host-level
+ * runner configuration, which is ambient-ish input); `declaredEnv` — the plugin
+ * manifest's own `env` — applies verbatim on top because those entries are
+ * deliberate user configuration whose plaintext credentials were already rejected.
  *
- * @param {Record<string, string | undefined> | undefined} baseEnv - ambient env to filter (e.g. `process.env`)
+ * @param {Record<string, string | undefined> | undefined} baseEnv - ambient-ish env to filter
  * @param {Record<string, string> | undefined} declaredEnv - the plugin's own declared env, applied verbatim last
- * @returns {Record<string, string>} fresh env object safe to hand to a child spawn
+ * @returns {Record<string, string>} fresh env object for the child config layer
  */
 export function sanitizePluginEnv(baseEnv, declaredEnv) {
   const out = {}
@@ -91,6 +110,35 @@ export function sanitizePluginEnv(baseEnv, declaredEnv) {
       }
       out[key] = value
     }
+  }
+  return out
+}
+
+/**
+ * Capability variables present in the parent environment, mapped to empty strings.
+ * Merged into the explicit config layer BEFORE the plugin's declared env, so a
+ * deliberate user declaration can still re-enable one consciously (secret-shaped
+ * values stay guarded by manifest validation). Because `@deepseek-ai/dsh-mcp-client`
+ * merges `config.env` over its scrubbed parent env, the override neutralizes the
+ * inherited value in the spawned child.
+ *
+ * Mitigation, not erasure — see the module header for the exact boundary.
+ *
+ * @param {Record<string, string | undefined>} [ambient] - parent env to scan (default `process.env`)
+ * @returns {Record<string, string>} entries to fold into the child env config
+ */
+export function envNullificationOverlay(ambient = process.env) {
+  const out = {}
+  if (!ambient || typeof ambient !== 'object') return out
+  const claimed = new Set()
+  for (const key of Object.keys(ambient)) {
+    const upper = normalizeKey(key)
+    if (claimed.has(upper)) continue
+    if (!isBlockedName(key)) continue
+    claimed.add(upper)
+    // One empty value per case-insensitive name; Windows children read names
+    // case-insensitively, so shadowing the first spelling covers the rest.
+    out[key] = ''
   }
   return out
 }
