@@ -9,6 +9,15 @@ import { ESCALATION, MAX_EXTRA_DIRS, install as installExtraFolders } from '../s
 import { install as installFolders } from '../src/host/folders.js'
 
 const tick = () => new Promise(resolve => setTimeout(resolve, 20))
+const waitFor = async (predicate, timeoutMs = 1000) => {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    const value = predicate()
+    if (value) return value
+    await tick()
+  }
+  return predicate()
+}
 
 function setup(t, { privateBot = false, existingExtraDirs = [], readOnly = false } = {}) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'ds-bot-always-')))
@@ -122,7 +131,7 @@ function setup(t, { privateBot = false, existingExtraDirs = [], readOnly = false
   }
 }
 
-test('browser write approval offers Always allow, exposes localized displayReason, and persists to bot.browserGrants', async (t) => {
+test('browser write approval stays strictly one-time while exposing localized displayReason', async (t) => {
   const env = setup(t)
   const agent = { id: 'b1', session: { id: 'b1', header: { id: 'b1', cwd: env.ws } } }
   const promise = env.rt.requestActionApproval({
@@ -135,20 +144,26 @@ test('browser write approval offers Always allow, exposes localized displayReaso
 
   const open = env.rt.approvalsView()
   assert.equal(open.length, 1)
-  assert.deepEqual(open[0].alwaysAllow, { kind: 'browser', site: 'github.com', action: 'download' })
+  assert.equal(open[0].alwaysAllow, undefined)
   assert.equal(open[0].displayReason.zh, '允许 Helper 在 github.com 上下载文件“Release asset”吗？')
 
-  const res = await env.callApi('approval-answer', { id: open[0].id, choice: 'always' })
+  const refused = await env.callApi('approval-answer', { id: open[0].id, choice: 'always' })
+  assert.equal(refused.ok, false)
+  assert.equal(refused.error.code, 'bot/refused')
+  assert.equal(env.bots.b1.browserGrants, undefined)
+
+  const res = await env.callApi('approval-answer', { id: open[0].id, choice: 'allow' })
   assert.equal(res.ok, true)
   assert.equal(await promise, 'allowed-once')
-  assert.deepEqual(env.bots.b1.browserGrants, [{ site: 'github.com', kinds: ['download'] }])
-  assert.ok(env.saved >= 1)
 })
 
-test('file-tool sandbox escalation offers Always allow and persists extraDirs onto the Bot', async (t) => {
+test('file-tool sandbox escalation offers Always allow for direct Bot sessions, persists extraDirs, and withholds Always allow for subagents', async (t) => {
   const env = setup(t)
   const targetFile = join(env.extraDir, 'notes.md')
   const agent = { id: 'b1', session: { id: 'b1', header: { id: 'b1', cwd: env.ws } } }
+  env.rt.resolveAgent = async id => (id === 'b1' ? agent : undefined)
+
+  // Direct Bot session gets Always allow for eligible extra folder.
   await env.firePreExecute({
     agent,
     callId: 'c-write-1',
@@ -161,15 +176,42 @@ test('file-tool sandbox escalation offers Always allow and persists extraDirs on
     callId: 'c-write-1',
     reason: `${ESCALATION} write notes outside workspace`,
   })
-  await tick()
+  const resolved = await waitFor(() => env.rt.approvalsView()[0]?.alwaysAllow)
+  assert.deepEqual(resolved, { kind: 'extra-dir', dirs: [env.extraDir] })
 
   const open = env.rt.approvalsView()
   assert.equal(open.length, 1)
-  assert.deepEqual(open[0].alwaysAllow, { kind: 'extra-dir', dirs: [env.extraDir] })
-
   await env.rt.answerApproval(open[0].id, 'always')
   assert.equal(await promise, 'allowed-once')
   assert.deepEqual(env.bots.b1.extraDirs, [env.extraDir])
+
+  // Subagent child session under the same Bot must NOT receive Always allow, since extraDirsOfSession does not index child sessions.
+  // Hold the fallback DSH approval handler open (matching DSH's real waiter) until cancelled or answered.
+  env.rt.ctx.on('approval/request', req => new Promise((resolve) => {
+    req.signal?.addEventListener('abort', () => resolve('cancelled'), { once: true })
+  }))
+  const subDir = join(env.root, 'sub-docs')
+  mkdirSync(subDir, { recursive: true })
+  const childAgent = { id: 'sub-child-1', session: { id: 'sub-child-1', header: { id: 'sub-child-1', cwd: env.ws, origin: 'subagent', parentSession: 'b1' } } }
+  await env.firePreExecute({
+    agent: childAgent,
+    callId: 'c-sub-write',
+    name: 'write',
+    arguments: { file_path: join(subDir, 'out.md'), content: 'child', sandbox_permissions: 'danger-full-access' },
+  })
+  const subPromise = env.requestApproval({
+    agent: childAgent,
+    toolName: 'write',
+    callId: 'c-sub-write',
+    reason: `${ESCALATION} write from subagent`,
+  })
+  await tick()
+  await tick()
+  const subOpen = env.rt.approvalsView()
+  assert.equal(subOpen.length, 1)
+  assert.equal(subOpen[0].alwaysAllow, undefined)
+  env.rt.answerApproval(subOpen[0].id, 'reject')
+  assert.equal(await subPromise, 'rejected')
 })
 
 test('Always allow is strictly withheld for bash, privacy approvals, private Bots, guarded dirs, MAX_EXTRA_DIRS, and read-only windows', async (t) => {

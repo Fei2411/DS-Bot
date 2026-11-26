@@ -328,12 +328,21 @@ function ShellToolView({ block, cwd, phase, useDisclosure, openFile, sessionId, 
     }
   }, [bgJobId, disclosure])
 
-  if (parsedOffice) {
-    return h(OfficeCliCard, { parsedCli: parsedOffice, command, block, cwd, phase, useDisclosure, openFile })
+  const runInBg = readArgValue(block, 'run_in_background') === true
+  if (parsedOffice && !bgJobId && !runInBg) {
+    return h(OfficeCliCard, {
+      parsedCli: parsedOffice,
+      command,
+      block,
+      cwd,
+      workdir: readArgText(block, 'workdir'),
+      phase,
+      useDisclosure,
+      openFile,
+    })
   }
 
   const description = readArgText(block, 'description')
-  const runInBg = readArgValue(block, 'run_in_background') === true
   const nonZero = parsed !== null && ('signal' in parsed || parsed.exitCode !== 0)
   const isError = phase === 'result' && (block?.isError === true || nonZero)
   const errLine = errorLineOf(block, block?.isError === true)

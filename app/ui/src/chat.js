@@ -1035,6 +1035,13 @@ export function Chat({ sessionId, team, registry, classic = false }) {
 
   const viewingSubagent = !isRoom && subagentStack.length > 0 ? subagentStack.at(-1) : null
   const viewedSessionId = viewingSubagent ? viewingSubagent.sessionId : activeSessionId
+  const subagentAncestors = useMemo(() => {
+    if (!viewingSubagent || subagentStack.length <= 1 || !activeSessionId) return undefined
+    return [
+      { sessionId: activeSessionId },
+      ...subagentStack.slice(0, -1).map(item => ({ sessionId: item.sessionId, ...(item.mode ? { mode: item.mode } : {}) })),
+    ]
+  }, [viewingSubagent, subagentStack, activeSessionId])
   const openSubagent = useCallback((entry) => {
     if (!entry?.sessionId || !entry?.parentSessionId) return
     follow.current = true
@@ -1269,6 +1276,7 @@ export function Chat({ sessionId, team, registry, classic = false }) {
             sessionId: viewedSessionId,
             parent: viewingSubagent?.parentSessionId,
             mode: viewingSubagent?.mode,
+            ancestors: subagentAncestors,
             bot,
             roster,
             actions,

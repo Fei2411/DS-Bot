@@ -339,7 +339,7 @@ button.dsb-sub-crumb:focus-visible{outline:2px solid var(--bt-accent);outline-of
 .dsb-approval-scope{margin:0;padding:6px 10px;border-radius:8px;background:color-mix(in srgb,var(--bt-accent) 8%,transparent);font-size:12px;line-height:17px;color:var(--bt-ink-2);overflow-wrap:anywhere}
 .dsb-approval-error{margin:0;font-size:12px;line-height:16px;color:var(--bt-danger)}
 .dsb-approval-foot{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:8px}
-.dsb-approval-btn{display:inline-flex;align-items:center;gap:6px}
+.dsb-approval-foot :is(.bt-q-btn,.bt-q-submit){display:inline-flex;align-items:center;gap:6px}
 .dsb-approval-kbd{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;border-radius:4px;background:color-mix(in srgb,currentColor 13%,transparent);font-family:var(--bt-mono);font-size:10.5px;line-height:1;opacity:.85}
 .bt-q-submit .dsb-approval-kbd{background:transparent;box-shadow:inset 0 0 0 1px color-mix(in srgb,currentColor 44%,transparent);font-weight:600;opacity:1}
 .dsb-approval .bt-q-btn:disabled,.dsb-approval .bt-q-submit:disabled{opacity:.5;cursor:default}

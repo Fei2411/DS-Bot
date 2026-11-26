@@ -355,12 +355,23 @@ export function install(rt) {
     const entry = rt.approvalById?.(id) ?? rt.approvalsView?.()?.find(item => item.id === id)
     return entry !== undefined && (entry.botId === undefined || rt.agentOf?.(entry.sessionId) !== undefined)
   }
-  const agentAccessError = (device, endpoint, payload) =>
-    device.kind !== 'phone'
-    && ((AGENT_MEDIA.has(endpoint) && rt.agentOf?.(String(payload?.sessionId ?? '')) !== undefined)
-      || agentApprovalDenied(endpoint, payload))
-      ? BROWSER_DENIED
-      : undefined
+  const hasParentArg = payload => payload?.parent !== undefined && payload?.parent !== null && String(payload.parent).trim() !== ''
+  const agentAccessError = (device, endpoint, payload) => {
+    if (endpoint === 'image' && hasParentArg(payload)) {
+      return device.kind !== 'phone'
+        ? BROWSER_DENIED
+        : { code: 'bot/refused', message: 'Session logs are read on the computer', details: {} }
+    }
+    if (device.kind !== 'phone'
+      && ((AGENT_MEDIA.has(endpoint) && (
+        rt.agentOf?.(String(payload?.sessionId ?? '')) !== undefined
+        || rt.agentOf?.(String(payload?.parent ?? '')) !== undefined
+      ))
+        || agentApprovalDenied(endpoint, payload))) {
+      return BROWSER_DENIED
+    }
+    return undefined
+  }
   const callBot = async (params, signal, deviceId) => {
     const endpoint = String(params?.endpoint ?? '')
     // Fail closed if the calling device is missing, unknown, or was revoked.

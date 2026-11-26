@@ -7,9 +7,6 @@ import { reviewApproval, reviewContext, reviewSessionIds, REVIEW_TIMEOUT_MS } fr
 import { ESCALATION } from './extra-folders.js'
 
 const OUTCOMES = { allow: 'allowed-once', reject: 'rejected' }
-const BROWSER_GRANT_KINDS = new Set(['post', 'upload', 'download', 'delete'])
-const BROWSER_GRANT_MAX = 50
-const HOSTNAME = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\.(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?))*$/
 const FILE_ESCALATION_TOOLS = new Set(['write', 'edit', 'apply_patch'])
 const sessionOf = agent => agent?.session?.id ?? agent?.id
 const keyOf = (agent, callId) => JSON.stringify([sessionOf(agent), callId])
@@ -73,34 +70,6 @@ export function install(rt) {
     }
   }
   const changed = entry => emit('updated', view(entry))
-
-  async function persistBrowserGrant(botId, site, kind) {
-    await rt.load()
-    const bot = rt.botOf(botId)
-    if (!bot || bot.private === true) {
-      throw Object.assign(new Error('Always allow is not available for this request'), { code: 'bot/refused' })
-    }
-    const normalizedSite = String(site ?? '').trim().toLowerCase()
-    if (!HOSTNAME.test(normalizedSite) || !BROWSER_GRANT_KINDS.has(kind)) {
-      throw Object.assign(new Error('Always allow is not available for this request'), { code: 'bot/refused' })
-    }
-    const existing = Array.isArray(bot.browserGrants)
-      ? bot.browserGrants.map(grant => ({ ...grant, kinds: [...(grant.kinds ?? [])] }))
-      : []
-    const match = existing.find(grant => grant && grant.site === normalizedSite && grant.until === undefined)
-    if (match) {
-      if (!match.kinds.includes('*') && !match.kinds.includes(kind)) {
-        match.kinds = [...new Set([...match.kinds, kind])].sort()
-      }
-    } else {
-      if (existing.length >= BROWSER_GRANT_MAX) {
-        throw Object.assign(new Error(`Browser grants must be an array of at most ${BROWSER_GRANT_MAX} entries`), { code: 'bot/refused' })
-      }
-      existing.push({ site: normalizedSite, kinds: [kind] })
-    }
-    bot.browserGrants = existing
-    await rt.save()
-  }
 
   // Queued user input is not a user/message until the pending tool yields.
   ctx.on('session/event', (session, event) => {
@@ -241,20 +210,6 @@ export function install(rt) {
       ...(request.privacy === true ? { privacy: true } : {}),
       detail: rt.callDetail?.(owner.sessionId, request.callId) ?? {}, at: Date.now(),
     }
-    // "Always allow" is offered only when DS Bot has a real, visible, revocable persistence
-    // store for the grant: browser site/action grants (`bot.browserGrants`) and non-private
-    // file-tool sandbox escalations (`extraDirs`). Shell commands, privacy gates, folder grants,
-    // local agents, and classic sessions stay strictly one-time.
-    if (owner.botId !== undefined && request.privacy !== true) {
-      const bot = rt.botOf(owner.botId)
-      if (bot && bot.private !== true && explicit?.kind === 'browser' && explicit.action && BROWSER_GRANT_KINDS.has(explicit.action.kind)) {
-        const site = String(explicit.action.host ?? '').trim().toLowerCase()
-        if (HOSTNAME.test(site)) {
-          entry.alwaysAllow = { kind: 'browser', site, action: explicit.action.kind }
-          entry.persistAlways = () => persistBrowserGrant(owner.botId, site, explicit.action.kind)
-        }
-      }
-    }
     const automatic = enabled(owner)
     if (automatic) entry.review = { status: 'reviewing' }
     return new Promise((resolve, reject) => {
@@ -308,7 +263,13 @@ export function install(rt) {
       if (owner.botId !== undefined) rt.approvalWaiting?.(entry)
       original?.addEventListener('abort', abort, { once: true })
       emit('open', view(entry))
+      // "Always allow" is offered only for direct (non-subagent) Bot/group file-tool sandbox
+      // escalations (`extraDirs`), where DS Bot has a visible, revocable folder-grant store and
+      // matching auto-allow escalation handler. Browser write prompts stay one-time (preauthorization
+      // lives in Browser settings); shell commands, privacy gates, private Bots, local agents,
+      // classic sessions, and subagent child sessions stay strictly one-time.
       if (owner.botId !== undefined
+        && owner.sessionId === owner.ownerSessionId
         && request.privacy !== true
         && !explicit
         && !entry.alwaysAllow

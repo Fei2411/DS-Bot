@@ -240,6 +240,10 @@ test('the host enforces a default-deny browser allowlist across every channel ro
       if (kind === 'browser') assert.deepEqual(answer, { ok: false, error: { code: 'bot/refused', message: 'Not available from a browser. Use the phone app or the computer.', details: {} } }, endpoint)
       else assert.deepEqual(answer, { ok: true, value: endpoint }, endpoint)
     }
+    // Subagent image reads via `parent` are computer-only (prevents paired-browser Classic Agent bypass).
+    const subImgAnswer = await link.client.rpc('bot', { endpoint: 'image', payload: { sessionId: 'sub-child-1', parent: 'agent-s1', attachmentId: 'att-1' } })
+    assert.equal(subImgAnswer.ok, false)
+    assert.equal(subImgAnswer.error.code, 'bot/refused')
     for (const endpoint of ['state', 'send', 'chat', 'secret-cancel', 'connector-request-cancel']) {
       assert.equal((await link.client.rpc('bot', { endpoint })).ok, true, `${kind} should reach ${endpoint}`)
     }

@@ -68,8 +68,9 @@ function rememberImage(key, value) {
   }
 }
 
-function loadAttachmentImage(sessionId, attachmentId, { parent, mode, preview = true } = {}) {
-  const key = `${sessionId}:${parent ?? ''}:${mode ?? ''}:${attachmentId}:${preview ? 'p' : 'f'}`
+function loadAttachmentImage(sessionId, attachmentId, { parent, mode, ancestors, preview = true } = {}) {
+  const ancKey = Array.isArray(ancestors) && ancestors.length > 0 ? ancestors.map(a => a.sessionId).join('>') : ''
+  const key = `${sessionId}:${parent ?? ''}:${mode ?? ''}:${ancKey}:${attachmentId}:${preview ? 'p' : 'f'}`
   if (imageCache.has(key)) {
     const cached = imageCache.get(key)
     rememberImage(key, cached)
@@ -83,6 +84,7 @@ function loadAttachmentImage(sessionId, attachmentId, { parent, mode, preview = 
     preview,
     ...(parent ? { parent } : {}),
     ...(mode ? { mode } : {}),
+    ...(Array.isArray(ancestors) && ancestors.length > 0 ? { ancestors } : {}),
   }
   const promise = Promise.resolve(call('image', params))
     .then((res) => {
@@ -311,11 +313,12 @@ function CopyTextButton({ text, className = 'bt-tool' }) {
   }, copied ? h(CheckIcon) : h(CopyIcon))
 }
 
-function UserImageThumb({ sessionId, parent, mode, attachment }) {
+function UserImageThumb({ sessionId, parent, mode, ancestors, attachment }) {
   const name = attachment?.name || t('Image')
   const direct = attachment?.previewUrl ?? null
   const attachmentId = attachment?.attachmentId
-  const cacheKey = `${sessionId}:${parent ?? ''}:${mode ?? ''}:${attachmentId}:p`
+  const ancKey = Array.isArray(ancestors) && ancestors.length > 0 ? ancestors.map(a => a.sessionId).join('>') : ''
+  const cacheKey = `${sessionId}:${parent ?? ''}:${mode ?? ''}:${ancKey}:${attachmentId}:p`
   const cached = !direct && sessionId && attachmentId ? imageCache.get(cacheKey) ?? null : null
   const [loaded, setLoaded] = useState(cached)
   const [zoomed, setZoomed] = useState(false)
@@ -328,11 +331,11 @@ function UserImageThumb({ sessionId, parent, mode, attachment }) {
       return undefined
     }
     let alive = true
-    void loadAttachmentImage(sessionId, attachmentId, { parent, mode, preview: true }).then((url) => {
+    void loadAttachmentImage(sessionId, attachmentId, { parent, mode, ancestors, preview: true }).then((url) => {
       if (alive && url) setLoaded(url)
     })
     return () => { alive = false }
-  }, [direct, sessionId, parent, mode, attachmentId, cacheKey])
+  }, [direct, sessionId, parent, mode, ancestors, attachmentId, cacheKey])
 
   if (!src) {
     return h('span', { className: 'bt-ufile', title: name },
@@ -340,7 +343,7 @@ function UserImageThumb({ sessionId, parent, mode, attachment }) {
       h('span', { className: 'bt-ufile-text' }, h('span', { className: 'bt-ufile-name' }, name)))
   }
   const loadFull = !direct && sessionId && attachmentId
-    ? () => loadAttachmentImage(sessionId, attachmentId, { parent, mode, preview: false })
+    ? () => loadAttachmentImage(sessionId, attachmentId, { parent, mode, ancestors, preview: false })
     : undefined
   return h(Fragment, null,
     h('button', {
@@ -353,12 +356,12 @@ function UserImageThumb({ sessionId, parent, mode, attachment }) {
     h(ImageLightbox, { open: zoomed, src, loadFull, alt: name, onClose: () => setZoomed(false) }))
 }
 
-export function UserAttachments({ attachments, sessionId, parent, mode }) {
+export function UserAttachments({ attachments, sessionId, parent, mode, ancestors }) {
   if (!attachments || attachments.length === 0) return null
   return h('div', { className: 'bt-uattach' }, attachments.map((block, index) => {
     const file = block.attachment ?? {}
     if (block.type === 'image') {
-      return h(UserImageThumb, { key: file.attachmentId ?? file.previewUrl ?? index, sessionId, parent, mode, attachment: file })
+      return h(UserImageThumb, { key: file.attachmentId ?? file.previewUrl ?? index, sessionId, parent, mode, ancestors, attachment: file })
     }
     const meta = [fileExtension(file.name)?.toUpperCase().slice(0, 8), fileSizeText(file.bytes)].filter(Boolean).join(' · ')
     return h('span', { key: file.attachmentId ?? `${file.name ?? 'file'}:${index}`, className: 'bt-ufile', title: file.name },
@@ -374,7 +377,7 @@ export function UserAttachments({ attachments, sessionId, parent, mode }) {
 // session-transcript.js), so a memoized row renders once and the stream never re-renders
 // the history behind it. Roster, actions, bot, hooks and thinkingAt keep their object
 // identity across stream chunks, which is what the memo relies on.
-const UserRow = memo(function UserRow({ row, sessionId, parent, mode, roster, actions, classic = false }) {
+const UserRow = memo(function UserRow({ row, sessionId, parent, mode, ancestors, roster, actions, classic = false }) {
   const { shown, folded, control } = useFold(row.text ?? '', { markdown: false })
   const container = useRef(null)
   const [toolsOpen, setToolsOpen] = useState(false)
@@ -407,7 +410,7 @@ const UserRow = memo(function UserRow({ row, sessionId, parent, mode, roster, ac
       'data-open': toolsOpen || undefined,
     },
     h('div', { className: 'dsb-dsh-user-stack' },
-      h(UserAttachments, { attachments: row.attachments, sessionId, parent, mode }),
+      h(UserAttachments, { attachments: row.attachments, sessionId, parent, mode, ancestors }),
       row.text !== '' ? h('div', {
         className: 'dsb-dsh-user-bubble',
         title: timeTitle,
@@ -423,7 +426,7 @@ const UserRow = memo(function UserRow({ row, sessionId, parent, mode, roster, ac
   }
   return h('div', { ref: container, className: 'bt-umsg' },
     h('div', { className: 'bt-ustack' },
-      h(UserAttachments, { attachments: row.attachments, sessionId, parent, mode }),
+      h(UserAttachments, { attachments: row.attachments, sessionId, parent, mode, ancestors }),
       row.text !== '' ? h('div', { className: 'bt-ubody', title: timeTitle, 'data-folded': folded || undefined, 'data-text-interaction-source': '', onClick: tapTools },
         control ? h('div', { className: 'bt-fold-body' }, body) : body,
         control) : null,
@@ -718,7 +721,7 @@ const TurnTailRow = memo(function TurnTailRow({ row, sessionId, useRoster, actio
 })
 
 export function SessionTranscript({
-  log, sessionId, parent, mode, bot, roster, actions, classic = false, feed, readOnly = false, onOpenSubagent,
+  log, sessionId, parent, mode, ancestors, bot, roster, actions, classic = false, feed, readOnly = false, onOpenSubagent,
   useUi, useRoster, useWork, useTurnClock, useHeldCards,
   useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer,
   thinkingAt, hasMore = false, registry = defaultSlots,
@@ -729,8 +732,8 @@ export function SessionTranscript({
   const rows = useMemo(() => buildSessionRows(log, { roster, sessionId }), [log, roster, sessionId])
   const subagentCatalog = useMemo(() => resolveSubagentCatalog(log), [log])
   const loadImage = useCallback(
-    (attachmentId, options) => loadAttachmentImage(sessionId, attachmentId, { parent, mode, preview: options?.preview ?? true }),
-    [sessionId, parent, mode],
+    (attachmentId, options) => loadAttachmentImage(sessionId, attachmentId, { parent, mode, ancestors, preview: options?.preview ?? true }),
+    [sessionId, parent, mode, ancestors],
   )
   const turnFacts = useMemo(() => extractTurnFacts(log?.events, { roster, sessionId }), [log?.events, roster, sessionId])
   const turnSig = turnFactsSignature(turnFacts)
@@ -826,7 +829,7 @@ export function SessionTranscript({
 
     const renderDefault = () => {
       switch (row.kind) {
-        case 'user': return h(UserRow, { row, sessionId, parent, mode, roster, actions, lang, classic })
+        case 'user': return h(UserRow, { row, sessionId, parent, mode, ancestors, roster, actions, lang, classic })
         case 'answer': return h(AnsweredReply, { node: { data: row.data } })
         case 'assistant': return h(AssistantRow, { row, showSpeaker, bot, sessionId, roster, actions, useUi, thinkingAt, lang, classic })
         case 'tool': return h(SessionToolRow, {

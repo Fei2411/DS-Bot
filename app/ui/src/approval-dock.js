@@ -7,13 +7,6 @@ import { isMacPlatform } from '../../../ds-bot/src/client/shortcuts-model.js'
 
 const EMPTY_APPROVALS = []
 
-const BROWSER_SCOPE_KEYS = {
-  post: 'Always allow posting on {site}',
-  upload: 'Always allow uploading files on {site}',
-  download: 'Always allow downloading files on {site}',
-  delete: 'Always allow deleting on {site}',
-}
-
 function isEditableElement(node) {
   if (!node || typeof node !== 'object') return false
   if (node.isContentEditable === true) return true
@@ -66,9 +59,6 @@ export function resolveApprovalReason(entry, lang = language()) {
  */
 export function alwaysAllowScopeLabel(alwaysAllow) {
   if (!alwaysAllow || typeof alwaysAllow !== 'object') return ''
-  if (alwaysAllow.kind === 'browser' && typeof alwaysAllow.site === 'string' && BROWSER_SCOPE_KEYS[alwaysAllow.action]) {
-    return t(BROWSER_SCOPE_KEYS[alwaysAllow.action], { site: alwaysAllow.site })
-  }
   if (alwaysAllow.kind === 'extra-dir' && Array.isArray(alwaysAllow.dirs) && alwaysAllow.dirs.length > 0) {
     const first = alwaysAllow.dirs[0]
     return alwaysAllow.dirs.length === 1
@@ -170,9 +160,9 @@ function ApprovalCard({ entry, actions, readOnly, activeShortcuts = false }) {
   const code = typeof entry.detail?.code === 'string' && entry.detail.code.trim() !== '' ? entry.detail.code : ''
   const detailText = typeof entry.detail?.text === 'string' && entry.detail.text.trim() !== '' ? entry.detail.text : ''
   const rawReason = resolveApprovalReason(entry)
-  const cleanReason = rawReason.startsWith('Allow this operation with danger-full-access permissions:')
-    ? rawReason.slice('Allow this operation with danger-full-access permissions:'.length).trim()
-    : rawReason
+  const cleanReason = rawReason
+    .replace(/^(?:Allow this operation with danger-full-access permissions:|escalate sandbox to danger-full-access:)\s*/i, '')
+    .trim()
   const reason = cleanReason && cleanReason !== detailText ? cleanReason : ''
   const scopeText = canAlways ? alwaysAllowScopeLabel(entry.alwaysAllow) : ''
   const reviewNote = entry.review
@@ -195,7 +185,7 @@ function ApprovalCard({ entry, actions, readOnly, activeShortcuts = false }) {
     h('div', { className: 'dsb-approval-foot' },
       h('button', {
         type: 'button',
-        className: 'bt-q-btn dsb-approval-btn',
+        className: 'bt-q-btn',
         disabled: busy || readOnly,
         onClick: () => { void decide('reject') },
       },
@@ -203,7 +193,7 @@ function ApprovalCard({ entry, actions, readOnly, activeShortcuts = false }) {
       activeShortcuts && !readOnly ? h('kbd', { className: 'dsb-approval-kbd', 'aria-hidden': true }, 'Esc') : null),
       h('button', {
         type: 'button',
-        className: canAlways ? 'bt-q-btn dsb-approval-btn' : 'bt-q-submit dsb-approval-btn',
+        className: canAlways ? 'bt-q-btn' : 'bt-q-submit',
         disabled: busy || readOnly,
         onClick: () => { void decide('allow') },
       },
@@ -211,7 +201,7 @@ function ApprovalCard({ entry, actions, readOnly, activeShortcuts = false }) {
       activeShortcuts && !readOnly ? h('kbd', { className: 'dsb-approval-kbd', 'aria-hidden': true }, '↵') : null),
       canAlways ? h('button', {
         type: 'button',
-        className: 'bt-q-submit dsb-approval-btn',
+        className: 'bt-q-submit',
         disabled: busy || readOnly,
         onClick: () => { void decide('always') },
       },

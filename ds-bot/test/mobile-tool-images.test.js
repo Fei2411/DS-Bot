@@ -84,6 +84,33 @@ test('image endpoint loads tool/result images (event.data.message.content) and s
           ],
         }
       }
+      if (address.kind === 'subagent' && address.parentSessionId === 'sub-9' && address.childSessionId === 'sub-nested-2') {
+        return {
+          hasMore: false,
+          records: [
+            {
+              event: {
+                seq: 1,
+                type: 'tool/result',
+                data: {
+                  callId: 'call-nested-img',
+                  message: {
+                    content: [
+                      {
+                        type: 'image',
+                        attachment: { attachmentId: 'att-nested-1', mediaType: 'image/png', width: 1, height: 1, bytes: TINY_PNG.length },
+                      },
+                    ],
+                  },
+                },
+              },
+            },
+          ],
+        }
+      }
+      if (address.kind === 'subagent') {
+        throw Object.assign(new Error('Unauthorized subagent'), { code: 'subagent/unauthorized' })
+      }
       return { hasMore: false, records: [] }
     },
   }
@@ -124,6 +151,28 @@ test('image endpoint loads tool/result images (event.data.message.content) and s
     const badParent = await callApi('image', { sessionId: 'sub-9', parent: 'unknown-parent', attachmentId: 'att-sub-1' })
     assert.equal(badParent.ok, false)
     assert.equal(badParent.error.code, 'bot/not-found')
+
+    // Nested subagent (b1 -> sub-9 -> sub-nested-2) succeeds when verified ancestors chain up to known root b1.
+    const nestedRes = await callApi('image', {
+      sessionId: 'sub-nested-2',
+      parent: 'sub-9',
+      mode: 'one-shot',
+      ancestors: [{ sessionId: 'b1' }, { sessionId: 'sub-9', mode: 'one-shot' }],
+      attachmentId: 'att-nested-1',
+      preview: false,
+    })
+    assert.equal(nestedRes.ok, true)
+    assert.equal(nestedRes.value.mime, 'image/png')
+
+    // Forged ancestor hop is rejected by passive DSH hop verification.
+    const forgedNested = await callApi('image', {
+      sessionId: 'sub-nested-2',
+      parent: 'sub-forged',
+      ancestors: [{ sessionId: 'b1' }, { sessionId: 'sub-forged', mode: 'one-shot' }],
+      attachmentId: 'att-nested-1',
+    })
+    assert.equal(forgedNested.ok, false)
+    assert.equal(forgedNested.error.code, 'bot/not-found')
   } finally {
     await ctx.dispose()
     rmSync(home, { recursive: true, force: true, maxRetries: 5 })

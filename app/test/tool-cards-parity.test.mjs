@@ -91,7 +91,14 @@ function createHarness() {
       }
       return active.s[i].val
     },
-    useCallback: fn => fn,
+    useCallback(fn, deps) {
+      const i = active.i++
+      const prev = active.s[i]
+      if (!prev || !deps || deps.length !== prev.deps.length || deps.some((d, k) => !Object.is(d, prev.deps[k]))) {
+        active.s[i] = { deps, val: fn }
+      }
+      return active.s[i].val
+    },
     useEffect(fn, deps) {
       const i = active.i++
       const prev = active.s[i]
@@ -224,9 +231,12 @@ test('Office tools (office_render, office_convert, office.js CLI) render documen
   const registry = createSlotRegistry()
   const dispose = registerBuiltinToolViews(registry)
   try {
-    // Temp-dir output falls back to workspace input for workspace-read safety; workspace output previews directly.
+    // Temp-dir output falls back to workspace input for workspace-read safety; workspace output (including relative paths) previews directly.
     assert.equal(officePreviewTarget('/ws/report.docx', '/tmp/dsh-office/out.pdf', '/ws'), '/ws/report.docx')
     assert.equal(officePreviewTarget('/ws/report.docx', '/ws/out/report.pdf', '/ws'), '/ws/out/report.pdf')
+    assert.equal(officePreviewTarget('draft.docx', 'final.docx', '/ws'), '/ws/final.docx')
+    assert.equal(officePreviewTarget('draft.docx', 'final.docx', '/ws', 'reports'), '/ws/reports/final.docx')
+    assert.equal(officePreviewTarget('draft.docx', '../outside.docx', '/ws'), '/ws/draft.docx')
 
     const opened = []
     const loaded = []
@@ -267,24 +277,44 @@ test('Office tools (office_render, office_convert, office.js CLI) render documen
     assert.deepEqual(opened, ['/ws/deck.pptx'])
     renderInst.unmount()
 
-    // 2. DS Bot office.js CLI call inside bash renders as Office card with Preview action.
-    const parsedCli = parseOfficeCliCommand('node /opt/office.js docx write /ws/draft.docx -o /ws/final.docx --json')
+    // 2. DS Bot office.js CLI call inside bash renders as Office card with Preview action (including relative `file` output).
+    const parsedCli = parseOfficeCliCommand('node /opt/office.js docx write draft.docx -o final.docx --json')
     assert.equal(parsedCli.subcommand, 'docx')
-    assert.equal(parsedCli.outputPath, '/ws/final.docx')
+    assert.equal(parsedCli.outputPath, 'final.docx')
     const cliInst = h.mount(ToolCallCard, {
       registry,
       cwd: '/ws',
       openFile: p => opened.push(p),
-      block: h.makeBlock('bash', { command: 'node /opt/office.js docx write /ws/draft.docx -o /ws/final.docx --json' }, {
-        content: [{ type: 'text', text: JSON.stringify({ ok: true, data: { output: '/ws/final.docx', paragraphs: 12 } }) }],
+      block: h.makeBlock('bash', { command: 'node /opt/office.js docx write draft.docx -o final.docx --json', workdir: 'docs' }, {
+        content: [{ type: 'text', text: JSON.stringify({ ok: true, data: { file: 'final.docx', paragraphs: 12 } }) }],
       }),
     })
     const cliTree = cliInst.render()
     assert.match(h.textOf(cliTree), /Word document/)
     assert.match(h.textOf(cliTree), /12 paragraphs/)
     h.all(cliTree, n => n.type === 'button' && n.props?.className === 'dsb-tool-action')[0].props.onClick()
-    assert.equal(opened.at(-1), '/ws/final.docx')
+    assert.equal(opened.at(-1), '/ws/docs/final.docx')
     cliInst.unmount()
+
+    // 3. Backgrounded office.js CLI command keeps live BackgroundJobPanel + Stop button instead of hiding behind OfficeCliCard.
+    h.sandbox.__testCall = async (endpoint) => (endpoint === 'job-read'
+      ? { job: { id: 'job-office-1', status: 'running', startedAt: Date.now() - 1000 }, text: 'converting...\n', next: 1 }
+      : {})
+    const bgOfficeInst = h.mount(ToolCallCard, {
+      registry,
+      cwd: '/ws',
+      sessionId: 'parent-1',
+      readOnly: false,
+      block: h.makeBlock('bash', { command: 'node /opt/office.js docx write draft.docx -o final.docx --json', run_in_background: true }, {
+        content: [{ type: 'text', text: 'started background job job-office-1' }],
+      }),
+    })
+    bgOfficeInst.render()
+    await tick()
+    const bgOfficeTree = bgOfficeInst.render()
+    assert.match(h.textOf(bgOfficeTree), /converting\.\.\./)
+    assert.equal(h.all(bgOfficeTree, n => n.type === 'button' && n.props?.className === 'dsb-job-stop').length, 1)
+    bgOfficeInst.unmount()
   } finally {
     dispose()
   }
@@ -535,6 +565,42 @@ test('Subagent card opens child session in viewer, and background job card strea
     await tick()
     assert.equal(apiCalls.some(c => c.endpoint === 'job-kill' && c.payload.jobId === 'job-bg-1'), true)
     bgInst.unmount()
+
+    // 3. job_output snapshot initially running keeps live output after job completes (does not revert to stale snapshot).
+    let jobDone = false
+    const feedListeners = new Set()
+    const fakeFeed = { on: (fn) => { feedListeners.add(fn); return () => feedListeners.delete(fn) } }
+    h.sandbox.__testCall = async (endpoint, payload) => {
+      if (endpoint === 'job-read') {
+        if (!jobDone) {
+          return { job: { id: 'job-live-2', status: 'running', startedAt: Date.now() - 2000 }, text: payload.from === 0 ? 'Compiling...\n' : '', next: 1 }
+        }
+        return { job: { id: 'job-live-2', status: 'completed', startedAt: Date.now() - 3000, finishedAt: Date.now() }, text: payload.from === 0 ? 'Compiling...\nBuild succeeded!\n' : 'Build succeeded!\n', next: 2 }
+      }
+      return {}
+    }
+    const outInst = h.mount(ToolCallCard, {
+      registry,
+      sessionId: 'parent-1',
+      feed: fakeFeed,
+      readOnly: false,
+      block: h.makeBlock('job_output', { job_id: 'job-live-2' }, {
+        content: [{ type: 'text', text: 'Compiling...\n[status: running]' }],
+      }),
+    })
+    // Open disclosure so BackgroundJobPanel mounts.
+    const headBtn = h.all(outInst.render(), n => n.type === 'button' && n.props?.className === 'dsb-tool-head')[0]
+    headBtn.props.onClick()
+    outInst.render()
+    await tick()
+    assert.match(h.textOf(outInst.render()), /Compiling\.\.\./)
+    jobDone = true
+    for (const fn of feedListeners) fn('jobs', { sessionId: 'parent-1', jobId: 'job-live-2' })
+    await tick()
+    const finishedText = h.textOf(outInst.render())
+    assert.match(finishedText, /Build succeeded!/)
+    assert.match(finishedText, /Completed/)
+    outInst.unmount()
   } finally {
     dispose()
   }

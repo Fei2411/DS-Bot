@@ -206,9 +206,10 @@ test('ApprovalDock renders Always allow + scope + keycaps, fires keyboard shortc
     id: 'ap-1',
     botId: 'b1',
     sessionId: 'b1',
-    tool: 'browser_click',
-    reason: 'Let Bot download on github.com?',
-    alwaysAllow: { kind: 'browser', site: 'github.com', action: 'download' },
+    tool: 'write',
+    reason: 'Allow this operation with danger-full-access permissions: Save report outside workspace',
+    detail: { code: '/tmp/shared-notes/report.md', text: 'Save report outside workspace' },
+    alwaysAllow: { kind: 'extra-dir', dirs: ['/tmp/shared-notes'] },
     answerable: true,
   }]
   const inst = mount(ApprovalDock, {
@@ -221,10 +222,15 @@ test('ApprovalDock renders Always allow + scope + keycaps, fires keyboard shortc
   try {
     const tree = inst.render()
     const text = textOf(tree)
-    assert.match(text, /Always allow downloading files on github\.com/)
+    assert.match(text, /Always allow file edits in \/tmp\/shared-notes/)
+    assert.doesNotMatch(text, /danger-full-access/)
     assert.match(text, /Reject/)
     assert.match(text, /Allow once/)
     assert.match(text, /Always allow/)
+    const buttons = all(tree, n => n.type === 'button')
+    assert.equal(buttons[0].props.className, 'bt-q-btn')
+    assert.equal(buttons[1].props.className, 'bt-q-btn')
+    assert.equal(buttons[2].props.className, 'bt-q-submit')
 
     const listeners = [...(winListeners.get('keydown') ?? [])]
     assert.equal(listeners.length, 1)

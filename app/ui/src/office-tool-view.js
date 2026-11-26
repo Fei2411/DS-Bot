@@ -55,11 +55,50 @@ function normSlashes(value) {
   return String(value ?? '').replaceAll('\\', '/').replace(/\/+$/, '')
 }
 
+function isAbsolutePath(filePath) {
+  const value = String(filePath ?? '')
+  return value.startsWith('/') || /^[A-Za-z]:[\\/]/.test(value) || value.startsWith('\\\\')
+}
+
+function normalizePosixPath(rawPath) {
+  const s = normSlashes(rawPath)
+  if (!s) return ''
+  let prefix = ''
+  let rest = s
+  if (/^[A-Za-z]:/.test(s)) {
+    prefix = s.slice(0, 2)
+    rest = s.slice(2)
+  }
+  const rooted = rest.startsWith('/')
+  const parts = []
+  for (const part of rest.split('/')) {
+    if (!part || part === '.') continue
+    if (part === '..') {
+      if (parts.length > 0 && parts.at(-1) !== '..') parts.pop()
+      else if (!rooted) parts.push('..')
+    } else {
+      parts.push(part)
+    }
+  }
+  return `${prefix}${rooted ? '/' : ''}${parts.join('/')}`
+}
+
+function resolveAgainstDir(baseDir, targetPath) {
+  if (typeof targetPath !== 'string' || targetPath.trim() === '') return ''
+  const trimmed = targetPath.trim()
+  if (isAbsolutePath(trimmed) || !baseDir) return normalizePosixPath(trimmed)
+  return normalizePosixPath(`${normSlashes(baseDir)}/${trimmed}`)
+}
+
 function isInsideDir(filePath, dirPath) {
   if (!filePath || !dirPath) return false
-  const f = normSlashes(filePath)
-  const d = normSlashes(dirPath)
-  return f === d || f.startsWith(`${d}/`)
+  const f = normalizePosixPath(filePath)
+  const d = normalizePosixPath(dirPath)
+  if (!f || !d) return false
+  // Windows drive prefixes are case-insensitive.
+  const fCmp = /^[A-Za-z]:/.test(f) ? f[0].toLowerCase() + f.slice(1) : f
+  const dCmp = /^[A-Za-z]:/.test(d) ? d[0].toLowerCase() + d.slice(1) : d
+  return fCmp === dCmp || fCmp.startsWith(`${dCmp}/`)
 }
 
 function looksLikeTempPath(filePath) {
@@ -69,13 +108,18 @@ function looksLikeTempPath(filePath) {
 
 /**
  * Chooses the best file path to open in the right-panel document previewer.
- * `workspace-read` fences strictly to the active workspace, so temp-dir outputs fall back to the workspace document.
+ * Relative output/input paths resolve against the shell working directory (`workdir` or `cwd`);
+ * `workspace-read` remains the authoritative server-side workspace fence, and temp-dir outputs fall back to the workspace document.
  */
-export function officePreviewTarget(inputPath, outputPath, cwd) {
-  if (typeof outputPath === 'string' && outputPath !== '') {
-    if (cwd ? isInsideDir(outputPath, cwd) : !looksLikeTempPath(outputPath)) return outputPath
+export function officePreviewTarget(inputPath, outputPath, cwd, workdir = '') {
+  const baseDir = workdir ? resolveAgainstDir(cwd, workdir) : cwd
+  if (typeof outputPath === 'string' && outputPath.trim() !== '') {
+    const resolvedOut = resolveAgainstDir(baseDir, outputPath)
+    if (cwd ? isInsideDir(resolvedOut, cwd) : !looksLikeTempPath(resolvedOut)) return resolvedOut
   }
-  if (typeof inputPath === 'string' && inputPath !== '') return inputPath
+  if (typeof inputPath === 'string' && inputPath.trim() !== '') {
+    return resolveAgainstDir(baseDir, inputPath)
+  }
   return ''
 }
 
@@ -308,7 +352,7 @@ export function OfficeToolView({ toolName, block, cwd, phase, useDisclosure, ope
 /**
  * Renders a `bash` / `pwsh` invocation of DS Bot's bundled `office.js` CLI as a structured Office card.
  */
-export function OfficeCliCard({ parsedCli, command, block, cwd, phase, useDisclosure, openFile }) {
+export function OfficeCliCard({ parsedCli, command, block, cwd, workdir = '', phase, useDisclosure, openFile }) {
   const disclosure = useDisclosure()
   const rawResult = useMemo(() => (phase === 'result' ? formatResult(block) : ''), [phase, block])
   const exitParsed = useMemo(() => (phase === 'result' ? parseExitStatus(rawResult) : null), [phase, rawResult])
@@ -318,7 +362,7 @@ export function OfficeCliCard({ parsedCli, command, block, cwd, phase, useDisclo
   const isError = phase === 'result' && (block?.isError === true || nonZero || cliOut?.ok === false)
   const errLine = errorLineOf(block, block?.isError === true) || (cliOut?.ok === false ? cliOut.error : '')
 
-  const previewPath = officePreviewTarget(parsedCli.inputPath, cliOut?.outPath || parsedCli.outputPath, cwd)
+  const previewPath = officePreviewTarget(parsedCli.inputPath, cliOut?.outPath || parsedCli.outputPath, cwd, workdir)
   const displayPath = shortPath(previewPath || parsedCli.inputPath, cwd)
   const docKind = officeKindOf(previewPath) || parsedCli.docKind
 

@@ -367,7 +367,7 @@ export function JobStopButton({ sessionId, jobId, disabled = false, onStopped })
  * Live output, elapsed clock, status, and Stop control for a single DSH background job.
  * Reads via non-consuming `job-read` (`readAt`) and refreshes on `feed` `'jobs'` events.
  */
-export function BackgroundJobPanel({ sessionId, jobId, feed, readOnly = false, initialStatus = '', onStatusChange }) {
+export function BackgroundJobPanel({ sessionId, jobId, feed, readOnly = false, initialStatus = '', onStatusChange, onUnavailable }) {
   const [job, setJob] = useState(null)
   const [output, setOutput] = useState('')
   const [expanded, setExpanded] = useState(false)
@@ -377,14 +377,28 @@ export function BackgroundJobPanel({ sessionId, jobId, feed, readOnly = false, i
   const offsetRef = useRef(0)
   const statusRef = useRef(initialStatus)
   const busyRef = useRef(false)
+  const dirtyRef = useRef(false)
+  const mountedRef = useRef(true)
   const onStatusRef = useRef(onStatusChange)
   onStatusRef.current = onStatusChange
+  const onUnavailableRef = useRef(onUnavailable)
+  onUnavailableRef.current = onUnavailable
+
+  useEffect(() => {
+    mountedRef.current = true
+    return () => { mountedRef.current = false }
+  }, [])
 
   const refresh = useCallback(async () => {
-    if (!sessionId || !jobId || busyRef.current) return
+    if (!sessionId || !jobId) return
+    if (busyRef.current) {
+      dirtyRef.current = true
+      return
+    }
     busyRef.current = true
     try {
       const res = await call('job-read', { sessionId, jobId, from: offsetRef.current })
+      if (!mountedRef.current) return
       if (res?.job) {
         setJob(res.job)
         const nextStatus = res.job.status ?? ''
@@ -401,12 +415,18 @@ export function BackgroundJobPanel({ sessionId, jobId, feed, readOnly = false, i
       }
       setUnavailable(false)
     } catch (error) {
+      if (!mountedRef.current) return
       if (error?.code === 'bot/not-found' || error?.code === 'bot/refused') {
         setUnavailable(true)
         statusRef.current = 'unknown'
+        onUnavailableRef.current?.(true)
       }
     } finally {
       busyRef.current = false
+      if (dirtyRef.current && mountedRef.current) {
+        dirtyRef.current = false
+        void refresh()
+      }
     }
   }, [sessionId, jobId])
 
@@ -497,6 +517,7 @@ export function JobToolView({ toolName, block, phase, useDisclosure, sessionId, 
   const disclosure = useDisclosure(toolName === 'job_list')
   const [liveJobs, setLiveJobs] = useState(null)
   const [liveOutputStatus, setLiveOutputStatus] = useState('')
+  const [liveUnavailable, setLiveUnavailable] = useState(false)
   const isError = phase === 'result' && block?.isError === true
   const rawResult = useMemo(() => (phase === 'result' ? formatResult(block) : ''), [phase, block])
   const errLine = errorLineOf(block, isError)
@@ -574,9 +595,14 @@ export function JobToolView({ toolName, block, phase, useDisclosure, sessionId, 
     ? (activeCount > 0 ? t('{count} running', { count: activeCount }) : '')
     : compact(jobId || parsedKill?.jobId || '')
 
+  // Keep the live panel mounted after a running snapshot completes so post-snapshot output
+  // stays visible (polling stops automatically at terminal status). Fall back to the static
+  // snapshot only when the job can no longer be read (e.g. pruned after restart).
+  const snapshotInProgress = parsedOutput?.status === 'running' || parsedOutput?.status === 'stopping'
   const showLivePanel = toolName === 'job_output'
     && Boolean(sessionId && jobId)
-    && (effectiveOutputStatus === 'running' || effectiveOutputStatus === 'stopping')
+    && snapshotInProgress
+    && !liveUnavailable
 
   const hasBody = errLine !== ''
     || shownList.length > 0
@@ -605,7 +631,7 @@ export function JobToolView({ toolName, block, phase, useDisclosure, sessionId, 
       item.status === 'running' && !readOnly && sessionId
         ? h(JobStopButton, { sessionId, jobId: item.id, onStopped: () => { void refreshList() } })
         : null))) : null,
-  showLivePanel ? h(BackgroundJobPanel, { sessionId, jobId, feed, readOnly, initialStatus: effectiveOutputStatus, onStatusChange: setLiveOutputStatus }) : null,
+  showLivePanel ? h(BackgroundJobPanel, { sessionId, jobId, feed, readOnly, initialStatus: parsedOutput?.status || effectiveOutputStatus, onStatusChange: setLiveOutputStatus, onUnavailable: setLiveUnavailable }) : null,
   toolName === 'job_output' && parsedOutput?.detail ? h('div', { className: 'dsb-job-detail' }, parsedOutput.detail) : null,
   toolName === 'job_output' && !showLivePanel && parsedOutput?.body !== ''
     ? h(CodeSection, { label: isError ? t('Error') : t('Output'), text: parsedOutput.body, error: isError })

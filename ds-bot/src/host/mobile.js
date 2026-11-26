@@ -506,6 +506,49 @@ export function install(rt) {
     return null
   }
 
+  const MAX_SUBAGENT_DEPTH = 16
+
+  async function verifySubagentAncestry(parent, rawAncestors) {
+    if (resolveKnownOwner(parent).ok) return true
+
+    // Fast passive fallback for live nested subagents already in memory.
+    let currentId = parent
+    const seen = new Set()
+    while (currentId && seen.size < MAX_SUBAGENT_DEPTH) {
+      if (resolveKnownOwner(currentId).ok) return true
+      if (seen.has(currentId)) break
+      seen.add(currentId)
+      const live = ctx.sessions?.get?.(currentId)
+      const up = live?.header?.parentSession
+      if (typeof up !== 'string' || up === '' || live?.header?.origin !== 'subagent') break
+      currentId = up
+    }
+
+    // Passive verified ancestry chain from a known root session down to `parent`:
+    // every hop is validated by DSH's sessionController without waking any agent.
+    if (!Array.isArray(rawAncestors) || rawAncestors.length < 2 || rawAncestors.length > MAX_SUBAGENT_DEPTH) {
+      return false
+    }
+    const hops = rawAncestors.map((item) => {
+      if (typeof item === 'string') return { sessionId: item.trim(), mode: undefined }
+      return {
+        sessionId: typeof item?.sessionId === 'string' ? item.sessionId.trim() : '',
+        mode: typeof item?.mode === 'string' && item.mode.trim() !== '' ? item.mode.trim() : undefined,
+      }
+    })
+    if (hops.some(hop => hop.sessionId === '') || hops.at(-1)?.sessionId !== parent) return false
+    if (!resolveKnownOwner(hops[0].sessionId).ok) return false
+    for (let i = 1; i < hops.length; i += 1) {
+      const hopAddr = addressOf({ sessionId: hops[i].sessionId, parent: hops[i - 1].sessionId, mode: hops[i].mode })
+      try {
+        await ctx.sessionController.page({ address: hopAddr, maxMessages: 1 }, AbortSignal.timeout(HISTORY_TIMEOUT_MS))
+      } catch {
+        return false
+      }
+    }
+    return true
+  }
+
   async function image(body) {
     const sessionId = String(body.sessionId ?? '')
     const parent = typeof body.parent === 'string' && body.parent.trim() !== '' ? body.parent.trim() : undefined
@@ -514,7 +557,8 @@ export function install(rt) {
     if (attachments === undefined) throw Object.assign(new Error('Attachments unavailable'), { code: 'bot/refused' })
 
     if (parent !== undefined) {
-      if (!resolveKnownOwner(parent).ok) throw Object.assign(new Error('Unknown session'), { code: 'bot/not-found' })
+      const allowed = await verifySubagentAncestry(parent, body.ancestors)
+      if (!allowed) throw Object.assign(new Error('Unknown session'), { code: 'bot/not-found' })
       const address = addressOf({ sessionId, parent, mode })
       const found = await scanAddressForImage(address, undefined, body.attachmentId, body.preview === true, attachments)
       if (found) return found
