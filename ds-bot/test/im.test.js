@@ -4833,17 +4833,17 @@ test('IM-origin post_to_group routes group approval and final report back to the
   assert.deepEqual(s.fake.sent, [], 'clicking approval button for dispatched group must not leak Chief Web turn')
 
   // 3) Scoped report and conflicting non-IM report guards on roomReportImOrigin.
-  s.rt.state.roomReports[reportId].ids = ['b']
+  const patchReport = (id, patch) => s.rt.coordDb.updateApiMeta(`room-report:${id}`, cur => ({ ...cur, ...patch }))
+  patchReport(reportId, { ids: ['b'] })
   assert.deepEqual(s.rt.roomReportImOrigin('r1', 'b'), { connId: one.id, chatKey: 'dm-u1', senderId: 'u1', binding: 'bot:a' })
   assert.equal(s.rt.roomReportImOrigin('r1', 'a'), undefined, 'scoped report must not route approvals for members outside report.ids')
-  delete s.rt.state.roomReports[reportId].ids
-  s.rt.state.roomReports['web-rep'] = { id: 'web-rep', roomId: 'r1', botId: 'a', name: 'Chief', status: 'tracking', fromSeq: 1, passed: [], failed: [], at: Date.now() }
+  patchReport(reportId, { ids: null })
+  s.rt.openRoomReportCall(room, { id: 'web-rep', botId: 'a', name: 'Chief', status: 'tracking', fromSeq: 1 })
   assert.equal(s.rt.roomReportImOrigin('r1', 'b'), undefined, 'mixed Web + IM reports must not expose an IM origin for approvals')
-  delete s.rt.state.roomReports['web-rep']
+  s.rt.dropRoomReport('web-rep')
 
   // 4) Group settles and delivers report to Chief -> Chief's summary routes back to dm-u1.
-  s.rt.state.roomReports[reportId].status = 'tracking'
-  s.rt.state.roomReports[reportId].fromSeq = 1
+  patchReport(reportId, { status: 'tracking', fromSeq: 1 })
   s.rt.roomRelayTaken('r1', postMsg.source.exchangeId)
   s.rt.logRoom(room, { who: 'Writer', botId: 'b', text: '部署已完成，服务健康。' })
   await s.rt.settleRoomReports('r1')
@@ -4880,14 +4880,14 @@ test('IM-bound group post_to_group fallback to Bot own chat after member removal
   await tool('post_to_group', { group: 'Lab', message: '@Tester 跑检查' }, 'gb')
   const postMsg = s.agentOf('r2').lastFollowup
   const reportId = postMsg.source.reportId
-  assert.equal(s.rt.state.roomReports[reportId].fromRoomId, 'r1')
-  assert.equal(s.rt.state.roomReports[reportId].imOrigin.binding, 'room:r1')
+  const reportWork = s.rt.coordDb.getWork(`room-report:${reportId}`)
+  assert.equal(reportWork?.meta?.fromRoomId, 'r1')
+  assert.equal(reportWork?.imOrigin?.binding, 'room:r1')
 
   // Writer is removed from r1 before Lab settles -> report falls back to Writer's own chat ('b').
   delete s.rt.roomOf('r1').sessions.b
   s.rt.roomOf('r1').members = ['a']
-  s.rt.state.roomReports[reportId].status = 'tracking'
-  s.rt.state.roomReports[reportId].fromSeq = 1
+  s.rt.coordDb.updateApiMeta(`room-report:${reportId}`, cur => ({ ...cur, status: 'tracking', fromSeq: 1 }))
   s.rt.roomRelayTaken('r2', postMsg.source.exchangeId)
   s.rt.logRoom(s.rt.roomOf('r2'), { who: 'Tester', botId: 'c', text: '检查通过。' })
   await s.rt.settleRoomReports('r2')
@@ -4950,36 +4950,52 @@ test('merged Web + IM delegate_work work stores mixed marker and drops IM origin
   s.emitEvent('a', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
 
   // Before Writer reads the first request, receive an unrelated Web assignment.
+  // In v2, dsh-adapter serializes 1 active claim per session on Writer ('b'), so the Web
+  // delegation stays isolated in its own SQLite work (with no IM origin) rather than
+  // coalescing into the IM work's inbox turn.
   s.emitEvent('a', 'turn/start', { turn: 2 })
   s.emitEvent('a', 'user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'Web private check' }] })
   await tool('delegate_work', { to: 'Writer', goal: 'Web 私密内容' }, 'a')
   assert.ok(s.rt.workImOrigin(dispatchId)?.connId)
+  const webWork = s.rt.coordDb.listWorks({ botId: 'b', activeOnly: true, limit: 10 })
+    .find(w => w.workId !== dispatchId && w.kind !== 'foreground')
+  assert.ok(webWork, 'second Web delegation creates an isolated queued work in SQLite')
+  assert.equal(s.rt.workImOrigin(webWork.workId), undefined, 'Web work must not inherit the IM work origin')
+  assert.equal(s.agentOf('b').lastFollowup.source.exchangeId, dispatchId, 'v2 serializes 1 active claim per session on Writer')
   s.emitEvent('a', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
 
-  // Reply to the Web assignment first. It must not inherit the other work's IM origin.
-  const mergedSent = s.agentOf('b').lastFollowup
-  const webId = mergedSent.source.exchangeId
+  // Finish the IM work on Writer first; dsh-adapter then automatically dispatches the queued Web work.
+  s.emitEvent('b', 'turn/start', { turn: 1 })
+  s.emitEvent('b', 'user/message', { source: firstSent.source, content: firstSent.content })
+  s.emitEvent('b', 'assistant/message', { message: { content: [{ type: 'text', text: 'IM 状态正常' }] } })
+  s.emitEvent('b', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  await waitFor(() => s.agentOf('b').lastFollowup?.source?.exchangeId === webWork.workId)
+  const webSent = s.agentOf('b').lastFollowup
+  const webId = webSent.source.exchangeId
   assert.notEqual(webId, dispatchId)
   assert.equal(s.rt.workImOrigin(webId), undefined)
-  s.emitEvent('b', 'turn/start', { turn: 1 })
-  s.emitEvent('b', 'user/message', { source: mergedSent.source, content: mergedSent.content })
-  s.emitEvent('b', 'assistant/message', { message: { content: [{ type: 'text', text: '包含 Web 私密内容的合并答复' }] } })
-  s.emitEvent('b', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+
+  // Reply to the isolated Web assignment; fg:a waits until both open child calls settle,
+  // then receives the batched return whose latest replyTo is webId (no IM origin).
+  s.emitEvent('b', 'turn/start', { turn: 2 })
+  s.emitEvent('b', 'user/message', { source: webSent.source, content: webSent.content })
+  s.emitEvent('b', 'assistant/message', { message: { content: [{ type: 'text', text: '包含 Web 私密内容的答复' }] } })
+  s.emitEvent('b', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
   await waitFor(() => s.agentOf('a').lastFollowup?.source?.replyTo === webId)
-  const mixedReply = s.agentOf('a').lastFollowup
+  const webReply = s.agentOf('a').lastFollowup
   assert.equal(s.rt.imReplyOrigin(webId), undefined)
 
-  // 4) Even if the mixed reply coalesces into an active IM DM turn on Chief, dropOrigin prevents any leak to dm-u1.
+  // 4) Even if the Web reply coalesces into an active IM DM turn on Chief, dropOrigin prevents any leak to dm-u1.
   s.fake.sent.length = 0
   await dm(s, 'u1', '顺便问一下别的')
   const req2 = s.prompts.at(-1).requestId
   s.emitEvent('a', 'turn/start', { turn: 3 })
   s.emitEvent('a', 'user/message', { source: { kind: 'user', rpcId: req2 }, content: [{ type: 'text', text: '顺便问一下别的' }] })
-  s.emitEvent('a', 'user/message', { source: mixedReply.source, content: mixedReply.content })
+  s.emitEvent('a', 'user/message', { source: webReply.source, content: webReply.content })
   s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: '合并后的含私密回复' }] } })
   s.emitEvent('a', 'turn/end', { turn: 3, reason: { kind: 'completed' } })
   await s.flush()
-  assert.deepEqual(s.fake.sent, [], 'mixed-origin dispatch reply coalesced into an IM turn must drop origin and withhold IM send')
+  assert.deepEqual(s.fake.sent, [], 'Web/mixed-origin dispatch reply coalesced into an IM turn must drop origin and withhold IM send')
 })
 
 test('Web-initiated dispatch return coalesced into an active IM DM turn drops origin so Web result never leaks to IM (#1836)', async (t) => {
@@ -5037,11 +5053,19 @@ test('local Web input in a group taints pending IM-origin roomReport, and untain
   const reportId = postMsg.source.reportId
   // A one-way notice (`report_back: false`) from the SAME IM turn must NOT taint the earlier IM report,
   // and must never write callerOrigin into room Session event sources.
+  const readReport = (id) => {
+    const work = s.rt.coordDb.getWork(`room-report:${id}`)
+    if (!work || ['done', 'failed', 'stopped'].includes(work.status)) return undefined
+    const merged = { ...work.meta, ...work.apiMeta }
+    const mixed = merged.imOriginMixed === true
+    const rawOrigin = work.apiMeta?.imOrigin !== undefined ? work.apiMeta.imOrigin : (work.meta?.imOrigin !== undefined ? work.meta.imOrigin : work.imOrigin)
+    return { ...merged, imOrigin: mixed || rawOrigin === null ? undefined : rawOrigin, imOriginMixed: mixed ? true : undefined }
+  }
   await tool('post_to_group', { group: 'Ops', message: '@Writer 维护窗口提醒', report_back: false }, 'a')
   const sameImNotice = s.agentOf('r1').lastFollowup
   assert.equal(sameImNotice.source.callerOrigin, undefined)
   assert.equal(sameImNotice.source.imOrigin, undefined)
-  assert.deepEqual(s.rt.state.roomReports[reportId].imOrigin, { connId: one.id, chatKey: 'dm-u1', senderId: 'u1', binding: 'bot:a' })
+  assert.deepEqual(readReport(reportId)?.imOrigin, { connId: one.id, chatKey: 'dm-u1', senderId: 'u1', binding: 'bot:a' })
   s.rt.roomRelayTaken('r1', sameImNotice.source.exchangeId)
   s.emitEvent('a', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
   s.fake.sent.length = 0
@@ -5077,8 +5101,8 @@ test('local Web input in a group taints pending IM-origin roomReport, and untain
   // 3) Unrelated local Web post_to_group arrives in Ops -> taints the IM report's origin!
   await tool('post_to_group', { group: 'Ops', message: '@Writer 查本地私密账单', report_back: false }, 'a')
   const webPostMsg = s.agentOf('r1').lastFollowup
-  assert.equal(s.rt.state.roomReports[reportId].imOrigin, undefined)
-  assert.equal(s.rt.state.roomReports[reportId].imOriginMixed, true)
+  assert.equal(readReport(reportId)?.imOrigin, undefined)
+  assert.equal(readReport(reportId)?.imOriginMixed, true)
   assert.equal(s.rt.roomReportImOrigin('r1', 'b'), undefined, 'tainted report must stop routing approvals to IM')
 
   // Subsequent group task approval must NOT reach dm-u1 once the report is tainted.
@@ -5091,8 +5115,7 @@ test('local Web input in a group taints pending IM-origin roomReport, and untain
   // 4) When Ops finishes, deliverRoomReport stores { mixed: true } so Chief's reply never leaks mixed content to dm-u1.
   s.rt.botOf('b').tasks = []
   s.rt.taskOwners.delete('bt-deploy')
-  s.rt.state.roomReports[reportId].status = 'tracking'
-  s.rt.state.roomReports[reportId].fromSeq = 1
+  s.rt.coordDb.updateApiMeta(`room-report:${reportId}`, cur => ({ ...cur, status: 'tracking', fromSeq: 1 }))
   s.rt.roomRelayTaken('r1', postMsg.source.exchangeId)
   s.rt.roomRelayTaken('r1', webPostMsg.source.exchangeId)
   s.rt.logRoom(room, { who: 'Writer', botId: 'b', text: '部署完成，私密账单为 8888。' })
@@ -5115,12 +5138,12 @@ test('local Web input in a group taints pending IM-origin roomReport, and untain
   s.emitEvent('a', 'user/message', { source: { kind: 'user', rpcId: req2 }, content: [{ type: 'text', text: '再让 Ops 群看下状态' }] })
   await tool('post_to_group', { group: 'Ops', message: '@Writer 看下状态' }, 'a')
   const lateReportId = s.agentOf('r1').lastFollowup.source.reportId
-  assert.equal(s.rt.state.roomReports[lateReportId].imOrigin, undefined)
-  assert.equal(s.rt.state.roomReports[lateReportId].imOriginMixed, true)
+  assert.equal(readReport(lateReportId)?.imOrigin, undefined)
+  assert.equal(readReport(lateReportId)?.imOriginMixed, true)
   assert.equal(s.rt.roomReportImOrigin('r1', 'b'), undefined)
   s.emitEvent('a', 'turn/end', { turn: 3, reason: { kind: 'completed' } })
   s.emitEvent('gb', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
-  delete s.rt.state.roomReports[lateReportId]
+  s.rt.dropRoomReport(lateReportId)
   s.rt.roomRelayTaken('r1', s.agentOf('r1').lastFollowup.source.exchangeId)
 
   // 6) A queued Web one-way post (no round running yet) followed immediately by an IM post_to_group
@@ -5132,8 +5155,8 @@ test('local Web input in a group taints pending IM-origin roomReport, and untain
   s.emitEvent('a', 'user/message', { source: { kind: 'user', rpcId: req3 }, content: [{ type: 'text', text: '排队场景也问下 Ops' }] })
   await tool('post_to_group', { group: 'Ops', message: '@Writer IM 查询' }, 'a')
   const queuedMixId = s.agentOf('r1').lastFollowup.source.reportId
-  assert.equal(s.rt.state.roomReports[queuedMixId].imOrigin, undefined)
-  assert.equal(s.rt.state.roomReports[queuedMixId].imOriginMixed, true)
+  assert.equal(readReport(queuedMixId)?.imOrigin, undefined)
+  assert.equal(readReport(queuedMixId)?.imOriginMixed, true)
   assert.equal(s.rt.roomReportImOrigin('r1', 'b'), undefined)
   s.emitEvent('a', 'turn/end', { turn: 4, reason: { kind: 'completed' } })
 })
@@ -5319,11 +5342,19 @@ test('same-IM report_back: false before report_back: true stays untainted, and f
   s.emitEvent('a', 'user/message', { source: { kind: 'user', rpcId: req1 }, content: [{ type: 'text', text: '先发通知再派单部署' }] })
   await tool('post_to_group', { group: 'Ops', message: '发布冻结通知', report_back: false }, 'a')
   const noticeMsg = s.agentOf('r1').lastFollowup
+  const readReport = (id) => {
+    const work = s.rt.coordDb.getWork(`room-report:${id}`)
+    if (!work || ['done', 'failed', 'stopped'].includes(work.status)) return undefined
+    const merged = { ...work.meta, ...work.apiMeta }
+    const mixed = merged.imOriginMixed === true
+    const rawOrigin = work.apiMeta?.imOrigin !== undefined ? work.apiMeta.imOrigin : (work.meta?.imOrigin !== undefined ? work.meta.imOrigin : work.imOrigin)
+    return { ...merged, imOrigin: mixed || rawOrigin === null ? undefined : rawOrigin, imOriginMixed: mixed ? true : undefined }
+  }
   await tool('post_to_group', { group: 'Ops', message: '@Writer 开始部署', report_back: true }, 'a')
   const deployMsg = s.agentOf('r1').lastFollowup
   const deployReportId = deployMsg.source.reportId
-  assert.deepEqual(s.rt.state.roomReports[deployReportId]?.imOrigin, expectedOrigin, 'same-IM one-way notice queued before report_back: true must not taint the report')
-  assert.equal(s.rt.state.roomReports[deployReportId]?.imOriginMixed, undefined)
+  assert.deepEqual(readReport(deployReportId)?.imOrigin, expectedOrigin, 'same-IM one-way notice queued before report_back: true must not taint the report')
+  assert.equal(readReport(deployReportId)?.imOriginMixed, undefined)
   s.emitEvent('a', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
 
   // 2) Failed Web postToRoom (resolveAgent rejects) must NOT taint the already-queued IM report!
@@ -5335,8 +5366,8 @@ test('same-IM report_back: false before report_back: true stays untainted, and f
   const failRes = await tool('post_to_group', { group: 'Ops', message: '失败的 Web 发帖', report_back: false }, 'a')
   s.rt.resolveAgent = origResolve
   assert.match(failRes, /Could not post/)
-  assert.deepEqual(s.rt.state.roomReports[deployReportId]?.imOrigin, expectedOrigin, 'failed resolveAgent must leave existing IM report untainted')
-  assert.equal(s.rt.state.roomReports[deployReportId]?.imOriginMixed, undefined)
+  assert.deepEqual(readReport(deployReportId)?.imOrigin, expectedOrigin, 'failed resolveAgent must leave existing IM report untainted')
+  assert.equal(readReport(deployReportId)?.imOriginMixed, undefined)
 
   // 3) Failed flush (before message is consumed from real inbox) withdraws the queued message and rolls back taint cleanly.
   const roomAgent = s.agentOf('r1')
@@ -5363,14 +5394,13 @@ test('same-IM report_back: false before report_back: true stays untainted, and f
   s.ctx.sessions.flush = origFlush
   assert.match(flushFailRes, /Could not post/)
   assert.equal(roomAgent.inbox.nextTurn.length, 0, 'failed flush must withdraw the unconsumed post from room inbox')
-  assert.deepEqual(s.rt.state.roomReports[deployReportId]?.imOrigin, expectedOrigin, 'failed flush before message consumption must roll back taint')
-  assert.equal(s.rt.state.roomReports[deployReportId]?.imOriginMixed, undefined)
+  assert.deepEqual(readReport(deployReportId)?.imOrigin, expectedOrigin, 'failed flush before message consumption must roll back taint')
+  assert.equal(readReport(deployReportId)?.imOriginMixed, undefined)
 
   // 4) When the deploy report finishes, Chief's summary delivers cleanly to dm-u1!
   s.rt.roomRelayTaken('r1', noticeMsg.source.exchangeId)
   s.rt.roomRelayTaken('r1', deployMsg.source.exchangeId)
-  s.rt.state.roomReports[deployReportId].status = 'tracking'
-  s.rt.state.roomReports[deployReportId].fromSeq = 1
+  s.rt.coordDb.updateApiMeta(`room-report:${deployReportId}`, cur => ({ ...cur, status: 'tracking', fromSeq: 1 }))
   s.rt.logRoom(room, { who: 'Writer', botId: 'b', text: '部署已上线。' })
   s.fake.sent.length = 0
   await s.rt.settleRoomReports('r1')
@@ -5413,10 +5443,18 @@ test('concurrent flush failure preserves sibling taint, and claimed idle followu
   const req1 = s.prompts.at(-1).requestId
   s.emitEvent('a', 'turn/start', { turn: 1 })
   s.emitEvent('a', 'user/message', { source: { kind: 'user', rpcId: req1 }, content: [{ type: 'text', text: '派单给 Ops' }] })
+  const readReport = (id) => {
+    const work = s.rt.coordDb.getWork(`room-report:${id}`)
+    if (!work || ['done', 'failed', 'stopped'].includes(work.status)) return undefined
+    const merged = { ...work.meta, ...work.apiMeta }
+    const mixed = merged.imOriginMixed === true
+    const rawOrigin = work.apiMeta?.imOrigin !== undefined ? work.apiMeta.imOrigin : (work.meta?.imOrigin !== undefined ? work.meta.imOrigin : work.imOrigin)
+    return { ...merged, imOrigin: mixed || rawOrigin === null ? undefined : rawOrigin, imOriginMixed: mixed ? true : undefined }
+  }
   await tool('post_to_group', { group: 'Ops', message: '@Writer 任务一' }, 'a')
   const r1Id = roomAgent.lastFollowup.source.reportId
   s.emitEvent('a', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
-  assert.equal(s.rt.state.roomReports[r1Id]?.imOrigin?.chatKey, 'dm-u1')
+  assert.equal(readReport(r1Id)?.imOrigin?.chatKey, 'dm-u1')
 
   // 2) Web post A awaits flush; while A is awaiting, Web post B succeeds and taints R1;
   //    then A's flush rejects and A is withdrawn -> originVersion prevents erasing B's taint!
@@ -5433,12 +5471,12 @@ test('concurrent flush failure preserves sibling taint, and claimed idle followu
   rejectFlushA(new Error('flush A failed'))
   assert.match(await postAPromise, /Could not post/)
   s.ctx.sessions.flush = origFlush
-  assert.equal(s.rt.state.roomReports[r1Id]?.imOrigin, undefined, 'rolling back failed post A must NOT erase concurrent Web post B taint')
-  assert.equal(s.rt.state.roomReports[r1Id]?.imOriginMixed, true)
+  assert.equal(readReport(r1Id)?.imOrigin, undefined, 'rolling back failed post A must NOT erase concurrent Web post B taint')
+  assert.equal(readReport(r1Id)?.imOriginMixed, true)
 
   // 3) Real DSH idle followup contract: followup synchronously claims inbox (nextTurn stays empty),
   //    then flush throws -> fail closed (error.delivered = true): report stays tracked and taint stays intact!
-  delete s.rt.state.roomReports[r1Id]
+  s.rt.dropRoomReport(r1Id)
   roomAgent.inbox.nextTurn.length = 0
   claimOnFollowup = true
   s.ctx.sessions.flush = async () => { throw new Error('flush failed after sync claim') }
@@ -5446,7 +5484,7 @@ test('concurrent flush failure preserves sibling taint, and claimed idle followu
   s.ctx.sessions.flush = origFlush
   assert.match(postClaimed, /Could not post/)
   const claimedReportId = roomAgent.lastFollowup.source.reportId
-  assert.ok(s.rt.state.roomReports[claimedReportId] !== undefined, 'synchronously claimed post whose flush failed must keep its roomReport')
+  assert.ok(readReport(claimedReportId) !== undefined, 'synchronously claimed post whose flush failed must keep its roomReport')
 })
 
 test('withdrawing a failed postToRoom via synchronous DSH inbox.remove suppresses bogus stopped report and restores sibling IM origin (#1836, #1894)', async (t) => {
@@ -5499,8 +5537,7 @@ test('withdrawing a failed postToRoom via synchronous DSH inbox.remove suppresse
   s.emitEvent('a', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
   roomAgent.inbox.nextTurn.length = 0
   s.rt.roomRelayTaken('r1', r2Msg.source.exchangeId)
-  s.rt.state.roomReports[r2Id].status = 'tracking'
-  s.rt.state.roomReports[r2Id].fromSeq = room.seq + 1
+  s.rt.coordDb.updateApiMeta(`room-report:${r2Id}`, cur => ({ ...cur, status: 'tracking', fromSeq: room.seq + 1 }))
   s.rt.logRoom(room, { who: 'Writer', botId: 'b', text: '任务二已完成。' })
 
   // A Web post_to_group (report_back: true) fails when flushing the room session -> withdraws via
@@ -5754,13 +5791,14 @@ test('drainRoomInbox classifies drained user messages through the IM origin stat
   assert.ok(s.fake.sent.some(entry => entry.chat.key === 'g1' && entry.text.includes('Writer follow-up reply')), 'replies after g1 joins via drainRoomInbox must reach g1')
 
   // 4) Pending IM roomReport + Web user message drained via drainRoomInbox -> taints roomReport!
-  s.rt.state.roomReports = {
-    'rep-im-1': {
-      id: 'rep-im-1', roomId: 'r1', botId: 'a', name: 'Chief', status: 'tracking', fromSeq: 1,
-      passed: [], failed: [], at: Date.now(),
-      imOrigin: { connId: one.id, chatKey: 'dm-u1', senderId: 'u1', binding: 'bot:a' },
-    },
-  }
+  s.rt.openRoomReportCall(room, {
+    id: 'rep-im-1',
+    botId: 'a',
+    name: 'Chief',
+    status: 'tracking',
+    fromSeq: 1,
+    imOrigin: { connId: one.id, chatKey: 'dm-u1', senderId: 'u1', binding: 'bot:a' },
+  })
   await runDrainedRound(
     { source: { kind: 'user' }, content: [{ type: 'text', text: 'round with report' }] },
     async () => {

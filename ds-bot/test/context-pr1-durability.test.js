@@ -891,8 +891,9 @@ test('retrying a failed forward flush deduplicates admitted transferId while kee
   assert.equal(bAgent.inbox.nextTurn.length, 1, 'old part retained original after flush failure')
   assert.ok(host.rt.state.switching.b !== undefined, 'switching marker kept for retry')
 
-  // Before retry runs, Chief delegates "check invoice B" separately and s1 claims/logs invoice A.
-  await delegateTool.execute({ to: 'Writer', goal: 'check invoice B', when: 'queue' }, { agent: { id: 'a' } })
+  // Before retry runs, Chief delegates "check invoice B" separately onto Writer's foreground
+  // (foreground dispatch bypasses work A's workspace write lock) and s1 claims/logs invoice A.
+  await delegateTool.execute({ to: 'Writer', goal: 'check invoice B', deliver_to: 'user', when: 'queue' }, { agent: { id: 'a' } })
   const forwardedA = s1Agent.inbox.nextTurn.find(m => m.source?.transferId === origTransferId)
   assert.ok(forwardedA, 's1 has forwarded invoice A with matching transferId')
   s1Agent.inbox.remove(forwardedA.id)

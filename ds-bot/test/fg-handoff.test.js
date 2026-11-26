@@ -391,24 +391,25 @@ test('peer Bot delegate_work to a busy Bot spawns a background task directly wit
   assert.equal(task.origin, 'bot-handoff')
   assert.ok(task.exchangeId)
 
-  // Task runs and answers Chief via turns.js without posting a task-report to Helper's user foreground.
+  // Task runs and answers Chief via coordDb/dsh-adapter without posting a task-report to Helper's user foreground.
   const taskSid = task.sessionId
-  const deliveredReq = env.deliveries.find(d => d.sessionId === taskSid && d.role === 'request')
+  const taskAgent = env.agentMap.get(taskSid)
+  const deliveredReq = taskAgent.followups.find(m => m.source?.role === 'request')
   assert.ok(deliveredReq !== undefined)
   await env.emit(taskSid, 'turn/start', { turn: 1 })
   await env.emit(taskSid, 'user/message', {
-    content: [{ type: 'text', text: deliveredReq.text }],
-    source: { kind: SOURCE_KIND, role: 'request', exchangeId: task.exchangeId, senderSessionId: 'a', senderName: 'Chief' },
+    content: deliveredReq.content,
+    source: deliveredReq.source,
   })
   await env.emit(taskSid, 'assistant/message', { turn: 1, message: { role: 'assistant', content: [{ type: 'text', text: 'API contract verified.' }] } })
   await env.emit(taskSid, 'turn/end', { turn: 1, reason: { kind: 'completed' } })
-  await waitFor(() => task.status === 'completed' && env.deliveries.some(d => d.toId === 'a' && d.role === 'reply'))
+  await waitFor(() => task.status === 'completed' && dmA.followups.some(m => m.source?.role === 'reply' && m.source?.replyTo === task.exchangeId))
 
   assert.equal(task.status, 'completed')
   assert.equal(env.deliveries.filter(d => d.role === 'task-report').length, 0, 'bot-handoff completion must not spam user foreground')
-  const reply = env.deliveries.find(d => d.toId === 'a' && d.role === 'reply' && d.replyTo === task.exchangeId)
+  const reply = dmA.followups.find(m => m.source?.role === 'reply' && m.source?.replyTo === task.exchangeId)
   assert.ok(reply !== undefined)
-  assert.match(reply.text, /API contract verified\./)
+  assert.match(reply.content.map(b => b.text ?? '').join('\n'), /API contract verified\./)
 })
 
 test('rapid double Desktop messages during explicit handoff restore cleanly if old turn finishes mid-fork, and hidden-work handoff settles finished task', async (t) => {
@@ -686,28 +687,51 @@ test('P0 #8: spawnBotHandoffTask failure in openTaskPart or deliver leaks zero w
   await env.emit('dm-b', 'turn/start', { turn: 1 })
   await env.emit('dm-b', 'tool/call', { callId: 'tc1', name: 'bash', arguments: '{}' })
 
-  // Case 1: openTaskPart fails -> zero leaked entries in state.works.
+  const activeNonFgWorks = () => env.rt.coordDb.listWorks({ activeOnly: true }).filter(w => w.kind !== 'foreground')
+
+  // Case 1: openTaskPart fails -> zero leaked active works in coordDb.
   const origOpenTaskPart = env.rt.openTaskPart
   env.rt.openTaskPart = async () => { throw new Error('disk full during openTaskPart') }
   await assert.rejects(
     () => env.tool('delegate_work').execute({ to: 'Helper', goal: 'Work 1' }, execOf(dmA)),
     /disk full during openTaskPart/,
   )
-  assert.equal(Object.keys(env.rt.state.works).length, 0, 'failed openTaskPart must not leak state.works')
+  assert.equal(activeNonFgWorks().length, 0, 'failed openTaskPart must not leak active works')
 
-  // Case 2: deliver fails -> forgetDelivery + dropWork + zero duplicate async reply.
+  // Case 2a: direct spawnBotHandoffTask deliver fails -> forgetDelivery + dropWork + zero duplicate async reply.
   env.rt.openTaskPart = origOpenTaskPart
   const forgotten = []
   const origForget = env.rt.forgetDelivery
   env.rt.forgetDelivery = (id) => { forgotten.push(id); return origForget?.(id) }
+  const origDeliver = env.rt.deliver
   env.rt.deliver = async () => { throw new Error('delivery exploded') }
   await assert.rejects(
-    () => env.tool('delegate_work').execute({ to: 'Helper', goal: 'Work 2' }, execOf(dmA)),
+    () => env.rt.spawnBotHandoffTask(env.rt.botOf('b'), 'dm-b', {
+      fromBot: env.rt.botOf('a'),
+      text: 'Work 2',
+      exchangeId: 'ex-direct-fail',
+    }),
     /delivery exploded/,
   )
-  assert.equal(Object.keys(env.rt.state.works).length, 0, 'failed deliver must drop state.works')
-  assert.equal(forgotten.length, 1, 'failed deliver must call forgetDelivery to avoid ghost inflight replay')
+  assert.equal(activeNonFgWorks().length, 0, 'failed deliver must drop active work')
+  assert.equal(forgotten.length, 1, 'failed deliver must call forgetDelivery to avoid ghost pending delivery')
   assert.equal(env.deliveries.filter(d => d.toId === 'a' && d.role === 'reply').length, 0, 'failed deliver must not also send an async failure reply')
+  assert.equal(dmA.followups.filter(m => m.source?.role === 'reply').length, 0, 'failed deliver must not dispatch a duplicate async reply')
+
+  // Case 2b: delegate_work -> kickScheduler dispatch failure (`session/not-found`) settles work cleanly without leaking active works.
+  env.rt.deliver = origDeliver
+  const origResolve = env.rt.resolveAgent
+  const seenTaskSids = new Set()
+  env.rt.resolveAgent = async (sid) => {
+    if (sid.startsWith('ses-')) {
+      if (seenTaskSids.has(sid)) throw Object.assign(new Error('task session missing'), { code: 'session/not-found' })
+      seenTaskSids.add(sid)
+    }
+    return origResolve(sid)
+  }
+  await env.tool('delegate_work').execute({ to: 'Helper', goal: 'Work 3' }, execOf(dmA))
+  assert.equal(activeNonFgWorks().length, 0, 'failed scheduler dispatch with session/not-found must not leak active works')
+  env.rt.resolveAgent = origResolve
 })
 
 test('post-fork race inspects turn/end error reason and skips still-running notice', async (t) => {

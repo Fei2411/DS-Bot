@@ -1,8 +1,9 @@
-// Startup orphan leaf-work reconciliation: genuinely abandoned open leaf works
-// left behind with empty or stale inflight.json are recovered from the pair
-// ledger when already answered, otherwise settled visibly back to their caller/
-// parent — while paused, need_input, non-leaf, child/room, active-task, live,
-// switching, card-waiting, and queued works remain untouched.
+// Startup orphan & interrupted-work reconciliation (DS Bot v2 SQLite + DSH D2):
+// interrupted or orphaned leaf works are recovered from D2 session logs when
+// already completed, settled visibly back to their caller/parent when the target
+// session or Bot is gone, and pruned of unreferenced result files — while paused,
+// needs_verification, need_input, non-leaf, group room_work, live running,
+// inbox-queued, question, approval, and secret-waiting works stay untouched.
 import assert from 'node:assert/strict'
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -11,13 +12,15 @@ import { setTimeout as realDelay } from 'node:timers/promises'
 import { test } from 'node:test'
 import { createRuntime } from '../index.js'
 import { SOURCE_KIND } from '../src/host/constants.js'
-import { HEADER } from '../src/client/text.js'
+import { openCoordinationDb } from '../src/host/coordination-db.js'
 import { fakeContext } from './fake-ctx.js'
 
 const textOf = content => (Array.isArray(content) ? content.map(block => block?.text ?? '').join('\n') : String(content ?? ''))
 
-const flushMicrotasks = async (rounds = 8) => {
-  for (let i = 0; i < rounds; i += 1) await Promise.resolve()
+const settle = async (check, ms = 3000, label = 'condition not reached') => {
+  const until = Date.now() + ms
+  while (!check() && Date.now() < until) await realDelay(10)
+  assert.ok(check(), label)
 }
 
 const seedTeam = (over = {}) => ({
@@ -66,7 +69,11 @@ function startHost(t, { home: existingHome, team, inflight, agentSetup, logs = n
     }
     const agent = {
       id,
-      session: { id, requestHeader: () => undefined },
+      session: {
+        id,
+        requestHeader: () => undefined,
+        snapshotEvents: () => (logs.get(id) ?? []).map((event, idx) => ({ seq: idx + 1, ...event })),
+      },
       calls,
       status: 'idle',
       inbox,
@@ -107,6 +114,8 @@ function startHost(t, { home: existingHome, team, inflight, agentSetup, logs = n
     sessionTitle: { rename: async () => {} },
     sessions: { flush: async () => {} },
   })
+  const origGet = ctx.get
+  ctx.get = key => (key === 'agents' ? agents : origGet(key))
 
   const rt = createRuntime(ctx, { home })
   let seq = 0
@@ -116,148 +125,174 @@ function startHost(t, { home: existingHome, team, inflight, agentSetup, logs = n
     }
   }
   t.after(async () => {
-    t.mock.timers.reset()
     await ctx.dispose()
-    if (ownsHome) rmSync(home, { recursive: true, force: true })
+    if (ownsHome) rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 })
   })
   return { home, ctx, rt, agents, agentOf, emit }
 }
 
+function seedCoord(home, fn) {
+  const db = openCoordinationDb({ path: join(home, 'coordination.sqlite') })
+  try {
+    fn(db)
+  } finally {
+    db.close()
+  }
+}
+
 test('empty inflight: orphan leaf work settles visibly, wakes parent without killing parent, frees result files and upstreamOf', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-orphan-leaf-'))
+  t.after(() => rmSync(home, { recursive: true, force: true }))
   const resultsDir = join(home, 'handoff-results')
   mkdirSync(resultsDir, { recursive: true })
   const pinnedFile = join(resultsDir, 'w-sub-old.txt')
   writeFileSync(pinnedFile, 'x'.repeat(2500))
 
-  const team = seedTeam({
-    works: {
-      'w-parent': {
-        from: 'a', to: 'b', name: 'Writer', ref: 'W1', state: 'open',
-        open: ['w-leaf'],
-        results: [],
-        at: 1000,
-      },
-      'w-leaf': {
-        from: 'b', to: 'c', name: 'Reviewer', ref: 'W42', parent: 'w-parent', state: 'open',
-        open: [],
-        results: [{ id: 'w-sub-old', name: 'Helper', text: 'summary', file: 'w-sub-old.txt', at: 1001 }],
-        at: 1002,
-      },
-    },
+  // Seed a parent work (`w-parent`, a -> b) waiting on an interrupted leaf work (`w-leaf`, b -> c)
+  // whose target session is gone (`sessionId: null`, no active session).
+  seedCoord(home, (db) => {
+    db.ensureForegroundWork({ botId: 'a', workId: 'fg:a', logicalAddress: 'foreground:a', sessionId: 'dm-a' })
+    db.ensureForegroundWork({ botId: 'b', workId: 'fg:b', logicalAddress: 'foreground:b', sessionId: 'dm-b' })
+    db.createWork({
+      workId: 'w-parent', workRef: 'W1', botId: 'b', kind: 'task',
+      logicalAddress: 'task:w-parent', status: 'waiting', parentWorkId: 'fg:a', sessionId: 'dm-b',
+    })
+    db.createCall({
+      callId: 'c_w-parent', parentWorkId: 'fg:a', childWorkId: 'w-parent',
+      callerBotId: 'a', calleeBotId: 'b', returnAddress: 'foreground:a',
+    })
+    db.createWork({
+      workId: 'w-leaf', workRef: 'W42', botId: 'c', kind: 'task',
+      logicalAddress: 'task:w-leaf', status: 'idle', parentWorkId: 'w-parent',
+    })
+    db.createCall({
+      callId: 'c_w-leaf', parentWorkId: 'w-parent', childWorkId: 'w-leaf',
+      callerBotId: 'b', calleeBotId: 'c', returnAddress: 'task:w-parent',
+      initialMessage: { dedupKey: 'req-w-leaf', bodyPreview: 'Review PR', payload: { text: 'Review PR', role: 'request' } },
+    })
+    const claim = db.claimReady({ workId: 'w-leaf' })
+    db.beginDeliveryAttempt({ workId: 'w-leaf', claimToken: claim.claimToken, throughSeq: claim.claimedInboxSeq, idempotencyKey: 'dk-w-leaf' })
   })
 
-  t.mock.timers.enable({ apis: ['setTimeout'] })
-  const host = startHost(t, { home, team })
-  t.after(() => rmSync(home, { recursive: true, force: true }))
-  await host.rt.load()
+  const host = startHost(t, { home, team: seedTeam() })
+  await host.rt.adoptLiveWork()
 
-  // Before RESUME_DELAY_MS, orphan reconciliation has not fired yet.
-  t.mock.timers.tick(0)
-  await flushMicrotasks()
-  assert.ok(host.rt.state.works['w-leaf'] !== undefined, 'leaf work stays open before startup grace period')
-  assert.deepEqual([...host.rt.upstreamOf(['w-leaf'])], ['b', 'a'], 'upstreamOf walks open work chain')
+  const leaf = host.rt.coordDb.getWork('w-leaf')
+  const parent = host.rt.coordDb.getWork('w-parent')
+  assert.equal(leaf.status, 'failed', 'orphan leaf work with missing session settles as failed')
+  assert.equal(leaf.error?.code, 'coordination/session_missing')
+  assert.ok(parent !== undefined && !['done', 'failed', 'stopped'].includes(parent.status), 'woken parent work must NOT be killed')
+  assert.equal(host.rt.waitsWork('w-parent'), false, 'parent wait list cleared')
 
-  // After RESUME_DELAY_MS, reconcileOrphanWorks settles the leaf and wakes the parent.
-  t.mock.timers.tick(3000)
-  for (let i = 0; i < 40; i += 1) {
-    await flushMicrotasks()
-    if (host.rt.state.works['w-leaf'] === undefined && host.agentOf('dm-b').calls.length > 0) break
-  }
+  const calls = host.rt.coordDb.listCalls({ parentWorkId: 'w-parent' })
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0].status, 'failed')
 
-  assert.equal(host.rt.state.works['w-leaf'], undefined, 'orphan leaf work is closed')
-  assert.ok(host.rt.state.works['w-parent'] !== undefined, 'woken parent work must NOT be killed')
-  assert.deepEqual(host.rt.state.works['w-parent'].open, [], 'parent wait list cleared')
-  assert.equal(host.rt.state.works['w-parent'].results.length, 1)
-  assert.equal(host.rt.state.works['w-parent'].results[0].abandoned, true)
-  assert.equal(host.rt.state.works['w-parent'].results[0].abandonedReason, 'restart')
-  assert.match(host.rt.state.works['w-parent'].results[0].text, /#W42.*restarted/)
-
+  await settle(() => host.agentOf('dm-b').calls.some(([kind]) => kind === 'followup'), 2000, 'parent owner receives visible wakeup')
   const deliveries = host.agentOf('dm-b').calls.filter(([kind]) => kind === 'followup')
-  assert.equal(deliveries.length, 1, 'parent owner receives visible wakeup')
+  assert.equal(deliveries.length, 1, 'parent owner receives visible wakeup once')
   const msg = deliveries[0][1]
-  const body = textOf(msg.content)
-  const firstLine = body.split('\n')[0]
-  assert.ok(HEADER.test(firstLine), `restart delivery header must match client HEADER regex: ${firstLine}`)
-  assert.match(firstLine, /^\[Work #W42 · Reviewer did not complete before restart · for the work Chief asked you for/)
-  assert.match(body, /#W42.*restarted/)
-  assert.equal(msg.source.work, 'w-parent')
-  assert.equal(msg.source.replyTo, 'w-leaf')
+  assert.equal(msg.source.coordWorkId, 'w-parent')
 
-  // Cycle-detection upstream graph is unblocked once orphan leaf closes.
+  // Cycle-detection upstream graph is unblocked once orphan leaf settles.
   assert.equal(host.rt.upstreamOf(['w-leaf']).size, 0, 'upstreamOf unblocked for w-leaf')
 
-  // Wait for async save to finish pruning the result file pinned by w-leaf.
-  t.mock.timers.reset()
-  await host.rt.save()
-  await realDelay(30)
-  assert.equal(existsSync(pinnedFile), false, 'handoff-results file pinned by orphan leaf work is pruned')
+  // Startup orphan handoff-results sweep prunes unreferenced result files.
+  await settle(() => !existsSync(pinnedFile), 2000, 'unreferenced handoff-results file is pruned')
 })
 
-test('empty inflight: orphan leaf work with existing pair-ledger reply recovers cleanly instead of abandoning', async (t) => {
+test('empty inflight: orphan leaf work with existing D2 completed log recovers cleanly instead of abandoning', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-orphan-ledger-'))
-
-  // Host 1: write real pair-ledger delivered replies for both a nested and a top-level work.
-  {
-    const host1 = startHost(t, { home, team: seedTeam() })
-    await host1.rt.load()
-    await host1.rt.deliver({
-      fromId: 'c', toId: 'b', role: 'reply', replyTo: 'w-nested',
-      text: 'Verified audit report from Reviewer.',
-    })
-    await host1.rt.deliver({
-      fromId: 'b', toId: 'a', role: 'reply', replyTo: 'w-top-answered',
-      text: 'Already delivered top-level answer.',
-    })
-    await host1.rt.save()
-    await host1.ctx.dispose()
-  }
-
-  // Simulate crash where state.json still holds both leaf works open and inflight.json is empty.
-  const staleTeam = seedTeam({
-    works: {
-      'w-parent': { from: 'a', to: 'b', name: 'Writer', ref: 'W1', state: 'open', open: ['w-nested'], results: [], at: 1000 },
-      'w-nested': { from: 'b', to: 'c', name: 'Reviewer', ref: 'W7', parent: 'w-parent', state: 'open', open: [], results: [], at: 1001 },
-      'w-top-answered': { from: 'a', to: 'b', name: 'Writer', ref: 'W8', state: 'open', open: [], results: [], at: 1002 },
-    },
-  })
-  rmSync(join(home, 'inflight.json'), { force: true })
-
-  t.mock.timers.enable({ apis: ['setTimeout'] })
-  const host2 = startHost(t, { home, team: staleTeam })
   t.after(() => rmSync(home, { recursive: true, force: true }))
-  await host2.rt.load()
-  t.mock.timers.tick(3000)
-  for (let i = 0; i < 40; i += 1) {
-    await flushMicrotasks()
-    if (host2.rt.state.works['w-nested'] === undefined
-      && host2.rt.state.works['w-top-answered'] === undefined
-      && host2.agentOf('dm-b').calls.length > 0) break
-  }
 
-  assert.equal(host2.rt.state.works['w-nested'], undefined, 'nested leaf closed via ledger recovery')
-  assert.equal(host2.rt.state.works['w-top-answered'], undefined, 'top-level answered leaf closed via ledger recovery')
-  assert.equal(host2.rt.state.abandonedWorks?.['w-nested'], undefined, 'recovered work is NOT recorded as abandoned')
-  assert.equal(host2.rt.state.abandonedWorks?.['w-top-answered'], undefined, 'recovered top-level work is NOT recorded as abandoned')
+  seedCoord(home, (db) => {
+    db.ensureForegroundWork({ botId: 'a', workId: 'fg:a', logicalAddress: 'foreground:a', sessionId: 'dm-a' })
+    db.ensureForegroundWork({ botId: 'b', workId: 'fg:b', logicalAddress: 'foreground:b', sessionId: 'dm-b' })
+    db.createWork({
+      workId: 'w-parent', workRef: 'W1', botId: 'b', kind: 'task',
+      logicalAddress: 'task:w-parent', status: 'waiting', parentWorkId: 'fg:a', sessionId: 'dm-b',
+    })
+    db.createCall({
+      callId: 'c_w-parent', parentWorkId: 'fg:a', childWorkId: 'w-parent',
+      callerBotId: 'a', calleeBotId: 'b', returnAddress: 'foreground:a',
+    })
+    db.createWork({
+      workId: 'w-nested', workRef: 'W7', botId: 'c', kind: 'task',
+      logicalAddress: 'task:w-nested', status: 'idle', parentWorkId: 'w-parent', sessionId: 'dm-c',
+    })
+    db.createCall({
+      callId: 'c_w-nested', parentWorkId: 'w-parent', childWorkId: 'w-nested',
+      callerBotId: 'b', calleeBotId: 'c', returnAddress: 'task:w-parent',
+      initialMessage: { dedupKey: 'req-w-nested', bodyPreview: 'Audit', payload: { text: 'Audit', role: 'request' } },
+    })
+    const cNested = db.claimReady({ workId: 'w-nested' })
+    db.beginDeliveryAttempt({ workId: 'w-nested', claimToken: cNested.claimToken, throughSeq: cNested.claimedInboxSeq, idempotencyKey: 'dk-nested', sessionId: 'dm-c' })
+
+    db.ensureForegroundWork({ botId: 'c', workId: 'fg:c', logicalAddress: 'foreground:c', sessionId: 'dm-c' })
+    db.createWork({
+      workId: 'w-top-answered', workRef: 'W8', botId: 'd', kind: 'task',
+      logicalAddress: 'task:w-top-answered', status: 'idle', parentWorkId: 'fg:c', sessionId: 'dm-d',
+    })
+    db.createCall({
+      callId: 'c_w-top-answered', parentWorkId: 'fg:c', childWorkId: 'w-top-answered',
+      callerBotId: 'c', calleeBotId: 'd', returnAddress: 'foreground:c',
+      initialMessage: { dedupKey: 'req-w-top', bodyPreview: 'Top check', payload: { text: 'Top check', role: 'request' } },
+    })
+    const cTop = db.claimReady({ workId: 'w-top-answered' })
+    db.beginDeliveryAttempt({ workId: 'w-top-answered', claimToken: cTop.claimToken, throughSeq: cTop.claimedInboxSeq, idempotencyKey: 'dk-top', sessionId: 'dm-d' })
+  })
+
+  const logs = new Map([
+    ['dm-c', [
+      { type: 'turn/start', data: { turn: 1 } },
+      { type: 'user/message', data: { source: { kind: SOURCE_KIND, idempotencyKey: 'dk-nested', role: 'request' }, content: [{ type: 'text', text: 'Audit' }] } },
+      { type: 'assistant/message', data: { message: { content: [{ type: 'text', text: 'Verified audit report from Reviewer.' }] } } },
+      { type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } },
+    ]],
+    ['dm-d', [
+      { type: 'turn/start', data: { turn: 1 } },
+      { type: 'user/message', data: { source: { kind: SOURCE_KIND, idempotencyKey: 'dk-top', role: 'request' }, content: [{ type: 'text', text: 'Top check' }] } },
+      { type: 'assistant/message', data: { message: { content: [{ type: 'text', text: 'Already completed top-level answer.' }] } } },
+      { type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } },
+    ]],
+  ])
+
+  const host2 = startHost(t, { home, team: seedTeam(), logs })
+  await host2.rt.adoptLiveWork()
+
+  assert.equal(host2.rt.coordDb.getWork('w-nested').status, 'done', 'nested leaf closed via D2 log recovery')
+  assert.equal(host2.rt.coordDb.getWork('w-top-answered').status, 'done', 'top-level answered leaf closed via D2 log recovery')
+  assert.equal(host2.agentOf('dm-d').calls.length, 0, 'completed worker dm-d must not be re-run')
 
   // Parent work stays open and receives the genuine recovered reply text.
-  assert.ok(host2.rt.state.works['w-parent'] !== undefined)
-  assert.equal(host2.rt.state.works['w-parent'].results[0].text, 'Verified audit report from Reviewer.')
-  assert.equal(host2.rt.state.works['w-parent'].results[0].abandoned, undefined)
+  const parent = host2.rt.coordDb.getWork('w-parent')
+  assert.ok(parent !== undefined && !['done', 'failed', 'stopped'].includes(parent.status))
+  assert.equal(host2.rt.coordDb.listCalls({ parentWorkId: 'w-parent' })[0].resultSummary, 'Verified audit report from Reviewer.')
 
-  const bDeliveries = host2.agentOf('dm-b').calls.filter(([kind]) => kind === 'followup')
-  assert.equal(bDeliveries.length, 1, 'parent owner woken with recovered reply')
-  assert.match(textOf(bDeliveries[0][1].content), /Verified audit report from Reviewer\./)
-  assert.equal(bDeliveries[0][1].source.work, 'w-parent')
-  assert.equal(bDeliveries[0][1].source.replyTo, 'w-nested')
+  await settle(() => host2.agentOf('dm-b').calls.length === 1 && host2.agentOf('dm-c').calls.length === 1)
+  const bMsg = host2.agentOf('dm-b').calls[0][1]
+  const cMsg = host2.agentOf('dm-c').calls[0][1]
+  assert.match(textOf(bMsg.content), /Verified audit report from Reviewer\./)
+  assert.match(textOf(cMsg.content), /Already completed top-level answer\./)
+  // Mark both delivered replies consumed so a subsequent restart has nothing left to deliver.
+  host2.emit('dm-b', 'turn/start', { turn: 2 })
+  host2.emit('dm-b', 'user/message', { content: bMsg.content, source: bMsg.source })
+  host2.emit('dm-b', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
+  host2.emit('dm-c', 'turn/start', { turn: 2 })
+  host2.emit('dm-c', 'user/message', { content: cMsg.content, source: cMsg.source })
+  host2.emit('dm-c', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
+  await host2.ctx.dispose()
 
-  // Top-level already-answered work does NOT emit a duplicate abandonment notice to Chief.
-  assert.equal(host2.agentOf('dm-a').calls.length, 0)
-  t.mock.timers.reset()
-  await host2.rt.save()
+  // Subsequent restart must not duplicate already-settled works.
+  const host3 = startHost(t, { home, team: seedTeam(), logs })
+  await host3.rt.adoptLiveWork()
+  assert.equal(host3.agentOf('dm-c').calls.length, 0)
+  assert.equal(host3.agentOf('dm-d').calls.length, 0)
 })
 
 test('empty inflight: top-level orphan leaf and waiting_work background task handoff notify their callers visibly', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-orphan-bg-'))
+  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }))
   const team = seedTeam({
     bots: {
       a: {
@@ -267,130 +302,172 @@ test('empty inflight: top-level orphan leaf and waiting_work background task han
       b: { id: 'b', name: 'Writer', role: 'Dev', sessionId: 'dm-b', createdAt: 2 },
       c: { id: 'c', name: 'Reviewer', role: 'QA', sessionId: 'dm-c', createdAt: 3 },
     },
-    works: {
-      'w-top': { from: 'a', to: 'b', name: 'Writer', ref: 'W9', state: 'open', open: [], results: [], at: 1000 },
-      'w-bg': { from: 'a', fromPart: 'a-task-1', to: 'c', name: 'Reviewer', ref: 'W15', state: 'open', open: [], results: [], at: 1001 },
-    },
   })
 
-  t.mock.timers.enable({ apis: ['setTimeout'] })
-  const host = startHost(t, { team })
-  await host.rt.load()
-  t.mock.timers.tick(0)
-  await flushMicrotasks()
-  t.mock.timers.tick(3000)
-  for (let i = 0; i < 40; i += 1) {
-    await flushMicrotasks()
-    if (host.rt.state.works['w-top'] === undefined
-      && host.rt.state.works['w-bg'] === undefined
-      && host.agentOf('dm-a').calls.length > 0
-      && host.agentOf('a-task-1').calls.length > 0) break
-  }
+  seedCoord(home, (db) => {
+    db.ensureForegroundWork({ botId: 'a', workId: 'fg:a', logicalAddress: 'foreground:a', sessionId: 'dm-a' })
+    db.createWork({
+      workId: 'task:task-1', botId: 'a', kind: 'task', logicalAddress: 'task:task-1',
+      status: 'waiting', parentWorkId: 'fg:a', sessionId: 'a-task-1',
+    })
+    // Top-level orphan work owned by b with missing session.
+    db.createWork({
+      workId: 'w-top', workRef: 'W9', botId: 'b', kind: 'task', logicalAddress: 'task:w-top',
+      status: 'idle', parentWorkId: 'fg:a',
+    })
+    db.createCall({
+      callId: 'c_w-top', parentWorkId: 'fg:a', childWorkId: 'w-top',
+      callerBotId: 'a', calleeBotId: 'b', returnAddress: 'foreground:a',
+      initialMessage: { dedupKey: 'req-w-top', bodyPreview: 'Top work', payload: { text: 'Top work', role: 'request' } },
+    })
+    const c1 = db.claimReady({ workId: 'w-top' })
+    db.beginDeliveryAttempt({ workId: 'w-top', claimToken: c1.claimToken, throughSeq: c1.claimedInboxSeq, idempotencyKey: 'dk-w-top' })
 
-  assert.equal(host.rt.state.works['w-top'], undefined)
-  assert.equal(host.rt.state.works['w-bg'], undefined)
+    // Child orphan work owned by c whose parent is background task `task:task-1`.
+    db.createWork({
+      workId: 'w-bg', workRef: 'W15', botId: 'c', kind: 'task', logicalAddress: 'task:w-bg',
+      status: 'idle', parentWorkId: 'task:task-1',
+    })
+    db.createCall({
+      callId: 'c_w-bg', parentWorkId: 'task:task-1', childWorkId: 'w-bg',
+      callerBotId: 'a', calleeBotId: 'c', returnAddress: 'task:task-1',
+      initialMessage: { dedupKey: 'req-w-bg', bodyPreview: 'BG work', payload: { text: 'BG work', role: 'request' } },
+    })
+    const c2 = db.claimReady({ workId: 'w-bg' })
+    db.beginDeliveryAttempt({ workId: 'w-bg', claimToken: c2.claimToken, throughSeq: c2.claimedInboxSeq, idempotencyKey: 'dk-w-bg' })
+  })
+
+  const host = startHost(t, { home, team })
+  await host.rt.adoptLiveWork()
+  await settle(() => host.agentOf('dm-a').calls.length > 0 && host.agentOf('a-task-1').calls.length > 0)
+
+  assert.equal(host.rt.coordDb.getWork('w-top').status, 'failed')
+  assert.equal(host.rt.coordDb.getWork('w-bg').status, 'failed')
 
   const fgMsg = host.agentOf('dm-a').calls.find(([kind]) => kind === 'followup')?.[1]
   assert.ok(fgMsg, 'foreground caller notified of orphaned top-level work')
-  assert.match(textOf(fgMsg.content), /#W9.*restarted/)
+  assert.equal(fgMsg.source.coordWorkId, 'fg:a')
 
   const taskMsg = host.agentOf('a-task-1').calls.find(([kind]) => kind === 'followup')?.[1]
-  assert.ok(taskMsg, 'waiting background task session woken with restart notice')
-  assert.match(textOf(taskMsg.content), /#W15.*restarted/)
+  assert.ok(taskMsg, 'waiting background task session woken with failure notice')
+  assert.equal(taskMsg.source.coordWorkId, 'task:task-1')
 })
 
-test('strict conservatism: never aborts paused, need_input, non-leaf, child/room, active-task, live, switching, card-waiting, or queued works', async (t) => {
+test('strict conservatism: never aborts paused, needs_verification, need_input, non-leaf, group room_work, live running, queued inbox, question, approval, or secret works', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-orphan-strict-'))
+  t.after(() => rmSync(home, { recursive: true, force: true }))
   const team = seedTeam({
     bots: {
       a: { id: 'a', name: 'Chief', role: 'Boss', sessionId: 'dm-a', createdAt: 1 },
-      b: {
-        id: 'b', name: 'Writer', role: 'Dev', sessionId: 'dm-b', createdAt: 2,
-        tasks: [
-          { id: 'bt-handoff', title: 'Handoff', sessionId: 'b-t1', status: 'running', origin: 'bot-handoff', exchangeId: 'w-task-ex', createdAt: 10, updatedAt: 10 },
-          { id: 'bt-work', title: 'SubWork', sessionId: 'b-t2', status: 'running', workId: 'w-task-wid', createdAt: 11, updatedAt: 11 },
-        ],
-      },
+      b: { id: 'b', name: 'Writer', role: 'Dev', sessionId: 'dm-b', createdAt: 2 },
       c: { id: 'c', name: 'Reviewer', role: 'QA', sessionId: 'dm-c', createdAt: 3 },
       d: { id: 'd', name: 'Helper', role: 'Ops', sessionId: 'dm-d', createdAt: 4 },
       e: { id: 'e', name: 'RunningBot', role: 'Run', sessionId: 'dm-e', createdAt: 5 },
       f: { id: 'f', name: 'InboxBot', role: 'Inbox', sessionId: 'dm-f', createdAt: 6 },
       g: { id: 'g', name: 'QuestionBot', role: 'Ask', sessionId: 'dm-g', createdAt: 7 },
-      h: { id: 'h', name: 'ViewBot', role: 'View', sessionId: 'dm-h', createdAt: 8 },
-      i: { id: 'i', name: 'SwitchBot', role: 'Switch', sessionId: 'dm-i', createdAt: 9 },
+      h: { id: 'h', name: 'ApprovalBot', role: 'Appr', sessionId: 'dm-h', createdAt: 8 },
+      i: { id: 'i', name: 'SecretBot', role: 'Sec', sessionId: 'dm-i', createdAt: 9 },
     },
     rooms: { r1: { id: 'r1', name: 'DevRoom', members: ['a', 'b'], sessions: { a: 'r1-a', b: 'r1-b' }, createdAt: 1 } },
-    roomReports: { rr1: { id: 'rr1', botId: 'a', roomId: 'r1', sub: 'w-room-report', parentWork: 'w-non-leaf', status: 'tracking' } },
-    questions: { 'dm-g': { id: 'q1', prompt: 'Pick one' } },
-    views: { 'dm-h': { id: 'v1', title: 'Form' } },
-    switching: { 'dm-i': { at: 100 } },
-    works: {
-      'w-paused': { from: 'a', to: 'c', name: 'Reviewer', state: 'paused', open: [], results: [], at: 1 },
-      'w-need-input': { from: 'a', to: 'c', name: 'Reviewer', state: 'need_input', open: [], results: [], at: 2 },
-      'w-non-leaf': { from: 'a', to: 'c', name: 'Reviewer', state: 'open', open: ['w-paused'], results: [], at: 3 },
-      'w-child': { from: 'a', to: 'c', child: 'sub-1', name: 'subagent', state: 'open', open: [], results: [], at: 4 },
-      'w-room': { from: 'a', room: 'r1', name: 'DevRoom', state: 'open', open: [], results: [], at: 5 },
-      'w-task-ex': { from: 'a', to: 'b', toTaskId: 'bt-handoff', name: 'Writer', state: 'open', open: [], results: [], at: 6 },
-      'w-task-wid': { from: 'a', to: 'b', name: 'Writer', state: 'open', open: [], results: [], at: 7 },
-      'w-room-report': { from: 'a', to: 'c', name: 'Reviewer', state: 'open', open: [], results: [], at: 8 },
-      'w-live-agent': { from: 'a', to: 'e', name: 'RunningBot', state: 'open', open: [], results: [], at: 9 },
-      'w-inbox': { from: 'a', to: 'f', name: 'InboxBot', state: 'open', open: [], results: [], at: 10 },
-      'w-question': { from: 'a', to: 'g', name: 'QuestionBot', state: 'open', open: [], results: [], at: 11 },
-      'w-view': { from: 'a', to: 'h', name: 'ViewBot', state: 'open', open: [], results: [], at: 12 },
-      'w-switching': { from: 'a', to: 'i', name: 'SwitchBot', state: 'open', open: [], results: [], at: 13 },
-      'w-true-orphan': { from: 'a', to: 'd', name: 'Helper', ref: 'W99', state: 'open', open: [], results: [], at: 14 },
-    },
   })
 
-  t.mock.timers.enable({ apis: ['setTimeout'] })
+  seedCoord(home, (db) => {
+    db.ensureForegroundWork({ botId: 'a', workId: 'fg:a', logicalAddress: 'foreground:a', sessionId: 'dm-a' })
+    // 1) paused
+    db.createWork({ workId: 'w-paused', botId: 'c', kind: 'task', logicalAddress: 'task:w-paused', status: 'paused', sessionId: 'dm-c' })
+    // 2) needs_verification
+    db.createWork({ workId: 'w-verify', botId: 'c', kind: 'task', logicalAddress: 'task:w-verify', status: 'needs_verification', sessionId: 'dm-c' })
+    // 3) need_input (open ask wait)
+    db.createWork({ workId: 'w-need-input', botId: 'c', kind: 'task', logicalAddress: 'task:w-need-input', status: 'waiting', parentWorkId: 'fg:a', sessionId: 'dm-c' })
+    db.addWait({ waitId: 'wt-ask-1', workId: 'w-need-input', kind: 'ask', targetId: 'ask:1', targetWorkId: 'fg:a' })
+    // 4) non-leaf (waiting on open child call)
+    db.createWork({ workId: 'w-non-leaf', botId: 'c', kind: 'task', logicalAddress: 'task:w-non-leaf', status: 'waiting', sessionId: 'dm-c' })
+    db.createCall({ callId: 'c-non-leaf', parentWorkId: 'w-non-leaf', childWorkId: 'w-paused', callerBotId: 'c', calleeBotId: 'c', returnAddress: 'task:w-non-leaf' })
+    // 5) group room_work with open child wait
+    db.createWork({ workId: 'w-room', botId: 'b', kind: 'room_work', originKind: 'group', roomId: 'r1', logicalAddress: 'room:r1:b', status: 'waiting', sessionId: 'r1-b', meta: { kind: 'room_call' } })
+    db.addWait({ waitId: 'wt-room-1', workId: 'w-room', kind: 'call', targetId: 'sub-room-call', targetWorkId: 'w-paused' })
+    // 6) live running agent (D2 status: 'running')
+    db.createWork({ workId: 'w-live-agent', botId: 'e', kind: 'task', logicalAddress: 'task:w-live-agent', status: 'idle', sessionId: 'dm-e' })
+    db.receiveMessage({ workId: 'w-live-agent', kind: 'request', dedupKey: 'k-live', bodyPreview: 'run', payload: { text: 'run' } })
+    const cLive = db.claimReady({ workId: 'w-live-agent' })
+    db.beginDeliveryAttempt({ workId: 'w-live-agent', claimToken: cLive.claimToken, throughSeq: cLive.claimedInboxSeq, idempotencyKey: 'dk-live', sessionId: 'dm-e' })
+    // 7) queued in DSH inbox (D2 status: 'queued')
+    db.createWork({ workId: 'w-inbox', botId: 'f', kind: 'task', logicalAddress: 'task:w-inbox', status: 'idle', sessionId: 'dm-f' })
+    db.receiveMessage({ workId: 'w-inbox', kind: 'request', dedupKey: 'k-inbox', bodyPreview: 'pending', payload: { text: 'pending' } })
+    const cInbox = db.claimReady({ workId: 'w-inbox' })
+    db.beginDeliveryAttempt({ workId: 'w-inbox', claimToken: cInbox.claimToken, throughSeq: cInbox.claimedInboxSeq, idempotencyKey: 'dk-inbox', sessionId: 'dm-f' })
+    // 8) user_question wait
+    db.createWork({ workId: 'w-question', botId: 'g', kind: 'task', logicalAddress: 'task:w-question', status: 'waiting', sessionId: 'dm-g' })
+    db.addWait({ waitId: 'wt-q-1', workId: 'w-question', kind: 'user_question', targetId: 'question:dm-g' })
+    // 9) approval wait
+    db.createWork({ workId: 'w-approval', botId: 'h', kind: 'task', logicalAddress: 'task:w-approval', status: 'waiting', sessionId: 'dm-h' })
+    db.addWait({ waitId: 'wt-a-1', workId: 'w-approval', kind: 'approval', targetId: 'approval:dm-h' })
+    // 10) secret wait
+    db.createWork({ workId: 'w-secret', botId: 'i', kind: 'task', logicalAddress: 'task:w-secret', status: 'waiting', sessionId: 'dm-i' })
+    db.addWait({ waitId: 'wt-s-1', workId: 'w-secret', kind: 'secret', targetId: 'secret:s1' })
+    // 11) genuinely orphaned interrupted work (missing session)
+    db.createWork({ workId: 'w-true-orphan', workRef: 'W99', botId: 'd', kind: 'task', logicalAddress: 'task:w-true-orphan', status: 'idle', parentWorkId: 'fg:a' })
+    db.createCall({
+      callId: 'c-orphan', parentWorkId: 'fg:a', childWorkId: 'w-true-orphan',
+      callerBotId: 'a', calleeBotId: 'd', returnAddress: 'foreground:a',
+      initialMessage: { dedupKey: 'k-orphan', bodyPreview: 'orphan', payload: { text: 'orphan' } },
+    })
+    const cOrph = db.claimReady({ workId: 'w-true-orphan' })
+    db.beginDeliveryAttempt({ workId: 'w-true-orphan', claimToken: cOrph.claimToken, throughSeq: cOrph.claimedInboxSeq, idempotencyKey: 'dk-orphan' })
+  })
+
+  const logs = new Map([
+    ['dm-e', [
+      { type: 'turn/start', data: { turn: 1 } },
+      { type: 'user/message', data: { source: { kind: SOURCE_KIND, idempotencyKey: 'dk-live', role: 'request' }, content: [{ type: 'text', text: 'run' }] } },
+    ]],
+  ])
+
   const host = startHost(t, {
+    home,
     team,
+    logs,
     agentSetup(id, agent) {
-      if (id === 'dm-e' || id === 'b-t1' || id === 'b-t2') agent.status = 'running'
+      if (id === 'dm-e') agent.status = 'running'
       if (id === 'dm-f') {
         agent.inbox.nextTurn.push({
           id: 'msg-inbox-1',
-          source: { kind: SOURCE_KIND, exchangeId: 'w-inbox', role: 'request' },
+          source: { kind: SOURCE_KIND, idempotencyKey: 'dk-inbox', exchangeId: 'w-inbox', role: 'request' },
           content: [{ type: 'text', text: 'pending' }],
         })
       }
     },
   })
-  await host.rt.load()
-  // Mark r1 as actively speaking so startup settleRoomReports keeps rr1 alive,
-  // and simulate an active in-progress part switch on dm-i.
-  host.rt.roomProgress.set('call-r1', { roomId: 'r1', from: 0, slots: [{ id: 'b', status: 'speaking' }] })
-  const origIsSwitching = host.rt.isSwitchingPart
-  host.rt.isSwitchingPart = sid => sid === 'dm-i' || origIsSwitching(sid)
-  t.mock.timers.tick(0)
-  await flushMicrotasks()
-  t.mock.timers.tick(3000)
-  for (let i = 0; i < 40; i += 1) {
-    await flushMicrotasks()
-    if (host.rt.state.works['w-true-orphan'] === undefined) break
-  }
+  // Pre-register live agents so D2 observes dm-e as running and dm-f as queued in inbox.
+  host.agentOf('dm-e')
+  host.agentOf('dm-f')
 
-  assert.equal(host.rt.state.works['w-true-orphan'], undefined, 'genuinely orphaned leaf work is settled')
+  await host.rt.adoptLiveWork()
+
+  assert.equal(host.rt.coordDb.getWork('w-true-orphan').status, 'failed', 'genuinely orphaned leaf work is settled')
   for (const protectedId of [
-    'w-paused', 'w-need-input', 'w-non-leaf', 'w-child', 'w-room',
-    'w-task-ex', 'w-task-wid', 'w-room-report', 'w-live-agent',
-    'w-inbox', 'w-question', 'w-view', 'w-switching',
+    'w-paused', 'w-verify', 'w-need-input', 'w-non-leaf', 'w-room',
+    'w-live-agent', 'w-inbox', 'w-question', 'w-approval', 'w-secret',
   ]) {
-    assert.ok(host.rt.state.works[protectedId] !== undefined, `protected work ${protectedId} must remain untouched`)
+    const w = host.rt.coordDb.getWork(protectedId)
+    assert.ok(w !== undefined && !['done', 'failed', 'stopped'].includes(w.status), `protected work ${protectedId} must remain non-terminal (got ${w?.status})`)
   }
 })
 
-test('non-empty inflight: resumeAll protects resumed work while reconciling unrelated orphan leaf works', async (t) => {
+test('non-empty inflight: legacy inflight.json migration protects live running work via D2 while settling lost orphan work', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-orphan-inflight-'))
+  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }))
   const team = seedTeam({
     works: {
-      'w-resumed': { from: 'a', to: 'b', name: 'Writer', ref: 'W10', state: 'open', open: [], results: [], at: 1000 },
-      'w-orphan': { from: 'a', to: 'c', name: 'Reviewer', ref: 'W11', state: 'open', open: [], results: [], at: 1001 },
+      'w-resumed': { from: 'a', to: 'b', toSession: 'dm-b', name: 'Writer', ref: 'W10', state: 'open', open: [], results: [], at: 1000 },
+      'w-orphan': { from: 'd', to: 'c', name: 'Reviewer', ref: 'W11', state: 'open', open: [], results: [], at: 1001 },
     },
   })
   const inflight = {
     turns: {
       'dm-b': {
         botId: 'b',
-        turnId: 'turn-1',
+        turn: 1,
         startedAt: 1000,
         trigger: { kind: SOURCE_KIND, exchangeId: 'w-resumed', from: 'a', role: 'request', workRef: 'W10' },
       },
@@ -405,144 +482,137 @@ test('non-empty inflight: resumeAll protects resumed work while reconciling unre
     ]],
   ])
 
-  t.mock.timers.enable({ apis: ['setTimeout'] })
-  const host = startHost(t, { team, inflight, logs })
-  await host.rt.load()
-  t.mock.timers.tick(3000)
-  for (let i = 0; i < 40; i += 1) {
-    await flushMicrotasks()
-    if (host.rt.state.works['w-orphan'] === undefined && host.agentOf('dm-b').calls.length > 0) break
-  }
+  const host = startHost(t, {
+    home,
+    team,
+    inflight,
+    logs,
+    agentSetup(id, agent) {
+      if (id === 'dm-b') agent.status = 'running'
+    },
+  })
+  host.agentOf('dm-b')
+  await host.rt.adoptLiveWork()
 
-  assert.ok(host.rt.state.works['w-resumed'] !== undefined, 'resumed in-flight work stays open')
-  assert.equal(host.rt.state.works['w-orphan'], undefined, 'unrelated orphan leaf work reconciled at end of resumeAll')
-  const aCalls = host.agentOf('dm-a').calls.filter(([kind]) => kind === 'followup')
-  assert.equal(aCalls.length, 1)
-  assert.match(textOf(aCalls[0][1].content), /#W11.*restarted/)
+  // Legacy inflight.json migrated once and renamed to inflight.json.migrated.
+  assert.equal(existsSync(join(home, 'inflight.json')), false, 'legacy inflight.json must be renamed after migration')
+  assert.equal(existsSync(join(home, 'inflight.json.migrated')), true, 'backup inflight.json.migrated created')
+
+  // Live running work on dm-b stays active (adopted, never aborted or re-dispatched).
+  const resumed = host.rt.coordDb.getWork('fg:b')
+  assert.equal(resumed.status, 'running', 'live running work stays adopted')
+  assert.equal(host.agentOf('dm-b').calls.length, 0, 'live running turn must not be duplicated')
+
+  // Unrelated unresolvable legacy work `w-orphan` (missing sessionId) settles as failed and wakes its caller (Helper).
+  await settle(() => host.rt.coordDb.getWork('handoff:w-orphan')?.status === 'failed' && host.agentOf('dm-d').calls.length >= 1)
+  const dCalls = host.agentOf('dm-d').calls.filter(([kind]) => kind === 'followup')
+  assert.equal(dCalls.length, 1)
 })
 
-test('post-pushThreadPart switching guard protects works when state.switching or switchJobs is keyed by earlier segment', async (t) => {
+test('reconcileLostWorks protects living Bots across part switches while abandoning works whose target Bot or group was deleted', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-orphan-lost-'))
+  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }))
   const team = seedTeam({
     bots: {
       a: { id: 'a', name: 'Chief', role: 'Boss', sessionId: 'dm-a', createdAt: 1 },
-      d: { id: 'd', name: 'Helper', role: 'Ops', sessionId: 'dm-d', createdAt: 2 },
       i: {
         id: 'i', name: 'SwitchBot', role: 'Switch', sessionId: 'dm-i-2',
         segments: [{ sessionId: 'dm-i-1', endedAt: 100 }],
         createdAt: 3,
       },
-      j: {
-        id: 'j', name: 'JobSwitchBot', role: 'Switch', sessionId: 'dm-j-2',
-        segments: [{ sessionId: 'dm-j-1', endedAt: 100 }],
-        createdAt: 4,
-      },
-    },
-    switching: {
-      'dm-i-1': { botId: 'i' },
-    },
-    works: {
-      'w-sw-state': { from: 'a', to: 'i', name: 'SwitchBot', ref: 'W30', state: 'open', open: [], results: [], at: 1000 },
-      'w-sw-job': { from: 'a', to: 'j', name: 'JobSwitchBot', ref: 'W31', state: 'open', open: [], results: [], at: 1001 },
-      'w-orphan-ctrl': { from: 'a', to: 'd', name: 'Helper', ref: 'W32', state: 'open', open: [], results: [], at: 1002 },
     },
   })
 
-  const host = startHost(t, { team })
-  await host.rt.load()
-  const origSwitchJobs = host.rt.switchJobs
-  host.rt.switchJobs = () => [...(origSwitchJobs?.() ?? []), { botId: 'j' }]
+  seedCoord(home, (db) => {
+    db.ensureForegroundWork({ botId: 'a', workId: 'fg:a', logicalAddress: 'foreground:a', sessionId: 'dm-a' })
+    db.createWork({ workId: 'w-sw-state', workRef: 'W30', botId: 'i', kind: 'task', logicalAddress: 'task:w-sw-state', status: 'waiting', parentWorkId: 'fg:a', sessionId: 'dm-i-2' })
+    db.createWork({ workId: 'w-gone-bot', workRef: 'W32', botId: 'deleted-helper', kind: 'task', logicalAddress: 'task:w-gone-bot', status: 'waiting', parentWorkId: 'fg:a' })
+    db.createCall({ callId: 'c-gone-bot', parentWorkId: 'fg:a', childWorkId: 'w-gone-bot', callerBotId: 'a', calleeBotId: 'deleted-helper', returnAddress: 'foreground:a' })
+    db.createWork({ workId: 'w-gone-room', workRef: 'W33', botId: 'a', kind: 'room_work', roomId: 'r-deleted', logicalAddress: 'room:r-deleted:a', status: 'waiting', parentWorkId: 'fg:a' })
+  })
 
-  const settled = await host.rt.reconcileOrphanWorks()
-  assert.equal(settled, 1)
-  assert.equal(host.rt.state.works['w-orphan-ctrl'], undefined, 'control orphan settles')
-  assert.ok(host.rt.state.works['w-sw-state'] !== undefined, 'work protected by post-pushThreadPart state.switching[oldSid] = { botId }')
-  assert.ok(host.rt.state.works['w-sw-job'] !== undefined, 'work protected by live switchJobs() { botId }')
+  const host = startHost(t, { home, team })
+  await host.rt.adoptLiveWork()
+
+  await settle(() => host.rt.coordDb.getWork('w-gone-bot')?.status === 'stopped'
+    && host.rt.coordDb.getWork('w-gone-room')?.status === 'stopped')
+
+  assert.equal(host.rt.coordDb.getWork('w-sw-state')?.status, 'waiting', 'living Bot work across part switch stays untouched')
+  assert.equal(host.rt.coordDb.getWork('w-gone-bot')?.status, 'stopped', 'work targeting deleted Bot settles as stopped')
+  assert.equal(host.rt.coordDb.getWork('w-gone-room')?.status, 'stopped', 'work targeting deleted group settles as stopped')
 })
 
-test('multi-child ledger recovery delivers EVERY child reply for the same parent, skips live-turn duplicates, and clears parent.open', async (t) => {
+test('multi-child D2 recovery delivers EVERY child reply for the same parent, skips already-settled duplicates, and clears parent waits', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-orphan-multi-child-'))
-
-  // Host 1 records genuine pair-ledger replies for 3 sibling children of the same parent.
-  {
-    const host1 = startHost(t, { home, team: seedTeam() })
-    await host1.rt.load()
-    await host1.rt.deliver({ fromId: 'c', toId: 'b', role: 'reply', replyTo: 'w-1', text: 'First sibling answer.' })
-    await host1.rt.deliver({ fromId: 'd', toId: 'b', role: 'reply', replyTo: 'w-2', text: 'Second sibling answer.' })
-    await host1.rt.deliver({ fromId: 'c', toId: 'b', role: 'reply', replyTo: 'w-3-live', text: 'Already running live reply.' })
-    await host1.rt.save()
-    await host1.ctx.dispose()
-  }
-
-  const staleTeam = seedTeam({
-    works: {
-      'w-parent': { from: 'a', to: 'b', name: 'Writer', ref: 'W1', state: 'open', open: ['w-1', 'w-2', 'w-3-live'], results: [], at: 1000 },
-      'w-1': { from: 'b', to: 'c', name: 'Reviewer', ref: 'W2', parent: 'w-parent', state: 'open', open: [], results: [], at: 1001 },
-      'w-2': { from: 'b', to: 'd', name: 'Helper', ref: 'W3', parent: 'w-parent', state: 'open', open: [], results: [], at: 1002 },
-      'w-3-live': { from: 'b', to: 'c', name: 'Reviewer', ref: 'W4', parent: 'w-parent', state: 'open', open: [], results: [], at: 1003 },
-    },
-  })
-  rmSync(join(home, 'inflight.json'), { force: true })
-
-  t.mock.timers.enable({ apis: ['setTimeout'] })
-  const host2 = startHost(t, { home, team: staleTeam })
   t.after(() => rmSync(home, { recursive: true, force: true }))
-  await host2.rt.load()
-  // Simulate dm-b currently running a turn that already holds w-3-live's reply.
-  host2.rt.live.set('dm-b', {
-    turn: 9,
-    info: { kind: SOURCE_KIND, role: 'reply', replyTo: 'w-3-live', work: 'w-parent' },
+
+  seedCoord(home, (db) => {
+    db.ensureForegroundWork({ botId: 'a', workId: 'fg:a', logicalAddress: 'foreground:a', sessionId: 'dm-a' })
+    db.ensureForegroundWork({ botId: 'b', workId: 'fg:b', logicalAddress: 'foreground:b', sessionId: 'dm-b' })
+    db.createWork({
+      workId: 'w-parent', workRef: 'W1', botId: 'b', kind: 'task',
+      logicalAddress: 'task:w-parent', status: 'waiting', parentWorkId: 'fg:a', sessionId: 'dm-b',
+    })
+    db.createCall({
+      callId: 'c_w-parent', parentWorkId: 'fg:a', childWorkId: 'w-parent',
+      callerBotId: 'a', calleeBotId: 'b', returnAddress: 'foreground:a',
+    })
+
+    for (const [id, ref, botId, sid, key] of [
+      ['w-1', 'W2', 'c', 'dm-c', 'dk-w1'],
+      ['w-2', 'W3', 'd', 'dm-d', 'dk-w2'],
+      ['w-3-done', 'W4', 'c', 'dm-c-old', 'dk-w3'],
+    ]) {
+      db.createWork({ workId: id, workRef: ref, botId, kind: 'task', logicalAddress: `task:${id}`, status: 'idle', parentWorkId: 'w-parent', sessionId: sid })
+      db.createCall({
+        callId: `c_${id}`, parentWorkId: 'w-parent', childWorkId: id,
+        callerBotId: 'b', calleeBotId: botId, returnAddress: 'task:w-parent',
+        initialMessage: { dedupKey: `req-${id}`, bodyPreview: id, payload: { text: id, role: 'request' } },
+      })
+      const clm = db.claimReady({ workId: id })
+      db.beginDeliveryAttempt({ workId: id, claimToken: clm.claimToken, throughSeq: clm.claimedInboxSeq, idempotencyKey: key, sessionId: sid })
+    }
+    // w-3-done already settled and its inbox message was already read before crash!
+    db.settleWork({ workId: 'w-3-done', outcome: 'done', force: true, summary: 'Already handled earlier.' })
+    const parentInbox = db.listInbox('w-parent', { unreadOnly: true })
+    if (parentInbox.length > 0) db.ackInbox('w-parent', parentInbox.at(-1).seq)
   })
 
-  t.mock.timers.tick(3000)
-  for (let i = 0; i < 40; i += 1) {
-    await flushMicrotasks()
-    if (host2.rt.state.works['w-1'] === undefined
-      && host2.rt.state.works['w-2'] === undefined
-      && host2.rt.state.works['w-3-live'] === undefined
-      && host2.agentOf('dm-b').calls.length >= 2) break
-  }
+  const logs = new Map([
+    ['dm-c', [
+      { type: 'turn/start', data: { turn: 1 } },
+      { type: 'user/message', data: { source: { kind: SOURCE_KIND, idempotencyKey: 'dk-w1', role: 'request' }, content: [{ type: 'text', text: 'w-1' }] } },
+      { type: 'assistant/message', data: { message: { content: [{ type: 'text', text: 'First sibling answer.' }] } } },
+      { type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } },
+    ]],
+    ['dm-d', [
+      { type: 'turn/start', data: { turn: 1 } },
+      { type: 'user/message', data: { source: { kind: SOURCE_KIND, idempotencyKey: 'dk-w2', role: 'request' }, content: [{ type: 'text', text: 'w-2' }] } },
+      { type: 'assistant/message', data: { message: { content: [{ type: 'text', text: 'Second sibling answer.' }] } } },
+      { type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } },
+    ]],
+  ])
 
-  assert.equal(host2.rt.state.works['w-1'], undefined)
-  assert.equal(host2.rt.state.works['w-2'], undefined)
-  assert.equal(host2.rt.state.works['w-3-live'], undefined)
-  assert.equal(host2.rt.state.abandonedWorks?.['w-1'], undefined)
-  assert.equal(host2.rt.state.abandonedWorks?.['w-2'], undefined)
+  const host2 = startHost(t, { home, team: seedTeam(), logs })
+  await host2.rt.adoptLiveWork()
 
-  // Both w-1 and w-2 MUST be delivered to dm-b (not skipped after w-1 queued for w-parent!),
-  // while w-3-live MUST NOT be duplicated because dm-b's live turn already holds it.
-  const bDeliveries = host2.agentOf('dm-b').calls.filter(([kind]) => kind === 'followup').map(([, msg]) => msg)
-  const replyTos = bDeliveries.map(msg => msg.source?.replyTo).sort()
-  assert.deepEqual(replyTos, ['w-1', 'w-2'])
-  assert.ok(bDeliveries.every(msg => msg.source?.work === 'w-parent'))
-  assert.ok(bDeliveries.some(msg => textOf(msg.content).includes('First sibling answer.')))
-  assert.ok(bDeliveries.some(msg => textOf(msg.content).includes('Second sibling answer.')))
+  assert.equal(host2.rt.coordDb.getWork('w-1').status, 'done')
+  assert.equal(host2.rt.coordDb.getWork('w-2').status, 'done')
+  assert.equal(host2.rt.coordDb.getWork('w-3-done').status, 'done')
+  assert.equal(host2.rt.waitsWork('w-parent'), false, 'parent waits clear cleanly once all sibling children settle')
 
-  // When dm-b's turn consumes the delivered replies (and the live w-3-live reply), parent.open clears cleanly.
-  host2.emit('dm-b', 'turn/start', { turn: 10 })
-  for (const msg of bDeliveries) host2.emit('dm-b', 'user/message', msg)
-  host2.rt.takenWork('w-parent', 'w-3-live')
-  assert.deepEqual(host2.rt.state.works['w-parent'].open, [], 'parent.open clears cleanly once sibling replies are consumed')
-
-  t.mock.timers.reset()
-  await host2.rt.save()
+  await settle(() => host2.agentOf('dm-b').calls.length >= 1)
+  const bBody = host2.agentOf('dm-b').calls.map(([, msg]) => textOf(msg.content)).join('\n')
+  assert.match(bBody, /First sibling answer\./, 'w-1 reply must be delivered')
+  assert.match(bBody, /Second sibling answer\./, 'w-2 reply must be delivered')
+  assert.doesNotMatch(bBody, /Already handled earlier\./, 'already-acknowledged w-3-done must not be duplicated')
 })
 
-test('top-level orphan work with pair-ledger reply wakes waiting_work background task session', async (t) => {
+test('top-level child work with D2 completed log wakes waiting_work background task session without spamming foreground', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-orphan-bg-ledger-'))
+  t.after(() => rmSync(home, { recursive: true, force: true }))
 
-  // Host 1 records a real pair-ledger reply from Reviewer to Chief for w-bg-answered.
-  {
-    const host1 = startHost(t, { home, team: seedTeam() })
-    await host1.rt.load()
-    await host1.rt.deliver({
-      fromId: 'c', toId: 'a', role: 'reply', replyTo: 'w-bg-answered',
-      text: 'Recovered background audit answer.',
-    })
-    await host1.rt.save()
-    await host1.ctx.dispose()
-  }
-
-  const staleTeam = seedTeam({
+  const team = seedTeam({
     bots: {
       a: {
         id: 'a', name: 'Chief', role: 'Boss', sessionId: 'dm-a', createdAt: 1,
@@ -551,32 +621,43 @@ test('top-level orphan work with pair-ledger reply wakes waiting_work background
       b: { id: 'b', name: 'Writer', role: 'Dev', sessionId: 'dm-b', createdAt: 2 },
       c: { id: 'c', name: 'Reviewer', role: 'QA', sessionId: 'dm-c', createdAt: 3 },
     },
-    works: {
-      'w-bg-answered': { from: 'a', fromPart: 'a-task-1', to: 'c', name: 'Reviewer', ref: 'W22', state: 'open', open: [], results: [], at: 1000 },
-    },
   })
-  rmSync(join(home, 'inflight.json'), { force: true })
 
-  t.mock.timers.enable({ apis: ['setTimeout'] })
-  const host2 = startHost(t, { home, team: staleTeam })
-  t.after(() => rmSync(home, { recursive: true, force: true }))
-  await host2.rt.load()
-  t.mock.timers.tick(0)
-  await flushMicrotasks()
-  t.mock.timers.tick(3000)
-  for (let i = 0; i < 40; i += 1) {
-    await flushMicrotasks()
-    if (host2.rt.state.works['w-bg-answered'] === undefined && host2.agentOf('a-task-1').calls.length > 0) break
-  }
+  seedCoord(home, (db) => {
+    db.ensureForegroundWork({ botId: 'a', workId: 'fg:a', logicalAddress: 'foreground:a', sessionId: 'dm-a' })
+    db.createWork({
+      workId: 'task:task-1', botId: 'a', kind: 'task', logicalAddress: 'task:task-1',
+      status: 'waiting', parentWorkId: 'fg:a', sessionId: 'a-task-1',
+    })
+    db.createWork({
+      workId: 'w-bg-answered', workRef: 'W22', botId: 'c', kind: 'task', logicalAddress: 'task:w-bg-answered',
+      status: 'idle', parentWorkId: 'task:task-1', sessionId: 'dm-c',
+    })
+    db.createCall({
+      callId: 'c_w-bg-answered', parentWorkId: 'task:task-1', childWorkId: 'w-bg-answered',
+      callerBotId: 'a', calleeBotId: 'c', returnAddress: 'task:task-1',
+      initialMessage: { dedupKey: 'req-bg-ans', bodyPreview: 'Audit bg', payload: { text: 'Audit bg', role: 'request' } },
+    })
+    const clm = db.claimReady({ workId: 'w-bg-answered' })
+    db.beginDeliveryAttempt({ workId: 'w-bg-answered', claimToken: clm.claimToken, throughSeq: clm.claimedInboxSeq, idempotencyKey: 'dk-bg-ans', sessionId: 'dm-c' })
+  })
 
-  assert.equal(host2.rt.state.works['w-bg-answered'], undefined, 'top-level task work closed via ledger recovery')
-  assert.equal(host2.rt.state.abandonedWorks?.['w-bg-answered'], undefined, 'recovered task work is NOT marked abandoned')
+  const logs = new Map([
+    ['dm-c', [
+      { type: 'turn/start', data: { turn: 1 } },
+      { type: 'user/message', data: { source: { kind: SOURCE_KIND, idempotencyKey: 'dk-bg-ans', role: 'request' }, content: [{ type: 'text', text: 'Audit bg' }] } },
+      { type: 'assistant/message', data: { message: { content: [{ type: 'text', text: 'Recovered background audit answer.' }] } } },
+      { type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } },
+    ]],
+  ])
+
+  const host2 = startHost(t, { home, team, logs })
+  await host2.rt.adoptLiveWork()
+
+  assert.equal(host2.rt.coordDb.getWork('w-bg-answered').status, 'done', 'child work settled via D2 log recovery')
+  await settle(() => host2.agentOf('a-task-1').calls.length === 1)
   const taskDeliveries = host2.agentOf('a-task-1').calls.filter(([kind]) => kind === 'followup')
   assert.equal(taskDeliveries.length, 1, 'waiting_work background task woken with recovered reply')
-  assert.equal(taskDeliveries[0][1].source?.replyTo, 'w-bg-answered')
   assert.match(textOf(taskDeliveries[0][1].content), /Recovered background audit answer\./)
   assert.equal(host2.agentOf('dm-a').calls.length, 0, 'foreground chat is not spammed')
-
-  t.mock.timers.reset()
-  await host2.rt.save()
 })

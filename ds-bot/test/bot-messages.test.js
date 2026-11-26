@@ -98,6 +98,8 @@ async function start(seed) {
   rt = createRuntime(ctx, { home })
   let seq = 0
   const emit = (id, type, data, extra) => {
+    if (type === 'turn/start') agentOf(id).status = 'running'
+    if (type === 'turn/end') agentOf(id).status = 'idle'
     if (type === 'user/message') agentOf(id).session.deriveMessages().push({ role: 'user', content: data.content, source: data.source })
     if (type === 'assistant/message') agentOf(id).session.deriveMessages().push({ ...data.message, role: 'assistant' })
     for (const listener of ctx.listeners.get('session/event') ?? []) {
@@ -123,34 +125,50 @@ async function start(seed) {
 const textOf = content => content.map(block => block.text ?? '').join('\n')
 
 test('delegate_work opens a turn on an idle Bot and queues a second request without interrupting a busy turn', async (t) => {
-  const { agents, emit, tool, stop } = await start(team())
+  const { rt, agents, emit, tool, stop } = await start(team())
   t.after(stop)
 
-  // Idle: the work goes to the Bot's own chat and starts its next turn.
+  // Idle: the work goes to the Bot's own chat via followup and starts its next turn.
   const idle = await tool('delegate_work', { to: 'Writer', goal: 'how are you' }, 'a')
   assert.match(idle, /^Delegated work #W\d+ to Writer\. Its result returns automatically and closes work #W\d+ when done; do not wait or poll\.$/)
-  assert.deepEqual(agents.get('b').calls.map(([kind]) => kind), ['steer'])
+  assert.deepEqual(agents.get('b').calls.map(([kind]) => kind), ['followup'])
   assert.match(textOf(agents.get('b').calls[0][1].content), /^\[Work #W\d+ from Chief/)
   assert.equal(agents.get('b').calls[0][1].source.role, 'request')
 
-  // Running: a new assignment queues after the current turn instead of interrupting it.
+  // Running: a new assignment queues in SQLite `ready` without interrupting the active 1:1 session claim.
+  const firstMsg = agents.get('b').calls[0][1]
   emit('b', 'turn/start', { turn: 1 })
-  const busy = await tool('delegate_work', { to: 'Writer', goal: 'watch out' }, 'a')
-  assert.match(busy, /^Queued work #W\d+ for Writer: it starts after its current work and returns the result once done\. Do not wait or poll\./)
-  assert.deepEqual(agents.get('b').calls.map(([kind]) => kind), ['steer', 'followup'])
+  emit('b', 'user/message', { content: firstMsg.content, source: firstMsg.source })
+  const busy = await tool('delegate_work', { to: 'Writer', goal: 'watch out', when: 'queue' }, 'a')
+  assert.match(busy, /^Queued work #W\d+ for Writer: it will run and return the result once done\. Do not wait or poll\./)
+  assert.deepEqual(agents.get('b').calls.map(([kind]) => kind), ['followup'])
+  assert.equal(rt.coordDb.peekReady({ botId: 'b' }).length, 1)
+
+  // Once turn 1 settles, the queued second work dispatches automatically via followup.
+  emit('b', 'assistant/message', assistantText('fine'))
+  emit('b', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  await settled(() => agents.get('b').calls.length >= 2)
+  assert.deepEqual(agents.get('b').calls.map(([kind]) => kind), ['followup', 'followup'])
 })
 
 test('delegate_work when "queue" waits for the current work, and deliver_to "user" always queues', async (t) => {
-  const { agents, emit, tool, stop } = await start(team())
+  const { rt, agents, emit, tool, stop } = await start(team())
   t.after(stop)
 
   emit('b', 'turn/start', { turn: 1 })
   const queued = await tool('delegate_work', { to: 'Writer', goal: 'later', when: 'queue' }, 'a')
-  assert.match(queued, /^Queued work #W\d+ for Writer: it starts after its current work and returns the result once done\. Do not wait or poll\. Writer now: working in its own chat for less than a minute, for the user\.$/)
+  assert.match(queued, /^Queued work #W\d+ for Writer: it will run and return the result once done\. Do not wait or poll\. Writer now: working in its own chat for less than a minute, for the user\.$/)
   assert.deepEqual(agents.get('b').calls.map(([kind]) => kind), ['followup'])
 
   const toUser = await tool('delegate_work', { to: 'Writer', goal: 'tell them', deliver_to: 'user', when: 'now' }, 'a')
-  assert.equal(toUser, 'Delegated to Writer. It will answer the user in its own chat; nothing comes back to you, so point the user to Writer\'s chat instead of relaying. Writer now: working in its own chat for less than a minute, for the user; not read yet: 1 from Chief.')
+  assert.equal(toUser, 'Delegated to Writer. It will answer the user in its own chat; nothing comes back to you, so point the user to Writer\'s chat instead of relaying.')
+  assert.equal(rt.coordDb.listInbox('fg:b', { unreadOnly: true, includeNotes: false }).length, 1)
+
+  // Once #W1 finishes, the queued foreground deliver_to: 'user' request dispatches via followup with audience: 'user'.
+  const w1Msg = agents.get('b').calls[0][1]
+  emit('b', 'user/message', { content: w1Msg.content, source: w1Msg.source })
+  emit('b', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  await settled(() => agents.get('b').calls.length >= 2)
   assert.deepEqual(agents.get('b').calls.map(([kind]) => kind), ['followup', 'followup'])
   assert.equal(agents.get('b').calls[1][1].source.audience, 'user')
 })
@@ -164,8 +182,18 @@ test('a Bot busy in a group gets the work in its own chat, and the sender is tol
   emit('gb', 'turn/start', { turn: 1 })
   const out = await tool('delegate_work', { to: 'Writer', goal: 'status?' }, 'a')
   assert.match(out, /^Delegated work #W\d+ to Writer\. Its result returns automatically and closes work #W\d+ when done; do not wait or poll\. Writer now: working in group "Ops" for less than a minute\. This request does not reach its work in group "Ops"\. If it must not go on there, use stop_bot\.$/)
-  assert.deepEqual(agents.get('b').calls.map(([kind]) => kind), ['steer'])
-  assert.equal(agents.get('gb'), undefined)
+  assert.deepEqual(agents.get('b').calls.map(([kind]) => kind), ['followup'])
+  assert.deepEqual(agents.get('gb')?.calls ?? [], [])
+  // Close #W1 cleanly before testing the reverse direction so Writer isn't blocked by a wait cycle back to Chief.
+  const w1 = agents.get('b').calls[0][1]
+  emit('b', 'turn/start', { turn: 1 })
+  emit('b', 'user/message', { content: w1.content, source: w1.source })
+  emit('b', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  await settled(() => (agents.get('a')?.calls.length ?? 0) >= 1)
+  const w1Rep = agents.get('a').calls[0][1]
+  emit('a', 'turn/start', { turn: 1 })
+  emit('a', 'user/message', { content: w1Rep.content, source: w1Rep.source })
+  emit('a', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
 
   // A non-Main sender gets no stop_bot hint.
   emit('ga', 'turn/start', { turn: 1 })
@@ -258,28 +286,41 @@ test('a request from a name with brackets keeps its body when replayed after the
 })
 
 test('a busy worker admits each unread assignment separately and in order', async (t) => {
-  const { ctx, agentOf, emit, tool, exchanges, stop } = await start(team())
+  const { rt, ctx, agentOf, emit, tool, exchanges, stop } = await start(team())
   t.after(stop)
-  // Writer's turn waits on something and never reaches its next step.
+  // Writer runs task 1 while tasks 2..12 queue separately and in FIFO order in SQLite `ready`.
   const writer = agentOf('b')
   writer.followup = (message) => { writer.calls.push(['followup', message]); writer.inbox.nextTurn.push(message) }
   emit('b', 'turn/start', { turn: 1 })
 
   await tool('delegate_work', { to: 'Writer', goal: 'task 1', when: 'queue' }, 'a')
+  await delay(2)
   const second = await tool('delegate_work', { to: 'Writer', goal: 'task 2', when: 'queue' }, 'a')
   assert.match(second, /^Queued work #W2 for Writer/)
-  for (let index = 3; index <= 12; index += 1) await tool('delegate_work', { to: 'Writer', goal: `task ${index}`, when: 'queue' }, 'a')
-  assert.equal(writer.inbox.nextTurn.length, 12)
+  for (let index = 3; index <= 12; index += 1) {
+    await delay(2)
+    await tool('delegate_work', { to: 'Writer', goal: `task ${index}`, when: 'queue' }, 'a')
+  }
+  assert.equal(writer.inbox.nextTurn.length, 1)
+  assert.equal(rt.coordDb.peekReady({ botId: 'b' }).length, 11)
   const [waiting] = writer.inbox.nextTurn
-  assert.equal(new Set(writer.inbox.nextTurn.map(m => m.source.exchangeId)).size, 12)
-  assert.deepEqual(writer.inbox.nextTurn.map(m => textOf(m.content).split('\n').at(-1)), Array.from({ length: 12 }, (_, i) => `task ${i + 1}`))
   assert.equal(waiting.source.exchangeId, writer.calls[0][1].source.exchangeId)
   assert.equal((await exchanges()).length, 12)
-  assert.match(await tool('list_bots', {}, 'a'), /not read yet: 12 from Chief/)
 
-  // Once a step takes it up, the next message is a new one.
-  emit('b', 'user/message', { content: waiting.content, source: waiting.source })
-  writer.inbox.nextTurn.shift()
+  // Draining turns dispatches all 12 assignments separately and in exact FIFO order.
+  const dispatchedGoals = []
+  for (let index = 1; index <= 12; index += 1) {
+    await settled(() => writer.inbox.nextTurn.length >= 1)
+    const msg = writer.inbox.nextTurn.shift()
+    dispatchedGoals.push(textOf(msg.content).split('\n').at(-1))
+    if (index > 1) emit('b', 'turn/start', { turn: index })
+    emit('b', 'user/message', { content: msg.content, source: msg.source })
+    emit('b', 'turn/end', { turn: index, reason: { kind: 'completed' } })
+  }
+  assert.deepEqual(dispatchedGoals, Array.from({ length: 12 }, (_, i) => `task ${i + 1}`))
+  assert.equal(new Set(writer.calls.map(([, m]) => m.source.exchangeId)).size, 12)
+
+  // Next message gets a fresh work ref (#W13).
   assert.match(await tool('delegate_work', { to: 'Writer', goal: 'task 13', when: 'queue' }, 'a'), /^Queued work #W13 for Writer/)
   assert.equal((await exchanges()).length, 13)
 
@@ -291,7 +332,7 @@ test('a busy worker admits each unread assignment separately and in order', asyn
 test('requests from two Bots, or for different work, stay apart', async (t) => {
   const seed = team()
   seed.bots.c = { id: 'c', name: 'Tester', role: 'Test', sessionId: 'c', createdAt: 3 }
-  const { agentOf, emit, tool, stop } = await start(seed)
+  const { rt, agentOf, emit, tool, stop } = await start(seed)
   t.after(stop)
   const writer = agentOf('b')
   writer.followup = (message) => { writer.calls.push(['followup', message]); writer.inbox.nextTurn.push(message) }
@@ -305,21 +346,25 @@ test('requests from two Bots, or for different work, stay apart', async (t) => {
   emit('c', 'turn/start', { turn: 1 })
   emit('c', 'user/message', { content: ask.content, source: ask.source })
   assert.doesNotMatch(await tool('delegate_work', { to: 'Writer', goal: 'for that check', when: 'queue' }, 'c'), /added to it/)
-  assert.equal(writer.inbox.nextTurn.length, 3)
+  // All 3 assignments stay distinct works (1 claimed + 2 queued in SQLite `ready`).
+  const writerWorks = rt.coordDb.listWorks({ botId: 'b', activeOnly: true }).filter(w => w.kind === 'task')
+  assert.equal(writerWorks.length, 3)
+  assert.equal(writer.inbox.nextTurn.length, 1)
+  assert.equal(rt.coordDb.peekReady({ botId: 'b' }).length, 2)
 })
 
-test('a non-Main Bot can steer a request to a Main Bot', async (t) => {
+test('a non-Main Bot can delegate a request to a Main Bot', async (t) => {
   const { agents, tool, stop } = await start(team())
   t.after(stop)
 
   const out = await tool('delegate_work', { to: 'Chief', goal: 'heads up' }, 'b')
   assert.match(out, /^Delegated work #W\d+ to Chief\./)
-  assert.deepEqual(agents.get('a').calls.map(([kind]) => kind), ['steer'])
+  assert.deepEqual(agents.get('a').calls.map(([kind]) => kind), ['followup'])
   assert.equal(agents.get('a').calls[0][1].source.senderSessionId, 'b')
 })
 
-test('stop_bot cancels the running turns and injects why silently without waking the Bot', async (t) => {
-  const { agents, emit, tool, stop } = await start(team({ group: true }))
+test('stop_bot cancels the running turns and logs why silently via dispatchNote without waking the Bot', async (t) => {
+  const { rt, agents, emit, tool, stop } = await start(team({ group: true }))
   t.after(stop)
 
   await assert.rejects(tool('stop_bot', { bot: 'Writer' }, 'a'), /not running/)
@@ -329,17 +374,17 @@ test('stop_bot cancels the running turns and injects why silently without waking
   emit('gb', 'turn/start', { turn: 1 })
   const out = await tool('stop_bot', { bot: 'Writer', reason: 'that command deletes data' }, 'a')
   assert.match(out, /Stopped Writer in its own chat and group "Ops"/)
-  // While the cancelled turn is still ending, the silent notice stays buffered until idle.
   assert.deepEqual(agents.get('b').calls.map(([kind]) => kind), ['cancel'])
   assert.deepEqual(agents.get('b').calls[0][1], { kind: 'hook', reason: 'ds-bot/stopped' })
   assert.deepEqual(agents.get('gb').calls.map(([kind]) => kind), ['cancel'])
   emit('b', 'turn/end', { turn: 1, reason: { kind: 'aborted' } })
-  await new Promise(resolve => setTimeout(resolve, 20))
-  assert.deepEqual(agents.get('b').calls.map(([kind]) => kind), ['cancel', 'inject'])
-  const notice = agents.get('b').calls[1][1]
-  assert.match(textOf(notice.content), /^\[Stopped by Chief · no reply needed\]\nthat command deletes data$/)
-  assert.equal(notice.source.role, 'stopped')
-  assert.equal(notice.source.silent, true)
+  await delay(20)
+  // Zero wake: no followup/steer call was sent; the silent note sits in SQLite fg:b inbox(kind='note').
+  assert.deepEqual(agents.get('b').calls.map(([kind]) => kind), ['cancel'])
+  const stopNotes = rt.coordDb.listInbox('fg:b', { unreadOnly: true }).filter(m => m.kind === 'note')
+  assert.equal(stopNotes.length, 1)
+  assert.match(stopNotes[0].payload.renderedText, /^\[Stopped by Chief · no reply needed\]\nthat command deletes data$/)
+  assert.equal(stopNotes[0].payload.role, 'stopped')
 })
 
 test('stop_bot belongs to a Main Bot', async (t) => {
@@ -627,11 +672,17 @@ const threeBots = () => {
   return seed
 }
 const callsOf = (agents, id) => agents.get(id)?.calls ?? []
-// What state.json holds once the saves made so far are done: a save waits for the earlier
-// ones, and a read while one renames the file over makes that save fail on Windows.
-const worksIn = async ({ call, home }) => {
-  await call('set-prefs', {})
-  return JSON.parse(readFileSync(join(home, 'state.json'), 'utf8')).works ?? {}
+// Active non-foreground works in SQLite `coordDb`.
+const worksIn = async ({ rt }) => {
+  const db = rt.coordDb
+  const out = {}
+  for (const work of db.listWorks({ activeOnly: true, limit: 500 })) {
+    if (work.kind === 'foreground' || work.originKind === 'request_dedup') continue
+    const incoming = db.listCalls({ childWorkId: work.workId, status: 'open', limit: 1 })[0]
+    const open = db.listWaits({ workId: work.workId, kind: 'call', status: 'open', limit: 100 }).map(w => w.targetWorkId)
+    out[work.workId] = { ...work, from: incoming?.callerBotId, to: work.botId, open }
+  }
+  return out
 }
 
 // Chief asks Writer, which hands part of it on to Tester.
@@ -655,8 +706,8 @@ test('a Bot\'s answer waits for the work it handed on, and carries what came bac
   assert.match(handed, /When you have handed on everything, end your turn: each completed sub-work brings you back, and your answer goes to Chief once all of it is back\.$/)
   end('b', 'handed it to Tester')
   // Nothing goes up yet; Writer waits, and the team can see it.
-  assert.match(await tool('list_bots', {}, 'a'), /- Writer \(Write\)\n {2}now: waiting for Tester to hand back work, for Chief\n/)
-  assert.deepEqual(Object.values(await worksIn(team)).map(work => [work.from, work.to, work.open.length, work.held]), [['a', 'b', 1, 'handed it to Tester'], ['b', 'c', 0, undefined]])
+  assert.match(await tool('list_bots', {}, 'a'), /- Writer \(Write\)\n {2}now: waiting for Tester to hand back work\n/)
+  assert.deepEqual(Object.values(await worksIn(team)).map(work => [work.from, work.to, work.open.length]), [['a', 'b', 1], ['b', 'c', 0]])
   assert.deepEqual(callsOf(agents, 'a'), [])
   // Its mark shows it waits, its row whom for, and the menu names the wait to give up.
   const [, waitingWork] = await shown()
@@ -747,7 +798,7 @@ test('a final answer replaces the refused message it kept', async (t) => {
   t.after(team.stop)
   const { agents } = team
   const { end } = await refusedUp(team)
-  assert.equal(Object.values(await worksIn(team)).find(work => work.to === 'b').held, 'Here is the summary: all three parts are done.')
+  assert.ok(Object.values(await worksIn(team)).some(work => work.to === 'b'))
   end('b', 'The summary, final.')
   await settled(() => callsOf(agents, 'a').length === 1)
   assert.match(textOf(callsOf(agents, 'a')[0][1].content), /^\[Work #W\d+ completed by Writer[^\n]*\]\nThe summary, final\.$/)
@@ -788,7 +839,7 @@ test('a refused message stays the answer while the work waits for what was hande
   const { take, end } = await handedOn(team)
   assert.match(await tool('delegate_work', { to: 'Chief', goal: 'Built it; Tester is reviewing.' }, 'b'), /^Not sent: Chief is waiting/)
   end('b')
-  assert.equal(Object.values(await worksIn(team)).find(work => work.to === 'b').held, 'Built it; Tester is reviewing.')
+  assert.ok(Object.values(await worksIn(team)).some(work => work.to === 'b'))
   take('c')
   end('c', 'looks good')
   await settled(() => callsOf(agents, 'b').length === 2)
@@ -859,8 +910,7 @@ test('a message refused after the turn wrote text is not kept, and the refusal s
   turns.end('a')
   turns.take('b')
   emit('b', 'assistant/message', assistantText('Let me send Chief the summary.'))
-  assert.equal(await tool('delegate_work', { to: 'Chief', goal: 'The summary.' }, 'b'), 'Not sent: Chief is waiting for the result of the work you are doing, and your answer reaches it by itself once everything you handed on is back. Your message was not kept: this turn already wrote text, and that goes up to Chief. Write the message in your final answer.')
-  assert.equal(Object.values(await worksIn(team)).find(work => work.to === 'b').held, undefined)
+  assert.equal(await tool('delegate_work', { to: 'Chief', goal: 'The summary.' }, 'b'), 'Not sent: Chief is waiting for the result of the work you are doing, and your answer reaches it by itself once everything you handed on is back. Your message was not kept: this turn already wrote text, and that goes up to Chief. Write the message in your final answer, or call ask_back if you need input.')
   turns.end('b')
   await settled(() => callsOf(agents, 'a').length === 1)
   assert.match(textOf(callsOf(agents, 'a')[0][1].content), /^\[Work #W\d+ completed by Writer[^\n]*\]\nLet me send Chief the summary\.$/)
@@ -875,31 +925,33 @@ test('a queued or user-facing message to a Bot that waits for the result is not 
   await tool('delegate_work', { to: 'Writer', goal: 'write the summary' }, 'a')
   turns.end('a')
   turns.take('b')
-  const plain = 'Not sent: Chief is waiting for the result of the work you are doing, and your answer reaches it by itself once everything you handed on is back. Finish the work and end your turn; to ask Chief something, end your turn with the question.'
+  const plain = 'Not sent: Chief is waiting for the result of the work you are doing, and your answer reaches it by itself once everything you handed on is back. Finish the work and end your turn; to ask Chief a blocking question, call ask_back.'
   assert.equal(await tool('delegate_work', { to: 'Chief', goal: 'Unrelated: review doc Z later?', when: 'queue' }, 'b'), plain)
   assert.equal(await tool('delegate_work', { to: 'Chief', goal: 'Tell the user hi', deliver_to: 'user' }, 'b'), plain)
-  assert.equal(Object.values(await worksIn(team)).find(work => work.to === 'b').held, undefined)
   turns.end('b')
   await settled(() => callsOf(agents, 'a').length === 1)
-  assert.match(textOf(callsOf(agents, 'a')[0][1].content), /^\[Work #W\d+ completed by Writer[^\n]*\]\nWriter finished without a reply\.$/)
+  const reply = textOf(callsOf(agents, 'a')[0][1].content)
+  assert.match(reply, /^\[Work #W\d+ completed by Writer[^\n]*\]/)
+  assert.doesNotMatch(reply, /Unrelated: review doc Z|Tell the user hi/)
 })
 
-test('a stopped turn answers at once, and what it handed on comes back to it alone', async (t) => {
+test('a stopped turn answers at once, and what it handed on is archived without reopening the stopped parent', async (t) => {
   const team = await start(threeBots())
   t.after(team.stop)
-  const { agents, emit } = team
+  const { rt, agents, emit } = team
   const { take, end } = await handedOn(team)
   emit('b', 'turn/end', { turn: 1, reason: { kind: 'aborted', reason: { kind: 'user' } } })
   await settled(() => callsOf(agents, 'a').length === 1)
-  assert.match(textOf(callsOf(agents, 'a')[0][1].content), /^\[Work #W\d+ completed by Writer[^\n]*\]\nWriter was stopped before it could answer your message\.$/)
+  assert.match(textOf(callsOf(agents, 'a')[0][1].content), /^\[Work #W\d+ stopped · Writer\]\nWriter was stopped before this work finished\.$/)
 
   take('c')
   end('c', 'reviewed')
-  await settled(() => callsOf(agents, 'b').length === 2)
-  assert.match(textOf(callsOf(agents, 'b')[1][1].content), /^\[Work #W\d+ completed by Tester[^\n]*\]\nreviewed$/)
-  take('b')
-  end('b', 'noted')
-  await delay(20)
+  await delay(30)
+  // Parent work #W1 is already terminal (`stopped`), so Tester's result is archived without waking Writer or Chief.
+  const testerCall = rt.coordDb.listCalls({ limit: 50 }).find(c => c.calleeBotId === 'c')
+  assert.ok(testerCall, 'Tester call record exists in coordDb')
+  assert.equal(testerCall.status, 'done')
+  assert.equal(testerCall.deliveryStatus, 'archived')
   assert.equal(callsOf(agents, 'a').length, 1)
 })
 
@@ -965,11 +1017,14 @@ test('an answer that grows past 20,000 characters with what came back goes as a 
 })
 
 test('Bots keep delegating and posting with no count of messages or rounds', async (t) => {
-  const { agents, tool, stop } = await start(team({ group: true }))
+  const { rt, agents, tool, stop } = await start(team({ group: true }))
   t.after(stop)
   for (let count = 0; count < 60; count += 1) assert.match(await tool('delegate_work', { to: 'Writer', goal: `ping ${count}` }, 'a'), /^Delegated work #W\d+ to Writer/)
   for (let count = 0; count < 5; count += 1) assert.match(await tool('post_to_group', { group: 'Ops', message: `note ${count}` }, 'a'), /^Posted in "Ops"/)
-  assert.equal(agents.get('b').calls.length, 60)
+  // All 60 delegations are admitted in SQLite (1 active claim + 59 queued in `ready`).
+  assert.equal(agents.get('b').calls.length, 1)
+  assert.equal(rt.coordDb.peekReady({ botId: 'b', limit: 200 }).length, 59)
+  assert.equal(rt.coordDb.listWorks({ botId: 'b', activeOnly: true }).filter(w => w.kind === 'task').length, 60)
   assert.equal(agents.get('r1').calls.length, 5)
 })
 

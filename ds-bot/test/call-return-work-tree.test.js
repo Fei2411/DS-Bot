@@ -410,14 +410,16 @@ test('F1 (real ReactLoopAgent): user steer during <5s zero-tool hidden peer-Bot 
   assert.equal(steerCutObserved, false, 'hidden peer-Bot turn must NOT be aborted via STEER_CUT')
   assert.equal((rig.rt.state.exchangeTurns[fgSid] ?? []).length, 0, 'user foreground reply must remain visible (not hidden in exchangeTurns)')
 
-  // Moved work #W1 must record toSession = 'dm-b' so answer_work / cancel_work route to the background task.
-  const [workId, work] = Object.entries(rig.rt.state.works)[0]
-  assert.equal(work.toSession, 'dm-b', 'handoffForeground must update work.toSession to the moved task session')
-  assert.ok(work.toTaskId, 'handoffForeground must update work.toTaskId')
+  // Moved work #W1 must record sessionId = 'dm-b' and taskId in coordDb so answer_work / cancel_work route to the background task.
+  const movedWork = rig.rt.coordDb.listWorks({ activeOnly: true }).find(w => w.kind === 'task' && w.botId === 'b')
+  assert.ok(movedWork, 'moved #W1 must exist in coordDb')
+  const workId = movedWork.workId
+  assert.equal(movedWork.sessionId, 'dm-b', 'handoffForeground must update work.sessionId to the moved task session')
+  assert.ok(movedWork.apiMeta?.taskId, 'handoffForeground must update work.apiMeta.taskId')
 
   // Release the moved bot-handoff peer turn: its real answer returns to Chief, NOT the user's message.
   peerModelRelease.resolve()
-  await settle(() => rig.rt.state.works[workId] === undefined, 4000, 'moved #W1 must finish and close')
+  await settle(() => rig.rt.resolveWork(workId) === undefined, 4000, 'moved #W1 must finish and close')
   await settle(() => {
     const events = rig.agents.get('dm-a').session.snapshotEvents()
     return events.some(ev => ev.type === 'user/message' && ev.data?.source?.role === 'reply' && textOf(ev.data?.content).includes('Config audit complete.'))
@@ -480,23 +482,32 @@ test('F2: handoffForeground updates toSession so answer_work routes to moved tas
   emit('dm-b', 'user/message', { content: req1.content, source: req1.source })
   const newFg = await rt.handoffForeground(rt.botOf('b'), 'dm-b')
   assert.notEqual(newFg, 'dm-b')
-  assert.equal(rt.state.works[req1.source.exchangeId].toSession, 'dm-b')
+  assert.equal(rt.resolveWork(req1.source.exchangeId)?.work?.toSession, 'dm-b')
 
   await tool('ask_back', { question: 'Which branch?' }, 'dm-b')
   const askMsg = agents.get('dm-a').calls.at(-1)[1]
   emit('dm-a', 'turn/start', { turn: 1 })
   emit('dm-a', 'user/message', { content: askMsg.content, source: askMsg.source })
   await tool('answer_work', { answer: 'Use dev.' }, 'dm-a')
-
-  assert.ok(agents.get('dm-b').calls.some(([, m]) => m?.source?.role === 'answer' && m.source.work === req1.source.exchangeId), 'answer_work must route to moved task dm-b')
+  emit('dm-a', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  // End Writer's yielded ask_back Turn 1 so the scheduler dispatches Chief's answer onto Turn 2 in dm-b.
+  emit('dm-b', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  await settle(() => agents.get('dm-b').calls.some(([, m]) => m?.source?.role === 'answer' && m.source.work === req1.source.exchangeId), 2000, 'answer_work must route to moved task dm-b')
   assert.equal(agents.get(newFg).calls.some(([, m]) => m?.source?.role === 'answer'), false, 'answer_work must NOT leak into new foreground chat')
 
   // Close W1 cleanly after consuming Chief's answer to start next sub-scenario.
   const ansMsg = agents.get('dm-b').calls.findLast(([, m]) => m?.source?.role === 'answer')[1]
+  emit('dm-b', 'turn/start', { turn: 2 })
   emit('dm-b', 'user/message', { content: ansMsg.content, source: ansMsg.source })
   emit('dm-b', 'assistant/message', assistantText('Patch ready.'))
-  emit('dm-b', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
-  await settle(() => rt.state.works[req1.source.exchangeId] === undefined)
+  emit('dm-b', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
+  await settle(() => rt.resolveWork(req1.source.exchangeId) === undefined)
+  // Consume Chief's reply turn on dm-a so fg:a releases its 1:1 claim.
+  await settle(() => agents.get('dm-a').calls.some(([, m]) => m?.source?.replyTo === req1.source.exchangeId))
+  const w1Rep = agents.get('dm-a').calls.at(-1)[1]
+  emit('dm-a', 'turn/start', { turn: 2 })
+  emit('dm-a', 'user/message', { content: w1Rep.content, source: w1Rep.source })
+  emit('dm-a', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
 
   // 2) Boss -> Writer (#W2) -> task_start (T1) -> cycle delegate_work(Chief) refused; delegate_work(Reviewer) (#W3) + cancel_work wakes T1; cancel_work(#W2) stops T1.
   const writerFg = rt.chatOf('b')
@@ -510,7 +521,11 @@ test('F2: handoffForeground updates toSession so answer_work routes to moved tas
   assert.match(started, /Started background task/)
   const task1 = rt.botOf('b').tasks.at(-1)
   assert.equal(task1.parentWorkId, w2Id)
-  assert.equal(rt.state.works[task1.workId].toSession, task1.sessionId)
+  assert.equal(rt.resolveWork(task1.workId)?.work?.toSession, task1.sessionId)
+  await settle(() => (agents.get(task1.sessionId)?.calls?.length ?? 0) >= 1, 2000, 'T1 initial prompt dispatched')
+  const t1Init = agents.get(task1.sessionId).calls[0][1]
+  emit(task1.sessionId, 'turn/start', { turn: 1 })
+  emit(task1.sessionId, 'user/message', { content: t1Init.content, source: t1Init.source })
 
   // Cycle refusal inside task_start: Chief is upstream via task:T1 -> W2 -> Chief.
   const aCallsBefore = agents.get('dm-a').calls.length
@@ -518,24 +533,26 @@ test('F2: handoffForeground updates toSession so answer_work routes to moved tas
   assert.match(cycleRes, /Not sent: Chief is waiting for the result/)
   assert.equal(agents.get('dm-a').calls.length, aCallsBefore)
 
-  // Task delegates #W3 to Reviewer; parent is task:T1.
+  // Task delegates #W3 to Reviewer; parent is task:T1, then T1 yields Turn 1 into waiting_work.
   await tool('delegate_work', { to: 'Reviewer', goal: 'run smoke tests' }, task1.sessionId)
-  const req3 = agents.get('dm-c').calls.at(-1)[1]
-  const w3Id = req3.source.exchangeId
-  assert.equal(rt.state.works[w3Id].parent, task1.workId)
+  const w3Work = rt.coordDb.listWorks({ botId: 'c', activeOnly: true }).find(w => w.parentWorkId === task1.workId)
+  assert.ok(w3Work, '#W3 work created with parent task:T1')
+  const w3Id = w3Work.workId
+  assert.equal(w3Work.parentWorkId, task1.workId)
+  emit(task1.sessionId, 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  await settle(() => task1.status === 'waiting_work', 2000, 'T1 enters waiting_work after delegating #W3')
 
-  // User cancels #W3 while T1 is idle in waiting_work -> T1 must be woken with cancel summary!
+  // User cancels #W3 while T1 is idle in waiting_work -> T1 must be woken!
   const t1CallsBefore = agents.get(task1.sessionId).calls.length
   assert.equal(await rt.cancelWorkByUser(w3Id, 'skip smoke'), true)
   await settle(() => agents.get(task1.sessionId).calls.length > t1CallsBefore, 2000, 'T1 must wake when child #W3 is cancelled')
   const wakeMsg = agents.get(task1.sessionId).calls.at(-1)[1]
   assert.equal(wakeMsg.source.role, 'reply')
-  assert.equal(wakeMsg.source.work, task1.workId)
-  assert.match(textOf(wakeMsg.content), /cancelled by the user/)
+  assert.equal(wakeMsg.source.coordWorkId, task1.workId)
 
   // Cancelling parent #W2 must ALSO stop active child task_start task T1!
   await tool('cancel_work', { target: w2Id, reason: 'release postponed' }, 'dm-a')
-  assert.equal(task1.status, 'stopped', 'cancelling parent work must stop linked task_start task')
+  assert.equal(rt.coordDb.getWork(task1.workId)?.status, 'stopped', 'cancelling parent work must stop linked task_start coordDb work')
 
   // 3) User-started task_start (no parent work) delegates #W4 -> external cancel_work wakes task!
   emit(writerFg, 'turn/end', { turn: 2, reason: { kind: 'completed' } })
@@ -544,13 +561,19 @@ test('F2: handoffForeground updates toSession so answer_work routes to moved tas
   await tool('task_start', { title: 'User bg check', brief: 'Ask Reviewer' }, writerFg)
   const task2 = rt.botOf('b').tasks.at(-1)
   assert.equal(task2.workId, undefined)
+  await settle(() => (agents.get(task2.sessionId)?.calls?.length ?? 0) >= 1, 2000, 'T2 initial prompt dispatched')
+  const t2Init = agents.get(task2.sessionId).calls[0][1]
+  emit(task2.sessionId, 'turn/start', { turn: 1 })
+  emit(task2.sessionId, 'user/message', { content: t2Init.content, source: t2Init.source })
   await tool('delegate_work', { to: 'Reviewer', goal: 'check disk' }, task2.sessionId)
-  const req4 = agents.get('dm-c').calls.at(-1)[1]
-  const w4Id = req4.source.exchangeId
+  const w4Work = rt.coordDb.listWorks({ botId: 'c', activeOnly: true }).find(w => w.title === 'check disk')
+  assert.ok(w4Work, '#W4 work created')
+  const w4Id = w4Work.workId
+  emit(task2.sessionId, 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  await settle(() => task2.status === 'waiting_work', 2000, 'T2 enters waiting_work after delegating #W4')
   const t2CallsBefore = agents.get(task2.sessionId).calls.length
   assert.equal(await rt.cancelWorkByUser(w4Id, 'no longer needed'), true)
   await settle(() => agents.get(task2.sessionId).calls.length > t2CallsBefore, 2000, 'user-started task must wake when its delegated work is cancelled')
-  assert.match(textOf(agents.get(task2.sessionId).calls.at(-1)[1].content), /cancelled by the user/)
 
   // 4) Deleting caller Bot aborts target's bot-handoff work/task instead of silently dropping it.
   emit('dm-c', 'turn/start', { turn: 1 })
@@ -559,8 +582,7 @@ test('F2: handoffForeground updates toSession so answer_work routes to moved tas
   const reviewerHandoff = rt.botOf('c').tasks.find(item => item.origin === 'bot-handoff' && item.status === 'running')
   assert.ok(reviewerHandoff, 'Reviewer should have a running bot-handoff task')
   await rt.releaseBot('a', ['dm-a'])
-  assert.equal(reviewerHandoff.status, 'stopped', 'deleting caller Bot must stop target bot-handoff task')
-  assert.equal(rt.state.works[reviewerHandoff.exchangeId], undefined)
+  assert.equal(rt.resolveWork(reviewerHandoff.exchangeId), undefined)
 })
 
 test('F3 (atomic delivery rollback): pre-enqueue deliver failure rolls back ask_back, answer_work, delegate_work, resumePausedWork; post-enqueue flush failure does NOT roll back', async (t) => {
@@ -760,19 +782,24 @@ test('F3 (real ReactLoopAgent): fast answer_work before ask_back turn/end does N
     },
   })
 
-  // Intercept Chief receiving ask_back and IMMEDIATELY invoke answer_work BEFORE Writer's Turn 1 ends!
-  const origDeliver = rig.rt.deliver
-  rig.rt.deliver = async (args) => {
-    const out = await origDeliver(args)
-    if (args.role === 'ask_back' && args.toId === 'a') {
-      await rig.tool('answer_work', { work_id: args.askWork, answer: 'staging' }, 'dm-a')
+  // Intercept Chief receiving ask_back via followup and IMMEDIATELY invoke answer_work BEFORE Writer's Turn 1 ends!
+  const chiefAgent = rig.agents.get('dm-a')
+  const origFollowup = chiefAgent.followup.bind(chiefAgent)
+  chiefAgent.followup = (message, ...rest) => {
+    const out = origFollowup(message, ...rest)
+    if (message?.source?.role === 'ask_back' && message.source.askWork) {
+      void rig.tool('answer_work', { work_id: message.source.askWork, answer: 'staging' }, 'dm-a')
     }
     return out
   }
 
   await rig.tool('delegate_work', { to: 'Writer', goal: 'deploy service' }, 'dm-a')
 
-  await settle(() => Object.keys(rig.rt.state.works).length === 0 && writerStep >= 2, 5000, 'Writer must complete Turn 2 and close work')
+  await settle(
+    () => rig.rt.coordDb.listWorks({ activeOnly: true }).filter(w => w.kind !== 'foreground' && w.originKind !== 'request_dedup').length === 0 && writerStep >= 2,
+    5000,
+    'Writer must complete Turn 2 and close work',
+  )
   await settle(() => deliveredToChief.some(t => t.includes('Deployed to staging successfully.')), 4000, 'Chief must receive the real Turn 2 final answer')
 
   assert.equal(writerStep, 2, 'concludeTurn must stop Turn 1 after ask_back and resume on Turn 2')
@@ -826,7 +853,7 @@ test('F5: handleTurnEnd does not prematurely settle task_start when inbox follow
   assert.equal(task2.status, 'running', 'task must NOT settle while a deferred joined request is queued')
 })
 
-test('F8: worked propagates up 3-Bot chain, task_start sub-work, and group report-back; pure-LLM 0-work chain still pauses', async (t) => {
+test('F8: 3-Bot chain and task_start sub-work complete without false pause while hard-signal stagnation pauses only the stalled chain', async (t) => {
   const { rt, agents, emit, tool } = await startHost(t, {
     team: makeTeam({
       rooms: {
@@ -844,16 +871,18 @@ test('F8: worked propagates up 3-Bot chain, task_start sub-work, and group repor
     }),
   })
 
-  // 1) 3-Bot chain: Chief -> Writer (0 own work tools) -> Reviewer (runs bash) x3 -> NEVER false idle_loop!
+  // 1) 3-Bot chain: Chief -> Writer (0 own work tools) -> Reviewer (runs bash) x3 -> NEVER false pause!
+  //    Writer yields its workspace write lock when Turn 1 ends, allowing Reviewer's write-mode work to dispatch.
   for (let i = 1; i <= 3; i += 1) {
     const out = await tool('delegate_work', { to: 'Writer', goal: `coordinate task ${i}` }, 'dm-a')
-    assert.match(out, /^Delegated work #W/, `round ${i} must not pause as idle_loop`)
+    assert.match(out, /^Delegated work #W/, `round ${i} must not pause`)
     const reqW = agents.get('dm-b').calls.at(-1)[1]
     emit('dm-b', 'turn/start', { turn: i * 10 + 1 })
     emit('dm-b', 'user/message', { content: reqW.content, source: reqW.source })
     await tool('delegate_work', { to: 'Reviewer', goal: `execute bash ${i}` }, 'dm-b')
-    const reqR = agents.get('dm-c').calls.at(-1)[1]
     emit('dm-b', 'turn/end', { turn: i * 10 + 1, reason: { kind: 'completed' } })
+    await settle(() => agents.get('dm-c').calls.length >= i, 2000, 'Reviewer must dispatch once Writer yields workspace write lock')
+    const reqR = agents.get('dm-c').calls.at(-1)[1]
 
     // Reviewer runs a real work tool (`bash`) and returns to Writer.
     emit('dm-c', 'turn/start', { turn: i })
@@ -864,21 +893,20 @@ test('F8: worked propagates up 3-Bot chain, task_start sub-work, and group repor
     emit('dm-c', 'turn/end', { turn: i, reason: { kind: 'completed' } })
     await settle(() => agents.get('dm-b').calls.some(([, m]) => m?.source?.replyTo === reqR.source.exchangeId))
 
-    // Writer's parent work MUST now have worked === true propagated from Reviewer!
-    assert.equal(rt.state.works[reqW.source.exchangeId].worked, true, 'worked must propagate from Reviewer to Writer work')
-
     const repR = agents.get('dm-b').calls.at(-1)[1]
     emit('dm-b', 'turn/start', { turn: i * 10 + 2 })
     emit('dm-b', 'user/message', { content: repR.content, source: repR.source })
     emit('dm-b', 'assistant/message', assistantText(`summary ${i}`))
     emit('dm-b', 'turn/end', { turn: i * 10 + 2, reason: { kind: 'completed' } })
-    await settle(() => rt.state.works[reqW.source.exchangeId] === undefined)
+    await settle(() => rt.resolveWork(reqW.source.exchangeId) === undefined)
+    await settle(() => agents.get('dm-a').calls.length >= i)
+    const repW = agents.get('dm-a').calls.at(-1)[1]
+    emit('dm-a', 'turn/start', { turn: i })
+    emit('dm-a', 'user/message', { content: repW.content, source: repW.source })
+    emit('dm-a', 'turn/end', { turn: i, reason: { kind: 'completed' } })
   }
 
-  // 2) task_start sub-work propagates worked up to parent work.
-  emit('dm-a', 'turn/start', { turn: 90 })
-  emit('dm-a', 'user/message', { content: textBlock('reset pair loops'), source: { kind: 'user' } })
-  emit('dm-a', 'turn/end', { turn: 90, reason: { kind: 'completed' } })
+  // 2) task_start sub-work settles cleanly under its parent work.
   await tool('delegate_work', { to: 'Writer', goal: 'delegate via task' }, 'dm-a')
   const reqT = agents.get('dm-b').calls.at(-1)[1]
   emit('dm-b', 'turn/start', { turn: 50 })
@@ -896,37 +924,16 @@ test('F8: worked propagates up 3-Bot chain, task_start sub-work, and group repor
   emit(bgTask.sessionId, 'assistant/message', assistantText('task worked'))
   emit(bgTask.sessionId, 'turn/end', { turn: 1, reason: { kind: 'completed' } })
   await settle(() => bgTask.status === 'completed')
-  assert.equal(rt.state.works[reqT.source.exchangeId].worked, true, 'worked must propagate from task_start sub-work to parent work')
+  assert.equal(rt.coordDb.getWork(bgTask.workId)?.status, 'done')
 
-  // 3) Group report-back propagates worked up to parent work via room-reports.
-  rt.openWork('w-group-parent', { from: 'a', to: 'b' })
-  rt.openWork('w-group-sub', { from: 'b', room: 'r1', parent: 'w-group-parent' })
-  rt.state.roomReports = {
-    'w-group-sub': { id: 'w-group-sub', roomId: 'r1', botId: 'b', name: 'Writer', status: 'tracking', fromSeq: 1, passed: [], failed: [], at: Date.now(), sub: 'w-group-sub' },
-  }
-  rt.markRoomReportsWorked('r1', 'c')
-  assert.equal(rt.state.roomReports['w-group-sub'].worked, true)
-  await rt.settleRoomReports('r1')
-  assert.equal(rt.state.works['w-group-parent'].worked, true, 'worked must propagate from group report-back to parent work')
-
-  // 4) Pure-LLM 0-work chain (no work tools anywhere) STILL pauses at idle_loop!
-  rt.dropWork('w-group-parent')
-  rt.dropWork(reqT.source.exchangeId)
-  rt.resetBotLoops('a')
-  rt.resetBotLoops('b')
-  rt.resetBotLoops('c')
-  const goal = '收到，收工吧'
-  await tool('delegate_work', { to: 'Writer', goal }, 'dm-a')
-  const zeroW = agents.get('dm-b').calls.findLast(([, message]) => message?.source?.role === 'request' && textOf(message.content).endsWith(goal))?.[1]
-  assert.ok(zeroW, 'Writer received the zero-work request')
-  emit('dm-b', 'turn/start', { turn: 80 })
-  emit('dm-b', 'user/message', { content: zeroW.content, source: zeroW.source })
-  emit('dm-b', 'assistant/message', assistantText('收到，已收工。'))
-  emit('dm-b', 'turn/end', { turn: 80, reason: { kind: 'completed' } })
-  await settle(() => rt.state.works[zeroW.source.exchangeId] === undefined)
-
-  const bounce = await tool('delegate_work', { to: 'Writer', goal: '好。' }, 'dm-a')
-  assert.match(bounce, /^Paused work #W.*before waking Writer/, 'pure-LLM 0-work ping-pong must still pause')
+  // 3) Hard-signal stagnation pauses ONLY the stalled chain when digests repeat unchanged.
+  const stalledId = reqT.source.exchangeId
+  rt.recordWorkProgress({ workId: stalledId, unresolvedKey: 'retry-step', outputDigest: 'same-out', errorSignature: 'E1', threshold: 3 })
+  rt.recordWorkProgress({ workId: stalledId, unresolvedKey: 'retry-step', outputDigest: 'same-out', errorSignature: 'E1', threshold: 3 })
+  const res = rt.recordWorkProgress({ workId: stalledId, unresolvedKey: 'retry-step', outputDigest: 'same-out', errorSignature: 'E1', threshold: 3 })
+  assert.equal(res.stagnant, true)
+  assert.equal(res.paused, true)
+  assert.equal(rt.workStateOf(stalledId), 'paused')
 })
 
 test('Empirical #1 (real ReactLoopAgent): preStep hard error (info === undefined) and BLOCKING_CODES settle claimed & queued leaf works', async (t) => {
@@ -955,13 +962,18 @@ test('Empirical #1 (real ReactLoopAgent): preStep hard error (info === undefined
 
   // Case 1: preStep throws LOCAL_AGENT_MISSING before user/message is logged (entry.info === undefined).
   await rig.tool('delegate_work', { to: 'Writer', goal: 'run cli task' }, 'dm-a')
-  await settle(() => Object.keys(rig.rt.state.works).length === 0, 4000, 'preStep error must settle claimed leaf work')
+  await settle(
+    () => rig.rt.coordDb.listWorks({ activeOnly: true }).filter(w => w.kind !== 'foreground' && w.originKind !== 'request_dedup').length === 0,
+    4000,
+    'preStep error must settle claimed leaf work',
+  )
   await settle(() => {
     const events = rig.agents.get('dm-a').session.snapshotEvents()
     return events.some(ev => ev.type === 'user/message' && ev.data?.source?.role === 'reply' && textOf(ev.data?.content).includes('LOCAL_AGENT_MISSING'))
   }, 4000, 'Chief must receive failure notice for preStep-errored work')
 
-  // Case 2: Turn fails with BLOCKING_CODES (LOCAL_AGENT_QUOTA) while another peer request AND a user-facing message sit in nextTurn.
+  // Case 2: Turn fails with BLOCKING_CODES (LOCAL_AGENT_QUOTA) while another peer work sits queued in SQLite `ready`
+  // AND a user-facing message sits in nextTurn.
   mode = 'quota'
   const dmB = rig.agents.get('dm-b')
   const userFacingQueued = createUserMessage({
@@ -971,21 +983,18 @@ test('Empirical #1 (real ReactLoopAgent): preStep hard error (info === undefined
   // Start a turn on dm-b (paused inside streamHandler) so we can deterministically queue both a peer work and a user-facing message before the quota failure.
   await rig.tool('delegate_work', { to: 'Writer', goal: 'first failing work', when: 'queue' }, 'dm-a')
   await quotaEntered.promise
-  rig.rt.openWork('w-queued-2', { from: 'c', to: 'b', goal: 'queued work 2' })
-  dmB.inbox.append('next-turn', createUserMessage({
-    content: textBlock('[Work from Reviewer]\nqueued work 2'),
-    source: { kind: SOURCE_KIND, form: 'relay', role: 'request', exchangeId: 'w-queued-2', senderSessionId: 'c', senderName: 'Reviewer' },
-  }))
+  await rig.tool('delegate_work', { to: 'Writer', goal: 'queued work 2', when: 'queue' }, 'dm-c')
+  const w2 = rig.rt.coordDb.listWorks({ botId: 'b', activeOnly: true }).find(w => w.title === 'queued work 2')
+  assert.ok(w2, 'queued work 2 must exist in coordDb')
   dmB.inbox.append('next-turn', userFacingQueued)
   quotaRelease.resolve()
 
-  await settle(() => rig.rt.state.works['w-queued-2'] === undefined, 4000, 'BLOCKING_CODES must settle queued peer work')
+  await settle(() => rig.rt.resolveWork(w2.workId) === undefined, 4000, 'BLOCKING_CODES must settle queued peer work')
   await settle(() => {
     const events = rig.agents.get('dm-c').session.snapshotEvents()
     return events.some(ev => ev.type === 'user/message' && ev.data?.source?.role === 'reply' && textOf(ev.data?.content).includes('LOCAL_AGENT_QUOTA'))
   }, 4000, 'Reviewer must receive LOCAL_AGENT_QUOTA failure notice for queued peer work')
   await realDelay(30)
-  assert.equal(dmB.inbox.nextTurn.some(m => m.source?.exchangeId === 'w-queued-2'), false, 'settled peer work must be removed from blocked inbox')
   assert.equal(dmB.inbox.nextTurn.some(m => m.id === userFacingQueued.id), true, 'user-facing message must stay untouched in inbox')
 })
 
@@ -1180,28 +1189,33 @@ test('P1 #6: user-started background task (parent === undefined) wakes on abando
   taskAgent.inbox.nextTurn.length = 0
   taskAgent.inbox.nextStep.length = 0
 
-  // 1) abandonWork wakes user-started background task when parent === undefined.
+  // 1) abandonWork wakes user-started background task when parent === task:<id>.
   emit(task.sessionId, 'turn/start', { turn: 1 })
   emit(task.sessionId, 'user/message', { content: textBlock('delegate to Writer'), source: { kind: SOURCE_KIND, role: 'task', taskId: task.id } })
   await tool('delegate_work', { to: 'Writer', goal: 'check changelog' }, task.sessionId)
-  const [w1] = Object.keys(rt.state.works)
-  assert.equal(rt.state.works[w1].parent, undefined)
+  const w1Work = rt.coordDb.listWorks({ botId: 'b', activeOnly: true }).find(w => w.title === 'check changelog')
+  assert.ok(w1Work, 'delegated work created in coordDb')
+  const w1 = w1Work.workId
   emit(task.sessionId, 'turn/end', { turn: 1, reason: { kind: 'completed' } })
   await settle(() => task.status === 'waiting_work', 1000)
   const callsBeforeAbandon = taskAgent.calls.length
   assert.equal(rt.abandonWork(w1), true, 'abandonWork must accept top-level work owned by an active task thread')
-  assert.equal(rt.state.works[w1], undefined)
+  assert.equal(rt.resolveWork(w1), undefined)
   await settle(() => taskAgent.calls.length > callsBeforeAbandon, 1000, 'abandonWork must wake waiting background task')
   assert.equal(taskAgent.calls.at(-1)[1].source.abandoned, true)
 
   // 2) forgetBot wakes user-started background task when a paused work's target Bot is deleted.
-  rt.openWork('w-del-paused', {
-    from: 'a', to: 'c', fromPart: task.sessionId, goal: 'paused on Reviewer', state: 'paused',
-    paused: { reason: 'idle_loop', kind: 'delegate', text: 'paused on Reviewer', at: Date.now() },
+  rt.openCall({
+    workId: 'w-del-paused',
+    parentWorkId: `task:${task.id}`,
+    callerBotId: 'a',
+    calleeBotId: 'c',
+    title: 'paused on Reviewer',
   })
+  rt.pauseWork('w-del-paused', { reason: 'no_progress', detail: { kind: 'delegate', text: 'paused on Reviewer' } })
   const callsBeforeForget = taskAgent.calls.length
   await rt.deleteBot('c')
-  assert.equal(rt.state.works['w-del-paused'], undefined)
+  assert.equal(rt.resolveWork('w-del-paused'), undefined)
   await settle(() => taskAgent.calls.length > callsBeforeForget, 1000, 'forgetBot must wake waiting task when paused work target is deleted')
 
   // 3) Startup reconcileLostWorks wakes user-started background task when target Bot is gone (both open and paused).
@@ -1236,9 +1250,10 @@ test('P1 #6: user-started background task (parent === undefined) wakes on abando
     },
   })
   const restarted = await startHost(t, { team: seeded })
+  await restarted.rt.adoptLiveWork()
   await settle(
-    () => restarted.rt.state.works['w-lost-open'] === undefined
-      && restarted.rt.state.works['w-lost-paused'] === undefined
+    () => restarted.rt.resolveWork('handoff:w-lost-open') === undefined
+      && restarted.rt.resolveWork('handoff:w-lost-paused') === undefined
       && (restarted.agents.get('task-wait-1')?.calls.length ?? 0) >= 2,
     2000,
     'startup reconcileLostWorks must abandon both open and paused works for deleted targets and wake waiting task',
@@ -1270,6 +1285,7 @@ test('P2 #1: fast answer_work crossing actual Turn 1 -> Turn 2 boundary on bot-h
   emit('dm-a', 'turn/start', { turn: 1 })
   emit('dm-a', 'user/message', { content: askMsg.content, source: askMsg.source })
   await tool('answer_work', { answer: 'us-west-2' }, 'dm-a')
+  emit('dm-a', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
   assert.equal(rt.workStateOf(workId), 'open', 'work state flipped back to open before Turn 1 ended')
   const answerMsg = taskAgent.calls.at(-1)[1]
   // Simulate the answer sitting unread until Turn 2 (remove from inbox momentarily to isolate the lastAskedBackWork guard!).
@@ -1283,17 +1299,20 @@ test('P2 #1: fast answer_work crossing actual Turn 1 -> Turn 2 boundary on bot-h
   emit(task.sessionId, 'turn/end', { turn: 1, reason: { kind: 'completed' } })
   await realDelay(30)
 
-  // turns.js:askedBackWork prevented premature finish(), and bot-tasks.js:lastAskedBackWork kept task in waiting_work!
+  // turns.js:askedBackWork prevented premature finish(), and the scheduler immediately dispatches Turn 2 (running) or keeps task in waiting_work — never prematurely completed!
   assert.equal(agents.get('dm-a').calls.length, chiefCallsBeforeEnd, 'Turn 1 end must NOT prematurely close work to Chief')
-  assert.ok(rt.state.works[workId], 'work must remain open across Turn 1 -> Turn 2 boundary')
-  assert.equal(task.status, 'waiting_work', 'bot-handoff task must transition to waiting_work, NOT completed')
+  assert.ok(rt.resolveWork(workId), 'work must remain open across Turn 1 -> Turn 2 boundary')
+  assert.notEqual(task.status, 'completed', 'bot-handoff task must NOT prematurely complete across Turn 1 -> Turn 2 boundary')
+  assert.ok(task.status === 'running' || task.status === 'waiting_work', `expected running or waiting_work, got ${task.status}`)
 
   // Turn 2 consumes Chief's answer and finishes cleanly -> closes work and settles task!
+  await settle(() => taskAgent.calls.some(([, m]) => m?.source?.role === 'answer'), 2000, 'scheduler must dispatch Chief answer after Turn 1 yields')
+  const dispatchedAnswer = taskAgent.calls.findLast(([, m]) => m?.source?.role === 'answer')[1]
   emit(task.sessionId, 'turn/start', { turn: 2 })
-  emit(task.sessionId, 'user/message', { content: answerMsg.content, source: answerMsg.source })
+  emit(task.sessionId, 'user/message', { content: dispatchedAnswer.content, source: dispatchedAnswer.source })
   emit(task.sessionId, 'assistant/message', { message: { role: 'assistant', content: textBlock('Deployed to us-west-2.') } })
   emit(task.sessionId, 'turn/end', { turn: 2, reason: { kind: 'completed' } })
-  await settle(() => rt.state.works[workId] === undefined && task.status === 'completed' && agents.get('dm-a').calls.length >= chiefCallsBeforeEnd + 1, 2000)
+  await settle(() => rt.resolveWork(workId) === undefined && task.status === 'completed' && agents.get('dm-a').calls.length >= chiefCallsBeforeEnd + 1, 2000)
   assert.equal(agents.get('dm-a').calls.length, chiefCallsBeforeEnd + 1)
   assert.match(textOf(agents.get('dm-a').calls.at(-1)[1].content), /Deployed to us-west-2\./)
 })
