@@ -370,8 +370,9 @@ function PluginTile({ plugin, managerAvailable, busyId, readOnly, onOpen, onActi
   h(PluginIcon, { plugin }),
   h('span', { className: 'bt-plg-text' },
     h('span', { className: 'bt-plg-name' },
-      name,
-      plugin.custom ? h('span', { className: 'bt-tag' }, t('Added')) : null,
+      h('span', { className: 'bt-plg-label' }, name),
+      plugin.custom && !plugin.killed && !plugin.consentRequired && plugin.status !== 'unverifiable'
+        ? h('span', { className: 'bt-tag' }, t('Added')) : null,
       plugin.killed ? h('span', { className: 'bt-tag', 'data-tone': 'error' }, t('Stopped')) : null,
       plugin.consentRequired ? h('span', { className: 'bt-tag', 'data-tone': 'warn' }, t('Approval needed')) : null,
       plugin.status === 'unverifiable' ? h('span', { className: 'bt-tag', 'data-tone': 'error' }, t('Unverifiable')) : null),
@@ -416,8 +417,10 @@ function PluginDetailView({ plugin, bots, managerAvailable, busyId, readOnly, on
         h('div', { className: 'bt-plg-detail-title' },
           h('span', { className: 'bt-plg-detail-name' }, name),
           metaParts ? h('span', { className: 'bt-plg-detail-meta' }, metaParts) : null),
-        h(PluginAction, { plugin, managerAvailable, busyId, readOnly, onActivateSlot, onInstall, onToggle, onCopy, onConsent })),
-      plugin.error ? h('div', { className: 'bt-plg-detail-err', role: 'alert' }, hostText(plugin.error)) : null),
+        plugin.consentRequired
+          ? null
+          : h(PluginAction, { plugin, managerAvailable, busyId, readOnly, onActivateSlot, onInstall, onToggle, onCopy, onConsent })),
+      plugin.error && !plugin.consentRequired ? h('div', { className: 'bt-plg-detail-err', role: 'alert' }, hostText(plugin.error)) : null),
     plugin.consentRequired ? h('div', { className: 'bt-plg-banner', 'data-tone': 'warn', role: 'alert' },
       h('span', null, t('This plugin changed since it was approved — its capabilities, execution tier, executable entry, content, or placement. It stays stopped until you approve the plugin exactly as it is now.')),
       h('div', { className: 'bt-plg-banner-actions' },

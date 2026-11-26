@@ -997,7 +997,9 @@ button.bt-set-row:hover .bt-chevron{transform:translateX(2px);color:var(--bt-ink
 @keyframes bt-plg-shine{0%{background-position:100% 0}100%{background-position:0 0}}
 @keyframes bt-plg-done{0%{opacity:.4;transform:scale(.94)}100%{opacity:1;transform:none}}
 .bt-plg-text{min-width:0;display:flex;flex-direction:column;gap:1px}
-.bt-plg-name{display:inline-flex;align-items:center;gap:6px;font-size:14px;line-height:20px;font-weight:500;color:var(--bt-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bt-plg-name{display:flex;align-items:center;gap:6px;min-width:0;font-size:14px;line-height:20px;font-weight:500;color:var(--bt-ink)}
+.bt-plg-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-plg-name .bt-tag{flex:none}
 .bt-plg-sub{font-size:12px;line-height:16px;color:var(--bt-ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .bt-plg-tile[data-error] .bt-plg-sub{color:var(--bt-danger)}
 .bt-plg-tile[data-warn] .bt-plg-sub{color:var(--bt-warn)}

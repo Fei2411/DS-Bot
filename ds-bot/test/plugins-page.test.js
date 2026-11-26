@@ -588,14 +588,15 @@ test('PluginsPage shows consent-required with an Approve action, the reason bann
   await flush()
   assert.deepEqual(consentCalls, ['mcp:notes'])
 
-  // The detail view explains WHAT changed and offers the same approval path.
+  // The detail view explains WHAT changed and offers one clear approval path (banner CTA, no duplicate hero error/button).
   tree = draw()
   findAll(tree, n => n.type === 'button' && n.props?.className === 'bt-plg-main' && textOf(n).includes('Notes MCP'))[0].props.onClick()
   tree = draw()
   assert.match(textOf(tree), /capabilities, execution tier, executable entry, content, or placement/)
-  const detailApprove = findAll(tree, n => n.type === 'button' && textOf(n) === 'Approve')[0]
-  assert.ok(detailApprove)
-  detailApprove.props.onClick()
+  assert.equal(findAll(tree, n => n.props?.className === 'bt-plg-detail-err').length, 0, 'consent banner replaces duplicate hero error')
+  const detailApproves = findAll(tree, n => n.type === 'button' && textOf(n) === 'Approve')
+  assert.equal(detailApproves.length, 1, 'single Approve CTA in detail view')
+  detailApproves[0].props.onClick()
   await flush()
   assert.deepEqual(consentCalls, ['mcp:notes', 'mcp:notes'])
 })

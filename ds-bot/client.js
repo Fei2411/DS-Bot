@@ -23250,7 +23250,9 @@ button.bt-set-row:hover .bt-chevron{transform:translateX(2px);color:var(--bt-ink
 @keyframes bt-plg-shine{0%{background-position:100% 0}100%{background-position:0 0}}
 @keyframes bt-plg-done{0%{opacity:.4;transform:scale(.94)}100%{opacity:1;transform:none}}
 .bt-plg-text{min-width:0;display:flex;flex-direction:column;gap:1px}
-.bt-plg-name{display:inline-flex;align-items:center;gap:6px;font-size:14px;line-height:20px;font-weight:500;color:var(--bt-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bt-plg-name{display:flex;align-items:center;gap:6px;min-width:0;font-size:14px;line-height:20px;font-weight:500;color:var(--bt-ink)}
+.bt-plg-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-plg-name .bt-tag{flex:none}
 .bt-plg-sub{font-size:12px;line-height:16px;color:var(--bt-ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .bt-plg-tile[data-error] .bt-plg-sub{color:var(--bt-danger)}
 .bt-plg-tile[data-warn] .bt-plg-sub{color:var(--bt-warn)}
@@ -49491,8 +49493,8 @@ function PluginTile({ plugin, managerAvailable, busyId, readOnly, onOpen, onActi
         (0, import_react56.createElement)(
           "span",
           { className: "bt-plg-name" },
-          name,
-          plugin.custom ? (0, import_react56.createElement)("span", { className: "bt-tag" }, t("Added")) : null,
+          (0, import_react56.createElement)("span", { className: "bt-plg-label" }, name),
+          plugin.custom && !plugin.killed && !plugin.consentRequired && plugin.status !== "unverifiable" ? (0, import_react56.createElement)("span", { className: "bt-tag" }, t("Added")) : null,
           plugin.killed ? (0, import_react56.createElement)("span", { className: "bt-tag", "data-tone": "error" }, t("Stopped")) : null,
           plugin.consentRequired ? (0, import_react56.createElement)("span", { className: "bt-tag", "data-tone": "warn" }, t("Approval needed")) : null,
           plugin.status === "unverifiable" ? (0, import_react56.createElement)("span", { className: "bt-tag", "data-tone": "error" }, t("Unverifiable")) : null
@@ -49537,9 +49539,9 @@ function PluginDetailView({ plugin, bots, managerAvailable, busyId, readOnly, on
           (0, import_react56.createElement)("span", { className: "bt-plg-detail-name" }, name),
           metaParts ? (0, import_react56.createElement)("span", { className: "bt-plg-detail-meta" }, metaParts) : null
         ),
-        (0, import_react56.createElement)(PluginAction, { plugin, managerAvailable, busyId, readOnly, onActivateSlot, onInstall, onToggle, onCopy, onConsent })
+        plugin.consentRequired ? null : (0, import_react56.createElement)(PluginAction, { plugin, managerAvailable, busyId, readOnly, onActivateSlot, onInstall, onToggle, onCopy, onConsent })
       ),
-      plugin.error ? (0, import_react56.createElement)("div", { className: "bt-plg-detail-err", role: "alert" }, hostText(plugin.error)) : null
+      plugin.error && !plugin.consentRequired ? (0, import_react56.createElement)("div", { className: "bt-plg-detail-err", role: "alert" }, hostText(plugin.error)) : null
     ),
     plugin.consentRequired ? (0, import_react56.createElement)(
       "div",
