@@ -603,6 +603,7 @@ export function WorkspaceTerminal({ sessionId, feed, readOnly = false, autoOpenN
   const positionsRef = useRef(new Map())
   const syncRunningRef = useRef(false)
   const syncAgainRef = useRef(false)
+  const syncPromiseRef = useRef(null)
   const syncRef = useRef(null)
   const { terms, activeId } = state
 
@@ -748,26 +749,34 @@ export function WorkspaceTerminal({ sessionId, feed, readOnly = false, autoOpenN
 
   const syncTerminals = useCallback(async () => {
     if (readOnly) return 0
-    if (syncRunningRef.current) {
+    if (syncPromiseRef.current) {
       syncAgainRef.current = true
-      return 0
+      return syncPromiseRef.current
     }
-    syncRunningRef.current = true
-    let count = 0
+    const run = (async () => {
+      syncRunningRef.current = true
+      let count = 0
+      try {
+        do {
+          syncAgainRef.current = false
+          const positions = Object.fromEntries(positionsRef.current)
+          const list = await call('terminal-list', { positions })
+          if (!mountedRef.current) return count
+          count = Math.max(count, applySyncList(list))
+        } while (syncAgainRef.current)
+      } catch {
+        // The next feed hello tries again; terminal output itself never replaces what is held.
+      } finally {
+        syncRunningRef.current = false
+      }
+      return count
+    })()
+    syncPromiseRef.current = run
     try {
-      do {
-        syncAgainRef.current = false
-        const positions = Object.fromEntries(positionsRef.current)
-        const list = await call('terminal-list', { positions })
-        if (!mountedRef.current) return count
-        count = applySyncList(list)
-      } while (syncAgainRef.current)
-    } catch {
-      // The next feed hello tries again; terminal output itself never replaces what is held.
+      return await run
     } finally {
-      syncRunningRef.current = false
+      if (syncPromiseRef.current === run) syncPromiseRef.current = null
     }
-    return count
   }, [readOnly, applySyncList])
   syncRef.current = syncTerminals
 

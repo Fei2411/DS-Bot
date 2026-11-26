@@ -552,8 +552,9 @@ test('openSessionFollow handles split CRLF frames, reader cancel on end, backoff
   recordedTimers.length = 0
   const events = []
   let reopenedOnTerminal = false
+  let cursor = -1
   let handle
-  handle = openSessionFollow({ sessionId: 'b1', max: 20 }, (event, data) => {
+  handle = openSessionFollow({ sessionId: 'b1', max: 20, after: () => cursor }, (event, data) => {
     events.push([event, data])
     // Verify reopen() called synchronously inside a terminal HTTP error callback is NOT swallowed.
     if (event === 'error' && data?.code === 'bot/not-found' && !reopenedOnTerminal) {
@@ -574,6 +575,7 @@ test('openSessionFollow handles split CRLF frames, reader cancel on end, backoff
     await tick()
     assert.equal(events[0][0], 'frame')
     assert.equal(events[0][1].type, 'snapshot')
+    cursor = 7
 
     // Non-terminal SSE error followed by stream close must NOT reset backoff to 500ms on next drop.
     const firstStream = fetchCtrl.latest()
@@ -587,6 +589,7 @@ test('openSessionFollow handles split CRLF frames, reader cancel on end, backoff
     await tick()
     await tick()
     assert.equal(fetchCtrl.calls.length, 2)
+    assert.match(fetchCtrl.calls[1].url, /after=7/, 'a reconnect carries the cursor held when it starts')
 
     // Attempt 2: HTTP 200 SSE returns non-terminal `bot/internal` error without any `frame`, then closes -> backoff 500ms.
     recordedTimers.length = 0

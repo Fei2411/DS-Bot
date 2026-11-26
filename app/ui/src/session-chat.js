@@ -707,85 +707,21 @@ const TurnTailRow = memo(function TurnTailRow({ row, sessionId, useRoster, actio
     h(LearningTurnTail, { turn: row.turnInfo, sessionId, useRoster, actions }))
 })
 
-export function SessionTranscript({
-  log, sessionId, bot, roster, actions, classic = false,
-  useUi, useRoster, useWork, useTurnClock, useHeldCards,
-  useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer,
-  thinkingAt, hasMore = false, registry = defaultSlots,
-}) {
-  // The memoized rows read `t()` at render time, so the language travels as a prop:
-  // a switch re-renders them in the new language, and a stream chunk never changes it.
-  const lang = useUiLanguage()
-  const rowParts = useMemo(() => buildSessionRowParts(log, { roster, sessionId }), [log, roster, sessionId])
-  const rows = rowParts.live.length === 0 ? rowParts.committed : [...rowParts.committed, ...rowParts.live]
-  const turnFacts = useMemo(() => extractTurnFacts(log?.events, { roster, sessionId }), [log?.events, roster, sessionId])
-  const turnSig = turnFactsSignature(turnFacts)
-  const turnFactsRef = useRef(turnFacts)
-  turnFactsRef.current = turnFacts
-  const safeRoster = useMemo(() => ({
-    bots: [], rooms: [], byId: {}, roomsById: {}, exchangeTurns: {}, ...roster,
-  }), [roster])
-  const fallbackUseRoster = useCallback(selector => selector(safeRoster), [safeRoster])
-  const resolvedUseRoster = typeof useRoster === 'function' ? useRoster : fallbackUseRoster
-  const resolvedUseUi = typeof useUi === 'function' ? useUi : NO_OBJECT_HOOK
-  const resolvedUseWork = typeof useWork === 'function' ? useWork : NO_WORK_HOOK
-  const resolvedUseHeldCards = typeof useHeldCards === 'function' ? useHeldCards : NO_HELD_CARDS_HOOK
-  const resolvedUseBrowserHolds = typeof useBrowserHolds === 'function' ? useBrowserHolds : NO_OBJECT_HOOK
-  const resolvedUseBrowserTabs = typeof useBrowserTabs === 'function' ? useBrowserTabs : NO_OBJECT_HOOK
-  const resolvedUseBrowserPages = typeof useBrowserPages === 'function' ? useBrowserPages : NO_OBJECT_HOOK
-  const resolvedUseComputer = typeof useComputer === 'function' ? useComputer : NO_OBJECT_HOOK
-  // Sync turn facts (`{ turns, openTurn }`) only when turn boundaries actually change so
-  // non-turn streaming events do not fan out re-renders across every turn tail.
-  useEffect(() => {
-    if (typeof actions?.noteTurnFacts !== 'function' || !sessionId) return undefined
-    actions.noteTurnFacts(sessionId, turnFactsRef.current)
-    return undefined
-  }, [turnSig, sessionId, actions])
-  useEffect(() => () => {
-    if (typeof actions?.noteTurnFacts === 'function' && sessionId) actions.noteTurnFacts(sessionId, null)
-  }, [sessionId, actions])
-  // Sync turn start/end timestamps straight from `log.events` so `FailureCell` settles as
-  // soon as a Retry turn starts, even before the new turn emits any assistant text. A
-  // stream chunk replaces neither the events array nor any committed row (the cache in
-  // session-transcript.js), and writing rows carry no time, so when the events array is
-  // the same one the effect already noted there is nothing new to note and it skips.
-  const notedEventsRef = useRef(null)
-  useEffect(() => {
-    if (typeof actions?.noteTurnTime !== 'function') return
-    const prev = notedEventsRef.current
-    if (log?.events !== undefined
-      && prev !== null
-      && prev.events === log.events
-      && prev.sessionId === sessionId
-      && prev.noteTurnTime === actions.noteTurnTime) return
-    notedEventsRef.current = { events: log?.events ?? null, sessionId, noteTurnTime: actions.noteTurnTime }
-    for (const event of Array.isArray(log?.events) ? log.events : []) {
-      const turn = event?.data?.turn
-      if (!Number.isInteger(turn) || !Number.isFinite(event.time)) continue
-      if (event.type === 'turn/start') actions.noteTurnTime(sessionId, turn, 'first', event.time)
-      else if (event.type === 'turn/end') actions.noteTurnTime(sessionId, turn, 'end', event.time)
-    }
-    for (const row of rows) {
-      if (Number.isInteger(row.turn) && Number.isFinite(row.time)) {
-        actions.noteTurnTime(sessionId, row.turn, 'first', row.time)
-      }
-    }
-  }, [log?.events, rows, sessionId, actions])
 
-  const selfId = bot?.id ?? sessionId
-  const cwd = log?.header?.cwd
-  const showThinking = thinkingShown(roster.prefs)
-  const flat = layoutOf(roster.prefs) === 'flat'
-  const canLoadEarlierParts = typeof actions?.earlier === 'function'
-  const hasPartStart = rows.some(row => row.kind === 'part-start')
-  // `bot.parts` holds only earlier segments (host/channel.js), not current `bot.sessionId`.
-  // Wait until the opening snapshot lands (`log.header !== null`) before mounting EarlierParts
-  // so we never issue wasted RPCs while loading or duplicate a snapshot's `part-start`.
-  const showTopEarlierParts = log?.header !== null && !hasMore && !hasPartStart && canLoadEarlierParts && (bot?.parts?.length ?? 0) > 0
-  const seenTurnSpeaker = new Set()
+const EMPTY_SPEAKERS = new Set()
+
+const TranscriptRows = memo(function TranscriptRows({
+  rows, initialSpeakers = EMPTY_SPEAKERS, canLoadEarlierParts,
+  sessionId, bot, roster, actions, classic, useUi, useRoster, useTurnClock, useWork, useHeldCards,
+  useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer, thinkingAt, registry, lang,
+  resolvedUseRoster, resolvedUseUi, resolvedUseWork, resolvedUseHeldCards,
+  resolvedUseBrowserHolds, resolvedUseBrowserTabs, resolvedUseBrowserPages, resolvedUseComputer,
+  selfId, cwd, showThinking, flat,
+}) {
+  const seenTurnSpeaker = new Set(initialSpeakers)
   let prevTime
 
-  const projected = rows.flatMap((row) => {
+  return rows.flatMap((row) => {
     if (row.kind === 'part-start') {
       prevTime = undefined
       return [canLoadEarlierParts
@@ -846,6 +782,104 @@ export function SessionTranscript({
       ? [h('div', { key: `${row.key}:clock`, className: 'bt-time-sep', role: 'separator' }, clockLabel(row.time)), node]
       : [node]
   })
+})
+
+export function SessionTranscript({
+  log, sessionId, bot, roster, actions, classic = false,
+  useUi, useRoster, useWork, useTurnClock, useHeldCards,
+  useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer,
+  thinkingAt, hasMore = false, registry = defaultSlots,
+}) {
+  // The memoized rows read `t()` at render time, so the language travels as a prop:
+  // a switch re-renders them in the new language, and a stream chunk never changes it.
+  const lang = useUiLanguage()
+  const rowParts = useMemo(() => buildSessionRowParts(log, { roster, sessionId }), [log, roster, sessionId])
+  const turnFacts = useMemo(() => extractTurnFacts(log?.events, { roster, sessionId }), [log?.events, roster, sessionId])
+  const turnSig = useMemo(() => turnFactsSignature(turnFacts), [turnFacts])
+  const turnFactsRef = useRef(turnFacts)
+  turnFactsRef.current = turnFacts
+  const safeRoster = useMemo(() => ({
+    bots: [], rooms: [], byId: {}, roomsById: {}, exchangeTurns: {}, ...roster,
+  }), [roster])
+  const fallbackUseRoster = useCallback(selector => selector(safeRoster), [safeRoster])
+  const resolvedUseRoster = typeof useRoster === 'function' ? useRoster : fallbackUseRoster
+  const resolvedUseUi = typeof useUi === 'function' ? useUi : NO_OBJECT_HOOK
+  const resolvedUseWork = typeof useWork === 'function' ? useWork : NO_WORK_HOOK
+  const resolvedUseHeldCards = typeof useHeldCards === 'function' ? useHeldCards : NO_HELD_CARDS_HOOK
+  const resolvedUseBrowserHolds = typeof useBrowserHolds === 'function' ? useBrowserHolds : NO_OBJECT_HOOK
+  const resolvedUseBrowserTabs = typeof useBrowserTabs === 'function' ? useBrowserTabs : NO_OBJECT_HOOK
+  const resolvedUseBrowserPages = typeof useBrowserPages === 'function' ? useBrowserPages : NO_OBJECT_HOOK
+  const resolvedUseComputer = typeof useComputer === 'function' ? useComputer : NO_OBJECT_HOOK
+  // Sync turn facts (`{ turns, openTurn }`) only when turn boundaries actually change so
+  // non-turn streaming events do not fan out re-renders across every turn tail.
+  useEffect(() => {
+    if (typeof actions?.noteTurnFacts !== 'function' || !sessionId) return undefined
+    actions.noteTurnFacts(sessionId, turnFactsRef.current)
+    return undefined
+  }, [turnSig, sessionId, actions])
+  useEffect(() => () => {
+    if (typeof actions?.noteTurnFacts === 'function' && sessionId) actions.noteTurnFacts(sessionId, null)
+  }, [sessionId, actions])
+  // Sync turn start/end timestamps straight from `log.events` so `FailureCell` settles as
+  // soon as a Retry turn starts, even before the new turn emits any assistant text. A
+  // stream chunk replaces neither the events array nor any committed row (the cache in
+  // session-transcript.js), and writing rows carry no time, so when the events array is
+  // the same one the effect already noted there is nothing new to note and it skips.
+  const notedEventsRef = useRef(null)
+  useEffect(() => {
+    if (typeof actions?.noteTurnTime !== 'function') return
+    const prev = notedEventsRef.current
+    if (log?.events !== undefined
+      && prev !== null
+      && prev.events === log.events
+      && prev.sessionId === sessionId
+      && prev.noteTurnTime === actions.noteTurnTime) return
+    notedEventsRef.current = { events: log?.events ?? null, sessionId, noteTurnTime: actions.noteTurnTime }
+    for (const event of Array.isArray(log?.events) ? log.events : []) {
+      const turn = event?.data?.turn
+      if (!Number.isInteger(turn) || !Number.isFinite(event.time)) continue
+      if (event.type === 'turn/start') actions.noteTurnTime(sessionId, turn, 'first', event.time)
+      else if (event.type === 'turn/end') actions.noteTurnTime(sessionId, turn, 'end', event.time)
+    }
+    for (const row of rowParts.committed) {
+      if (Number.isInteger(row.turn) && Number.isFinite(row.time)) {
+        actions.noteTurnTime(sessionId, row.turn, 'first', row.time)
+      }
+    }
+  }, [log?.events, rowParts.committed, sessionId, actions])
+
+  const selfId = bot?.id ?? sessionId
+  const cwd = log?.header?.cwd
+  const showThinking = thinkingShown(roster.prefs)
+  const flat = layoutOf(roster.prefs) === 'flat'
+  const canLoadEarlierParts = typeof actions?.earlier === 'function'
+  const hasPartStart = useMemo(() => rowParts.committed.some(row => row.kind === 'part-start'), [rowParts.committed])
+  // `bot.parts` holds only earlier segments (host/channel.js), not current `bot.sessionId`.
+  // Wait until the opening snapshot lands (`log.header !== null`) before mounting EarlierParts
+  // so we never issue wasted RPCs while loading or duplicate a snapshot's `part-start`.
+  const showTopEarlierParts = log?.header !== null && !hasMore && !hasPartStart && canLoadEarlierParts && (bot?.parts?.length ?? 0) > 0
+  const committedSpeakers = useMemo(() => {
+    const speakers = new Set()
+    for (const row of rowParts.committed) {
+      if (row.kind === 'assistant') {
+        if (row.texts.length === 0 && row.activity.length === 0 && !(showThinking && row.reasoning !== '')) continue
+      } else if (row.kind !== 'tool') continue
+      speakers.add(row.turn ?? row.key)
+    }
+    return speakers
+  }, [rowParts.committed, showThinking])
+  const rowProps = {
+    canLoadEarlierParts, sessionId, bot, roster, actions, classic, useUi, useRoster, useTurnClock, useWork, useHeldCards,
+    useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer, thinkingAt, registry, lang,
+    resolvedUseRoster, resolvedUseUi, resolvedUseWork, resolvedUseHeldCards,
+    resolvedUseBrowserHolds, resolvedUseBrowserTabs, resolvedUseBrowserPages, resolvedUseComputer,
+    selfId, cwd, showThinking, flat,
+  }
+
+  const projected = [
+    h(TranscriptRows, { key: 'committed', ...rowProps, rows: rowParts.committed }),
+    rowParts.live.length === 0 ? null : h(TranscriptRows, { key: 'writing', ...rowProps, rows: rowParts.live, initialSpeakers: committedSpeakers }),
+  ]
 
   return showTopEarlierParts
     ? [h(EarlierParts, { key: `earlier-parts:${sessionId}`, sessionId, roster, actions }), ...projected]

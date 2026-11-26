@@ -878,6 +878,75 @@ test('ChangesReview renders summary errors before loading state and guards cycli
   }
 })
 
+test('WorkspaceTerminal resumes numbered output after feed reconnects and marks trimmed scrollback', async () => {
+  const listRequests = []
+  const listAnswers = []
+  const openCalls = []
+  sandbox.__xterms.length = 0
+  sandbox.__testCall = (endpoint, body) => {
+    if (endpoint === 'terminal-list') {
+      listRequests.push(body?.positions ?? null)
+      return Promise.resolve(listAnswers.length === 0 ? [] : listAnswers.shift())
+    }
+    if (endpoint === 'terminal-open') openCalls.push(body)
+    return Promise.resolve({})
+  }
+  const entry = (parts, extra = {}) => ({
+    id: 'term-1', cwd: '/repo', title: 'repo', pty: true,
+    start: parts[0]?.seq ?? 1, end: parts.at(-1)?.seq ?? 0,
+    parts, truncated: false, exited: false, exitCode: null, ...extra,
+  })
+  listAnswers.push([entry([{ seq: 1, text: 'line-1\n' }])])
+  const team = createTeam()
+  const inst = mount(WorkspaceTerminal, { sessionId: 'b1', feed: team.chat })
+  try {
+    inst.render()
+    await tick()
+    await tick()
+    inst.render()
+    assert.ok(listRequests.length >= 1)
+    assert.equal(openCalls.length, 0)
+    assert.equal(sandbox.__xterms.length, 1)
+    const xterm = sandbox.__xterms[0]
+    assert.equal(xterm.written.join(''), 'line-1\n')
+
+    // Ordered live parts write once; overlapping replayed parts are dropped by position.
+    team.chat.emit('terminal', { id: 'term-1', chunk: 'line-2\nline-3\n', start: 2, end: 3, parts: [{ seq: 2, text: 'line-2\n' }, { seq: 3, text: 'line-3\n' }] })
+    team.chat.emit('terminal', { id: 'term-1', chunk: 'line-3\n', start: 3, end: 3, parts: [{ seq: 3, text: 'line-3\n' }] })
+    assert.equal(xterm.written.join(''), 'line-1\nline-2\nline-3\n')
+
+    // A feed hello sends the held position and the answer fills exactly the missing tail.
+    listAnswers.push([entry([{ seq: 4, text: 'line-4\n' }, { seq: 5, text: 'line-5\n' }], { start: 4, end: 5 })])
+    team.chat.emit('hello', {})
+    await tick()
+    await tick()
+    assert.equal(listRequests.at(-1)?.['term-1'], 3)
+    assert.equal(xterm.written.join(''), 'line-1\nline-2\nline-3\nline-4\nline-5\n')
+
+    // When the host no longer reaches the held position, the terminal says so quietly and
+    // continues with the retained suffix; no output is duplicated.
+    listAnswers.push([entry([{ seq: 8, text: 'line-8\n' }], { start: 8, end: 8, truncated: true })])
+    team.chat.emit('hello', {})
+    await tick()
+    await tick()
+    const written = xterm.written.join('')
+    assert.match(written, /Earlier output was trimmed/)
+    assert.ok(written.indexOf('line-5') < written.indexOf('Earlier output was trimmed'))
+    assert.ok(written.indexOf('Earlier output was trimmed') < written.indexOf('line-8'))
+    assert.equal((written.match(/line-8/g) ?? []).length, 1)
+
+    // Exit state is part of the same catch-up read when its live event was missed.
+    listAnswers.push([entry([], { start: 8, end: 8, exited: true, exitCode: 7 })])
+    team.chat.emit('hello', {})
+    await tick()
+    await tick()
+    const tree = inst.render()
+    assert.match(textOf(tree), /Process exited \(7\)/)
+  } finally {
+    inst.unmount()
+  }
+})
+
 test('WorkspaceTerminal closes sub-tabs reliably on rapid/concurrent clicks, prevents mousedown scroll-shift, supports wheel scroll, and handles non-PTY & shortcuts cleanly', async () => {
   const closedCalls = []
   const inputCalls = []
