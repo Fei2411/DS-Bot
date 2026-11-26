@@ -42242,8 +42242,13 @@ function stackReplies(replies) {
   replies.forEach((reply, index) => {
     const last = items.at(-1);
     if (reply.kind === "working" && last?.reply.kind === "working" && reply.botId !== void 0 && reply.botId === last.reply.botId) return;
+    const texts2 = reply.kind === void 0 && typeof reply.text === "string" && reply.text !== "" ? [reply.text] : [];
+    const files = reply.kind === void 0 ? presentedFiles(reply.presented) : [];
     if (reply.kind === void 0 && last?.reply.kind === void 0 && last?.reply.botId === reply.botId && last.claims === void 0 && (last.changes === void 0 || reply.changes?.sessionId === last.changes.sessionId && reply.changes?.turn === last.changes.turn)) {
-      last.texts.push(reply.text);
+      last.texts.push(...texts2);
+      if (files.length > 0) {
+        last.files = [...last.files.filter((file) => !files.some((again) => again.path === file.path)), ...files];
+      }
       last.time = reply.time;
       last.duration = reply.duration;
       if (reply.claims !== void 0) last.claims = reply.claims;
@@ -42252,7 +42257,8 @@ function stackReplies(replies) {
       items.push({
         reply,
         index,
-        texts: reply.kind === void 0 ? [reply.text] : [],
+        texts: texts2,
+        files,
         time: reply.time,
         duration: reply.duration,
         ...reply.claims === void 0 ? {} : { claims: reply.claims },
@@ -42262,6 +42268,14 @@ function stackReplies(replies) {
   });
   return items;
 }
+var presentedFileName = (path2) => String(path2 ?? "").split(/[\\/]/).filter(Boolean).at(-1) || String(path2 ?? "") || "file";
+var presentedFiles = (value) => (Array.isArray(value) ? value : []).filter((file) => typeof file?.path === "string" && file.path.trim() !== "").map((file) => ({
+  path: file.path,
+  ...typeof file.description === "string" && file.description !== "" ? { description: file.description } : {},
+  ...typeof file.sessionId === "string" && file.sessionId !== "" ? { sessionId: file.sessionId } : {},
+  ...Number.isInteger(file.seq) ? { seq: file.seq } : {},
+  ...Number.isInteger(file.index) ? { index: file.index } : {}
+}));
 
 // src/client/fold.js
 var import_react34 = require("react");
@@ -42944,6 +42958,25 @@ function BtwTurnTail({ turn, sessionId, useRoster, actions }) {
   return (0, import_react36.createElement)("div", { className: "bt-btw-stack" }, cards.map((card) => (0, import_react36.createElement)(BtwCardView, { key: card.id, card, sessionId, actions })));
 }
 
+// src/shared/file-chunks.js
+async function* fileChunks(call2, target) {
+  let offset = 0;
+  let version;
+  for (; ; ) {
+    const part = await call2("file-download", { ...target, offset, ...version === void 0 ? {} : { version } });
+    const bytes = Uint8Array.from(atob(part.bytes), (char) => char.charCodeAt(0));
+    if (part.nextOffset === void 0) {
+      yield { ...part, data: bytes };
+      return;
+    }
+    if (part.nextOffset !== offset + bytes.length || part.done !== true && bytes.length === 0 || version !== void 0 && version !== part.version) throw new Error("This file is no longer available");
+    yield { ...part, data: bytes };
+    if (part.done === true) return;
+    offset = part.nextOffset;
+    version = part.version;
+  }
+}
+
 // src/shared/im-platforms.js
 var IM_PLATFORMS = [
   {
@@ -43133,6 +43166,48 @@ function Attachments({ attachments, renderMessageImages }) {
     );
   }));
 }
+async function savePresentedFile(target) {
+  const parts = [];
+  let saved;
+  for await (const part of fileChunks(call, target)) {
+    parts.push(part.data);
+    saved = part;
+  }
+  const url = URL.createObjectURL(new Blob(parts, { type: saved.mime }));
+  const link = Object.assign(document.createElement("a"), { href: url, download: saved.name });
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1e4);
+}
+function PresentedFiles({ files, openFile, actions }) {
+  if (!files?.length) return null;
+  return (0, import_react37.createElement)("div", { className: "bt-pfiles" }, files.map((file) => {
+    const name = file.name || presentedFileName(file.path);
+    const meta = file.description ?? import_dsh_client_ui_primitives.fileExtension?.(name)?.toUpperCase().slice(0, 8);
+    const icon3 = import_dsh_client_ui_primitives.FileTypeIcon ? (0, import_react37.createElement)(import_dsh_client_ui_primitives.FileTypeIcon, { key: "icon", path: name, className: "bt-ufile-icon" }) : (0, import_react37.createElement)("span", { key: "icon", className: "bt-ufile-icon bt-pfile-ico", "aria-hidden": true }, (0, import_react37.createElement)(FileIcon));
+    const body = [
+      icon3,
+      (0, import_react37.createElement)(
+        "span",
+        { key: "text", className: "bt-ufile-text" },
+        (0, import_react37.createElement)("span", { className: "bt-ufile-name" }, name),
+        meta ? (0, import_react37.createElement)("span", { className: "bt-ufile-meta" }, meta) : null
+      )
+    ];
+    const target = typeof file.sessionId === "string" && file.sessionId !== "" && Number.isInteger(file.seq) && Number.isInteger(file.index) ? { sessionId: file.sessionId, seq: file.seq, index: file.index } : null;
+    const canOpen = typeof openFile === "function" || typeof actions?.openFile === "function";
+    if (!canOpen && target === null) return (0, import_react37.createElement)("span", { key: file.path, className: "bt-ufile", title: file.path }, body);
+    const open = () => {
+      const fallback = target !== null ? () => savePresentedFile(target) : void 0;
+      const attempt = typeof openFile === "function" ? Promise.resolve().then(() => openFile(file.path)) : typeof actions?.openFile === "function" ? Promise.resolve().then(() => actions.openFile(file.sessionId ? { path: file.path, sessionId: file.sessionId, ...fallback ? { onUnavailable: fallback } : {} } : fallback ? { path: file.path, onUnavailable: fallback } : file.path)) : savePresentedFile(target);
+      void attempt.catch(() => canOpen && target !== null ? savePresentedFile(target) : Promise.reject(new Error())).catch(() => {
+        actions?.notice?.(t("Could not save this file"));
+      });
+    };
+    return (0, import_react37.createElement)("button", { key: file.path, type: "button", className: "bt-ufile bt-pfile", title: file.path, "aria-label": t("Open {name}", { name }), onClick: open }, body);
+  }));
+}
 function CopyButton({ text }) {
   const [copied, setCopied] = (0, import_react37.useState)(false);
   const copy2 = () => {
@@ -43276,6 +43351,15 @@ var USER_MESSAGE_CSS = `
 .bt-ufile-text{display:flex;flex-direction:column;min-width:0}
 .bt-ufile-name{font-size:14px;line-height:22px;font-weight:500;color:var(--bt-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .bt-ufile-meta{font-size:12px;line-height:15px;color:var(--bt-ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bt-pfiles{display:flex;flex-wrap:wrap;gap:8px;max-width:100%}
+.bt-pfiles-row{display:flex;align-items:flex-end;gap:8px;max-width:100%}
+.bt-pfiles-row>.bt-lead{margin-bottom:3px}
+body:not([data-bt-layout=flat]) .bt-group-msg>.bt-pfiles{margin-left:30px}
+.bt-pfile{font:inherit;color:inherit;text-align:start;cursor:pointer;transition:background-color .12s ease}
+.bt-pfile:hover{background:var(--bt-hover)}
+.bt-pfile:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
+.bt-pfile-ico{display:inline-flex;align-items:center;justify-content:center;border-radius:8px;background:var(--bt-hover);color:var(--bt-ink-2)}
+.bt-pfile-ico svg{width:15px;height:15px}
 .bt-urefs{font-size:13px;line-height:18px;color:var(--bt-ink-3)}
 .bt-uvia{display:inline-block;margin-right:6px;padding:0 6px;border-radius:6px;background:var(--bt-hover);color:var(--bt-ink-3);font-size:11px;line-height:16px;vertical-align:1px}
 .bt-utools{display:flex;flex:none;gap:2px;opacity:0;visibility:hidden;transition:opacity .12s ease,visibility .12s}
@@ -43714,7 +43798,7 @@ function claimLines(claims) {
   for (const path2 of claims.missingFiles ?? []) lines.push({ kind: "file", text: t("File not found: {path}", { path: path2 }) });
   return lines;
 }
-function GroupMessage({ bot, text, texts: texts2 = [text], room: room2, sessionId, roster, actions, msgKey, useUi, whole: whole2, time, duration, claims, changes }) {
+function GroupMessage({ bot, text, texts: texts2 = [text], files = [], openFile, room: room2, sessionId, roster, actions, msgKey, useUi, whole: whole2, time, duration, claims, changes }) {
   const ref = (0, import_react38.useRef)(null);
   (0, import_react38.useLayoutEffect)(() => {
     const el = ref.current;
@@ -43732,6 +43816,10 @@ function GroupMessage({ bot, text, texts: texts2 = [text], room: room2, sessionI
   const flat = layoutOf(roster.prefs) === "flat";
   const took = Number.isFinite(duration) && duration >= 1e3 ? elapsedLabel(duration) : void 0;
   const quoteSession = sessionId ?? room2?.sessionId ?? room2?.id;
+  const visibleTexts = (Array.isArray(texts2) ? texts2 : []).filter((entry) => entry !== "" && entry !== void 0);
+  const fileList = presentedFiles(files);
+  const filesOnly = visibleTexts.length === 0 && fileList.length > 0;
+  const fileCards = fileList.length > 0 ? (0, import_react38.createElement)(PresentedFiles, { files: fileList, openFile, actions }) : null;
   return (0, import_react38.createElement)(
     "div",
     { ref, className: "bt-group-msg", "data-bot-id": bot.id },
@@ -43744,7 +43832,12 @@ function GroupMessage({ bot, text, texts: texts2 = [text], room: room2, sessionI
       Number.isFinite(time) ? (0, import_react38.createElement)("span", { className: "bt-group-time", title: clockLabel(time) }, messageClock(time)) : null,
       took ? (0, import_react38.createElement)("span", { className: "bt-group-took", title: t("Ran for {duration}", { duration: took }) }, took) : null
     ),
-    (0, import_react38.createElement)(Bubbles, { texts: texts2, roster, selfId: bot.id, actions, sessionId: quoteSession, msgKey, useUi, lead: flat ? null : lead, whole: whole2, textInteractionSource: true }),
+    filesOnly ? flat ? fileCards : (0, import_react38.createElement)("div", { className: "bt-pfiles-row" }, lead, fileCards) : (0, import_react38.createElement)(
+      import_react38.Fragment,
+      null,
+      (0, import_react38.createElement)(Bubbles, { texts: visibleTexts, roster, selfId: bot.id, actions, sessionId: quoteSession, msgKey, useUi, lead: flat ? null : lead, whole: whole2, textInteractionSource: true }),
+      fileCards
+    ),
     changes === void 0 ? null : (0, import_react38.createElement)(ChangesCard, { changes, actions }),
     claimLines(claims).map((line) => (0, import_react38.createElement)("div", { key: line.kind + line.text, className: `bt-claim bt-claim-${line.kind}`, role: "status", title: line.detail ?? void 0 }, line.text))
   );
@@ -43868,7 +43961,7 @@ function earlierItems(pages, { cursor, loading } = {}) {
   }
   return { items, hasContent: items.some((item) => item.kind !== "divider") };
 }
-function EarlierParts({ sessionId, roster, actions }) {
+function EarlierParts({ sessionId, roster, actions, openFile }) {
   const [view, setView] = (0, import_react38.useState)({ pages: [], cursor: void 0, loading: true, failed: false, startedAt: null });
   const top = (0, import_react38.useRef)(null);
   const busy = (0, import_react38.useRef)(false);
@@ -43937,11 +44030,11 @@ function EarlierParts({ sessionId, roster, actions }) {
       { ref: top, className: "bt-earlier-top" },
       view.loading ? (0, import_react38.createElement)(Shimmer, null, t("Loading earlier messages…")) : view.failed ? (0, import_react38.createElement)("button", { type: "button", className: "bt-soft", onClick: () => load(view.cursor) }, t("Couldn’t load earlier messages · Retry")) : view.cursor ? (0, import_react38.createElement)("button", { type: "button", className: "bt-soft", onClick: () => load(view.cursor) }, t("Load earlier")) : null
     ),
-    (0, import_react38.createElement)(ChatRows, { items, sessionId, roster, actions, onBtwDelete: removeBtw }),
+    (0, import_react38.createElement)(ChatRows, { items, sessionId, roster, actions, openFile, onBtwDelete: removeBtw }),
     hasContent ? (0, import_react38.createElement)(PartLine, { time: view.startedAt }) : null
   );
 }
-function ChatRows({ items, sessionId, roster, actions, useUi, clock: clock5 = false, onBtwDelete, renderUserAttachments }) {
+function ChatRows({ items, sessionId, roster, actions, useUi, clock: clock5 = false, openFile, onBtwDelete, renderUserAttachments }) {
   const selfId = roster.byId[sessionId]?.id;
   const rows2 = [];
   for (const item of items) {
@@ -43956,7 +44049,7 @@ function ChatRows({ items, sessionId, roster, actions, useUi, clock: clock5 = fa
   let before;
   return rows2.flatMap((row, index) => {
     const key = rows2.length - index;
-    const shown = chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDelete, renderUserAttachments });
+    const shown = chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile, onBtwDelete, renderUserAttachments });
     if (row.kind === "divider") {
       before = void 0;
       return [shown];
@@ -43966,7 +44059,7 @@ function ChatRows({ items, sessionId, roster, actions, useUi, clock: clock5 = fa
     return pause ? [(0, import_react38.createElement)("div", { key: `${key}:clock`, className: "bt-time-sep", role: "separator" }, clockLabel(row.time)), shown] : [shown];
   });
 }
-function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDelete, renderUserAttachments }) {
+function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, openFile, onBtwDelete, renderUserAttachments }) {
   switch (row.kind) {
     case "divider":
       return (0, import_react38.createElement)(PartLine, { key, time: row.time });
@@ -43994,6 +44087,8 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDel
         bot: poster,
         text: row.file ? stripLongNote(row.text) : row.text,
         texts: row.texts,
+        files: row.presented ?? row.files,
+        openFile,
         room: roster.roomsById[sessionId],
         sessionId,
         roster,
@@ -44031,7 +44126,7 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDel
       return null;
   }
 }
-function TriggerCell({ node, sessionId, useRoster, useSessions, useTurnClock, useUi, actions }) {
+function TriggerCell({ node, sessionId, openFile, useRoster, useSessions, useTurnClock, useUi, actions }) {
   const roster = useRosterPick(useRoster, TRIGGER_ROSTER_FIELDS);
   const data = node.data;
   const source = data.source !== null && typeof data.source === "object" ? data.source : {};
@@ -44061,7 +44156,7 @@ function TriggerCell({ node, sessionId, useRoster, useSessions, useTurnClock, us
   return unreadOpening ? (0, import_react38.createElement)(import_react38.Fragment, null, (0, import_react38.createElement)("div", { className: "bt-open-new" }, (0, import_react38.createElement)(NewDivider), (0, import_react38.createElement)("div", { className: "bt-time-sep", role: "separator" }, unreadOpening)), body) : body ?? (0, import_react38.createElement)(CellEmpty);
   function triggerBody() {
     if (source.kind === "bot") {
-      if (source.handoff === true) return (0, import_react38.createElement)(EarlierParts, { sessionId, roster, actions });
+      if (source.handoff === true) return (0, import_react38.createElement)(EarlierParts, { sessionId, roster, actions, openFile });
       if (source.role === "kickoff" || source.role === "room" || source.role === "goal" || source.role === "task-handoff" || source.role === "handback") return null;
       if (source.role === "secret" || deferred) return null;
       if (source.role === "note" || source.role === "cancelled" || source.silent === true) return null;
@@ -44076,6 +44171,8 @@ function TriggerCell({ node, sessionId, useRoster, useSessions, useTurnClock, us
         return (0, import_react38.createElement)(GroupMessage, {
           bot: poster,
           text: file ? stripLongNote(text) : text,
+          files: presentedFiles(source.presented),
+          openFile,
           room: room2,
           sessionId,
           roster,
@@ -44422,7 +44519,7 @@ function RelayEvent({ reply, bot, room: room2, sessionId, actions, latestPaused 
 }
 var MAX_SETTLED_ROWS = 120;
 var settledRows = /* @__PURE__ */ new Map();
-function GroupReplies({ sessionId, callId, done, content, roster, actions, useRoster, useUi, useWork }) {
+function GroupReplies({ sessionId, callId, done, content, roster, actions, useRoster, useUi, useWork, openFile }) {
   const [live, setLive] = (0, import_react38.useState)({ replies: [], speaking: [] });
   (0, import_react38.useEffect)(() => {
     if (done) return void 0;
@@ -44551,7 +44648,7 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useRo
   return (0, import_react38.createElement)(
     "div",
     { className: "bt-group-replies" },
-    stacked.map(({ reply, index, texts: texts2, time, duration, claims, changes }, at2) => {
+    stacked.map(({ reply, index, texts: texts2, files, time, duration, claims, changes }, at2) => {
       const bot = roster.byId[reply.botId] ?? { id: reply.botId, name: reply.name, color: reply.color ?? "gray" };
       if (reply.kind === "user") {
         return (0, import_react38.createElement)(
@@ -44572,7 +44669,7 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useRo
       if (reply.kind !== void 0) {
         return (0, import_react38.createElement)(RelayEvent, { key: `${reply.botId ?? reply.kind}-${index}`, reply, bot, room: room2, sessionId, actions, latestPaused: at2 === lastPausedIndex });
       }
-      return (0, import_react38.createElement)(GroupMessage, { key: `${reply.botId}-${index}`, bot, texts: texts2, room: room2, sessionId, roster, actions, msgKey: callId ? `${sessionId}:${callId}:${index}` : void 0, useUi, time, duration, claims, changes });
+      return (0, import_react38.createElement)(GroupMessage, { key: `${reply.botId}-${index}`, bot, texts: texts2, files, openFile, room: room2, sessionId, roster, actions, msgKey: callId ? `${sessionId}:${callId}:${index}` : void 0, useUi, time, duration, claims, changes });
     }),
     pending.map((id, at2) => {
       const bot = roster.byId[id];
@@ -44613,7 +44710,7 @@ function useShownCards(actions, sessionId, callIds) {
     return () => actions.noteCards(sessionId, ids, -1);
   }, [sessionId, key]);
 }
-function renderCall(call2, { sessionId, roster, actions, useRoster, useUi, useWork, findBot, heldCards, hooks }) {
+function renderCall(call2, { sessionId, roster, actions, useRoster, useUi, useWork, findBot, heldCards, hooks, openFile }) {
   const tool = toolName(call2);
   const done = call2.kind === "tool-result";
   const { text: arg, value: argValue } = toolArgs(call2);
@@ -44666,7 +44763,7 @@ function renderCall(call2, { sessionId, roster, actions, useRoster, useUi, useWo
       return done && target ? (0, import_react38.createElement)(EventLine, { prefix: t("Updated"), bots: [target], onOpen: (bot) => actions.openSession(bot.id) }) : (0, import_react38.createElement)(CellEmpty);
     }
     case "group_relay":
-      return (0, import_react38.createElement)(GroupReplies, { sessionId, callId: call2.callId, done, content: call2.content, roster, actions, useRoster, useUi, useWork });
+      return (0, import_react38.createElement)(GroupReplies, { sessionId, callId: call2.callId, done, content: call2.content, roster, actions, useRoster, useUi, useWork, openFile });
     case "create_group":
     case "update_group":
     case "delete_group":
@@ -44734,7 +44831,7 @@ function renderCall(call2, { sessionId, roster, actions, useRoster, useUi, useWo
       return (0, import_react38.createElement)(CellEmpty);
   }
 }
-function ToolCell({ node, sessionId, useRoster, useUi, useWork, useHeldCards, useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer, actions }) {
+function ToolCell({ node, sessionId, openFile, useRoster, useUi, useWork, useHeldCards, useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer, actions }) {
   const roster = useRosterPick(useRoster, TOOL_ROSTER_FIELDS);
   const heldCards = useHeldCards?.((state) => state[sessionId]);
   const root = node.data.root;
@@ -44749,7 +44846,7 @@ function ToolCell({ node, sessionId, useRoster, useUi, useWork, useHeldCards, us
   useLiveNote(actions, sessionId, `tool:${root.callId ?? node.key}`, note);
   useShownCards(actions, sessionId, drawn.filter((call2) => (CARDS.has(toolName(call2)) || isComputerCall(toolName(call2))) && call2.callId).map((call2) => call2.callId));
   if (drawn.length === 0) return (0, import_react38.createElement)(CellEmpty);
-  const env = { sessionId, roster, actions, useRoster, useUi, useWork, findBot, heldCards, hooks: { useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer } };
+  const env = { sessionId, roster, actions, useRoster, useUi, useWork, findBot, heldCards, openFile, hooks: { useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer } };
   return (0, import_react38.createElement)(import_react38.Fragment, null, drawn.map((call2, index) => (0, import_react38.createElement)(import_react38.Fragment, { key: call2.callId ?? index }, renderCall(call2, env))));
 }
 
@@ -65173,25 +65270,6 @@ function installHeaderNavigation(slots, face, component, priority) {
     unsubscribe();
     dispose?.();
   };
-}
-
-// src/shared/file-chunks.js
-async function* fileChunks(call2, target) {
-  let offset = 0;
-  let version;
-  for (; ; ) {
-    const part = await call2("file-download", { ...target, offset, ...version === void 0 ? {} : { version } });
-    const bytes = Uint8Array.from(atob(part.bytes), (char) => char.charCodeAt(0));
-    if (part.nextOffset === void 0) {
-      yield { ...part, data: bytes };
-      return;
-    }
-    if (part.nextOffset !== offset + bytes.length || part.done !== true && bytes.length === 0 || version !== void 0 && version !== part.version) throw new Error("This file is no longer available");
-    yield { ...part, data: bytes };
-    if (part.done === true) return;
-    offset = part.nextOffset;
-    version = part.version;
-  }
 }
 
 // src/client/file-target.js
