@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { cpSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { realpath, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -12,7 +13,7 @@ import { install } from '../src/host/side-app.js'
 // gate: bounds, capability containment, history revalidation and lifecycle pruning.
 const fixtureRoot = fileURLToPath(new URL('./fixtures/side-app', import.meta.url))
 
-function harness({ root, webServer, sessionCwd } = {}) {
+function harness({ root, webServer, sessionCwd, teamRoot, deadSessions } = {}) {
   const listeners = new Map()
   const effects = []
   const ctx = {
@@ -43,8 +44,19 @@ function harness({ root, webServer, sessionCwd } = {}) {
         return resolve(path)
       }
     },
-    resolveAgent: async id => ({ id, session: { id, header: { cwd: sessionCwd ?? root } } }),
-    sessionFolder: session => (session?.id === 's1' ? (sessionCwd ?? root) : undefined),
+    resolveAgent: async (id) => {
+      if (deadSessions?.has(id)) throw Object.assign(new Error('Session unavailable'), { code: 'session/not-found' })
+      return { id, session: { id, header: { cwd: sessionCwd ?? root } } }
+    },
+    // Production folders.js: a Session's own reported folder wins, and when the agent
+    // cannot be resolved at all the lookup degrades through bot/room folders down to the
+    // team workspace. The endpoints must never let that degrade become an authorization.
+    sessionFolder: (session) => {
+      if (session === undefined) return teamRoot
+      if (deadSessions?.has(session.id)) return teamRoot
+      if (session.id === 's1' || session.header !== undefined) return session.header?.cwd ?? sessionCwd ?? root
+      return teamRoot
+    },
   }
   install(rt)
   for (const { execute } of effects) execute()
@@ -436,4 +448,130 @@ test('fixture reader files exercise the extension matrix without weakening .txt 
     assert.equal(opened.extension, ext)
   }
   assert.match(await tool(rt, 'open_reader').execute({ path: 'notes.txt' }, execIn('s1', root)), /Reader opens Markdown files/)
+})
+
+test('the preview endpoint validates the entry as HTML and as a real regular file', async (t) => {
+  const root = tempRoot(t)
+  write(root, 'page.html', '<h1>x</h1>')
+  write(root, 'notes.md', '# notes')
+  write(root, 'asset.js', 'void 0')
+  mkdirSync(join(root, 'dir.html'), { recursive: true })
+  const { rt } = harness({ root })
+  const descriptor = await openWithTool(rt, root, 'page.html')
+  await assert.rejects(
+    rt.sideAppEndpoint('side-app-preview', fileBody({ ...descriptor, displayPath: 'notes.md' })),
+    error => error?.code === 'bot/invalid' && /HTML/.test(error.message),
+    'a canvas card rewritten at a Markdown file must not be issued a preview ticket',
+  )
+  await assert.rejects(
+    rt.sideAppEndpoint('side-app-preview', fileBody({ ...descriptor, displayPath: 'asset.js' })),
+    error => error?.code === 'bot/invalid' && /HTML/.test(error.message),
+    'a canvas card rewritten at a script must not be issued a preview ticket',
+  )
+  await assert.rejects(
+    rt.sideAppEndpoint('side-app-preview', fileBody({ ...descriptor, displayPath: 'dir.html' })),
+    error => error?.code === 'bot/invalid' || error?.code === 'bot/not-found',
+    'a directory named like HTML is not a previewable entry',
+  )
+  const live = await rt.sideAppEndpoint('side-app-preview', fileBody(descriptor))
+  assert.equal(live.kind, 'preview', 'a real HTML file still previews')
+})
+
+test('reader image bytes require the article to exist as a real Markdown file', async (t) => {
+  const root = tempRoot(t)
+  write(root, 'docs/post.md', '![fig](img/a.png)')
+  write(root, 'docs/img/a.png', 'png')
+  write(root, 'elsewhere/pic.png', 'png')
+  mkdirSync(join(root, 'docs/fake.md'), { recursive: true })
+  write(root, 'docs/fake.md/inside.png', 'png')
+  const { rt } = harness({ root })
+  const descriptor = await openWithTool(rt, root, 'docs/post.md', 'open_reader')
+  const base = { app: 'reader', sessionId: 's1', workspaceTag: descriptor.workspaceTag }
+
+  await assert.rejects(
+    rt.sideAppEndpoint('side-app-bytes', { file: { ...base, displayPath: 'elsewhere/pic.png', article: 'elsewhere/ghost.md' } }),
+    error => error?.code === 'bot/not-found' || error?.code === 'bot/invalid' || error?.code === 'bot/forbidden',
+    'a nonexistent article must not anchor a subtree read elsewhere in the workspace',
+  )
+  await assert.rejects(
+    rt.sideAppEndpoint('side-app-bytes', { file: { ...base, displayPath: 'docs/fake.md/inside.png', article: 'docs/fake.md' } }),
+    error => error?.code === 'bot/invalid' || error?.code === 'bot/not-found',
+    'a directory that merely ends in .md is not an article',
+  )
+  const real = await rt.sideAppEndpoint('side-app-bytes', { file: { ...base, displayPath: 'docs/img/a.png', article: 'docs/post.md' } })
+  assert.equal(real.kind, 'bytes', 'a real article still serves its own images')
+})
+
+test('a card whose conversation cannot be resolved anymore is refused, never re-anchored to the team root', async (t) => {
+  const { root } = copyFixture(t, 'reader-long')
+  const { rt } = harness({ root, teamRoot: root, deadSessions: new Set(['dead-part']) })
+  rt.pastOwners.set('dead-part', { botId: 'b1' })
+  const live = await openWithTool(rt, root, 'article.md', 'open_reader')
+  // The card is well-formed, its workspace tag matches the team workspace exactly, and
+  // the bot behind it still works in the same folder — everything the fallback would
+  // need in order to pass. It must still fail: nothing proves this session is there.
+  const historical = { ...live, sessionId: 'dead-part' }
+  await assert.rejects(
+    rt.sideAppEndpoint('side-app-read', fileBody(historical)),
+    error => error?.code === 'bot/not-found' || error?.code === 'bot/forbidden' || error?.code === 'bot/invalid',
+    'an unresolvable past session must be refused rather than re-anchored to the team root',
+  )
+  const own = await rt.sideAppEndpoint('side-app-read', fileBody(live))
+  assert.equal(own.kind, 'text', 'the live conversation still reads')
+})
+
+test('diff bases stay separate for two sessions writing the same file', async (t) => {
+  const root = tempRoot(t)
+  const { rt, fireExecute } = harness({ root })
+  rt.chatOwners.set('s2', 'b2')
+  write(root, 'shared.html', 'a0')
+  const execFor = (sessionId, path) => ({ name: 'edit', arguments: { file_path: path }, agent: { id: sessionId, session: { id: sessionId, header: { cwd: root } } } })
+  rt.live.set('s1', { turn: 4 })
+  rt.live.set('s2', { turn: 12 })
+  const shaOf = text => createHash('sha256').update(Buffer.from(text, 'utf8')).digest('hex').slice(0, 24)
+  await fireExecute(execFor('s1', 'shared.html'), { value: { before: 'a0', after: 'a1' } })
+  await fireExecute(execFor('s2', 'shared.html'), { value: { before: 'a1', after: 'b2' } })
+  const descriptor = await openWithTool(rt, root, 'shared.html')
+  const first = await rt.sideAppEndpoint('side-app-diff', { ...fileBody(descriptor), revision: shaOf('a1') })
+  assert.equal(first.kind, 'host', "a later write from another session must not evict this session's base")
+  assert.equal(first.before, 'a0')
+  const cross = await rt.sideAppEndpoint('side-app-diff', { ...fileBody({ ...descriptor, sessionId: 's2' }), revision: shaOf('a1') })
+  assert.equal(cross.kind, 'unavailable', 'the other session never reads a base that is not its own')
+  const second = await rt.sideAppEndpoint('side-app-diff', { ...fileBody({ ...descriptor, sessionId: 's2' }), revision: shaOf('b2') })
+  assert.equal(second.kind, 'host', 'the second session keeps its own base for the same path')
+  assert.equal(second.before, 'a1')
+  assert.equal(second.revision, shaOf('b2'), 'the served revision is this session’s own after text, proven by the match itself')
+})
+
+test('diff bases never merge across unknown turns or broken version chains', async (t) => {
+  const root = tempRoot(t)
+  const { rt, fireExecute } = harness({ root })
+  write(root, 'u.html', 'a0')
+  write(root, 'd.html', 'a0')
+  const execFor = path => ({ name: 'edit', arguments: { file_path: path }, agent: { id: 's1', session: { id: 's1', header: { cwd: root } } } })
+  const entryFor = name => [...rt.sideAppInternals.diffBases.values()].find(item => item.realPath.endsWith(name))
+
+  // No live turn information at all: two writes with unknown turns are not a known
+  // shared turn, so the second write's base must start from its own before text.
+  await fireExecute(execFor('u.html'), { value: { before: 'a0', after: 'a1' } })
+  await fireExecute(execFor('u.html'), { value: { before: 'a1', after: 'a2' } })
+  const unknown = entryFor('u.html')
+  assert.equal(unknown.before, 'a1', 'writes without a known turn must not merge into one base')
+  assert.equal(unknown.after, 'a2')
+
+  // A known turn whose chain is broken — the file changed outside the write tools —
+  // cannot merge either: the merged base would describe a text that never existed.
+  rt.live.set('s1', { turn: 9 })
+  await fireExecute(execFor('d.html'), { value: { before: 'a0', after: 'a1' } })
+  await fireExecute(execFor('d.html'), { value: { before: 'X', after: 'a2' } })
+  const broken = entryFor('d.html')
+  assert.equal(broken.before, 'X', 'a write whose before does not continue the last after starts a fresh base')
+  assert.equal(broken.after, 'a2')
+  // The positive case in the same breath: a continuous chain in one turn still merges.
+  rt.live.set('s1', { turn: 10 })
+  await fireExecute(execFor('d.html'), { value: { before: 'a2', after: 'a3' } })
+  await fireExecute(execFor('d.html'), { value: { before: 'a3', after: 'a4' } })
+  const continuous = entryFor('d.html')
+  assert.equal(continuous.before, 'a2', 'continuous writes inside one turn merge from the first before')
+  assert.equal(continuous.after, 'a4')
 })
