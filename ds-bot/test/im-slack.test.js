@@ -368,3 +368,67 @@ test('a settled card\'s fallback text names the question and the answer', async 
   assert.ok(update.params.text.startsWith('Deploy the release branch?'), 'the fallback keeps the question')
   assert.ok(update.params.text.endsWith('— yes!!'), 'the fallback ends with the answer')
 })
+
+test('a card sent as two messages keeps the answer in its fallback text', async (t) => {
+  // `sentLength` counts the whole card, but an edit only rewrites the last message, so the
+  // offset is longer than the chunk it is applied to. Comparing the two made the answer
+  // look empty and the top-level `text` came out without it.
+  const fake = await fakeSlack()
+  const handle = slack.connect(FIELDS, env(fake), { onMessage: () => {}, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  await until(() => fake.sockets[0])
+  // Two messages: 3,990 characters, then 3,996 more. The edit rewrites the second message
+  // and appends the answer, which pushes it past the 4,000-character field.
+  const card = `${'w'.repeat(3990)}\n${'v'.repeat(3996)}`
+  assert.equal(card.length, 7987, `fixture is ${card.length} characters`)
+  await handle.send({ key: 'D1', kind: 'direct' }, { text: card, buttons: [{ data: 'q:q1:0', label: 'yes' }] })
+  const posts = fake.calls.filter(call => call.method === 'chat.postMessage')
+  assert.equal(posts.length, 2, `the card was sent as ${posts.length} messages`)
+  const sent = posts.at(-1).params.blocks.filter(block => block.type === 'section').map(block => block.text.text).join('')
+  assert.ok(sent.length > 3990, `the last message is ${sent.length} characters`)
+  await handle.edit({ key: 'D1', kind: 'direct' }, '1700.3', { text: `${card}\n— yes!!`, sentLength: card.length })
+  const update = fake.calls.find(call => call.method === 'chat.update')
+  assert.ok(update !== undefined, 'chat.update called')
+  assert.ok(update.params.text.length <= 4000, `text is ${update.params.text.length} characters`)
+  assert.ok(update.params.text.startsWith('v'.repeat(40)), 'the fallback keeps the head of the message it rewrites')
+  assert.ok(update.params.text.endsWith('— yes!!'), 'the fallback ends with the answer')
+})
+
+test('blank edges the split strips do not shift the answer in the fallback text', async (t) => {
+  // `chunkMarkdown` drops the blank first lines, so the chunk is shorter than the card and
+  // an offset measured on the card lands inside the answer. That cut `— yes!!` down to its
+  // last few characters in the field screen readers read.
+  const fake = await fakeSlack()
+  const handle = slack.connect(FIELDS, env(fake), { onMessage: () => {}, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  await until(() => fake.sockets[0])
+  const opening = '\n\n\n\nDeploy the release branch?\n'
+  const card = `${opening}${'z'.repeat(3999 - opening.length)}`
+  assert.equal(card.length, 3999, `fixture is ${card.length} characters`)
+  await handle.edit({ key: 'D1', kind: 'direct' }, '1700.4', { text: `${card}\n— yes!!`, sentLength: card.length })
+  const update = fake.calls.find(call => call.method === 'chat.update')
+  assert.ok(update !== undefined, 'chat.update called')
+  assert.ok(update.params.text.length <= 4000, `text is ${update.params.text.length} characters`)
+  assert.ok(update.params.text.startsWith('Deploy the release branch?'), 'the fallback keeps the question')
+  assert.ok(update.params.text.endsWith('— yes!!'), 'the fallback ends with the answer')
+})
+
+test('a one-line fenced snippet does not turn the text after it into code', async (t) => {
+  // A backtick fence's info string may not contain a backtick, so ```npm test``` is
+  // literal text, not an opening marker. Counting it as one made the split close the
+  // section with a fence line of its own, and Slack rendered the rest of it as code.
+  const fake = await fakeSlack()
+  const handle = slack.connect(FIELDS, env(fake), { onMessage: () => {}, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  await until(() => fake.sockets[0])
+  const text = `Deploy notes\n\`\`\`npm test\`\`\`\n${'p'.repeat(3100)}`
+  await handle.send({ key: 'D1', kind: 'direct' }, { text })
+  const posts = fake.calls.filter(call => call.method === 'chat.postMessage')
+  const sections = posts.flatMap(post => post.params.blocks.filter(block => block.type === 'section'))
+  assert.ok(sections.length > 1, 'the answer spans several sections')
+  for (const section of sections) {
+    const body = section.text.text
+    assert.ok(body.length <= 3000, `section text is ${body.length} characters`)
+    assert.ok(!body.split('\n').some(line => line.trim() === '```'), 'no section carries a fence line the text never opened')
+  }
+})
