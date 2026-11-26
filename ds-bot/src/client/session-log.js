@@ -18,6 +18,11 @@ const seqOf = event => event.seq
 const changed = (log, change) => ({ ...log, ...change, revision: log.revision + 1 })
 const same = { reopen: false }
 
+// A stream frame never clones the events array: only event frames, snapshots and pages
+// build a new one. Anything downstream that keys its work on the events array (the
+// committed-row cache in the desktop window's transcript) therefore settles a whole
+// stream chunk in O(1), without any further signal from here.
+
 // Events the window holds and an opening's window of the same Session, as one ordered list
 // without repeats. What the window held joins on only when nothing lies between the two.
 function join(log, header, opening) {
