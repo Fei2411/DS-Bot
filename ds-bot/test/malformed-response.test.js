@@ -115,14 +115,16 @@ const textOf = content => typeof content === 'string' ? content : Array.isArray(
 const advisedOneTool = messages => textOf(messages.findLast(({ role }) => role === 'user')?.content).includes('call at most one tool')
 
 // An OpenAI provider that fuses two parallel calls into one malformed call unless the newest
-// runtime context asks for one tool; with `ignoreHint` it always does.
-function parallelCalls(hints, { ignoreHint = false } = {}) {
+// runtime context asks for one tool; with `ignoreHint` it always does. After `limit` requests it
+// answers in text, so a policy that retries without end fails an assertion instead of timing out.
+function parallelCalls(hints, { ignoreHint = false, limit = 5 } = {}) {
   return {
     ...openAI,
     respond(_attempt, res, { messages }) {
       const advised = advisedOneTool(messages)
       hints.push(advised)
-      openAIStream(messages.some(message => message.role === 'tool') ? 2 : 1, res, { singleCall: advised && !ignoreHint })
+      const answer = hints.length > limit || messages.some(message => message.role === 'tool')
+      openAIStream(answer ? 2 : 1, res, { singleCall: advised && !ignoreHint })
     },
   }
 }
