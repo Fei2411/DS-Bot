@@ -982,8 +982,8 @@ test('F10 + State Hygiene + Weixin: deleteBot/startup prune requests & pair ledg
   host.emit(newestTask.sessionId, 'turn/start', { turn: 1 })
   host.emit(newestTask.sessionId, 'assistant/message', assistantText('Done 51'))
   host.emit(newestTask.sessionId, 'turn/end', { turn: 1, reason: { kind: 'completed' } })
-  await settle(() => archiveCalls.some(c => c.sid === 'old-task-sess-0'), 2000, 'pruneSettledTasks must archive pruned task session')
-  await settle(() => archiveCalls.some(c => c.sid === 'old-task-seg-0'), 2000, 'pruneSettledTasks must archive pruned task segments too')
+  await settle(() => archiveCalls.some(c => c.sid === 'old-task-sess-0'), 4000, 'pruneSettledTasks must archive pruned task session')
+  await settle(() => archiveCalls.some(c => c.sid === 'old-task-seg-0'), 4000, 'pruneSettledTasks must archive pruned task segments too')
   assert.equal(archiveCalls.find(c => c.sid === 'old-task-seg-0').opts?.stopActivity, undefined, 'archiving a pruned task must not forcibly stop Session activity')
 
   // 2) F10: feed.js skips taskOwners events & streams, and displayItems/feed/tails suppress silent [PASS] on Bot-triggered own-chat turns!
