@@ -112,7 +112,7 @@ const BotRow = memo(function BotRow({ bot, roster, actions, useSessions, useBotC
   const groups = useGroupWork(useWork, rooms => Object.entries(rooms).flatMap(([roomId, entries]) => entries.filter(entry => entry.botId === id).map(entry => ({ id: roomId, ...doingOf(entry) }))))
   const away = !running && groups.length > 0
   // Group approvals live on the group's row and header island, not on the Bot's
-  // own DM avatar (#1623). Blocking DM approvals/questions override 'working' so
+  // own DM avatar (#1623). Blocking DM approvals/questions/handoffs override 'working' so
   // a running turn paused on a card still wears the alert mark; any remaining
   // 'alert' activity comes from a group, background-task, or unanswerable approval
   // and is stripped while the foreground turn runs.
@@ -121,7 +121,7 @@ const BotRow = memo(function BotRow({ bot, roster, actions, useSessions, useBotC
   const waitLine = waitLineOf(asks.blocking)
   const deferredWaitLine = waitLineOf(asks.deferred)
   // A Bot running in its own chat previews what it is doing, like a group's row.
-  const runningLine = running && doing && doing !== 'alert' ? doingLine(doing) : null
+  const runningLine = running && !asks.blocking ? doingLine(dmDoing ?? 'working') : null
   const awayLine = away ? workLine(roster.roomsById[groups[0].id]?.name ?? t('a group chat'), groups[0], groups.length - 1) : null
   const useReadWaits = useWork ?? useNullJson
   const waitsRaw = useReadWaits(work => JSON.stringify(work.waiting?.[id] ?? null))
@@ -142,6 +142,7 @@ const BotRow = memo(function BotRow({ bot, roster, actions, useSessions, useBotC
       'data-bot-id': id, title: waitLine || deferredWaitLine || preview || bot.name, onClick: () => actions.openSession(id), onContextMenu,
     },
     h(BotAvatar, { bot, size: 60, state, main: true }),
+    alert && !active && state !== 'alert' ? h('span', { className: 'bt-dot bt-dot-wait', 'aria-hidden': true }) : null,
     h('span', { className: 'bt-tile-name' }, bot.name),
     bot.role ? h('span', { className: 'bt-chip' }, bot.role) : null,
     h(SidebarTaskPill, { active: taskCounts.active, waitingApproval: taskCounts.waitingApproval, onClick: openTasks })))
@@ -338,6 +339,12 @@ function renderSidebarEntry(entry, rowProps, markedUnread, onDragStart) {
       : h(AgentRow, { key: entry.item.id, ...rowProps, agent: entry.item, marked: markedUnread[entry.item.id] === true, onDragStart })
 }
 
+const entrySessionIds = entry => (
+  entry.kind === 'bot' ? [currentPart(entry.item)]
+    : entry.kind === 'room' ? [entry.item.sessionId ?? entry.item.id]
+      : entry.item.sessions ?? []
+)
+
 function SectionBlock({ section, entries, rowProps, markedUnread, renaming, dropTarget, onDragStart, onDragOverSec, onDropSec }) {
   const { roster, actions, useSessions, useBotCompletions, useSessionStatus, useWork, wide } = rowProps
   const input = useRef(null)
@@ -362,12 +369,7 @@ function SectionBlock({ section, entries, rowProps, markedUnread, renaming, drop
     }
     return list
   }, [visibleEntries, roster.byId])
-  const sessionIds = useMemo(() => entries.flatMap(entry => (
-    entry.kind === 'bot' ? [currentPart(entry.item)]
-      : entry.kind === 'room' ? [entry.item.sessionId ?? entry.item.id]
-        : entry.item.sessions ?? []
-  )), [entries])
-  const botParts = useMemo(() => new Set(entries.filter(entry => entry.kind === 'bot').map(entry => currentPart(entry.item))), [entries])
+  const sessionIds = useMemo(() => entries.flatMap(entrySessionIds), [entries])
   const activeSession = useSessions(list => sessionIds.find(id => (list.byId[id]?.retainedBy?.mainView ?? 0) > 0) ?? '')
   const activeEntry = useMemo(() => {
     if (activeSession === '') return undefined
@@ -377,16 +379,21 @@ function SectionBlock({ section, entries, rowProps, markedUnread, renaming, drop
           : (entry.item.sessions ?? []).includes(activeSession)
     ))
   }, [entries, activeSession])
-  const statusBits = useSessionStatus(map => JSON.stringify(sessionIds.map(id => [
-    id,
-    map.get(id)?.running === true ? 1 : 0,
-    (!botParts.has(id) && map.get(id)?.completionUnread === true) || map.get(id)?.pendingInteraction !== undefined ? 1 : 0,
-  ])))
   const shownEntries = useMemo(() => entries.filter(entry => (
     !entry.item.hidden || entry === activeEntry || (entry.kind === 'bot' && isMainOf(roster, entry.item.id))
   )), [entries, activeEntry, roster])
+  const shownSessionIds = useMemo(() => shownEntries.flatMap(entrySessionIds), [shownEntries])
+  const shownBotParts = useMemo(
+    () => new Set(shownEntries.filter(entry => entry.kind === 'bot').map(entry => currentPart(entry.item))),
+    [shownEntries],
+  )
+  const statusBits = useSessionStatus(map => JSON.stringify(shownSessionIds.map(id => [
+    id,
+    map.get(id)?.running === true ? 1 : 0,
+    (!shownBotParts.has(id) && map.get(id)?.completionUnread === true) || map.get(id)?.pendingInteraction !== undefined ? 1 : 0,
+  ])))
   const useReadSectionWork = useWork ?? useFalse
-  const hasRoomWork = useReadSectionWork(work => {
+  const hasRoomWork = useReadSectionWork((work) => {
     const botIds = new Set(shownEntries.filter(e => e.kind === 'bot').map(e => e.item.id))
     const roomIds = new Set(shownEntries.filter(e => e.kind === 'room').map(e => e.item.id))
     return Object.entries(work.rooms ?? {}).some(([rId, list]) => (
@@ -397,9 +404,10 @@ function SectionBlock({ section, entries, rowProps, markedUnread, renaming, drop
   const hasAlert = shownEntries.some(entry => (entry.kind === 'bot' || entry.kind === 'room')
     && waitsOf(roster, entry.kind === 'bot' ? { botId: entry.item.id } : { roomId: entry.item.id }).any)
   const hasWorking = hasRoomWork || parsedStatuses.some(([, run]) => run === 1)
-  const hasBotUnread = useBotCompletions(unread => [...botParts].some(id => id !== activeSession && unread[id] === true))
+  const useReadSectionBotCompletions = useBotCompletions ?? useFalse
+  const hasBotUnread = useReadSectionBotCompletions(unread => [...shownBotParts].some(id => id !== activeSession && unread[id] === true))
   const hasUnread = hasBotUnread || parsedStatuses.some(([id, , unread]) => unread === 1 && id !== activeSession)
-    || entries.some(entry => markedUnread[entry.item.id] === true && entry !== activeEntry)
+    || shownEntries.some(entry => markedUnread[entry.item.id] === true && entry !== activeEntry)
   const statusKind = hasAlert ? 'alert' : hasWorking ? 'working' : hasUnread ? 'unread' : null
   const toggle = () => {
     void Promise.resolve(actions.saveSection({ id: section.id, collapsed: !section.collapsed })).catch(error => actions.reportError(error, 'section'))

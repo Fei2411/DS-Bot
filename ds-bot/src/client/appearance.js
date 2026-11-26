@@ -8,6 +8,7 @@
 // one in the layer while it is open.
 import { FONT_SIZE, fontStack, readAppearance, SURFACE } from '../shared/appearance.js'
 import { surfaceVars, veilColors, washColor } from './themes.js'
+import { mountUserStylesheet } from './theme-css.js'
 
 const DENSITY = {
   compact: `.bt-row{min-height:44px;padding:5px 8px}
@@ -55,7 +56,7 @@ export function backgroundPaint(background, pictureUrl) {
  * @param {(id: string) => string | undefined} [options.pictureUrl]
  * @param {boolean} [options.fonts] - the window owns font size and line height (the desktop app); in DSH they are DSH's settings
  * @param {boolean} [options.safe] - this window was opened in safe appearance: no background, no user stylesheet
- * @param {boolean} [options.user] - end with the user stylesheet; false when it gets a sheet of its own (userCss)
+ * @param {boolean} [options.user] - sync the user stylesheet too; it never joins this text (userCss)
  * @returns {string}
  */
 export function appearanceCss({ appearance, theme, background, pictureUrl = () => undefined, fonts = false, safe = false, user = true }) {
@@ -98,10 +99,16 @@ export function appearanceCss({ appearance, theme, background, pictureUrl = () =
   return user ? own + userCss(appearance, safe) : own
 }
 
-/** The user's own stylesheet, kept as written; nothing in safe appearance. */
-export function userCss(appearance, safe = false) {
+// The user's own stylesheet is never injected as text. Written CSS could redraw the
+// window to mislead or send what is typed elsewhere, so it reaches the page only through
+// the sanitized constructed stylesheet (theme-css.js); every render syncs it here, as
+// both callers (the plugin and the desktop app) call this on each redraw. The text is
+// always empty: nothing user-written is ever re-serialized into a <style> element, and
+// without constructed stylesheets the user stylesheet simply does not apply.
+export function userCss(appearance, safe = false, doc = globalThis.document) {
   const css = readAppearance(appearance).css
-  return safe || !css ? '' : `\n/* user stylesheet */\n${css}`
+  mountUserStylesheet(doc, safe ? '' : (css ?? ''))
+  return ''
 }
 
 // The background in effect and its paint. A picture still loading, missing or broken has no

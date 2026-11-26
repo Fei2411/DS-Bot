@@ -1,8 +1,9 @@
 // The window's own versions of the DSH interface primitives the Bot views draw with (see
 // ds-bot/src/client/dsh-primitives.js and vite.config.js).
-import { createElement as h, useMemo, useRef, useState } from 'react'
+import { Fragment, createElement as h, memo, useMemo, useRef, useState } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { splitMarkdownBlocks } from '../../../ds-bot/src/client/markdown-blocks.js'
 import { MENTION_ORIGIN } from '../../../ds-bot/src/client/text.js'
 import { ArchiveIcon, DownloadIcon, GearIcon, PersonIcon, SlidersIcon, SpinnerIcon, StackIcon } from '../../../ds-bot/src/client/icons.js'
 
@@ -82,12 +83,35 @@ const elements = labels => ({
   pre: ({ children }) => h(CodeBlock, { labels }, children),
 })
 
+// A closed block of a streaming reply. Once the splitter has closed it, later chunks
+// cannot change what it means, so the memo holds for the rest of the stream and the
+// block never re-parses. The Fragment keeps the block's elements flat inside the one
+// outer `.md_markdown` wrapper: the DOM a settled full parse would produce is the same,
+// so nothing jumps when streaming completes.
+const StaticMarkdownBlock = memo(function StaticMarkdownBlock({ text, components }) {
+  return h(Fragment, null, h(Markdown, { remarkPlugins: plugins, components }, text))
+})
+
+// Short replies cost little enough that splitting them is not worth the extra elements.
+const STREAM_SPLIT_MIN = 512
+
 // The class keeps the `_markdown` stem that the Bot views' styles give DSH's Markdown.
-export function MarkdownText({ text, labels, variant }) {
+export function MarkdownText({ text, labels, variant, streaming = false }) {
   // New element types on every render would remount each code block as a reply streams in.
   const components = useMemo(() => elements(labels), [labels?.code?.copyLabel, labels?.code?.copiedLabel])
+  const source = text ?? ''
+  // While streaming, closed blocks parse once and only the live trailing piece re-parses
+  // per chunk, instead of the whole message (which re-parses quadratically over a reply).
+  // `null` from the splitter means the text holds document-wide syntax and stays whole.
+  const blocks = streaming && source.length > STREAM_SPLIT_MIN ? splitMarkdownBlocks(source) : null
+  const split = blocks !== null && blocks.length >= 2
   return h('div', { className: variant === 'compact' ? 'md_markdown md-compact' : 'md_markdown' },
-    h(Markdown, { remarkPlugins: plugins, components }, text ?? ''))
+    split
+      ? [
+        ...blocks.slice(0, -1).map((block, index) => h(StaticMarkdownBlock, { key: index, text: block, components })),
+        h(Markdown, { key: blocks.length - 1, remarkPlugins: plugins, components }, blocks.at(-1)),
+      ]
+      : h(Markdown, { remarkPlugins: plugins, components }, source))
 }
 
 // Settings icons, drawn by DS Bot (ds-bot/src/client/icons.js). DSH's take a `size`.

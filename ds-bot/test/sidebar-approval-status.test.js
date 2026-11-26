@@ -76,7 +76,9 @@ function renderSidebar({
   sections = [],
   rosterExtra = {},
   work = { waiting: {}, rooms: {}, approvals: [] },
-  computer = { asks: {} },
+  computer = { asks: {}, holds: {} },
+  browserHolds = {},
+  markedUnread = {},
   activity = {},
   statusMap = new Map(),
   botCompletions,
@@ -103,7 +105,7 @@ function renderSidebar({
     actions: noopActions,
     useSidebarPref: () => (wide ? 'open' : 'rail'),
     useRoster: pick => pick(roster),
-    useUi: pick => pick({ unread }),
+    useUi: pick => pick({ unread: { ...unread, ...markedUnread } }),
     useRegistry: pick => pick({}),
     useSessions: pick => pick(list),
     useBotCompletions: pick => pick(botCompletions),
@@ -113,6 +115,7 @@ function renderSidebar({
     useActivity: pick => pick(activity),
     useWork: pick => pick(work),
     useComputer: pick => pick(computer),
+    useBrowserHolds: pick => pick(browserHolds),
   })
   return expand(tree)
 }
@@ -453,4 +456,217 @@ test('a background task approval does not mask a foreground question, and still 
   const [idleRow] = walk(idleBg, node => node.props?.['data-bot-id'] === 'ops')
   assert.equal(walk(idleRow, node => classes(node).includes('bt-badge-alert')).length, 1)
   assert.equal(textOf(walk(idleRow, node => classes(node).includes('bt-row-preview-wait'))[0]), 'Waiting for your approval')
+})
+
+test('a running DM keeps its working shimmer line even if stale alert activity arrives alongside group, background-task, or unanswerable approvals', () => {
+  const bot = { id: 'reviewer', name: 'Reviewer', createdAt: 1 }
+  const room = { id: 'r1', name: 'Review Group', members: ['reviewer'], createdAt: 2 }
+
+  // (a) Group approval + running DM (no learning) keeps runningLine shimmer.
+  const groupOnly = renderSidebar({
+    bots: [bot],
+    rooms: [room],
+    activity: { reviewer: 'alert' },
+    statusMap: new Map([['reviewer', { running: true }]]),
+    rosterExtra: waiting(['approval', 'a1', { botId: 'reviewer', roomId: 'r1' }]),
+  })
+  const [groupOnlyRow] = walk(groupOnly, node => node.props?.['data-bot-id'] === 'reviewer')
+  const [groupOnlyPreview] = walk(groupOnlyRow, node => classes(node).includes('bt-row-preview'))
+  assert.ok(groupOnlyPreview !== undefined)
+  assert.ok(!classes(groupOnlyPreview).includes('bt-row-preview-wait'))
+  assert.match(textOf(groupOnlyPreview), /^.+…$/)
+  assert.equal(walk(groupOnlyRow, node => classes(node).includes('bt-badge-working')).length, 1)
+
+  // (b) Group approval + running DM + learning keeps runningLine (not "Waiting for your approval").
+  const groupAndLearning = renderSidebar({
+    bots: [bot],
+    rooms: [room],
+    rosterExtra: waiting(['approval', 'a1', { botId: 'reviewer', roomId: 'r1' }], ['learning', 'p1', { botId: 'reviewer' }]),
+    activity: { reviewer: 'alert' },
+    statusMap: new Map([['reviewer', { running: true }]]),
+  })
+  const [glRow] = walk(groupAndLearning, node => node.props?.['data-bot-id'] === 'reviewer')
+  const [glPreview] = walk(glRow, node => classes(node).includes('bt-row-preview'))
+  assert.ok(glPreview !== undefined)
+  assert.ok(!classes(glPreview).includes('bt-row-preview-wait'))
+  assert.match(textOf(glPreview), /^.+…$/)
+  assert.equal(walk(glRow, node => classes(node).includes('bt-badge-working')).length, 1)
+  assert.equal(walk(glRow, node => classes(node).includes('bt-unread-wait')).length, 1)
+
+  // (c) Background task approval + running DM keeps runningLine (not "Waiting for your approval").
+  const bgRunning = renderSidebar({
+    bots: [bot],
+    activity: { reviewer: 'alert' },
+    statusMap: new Map([['reviewer', { running: true }]]),
+    rosterExtra: waiting(['approval', 'a2', { botId: 'reviewer', taskId: 't1' }]),
+  })
+  const [bgRow] = walk(bgRunning, node => node.props?.['data-bot-id'] === 'reviewer')
+  const [bgPreview] = walk(bgRow, node => classes(node).includes('bt-row-preview'))
+  assert.ok(bgPreview !== undefined)
+  assert.ok(!classes(bgPreview).includes('bt-row-preview-wait'))
+  assert.match(textOf(bgPreview), /^.+…$/)
+  assert.equal(walk(bgRow, node => classes(node).includes('bt-badge-working')).length, 1)
+  assert.equal(walk(bgRow, node => classes(node).includes('bt-unread-wait')).length, 1)
+
+  // (d) Unanswerable approval + running DM keeps runningLine shimmer (the inbox omits unanswerable approvals).
+  const unanswerableRunning = renderSidebar({
+    bots: [bot],
+    activity: { reviewer: 'alert' },
+    statusMap: new Map([['reviewer', { running: true }]]),
+    work: { waiting: {}, rooms: {}, approvals: [{ id: 'a3', botId: 'reviewer', answerable: false }] },
+  })
+  const [unansRow] = walk(unanswerableRunning, node => node.props?.['data-bot-id'] === 'reviewer')
+  const [unansPreview] = walk(unansRow, node => classes(node).includes('bt-row-preview'))
+  assert.ok(unansPreview !== undefined)
+  assert.ok(!classes(unansPreview).includes('bt-row-preview-wait'))
+  assert.match(textOf(unansPreview), /^.+…$/)
+  assert.equal(walk(unansRow, node => classes(node).includes('bt-badge-alert')).length, 0)
+  assert.equal(walk(unansRow, node => classes(node).includes('bt-badge-working')).length, 1)
+
+  // (e) Turn-start poll lag (running: true, activity: {}) + non-blocking approval (learning or bgApproval)
+  // still renders the working shimmer subtitle instead of falling through to amber approval text.
+  for (const extra of [
+    { rosterExtra: waiting(['learning', 'p1', { botId: 'reviewer' }]) },
+    { rosterExtra: waiting(['approval', 'a4', { botId: 'reviewer', taskId: 't1' }]) },
+  ]) {
+    const lagTree = renderSidebar({
+      bots: [bot],
+      activity: {},
+      statusMap: new Map([['reviewer', { running: true }]]),
+      ...extra,
+    })
+    const [lagRow] = walk(lagTree, node => node.props?.['data-bot-id'] === 'reviewer')
+    const [lagPreview] = walk(lagRow, node => classes(node).includes('bt-row-preview'))
+    assert.ok(lagPreview !== undefined)
+    assert.ok(!classes(lagPreview).includes('bt-row-preview-wait'))
+    assert.equal(textOf(lagPreview), 'On it…')
+    assert.equal(walk(lagRow, node => classes(node).includes('bt-badge-working')).length, 1)
+    assert.equal(walk(lagRow, node => classes(node).includes('bt-unread-wait')).length, 1)
+  }
+})
+
+test('browser_handoff and computer_handoff holds surface alert state on BotRow and collapsed SectionBlock, while manual takeovers do not', () => {
+  const ops = { id: 'ops', name: 'Ops', sectionId: 'sec-1', createdAt: 1 }
+  const sections = [{ id: 'sec-1', name: 'Ops', collapsed: true }]
+
+  // Browser and computer handoffs in the host inbox surface alert on BotRow and collapsed SectionBlock.
+  for (const surface of ['browser', 'computer']) {
+    const tree = renderSidebar({
+      bots: [ops],
+      sections,
+      rosterExtra: waiting(['handoff', `h-${surface}`, { botId: 'ops', surface }]),
+      activity: { ops: 'working' },
+      statusMap: new Map([['ops', { running: true }]]),
+    })
+    const [row] = walk(tree, node => node.props?.['data-bot-id'] === 'ops')
+    assert.equal(walk(row, node => classes(node).includes('bt-badge-alert')).length, 1)
+    assert.equal(textOf(walk(row, node => classes(node).includes('bt-row-preview-wait'))[0]), 'Waiting for you')
+    assert.equal(walk(row, node => classes(node).includes('bt-unread-wait')).length, 1)
+    const [secStatus] = walk(tree, node => classes(node).includes('bt-sec-status'))
+    assert.equal(secStatus?.props?.['data-kind'], 'alert')
+  }
+
+  // Manual browser/computer takeover or stop (excluded from the host inbox) does NOT alert.
+  for (const extra of [
+    { browserHolds: { ops: { by: 'user', reason: 'takeover', note: 'The user is controlling this browser.' } } },
+    { computer: { asks: {}, holds: { ops: { id: 'ch-m', by: 'user', surface: 'computer', reason: 'takeover' } } } },
+  ]) {
+    const tree = renderSidebar({ bots: [ops], sections, ...extra })
+    const [row] = walk(tree, node => node.props?.['data-bot-id'] === 'ops')
+    assert.equal(walk(row, node => classes(node).includes('bt-badge-alert')).length, 0)
+    assert.equal(walk(row, node => classes(node).includes('bt-row-preview-wait')).length, 0)
+    assert.equal(walk(tree, node => classes(node).includes('bt-sec-status')).length, 0)
+  }
+
+  // Priority: earlier blocking question in the inbox takes precedence over a later handoff.
+  const questionAndHandoff = renderSidebar({
+    bots: [ops],
+    rosterExtra: waiting(['question', 'q1', { botId: 'ops', at: 1 }], ['handoff', 'bh-1', { botId: 'ops', surface: 'browser', at: 2 }]),
+  })
+  const [qhRow] = walk(questionAndHandoff, node => node.props?.['data-bot-id'] === 'ops')
+  assert.equal(textOf(walk(qhRow, node => classes(node).includes('bt-row-preview-wait'))[0]), 'Waiting for your answer')
+})
+
+test('Main Bot tile shows an amber wait dot when busy with a non-blocking approval and hides it when active or idle-alert', () => {
+  const chief = { id: 'chief', name: 'Chief', role: 'Lead', createdAt: 1 }
+  const learning = { mainBotId: 'chief', ...waiting(['learning', 'p1', { botId: 'chief' }]) }
+
+  // Busy + non-blocking learning proposal + inactive: working avatar + amber .bt-dot-wait on tile.
+  const busyTile = renderSidebar({
+    bots: [chief],
+    rosterExtra: learning,
+    activity: { chief: 'working' },
+    statusMap: new Map([['chief', { running: true }]]),
+  })
+  const [tileBtn] = walk(busyTile, node => classes(node).includes('bt-tile'))
+  assert.ok(tileBtn !== undefined)
+  assert.equal(walk(tileBtn, node => classes(node).includes('bt-badge-working')).length, 1)
+  assert.equal(walk(tileBtn, node => classes(node).includes('bt-dot-wait')).length, 1)
+
+  // Active: hides the amber tile dot.
+  const activeTile = renderSidebar({
+    bots: [chief],
+    rosterExtra: learning,
+    activity: { chief: 'working' },
+    statusMap: new Map([['chief', { running: true }]]),
+    activeSession: 'chief',
+  })
+  const [activeTileBtn] = walk(activeTile, node => classes(node).includes('bt-tile'))
+  assert.equal(walk(activeTileBtn, node => classes(node).includes('bt-dot-wait')).length, 0)
+
+  // Idle with approval: avatar wears '?' badge, no redundant corner dot.
+  const idleTile = renderSidebar({
+    bots: [chief],
+    rosterExtra: learning,
+  })
+  const [idleTileBtn] = walk(idleTile, node => classes(node).includes('bt-tile'))
+  assert.equal(walk(idleTileBtn, node => classes(node).includes('bt-badge-alert')).length, 1)
+  assert.equal(walk(idleTileBtn, node => classes(node).includes('bt-dot-wait')).length, 0)
+})
+
+test('collapsed SectionBlock ignores running and unread state of inactive hidden Bots, while keeping active hidden Bots', () => {
+  const hiddenBot = { id: 'hidden-bot', name: 'Hidden', sectionId: 'sec-1', hidden: true, createdAt: 1 }
+  const visibleBot = { id: 'visible-bot', name: 'Visible', sectionId: 'sec-1', createdAt: 2 }
+  const sections = [{ id: 'sec-1', name: 'Ops', collapsed: true }]
+
+  // Inactive hidden Bot running + completionUnread + botCompletions + pendingInteraction + markedUnread: section stays quiet.
+  const hiddenQuiet = renderSidebar({
+    bots: [hiddenBot, visibleBot],
+    sections,
+    statusMap: new Map([['hidden-bot', { running: true, completionUnread: true, pendingInteraction: { id: 'i1' } }]]),
+    botCompletions: { 'hidden-bot': true },
+    markedUnread: { 'hidden-bot': true },
+  })
+  assert.equal(walk(hiddenQuiet, node => classes(node).includes('bt-sec-status')).length, 0)
+
+  // Standalone botCompletions on an inactive hidden Bot also leaves collapsed section quiet.
+  const hiddenCompletionQuiet = renderSidebar({
+    bots: [hiddenBot, visibleBot],
+    sections,
+    botCompletions: { 'hidden-bot': true },
+  })
+  assert.equal(walk(hiddenCompletionQuiet, node => classes(node).includes('bt-sec-status')).length, 0)
+
+  // Same in rail mode: no dot on collapsed folder.
+  const hiddenQuietRail = renderSidebar({
+    bots: [hiddenBot, visibleBot],
+    sections,
+    statusMap: new Map([['hidden-bot', { running: true, completionUnread: true }]]),
+    botCompletions: { 'hidden-bot': true },
+    markedUnread: { 'hidden-bot': true },
+    wide: false,
+  })
+  const [railFolder] = walk(hiddenQuietRail, node => classes(node).includes('bt-rail-folder'))
+  assert.ok(railFolder !== undefined)
+  assert.equal(walk(railFolder, node => classes(node).includes('bt-dot')).length, 0)
+
+  // Active hidden Bot that IS running: shownEntries includes it, so section shows working.
+  const activeHiddenRunning = renderSidebar({
+    bots: [hiddenBot, visibleBot],
+    sections,
+    statusMap: new Map([['hidden-bot', { running: true }]]),
+    activeSession: 'hidden-bot',
+  })
+  const [status] = walk(activeHiddenRunning, node => classes(node).includes('bt-sec-status'))
+  assert.equal(status?.props?.['data-kind'], 'working')
 })

@@ -181,6 +181,8 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
     customAgents,
     findExecutable,
     spawnEngine,
+    prepareSecretEnvForSession: (sessionId, signal) => rt.prepareSecretEnvForSession?.(sessionId, signal),
+    secretEnvForSession: sessionId => rt.secretEnvForSession?.(sessionId),
     usedModels: route => usedRefs().map(ref => splitRef(ref)).filter(used => used?.provider === route).map(used => used.model),
     record: sessionId => store().sessions[sessionId],
     saveRecord: (sessionId, record) => {
@@ -259,6 +261,11 @@ export function install(rt, { probeSignIn: checkSignIn = probeSignIn, probeVersi
   const initialScan = scan().catch(error => rt.warn?.('ds-bot: initial local agent scan failed: %s', error))
   // Custom agents arrive with the state load; their routes register then too.
   void rt.load?.().then(() => { if (!disposed) applyRoutes() }).catch(() => {})
+  const prevSecretsChanged = rt.secretsChanged
+  rt.secretsChanged = () => {
+    prevSecretsChanged?.()
+    if (!disposed) void adapter.secretsChanged?.().catch(() => {})
+  }
   // The callback returns the disposer: running adapter.dispose() inside the
   // setup would leave the adapter disposed from the moment it installs.
   ctx.effect(() => async () => {

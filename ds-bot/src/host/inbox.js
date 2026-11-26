@@ -131,7 +131,8 @@ export function install(rt) {
       add('computer', ask.id, ask.at, ask, { text: clip(ask.appName) })
     }
     for (const [botId, hold] of Object.entries(computer.holds ?? {})) {
-      if (hold?.by !== 'bot' && hold?.fromBot !== true && hold?.callId === undefined) continue
+      const legacyBotReason = typeof hold?.reason === 'string' && hold.reason !== '' && hold.reason !== 'takeover'
+      if (hold?.by !== 'bot' && hold?.fromBot !== true && hold?.callId === undefined && !legacyBotReason) continue
       add('handoff', hold.id ?? botId, hold.at, { botId, sessionId: rt.chatOf?.(botId) }, { surface: 'computer', text: clip(hold.note), reason: String(hold.reason ?? '') })
     }
     for (const [botId, hold] of Object.entries(rt.browserChannel?.holdSnapshot?.() ?? {})) {
