@@ -1430,4 +1430,68 @@ test('parts.js crash recovery (ensureHandoffDelivered) enforces handoff budget, 
     assert.equal(forwarded[0].content[0].text, longUnread)
     assert.deepEqual(forwarded[0].content.filter(b => b.type === 'image').map(b => b.attachment.attachmentId), ['crash-shot-1', 'crash-shot-2'])
   }
+
+  // 3. Folder-switch crash recovery whose persisted segment had fallback:'whole' must
+  // persist fallback:'trimmed' onto the stored bot.segments entry before saving.
+  {
+    const followed = []
+    const savedFallbacks = []
+    const historyEvents = [
+      { type: 'user/message', seq: 1, time: 1, data: { content: [{ type: 'text', text: `WHOLE_OLD_${'旧'.repeat(1200)}` }], source: { kind: 'user' } } },
+      { type: 'assistant/message', seq: 2, time: 2, data: { message: { content: [{ type: 'text', text: `WHOLE_MID_${'中'.repeat(1200)}` }] } } },
+      { type: 'user/message', seq: 3, time: 3, data: { content: [{ type: 'text', text: `WHOLE_REQ_${'新'.repeat(800)}` }], source: { kind: 'user' } } },
+      { type: 'assistant/message', seq: 4, time: 4, data: { message: { content: [{ type: 'text', text: `WHOLE_REPLY_${'答'.repeat(800)}` }] } } },
+    ]
+    const ctx = fakeContext({ services: { tokenMeter: { measure: () => ({ totalTokens: 1_000 }) } } })
+    ctx.logger = { warn: () => {}, info: () => {} }
+    ctx.sessions = { flush: async () => {} }
+    ctx.workspaceRegistry = { archiveSession: async () => {} }
+    ctx.llm = { resolveModelInfo: async () => ({ context: { contextWindow: 2_500 } }) }
+    const bot = { id: 'b1', name: 'Kai', sessionId: 's2', model: 'provider/small', segments: [{ number: 1, sessionId: 's1', fallback: 'whole', endedAt: 10 }, { number: 2, sessionId: 's2' }] }
+    const oldAgent = {
+      id: 's1',
+      session: { id: 's1', header: { cwd: '/tmp/old' }, requestHeader: () => ({ config: { provider: 'provider', model: 'small' } }), deriveMessages: () => [], toolHistory: () => [] },
+      inbox: { nextStep: [], nextTurn: [] },
+    }
+    const freshAgent = {
+      id: 's2',
+      session: { id: 's2', header: { cwd: '/tmp/new' }, requestHeader: () => ({ config: { provider: 'provider', model: 'small' } }), deriveMessages: () => [], toolHistory: () => [] },
+      inbox: { nextStep: [], nextTurn: [] },
+      followup: message => followed.push(message),
+      send: async () => {},
+    }
+    const rt = {
+      ctx, home: '/unused', config: {},
+      state: {
+        bots: { b1: bot }, rooms: {}, prefs: {}, exchanges: [], capabilities: { items: {} }, questions: {}, views: {},
+        switching: {
+          s1: { botId: 'b1', handoffPending: true, handoffMeta: { folder: true } },
+        },
+      },
+      warn: () => {},
+      async save() { savedFallbacks.push(bot.segments[0].fallback) },
+      async load() {},
+      readOnly: () => undefined,
+      botOf: id => rt.state.bots[id], roomOf: () => undefined,
+      selfOf: () => 'b1', isMain: () => false, chatOf: () => 's2', sessionOfRoom: () => undefined,
+      isBotSession: id => ['s1', 's2'].includes(id), isLocalAgentRef: () => false, isLocalAgentRoute: () => false,
+      chatOwners: new Map([['s2', 'b1']]), groupOwners: new Map(), pastOwners: new Map([['s1', { botId: 'b1' }]]), roomOwners: new Map(),
+      teamTools: [], live: new Map(), groupSessionsOf: () => [], unreadOf: () => [],
+      eventsBackwards: async function* (_sid, _sig, _pages, scan) {
+        for (const event of [...historyEvents].reverse()) yield event
+        if (scan) scan.complete = true
+      },
+      resolveAgent: async id => (id === 's2' ? freshAgent : oldAgent),
+      desiredModel: async subject => subject.model, desiredEffort: async () => undefined,
+      ensureCapabilities: async () => {}, renewMemory: () => {}, moveSchedules: async () => {}, deliver: async () => {},
+      teamFolder: () => '/tmp/team', workDirOf: () => '/tmp/new', isFolder: async () => true, roomProgress: new Map(),
+    }
+    partsInstall(rt)
+    await rt.heldBack()
+    assert.equal(bot.segments[0].fallback, 'trimmed', 'persisted bot.segments entry must downgrade from whole to trimmed when recovery trims history')
+    assert.ok(savedFallbacks.includes('trimmed'), 'rt.save() must persist the downgraded fallback')
+    assert.equal(followed.length, 1)
+    const text = followed[0].content.map(b => b.text).join('')
+    assert.ok(text.includes('trimmed to fit'), 'delivered handoff note must reflect trimmed fallback')
+  }
 })

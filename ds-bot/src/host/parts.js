@@ -2381,6 +2381,18 @@ export function install(rt) {
     })
     if (segment.fallback === 'whole' && budgeted.whole !== true) {
       segment.fallback = 'trimmed'
+      const segmentLists = bot === undefined
+        ? [room?.parts]
+        : room !== undefined
+          ? [room.segments?.[bot.id]]
+          : [threadOfPart(bot, targetId)?.segments, bot.segments]
+      for (const list of segmentLists) {
+        const stored = list?.find(entry => entry?.sessionId === segment.sessionId)
+        if (stored !== undefined) {
+          stored.fallback = 'trimmed'
+          break
+        }
+      }
       await rt.save()
       budgeted = applyHandoffBudget(carried, {
         session: budgetSession,
