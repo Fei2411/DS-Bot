@@ -605,6 +605,7 @@ try {
   Object.assign(env, {
     DS_BOT_HOME: join(work, 'home'), DS_BOT_SHELL_DATA: join(work, 'shell'),
     DEEPSEEK_BASE_URL: modelUrl, DEEPSEEK_API_KEY: 'mock-key',
+    DS_BOT_TELEMETRY_DISABLED: '1',
   })
   // Never touch the host macOS login keychain with an ad-hoc temporary copy of DS Bot.app.
   const macArgs = mockKeychainArgs()

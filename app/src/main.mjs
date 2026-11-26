@@ -623,11 +623,6 @@ function dshTelemetryEnv(dataDir) {
     } catch { /* default off until the user explicitly opts in */ }
     if (!feedbackEnabled) out.DSH_TELEMETRY_DISABLED = '1'
   }
-  // Isolated source-mode smoke runs (DS_BOT_SHELL_DATA without an explicit endpoint override)
-  // must not send synthetic pings to the production telemetry collector.
-  if (!app.isPackaged && process.env.DS_BOT_SHELL_DATA && process.env.DS_BOT_TELEMETRY_DISABLED === undefined && process.env.DS_BOT_TELEMETRY_URL === undefined) {
-    out.DS_BOT_TELEMETRY_DISABLED = '1'
-  }
   return out
 }
 
