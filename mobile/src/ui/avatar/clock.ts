@@ -23,6 +23,13 @@ export type Tier = 'quiet' | 'normal' | 'lively'
 export type Effects = 'full' | 'reduced' | 'off'
 export interface MotionSettings { tier: Tier; effects: Effects }
 
+// Interactive avatar capabilities allowed by the shared engine under these settings
+// (engine.js: poke requires !still && tier !== 'quiet'; pet requires follows).
+export function motionCapabilities({ tier, effects }: MotionSettings): { canPoke: boolean; canPet: boolean } {
+  if (tier === 'quiet' || effects === 'off') return { canPoke: false, canPet: false }
+  return { canPoke: true, canPet: effects === 'full' }
+}
+
 export interface Signals {
   // The app came to the front (true) or left it (false).
   shown(on: boolean): void
@@ -116,6 +123,7 @@ export class Clock {
   private unlisten: (() => void) | null = null
   private prefs: { motion?: string; effects?: string } = {}
   private reduce = false
+  private readonly settingsListeners = new Set<() => void>()
   // Model building: marks waiting for their shape's model, and part-built models.
   private readonly queue: LiveMark[] = []
   private readonly jobs = new Map<string, () => boolean>()
@@ -142,6 +150,11 @@ export class Clock {
     const before = this.settingsKey()
     this.prefs = { motion: prefs?.motion, effects: prefs?.effects }
     this.applySettings(before)
+  }
+
+  subscribeSettings(listener: () => void): () => void {
+    this.settingsListeners.add(listener)
+    return () => { this.settingsListeners.delete(listener) }
   }
 
   // ---- Signals.
@@ -179,6 +192,7 @@ export class Clock {
     if (this.settingsKey() === before) return
     const settings = this.settings
     for (const mark of this.marks) { mark.engine.setOptions(settings); mark.dirty = true }
+    for (const listener of this.settingsListeners) listener()
     this.kick()
   }
 

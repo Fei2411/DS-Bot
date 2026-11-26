@@ -8,7 +8,7 @@ import { test } from 'node:test'
 import { SHAPES } from '../../../../ds-bot/src/client/characters.js'
 import { DOZE_MS } from '../../../../ds-bot/src/client/avatar/stage.js'
 import { REST_MS } from '../../../../ds-bot/src/client/motion-rest.js'
-import { Clock, IDLE_WAIT_MS, LiveMark, SLICE_MS, type Host, type Picture, type Signals } from './clock.ts'
+import { Clock, IDLE_WAIT_MS, LiveMark, motionCapabilities, SLICE_MS, type Host, type Picture, type Signals } from './clock.ts'
 import { shownState } from './shown.ts'
 
 const RECORDED = JSON.parse(readFileSync(new URL('./fixtures/appstate-ios.json', import.meta.url), 'utf8')) as {
@@ -414,5 +414,66 @@ test('the app states iOS sends move the clock to the background and back, and Re
     } else assert.ok(p.paints.length > drawn, `${change.label} (${change.to}): drawing`)
   }
   assert.equal(mark.engine.effects, 'off')
+  mark.destroy()
+})
+
+test('motionCapabilities matches engine poke/pet acceptance and subscribeSettings tracks changes', () => {
+  const p = phone()
+  const seen: string[] = []
+  const off = p.clock.subscribeSettings(() => {
+    const { tier, effects } = p.clock.settings
+    seen.push(`${tier}|${effects}`)
+  })
+  const mark = p.mount('gumdrop', { live: true, size: 64 })
+
+  assert.deepEqual(motionCapabilities(p.clock.settings), { canPoke: true, canPet: true })
+
+  // Reduced effects: engine allows poke but rejects pet.
+  p.clock.setPrefs({ effects: 'reduced' })
+  assert.deepEqual(motionCapabilities(p.clock.settings), { canPoke: true, canPet: false })
+  mark.act(engine => engine.poke())
+  assert.ok(built(p, mark), 'reduced effects still allows poke and builds model')
+  settle(p)
+  const rollAtRest = mark.engine.frame.roll
+  mark.act(engine => engine.pet(true, 1))
+  for (let i = 0; i < 30; i += 1) p.frame()
+  assert.equal(mark.engine.frame.roll, rollAtRest, 'reduced effects ignores pet')
+
+  // Quiet motion: neither poke nor pet.
+  p.clock.setPrefs({ motion: 'quiet', effects: 'full' })
+  assert.deepEqual(motionCapabilities(p.clock.settings), { canPoke: false, canPet: false })
+
+  // System Reduce Motion overrides full effects to off: neither poke nor pet.
+  p.clock.setPrefs({ motion: 'normal', effects: 'full' })
+  p.signals.reduceMotion(true)
+  assert.deepEqual(motionCapabilities(p.clock.settings), { canPoke: false, canPet: false })
+
+  // No-op update does not re-notify; unsubscribe stops notifications.
+  const count = seen.length
+  p.signals.reduceMotion(true)
+  assert.equal(seen.length, count)
+  off()
+  p.signals.reduceMotion(false)
+  assert.equal(seen.length, count)
+
+  assert.deepEqual(seen, ['normal|reduced', 'quiet|full', 'normal|full', 'normal|off'])
+  mark.destroy()
+})
+
+test('waking a resting clock before petting lets screen-reader pet nuzzle', () => {
+  const p = phone()
+  const mark = p.mount('puppy', { live: true, size: 64 })
+  p.skip(REST_MS + 100)
+  assert.equal(p.clock.isResting, true)
+  settle(p)
+
+  // Calling input() before pet(true, 1) — as LiveMark's accessibility action does — wakes the clock.
+  p.signals.input()
+  assert.equal(p.clock.isResting, false)
+  mark.act(engine => engine.pet(true, 1))
+  assert.ok(built(p, mark))
+  for (let i = 0; i < 30; i += 1) p.frame()
+  assert.ok(Math.abs(mark.engine.frame.roll) > 0.5, 'petting leans in after waking from rest')
+  mark.act(engine => engine.pet(false))
   mark.destroy()
 })

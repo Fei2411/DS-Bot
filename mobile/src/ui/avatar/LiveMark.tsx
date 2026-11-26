@@ -5,8 +5,8 @@ import { NavigationContext } from '@react-navigation/native'
 import { GRADIENTS, INKS, inkName, isHex } from '../../../../ds-bot/src/client/inks.js'
 import { CONFETTI_INKS, FLAT_ORIGIN, MARGIN } from '../../../../ds-bot/src/client/avatar/stage.js'
 import { t } from '../i18n.ts'
-import { LiveMark as Live, type Look, type Picture, type Pose } from './clock.ts'
-import { avatarClock } from './host.ts'
+import { LiveMark as Live, motionCapabilities, type Look, type MotionSettings, type Picture, type Pose } from './clock.ts'
+import { avatarClock, noteInput } from './host.ts'
 import { paintShapes, type Ink, type Node } from './paint.ts'
 
 // A live mark: the flat art until the mark first moves, then the character's model
@@ -102,45 +102,69 @@ export function LiveMark({ look, def, dark, size, seed, state = 'idle', live = f
   useEffect(() => { mark.current?.setVisible(onScreen) }, [onScreen])
   useEffect(() => { mark.current?.redraw() }, [dark])
 
+  const [motion, setMotion] = useState<MotionSettings>(() => avatarClock.settings)
+  useEffect(() => {
+    const sync = () => setMotion(prev => {
+      const next = avatarClock.settings
+      return prev.tier === next.tier && prev.effects === next.effects ? prev : next
+    })
+    sync()
+    return avatarClock.subscribeSettings(sync)
+  }, [])
+  const { canPoke, canPet } = motionCapabilities(motion)
+
   const petting = useRef(false)
   const petTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  useEffect(() => () => {
+  const stopPetTimer = () => {
     if (petTimer.current !== null) {
       clearTimeout(petTimer.current)
       petTimer.current = null
     }
-  }, [])
-  const touch = pokeable ? {
+  }
+  useEffect(() => {
+    if (!canPet || !pokeable) {
+      petting.current = false
+      stopPetTimer()
+    }
+    return stopPetTimer
+  }, [canPet, pokeable, markKey])
+
+  const interactive = pokeable && (canPoke || canPet)
+  const touch = interactive ? {
     accessible: true,
     accessibilityRole: 'button' as const,
     accessibilityLabel: label ? `${label}, ${t('Poke')}` : t('Poke'),
     accessibilityActions: [
-      { name: 'activate', label: t('Poke') },
-      { name: 'longpress', label: t('Pet') },
+      ...(canPoke ? [{ name: 'activate', label: t('Poke') }] : []),
+      ...(canPet ? [{ name: 'longpress', label: t('Pet') }] : []),
     ],
     onAccessibilityAction: (event: AccessibilityActionEvent) => {
-      if (event.nativeEvent.actionName === 'longpress') {
-        if (petTimer.current !== null) clearTimeout(petTimer.current)
+      const action = event.nativeEvent.actionName
+      if (action === 'longpress' && canPet) {
+        noteInput()
+        stopPetTimer()
         mark.current?.act(engine => engine.pet(true, 1))
         petTimer.current = setTimeout(() => {
           petTimer.current = null
           mark.current?.act(engine => engine.pet(false))
         }, 900)
-      } else {
+      } else if (action === 'activate' && canPoke) {
+        noteInput()
         mark.current?.act(engine => engine.poke())
       }
     },
-    onPress: () => mark.current?.act(engine => engine.poke()),
-    onLongPress: (event: GestureResponderEvent) => {
+    onPress: canPoke ? () => { noteInput(); mark.current?.act(engine => engine.poke()) } : undefined,
+    onLongPress: canPet ? (event: GestureResponderEvent) => {
+      noteInput()
       petting.current = true
       const side = event.nativeEvent.locationX < size / 2 ? -1 : 1
       mark.current?.act(engine => engine.pet(true, side))
-    },
-    onPressOut: () => {
+    } : undefined,
+    onPressOut: canPet ? () => {
       if (!petting.current) return
       petting.current = false
       mark.current?.act(engine => engine.pet(false))
-    },
+    } : undefined,
     delayLongPress: 280,
     // Small marks (the chat's activity row) are hard to hit.
     hitSlop: Math.max(0, Math.round((44 - size) / 2)),
