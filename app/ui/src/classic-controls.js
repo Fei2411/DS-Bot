@@ -296,14 +296,14 @@ export function ClassicControls({ sessionId, controls, roster, actions, disabled
   // Merge session-fetched reasoning info into the model catalog entry if the catalog omitted it.
   const effectiveRoster = useMemo(() => {
     const reasoning = controls?.model?.reasoning
-    if (!reasoning || !modelRef || !Array.isArray(roster?.catalog)) return roster
+    if (!reasoning || !modelRef || !Array.isArray(roster?.models)) return roster
     let changed = false
-    const catalog = roster.catalog.map((entry) => {
+    const models = roster.models.map((entry) => {
       if (entry?.ref !== modelRef || entry.reasoning) return entry
       changed = true
       return { ...entry, reasoning }
     })
-    return changed ? { ...roster, catalog } : roster
+    return changed ? { ...roster, models } : roster
   }, [roster, controls?.model?.reasoning, modelRef])
 
   const pickModel = async (ref) => {
@@ -319,16 +319,17 @@ export function ClassicControls({ sessionId, controls, roster, actions, disabled
     }
   }
 
+  // `EffortBar` serializes writes itself and expects a `Promise<boolean>` (rolling back on `false`),
+  // passing `undefined` when the user resets to Default (encoded on the wire as `effort: null`).
   const pickEffort = async (effort) => {
-    if (disabled || savingModel || typeof actions?.selectSessionModel !== 'function') return
-    setSavingModel(true)
+    if (disabled || typeof actions?.selectSessionModel !== 'function') return false
     try {
-      const next = await actions.selectSessionModel(sessionId, modelRef, effort)
+      const next = await actions.selectSessionModel(sessionId, modelRef, effort ?? null)
       if (next) onUpdated?.(next)
+      return true
     } catch (error) {
       actions?.reportError?.(error, 'session-model')
-    } finally {
-      setSavingModel(false)
+      return false
     }
   }
 
@@ -341,7 +342,7 @@ export function ClassicControls({ sessionId, controls, roster, actions, disabled
       align: 'left',
       disabled: disabled || savingModel,
       onPick: ref => { void pickModel(ref) },
-      onPickEffort: effort => { void pickEffort(effort) },
+      onPickEffort: pickEffort,
     }),
     h(ClassicPermissionMenu, {
       sessionId,

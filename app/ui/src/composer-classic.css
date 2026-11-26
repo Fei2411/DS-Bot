@@ -173,8 +173,8 @@
   .dsb-classic-footer{align-items:flex-end;gap:6px}
   .dsb-classic-footer-left{align-items:flex-end;gap:4px}
   .dsb-classic-controls{row-gap:4px;column-gap:2px}
-  .dsb-classic-chat [data-composer-card] .dsb-composer-tools{order:0;margin-top:0}
-  .dsb-classic-chat [data-composer-card] .dsb-composer-trailing{order:0;margin-top:0;margin-left:0}
+  .dsb-classic-chat [data-composer-card] .dsb-composer-tools{order:0;margin-top:0;align-self:flex-end}
+  .dsb-classic-chat [data-composer-card] .dsb-composer-trailing{order:0;margin-top:0;margin-left:0;align-self:flex-end}
   .dsb-classic-controls .bt-model-trigger-compact{max-width:154px;padding:0 6px 0 7px}
   .dsb-classic-controls .bt-model-compact-effort{display:none}
   .dsb-perm-btn{max-width:118px;padding:0 6px 0 7px}

@@ -174,6 +174,7 @@ test('the host enforces a default-deny browser allowlist across every channel ro
   const engineSrc = readFileSync(new URL('../src/host/engine-settings.js', import.meta.url), 'utf8')
   const pluginsSrc = readFileSync(new URL('../src/host/plugins/index.js', import.meta.url), 'utf8')
   const sessionSrc = readFileSync(new URL('../src/host/session-follow.js', import.meta.url), 'utf8')
+  const sessionControlsSrc = readFileSync(new URL('../src/host/session-controls.js', import.meta.url), 'utf8')
   const connectorsSrc = readFileSync(new URL('../src/host/connectors/index.js', import.meta.url), 'utf8')
   const gatedSrc = readFileSync(new URL('../../mobile/src/team/gated.ts', import.meta.url), 'utf8')
   const channelRoutes = new Set([...channelSrc.matchAll(/case\s+'([^']+)':/g)].map(match => match[1]))
@@ -185,9 +186,10 @@ test('the host enforces a default-deny browser allowlist across every channel ro
   const engineRoutes = [...engineSrc.matchAll(/case\s+'([^']+)':/g)].map(match => `engine-${match[1]}`)
   const pluginRoutes = [...pluginsSrc.matchAll(/case\s+'([^']+)':/g)].map(match => `plugins-${match[1]}`)
   const sessionRoutes = [...sessionSrc.matchAll(/name !== '([^']+)'/g)].map(match => `session-${match[1]}`)
+  const sessionControlRoutes = [...sessionControlsSrc.matchAll(/case\s+'([^']+)':/g)].map(match => `session-${match[1]}`)
   const connectorRoutes = [...connectorsSrc.matchAll(/async '([^']+)'\(/g)].map(match => match[1])
   const gatedRoutes = new Set([...gatedSrc.matchAll(/'([^']+)'/g)].map(match => match[1]))
-  const allHostRoutes = new Set([...channelRoutes, ...computerRoutes, ...workspaceRoutes, ...terminalRoutes, ...engineRoutes, ...pluginRoutes, ...sessionRoutes, ...connectorRoutes])
+  const allHostRoutes = new Set([...channelRoutes, ...computerRoutes, ...workspaceRoutes, ...terminalRoutes, ...engineRoutes, ...pluginRoutes, ...sessionRoutes, ...sessionControlRoutes, ...connectorRoutes])
 
   // Every host endpoint is explicitly classified. A new endpoint fails here until a
   // maintainer decides whether it acts on the team or on this computer.
@@ -249,7 +251,8 @@ test('the host enforces a default-deny browser allowlist across every channel ro
   assert.equal(remoteAccessError({ deviceId: 'x', kind: 'phone' }, 'connector-import').code, 'bot/refused')
   assert.equal(remoteAccessError({ deviceId: 'x', kind: 'phone' }, 'future-unlisted-endpoint').code, 'bot/refused')
   assert.equal(BROWSER_ALLOWED.has('session-page'), false)
-  for (const localOnly of ['workspace-list', 'workspace-read', 'workspace-changes', 'terminal-open', 'engine-settings-list', 'engine-settings-mutate', 'engine-account-state', 'speech-catalog', 'speech-configure', 'speech-prepare', 'speech-cancel', 'speech-transcribe', 'telemetry-status', 'telemetry-update', 'telemetry-reset-id', 'telemetry-clear-log', 'telemetry-client-error']) {
+  assert.equal(sessionControlRoutes.length >= 10, true, 'session-controls routes are included in remote boundary checks')
+  for (const localOnly of [...sessionControlRoutes, 'workspace-list', 'workspace-read', 'workspace-changes', 'terminal-open', 'engine-settings-list', 'engine-settings-mutate', 'engine-account-state', 'speech-catalog', 'speech-configure', 'speech-prepare', 'speech-cancel', 'speech-transcribe', 'telemetry-status', 'telemetry-update', 'telemetry-reset-id', 'telemetry-clear-log', 'telemetry-client-error']) {
     assert.equal(remoteAccessError({ deviceId: 'x', kind: 'phone' }, localOnly).code, 'bot/refused')
     assert.equal(remoteAccessError({ deviceId: 'x', kind: 'browser' }, localOnly).code, 'bot/refused')
     assert.equal(BROWSER_ALLOWED.has(localOnly), false)

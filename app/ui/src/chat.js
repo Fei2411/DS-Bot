@@ -1128,6 +1128,7 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
     item.run?.()
   }
 
+  const runningCommandForRef = useRef(null)
   const canSend = !disabled && (text.trim() !== '' || attachments.length > 0)
   const submit = async () => {
     const value = text.trim()
@@ -1143,42 +1144,51 @@ function Composer({ sessionId, placeholder, disabled, running, onSend, onStop, a
     // through `session-command-run` (forwarding any staged attachments) rather than sending
     // as an ordinary user message. Ensure commands are loaded even if the user submitted immediately.
     if (isAgentChat && value.startsWith('/') && typeof actions?.runSessionCommand === 'function') {
+      if (runningCommandForRef.current === originChatKey) return
       const match = /^\/([a-z][a-z0-9_-]*)(?=$|\s)/i.exec(value)
       const cmdName = match?.[1]?.toLowerCase()
       if (cmdName) {
-        const submitEditSeq = draftEditSeqRef.current
-        const startDraftRev = originChatId ? (draftRevisions.get(originChatId) ?? 0) : null
-        const commands = commandsLoadedForRef.current === originSessionId
-          ? classicCommandsRef.current
-          : await ensureClassicCommands()
-        if (commands.some(cmd => cmd?.name === cmdName)) {
-          const ok = await runClassicCommand(value, items)
-          if (ok) {
-            const untouchedLive = mountedRef.current
-              && chatKeyRef.current === originChatKey
-              && draftEditSeqRef.current === submitEditSeq
-            if (untouchedLive) {
-              for (const item of items) {
-                if (item.previewUrl) {
-                  ownedUrlsRef.current.delete(item.previewUrl)
-                  revokeUrl(item.previewUrl)
+        runningCommandForRef.current = originChatKey
+        let fellThrough = false
+        try {
+          const submitEditSeq = draftEditSeqRef.current
+          const startDraftRev = originChatId ? (draftRevisions.get(originChatId) ?? 0) : null
+          const commands = commandsLoadedForRef.current === originSessionId
+            ? classicCommandsRef.current
+            : await ensureClassicCommands()
+          if (commands.some(cmd => cmd?.name === cmdName)) {
+            const ok = await runClassicCommand(value, items)
+            if (ok) {
+              const untouchedLive = mountedRef.current
+                && chatKeyRef.current === originChatKey
+                && draftEditSeqRef.current === submitEditSeq
+              if (untouchedLive) {
+                for (const item of items) {
+                  if (item.previewUrl) {
+                    ownedUrlsRef.current.delete(item.previewUrl)
+                    revokeUrl(item.previewUrl)
+                  }
                 }
+                textRef.current = ''
+                attachmentsRef.current = []
+                setText('')
+                setCaret(0)
+                setAttachments([])
+                if (originChatId) writeDraft({ chatId: originChatId, part: originSessionId, text: '', files: [] })
+              } else if (originChatId && (draftRevisions.get(originChatId) ?? 0) === startDraftRev) {
+                writeDraft({ chatId: originChatId, part: originSessionId, text: '', files: [] })
               }
-              textRef.current = ''
-              attachmentsRef.current = []
-              setText('')
-              setCaret(0)
-              setAttachments([])
-              if (originChatId) writeDraft({ chatId: originChatId, part: originSessionId, text: '', files: [] })
-            } else if (originChatId && (draftRevisions.get(originChatId) ?? 0) === startDraftRev) {
-              writeDraft({ chatId: originChatId, part: originSessionId, text: '', files: [] })
             }
+            return
           }
-          return
+          if (!mountedRef.current || chatKeyRef.current !== originChatKey || draftEditSeqRef.current !== submitEditSeq) {
+            return
+          }
+          fellThrough = true
+        } finally {
+          if (runningCommandForRef.current === originChatKey) runningCommandForRef.current = null
         }
-        if (!mountedRef.current || chatKeyRef.current !== originChatKey || draftEditSeqRef.current !== submitEditSeq) {
-          return
-        }
+        if (!fellThrough) return
       }
     }
     textRef.current = ''
@@ -1496,11 +1506,13 @@ export function Chat({ sessionId, team, registry, classic = false }) {
   const scroller = useRef(null)
   const follow = useRef(true)
   const keep = useRef(null)
+  const seenQueuedIdsRef = useRef(new Set())
 
   useEffect(() => {
     sendGen.current += 1
     keep.current = null
     follow.current = true
+    seenQueuedIdsRef.current = new Set()
     setPending((list) => {
       for (const entry of list) {
         entry.removed = true
@@ -1672,11 +1684,23 @@ export function Chat({ sessionId, team, registry, classic = false }) {
   const useBrowserPages = hooks.useBrowserPages ?? NO_OBJ_HOOK
 
   // Once an optimistic message lands in the live Queue Dock, drop its faded pending bubble
-  // from the transcript so queued messages are never shown twice.
+  // from the transcript so queued messages are never shown twice. Track seen queue item IDs
+  // so an already-queued identical message never clears a second in-flight send early.
   const queuedRows = useSessionQueues(map => map?.[activeSessionId] ?? EMPTY_LIST)
   useEffect(() => {
     if (!Array.isArray(queuedRows) || queuedRows.length === 0) return
-    const queuedUsers = queuedRows.map((row) => {
+    const seen = seenQueuedIdsRef.current
+    const freshRows = []
+    for (const row of queuedRows) {
+      const rowId = typeof row?.id === 'string' ? row.id : ''
+      if (rowId !== '') {
+        if (seen.has(rowId)) continue
+        seen.add(rowId)
+      }
+      freshRows.push(row)
+    }
+    if (freshRows.length === 0) return
+    const queuedUsers = freshRows.map((row) => {
       const blocks = Array.isArray(row?.content) ? row.content : []
       let images = 0
       let files = 0

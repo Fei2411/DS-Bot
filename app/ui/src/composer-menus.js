@@ -81,11 +81,16 @@ export function activeComposerTrigger(text, caret, { fileMentions = false } = {}
       const start = pos - quotedMatch[1].length
       let end = pos
       const closeQuote = text.indexOf('"', pos)
-      // Extend through the matching closing quote on the same line (without crossing another `@"` mention),
-      // so completing mid-path replaces the full quoted mention cleanly without swallowing unclosed prose.
+      // Extend through the matching closing quote on the same line only when the remainder of the
+      // line has an odd number of quotes (meaning this `@"` actually has a closing quote rather
+      // than being unclosed before later balanced prose like `and explain "hello"`).
       if (closeQuote >= pos) {
         const between = text.slice(pos, closeQuote)
-        if (!/[\r\n]/.test(between) && !text.slice(pos, closeQuote + 1).includes('@"')) {
+        const rest = text.slice(pos)
+        const nlIdx = rest.search(/[\r\n]/)
+        const restOfLine = nlIdx >= 0 ? rest.slice(0, nlIdx) : rest
+        const remainingQuotes = (restOfLine.match(/"/g) ?? []).length
+        if (remainingQuotes % 2 === 1 && !/[\r\n]/.test(between) && !text.slice(pos, closeQuote + 1).includes('@"')) {
           end = closeQuote + 1
         }
       }

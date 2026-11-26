@@ -18,7 +18,7 @@ function parseEvent(block) {
   try { return { event, data: JSON.parse(data.join('\n')) } } catch { return undefined }
 }
 
-async function readEventStream(body, onParsed) {
+async function readEventStream(body, onParsed, onComment) {
   const reader = body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
@@ -29,8 +29,13 @@ async function readEventStream(body, onParsed) {
       buffer = (buffer + decoder.decode(value, { stream: true })).replaceAll('\r\n', '\n')
       let start = 0
       for (let end = buffer.indexOf('\n\n', start); end >= 0; end = buffer.indexOf('\n\n', start)) {
-        const parsed = parseEvent(buffer.slice(start, end))
+        const block = buffer.slice(start, end)
         start = end + 2
+        if (block.startsWith(':')) {
+          onComment?.(block.slice(1).trim())
+          continue
+        }
+        const parsed = parseEvent(block)
         if (parsed !== undefined && onParsed(parsed.event, parsed.data) === false) {
           await reader.cancel().catch(() => {})
           return
@@ -61,6 +66,7 @@ export function openFeed(onEvent) {
     for (let failures = 0; !stopped;) {
       controller = new AbortController()
       let receivedEvent = false
+      let rotated = false
       let connectedAt = 0
       try {
         const response = await fetch('api/bot/feed', { signal: controller.signal, cache: 'no-store' })
@@ -70,14 +76,23 @@ export function openFeed(onEvent) {
           receivedEvent = true
           failures = 0
           onEvent(event, data)
+        }, (comment) => {
+          if (comment === 'rotate') rotated = true
         })
       } catch {
+        rotated = false
         // The engine restarted or the window is going away; the loop decides.
       } finally {
         if (receivedEvent || (connectedAt > 0 && Date.now() - connectedAt >= HEALTHY_MS)) failures = 0
         controller.abort()
       }
       if (stopped) return
+      // Reconnect immediately on server-initiated SSE rotation (no setTimeout, so backgrounded
+      // Electron windows never get throttled past the host's rotation grace window).
+      if (rotated && receivedEvent) {
+        failures = 0
+        continue
+      }
       onEvent('lost', {})
       const delay = RETRY_MS[Math.min(failures, RETRY_MS.length - 1)]
       await new Promise((resolve) => {

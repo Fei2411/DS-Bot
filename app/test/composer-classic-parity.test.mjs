@@ -27,20 +27,23 @@ const stubs = {
     import { createElement as h, useState } from 'react'
     export const ModelChoiceDock = () => null
     export const ModelKeyCard = () => null
-    export const ModelMenu = (props) => h('button', {
-      type: 'button',
-      className: props.compact ? 'bt-model-btn dsb-model-compact' : 'bt-model-btn',
-      'data-model-menu': '',
-      'data-compact': props.compact ? '' : undefined,
-      'data-align': props.align,
-      'data-ref': props.bot?.model ?? '',
-      'data-effort': props.bot?.effort ?? '',
-      disabled: props.disabled,
-      onClick: () => {
-        props.onPick?.('deepseek/deepseek-reasoner')
-        props.onPickEffort?.('high')
-      },
-    }, props.bot?.model ?? 'Model')
+    export const ModelMenu = (props) => {
+      globalThis.__lastModelMenuProps = props
+      return h('button', {
+        type: 'button',
+        className: props.compact ? 'bt-model-btn dsb-model-compact' : 'bt-model-btn',
+        'data-model-menu': '',
+        'data-compact': props.compact ? '' : undefined,
+        'data-align': props.align,
+        'data-ref': props.bot?.model ?? '',
+        'data-effort': props.bot?.effort ?? '',
+        disabled: props.disabled,
+        onClick: () => {
+          props.onPick?.('deepseek/deepseek-reasoner')
+          props.onPickEffort?.('high')
+        },
+      }, props.bot?.model ?? 'Model')
+    }
     export const Caret = () => h('span', { className: 'bt-caret' })
     export const useAnchoredMenu = () => {
       const [isOpen, setOpen] = useState(false)
@@ -291,6 +294,9 @@ function makeTeam({ roster = {}, queues = {}, userQuestions = [], running = fals
     roomsById: {},
     agentOf: { 'classic-1': 'a1', 'classic-2': 'a1' },
     agents: [{ id: 'a1', name: 'Agent', sessions: ['classic-1', 'classic-2'] }],
+    models: [
+      { ref: 'deepseek/deepseek-reasoner', provider: 'deepseek', name: 'Reasoner' },
+    ],
     catalog: {
       providers: [{ id: 'deepseek', name: 'DeepSeek', models: [{ id: 'deepseek-reasoner', name: 'Reasoner' }] }],
       voice: { stt: { ready: true }, tts: { ready: true } },
@@ -404,13 +410,29 @@ test('Classic composer renders compact ModelMenu, PermissionMenu with risk confi
     await tick()
     tree = inst.render()
 
-    // 1. Compact ModelMenu receives session ref/effort and left alignment.
+    // 1. Compact ModelMenu receives session ref/effort, merged reasoning on `roster.models`, and EffortBar reset/rollback contract.
     const modelBtn = all(tree, n => n.props?.['data-model-menu'] === '')[0]
     assert.ok(modelBtn, 'Classic composer renders ModelMenu')
     assert.equal(modelBtn.props['data-compact'], '')
     assert.equal(modelBtn.props['data-align'], 'left')
     assert.equal(modelBtn.props['data-ref'], 'deepseek/deepseek-reasoner')
     assert.equal(modelBtn.props['data-effort'], 'medium')
+    const mergedEntry = sandbox.__lastModelMenuProps.roster.models.find(m => m.ref === 'deepseek/deepseek-reasoner')
+    assert.deepEqual(plain(mergedEntry?.reasoning), { effort: ['low', 'medium', 'high'] }, 'session reasoning merges into roster.models')
+
+    // Resetting thinking effort passes `undefined` from EffortBar -> wire `effort: null` and resolves `true`.
+    const resetOk = await sandbox.__lastModelMenuProps.onPickEffort(undefined)
+    assert.equal(resetOk, true, 'successful onPickEffort resolves true for EffortBar')
+    assert.deepEqual(plain(modelCalls.at(-1)), { sid: 'classic-1', ref: 'deepseek/deepseek-reasoner', effort: null })
+
+    // Failed selectSessionModel resolves `false` so EffortBar rolls back the slider knob.
+    const prevSelect = team.actions.selectSessionModel
+    team.actions.selectSessionModel = async () => { throw new Error('rejected') }
+    const failedOk = await sandbox.__lastModelMenuProps.onPickEffort('low')
+    assert.equal(failedOk, false, 'failed onPickEffort resolves false so EffortBar rolls back')
+    team.actions.selectSessionModel = prevSelect
+
+    modelCalls.length = 0
     modelBtn.props.onClick()
     await tick()
     assert.deepEqual(plain(modelCalls), [
@@ -474,10 +496,18 @@ test('Classic / menu loads commands lazily, toggles /plan off when active, avoid
   assert.equal(mod.formatClassicFileMention({ path: 'docs/my notes.md', kind: 'file' }), '@"docs/my notes.md"')
   assert.equal(mod.formatClassicFileMention({ path: 'src', kind: 'directory' }), '@src/')
 
-  // Mid-path editing inside an existing quoted `@"..."` mention replaces through the closing quote without crossing newlines or a second mention.
+  // Mid-path editing inside an existing quoted `@"..."` mention replaces through the closing quote without crossing newlines, a second mention, or deleting prose before later balanced quotes.
   const midQuoted = mod.activeComposerTrigger('see @"docs/my notes.md" please', 14, { fileMentions: true })
   assert.deepEqual(plain(midQuoted), { kind: 'mention', start: 4, end: 23, query: 'docs/my ', quoted: true })
   assert.equal(mod.applyTriggerText('see @"docs/my notes.md" please', midQuoted, '@"docs/other file.md"').text, 'see @"docs/other file.md" please')
+  const midQuotedWithLaterQuotes = mod.activeComposerTrigger('see @"docs/my notes.md" and say "hi"', 14, { fileMentions: true })
+  assert.equal(midQuotedWithLaterQuotes.end, 23, 'closed @"..." mention still replaces through its own closing quote when later balanced quotes exist')
+  const unclosedBeforeProseQuotes = mod.activeComposerTrigger('Read @"REA and explain "hello"', 10, { fileMentions: true })
+  assert.equal(unclosedBeforeProseQuotes.end, 10, 'unclosed @"..." does not swallow prose up to a later balanced quote')
+  assert.equal(
+    mod.applyTriggerText('Read @"REA and explain "hello"', unclosedBeforeProseQuotes, '@README.md').text,
+    'Read @README.md and explain "hello"',
+  )
   const twoQuoted = mod.activeComposerTrigger('a @"one.md and @"two.md"', 8, { fileMentions: true })
   assert.equal(twoQuoted.end, 8, 'unclosed quote does not swallow a later @"..." mention')
 
@@ -592,8 +622,12 @@ test('Classic / menu loads commands lazily, toggles /plan off when active, avoid
     tree = inst.render()
     ta().props.onChange({ target: { value: '/compact', selectionStart: 8 } })
     tree = inst.render()
-    all(tree, n => n.type === 'button' && n.props?.className === 'dsb-send')[0].props.onClick()
+    const beforeDoubleSubmit = ranCmds.length
+    const sendBtn = all(tree, n => n.type === 'button' && n.props?.className === 'dsb-send')[0]
+    sendBtn.props.onClick()
+    sendBtn.props.onClick()
     await tick()
+    assert.equal(ranCmds.length, beforeDoubleSubmit + 1, 'double-submitting an in-flight Classic slash command only runs it once')
     // User types new draft while `/compact` is still executing:
     ta().props.onChange({ target: { value: 'fresh draft typed mid-command', selectionStart: 29 } })
     tree = inst.render()
@@ -1037,6 +1071,38 @@ test('DesktopQueueDock uses shared presenter defaults, supports cross-chat Withd
     tree = inst.render()
     assert.equal(all(tree, n => n.props?.className === 'dsb-pending').length, 0, 'running send does not flash in transcript PendingUserRows')
     assert.equal(all(tree, n => String(n.props?.className ?? '').includes('bt-queue-pending')).length, 1, 'running send renders as pending row inside QueueDock')
+
+    // Sending a second identical message (`queued second`) while `q2` (`queued second`) is ALREADY in `queues`
+    // must keep the second `Sending…` pending row across unrelated queue updates until a brand-new row ID arrives!
+    ta().props.onChange({ target: { value: 'queued second', selectionStart: 13 } })
+    tree = inst.render()
+    all(tree, n => n.type === 'button' && n.props?.className === 'dsb-send')[0].props.onClick()
+    tree = inst.render()
+    assert.equal(all(tree, n => String(n.props?.className ?? '').includes('bt-queue-pending')).length, 2)
+    // Simulate an unrelated queue list update (new array reference with existing `q2` plus an unrelated row `q-other`).
+    team.queues.b1 = [
+      ...team.queues.b1,
+      { id: 'q-other', content: [{ type: 'text', text: 'unrelated' }], source: { kind: 'user' } },
+    ]
+    inst.render()
+    tree = inst.render()
+    assert.equal(
+      all(tree, n => String(n.props?.className ?? '').includes('bt-queue-pending')).length,
+      2,
+      'already-seen queued row q2 must not prematurely clear the second identical pending send',
+    )
+    // Once the second identical message lands with its own new ID (`q-dup-2`), its pending row clears cleanly!
+    team.queues.b1 = [
+      ...team.queues.b1,
+      { id: 'q-dup-2', content: [{ type: 'text', text: 'queued second' }], source: { kind: 'user' } },
+    ]
+    inst.render()
+    tree = inst.render()
+    assert.equal(
+      all(tree, n => String(n.props?.className ?? '').includes('bt-queue-pending')).length,
+      1,
+      'new row ID clears the matching pending send once it actually lands in the queue',
+    )
 
     // Withdraw across chat switches: click Withdraw on b1, switch to b2 before remove resolves -> lands in b1's saved draft, NOT b2!
     slowRemoveMode = true

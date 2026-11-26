@@ -1290,32 +1290,36 @@ export function install(rt) {
               const ids = Array.isArray(body.images) ? body.images.map(String) : []
               const fileIds = Array.isArray(body.files) ? body.files.map(String) : []
               if (new Set(ids).size !== ids.length || new Set(fileIds).size !== fileIds.length) return fail('Duplicate attachment reference', 'bot/invalid')
-              let claimedImages = []
-              let claimedFiles = []
-              let submittedAttachments = []
-              const restoreClaimed = () => {
-                const now = Date.now()
-                for (const [id, entry] of claimedImages) {
-                  if (entry.at >= now - STAGED_MS && !staged.has(id)) {
-                    pruneStaged(staged, entry.byteLength ?? entry.data?.length ?? 0, now)
-                    staged.set(id, entry)
-                  }
-                }
-                for (const [id, entry] of claimedFiles) {
-                  if (entry.at >= now - STAGED_MS && !stagedFiles.has(id)) {
-                    pruneStaged(stagedFiles, entry.byteLength ?? entry.bytes?.length ?? 0, now)
-                    stagedFiles.set(id, entry)
-                  }
-                }
-              }
-              if (ids.length > 0 || fileIds.length > 0) {
+              // Defer claiming staged attachments and uploading to DSH until `runCommand` validates
+              // write permission, Classic ownership, slash syntax, and command availability.
+              const claimAttachments = async (targetSessionId, sig) => {
+                if (ids.length === 0 && fileIds.length === 0) return { submittedAttachments: [], restore: () => {} }
                 sweepStaged(Date.now())
                 const images = ids.map(id => staged.get(id))
-                if (images.some(entry => entry === undefined)) return fail('A photo did not arrive. Send it again.', 'bot/stale')
+                if (images.some(entry => entry === undefined)) {
+                  throw Object.assign(new Error('A photo did not arrive. Send it again.'), { code: 'bot/stale' })
+                }
                 const files = fileIds.map(id => stagedFiles.get(id))
-                if (files.some(entry => entry === undefined)) return fail('A file did not arrive. Send it again.', 'bot/stale')
-                claimedImages = ids.map((id, i) => [id, images[i]])
-                claimedFiles = fileIds.map((id, i) => [id, files[i]])
+                if (files.some(entry => entry === undefined)) {
+                  throw Object.assign(new Error('A file did not arrive. Send it again.'), { code: 'bot/stale' })
+                }
+                const claimedImages = ids.map((id, i) => [id, images[i]])
+                const claimedFiles = fileIds.map((id, i) => [id, files[i]])
+                const restore = () => {
+                  const now = Date.now()
+                  for (const [id, entry] of claimedImages) {
+                    if (entry.at >= now - STAGED_MS && !staged.has(id)) {
+                      pruneStaged(staged, entry.byteLength ?? entry.data?.length ?? 0, now)
+                      staged.set(id, entry)
+                    }
+                  }
+                  for (const [id, entry] of claimedFiles) {
+                    if (entry.at >= now - STAGED_MS && !stagedFiles.has(id)) {
+                      pruneStaged(stagedFiles, entry.byteLength ?? entry.bytes?.length ?? 0, now)
+                      stagedFiles.set(id, entry)
+                    }
+                  }
+                }
                 for (const id of ids) staged.delete(id)
                 for (const id of fileIds) stagedFiles.delete(id)
                 try {
@@ -1325,33 +1329,30 @@ export function install(rt) {
                     if (typeof uploads?.uploadStream !== 'function') {
                       throw Object.assign(new Error('File uploads are not available on this host'), { code: 'bot/refused' })
                     }
-                    const targetSessionId = typeof body.sessionId === 'string' ? body.sessionId.trim() : ''
                     for (const file of files) {
                       const bytes = file.bytes
                       const receipt = await uploads.uploadStream({
                         sessionId: targetSessionId,
                         name: file.name,
                         data: (async function* () { yield bytes })(),
-                        signal: signal ?? AbortSignal.timeout(30_000),
+                        signal: sig ?? AbortSignal.timeout(30_000),
                       })
                       uploaded.push({ type: 'file', receiptId: receipt.receiptId })
                     }
                   }
-                  submittedAttachments = [
-                    ...images.map(({ mediaType, data, name }) => ({ type: 'image', mediaType, data, ...(name ? { name } : {}) })),
-                    ...uploaded,
-                  ]
+                  return {
+                    submittedAttachments: [
+                      ...images.map(({ mediaType, data, name }) => ({ type: 'image', mediaType, data, ...(name ? { name } : {}) })),
+                      ...uploaded,
+                    ],
+                    restore,
+                  }
                 } catch (error) {
-                  restoreClaimed()
+                  restore()
                   throw error
                 }
               }
-              try {
-                return ok(await rt.sessionControlsEndpoint('command-run', { ...body, submittedAttachments }, signal))
-              } catch (error) {
-                restoreClaimed()
-                throw error
-              }
+              return ok(await rt.sessionControlsEndpoint('command-run', { ...body, claimAttachments }, signal))
             }
             if (rt.hasSessionControlEndpoint?.(name)) return ok(await rt.sessionControlsEndpoint(name, body, signal))
             return ok(await rt.sessionEndpoint(name, body, signal))

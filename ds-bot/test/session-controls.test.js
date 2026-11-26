@@ -12,7 +12,17 @@ const TEAM = {
   version: 1,
   mainBotIds: ['m1'],
   revision: 1,
-  bots: { m1: { id: 'm1', sessionId: 'm1', name: 'Chief', role: 'Chief of Staff', instructions: '', createdAt: 1 } },
+  bots: {
+    m1: {
+      id: 'm1',
+      sessionId: 'm1',
+      segments: [{ sessionId: 'm1-old', endedAt: 100 }],
+      name: 'Chief',
+      role: 'Chief of Staff',
+      instructions: '',
+      createdAt: 1,
+    },
+  },
   rooms: {},
   agents: {
     a1: {
@@ -34,10 +44,11 @@ function makeHarness({
   continued = [],
   coldContinued = [],
   inboxBySession = {},
+  rooms = {},
   onSteerQueued = null,
 } = {}) {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-session-controls-'))
-  writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))
+  writeFileSync(join(home, 'state.json'), JSON.stringify({ ...TEAM, rooms }))
 
   let currentPreset = preset
   let currentModel = { provider: 'deepseek', model: 'deepseek-reasoner', reasoningEffort: 'high' }
@@ -47,23 +58,58 @@ function makeHarness({
   const updateQueueCalls = []
   const continuedAnswers = []
   const resolveAgentCalls = []
+  const observeSessionCalls = []
   const attachWaitCalls = []
   const uploadedFiles = []
+  const steeredMessages = []
   const projectionListeners = []
   let attachWaitRemainingMs = 60_000
+
+  const makeInbox = (initial) => {
+    const nextTurn = [...(initial ?? [])]
+    const nextStep = []
+    return {
+      nextTurn,
+      nextStep,
+      remove(id) {
+        const idx = nextTurn.findIndex(item => item?.id === id)
+        if (idx < 0) return false
+        nextTurn.splice(idx, 1)
+        return true
+      },
+      append(bucket, msg) {
+        if (bucket === 'next-step') nextStep.push(msg)
+        else nextTurn.push(msg)
+      },
+      prepend(bucket, msg) {
+        if (bucket === 'next-step') nextStep.unshift(msg)
+        else nextTurn.unshift(msg)
+      },
+      splice(bucket, start, deleteCount, items = []) {
+        const target = bucket === 'next-step' ? nextStep : nextTurn
+        target.splice(start, deleteCount, ...items)
+      },
+    }
+  }
 
   const liveAgents = new Map([
     ['classic-1', {
       id: 'classic-1',
+      status: 'idle',
       session: { id: 'classic-1', seq: 1 },
       model: { current: () => currentModel },
-      inbox: { nextTurn: inboxBySession['classic-1'] ?? [], nextStep: [] },
+      inbox: makeInbox(inboxBySession['classic-1']),
     }],
     ['m1', {
       id: 'm1',
+      status: 'idle',
       session: { id: 'm1', seq: 1 },
       model: { current: () => ({ provider: 'deepseek', model: 'deepseek-chat' }) },
-      inbox: { nextTurn: inboxBySession.m1 ?? [], nextStep: [] },
+      inbox: makeInbox(inboxBySession.m1),
+      steer(msg) {
+        steeredMessages.push(msg)
+        this.inbox.nextStep.push(msg)
+      },
     }],
   ])
 
@@ -161,7 +207,8 @@ function makeHarness({
   }
 
   const sessionQueryService = {
-    observeSession: async (sessionId) => {
+    observeSession: async (sessionId, options) => {
+      observeSessionCalls.push({ sessionId, options })
       if (sessionId === 'classic-cold') {
         return {
           projections: {
@@ -231,7 +278,14 @@ function makeHarness({
     },
   }
 
+  const agentsService = {
+    get: id => liveAgents.get(id),
+    list: () => [...liveAgents.values()],
+  }
+  const sessionsService = { list: () => [...liveAgents.values()].map(a => a.session) }
   const services = {
+    agents: agentsService,
+    sessions: sessionsService,
     permissionPresets: permService,
     commands: commandsService,
     sessionSkillCatalog: skillsService,
@@ -248,11 +302,8 @@ function makeHarness({
   }
 
   const ctx = fakeContext({ services })
-  ctx.agents = {
-    get: id => liveAgents.get(id),
-    list: () => [...liveAgents.values()],
-  }
-  ctx.sessions = { list: () => [...liveAgents.values()].map(a => a.session) }
+  ctx.agents = agentsService
+  ctx.sessions = sessionsService
   ctx.llm.listProviders = () => [{ id: 'deepseek', name: 'DeepSeek' }]
   ctx.llm.listModels = async (providerId) => (providerId === 'deepseek' ? [
     { id: 'deepseek-chat', name: 'DeepSeek Chat' },
@@ -366,6 +417,7 @@ function makeHarness({
   return {
     ctx,
     rt,
+    routes,
     call,
     connectLocalFeed,
     liveAgents,
@@ -374,8 +426,10 @@ function makeHarness({
     updateQueueCalls,
     continuedAnswers,
     resolveAgentCalls,
+    observeSessionCalls,
     attachWaitCalls,
     uploadedFiles,
+    steeredMessages,
     runUserQuestionWaterfall,
     setNextQueueError: (err) => { nextQueueError = err },
     setAttachWaitRemainingMs: (ms) => { attachWaitRemainingMs = ms },
@@ -414,12 +468,20 @@ test('session-controls reads model, thinking effort, permissions (incl. auto), p
   assert.equal(data.queue.length, 1, 'internal bot-kind inbox messages are filtered out')
   assert.equal(data.queue[0].id, 'q1')
 
-  // Cold sessions inspect preset composition without waking the Agent.
+  // Cold sessions inspect preset composition without waking the Agent, and pass `{ signal }` options object to `observeSession`.
   const coldStd = (await h.call('session-controls', { sessionId: 'classic-cold' })).body.value
   assert.equal(coldStd.plan.available, true, 'cold preset-standard session reports plan available')
   const coldMin = (await h.call('session-controls', { sessionId: 'classic-minimal' })).body.value
   assert.equal(coldMin.plan.available, false, 'cold preset-minimal session reports plan unavailable')
   assert.equal(h.resolveAgentCalls.length, 0, 'browsing cold sessions never wakes their Agent')
+  assert.equal(h.observeSessionCalls.length >= 2, true)
+  for (const call of h.observeSessionCalls) {
+    assert.equal(call.options instanceof AbortSignal, false, 'observeSession must receive options object, never a bare AbortSignal')
+    if (call.options !== undefined) {
+      assert.equal(typeof call.options, 'object')
+      assert.ok(call.options.signal instanceof AbortSignal, 'observeSession options.signal is an AbortSignal')
+    }
+  }
 })
 
 test('session-model and session-permission update owned Classic sessions, validate presets, and refuse Bot sessions', async (t) => {
@@ -866,4 +928,219 @@ test('read-only window rejects session control writes', async (t) => {
   const q = await h.call('session-queue-update', { sessionId: 'classic-1', itemId: 'q1', action: { kind: 'remove' } })
   assert.equal(q.body.ok, false)
   assert.equal(q.body.error.code, 'bot/read-only')
+})
+
+test('user-questions/request only claims Classic and active foreground Bot chats, skipping groups, tasks, and retired segments', async (t) => {
+  const h = makeHarness({
+    ownWindow: true,
+    rooms: {
+      r1: {
+        id: 'r1',
+        name: 'War Room',
+        members: ['m1'],
+        sessions: { m1: 'g-m1' },
+        createdAt: 1,
+      },
+    },
+  })
+  t.after(h.stop)
+  const closeFeed = await h.connectLocalFeed()
+  t.after(closeFeed)
+  await h.call('state')
+  h.rt.taskOwners?.set?.('t-m1', { botId: 'm1', roomId: 'r1' })
+
+  for (const sid of ['r1', 'g-m1', 't-m1', 'm1-old']) {
+    await assert.rejects(
+      h.runUserQuestionWaterfall({
+        agent: { id: sid, session: { id: sid, seq: 1 } },
+        questions: [{ id: 'q1', question: `Question in ${sid}?` }],
+      }),
+      err => err?.code === 'NO_PROVIDER',
+      `non-drawable session ${sid} must pass through to NO_PROVIDER`,
+    )
+  }
+
+  // Active foreground Bot chat (`m1`) IS drawable and claimed by the desktop window.
+  const botAsk = h.runUserQuestionWaterfall({
+    agent: h.liveAgents.get('m1'),
+    questions: [{ id: 'q-bot', question: 'Confirm in Bot chat?' }],
+  })
+  await new Promise(resolve => setImmediate(resolve))
+  const controls = (await h.call('session-controls', { sessionId: 'm1' })).body.value
+  assert.equal(controls.questions.length, 1)
+  const answer = await h.call('session-question-answer', {
+    sessionId: 'm1',
+    requestId: controls.questions[0].id,
+    answers: [{ id: 'q-bot', selected: [], custom: 'Yes' }],
+  })
+  assert.equal(answer.body.ok, true)
+  assert.deepEqual(await botAsk, { answers: [{ id: 'q-bot', selected: [], custom: 'Yes' }] })
+})
+
+test('SSE rotation emits : rotate without dropping blocking questions, and timed questions clear & re-attach attachWait across reconnects', async (t) => {
+  const h = makeHarness({ ownWindow: true })
+  t.after(h.stop)
+  await h.call('state')
+
+  // 1. Server-initiated MAX_LIFETIME_MS rotation emits `: rotate` and keeps blocking questions alive when reconnected within grace.
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const res1 = await h.routes['/api/bot/feed'].fetch(new Request('http://localhost/api/bot/feed'))
+  const reader1 = res1.body.getReader()
+  const dec = new TextDecoder()
+  const helloChunk = dec.decode((await reader1.read()).value)
+  assert.ok(helloChunk.includes('event: hello'))
+
+  const blockingPromise = h.runUserQuestionWaterfall({
+    agent: h.liveAgents.get('classic-1'),
+    questions: [{ id: 'q-rot', question: 'Survive rotation?' }],
+  })
+  await Promise.resolve()
+  await Promise.resolve()
+
+  t.mock.timers.tick(6_000)
+  const chunks = []
+  for (;;) {
+    const step = await reader1.read()
+    if (step.done) break
+    chunks.push(dec.decode(step.value))
+  }
+  assert.equal(chunks.at(-1), ': rotate\n\n', 'MAX_LIFETIME_MS emits : rotate comment before closing')
+
+  // Reconnect immediately within grace window -> blocking question is still open and answerable!
+  const ac2 = new AbortController()
+  const res2 = await h.routes['/api/bot/feed'].fetch(new Request('http://localhost/api/bot/feed', { signal: ac2.signal }))
+  const reader2 = res2.body.getReader()
+  await reader2.read()
+  const controls = (await h.call('session-controls', { sessionId: 'classic-1' })).body.value
+  assert.equal(controls.questions.length, 1, 'blocking question stays open across SSE rotation')
+  await h.call('session-question-answer', {
+    sessionId: 'classic-1',
+    requestId: controls.questions[0].id,
+    answers: [{ id: 'q-rot', selected: [], custom: 'Still here' }],
+  })
+  assert.deepEqual(await blockingPromise, { answers: [{ id: 'q-rot', selected: [], custom: 'Still here' }] })
+  t.mock.timers.reset()
+  ac2.abort()
+  await reader2.cancel().catch(() => {})
+  await new Promise(resolve => setImmediate(resolve))
+
+  // 2. Timed question: genuine disconnect aborts attachWait & clears stale deadlineAt; reconnect re-attaches attachWait with fresh deadlineAt!
+  const closeA = await h.connectLocalFeed()
+  h.setAttachWaitRemainingMs(45_000)
+  const timedPromise = h.runUserQuestionWaterfall({
+    agent: h.liveAgents.get('classic-1'),
+    wait: { callId: 'call-reattach', timed: true },
+    questions: [{ id: 'q-reattach', question: 'Pause & resume timer?' }],
+  })
+  await new Promise(resolve => setTimeout(resolve, 15))
+  assert.equal(h.attachWaitCalls.length, 1)
+  assert.equal(h.attachWaitCalls[0].signal.aborted, false)
+  const beforeDc = (await h.call('session-controls', { sessionId: 'classic-1' })).body.value
+  assert.ok(Number.isFinite(beforeDc.questions[0]?.deadlineAt), 'initial deadlineAt populated')
+
+  // Disconnect window -> first attachWait aborted and deadlineAt cleared (no stale countdown).
+  await closeA()
+  assert.equal(h.attachWaitCalls[0].signal.aborted, true, 'disconnect aborts initial attachWait claim')
+  const whileDc = (await h.call('session-controls', { sessionId: 'classic-1' })).body.value
+  assert.equal(whileDc.questions.length, 1, 'timed question remains answerable while Host unattended timer runs')
+  assert.equal(whileDc.questions[0].deadlineAt, undefined, 'stale deadlineAt cleared while disconnected')
+
+  // Reconnect window -> second attachWait starts with fresh remainingMs and restores deadlineAt!
+  h.setAttachWaitRemainingMs(20_000)
+  const closeB = await h.connectLocalFeed()
+  t.after(closeB)
+  await new Promise(resolve => setTimeout(resolve, 15))
+  assert.equal(h.attachWaitCalls.length, 2, 'reconnecting local feed re-attaches attachWait for open timed questions')
+  assert.equal(h.attachWaitCalls[1].signal.aborted, false)
+  const afterReconnect = (await h.call('session-controls', { sessionId: 'classic-1' })).body.value
+  assert.ok(Number.isFinite(afterReconnect.questions[0]?.deadlineAt), 'fresh deadlineAt restored on reconnect')
+
+  await h.call('session-question-answer', {
+    sessionId: 'classic-1',
+    requestId: afterReconnect.questions[0].id,
+    answers: [{ id: 'q-reattach', selected: [], custom: 'Done' }],
+  })
+  assert.deepEqual(await timedPromise, { answers: [{ id: 'q-reattach', selected: [], custom: 'Done' }] })
+})
+
+test('foreground Bot single-item steer supports schedule and user-question-reply rows and reports steer-unavailable on hidden work', async (t) => {
+  const h = makeHarness({
+    inboxBySession: {
+      m1: [
+        { id: 'sched-1', content: [{ type: 'text', text: 'scheduled ping' }], source: { kind: 'schedule' } },
+        { id: 'reply-1', content: [{ type: 'text', text: 'question answer' }], source: { kind: 'user-question-reply', callId: 'c1' } },
+        { id: 'user-1', content: [{ type: 'text', text: 'follow up' }], source: { kind: 'user' } },
+      ],
+    },
+  })
+  t.after(h.stop)
+  await h.call('state')
+  const botAgent = h.liveAgents.get('m1')
+  botAgent.status = 'running'
+
+  const beforeUpdate = h.updateQueueCalls.length
+  const rSched = await h.call('session-queue-update', { sessionId: 'm1', itemId: 'sched-1', action: { kind: 'steer' } })
+  assert.equal(rSched.body.ok, true)
+  assert.equal(rSched.body.value.accepted, true)
+  assert.equal(rSched.body.value.steered, 1)
+
+  const rReply = await h.call('session-queue-update', { sessionId: 'm1', itemId: 'reply-1', action: { kind: 'steer' } })
+  assert.equal(rReply.body.ok, true)
+  assert.equal(rReply.body.value.accepted, true)
+  assert.equal(rReply.body.value.steered, 1)
+  assert.deepEqual(h.steeredMessages.map(m => m.id), ['sched-1', 'reply-1'])
+  assert.equal(h.updateQueueCalls.length, beforeUpdate, 'Bot steer runs through rt.steerQueued, never raw updateQueue')
+
+  // When hidden Bot work turn is active, steer is blocked with explicit `session/steer-unavailable` code.
+  h.rt.isHiddenBotWorkTurn = () => true
+  const blocked = await h.call('session-queue-update', { sessionId: 'm1', itemId: 'user-1', action: { kind: 'steer' } })
+  assert.equal(blocked.body.ok, true)
+  assert.equal(blocked.body.value.accepted, false)
+  assert.equal(blocked.body.value.code, 'session/steer-unavailable')
+  assert.equal(h.updateQueueCalls.length, beforeUpdate)
+})
+
+test('session-command-run validates session ownership, slash syntax, and read-only BEFORE uploading files or waking Agent', async (t) => {
+  const h = makeHarness()
+  t.after(h.stop)
+
+  const fileRes = await h.call('stage-file', { name: 'check.txt', data: Buffer.from('abc').toString('base64'), mediaType: 'text/plain' })
+  assert.equal(fileRes.body.ok, true)
+  const fileId = fileRes.body.value.id
+
+  // 1. Bot session -> refused without calling uploadStream or resolveAgent.
+  const botRes = await h.call('session-command-run', { sessionId: 'm1', line: '/compact', files: [fileId] })
+  assert.equal(botRes.body.ok, false)
+  assert.equal(botRes.body.error.code, 'bot/refused')
+  assert.equal(h.uploadedFiles.length, 0, 'invalid target session must not upload staged files')
+  assert.equal(h.resolveAgentCalls.length, 0, 'invalid target session must not wake Agent')
+
+  // 2. Foreign / unowned session -> refused without calling uploadStream or resolveAgent.
+  const foreignRes = await h.call('session-command-run', { sessionId: 'foreign-session', line: '/compact', files: [fileId] })
+  assert.equal(foreignRes.body.ok, false)
+  assert.equal(foreignRes.body.error.code, 'bot/refused')
+  assert.equal(h.uploadedFiles.length, 0)
+  assert.equal(h.resolveAgentCalls.length, 0)
+
+  // 3. Invalid non-slash command line -> bot/invalid without uploading or waking cold Agent.
+  const badLine = await h.call('session-command-run', { sessionId: 'classic-cold', line: 'not-a-command', files: [fileId] })
+  assert.equal(badLine.body.ok, false)
+  assert.equal(badLine.body.error.code, 'bot/invalid')
+  assert.equal(h.uploadedFiles.length, 0)
+  assert.equal(h.resolveAgentCalls.length, 0)
+
+  // 4. Staged file is still intact and succeeds on a valid Classic command!
+  const validRes = await h.call('session-command-run', { sessionId: 'classic-1', line: '/attach-cmd ok', files: [fileId] })
+  assert.equal(validRes.body.ok, true)
+  assert.equal(h.uploadedFiles.length, 1)
+  assert.equal(h.uploadedFiles[0].sessionId, 'classic-1')
+
+  // 5. Read-only host refuses before touching uploadStream or resolveAgent.
+  const ro = makeHarness({ readOnly: true })
+  t.after(ro.stop)
+  const roCmd = await ro.call('session-command-run', { sessionId: 'classic-cold', line: '/compact', files: ['nonexistent-staged'] })
+  assert.equal(roCmd.body.ok, false)
+  assert.equal(roCmd.body.error.code, 'bot/read-only')
+  assert.equal(ro.uploadedFiles.length, 0)
+  assert.equal(ro.resolveAgentCalls.length, 0)
 })

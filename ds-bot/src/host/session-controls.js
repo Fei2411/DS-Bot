@@ -134,6 +134,18 @@ export function install(rt) {
   const notify = () => { rt.notifyLive?.() }
 
   const isOwnedClassic = sessionId => rt.agentOf?.(sessionId) !== undefined
+  const isForegroundBotSession = (sessionId) => {
+    const botId = rt.chatOwners?.get?.(sessionId)
+    return botId !== undefined
+      && (typeof rt.chatOf !== 'function' || rt.chatOf(botId) === sessionId)
+      && !rt.groupOwners?.has?.(sessionId)
+      && !rt.taskOwners?.has?.(sessionId)
+      && !rt.pastOwners?.has?.(sessionId)
+  }
+  // Only Classic Agent sessions and active foreground Bot chats render `ClassicQuestionDock`
+  // / `ClassicPlanReviewDock` in `app/ui/src/chat.js`. Group rooms, group member sessions,
+  // background tasks, and retired past segments have no dock and must pass through to `next()`.
+  const isDrawableQuestionSession = sessionId => isOwnedClassic(sessionId) || isForegroundBotSession(sessionId)
   const isOwnedSession = sessionId => isOwnedClassic(sessionId)
     || rt.selfOf?.(sessionId) !== undefined
     || rt.chatOwners?.has?.(sessionId) === true
@@ -150,8 +162,9 @@ export function install(rt) {
 
   // Answerer bridge for DSH `user-questions/request` (`ask_user_question` and `exit_plan_mode`
   // plan review). Claims a request ONLY when DS Bot's own desktop window is running and
-  // connected to this Host; in DSH Web/Desktop plugin mode, headless DSH, or with no window
-  // connected, passes through to `next()` untouched (preserving `NO_PROVIDER`).
+  // connected to this Host and the target session can render a question dock; in DSH Web/Desktop
+  // plugin mode, headless DSH, non-drawable sessions (groups/tasks/past segments), or with no
+  // window connected, passes through to `next()` untouched (preserving `NO_PROVIDER`).
   ctx.on?.('user-questions/request', async (request, next) => {
     const rawQuestions = Array.isArray(request?.questions) ? request.questions : []
     // Leave computer-use consent (`cua-*`) and approval-intent questions to `computer/index.js` and DSH.
@@ -163,7 +176,7 @@ export function install(rt) {
     const sessionId = agent?.session?.id ?? agent?.id
     if (typeof sessionId !== 'string' || sessionId === '') return await next()
     await rt.load()
-    if (!isOwnedSession(sessionId)) return await next()
+    if (!isDrawableQuestionSession(sessionId)) return await next()
     if (!ownWindowActive()) return await next()
     if (request.signal?.aborted) {
       throw userQuestionError('ask_user_question was aborted before the user answered', 'ASK_ABORTED')
@@ -177,7 +190,8 @@ export function install(rt) {
     const isTimed = request.wait?.timed === true && typeof request.wait?.callId === 'string' && request.wait.callId !== ''
     const original = request.signal
     const linked = new AbortController()
-    const waitAbort = new AbortController()
+    let waitAbort
+    let windowAttached = false
     return await new Promise((resolve, reject) => {
       let settled = false
       let waitTimer
@@ -186,7 +200,9 @@ export function install(rt) {
         waitTimer = undefined
         original?.removeEventListener?.('abort', onAbort)
         if (request.signal === linked.signal) request.signal = original
-        waitAbort.abort()
+        waitAbort?.abort()
+        waitAbort = undefined
+        windowAttached = false
       }
       const finish = (cb) => {
         if (settled) return false
@@ -201,41 +217,16 @@ export function install(rt) {
       const onAbort = () => {
         finish(() => reject(userQuestionError('ask_user_question was aborted before the user answered', 'ASK_ABORTED')))
       }
-      const entry = {
-        id,
-        sessionId,
-        ...(typeof callId === 'string' && callId !== '' ? { callId } : {}),
-        kind: kindOfQuestions(questions),
-        timed: isTimed,
-        questions,
-        at: Date.now(),
-        resolve: value => finish(() => resolve(value)),
-        reject: err => finish(() => reject(err)),
-        releaseWindow: () => {
-          // When the local desktop window disconnects, release the timed-wait claim so the Host
-          // resumes its unattended timer, or reject with NO_PROVIDER if no other provider answered.
-          waitAbort.abort()
-          clearTimeout(waitTimer)
-          waitTimer = undefined
-          if (!isTimed) {
-            finish(() => reject(userQuestionError('no user-questions answerer accepted the request', 'NO_PROVIDER')))
-          }
-        },
-      }
-      pendingQuestions.set(id, entry)
-      original?.addEventListener?.('abort', onAbort, { once: true })
-      notify()
-      if (original?.aborted) { onAbort(); return }
-
-      // For timed questions (`askTimed`), attach a foreground wait claim via `ctx.userQuestions.attachWait`
-      // so the Host pauses its unattended fallback timer while the desktop window shows the card and
-      // sends us the authoritative remaining duration.
       const userQuestions = serviceOf(ctx, 'userQuestions')
-      if (isTimed && typeof userQuestions?.attachWait === 'function') {
+      const attachWindow = () => {
+        if (settled || !isTimed || windowAttached || typeof userQuestions?.attachWait !== 'function') return
+        windowAttached = true
+        const localAbort = new AbortController()
+        waitAbort = localAbort
         void (async () => {
           try {
-            for await (const frame of userQuestions.attachWait(agent, request.wait.callId, waitAbort.signal)) {
-              if (settled || waitAbort.signal.aborted) break
+            for await (const frame of userQuestions.attachWait(agent, request.wait.callId, localAbort.signal)) {
+              if (settled || localAbort.signal.aborted) break
               const remainingMs = Number(frame?.remainingMs)
               if (Number.isFinite(remainingMs) && remainingMs >= 0) {
                 entry.deadlineAt = Date.now() + remainingMs
@@ -252,6 +243,43 @@ export function install(rt) {
           }
         })()
       }
+      const entry = {
+        id,
+        sessionId,
+        ...(typeof callId === 'string' && callId !== '' ? { callId } : {}),
+        kind: kindOfQuestions(questions),
+        timed: isTimed,
+        questions,
+        at: Date.now(),
+        resolve: value => finish(() => resolve(value)),
+        reject: err => finish(() => reject(err)),
+        attachWindow,
+        releaseWindow: () => {
+          // When the local desktop window disconnects, release the timed-wait claim so the Host
+          // resumes its unattended timer and clear any stale countdown, or reject non-timed
+          // questions with NO_PROVIDER so no turn hangs waiting for a closed window.
+          waitAbort?.abort()
+          waitAbort = undefined
+          windowAttached = false
+          clearTimeout(waitTimer)
+          waitTimer = undefined
+          if (!isTimed) {
+            finish(() => reject(userQuestionError('no user-questions answerer accepted the request', 'NO_PROVIDER')))
+          } else if (entry.deadlineAt !== undefined) {
+            delete entry.deadlineAt
+            notify()
+          }
+        },
+      }
+      pendingQuestions.set(id, entry)
+      original?.addEventListener?.('abort', onAbort, { once: true })
+      notify()
+      if (original?.aborted) { onAbort(); return }
+
+      // For timed questions (`askTimed`), attach a foreground wait claim via `ctx.userQuestions.attachWait`
+      // so the Host pauses its unattended fallback timer while the desktop window shows the card and
+      // sends us the authoritative remaining duration.
+      attachWindow()
 
       request.signal = linked.signal
       Promise.resolve().then(next).then(
@@ -267,6 +295,12 @@ export function install(rt) {
   const onLocalFeedLost = () => {
     for (const entry of Array.from(pendingQuestions.values())) {
       entry.releaseWindow()
+    }
+  }
+
+  const onLocalFeedConnected = () => {
+    for (const entry of Array.from(pendingQuestions.values())) {
+      entry.attachWindow?.()
     }
   }
 
@@ -350,7 +384,7 @@ export function install(rt) {
     const seenSessions = new Set()
     const agents = serviceOf(ctx, 'agents')?.list?.() ?? []
     for (const agent of agents) {
-      if (!agent?.session?.id || !isOwnedSession(agent.session.id)) continue
+      if (!agent?.session?.id || !isDrawableQuestionSession(agent.session.id)) continue
       seenSessions.add(agent.session.id)
       observedColdQuestions.delete(agent.session.id)
       for (const item of continuedQuestionsFor(agent)) {
@@ -363,7 +397,7 @@ export function install(rt) {
     const sessions = serviceOf(ctx, 'sessions')?.list?.() ?? []
     if (projections !== undefined) {
       for (const session of sessions) {
-        if (!session?.id || seenSessions.has(session.id) || !isOwnedSession(session.id)) continue
+        if (!session?.id || seenSessions.has(session.id) || !isDrawableQuestionSession(session.id)) continue
         seenSessions.add(session.id)
         try {
           const values = projections.snapshot(session, ['userQuestions', 'inbox']).values
@@ -376,8 +410,8 @@ export function install(rt) {
     }
     // Cold sessions already observed via `readControls` (`observeSession`) after a Host restart.
     for (const [sid, items] of observedColdQuestions.entries()) {
-      if (seenSessions.has(sid) || !isOwnedSession(sid)) {
-        if (!isOwnedSession(sid)) observedColdQuestions.delete(sid)
+      if (seenSessions.has(sid) || !isDrawableQuestionSession(sid)) {
+        if (!isDrawableQuestionSession(sid)) observedColdQuestions.delete(sid)
         continue
       }
       for (const item of items) {
@@ -458,7 +492,7 @@ export function install(rt) {
       }
     } else if (typeof serviceOf(ctx, 'sessionQuery')?.observeSession === 'function') {
       try {
-        const obs = await serviceOf(ctx, 'sessionQuery').observeSession(sessionId, signal)
+        const obs = await serviceOf(ctx, 'sessionQuery').observeSession(sessionId, signal ? { signal } : undefined)
         try {
           projValues = obs?.projections?.values ?? {}
         } finally {
@@ -648,9 +682,17 @@ export function install(rt) {
     if (!line.startsWith('/') || line.length < 2) throw invalid('A slash command is required')
     const commands = serviceOf(ctx, 'commands')
     if (typeof commands?.execute !== 'function') throw refused('Commands are not available on this host')
-    const agent = await rt.resolveAgent(sessionId)
-    const submittedAttachments = Array.isArray(body?.submittedAttachments) ? body.submittedAttachments : []
-    const execution = await commands.execute(agent, line, submittedAttachments, signal ?? AbortSignal.timeout(30_000))
+    const claimed = typeof body?.claimAttachments === 'function'
+      ? await body.claimAttachments(sessionId, signal)
+      : { submittedAttachments: Array.isArray(body?.submittedAttachments) ? body.submittedAttachments : [], restore: () => {} }
+    let execution
+    try {
+      const agent = await rt.resolveAgent(sessionId)
+      execution = await commands.execute(agent, line, claimed.submittedAttachments, signal ?? AbortSignal.timeout(30_000))
+    } catch (error) {
+      claimed.restore?.()
+      throw error
+    }
     notify()
     if (execution === undefined) {
       return { matched: false, result: null }
@@ -705,7 +747,7 @@ export function install(rt) {
     writeCheck()
     await rt.load()
     const sessionId = requireSessionId(body?.sessionId)
-    if (!isOwnedSession(sessionId)) throw notFound('Unknown session')
+    if (!isDrawableQuestionSession(sessionId)) throw notFound('Unknown session')
     const requestId = typeof body?.requestId === 'string' ? body.requestId.trim() : ''
     if (requestId === '') throw invalid('A question id is required')
 
@@ -740,7 +782,7 @@ export function install(rt) {
     writeCheck()
     await rt.load()
     const sessionId = requireSessionId(body?.sessionId)
-    if (!isOwnedSession(sessionId)) throw notFound('Unknown session')
+    if (!isDrawableQuestionSession(sessionId)) throw notFound('Unknown session')
     const requestId = typeof body?.requestId === 'string' ? body.requestId.trim() : ''
     if (requestId === '') throw invalid('A question id is required')
     const entry = pendingQuestions.get(requestId)
@@ -760,17 +802,9 @@ export function install(rt) {
     const controller = serviceOf(ctx, 'sessionController')
     if (typeof controller?.updateQueue !== 'function') throw refused('Queue actions are unavailable on this host')
 
-    const isForegroundBot = () => {
-      const botId = rt.chatOwners?.get?.(sessionId)
-      return botId !== undefined
-        && (typeof rt.chatOf !== 'function' || rt.chatOf(botId) === sessionId)
-        && !rt.groupOwners?.has?.(sessionId)
-        && !rt.taskOwners?.has?.(sessionId)
-    }
-
     if (action.kind === 'steer-all') {
       const ids = Array.isArray(body?.itemIds) ? body.itemIds.filter(id => typeof id === 'string' && id !== '') : undefined
-      if (isForegroundBot() && typeof rt.steerQueued === 'function') {
+      if (isForegroundBotSession(sessionId) && typeof rt.steerQueued === 'function') {
         const outcome = rt.steerQueued(sessionId, ids)
         if (outcome?.fallback !== true) {
           notify()
@@ -798,11 +832,18 @@ export function install(rt) {
     if (itemId === '') throw invalid('A queued item id is required')
 
     if (action.kind === 'steer') {
-      if (isForegroundBot() && typeof rt.steerQueued === 'function') {
-        const outcome = rt.steerQueued(sessionId, [itemId])
+      if (isForegroundBotSession(sessionId) && typeof rt.steerQueued === 'function') {
+        const outcome = rt.steerQueued(sessionId, [itemId], { kinds: OWN_QUEUE_KINDS })
         if (outcome?.fallback !== true) {
           notify()
-          return { accepted: (outcome?.steered ?? 0) > 0, steered: outcome?.steered ?? 0 }
+          const steered = outcome?.steered ?? 0
+          if (steered > 0) return { accepted: true, steered }
+          const stillQueued = (serviceOf(ctx, 'agents')?.get?.(sessionId)?.inbox?.nextTurn ?? []).some(row => row?.id === itemId)
+          return {
+            accepted: false,
+            steered: 0,
+            code: stillQueued ? 'session/steer-unavailable' : 'session/queue-item-not-found',
+          }
         }
       }
       try {
@@ -922,5 +963,6 @@ export function install(rt) {
     userQuestionsView,
     sessionQueuesView,
     onLocalFeedLost,
+    onLocalFeedConnected,
   })
 }
