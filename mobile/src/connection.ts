@@ -167,6 +167,7 @@ export interface TeamState {
   views?: Record<string, ShownView>
   secretRequests?: Record<string, SecretRequest[]>
   connectorRequests?: Record<string, ConnectorRequest[]>
+  mailRequests?: Record<string, MailRequest[]>
   learning?: Record<string, LearningProposal[]>
   connectors?: ConnectorsView
   capabilities?: CapabilityItem[]
@@ -193,6 +194,16 @@ export interface TeamState {
 
 /** A card as the computer keeps it: `view` is the root node of the blueprint. */
 export interface ShownView { id?: string; title?: string; view?: unknown }
+
+/** A pending outgoing email request awaiting the user's confirmation. */
+export interface MailRequest {
+  id: string
+  sessionId?: string
+  to?: string
+  subject?: string
+  body?: string
+  status?: string
+}
 
 /** Opens the encrypted link to the computer. The pairing code goes only with the first connection. */
 export async function openLink(computer: SavedComputer, identity: PhoneIdentity, pairingCode?: string): Promise<RpcClient> {

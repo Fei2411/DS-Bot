@@ -336,3 +336,40 @@ test('Escape closes the inbox on the first press after switching tabs, and filte
   for (const fn of [...keyListeners]) fn(esc)
   assert.equal(closed, 1, 'single Escape closes inbox after open item leaves')
 })
+
+test('watchBotCompletions marks replies on the active chat unread while Inbox covers it, and clears when Inbox closes', async () => {
+  const { watchBotCompletions } = await import('../src/client/bot-completions.js')
+  const makeStore = (initial) => {
+    let value = initial
+    const listeners = new Set()
+    return {
+      getSnapshot: () => value,
+      subscribe: fn => { listeners.add(fn); return () => listeners.delete(fn) },
+      set: next => { value = typeof next === 'function' ? next(value) : next; for (const fn of [...listeners]) fn() },
+    }
+  }
+  const roster = makeStore({ bots: [{ id: 'w1', sessionId: 'w1', parts: ['w1'] }], exchangeTurns: {} })
+  const sessions = makeStore({
+    ids: ['w1'],
+    byId: { w1: { retainedBy: { mainView: 1 }, projectionValues: { turnOutline: [{ turn: 1, response: 'hi' }] } } },
+  })
+  const statuses = makeStore(new Map([['w1', { running: false, completionUnread: false }]]))
+  const unread = makeStore({})
+  const ui = makeStore({ inbox: false })
+
+  const stop = watchBotCompletions({ roster, sessions, statuses, unread, ui })
+  assert.deepEqual(unread.getSnapshot(), {}, 'visible chat starts read')
+
+  // Open Inbox while w1 stays retained in mainView, then a new reply arrives on w1.
+  ui.set({ inbox: true })
+  sessions.set({
+    ids: ['w1'],
+    byId: { w1: { retainedBy: { mainView: 1 }, projectionValues: { turnOutline: [{ turn: 1, response: 'hi' }, { turn: 2, response: 'done' }] } } },
+  })
+  assert.equal(unread.getSnapshot().w1, true, 'reply while Inbox covers active chat is marked unread')
+
+  // Closing Inbox reveals w1 and clears its unread mark.
+  ui.set({ inbox: false })
+  assert.deepEqual(unread.getSnapshot(), {}, 'closing Inbox clears unread on the revealed active chat')
+  stop()
+})

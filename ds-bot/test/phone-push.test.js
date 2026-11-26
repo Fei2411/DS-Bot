@@ -149,14 +149,18 @@ test('offline phone receives host-authenticated E2E sealed UnifiedPush notices a
   desk.rt.addNotice({ botId: 'm1', name: 'Chief', kind: 'secret', sessionId: 'm1', text: 'GITHUB_TOKEN' })
   desk.rt.addNotice({ botId: 'm1', name: 'Chief', kind: 'connector', sessionId: 'm1', text: 'Gmail' })
   desk.rt.addNotice({ botId: 'm1', name: 'Chief', kind: 'learning', sessionId: 'm1', text: 'skills/deploy/SKILL.md' })
+  desk.rt.addNotice({ botId: 'm1', name: 'Chief', kind: 'mail', sessionId: 'm1', text: 'Ship notes' })
+  desk.rt.addNotice({ botId: 'm1', name: 'Chief', kind: 'computer', sessionId: 'm1', text: 'Notes' })
   desk.rt.addNotice({ botId: 'm1', name: 'Chief', kind: 'message', sessionId: 'm1', text: '很长的回复内容'.repeat(200) })
 
-  await until(() => received.length, count => count >= 5)
+  await until(() => received.length, count => count >= 7)
   assert.equal(received[0].urgency, 'high')
   assert.equal(received[1].urgency, 'high')
   assert.equal(received[2].urgency, 'high')
   assert.equal(received[3].urgency, 'high')
-  assert.equal(received[4].urgency, 'normal')
+  assert.equal(received[4].urgency, 'high')
+  assert.equal(received[5].urgency, 'high')
+  assert.equal(received[6].urgency, 'normal')
 
   const decoded = received.map((req) => {
     // Wire payload contains no plaintext message content.
@@ -168,13 +172,15 @@ test('offline phone receives host-authenticated E2E sealed UnifiedPush notices a
     // Must verify with paired host's static public key.
     return openPushEnvelope(link.keys.privateKey, link.keys.publicKey, offer.hostKey, env)
   })
-  assert.deepEqual(decoded.map(d => d.payload.notice.kind), ['approval', 'secret', 'connector', 'learning', 'message'])
+  assert.deepEqual(decoded.map(d => d.payload.notice.kind), ['approval', 'secret', 'connector', 'learning', 'mail', 'computer', 'message'])
   assert.equal(decoded[0].payload.notice.text, 'write_file')
   assert.equal(decoded[1].payload.notice.text, 'GITHUB_TOKEN')
   assert.equal(decoded[2].payload.notice.text, 'Gmail')
   assert.equal(decoded[3].payload.notice.text, 'skills/deploy/SKILL.md')
+  assert.equal(decoded[4].payload.notice.text, 'Ship notes')
+  assert.equal(decoded[5].payload.notice.text, 'Notes')
   // Long UTF-8 notice text was trimmed safely to stay within push byte budget.
-  assert.ok(Buffer.byteLength(decoded[4].payload.notice.text, 'utf8') <= 600)
+  assert.ok(Buffer.byteLength(decoded[6].payload.notice.text, 'utf8') <= 600)
 
   // 410 Gone automatically clears the stale push subscription.
   nextStatus = 410

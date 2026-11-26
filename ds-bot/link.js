@@ -8885,7 +8885,13 @@ var URGENT_NOTICE_KINDS = /* @__PURE__ */ new Set([
   "secret",
   "connector",
   "handoff",
-  "learning"
+  "learning",
+  "mail",
+  "computer",
+  "goal",
+  "blocked",
+  "paused",
+  "alert"
 ]);
 var BLOCKED_HOST_SUFFIXES = [
   ".localhost",

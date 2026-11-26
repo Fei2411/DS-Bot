@@ -23,6 +23,12 @@ const URGENT_NOTICE_KINDS = new Set([
   'connector',
   'handoff',
   'learning',
+  'mail',
+  'computer',
+  'goal',
+  'blocked',
+  'paused',
+  'alert',
 ])
 
 const BLOCKED_HOST_SUFFIXES = [

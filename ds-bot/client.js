@@ -42154,8 +42154,20 @@ function InboxPane({ paneLeft, roster, actions, useWork, useComputer, useSession
   const [tab, setTab] = (0, import_react44.useState)("wait");
   const [who, setWho] = (0, import_react44.useState)("all");
   const [open, setOpen] = (0, import_react44.useState)(null);
+  const paneRef = (0, import_react44.useRef)(null);
   const list = (0, import_react44.useRef)(null);
   const refs = (0, import_react44.useRef)(/* @__PURE__ */ new Map());
+  (0, import_react44.useEffect)(() => {
+    const opener2 = typeof document !== "undefined" ? document.activeElement : null;
+    paneRef.current?.focus?.({ preventScroll: true });
+    return () => {
+      if (typeof document === "undefined" || !opener2 || typeof opener2.focus !== "function" || opener2.isConnected === false) return;
+      const active = document.activeElement;
+      if (!active || active === document.body || paneRef.current?.contains?.(active)) {
+        opener2.focus({ preventScroll: true });
+      }
+    };
+  }, []);
   const items = inboxItems(roster);
   const gone = useLeaving(items);
   const approvals = (useWork ?? useNothing)((work) => work?.approvals) ?? NONE3;
@@ -42209,7 +42221,7 @@ function InboxPane({ paneLeft, roster, actions, useWork, useComputer, useSession
     { className: "bt-pane bt-ib-pane", style: { left: paneLeft } },
     (0, import_react44.createElement)(
       "div",
-      { className: "bt-ib-page", role: "region", "aria-label": t("Inbox"), onKeyDown: onKey },
+      { ref: paneRef, tabIndex: -1, className: "bt-ib-page", role: "region", "aria-label": t("Inbox"), onKeyDown: onKey },
       (0, import_react44.createElement)(
         "header",
         { className: "bt-ib-top", "data-window-drag": true },
@@ -42351,6 +42363,7 @@ var INBOX_CSS = `
 .bt-ib-trigger[data-rail] .bt-ib-badge{top:-3px;right:-3px;min-width:16px;height:16px;line-height:16px}
 .bt-ib-pane{z-index:44}
 .bt-ib-page{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--bt-main);color:var(--bt-ink);font-family:var(--bt-font)}
+.bt-ib-page:focus{outline:none}
 .bt-ib-top{padding:28px 32px 14px;flex:none;box-sizing:border-box}
 .bt-ib-top-in{display:flex;flex-direction:column;gap:14px;max-width:720px;margin:0 auto}
 .bt-ib-bar{display:flex;align-items:center;justify-content:space-between;gap:12px}
@@ -66613,12 +66626,13 @@ function createAvatarRefCache(call2) {
 }
 
 // src/client/bot-completions.js
-function watchBotCompletions({ roster, sessions, statuses, unread }) {
+function watchBotCompletions({ roster, sessions, statuses, unread, ui }) {
   const seen = /* @__PURE__ */ new Map();
   const sync = () => {
     const team = roster.getSnapshot();
     const list = sessions.getSnapshot();
     const statusMap = statuses?.getSnapshot();
+    const inboxOpen = ui?.getSnapshot?.().inbox === true;
     const previous = unread.getSnapshot();
     const next = {};
     const parts = /* @__PURE__ */ new Set();
@@ -66626,7 +66640,7 @@ function watchBotCompletions({ roster, sessions, statuses, unread }) {
       const id = currentPart(bot);
       parts.add(id);
       const row = list.byId[id];
-      const active = (row?.retainedBy?.mainView ?? 0) > 0;
+      const active = (row?.retainedBy?.mainView ?? 0) > 0 && !inboxOpen;
       const status = statusMap?.get(id);
       const hidden = team.exchangeTurns?.[id] ?? [];
       const outline = turnOutlineOf(list, id);
@@ -66658,11 +66672,13 @@ function watchBotCompletions({ roster, sessions, statuses, unread }) {
   const offRoster = roster.subscribe(sync);
   const offSessions = sessions.subscribe(sync);
   const offStatus = statuses?.subscribe(sync);
+  const offUi = ui?.subscribe?.(sync);
   sync();
   return () => {
     offRoster();
     offSessions();
     offStatus?.();
+    offUi?.();
   };
 }
 
@@ -68361,7 +68377,8 @@ function apply(ctx) {
     roster,
     sessions: ctx.sessions.list,
     statuses: ctx.get("uiSession")?.sessionStatus,
-    unread: botCompletions
+    unread: botCompletions,
+    ui
   }), "ds-bot: sidebar completions");
   ctx.effect(() => {
     const groups = surfaceGroups({ shell: installShell, conversation: installConversation }, {

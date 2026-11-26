@@ -295,8 +295,20 @@ export function InboxPane({ paneLeft, roster, actions, useWork, useComputer, use
   const [tab, setTab] = useState('wait')
   const [who, setWho] = useState('all')
   const [open, setOpen] = useState(null)
+  const paneRef = useRef(null)
   const list = useRef(null)
   const refs = useRef(new Map())
+  useEffect(() => {
+    const opener = typeof document !== 'undefined' ? document.activeElement : null
+    paneRef.current?.focus?.({ preventScroll: true })
+    return () => {
+      if (typeof document === 'undefined' || !opener || typeof opener.focus !== 'function' || opener.isConnected === false) return
+      const active = document.activeElement
+      if (!active || active === document.body || paneRef.current?.contains?.(active)) {
+        opener.focus({ preventScroll: true })
+      }
+    }
+  }, [])
   const items = inboxItems(roster)
   const gone = useLeaving(items)
   const approvals = (useWork ?? useNothing)(work => work?.approvals) ?? NONE
@@ -352,7 +364,7 @@ export function InboxPane({ paneLeft, roster, actions, useWork, useComputer, use
   const count = items.length
 
   return h('div', { className: 'bt-pane bt-ib-pane', style: { left: paneLeft } },
-    h('div', { className: 'bt-ib-page', role: 'region', 'aria-label': t('Inbox'), onKeyDown: onKey },
+    h('div', { ref: paneRef, tabIndex: -1, className: 'bt-ib-page', role: 'region', 'aria-label': t('Inbox'), onKeyDown: onKey },
       h('header', { className: 'bt-ib-top', 'data-window-drag': true },
         h('div', { className: 'bt-ib-top-in' },
           h('div', { className: 'bt-ib-bar' },
@@ -427,6 +439,7 @@ export const INBOX_CSS = `
 .bt-ib-trigger[data-rail] .bt-ib-badge{top:-3px;right:-3px;min-width:16px;height:16px;line-height:16px}
 .bt-ib-pane{z-index:44}
 .bt-ib-page{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--bt-main);color:var(--bt-ink);font-family:var(--bt-font)}
+.bt-ib-page:focus{outline:none}
 .bt-ib-top{padding:28px 32px 14px;flex:none;box-sizing:border-box}
 .bt-ib-top-in{display:flex;flex-direction:column;gap:14px;max-width:720px;margin:0 auto}
 .bt-ib-bar{display:flex;align-items:center;justify-content:space-between;gap:12px}

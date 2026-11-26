@@ -222,7 +222,27 @@ test('createTeam pauses catch-up polling while hidden, caches sessionHook, prune
     'noteLive fires once on stream text start and once on stream end across 10 deltas',
   )
 
-  // 4. Deleting a bot in a roster update prunes its sessionId from sessions, status, sent, and sessionHooks.
+  // 4. Replies arriving while Inbox covers the active chat and group notices mark completionUnread, and closing Inbox clears the active chat.
+  rosterValue = {
+    ...rosterValue,
+    revision: 2,
+    rooms: [{ id: 'r1', sessionId: 'r1', name: 'Ops', members: ['b1', 'b2'] }],
+  }
+  sandbox.__feedCb('revision', {})
+  await tick()
+  team.actions.openSession('b1')
+  team.actions.openInbox()
+  sandbox.__feedCb('message', { botId: 'b1', sessionId: 'b1', item: { kind: 'bot', text: 'while inbox open', time: 110 } })
+  sandbox.__feedCb('notice', { kind: 'group', roomId: 'r1', botId: 'b2', text: 'ops update', time: 111 })
+  assert.equal(team.hooks.useSessionStatus(map => map.get('b1')?.completionUnread), true, 'active chat reply marks unread while Inbox covers it')
+  assert.equal(team.hooks.useSessionStatus(map => map.get('r1')?.completionUnread), true, 'group reply notice marks group unread')
+  team.actions.closeInbox()
+  assert.equal(team.hooks.useSessionStatus(map => map.get('b1')?.completionUnread), false, 'closing Inbox clears unread on the revealed active chat')
+  assert.equal(team.hooks.useSessionStatus(map => map.get('r1')?.completionUnread), true, 'unopened group stays unread after closing Inbox')
+  team.actions.openSession('r1')
+  assert.equal(team.hooks.useSessionStatus(map => map.get('r1')?.completionUnread), false, 'opening the group clears its unread flag')
+
+  // 5. Deleting a bot in a roster update prunes its sessionId from sessions, status, sent, and sessionHooks.
   team.actions.noteSent('b2')
   sandbox.__feedCb('message', { botId: 'b2', sessionId: 'b2', item: { kind: 'bot', text: 'bye', time: 100 } })
   const hookB2Before = team.sessionHook('b2')
@@ -231,8 +251,9 @@ test('createTeam pauses catch-up polling while hidden, caches sessionHook, prune
 
   rosterValue = {
     ...rosterValue,
-    revision: 2,
+    revision: 3,
     bots: [{ id: 'b1', sessionId: 'b1', name: 'Alpha', parts: ['b1'] }],
+    rooms: [],
   }
   sandbox.__feedCb('revision', {})
   await tick()

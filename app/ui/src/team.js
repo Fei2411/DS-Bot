@@ -937,6 +937,15 @@ export function createTeam() {
   }
   roster.subscribe(followWork)
   work.subscribe(followWork)
+  let wasInbox = ui.getSnapshot().inbox === true
+  ui.subscribe(() => {
+    const inboxOpen = ui.getSnapshot().inbox === true
+    if (wasInbox && !inboxOpen) {
+      const active = shown.getSnapshot()
+      if (active) setStatus(active, { completionUnread: false })
+    }
+    wasInbox = inboxOpen
+  })
 
   const onFeed = (event, data) => {
     if (event === 'hello') {
@@ -954,9 +963,21 @@ export function createTeam() {
       }))
       if (item.kind === 'bot') {
         if (streamingReply.delete(sessionId)) actions.noteLive(sessionId, 'reply', null)
-        if (shown.getSnapshot() !== sessionId) setStatus(sessionId, { completionUnread: true })
+        if (shown.getSnapshot() !== sessionId || ui.getSnapshot().inbox) setStatus(sessionId, { completionUnread: true })
       }
       if (item.kind === 'user') sent.set(state => (state[sessionId]?.length ? { ...state, [sessionId]: state[sessionId].slice(1) } : state))
+    }
+    if (event === 'notice' && data?.kind === 'group' && data.roomId) {
+      const room = roster.getSnapshot().roomsById?.[data.roomId]
+      const roomSession = room ? currentPart(room) : data.roomId
+      if (shown.getSnapshot() !== roomSession || ui.getSnapshot().inbox) setStatus(roomSession, { completionUnread: true })
+      if (data.text) {
+        editRow(roomSession, row => ({
+          ...row,
+          updatedAt: Math.max(row.updatedAt ?? 0, data.time ?? 0),
+          projectionValues: { turnOutline: [{ turn: -1, response: data.text }] },
+        }))
+      }
     }
     // While a reply streams in, it stands in for the activity row; notify only on transitions.
     if (event === 'stream' && data?.sessionId) {

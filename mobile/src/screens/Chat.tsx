@@ -286,7 +286,16 @@ export function ChatView({ bot, room, agent, header, onMissing }: { bot?: Bot; r
   }, [call, id, kind, chatKey])
 
   const sessionId = page?.sessionId ?? bot?.sessionId ?? room?.id ?? (agent !== undefined ? agent.sessions.at(-1) ?? '' : id)
-  const question: Question | undefined = team?.questions?.[sessionId]
+  const roomQuestionSession = room !== undefined
+    ? team?.inbox?.items?.find(item => item.roomId === room.id && item.kind === 'question' && typeof item.sessionId === 'string' && team?.questions?.[item.sessionId] !== undefined)?.sessionId
+    : undefined
+  const questionSessionId = team?.questions?.[sessionId] !== undefined ? sessionId : (roomQuestionSession ?? sessionId)
+  const question: Question | undefined = team?.questions?.[questionSessionId]
+  const roomViewSession = room !== undefined
+    ? team?.inbox?.items?.find(item => item.roomId === room.id && item.kind === 'view' && typeof item.sessionId === 'string' && team?.views?.[item.sessionId] !== undefined)?.sessionId
+    : undefined
+  const viewSessionId = team?.views?.[sessionId] !== undefined ? sessionId : (roomViewSession ?? sessionId)
+  const shownView = team?.views?.[viewSessionId]
   const approvals = (team?.work?.approvals ?? []).filter((entry: Approval) => (
     entry.sessionId === sessionId
     || (entry.roomId !== undefined && entry.roomId === room?.id)
@@ -315,6 +324,7 @@ export function ChatView({ bot, room, agent, header, onMissing }: { bot?: Bot; r
   const doing = bot !== undefined ? team?.work?.bots?.[bot.id] ?? team?.activity?.[bot.id] : undefined
   const secrets = (team?.secretRequests?.[bot?.id ?? ''] ?? []).filter((r: { status?: string }) => r.status === 'pending')
   const connectorRequests = (team?.connectorRequests?.[bot?.id ?? ''] ?? []).filter((r: { status?: string }) => r.status === 'pending')
+  const mailRequests = (team?.mailRequests?.[bot?.id ?? ''] ?? []).filter((r: { status?: string }) => r.status === 'pending')
   const handoff = (team as { browserHolds?: Record<string, { callId?: string; reason?: string; note?: string }> } | null)?.browserHolds?.[bot?.id ?? '']
   const browserHold = handoff !== undefined && handoff.callId !== undefined ? { callId: handoff.callId, reason: handoff.reason, note: handoff.note } : undefined
   const btw = ((team as { btwCards?: Record<string, { id: string; partId?: string; question?: string; answer?: string; failure?: string }[]> } | null)?.btwCards?.[bot?.id ?? ''] ?? []).filter(card => card.partId === undefined || card.partId === sessionId)
@@ -569,7 +579,7 @@ export function ChatView({ bot, room, agent, header, onMissing }: { bot?: Bot; r
       {bot?.blocked !== undefined ? <BlockedCard bot={bot} p={p} /> : null}
       {bot !== undefined ? <ComputerCards bot={bot} p={p} /> : null}
       {running && doingBot ? <ActionRow bot={doingBot} doing={doingText} p={p} dark={dark} /> : null}
-      <Dock question={question} sessionId={sessionId} approvals={approvals} learning={learning} secrets={secrets} connectorRequests={connectorRequests} botName={bot?.name} onOpenConnector={connectorId => { if (connectorCanConnectOnMobile(connectorId)) navigation.navigate('Settings', { screen: 'Connectors', params: { focusId: connectorId }, initial: false }) }} btw={btw} handoff={browserHold} view={team?.views?.[sessionId]} call={call} p={p} expanded={expandedKey} onExpand={setExpandedKey} />
+      <Dock question={question} sessionId={sessionId} questionSessionId={questionSessionId} viewSessionId={viewSessionId} approvals={approvals} learning={learning} secrets={secrets} connectorRequests={connectorRequests} mailRequests={mailRequests} botName={bot?.name} onOpenConnector={connectorId => { if (connectorCanConnectOnMobile(connectorId)) navigation.navigate('Settings', { screen: 'Connectors', params: { focusId: connectorId }, initial: false }) }} btw={btw} handoff={browserHold} view={shownView} call={call} p={p} expanded={expandedKey} onExpand={setExpandedKey} />
       {fileError ? <Text style={[type.small, { color: p.danger, textAlign: 'center', marginBottom: 4 }]} accessibilityRole="alert">{fileError}</Text> : null}
       {page !== null && loadError !== null ? <Text style={[type.small, { color: p.danger, textAlign: 'center', marginBottom: 4, marginHorizontal: 16 }]} accessibilityRole="alert">{loadError}</Text> : null}
       <Composer key={chatKey} chatKey={chatKey} name={bot?.name ?? (room && roomTitle(room)) ?? agent?.name ?? ''} running={running} canStop={canStop} canAttach={hello?.capabilities?.includes('send-images') === true} sends={sends} onSend={send} onStop={stop} p={p} />
@@ -702,12 +712,20 @@ function GoalBar({ goal, p }: { goal: Goal; p: ReturnType<typeof useTheme>['p'] 
 function ComputerCards({ bot, p }: { bot: Bot; p: ReturnType<typeof useTheme>['p'] }) {
   const { team, call } = useTeam()
   const [error, setError] = useState<string | null>(null)
-  const live = (team as { computerLive?: { bots?: Record<string, { state?: string; app?: string }>; asks?: Record<string, { id: string; botId: string; appName?: string }> } } | null)?.computerLive
+  const live = (team as {
+    computerLive?: {
+      bots?: Record<string, { state?: string; app?: string }>
+      asks?: Record<string, { id: string; botId: string; appName?: string }>
+      holds?: Record<string, { id?: string; by?: string; fromBot?: boolean; callId?: string; reason?: string; note?: string }>
+    }
+  } | null)?.computerLive
   const asks = Object.values(live?.asks ?? {}).filter(ask => ask.botId === bot.id)
+  const rawHold = live?.holds?.[bot.id]
+  const hold = rawHold !== undefined && (rawHold.by === 'bot' || rawHold.fromBot === true || rawHold.callId !== undefined) ? rawHold : undefined
   const control = live?.bots?.[bot.id]
   const acting = control !== undefined && control.state !== undefined && control.state !== 'idle'
   const act = (endpoint: string, body: Record<string, unknown>) => { call(endpoint, body).then(() => setError(null), (failure: Error) => setError(failure?.message ?? String(failure))) }
-  if (asks.length === 0 && !acting) return null
+  if (asks.length === 0 && hold === undefined && !acting) return null
   return (
     <View>
       {asks.map(ask => (
@@ -720,6 +738,16 @@ function ComputerCards({ bot, p }: { bot: Bot; p: ReturnType<typeof useTheme>['p
           </View>
         </View>
       ))}
+      {hold !== undefined ? (
+        <View style={[styles.blocked, { backgroundColor: p.card, borderColor: p.line }]}>
+          <Text style={[type.settingsRow, { color: p.ink, fontWeight: '600' }]}>{t('Computer handoff')}</Text>
+          {hold.note || hold.reason ? <Text style={[type.small, { color: p.ink2, marginTop: 4 }]}>{hold.note || hold.reason}</Text> : null}
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
+            <Pressable accessibilityRole="button" onPress={() => act('computer-hold-answer', { botId: bot.id, outcome: 'skip' })} style={[styles.fix, { backgroundColor: p.hover }]}><Text style={{ color: p.ink }}>{t('Skip')}</Text></Pressable>
+            <Pressable accessibilityRole="button" onPress={() => act('computer-hold-answer', { botId: bot.id, outcome: 'done' })} style={[styles.fix, { backgroundColor: p.accent }]}><Text style={{ color: p.accentInk, fontWeight: '600' }}>{t("I'm done")}</Text></Pressable>
+          </View>
+        </View>
+      ) : null}
       {acting ? (
         <View style={[styles.blocked, { backgroundColor: p.card, borderColor: p.line, flexDirection: 'row', alignItems: 'center', paddingVertical: 8 }]}>
           <Text style={[type.small, { color: p.ink, flex: 1 }]} numberOfLines={1}>{control?.app ? `${t('Computer use')} · ${control.app}` : t('Computer use')}</Text>

@@ -1816,7 +1816,7 @@ export function apply(ctx) {
   }, 'ds-bot: agent surface')
 
   ctx.effect(() => watchBotCompletions({
-    roster, sessions: ctx.sessions.list, statuses: ctx.get('uiSession')?.sessionStatus, unread: botCompletions,
+    roster, sessions: ctx.sessions.list, statuses: ctx.get('uiSession')?.sessionStatus, unread: botCompletions, ui,
   }), 'ds-bot: sidebar completions')
 
   ctx.effect(() => {
