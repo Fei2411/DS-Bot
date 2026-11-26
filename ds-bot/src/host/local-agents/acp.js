@@ -507,7 +507,7 @@ export class AcpEngine {
         const text = String(error?.message ?? error)
         if (AUTH_ERROR.test(text) || TIMEOUT_ERROR.test(text)) throw error
         if (i === modes.length - 1) {
-          if (resumeOnly) throw Object.assign(new Error('the saved local agent session could not be resumed for maintenance'), { code: 'LOCAL_AGENT_EXIT' })
+          if (resumeOnly) throw Object.assign(new Error('the saved local agent session could not be resumed'), { code: 'LOCAL_AGENT_SESSION_LOST' })
           return { reply: await this.newSession(peer, { cwd, mcp }), loaded: false }
         }
       }
@@ -678,7 +678,10 @@ export class AcpEngine {
       if (session.promptTurn === turn) session.running = false
       signal?.removeEventListener('abort', onAbort)
     })
-    return reply.catch((error) => { if (!turn.cancelled) throw error })
+    // Errors from `session/prompt` are already delivered in FIFO order through
+    // `session.push({ type: 'error', error })` above; re-throwing here would let
+    // callers push a duplicate error ahead of already-queued `session/update` events.
+    return reply.catch(() => {})
   }
 
   canSteer(session) {

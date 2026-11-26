@@ -1430,3 +1430,48 @@ test('createTeam rescues unsubmitted question drafts on external question remova
     fetchCtrl.reset()
   }
 })
+
+test('createTeam followWork marks activeRooms running before member turns start and clears once idle', async () => {
+  const prevSetInterval = sandbox.setInterval
+  const prevClearInterval = sandbox.clearInterval
+  let pollStep = 0
+  let intervalFn = null
+  sandbox.setInterval = (fn) => { intervalFn = fn; return 1 }
+  sandbox.clearInterval = () => {}
+  sandbox.__testCall = async (endpoint) => {
+    if (endpoint !== 'state') return {}
+    pollStep += 1
+    if (pollStep === 1) {
+      return {
+        revision: 1,
+        liveKey: 'ar-1',
+        bots: [{ id: 'b1', name: 'Bot', sessionId: 'b1' }],
+        rooms: [{ id: 'r1', name: 'Group', sessionId: 'r1', members: ['b1'] }],
+        work: { bots: {}, rooms: {}, activeRooms: ['r1'], approvals: [] },
+      }
+    }
+    return {
+      revision: 1,
+      unchanged: true,
+      liveKey: 'ar-2',
+      work: { bots: {}, rooms: {}, activeRooms: [], approvals: [] },
+    }
+  }
+  const team = createTeam()
+  const stop = team.start()
+  try {
+    await tick()
+    await tick()
+    assert.equal(team.snapshots.status().get('r1')?.running, true, 'active round with empty member work must mark group running')
+    intervalFn()
+    await tick()
+    await tick()
+    assert.equal(team.snapshots.status().get('r1')?.running, false, 'idle/paused group must clear running')
+  } finally {
+    stop()
+    sandbox.setInterval = prevSetInterval
+    sandbox.clearInterval = prevClearInterval
+    sandbox.__testCall = async () => ({})
+    fetchCtrl.reset()
+  }
+})

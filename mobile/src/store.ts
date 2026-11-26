@@ -96,6 +96,7 @@ export async function readPrefs(): Promise<Record<string, string>> {
   return prefsCache
 }
 let prefsCache: Record<string, string> | null = null
+export function peekPrefs(): Record<string, string> | null { return prefsCache }
 const prefListeners = new Set<() => void>()
 export function onPrefsChange(listener: () => void): () => void {
   prefListeners.add(listener)

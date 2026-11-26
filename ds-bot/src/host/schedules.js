@@ -305,8 +305,8 @@ export function install(rt) {
     if (toStop.length > 0) return () => forgetMoves(toStop)
   }
 
-  async function moveSchedules(fromId, toId, { stopActivity = false } = {}) {
-    if (fromId === toId) return
+  async function moveSchedules(fromId, toId, { stopActivity = false, resolveTarget } = {}) {
+    if (fromId === toId && typeof resolveTarget !== 'function') return
     if (service === null) {
       if (schedulesPending()) {
         armGraceRetry()
@@ -316,12 +316,17 @@ export function install(rt) {
     }
     const schedule = service
     // A switch must see any reminders moved into its earlier part before it archives it.
+    // When `resolveTarget` is provided, re-evaluate the live destination inside the
+    // serialized `scheduleMoves` chain so recovery cannot move a reminder onto a part
+    // whose own migration already ran.
     const move = scheduleMoves.then(async () => {
-      if (!hostWide(schedule)) return moveLegacySchedules(schedule, fromId, toId, stopActivity)
+      const targetId = typeof resolveTarget === 'function' ? resolveTarget() : toId
+      if (targetId === undefined || fromId === targetId) return
+      if (!hostWide(schedule)) return moveLegacySchedules(schedule, fromId, targetId, stopActivity)
       // Moving in place keeps the next firing and carries paused tasks forward too.
       for (const entry of await schedule.catalog()) {
         if (entry.status === 'ended' || sessionOf(entry) !== fromId) continue
-        await schedule.edit({ id: entry.id, action: 'update', patch: { target: { kind: 'session', sessionId: toId } } })
+        await schedule.edit({ id: entry.id, action: 'update', patch: { target: { kind: 'session', sessionId: targetId } } })
       }
     })
     scheduleMoves = move.catch(() => {})

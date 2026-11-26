@@ -234,3 +234,160 @@ test('DSH settings pages keep usable height and scrolling (#1359)', async (t) =>
     })
   } finally { await browser.close() }
 })
+
+test('Segmented adapts without clipping across narrow/wide panels, services actions, unbreakable words, and AvatarEditor fits 320px drawer', async (t) => {
+  let browser
+  try {
+    browser = await launchBrowser()
+  } catch (error) {
+    if (!process.env.CI && /not found|doesn't exist|not installed/i.test(error.message)) {
+      t.skip('Chromium or Chrome is required for the segmented layout regression')
+      return
+    }
+    throw error
+  }
+  const { outputFiles: bundleFiles } = await build({
+    stdin: {
+      contents: `
+        import React, { createElement as h, useState } from 'react'
+        import { createRoot } from 'react-dom/client'
+        import { Segmented } from './src/client/motion.js'
+        import { SHELL_CSS } from './src/client/styles.js'
+        import { BOT_SETTINGS_CSS } from './src/client/bot-settings.js'
+        import { SERVICES_CSS } from './src/client/services-settings.js'
+        function Seg({ options, className, initial = 0 }) {
+          const [val, setVal] = useState(options[initial][0])
+          return h(Segmented, { label: 'Choice', value: val, className },
+            options.map(([id, text]) => h('button', { key: id, type: 'button', 'aria-pressed': val === id, onClick: () => setVal(id) }, text)))
+        }
+        window.__SEG_TEST__ = {
+          CSS: [SHELL_CSS, BOT_SETTINGS_CSS, SERVICES_CSS].join('\\n'),
+          mount(rootEl, props) {
+            if (!rootEl._root) rootEl._root = createRoot(rootEl)
+            rootEl._root.render(
+              h('div', { style: { display: 'flex', flexDirection: 'column', gap: '16px', padding: '8px' } },
+                h('div', { id: 'panel-wrap', style: { width: props.panelW + 'px' } },
+                  h('div', { className: 'bt-drawer-body', style: { padding: '16px', boxSizing: 'border-box' } },
+                    h('div', { className: 'bt-drawer-permission' },
+                      h(Seg, { className: 'bt-permissions', initial: 1, options: [['a', 'Read only'], ['b', 'Workspace'], ['c', 'Full access'], ['d', 'Review for me']] })))),
+                h('div', { id: 'svc-wrap', style: { width: '288px' } },
+                  h('div', { className: 'bt-svc' },
+                    h('div', { className: 'bt-set-card' },
+                      h('div', { className: 'bt-set-row' },
+                        h('div', { className: 'bt-set-copy' }, h('span', null, 'Read replies aloud')),
+                        h('div', { className: 'bt-set-control' },
+                          h('div', { className: 'bt-svc-actions' },
+                            h('span', { className: 'bt-svc-state' }, 'Ready'),
+                            h(Seg, { className: 'bt-svc-seg', options: [['a', 'System voice option'], ['b', 'DeepSeek voice option'], ['c', 'Custom provider'], ['d', 'Local offline']] }))))))),
+                h('div', { id: 'long-wrap', style: { width: '200px' } },
+                  h(Seg, { options: [['a', 'First choice'], ['b', 'WiderWord123456']] })),
+                h('div', { id: 'font-wrap', style: { width: '360px' } },
+                  h(Seg, { options: [['a', 'Light mode'], ['b', 'Dark mode'], ['c', 'System']] })),
+                h('div', { id: 'avedit-panel', className: 'bt-panel', style: { width: '320px', height: '400px', position: 'relative', display: 'flex', flexDirection: 'column', borderLeft: '1px solid #ccc' } },
+                  h('div', { className: 'bt-drawer-body bt-set-body' },
+                    h('div', { className: 'bt-bs' },
+                      h('div', { className: 'bt-bs-hero' },
+                        h('div', { className: 'bt-avatar-anchor' },
+                          h('button', { type: 'button', className: 'bt-avatar-trigger' }),
+                          h('div', { className: 'bt-avedit' },
+                            h('div', { className: 'bt-avedit-top' },
+                              h('div', { className: 'bt-avedit-tabs' },
+                                h('button', { type: 'button', className: 'bt-avedit-tab', 'aria-selected': true }, 'Bot'),
+                                h('button', { type: 'button', className: 'bt-avedit-tab' }, 'Hochladen'),
+                                h('button', { type: 'button', className: 'bt-avedit-tab' }, 'Mediathek')),
+                              h('button', { type: 'button', className: 'bt-avedit-tab bt-avedit-reset' }, 'Zurücksetzen'))))))))))
+          },
+        }
+      `,
+      resolveDir: fileURLToPath(new URL('../..', import.meta.url)),
+    },
+    bundle: true, format: 'iife', platform: 'browser', write: false, logLevel: 'silent',
+  })
+  try {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } })
+    try {
+      await page.setContent('<!doctype html><html><head><style id="s"></style></head><body data-bt-effects="off" style="margin:0;font-family:var(--bt-font)"><div id="root"></div></body></html>')
+      await page.addScriptTag({ content: bundleFiles[0].text })
+      const res = await page.evaluate(async () => {
+        document.getElementById('s').textContent = window.__SEG_TEST__.CSS
+        const root = document.getElementById('root')
+        const wait = () => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(r))))
+        window.__SEG_TEST__.mount(root, { panelW: 320, fontSize: 13 })
+        await wait()
+
+        const perm = root.querySelector('#panel-wrap .bt-seg')
+        const layout320 = perm.dataset.layout || 'row'
+        // Click row 2 button ("Review for me") and verify 2D thumb rect matches button rect.
+        const lastBtn = perm.querySelectorAll('button')[3]
+        lastBtn.click()
+        await wait()
+        const tr320 = perm.querySelector('.bt-thumb').getBoundingClientRect()
+        const br320 = lastBtn.getBoundingClientRect()
+        const thumb320Ok = Math.abs(tr320.left - br320.left) < 1.5 && Math.abs(tr320.top - br320.top) < 1.5 && Math.abs(tr320.width - br320.width) < 1.5 && Math.abs(tr320.height - br320.height) < 1.5
+
+        // Widen 320 -> 520 (back to 1 row) then shrink 520 -> 320 (must return to grid-2, not stack).
+        window.__SEG_TEST__.mount(root, { panelW: 520, fontSize: 13 })
+        await wait()
+        const layout520 = perm.dataset.layout || 'row'
+        window.__SEG_TEST__.mount(root, { panelW: 320, fontSize: 13 })
+        await wait()
+        const layoutBack320 = perm.dataset.layout || 'row'
+
+        // Live font-size change (same container width & textContent) re-evaluates Segmented layout.
+        const fontWrap = root.querySelector('#font-wrap')
+        const fontSeg = fontWrap.querySelector('.bt-seg')
+        const initialSegW = Math.ceil(fontSeg.getBoundingClientRect().width)
+        fontWrap.style.width = `${initialSegW + 12}px`
+        await wait()
+        const fontBefore = fontSeg.dataset.layout || 'row'
+        const fontStyle = document.createElement('style')
+        fontStyle.textContent = '#font-wrap .bt-seg button{font-size:20px}'
+        document.head.appendChild(fontStyle)
+        window.__SEG_TEST__.mount(root, { panelW: 320, fontSize: 20 })
+        await wait()
+        const fontAfter = fontSeg.dataset.layout || 'row'
+        fontStyle.remove()
+
+        // Services .bt-svc-actions must stay inside 288px card with zero clipping.
+        const svcCard = root.querySelector('#svc-wrap .bt-set-card')
+        const svcSeg = root.querySelector('#svc-wrap .bt-svc-seg')
+        const svcClipped = svcSeg.getBoundingClientRect().right > svcCard.getBoundingClientRect().right + 1.5
+
+        // Unbreakable word in 200px grid-2 must promote to stack with zero text overflow.
+        const longSeg = root.querySelector('#long-wrap .bt-seg')
+        const longLayout = longSeg.dataset.layout || 'row'
+        const longOver = [...longSeg.querySelectorAll('button')].some(b => b.scrollWidth > b.clientWidth + 1)
+
+        // Verify no redundant data-layout mutation thrash after mount settles (line-height invariant).
+        let mutations = 0
+        const mo = new MutationObserver(() => { mutations += 1 })
+        mo.observe(perm, { attributes: true, attributeFilter: ['data-layout'] })
+        perm.querySelectorAll('button')[0].click()
+        await wait()
+        mo.disconnect()
+
+        // AvatarEditor inside 320px right panel must not cause horizontal scroll or left/right clipping.
+        const avBody = root.querySelector('#avedit-panel .bt-drawer-body')
+        const avPop = root.querySelector('#avedit-panel .bt-avedit')
+        const avBodyRect = avBody.getBoundingClientRect()
+        const avPopRect = avPop.getBoundingClientRect()
+        const avOverflow = avBody.scrollWidth > avBody.clientWidth + 1
+        const avClipped = avPopRect.right > avBodyRect.right + 1 || avPopRect.left < avBodyRect.left - 1
+
+        return { layout320, thumb320Ok, layout520, layoutBack320, mutations, fontBefore, fontAfter, svcLayout: svcSeg.dataset.layout, svcClipped, longLayout, longOver, avOverflow, avClipped }
+      })
+      assert.equal(res.layout320, 'grid-2', JSON.stringify(res))
+      assert.equal(res.thumb320Ok, true, JSON.stringify(res))
+      assert.equal(res.layout520, 'row', JSON.stringify(res))
+      assert.equal(res.layoutBack320, 'grid-2', JSON.stringify(res))
+      assert.equal(res.mutations, 0, JSON.stringify(res))
+      assert.equal(res.fontBefore, 'row', JSON.stringify(res))
+      assert.equal(res.fontAfter, 'wrap', JSON.stringify(res))
+      assert.equal(res.svcClipped, false, JSON.stringify(res))
+      assert.equal(res.longLayout, 'stack', JSON.stringify(res))
+      assert.equal(res.longOver, false, JSON.stringify(res))
+      assert.equal(res.avOverflow, false, JSON.stringify(res))
+      assert.equal(res.avClipped, false, JSON.stringify(res))
+    } finally { await page.close() }
+  } finally { await browser.close() }
+})
