@@ -23,6 +23,7 @@ const exitAfterTurn = process.argv.includes('--exit-after-turn')
 const textOnly = process.argv.includes('--text-only')
 const holdCompact = process.argv.includes('--hold-compact')
 const failResume = process.argv.includes('--fail-resume')
+const failStart = process.argv.includes('--fail-start')
 const recordAt = process.argv.indexOf('--record')
 const recordPath = recordAt === -1 ? undefined : process.argv[recordAt + 1]
 const record = (method, params) => {
@@ -68,6 +69,24 @@ async function elicitTurn(thread, turnId, text) {
 }
 
 function runTurn(thread, turnId, text, effort, images = []) {
+  if (text.includes('list-team-tools')) {
+    const finish = text => {
+      notice('item/completed', { threadId: thread.id, turnId, item: { id: 'i1', type: 'agentMessage', text } })
+      thread.turn = undefined
+      notice('turn/completed', { threadId: thread.id, turn: { id: turnId, status: 'completed' } })
+    }
+    const server = thread.params.config.mcp_servers.dsbot
+    void fetch(server.url, {
+      method: 'POST',
+      headers: { ...server.http_headers, 'content-type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
+      signal: AbortSignal.timeout(5000),
+    }).then(response => response.json()).then(
+      result => finish(result.result?.tools.map(tool => tool.name).join(', ') ?? 'MCP error'),
+      () => finish('MCP transport error'),
+    )
+    return
+  }
   if (/elicit \S+ \S+/.test(text)) return void elicitTurn(thread, turnId, text)
   // An approval request whose turn stays alive: an answer has to steer this turn.
   if (text.includes('late-double')) {
@@ -107,7 +126,7 @@ function runTurn(thread, turnId, text, effort, images = []) {
       inherited: process.env.DSH_SECRET_ENV_PROBE === 'unscoped-test-value',
       internal: process.env.DSH_CODEX_INTERNAL_PROBE !== undefined,
     }))`], { encoding: 'utf8' })
-    notice('item/completed', { threadId: thread.id, turnId, item: { id: 'i2', type: 'agentMessage', text: probe.stdout.trim() } })
+    notice('item/completed', { threadId: thread.id, turnId, item: { id: 'i2', type: 'agentMessage', text: (probe.stdout ?? '').trim() } })
     thread.turn = undefined
     notice('turn/completed', { threadId: thread.id, turn: { id: turnId, status: 'completed' } })
     return
@@ -178,6 +197,7 @@ process.stdin.on('data', (chunk) => {
         break
       case 'thread/start': {
         record('thread/start', params)
+        if (failStart) { replyError(id, 'thread start failed'); break }
         const extra = unknownField(params, THREAD_START)
         if (extra !== undefined) { replyError(id, extra); break }
         const thread = { id: randomUUID(), params }
@@ -191,7 +211,8 @@ process.stdin.on('data', (chunk) => {
         const extra = unknownField(params, THREAD_RESUME)
         if (extra !== undefined) { replyError(id, extra); break }
         const thread = threads.get(params.threadId) ?? { id: params.threadId }
-        thread.params = params
+        // A warm resume uses the loaded thread's existing configuration (#2110).
+        thread.params ??= params
         threads.set(thread.id, thread)
         reply(id, { thread: { id: params.threadId } })
         break

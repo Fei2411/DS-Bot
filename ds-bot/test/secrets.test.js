@@ -542,6 +542,7 @@ test('a secrets file that cannot be read blocks every write instead of being ove
   const bench = start({ home })
   t.after(bench.stop)
   const file = join(home, 'secrets.json')
+  assert.deepEqual(rt.secretEnvForSession('b2'), {})
   const denied = await bench.call('secret-set', { name: 'TEST_TOKEN', value: '12345678' })
   assert.equal(denied.ok, false)
   assert.match(denied.error.message, /secrets\.json could not be read \(EISDIR\)\. DS Bot does not change it/)
@@ -550,6 +551,32 @@ test('a secrets file that cannot be read blocks every write instead of being ove
   rmSync(file, { recursive: true })
   const saved = await bench.call('secret-set', { name: 'TEST_TOKEN', value: '12345678' })
   assert.equal(saved.ok, true, JSON.stringify(saved.error))
+  assert.deepEqual(rt.secretEnvForSession('b2'), { DSH_SECRET_TEST_TOKEN: '12345678' })
+})
+
+test('secretEnvForSession returns empty when the encrypted store is locked and resolves once unlocked', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-secrets-locked-'))
+  const value = fresh()
+  const passphrase = `pass-${fresh()}`
+  const first = start({ home })
+  const saved = await first.call('secret-set', { name: 'LOCKED_TOKEN', value, scope: ['b2'] })
+  assert.equal(saved.ok, true, JSON.stringify(saved.error))
+  const encrypted = await first.call('secret-encrypt', { passphrase })
+  assert.equal(encrypted.ok, true, JSON.stringify(encrypted.error))
+  assert.deepEqual(rt.secretEnvForSession('g-b2'), { DSH_SECRET_LOCKED_TOKEN: value })
+  await first.ctx.dispose()
+
+  const second = start({ home })
+  t.after(second.stop)
+  await rt.loadSecrets()
+  assert.equal((await second.call('secret-store', {})).value.locked, true)
+  assert.deepEqual(rt.secretEnvForSession('b2'), {})
+  assert.deepEqual(rt.secretEnvForSession('g-b2'), {})
+
+  const unlocked = await second.call('secret-unlock', { passphrase })
+  assert.equal(unlocked.ok, true, JSON.stringify(unlocked.error))
+  assert.deepEqual(rt.secretEnvForSession('g-b2'), { DSH_SECRET_LOCKED_TOKEN: value })
+  assert.deepEqual(rt.secretEnvForSession('c3'), {})
 })
 
 test('a secrets file that is not JSON is kept aside, and the store goes on', async (t) => {

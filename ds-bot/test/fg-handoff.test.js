@@ -291,7 +291,7 @@ test('Mobile/IM sendUser does NOT auto-move ordinary busy foreground, supports s
   assert.equal(env.prompts[2].sessionId, 'fork-1')
 })
 
-test('canMoveForeground blocks local CLI agents and open interactive cards, while peer spawn keeps busy heuristic', async (t) => {
+test('canMoveForeground blocks open interactive cards and supports local CLI backgrounding, while peer spawn keeps busy heuristic', async (t) => {
   const env = await startEnv()
   t.after(env.stop)
   await env.emit('dm-a', 'turn/start', { turn: 1 })
@@ -307,16 +307,16 @@ test('canMoveForeground blocks local CLI agents and open interactive cards, whil
   )
   delete env.rt.state.questions['dm-a']
 
-  // Local CLI agent stays exempt from both explicit move and peer background spawn.
+  // Local CLI agent supports explicit backgrounding and peer background spawn (D8):
+  // the running CLI session moves to background while foreground opens a fresh session.
   env.rt.localAgentBadge = () => 'claude'
   await env.emit('dm-a', 'tool/call', { callId: 'tc1', name: 'bash', arguments: '{}' })
   env.rt.live.get('dm-a').since = Date.now() - 60_000
-  assert.equal(env.rt.shouldMoveForeground(env.rt.botOf('a'), 'dm-a', { forPeer: true }), false)
-  assert.equal(env.rt.canMoveForeground(env.rt.botOf('a'), 'dm-a'), false)
-  await assert.rejects(
-    () => env.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'dm-a' }),
-    err => err?.code === 'bot/unsupported',
-  )
+  assert.equal(env.rt.shouldMoveForeground(env.rt.botOf('a'), 'dm-a', { forPeer: true }), true)
+  assert.equal(env.rt.canMoveForeground(env.rt.botOf('a'), 'dm-a'), true)
+  const moved = await env.rt.moveForegroundToBackground({ botId: 'a', expectedSessionId: 'dm-a' })
+  assert.equal(moved.moved, true)
+  assert.notEqual(moved.sessionId, 'dm-a')
 })
 
 test('hidden peer-Bot turn moved to background gets bot-handoff origin, never leaks to user chat, and settles work if stopped', async (t) => {
@@ -909,7 +909,8 @@ test('fg-handoff carries bounded moved prompt + task_send hint, and injects fall
   const freshSid = env.rt.botOf('a').sessionId
   const notice = env.agentMap.get(freshSid).injected[0]?.content?.[0]?.text ?? ''
   assert.match(notice, /Moved request: Please audit all authentication middleware files/)
-  assert.match(notice, /Use task_send\(task: "/)
+  assert.match(notice, /Use task_read\(task: "/)
+  assert.match(notice, /task_send\(task: "/)
 
   // 2) When fork is unavailable (!forked) AND the moved turn finishes during forkForegroundPart,
   //    the fresh foreground still receives fallbackContextSummary instead of starting blank.

@@ -6,7 +6,7 @@
 
 ## 谁可以提 Pull Request
 
-本仓库的协作者直接在这里推分支，向 `dev` 提 Pull Request（见[协作方式](#协作方式)）。目前只有协作者能提 Pull Request。如果你不是协作者，发现 bug 请开 Issue（见[报告问题](#报告问题)），提问或建议请到 [Discussions](https://github.com/Fei2411/DS-Bot/discussions)。
+本仓库的协作者直接在这里推分支，向 `dev` 提 Pull Request（见[协作方式](#协作方式)）。目前只有协作者能提 Pull Request。如果你不是协作者，发现 bug 请开 Issue（见[报告问题](#报告问题)），提问或建议请到 [Discussions](https://github.com/Fei-Craft/DS-Bot/discussions)。
 
 ## 最重要的规则
 
@@ -86,7 +86,7 @@
 - 仅测试台需要：pnpm `11`，以及插件测试所用 DSH 版本的 DeepSeek Harness 源码。
 
 ```sh
-git clone https://github.com/Fei2411/DS-Bot.git ds-bot-repo
+git clone https://github.com/Fei-Craft/DS-Bot.git ds-bot-repo
 cd ds-bot-repo/ds-bot
 
 # 插件的依赖和构建工具（esbuild）。
@@ -198,7 +198,7 @@ DS Bot 会从诊断信息里去掉 API key、token、保存的密钥和你的用
 
 安全问题不要开公开 Issue。请在仓库的 **Security** 页使用 **Report a vulnerability**。
 
-Issue 只用来报告 bug。提问、想法和功能建议请发到 [Discussions](https://github.com/Fei2411/DS-Bot/discussions)。维护者认可的想法会开成 Issue。
+Issue 只用来报告 bug。提问、想法和功能建议请发到 [Discussions](https://github.com/Fei-Craft/DS-Bot/discussions)。维护者认可的想法会开成 Issue。
 
 ## 许可
 

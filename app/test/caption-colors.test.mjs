@@ -250,7 +250,7 @@ test('captionColors scopes MutationObservers to exclude body subtree and head ch
   const bodyObs = env.observed.find(entry => entry.target === env.body && entry.options.childList === true)
   assert.ok(bodyObs, 'body observer registered')
   assert.equal(bodyObs.options.subtree, undefined, 'body observer must not watch subtree')
-  assert.deepEqual([...bodyObs.options.attributeFilter], ['data-ds-dark-theme', 'style'])
+  assert.deepEqual([...bodyObs.options.attributeFilter], ['data-ds-dark-theme', 'data-bt-material', 'data-bt-bg', 'style'])
 
   const headObs = env.observed.find(entry => entry.target === env.head)
   assert.ok(headObs, 'head observer registered')
