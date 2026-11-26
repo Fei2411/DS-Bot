@@ -1074,6 +1074,17 @@ export function install(rt) {
   const selfOf = id => chatOwners.get(id) ?? groupOwners.get(id)?.botId ?? pastOwners.get(id)?.botId
   // A Session where the Bot speaks now, as opposed to an archived segment.
   const isBotSession = id => chatOwners.has(id) || groupOwners.has(id)
+  // Any Session owned by the team (current or archived): Bot chats, active or settled tasks,
+  // hidden group member Sessions, group room Sessions, and earlier segments/parts of any of them.
+  const isTeamSession = id => typeof id === 'string' && id !== '' && (
+    chatOwners.has(id)
+    || taskOwners.has(id)
+    || groupOwners.has(id)
+    || roomOwners.has(id)
+    || pastOwners.has(id)
+    || botOf(id) !== undefined
+    || roomOf(id) !== undefined
+  )
   const roomsOf = botId => (botId === undefined ? [] : Object.values(state.rooms).filter(room => Array.isArray(room?.members) && room.members.includes(botId)))
   const groupSessionsOf = botId => Object.values(state.rooms).map(room => room.sessions?.[botId]).filter(Boolean)
   const dropGroupSession = (room, botId) => {
@@ -1160,7 +1171,7 @@ export function install(rt) {
     state, load, save, refresh, readOnly, hasLoaded, retireParts, isRetiring, syncReadOnly, own, onSaved, onAdopted, closeCard,
     readSegmentNote, writeSegmentNote, deleteSegmentNotes,
     teamWriteAccess,
-    botOf, roomOf, isMain, chatOf, sessionOfRoom, selfOf, isBotSession,
+    botOf, roomOf, isMain, chatOf, sessionOfRoom, selfOf, isBotSession, isTeamSession,
     chatOwners, taskOwners, groupOwners, roomOwners, pastOwners,
     groupSessionsOf, roomsOf, dropGroupSession, retireGroupSession, findBot, findRooms, isAdminOf,
   })

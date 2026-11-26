@@ -42379,6 +42379,7 @@ var viaIsIm = (via) => typeof via === "string" && imPlatform(via) !== void 0;
 
 // src/client/user-message.js
 var import_react37 = require("react");
+var EMPTY_REVEALED_SECRETS = /* @__PURE__ */ new Set();
 var projects = typeof import_dsh_client_ui_primitives.projectUserText === "function";
 var canDrawUserMessages = (drawsUserContent = false) => projects || drawsUserContent;
 var USER_SOURCE_SLOT = "conversation.chat.user.before";
@@ -42450,13 +42451,54 @@ function userTextParts(text, bots, referenceLabels = []) {
   if (cursor < text.length) parts.push({ text: text.slice(cursor) });
   return parts;
 }
-function UserText({ text, bots, referenceLabels, skillNames, references, actions }) {
+function renderProjectedSegment(text, keyPrefix, bots, referenceLabels, skillNames, references, actions) {
   return userTextParts(text, bots, referenceLabels).map((part, index) => part.bot ? (0, import_react37.createElement)(
     "button",
-    { key: index, type: "button", className: "bt-umention", title: `@${part.bot.name}`, onClick: () => actions.openSession(part.bot.id) },
+    { key: `${keyPrefix}:${index}`, type: "button", className: "bt-umention", title: `@${part.bot.name}`, onClick: () => actions.openSession(part.bot.id) },
     (0, import_react37.createElement)(BotMark, { bot: part.bot, size: 16 }),
     part.label
-  ) : (0, import_react37.createElement)(import_react37.Fragment, { key: index }, import_dsh_client_ui_primitives.projectUserText(part.text, referenceLabels, skillNames, "skill", references)));
+  ) : (0, import_react37.createElement)(import_react37.Fragment, { key: `${keyPrefix}:${index}` }, import_dsh_client_ui_primitives.projectUserText(part.text, referenceLabels, skillNames, "skill", references)));
+}
+function UserText({ text, fullText, fullSecrets, revealedSecrets, onToggleSecret, bots, referenceLabels, skillNames, references, actions }) {
+  const secretSpans = fullSecrets && fullSecrets.length > 0 ? projectSecretsToSlice(fullText ?? text, text, fullSecrets) : [];
+  if (secretSpans.length === 0) {
+    return renderProjectedSegment(text, "p", bots, referenceLabels, skillNames, references, actions);
+  }
+  const nodes = [];
+  let cursor = 0;
+  for (let i = 0; i < secretSpans.length; i += 1) {
+    const span = secretSpans[i];
+    if (span.start > cursor) {
+      nodes.push(...renderProjectedSegment(text.slice(cursor, span.start), `t${i}`, bots, referenceLabels, skillNames, references, actions));
+    }
+    const isOpen = Boolean(revealedSecrets?.has(span.key));
+    const label = isOpen ? t("Hide secret") : t("Reveal secret");
+    nodes.push((0, import_react37.createElement)(
+      "span",
+      {
+        key: `s:${span.key}:${i}`,
+        className: `dsb-secret${isOpen ? " is-revealed" : ""}`,
+        "data-secret-masked": isOpen ? void 0 : ""
+      },
+      (0, import_react37.createElement)("span", { className: "dsb-secret-val" }, isOpen ? span.raw : span.masked),
+      (0, import_react37.createElement)("button", {
+        type: "button",
+        className: "dsb-secret-toggle",
+        "aria-pressed": isOpen,
+        "aria-label": label,
+        title: label,
+        onClick: (event) => {
+          event?.stopPropagation?.();
+          onToggleSecret?.(span.key);
+        }
+      }, isOpen ? (0, import_react37.createElement)(HideIcon) : (0, import_react37.createElement)(EyeIcon))
+    ));
+    cursor = span.end;
+  }
+  if (cursor < text.length) {
+    nodes.push(...renderProjectedSegment(text.slice(cursor), "end", bots, referenceLabels, skillNames, references, actions));
+  }
+  return nodes;
 }
 function BotMention({ node, raw, interactive, sessionId, useRoster, actions }) {
   const bot = useRoster((roster) => mentionableBots(roster, sessionId).find((item) => item.id === node.data.botId));
@@ -42483,7 +42525,7 @@ function Attachments({ attachments, renderMessageImages }) {
 function CopyButton({ text }) {
   const [copied, setCopied] = (0, import_react37.useState)(false);
   const copy2 = () => {
-    void navigator.clipboard?.writeText(text).then(() => {
+    void navigator.clipboard?.writeText(text)?.then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1e3);
     });
@@ -42509,11 +42551,22 @@ var ViaTag = ({ via }) => {
   }
   return (0, import_react37.createElement)("span", { className: "bt-uvia" }, t("via {platform}", { platform: t(imPlatform(via)?.name ?? via) }));
 };
-function ProjectedContent({ data, text, shown, folded, control, roster, sessionId, actions, renderMessageImages, openFile, openSkill, onClick }) {
+function ProjectedContent({ data, text, shown, folded, control, fullSecrets, revealedSecrets, onToggleSecret, roster, sessionId, actions, renderMessageImages, openFile, openSkill, onClick }) {
   const { attachments, rest } = contentParts(data.content);
   const referenceLabels = data.referenceLabels ?? [];
   const references = openFile && openSkill ? { openFile, openSkill } : void 0;
-  const body = (0, import_react37.createElement)(UserText, { text: shown, bots: mentionableBots(roster, sessionId), referenceLabels, skillNames: data.skillNames ?? [], references, actions });
+  const body = (0, import_react37.createElement)(UserText, {
+    text: shown,
+    fullText: text,
+    fullSecrets,
+    revealedSecrets,
+    onToggleSecret,
+    bots: mentionableBots(roster, sessionId),
+    referenceLabels,
+    skillNames: data.skillNames ?? [],
+    references,
+    actions
+  });
   return (0, import_react37.createElement)(
     import_react37.Fragment,
     null,
@@ -42570,6 +42623,23 @@ function UserMessageCell({ node, sessionId, useRoster, actions, renderMessageIma
   const sentAt = Number.isFinite(data.time) ? messageClock(data.time) : void 0;
   const via = projects ? (apiName ? `api:${apiName}` : void 0) ?? viaOf2(data.source, roster) ?? roster.imVia?.[sessionId]?.[data.seq] : picked;
   const { shown, folded, control } = useFold(text, { markdown: false });
+  const fullSecrets = (0, import_react37.useMemo)(() => detectSecrets(text), [text]);
+  const [revealedSecrets, setRevealedSecrets] = (0, import_react37.useState)(EMPTY_REVEALED_SECRETS);
+  (0, import_react37.useEffect)(() => {
+    setRevealedSecrets((prev2) => prev2.size === 0 ? prev2 : EMPTY_REVEALED_SECRETS);
+  }, [text]);
+  const toggleSecret = (key) => {
+    setRevealedSecrets((prev2) => {
+      const next = new Set(prev2);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+  const copyText = (0, import_react37.useMemo)(
+    () => fullSecrets.length > 0 ? maskSecrets(text, revealedSecrets) : text,
+    [text, fullSecrets, revealedSecrets]
+  );
   const row = (0, import_react37.useRef)(null);
   const [toolsOpen, setToolsOpen] = (0, import_react37.useState)(false);
   (0, import_react37.useEffect)(() => {
@@ -42595,10 +42665,10 @@ function UserMessageCell({ node, sessionId, useRoster, actions, renderMessageIma
     (0, import_react37.createElement)(
       "div",
       { className: "bt-ustack" },
-      prepared === void 0 ? (0, import_react37.createElement)(ProjectedContent, { ...fold, roster, sessionId, actions, renderMessageImages, openFile, openSkill }) : (0, import_react37.createElement)(HostContent, { ...fold, prepared, loadImage, renderFactorySlot }),
+      prepared === void 0 ? (0, import_react37.createElement)(ProjectedContent, { ...fold, fullSecrets, revealedSecrets, onToggleSecret: toggleSecret, roster, sessionId, actions, renderMessageImages, openFile, openSkill }) : (0, import_react37.createElement)(HostContent, { ...fold, prepared, loadImage, renderFactorySlot }),
       sentAt || via ? (0, import_react37.createElement)("div", { className: "bt-utime", title: clockLabel(data.time) }, ...via ? [(0, import_react37.createElement)(ViaTag, { key: "via", via })] : [], sentAt) : null
     ),
-    text === "" ? null : (0, import_react37.createElement)("div", { className: "bt-utools", "data-open": toolsOpen || void 0 }, (0, import_react37.createElement)(CopyButton, { text }))
+    text === "" ? null : (0, import_react37.createElement)("div", { className: "bt-utools", "data-open": toolsOpen || void 0 }, (0, import_react37.createElement)(CopyButton, { text: copyText }))
   );
 }
 var USER_MESSAGE_CSS = `

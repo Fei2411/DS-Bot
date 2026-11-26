@@ -417,6 +417,10 @@ test('file and folder references parse cleanly with no false positives and open 
   // Bare filename with `:line` in parseLocalFileHref and matchFileMention basename isolation.
   assert.equal(parseLocalFileHref('README.md:42')?.line, 42)
   assert.equal(parseLocalFileHref('mailto:user@example.com'), null)
+  assert.equal(parseFileTarget('file://server/share/project/src/main.js'), null, 'remote/UNC file:// authority must not drop host and dispatch /share/...')
+  assert.equal(parseLocalFileHref('file://server/share/project/src/main.js'), null)
+  assert.equal(parseFileTarget('file://localhost/repo/src/main.js')?.path, '/repo/src/main.js')
+  assert.equal(parseFileTarget('file:///repo/src/main.js')?.path, '/repo/src/main.js')
   const turnMentions = new Map([['src/foo.js', { path: 'src/foo.js' }], ['foo.js', { path: 'src/foo.js' }]])
   assert.equal(matchFileMention('foo.js:5', turnMentions)?.path, 'src/foo.js')
   assert.equal(matchFileMention('other/foo.js', turnMentions), null, 'explicit different path must not resolve to delivered basename')
@@ -654,17 +658,26 @@ test('syntax highlighting highlights fenced code blocks and FilePreview, and mat
 
   assert.equal(normalizeMathDelimiters('Inline \\(x+1\\) and `\\(code\\)`'), 'Inline $x+1$ and `\\(code\\)`')
   assert.match(normalizeMathDelimiters('Block \\[a^2 + b^2\\]'), /\$\$\na\^2 \+ b\^2\n\$\$/)
-  // CommonMark indented code blocks must stay untouched (both displayed and copied).
+  // CommonMark indented code blocks & blockquoted code blocks must stay untouched (both displayed and copied).
   const indentedSrc = 'Intro paragraph\n\n    const raw = "\\\\(x\\\\)"\n    \\(keep_me\\)\n'
   assert.equal(normalizeMathDelimiters(indentedSrc), indentedSrc)
   assert.equal(escapeCurrencyDollars('    $5 and $10\n'), '    $5 and $10\n')
+  assert.equal(escapeCurrencyDollars(">     echo '$5 and $10'\n"), ">     echo '$5 and $10'\n", 'quoted indented code keeps literal $')
+  assert.equal(escapeCurrencyDollars('> ~~~\n> $5 and $10\n> ~~~\n'), '> ~~~\n> $5 and $10\n> ~~~\n', 'quoted tilde fence keeps literal $')
+  assert.equal(escapeCurrencyDollars('> Costs $5 and $10\n'), '> Costs \\$5 and $10\n', 'quoted prose still disambiguates currency')
 
   const md = [
     'Price is $5 and $10, range $100-$200 or $10–$20 or $5/$10, 价格$5和$10.',
     '',
-    'The item costs $5 and the answer is $x^2$, while $E = mc^2$ and \\(a + b\\) are math.',
+    'The item costs $5 and the answer is $x^2$, while $E = mc^2$, $10-3$, $1/2$, and \\(a + b\\) are math.',
     '',
     '    literal \\(indented\\) code',
+    '',
+    ">     echo '$5 and $10'",
+    '',
+    '> ~~~',
+    '> $5 and $10',
+    '> ~~~',
     '',
     '$$',
     '\\int_0^1 x\\,dx = \\frac{1}{2}',
@@ -692,17 +705,28 @@ test('syntax highlighting highlights fenced code blocks and FilePreview, and mat
     assert.equal(view.host.textContent.includes('$5/$10'), true, 'slash currency stays plain text')
     assert.equal(view.host.textContent.includes('价格$5和$10'), true, 'CJK currency stays plain text')
     assert.equal(view.host.textContent.includes('costs $5 and the answer is '), true, 'leading price before equation stays plain text')
-    assert.equal(view.host.querySelectorAll('.dsb-math-inline').length, 3, 'mixed price+equation ($x^2$), $E = mc^2$, and \\(a + b\\) all render as math')
+    assert.equal(view.host.textContent.includes('$10-3$'), false, 'inline arithmetic $10-3$ renders as math rather than literal dollar text')
+    assert.equal(view.host.textContent.includes('$1/2$'), false, 'inline fraction $1/2$ renders as math rather than literal dollar text')
+    assert.equal(view.host.querySelectorAll('.dsb-math-inline').length, 5, 'mixed price+equation ($x^2$), $E = mc^2$, $10-3$, $1/2$, and \\(a + b\\) all render as math')
     assert.equal(view.host.querySelectorAll('.dsb-math-block').length, 2, '$$...$$ and ```math render as display math')
     const mathEl = view.host.querySelector('.dsb-math-inline')
     assert.equal(mathEl?.textContent.includes('class="katex"'), true, 'KaTeX markup rendered')
-    // Indented code block keeps literal `\(indented\)` both displayed and copied.
+    // Indented code block and blockquoted code blocks keep literal text both displayed and copied.
     const preBlocks = Array.from(view.host.querySelectorAll('pre'))
     const indentedPre = preBlocks.find(el => el.textContent.includes('indented'))
     assert.ok(indentedPre?.textContent.includes('\\(indented\\)'), 'indented code block displays literal LaTeX delimiters')
     const indentedCopy = indentedPre?.parentNode?.querySelector('.md-copy')
     await React.act(async () => { clickEl(indentedCopy); await Promise.resolve() })
     assert.equal(copied.at(-1), 'literal \\(indented\\) code', 'indented code block copies literal LaTeX delimiters')
+    const quotedIndentedPre = preBlocks.find(el => el.textContent.includes("echo '$5 and $10'"))
+    assert.ok(quotedIndentedPre, 'quoted indented code block displays unescaped $5 and $10')
+    assert.equal(quotedIndentedPre.textContent.includes('\\$5'), false, 'quoted indented code block has no extra backslash')
+    await React.act(async () => { clickEl(quotedIndentedPre.parentNode?.querySelector('.md-copy')); await Promise.resolve() })
+    assert.equal(copied.at(-1), "echo '$5 and $10'", 'quoted indented code block copies without extra backslash')
+    const quotedFencePre = preBlocks.find(el => el.textContent.trim() === '$5 and $10')
+    assert.ok(quotedFencePre, 'quoted tilde-fenced code block displays unescaped $5 and $10')
+    await React.act(async () => { clickEl(quotedFencePre.parentNode?.querySelector('.md-copy')); await Promise.resolve() })
+    assert.equal(copied.at(-1), '$5 and $10', 'quoted tilde-fenced code block copies without extra backslash')
     const hljsCode = view.host.querySelector('.hljs')
     assert.ok(hljsCode?.querySelector('.hljs-keyword'), 'fenced JS code block is syntax highlighted')
     assert.equal(view.host.querySelector('.md-code-lang')?.textContent, 'javascript')
@@ -765,11 +789,19 @@ test('WorkspacePaneBody reveals folders in FileTree (including when workspace-re
     dirView.unmount()
   }
 
-  // normalizeRevealPath: out-of-workspace detection + Windows case-insensitive root match.
+  // normalizeRevealPath: out-of-workspace detection, filesystem root `/`, and Windows case-insensitive root match.
   assert.deepEqual(plain(normalizeRevealPath('/etc/ssh', '/repo')), { status: 'outside', raw: '/etc/ssh' })
+  assert.deepEqual(plain(normalizeRevealPath('/', '/repo')), { status: 'outside', raw: '/' })
+  assert.deepEqual(plain(normalizeRevealPath('/etc/ssh', '/')), { status: 'ok', path: 'etc/ssh' })
+  assert.deepEqual(plain(normalizeRevealPath('/', '/')), { status: 'ok', path: '' })
+  assert.deepEqual(plain(normalizeRevealPath('/a/../b', '/')), { status: 'ok', path: 'b' })
   assert.deepEqual(plain(normalizeRevealPath('../outside', '/repo')), { status: 'outside', raw: '../outside' })
   assert.deepEqual(plain(normalizeRevealPath('D:\\other\\dir', 'C:\\Repo')), { status: 'outside', raw: 'D:/other/dir' })
   assert.deepEqual(plain(normalizeRevealPath('c:\\repo\\src\\nested', 'C:\\Repo')), { status: 'ok', path: 'src/nested' })
+  assert.deepEqual(plain(normalizeRevealPath('C:\\src\\nested', 'C:\\')), { status: 'ok', path: 'src/nested' })
+  assert.deepEqual(plain(normalizeRevealPath('C:\\', 'C:\\')), { status: 'ok', path: '' })
+  assert.deepEqual(plain(normalizeRevealPath('D:\\other', 'C:\\')), { status: 'outside', raw: 'D:/other' })
+  assert.deepEqual(plain(normalizeRevealPath('C:\\repo', '/')), { status: 'outside', raw: 'C:/repo' })
   assert.deepEqual(plain(normalizeRevealPath('/repo/app/ui', '/repo')), { status: 'ok', path: 'app/ui' })
 
   // Opening FileTree with revealDir expands ancestors, flashes reveal highlight, rejects out-of-workspace

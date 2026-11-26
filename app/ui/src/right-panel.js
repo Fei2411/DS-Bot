@@ -173,6 +173,15 @@ function collapseRelativeSegments(relPath) {
   return out.join('/')
 }
 
+function normalizeFsPath(value) {
+  if (typeof value !== 'string') return ''
+  const s = value.trim().replace(/\\/g, '/')
+  if (s === '') return ''
+  if (/^\/+$/.test(s)) return '/'
+  if (/^[A-Za-z]:\/+$/.test(s)) return `${s.slice(0, 2)}/`
+  return s.replace(/\/+$/, '')
+}
+
 /**
  * Resolves a folder reveal target against the workspace root.
  * Returns `{ status: 'ok', path }` (workspace-relative path, `''` for root)
@@ -180,20 +189,19 @@ function collapseRelativeSegments(relPath) {
  */
 export function normalizeRevealPath(raw, rootPath) {
   if (typeof raw !== 'string') return { status: 'ok', path: '' }
-  const p = raw.trim().replace(/\\/g, '/').replace(/\/+$/, '')
+  const p = normalizeFsPath(raw)
   if (p === '' || p === '.') return { status: 'ok', path: '' }
 
   const isWinAbs = WINDOWS_DRIVE_ABS_RE.test(p)
   const isPosixAbs = p.startsWith('/')
   if (isWinAbs || isPosixAbs) {
-    const normRoot = typeof rootPath === 'string'
-      ? rootPath.trim().replace(/\\/g, '/').replace(/\/+$/, '')
-      : ''
+    const normRoot = normalizeFsPath(rootPath)
     if (normRoot === '') return { status: 'outside', raw: p }
     const caseInsensitive = isWinAbs || WINDOWS_DRIVE_ABS_RE.test(normRoot)
     const cmpPath = caseInsensitive ? p.toLowerCase() : p
     const cmpRoot = caseInsensitive ? normRoot.toLowerCase() : normRoot
-    if (cmpPath !== cmpRoot && !cmpPath.startsWith(`${cmpRoot}/`)) {
+    const rootPrefix = cmpRoot.endsWith('/') ? cmpRoot : `${cmpRoot}/`
+    if (cmpPath !== cmpRoot && !cmpPath.startsWith(rootPrefix)) {
       return { status: 'outside', raw: p }
     }
     const remainder = p.slice(normRoot.length).replace(/^\/+/, '')

@@ -78,26 +78,52 @@ function readInlineCodeSpan(text, start) {
   return start + ticks
 }
 
+function stripBlockquotePrefix(text, lineStartIdx, lineEnd) {
+  let pos = lineStartIdx
+  let depth = 0
+  while (pos < lineEnd) {
+    const { col, index } = measureIndent(text, pos)
+    if (col <= 3 && index < lineEnd && text[index] === '>') {
+      depth += 1
+      pos = index + 1
+      if (pos < lineEnd && text[pos] === ' ') pos += 1
+      continue
+    }
+    break
+  }
+  return { depth, contentStart: pos }
+}
+
 /**
  * Walks CommonMark source while preserving fenced code blocks (` ``` ` / `~~~`),
- * CommonMark indented code blocks (4+ spaces / tab after blank line), and inline backtick spans
- * completely untouched, calling `onProseChar(text, i, out)` for non-code characters.
+ * CommonMark indented code blocks (4+ spaces / tab after blank line, including inside
+ * blockquotes), and inline backtick spans completely untouched, calling
+ * `onProseChar(text, i, out)` for non-code characters.
  */
 function walkMarkdownProse(text, onProseChar) {
   const out = []
   let i = 0
   let lineStart = true
   let prevLineBlank = true
+  let prevQuoteDepth = 0
   let inIndentedCode = false
   let fenceChar = ''
   let fenceLen = 0
+  let fenceQuoteDepth = 0
 
   while (i < text.length) {
     if (lineStart) {
       const nl = text.indexOf('\n', i)
       const lineEnd = nl === -1 ? text.length : nl + 1
-      const { col, index: firstNonWs } = measureIndent(text, i)
+      const { depth: quoteDepth, contentStart } = stripBlockquotePrefix(text, i, lineEnd)
+      const { col, index: firstNonWs } = measureIndent(text, contentStart)
       const isBlank = firstNonWs >= lineEnd || text[firstNonWs] === '\n' || text[firstNonWs] === '\r'
+
+      if (fenceChar !== '' && quoteDepth < fenceQuoteDepth) {
+        fenceChar = ''
+        fenceLen = 0
+        fenceQuoteDepth = 0
+      }
 
       if (fenceChar !== '') {
         if (col <= 3) {
@@ -108,6 +134,7 @@ function walkMarkdownProse(text, onProseChar) {
             if (count >= fenceLen && text.slice(firstNonWs + count, lineEnd).trim() === '') {
               fenceChar = ''
               fenceLen = 0
+              fenceQuoteDepth = 0
             }
           }
         }
@@ -115,7 +142,13 @@ function walkMarkdownProse(text, onProseChar) {
         i = lineEnd
         lineStart = true
         prevLineBlank = isBlank
+        prevQuoteDepth = quoteDepth
         continue
+      }
+
+      if (quoteDepth !== prevQuoteDepth) {
+        inIndentedCode = false
+        prevLineBlank = true
       }
 
       if (isBlank) {
@@ -123,14 +156,16 @@ function walkMarkdownProse(text, onProseChar) {
         i = lineEnd
         lineStart = true
         prevLineBlank = true
+        prevQuoteDepth = quoteDepth
         continue
       }
 
       // CommonMark indented code block: 4+ column indent when starting after a blank line
-      // (or document start) or continuing an active indented code block.
+      // (or container/document start) or continuing an active indented code block.
       if ((prevLineBlank || inIndentedCode) && col >= 4) {
         inIndentedCode = true
         prevLineBlank = false
+        prevQuoteDepth = quoteDepth
         out.push(text.slice(i, lineEnd))
         i = lineEnd
         lineStart = true
@@ -139,6 +174,7 @@ function walkMarkdownProse(text, onProseChar) {
 
       inIndentedCode = false
       prevLineBlank = false
+      prevQuoteDepth = quoteDepth
 
       if (col <= 3) {
         const ch = text[firstNonWs]
@@ -150,12 +186,20 @@ function walkMarkdownProse(text, onProseChar) {
           if (count >= 3 && (ch === '~' || !info.includes('`'))) {
             fenceChar = ch
             fenceLen = count
+            fenceQuoteDepth = quoteDepth
             out.push(text.slice(i, lineEnd))
             i = lineEnd
             lineStart = true
             continue
           }
         }
+      }
+
+      if (contentStart > i) {
+        out.push(text.slice(i, contentStart))
+        i = contentStart
+        lineStart = false
+        continue
       }
     }
 
@@ -327,10 +371,12 @@ export function escapeCurrencyDollars(text) {
 }
 
 // Second-line safety net for any remaining accidental currency/prose spans.
+// Preserves valid inline numeric arithmetic like `$10-3$` and `$1/2$` while still catching
+// unfinished currency ranges (`$100-$`) and currency-followed-by-prose spans.
 function looksLikeCurrencyProse(value) {
   if (typeof value !== 'string') return true
   if (value === '' || /^\s/.test(value) || /\s$/.test(value)) return true
-  if (/^\d[\d,.]*(?:[-–—/,~·]|\s+[A-Za-z]+|[^\x00-\x7F])/.test(value) && !/[\\^_{}=<>|]/.test(value)) return true
+  if (/^\d[\d,.]*(?:[-–—/~·]$|\s+[A-Za-z]+|[^\x00-\x7F])/.test(value) && !/[\\^_{}=<>|]/.test(value)) return true
   if (/\s/.test(value) && !/[\\^_{}=<>+\-*/|()[\]]/.test(value) && /^[A-Za-z0-9.,;:!?\s'-]+$/.test(value)) return true
   return false
 }

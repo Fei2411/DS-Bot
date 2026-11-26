@@ -137,6 +137,9 @@ export function parseFileTarget(raw) {
   if (/^file:\/\//i.test(candidate)) {
     try {
       const url = new URL(candidate)
+      // Reject remote/UNC `file://server/share/...` authorities rather than dropping the host
+      // and resolving a corrupted drive-local `/share/...` path.
+      if (url.hostname && url.hostname.toLowerCase() !== 'localhost') return null
       let pathname = safeDecode(url.pathname)
       if (/^\/[A-Za-z]:\//.test(pathname)) pathname = pathname.slice(1)
       candidate = pathname + (url.hash || '')

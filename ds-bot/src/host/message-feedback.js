@@ -42,6 +42,21 @@ function serializeFeedbackError(err) {
   return out
 }
 
+export function isTeamSession(rt, sessionId) {
+  if (typeof sessionId !== 'string' || sessionId === '') return false
+  if (typeof rt?.isTeamSession === 'function') return rt.isTeamSession(sessionId) === true
+  return (
+    rt?.isBotSession?.(sessionId) === true
+    || rt?.botOf?.(sessionId) !== undefined
+    || rt?.roomOf?.(sessionId) !== undefined
+    || rt?.chatOwners?.has?.(sessionId) === true
+    || rt?.taskOwners?.has?.(sessionId) === true
+    || rt?.groupOwners?.has?.(sessionId) === true
+    || rt?.roomOwners?.has?.(sessionId) === true
+    || rt?.pastOwners?.has?.(sessionId) === true
+  )
+}
+
 export function install(rt) {
   const { ctx } = rt
   const serviceOf = () => ctx.get?.('messageFeedback') ?? ctx.messageFeedback
@@ -49,8 +64,9 @@ export function install(rt) {
     const why = rt.readOnly?.()
     if (why) throw refused(why, 'bot/read-only')
   }
-  const classicSessionCheck = (sessionId) => {
-    if (rt.isBotSession?.(sessionId) === true || rt.roomOf?.(sessionId) !== undefined) {
+  const classicSessionCheck = async (sessionId) => {
+    await rt.load?.()
+    if (isTeamSession(rt, sessionId)) {
       throw refused('Message feedback is only available in classic sessions', 'bot/refused')
     }
   }
@@ -60,7 +76,7 @@ export function install(rt) {
     switch (name) {
       case 'list': {
         const sessionId = requireSessionId(body)
-        classicSessionCheck(sessionId)
+        await classicSessionCheck(sessionId)
         if (typeof service?.list !== 'function') {
           return { available: false, items: [] }
         }
@@ -83,7 +99,7 @@ export function install(rt) {
           throw unavailable('Message feedback is not available in this engine')
         }
         const sessionId = requireSessionId(body)
-        classicSessionCheck(sessionId)
+        await classicSessionCheck(sessionId)
         const messageId = requireMessageId(body)
         const rating = typeof body.rating === 'string' ? body.rating : ''
         if (!VALID_RATINGS.has(rating)) throw invalid('A valid feedback rating is required')
@@ -106,7 +122,7 @@ export function install(rt) {
           throw unavailable('Message feedback is not available in this engine')
         }
         const sessionId = requireSessionId(body)
-        classicSessionCheck(sessionId)
+        await classicSessionCheck(sessionId)
         const messageId = requireMessageId(body)
         const ifVersion = typeof body.ifVersion === 'string' && body.ifVersion !== '' ? body.ifVersion : ''
         if (ifVersion === '') throw invalid('A feedback version is required')
