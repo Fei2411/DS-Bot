@@ -1434,7 +1434,7 @@ export function openCoordinationDb({
           }
           continue
         }
-        if (excludedSessions && work.session_id && excludedSessions.has(work.session_id)) continue
+        if (excludedSessions && work.kind !== 'foreground' && work.session_id && excludedSessions.has(work.session_id)) continue
         // Foreground chat is never blocked by background writable tasks on the same folder.
         if (respectWorkspaceLock && work.kind !== 'foreground' && work.workspace_mode === 'write' && work.workspace_dir) {
           const conflict = stmt.hasWorkspaceWriteConflict.get(work.workspace_dir, work.work_id)
@@ -2237,7 +2237,7 @@ export function openCoordinationDb({
             )
             const afterReq = stmt.countOpenRequiredWaits.get(parent.work_id).n
             const latestParent = stmt.getWork.get(parent.work_id)
-            if (shouldNotifyParent && (latestParent.kind === 'foreground' || (beforeReq > 0 && afterReq === 0))) {
+            if (shouldNotifyParent && ((latestParent.kind === 'foreground' && work.origin_kind === 'group_report') || (beforeReq > 0 && afterReq === 0))) {
               if (latestParent.status === 'waiting' || latestParent.status === 'idle') {
                 satisfiedParents.push(parent.work_id)
                 db.prepare("UPDATE works SET status = 'queued', updated_at = ? WHERE work_id = ?").run(ts, parent.work_id)

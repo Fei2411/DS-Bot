@@ -147,19 +147,21 @@ export function install(rt) {
     } catch {
       return
     }
+    if (!hasCoordDb() || !writes()) return
     const used = new Set()
-    if (hasCoordDb()) {
-      const activeNonFg = new Set()
-      for (const work of rt.coordDb.listWorks({ activeOnly: true, limit: 5000 })) {
+    const activeNonFg = new Set()
+    for (const work of rt.coordDb.listWorks({ limit: 5000 })) {
+      const isActive = !TERMINAL_STATUSES.has(work.status)
+      if (isActive && work.kind !== 'foreground') activeNonFg.add(work.workId)
+      if (isActive || work.parentWorkId === null) {
         const name = keptName(work.resultRef)
         if (name !== undefined) used.add(name)
-        if (work.kind !== 'foreground') activeNonFg.add(work.workId)
       }
-      for (const call of rt.coordDb.listCalls({ limit: 5000 })) {
-        if (!activeNonFg.has(call.parentWorkId)) continue
-        const name = keptName(call.resultRef)
-        if (name !== undefined) used.add(name)
-      }
+    }
+    for (const call of rt.coordDb.listCalls({ limit: 5000 })) {
+      if (!activeNonFg.has(call.parentWorkId)) continue
+      const name = keptName(call.resultRef)
+      if (name !== undefined) used.add(name)
     }
     for (const file of entries) {
       const name = keptName(file)
@@ -900,6 +902,7 @@ export function install(rt) {
     heldAnswers.set(workId, headOf(String(text), TEXT_KEPT))
     if (heldAnswers.size > 100) heldAnswers.delete(heldAnswers.keys().next().value)
   }
+  const hasHeldWork = workId => heldAnswers.has(workId)
 
   const askedBy = (workId) => {
     const work = findDbWork(workId)
@@ -1041,8 +1044,8 @@ export function install(rt) {
     for (const wait of openWaits) {
       if (wait.kind !== 'call' && wait.kind !== 'ask') continue
       const ownerWork = rt.coordDb.getWork(wait.workId)
-      if (ownerWork === undefined || TERMINAL_STATUSES.has(ownerWork.status)) continue
-      if (ownerWork.status === 'running') continue
+      if (ownerWork === undefined || ownerWork.kind === 'foreground' || TERMINAL_STATUSES.has(ownerWork.status)) continue
+      if (ownerWork.status === 'running' || (ownerWork.sessionId && rt.live?.get?.(ownerWork.sessionId)?.turn !== undefined)) continue
       const owner = ownerWork.botId
       const targetWork = wait.targetWorkId ? rt.coordDb.getWork(wait.targetWorkId) : undefined
       if (targetWork === undefined || TERMINAL_STATUSES.has(targetWork.status)) continue
@@ -1366,6 +1369,7 @@ export function install(rt) {
     ownsWork: owns,
     waitsWork: waits,
     holdWork: hold,
+    hasHeldWork,
     workAsker: askedBy,
     workImOrigin,
     mergeWorkImOrigin,

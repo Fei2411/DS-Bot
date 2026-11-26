@@ -6,7 +6,7 @@
 // appending `inbox(kind='result')` onto the caller's work, resolving its wait, and waking
 // it once via `rt.kickScheduler()` — eliminating crash-before-delivery loss and double reports.
 import { randomUUID } from 'node:crypto'
-import { LATE_ANSWER, MESSAGE_INLINE_MAX, SOURCE_KIND } from './constants.js'
+import { LATE_ANSWER, MESSAGE_INLINE_MAX } from './constants.js'
 import { normalizeImOrigin, sameImOrigin } from './im/origin.js'
 import { threadCurrentOfPart } from './threads.js'
 import { failureLine } from './turns.js'
@@ -961,8 +961,13 @@ export function createRoomReports(rt, deps) {
     }
   }
 
+  const withdrawingRelays = new Set()
+  const beginWithdrawingRelay = (exchangeId) => { if (typeof exchangeId === 'string' && exchangeId !== '') withdrawingRelays.add(exchangeId) }
+  const endWithdrawingRelay = (exchangeId) => { withdrawingRelays.delete(exchangeId) }
+
   function roomRelayDiscarded(source, sessionId) {
     if (typeof source?.roomId !== 'string') return
+    if (typeof source.exchangeId === 'string' && withdrawingRelays.has(source.exchangeId)) return
     const room = rt.roomOf(source.roomId)
     if (sessionId !== undefined && room !== undefined && sessionId !== rt.sessionOfRoom(room)) return
     if (Object.values(rt.state.switching ?? {}).some(entry => entry?.roomId === source.roomId && entry.botId === undefined)) return
@@ -977,17 +982,12 @@ export function createRoomReports(rt, deps) {
     void settleRoomReports(source.roomId).catch(error => rt.warn('ds-bot: settling reports after discarded relay failed: %s', error))
   }
 
-  rt.ctx?.on?.('agent/inbox/discarded', ({ agent, message }) => {
-    const src = message?.source
-    if (src?.kind === SOURCE_KIND && src.role === 'post') {
-      roomRelayDiscarded(src, agent?.id ?? agent?.session?.id)
-    }
-  })
-
   Object.assign(rt, {
     noteRoomRelayQueued,
     roomRelayTaken,
     roomRelayDiscarded,
+    beginWithdrawingRelay,
+    endWithdrawingRelay,
     openRoomReportCall,
     dropRoomReport,
     hasRoomReportFor,

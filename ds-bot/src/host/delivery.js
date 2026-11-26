@@ -277,7 +277,7 @@ export function install(rt) {
     if (to === undefined) throw Object.assign(new Error(`Unknown Bot ${toId}`), { delivered: false })
     const fromName = senderName ?? from?.name ?? 'You'
     const room = rt.roomOf(roomId)
-    const asker = work === undefined ? undefined : rt.botOf(state.works?.[work]?.from)?.name
+    const asker = work === undefined ? undefined : rt.botOf(rt.resolveWork?.(work)?.work?.from ?? state.works?.[work]?.from)?.name
     const resolvedWorkRef = workRef ?? rt.workRefOf?.(role === 'reply' ? replyTo : askWork ?? work ?? exchangeId)
     const idemKey = idempotencyKey ?? exchangeId
     const resolvedTransferId = transferId ?? (wake === false ? undefined : randomUUID())

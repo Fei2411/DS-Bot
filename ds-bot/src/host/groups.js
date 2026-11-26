@@ -3469,12 +3469,17 @@ export function install(rt) {
     } catch (error) {
       let withdrawn = !enqueued
       if (!withdrawn && typeof agent.inbox?.remove === 'function') {
-        for (const lane of [agent.inbox.nextStep, agent.inbox.nextTurn]) {
-          for (const item of Array.from(lane ?? [])) {
-            if (item?.source?.exchangeId === exchangeId && agent.inbox.remove(item.id) === true) {
-              withdrawn = true
+        rt.beginWithdrawingRelay?.(exchangeId)
+        try {
+          for (const lane of [agent.inbox.nextStep, agent.inbox.nextTurn]) {
+            for (const item of Array.from(lane ?? [])) {
+              if (item?.source?.exchangeId === exchangeId && agent.inbox.remove(item.id) === true) {
+                withdrawn = true
+              }
             }
           }
+        } finally {
+          rt.endWithdrawingRelay?.(exchangeId)
         }
       }
       if (withdrawn) {

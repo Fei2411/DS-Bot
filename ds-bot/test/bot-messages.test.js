@@ -322,7 +322,7 @@ test('a busy worker admits each unread assignment separately and in order', asyn
 
   // Next message gets a fresh work ref (#W13).
   assert.match(await tool('delegate_work', { to: 'Writer', goal: 'task 13', when: 'queue' }, 'a'), /^Queued work #W13 for Writer/)
-  assert.equal((await exchanges()).length, 13)
+  assert.equal((await exchanges()).filter(e => e.role === 'request').length, 13)
 
   // An approval the Bot waits for shows in what the sender is told.
   for (const listener of ctx.listeners.get('approval/request')) void listener({ agent: { session: { id: 'b' } }, toolName: 'bash', reason: 'rm' }, () => new Promise(() => {}))
@@ -990,7 +990,7 @@ test('deleting a Bot that waits for work it handed on tells the Bot that asked',
   end('b', 'handed it on')
   assert.equal((await call('delete-bot', { id: 'b' })).ok, true)
   await settled(() => callsOf(agents, 'a').length === 1)
-  assert.match(textOf(callsOf(agents, 'a')[0][1].content), /^\[Work #W\d+ completed by Writer[^\n]*\]\nWriter was deleted before it could answer your message\.$/)
+  assert.match(textOf(callsOf(agents, 'a')[0][1].content), /^\[Work #W\d+ stopped · Writer\]\nWriter was deleted from the team before it could finish\.$/)
   assert.deepEqual(await worksIn(team), {})
 })
 

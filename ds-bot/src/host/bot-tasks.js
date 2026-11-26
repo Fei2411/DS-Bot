@@ -3506,7 +3506,12 @@ export function install(rt) {
   })
 
   ctx.on('agent/inbox/discarded', ({ agent, message } = {}) => {
-    if (message?.source?.kind !== 'user' || movingHandoffInputs.has(message.id)
+    const src = message?.source
+    if (src?.kind === SOURCE_KIND && src.role === 'post') {
+      rt.roomRelayDiscarded?.(src, agent?.id ?? agent?.session?.id)
+      return
+    }
+    if (src?.kind !== 'user' || movingHandoffInputs.has(message.id)
       || rt.isMovingInboxMessage?.(message.id) || !Array.isArray(state.pendingHandoffInputs)) return
     const owner = transferOwnerKey(logicalOwnerOf(agent?.id ?? agent?.session?.id))
     if (owner === undefined) return

@@ -244,6 +244,7 @@ export function install(rt) {
     }
     const before = keptUp.get(exec.agent?.id)
     const again = before?.turn === turn?.turn && before?.work === workId
+    const replacedEarlier = !again && rt.hasHeldWork?.(workId) === true
     const text = again ? `${before.text}\n\n${said}` : said
     for (const [id, kept] of keptUp) if (rt.live.get(id)?.turn !== kept.turn) keptUp.delete(id)
     keptUp.set(exec.agent?.id, { turn: turn?.turn, work: workId, text: text.slice(0, TEXT_KEPT + 1) })
@@ -251,7 +252,9 @@ export function install(rt) {
     const cut = text.length > TEXT_KEPT
     const kept = again
       ? `Your message was kept as your answer, after what was kept before in this turn${cut ? `, but only the first ${TEXT_KEPT} characters of all of it` : ''}.`
-      : `${cut ? `Only its first ${TEXT_KEPT} characters were` : 'Your message was'} kept as your answer.`
+      : replacedEarlier
+        ? `${cut ? `Only its first ${TEXT_KEPT} characters were` : 'Your message was'} kept as your answer, in place of what was kept for this work before this turn.`
+        : `${cut ? `Only its first ${TEXT_KEPT} characters were` : 'Your message was'} kept as your answer.`
     const whole = cut ? ' To send all of it, write it in full as your answer.' : ''
     return `${plain} ${kept}${whole} If you end your turn without writing any text, ${cut ? 'that part' : 'it'} goes up to ${to}; any text you write for this work from now on goes up instead.`
   }
@@ -507,11 +510,13 @@ export function install(rt) {
       try {
         await rt.kickScheduler({ botId: target.id, workId: created.workId, throwOnError: true })
       } catch (error) {
-        const w = rt.coordDb?.getWork?.(created.workId)
-        if (error?.delivered !== true && w !== undefined && w.status !== 'running' && w.activeDeliveryKey === null) {
-          rt.dropWork?.(created.workId)
+        if (error?.code !== 'EIO') {
+          const w = rt.coordDb?.getWork?.(created.workId)
+          if (error?.delivered !== true && w !== undefined && w.status !== 'running' && w.activeDeliveryKey === null) {
+            rt.dropWork?.(created.workId)
+          }
+          throw error
         }
-        throw error
       }
       const label = created.workRef ? ` work #${created.workRef}` : ''
       const parentResolved = parentWorkId ? rt.resolveWork?.(parentWorkId) : undefined

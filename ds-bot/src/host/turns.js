@@ -1549,6 +1549,7 @@ export function install(rt) {
             workToolCount,
             uiToolCount,
             info,
+            isUserTurn: info === undefined,
           })
         }
 
@@ -1610,6 +1611,8 @@ export function install(rt) {
             ...(item.info.askWork ? { askWork: item.info.askWork } : {}),
             ...(item.info.senderRoomId ? { fromRoomId: item.info.senderRoomId } : {}),
             ...(item.info.senderPart ? { fromPart: item.info.senderPart } : {}),
+            ...(item.info.coordWorkId ? { coordWorkId: item.info.coordWorkId } : {}),
+            ...(Number.isInteger(item.info.coordThroughSeq) ? { coordThroughSeq: item.info.coordThroughSeq } : {}),
             deferred: true,
           })).catch(error => rt.warn('ds-bot: deferred later delivery failed: %s', error))
         }
@@ -1688,6 +1691,8 @@ export function install(rt) {
             ...(request.info.role === 'room' ? { roomId: request.info.roomId, askedBy: request.info.askedBy, resultRef: request.info.resultRef, ...(request.info.workId ? { work: request.info.workId } : {}), ...(request.info.batchKey ? { batchKey: request.info.batchKey } : {}), ...(request.info.resumedUpstream ? { resumedUpstream: true } : {}), note: 'you read this call during your last task; answer it now' } : {}),
             ...(request.info.senderRoomId ? { fromRoomId: request.info.senderRoomId } : {}),
             ...(request.info.senderPart ? { fromPart: request.info.senderPart } : {}),
+            ...(request.info.coordWorkId ? { coordWorkId: request.info.coordWorkId } : {}),
+            ...(Number.isInteger(request.info.coordThroughSeq) ? { coordThroughSeq: request.info.coordThroughSeq } : {}),
             deferred: true,
           })).catch(error => rt.warn('ds-bot: deferred request delivery failed: %s', error))
         }

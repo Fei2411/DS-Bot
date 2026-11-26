@@ -405,16 +405,31 @@ export function install(rt) {
     if (dshCapabilities(agent).zeroWakeNote) return decision
     const coordDb = rt.coordDb
     if (!coordDb || coordDb.isClosed()) return decision
-    const work = coordDb.getWorkBySessionId(id)
-    if (!work) return decision
-    const unreadNotes = coordDb.listInbox(work.workId, { unreadOnly: true }).filter(m => m.kind === 'note')
+    const noteWorks = []
+    const seenWorkIds = new Set()
+    const addNoteWork = (w) => {
+      if (w && !seenWorkIds.has(w.workId)) {
+        seenWorkIds.add(w.workId)
+        noteWorks.push(w)
+      }
+    }
+    const botId = rt.chatOwners?.get?.(id)
+    if (botId !== undefined) addNoteWork(coordDb.getForegroundWork(botId))
+    addNoteWork(coordDb.getWorkBySessionId(id))
+    if (noteWorks.length === 0) return decision
+    const unreadNotes = []
+    for (const w of noteWorks) {
+      for (const m of coordDb.listInbox(w.workId, { unreadOnly: true })) {
+        if (m.kind === 'note') unreadNotes.push({ workId: w.workId, note: m })
+      }
+    }
     if (unreadNotes.length === 0) return decision
 
     const alreadyKeys = new Set(decision.messages.map(m => m?.source?.idempotencyKey ?? m?.source?.exchangeId).filter(Boolean))
     const toPrepend = []
-    const attachedSeqs = []
-    for (const note of unreadNotes) {
-      const key = note.dshIdempotencyKey ?? note.dedupKey ?? `coord-note:${work.workId}:${note.seq}`
+    const attachedEntries = []
+    for (const { workId: noteWorkId, note } of unreadNotes) {
+      const key = note.dshIdempotencyKey ?? note.dedupKey ?? `coord-note:${noteWorkId}:${note.seq}`
       if (alreadyKeys.has(key)) continue
       alreadyKeys.add(key)
       const text = note.payload?.renderedText ?? note.bodyPreview ?? ''
@@ -427,15 +442,15 @@ export function install(rt) {
           role: 'note',
           silent: true,
           idempotencyKey: key,
-          coordWorkId: work.workId,
+          coordWorkId: noteWorkId,
           coordNoteSeq: note.seq,
           ...(note.senderBotId ? { senderSessionId: note.senderBotId } : {}),
         },
       }))
-      attachedSeqs.push(note.seq)
+      attachedEntries.push({ workId: noteWorkId, seq: note.seq })
     }
     if (toPrepend.length === 0) return decision
-    pendingFallbackNoteAcks.set(id, { workId: work.workId, seqs: attachedSeqs })
+    pendingFallbackNoteAcks.set(id, { entries: attachedEntries })
     return {
       ...decision,
       messages: [...toPrepend, ...decision.messages],
@@ -733,9 +748,6 @@ export function install(rt) {
     for (const sid of [...activeClaims.keys()]) {
       if (pruneStaleActiveClaim(sid) !== undefined) busy.add(sid)
     }
-    for (const [sid, entry] of rt.live?.entries?.() ?? []) {
-      if (entry?.turn !== undefined) busy.add(sid)
-    }
     return busy
   }
 
@@ -788,8 +800,7 @@ export function install(rt) {
     // Enforce strict 1:1 active claim mutual exclusion on every session (DSH & local CLI alike),
     // never stealing a session already running a user turn, plus exclusive workspace boundary for local CLI engines.
     const cliCap = rt.localAgentCapability?.(work.botId)
-    const liveEntry = rt.live?.get?.(sessionId)
-    if (pruneStaleActiveClaim(sessionId) !== undefined || liveEntry?.turn !== undefined) {
+    if (pruneStaleActiveClaim(sessionId) !== undefined) {
       coordDb.requeueInterruptedWork(work.workId, { reason: cliCap?.serialPerSession ? 'cli_session_busy' : 'session_busy' })
       return 'deferred'
     }
@@ -1097,10 +1108,10 @@ export function install(rt) {
         try { coordDb.ackInbox(src.coordWorkId, src.coordThroughSeq, { turn: event.turn }) } catch {}
       }
       const pendingAck = pendingFallbackNoteAcks.get(sessionId)
-      if (pendingAck && src?.coordNoteSeq !== undefined && pendingAck.seqs.includes(src.coordNoteSeq)) {
-        const remaining = pendingAck.seqs.filter(s => s !== src.coordNoteSeq)
+      if (pendingAck && src?.coordNoteSeq !== undefined && Array.isArray(pendingAck.entries)) {
+        const remaining = pendingAck.entries.filter(e => !(e.workId === src.coordWorkId && e.seq === src.coordNoteSeq))
         if (remaining.length === 0) pendingFallbackNoteAcks.delete(sessionId)
-        else pendingAck.seqs = remaining
+        else pendingAck.entries = remaining
       }
       return
     }
@@ -1123,6 +1134,14 @@ export function install(rt) {
       pendingFallbackNoteAcks.delete(sessionId)
 
       let active = activeClaims.get(sessionId)
+      if (active && event.type === 'turn/ended' && event.info?.coordWorkId !== undefined && event.info.coordWorkId !== active.workId) {
+        // An unrelated coordDb work's turn ended on this session: do not settle `active`.
+        active = undefined
+      } else if (active && event.type === 'turn/ended' && event.isUserTurn === true) {
+        // A user turn ended while `active` was queued or steered-and-deferred on this session:
+        // never settle `active` with the user turn's reply!
+        return
+      }
       if (!active) {
         const infoWorkId = event.info?.coordWorkId !== undefined ? rt.workOf?.(event.info) : undefined
         const dbWork = infoWorkId !== undefined ? coordDb.getWork(infoWorkId) : undefined
@@ -1181,9 +1200,14 @@ export function install(rt) {
         const senderName = rt.botOf?.(work.botId)?.name ?? 'The other Bot'
         const tag = work.workRef ? ` #${work.workRef}` : ''
         const displayBody = long?.text ?? bodyText
+        const parentWork = work.parentWorkId ? coordDb.getWork(work.parentWorkId) : undefined
+        const grandAsker = parentWork && parentWork.kind !== 'foreground'
+          ? rt.botOf?.(coordDb.listCalls({ childWorkId: parentWork.workId, status: 'open', limit: 1 })[0]?.callerBotId)?.name
+          : undefined
+        const goesOn = grandAsker === undefined ? '' : ` · for the work ${grandAsker} asked you for; your answer goes to ${grandAsker} once everything you handed on is back`
         let renderedText
         if (outcome === 'done') {
-          const header = `[Work${tag} completed by ${senderName} · closed; reply [PASS] if nothing needs to be told to the user]`
+          const header = `[Work${tag} completed by ${senderName} · closed${goesOn}; reply [PASS] if nothing needs to be told to the user]`
           renderedText = typeof displayBody === 'string' && displayBody !== '' ? `${header}\n${displayBody}` : header
         } else if (outcome === 'failed') {
           const errDetail = failure?.code
@@ -1279,7 +1303,9 @@ export function install(rt) {
         } else {
           const senderName = rt.botOf?.(work.botId)?.name ?? 'The other Bot'
           const fullText = rt.answerText?.(active.workId, event.text ?? '', senderName) ?? (event.text ?? '')
-          const resultRef = rt.keepResultFile?.(active.workId, fullText)
+          const parentWork = work.parentWorkId ? coordDb.getWork(work.parentWorkId) : undefined
+          const needsResultFile = parentWork !== undefined && parentWork.kind !== 'foreground'
+          const resultRef = needsResultFile ? rt.keepResultFile?.(active.workId, fullText) : undefined
           const origLength = fullText.length > TEXT_KEPT ? fullText.length : undefined
           const finalizeDone = (long) => {
             if (isStopped(rt.coordDb)) return
