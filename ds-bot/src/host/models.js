@@ -808,14 +808,28 @@ export function install(rt) {
   // not one of them): a provider that registers late still gets its Bots' models selected.
   // A Session recorded as failed is retried on the next trigger even when the models are
   // the same, as every state refresh finds them.
+  const HEAL_POLL_MS = 10_000
+  let lastHealCheckAt = 0
+  let healCheckPending = false
+  let retryQueued = false
   const hasMissingSessions = () => Object.values(state.bots ?? {}).some(bot => bot.sessionMissing !== undefined)
     || goneParts.size > 0
     || missingRoomSessions.size > 0
+  const healDue = () => hasMissingSessions() && !healCheckPending && (lastHealCheckAt === 0 || Date.now() - lastHealCheckAt >= HEAL_POLL_MS)
   const syncModels = () => {
     if (readOnly()) return modelsSynced ?? Promise.resolve()
     const key = answerable(catalogCache.value).map(entry => entry.ref).join(',')
-    if (key !== syncedKey) { syncedKey = key; modelsSynced = modelsSynced?.then(syncAll, syncAll) ?? syncAll() }
-    else if (roomRetry.size > 0 || sessionRetry.size > 0 || hasMissingSessions()) modelsSynced = modelsSynced?.then(syncRetry, syncRetry) ?? syncRetry()
+    if (key !== syncedKey) {
+      syncedKey = key
+      retryQueued = false
+      modelsSynced = modelsSynced?.then(syncAll, syncAll) ?? syncAll()
+    } else if (roomRetry.size > 0 || sessionRetry.size > 0 || healDue()) {
+      if (!retryQueued) {
+        retryQueued = true
+        const run = () => { retryQueued = false; return syncRetry() }
+        modelsSynced = modelsSynced?.then(run, run) ?? run()
+      }
+    }
     return modelsSynced
   }
   // Nothing awaits a sync (bootstrap starts one and drops the promise), so a failure
@@ -824,7 +838,7 @@ export function install(rt) {
   // A marker is stale once the Session is back in the library (a restored archive) or
   // the Bot keeps that part nowhere: a later sync may apply a model to it again. A
   // Session that is still gone keeps its marker, so it is not tried on every sync.
-  async function healMissingSessions() {
+  async function healMissingSessions({ force = false } = {}) {
     const healedBots = new Set()
     const healedParts = new Map()
     if (readOnly()) return { healedBots, healedParts }
@@ -833,7 +847,17 @@ export function install(rt) {
     if (lost.length === 0 && goneParts.size === 0 && missingRoomSessions.size === 0) {
       return { healedBots, healedParts }
     }
-    const records = await listedSessions({ fresh: true }).catch(() => undefined)
+    if (!force && (healCheckPending || (lastHealCheckAt !== 0 && Date.now() - lastHealCheckAt < HEAL_POLL_MS))) {
+      return { healedBots, healedParts }
+    }
+    healCheckPending = true
+    let records
+    try {
+      records = await listedSessions({ fresh: true }).catch(() => undefined)
+    } finally {
+      healCheckPending = false
+      lastHealCheckAt = Date.now()
+    }
     let changed = false
     for (const bot of lost) {
       const owned = ownChatSessions(bot).includes(bot.sessionMissing)
@@ -882,7 +906,7 @@ export function install(rt) {
   async function syncAll() {
     if (readOnly()) return
     pruneOrphanBotRetries()
-    const { healedBots, healedParts } = await healMissingSessions().catch(() => ({ healedBots: new Set(), healedParts: new Map() }))
+    const { healedBots, healedParts } = await healMissingSessions({ force: true }).catch(() => ({ healedBots: new Set(), healedParts: new Map() }))
     for (const bot of Object.values(state.bots)) {
       const botHealed = healedBots.has(bot.id)
       const partForced = healedParts.get(bot.id)

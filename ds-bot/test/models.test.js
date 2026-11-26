@@ -1487,4 +1487,40 @@ test('a restored Session heals immediately on forced model change and on same-ca
     assert.equal(bot.appliedModel, 'deepseek/v4-flash')
     assert.deepEqual(selected, ['b1:deepseek/v4-flash'])
   }
+
+  // Case 3: Overlapping same-catalog syncModels() polls while sessionMissing persists coalesce into one library listing.
+  {
+    let listCalls = 0
+    let releaseList
+    const pendingList = new Promise(resolve => { releaseList = resolve })
+    const { rt } = bench({
+      services: {
+        sessionQuery: {
+          listSessions: async () => {
+            listCalls += 1
+            await pendingList
+            return []
+          },
+        },
+      },
+    })
+    const bot = { id: 'b1', name: 'Writer', model: 'deepseek/v4-flash', appliedModel: 'gone/x' }
+    rt.state.bots = { b1: bot }
+    rt.ctx.sessionController.selectModel = async () => {
+      throw Object.assign(new Error('session "b1" not found'), { code: 'session/not-found' })
+    }
+
+    await rt.catalog()
+    await rt.syncModels()
+    assert.equal(bot.sessionMissing, 'b1')
+    assert.equal(listCalls, 0)
+
+    const polls = Array.from({ length: 6 }, () => rt.syncModels())
+    releaseList()
+    await Promise.all(polls)
+    assert.equal(listCalls, 1)
+    // Another immediate poll within the cooldown does not issue another listing.
+    await rt.syncModels()
+    assert.equal(listCalls, 1)
+  }
 })
