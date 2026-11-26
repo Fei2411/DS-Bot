@@ -6,6 +6,7 @@ import { call } from '../../../ds-bot/src/client/api.js'
 import { noticeApprovals } from '../../../ds-bot/src/client/approval-notices.js'
 import { createBotBrowsers, serveBrowserReads } from '../../../ds-bot/src/client/bot-browsers.js'
 import { workPhrase } from '../../../ds-bot/src/client/cells.js'
+import { readSidebar, SIDEBAR_MAX, SIDEBAR_MIN, toggledPref, writeSidebar } from '../../../ds-bot/src/client/frame-layout.js'
 import { language, t } from '../../../ds-bot/src/client/i18n.js'
 import { lookOf, toolState } from '../../../ds-bot/src/client/mark.js'
 import { needsIdleSample } from '../../../ds-bot/src/client/polling.js'
@@ -85,7 +86,8 @@ export function createTeam() {
   const browserHolds = browsers?.holds ?? createSource({})
   const browserPages = browsers?.pages ?? createSource({})
   const browserTabs = browsers?.tabs ?? createSource({})
-  const layout = createSource({ wide: true })
+  let sidebarSaved = readSidebar()
+  const layout = createSource({ ...sidebarSaved, wide: sidebarSaved.pref === 'open' })
   const surface = createSource({ mode: readMode() })
   // The Session facts: the list (each one's latest entry and change, and which one fills
   // the main view), the status (running, a reply not yet seen) and what was just sent.
@@ -390,18 +392,18 @@ export function createTeam() {
     ...baseActions,
     closePanel: () => {
       baseActions.closePanel()
-      ui.set(state => (state.rightPanel !== null ? { ...state, rightPanel: null } : state))
+      ui.set(state => (state.rightPanel !== null || state.panelYield ? { ...state, rightPanel: null, panelYield: false } : state))
     },
     closeOverlay: () => {
       const hadDialog = Boolean(ui.getSnapshot().newChat || ui.getSnapshot().exchange)
       baseActions.closeOverlay()
       if (!hadDialog) {
-        ui.set(state => (state.details === null && state.rightPanel !== null ? { ...state, rightPanel: null } : state))
+        ui.set(state => (state.details === null && (state.rightPanel !== null || state.panelYield) ? { ...state, rightPanel: null, panelYield: false } : state))
       }
     },
     toggleDetails: (id, force) => {
       baseActions.toggleDetails(id, force)
-      ui.set(state => (state.details === null && state.rightPanel !== null ? { ...state, rightPanel: null } : state))
+      ui.set(state => (state.details === null && (state.rightPanel !== null || state.panelYield) ? { ...state, rightPanel: null, panelYield: false } : state))
     },
     openSettings: (...args) => { clearShortcuts(); return baseActions.openSettings(...args) },
     openPalette: (...args) => { clearShortcuts(); return baseActions.openPalette(...args) },
@@ -431,6 +433,7 @@ export function createTeam() {
         tab: null,
         side: null,
         task: null,
+        panelYield: false,
         rightPanel: null,
         newChat: null,
         exchange: null,
@@ -504,7 +507,7 @@ export function createTeam() {
           ...state,
           ...(keepPanel
             ? { details: sessionId, view: 'workspace', renaming: false, tab: null, side: null, task: null }
-            : { details: null, view: 'details', renaming: false, tab: null, side: null, task: null }),
+            : { details: null, view: 'details', renaming: false, tab: null, side: null, task: null, panelYield: false }),
           newChat: null,
           exchange: null,
           menu: null,
@@ -614,8 +617,30 @@ export function createTeam() {
       await refreshClassicSessions()
     },
     landOn: id => show(partFor(id)),
-    toggleSidebar: () => layout.set(state => ({ ...state, wide: !state.wide })),
-    setSidebarWide: next => layout.set(state => (state.wide === Boolean(next) ? state : { ...state, wide: Boolean(next) })),
+    setSidebarPref: (pref) => {
+      const next = pref === 'rail' || pref === 'hidden' ? pref : 'open'
+      const nextShown = next === 'hidden' ? sidebarSaved.shown : next
+      if (sidebarSaved.pref === next && sidebarSaved.shown === nextShown) return
+      sidebarSaved = { ...sidebarSaved, pref: next, shown: nextShown }
+      writeSidebar(sidebarSaved)
+      layout.set({ ...sidebarSaved, wide: next === 'open' })
+    },
+    setSidebarWidth: (width) => {
+      if (!Number.isFinite(width)) return
+      const clamped = Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, Math.round(width)))
+      if (sidebarSaved.width === clamped) return
+      sidebarSaved = { ...sidebarSaved, width: clamped }
+      writeSidebar(sidebarSaved)
+      layout.set(state => (state.width === clamped ? state : { ...sidebarSaved, wide: state.pref === 'open' }))
+    },
+    toggleLeftHidden: () => {
+      ui.set(state => (state.leftDrawer ? { ...state, leftDrawer: false } : state))
+      actions.setSidebarPref(toggledPref(layout.getSnapshot().pref, sidebarSaved.shown))
+    },
+    setLeftDrawer: on => ui.set(state => (state.leftDrawer === Boolean(on) ? state : { ...state, leftDrawer: Boolean(on) })),
+    setPanelYield: on => ui.set(state => (state.panelYield === Boolean(on) ? state : { ...state, panelYield: Boolean(on) })),
+    toggleSidebar: () => actions.toggleLeftHidden(),
+    setSidebarWide: next => actions.setSidebarPref(next ? 'open' : 'hidden'),
     openShortcuts: () => ui.set(state => ({ ...state, shortcuts: true, menu: null, palette: null, groupSearch: null })),
     closeShortcuts: () => ui.set(state => (state.shortcuts ? { ...state, shortcuts: false } : state)),
     markUnread: id => writeUnread(id, true),
@@ -717,6 +742,7 @@ export function createTeam() {
           tab: null,
           side: null,
           task: null,
+          panelYield: false,
           rightPanel: null,
         }
       })
@@ -791,6 +817,19 @@ export function createTeam() {
         if (browsers.tabs.getSnapshot()[bot.id]?.active == null) browsers.openTab(bot.id)
         ui.set(state => ({ ...state, details: id, view: 'browser', renaming: false, tab: null, panelYield: true }))
       },
+      toggleBrowser: (id) => {
+        const snap = roster.getSnapshot()
+        if (snap.browser === false) return
+        const bot = snap.byId?.[id]
+        if (!bot) return
+        const state = ui.getSnapshot()
+        const detailsBotId = state.details ? (snap.byId?.[state.details]?.id ?? state.details) : null
+        if (state.details && state.view === 'browser' && detailsBotId === bot.id) {
+          actions.closePanel()
+          return
+        }
+        actions.openBrowser(bot.id)
+      },
       // `+` on the strip or the drawer's new-tab card: a blank tab in the browser view.
       browserNewTab: (id) => {
         const bot = roster.getSnapshot().byId[id]
@@ -856,7 +895,11 @@ export function createTeam() {
         launch: typeof bridge.importLaunch === 'function' ? source => bridge.importLaunch(source) : null,
         openPermission: typeof bridge.importOpenPermission === 'function' ? () => bridge.importOpenPermission() : null,
         live: (source, close, requestId) => bridge.importLive(source, close, requestId),
-        apply: (botId, pending, options) => bridge.importApply(`bot:${botId}`, pending, options),
+        apply: (botId, pending, options) => bridge.importApply(
+          Array.isArray(botId) ? botId.map(id => `bot:${id}`) : `bot:${botId}`,
+          pending,
+          options,
+        ),
         cancel: pending => bridge.importCancel(pending),
       } : null,
     })
@@ -876,9 +919,10 @@ export function createTeam() {
       setStatus(part, { running: doing !== undefined })
       actions.noteLive(part, 'tool', doing?.tool ? { label: workPhrase(doing), state: toolState(doing.tool) } : null)
     }
+    const activeRooms = new Set(snap.activeRooms ?? [])
     for (const room of r.rooms ?? []) {
       const part = currentPart(room)
-      const busy = (rooms[room.id]?.length ?? 0) > 0
+      const busy = activeRooms.has(room.id) || (rooms[room.id]?.length ?? 0) > 0
       setStatus(part, { running: busy })
     }
     const turns = snap.turns ?? {}
@@ -1012,10 +1056,10 @@ export function createTeam() {
             if (on && hasBot) return state
             if (hasWorkspace) return { ...state, view: 'workspace' }
             if (hasBot || hasRoom) return { ...state, view: 'details' }
-            return { ...state, details: null, view: 'details', renaming: false, tab: null, side: null, task: null, rightPanel: null }
+            return { ...state, details: null, view: 'details', renaming: false, tab: null, side: null, task: null, panelYield: false, rightPanel: null }
           }
           if (!hasBot && !hasRoom && !hasWorkspace) {
-            return { ...state, details: null, view: 'details', renaming: false, tab: null, side: null, task: null, rightPanel: null }
+            return { ...state, details: null, view: 'details', renaming: false, tab: null, side: null, task: null, panelYield: false, rightPanel: null }
           }
           return state
         })
@@ -1219,5 +1263,13 @@ export function createTeam() {
     }
     return hook
   }
-  return { actions, hooks, sessionHook, chat, start }
+  const snapshots = {
+    roster: () => roster.getSnapshot(),
+    sessions: () => sessions.getSnapshot(),
+    ui: () => ui.getSnapshot(),
+    shown: () => shown.getSnapshot(),
+    surface: () => surface.getSnapshot(),
+    status: () => status.getSnapshot(),
+  }
+  return { actions, hooks, snapshots, sessionHook, chat, start }
 }

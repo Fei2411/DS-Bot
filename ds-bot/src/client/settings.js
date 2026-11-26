@@ -1,6 +1,6 @@
 import { Component, createElement as h, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { isMainOf } from './sources.js'
-import { ApiIcon, BlocksIcon, CheckIcon, ChevronDownIcon, ChevronLeftIcon, ChevronRightIcon, ClockIcon, CloseIcon, CompassIcon, ConnectorIcon, GlobeIcon, InfoIcon, LayersIcon, MonitorIcon, OverviewIcon, PaletteIcon, PhoneIcon, PlusIcon, PuzzleIcon, SearchIcon, SendIcon, SlidersIcon, TerminalIcon, WaveIcon, SETTINGS_ICONS } from './icons.js'
+import { ApiIcon, BlocksIcon, CheckIcon, ChevronDownIcon, ChevronLeftIcon, ChevronRightIcon, ClockIcon, CloseIcon, CompassIcon, ConnectorIcon, GlobeIcon, InfoIcon, KeyboardIcon, LayersIcon, MonitorIcon, OverviewIcon, PaletteIcon, PhoneIcon, PlusIcon, PuzzleIcon, SearchIcon, SendIcon, ShieldIcon, SlidersIcon, TerminalIcon, WaveIcon, SETTINGS_ICONS } from './icons.js'
 import { IconAgentPresetOutlineMedium, IconArchiveOutlineMedium, IconSettingsOutlineMedium, IconUserOutlineMedium } from './dsh-primitives.js'
 import { AdminStar, BotAvatar, RoomAvatar } from './mark.js'
 import { useEscape } from './overlay-hooks.js'
@@ -22,6 +22,7 @@ import { PluginsPage } from './plugins-page.js'
 import { ComputerPage } from './computer.js'
 import { SchedulesPage } from './schedules.js'
 import { FeedbackIcon, FeedbackPage } from './feedback.js'
+import { PrivacyPage } from './privacy-page.js'
 import { AboutPage } from './about.js'
 import { ProvidersPage } from './providers-page.js'
 import { LocalAgentsPage } from './local-agents-page.js'
@@ -35,6 +36,9 @@ import { noteClientError } from './diagnostics.js'
 import { t } from './i18n.js'
 import { PREFERENCE_ITEMS, SettingsPreferences } from './settings-preferences.js'
 import { AppearancePage } from './appearance-page.js'
+import { ShortcutsPage } from './shortcuts-page.js'
+import { isShortcutRecording } from './shortcuts-model.js'
+import { isImeComposing } from './enter-key.js'
 import { SettingsPalette, isMac } from './settings-palette.js'
 import { OverviewPage } from './settings-overview.js'
 
@@ -44,7 +48,7 @@ import { OverviewPage } from './settings-overview.js'
 // to its group and opens its tab directly.
 const NAV_GROUPS = [
   { id: 'overview', label: 'Overview', icon: 'overview', pages: [['overview', 'Overview']], section: 'top' },
-  { id: 'general', label: 'General', icon: 'general', pages: [['general', 'General']], section: 'main' },
+  { id: 'general', label: 'General', icon: 'general', pages: [['general', 'General'], ['shortcuts', 'Shortcuts']], section: 'main' },
   { id: 'appearance', label: 'Appearance', icon: 'appearance', pages: [['appearance', 'Appearance']], section: 'main' },
   {
     id: 'models',
@@ -80,7 +84,7 @@ const NAV_GROUPS = [
     id: 'about',
     label: 'About DS Bot',
     icon: 'about',
-    pages: [['about', 'About'], ['feedback', 'Feedback']],
+    pages: [['about', 'About'], ['privacy', 'Privacy'], ['feedback', 'Feedback']],
     section: 'last',
   },
 ]
@@ -90,16 +94,17 @@ const GROUP_ALIASES = { team: 'bots', connect: 'connectors', tools: 'computer', 
 
 // DSH sections DS Bot's own pages already hold.
 const MERGED_SECTIONS = new Set(['general', 'models', 'plugins'])
-// DSH General rows placed in Appearance or Basics; the rest go under Advanced.
+// DSH General rows placed in Appearance, Basics, or Privacy; the rest go under Advanced.
 const LOOK_ITEMS = ['appearance', 'font-size']
 const BASIC_ITEMS = ['language', 'composer-enter']
+const PRIVACY_ITEMS = ['session-log-deepseek']
 const lookRows = dsh => LOOK_ITEMS.filter(id => (dsh?.items ?? []).some(row => row.id === id)).map(id => dshItem(dsh, id))
 const DSH_ICONS = { account: IconUserOutlineMedium, 'agent-presets': IconAgentPresetOutlineMedium, plugins: PuzzleIcon, 'archived-sessions': IconArchiveOutlineMedium }
 export const dshPages = dsh => (dsh?.sections ?? []).filter(row => row.id !== '' && !MERGED_SECTIONS.has(row.id))
 const hasSection = (dsh, id) => (dsh?.sections ?? []).some(row => row.id === id)
 const dshItem = (dsh, id) => h('div', { key: id, className: 'bt-dsh-item', 'data-item': id },
   dsh.preferences && PREFERENCE_ITEMS.has(id) ? h(SettingsPreferences, { id, preferences: dsh.preferences }) : dsh.renderSlot('settings.general.item', {}, { only: id }))
-const PAGE_ICONS = { ...SETTINGS_ICONS, overview: OverviewIcon, appearance: PaletteIcon, models: SlidersIcon, 'bot-models': LayersIcon, 'local-agents': TerminalIcon, connectors: ConnectorIcon, im: SendIcon, phone: PhoneIcon, api: ApiIcon, capabilities: BlocksIcon, 'deepseek-services': WaveIcon, browser: GlobeIcon, plugins: PuzzleIcon, computer: MonitorIcon, schedules: ClockIcon, secrets: KeyIcon, feedback: FeedbackIcon, about: InfoIcon }
+const PAGE_ICONS = { ...SETTINGS_ICONS, overview: OverviewIcon, shortcuts: KeyboardIcon, appearance: PaletteIcon, models: SlidersIcon, 'bot-models': LayersIcon, 'local-agents': TerminalIcon, connectors: ConnectorIcon, im: SendIcon, phone: PhoneIcon, api: ApiIcon, capabilities: BlocksIcon, 'deepseek-services': WaveIcon, browser: GlobeIcon, plugins: PuzzleIcon, computer: MonitorIcon, schedules: ClockIcon, secrets: KeyIcon, privacy: ShieldIcon, feedback: FeedbackIcon, about: InfoIcon }
 
 // What each MEMORY.md holds by default, in characters of entry text.
 const MEMORY_SIZES = [
@@ -153,7 +158,7 @@ function Choice({ label, value, options, pick, className = 'bt-look-seg' }) {
 function GeneralPage({ roster, actions, run, dsh, openAdvanced = 0 }) {
   const items = (dsh?.items ?? []).map(row => row.id).filter(id => id !== '')
   const basicDsh = BASIC_ITEMS.filter(id => items.includes(id))
-  const more = items.filter(id => !LOOK_ITEMS.includes(id) && !BASIC_ITEMS.includes(id))
+  const more = items.filter(id => !LOOK_ITEMS.includes(id) && !BASIC_ITEMS.includes(id) && !PRIVACY_ITEMS.includes(id))
   const prefs = roster.prefs ?? {}
   const inAgentMode = Boolean(actions.setSurface && actions.surfaceMode?.() === 'agent')
   const [advancedOpen, setAdvancedOpen] = useState(() => Boolean(openAdvanced))
@@ -409,6 +414,7 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
     if (leaving || typeof window === 'undefined') return undefined
     const mac = isMac()
     const onKeyDown = (event) => {
+      if (event.defaultPrevented || isImeComposing(event) || isShortcutRecording()) return
       const modifier = mac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey
       if (!modifier || event.altKey || event.shiftKey || (event.code !== 'KeyK' && String(event.key).toLowerCase() !== 'k')) return
       event.preventDefault()
@@ -447,11 +453,12 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
   const hasProviders = actions.providers !== undefined
   const hasServices = actions.deepseekServices !== undefined
   const hasSurface = typeof actions.setSurface === 'function'
-  const pageAvailable = key => (key !== 'models' || actions.providers !== undefined) && (key !== 'deepseek-services' || actions.deepseekServices !== undefined)
+  const ownWindow = dsh?.ownWindow ?? (dsh === undefined)
+  const pageAvailable = key => (key !== 'models' || actions.providers !== undefined) && (key !== 'deepseek-services' || actions.deepseekServices !== undefined) && (key !== 'shortcuts' || ownWindow)
   const groups = useMemo(() => NAV_GROUPS.map(group => ({
     ...group,
     pages: group.pages.filter(([key]) => pageAvailable(key)),
-  })).filter(group => group.pages.length > 0), [hasProviders, hasServices])
+  })).filter(group => group.pages.length > 0), [hasProviders, hasServices, ownWindow])
 
   const extra = dshPages(dsh)
   const [rawSectionId, rawSubTarget] = typeof id === 'string' && (page === 'dsh' || page === 'plugins') ? id.split(':', 2) : [id, undefined]
@@ -663,6 +670,8 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
 
   const partPage = (key) => {
     switch (key) {
+      case 'general': return h(GeneralPage, { roster, actions, run, dsh, openAdvanced: advancedToken })
+      case 'shortcuts': return h(ShortcutsPage, { roster, actions, Section: SetSection, Row: SetRow })
       case 'models': return h(ProvidersPage, { actions, run, roster, Section: SetSection, advanced: hasSection(dsh, 'models') ? () => actions.openSettings('models', 'advanced') : null })
       case 'local-agents': return h(LocalAgentsPage, { run, Section: SetSection, Row: SetRow })
       // A preset opens the page afresh each time search offers it.
@@ -684,6 +693,7 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
       case 'browser': return h(BrowserPage, { roster, actions, run, Section: SetSection, Row: SetRow })
       case 'capabilities': return h(CapabilitiesPage, { roster, actions, run })
       case 'secrets': return h(SecretsPage, { roster, actions, run, Section: SetSection })
+      case 'privacy': return h(PrivacyPage, { actions, run, Section: SetSection, Row: SetRow })
       case 'feedback': return h(FeedbackPage, { actions, run, Section: SetSection, Row: SetRow })
       case 'about': return h(AboutPage, { useUpdate, actions, run, Section: SetSection, Row: SetRow, Switch, onStartTour: () => startTour('full'), inlineFeedback: false })
       default: return null

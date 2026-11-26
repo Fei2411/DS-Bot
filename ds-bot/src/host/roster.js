@@ -1076,7 +1076,8 @@ export function install(rt) {
       const noteCleanups = [rt.deleteSegmentNotes?.([...parts])]
       // The shared capability list is the user's and keeps its items; only a
       // still-unapproved local MCP this Bot alone asked for leaves with it.
-      rt.dropOrphanCapabilities?.(bot)
+      const orphanCleanup = rt.dropOrphanCapabilities?.(bot)
+      if (orphanCleanup !== undefined) noteCleanups.push(orphanCleanup)
       for (const part of parts) {
         delete state.questions[part]
         if (state.views !== undefined) delete state.views[part]

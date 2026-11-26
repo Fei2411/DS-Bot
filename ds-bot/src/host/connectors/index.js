@@ -14,6 +14,8 @@ import * as oauth from './oauth.js'
 import { createGateway } from './gateway.js'
 import { install as installMail } from './mail/index.js'
 import { CONNECTOR_IDS } from '../capabilities.js'
+import { matchSecretRefs } from '../secret-refs.js'
+import { DS_BOT_REPO } from '../diagnostics.js'
 import { output } from '../tools.js'
 
 export const GITHUB_SECRET = 'GITHUB_TOKEN'
@@ -177,7 +179,8 @@ export function install(rt) {
     if (entry?.custom !== undefined && entry.custom.command !== undefined) {
       const env = {}
       for (const [key, raw] of Object.entries(entry.custom.env ?? {})) env[key] = resolveRefs(raw)
-      return { transport: 'stdio', serverName: id, command: entry.custom.command, args: entry.custom.args ?? [], env }
+      const args = (entry.custom.args ?? []).map(resolveRefs)
+      return { transport: 'stdio', serverName: id, command: entry.custom.command, args, env }
     }
     const gw = await gateway()
     return { transport: 'streamable-http', serverName: id, url: gw.urlFor(id), headers: gw.headers() }
@@ -221,7 +224,33 @@ export function install(rt) {
     }
   }
 
+  function referencedConnectorSecrets() {
+    const names = new Set()
+    const scan = (raw) => {
+      if (typeof raw !== 'string') return
+      for (const match of raw.matchAll(/\$DSH_SECRET_([A-Z][A-Z0-9_]*)/g)) names.add(match[1])
+    }
+    for (const entry of entries()) {
+      if (entry.id === 'mail') continue
+      if (state.connectors?.[entry.id] === undefined) continue
+      if (entry.auth.kind === 'oauth') names.add(tokenSecretOf(entry.id))
+      if (entry.auth.kind === 'key') names.add(keySecretOf(entry.id))
+      if (entry.custom !== undefined) {
+        for (const val of Object.values(entry.custom.headers ?? {})) scan(val)
+        for (const val of Object.values(entry.custom.env ?? {})) scan(val)
+        for (const arg of entry.custom.args ?? []) scan(arg)
+      }
+    }
+    return names
+  }
+
   async function reconcile() {
+    if (typeof rt.resolveExternalForBot === 'function') {
+      const names = referencedConnectorSecrets()
+      if (names.size > 0) {
+        await rt.resolveExternalForBot(undefined, { names }).catch(() => {})
+      }
+    }
     for (const id of mounts.keys()) {
       if (!hasCredential(id)) await unmount(id)
     }
@@ -638,7 +667,7 @@ export function install(rt) {
       || statuses.get(id)?.state === 'needs-sign-in') return undefined
     const headers = credentialOf(id)
     if (headers === undefined) return undefined
-    const response = await fetch(GITHUB_API + '/repos/Fei2411/DS-Bot/issues', {
+    const response = await fetch(`${GITHUB_API}/repos/${DS_BOT_REPO}/issues`, {
       method: 'POST',
       headers: { ...headers, 'Content-Type': 'application/json', Accept: 'application/vnd.github+json', 'User-Agent': 'ds-bot', 'X-GitHub-Api-Version': '2022-11-28' },
       body: JSON.stringify({ title, body, labels: ['bug'] }),
@@ -649,7 +678,7 @@ export function install(rt) {
     if (!response.ok) return undefined
     const { number } = await response.json()
     if (!Number.isSafeInteger(number) || number < 1) throw new Error('GitHub did not return an issue number')
-    return `https://github.com/Fei2411/DS-Bot/issues/${number}`
+    return `https://github.com/${DS_BOT_REPO}/issues/${number}`
   }
 
   // --- import -------------------------------------------------------------
@@ -738,6 +767,11 @@ export function install(rt) {
     mail: rt.mailView?.() ?? { accounts: [], google: false },
   })
 
+  const HTTP_SECRET_REF_ERROR = 'One-time secret-ref handles can only be consumed by Bot host tools (such as save_capability), not via HTTP endpoints.'
+  const rejectSecretRefText = (value) => {
+    if (typeof value === 'string' && matchSecretRefs(value).length > 0) throw new Error(HTTP_SECRET_REF_ERROR)
+  }
+
   const endpoints = {
     async 'connector-connect'(body) {
       const entry = known(body.id)
@@ -748,25 +782,31 @@ export function install(rt) {
         return connectorsView()
       }
       if (entry.auth.kind === 'key') {
-        const key = typeof body.key === 'string' ? body.key.trim() : ''
-        if (key === '') throw new Error('Paste a key first')
         const remote = entry.remote?.url
         if (remote !== undefined && insecure(remote)) throw new Error('Connector addresses must start with https://')
-        await writeSecret(keySecretOf(entry.id), key, `${entry.name} connector`)
+        if (rt.readOnly() !== undefined) throw new Error(rt.readOnly())
+        const refInput = typeof body.secretRef === 'string' ? body.secretRef.trim() : typeof body.keyRef === 'string' ? body.keyRef.trim() : ''
+        const rawKey = typeof body.key === 'string' ? body.key.trim() : ''
+        if (refInput !== '' || matchSecretRefs(rawKey).length > 0) throw new Error(HTTP_SECRET_REF_ERROR)
+        if (rawKey === '') throw new Error('Paste a key first')
+        await writeSecret(keySecretOf(entry.id), rawKey, `${entry.name} connector`)
         await saveState(entry.id, { connectedAt: Date.now() })
         await sync()
         return connectorsView()
       }
-      const token = typeof body.token === 'string' ? body.token.trim() : ''
-      if (token !== '') {
+      const tokenRef = typeof body.secretRef === 'string' ? body.secretRef.trim() : typeof body.tokenRef === 'string' ? body.tokenRef.trim() : ''
+      const rawToken = typeof body.token === 'string' ? body.token.trim() : ''
+      if (tokenRef !== '' || matchSecretRefs(rawToken).length > 0) throw new Error(HTTP_SECRET_REF_ERROR)
+      if (rawToken !== '') {
         const remote = entry.remote?.url
         if (remote !== undefined && insecure(remote)) throw new Error('Connector addresses must start with https://')
         if (entry.id === 'github' && options?.api !== undefined && insecure(options.api)) throw new Error('GitHub addresses must start with https://')
+        if (rt.readOnly() !== undefined) throw new Error(rt.readOnly())
         await rt.loadSecrets()
         let account
-        if (entry.id === 'github') account = (await signIn(token, { api: options.api })).login
-        else if (entry.whoami !== undefined) account = await readAccount(entry.id, entry, token)
-        await writeSecret(tokenSecretOf(entry.id), token, `${entry.name} connector`)
+        if (entry.id === 'github') account = (await signIn(rawToken, { api: options.api })).login
+        else if (entry.whoami !== undefined) account = await readAccount(entry.id, entry, rawToken)
+        await writeSecret(tokenSecretOf(entry.id), rawToken, `${entry.name} connector`)
         await saveState(entry.id, { account, ...(entry.id === 'github' ? { login: account } : {}), connectedAt: Date.now() })
         await sync()
         return connectorsView()
@@ -821,8 +861,11 @@ export function install(rt) {
       const entry = known(body.id)
       const clientId = String(body.clientId ?? '').trim()
       if (clientId === '') throw new Error('Enter the client ID')
-      const clientSecret = typeof body.clientSecret === 'string' && body.clientSecret.trim() !== '' ? body.clientSecret.trim() : undefined
-      if (clientSecret !== undefined) await writeSecret(clientSecretOf(entry.id), clientSecret, `${entry.name} connector`)
+      if (rt.readOnly() !== undefined) throw new Error(rt.readOnly())
+      const secretRefInput = typeof body.secretRef === 'string' ? body.secretRef.trim() : typeof body.clientSecretRef === 'string' ? body.clientSecretRef.trim() : ''
+      const rawClientSecret = typeof body.clientSecret === 'string' && body.clientSecret.trim() !== '' ? body.clientSecret.trim() : undefined
+      if (secretRefInput !== '' || (rawClientSecret !== undefined && matchSecretRefs(rawClientSecret).length > 0)) throw new Error(HTTP_SECRET_REF_ERROR)
+      if (rawClientSecret !== undefined) await writeSecret(clientSecretOf(entry.id), rawClientSecret, `${entry.name} connector`)
       await saveState(entry.id, { client: { via: 'manual', clientId } })
       const pending = pendings.get(entry.id)
       if (pending !== undefined && pending.discovery !== undefined) {
@@ -849,13 +892,30 @@ export function install(rt) {
       // An address can sign in with OAuth instead of a fixed header; commands cannot.
       const oauth = body.oauth === true && url !== undefined
       if (body.oauth === true && url === undefined) throw new Error('OAuth sign-in needs an address')
+      if (url !== undefined && body.headers !== undefined && (body.headers === null || typeof body.headers !== 'object' || Array.isArray(body.headers))) {
+        throw new Error('Headers must be an object')
+      }
+      if (url === undefined && body.args !== undefined && !Array.isArray(body.args)) {
+        throw new Error('Arguments must be a list')
+      }
+      if (url === undefined && body.env !== undefined && (body.env === null || typeof body.env !== 'object' || Array.isArray(body.env))) {
+        throw new Error('Environment variables must be an object')
+      }
+      if (rt.readOnly() !== undefined) throw new Error(rt.readOnly())
+      if (url !== undefined) {
+        rejectSecretRefText(url)
+        for (const val of Object.values(body.headers ?? {})) rejectSecretRefText(String(val))
+      } else {
+        for (const arg of body.args ?? []) rejectSecretRefText(String(arg))
+        for (const val of Object.values(body.env ?? {})) rejectSecretRefText(String(val))
+      }
       const taken = new Set(Object.keys(state.connectors ?? {}))
       const id = customId(name, taken)
-      CONNECTOR_IDS.add(id)
       const custom = url !== undefined
         ? { name, url, headers: body.headers && typeof body.headers === 'object' ? body.headers : {}, ...(oauth ? { oauth: true } : {}) }
         : { name, command, args: Array.isArray(body.args) ? body.args.map(String) : [], env: body.env && typeof body.env === 'object' ? body.env : {} }
       await saveState(id, { custom, connectedAt: Date.now() })
+      CONNECTOR_IDS.add(id)
       await sync(true)
       return connectorsView()
     },

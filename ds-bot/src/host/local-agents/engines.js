@@ -64,6 +64,10 @@ const CLIS = {
   'antigravity': {
     name: 'Antigravity', kind: 'acp', command: 'agy', args: ['acp'], version: ['--version'], signIn: 'agy acp --login',
     signedIn: { macKeychain: { service: 'gemini', account: 'antigravity' } },
+    // `agy models` lists the same concrete model ids the ACP session advertises in
+    // models.availableModels. The ACP reply can be a partial snapshot while the CLI
+    // is still fetching its catalog (#2145), so the probe merges both sources.
+    modelsArgs: ['models'],
     cwdPerProcess: true,
     modes: {
       'read-only': ['default'],
@@ -112,17 +116,17 @@ export const signedInFor = (spec, path) => spec?.signedInBy?.[executableCommand(
 export const CUSTOM_PREFIX = `${ROUTE_PREFIX}acp-`
 
 // LEGACY: the route a ref saved before the prefix names, or undefined when its
-// provider was never a local-agent route. Some of those names are also provider
-// ids DSH or another plugin ships, so an old `<name>/...` ref is ambiguous: the
-// caller decides on evidence. `qoder` is one too — dsh-connect-qoder registers a
-// provider called `qoder` for the same models the Qoder CLI offers. `antigravity`
-// is one too — dsh-llm-antigravity-acp registers a provider called `antigravity`
-// for the same models the Antigravity CLI offers.
+// provider was never a local-agent route. Only the CLIs that shipped before the
+// prefix (v0.3.2) were saved unprefixed: a later CLI's name, such as `qoder`,
+// `antigravity` or `mistral-vibe`, is always a provider of that name (#1890,
+// #2104). `opencode` is also DSH's own provider, so an old `opencode/...` ref is
+// ambiguous: the caller decides on evidence.
 const OLD_CUSTOM_PREFIX = 'acp-'
-export const AMBIGUOUS_OLD_ROUTES = new Set(['opencode', 'qoder', 'antigravity'])
+export const AMBIGUOUS_OLD_ROUTES = new Set(['opencode'])
+const OLD_ROUTES = new Set(['devin-cli', 'claude-code', 'codex-cli', 'opencode', 'cursor-cli', 'gemini-cli', 'grok-cli', 'cline', 'qwen-code', 'goose'])
 export const legacyRoute = (provider) => {
   if (typeof provider !== 'string') return undefined
-  if (CLIS[provider] !== undefined) return `${ROUTE_PREFIX}${provider}`
+  if (OLD_ROUTES.has(provider) && CLIS[provider] !== undefined) return `${ROUTE_PREFIX}${provider}`
   if (provider.startsWith(OLD_CUSTOM_PREFIX)) return `${ROUTE_PREFIX}${provider}`
   return undefined
 }

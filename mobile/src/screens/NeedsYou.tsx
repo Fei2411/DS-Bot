@@ -4,6 +4,7 @@ import { useTeam } from '../team/context.tsx'
 import { pendingItemsOf, type PendingItem } from '../nav/pending.ts'
 import { INBOX_SECTIONS } from '../../../ds-bot/src/client/inbox-text.js'
 import { t } from '../ui/i18n.ts'
+import { roomTitle } from '../ui/phrases.ts'
 import { type as typeScale, useTheme, radius } from '../ui/tokens.ts'
 import { Avatar, RoomAvatar } from '../ui/marks.tsx'
 import type { ChatTarget } from './TeamList.tsx'
@@ -30,7 +31,8 @@ export function NeedsYou({ onOpen }: { onOpen: (target: ChatTarget) => void }) {
   const look = (row: PendingItem) => {
     const room = row.roomId ? rooms.find(r => r.id === row.roomId) : undefined
     const bot = row.botId ? bots.find(b => b.id === row.botId) : undefined
-    return { name: [bot?.name, room?.name].filter(Boolean).join(' · '), bot, room }
+    const groupName = room ? roomTitle(room) : undefined
+    return { name: [bot?.name, groupName].filter(Boolean).join(' · '), bot, room }
   }
   const target = (row: PendingItem): ChatTarget | null => (row.roomId ? { kind: 'room', id: row.roomId } : row.botId ? { kind: 'bot', id: row.botId } : null)
 

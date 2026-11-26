@@ -16,12 +16,13 @@ const googleApi = '@earendil-works/pi-ai/api/google-generative-ai.lazy'
 const resolution = registerHooks({ resolve: (specifier, context, nextResolve) => nextResolve(specifier, specifier === piApi || specifier === googleApi ? { ...context, parentURL: adapterUrl } : context) })
 const [{ openAICompletionsApi }, { googleGenerativeAIApi }] = await Promise.all([import(piApi), import(googleApi)]).finally(() => resolution.deregister())
 
-function openAIStream(attempt, res) {
+function openAIStream(attempt, res, { singleCall = false } = {}) {
   const chunk = (delta, finish_reason = null) => res.write(`data: ${JSON.stringify({ id: 'mock', object: 'chat.completion.chunk', created: 1, model: 'mock', choices: [{ index: 0, delta, finish_reason }] })}\n\n`)
   if (attempt === 1) {
     for (const [id, command, description] of [['call_A', 'ls', 'a'], ['call_B', 'cat', 'b']]) {
       chunk({ tool_calls: [{ index: 0, id, type: 'function', function: { name: 'bash', arguments: '' } }] })
       chunk({ tool_calls: [{ index: 0, function: { arguments: JSON.stringify({ command, description }) } }] })
+      if (singleCall) break
     }
     chunk({}, 'tool_calls')
   } else {
@@ -49,10 +50,12 @@ const openAIError = { ...openAI, respond: (attempt, res) => res.end(`data: ${JSO
 
 async function boot(t, recover, provider = openAI, { retryPolicy } = {}) {
   let attempts = 0
-  const server = createServer((req, res) => {
-    req.resume()
+  const server = createServer(async (req, res) => {
+    req.setEncoding('utf8')
+    let body = ''
+    for await (const chunk of req) body += chunk
     res.writeHead(200, { 'content-type': 'text/event-stream' })
-    provider.respond(++attempts, res)
+    provider.respond(++attempts, res, JSON.parse(body))
   })
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
   t.after(() => new Promise(resolve => server.close(resolve)))
@@ -104,6 +107,28 @@ test('a Bot retries the malformed stream and completes on the next response', as
   assert.equal(result.failures[0]?.code, 'MALFORMED_RESPONSE')
   assert.equal(result.attempts, 2)
   assert.equal(result.events.findLast(event => event.type === 'turn/end').data.reason.kind, 'completed')
+})
+
+test('a Bot recovers when the provider repeats malformed parallel calls unless advised to use one tool', async t => {
+  const hints = []
+  const provider = {
+    ...openAI,
+    respond(_attempt, res, { messages }) {
+      const reminder = messages.findLast(({ role, content }) => role === 'user' && typeof content === 'string' && content.startsWith('<system-reminder>'))
+      const singleCall = reminder?.content.includes('call at most one tool') ?? false
+      hints.push(singleCall)
+      openAIStream(messages.some(message => message.role === 'tool') ? 2 : 1, res, { singleCall })
+    },
+  }
+  const result = await boot(t, true, provider, { retryPolicy: { mode: 'normal', maxRetries: 2 } })
+  const turnEnd = result.events.findLast(event => event.type === 'turn/end')
+  assert.equal(turnEnd.data.reason.kind, 'completed', JSON.stringify({ hints, attempts: result.attempts, failures: result.failures }))
+  assert.deepEqual(hints, [false, true, false])
+  assert.deepEqual(result.failures.map(failure => failure.code), ['MALFORMED_RESPONSE'])
+  const toolCalls = result.events.find(event => event.type === 'assistant/message').data.message.content.filter(block => block.type === 'tool-call')
+  assert.deepEqual(toolCalls.map(({ id, name, arguments: args }) => [id, name, JSON.parse(args)]), [
+    ['call_A', 'bash', { command: 'ls', description: 'a' }],
+  ])
 })
 
 for (const [finishReason, message] of [

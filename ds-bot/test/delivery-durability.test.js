@@ -429,7 +429,7 @@ test('F4 (resume.js): unified recoverTurnDeferred recovers steered reply/ask_bac
 
   const host = await startHost(t, { home, team, logs })
   t.mock.timers.tick(3000)
-  await settle(() => (host.agents.get('dm-b')?.calls.length ?? 0) >= 4 && (host.agents.get('dm-c')?.calls.length ?? 0) >= 2, 2000)
+  await settle(() => (host.agents.get('dm-b')?.calls.length ?? 0) >= 4 && (host.agents.get('dm-c')?.calls.length ?? 0) >= 2)
 
   const bMsgs = host.agents.get('dm-b').calls.map(([, m]) => m)
   // Ordinary user turn was completed -> MUST NOT be re-run as role: 'resume'!

@@ -7,6 +7,7 @@ import { install as installSide } from './side.js'
 import { handoffReply, questionReply, viewReply } from './parts.js'
 import { threadCurrentOfPart, threadOfPart } from './threads.js'
 import { validateViewAnswer } from 'deep-view/core'
+import { validateOnePasswordConfig } from './secret-providers/onepassword.js'
 import { BACKGROUND_AFTER_MAX_SEC, COLORS, EXTRA_COLORS, ROUTE } from './constants.js'
 
 const STAGED_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
@@ -71,6 +72,7 @@ export function install(rt) {
 
   // The DSH interface language of the last browser that asked for the team.
   let uiLocale
+  rt.uiLocale = () => uiLocale
   rt.uiLanguage = () => {
     if (uiLocale === undefined) return undefined
     const lower = uiLocale.toLowerCase()
@@ -199,7 +201,7 @@ export function install(rt) {
     secretStore: rt.secretStoreStatus(),
     secrets: rt.secretsView(),
     activity: rt.activityView(),
-    work: { bots: rt.workView(), agents: rt.agentWorkView?.() ?? {}, rooms: rt.roomWorkView(), approvals: rt.approvalsView(), waiting: rt.waitingView?.() ?? {}, paused: rt.pausedWorksView?.() ?? [], turns: rt.turnsView?.() ?? {}, steered: rt.steeredView?.() ?? {}, canBackground: rt.canBackgroundView?.() ?? {} },
+    work: { bots: rt.workView(), agents: rt.agentWorkView?.() ?? {}, rooms: rt.roomWorkView(), activeRooms: Object.values(state.rooms ?? {}).filter(room => rt.roomActive?.(room.id) === true).map(room => room.id), approvals: rt.approvalsView(), waiting: rt.waitingView?.() ?? {}, paused: rt.pausedWorksView?.() ?? [], turns: rt.turnsView?.() ?? {}, steered: rt.steeredView?.() ?? {}, canBackground: rt.canBackgroundView?.() ?? {} },
     memoryNews: rt.memoryNews(),
     memoryReviews: rt.memoryReviews(),
     learning: rt.learningView(),
@@ -230,6 +232,8 @@ export function install(rt) {
     plugins: rt.pluginsSummary?.() ?? null,
     // Whether DSH's speech-to-text controller (Voice Input plugin) is active on this host.
     speech: Boolean(ctx.get?.('speechController')),
+    // True once until the user confirms or declines the telemetry privacy notice.
+    telemetryPrompt: rt.telemetry?.shouldPromptNotice?.() === true,
   })
   // The live fields' sources are spread across the host with no single change
   // counter, so the serialized answer itself is the detector: a poll whose `live`
@@ -247,7 +251,7 @@ export function install(rt) {
   }
   // What a host that only reads the team may still answer.
   // Updates change the dsh profile, not the team, so a reading host may run them too.
-  const READS = new Set(['secret-store', 'secret-unlock', 'state', 'models', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'agent-chat', 'bot-task-read', 'run-stats', 'room-progress', 'group-rows', 'group-relay-replies', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'memory-history', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library', 'computer-system-status', 'computer-shot', 'local-agents', 'local-agent-models', 'browser-frame', 'hello', 'notices', 'avatar', 'room-chat', 'usage-summary', 'image', 'markdown-image', 'file-download', 'changes-check', 'deepseek-services', 'deepseek-synthesize', 'speech-catalog', 'api-audit', 'background-picture', 'session-page', 'workspace-list', 'workspace-read', 'workspace-changes', 'engine-settings-list', 'engine-account-state', 'engine-plugins-list', 'engine-presets-list', 'engine-presets-read', 'engine-archived-list', 'engine-classic-sessions', 'plugins-list', 'plugins-catalog-refresh', 'plugins-versions', 'plugins-detail'])
+  const READS = new Set(['secret-store', 'secret-unlock', 'secret-refresh-external', 'state', 'models', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'agent-chat', 'bot-task-read', 'run-stats', 'room-progress', 'group-rows', 'group-relay-replies', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'memory-history', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'telemetry-status', 'telemetry-client-error', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library', 'computer-system-status', 'computer-shot', 'local-agents', 'local-agent-models', 'browser-frame', 'hello', 'notices', 'avatar', 'room-chat', 'usage-summary', 'image', 'markdown-image', 'file-download', 'changes-check', 'deepseek-services', 'deepseek-synthesize', 'speech-catalog', 'api-audit', 'background-picture', 'session-page', 'workspace-list', 'workspace-read', 'workspace-changes', 'engine-settings-list', 'engine-account-state', 'engine-plugins-list', 'engine-presets-list', 'engine-presets-read', 'engine-archived-list', 'engine-classic-sessions', 'plugins-list', 'plugins-catalog-refresh', 'plugins-versions', 'plugins-detail'])
   READS.add('chatgpt')
 
   const modelRequests = { approvalModel: 0, defaultBotModel: 0 }
@@ -266,8 +270,9 @@ export function install(rt) {
       approvalModel = ref ? await rt.resolveModel(ref) : undefined
     }
     const before = structuredClone(state.prefs)
+    let secretChanges
     try {
-      applyPrefs(body, model, approvalModel, requests)
+      secretChanges = applyPrefs(body, model, approvalModel, requests)
     } catch (error) {
       for (const key of Object.keys(state.prefs)) delete state.prefs[key]
       Object.assign(state.prefs, before)
@@ -275,6 +280,12 @@ export function install(rt) {
     }
     // The appearance and the user themes (appearance.js); a picture a change stops using is removed later.
     await rt.save()
+    if (secretChanges.secretShellModeChanged || secretChanges.secretProvidersChanged) {
+      rt.onSecretPrefsChanged?.({
+        shellModeChanged: secretChanges.secretShellModeChanged,
+        providersChanged: secretChanges.secretProvidersChanged,
+      })
+    }
     if (body.appearance !== undefined || body.themes !== undefined) void rt.backgroundSweep()
     if (body.defaultBotModel !== undefined) await rt.syncRoomSessions?.()
   }
@@ -356,12 +367,49 @@ export function install(rt) {
       if (sizes.length === 0) delete state.prefs.memoryLimits
       else state.prefs.memoryLimits = { ...state.prefs.memoryLimits, ...Object.fromEntries(sizes) }
     }
+    let secretShellModeChanged = false
+    let secretProvidersChanged = false
+    if (body.secretShellMode !== undefined) {
+      const prevMode = state.prefs.secretShellMode ?? 'env'
+      if (body.secretShellMode === null || body.secretShellMode === 'env') delete state.prefs.secretShellMode
+      else if (body.secretShellMode === 'file') state.prefs.secretShellMode = 'file'
+      else throw invalid('Secret shell exposure must be env or file')
+      secretShellModeChanged = (state.prefs.secretShellMode ?? 'env') !== prevMode
+    }
+    if (body.secretProviders !== undefined) {
+      const prevJson = JSON.stringify(state.prefs.secretProviders ?? {})
+      if (body.secretProviders === null) {
+        delete state.prefs.secretProviders
+      } else if (typeof body.secretProviders === 'object' && !Array.isArray(body.secretProviders)) {
+        const next = { ...state.prefs.secretProviders }
+        if (body.secretProviders.onepassword !== undefined) {
+          if (body.secretProviders.onepassword === null) {
+            delete next.onepassword
+          } else {
+            let cleaned
+            try {
+              cleaned = validateOnePasswordConfig(body.secretProviders.onepassword)
+            } catch (error) {
+              throw invalid(error?.message ?? 'Invalid 1Password configuration.')
+            }
+            if (cleaned.account === '') delete next.onepassword
+            else next.onepassword = cleaned
+          }
+        }
+        if (Object.keys(next).length === 0) delete state.prefs.secretProviders
+        else state.prefs.secretProviders = next
+      } else {
+        throw invalid('Secret providers settings must be an object')
+      }
+      secretProvidersChanged = JSON.stringify(state.prefs.secretProviders ?? {}) !== prevJson
+    }
     if (body.approvalModel !== undefined && (requests.approvalModel === undefined || requests.approvalModel === modelRequests.approvalModel)) {
       rt.cancelApprovalReviews?.({})
       if (approvalModel) state.prefs.approvalModel = approvalModel
       else delete state.prefs.approvalModel
     }
     rt.appearancePrefs(body)
+    return { secretShellModeChanged, secretProvidersChanged }
   }
 
   const handle = async (endpoint, payload, signal, metaOrRemote = false) => {
@@ -383,7 +431,7 @@ export function install(rt) {
           await rt.catalog()
           await rt.loadSecrets()
           const answer = liveAnswer()
-          const { api: _, ...remoteLive } = answer.value
+          const { api: _, telemetryPrompt: _tp, ...remoteLive } = answer.value
           const liveValue = remote ? remoteLive : answer.value
           if (body.since === state.revision && (body.models === undefined || body.models === modelsKey())) {
             if (body.live === answer.key) return ok({ revision: state.revision, unchanged: true, liveKey: answer.key })
@@ -478,15 +526,15 @@ export function install(rt) {
           const sessionId = rt.chatOf(bot.id)
           const agent = await rt.resolveAgent(sessionId)
           const values = projections.snapshot(agent.session, RUN_STATS).values
-          const isLocal = rt.isLocalAgentRoute?.(agent.session?.requestHeader?.()?.config?.provider ?? '') === true
-            || rt.isLocalAgentSession?.(sessionId) === true
+          const measured = rt.contextRuntime?.measure?.(agent.session)
+          const isLocal = measured?.isLocal === true
           if (values && isLocal) {
-            const localContext = rt.localAgentContext?.(sessionId)
-            const contextWindow = localContext?.size ?? values.contextPressure?.contextWindow
+            const resolved = await rt.contextRuntime.resolveWindow(agent.session).catch(() => undefined)
+            const contextWindow = (resolved?.source !== 'default' ? resolved?.window : undefined) ?? values.contextPressure?.contextWindow
             return ok({
               ...values,
-              contextPressure: Number.isFinite(localContext?.used) && contextWindow > 0
-                ? { ...values.contextPressure, pressureTokens: localContext.used, projectedTokens: localContext.used, contextWindow }
+              contextPressure: Number.isFinite(measured.workingTokens) && contextWindow > 0
+                ? { ...values.contextPressure, pressureTokens: measured.workingTokens, projectedTokens: measured.workingTokens, contextWindow }
                 : undefined,
             })
           }
@@ -561,6 +609,13 @@ export function install(rt) {
           if (bot === undefined) return fail('Unknown Bot', 'bot/not-found')
           await rt.resumeBot(bot)
           return ok(true)
+        }
+        // Recovery escape hatch when continuous context overflow prevents auto-switching.
+        case 'new-part': {
+          await rt.load()
+          const botId = String(body.botId ?? '')
+          const sessionId = typeof body.sessionId === 'string' && body.sessionId.trim() !== '' ? body.sessionId.trim() : undefined
+          return ok(await rt.recoverOverflowPart(botId, sessionId))
         }
         // Background pictures and a chat's own background (appearance.js).
         case 'background-add':
@@ -772,6 +827,7 @@ export function install(rt) {
         case 'secret-unlock':
         case 'secret-encrypt':
         case 'secret-decrypt':
+        case 'secret-refresh-external':
           await rt.load()
           return ok(await rt.secretEndpoint(endpoint, body))
         case 'connector-connect':
@@ -1170,6 +1226,37 @@ export function install(rt) {
           return ok(await rt.diagnostics.logText())
         case 'diagnostics-clear':
           await rt.diagnostics.clear()
+          return ok(true)
+        case 'telemetry-status':
+          if (remote) return fail('Privacy settings can only be viewed on this computer', 'bot/refused')
+          return ok(rt.telemetry.status())
+        case 'telemetry-update': {
+          if (remote) return fail('Privacy settings can only be changed on this computer', 'bot/refused')
+          const readOnly = rt.readOnly()
+          if (readOnly !== undefined) return fail(readOnly, 'bot/read-only')
+          return ok(await rt.telemetry.update(body ?? {}))
+        }
+        case 'telemetry-reset-id': {
+          if (remote) return fail('Privacy settings can only be changed on this computer', 'bot/refused')
+          const readOnly = rt.readOnly()
+          if (readOnly !== undefined) return fail(readOnly, 'bot/read-only')
+          return ok(await rt.telemetry.resetId())
+        }
+        case 'telemetry-clear-log': {
+          if (remote) return fail('Privacy settings can only be changed on this computer', 'bot/refused')
+          const readOnly = rt.readOnly()
+          if (readOnly !== undefined) return fail(readOnly, 'bot/read-only')
+          return ok(await rt.telemetry.clearLog())
+        }
+        case 'telemetry-client-error':
+          if (remote) return fail('Privacy settings can only be changed on this computer', 'bot/refused')
+          await rt.telemetry.noteError({
+            source: 'renderer',
+            errorName: typeof body?.errorName === 'string' ? body.errorName : 'Error',
+            code: typeof body?.errorCode === 'string' ? body.errorCode : undefined,
+            where: typeof body?.where === 'string' ? body.where : undefined,
+            stack: typeof body?.stack === 'string' ? body.stack : undefined,
+          })
           return ok(true)
         default:
           if (endpoint.startsWith('session-')) return ok(await rt.sessionEndpoint(endpoint.slice('session-'.length), body, signal))

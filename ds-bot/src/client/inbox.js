@@ -441,8 +441,8 @@ export const INBOX_CSS = `
 .bt-ib-row[data-open] .bt-ib-chev{rotate:180deg;color:var(--bt-ink-2)}
 .bt-ib-ok{flex:none;display:inline-flex;align-items:center;gap:4px;padding-right:4px;font-size:12px;line-height:16px;color:var(--bt-green);font-weight:500}
 .bt-ib-ok svg{width:14px;height:14px}
-.bt-ib-detail{display:flex;flex-direction:column;gap:10px;padding:14px 16px 14px 62px;border-top:1px solid var(--bt-line);background:color-mix(in srgb,var(--bt-main) 55%,var(--bt-card));animation:bt-veil-in .2s ease-out backwards}
-.bt-ib-detail .bt-q-inline,.bt-ib-detail .bt-mw-card{margin:0}
+.bt-ib-detail{display:flex;flex-direction:column;gap:10px;padding:14px 16px;border-top:1px solid var(--bt-line);background:color-mix(in srgb,var(--bt-main) 55%,var(--bt-card));animation:bt-veil-in .2s ease-out backwards}
+.bt-ib-detail .bt-q,.bt-ib-detail .bt-q-inline,.bt-ib-detail .bt-q-inline .bt-q,.bt-ib-detail .bt-mw-card{margin:0;max-width:none;order:0}
 .bt-ib-acts{display:flex;align-items:center;justify-content:flex-end;gap:6px}
 .bt-ib-link{display:inline-flex;align-items:center;gap:3px;padding:4px 8px;border:0;border-radius:6px;background:transparent;color:var(--bt-ink-2);font:inherit;font-size:12px;line-height:16px;font-weight:500;cursor:pointer;transition:background-color .12s ease,color .12s ease}
 .bt-ib-link:hover{background:var(--bt-hover);color:var(--bt-ink)}

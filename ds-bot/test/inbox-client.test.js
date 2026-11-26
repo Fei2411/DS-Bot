@@ -100,21 +100,28 @@ test('the page shows the host\'s list in its three groups, the longest wait firs
     'connector:con-1', 'secret:sec-1', 'question:q-own', 'question:q-group', 'goal:goal-1', 'mail:mail-1',
     'room-paused:desk', 'paused:work-1', 'blocked:coder',
   ])
-  const line = id => textOf(all(rowOf(tree, id), node => hasClass(node, 'bt-ib-copy'))[0])
+  const line = (id) => {
+    const row = rowOf(tree, id)
+    return [
+      textOf(all(row, node => hasClass(node, 'bt-ib-title'))[0]),
+      textOf(all(row, node => hasClass(node, 'bt-ib-name'))[0]),
+      textOf(all(row, node => hasClass(node, 'bt-ib-kind'))[0]),
+    ].join(' | ')
+  }
   // Summary first, then who and kind: a group card names the member and the group.
-  assert.equal(line('question:q-group'), 'Which branch?Writer · Desk·Question')
-  assert.equal(line('secret:sec-1'), 'Asks for the secret XHS_COOKIEWriter·Secret')
-  assert.equal(line('mail:mail-1'), 'Wants to send “Weekly report” to team@example.comChief·Email')
-  assert.equal(line('room-paused:desk'), 'Paused after 40 relaysDesk·Paused')
-  assert.equal(line('paused:work-1'), 'Hand-off to Writer paused · Which version is this for?Chief·Paused')
-  assert.equal(line('blocked:coder'), 'The model failed (RATE_LIMIT 429)Coder·Stopped')
+  assert.equal(line('question:q-group'), 'Which branch? | Writer · Desk | Question')
+  assert.equal(line('secret:sec-1'), 'Asks for the secret XHS_COOKIE | Writer | Secret')
+  assert.equal(line('mail:mail-1'), 'Wants to send “Weekly report” to team@example.com | Chief | Email')
+  assert.equal(line('room-paused:desk'), 'Paused after 40 relays | Desk | Paused')
+  assert.equal(line('paused:work-1'), 'Hand-off to Writer paused · Which version is this for? | Chief | Paused')
+  assert.equal(line('blocked:coder'), 'The model failed (RATE_LIMIT 429) | Coder | Stopped')
   // The tabs count what waits; the filter pills list every Bot and group something waits in.
   assert.deepEqual(all(tree, node => node.type === 'button' && node.props['aria-pressed'] !== undefined && !hasClass(node, 'bt-ib-pill')).map(textOf), ['Waiting for you9', 'New replies'])
   assert.deepEqual(all(tree, node => hasClass(node, 'bt-ib-pill')).map(textOf), ['All', 'Chief', 'Writer', 'Desk', 'Coder'])
 })
 
 test('a row opens into the chat\'s own card; answering it there settles it in the host', async (t) => {
-  const { draw, rt, refresh } = await openPage(t)
+  const { draw, rt, roster, refresh } = await openPage(t)
   let tree = draw()
   // A group card opens with the group's question card, as the group's chat shows it.
   all(rowOf(tree, 'question:q-group'), node => hasClass(node, 'bt-ib-sum'))[0].props.onClick()
@@ -128,11 +135,10 @@ test('a row opens into the chat\'s own card; answering it there settles it in th
   all(rowOf(tree, 'room-paused:desk'), node => hasClass(node, 'bt-ib-sum'))[0].props.onClick()
   tree = draw()
   button(rowOf(tree, 'room-paused:desk'), 'Continue').props.onClick()
-  for (let tries = 0; rt.state.rooms.desk.idlePaused !== undefined; tries += 1) {
-    assert.ok(tries < 100, 'the host resumed the group')
+  for (let tries = 0; roster.getSnapshot().inbox.items.some(item => item.id === 'room-paused:desk'); tries += 1) {
+    assert.ok(tries < 200, 'the client roster settled the resumed group')
     await sleep(10)
   }
-  await sleep(20)
   tree = draw()
   tree = draw()
   // It says it is handled for a moment, then leaves.
@@ -141,14 +147,17 @@ test('a row opens into the chat\'s own card; answering it there settles it in th
   // The list comes again meanwhile (each save sends it); the row still leaves on time.
   await refresh()
   draw()
-  await sleep(950)
-  tree = draw()
+  for (let tries = 0; rowOf(tree, 'room-paused:desk') !== undefined; tries += 1) {
+    assert.ok(tries < 60, 'the handled row left after the grace period')
+    await sleep(50)
+    tree = draw()
+  }
   assert.equal(rowOf(tree, 'room-paused:desk'), undefined)
   assert.equal(rt.inboxView().items.some(item => item.id === 'room-paused:desk'), false)
 })
 
 test('an approval is answered from its row without opening it', async (t) => {
-  const { ctx, rt, draw, refresh } = await openPage(t)
+  const { ctx, roster, draw, refresh } = await openPage(t)
   const request = ctx.listeners.get('approval/request')[0]
   void request({ agent: { id: 'writer', session: { id: 'writer' } }, toolName: 'bash', reason: 'Requires approval', callId: 'call-1', signal: new AbortController().signal }, () => new Promise(() => {}))
   await sleep(0)
@@ -158,11 +167,10 @@ test('an approval is answered from its row without opening it', async (t) => {
   assert.ok(approval, 'the approval is listed')
   assert.match(textOf(approval), /Writer·Approval/)
   button(approval, 'Allow once').props.onClick()
-  for (let tries = 0; rt.inboxView().items.some(item => item.kind === 'approval'); tries += 1) {
-    assert.ok(tries < 100, 'the host settled the approval')
+  for (let tries = 0; roster.getSnapshot().inbox.items.some(item => item.kind === 'approval'); tries += 1) {
+    assert.ok(tries < 200, 'the client roster settled the approval')
     await sleep(10)
   }
-  await sleep(20)
   tree = draw()
   assert.equal(rows(tree).filter(row => row.props['data-flip'].startsWith('approval:') && row.props['data-gone'] !== true).length, 0)
 })

@@ -174,7 +174,7 @@ export function registerShape(id, shape) {
   }
   const refresh = () => {
     markupCache.clear()
-    maskCache.delete(id)
+    maskCache.clear()
     registry.set(value => value + 1)
   }
   refresh()
