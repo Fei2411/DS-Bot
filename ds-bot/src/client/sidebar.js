@@ -7,7 +7,7 @@ import { isMainOf } from './sources.js'
 import { currentPart, previewOf, relativeShort } from './text.js'
 import { PlusIcon, SearchIcon, SidebarIcon, GaugeIcon, ClockIcon, GearIcon, PinMarkIcon, ConnectorIcon, PlugIcon, SwitchIcon, CloudDownloadIcon, SignInIcon, SignOutIcon, SlidersIcon, ChevronRightIcon, DotsIcon, FolderIcon } from './icons.js'
 import { lookOf, MAIN_LOOK } from './characters.js'
-import { botPendingOf, dmMarkState, lastTurnFailed, latestTurnOf, BotMark, BotAvatar, RoomAvatar } from './mark.js'
+import { botPendingOf, dmMarkState, isBrowserHandoff, isComputerHandoff, lastTurnFailed, latestTurnOf, useBotHandoff, BotMark, BotAvatar, RoomAvatar } from './mark.js'
 export { botPendingOf } from './mark.js'
 import { AgentBadge } from './agent-badge.js'
 import { SidebarTaskPill, taskCountsOf } from './bot-tasks.js'
@@ -80,9 +80,6 @@ const waitingFor = (roster, waits) => {
   return names.length === 0 ? '' : t('Waiting for {names}', { names: names.join(t(' and ')) })
 }
 
-const isBrowserHandoff = hold => hold?.callId !== undefined
-const isComputerHandoff = hold => hold !== undefined && (hold.by === 'bot' || hold.callId !== undefined || (typeof hold.reason === 'string' && hold.reason !== 'takeover'))
-
 const sameBotRow = (a, b) => a.bot === b.bot
   && a.wide === b.wide
   && a.marked === b.marked
@@ -129,11 +126,7 @@ const BotRow = memo(function BotRow({ bot, roster, actions, useSessions, useBotC
   )
   const useReadBgWork = useWork ?? useFalse
   const bgApproval = useReadBgWork(work => (work.approvals ?? []).some(entry => entry.roomId === undefined && entry.botId === id && entry.taskId !== undefined && entry.answerable !== false))
-  const useReadBrowserHolds = useBrowserHolds ?? useFalse
-  const useReadComputer = useComputer ?? useFalse
-  const browserHandoff = useReadBrowserHolds(map => isBrowserHandoff(map?.[id]))
-  const computerHandoff = useReadComputer(comp => isComputerHandoff(comp?.holds?.[id]))
-  const handoff = browserHandoff || computerHandoff
+  const handoff = useBotHandoff(id, useBrowserHolds, useComputer)
   const pending = botPendingOf(roster, bot)
   const blockingApproval = fgApproval || pending.cardApproval
   const nonBlockingApproval = bgApproval || pending.learning

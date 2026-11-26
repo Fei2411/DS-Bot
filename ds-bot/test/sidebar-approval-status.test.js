@@ -10,7 +10,7 @@ import { createSource } from '../src/client/sources.js'
 const PLUGIN = dirname(dirname(fileURLToPath(import.meta.url)))
 
 const { outputFiles } = await build({
-  stdin: { contents: "export { TeamSidebar, botPendingOf } from './src/client/sidebar.js'", resolveDir: PLUGIN },
+  stdin: { contents: "export { TeamSidebar, botPendingOf } from './src/client/sidebar.js'\nexport { HeaderPill } from './src/client/header.js'\nexport { DetailsDrawer } from './src/client/details-drawer.js'", resolveDir: PLUGIN },
   bundle: true, format: 'cjs', platform: 'browser', write: false, logLevel: 'silent',
   external: ['react', 'react-dom', '@deepseek-ai/dsh-client-ui-primitives'],
 })
@@ -30,7 +30,7 @@ runInNewContext(outputFiles[0].text, {
   document: { body: {}, documentElement: { hasAttribute: () => false }, querySelector: () => null },
   require: name => (name === 'react' ? react : name === 'react-dom' ? { createPortal: child => child } : {}),
 })
-const { TeamSidebar, botPendingOf } = module.exports
+const { TeamSidebar, HeaderPill, DetailsDrawer, botPendingOf } = module.exports
 
 const expand = (node) => {
   if (Array.isArray(node)) return node.map(expand)
@@ -718,4 +718,53 @@ test('collapsed SectionBlock ignores running and unread state of inactive hidden
   })
   const [status] = walk(activeHiddenRunning, node => classes(node).includes('bt-sec-status'))
   assert.equal(status?.props?.['data-kind'], 'working')
+})
+
+test('HeaderPill and DetailsDrawer surface alert mark state on browser and computer handoffs, not manual takeovers (#2305 review)', () => {
+  const ops = { id: 'ops', name: 'Ops', createdAt: 1, sessionId: 'ops' }
+  const roster = {
+    ready: true, bots: [ops], rooms: [], byId: { ops }, roomsById: {},
+    exchangeTurns: {}, learning: {}, secretRequests: {}, connectorRequests: {}, mailRequests: {}, questions: {}, views: {},
+  }
+  const hook = value => select => select(value)
+  const markStates = tree => walk(tree, node => node.props?.['data-state'] !== undefined).map(node => node.props['data-state'])
+
+  for (const [label, browserHolds, computer, expected] of [
+    ['browser handoff', { ops: { by: 'bot', reason: 'login', callId: 'bh-1' } }, { asks: {}, holds: {} }, 'alert'],
+    ['computer handoff', {}, { asks: {}, holds: { ops: { by: 'bot', reason: 'confirm' } } }, 'alert'],
+    ['manual takeover', { ops: { by: 'user', reason: 'takeover' } }, { asks: {}, holds: { ops: { by: 'user', reason: 'takeover' } } }, 'idle'],
+  ]) {
+    const headerTree = expand(HeaderPill({
+      sessionId: 'ops',
+      useRoster: hook(roster),
+      useSessions: hook({ byId: { ops: { title: 'Ops' } }, projectionsBySession: {} }),
+      useSessionStatus: hook(new Map([['ops', { running: true }]])),
+      useSession: hook({}),
+      useActivity: hook({ ops: 'working' }),
+      useMemoryNews: hook({}),
+      useTurnClock: hook({}),
+      useUi: hook({}),
+      useLive: hook({}),
+      useWork: hook({ waiting: {}, rooms: {}, approvals: [] }),
+      useBrowserHolds: hook(browserHolds),
+      useComputer: hook(computer),
+      actions: {},
+    }))
+    const drawerTree = expand(DetailsDrawer({
+      sessionId: 'ops',
+      roster,
+      actions: {},
+      useSessions: hook({ byId: { ops: { title: 'Ops' } }, projectionsBySession: {} }),
+      useSessionStatus: hook(new Map([['ops', { running: true }]])),
+      useActivity: hook({ ops: 'working' }),
+      useWork: hook({ waiting: {}, rooms: {}, approvals: [] }),
+      useBrowserTabs: hook({}),
+      useBrowserPages: hook({}),
+      useBrowserHolds: hook(browserHolds),
+      useComputer: hook(computer),
+    }))
+    const expectedRunning = expected === 'alert' ? 'alert' : 'working'
+    assert.ok(markStates(headerTree).includes(expectedRunning), `HeaderPill ${label}: ${JSON.stringify(markStates(headerTree))}`)
+    assert.ok(markStates(drawerTree).includes(expectedRunning), `DetailsDrawer ${label}: ${JSON.stringify(markStates(drawerTree))}`)
+  }
 })

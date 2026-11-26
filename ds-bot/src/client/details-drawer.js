@@ -2,7 +2,7 @@ import { createElement as h, Fragment, useEffect, useRef, useState } from 'react
 import { isMainOf } from './sources.js'
 import { HEADER, currentPart, runStatsOf, stripHeader, usageOf } from './text.js'
 import { PlusIcon, ShareIcon, CloseIcon, ChevronLeftIcon, GearIcon } from './icons.js'
-import { botPendingOf, dmMarkState, lastTurnFailed, latestTurnOf, useBotApprovals, BotMark, BotAvatar } from './mark.js'
+import { botPendingOf, dmMarkState, lastTurnFailed, latestTurnOf, useBotApprovals, useBotHandoff, BotMark, BotAvatar } from './mark.js'
 import { GlobeIcon, Favicon, PanelMenu, menuItemFor } from './browser-pane.js'
 import { drawerMenuKeys } from './side-model.js'
 import { BotSettingsForm, InlineText } from './bot-settings.js'
@@ -231,7 +231,7 @@ function GroupOverview({ room, roster, actions, usage, useWork, useComputer, ope
   ]
 }
 
-export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, actions, useSessions, useSessionStatus, useActivity, useWork, useBrowserTabs, useBrowserPages, useComputer }) {
+export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, actions, useSessions, useSessionStatus, useActivity, useWork, useBrowserTabs, useBrowserPages, useBrowserHolds, useComputer }) {
   const owner = roster.byId[sessionId]
   const part = owner ? currentPart(owner) : sessionId
   const isMainBot = isMainOf(roster, owner?.id)
@@ -275,6 +275,7 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, ro
   const failed = lastTurnFailed(bot, useSessions(list => latestTurnOf(list, part)))
   const doing = useActivity(map => map[bot?.id ?? sessionId])
   const { fgApproval, bgApproval } = useBotApprovals(bot?.id, useWork, useComputer)
+  const handoff = useBotHandoff(bot?.id, useBrowserHolds, useComputer)
   const botTaskCounts = bot ? taskCountsOf({ bot }) : { active: 0, waitingApproval: 0 }
   const botMarkState = bot ? dmMarkState({
     running,
@@ -284,6 +285,7 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, ro
     waitingApproval: botTaskCounts.waitingApproval > 0,
     fgApproval,
     bgApproval,
+    handoff,
     pending: botPendingOf(roster, bot),
   }) : 'idle'
   const sessionsRef = useRef(null)

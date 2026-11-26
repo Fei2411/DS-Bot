@@ -78,6 +78,18 @@ export function useBotApprovals(botId, useWork, useComputer) {
   return { fgApproval: fgTool || fgComputer, bgApproval }
 }
 
+export const isBrowserHandoff = hold => hold?.callId !== undefined
+export const isComputerHandoff = hold => hold !== undefined && (hold.by === 'bot' || hold.callId !== undefined || (typeof hold.reason === 'string' && hold.reason !== 'takeover'))
+
+// Active browser/computer handoff hold waiting for the user on one Bot.
+export function useBotHandoff(botId, useBrowserHolds, useComputer) {
+  const useReadBrowserHolds = useBrowserHolds ?? useFalse
+  const useReadComputer = useComputer ?? useFalse
+  const browserHandoff = useReadBrowserHolds(map => botId !== undefined && isBrowserHandoff(map?.[botId]))
+  const computerHandoff = useReadComputer(comp => botId !== undefined && isComputerHandoff(comp?.holds?.[botId]))
+  return browserHandoff || computerHandoff
+}
+
 // Unified direct-chat mark state shared by the sidebar row, header pill and details drawer.
 // Blocking DM approvals/questions/handoffs override a running foreground turn; non-blocking items
 // (background-task approvals, learning proposals) alert once idle without hiding foreground work.

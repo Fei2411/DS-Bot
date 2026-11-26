@@ -28378,6 +28378,15 @@ function useBotApprovals(botId, useWork, useComputer) {
   const bgApproval = useReadWork((work) => botId !== void 0 && (work.approvals ?? []).some((entry) => entry.roomId === void 0 && entry.botId === botId && entry.taskId !== void 0 && entry.answerable !== false));
   return { fgApproval: fgTool || fgComputer, bgApproval };
 }
+var isBrowserHandoff = (hold) => hold?.callId !== void 0;
+var isComputerHandoff = (hold) => hold !== void 0 && (hold.by === "bot" || hold.callId !== void 0 || typeof hold.reason === "string" && hold.reason !== "takeover");
+function useBotHandoff(botId, useBrowserHolds, useComputer) {
+  const useReadBrowserHolds = useBrowserHolds ?? useFalse;
+  const useReadComputer = useComputer ?? useFalse;
+  const browserHandoff = useReadBrowserHolds((map) => botId !== void 0 && isBrowserHandoff(map?.[botId]));
+  const computerHandoff = useReadComputer((comp) => botId !== void 0 && isComputerHandoff(comp?.holds?.[botId]));
+  return browserHandoff || computerHandoff;
+}
 function dmMarkState({ running = false, doing, failed = false, background = false, waitingApproval = false, replied = false, fgApproval = false, bgApproval = false, handoff = false, pending = {} }) {
   const blockingAlert = Boolean(fgApproval || pending.cardApproval || pending.question || handoff);
   const alert = blockingAlert || Boolean(bgApproval || pending.learning || waitingApproval);
@@ -44686,8 +44695,6 @@ var waitingFor = (roster, waits) => {
   const names = [...(waits?.bots ?? []).map((id) => roster.byId[id]?.name), ...(waits?.rooms ?? []).map((id) => roster.roomsById[id]?.name)].filter(Boolean);
   return names.length === 0 ? "" : t("Waiting for {names}", { names: names.join(t(" and ")) });
 };
-var isBrowserHandoff = (hold) => hold?.callId !== void 0;
-var isComputerHandoff = (hold) => hold !== void 0 && (hold.by === "bot" || hold.callId !== void 0 || typeof hold.reason === "string" && hold.reason !== "takeover");
 var sameBotRow = (a, b2) => a.bot === b2.bot && a.wide === b2.wide && a.marked === b2.marked && a.actions === b2.actions && a.onDragStart === b2.onDragStart && a.useSessions === b2.useSessions && a.useBotCompletions === b2.useBotCompletions && a.useSessionStatus === b2.useSessionStatus && a.useSessionRetainInfo === b2.useSessionRetainInfo && a.useActivity === b2.useActivity && a.useWork === b2.useWork && a.useComputer === b2.useComputer && a.useBrowserHolds === b2.useBrowserHolds && a.roster.mainBotId === b2.roster.mainBotId && a.roster.mainBotIds === b2.roster.mainBotIds && a.roster.byId === b2.roster.byId && a.roster.roomsById === b2.roster.roomsById && a.roster.exchangeTurns === b2.roster.exchangeTurns && a.roster.learning === b2.roster.learning && a.roster.secretRequests === b2.roster.secretRequests && a.roster.connectorRequests === b2.roster.connectorRequests && a.roster.mailRequests === b2.roster.mailRequests && a.roster.questions === b2.roster.questions && a.roster.views === b2.roster.views;
 var BotRow = memo(function BotRow2({ bot, roster, actions, useSessions, useBotCompletions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, useComputer, useBrowserHolds, wide, marked: marked2, onDragStart }) {
   const id = bot.id;
@@ -44710,11 +44717,7 @@ var BotRow = memo(function BotRow2({ bot, roster, actions, useSessions, useBotCo
   );
   const useReadBgWork = useWork ?? useFalse2;
   const bgApproval = useReadBgWork((work) => (work.approvals ?? []).some((entry) => entry.roomId === void 0 && entry.botId === id && entry.taskId !== void 0 && entry.answerable !== false));
-  const useReadBrowserHolds = useBrowserHolds ?? useFalse2;
-  const useReadComputer = useComputer ?? useFalse2;
-  const browserHandoff = useReadBrowserHolds((map) => isBrowserHandoff(map?.[id]));
-  const computerHandoff = useReadComputer((comp) => isComputerHandoff(comp?.holds?.[id]));
-  const handoff = browserHandoff || computerHandoff;
+  const handoff = useBotHandoff(id, useBrowserHolds, useComputer);
   const pending = botPendingOf(roster, bot);
   const blockingApproval = fgApproval || pending.cardApproval;
   const nonBlockingApproval = bgApproval || pending.learning;
@@ -60943,7 +60946,7 @@ function MemoryNotice({ shown }) {
     (0, import_react75.createElement)("span", { className: "bt-pill-mem-in", ref: inner }, (0, import_react75.createElement)("span", { className: "bt-pill-mem-ico" }, (0, import_react75.createElement)(MemoryIcon)), label)
   );
 }
-function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSession, useActivity, useMemoryNews, useTurnClock, useUi, useLive: useLive2, useWork, useComputer, useStore, useConversationViews, selectView, actions, PendingLearning: PendingLearning2 }) {
+function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSession, useActivity, useMemoryNews, useTurnClock, useUi, useLive: useLive2, useWork, useBrowserHolds, useComputer, useStore, useConversationViews, selectView, actions, PendingLearning: PendingLearning2 }) {
   const roster = useRoster((value) => value);
   const selectedView = useStore?.((state) => state.view);
   const away = useConversationViews?.((views) => views.some((view2) => view2.id === selectedView && view2.id !== "chat")) === true && typeof selectView === "function";
@@ -60969,6 +60972,7 @@ function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSe
   const bot = roster.byId[sessionId];
   const failed = lastTurnFailed(bot, useSessions((list) => bot ? latestTurnOf(list, currentPart(bot)) : void 0));
   const { fgApproval, bgApproval } = useBotApprovals(bot?.id, useWork, useComputer);
+  const handoff = useBotHandoff(bot?.id, useBrowserHolds, useComputer);
   const botTaskCounts = bot ? taskCountsOf({ bot }) : { active: 0, waitingApproval: 0 };
   const botMarkState = bot ? dmMarkState({
     running,
@@ -60978,6 +60982,7 @@ function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSe
     waitingApproval: botTaskCounts.waitingApproval > 0,
     fgApproval,
     bgApproval,
+    handoff,
     pending: botPendingOf(roster, bot)
   }) : "idle";
   const room2 = roster.roomsById[sessionId];
@@ -65584,7 +65589,7 @@ function GroupOverview({ room: room2, roster, actions, usage, useWork, useComput
     ) : null
   ];
 }
-function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, actions, useSessions, useSessionStatus, useActivity, useWork, useBrowserTabs, useBrowserPages, useComputer }) {
+function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, actions, useSessions, useSessionStatus, useActivity, useWork, useBrowserTabs, useBrowserPages, useBrowserHolds, useComputer }) {
   const owner = roster.byId[sessionId];
   const part = owner ? currentPart(owner) : sessionId;
   const isMainBot = isMainOf(roster, owner?.id);
@@ -65624,6 +65629,7 @@ function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, a
   const failed = lastTurnFailed(bot, useSessions((list) => latestTurnOf(list, part)));
   const doing = useActivity((map) => map[bot?.id ?? sessionId]);
   const { fgApproval, bgApproval } = useBotApprovals(bot?.id, useWork, useComputer);
+  const handoff = useBotHandoff(bot?.id, useBrowserHolds, useComputer);
   const botTaskCounts = bot ? taskCountsOf({ bot }) : { active: 0, waitingApproval: 0 };
   const botMarkState = bot ? dmMarkState({
     running,
@@ -65633,6 +65639,7 @@ function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, a
     waitingApproval: botTaskCounts.waitingApproval > 0,
     fgApproval,
     bgApproval,
+    handoff,
     pending: botPendingOf(roster, bot)
   }) : "idle";
   const sessionsRef = (0, import_react89.useRef)(null);
@@ -66851,6 +66858,7 @@ function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSes
         useWork,
         useBrowserTabs,
         useBrowserPages,
+        useBrowserHolds,
         useComputer
       })
     ) : null
