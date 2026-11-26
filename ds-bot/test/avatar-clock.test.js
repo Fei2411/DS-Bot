@@ -35,10 +35,17 @@ function page({ motion = 'normal', effects = 'full', busy = false } = {}) {
   document.body.dataset.btMotion = motion
   document.body.dataset.btEffects = effects
 
-  // Time: real time plus what the test skips, so a build slice still sees its own
-  // milliseconds pass.
-  let skipped = 0
-  const clock = () => performance.now() + skipped
+  // Time: virtual time that tracks real milliseconds during synchronous work so a
+  // build slice sees its own budget pass, with each read capped so OS scheduling
+  // stalls on a busy machine cannot trip REST_MS or inflate a single step.
+  let nowMs = 0
+  let lastReal = performance.now()
+  const clock = () => {
+    const real = performance.now()
+    nowMs += Math.min(Math.max(0, real - lastReal), 1.2)
+    lastReal = real
+    return nowMs
+  }
   const timers = new Map()
   let nextTimer = 1
   const setTimer = every => (fn, ms = 0) => { const id = nextTimer++; timers.set(id, { fn, at: clock() + ms, every: every ? ms : 0 }); return id }
@@ -46,15 +53,16 @@ function page({ motion = 'normal', effects = 'full', busy = false } = {}) {
   let longestTimer = 0
   const runTimers = () => {
     for (let guard = 0; guard < 10_000; guard += 1) {
+      const now = clock()
       let due = null
-      for (const [id, timer] of timers) if (timer.at <= clock() && (!due || timer.at < due[1].at)) due = [id, timer]
+      for (const [id, timer] of timers) if (timer.at <= now && (!due || timer.at < due[1].at)) due = [id, timer]
       if (!due) return
       const [id, timer] = due
       if (timer.every) timer.at += timer.every
       else timers.delete(id)
-      const start = performance.now()
+      const start = clock()
       timer.fn()
-      longestTimer = Math.max(longestTimer, performance.now() - start)
+      longestTimer = Math.max(longestTimer, clock() - start)
     }
   }
   const idleAsks = []
@@ -162,7 +170,8 @@ function page({ motion = 'normal', effects = 'full', busy = false } = {}) {
     mount,
     // One frame later: timers that came due run, then the frames asked for.
     frame(ms = 1000 / 60) {
-      skipped += ms
+      nowMs += ms
+      lastReal = performance.now()
       runTimers()
       const queued = [...rafs.values()]
       rafs.clear()
@@ -170,7 +179,7 @@ function page({ motion = 'normal', effects = 'full', busy = false } = {}) {
       for (const fn of queued) fn(clock())
       return queued.length
     },
-    skip(ms) { skipped += ms; runTimers() },
+    skip(ms) { nowMs += ms; lastReal = performance.now(); runTimers() },
     get asking() { return rafs.size > 0 },
     get timers() { return timers.size },
     get longestTimer() { return longestTimer },
