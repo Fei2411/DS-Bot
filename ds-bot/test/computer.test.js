@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -256,6 +256,54 @@ test('macOS consent answerer: grants allow, the card answers, Always records, DS
   assert.deepEqual(await askMouse('w1'), { answers: [{ id: 'cua-mouse-control', selected: ['Deny'] }] })
   await rt.computerEndpoint('set-level', { botId: 'w1', level: 'foreground' })
   assert.deepEqual(await askMouse('w1'), { answers: [{ id: 'cua-mouse-control', selected: ['Allow for this session'] }] })
+})
+
+test('legacy macOS getApp accepts task approval and records grants under the returned app identity (#2308)', async (t) => {
+  for (const choice of ['once', 'always']) {
+    await t.test(choice, { timeout: 3000 }, async (t) => {
+      const services = { loader: { import: async name => ({ name }) } }
+      const { ctx, home, rt } = setup({ services })
+      withProvider(ctx, services)
+      t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+      await rt.load()
+      await rt.computerEndpoint('set-enabled', { enabled: true })
+      await rt.computerEndpoint('provider-retry', {})
+      const consent = ctx.listeners.get('user-questions/request').find(fn => fn.name === 'computerConsent')
+      const track = ctx.listeners.get('tools/execute').find(fn => fn.name === 'computerTrack')
+      const agent = { id: 'w1' }
+      const bundleId = 'com.apple.Notes'
+      const selected = { isError: false, value: { appHandle: 'notes-handle', pid: 42, name: 'Notes', bundleId } }
+      let providerAllowed = false
+      const getApp = (callId) => track({ name: 'cua', arguments: { method: 'getApp', params: { selector: 'Notes' } }, agent, callId }, async () => {
+        if (!providerAllowed) {
+          const answer = await consent({ agent, questions: [{
+            id: 'cua-app-access',
+            question: 'Allow Computer Use to launch if needed, read, capture, and control Notes?',
+            detail: 'Application: /System/Applications/Notes.app/Contents/MacOS/Notes\nTask access applies to the selected application instance, including its launch if needed.',
+            options: [{ label: 'Allow for this task' }, { label: 'Deny' }],
+          }] }, async () => assert.fail('DS Bot did not handle the provider approval'))
+          providerAllowed = answer.answers[0]?.selected[0] === 'Allow for this task'
+        }
+        return providerAllowed ? selected : { isError: true, error: { code: 'APP_ACCESS_DENIED' } }
+      })
+      const pending = getApp('get-notes')
+      await new Promise(resolve => setImmediate(resolve))
+      const ask = Object.values(rt.computerLive().asks)[0]
+      await rt.computerEndpoint('app-answer', { id: ask.id, answer: choice })
+      const outcome = await pending
+      const apps = rt.computerView().bots.w1.apps
+      assert.deepEqual(Object.keys(apps), choice === 'always' ? [bundleId] : [])
+      assert.deepEqual(outcome, selected)
+      assert.equal(ask.appName, 'Notes')
+      if (choice === 'always') {
+        assert.equal(apps[bundleId].id, bundleId)
+        assert.equal(apps[bundleId].name, 'Notes')
+        assert.deepEqual(JSON.parse(readFileSync(join(home, 'state.json'), 'utf8')).bots.w1.computer.apps, apps)
+      }
+      assert.deepEqual(await getApp('get-notes-again'), selected)
+      assert.deepEqual(rt.computerLive().asks, {})
+    })
+  }
 })
 
 // A fake Cordis plugin mount + the registry the provider registers on.

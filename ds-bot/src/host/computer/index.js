@@ -2,6 +2,7 @@
 // module mounts when the switch is on. DS Bot owns what the provider leaves to its
 // caller: per-Bot levels, per-Bot app consent, one-Bot-per-app leases, the
 // indicator, and take-over/hand-back.
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { randomUUID } from 'node:crypto'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
@@ -26,6 +27,7 @@ const HANDOFF_TOOL = 'computer_handoff'
 // that ignores Bots) is never returned — an "Always" card answer becomes a per-Bot
 // grant and the question is answered as a session allow instead.
 const ALLOW_LABEL = 'Allow for this session'
+const LEGACY_ALLOW_LABEL = 'Allow for this task'
 const DENY_LABEL = 'Deny'
 const HANDOFF_REASONS = ['login', 'payment', 'captcha', 'confirm', 'other']
 const HANDBACK_TEXT = 'The user handed the computer back. Look at the app again before you go on.'
@@ -98,6 +100,7 @@ export function install(rt) {
   const holds = new Map()
   /** @type {Map<string, {botId:string, sessionId:string, appKey?:string, abort:AbortController}>} callId -> in-flight call */
   const inFlight = new Map()
+  const getAppScope = new AsyncLocalStorage()
   /** @type {Map<string, {agent:any, mode:string, lifts:Array<()=>void>, handoffLift?:()=>void, triedDeny:Set<string>}>} */
   const applied = new Map()
   const disposedAgents = new WeakSet()
@@ -577,7 +580,7 @@ export function install(rt) {
   }
   // Consent after a real getApp: the model only keeps the handle when the Bot may
   // use the app. A refusal drops the handle record and returns an error envelope.
-  const consentAfterGetApp = async (exec, call, result) => {
+  const consentAfterGetApp = async (exec, result, approval) => {
     const sessionId = exec.agent?.id
     const handle = result?.appHandle
     if (sessionId === undefined || typeof handle !== 'string') return undefined
@@ -590,9 +593,15 @@ export function install(rt) {
     // protected or denied — instead of looking like a revoke.
     const refuse = (reason) => ({ app: app.name, reason, envelope: { isError: true, content: [{ type: 'text', text: `Error: ${reason}` }] } })
     if (isProtectedApp({ name: app.name, id: app.id, path: app.path })) return refuse(`${bot.name} cannot use ${app.name}: that application is protected.`)
+    if (app.key === '') return refuse(`${bot.name} cannot use an application without an identity.`)
     const decisions = decisionsOf(bot.id, sessionId)
     const decision = decisions.get(app.key) ?? decisions.get(normName(app.name))
     if (decision === 'deny') return refuse(`The user did not allow ${bot.name} to use ${app.name}.`)
+    if (approval !== undefined && !exec.signal?.aborted) {
+      if (approval === 'always') await recordGrant(bot, app)
+      else decisions.set(app.key, 'once')
+      return undefined
+    }
     if (decision === 'once' || grantFor(bot, app) !== undefined) return undefined
     const verdict = await driverConsent(exec, bot, sessionId, app)
     if (verdict !== 'allow') return refuse(verdict)
@@ -763,6 +772,7 @@ export function install(rt) {
     return map
   }
   const grantFor = (bot, app) => {
+    if (app.key === '') return undefined
     const grants = grantsOf(bot)
     const byKey = grants[app.key]
     if (byKey !== undefined) return byKey
@@ -774,6 +784,7 @@ export function install(rt) {
     return Object.values(grants).find(grant => normName(grant.name) === wanted)
   }
   const recordGrant = async (bot, app) => {
+    if (app.key === '') return
     bot.computer ??= {}
     bot.computer.apps ??= {}
     bot.computer.apps[app.key] = { name: app.name, ...(app.id !== undefined ? { id: app.id } : {}), grantedAt: Date.now() }
@@ -839,16 +850,29 @@ export function install(rt) {
       return { answers: [{ id: 'cua-mouse-control', selected: [choice] }] }
     }
     if (!enabled()) return next()
-    const app = { name: String(question.intent?.subject?.name ?? ''), icon: question.intent?.subject?.icon }
-    app.key = appKeyOf(app)
     const deny = () => ({ answers: [{ id: 'cua-app-access', selected: [DENY_LABEL] }] })
-    const allow = () => ({ answers: [{ id: 'cua-app-access', selected: [ALLOW_LABEL] }] })
+    const legacy = question.intent === undefined && question.options?.some(option => option.label === LEGACY_ALLOW_LABEL)
+    const allow = () => ({ answers: [{ id: 'cua-app-access', selected: [legacy ? LEGACY_ALLOW_LABEL : ALLOW_LABEL] }] })
+    const flight = getAppScope.getStore()
+    const app = legacy
+      ? {
+          name: question.question?.match(/^Allow Computer Use to launch if needed, read, capture, and control (.+)\?$/)?.[1] ?? '',
+          path: question.detail?.match(/^Application: (\/[^\r\n]+)/)?.[1],
+        }
+      : { name: String(question.intent?.subject?.name ?? ''), icon: question.intent?.subject?.icon }
+    app.key = appKeyOf(app)
+    if (!normName(app.name) || (legacy && flight?.sessionId !== sessionId)) return deny()
     if (isProtectedApp(app)) return deny()
-    if (grantFor(bot, app) !== undefined) return allow()
-    const call = [...inFlight.values()].find(item => item.sessionId === sessionId)
+    if (!legacy && grantFor(bot, app) !== undefined) return allow()
+    const call = flight?.sessionId === sessionId ? flight : [...inFlight.values()].find(item => item.sessionId === sessionId)
     const answer = await askAppAccess({ botId: bot.id, sessionId, callId: call?.callId, app, signal: request.signal })
+    if (legacy) {
+      if (answer === 'deny') return deny()
+      flight.approval = answer
+      return allow()
+    }
     if (answer === 'always') {
-      await recordGrant(bot, { ...app, name: app.name })
+      await recordGrant(bot, app)
       return allow()
     }
     decisionsOf(bot.id, sessionId).set(app.key, answer === 'once' ? 'once' : 'deny')
@@ -992,8 +1016,9 @@ export function install(rt) {
     const previous = exec.signal
     exec.signal = previous !== undefined ? AbortSignal.any([previous, abort.signal]) : abort.signal
     const started = Date.now()
+    const getApp = call.provider === 'cua' && call.method === 'getApp'
     try {
-      const result = await next()
+      const result = await (getApp ? getAppScope.run(flight, next) : next())
       // DSH hands a failed tool body back as an error envelope, not an exception.
       if (call.provider === 'cua-driver' && isSessionEnded(result)) {
         await startDriverSession(exec, driverSessionKey(exec))
@@ -1010,8 +1035,8 @@ export function install(rt) {
       // consent ran (its session decisions persist for the Bot's whole Session,
       // so a revoked app never asks again). DS Bot decides here by its own rules:
       // protected, an earlier deny, a This time or a grant, else the same card.
-      if (call.provider === 'cua' && call.method === 'getApp' && payload !== null && typeof payload === 'object') {
-        const consent = await consentAfterGetApp(exec, call, payload)
+      if (getApp && payload !== null && typeof payload === 'object') {
+        const consent = await consentAfterGetApp(exec, payload, flight.approval)
         if (consent !== undefined) {
           noteStep(botId, { time: started, callId: exec.callId, app: consent.app, action: call.method ?? exec.name, kind: call.kind, ok: false, error: consent.reason })
           return consent.envelope
