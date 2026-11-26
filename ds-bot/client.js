@@ -58237,7 +58237,7 @@ function DraftKeeper({
     restored.current = key;
     const wasDeferred = deferredRestore.current;
     deferredRestore.current = false;
-    if (wasDeferred && !restoredText && !restoredFiles && (draft !== "" || ids.length > 0)) {
+    if (wasDeferred && !restoredText && !restoredFiles && (draft !== "" || ids.length > 0) && !hasLivePartDraft({ chatId, part: sessionId })) {
       keepDraft({ chatId, part: sessionId, text: draft, files: actions.draftFiles?.(ids) ?? [] }, void 0, { deferMs: DRAFT_DEBOUNCE_MS });
     }
     if (!ok && back.files.length > 0) actions.notice?.(t("The files attached to this draft could not be put back."));
