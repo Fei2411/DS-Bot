@@ -2,10 +2,11 @@
 // one folder picked from the start page), and whether it copies the Bot team of the user's own
 // DSH. The answers are kept in the app's own data.
 import { app } from 'electron'
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, renameSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { findTeam, userDshHome } from './import.mjs'
+import { locationsFile, readSavedLocations } from './locations.mjs'
 import { installFolder } from './move-data.mjs'
 import { freeSpace } from './place.mjs'
 import { langOf, t } from './start/text.mjs'
@@ -14,8 +15,6 @@ import { langOf, t } from './start/text.mjs'
 // (main.mjs gives it the same locale).
 export const lang = () => langOf(app.getLocale())
 export const tx = (key, vars) => t(lang(), key, vars)
-
-const locationsFile = () => join(app.getPath('userData'), 'locations.json')
 
 const PICKER_LABELS = ['places', 'drives', 'home', 'desktop', 'documents', 'downloads', 'path', 'go', 'up', 'newFolder', 'newName', 'create', 'name', 'cancel', 'chooseFolder', 'open', 'save', 'replace', 'loading']
 const PICKER_LINES = ['empty', 'noFolders', 'more']
@@ -97,9 +96,9 @@ function offerOf(dataDir) {
  * there: a later start shows the place line again once a fifth of it is left (start-window §5).
  */
 export function saveLocations({ dataDir, workspace }) {
-  const file = locationsFile()
+  const file = locationsFile(app.getPath('userData'))
   mkdirSync(dirname(file), { recursive: true })
-  const saved = readSaved(file)
+  const saved = readSavedLocations(file)
   const kept = saved && resolve(saved.dataDir) === resolve(dataDir) && roomOf(saved.freeAtStart) !== undefined
   // A full drive gives no room to measure a fifth of: the next save measures again.
   const freeAtStart = kept ? saved.freeAtStart : roomOf(freeSpace(dataDir))
@@ -109,23 +108,6 @@ export function saveLocations({ dataDir, workspace }) {
 }
 
 const roomOf = bytes => (Number.isFinite(bytes) && bytes > 0 ? bytes : undefined)
-
-function readSaved(file) {
-  let text
-  try {
-    text = readFileSync(file, 'utf8')
-  } catch (error) {
-    if (error?.code === 'ENOENT') return undefined
-    throw error
-  }
-  try {
-    const saved = JSON.parse(text)
-    return typeof saved?.dataDir === 'string' && saved.dataDir !== '' ? saved : null
-  } catch (error) {
-    if (error instanceof SyntaxError) return null
-    throw error
-  }
-}
 
 /**
  * Where the app keeps its data and the Bots' files: the saved places, or at the first start the
@@ -139,7 +121,7 @@ function readSaved(file) {
  */
 export function chooseLocations() {
   if (process.env.DS_BOT_HOME) return { dataDir: process.env.DS_BOT_HOME, workspace: process.env.DS_BOT_WORKSPACE || undefined }
-  const saved = readSaved(locationsFile())
+  const saved = readSavedLocations(locationsFile(app.getPath('userData')))
   if (saved) return { dataDir: saved.dataDir, workspace: saved.workspace, freeAtStart: roomOf(saved.freeAtStart) }
   if (saved === null) console.warn('DS Bot: ignoring invalid locations.json; using default locations')
   const { dataDir, workspace } = defaultPlaces()
