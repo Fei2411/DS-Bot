@@ -52,7 +52,7 @@ test('a failed start offers the downloading update on its banner and installs it
   // 「手动下载」 opens the release page.
   assert.equal(await startAct('manualDownload'), true)
   await waitFor(() => (state.opened ?? []).length === 1, 'open the release page')
-  assert.deepEqual(state.opened, ['https://github.com/Fei2411/DS-Bot/releases/latest'])
+  assert.deepEqual(state.opened, ['https://github.com/Fei-Craft/DS-Bot/releases/latest'])
 
   // Downloaded: it installs, and the Host's stop comes first.
   downloads[1].resolve()

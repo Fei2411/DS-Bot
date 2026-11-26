@@ -733,6 +733,7 @@ export const MODEL_CSS = `
 .bt-model-trigger:focus-visible{outline:2px solid var(--bt-accent);outline-offset:1px}
 .bt-model-trigger[data-missing] .bt-model-provider{color:var(--bt-danger)}
 .bt-model-trigger[data-wide]{display:flex;flex:0 1 auto;width:auto;min-width:min(200px,100%);max-width:min(340px,100%);height:34px;min-height:34px;box-sizing:border-box;padding:0 10px 0 12px;justify-content:space-between;border-radius:8px;border:.5px solid var(--bt-line-2);background:var(--bt-hover);font-size:13px;font-weight:450;outline:none}
+:is(.bt-drawer-model,.bt-field) .bt-model-trigger[data-wide]{width:100%;max-width:100%}
 .bt-model-trigger[data-wide]:hover,.bt-model-trigger[data-wide][aria-expanded=true]{background:var(--bt-active)}
 .bt-model-trigger[data-wide]:focus-visible{outline:none;border-color:var(--bt-accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--bt-accent) 22%,transparent)}
 .bt-model-trigger[data-wide] .bt-model-copy{flex-direction:row;align-items:center;gap:6px;flex:1}

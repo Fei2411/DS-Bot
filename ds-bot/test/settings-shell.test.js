@@ -315,9 +315,10 @@ test('DSH\'s Plugins page is Plugins → Engine plugins, with a way back', () =>
 test('DSH\'s General rows join Appearance (look), General Basics (language), and Advanced (rest)', () => {
   const items = [{ id: 'permission', order: -20 }, { id: 'language', order: 0 }, { id: 'appearance', order: 10 }, { id: 'font-size', order: 11 }, { id: 'developer-tools', order: 15 }]
   const [appearance] = walk(dialog({ page: 'appearance', items }).tree, node => typeof node.type === 'function' && node.type.name === 'AppearancePage')
-  const lookSections = appearance.type(appearance.props).filter(Boolean)
   const only = node => walk(node, item => item.type === 'slot').map(item => item.props.only)
-  assert.deepEqual(only(lookSections.find(node => node.props.key === 'look')), ['appearance', 'font-size'])
+  // In DSH, light or dark and the font size stay DSH's own rows, now on the Appearance page.
+  assert.equal(appearance.props.ownWindow, false)
+  assert.equal(appearance.props.dshRows.map(row => row.props['data-item']).join(), 'appearance,font-size')
 
   const [general] = walk(dialog({ page: 'general', items }).tree, node => typeof node.type === 'function' && node.type.name === 'GeneralPage')
   const generalSections = general.type({ ...general.props, openAdvanced: true }).filter(Boolean)
@@ -340,15 +341,15 @@ test('header actions from DSH and plugins sit beside the title', () => {
   assert.ok(dialog().drawn.some(([name]) => name === 'settings.action'))
 })
 
-test('General settings keeps the Classic Agent mode switch under Advanced', () => {
+test('General settings puts the Classic Agent mode switch at top level (outside Advanced)', () => {
   const calls = []
   const tree = SettingsDialog({
     page: 'general', id: null, roster, useUpdate: pick => pick({}),
     actions: { closeSettings() {}, openSettings() {}, setSurface: mode => calls.push(mode) },
   })
   const [general] = walk(tree, node => typeof node.type === 'function' && node.type.name === 'GeneralPage')
-  const [row] = walk(general.type({ ...general.props, openAdvanced: true }), node => node.props?.label === 'Classic Agent mode')
-  assert.ok(row !== undefined)
+  const [row] = walk(general.type({ ...general.props, openAdvanced: false }), node => node.props?.label === 'Classic Agent mode')
+  assert.ok(row !== undefined, 'Classic Agent mode must be visible without expanding Advanced')
   const [button] = walk(row, node => node.type === 'button' && textOf(node) === 'Switch')
   button.props.onClick()
   assert.deepEqual(calls, ['agent'])

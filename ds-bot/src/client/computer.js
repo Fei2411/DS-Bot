@@ -1,11 +1,13 @@
 import { createElement as h, useEffect, useId, useRef, useState } from 'react'
 import { CheckIcon } from './icons.js'
+import { BotAvatar } from './mark.js'
 import { useDockHold } from './card-hold.js'
 import { heldCardKey } from './sources.js'
 import { CellEmpty } from './cell-empty.js'
 import { lookOf } from './characters.js'
 import { inkFill } from './inks.js'
 import { t } from './i18n.js'
+import { SelectMenu } from './select-menu.js'
 import { toolArgs } from './text.js'
 
 // -------------------------------------------------------------------------
@@ -23,10 +25,14 @@ const levelId = bot => LEVELS.some(([id]) => id === bot?.computer?.level) ? bot.
 
 export function LevelPicker({ bot, actions, run, disabled }) {
   const level = levelId(bot)
-  return h('select', {
-    className: 'bt-select bt-level-pick', 'aria-label': t('Computer use level'), value: level, disabled,
-    onChange: event => run(actions.computerSetLevel(bot.id, event.target.value)),
-  }, LEVELS.map(([id, label]) => h('option', { key: id, value: id }, t(label))))
+  return h(SelectMenu, {
+    className: 'bt-level-pick',
+    'aria-label': t('Computer use level'),
+    value: level,
+    disabled,
+    options: LEVELS.map(([id, label]) => ({ value: id, label: t(label) })),
+    onChange: next => run(actions.computerSetLevel(bot.id, next)),
+  })
 }
 
 const PROVIDER_TEXT = {
@@ -80,8 +86,10 @@ export function ComputerPage({ roster, actions, run, Section, Row, Switch }) {
       computer.macos === true && provider.state === 'ready' ? [permRow('accessibility', 'Accessibility'), permRow('screenRecording', 'Screen Recording')] : null) : null,
     h(Section, { key: 'bots', title: t('Bots'), tour: 'comp-bots' },
       computer.enabled && !providerWorks(provider) ? h('div', { className: 'bt-set-row' }, h('span', { className: 'bt-set-hint' }, t('Bots get no computer tools until the provider is ready.'))) : null,
-      roster.bots.map(bot => h(Row, { key: bot.id, label: bot.name },
-        h(LevelPicker, { bot, actions, run, disabled: !computer.enabled })))),
+      roster.bots.map(bot => h(Row, {
+        key: bot.id,
+        label: h('span', { className: 'bt-comp-bot' }, h(BotAvatar, { bot, size: 22, badge: false, live: false }), h('span', null, bot.name)),
+      }, h(LevelPicker, { bot, actions, run, disabled: !computer.enabled })))),
   ]
 }
 
@@ -91,7 +99,10 @@ export function BotComputerCard({ bot, roster, actions, run, Card, Row }) {
   const apps = Object.entries(bot.computer?.apps ?? {})
   return h(Card, { title: t('Control') },
     !computer.enabled
-      ? h(Row, { label: t('Computer use') }, h('span', { className: 'bt-muted' }, t('Off in Settings → Computer use')))
+      ? h(Row, { label: t('Computer use'), hint: t('Off') },
+          actions.openSettings
+            ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => actions.openSettings('computer') }, t('Turn on'))
+            : null)
       : [
           h(Row, { key: 'level', label: t('Computer use'), hint: providerWorks(computer.provider ?? { state: 'loading' }) ? undefined : t('Bots get no computer tools until the provider is ready.') }, h(LevelPicker, { bot, actions, run })),
           apps.map(([key, app]) => h(Row, { key, label: app.name },
@@ -336,6 +347,7 @@ export function ComputerIndicator({ useComputer, useRoster, actions }) {
 }
 
 export const COMPUTER_CSS = `
+.bt-comp-bot{display:inline-flex;align-items:center;gap:8px;min-width:0}
 .bt-level-pick{max-width:200px}
 .bt-perm-state{font-size:13px;color:var(--bt-ink-2);margin-right:8px}
 .bt-perm-state[data-on]{color:var(--bt-green)}

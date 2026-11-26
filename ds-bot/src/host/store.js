@@ -3,7 +3,7 @@
 // or group chat it belongs to.
 import { createHash, randomUUID } from 'node:crypto'
 import { copyFileSync, mkdirSync, readFileSync, statSync } from 'node:fs'
-import { mkdir, unlink, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { LEGACY_THEMES, MAX_EXCHANGES, ROOM_MODES, SECTION_COLORS, SECTION_NAME_MAX, TEXT_KEPT } from './constants.js'
 import { replaceFile } from './files.js'
@@ -79,6 +79,7 @@ export function install(rt) {
   const readSegmentNote = (segmentOrId) => {
     if (segmentOrId === undefined || segmentOrId === null) return undefined
     if (typeof segmentOrId === 'object') {
+      if (Number.isInteger(segmentOrId.throughSeq)) return undefined
       if (typeof segmentOrId.note === 'string') return segmentOrId.note
       const sid = sessionIdOf(segmentOrId.sessionId)
       if (sid === undefined) return undefined
@@ -604,6 +605,7 @@ export function install(rt) {
   const notifyStoreSync = () => {
     rt.onStoreSync?.()
     rt.syncDeepseekTools?.()
+    rt.onApiStoreSync?.()
     void rt.onPluginsStoreSync?.()
   }
   const syncReadOnly = () => {
@@ -616,6 +618,7 @@ export function install(rt) {
   // Finishes what the fold of withdrawn parallel parts left (see adopt): only the host
   // that saves the team does it, and an entry stays listed until both steps succeed.
   let retiring
+  let sweeping
   let waitingForSchedules
   // A part waiting to be retired may still run a turn, so it is not complete yet.
   const isRetiring = sessionId => Array.isArray(state.retiredParts) && state.retiredParts.some(entry => entry?.sessionId === sessionId)
@@ -656,7 +659,8 @@ export function install(rt) {
             const target = botOf(entry.botId) === undefined ? undefined : chatOf(entry.botId)
             const registry = ctx.workspaceRegistry
             if (typeof rt.moveSchedules !== 'function' || typeof registry?.archiveSession !== 'function') continue
-            if (target !== undefined && target !== sessionId) await rt.moveSchedules(sessionId, target)
+            const finishMove = target === undefined || target === sessionId ? undefined
+              : await rt.moveSchedules(sessionId, target, { stopActivity: true })
             if (stopped || readOnly() !== undefined || lockEpoch !== epoch) return
             try {
               await registry.archiveSession(sessionId, { stopActivity: true })
@@ -664,6 +668,7 @@ export function install(rt) {
               // Session already gone from DSH live registry and persistence: treat as retired.
               if (archiveError?.name !== 'WorkspaceUnknownSessionError') throw archiveError
             }
+            await finishMove?.()
           }
           dropEntry(entry, sessionId)
         } catch (error) {
@@ -692,6 +697,19 @@ export function install(rt) {
     storeReady = true
     notifyStoreSync()
     if (holder !== undefined) return
+    if (teamWriteAccess() === 'locked') {
+      const sweep = (async () => {
+        const entries = await readdir(home)
+        if (teamWriteAccess() !== 'locked') return
+        for (const name of entries) {
+          if (teamWriteAccess() !== 'locked') return
+          const match = /^state\.json\.(\d+)(?:\.[a-f0-9]+)?\.tmp$/.exec(name)
+          if (match === null || Number(match[1]) === process.pid) continue
+          await unlink(join(home, name)).catch(() => {})
+        }
+      })().catch(() => {}).finally(() => { if (sweeping === sweep) sweeping = undefined })
+      sweeping = sweep
+    }
     const storageMigrated = stuck === undefined ? await runStorageMigrations() : false
     void retireParts()
     if ((migrated || storageMigrated) && stuck === undefined) {
@@ -866,7 +884,7 @@ export function install(rt) {
       state.revision += 1
       if (state.exchanges.length > MAX_EXCHANGES) state.exchanges = state.exchanges.slice(-MAX_EXCHANGES)
       const snapshot = JSON.stringify(state)
-      const temp = `${statePath}.${process.pid}.tmp`
+      const temp = `${statePath}.${process.pid}.${randomUUID().slice(0, 8)}.tmp`
       try {
         await mkdir(home, { recursive: true })
         const ensureLock = () => {
@@ -885,7 +903,10 @@ export function install(rt) {
           }
         }
         ensureLock()
-        await writeFile(temp, snapshot, 'utf8')
+        // Flushed before the rename: after a crash or power loss, a renamed file whose
+        // data never reached the disk can come back empty, and an empty state.json loads
+        // as an empty team (#2238).
+        await writeFile(temp, snapshot, { encoding: 'utf8', flush: true })
         ensureLock()
         await replaceFile(temp, statePath, ensureLock)
         seen = stamp()
@@ -906,10 +927,16 @@ export function install(rt) {
     return job
   }
 
+  const teamWriteAccess = () => {
+    if (stopped || readOnly() !== undefined) return undefined
+    if (lockBroken) return 'unlocked'
+    return lock.owns() ? 'locked' : undefined
+  }
+
   ctx.effect(() => () => {
     stopped = true
     clearTimeout(waitingForSchedules)
-    return Promise.allSettled([writing, retiring, ...noteOps.values()]).finally(() => lock.release())
+    return Promise.allSettled([writing, retiring, sweeping, rt.stopRetiringTasks?.(), ...noteOps.values()]).finally(() => lock.release())
   }, 'ds-bot: state lock')
 
   const botOf = id => (id === undefined ? undefined : own(state.bots, id))
@@ -1113,6 +1140,7 @@ export function install(rt) {
   Object.assign(rt, {
     state, load, save, refresh, readOnly, hasLoaded, retireParts, isRetiring, syncReadOnly, own, onSaved, onAdopted, closeCard,
     readSegmentNote, writeSegmentNote, deleteSegmentNotes,
+    teamWriteAccess,
     botOf, roomOf, isMain, chatOf, sessionOfRoom, selfOf, isBotSession,
     chatOwners, taskOwners, groupOwners, roomOwners, pastOwners,
     groupSessionsOf, roomsOf, dropGroupSession, retireGroupSession, findBot, findRooms, isAdminOf,

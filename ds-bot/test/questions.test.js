@@ -75,6 +75,21 @@ test('a card asked in a hidden Bot-to-Bot turn keeps its call id, and closing it
   assert.deepEqual(rt.state.closedCards, { writer: { 'call-1': 'replied' } })
 })
 
+test('a card asked over one still open closes the earlier card instead of dropping it (#2172)', async (t) => {
+  const { emit, ask, questions, stop } = await start()
+  t.after(stop)
+  emit('writer', 'turn/start', { turn: 1 })
+  emit('writer', 'user/message', { content: text('Help me name a Bot'), source: { kind: 'user' } })
+  await ask('writer', 'call-1')
+  emit('writer', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  // A message from another Bot, not the user, starts the next turn: the card stays open.
+  emit('writer', 'turn/start', { turn: 2 })
+  emit('writer', 'user/message', { content: text('[Message from Chief]\nCheck the draft'), source: { kind: 'bot', role: 'request', senderSessionId: 'chief', senderName: 'Chief', exchangeId: 'x1', hop: 0 } })
+  await ask('writer', 'call-2')
+  assert.equal((await questions()).writer.callId, 'call-2')
+  assert.deepEqual(rt.state.closedCards, { writer: { 'call-1': 'dismissed' } })
+})
+
 test('a card asked in a visible turn stays at its call', async (t) => {
   const { emit, ask, questions, stop } = await start()
   t.after(stop)
@@ -89,4 +104,26 @@ test('a card asked in a visible turn stays at its call', async (t) => {
   emit('writer', 'user/message', { content: text('[Message from Chief · the user sees your reply here]\nIntroduce yourself'), source: { kind: 'bot', role: 'request', audience: 'user', senderSessionId: 'chief', senderName: 'Chief', exchangeId: 'x2', hop: 0 } })
   await ask('writer', 'call-3')
   assert.equal((await questions()).writer.callId, 'call-3')
+})
+
+test('a card carried from an earlier segment closes as dismissed even when the new card reuses the same callId', async (t) => {
+  const { ask, questions, stop } = await start()
+  t.after(stop)
+  // Simulate an open question carried over from an earlier segment (`writer-old`) onto `writer`.
+  rt.state.questions.writer = {
+    id: 'q-carried',
+    callId: 'call-dup',
+    callSessionId: 'writer-old',
+    question: 'Old question?',
+    options: [{ label: 'A' }],
+    askedAt: 1,
+  }
+  await ask('writer', 'call-dup')
+  assert.equal((await questions()).writer.callId, 'call-dup')
+  assert.equal((await questions()).writer.callSessionId, undefined)
+  assert.deepEqual(rt.state.closedCards, { 'writer-old': { 'call-dup': 'dismissed' } })
+
+  // Same-segment same-callId re-entry must NOT mark itself dismissed.
+  await ask('writer', 'call-dup')
+  assert.equal(rt.state.closedCards.writer, undefined)
 })

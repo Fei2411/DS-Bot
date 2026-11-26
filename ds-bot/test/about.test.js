@@ -70,7 +70,7 @@ test('the app update states set the DS Bot row\'s hint and button', () => {
       [{ text: 'Restart to update', className: 'bt-fb-primary', action: 'installOwnApp' }]],
     [{ phase: 'available', version: '0.2.2', canDownload: true, autoUpdate: false }, '0.2.2 is available',
       [{ text: 'Download', className: 'bt-soft bt-soft-sm', action: 'downloadOwnApp' }]],
-    [{ phase: 'available', version: '0.2.2', page: 'https://github.com/Fei2411/DS-Bot/releases/tag/v0.2.2', autoUpdate: true }, '0.2.2 is available',
+    [{ phase: 'available', version: '0.2.2', page: 'https://github.com/Fei-Craft/DS-Bot/releases/tag/v0.2.2', autoUpdate: true }, '0.2.2 is available',
       [{ text: 'Download', className: 'bt-soft bt-soft-sm', action: 'openOwnApp' }]],
     [{ phase: 'failed', autoUpdate: true }, 'Could not check for updates.', [{ text: 'Check for updates', className: 'bt-soft bt-soft-sm', action: 'checkOwnApp' }]],
   ]
@@ -132,4 +132,14 @@ test('ownAppRow maps each phase to its hint and button kind', () => {
   const downloaded = ownAppRow({ phase: 'downloaded', version: '0.2.2' })
   assert.equal(downloaded.hint, '0.2.2 is ready; it installs when you restart')
   assert.equal(downloaded.button, 'restart')
+})
+
+test('inlineFeedback hides the redundant Report a problem link row', () => {
+  const find = (node, pick) => (Array.isArray(node) ? node.flatMap(one => find(one, pick))
+    : node && typeof node === 'object' ? [...pick(node), ...find(node.children, pick)] : [])
+  const actions = { repoStars: async () => null, openSettings() {} }
+  const standalone = AboutPage({ useUpdate: s => s({}), actions, run: p => p, Section: 'section', Row: 'row' })
+  const inline = AboutPage({ useUpdate: s => s({}), actions, run: p => p, Section: 'section', Row: 'row', inlineFeedback: true })
+  assert.equal(find(standalone, n => (n.props?.label === 'Report a problem' ? [n] : [])).length, 1)
+  assert.equal(find(inline, n => (n.props?.label === 'Report a problem' ? [n] : [])).length, 0)
 })

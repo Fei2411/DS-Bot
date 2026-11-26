@@ -79,6 +79,50 @@ const until = async (fn, tries = 80) => {
   return undefined
 }
 
+test('QQ uploads local images and sends them as passive replies in direct and group chats (#2119)', async (t) => {
+  const fake = await fakeQq()
+  const messages = []
+  const handle = qq.connect(FIELDS, env(fake), { onMessage: msg => { messages.push(msg) }, onStatus() {} })
+  t.after(() => { handle.stop(); fake.close() })
+  const ws = await until(() => fake.sockets[0])
+  await until(() => fake.packets.some(packet => packet.op === 2))
+  fake.push(ws, { op: 0, t: 'C2C_MESSAGE_CREATE', s: 2, d: { id: 'dm', content: 'hi', author: { user_openid: 'u1' } } })
+  fake.push(ws, { op: 0, t: 'GROUP_AT_MESSAGE_CREATE', s: 3, d: { id: 'group', content: 'hi', group_openid: 'g1', author: { member_openid: 'u2' } } })
+  await until(() => messages.length === 2)
+
+  const image = { name: 'plot.png', mediaType: 'image/png', data: Buffer.from('89504e470d0a1a0a', 'hex') }
+  for (const [messageId, target] of [['dm', '/v2/users/u1'], ['group', '/v2/groups/g1']]) {
+    const { chat } = messages.find(msg => msg.messageId === messageId)
+    fake.replies[`${target}/files`] = { result: { file_info: `file-${messageId}` } }
+    fake.replies[`${target}/messages`] = { result: { id: `reply-${messageId}` } }
+    await handle.send(chat, { text: 'Here is the plot' })
+    assert.deepEqual(await handle.sendImage(chat, image), { messageId: `reply-${messageId}` })
+    await handle.send(chat, { text: 'Done' })
+    const calls = fake.calls.filter(call => call.path.startsWith(`${target}/`))
+    assert.deepEqual(calls.map(call => call.path), ['messages', 'files', 'messages', 'messages'].map(path => `${target}/${path}`))
+    assert.deepEqual(calls[1], {
+      method: 'POST', path: `${target}/files`, auth: 'QQBot qqtok',
+      params: { file_type: 1, file_name: 'plot.png', file_data: image.data.toString('base64'), srv_send_msg: false },
+    })
+    assert.deepEqual(calls[2].params, { msg_type: 7, media: { file_info: `file-${messageId}` }, msg_id: messageId, msg_seq: 2 })
+    assert.equal(calls[3].params.msg_seq, 3)
+  }
+})
+
+test('QQ rejects invalid image sizes and does not send without an upload token', async (t) => {
+  const fake = await fakeQq()
+  const handle = qq.connect(FIELDS, env(fake), { onStatus() {} })
+  t.after(() => { handle.stop(); fake.close() })
+  await until(() => fake.sockets[0])
+  const chat = { key: 'g1', kind: 'group' }
+  for (const data of [Buffer.alloc(0), Buffer.alloc(5 * 1024 * 1024 + 1)]) {
+    await assert.rejects(() => handle.sendImage(chat, { data }), { permanent: true })
+  }
+  assert.deepEqual(fake.calls.filter(call => call.path.startsWith('/v2/')), [])
+  await assert.rejects(() => handle.sendImage(chat, { data: Buffer.from([1]) }), /file_info/)
+  assert.deepEqual(fake.calls.filter(call => call.path.startsWith('/v2/')).map(call => call.path), ['/v2/groups/g1/files'])
+})
+
 test('check gets an app access token and names the account', async () => {
   const fake = await fakeQq()
   const { account } = await qq.check(FIELDS, env(fake))

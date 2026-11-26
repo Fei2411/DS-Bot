@@ -86,6 +86,19 @@ describe('goalPatch', () => {
     assert.equal(row.config.plugins.find(r => r.id === 'tool-bash').disabled, false)
     assert.equal(countGoalRows(row.config.plugins), 0)
   })
+  test('dsbot-engine ships all four built-in presets already free of DSH goal rows', () => {
+    const engineDir = fileURLToPath(new URL('../engine/', import.meta.url))
+    const files = readdirSync(engineDir).filter(name => name.startsWith('preset-') && name.endsWith('.patch.yml'))
+    const ids = []
+    for (const name of files) {
+      const patches = load(readFileSync(join(engineDir, name), 'utf8'), { schema: entryListSchema })
+      for (const preset of flat(patches)) {
+        ids.push(preset.config?.id)
+        assert.equal(countGoalRows(preset.config?.plugins ?? []), 0, `${name} must not carry DSH goal rows`)
+      }
+    }
+    assert.deepEqual(ids.sort(), ['cordis', 'minimal', 'ptc', 'standard'])
+  })
 })
 
 describe('reconcileGoal', () => {
