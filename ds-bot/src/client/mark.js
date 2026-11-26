@@ -40,14 +40,20 @@ export const latestTurnOf = (list, part) => {
 // behind at once, as the chat's failure card does (turn-error.js). A turn the host
 // could not number (picked up after a restart) cannot be placed, so it counts. A block
 // (a key, a balance) stands for the whole Bot, wherever it came from (its chat, a group,
-// a task), until the host lifts it; one from this part's failure goes with it.
+// a task), until the host lifts it; one from this part's failure goes with it. The host
+// writes that block right after the failure, in the same turn end (turns.js
+// rememberFailure, blockBot), so their times are within SAME_FAILURE_MS; a block from a
+// later failure elsewhere comes after another request to the model.
+const SAME_FAILURE_MS = 1000
 export function lastTurnFailed(bot, latestTurn) {
   if (bot === undefined) return false
   const failure = bot.failures?.[currentPart(bot)]
   const past = failure !== undefined && failure.turn >= 1 && latestTurn > failure.turn
   if (failure !== undefined && !past) return true
-  if (bot.blocked === undefined) return false
-  return !(past && bot.blocked.code === failure.code)
+  const block = bot.blocked
+  if (block === undefined) return false
+  const fromThisFailure = past && block.code === failure.code && Math.abs(block.at - failure.at) < SAME_FAILURE_MS
+  return !fromThisFailure
 }
 export const toolState = name => (/^(message_bot|delegate_work|ask_back|answer_work|cancel_work|note_bot|stop_bot|create_bot|update_bot|create_group|update_group|delete_group|post_to_group)$/.test(name) ? 'sending'
   : /search|fetch|browse|read|grep|glob|list|recall/i.test(name) ? 'searching' : 'working')

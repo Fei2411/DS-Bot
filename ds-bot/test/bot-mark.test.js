@@ -114,10 +114,14 @@ test('a last turn failed until a later turn of that chat shows in its live outli
   // A block stands for the whole Bot, from wherever it came (a group, a task)...
   assert.equal(lastTurnFailed({ id: 'b', blocked: { code: 'QUOTA', provider: 'deepseek', at: 10 } }, 7), true)
   assert.equal(lastTurnFailed({ ...failed, blocked: { code: 'QUOTA', provider: 'deepseek', at: 12 } }, 4), true)
-  // ...and one from this part's failure goes with it.
-  const auth = { id: 'b', failures: { b: { turn: 3, code: 'AUTH', at: 10 } }, blocked: { code: 'AUTH', provider: 'deepseek', at: 10 } }
+  // ...and one from this part's failure goes with it: the host writes both in the same
+  // turn end, a few milliseconds apart.
+  const auth = { id: 'b', failures: { b: { turn: 3, code: 'AUTH', at: 1_000_000 } }, blocked: { code: 'AUTH', provider: 'deepseek', at: 1_000_002 } }
   assert.equal(lastTurnFailed(auth, 3), true)
   assert.equal(lastTurnFailed(auth, 4), false)
+  // A block with the same code from a later failure elsewhere (a group) still stands
+  // after this part's failure is behind it.
+  assert.equal(lastTurnFailed({ ...auth, blocked: { ...auth.blocked, at: 1_045_000 } }, 4), true)
   // The newest turn of a part, from the live list.
   assert.equal(latestTurnOf({ byId: { b: { projectionValues: { turnOutline: [{ turn: 2, seq: 5, prompt: 'hi', response: '' }, { turn: 3, seq: 9, prompt: 'again', response: '' }] } } } }, 'b'), 3)
   assert.equal(latestTurnOf({ byId: {} }, 'b'), undefined)

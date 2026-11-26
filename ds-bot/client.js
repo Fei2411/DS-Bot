@@ -24841,7 +24841,9 @@ var Avatar = class {
   // not touching anything. Idle and asleep hold still; fidgets, glances, blinks and
   // petting wait for input.
   rest(on) {
+    const changed = this.resting !== on;
     this.resting = on;
+    if (changed && this.petting) this.retarget();
     if (!on) {
       this.nextLoop = Math.min(this.nextLoop, this.time + 0.4 + this.rng() * 1.2);
       this.nextBlink = Math.min(this.nextBlink, this.time + 0.3 + this.rng());
@@ -24888,7 +24890,7 @@ var Avatar = class {
     if (this.time < this.nextLoop) return;
     if (this.clips.some((play) => !play.blink && play.weight >= 1)) return;
     if (!loop2) {
-      this.nextLoop = this.petting || def.next ? this.time + 0.5 : Infinity;
+      this.nextLoop = this.petted || def.next ? this.time + 0.5 : Infinity;
       return;
     }
     this.play(this.draw(loop2.bag));
@@ -24899,7 +24901,7 @@ var Avatar = class {
   // at rest only a lively mark blinks.
   blinks() {
     const def = STATES[this.state];
-    return !!def.blink && !this.calm && (!AMBIENT.has(this.state) || !!this.petting || this.live && this.tier === "lively");
+    return !!def.blink && !this.calm && (!AMBIENT.has(this.state) || this.petted || this.live && this.tier === "lively");
   }
   // Peeks while asleep, on large lively marks (only they doze off).
   sneaks() {
@@ -24910,23 +24912,28 @@ var Avatar = class {
   }
   // Small glances while resting, on large lively marks.
   glances() {
-    return this.state === "idle" && this.live && this.tier === "lively" && !this.calm && this.lod !== "chip" && !this.gazeTarget && !this.petting;
+    return this.state === "idle" && this.live && this.tier === "lively" && !this.calm && this.lod !== "chip" && !this.gazeTarget && !this.petted;
   }
   loopOf(def) {
     if (this.calm) return null;
-    if (this.petting) return { bag: { nuzzle: 1 }, gap: [0.05, 0.3] };
+    if (this.petted) return { bag: { nuzzle: 1 }, gap: [0.05, 0.3] };
     const own = this.stateLoop(def);
     if (own) return own;
     if (def.lively && this.tier === "lively") return def.lively;
     if (def.idle && this.live && this.tier === "lively" && this.lod !== "chip") return def.idle;
     return null;
   }
+  // Petting counts while someone is around: a pointer left on the mark of a resting
+  // window is nobody's hand, so the mark shows its state, face and pose.
+  get petted() {
+    return !!this.petting && !this.resting;
+  }
   // The moves that show what the Bot is doing: they play at every motion level, and on
   // through a resting window, also under a pointer left on the mark. Idle and asleep
   // show nothing going on, so a resting window holds them still.
   stateLoop(def) {
     if (this.calm) return null;
-    if (this.resting ? AMBIENT.has(this.state) : this.petting) return null;
+    if (this.resting ? AMBIENT.has(this.state) : this.petted) return null;
     return this.lod === "chip" && def.compact || def.loop || null;
   }
   // A weighted draw that avoids playing the same clip twice in a row.
@@ -24961,7 +24968,7 @@ var Avatar = class {
       target.gx += this.saccade.gx;
       target.gy += this.saccade.gy;
     }
-    if (this.petting) {
+    if (this.petted) {
       target.x = (pose.x ?? 0) + this.petting.side * 1.2;
       target.roll = (pose.roll ?? 0) - this.petting.side * 5;
       target.pitch -= 2;
@@ -24987,7 +24994,7 @@ var Avatar = class {
   // The face the mark is going to, clips aside: a held face over petting over the state's.
   faceWanted() {
     if (this.override.face && this.time < this.override.faceUntil) return this.override.face;
-    if (this.petting) return this.time - this.petting.since > 0.35 ? "happy" : "content";
+    if (this.petted) return this.time - this.petting.since > 0.35 ? "happy" : "content";
     return STATES[this.state].face;
   }
   shownFace() {
@@ -27061,13 +27068,16 @@ var latestTurnOf = (list, part) => {
   const outline2 = turnOutlineOf(list, part);
   return Array.isArray(outline2) && outline2.length > 0 ? outline2.at(-1).turn : void 0;
 };
+var SAME_FAILURE_MS = 1e3;
 function lastTurnFailed(bot, latestTurn) {
   if (bot === void 0) return false;
   const failure = bot.failures?.[currentPart(bot)];
   const past = failure !== void 0 && failure.turn >= 1 && latestTurn > failure.turn;
   if (failure !== void 0 && !past) return true;
-  if (bot.blocked === void 0) return false;
-  return !(past && bot.blocked.code === failure.code);
+  const block = bot.blocked;
+  if (block === void 0) return false;
+  const fromThisFailure = past && block.code === failure.code && Math.abs(block.at - failure.at) < SAME_FAILURE_MS;
+  return !fromThisFailure;
 }
 var toolState = (name) => /^(message_bot|delegate_work|ask_back|answer_work|cancel_work|note_bot|stop_bot|create_bot|update_bot|create_group|update_group|delete_group|post_to_group)$/.test(name) ? "sending" : /search|fetch|browse|read|grep|glob|list|recall/i.test(name) ? "searching" : "working";
 var PET_ZONE = ":is(.bt-row,.bt-tile)>:is(.bt-mark,.bt-cluster),.bt-pet-zone";

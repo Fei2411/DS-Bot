@@ -330,7 +330,10 @@ export class Avatar {
   // not touching anything. Idle and asleep hold still; fidgets, glances, blinks and
   // petting wait for input.
   rest(on) {
+    const changed = this.resting !== on
     this.resting = on
+    // A pointer left on the mark leans and smiles only while someone is around.
+    if (changed && this.petting) this.retarget()
     if (!on) { this.nextLoop = Math.min(this.nextLoop, this.time + 0.4 + this.rng() * 1.2); this.nextBlink = Math.min(this.nextBlink, this.time + 0.3 + this.rng()) }
   }
 
@@ -370,7 +373,7 @@ export class Avatar {
   loopOn(def, loop, gap) {
     if (this.time < this.nextLoop) return
     if (this.clips.some(play => !play.blink && play.weight >= 1)) return
-    if (!loop) { this.nextLoop = this.petting || def.next ? this.time + 0.5 : Infinity; return }
+    if (!loop) { this.nextLoop = this.petted || def.next ? this.time + 0.5 : Infinity; return }
     this.play(this.draw(loop.bag))
     const dur = this.clips.at(-1)?.clip.dur ?? 0
     this.nextLoop = this.time + dur + gap[0] + this.rng() * (gap[1] - gap[0])
@@ -380,7 +383,7 @@ export class Avatar {
   // at rest only a lively mark blinks.
   blinks() {
     const def = STATES[this.state]
-    return !!def.blink && !this.calm && (!AMBIENT.has(this.state) || !!this.petting || (this.live && this.tier === 'lively'))
+    return !!def.blink && !this.calm && (!AMBIENT.has(this.state) || this.petted || (this.live && this.tier === 'lively'))
   }
 
   // Peeks while asleep, on large lively marks (only they doze off).
@@ -391,12 +394,12 @@ export class Avatar {
 
   // Small glances while resting, on large lively marks.
   glances() {
-    return this.state === 'idle' && this.live && this.tier === 'lively' && !this.calm && this.lod !== 'chip' && !this.gazeTarget && !this.petting
+    return this.state === 'idle' && this.live && this.tier === 'lively' && !this.calm && this.lod !== 'chip' && !this.gazeTarget && !this.petted
   }
 
   loopOf(def) {
     if (this.calm) return null
-    if (this.petting) return { bag: { nuzzle: 1 }, gap: [0.05, 0.3] }
+    if (this.petted) return { bag: { nuzzle: 1 }, gap: [0.05, 0.3] }
     const own = this.stateLoop(def)
     if (own) return own
     if (def.lively && this.tier === 'lively') return def.lively
@@ -404,12 +407,16 @@ export class Avatar {
     return null
   }
 
+  // Petting counts while someone is around: a pointer left on the mark of a resting
+  // window is nobody's hand, so the mark shows its state, face and pose.
+  get petted() { return !!this.petting && !this.resting }
+
   // The moves that show what the Bot is doing: they play at every motion level, and on
   // through a resting window, also under a pointer left on the mark. Idle and asleep
   // show nothing going on, so a resting window holds them still.
   stateLoop(def) {
     if (this.calm) return null
-    if (this.resting ? AMBIENT.has(this.state) : this.petting) return null
+    if (this.resting ? AMBIENT.has(this.state) : this.petted) return null
     return (this.lod === 'chip' && def.compact) || def.loop || null
   }
 
@@ -446,7 +453,7 @@ export class Avatar {
       target.gx += this.saccade.gx
       target.gy += this.saccade.gy
     }
-    if (this.petting) {
+    if (this.petted) {
       // Leans into the hand and sinks under it a little, eyes on you.
       target.x = (pose.x ?? 0) + this.petting.side * 1.2
       target.roll = (pose.roll ?? 0) - this.petting.side * 5
@@ -468,7 +475,7 @@ export class Avatar {
   // The face the mark is going to, clips aside: a held face over petting over the state's.
   faceWanted() {
     if (this.override.face && this.time < this.override.faceUntil) return this.override.face
-    if (this.petting) return this.time - this.petting.since > 0.35 ? 'happy' : 'content'
+    if (this.petted) return this.time - this.petting.since > 0.35 ? 'happy' : 'content'
     return STATES[this.state].face
   }
 
