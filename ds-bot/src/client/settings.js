@@ -3,7 +3,8 @@ import { isMainOf } from './sources.js'
 import { ApiIcon, BlocksIcon, CheckIcon, ChevronDownIcon, ChevronLeftIcon, ChevronRightIcon, ClockIcon, CloseIcon, CompassIcon, ConnectorIcon, GlobeIcon, InfoIcon, KeyboardIcon, LayersIcon, MonitorIcon, OverviewIcon, PaletteIcon, PhoneIcon, PlusIcon, PuzzleIcon, SearchIcon, SendIcon, ShieldIcon, SlidersIcon, TerminalIcon, WaveIcon, SETTINGS_ICONS } from './icons.js'
 import { IconAgentPresetOutlineMedium, IconArchiveOutlineMedium, IconSettingsOutlineMedium, IconUserOutlineMedium } from './dsh-primitives.js'
 import { AdminStar, BotAvatar, RoomAvatar } from './mark.js'
-import { useEscape } from './overlay-hooks.js'
+import { settingsOwnsKeyboard, useEscape } from './overlay-hooks.js'
+export { settingsOwnsKeyboard }
 import { BotSettingsForm, Switch } from './bot-settings.js'
 import { Segmented, useGlide } from './motion.js'
 import { GroupSettingsForm, NewGroupForm } from './group-settings.js'
@@ -414,7 +415,8 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
     if (leaving || typeof window === 'undefined') return undefined
     const mac = isMac()
     const onKeyDown = (event) => {
-      if (event.defaultPrevented || isImeComposing(event) || isShortcutRecording()) return
+      if (event.defaultPrevented || event.repeat || isImeComposing(event) || isShortcutRecording()) return
+      if (!settingsOwnsKeyboard(dialogRef.current)) return
       const modifier = mac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey
       if (!modifier || event.altKey || event.shiftKey || (event.code !== 'KeyK' && String(event.key).toLowerCase() !== 'k')) return
       event.preventDefault()

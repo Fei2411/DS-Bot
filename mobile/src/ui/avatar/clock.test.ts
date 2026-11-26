@@ -189,11 +189,12 @@ test('a mark that appears in a state plays its opening move', () => {
   mark.destroy()
 })
 
-test('after REST_MS without a touch a working mark finishes and holds still; a touch wakes it', () => {
+test('after REST_MS without a touch a petted mark finishes and holds still; a touch wakes it', () => {
   const p = phone()
-  const mark = p.mount('puppy', { state: 'working' })
+  const mark = p.mount('puppy', { live: true })
+  mark.act(engine => engine.pet(true, 1))
   assert.ok(built(p, mark))
-  for (let i = 0; i < 10; i += 1) p.frame()
+  for (let i = 0; i < 60; i += 1) p.frame()
   p.skip(REST_MS + 100)
   assert.equal(p.clock.isResting, true)
   const frames = settle(p, 2000)

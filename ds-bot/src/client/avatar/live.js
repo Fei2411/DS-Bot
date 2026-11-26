@@ -13,8 +13,9 @@ import { CONFETTI_INKS, DOZE_MS, FLAT_ORIGIN, flatPose, MARGIN } from './stage.j
 // The clock only asks for frames while some mark moves. A mark at rest sleeps until its
 // next blink or fidget; a mark out of view, or in a hidden page, is skipped. When
 // nobody has touched the window for REST_MS (as for the page's other loops,
-// motion-rest.js), marks finish what they are doing and hold still; after DOZE_MS a
-// lively mark at rest nods off, and wakes on input.
+// motion-rest.js), marks finish what they are doing and keep only their state's own
+// moves, further apart and at 30 fps at most: idle and asleep hold still. After
+// DOZE_MS a lively mark at rest nods off, and wakes on input.
 //
 // A mark shows its flat art until it first leaves the rest pose. Only then is its
 // model built (in idle slices) and the canvas put over the art; the move waits for
@@ -387,8 +388,8 @@ export class LiveMark {
   // Called by the clock: moves on and draws. Returns seconds until it needs a frame.
   step(time) {
     const elapsed = this.tickedAt ? (time - this.tickedAt) / 1000 : 1 / 60
-    // Small marks draw at most 30 times a second.
-    if (this.engine.lod === 'chip' && elapsed < 1 / 31 && !this.dirty) return 1 / 30 - elapsed
+    // Small marks, and every mark while the window rests, draw at most 30 times a second.
+    if ((this.engine.lod === 'chip' || this.engine.resting) && elapsed < 1 / 31 && !this.dirty) return 1 / 30 - elapsed
     // Still on the flat art: time runs on while nothing would move. A move waits for the
     // model; the mark's clock starts again once the model is in (attachRig kicks it).
     if (this.rig === undefined && !(this.engine.atRest && this.engine.wakeIn() > elapsed)) {

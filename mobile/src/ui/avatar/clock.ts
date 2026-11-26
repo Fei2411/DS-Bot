@@ -8,8 +8,9 @@ import { REST_MS } from '../../../../ds-bot/src/client/motion-rest.js'
 // ds-bot) without a page. One clock serves every mark. It asks for frames only while
 // some mark moves; a mark at rest sleeps until its next blink or fidget; a mark not on
 // screen, or any mark while the app is in the background, is skipped. When nobody has
-// touched the app for REST_MS, marks finish what they are doing and hold still; after
-// DOZE_MS a lively mark at rest nods off, and wakes on input.
+// touched the app for REST_MS, marks finish what they are doing and keep only their
+// state's own moves, further apart and at 30 fps at most: idle and asleep hold still;
+// after DOZE_MS a lively mark at rest nods off, and wakes on input.
 //
 // A mark shows its flat art until it first leaves the rest pose. Only then is its model
 // built, in slices of at most SLICE_MS when the JS thread is idle, and the drawing takes
@@ -55,6 +56,7 @@ export interface Engine {
   readonly effects: Effects
   readonly live: boolean
   readonly tier: Tier
+  readonly resting: boolean
   readonly atRest: boolean
   readonly frame: Parameters<typeof flatPose>[0]
   setOptions(options: { size?: number; live?: boolean; tier?: Tier; effects?: Effects }): void
@@ -398,10 +400,11 @@ export class LiveMark {
   // Called by the clock: moves on and draws. Returns seconds until it needs a frame.
   step(time: number): number {
     const elapsed = this.tickedAt ? (time - this.tickedAt) / 1000 : 1 / 60
-    // Marks below hero size draw at most 30 times a second. The desktop holds only chips
-    // to this; on the phone each frame is a new SVG built on the JS thread and parsed
-    // again natively, and a row mark costs about as much as a hero.
-    if (this.engine.lod !== 'hero' && elapsed < 1 / 31 && !this.dirty) return 1 / 30 - elapsed
+    // Marks below hero size, and every mark while the app rests, draw at most 30 times
+    // a second. The desktop holds only chips and resting marks to this; on the phone
+    // each frame is a new SVG built on the JS thread and parsed again natively, and a
+    // row mark costs about as much as a hero.
+    if ((this.engine.lod !== 'hero' || this.engine.resting) && elapsed < 1 / 31 && !this.dirty) return 1 / 30 - elapsed
     // Still on the flat art: time runs on while nothing would move. A move waits for the
     // model; the mark's clock starts again once the model is in (attachRig kicks it).
     if (this.rig === undefined && !(this.engine.atRest && this.engine.wakeIn() > elapsed)) {
