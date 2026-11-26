@@ -72,6 +72,9 @@ function dshShellDeclarations() {
 // an older shell lacks is harmless: nothing registers into it there.
 const NEWER_SLOTS = new Set(['settings.section.icon'])
 
+// Settings in Agent mode carries DS Bot's own rules only: the DSH page around it keeps its look.
+const styles = load(await bundle("export { botOwnCss, SHELL_CSS } from './src/client/styles.js'"))
+
 test('the seat declares every child slot DSH\'s own settings shell declares, alike', () => {
   // Both sides come from their own realms, so the comparison goes through plain data.
   const plain = value => JSON.parse(JSON.stringify(value))
@@ -86,6 +89,103 @@ test('the bundle patch turns off the DSH settings shell row that dsh-web-app mou
   assert.match(rows, /"id":"ui-settings-general","name":"@deepseek-ai\/dsh-client-ui-settings-general"/)
   const ours = parse(readFileSync(`${plugin}/cordis.patch.yml`, 'utf8'))
   assert.ok(ours.some(row => row.id === 'ui-settings-general' && row.disabled === true))
+})
+
+// The public slot contract: child declarations have one owner, duplicate entry
+// ids fail, and an injected iterable rolls back and disposes in reverse order.
+function settingsInstall({ dsh = false, ready = true } = {}) {
+  const declared = new Map(ready ? [['sidebar.settings', {}]] : [])
+  const entries = new Map()
+  const waits = new Set()
+  const held = []
+  const activate = (wait) => {
+    if (wait.stopped || wait.active || !declared.has(wait.name)) return
+    wait.active = true
+    const offs = []
+    try {
+      const effect = wait.setup()
+      if (typeof effect === 'function') offs.push(effect)
+      else if (effect) for (const off of effect) offs.push(off)
+    } catch (error) {
+      for (const off of offs.reverse()) off()
+      throw error
+    }
+    wait.off = () => { for (const off of offs.reverse()) off() }
+  }
+  const declare = (name, spec) => {
+    declared.set(name, spec)
+    for (const wait of waits) activate(wait)
+  }
+  const slots = {
+    register(options, component) {
+      const { name, children = {} } = options
+      if (!declared.has(name)) throw new Error(`undeclared slot: ${name}`)
+      const id = `${name}:${options.id ?? ''}`
+      if (entries.has(id)) throw new Error(`duplicate entry: ${id}`)
+      for (const child of Object.keys(children)) {
+        if (declared.has(child)) throw new Error(`duplicate declaration: ${child}`)
+      }
+      entries.set(id, component)
+      for (const [child, spec] of Object.entries(children)) declare(child, spec)
+      return () => {
+        entries.delete(id)
+        for (const child of Object.keys(children)) declared.delete(child)
+      }
+    },
+    inject(name, setup) {
+      const wait = { name, setup }
+      waits.add(wait)
+      activate(wait)
+      return () => { wait.stopped = true; wait.off?.(); waits.delete(wait) }
+    },
+  }
+  const dshTrigger = () => null
+  const dshSeat = () => null
+  if (dsh) {
+    slots.register({ name: 'sidebar.settings', children: shell.SETTINGS_CHILDREN }, dshSeat)
+    slots.register({ name: 'settings.trigger' }, dshTrigger)
+  }
+  const ctx = { slots, get: () => undefined, inject: () => ({ dispose() {} }), effect: (fn) => { const off = fn(); return { dispose: off } } }
+  const install = () => shell.installSettingsShell(ctx, {
+    face: () => ({}), actions: {}, ui: { getSnapshot: () => ({}) }, held: { set: value => held.push(value) },
+  })
+  return { entries, declared, held, dshTrigger, dshSeat, install, declare }
+}
+
+test('an enabled DSH settings shell keeps its trigger and DS Bot installs without a collision (#1245)', () => {
+  const rig = settingsInstall({ dsh: true })
+  const installed = rig.install()
+  assert.equal(rig.entries.get('settings.trigger:'), rig.dshTrigger)
+  assert.equal(rig.entries.get('sidebar.settings:'), rig.dshSeat)
+  assert.ok(!rig.held.includes(true))
+  installed.dispose()
+  assert.equal(rig.entries.get('sidebar.settings:'), rig.dshSeat)
+  assert.equal(rig.entries.get('settings.trigger:'), rig.dshTrigger)
+  for (const name of Object.keys(shell.SETTINGS_CHILDREN)) assert.ok(rig.declared.has(name))
+})
+
+test('DS Bot owns its default settings trigger only for its settings seat lifetime', () => {
+  const rig = settingsInstall()
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const installed = rig.install()
+    assert.ok(rig.entries.has('sidebar.settings:'))
+    assert.ok(rig.entries.has('settings.trigger:'))
+    installed.dispose()
+    assert.equal(rig.entries.size, 0)
+    assert.ok(!rig.declared.has('settings.trigger'))
+  }
+})
+
+test('the settings trigger waits for the seat and a disposed pending install stays inactive', () => {
+  const rig = settingsInstall({ ready: false })
+  const first = rig.install()
+  first.dispose()
+  rig.declare('sidebar.settings', {})
+  assert.equal(rig.entries.size, 0)
+  const second = rig.install()
+  assert.ok(rig.entries.has('settings.trigger:'))
+  second.dispose()
+  assert.equal(rig.entries.size, 0)
 })
 
 test('onboarding skips DSH\'s preview notice and keeps the ledger order', () => {
@@ -150,12 +250,13 @@ test('the settings file action shows only when the Host has a document to open',
 })
 
 // The dialog with DSH's ledger: renderSlot answers with a marker naming what it drew.
-function dialog({ page = 'general', id = null, sections, items = [], actions = {} } = {}) {
+function dialog({ page = 'general', id = null, sections, items = [], actions = {}, preferences } = {}) {
   const calls = []
   const drawn = []
   const dsh = {
     sections: sections ?? [{ id: 'account', order: -10, label: 'Account' }, { id: 'general', order: 0, label: 'General' }, { id: 'models', order: 10, label: 'Models' }, { id: 'plugins', order: 15, label: 'Plugins' }, { id: 'agent-presets', order: 20, label: 'Agent presets' }],
     items,
+    preferences,
     renderSlot: (name, owner, opts) => { drawn.push([name, opts?.only ?? null]); return { type: 'slot', props: { name, only: opts?.only ?? null } } },
   }
   const all = { closeSettings: () => calls.push('close'), openSettings: (...args) => calls.push(args), providers: () => {}, ...actions }
@@ -164,26 +265,28 @@ function dialog({ page = 'general', id = null, sections, items = [], actions = {
 }
 const navLabels = tree => walk(walk(tree, node => node.type === 'nav')[0], node => node.type === 'button').map(textOf)
 
-test('one Settings: DS Bot\'s pages, then DSH\'s, then Feedback and About; no Harness settings', () => {
+test('one Settings: DS Bot\'s grouped pages, then DSH\'s, then About DS Bot; no Harness settings', () => {
   const labels = navLabels(dialog().tree)
   assert.ok(!labels.includes('Harness settings'))
-  assert.deepEqual(labels.slice(-5), ['Account', 'Plugins', 'Agent presets', 'Feedback', 'About DS Bot'])
+  assert.deepEqual(labels.slice(-3), ['Account', 'Agent presets', 'About DS Bot'])
   assert.equal(labels.filter(label => label === 'General').length, 1)
   assert.equal(labels.filter(label => label === 'Models').length, 1)
+  assert.equal(labels.filter(label => label === 'Plugins').length, 1)
+  assert.equal(labels[0], 'Overview')
 })
 
 test('a DSH page opens in the dialog and draws that section', () => {
   const nav = dialog()
-  walk(nav.tree, node => node.type === 'button' && textOf(node) === 'Plugins')[0].props.onClick()
-  assert.deepEqual(nav.calls, [['dsh', 'plugins']])
-  const page = dialog({ page: 'dsh', id: 'plugins' })
-  assert.ok(page.drawn.some(([name, only]) => name === 'settings.section' && only === 'plugins'))
-  assert.equal(textOf(walk(page.tree, node => node.type === 'h2')[0]), 'Plugins')
+  walk(nav.tree, node => node.type === 'button' && textOf(node) === 'Agent presets')[0].props.onClick()
+  assert.deepEqual(nav.calls, [['dsh', 'agent-presets']])
+  const page = dialog({ page: 'dsh', id: 'agent-presets' })
+  assert.ok(page.drawn.some(([name, only]) => name === 'settings.section' && only === 'agent-presets'))
+  assert.equal(textOf(walk(page.tree, node => node.type === 'h2')[0]), 'Agent presets')
 })
 
-test('a DSH page that left the ledger falls back to General', () => {
+test('a DSH page that left the ledger falls back to Overview', () => {
   const { tree, drawn } = dialog({ page: 'dsh', id: 'gone' })
-  assert.equal(textOf(walk(tree, node => node.type === 'h2')[0]), 'General')
+  assert.equal(textOf(walk(tree, node => node.type === 'h2')[0]), 'Overview')
   assert.ok(!drawn.some(([name]) => name === 'settings.section'))
 })
 
@@ -198,35 +301,166 @@ test('DSH\'s Models page is Models → Advanced settings, with a way back', () =
   assert.equal(providersOf(dialog({ page: 'models', sections: [] }).tree).props.advanced, null)
 })
 
-test('DSH\'s General rows join General: the look under Appearance, the rest under More', () => {
+test('DSH\'s Plugins page is Plugins → Engine plugins, with a way back', () => {
+  const page = dialog({ page: 'plugins', id: 'dsh' })
+  assert.ok(page.drawn.some(([name, only]) => name === 'settings.section' && only === 'plugins'))
+  const [back] = walk(page.tree, node => node.type === 'button' && node.props['aria-label'] === 'Back to Plugins')
+  back.props.onClick()
+  assert.deepEqual(page.calls, [['plugins']])
+  // Legacy deep links `('dsh', 'plugins')` from scheduling & onboarding also land on Engine plugins.
+  const legacy = dialog({ page: 'dsh', id: 'plugins' })
+  assert.ok(legacy.drawn.some(([name, only]) => name === 'settings.section' && only === 'plugins'))
+})
+
+test('DSH\'s General rows join Appearance (look), General Basics (language), and Advanced (rest)', () => {
   const items = [{ id: 'permission', order: -20 }, { id: 'language', order: 0 }, { id: 'appearance', order: 10 }, { id: 'font-size', order: 11 }, { id: 'developer-tools', order: 15 }]
-  const [general] = walk(dialog({ items }).tree, node => typeof node.type === 'function' && node.type.name === 'GeneralPage')
-  const sections = general.type(general.props).filter(Boolean)
+  const [appearance] = walk(dialog({ page: 'appearance', items }).tree, node => typeof node.type === 'function' && node.type.name === 'AppearancePage')
   const only = node => walk(node, item => item.type === 'slot').map(item => item.props.only)
-  assert.deepEqual(only(sections.find(node => node.props.key === 'look')), ['appearance', 'font-size'])
-  assert.deepEqual(only(sections.find(node => node.props.key === 'more')), ['permission', 'language', 'developer-tools'])
+  // In DSH, light or dark and the font size stay DSH's own rows, now on the Appearance page.
+  assert.equal(appearance.props.ownWindow, false)
+  assert.equal(appearance.props.dshRows.map(row => row.props['data-item']).join(), 'appearance,font-size')
+
+  const [general] = walk(dialog({ page: 'general', items }).tree, node => typeof node.type === 'function' && node.type.name === 'GeneralPage')
+  const generalSections = general.type({ ...general.props, openAdvanced: true }).filter(Boolean)
+  assert.deepEqual(only(generalSections.find(node => node.props.key === 'basics')), ['language'])
+  assert.deepEqual(only(generalSections.find(node => node.props.key === 'more')), ['permission', 'developer-tools'])
+})
+
+test('DS Bot draws known General selectors, while unrelated DSH rows keep their public slots', () => {
+  const ids = ['language', 'transcript-view', 'link-opening', 'composer-enter', 'performance-usage', 'permission']
+  const { tree, drawn } = dialog({ items: [...ids, 'another-plugin'].map(id => ({ id })), preferences: {} })
+  const [general] = walk(tree, node => typeof node.type === 'function' && node.type.name === 'GeneralPage')
+  const sections = general.type({ ...general.props, openAdvanced: true })
+  const drawnIds = walk(sections, node => typeof node.type === 'function' && node.type.name === 'SettingsPreferences').map(node => node.props.id)
+  assert.deepEqual([...drawnIds].sort(), [...ids].sort())
+  assert.ok(drawn.some(([name, only]) => name === 'settings.general.item' && only === 'another-plugin'))
+  assert.ok(!drawn.some(([name, only]) => name === 'settings.general.item' && ids.includes(only)))
 })
 
 test('header actions from DSH and plugins sit beside the title', () => {
   assert.ok(dialog().drawn.some(([name]) => name === 'settings.action'))
 })
 
-test('General settings keeps the Classic Agent mode switch', () => {
+test('General settings puts the Classic Agent mode switch at top level (outside Advanced)', () => {
   const calls = []
   const tree = SettingsDialog({
     page: 'general', id: null, roster, useUpdate: pick => pick({}),
     actions: { closeSettings() {}, openSettings() {}, setSurface: mode => calls.push(mode) },
   })
   const [general] = walk(tree, node => typeof node.type === 'function' && node.type.name === 'GeneralPage')
-  const [row] = walk(general.type(general.props), node => node.props?.label === 'Classic Agent mode')
-  assert.ok(row !== undefined)
+  const [row] = walk(general.type({ ...general.props, openAdvanced: false }), node => node.props?.label === 'Classic Agent mode')
+  assert.ok(row !== undefined, 'Classic Agent mode must be visible without expanding Advanced')
   const [button] = walk(row, node => node.type === 'button' && textOf(node) === 'Switch')
   button.props.onClick()
   assert.deepEqual(calls, ['agent'])
 })
 
-// Settings in Agent mode carries DS Bot's own rules only: the DSH page around it keeps its look.
-const styles = load(await bundle("export { botOwnCss, SHELL_CSS } from './src/client/styles.js'"))
+// The seat is `single`: DSH draws only the lowest-priority entry, and an entry whose
+// component crashed is set aside. A registration that succeeds is not a shell on screen.
+const fakeSlots = () => {
+  const registered = []
+  return {
+    registered,
+    inject: (_, fn) => { const off = fn(); return () => off?.() },
+    register: (options, component) => { const row = { options, component }; registered.push(row); return () => registered.splice(registered.indexOf(row), 1) },
+    entries: () => [], getVersion: () => 0, subscribe: () => () => {},
+  }
+}
+const installShell = (held) => {
+  const slots = fakeSlots()
+  const ctx = { slots, get: () => undefined, inject: () => ({ dispose() {} }), effect: (fn) => { const off = fn(); return { dispose: off } } }
+  const ui = { getSnapshot: () => ({}) }
+  const installed = shell.installSettingsShell(ctx, { face: () => ({ actions: {}, hooks: {} }), actions: { closeSettings() {} }, ui, held })
+  return { slots, installed }
+}
+const heldSource = () => {
+  let value = false
+  return { getSnapshot: () => value, set: (next) => { value = next } }
+}
+
+test('a seat registration that DSH does not draw leaves DS Bot\'s own Settings dialog on', () => {
+  const held = heldSource()
+  const { slots, installed } = installShell(held)
+  assert.ok(slots.registered.some(row => row.options.name === 'sidebar.settings'))
+  // Another entry holds the seat at a lower priority, so SettingsShell never mounts.
+  assert.equal(held.getSnapshot(), false)
+  installed.dispose()
+  assert.equal(held.getSnapshot(), false)
+})
+
+// SettingsShell drawn with its layout effects run, as React runs them on mount and
+// unmount.
+const mounted = async () => {
+  const effects = []
+  const recording = { ...react, useLayoutEffect: (fn) => effects.push(fn), useEffect() {} }
+  const module = { exports: {} }
+  runInNewContext(await bundle("export * from './src/client/settings-shell.js'"), {
+    module, exports: module.exports,
+    window: { innerWidth: 1280, matchMedia: () => ({ matches: false }) },
+    requestAnimationFrame: () => 0, cancelAnimationFrame() {}, setTimeout, clearTimeout, Promise,
+    require: name => (name === 'react' ? recording : name === 'react-dom' ? { createPortal: node => node } : new Proxy({}, { get: (_, key) => key })),
+  })
+  const shellModule = module.exports
+  const pick = value => fn => fn(value)
+  const props = (holdSeat) => ({
+    wide: true, renderSlot: () => null, actions: { closeSettings() {}, openSettings() {} },
+    useUi: pick({ settings: null }), useRoster: pick(roster), useUpdate: pick({}), useSessions: pick({}),
+    useSections: pick([]), useGeneralItems: pick([]), useOnboardingSteps: pick([]), useOnboardingRequest: pick(undefined),
+    useConnectionState: pick('connected'), useDesktopUpdate: pick({}), useSettingsShortcut: pick(undefined),
+    reconnect() {}, openDesktopUpdate() {}, openOnboarding() {}, finishOnboarding() {}, holdSeat,
+  })
+  // Each render returns the cleanups of the layout effects it ran, like one mount.
+  const mount = (holdSeat) => {
+    effects.length = 0
+    shellModule.SettingsShell(props(holdSeat))
+    return effects.splice(0).map(fn => fn()).filter(cleanup => typeof cleanup === 'function')
+  }
+  return { shellModule, mount }
+}
+
+test('DS Bot holds the seat only while SettingsShell is on screen', async () => {
+  const { shellModule, mount } = await mounted()
+  const held = heldSource()
+  const seat = shellModule.seatHold(held)
+  const cleanups = mount(seat.hold)
+  assert.equal(held.getSnapshot(), true)
+  for (const cleanup of cleanups) cleanup()
+  assert.equal(held.getSnapshot(), false)
+})
+
+test('a remount that overlaps the old shell keeps the seat held until the last one leaves', async () => {
+  const { shellModule, mount } = await mounted()
+  const held = heldSource()
+  const seat = shellModule.seatHold(held)
+  const first = mount(seat.hold)
+  const second = mount(seat.hold)
+  for (const cleanup of first) cleanup()
+  assert.equal(held.getSnapshot(), true)
+  for (const cleanup of second) cleanup()
+  assert.equal(held.getSnapshot(), false)
+  // A release that runs twice does not take another mount's hold with it.
+  const third = mount(seat.hold)
+  for (const cleanup of first) cleanup()
+  assert.equal(held.getSnapshot(), true)
+  for (const cleanup of third) cleanup()
+  assert.equal(held.getSnapshot(), false)
+})
+
+test('the installer hands SettingsShell the hold through the seat\'s face', () => {
+  const held = heldSource()
+  const { slots, installed } = installShell(held)
+  const seat = slots.registered.find(row => row.options.name === 'sidebar.settings')
+  const release = seat.options.inject().holdSeat()
+  assert.equal(held.getSnapshot(), true)
+  release()
+  assert.equal(held.getSnapshot(), false)
+  installed.dispose()
+})
+
+test('settings slot icons take precedence over legacy plugin nav decorators', () => {
+  assert.match(styles.SHELL_CSS, /\.bt-settings-item:has\(>\.bt-settings-icon\)::before\{content:none!important\}/)
+  assert.match(styles.SHELL_CSS, /\.bt-settings-icon>\[data-slot="settings\.section\.icon"\]>svg\{display:block!important\}/)
+})
 
 test('the Agent-mode sheet keeps DS Bot\'s own rules and drops the shell overrides', () => {
   const css = `body{--bt-ink:#111;-webkit-tap-highlight-color:transparent}

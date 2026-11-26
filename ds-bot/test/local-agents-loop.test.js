@@ -8,12 +8,14 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
 import { LocalAttachmentStore } from '@deepseek-ai/dsh-attachment-local'
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { LlmAdapter, createUserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { mountAgentLoopTestDependencies, mountAgentLoopTestHarness } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { LocalAgentAdapter } from '../src/host/local-agents/adapter.js'
 import { AcpEngine } from '../src/host/local-agents/acp.js'
 import { output } from '../src/host/tools.js'
+import { install as installLocalAgents } from '../src/host/local-agents/index.js'
+import { install as installParts } from '../src/host/parts.js'
 
 const FIXTURE = fileURLToPath(new URL('./fixtures/fake-acp.mjs', import.meta.url))
 const TEAM = ['message_bot', 'approve_agent_action']
@@ -59,6 +61,43 @@ const texts = agent => agent.session.snapshotEvents()
   .filter(event => event.type === 'assistant/message')
   .map(event => (event.data.message.content ?? []).map(block => block.text ?? '').join('')).join('\n')
 const eventTypes = agent => agent.session.snapshotEvents().map(event => event.type)
+
+test('a stored Bot on a taken local route fails without calling the owning adapter (#1390)', async (t) => {
+  const ctx = new Context()
+  await mountAgentLoopTestDependencies(ctx)
+  t.after(() => ctx.fiber.dispose())
+  let calls = 0
+  const other = new LlmAdapter()
+  other.stream = async function* () {
+    calls++
+    yield { type: 'finish', reason: { kind: 'stop' } }
+  }
+  ctx.llm.registerAdapter(['local-acp-taken'], other)
+  const bot = { id: 's1', model: 'local-acp-taken/default' }
+  const rt = {
+    ctx, state: { bots: { s1: bot } }, teamTools: [], warn() {},
+    selfOf: id => id, botOf: id => id === bot.id ? bot : undefined,
+    config: {}, load: async () => {}, readOnly: () => undefined,
+    pastOwners: new Map(), chatOwners: new Map(), groupOwners: new Map(), roomOwners: new Map(),
+    isBotSession: () => false, ownRequest: () => true,
+  }
+  installLocalAgents(rt)
+  installParts(rt)
+  await mountAgentLoopTestHarness(ctx)
+  const agent = await ctx.agentLoop.create(SessionId('s1'), { provider: 'local-acp-taken', model: 'default' })
+  send(agent, 'Do not send my input to another adapter')
+  await waitForIdle(ctx, agent)
+  const reason = agent.session.snapshotEvents().findLast(event => event.type === 'turn/end')?.data.reason
+  assert.equal(calls, 0)
+  assert.equal(reason.kind, 'error')
+  assert.equal(reason.error.code, 'LOCAL_AGENT_MISSING')
+  assert.match(reason.error.message, /local agent.*unavailable/i)
+  const external = await ctx.agentLoop.create(SessionId('external'), { provider: 'local-acp-taken', model: 'default' })
+  send(external, 'An unrelated Session can still use its adapter')
+  await waitForIdle(ctx, external)
+  assert.equal(calls, 1)
+  assert.equal(external.session.snapshotEvents().findLast(event => event.type === 'turn/end')?.data.reason.kind, 'completed')
+})
 
 test('a real loop turn streams the CLI answer and ends completed', async (t) => {
   const { ctx, agent, adapter } = await boot()

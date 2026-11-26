@@ -5,7 +5,10 @@ import { test } from 'node:test'
 import { build } from 'esbuild'
 
 const { outputFiles } = await build({
-  entryPoints: [fileURLToPath(new URL('../src/client/bot-settings.js', import.meta.url))],
+  stdin: {
+    contents: "export * from './src/client/bot-settings.js'; export { registerShape } from './src/client/themes.js'",
+    resolveDir: fileURLToPath(new URL('..', import.meta.url)),
+  },
   bundle: true, format: 'cjs', platform: 'browser', write: false, logLevel: 'silent',
   external: ['react', 'react-dom', '@deepseek-ai/dsh-client-ui-primitives'],
 })
@@ -20,7 +23,7 @@ runInNewContext(outputFiles[0].text, {
   module, exports: module.exports,
   require: name => (name === 'react' ? react : name === 'react-dom' ? { createPortal: node => node } : {}),
 })
-const { BotSettingsForm, InlineText } = module.exports
+const { AvatarEditor, BotSettingsForm, CharacterGrid, InlineText, registerShape } = module.exports
 
 function walk(node, found = []) {
   if (Array.isArray(node)) { for (const child of node) walk(child, found); return found }
@@ -34,6 +37,41 @@ function settings(bot, { main = false, rooms = [] } = {}) {
   return walk(BotSettingsForm({ bot, roster, actions: {}, run: fn => fn }))
 }
 const bot = { id: 'b', name: 'Writer', role: 'Writer', instructions: '', capabilities: [] }
+
+test('the primary Main Bot keeps its name and avatar editing controls', () => {
+  const writes = []
+  const chief = { ...bot, id: 'chief', name: 'Chief' }
+  const roster = { mainBotId: chief.id, mainBotIds: [chief.id], rooms: [], models: [] }
+  const actions = { updateBot: (id, patch) => writes.push([id, patch]) }
+  const nodes = walk(BotSettingsForm({ bot: chief, roster, actions, run: value => value }))
+  nodes.find(node => node.type === InlineText && node.props.label === 'Name').props.onSave('Captain')
+  assert.equal(nodes.some(node => node.props?.['aria-label'] === 'Edit Bot avatar'), true)
+  assert.equal(JSON.stringify(writes), JSON.stringify([['chief', { name: 'Captain' }]]))
+  assert.equal(roster.mainBotId, chief.id)
+})
+
+test('group photo reset and removal only clear the group avatar', () => {
+  const writes = []
+  const actions = { updateRoom: (id, patch) => writes.push([id, patch]) }
+  const room = { id: 'room', avatar: { image: 'data:image/png;base64,AA==' } }
+  const nodes = walk(AvatarEditor({ room, actions, run: value => value, onClose() {} }))
+  assert.equal(nodes.filter(node => node.props?.role === 'tab').length, 2)
+  nodes.find(node => node.props?.className === 'bt-avedit-tab bt-avedit-reset').props.onClick()
+  nodes.find(node => node.props?.children?.includes('Remove photo')).props.onClick()
+  assert.equal(JSON.stringify(writes), JSON.stringify([['room', { avatar: null }], ['room', { avatar: null }]]))
+})
+
+test('the group library selection writes an image without Bot-only fields', () => {
+  const real = react.useState
+  let first = true
+  react.useState = initial => [first ? (first = false, 'library') : initial, () => {}]
+  const writes = []
+  try {
+    const nodes = walk(AvatarEditor({ room: { id: 'room' }, actions: { updateRoom: (id, patch) => writes.push([id, patch]) }, run: value => value, onClose() {} }))
+    nodes.find(node => node.props?.onPick).props.onPick({ image: 'data:image/png;base64,AA==' })
+    assert.equal(JSON.stringify(writes), JSON.stringify([['room', { avatar: { image: 'data:image/png;base64,AA==' } }]]))
+  } finally { react.useState = real }
+})
 
 test('the Private switch is enabled only for a state the host accepts', () => {
   const noFolder = settings(bot).find(node => node.props?.label === 'Private')
@@ -60,6 +98,46 @@ test('a private Bot can always turn privacy off, and cannot become Main or be du
   assert.equal(privacy.props.disabled, false)
   assert.equal(tree.find(node => node.props?.label === 'Main Bot').props.disabled, true)
   assert.equal(tree.some(node => node.props?.onClick && node.props.className === 'bt-set-row bt-bs-row' && JSON.stringify(node).includes('Duplicate')), false)
+})
+
+test('RunModeCard combines Engine and Model into one card without prose hints', () => {
+  const tree = settings(bot)
+  const runCard = tree.find(node => typeof node.type === 'function' && node.type.name === 'RunModeCard')
+  assert.ok(runCard, 'BotSettingsForm mounts RunModeCard')
+  const rendered = walk(runCard.type(runCard.props))
+  const text = JSON.stringify(rendered)
+  assert.match(text, /Engine/)
+  assert.match(text, /Built-in engine/)
+  assert.match(text, /Switch/)
+  assert.match(text, /Model/)
+  assert.doesNotMatch(text, /Answers with a model served by DS Bot/)
+  assert.doesNotMatch(text, /Answers through this CLI/)
+})
+
+test('extra folders are listed under the working folder and saved as one list', () => {
+  const saved = []
+  const actions = { updateBot: (id, patch) => saved.push([id, patch]) }
+  const roster = { mainBotIds: [], mainBotId: null, rooms: [], models: [], memory: false }
+  const tree = walk(BotSettingsForm({ bot: { ...bot, workDir: '/work', extraDirs: ['/site', '/api'] }, roster, actions, run: fn => fn }))
+  const list = tree.find(node => node.props?.value?.[0] === '/site' && typeof node.props.onSave === 'function')
+  const rows = walk(list.type(list.props))
+  const remove = rows.find(node => node.props?.['aria-label'] === 'Remove /site')
+  remove.props.onClick()
+  const adder = rows.find(node => node.props?.adding === true)
+  adder.props.onPick('/docs')
+  adder.props.onPick('/api')
+  // The lists come from the bundle's own realm.
+  assert.deepEqual(JSON.parse(JSON.stringify(saved)), [['b', { extraDirs: ['/api'] }], ['b', { extraDirs: ['/site', '/api', '/docs'] }]])
+  // A Bot with extra folders clears them before it becomes private.
+  const privacy = tree.find(node => node.props?.label === 'Private')
+  assert.equal(privacy.props.disabled, true)
+  assert.equal(privacy.props.hint, 'Remove its extra folders first.')
+  // A local agent owns its file permissions and has no extra-folder controls.
+  const local = settings({ ...bot, workDir: '/work', engine: 'local-codex', extraDirs: ['/site'] })
+  assert.equal(local.some(node => typeof node.props?.onSave === 'function' && Array.isArray(node.props.value ?? [])), false)
+  // A private Bot has no list to edit.
+  const closed = settings({ ...bot, workDir: '/work', private: true })
+  assert.equal(closed.some(node => typeof node.props?.onSave === 'function' && Array.isArray(node.props.value ?? [])), false)
 })
 
 // One InlineText with working state, so a test can type into it, press keys and blur it.
@@ -127,4 +205,41 @@ test('a field takes its class from the page it sits in, and defaults to the Sett
   assert.equal(InlineText({ label: 'Label', value: '' }).props.className, 'bt-bs-input')
   assert.equal(InlineText({ label: 'Instructions', value: '', multiline: true }).props.className, 'bt-bs-input bt-bs-area')
   assert.equal(InlineText({ label: 'Label', value: '', className: 'bt-drawer-role-input' }).props.className, 'bt-drawer-role-input')
+})
+
+test('CharacterGrid stays a flat 20-button grid for legacy and aliased Bot shapes', () => {
+  // Legacy render-only shapes do not append an extra 21st button to the picker.
+  for (const legacy of ['ring', 'gem', 'magnet']) {
+    const grid = walk(CharacterGrid({ look: { shape: legacy, color: 'blue' }, onShape() {}, onColor() {} }))
+    const buttons = grid.filter(node => node.props?.className === 'bt-shape')
+    assert.equal(buttons.length, 20, `${legacy} should not add a 21st picker button`)
+    assert.equal(grid.some(node => node.props?.className === 'bt-shape-row'), false)
+    assert.equal(buttons.some(node => node.props['aria-pressed']), false)
+  }
+  // Aliased shapes resolve through AvatarEditor and highlight their active target button.
+  const editorNodes = walk(AvatarEditor({ bot: { id: 'old', name: 'Old', avatar: { shape: 'wave' }, color: 'red' }, actions: {}, run: v => v, onClose() {} }))
+  const gridEl = editorNodes.find(node => node.type === CharacterGrid)
+  assert.equal(gridEl.props.look.shape, 'octopus')
+  const buttons = walk(CharacterGrid(gridEl.props)).filter(node => node.props?.className === 'bt-shape')
+  assert.equal(buttons.length, 20)
+  const pressed = buttons.filter(node => node.props['aria-pressed'])
+  assert.equal(pressed.length, 1)
+  assert.equal(pressed[0].props['aria-label'], 'Octopus')
+
+  // Plugin-registered shapes overriding a retired legacy id still appear in the picker,
+  // and disappear again when unregistered.
+  const unregisterRing = registerShape('ring', {
+    label: 'Custom Ring',
+    body: paint => `<circle cx="50" cy="50" r="36" fill="${paint}"/>`,
+    eyes: { at: [[40, 45], [60, 45]] },
+  })
+  try {
+    const withCustom = walk(CharacterGrid({ look: { shape: 'ring', color: 'blue' }, onShape() {}, onColor() {} })).filter(node => node.props?.className === 'bt-shape')
+    assert.equal(withCustom.length, 21)
+    assert.equal(withCustom.some(node => node.props['aria-label'] === 'Custom Ring' && node.props['aria-pressed']), true)
+  } finally {
+    unregisterRing()
+  }
+  const afterUnregister = walk(CharacterGrid({ look: { shape: 'ring', color: 'blue' }, onShape() {}, onColor() {} })).filter(node => node.props?.className === 'bt-shape')
+  assert.equal(afterUnregister.length, 20)
 })

@@ -16,6 +16,14 @@ import { installHooks } from './helpers/register.mjs'
 
 // The user makes the folder in the picker first, so a copy shows as what is in it.
 const copied = path => existsSync(path) && readdirSync(path).length > 0
+const canList = (path) => {
+  try {
+    readdirSync(path)
+    return true
+  } catch {
+    return false
+  }
+}
 
 await installHooks()
 
@@ -40,9 +48,10 @@ test('a later start on a drive that runs low shows the place line, and its butto
   assert.equal(await act('pick', 'changePlace'), true)
   await waitFor(() => last().card?.kind === 'rejected', 'say why the folder cannot be used')
   assert.deepEqual(last().card, { kind: 'rejected', reason: 'nested', path: join(home, 'inside') })
-  // A folder the checks cannot read is refused for want of permission; the start goes on.
+  // A folder the checks cannot read is refused for want of permission; the start goes on. An
+  // administrator (as on CI runners) can list it, and then it is simply a folder that is not empty.
   const unreadable = 'C:\\System Volume Information'
-  if (process.platform === 'win32' && existsSync(unreadable)) {
+  if (process.platform === 'win32' && existsSync(unreadable) && !canList(unreadable)) {
     state.openAnswer = { canceled: false, filePaths: [unreadable] }
     await act('pick')
     await waitFor(() => last().card?.reason === 'permission', 'refuse a folder it cannot read')

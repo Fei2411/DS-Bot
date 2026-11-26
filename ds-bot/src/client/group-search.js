@@ -152,7 +152,7 @@ export function GroupSearch({ room, roster, token, actions }) {
         ? h('div', { className: 'bt-palette-empty' }, h('span', { className: 'bt-palette-empty-label' }, hostText(error?.message ?? error)))
         : results.length === 0
           ? h('div', { className: 'bt-palette-empty' },
-            busy ? h('span', { className: 'bt-palette-empty-label' }, t('Searching…'))
+            busy || answer?.query !== text ? h('span', { className: 'bt-palette-empty-label' }, t('Searching…'))
               : [h('span', { className: 'bt-palette-empty-icon', key: 'ico', 'aria-hidden': true }, h(SearchIcon)),
                 h('span', { className: 'bt-palette-empty-label', key: 'label' }, t('No messages found')),
                 h('span', { className: 'bt-palette-empty-hint', key: 'hint' }, t('Try a different word'))])

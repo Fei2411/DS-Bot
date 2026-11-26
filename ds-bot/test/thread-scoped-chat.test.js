@@ -57,3 +57,18 @@ test('search in a background part only sees that thread', async () => {
   const none = await rt.searchOwnChat('b1', 'foreground', { askingId: 'bg2' })
   assert.deepEqual(none.lines, [])
 })
+
+test('a capped fallback search reports that older messages were not searched', async () => {
+  for (const complete of [false, true]) {
+    const rt = runtime()
+    rt.partLines = async function* (sessionId, signal, { pages, read }) {
+      assert.equal(pages, 10)
+      yield { time: 1, text: 'matching message' }
+      Object.assign(read, { capped: true, complete })
+    }
+    const found = await rt.searchOwnChat('b1', 'matching')
+    assert.equal(found.lines.includes('(Older messages were not searched.)'), !complete)
+    const empty = await rt.searchOwnChat('b1', 'absent')
+    assert.deepEqual(empty.lines, complete ? [] : ['(Older messages were not searched.)'])
+  }
+})

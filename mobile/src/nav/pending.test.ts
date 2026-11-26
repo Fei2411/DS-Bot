@@ -16,6 +16,18 @@ const baseTeam: TeamState = {
   mainBotIds: ['b1'],
 }
 
+test('learning proposals appear in Needs you and badges until handled', () => {
+  const team: TeamState = { ...baseTeam, learning: {
+    b1: [{ id: 'skill', botId: 'b1', name: 'review' }, { id: 'agents', botId: 'b1', kind: 'agents', folder: '/project' }],
+    ghost: [{ id: 'gone', botId: 'ghost' }],
+  } }
+  assert.deepEqual(pendingItemsOf(team).map(item => item.key), ['learning-skill', 'learning-agents'])
+  assert.equal(pendingCountOf(team), 2)
+  assert.equal(botHasPending(team, baseTeam.bots[0]), true)
+  assert.equal(roomHasPending(team, baseTeam.rooms![0]), false)
+  assert.equal(pendingCountOf({ ...team, learning: { b1: [] } }), 0)
+})
+
 test('pendingCountOf matches pendingItemsOf when questions or views reference orphaned or non-current sessions', () => {
   const team: TeamState = {
     ...baseTeam,

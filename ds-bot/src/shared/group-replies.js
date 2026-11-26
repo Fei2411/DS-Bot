@@ -21,8 +21,25 @@ const RELAY_LIST = /"replies"\s*:\s*\[/
 // "[... tool result middle pruned ...]". Its "]" looks like the end of the
 // replies array to a naive scan, so the text is split on the marker first.
 const PRUNE_MARKER = /\[\.\.\. tool result middle pruned \.\.\.\]/
+const SAVE_TOKEN_NOTICE = /\n\n\[save-token #[\da-z]+ (?:compressed|losslessly re-encoded): [\d,]+ -> [\d,]+ bytes[\s\S]*\]$/
+export const compressedRelayPreview = text => {
+  const notice = SAVE_TOKEN_NOTICE.exec(text)
+  return notice === null ? undefined : text.slice(0, notice.index)
+}
+export const REPLY_ELISION = / \.\.\.\[\+(\d+) chars\]\.\.\. /
+
 export function parseReplies(text) {
-  try { return { replies: JSON.parse(text).replies ?? [], broken: false } } catch { /* fall through */ }
+  const preview = compressedRelayPreview(text)
+  if (preview !== undefined) {
+    // The elision can splice two different Bots' text into a single valid JSON string.
+    const replies = parseReplies(preview).replies.filter(reply => reply && typeof reply === 'object'
+      && !reply.__omitted__ && (typeof reply.text !== 'string' || !REPLY_ELISION.test(reply.text)))
+    return { replies, broken: true }
+  }
+  try {
+    const replies = JSON.parse(text)?.replies
+    return { replies: Array.isArray(replies) ? replies : [], broken: false }
+  } catch { /* fall through */ }
   const replies = []
   const head = RELAY_LIST.exec(text)
   if (head) {
@@ -69,6 +86,13 @@ export function stackReplies(replies) {
   const items = []
   replies.forEach((reply, index) => {
     const last = items.at(-1)
+    // A Bot can start several turns in a row (a wake-up, another call in the round, a
+    // late turn), and every start writes its own "started on it" row. In the transcript
+    // they are one event, not a wall of identical lines, so consecutive starts by the
+    // same Bot fold into the first row. Any other row between them (a message, an
+    // approval, done, the user) breaks the run.
+    if (reply.kind === 'working' && last?.reply.kind === 'working'
+      && reply.botId !== undefined && reply.botId === last.reply.botId) return
     if (reply.kind === undefined && last?.reply.kind === undefined && last?.reply.botId === reply.botId
       && last.claims === undefined && (last.changes === undefined
         || (reply.changes?.sessionId === last.changes.sessionId && reply.changes?.turn === last.changes.turn))) {

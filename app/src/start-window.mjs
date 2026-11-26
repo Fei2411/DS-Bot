@@ -124,30 +124,6 @@ export function mainRect(start, area, size = MAIN_SIZE) {
   return clampInto({ x, y, width: size.width, height: size.height }, area)
 }
 
-/** CSS's cubic-bezier() as a function of the time fraction. */
-export function cubicBezier(x1, y1, x2, y2) {
-  const curve = (p1, p2) => {
-    const c = 3 * p1
-    const b = 3 * (p2 - p1) - c
-    const a = 1 - c - b
-    return s => ((a * s + b) * s + c) * s
-  }
-  const x = curve(x1, x2)
-  const y = curve(y1, y2)
-  return (t) => {
-    if (t <= 0) return 0
-    if (t >= 1) return 1
-    // x is monotonic for control points inside [0, 1], so halving finds its parameter.
-    let low = 0
-    let high = 1
-    for (let step = 0; step < 40; step += 1) {
-      const mid = (low + high) / 2
-      if (x(mid) < t) low = mid
-      else high = mid
-    }
-    return y((low + high) / 2)
-  }
-}
 /**
  * Where the start page's whale lands at the hand-off (start-window §8): the Main Bot's avatar as
  * the team view reported it, in CSS px of that page, turned into DIP and then into the start
@@ -230,16 +206,15 @@ export function mainBotName(state) {
 }
 
 // What the start knows about the team it opens. The ring page no longer shows it (no greeting or
-// hint lines since 2026-10-30); the snapshot keeps it for now. previewNotice: DSH shows its
-// preview notice when the Session is ready and the main view has no non-empty Session, which a
-// data folder without a team always has.
+// hint lines since 2026-10-30); the snapshot keeps it for now. With DS Bot's own frontend no
+// DSH preview notice is ever shown.
 export function explainOf({ offered = false, team } = {}) {
   if (offered) return { mode: 'import', nextStep: false, previewNotice: false }
   if (team !== undefined) {
     const name = mainBotName(team.team)
     return { mode: 'reinstall', bots: team.bots, groups: team.rooms, ...(name === undefined ? {} : { name }), nextStep: false, previewNotice: false }
   }
-  return { mode: 'new', nextStep: true, previewNotice: true }
+  return { mode: 'new', nextStep: true, previewNotice: false }
 }
 
 export const clockMs = (clock, now) => clock.base + (clock.running ? Math.max(0, now - clock.from) : 0)
@@ -385,9 +360,30 @@ export class StartWindow {
     win.once('ready-to-show', () => { note(`the start page painted ${sinceLaunch()} ms after launch`) })
     this.#later('show', PAINT_WAIT_MS, () => { this.#showStart('the page did not say it painted', { now: true }) })
     this.#painted = new Promise((resolve) => {
-      win.once('ready-to-show', resolve)
-      contents.once('did-finish-load', resolve)
-      setTimeout(resolve, PAINT_WAIT_MS)
+      let settled = false
+      let timer
+      const cleanup = () => {
+        clearTimeout(timer)
+        win.off?.('ready-to-show', done)
+        win.off?.('closed', onClosed)
+        contents.off?.('did-finish-load', done)
+      }
+      const done = () => {
+        if (settled) return
+        settled = true
+        cleanup()
+        resolve()
+      }
+      const onClosed = () => {
+        if (settled) return
+        settled = true
+        cleanup()
+      }
+      win.once('ready-to-show', done)
+      win.once('closed', onClosed)
+      contents.once('did-finish-load', done)
+      timer = setTimeout(done, PAINT_WAIT_MS)
+      timer.unref?.()
     })
     win.on('page-title-updated', (event) => { event.preventDefault() })
     contents.on('will-navigate', (event) => { event.preventDefault() })

@@ -48,7 +48,42 @@ function inspectWriteTarget(el, { url, mode, active = false }) {
   const parsedUrl = new URL(url)
   const origin = parsedUrl.origin
   const host = parsedUrl.hostname
-  const action = (kind, label) => ({ kind, label: label || 'submit', origin, host })
+  const action = (kind, label, submitter = target) => {
+    const form = formOf(target)
+    const fields = []
+    for (const input of Array.from(form?.elements ?? [])) {
+      const type = String(input.type ?? '').toLowerCase()
+      const name = input.name || input.getAttribute?.('aria-label') || input.id || type
+      if (type === 'password' || /token|secret|password|authorization|api.?key/i.test(name)) {
+        continue
+      }
+      if (type === 'hidden') continue
+      if ((['submit', 'image', 'button', 'reset'].includes(type) && input !== submitter) || input.disabled) continue
+      if (['checkbox', 'radio'].includes(type) && !input.checked) continue
+      const value = type === 'file' ? Array.from(input.files ?? []).map(file => file.name)
+        : input.multiple && input.selectedOptions ? Array.from(input.selectedOptions).map(option => option.value)
+          : input.value
+      fields.push({ name, value })
+    }
+    const actionUrl = submitter?.hasAttribute?.('formaction') ? submitter.getAttribute('formaction') : form?.getAttribute?.('action')
+    const destination = new URL(actionUrl || url, form?.ownerDocument?.baseURI || url)
+    const method = methodOf(form, submitter)
+    const enctype = submitter?.getAttribute?.('formenctype') || form?.enctype || 'application/x-www-form-urlencoded'
+    const targetName = submitter?.getAttribute?.('formtarget') ?? form?.target ?? ''
+    destination.username = ''
+    destination.password = ''
+    destination.search = ''
+    destination.hash = ''
+    parsedUrl.username = ''
+    parsedUrl.password = ''
+    parsedUrl.search = ''
+    parsedUrl.hash = ''
+    return {
+      kind, label: label || 'submit', origin, host, url: parsedUrl.href, destination: destination.href, method, enctype, target: targetName, fields,
+      // Page scripts can replace even native submissions; DOM data cannot bind their effects.
+      evidenceComplete: false,
+    }
+  }
 
   if (mode === 'click') {
     const form = formOf(target)
@@ -77,11 +112,15 @@ function inspectWriteTarget(el, { url, mode, active = false }) {
   if (mode !== 'submit') return null
   const form = formOf(target)
   if (!form) return null
-  const submitter = [...form.elements].find(isSubmitter)
+  // Enter activates a focused submit button, otherwise the first submit button
+  // owned by the form in tree order (including external and image controls).
+  const submitter = isSubmitter(target) ? target
+    : [...form.getRootNode().querySelectorAll('button, input')].find(node => formOf(node) === form && isSubmitter(node))
+  if (submitter?.matches(':disabled')) return null
   if (methodOf(form, submitter) !== 'post') return null
   const label = labelOf(submitter)
   const kind = kindOf(label)
-  return kind ? action(kind, label) : null
+  return kind ? action(kind, label, submitter) : null
 }
 
 // playwright-core ships with DS Bot and drives the desktop app's own browser; a
@@ -100,29 +139,37 @@ export async function openBotBrowser({ botId, profileRoot, downloadDir, headless
   const getDownloadDir = typeof downloadDir === 'function' ? downloadDir : async () => downloadDir
   const userDataDir = join(profileRoot, botId)
   const chromium = await loadChromium(playwrightUrl)
-  const browser = connect
-    ? await chromium.connectOverCDP(await connect(botId))
-    : undefined
-  if (!connect) await mkdir(userDataDir, { recursive: true })
-  const context = browser
-    ? browser.contexts()[0]
-    : await chromium.launchPersistentContext(userDataDir, {
-      headless,
-      viewport: { width: 1280, height: 900 },
-      acceptDownloads: true,
-      ...(executablePath ? { executablePath } : {}),
-      args: ['--disable-dev-shm-usage'],
-    })
-  if (!context) throw new Error('The app browser relay has no browser context.')
-  const page = context.pages()[0] ?? await context.newPage()
-  const cookieFile = join(userDataDir, 'cookies.json')
-  if (!browser) {
-    try {
-      const saved = JSON.parse(await readFile(cookieFile, 'utf8'))
-      if (Array.isArray(saved) && saved.length > 0) await context.addCookies(saved)
-    } catch { /* no cookies yet */ }
+  let browser
+  let context
+  try {
+    browser = connect
+      ? await chromium.connectOverCDP(await connect(botId))
+      : undefined
+    if (!connect) await mkdir(userDataDir, { recursive: true })
+    context = browser
+      ? browser.contexts()[0]
+      : await chromium.launchPersistentContext(userDataDir, {
+        headless,
+        viewport: { width: 1280, height: 900 },
+        acceptDownloads: true,
+        ...(executablePath ? { executablePath } : {}),
+        args: ['--disable-dev-shm-usage'],
+      })
+    if (!context) throw new Error('The app browser relay has no browser context.')
+    const page = context.pages()[0] ?? await context.newPage()
+    const cookieFile = join(userDataDir, 'cookies.json')
+    if (!browser) {
+      try {
+        const saved = JSON.parse(await readFile(cookieFile, 'utf8'))
+        if (Array.isArray(saved) && saved.length > 0) await context.addCookies(saved)
+      } catch { /* no cookies yet */ }
+    }
+    return createSession({ context, browser, page, botId, userDataDir, cookieFile, downloadDir: getDownloadDir, actionTimeout, downloadGraceMs, getHold, onHold, uploadRoots })
+  } catch (error) {
+    if (browser) await browser.close().catch(() => {})
+    else if (context) await context.close().catch(() => {})
+    throw error
   }
-  return createSession({ context, browser, page, botId, userDataDir, cookieFile, downloadDir: getDownloadDir, actionTimeout, downloadGraceMs, getHold, onHold, uploadRoots })
 }
 
 export function createSession({ context, browser, page, botId, userDataDir, cookieFile, downloadDir, actionTimeout = ACTION_TIMEOUT, downloadGraceMs = DOWNLOAD_GRACE_MS, getHold, onHold, uploadRoots }) {
@@ -137,6 +184,14 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
   let lastImage = ''
   let activeDownloads = null
   let closed = false
+  const lifetime = new AbortController()
+  const disconnect = () => {
+    closed = true
+    lifetime.abort(new Error('The browser session is closed. Retry browser_open to reconnect.'))
+    activeDownloads?.notify?.()
+  }
+  context.on('close', disconnect)
+  browser?.on('disconnected', disconnect)
   let pendingDelete = null
   let pendingDeleteLocator = null
 
@@ -148,10 +203,13 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
     if (hold) throw new Error(`The browser is waiting for the user (${hold.reason}). Ask them to ${hold.note || 'take over'}, then call browser_resume.`)
   }
 
+  // Every later action waits for this. A tab that cannot load (it crashed, say) is not made
+  // current, and its failure must not stay a rejection: each action would fail on it again,
+  // and DSH ends the whole process on a rejection nobody handles.
   function activateAfterLoad(target) {
     pendingPageReady = waitForPageReady(target).then(() => {
       if (!target.isClosed()) current = target
-    })
+    }, () => {})
   }
 
   function trackPage(target, activate = false) {
@@ -188,8 +246,9 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
     if (activate) activateAfterLoad(target)
   }
 
+  const onPage = target => trackPage(target, true)
   for (const target of context.pages()) trackPage(target)
-  context.on('page', target => trackPage(target, true))
+  context.on('page', onPage)
 
   function openPages() {
     return context.pages().filter(target => !target.isClosed())
@@ -358,8 +417,21 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
     try {
       ready()
       const pageUrl = new URL(page.url())
-      const url = pageUrl.origin === 'null' ? new URL(download.url()) : pageUrl
-      action = { kind: 'download', label: filename.slice(0, 80), origin: url.origin, host: url.hostname }
+      const source = new URL(download.url())
+      const webSource = source.protocol === 'https:' || source.protocol === 'http:'
+      const evidenceComplete = webSource && !source.username && !source.password && !source.search && !source.hash
+      // Keep protected URL components and inline payloads out of model evidence.
+      source.username = ''
+      source.password = ''
+      source.search = ''
+      source.hash = ''
+      const url = pageUrl.origin === 'null' ? source : pageUrl
+      action = {
+        kind: 'download', label: filename, origin: url.origin, host: url.hostname,
+        ...(webSource ? { sourceUrl: source.href } : {}),
+        sourceOrigin: source.origin, sourceHost: source.hostname, sourceProtocol: source.protocol,
+        directory: await downloadDir(), evidenceComplete,
+      }
       await authorizeWrite(action, gate)
       ready()
     } catch (error) {
@@ -370,7 +442,7 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
     }
     let path
     try {
-      const directory = await downloadDir()
+      const directory = action.directory
       ready()
       if (!directory) throw new Error('No download directory is configured.')
       await mkdir(directory, { recursive: true })
@@ -480,27 +552,54 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
     }
   }
 
+  // A service worker's request has no frame, and asking for it throws.
+  function frameOf(request) {
+    try {
+      return request.frame()
+    } catch {
+      return undefined
+    }
+  }
+
+  // Until every request in `requests` has finished, including the ones that arrive while it
+  // waits: a button's script can post after the click itself returned.
   async function waitForWriteRequests(requests) {
     if (requests.length === 0) return
     let timer
+    const expired = new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error('the browser request did not finish')), actionTimeout)
+    })
     try {
-      await Promise.race([
-        Promise.all(requests),
-        new Promise((_, reject) => {
-          timer = setTimeout(() => reject(new Error('the browser request did not finish')), actionTimeout)
-        }),
-      ])
+      for (let seen = 0; seen < requests.length;) {
+        const sent = requests.slice(seen)
+        seen = requests.length
+        await Promise.race([Promise.all(sent), expired])
+      }
     } finally {
       clearTimeout(timer)
     }
   }
 
-  async function performWrite(action, target, perform) {
+  async function performWrite(action, target, perform, inspectAgain) {
     await authorizeWrite(action)
+    if (inspectAgain && JSON.stringify(await inspectAgain()) !== JSON.stringify(action)) throw new Error('The action changed while approval was pending. Inspect it and ask again. Nothing was done.')
     return captureAction(async () => {
       const requests = []
       const pendingRequests = new Map()
+      // Once a frame starts loading another document, the requests that follow from it, or
+      // from a frame inside it, belong to that document (a result page polling its server),
+      // not to this action: only further navigations count. A script that changes the URL in
+      // place (pushState) sends no navigation request, so its posts still count.
+      const leaving = new Set()
+      const insideLeaving = frame => {
+        for (let at = frame; at; at = at.parentFrame?.()) if (leaving.has(at)) return true
+        return false
+      }
       const onRequest = request => {
+        const frame = frameOf(request)
+        const navigation = request.isNavigationRequest()
+        if (!navigation && frame && insideLeaving(frame)) return
+        if (navigation && frame) leaving.add(frame)
         let requestOrigin
         try {
           requestOrigin = new URL(request.url()).origin
@@ -510,10 +609,15 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
         if (requestOrigin !== action.origin || ['GET', 'HEAD'].includes(request.method().toUpperCase())) return
         let resolve
         let reject
-        requests.push(new Promise((res, rej) => {
+        const settled = new Promise((res, rej) => {
           resolve = res
           reject = rej
-        }))
+        })
+        // The request can fail before waitForWriteRequests reaches it: while the click still
+        // runs, or after the click itself failed. Until it is read there it must not count as
+        // unhandled, because DSH ends the whole process on an unhandled rejection.
+        settled.catch(() => {})
+        requests.push(settled)
         pendingRequests.set(request, { resolve, reject })
       }
       const onRequestFinished = request => {
@@ -537,6 +641,8 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
         await waitForWriteRequests(requests)
         await settle()
         if (target.isClosed() || crashedPages.has(target)) throw new Error('the browser page closed or crashed during the action')
+        // The posts the page sent while it settled.
+        await waitForWriteRequests(requests)
         if (target.url().startsWith('chrome-error://')) throw new Error('the browser page navigated to an error page')
         return () => snapshotText().catch(error => unknownResult(action, error, target))
       } catch (error) {
@@ -573,6 +679,7 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
   return {
     botId,
     userDataDir,
+    signal: lifetime.signal,
     get hold() { return hold },
     get lastImage() { return lastImage },
     takeLastImage() {
@@ -584,7 +691,11 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
     async open(url) {
       ready()
       await clearPendingDelete()
-      const target = activePage()
+      ready()
+      const target = activePage() ?? await context.newPage()
+      trackPage(target)
+      current = target
+      ready()
       return finishAction(() => target.goto(String(url), { waitUntil: 'domcontentloaded', timeout: 30_000 }), target, false)
     },
     tabs,
@@ -655,7 +766,7 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
         }
         await clearPendingDelete()
       }
-      if (action) return performWrite(action, target, () => locator.click({ timeout: actionTimeout }))
+      if (action) return performWrite(action, target, () => locator.click({ timeout: actionTimeout }), () => locator.evaluate(inspectWriteTarget, { url: target.url(), mode: 'click' }))
       return finishAction(() => locator.click({ timeout: actionTimeout }), target)
     },
     async type(ref, text, submit = false) {
@@ -672,7 +783,7 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
           const action = await focusedAction(target)
           const pressEnter = () => locator.press('Enter', { timeout: actionTimeout })
           if (action?.kind === 'payment') throw paymentError(action)
-          if (action) return performWrite(action, target, pressEnter)
+          if (action) return performWrite(action, target, pressEnter, () => focusedAction(target))
           return finishAction(pressEnter, target)
         }
         return finishAction(async () => {}, target, false)
@@ -694,7 +805,7 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
       if (value.toLowerCase() === 'enter') {
         const action = await focusedAction(target)
         if (action?.kind === 'payment') throw paymentError(action)
-        if (action) return performWrite(action, target, perform)
+        if (action) return performWrite(action, target, perform, () => focusedAction(target))
       }
       return finishAction(perform, target, value.toLowerCase() === 'enter')
     },
@@ -740,7 +851,8 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
       const { target, locator } = await refLocator(ref)
       const url = new URL(target.url())
       const label = labels.join(', ').slice(0, 80) || 'uploaded files'
-      await authorizeWrite({ kind: 'upload', label, origin: url.origin, host: url.hostname })
+      // File selection can send bytes through arbitrary page handlers.
+      await authorizeWrite({ kind: 'upload', label, origin: url.origin, host: url.hostname, files, evidenceComplete: false })
       return finishAction(() => locator.setInputFiles(files, { timeout: actionTimeout }), target, false)
     },
     async scroll(direction) {
@@ -780,7 +892,7 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
       onHold?.(null)
       return 'The browser is yours again.'
     },
-    async runScript(source, origin) {
+    async runScript(source, origin, signal) {
       const body = String(source ?? '')
       if (body.length > 8_000) throw new Error('Script is longer than 8000 characters.')
       const helpers = {
@@ -825,7 +937,7 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
         if (finished) throw new Error('The browser script has finished.')
       }
       try {
-        const answer = await gateScope.run(scriptGate, () => runIsolatedScript(body, ordered))
+        const answer = await gateScope.run(scriptGate, () => runIsolatedScript(body, ordered, { signal }))
         return answer ?? 'Script finished without done().'
       } finally {
         finished = true
@@ -836,8 +948,12 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
       }
     },
     async close() {
-      closed = true
-      activeDownloads?.notify?.()
+      disconnect()
+      context.off?.('close', disconnect)
+      context.off?.('page', onPage)
+      browser?.off?.('disconnected', disconnect)
+      lastImage = ''
+      pages.clear()
       for (const { download } of activeDownloads?.items ?? []) await download.cancel().catch(() => {})
       if (browser) { await browser.close().catch(() => {}); return }
       const cookies = await context.cookies().catch(() => [])

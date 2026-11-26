@@ -37,7 +37,7 @@ runInNewContext(bundle.outputFiles[0].text, {
 })
 const { AssistantCell, Bubbles, ChatRows, ThinkingRow, ToolCell, UserMessageCell } = module.exports
 
-const renderers = ['Bubbles', 'Bubble', 'ChatRows', 'EarlierUser', 'GroupMessage', 'GroupReplies', 'SpeakerHead', 'ThinkingRow', 'ToolCell']
+const renderers = ['Bubbles', 'Bubble', 'ChatRows', 'EarlierUser', 'GroupMessage', 'GroupReplies', 'SpeakerHead', 'ThinkingRow', 'ToolCell', 'ProjectedContent']
 const expand = (node) => {
   if (Array.isArray(node)) return node.flatMap(expand)
   if (node === null || typeof node !== 'object') return node
@@ -95,12 +95,15 @@ test('settled reasoning joins the interaction only after its live stream ends', 
   assert.equal(live.props['data-text-interaction-source'], undefined)
 })
 
+// This bundle has the text projection of a DSH before 0.2.1-alpha.3: DS Bot draws the
+// text and marks it. On a later DSH the host's content factory draws and marks it
+// (user-message.test.js).
 test('sent and steering user messages each have one text source', () => {
   for (const kind of ['message', 'steering']) {
-    const tree = UserMessageCell({
+    const tree = expand(UserMessageCell({
       node: { kind, data: { content: [{ type: 'text', text: 'Please quote this.' }] } },
       sessionId: 'b', useRoster: select => select(roster), actions: {},
-    })
+    }))
     const body = findAll(tree, node => withClass(node, 'bt-ubody'))[0]
     assert.equal(body.props['data-text-interaction-source'], '', kind)
     assert.equal(sources(tree).length, 1, kind)

@@ -32,6 +32,40 @@ test('reads by range, after a seq, and by words, newest first', (t) => {
   assert.equal(rt.ledger.lastSeq('group-r1'), 4)
 })
 
+test('range reads the same records as a scan, and anchors are found by id as the book grows', (t) => {
+  const { rt } = host(t)
+  const scan = (book, from, to) => rt.ledger.records(book).filter(record => Number.isInteger(record.seq) && record.seq >= from && (to === undefined || record.seq <= to))
+  rt.ledger.append('group-r1', { event: 'anchor', id: 'a', from: 1 })
+  for (const seq of [1, 2, 3]) rt.ledger.append('group-r1', { seq, text: `${seq}` })
+  assert.equal(rt.ledger.anchorAt('group-r1', 'a'), 0)
+  assert.equal(rt.ledger.anchorAt('group-r1', 'b'), -1)
+  rt.ledger.append('group-r1', { event: 'anchor', id: 'b', from: 4 })
+  rt.ledger.append('group-r1', { event: 'anchor', id: 'a', from: 9 })
+  for (const seq of [4, 5]) rt.ledger.append('group-r1', { seq, text: `${seq}` })
+  assert.equal(rt.ledger.anchorAt('group-r1', 'b'), 4)
+  assert.equal(rt.ledger.anchorAt('group-r1', 'a'), 0)
+  for (const [from, to] of [[1, 5], [2, 4], [0, undefined], [3.5, 9], [6, undefined], [5, 2], [Number.NaN, 3]]) {
+    assert.deepEqual(rt.ledger.range('group-r1', from, to), scan('group-r1', from, to), `${from}..${to}`)
+  }
+  assert.deepEqual(rt.ledger.range('group-r2', 1, 3), [])
+
+  // A seq out of order or twice: the same records a scan finds, duplicates included.
+  for (const seq of [1, 3, 2, 3, 1000]) rt.ledger.append('group-r3', { seq })
+  for (const [from, to] of [[1, 3], [2, undefined], [1, 1000]]) {
+    assert.deepEqual(rt.ledger.range('group-r3', from, to), scan('group-r3', from, to))
+  }
+})
+
+test('prepend moves the anchors it finds', (t) => {
+  const { rt } = host(t)
+  rt.ledger.append('group-r1', { seq: 3 })
+  rt.ledger.append('group-r1', { event: 'anchor', id: 'a', from: 4 })
+  assert.equal(rt.ledger.anchorAt('group-r1', 'a'), 1)
+  rt.ledger.prepend('group-r1', [{ seq: 1 }, { seq: 2 }])
+  assert.equal(rt.ledger.anchorAt('group-r1', 'a'), 3)
+  assert.deepEqual(rt.ledger.range('group-r1', 1, 3).map(record => record.seq), [1, 2, 3])
+})
+
 test('a line cut by an interruption is left out, and the book goes on after it', async (t) => {
   const { rt, home, file } = host(t)
   mkdirSync(join(home, 'ledger'), { recursive: true })
@@ -83,6 +117,20 @@ test('dropping a book removes its file after the writes before it', async (t) =>
   assert.deepEqual(rt.ledger.records('group-r1'), [])
 })
 
+test('a record that fails to write leaves an earlier one with the same seq in range', async (t) => {
+  const { rt, file } = host(t)
+  mkdirSync(join(file('group-r1'), '..'), { recursive: true })
+  writeFileSync(file('group-r1'), `${JSON.stringify({ seq: 1, text: 'kept' })}
+`)
+  assert.deepEqual(rt.ledger.range('group-r1', 1, 1).map(record => record.text), ['kept'])
+  // A folder where the file was makes the next append fail on every platform.
+  rmSync(file('group-r1'))
+  mkdirSync(file('group-r1'))
+  rt.ledger.append('group-r1', { seq: 1, text: 'lost' })
+  await rt.ledger.flush('group-r1')
+  assert.deepEqual(rt.ledger.range('group-r1', 1, 1).map(record => record.text), ['kept'])
+})
+
 test('a book with an id that is not a plain name gets a file name of its own', () => {
   assert.equal(bookFile('group-r1'), 'group-r1.jsonl')
   assert.match(bookFile('group-../x'), /^[0-9a-f]{32}\.jsonl$/)
@@ -130,4 +178,52 @@ test('a write that does not reach the disk is reported to whoever waits for it',
   rt.ledger.append('pair-a-b', { id: 'x', text: 'hello' })
   await rt.ledger.written('pair-a-b')
   assert.deepEqual(parseBook(readFileSync(join(home, 'ledger', 'pair-a-b.jsonl'), 'utf8')).map(record => record.id), ['x'])
+})
+
+test('prepend puts recovered records before existing ones and keeps concurrent appends in order', async (t) => {
+  const writer = host(t)
+  writer.rt.ledger.append('group-r1', { seq: 3, text: 'three' })
+  writer.rt.ledger.append('group-r1', { seq: 4, text: 'four' })
+  await writer.rt.ledger.flush('group-r1')
+
+  const reader = host(t, { home: writer.home, readOnly: () => 'read only' })
+  assert.deepEqual(reader.rt.ledger.records('group-r1').map(record => record.seq), [3, 4])
+
+  // Prepend 1..2 and append 5 without awaiting between them.
+  const added = writer.rt.ledger.prepend('group-r1', [{ seq: 2, text: 'two' }, { seq: 1, text: 'one' }, { seq: 3, text: 'dup' }])
+  assert.equal(added, 2)
+  writer.rt.ledger.append('group-r1', { seq: 5, text: 'five' })
+  await writer.rt.ledger.flush('group-r1')
+
+  assert.deepEqual(parseBook(readFileSync(writer.file('group-r1'), 'utf8')).map(record => [record.seq, record.text]), [
+    [1, 'one'], [2, 'two'], [3, 'three'], [4, 'four'], [5, 'five'],
+  ])
+  assert.deepEqual(reader.rt.ledger.records('group-r1').map(record => record.seq), [1, 2, 3, 4, 5])
+})
+
+test('ledger.after uses indexed range and ledger.search applies filter before limit in reverse order', async (t) => {
+  const { rt } = host(t)
+  rt.ledger.append('group-r1', { seq: 1, text: 'alpha real match one' })
+  rt.ledger.append('group-r1', { seq: 2, text: 'alpha real match two' })
+  // Interleave 25 non-member (working) records with matching text AFTER real hits so an
+  // unfiltered search capped at limit=20 would previously miss seq 1 and seq 2.
+  for (let i = 3; i <= 27; i += 1) {
+    rt.ledger.append('group-r1', { seq: i, kind: 'working', text: 'alpha working noise' })
+  }
+  rt.ledger.append('group-r1', { seq: 28, text: 'unrelated line' })
+  await rt.ledger.flush('group-r1')
+
+  // after() returns strictly records with seq > since (flooring float values).
+  assert.deepEqual(rt.ledger.after('group-r1', 26).map(r => r.seq), [27, 28])
+  assert.deepEqual(rt.ledger.after('group-r1', 26.9).map(r => r.seq), [27, 28])
+  assert.deepEqual(rt.ledger.after('group-r1', 0).length, 28)
+
+  // Filtered search skips all 25 working rows BEFORE applying the limit, returning newest first.
+  const memberOnly = record => record.kind !== 'working'
+  const hits = rt.ledger.search('group-r1', 'alpha', { filter: memberOnly, limit: 20 })
+  assert.deepEqual(hits.map(r => r.seq), [2, 1])
+
+  // Limit caps filtered matches early.
+  const topOne = rt.ledger.search('group-r1', 'alpha', { filter: memberOnly, limit: 1 })
+  assert.deepEqual(topOne.map(r => r.seq), [2])
 })

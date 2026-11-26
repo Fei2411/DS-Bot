@@ -411,7 +411,7 @@ function DataTable({ columns, rows, p }: { columns: string[]; rows: unknown[][];
   return (
     <View onLayout={event => setWidth(Math.max(0, event.nativeEvent.layout.width - 2))} style={{ borderWidth: 1, borderColor: p.line, borderRadius: radius.item, overflow: 'hidden' }}>
       {width === 0 ? null : (
-        <GHScrollView horizontal nestedScrollEnabled directionalLockEnabled showsHorizontalScrollIndicator style={{ flexGrow: 0 }}>
+        <GHScrollView horizontal disallowInterruption nestedScrollEnabled directionalLockEnabled showsHorizontalScrollIndicator style={{ flexGrow: 0 }}>
           <View>
             <View style={{ flexDirection: 'row', backgroundColor: p.hover }}>
               {columns.map((c, i) => (

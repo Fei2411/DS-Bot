@@ -8,17 +8,19 @@ import { ArrowUpIcon, CheckIcon, ChevronLeftIcon, ChevronRightIcon, CloseIcon, D
 import { dateLocale, hostText, t } from './i18n.js'
 import { summaryBlocks } from './text.js'
 import { stepMenuFocus, useLinger } from './motion.js'
+import { lruSet } from './memo.js'
 
 const POLL_MS = 1500
 const MENU_EXIT_MS = 120
 const MOVE_MENU_GAP = 12
+const MAX_COUNTS = 200
 
 // Entry counts per Bot or group, for the details pane; the dialog updates them as it loads.
-const counts = new Map()
+export const counts = new Map()
 const countListeners = new Set()
 function noteCount(id, count) {
   if (counts.get(id) === count) return
-  counts.set(id, count)
+  lruSet(counts, id, count, MAX_COUNTS)
   for (const listener of countListeners) listener()
 }
 
@@ -246,11 +248,18 @@ export function History({ owner, actions, undo, now }) {
   const [rows, setRows] = useState(null)
   const [more, setMore] = useState(null)
   const [paging, setPaging] = useState(false)
+  const [loadError, setLoadError] = useState('')
   const load = useCallback(async (before) => {
-    const page = await actions.memoryHistory(owner.id, before)
-    setRows(before === undefined ? page.rows : [...(rows ?? []), ...page.rows])
-    setMore(page.more)
-  }, [owner.id, rows])
+    try {
+      setLoadError('')
+      const page = await actions.memoryHistory(owner.id, before)
+      setRows(prev => (before === undefined ? page.rows : [...(prev ?? []), ...page.rows]))
+      setMore(page.more)
+    } catch (failure) {
+      setLoadError(failure?.message ?? String(failure))
+      setRows(prev => prev ?? [])
+    }
+  }, [owner.id])
   useEffect(() => { void load() }, [owner.id])
   const reload = async () => { setRows(null); setMore(null); await load() }
   const undoRow = async row => (await undo(row) ? reload() : false)
@@ -259,6 +268,7 @@ export function History({ owner, actions, undo, now }) {
     try { await load(more) } finally { setPaging(false) }
   }
   if (rows === null) return h(Skeleton)
+  if (loadError) return h('div', { className: 'bt-error', role: 'alert' }, hostText(loadError))
   if (rows.length === 0) return h('div', { className: 'bt-mem-none' }, t('No changes yet'))
   return h('div', { className: 'bt-mem-entries' },
     h('ul', { className: 'bt-mem-list' }, rows.map(row => h(HistoryRow, { key: row.id, row, undo: undoRow, now }))),
@@ -339,7 +349,7 @@ export function MemoryDialog({ owner, actions, leaving = false }) {
   const inputRef = useRef(null)
   const now = useNow(30_000)
   const close = useCallback(() => actions.closeMemory(), [])
-  useEscape(close)
+  useEscape(close, !leaving)
   useMenuDismiss(menu, menuRef, dotsRef, () => setMenu(false))
   useMenuDismiss(moveOpen, moveRef, moveAnchor, () => setMoveOpen(false))
   useEffect(() => {
@@ -355,7 +365,12 @@ export function MemoryDialog({ owner, actions, leaving = false }) {
     const below = window.innerHeight - rect.bottom - MOVE_MENU_GAP
     const above = rect.top - MOVE_MENU_GAP
     const right = Math.max(MOVE_MENU_GAP, window.innerWidth - rect.right)
-    setMoving({ entry, box: above > below ? { right, bottom: window.innerHeight - rect.top + 4, maxHeight: above } : { right, top: rect.bottom + 4, maxHeight: below } })
+    setMoving({
+      entry,
+      box: above > below
+        ? { right, bottom: window.innerHeight - rect.top + 4, maxHeight: above, '--bt-origin': 'bottom right' }
+        : { right, top: rect.bottom + 4, maxHeight: below, '--bt-origin': 'top right' },
+    })
     setMoveOpen(true)
   }
   const regenerate = () => { setMenu(false); setPage('summary'); void load({ regenerate: true }) }

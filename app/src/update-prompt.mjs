@@ -9,7 +9,7 @@
  *   log?: Pick<Console, 'info' | 'error'>,
  * }} options `ask` shows the prompt, `shown` tells whether the window is on the screen, and
  *   `onYes` does the work of an answer that comes after the window was shown again
- * @returns {{ prompt: (version: string) => Promise<boolean>, flush: () => Promise<void>, waiting: () => string | undefined }}
+ * @returns {{ prompt: (version: string) => Promise<boolean>, flush: () => Promise<void>, clear: () => void, waiting: () => string | undefined }}
  */
 export function createDeferredPrompt({ ask, shown, onYes, log = console }) {
   let waiting
@@ -33,5 +33,6 @@ export function createDeferredPrompt({ ask, shown, onYes, log = console }) {
       log.error(`DS Bot: the update ${version} could not be asked: ${error instanceof Error ? error.message : String(error)}`)
     }
   }
-  return { prompt, flush, waiting: () => waiting }
+  const clear = () => { waiting = undefined }
+  return { prompt, flush, clear, waiting: () => waiting }
 }

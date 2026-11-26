@@ -3,10 +3,8 @@
 // keeping untouched members' compressed bytes.
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join, posix, resolve, sep } from 'node:path'
-import { parseXml, serializeXml, childrenOf } from './xml.js'
+import { parseXml, prettyXml, serializeXml, childrenOf } from './xml.js'
 import { readZip, writeZip } from './zip.js'
-
-export const CT = 'http://schemas.openxmlformats.org/package/2006/content-types'
 
 function fail(message) { const error = new Error(message); error.code = 'package'; throw error }
 
@@ -228,11 +226,7 @@ export class Package {
 }
 
 function prettyForUnpack(data) {
-  const { prettyXml } = xmlHelpers
   return prettyXml(parseXml(data))
 }
-
-// Late-bound to keep this file's import list flat.
-import * as xmlHelpers from './xml.js'
 
 export { absTarget }

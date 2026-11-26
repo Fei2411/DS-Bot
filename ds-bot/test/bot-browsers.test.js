@@ -49,7 +49,7 @@ function fakeDesktop() {
   const openHandlers = {}
   let lease = 0
   const doc = {
-    body: { append() {} },
+    body: { children: [], append(...nodes) { this.children.push(...nodes) } },
     createElement(tag) {
       if (tag === 'webview') { const view = fakeWebview(); created.push(view); return view }
       return { className: '', style: {}, isConnected: true, append() {}, remove() {} }
@@ -367,7 +367,7 @@ test('serveBrowserReads answers a resend from the cache when the first submit fa
   const post = (endpoint, payload, signal) => {
     if (endpoint === 'browser-result') {
       results.push(payload)
-      if (offline) return Promise.reject(new Error('offline'))
+      if (offline) return Promise.reject(Object.assign(new Error('HTTP 503'), { code: 'HTTP_503' }))
       return Promise.resolve(true)
     }
     if (endpoint !== 'browser-wait') return Promise.resolve(true)
@@ -392,6 +392,79 @@ test('serveBrowserReads answers a resend from the cache when the first submit fa
   stop()
 })
 
+test('serveBrowserReads bounds a stalled poll and backs off before retrying', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const polls = []
+  const browsers = { pages: createSource(null), openPages: () => ({}) }
+  const stop = serveBrowserReads({
+    browsers, clientId: 'stalled',
+    post: (endpoint, payload, signal) => new Promise((resolve, reject) => {
+      polls.push(signal)
+      signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+    }),
+  })
+  t.after(stop)
+  t.mock.timers.tick(7_999)
+  assert.equal(polls[0].aborted, false)
+  t.mock.timers.tick(1)
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(polls[0].aborted, true)
+  t.mock.timers.tick(1_999)
+  assert.equal(polls.length, 1)
+  t.mock.timers.tick(1)
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(polls.length, 2)
+})
+
+test('serveBrowserReads backs off on update-lock 503 even when the open pages change', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const pages = createSource({})
+  const calls = []
+  const locked = Object.assign(new Error('HTTP 503'), { code: 'HTTP_503' })
+  const stop = serveBrowserReads({
+    browsers: { pages, openPages: pages.getSnapshot }, clientId: 'locked',
+    post: async (endpoint, payload, signal) => {
+      calls.push(payload)
+      if (calls.length === 1) pages.set({ bot: { url: 'https://example.com/' } })
+      if (calls.length <= 2) throw locked
+      if (calls.length === 3) return { requests: [] }
+      return new Promise((resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }))
+    },
+  })
+  t.after(stop)
+  const flush = () => new Promise(resolve => setImmediate(resolve))
+  await flush()
+  t.mock.timers.tick(1_999)
+  assert.equal(calls.length, 1)
+  t.mock.timers.tick(1)
+  await flush()
+  assert.equal(calls.length, 2)
+  t.mock.timers.tick(3_999)
+  assert.equal(calls.length, 2)
+  t.mock.timers.tick(1)
+  await flush()
+  assert.equal(calls.length, 4)
+  assert.deepEqual(calls[2], { clientId: 'locked', open: { bot: { url: 'https://example.com/' } } })
+})
+
+test('stopping browser reads cancels an update-lock backoff without another poll', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  let polls = 0
+  const stop = serveBrowserReads({
+    browsers: { pages: createSource({}), openPages: () => ({}) }, clientId: 'stopping',
+    post: async () => {
+      polls += 1
+      throw Object.assign(new Error('HTTP 503'), { code: 'HTTP_503' })
+    },
+  })
+  await new Promise(resolve => setImmediate(resolve))
+  stop()
+  await new Promise(resolve => setImmediate(resolve))
+  t.mock.timers.tick(30_000)
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(polls, 1)
+})
+
 test('browserAddress opens hosts over https, local addresses over http, and searches the rest', () => {
   assert.equal(browserAddress('https://example.com/a?b=1'), 'https://example.com/a?b=1')
   assert.equal(browserAddress('http://example.com'), 'http://example.com/')
@@ -410,4 +483,26 @@ test('browserAddress opens hosts over https, local addresses over http, and sear
 
 test('the page reader is one valid expression', () => {
   assert.doesNotThrow(() => new Function(`return ${READ_PAGE_SCRIPT}`))
+})
+
+// #1571: on macOS DSH marks every `body > :not(#root)` as `-webkit-app-region: no-drag`,
+// and Chromium ignores pointer-events:none when computing drag regions. The layer must
+// stay 0x0 and app-region-neutral rather than covering the full window with inset:0.
+test('bt-browser-layer stays 0x0 and app-region-neutral so it never blocks window dragging', async () => {
+  const desktop = fakeDesktop()
+  const browsers = createBotBrowsers({ bridge: desktop.bridge, createSource, storage: desktop.storage, document: desktop.doc })
+  const tab = browsers.openTab('a')
+  await browsers.show(tab, BOX)
+  const layer = desktop.doc.body.children.find(node => node.className === 'bt-browser-layer')
+  assert.ok(layer, 'layer is mounted in document.body')
+  assert.equal(layer.style.inset, undefined, 'layer must not stretch full-window via inset:0')
+  assert.equal(layer.style.width, '0')
+  assert.equal(layer.style.height, '0')
+  assert.equal(layer.style.webkitAppRegion, 'initial')
+  const view = desktop.created[0]
+  assert.equal(view.style.visibility, 'visible')
+  assert.equal(view.style.pointerEvents, 'auto')
+  await browsers.show(null)
+  assert.equal(view.style.visibility, 'hidden')
+  assert.equal(view.style.pointerEvents, 'none')
 })

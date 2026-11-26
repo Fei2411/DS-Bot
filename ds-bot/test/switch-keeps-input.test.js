@@ -78,7 +78,7 @@ async function start({ fail = {}, services = {}, home: reuse, state: seed = TEAM
       const nextTurn = [...saved[sessionId]?.nextTurn ?? []]
       agents.set(sessionId, {
         id: sessionId,
-        session: { id: sessionId, header: { cwd: cwds.get(sessionId) ?? team }, requestHeader: () => undefined, deriveMessages: () => [] },
+        session: { id: sessionId, seq: 0, header: { cwd: cwds.get(sessionId) ?? team }, requestHeader: () => undefined, deriveMessages: () => [] },
         ctx: { tools: { register: () => () => {} } },
         calls,
         status: 'idle',
@@ -203,8 +203,9 @@ const moveWriter = async (host, input, step = 2) => {
 }
 
 test('a move that fails while the plugin unloads hands its input back to the part it left', async (t) => {
-  // The first flush writes the fresh part's handoff; the second moves the input.
-  const fail = { flush: 2 }
+  // Flush 1 checkpoints the parked input on the old part, flush 2 writes the fresh
+  // part's handoff, and flush 3 moves the input.
+  const fail = { flush: 3 }
   const host = await start({ fail, services })
   t.after(host.stop)
   host.agentOf('b').inbox.nextTurn.push(said('h1', 'waiting input', 'e-held'))
@@ -289,28 +290,8 @@ test('an ordinary failure in the move that never started wakes the part at once'
   assert.equal(silent.agentOf('b').calls.filter(([kind]) => kind === 'send').length, 0)
 })
 
-// #1501: a Bot's own chat may keep a part live in the background. A switch that fails
-// there keeps its input in that part's thread, not in the foreground chat the user reads.
-const BACKGROUND = {
-  ...TEAM,
-  bots: { ...TEAM.bots, b: { ...TEAM.bots.b, openParts: [{ sessionId: 'bb', segments: [] }] } },
-}
-
-test('a background part that cannot move on keeps its input in its own thread', async (t) => {
-  const host = await start({ services, state: BACKGROUND, fail: { create: new Error('disk full') } })
-  t.after(host.stop)
-  // The Bot's folder changed while its background part was still at work in the old one.
-  host.rt.botOf('b').workDir = host.project
-  assert.deepEqual(await host.preStep('bb', [said('m1', 'keep me', 'e1')], 2), { kind: 'reject' })
-  await until(() => host.warnings.some(line => line.includes('did not move on to a fresh part')))
-  await settle()
-  // The stopped input is handed to that part, and the foreground chat sees none of it.
-  assert.deepEqual(host.agentOf('bb').calls.map(([kind, message]) => [kind, text(message)]), [['followup', PAUSE], ['followup', 'keep me']])
-  assert.deepEqual(host.agentOf('b').calls, [])
-})
-
 test('a marked earlier part hands its kept input on after a restart, once, and is archived', async (t) => {
-  const fail = { flush: 2 }
+  const fail = { flush: 3 }
   const host = await start({ fail, services })
   host.agentOf('b').inbox.nextTurn.push(said('h1', 'waiting input', 'e-held'))
   await moveWriter(host, [said('m1', 'Now build it', 'e-carry')])
@@ -380,6 +361,54 @@ test('an earlier part is stopped only after its tasks moved to the fresh part', 
   assert.deepEqual(order, [['move', 'b', 's1'], ['archive', 'b']])
 })
 
+test('a part switch carries a reminder arriving from a pruned task', async (t) => {
+  const reminder = { id: 'reminder', status: 'active', target: { kind: 'session', sessionId: 'pruned' } }
+  const editStarted = Promise.withResolvers()
+  const releaseEdit = Promise.withResolvers()
+  const editFinished = Promise.withResolvers()
+  const schedule = {
+    catalog: async () => reminder.status === 'ended' ? [] : [{ ...reminder }],
+    edit: async ({ patch }) => {
+      if (patch.target.sessionId === 'b') {
+        editStarted.resolve()
+        await releaseEdit.promise
+      }
+      reminder.target = patch.target
+      if (patch.target.sessionId === 'b') editFinished.resolve()
+    },
+  }
+  const host = await start({ services: { ...services, schedule } })
+  t.after(async () => { releaseEdit.resolve(); await host.stop() })
+  const switchMoveStarted = Promise.withResolvers()
+  const moveSchedules = host.rt.moveSchedules
+  host.rt.moveSchedules = (from, ...args) => {
+    if (from === 'b') switchMoveStarted.resolve()
+    return moveSchedules(from, ...args)
+  }
+  const archive = host.ctx.workspaceRegistry.archiveSession
+  host.ctx.workspaceRegistry.archiveSession = async (id, options) => {
+    if (id === 'b' && options?.stopActivity) {
+      await editFinished.promise
+      if (reminder.target.sessionId === id) reminder.status = 'ended'
+    }
+    return archive(id, options)
+  }
+  host.rt.state.retiredTasks = [{ botId: 'b', sessionIds: ['pruned'] }]
+  const retirement = host.rt.retireTasks()
+  await editStarted.promise
+  await moveWriter(host, [])
+  await switchMoveStarted.promise
+  await new Promise(resolve => setImmediate(resolve))
+  releaseEdit.resolve()
+
+  await retirement
+  await until(() => host.archived.some(([id]) => id === 'b'))
+  await host.rt.retireTasks()
+  assert.equal(reminder.status, 'active')
+  assert.equal(reminder.target.sessionId, 's1')
+  assert.ok(host.archived.some(([id]) => id === 'pruned'))
+})
+
 test('a failed task move leaves the earlier part unarchived and marked for retry', async (t) => {
   const host = await start({ services })
   t.after(host.stop)
@@ -396,6 +425,26 @@ test('a failed task move leaves the earlier part unarchived and marked for retry
   await host.rt.heldBack()
   assert.deepEqual(host.archived, [['b', { stopActivity: true }]])
   assert.deepEqual(host.state().switching, {})
+})
+
+test('a switch stops an earlier part when deleting a copied legacy reminder fails', async (t) => {
+  const reminder = { id: 'reminder', kind: 'every', title: 'Check in', prompt: 'Check', everySeconds: 3600 }
+  const copies = []
+  const schedule = {
+    list: async ({ sessionId }) => sessionId === 'b' ? [reminder] : [],
+    create: async (sessionId, request) => {
+      copies.push({ sessionId, request })
+      return { id: 'copy' }
+    },
+    delete: async () => { throw new Error('Temporary deletion failure') },
+  }
+  const host = await start({ services: { ...services, schedule } })
+  t.after(host.stop)
+  await moveWriter(host, [])
+  await until(() => host.state().bots.b.sessionId === 's1' && Object.keys(host.state().switching).length === 0)
+  assert.deepEqual(host.archived, [['b', { stopActivity: true }]])
+  assert.deepEqual(copies, [{ sessionId: 's1', request: { title: 'Check in', prompt: 'Check', every_seconds: 3600 } }])
+  assert.equal(host.state().legacyScheduleMoves, undefined)
 })
 
 test('unmarked earlier parts are never resolved by the restart pass', async (t) => {

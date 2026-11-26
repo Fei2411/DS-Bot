@@ -101,10 +101,17 @@ export function PasteCard({ text, onPutBack, onRemove }) {
     }, '×'))
 }
 
+const isEditableOnly = records => records.length > 0 && records.every((record) => {
+  const target = record.target
+  const el = target?.nodeType === 1 ? target : target?.parentElement
+  return typeof el?.closest === 'function' && el.closest('[contenteditable=true]') !== null
+})
+
 // The cards of the pastes still in this chat, above the composer.
 export function PasteDock({ sessionId, inputActions, useUi, useInput, actions }) {
   const blocks = useUi(state => state.paste?.[sessionId]) ?? NO_BLOCKS
-  const draft = useInput?.(state => state.draft) ?? ''
+  const draftRef = useRef('')
+  useInput?.((state) => { draftRef.current = state.draft ?? ''; return null })
   if (blocks.length === 0) return null
   const drop = (block) => {
     if (block.attachmentId && typeof inputActions?.removeAttachment === 'function') inputActions.removeAttachment(block.attachmentId)
@@ -112,7 +119,7 @@ export function PasteDock({ sessionId, inputActions, useUi, useInput, actions })
   }
   return h('div', { className: 'bt-paste-dock' }, blocks.map(block => h(PasteCard, {
     key: block.id, text: block.text,
-    onPutBack: () => { if (putBackText({ block, inputActions, draft })) actions.removePaste(sessionId, [block.id]) },
+    onPutBack: () => { if (putBackText({ block, inputActions, draft: draftRef.current })) actions.removePaste(sessionId, [block.id]) },
     onRemove: () => drop(block),
   })))
 }
@@ -122,7 +129,15 @@ export function PasteDock({ sessionId, inputActions, useUi, useInput, actions })
 export function PasteGuard({ sessionId, inputActions, useInput, useUi, actions }) {
   const anchor = useRef(null)
   const blocks = useUi(state => state.paste?.[sessionId]) ?? NO_BLOCKS
-  const ids = useInput?.(state => state.attachmentIds) ?? NO_IDS
+  const idsRef = useRef(NO_IDS)
+  const idsKey = useInput?.((state) => {
+    const list = state.attachmentIds ?? NO_IDS
+    idsRef.current = list
+    return list.length === 0 ? '' : list.join('\0')
+  }) ?? ''
+  const ids = idsRef.current
+  const draftRef = useRef('')
+  useInput?.((state) => { draftRef.current = state.draft ?? ''; return null })
   const latest = useRef({ blocks, ids })
   latest.current = { blocks, ids }
   // Bind a waiting card only when its own file shows up in the rail. A file the user
@@ -132,7 +147,8 @@ export function PasteGuard({ sessionId, inputActions, useInput, useUi, actions }
     if (!blocks.some(block => block.attachmentId === null)) return undefined
     const card = anchor.current?.closest('[data-composer-card]')
     if (card === null || card === undefined) return undefined
-    const sync = () => {
+    const sync = (records) => {
+      if (Array.isArray(records) && isEditableOnly(records)) return
       const { blocks: now, ids: nowIds } = latest.current
       if (!now.some(block => block.attachmentId === null)) return
       const links = pasteLinks(now, nowIds, composerLabels(card))
@@ -142,23 +158,36 @@ export function PasteGuard({ sessionId, inputActions, useInput, useUi, actions }
     const observer = new MutationObserver(sync)
     observer.observe(card, { childList: true, subtree: true })
     return () => observer.disconnect()
-  }, [ids, blocks])
+  }, [idsKey, blocks])
   // The shell drops a draft attachment the user removed; the card goes with it. Only the
-  // cards' own buttons put text back, so a dropped paste stays dropped.
+  // cards' own buttons put text back, so a dropped paste stays dropped. Only ids this
+  // composer has shown count: one that opens again starts without the files its draft
+  // gets back (draft-keep.js), and their cards wait for them.
+  const shown = useRef(new Set())
+  // A card whose file this composer does not have (the shell let it go when an earlier
+  // composer closed) waits for it again: it binds by name if the draft gets the file
+  // back, and otherwise its text goes back into the box after the wait below.
   useEffect(() => {
-    const gone = latest.current.blocks.filter(block => !blockLives(block, ids))
+    const stale = latest.current.blocks.filter(block => block.attachmentId !== null && !latest.current.ids.includes(block.attachmentId))
+    if (stale.length > 0) actions.unlinkPastes(sessionId, stale.map(block => block.id))
+  }, [sessionId])
+  useEffect(() => {
+    const nowIds = latest.current.ids
+    const gone = latest.current.blocks.filter(block => !blockLives(block, nowIds) && shown.current.has(block.attachmentId))
+    for (const id of nowIds) shown.current.add(id)
     if (gone.length > 0) actions.removePaste(sessionId, gone.map(block => block.id))
-  }, [ids])
+  }, [idsKey])
   // A refused upload leaves a card with no attachment; its text goes back into the box
   // so a send never loses it.
   useEffect(() => {
     const waiting = blocks.filter(block => block.attachmentId === null)
     if (waiting.length === 0) return undefined
     const timer = setTimeout(() => {
+      let currentDraft = draftRef.current
       for (const block of waiting) {
         const now = latest.current.blocks.find(item => item.id === block.id)
         if (now === undefined || now.attachmentId !== null) continue
-        inputActions?.insertText?.(block.text, inputActions?.captureInsertion?.())
+        if (putBackText({ block: now, inputActions, draft: currentDraft })) currentDraft = `${currentDraft}${now.text}`
         actions.removePaste(sessionId, [block.id])
       }
     }, ORPHAN_MS)
@@ -167,13 +196,19 @@ export function PasteGuard({ sessionId, inputActions, useInput, useUi, actions }
   // The shell draws its own file card for the pasted attachment; the card above the box
   // is the same paste, so the shell's copy is hidden rather than drawn twice.
   useEffect(() => {
+    const names = new Set()
+    for (const block of blocks) {
+      if (block.attachmentId !== null && block.name) names.add(block.name)
+    }
+    if (names.size === 0) return undefined
     const card = anchor.current?.closest('[data-composer-card]')
     if (card === null || card === undefined) return undefined
-    const mark = () => {
-      for (const block of blocks) {
-        if (block.attachmentId === null) continue
-        for (const node of card.querySelectorAll('[title]')) {
-          if (node.getAttribute('title') === block.name) node.setAttribute('data-bt-paste', '')
+    const mark = (records) => {
+      if (Array.isArray(records) && isEditableOnly(records)) return
+      const scope = card.querySelector('[data-slot="conversation.input.attachments"]') ?? card
+      for (const node of scope.querySelectorAll('[title]')) {
+        if (names.has(node.getAttribute('title')) && !node.hasAttribute('data-bt-paste')) {
+          node.setAttribute('data-bt-paste', '')
         }
       }
     }
@@ -182,7 +217,7 @@ export function PasteGuard({ sessionId, inputActions, useInput, useUi, actions }
     const observer = new MutationObserver(mark)
     observer.observe(card, { childList: true, subtree: true })
     return () => observer.disconnect()
-  }, [blocks, ids])
+  }, [blocks, idsKey])
   useEffect(() => {
     const card = anchor.current?.closest('[data-composer-card]')
     if (card === null || card === undefined) return undefined
@@ -202,6 +237,7 @@ export const PASTE_CSS = `
 .bt-paste-label{min-width:0;flex:auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-paste-put{flex:none;border:0;border-radius:8px;background:none;color:var(--bt-accent);font:inherit;font-size:13px;line-height:18px;padding:4px 6px;cursor:pointer}
 .bt-paste-put:hover{background:color-mix(in srgb,var(--bt-accent) 10%,transparent)}
-.bt-paste-x{flex:none;display:grid;place-items:center;width:24px;height:24px;border:0;border-radius:8px;background:none;color:var(--bt-ink-3);font:inherit;font-size:15px;line-height:1;cursor:pointer}
+.bt-paste-x{position:relative;flex:none;display:grid;place-items:center;width:24px;height:24px;border:0;border-radius:8px;background:none;color:var(--bt-ink-3);font:inherit;font-size:15px;line-height:1;cursor:pointer}
+.bt-paste-x::after{content:"";position:absolute;inset:-4px}
 .bt-paste-x:hover{background:color-mix(in srgb,var(--bt-ink) 8%,transparent);color:var(--bt-ink)}
 `

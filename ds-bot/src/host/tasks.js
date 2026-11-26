@@ -6,12 +6,12 @@ import { randomBytes } from 'node:crypto'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { output } from './tools.js'
 
-export const TASK_STATUSES = ['active', 'review', 'blocked', 'done', 'cancelled']
 const OPEN_STATUSES = ['active', 'review', 'blocked']
 const GOAL_MAX = 200
 const PROGRESS_MAX = 300
 const RESULT_MAX = 2000
 const NOTE_MAX = 500
+const NOTES_MAX = 50
 const REASON_MAX = 500
 
 const oneLine = (text, max) => String(text ?? '').replace(/\s+/g, ' ').trim().slice(0, max)
@@ -20,6 +20,12 @@ const listOf = room => Object.values(tasksOf(room)).sort((a, b) => a.startedAt -
 export const openTasksOf = room => listOf(room).filter(task => OPEN_STATUSES.includes(task.status))
 export const pastTasksOf = room => listOf(room).filter(task => !OPEN_STATUSES.includes(task.status))
 const newId = () => `t_${randomBytes(4).toString('hex')}`
+
+// Why DS Bot blocked a task: the member's turn failed, or the user stopped it. The panel
+// words the same facts in the user's language.
+export const blockedLine = blocked => blocked.cause === 'stopped' ? 'stopped by the user'
+  : blocked.cause === 'restarted' ? 'not updated after DeepSeek Harness restarted'
+  : `its model call failed (${blocked.code}${blocked.status ? ` ${blocked.status}` : ''})`
 
 // The task an update names: its id, or the caller's own newest open task when no id is
 // given (the common case: one Bot working on one thing).
@@ -45,6 +51,11 @@ export function install(rt) {
     if (status !== undefined && !OPEN_STATUSES.includes(status)) {
       return { error: `A running task\'s status is ${OPEN_STATUSES.join(', ')}; finish it with complete or cancel.` }
     }
+    // The Bot is back on the work, whether or not it saw the block.
+    if (task.blocked !== undefined) {
+      task.status = task.blocked.from
+      delete task.blocked
+    }
     if (status !== undefined) task.status = status
     if (progress !== undefined) task.progress = oneLine(progress, PROGRESS_MAX)
     task.updatedAt = Date.now()
@@ -58,6 +69,7 @@ export function install(rt) {
     const text = oneLine(result, RESULT_MAX)
     if (text === '') return { error: 'A finished task needs a result summary.' }
     task.status = 'done'
+    delete task.blocked
     task.result = text
     task.updatedAt = Date.now()
     return { task }
@@ -68,6 +80,7 @@ export function install(rt) {
     if (!OPEN_STATUSES.includes(task.status)) return { error: 'That task is already finished.' }
     if (task.botId !== botId && !isAdmin) return { error: `Task ${task.id} belongs to another member; only its owner, the admin or a Main Bot cancels it.` }
     task.status = 'cancelled'
+    delete task.blocked
     const why = oneLine(reason, REASON_MAX)
     if (why !== '') task.reason = why
     task.updatedAt = Date.now()
@@ -79,6 +92,7 @@ export function install(rt) {
     const line = oneLine(text, NOTE_MAX)
     if (line === '') return undefined
     ;(task.notes ??= []).push({ at: Date.now(), by, text: line })
+    if (task.notes.length > NOTES_MAX) task.notes.splice(0, task.notes.length - NOTES_MAX)
     task.updatedAt = Date.now()
     return task
   }
@@ -91,7 +105,8 @@ export function install(rt) {
       const bot = owner(task)
       const mine = task.botId === self ? ' (yours)' : ''
       const progress = task.progress === '' ? '' : `\n  progress: ${task.progress}`
-      return `- ${task.id} · ${bot?.name ?? task.botId} · ${task.status} · ${task.goal}${mine}${progress}`
+      const blocked = task.blocked === undefined ? '' : `\n  blocked by DS Bot: ${blockedLine(task.blocked)}`
+      return `- ${task.id} · ${bot?.name ?? task.botId} · ${task.status} · ${task.goal}${mine}${progress}${blocked}`
     })
     const past = pastTasksOf(room_)
     const lines = [`Tasks in "${room_.name}"${open.length === 0 ? ': none open.' : ':'}`, ...open]
@@ -117,7 +132,7 @@ export function install(rt) {
       const self = rt.selfOf(exec.agent?.id)
       const member = rt.botOf(self)
       if (member === undefined) return 'Only Bots on the team can use group_task.'
-      const room = rt.roomOf(rt.groupOwners.get(exec.agent?.id)?.roomId)
+      const room = rt.roomOf(rt.groupOwners.get(exec.agent?.id)?.roomId ?? rt.taskOwners?.get(exec.agent?.id)?.roomId)
       if (room === undefined) return 'group_task works inside a group chat, where the work belongs to the group. Call it from your group session.'
       const isAdmin = rt.isMain(self) || rt.isAdminOf(room, self)
       const action = String(args.action ?? '')
@@ -138,14 +153,66 @@ export function install(rt) {
     },
   }))
 
+  // The board follows how the member's work in the group really ended (#1663): a failed
+  // turn or the user's stop blocks its running tasks, and its next completed turn there
+  // puts them back. A block the Bot set itself is the Bot's to lift.
+  // `since`: only tasks the member has not updated since then.
+  const blockTasks = (roomId, botId, cause, since) => {
+    const room = rt.roomOf(roomId)
+    if (room === undefined) return
+    // A system block is renewed with the latest cause; a block the Bot set stays its own.
+    const running = openTasksOf(room).filter(task => task.botId === botId && (task.status !== 'blocked' || task.blocked !== undefined)
+      && (since === undefined || task.updatedAt < since))
+    if (running.length === 0) return
+    const at = Date.now()
+    for (const task of running) {
+      task.blocked = { by: 'system', ...cause, from: task.blocked?.from ?? task.status, at }
+      task.status = 'blocked'
+      task.updatedAt = at
+    }
+    void rt.save().catch(() => {})
+  }
+  const unblockTasks = (roomId, botId) => {
+    const room = rt.roomOf(roomId)
+    if (room === undefined) return
+    const blocked = openTasksOf(room).filter(task => task.botId === botId && task.blocked !== undefined)
+    if (blocked.length === 0) return
+    const at = Date.now()
+    for (const task of blocked) {
+      task.status = task.blocked.from
+      delete task.blocked
+      task.updatedAt = at
+    }
+    void rt.save().catch(() => {})
+  }
+
+  const cancelMemberTasks = (room, botId, reason) => {
+    if (room === undefined || botId === undefined) return 0
+    const open = openTasksOf(room).filter(task => task.botId === botId)
+    if (open.length === 0) return 0
+    const at = Date.now()
+    const why = oneLine(reason, REASON_MAX)
+    for (const task of open) {
+      task.status = 'cancelled'
+      delete task.blocked
+      if (why !== '') task.reason = why
+      task.updatedAt = at
+    }
+    return open.length
+  }
+
   // For the group overview. The endpoint adds the user's note and posts it to the room.
   Object.assign(rt, {
+    blockTasks,
+    unblockTasks,
+    cancelMemberTasks,
     taskNote: (roomId, id, text) => {
       const room = rt.roomOf(roomId)
       if (room === undefined) return { error: 'No such group.' }
       const task = tasksOf(room)[String(id ?? '')]
       if (task === undefined) return { error: 'No such task.' }
       if (!OPEN_STATUSES.includes(task.status)) return { error: 'That task is already finished.' }
+      if (!room.members.includes(task.botId)) return { error: 'That task\'s owner is no longer in this group.' }
       const noted = note(room, id, text, 'user')
       return noted === undefined ? { error: 'Write a note first.' } : { task: noted }
     },
@@ -156,6 +223,7 @@ export function install(rt) {
       if (task === undefined) return { error: 'No such task.' }
       if (!OPEN_STATUSES.includes(task.status)) return { error: 'That task is already finished.' }
       task.status = 'cancelled'
+      delete task.blocked
       task.updatedAt = Date.now()
       return { task }
     },

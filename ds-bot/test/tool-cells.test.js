@@ -252,11 +252,13 @@ const BRANCHES = [
   ['read_group_chat', { args: { group: 'Ops' } }, /Read.*Ops/],
   ['remember', { args: { scope: 'Chief' }, content: 'Saved to Chief memory.' }, /Memory updated/],
   ['forget', { args: { scope: 'Chief' }, content: 'Removed from Chief memory.' }, /Memory updated/],
+  ['bot_remember', { args: { scope: 'Chief' }, content: 'Saved to Chief memory.' }, /Memory updated/],
+  ['bot_forget', { args: { scope: 'Chief' }, content: 'Removed from Chief memory.' }, /Memory updated/],
 ]
 const rosterFor = callId => team({ questions: { chief: question(callId) }, secretRequests: { chief: [request(callId)] } })
 
 test('every call ToolCell draws shows the same nested in a PTC program as on its own', () => {
-  assert.equal(BRANCHES.length, 15)
+  assert.equal(BRANCHES.length, 17)
   for (const [name, options, expected] of BRANCHES) {
     const native = shown(call(name, 'direct', options), { roster: rosterFor('direct') })
     assert.match(native, expected, `${name} on its own`)
@@ -457,11 +459,13 @@ test('a memory write that failed says so, and opens the memory it meant to chang
 })
 
 test('a removal that failed says it could not remove the entry, and why', () => {
-  const line = memoryLine(failedWrite('forget', {}, 'memory/no-match', 'No entry in your memory matches "tea".'), {})
-  assert.match(text(line), /Couldn't remove from memory/)
-  assert.match(text(line), /No saved entry matched/)
-  // The entry the call named is not repeated in the notice.
-  assert.doesNotMatch(text(line), /tea/)
+  for (const name of ['bot_forget', 'forget']) {
+    const line = memoryLine(failedWrite(name, {}, 'memory/no-match', 'No entry in your memory matches "tea".'), {})
+    assert.match(text(line), /Couldn't remove from memory/)
+    assert.match(text(line), /No saved entry matched/)
+    // The entry the call named is not repeated in the notice.
+    assert.doesNotMatch(text(line), /tea/)
+  }
 })
 
 test('the reason follows the kind of failure, not the words of the host', () => {
@@ -550,7 +554,7 @@ const notes = (root, options = {}) => {
 test('the live note follows the running sub-call of a program', () => {
   const asking = notes(program([call('message_bot', 'program:ptc:1', { args: { to: 'Writer' }, running: true })], { running: true }))
   assert.deepEqual(asking, [
-    { sessionId: 'chief', id: 'tool:program', entry: { label: 'Asking Writer', state: 'sending' } },
+    { sessionId: 'chief', id: 'tool:program', entry: { label: 'Delegating to Writer', state: 'sending' } },
     { sessionId: 'chief', id: 'tool:program', entry: null },
   ])
   const relaying = notes(program([call('message_bot', 'program:ptc:1', { args: { to: 'Writer' } }), call('group_relay', 'program:ptc:2', { running: true })], { running: true }))
@@ -562,7 +566,7 @@ test('the live note follows the running sub-call of a program', () => {
   assert.deepEqual(notes(program([call('message_bot', 'program:ptc:1', { args: { to: 'Writer' }, running: true })])), [])
   const roster = team({ exchangeTurns: { chief: [1] } })
   assert.deepEqual(notes(program([call('message_bot', 'program:ptc:1', { args: { to: 'Writer' }, running: true })], { running: true }), { roster }), [])
-  assert.equal(notes(call('message_bot', 'direct', { args: { to: 'Writer' }, running: true }))[0].entry.label, 'Asking Writer')
+  assert.equal(notes(call('message_bot', 'direct', { args: { to: 'Writer' }, running: true }))[0].entry.label, 'Delegating to Writer')
 })
 
 // A minimal cards store, as index.js keeps it.
@@ -852,6 +856,19 @@ test('a goal round draws nothing, while another unknown trigger keeps its event 
   }))
   assert.ok(emptied(trigger({ kind: 'goal', goalId: 'goal-1', revision: 1, round: 1 })))
   assert.match(text(trigger({ kind: 'webhook' })), /<goal_round>Keep going/)
+})
+
+test('a computer handback trigger draws nothing instead of a Bot relay event', () => {
+  const out = expand(TriggerCell({
+    node: { key: 'node', data: { source: { kind: 'bot', role: 'handback' }, turn: 3, content: text$('The user handed the computer back. Look at the app again before you go on.') }, location: { turn: { turn: 3 } } },
+    sessionId: chief.id,
+    useRoster: select => select(team()),
+    useSessions: select => select({ byId: {} }),
+    useTurnClock: select => select({}),
+    useUi: select => select({ visits: {} }),
+    actions: { openExchange: () => { throw new Error('must not open an exchange') } },
+  }))
+  assert.ok(emptied(out))
 })
 
 // #212: the chat hands a trigger its event (seq, content, source) but no turn, so every post

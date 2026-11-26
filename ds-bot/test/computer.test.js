@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { createRuntime } from '../index.js'
 import { fakeContext } from './fake-ctx.js'
+import { restoreReleasedV4Artifact } from '@deepseek-ai/dsh-session-format-v3-to-v4'
 import { classify, levelAllows, isComputerTool } from '../src/host/computer/catalog.js'
 import { createLeases } from '../src/host/computer/leases.js'
 import { isProtectedApp } from '../src/host/computer/index.js'
@@ -387,6 +388,64 @@ const maskingAgent = (ctx, id, denied) => ({
   },
 })
 
+test('tools/change bursts refresh masking once without scheduling another refresh for their own restrictions', async (t) => {
+  const { ctx, home, rt } = setup()
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  await rt.load()
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const masked = new Map()
+  const agents = ['m1', 'w1'].map(id => {
+    const agent = maskingAgent(ctx, id, [])
+    agent.ctx.tools.restrict = ({ deny: [name] }) => {
+      const names = masked.get(id) ?? new Set()
+      masked.set(id, names)
+      names.add(name)
+      ctx.emit('tools/change')
+      return () => {
+        names.delete(name)
+        ctx.emit('tools/change')
+      }
+    }
+    return agent
+  })
+  let listed = 0
+  ctx.get = name => name === 'agents' ? { list: () => { listed++; return agents } } : undefined
+  let schemas = 0
+  let tools = [{ name: 'cua' }]
+  ctx.tools.schemas = () => { schemas++; return tools }
+
+  for (let i = 0; i < 20; i++) ctx.emit('tools/change')
+  t.mock.timers.tick(49)
+  assert.equal(listed, 0)
+  tools = [...tools, { name: 'cua_driver_native__click' }]
+  ctx.emit('tools/change')
+  t.mock.timers.tick(1)
+  assert.equal(listed, 1)
+  assert.equal(schemas, agents.length)
+  assert.deepEqual([...masked], agents.map(({ id }) => [id, new Set(tools.map(({ name }) => name))]))
+  t.mock.timers.tick(50)
+  assert.equal(listed, 1)
+
+  ctx.emit('agent/disposed', { agent: agents[0] })
+  assert.equal(masked.get('m1').size, 0)
+  t.mock.timers.tick(50)
+  assert.equal(listed, 1)
+
+  tools.push({ name: 'cua_driver_native__list_windows' })
+  ctx.emit('tools/change')
+  assert.equal(masked.get('w1').has('cua_driver_native__list_windows'), false)
+  ctx.emit('agent/status', { agent: agents[1], status: 'running' })
+  assert.equal(masked.get('w1').has('cua_driver_native__list_windows'), true)
+  tools.push({ name: 'cua_driver_native__list_apps' })
+  ctx.emit('tools/change')
+  assert.equal(masked.get('w1').has('cua_driver_native__list_apps'), true)
+  assert.equal(listed, 1)
+  await ctx.dispose()
+  const listedAtDispose = listed
+  t.mock.timers.tick(50)
+  assert.equal(listed, listedAtDispose)
+})
+
 test('a plain Session keeps DSH\'s own computer use while the DS Bot switch is off (#1101)', async (t) => {
   const { ctx, home, rt } = setup()
   t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
@@ -633,6 +692,50 @@ test('takeover refuses the Bot and handback delivers a message with nothing the 
   assert.doesNotMatch(text, /typed|clicked|password/i)
 })
 
+test('handback writes a non-relay source that v4 restore accepts and earlier parts ignore', async (t) => {
+  const { ctx, home, rt } = setup()
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  await rt.load()
+  await rt.computerEndpoint('set-enabled', { enabled: true })
+  await rt.computerEndpoint('set-level', { botId: 'w1', level: 'foreground' })
+  const followups = []
+  ctx.sessions = { flush: async () => {} }
+  rt.resolveAgent = async () => ({ followup: message => followups.push(message), session: { id: 'w1' } })
+  rt.chatOf = () => 'w1'
+  await rt.computerEndpoint('handback', { botId: 'w1' })
+  const message = followups.at(-1)
+  // Every stored message needs a producer-owned source kind, or the whole session
+  // fails to load with a SessionFormatError. Use a dedicated non-relay role so
+  // neither the chat nor earlier-part history renders a Bot-to-Bot relay line.
+  assert.deepEqual(message?.source, { kind: 'bot', role: 'handback' })
+  const at = Date.now()
+  const knownEventTypes = new Set(['turn/start', 'user/message'])
+  const artifact = (data) => ({
+    header: { version: 4, id: 'w1', createdAt: at, isSeeded: false, delegationDepth: 0 },
+    inheritedEventCount: 0,
+    events: [
+      { type: 'turn/start', seq: 0, time: at, data: { turn: 1 } },
+      { type: 'user/message', seq: 1, time: at, surfaceOp: 'append', data },
+    ],
+  })
+  assert.doesNotThrow(() => restoreReleasedV4Artifact(artifact(message), knownEventTypes))
+  const { source, ...withoutSource } = message
+  assert.throws(() => restoreReleasedV4Artifact(artifact(withoutSource), knownEventTypes), /producer-owned source kind/)
+  // Earlier-part history (partHistory) ignores the handback notice and keeps the continuation reply.
+  const items = rt.displayItems('w1', [
+    { type: 'turn/start', seq: 0, time: at, data: { turn: 1 } },
+    { type: 'user/message', seq: 1, time: at, data: message },
+    { type: 'assistant/message', seq: 2, time: at + 1, data: { turn: 1, message: { content: [{ type: 'text', text: 'Continuing now.' }] } } },
+  ])
+  assert.deepEqual(items.map(item => [item.kind, item.text ?? item.role]), [['bot', 'Continuing now.']])
+  // A handback turn is not marked as a hidden Bot-to-Bot exchange turn.
+  for (const listener of ctx.listeners.get('session/event') ?? []) {
+    await listener({ id: 'w1' }, { type: 'turn/start', time: at, data: { turn: 1 } })
+    await listener({ id: 'w1' }, { type: 'user/message', time: at, data: message })
+  }
+  assert.equal((rt.state.exchangeTurns?.w1 ?? []).includes(1), false)
+})
+
 test('Stop all stops only Bots that hold a lease, are in-flight, or are bot/waiting', async (t) => {
   const { ctx, home, rt } = setup()
   t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
@@ -877,6 +980,62 @@ test('cua-driver resolves a window_id or an element token to the app, and refuse
   // an unknown window is refused
   const unknown = await call('cua_driver_native__click', { window_id: 99 })
   assert.equal(unknown.kind, 'deny')
+})
+
+test('cua-driver sessions that ended while idle are started again before the next call (#1821)', async (t) => {
+  const { ctx, home, rt } = setup()
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  await rt.load()
+  await rt.computerEndpoint('set-enabled', { enabled: true })
+  await rt.computerEndpoint('set-level', { botId: 'w1', level: 'background' })
+  const started = []
+  const defs = {
+    cua_driver_native__start_session: { parameters: { properties: { session: {} } }, execute: async (args) => { started.push(args); return { active: true } } },
+    cua_driver_native__list_apps: { parameters: { properties: {} } },
+    cua_driver_native__get_screen_size: { parameters: { properties: { session: {} } } },
+  }
+  ctx.tools.get = name => defs[name]
+  let now = 1_000_000
+  t.mock.method(Date, 'now', () => now)
+  const gate = ctx.listeners.get('tools/pre-execute').find(fn => fn.name === 'computerGate')
+  const track = ctx.listeners.get('tools/execute').find(fn => fn.name === 'computerTrack')
+  const allow = async () => 'allowed'
+  const call = (name, args = {}) => gate({ name, arguments: args, agent: { id: 'w1' }, callId: `c-${name}` }, allow)
+  // the first call starts the implicit session; a call right after does not
+  assert.equal(await call('cua_driver_native__list_apps'), 'allowed')
+  assert.deepEqual(started, [{}])
+  now += 60_000
+  assert.equal(await call('cua_driver_native__list_apps'), 'allowed')
+  assert.deepEqual(started, [{}])
+  // after the driver's five idle minutes the next call starts it again
+  now += 5 * 60_000
+  assert.equal(await call('cua_driver_native__list_apps'), 'allowed')
+  assert.deepEqual(started, [{}, {}])
+  // a tool that takes a session gets the Bot's label, started the same way
+  const exec = { name: 'cua_driver_native__get_screen_size', arguments: {}, agent: { id: 'w1' }, callId: 'c-size' }
+  assert.equal(await gate(exec, allow), 'allowed')
+  const label = exec.arguments.session
+  assert.match(label, /^dsbot-/)
+  assert.deepEqual(started.at(-1), { session: label })
+  // a call refused as ended starts its session again and says to call again
+  started.length = 0
+  const ended = await track({ name: 'cua_driver_native__list_apps', arguments: {}, agent: { id: 'w1' }, callId: 'c-ended' },
+    async () => ({ isError: true, content: [{ type: 'text', text: 'Error: this session has ended; call start_session explicitly to reuse its label' }], error: { message: 'this session has ended; call start_session explicitly to reuse its label' } }))
+  assert.equal(ended.isError, true)
+  assert.match(ended.content[0].text, /started it again; call the tool again/)
+  assert.deepEqual(started, [{}])
+  // a window listing for a pid not seen yet needs no consent; reading that app's
+  // elements does, and so does the whole-desktop capture. Refused calls start nothing.
+  started.length = 0
+  now += 5 * 60_000
+  assert.equal((await call('cua_driver_native__get_accessibility_tree', { pid: 99 })).kind, 'deny')
+  assert.equal((await call('cua_driver_native__get_accessibility_tree', {})).kind, 'deny')
+  const desktop = await call('cua_driver_native__get_desktop_state', {})
+  assert.equal(desktop.kind, 'deny')
+  assert.match(desktop.reason, /get_window_state/)
+  assert.deepEqual(started, [])
+  assert.equal(await call('cua_driver_native__list_windows', { pid: 99 }), 'allowed')
+  assert.deepEqual(started, [{}])
 })
 
 test('revoke clears a This time under every key, so the next call asks again', async (t) => {
@@ -1302,6 +1461,37 @@ test('cua-driver keeps the title-only window record', async (t) => {
   assert.equal(await pending, 'allowed')
 })
 
+test('a group-session computer app ask tags roomId, yields the room turn, and settles in place (#1623)', async (t) => {
+  const { ctx, home, rt } = setup()
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  const yielded = []
+  rt.groupOwners = new Map([['g1-w1', { roomId: 'r1', botId: 'w1' }]])
+  rt.selfOf = id => (id === 'g1-w1' ? 'w1' : id)
+  rt.isBotSession = id => id === 'w1' || id === 'g1-w1'
+  rt.yieldRoomTurn = id => yielded.push(id)
+  await rt.load()
+  await rt.computerEndpoint('set-enabled', { enabled: true })
+  await rt.computerEndpoint('set-level', { botId: 'w1', level: 'background' })
+  const consent = ctx.listeners.get('user-questions/request').find(fn => fn.name === 'computerConsent')
+  const pending = consent({
+    agent: { id: 'g1-w1', session: { id: 'g1-w1' } },
+    questions: [{ id: 'cua-app-access', intent: { subject: { name: 'Notes' } } }],
+  }, async () => ({ answers: [] }))
+  await new Promise(resolve => setImmediate(resolve))
+  const asks = Object.values(rt.computerLive().asks)
+  assert.equal(asks.length, 1)
+  assert.equal(asks[0].roomId, 'r1')
+  assert.equal(asks[0].botId, 'w1')
+  assert.equal(asks[0].appName, 'Notes')
+  assert.equal(typeof asks[0].at, 'number')
+  assert.deepEqual(yielded, ['g1-w1'])
+  assert.equal(rt.waitsForApproval('g1-w1'), true)
+  await rt.computerEndpoint('app-answer', { id: asks[0].id, answer: 'once' })
+  const result = await pending
+  assert.deepEqual(result, { answers: [{ id: 'cua-app-access', selected: ['Allow for this session'] }] })
+  assert.equal(Object.keys(rt.computerLive().asks).length, 0)
+})
+
 test('cua-driver keeps a numeric element token', async (t) => {
   const { ctx, home, rt } = setup()
   t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
@@ -1321,4 +1511,54 @@ test('cua-driver keeps a numeric element token', async (t) => {
   assert.equal(ask.appName, 'Notes')
   await rt.computerEndpoint('app-answer', { id: ask.id, answer: 'once' })
   assert.equal(await pending, 'allowed')
+})
+
+test('cancelApprovals denies pending group app asks, pre-aborted signals do not leak, and concurrent asks keep waitingFor until all settle (#1623)', async (t) => {
+  const { ctx, home, rt } = setup()
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  const yielded = []
+  rt.groupOwners = new Map([
+    ['g1-w1', { roomId: 'r1', botId: 'w1' }],
+    ['g2-w1', { roomId: 'r2', botId: 'w1' }],
+  ])
+  rt.selfOf = id => (['g1-w1', 'g2-w1'].includes(id) ? 'w1' : id)
+  rt.isBotSession = id => ['w1', 'g1-w1', 'g2-w1'].includes(id)
+  rt.yieldRoomTurn = id => yielded.push(id)
+  await rt.load()
+  await rt.computerEndpoint('set-enabled', { enabled: true })
+  await rt.computerEndpoint('set-level', { botId: 'w1', level: 'background' })
+  const consent = ctx.listeners.get('user-questions/request').find(fn => fn.name === 'computerConsent')
+
+  // Pre-aborted signal denies immediately without creating a pending ask or yielding.
+  const aborted = new AbortController()
+  aborted.abort()
+  const preAborted = await consent({
+    agent: { id: 'g1-w1', session: { id: 'g1-w1' } },
+    signal: aborted.signal,
+    questions: [{ id: 'cua-app-access', intent: { subject: { name: 'Notes' } } }],
+  }, async () => ({ answers: [] }))
+  assert.deepEqual(preAborted, { answers: [{ id: 'cua-app-access', selected: ['Deny'] }] })
+  assert.equal(Object.keys(rt.computerLive().asks).length, 0)
+  assert.deepEqual(yielded, [])
+
+  // Two concurrent asks on the same Bot across two groups: cancelling one leaves the other waiting.
+  const p1 = consent({
+    agent: { id: 'g1-w1', session: { id: 'g1-w1' } },
+    questions: [{ id: 'cua-app-access', intent: { subject: { name: 'Notes' } } }],
+  }, async () => ({ answers: [] }))
+  const p2 = consent({
+    agent: { id: 'g2-w1', session: { id: 'g2-w1' } },
+    questions: [{ id: 'cua-app-access', intent: { subject: { name: 'Safari' } } }],
+  }, async () => ({ answers: [] }))
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(Object.keys(rt.computerLive().asks).length, 2)
+  rt.cancelApprovals('g1-w1')
+  assert.deepEqual(await p1, { answers: [{ id: 'cua-app-access', selected: ['Deny'] }] })
+  assert.equal(rt.waitsForApproval('g1-w1'), false)
+  assert.equal(rt.waitsForApproval('g2-w1'), true)
+  assert.equal(rt.computerLive().bots.w1?.waitingFor, 'app-access')
+  const remaining = Object.values(rt.computerLive().asks)[0]
+  await rt.computerEndpoint('app-answer', { id: remaining.id, answer: 'once' })
+  assert.deepEqual(await p2, { answers: [{ id: 'cua-app-access', selected: ['Allow for this session'] }] })
+  assert.equal(rt.computerLive().bots.w1?.waitingFor, undefined)
 })

@@ -57,11 +57,6 @@ export function palette(dark: boolean, themeId?: string, accent?: string): Palet
   }
 }
 
-export function themeLabel(themeId?: string): string {
-  const themes = allThemes() as Record<string, { label: string }>
-  return themes[themeId ?? '']?.label ?? themes.deepseek.label
-}
-
 // A Bot's color, resolved the way names and marks do on the desktop: a named ink has
 // a light and a dark value, a #rrggbb color is used as is.
 export function inkColor(color: string | undefined, dark: boolean): string {

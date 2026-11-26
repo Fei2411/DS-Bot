@@ -40,7 +40,11 @@ export function fileLinks(text) {
 }
 
 // DSH decodes the link back to the path, so `%` and what would end the link are escaped.
-const href = path => path.replace(/\\/g, '/').replace(/[%\s()<>]/g, char => `%${char.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0')}`)
+// `#` and `?` end the path part in `fileTarget` above (a fragment, a query), so a file
+// whose name contains either has to be encoded here: this function writes the destination
+// that `fileTarget` later reads, and an unencoded `#` or `?` turned a link that worked
+// before it was made absolute into one that no longer resolves at all.
+const href = path => path.replace(/\\/g, '/').replace(/[%\s()<>#?]/g, char => `%${char.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0')}`)
 
 export function absoluteLinks(text, folder) {
   if (typeof text !== 'string' || !folder || !text.includes('](')) return text

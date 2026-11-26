@@ -1,13 +1,17 @@
 import { useMemo, useRef, useState } from 'react'
+import { demoUsage } from './demo-usage.ts'
 import type { TeamState } from '../connection.ts'
 import { demoData } from './demo-team.ts'
-import { ensureUnlock } from './gate.ts'
+import { demoFolderListing, demoUpdateRoom } from './demo-folders.ts'
+import { ensureUnlock } from './gate'
 import { validateViewAnswer } from 'deep-view/core'
 import type { ChatItem } from '../screens/chat/items.tsx'
 
 // Demo mode (EXPO_PUBLIC_DSB_DEMO=1): no computer, no link. The fixture answers
 // with exactly the shapes the real host returns (channel.js `state` view + live(),
 // parts.js `chat` pages). Only compiled in when the env var is set at bundle time.
+export const DEMO_HELLO = { api: 1, min: 1, capabilities: ['state', 'state-avatar-refs', 'avatar', 'room-avatars', 'chat', 'room-chat', 'agents', 'send', 'feed', 'feed-room', 'notices', 'questions', 'views', 'approvals', 'stop-member-work', 'memory', 'memory-edit', 'usage-summary', 'stop-chat', 'stop-agent', 'row-meta', 'chat-steps', 'link-feed', 'images', 'write-state'], boot: 'demo', seq: 0 }
+
 export function demoLink() {
   const data = useMemo(demoData, [])
   const [, setTick] = useState(0)
@@ -28,10 +32,30 @@ const call = useMemo(() => async (endpoint: string, payload: unknown = {}): Prom
     const touch = () => { state.revision += 1; bump() }
 
     switch (endpoint) {
+      case 'learning-answer': {
+        for (const [botId, proposals] of Object.entries(state.learning ?? {})) state.learning![botId] = proposals.filter(proposal => proposal.id !== body.id)
+        touch()
+        return { applied: body.approve === true }
+      }
       case 'hello':
-        return { api: 1, min: 1, capabilities: ['state', 'state-avatar-refs', 'avatar', 'chat', 'room-chat', 'send', 'feed', 'feed-room', 'notices', 'questions', 'views', 'approvals', 'stop-member-work', 'memory', 'memory-edit', 'usage-summary', 'stop-chat', 'row-meta', 'chat-steps', 'link-feed', 'images', 'write-state'], boot: 'demo', seq: 0 }
+        return DEMO_HELLO
       case 'notices':
         return { boot: 'demo', seq: 0, notices: [], reset: false }
+      case 'add-agent': {
+        if ((state.agents ?? []).length > 0) throw Object.assign(new Error('The team already has a DSH Agent'), { code: 'bot/invalid' })
+        const sessionId = `s-agent-${Math.random().toString(36).slice(2, 8)}`
+        const agent = { id: `a-${Math.random().toString(36).slice(2, 8)}`, name: 'DSH Agent', sessions: [sessionId], createdAt: Date.now() }
+        state.agents = [agent]
+        chatsRef.current[sessionId] = [{ sessionId, items: [], cursor: null }]
+        touch()
+        return agent
+      }
+      case 'agent-chat': {
+        const sessionId = state.agents?.find(agent => agent.id === String(body.agentId ?? ''))?.sessions.at(-1)
+        if (sessionId === undefined) throw Object.assign(new Error('Unknown DSH Agent'), { code: 'bot/not-found' })
+        const page = chatsRef.current[sessionId]?.[0] ?? { items: [], cursor: null }
+        return { sessionId, items: page.items, cursor: page.cursor }
+      }
       case 'room-chat': {
         const pages = chatsRef.current[String(body.roomId ?? '')] ?? []
         const page = pages[0] ?? { items: [], cursor: null }
@@ -63,6 +87,10 @@ const call = useMemo(() => async (endpoint: string, payload: unknown = {}): Prom
         if (data === undefined) throw Object.assign(new Error('Unknown attachment'), { code: 'bot/not-found' })
         return { mime: 'image/png', data }
       }
+      case 'file-download': {
+        if (body.attachmentId !== 'att-1') throw Object.assign(new Error('Unknown attachment'), { code: 'bot/not-found' })
+        return { name: 'release-notes.md', mime: 'text/markdown', bytes: btoa('# Release notes\n\nDemo file from DS Bot.\n') }
+      }
       case 'state':
         if (body.since === state.revision) return { revision: state.revision, unchanged: true, work: state.work, activity: state.activity }
         return state
@@ -79,8 +107,26 @@ const call = useMemo(() => async (endpoint: string, payload: unknown = {}): Prom
         if (pages === undefined || pages.length === 0) throw Object.assign(new Error('Unknown Bot'), { code: 'bot/not-found' })
         const item: ChatItem = { kind: 'user', text: String(body.text ?? ''), time: Date.now(), seq: (pages[0].items.at(-1)?.seq ?? 0) + 1 }
         pages[0] = { ...pages[0], items: [...pages[0].items, item] }
+        // A DSH Agent works on it until stopped, so the demo shows the Stop button.
+        const agent = state.agents?.find(entry => entry.sessions.includes(id))
+        if (agent !== undefined) state.work = { ...state.work, agents: { ...state.work?.agents, [agent.id]: { tool: 'working' } } }
         touch()
         return true
+      }
+      case 'stop-agent': {
+        const agentId = String(body.agentId ?? '')
+        const running = state.work?.agents?.[agentId] !== undefined
+        if (running) {
+          delete state.work!.agents![agentId]
+          // What the Agent made before it was stopped: a photo and a file, as a host sends them.
+          const pages = chatsRef.current[state.agents?.find(agent => agent.id === agentId)?.sessions.at(-1) ?? '']
+          if (pages !== undefined) {
+            const item: ChatItem = { kind: 'bot', text: 'Here is the screenshot and the notes.', imageRefs: [{ attachmentId: 'demo-img-1', mime: 'image/png', name: 'blue.png' }], files: [{ name: 'release-notes.md', bytes: 4820, attachmentId: 'att-1' }], time: Date.now(), seq: (pages[0].items.at(-1)?.seq ?? 0) + 1 }
+            pages[0] = { ...pages[0], items: [...pages[0].items, item] }
+          }
+        }
+        touch()
+        return running
       }
       case 'answer-question': {
         const sid = sessionOf(String(body.sessionId ?? ''))
@@ -150,8 +196,7 @@ const call = useMemo(() => async (endpoint: string, payload: unknown = {}): Prom
       case 'update-room': {
         const room = state.rooms?.find(r => r.id === String(body.id ?? ''))
         if (room === undefined) throw Object.assign(new Error('Unknown group'), { code: 'bot/not-found' })
-        const { id: _ignored, ...patch } = body as Record<string, unknown>
-        Object.assign(room, { name: undefined, notice: undefined, mode: undefined, admin: undefined, members: undefined }, patch)
+        demoUpdateRoom(room, body as Record<string, unknown>)
         state.revision += 1; touch()
         return { ok: true }
       }
@@ -182,19 +227,14 @@ const call = useMemo(() => async (endpoint: string, payload: unknown = {}): Prom
         { scope: 'own', topic: null, text: 'Prefers concise status lines', added: '上周', by: null, source: 'memory panel' },
         { scope: 'team', topic: 'Team', text: 'Writer drafts docs first, Coder tests before merge', added: '本月', by: 'Chief', source: 'chat' },
       ] } }
-      case 'schedules': return { available: true, tasks: [
+      case 'schedules': return { available: true, canPause: true, tasks: [
         { id: 'sch-1', botId: 'b-chief', sessionId: 's-chief', title: 'Morning standup', prompt: 'Post the team status', kind: 'daily', time: '09:00', scheduledAt: Date.now() + 3600e3, status: 'active' },
         { id: 'sch-2', botId: 'b-chief', sessionId: 's-chief', title: 'Weekly review', prompt: 'Summarize the week', kind: 'weekly', weekdays: [5], time: '17:00', scheduledAt: Date.now() + 86400e3, status: 'active' },
         { id: 'sch-3', botId: 'b-chief', sessionId: 's-chief', title: 'Tag reminder', kind: 'at', scheduledAt: Date.now() + 7200e3, status: 'active' },
       ] }
-      case 'schedule-create': case 'schedule-delete': return { ok: true }
+      case 'schedule-create': case 'schedule-delete': case 'schedule-pause': return { ok: true }
       case 'folders': return { team: '/work', picker: 'browse', folders: [{ path: '/work/ds-bot', title: 'ds-bot' }, { path: '/work/docs', title: 'docs' }] }
-      case 'folder-list': {
-        const path = String(body.path ?? '')
-        const tree: Record<string, string[]> = { '': ['work'], '/work': ['ds-bot', 'docs', 'notes'], '/work/ds-bot': ['mobile', 'ds-bot', 'app'] }
-        const kids = tree[path] ?? []
-        return { path, parent: path.split('/').slice(0, -1).join('/') || null, entries: kids.map(name => ({ name, path: `${path}/${name}` })), truncated: false }
-      }
+      case 'folder-list': return demoFolderListing((body as { path?: unknown }).path)
       case 'usage-summary': return { botId: String(body.botId ?? ''), day: { input: 12400, output: 3200, cacheRead: 8800 }, week: { input: 98200, output: 21400, cacheRead: 61100 }, month: { input: 402100, output: 90300, cacheRead: 251000 }, models: [{ key: 'deepseek-official/deepseek-v4.1', name: 'DeepSeek v4.1', input: 300100, output: 70100 }, { key: 'deepseek-official/deepseek-flash', name: 'DeepSeek Flash', input: 102000, output: 20200 }], scanning: false }
       case 'run-stats': return { sessionStats: { turns: 96, steps: 311 }, tokenUsage: { uncachedInputTokens: 52000, outputTokens: 9000, cacheReadTokens: 480000, cacheWriteTokens: 0 }, contextPressure: { pressureTokens: 61000, contextWindow: 1000000 } }
       case 'providers': return { available: true, protocols: ['openai'], providers: [
@@ -246,7 +286,7 @@ const call = useMemo(() => async (endpoint: string, payload: unknown = {}): Prom
       case 'browser-frame': {
         const hold = state.browserHolds?.[String(body.botId ?? '')]
         if (hold === undefined && body.botId !== 'b-coder') return { ok: false, error: { code: 'bot/not-found', message: 'This Bot has no open browser' } }
-        return { mime: 'image/png', data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', url: 'https://github.com/fei2411/ds-bot', title: 'DS Bot — GitHub' }
+        return { mime: 'image/png', data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', url: 'https://github.com/Fei-Craft/DS-Bot', title: 'DS Bot — GitHub' }
       }
       case 'browser-takeover': { (state.browserHolds ??= {})[String(body.botId ?? '')] = { by: 'user', reason: 'takeover', note: 'The user is controlling this browser.' }; return { ok: true } }
       case 'browser-give-back': { delete (state.browserHolds ??= {})[String(body.botId ?? '')]; return { ok: true } }
@@ -257,16 +297,7 @@ const call = useMemo(() => async (endpoint: string, payload: unknown = {}): Prom
         return { ok: true }
       }
       case 'file-text': return { text: '# Release notes\n\n- Drawer lands today\n- Mobile cards render natively\n- Needs-you groups the queue\n', truncated: false }
-      case 'usage': return {
-        total: { input: 402100, output: 90300 },
-        bots: [
-          { name: 'Chief', input: 152100, output: 40100 }, { name: 'Writer', input: 120100, output: 30400 },
-          { name: 'Coder', input: 80000, output: 13000 }, { name: 'Researcher', input: 50000, output: 6800 },
-        ],
-        models: [
-          { name: 'DeepSeek v4.1', input: 300100, output: 70100 }, { name: 'DeepSeek Flash', input: 102000, output: 20200 },
-        ],
-      }
+      case 'usage': return demoUsage(bots)
       case 'update-check': return { update: { phase: 'current', latest: '0.1.2', available: false, checkedAt: Date.now() - 3600e3, source: 'registry' }, dsh: { phase: 'installed', installed: '0.0.1', available: false } }
       case 'update-install': case 'dsh-update-install': return { ok: true }
       case 'diagnostics': return { size: 48200, entries: 214, last: 'Turn 96 on Coder failed once and retried.' }
@@ -288,5 +319,5 @@ const call = useMemo(() => async (endpoint: string, payload: unknown = {}): Prom
     }
   }, [data])
 
-  return { team: stateRef.current, online: true, error: null, call }
+  return { team: { ...stateRef.current }, online: true, error: null, call }
 }

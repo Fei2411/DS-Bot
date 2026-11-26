@@ -1,16 +1,18 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import * as Haptics from 'expo-haptics'
 import { ChevronRightIcon } from '../../ui/icons.tsx'
 import { ViewCard } from './view.tsx'
-import { ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View, Pressable } from 'react-native'
-import Animated, { useReducedMotion, useAnimatedStyle, withRepeat, withTiming, withSpring, useSharedValue, withSequence } from 'react-native-reanimated'
-import { useEffect } from 'react'
+import { Animated, Platform, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View, Pressable } from 'react-native'
+import Reanimated, { useReducedMotion, useAnimatedStyle, withSpring, useSharedValue } from 'react-native-reanimated'
 import type { Approval, ConnectorRequest, Question, ShownView } from '../../connection.ts'
 import { connectorCanConnectOnMobile } from '../../team/connectors.ts'
 import { t } from '../../ui/i18n.ts'
-import { radius, shadow, SPRING_TAP, type as typeScale, type Palette } from '../../ui/tokens.ts'
+import { MONO, radius, shadow, SPRING_TAP, type as typeScale, type Palette } from '../../ui/tokens.ts'
 import { Avatar } from '../../ui/marks.tsx'
 import type { Bot } from '../../connection.ts'
+import type { LearningProposal } from './learning.ts'
+import { initialShimmerOpacity, startShimmerLoop } from './shimmer.ts'
+import { agentEditRows, lineDiff } from '../../../../ds-bot/src/client/learning-card-model.js'
 
 type Call = (endpoint: string, payload?: unknown) => Promise<unknown>
 
@@ -21,7 +23,7 @@ function useChevron(expanded: boolean) {
   const reduced = useReducedMotion()
   useEffect(() => {
     progress.value = reduced ? (expanded ? 1 : 0) : withSpring(expanded ? 1 : 0, SPRING_TAP)
-  }, [expanded])
+  }, [expanded, reduced])
   return useAnimatedStyle(() => ({ transform: [{ rotate: `${progress.value * 90}deg` }] }))
 }
 
@@ -33,24 +35,26 @@ function AccordionCard({ title, dot, expanded, onToggle, p, children }: { title:
         style={{ flexDirection: 'row', alignItems: 'center', minHeight: 46, paddingHorizontal: 16, paddingVertical: 10, gap: 8 }}>
         <Text style={[typeScale.settingsRow, { color: p.ink, fontWeight: '600', flex: 1, minWidth: 0 }]} numberOfLines={expanded ? 4 : 1}>{title}</Text>
         {dot === true ? <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: p.accent, flexShrink: 0 }} /> : null}
-        <Animated.View style={[chevron, { flexShrink: 0 }]}><ChevronRightIcon size={16} color={p.ink3} /></Animated.View>
+        <Reanimated.View style={[chevron, { flexShrink: 0 }]}><ChevronRightIcon size={16} color={p.ink3} /></Reanimated.View>
       </Pressable>
       {expanded ? <View style={{ paddingHorizontal: 16, paddingBottom: 14 }}>{children}</View> : null}
     </View>
   )
 }
 
-export function Dock({ question, sessionId, approvals, secrets = [], connectorRequests = [], botName, onOpenConnector, btw = [], handoff, onViewBrowser, view, call, p, maxHeight, expanded, onExpand }: {
+export function Dock({ question, sessionId, approvals, learning = [], secrets = [], connectorRequests = [], botName, onOpenConnector, btw = [], handoff, onViewBrowser, view, call, p, maxHeight, expanded, onExpand }: {
   view?: ShownView
   secrets?: SecretRequest[]; connectorRequests?: ConnectorRequest[]; botName?: string; onOpenConnector?: (connectorId: string) => void
   btw?: BtwCardData[]; handoff?: HandoffData; onViewBrowser?: () => void
   maxHeight?: number; expanded: string | null; onExpand: (key: string | null) => void
   question?: Question; sessionId: string; approvals: Approval[]; call: Call; p: Palette
+  learning?: LearningProposal[]
 }) {
   interface CardEntry { key: string; title: string; needs: boolean; order: number; body: React.ReactNode }
   const { height: windowHeight } = useWindowDimensions()
   const cap = maxHeight ?? Math.round(windowHeight * 0.52)
   const cards: CardEntry[] = []
+  for (const proposal of learning) cards.push({ key: `learning-${proposal.id}`, title: proposal.kind === 'agents' ? t('AGENTS.md update') : `${t(proposal.action === 'update' ? 'Skill update' : 'New skill')} · ${proposal.name}`, needs: true, order: 0, body: <LearningCard proposal={proposal} call={call} p={p} /> })
   for (const approval of approvals) cards.push({ key: `approval-${approval.id}`, title: approval.tool ?? t('Approval'), needs: true, order: 0, body: <ApprovalCard approval={approval} call={call} p={p} bare /> })
   if (question !== undefined) cards.push({ key: 'question', title: question.question ?? t('Question'), needs: true, order: 1, body: <QuestionCard question={question} sessionId={sessionId} call={call} p={p} bare /> })
   for (const secret of secrets) cards.push({ key: `secret-${secret.id}`, title: secret.kind === 'allow' ? t('Allow a secret') : (secret.name ? t('{name} needs a key', { name: secret.name }) : t('A secret is needed')), needs: true, order: 2, body: <SecretCard secret={secret} call={call} p={p} bare /> })
@@ -79,6 +83,53 @@ export function Dock({ question, sessionId, approvals, secrets = [], connectorRe
       ))}
     </ScrollView>
   )
+}
+
+const LEARNING_COLLAPSE_ROWS = 8
+const LEARNING_MONO = Platform.OS === 'ios' ? 'Menlo' : MONO
+
+function LearningCard({ proposal, call, p }: { proposal: LearningProposal; call: Call; p: Palette }) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [showAll, setShowAll] = useState(false)
+  const busyRef = useRef(false)
+  const answer = async (approve: boolean) => {
+    if (busyRef.current) return
+    busyRef.current = true
+    setBusy(true)
+    setError('')
+    try { await call('learning-answer', { id: proposal.id, approve }) }
+    catch (failure) { if ((failure as { code?: string })?.code !== 'unlock/canceled') setError((failure as Error)?.message ?? String(failure)) }
+    finally {
+      busyRef.current = false
+      setBusy(false)
+    }
+  }
+  const agents = proposal.kind === 'agents'
+  const rows = agents
+    ? (proposal.edits ?? []).flatMap(agentEditRows)
+    : lineDiff(proposal.action === 'update' ? proposal.previous?.content ?? '' : '', proposal.content ?? '')
+  const folds = rows.length > LEARNING_COLLAPSE_ROWS
+  const visibleRows = folds && !showAll ? rows.slice(0, LEARNING_COLLAPSE_ROWS) : rows
+  return <View>
+    <Text style={[typeScale.caption, { color: p.ink2 }]}>{t('Awaiting approval')}</Text>
+    <Text selectable style={[typeScale.small, { color: p.ink, marginTop: 8 }]}>{agents ? proposal.folder : `skills/${proposal.name}/SKILL.md`}</Text>
+    {proposal.description ? <Text style={[typeScale.small, { color: p.ink2, marginTop: 6 }]}>{proposal.description}</Text> : null}
+    <View style={{ marginTop: 8 }}>
+      {visibleRows.map((row, index) => <Text selectable key={index} style={{ fontFamily: LEARNING_MONO, fontSize: 12, lineHeight: 19, color: row.kind === 'removed' ? p.danger : p.ink, backgroundColor: row.kind === 'added' ? p.hover : undefined }}>{row.kind === 'added' ? '+ ' : row.kind === 'removed' ? '− ' : '  '}{row.line}</Text>)}
+      {folds
+        ? <Pressable accessibilityRole="button" accessibilityState={{ expanded: showAll }} hitSlop={8} onPress={() => setShowAll(v => !v)} style={{ alignSelf: 'flex-start', marginTop: 6, paddingVertical: 4 }}>
+            <Text style={[typeScale.caption, { color: p.accent }]}>{t(showAll ? 'Show less' : 'Show all {count} lines', { count: rows.length })}</Text>
+          </Pressable>
+        : null}
+    </View>
+    {(agents ? proposal.edits?.map(edit => edit.why).filter(Boolean) : [proposal.why])?.map((why, index) => why ? <Text key={index} style={[typeScale.small, { color: p.ink2, marginTop: 8 }]}>{why}</Text> : null)}
+    {error ? <Text accessibilityRole="alert" style={[typeScale.small, { color: p.danger, marginTop: 8 }]}>{error}</Text> : null}
+    <View style={styles.answerRow}>
+      <Pressable accessibilityRole="button" disabled={busy} onPress={() => void answer(false)} style={[styles.choice, { backgroundColor: p.hover, opacity: busy ? 0.35 : 1 }]}><Text style={{ color: p.ink }}>{t('Decline')}</Text></Pressable>
+      <Pressable accessibilityRole="button" disabled={busy} onPress={() => void answer(true)} style={[styles.choice, { backgroundColor: p.accent, opacity: busy ? 0.35 : 1 }]}><Text style={{ color: p.accentInk, fontWeight: '600' }}>{t('Approve')}</Text></Pressable>
+    </View>
+  </View>
 }
 
 export function QuestionCard({ question, sessionId, call, p , bare = false }: { question: Question; sessionId: string; call: Call; p: Palette; bare?: boolean }) {
@@ -138,7 +189,8 @@ export function ApprovalCard({ approval, call, p , bare = false }: { approval: A
   return (
     <View accessibilityLabel={t('{name} is waiting for your approval', { name: '' })}
       style={bare ? undefined : [styles.card, { backgroundColor: p.card, borderColor: p.line }]}>
-      {bare ? null : <Text style={[type.settingsRow, { color: p.ink, fontWeight: '600' }]} numberOfLines={2}>{approval.tool || 'Approval'}</Text>}
+      {bare ? null : <Text style={[type.settingsRow, { color: p.ink, fontWeight: '600' }]} numberOfLines={2}>{[approval.taskTitle, approval.tool || 'Approval'].filter(Boolean).join(' · ')}</Text>}
+      {bare && approval.taskTitle ? <Text style={[type.caption, { color: p.ink2, marginBottom: 2 }]} numberOfLines={1}>{approval.taskTitle}</Text> : null}
       {typeof approval.detail?.text === 'string' && approval.detail.text !== ''
         ? <Text selectable style={[type.small, { color: p.ink, marginTop: 4 }]}>{approval.detail.text}</Text> : null}
       {approval.reason !== '' ? <Text selectable style={[type.small, { color: p.ink2, marginTop: 4 }]} numberOfLines={4}>{approval.reason}</Text> : null}
@@ -303,18 +355,23 @@ export function HandoffCard({ handoff, botId, onView, call, p , bare = false }: 
   )
 }
 
-export function ActionRow({ bot, doing, p, dark }: { bot: Bot; doing: string; p: Palette; dark: boolean }) {
+export function ActionRow({ bot, doing, p, dark, active = true }: { bot: Bot; doing: string; p: Palette; dark: boolean; active?: boolean }) {
   const reduced = useReducedMotion()
-  const shimmer = useSharedValue(0.35)
-  useEffect(() => {
-    if (reduced) { shimmer.value = 1; return }
-    shimmer.value = withRepeat(withSequence(withTiming(1, { duration: 900 }), withTiming(0.35, { duration: 900 })), -1, false)
-  }, [reduced])
-  const style = useAnimatedStyle(() => ({ opacity: shimmer.value }))
+  const opacityRef = useRef<Animated.Value | null>(null)
+  if (opacityRef.current === null) {
+    opacityRef.current = new Animated.Value(initialShimmerOpacity(reduced, active))
+  }
+  const opacity = opacityRef.current
+  useEffect(() => startShimmerLoop(opacity, {
+    reduced,
+    active,
+    useNativeDriver: Platform.OS !== 'web',
+    animated: Animated,
+  }), [opacity, reduced, active])
   return (
     <View style={styles.action}>
       <Avatar bot={bot} dark={dark} size={28} ring={p.main} working />
-      <Animated.Text style={[type.rowPreview, { color: p.ink2, marginLeft: 8, flex: 1 }, style]} numberOfLines={1}>{doing}…</Animated.Text>
+      <Animated.Text style={[type.rowPreview, { color: p.ink2, marginLeft: 8, flex: 1, opacity }]} numberOfLines={1}>{doing}…</Animated.Text>
     </View>
   )
 }
@@ -332,7 +389,7 @@ function DockView({ sessionId, view, p, cap, collapsed, onCollapse }: { sessionI
     <View style={[styles.card, { backgroundColor: p.card, borderColor: p.line, paddingVertical: 0 }]}>
       <Pressable accessibilityRole="button" accessibilityState={{ expanded: !shut }} onPress={() => onCollapse?.(id, !shut)} style={styles.viewHead}>
         <Text style={[typeScale.settingsRow, { color: p.ink, fontWeight: '600', flex: 1, minWidth: 0 }]}>{title}</Text>
-        <Animated.View style={[chevron, { flexShrink: 0 }]}><ChevronRightIcon size={16} color={p.ink3} /></Animated.View>
+        <Reanimated.View style={[chevron, { flexShrink: 0 }]}><ChevronRightIcon size={16} color={p.ink3} /></Reanimated.View>
       </Pressable>
       {shut ? null : (
         <View style={{ paddingBottom: 14 }} onLayout={e => { if (cap !== undefined && collapsed === null && e.nativeEvent.layout.height > cap) onCollapse?.(id, true) }}>

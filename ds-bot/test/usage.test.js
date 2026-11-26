@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { apply } from '../index.js'
-import { foldCalls } from '../src/host/usage.js'
+import { foldCalls, sqliteLedger } from '../src/host/usage.js'
 import { fakeContext } from './fake-ctx.js'
 
 const header = (provider, model) => ({ type: 'request/header', data: { header: { config: { provider, model } }, reason: 'change' } })
@@ -46,6 +46,104 @@ test('a fork does not count the calls it inherited from its parent', () => {
 
 const HOUR = 3_600_000
 const LONG_AGO = 1_000
+
+async function openBook(t) {
+  const { DatabaseSync } = await import('node:sqlite')
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-slots-'))
+  const path = join(home, 'usage.sqlite')
+  const ledger = sqliteLedger(DatabaseSync, path)
+  const db = new DatabaseSync(path)
+  t.after(() => { db.close(); ledger.close(); rmSync(home, { recursive: true, force: true }) })
+  return { ledger, db, path, DatabaseSync }
+}
+
+function checkSlots(ledger, db) {
+  const expected = db.prepare('SELECT session, provider, model, kind, time / 900000 AS slot, SUM(input) AS input, SUM(cache_read) AS cacheRead, SUM(cache_write) AS cacheWrite, SUM(output) AS output, SUM(calls) AS calls FROM calls GROUP BY session, provider, model, kind, slot').all()
+  assert.deepEqual(ledger.groups(), expected.map(row => ({ ...row })))
+}
+
+const callRow = (key, extra = {}) => ({ key, session: 's', time: 0, provider: 'p', model: 'm', kind: 'turn', input: 10, cacheRead: 2, cacheWrite: 3, output: 4, ...extra })
+const callMark = { through: 1, fold: {}, sealed: false }
+
+test('SQLite slots track live calls and replacements across slots and models', async (t) => {
+  const { ledger, db } = await openBook(t)
+  checkSlots(ledger, db)
+  ledger.add(callRow('one'))
+  ledger.add(callRow('two'))
+  checkSlots(ledger, db)
+  ledger.add(callRow('one', { time: HOUR, session: 'other', provider: 'q', model: 'n', kind: 'compaction', input: 20, cacheRead: 7, cacheWrite: 8, output: 9 }))
+  checkSlots(ledger, db)
+  ledger.add(callRow('two', { output: 0 }))
+  checkSlots(ledger, db)
+})
+
+test('SQLite slots track plain inserts and v3/v4 named-column replacements from another connection', async (t) => {
+  const { ledger, db } = await openBook(t)
+  ledger.add(callRow('one'))
+  db.prepare("INSERT INTO calls (key, session, time, provider, model, kind, live, input, cache_read, cache_write, output) VALUES ('two', 's', 0, 'p', 'm', 'turn', 1, 20, 3, 4, 5)").run()
+  checkSlots(ledger, db)
+  const replace = db.prepare("INSERT OR REPLACE INTO calls (key, session, time, provider, model, kind, live, input, cache_read, cache_write, output) VALUES ('one', 'other', ?, 'q', 'n', 'compaction', 1, 50, 6, 7, 8)")
+  replace.run(HOUR)
+  checkSlots(ledger, db)
+  replace.run(2 * HOUR)
+  checkSlots(ledger, db)
+})
+
+test('SQLite rebuilds stale slots left when v3/v4 recreates the ledger', async (t) => {
+  const { ledger, db, path, DatabaseSync } = await openBook(t)
+  ledger.add(callRow('stale'))
+  db.exec(`
+    DROP TRIGGER IF EXISTS calls_insert;
+    DROP TRIGGER IF EXISTS calls_delete;
+    DROP TRIGGER IF EXISTS calls_replace;
+    DROP TABLE calls; DROP TABLE marks; DROP TABLE owners; DROP TABLE kinds;
+    CREATE TABLE calls (key TEXT PRIMARY KEY, session TEXT NOT NULL, time INTEGER NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL, kind TEXT NOT NULL, live INTEGER NOT NULL, input INTEGER NOT NULL, cache_read INTEGER NOT NULL, cache_write INTEGER NOT NULL, output INTEGER NOT NULL);
+    CREATE INDEX calls_session ON calls (session);
+    CREATE TABLE marks (session TEXT PRIMARY KEY, through INTEGER NOT NULL, fold TEXT NOT NULL, sealed INTEGER NOT NULL, listed INTEGER);
+    CREATE TABLE owners (session TEXT PRIMARY KEY, owner TEXT NOT NULL, name TEXT NOT NULL);
+    CREATE TABLE kinds (session TEXT PRIMARY KEY, kind TEXT NOT NULL);
+    INSERT INTO calls VALUES ('fresh', 's', 3600000, 'p', 'm', 'turn', 1, 20, 3, 4, 5);
+    PRAGMA user_version = 3;
+  `)
+  const migrated = sqliteLedger(DatabaseSync, path)
+  try {
+    checkSlots(migrated, db)
+    assert.equal(migrated.groups()[0].input, 20)
+    assert.equal(migrated.groups()[0].calls, 1)
+  } finally { migrated.close() }
+})
+
+test('SQLite slots track committed rows, resets and failed transactions', async (t) => {
+  const { ledger, db } = await openBook(t)
+  ledger.add(callRow('live'))
+  ledger.commit('s', { rows: [callRow('one'), callRow('two', { time: HOUR })], mark: callMark })
+  checkSlots(ledger, db)
+  ledger.commit('s', { rows: [callRow('one', { input: 50, time: 2 * HOUR })], mark: callMark })
+  checkSlots(ledger, db)
+  assert.throws(() => ledger.commit('s', { reset: true, rows: [callRow('bad', { model: null })], mark: callMark }))
+  checkSlots(ledger, db)
+  ledger.commit('s', { reset: true, rows: [callRow('new')], mark: callMark })
+  checkSlots(ledger, db)
+  ledger.commit('s', { reset: true, rows: [], mark: callMark })
+  checkSlots(ledger, db)
+  assert.equal(ledger.groups()[0].calls, 1)
+})
+
+for (const version of [2, 3, 4]) test(`SQLite v${version} backfills slots without losing calls or marks`, async (t) => {
+  const { ledger, db, path, DatabaseSync } = await openBook(t)
+  ledger.add(callRow('live'))
+  ledger.commit('s', { rows: [callRow('logged', { time: HOUR })], mark: callMark })
+  db.exec(`DROP TRIGGER calls_insert; DROP TRIGGER calls_delete; DROP TRIGGER calls_replace; DROP TABLE call_slots; ALTER TABLE calls DROP COLUMN calls; PRAGMA user_version = ${version}`)
+  if (version === 2) db.exec('ALTER TABLE marks DROP COLUMN listed')
+  const migrated = sqliteLedger(DatabaseSync, path)
+  try {
+    checkSlots(migrated, db)
+    assert.equal(db.prepare('PRAGMA user_version').get().user_version, 5)
+    assert.equal(migrated.mark('s').through, 1)
+    migrated.add(callRow('live', { time: 2 * HOUR, calls: 4 }))
+    checkSlots(migrated, db)
+  } finally { migrated.close() }
+})
 
 function start(home, { listedExtra, logsExtra, subagentsExtra, background = false } = {}) {
   const fresh = home === undefined
@@ -169,24 +267,6 @@ test('the usage view counts every Session under its owner, by hour in the asked 
   assert.equal(totals(again)['Chief/compaction'], 1100)
 })
 
-// #1501: a Bot's own chat may keep a background thread that moved on. Both that
-// thread's Sessions are the Bot's, so their calls count for it, not for "other": the
-// Usage page must not show a Bot having spent nothing while it worked there.
-test('calls in a background thread count for the Bot they were made for', async (t) => {
-  const { call, stop } = start(undefined, {
-    background: true,
-    logsExtra: {
-      's-bg1': [header('deepseek', 'v4-flash'), message(1, 0, usage(11, 1), HOUR)],
-      's-bg2': [header('deepseek', 'v4-flash'), message(1, 0, usage(22, 2), HOUR)],
-    },
-  })
-  t.after(stop)
-  const view = (await call('usage', { timeZone: 'Asia/Shanghai' })).value
-  // Chief keeps the calls of both parts of its background thread; the unowned bucket
-  // still holds only the Session no Bot owns.
-  assert.deepEqual(totals(view), { 'Chief/chat': 160 + 220 + 10 + 12 + 24, 'Chief/group': 330, 'DSH Agent/chat': 77, 'other/chat': 44 })
-})
-
 test('a call made in a group chat stays group use after the room is gone', async (t) => {
   const first = start()
   const { home } = first
@@ -270,6 +350,34 @@ test('a subagent Session is read through its parent, even a parent that is gone;
   assert.equal(unread().length, 1)
 })
 
+test('usage diagnostics omit unavailable subagent descriptors but still report corrupt ones', async (t) => {
+  const { call, ctx, stop } = start(undefined, {
+    listedExtra: [
+      { sessionId: 's-unsupported', parentSessionId: 's-b1', origin: 'subagent', projections: { kind: 'sequenced', asOfSeq: 1, values: {} } },
+      { sessionId: 's-corrupt', parentSessionId: 's-b1', origin: 'subagent', projections: { kind: 'sequenced', asOfSeq: 1, values: {} } },
+    ],
+  })
+  t.after(stop)
+  const page = ctx.sessionController.page
+  ctx.sessionController.page = async (request) => {
+    const { childSessionId } = request.address
+    if (childSessionId === 's-unsupported' || childSessionId === 's-corrupt') {
+      const reason = childSessionId === 's-unsupported' ? 'unsupported' : 'corrupt'
+      throw Object.assign(new Error(`subagent descriptor is ${reason === 'unsupported' ? 'unavailable' : 'corrupt'}`), {
+        code: 'subagent/catalog-diagnostic',
+        details: { reason },
+      })
+    }
+    return page(request)
+  }
+  const view = (await call('usage', { timeZone: 'Asia/Shanghai' })).value
+  assert.equal(totals(view)['Chief/chat'], 160 + 220 + 10)
+  const { entries } = (await call('diagnostics', {})).value
+  assert.deepEqual(entries.map(entry => entry.text).filter(line => line.startsWith('usage could not read')), [
+    'usage could not read 1 Session: s-corrupt (first error: Error: subagent descriptor is corrupt)',
+  ])
+})
+
 // #654: a Session with no Agent attached seals once read to its tip, at the checkpoint
 // watermark its listing shows. Later scans skip it without a read while that watermark
 // stands; a warm scan clears the seal, and a moved watermark means the log grew.
@@ -330,7 +438,7 @@ test('a ledger from the previous version keeps its metered calls and gains the s
   await first.ctx.dispose()
   const { DatabaseSync } = await import('node:sqlite')
   const db = new DatabaseSync(join(home, 'usage.sqlite'))
-  db.exec('ALTER TABLE marks DROP COLUMN listed; PRAGMA user_version = 2')
+  db.exec('DROP TRIGGER calls_insert; DROP TRIGGER calls_delete; DROP TRIGGER calls_replace; DROP TABLE call_slots; ALTER TABLE marks DROP COLUMN listed; PRAGMA user_version = 2')
   db.close()
 
   const second = start(home)
@@ -387,4 +495,109 @@ test('a projection hint without a sequence space is not used as a page cursor', 
   t.after(stop)
   const view = (await call('usage', { timeZone: 'Asia/Shanghai' })).value
   assert.equal(totals(view)['other/chat'], 44)
+})
+
+test('foldCalls preserves multi-step local CLI usage.calls and recovers pre-PR local stream steps without inflating non-local providers', () => {
+  const localClaude = foldCalls([
+    header('local-claude-code', 'sonnet'),
+    message(1, 0, { inputTokens: 120_000, cacheReadTokens: 4_800_000, cacheWriteTokens: 80_000, outputTokens: 15_000, calls: 24 }, 1000),
+  ])
+  assert.equal(localClaude.rows.length, 1)
+  assert.equal(localClaude.rows[0].input, 120_000)
+  assert.equal(localClaude.rows[0].cacheRead, 4_800_000)
+  assert.equal(localClaude.rows[0].cacheWrite, 80_000)
+  assert.equal(localClaude.rows[0].output, 15_000)
+  assert.equal(localClaude.rows[0].calls, 24)
+
+  // Historical local-agent log (before `usage.calls` existed): Codex emitted one
+  // cumulative running-sum usage chunk per internal step, plus a possible duplicate.
+  const prePrCodex = foldCalls([
+    header('local-codex-cli', 'gpt-5'),
+    {
+      type: 'assistant/message',
+      time: 2000,
+      data: {
+        turn: 1,
+        step: 0,
+        usage: { inputTokens: 45_000, cacheReadTokens: 120_000, outputTokens: 900 },
+        stream: [
+          { type: 'chunk', chunk: { type: 'usage', usage: { inputTokens: 15_000, cacheReadTokens: 30_000, outputTokens: 200 } } },
+          { type: 'chunk', chunk: { type: 'usage', usage: { inputTokens: 30_000, cacheReadTokens: 70_000, outputTokens: 500 } } },
+          // Duplicate unchanged chunk must not inflate calls.
+          { type: 'chunk', chunk: { type: 'usage', usage: { inputTokens: 30_000, cacheReadTokens: 70_000, outputTokens: 500 } } },
+          { type: 'chunk', chunk: { type: 'usage', usage: { inputTokens: 45_000, cacheReadTokens: 120_000, outputTokens: 900 } } },
+        ],
+      },
+    },
+  ])
+  assert.equal(prePrCodex.rows[0].calls, 3)
+  assert.equal(prePrCodex.rows[0].input, 45_000)
+
+  // Non-local provider (Anthropic emits message_start + message_delta usage chunks
+  // for a single API call): must remain calls = 1.
+  const anthropicSingle = foldCalls([
+    header('anthropic', 'claude-sonnet'),
+    {
+      type: 'assistant/message',
+      time: 3000,
+      data: {
+        turn: 1,
+        step: 0,
+        usage: { inputTokens: 10_000, outputTokens: 400 },
+        stream: [
+          { type: 'chunk', chunk: { type: 'usage', usage: { inputTokens: 10_000, outputTokens: 0 } } },
+          { type: 'chunk', chunk: { type: 'usage', usage: { inputTokens: 10_000, outputTokens: 400 } } },
+        ],
+      },
+    },
+  ])
+  assert.equal(anthropicSingle.rows[0].calls, 1)
+})
+
+test('SQLite v5 call_slots triggers and usageView accurately sum, replace, and delete multi-call rows', async (t) => {
+  const { ledger, db } = await openBook(t)
+  ledger.commit('s-cli', {
+    rows: [
+      callRow('cli-1', { session: 's-cli', provider: 'local-claude-code', model: 'sonnet', input: 50_000, cacheRead: 2_000_000, output: 4_000, calls: 15 }),
+      callRow('cli-2', { session: 's-cli', provider: 'local-claude-code', model: 'sonnet', input: 10_000, cacheRead: 400_000, output: 1_000, calls: 3 }),
+    ],
+    mark: callMark,
+  })
+  checkSlots(ledger, db)
+  assert.equal(ledger.groups()[0].calls, 18)
+  assert.equal(ledger.groups()[0].cacheRead, 2_400_000)
+
+  // Replacing a multi-call row updates call_slots by the exact delta.
+  ledger.commit('s-cli', {
+    rows: [callRow('cli-1', { session: 's-cli', provider: 'local-claude-code', model: 'sonnet', input: 60_000, cacheRead: 2_500_000, output: 5_000, calls: 20 })],
+    mark: callMark,
+  })
+  checkSlots(ledger, db)
+  assert.equal(ledger.groups()[0].calls, 23)
+
+  // Resetting deletes logged rows and prunes call_slots when calls drops to 0.
+  ledger.commit('s-cli', { reset: true, rows: [], mark: callMark })
+  checkSlots(ledger, db)
+  assert.deepEqual(ledger.groups(), [])
+
+  // End-to-end usageView carries summed multi-step calls for local CLI sessions.
+  const { call, stop } = start(undefined, {
+    listedExtra: [{ sessionId: 's-local-cli', projections: { kind: 'sequenced', asOfSeq: 2, values: {} } }],
+    logsExtra: {
+      's-local-cli': [
+        header('local-claude-code', 'sonnet'),
+        message(1, 0, { inputTokens: 80_000, cacheReadTokens: 3_000_000, outputTokens: 6_000, calls: 19 }, HOUR),
+      ],
+    },
+  })
+  t.after(stop)
+  const view = (await call('usage', { timeZone: 'Asia/Shanghai' })).value
+  const cliModelIdx = view.models.findIndex(m => m.provider === 'local-claude-code' && m.model === 'sonnet')
+  assert.ok(cliModelIdx >= 0)
+  const cliRow = view.rows.find(r => r[2] === cliModelIdx)
+  assert.ok(cliRow)
+  assert.equal(cliRow[4], 80_000)
+  assert.equal(cliRow[5], 3_000_000)
+  assert.equal(cliRow[7], 6_000)
+  assert.equal(cliRow[8], 19)
 })

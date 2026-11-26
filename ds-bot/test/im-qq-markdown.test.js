@@ -82,3 +82,44 @@ test('an escaped backtick is literal and does not swallow the column between the
 test('an escaped backtick does not hide a local image from the conversion', () => {
   assert.equal(toQqMarkdown('看图 \\`![x](/tmp/a.png)\\` 结束'), '看图 `［图片：x］` 结束')
 })
+
+test('a line break inside a table cell keeps the row on one list item', () => {
+  assert.equal(
+    toQqMarkdown('| 项目 | 说明 |\n| --- | --- |\n| a | 第一步<br>第二步 |\n| b | 单行 |'),
+    '- 项目：a；说明：第一步 第二步\n- 项目：b；说明：单行',
+  )
+  assert.equal(
+    toQqMarkdown('| 说明<br>补充 | 值 |\n| --- | --- |\n| x | 1 |'),
+    '- 说明 补充：x；值：1',
+  )
+  assert.equal(
+    toQqMarkdown('| a | b |\n| --- | --- |\n| x<br>y | z |'),
+    '- a：x y；b：z',
+  )
+})
+
+test('a table needs no outer pipes to be converted', () => {
+  assert.equal(toQqMarkdown('a | b\n--- | ---\n1 | 2'), '- a：1；b：2')
+  assert.equal(
+    toQqMarkdown('Name | State\n:--- | ---:\nweb | ok\niOS | 待测'),
+    '- Name：web；State：ok\n- Name：iOS；State：待测',
+  )
+})
+
+test('a table ends at the next block instead of swallowing it', () => {
+  // A heading that happens to hold a pipe is not a row.
+  assert.equal(
+    toQqMarkdown('| A | B |\n|---|---|\n| 1 | 2 |\n# Notes | next'),
+    '- A：1；B：2\n# Notes | next',
+  )
+  // A list, a quote and a blank line end the table too.
+  assert.equal(toQqMarkdown('| A |\n|---|\n| 1 |\n- item | x'), '- A：1\n- item | x')
+  assert.equal(toQqMarkdown('| A |\n|---|\n| 1 |\n> quote | x'), '- A：1\n> quote | x')
+  assert.equal(toQqMarkdown('| A |\n|---|\n| 1 |\n\n| not | a row'), '- A：1\n\n| not | a row')
+})
+
+test('a delimiter row outside a table stays text', () => {
+  // Nothing above it is a header, so the line is prose and must survive.
+  assert.equal(toQqMarkdown('Using pipes:\n\n--- | ---'), 'Using pipes:\n\n--- | ---')
+  assert.equal(toQqMarkdown('--- | ---'), '--- | ---')
+})

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { test } from 'node:test'
+import { beforeEach, test } from 'node:test'
 import { dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { runInNewContext } from 'node:vm'
@@ -13,7 +13,9 @@ const bundle = await build({
 let runtime = hookRuntime()
 const module = { exports: {} }
 runInNewContext(bundle.outputFiles[0].text, {
-  module, exports: module.exports, setTimeout, clearTimeout,
+  module, exports: module.exports,
+  setTimeout: (...args) => setTimeout(...args),
+  clearTimeout: (...args) => clearTimeout(...args),
   window: { matchMedia: () => ({ matches: true }) },
   require: name => {
     if (name !== 'react') throw new Error(`no platform module ${name}`)
@@ -85,7 +87,15 @@ function bench({ team = true, sessionId = 'bot' } = {}) {
 }
 const key = patch => ({ key: 'Enter', prevented: 0, stopped: 0, preventDefault() { this.prevented += 1 }, stopPropagation() { this.stopped += 1 }, ...patch })
 
-const settle = () => new Promise(resolve => setTimeout(resolve, 5))
+beforeEach(t => t.mock.timers.enable({ apis: ['setTimeout'] }))
+
+const drain = () => new Promise(resolve => setImmediate(resolve))
+
+const settle = async t => {
+  // Drain the VM's cross-realm send promise before advancing its exit timer.
+  await drain()
+  t.mock.timers.tick(0)
+}
 
 test('an annotation becomes one Markdown message with a multiline quote', () => {
   assert.equal(quoteMarkdown('First\r\nSecond\rThird'), '> First\n> Second\n> Third')
@@ -136,7 +146,7 @@ test('selecting text in a Bot chat first offers Quote and Annotate without openi
   assert.deepEqual(app.calls, { clear: 1, dismiss: 1 })
 })
 
-test('adding from a Bot selection sends quote and annotation to the current composer after choosing Annotate', async () => {
+test('adding from a Bot selection sends quote and annotation to the current composer after choosing Annotate', async t => {
   const app = bench()
   const editor = app.openEditor()
   // Focusing the annotation textarea may collapse the browser selection later.
@@ -148,32 +158,34 @@ test('adding from a Bot selection sends quote and annotation to the current comp
   assert.equal(event.prevented, 1)
   assert.equal(event.stopped, 1)
   assert.equal(findAll(app.render(), 'section')[0].props['data-leaving'], true)
-  await settle()
+  await settle(t)
   assert.deepEqual(app.inserted, [['quote', 'The selected text\n\nExplain this']])
   assert.deepEqual(app.sent, [])
   assert.deepEqual(app.calls, { clear: 1, dismiss: 1 })
 })
 
-test('Ctrl+Enter sends the annotated quote to a group through the existing send action', async () => {
+test('Ctrl+Enter sends the annotated quote to a group through the existing send action', async t => {
   const app = bench({ sessionId: 'room' })
   findAll(app.openEditor(), 'textarea')[0].props.onChange({ target: { value: 'Check this part' } })
   findAll(app.render(), 'textarea')[0].props.onKeyDown(key({ ctrlKey: true }))
-  await settle()
+  await drain()
   assert.deepEqual(app.sent, [['room', '> The selected text\n> \n> Check this part']])
   assert.deepEqual(app.inserted, [])
   assert.equal(app.calls.clear, 1)
+  assert.equal(app.calls.dismiss, 0)
+  t.mock.timers.tick(0)
   assert.equal(app.calls.dismiss, 1)
 })
 
-test('an empty annotation is a normal quote, including on direct send', async () => {
+test('an empty annotation is a normal quote, including on direct send', async t => {
   const app = bench()
   app.openEditor()
   findAll(app.render(), 'textarea')[0].props.onKeyDown(key({ ctrlKey: true }))
-  await settle()
+  await settle(t)
   assert.deepEqual(app.sent, [['bot', '> The selected text']])
 })
 
-test('Shift+Enter leaves the annotation open and Escape dismisses it without sending', async () => {
+test('Shift+Enter leaves the annotation open and Escape dismisses it without sending', async t => {
   const app = bench()
   const field = findAll(app.openEditor(), 'textarea')[0]
   const newline = key({ shiftKey: true })
@@ -181,19 +193,19 @@ test('Shift+Enter leaves the annotation open and Escape dismisses it without sen
   assert.equal(newline.prevented, 0)
   assert.equal(newline.stopped, 0)
   field.props.onKeyDown(key({ key: 'Escape' }))
-  await settle()
+  await settle(t)
   assert.deepEqual(app.sent, [])
   assert.deepEqual(app.inserted, [])
   assert.deepEqual(app.calls, { clear: 1, dismiss: 1 })
 })
 
-test('a failed send reports the error and retains the annotation editor', async () => {
+test('a failed send reports the error and retains the annotation editor', async t => {
   const app = bench()
   app.props.actions.send = async () => { throw new Error('offline') }
   const field = findAll(app.openEditor(), 'textarea')[0]
   field.props.onChange({ target: { value: 'Keep this draft' } })
   findAll(app.render(), 'textarea')[0].props.onKeyDown(key({ ctrlKey: true }))
-  await settle()
+  await settle(t)
   assert.equal(app.errors.length, 1)
   assert.equal(app.errors[0][0].message, 'offline')
   assert.equal(app.errors[0][1], 'text-annotation')

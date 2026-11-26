@@ -1,7 +1,7 @@
 // Bot and group management screens, mirroring the desktop details drawer and
 // settings forms: Bot details, Edit Bot, Create Bot, group settings, and the
 // "new" sheet. Every write goes through the same endpoints the desktop calls.
-import { Children, Fragment, useCallback, useContext, useEffect, useState } from 'react'
+import { Children, Fragment, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { useIsFocused } from '@react-navigation/native'
 import { Image, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -11,25 +11,28 @@ import * as Crypto from 'expo-crypto'
 import { listComputers, removeComputer, type StoredComputer } from '../store.ts'
 import { ComputersCtx } from '../nav/computers.ts'
 import * as ImagePicker from 'expo-image-picker'
+import { manipulateAsync, SaveFormat } from 'expo-image-manipulator'
 import { useTeam } from '../team/context.tsx'
 import { memorySummaryText } from '../team/memory.ts'
+import { avatarPhoto } from '../team/avatar-photo.ts'
 import { t, timeLabel, weekdayShort } from '../ui/i18n.ts'
+import { roomTitle } from '../ui/phrases.ts'
 import { CheckIcon, ChevronLeftIcon, ChevronRightIcon, GearIcon } from '../ui/icons.tsx'
+import { lookOf, PICKER_SHAPES } from '../../../ds-bot/src/client/characters.js'
 import { Avatar, COLOR_PAINT, RoomAvatar } from '../ui/marks.tsx'
 import { inkColor, radius, shadow, type as typeScale, useTheme, type Palette } from '../ui/tokens.ts'
 import type { Bot, Room, TeamState } from '../connection.ts'
 import { capabilityStatusText } from '../team/capabilities.ts'
 import { ModelMenu, ModelPicker } from './model-menu.tsx'
 
-export const SHAPES = ['acorn', 'berry', 'bunny', 'gem', 'gumdrop', 'kitty', 'moon', 'peanut', 'star', 'wave']
+export const SHAPES = PICKER_SHAPES
 export const COLORS = ['black', 'brown', 'red', 'orange', 'yellow', 'green', 'cyan', 'blue', 'violet', 'magenta', 'gray', 'aurora']
 
 export const pickPhoto = async (): Promise<string | null> => {
-  const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 0.8, base64: true })
+  const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 0.8 })
   const asset = result.canceled ? null : result.assets?.[0]
-  if (!asset?.base64) return null
-  const mime = asset.mimeType ?? 'image/jpeg'
-  return `data:${mime};base64,${asset.base64}`
+  if (!asset) return null
+  return avatarPhoto(asset, (uri, actions) => manipulateAsync(uri, actions, { compress: 0.8, format: SaveFormat.JPEG, base64: true }))
 }
 
 const botOf = (team: TeamState | null, id: string) => team?.bots?.find(b => b.id === id)
@@ -162,9 +165,14 @@ function DangerRow({ label, confirm, busy, onConfirm }: { label: string; confirm
 
 type Model = NonNullable<TeamState['models']>[number]
 
+// The last segment of a host path, Windows or POSIX; a root keeps its own spelling.
+const folderName = (path: string) => path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || path
+
 function useWrite(navigation: any) {
   const { call } = useTeam()
   const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const inflight = useRef(false)
   const run = async (name: string, body: Record<string, unknown>, done?: (value: unknown) => void) => {
     try { const value = await call(name, body); setError(null); done?.(value) }
     catch (failure) {
@@ -173,7 +181,15 @@ function useWrite(navigation: any) {
       setError((failure as Error)?.message ?? String(failure))
     }
   }
-  return { run, error }
+  // For a write that leaves the screen when it lands: a second tap while the first is
+  // in flight would write twice and go back twice. A failure frees it to be tried again.
+  const once: typeof run = async (...args) => {
+    if (inflight.current) return
+    inflight.current = true
+    setBusy(true)
+    try { await run(...args) } finally { inflight.current = false; setBusy(false) }
+  }
+  return { run, once, error, busy }
 }
 
 // Like the desktop, a Bot or group the user just made (or duplicated) opens
@@ -233,7 +249,7 @@ export function BotDetails({ route, navigation }: any) {
         <DetailTitle text={t('Working folder')} />
         <Pressable accessibilityRole="button" onPress={() => navigation.navigate('Folder', { current: bot.workDir, onPick: 'bot', botId: bot.id })}
           style={[styles.dropdown, { backgroundColor: p.card, borderColor: p.line }]}>
-          <Text style={[typeScale.settingsRow, { color: p.ink, flex: 1 }]} numberOfLines={1}>{bot.workDir ? bot.workDir.split(/[\\/]/).filter(Boolean).pop() : t('Team workspace')}</Text>
+          <Text style={[typeScale.settingsRow, { color: p.ink, flex: 1 }]} numberOfLines={1}>{bot.workDir ? folderName(bot.workDir) : t('Team workspace')}</Text>
           <Text style={{ color: p.ink3, fontSize: 12 }}>⌄</Text>
         </Pressable>
         {bot.instructions
@@ -396,12 +412,21 @@ export function BotEdit({ route, navigation }: any) {
   const { p, dark } = useTheme()
   const { team } = useTeam()
   const { run, error } = useWrite(navigation)
+  const [photoError, setPhotoError] = useState('')
   const open = useOpenWhenListed(navigation)
   const bot = botOf(team, route.params?.botId ?? '')
   if (bot === undefined) return <Screen title=""><BackRow title="" onBack={() => navigation.goBack()} /></Screen>
   const save = (patch: Record<string, unknown>) => void run('update-bot', { id: bot.id, ...patch })
-  const shape = bot.avatar?.shape ?? 'star'
-  const color = bot.color ?? 'blue'
+  const upload = async () => {
+    setPhotoError('')
+    try {
+      const image = await pickPhoto()
+      if (image !== null) save({ avatar: { ...bot.avatar, image } })
+    } catch (err) { setPhotoError(err instanceof Error ? err.message : String(err)) }
+  }
+  const look = lookOf(bot)
+  const shape = look.shape
+  const color = look.color
   const main = isMain(team, bot.id)
   return (
     <Screen title={bot.name}>
@@ -410,7 +435,7 @@ export function BotEdit({ route, navigation }: any) {
         <View style={{ alignItems: 'center', paddingTop: 12 }}>
           <Avatar bot={bot} dark={dark} size={56} ring={p.main} />
         </View>
-        {error ? <Text style={[typeScale.small, { color: p.danger, marginHorizontal: 18, marginTop: 10 }]}>{error}</Text> : null}
+        {error || photoError ? <Text style={[typeScale.small, { color: p.danger, marginHorizontal: 18, marginTop: 10 }]}>{error || photoError}</Text> : null}
         <Section label={t('Profile')}>
           <Field label={t('Name')} value={bot.name} placeholder="Bob" onSave={name => { if (name) save({ name }) }} />
           <Field label={t('Label')} value={bot.role} placeholder={t('Research, admin…')} onSave={role => save({ role })} />
@@ -424,7 +449,7 @@ export function BotEdit({ route, navigation }: any) {
             draw={(id, size) => <View style={{ width: size * 0.52, height: size * 0.52, borderRadius: size, backgroundColor: COLOR_PAINT[id] ?? inkColor(id, dark) }} />} />
         </Section>
         <Section label={t('Photo')}>
-          <Row label={t('Upload photo')} onPress={() => { void pickPhoto().then(image => { if (image !== null) save({ avatar: { ...bot.avatar, image } }) }) }} />
+          <Row label={t('Upload photo')} onPress={() => { void upload() }} />
           {bot.avatar?.image ? <Row label={t('Remove photo')} onPress={() => save({ avatar: { shape: bot.avatar?.shape } })} /> : null}
         </Section>
         <Section label={t('Model')}>
@@ -543,8 +568,9 @@ export function GroupDetails({ route, navigation }: any) {
   const admin = botOf(team, room.admin ?? '')
   const mode = admin !== undefined ? (room.mode ?? 'admin') : 'everyone'
   const notice = (room as { notice?: string }).notice
+  const title = roomTitle(room)
   return (
-    <Screen title={room.name}>
+    <Screen title={title}>
       <View style={[styles.detailTop, { paddingTop: 8 }]}>
         <RoundButton label={t('Back')} onPress={() => navigation.goBack()}><ChevronLeftIcon color={p.ink2} /></RoundButton>
         <View style={{ flex: 1 }} />
@@ -553,7 +579,7 @@ export function GroupDetails({ route, navigation }: any) {
       <ScrollView contentContainerStyle={{ paddingBottom: 40, paddingHorizontal: 18 }}>
         <View style={{ alignItems: 'center', paddingTop: 4 }}>
           <RoomAvatar room={room} bots={bots} dark={dark} size={56} ring={p.main} />
-          <Text style={[typeScale.rowName, { color: p.ink, marginTop: 10, fontSize: 18, textAlign: 'center' }]}>{room.name}</Text>
+          <Text style={[typeScale.rowName, { color: p.ink, marginTop: 10, fontSize: 18, textAlign: 'center' }]}>{title}</Text>
           <Text style={[typeScale.caption, { color: p.ink3, marginTop: 2 }]}>{[t('{count} members', { count: members.length }), admin ? t('Admin {name}', { name: admin.name }) : t('No admin')].join(' · ')}</Text>
         </View>
         {notice
@@ -579,7 +605,7 @@ export function GroupDetails({ route, navigation }: any) {
         {team?.memory === false ? null : (
           <>
             <DetailTitle text={t('Memory')} />
-            <Pressable accessibilityRole="button" onPress={() => navigation.navigate('Memory', { id: room.id, name: room.name, group: true })}
+            <Pressable accessibilityRole="button" onPress={() => navigation.navigate('Memory', { id: room.id, name: title, group: true })}
               style={[styles.dropdown, { backgroundColor: p.card, borderColor: p.line }]}>
               <Text style={[typeScale.settingsRow, { color: p.ink, flex: 1 }]}>{t('Memory')}</Text>
               <Text style={[typeScale.small, { color: p.ink3 }]}>{t('Manage')}</Text>
@@ -594,21 +620,41 @@ export function GroupDetails({ route, navigation }: any) {
 
 export function GroupSettings({ route, navigation }: any) {
   const { p, dark } = useTheme()
-  const { team } = useTeam()
+  const { team, hello } = useTeam()
   const { run, error } = useWrite(navigation)
+  const [photoError, setPhotoError] = useState('')
   const room = roomOf(team, route.params?.roomId ?? '')
   if (room === undefined) return <Screen title=""><BackRow title="" onBack={() => navigation.goBack()} /></Screen>
   const bots = team?.bots ?? []
+  const canSetAvatar = hello?.capabilities?.includes('room-avatars') === true
   const members = new Set(room.members ?? [])
   const update = (patch: Record<string, unknown>) => void run('update-room', { id: room.id, ...patch })
+  const upload = async () => {
+    if (!canSetAvatar) return
+    setPhotoError('')
+    try {
+      const image = await pickPhoto()
+      if (image !== null) update({ avatar: { image } })
+    } catch (failure) {
+      setPhotoError(failure instanceof Error ? failure.message : String(failure))
+    }
+  }
   const mode = room.admin !== undefined && bots.some(b => b.id === room.admin) ? (room.mode ?? 'admin') : 'everyone'
+  const title = roomTitle(room)
   return (
-    <Screen title={room.name}>
+    <Screen title={title}>
       <BackRow title={t('Group settings')} onBack={() => navigation.goBack()} />
       <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
-        {error ? <Text style={[typeScale.small, { color: p.danger, marginHorizontal: 18, marginTop: 10 }]}>{error}</Text> : null}
+        {error || photoError ? <Text style={[typeScale.small, { color: p.danger, marginHorizontal: 18, marginTop: 10 }]}>{error || photoError}</Text> : null}
+        <View style={{ alignItems: 'center', paddingVertical: 16 }}>
+          <Pressable accessibilityRole="button" accessibilityLabel={t('Edit group avatar')} disabled={!canSetAvatar} accessibilityState={{ disabled: !canSetAvatar }} onPress={() => { void upload() }}>
+            <RoomAvatar room={room} bots={bots} dark={dark} size={72} ring={p.main} />
+          </Pressable>
+        </View>
         <Section label={t('Profile')}>
           <Field label={t('Name')} value={room.named === true ? room.name : ''} placeholder={t('Name after members')} onSave={name => update({ name })} />
+          {canSetAvatar ? <Row label={t('Upload photo')} onPress={() => { void upload() }} /> : null}
+          {canSetAvatar && (room.avatar?.image || room.avatar?.imageRef) ? <Row label={t('Remove photo')} onPress={() => update({ avatar: null })} /> : null}
           <Field label={t('Notice')} value={room.notice} multiline placeholder={t('Shared instructions every member reads before speaking…')} onSave={notice => update({ notice })} />
         </Section>
         <Section label={t('Who answers')}>
@@ -616,6 +662,10 @@ export function GroupSettings({ route, navigation }: any) {
             <Segmented value={mode} onPick={id => update({ mode: id })}
               options={ROOM_MODES.map(([id, label]) => ({ id, label: t(label) }))} />
           </View>
+        </Section>
+        <Section label={t('Working folder')}>
+          <Row label={t('Folder')} value={room.workDir ? folderName(room.workDir) : t("Each Bot's own folder")}
+            onPress={() => navigation.navigate('Folder', { current: room.workDir, onPick: 'room', roomId: room.id })} />
         </Section>
         {/* Tick to add or remove a member; among members, the admin is marked and
             another member can take the role. */}
@@ -649,7 +699,7 @@ export function GroupSettings({ route, navigation }: any) {
           })}
         </Section>
         <Section label={t('Danger')}>
-          <DangerRow label={t('Delete group')} confirm={t('Delete {name}?', { name: room.name })} onConfirm={() => void run('delete-room', { id: room.id }, () => openChat(navigation))} />
+          <DangerRow label={t('Delete group')} confirm={t('Delete {name}?', { name: title })} onConfirm={() => void run('delete-room', { id: room.id }, () => openChat(navigation))} />
         </Section>
       </ScrollView>
     </Screen>
@@ -844,7 +894,15 @@ export function Schedules({ route, navigation }: any) {
   const [count, setCount] = useState('1')
   const [unit, setUnit] = useState('hours')
   const [adding, setAdding] = useState(false)
-  const load = () => void call('schedules').then(v => setTasks(((v as { tasks?: typeof tasks })?.tasks ?? []).filter(t2 => t2.botId === undefined || t2.botId === botId))).catch(() => {})
+  const [canPause, setCanPause] = useState(false)
+  const load = () => void call('schedules').then((v) => {
+    const view = v as { tasks?: typeof tasks, canPause?: boolean }
+    setCanPause(view?.canPause === true)
+    setTasks((view?.tasks ?? []).filter(t2 => t2.botId === undefined || t2.botId === botId))
+  }).catch(() => {})
+  // As on the desktop: a one-time task whose time has passed is neither paused nor resumed.
+  const pausable = (task: typeof tasks[number]) => canPause && (task.status === 'active' || task.status === 'paused')
+    && !((task.kind === 'at' || task.kind === 'after') && Date.parse(String(task.scheduledAt)) <= Date.now())
   useEffect(() => { load() }, [botId])
   const when = () => {
     if (kind === 'at') { const at = new Date(`${atDate}T${atTime}`); return Number.isNaN(at.getTime()) ? null : { kind, at: at.toISOString() } }
@@ -867,8 +925,13 @@ export function Schedules({ route, navigation }: any) {
             <View key={task.id} style={styles.row}>
               <View style={{ flex: 1 }}>
                 <Text style={[typeScale.settingsRow, { color: p.ink }]}>{task.title}</Text>
-                <Text style={[typeScale.small, { color: p.ink3, marginTop: 2 }]}>{whenText(task)}</Text>
+                <Text style={[typeScale.small, { color: p.ink3, marginTop: 2 }]}>{task.status === 'paused' ? `${whenText(task)} · ${t('Paused')}` : whenText(task)}</Text>
               </View>
+              {pausable(task) ? (
+                <Pressable accessibilityRole="button" accessibilityLabel={task.status === 'active' ? t('Pause task') : t('Resume task')} onPress={() => void run('schedule-pause', { sessionId: task.sessionId ?? sessionId, id: task.id, active: task.status !== 'active' }).then(load)} hitSlop={8} style={{ marginRight: 14 }}>
+                  <Text style={{ color: p.ink3, fontSize: 15 }}>{task.status === 'active' ? '‖' : '▶\uFE0E'}</Text>
+                </Pressable>
+              ) : null}
               <Pressable accessibilityRole="button" accessibilityLabel={t('Delete task')} onPress={() => void run('schedule-delete', { sessionId: task.sessionId ?? sessionId, id: task.id }, load)} hitSlop={8}>
                 <Text style={{ color: p.ink3, fontSize: 17 }}>×</Text>
               </Pressable>
@@ -929,38 +992,84 @@ export function Schedules({ route, navigation }: any) {
 export function Folder({ route, navigation }: any) {
   const { p } = useTheme()
   const { call } = useTeam()
-  const { run } = useWrite(navigation)
+  const { once, error, busy } = useWrite(navigation)
   const [path, setPath] = useState(String(route.params?.current ?? ''))
-  const [listing, setListing] = useState<{ path: string; parent: string | null; entries: { name: string; path: string }[]; truncated?: boolean } | null>(null)
+  const [listing, setListing] = useState<{ path: string; crumbs?: { path: string }[]; entries: { name: string; path: string }[]; truncated?: boolean } | null>(null)
   const [recent, setRecent] = useState<{ path: string; title: string }[]>([])
-  const load = (next: string) => { setPath(next); void call('folder-list', { path: next }).then(v => setListing(v as typeof listing)).catch(() => {}) }
+  // Whether the computer lists folders; unknown until `folders` answers. A computer whose
+  // folders are chosen in its own window (or that has no chooser) lists nothing, so there
+  // a path is typed or taken from the folders already known.
+  const [browsable, setBrowsable] = useState<boolean | null>(null)
+  const request = useRef(0)
+  const [listingError, setListingError] = useState<string | null>(null)
+  const load = (next: string) => {
+    const id = ++request.current
+    setPath(next)
+    setListing(null)
+    setListingError(null)
+    void call('folder-list', { path: next }).then(v => {
+      if (id !== request.current) return
+      const nextListing = v as NonNullable<typeof listing>
+      setListing(nextListing)
+      setPath(nextListing.path)
+    }).catch(failure => {
+      if (id === request.current) setListingError((failure as Error)?.message ?? String(failure))
+    })
+  }
   useEffect(() => {
-    void call('folders').then(v => setRecent((v as { folders?: { path: string; title: string }[] })?.folders ?? [])).catch(() => {})
-    load(path)
+    void call('folders').then(v => {
+      const info = v as { picker?: string | null; folders?: { path: string; title: string }[] } | null
+      setRecent(info?.folders ?? [])
+      // A host that does not say is asked to list, as before.
+      const browse = info?.picker === undefined || info?.picker === 'browse'
+      setBrowsable(browse)
+      if (browse) load(path)
+    }).catch(() => { setBrowsable(true); load(path) })
   }, [])
   const choose = (picked: string) => {
     const target = route.params?.onPick === 'room' ? ['update-room', { id: route.params?.roomId, workDir: picked }]
       : route.params?.onPick === 'team' ? ['team-workspace', { path: picked }]
       : ['update-bot', { id: route.params?.botId, workDir: picked }]
-    void run(target[0] as string, target[1] as Record<string, unknown>, () => navigation.goBack())
+    void once(target[0] as string, target[1] as Record<string, unknown>, () => navigation.goBack())
   }
+  const parent = listing?.crumbs && listing.crumbs.length > 1 ? listing.crumbs.at(-2) : undefined
+  const typed = path.trim()
   return (
     <Screen title="">
       <BackRow title={t('Working folder')} onBack={() => navigation.goBack()} />
-      <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
-        {recent.length > 0 ? (
-          <Section label={t('Folders')}>
-            {recent.map(folder => <Row key={folder.path} label={folder.title} value={folder.path} onPress={() => load(folder.path)} />)}
+      <ScrollView contentContainerStyle={{ paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
+        {error ? <Text style={[typeScale.small, { color: p.danger, marginHorizontal: 18, marginTop: 10 }]}>{error}</Text> : null}
+        {listingError ? <View style={{ marginHorizontal: 18, marginTop: 10 }}>
+          <Text style={[typeScale.small, { color: p.danger }]}>{listingError}</Text>
+          {recent.length > 0 ? <Text style={[typeScale.small, { color: p.ink }]}>{t('Pick a folder from Folders.')}</Text> : null}
+        </View> : null}
+        {route.params?.onPick === 'room' ? (
+          <Section label={t('Folder')}>
+            <Row label={t("Each Bot's own folder")} disabled={busy} onPress={() => choose('')} />
           </Section>
         ) : null}
-        <Section label={path || '/'}>
-          {listing?.parent ? <Row label={t('Up one level')} onPress={() => load(listing.parent ?? '')} /> : null}
-          {(listing?.entries ?? []).map(entry => <Row key={entry.path} label={entry.name} onPress={() => load(entry.path)} />)}
-          {listing !== null && listing.entries.length === 0 ? <Row label={t('No folders inside.')} disabled /> : null}
-          {listing?.truncated ? <Row label={t('Some folders are not shown.')} disabled /> : null}
-        </Section>
+        {recent.length > 0 ? (
+          <Section label={t('Folders')}>
+            {recent.map(folder => <Row key={folder.path} label={folder.title} value={folder.path} onPress={() => browsable === false ? setPath(folder.path) : load(folder.path)} />)}
+          </Section>
+        ) : null}
+        {browsable === false ? (
+          <Section label={t('Folder path')}>
+            <View style={styles.row}>
+              <TextInput style={[typeScale.settingsRow, { color: p.ink, flex: 1 }]} value={path} onChangeText={setPath}
+                placeholder={t('Full path of a folder')} placeholderTextColor={p.ink3} autoCapitalize="none" autoCorrect={false} />
+            </View>
+          </Section>
+        ) : (
+          <Section label={path || '/'}>
+            {parent ? <Row label={t('Up one level')} onPress={() => load(parent.path)} /> : null}
+            {(listing?.entries ?? []).map(entry => <Row key={entry.path} label={entry.name} onPress={() => load(entry.path)} />)}
+            {listing !== null && listing.entries.length === 0 ? <Row label={t('No folders inside.')} disabled /> : null}
+            {listing?.truncated ? <Row label={t('Some folders are not shown.')} disabled /> : null}
+          </Section>
+        )}
         <View style={{ paddingHorizontal: 18, marginTop: 14 }}>
-          <Pressable accessibilityRole="button" onPress={() => choose(path)} style={({ pressed }) => [styles.cta, { backgroundColor: p.accent, opacity: pressed ? 0.85 : 1 }]}>
+          <Pressable accessibilityRole="button" disabled={typed === '' || busy} onPress={() => { if (typed !== '') choose(typed) }} style={({ pressed }) => [styles.cta, { backgroundColor: p.accent, opacity: typed === '' || busy ? 0.5 : pressed ? 0.85 : 1 }]}>
             <Text style={[typeScale.settingsRow, { color: p.accentInk, fontWeight: '600' }]}>{t('Use this folder')}</Text>
           </Pressable>
         </View>

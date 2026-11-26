@@ -11,7 +11,14 @@ async function fakeDingtalk() {
   const packets = []
   const acks = []
   const replies = {}
+  const media = {}
   const http = createServer((req, res) => {
+    if (req.method === 'GET' && media[req.url] !== undefined) {
+      const entry = media[req.url]
+      res.writeHead(entry.status ?? 200, entry.headers ?? { 'content-type': 'application/octet-stream' })
+      res.end(entry.body ?? Buffer.alloc(0))
+      return
+    }
     let body = ''
     req.on('data', chunk => { body += chunk })
     req.on('end', () => {
@@ -33,8 +40,9 @@ async function fakeDingtalk() {
         return
       }
       const answer = replies[req.url] ?? { result: { processQueryKey: 'q2' } }
+      const resolved = typeof answer === 'function' ? answer(params) : answer
       res.writeHead(200, { 'content-type': 'application/json' })
-      res.end(JSON.stringify(answer.result))
+      res.end(JSON.stringify(resolved.result))
     })
   })
   const wss = await fakeWsServer({
@@ -51,7 +59,7 @@ async function fakeDingtalk() {
   return {
     api: `http://127.0.0.1:${http.address().port}`,
     webhook: `http://127.0.0.1:${http.address().port}/webhook/s1`,
-    calls, packets, acks, replies,
+    calls, packets, acks, replies, media,
     sockets: wss.sockets,
     push: (ws, packet) => ws.send(JSON.stringify(packet)),
     close: () => { wss.close(); http.closeAllConnections?.(); http.close() },
@@ -96,13 +104,38 @@ test('system pings get a pong, a single chat and an @ group message land, every 
   // The ping sent on connect gets a pong ACK.
   await until(() => fake.acks.includes('sys1'))
   fake.push(ws, callback({ conversationType: '1', senderStaffId: 'u1', senderNick: 'Fei', text: { content: 'hello' }, msgtype: 'text', msgId: 'm1', sessionWebhook: fake.webhook }, 'cb1'))
-  fake.push(ws, callback({ conversationType: '2', conversationId: 'g1', senderStaffId: 'u2', text: { content: 'ping' }, msgtype: 'text', msgId: 'm2', isInAtList: true }, 'cb2'))
+  fake.push(ws, callback({ conversationType: '2', conversationId: 'g1', conversationTitle: 'Team Chat', senderStaffId: 'u2', text: { content: 'ping' }, msgtype: 'text', msgId: 'm2', isInAtList: true }, 'cb2'))
   fake.push(ws, callback({ conversationType: '2', conversationId: 'g1', senderStaffId: 'u2', text: { content: 'noise' }, msgtype: 'text', msgId: 'm3', isInAtList: false }, 'cb3'))
   await until(() => messages.length === 3 && fake.acks.length === 4)
   assert.equal(messages[0].chat.kind, 'direct')
   assert.equal(messages[1].chat.kind, 'group')
   assert.equal(messages[1].mentioned, true)
   assert.equal(messages[2].mentioned, false)
+})
+
+test('group frames carry the conversationTitle so chats can be named (#XXXX)', async (t) => {
+  const fake = await fakeDingtalk()
+  const messages = []
+  const handle = dingtalk.connect(FIELDS, env(fake), { onMessage: async msg => { messages.push(msg) }, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  const ws = await until(() => fake.sockets[0])
+  await until(() => fake.calls.some(call => call.path === '/v1.0/gateway/connections/open'))
+  // A group frame with a title: the chat carries the group name.
+  fake.push(ws, callback({ conversationType: '2', conversationId: 'g9', conversationTitle: '发布群', senderStaffId: 'u2', senderNick: 'Ming', text: { content: 'hi' }, msgtype: 'text', msgId: 'm9', isInAtList: true }, 'cb9'))
+  await until(() => messages.length === 1)
+  assert.equal(messages[0].chat.kind, 'group')
+  assert.equal(messages[0].chat.title, '发布群')
+  // A group frame without a title (older callback shape or a stripped field):
+  // the title stays empty, nothing crashes.
+  fake.push(ws, callback({ conversationType: '2', conversationId: 'g10', senderStaffId: 'u2', senderNick: 'Ming', text: { content: 'hey' }, msgtype: 'text', msgId: 'm10', isInAtList: true }, 'cb10'))
+  await until(() => messages.length === 2)
+  assert.equal(messages[1].chat.kind, 'group')
+  assert.equal(messages[1].chat.title, '')
+  // A direct chat never picks up a group title.
+  fake.push(ws, callback({ conversationType: '1', senderStaffId: 'u1', senderNick: 'Fei', text: { content: 'dm' }, msgtype: 'text', msgId: 'm11', sessionWebhook: fake.webhook }, 'cb11'))
+  await until(() => messages.length === 3)
+  assert.equal(messages[2].chat.kind, 'direct')
+  assert.equal(messages[2].chat.title, '')
 })
 
 test('send replies through the sessionWebhook when live, else the robot API with msgParam as a JSON string', async (t) => {
@@ -206,4 +239,103 @@ test('a socket that cannot be built at the handshake is retried (#1119)', async 
   const ready = await until(() => statuses.slice(statuses.indexOf(failed) + 1).find(status => status.state === 'ready'), 160)
   assert.ok(ready !== undefined, 'the connection became ready after a new socket')
   assert.equal(fake.sockets.length, 1)
+})
+
+test('picture, file and richText callbacks download media via robot/messageFiles/download', async (t) => {
+  const fake = await fakeDingtalk()
+  const pngBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x02, 0x03])
+  const docBytes = Buffer.from('quarterly notes')
+  fake.media['/dl/pic1'] = { headers: { 'content-type': 'application/octet-stream' }, body: pngBytes }
+  fake.media['/dl/file1'] = { headers: { 'content-type': 'text/plain' }, body: docBytes }
+  fake.replies['/v1.0/robot/messageFiles/download'] = (params) => ({
+    result: { downloadUrl: `${fake.api}/dl/${params.downloadCode}` },
+  })
+  const messages = []
+  const handle = dingtalk.connect(FIELDS, env(fake), { onMessage: async msg => { messages.push(msg) }, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  const ws = await until(() => fake.sockets[0])
+  await until(() => fake.acks.includes('sys1'))
+  fake.push(ws, callback({
+    conversationType: '1', senderStaffId: 'u1', senderNick: 'Fei', msgtype: 'picture', msgId: 'm-pic',
+    content: { downloadCode: 'pic1' }, robotCode: 'bot-code-1',
+  }, 'cb-pic'))
+  fake.push(ws, callback({
+    conversationType: '1', senderStaffId: 'u1', senderNick: 'Fei', msgtype: 'file', msgId: 'm-file',
+    content: { downloadCode: 'file1', fileName: 'notes.txt' },
+  }, 'cb-file'))
+  fake.push(ws, callback({
+    conversationType: '2', conversationId: 'g1', senderStaffId: 'u2', senderNick: 'Kai', msgtype: 'richText', msgId: 'm-rich', isInAtList: true,
+    content: { richText: [{ text: '看下这张截图' }, { type: 'picture', downloadCode: 'pic1' }] },
+  }, 'cb-rich'))
+  await until(() => messages.length === 3)
+  assert.ok(fake.acks.includes('cb-pic') && fake.acks.includes('cb-file') && fake.acks.includes('cb-rich'))
+  const u1Msgs = messages.filter(item => item.chat.key === 'u1')
+  assert.deepEqual(u1Msgs.map(item => item.messageId), ['m-pic', 'm-file'], 'same-chat media callbacks preserve order')
+  const pic = u1Msgs[0]
+  const file = u1Msgs[1]
+  const rich = messages.find(item => item.messageId === 'm-rich')
+  assert.ok(rich)
+  const dlCalls = fake.calls.filter(call => call.path === '/v1.0/robot/messageFiles/download')
+  assert.ok(dlCalls.some(call => call.params.downloadCode === 'pic1' && call.params.robotCode === 'bot-code-1'))
+  assert.equal(pic.images.length, 1)
+  assert.equal(pic.images[0].mediaType, 'image/png')
+  assert.equal(pic.images[0].data, pngBytes.toString('base64'))
+  assert.equal(file.files.length, 1)
+  assert.equal(file.files[0].name, 'notes.txt')
+  assert.deepEqual(file.files[0].data, docBytes)
+  assert.equal(rich.text, '看下这张截图')
+  assert.equal(rich.images.length, 1)
+  assert.equal(rich.images[0].mediaType, 'image/png')
+})
+
+test('DingTalk degrades unsupported BMP, preserves same-chat order, and stop aborts in-flight download', async (t) => {
+  const fake = await fakeDingtalk()
+  const bmpBytes = Buffer.from([0x42, 0x4d, 0x10, 0x00, 0x00, 0x00])
+  fake.media['/dl/bmp1'] = { headers: { 'content-type': 'image/bmp' }, body: bmpBytes }
+  fake.replies['/v1.0/robot/messageFiles/download'] = (params) => ({
+    result: { downloadUrl: `${fake.api}/dl/${params.downloadCode}` },
+  })
+  let holdAbort = false
+  const base = env(fake)
+  const fetch = async (url, init) => {
+    if (String(url).endsWith('/dl/bmp1')) await new Promise(resolve => setTimeout(resolve, 60))
+    if (String(url).endsWith('/v1.0/robot/messageFiles/download') && String(init?.body ?? '').includes('hang1')) {
+      return new Promise((_, reject) => {
+        init?.signal?.addEventListener('abort', () => {
+          holdAbort = true
+          reject(new Error('aborted'))
+        }, { once: true })
+      })
+    }
+    return base.fetch(url, init)
+  }
+  const messages = []
+  const handle = dingtalk.connect(FIELDS, { ...base, fetch }, { onMessage: async msg => { messages.push(msg) }, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  const ws = await until(() => fake.sockets[0])
+  await until(() => fake.acks.includes('sys1'))
+  fake.push(ws, callback({
+    conversationType: '1', senderStaffId: 'u1', senderNick: 'Fei', msgtype: 'picture', msgId: 'm-bmp',
+    content: { downloadCode: 'bmp1' },
+  }, 'cb-bmp'))
+  fake.push(ws, callback({
+    conversationType: '1', senderStaffId: 'u1', senderNick: 'Fei', msgtype: 'text', msgId: 'm-txt',
+    text: { content: '帮看这张图' },
+  }, 'cb-txt'))
+  await until(() => messages.length === 2)
+  assert.deepEqual(messages.map(m => m.messageId), ['m-bmp', 'm-txt'])
+  assert.equal(messages[0].images.length, 0)
+  assert.equal(messages[0].files.length, 1)
+  assert.deepEqual(messages[0].files[0].data, bmpBytes)
+
+  // A hung downloadCode lookup is aborted promptly by stop().
+  fake.push(ws, callback({
+    conversationType: '1', senderStaffId: 'u2', senderNick: 'Kai', msgtype: 'picture', msgId: 'm-hang',
+    content: { downloadCode: 'hang1' },
+  }, 'cb-hang'))
+  await until(() => fake.acks.includes('cb-hang'))
+  await new Promise(resolve => setTimeout(resolve, 30))
+  handle.stop()
+  await until(() => holdAbort)
+  assert.equal(holdAbort, true)
 })

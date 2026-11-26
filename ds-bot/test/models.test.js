@@ -81,7 +81,7 @@ test('choosing a Bot model leaves the user\'s DSH default model as it was', asyn
     // Like DSH: the selection is also saved as the default, in the background.
     sessionController: { selectModel: async ({ provider, model }) => { void defaults.saveSelection({ provider, model }) } },
   }
-  const rt = { ctx, state: { bots: {} }, warn() {} }
+  const rt = { ctx, state: { bots: {} }, save: async () => {}, warn() {} }
   install(rt)
   await Promise.all([
     rt.selectSessionModel('s1', { provider: 'deepseek', model: 'deepseek-v4-pro' }),
@@ -117,6 +117,8 @@ function bench({ providers = { deepseek: ['v4-flash'], stepfun: ['step-5'] }, fa
       listModels: async id => providers[id].map(model => ({ id: model, name: model, inputModalities: ['text'] })),
       resolveModelInfo: async (provider, model) => reasoning[`${provider}/${model}`] ?? {},
     },
+    sessions: { get: () => undefined },
+    agents: { get: () => undefined },
     sessionController: {
       selectModel: async ({ sessionId, provider, model, reasoningEffort }) => {
         selected.push(`${sessionId}:${provider}/${model}${reasoningEffort === undefined ? '' : `:${reasoningEffort}`}`)
@@ -170,27 +172,26 @@ test('a Bot model applies its thinking level, and only re-selects on a change', 
   assert.equal(bot.appliedEffort, undefined)
 })
 
-// #1501: a Bot's own chat may keep a part running in the background. The Bot's model is
-// every part's model, so a change that reached only the foreground would leave that part
-// answering on the old route while the settings show the new one.
-test('a model change reaches the part of the own chat running in the background', async () => {
+// A Bot's active background tasks run on the Bot's own model too, so a model or effort
+// change must reach active tasks as well as the foreground chat.
+test('a model change reaches active background tasks too', async () => {
   const { rt, selected } = bench()
-  const bot = { id: 'b1', sessionId: 'b1', model: 'deepseek/v4-flash', openParts: [{ sessionId: 'b1-bg', segments: [] }] }
+  const bot = { id: 'b1', sessionId: 'b1', model: 'deepseek/v4-flash', tasks: [{ id: 't1', sessionId: 'b1-task', status: 'running', segments: [] }] }
   assert.equal(await rt.applyModel(bot), 'deepseek/v4-flash')
-  assert.deepEqual(selected, ['b1:deepseek/v4-flash', 'b1-bg:deepseek/v4-flash'])
+  assert.deepEqual(selected, ['b1:deepseek/v4-flash', 'b1-task:deepseek/v4-flash'])
   // The same values again write nothing.
   await rt.applyModel(bot)
   assert.equal(selected.length, 2)
 })
 
-test('a thinking-level change reaches the background part too', async () => {
+test('a thinking-level change reaches active background tasks too', async () => {
   const { rt, selected } = bench({ reasoning: { 'deepseek/v4-flash': { reasoning: { efforts: [{ id: 'low', name: 'Low' }, { id: 'high', name: 'High' }], defaultEffort: 'low' } } } })
-  const bot = { id: 'b1', sessionId: 'b1', model: 'deepseek/v4-flash', effort: 'high', openParts: [{ sessionId: 'b1-bg', segments: [] }] }
+  const bot = { id: 'b1', sessionId: 'b1', model: 'deepseek/v4-flash', effort: 'high', tasks: [{ id: 't1', sessionId: 'b1-task', status: 'running', segments: [] }] }
   await rt.applyModel(bot)
-  assert.deepEqual(selected, ['b1:deepseek/v4-flash:high', 'b1-bg:deepseek/v4-flash:high'])
+  assert.deepEqual(selected, ['b1:deepseek/v4-flash:high', 'b1-task:deepseek/v4-flash:high'])
   bot.effort = 'low'
   await rt.applyModel(bot)
-  assert.deepEqual(selected.slice(2), ['b1:deepseek/v4-flash:low', 'b1-bg:deepseek/v4-flash:low'])
+  assert.deepEqual(selected.slice(2), ['b1:deepseek/v4-flash:low', 'b1-task:deepseek/v4-flash:low'])
   assert.equal(bot.appliedEffort, 'low')
   // The same level again writes nothing more.
   await rt.applyModel(bot)
@@ -242,6 +243,220 @@ test('a failed group selection is retried without reselecting the own chat or su
   assert.deepEqual(selected, ['g1:deepseek/v4-flash'])
   await rt.applyModel(bot)
   assert.deepEqual(selected, ['g1:deepseek/v4-flash', 'g2:deepseek/v4-flash'])
+})
+
+// The two services a start uses to read a stored Session's own model selection: the
+// listing of stored Sessions and their cached selection projections.
+function storedSessions(records) {
+  return {
+    sessionQuery: {
+      listSessions: async () => Object.entries(records).map(([id, { live = false }]) => ({ header: { id }, live, persisted: !live })),
+    },
+    sessionProjectionCache: {
+      cachedSnapshot: (header) => {
+        const selection = records[header.id]?.selection
+        return selection === undefined ? undefined : { values: { modelSelection: { lastUsed: selection, next: selection } } }
+      },
+    },
+  }
+}
+
+// Resuming a stored Session replays its whole log, so a start reads the selection the
+// Session records instead, and resumes only a Session that needs another one.
+test('a stored group Session on the Bot model is not resumed to select it', async () => {
+  const services = storedSessions({
+    g1: { selection: { provider: 'deepseek', model: 'v4-flash' } },
+    g2: { selection: { provider: 'deepseek', model: 'v4-pro' } },
+    g3: { selection: undefined },
+    // A live Session is read for what it is now: the composer's model picker can move
+    // it without telling this plugin.
+    g4: { live: true, selection: { provider: 'deepseek', model: 'v4-flash' } },
+  })
+  const { rt, selected } = bench({ services })
+  rt.state.sessionModelSelections = { g1: { provider: 'deepseek', model: 'v4-flash' } }
+  rt.groupSessionsOf = () => ['g1', 'g2', 'g3', 'g4']
+  const bot = { id: 'b1', model: 'deepseek/v4-flash', appliedModel: 'deepseek/v4-flash' }
+  await rt.applyModel(bot)
+  assert.deepEqual(selected, ['g2:deepseek/v4-flash', 'g3:deepseek/v4-flash', 'g4:deepseek/v4-flash'])
+  // Another model reaches every group Session, a matching record notwithstanding.
+  bot.model = 'stepfun/step-5'
+  await rt.applyModel(bot)
+  assert.deepEqual(selected.slice(3), ['b1:stepfun/step-5', 'g1:stepfun/step-5', 'g2:stepfun/step-5', 'g3:stepfun/step-5', 'g4:stepfun/step-5'])
+  // A forced selection runs even where the record and the Session both agree.
+  bot.model = 'deepseek/v4-flash'
+  await rt.applyModel(bot, { force: true })
+  assert.deepEqual(selected.slice(8), ['b1:deepseek/v4-flash', 'g1:deepseek/v4-flash', 'g2:deepseek/v4-flash', 'g3:deepseek/v4-flash', 'g4:deepseek/v4-flash'])
+})
+
+test('a stored Session recording another thinking level is resumed and reselected', async () => {
+  const services = storedSessions({
+    g1: { selection: { provider: 'deepseek', model: 'v4-flash', reasoningEffort: 'low' } },
+    g2: { selection: { provider: 'deepseek', model: 'v4-flash' } },
+  })
+  const { rt, selected } = bench({ services, reasoning: { 'deepseek/v4-flash': { reasoning: { efforts: [{ id: 'low' }, { id: 'high' }] } } } })
+  rt.groupSessionsOf = () => ['g1', 'g2']
+  const bot = { id: 'b1', model: 'deepseek/v4-flash', effort: 'high', appliedModel: 'deepseek/v4-flash', appliedEffort: 'high' }
+  await rt.applyModel(bot)
+  assert.deepEqual(selected, ['g1:deepseek/v4-flash:high', 'g2:deepseek/v4-flash:high'])
+})
+
+test('without a listing or a projection cache every Session is selected, as before', async () => {
+  const { rt, selected } = bench({ services: { sessionQuery: { listSessions: async () => [{ header: { id: 'g1' }, live: false }] } } })
+  rt.groupSessionsOf = () => ['g1']
+  await rt.applyModel({ id: 'b1', model: 'deepseek/v4-flash', appliedModel: 'deepseek/v4-flash' })
+  assert.deepEqual(selected, ['g1:deepseek/v4-flash'])
+})
+
+test('a read that fails selects the model rather than skipping it', async () => {
+  const services = storedSessions({ g1: { selection: { provider: 'deepseek', model: 'v4-flash' } } })
+  services.sessionProjectionCache.cachedSnapshot = () => {
+    throw new Error('the cache is closed')
+  }
+  const { rt, selected } = bench({ services })
+  rt.state.sessionModelSelections = { g1: { provider: 'deepseek', model: 'v4-flash' } }
+  rt.groupSessionsOf = () => ['g1']
+  await rt.applyModel({ id: 'b1', model: 'deepseek/v4-flash', appliedModel: 'deepseek/v4-flash' })
+  assert.deepEqual(selected, ['g1:deepseek/v4-flash'])
+})
+
+test('a matching checkpoint needs a matching durable selection witness', async () => {
+  const route = { provider: 'deepseek', model: 'v4-flash' }
+  for (const witness of [undefined, { provider: 'stepfun', model: 'step-5' }, route]) {
+    const { rt, selected } = bench({ services: storedSessions({ g1: { selection: route } }) })
+    if (witness !== undefined) rt.state.sessionModelSelections = { g1: witness }
+    await rt.selectSessionModel('g1', route)
+    assert.deepEqual(selected, witness === route ? [] : ['g1:deepseek/v4-flash'])
+  }
+})
+
+test('an attached Session or Agent cannot use a cold listing and matching witness', async () => {
+  const route = { provider: 'deepseek', model: 'v4-flash' }
+  for (const registry of ['sessions', 'agents']) {
+    const { rt, selected } = bench({ services: storedSessions({ g1: { selection: route } }) })
+    rt.state.sessionModelSelections = { g1: route }
+    rt.ctx[registry].get = () => ({})
+    await rt.selectSessionModel('g1', route)
+    assert.deepEqual(selected, ['g1:deepseek/v4-flash'])
+  }
+})
+
+// The host does not inject `agents`, and Cordis throws from the property of a service
+// that is not injected: an optional chain on `ctx.agents` cannot guard that read.
+test('a host without the agents service injected still reads a stored selection', async () => {
+  const route = { provider: 'deepseek', model: 'v4-flash' }
+  for (const attached of [false, true]) {
+    const services = storedSessions({ g1: { selection: route } })
+    if (attached) services.agents = { get: () => ({}) }
+    const { rt, selected } = bench({ services })
+    const warnings = []
+    rt.warn = (...args) => warnings.push(args)
+    Object.defineProperty(rt.ctx, 'agents', {
+      get() { throw new Error('cannot get property "agents" without inject') },
+    })
+    rt.state.sessionModelSelections = { g1: route }
+    await rt.selectSessionModel('g1', route)
+    assert.deepEqual(selected, attached ? ['g1:deepseek/v4-flash'] : [])
+    assert.deepEqual(warnings, [])
+  }
+})
+
+test('a provider registering after fallback selection cannot reuse its stale checkpoint', async () => {
+  const route = { provider: 'late', model: 'a' }
+  const { rt, selected, providers } = bench({
+    providers: { fallback: ['b'] }, fallback: { provider: 'fallback', model: 'b' },
+    services: storedSessions({ g1: { selection: route } }),
+  })
+  rt.state.sessionModelSelections = { g1: route }
+  const bot = { id: 'g1', model: 'late/a' }
+  await rt.applyModel(bot)
+  providers.late = ['a']
+  rt.dropCatalog()
+  await rt.applyModel(bot)
+  assert.deepEqual(selected, ['g1:fallback/b', 'g1:late/a'])
+  await rt.selectSessionModel('g1', route)
+  assert.deepEqual(selected, ['g1:fallback/b', 'g1:late/a', 'g1:late/a'])
+})
+
+test('a successful real selection persists a witness that a cold restart can use', async () => {
+  const route = { provider: 'deepseek', model: 'v4-flash' }
+  const services = storedSessions({ g1: { selection: route } })
+  const first = bench({ services })
+  let persisted
+  first.rt.save = async () => { persisted = JSON.parse(JSON.stringify(first.rt.state)) }
+  await first.rt.selectSessionModel('g1', route)
+  assert.deepEqual(first.selected, ['g1:deepseek/v4-flash'])
+  assert.deepEqual(persisted.sessionModelSelections.g1, { requested: route, resolved: route })
+  const second = bench({ services })
+  Object.assign(second.rt.state, persisted)
+  await second.rt.selectSessionModel('g1', route)
+  assert.deepEqual(second.selected, [])
+})
+
+test('a resolved default thinking level does not change the requested route witness', async () => {
+  const route = { provider: 'deepseek', model: 'v4-flash' }
+  const services = storedSessions({ g1: { selection: route } })
+  const first = bench({ services })
+  const select = first.rt.ctx.sessionController.selectModel
+  first.rt.ctx.sessionController.selectModel = async (request) => {
+    await select(request)
+    return { selected: { ...route, reasoningEffort: 'high' } }
+  }
+  let persisted
+  first.rt.save = async () => { persisted = JSON.parse(JSON.stringify(first.rt.state)) }
+  await first.rt.selectSessionModel('g1', route)
+  assert.deepEqual(first.selected, ['g1:deepseek/v4-flash'])
+  assert.deepEqual(persisted.sessionModelSelections.g1, { requested: route, resolved: { ...route, reasoningEffort: 'high' } })
+  const second = bench({ services })
+  Object.assign(second.rt.state, persisted)
+  await second.rt.selectSessionModel('g1', route)
+  assert.deepEqual(second.selected, [])
+})
+
+test('a resolved checkpoint must match the last resolved selection or requested route', async () => {
+  const route = { provider: 'deepseek', model: 'v4-flash' }
+  for (const effort of ['high', 'low']) {
+    const services = storedSessions({ g1: { selection: { ...route, reasoningEffort: effort } } })
+    const first = bench({ services })
+    first.rt.ctx.sessionController.selectModel = async () => ({ selected: { ...route, reasoningEffort: 'high' } })
+    let persisted
+    first.rt.save = async () => { persisted = JSON.parse(JSON.stringify(first.rt.state)) }
+    await first.rt.selectSessionModel('g1', route)
+    const second = bench({ services })
+    Object.assign(second.rt.state, persisted)
+    await second.rt.selectSessionModel('g1', route)
+    assert.deepEqual(second.selected, effort === 'high' ? [] : ['g1:deepseek/v4-flash'])
+  }
+})
+
+test('a witness save failure leaves a successful selection and the restored user default', async () => {
+  const { rt, selected, current, saved } = bench()
+  const before = current()
+  let saves = 0
+  rt.save = async () => {
+    saves += 1
+    assert.deepEqual(current(), before)
+    throw new Error('read-only host')
+  }
+  await assert.doesNotReject(rt.selectSessionModel('g1', { provider: 'deepseek', model: 'v4-flash' }))
+  assert.equal(saves, 1)
+  assert.deepEqual(selected, ['g1:deepseek/v4-flash'])
+  assert.deepEqual(saved, [before])
+  assert.deepEqual(current(), before)
+})
+
+test('a failed real selection does not create a durable witness', async () => {
+  const { rt } = bench()
+  rt.ctx.sessionController.selectModel = async () => { throw new Error('unavailable') }
+  await assert.rejects(rt.selectSessionModel('g1', { provider: 'deepseek', model: 'v4-flash' }), /unavailable/)
+  assert.equal(rt.state.sessionModelSelections, undefined)
+})
+
+test('a fresh listing prunes witnesses for Sessions that no longer exist', async () => {
+  const route = { provider: 'deepseek', model: 'v4-flash' }
+  const { rt } = bench({ services: storedSessions({}) })
+  rt.state.sessionModelSelections = { gone: route }
+  await rt.selectSessionModel('g1', route)
+  assert.deepEqual(rt.state.sessionModelSelections, { g1: { requested: route, resolved: route } })
 })
 
 test('resolveEffort takes an id or a name, and refuses what the model has not', async () => {
@@ -415,4 +630,268 @@ test('a Bot on the default model with its own thinking level leaves the default 
   }
   await rt.applyModel({ id: 'b1', model: 'deepseek/v4-flash', effort: 'low' })
   assert.deepEqual(current(), fallback)
+})
+
+// A group's own Session never asks the model, but DSH resolves its selection before every
+// step. One left on a model DSH no longer serves fails with UNKNOWN_MODEL however the
+// members are set (#1310).
+test('a group\'s own Session is moved onto a served model, once, while its members keep theirs', async () => {
+  const { rt, selected } = bench({ fallback: { provider: 'gone', model: 'old' } })
+  rt.state.bots = { b1: { id: 'b1', model: 'deepseek/v4-flash', appliedModel: 'deepseek/v4-flash' } }
+  rt.state.prefs = { defaultBotModel: 'deepseek/v4-flash' }
+  rt.state.rooms = { r1: { id: 'r1', members: ['b1'] }, r2: { id: 'r2', sessionId: 'r2-part', members: ['b1'] } }
+  rt.sessionOfRoom = room => room.sessionId ?? room.id
+  await rt.catalog()
+  await rt.syncModels()
+  assert.deepEqual(selected.sort(), ['r1:deepseek/v4-flash', 'r2-part:deepseek/v4-flash'])
+  // Nothing changed, so a later sync leaves them alone.
+  rt.dropCatalog()
+  await rt.syncModels()
+  assert.equal(selected.length, 2)
+})
+
+test('a group\'s own Session follows the team default when it changes, and a failure is retried', async () => {
+  const { rt, selected } = bench({ providers: { deepseek: ['v4-flash'], stepfun: ['step-5'] } })
+  rt.state.prefs = { defaultBotModel: 'deepseek/v4-flash' }
+  rt.state.rooms = { r1: { id: 'r1', members: [] } }
+  rt.sessionOfRoom = room => room.id
+  const select = rt.ctx.sessionController.selectModel
+  let failed = false
+  rt.ctx.sessionController.selectModel = async (request) => {
+    if (!failed) { failed = true; throw new Error('Session unavailable') }
+    return select(request)
+  }
+  await rt.catalog()
+  await rt.syncRoomSessions()
+  assert.deepEqual(selected, [])
+  await rt.syncRoomSessions()
+  assert.deepEqual(selected, ['r1:deepseek/v4-flash'])
+  rt.state.prefs.defaultBotModel = 'stepfun/step-5'
+  await rt.syncRoomSessions()
+  assert.deepEqual(selected.slice(1), ['r1:stepfun/step-5'])
+})
+
+test('a group Session whose selection failed is retried at the next sync, though the models are the same', async () => {
+  const { rt, selected } = bench({ providers: { deepseek: ['v4-flash'] } })
+  rt.state.prefs = { defaultBotModel: 'deepseek/v4-flash' }
+  rt.state.rooms = { r1: { id: 'r1', members: [] } }
+  rt.sessionOfRoom = room => room.id
+  const select = rt.ctx.sessionController.selectModel
+  let failed = false
+  rt.ctx.sessionController.selectModel = async (request) => {
+    if (!failed) { failed = true; throw new Error('Session unavailable') }
+    return select(request)
+  }
+  await rt.catalog()
+  await rt.syncModels()
+  assert.deepEqual(selected, [])
+  // The same models, as every state refresh finds them.
+  await rt.syncModels()
+  assert.deepEqual(selected, ['r1:deepseek/v4-flash'])
+  // Selected now, so a later refresh asks for nothing.
+  await rt.syncModels()
+  assert.equal(selected.length, 1)
+})
+
+test('a new group chat whose selection failed is retried at the next sync', async () => {
+  const { rt, selected } = bench({ providers: { deepseek: ['v4-flash'] } })
+  rt.state.prefs = { defaultBotModel: 'deepseek/v4-flash' }
+  rt.state.rooms = {}
+  rt.sessionOfRoom = room => room.id
+  const select = rt.ctx.sessionController.selectModel
+  let failed = false
+  rt.ctx.sessionController.selectModel = async (request) => {
+    if (!failed) { failed = true; throw new Error('Session unavailable') }
+    return select(request)
+  }
+  await rt.catalog()
+  // The catalog was synced before the group existed, as at a start with no group yet.
+  await rt.syncModels()
+  rt.state.rooms.r1 = { id: 'r1', members: [] }
+  await rt.selectRoomSession('r1')
+  assert.deepEqual(selected, [])
+  await rt.syncModels()
+  assert.deepEqual(selected, ['r1:deepseek/v4-flash'])
+})
+
+test('a deleted group does not keep the sync retrying its Session', async () => {
+  const { rt, selected } = bench({ providers: { deepseek: ['v4-flash'] } })
+  rt.state.prefs = { defaultBotModel: 'deepseek/v4-flash' }
+  rt.state.rooms = { r1: { id: 'r1', members: [] } }
+  rt.sessionOfRoom = room => room.id
+  rt.ctx.sessionController.selectModel = async () => { throw new Error('Session unavailable') }
+  await rt.catalog()
+  await rt.syncModels()
+  delete rt.state.rooms.r1
+  await rt.syncModels()
+  const calls = []
+  rt.ctx.sessionController.selectModel = async request => { calls.push(request.sessionId) }
+  await rt.syncModels()
+  assert.deepEqual(calls, [])
+  assert.deepEqual(selected, [])
+})
+
+test('a group retry that cannot read the catalog logs and keeps the retry, it does not reject', async (t) => {
+  const warnings = []
+  const { rt, selected } = bench({ providers: { deepseek: ['v4-flash'] } })
+  rt.warn = (...args) => warnings.push(args.join(' '))
+  rt.state.prefs = { defaultBotModel: 'deepseek/v4-flash' }
+  rt.state.rooms = { r1: { id: 'r1', members: [] } }
+  rt.sessionOfRoom = room => room.id
+  const select = rt.ctx.sessionController.selectModel
+  let failed = false
+  rt.ctx.sessionController.selectModel = async (request) => {
+    if (!failed) { failed = true; throw new Error('Session unavailable') }
+    return select(request)
+  }
+  await rt.catalog()
+  await rt.syncModels()
+  assert.deepEqual(selected, [])
+  // The cached catalog has run out and the provider list cannot be read now. Nothing
+  // awaits the promise bootstrap starts, so a rejection would end the host.
+  const listProviders = rt.ctx.llm.listProviders
+  rt.ctx.llm.listProviders = () => { throw new Error('providers unavailable') }
+  const now = Date.now()
+  t.mock.method(Date, 'now', () => now + 60_000)
+  await assert.doesNotReject(rt.syncModels())
+  assert.ok(warnings.some(line => /providers unavailable/.test(line)), warnings.join('\n'))
+  // The retry is kept: once the list can be read again, the next refresh selects.
+  rt.ctx.llm.listProviders = listProviders
+  await rt.syncModels()
+  assert.deepEqual(selected, ['r1:deepseek/v4-flash'])
+})
+
+test('a group Session picks an image-capable route when the team default is text-only', async () => {
+  const selected = []
+  const providers = {
+    deepseek: [
+      { id: 'text-only', inputModalities: ['text'] },
+      { id: 'vision-any', inputModalities: ['text', 'image'] },
+    ],
+    openai: [
+      { id: 'vision-member', inputModalities: ['text', 'image'] },
+    ],
+    'local-claude-code': [
+      { id: 'sonnet', inputModalities: ['text', 'image'] },
+    ],
+  }
+  const ctx = {
+    llm: {
+      listProviders: () => Object.keys(providers).map(id => ({ id })),
+      listModels: async id => providers[id],
+    },
+    get: () => undefined,
+    sessionController: {
+      selectModel: async ({ sessionId, provider, model }) => {
+        selected.push(`${sessionId}:${provider}/${model}`)
+        return { selected: { provider, model } }
+      },
+    },
+  }
+  const rt = {
+    ctx,
+    state: {
+      prefs: { defaultBotModel: 'deepseek/text-only' },
+      bots: {
+        b1: { id: 'b1', name: 'Member', model: 'openai/vision-member' },
+        b2: { id: 'b2', name: 'TextBot', model: 'deepseek/text-only' },
+      },
+      rooms: {
+        r1: { id: 'r1', members: ['b1'] },
+        r2: { id: 'r2', members: ['b2'] },
+      },
+    },
+    save: async () => {},
+    warn() {},
+    groupSessionsOf: () => [],
+    sessionOfRoom: room => room.sessionId ?? room.id,
+    roomOf: id => Object.values(rt.state.rooms).find(room => room.id === id || room.sessionId === id),
+    isLocalAgentRef: ref => typeof ref === 'string' && ref.startsWith('local-'),
+  }
+  install(rt)
+  await rt.syncRoomSessions()
+  // r1 prefers its own member's image-capable model; r2 falls back to any usable image-capable model.
+  assert.deepEqual(selected, ['r1:openai/vision-member', 'r2:deepseek/vision-any'])
+
+  // When only local-agent models accept images, the group Session uses that rather than blocking uploads.
+  selected.length = 0
+  providers.deepseek = [{ id: 'text-only', inputModalities: ['text'] }]
+  providers.openai = [{ id: 'text-member', inputModalities: ['text'] }]
+  rt.state.bots.b1.model = 'local-claude-code/sonnet'
+  rt.dropCatalog()
+  await rt.syncRoomSessions()
+  assert.deepEqual(selected, ['r1:local-claude-code/sonnet', 'r2:local-claude-code/sonnet'])
+
+  // Updating a member's model to an image-capable route also upgrades its group Session.
+  selected.length = 0
+  providers.openai = [{ id: 'vision-new', inputModalities: ['text', 'image'] }]
+  rt.state.bots.b2.model = 'openai/vision-new'
+  rt.dropCatalog()
+  await rt.applyModel(rt.state.bots.b2)
+  assert.deepEqual(selected, ['b2:openai/vision-new', 'r2:openai/vision-new'])
+})
+
+test('selectRoomSession checks resolveModelInfo when listModels omits inputModalities, handles fresh parts, and catches catalog errors', async () => {
+  const selected = []
+  const warnings = []
+  const providers = {
+    deepseek: [{ id: 'text-only', inputModalities: ['text'] }],
+    // Omitting inputModalities in listModels forces confirmation via resolveModelInfo,
+    // matching DSH's attachment admission check.
+    'local-acp-noimg': [{ id: 'default' }],
+    'local-claude-code': [{ id: 'default' }],
+  }
+  const ctx = {
+    llm: {
+      listProviders: () => Object.keys(providers).map(id => ({ id })),
+      listModels: async id => providers[id],
+      resolveModelInfo: async (provider) => ({
+        inputModalities: provider === 'local-acp-noimg' || provider === 'deepseek' ? ['text'] : ['text', 'image'],
+      }),
+    },
+    get: () => undefined,
+    sessionController: {
+      selectModel: async ({ sessionId, provider, model }) => {
+        selected.push(`${sessionId}:${provider}/${model}`)
+        return { selected: { provider, model } }
+      },
+    },
+  }
+  const rt = {
+    ctx,
+    state: {
+      prefs: { defaultBotModel: 'deepseek/text-only' },
+      bots: {
+        b1: { id: 'b1', name: 'NoImgACP', model: 'local-acp-noimg/default' },
+        b2: { id: 'b2', name: 'Claude', appliedModel: 'local-claude-code/default' },
+      },
+      rooms: {
+        r1: { id: 'r1', members: ['b1', 'b2'] },
+      },
+    },
+    save: async () => {},
+    warn: (...args) => warnings.push(args.join(' ')),
+    groupSessionsOf: () => [],
+    sessionOfRoom: room => room.sessionId ?? room.id,
+    roomOf: id => Object.values(rt.state.rooms).find(room => room.id === id || room.sessionId === id),
+    isLocalAgentRef: ref => typeof ref === 'string' && ref.startsWith('local-'),
+  }
+  install(rt)
+
+  // Fresh part before room.sessionId is reassigned: roomOf('r1-part-2') is undefined,
+  // so passing `room` lets selectRoomSession inspect members and skip the text-only ACP route.
+  assert.equal(rt.roomOf('r1-part-2'), undefined)
+  await rt.selectRoomSession('r1-part-2', rt.state.rooms.r1)
+  assert.deepEqual(selected, ['r1-part-2:local-claude-code/default'])
+
+  // Catalog failure inside selectRoomSession is caught and queued for retry rather than rejecting callers.
+  selected.length = 0
+  const listProviders = ctx.llm.listProviders
+  ctx.llm.listProviders = () => { throw new Error('catalog offline') }
+  rt.dropCatalog()
+  await assert.doesNotReject(rt.selectRoomSession('r1', rt.state.rooms.r1))
+  assert.ok(warnings.some(line => /catalog offline/.test(line)))
+  ctx.llm.listProviders = listProviders
+  await rt.syncModels()
+  assert.ok(selected.includes('r1:local-claude-code/default'), selected.join(', '))
 })

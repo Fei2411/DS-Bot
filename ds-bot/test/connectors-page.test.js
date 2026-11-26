@@ -15,7 +15,7 @@ const { JSDOM } = createRequire(join(process.env.DSH_HARNESS ?? join(PLUGIN, '..
 // stable because the tree expands the same way every pass.
 const { outputFiles } = await build({
   stdin: {
-    contents: "export { MailCatalogRow, MailToolCell } from './src/client/connectors.js'\nexport { ConnectorsPage } from './src/client/connectors-page.js'",
+    contents: "export { AddMenu, ConnectorRow, MailCatalogRow, MailToolCell } from './src/client/connectors.js'\nexport { ConnectorsPage } from './src/client/connectors-page.js'",
     resolveDir: PLUGIN,
   },
   bundle: true, format: 'cjs', platform: 'browser', write: false, logLevel: 'silent',
@@ -66,8 +66,9 @@ runInNewContext(outputFiles[0].text, {
   window: { matchMedia: () => ({ matches: false }), dshDesktop: {}, open: (url) => { opened.push(url); return null } },
   require: name => (name === 'react' ? react : name === 'react-dom' ? { createPortal: node => node } : {}),
 })
-const { MailCatalogRow, MailToolCell, ConnectorsPage } = module.exports
-const render = () => { active = () => expand(MailCatalogRow(props)); rerender() }
+const { AddMenu, ConnectorRow, MailCatalogRow, MailToolCell, ConnectorsPage } = module.exports
+// The mail tests below draw MailCatalogRow; the connector tests name their own component.
+const render = (component = MailCatalogRow) => { active = () => expand(component(props)); rerender() }
 const renderCell = (cellProps) => { slots.length = 0; active = () => expand(MailToolCell(cellProps)); rerender() }
 
 const renderPage = (pageProps) => { active = () => expand(ConnectorsPage(pageProps)); rerender() }
@@ -262,6 +263,104 @@ test('a failed mail add shows the host message inside the form', async () => {
   assert.ok(String(collect(n => String(n.props?.className ?? '').includes('bt-mail-form'))[0]?.props?.className ?? '').includes('bt-mail-form'), 'form stays open')
 })
 
+// Your own MCP servers: an address may sign in with OAuth, a command cannot.
+test('the add form offers OAuth only for an address and sends the flag', async () => {
+  const adds = []
+  const actions = { connectorAdd: (body) => { adds.push(body); return Promise.resolve({ connectors: [] }) } }
+  // The real page passes a `run` that shows failures; here it just awaits.
+  props = { actions, run: task => Promise.resolve(task) }
+  slots.length = 0
+  render(AddMenu)
+  click('Add')
+  // The switch keeps its own aria-label inside the row.
+  const findToggle = () => collect(n => n.type === 'button' && n.props?.['aria-label'] === 'Sign in')[0]
+  const findAdd = () => collect(n => n.type === 'button' && flatten(n).join('') === 'Add').at(-1)
+  assert.ok(findToggle(), 'the address form offers OAuth sign-in')
+  fill('Server address', 'https://mcp.example.com/mcp')
+  findToggle().props.onClick()
+  assert.equal(findToggle().props['aria-checked'], true)
+  fill('Name', 'Example')
+  findAdd().props.onClick()
+  await flush()
+  // Bodies cross the vm boundary, so compare field by field rather than by prototype.
+  const pick = body => ({ ...body })
+  assert.deepEqual(pick(adds[0]), { name: 'Example', url: 'https://mcp.example.com/mcp', oauth: true })
+
+  // Off by default: a fixed-header server sends no flag and behaves as it always did.
+  adds.length = 0
+  slots.length = 0
+  render(AddMenu)
+  click('Add')
+  fill('Server address', 'https://fixed.example.com/mcp')
+  fill('Name', 'Fixed')
+  findAdd().props.onClick()
+  await flush()
+  assert.deepEqual(pick(adds[0]), { name: 'Fixed', url: 'https://fixed.example.com/mcp' })
+
+  // A command has no browser sign-in to offer, and switching back drops the flag.
+  slots.length = 0
+  render(AddMenu)
+  click('Add')
+  fill('Server address', 'https://mcp.example.com/mcp')
+  click('Command')
+  assert.equal(collect(n => n.props?.['aria-label'] === 'Sign in').length, 0, 'no OAuth switch for command')
+  click('Address')
+  assert.equal(findToggle().props['aria-checked'], false)
+
+  // Turning it on and then switching kinds must not carry the choice back: an address
+  // submitted after that would otherwise silently ask for OAuth.
+  slots.length = 0
+  render(AddMenu)
+  click('Add')
+  fill('Server address', 'https://mcp.example.com/mcp')
+  findToggle().props.onClick()
+  assert.equal(findToggle().props['aria-checked'], true)
+  click('Command')
+  click('Address')
+  assert.equal(findToggle().props['aria-checked'], false, 'switching kinds clears the OAuth choice')
+  adds.length = 0
+  fill('Server address', 'https://after-switch.example.com/mcp')
+  fill('Name', 'After switch')
+  findAdd().props.onClick()
+  await flush()
+  assert.deepEqual(pick(adds[0]), { name: 'After switch', url: 'https://after-switch.example.com/mcp' })
+})
+
+// An added OAuth server that has not signed in yet keeps a way to be removed.
+test('an unconnected added server still offers Remove', async () => {
+  const removed = []
+  const actions = { connectorDisconnect: (id) => { removed.push(id); return Promise.resolve({ connectors: [] }) } }
+  const renderRow = (connector) => { props = { connector, actions }; slots.length = 0; render(ConnectorRow) }
+  const base = { id: 'box', name: 'Simular Box', category: 'custom', about: 'https://mcp.box.simular.ai/mcp', auth: { kind: 'oauth' }, custom: true, offFor: [], tools: 0 }
+
+  renderRow({ ...base, state: 'off' })
+  const offRemove = collect(n => n.type === 'button' && flatten(n).join('') === 'Remove')[0]
+  assert.ok(offRemove, 'an added server that never signed in can be removed')
+  offRemove.props.onClick()
+  await flush()
+  assert.deepEqual(removed, ['box'])
+
+  // A catalog connector with no sign-in still says Disconnect, not Remove.
+  renderRow({ id: 'context7', name: 'Context7', category: 'docs', about: '', auth: { kind: 'none' }, offFor: [], tools: 0, state: 'off' })
+  assert.equal(collect(n => n.type === 'button' && flatten(n).join('') === 'Remove').length, 0, 'catalog rows never say Remove')
+})
+
+// An added server has no catalog category, and an OAuth one stays off until its
+// sign-in finishes: without a section of its own it is on neither the default page
+// nor Connected, and Connect and Remove are reachable by search only.
+test('an added OAuth server that has not signed in is listed on the default page', async () => {
+  slots.length = 0
+  const connects = []
+  const added = { id: 'example-mcp', name: 'Example MCP', category: 'custom', about: 'https://mcp.example.com/mcp', auth: { kind: 'oauth' }, custom: true, offFor: [], tools: 0, state: 'off' }
+  const actions = { connectorConnect: (id) => { connects.push(id); return Promise.resolve({ connectors: [added] }) } }
+  renderPage(pageWith(added, actions))
+  const connect = sectionButton('Other MCP server', 'Connect')
+  assert.ok(connect, 'the added server offers Connect under its own heading')
+  connect.props.onClick()
+  await flush()
+  assert.deepEqual(connects, ['example-mcp'])
+})
+
 // The rows the host sends (`pending` is the row built in connectors/index.js).
 const githubAuth = { kind: 'oauth', client: { id: 'client' }, token: true }
 const github = extra => ({ id: 'github', name: 'GitHub', category: 'dev', auth: githubAuth, state: 'off', ...extra })
@@ -337,4 +436,37 @@ test('a sign-in found after a reload is drawn once, and a browser sign-in says w
   slots.length = 0
   renderPage(pageWith(github({ state: 'connecting', pending: { kind: 'browser', url: 'https://github.com/login/oauth' } })))
   assert.equal(pageText().split('Finish signing in in your browser.').length - 1, 1)
+})
+
+test('the client form says where to allow the redirect URL before the client is pasted', () => {
+  const sent = []
+  const slack = {
+    id: 'slack', name: 'Slack', state: 'needs-client',
+    auth: { kind: 'oauth', clientSetup: { kind: 'slack', appUrl: 'https://api.slack.com/apps' } },
+    redirectUri: 'http://127.0.0.1:38517/callback',
+  }
+  const drawRow = (connector, actions) => {
+    slots.length = 0
+    active = () => expand(ConnectorRow({ connector, actions }))
+    rerender()
+  }
+  drawRow(slack, { connectorClient: (id, clientId, clientSecret) => { sent.push({ id, clientId, clientSecret }); return Promise.resolve({ connectors: [] }) } })
+  const setup = collect(node => node.props?.className === 'bt-connector-setup')[0]
+  assert.ok(setup, 'setup hint')
+  assert.equal(collect(node => node.props?.className === 'bt-connector-actions').length, 0, 'no duplicate Connect button while ClientPanel is open')
+  const text = flatten(setup).join(' ')
+  // Slack names the place to configure, the address to allow, and what to turn on.
+  assert.match(text, /OAuth & Permissions at api\.slack\.com\/apps/)
+  assert.match(text, /http:\/\/127\.0\.0\.1:38517\/callback/)
+  assert.match(text, /MCP features and scopes/)
+  assert.match(text, /Copy the Client ID and Client Secret here\./)
+  opened.length = 0
+  click('Open app settings')
+  assert.equal(opened[0], 'https://api.slack.com/apps')
+  fill('Client ID', 'cid-1')
+  click('Continue')
+  assert.deepEqual(sent, [{ id: 'slack', clientId: 'cid-1', clientSecret: undefined }])
+  // A service without its own steps still names the address its app has to allow.
+  drawRow({ ...slack, id: 'notion', name: 'Notion', auth: { kind: 'oauth' } }, {})
+  assert.match(flatten(collect(node => node.props?.className === 'bt-connector-setup')[0]).join(' '), /In the app settings, add this redirect URL:/)
 })

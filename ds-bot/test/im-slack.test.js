@@ -99,6 +99,22 @@ test('a message in an im channel is direct, app_mention is group, every envelope
   await until(() => fake.acks.length === 4)
 })
 
+test('stop and card commands pass through direct messages and mentioned group messages alike', async (t) => {
+  const fake = await fakeSlack()
+  const messages = []
+  const handle = slack.connect(FIELDS, env(fake), { onMessage: msg => messages.push(msg), onAction() {}, onStatus() {} })
+  t.after(() => { handle.stop(); fake.close() })
+  const ws = await until(() => fake.sockets[0])
+  const commands = ['/stop', '!card V3\n1: first  line\nsecond\tline', '/card V3 1,3']
+  for (const text of commands) {
+    fake.push(ws, envelope({ type: 'message', channel_type: 'im', channel: 'D1', user: 'U2', text }))
+    fake.push(ws, envelope({ type: 'app_mention', channel: 'C1', user: 'U2', text: `<@U81> ${text}` }))
+  }
+  await until(() => messages.length === commands.length * 2)
+  assert.deepEqual(messages.map(msg => msg.text), commands.flatMap(text => [text, text]))
+  assert.deepEqual(messages.map(msg => msg.mentioned), commands.flatMap(() => [false, true]))
+})
+
 test('a block_actions envelope reports the action', async (t) => {
   const fake = await fakeSlack()
   const actions = []
@@ -143,4 +159,23 @@ test('a disconnect frame and a dropped socket both reconnect', async (t) => {
   fake.push(ws, { type: 'disconnect', reason: 'link_disabled' })
   await until(() => fake.sockets.length === 2)
   assert.ok(statuses.some(status => status.state === 'ready'))
+})
+
+test('bold Markdown reaches Slack as bold, not as italic', async (t) => {
+  // Slack writes bold as *text* and italic as _text_. The converter used to turn
+  // **bold** into *bold* and then read that same *bold* as an italic phrase, so bold
+  // text arrived italicised whenever it started a line or followed a space.
+  const fake = await fakeSlack()
+  const handle = slack.connect(FIELDS, env(fake), { onMessage: () => {}, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  await until(() => fake.sockets[0])
+  await handle.send({ key: 'D1', kind: 'direct' }, { text: 'this is **important** and *emphatic* here' })
+  const post = fake.calls.find(call => call.method === 'chat.postMessage')
+  const rendered = post.params.blocks.map(block => block.text?.text ?? '').join('\n')
+  assert.equal(rendered, 'this is *important* and _emphatic_ here')
+  // A bold run that opens the message is the case the old order got wrong.
+  fake.calls.length = 0
+  await handle.send({ key: 'D1', kind: 'direct' }, { text: '**Start** of the line' })
+  const first = fake.calls.find(call => call.method === 'chat.postMessage')
+  assert.equal(first.params.blocks[0].text.text, '*Start* of the line')
 })

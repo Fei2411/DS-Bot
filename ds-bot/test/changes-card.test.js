@@ -1,4 +1,3 @@
-import { changesPatch } from '../src/shared/changes-patch.js'
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
@@ -107,10 +106,4 @@ test('a stacked block keeps the last change line of the turn it shows', () => {
   assert.equal(second.length, 2)
   assert.equal(second[0].changes.seq, 7)
   assert.equal(second[1].changes.seq, 9)
-})
-
-
-test('recorded hunks preserve additions, deletions, paths and embedded fences', () => {
-  const patch = changesPatch({ kind: 'text', display: 'a.md', before: true, after: true, hunks: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 2, lines: ['-old', '+new', '+```'] }] })
-  assert.equal(patch, ['````diff', '--- a/a.md', '+++ b/a.md', '@@ -1,1 +1,2 @@', '-old', '+new', '+```', '````'].join('\n'))
 })

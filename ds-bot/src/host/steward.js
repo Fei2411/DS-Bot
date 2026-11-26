@@ -11,11 +11,6 @@ import { estimateTokens } from './text.js'
 // For a model that declares no window.
 export const DEFAULT_WINDOW = 500_000
 export const DEFAULT_CHECK_RATIO = 0.8
-// Provider prefix caches stop helping above a few hundred thousand tokens, and a
-// request past that point pays a full prefill every time. A model with a very large
-// window would otherwise keep one part alive far past it, so the check line has an
-// absolute ceiling as well as its share of the window.
-export const DEFAULT_CHECK_TOKENS = 380_000
 // Context sizes between requests are estimates, so the hard line stays a little
 // below what the model can actually take.
 const HARD_SHARE = 0.95
@@ -28,8 +23,9 @@ export function linesFor({ window, reserve, checkRatio, checkTokens }) {
   const usable = Math.max(declared - room, Math.floor(declared / 2))
   const hard = Math.floor(usable * HARD_SHARE)
   const ratio = typeof checkRatio === 'number' && checkRatio > 0 && checkRatio < 1 ? checkRatio : DEFAULT_CHECK_RATIO
-  const cap = Number.isInteger(checkTokens) && checkTokens > 0 ? checkTokens : DEFAULT_CHECK_TOKENS
-  return { window: declared, usable, hard, check: Math.min(Math.floor(usable * ratio), hard, cap) }
+  const check = Math.min(Math.floor(usable * ratio), hard)
+  const cap = Number.isInteger(checkTokens) && checkTokens > 0 ? checkTokens : undefined
+  return { window: declared, usable, hard, check: cap === undefined ? check : Math.min(check, cap) }
 }
 
 export const STEWARD_SYSTEM = [
@@ -154,17 +150,95 @@ export function checkpointTailNote(tail) {
   return `The last ${tail.length === 1 ? 'message' : `${tail.length} messages`} above, ${from}, stay right after your summary, word for word. Count what they give as given: summarize only what comes before them, and do not copy them.`
 }
 
+// Selects the oldest surface prefix to compact while keeping at least `retainTokens`
+// of the newest surface nodes verbatim, never splitting a tool-call/tool-result pair
+// or stranding an assistant reply without its initiating user message when avoidable.
+export function selectRetainedRange(session, measurement, retainTokens) {
+  const pricedNodes = measurement?.nodes
+  const surfaceNodes = session?.surface?.nodes
+  if (!Array.isArray(pricedNodes) || pricedNodes.length === 0 || !Array.isArray(surfaceNodes)) return null
+  if (surfaceNodes.length !== pricedNodes.length || surfaceNodes.some((seq, index) => seq !== pricedNodes[index]?.seq)) return null
+  if (typeof session.eventAt !== 'function') return null
+  const firstEvent = session.eventAt(surfaceNodes[0])
+  const firstIdx = firstEvent?.type === 'system/message' ? 1 : 0
+  if (surfaceNodes.length <= firstIdx + 1) return null
+
+  const cutBalanced = [true]
+  let openCalls = 0
+  for (const seq of surfaceNodes) {
+    const event = session.eventAt(seq)
+    if (event === undefined || event.seq !== seq) return null
+    if (event.type === 'assistant/message') {
+      const content = Array.isArray(event.data?.message?.content) ? event.data.message.content : []
+      openCalls += content.filter(block => block?.type === 'tool-call').length
+    } else if (event.type === 'tool/result') {
+      openCalls -= 1
+    }
+    if (openCalls < 0) return null
+    cutBalanced.push(openCalls === 0)
+  }
+
+  let accumulated = 0
+  let keepFromIdx = pricedNodes.length
+  for (let index = pricedNodes.length - 1; index >= firstIdx; index -= 1) {
+    accumulated += pricedNodes[index].tokens ?? 0
+    keepFromIdx = index
+    if (accumulated >= retainTokens) break
+  }
+  if (keepFromIdx <= firstIdx) return null
+  while (keepFromIdx > firstIdx && !cutBalanced[keepFromIdx]) keepFromIdx -= 1
+  if (keepFromIdx <= firstIdx) return null
+  // Keep a user message paired with its retained assistant reply when that still leaves
+  // an older prefix to compact.
+  if (
+    keepFromIdx - 1 > firstIdx
+    && cutBalanced[keepFromIdx - 1]
+    && session.eventAt(surfaceNodes[keepFromIdx])?.type === 'assistant/message'
+    && session.eventAt(surfaceNodes[keepFromIdx - 1])?.type === 'user/message'
+  ) {
+    keepFromIdx -= 1
+  }
+  // Skip retained-tail compaction when the older prefix is too small to shrink
+  // meaningfully on its own (e.g. a single giant turn dominates the surface).
+  let prefixTokens = 0
+  let bodyTokens = 0
+  for (let index = firstIdx; index < pricedNodes.length; index += 1) {
+    const tokens = pricedNodes[index].tokens ?? 0
+    bodyTokens += tokens
+    if (index < keepFromIdx) prefixTokens += tokens
+  }
+  if (bodyTokens >= 4_000 && (prefixTokens < 1_500 || prefixTokens < bodyTokens * 0.25)) return null
+  return { start: surfaceNodes[firstIdx], end: surfaceNodes[keepFromIdx - 1] }
+}
+
 // The checkpoint that replaces the older messages: its number, the summary, and the
 // messages to the Bot word for word (oldest first), newest kept first within a
-// budget, as Codex keeps the user's messages next to its summary.
-export function checkpointText({ number, summary, kept, more }) {
+// budget, as Codex keeps the user's messages next to its summary. When the backend
+// did not retain a multi-message verbatim tail on the surface (e.g. idle compaction),
+// recent verbatim exchanges (including the Bot's own replies) and recent tool activity
+// are carried here so active work does not lose immediate context.
+export function checkpointText({ number, summary, kept, more, recent = [], tools = [] }) {
+  const hasRecent = Array.isArray(recent) && recent.length > 0
+  const hasTools = Array.isArray(tools) && tools.length > 0
   return [
     `[Checkpoint ${number}]`,
     summary.trim(),
     '',
-    'Your own replies up to here are condensed above; read_own_chat finds them word for word.',
+    hasRecent
+      ? 'Older replies before the recent exchanges below are condensed above; read_own_chat finds all of them word for word.'
+      : 'Your own replies up to here are condensed above; read_own_chat finds them word for word.',
+    ...(hasRecent ? [
+      '',
+      '## Recent exchanges, word for word (oldest first)',
+      ...recent,
+    ] : []),
+    ...(hasTools ? [
+      '',
+      '## Recent tool activity (oldest first)',
+      ...tools,
+    ] : []),
     '',
-    '## Messages to you, word for word (oldest first)',
+    hasRecent ? '## Earlier messages to you, word for word (oldest first)' : '## Messages to you, word for word (oldest first)',
     ...(more ? ['(Older messages are not shown here; read_own_chat finds them.)'] : []),
     kept.length > 0 ? kept.join('\n') : '(none)',
   ].join('\n')

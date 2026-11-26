@@ -1,9 +1,26 @@
 import { Platform } from 'react-native'
+import { phoneName } from './phone-name.ts'
 import { RelayTransport, RpcClient, SecureTransport } from '../../link/src/index.ts'
 import type { PhoneIdentity, SavedComputer } from './store.ts'
 import type { ConnectorsView } from './team/connectors.ts'
+import type { LearningProposal } from './screens/chat/learning.ts'
 
 type BotResult<T> = { ok: true; value: T } | { ok: false; error: { code: string; message: string } }
+
+export interface BotTask {
+  id: string
+  title: string
+  status: 'running' | 'waiting_work' | 'waiting_approval' | 'completed' | 'failed' | 'interrupted' | 'stopped' | string
+  sessionId: string
+  roomId?: string
+  origin?: string
+  startedAt?: number
+  updatedAt?: number
+  endedAt?: number
+  summary?: string
+  error?: string
+  running?: boolean
+}
 
 export interface Bot {
   id: string
@@ -26,6 +43,7 @@ export interface Bot {
   instructions?: string
   sessionId?: string
   parts?: string[]
+  tasks?: BotTask[]
   waiting?: boolean
   pinned?: boolean
   hidden?: boolean
@@ -37,6 +55,8 @@ export interface Bot {
 export interface Room {
   id: string
   name: string
+  avatar?: { image?: string; imageRef?: string }
+  workDir?: string
   preview?: string
   lastAt?: number
   members?: string[]
@@ -63,6 +83,8 @@ export interface Approval {
   sessionId: string
   botId: string
   roomId?: string
+  taskId?: string
+  taskTitle?: string
   at?: number
   tool: string
   reason: string
@@ -96,12 +118,16 @@ export interface CapabilityItem {
   content?: string; items?: string[]; status?: string; approved?: boolean
 }
 
+// The team's DSH Agent (agents.js): plain DSH Sessions, newest last, not a Bot.
+export interface Agent { id: string; name?: string; sessions: string[]; createdAt?: number }
+
 export interface TeamState {
   revision: number
   unchanged?: boolean
   liveKey?: string
   bots: Bot[]
   rooms?: Room[]
+  agents?: Agent[]
   mainBotId?: string | null
   mainBotIds?: string[]
   models?: { ref: string; name: string; provider?: string; providerName?: string }[]
@@ -111,6 +137,7 @@ export interface TeamState {
   views?: Record<string, ShownView>
   secretRequests?: Record<string, SecretRequest[]>
   connectorRequests?: Record<string, ConnectorRequest[]>
+  learning?: Record<string, LearningProposal[]>
   connectors?: ConnectorsView
   capabilities?: CapabilityItem[]
   browserHolds?: Record<string, { by?: string; reason?: string; note?: string; callId?: string }>
@@ -122,6 +149,7 @@ export interface TeamState {
   version?: string
   work?: {
     bots?: Record<string, { tool?: string; said?: string; note?: string; target?: string; switching?: boolean; folder?: boolean }>
+    agents?: Record<string, { tool?: string; said?: string; note?: string; target?: string }>
     rooms?: Record<string, { botId: string; tool?: string; said?: string; note?: string; target?: string }[]>
     approvals?: Approval[]
     waiting?: Record<string, { bots?: string[]; rooms?: string[] }>
@@ -129,13 +157,7 @@ export interface TeamState {
   }
   activity?: Record<string, { tool?: string; said?: string; note?: string; target?: string; switching?: boolean }>
   exchangeTurns?: Record<string, number[]>
-  prefs?: { theme?: string; accent?: string; layout?: string; width?: number; flatWidth?: number }
-}
-
-function phoneName(): string {
-  const constants = Platform.constants as { Manufacturer?: string; Model?: string; interfaceIdiom?: string }
-  if (Platform.OS === 'android') return [constants.Manufacturer, constants.Model].filter(Boolean).join(' ') || 'Android phone'
-  return constants.interfaceIdiom === 'pad' ? 'iPad' : 'iPhone'
+  prefs?: { theme?: string; accent?: string; layout?: string; width?: number; flatWidth?: number; enterToSend?: boolean }
 }
 
 /** A card as the computer keeps it: `view` is the root node of the blueprint. */
@@ -143,6 +165,16 @@ export interface ShownView { id?: string; title?: string; view?: unknown }
 
 /** Opens the encrypted link to the computer. The pairing code goes only with the first connection. */
 export async function openLink(computer: SavedComputer, identity: PhoneIdentity, pairingCode?: string): Promise<RpcClient> {
+  let validServer = false
+  try {
+    const parsed = new URL(computer.server)
+    validServer = (parsed.protocol === 'ws:' || parsed.protocol === 'wss:') && parsed.host.length > 0
+  } catch {
+    validServer = false
+  }
+  if (!validServer) {
+    throw Object.assign(new Error('Invalid relay server address'), { code: 'SERVER_UNREACHABLE' })
+  }
   const relay = new RelayTransport(computer.server, {
     deviceId: identity.deviceId,
     identityKey: identity.publicKey,
@@ -150,7 +182,7 @@ export async function openLink(computer: SavedComputer, identity: PhoneIdentity,
     targetDeviceId: computer.hostDeviceId,
   })
   const secure = new SecureTransport(relay, identity, { deviceId: computer.hostDeviceId, identityKey: computer.hostKey }, {
-    hello: { name: phoneName(), ...(pairingCode === undefined ? {} : { pairingCode }) },
+    hello: { name: phoneName(Platform.OS, Platform.constants as Parameters<typeof phoneName>[1]), ...(pairingCode === undefined ? {} : { pairingCode }) },
   })
   const client = new RpcClient(secure)
   await client.connect()

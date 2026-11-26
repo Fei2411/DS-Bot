@@ -32,7 +32,7 @@ const sandbox = {
   },
 }
 runInNewContext(bundle.outputFiles[0].text, sandbox)
-const { groupModels, ModelChoiceDock, ModelKeyCard, effortRows, effortStops, EffortBar, stepMenuFocus, ModelRows, ModelGroupList, groupOpen, toggledGroup, manualFor } = module.exports
+const { groupModels, ModelChoiceDock, ModelKeyCard, effortStops, EffortBar, stepMenuFocus, ModelRows, ModelGroupList, groupOpen, toggledGroup, manualFor } = module.exports
 
 function nodes(tree, match) {
   if (!tree || typeof tree !== 'object') return []
@@ -111,12 +111,10 @@ test('without DSH\'s own settings, the choice offers no way into them', () => {
 
 test('the Thinking section always offers Default, so a picked level can be cleared', () => {
   const efforts = [{ id: 'low', name: 'Low' }, { id: 'high', name: 'High' }]
-  // Array.from: the rows come from the bundle's realm, whose arrays are not this one's.
-  assert.deepEqual(Array.from(effortRows({ efforts, defaultEffort: 'high' }), row => row.effort), [undefined, 'low', 'high'])
-  assert.deepEqual(Array.from(effortRows({ efforts }), row => row.effort), [undefined, 'low', 'high'])
-  assert.equal(effortRows({ efforts: [] }).length, 0)
   // Slider stops use the model's levels when defaultEffort is known (reset clears to Default),
   // and include a leading Default stop when the provider did not name one.
+  // Array.from: the stops come from the bundle's realm, whose arrays are not this one's.
+  assert.equal(effortStops({ efforts: [] }).length, 0)
   assert.deepEqual(Array.from(effortStops({ efforts, defaultEffort: 'high' }), row => row.effort), ['low', 'high'])
   assert.deepEqual(Array.from(effortStops({ efforts }), row => row.effort), [undefined, 'low', 'high'])
   const picked = []
@@ -128,6 +126,21 @@ test('the Thinking section always offers Default, so a picked level can be clear
   const reset = nodes(bar, node => node.props.className === 'bt-effort-reset')[0]
   reset.props.onClick()
   assert.deepEqual(picked, ['high', undefined])
+})
+
+test('nothing in the open model menu raises a native hover tooltip', () => {
+  const tree = menuRows('official/flash')
+  const rows = modelRows(tree)
+  assert.ok(rows.length > 0)
+  // A native `title` tooltip shows and hides as the pointer sweeps the rows, fighting the
+  // dropdown's own hover. The full route stays as the row's description instead.
+  assert.deepEqual(rows.filter(row => 'title' in row.props), [])
+  assert.ok(rows.every(row => typeof row.props['aria-description'] === 'string'))
+  const bar = EffortBar({
+    reasoning: { efforts: [{ id: 'low', name: 'Low' }, { id: 'high', name: 'High' }], defaultEffort: 'high' },
+    current: 'low', onPick: () => {},
+  })
+  assert.deepEqual(nodes(bar, node => node.props !== undefined && 'title' in node.props), [])
 })
 
 test('menu focus stepping starts from menu items or the trigger, not other controls', () => {

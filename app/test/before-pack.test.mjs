@@ -11,10 +11,14 @@ test('a build for the architecture of this Node goes on', async () => {
   assert.equal(archProblem({ target: 'x64', platform: 'win32', host: 'x64' }), undefined)
   const asked = []
   const packager = { projectDir: 'app-dir', appInfo: { version: '0.0.0' } }
-  await beforePack({ arch: Arch[process.arch], electronPlatformName: process.platform, packager }, async (request) => { asked.push(request) })
+  await beforePack({ arch: Arch[process.arch], electronPlatformName: process.platform, packager }, async (request) => { asked.push(request) }, () => true)
   assert.equal(asked.length, 1)
   assert.equal(asked[0].target, runtimeTarget(process.platform, process.arch))
   assert.equal(asked[0].output, join('app-dir', 'build', 'runtime'))
+  await assert.rejects(
+    beforePack({ arch: Arch[process.arch], electronPlatformName: process.platform, packager }, async () => {}, () => false),
+    /ui\/dist\/index\.html.*missing/,
+  )
 })
 
 test('a build for another architecture stops and says where to build it', async () => {

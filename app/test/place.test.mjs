@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, parse, resolve, sep } from 'node:path'
 import { test } from 'node:test'
@@ -172,7 +172,19 @@ test('the place the data is in now is no change, and a place inside it is refuse
   assert.equal(rootOf(join(home, 'elsewhere'), { ...noProbe, current: defaults }).reason, undefined)
 })
 
-test('a folder that cannot be read counts as one without permission', { skip: !win32 || !existsSync('C:\\System Volume Information') }, () => {
+// An administrator (as on CI runners) can list it; then it is no example of a folder that
+// cannot be read.
+const unreadable = (path) => {
+  if (!existsSync(path)) return false
+  try {
+    readdirSync(path)
+    return false
+  } catch {
+    return true
+  }
+}
+
+test('a folder that cannot be read counts as one without permission', { skip: !win32 || !unreadable('C:\\System Volume Information') }, () => {
   const refused = rootOf('C:\\System Volume Information', noProbe)
   assert.equal(refused.reason, 'permission')
   assert.equal(refused.at, 'C:\\System Volume Information')

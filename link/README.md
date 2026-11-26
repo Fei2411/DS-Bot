@@ -20,12 +20,15 @@ PORT=8787 DSBOT_LINK_DATA=./data/devices.json npm run server
 
 The Server speaks plain `ws://`. Put it behind a TLS proxy and give phones the `wss://` address. DS Bot uses `wss://relay.dsbot.app/v1/link` unless the user enters another Server in Settings → Phone.
 
+For browser remote, build the client with `npm ci && npm run export:web` in `mobile/` and set `DSBOT_LINK_WEB_DIR` to the absolute `mobile/dist` path before starting the Server. It serves the app at `/web/`. Browser clients trust the Server's page as well as the encrypted transport; use a trusted Server and HTTPS/WSS outside localhost. The browser has no background notifications and restricts sensitive operations to the native app or computer.
+
 Settings, all optional:
 
 | Variable | Default | |
 |---|---|---|
 | `HOST`, `PORT` | `0.0.0.0`, `8787` | Where the Server listens |
 | `DSBOT_LINK_DATA` | none (memory only) | File for the known devices |
+| `DSBOT_LINK_WEB_DIR` | none (web serving disabled) | Built web app directory to serve at `/web/`, with an `index.html` fallback for extensionless routes |
 | `DSBOT_LINK_TRUST_PROXY` | off | `1`: take the client address from the last `X-Forwarded-For` entry. Set it only behind a proxy that writes this header |
 | `DSBOT_LINK_MAX_SOCKETS` | `1024` | Open sockets in total |
 | `DSBOT_LINK_MAX_LINKS` | `1024` | Phone-to-computer links in total |
@@ -33,3 +36,7 @@ Settings, all optional:
 | `DSBOT_LINK_MAX_NEW_DEVICES_PER_HOUR` | `20` | New devices one address may register in an hour |
 | `DSBOT_LINK_MAX_MB_PER_HOUR` | `512` | MiB one address may send in an hour |
 | `DSBOT_LINK_DEVICE_TTL_DAYS` | none | Forget devices not seen for this many days |
+| `DSBOT_LINK_FCM_SERVICE_ACCOUNT` | none | Optional Firebase service account JSON or file path to forward E2E sealed `push.notify` frames via FCM HTTP v1 |
+| `DSBOT_LINK_FCM_PROJECT_ID` | from service account | Optional override for the Firebase project id |
+| `DSBOT_LINK_MAX_PUSHES_PER_HOUR` | `240` | Offline push requests one host may send in an hour |
+| `DSBOT_LINK_FCM_ALLOWED_HOSTS` | unset (all hosts) | Optional comma-separated host device IDs permitted to use FCM forwarding |

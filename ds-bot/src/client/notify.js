@@ -92,12 +92,20 @@ export function badgeOf(rows) {
 
 export function notificationRows({ statuses, roster, approvals = [] }) {
   const rows = []
+  const botApprovals = new Map()
+  const roomApprovals = new Map()
+  for (const approval of approvals) {
+    const index = approval.roomId === undefined ? botApprovals : roomApprovals
+    const id = approval.roomId === undefined ? approval.botId : approval.roomId
+    if (!index.has(id)) index.set(id, [])
+    index.get(id).push(approval)
+  }
   for (const [group, entries] of [[false, roster.bots ?? []], [true, roster.rooms ?? []]]) {
     for (const entry of entries) {
       const sessionId = entry.sessionId ?? entry.id
       const status = statuses?.get(sessionId)
       const question = roster.questions?.[sessionId]
-      const waiting = approvals.filter(approval => group ? approval.roomId === entry.id : approval.roomId === undefined && approval.botId === entry.id)
+      const waiting = (group ? roomApprovals : botApprovals).get(entry.id) ?? []
       const interaction = status?.pendingInteraction
       const keys = [
         ...(question ? [`question:${question.id}`] : []),

@@ -11,13 +11,16 @@ import { createPortal } from 'react-dom'
 import {
   Button, ConnectionIndicator, Modal, Tooltip,
   IconDownloadOutlineRegular, IconLoadingOutlineRegular,
-} from '@deepseek-ai/dsh-client-ui-primitives'
+} from './dsh-primitives.js'
 import { SettingsDialog } from './settings.js'
+import { OverlayBoundary } from './overlay-boundary.js'
 import { Switch } from './bot-settings.js'
 import { NotificationsRow } from './notifications.js'
 import { GearIcon } from './icons.js'
 import { useLinger } from './motion.js'
 import { t } from './i18n.js'
+import { createConnectionFeedback } from './connection-feedback.js'
+import { settingsPreferences } from './settings-preferences.js'
 
 // The child slots of the seat, as ui-settings declares their types.
 export const SETTINGS_CHILDREN = {
@@ -37,8 +40,6 @@ export const SETTINGS_CHILDREN = {
 const SKIPPED_STEPS = new Set(['welcome-notice'])
 
 const DIALOG_EXIT_MS = 160
-const RECOVERY_CONFIRMATION_MS = 2000
-const CONNECTING_MIN_VISIBLE_MS = 800
 const BUSY_PHASES = new Set(['checking', 'downloading', 'verifying', 'installing'])
 
 export function snapshotStore(initial) {
@@ -126,38 +127,15 @@ export function pickStep({ steps, requested, active, completed }) {
   return active ? steps.find(step => !completed.has(step.id)) : undefined
 }
 
-// Connection status with the shell's timings: a reconnect shows at least 800ms, and the
-// recovery note stays 2s once it can be seen.
 function useConnectionView(state) {
-  const [recovered, setRecovered] = useState(false)
-  const [holdConnecting, setHoldConnecting] = useState(false)
-  const previous = useRef(state)
-  const connectingAt = useRef(undefined)
+  const [view, setView] = useState()
+  const feedback = useRef()
+  if (feedback.current === undefined) feedback.current = createConnectionFeedback(setView)
   useLayoutEffect(() => {
-    const before = previous.current
-    previous.current = state
-    if (state !== 'connected') { setRecovered(false); return }
-    if (before === 'disconnected' || before === 'connecting') setRecovered(true)
+    feedback.current.update(state)
+    return () => feedback.current.suspend()
   }, [state])
-  useLayoutEffect(() => {
-    if (!recovered || holdConnecting) return undefined
-    const timer = setTimeout(() => setRecovered(false), RECOVERY_CONFIRMATION_MS)
-    return () => clearTimeout(timer)
-  }, [recovered, holdConnecting])
-  useLayoutEffect(() => {
-    if (state === 'connecting') { connectingAt.current = Date.now(); return undefined }
-    const shownAt = connectingAt.current
-    if (shownAt === undefined) return undefined
-    connectingAt.current = undefined
-    const remaining = CONNECTING_MIN_VISIBLE_MS - (Date.now() - shownAt)
-    if (remaining <= 0) return undefined
-    setHoldConnecting(true)
-    const timer = setTimeout(() => setHoldConnecting(false), remaining)
-    return () => { clearTimeout(timer); setHoldConnecting(false) }
-  }, [state])
-  if (state === 'connecting' || holdConnecting) return 'connecting'
-  if (state === 'disconnected') return 'disconnected'
-  return recovered ? 'recovered' : undefined
+  return view
 }
 
 const FAILURES = {
@@ -225,7 +203,8 @@ export function SettingsShell(props) {
     wide, renderSlot, actions, useUi, useRoster, useUpdate, useSessions,
     useSections, useGeneralItems, useOnboardingSteps, useOnboardingRequest,
     useConnectionState, useDesktopUpdate, useSettingsShortcut,
-    reconnect, openDesktopUpdate, openOnboarding, finishOnboarding,
+    reconnect, openDesktopUpdate, openOnboarding, finishOnboarding, holdSeat,
+    preferences,
   } = props
   const settings = useUi(state => state.settings)
   const roster = useRoster(value => value)
@@ -256,8 +235,10 @@ export function SettingsShell(props) {
   const [kept, leaving] = useLinger(settings, DIALOG_EXIT_MS)
   const showing = Boolean(kept)
   useEffect(() => (showing ? actions.holdSettingsLook?.() : undefined), [showing])
+  // A layout effect, so the Settings dialog changes hands before the next paint.
+  useLayoutEffect(() => holdSeat?.(), [])
   const open = settings !== null && settings !== undefined
-  const openSettings = () => actions.openSettings('general')
+  const openSettings = () => actions.openSettings('overview')
   return h(Fragment, null,
     h('div', { className: 'bt-settings-row', 'data-rail': wide ? undefined : '' },
       renderSlot('settings.launcher', {
@@ -280,10 +261,14 @@ export function SettingsShell(props) {
         onReconnect: reconnect,
       }),
       wide ? h(DesktopUpdatePill, { view: update, hidden: indicator !== undefined && !installing, onOpen: openDesktopUpdate }) : null),
-    kept ? createPortal(h(SettingsDialog, {
+    kept ? h(OverlayBoundary, {
+      name: 'settings', active: !leaving, notify: !leaving,
+      reset: `${kept.page}:${kept.id ?? ''}`,
+      onDismiss: () => actions.closeSettings?.(), actions,
+    }, createPortal(h(SettingsDialog, {
       page: kept.page, id: kept.id, roster, actions, useUpdate, leaving,
-      dsh: { sections, items, renderSlot },
-    }), document.body) : null,
+      dsh: { sections, items, renderSlot, preferences },
+    }), document.body)) : null,
     step !== undefined ? renderSlot('settings.onboarding', {
       stepId: step.id, explicit: requested !== undefined, complete: () => complete(step.id),
       openSection: (id) => { finishOnboarding(); actions.openSettings(...settingsPlace(id)) },
@@ -394,6 +379,26 @@ export function DeveloperToolsRow({ useDeveloperTools, setEnabled }) {
     })))
 }
 
+// Whether SettingsShell is on screen, counted by mount: a remount can mount the new
+// shell before the old one unmounts. A registered seat is not enough, since DSH draws
+// only the seat's lowest-priority entry and sets aside one that crashed.
+export function seatHold(held) {
+  let count = 0
+  return {
+    hold: () => {
+      count += 1
+      held?.set(true)
+      let released = false
+      return () => {
+        if (released) return
+        released = true
+        count -= 1
+        if (count === 0) held?.set(false)
+      }
+    },
+  }
+}
+
 // Registers the seat and its companions. `face` is DS Bot's own injected face; the
 // returned `openOnboarding` reaches a registered onboarding step by id.
 export function installSettingsShell(ctx, { face, actions, ui, held }) {
@@ -416,14 +421,17 @@ export function installSettingsShell(ctx, { face, actions, ui, held }) {
   const sections = ledgerSource(slots, locale, 'settings.section', sectionRows)
   const items = ledgerSource(slots, locale, 'settings.general.item', itemRows)
   const steps = ledgerSource(slots, locale, 'settings.onboarding', stepRows)
+  const seat = seatHold(held)
   const shellFace = () => {
     const base = face()
     return {
       ...base,
+      preferences: settingsPreferences(ctx),
       reconnect: () => ctx.get('connection')?.reconnect(),
       openDesktopUpdate: () => update.open(),
       openOnboarding,
       finishOnboarding,
+      holdSeat: seat.hold,
       hooks: {
         ...base.hooks,
         sections, generalItems: items, onboardingSteps: steps, onboardingRequest: request,
@@ -435,17 +443,18 @@ export function installSettingsShell(ctx, { face, actions, ui, held }) {
     () => update.dispose(),
     // A profile that turned DSH's shell back on keeps it: the seat's child slots are then
     // declared already, and DS Bot's dialog stays on its own pages.
+    // SettingsShell holds the seat itself while it is mounted (`holdSeat`).
     slots.inject('sidebar.settings', () => {
+      let off
       try {
-        const off = slots.register({ name: 'sidebar.settings', inject: shellFace, children: SETTINGS_CHILDREN }, SettingsShell)
-        held?.set(true)
-        return () => { held?.set(false); off() }
+        off = slots.register({ name: 'sidebar.settings', inject: shellFace, children: SETTINGS_CHILDREN }, SettingsShell)
       } catch (error) {
         console.warn('[ds-bot] DSH settings shell is on; DS Bot settings show its own pages only', error)
         return () => {}
       }
+      const trigger = slots.inject('settings.trigger', () => slots.register({ name: 'settings.trigger' }, TriggerContent))
+      return () => { trigger(); off() }
     }),
-    slots.inject('settings.trigger', () => slots.register({ name: 'settings.trigger' }, TriggerContent)),
   ]
   if (carrier?.protocolVersion === 1) {
     disposers.push(slots.inject('sidebar.toggle.badge', () => slots.register({
@@ -470,7 +479,7 @@ export function installSettingsShell(ctx, { face, actions, ui, held }) {
         resolve: ({ modal }) => {
           if (ui.getSnapshot().settings) return { status: 'handled', run: () => actions.closeSettings() }
           if (modal !== null && modal !== 'settings') return { status: 'blocked', reason: 'modal' }
-          return { status: 'handled', run: () => actions.openSettings('general') }
+          return { status: 'handled', run: () => actions.openSettings('overview') }
         },
       }), 'ds-bot: settings command')
     }),

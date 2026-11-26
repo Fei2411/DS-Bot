@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { createChatCache } from './chat-cache.ts'
+import { createChatCache, createChatHistory, refreshChatHistory, roomHeadPart } from './chat-cache.ts'
 import { memorySummaryText } from './memory.ts'
 
 test('chat cache ignores stale page writes whose ownerKey does not match the active chatKey', () => {
@@ -22,6 +22,29 @@ test('chat cache evicts least-recently-used entries past the limit', () => {
   assert.equal(cache.has('b'), false)
   assert.equal(cache.get('a')?.page, '1-fresh')
   assert.equal(cache.get('c')?.page, '3')
+})
+
+test('room rollover makes history reachable after an exhausted first part', () => {
+  const first = createChatHistory(null, roomHeadPart(null))
+  const cursor = { part: 0 }
+  const rolled = refreshChatHistory(first, cursor, roomHeadPart(cursor))
+  assert.notEqual(rolled, first)
+  assert.deepEqual(rolled, { cursor, part: 1, loading: false })
+})
+
+test('room refresh preserves paging progress within a part but replaces it on rollover', () => {
+  const start = { part: 0 }
+  const history = createChatHistory(null, roomHeadPart(start))
+  const samePart = { part: 1, beforeSeq: 80 }
+  assert.equal(refreshChatHistory(history, samePart, roomHeadPart(samePart)), history)
+  assert.equal(history.cursor, null)
+
+  history.cursor = start
+  history.loading = true
+  const newerPart = { part: 1 }
+  const rolled = refreshChatHistory(history, newerPart, roomHeadPart(newerPart))
+  assert.notEqual(rolled, history)
+  assert.deepEqual(rolled, { cursor: newerPart, part: 2, loading: false })
 })
 
 test('memorySummaryText extracts string text from real host { text, at } summary objects', () => {
