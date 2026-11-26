@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url'
 import { HANDOFF_ACK, HISTORY_TIMEOUT_MS, isSilentTurnText, SOURCE_KIND } from './constants.js'
 import { within } from './folders.js'
 import { PREVIEW_EDGE, previewImage } from './preview.js'
-import { relayRange } from '../shared/group-replies.js'
+import { presentedFileName, presentedFiles, relayRange } from '../shared/group-replies.js'
 import { textOf } from './text.js'
 import { hourKeys } from './usage.js'
 
@@ -113,6 +113,15 @@ function reminderText(text) {
   }
 }
 
+const presentedFileRefs = value => presentedFiles(value).map(file => ({
+  name: presentedFileName(file.path),
+  path: file.path,
+  ...(file.description ? { description: file.description } : {}),
+  ...(file.sessionId ? { sessionId: file.sessionId } : {}),
+  ...(Number.isInteger(file.seq) ? { seq: file.seq } : {}),
+  ...(Number.isInteger(file.index) ? { index: file.index } : {}),
+}))
+
 // One reply of a round as an item: a member's message, the user's message that came in
 // while the round ran, or an event of the round. `id` names it the same while the round
 // runs and once its result is logged, so a client can swap the one for the other.
@@ -120,7 +129,10 @@ function replyItem(reply, id, extra = {}) {
   const who = { ...(reply.botId ? { botId: reply.botId } : {}), ...(reply.name ? { name: reply.name } : {}), ...(reply.color ? { color: reply.color } : {}) }
   const time = Number.isFinite(reply.time) ? reply.time : null
   if (reply.kind === 'user') return { id, kind: 'user', text: String(reply.text ?? ''), time, ...extra }
-  if (reply.kind === undefined) return { id, kind: 'bot', ...who, text: String(reply.text ?? ''), time, ...(Number.isFinite(reply.duration) ? { duration: reply.duration } : {}), ...(reply.changes ? { changes: reply.changes } : {}), ...extra }
+  if (reply.kind === undefined) {
+    const files = presentedFileRefs(reply.presented)
+    return { id, kind: 'bot', ...who, text: String(reply.text ?? ''), time, ...(Number.isFinite(reply.duration) ? { duration: reply.duration } : {}), ...(reply.changes ? { changes: reply.changes } : {}), ...(files.length > 0 ? { files } : {}), ...extra }
+  }
   if (!ROUND_EVENTS.has(reply.kind)) return undefined
   return {
     id, kind: 'event', event: reply.kind, ...who,
@@ -160,10 +172,12 @@ export function roomItems(events, rowsOf = () => []) {
         // picked-up work, stopped work or finished work is an event of the round it opens.
         if (source.logged !== undefined || source.failed !== undefined || source.resumed === true || source.stopped === true || source.done === true || source.resumedPause === true) continue
         const file = source.length === undefined ? undefined : content.find(block => block?.type === 'file')?.attachment
+        const files = presentedFileRefs(source.presented)
         items.push({
           id: `${seq}`, kind: 'bot', botId: source.senderSessionId ?? null, name: source.senderName ?? null,
           text: textOf(content).replace(POST_HEADER, ''), time: event.time ?? null,
           ...(file ? { whole: { length: source.length, file } } : {}),
+          ...(files.length > 0 ? { files } : {}),
         })
       }
       continue
@@ -238,7 +252,10 @@ export function install(rt) {
     roomChanged(room.id)
     if (line.botId === undefined || line.who === 'User') return
     const base = { roomId: room.id, title: room.name }
-    if (line.kind === undefined) botNotice(line.botId, { kind: 'group', ...base, text: line.text })
+    if (line.kind === undefined) {
+      const summary = line.text || (Array.isArray(line.presented) ? line.presented.map(file => presentedFileName(file.path)).join(', ') : '')
+      botNotice(line.botId, { kind: 'group', ...base, text: summary })
+    }
     else if (line.kind === 'done') botNotice(line.botId, { kind: 'done', ...base, text: '' })
   }
 
@@ -597,6 +614,7 @@ export function install(rt) {
             if (typeof file?.path !== 'string') continue
             const realPath = await rt.real?.(file.path)
             if (realPath && await rt.inData?.(realPath)) throw unavailable()
+            if (await rt.isPrivatePathBlocked?.(realPath ?? file.path, memberBotId ?? botId)) throw unavailable()
             const info = await stat(realPath ?? file.path).catch(() => undefined)
             if (info?.isFile() !== true) throw unavailable()
             if (chunked) {

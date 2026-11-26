@@ -692,6 +692,7 @@ export function WorkspacePaneBody({ sessionId, panel, team, registry = defaultSl
   const filePath = panel?.file ?? null
   const fileSessionId = panel?.fileSessionId ?? sessionId
   const fileRoot = panel?.fileRoot ?? null
+  const fileFallback = typeof panel?.fileFallback === 'function' ? panel.fileFallback : null
   const changes = panel?.changes ?? null
   const terminalNonce = panel?.terminalNonce ?? 0
 
@@ -734,12 +735,19 @@ export function WorkspacePaneBody({ sessionId, panel, team, registry = defaultSl
       })
       .catch((failure) => {
         if (fileReqRef.current !== reqId) return
+        if (failure?.code === 'bot/refused' && fileFallback !== null) {
+          void Promise.resolve().then(() => fileFallback()).catch(() => {
+            actions.notice?.(t('Could not save this file'))
+          })
+          actions.closeWorkspaceTab?.('preview')
+          return
+        }
         setFileState({ path: filePath, data: null, loading: false, error: hostText(failure?.message ?? String(failure)) })
       })
     return () => {
       if (fileReqRef.current === reqId) fileReqRef.current += 1
     }
-  }, [hasPreview, fileSessionId, filePath, fileRoot, retryCount])
+  }, [hasPreview, fileSessionId, filePath, fileRoot, fileFallback, retryCount, actions])
 
   // Notify terminal layout whenever the terminal pane becomes visible again after hiding.
   useEffect(() => {
