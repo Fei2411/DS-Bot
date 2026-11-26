@@ -778,6 +778,14 @@ test('a Session the load itself scoped still gets its tools into the step\'s lis
   assert.deepEqual(assembled.tools.map(tool => tool.name), ['read', 'group_relay'])
 })
 
+test('a hybrid group Session keeps run_code and receives its native relay schema', async (t) => {
+  const host = start()
+  t.after(host.stop)
+  await host.call('state', {})
+  const assembled = await assemble(host, host.agentOf('r1'), { tools: [{ name: 'read' }, { name: 'run_code' }], sections: [] })
+  assert.deepEqual(assembled.tools.map(tool => tool.name), ['read', 'run_code', 'group_relay'])
+})
+
 test('a PTC group Session gets its relay scoped but keeps run_code alone in the list', async (t) => {
   // A group made under the PTC preset relays through run_code; adding the scoped
   // group_relay to the list would make the hook pick the call it cannot declare.

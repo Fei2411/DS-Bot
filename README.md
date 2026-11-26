@@ -45,6 +45,10 @@ npx @deepseek-ai/dsh@0.2.2-rc.5 web
 
 See [`docker/README.md`](docker/README.md).
 
+**Optional code-mode executor (experimental)**
+
+An opt-in code executor is available as `ds-bot/code-mode` (DSH **0.2.2-rc.1 or newer**; off by default so older hosts and default Bots are unaffected). Enable `config.codeMode.enabled: true` on the active profile's `bot` (`ds-bot`) row, restart the engine, and optionally enable `tool-fs`'s `applyPatch: true` in the agent preset for multi-file patches. See [code-mode setup and limits](docs/plans/2026-11-18-code-mode.md).
+
 ## Setup
 
 The easiest way to set up other bots and group chats is to just talk to your Main Bot.
