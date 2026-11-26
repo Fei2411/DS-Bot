@@ -2,11 +2,11 @@ import { INKS, GRADIENTS, isHex, inkFill } from './inks.js'
 import { lruGet, lruSet } from './lru.js'
 
 // -------------------------------------------------------------------------
-// Characters: DS Bot's own avatars, small 3D models seen from a three-quarter
-// view and flattened into crisp silhouettes in a 100-unit box, with optional
-// accent decals. The eyes [cx, cy, width, height, tilt] are cut out of every
-// layer, so they show whatever sits behind the avatar. dev/characters.mjs
-// builds this table.
+// Characters: DS Bot's own avatars, small 3D models (avatar/models.js) seen from a
+// three-quarter view and flattened into crisp silhouettes in a 100-unit box, with
+// optional accent decals. The eyes [cx, cy, width, height, tilt] are cut out of every
+// layer, so they show whatever sits behind the avatar. dev/characters.mjs builds this
+// table; the avatar engine turns the same models when a mark moves.
 export const CHARACTERS = {
   whale: {label:'Whale',body:'M65.3 20.9l5.1 .1 4.8 .9 4.8 1.7 4.3 2.3 3.8 3.1 3 3.4 2.3 3.8 1.6 4.3 .9 4.3 0 4.8-.8 4.8-1.4 4.3-2.3 4.3-3.2 4.3-3.4 3.3-4.3 3.1-7.2 3.5-7.6 1.7-7.2 .1-9.6-1.6-3.3-1-2.9-1.7-8.8-8.9-6-4.7-3.3-.5-7.7 1.1-4.8-.1-4.7-1.2-1.9-1.2-1-1-.5-1.5 .4-1.4 1.1-1.3 1.9-1.3 4.7-1.5 7.7-.6 1.1-.5 .7-1 0-1.4-2.8-7.2-1.2-5.3-.1-4.3 .4-1.4 .9-1.2 1.9-.2 2 1 2.2 2.3 2.2 3.4 3.2 7.6 1.9 9.7 .5-.1 1.1-7.2 1.8-4.8 3.2-5.2 3.9-4.3 4.9-3.9 5.6-2.9 5.8-1.9z',paints:[['M93.3 55.8l1-.3 .1 1.2-2.4 5.3-3.4 4.8-3.8 3.8-4.8 3.4-5.7 2.8-4.8 1.5-4.8 .4 20.1-17.4 5.2-3.7z','#fff',1]],shade:'M88.6 29.5l2.4 2.9 1.9 2.8 2.4 6.3 .5 3.3 .1 5.3-1.5 6.6-1.9 4.3-2 3.3-4.8 5.4-5.7 4.3-7.2 3.3-6.2 1.5-6.7 .1-3.3-.2-9.6-1.8-3.3-1.5-2.4-1.9-8.6-8.9-5.3-3.9-3.3-.1-2.9 .2-3.3 .8-5.8 0-4.3-1-2.9-1.9 .6-.6 3.8-1.3 10.5-2.5 4.3 .9 1.4-.1 2.2-1.7 .5-1.4-.3-1.5-1.2-1.4-2.2-1.4-1.2-1.9-.6-12 .4-3.3 .5-.5 2.9 3.8 2.4 4.8 1.9 5.7 .7 5.8 .7 2.8 2.1 2.4 2.7 5.5 3.8 4.3 2.9 2.2 3.3 1 3.4-.4 6.2-3 7.1-4.5 7.3-5.6 6.6-5.9 5.9-6.5 3.7-5.3 1.7-4.2 .1-2.9z',light:'M55.6 22.8l1.9-.3 1.5 .3 .6 1 .1 .9-2 4.3-3.8 5.3-5.8 6.2-5.4 4.4-4.8 2.3-1.4 0-1.2-.5-.8-1.9 .5-3.3 2.5-4.8 3.3-4.3 2.4-2.4 5.3-3.9zM19.3 28.1l-1.4 2 .3-1.1zM21.7 49.1l.6 .5-.3 .5-.8 0zM35.8 52l1.2-.4 .9 .7 .7 1.6-.4 .9-1.2 .1-2.6-.5zM7.2 52.9l-2.9 2.9 1.2-1.6z',eyes:[[72.5,48.4,9.3,23,-15.8],[85.6,43.4,7,22.9,-21.2]]},
   star: {label:'Star',body:'M40.1 4.4l1.5-.4 1.9 .1 5.2 1.1 1.9 .9 13.2 14.9 17.1-.8 5.2 1.1 1.8 .9 1.7 1.6 .7 2.4-.4 1.9-9.7 23.6 5.6 23.7 .1 1.9-.6 1.4-2.1 1.8-2.3 .5-19.9-1.8-16.6 15.5-1.9 1-1.9 .3-7-1.5-2.6-2.1-.9-2.4-2.8-24.1-16-13.6-1.1-1.5-.5-1.9 .4-1.9 1.2-1.5 18.9-13.6 7.1-24.6 1-1.7z',eyes:[[53.9,53.4,7.2,18.8,-10],[65.1,49.2,7.2,18.8,-10]]},
@@ -119,8 +119,6 @@ export function bodyOf(def, paint, flat = false) {
   try { return def.body(paint) } catch { return '' }
 }
 const eyeMarkup = ([cx, cy, w, h, tilt]) => `<g transform="translate(${cx} ${cy}) rotate(${tilt})"><rect class="bt-eye" x="${-w / 2}" y="${-h / 2}" width="${w}" height="${h}" rx="${w / 2}"/></g>`
-// A closed, happy eye (an upturned arc) in the same spot, shown while the mark is petted.
-const happyEyeMarkup = ([cx, cy, w, h, tilt]) => `<g transform="translate(${cx} ${cy}) rotate(${tilt})"><path class="bt-eye-happy" opacity="0" d="M${-w * 0.62} ${h * 0.14}Q0 ${-h * 0.42} ${w * 0.62} ${h * 0.14}" fill="none" stroke="#000" stroke-width="${w * 0.5}" stroke-linecap="round"/></g>`
 // A mask covering three boxes, so a bob or squash never clips the body at the edge.
 export const maskBox = size => `maskUnits="userSpaceOnUse" x="${-size}" y="${-size}" width="${size * 3}" height="${size * 3}"`
 export const holes = (def, eyes) => `<rect x="${-def.size}" y="${-def.size}" width="${def.size * 3}" height="${def.size * 3}" fill="#fff"/>${eyes}`
@@ -140,9 +138,9 @@ export function characterMarkup(shape, color) {
   let markup = lruGet(markupCache, key)
   if (markup === undefined) {
     const def = SHAPES[resolved]
-    // The eyes sit in the mask, untransformed by their placement, so CSS blinks and
-    // glances never replace where they sit.
-    const eyes = `<g class="bt-gaze"><g class="bt-eyes" fill="#000">${def.eyes.map(eyeMarkup).join('')}${def.eyes.map(happyEyeMarkup).join('')}</g></g>`
+    // The flat art is the rest pose; a mark that moves is drawn by the avatar engine
+    // (avatar/), so the eyes here never change.
+    const eyes = `<g class="bt-eyes" fill="#000">${def.eyes.map(eyeMarkup).join('')}</g>`
     const stops = GRADIENTS[color]
     const gradient = stops ? `<linearGradient id="${MASK_ID}g" gradientUnits="userSpaceOnUse" x1="18" y1="10" x2="78" y2="92">${stops.map(([offset, value]) => `<stop offset="${offset}" stop-color="${value}"/>`).join('')}</linearGradient>` : ''
     const body = `<g mask="url(#${MASK_ID})">${bodyOf(def, stops ? `url(#${MASK_ID}g)` : inkFill(color))}</g>`

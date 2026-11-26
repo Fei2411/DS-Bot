@@ -330,10 +330,13 @@ function NoticeBanner() {
       if (!target.id) return
       const active = activeChatTarget(navigation.getState(), fallbackRef.current)
       if (AppState.currentState !== 'active') {
+        const entryBoot = typeof (entry as { boot?: unknown }).boot === 'string' && (entry as { boot: string }).boot.length > 0
+          ? (entry as { boot: string }).boot
+          : bootRef.current
         void deliverSystemNotice(entry, {
           hostId: hostIdRef.current,
           hostName: hostNameRef.current,
-          boot: bootRef.current,
+          boot: entryBoot,
           activeChat: active,
           appActive: false,
           dedupe: true,

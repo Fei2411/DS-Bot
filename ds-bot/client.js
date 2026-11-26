@@ -559,6 +559,13 @@ var JA = {
   "Custom agents": "カスタムエージェント",
   "ACP-compatible agents, added by command.": "コマンドで追加された ACP 互換エージェント。",
   "Add agent": "エージェントを追加",
+  "Profiles": "プロファイル",
+  "Add profile": "プロファイルを追加",
+  "Profile name": "プロファイル名",
+  "Config folder": "設定フォルダ",
+  "Default folder": "デフォルトフォルダ",
+  "No profiles added": "プロファイルはまだありません",
+  "Not installed": "未インストール",
   "Copies the sign-in command": "サインインコマンドをコピー",
   "Sign in": "サインイン",
   "Sign-in command copied. Run it in a terminal: {command}": "サインインコマンドをコピーしました。ターミナルで実行してください: {command}",
@@ -1724,6 +1731,7 @@ var JA = {
   "Starting a new part…": "新しいパートに切り替え中…",
   "The model service refused the request": "モデルサービスがリクエストを拒否しました",
   "The model service failed": "モデルサービスでエラーが発生しました",
+  "The model service this Bot is set to no longer exists": "この Bot に設定されているモデルサービスはもう存在しません",
   "The model took too long to answer": "モデルの応答がタイムアウトしました",
   "Could not reach the model service": "モデルサービスに接続できませんでした",
   "The conversation could not be compacted for the model switch": "モデル切り替え時に会話を圧縮できませんでした",
@@ -3861,6 +3869,13 @@ var KO = {
   "Custom agents": "사용자 지정 Agent",
   "ACP-compatible agents, added by command.": "명령어로 추가한 ACP 호환 Agent입니다.",
   "Add agent": "Agent 추가",
+  Profiles: "프로필",
+  "Add profile": "프로필 추가",
+  "Profile name": "프로필 이름",
+  "Config folder": "설정 폴더",
+  "Default folder": "기본 폴더",
+  "No profiles added": "추가된 프로필이 없습니다",
+  "Not installed": "설치되지 않음",
   "Copies the sign-in command": "로그인 명령어 복사",
   "Sign in": "로그인",
   "Sign-in command copied. Run it in a terminal: {command}": "로그인 명령어가 복사되었습니다. 터미널에서 실행하세요: {command}",
@@ -5060,6 +5075,7 @@ var KO = {
   "Starting a new part…": "새 파트로 전환 중…",
   "The model service refused the request": "모델 서비스가 요청을 거부했습니다",
   "The model service failed": "모델 서비스 오류",
+  "The model service this Bot is set to no longer exists": "이 Bot에 설정된 모델 서비스가 더 이상 존재하지 않습니다",
   "The model took too long to answer": "모델 응답 시간이 초과되었습니다",
   "Could not reach the model service": "모델 서비스에 연결할 수 없습니다",
   "The conversation could not be compacted for the model switch": "모델 전환을 위해 대화를 압축하지 못했습니다",
@@ -7203,6 +7219,13 @@ var ES = {
   "Custom agents": "Agentes personalizados",
   "ACP-compatible agents, added by command.": "Agentes compatibles con ACP, añadidos por comando.",
   "Add agent": "Añadir agente",
+  Profiles: "Perfiles",
+  "Add profile": "Añadir perfil",
+  "Profile name": "Nombre del perfil",
+  "Config folder": "Carpeta de configuración",
+  "Default folder": "Carpeta predeterminada",
+  "No profiles added": "No hay perfiles añadidos",
+  "Not installed": "No instalado",
   "Copies the sign-in command": "Copia el comando de inicio de sesión",
   "Sign in": "Iniciar sesión",
   "Sign-in command copied. Run it in a terminal: {command}": "Comando de inicio de sesión copiado. Ejecútalo en una terminal: {command}",
@@ -8402,6 +8425,7 @@ var ES = {
   "Starting a new part…": "Iniciando una nueva parte…",
   "The model service refused the request": "El servicio de modelos rechazó la solicitud",
   "The model service failed": "El servicio de modelos falló",
+  "The model service this Bot is set to no longer exists": "El servicio de modelos de este Bot ya no existe",
   "The model took too long to answer": "El modelo tardó demasiado en responder",
   "Could not reach the model service": "No se pudo conectar con el servicio de modelos",
   "The conversation could not be compacted for the model switch": "No se pudo compactar la conversación para cambiar de modelo",
@@ -10540,6 +10564,13 @@ var FR = {
   "Custom agents": "Agents personnalisés",
   "ACP-compatible agents, added by command.": "Agents compatibles ACP, ajoutés par commande.",
   "Add agent": "Ajouter un agent",
+  "Profiles": "Profils",
+  "Add profile": "Ajouter un profil",
+  "Profile name": "Nom du profil",
+  "Config folder": "Dossier de configuration",
+  "Default folder": "Dossier par défaut",
+  "No profiles added": "Aucun profil ajouté",
+  "Not installed": "Non installé",
   "Copies the sign-in command": "Copie la commande de connexion",
   "Sign in": "Se connecter",
   "Sign-in command copied. Run it in a terminal: {command}": "Commande de connexion copiée. Exécutez-la dans un terminal : {command}",
@@ -11705,6 +11736,7 @@ var FR = {
   "Starting a new part…": "Passage à une nouvelle partie…",
   "The model service refused the request": "Le service de modèles a refusé la requête",
   "The model service failed": "Le service de modèles a rencontré une erreur",
+  "The model service this Bot is set to no longer exists": "Le service de modèles de ce Bot n'existe plus",
   "The model took too long to answer": "Le modèle a mis trop de temps à répondre",
   "Could not reach the model service": "Impossible de joindre le service de modèles",
   "The conversation could not be compacted for the model switch": "La conversation n’a pas pu être condensée pour changer de modèle",
@@ -13842,6 +13874,13 @@ var DE = {
   "Custom agents": "Benutzerdefinierte Agenten",
   "ACP-compatible agents, added by command.": "ACP-kompatible Agenten, per Befehl hinzugefügt.",
   "Add agent": "Agent hinzufügen",
+  Profiles: "Profile",
+  "Add profile": "Profil hinzufügen",
+  "Profile name": "Profilname",
+  "Config folder": "Konfigurationsordner",
+  "Default folder": "Standardordner",
+  "No profiles added": "Keine Profile hinzugefügt",
+  "Not installed": "Nicht installiert",
   "Copies the sign-in command": "Kopiert den Anmeldebefehl",
   "Sign in": "Anmelden",
   "Sign-in command copied. Run it in a terminal: {command}": "Anmeldebefehl kopiert. Führe ihn im Terminal aus: {command}",
@@ -15041,6 +15080,7 @@ var DE = {
   "Starting a new part…": "Neuer Abschnitt wird gestartet…",
   "The model service refused the request": "Der Modelldienst hat die Anfrage abgelehnt",
   "The model service failed": "Fehler beim Modelldienst",
+  "The model service this Bot is set to no longer exists": "Der Modelldienst dieses Bots existiert nicht mehr",
   "The model took too long to answer": "Zeitüberschreitung bei der Modellantwort",
   "Could not reach the model service": "Modelldienst nicht erreichbar",
   "The conversation could not be compacted for the model switch": "Die Unterhaltung konnte für den Modellwechsel nicht komprimiert werden",
@@ -17078,6 +17118,13 @@ var ZH = {
   "Custom agents": "自定义 Agent",
   "ACP-compatible agents, added by command.": "按命令添加的 ACP 兼容 Agent。",
   "Add agent": "添加 Agent",
+  Profiles: "账号配置",
+  "Add profile": "添加配置",
+  "Profile name": "配置名称",
+  "Config folder": "配置文件夹",
+  "Default folder": "默认文件夹",
+  "No profiles added": "还没有添加账号配置",
+  "Not installed": "未安装",
   "Copies the sign-in command": "复制登录命令",
   "Sign in": "登录",
   "Sign-in command copied. Run it in a terminal: {command}": "登录命令已复制。请在终端运行：{command}",
@@ -18470,6 +18517,7 @@ var ZH = {
   "Starting a new part…": "正在换到新的一段…",
   "The model service refused the request": "模型服务拒绝了请求",
   "The model service failed": "模型服务出错",
+  "The model service this Bot is set to no longer exists": "这个 Bot 使用的模型服务已不存在",
   "The model took too long to answer": "模型响应超时",
   "Could not reach the model service": "连不上模型服务",
   "The conversation could not be compacted for the model switch": "切换模型时无法压缩对话",
@@ -19667,14 +19715,14 @@ function noteClientError(where, error) {
   const message = String(error?.message ?? error ?? "error").slice(0, 300);
   const code = typeof error?.code === "string" ? error.code : void 0;
   const text = `${where}: ${message}`;
-  const now = Date.now();
+  const now2 = Date.now();
   const last = entries.at(-1);
-  if (last && last.text === text && now - last.time < REPEAT_MS) {
-    last.time = now;
+  if (last && last.text === text && now2 - last.time < REPEAT_MS) {
+    last.time = now2;
     last.count = (last.count ?? 1) + 1;
     return;
   }
-  entries.push({ time: now, level: "error", text, ...code ? { code } : {} });
+  entries.push({ time: now2, level: "error", text, ...code ? { code } : {} });
   if (entries.length > MAX) entries.splice(0, entries.length - MAX);
 }
 var quietly = (where) => (error) => noteClientError(where, error);
@@ -19705,6 +19753,7 @@ var FAILURES = {
   LOCAL_AGENT_SESSION_LOST: "The local agent session could not be resumed",
   INVALID_REQUEST: "The model service refused the request",
   SERVER: "The model service failed",
+  NO_ADAPTER: "The model service this Bot is set to no longer exists",
   TIMEOUT: "The model took too long to answer",
   TRANSPORT: "Could not reach the model service",
   MODEL_SWITCH_COMPACTION_FAILED: "The conversation could not be compacted for the model switch",
@@ -19913,7 +19962,6 @@ function bodyOf(def, paint, flat = false) {
   }
 }
 var eyeMarkup = ([cx, cy, w, h92, tilt]) => `<g transform="translate(${cx} ${cy}) rotate(${tilt})"><rect class="bt-eye" x="${-w / 2}" y="${-h92 / 2}" width="${w}" height="${h92}" rx="${w / 2}"/></g>`;
-var happyEyeMarkup = ([cx, cy, w, h92, tilt]) => `<g transform="translate(${cx} ${cy}) rotate(${tilt})"><path class="bt-eye-happy" opacity="0" d="M${-w * 0.62} ${h92 * 0.14}Q0 ${-h92 * 0.42} ${w * 0.62} ${h92 * 0.14}" fill="none" stroke="#000" stroke-width="${w * 0.5}" stroke-linecap="round"/></g>`;
 var maskBox = (size) => `maskUnits="userSpaceOnUse" x="${-size}" y="${-size}" width="${size * 3}" height="${size * 3}"`;
 var holes = (def, eyes) => `<rect x="${-def.size}" y="${-def.size}" width="${def.size * 3}" height="${def.size * 3}" fill="#fff"/>${eyes}`;
 var MASK_ID = "%MASK%";
@@ -19928,11 +19976,11 @@ function characterMarkup(shape, color) {
   let markup = lruGet(markupCache, key);
   if (markup === void 0) {
     const def = SHAPES[resolved];
-    const eyes = `<g class="bt-gaze"><g class="bt-eyes" fill="#000">${def.eyes.map(eyeMarkup).join("")}${def.eyes.map(happyEyeMarkup).join("")}</g></g>`;
+    const eyes = `<g class="bt-eyes" fill="#000">${def.eyes.map(eyeMarkup).join("")}</g>`;
     const stops = GRADIENTS[color];
-    const gradient = stops ? `<linearGradient id="${MASK_ID}g" gradientUnits="userSpaceOnUse" x1="18" y1="10" x2="78" y2="92">${stops.map(([offset, value]) => `<stop offset="${offset}" stop-color="${value}"/>`).join("")}</linearGradient>` : "";
+    const gradient2 = stops ? `<linearGradient id="${MASK_ID}g" gradientUnits="userSpaceOnUse" x1="18" y1="10" x2="78" y2="92">${stops.map(([offset, value]) => `<stop offset="${offset}" stop-color="${value}"/>`).join("")}</linearGradient>` : "";
     const body = `<g mask="url(#${MASK_ID})">${bodyOf(def, stops ? `url(#${MASK_ID}g)` : inkFill(color))}</g>`;
-    markup = `<defs>${gradient}<mask id="${MASK_ID}" ${maskBox(def.size)}>${holes(def, eyes)}</mask></defs><g class="bt-b">${def.wrap ? `<g transform="${def.wrap}">${body}</g>` : body}</g>`;
+    markup = `<defs>${gradient2}<mask id="${MASK_ID}" ${maskBox(def.size)}>${holes(def, eyes)}</mask></defs><g class="bt-b">${def.wrap ? `<g transform="${def.wrap}">${body}</g>` : body}</g>`;
     lruSet(markupCache, key, markup, MAX_MARKUP_CACHE);
   }
   return markup;
@@ -20085,7 +20133,7 @@ var speakerOf = (line) => line.botId !== void 0 && USER_NAMES.includes(String(li
 var NAME_GOES_ON = /^(?:[a-z0-9_\-/\\]|\.[a-z0-9_-])/i;
 var ADDRESS_BEFORE = /[a-z0-9_./]/i;
 var LITERAL = /```[\s\S]*?(?:```|$)|`[^`\n]*`|\[[^\]\n]*\]\([^)\s]*(?:\s+(?:"[^"\n]*"|'[^'\n]*'))?\)/g;
-var fitsAt = (text, at, word) => text.slice(at, at + word.length).toLowerCase() === word.toLowerCase() && !NAME_GOES_ON.test(text.slice(at + word.length));
+var fitsAt = (text, at2, word) => text.slice(at2, at2 + word.length).toLowerCase() === word.toLowerCase() && !NAME_GOES_ON.test(text.slice(at2 + word.length));
 var overlaps = (spans, start, end) => spans.some((span) => start < span.end && span.start < end);
 function nameProblem(name) {
   const text = String(name ?? "").trim();
@@ -20099,10 +20147,10 @@ function referenceSpans(text, labels2 = []) {
   const spans = [];
   for (const label of [...labels2].sort((a, b2) => b2.length - a.length)) {
     const mention = `@${label}`;
-    for (let at = text.indexOf(mention); at !== -1; at = text.indexOf(mention, at + 1)) {
-      const end = at + mention.length;
-      if (at > 0 && ADDRESS_BEFORE.test(text[at - 1]) || NAME_GOES_ON.test(text.slice(end)) || overlaps(spans, at, end)) continue;
-      spans.push({ start: at, end, label });
+    for (let at2 = text.indexOf(mention); at2 !== -1; at2 = text.indexOf(mention, at2 + 1)) {
+      const end = at2 + mention.length;
+      if (at2 > 0 && ADDRESS_BEFORE.test(text[at2 - 1]) || NAME_GOES_ON.test(text.slice(end)) || overlaps(spans, at2, end)) continue;
+      spans.push({ start: at2, end, label });
       break;
     }
   }
@@ -20116,14 +20164,14 @@ function mentionSpans(text, bots, { references = [] } = {}) {
   ];
   const byLength = bots.filter((bot) => bot?.name).sort((a, b2) => b2.name.length - a.name.length);
   const spans = [];
-  for (let at = value.indexOf("@"); at !== -1; at = value.indexOf("@", at + 1)) {
-    if (at > 0 && ADDRESS_BEFORE.test(value[at - 1]) || overlaps(skip, at, at + 1)) continue;
-    const bot = byLength.find((candidate) => fitsAt(value, at + 1, candidate.name));
-    const all = bot ? void 0 : ALL_WORDS.find((word) => fitsAt(value, at + 1, word));
+  for (let at2 = value.indexOf("@"); at2 !== -1; at2 = value.indexOf("@", at2 + 1)) {
+    if (at2 > 0 && ADDRESS_BEFORE.test(value[at2 - 1]) || overlaps(skip, at2, at2 + 1)) continue;
+    const bot = byLength.find((candidate) => fitsAt(value, at2 + 1, candidate.name));
+    const all = bot ? void 0 : ALL_WORDS.find((word) => fitsAt(value, at2 + 1, word));
     if (!bot && !all) continue;
-    const end = at + 1 + (bot ? bot.name.length : all.length);
-    spans.push(bot ? { start: at, end, bot } : { start: at, end, all: true });
-    at = end - 1;
+    const end = at2 + 1 + (bot ? bot.name.length : all.length);
+    spans.push(bot ? { start: at2, end, bot } : { start: at2, end, all: true });
+    at2 = end - 1;
   }
   return spans;
 }
@@ -20346,24 +20394,24 @@ function clock(ms) {
   return new Date(ms).toLocaleTimeString(dateLocale(), { hour: "numeric", minute: "2-digit" });
 }
 var midnight = (value) => new Date(value.getFullYear(), value.getMonth(), value.getDate()).getTime();
-var daysBefore = (date, now) => Math.round((midnight(new Date(now)) - midnight(date)) / 864e5);
+var daysBefore = (date, now2) => Math.round((midnight(new Date(now2)) - midnight(date)) / 864e5);
 function dayLabel(ms) {
   const date = new Date(ms);
   const today = /* @__PURE__ */ new Date();
   const sameDay = date.toDateString() === today.toDateString();
   return sameDay ? t("Today {time}", { time: clock(ms) }) : `${date.toLocaleDateString(dateLocale(), { weekday: "short", month: "short", day: "numeric" })} ${clock(ms)}`;
 }
-function clockLabel(time, now = Date.now()) {
+function clockLabel(time, now2 = Date.now()) {
   const date = new Date(time);
-  const days = daysBefore(date, now);
+  const days = daysBefore(date, now2);
   const stamp = clock(time);
   if (days === 0) return t("Today {time}", { time: stamp });
   if (days === 1) return t("Yesterday {time}", { time: stamp });
-  const sameYear = date.getFullYear() === new Date(now).getFullYear();
+  const sameYear = date.getFullYear() === new Date(now2).getFullYear();
   return `${date.toLocaleDateString(dateLocale(), { weekday: "short", month: "short", day: "numeric", ...sameYear ? {} : { year: "numeric" } })} ${stamp}`;
 }
-function messageClock(time, now = Date.now()) {
-  return daysBefore(new Date(time), now) === 0 ? clock(time) : clockLabel(time, now);
+function messageClock(time, now2 = Date.now()) {
+  return daysBefore(new Date(time), now2) === 0 ? clock(time) : clockLabel(time, now2);
 }
 function relativeShort(ms) {
   const diff = Math.max(0, Date.now() - ms);
@@ -20407,8 +20455,8 @@ function reminderPrompts(text) {
 }
 var stripHeader = (text) => text.replace(HEADER, "");
 function latestMemoryChange(news, ids) {
-  const at = (id) => news?.[id]?.seen ? news[id].at ?? 0 : 0;
-  return ids.reduce((best, id) => at(id) > at(best) ? id : best, ids[0] ?? null);
+  const at2 = (id) => news?.[id]?.seen ? news[id].at ?? 0 : 0;
+  return ids.reduce((best, id) => at2(id) > at2(best) ? id : best, ids[0] ?? null);
 }
 function summaryBlocks(text) {
   const blocks = [];
@@ -20487,22 +20535,22 @@ function relaysBefore(contexts, steps, step) {
   return (contexts ?? []).filter((data) => isRelayContext(data) && typeof data.time === "number" && data.time >= prev && data.time < step.time);
 }
 function commRunOf(order, peers, turn, hiddenTurns = []) {
-  const turns = [];
+  const turns2 = [];
   for (const entry of order) {
     const peer = peers[entry];
     const hidden = hiddenTurns.includes(entry);
     if (hidden && peer === void 0) continue;
-    turns.push({ turn: entry, peer, hidden });
+    turns2.push({ turn: entry, peer, hidden });
   }
-  const at = turns.findIndex((entry) => entry.turn === turn);
-  if (at === -1 || turns[at].peer === void 0) return null;
-  const previous = turns[at - 1];
+  const at2 = turns2.findIndex((entry) => entry.turn === turn);
+  if (at2 === -1 || turns2[at2].peer === void 0) return null;
+  const previous = turns2[at2 - 1];
   if (previous?.peer !== void 0 && previous.hidden) return "folded";
   let count = 0;
   const peerIds = [];
-  for (let index = at; index < turns.length; index += 1) {
-    const entry = turns[index];
-    if (entry.peer === void 0 || index > at && !turns[index - 1].hidden) break;
+  for (let index = at2; index < turns2.length; index += 1) {
+    const entry = turns2[index];
+    if (entry.peer === void 0 || index > at2 && !turns2[index - 1].hidden) break;
     count += entry.hidden ? 2 : 1;
     if (!peerIds.includes(entry.peer)) peerIds.push(entry.peer);
   }
@@ -20512,10 +20560,10 @@ function turnOutlineOf(list, id) {
   return list.projectionsBySession?.[id]?.values?.turnOutline ?? list.byId[id]?.projectionValues?.turnOutline;
 }
 function previewOf(list, id, hiddenTurns = []) {
-  const outline = turnOutlineOf(list, id);
-  if (!Array.isArray(outline)) return "";
-  for (let index = outline.length - 1; index >= 0; index -= 1) {
-    const entry = outline[index];
+  const outline2 = turnOutlineOf(list, id);
+  if (!Array.isArray(outline2)) return "";
+  for (let index = outline2.length - 1; index >= 0; index -= 1) {
+    const entry = outline2[index];
     if (hiddenTurns.includes(entry.turn)) continue;
     const text = entry.response || entry.prompt || "";
     if (text !== "") return stripHeader(text).replace(/\s+/g, " ").trim();
@@ -20744,10 +20792,10 @@ function teamActions({ call: call2, after, partFor, roster, ui, live, cards, hel
   };
   const MAX_TURN_CLOCK_SESSIONS = 40;
   const turnClockOrder = /* @__PURE__ */ new Set();
-  const setTurnClock = (state, sessionId, turns) => {
+  const setTurnClock = (state, sessionId, turns2) => {
     turnClockOrder.delete(sessionId);
     turnClockOrder.add(sessionId);
-    const next = { ...state, [sessionId]: turns };
+    const next = { ...state, [sessionId]: turns2 };
     while (turnClockOrder.size > MAX_TURN_CLOCK_SESSIONS) {
       const oldest = turnClockOrder.values().next().value;
       turnClockOrder.delete(oldest);
@@ -21199,20 +21247,20 @@ function teamActions({ call: call2, after, partFor, roster, ui, live, cards, hel
     noteTurnTime: (sessionId, turn, key, time) => {
       if (sessionId === void 0 || !Number.isFinite(turn) || !Number.isFinite(time)) return;
       turnClock.set((state) => {
-        const turns = state[sessionId] ?? {};
-        const entry = turns[turn] ?? {};
+        const turns2 = state[sessionId] ?? {};
+        const entry = turns2[turn] ?? {};
         const next = key === "first" && entry.first !== void 0 ? Math.min(entry.first, time) : time;
         if (entry[key] === next) return state;
-        return setTurnClock(state, sessionId, { ...turns, [turn]: { ...entry, [key]: next } });
+        return setTurnClock(state, sessionId, { ...turns2, [turn]: { ...entry, [key]: next } });
       });
     },
     noteTurnPeer: (sessionId, turn, peerId) => {
       if (sessionId === void 0 || !Number.isFinite(turn)) return;
       turnClock.set((state) => {
-        const turns = state[sessionId] ?? {};
-        const entry = turns[turn] ?? {};
+        const turns2 = state[sessionId] ?? {};
+        const entry = turns2[turn] ?? {};
         if (entry.peer === peerId) return state;
-        return setTurnClock(state, sessionId, { ...turns, [turn]: { ...entry, peer: peerId } });
+        return setTurnClock(state, sessionId, { ...turns2, [turn]: { ...entry, peer: peerId } });
       });
     },
     noteLive: (sessionId, id, entry) => {
@@ -21495,11 +21543,11 @@ function followBasics(mode, change) {
   const [bg, text, newBg, newText] = [mode.bg, mode.text, next.bg, next.text].map(channels);
   const spans = bg.map((value, index) => text[index] - value);
   for (const key of ["sidebar", "bubble", "card"]) {
-    const at = channels(mode[key]).map((value, index) => Math.abs(spans[index]) >= SPAN ? (value - bg[index]) / spans[index] : void 0);
-    const known = at.filter((value) => value !== void 0);
+    const at2 = channels(mode[key]).map((value, index) => Math.abs(spans[index]) >= SPAN ? (value - bg[index]) / spans[index] : void 0);
+    const known = at2.filter((value) => value !== void 0);
     if (known.length === 0) continue;
     const mean = known.reduce((sum, value) => sum + value, 0) / known.length;
-    next[key] = toHex(at.map((value, index) => newBg[index] + (value ?? mean) * (newText[index] - newBg[index])));
+    next[key] = toHex(at2.map((value, index) => newBg[index] + (value ?? mean) * (newText[index] - newBg[index])));
   }
   const [user, userText] = [anchorOf(mode.user, mode), anchorOf(mode.userText, mode)];
   if (user !== userText || user === void 0) {
@@ -21617,11 +21665,11 @@ var isPoint = (point) => Array.isArray(point) && point.length === 2 && point.eve
 function registerShape(id, shape) {
   if (typeof id !== "string" || !/^[a-z][\w-]{0,31}$/.test(id)) throw new Error("Shape ids are lowercase words");
   if (typeof shape?.body !== "function" || typeof shape.body("#000") !== "string") throw new Error("A shape needs body(paint) returning SVG markup");
-  const at = shape.eyes?.at;
-  if (!Array.isArray(at) || at.length !== 2 || !at.every(isPoint)) throw new Error("A shape needs eyes.at: two [x, y] points");
+  const at2 = shape.eyes?.at;
+  if (!Array.isArray(at2) || at2.length !== 2 || !at2.every(isPoint)) throw new Error("A shape needs eyes.at: two [x, y] points");
   const size = Number.isFinite(shape.size) && shape.size > 0 ? shape.size : 100;
   const pick2 = (key, fallback) => Number.isFinite(shape.eyes[key]) ? shape.eyes[key] : fallback;
-  const eyes = at.map(([x, y]) => [x, y, pick2("w", size * 0.1), pick2("h", size * 0.23), pick2("tilt", -27)]);
+  const eyes = at2.map(([x, y]) => [x, y, pick2("w", size * 0.1), pick2("h", size * 0.23), pick2("tilt", -27)]);
   const previous = SHAPES[id];
   SHAPES[id] = {
     label: String(shape.label ?? id),
@@ -21708,35 +21756,35 @@ function scanThemeCss(text) {
     }
   };
   const endOfImport = (start) => {
-    let at = start;
+    let at2 = start;
     let depth = 0;
-    while (at < n) {
-      const ch = source[at];
+    while (at2 < n) {
+      const ch = source[at2];
       if (ch === '"' || ch === "'") {
         const quote = ch;
-        at += 1;
-        while (at < n) {
-          const c = source[at];
+        at2 += 1;
+        while (at2 < n) {
+          const c = source[at2];
           if (c === "\\") {
-            at = Math.min(at + (source[at + 1] === "\r" && source[at + 2] === "\n" ? 3 : 2), n);
+            at2 = Math.min(at2 + (source[at2 + 1] === "\r" && source[at2 + 2] === "\n" ? 3 : 2), n);
             continue;
           }
           if (c === "\n" || c === "\r" || c === "\f") break;
-          at += 1;
+          at2 += 1;
           if (c === quote) break;
         }
         continue;
       }
-      if (ch === "/" && source[at + 1] === "*") {
-        const close = source.indexOf("*/", at + 2);
-        at = close === -1 ? n : close + 2;
+      if (ch === "/" && source[at2 + 1] === "*") {
+        const close = source.indexOf("*/", at2 + 2);
+        at2 = close === -1 ? n : close + 2;
         continue;
       }
       if (ch === "(") depth += 1;
       else if (ch === ")") depth = Math.max(0, depth - 1);
-      else if (ch === ";" && depth === 0) return at + 1;
-      else if (ch === "{" && depth === 0) return at;
-      at += 1;
+      else if (ch === ";" && depth === 0) return at2 + 1;
+      else if (ch === "{" && depth === 0) return at2;
+      at2 += 1;
     }
     return n;
   };
@@ -21818,7 +21866,7 @@ function scanThemeCss(text) {
       continue;
     }
     if (ch === "@") {
-      const at = i;
+      const at2 = i;
       let j = i + 1;
       let name = "";
       while (j < n) {
@@ -21848,7 +21896,7 @@ function scanThemeCss(text) {
       if (name.toLowerCase() === "import") {
         fetches = true;
         const end = endOfImport(j);
-        imports.push([at, end]);
+        imports.push([at2, end]);
         i = end;
         continue;
       }
@@ -21879,12 +21927,12 @@ function themeCssWithoutImports(css) {
   const { imports } = scanThemeCss(source);
   if (imports.length === 0) return source;
   let out = "";
-  let at = 0;
+  let at2 = 0;
   for (const [start, end] of imports) {
-    out += source.slice(at, start) + " ".repeat(end - start);
-    at = end;
+    out += source.slice(at2, start) + " ".repeat(end - start);
+    at2 = end;
   }
-  return out + source.slice(at);
+  return out + source.slice(at2);
 }
 
 // src/client/theme-css.js
@@ -22169,10 +22217,10 @@ function leaveSafeAppearance() {
   }
   for (const listener of safeListeners) listener(false);
 }
-function watchSafeAppearance(target = globalThis.window, now = () => Date.now(), wait = setTimeout, unwait = clearTimeout) {
+function watchSafeAppearance(target = globalThis.window, now2 = () => Date.now(), wait = setTimeout, unwait = clearTimeout) {
   if (target === void 0 || safe) return () => {
   };
-  const until = now() + SAFE_WINDOW_MS;
+  const until = now2() + SAFE_WINDOW_MS;
   let hold = 0;
   const isShift = (event) => event.key === "Shift" || /^Shift(Left|Right)$/.test(event.code ?? "");
   const otherModifier = (event) => event.metaKey === true || event.ctrlKey === true || event.altKey === true;
@@ -22196,13 +22244,13 @@ function watchSafeAppearance(target = globalThis.window, now = () => Date.now(),
     if (event.type === "keydown") {
       unwait(hold);
       hold = 0;
-      if (!isShift(event) || otherModifier(event) || now() > until) return;
+      if (!isShift(event) || otherModifier(event) || now2() > until) return;
       hold = wait(turnOn, SAFE_HOLD_MS);
       return;
     }
     if (pointerSeen) return;
     pointerSeen = true;
-    if (now() <= until && event.shiftKey === true && !otherModifier(event)) turnOn();
+    if (now2() <= until && event.shiftKey === true && !otherModifier(event)) turnOn();
   };
   let pointerSeen = false;
   const EVENTS = ["keydown", "keyup", "pointermove", "pointerdown"];
@@ -22210,11 +22258,11 @@ function watchSafeAppearance(target = globalThis.window, now = () => Date.now(),
     for (const type of EVENTS) target.removeEventListener(type, onEvent, true);
   };
   for (const type of EVENTS) target.addEventListener(type, onEvent, true);
-  const timer = wait(() => {
+  const timer2 = wait(() => {
     if (hold === 0) stop();
   }, SAFE_WINDOW_MS + SAFE_HOLD_MS);
   return () => {
-    unwait(timer);
+    unwait(timer2);
     unwait(hold);
     stop();
   };
@@ -22245,8 +22293,8 @@ function parseColor(value) {
   const hex = HEX2.exec(text);
   if (hex !== null) {
     const digits = hex[1];
-    const pair = (at) => {
-      const part = digits.length <= 4 ? digits[at] + digits[at] : digits.slice(at * 2, at * 2 + 2);
+    const pair = (at2) => {
+      const part = digits.length <= 4 ? digits[at2] + digits[at2] : digits.slice(at2 * 2, at2 * 2 + 2);
       return Number.parseInt(part, 16);
     };
     const alpha = digits.length === 4 ? pair(3) / 255 : digits.length === 8 ? pair(3) / 255 : 1;
@@ -22357,14 +22405,17 @@ function scaleCss(css) {
   return String(css).replace(RADIUS2, (whole2, head, value) => value.includes("--bt-r") ? whole2 : head + corners(value)).replace(TEXT, (whole2, head, size) => `${head}calc(${size}px*var(--bt-fs,1))`);
 }
 
-// src/client/motion.js
-var import_react = require("react");
+// src/client/effects.js
 var effectsTier = () => {
   const tier = typeof document === "undefined" ? void 0 : document.body?.dataset?.btEffects || document.documentElement?.dataset?.btEffects;
   return tier === "reduced" || tier === "off" ? tier : "full";
 };
-var reducedMotion = () => effectsTier() === "off" || typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
-var reducedEffects = () => effectsTier() !== "full" || typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
+var systemReducedMotion = () => typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
+var reducedMotion = () => effectsTier() === "off" || systemReducedMotion();
+var reducedEffects = () => effectsTier() !== "full" || systemReducedMotion();
+
+// src/client/motion.js
+var import_react = require("react");
 var noHover = () => window.matchMedia?.("(hover: none)").matches === true;
 var viewBottom = () => window.visualViewport ? window.visualViewport.height + window.visualViewport.offsetTop : window.innerHeight;
 function useViewport(enabled = true) {
@@ -22385,16 +22436,16 @@ function useViewport(enabled = true) {
 function springEasing(stiffness, damping) {
   const w0 = Math.sqrt(stiffness);
   const zeta = damping / (2 * w0);
-  const at = (t2) => {
+  const at2 = (t2) => {
     if (zeta >= 1) return 1 - (1 + w0 * t2) * Math.exp(-w0 * t2);
     const wd = w0 * Math.sqrt(1 - zeta * zeta);
     return 1 - Math.exp(-zeta * w0 * t2) * (Math.cos(wd * t2) + zeta * w0 / wd * Math.sin(wd * t2));
   };
   let end = 0.05;
-  while (end < 2 && Math.abs(1 - at(end)) > 1e-3) end += 0.01;
-  const points = Array.from({ length: 25 }, (_, index) => (index === 24 ? 1 : at(end * index / 24)).toFixed(4));
+  while (end < 2 && Math.abs(1 - at2(end)) > 1e-3) end += 0.01;
+  const points = Array.from({ length: 25 }, (_, index) => (index === 24 ? 1 : at2(end * index / 24)).toFixed(4));
   const duration = Math.round(end * 1e3);
-  const progress = (ms) => ms >= duration ? 1 : ms <= 0 ? 0 : at(ms / 1e3);
+  const progress = (ms) => ms >= duration ? 1 : ms <= 0 ? 0 : at2(ms / 1e3);
   return { duration, easing: `linear(${points.join(",")})`, stiffness, damping, progress };
 }
 var SPRING_SHAPE = springEasing(400, 31.2);
@@ -22410,11 +22461,11 @@ var spring = (curve, ...properties) => properties.map((property) => `${property}
 function liveSprings(apply2) {
   const values = /* @__PURE__ */ new Map();
   const current2 = {};
-  let frame2 = 0;
+  let frame3 = 0;
   let last = 0;
-  const step = (now) => {
-    const dt = Math.min(0.5, Math.max(1e-3, (now - last) / 1e3));
-    last = now;
+  const step = (now2) => {
+    const dt = Math.min(0.5, Math.max(1e-3, (now2 - last) / 1e3));
+    last = now2;
     const steps = Math.ceil(dt * 240);
     const h92 = dt / steps;
     let moving = false;
@@ -22430,7 +22481,7 @@ function liveSprings(apply2) {
       current2[key] = value.x;
     }
     apply2(current2);
-    frame2 = moving ? requestAnimationFrame(step) : 0;
+    frame3 = moving ? requestAnimationFrame(step) : 0;
   };
   return {
     target: () => {
@@ -22449,25 +22500,25 @@ function liveSprings(apply2) {
         } else Object.assign(value, { to, k, c });
       }
       if (jump) {
-        cancelAnimationFrame(frame2);
-        frame2 = 0;
+        cancelAnimationFrame(frame3);
+        frame3 = 0;
         apply2(current2);
         return;
       }
-      if (!frame2) {
+      if (!frame3) {
         last = performance.now();
-        frame2 = requestAnimationFrame(step);
+        frame3 = requestAnimationFrame(step);
       }
     },
     reset: () => {
       values.clear();
       for (const key of Object.keys(current2)) delete current2[key];
-      cancelAnimationFrame(frame2);
-      frame2 = 0;
+      cancelAnimationFrame(frame3);
+      frame3 = 0;
     },
     stop: () => {
-      cancelAnimationFrame(frame2);
-      frame2 = 0;
+      cancelAnimationFrame(frame3);
+      frame3 = 0;
     }
   };
 }
@@ -22640,12 +22691,12 @@ function Segmented({ label, value, className, children }) {
       state.node = node;
       state.sig = null;
       if (node && typeof ResizeObserver === "function") {
-        const observer = new ResizeObserver(() => reconcile(false));
-        observer.observe(node);
-        if (node.parentElement) observer.observe(node.parentElement);
+        const observer2 = new ResizeObserver(() => reconcile(false));
+        observer2.observe(node);
+        if (node.parentElement) observer2.observe(node.parentElement);
         const row = typeof node.closest === "function" ? node.closest(".bt-set-row") : null;
-        if (row && row !== node.parentElement) observer.observe(row);
-        state.observer = observer;
+        if (row && row !== node.parentElement) observer2.observe(row);
+        state.observer = observer2;
       } else {
         state.observer = null;
       }
@@ -22764,8 +22815,8 @@ function useLinger(value, ms) {
       setKept(value);
       return void 0;
     }
-    const timer = setTimeout(() => setKept(value), reducedMotion() ? 0 : ms);
-    return () => clearTimeout(timer);
+    const timer2 = setTimeout(() => setKept(value), reducedMotion() ? 0 : ms);
+    return () => clearTimeout(timer2);
   }, [value]);
   return [value || kept, !value && Boolean(kept)];
 }
@@ -22857,83 +22908,22 @@ ${Object.entries(INKS).map(([name, [, dark]]) => `body[data-ds-dark-theme]{--bt-
 .bt-mark{display:inline-block;flex:none;position:relative;line-height:0}
 .bt-mark svg{width:100%;height:100%;overflow:visible}
 .bt-mark-img{width:100%;height:100%;border-radius:50%;object-fit:cover;display:block;box-shadow:inset 0 0 0 1px var(--bt-line)}
-.bt-mark .bt-b,.bt-mark .bt-eye,.bt-mark .bt-eyes,.bt-mark .bt-gaze{transform-box:fill-box}
-.bt-mark .bt-b{transform-origin:50% 100%}
-.bt-mark .bt-eye,.bt-mark .bt-eyes{transform-origin:center}
-/* Motion levels (Settings → Bots → Animation) set body[data-bt-motion]: quiet moves a
-   mark only for its state; normal, the default, adds petting, pokes and eyes that follow
-   the pointer; lively adds blinks and fidgets at rest and a question riding on the head. */
-body[data-bt-motion=lively] .bt-mark[data-live]:is([data-state=idle],[data-state=alert]) .bt-eye{animation:bt-blink-idle 5s linear infinite;animation-delay:var(--bt-delay,0s)}
-body[data-bt-motion=lively] .bt-mark[data-live][data-state=idle]:is([data-fidget=hop],[data-fidget=sway],[data-fidget=stretch]) :is(.bt-b,.bt-mark-img){animation:var(--bt-fidget) 9s ease-in-out var(--bt-fidget-delay,0s) infinite}
-body[data-bt-motion=lively] .bt-mark[data-live][data-state=idle][data-fidget=hop]{--bt-fidget:bt-fidget-hop}
-body[data-bt-motion=lively] .bt-mark[data-live][data-state=idle][data-fidget=sway]{--bt-fidget:bt-fidget-sway}
-body[data-bt-motion=lively] .bt-mark[data-live][data-state=idle][data-fidget=stretch]{--bt-fidget:bt-fidget-stretch}
-body[data-bt-motion=lively] .bt-mark[data-live][data-state=idle][data-fidget=look] .bt-eyes{animation:bt-fidget-look 9s ease-in-out var(--bt-fidget-delay,0s) infinite}
-@keyframes bt-fidget-hop{0%,8%,100%{transform:none}3%{transform:translateY(-10%) scale(.97,1.04)}5.5%{transform:translateY(0) scale(1.05,.95)}}
-@keyframes bt-fidget-sway{0%,10%,100%{transform:none}2.5%{transform:rotate(-8deg)}5%{transform:rotate(7deg)}7.5%{transform:rotate(-3deg)}}
-@keyframes bt-fidget-stretch{0%,9%,100%{transform:none}4%{transform:scale(.94,1.08)}7%{transform:scale(1.03,.97)}}
-@keyframes bt-fidget-look{0%,22%,100%{transform:none}3%,9%{transform:translateX(-14%)}12%,19%{transform:translateX(14%)}}
+/* The live layer (avatar/live.js): the character turned and drawn on a canvas that
+   reaches past the mark, so hops and spins are not cut off. The flat art under it
+   stays for layout and for the moment before the layer is ready. */
+.bt-mark-live{position:absolute;pointer-events:none}
+.bt-mark[data-live3d]>svg{visibility:hidden}
+.bt-mark[data-poke]{cursor:pointer}
+:is(body[data-bt-motion=quiet],[data-bt-effects=off]) .bt-mark[data-poke]{cursor:default}
+@media (prefers-reduced-motion:reduce){.bt-mark[data-poke]{cursor:default}}
+/* Petting: the pointer on a sidebar avatar, or a ring around it a fifth of its size
+   wide, wakes the mark up to it. */
+:is(.bt-row,.bt-tile)>:is(.bt-mark,.bt-cluster)::before,.bt-pet-zone::before{content:'';position:absolute;inset:-20%;border-radius:50%}
+/* Lively: a question badge rides on the head. */
 body[data-bt-motion=lively] .bt-badge-alert{right:auto;bottom:auto;left:50%;top:calc(var(--bt-size,36px) * -.14);translate:-50% 0;animation:bt-q-ride 1.3s cubic-bezier(.3,.7,.4,1) infinite}
 body[data-bt-motion=lively] :is(.bt-row,.bt-tile)>.bt-mark:hover .bt-badge-alert{animation:none}
+@media (prefers-reduced-motion:reduce){body[data-bt-motion=lively] .bt-badge-alert{animation:none}}
 @keyframes bt-q-ride{0%,55%,100%{transform:translateY(0)}20%{transform:translateY(calc(var(--bt-size,36px) * -.14))}40%{transform:translateY(0)}}
-/* Petting: with the pointer on a sidebar avatar or just around it (a ring a fifth of its
-   size wide), a resting mark leans into the pointer and keeps nuzzling it, its eyes
-   closed in a happy arc, and springs back when the pointer leaves. */
-:is(.bt-row,.bt-tile)>:is(.bt-mark,.bt-cluster)::before{content:'';position:absolute;inset:-20%;border-radius:50%}
-.bt-mark[data-live] .bt-b,.bt-mark[data-live] .bt-mark-img{transition:rotate .5s cubic-bezier(.34,1.56,.64,1),translate .5s cubic-bezier(.34,1.56,.64,1),scale .3s ease-out}
-.bt-mark[data-live] .bt-eye{transition:scale .14s ease-in}
-.bt-mark[data-live] .bt-eye-happy{transition:opacity .12s ease-out}
-body:not([data-bt-motion=quiet]) :is(.bt-row,.bt-tile)>:is(.bt-mark,.bt-cluster):hover .bt-mark[data-live]:is([data-state=idle],[data-state=alert]):not(.bt-mark-poke) :is(.bt-b,.bt-mark-img){rotate:8deg;translate:5% -1%;animation:bt-nuzzle .78s ease-in-out .32s infinite}
-body:not([data-bt-motion=quiet]) :is(.bt-row,.bt-tile)>:is(.bt-mark,.bt-cluster):hover .bt-mark[data-live]:is([data-state=idle],[data-state=alert]) .bt-eye{scale:1 0;animation:none}
-body:not([data-bt-motion=quiet]) :is(.bt-row,.bt-tile)>:is(.bt-mark,.bt-cluster):hover .bt-mark[data-live]:is([data-state=idle],[data-state=alert]) .bt-eye-happy{opacity:1;transition-delay:.1s}
-@keyframes bt-nuzzle{50%{rotate:14deg;translate:8% -3%;scale:1.03 .97}}
-.bt-mark[data-gaze] .bt-b{translate:calc(var(--bt-gx,0) * 5%) calc(var(--bt-gy,0) * 4%);transition:translate .18s ease-out}
-.bt-mark[data-gaze] .bt-gaze{transform:translate(calc(var(--bt-gx,0) * 12%),calc(var(--bt-gy,0) * 11%));transition:transform .18s ease-out}
-body[data-bt-motion=quiet] .bt-mark[data-gaze] .bt-b,body[data-bt-effects=reduced] .bt-mark[data-gaze] .bt-b,body[data-bt-effects=off] .bt-mark[data-gaze] .bt-b{translate:none}
-body[data-bt-motion=quiet] .bt-mark[data-gaze] .bt-gaze,body[data-bt-effects=reduced] .bt-mark[data-gaze] .bt-gaze,body[data-bt-effects=off] .bt-mark[data-gaze] .bt-gaze{transform:none}
-.bt-mark[data-state=thinking] .bt-b{animation:bt-ponder 2.2s ease-in-out infinite}
-.bt-mark[data-state=thinking] .bt-eyes{animation:bt-squint 2.2s ease-in-out infinite}
-.bt-mark[data-state=searching] .bt-b{animation:bt-seek 1s ease-in-out infinite}
-.bt-mark[data-state=searching] .bt-eyes{animation:bt-scan 1.6s ease-in-out infinite}
-.bt-mark[data-state=working] .bt-b{animation:bt-bob 1.6s ease-in-out infinite}
-.bt-mark[data-state=working]:is([data-shape=star],[data-shape=bloom],[data-shape=plus],[data-shape=gem],[data-shape=magnet],[data-shape=ring]) .bt-b{animation:bt-wiggle 1.4s ease-in-out infinite;transform-origin:50% 50%}
-.bt-mark[data-state=working]:is([data-shape=gumdrop],[data-shape=peanut],[data-shape=squircle],[data-shape=moon],[data-shape=cloud],[data-shape=spark],[data-shape=sprout],[data-shape=octopus]) .bt-b{animation:bt-squash 1.2s ease-in-out infinite}
-.bt-mark[data-state=working] .bt-eye{animation:bt-blink 2.4s ease-in-out infinite}
-.bt-mark[data-state=sending] .bt-b{animation:bt-dash 1.1s cubic-bezier(.4,0,.2,1) infinite}
-/* Waiting for teammates to hand back work circles like coordinating them. */
-.bt-mark:is([data-state=orbit],[data-state=waiting]) .bt-b{animation:bt-sway 2.6s ease-in-out infinite;transform-origin:50% 50%}
-.bt-mark:is([data-state=orbit],[data-state=waiting]) .bt-eyes{animation:bt-roll 2.6s linear infinite}
-/* A question for you hops twice when it arrives and the badge keeps it in view after;
-   a lively mark keeps hopping. */
-.bt-mark[data-state=alert] .bt-b{animation:bt-hop 1.3s cubic-bezier(.3,.7,.4,1) 2}
-.bt-mark[data-shape=image]:not([data-state=idle]) .bt-mark-img{animation:bt-bob 1.6s ease-in-out infinite}
-.bt-mark[data-shape=image][data-state=alert] .bt-mark-img{animation:bt-hop 1.3s cubic-bezier(.3,.7,.4,1) 2}
-body[data-bt-motion=lively] .bt-mark[data-state=alert] :is(.bt-b,.bt-mark-img){animation-iteration-count:infinite}
-.bt-mark[data-state=done] .bt-b{animation:bt-done 1.8s linear 1}
-.bt-mark[data-shape=image][data-state=done] .bt-mark-img{animation:bt-done 1.8s linear 1;transform-origin:50% 100%}
-@keyframes bt-done{0%{transform:none;animation-timing-function:cubic-bezier(.4,0,.2,1)}13.3%{transform:scale(1.12,.88);animation-timing-function:cubic-bezier(.4,0,.2,1)}25.6%{transform:scale(.93,1.09);animation-timing-function:cubic-bezier(.4,0,.2,1)}37.8%{transform:scale(1.04,.97);animation-timing-function:cubic-bezier(.4,0,.2,1)}51.1%,100%{transform:none}}
-.bt-mark-poke .bt-b{animation:bt-poke .8s cubic-bezier(.3,.7,.4,1) 1!important;transform-origin:50% 60%!important}
-.bt-mark-poke .bt-mark-img{animation:bt-poke-img .6s ease-out 1!important}
-.bt-mark[data-poke]{cursor:pointer}
-body[data-bt-motion=quiet] .bt-mark-poke :is(.bt-b,.bt-mark-img){animation:none!important}
-body[data-bt-motion=quiet] .bt-mark[data-poke]{cursor:default}
-@keyframes bt-bob{0%,100%{transform:translateY(0) rotate(0)}30%{transform:translateY(-4%) rotate(-5deg)}65%{transform:translateY(0) rotate(4deg)}}
-@keyframes bt-wiggle{0%,100%{transform:rotate(0) scale(1)}25%{transform:rotate(-12deg) scale(1.04)}75%{transform:rotate(12deg) scale(1.04)}}
-@keyframes bt-squash{0%,100%{transform:scale(1,1)}30%{transform:scale(1.08,.9)}55%{transform:translateY(-4%) scale(.94,1.08)}80%{transform:scale(1.02,.98)}}
-@keyframes bt-ponder{0%,100%{transform:translateY(0) rotate(4deg)}50%{transform:translateY(-3%) rotate(7deg)}}
-@keyframes bt-squint{0%,100%{transform:translate(0,-4%) scaleY(.7)}50%{transform:translate(5%,-5%) scaleY(.78)}}
-@keyframes bt-seek{0%,100%{transform:translateY(0) rotate(-4deg)}50%{transform:translateY(-5%) rotate(-1deg)}}
-@keyframes bt-scan{0%,100%{transform:translateX(-12%)}50%{transform:translateX(12%)}}
-@keyframes bt-dash{0%,100%{transform:translateX(0) rotate(0)}35%{transform:translateX(9%) rotate(7deg)}55%{transform:translateX(-2%) rotate(-3deg)}}
-@keyframes bt-sway{0%,100%{transform:rotate(-10deg)}50%{transform:rotate(10deg)}}
-@keyframes bt-roll{0%,100%{transform:translate(12%,0)}25%{transform:translate(0,9%)}50%{transform:translate(-12%,0)}75%{transform:translate(0,-9%)}}
-@keyframes bt-hop{0%,55%,100%{transform:translateY(0) scale(1,1)}20%{transform:translateY(-14%) scale(.96,1.05)}40%{transform:translateY(0) scale(1.06,.94)}}
-@keyframes bt-poke{0%{transform:none}55%{transform:translateY(-16%) rotate(360deg)}78%{transform:translateY(0) scale(1.08,.92) rotate(360deg)}100%{transform:rotate(360deg)}}
-@keyframes bt-poke-img{0%,100%{transform:scale(1)}40%{transform:scale(1.14) rotate(-6deg)}}
-/* Idle clip: two .26s blinks (lid to 3%, then a 6% overshoot) at 1.48s and 3.46s. */
-@keyframes bt-blink-idle{0%,29.6%,35%,69.2%,74.6%,100%{transform:scaleY(1)}32.2%,71.8%{transform:scaleY(.03)}33.8%,73.4%{transform:scaleY(1.06)}}
-@keyframes bt-blink{0%,42%,50%,100%{transform:scaleY(1)}46%{transform:scaleY(.03)}48%{transform:scaleY(1.06)}}
-@media (prefers-reduced-motion:reduce){.bt-mark *{animation:none!important;transition:none!important}}
 .bt-badge{position:absolute;right:0;bottom:0;width:12px;height:12px;border-radius:50%;corner-shape:round;display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 1.5px var(--bt-sidebar)}
 .bt-badge-admin{background:color-mix(in srgb,var(--bt-star) 82%,var(--bt-sidebar))}
 .bt-badge-admin svg{width:7px;height:7px}
@@ -24495,8 +24485,7 @@ body:is([data-bt-effects=reduced],[data-bt-effects=off],[data-bt-os=windows]) .b
 body:is([data-bt-effects=reduced],[data-bt-effects=off]) :is(.bt-pill-mem-in,.bt-pill-go,.bt-pill-swap>*,.bt-toast[data-leaving]){filter:none!important}
 body:is([data-bt-effects=reduced],[data-bt-effects=off]) .bt-shimmer{animation:none!important;background:none;color:var(--bt-ink-2)}
 body:is([data-bt-effects=reduced],[data-bt-effects=off]) :is(.bt-mem-skel-block span,.bt-us-skel,.bt-im-qr-blank){animation:none!important;background:var(--bt-hover)}
-body[data-bt-effects=reduced] .bt-mark:not([data-state=done]):not([data-state=alert]):not(.bt-mark-poke) :is(.bt-b,.bt-mark-img),body[data-bt-effects=reduced] .bt-mark :is(.bt-eyes,.bt-eye),body[data-bt-effects=reduced] :is(.bt-badge-alert,.bt-voice-ring,.bt-us-note::before,.bt-im-dot[data-state=connecting],.bt-agent-ava.bt-run,.bt-mic[aria-pressed=true]){animation:none!important}
-body[data-bt-effects=reduced][data-bt-motion=lively] .bt-mark[data-state=alert] :is(.bt-b,.bt-mark-img){animation-iteration-count:1!important}
+body[data-bt-effects=reduced] :is(.bt-badge-alert,.bt-voice-ring,.bt-us-note::before,.bt-im-dot[data-state=connecting],.bt-agent-ava.bt-run,.bt-mic[aria-pressed=true]){animation:none!important}
 body[data-bt-effects=off] [class*="_centerCol"]{transition:none!important}
 body[data-bt-effects=off] :is([class^="bt-"],[class*=" bt-"]):not(.bt-spin):not(.bt-model-spin):not(.bt-mem-spin):not(.bt-loading-spin),body[data-bt-effects=off] :is([class^="bt-"],[class*=" bt-"]) *:not(.bt-spin):not(.bt-model-spin):not(.bt-mem-spin):not(.bt-loading-spin),body[data-bt-effects=off] :is([class^="bt-"],[class*=" bt-"])::before,body[data-bt-effects=off] :is([class^="bt-"],[class*=" bt-"])::after,body[data-bt-effects=off] :is([class^="bt-"],[class*=" bt-"]) *::before,body[data-bt-effects=off] :is([class^="bt-"],[class*=" bt-"]) *::after{animation:none!important;transition:none!important}
 body[data-bt-effects=off] :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-panel,.bt-dialog,.bt-scrim,.bt-menu,.bt-drop,.bt-toast,.bt-avedit,.bt-react-strip,.bt-app,.bt-us):not(.bt-spin):not(.bt-model-spin):not(.bt-mem-spin):not(.bt-loading-spin),body[data-bt-effects=off] :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-panel,.bt-dialog,.bt-scrim,.bt-menu,.bt-drop,.bt-toast,.bt-avedit,.bt-react-strip,.bt-app,.bt-us) *:not(.bt-spin):not(.bt-model-spin):not(.bt-mem-spin):not(.bt-loading-spin),body[data-bt-effects=off] :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-panel,.bt-dialog,.bt-scrim,.bt-menu,.bt-drop,.bt-toast,.bt-avedit,.bt-react-strip,.bt-app,.bt-us)::before,body[data-bt-effects=off] :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-panel,.bt-dialog,.bt-scrim,.bt-menu,.bt-drop,.bt-toast,.bt-avedit,.bt-react-strip,.bt-app,.bt-us)::after,body[data-bt-effects=off] :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-panel,.bt-dialog,.bt-scrim,.bt-menu,.bt-drop,.bt-toast,.bt-avedit,.bt-react-strip,.bt-app,.bt-us) *::before,body[data-bt-effects=off] :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-panel,.bt-dialog,.bt-scrim,.bt-menu,.bt-drop,.bt-toast,.bt-avedit,.bt-react-strip,.bt-app,.bt-us) *::after{animation:none!important;transition:none!important}
@@ -24614,8 +24603,6 @@ body[data-bt-goal="2"] [class*="_scroll"]:has(> [class*="_column"]){padding-top:
 .bt-typing>.bt-mark,.bt-typing>.bt-cluster,.bt-typing>.bt-typing-mark>.bt-mark,.bt-typing>.bt-typing-mark>.bt-cluster{flex-shrink:0}
 .bt-typing .bt-mark{cursor:pointer;transition:filter .16s ease-out}
 .bt-typing .bt-mark:hover{filter:drop-shadow(0 2px 4px rgba(0,0,0,.18))}
-.bt-typing .bt-mark .bt-eyes{transition:scale .28s cubic-bezier(.4,.06,.18,1)}
-.bt-typing .bt-mark:hover .bt-eyes{scale:1.18}
 .bt-typing-text{display:flex;align-items:center;flex:0 1 auto;min-width:0;animation:bt-typing-label .22s ease-out .2s backwards}
 .bt-typing-label{display:inline-flex;align-items:center;gap:6px;min-width:0;animation:bt-typing-label .22s ease-out backwards}
 .bt-typing-label>.bt-shimmer{font-size:14px;line-height:22px;font-weight:400;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -25076,6 +25063,3141 @@ var RETURN_TOKENS = `
 body{--bt-return-fill:rgba(127,127,127,.08);--bt-return-fill-hover:rgba(127,127,127,.14)}
 `;
 
+// src/client/avatar/clips.js
+var TURN = 5;
+function bezier(x1, y1, x2, y2) {
+  const cx = 3 * x1, bx = 3 * (x2 - x1) - cx, ax = 1 - cx - bx;
+  const cy = 3 * y1, by = 3 * (y2 - y1) - cy, ay = 1 - cy - by;
+  const sampleX = (t2) => ((ax * t2 + bx) * t2 + cx) * t2;
+  const sampleY = (t2) => ((ay * t2 + by) * t2 + cy) * t2;
+  const slopeX = (t2) => (3 * ax * t2 + 2 * bx) * t2 + cx;
+  return (x) => {
+    let t2 = x;
+    for (let i = 0; i < 6; i += 1) {
+      const dx = sampleX(t2) - x;
+      const slope = slopeX(t2);
+      if (Math.abs(dx) < 1e-5 || Math.abs(slope) < 1e-6) break;
+      t2 -= dx / slope;
+    }
+    return sampleY(Math.max(0, Math.min(1, t2)));
+  };
+}
+var EASES = {
+  linear: (t2) => t2,
+  in: bezier(0.5, 0, 0.9, 0.5),
+  out: bezier(0.15, 0.6, 0.4, 1),
+  inOut: bezier(0.45, 0, 0.25, 1),
+  // Fast start that lands soft: eyes snapping to a new spot.
+  snap: bezier(0.1, 0.8, 0.2, 1),
+  // Overshoots and settles back.
+  back: bezier(0.3, 1.5, 0.55, 1)
+};
+function sampleTrack(keys, t2) {
+  if (t2 <= keys[0][0]) return keys[0][1];
+  for (let i = 1; i < keys.length; i += 1) {
+    const [t1, v1, ease2] = keys[i];
+    if (t2 <= t1) {
+      const [t0, v0] = keys[i - 1];
+      const span = t1 - t0;
+      const k = span <= 0 ? 1 : (EASES[ease2] ?? EASES.inOut)((t2 - t0) / span);
+      return v0 + (v1 - v0) * k;
+    }
+  }
+  return keys[keys.length - 1][1];
+}
+var CHANNELS = ["x", "y", "yaw", "pitch", "roll", "sq", "scale", "gx", "gy", "lid", "pupil"];
+var MIRRORED = /* @__PURE__ */ new Set(["x", "yaw", "roll", "gx"]);
+function clip(dur, tracks, extra = {}) {
+  return { dur, tracks, ...extra };
+}
+var jitter = (rng, value, spread = 0.15) => value * (1 + (rng() * 2 - 1) * spread);
+var side = (rng) => rng() < 0.5 ? -1 : 1;
+var mirror = (made, s) => {
+  if (s === 1) return made;
+  const tracks = {};
+  for (const [name, keys] of Object.entries(made.tracks)) tracks[name] = MIRRORED.has(name) ? keys.map(([t2, v, e]) => [t2, -v, e]) : keys;
+  return { ...made, tracks };
+};
+var at = (keys, k) => keys.map(([t2, v, e]) => [t2 * k, v, e]);
+var HOP = 0.84;
+function hopTracks(h92, pace = 1) {
+  return {
+    y: at([[0, 0], [0.1, 0.8, "out"], [0.3, -h92, "out"], [0.36, -h92, "linear"], [0.54, 0, "in"], [0.84, 0, "linear"]], pace),
+    sq: at([[0, 0], [0.1, 0.09, "out"], [0.2, -0.09, "out"], [0.36, 0, "inOut"], [0.54, 0, "linear"], [0.6, 0.12, "out"], [0.72, -0.035, "inOut"], [0.84, 0, "inOut"]], pace),
+    pitch: at([[0, 0], [0.1, 3], [0.3, -4], [0.56, 2.5], [0.76, 0]], pace)
+  };
+}
+var CLIPS = {
+  // ---- Idle: small signs of life between states.
+  glance(rng) {
+    const s = side(rng);
+    const hold = 0.7 + rng() * 0.9;
+    const gx = 0.55 + rng() * 0.3;
+    const gy = rng() * 0.6 - 0.32;
+    return mirror(clip(hold + 0.62, {
+      gx: [[0, 0], [0.1, gx, "snap"], [0.1 + hold, gx, "linear"], [0.28 + hold, 0, "inOut"]],
+      gy: [[0, 0], [0.1, gy, "snap"], [0.1 + hold, gy, "linear"], [0.28 + hold, 0, "inOut"]],
+      yaw: [[0, 0], [0.12, 0, "linear"], [0.5, 2.5, "inOut"], [0.1 + hold, 2.5, "linear"], [0.62 + hold, 0, "inOut"]],
+      roll: [[0, 0], [0.12, 0, "linear"], [0.5, -1.5, "inOut"], [0.1 + hold, -1.5, "linear"], [0.62 + hold, 0, "inOut"]]
+    }), s);
+  },
+  lookAround(rng) {
+    const k = jitter(rng, 1, 0.12);
+    return mirror(clip(2.3 * k, {
+      gx: at([[0, 0], [0.1, 0.8, "snap"], [0.9, 0.8, "linear"], [1.05, -0.7, "snap"], [1.8, -0.7, "linear"], [2.05, 0, "inOut"], [2.3, 0]], k),
+      yaw: at([[0, 0], [0.5, 4, "inOut"], [0.95, 4, "linear"], [1.55, -3.5, "inOut"], [1.85, -3.5, "linear"], [2.3, 0, "inOut"]], k),
+      x: at([[0, 0], [0.5, 1.4, "inOut"], [0.95, 1.4, "linear"], [1.55, -1.2, "inOut"], [1.85, -1.2, "linear"], [2.3, 0, "inOut"]], k),
+      roll: at([[0, 0], [0.5, -2.5, "inOut"], [0.95, -2.5, "linear"], [1.55, 2, "inOut"], [1.85, 2, "linear"], [2.3, 0, "inOut"]], k),
+      pitch: at([[0, 0], [0.5, -2], [1.55, -1], [2.3, 0]], k)
+    }, { blink: [0.98 * k] }), side(rng));
+  },
+  // Looks up at you for a moment, as if checking in: a glance away, then straight
+  // out of the screen, a little taller.
+  checkIn(rng) {
+    const hold = 0.9 + rng() * 0.8;
+    return clip(hold + 1, {
+      gx: [[0, 0], [0.12, -0.5, "snap"], [0.45, 0, "inOut"], [hold + 1, 0]],
+      gy: [[0, 0], [0.45, -0.12, "inOut"], [0.5 + hold, -0.12, "linear"], [hold + 1, 0, "inOut"]],
+      y: [[0, 0], [0.5, -1.6, "back"], [0.5 + hold, -1.6, "linear"], [hold + 1, 0, "inOut"]],
+      scale: [[0, 0], [0.5, 0.03, "back"], [0.5 + hold, 0.03, "linear"], [hold + 1, 0, "inOut"]],
+      pitch: [[0, 0], [0.5, -5, "inOut"], [0.5 + hold, -5, "linear"], [hold + 1, 0, "inOut"]]
+    }, { blink: [0.22], face: [[0.55, "content"], [hold + 0.45, null]] });
+  },
+  stretch() {
+    return clip(1.4, {
+      sq: [[0, 0], [0.18, 0.07, "out"], [0.55, -0.12, "out"], [0.95, -0.12, "linear"], [1.15, 0.05, "inOut"], [1.4, 0, "inOut"]],
+      pitch: [[0, 0], [0.55, -10], [0.95, -10, "linear"], [1.25, 0]],
+      y: [[0, 0], [0.18, 0.8, "out"], [0.55, -1], [1.2, 0]],
+      lid: [[0, 0], [0.5, 0.75], [0.95, 0.75, "linear"], [1.15, 0]]
+    });
+  },
+  hop(rng) {
+    return clip(0.84, hopTracks(jitter(rng, 11)), { face: [[0.12, "wide"], [0.7, null]] });
+  },
+  sway(rng) {
+    return mirror(clip(1.8, {
+      roll: [[0, 0], [0.4, 6], [0.95, -4], [1.4, 1.5], [1.8, 0]],
+      x: [[0, 0], [0.4, 1.5], [0.95, -1], [1.8, 0]],
+      gx: [[0, 0], [0.4, -0.2], [0.95, 0.2], [1.8, 0]]
+    }), side(rng));
+  },
+  breathe() {
+    return clip(2.6, {
+      scale: [[0, 0], [1.2, 0.022], [2.6, 0]],
+      y: [[0, 0], [1.2, -0.4], [2.6, 0]]
+    });
+  },
+  // A happy little turn all the way around.
+  twirl() {
+    return clip(1.05, {
+      ...hopTracks(9),
+      yaw: [[0, 0], [0.12, -10, "out"], [0.78, 360, "inOut"], [1.05, 360, "linear"]]
+    }, { commit: true, face: [[0.16, "happy"], [0.95, null]] });
+  },
+  peek(rng) {
+    return mirror(clip(1.9, {
+      x: [[0, 0], [0.4, 4], [1.4, 4, "linear"], [1.9, 0]],
+      roll: [[0, 0], [0.4, -5], [1.4, -5, "linear"], [1.9, 0]],
+      gx: [[0, 0], [0.15, 0.85, "snap"], [1.4, 0.85, "linear"], [1.7, 0]],
+      pitch: [[0, 0], [0.4, 3], [1.4, 3, "linear"], [1.9, 0]]
+    }), side(rng));
+  },
+  // ---- Thinking.
+  ponder(rng) {
+    return mirror(clip(2.2, {
+      roll: [[0, 0], [1.1, 3], [2.2, 0]],
+      pitch: [[0, 0], [1.1, -2], [2.2, 0]],
+      gx: [[0, 0], [1.1, 0.2], [2.2, 0]]
+    }), side(rng));
+  },
+  // Tips the head the other way and looks up to the other side.
+  ponderSwap() {
+    return clip(2.4, {
+      roll: [[0, 0], [0.6, -14], [1.8, -14, "linear"], [2.4, 0]],
+      gx: [[0, 0], [0.16, -0.95, "snap"], [1.8, -0.95, "linear"], [2.15, 0]],
+      yaw: [[0, 0], [0.6, -3], [1.8, -3, "linear"], [2.4, 0]]
+    }, { blink: [0.3] });
+  },
+  hmm() {
+    return clip(0.7, {
+      pitch: [[0, 0], [0.14, 5, "out"], [0.32, 0], [0.46, 4, "out"], [0.66, 0]],
+      y: [[0, 0], [0.14, 0.6], [0.32, 0], [0.46, 0.5], [0.66, 0]]
+    });
+  },
+  // ---- Searching.
+  scan(rng) {
+    return mirror(clip(1.4, {
+      gx: [[0, 0], [0.08, 0.9, "snap"], [0.58, 0.9, "linear"], [0.66, -0.9, "snap"], [1.05, -0.9, "linear"], [1.25, 0]],
+      yaw: [[0, 0], [0.35, 4], [0.95, -4], [1.4, 0]],
+      x: [[0, 0], [0.35, 1.2], [0.95, -1.2], [1.4, 0]],
+      pitch: [[0, 0], [0.35, 2], [0.95, 2], [1.4, 0]]
+    }, { blink: [0.6] }), side(rng));
+  },
+  peer() {
+    return clip(1.3, {
+      pitch: [[0, 0], [0.3, 8, "out"], [0.9, 8, "linear"], [1.3, 0]],
+      scale: [[0, 0], [0.3, 0.045, "out"], [0.9, 0.045, "linear"], [1.3, 0]],
+      lid: [[0, 0], [0.3, 0.35], [0.9, 0.35, "linear"], [1.2, 0]],
+      y: [[0, 0], [0.3, 1], [1.3, 0]]
+    });
+  },
+  sniff() {
+    return clip(0.62, {
+      y: [[0, 0], [0.1, 1.2, "out"], [0.22, 0], [0.34, 1.2, "out"], [0.48, 0], [0.62, 0]],
+      pitch: [[0, 0], [0.1, 4, "out"], [0.22, 0], [0.34, 4, "out"], [0.48, 0], [0.62, 0]]
+    });
+  },
+  // ---- Working: steady, small, busy.
+  type(rng) {
+    const s = side(rng);
+    return clip(0.82, {
+      pitch: [[0, 0], [0.09, 3.5, "out"], [0.2, 0], [0.29, 3, "out"], [0.4, 0], [0.49, 3.5, "out"], [0.6, 0], [0.69, 2.5, "out"], [0.82, 0]],
+      y: [[0, 0], [0.09, 1, "out"], [0.2, 0], [0.29, 0.9, "out"], [0.4, 0], [0.49, 1, "out"], [0.6, 0], [0.69, 0.7, "out"], [0.82, 0]],
+      sq: [[0, 0], [0.09, 0.02], [0.2, 0], [0.49, 0.02], [0.6, 0], [0.82, 0]],
+      gx: [[0, 0], [0.12, -0.3 * s], [0.7, 0.3 * s, "linear"], [0.82, 0]]
+    });
+  },
+  nodWork() {
+    return clip(0.6, {
+      pitch: [[0, 0], [0.22, 8, "out"], [0.42, -2], [0.6, 0]],
+      y: [[0, 0], [0.22, 1.2, "out"], [0.6, 0]]
+    });
+  },
+  read(rng) {
+    return mirror(clip(1.8, {
+      gx: [[0, 0], [0.12, -0.5, "snap"], [1.5, 0.5, "linear"], [1.8, 0]],
+      roll: [[0, 0], [0.9, 2], [1.8, 0]],
+      yaw: [[0, 0], [0.4, -2], [1.5, 2.5], [1.8, 0]]
+    }, { blink: [1.55] }), side(rng));
+  },
+  bob() {
+    return clip(0.55, hopTracks(3.5, 0.55 / HOP));
+  },
+  // ---- Sending a message on: wind up, dash toward the chat, come back.
+  dash() {
+    return clip(1.1, {
+      x: [[0, 0], [0.22, -3.5], [0.36, 8, "snap"], [0.62, 8, "linear"], [0.9, -1], [1.1, 0]],
+      roll: [[0, 0], [0.22, -7], [0.36, 9, "snap"], [0.62, 6], [0.9, -2], [1.1, 0]],
+      sq: [[0, 0], [0.22, 0.06], [0.34, -0.1, "out"], [0.5, 0], [1.1, 0]],
+      yaw: [[0, 0], [0.22, -3], [0.36, 4, "snap"], [0.9, 0], [1.1, 0]],
+      gx: [[0, 0], [0.18, 0.9, "snap"], [0.8, 0.9, "linear"], [1, 0]]
+    });
+  },
+  // ---- Relaying in a group: turns from one side to the other, passing words along.
+  relay(rng) {
+    return mirror(clip(2, {
+      yaw: [[0, 0], [0.4, -4.5], [0.75, -4.5, "linear"], [1.2, 4], [1.6, 4, "linear"], [2, 0]],
+      x: [[0, 0], [0.4, -1.8], [0.75, -1.8, "linear"], [1.2, 1.6], [1.6, 1.6, "linear"], [2, 0]],
+      gx: [[0, 0], [0.1, -0.85, "snap"], [0.75, -0.85, "linear"], [0.85, 0.85, "snap"], [1.6, 0.85, "linear"], [1.9, 0]],
+      roll: [[0, 0], [0.4, 3], [1.2, -3], [2, 0]]
+    }, { blink: [0.8] }), side(rng));
+  },
+  // ---- Waiting on other Bots.
+  tap() {
+    return clip(0.96, {
+      y: [[0, 0], [0.1, -1.8, "out"], [0.2, 0, "in"], [0.42, -1.8, "out"], [0.52, 0, "in"], [0.74, -1.8, "out"], [0.84, 0, "in"], [0.96, 0]],
+      sq: [[0, 0], [0.2, 0.03, "out"], [0.3, 0], [0.52, 0.03, "out"], [0.62, 0], [0.84, 0.03, "out"], [0.96, 0]]
+    });
+  },
+  patient(rng) {
+    return mirror(clip(2, {
+      yaw: [[0, 0], [0.6, 3], [1.4, 3, "linear"], [2, 0]],
+      gx: [[0, 0], [0.12, 0.6, "snap"], [1.5, 0.6, "linear"], [1.9, 0]],
+      roll: [[0, 0], [0.6, 2], [1.4, 2, "linear"], [2, 0]]
+    }), side(rng));
+  },
+  sigh() {
+    return clip(1.5, {
+      sq: [[0, 0], [0.5, -0.04], [1.1, 0.05], [1.5, 0]],
+      lid: [[0, 0], [0.9, 0.4], [1.4, 0]],
+      pitch: [[0, 0], [0.5, -2], [1.1, 4], [1.5, 0]]
+    });
+  },
+  // ---- Needs you: two hops to catch your eye, then a small nudge now and then.
+  attention() {
+    return clip(0.96, {
+      y: [[0, 0], [0.08, 0.6, "out"], [0.24, -10, "out"], [0.4, 0, "in"], [0.46, 0.4, "out"], [0.6, -7, "out"], [0.76, 0, "in"], [0.96, 0]],
+      sq: [[0, 0], [0.08, 0.07, "out"], [0.16, -0.08, "out"], [0.3, 0], [0.4, 0.1, "out"], [0.5, -0.06, "out"], [0.64, 0], [0.76, 0.08, "out"], [0.86, -0.02], [0.96, 0]],
+      pupil: [[0, 0], [0.24, 0.08], [0.6, 0.06], [0.96, 0]]
+    });
+  },
+  nudge() {
+    return clip(0.56, {
+      y: [[0, 0], [0.06, 0.4, "out"], [0.18, -4.5, "out"], [0.34, 0, "in"], [0.56, 0]],
+      sq: [[0, 0], [0.06, 0.05, "out"], [0.14, -0.05, "out"], [0.28, 0], [0.36, 0.06, "out"], [0.46, -0.015], [0.56, 0]]
+    });
+  },
+  // ---- Done: a small celebration, not the same one every time.
+  celebrate() {
+    return clip(1.15, {
+      ...hopTracks(14),
+      yaw: [[0, 0], [0.1, -12, "out"], [0.62, 360, "inOut"], [1.15, 360, "linear"]]
+    }, { commit: true, face: [[0.14, "happy"]], accent: "sparkle" });
+  },
+  nodHappy() {
+    return clip(0.82, {
+      pitch: [[0, 0], [0.18, 9, "out"], [0.38, -2], [0.54, 6, "out"], [0.78, 0]],
+      y: [[0, 0], [0.18, 1.4, "out"], [0.38, 0], [0.54, 1, "out"], [0.78, 0]]
+    }, { face: [[0.06, "happy"]], accent: "sparkle" });
+  },
+  hopHappy(rng) {
+    return clip(0.84, { ...hopTracks(jitter(rng, 10)), pupil: [[0, 0], [0.3, 0.06], [0.84, 0]] }, { face: [[0.08, "happy"]], accent: "sparkle" });
+  },
+  // ---- Asleep: now and then one eye opens a crack, looks to one side, then at you,
+  // and shuts quickly, as if it was never awake.
+  sneak(rng) {
+    const s = side(rng);
+    const hold = 0.45 + rng() * 0.5;
+    const back = 0.95 + hold;
+    return clip(back + 1, {
+      gx: [[0, 0], [0.32, 0, "linear"], [0.44, 0.7 * s, "snap"], [0.44 + hold, 0.7 * s, "linear"], [0.58 + hold, 0, "snap"], [back + 0.4, 0, "linear"], [back + 0.75, 0]],
+      gy: [[0, 0], [0.32, 0, "linear"], [0.44, 0.15, "snap"], [0.44 + hold, 0.15, "linear"], [0.58 + hold, 0, "snap"], [back + 1, 0]],
+      pitch: [[0, 0], [0.4, -2.5], [back + 0.3, -2.5, "linear"], [back + 1, 0]],
+      y: [[0, 0], [0.4, -0.6], [back + 0.3, -0.6, "linear"], [back + 1, 0]]
+    }, { face: [[0.12, "peek"], [back + 0.35, null]] });
+  },
+  // ---- Waking from a doze.
+  wake() {
+    return clip(1.2, {
+      sq: [[0, 0], [0.2, 0.05], [0.5, -0.1, "out"], [0.8, 0.03], [1.2, 0]],
+      pitch: [[0, 0], [0.5, -6], [1.2, 0]],
+      y: [[0, 0], [0.5, -1.5], [1.2, 0]]
+    }, { face: [[0, "surprised"], [0.4, null]], blink: [0.5] });
+  },
+  // ---- Answers to the pointer.
+  // A poke: one bounce, then a spin, then two, then it gets dizzy.
+  pokeBounce(rng) {
+    return clip(0.7, { ...hopTracks(jitter(rng, 8, 0.1), 0.7 / HOP), pupil: [[0, 0], [0.12, 0.1, "out"], [0.5, 0], [0.7, 0]] }, { face: [[0.06, "happy"], [0.62, null]] });
+  },
+  pokeSpin() {
+    return clip(0.9, {
+      ...hopTracks(8),
+      yaw: [[0, 0], [0.08, -10, "out"], [0.62, 360, "inOut"], [0.9, 360, "linear"]]
+    }, { commit: true, face: [[0.1, "happy"], [0.82, null]], accent: "confetti" });
+  },
+  pokeSpin2() {
+    return clip(1.25, {
+      ...hopTracks(12),
+      yaw: [[0, 0], [0.1, -14, "out"], [0.95, 720, "inOut"], [1.25, 720, "linear"]]
+    }, { commit: true, face: [[0.1, "happy"], [1.15, null]], accent: "confetti" });
+  },
+  dizzy() {
+    return clip(1.9, {
+      roll: [[0, 0], [0.2, 12], [0.45, -10], [0.7, 8], [0.95, -6], [1.2, 4], [1.45, -2], [1.7, 0]],
+      yaw: [[0, 0], [0.3, -5], [0.6, 4], [0.9, -3], [1.2, 2], [1.6, 0]],
+      x: [[0, 0], [0.25, 2], [0.55, -2], [0.85, 1.5], [1.15, -1], [1.5, 0]],
+      y: [[0, 0], [0.4, 1], [1.9, 0]]
+    }, { commit: true, face: [[0, "dizzy"], [1.65, null]], blink: [1.66] });
+  },
+  // Petting: leans into the pointer and purrs.
+  nuzzle(rng) {
+    return mirror(clip(0.85, {
+      roll: [[0, 0], [0.42, 4], [0.85, 0]],
+      sq: [[0, 0], [0.42, 0.025], [0.85, 0]],
+      y: [[0, 0], [0.42, 0.4], [0.85, 0]]
+    }), side(rng));
+  },
+  // A new Bot arrives.
+  appear() {
+    return clip(0.8, {
+      scale: [[0, -0.55], [0.28, 0.08, "out"], [0.46, -0.025], [0.62, 0], [0.8, 0]],
+      y: [[0, 5], [0.28, -3, "out"], [0.5, 0], [0.8, 0]],
+      sq: [[0, 0], [0.28, -0.06], [0.46, 0.05], [0.62, 0], [0.8, 0]]
+    }, { commit: true, face: [[0.32, "happy"], [0.74, null]] });
+  }
+};
+var blinkClip = (double = false) => clip(double ? 0.5 : 0.26, {
+  lid: double ? [[0, 0], [0.065, 1, "in"], [0.1, 1, "linear"], [0.2, 0, "out"], [0.27, 0, "linear"], [0.33, 1, "in"], [0.36, 1, "linear"], [0.5, 0, "out"]] : [[0, 0], [0.07, 1, "in"], [0.11, 1, "linear"], [0.26, 0, "out"]],
+  pupil: double ? [[0, 0], [0.2, 0.03], [0.27, 0], [0.45, 0.03], [0.5, 0]] : [[0, 0], [0.2, 0.03], [0.26, 0]]
+});
+
+// src/client/avatar/face.js
+var CAPSULE = { kind: "capsule", w: 1, h: 1, dx: 0, dy: 0, top: 0, topTilt: 0, bottom: 0, bottomTilt: 0, bottomCurve: 0 };
+var eye = (shape) => ({ ...CAPSULE, ...shape });
+var both = (shape) => [eye(shape), eye(shape)];
+var FACES = {
+  neutral: both({}),
+  // Attention: a little bigger, as when someone looks up at you.
+  wide: both({ w: 1.1, h: 1.12 }),
+  // Surprise pops wider still; the engine plays it short.
+  surprised: both({ w: 1.2, h: 1.2 }),
+  // Calm concentration: the upper lids come down to a level line.
+  focus: both({ top: 0.3, h: 0.98 }),
+  // Pondering: lower lids raised, the far eye a touch narrower.
+  think: [eye({ bottom: 0.2, bottomTilt: 8, top: 0.06 }), eye({ bottom: 0.26, bottomTilt: 8, top: 0.16 })],
+  // Inspecting something: one eye opens, the other narrows.
+  curious: [eye({ w: 1.08, h: 1.1 }), eye({ w: 0.92, h: 0.86, top: 0.18, topTilt: -8 })],
+  // At ease: softer, shorter eyes that sit a little low, the lower lids bowed up.
+  content: both({ w: 1.08, h: 0.7, dy: 0.08, bottom: 0.08, bottomCurve: 0.06 }),
+  // Drowsy: heavy lids that droop to the outside.
+  sleepy: both({ top: 0.58, topTilt: 10 }),
+  // Sorry or unsure: the inner corners rise.
+  worried: both({ top: 0.24, topTilt: 18, h: 0.95 }),
+  // Set on a task: the inner corners drop.
+  determined: both({ top: 0.28, topTilt: -16 }),
+  // Closed and happy: upturned arcs.
+  happy: [{ kind: "stroke", curve: "arch" }, { kind: "stroke", curve: "arch" }],
+  // Closed and at rest: gentle downturned arcs.
+  asleep: [{ kind: "stroke", curve: "rest" }, { kind: "stroke", curve: "rest" }],
+  wink: [{ kind: "stroke", curve: "arch" }, eye({ w: 1.04, h: 1.04 })],
+  // Pretending to sleep: one eye open a crack.
+  peek: [{ kind: "stroke", curve: "rest" }, eye({ w: 0.96, top: 0.46, topTilt: 4, bottom: 0.06, bottomCurve: 0.03 })],
+  dizzy: [{ kind: "stroke", curve: "cross" }, { kind: "stroke", curve: "cross" }]
+};
+var FACE_NAMES = Object.keys(FACES);
+var lerp = (a, b2, t2) => a + (b2 - a) * t2;
+function mixEye(a, b2, t2) {
+  if (t2 <= 0) return a;
+  if (t2 >= 1) return b2;
+  if (a.kind !== "capsule" || b2.kind !== "capsule") return t2 < 0.5 ? a : b2;
+  const out = { kind: "capsule" };
+  for (const key of Object.keys(CAPSULE)) if (key !== "kind") out[key] = lerp(a[key], b2[key], t2);
+  return out;
+}
+var blendable = (a, b2) => a.every((shape, index) => shape.kind === "capsule" && b2[index].kind === "capsule");
+var CAP_POINTS = 16;
+var SIDE_POINTS = 8;
+function capsule(W, H) {
+  const r = W / 2;
+  const a = Math.max(0, H / 2 - r);
+  const ry2 = Math.min(r, H / 2);
+  const points = [];
+  for (let i = 0; i <= CAP_POINTS; i += 1) {
+    const angle = Math.PI + Math.PI * i / CAP_POINTS;
+    points.push(Math.cos(angle) * r, -a + Math.sin(angle) * ry2);
+  }
+  for (let i = 1; i < SIDE_POINTS; i += 1) points.push(r, -a + 2 * a * i / SIDE_POINTS);
+  for (let i = 0; i <= CAP_POINTS; i += 1) {
+    const angle = Math.PI * i / CAP_POINTS;
+    points.push(Math.cos(angle) * r, a + Math.sin(angle) * ry2);
+  }
+  for (let i = 1; i < SIDE_POINTS; i += 1) points.push(-r, a - 2 * a * i / SIDE_POINTS);
+  return points;
+}
+var LID_ROUND = 0.6;
+var EYE_POINTS = 56;
+function liddedEye(w, h92, top, bottom) {
+  const r = w / 2;
+  const a = Math.max(0, h92 / 2 - r);
+  const ry2 = Math.min(r, h92 / 2);
+  const deepest = (lid) => [-r, 0, r].map((x) => lid.at(x));
+  const kTop = top ? Math.min(LID_ROUND * w, Math.max(0, Math.max(...deepest(top)) + h92 / 2)) : 0;
+  const kBottom = bottom ? Math.min(LID_ROUND * w, Math.max(0, h92 / 2 - Math.min(...deepest(bottom)))) : 0;
+  const body = (x, y) => a > 0 ? Math.hypot(x, Math.max(Math.abs(y) - a, 0)) - r : (Math.hypot(x / r, y / ry2) - 1) * ry2;
+  const inside = (x, y) => {
+    let d = body(x, y);
+    if (top) d = smoothMax(d, top.distance(x, y, 1), kTop);
+    if (bottom) d = smoothMax(d, bottom.distance(x, y, -1), kBottom);
+    return d;
+  };
+  const upper = top ? Math.max(-h92 / 2, top.at(0)) : -h92 / 2;
+  const lower = bottom ? Math.min(h92 / 2, bottom.at(0)) : h92 / 2;
+  const cy = (upper + lower) / 2;
+  const reach = Math.hypot(w, h92);
+  const points = [];
+  for (let i = 0; i < EYE_POINTS; i += 1) {
+    const angle = Math.PI + 2 * Math.PI * i / EYE_POINTS;
+    const dx = Math.cos(angle);
+    const dy = Math.sin(angle);
+    const t2 = edgeAlong((s) => inside(dx * s, cy + dy * s), reach);
+    points.push(dx * t2, cy + dy * t2);
+  }
+  return points;
+}
+function edgeAlong(f, reach) {
+  let lo = 0, hi = reach;
+  let flo = f(lo), fhi = f(hi);
+  if (flo >= 0) return 0;
+  let t2 = hi;
+  let last = 0;
+  for (let i = 0; i < 24; i += 1) {
+    t2 = (lo * fhi - hi * flo) / (fhi - flo);
+    const ft = f(t2);
+    if (Math.abs(ft) < 1e-4) break;
+    if (ft < 0) {
+      lo = t2;
+      flo = ft;
+      if (last < 0) fhi /= 2;
+      last = -1;
+    } else {
+      hi = t2;
+      fhi = ft;
+      if (last > 0) flo /= 2;
+      last = 1;
+    }
+  }
+  return t2;
+}
+function lidOf(y0, slope, bow, width) {
+  const at2 = (x) => {
+    const k = 2 * x / width;
+    return y0 + slope * x - bow * Math.max(0, 1 - k * k);
+  };
+  const tilt = (x) => {
+    const k = 2 * x / width;
+    return slope + (Math.abs(k) < 1 ? 8 * bow * x / (width * width) : 0);
+  };
+  return { at: at2, distance: (x, y, side2) => side2 * (at2(x) - y) / Math.hypot(1, tilt(x)) };
+}
+function smoothMax(a, b2, k) {
+  if (k <= 0) return Math.max(a, b2);
+  const h92 = Math.max(k - Math.abs(a - b2), 0) / k;
+  return Math.max(a, b2) + h92 * h92 * k / 4;
+}
+function stroke(centerline, width, out) {
+  const n = centerline.length / 2;
+  const left = [];
+  const right = [];
+  const half = width / 2;
+  for (let i = 0; i < n; i += 1) {
+    const i0 = Math.max(0, i - 1);
+    const i1 = Math.min(n - 1, i + 1);
+    let tx = centerline[i1 * 2] - centerline[i0 * 2];
+    let ty = centerline[i1 * 2 + 1] - centerline[i0 * 2 + 1];
+    const l = Math.hypot(tx, ty) || 1;
+    tx /= l;
+    ty /= l;
+    const x = centerline[i * 2];
+    const y = centerline[i * 2 + 1];
+    left.push(x - ty * half, y + tx * half);
+    right.push(x + ty * half, y - tx * half);
+  }
+  const points = [...left];
+  const cap = (cx, cy, from) => {
+    for (let k = 1; k < 8; k += 1) {
+      const angle = from - Math.PI * k / 8;
+      points.push(cx + Math.cos(angle) * half, cy + Math.sin(angle) * half);
+    }
+  };
+  const ex = centerline[(n - 1) * 2], ey = centerline[(n - 1) * 2 + 1];
+  cap(ex, ey, Math.atan2(left[left.length - 1] - ey, left[left.length - 2] - ex));
+  for (let i = n - 1; i >= 0; i -= 1) points.push(right[i * 2], right[i * 2 + 1]);
+  const sx = centerline[0], sy = centerline[1];
+  cap(sx, sy, Math.atan2(right[1] - sy, right[0] - sx));
+  out.push(points);
+}
+function quadratic(x0, y0, cx, cy, x1, y1, steps = 10) {
+  const points = [];
+  for (let i = 0; i <= steps; i += 1) {
+    const t2 = i / steps;
+    const m = 1 - t2;
+    points.push(m * m * x0 + 2 * m * t2 * cx + t2 * t2 * x1, m * m * y0 + 2 * m * t2 * cy + t2 * t2 * y1);
+  }
+  return points;
+}
+function eyePolygons(shape, W, H, side2, closed = 0) {
+  const out = [];
+  if (shape.kind === "capsule") {
+    const w = W * shape.w;
+    const h92 = H * shape.h;
+    const inner = -side2;
+    const top = shape.top > 0 ? lidOf(-h92 / 2 + shape.top * h92, Math.tan(shape.topTilt * Math.PI / 180) * -inner, 0, w) : null;
+    const bottom = shape.bottom > 0 ? lidOf(h92 / 2 - shape.bottom * h92, Math.tan(shape.bottomTilt * Math.PI / 180) * -inner, shape.bottomCurve * h92, w) : null;
+    const points = top || bottom ? liddedEye(w, h92, top, bottom) : capsule(w, h92);
+    for (let i = 0; i < points.length; i += 2) {
+      points[i] += shape.dx * W;
+      points[i + 1] += shape.dy * H;
+    }
+    out.push(points);
+  } else if (shape.curve === "arch") {
+    stroke(quadratic(-0.6 * W, 0.1 * H, 0, -0.3 * H, 0.6 * W, 0.1 * H, 14), 0.48 * W, out);
+  } else if (shape.curve === "rest") {
+    stroke(quadratic(-0.58 * W, 0.02 * H, 0, 0.26 * H, 0.58 * W, 0.02 * H), 0.38 * W, out);
+  } else if (shape.curve === "cross") {
+    const r = 0.62 * W;
+    stroke([-r, -r, r, r], 0.36 * W, out);
+    stroke([-r, r, r, -r], 0.36 * W, out);
+  }
+  if (closed > 0) {
+    let top = Infinity;
+    let bottom = -Infinity;
+    for (const points of out) for (let i = 1; i < points.length; i += 2) {
+      top = Math.min(top, points[i]);
+      bottom = Math.max(bottom, points[i]);
+    }
+    const height = bottom - top;
+    const pivot = top + height * 0.62;
+    const slit = Math.min(1, 0.2 * W / Math.max(height, 1e-6));
+    const k = 1 - Math.min(1, closed) * (1 - slit);
+    for (const points of out) for (let i = 1; i < points.length; i += 2) points[i] = pivot + (points[i] - pivot) * k;
+  }
+  return out;
+}
+
+// src/client/avatar/states.js
+var STATES = {
+  idle: {
+    face: "neutral",
+    pose: {},
+    idle: { bag: { glance: 4, lookAround: 2, checkIn: 2, sway: 2, breathe: 2, stretch: 1, hop: 1, peek: 1, twirl: 0.5 }, gap: [3.5, 9] },
+    blink: [2.4, 6.4]
+  },
+  thinking: {
+    face: "think",
+    pose: { pitch: -7, roll: 7, gx: 0.3, gy: -0.65 },
+    loop: { bag: { ponder: 3, ponderSwap: 1, hmm: 1.5 }, gap: [0.3, 1.4] },
+    compact: { bag: { ponder: 1, hmm: 1 }, gap: [0.6, 2] },
+    blink: [3, 7],
+    accent: "dots"
+  },
+  searching: {
+    face: "curious",
+    pose: { pitch: 4 },
+    loop: { bag: { scan: 3, peer: 1, sniff: 1 }, gap: [0.1, 0.6] },
+    compact: { bag: { scan: 2, sniff: 1 }, gap: [0.3, 1] },
+    blink: [2.5, 5]
+  },
+  working: {
+    face: "focus",
+    pose: { pitch: 6, gy: 0.35 },
+    loop: { bag: { type: 4, read: 2, nodWork: 1, bob: 1 }, gap: [0, 0.35] },
+    compact: { bag: { type: 2, bob: 1 }, gap: [0.1, 0.6] },
+    blink: [2.5, 6]
+  },
+  sending: {
+    face: "determined",
+    pose: {},
+    enter: { dash: 1 },
+    loop: { bag: { dash: 1 }, gap: [0.4, 1] },
+    blink: [3, 6]
+  },
+  relaying: {
+    face: "neutral",
+    pose: {},
+    loop: { bag: { relay: 1 }, gap: [0.2, 0.8] },
+    blink: [3, 6]
+  },
+  waiting: {
+    face: "neutral",
+    pose: { roll: -2 },
+    loop: { bag: { patient: 3, tap: 2, sigh: 1, checkIn: 1 }, gap: [1.6, 4] },
+    compact: { bag: { tap: 1, patient: 1 }, gap: [2, 5] },
+    blink: [2, 5]
+  },
+  // Needs your answer: sits up, eyes wide and on you, and catches your eye.
+  alert: {
+    face: "wide",
+    pose: { pitch: -5, y: -1, scale: 0.03 },
+    enter: { attention: 1 },
+    lively: { bag: { nudge: 1 }, gap: [3.5, 7] },
+    blink: [2, 4.5]
+  },
+  done: {
+    face: "happy",
+    pose: {},
+    enter: { celebrate: 1, nodHappy: 2, hopHappy: 2 },
+    compactEnter: { nodHappy: 1, hopHappy: 1 },
+    next: "idle",
+    hold: 1.6,
+    blink: false
+  },
+  sleeping: {
+    face: "asleep",
+    pose: { pitch: 9, roll: -6, y: 1.5, sq: 0.03 },
+    loop: { bag: { breathe: 1 }, gap: [0.3, 0.8] },
+    blink: false,
+    accent: "z",
+    settle: 0.35
+  }
+};
+var STATE_ALIASES = { orbit: "relaying" };
+var stateName = (name) => Object.hasOwn(STATES, name) ? name : STATE_ALIASES[name] ?? "idle";
+
+// src/client/avatar/engine.js
+var SPRINGS = {
+  x: [13, 0.7],
+  y: [13, 0.7],
+  yaw: [9, 0.78],
+  pitch: [11, 0.75],
+  roll: [11, 0.7],
+  sq: [16, 0.42],
+  scale: [14, 0.6],
+  gx: [30, 0.9],
+  gy: [30, 0.9],
+  lid: [22, 1],
+  pupil: [18, 0.55]
+};
+var POSITION = /* @__PURE__ */ new Set(["x", "y"]);
+var ROTATION = /* @__PURE__ */ new Set(["yaw", "pitch", "roll"]);
+function random(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a = a + 1831565813 | 0;
+    let t2 = Math.imul(a ^ a >>> 15, 1 | a);
+    t2 = t2 + Math.imul(t2 ^ t2 >>> 7, 61 | t2) ^ t2;
+    return ((t2 ^ t2 >>> 14) >>> 0) / 4294967296;
+  };
+}
+var lodOf = (size) => size >= 48 ? "hero" : size >= 28 ? "row" : "chip";
+var FACE_BLEND = 0.22;
+var ONE_SHOT = { sparkle: 1.1, confetti: 1.7 };
+var ACCENT_RUN = 600;
+var Z_RUN = 8;
+var SWAP_CLOSE = 0.075;
+var POKE_WINDOW = 1.6;
+var SNEAK_FIRST = [7, 14];
+var SNEAK_DEEPER = 1.7;
+var Avatar = class {
+  constructor({ seed = 1, size = 36, live = false, tier = "normal", effects = "full", state = "idle" } = {}) {
+    this.rng = random(seed);
+    this.time = 0;
+    this.size = size;
+    this.lod = lodOf(size);
+    this.live = live;
+    this.tier = tier;
+    this.effects = effects;
+    this.springs = Object.fromEntries(CHANNELS.map((name) => [name, { x: 0, v: 0, target: 0 }]));
+    this.springs.scale.x = 0;
+    this.clips = [];
+    this.frame = { face: FACES.neutral, closed: [0, 0], accent: null };
+    for (const name of CHANNELS) this.frame[name] = 0;
+    this.face = { from: FACES.neutral, to: FACES.neutral, mix: 1, name: "neutral", swap: null };
+    this.override = { face: null, faceUntil: 0, pose: null };
+    this.gazeTarget = null;
+    this.petting = null;
+    this.pokes = { count: 0, last: -Infinity };
+    this.saccade = { gx: 0, gy: 0, until: 0, next: 0 };
+    this.dozing = false;
+    this.resting = false;
+    this.state = null;
+    this.setState(state, { instant: true });
+  }
+  get still() {
+    return this.effects === "off";
+  }
+  get calm() {
+    return this.effects !== "full";
+  }
+  // Whether the mark answers the pointer (petting, following it).
+  get follows() {
+    return !this.calm && this.tier !== "quiet";
+  }
+  // Whether the frame is the flat art: nothing playing, every channel at zero, and open
+  // neutral eyes, now and on the next tick. Until a mark leaves this pose it needs no model.
+  get atRest() {
+    if (this.clips.length > 0 || this.frame.accent || this.face.swap || this.face.mix < 1 || this.face.name !== "neutral" || this.faceWanted() !== "neutral") return false;
+    for (const name of CHANNELS) {
+      const spring2 = this.springs[name];
+      if (spring2.x !== 0 || spring2.v !== 0 || spring2.target !== 0) return false;
+    }
+    return true;
+  }
+  setOptions({ size, live, tier, effects }) {
+    if (size !== void 0) {
+      this.size = size;
+      this.lod = lodOf(size);
+    }
+    if (live !== void 0) this.live = live;
+    if (tier !== void 0) this.tier = tier;
+    if (effects !== void 0) this.effects = effects;
+    if (this.still) this.clips = [];
+    if (!this.follows) {
+      this.gazeTarget = null;
+      this.petting = null;
+    }
+    if (this.calm && this.frame.accent && !ONE_SHOT[this.frame.accent.kind]) this.frame.accent = null;
+    if (!Number.isFinite(this.nextLoop)) this.nextLoop = this.time + 0.3;
+    this.retarget();
+  }
+  // ---- State.
+  setState(name, { instant = false } = {}) {
+    const next = stateName(name);
+    if (next === this.state && !instant) return;
+    const was = this.state;
+    this.state = next;
+    this.stateSince = this.time;
+    const def = STATES[next];
+    for (const play of this.clips) if (!play.commit && !play.blink) play.fade = -1;
+    if (was === "sleeping" && next !== "sleeping" && !this.still) this.play("wake");
+    if (next === "sleeping") this.sneak = { wait: SNEAK_FIRST[0] + this.rng() * (SNEAK_FIRST[1] - SNEAK_FIRST[0]), at: 0 };
+    if (!this.still && !instant) {
+      const enter = this.lod === "chip" && def.compactEnter ? def.compactEnter : def.enter;
+      if (enter) this.play(this.draw(enter));
+    }
+    this.nextLoop = this.time + (def.enter ? 0.6 : 0.15 + this.rng() * 0.4);
+    this.nextBlink = this.time + 0.6 + this.rng() * 1.6;
+    this.retarget();
+    if (instant) this.snap();
+  }
+  // Dozing: a resting mark nods off after a long while without input, and wakes on input.
+  doze(on) {
+    if (on === this.dozing) return;
+    this.dozing = on;
+    if (on && this.state === "idle") this.setState("sleeping");
+    else if (!on && this.state === "sleeping") this.setState("idle");
+  }
+  // ---- Actions.
+  play(name, options = {}) {
+    const make = CLIPS[name];
+    if (!make || this.still) return null;
+    const clip3 = make(this.rng);
+    const play = { name, clip: clip3, t: 0, weight: 1, fade: 0, commit: !!clip3.commit, blink: false, ...options };
+    this.clips.push(play);
+    if (clip3.accent && this.lod !== "chip") this.burst(clip3.accent);
+    return play;
+  }
+  // A one-shot accent, each with its own seed. Confetti thrown while some is still in
+  // the air joins it, so the first burst falls on instead of vanishing.
+  burst(kind) {
+    const seed = Math.floor(this.rng() * 2 ** 31);
+    const accent = this.frame.accent;
+    if (kind === "confetti" && accent?.kind === "confetti") accent.bursts.push({ at: accent.t, seed });
+    else this.frame.accent = kind === "confetti" ? { kind, t: 0, bursts: [{ at: 0, seed }] } : { kind, t: 0, seed };
+  }
+  blink(double = this.rng() < 0.18) {
+    if (this.still) return;
+    const shape = this.shownFace();
+    if (shape.some((eye2) => eye2.kind !== "capsule")) return;
+    this.clips.push({ name: "blink", clip: blinkClip(double), t: 0, weight: 1, fade: 0, commit: true, blink: true });
+  }
+  // Holds an expression for `hold` seconds (Infinity until cleared with null).
+  setFace(name, hold = 1.6) {
+    this.override.face = name && FACES[name] ? name : null;
+    this.override.faceUntil = this.time + hold;
+  }
+  // Looks somewhere for a while: eyes go first, the head follows.
+  look(gx, gy, hold = 1.2) {
+    if (this.calm) return;
+    this.saccade = { gx: clamp(gx, -1, 1), gy: clamp(gy, -1, 1), until: this.time + hold, next: this.time + hold + 2 };
+    this.retarget();
+  }
+  // Follows a point: {x, y} from the mark's middle in mark radii, or null to stop.
+  gaze(point) {
+    this.gazeTarget = point && this.follows ? point : null;
+    this.retarget();
+  }
+  // Petting: the pointer rests on the mark. `side` is where the pointer sits (-1 left).
+  pet(on, side2 = 1) {
+    const allowed2 = on && this.follows;
+    if (!!this.petting === allowed2) return;
+    this.petting = allowed2 ? { since: this.time, side: side2 < 0 ? -1 : 1 } : null;
+    if (!allowed2) {
+      for (const play of this.clips) if (play.name === "nuzzle") play.fade = -1;
+      this.blink(false);
+    }
+    this.nextLoop = this.time + 0.25;
+    this.retarget();
+  }
+  // A click: each quick poke goes one step further, from a bounce to a dizzy spell.
+  poke() {
+    if (this.still || this.tier === "quiet") return;
+    if (this.clips.some((play) => play.commit && !play.blink && play.name.startsWith("poke"))) return;
+    const quick = this.time - this.pokes.last < POKE_WINDOW;
+    this.pokes.count = quick ? this.pokes.count + 1 : 1;
+    this.pokes.last = this.time;
+    if (this.calm) {
+      this.play("pokeBounce");
+      return;
+    }
+    const step = ["pokeBounce", "pokeSpin", "pokeSpin2"][this.pokes.count - 1];
+    if (step) this.play(step);
+    else {
+      this.play("dizzy");
+      this.pokes.count = 0;
+    }
+  }
+  // ---- Running.
+  // Moves time on by dt seconds. Returns whether the frame changed: anything moving, or,
+  // with motion off, a face or pose that switched in place. A mark whose frame did not
+  // change can stop asking for frames until `wakeIn()`.
+  tick(dt) {
+    dt = Math.max(dt, 0);
+    if (dt > 0.1) {
+      if (this.settled) this.time += dt - 0.1;
+      dt = 0.1;
+    }
+    this.time += dt;
+    const def = STATES[this.state];
+    if (this.override.face && this.time >= this.override.faceUntil) this.override.face = null;
+    if (def.next && this.time - this.stateSince >= def.hold && !this.clips.some((play) => play.commit && !play.blink)) this.setState(def.next);
+    this.schedule();
+    let moving = false;
+    let changed = false;
+    const settle = STATES[this.state].settle ?? 1;
+    for (const name of CHANNELS) {
+      const spring2 = this.springs[name];
+      if (this.still) {
+        if (spring2.x !== spring2.target) changed = true;
+        spring2.x = spring2.target;
+        spring2.v = 0;
+        continue;
+      }
+      const [w0, zeta] = SPRINGS[name];
+      const w = w0 * settle;
+      let rest = dt;
+      while (rest > 0) {
+        const h92 = Math.min(rest, 1 / 240);
+        const a = w * w * (spring2.target - spring2.x) - 2 * zeta * w * spring2.v;
+        spring2.v += a * h92;
+        spring2.x += spring2.v * h92;
+        rest -= h92;
+      }
+      if (Math.abs(spring2.target - spring2.x) > 1e-3 || Math.abs(spring2.v) > 1e-3) moving = true;
+      else {
+        spring2.x = spring2.target;
+        spring2.v = 0;
+      }
+    }
+    const out = {};
+    for (const name of CHANNELS) out[name] = this.springs[name].x;
+    const amp = this.lod === "chip" ? { pos: 0.7, rot: 0.8 } : { pos: 1, rot: 1 };
+    let clipFace = null;
+    let blinks = 0;
+    for (const play of this.clips) {
+      play.t += dt;
+      if (play.fade < 0) play.weight = Math.max(0, play.weight - dt / 0.25);
+      const { clip: clip3 } = play;
+      const t2 = Math.min(play.t, clip3.dur);
+      for (const [name, keys] of Object.entries(clip3.tracks)) {
+        let value = sampleTrack(keys, t2) * play.weight;
+        if (POSITION.has(name)) value *= amp.pos;
+        else if (ROTATION.has(name) && name !== "yaw") value *= amp.rot;
+        out[name] += value;
+      }
+      if (clip3.face) {
+        for (const [at2, face] of clip3.face) if (t2 >= at2) clipFace = face === null ? void 0 : face;
+      }
+      if (clip3.blink) {
+        for (const at2 of clip3.blink) if (!play.blinked?.includes(at2) && t2 >= at2) {
+          (play.blinked ??= []).push(at2);
+          blinks += 1;
+        }
+      }
+      moving = true;
+    }
+    this.clips = this.clips.filter((play) => play.t < play.clip.dur && play.weight > 0);
+    if (blinks > 0) this.blink(false);
+    if (this.updateFace(clipFace ?? this.faceWanted(), dt)) changed = true;
+    if (this.face.mix < 1 || this.face.swap) moving = true;
+    let swapLid = 0;
+    if (this.face.swap) {
+      const s = this.face.swap;
+      s.t += dt;
+      swapLid = s.t < SWAP_CLOSE ? s.t / SWAP_CLOSE : Math.max(0, 1 - (s.t - SWAP_CLOSE) / 0.16);
+      if (!s.done && s.t >= SWAP_CLOSE) {
+        this.face.from = FACES[s.name];
+        this.face.to = FACES[s.name];
+        this.face.mix = 1;
+        s.done = true;
+      }
+      if (s.t >= SWAP_CLOSE + 0.16) this.face.swap = null;
+    }
+    const closed = clamp(out.lid + swapLid, 0, 1);
+    Object.assign(this.frame, out, {
+      face: this.shownFace(),
+      closed: [closed, closed],
+      pupil: out.pupil
+    });
+    const held = STATES[this.state].accent;
+    let accent = this.frame.accent;
+    if (accent && !ONE_SHOT[accent.kind] && (accent.kind !== held || this.calm)) accent = this.frame.accent = null;
+    if (!accent && held && this.lod === "hero" && !this.calm) accent = this.frame.accent = { kind: held, t: 0 };
+    if (accent) {
+      if (ONE_SHOT[accent.kind]) {
+        accent.t += dt;
+        const life = ONE_SHOT[accent.kind];
+        const bursts = accent.bursts;
+        if (bursts) while (bursts.length > 0 && accent.t - bursts[0].at > life) bursts.shift();
+        if (bursts ? bursts.length === 0 : accent.t > life) this.frame.accent = null;
+        moving = true;
+      } else if ((!this.resting || accent.kind === "z" && accent.t < Z_RUN) && accent.t < ACCENT_RUN) {
+        accent.t += dt;
+        moving = true;
+      }
+    }
+    this.settled = !moving;
+    return moving || changed;
+  }
+  // Seconds until the next thing this mark will do on its own.
+  wakeIn() {
+    if (this.clips.length > 0 || this.face.swap || this.face.mix < 1) return 0;
+    const times = [];
+    const def = STATES[this.state];
+    if (def.next) times.push(this.stateSince + def.hold);
+    if (this.override.face) times.push(this.override.faceUntil);
+    if (this.sneaks()) times.push(this.sneakAt());
+    if (this.still || this.resting) return Math.max(0, Math.min(...times) - this.time);
+    if (this.loopOf(STATES[this.state])) times.push(this.nextLoop);
+    if (this.blinks()) times.push(this.nextBlink);
+    if (this.glances()) times.push(this.saccade.until > this.time ? this.saccade.until : this.saccade.next);
+    return Math.max(0, Math.min(...times.filter(Number.isFinite)) - this.time);
+  }
+  // Resting: nobody has touched the window for a while. Moves under way finish, but
+  // nothing new starts until it is lifted, even under a pointer left on the mark.
+  rest(on) {
+    this.resting = on;
+    if (!on) {
+      this.nextLoop = Math.min(this.nextLoop, this.time + 0.4 + this.rng() * 1.2);
+      this.nextBlink = Math.min(this.nextBlink, this.time + 0.3 + this.rng());
+    }
+  }
+  // ---- Inside.
+  schedule() {
+    if (this.still) return;
+    const def = STATES[this.state];
+    if (this.sneaks() && this.time >= this.sneakAt() && !this.clips.some((play) => !play.blink)) {
+      this.play("sneak");
+      this.sneak = { wait: this.sneak.wait * SNEAK_DEEPER, at: this.time };
+    }
+    if (this.resting) return;
+    if (this.blinks() && this.time >= this.nextBlink) {
+      this.blink();
+      this.nextBlink = this.time + def.blink[0] + this.rng() * (def.blink[1] - def.blink[0]);
+    }
+    if (this.glances()) {
+      const s = this.saccade;
+      if (s.until > 0 && this.time >= s.until) {
+        s.until = 0;
+        s.gx = 0;
+        s.gy = 0;
+        this.retarget();
+      }
+      if (s.until === 0 && this.time >= s.next) {
+        s.gx = (this.rng() * 2 - 1) * 0.3;
+        s.gy = (this.rng() * 2 - 1) * 0.18;
+        s.until = this.time + 0.5 + this.rng() * 1.3;
+        s.next = s.until + 2.5 + this.rng() * 4;
+        this.retarget();
+      }
+    }
+    if (this.time < this.nextLoop) return;
+    if (this.clips.some((play) => !play.blink && play.weight >= 1)) return;
+    const loop2 = this.loopOf(def);
+    if (!loop2) {
+      this.nextLoop = this.petting || def.next ? this.time + 0.5 : Infinity;
+      return;
+    }
+    this.play(this.draw(loop2.bag));
+    const played = this.clips[this.clips.length - 1];
+    const dur = played?.clip.dur ?? 0;
+    this.nextLoop = this.time + dur + loop2.gap[0] + this.rng() * (loop2.gap[1] - loop2.gap[0]);
+  }
+  // Blinks are part of every state's motion (they repeat, so reduced motion has none);
+  // at rest only a lively mark blinks.
+  blinks() {
+    const def = STATES[this.state];
+    const ambient = this.state === "idle" || this.state === "sleeping";
+    return !!def.blink && !this.calm && (!ambient || !!this.petting || this.live && this.tier === "lively");
+  }
+  // Peeks while asleep, on large lively marks (only they doze off).
+  sneaks() {
+    return this.state === "sleeping" && !!this.sneak && this.live && this.tier === "lively" && !this.calm && this.lod !== "chip";
+  }
+  sneakAt() {
+    return (this.sneak.at || this.stateSince) + this.sneak.wait;
+  }
+  // Small glances while resting, on large lively marks.
+  glances() {
+    return this.state === "idle" && this.live && this.tier === "lively" && !this.calm && this.lod !== "chip" && !this.gazeTarget && !this.petting;
+  }
+  loopOf(def) {
+    if (this.calm) return null;
+    if (this.petting) return { bag: { nuzzle: 1 }, gap: [0.05, 0.3] };
+    if (this.lod === "chip" && def.compact) return def.compact;
+    if (def.loop) return def.loop;
+    if (def.lively && this.tier === "lively") return def.lively;
+    if (def.idle && this.live && this.tier === "lively" && this.lod !== "chip") return def.idle;
+    return null;
+  }
+  // A weighted draw that avoids playing the same clip twice in a row.
+  draw(bag) {
+    const entries2 = Object.entries(bag).filter(([name]) => CLIPS[name]);
+    const pool = entries2.length > 1 ? entries2.filter(([name]) => name !== this.lastDrawn) : entries2;
+    const total = pool.reduce((sum, [, weight]) => sum + weight, 0);
+    let pick2 = this.rng() * total;
+    for (const [name, weight] of pool) {
+      pick2 -= weight;
+      if (pick2 <= 0) {
+        this.lastDrawn = name;
+        return name;
+      }
+    }
+    this.lastDrawn = pool[pool.length - 1]?.[0];
+    return this.lastDrawn;
+  }
+  retarget() {
+    const pose = STATES[this.state].pose;
+    const target = Object.fromEntries(CHANNELS.map((name) => [name, pose[name] ?? 0]));
+    const g = this.gazeTarget;
+    if (g) {
+      const fx = clamp(g.x / 2.5, -1, 1);
+      const fy = clamp(g.y / 2.5, -1, 1);
+      target.gx = fx;
+      target.gy = fy * 0.85;
+      target.x += fx * 1.4;
+      target.roll -= fx * 3;
+      target.pitch += fy * 3;
+    } else if (this.saccade.until > this.time) {
+      target.gx += this.saccade.gx;
+      target.gy += this.saccade.gy;
+    }
+    if (this.petting) {
+      target.x = (pose.x ?? 0) + this.petting.side * 1.2;
+      target.roll = (pose.roll ?? 0) - this.petting.side * 5;
+      target.pitch -= 2;
+      target.sq += 0.03;
+      target.gx = 0;
+      target.gy = 0;
+    }
+    if (this.state === "sleeping" || this.state === "done") {
+      target.gx = pose.gx ?? 0;
+      target.gy = pose.gy ?? 0;
+    }
+    for (const name of CHANNELS) this.springs[name].target = target[name];
+  }
+  snap() {
+    for (const name of CHANNELS) {
+      const s = this.springs[name];
+      s.x = s.target;
+      s.v = 0;
+    }
+    const face = FACES[STATES[this.state].face];
+    this.face = { from: face, to: face, mix: 1, name: STATES[this.state].face, swap: null };
+  }
+  // The face the mark is going to, clips aside: a held face over petting over the state's.
+  faceWanted() {
+    if (this.override.face && this.time < this.override.faceUntil) return this.override.face;
+    if (this.petting) return this.time - this.petting.since > 0.35 ? "happy" : "content";
+    return STATES[this.state].face;
+  }
+  shownFace() {
+    const { from, to, mix } = this.face;
+    return mix >= 1 ? to : [mixEye(from[0], to[0], ease(mix)), mixEye(from[1], to[1], ease(mix))];
+  }
+  // Moves the face toward `name`; returns whether it set out for a new one.
+  updateFace(name, dt) {
+    const face = this.face;
+    const fresh = name !== face.name;
+    if (fresh) {
+      const target = FACES[name] ?? FACES.neutral;
+      const shown = this.shownFace();
+      face.name = name;
+      if (this.still) {
+        face.from = target;
+        face.to = target;
+        face.mix = 1;
+        face.swap = null;
+      } else if (blendable(shown, target)) {
+        face.from = shown;
+        face.to = target;
+        face.mix = 0;
+        face.swap = null;
+      } else {
+        face.swap = { name, t: 0, done: false };
+        face.from = shown;
+        face.to = shown;
+        face.mix = 1;
+      }
+    }
+    if (face.mix < 1) face.mix = Math.min(1, face.mix + dt / FACE_BLEND);
+    return fresh;
+  }
+};
+var clamp = (value, lo, hi) => Math.max(lo, Math.min(hi, value));
+var ease = (t2) => t2 * t2 * (3 - 2 * t2);
+
+// src/client/avatar/steps.js
+var STEP_MS = 1;
+var clock2 = () => performance.now();
+
+// src/client/avatar/sdf.js
+var sub = (a, b2) => [a[0] - b2[0], a[1] - b2[1], a[2] - b2[2]];
+var dot = (a, b2) => a[0] * b2[0] + a[1] * b2[1] + a[2] * b2[2];
+var len = (a) => Math.hypot(a[0], a[1], a[2]);
+var norm = (a) => {
+  const l = len(a);
+  return [a[0] / l, a[1] / l, a[2] / l];
+};
+var cross = (a, b2) => [a[1] * b2[2] - a[2] * b2[1], a[2] * b2[0] - a[0] * b2[2], a[0] * b2[1] - a[1] * b2[0]];
+var rad = (deg) => deg * Math.PI / 180;
+var mul = (m, p) => [dot(m[0], p), dot(m[1], p), dot(m[2], p)];
+var mm = (a, b2) => a.map((row) => [0, 1, 2].map((j) => row[0] * b2[0][j] + row[1] * b2[1][j] + row[2] * b2[2][j]));
+var tr = (m) => [0, 1, 2].map((i) => [m[0][i], m[1][i], m[2][i]]);
+var rx = (d) => {
+  const c = Math.cos(rad(d)), s = Math.sin(rad(d));
+  return [[1, 0, 0], [0, c, -s], [0, s, c]];
+};
+var ry = (d) => {
+  const c = Math.cos(rad(d)), s = Math.sin(rad(d));
+  return [[c, 0, s], [0, 1, 0], [-s, 0, c]];
+};
+var rz = (d) => {
+  const c = Math.cos(rad(d)), s = Math.sin(rad(d));
+  return [[c, -s, 0], [s, c, 0], [0, 0, 1]];
+};
+var sphere = (c, r) => (p) => len(sub(p, c)) - r;
+function ellipsoid(c, radii, turn) {
+  const m = turn ? tr(rz(turn)) : null;
+  return (p) => {
+    let q = sub(p, c);
+    if (m) q = mul(m, q);
+    const k0 = len([q[0] / radii[0], q[1] / radii[1], q[2] / radii[2]]);
+    const k1 = len([q[0] / radii[0] ** 2, q[1] / radii[1] ** 2, q[2] / radii[2] ** 2]);
+    return k1 === 0 ? -Math.min(...radii) : k0 * (k0 - 1) / k1;
+  };
+}
+function roundBox(c, half, r) {
+  return (p) => {
+    const q = sub(p, c).map((v, i) => Math.abs(v) - (half[i] - r));
+    return len(q.map((v) => Math.max(v, 0))) + Math.min(Math.max(...q), 0) - r;
+  };
+}
+function capsule2(a, b2, r) {
+  const ba = sub(b2, a);
+  return (p) => {
+    const pa = sub(p, a);
+    const h92 = Math.max(0, Math.min(1, dot(pa, ba) / dot(ba, ba)));
+    return len(sub(pa, ba.map((v) => v * h92))) - r;
+  };
+}
+function roundCone(a, b2, r1, r2) {
+  const ba = sub(b2, a);
+  const l2 = dot(ba, ba);
+  const rr = r1 - r2;
+  const a2 = l2 - rr * rr;
+  const il2 = 1 / l2;
+  return (p) => {
+    const pa = sub(p, a);
+    const y = dot(pa, ba);
+    const z = y - l2;
+    const xv = sub(pa.map((v) => v * l2), ba.map((v) => v * y));
+    const x2 = dot(xv, xv);
+    const y2 = y * y * l2;
+    const z2 = z * z * l2;
+    const k = Math.sign(rr) * rr * rr * x2;
+    if (Math.sign(z) * a2 * z2 > k) return Math.sqrt(x2 + z2) * il2 - r2;
+    if (Math.sign(y) * a2 * y2 < k) return Math.sqrt(x2 + y2) * il2 - r1;
+    return (Math.sqrt(x2 * a2 * il2) + y * rr) * il2 - r1;
+  };
+}
+var torus = (c, R, r) => (p) => {
+  const q = sub(p, c);
+  return Math.hypot(Math.hypot(q[0], q[1]) - R, q[2]) - r;
+};
+var extrude = (profile, depth, round2) => (p) => {
+  const d = profile(p[0], p[1]);
+  const w = Math.abs(p[2]) - depth;
+  return Math.min(Math.max(d, w), 0) + Math.hypot(Math.max(d, 0), Math.max(w, 0)) - round2;
+};
+var puffy = (profile, depth, round2) => extrude((x, y) => profile(x, y) + round2, depth, round2);
+var box2 = (cx, cy, hx, hy) => (x, y) => {
+  const qx = Math.abs(x - cx) - hx;
+  const qy = Math.abs(y - cy) - hy;
+  return Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0);
+};
+var circle2 = (cx, cy, r) => (x, y) => Math.hypot(x - cx, y - cy) - r;
+var smin = (k, ...parts) => (p) => parts.map((f) => f(p)).reduce((a, b2) => {
+  const h92 = Math.max(k - Math.abs(a - b2), 0) / k;
+  return Math.min(a, b2) - h92 * h92 * k / 4;
+});
+var clipBelow = (f, y) => (p) => Math.max(f(p), y - p[1]);
+function flatten(d) {
+  const tokens = d.match(/[a-zA-Z]|-?(?:\d*\.\d+|\d+\.?)(?:e[-+]?\d+)?/g);
+  const loops = [];
+  let loop2 = [];
+  let i = 0;
+  let cmd = "M";
+  let [x, y] = [0, 0];
+  let [sx, sy] = [0, 0];
+  let control = null;
+  const num2 = () => parseFloat(tokens[i++]);
+  const close = () => {
+    if (loop2.length > 2) loops.push(loop2);
+    loop2 = [];
+  };
+  const curve = (points, steps = 12) => {
+    for (let s = 1; s <= steps; s += 1) {
+      const t2 = s / steps;
+      const m = 1 - t2;
+      const p = points.length === 3 ? [m * m * points[0][0] + 2 * m * t2 * points[1][0] + t2 * t2 * points[2][0], m * m * points[0][1] + 2 * m * t2 * points[1][1] + t2 * t2 * points[2][1]] : [0, 1].map((k) => m * m * m * points[0][k] + 3 * m * m * t2 * points[1][k] + 3 * m * t2 * t2 * points[2][k] + t2 * t2 * t2 * points[3][k]);
+      loop2.push(p);
+    }
+  };
+  const arc = (rx2, ry2, phi, large, sweep, x2, y2) => {
+    const c = Math.cos(rad(phi));
+    const s = Math.sin(rad(phi));
+    const dx = (x - x2) / 2;
+    const dy = (y - y2) / 2;
+    const x1p = c * dx + s * dy;
+    const y1p = -s * dx + c * dy;
+    const lambda = x1p * x1p / (rx2 * rx2) + y1p * y1p / (ry2 * ry2);
+    if (lambda > 1) {
+      rx2 *= Math.sqrt(lambda);
+      ry2 *= Math.sqrt(lambda);
+    }
+    const sign = large === sweep ? -1 : 1;
+    const k = sign * Math.sqrt(Math.max(0, (rx2 * rx2 * ry2 * ry2 - rx2 * rx2 * y1p * y1p - ry2 * ry2 * x1p * x1p) / (rx2 * rx2 * y1p * y1p + ry2 * ry2 * x1p * x1p)));
+    const cxp = k * rx2 * y1p / ry2;
+    const cyp = -k * ry2 * x1p / rx2;
+    const cx = c * cxp - s * cyp + (x + x2) / 2;
+    const cy = s * cxp + c * cyp + (y + y2) / 2;
+    const angle = (ux, uy, vx, vy) => Math.atan2(ux * vy - uy * vx, ux * vx + uy * vy);
+    const t1 = angle(1, 0, (x1p - cxp) / rx2, (y1p - cyp) / ry2);
+    let dt = angle((x1p - cxp) / rx2, (y1p - cyp) / ry2, (-x1p - cxp) / rx2, (-y1p - cyp) / ry2);
+    if (!sweep && dt > 0) dt -= 2 * Math.PI;
+    if (sweep && dt < 0) dt += 2 * Math.PI;
+    const steps = Math.max(4, Math.ceil(Math.abs(dt) / 0.12));
+    for (let n = 1; n <= steps; n += 1) {
+      const t2 = t1 + dt * n / steps;
+      loop2.push([cx + rx2 * Math.cos(t2) * c - ry2 * Math.sin(t2) * s, cy + rx2 * Math.cos(t2) * s + ry2 * Math.sin(t2) * c]);
+    }
+  };
+  while (i < tokens.length) {
+    if (/[a-zA-Z]/.test(tokens[i])) cmd = tokens[i++];
+    const rel = cmd === cmd.toLowerCase();
+    const ox = rel ? x : 0;
+    const oy = rel ? y : 0;
+    switch (cmd.toUpperCase()) {
+      case "M":
+        close();
+        x = ox + num2();
+        y = oy + num2();
+        [sx, sy] = [x, y];
+        loop2.push([x, y]);
+        cmd = rel ? "l" : "L";
+        control = null;
+        break;
+      case "L":
+        x = ox + num2();
+        y = oy + num2();
+        loop2.push([x, y]);
+        control = null;
+        break;
+      case "H":
+        x = ox + num2();
+        loop2.push([x, y]);
+        control = null;
+        break;
+      case "V":
+        y = oy + num2();
+        loop2.push([x, y]);
+        control = null;
+        break;
+      case "C": {
+        const p1 = [ox + num2(), oy + num2()];
+        const p2 = [ox + num2(), oy + num2()];
+        const p = [ox + num2(), oy + num2()];
+        curve([[x, y], p1, p2, p]);
+        [x, y] = p;
+        control = p2;
+        break;
+      }
+      case "S": {
+        const p1 = control ? [2 * x - control[0], 2 * y - control[1]] : [x, y];
+        const p2 = [ox + num2(), oy + num2()];
+        const p = [ox + num2(), oy + num2()];
+        curve([[x, y], p1, p2, p]);
+        [x, y] = p;
+        control = p2;
+        break;
+      }
+      case "Q": {
+        const p1 = [ox + num2(), oy + num2()];
+        const p = [ox + num2(), oy + num2()];
+        curve([[x, y], p1, p]);
+        [x, y] = p;
+        control = null;
+        break;
+      }
+      case "A": {
+        const [rx2, ry2, phi, large, sweep] = [num2(), num2(), num2(), num2(), num2()];
+        const x2 = ox + num2();
+        const y2 = oy + num2();
+        arc(Math.abs(rx2), Math.abs(ry2), phi, !!large, !!sweep, x2, y2);
+        [x, y] = [x2, y2];
+        control = null;
+        break;
+      }
+      case "Z":
+        close();
+        [x, y] = [sx, sy];
+        control = null;
+        break;
+      default:
+        throw new Error(`Unsupported path command ${cmd}`);
+    }
+  }
+  close();
+  return loops;
+}
+function polygonDistance(loops, x, y) {
+  let best = Infinity;
+  let inside = false;
+  for (const loop2 of loops) {
+    for (let a = 0, b2 = loop2.length - 1; a < loop2.length; b2 = a, a += 1) {
+      const [x1, y1] = loop2[b2];
+      const [x2, y2] = loop2[a];
+      const dx = x2 - x1;
+      const dy = y2 - y1;
+      const h92 = Math.max(0, Math.min(1, ((x - x1) * dx + (y - y1) * dy) / (dx * dx + dy * dy || 1)));
+      best = Math.min(best, Math.hypot(x - x1 - dx * h92, y - y1 - dy * h92));
+      if (y1 > y !== y2 > y && x < x1 + (y - y1) * dx / dy) inside = !inside;
+    }
+  }
+  return inside ? -best : best;
+}
+function outline(paths, { map, unit, grow = 0, grid: G = 260 }) {
+  const R = 1.6;
+  let grid = null;
+  function* rows2() {
+    if (grid !== null) return;
+    const shapes = paths.map(flatten);
+    const baking = new Float64Array((G + 1) * (G + 1));
+    let since = clock2();
+    for (let i = 0; i <= G; i += 1) {
+      for (let j = 0; j <= G; j += 1) {
+        const [px, py] = map(-R + 2 * R * j / G, R - 2 * R * i / G);
+        baking[i * (G + 1) + j] = (Math.min(...shapes.map((loops) => polygonDistance(loops, px, py))) - grow) / unit;
+      }
+      if (clock2() - since > STEP_MS) {
+        yield;
+        since = clock2();
+      }
+    }
+    grid = baking;
+  }
+  const bake = () => {
+    const steps = rows2();
+    while (!steps.next().done) ;
+  };
+  const profile = (x, y) => {
+    if (grid === null) bake();
+    const fj = Math.max(0, Math.min(G - 1e-9, (x + R) / (2 * R) * G));
+    const fi = Math.max(0, Math.min(G - 1e-9, (R - y) / (2 * R) * G));
+    const [i, j] = [Math.floor(fi), Math.floor(fj)];
+    const [ti, tj] = [fi - i, fj - j];
+    const at2 = (a, b2) => grid[a * (G + 1) + b2];
+    const inner = (at2(i, j) * (1 - tj) + at2(i, j + 1) * tj) * (1 - ti) + (at2(i + 1, j) * (1 - tj) + at2(i + 1, j + 1) * tj) * ti;
+    return inner + Math.max(0, Math.abs(x) - R, Math.abs(y) - R);
+  };
+  profile.rows = rows2;
+  return profile;
+}
+var box512 = (cx, cy, per = 190) => ({ map: (x, y) => [cx + x * per, cy - y * per], unit: per });
+function gradient(sdf, p) {
+  const e = 1e-3;
+  return norm([0, 1, 2].map((axis) => {
+    const plus = [...p];
+    const minus = [...p];
+    plus[axis] += e;
+    minus[axis] -= e;
+    return sdf(plus) - sdf(minus);
+  }));
+}
+function surfaceAt(sdf, x, y) {
+  let z = 2.5;
+  for (let i = 0; i < 300; i += 1) {
+    const d = sdf([x, y, z]);
+    if (d < 1e-4) break;
+    z -= Math.max(d, 1e-4);
+  }
+  const p = [x, y, z];
+  return { p, n: gradient(sdf, p) };
+}
+
+// src/client/avatar/outlines.js
+var STAR_BODY = "M256.0 72.0 321.8 177.4 442.4 207.4 362.5 302.6 371.2 426.6 256.0 380.0 140.8 426.6 149.5 302.6 69.6 207.4 190.2 177.4Z";
+var SQUIRCLE_BODY = "M440.0 256.0 440.0 262.4 440.0 268.9 439.9 275.3 439.8 281.8 439.6 288.4 439.3 295.0 438.9 301.6 438.3 308.3 437.6 315.0 436.6 321.7 435.5 328.5 434.0 335.3 432.3 342.0 430.2 348.6 427.8 355.2 425.1 361.7 422.0 367.9 418.4 374.0 414.5 379.8 410.2 385.4 405.5 390.6 400.5 395.5 395.1 400.1 389.5 404.2 383.6 408.0 377.4 411.4 371.1 414.4 364.7 417.1 358.1 419.5 351.5 421.5 344.9 423.2 338.3 424.7 331.6 425.9 325.0 426.9 318.5 427.7 312.0 428.3 305.6 428.9 299.2 429.2 292.9 429.5 286.6 429.7 280.4 429.9 274.3 429.9 268.2 430.0 262.1 430.0 256.0 430.0 249.9 430.0 243.8 430.0 237.7 429.9 231.6 429.9 225.4 429.7 219.1 429.5 212.8 429.2 206.4 428.9 200.0 428.3 193.5 427.7 187.0 426.9 180.4 425.9 173.7 424.7 167.1 423.2 160.5 421.5 153.9 419.5 147.3 417.1 140.9 414.4 134.6 411.4 128.4 408.0 122.5 404.2 116.9 400.1 111.5 395.5 106.5 390.6 101.8 385.4 97.5 379.8 93.6 374.0 90.0 367.9 86.9 361.7 84.2 355.2 81.8 348.6 79.7 342.0 78.0 335.3 76.5 328.5 75.4 321.7 74.4 315.0 73.7 308.3 73.1 301.6 72.7 295.0 72.4 288.4 72.2 281.8 72.1 275.3 72.0 268.9 72.0 262.4 72.0 256.0 72.0 249.6 72.0 243.1 72.1 236.7 72.2 230.2 72.4 223.6 72.7 217.0 73.1 210.4 73.7 203.7 74.4 197.0 75.4 190.3 76.5 183.5 78.0 176.7 79.7 170.0 81.8 163.4 84.2 156.8 86.9 150.3 90.0 144.1 93.6 138.0 97.5 132.2 101.8 126.6 106.5 121.4 111.5 116.5 116.9 111.9 122.5 107.8 128.4 104.0 134.6 100.6 140.9 97.6 147.3 94.9 153.9 92.5 160.5 90.5 167.1 88.8 173.7 87.3 180.4 86.1 187.0 85.1 193.5 84.3 200.0 83.7 206.4 83.1 212.8 82.8 219.1 82.5 225.4 82.3 231.6 82.1 237.7 82.1 243.8 82.0 249.9 82.0 256.0 82.0 262.1 82.0 268.2 82.0 274.3 82.1 280.4 82.1 286.6 82.3 292.9 82.5 299.2 82.8 305.6 83.1 312.0 83.7 318.5 84.3 325.0 85.1 331.6 86.1 338.3 87.3 344.9 88.8 351.5 90.5 358.1 92.5 364.7 94.9 371.1 97.6 377.4 100.6 383.6 104.0 389.5 107.8 395.1 111.9 400.5 116.5 405.5 121.4 410.2 126.6 414.5 132.2 418.4 138.0 422.0 144.1 425.1 150.3 427.8 156.8 430.2 163.4 432.3 170.0 434.0 176.7 435.5 183.5 436.6 190.3 437.6 197.0 438.3 203.7 438.9 210.4 439.3 217.0 439.6 223.6 439.8 230.2 439.9 236.7 440.0 243.1 440.0 249.6Z";
+
+// src/client/avatar/models.js
+var VIEW = Object.freeze({ yaw: 34, pitch: 16, roll: 10 });
+var ORDER = [
+  "whale",
+  "star",
+  "moon",
+  "cloud",
+  "spark",
+  "bear",
+  "puppy",
+  "kitty",
+  "bunny",
+  "octopus",
+  "sprout",
+  "bloom",
+  "acorn",
+  "squircle",
+  "gumdrop",
+  "peanut",
+  "saucer",
+  "beacon",
+  "pebbles",
+  "plus"
+];
+function createModels({ grid = 260 } = {}) {
+  const starOutline = outline([STAR_BODY], { ...box512(256, 262), grow: 22, grid });
+  const squircleOutline = outline([SQUIRCLE_BODY], { ...box512(256, 256), grid });
+  const MASCOTS = {
+    whale: {
+      label: "Whale",
+      keepShading: true,
+      // The flukes are thin; a live mark meshes it finer.
+      cell: 0.036,
+      sdf: smin(
+        0.14,
+        ellipsoid([0.12, -0.06, 0], [0.8, 0.68, 0.66]),
+        roundCone([-0.42, -0.34, 0], [-1, 0.16, 0], 0.18, 0.065),
+        ellipsoid([-0.96, 0.5, 0], [0.13, 0.36, 0.09], 14),
+        ellipsoid([-1.28, 0.22, 0], [0.13, 0.34, 0.09], 74)
+      ),
+      eyes: [[-0.06, 0.12], [0.34, 0.12]],
+      paints: [{ region: (p) => Math.max(sphere([0.42, -0.98, 0.52], 0.72)(p), -0.04 - p[2]), fill: "#fff", opacity: 1 }]
+    },
+    star: {
+      label: "Star",
+      sdf: puffy(starOutline, 0.1, 0.2),
+      prepare: [starOutline],
+      eyes: [[-0.17, -0.02], [0.17, -0.02]],
+      eye: 0.85
+    },
+    moon: {
+      label: "Moon",
+      sdf: extrude((x, y) => {
+        const outer = circle2(0.06, 0, 0.88)(x, y);
+        const inner = circle2(-0.52, 0.24, 0.69)(x, y);
+        const k = 0.14;
+        const h92 = Math.max(k - Math.abs(outer + inner), 0) / k;
+        return Math.max(outer, -inner) + h92 * h92 * k / 4;
+      }, 0.14, 0.22),
+      eyes: [[0.14, -0.1], [0.48, -0.1]],
+      eye: 0.82
+    },
+    cloud: {
+      label: "Cloud",
+      sdf: smin(
+        0.18,
+        ellipsoid([0, -0.06, 0.04], [0.76, 0.54, 0.52]),
+        ellipsoid([0, 0.34, -0.02], [0.48, 0.46, 0.44]),
+        ellipsoid([-0.58, -0.1, -0.02], [0.43, 0.42, 0.4]),
+        ellipsoid([0.58, -0.1, -0.02], [0.43, 0.42, 0.4])
+      ),
+      eyes: [[-0.26, -0.04], [0.18, -0.04]],
+      eye: 0.9
+    },
+    spark: {
+      label: "Spark",
+      sdf: smin(
+        0.14,
+        ellipsoid([0, -0.24, 0], [0.74, 0.66, 0.66]),
+        roundCone([0.04, -0.08, 0], [-0.14, 0.88, 0], 0.54, 0.11),
+        roundCone([0.36, -0.16, 0.02], [0.54, 0.36, 0], 0.28, 0.09)
+      ),
+      eyes: [[-0.2, -0.2], [0.2, -0.2]],
+      eye: 0.88
+    },
+    bear: {
+      label: "Bear",
+      sdf: smin(
+        0.12,
+        ellipsoid([0, -0.14, 0], [0.86, 0.76, 0.72]),
+        sphere([-0.58, 0.56, -0.04], 0.3),
+        sphere([0.58, 0.56, -0.04], 0.3)
+      ),
+      eyes: [[-0.24, -0.08], [0.24, -0.08]],
+      eye: 0.95
+    },
+    puppy: {
+      label: "Puppy",
+      sdf: smin(
+        0.06,
+        ellipsoid([0, 0.02, 0], [0.74, 0.68, 0.66]),
+        capsule2([-0.68, 0.3, -0.04], [-0.94, -0.34, -0.06], 0.21),
+        capsule2([0.68, 0.3, -0.04], [0.94, -0.34, -0.06], 0.21)
+      ),
+      eyes: [[-0.22, 0.06], [0.22, 0.06]],
+      eye: 0.92
+    },
+    sprout: {
+      label: "Sprout",
+      sdf: smin(
+        0.06,
+        ellipsoid([0, -0.22, 0], [0.76, 0.68, 0.68]),
+        capsule2([0, 0.36, 0], [0, 0.74, 0], 0.08),
+        ellipsoid([0.38, 0.76, 0], [0.36, 0.16, 0.12], 22),
+        ellipsoid([-0.34, 0.72, 0], [0.3, 0.14, 0.1], -26)
+      ),
+      eyes: [[-0.22, -0.18], [0.22, -0.18]],
+      eye: 0.92
+    },
+    bloom: {
+      label: "Blossom",
+      sdf: smin(
+        0.05,
+        ellipsoid([0, 0, 0], [0.46, 0.46, 0.38]),
+        ...[0, 1, 2, 3, 4].map((i) => {
+          const a = rad(90 + i * 72);
+          return ellipsoid([Math.cos(a) * 0.56, Math.sin(a) * 0.56, 0], [0.38, 0.38, 0.32]);
+        })
+      ),
+      eyes: [[-0.19, 0], [0.19, 0]],
+      eye: 0.82
+    },
+    squircle: {
+      label: "Squircle",
+      sdf: puffy(squircleOutline, 0.12, 0.26),
+      prepare: [squircleOutline],
+      eyes: [[-0.2, 0.06], [0.2, 0.06]]
+    }
+  };
+  const GEOMETRIC = {
+    gumdrop: {
+      sdf: roundCone([0, -0.55, 0], [0, 0.55, 0], 0.82, 0.42),
+      eyes: [[-0.2, 0.18], [0.2, 0.18]]
+    },
+    peanut: {
+      sdf: smin(0.35, sphere([0, 0.42, 0], 0.6), sphere([0, -0.5, 0], 0.72)),
+      eyes: [[-0.2, 0.5], [0.2, 0.5]],
+      eye: 0.9
+    },
+    saucer: {
+      sdf: smin(0.12, ellipsoid([0, -0.25, 0], [1.05, 0.3, 1.05]), sphere([0, 0, 0], 0.56)),
+      eyes: [[-0.18, 0.18], [0.18, 0.18]],
+      eye: 0.8
+    },
+    bunny: {
+      sdf: smin(0.14, sphere([0, -0.3, 0], 0.68), ellipsoid([-0.26, 0.62, -0.05], [0.16, 0.48, 0.12], 10), ellipsoid([0.26, 0.62, -0.05], [0.16, 0.48, 0.12], -10)),
+      eyes: [[-0.2, -0.22], [0.2, -0.22]],
+      eye: 0.85
+    },
+    kitty: {
+      sdf: smin(0.12, ellipsoid([0, -0.12, 0], [0.86, 0.74, 0.72]), roundCone([-0.42, 0.4, 0], [-0.58, 0.92, 0], 0.26, 0.05), roundCone([0.42, 0.4, 0], [0.58, 0.92, 0], 0.26, 0.05)),
+      eyes: [[-0.24, -0.05], [0.24, -0.05]]
+    },
+    beacon: {
+      sdf: smin(0.05, roundBox([0, -0.22, 0], [0.82, 0.62, 0.56], 0.26), capsule2([0, 0.3, 0], [0, 0.82, 0], 0.07), sphere([0, 0.9, 0], 0.16)),
+      eyes: [[-0.26, -0.2], [0.26, -0.2]]
+    },
+    plus: {
+      sdf: extrude((x, y) => Math.min(box2(0, 0, 0.82, 0.24)(x, y), box2(0, 0, 0.24, 0.82)(x, y)), 0.22, 0.14),
+      eyes: [[-0.14, 0.02], [0.14, 0.02]],
+      eye: 0.72
+    },
+    magnet: {
+      sdf: extrude((x, y) => Math.max(y < 0 ? Math.abs(Math.hypot(x, y) - 0.56) - 0.24 : Math.abs(Math.abs(x) - 0.56) - 0.24, y - 0.72), 0.22, 0.1),
+      eyes: [[-0.17, -0.56], [0.17, -0.56]],
+      eye: 0.72
+    },
+    acorn: {
+      sdf: smin(0.04, ellipsoid([0, -0.22, 0], [0.72, 0.78, 0.72]), clipBelow(ellipsoid([0, 0.3, 0], [0.88, 0.5, 0.88]), 0.16), capsule2([0, 0.72, 0], [0.08, 0.98, 0], 0.08)),
+      eyes: [[-0.22, -0.12], [0.22, -0.12]]
+    },
+    pebbles: {
+      sdf: smin(0.22, roundBox([0, -0.48, 0], [0.9, 0.38, 0.62], 0.34), roundBox([0.05, 0.36, 0], [0.62, 0.4, 0.5], 0.3)),
+      eyes: [[-0.16, 0.38], [0.24, 0.38]],
+      eye: 0.82
+    },
+    ring: {
+      sdf: torus([0, 0, 0], 0.64, 0.3),
+      eyes: [[-0.2, -0.64], [0.2, -0.64]],
+      eye: 0.62
+    },
+    gem: {
+      sdf: extrude((x, y) => polygonDistance([[[-0.52, 0.56], [0.52, 0.56], [0.94, 0.12], [0, -0.86], [-0.94, 0.12]]], x, y), 0.24, 0.1),
+      eyes: [[-0.2, 0.2], [0.2, 0.2]],
+      eye: 0.8
+    },
+    octopus: {
+      label: "Octopus",
+      sdf: smin(
+        0.15,
+        ellipsoid([0, 0.18, 0], [0.74, 0.64, 0.66]),
+        capsule2([-0.46, -0.32, 0.08], [-0.76, -0.6, 0.18], 0.19),
+        capsule2([-0.16, -0.38, 0.14], [-0.24, -0.72, 0.22], 0.19),
+        capsule2([0.18, -0.38, 0.12], [0.26, -0.72, 0.18], 0.19),
+        capsule2([0.48, -0.32, 0.04], [0.76, -0.58, 0.08], 0.19)
+      ),
+      eyes: [[-0.22, 0.18], [0.22, 0.18]],
+      eye: 0.9
+    }
+  };
+  return { ...Object.fromEntries(ORDER.map((id) => [id, MASCOTS[id] ?? GEOMETRIC[id]])), ...GEOMETRIC };
+}
+
+// src/client/avatar/mesh.js
+var EDGES = [
+  [0, 1],
+  [2, 3],
+  [4, 5],
+  [6, 7],
+  // along x
+  [0, 2],
+  [1, 3],
+  [4, 6],
+  [5, 7],
+  // along y
+  [0, 4],
+  [1, 5],
+  [2, 6],
+  [3, 7]
+  // along z
+];
+function meshDistance(sdf, options) {
+  const steps = meshSteps(sdf, options);
+  for (; ; ) {
+    const { done, value } = steps.next();
+    if (done) return value;
+  }
+}
+function* meshSteps(sdf, { bounds = [[-1.7, -1.7, -1.7], [1.7, 1.7, 1.7]], cell = 0.05 } = {}) {
+  const [lo, hi] = bounds;
+  const nx = Math.ceil((hi[0] - lo[0]) / cell) + 1;
+  const ny = Math.ceil((hi[1] - lo[1]) / cell) + 1;
+  const nz = Math.ceil((hi[2] - lo[2]) / cell) + 1;
+  const at2 = (i, j, k) => (k * ny + j) * nx + i;
+  const values = new Float32Array(nx * ny * nz);
+  const p = [0, 0, 0];
+  const B = 4;
+  let since = clock2();
+  for (let k0 = 0; k0 < nz; k0 += B) {
+    for (let j0 = 0; j0 < ny; j0 += B) {
+      for (let i0 = 0; i0 < nx; i0 += B) {
+        if (clock2() - since > STEP_MS) {
+          yield;
+          since = clock2();
+        }
+        const ci = Math.min(i0 + B / 2, nx - 1);
+        const cj = Math.min(j0 + B / 2, ny - 1);
+        const ck = Math.min(k0 + B / 2, nz - 1);
+        p[0] = lo[0] + ci * cell;
+        p[1] = lo[1] + cj * cell;
+        p[2] = lo[2] + ck * cell;
+        const d = sdf(p);
+        const reach = cell * B * 0.9;
+        for (let k = k0; k < Math.min(k0 + B, nz); k += 1) {
+          for (let j = j0; j < Math.min(j0 + B, ny); j += 1) {
+            for (let i = i0; i < Math.min(i0 + B, nx); i += 1) {
+              if (Math.abs(d) > reach) {
+                values[at2(i, j, k)] = d;
+                continue;
+              }
+              p[0] = lo[0] + i * cell;
+              p[1] = lo[1] + j * cell;
+              p[2] = lo[2] + k * cell;
+              values[at2(i, j, k)] = sdf(p);
+            }
+          }
+        }
+      }
+    }
+  }
+  const cubeVertex = new Int32Array((nx - 1) * (ny - 1) * (nz - 1)).fill(-1);
+  const cubeAt = (i, j, k) => (k * (ny - 1) + j) * (nx - 1) + i;
+  const positions = [];
+  const corner = new Float32Array(8);
+  for (let k = 0; k < nz - 1; k += 1) {
+    for (let j = 0; j < ny - 1; j += 1) {
+      if (clock2() - since > STEP_MS) {
+        yield;
+        since = clock2();
+      }
+      for (let i = 0; i < nx - 1; i += 1) {
+        let inside = 0;
+        for (let c = 0; c < 8; c += 1) {
+          corner[c] = values[at2(i + (c & 1), j + (c >> 1 & 1), k + (c >> 2 & 1))];
+          if (corner[c] < 0) inside += 1;
+        }
+        if (inside === 0 || inside === 8) continue;
+        let sx = 0, sy = 0, sz = 0, count2 = 0;
+        for (const [a, b2] of EDGES) {
+          const va = corner[a];
+          const vb = corner[b2];
+          if (va < 0 === vb < 0) continue;
+          const t2 = va / (va - vb);
+          sx += (a & 1) + ((b2 & 1) - (a & 1)) * t2;
+          sy += (a >> 1 & 1) + ((b2 >> 1 & 1) - (a >> 1 & 1)) * t2;
+          sz += (a >> 2 & 1) + ((b2 >> 2 & 1) - (a >> 2 & 1)) * t2;
+          count2 += 1;
+        }
+        cubeVertex[cubeAt(i, j, k)] = positions.length / 3;
+        positions.push(lo[0] + (i + sx / count2) * cell, lo[1] + (j + sy / count2) * cell, lo[2] + (k + sz / count2) * cell);
+      }
+    }
+  }
+  const triangles = [];
+  const quad = (a, b2, c, d, flip) => {
+    if (a < 0 || b2 < 0 || c < 0 || d < 0) return;
+    const [q0, q1, q2, q3] = flip ? [a, d, c, b2] : [a, b2, c, d];
+    const d02 = dist2(positions, q0, q2);
+    const d13 = dist2(positions, q1, q3);
+    if (d02 <= d13) triangles.push(q0, q1, q2, q0, q2, q3);
+    else triangles.push(q0, q1, q3, q1, q2, q3);
+  };
+  for (let k = 1; k < nz - 1; k += 1) {
+    for (let j = 1; j < ny - 1; j += 1) {
+      if (clock2() - since > STEP_MS) {
+        yield;
+        since = clock2();
+      }
+      for (let i = 0; i < nx - 1; i += 1) {
+        const a = values[at2(i, j, k)] < 0;
+        if (a === values[at2(i + 1, j, k)] < 0) continue;
+        quad(cubeVertex[cubeAt(i, j - 1, k - 1)], cubeVertex[cubeAt(i, j, k - 1)], cubeVertex[cubeAt(i, j, k)], cubeVertex[cubeAt(i, j - 1, k)], !a);
+      }
+    }
+  }
+  for (let k = 1; k < nz - 1; k += 1) {
+    for (let j = 0; j < ny - 1; j += 1) {
+      if (clock2() - since > STEP_MS) {
+        yield;
+        since = clock2();
+      }
+      for (let i = 1; i < nx - 1; i += 1) {
+        const a = values[at2(i, j, k)] < 0;
+        if (a === values[at2(i, j + 1, k)] < 0) continue;
+        quad(cubeVertex[cubeAt(i - 1, j, k - 1)], cubeVertex[cubeAt(i - 1, j, k)], cubeVertex[cubeAt(i, j, k)], cubeVertex[cubeAt(i, j, k - 1)], !a);
+      }
+    }
+  }
+  for (let k = 0; k < nz - 1; k += 1) {
+    for (let j = 1; j < ny - 1; j += 1) {
+      if (clock2() - since > STEP_MS) {
+        yield;
+        since = clock2();
+      }
+      for (let i = 1; i < nx - 1; i += 1) {
+        const a = values[at2(i, j, k)] < 0;
+        if (a === values[at2(i, j, k + 1)] < 0) continue;
+        quad(cubeVertex[cubeAt(i - 1, j - 1, k)], cubeVertex[cubeAt(i, j - 1, k)], cubeVertex[cubeAt(i, j, k)], cubeVertex[cubeAt(i - 1, j, k)], !a);
+      }
+    }
+  }
+  yield;
+  since = clock2();
+  const count = positions.length / 3;
+  const pos = new Float32Array(count * 3);
+  const nrm = new Float32Array(count * 3);
+  const q = [0, 0, 0];
+  const e = cell * 0.05;
+  const grad = (out) => {
+    const x = q[0], y = q[1], z = q[2];
+    q[0] = x + e;
+    const gx1 = sdf(q);
+    q[0] = x - e;
+    const gx0 = sdf(q);
+    q[0] = x;
+    q[1] = y + e;
+    const gy1 = sdf(q);
+    q[1] = y - e;
+    const gy0 = sdf(q);
+    q[1] = y;
+    q[2] = z + e;
+    const gz1 = sdf(q);
+    q[2] = z - e;
+    const gz0 = sdf(q);
+    q[2] = z;
+    out[0] = gx1 - gx0;
+    out[1] = gy1 - gy0;
+    out[2] = gz1 - gz0;
+    const l = Math.hypot(out[0], out[1], out[2]) || 1;
+    out[0] /= l;
+    out[1] /= l;
+    out[2] /= l;
+  };
+  const g = [0, 0, 0];
+  for (let v = 0; v < count; v += 1) {
+    if (clock2() - since > STEP_MS) {
+      yield;
+      since = clock2();
+    }
+    q[0] = positions[v * 3];
+    q[1] = positions[v * 3 + 1];
+    q[2] = positions[v * 3 + 2];
+    for (let step = 0; step < 2; step += 1) {
+      const d = sdf(q);
+      if (Math.abs(d) > cell) break;
+      grad(g);
+      q[0] -= g[0] * d;
+      q[1] -= g[1] * d;
+      q[2] -= g[2] * d;
+    }
+    grad(g);
+    pos[v * 3] = q[0];
+    pos[v * 3 + 1] = q[1];
+    pos[v * 3 + 2] = q[2];
+    nrm[v * 3] = g[0];
+    nrm[v * 3 + 1] = g[1];
+    nrm[v * 3 + 2] = g[2];
+  }
+  yield;
+  const tri = count < 65536 ? new Uint16Array(triangles) : new Uint32Array(triangles);
+  return { pos, nrm, tri };
+}
+var dist2 = (positions, a, b2) => {
+  const dx = positions[a * 3] - positions[b2 * 3];
+  const dy = positions[a * 3 + 1] - positions[b2 * 3 + 1];
+  const dz = positions[a * 3 + 2] - positions[b2 * 3 + 2];
+  return dx * dx + dy * dy + dz * dz;
+};
+
+// src/client/avatar/silhouette.js
+var EDGES2 = /* @__PURE__ */ new WeakMap();
+function edgesOf(mesh) {
+  const steps = edgeSteps(mesh);
+  for (; ; ) {
+    const { done, value } = steps.next();
+    if (done) return value;
+  }
+}
+function* edgeSteps(mesh) {
+  let edges = EDGES2.get(mesh);
+  if (edges) return edges;
+  const { tri } = mesh;
+  const vertexCount = mesh.pos.length / 3;
+  const ids = /* @__PURE__ */ new Map();
+  const a = [];
+  const b2 = [];
+  const of = new Int32Array(tri.length);
+  let since = clock2();
+  for (let t2 = 0; t2 < tri.length; t2 += 3) {
+    if (t2 % 384 === 0 && clock2() - since > STEP_MS) {
+      yield;
+      since = clock2();
+    }
+    for (let k = 0; k < 3; k += 1) {
+      const p = tri[t2 + k];
+      const q = tri[t2 + (k + 1) % 3];
+      const key = p < q ? p * vertexCount + q : q * vertexCount + p;
+      let id = ids.get(key);
+      if (id === void 0) {
+        id = a.length;
+        ids.set(key, id);
+        a.push(p);
+        b2.push(q);
+      }
+      of[t2 + k] = id;
+    }
+  }
+  edges = { a: Int32Array.from(a), b: Int32Array.from(b2), of, count: a.length };
+  EDGES2.set(mesh, edges);
+  return edges;
+}
+function silhouette(mesh, view, scratch = {}) {
+  const { pos, nrm, tri } = mesh;
+  const vertexCount = pos.length / 3;
+  const edges = edgesOf(mesh);
+  if (scratch.edgeMesh !== mesh) {
+    scratch.edgeMesh = mesh;
+    scratch.facing = new Float32Array(vertexCount);
+    scratch.next = new Int32Array(edges.count).fill(-1);
+    scratch.used = new Int32Array(edges.count);
+  }
+  const { facing, next, used } = scratch;
+  const [dx, dy, dz] = view;
+  for (let v = 0; v < vertexCount; v += 1) {
+    const g = nrm[v * 3] * dx + nrm[v * 3 + 1] * dy + nrm[v * 3 + 2] * dz;
+    facing[v] = g === 0 ? -1e-7 : g;
+  }
+  let usedCount = 0;
+  const { of } = edges;
+  for (let t2 = 0; t2 < tri.length; t2 += 3) {
+    const fa = facing[tri[t2]] > 0, fb = facing[tri[t2 + 1]] > 0, fc = facing[tri[t2 + 2]] > 0;
+    if (fa === fb && fb === fc) continue;
+    let l, lm, nl;
+    if (fb !== fa && fb !== fc) {
+      l = tri[t2 + 1];
+      lm = of[t2 + 1];
+      nl = of[t2];
+    } else if (fc !== fa && fc !== fb) {
+      l = tri[t2 + 2];
+      lm = of[t2 + 2];
+      nl = of[t2 + 1];
+    } else {
+      l = tri[t2];
+      lm = of[t2];
+      nl = of[t2 + 2];
+    }
+    const from = facing[l] > 0 ? lm : nl;
+    next[from] = facing[l] > 0 ? nl : lm;
+    used[usedCount] = from;
+    usedCount += 1;
+  }
+  const loops = [];
+  for (let u = 0; u < usedCount; u += 1) {
+    let key = used[u];
+    if (next[key] === -1) continue;
+    const loop2 = [];
+    while (next[key] !== -1) {
+      const a = edges.a[key], b2 = edges.b[key];
+      const t2 = facing[a] / (facing[a] - facing[b2]);
+      loop2.push(
+        pos[a * 3] + (pos[b2 * 3] - pos[a * 3]) * t2,
+        pos[a * 3 + 1] + (pos[b2 * 3 + 1] - pos[a * 3 + 1]) * t2,
+        pos[a * 3 + 2] + (pos[b2 * 3 + 2] - pos[a * 3 + 2]) * t2
+      );
+      const to = next[key];
+      next[key] = -1;
+      key = to;
+    }
+    if (loop2.length >= 9) loops.push(loop2);
+  }
+  return loops;
+}
+
+// src/client/avatar/rig.js
+var MODELS = null;
+var models = () => MODELS ??= createModels({ grid: 110 });
+function rotation(yaw, pitch, roll, out = new Float64Array(9)) {
+  const r = Math.PI / 180;
+  const cy = Math.cos(yaw * r), sy = Math.sin(yaw * r);
+  const cp = Math.cos(pitch * r), sp = Math.sin(pitch * r);
+  const cr = Math.cos(roll * r), sr = Math.sin(roll * r);
+  const m00 = cy, m01 = 0, m02 = sy;
+  const m10 = sp * sy, m11 = cp, m12 = -sp * cy;
+  const m20 = -cp * sy, m21 = sp, m22 = cp * cy;
+  out[0] = cr * m00 - sr * m10;
+  out[1] = cr * m01 - sr * m11;
+  out[2] = cr * m02 - sr * m12;
+  out[3] = sr * m00 + cr * m10;
+  out[4] = sr * m01 + cr * m11;
+  out[5] = sr * m02 + cr * m12;
+  out[6] = m20;
+  out[7] = m21;
+  out[8] = m22;
+  return out;
+}
+function buildRig(model, options) {
+  const steps = rigSteps(model, options);
+  for (; ; ) {
+    const { done, value } = steps.next();
+    if (done) return value;
+  }
+}
+function* rigSteps(model, { view = VIEW, cell = model.cell ?? 0.05 } = {}) {
+  for (const profile of model.prepare ?? []) yield* profile.rows();
+  const mesh = yield* meshSteps(model.sdf, { cell });
+  yield;
+  yield* edgeSteps(mesh);
+  yield;
+  const R = rotation(view.yaw, view.pitch, view.roll);
+  const loops = silhouette(mesh, [R[6], R[7], R[8]]);
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+  for (const loop2 of loops) {
+    for (let i = 0; i < loop2.length; i += 3) {
+      const wx = R[0] * loop2[i] + R[1] * loop2[i + 1] + R[2] * loop2[i + 2];
+      const wy = R[3] * loop2[i] + R[4] * loop2[i + 1] + R[5] * loop2[i + 2];
+      x0 = Math.min(x0, wx);
+      x1 = Math.max(x1, wx);
+      y0 = Math.min(y0, wy);
+      y1 = Math.max(y1, wy);
+    }
+  }
+  const scale = 92 / Math.max(x1 - x0, y1 - y0);
+  const cx = (x0 + x1) / 2;
+  const cy = (y0 + y1) / 2;
+  yield;
+  const eyes = model.eyes.map(([x, y]) => {
+    const { p, n } = surfaceAt(model.sdf, x, y);
+    const u = norm(cross([0, 1, 0], n));
+    const v = cross(n, u);
+    return { p, u, v, size: model.eye ?? 1, w: 10, h: 23 };
+  });
+  const box = (wx, wy) => [50 + (wx - cx) * scale, 50 - (wy - cy) * scale];
+  const outline2 = loops.map((loop2) => {
+    const out = new Float32Array(loop2.length / 3 * 2);
+    for (let i = 0, j = 0; i < loop2.length; i += 3, j += 2) {
+      const [bx, by] = box(R[0] * loop2[i] + R[1] * loop2[i + 1] + R[2] * loop2[i + 2], R[3] * loop2[i] + R[4] * loop2[i + 1] + R[5] * loop2[i + 2]);
+      out[j] = bx;
+      out[j + 1] = by;
+    }
+    return out;
+  });
+  const paints = [];
+  for (const paint of model.paints ?? []) paints.push({ fill: paint.fill, opacity: paint.opacity ?? 1, faces: yield* clipSteps(mesh, paint.region) });
+  yield;
+  const decals = [];
+  for (const { faces } of paints) {
+    for (const { points, normal } of faces) {
+      if (normal[0] * R[6] + normal[1] * R[7] + normal[2] * R[8] <= 0) continue;
+      const out = new Float32Array(points.length / 3 * 2);
+      for (let i = 0, j = 0; i < points.length; i += 3, j += 2) {
+        const [bx, by] = box(R[0] * points[i] + R[1] * points[i + 1] + R[2] * points[i + 2], R[3] * points[i] + R[4] * points[i + 1] + R[5] * points[i + 2]);
+        out[j] = bx;
+        out[j + 1] = by;
+      }
+      decals.push(out);
+    }
+  }
+  yield;
+  const free = yield* freeSteps(outline2, decals);
+  yield;
+  const look = yield* lookSteps(free, eyes.map((eye2) => {
+    const n = cross(eye2.u, eye2.v);
+    const facing = n[0] * R[6] + n[1] * R[7] + n[2] * R[8];
+    const across = (d) => Math.hypot(R[0] * d[0] + R[1] * d[1] + R[2] * d[2], R[3] * d[0] + R[4] * d[1] + R[5] * d[2]);
+    const [x, y] = box(R[0] * eye2.p[0] + R[1] * eye2.p[1] + R[2] * eye2.p[2], R[3] * eye2.p[0] + R[4] * eye2.p[1] + R[5] * eye2.p[2]);
+    const tilt = Math.atan2(R[0] * eye2.v[0] + R[1] * eye2.v[1] + R[2] * eye2.v[2], R[3] * eye2.v[0] + R[4] * eye2.v[1] + R[5] * eye2.v[2]);
+    return { x, y, tilt, w: eye2.w * eye2.size * across(eye2.u) * Math.min(1, facing / 0.15), h: eye2.h * eye2.size * across(eye2.v) };
+  }));
+  return { sdf: model.sdf, mesh, view, cx, cy, scale, bottom: 50 + (cy - y0) * scale, eyes, look, paints };
+}
+var FREE_CELL = 0.5;
+var FREE_SIZE = Math.ceil(100 / FREE_CELL);
+function* freeSteps(outline2, decals) {
+  const cells = new Uint8Array(FREE_SIZE * FREE_SIZE);
+  let since = clock2();
+  function* fill2(loops, value, nonzero, top = 0, bottom = 100) {
+    const first = Math.max(0, Math.floor(top / FREE_CELL - 0.5));
+    const last = Math.min(FREE_SIZE - 1, Math.ceil(bottom / FREE_CELL - 0.5));
+    for (let row = first; row <= last; row += 1) {
+      if (clock2() - since > STEP_MS) {
+        yield;
+        since = clock2();
+      }
+      const y = (row + 0.5) * FREE_CELL;
+      const hits = [];
+      for (const pts of loops) {
+        const n = pts.length / 2;
+        for (let i = 0, j = n - 1; i < n; j = i, i += 1) {
+          const ay = pts[j * 2 + 1], by = pts[i * 2 + 1];
+          if (ay <= y === by <= y) continue;
+          const ax = pts[j * 2], bx = pts[i * 2];
+          hits.push(ax + (y - ay) / (by - ay) * (bx - ax), by > ay ? 1 : -1);
+        }
+      }
+      if (hits.length === 0) continue;
+      const order = [...Array(hits.length / 2).keys()].sort((p, q) => hits[p * 2] - hits[q * 2]);
+      let winding = 0;
+      for (let k = 0; k < order.length; k += 1) {
+        const before = winding;
+        winding += nonzero ? hits[order[k] * 2 + 1] : 1;
+        const inside = nonzero ? before !== 0 : before % 2 === 1;
+        if (!inside || k === 0) continue;
+        const from = Math.max(0, Math.ceil(hits[order[k - 1] * 2] / FREE_CELL - 0.5));
+        const to = Math.min(FREE_SIZE - 1, Math.floor(hits[order[k] * 2] / FREE_CELL - 0.5));
+        for (let col = from; col <= to; col += 1) cells[row * FREE_SIZE + col] = value;
+      }
+    }
+  }
+  yield* fill2(outline2, 1, true);
+  for (const decal of decals) {
+    let top = Infinity, bottom = -Infinity;
+    for (let i = 1; i < decal.length; i += 2) {
+      top = Math.min(top, decal[i]);
+      bottom = Math.max(bottom, decal[i]);
+    }
+    if (bottom - top < FREE_CELL / 4) continue;
+    yield* fill2([decal], 0, false, top, bottom);
+  }
+  return (x, y) => {
+    const col = Math.floor(x / FREE_CELL);
+    const row = Math.floor(y / FREE_CELL);
+    return col >= 0 && row >= 0 && col < FREE_SIZE && row < FREE_SIZE && cells[row * FREE_SIZE + col] === 1;
+  };
+}
+var LOOK_WAYS = 16;
+var LOOK_BIG = 1.35;
+var LOOK_RAMP = 0.08;
+var LOOK_MAX = 9;
+var EYE_EDGE = 1.5;
+function* lookSteps(free, eyes) {
+  const room2 = {};
+  let since = clock2();
+  const reach = (x, y, dx, dy, most) => {
+    let t2 = 0;
+    while (t2 < most && free(x + dx * (t2 + FREE_CELL / 2), y + dy * (t2 + FREE_CELL / 2))) t2 += FREE_CELL / 2;
+    return t2;
+  };
+  for (const [name, grown] of [["ways", 1], ["big", LOOK_BIG]]) {
+    const ways = room2[name] = new Float64Array(LOOK_WAYS).fill(LOOK_MAX);
+    const rims = [];
+    for (const eye2 of eyes) {
+      if (!free(eye2.x, eye2.y)) continue;
+      const c = Math.cos(eye2.tilt), s = Math.sin(eye2.tilt);
+      const rim = eyePolygons(FACES.neutral[0], eye2.w * grown, eye2.h * grown, 1)[0];
+      for (let i = 0; i < rim.length; i += 2) {
+        const ox = rim[i] * c - rim[i + 1] * s;
+        const oy = rim[i] * s + rim[i + 1] * c;
+        const length = Math.hypot(ox, oy);
+        const edge = Math.min(length, reach(eye2.x, eye2.y, ox / length, oy / length, length));
+        rims.push(eye2.x + ox / length * edge, eye2.y + oy / length * edge);
+      }
+    }
+    if (rims.length === 0) ways.fill(0);
+    for (let k = 0; k < LOOK_WAYS && rims.length > 0; k += 1) {
+      if (clock2() - since > STEP_MS) {
+        yield;
+        since = clock2();
+      }
+      const angle = 2 * Math.PI * k / LOOK_WAYS;
+      const dx = Math.cos(angle);
+      const dy = Math.sin(angle);
+      for (let i = 0; i < rims.length; i += 2) ways[k] = Math.min(ways[k], Math.max(0, reach(rims[i], rims[i + 1], dx, dy, LOOK_MAX + EYE_EDGE) - EYE_EDGE));
+    }
+    const each = Float64Array.from(ways);
+    for (let k = 0; k < LOOK_WAYS; k += 1) ways[k] = Math.min(each[(k + LOOK_WAYS - 1) % LOOK_WAYS], each[k], each[(k + 1) % LOOK_WAYS]);
+  }
+  return room2;
+}
+function* clipSteps(mesh, region) {
+  const { pos, tri } = mesh;
+  const values = new Float32Array(pos.length / 3);
+  let since = clock2();
+  for (let v = 0; v < values.length; v += 1) {
+    if (v % 64 === 0 && clock2() - since > STEP_MS) {
+      yield;
+      since = clock2();
+    }
+    values[v] = region([pos[v * 3], pos[v * 3 + 1], pos[v * 3 + 2]]);
+  }
+  const faces = [];
+  const point = (v) => [pos[v * 3], pos[v * 3 + 1], pos[v * 3 + 2]];
+  for (let t2 = 0; t2 < tri.length; t2 += 3) {
+    if (t2 % 192 === 0 && clock2() - since > STEP_MS) {
+      yield;
+      since = clock2();
+    }
+    const ids = [tri[t2], tri[t2 + 1], tri[t2 + 2]];
+    const inside = ids.map((v) => values[v] < 0);
+    if (!inside.some(Boolean)) continue;
+    const corners2 = ids.map(point);
+    const normal = norm(cross(sub3(corners2[1], corners2[0]), sub3(corners2[2], corners2[0])));
+    const polygon2 = [];
+    for (let k = 0; k < 3; k += 1) {
+      const a = ids[k], b2 = ids[(k + 1) % 3];
+      const pa = corners2[k], pb = corners2[(k + 1) % 3];
+      if (values[a] < 0) polygon2.push(pa);
+      if (values[a] < 0 !== values[b2] < 0) {
+        const s = values[a] / (values[a] - values[b2]);
+        polygon2.push([pa[0] + (pb[0] - pa[0]) * s, pa[1] + (pb[1] - pa[1]) * s, pa[2] + (pb[2] - pa[2]) * s]);
+      }
+    }
+    faces.push({ points: Float32Array.from(polygon2.flat()), normal });
+  }
+  return faces;
+}
+var sub3 = (a, b2) => [a[0] - b2[0], a[1] - b2[1], a[2] - b2[2]];
+var rigs = /* @__PURE__ */ new Map();
+var turns = (id, def) => Object.hasOwn(models(), id) && (!def || def.body === void 0 && def.path === CHARACTERS[id]?.body);
+function rigFor(id, def) {
+  if (!turns(id, def)) return null;
+  if (!rigs.has(id)) rigs.set(id, buildRig(models()[id]));
+  return rigs.get(id);
+}
+function rigJob(id, def) {
+  if (!turns(id, def) || rigs.has(id)) return () => true;
+  const steps = rigSteps(models()[id]);
+  return () => {
+    if (rigs.has(id)) return true;
+    const step = steps.next();
+    if (step.done) rigs.set(id, step.value);
+    return step.done;
+  };
+}
+var rigReady = (id, def) => !turns(id, def) || rigs.has(id);
+
+// src/client/avatar/render.js
+function shapesOf(rig, frame3, scratch = {}) {
+  const { view, cx, cy, scale, bottom, mesh, sdf, look } = rig;
+  const R = rotation(view.yaw + frame3.yaw, view.pitch + frame3.pitch, view.roll + frame3.roll, scratch.R);
+  scratch.R = R;
+  const dir = [R[6], R[7], R[8]];
+  const sy = 1 - clamp2(frame3.sq, -0.4, 0.4);
+  const sx = 1 / sy;
+  const s = 1 + frame3.scale;
+  const ox = 50 + frame3.x;
+  const oy = 50 + frame3.y;
+  const place = (wx, wy, out, at2) => {
+    const bx = 50 + (wx - cx) * scale;
+    const by = 50 - (wy - cy) * scale;
+    out[at2] = ox + s * sx * (bx - 50);
+    out[at2 + 1] = oy + s * (bottom + sy * (by - bottom) - 50);
+  };
+  const body = silhouette(mesh, dir, scratch).map((loop2) => {
+    const out = new Float32Array(loop2.length / 3 * 2);
+    for (let i = 0, j = 0; i < loop2.length; i += 3, j += 2) {
+      place(R[0] * loop2[i] + R[1] * loop2[i + 1] + R[2] * loop2[i + 2], R[3] * loop2[i] + R[4] * loop2[i + 1] + R[5] * loop2[i + 2], out, j);
+    }
+    return out;
+  });
+  if (scratch.paintRig !== rig) {
+    scratch.paintRig = rig;
+    scratch.paints = rig.paints.map(({ fill: fill2, opacity, faces }) => ({
+      fill: fill2,
+      opacity,
+      count: 0,
+      points: new Float32Array(faces.reduce((sum, face) => sum + face.points.length / 3 * 2, 0)),
+      ends: new Int32Array(faces.length)
+    }));
+  }
+  const paints = scratch.paints;
+  rig.paints.forEach(({ faces }, index) => {
+    const paint = paints[index];
+    let j = 0;
+    paint.count = 0;
+    for (const { points, normal } of faces) {
+      if (normal[0] * dir[0] + normal[1] * dir[1] + normal[2] * dir[2] <= 0) continue;
+      for (let i = 0; i < points.length; i += 3, j += 2) {
+        place(R[0] * points[i] + R[1] * points[i + 1] + R[2] * points[i + 2], R[3] * points[i] + R[4] * points[i + 1] + R[5] * points[i + 2], paint.points, j);
+      }
+      paint.ends[paint.count] = j;
+      paint.count += 1;
+    }
+  });
+  const eyes = [];
+  const pupil = 1 + frame3.pupil;
+  let gx = 0;
+  let gy = 0;
+  const reach = Math.min(1, Math.hypot(frame3.gx, frame3.gy));
+  if (reach > 0) {
+    const angle = Math.atan2(frame3.gy, frame3.gx);
+    const at2 = (angle / (2 * Math.PI) * LOOK_WAYS % LOOK_WAYS + LOOK_WAYS) % LOOK_WAYS;
+    const k = Math.floor(at2);
+    const grown = Math.min(1, Math.max(0, pupil * Math.max(...frame3.face.map((eye2) => Math.max(eye2.w ?? 1, eye2.h ?? 1))) - 1) / LOOK_RAMP);
+    const way = (i) => look.ways[i] + (look.big[i] - look.ways[i]) * grown;
+    const room2 = way(k) + (way((k + 1) % LOOK_WAYS) - way(k)) * (at2 - k);
+    gx = Math.cos(angle) * reach * room2;
+    gy = Math.sin(angle) * reach * room2;
+  }
+  const lean = frame3.roll * Math.PI / 180;
+  const glance = [s * sx * (gx * Math.cos(lean) + gy * Math.sin(lean)), s * sy * (gy * Math.cos(lean) - gx * Math.sin(lean))];
+  rig.eyes.forEach((eye2, index) => {
+    const { p } = eye2;
+    const { n, u, v } = surfaceFrame(sdf, p);
+    const facing = n[0] * dir[0] + n[1] * dir[1] + n[2] * dir[2];
+    if (facing <= 0.02) return;
+    const ux = R[0] * u[0] + R[1] * u[1] + R[2] * u[2];
+    const uy = R[3] * u[0] + R[4] * u[1] + R[5] * u[2];
+    const vx = R[0] * v[0] + R[1] * v[1] + R[2] * v[2];
+    const vy = R[3] * v[0] + R[4] * v[1] + R[5] * v[2];
+    const W = eye2.w * eye2.size * Math.hypot(ux, uy) * Math.min(1, facing / 0.15) * pupil;
+    const H = eye2.h * eye2.size * Math.hypot(vx, vy) * pupil;
+    const tilt = Math.atan2(vx, vy);
+    const c = Math.cos(tilt), sn = Math.sin(tilt);
+    const center = [0, 0];
+    place(R[0] * p[0] + R[1] * p[1] + R[2] * p[2], R[3] * p[0] + R[4] * p[1] + R[5] * p[2], center, 0);
+    center[0] += glance[0];
+    center[1] += glance[1];
+    const shape = frame3.face[index] ?? frame3.face[0];
+    for (const poly of eyePolygons(shape, W, H, index === 0 ? -1 : 1, frame3.closed[index] ?? 0)) {
+      const out = new Float32Array(poly.length);
+      for (let i = 0; i < poly.length; i += 2) {
+        const lx = poly[i] * c - poly[i + 1] * sn;
+        const ly = poly[i] * sn + poly[i + 1] * c;
+        out[i] = center[0] + lx * s * sx;
+        out[i + 1] = center[1] + ly * s * sy;
+      }
+      eyes.push(out);
+    }
+  });
+  return { body, paints, eyes, accent: frame3.accent, offset: [frame3.x, frame3.y] };
+}
+function surfaceFrame(sdf, p) {
+  const n = normalAt(sdf, p);
+  let u = [n[2], 0, -n[0]];
+  const l = Math.hypot(u[0], u[2]);
+  u = l < 1e-6 ? [1, 0, 0] : [u[0] / l, 0, u[2] / l];
+  const v = [n[1] * u[2] - n[2] * u[1], n[2] * u[0] - n[0] * u[2], n[0] * u[1] - n[1] * u[0]];
+  return { n, u, v };
+}
+function normalAt(sdf, p) {
+  const e = 1e-3;
+  const q = [p[0], p[1], p[2]];
+  const g = [0, 0, 0];
+  for (let axis = 0; axis < 3; axis += 1) {
+    q[axis] = p[axis] + e;
+    const a = sdf(q);
+    q[axis] = p[axis] - e;
+    const b2 = sdf(q);
+    q[axis] = p[axis];
+    g[axis] = a - b2;
+  }
+  const l = Math.hypot(g[0], g[1], g[2]) || 1;
+  return [g[0] / l, g[1] / l, g[2] / l];
+}
+var clamp2 = (value, lo, hi) => Math.max(lo, Math.min(hi, value));
+function smoothLoop(ctx, pts) {
+  const n = pts.length / 2;
+  if (n < 3) return;
+  const mx = (pts[(n - 1) * 2] + pts[0]) / 2;
+  const my = (pts[(n - 1) * 2 + 1] + pts[1]) / 2;
+  ctx.moveTo(mx, my);
+  for (let i = 0; i < n; i += 1) {
+    const j = (i + 1) % n;
+    ctx.quadraticCurveTo(pts[i * 2], pts[i * 2 + 1], (pts[i * 2] + pts[j * 2]) / 2, (pts[i * 2 + 1] + pts[j * 2 + 1]) / 2);
+  }
+  ctx.closePath();
+}
+function polygon(ctx, pts, from = 0, to = pts.length) {
+  ctx.moveTo(pts[from], pts[from + 1]);
+  for (let i = from + 2; i < to; i += 2) ctx.lineTo(pts[i], pts[i + 1]);
+  ctx.closePath();
+}
+function* decalPolys(paint) {
+  for (let k = 0, from = 0; k < paint.count; k += 1) {
+    yield [from, paint.ends[k]];
+    from = paint.ends[k];
+  }
+}
+function drawShapes(ctx, shapes, ink, confetti = []) {
+  ctx.fillStyle = ink;
+  ctx.beginPath();
+  for (const loop2 of shapes.body) smoothLoop(ctx, loop2);
+  ctx.fill("nonzero");
+  ctx.globalCompositeOperation = "source-atop";
+  for (const paint of shapes.paints) {
+    if (paint.count === 0) continue;
+    ctx.globalAlpha = paint.opacity;
+    ctx.fillStyle = paint.fill;
+    ctx.beginPath();
+    for (let k = 0, from = 0; k < paint.count; from = paint.ends[k], k += 1) polygon(ctx, paint.points, from, paint.ends[k]);
+    ctx.fill("nonzero");
+    ctx.globalAlpha = 1;
+  }
+  ctx.globalCompositeOperation = "source-over";
+  if (shapes.accent?.kind === "confetti") {
+    ctx.globalCompositeOperation = "destination-over";
+    drawConfetti(ctx, shapes.accent, [ink, ...confetti]);
+    ctx.globalCompositeOperation = "source-over";
+  }
+  if (shapes.eyes.length > 0) {
+    ctx.globalCompositeOperation = "destination-out";
+    ctx.fillStyle = ink;
+    ctx.beginPath();
+    for (const eye2 of shapes.eyes) polygon(ctx, eye2);
+    ctx.fill("nonzero");
+    ctx.globalCompositeOperation = "source-over";
+  }
+  if (shapes.accent && shapes.accent.kind !== "confetti") drawAccent(ctx, shapes.accent, ink, shapes.offset);
+}
+var CONFETTI = 18;
+function drawConfetti(ctx, accent, colors) {
+  for (const { at: at2, seed } of accent.bursts) drawBurst(ctx, accent.t - at2, seed, colors);
+}
+function drawBurst(ctx, t2, seed, colors) {
+  const rng = random(seed);
+  const drag = 2.4;
+  const flight = (1 - Math.exp(-drag * t2)) / drag;
+  const fall = 0.5 * 75 * t2 * t2;
+  const alpha = Math.min(1, t2 / 0.06) * Math.max(0, Math.min(1, (1.7 - t2) / 0.5));
+  if (alpha <= 0) return;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.lineCap = "round";
+  for (let index = 0; index < CONFETTI; index += 1) {
+    const angle = -Math.PI / 2 + (rng() * 2 - 1) * 1.2;
+    const speed = 100 + rng() * 60;
+    const spin = (rng() * 2 - 1) * 9;
+    const tilt = rng() * Math.PI;
+    const x = 50 + Math.cos(angle) * speed * flight;
+    const y = 40 + Math.sin(angle) * speed * flight + fall;
+    const color = colors[index % colors.length];
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(tilt + spin * t2);
+    if (index % 3 === 0) {
+      const curl = Math.sin(t2 * 11 + tilt * 3) * 2.6;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.7;
+      ctx.beginPath();
+      ctx.moveTo(-5, 0);
+      ctx.bezierCurveTo(-2, -curl, 2, curl, 5, 0);
+      ctx.stroke();
+    } else {
+      const w = 4.4 * Math.max(0.15, Math.abs(Math.cos(t2 * 13 + tilt)));
+      ctx.fillStyle = color;
+      ctx.fillRect(-w / 2, -1.3, w, 2.6);
+    }
+    ctx.restore();
+  }
+  ctx.restore();
+}
+var wave = (t2) => 0.5 - 0.5 * Math.cos(t2 * Math.PI * 2);
+function drawAccent(ctx, accent, ink, [ox, oy]) {
+  const { kind, t: t2 } = accent;
+  ctx.save();
+  ctx.translate(ox * 0.5, oy * 0.5);
+  ctx.fillStyle = ink;
+  ctx.strokeStyle = ink;
+  if (kind === "dots") {
+    const dots = [[82, 10, 3.4], [93, 0, 4.4], [106, -12, 5.6]];
+    dots.forEach(([x, y, r], index) => {
+      const phase = ((t2 - index * 0.24) % 1.5 + 1.5) % 1.5;
+      const k = phase < 0.9 ? wave(phase / 0.9) : 0;
+      ctx.globalAlpha = Math.min(1, t2 * 2) * (0.28 + 0.6 * k);
+      ctx.beginPath();
+      ctx.arc(x, y - k * 1.5, r * (0.9 + 0.15 * k), 0, Math.PI * 2);
+      ctx.fill();
+    });
+  } else if (kind === "z") {
+    ctx.lineWidth = 2.6;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    for (let index = 0; index < 2; index += 1) {
+      const phase = ((t2 / 2.6 - index * 0.5) % 1 + 1) % 1;
+      const size = 7 + phase * 5;
+      const x = 80 + phase * 14;
+      const y = 16 - phase * 26;
+      ctx.globalAlpha = Math.min(1, t2) * Math.sin(phase * Math.PI) * 0.8;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + size, y);
+      ctx.lineTo(x, y + size);
+      ctx.lineTo(x + size, y + size);
+      ctx.stroke();
+    }
+  } else if (kind === "sparkle") {
+    const k = Math.min(1, t2 / 1.1);
+    for (let index = 0; index < 5; index += 1) {
+      const angle = -Math.PI / 2 + (index - 2) * 0.62;
+      const reach = 40 + 24 * easeOut(k);
+      const x = 50 + Math.cos(angle) * reach;
+      const y = 48 + Math.sin(angle) * reach * 0.9;
+      const r = (index % 2 ? 4.2 : 5.6) * Math.sin(Math.min(1, k * 1.3) * Math.PI);
+      if (r <= 0) continue;
+      ctx.globalAlpha = 0.9;
+      ctx.beginPath();
+      ctx.moveTo(x, y - r);
+      ctx.quadraticCurveTo(x, y, x + r, y);
+      ctx.quadraticCurveTo(x, y, x, y + r);
+      ctx.quadraticCurveTo(x, y, x - r, y);
+      ctx.quadraticCurveTo(x, y, x, y - r);
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+var easeOut = (t2) => 1 - (1 - t2) ** 3;
+var fmt = (v) => (Math.round(v * 100) / 100).toString();
+function pathsOf(shapes) {
+  const loop2 = (pts) => {
+    const n = pts.length / 2;
+    if (n < 3) return "";
+    let d = `M${fmt((pts[(n - 1) * 2] + pts[0]) / 2)} ${fmt((pts[(n - 1) * 2 + 1] + pts[1]) / 2)}`;
+    for (let i = 0; i < n; i += 1) {
+      const j = (i + 1) % n;
+      d += `Q${fmt(pts[i * 2])} ${fmt(pts[i * 2 + 1])} ${fmt((pts[i * 2] + pts[j * 2]) / 2)} ${fmt((pts[i * 2 + 1] + pts[j * 2 + 1]) / 2)}`;
+    }
+    return `${d}Z`;
+  };
+  const poly = (pts, from = 0, to = pts.length) => {
+    let d = `M${fmt(pts[from])} ${fmt(pts[from + 1])}`;
+    for (let i = from + 2; i < to; i += 2) d += `L${fmt(pts[i])} ${fmt(pts[i + 1])}`;
+    return `${d}Z`;
+  };
+  return {
+    body: shapes.body.map(loop2).join(""),
+    paints: shapes.paints.map((paint) => ({ fill: paint.fill, opacity: paint.opacity, d: [...decalPolys(paint)].map(([from, to]) => poly(paint.points, from, to)).join("") })),
+    eyes: shapes.eyes.map((pts) => poly(pts)).join("")
+  };
+}
+
+// src/client/motion-rest.js
+var REST_MS = 3e4;
+var INPUTS = ["pointermove", "pointerdown", "keydown", "wheel", "touchstart"];
+var CHANGES = ["animationstart", "animationcancel", "animationend"];
+var isLoop = (animation) => animation?.effect?.getTiming?.().iterations === Infinity;
+var boxOf = (target) => {
+  let element = target ?? null;
+  while (element?.ownerSVGElement) element = element.ownerSVGElement;
+  return element;
+};
+function installMotionRest({ doc = document, win = window, restMs = REST_MS, now: now2 = () => Date.now() } = {}) {
+  if (typeof doc?.getAnimations !== "function") return () => {
+  };
+  const loops = /* @__PURE__ */ new Map();
+  const held = /* @__PURE__ */ new Set();
+  const watched = /* @__PURE__ */ new Map();
+  const inView = /* @__PURE__ */ new WeakMap();
+  let last = now2();
+  let resting2 = doc.hidden === true;
+  let cover = null;
+  let coverIsModal = false;
+  let timer2 = 0;
+  let queued = false;
+  let stopped = false;
+  const readCover = () => {
+    if (typeof doc.querySelectorAll !== "function") return { node: null, modal: false };
+    const modals = doc.querySelectorAll('[aria-modal="true"]');
+    if (modals.length > 0) return { node: modals[modals.length - 1], modal: true };
+    const scrims = doc.querySelectorAll(".bt-scrim");
+    if (scrims.length === 0) return { node: null, modal: false };
+    const scrim = scrims[scrims.length - 1];
+    const parent = scrim.parentElement;
+    return { node: parent && parent !== doc.body && parent !== doc.documentElement ? parent : scrim, modal: false };
+  };
+  const isCoverNode = (node) => {
+    if (!node || node.nodeType !== 1) return false;
+    if (node.getAttribute?.("aria-modal") === "true" || node.classList?.contains?.("bt-scrim")) return true;
+    return node.firstElementChild !== null && typeof node.querySelector === "function" && node.querySelector('[aria-modal="true"],.bt-scrim') !== null;
+  };
+  const hasCoverMutation = (records) => {
+    if (cover !== null && (cover.isConnected === false || coverIsModal && cover.getAttribute?.("aria-modal") !== "true")) return true;
+    if (!Array.isArray(records)) return true;
+    for (const record of records) {
+      if (record.type === "attributes") {
+        if (record.attributeName === "aria-modal") return true;
+        continue;
+      }
+      if (record.type === "childList") {
+        for (const node of record.addedNodes ?? []) if (isCoverNode(node)) return true;
+        for (const node of record.removedNodes ?? []) if (isCoverNode(node)) return true;
+      }
+    }
+    return false;
+  };
+  const runs = (animation) => {
+    if (resting2) return false;
+    const element = loops.get(animation);
+    if (cover !== null && cover.isConnected !== false && (element === null || typeof cover.contains === "function" && !cover.contains(element))) return false;
+    return inView.get(element) !== false;
+  };
+  const apply2 = () => {
+    for (const animation of loops.keys()) {
+      if (runs(animation)) {
+        if (held.delete(animation) && animation.playState === "paused") animation.play();
+      } else if (animation.playState === "running") {
+        animation.pause();
+        held.add(animation);
+      }
+    }
+  };
+  const observer2 = typeof win.IntersectionObserver === "function" ? new win.IntersectionObserver((entries2) => {
+    for (const entry of entries2) inView.set(entry.target, entry.isIntersecting);
+    apply2();
+  }) : null;
+  const watch2 = (element) => {
+    const count = watched.get(element) ?? 0;
+    watched.set(element, count + 1);
+    if (count === 0) observer2?.observe(element);
+  };
+  const unwatch2 = (element) => {
+    const count = (watched.get(element) ?? 1) - 1;
+    if (count > 0) {
+      watched.set(element, count);
+      return;
+    }
+    watched.delete(element);
+    inView.delete(element);
+    observer2?.unobserve(element);
+  };
+  const sync = () => {
+    queued = false;
+    if (stopped) return;
+    const found = readCover();
+    cover = found.node;
+    coverIsModal = found.modal;
+    const current2 = new Set(doc.getAnimations().filter(isLoop));
+    for (const [animation, element] of loops) {
+      if (current2.has(animation)) continue;
+      loops.delete(animation);
+      if (held.delete(animation) && animation.playState === "paused") animation.play();
+      if (element) unwatch2(element);
+    }
+    for (const animation of current2) {
+      if (loops.has(animation)) continue;
+      const element = boxOf(animation.effect?.target);
+      loops.set(animation, element);
+      if (element) watch2(element);
+    }
+    apply2();
+  };
+  const later = () => {
+    if (queued) return;
+    queued = true;
+    void Promise.resolve().then(sync);
+  };
+  const onAnimationChange = (event) => {
+    const target = event?.target;
+    if (target !== void 0 && target !== null) {
+      const box = boxOf(target);
+      if (event.type === "animationstart") {
+        if (!event.pseudoElement && typeof target.getAnimations === "function") {
+          const own = target.getAnimations();
+          if (!own.some(isLoop) && !watched.has(box)) return;
+        }
+      } else if (event.type === "animationend" || event.type === "animationcancel") {
+        if (!watched.has(box)) return;
+      }
+    }
+    later();
+  };
+  const bodyObserver = typeof win.MutationObserver === "function" && doc.body ? new win.MutationObserver((records) => {
+    if (!hasCoverMutation(records)) return;
+    const next = readCover();
+    if (next.node === cover && next.modal === coverIsModal) return;
+    cover = next.node;
+    coverIsModal = next.modal;
+    apply2();
+  }) : null;
+  bodyObserver?.observe(doc.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["aria-modal"] });
+  const check = () => {
+    timer2 = 0;
+    const left = last + restMs - now2();
+    if (left > 0) {
+      timer2 = win.setTimeout(check, left);
+      return;
+    }
+    resting2 = true;
+    sync();
+  };
+  const touch = () => {
+    last = now2();
+    if (!timer2) timer2 = win.setTimeout(check, restMs);
+    if (resting2 && doc.hidden !== true) {
+      resting2 = false;
+      sync();
+    }
+  };
+  const shown = () => {
+    if (doc.hidden === true) {
+      resting2 = true;
+      sync();
+    } else touch();
+  };
+  for (const type of INPUTS) win.addEventListener(type, touch, { capture: true, passive: true });
+  win.addEventListener("focus", touch);
+  doc.addEventListener("visibilitychange", shown);
+  for (const type of CHANGES) doc.addEventListener(type, onAnimationChange, true);
+  timer2 = win.setTimeout(check, restMs);
+  sync();
+  return () => {
+    stopped = true;
+    for (const type of INPUTS) win.removeEventListener(type, touch, { capture: true });
+    win.removeEventListener("focus", touch);
+    doc.removeEventListener("visibilitychange", shown);
+    for (const type of CHANGES) doc.removeEventListener(type, onAnimationChange, true);
+    if (timer2) win.clearTimeout(timer2);
+    observer2?.disconnect();
+    bodyObserver?.disconnect();
+    for (const animation of held) if (animation.playState === "paused") animation.play();
+    held.clear();
+    loops.clear();
+    watched.clear();
+  };
+}
+
+// src/client/avatar/live.js
+var DOZE_MS = 15e4;
+var MARGIN = 0.3;
+var CONFETTI_INKS = ["rose", "sky", "yellow", "green", "violet"];
+var marks = /* @__PURE__ */ new Set();
+var frame = 0;
+var timer = 0;
+var looping = false;
+var lastInput = typeof performance === "undefined" ? 0 : performance.now();
+var resting = false;
+var dozing = false;
+var watching = false;
+var restTimer = 0;
+var observer = null;
+var settingsObserver = null;
+var reduceQuery = null;
+var shownSettings = "";
+var shownDark = null;
+var themeEpoch = 0;
+var pointer = null;
+var aimed = true;
+var followers = 0;
+function motionSettings() {
+  const tier = typeof document === "undefined" ? void 0 : document.body?.dataset?.btMotion;
+  return {
+    tier: tier === "quiet" || tier === "lively" ? tier : "normal",
+    effects: reducedMotion() ? "off" : reducedEffects() ? "reduced" : "full"
+  };
+}
+function now() {
+  return performance.now();
+}
+function kick() {
+  if (frame || looping || marks.size === 0) return;
+  if (timer) {
+    clearTimeout(timer);
+    timer = 0;
+  }
+  frame = requestAnimationFrame(loop);
+}
+function loop(time) {
+  frame = 0;
+  looping = true;
+  let soonest = Infinity;
+  const hidden = document.hidden === true;
+  try {
+    if (!aimed && !hidden) aim();
+    for (const mark2 of marks) {
+      if (hidden || !mark2.visible) continue;
+      soonest = Math.min(soonest, mark2.step(time));
+    }
+  } finally {
+    looping = false;
+  }
+  if (hidden || marks.size === 0) return;
+  if (soonest <= 0.03) frame = requestAnimationFrame(loop);
+  else if (Number.isFinite(soonest)) timer = setTimeout(() => {
+    timer = 0;
+    kick();
+  }, Math.min(soonest * 1e3, 6e4));
+}
+function onPointer(event) {
+  onInput();
+  if (pointer && pointer.x === event.clientX && pointer.y === event.clientY) return;
+  pointer = { x: event.clientX, y: event.clientY };
+  aimed = false;
+  if (followers > 0) kick();
+}
+function onPointerLeave() {
+  pointer = null;
+  aimed = false;
+  if (followers > 0) kick();
+}
+function aim() {
+  aimed = true;
+  const boxes = [];
+  for (const mark2 of marks) {
+    if (!mark2.follow || !mark2.visible || !mark2.host.isConnected) continue;
+    if (pointer && !mark2.engine.follows) continue;
+    boxes.push([mark2, pointer ? mark2.host.getBoundingClientRect() : null]);
+  }
+  for (const [mark2, box] of boxes) {
+    const r = box ? Math.max(box.width / 2, 1) : 1;
+    mark2.engine.gaze(box && { x: (pointer.x - box.left - r) / r, y: (pointer.y - box.top - box.height / 2) / r });
+    mark2.dirty = true;
+  }
+}
+function onInput() {
+  lastInput = now();
+  if (resting || dozing) {
+    resting = false;
+    dozing = false;
+    for (const mark2 of marks) {
+      mark2.engine.rest(false);
+      mark2.engine.doze(false);
+      mark2.dirty = true;
+    }
+    kick();
+  }
+}
+function checkRest() {
+  const idle = now() - lastInput;
+  if (!resting && idle >= REST_MS) {
+    resting = true;
+    for (const mark2 of marks) mark2.engine.rest(true);
+  }
+  if (!dozing && idle >= DOZE_MS) {
+    dozing = true;
+    for (const mark2 of marks) if (mark2.engine.live && mark2.engine.tier === "lively") mark2.engine.doze(true);
+    kick();
+  }
+}
+function onVisibility() {
+  if (!document.hidden) {
+    for (const mark2 of marks) mark2.sync();
+    kick();
+  }
+}
+function onSettings() {
+  const settings = motionSettings();
+  const key = `${settings.tier}|${settings.effects}`;
+  const dark = document.body?.hasAttribute("data-ds-dark-theme") === true;
+  if (key === shownSettings && dark === shownDark) return;
+  if (dark !== shownDark) themeEpoch += 1;
+  shownSettings = key;
+  shownDark = dark;
+  aimed = false;
+  for (const mark2 of marks) {
+    mark2.engine.setOptions(settings);
+    mark2.dirty = true;
+  }
+  kick();
+}
+var INPUTS2 = ["pointerdown", "keydown", "wheel", "touchstart"];
+function watch() {
+  if (watching) return;
+  watching = true;
+  lastInput = now();
+  resting = false;
+  dozing = false;
+  const settings = motionSettings();
+  shownSettings = `${settings.tier}|${settings.effects}`;
+  shownDark = document.body?.hasAttribute("data-ds-dark-theme") === true;
+  window.addEventListener("pointermove", onPointer, { passive: true, capture: true });
+  for (const type of INPUTS2) window.addEventListener(type, onInput, { passive: true, capture: true });
+  document.documentElement.addEventListener("pointerleave", onPointerLeave);
+  document.addEventListener("visibilitychange", onVisibility);
+  restTimer = setInterval(checkRest, 5e3);
+  if (typeof IntersectionObserver === "function") {
+    observer = new IntersectionObserver((records) => {
+      for (const record of records) {
+        const mark2 = record.target.__btLive;
+        if (!mark2) continue;
+        mark2.visible = record.isIntersecting;
+        if (mark2.visible) {
+          mark2.sync();
+          aimed = false;
+          kick();
+        }
+      }
+    });
+  }
+  if (typeof MutationObserver === "function" && document.body) {
+    settingsObserver = new MutationObserver(onSettings);
+    settingsObserver.observe(document.body, { attributes: true, attributeFilter: ["data-ds-dark-theme", "data-bt-motion", "data-bt-effects"] });
+    settingsObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["data-bt-effects"] });
+  }
+  reduceQuery = window.matchMedia?.("(prefers-reduced-motion: reduce)") ?? null;
+  reduceQuery?.addEventListener?.("change", onSettings);
+}
+function unwatch() {
+  if (!watching || marks.size > 0) return;
+  watching = false;
+  window.removeEventListener("pointermove", onPointer, { capture: true });
+  for (const type of INPUTS2) window.removeEventListener(type, onInput, { capture: true });
+  document.documentElement.removeEventListener("pointerleave", onPointerLeave);
+  document.removeEventListener("visibilitychange", onVisibility);
+  pointer = null;
+  clearInterval(restTimer);
+  observer?.disconnect();
+  observer = null;
+  settingsObserver?.disconnect();
+  settingsObserver = null;
+  reduceQuery?.removeEventListener?.("change", onSettings);
+  reduceQuery = null;
+  if (frame) cancelAnimationFrame(frame);
+  if (timer) clearTimeout(timer);
+  frame = 0;
+  timer = 0;
+  stopBuilding();
+}
+var queue = [];
+var jobs = /* @__PURE__ */ new Map();
+var building = false;
+var idleAsk = null;
+var IDLE_WAIT_MS = 300;
+var FORCED_MS = 5;
+var idleSoon = (fn) => {
+  if (typeof window.requestIdleCallback === "function") {
+    const id = window.requestIdleCallback(fn, { timeout: IDLE_WAIT_MS });
+    idleAsk = { cancel: () => window.cancelIdleCallback?.(id) };
+  } else {
+    const id = setTimeout(() => {
+      const start = now();
+      fn({ timeRemaining: () => Math.max(0, 8 - (now() - start)) });
+    }, 16);
+    idleAsk = { cancel: () => clearTimeout(id) };
+  }
+};
+function stopBuilding() {
+  idleAsk?.cancel();
+  idleAsk = null;
+  building = false;
+  if (marks.size === 0) jobs.clear();
+}
+function buildSoon(mark2) {
+  if (!queue.includes(mark2)) queue.push(mark2);
+  if (building) return;
+  building = true;
+  const work = (deadline) => {
+    idleAsk = null;
+    const until = deadline.didTimeout === true ? now() + FORCED_MS : 0;
+    while (now() < until || deadline.timeRemaining() > 2) {
+      const mark3 = queue[0];
+      if (!mark3) {
+        stopBuilding();
+        return;
+      }
+      const { shape } = mark3.look;
+      let job = jobs.get(shape);
+      if (!job) jobs.set(shape, job = rigJob(shape, mark3.def));
+      if (!job()) continue;
+      jobs.delete(shape);
+      for (const waiting of queue.filter((other) => rigReady(other.look.shape, other.def))) {
+        queue.splice(queue.indexOf(waiting), 1);
+        if (marks.has(waiting)) waiting.attachRig();
+      }
+    }
+    idleSoon(work);
+  };
+  idleSoon(work);
+}
+function flatTransform(frame3) {
+  const sy = 1 - Math.max(-0.4, Math.min(0.4, frame3.sq));
+  const s = 1 + frame3.scale;
+  const turn = Math.max(0.15, Math.abs(Math.cos(frame3.yaw * Math.PI / 180)));
+  return `translate(${frame3.x.toFixed(2)}%,${frame3.y.toFixed(2)}%) rotate(${(frame3.roll * 0.6).toFixed(2)}deg) scale(${(s * turn / sy).toFixed(4)},${(s * sy).toFixed(4)})`;
+}
+var LiveMark = class {
+  // host: the mark's element. `look` { shape, color }, `def` its shape (characters.js).
+  // `canvas: false` keeps the flat art and moves it as a whole (an uploaded photo).
+  // `follow`: the eyes and head follow the pointer.
+  constructor(host, { look, def, size, seed, live = false, state = "idle", canvas = true, follow = false } = {}) {
+    this.host = host;
+    this.look = look;
+    this.def = def;
+    this.size = size;
+    this.visible = true;
+    this.dirty = true;
+    this.tickedAt = 0;
+    this.rig = void 0;
+    this.inkEpoch = -1;
+    this.wantsCanvas = canvas;
+    watch();
+    this.engine = new Avatar({ seed, size, live, state: "idle", ...motionSettings() });
+    if (resting) this.engine.rest(true);
+    if (state !== "idle") this.engine.setState(state);
+    this.follow = false;
+    host.__btLive = this;
+    marks.add(this);
+    this.setFollow(follow);
+    observer?.observe(host);
+    if (!canvas) this.attachRig();
+    kick();
+  }
+  attachRig() {
+    if (this.rig !== void 0) return;
+    this.rig = this.wantsCanvas ? rigFor(this.look.shape, this.def) : null;
+    const canvas = this.rig ? document.createElement("canvas") : null;
+    const ctx = canvas?.getContext?.("2d") ?? null;
+    if (!ctx) this.rig = null;
+    if (!this.rig) {
+      this.flat = this.host.firstElementChild;
+      if (this.flat) this.flat.style.transformOrigin = "50% 92%";
+      this.dirty = true;
+      kick();
+      return;
+    }
+    canvas.className = "bt-mark-live";
+    canvas.setAttribute("aria-hidden", "true");
+    this.canvas = canvas;
+    this.ctx = ctx;
+    this.resize();
+    this.host.appendChild(canvas);
+    this.host.dataset.live3d = "";
+    this.dirty = true;
+    kick();
+  }
+  // Back to the flat art, for a new shape; the model is built again when it moves.
+  detachRig() {
+    this.rig = void 0;
+    this.canvas?.remove();
+    this.canvas = null;
+    this.ctx = null;
+    this.scratch = null;
+    if (this.flat) {
+      this.flat.style.transform = "";
+      this.flat.style.transformOrigin = "";
+    }
+    this.flat = null;
+    delete this.host.dataset.live3d;
+    const at2 = queue.indexOf(this);
+    if (at2 >= 0) queue.splice(at2, 1);
+  }
+  resize() {
+    if (!this.canvas) return;
+    const dpr = Math.min(3, window.devicePixelRatio || 1);
+    const box = this.size * (1 + MARGIN * 2);
+    const px = Math.round(box * dpr);
+    if (this.canvas.width !== px) {
+      this.canvas.width = px;
+      this.canvas.height = px;
+    }
+    this.canvas.style.width = `${box}px`;
+    this.canvas.style.height = `${box}px`;
+    this.canvas.style.left = `${-this.size * MARGIN}px`;
+    this.canvas.style.top = `${-this.size * MARGIN}px`;
+    this.scale = px / ((1 + MARGIN * 2) * 100);
+    this.dirty = true;
+  }
+  setFollow(on) {
+    if (on === this.follow) return;
+    this.follow = on;
+    followers += on ? 1 : -1;
+    if (on) aimed = false;
+    else this.engine.gaze(null);
+    this.dirty = true;
+  }
+  update({ look, def, size, live, state, follow }) {
+    if (look && (look.shape !== this.look.shape || def !== this.def)) {
+      this.detachRig();
+      this.look = look;
+      this.def = def;
+      this.inkEpoch = -1;
+      if (!this.wantsCanvas) this.attachRig();
+    } else if (look && look.color !== this.look.color) {
+      this.look = look;
+      this.inkEpoch = -1;
+    }
+    if (size !== void 0 && size !== this.size) {
+      this.size = size;
+      this.engine.setOptions({ size });
+      this.resize();
+    }
+    if (live !== void 0) this.engine.setOptions({ live });
+    if (state !== void 0) this.engine.setState(state);
+    if (follow !== void 0) this.setFollow(follow);
+    this.dirty = true;
+    kick();
+  }
+  // Called by the clock: moves on and draws. Returns seconds until it needs a frame.
+  step(time) {
+    const elapsed = this.tickedAt ? (time - this.tickedAt) / 1e3 : 1 / 60;
+    if (this.engine.lod === "chip" && elapsed < 1 / 31 && !this.dirty) return 1 / 30 - elapsed;
+    if (this.rig === void 0 && !(this.engine.atRest && this.engine.wakeIn() > elapsed)) {
+      if (!rigReady(this.look.shape, this.def)) {
+        buildSoon(this);
+        this.tickedAt = 0;
+        return Infinity;
+      }
+      this.attachRig();
+    }
+    this.tickedAt = time;
+    const moving = this.engine.tick(elapsed);
+    if (moving || this.dirty) this.draw();
+    return moving ? 0 : this.engine.wakeIn();
+  }
+  // The clock skipped this mark (hidden, or out of view); start its time again.
+  sync() {
+    this.tickedAt = 0;
+    this.dirty = true;
+  }
+  ink() {
+    if (this.inkEpoch === themeEpoch && this.inkValue) return this.inkValue;
+    const color = this.look.color;
+    let value;
+    if (GRADIENTS[color]) {
+      value = this.ctx.createLinearGradient(18, 10, 78, 92);
+      for (const [offset, stop] of GRADIENTS[color]) value.addColorStop(offset, stop);
+    } else if (isHex(color)) value = color;
+    else value = getComputedStyle(this.host).getPropertyValue(`--bt-ink-${inkName(color)}`).trim() || INKS[inkName(color)][0];
+    this.inkValue = value;
+    this.inkEpoch = themeEpoch;
+    return value;
+  }
+  // The colors a spin's confetti mixes with the body's: the theme's inks.
+  confetti() {
+    if (this.confettiEpoch === themeEpoch && this.confettiValue) return this.confettiValue;
+    const style = getComputedStyle(this.host);
+    this.confettiValue = CONFETTI_INKS.map((name) => style.getPropertyValue(`--bt-ink-${name}`).trim() || INKS[name][0]);
+    this.confettiEpoch = themeEpoch;
+    return this.confettiValue;
+  }
+  draw() {
+    this.dirty = false;
+    if (this.flat) {
+      this.flat.style.transform = flatTransform(this.engine.frame);
+      return;
+    }
+    if (!this.rig || !this.ctx) return;
+    const ctx = this.ctx;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    ctx.setTransform(this.scale, 0, 0, this.scale, MARGIN * 100 * this.scale, MARGIN * 100 * this.scale);
+    const shapes = shapesOf(this.rig, this.engine.frame, this.scratch ??= {});
+    drawShapes(ctx, shapes, this.ink(), shapes.accent?.kind === "confetti" ? this.confetti() : void 0);
+  }
+  // Actions, each answered with a frame.
+  act(fn) {
+    fn(this.engine);
+    this.dirty = true;
+    kick();
+  }
+  destroy() {
+    this.setFollow(false);
+    this.detachRig();
+    marks.delete(this);
+    observer?.unobserve(this.host);
+    delete this.host.__btLive;
+    unwatch();
+  }
+};
+
 // src/client/memo.js
 var React = __toESM(require("react"), 1);
 function memo(component, compare, displayName) {
@@ -25101,174 +28223,60 @@ function useRosterPick(useRoster, fields) {
 
 // src/client/mark.js
 var import_react2 = require("react");
-var STATES = ["idle", "thinking", "searching", "working", "sending", "orbit", "waiting", "alert", "done"];
-var botState = (running, activity, alert) => running ? STATES.includes(activity) && activity !== "waiting" ? activity : "working" : alert ? "alert" : activity === "waiting" ? "waiting" : "idle";
+var STATES2 = ["idle", "thinking", "searching", "working", "sending", "orbit", "waiting", "alert", "done"];
+var botState = (running, activity, alert) => running ? STATES2.includes(activity) && activity !== "waiting" ? activity : "working" : alert ? "alert" : activity === "waiting" ? "waiting" : "idle";
 var toolState = (name) => /^(message_bot|delegate_work|ask_back|answer_work|cancel_work|note_bot|stop_bot|create_bot|update_bot|create_group|update_group|delete_group|post_to_group)$/.test(name) ? "sending" : /search|fetch|browse|read|grep|glob|list|recall/i.test(name) ? "searching" : "working";
-var gazeEntries = /* @__PURE__ */ new Map();
-var gazeHub = {
-  frame: 0,
-  point: null,
-  active: false,
-  mounted: false,
-  mutationObserver: null,
-  intersectionObserver: null,
-  media: null
-};
-var gazeDisabled = () => reducedEffects() || document.body?.dataset.btMotion === "quiet";
-var clampGaze = (value) => Math.max(-1, Math.min(1, value));
-function flushGaze() {
-  gazeHub.frame = 0;
-  const point = gazeHub.point;
-  if (!point || gazeDisabled()) return;
-  const measured = [];
-  for (const entry of gazeEntries.values()) {
-    if (!entry.visible || !entry.node.isConnected) continue;
-    measured.push([entry, entry.node.getBoundingClientRect()]);
-  }
-  for (const [entry, box] of measured) {
-    const gx = clampGaze((point.x - box.left - box.width / 2) / 160).toFixed(2);
-    const gy = clampGaze((point.y - box.top - box.height / 2) / 160).toFixed(2);
-    if (gx !== entry.gx) {
-      entry.gx = gx;
-      entry.node.style.setProperty("--bt-gx", gx);
-    }
-    if (gy !== entry.gy) {
-      entry.gy = gy;
-      entry.node.style.setProperty("--bt-gy", gy);
-    }
-  }
-}
-function onGazeMove(event) {
-  if (gazeDisabled()) return;
-  gazeHub.point = { x: event.clientX, y: event.clientY };
-  if (!gazeHub.frame) gazeHub.frame = requestAnimationFrame(flushGaze);
-}
-function onGazeLeave() {
-  gazeHub.point = null;
-  for (const entry of gazeEntries.values()) {
-    if (entry.gx !== "0") {
-      entry.gx = "0";
-      entry.node.style.setProperty("--bt-gx", "0");
-    }
-    if (entry.gy !== "0") {
-      entry.gy = "0";
-      entry.node.style.setProperty("--bt-gy", "0");
-    }
-  }
-}
-function clearGazeOffsets() {
-  gazeHub.point = null;
-  if (gazeHub.frame) {
-    cancelAnimationFrame(gazeHub.frame);
-    gazeHub.frame = 0;
-  }
-  for (const entry of gazeEntries.values()) {
-    if (entry.gx !== "") {
-      entry.gx = "";
-      entry.node.style.removeProperty("--bt-gx");
-    }
-    if (entry.gy !== "") {
-      entry.gy = "";
-      entry.node.style.removeProperty("--bt-gy");
-    }
-  }
-}
-function attachGazePointer() {
-  if (gazeHub.active) return;
-  gazeHub.active = true;
-  window.addEventListener("pointermove", onGazeMove, { passive: true });
-  document.documentElement.addEventListener("pointerleave", onGazeLeave);
-}
-function detachGazePointer() {
-  if (!gazeHub.active) return;
-  gazeHub.active = false;
-  window.removeEventListener("pointermove", onGazeMove);
-  document.documentElement.removeEventListener("pointerleave", onGazeLeave);
-  clearGazeOffsets();
-}
-function syncGazeHub() {
-  if (gazeEntries.size === 0 || gazeDisabled()) detachGazePointer();
-  else attachGazePointer();
-}
-function mountGazeHub() {
-  if (gazeHub.mounted) return;
-  gazeHub.mounted = true;
-  if (typeof MutationObserver === "function" && document.body) {
-    gazeHub.mutationObserver = new MutationObserver(syncGazeHub);
-    gazeHub.mutationObserver.observe(document.body, { attributes: true, attributeFilter: ["data-bt-effects", "data-bt-motion"] });
-  }
-  if (typeof IntersectionObserver === "function") {
-    gazeHub.intersectionObserver = new IntersectionObserver((records) => {
-      for (const record of records) {
-        const entry = gazeEntries.get(record.target);
-        if (entry) entry.visible = record.isIntersecting;
-      }
-    });
-  }
-  gazeHub.media = window.matchMedia?.("(prefers-reduced-motion: reduce)") ?? null;
-  gazeHub.media?.addEventListener?.("change", syncGazeHub);
-  syncGazeHub();
-}
-function unmountGazeHub() {
-  if (!gazeHub.mounted) return;
-  gazeHub.mounted = false;
-  gazeHub.mutationObserver?.disconnect();
-  gazeHub.mutationObserver = null;
-  gazeHub.intersectionObserver?.disconnect();
-  gazeHub.intersectionObserver = null;
-  gazeHub.media?.removeEventListener?.("change", syncGazeHub);
-  gazeHub.media = null;
-  detachGazePointer();
-}
-function useGaze(ref, enabled) {
+var PET_ZONE = ":is(.bt-row,.bt-tile)>:is(.bt-mark,.bt-cluster),.bt-pet-zone";
+function useLive(ref, { look, image, size, state, live, gaze, pokeable, seed }) {
+  const awake = (0, import_react2.useRef)(false);
+  if (live || gaze || pokeable || state !== "idle") awake.current = true;
+  const shape = image ? `image:${image}` : look.shape;
   (0, import_react2.useEffect)(() => {
     const node = ref.current;
-    if (!enabled || !node) return void 0;
-    const entry = { node, gx: "", gy: "", visible: true };
-    gazeEntries.set(node, entry);
-    mountGazeHub();
-    gazeHub.intersectionObserver?.observe(node);
-    return () => {
-      gazeHub.intersectionObserver?.unobserve(node);
-      gazeEntries.delete(node);
-      node.style.removeProperty("--bt-gx");
-      node.style.removeProperty("--bt-gy");
-      if (gazeEntries.size === 0) unmountGazeHub();
+    if (!awake.current || !node) return void 0;
+    const def = image ? void 0 : shapeOf(look.shape);
+    const mark2 = new LiveMark(node, { look: { shape: image ? "image" : shapeId(look.shape), color: look.color }, def, size, seed, live, state, canvas: !image, follow: gaze });
+    const zone = live || pokeable ? node.parentElement?.closest(PET_ZONE) ?? (node.matches(PET_ZONE) ? node : pokeable ? node : null) : null;
+    const enter = (event) => {
+      const box = node.getBoundingClientRect();
+      mark2.act((engine) => engine.pet(true, event.clientX < box.left + box.width / 2 ? -1 : 1));
     };
-  }, [enabled]);
+    const leave = () => mark2.act((engine) => engine.pet(false));
+    zone?.addEventListener("pointerenter", enter);
+    zone?.addEventListener("pointerleave", leave);
+    return () => {
+      zone?.removeEventListener("pointerenter", enter);
+      zone?.removeEventListener("pointerleave", leave);
+      mark2.destroy();
+    };
+  }, [awake.current, shape]);
+  (0, import_react2.useEffect)(() => {
+    ref.current?.__btLive?.update({ look: image ? void 0 : { shape: shapeId(look.shape), color: look.color }, def: image ? void 0 : shapeOf(look.shape), size, live, state, follow: gaze });
+  }, [look.color, size, live, state, gaze]);
 }
 var sameLook = (a, b2) => a === b2 || a?.shape === b2?.shape && a?.color === b2?.color && a?.image === b2?.image;
 var sameBotLook = (a, b2) => a === b2 || a?.id === b2?.id && a?.color === b2?.color && a?.avatar?.shape === b2?.avatar?.shape && a?.avatar?.color === b2?.avatar?.color && a?.avatar?.image === b2?.avatar?.image;
-var FIDGETS = ["hop", "sway", "stretch", "look"];
 var BotMark = memo(function BotMark2({ bot, look: given, size = 36, state = "idle", live = false, gaze = false, pokeable = false, label }) {
   const look = given ?? lookOf(bot);
   const ref = (0, import_react2.useRef)(null);
   const maskId = (0, import_react2.useRef)("");
   if (maskId.current === "") maskId.current = `bt-mark-${nextMarkSerial()}`;
-  const [poked, setPoked] = (0, import_react2.useState)(false);
   const [broken, setBroken] = (0, import_react2.useState)("");
   const image = look.image && look.image !== broken ? look.image : void 0;
-  useGaze(ref, gaze && !image);
+  const markState = STATES2.includes(state) ? state : "idle";
+  useLive(ref, { look, image, size, state: markState, live, gaze, pokeable, seed: fnv1a(String(bot?.id ?? look.shape)) });
   const common = {
     ref,
-    className: poked ? "bt-mark bt-mark-poke" : "bt-mark",
+    className: "bt-mark",
     "data-shape": image ? "image" : shapeId(look.shape),
-    "data-state": STATES.includes(state) ? state : "idle",
+    "data-state": markState,
     "data-live": live ? "" : void 0,
-    "data-fidget": live ? FIDGETS[fnv1a(`${bot?.id ?? ""}:fidget`) % FIDGETS.length] : void 0,
-    "data-gaze": gaze && !image ? "" : void 0,
     "data-poke": pokeable ? "" : void 0,
-    style: { width: size, height: size, ...live ? { "--bt-delay": `${-(fnv1a(String(bot?.id ?? "")) % 5e3) / 1e3}s`, "--bt-fidget-delay": `${-(fnv1a(`${bot?.id ?? ""}:when`) % 9e3) / 1e3}s` } : {} },
+    style: { width: size, height: size },
     role: label ? "img" : void 0,
     "aria-label": label,
     "aria-hidden": label ? void 0 : true,
-    onClick: pokeable ? () => {
-      if (!reducedMotion() && document.body?.dataset.btMotion !== "quiet") setPoked(true);
-    } : void 0,
-    onAnimationEnd: poked ? (event) => {
-      if (event.animationName.startsWith("bt-poke")) setPoked(false);
-    } : void 0,
-    onAnimationCancel: poked ? () => setPoked(false) : void 0
+    onClick: pokeable ? () => ref.current?.__btLive?.act((engine) => engine.poke()) : void 0
   };
   if (image) return (0, import_react2.createElement)("span", common, (0, import_react2.createElement)("img", { className: "bt-mark-img", src: image, alt: "", draggable: false, onError: () => setBroken(image) }));
   const box = shapeOf(look.shape).size;
@@ -25303,8 +28311,8 @@ function useSettled(state, id) {
     }
     if (was.state === "idle" || was.state === "alert") return void 0;
     setSettled(true);
-    const timer = setTimeout(() => setSettled(false), 1800);
-    return () => clearTimeout(timer);
+    const timer2 = setTimeout(() => setSettled(false), 1800);
+    return () => clearTimeout(timer2);
   }, [state, id]);
   return settled;
 }
@@ -25322,15 +28330,15 @@ var BotAvatar = memo(function BotAvatar2({ bot, size, state = "idle", main, admi
     badgeKind === "main" ? (0, import_react2.createElement)("span", { className: "bt-badge bt-badge-main", "aria-label": t("Main Bot"), role: "img" }, (0, import_react2.createElement)(MainStar)) : null
   );
 }, (a, b2) => sameBotLook(a.bot, b2.bot) && a.size === b2.size && a.state === b2.state && a.main === b2.main && a.admin === b2.admin && a.badge === b2.badge && a.live === b2.live && a.gaze === b2.gaze && a.pokeable === b2.pokeable, "BotAvatar");
-function clusterSeats(count, frame2) {
-  if (count === 1) return [[0, 0, frame2]];
-  if (count === 2) return [[0, 0, frame2 * 2 / 3], [frame2 / 3, frame2 / 3, frame2 * 2 / 3]];
+function clusterSeats(count, frame3) {
+  if (count === 1) return [[0, 0, frame3]];
+  if (count === 2) return [[0, 0, frame3 * 2 / 3], [frame3 / 3, frame3 / 3, frame3 * 2 / 3]];
   if (count === 3) {
-    const size = frame2 * 5 / 9;
-    const rest = frame2 - size;
+    const size = frame3 * 5 / 9;
+    const rest = frame3 - size;
     return [[rest / 2, 0, size], [0, rest, size], [rest, rest, size]];
   }
-  const half = frame2 / 2;
+  const half = frame3 / 2;
   return [[0, 0, half], [half, 0, half], [0, half, half], [half, half, half]];
 }
 function sameRoomAvatar(a, b2) {
@@ -25641,7 +28649,24 @@ var AGENT_LOGOS = {
 // src/client/agent-routes.js
 var PREFIX = "local-";
 var CUSTOM_PREFIX = `${PREFIX}acp-`;
-var cliOf = (route) => typeof route === "string" && route.startsWith(PREFIX) ? route.slice(PREFIX.length) : void 0;
+var PROFILE_ID_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/;
+function splitProfileRoute(route) {
+  if (typeof route !== "string") return null;
+  const at = route.indexOf("@");
+  if (at <= 0 || route.indexOf("@", at + 1) !== -1) return null;
+  const baseRoute = route.slice(0, at);
+  const profileId = route.slice(at + 1);
+  if (!baseRoute.startsWith(PREFIX) || baseRoute.startsWith(CUSTOM_PREFIX)) return null;
+  const cli = baseRoute.slice(PREFIX.length);
+  if (!Object.hasOwn(AGENT_BADGES, cli) || !PROFILE_ID_RE.test(profileId)) return null;
+  return { baseRoute, profileId };
+}
+var cliOf = (route) => {
+  if (typeof route !== "string" || !route.startsWith(PREFIX)) return void 0;
+  const split = splitProfileRoute(route);
+  const base = split ? split.baseRoute : route;
+  return base.slice(PREFIX.length);
+};
 var AGENT_BADGES = {
   "devin-cli": ["DV", "violet"],
   "claude-code": ["CC", "tangerine"],
@@ -25677,8 +28702,8 @@ var badgeOf = (engine) => {
 };
 var isLocalRoute = (ref) => badgeOf(String(ref ?? "").split("/")[0]) !== void 0;
 var routeOf = (ref) => String(ref ?? "").split("/")[0];
-function modelsFor(models, ref) {
-  const list = models ?? [];
+function modelsFor(models2, ref) {
+  const list = models2 ?? [];
   return isLocalRoute(ref) ? list.filter((model) => routeOf(model.ref) === routeOf(ref)) : list.filter((model) => !isLocalRoute(model.ref));
 }
 function agentAvatar(engine) {
@@ -25827,12 +28852,12 @@ function goalView(goal, { roster = {}, roomWork = [] } = {}) {
   if (goal === null || goal === void 0) return null;
   const stages = goal.stages ?? [];
   const count = stages.length;
-  const at = goal.current;
-  const current2 = RUNNING.has(goal.status) ? stages[at] : void 0;
+  const at2 = goal.current;
+  const current2 = RUNNING.has(goal.status) ? stages[at2] : void 0;
   const checking = current2 !== void 0 && (current2.tasks ?? []).every((task) => REPORTED.has(task.status));
-  const number = goal.status === "drafting" ? void 0 : goal.status === "stopped" ? stages.filter((stage) => stage.status === "passed").length : current2 !== void 0 ? at + 1 : count;
+  const number = goal.status === "drafting" ? void 0 : goal.status === "stopped" ? stages.filter((stage) => stage.status === "passed").length : current2 !== void 0 ? at2 + 1 : count;
   const barLabel = goal.status === "drafting" ? t("Aligning the goal with you") : goal.status === "stopped" ? t("Stopped") : goal.status === "complete" ? t("Goal reached") : goal.status === "paused" ? current2 ? t("Paused · {title}", { title: current2.title }) : t("Paused") : goal.idle === true ? current2 ? t("Waiting for you · {title}", { title: current2.title }) : t("Waiting for you") : current2 === void 0 ? t("Final check") : checking ? t("Checking · {title}", { title: current2.title }) : current2.title;
-  const segments = stages.map((stage, i) => stage.status === "passed" ? "done" : i === at && goal.status === "paused" ? "paused" : i === at && goal.status === "active" ? checking ? "checking" : "current" : "todo");
+  const segments = stages.map((stage, i) => stage.status === "passed" ? "done" : i === at2 && goal.status === "paused" ? "paused" : i === at2 && goal.status === "active" ? checking ? "checking" : "current" : "todo");
   const working = new Set((roomWork ?? []).map((entry) => entry.botId));
   const seen = /* @__PURE__ */ new Set();
   const faces = (current2?.tasks ?? []).filter((task) => {
@@ -25845,7 +28870,7 @@ function goalView(goal, { roster = {}, roomWork = [] } = {}) {
     title: stage.title,
     acceptance: stage.acceptance,
     status: stage.status,
-    kind: stage.status === "passed" ? "passed" : i === at && RUNNING.has(goal.status) ? "current" : "upcoming",
+    kind: stage.status === "passed" ? "passed" : i === at2 && RUNNING.has(goal.status) ? "current" : "upcoming",
     tasks: (stage.tasks ?? []).map((task) => ({ bot: roster.byId?.[task.botId], task: task.task, status: task.status })),
     evidence: stage.evidence,
     reworks: stage.reworks ?? 0,
@@ -25945,15 +28970,15 @@ function TaskRow({ task, working }) {
 }
 var STOP_ARM_MS = 3e3;
 function GoalPanel({ goal, view, room: room2, roster, actions, working }) {
-  const at = RUNNING.has(view.status) && goal.current < view.stages.length ? goal.current : -1;
-  const [selected, setSelected] = (0, import_react7.useState)(at);
+  const at2 = RUNNING.has(view.status) && goal.current < view.stages.length ? goal.current : -1;
+  const [selected, setSelected] = (0, import_react7.useState)(at2);
   const [checks, setChecks] = (0, import_react7.useState)(false);
   const [armed, setArmed] = (0, import_react7.useState)(false);
   (0, import_react7.useEffect)(() => setSelected(RUNNING.has(view.status) && goal.current < view.stages.length ? goal.current : -1), [view.status, goal.current]);
   (0, import_react7.useEffect)(() => {
     if (!armed) return void 0;
-    const timer = setTimeout(() => setArmed(false), STOP_ARM_MS);
-    return () => clearTimeout(timer);
+    const timer2 = setTimeout(() => setArmed(false), STOP_ARM_MS);
+    return () => clearTimeout(timer2);
   }, [armed]);
   const stepper = (0, import_react7.useRef)(null);
   (0, import_react7.useEffect)(() => {
@@ -25961,10 +28986,10 @@ function GoalPanel({ goal, view, room: room2, roster, actions, working }) {
     if (box === null || typeof ResizeObserver !== "function") return void 0;
     const min = view.stages.length >= 10 ? 17 : 14;
     const measure = () => box.querySelectorAll(".bt-goal-step").forEach((node) => node.classList.toggle("bt-goal-mini", node.clientWidth < min));
-    const observer = new ResizeObserver(measure);
-    observer.observe(box);
+    const observer2 = new ResizeObserver(measure);
+    observer2.observe(box);
     measure();
-    return () => observer.disconnect();
+    return () => observer2.disconnect();
   }, [view.stages.length]);
   const control = (action) => void Promise.resolve(actions.goalControl(room2.id, goal.id, action)).catch((error) => actions.reportError(error, "goal"));
   const stage = selected >= 0 ? view.stages[selected] : void 0;
@@ -25994,7 +29019,7 @@ function GoalPanel({ goal, view, room: room2, roster, actions, working }) {
           "data-sel": i === selected || void 0,
           title: t("Stage {n}: {title}", { n: stageView.n, title: stageView.title }),
           "aria-label": t("Stage {n}: {title}", { n: stageView.n, title: stageView.title }),
-          "aria-current": i === at ? "step" : void 0,
+          "aria-current": i === at2 ? "step" : void 0,
           onClick: () => setSelected(i)
         }, (0, import_react7.createElement)("span", { className: "bt-goal-node" }, stageView.status === "passed" ? (0, import_react7.createElement)(CheckIcon) : stageView.n)))
       ),
@@ -26014,10 +29039,10 @@ function GoalPanel({ goal, view, room: room2, roster, actions, working }) {
             "div",
             { className: "bt-goal-bline" },
             (0, import_react7.createElement)("span", { className: "bt-goal-btitle" }, stage.title),
-            selected !== at && at >= 0 ? (0, import_react7.createElement)("button", { type: "button", className: "bt-goal-back", onClick: () => setSelected(at) }, t("Back to current stage")) : null
+            selected !== at2 && at2 >= 0 ? (0, import_react7.createElement)("button", { type: "button", className: "bt-goal-back", onClick: () => setSelected(at2) }, t("Back to current stage")) : null
           ),
           stage.acceptance ? (0, import_react7.createElement)("div", { className: "bt-goal-line" }, t("Done when: {text}", { text: stage.acceptance })) : null,
-          selected === at && stage.reworks > 0 && stage.feedback ? (0, import_react7.createElement)("div", { className: "bt-goal-rw" }, stage.reworks > 1 ? t("Sent back {n} times by {admin}. Last time: {feedback}", { n: stage.reworks, admin, feedback: stage.feedback }) : t("Sent back by {admin}: {feedback}", { admin, feedback: stage.feedback })) : null,
+          selected === at2 && stage.reworks > 0 && stage.feedback ? (0, import_react7.createElement)("div", { className: "bt-goal-rw" }, stage.reworks > 1 ? t("Sent back {n} times by {admin}. Last time: {feedback}", { n: stage.reworks, admin, feedback: stage.feedback }) : t("Sent back by {admin}: {feedback}", { admin, feedback: stage.feedback })) : null,
           stage.evidence !== void 0 && stage.status === "passed" ? (0, import_react7.createElement)("div", { className: "bt-goal-evi" }, t("Evidence: {text}", { text: stage.evidence })) : null,
           stage.tasks.length > 0 ? (0, import_react7.createElement)("div", { className: "bt-goal-tasks" }, stage.tasks.map((task, i) => (0, import_react7.createElement)(TaskRow, { key: i, task, working }))) : null
         )
@@ -26333,13 +29358,13 @@ body:is([data-bt-effects=reduced],[data-bt-effects=off]) .bt-island::before{disp
 // src/client/cell-empty.js
 var import_react8 = require("react");
 var emptied = (slot, gone) => {
-  let marks = 0;
+  let marks2 = 0;
   for (const node of slot.childNodes) {
     if (node === gone) continue;
     if (node.nodeType !== 1 || !node.hasAttribute("data-bt-empty")) return false;
-    marks += 1;
+    marks2 += 1;
   }
-  return marks > 0;
+  return marks2 > 0;
 };
 function CellEmpty({ className }) {
   const ref = (0, import_react8.useRef)(null);
@@ -26349,10 +29374,10 @@ function CellEmpty({ className }) {
     if (!slot) return void 0;
     const sync = (gone) => emptied(slot, gone) ? slot.dataset.btEmptied = "" : delete slot.dataset.btEmptied;
     sync();
-    const observer = typeof MutationObserver === "function" ? new MutationObserver(() => sync()) : null;
-    observer?.observe(slot, { childList: true });
+    const observer2 = typeof MutationObserver === "function" ? new MutationObserver(() => sync()) : null;
+    observer2?.observe(slot, { childList: true });
     return () => {
-      observer?.disconnect();
+      observer2?.disconnect();
       sync(marker);
     };
   }, []);
@@ -26831,11 +29856,11 @@ var justAnswered = /* @__PURE__ */ new Map();
 var answerKey = (kind, id) => `${kind}:${id}`;
 function noteJustAnswered(kind, id, height) {
   if (!id || typeof height !== "number" || height <= 0) return;
-  const now = Date.now();
+  const now2 = Date.now();
   for (const [key, entry] of justAnswered) {
-    if (now - entry.at >= JUST_ANSWERED_TTL) justAnswered.delete(key);
+    if (now2 - entry.at >= JUST_ANSWERED_TTL) justAnswered.delete(key);
   }
-  justAnswered.set(answerKey(kind, id), { height, at: now });
+  justAnswered.set(answerKey(kind, id), { height, at: now2 });
 }
 function clearJustAnswered(kind, id) {
   if (id) justAnswered.delete(answerKey(kind, id));
@@ -26883,8 +29908,8 @@ function useFoldCard(cardRef, bodyRef, hasDetail) {
       setLeaving(false);
       return void 0;
     }
-    const timer = setTimeout(() => setLeaving(false), 150);
-    return () => clearTimeout(timer);
+    const timer2 = setTimeout(() => setLeaving(false), 150);
+    return () => clearTimeout(timer2);
   }, [open, leaving]);
   const toggle = () => {
     if (!hasDetail) return;
@@ -26956,10 +29981,10 @@ function SettledQuestion({ question, answer, closed }) {
       onClick: hasDetail && !fold.open ? fold.onCardClick : void 0
     },
     head,
-    !fold.open && chosen.length > 0 ? (0, import_react10.createElement)("div", { className: "bt-q-list bt-q-summary", role: "group", "aria-label": t("Your answer") }, chosen.map(({ label, at }, index) => (0, import_react10.createElement)(
+    !fold.open && chosen.length > 0 ? (0, import_react10.createElement)("div", { className: "bt-q-list bt-q-summary", role: "group", "aria-label": t("Your answer") }, chosen.map(({ label, at: at2 }, index) => (0, import_react10.createElement)(
       "div",
       { key: `${label}-${index}`, className: "bt-q-opt", title: t("Selected") },
-      at >= 0 ? (0, import_react10.createElement)("span", { className: "bt-key", "aria-hidden": true }, keyLetter(at)) : null,
+      at2 >= 0 ? (0, import_react10.createElement)("span", { className: "bt-key", "aria-hidden": true }, keyLetter(at2)) : null,
       (0, import_react10.createElement)("span", { className: "bt-q-body" }, (0, import_react10.createElement)("span", { className: "bt-q-label" }, label))
     ))) : null,
     fold.showBody ? (0, import_react10.createElement)(
@@ -27142,8 +30167,8 @@ function QuestionDock({ sessionId, useRoster, useCards, useHeldCards, actions })
     }
     if (prev.sessionId === sessionId && prev.question !== void 0 && !prev.handedOff && question === void 0 && !reducedMotion() && typeof setTimeout === "function") {
       setExiting(prev.question);
-      const timer = setTimeout(() => setExiting(null), 150);
-      return () => clearTimeout(timer);
+      const timer2 = setTimeout(() => setExiting(null), 150);
+      return () => clearTimeout(timer2);
     }
     if (exiting) setExiting(null);
     return void 0;
@@ -27610,10 +30635,10 @@ function SelectMenu({
         return;
       }
       if (!event.ctrlKey && !event.metaKey && !event.altKey && event.key.length === 1 && event.key.trim() !== "") {
-        const now = Date.now();
+        const now2 = Date.now();
         const state = typeahead.current;
-        const nextQuery = now - state.at > TYPEAHEAD_RESET_MS ? event.key.toLowerCase() : state.query + event.key.toLowerCase();
-        typeahead.current = { query: nextQuery, at: now };
+        const nextQuery = now2 - state.at > TYPEAHEAD_RESET_MS ? event.key.toLowerCase() : state.query + event.key.toLowerCase();
+        typeahead.current = { query: nextQuery, at: now2 };
         const start = current2 >= 0 ? (current2 + 1) % items.length : 0;
         const ordered = [...items.slice(start), ...items.slice(0, start)];
         const match = ordered.find((node) => (node.textContent ?? "").trim().toLowerCase().startsWith(nextQuery));
@@ -28353,27 +31378,27 @@ var isName = (value) => typeof value === "string" && IDENT.test(value);
 var OPERATORS = ["==", "!=", "<=", ">=", "&&", "||", "+", "-", "*", "/", "%", "<", ">", "!", "?", ":", "(", ")", ","];
 function tokenize(source) {
   const tokens = [];
-  let at = 0;
-  while (at < source.length) {
-    const char = source[at];
+  let at2 = 0;
+  while (at2 < source.length) {
+    const char = source[at2];
     if (/\s/.test(char)) {
-      at += 1;
+      at2 += 1;
       continue;
     }
-    const number = /^(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?/.exec(source.slice(at));
+    const number = /^(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?/.exec(source.slice(at2));
     if (number) {
-      tokens.push({ kind: "number", value: Number(number[0]), at });
-      at += number[0].length;
+      tokens.push({ kind: "number", value: Number(number[0]), at: at2 });
+      at2 += number[0].length;
       continue;
     }
-    const name = /^[A-Za-z_][A-Za-z0-9_]*/.exec(source.slice(at));
+    const name = /^[A-Za-z_][A-Za-z0-9_]*/.exec(source.slice(at2));
     if (name) {
-      tokens.push({ kind: "name", value: name[0], at });
-      at += name[0].length;
+      tokens.push({ kind: "name", value: name[0], at: at2 });
+      at2 += name[0].length;
       continue;
     }
     if (char === '"' || char === "'") {
-      let end = at + 1;
+      let end = at2 + 1;
       let text = "";
       while (end < source.length && source[end] !== char) {
         if (source[end] === "\\" && end + 1 < source.length) {
@@ -28384,15 +31409,15 @@ function tokenize(source) {
         text += source[end];
         end += 1;
       }
-      if (end >= source.length) fail(`unclosed string at ${at + 1}`);
-      tokens.push({ kind: "string", value: text, at });
-      at = end + 1;
+      if (end >= source.length) fail(`unclosed string at ${at2 + 1}`);
+      tokens.push({ kind: "string", value: text, at: at2 });
+      at2 = end + 1;
       continue;
     }
-    const operator = OPERATORS.find((op) => source.startsWith(op, at));
-    if (operator === void 0) fail(`unexpected ${JSON.stringify(char)} at ${at + 1}`);
-    tokens.push({ kind: "op", value: operator, at });
-    at += operator.length;
+    const operator = OPERATORS.find((op) => source.startsWith(op, at2));
+    if (operator === void 0) fail(`unexpected ${JSON.stringify(char)} at ${at2 + 1}`);
+    tokens.push({ kind: "op", value: operator, at: at2 });
+    at2 += operator.length;
   }
   return tokens;
 }
@@ -28595,7 +31620,7 @@ var TEXT_TONES = ["muted"];
 var CALLOUT_TONES = ["info", "good", "warn", "bad"];
 var CHART_KINDS = ["bar", "hbar", "line", "area", "donut"];
 var INTERACTIVE = new Set(ANSWERS);
-var INPUTS = new Set(INPUT_TYPES);
+var INPUTS3 = new Set(INPUT_TYPES);
 var PROPS = {
   stack: ["children", "let"],
   row: ["children", "let"],
@@ -28745,19 +31770,19 @@ function checkLayout(node, path2, depth, ctx) {
 }
 function checkValue(node, key, path2, ctx, kind, { required = false, max = MAX_TEXT } = {}) {
   const value = node[key];
-  const at = `${path2}.${key}`;
-  if (value === void 0) return required ? `${at}: ${expected(kind)}` : void 0;
+  const at2 = `${path2}.${key}`;
+  if (value === void 0) return required ? `${at2}: ${expected(kind)}` : void 0;
   if (isFormula(value)) {
-    ctx.formulas.push({ source: value["="], path: at, kind });
+    ctx.formulas.push({ source: value["="], path: at2, kind });
     return void 0;
   }
-  if (kind === "number") return isNumber(value) ? void 0 : `${at}: ${expected(kind)}`;
-  if (Array.isArray(kind)) return kind.includes(value) ? void 0 : `${at}: unknown tone ${quoted(value)}; allowed: ${allowed(kind)}`;
+  if (kind === "number") return isNumber(value) ? void 0 : `${at2}: ${expected(kind)}`;
+  if (Array.isArray(kind)) return kind.includes(value) ? void 0 : `${at2}: unknown tone ${quoted(value)}; allowed: ${allowed(kind)}`;
   if (kind === "string") {
-    if (typeof value !== "string") return `${at}: ${expected(kind)}`;
-    return value.length > max ? `${at}: ${value.length} characters exceeds the limit of ${max}` : void 0;
+    if (typeof value !== "string") return `${at2}: ${expected(kind)}`;
+    return value.length > max ? `${at2}: ${value.length} characters exceeds the limit of ${max}` : void 0;
   }
-  if (!isScalar(value)) return `${at}: ${expected(kind)}`;
+  if (!isScalar(value)) return `${at2}: ${expected(kind)}`;
   return void 0;
 }
 var expected = (kind) => kind === "number" ? "expected a number" : kind === "string" ? "expected a string" : Array.isArray(kind) ? `expected one of ${allowed(kind)}` : "expected a string or a number";
@@ -28775,13 +31800,13 @@ function checkTable(node, path2, ctx) {
   if (node.columns.length > MAX_COLUMNS) return `${path2}.columns: ${node.columns.length} columns exceeds the limit of ${MAX_COLUMNS}`;
   for (let index = 0; index < node.columns.length; index += 1) {
     const column = node.columns[index];
-    const at = `${path2}.columns[${index}]`;
-    if (!isRecord(column)) return `${at}: expected a column object`;
+    const at2 = `${path2}.columns[${index}]`;
+    if (!isRecord(column)) return `${at2}: expected a column object`;
     for (const key of Object.keys(column)) {
-      if (key !== "key" && key !== "label") return `${at}.${key}: unknown property ${quoted(key)}; allowed: key, label`;
+      if (key !== "key" && key !== "label") return `${at2}.${key}: unknown property ${quoted(key)}; allowed: key, label`;
     }
-    if (typeof column.key !== "string" || column.key === "") return `${at}.key: expected a non-empty string`;
-    if (typeof column.label !== "string") return `${at}.label: expected a string`;
+    if (typeof column.key !== "string" || column.key === "") return `${at2}.key: expected a non-empty string`;
+    if (typeof column.label !== "string") return `${at2}.label: expected a string`;
   }
   if (!Array.isArray(node.rows)) return `${path2}.rows: expected an array of at most ${MAX_ROWS} rows`;
   if (node.rows.length > MAX_ROWS) return `${path2}.rows: ${node.rows.length} rows exceeds the limit of ${MAX_ROWS}`;
@@ -28789,13 +31814,13 @@ function checkTable(node, path2, ctx) {
     const cells = node.rows[row];
     if (!Array.isArray(cells)) return `${path2}.rows[${row}]: expected an array of cells`;
     for (let column = 0; column < cells.length; column += 1) {
-      const at = `${path2}.rows[${row}][${column}]`;
+      const at2 = `${path2}.rows[${row}][${column}]`;
       if (isFormula(cells[column])) {
-        ctx.formulas.push({ source: cells[column]["="], path: at, kind: "scalar" });
+        ctx.formulas.push({ source: cells[column]["="], path: at2, kind: "scalar" });
         continue;
       }
       const text = cellText(cells[column]);
-      if (text.length > MAX_CELL) return `${at}: ${text.length} characters exceeds the limit of ${MAX_CELL}`;
+      if (text.length > MAX_CELL) return `${at2}: ${text.length} characters exceeds the limit of ${MAX_CELL}`;
     }
   }
   return void 0;
@@ -28811,18 +31836,18 @@ function checkChart(node, path2, ctx) {
   if (node.kind === "donut" && node.series.length > 1) return `${path2}.series: a donut takes one series; got ${node.series.length}`;
   for (let index = 0; index < node.series.length; index += 1) {
     const series = node.series[index];
-    const at = `${path2}.series[${index}]`;
-    if (!isRecord(series)) return `${at}: expected a series object`;
+    const at2 = `${path2}.series[${index}]`;
+    if (!isRecord(series)) return `${at2}: expected a series object`;
     for (const key of Object.keys(series)) {
-      if (key !== "name" && key !== "values") return `${at}.${key}: unknown property ${quoted(key)}; allowed: name, values`;
+      if (key !== "name" && key !== "values") return `${at2}.${key}: unknown property ${quoted(key)}; allowed: name, values`;
     }
-    if (series.name !== void 0 && typeof series.name !== "string") return `${at}.name: expected a string`;
-    if (!Array.isArray(series.values)) return `${at}.values: expected an array of numbers`;
-    if (series.values.length !== node.categories.length) return `${at}.values: ${series.values.length} values for ${node.categories.length} categories`;
+    if (series.name !== void 0 && typeof series.name !== "string") return `${at2}.name: expected a string`;
+    if (!Array.isArray(series.values)) return `${at2}.values: expected an array of numbers`;
+    if (series.values.length !== node.categories.length) return `${at2}.values: ${series.values.length} values for ${node.categories.length} categories`;
     for (let item = 0; item < series.values.length; item += 1) {
       const value = series.values[item];
-      if (isFormula(value)) ctx.formulas.push({ source: value["="], path: `${at}.values[${item}]`, kind: "number" });
-      else if (!isNumber(value)) return `${at}.values[${item}]: expected a number`;
+      if (isFormula(value)) ctx.formulas.push({ source: value["="], path: `${at2}.values[${item}]`, kind: "number" });
+      else if (!isNumber(value)) return `${at2}.values[${item}]: expected a number`;
     }
   }
   if (node.unit !== void 0 && typeof node.unit !== "string") return `${path2}.unit: expected a string`;
@@ -28846,13 +31871,13 @@ function checkSources(node, path2) {
   if (!Array.isArray(node.items) || node.items.length === 0) return `${path2}.items: expected a non-empty array of { label, url }`;
   for (let index = 0; index < node.items.length; index += 1) {
     const item = node.items[index];
-    const at = `${path2}.items[${index}]`;
-    if (!isRecord(item)) return `${at}: expected a { label, url } object`;
+    const at2 = `${path2}.items[${index}]`;
+    if (!isRecord(item)) return `${at2}: expected a { label, url } object`;
     for (const key of Object.keys(item)) {
-      if (key !== "label" && key !== "url") return `${at}.${key}: unknown property ${quoted(key)}; allowed: label, url`;
+      if (key !== "label" && key !== "url") return `${at2}.${key}: unknown property ${quoted(key)}; allowed: label, url`;
     }
-    if (typeof item.label !== "string" || item.label.trim() === "") return `${at}.label: expected a non-empty string`;
-    if (typeof item.url !== "string" || !/^https?:\/\/[^\s]+$/i.test(item.url)) return `${at}.url: expected an http(s) address`;
+    if (typeof item.label !== "string" || item.label.trim() === "") return `${at2}.label: expected a non-empty string`;
+    if (typeof item.url !== "string" || !/^https?:\/\/[^\s]+$/i.test(item.url)) return `${at2}.url: expected an http(s) address`;
   }
   return void 0;
 }
@@ -28892,17 +31917,17 @@ function checkChoice(node, path2, ctx) {
   const values = /* @__PURE__ */ new Set();
   for (let index = 0; index < node.options.length; index += 1) {
     const option = node.options[index];
-    const at = `${path2}.options[${index}]`;
-    if (!isRecord(option)) return `${at}: expected a { label, value } object`;
+    const at2 = `${path2}.options[${index}]`;
+    if (!isRecord(option)) return `${at2}: expected a { label, value } object`;
     for (const key of Object.keys(option)) {
-      if (key !== "label" && key !== "value") return `${at}.${key}: unknown property ${quoted(key)}; allowed: label, value`;
+      if (key !== "label" && key !== "value") return `${at2}.${key}: unknown property ${quoted(key)}; allowed: label, value`;
     }
-    if (typeof option.label !== "string" || option.label.trim() === "") return `${at}.label: expected a non-empty string`;
-    if (labels2.has(option.label)) return `${at}.label: duplicate label ${quoted(option.label)}`;
+    if (typeof option.label !== "string" || option.label.trim() === "") return `${at2}.label: expected a non-empty string`;
+    if (labels2.has(option.label)) return `${at2}.label: duplicate label ${quoted(option.label)}`;
     labels2.add(option.label);
     const value = option.value ?? option.label;
-    if (!isScalar(value)) return `${at}.value: expected a string, a number or true/false`;
-    if (values.has(value)) return `${at}.value: duplicate value ${quoted(value)}`;
+    if (!isScalar(value)) return `${at2}.value: expected a string, a number or true/false`;
+    if (values.has(value)) return `${at2}.value: duplicate value ${quoted(value)}`;
     values.add(value);
   }
   const chosen = node.value ?? choiceValue(node.options[0]);
@@ -28926,15 +31951,15 @@ function checkOptions(node, path2, ctx) {
   const labels2 = /* @__PURE__ */ new Set();
   for (let index = 0; index < node.options.length; index += 1) {
     const option = node.options[index];
-    const at = `${path2}.options[${index}]`;
-    if (!isRecord(option)) return `${at}: expected an option object`;
+    const at2 = `${path2}.options[${index}]`;
+    if (!isRecord(option)) return `${at2}: expected an option object`;
     for (const key of Object.keys(option)) {
-      if (key !== "label" && key !== "description") return `${at}.${key}: unknown property ${quoted(key)}; allowed: label, description`;
+      if (key !== "label" && key !== "description") return `${at2}.${key}: unknown property ${quoted(key)}; allowed: label, description`;
     }
-    if (typeof option.label !== "string" || option.label.trim() === "") return `${at}.label: expected a non-empty string`;
-    if (labels2.has(option.label)) return `${at}.label: duplicate label ${quoted(option.label)}`;
+    if (typeof option.label !== "string" || option.label.trim() === "") return `${at2}.label: expected a non-empty string`;
+    if (labels2.has(option.label)) return `${at2}.label: duplicate label ${quoted(option.label)}`;
     labels2.add(option.label);
-    if (option.description !== void 0 && typeof option.description !== "string") return `${at}.description: expected a string`;
+    if (option.description !== void 0 && typeof option.description !== "string") return `${at2}.description: expected a string`;
   }
   return void 0;
 }
@@ -28955,23 +31980,23 @@ function checkForm(node, path2, ctx) {
   const seen = /* @__PURE__ */ new Set();
   for (let index = 0; index < node.fields.length; index += 1) {
     const field = node.fields[index];
-    const at = `${path2}.fields[${index}]`;
-    if (!isRecord(field)) return `${at}: expected a field object`;
+    const at2 = `${path2}.fields[${index}]`;
+    if (!isRecord(field)) return `${at2}: expected a field object`;
     for (const key of Object.keys(field)) {
-      if (!FIELD_PROPS.includes(key)) return `${at}.${key}: unknown property ${quoted(key)}; allowed: ${allowed(FIELD_PROPS)}`;
+      if (!FIELD_PROPS.includes(key)) return `${at2}.${key}: unknown property ${quoted(key)}; allowed: ${allowed(FIELD_PROPS)}`;
     }
-    if (typeof field.id !== "string" || field.id === "") return `${at}.id: expected a non-empty string`;
-    if (field.id === "__proto__") return `${at}.id: "__proto__" cannot be an id`;
-    if (seen.has(field.id)) return `${at}.id: duplicate field id ${quoted(field.id)}`;
+    if (typeof field.id !== "string" || field.id === "") return `${at2}.id: expected a non-empty string`;
+    if (field.id === "__proto__") return `${at2}.id: "__proto__" cannot be an id`;
+    if (seen.has(field.id)) return `${at2}.id: duplicate field id ${quoted(field.id)}`;
     seen.add(field.id);
-    if (typeof field.label !== "string") return `${at}.label: expected a string`;
-    if (field.placeholder !== void 0 && typeof field.placeholder !== "string") return `${at}.placeholder: expected a string`;
+    if (typeof field.label !== "string") return `${at2}.label: expected a string`;
+    if (field.placeholder !== void 0 && typeof field.placeholder !== "string") return `${at2}.placeholder: expected a string`;
     if (field.value !== void 0) {
-      if (typeof field.value !== "string") return `${at}.value: expected a string`;
-      if (field.value.length > MAX_TEXT) return `${at}.value: ${field.value.length} characters exceeds the limit of ${MAX_TEXT}`;
+      if (typeof field.value !== "string") return `${at2}.value: expected a string`;
+      if (field.value.length > MAX_TEXT) return `${at2}.value: ${field.value.length} characters exceeds the limit of ${MAX_TEXT}`;
     }
-    if (field.multiline !== void 0 && typeof field.multiline !== "boolean") return `${at}.multiline: expected a boolean`;
-    if (field.readOnly !== void 0 && typeof field.readOnly !== "boolean") return `${at}.readOnly: expected a boolean`;
+    if (field.multiline !== void 0 && typeof field.multiline !== "boolean") return `${at2}.multiline: expected a boolean`;
+    if (field.readOnly !== void 0 && typeof field.readOnly !== "boolean") return `${at2}.readOnly: expected a boolean`;
   }
   return void 0;
 }
@@ -29045,7 +32070,7 @@ function walk(node, visit) {
 function viewInputs(view) {
   const found = [];
   walk(view, (node) => {
-    if (INPUTS.has(node.type)) found.push(node);
+    if (INPUTS3.has(node.type)) found.push(node);
   });
   return found;
 }
@@ -29073,7 +32098,7 @@ function resolve(value, lookup, fallback = void 0) {
   return result.error === void 0 ? result.value : fallback;
 }
 var asText = (value) => value === void 0 || value === null ? "" : show(value);
-function clip(text) {
+function clip2(text) {
   const flat = String(text).replace(/\s+/g, " ").trim();
   return flat.length <= SUMMARY_PART ? flat : flat.slice(0, SUMMARY_PART);
 }
@@ -29134,7 +32159,7 @@ function viewSummary(view) {
   const visit = (node) => {
     if (parts.length >= SUMMARY_COUNT || !isRecord(node)) return;
     const line = componentSummary(node, lookup);
-    if (line !== void 0) parts.push(clip(line));
+    if (line !== void 0) parts.push(clip2(line));
     if (parts.length >= SUMMARY_COUNT || !LAYOUT.includes(node.type) || !Array.isArray(node.children)) return;
     for (const child of node.children) visit(child);
   };
@@ -29175,12 +32200,12 @@ function validateInputs(view, sent) {
   const inputs = {};
   for (const node of nodes) {
     const value = Object.hasOwn(given, node.id) ? given[node.id] : inputDefault(node);
-    const at = `values.inputs.${node.id}`;
-    if (node.type === "toggle" && typeof value !== "boolean") return { error: `${at}: expected true or false` };
-    if (node.type === "choice" && !(Array.isArray(node.options) ? node.options : []).some((option) => choiceValue(option) === value)) return { error: `${at}: expected one of the options' values` };
+    const at2 = `values.inputs.${node.id}`;
+    if (node.type === "toggle" && typeof value !== "boolean") return { error: `${at2}: expected true or false` };
+    if (node.type === "choice" && !(Array.isArray(node.options) ? node.options : []).some((option) => choiceValue(option) === value)) return { error: `${at2}: expected one of the options' values` };
     if (node.type === "slider" || node.type === "number") {
-      if (!isNumber(value)) return { error: `${at}: expected a number` };
-      if (node.min !== void 0 && value < node.min || node.max !== void 0 && value > node.max) return { error: `${at}: expected a number from ${node.min ?? "-∞"} to ${node.max ?? "∞"}` };
+      if (!isNumber(value)) return { error: `${at2}: expected a number` };
+      if (node.min !== void 0 && value < node.min || node.max !== void 0 && value > node.max) return { error: `${at2}: expected a number from ${node.min ?? "-∞"} to ${node.max ?? "∞"}` };
     }
     inputs[node.id] = value;
   }
@@ -29261,8 +32286,8 @@ function chartData(node, lookup) {
   const series = (Array.isArray(node.series) ? node.series : []).map((item, index) => ({
     name: typeof item?.name === "string" ? item.name : "",
     color: colorAt(index),
-    values: categories.map((_, at) => {
-      const value = Number(resolve(Array.isArray(item?.values) ? item.values[at] : void 0, lookup, 0));
+    values: categories.map((_, at2) => {
+      const value = Number(resolve(Array.isArray(item?.values) ? item.values[at2] : void 0, lookup, 0));
       return Number.isFinite(value) ? value : 0;
     })
   }));
@@ -29271,7 +32296,7 @@ function chartData(node, lookup) {
 var csvCell = (value) => /[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
 function chartCsv({ categories, series, unit }, t2 = (key) => key) {
   const head = ["", ...series.map((item, index) => item.name || (series.length === 1 ? unit || t2("Value") : `${t2("Series")} ${index + 1}`))];
-  const rows2 = categories.map((label, at) => [label, ...series.map((item) => String(item.values[at]))]);
+  const rows2 = categories.map((label, at2) => [label, ...series.map((item) => String(item.values[at2]))]);
   return [head, ...rows2].map((row) => row.map((cell) => csvCell(String(cell))).join(",")).join("\n");
 }
 function valueAxis(values, zero) {
@@ -29300,44 +32325,44 @@ function columns({ categories, series, unit, kind }, width, active, shown) {
     parts.push((0, import_react15.createElement)("text", { key: `t${tick}`, className: "dv-chart-tick", x: plot.x - 8, y: y(tick) + 3, textAnchor: "end" }, withUnit(tick, unit)));
   }
   const points = [];
-  categories.forEach((label, at) => {
-    const cx = plot.x + band * at + band / 2;
-    parts.push((0, import_react15.createElement)("text", { key: `c${at}`, className: "dv-chart-label", x: cx, y: height - 7, textAnchor: "middle" }, fit2(label, band - 4, LABEL)));
-    points.push({ x: cx, y: y(Math.max(...visible.map((item) => item.values[at]), lo)) });
+  categories.forEach((label, at2) => {
+    const cx = plot.x + band * at2 + band / 2;
+    parts.push((0, import_react15.createElement)("text", { key: `c${at2}`, className: "dv-chart-label", x: cx, y: height - 7, textAnchor: "middle" }, fit2(label, band - 4, LABEL)));
+    points.push({ x: cx, y: y(Math.max(...visible.map((item) => item.values[at2]), lo)) });
   });
   if (kind === "bar") {
     const group = band * 0.72;
     const gap = visible.length > 1 ? 2 : 0;
     const barW = Math.max(2, (group - gap * (visible.length - 1)) / visible.length);
     const zero = y(Math.max(lo, Math.min(0, hi)));
-    categories.forEach((_, at) => {
+    categories.forEach((_, at2) => {
       visible.forEach((item, row) => {
-        const value = item.values[at];
-        const x = plot.x + band * at + (band - group) / 2 + row * (barW + gap);
+        const value = item.values[at2];
+        const x = plot.x + band * at2 + (band - group) / 2 + row * (barW + gap);
         const top2 = Math.min(y(value), zero);
         const tall = Math.max(1, Math.abs(y(value) - zero));
         const r = Math.min(4, barW / 2, tall);
         const up = value >= 0;
         const d = up ? `M${x},${top2 + tall}V${top2 + r}q0,-${r} ${r},-${r}h${barW - 2 * r}q${r},0 ${r},${r}V${top2 + tall}z` : `M${x},${top2}V${top2 + tall - r}q0,${r} ${r},${r}h${barW - 2 * r}q${r},0 ${r},-${r}V${top2}z`;
-        parts.push((0, import_react15.createElement)("path", { key: `b${at}-${row}`, className: "dv-chart-mark", "data-dim": active !== null && active !== at ? "" : void 0, d, style: { fill: item.color } }));
+        parts.push((0, import_react15.createElement)("path", { key: `b${at2}-${row}`, className: "dv-chart-mark", "data-dim": active !== null && active !== at2 ? "" : void 0, d, style: { fill: item.color } }));
       });
     });
   } else {
-    const xs = categories.map((_, at) => plot.x + band * at + band / 2);
+    const xs = categories.map((_, at2) => plot.x + band * at2 + band / 2);
     visible.forEach((item, row) => {
-      const line = item.values.map((value, at) => `${at === 0 ? "M" : "L"}${xs[at]},${y(value)}`).join("");
+      const line = item.values.map((value, at2) => `${at2 === 0 ? "M" : "L"}${xs[at2]},${y(value)}`).join("");
       if (kind === "area") {
         const base = y(Math.max(lo, Math.min(0, hi)));
         parts.push((0, import_react15.createElement)("path", { key: `a${row}`, className: "dv-chart-area", d: `${line}L${xs.at(-1)},${base}L${xs[0]},${base}z`, style: { fill: item.color } }));
       }
       parts.push((0, import_react15.createElement)("path", { key: `l${row}`, className: "dv-chart-line", d: line, style: { stroke: item.color } }));
-      item.values.forEach((value, at) => {
-        parts.push((0, import_react15.createElement)("circle", { key: `p${row}-${at}`, className: "dv-chart-dot", cx: xs[at], cy: y(value), r: active === at ? 4 : 2.5, style: { fill: item.color } }));
+      item.values.forEach((value, at2) => {
+        parts.push((0, import_react15.createElement)("circle", { key: `p${row}-${at2}`, className: "dv-chart-dot", cx: xs[at2], cy: y(value), r: active === at2 ? 4 : 2.5, style: { fill: item.color } }));
       });
     });
     if (active !== null) parts.unshift((0, import_react15.createElement)("line", { key: "guide", className: "dv-chart-guide", x1: xs[active], x2: xs[active], y1: plot.y, y2: plot.y + plot.h }));
   }
-  const hits = categories.map((_, at) => ({ x: plot.x + band * at, y: plot.y, w: band, h: plot.h }));
+  const hits = categories.map((_, at2) => ({ x: plot.x + band * at2, y: plot.y, w: band, h: plot.h }));
   return { parts, height, points, hits };
 }
 function rows({ categories, series, unit }, width, active, shown) {
@@ -29360,20 +32385,20 @@ function rows({ categories, series, unit }, width, active, shown) {
   }
   const points = [];
   const zero = x(Math.max(lo, Math.min(0, hi)));
-  categories.forEach((label, at) => {
-    const rowY = plot.y + rowH * at + 5;
-    parts.push((0, import_react15.createElement)("text", { key: `c${at}`, className: "dv-chart-label", x: labelW - 10, y: rowY + (rowH - 10) / 2 + 4, textAnchor: "end" }, fit2(label, labelW - 12, LABEL)));
+  categories.forEach((label, at2) => {
+    const rowY = plot.y + rowH * at2 + 5;
+    parts.push((0, import_react15.createElement)("text", { key: `c${at2}`, className: "dv-chart-label", x: labelW - 10, y: rowY + (rowH - 10) / 2 + 4, textAnchor: "end" }, fit2(label, labelW - 12, LABEL)));
     visible.forEach((item, row) => {
-      const value = item.values[at];
+      const value = item.values[at2];
       const by = rowY + row * (barH + 2);
       const left = Math.min(x(value), zero);
       const long = Math.max(1, Math.abs(x(value) - zero));
-      parts.push((0, import_react15.createElement)("rect", { key: `b${at}-${row}`, className: "dv-chart-mark", "data-dim": active !== null && active !== at ? "" : void 0, x: left, y: by, width: long, height: barH, rx: Math.min(4, long / 2), style: { fill: item.color } }));
-      parts.push((0, import_react15.createElement)("text", { key: `v${at}-${row}`, className: "dv-chart-value", x: left + long + 6, y: by + barH - 3 }, withUnit(value, unit)));
+      parts.push((0, import_react15.createElement)("rect", { key: `b${at2}-${row}`, className: "dv-chart-mark", "data-dim": active !== null && active !== at2 ? "" : void 0, x: left, y: by, width: long, height: barH, rx: Math.min(4, long / 2), style: { fill: item.color } }));
+      parts.push((0, import_react15.createElement)("text", { key: `v${at2}-${row}`, className: "dv-chart-value", x: left + long + 6, y: by + barH - 3 }, withUnit(value, unit)));
     });
-    points.push({ x: Math.max(...visible.map((item) => x(item.values[at])), zero), y: rowY });
+    points.push({ x: Math.max(...visible.map((item) => x(item.values[at2])), zero), y: rowY });
   });
-  const hits = categories.map((_, at) => ({ x: 0, y: plot.y + rowH * at, w: width, h: rowH }));
+  const hits = categories.map((_, at2) => ({ x: 0, y: plot.y + rowH * at2, w: width, h: rowH }));
   return { parts, height, points, hits };
 }
 function donut({ categories, series }, width, active, hover) {
@@ -29387,7 +32412,7 @@ function donut({ categories, series }, width, active, hover) {
   const parts = [];
   const points = [];
   let angle = -Math.PI / 2;
-  values.forEach((value, at) => {
+  values.forEach((value, at2) => {
     const sweep = total > 0 ? value / total * Math.PI * 2 : 0;
     const end = angle + sweep;
     const mid = angle + sweep / 2;
@@ -29397,7 +32422,7 @@ function donut({ categories, series }, width, active, hover) {
       const full2 = sweep >= Math.PI * 2 - 1e-6;
       const p = (radius, theta) => `${cx + Math.cos(theta) * radius},${cy + Math.sin(theta) * radius}`;
       const d = full2 ? `M${p(r, angle)}A${r},${r} 0 1 1 ${p(r, angle + Math.PI)}A${r},${r} 0 1 1 ${p(r, angle)}M${p(inner, angle)}A${inner},${inner} 0 1 0 ${p(inner, angle + Math.PI)}A${inner},${inner} 0 1 0 ${p(inner, angle)}z` : `M${p(r, angle)}A${r},${r} 0 ${large} 1 ${p(r, end)}L${p(inner, end)}A${inner},${inner} 0 ${large} 0 ${p(inner, angle)}z`;
-      parts.push((0, import_react15.createElement)("path", { key: `s${at}`, className: "dv-chart-mark", "data-dim": active !== null && active !== at ? "" : void 0, d, fillRule: "evenodd", style: { fill: colorAt(at) }, onPointerEnter: () => hover(at) }));
+      parts.push((0, import_react15.createElement)("path", { key: `s${at2}`, className: "dv-chart-mark", "data-dim": active !== null && active !== at2 ? "" : void 0, d, fillRule: "evenodd", style: { fill: colorAt(at2) }, onPointerEnter: () => hover(at2) }));
     }
     angle = end;
   });
@@ -29413,9 +32438,9 @@ function useWidth(box, initial) {
       if (next > 0) setWidth(next);
     };
     measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(node);
-    return () => observer.disconnect();
+    const observer2 = new ResizeObserver(measure);
+    observer2.observe(node);
+    return () => observer2.disconnect();
   }, []);
   return width;
 }
@@ -29476,11 +32501,11 @@ function ChartTable({ data }) {
       "table",
       null,
       (0, import_react15.createElement)("thead", null, (0, import_react15.createElement)("tr", null, (0, import_react15.createElement)("th", { scope: "col" }), heads.map((head, index) => (0, import_react15.createElement)("th", { key: index, scope: "col", className: "dv-num" }, head)))),
-      (0, import_react15.createElement)("tbody", null, categories.map((label, at) => (0, import_react15.createElement)(
+      (0, import_react15.createElement)("tbody", null, categories.map((label, at2) => (0, import_react15.createElement)(
         "tr",
-        { key: at },
+        { key: at2 },
         (0, import_react15.createElement)("th", { scope: "row" }, label),
-        series.map((item, index) => (0, import_react15.createElement)("td", { key: index, className: "dv-num" }, withUnit(item.values[at], series.length === 1 && !item.name ? "" : unit)))
+        series.map((item, index) => (0, import_react15.createElement)("td", { key: index, className: "dv-num" }, withUnit(item.values[at2], series.length === 1 && !item.name ? "" : unit)))
       )))
     )
   );
@@ -29521,7 +32546,7 @@ function WidgetChart({ node, lookup, registerChart, refreshCharts }) {
     setActive((current2) => current2 === null ? 0 : (current2 + keys[event.key] + categories.length) % categories.length);
   };
   const point = active === null ? null : drawn.points[active];
-  const share = (at) => unit === "%" ? withUnit(drawn.values[at], unit) : `${withUnit(drawn.values[at], unit)} · ${drawn.total > 0 ? Math.round(drawn.values[at] / drawn.total * 100) : 0}%`;
+  const share = (at2) => unit === "%" ? withUnit(drawn.values[at2], unit) : `${withUnit(drawn.values[at2], unit)} · ${drawn.total > 0 ? Math.round(drawn.values[at2] / drawn.total * 100) : 0}%`;
   const tipRows = active === null || isDonut ? [] : series.filter((_, index) => shown[index]).map((item) => ({ color: item.color, name: item.name, value: withUnit(item.values[active], unit) }));
   const copy2 = () => {
     void navigator.clipboard?.writeText(chartCsv(data, ui.t)).then(() => {
@@ -29550,18 +32575,18 @@ function WidgetChart({ node, lookup, registerChart, refreshCharts }) {
     save: () => action.current.save()
   }), [registerChart, menuKey]);
   (0, import_react15.useEffect)(() => refreshCharts?.(), [refreshCharts, asTable, menuLabel]);
-  const legend = isDonut ? (0, import_react15.createElement)("div", { className: "dv-chart-legend dv-chart-legend-list" }, categories.map((name, at) => (0, import_react15.createElement)(
+  const legend = isDonut ? (0, import_react15.createElement)("div", { className: "dv-chart-legend dv-chart-legend-list" }, categories.map((name, at2) => (0, import_react15.createElement)(
     "div",
     {
-      key: at,
+      key: at2,
       className: "dv-chart-key",
-      "data-dim": active !== null && active !== at ? "" : void 0,
-      onPointerEnter: () => setActive(at),
+      "data-dim": active !== null && active !== at2 ? "" : void 0,
+      onPointerEnter: () => setActive(at2),
       onPointerLeave: () => setActive(null)
     },
-    (0, import_react15.createElement)("i", { style: { background: colorAt(at) } }),
+    (0, import_react15.createElement)("i", { style: { background: colorAt(at2) } }),
     (0, import_react15.createElement)("span", { className: "dv-chart-key-name" }, name),
-    (0, import_react15.createElement)("span", { className: "dv-chart-key-value" }, share(at))
+    (0, import_react15.createElement)("span", { className: "dv-chart-key-value" }, share(at2))
   ))) : series.length > 1 ? (0, import_react15.createElement)("div", { className: "dv-chart-legend" }, series.map((item, index) => (0, import_react15.createElement)("button", {
     key: index,
     type: "button",
@@ -29593,7 +32618,7 @@ function WidgetChart({ node, lookup, registerChart, refreshCharts }) {
         null,
         (0, import_react15.createElement)("text", { className: "dv-chart-center-name", x: svgWidth / 2, y: drawn.height / 2 - 4, textAnchor: "middle" }, fit2(categories[active], drawn.size * 0.56, LABEL)),
         (0, import_react15.createElement)("text", { className: "dv-chart-center", x: svgWidth / 2, y: drawn.height / 2 + 14, textAnchor: "middle" }, share(active))
-      ) : drawn.hits.map((hit, at) => (0, import_react15.createElement)("rect", { key: `h${at}`, className: "dv-chart-hit", x: hit.x, y: hit.y, width: hit.w, height: hit.h, onPointerEnter: () => setActive(at) }))
+      ) : drawn.hits.map((hit, at2) => (0, import_react15.createElement)("rect", { key: `h${at2}`, className: "dv-chart-hit", x: hit.x, y: hit.y, width: hit.w, height: hit.h, onPointerEnter: () => setActive(at2) }))
     ),
     point && !asTable && !isDonut ? (0, import_react15.createElement)(
       "div",
@@ -29697,29 +32722,29 @@ function frameDocument(html, vars = {}) {
 }
 function HtmlFrame({ node }) {
   const ui = useViewUi();
-  const frame2 = (0, import_react16.useRef)(null);
+  const frame3 = (0, import_react16.useRef)(null);
   const loads = (0, import_react16.useRef)(0);
   const [height, setHeight] = (0, import_react16.useState)(Number.isFinite(node.height) ? node.height : 120);
   const [stopped, setStopped] = (0, import_react16.useState)(false);
   const doc = (0, import_react16.useMemo)(() => frameDocument(String(node.html ?? ""), themeVars2()), [node.html]);
   (0, import_react16.useEffect)(() => {
     const onMessage = (event) => {
-      if (event.source !== frame2.current?.contentWindow || event.data?.type !== HEIGHT) return;
+      if (event.source !== frame3.current?.contentWindow || event.data?.type !== HEIGHT) return;
       const next = Number(event.data.height);
       if (Number.isFinite(next)) setHeight(Math.max(MIN_HEIGHT, Math.ceil(next)));
     };
     window.addEventListener("message", onMessage);
-    const retheme = () => frame2.current?.contentWindow?.postMessage({ type: THEME, vars: themeVars2() }, "*");
-    const observer = typeof MutationObserver === "function" ? new MutationObserver(retheme) : null;
-    observer?.observe(document.body, { attributes: true, attributeFilter: ["data-ds-dark-theme", "style", "class"] });
+    const retheme = () => frame3.current?.contentWindow?.postMessage({ type: THEME, vars: themeVars2() }, "*");
+    const observer2 = typeof MutationObserver === "function" ? new MutationObserver(retheme) : null;
+    observer2?.observe(document.body, { attributes: true, attributeFilter: ["data-ds-dark-theme", "style", "class"] });
     return () => {
       window.removeEventListener("message", onMessage);
-      observer?.disconnect();
+      observer2?.disconnect();
     };
   }, []);
   if (stopped) return (0, import_react16.createElement)("p", { className: "dv-view-frame-stopped" }, ui.t("This view tried to open a page and was stopped."));
   return (0, import_react16.createElement)("iframe", {
-    ref: frame2,
+    ref: frame3,
     className: "dv-view-frame",
     title: String(node.summary ?? ""),
     sandbox: "allow-scripts",
@@ -30142,7 +33167,7 @@ function ChoiceInput({ node, ctx }) {
   const labelId = (0, import_react17.useId)();
   const options = optionsOf2(node);
   const current2 = ctx.values[node.id];
-  const side = options.length <= 4 && options.every((option) => [...option.label].length <= 14);
+  const side2 = options.length <= 4 && options.every((option) => [...option.label].length <= 14);
   const pick2 = (option) => () => {
     if (!ctx.locked) ctx.setInput(node.id, choiceValue(option));
   };
@@ -30150,7 +33175,7 @@ function ChoiceInput({ node, ctx }) {
     "div",
     { className: "dv-view-input" },
     (0, import_react17.createElement)("span", { className: "dv-view-input-label", id: labelId }, node.label),
-    side ? (0, import_react17.createElement)(
+    side2 ? (0, import_react17.createElement)(
       Segmented2,
       { label: node.label, value: options.findIndex((option) => choiceValue(option) === current2), className: "dv-view-seg" },
       options.map((option) => (0, import_react17.createElement)("button", { key: option.label, type: "button", "aria-pressed": choiceValue(option) === current2, disabled: ctx.locked, onClick: pick2(option) }, option.label))
@@ -30844,10 +33869,10 @@ function SettledView({ id, title, view, answer = null, closed }) {
     hasSummary ? (0, import_react18.createElement)(
       "div",
       { className: "bt-q-list bt-q-summary", role: "group", "aria-label": t("Your answer") },
-      summary.options.map(({ label, at }, index) => (0, import_react18.createElement)(
+      summary.options.map(({ label, at: at2 }, index) => (0, import_react18.createElement)(
         "div",
         { key: `${label}-${index}`, className: "bt-q-opt", title: t("Selected") },
-        at >= 0 ? (0, import_react18.createElement)("span", { className: "bt-key", "aria-hidden": true }, keyLetter(at)) : null,
+        at2 >= 0 ? (0, import_react18.createElement)("span", { className: "bt-key", "aria-hidden": true }, keyLetter(at2)) : null,
         (0, import_react18.createElement)("span", { className: "bt-q-body" }, (0, import_react18.createElement)("span", { className: "bt-q-label" }, label))
       )),
       summary.kvRows.map((row, index) => (0, import_react18.createElement)(
@@ -30955,8 +33980,8 @@ function WidgetDock({ sessionId, useRoster, useCards, useHeldCards, actions }) {
     }
     if (prev.sessionId === sessionId && prev.view !== void 0 && !prev.handedOff && view === void 0 && !reducedMotion() && typeof setTimeout === "function") {
       setExiting(prev.view);
-      const timer = setTimeout(() => setExiting(null), 150);
-      return () => clearTimeout(timer);
+      const timer2 = setTimeout(() => setExiting(null), 150);
+      return () => clearTimeout(timer2);
     }
     if (exiting) setExiting(null);
     return void 0;
@@ -31113,13 +34138,13 @@ function MaskedInput({ value, onChange, onEnter, label, autoFocus = false, disab
     const el = ref.current;
     if (!multiline || !el || typeof ResizeObserver !== "function") return;
     let lastWidth = el.clientWidth;
-    const observer = new ResizeObserver(() => {
+    const observer2 = new ResizeObserver(() => {
       if (el.clientWidth === lastWidth) return;
       lastWidth = el.clientWidth;
       fit3();
     });
-    observer.observe(el);
-    return () => observer.disconnect();
+    observer2.observe(el);
+    return () => observer2.disconnect();
   }, [multiline]);
   const common = {
     ref,
@@ -31897,9 +34922,9 @@ var import_react21 = require("react");
 var import_react_dom2 = require("react-dom");
 var MENU_EXIT_MS2 = 120;
 var MAX_EFFORT_CACHE = 200;
-function groupModels(models) {
+function groupModels(models2) {
   const groups = /* @__PURE__ */ new Map();
-  for (const model of models ?? []) {
+  for (const model of models2 ?? []) {
     const provider = model.provider ?? model.providerName ?? model.ref.split("/")[0];
     if (!groups.has(provider)) groups.set(provider, []);
     groups.get(provider).push(model);
@@ -31961,7 +34986,7 @@ function EffortBar({ reasoning, current: current2, onPick }) {
   const drag = (0, import_react21.useRef)(null);
   const [picked, setPicked] = (0, import_react21.useState)(current2);
   const [dragRatio, setDragRatio] = (0, import_react21.useState)(null);
-  const queue = (0, import_react21.useRef)({ busy: false, hasPending: false, pending: void 0 });
+  const queue2 = (0, import_react21.useRef)({ busy: false, hasPending: false, pending: void 0 });
   const chosen = (0, import_react21.useRef)(void 0);
   const latest = (0, import_react21.useRef)(current2);
   const pick2 = (0, import_react21.useRef)(onPick);
@@ -31969,7 +34994,7 @@ function EffortBar({ reasoning, current: current2, onPick }) {
   pick2.current = onPick;
   const same = (a, b2) => (a ?? null) === (b2 ?? null);
   (0, import_react21.useEffect)(() => {
-    if (drag.current || queue.current.busy || queue.current.hasPending) return;
+    if (drag.current || queue2.current.busy || queue2.current.hasPending) return;
     if (chosen.current !== void 0 && !same(current2, chosen.current)) return;
     chosen.current = void 0;
     setPicked(current2);
@@ -31982,7 +35007,7 @@ function EffortBar({ reasoning, current: current2, onPick }) {
   const stopRatio = stops.length <= 1 ? 1 : activeIndex / (stops.length - 1);
   const ratio = dragRatio ?? stopRatio;
   const drain = async () => {
-    const state = queue.current;
+    const state = queue2.current;
     if (state.busy) return;
     state.busy = true;
     let written;
@@ -32031,7 +35056,7 @@ function EffortBar({ reasoning, current: current2, onPick }) {
   };
   const commit = (effort) => {
     setPicked(effort);
-    const state = queue.current;
+    const state = queue2.current;
     const shown = chosen.current !== void 0 ? chosen.current : latest.current;
     if (!state.busy && !state.hasPending && same(effort, shown)) return;
     state.pending = effort;
@@ -32193,9 +35218,9 @@ function ModelGroupList({ groups, current: current2, currentId, defaultModel, on
 }
 var NO_MANUAL = {};
 var manualFor = (state, opening) => state.opening === opening ? state.manual : NO_MANUAL;
-function filterModelGroups(models, query) {
+function filterModelGroups(models2, query) {
   const tokens = typeof query === "string" ? query.trim().toLowerCase().split(/\s+/).filter(Boolean) : [];
-  const groups = groupModels(models);
+  const groups = groupModels(models2);
   if (tokens.length === 0) return groups;
   return groups.map(([provider, list]) => [provider, list.filter((model) => {
     const hay = `${model.name ?? ""} ${nameOf(model) ?? ""} ${model.ref ?? ""} ${model.provider ?? ""} ${model.providerName ?? ""}`.toLowerCase();
@@ -32336,7 +35361,7 @@ function useModelPicker({ bot, roster, actions, run: run2, onPick, onPickEffort,
   const effortLabel = currentEffort === void 0 ? reasoning?.efforts?.length > 0 ? t("Default") : void 0 : reasoning.efforts.find((effort) => effort.id === currentEffort)?.name ?? currentEffort;
   const [opening, setOpening] = (0, import_react21.useState)(0);
   const [query, setQuery] = (0, import_react21.useState)("");
-  const models = modelsFor(roster.models, current2);
+  const models2 = modelsFor(roster.models, current2);
   return {
     bot,
     roster,
@@ -32347,7 +35372,7 @@ function useModelPicker({ bot, roster, actions, run: run2, onPick, onPickEffort,
     reasoning,
     picked,
     effortLabel,
-    models,
+    models: models2,
     opening,
     query,
     setQuery,
@@ -32371,7 +35396,7 @@ function useModelPicker({ bot, roster, actions, run: run2, onPick, onPickEffort,
   };
 }
 var modelTrigger = (picker, { wide, button, isOpen, onClick }) => {
-  const { shown, models, withEfforts, effortLabel, inherited } = picker;
+  const { shown, models: models2, withEfforts, effortLabel, inherited } = picker;
   return (0, import_react21.createElement)(
     "button",
     {
@@ -32382,7 +35407,7 @@ var modelTrigger = (picker, { wide, button, isOpen, onClick }) => {
       "aria-haspopup": "menu",
       "aria-expanded": isOpen,
       "aria-label": t("Model: {model}", { model: shown?.name ?? t("none") }),
-      "data-missing": shown !== void 0 && !shown.served && models.length > 0 ? "" : void 0,
+      "data-missing": shown !== void 0 && !shown.served && models2.length > 0 ? "" : void 0,
       onClick,
       "data-empty": !shown || void 0
     },
@@ -32393,15 +35418,15 @@ var modelTrigger = (picker, { wide, button, isOpen, onClick }) => {
         wide ? "span" : import_react21.Fragment,
         wide ? { className: "bt-model-label" } : null,
         (0, import_react21.createElement)("span", { className: "bt-model-name" }, shown?.name ?? t("Choose a model")),
-        shown ? (0, import_react21.createElement)("span", { className: "bt-model-provider" }, shown.served || models.length === 0 ? !withEfforts || effortLabel === void 0 ? shown.provider : `${shown.provider} · ${effortLabel}` : t("{provider} · not available", { provider: shown.provider })) : null
+        shown ? (0, import_react21.createElement)("span", { className: "bt-model-provider" }, shown.served || models2.length === 0 ? !withEfforts || effortLabel === void 0 ? shown.provider : `${shown.provider} · ${effortLabel}` : t("{provider} · not available", { provider: shown.provider })) : null
       ),
       inherited ? (0, import_react21.createElement)("span", { className: "bt-model-default" }, t("Default")) : null
     ),
     (0, import_react21.createElement)(Caret)
   );
 };
-var modelSearch = ({ models, query, setQuery }, menu) => {
-  return models.length > 0 ? (0, import_react21.createElement)(
+var modelSearch = ({ models: models2, query, setQuery }, menu) => {
+  return models2.length > 0 ? (0, import_react21.createElement)(
     "div",
     { className: "bt-model-search", role: "presentation" },
     (0, import_react21.createElement)("input", {
@@ -32420,10 +35445,10 @@ var modelSearch = ({ models, query, setQuery }, menu) => {
     })
   ) : null;
 };
-var modelScroll = ({ roster, models, current: current2, local, reading, opening, query }, pick2) => (0, import_react21.createElement)(
+var modelScroll = ({ roster, models: models2, current: current2, local, reading, opening, query }, pick2) => (0, import_react21.createElement)(
   "div",
   { className: "bt-model-scroll" },
-  models.length > 0 ? (0, import_react21.createElement)(ModelRows, { roster: { ...roster, models }, current: current2, onPick: pick2, query, opening }) : local ? null : (0, import_react21.createElement)("div", { className: "bt-model-none" }, t("No models are set up in DeepSeek Harness yet.")),
+  models2.length > 0 ? (0, import_react21.createElement)(ModelRows, { roster: { ...roster, models: models2 }, current: current2, onPick: pick2, query, opening }) : local ? null : (0, import_react21.createElement)("div", { className: "bt-model-none" }, t("No models are set up in DeepSeek Harness yet.")),
   reading ? (0, import_react21.createElement)("div", { className: "bt-model-none" }, t("Reading models…")) : null
 );
 var manageButton = (manage, close) => (0, import_react21.createElement)(
@@ -32449,10 +35474,10 @@ function PopupModelMenu({ bot, roster, actions, run: run2, wide = false, onPick,
     const provider = button.current?.querySelector(".bt-model-provider");
     if (!provider) return;
     const update = () => provider.toggleAttribute("data-squeezed", provider.clientWidth < Math.min(48, provider.scrollWidth));
-    const observer = new ResizeObserver(update);
-    observer.observe(provider);
+    const observer2 = new ResizeObserver(update);
+    observer2.observe(provider);
     update();
-    return () => observer.disconnect();
+    return () => observer2.disconnect();
   }, [wide, button, picker.shown?.provider, picker.shown?.served, picker.effortLabel, withEfforts, hasModels]);
   const toggle = () => {
     if (isOpen) {
@@ -32535,11 +35560,11 @@ function ModelChoiceDock({ sessionId, useRoster, actions }) {
   }, [shown, sessionId]);
   if (!bot || currentPart(bot) !== sessionId || !roster.ready) return null;
   if (isLocalRoute(bot.model)) return null;
-  const models = modelsFor(roster.models);
-  const usable = models.filter((model) => !model.needsKey);
-  const lost = bot.model ? !models.some((model) => model.ref === bot.model) : false;
-  if (bot.model && (!lost || models.length === 0)) return null;
-  const keyFor = usable.length === 0 && actions.setProviderKey ? models.find((model) => model.needsKey) : void 0;
+  const models2 = modelsFor(roster.models);
+  const usable = models2.filter((model) => !model.needsKey);
+  const lost = bot.model ? !models2.some((model) => model.ref === bot.model) : false;
+  if (bot.model && (!lost || models2.length === 0)) return null;
+  const keyFor = usable.length === 0 && actions.setProviderKey ? models2.find((model) => model.needsKey) : void 0;
   const manage = manageModels(actions);
   const pick2 = (ref) => {
     setBusy(ref);
@@ -33036,12 +36061,26 @@ function useLocalAgents(wanted) {
   const [scanning, setScanning] = (0, import_react23.useState)(false);
   const load = (endpoint) => {
     setScanning(true);
-    return call(endpoint).then(setView).catch(() => setView({ detected: [], custom: [] })).finally(() => setScanning(false));
+    return call(endpoint).then(setView).catch(() => setView({ detected: [], profiles: [], custom: [] })).finally(() => setScanning(false));
   };
   (0, import_react23.useEffect)(() => {
     if (wanted && view === null) void load("local-agents");
   }, [wanted]);
-  const agents = view === null ? [] : [...view.detected, ...view.custom.filter((agent) => agent.available !== false).map((agent) => ({ route: agent.route, name: agent.name, command: agent.command, args: agent.args, signedIn: null }))];
+  const profiles = (view?.profiles ?? []).filter((profile) => profile.available !== false).map((profile) => ({
+    route: profile.route,
+    baseRoute: profile.baseRoute,
+    profileId: profile.id,
+    name: profile.displayName ?? profile.name,
+    version: profile.version,
+    signIn: profile.signIn,
+    signedIn: profile.signedIn,
+    configDir: profile.configDir
+  }));
+  const agents = view === null ? [] : [
+    ...view.detected,
+    ...profiles,
+    ...view.custom.filter((agent) => agent.available !== false).map((agent) => ({ route: agent.route, name: agent.name, command: agent.command, args: agent.args, signedIn: null }))
+  ];
   return { agents, known: view !== null, scanning, refresh: () => load("local-agent-refresh") };
 }
 var shortVersion = (version) => {
@@ -33414,11 +36453,11 @@ function useSchedules(actions) {
     listeners.add(setView);
     let stopped = false;
     let inFlight = false;
-    let timer;
+    let timer2;
     const schedule = () => {
-      clearTimeout(timer);
+      clearTimeout(timer2);
       if (stopped || typeof document !== "undefined" && document.hidden) return;
-      timer = setTimeout(load, POLL_MS);
+      timer2 = setTimeout(load, POLL_MS);
     };
     const load = () => {
       if (stopped || inFlight) return;
@@ -33432,23 +36471,23 @@ function useSchedules(actions) {
         schedule();
       });
     };
-    const onVisibility = () => {
-      if (document.hidden) clearTimeout(timer);
+    const onVisibility2 = () => {
+      if (document.hidden) clearTimeout(timer2);
       else if (!stopped) load();
     };
-    if (typeof document !== "undefined") document.addEventListener("visibilitychange", onVisibility);
+    if (typeof document !== "undefined") document.addEventListener("visibilitychange", onVisibility2);
     load();
     return () => {
       stopped = true;
-      clearTimeout(timer);
-      if (typeof document !== "undefined") document.removeEventListener("visibilitychange", onVisibility);
+      clearTimeout(timer2);
+      if (typeof document !== "undefined") document.removeEventListener("visibilitychange", onVisibility2);
       listeners.delete(setView);
     };
   }, []);
   return view;
 }
 var localZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
-var clock2 = (time) => {
+var clock3 = (time) => {
   const text = String(time ?? "");
   const [, minutes, seconds] = /^(\d\d:\d\d)(?::(\d\d))?/.exec(text) ?? [];
   if (minutes === void 0) return text.slice(0, 5);
@@ -33477,10 +36516,10 @@ function timingText(task) {
     case "every":
       return everyText(task.everySeconds);
     case "daily":
-      return `${t("Every day at {time}", { time: clock2(task.time) })}${zone}`;
+      return `${t("Every day at {time}", { time: clock3(task.time) })}${zone}`;
     case "weekly": {
       const days = (task.weekdays ?? []).join();
-      const text = days === "1,2,3,4,5" ? t("Every weekday at {time}", { time: clock2(task.time) }) : days === "6,7" ? t("Every weekend at {time}", { time: clock2(task.time) }) : days === "1,2,3,4,5,6,7" ? t("Every day at {time}", { time: clock2(task.time) }) : t("Every {days} at {time}", { days: weekdayNames(task.weekdays ?? []), time: clock2(task.time) });
+      const text = days === "1,2,3,4,5" ? t("Every weekday at {time}", { time: clock3(task.time) }) : days === "6,7" ? t("Every weekend at {time}", { time: clock3(task.time) }) : days === "1,2,3,4,5,6,7" ? t("Every day at {time}", { time: clock3(task.time) }) : t("Every {days} at {time}", { days: weekdayNames(task.weekdays ?? []), time: clock3(task.time) });
       return `${text}${zone}`;
     }
     case "cron":
@@ -33504,8 +36543,8 @@ function TaskRow2({ task, actions, onView, showBot, roster, canPause }) {
   const [busy, setBusy] = (0, import_react25.useState)(false);
   (0, import_react25.useEffect)(() => {
     if (!confirming) return void 0;
-    const timer = setTimeout(() => setConfirming(false), 3e3);
-    return () => clearTimeout(timer);
+    const timer2 = setTimeout(() => setConfirming(false), 3e3);
+    return () => clearTimeout(timer2);
   }, [confirming]);
   const remove = () => {
     if (!confirming) {
@@ -33580,7 +36619,7 @@ function TaskForm({ roster, actions, start, onDone, onCancel }) {
   const [title, setTitle] = (0, import_react25.useState)("");
   const [prompt, setPrompt] = (0, import_react25.useState)("");
   const [kind, setKind] = (0, import_react25.useState)("daily");
-  const [at, setAt] = (0, import_react25.useState)(inAnHour);
+  const [at2, setAt] = (0, import_react25.useState)(inAnHour);
   const [time, setTime] = (0, import_react25.useState)("09:00");
   const [weekdays, setWeekdays] = (0, import_react25.useState)([1, 2, 3, 4, 5]);
   const [count, setCount] = (0, import_react25.useState)(1);
@@ -33591,12 +36630,12 @@ function TaskForm({ roster, actions, start, onDone, onCancel }) {
   (0, import_react25.useEffect)(() => {
     formRef.current?.scrollIntoView?.({ block: "nearest", behavior: reducedMotion() ? "auto" : "smooth" });
   }, []);
-  const validAt = kind !== "at" || at !== "" && Number.isFinite(Date.parse(at));
+  const validAt = kind !== "at" || at2 !== "" && Number.isFinite(Date.parse(at2));
   const validDays = kind !== "weekly" || weekdays.length > 0;
   const validEvery = kind !== "every" || Number.isFinite(Number(count)) && Number(count) >= 1;
   const timing = () => {
     if (kind === "at") {
-      const parsed = new Date(at);
+      const parsed = new Date(at2);
       if (!Number.isFinite(parsed.getTime())) throw new Error("invalid date");
       return { kind, at: parsed.toISOString() };
     }
@@ -33665,7 +36704,7 @@ function TaskForm({ roster, actions, start, onDone, onCancel }) {
       (0, import_react25.createElement)(
         "div",
         { key: kind, className: "bt-task-when bt-veil" },
-        kind === "at" ? (0, import_react25.createElement)("input", { className: "bt-input", type: "datetime-local", value: at, "aria-label": t("Date and time"), onChange: (event) => setAt(event.target.value) }) : null,
+        kind === "at" ? (0, import_react25.createElement)("input", { className: "bt-input", type: "datetime-local", value: at2, "aria-label": t("Date and time"), onChange: (event) => setAt(event.target.value) }) : null,
         kind === "weekly" ? (0, import_react25.createElement)("div", { className: "bt-task-days", role: "group", "aria-label": t("Days") }, [1, 2, 3, 4, 5, 6, 7].map((day) => (0, import_react25.createElement)("button", {
           key: day,
           type: "button",
@@ -33999,8 +37038,8 @@ function CapabilitiesPage({ roster, actions, run: run2 }) {
   const [confirming, setConfirming] = (0, import_react26.useState)("");
   (0, import_react26.useEffect)(() => {
     if (!confirming) return void 0;
-    const timer = setTimeout(() => setConfirming(""), 4e3);
-    return () => clearTimeout(timer);
+    const timer2 = setTimeout(() => setConfirming(""), 4e3);
+    return () => clearTimeout(timer2);
   }, [confirming]);
   const startNew = () => setDraft(blank());
   const edit = (item) => setDraft({
@@ -34125,14 +37164,14 @@ async function avatarImage(file) {
   if (!/^image\/(png|jpeg|webp|gif)$/.test(file.type)) throw new Error(t("Choose a PNG, JPEG, WebP, or GIF image"));
   if (file.size > 25 * 1024 * 1024) throw new Error(t("Choose an image smaller than 25 MB"));
   const bitmap = await createImageBitmap(file);
-  const side = 160;
+  const side2 = 160;
   const canvas = document.createElement("canvas");
-  canvas.width = side;
-  canvas.height = side;
+  canvas.width = side2;
+  canvas.height = side2;
   const context = canvas.getContext("2d");
   context.imageSmoothingQuality = "high";
   const crop = Math.min(bitmap.width, bitmap.height);
-  context.drawImage(bitmap, (bitmap.width - crop) / 2, (bitmap.height - crop) / 2, crop, crop, 0, 0, side, side);
+  context.drawImage(bitmap, (bitmap.width - crop) / 2, (bitmap.height - crop) / 2, crop, crop, 0, 0, side2, side2);
   bitmap.close?.();
   for (const quality of [0.9, 0.75, 0.6]) {
     const url = canvas.toDataURL("image/webp", quality);
@@ -34363,8 +37402,8 @@ function MemoryRow({ owner, actions }) {
     )
   );
 }
-function ago(at, now) {
-  const seconds = Math.max(0, Math.round((now - at) / 1e3));
+function ago(at2, now2) {
+  const seconds = Math.max(0, Math.round((now2 - at2) / 1e3));
   if (seconds < 60) return null;
   const format = new Intl.RelativeTimeFormat(dateLocale(), { numeric: "auto" });
   const minutes = Math.round(seconds / 60);
@@ -34428,8 +37467,8 @@ function EntryRow({ entry, remove, pin, layer, openMove }) {
   const [busy, setBusy] = (0, import_react28.useState)(false);
   (0, import_react28.useEffect)(() => {
     if (!confirming) return void 0;
-    const timer = setTimeout(() => setConfirming(false), 3e3);
-    return () => clearTimeout(timer);
+    const timer2 = setTimeout(() => setConfirming(false), 3e3);
+    return () => clearTimeout(timer2);
   }, [confirming]);
   const by = entry.source === "memory panel" ? t("by you") : entry.by ? t("by {name}", { name: entry.by }) : null;
   const until = entry.until ? t(entry.expired ? "ended {day}" : "until {day}", { day: entry.until }) : null;
@@ -34520,7 +37559,7 @@ function TidyNote({ tidy, undo }) {
         setBusy(false);
       } }, t("Undo"))
     ),
-    (0, import_react28.createElement)("ul", null, tidy.items.map((item, at) => (0, import_react28.createElement)("li", { key: at }, item.text)))
+    (0, import_react28.createElement)("ul", null, tidy.items.map((item, at2) => (0, import_react28.createElement)("li", { key: at2 }, item.text)))
   );
 }
 function Entries({ owner, view, remove, pin, layer, openMove, undoTidy }) {
@@ -34565,15 +37604,15 @@ function historyLine(row) {
   if (row.op === "replace") return t("Updated: {text}", { text });
   return row.scope === "team" ? t("Added to team memory: {text}", { text }) : t("Added: {text}", { text });
 }
-function HistoryRow({ row, undo, now }) {
+function HistoryRow({ row, undo, now: now2 }) {
   const [confirming, setConfirming] = (0, import_react28.useState)(false);
   const [busy, setBusy] = (0, import_react28.useState)(false);
   (0, import_react28.useEffect)(() => {
     if (!confirming) return void 0;
-    const timer = setTimeout(() => setConfirming(false), 3e3);
-    return () => clearTimeout(timer);
+    const timer2 = setTimeout(() => setConfirming(false), 3e3);
+    return () => clearTimeout(timer2);
   }, [confirming]);
-  const when3 = ago(Date.parse(row.time), now) ?? t("just now");
+  const when3 = ago(Date.parse(row.time), now2) ?? t("just now");
   const meta = [when3, row.by === "user" ? t("by you") : t("by {name}", { name: row.by })].join(" · ");
   const click = async () => {
     if (!confirming) {
@@ -34603,7 +37642,7 @@ function HistoryRow({ row, undo, now }) {
     }, t("Undo"))
   );
 }
-function History({ owner, actions, undo, now }) {
+function History({ owner, actions, undo, now: now2 }) {
   const [rows2, setRows] = (0, import_react28.useState)(null);
   const [more, setMore] = (0, import_react28.useState)(null);
   const [paging, setPaging] = (0, import_react28.useState)(false);
@@ -34642,7 +37681,7 @@ function History({ owner, actions, undo, now }) {
   return (0, import_react28.createElement)(
     "div",
     { className: "bt-mem-entries" },
-    (0, import_react28.createElement)("ul", { className: "bt-mem-list" }, rows2.map((row) => (0, import_react28.createElement)(HistoryRow, { key: row.id, row, undo: undoRow, now }))),
+    (0, import_react28.createElement)("ul", { className: "bt-mem-list" }, rows2.map((row) => (0, import_react28.createElement)(HistoryRow, { key: row.id, row, undo: undoRow, now: now2 }))),
     more ? (0, import_react28.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: paging, onClick: () => void moreClick() }, t("Load more")) : null
   );
 }
@@ -34672,7 +37711,7 @@ function Reply({ answer, dismiss }) {
 function useMemoryView(id, actions) {
   const [view, setView] = (0, import_react28.useState)(null);
   const [error, setError] = (0, import_react28.useState)("");
-  const timer = (0, import_react28.useRef)(0);
+  const timer2 = (0, import_react28.useRef)(0);
   const latest = (0, import_react28.useRef)(0);
   const alive = (0, import_react28.useRef)(true);
   const show2 = (0, import_react28.useCallback)((next) => {
@@ -34681,13 +37720,13 @@ function useMemoryView(id, actions) {
     noteCount(id, next.entries.length);
   }, [id]);
   const load = (0, import_react28.useCallback)(async (flags = {}) => {
-    clearTimeout(timer.current);
+    clearTimeout(timer2.current);
     const ticket = ++latest.current;
     try {
       const next = await actions.memoryView(id, flags);
       if (!alive.current || ticket !== latest.current) return;
       show2(next);
-      if (next.summarizing) timer.current = setTimeout(() => void load({ summarize: flags.summarize || flags.regenerate }), POLL_MS2);
+      if (next.summarizing) timer2.current = setTimeout(() => void load({ summarize: flags.summarize || flags.regenerate }), POLL_MS2);
     } catch (failure) {
       if (alive.current && ticket === latest.current) setError(failure?.message ?? String(failure));
     }
@@ -34697,18 +37736,18 @@ function useMemoryView(id, actions) {
     void load({ summarize: true });
     return () => {
       alive.current = false;
-      clearTimeout(timer.current);
+      clearTimeout(timer2.current);
     };
   }, [id]);
   return { view, error, load, show: show2 };
 }
 function useNow(every) {
-  const [now, setNow] = (0, import_react28.useState)(Date.now());
+  const [now2, setNow] = (0, import_react28.useState)(Date.now());
   (0, import_react28.useEffect)(() => {
     const id = setInterval(() => setNow(Date.now()), every);
     return () => clearInterval(id);
   }, [every]);
-  return now;
+  return now2;
 }
 function MemoryDialog({ owner, actions, leaving = false }) {
   const { view, error, load, show: show2 } = useMemoryView(owner.id, actions);
@@ -34725,7 +37764,7 @@ function MemoryDialog({ owner, actions, leaving = false }) {
   const menuRef = (0, import_react28.useRef)(null);
   const dotsRef = (0, import_react28.useRef)(null);
   const inputRef = (0, import_react28.useRef)(null);
-  const now = useNow(3e4);
+  const now2 = useNow(3e4);
   const close = (0, import_react28.useCallback)(() => actions.closeMemory(), []);
   useEscape(close, !leaving);
   useMenuDismiss(menu, menuRef, dotsRef, () => setMenu(false));
@@ -34835,7 +37874,7 @@ function MemoryDialog({ owner, actions, leaving = false }) {
     inputRef.current?.focus();
   };
   const count = view?.entries.length ?? 0;
-  const when3 = view?.summary ? ago(view.summary.at, now) : null;
+  const when3 = view?.summary ? ago(view.summary.at, now2) : null;
   const status = view === null ? "" : page === "entries" ? count === 1 ? t("1 entry") : t("{count} entries", { count }) : view.summarizing && view.summary ? t("Updating…") : view.summary && view.fresh ? when3 ? t("Updated {time}", { time: when3 }) : t("Updated just now") : "";
   const busy = answer?.pending === true;
   return (0, import_react28.createElement)(
@@ -34879,7 +37918,7 @@ function MemoryDialog({ owner, actions, leaving = false }) {
         "div",
         { className: "bt-mem-body" },
         error ? (0, import_react28.createElement)("div", { className: "bt-error", role: "alert", style: { padding: 0 } }, hostText(error)) : null,
-        view === null ? error ? null : (0, import_react28.createElement)(Skeleton) : page === "entries" ? (0, import_react28.createElement)(Entries, { owner, view, remove, pin, layer, openMove, undoTidy }) : page === "history" ? (0, import_react28.createElement)(History, { owner, actions, undo, now }) : (0, import_react28.createElement)(Summary, { owner, view, regenerate })
+        view === null ? error ? null : (0, import_react28.createElement)(Skeleton) : page === "entries" ? (0, import_react28.createElement)(Entries, { owner, view, remove, pin, layer, openMove, undoTidy }) : page === "history" ? (0, import_react28.createElement)(History, { owner, actions, undo, now: now2 }) : (0, import_react28.createElement)(Summary, { owner, view, regenerate })
       ),
       (0, import_react28.createElement)(
         "div",
@@ -35108,9 +38147,9 @@ function useDarkMode() {
     if (typeof document === "undefined" || !document.body || typeof MutationObserver !== "function") return void 0;
     const sync = () => setDark(isDark());
     sync();
-    const observer = new MutationObserver(sync);
-    observer.observe(document.body, { attributes: true, attributeFilter: ["data-ds-dark-theme"] });
-    return () => observer.disconnect();
+    const observer2 = new MutationObserver(sync);
+    observer2.observe(document.body, { attributes: true, attributeFilter: ["data-ds-dark-theme"] });
+    return () => observer2.disconnect();
   }, []);
   return dark;
 }
@@ -35119,9 +38158,9 @@ var newThemeId = () => `my-${Date.now().toString(36)}${Math.random().toString(36
 function useResting(value, save, delay = 350, scope = void 0) {
   const [shown, setShown] = (0, import_react29.useState)(value);
   const pending = (0, import_react29.useRef)(void 0);
-  const timer = (0, import_react29.useRef)(0);
+  const timer2 = (0, import_react29.useRef)(0);
   const flush = () => {
-    clearTimeout(timer.current);
+    clearTimeout(timer2.current);
     const next = pending.current;
     pending.current = void 0;
     if (next !== void 0) next.save(next.value);
@@ -35138,11 +38177,11 @@ function useResting(value, save, delay = 350, scope = void 0) {
   const pick2 = (next) => {
     setShown(next);
     pending.current = { value: next, save };
-    clearTimeout(timer.current);
-    timer.current = setTimeout(flush, delay);
+    clearTimeout(timer2.current);
+    timer2.current = setTimeout(flush, delay);
   };
   const cancel = () => {
-    clearTimeout(timer.current);
+    clearTimeout(timer2.current);
     pending.current = void 0;
   };
   return [shown, pick2, cancel];
@@ -35204,10 +38243,10 @@ function LookPreview({ roster, prefs, background }) {
     (0, import_react29.createElement)(
       "div",
       { className: "bt-look-side" },
-      shown.map((bot, at) => (0, import_react29.createElement)(
+      shown.map((bot, at2) => (0, import_react29.createElement)(
         "span",
-        { key: bot.id, className: "bt-look-row", "data-on": at === 0 || void 0 },
-        (0, import_react29.createElement)(BotAvatar, { bot, size: 22, badge: false, live: at === 0 }),
+        { key: bot.id, className: "bt-look-row", "data-on": at2 === 0 || void 0 },
+        (0, import_react29.createElement)(BotAvatar, { bot, size: 22, badge: false, live: at2 === 0 }),
         (0, import_react29.createElement)("span", { className: "bt-look-name" }, bot.name)
       ))
     ),
@@ -35850,8 +38889,8 @@ function TwiceButton({ className, label, armedLabel, act }) {
   const [armed, setArmed] = (0, import_react29.useState)(false);
   (0, import_react29.useEffect)(() => {
     if (!armed) return void 0;
-    const timer = setTimeout(() => setArmed(false), 4e3);
-    return () => clearTimeout(timer);
+    const timer2 = setTimeout(() => setArmed(false), 4e3);
+    return () => clearTimeout(timer2);
   }, [armed]);
   return (0, import_react29.createElement)("button", { type: "button", className, "data-armed": armed ? "" : void 0, onClick: () => {
     if (armed) {
@@ -36366,8 +39405,8 @@ function BotSettingsForm({ bot, roster, actions, run: run2 }) {
   const closeEditor = (0, import_react31.useCallback)(() => setEditing(false), []);
   (0, import_react31.useEffect)(() => {
     if (!confirming) return void 0;
-    const timer = setTimeout(() => setConfirming(false), 4e3);
-    return () => clearTimeout(timer);
+    const timer2 = setTimeout(() => setConfirming(false), 4e3);
+    return () => clearTimeout(timer2);
   }, [confirming]);
   const isMainBot = isMainOf(roster, bot.id);
   const onlyMain = isMainBot && (roster.mainBotIds ?? []).length === 1;
@@ -37727,7 +40766,7 @@ function cutAt(text, end) {
 }
 function moreLines(text, max) {
   let lines = 1;
-  for (let at = text.indexOf("\n"); at !== -1; at = text.indexOf("\n", at + 1)) {
+  for (let at2 = text.indexOf("\n"); at2 !== -1; at2 = text.indexOf("\n", at2 + 1)) {
     if (++lines > max) return true;
   }
   return false;
@@ -37846,12 +40885,12 @@ function outlineOf(headings) {
   return headings.map((node, index) => ({ text: node.textContent.trim().replace(/\s+/g, " "), depth: Math.min(levels[index] - top, 2) }));
 }
 function sectionAt(tops, line) {
-  let at = -1;
+  let at2 = -1;
   for (let index = 0; index < tops.length; index += 1) {
     if (tops[index] > line) break;
-    at = index;
+    at2 = index;
   }
-  return at;
+  return at2;
 }
 function readingBand(scroller) {
   const box = scroller.getBoundingClientRect();
@@ -37897,12 +40936,12 @@ function watchSize(node, onSize) {
     }
   };
 }
-var followers = /* @__PURE__ */ new Map();
-var frame = 0;
+var followers2 = /* @__PURE__ */ new Map();
+var frame2 = 0;
 function measureScroll() {
-  frame = 0;
+  frame2 = 0;
   const news = document.querySelector(".bt-news[data-direction=up]")?.getBoundingClientRect();
-  for (const [scroller, listeners3] of followers) {
+  for (const [scroller, listeners3] of followers2) {
     const band = readingBand(scroller);
     listeners3.forEach((listener) => {
       try {
@@ -37914,25 +40953,25 @@ function measureScroll() {
   }
 }
 function scheduleScroll() {
-  if (!frame) frame = requestAnimationFrame(measureScroll);
+  if (!frame2) frame2 = requestAnimationFrame(measureScroll);
 }
 function followScroll(scroller, onFrame) {
-  if (followers.size === 0) window.addEventListener("resize", scheduleScroll);
-  const listeners3 = followers.get(scroller) ?? /* @__PURE__ */ new Set();
-  followers.set(scroller, listeners3);
+  if (followers2.size === 0) window.addEventListener("resize", scheduleScroll);
+  const listeners3 = followers2.get(scroller) ?? /* @__PURE__ */ new Set();
+  followers2.set(scroller, listeners3);
   listeners3.add(onFrame);
   if (listeners3.size === 1) scroller.addEventListener("scroll", scheduleScroll, { passive: true });
   scheduleScroll();
   return () => {
     listeners3.delete(onFrame);
     if (listeners3.size === 0) {
-      followers.delete(scroller);
+      followers2.delete(scroller);
       scroller.removeEventListener("scroll", scheduleScroll);
     }
-    if (followers.size === 0) {
+    if (followers2.size === 0) {
       window.removeEventListener("resize", scheduleScroll);
-      cancelAnimationFrame(frame);
-      frame = 0;
+      cancelAnimationFrame(frame2);
+      frame2 = 0;
     }
   };
 }
@@ -38009,7 +41048,7 @@ function ReplyGuide({ box, active }) {
   const cached = cachedHeadings.current;
   const cache = cached && cached.node === box.current && cached.headings.every((el) => el.isConnected) ? cached : null;
   const headings = cache ? cache.headings : box.current ? headingsIn(box.current) : [];
-  const outline = cache ? cache.outline : outlineOf(headings);
+  const outline2 = cache ? cache.outline : outlineOf(headings);
   const toStart = () => {
     setMenu(false);
     if (box.current) glide(scroller, box.current.getBoundingClientRect().top - readingBand(scroller).top + GAP);
@@ -38019,12 +41058,12 @@ function ReplyGuide({ box, active }) {
     const heading = headings[index];
     if (heading) glide(scroller, heading.getBoundingClientRect().top - shown.top - PILL - GAP);
   };
-  const label = outline[shown.current]?.text ?? t("Contents");
+  const label = outline2[shown.current]?.text ?? t("Contents");
   return (0, import_react_dom6.createPortal)(
     (0, import_react35.createElement)(
       "div",
       { className: "bt-reading", "data-leaving": leaving || void 0, style: { top: shown.top, left: shown.left, maxWidth: shown.maxWidth } },
-      outline.length === 0 ? (0, import_react35.createElement)("button", { type: "button", className: "bt-reading-start", onClick: toStart }, (0, import_react35.createElement)(ArrowUpIcon), t("Start of reply")) : [
+      outline2.length === 0 ? (0, import_react35.createElement)("button", { type: "button", className: "bt-reading-start", onClick: toStart }, (0, import_react35.createElement)(ArrowUpIcon), t("Start of reply")) : [
         (0, import_react35.createElement)("button", { key: "start", type: "button", className: "bt-reading-up", "aria-label": t("Back to the start of this reply"), title: t("Back to the start of this reply"), onClick: toStart }, (0, import_react35.createElement)(ArrowUpIcon)),
         (0, import_react35.createElement)("button", {
           key: "sections",
@@ -38050,7 +41089,7 @@ function ReplyGuide({ box, active }) {
         role: "menu",
         "aria-label": t("Sections in this reply"),
         onKeyDown: (event) => stepMenuFocus(pop.current, event, trigger.current)
-      }, outline.map((entry, index) => (0, import_react35.createElement)("button", {
+      }, outline2.map((entry, index) => (0, import_react35.createElement)("button", {
         key: index,
         type: "button",
         role: "menuitem",
@@ -38076,12 +41115,12 @@ function anchorOf2(card) {
   if (card == null || card.anchorSeq == null) return void 0;
   return seqNum(card.anchorSeq);
 }
-function turnContaining(seq, turns) {
+function turnContaining(seq, turns2) {
   let closed;
   let closedStart = -Infinity;
   let open;
   let openStart = -Infinity;
-  for (const turn of turns.values()) {
+  for (const turn of turns2.values()) {
     const start = seqNum(turn?.start);
     if (start === void 0 || seq < start) continue;
     const end = seqNum(turn?.end);
@@ -38097,10 +41136,10 @@ function turnContaining(seq, turns) {
   }
   return closed ?? open;
 }
-function turnStartedBy(seq, turns) {
+function turnStartedBy(seq, turns2) {
   let best;
   let bestStart = -Infinity;
-  for (const turn of turns.values()) {
+  for (const turn of turns2.values()) {
     const start = seqNum(turn?.start);
     if (start === void 0 || start > seq || start < bestStart) continue;
     best = turn;
@@ -38108,13 +41147,13 @@ function turnStartedBy(seq, turns) {
   }
   return best;
 }
-function owningTurn(card, turns) {
-  if (!turns || typeof turns.values !== "function") return void 0;
+function owningTurn(card, turns2) {
+  if (!turns2 || typeof turns2.values !== "function") return void 0;
   const anchor = anchorOf2(card);
-  if (anchor !== void 0) return turnContaining(anchor, turns);
-  const at = seqNum(card?.atSeq);
-  if (at === void 0) return void 0;
-  return turnStartedBy(at, turns);
+  if (anchor !== void 0) return turnContaining(anchor, turns2);
+  const at2 = seqNum(card?.atSeq);
+  if (at2 === void 0) return void 0;
+  return turnStartedBy(at2, turns2);
 }
 function sameTurn(owner, turn) {
   if (!owner || !turn) return false;
@@ -38122,15 +41161,15 @@ function sameTurn(owner, turn) {
   return owner === turn;
 }
 function dockCards(cards, facts) {
-  const turns = facts?.turns;
+  const turns2 = facts?.turns;
   return (Array.isArray(cards) ? cards : []).filter((card) => {
-    const owner = owningTurn(card, turns);
+    const owner = owningTurn(card, turns2);
     return owner === void 0 || !turnClosed(owner);
   });
 }
-function tailCards(cards, turn, turns) {
-  if (!turn || !turnClosed(turn) || !turns) return [];
-  return (Array.isArray(cards) ? cards : []).filter((card) => sameTurn(owningTurn(card, turns), turn));
+function tailCards(cards, turn, turns2) {
+  if (!turn || !turnClosed(turn) || !turns2) return [];
+  return (Array.isArray(cards) ? cards : []).filter((card) => sameTurn(owningTurn(card, turns2), turn));
 }
 function sessionCards(roster, sessionId) {
   if (!roster?.ready || roster.roomsById?.[sessionId]) return [];
@@ -38216,9 +41255,9 @@ function ownerSegment(card, content) {
   if (turn !== void 0) return segmentByTurn(turn, content);
   const anchor = anchorOf2(card);
   if (anchor !== void 0) return segmentAt(anchor, content);
-  const at = seqNum(card?.atSeq);
-  if (at === void 0) return void 0;
-  return segmentStartedBy(at, content);
+  const at2 = seqNum(card?.atSeq);
+  if (at2 === void 0) return void 0;
+  return segmentStartedBy(at2, content);
 }
 var btwRow = (card) => ({ kind: "btw", card });
 function withBtwRows(items, cards) {
@@ -38246,8 +41285,8 @@ function withBtwRows(items, cards) {
       aside.push(card);
       continue;
     }
-    const at = seqNum(card?.atSeq);
-    if (floor !== void 0 && at !== void 0 && at < floor) continue;
+    const at2 = seqNum(card?.atSeq);
+    if (floor !== void 0 && at2 !== void 0 && at2 < floor) continue;
     aside.push(card);
   }
   if (content.length === 0) return [...list, ...aside.map(btwRow)];
@@ -38588,7 +41627,7 @@ function CopyButton({ text }) {
   };
   return (0, import_react37.createElement)("button", { type: "button", className: "bt-tool", "aria-label": copied ? t("Copied") : t("Copy"), title: copied ? t("Copied") : t("Copy"), onClick: copy2 }, copied ? (0, import_react37.createElement)(CheckIcon) : (0, import_react37.createElement)(CopyIcon));
 }
-var clock3 = (time) => typeof time === "number" ? new Date(time).toLocaleTimeString(dateLocale(), { hour: "numeric", minute: "2-digit" }) : void 0;
+var clock4 = (time) => typeof time === "number" ? new Date(time).toLocaleTimeString(dateLocale(), { hour: "numeric", minute: "2-digit" }) : void 0;
 var viaOf2 = (source, roster) => {
   const rpcId = source?.rpcId;
   if (typeof rpcId !== "string") return void 0;
@@ -38618,7 +41657,7 @@ function ProjectedContent({ data, text, shown, folded, control, roster, sessionI
     attachments.length > 0 ? (0, import_react37.createElement)(Attachments, { attachments, renderMessageImages }) : null,
     text !== "" || rest.length > 0 ? (0, import_react37.createElement)(
       "div",
-      { className: "bt-ubody", title: clock3(data.time), "data-folded": folded || void 0, "data-text-interaction-source": text !== "" ? "" : void 0, onClick },
+      { className: "bt-ubody", title: clock4(data.time), "data-folded": folded || void 0, "data-text-interaction-source": text !== "" ? "" : void 0, onClick },
       control ? (0, import_react37.createElement)("div", { className: "bt-fold-body" }, body) : body,
       control,
       rest.map((block, index) => import_dsh_client_ui_primitives.JsonBlock ? (0, import_react37.createElement)(import_dsh_client_ui_primitives.JsonBlock, { key: index, label: t("Content"), payload: block }) : null)
@@ -38639,7 +41678,7 @@ function HostContent({ data, prepared, shown, folded, control, loadImage, render
     null,
     (0, import_react37.createElement)(
       "div",
-      { className: "bt-uhost", title: clock3(data.time), "data-folded": folded || void 0, onClick },
+      { className: "bt-uhost", title: clock4(data.time), "data-folded": folded || void 0, onClick },
       control ? (0, import_react37.createElement)("div", { className: "bt-fold-body" }, content) : content,
       control
     ),
@@ -38968,7 +42007,7 @@ function useThinkingMs({ sessionId, turn, settledSteps, skip }) {
 }
 var MAX_ROW_VIEWS = 200;
 var rowViews = /* @__PURE__ */ new Map();
-function ThinkingRow({ text, live, at, ms, viewKey, textInteractionSource }) {
+function ThinkingRow({ text, live, at: at2, ms, viewKey, textInteractionSource }) {
   const box = (0, import_react38.useRef)(null);
   const view = (0, import_react38.useRef)(lruGet(rowViews, viewKey));
   const atEnd = (0, import_react38.useRef)(view.current?.atEnd ?? true);
@@ -39007,7 +42046,7 @@ function ThinkingRow({ text, live, at, ms, viewKey, textInteractionSource }) {
       "summary",
       null,
       title,
-      live && at !== void 0 ? (0, import_react38.createElement)(Elapsed, { at, className: "bt-think-time" }) : null,
+      live && at2 !== void 0 ? (0, import_react38.createElement)(Elapsed, { at: at2, className: "bt-think-time" }) : null,
       !live && ms !== void 0 ? (0, import_react38.createElement)("span", { className: "bt-think-time" }, `· ${elapsedLabel(Math.max(1e3, ms))}`) : null
     ),
     (0, import_react38.createElement)("div", { ref: box, className: "bt-think-text", role: "region", "aria-label": title, tabIndex: 0, "data-fade": fade, "data-text-interaction-source": textInteractionSource && !live ? "" : void 0, onScroll: measure }, text)
@@ -39260,8 +42299,8 @@ function PartLine({ time }) {
   return (0, import_react38.createElement)("div", { className: "bt-part-line", role: "separator" }, Number.isFinite(time) ? (0, import_react38.createElement)("span", null, dayLabel(time)) : null);
 }
 var scrollParent = (node) => {
-  for (let at = node.parentElement; at; at = at.parentElement) {
-    if (/(auto|scroll)/.test(getComputedStyle(at).overflowY)) return at;
+  for (let at2 = node.parentElement; at2; at2 = at2.parentElement) {
+    if (/(auto|scroll)/.test(getComputedStyle(at2).overflowY)) return at2;
   }
   return null;
 };
@@ -39297,9 +42336,9 @@ function mergeEarlierPage(pages, page, fallbackPartIndex) {
   const incoming = Array.isArray(page.items) ? page.items : [];
   const actualPartIndex = Number.isInteger(page.partIndex) ? page.partIndex : fallbackPartIndex;
   const next = pages.slice();
-  const at = next.findIndex((entry) => entry.partIndex === actualPartIndex);
-  const btw = Array.isArray(page.btw) ? page.btw : at >= 0 ? next[at].btw : [];
-  if (at >= 0) next[at] = { partIndex: actualPartIndex, items: [...incoming, ...next[at].items], btw };
+  const at2 = next.findIndex((entry) => entry.partIndex === actualPartIndex);
+  const btw = Array.isArray(page.btw) ? page.btw : at2 >= 0 ? next[at2].btw : [];
+  if (at2 >= 0) next[at2] = { partIndex: actualPartIndex, items: [...incoming, ...next[at2].items], btw };
   else next.push({ partIndex: actualPartIndex, items: incoming, btw });
   next.sort((a, b2) => a.partIndex - b2.partIndex);
   return next;
@@ -39363,11 +42402,11 @@ function EarlierParts({ sessionId, roster, actions }) {
   (0, import_react38.useEffect)(() => {
     const node = top.current;
     if (!node || view.loading || view.failed || !view.cursor || typeof IntersectionObserver !== "function") return void 0;
-    const observer = new IntersectionObserver((entries2) => {
+    const observer2 = new IntersectionObserver((entries2) => {
       if (entries2.some((entry) => entry.isIntersecting)) load(view.cursor);
     }, { root: scrollParent(node), rootMargin: "600px 0px 0px 0px" });
-    observer.observe(node);
-    return () => observer.disconnect();
+    observer2.observe(node);
+    return () => observer2.disconnect();
   }, [view.cursor, view.loading, view.failed]);
   const removeBtw = (cardId) => setView((current2) => ({
     ...current2,
@@ -39386,7 +42425,7 @@ function EarlierParts({ sessionId, roster, actions }) {
     hasContent ? (0, import_react38.createElement)(PartLine, { time: view.startedAt }) : null
   );
 }
-function ChatRows({ items, sessionId, roster, actions, useUi, clock: clock4 = false, onBtwDelete, renderUserAttachments }) {
+function ChatRows({ items, sessionId, roster, actions, useUi, clock: clock5 = false, onBtwDelete, renderUserAttachments }) {
   const selfId = roster.byId[sessionId]?.id;
   const rows2 = [];
   for (const item of items) {
@@ -39406,7 +42445,7 @@ function ChatRows({ items, sessionId, roster, actions, useUi, clock: clock4 = fa
       before = void 0;
       return [shown];
     }
-    const pause = clock4 && Number.isFinite(row.time) && (before === void 0 || row.time - before >= SEPARATOR_GAP_MS);
+    const pause = clock5 && Number.isFinite(row.time) && (before === void 0 || row.time - before >= SEPARATOR_GAP_MS);
     if (Number.isFinite(row.end ?? row.time)) before = row.end ?? row.time;
     return pause ? [(0, import_react38.createElement)("div", { key: `${key}:clock`, className: "bt-time-sep", role: "separator" }, clockLabel(row.time)), shown] : [shown];
   });
@@ -39488,13 +42527,13 @@ function TriggerCell({ node, sessionId, useRoster, useSessions, useTurnClock, us
     if (relayed) actions.noteTurnPeer(sessionId, turn, source.senderSessionId);
   }, [relayed, sessionId, turn, source.senderSessionId]);
   const order = useSessions((list) => {
-    const outline = list.projectionsBySession?.[sessionId]?.values?.turnOutline ?? list.byId[sessionId]?.projectionValues?.turnOutline;
-    return Array.isArray(outline) ? outline.map((entry) => entry.turn).join(",") : "";
+    const outline2 = list.projectionsBySession?.[sessionId]?.values?.turnOutline ?? list.byId[sessionId]?.projectionValues?.turnOutline;
+    return Array.isArray(outline2) ? outline2.map((entry) => entry.turn).join(",") : "";
   });
   const peers = useTurnClock((state) => {
     if (!relayed) return "";
-    const turns = state[sessionId] ?? {};
-    return Object.keys(turns).filter((key) => turns[key].peer !== void 0).map((key) => `${key}:${turns[key].peer}`).join(",");
+    const turns2 = state[sessionId] ?? {};
+    return Object.keys(turns2).filter((key) => turns2[key].peer !== void 0).map((key) => `${key}:${turns2[key].peer}`).join(",");
   });
   const visit = useUi((state) => state.visits?.[sessionId]);
   const hiddenTurns = roster.exchangeTurns[sessionId];
@@ -39609,19 +42648,19 @@ function Nothing() {
   return null;
 }
 var SEPARATOR_GAP_MS = 30 * 60 * 1e3;
-function nextTurnStart(turns, turn) {
+function nextTurnStart(turns2, turn) {
   let next;
-  for (const key in turns) {
+  for (const key in turns2) {
     const candidate = Number(key);
-    if (candidate > turn && turns[key].first !== void 0 && (next === void 0 || candidate < next)) next = candidate;
+    if (candidate > turn && turns2[key].first !== void 0 && (next === void 0 || candidate < next)) next = candidate;
   }
-  return next === void 0 ? void 0 : turns[next].first;
+  return next === void 0 ? void 0 : turns2[next].first;
 }
-function openingTurn(turns, firstTurns, hiddenTurns) {
-  if (!turns || !firstTurns) return null;
-  const start = nextTurnStart(turns, -Infinity);
+function openingTurn(turns2, firstTurns, hiddenTurns) {
+  if (!turns2 || !firstTurns) return null;
+  const start = nextTurnStart(turns2, -Infinity);
   if (start === void 0) return null;
-  const turn = Number(Object.keys(turns).filter((key) => turns[key].first === start)[0]);
+  const turn = Number(Object.keys(turns2).filter((key) => turns2[key].first === start)[0]);
   const listed = firstTurns.split(",").map(Number);
   const earlier = listed.filter((entry) => entry < turn);
   return listed.includes(turn) && earlier.every((entry) => hiddenTurns?.includes(entry)) ? { turn, start } : null;
@@ -39654,19 +42693,19 @@ function TurnTailCell({ turn: location2, sessionId, useTurnClock, useUi, actions
 function Shimmer({ children }) {
   return (0, import_react38.createElement)("span", { className: "bt-shimmer" }, children);
 }
-function Elapsed({ at, className }) {
-  const [now, setNow] = (0, import_react38.useState)(Date.now);
+function Elapsed({ at: at2, className }) {
+  const [now2, setNow] = (0, import_react38.useState)(Date.now);
   (0, import_react38.useEffect)(() => {
-    let timer = 0;
+    let timer2 = 0;
     const tick = () => {
       const time = Date.now();
       setNow(time);
-      timer = setTimeout(tick, 1e3 - ((time - at) % 1e3 + 1e3) % 1e3);
+      timer2 = setTimeout(tick, 1e3 - ((time - at2) % 1e3 + 1e3) % 1e3);
     };
     tick();
-    return () => clearTimeout(timer);
-  }, [at]);
-  return (0, import_react38.createElement)("span", { className }, `· ${elapsedLabel(Math.max(1e3, now - at))}`);
+    return () => clearTimeout(timer2);
+  }, [at2]);
+  return (0, import_react38.createElement)("span", { className }, `· ${elapsedLabel(Math.max(1e3, now2 - at2))}`);
 }
 var PHRASES2 = {
   thinking: ["Thinking about it", "Weighing the options", "Working out a plan", "Sorting out the details"],
@@ -39871,7 +42910,7 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useRo
   (0, import_react38.useEffect)(() => {
     if (done) return void 0;
     let stop = false;
-    let timer;
+    let timer2;
     let seen = "";
     let delay = 1e3;
     const tick = async () => {
@@ -39893,12 +42932,12 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useRo
         if (stop) return;
         delay = Math.min(delay * 2, 3e4);
       }
-      timer = setTimeout(tick, document.hidden ? Math.max(5e3, delay) : delay);
+      timer2 = setTimeout(tick, document.hidden ? Math.max(5e3, delay) : delay);
     };
     void tick();
     return () => {
       stop = true;
-      clearTimeout(timer);
+      clearTimeout(timer2);
     };
   }, [done, sessionId, callId]);
   const resultText = done ? contentText(content) : "";
@@ -39928,7 +42967,7 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useRo
       return void 0;
     }
     let stop = false;
-    let timer;
+    let timer2;
     let seen = "";
     let delay = 1e3;
     const tick = async () => {
@@ -39951,12 +42990,12 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useRo
         if (stop) return;
         delay = Math.min(delay * 2, 3e4);
       }
-      timer = setTimeout(tick, document.hidden ? Math.max(5e3, delay) : delay);
+      timer2 = setTimeout(tick, document.hidden ? Math.max(5e3, delay) : delay);
     };
     void tick();
     return () => {
       stop = true;
-      clearTimeout(timer);
+      clearTimeout(timer2);
     };
   }, [rowsKey, quietKey]);
   let replies = live.replies;
@@ -39985,9 +43024,9 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useRo
   const latestRound = range === void 0 || view?.open === true;
   let lastPausedIndex = -1;
   if (latestRound) {
-    for (let at = stacked.length - 1; at >= 0; at -= 1) {
-      if (stacked[at].reply.kind === "paused") {
-        lastPausedIndex = at;
+    for (let at2 = stacked.length - 1; at2 >= 0; at2 -= 1) {
+      if (stacked[at2].reply.kind === "paused") {
+        lastPausedIndex = at2;
         break;
       }
     }
@@ -39995,7 +43034,7 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useRo
   return (0, import_react38.createElement)(
     "div",
     { className: "bt-group-replies" },
-    stacked.map(({ reply, index, texts: texts2, time, duration, claims, changes }, at) => {
+    stacked.map(({ reply, index, texts: texts2, time, duration, claims, changes }, at2) => {
       const bot = roster.byId[reply.botId] ?? { id: reply.botId, name: reply.name, color: reply.color ?? "gray" };
       if (reply.kind === "user") {
         return (0, import_react38.createElement)(
@@ -40014,14 +43053,14 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useRo
         );
       }
       if (reply.kind !== void 0) {
-        return (0, import_react38.createElement)(RelayEvent, { key: `${reply.botId ?? reply.kind}-${index}`, reply, bot, room: room2, sessionId, actions, latestPaused: at === lastPausedIndex });
+        return (0, import_react38.createElement)(RelayEvent, { key: `${reply.botId ?? reply.kind}-${index}`, reply, bot, room: room2, sessionId, actions, latestPaused: at2 === lastPausedIndex });
       }
       return (0, import_react38.createElement)(GroupMessage, { key: `${reply.botId}-${index}`, bot, texts: texts2, room: room2, sessionId, roster, actions, msgKey: callId ? `${sessionId}:${callId}:${index}` : void 0, useUi, time, duration, claims, changes });
     }),
-    pending.map((id, at) => {
+    pending.map((id, at2) => {
       const bot = roster.byId[id];
       if (!bot) return null;
-      const [tool, phrase] = doing[at] ?? [];
+      const [tool, phrase] = doing[at2] ?? [];
       return (0, import_react38.createElement)(
         "div",
         { key: `pending-${id}`, className: "bt-activity" },
@@ -40642,28 +43681,28 @@ function TaskReaderView({ bot, task, actions }) {
   (0, import_react39.useEffect)(() => {
     if (active) {
       wasActiveRef.current = true;
-      let timer = 0;
+      let timer2 = 0;
       const start = () => {
-        clearInterval(timer);
+        clearInterval(timer2);
         if (typeof document !== "undefined" && document.hidden) return;
-        timer = setInterval(() => {
+        timer2 = setInterval(() => {
           void loadLatest(true, reqGenRef.current);
         }, 2500);
       };
-      const onVisibility = () => {
+      const onVisibility2 = () => {
         if (document.hidden) {
-          clearInterval(timer);
-          timer = 0;
+          clearInterval(timer2);
+          timer2 = 0;
         } else {
           void loadLatest(true, reqGenRef.current, { force: true });
           start();
         }
       };
       start();
-      if (typeof document !== "undefined") document.addEventListener("visibilitychange", onVisibility);
+      if (typeof document !== "undefined") document.addEventListener("visibilitychange", onVisibility2);
       return () => {
-        clearInterval(timer);
-        if (typeof document !== "undefined") document.removeEventListener("visibilitychange", onVisibility);
+        clearInterval(timer2);
+        if (typeof document !== "undefined") document.removeEventListener("visibilitychange", onVisibility2);
       };
     }
     if (wasActiveRef.current) {
@@ -41054,7 +44093,7 @@ var rowVisible = ({ running, streaming, tools, relaying, bot, room: room2 }) => 
 var freshInputAt = (submissions, steeredAt) => Math.max(
   0,
   steeredAt ?? 0,
-  ...(submissions ?? []).filter((sub) => sub.placement !== "queued").map((sub) => sub.time)
+  ...(submissions ?? []).filter((sub2) => sub2.placement !== "queued").map((sub2) => sub2.time)
 );
 var mountMissed = false;
 var runningSlot = null;
@@ -41081,25 +44120,25 @@ function useRunningHost(active) {
       setHost(null);
       return void 0;
     }
-    let frame2 = 0;
+    let frame3 = 0;
     let currentHost = null;
     let currentSlot = null;
     const find = () => {
-      frame2 = 0;
+      frame3 = 0;
       const node = findHost();
       currentHost = node;
       currentSlot = node && runningSlot?.host === node ? runningSlot.slot : null;
       setHost((prev) => prev === node ? prev : node);
     };
-    const observer = new MutationObserver(() => {
+    const observer2 = new MutationObserver(() => {
       if (currentHost?.isConnected && currentSlot?.isConnected && currentSlot.hasAttribute("data-chat-running") && currentHost.contains(currentSlot)) return;
-      if (!frame2) frame2 = requestAnimationFrame(find);
+      if (!frame3) frame3 = requestAnimationFrame(find);
     });
-    observer.observe(document.querySelector("[data-conversation-scroll]") ?? document.body, { childList: true, subtree: true });
+    observer2.observe(document.querySelector("[data-conversation-scroll]") ?? document.body, { childList: true, subtree: true });
     find();
     return () => {
-      cancelAnimationFrame(frame2);
-      observer.disconnect();
+      cancelAnimationFrame(frame3);
+      observer2.disconnect();
       releaseHost();
     };
   }, [active]);
@@ -41112,7 +44151,7 @@ function useRowEntrances(replacing) {
     const seen = /* @__PURE__ */ new WeakSet();
     const started = Date.now();
     let column = null;
-    let frame2 = 0;
+    let frame3 = 0;
     let waiting = false;
     const settle = (event) => {
       if (event.target !== event.currentTarget || !event.animationName.startsWith("bt-row")) return;
@@ -41120,20 +44159,20 @@ function useRowEntrances(replacing) {
       event.currentTarget.removeEventListener("animationend", settle);
     };
     const scan = () => {
-      frame2 = 0;
+      frame3 = 0;
       const next = column?.isConnected ? column : document.querySelector("[data-chat-flow]");
       if (next !== column) {
-        observer.disconnect();
+        observer2.disconnect();
         column = next;
         if (column) {
           waiting = false;
-          observer.observe(column, { childList: true });
+          observer2.observe(column, { childList: true });
         }
       }
       if (!column) {
         if (!waiting) {
           waiting = true;
-          observer.observe(document.querySelector("[data-conversation-scroll]") ?? document.body, { childList: true, subtree: true });
+          observer2.observe(document.querySelector("[data-conversation-scroll]") ?? document.body, { childList: true, subtree: true });
         }
         return;
       }
@@ -41167,24 +44206,24 @@ function useRowEntrances(replacing) {
         item.addEventListener("animationend", settle);
       }
     };
-    const observer = new MutationObserver(() => {
-      if (!frame2) frame2 = requestAnimationFrame(scan);
+    const observer2 = new MutationObserver(() => {
+      if (!frame3) frame3 = requestAnimationFrame(scan);
     });
     scan();
     return () => {
-      cancelAnimationFrame(frame2);
-      observer.disconnect();
+      cancelAnimationFrame(frame3);
+      observer2.disconnect();
     };
   }, []);
 }
-function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useLive, useSession, useWork, actions }) {
+function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useLive: useLive2, useSession, useWork, actions }) {
   const roster = useRoster((value) => value);
   const running = useSessionStatus((map) => map.get(sessionId)?.running === true);
   const turnAt = useWork?.((work) => work.turns?.[sessionId]);
   const runAt = (0, import_react40.useRef)(0);
   if (!running) runAt.current = 0;
   else if (runAt.current === 0) runAt.current = Date.now();
-  const liveKey = useLive((state) => JSON.stringify(state[sessionId] ?? {}));
+  const liveKey = useLive2((state) => JSON.stringify(state[sessionId] ?? {}));
   const steeredAt = useWork?.((work) => work.steered?.[sessionId]);
   const bgInfo = useWork?.((work) => work.canBackground?.[sessionId]);
   const [movingBg, setMovingBg] = (0, import_react40.useState)(false);
@@ -41220,8 +44259,8 @@ function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useLive, us
       make();
       return void 0;
     }
-    const timer = setTimeout(make, wait);
-    return () => clearTimeout(timer);
+    const timer2 = setTimeout(make, wait);
+    return () => clearTimeout(timer2);
   }, [wantKey, shown]);
   const [phase, setPhase] = (0, import_react40.useState)(null);
   const endedAt = (0, import_react40.useRef)(0);
@@ -41234,11 +44273,11 @@ function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useLive, us
       return void 0;
     }
     setPhase((current2) => current2 === "in" ? "out" : current2);
-    const timer = setTimeout(() => {
+    const timer2 = setTimeout(() => {
       shift.current = document.querySelector("[data-conversation-scroll]")?.scrollTop ?? null;
       setPhase((current2) => current2 === "out" ? null : current2);
     }, reducedMotion() ? 0 : 140);
-    return () => clearTimeout(timer);
+    return () => clearTimeout(timer2);
   }, [visible]);
   (0, import_react40.useLayoutEffect)(() => {
     if (phase !== null) return;
@@ -41332,9 +44371,9 @@ var roomRule = () => {
   room.selector = selector;
   return room.rule;
 };
-var margin = (side, width, style) => {
-  if (width === null) style.removeProperty(`margin-${side}`);
-  else style.setProperty(`margin-${side}`, `${width}px`, "important");
+var margin = (side2, width, style) => {
+  if (width === null) style.removeProperty(`margin-${side2}`);
+  else style.setProperty(`margin-${side2}`, `${width}px`, "important");
   if (style.marginLeft || style.marginRight) style.setProperty("width", "auto", "important");
   else style.removeProperty("width");
 };
@@ -41366,21 +44405,21 @@ var chatRoom = {
   }
 };
 var COLUMNS = '[class*="_sidebarCol"],[class*="_centerCol"]';
-function installFrameWatch(frame2) {
+function installFrameWatch(frame3) {
   let collapsedWidth = collapsedTrackWidth();
   let raf = 0;
   const watched = /* @__PURE__ */ new Set();
   let sidebarColumn = null;
   let scanned = false;
   let added = false;
-  const observer = typeof ResizeObserver === "function" ? new ResizeObserver(() => schedule()) : null;
+  const observer2 = typeof ResizeObserver === "function" ? new ResizeObserver(() => schedule()) : null;
   const read = () => {
     const column = sidebarColumn?.isConnected ? sidebarColumn : sidebarColumn = document.querySelector('[class*="_sidebarCol"]');
     const animating = column?.closest("[data-animating]") != null;
     const width = animating ? null : sidebarTrackWidth(column);
     const collapsed = dshCollapsed(column);
     collapsedWidth = nextCollapsedWidth({ measured: width, collapsed, animating, last: collapsedWidth });
-    frame2.set((state) => {
+    frame3.set((state) => {
       const next = { ...state, viewport: window.innerWidth, collapsedWidth, collapsed: collapsed === true };
       return state.viewport === next.viewport && state.collapsedWidth === next.collapsedWidth && state.collapsed === next.collapsed ? state : next;
     });
@@ -41391,7 +44430,7 @@ function installFrameWatch(frame2) {
     for (const column of watched) {
       if (!column.isConnected) {
         watched.delete(column);
-        observer?.unobserve(column);
+        observer2?.unobserve(column);
         if (column === sidebarColumn) sidebarColumn = null;
         scan = true;
       }
@@ -41401,7 +44440,7 @@ function installFrameWatch(frame2) {
       for (const column of document.querySelectorAll(COLUMNS)) {
         if (!watched.has(column)) {
           watched.add(column);
-          observer?.observe(column);
+          observer2?.observe(column);
         }
         if (!sidebarColumn?.isConnected && column.matches?.('[class*="_sidebarCol"]')) sidebarColumn = column;
       }
@@ -41438,7 +44477,7 @@ function installFrameWatch(frame2) {
   return () => {
     cancelAnimationFrame(raf);
     mutations.disconnect();
-    observer?.disconnect();
+    observer2?.disconnect();
     window.removeEventListener("resize", schedule);
   };
 }
@@ -42214,11 +45253,11 @@ function TeamSidebar(props) {
     let last = null;
     let liveLeft = mode;
     let done = false;
-    const write = (at) => {
-      const width = at.left === "rail" ? RAIL_WIDTH : at.width;
+    const write = (at2) => {
+      const width = at2.left === "rail" ? RAIL_WIDTH : at2.width;
       column.style.width = `${width}px`;
       column.style.setProperty("--bt-lc-w", `${width}px`);
-      const occupied = at.left === "open" ? width : RAIL_WIDTH;
+      const occupied = at2.left === "open" ? width : RAIL_WIDTH;
       const push = Math.max(0, occupied - collapsedWidthRef.current);
       for (const col of columns2) col.style.setProperty("margin-left", `${push}px`, "important");
       for (const pane of panes) pane.style.left = `${occupied}px`;
@@ -42819,9 +45858,9 @@ function restingBox(mark2) {
   const box = mark2.getBoundingClientRect();
   const column = mark2.closest?.(".bt-leftcol");
   if (!column) return box;
-  const now = column.getBoundingClientRect();
-  const dx = column.offsetLeft - now.left;
-  const dy = column.offsetTop - now.top;
+  const now2 = column.getBoundingClientRect();
+  const dx = column.offsetLeft - now2.left;
+  const dy = column.offsetTop - now2.top;
   return { left: box.left + dx, top: box.top + dy, width: box.width, height: box.height };
 }
 var GLIDE_MS = 460;
@@ -42907,8 +45946,8 @@ function useLandOnMainBot(roster, useSessions, actions) {
     }
     if (current2.kind !== "home") return void 0;
     const armedSeq = actions.navSeq?.();
-    const timer = setTimeout(() => actions.landOn(current2.id, current2.last, armedSeq), current2.delay);
-    return () => clearTimeout(timer);
+    const timer2 = setTimeout(() => actions.landOn(current2.id, current2.last, armedSeq), current2.delay);
+    return () => clearTimeout(timer2);
   }, [plan.key]);
 }
 function PluginsButton({ actions }) {
@@ -43225,8 +46264,8 @@ function GroupSettingsForm({ room: room2, roster, actions, run: run2, onDeleted 
   const [confirming, setConfirming] = (0, import_react43.useState)(false);
   (0, import_react43.useEffect)(() => {
     if (!confirming) return void 0;
-    const timer = setTimeout(() => setConfirming(false), 4e3);
-    return () => clearTimeout(timer);
+    const timer2 = setTimeout(() => setConfirming(false), 4e3);
+    return () => clearTimeout(timer2);
   }, [confirming]);
   const members = room2.members.map((id) => roster.byId[id]).filter(Boolean);
   const outside = roster.bots.filter((bot) => !room2.members.includes(bot.id));
@@ -43668,8 +46707,8 @@ function KeptPrivateSection({ roster, actions, run: run2, Section: Section2, Row
   const [confirming, setConfirming] = (0, import_react45.useState)(null);
   (0, import_react45.useEffect)(() => {
     if (confirming === null) return void 0;
-    const timer = setTimeout(() => setConfirming(null), 4e3);
-    return () => clearTimeout(timer);
+    const timer2 = setTimeout(() => setConfirming(null), 4e3);
+    return () => clearTimeout(timer2);
   }, [confirming]);
   if (kept.length === 0) return null;
   const release = (entry) => {
@@ -43910,15 +46949,15 @@ function spanBuckets(range) {
   }
   return buckets;
 }
-function spanOf(range, now) {
+function spanOf(range, now2) {
   if (range.from) {
     return { buckets: spanBuckets(range), from: `${range.from} 00`, to: `${range.to} 23`, before: hourKey(hourMs(range.from) - range.days * DAY_MS) };
   }
-  const buckets = bucketsOf(range, now);
-  return { buckets: buckets.slice(range.count), from: hourKey(buckets[range.count].start), to: now, before: hourKey(buckets[0].start) };
+  const buckets = bucketsOf(range, now2);
+  return { buckets: buckets.slice(range.count), from: hourKey(buckets[range.count].start), to: now2, before: hourKey(buckets[0].start) };
 }
-function bucketsOf(range, now) {
-  const end = hourMs(now);
+function bucketsOf(range, now2) {
+  const end = hourMs(now2);
   const today = end - end % DAY_MS;
   const buckets = [];
   for (let back = range.count * 2 - 1; back >= 0; back -= 1) {
@@ -43946,7 +46985,7 @@ function addTo(map, key, row) {
 }
 function summarize(view, range, keep = () => true, seriesOf = () => "all") {
   const { buckets, from, to, before } = spanOf(range, view.now);
-  const index = new Map(buckets.map((bucket, at) => [bucket.key, at]));
+  const index = new Map(buckets.map((bucket, at2) => [bucket.key, at2]));
   const weeks = /* @__PURE__ */ new Map();
   const keyOf = (hour) => {
     if (range.unit === "hour") return hour;
@@ -43966,9 +47005,9 @@ function summarize(view, range, keep = () => true, seriesOf = () => "all") {
       result.previous += tokensOf(row);
       continue;
     }
-    const at = index.get(keyOf(hour));
-    if (at === void 0) continue;
-    const bucket = current2[at];
+    const at2 = index.get(keyOf(hour));
+    if (at2 === void 0) continue;
+    const bucket = current2[at2];
     addRow(bucket.sum, row);
     addRow(result.total, row);
     const series = seriesOf(row);
@@ -44013,24 +47052,24 @@ var soften = (paint, strength = 1) => {
 var numberCache = /* @__PURE__ */ new Map();
 var full = (count) => {
   const locale = dateLocale();
-  let fmt = numberCache.get(locale);
-  if (!fmt) {
-    fmt = new Intl.NumberFormat(locale);
-    numberCache.set(locale, fmt);
+  let fmt2 = numberCache.get(locale);
+  if (!fmt2) {
+    fmt2 = new Intl.NumberFormat(locale);
+    numberCache.set(locale, fmt2);
   }
-  return fmt.format(Math.round(count));
+  return fmt2.format(Math.round(count));
 };
 var hitRate = (sum) => percent2(sum.cacheRead, sum.input + sum.cacheRead);
 var dateCache = /* @__PURE__ */ new Map();
 var dates = (options) => {
   const locale = dateLocale();
   const key = `${locale}|${JSON.stringify(options)}`;
-  let fmt = dateCache.get(key);
-  if (!fmt) {
-    fmt = new Intl.DateTimeFormat(locale, { timeZone: "UTC", ...options });
-    dateCache.set(key, fmt);
+  let fmt2 = dateCache.get(key);
+  if (!fmt2) {
+    fmt2 = new Intl.DateTimeFormat(locale, { timeZone: "UTC", ...options });
+    dateCache.set(key, fmt2);
   }
-  return fmt;
+  return fmt2;
 };
 var hourText = (ms) => `${String(new Date(ms).getUTCHours()).padStart(2, "0")}:00`;
 var yearOf = (ms) => new Date(ms).getUTCFullYear();
@@ -44076,18 +47115,18 @@ function useTween(value, rangeKey) {
     const begin = from.current;
     const started = performance.now();
     let active = true;
-    let frame2;
-    const step = (now) => {
+    let frame3;
+    const step = (now2) => {
       if (!active) return;
-      const progress = Math.min(1, Math.max(0, (now - started) / 650));
+      const progress = Math.min(1, Math.max(0, (now2 - started) / 650));
       from.current = begin + (value - begin) * (1 - (1 - progress) ** 3);
       setShown(from.current);
-      if (progress < 1) frame2 = requestAnimationFrame(step);
+      if (progress < 1) frame3 = requestAnimationFrame(step);
     };
-    frame2 = requestAnimationFrame(step);
+    frame3 = requestAnimationFrame(step);
     return () => {
       active = false;
-      cancelAnimationFrame(frame2);
+      cancelAnimationFrame(frame3);
     };
   }, [value, rangeKey]);
   return shown;
@@ -44223,14 +47262,14 @@ function Chart({ range, columns: columns2, series, tipSeries, by, onBy, onPick }
         (0, import_react47.createElement)(
           "div",
           { className: "bt-us-cols" },
-          columns2.map((column, at) => (0, import_react47.createElement)("div", {
+          columns2.map((column, at2) => (0, import_react47.createElement)("div", {
             key: `${range.from ? `${range.from}~${range.to}` : range.id}:${column.key}`,
             className: "bt-us-col",
-            "data-on": hover === at ? "" : void 0,
-            onMouseEnter: () => setHover(at)
+            "data-on": hover === at2 ? "" : void 0,
+            onMouseEnter: () => setHover(at2)
           }, column.total > 0 ? (0, import_react47.createElement)(
             "div",
-            { className: "bt-us-stack", style: { height: `${column.total / top * 100}%`, "--i": at } },
+            { className: "bt-us-stack", style: { height: `${column.total / top * 100}%`, "--i": at2 } },
             column.parts.map(([key, value]) => value > 0 ? (0, import_react47.createElement)("i", {
               key,
               "data-series": key,
@@ -44258,10 +47297,10 @@ function Chart({ range, columns: columns2, series, tipSeries, by, onBy, onPick }
         "div",
         { className: "bt-us-ticks", "aria-hidden": true },
         // A preset counts its labels back from now; a picked span forward from its first day.
-        columns2.map((column, at) => (0, import_react47.createElement)(
+        columns2.map((column, at2) => (0, import_react47.createElement)(
           "span",
-          { key: column.key, "data-now": at === count - 1 && range.ends !== false ? "" : void 0 },
-          (range.from ? at : count - 1 - at) % range.stride === 0 ? column.tick : ""
+          { key: column.key, "data-now": at2 === count - 1 && range.ends !== false ? "" : void 0 },
+          (range.from ? at2 : count - 1 - at2) % range.stride === 0 ? column.tick : ""
         ))
       )
     ),
@@ -44286,7 +47325,7 @@ function Chart({ range, columns: columns2, series, tipSeries, by, onBy, onPick }
     ) : null
   );
 }
-function Row2({ kind, glyph, name, sub, sum, whole: whole2, fill: fill2, index, onClick }) {
+function Row2({ kind, glyph, name, sub: sub2, sum, whole: whole2, fill: fill2, index, onClick }) {
   const width = whole2 > 0 ? Math.max(sum.total > 0 ? 2 : 0, sum.total / whole2 * 100) : 0;
   return (0, import_react47.createElement)(
     onClick ? "button" : "div",
@@ -44305,7 +47344,7 @@ function Row2({ kind, glyph, name, sub, sum, whole: whole2, fill: fill2, index, 
         "span",
         { className: "bt-us-row-line" },
         (0, import_react47.createElement)("span", { className: "bt-us-row-name" }, name),
-        sub ? (0, import_react47.createElement)("span", { className: "bt-us-row-sub" }, sub) : null
+        sub2 ? (0, import_react47.createElement)("span", { className: "bt-us-row-sub" }, sub2) : null
       ),
       (0, import_react47.createElement)("span", { className: "bt-us-track" }, (0, import_react47.createElement)("span", { style: { width: `${width}%`, background: fill2 } }))
     ),
@@ -44392,20 +47431,20 @@ function SpanPicker({ span, today, oldest, active, near, onPick, onClose }) {
     const [from, to] = [anchor, key].sort();
     onPick(from, to);
   };
-  const weekdays = (0, import_react47.useMemo)(() => Array.from({ length: 7 }, (_, at) => dates({ weekday: "narrow" }).format(Date.UTC(2024, 0, 1 + at))), []);
+  const weekdays = (0, import_react47.useMemo)(() => Array.from({ length: 7 }, (_, at2) => dates({ weekday: "narrow" }).format(Date.UTC(2024, 0, 1 + at2))), []);
   const years = (0, import_react47.useMemo)(() => Array.from({ length: thisYear - minYear + 1 }, (_, i) => minYear + i), [minYear, thisYear]);
   const monthNames = (0, import_react47.useMemo)(() => Array.from({ length: 12 }, (_, m) => dates({ month: "short" }).format(Date.UTC(2024, m, 1))), []);
   const yearFirst = YEAR_FIRST_LOCALES.has(language());
-  const pickYearMonth = (year, monthIndex, side) => {
+  const pickYearMonth = (year, monthIndex, side2) => {
     const target = Date.UTC(year, monthIndex, 1);
-    setRight(clampRight(side === "left" ? addMonths(target, 1) : target));
+    setRight(clampRight(side2 === "left" ? addMonths(target, 1) : target));
   };
-  const month = (start, side) => {
+  const month = (start, side2) => {
     const startYear = yearOf(start);
     const startMonth = new Date(start).getUTCMonth();
     const length = new Date(addMonths(start, 1) - DAY_MS).getUTCDate();
     const lead = (new Date(start).getUTCDay() + 6) % 7;
-    const cells = Array.from({ length: lead }, (_, at) => (0, import_react47.createElement)("span", { key: `b${at}` }));
+    const cells = Array.from({ length: lead }, (_, at2) => (0, import_react47.createElement)("span", { key: `b${at2}` }));
     for (let day = 1; day <= length; day += 1) {
       const ms = start + (day - 1) * DAY_MS;
       const key = dayKey(ms);
@@ -44429,9 +47468,9 @@ function SpanPicker({ span, today, oldest, active, near, onPick, onClose }) {
         onClick: () => press(key)
       }, (0, import_react47.createElement)("b", null, day)));
     }
-    const maxForSide = side === "left" ? addMonths(thisMonth, -1) : thisMonth;
-    const minForSide = side === "left" ? minMonth : addMonths(minMonth, 1);
-    const nav = side === "left" ? (0, import_react47.createElement)("button", { type: "button", className: "bt-us-month-nav", "data-side": "left", "aria-label": t("Previous month"), disabled: start <= minMonth, onClick: () => setRight(clampRight(addMonths(right, -1))) }, (0, import_react47.createElement)(ChevronLeftIcon)) : (0, import_react47.createElement)("button", { type: "button", className: "bt-us-month-nav", "data-side": "right", "aria-label": t("Next month"), disabled: start >= thisMonth, onClick: () => setRight(clampRight(addMonths(right, 1))) }, (0, import_react47.createElement)(ChevronRightIcon));
+    const maxForSide = side2 === "left" ? addMonths(thisMonth, -1) : thisMonth;
+    const minForSide = side2 === "left" ? minMonth : addMonths(minMonth, 1);
+    const nav = side2 === "left" ? (0, import_react47.createElement)("button", { type: "button", className: "bt-us-month-nav", "data-side": "left", "aria-label": t("Previous month"), disabled: start <= minMonth, onClick: () => setRight(clampRight(addMonths(right, -1))) }, (0, import_react47.createElement)(ChevronLeftIcon)) : (0, import_react47.createElement)("button", { type: "button", className: "bt-us-month-nav", "data-side": "right", "aria-label": t("Next month"), disabled: start >= thisMonth, onClick: () => setRight(clampRight(addMonths(right, 1))) }, (0, import_react47.createElement)(ChevronRightIcon));
     const monthSelect = (0, import_react47.createElement)(SelectMenu, {
       key: "m",
       variant: "compact",
@@ -44441,7 +47480,7 @@ function SpanPicker({ span, today, oldest, active, near, onPick, onClose }) {
         const candidate = Date.UTC(startYear, m, 1);
         return { value: m, label, disabled: candidate > maxForSide || candidate < minForSide };
       }),
-      onChange: (m) => pickYearMonth(startYear, m, side)
+      onChange: (m) => pickYearMonth(startYear, m, side2)
     });
     const yearSelect = (0, import_react47.createElement)(SelectMenu, {
       key: "y",
@@ -44449,7 +47488,7 @@ function SpanPicker({ span, today, oldest, active, near, onPick, onClose }) {
       "aria-label": t("Year"),
       value: startYear,
       options: years.map((y) => ({ value: y, label: dates({ year: "numeric" }).format(Date.UTC(y, 0, 15)) })),
-      onChange: (y) => pickYearMonth(y, startMonth, side)
+      onChange: (y) => pickYearMonth(y, startMonth, side2)
     });
     return (0, import_react47.createElement)(
       "div",
@@ -44460,7 +47499,7 @@ function SpanPicker({ span, today, oldest, active, near, onPick, onClose }) {
         nav,
         (0, import_react47.createElement)("div", { className: "bt-us-ym" }, yearFirst ? [yearSelect, monthSelect] : [monthSelect, yearSelect])
       ),
-      (0, import_react47.createElement)("div", { className: "bt-us-weekdays", "aria-hidden": true }, weekdays.map((name, at) => (0, import_react47.createElement)("span", { key: at }, name))),
+      (0, import_react47.createElement)("div", { className: "bt-us-weekdays", "aria-hidden": true }, weekdays.map((name, at2) => (0, import_react47.createElement)("span", { key: at2 }, name))),
       (0, import_react47.createElement)("div", { className: "bt-us-days", onMouseLeave: () => setHover(null) }, cells)
     );
   };
@@ -44612,11 +47651,11 @@ function UsagePage({ roster, actions, focusId }) {
   const focus = focusOf(focusId);
   (0, import_react47.useEffect)(() => {
     let stopped = false;
-    let timer;
+    let timer2;
     const schedule = (ms) => {
-      clearTimeout(timer);
+      clearTimeout(timer2);
       if (stopped || typeof document !== "undefined" && document.visibilityState === "hidden") return;
-      timer = setTimeout(load, ms);
+      timer2 = setTimeout(load, ms);
     };
     const load = async () => {
       try {
@@ -44631,16 +47670,16 @@ function UsagePage({ roster, actions, focusId }) {
         schedule(1e4);
       }
     };
-    const onVisibility = () => {
-      if (document.visibilityState === "hidden") clearTimeout(timer);
+    const onVisibility2 = () => {
+      if (document.visibilityState === "hidden") clearTimeout(timer2);
       else if (!stopped) void load();
     };
-    if (typeof document !== "undefined") document.addEventListener("visibilitychange", onVisibility);
+    if (typeof document !== "undefined") document.addEventListener("visibilitychange", onVisibility2);
     void load();
     return () => {
       stopped = true;
-      clearTimeout(timer);
-      if (typeof document !== "undefined") document.removeEventListener("visibilitychange", onVisibility);
+      clearTimeout(timer2);
+      if (typeof document !== "undefined") document.removeEventListener("visibilitychange", onVisibility2);
     };
   }, []);
   const today = view?.now.slice(0, 10);
@@ -44651,9 +47690,9 @@ function UsagePage({ roster, actions, focusId }) {
     const lifetime = /* @__PURE__ */ new Map();
     for (const row of view.rows) lifetime.set(row[MODEL], (lifetime.get(row[MODEL]) ?? 0) + tokensOf(row));
     const modelPaint = new Map([...lifetime].sort((a, b2) => b2[1] - a[1]).map(([model], rank) => [model, `var(--bt-ink-${MODEL_INKS[rank % MODEL_INKS.length]})`]));
-    const models2 = view.models.map((model, at) => {
+    const models3 = view.models.map((model, at2) => {
       const name = model.name || model.model || t("Unknown model");
-      const paint = modelPaint.get(at) ?? "var(--bt-us-rest)";
+      const paint = modelPaint.get(at2) ?? "var(--bt-us-rest)";
       return {
         kind: "model",
         name,
@@ -44664,10 +47703,10 @@ function UsagePage({ roster, actions, focusId }) {
     });
     const ownerAt2 = focus?.kind === "owner" ? view.owners.findIndex((owner) => owner.key === focus.key) : -1;
     const modelAt2 = focus?.kind === "model" ? view.models.findIndex((model) => model.key === focus.key) : -1;
-    const isBot2 = (at) => ["bot", "agent"].includes(view.owners[at]?.kind);
+    const isBot2 = (at2) => ["bot", "agent"].includes(view.owners[at2]?.kind);
     const all2 = summarize(view, range, void 0, (row) => by === "bot" ? isBot2(row[OWNER]) ? `o${row[OWNER]}` : "rest" : `m${row[MODEL]}`);
     const keep = ownerAt2 >= 0 ? (row) => row[OWNER] === ownerAt2 : modelAt2 >= 0 ? (row) => row[MODEL] === modelAt2 : () => true;
-    const face2 = ownerAt2 >= 0 ? faces2[ownerAt2] : modelAt2 >= 0 ? models2[modelAt2] : null;
+    const face2 = ownerAt2 >= 0 ? faces2[ownerAt2] : modelAt2 >= 0 ? models3[modelAt2] : null;
     const part2 = face2 ? summarize(view, range, keep) : all2;
     const activeDays2 = /* @__PURE__ */ new Set();
     let first = view.now;
@@ -44682,13 +47721,13 @@ function UsagePage({ roster, actions, focusId }) {
       series2 = [{ key: "all", name: face2.name, fill: soften(face2.paint) }];
     } else {
       if (by === "bot") {
-        const bots = ranked2(all2.owners).filter(([at]) => isBot2(at));
-        series2 = bots.slice(0, TOP_SERIES).map(([at]) => ({ key: `o${at}`, name: faces2[at].name, paint: faces2[at].paint, pick: { kind: "owner", key: view.owners[at].key } }));
+        const bots = ranked2(all2.owners).filter(([at2]) => isBot2(at2));
+        series2 = bots.slice(0, TOP_SERIES).map(([at2]) => ({ key: `o${at2}`, name: faces2[at2].name, paint: faces2[at2].paint, pick: { kind: "owner", key: view.owners[at2].key } }));
         if (bots.length > TOP_SERIES) series2.push({ key: "more", name: t("More Bots"), paint: "var(--bt-us-more)" });
-        if (ranked2(all2.owners).some(([at]) => !isBot2(at))) series2.push({ key: "rest", name: t("Other"), paint: "var(--bt-us-rest)" });
+        if (ranked2(all2.owners).some(([at2]) => !isBot2(at2))) series2.push({ key: "rest", name: t("Other"), paint: "var(--bt-us-rest)" });
       } else {
         const used = ranked2(all2.models);
-        series2 = used.slice(0, TOP_SERIES).map(([at]) => ({ key: `m${at}`, name: models2[at].name, paint: models2[at].paint, pick: { kind: "model", key: view.models[at].key } }));
+        series2 = used.slice(0, TOP_SERIES).map(([at2]) => ({ key: `m${at2}`, name: models3[at2].name, paint: models3[at2].paint, pick: { kind: "model", key: view.models[at2].key } }));
         if (used.length > TOP_SERIES) series2.push({ key: "more", name: t("More models"), paint: "var(--bt-us-more)" });
       }
       const repeats = /* @__PURE__ */ new Map();
@@ -44706,7 +47745,7 @@ function UsagePage({ roster, actions, focusId }) {
       const tip = face2 ? PARTS.map(([key]) => [key, bucket.sum[key]]) : parts;
       return { key: bucket.key, tick: tickOf(range, bucket), title: titleOf2(range, bucket), total: bucket.sum.total, parts, tip };
     });
-    return { faces: faces2, models: models2, ownerAt: ownerAt2, modelAt: modelAt2, face: face2, keep, all: all2, part: part2, series: series2, tipSeries: tipSeries2, fillOf: fillOf2, columns: columns3, ranked: ranked2, isBot: isBot2, activeDays: activeDays2, oldest: oldest2 };
+    return { faces: faces2, models: models3, ownerAt: ownerAt2, modelAt: modelAt2, face: face2, keep, all: all2, part: part2, series: series2, tipSeries: tipSeries2, fillOf: fillOf2, columns: columns3, ranked: ranked2, isBot: isBot2, activeDays: activeDays2, oldest: oldest2 };
   }, [view, rangeId, span, by, focusId, roster]);
   const root = (0, import_react47.useRef)(null);
   (0, import_react47.useEffect)(() => {
@@ -44728,7 +47767,7 @@ function UsagePage({ roster, actions, focusId }) {
       )
     );
   }
-  const { faces, models, ownerAt, modelAt, face, all, part, series, tipSeries, fillOf, columns: columns2, ranked, isBot, activeDays, oldest } = shaped;
+  const { faces, models: models2, ownerAt, modelAt, face, all, part, series, tipSeries, fillOf, columns: columns2, ranked, isBot, activeDays, oldest } = shaped;
   const pick2 = (next) => actions.openSettings("usage", `${next.kind}:${next.key}`);
   const chooseRange = (id) => {
     if (id !== "custom") {
@@ -44749,29 +47788,29 @@ function UsagePage({ roster, actions, focusId }) {
     ["custom", rangeId === "custom" && span ? spanText(span.from, span.to) : t("Custom"), CalendarIcon]
   ];
   const whole2 = part.total.total;
-  const ownerRow = ([at, sum], index, total = whole2) => (0, import_react47.createElement)(Row2, {
-    key: `o${at}`,
-    kind: faces[at].kind,
-    glyph: faces[at].glyph(32),
-    name: faces[at].name,
-    sub: faces[at].sub,
+  const ownerRow = ([at2, sum], index, total = whole2) => (0, import_react47.createElement)(Row2, {
+    key: `o${at2}`,
+    kind: faces[at2].kind,
+    glyph: faces[at2].glyph(32),
+    name: faces[at2].name,
+    sub: faces[at2].sub,
     sum,
     whole: total,
     index,
-    fill: face ? soften(face.paint, 0.8) : fillOf.get(`o${at}`) ?? soften(faces[at].paint),
-    onClick: () => pick2({ kind: "owner", key: view.owners[at].key })
+    fill: face ? soften(face.paint, 0.8) : fillOf.get(`o${at2}`) ?? soften(faces[at2].paint),
+    onClick: () => pick2({ kind: "owner", key: view.owners[at2].key })
   });
-  const modelRow = ([at, sum], index) => (0, import_react47.createElement)(Row2, {
-    key: `m${at}`,
+  const modelRow = ([at2, sum], index) => (0, import_react47.createElement)(Row2, {
+    key: `m${at2}`,
     kind: "model",
-    glyph: models[at].glyph(32),
-    name: models[at].name,
-    sub: models[at].sub,
+    glyph: models2[at2].glyph(32),
+    name: models2[at2].name,
+    sub: models2[at2].sub,
     sum,
     whole: whole2,
     index,
-    fill: face ? soften(face.paint, 0.8) : fillOf.get(`m${at}`) ?? soften(models[at].paint),
-    onClick: () => pick2({ kind: "model", key: view.models[at].key })
+    fill: face ? soften(face.paint, 0.8) : fillOf.get(`m${at2}`) ?? soften(models2[at2].paint),
+    onClick: () => pick2({ kind: "model", key: view.models[at2].key })
   });
   const nothing = (0, import_react47.createElement)("div", { className: "bt-us-none" }, t("Nothing in this range."));
   let body;
@@ -44793,7 +47832,7 @@ function UsagePage({ roster, actions, focusId }) {
           (0, import_react47.createElement)(
             ListCard,
             { title: t("What for"), index: 3 },
-            kinds.length > 0 ? kinds.map(([at, sum], index) => (0, import_react47.createElement)(Row2, { key: at, name: kindLabel(view.kinds[at], ownerAt >= 0 && isBot(ownerAt)), sum, whole: whole2, index, fill: soften(face.paint, 0.8) })) : nothing
+            kinds.length > 0 ? kinds.map(([at2, sum], index) => (0, import_react47.createElement)(Row2, { key: at2, name: kindLabel(view.kinds[at2], ownerAt >= 0 && isBot(ownerAt)), sum, whole: whole2, index, fill: soften(face.paint, 0.8) })) : nothing
           )
         ),
         (0, import_react47.createElement)(Heat, { key: "heat", view, ownerAt, modelAt, paint: face.paint, index: 4 })
@@ -44801,8 +47840,8 @@ function UsagePage({ roster, actions, focusId }) {
     ];
   } else {
     const owners2 = ranked(all.owners);
-    const bots = owners2.filter(([at]) => isBot(at));
-    const rest = owners2.filter(([at]) => !isBot(at));
+    const bots = owners2.filter(([at2]) => isBot(at2));
+    const rest = owners2.filter(([at2]) => !isBot(at2));
     const usedModels = ranked(all.models);
     body = [
       (0, import_react47.createElement)(
@@ -45029,8 +48068,8 @@ function useJustConnected(state) {
     last.current = state;
     if (state !== "ready" || was === "ready") return void 0;
     setFresh(true);
-    const timer = setTimeout(() => setFresh(false), 1100);
-    return () => clearTimeout(timer);
+    const timer2 = setTimeout(() => setFresh(false), 1100);
+    return () => clearTimeout(timer2);
   }, [state]);
   return fresh;
 }
@@ -45175,7 +48214,7 @@ function ConnectorsPage({ roster, actions }) {
   };
   const apps = [mailbox, ...(data.connectors ?? []).filter((c) => c.id !== "mail")];
   const connected = apps.filter((app) => app.state !== "off" || app.pending);
-  const marks = [...accounts.map((account) => ({ id: `mail-${account.provider}`, name: account.address })), ...connected.filter((app) => app.id !== "mail")];
+  const marks2 = [...accounts.map((account) => ({ id: `mail-${account.provider}`, name: account.address })), ...connected.filter((app) => app.id !== "mail")];
   const count = accounts.length + connected.filter((app) => app.id !== "mail").length;
   const open = (id) => setView({ app: id });
   const back = () => setView(null);
@@ -45260,7 +48299,7 @@ function ConnectorsPage({ roster, actions }) {
         (0, import_react48.createElement)("input", { type: "search", "aria-label": t("Search connectors"), placeholder: t("Search connectors"), value: query, onChange: (e) => setQuery(e.target.value) })
       ),
       (0, import_react48.createElement)("button", { type: "button", className: "bt-app-pill", onClick: () => setView("custom") }, (0, import_react48.createElement)(PlusIcon), t("Custom")),
-      (0, import_react48.createElement)(ConnectedSummary, { apps: marks, count, onClick: () => setView("connected") })
+      (0, import_react48.createElement)(ConnectedSummary, { apps: marks2, count, onClick: () => setView("connected") })
     ),
     (0, import_react48.createElement)(
       "div",
@@ -46691,10 +49730,10 @@ var byteArrayOutputStream = function() {
     _this.writeByte(i);
     _this.writeByte(i >>> 8);
   };
-  _this.writeBytes = function(b2, off, len) {
+  _this.writeBytes = function(b2, off, len2) {
     off = off || 0;
-    len = len || b2.length;
-    for (let i = 0; i < len; i += 1) {
+    len2 = len2 || b2.length;
+    for (let i = 0; i < len2; i += 1) {
       _this.writeByte(b2[i + off]);
     }
   };
@@ -47041,8 +50080,8 @@ function PhonePage({ roster, actions, Section: Section2, Row: Row4 }) {
     setCopied(false);
     clearTimeout(copyTimer.current);
     if (!phone.pairing) return void 0;
-    const timer = setInterval(() => tick((count) => count + 1), 15e3);
-    return () => clearInterval(timer);
+    const timer2 = setInterval(() => tick((count) => count + 1), 15e3);
+    return () => clearInterval(timer2);
   }, [phone.pairing]);
   const run2 = (task) => {
     setBusy(true);
@@ -48457,10 +51496,10 @@ function DeepSeekServicesPage({ actions, run: run2, Section: Section2, Row: Row4
   }, []);
   (0, import_react52.useEffect)(() => {
     if (!saved) return void 0;
-    const timer = setTimeout(() => {
+    const timer2 = setTimeout(() => {
       if (alive.current) setSaved(false);
     }, 2600);
-    return () => clearTimeout(timer);
+    return () => clearTimeout(timer2);
   }, [saved]);
   const save = (patch) => {
     if (busy || status === null) return;
@@ -49252,10 +52291,10 @@ function SafariPermissionCard({ flow, busy, imports, inline = false, onOpenPermi
     const canProbe = typeof imports?.probe === "function";
     if (!canProbe) return void 0;
     let active = true;
-    let timer = null;
+    let timer2 = null;
     const schedule = () => {
       if (!active) return;
-      timer = setTimeout(poll, 2e3);
+      timer2 = setTimeout(poll, 2e3);
     };
     const poll = () => {
       void imports.probe(source.id).then(
@@ -49275,7 +52314,7 @@ function SafariPermissionCard({ flow, busy, imports, inline = false, onOpenPermi
     schedule();
     return () => {
       active = false;
-      clearTimeout(timer);
+      clearTimeout(timer2);
     };
   }, [imports, source.id]);
   return (0, import_react54.createElement)(
@@ -49344,10 +52383,10 @@ function RemoteDebugCard({ flow, busy, imports, inline = false, onRetrySource, o
     const canList = typeof imports?.sources === "function";
     if (!canProbe && !canList) return void 0;
     let active = true;
-    let timer = null;
+    let timer2 = null;
     const schedule = () => {
       if (!active) return;
-      timer = setTimeout(poll, 2e3);
+      timer2 = setTimeout(poll, 2e3);
     };
     const poll = () => {
       const req = canProbe ? imports.probe(source.id).then((res) => Boolean(res?.liveDebugReady)) : imports.sources().then((list) => Array.isArray(list) && Boolean(list.find((s) => s.id === source.id)?.liveDebugReady));
@@ -49362,7 +52401,7 @@ function RemoteDebugCard({ flow, busy, imports, inline = false, onRetrySource, o
     schedule();
     return () => {
       active = false;
-      clearTimeout(timer);
+      clearTimeout(timer2);
     };
   }, [imports, source.id]);
   const copyAddress = () => {
@@ -49829,14 +52868,14 @@ function BrowserPage({ roster, actions, run: run2, Section: Section2, Row: Row4 
   const add = (event) => {
     event.preventDefault();
     if (!selectedBot || kinds.length === 0 || busy) return;
-    const now = Date.now();
+    const now2 = Date.now();
     let until;
-    if (duration === "hour") until = now + 60 * 60 * 1e3;
+    if (duration === "hour") until = now2 + 60 * 60 * 1e3;
     else if (duration === "today") {
-      const end = new Date(now);
+      const end = new Date(now2);
       end.setHours(23, 59, 59, 999);
       until = end.getTime();
-    } else if (duration === "week") until = now + 7 * 24 * 60 * 60 * 1e3;
+    } else if (duration === "week") until = now2 + 7 * 24 * 60 * 60 * 1e3;
     const grant = { site: siteValue(site), kinds: [...kinds], ...until !== void 0 ? { until } : {} };
     setBusy(true);
     void Promise.resolve(run2(actions.updateBot(selectedBot.id, {
@@ -50344,9 +53383,9 @@ function useJustActivated(active) {
     }
     if (was) return void 0;
     setFresh(true);
-    const timer = setTimeout(() => setFresh(false), 1100);
-    if (typeof timer === "object" && timer?.unref) timer.unref();
-    return () => clearTimeout(timer);
+    const timer2 = setTimeout(() => setFresh(false), 1100);
+    if (typeof timer2 === "object" && timer2?.unref) timer2.unref();
+    return () => clearTimeout(timer2);
   }, [active]);
   return fresh;
 }
@@ -50362,9 +53401,9 @@ function useJustSwitched(key) {
     }
     if (!was || was === key) return void 0;
     setFresh(true);
-    const timer = setTimeout(() => setFresh(false), 1100);
-    if (typeof timer === "object" && timer?.unref) timer.unref();
-    return () => clearTimeout(timer);
+    const timer2 = setTimeout(() => setFresh(false), 1100);
+    if (typeof timer2 === "object" && timer2?.unref) timer2.unref();
+    return () => clearTimeout(timer2);
   }, [key]);
   return fresh;
 }
@@ -50427,7 +53466,7 @@ function BrowserStage({ plugin, slotStatus, onOpen }) {
           meta.traits.length > 0 ? (0, import_react57.createElement)(
             "span",
             { className: "bt-plg-stage-traits" },
-            meta.traits.map((tr) => t(tr)).join(" · ")
+            meta.traits.map((tr2) => t(tr2)).join(" · ")
           ) : null
         )
       ),
@@ -51497,8 +54536,8 @@ var copy = (text) => navigator.clipboard === void 0 ? Promise.resolve(false) : n
 function whenText(time) {
   const date = new Date(time);
   const today = (/* @__PURE__ */ new Date()).toDateString() === date.toDateString();
-  const clock4 = date.toLocaleTimeString(dateLocale(), { hour: "2-digit", minute: "2-digit" });
-  return today ? clock4 : `${date.toLocaleDateString(dateLocale(), { month: "short", day: "numeric" })} ${clock4}`;
+  const clock5 = date.toLocaleTimeString(dateLocale(), { hour: "2-digit", minute: "2-digit" });
+  return today ? clock5 : `${date.toLocaleDateString(dateLocale(), { month: "short", day: "numeric" })} ${clock5}`;
 }
 function entrySummary(entry) {
   if (entry.source === "turn") return failureLabel(entry.code, entry.text);
@@ -51949,8 +54988,8 @@ function AboutPage({ useUpdate, actions, run: run2, Section: Section2, Row: Row4
   const [cheer, setCheer] = (0, import_react60.useState)(true);
   (0, import_react60.useEffect)(() => {
     if (!cheer) return void 0;
-    const timer = setTimeout(() => setCheer(false), CHEER_MS);
-    return () => clearTimeout(timer);
+    const timer2 = setTimeout(() => setCheer(false), CHEER_MS);
+    return () => clearTimeout(timer2);
   }, [cheer]);
   const check = () => {
     setChecking(true);
@@ -51985,7 +55024,7 @@ function AboutPage({ useUpdate, actions, run: run2, Section: Section2, Row: Row4
     (0, import_react60.createElement)(
       "div",
       { key: "hero", className: "bt-about-hero" },
-      (0, import_react60.createElement)("span", { className: "bt-about-mark" }, (0, import_react60.createElement)(BotMark, { look: MAIN_LOOK, bot: { id: "about" }, size: 52, state: markState, live: true, gaze: true, pokeable: true })),
+      (0, import_react60.createElement)("span", { className: "bt-about-mark bt-pet-zone" }, (0, import_react60.createElement)(BotMark, { look: MAIN_LOOK, bot: { id: "about" }, size: 52, state: markState, live: true, gaze: true, pokeable: true })),
       (0, import_react60.createElement)(
         "div",
         { className: "bt-about-copy" },
@@ -52031,10 +55070,6 @@ function AboutPage({ useUpdate, actions, run: run2, Section: Section2, Row: Row4
 var ABOUT_CSS = `
 .bt-about-hero{display:flex;align-items:center;gap:14px;padding:16px;border:.5px solid var(--bt-glass-rim);border-radius:12px;background:var(--bt-card);box-shadow:var(--bt-card-shadow)}
 .bt-about-mark{flex:none;display:inline-flex;position:relative}
-.bt-about-mark::before{content:'';position:absolute;inset:-20%;border-radius:50%}
-body:not([data-bt-motion=quiet]) .bt-about-mark:hover .bt-mark[data-live][data-state=idle]:not(.bt-mark-poke) .bt-b{rotate:8deg;translate:5% -1%;animation:bt-nuzzle .78s ease-in-out .32s infinite}
-body:not([data-bt-motion=quiet]) .bt-about-mark:hover .bt-mark[data-live][data-state=idle] .bt-eye{scale:1 0;animation:none}
-body:not([data-bt-motion=quiet]) .bt-about-mark:hover .bt-mark[data-live][data-state=idle] .bt-eye-happy{opacity:1;transition-delay:.1s}
 .bt-about-copy{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
 .bt-about-name{font-size:16px;line-height:22px;font-weight:600}
 .bt-about-version{font-size:12px;line-height:16px;color:var(--bt-ink-2);font-variant-numeric:tabular-nums}
@@ -52080,7 +55115,7 @@ function ChatGPTSettings({ actions, apply: apply2, provider }) {
   (0, import_react61.useEffect)(() => {
     live.current = true;
     let disposed = false;
-    let timer;
+    let timer2;
     const poll = async () => {
       const version = generation.current;
       try {
@@ -52092,13 +55127,13 @@ function ChatGPTSettings({ actions, apply: apply2, provider }) {
       } catch {
         if (!disposed && version === generation.current) setPollError(t("Could not read the ChatGPT connection. Retry."));
       }
-      if (!disposed) timer = setTimeout(poll, 1500);
+      if (!disposed) timer2 = setTimeout(poll, 1500);
     };
     void poll();
     return () => {
       disposed = true;
       live.current = false;
-      clearTimeout(timer);
+      clearTimeout(timer2);
       generation.current++;
     };
   }, [actions]);
@@ -52149,7 +55184,7 @@ function ChatGPTSettings({ actions, apply: apply2, provider }) {
   };
   return (0, import_react61.createElement)(ChatGPTControls, { status, pending, error: error || pollError, notice, models: provider?.models ?? [], operate });
 }
-function ChatGPTControls({ status, pending = null, error = "", notice = "", models = [], operate }) {
+function ChatGPTControls({ status, pending = null, error = "", notice = "", models: models2 = [], operate }) {
   const state = status?.state;
   const account = status?.account;
   const working = pending !== null;
@@ -52183,11 +55218,11 @@ function ChatGPTControls({ status, pending = null, error = "", notice = "", mode
     ) : null,
     (0, import_react61.createElement)("div", { className: "bt-set-hint", role: "status" }, t(STATE_TEXT[state] ?? "Checking ChatGPT connection…")),
     typeof status?.planUsage === "boolean" && state !== "signed-out" && state !== "unsupported" ? (0, import_react61.createElement)("div", { className: "bt-set-hint" }, t(status.planUsage ? "Plan usage enabled" : "Plan usage disabled")) : null,
-    state === "connected" && models.length === 0 && notice !== EMPTY_MODELS ? (0, import_react61.createElement)("div", { className: "bt-set-hint" }, t(EMPTY_MODELS)) : null,
-    models.length > 0 ? (0, import_react61.createElement)(
+    state === "connected" && models2.length === 0 && notice !== EMPTY_MODELS ? (0, import_react61.createElement)("div", { className: "bt-set-hint" }, t(EMPTY_MODELS)) : null,
+    models2.length > 0 ? (0, import_react61.createElement)(
       "div",
       { className: "bt-provider-models", "aria-label": t("Models") },
-      models.map((model) => (0, import_react61.createElement)("span", { key: model.ref ?? model.id, className: "bt-tag", title: model.ref ?? model.id }, model.name ?? model.id))
+      models2.map((model) => (0, import_react61.createElement)("span", { key: model.ref ?? model.id, className: "bt-tag", title: model.ref ?? model.id }, model.name ?? model.id))
     ) : null,
     (0, import_react61.createElement)("div", { className: "bt-secret-row-actions", "aria-busy": working || void 0 }, controls),
     notice ? (0, import_react61.createElement)("div", { className: "bt-set-hint", role: "status" }, t(notice)) : null,
@@ -52400,8 +55435,8 @@ function ProviderRow({ provider, apply: apply2, actions, roster, revision, open,
       setConfirmRemove(true);
       return;
     }
-    const models = selected.map((row) => row.returned ? row.model : { id: row.id });
-    void apply2(actions.saveProviderModels({ provider: provider.id, models, revision: draft.revision ?? revision })).then((ok) => {
+    const models2 = selected.map((row) => row.returned ? row.model : { id: row.id });
+    void apply2(actions.saveProviderModels({ provider: provider.id, models: models2, revision: draft.revision ?? revision })).then((ok) => {
       if (!ok) return;
       setDraft(null);
       setConfirmRemove(false);
@@ -52646,11 +55681,11 @@ function CustomForm({ view, apply: apply2, actions, onDone }) {
   const [asking, setAsking] = (0, import_react62.useState)(false);
   const set = (field, value) => setDraft((current2) => ({ ...current2, [field]: value }));
   const typed = draft.typed.split(/[\s,]+/).map((id) => id.trim()).filter(Boolean);
-  const models = [...(found ?? []).filter((model) => picked.includes(model.id)), ...typed.filter((id) => !picked.includes(id)).map((id) => ({ id }))];
+  const models2 = [...(found ?? []).filter((model) => picked.includes(model.id)), ...typed.filter((id) => !picked.includes(id)).map((id) => ({ id }))];
   const missing = [];
   if (draft.provider.trim() === "") missing.push(t("Provider ID"));
   if (draft.baseURL.trim() === "") missing.push(t("Endpoint"));
-  if (models.length === 0) missing.push(t("At least one model"));
+  if (models2.length === 0) missing.push(t("At least one model"));
   const ready = missing.length === 0;
   const missingHint = ready ? null : (0, import_react62.createElement)(
     "div",
@@ -52669,7 +55704,7 @@ function CustomForm({ view, apply: apply2, actions, onDone }) {
   const toggle = (id) => setPicked((list) => list.includes(id) ? list.filter((item) => item !== id) : [...list, id]);
   const add = () => {
     if (!ready) return;
-    void apply2(actions.addProvider({ custom: true, provider: draft.provider.trim(), name: draft.name, baseURL: draft.baseURL, api: draft.api, key: draft.key, models })).then((ok) => {
+    void apply2(actions.addProvider({ custom: true, provider: draft.provider.trim(), name: draft.name, baseURL: draft.baseURL, api: draft.api, key: draft.key, models: models2 })).then((ok) => {
       if (ok) onDone();
     });
   };
@@ -52808,12 +55843,77 @@ function AgentForm({ initial, submit, close }) {
     )
   );
 }
-function AgentSignInRow({ agent }) {
+function ProfileForm({ initial, detected, submit, close }) {
+  const [baseRoute, setBaseRoute] = (0, import_react63.useState)(initial?.baseRoute ?? detected[0]?.route ?? "");
+  const [name, setName] = (0, import_react63.useState)(initial?.name ?? "");
+  const [configDir, setConfigDir] = (0, import_react63.useState)(initial?.customConfigDir ?? "");
+  const [saving, setSaving] = (0, import_react63.useState)(false);
+  const [error, setError] = (0, import_react63.useState)("");
+  const savingRef = (0, import_react63.useRef)(false);
+  const isEdit = Boolean(initial);
+  const selectedBaseRoute = isEdit ? initial.baseRoute : detected.some((item) => item.route === baseRoute) ? baseRoute : detected[0]?.route ?? "";
+  const canSave = !saving && (isEdit || selectedBaseRoute !== "");
+  const save = () => {
+    if (savingRef.current || !canSave) return;
+    savingRef.current = true;
+    setSaving(true);
+    setError("");
+    const payload = isEdit ? { route: initial.route, name, configDir: configDir.trim() === "" ? null : configDir.trim() } : { baseRoute: selectedBaseRoute, name, ...configDir.trim() === "" ? {} : { configDir: configDir.trim() } };
+    submit(payload).then(() => close()).catch((failure) => {
+      savingRef.current = false;
+      setSaving(false);
+      setError(failure?.message ?? String(failure));
+    });
+  };
+  return (0, import_react63.createElement)(
+    "div",
+    { className: "bt-set-form" },
+    (0, import_react63.createElement)(
+      "div",
+      { className: "bt-set-form-row" },
+      isEdit ? (0, import_react63.createElement)(
+        "label",
+        { className: "bt-set-field" },
+        (0, import_react63.createElement)("span", null, t("Agent")),
+        (0, import_react63.createElement)("input", { className: "bt-input", value: detected.find((item) => item.route === initial.baseRoute)?.name ?? initial.baseRoute, disabled: true })
+      ) : (0, import_react63.createElement)(
+        "label",
+        { className: "bt-set-field" },
+        (0, import_react63.createElement)("span", null, t("Agent")),
+        (0, import_react63.createElement)(
+          "select",
+          { className: "bt-select", value: selectedBaseRoute, disabled: saving || detected.length === 0, onChange: (event) => setBaseRoute(event.target.value) },
+          detected.map((agent) => (0, import_react63.createElement)("option", { key: agent.route, value: agent.route }, agent.name))
+        )
+      ),
+      (0, import_react63.createElement)(
+        "label",
+        { className: "bt-set-field" },
+        (0, import_react63.createElement)("span", null, t("Profile name")),
+        (0, import_react63.createElement)("input", { className: "bt-input", value: name, autoFocus: true, disabled: saving, placeholder: "Work", maxLength: 32, onChange: (event) => setName(event.target.value) })
+      )
+    ),
+    (0, import_react63.createElement)(
+      "label",
+      { className: "bt-set-field" },
+      (0, import_react63.createElement)("span", null, t("Config folder")),
+      (0, import_react63.createElement)("input", { className: "bt-input bt-la-code-input", value: configDir, disabled: saving, placeholder: t("Default folder"), spellCheck: false, onChange: (event) => setConfigDir(event.target.value) })
+    ),
+    error ? (0, import_react63.createElement)("div", { className: "bt-error", role: "alert" }, error) : null,
+    (0, import_react63.createElement)(
+      "div",
+      { className: "bt-set-actions bt-set-form-foot" },
+      (0, import_react63.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: saving, onClick: close }, t("Cancel")),
+      (0, import_react63.createElement)("button", { type: "button", className: "bt-send bt-soft-sm", disabled: !canSave, onClick: save }, saving ? t("Saving…") : t("Save"))
+    )
+  );
+}
+function useCopySignIn(command) {
   const [note, setNote] = (0, import_react63.useState)(null);
   const copy2 = () => {
-    const done = (copied) => setNote({ copied, command: agent.signIn });
+    const done = (copied) => setNote({ copied, command });
     try {
-      const writing = navigator.clipboard?.writeText(agent.signIn);
+      const writing = navigator.clipboard?.writeText(command);
       if (writing === void 0) {
         done(false);
         return;
@@ -52823,13 +55923,17 @@ function AgentSignInRow({ agent }) {
       done(false);
     }
   };
-  const version = shortVersion(agent.version);
-  const canSignIn = Boolean(agent.signIn) && agent.signedIn !== true;
-  const status = agent.signedIn === true ? t("Signed in") : agent.signedIn === false ? t("Not signed in") : null;
   const message = note === null ? null : (0, import_react63.createElement)("span", {
     className: note.copied ? "bt-note bt-la-note" : "bt-note bt-la-note bt-danger",
     role: note.copied ? "status" : "alert"
   }, note.copied ? t("Sign-in command copied. Run it in a terminal: {command}", { command: note.command }) : t("Could not copy the sign-in command. Run this in a terminal: {command}", { command: note.command }));
+  return { copy: copy2, message };
+}
+function AgentSignInRow({ agent }) {
+  const { copy: copy2, message } = useCopySignIn(agent.signIn);
+  const version = shortVersion(agent.version);
+  const canSignIn = Boolean(agent.signIn) && agent.signedIn !== true;
+  const status = agent.signedIn === true ? t("Signed in") : agent.signedIn === false ? t("Not signed in") : null;
   return (0, import_react63.createElement)(
     "div",
     { className: "bt-set-row bt-la-row" },
@@ -52857,6 +55961,48 @@ function AgentSignInRow({ agent }) {
       ) : null,
       canSignIn ? (0, import_react63.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", title: t("Copies the sign-in command"), onClick: copy2 }, t("Sign in")) : null
     ) : null
+  );
+}
+function ProfileRow({ profile, armed, onEdit, onRemove, onBlurRemove }) {
+  const { copy: copy2, message } = useCopySignIn(profile.signIn);
+  const version = shortVersion(profile.version);
+  const canSignIn = profile.available !== false && Boolean(profile.signIn) && profile.signedIn !== true;
+  const status = profile.available === false ? t("Not installed") : profile.signedIn === true ? t("Signed in") : profile.signedIn === false ? t("Not signed in") : null;
+  return (0, import_react63.createElement)(
+    "div",
+    { className: "bt-set-row bt-la-row" },
+    (0, import_react63.createElement)(AgentLogo, { route: profile.route, name: profile.displayName ?? profile.name, size: 32, className: "bt-cli-logo bt-la-logo" }),
+    (0, import_react63.createElement)(
+      "div",
+      { className: "bt-set-copy bt-la-copy" },
+      (0, import_react63.createElement)(
+        "span",
+        { className: "bt-la-head" },
+        (0, import_react63.createElement)("span", { className: "bt-la-name" }, profile.displayName ?? profile.name),
+        version ? (0, import_react63.createElement)("span", { className: "bt-la-ver" }, version) : null
+      ),
+      profile.configDir ? (0, import_react63.createElement)("span", { className: "bt-la-path" }, profile.configDir) : null,
+      message
+    ),
+    (0, import_react63.createElement)(
+      "div",
+      { className: "bt-set-control bt-la-actions" },
+      status !== null ? (0, import_react63.createElement)(
+        "span",
+        { className: "bt-la-state", "data-state": String(profile.available === false ? false : profile.signedIn) },
+        (0, import_react63.createElement)("i", { className: "bt-cli-dot", "aria-hidden": true }),
+        status
+      ) : null,
+      canSignIn ? (0, import_react63.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", title: t("Copies the sign-in command"), onClick: copy2 }, t("Sign in")) : null,
+      (0, import_react63.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: onEdit }, t("Edit")),
+      (0, import_react63.createElement)("button", {
+        type: "button",
+        className: armed ? "bt-soft bt-soft-sm bt-danger bt-la-armed" : "bt-soft bt-soft-sm bt-danger",
+        "aria-label": armed ? t("Click again to remove") : t("Remove"),
+        onClick: onRemove,
+        onBlur: onBlurRemove
+      }, armed ? t("Remove?") : (0, import_react63.createElement)(TrashIcon))
+    )
   );
 }
 function LocalAgentsPage({ run: run2, Row: Row4 }) {
@@ -52900,6 +56046,9 @@ function LocalAgentsPage({ run: run2, Row: Row4 }) {
     );
   }
   if (view.available === false) return (0, import_react63.createElement)("p", { className: "bt-set-hint" }, t("This DSH cannot register local agent routes."));
+  const profiles = view.profiles ?? [];
+  const profileCapable = view.detected.filter((agent) => agent.supportsProfiles === true);
+  const canAddProfile = profileCapable.length > 0;
   return [
     (0, import_react63.createElement)(
       "section",
@@ -52917,6 +56066,57 @@ function LocalAgentsPage({ run: run2, Row: Row4 }) {
         view.detected.map((agent) => (0, import_react63.createElement)(AgentSignInRow, { key: agent.route, agent, Row: Row4 }))
       )
     ),
+    canAddProfile || profiles.length > 0 ? (0, import_react63.createElement)(
+      "section",
+      { key: "profiles", className: "bt-set-section" },
+      (0, import_react63.createElement)(
+        "div",
+        { className: "bt-la-sec-head" },
+        (0, import_react63.createElement)("h3", null, t("Profiles")),
+        canAddProfile && editing !== "profile:new" ? (0, import_react63.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm bt-with-icon", "aria-label": t("Add profile"), onClick: () => {
+          setArmedRemove(null);
+          setEditing("profile:new");
+        } }, (0, import_react63.createElement)(PlusIcon), t("Add profile")) : null
+      ),
+      (0, import_react63.createElement)(
+        "div",
+        { className: "bt-set-card" },
+        profiles.length === 0 && editing !== "profile:new" ? (0, import_react63.createElement)("div", { className: "bt-set-row" }, (0, import_react63.createElement)("span", { className: "bt-set-hint" }, t("No profiles added"))) : null,
+        profiles.map((profile) => editing === `profile:${profile.route}` ? (0, import_react63.createElement)(ProfileForm, {
+          key: profile.route,
+          initial: profile,
+          detected: view.detected,
+          close: () => setEditing(null),
+          submit: (payload) => call("local-agent-profile-update", payload).then(() => load("local-agents"))
+        }) : (0, import_react63.createElement)(ProfileRow, {
+          key: profile.route,
+          profile,
+          armed: armedRemove === `profile:${profile.route}`,
+          onEdit: () => {
+            setArmedRemove(null);
+            setEditing(`profile:${profile.route}`);
+          },
+          onRemove: () => {
+            const key = `profile:${profile.route}`;
+            if (armedRemove !== key) {
+              setArmedRemove(key);
+              return;
+            }
+            setArmedRemove(null);
+            void run2(call("local-agent-profile-remove", { route: profile.route })).then(() => load("local-agents"));
+          },
+          onBlurRemove: () => {
+            if (armedRemove === `profile:${profile.route}`) setArmedRemove(null);
+          }
+        })),
+        editing === "profile:new" ? (0, import_react63.createElement)(ProfileForm, {
+          key: "profile:new",
+          detected: profileCapable,
+          close: () => setEditing(null),
+          submit: (payload) => call("local-agent-profile-add", payload).then(() => load("local-agents"))
+        }) : null
+      )
+    ) : null,
     (0, import_react63.createElement)(
       "section",
       { key: "custom", className: "bt-set-section" },
@@ -52978,8 +56178,8 @@ function LocalAgentsPage({ run: run2, Row: Row4 }) {
 var SKIP_LOCAL_AGENT = "local-agent";
 var SKIP_UNAVAILABLE = "unavailable";
 var modelRefOf = (bot) => bot?.model ?? bot?.appliedModel;
-function planModelChange(bots, ref, models) {
-  const served = (models ?? []).some((model) => model.ref === ref);
+function planModelChange(bots, ref, models2) {
+  const served = (models2 ?? []).some((model) => model.ref === ref);
   return (bots ?? []).map((bot) => {
     const current2 = modelRefOf(bot);
     if (isLocalRoute(current2)) return { bot, action: "skip", reason: SKIP_LOCAL_AGENT };
@@ -52988,9 +56188,9 @@ function planModelChange(bots, ref, models) {
     return { bot, action: "change" };
   });
 }
-async function runModelChange({ bots, ref, models, updateBot }) {
+async function runModelChange({ bots, ref, models: models2, updateBot }) {
   const results = [];
-  for (const entry of planModelChange(bots, ref, models)) {
+  for (const entry of planModelChange(bots, ref, models2)) {
     const { bot } = entry;
     if (entry.action === "skip") {
       results.push({ id: bot.id, name: bot.name, status: "skipped", reason: entry.reason });
@@ -53306,7 +56506,7 @@ function stepsForTour(mode, { hasProviders = true, hasAdvancedModels = false } =
 var PAD = 6;
 var EDGE = 16;
 var GAP2 = 14;
-function clamp(value, min, max) {
+function clamp3(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 function sameSpot(a, b2) {
@@ -53342,11 +56542,11 @@ function measureSpotlight(dialogEl, targetKey) {
   let bottom = rect.bottom - dialogRect.top + PAD;
   const scrollBox = typeof el.closest === "function" ? el.closest(".bt-settings-scroll") : null;
   if (scrollBox && typeof scrollBox.getBoundingClientRect === "function") {
-    const clip2 = scrollBox.getBoundingClientRect();
-    const clipTop = clip2.top - dialogRect.top;
-    const clipBottom = clip2.bottom - dialogRect.top;
-    const clipLeft = clip2.left - dialogRect.left;
-    const clipRight = clip2.right - dialogRect.left;
+    const clip3 = scrollBox.getBoundingClientRect();
+    const clipTop = clip3.top - dialogRect.top;
+    const clipBottom = clip3.bottom - dialogRect.top;
+    const clipLeft = clip3.left - dialogRect.left;
+    const clipRight = clip3.right - dialogRect.left;
     top = Math.max(top, clipTop + 2);
     bottom = Math.min(bottom, clipBottom - 2);
     left = Math.max(left, clipLeft + 2);
@@ -53381,16 +56581,16 @@ function placeCard(spot, cardW, cardH) {
   const maxLeft = Math.max(EDGE, dialogW - cardW - EDGE);
   const maxTop = Math.max(EDGE, dialogH - cardH - EDGE);
   if (left < 220 && right + GAP2 + cardW <= dialogW - EDGE) {
-    return { left: Math.round(right + GAP2), top: Math.round(clamp(top, EDGE, maxTop)) };
+    return { left: Math.round(right + GAP2), top: Math.round(clamp3(top, EDGE, maxTop)) };
   }
   if (bottom + GAP2 + cardH <= dialogH - EDGE) {
-    return { left: Math.round(clamp(left, EDGE, maxLeft)), top: Math.round(bottom + GAP2) };
+    return { left: Math.round(clamp3(left, EDGE, maxLeft)), top: Math.round(bottom + GAP2) };
   }
   if (top - GAP2 - cardH >= EDGE) {
-    return { left: Math.round(clamp(left, EDGE, maxLeft)), top: Math.round(top - GAP2 - cardH) };
+    return { left: Math.round(clamp3(left, EDGE, maxLeft)), top: Math.round(top - GAP2 - cardH) };
   }
   if (left - GAP2 - cardW >= EDGE) {
-    return { left: Math.round(left - GAP2 - cardW), top: Math.round(clamp(top, EDGE, maxTop)) };
+    return { left: Math.round(left - GAP2 - cardW), top: Math.round(clamp3(top, EDGE, maxTop)) };
   }
   return { left: Math.round(maxLeft), top: Math.round(maxTop) };
 }
@@ -53480,13 +56680,13 @@ function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAdvancedM
       (controls[nextIndex] ?? card).focus({ preventScroll: true });
     };
     sync();
-    const observer = new MutationObserver(sync);
-    observer.observe(doc.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-leaving"] });
+    const observer2 = new MutationObserver(sync);
+    observer2.observe(doc.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-leaving"] });
     doc.addEventListener("focusin", onFocus, true);
     doc.addEventListener("keydown", onTab, true);
     return () => {
       disposed = true;
-      observer.disconnect();
+      observer2.disconnect();
       doc.removeEventListener("focusin", onFocus, true);
       doc.removeEventListener("keydown", onTab, true);
       restore();
@@ -53563,10 +56763,10 @@ function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAdvancedM
     window.addEventListener?.("resize", schedule);
     dialogEl.addEventListener?.("scroll", schedule, true);
     dialogEl.addEventListener?.("animationend", schedule, true);
-    let observer = null;
+    let observer2 = null;
     if (typeof MutationObserver === "function") {
-      observer = new MutationObserver(onMutate);
-      observer.observe(dialogEl, { childList: true, subtree: true, attributes: false });
+      observer2 = new MutationObserver(onMutate);
+      observer2.observe(dialogEl, { childList: true, subtree: true, attributes: false });
     }
     return () => {
       clearTimeout(settleTimer);
@@ -53574,7 +56774,7 @@ function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAdvancedM
       window.removeEventListener?.("resize", schedule);
       dialogEl.removeEventListener?.("scroll", schedule, true);
       dialogEl.removeEventListener?.("animationend", schedule, true);
-      observer?.disconnect();
+      observer2?.disconnect();
     };
   }, [active, step, currentPage, dialogRef, tourKey, index]);
   if (!active || !step) return null;
@@ -53772,13 +56972,13 @@ function FormPreferences({ id, preferences }) {
   const browserAvailable = (0, import_react66.useSyncExternalStore)(preferences.browser.subscribe, preferences.browser.getSnapshot);
   const disabled = snapshot.status !== "ready" || !snapshot.writable;
   if (snapshot.status === "unavailable") return null;
-  const tr = preferences.locale.bind(namespace === "ui-chat" ? "chat" : "conversation");
+  const tr2 = preferences.locale.bind(namespace === "ui-chat" ? "chat" : "conversation");
   if (id === "composer-enter") return !supports("busyEnter") ? null : (0, import_react66.createElement)(PreferenceRow, {
-    title: tr("settings.enter.title"),
-    description: tr("settings.enter.description"),
+    title: tr2("settings.enter.title"),
+    description: tr2("settings.enter.description"),
     value: snapshot.value?.busyEnter ?? "queue",
     disabled,
-    options: ["queue", "steer"].map((value2) => ({ id: value2, label: tr(`settings.enter.${value2}`) })),
+    options: ["queue", "steer"].map((value2) => ({ id: value2, label: tr2(`settings.enter.${value2}`) })),
     save: (value2) => savePreference(form, "busyEnter", value2)
   });
   if (id === "link-opening" && !browserAvailable) return null;
@@ -53786,11 +56986,11 @@ function FormPreferences({ id, preferences }) {
   const fields = id === "transcript-view" ? ["transcriptView", "collapseTiming", ...value.transcriptView === "verbose" ? [] : ["foldedReplies"]] : [id === "performance-usage" ? "performanceUsage" : "linkOpening"];
   return fields.filter(supports).map((field) => (0, import_react66.createElement)(PreferenceRow, {
     key: field,
-    title: tr(`settings.${CHAT_KEYS[field]}.title`),
-    description: tr(`settings.${CHAT_KEYS[field]}.description`),
+    title: tr2(`settings.${CHAT_KEYS[field]}.title`),
+    description: tr2(`settings.${CHAT_KEYS[field]}.description`),
     value: value[field],
     disabled,
-    options: CHAT_CHOICES[field].map((choice, index) => ({ id: choice, label: tr(CHAT_LABELS[field][index]) })),
+    options: CHAT_CHOICES[field].map((choice, index) => ({ id: choice, label: tr2(CHAT_LABELS[field][index]) })),
     save: (choice) => savePreference(form, field, choice)
   }));
 }
@@ -53823,7 +57023,7 @@ function PermissionPreference({ preferences }) {
   const [attempt, setAttempt] = (0, import_react66.useState)(0);
   const [confirmation, setConfirmation] = (0, import_react66.useState)(null);
   const [acknowledged, setAcknowledged] = (0, import_react66.useState)(false);
-  const tr = preferences.locale.bind("settings.permission");
+  const tr2 = preferences.locale.bind("settings.permission");
   (0, import_react66.useEffect)(() => {
     let epoch = 0;
     const refresh = () => {
@@ -53853,13 +57053,13 @@ function PermissionPreference({ preferences }) {
   }, [snapshot.writable, snapshot.status]);
   if (snapshot.status === "unavailable" || schema === void 0 || preferences.schema.nodeAtPath(schema, ["defaultPreset"]) === void 0) return null;
   const value = snapshot.value?.defaultPreset ?? catalog?.defaultPreset;
-  const options = permissionOptions(catalog, tr);
+  const options = permissionOptions(catalog, tr2);
   return (0, import_react66.createElement)(
     import_react66.Fragment,
     null,
     (0, import_react66.createElement)(PreferenceRow, {
-      title: tr("title"),
-      description: tr("description"),
+      title: tr2("title"),
+      description: tr2("description"),
       value,
       options,
       disabled: snapshot.status !== "ready" || !snapshot.writable || catalog === null,
@@ -53871,18 +57071,18 @@ function PermissionPreference({ preferences }) {
     failed ? (0, import_react66.createElement)(
       "div",
       { className: "bt-set-note", role: "alert" },
-      tr("unavailable"),
+      tr2("unavailable"),
       " ",
       (0, import_react66.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => setAttempt((value2) => value2 + 1) }, t("Try again"))
     ) : null,
     (0, import_react66.createElement)(import_dsh_client_ui_primitives.RiskConfirmation, {
       open: confirmation !== null,
-      title: tr("confirm.title"),
-      description: tr("confirm.description"),
-      acknowledgeLabel: tr("confirm.acknowledge"),
-      cancelLabel: tr("confirm.cancel"),
-      closeLabel: tr("close"),
-      confirmLabel: tr("confirm.enable"),
+      title: tr2("confirm.title"),
+      description: tr2("confirm.description"),
+      acknowledgeLabel: tr2("confirm.acknowledge"),
+      cancelLabel: tr2("confirm.cancel"),
+      closeLabel: tr2("close"),
+      confirmLabel: tr2("confirm.enable"),
       acknowledged,
       onAcknowledgedChange: setAcknowledged,
       disabled: !snapshot.writable,
@@ -54914,7 +58114,7 @@ function searchHits(query, { roster, extra = [], pageAvailable = () => true, has
     haystack: `${room2.name} ${t("Group chats")}`.toLowerCase()
   })).filter((entry) => matches2(entry.haystack, tokens)).slice(0, PER_KIND);
   const usable = (roster.models ?? []).filter((entry) => !entry.needsKey && !isLocalRoute(entry.ref));
-  const models = usable.filter((entry) => matches2(`${entry.name ?? ""} ${entry.ref} ${entry.providerName ?? ""}`.toLowerCase(), tokens)).slice(0, 3).flatMap((entry) => {
+  const models2 = usable.filter((entry) => matches2(`${entry.name ?? ""} ${entry.ref} ${entry.providerName ?? ""}`.toLowerCase(), tokens)).slice(0, 3).flatMap((entry) => {
     const name = modelName(entry, usable);
     const movers = (roster.bots ?? []).filter((bot) => !isLocalRoute(bot.model ?? bot.appliedModel) && (bot.model ?? bot.appliedModel) !== entry.ref);
     return [
@@ -54922,7 +58122,7 @@ function searchHits(query, { roster, extra = [], pageAvailable = () => true, has
       movers.length > 0 ? { id: `switch:${entry.ref}`, kind: "action", title: t("Switch Bots to {model}…", { model: name }), meta: t("Bot models"), page: "bot-models", target: entry.ref } : null
     ].filter(Boolean);
   });
-  return [...settings, ...bots, ...rooms, ...models];
+  return [...settings, ...bots, ...rooms, ...models2];
 }
 var KIND_TITLES = { setting: "Settings", bot: "Bots", room: "Group chats", model: "Models", action: "Models" };
 function SettingsPalette({ roster, extra, dsh, icons, pageAvailable, hasSurface, onPick, onClose, returnFocus = false }) {
@@ -54968,22 +58168,22 @@ function SettingsPalette({ roster, extra, dsh, icons, pageAvailable, hasSurface,
     return (0, import_react68.createElement)("span", { className: "bt-set-hit-icon" }, (0, import_react68.createElement)(Icon));
   };
   const rows2 = [];
-  hits.forEach((hit, at) => {
+  hits.forEach((hit, at2) => {
     const title = KIND_TITLES[hit.kind];
-    if (at === 0 || KIND_TITLES[hits[at - 1].kind] !== title) rows2.push((0, import_react68.createElement)("div", { key: `head:${title}`, className: "bt-set-palette-group", role: "presentation" }, t(title)));
+    if (at2 === 0 || KIND_TITLES[hits[at2 - 1].kind] !== title) rows2.push((0, import_react68.createElement)("div", { key: `head:${title}`, className: "bt-set-palette-group", role: "presentation" }, t(title)));
     rows2.push((0, import_react68.createElement)(
       "button",
       {
         key: hit.id,
-        id: `bt-set-hit-${at}`,
+        id: `bt-set-hit-${at2}`,
         type: "button",
         tabIndex: -1,
         role: "option",
-        "aria-selected": at === index,
+        "aria-selected": at2 === index,
         className: "bt-set-search-hit",
-        "data-active": at === index || void 0,
+        "data-active": at2 === index || void 0,
         onMouseMove: () => {
-          if (at !== index) setIndex(at);
+          if (at2 !== index) setIndex(at2);
         },
         onClick: () => pick2(hit)
       },
@@ -55033,10 +58233,10 @@ function SettingsPalette({ roster, extra, dsh, icons, pageAvailable, hasSurface,
             if (hits.length === 0) return;
             if (event.key === "ArrowDown") {
               event.preventDefault();
-              setIndex((at) => (at + 1) % hits.length);
+              setIndex((at2) => (at2 + 1) % hits.length);
             } else if (event.key === "ArrowUp") {
               event.preventDefault();
-              setIndex((at) => (at - 1 + hits.length) % hits.length);
+              setIndex((at2) => (at2 - 1 + hits.length) % hits.length);
             } else if (event.key === "Enter") {
               event.preventDefault();
               pick2(hits[index] ?? hits[0]);
@@ -55075,19 +58275,19 @@ function useWeek(actions, wanted) {
   (0, import_react69.useEffect)(() => {
     if (!wanted || typeof actions.usage !== "function") return void 0;
     let stopped = false;
-    let timer;
+    let timer2;
     const load = () => Promise.resolve(actions.usage()).then((view) => {
       if (stopped || !view?.rows) return;
       const range = RANGES.find((entry) => entry.id === "7d");
       const sum = summarize(view, range);
       setWeek({ total: sum.total.total, days: sum.buckets.map((bucket) => bucket.sum.total) });
-      if (view.scanning) timer = setTimeout(load, 3e3);
+      if (view.scanning) timer2 = setTimeout(load, 3e3);
     }).catch(() => {
     });
     void load();
     return () => {
       stopped = true;
-      clearTimeout(timer);
+      clearTimeout(timer2);
     };
   }, [wanted]);
   return week;
@@ -55206,8 +58406,8 @@ function Tiles({ roster, actions, icons, view, hasProviders, narrow }) {
   const week = useWeek(actions, !narrow);
   const schedules = useSchedules(actions);
   const prefs = roster.prefs ?? {};
-  const models = roster.models ?? [];
-  const usable = models.filter((entry) => entry.needsKey !== true && !isLocalRoute(entry.ref));
+  const models2 = roster.models ?? [];
+  const usable = models2.filter((entry) => entry.needsKey !== true && !isLocalRoute(entry.ref));
   const keyless = uniq((view?.providers ?? []).filter((provider) => provider.key && !provider.key.configured && usersOf(provider, roster).length > 0).map((provider) => provider.name));
   const providers = uniq(usable.map((entry) => entry.providerName ?? entry.ref.split("/")[0])).filter((name) => !keyless.includes(name));
   const local = (roster.bots ?? []).filter((bot) => isLocalRoute(modelRefOf(bot))).length;
@@ -55257,10 +58457,10 @@ function Tiles({ roster, actions, icons, view, hasProviders, narrow }) {
       onOpen: () => actions.openSettings("usage"),
       value: week ? compact(week.total) : "–",
       unit: t("tokens"),
-      extra: week ? (0, import_react69.createElement)("span", { className: "bt-ov-bars", "aria-hidden": true }, week.days.map((day, at) => (0, import_react69.createElement)("span", {
-        key: at,
+      extra: week ? (0, import_react69.createElement)("span", { className: "bt-ov-bars", "aria-hidden": true }, week.days.map((day, at2) => (0, import_react69.createElement)("span", {
+        key: at2,
         className: "bt-ov-bar",
-        "data-today": at === week.days.length - 1 || void 0,
+        "data-today": at2 === week.days.length - 1 || void 0,
         style: { height: `${Math.max(8, Math.round(day / peak * 100))}%` }
       }))) : null
     }, week ? t("Today {count}", { count: compact(week.days.at(-1) ?? 0) }) : null),
@@ -55902,10 +59102,10 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
     const settle = () => {
       if (!userScrolled.current) scrollToPart(shown, false);
     };
-    const frame2 = typeof requestAnimationFrame === "function" ? requestAnimationFrame(settle) : 0;
+    const frame3 = typeof requestAnimationFrame === "function" ? requestAnimationFrame(settle) : 0;
     const later = setTimeout(settle, 420);
     return () => {
-      if (typeof cancelAnimationFrame === "function") cancelAnimationFrame(frame2);
+      if (typeof cancelAnimationFrame === "function") cancelAnimationFrame(frame3);
       clearTimeout(later);
     };
   }, [shown, pageKey, jump]);
@@ -56493,7 +59693,7 @@ function createConnectionFeedback(onChange, {
   graceMs = CONNECTION_GRACE_MS,
   minimumVisibleMs = CONNECTING_MIN_VISIBLE_MS,
   recoveryMs = RECOVERY_CONFIRMATION_MS,
-  now = Date.now,
+  now: now2 = Date.now,
   schedule = setTimeout,
   clear = clearTimeout
 } = {}) {
@@ -56502,7 +59702,7 @@ function createConnectionFeedback(onChange, {
   let view;
   let outageAt;
   let visibleAt;
-  let timer;
+  let timer2;
   let generation = 0;
   let suspended = false;
   const publish2 = (next) => {
@@ -56512,15 +59712,15 @@ function createConnectionFeedback(onChange, {
   };
   const cancel = () => {
     generation += 1;
-    if (timer === void 0) return;
-    clear(timer);
-    timer = void 0;
+    if (timer2 === void 0) return;
+    clear(timer2);
+    timer2 = void 0;
   };
   const later = (run2, wait) => {
     const active = generation;
-    timer = schedule(() => {
+    timer2 = schedule(() => {
       if (active !== generation) return;
-      timer = void 0;
+      timer2 = void 0;
       run2();
     }, wait);
   };
@@ -56531,7 +59731,7 @@ function createConnectionFeedback(onChange, {
   };
   const showOutage = () => {
     if (suspended || !OUTAGE_STATES.has(state)) return;
-    visibleAt = now();
+    visibleAt = now2();
     publish2(state);
   };
   const recover = () => {
@@ -56544,7 +59744,7 @@ function createConnectionFeedback(onChange, {
     }, recoveryMs);
   };
   const reconcile = () => {
-    const current2 = now();
+    const current2 = now2();
     if (state === "connected") {
       if (visibleAt === void 0) {
         reset();
@@ -57332,19 +60532,19 @@ function MemberDock({ sessionId, useRoster, useWork, useComputer, actions }) {
     )
   );
 }
-var stateLine = (className, at, ...what) => (0, import_react74.createElement)(
+var stateLine = (className, at2, ...what) => (0, import_react74.createElement)(
   "span",
   { className },
   (0, import_react74.createElement)("span", { className: "bt-member-what" }, ...what),
-  typeof at === "number" ? (0, import_react74.createElement)(Elapsed, { at, className: "bt-member-time" }) : null
+  typeof at2 === "number" ? (0, import_react74.createElement)(Elapsed, { at: at2, className: "bt-member-time" }) : null
 );
-var cardHead = (bot, at, label) => (0, import_react74.createElement)(
+var cardHead = (bot, at2, label) => (0, import_react74.createElement)(
   "div",
   { className: "bt-mw-head" },
   (0, import_react74.createElement)(BotMark, { bot, size: 18, state: "alert" }),
   (0, import_react74.createElement)("span", { className: "bt-mw-who", style: { color: inkText(colorOf(bot)) } }, bot.name),
   label ? (0, import_react74.createElement)("span", { className: "bt-mw-tool" }, label) : null,
-  typeof at === "number" ? (0, import_react74.createElement)(Elapsed, { at, className: "bt-mw-time" }) : null
+  typeof at2 === "number" ? (0, import_react74.createElement)(Elapsed, { at: at2, className: "bt-mw-time" }) : null
 );
 function ApprovalCard({ approval, bot, actions, showBot = false }) {
   const [busy, setBusy] = (0, import_react74.useState)(false);
@@ -57398,8 +60598,8 @@ function ComputerAppApprovalCard({ ask, bot, actions, showBot = false }) {
 }
 function MemberState({ entry, bot }) {
   if (entry?.state === "ask") {
-    const at = entry.approvals?.[0]?.at ?? entry.computerAsks?.[0]?.at;
-    return stateLine("bt-member-state bt-mw-ask", at, t("Waiting for your approval"));
+    const at2 = entry.approvals?.[0]?.at ?? entry.computerAsks?.[0]?.at;
+    return stateLine("bt-member-state bt-mw-ask", at2, t("Waiting for your approval"));
   }
   if (entry?.state !== "work") return bot.role ? stateLine("bt-member-state", void 0, bot.role) : null;
   return stateLine("bt-member-state", entry.doing.since, (0, import_react74.createElement)(Shimmer, null, `${workPhrase(entry.doing)}…`));
@@ -57556,8 +60756,8 @@ function useMemoryNotice(ids, useMemoryNews) {
     const left = seen + MEMORY_NOTICE_MS - Date.now();
     setShown(seen > 0 && left > 0);
     if (seen === 0 || left <= 0) return void 0;
-    const timer = setTimeout(() => setShown(false), left);
-    return () => clearTimeout(timer);
+    const timer2 = setTimeout(() => setShown(false), left);
+    return () => clearTimeout(timer2);
   }, [seen]);
   return shown;
 }
@@ -57574,14 +60774,14 @@ function MemoryNotice({ shown }) {
     (0, import_react75.createElement)("span", { className: "bt-pill-mem-in", ref: inner }, (0, import_react75.createElement)("span", { className: "bt-pill-mem-ico" }, (0, import_react75.createElement)(MemoryIcon)), label)
   );
 }
-function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSession, useActivity, useMemoryNews, useTurnClock, useUi, useLive, useWork, useComputer, useStore, useConversationViews, selectView, actions, PendingLearning: PendingLearning2 }) {
+function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSession, useActivity, useMemoryNews, useTurnClock, useUi, useLive: useLive2, useWork, useComputer, useStore, useConversationViews, selectView, actions, PendingLearning: PendingLearning2 }) {
   const roster = useRoster((value) => value);
   const selectedView = useStore?.((state) => state.view);
   const away = useConversationViews?.((views) => views.some((view2) => view2.id === selectedView && view2.id !== "chat")) === true && typeof selectView === "function";
   const title = useSessions((list) => list.byId[sessionId]?.displayTitle ?? list.byId[sessionId]?.title ?? "");
   const firstTurns = useSessions((list) => {
-    const outline = list.projectionsBySession?.[sessionId]?.values?.turnOutline ?? list.byId[sessionId]?.projectionValues?.turnOutline;
-    return Array.isArray(outline) ? outline.slice(0, 8).map((entry) => entry.turn).join(",") : "";
+    const outline2 = list.projectionsBySession?.[sessionId]?.values?.turnOutline ?? list.byId[sessionId]?.projectionValues?.turnOutline;
+    return Array.isArray(outline2) ? outline2.slice(0, 8).map((entry) => entry.turn).join(",") : "";
   });
   const hiddenTurns = roster.exchangeTurns?.[sessionId];
   const visit = useUi((state) => state.visits?.[sessionId]);
@@ -57714,7 +60914,7 @@ function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSe
       onClick: () => actions.openGroupSearch(room2.id)
     }, (0, import_react75.createElement)(SearchIcon)) : null,
     (0, import_react75.createElement)(NewMessagePills, { key: sessionId, sessionId, useSessions, useUi, useTurnClock }),
-    (0, import_react75.createElement)(ActivityIndicator, { key: `activity:${sessionId}`, sessionId, useRoster, useSessionStatus, useSession, useLive, useWork, actions })
+    (0, import_react75.createElement)(ActivityIndicator, { key: `activity:${sessionId}`, sessionId, useRoster, useSessionStatus, useSession, useLive: useLive2, useWork, actions })
   );
 }
 function pinWatch() {
@@ -57732,7 +60932,7 @@ function pinWatch() {
 function useTranscriptView() {
   const [view, setView] = (0, import_react75.useState)(null);
   (0, import_react75.useEffect)(() => {
-    let frame2 = 0;
+    let frame3 = 0;
     let watched = null;
     let headerEl = null;
     const unpinned = pinWatch();
@@ -57741,17 +60941,17 @@ function useTranscriptView() {
       const el = target?.nodeType === 1 ? target : target?.parentElement;
       return typeof el?.closest === "function" && el.closest("[data-composer-card]") !== null;
     };
-    const observer = new MutationObserver((records) => {
+    const observer2 = new MutationObserver((records) => {
       if (records.length > 0 && records.every(inComposer)) return;
       schedule();
     });
     const measure = () => {
-      frame2 = 0;
+      frame3 = 0;
       const scroller = watched?.isConnected ? watched : document.querySelector("[data-conversation-scroll]");
       if (scroller !== watched) {
-        observer.disconnect();
+        observer2.disconnect();
         watched = scroller;
-        if (scroller) observer.observe(scroller, { childList: true, subtree: true });
+        if (scroller) observer2.observe(scroller, { childList: true, subtree: true });
       }
       if (!scroller) {
         setView(null);
@@ -57763,8 +60963,8 @@ function useTranscriptView() {
       const sep = newDividerIn(scroller);
       let divider = null;
       if (sep) {
-        const at = sep.getBoundingClientRect();
-        divider = at.bottom <= headerBottom ? "above" : at.top >= box.bottom ? "below" : "in-view";
+        const at2 = sep.getBoundingClientRect();
+        divider = at2.bottom <= headerBottom ? "above" : at2.top >= box.bottom ? "below" : "in-view";
       }
       const composer = parseFloat(getComputedStyle(scroller).getPropertyValue("--dsh-composer-height")) || 152;
       const next = {
@@ -57777,7 +60977,7 @@ function useTranscriptView() {
       setView((prev) => prev && Object.keys(next).every((key) => prev[key] === next[key]) ? prev : next);
     };
     const schedule = () => {
-      if (!frame2) frame2 = requestAnimationFrame(measure);
+      if (!frame3) frame3 = requestAnimationFrame(measure);
     };
     const onScroll = (event) => {
       if (watched?.isConnected && event.target !== watched) return;
@@ -57789,8 +60989,8 @@ function useTranscriptView() {
     window.visualViewport?.addEventListener("scroll", schedule);
     schedule();
     return () => {
-      cancelAnimationFrame(frame2);
-      observer.disconnect();
+      cancelAnimationFrame(frame3);
+      observer2.disconnect();
       document.removeEventListener("scroll", onScroll, true);
       window.removeEventListener("resize", schedule);
       window.visualViewport?.removeEventListener("resize", schedule);
@@ -57801,8 +61001,8 @@ function useTranscriptView() {
 }
 function NewMessagePills({ sessionId, useSessions, useUi, useTurnClock }) {
   const replies = useSessions((list) => {
-    const outline = list.projectionsBySession?.[sessionId]?.values?.turnOutline ?? list.byId[sessionId]?.projectionValues?.turnOutline;
-    return Array.isArray(outline) ? outline.reduce((count, entry) => count + (entry.response ? 1 : 0), 0) : 0;
+    const outline2 = list.projectionsBySession?.[sessionId]?.values?.turnOutline ?? list.byId[sessionId]?.projectionValues?.turnOutline;
+    return Array.isArray(outline2) ? outline2.reduce((count, entry) => count + (entry.response ? 1 : 0), 0) : 0;
   });
   const visit = useUi((state) => state.visits?.[sessionId]);
   const unread = useTurnClock((state) => {
@@ -57888,8 +61088,8 @@ function watchAgentTerminals(slots, sessionId, onError) {
     release = void 0;
     entry = next;
     try {
-      const watch = entry?.inject?.(sessionId)?.watchAgentTerminals;
-      if (typeof watch === "function") release = watch();
+      const watch2 = entry?.inject?.(sessionId)?.watchAgentTerminals;
+      if (typeof watch2 === "function") release = watch2();
     } catch (error) {
       onError?.(error);
     }
@@ -57960,8 +61160,8 @@ function preparationStep(catalog) {
 function waveBytes(samples, rate = 16e3) {
   const bytes = new Uint8Array(44 + samples.length * 2);
   const view = new DataView(bytes.buffer);
-  const ascii = (at, text) => {
-    for (let index = 0; index < text.length; index += 1) bytes[at + index] = text.charCodeAt(index);
+  const ascii = (at2, text) => {
+    for (let index = 0; index < text.length; index += 1) bytes[at2 + index] = text.charCodeAt(index);
   };
   ascii(0, "RIFF");
   view.setUint32(4, 36 + samples.length * 2, true);
@@ -57998,7 +61198,7 @@ async function openCapture() {
   }
   let audio = null;
   let analyser;
-  let frame2;
+  let frame3;
   let recorder;
   const chunks = [];
   try {
@@ -58006,7 +61206,7 @@ async function openCapture() {
     analyser = audio.createAnalyser();
     analyser.fftSize = 512;
     audio.createMediaStreamSource(stream).connect(analyser);
-    frame2 = new Float32Array(analyser.fftSize);
+    frame3 = new Float32Array(analyser.fftSize);
     recorder = new MediaRecorder(stream);
     recorder.ondataavailable = (event) => {
       if (event.data.size > 0) chunks.push(event.data);
@@ -58030,10 +61230,10 @@ async function openCapture() {
   return {
     level() {
       if (closed) return 0;
-      analyser.getFloatTimeDomainData(frame2);
+      analyser.getFloatTimeDomainData(frame3);
       let sum = 0;
-      for (const sample of frame2) sum += sample * sample;
-      return Math.min(1, Math.sqrt(sum / frame2.length) * 4);
+      for (const sample of frame3) sum += sample * sample;
+      return Math.min(1, Math.sqrt(sum / frame3.length) * 4);
     },
     cancel: close,
     async finish(maxSeconds) {
@@ -58063,9 +61263,9 @@ async function openCapture() {
     }
   };
 }
-async function transcribeWave(speech, catalog, wave, signal) {
-  if (wave.byteLength > catalog.maxAudioBytes) throw captureError("too-long");
-  const result = await speech.transcribe({ audioBase64: base64Of(wave), ...catalog.selection }, signal);
+async function transcribeWave(speech, catalog, wave2, signal) {
+  if (wave2.byteLength > catalog.maxAudioBytes) throw captureError("too-long");
+  const result = await speech.transcribe({ audioBase64: base64Of(wave2), ...catalog.selection }, signal);
   if (!result?.ok) throw Object.assign(new Error(result?.error?.message ?? "Transcription failed"), { kind: "service" });
   return String(result.value?.text ?? "").trim();
 }
@@ -58080,15 +61280,15 @@ function closingReplyText(chat, turn) {
 function turnDetector({ loud = 0.12, quiet = 0.06, quietMs = 1200 } = {}) {
   let spokeAt = 0;
   let quietSince = 0;
-  return (level, now) => {
+  return (level, now2) => {
     if (level >= loud) {
-      spokeAt ||= now;
+      spokeAt ||= now2;
       quietSince = 0;
       return "speech";
     }
     if (!spokeAt) return "waiting";
-    if (level < quiet) quietSince ||= now;
-    return quietSince && now - quietSince >= quietMs ? "done" : "speech";
+    if (level < quiet) quietSince ||= now2;
+    return quietSince && now2 - quietSince >= quietMs ? "done" : "speech";
   };
 }
 
@@ -58121,8 +61321,8 @@ function useDictation(onText) {
   (0, import_react76.useEffect)(() => () => recognition.current?.abort(), []);
   (0, import_react76.useEffect)(() => {
     if (!note) return void 0;
-    const timer = setTimeout(() => setNote(""), 2600);
-    return () => clearTimeout(timer);
+    const timer2 = setTimeout(() => setNote(""), 2600);
+    return () => clearTimeout(timer2);
   }, [note]);
   const start = ({ continuous = true, onEnd, onError } = {}) => {
     const Api = speechApi();
@@ -58221,8 +61421,8 @@ function ComposerVoice({ sessionId, inputActions, actions, useUi, useRoster }) {
   }, []);
   (0, import_react76.useEffect)(() => {
     if (!hostNote) return void 0;
-    const timer = setTimeout(() => setHostNote(""), 2600);
-    return () => clearTimeout(timer);
+    const timer2 = setTimeout(() => setHostNote(""), 2600);
+    return () => clearTimeout(timer2);
   }, [hostNote]);
   const finishHostDictation = (limitReached = false) => {
     clearHostTimer();
@@ -58243,16 +61443,16 @@ function ComposerVoice({ sessionId, inputActions, actions, useUi, useRoster }) {
       Number.isFinite(cat?.maxDurationSeconds) ? cat.maxDurationSeconds : 120,
       Number.isFinite(cat?.maxAudioBytes) ? Math.max(1, (cat.maxAudioBytes - 44) / 32e3) : 120
     );
-    void cap.finish(maxSec).then(async (wave) => {
-      if (!wave || ctl.signal.aborted || !mounted2.current) return;
-      const text = await transcribeWave(speech, cat, wave, ctl.signal);
+    void cap.finish(maxSec).then(async (wave2) => {
+      if (!wave2 || ctl.signal.aborted || !mounted2.current) return;
+      const text = await transcribeWave(speech, cat, wave2, ctl.signal);
       if (text && inputActions && !ctl.signal.aborted && mounted2.current) {
-        const at = inputActions.captureInsertion();
+        const at2 = inputActions.captureInsertion();
         const area = composerRoot.current?.closest?.("[data-composer-card]")?.querySelector?.("textarea");
         const value = typeof area?.value === "string" ? area.value : "";
-        const beforeChar = at && at.start > 0 ? value[at.start - 1] ?? "" : "";
-        const afterChar = at && at.end < value.length ? value[at.end] ?? "" : "";
-        inputActions.insertText(spacedDictation(text, beforeChar, afterChar), at);
+        const beforeChar = at2 && at2.start > 0 ? value[at2.start - 1] ?? "" : "";
+        const afterChar = at2 && at2.end < value.length ? value[at2.end] ?? "" : "";
+        inputActions.insertText(spacedDictation(text, beforeChar, afterChar), at2);
       }
       if (limitReached && mounted2.current) setHostNote(t("That was too long to recognize"));
     }).catch((error) => {
@@ -58364,20 +61564,20 @@ function ComposerVoice({ sessionId, inputActions, actions, useUi, useRoster }) {
 }
 var MAX_MENU_MARKS = 200;
 function menuIcons(roster) {
-  const marks = /* @__PURE__ */ new Map();
+  const marks2 = /* @__PURE__ */ new Map();
   return (row) => {
     if (!row.bot) return PeopleIcon;
     const id = row.bot.id;
-    const cached = lruGet(marks, id);
+    const cached = lruGet(marks2, id);
     if (cached !== void 0) return cached;
     const byId = roster.getSnapshot().byId ?? {};
-    if (marks.size >= MAX_MENU_MARKS) {
-      for (const known of marks.keys()) {
-        if (byId[known] === void 0) marks.delete(known);
+    if (marks2.size >= MAX_MENU_MARKS) {
+      for (const known of marks2.keys()) {
+        if (byId[known] === void 0) marks2.delete(known);
       }
     }
     const Icon = ({ size = 14 }) => (0, import_react76.createElement)(BotMark, { bot: roster.getSnapshot().byId[id] ?? row.bot, size });
-    lruSet(marks, id, Icon, MAX_MENU_MARKS);
+    lruSet(marks2, id, Icon, MAX_MENU_MARKS);
     return Icon;
   };
 }
@@ -58561,7 +61761,7 @@ function DraftKeeper({ sessionId, inputActions, useInput, useRoster, useRescuedD
   }
   (0, import_react76.useEffect)(() => {
     const flush = () => flushDrafts();
-    const onVisibility = () => {
+    const onVisibility2 = () => {
       if (document.hidden === true) flush();
     };
     const hasWin = typeof window !== "undefined" && typeof window.addEventListener === "function";
@@ -58570,13 +61770,13 @@ function DraftKeeper({ sessionId, inputActions, useInput, useRoster, useRescuedD
       window.addEventListener("pagehide", flush);
       window.addEventListener("beforeunload", flush);
     }
-    if (hasDoc) document.addEventListener("visibilitychange", onVisibility);
+    if (hasDoc) document.addEventListener("visibilitychange", onVisibility2);
     return () => {
       if (hasWin) {
         window.removeEventListener("pagehide", flush);
         window.removeEventListener("beforeunload", flush);
       }
-      if (hasDoc) document.removeEventListener("visibilitychange", onVisibility);
+      if (hasDoc) document.removeEventListener("visibilitychange", onVisibility2);
       flush();
     };
   }, [chatId, sessionId]);
@@ -59418,6 +62618,8 @@ function fixesFor(code, { canSignIn, official, topUp, onAccount = false }) {
       return official ? ["top-up"] : [];
     case "ACCOUNT_QUOTA":
       return topUp ? ["top-up"] : [];
+    case "NO_ADAPTER":
+      return ["model"];
     case "CONTEXT_WINDOW_EXCEEDED":
       return ["new-part", "model"];
     case "MODEL_SWITCH_COMPACTION_FAILED":
@@ -59453,8 +62655,8 @@ var topUpOf = (view) => {
   return typeof url === "string" && url.startsWith("https://") ? url : void 0;
 };
 function accountModel(roster) {
-  const models = (roster.models ?? []).filter((model) => model.provider === ACCOUNT);
-  return (models.find((model) => model.ref === roster.defaultModel) ?? models[0])?.ref;
+  const models2 = (roster.models ?? []).filter((model) => model.provider === ACCOUNT);
+  return (models2.find((model) => model.ref === roster.defaultModel) ?? models2[0])?.ref;
 }
 var providerOf = (bot, roster) => {
   const ref = bot?.model ?? bot?.appliedModel;
@@ -59536,11 +62738,11 @@ function FailureCell({ node, sessionId, useRoster, useTurnClock, actions }) {
       return void 0;
     }
     void actions.refreshModels?.();
-    const timer = setTimeout(() => {
+    const timer2 = setTimeout(() => {
       setJoining(null);
       actions.showDetails?.(sessionId);
     }, ACCOUNT_MODELS_WAIT_MS);
-    return () => clearTimeout(timer);
+    return () => clearTimeout(timer2);
   }, [joining, signedIn, listed]);
   const settled = () => (0, import_react80.createElement)(
     "div",
@@ -59657,18 +62859,18 @@ function CommandPalette({ start, token, roster, actions, useSessions }) {
     if (wanted.length < 2) return "[]";
     const hits = [];
     for (const id of ids) {
-      const outline = list.projectionsBySession?.[id]?.values?.turnOutline ?? list.byId[id]?.projectionValues?.turnOutline;
-      if (!Array.isArray(outline)) continue;
+      const outline2 = list.projectionsBySession?.[id]?.values?.turnOutline ?? list.byId[id]?.projectionValues?.turnOutline;
+      if (!Array.isArray(outline2)) continue;
       const hidden = roster.exchangeTurns[id] ?? [];
-      for (let index2 = outline.length - 1; index2 >= 0 && hits.length < 30; index2 -= 1) {
-        const entry = outline[index2];
+      for (let index2 = outline2.length - 1; index2 >= 0 && hits.length < 30; index2 -= 1) {
+        const entry = outline2[index2];
         if (hidden.includes(entry.turn)) continue;
         for (const raw of [entry.response, entry.prompt]) {
           const text = stripHeader(raw ?? "").replace(/\s+/g, " ").trim();
-          const at = text.toLowerCase().indexOf(wanted);
-          if (at < 0) continue;
-          const from = Math.max(0, at - 24);
-          hits.push([id, entry.turn, (from > 0 ? "…" : "") + text.slice(from, at + wanted.length + 60)]);
+          const at2 = text.toLowerCase().indexOf(wanted);
+          if (at2 < 0) continue;
+          const from = Math.max(0, at2 - 24);
+          hits.push([id, entry.turn, (from > 0 ? "…" : "") + text.slice(from, at2 + wanted.length + 60)]);
           break;
         }
       }
@@ -59841,7 +63043,7 @@ ${shown}`, { axis: "y", ...QUICK_EDGES });
           (0, import_react81.createElement)("div", { className: "bt-palette-section", role: "presentation", "data-flip": `section:${title}` }, title),
           items.map((row) => {
             index += 1;
-            const at = index;
+            const at2 = index;
             return (0, import_react81.createElement)(
               "button",
               {
@@ -59849,10 +63051,10 @@ ${shown}`, { axis: "y", ...QUICK_EDGES });
                 type: "button",
                 role: "option",
                 className: "bt-palette-row",
-                "aria-selected": at === active,
+                "aria-selected": at2 === active,
                 "data-flip": row.key,
                 onMouseMove: () => {
-                  if (cursor !== at) setCursor(at);
+                  if (cursor !== at2) setCursor(at2);
                 },
                 onClick: () => choose(row)
               },
@@ -59884,17 +63086,17 @@ function marked(text, terms) {
   const source = String(text ?? "");
   if (terms.length === 0) return source;
   const pattern = new RegExp(`(${terms.map((term) => term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})`, "giu");
-  return source.split(pattern).map((part, at) => at % 2 === 1 ? (0, import_react82.createElement)("mark", { key: at }, part) : part);
+  return source.split(pattern).map((part, at2) => at2 % 2 === 1 ? (0, import_react82.createElement)("mark", { key: at2 }, part) : part);
 }
 function snippetOf(text, terms) {
   const source = String(text ?? "");
   if (source.length <= SNIPPET_CHARS) return source;
   const lower = source.toLowerCase();
-  const at = terms.reduce((best, term) => {
+  const at2 = terms.reduce((best, term) => {
     const found = lower.indexOf(term);
     return found >= 0 && (best < 0 || found < best) ? found : best;
   }, -1);
-  const from = Math.max(0, (at < 0 ? 0 : at) - 60);
+  const from = Math.max(0, (at2 < 0 ? 0 : at2) - 60);
   return `${from > 0 ? "…" : ""}${source.slice(from, from + SNIPPET_CHARS)}${from + SNIPPET_CHARS < source.length ? "…" : ""}`;
 }
 var authorOf = (line, roster) => line?.botId === void 0 ? t("You") : roster.byId[line.botId]?.name ?? line?.name ?? t("a Bot");
@@ -59971,7 +63173,7 @@ function GroupSearch({ room: room2, roster, token, actions }) {
     setPaging(false);
     setMoreError(null);
     const controller = new AbortController();
-    const timer = setTimeout(() => {
+    const timer2 = setTimeout(() => {
       setBusy(true);
       call("group-search", { roomId: room2.id, query: text }, controller.signal).then((result) => {
         if (mine !== generation.current) return;
@@ -59985,7 +63187,7 @@ function GroupSearch({ room: room2, roster, token, actions }) {
       });
     }, DEBOUNCE_MS);
     return () => {
-      clearTimeout(timer);
+      clearTimeout(timer2);
       controller.abort();
       moreCall.current?.abort();
     };
@@ -60219,15 +63421,15 @@ function PasteGuard({ sessionId, inputActions, useInput, useUi, actions }) {
     if (card === null || card === void 0) return void 0;
     const sync = (records) => {
       if (Array.isArray(records) && isEditableOnly(records)) return;
-      const { blocks: now, ids: nowIds } = latest.current;
-      if (!now.some((block) => block.attachmentId === null)) return;
-      const links = pasteLinks(now, nowIds, composerLabels(card));
+      const { blocks: now2, ids: nowIds } = latest.current;
+      if (!now2.some((block) => block.attachmentId === null)) return;
+      const links = pasteLinks(now2, nowIds, composerLabels(card));
       if (links.length > 0) actions.linkPastes(sessionId, links);
     };
     sync();
-    const observer = new MutationObserver(sync);
-    observer.observe(card, { childList: true, subtree: true });
-    return () => observer.disconnect();
+    const observer2 = new MutationObserver(sync);
+    observer2.observe(card, { childList: true, subtree: true });
+    return () => observer2.disconnect();
   }, [idsKey, blocks]);
   const shown = (0, import_react83.useRef)(/* @__PURE__ */ new Set());
   (0, import_react83.useEffect)(() => {
@@ -60243,16 +63445,16 @@ function PasteGuard({ sessionId, inputActions, useInput, useUi, actions }) {
   (0, import_react83.useEffect)(() => {
     const waiting = blocks.filter((block) => block.attachmentId === null);
     if (waiting.length === 0) return void 0;
-    const timer = setTimeout(() => {
+    const timer2 = setTimeout(() => {
       let currentDraft = draftRef.current;
       for (const block of waiting) {
-        const now = latest.current.blocks.find((item) => item.id === block.id);
-        if (now === void 0 || now.attachmentId !== null) continue;
-        if (putBackText({ block: now, inputActions, draft: currentDraft })) currentDraft = `${currentDraft}${now.text}`;
+        const now2 = latest.current.blocks.find((item) => item.id === block.id);
+        if (now2 === void 0 || now2.attachmentId !== null) continue;
+        if (putBackText({ block: now2, inputActions, draft: currentDraft })) currentDraft = `${currentDraft}${now2.text}`;
         actions.removePaste(sessionId, [block.id]);
       }
     }, ORPHAN_MS);
-    return () => clearTimeout(timer);
+    return () => clearTimeout(timer2);
   }, [blocks]);
   (0, import_react83.useEffect)(() => {
     const names = /* @__PURE__ */ new Set();
@@ -60272,9 +63474,9 @@ function PasteGuard({ sessionId, inputActions, useInput, useUi, actions }) {
       }
     };
     mark2();
-    const observer = new MutationObserver(mark2);
-    observer.observe(card, { childList: true, subtree: true });
-    return () => observer.disconnect();
+    const observer2 = new MutationObserver(mark2);
+    observer2.observe(card, { childList: true, subtree: true });
+    return () => observer2.disconnect();
   }, [blocks, idsKey]);
   (0, import_react83.useEffect)(() => {
     const card = anchor.current?.closest("[data-composer-card]");
@@ -60621,7 +63823,7 @@ function ExchangeDialog({ pair, paneLeft, roster, actions, useWork }) {
   useEscape(close);
   (0, import_react85.useEffect)(() => {
     let stop = false;
-    let timer;
+    let timer2;
     let seen = null;
     atEnd.current = true;
     setEntries(null);
@@ -60633,12 +63835,12 @@ function ExchangeDialog({ pair, paneLeft, roster, actions, useWork }) {
         seen = key;
         setEntries(result ?? []);
       }
-      timer = setTimeout(load, document.hidden ? 8e3 : 2e3);
+      timer2 = setTimeout(load, document.hidden ? 8e3 : 2e3);
     };
     void load();
     return () => {
       stop = true;
-      clearTimeout(timer);
+      clearTimeout(timer2);
     };
   }, [pair[0], pair[1]]);
   const left = roster.byId[pair[0]];
@@ -60723,38 +63925,38 @@ var LIST_NUM = /(?:^|\s)\d{1,3}$/;
 function splitSentences(paragraph) {
   const out = [];
   let start = 0;
-  let at = 0;
-  const len = paragraph.length;
-  while (at < len) {
-    const ch = paragraph[at];
+  let at2 = 0;
+  const len2 = paragraph.length;
+  while (at2 < len2) {
+    const ch = paragraph[at2];
     if (ALWAYS_END.test(ch)) {
-      at += 1;
-      while (at < len && (ALWAYS_END.test(paragraph[at]) || paragraph[at] === "." || CLOSER.test(paragraph[at]))) at += 1;
-      out.push(paragraph.slice(start, at));
-      start = at;
+      at2 += 1;
+      while (at2 < len2 && (ALWAYS_END.test(paragraph[at2]) || paragraph[at2] === "." || CLOSER.test(paragraph[at2]))) at2 += 1;
+      out.push(paragraph.slice(start, at2));
+      start = at2;
       continue;
     }
     if (ch === ".") {
-      let end = at + 1;
-      while (end < len && paragraph[end] === ".") end += 1;
-      const singleDot = end === at + 1;
+      let end = at2 + 1;
+      while (end < len2 && paragraph[end] === ".") end += 1;
+      const singleDot = end === at2 + 1;
       let after = end;
-      while (after < len && CLOSER.test(paragraph[after])) after += 1;
-      const atBoundary = after === len || /\s/.test(paragraph[after]);
-      const before = paragraph.slice(start, at);
-      const isAbbrev = singleDot && (ABBREV.test(before) || after < len && LIST_NUM.test(before));
+      while (after < len2 && CLOSER.test(paragraph[after])) after += 1;
+      const atBoundary = after === len2 || /\s/.test(paragraph[after]);
+      const before = paragraph.slice(start, at2);
+      const isAbbrev = singleDot && (ABBREV.test(before) || after < len2 && LIST_NUM.test(before));
       if (atBoundary && !isAbbrev) {
         out.push(paragraph.slice(start, after));
         start = after;
-        at = after;
+        at2 = after;
         continue;
       }
-      at = end;
+      at2 = end;
       continue;
     }
-    at += 1;
+    at2 += 1;
   }
-  if (start < len) out.push(paragraph.slice(start));
+  if (start < len2) out.push(paragraph.slice(start));
   return out;
 }
 var SOFT = /[\s,，、：:—–-][^,，、：:—–-\s]*$/;
@@ -60796,18 +63998,18 @@ var bytesOf = (base64) => {
   for (let index = 0; index < text.length; index += 1) bytes[index] = text.charCodeAt(index);
   return bytes;
 };
-var playClip = (clip2, signal) => new Promise((resolve2) => {
+var playClip = (clip3, signal) => new Promise((resolve2) => {
   if (signal?.aborted || typeof Audio !== "function") {
     resolve2(signal?.aborted ? "aborted" : "failed");
     return;
   }
-  if (typeof clip2?.audioBase64 !== "string" || clip2.audioBase64 === "") {
+  if (typeof clip3?.audioBase64 !== "string" || clip3.audioBase64 === "") {
     resolve2("failed");
     return;
   }
   let url;
   try {
-    url = URL.createObjectURL(new Blob([bytesOf(clip2.audioBase64)], { type: clip2.mediaType || "audio/wav" }));
+    url = URL.createObjectURL(new Blob([bytesOf(clip3.audioBase64)], { type: clip3.mediaType || "audio/wav" }));
   } catch {
     resolve2("failed");
     return;
@@ -60849,9 +64051,9 @@ var createSpeechPlayer = (synthesize) => {
       if (own !== generation) return "aborted";
       const abort = new AbortController();
       active = abort;
-      let clip2;
+      let clip3;
       try {
-        clip2 = await synthesize(chunk, voice, abort.signal);
+        clip3 = await synthesize(chunk, voice, abort.signal);
       } catch {
         if (active === abort) active = null;
         return own === generation ? "failed" : "aborted";
@@ -60860,7 +64062,7 @@ var createSpeechPlayer = (synthesize) => {
         if (active === abort) active = null;
         return "aborted";
       }
-      const outcome = await playClip(clip2, abort.signal);
+      const outcome = await playClip(clip3, abort.signal);
       if (active === abort) active = null;
       if (own !== generation || outcome === "aborted") return "aborted";
       if (outcome === "failed") return "failed";
@@ -60903,13 +64105,13 @@ var CAPTURE_NOTES = { blocked: "Microphone access is blocked", unavailable: "Voi
 async function transcribeUtterance({ speech, catalog, capture, isCurrent, ctl, submit, resume, fail: fail2 }) {
   const controller = new AbortController();
   try {
-    const wave = await capture.finish(catalog.maxDurationSeconds);
-    if (!wave || !isCurrent() || controller.signal.aborted) {
+    const wave2 = await capture.finish(catalog.maxDurationSeconds);
+    if (!wave2 || !isCurrent() || controller.signal.aborted) {
       if (isCurrent()) resume();
       return;
     }
     ctl.current = controller;
-    const text = await transcribeWave(speech, catalog, wave, controller.signal);
+    const text = await transcribeWave(speech, catalog, wave2, controller.signal);
     if (!isCurrent() || controller.signal.aborted) return;
     if (text) submit(text);
     else resume();
@@ -60920,7 +64122,7 @@ async function transcribeUtterance({ speech, catalog, capture, isCurrent, ctl, s
     if (ctl.current === controller) ctl.current = null;
   }
 }
-function watchReply(read, watch, consume) {
+function watchReply(read, watch2, consume) {
   let off = () => {
   };
   let consumed = false;
@@ -60932,7 +64134,7 @@ function watchReply(read, watch, consume) {
     off();
     consume(text);
   };
-  off = watch(attempt);
+  off = watch2(attempt);
   attempt();
   return () => {
     consumed = true;
@@ -60944,7 +64146,7 @@ function useMicLevel(enabled, targetRef) {
     if (!enabled || !navigator.mediaDevices?.getUserMedia) return void 0;
     let stream = null;
     let audio = null;
-    let frame2 = 0;
+    let frame3 = 0;
     let stopped = false;
     let lastLevel = "";
     const write = (value) => {
@@ -60972,7 +64174,7 @@ function useMicLevel(enabled, targetRef) {
           for (const value of data) sum += ((value - 128) / 128) ** 2;
           smooth = smooth * 0.8 + Math.min(1, Math.sqrt(sum / data.length) * 4) * 0.2;
           write(Math.round(smooth * 100) / 100);
-          frame2 = requestAnimationFrame(tick);
+          frame3 = requestAnimationFrame(tick);
         };
         tick();
       } catch {
@@ -60986,7 +64188,7 @@ function useMicLevel(enabled, targetRef) {
     });
     return () => {
       stopped = true;
-      cancelAnimationFrame(frame2);
+      cancelAnimationFrame(frame3);
       stream?.getTracks().forEach((track) => track.stop());
       void audio?.close().catch(() => {
       });
@@ -61000,9 +64202,9 @@ function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, useSessi
   const name = bot?.name ?? room2?.name ?? t("Bot");
   const running = useSessionStatus((map) => map.get(sessionId)?.running === true);
   const lastReply = useSessions((list) => {
-    const outline = list.projectionsBySession?.[sessionId]?.values?.turnOutline ?? list.byId[sessionId]?.projectionValues?.turnOutline;
-    const entry = Array.isArray(outline) ? outline[outline.length - 1] : void 0;
-    return entry ? `${outline.length}|${entry.turn}` : "0|";
+    const outline2 = list.projectionsBySession?.[sessionId]?.values?.turnOutline ?? list.byId[sessionId]?.projectionValues?.turnOutline;
+    const entry = Array.isArray(outline2) ? outline2[outline2.length - 1] : void 0;
+    return entry ? `${outline2.length}|${entry.turn}` : "0|";
   });
   const [speech] = (0, import_react86.useState)(() => actions.speech());
   const [phase, setPhase] = (0, import_react86.useState)(speech ? "starting" : speechApi() ? "listening" : "unsupported");
@@ -61047,8 +64249,8 @@ function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, useSessi
   });
   (0, import_react86.useEffect)(() => {
     if (!note) return void 0;
-    const timer = setTimeout(() => setNote(""), 2600);
-    return () => clearTimeout(timer);
+    const timer2 = setTimeout(() => setNote(""), 2600);
+    return () => clearTimeout(timer2);
   }, [note]);
   (0, import_react86.useEffect)(() => {
     if (!speech) return void 0;
@@ -61067,7 +64269,7 @@ function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, useSessi
   const listen = phase === "listening";
   (0, import_react86.useEffect)(() => {
     if (speech || !listen || dictation.listening) return void 0;
-    const timer = setTimeout(() => {
+    const timer2 = setTimeout(() => {
       const started = dictation.start({
         continuous: false,
         onEnd: () => {
@@ -61081,7 +64283,7 @@ function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, useSessi
       });
       if (!started) setPhase("paused");
     }, 250);
-    return () => clearTimeout(timer);
+    return () => clearTimeout(timer2);
   }, [listen, dictation.listening]);
   (0, import_react86.useEffect)(() => {
     if (phase !== "listening") dictation.stop();
@@ -61090,7 +64292,7 @@ function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, useSessi
     if (!speech || !catalog || !listen) return void 0;
     const own = turn.current;
     let capture = null;
-    let frame2 = 0;
+    let frame3 = 0;
     let stopped = false;
     let smooth = 0;
     const detect = turnDetector();
@@ -61126,23 +64328,23 @@ function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, useSessi
       capture = opened;
       const began = performance.now();
       const tick = () => {
-        const now = performance.now();
+        const now2 = performance.now();
         const level = capture.level();
         smooth = smooth * 0.8 + level * 0.2;
         writeLevel(Math.round(smooth * 100) / 100);
-        const state = detect(level, now);
-        if (state === "done" || state === "speech" && now - began >= limit) {
+        const state = detect(level, now2);
+        if (state === "done" || state === "speech" && now2 - began >= limit) {
           const current2 = capture;
           capture = null;
           writeLevel(0);
           void finish(current2);
           return;
         }
-        if (state === "waiting" && now - began >= limit) {
+        if (state === "waiting" && now2 - began >= limit) {
           setCycle((value) => value + 1);
           return;
         }
-        frame2 = requestAnimationFrame(tick);
+        frame3 = requestAnimationFrame(tick);
       };
       tick();
     }, (error) => {
@@ -61152,7 +64354,7 @@ function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, useSessi
     });
     return () => {
       stopped = true;
-      cancelAnimationFrame(frame2);
+      cancelAnimationFrame(frame3);
       capture?.cancel();
       writeLevel(0);
     };
@@ -61231,7 +64433,7 @@ function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, useSessi
   (0, import_react86.useEffect)(() => {
     if (phase !== "preparing" || !speech) return void 0;
     let stopped = false;
-    let timer;
+    let timer2;
     const tick = async () => {
       try {
         const { catalog: next } = await speechCatalog(speech);
@@ -61254,12 +64456,12 @@ function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, useSessi
           return;
         }
       }
-      timer = setTimeout(tick, 1500);
+      timer2 = setTimeout(tick, 1500);
     };
-    timer = setTimeout(tick, 800);
+    timer2 = setTimeout(tick, 800);
     return () => {
       stopped = true;
-      clearTimeout(timer);
+      clearTimeout(timer2);
     };
   }, [phase, speech]);
   const openSetup = phase === "setup" ? actions.voiceSetup(catalog?.selection?.providerId) : null;
@@ -61657,7 +64859,7 @@ function flightBox(from, to, p) {
   const mix = (key) => from[key] + (to[key] - from[key]) * p;
   return { left: mix("left"), top: mix("top"), width: mix("width"), height: mix("height") };
 }
-var boxOf = (rect) => ({ left: rect.left, top: rect.top, width: rect.width, height: rect.height });
+var boxOf2 = (rect) => ({ left: rect.left, top: rect.top, width: rect.width, height: rect.height });
 var serial = 0;
 function uniqueIds(root) {
   const suffix = `-f${++serial}`;
@@ -61680,7 +64882,7 @@ function uniqueIds(root) {
 function createFlight(env) {
   const {
     shape,
-    frame: frame2 = (run2) => requestAnimationFrame(run2),
+    frame: frame3 = (run2) => requestAnimationFrame(run2),
     unframe = (id) => cancelAnimationFrame(id),
     later = (run2, ms) => setTimeout(run2, ms),
     unlater = (id) => clearTimeout(id)
@@ -61695,7 +64897,7 @@ function createFlight(env) {
     node.remove();
     delete panel.dataset.flying;
   }
-  function place(now) {
+  function place(now2) {
     const { panel, node, end, from, size } = live;
     live.step = null;
     const target = panel.isConnected ? panel.querySelector(FLIGHT_ENDS[end]) : null;
@@ -61704,17 +64906,17 @@ function createFlight(env) {
       finish();
       return;
     }
-    if (live.at === null && now !== null) live.at = now;
-    const elapsed = live.at === null ? 0 : now - live.at;
+    if (live.at === null && now2 !== null) live.at = now2;
+    const elapsed = live.at === null ? 0 : now2 - live.at;
     const done = elapsed >= shape.duration;
-    const box = flightBox(from, boxOf(to), done ? 1 : shape.progress(elapsed));
+    const box = flightBox(from, boxOf2(to), done ? 1 : shape.progress(elapsed));
     const edge = panel.getBoundingClientRect();
     const border = panel.ownerDocument.defaultView.getComputedStyle(panel);
     const x = box.left - edge.left - (parseFloat(border.borderLeftWidth) || 0);
     const y = box.top - edge.top - (parseFloat(border.borderTopWidth) || 0);
     node.style.transform = `translate(${x}px, ${y}px) scale(${box.width / size.width}, ${box.height / size.height})`;
     if (done) finish();
-    else live.step = frame2(place);
+    else live.step = frame3(place);
   }
   const arm = () => later(finish, shape.duration + SAFETY_MS);
   return {
@@ -61733,7 +64935,7 @@ function createFlight(env) {
       Object.assign(node.style, { width: `${from.width}px`, height: `${from.height}px` });
       panel.append(node);
       panel.dataset.flying = end;
-      live = { panel, node, end, from: boxOf(from), size: { width: from.width, height: from.height }, at: null, step: null, safety: arm() };
+      live = { panel, node, end, from: boxOf2(from), size: { width: from.width, height: from.height }, at: null, step: null, safety: arm() };
       place(null);
       return true;
     },
@@ -61743,7 +64945,7 @@ function createFlight(env) {
      */
     retarget(end) {
       if (live === null) return false;
-      live.from = boxOf(live.node.getBoundingClientRect());
+      live.from = boxOf2(live.node.getBoundingClientRect());
       live.end = end;
       live.at = null;
       live.panel.dataset.flying = end;
@@ -61766,8 +64968,8 @@ function TaskRow3({ task, bot, room: room2, actions }) {
   const [busy, setBusy] = (0, import_react88.useState)(false);
   (0, import_react88.useEffect)(() => {
     if (!confirming) return void 0;
-    const timer = setTimeout(() => setConfirming(false), 3e3);
-    return () => clearTimeout(timer);
+    const timer2 = setTimeout(() => setConfirming(false), 3e3);
+    return () => clearTimeout(timer2);
   }, [confirming]);
   const open = OPEN.includes(task.status);
   const notes = task.notes ?? [];
@@ -61915,10 +65117,10 @@ var TASK_CSS = `
 // src/client/details-drawer.js
 var import_react89 = require("react");
 function transcriptOf(list, id, name, hiddenTurns = []) {
-  const outline = list.projectionsBySession?.[id]?.values?.turnOutline ?? list.byId[id]?.projectionValues?.turnOutline;
-  if (!Array.isArray(outline)) return "";
+  const outline2 = list.projectionsBySession?.[id]?.values?.turnOutline ?? list.byId[id]?.projectionValues?.turnOutline;
+  if (!Array.isArray(outline2)) return "";
   const lines = [];
-  for (const entry of outline) {
+  for (const entry of outline2) {
     if (hiddenTurns.includes(entry.turn)) continue;
     if (entry.prompt && !HEADER.test(entry.prompt)) lines.push(`**${t("You")}:** ${entry.prompt.trim()}`);
     if (entry.response) lines.push(`**${name}:** ${stripHeader(entry.response).trim()}`);
@@ -62234,7 +65436,7 @@ function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, a
   if (last.current.view !== view) last.current = { view, tab: activeTab, move: view === "settings" ? "in" : "out" };
   else if (last.current.tab !== activeTab) last.current = { view, tab: activeTab, move: "tab" };
   const move = last.current.move;
-  const side = move === "tab" ? void 0 : move;
+  const side2 = move === "tab" ? void 0 : move;
   const close = () => actions.closeOverlay();
   const running = useSessionStatus((map) => map.get(part)?.running === true);
   const doing = useActivity((map) => map[bot?.id ?? sessionId]);
@@ -62285,7 +65487,7 @@ function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, a
   }).map((key) => menuItemFor(key, actions, sessionId));
   const top = (0, import_react89.createElement)(
     "div",
-    { className: "bt-drawer-top", "data-move": side, "data-window-drag": !hasStrip || void 0 },
+    { className: "bt-drawer-top", "data-move": side2, "data-window-drag": !hasStrip || void 0 },
     bot || room2 ? (0, import_react89.createElement)("button", { type: "button", className: "bt-round", "aria-label": bot ? t("Edit Bot") : t("Group settings"), title: bot ? t("Edit Bot") : t("Group settings"), "data-info-row": "settings", onClick: () => setView("settings") }, (0, import_react89.createElement)(GearIcon)) : null,
     more.length > 0 ? (0, import_react89.createElement)("span", { "data-info-row": "more" }, (0, import_react89.createElement)(PanelMenu, { items: more, className: "bt-round", "aria-label": t("New tab") })) : null,
     bot || room2 ? (0, import_react89.createElement)("button", { type: "button", className: "bt-round", "aria-label": copied ? t("Copied conversation") : t("Share conversation"), title: copied ? t("Copied") : t("Copy conversation as Markdown"), onClick: share }, copied ? (0, import_react89.createElement)("span", { key: "copied", className: "bt-pop-in" }, "✓") : (0, import_react89.createElement)(ShareIcon)) : null,
@@ -62314,7 +65516,7 @@ function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, a
     (0, import_react89.createElement)(import_react89.Fragment, { key: "top" }, top),
     (0, import_react89.createElement)(
       "div",
-      { key: "id", className: "bt-drawer-id", "data-move": side },
+      { key: "id", className: "bt-drawer-id", "data-move": side2 },
       bot ? (0, import_react89.createElement)(BotAvatar, { bot, size: 64, state: botState(running, doing, roster.questions?.[part] !== void 0), main: isMainBot, badge: false, gaze: true, pokeable: true }) : (0, import_react89.createElement)(MemberPile, { room: room2, roster }),
       editing ? (0, import_react89.createElement)("input", {
         className: "bt-drawer-name-input",
@@ -62342,7 +65544,7 @@ function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, a
     ),
     tabs.length > 1 ? (0, import_react89.createElement)(
       "div",
-      { key: "tabs", ref: glide2.box, className: "bt-tabs", role: "tablist", "data-move": side },
+      { key: "tabs", ref: glide2.box, className: "bt-tabs", role: "tablist", "data-move": side2 },
       (0, import_react89.createElement)("span", { ref: glide2.thumb, className: "bt-thumb", "aria-hidden": true }),
       tabs.map((key) => (0, import_react89.createElement)(
         "button",
@@ -62558,7 +65760,7 @@ var measureTabSpot = (box, node, isStickyBot) => {
   const left = isStickyBot ? 0 : node.offsetLeft;
   return { left, right: box.offsetWidth - left - node.offsetWidth, boxWidth: box.offsetWidth };
 };
-function PanelStrip({ bot, roomSubject, subject, view, ids, active, sides, side, task, workspace, hasSubjectDetails = true, canBrowse, reading, onView, actions, useBrowserPages }) {
+function PanelStrip({ bot, roomSubject, subject, view, ids, active, sides, side: side2, task, workspace, hasSubjectDetails = true, canBrowse, reading, onView, actions, useBrowserPages }) {
   const pages = useBrowserPages((map) => map);
   const wsTabs = workspace?.tabs ?? [];
   const wsActive = workspace?.active ?? null;
@@ -62577,34 +65779,34 @@ function PanelStrip({ bot, roomSubject, subject, view, ids, active, sides, side,
     wsTabs.map((tab) => `${tab.id}:${tab.label}`).join("\0")
   ].join("");
   const syncObserved = () => {
-    const observer = watcher.current;
+    const observer2 = watcher.current;
     const box = wrap2.current;
-    if (!observer || !box) return;
+    if (!observer2 || !box) return;
     const next = new Set(box.querySelectorAll(".bt-ptab-bot, .bt-ptab-wrap"));
     for (const el of observed.current) {
       if (!next.has(el)) {
-        observer.unobserve(el);
+        observer2.unobserve(el);
         observed.current.delete(el);
       }
     }
     for (const el of next) {
       if (!observed.current.has(el)) {
-        observer.observe(el);
+        observer2.observe(el);
         observed.current.add(el);
       }
     }
   };
   (0, import_react90.useLayoutEffect)(() => {
     const box = wrap2.current;
-    const capsule = ind.current;
-    if (!box || !capsule) return void 0;
-    const node = view === "details" ? box.querySelector(".bt-ptab-bot") : view === "side" ? box.querySelector(`[data-side="${attrValue(side)}"]`) : view === "task" && task ? box.querySelector(`[data-task="${attrValue(task.id)}"]`) : view === "workspace" && wsActive !== null ? box.querySelector(`[data-ws-tab="${attrValue(wsActive)}"]`) : box.querySelector(`[data-tab="${attrValue(active)}"]`);
+    const capsule3 = ind.current;
+    if (!box || !capsule3) return void 0;
+    const node = view === "details" ? box.querySelector(".bt-ptab-bot") : view === "side" ? box.querySelector(`[data-side="${attrValue(side2)}"]`) : view === "task" && task ? box.querySelector(`[data-task="${attrValue(task.id)}"]`) : view === "workspace" && wsActive !== null ? box.querySelector(`[data-ws-tab="${attrValue(wsActive)}"]`) : box.querySelector(`[data-tab="${attrValue(active)}"]`);
     const sticky = view === "details" && node !== null;
     under.current = node;
     isStickyBot.current = sticky;
     syncObserved();
     if (!node) {
-      capsule.style.opacity = "0";
+      capsule3.style.opacity = "0";
       spot.current = null;
       syncStripOverflow(box);
       return void 0;
@@ -62616,31 +65818,31 @@ function PanelStrip({ bot, roomSubject, subject, view, ids, active, sides, side,
     const rawFrom = spot.current;
     const from = rawFrom === null ? null : { left: rawFrom.left, right: rawFrom.right + (to.boxWidth - rawFrom.boxWidth) };
     spot.current = to;
-    capsule.style.opacity = sticky && (box.scrollLeft ?? 0) > 0 ? "0" : "1";
-    capsule.style.left = `${to.left}px`;
-    capsule.style.right = `${to.right}px`;
+    capsule3.style.opacity = sticky && (box.scrollLeft ?? 0) > 0 ? "0" : "1";
+    capsule3.style.left = `${to.left}px`;
+    capsule3.style.right = `${to.right}px`;
     if (from === null || from.left === to.left && from.right === to.right || reducedMotion()) return void 0;
     const ahead = to.left > from.left ? "right" : "left";
     const behind = ahead === "right" ? "left" : "right";
-    const lead = capsule.animate([{ [ahead]: `${from[ahead]}px` }, { [ahead]: `${to[ahead]}px` }], { duration: SPRING_LEAD.duration, easing: SPRING_LEAD.easing });
-    const trail = capsule.animate([{ [behind]: `${from[behind]}px` }, { [behind]: `${to[behind]}px` }], { duration: SPRING_TRAIL.duration, easing: SPRING_TRAIL.easing });
+    const lead = capsule3.animate([{ [ahead]: `${from[ahead]}px` }, { [ahead]: `${to[ahead]}px` }], { duration: SPRING_LEAD.duration, easing: SPRING_LEAD.easing });
+    const trail = capsule3.animate([{ [behind]: `${from[behind]}px` }, { [behind]: `${to[behind]}px` }], { duration: SPRING_TRAIL.duration, easing: SPRING_TRAIL.easing });
     return () => {
       lead.cancel();
       trail.cancel();
     };
-  }, [view, active, side, wsActive, stripKey]);
+  }, [view, active, side2, wsActive, stripKey]);
   (0, import_react90.useEffect)(() => {
     const box = wrap2.current;
     if (!box) return void 0;
-    const observer = new ResizeObserver(() => {
+    const observer2 = new ResizeObserver(() => {
       syncStripOverflow(box);
       const node = under.current;
-      const capsule = ind.current;
-      if (!node?.isConnected || !capsule || spot.current === null) return;
+      const capsule3 = ind.current;
+      if (!node?.isConnected || !capsule3 || spot.current === null) return;
       spot.current = measureTabSpot(box, node, isStickyBot.current);
-      capsule.style.left = `${spot.current.left}px`;
-      capsule.style.right = `${spot.current.right}px`;
-      if (isStickyBot.current) capsule.style.opacity = (box.scrollLeft ?? 0) > 0 ? "0" : "1";
+      capsule3.style.left = `${spot.current.left}px`;
+      capsule3.style.right = `${spot.current.right}px`;
+      if (isStickyBot.current) capsule3.style.opacity = (box.scrollLeft ?? 0) > 0 ? "0" : "1";
     });
     const onScroll = () => {
       syncStripOverflow(box);
@@ -62657,8 +65859,8 @@ function PanelStrip({ bot, roomSubject, subject, view, ids, active, sides, side,
       box.scrollLeft += dy;
       syncStripOverflow(box);
     };
-    watcher.current = observer;
-    observer.observe(box);
+    watcher.current = observer2;
+    observer2.observe(box);
     syncObserved();
     syncStripOverflow(box);
     box.addEventListener?.("scroll", onScroll, { passive: true });
@@ -62666,7 +65868,7 @@ function PanelStrip({ bot, roomSubject, subject, view, ids, active, sides, side,
     return () => {
       watcher.current = null;
       observed.current.clear();
-      observer.disconnect();
+      observer2.disconnect();
       box.removeEventListener?.("scroll", onScroll);
       box.removeEventListener?.("wheel", onWheel);
     };
@@ -62742,7 +65944,7 @@ function PanelStrip({ bot, roomSubject, subject, view, ids, active, sides, side,
         );
       }),
       sides.map((chat) => {
-        const on = view === "side" && chat.id === side;
+        const on = view === "side" && chat.id === side2;
         return (0, import_react90.createElement)(
           "div",
           {
@@ -62897,7 +66099,7 @@ function shouldCheckBrowserCover(records) {
 }
 function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, hold }) {
   const page = useBrowserPages((pages) => pages[tabId ?? ""]) ?? EMPTY_PAGE;
-  const frame2 = (0, import_react90.useRef)(null);
+  const frame3 = (0, import_react90.useRef)(null);
   const input = (0, import_react90.useRef)(null);
   const importBoxRef = (0, import_react90.useRef)(null);
   const [draft, setDraft] = (0, import_react90.useState)(null);
@@ -62937,27 +66139,27 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
     let raf = 0;
     const update = () => {
       raf = 0;
-      const panel = frame2.current?.getBoundingClientRect();
+      const panel = frame3.current?.getBoundingClientRect();
       const overlaps2 = panel && [...document.querySelectorAll(OVERLAY_SELECTOR)].some((element) => rectsOverlap(panel, element.getBoundingClientRect()));
       setCovered(Boolean(overlaps2));
     };
     const schedule = () => {
       if (!raf) raf = requestAnimationFrame(update);
     };
-    const observer = new MutationObserver((records) => {
+    const observer2 = new MutationObserver((records) => {
       if (shouldCheckBrowserCover(records)) schedule();
     });
-    observer.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["role", "data-leaving"] });
+    observer2.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["role", "data-leaving"] });
     window.addEventListener("resize", schedule);
     update();
     return () => {
       cancelAnimationFrame(raf);
-      observer.disconnect();
+      observer2.disconnect();
       window.removeEventListener("resize", schedule);
     };
   }, []);
   (0, import_react90.useLayoutEffect)(() => {
-    const element = frame2.current;
+    const element = frame3.current;
     if (!element || leaving || !tabId) {
       void actions.browserShow(null);
       return void 0;
@@ -62973,12 +66175,12 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
       if (!raf) raf = requestAnimationFrame(measure);
     };
     measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(element);
+    const observer2 = new ResizeObserver(measure);
+    observer2.observe(element);
     window.addEventListener("resize", schedule);
     return () => {
       cancelAnimationFrame(raf);
-      observer.disconnect();
+      observer2.disconnect();
       window.removeEventListener("resize", schedule);
     };
   }, [tabId, showGuest, leaving]);
@@ -63083,7 +66285,7 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
     ),
     (0, import_react90.createElement)(
       "div",
-      { ref: frame2, className: "bt-browser-frame", "data-guest": showGuest || void 0 },
+      { ref: frame3, className: "bt-browser-frame", "data-guest": showGuest || void 0 },
       flow !== null ? (0, import_react90.createElement)(
         "div",
         {
@@ -63210,17 +66412,17 @@ function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSes
       return void 0;
     }
     setResizing(true);
-    const timer = setTimeout(() => setResizing(false), 160);
-    return () => clearTimeout(timer);
+    const timer2 = setTimeout(() => setResizing(false), 160);
+    return () => clearTimeout(timer2);
   }, [room2]);
   (0, import_react90.useEffect)(() => {
     if (!settling) return void 0;
-    const timer = setTimeout(() => setSettling(false), SPRING_SHAPE.duration + 40);
-    return () => clearTimeout(timer);
+    const timer2 = setTimeout(() => setSettling(false), SPRING_SHAPE.duration + 40);
+    return () => clearTimeout(timer2);
   }, [settling, view]);
   (0, import_react90.useEffect)(() => {
-    const timer = setTimeout(() => setLanded(true), 360);
-    return () => clearTimeout(timer);
+    const timer2 = setTimeout(() => setLanded(true), 360);
+    return () => clearTimeout(timer2);
   }, []);
   (0, import_react90.useEffect)(() => {
     if (canBrowse) actions.browserEnsure(bot.id);
@@ -63255,8 +66457,8 @@ function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSes
   (0, import_react90.useEffect)(() => {
     if (!page.readAt || Date.now() - page.readAt > READ_FLASH_MS) return void 0;
     setReading(true);
-    const timer = setTimeout(() => setReading(false), READ_FLASH_MS);
-    return () => clearTimeout(timer);
+    const timer2 = setTimeout(() => setReading(false), READ_FLASH_MS);
+    return () => clearTimeout(timer2);
   }, [page.readAt]);
   const beginSwitch = (next) => {
     const panel = root.current;
@@ -63709,19 +66911,19 @@ function openingPastWait(pending, target) {
   return { ...pending, slow: true };
 }
 function bindOpeningWait(ui, { waitMs = OPENING_WAIT_MS, schedule = setTimeout, clear = clearTimeout, onSlow } = {}) {
-  let timer = null;
+  let timer2 = null;
   const stop = () => {
-    if (timer === null) return;
-    clear(timer);
-    timer = null;
+    if (timer2 === null) return;
+    clear(timer2);
+    timer2 = null;
   };
   return {
     begin(pending) {
       ui.set((state) => ({ ...state, pendingOpen: pending }));
       stop();
       const target = pending?.target;
-      timer = schedule(() => {
-        timer = null;
+      timer2 = schedule(() => {
+        timer2 = null;
         let held = false;
         ui.set((state) => {
           const pendingOpen = openingPastWait(state.pendingOpen, target);
@@ -63821,8 +67023,8 @@ function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity
       setKept(shown);
       return void 0;
     }
-    const timer = setTimeout(() => setKept(null), reducedMotion() ? 0 : PANEL_LINGER_MS);
-    return () => clearTimeout(timer);
+    const timer2 = setTimeout(() => setKept(null), reducedMotion() ? 0 : PANEL_LINGER_MS);
+    return () => clearTimeout(timer2);
   }, [ui.details, ui.view, ui.renaming, ui.tab, ui.side, ui.task, shown === null]);
   const pane = shown ?? kept;
   const shellHeld = useReadSettingsShellHeld((value) => value);
@@ -64102,7 +67304,7 @@ ${caption}
 
 Table: ${caption}` : ""}${keep(out.join("\n"))}`;
   };
-  const frame2 = (el, ctx) => {
+  const frame3 = (el, ctx) => {
     let doc = null;
     try {
       doc = el.contentDocument;
@@ -64177,7 +67379,7 @@ ${body2 || "(no text)"}
     }
     if (tag === "iframe" || tag === "frame") {
       const box = el.getBoundingClientRect();
-      return tag === "iframe" && (box.width < 2 || box.height < 2) ? "" : frame2(el, next);
+      return tag === "iframe" && (box.width < 2 || box.height < 2) ? "" : frame3(el, next);
     }
     const found = itemFor(el, style);
     const mark2 = found ? `[#${found.number}]` : "";
@@ -64309,9 +67511,9 @@ function setUnread(unread, id, value) {
   else delete next[id];
   return next;
 }
-function noteLeft(seen, ids, now) {
+function noteLeft(seen, ids, now2) {
   const next = { ...seen };
-  for (const id of ids) next[id] = Math.max(Number(next[id]) || 0, now);
+  for (const id of ids) next[id] = Math.max(Number(next[id]) || 0, now2);
   return next;
 }
 
@@ -64566,9 +67768,9 @@ function createBotBrowsers({ bridge: bridge2, createSource: createSource2, stora
     const url = entry?.element.getURL() ?? "";
     if (entry === void 0 || !entry.ready || !/^https?:/i.test(url) || previewing.has(tabId)) return false;
     previewing.add(tabId);
-    let timer;
+    let timer2;
     const timeout = new Promise((resolve2) => {
-      timer = setTimeout(() => resolve2(""), PREVIEW_TIMEOUT_MS);
+      timer2 = setTimeout(() => resolve2(""), PREVIEW_TIMEOUT_MS);
     });
     try {
       const excerpt = await Promise.race([entry.element.executeJavaScript(PREVIEW_SCRIPT), timeout]);
@@ -64579,7 +67781,7 @@ function createBotBrowsers({ bridge: bridge2, createSource: createSource2, stora
     } catch {
       return false;
     } finally {
-      clearTimeout(timer);
+      clearTimeout(timer2);
       previewing.delete(tabId);
     }
   }
@@ -64743,9 +67945,9 @@ function createBotBrowsers({ bridge: bridge2, createSource: createSource2, stora
     tabs.set((snapshot) => {
       const current2 = snapshot[botId];
       if (current2 === void 0 || !current2.ids.includes(tabId)) return snapshot;
-      const at = current2.ids.indexOf(tabId);
+      const at2 = current2.ids.indexOf(tabId);
       const ids = current2.ids.filter((id) => id !== tabId);
-      const active = current2.active === tabId ? ids[Math.min(at, ids.length - 1)] ?? null : current2.active;
+      const active = current2.active === tabId ? ids[Math.min(at2, ids.length - 1)] ?? null : current2.active;
       const next = { ...snapshot };
       if (ids.length === 0) delete next[botId];
       else next[botId] = { ids, active };
@@ -64873,14 +68075,14 @@ function createBotBrowsers({ bridge: bridge2, createSource: createSource2, stora
       const tabId = activeTab(botId);
       const entry = tabId ? views.get(tabId) : void 0;
       if (!entry?.ready) throw new Error("This Bot has no browser page open.");
-      let timer;
+      let timer2;
       const timeout = new Promise((_, reject) => {
-        timer = setTimeout(() => reject(new Error("The page took too long to read.")), READ_TIMEOUT_MS);
+        timer2 = setTimeout(() => reject(new Error("The page took too long to read.")), READ_TIMEOUT_MS);
       });
       try {
         return await Promise.race([entry.element.executeJavaScript(READ_PAGE_SCRIPT), timeout]);
       } finally {
-        clearTimeout(timer);
+        clearTimeout(timer2);
       }
     },
     noteRead(botId) {
@@ -64933,7 +68135,7 @@ function serveBrowserReads({ browsers, post, clientId = globalThis.crypto.random
     }
     await post("browser-result", await job).catch((error) => console.warn("[ds-bot] browser result", error));
   };
-  const loop = async () => {
+  const loop2 = async () => {
     let failures = 0;
     while (!stopped) {
       const current2 = poll = new AbortController();
@@ -64959,9 +68161,9 @@ function serveBrowserReads({ browsers, post, clientId = globalThis.crypto.random
         clearTimeout(timeout);
       }
       await new Promise((resolve2) => {
-        const timer = setTimeout(resolve2, Math.min(3e4, retryMs * 2 ** Math.min(failures, 5)));
+        const timer2 = setTimeout(resolve2, Math.min(3e4, retryMs * 2 ** Math.min(failures, 5)));
         stopBackoff = () => {
-          clearTimeout(timer);
+          clearTimeout(timer2);
           resolve2();
         };
       });
@@ -64971,7 +68173,7 @@ function serveBrowserReads({ browsers, post, clientId = globalThis.crypto.random
   const offPages = browsers.pages.subscribe(() => {
     if (JSON.stringify(browsers.openPages()) !== reported) poll?.abort();
   });
-  void loop();
+  void loop2();
   return () => {
     stopped = true;
     offPages();
@@ -64981,12 +68183,12 @@ function serveBrowserReads({ browsers, post, clientId = globalThis.crypto.random
 }
 
 // src/client/learning-card-model.js
-function proposalPlacement(proposal, turns) {
+function proposalPlacement(proposal, turns2) {
   const settled = proposal?.outcome !== void 0;
-  if (!Number.isFinite(proposal?.at) || typeof turns?.values !== "function") return { kind: settled ? "none" : "dock" };
+  if (!Number.isFinite(proposal?.at) || typeof turns2?.values !== "function") return { kind: settled ? "none" : "dock" };
   const lastBy = (time) => {
     let found;
-    for (const location2 of turns.values()) {
+    for (const location2 of turns2.values()) {
       const end = location2?.end?.time;
       if (location2?.status !== "closed" || !Number.isFinite(end) || end > time) continue;
       if (found === void 0 || end > found.end.time || end === found.end.time && location2.turn > found.turn) found = location2;
@@ -65473,12 +68675,12 @@ function createSwitchWindow(settle) {
 
 // src/client/user-text-rule.js
 var BOT_MENTION_ID = "bot-mention";
-var ORDER = 5;
+var ORDER2 = 5;
 function botMentionRule(bots) {
   const named = bots.filter((bot) => bot?.name);
   return {
     id: BOT_MENTION_ID,
-    order: ORDER,
+    order: ORDER2,
     match(text, from, context) {
       if (named.length === 0) return void 0;
       const references = context.read("sessionLabels") ?? [];
@@ -65584,16 +68786,16 @@ function RowButton({ label, title, disabled, onClick, children }) {
 function QueueDock({ useSession, useProjection, updateQueue, loadImage, renderFactorySlot, actions }) {
   const inbox = useProjection?.("inbox");
   const pendingSubmissions = useSession?.((s) => s.pendingSubmissions) ?? EMPTY_QUEUE;
-  const queue = (0, import_react94.useMemo)(() => {
+  const queue2 = (0, import_react94.useMemo)(() => {
     const rows2 = (inbox?.["next-turn"] ?? EMPTY_QUEUE).filter((row) => OWN_QUEUE_KINDS.has(row.source?.kind));
     const inChat = new Set(pendingSubmissions.filter((item) => item.placement === "transcript").map((item) => item.requestId));
     return inChat.size === 0 ? rows2 : rows2.filter(({ source }) => source === null || typeof source !== "object" || !("rpcId" in source) || !inChat.has(source.rpcId));
   }, [inbox, pendingSubmissions]);
   const pendingQueue = (0, import_react94.useMemo)(() => {
-    const admitted = new Set(queue.flatMap(({ source }) => source !== null && typeof source === "object" && "rpcId" in source ? [source.rpcId] : []));
+    const admitted = new Set(queue2.flatMap(({ source }) => source !== null && typeof source === "object" && "rpcId" in source ? [source.rpcId] : []));
     return pendingSubmissions.filter((submission) => submission.placement === "queued" && !admitted.has(submission.requestId));
-  }, [pendingSubmissions, queue]);
-  const rowCount = queue.length + pendingQueue.length;
+  }, [pendingSubmissions, queue2]);
+  const rowCount = queue2.length + pendingQueue.length;
   const running = useSession?.((s) => s.running) === true;
   const queueMutable = useSession?.((s) => s.subagent === null || s.subagent === void 0 || s.subagent.address?.mode === "continuable") ?? true;
   const [editing, setEditing] = (0, import_react94.useState)(null);
@@ -65602,8 +68804,8 @@ function QueueDock({ useSession, useProjection, updateQueue, loadImage, renderFa
   const listId = (0, import_react94.useId)();
   (0, import_react94.useEffect)(() => {
     if (rowCount === 0 && !collapsed) setCollapsed(true);
-    if (editing !== null && (!queueMutable || !queue.some((row) => row.id === editing.id))) setEditing(null);
-  }, [collapsed, editing, queue, queueMutable, rowCount]);
+    if (editing !== null && (!queueMutable || !queue2.some((row) => row.id === editing.id))) setEditing(null);
+  }, [collapsed, editing, queue2, queueMutable, rowCount]);
   if (rowCount === 0) return null;
   const interactionActive = queueMutable && (editing !== null || busy !== null);
   const expanded = !collapsed || interactionActive;
@@ -65645,7 +68847,7 @@ function QueueDock({ useSession, useProjection, updateQueue, loadImage, renderFa
       (0, import_react94.createElement)(
         "ul",
         { id: listId, className: "bt-queue-list", hidden: !listVisible },
-        listVisible && queue.map((row) => {
+        listVisible && queue2.map((row) => {
           const attachments = queueAttachments(row.content);
           const text = textOf(row.content);
           return (0, import_react94.createElement)(
@@ -65800,13 +69002,13 @@ function listedOpener({ list, open, refresh, current: current2, begin, done }) {
       done?.(target);
     };
     const off = list.subscribe(() => {
-      const now = current2?.();
-      if (now === target) {
+      const now2 = current2?.();
+      if (now2 === target) {
         off();
         settle();
         return;
       }
-      if (now !== void 0 && now !== from) {
+      if (now2 !== void 0 && now2 !== from) {
         off();
         settle();
         return;
@@ -65832,191 +69034,6 @@ function pollDelay(base, unchanged) {
 }
 function needsIdleSample(computer, settings) {
   return Object.values(computer?.bots ?? {}).some((entry) => entry?.waitingFor === "user-idle") || Object.values(settings?.bots ?? {}).some((bot) => bot?.level === "foreground");
-}
-
-// src/client/motion-rest.js
-var REST_MS = 3e4;
-var INPUTS2 = ["pointermove", "pointerdown", "keydown", "wheel", "touchstart"];
-var CHANGES = ["animationstart", "animationcancel", "animationend"];
-var isLoop = (animation) => animation?.effect?.getTiming?.().iterations === Infinity;
-var boxOf2 = (target) => {
-  let element = target ?? null;
-  while (element?.ownerSVGElement) element = element.ownerSVGElement;
-  return element;
-};
-function installMotionRest({ doc = document, win = window, restMs = REST_MS, now = () => Date.now() } = {}) {
-  if (typeof doc?.getAnimations !== "function") return () => {
-  };
-  const loops = /* @__PURE__ */ new Map();
-  const held = /* @__PURE__ */ new Set();
-  const watched = /* @__PURE__ */ new Map();
-  const inView = /* @__PURE__ */ new WeakMap();
-  let last = now();
-  let resting = doc.hidden === true;
-  let cover = null;
-  let coverIsModal = false;
-  let timer = 0;
-  let queued = false;
-  let stopped = false;
-  const readCover = () => {
-    if (typeof doc.querySelectorAll !== "function") return { node: null, modal: false };
-    const modals = doc.querySelectorAll('[aria-modal="true"]');
-    if (modals.length > 0) return { node: modals[modals.length - 1], modal: true };
-    const scrims = doc.querySelectorAll(".bt-scrim");
-    if (scrims.length === 0) return { node: null, modal: false };
-    const scrim = scrims[scrims.length - 1];
-    const parent = scrim.parentElement;
-    return { node: parent && parent !== doc.body && parent !== doc.documentElement ? parent : scrim, modal: false };
-  };
-  const isCoverNode = (node) => {
-    if (!node || node.nodeType !== 1) return false;
-    if (node.getAttribute?.("aria-modal") === "true" || node.classList?.contains?.("bt-scrim")) return true;
-    return node.firstElementChild !== null && typeof node.querySelector === "function" && node.querySelector('[aria-modal="true"],.bt-scrim') !== null;
-  };
-  const hasCoverMutation = (records) => {
-    if (cover !== null && (cover.isConnected === false || coverIsModal && cover.getAttribute?.("aria-modal") !== "true")) return true;
-    if (!Array.isArray(records)) return true;
-    for (const record of records) {
-      if (record.type === "attributes") {
-        if (record.attributeName === "aria-modal") return true;
-        continue;
-      }
-      if (record.type === "childList") {
-        for (const node of record.addedNodes ?? []) if (isCoverNode(node)) return true;
-        for (const node of record.removedNodes ?? []) if (isCoverNode(node)) return true;
-      }
-    }
-    return false;
-  };
-  const runs = (animation) => {
-    if (resting) return false;
-    const element = loops.get(animation);
-    if (cover !== null && cover.isConnected !== false && (element === null || typeof cover.contains === "function" && !cover.contains(element))) return false;
-    return inView.get(element) !== false;
-  };
-  const apply2 = () => {
-    for (const animation of loops.keys()) {
-      if (runs(animation)) {
-        if (held.delete(animation) && animation.playState === "paused") animation.play();
-      } else if (animation.playState === "running") {
-        animation.pause();
-        held.add(animation);
-      }
-    }
-  };
-  const observer = typeof win.IntersectionObserver === "function" ? new win.IntersectionObserver((entries2) => {
-    for (const entry of entries2) inView.set(entry.target, entry.isIntersecting);
-    apply2();
-  }) : null;
-  const watch = (element) => {
-    const count = watched.get(element) ?? 0;
-    watched.set(element, count + 1);
-    if (count === 0) observer?.observe(element);
-  };
-  const unwatch = (element) => {
-    const count = (watched.get(element) ?? 1) - 1;
-    if (count > 0) {
-      watched.set(element, count);
-      return;
-    }
-    watched.delete(element);
-    inView.delete(element);
-    observer?.unobserve(element);
-  };
-  const sync = () => {
-    queued = false;
-    if (stopped) return;
-    const found = readCover();
-    cover = found.node;
-    coverIsModal = found.modal;
-    const current2 = new Set(doc.getAnimations().filter(isLoop));
-    for (const [animation, element] of loops) {
-      if (current2.has(animation)) continue;
-      loops.delete(animation);
-      if (held.delete(animation) && animation.playState === "paused") animation.play();
-      if (element) unwatch(element);
-    }
-    for (const animation of current2) {
-      if (loops.has(animation)) continue;
-      const element = boxOf2(animation.effect?.target);
-      loops.set(animation, element);
-      if (element) watch(element);
-    }
-    apply2();
-  };
-  const later = () => {
-    if (queued) return;
-    queued = true;
-    void Promise.resolve().then(sync);
-  };
-  const onAnimationChange = (event) => {
-    const target = event?.target;
-    if (target !== void 0 && target !== null) {
-      const box = boxOf2(target);
-      if (event.type === "animationstart") {
-        if (!event.pseudoElement && typeof target.getAnimations === "function") {
-          const own = target.getAnimations();
-          if (!own.some(isLoop) && !watched.has(box)) return;
-        }
-      } else if (event.type === "animationend" || event.type === "animationcancel") {
-        if (!watched.has(box)) return;
-      }
-    }
-    later();
-  };
-  const bodyObserver = typeof win.MutationObserver === "function" && doc.body ? new win.MutationObserver((records) => {
-    if (!hasCoverMutation(records)) return;
-    const next = readCover();
-    if (next.node === cover && next.modal === coverIsModal) return;
-    cover = next.node;
-    coverIsModal = next.modal;
-    apply2();
-  }) : null;
-  bodyObserver?.observe(doc.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["aria-modal"] });
-  const check = () => {
-    timer = 0;
-    const left = last + restMs - now();
-    if (left > 0) {
-      timer = win.setTimeout(check, left);
-      return;
-    }
-    resting = true;
-    sync();
-  };
-  const touch = () => {
-    last = now();
-    if (!timer) timer = win.setTimeout(check, restMs);
-    if (resting && doc.hidden !== true) {
-      resting = false;
-      sync();
-    }
-  };
-  const shown = () => {
-    if (doc.hidden === true) {
-      resting = true;
-      sync();
-    } else touch();
-  };
-  for (const type of INPUTS2) win.addEventListener(type, touch, { capture: true, passive: true });
-  win.addEventListener("focus", touch);
-  doc.addEventListener("visibilitychange", shown);
-  for (const type of CHANGES) doc.addEventListener(type, onAnimationChange, true);
-  timer = win.setTimeout(check, restMs);
-  sync();
-  return () => {
-    stopped = true;
-    for (const type of INPUTS2) win.removeEventListener(type, touch, { capture: true });
-    win.removeEventListener("focus", touch);
-    doc.removeEventListener("visibilitychange", shown);
-    for (const type of CHANGES) doc.removeEventListener(type, onAnimationChange, true);
-    if (timer) win.clearTimeout(timer);
-    observer?.disconnect();
-    bodyObserver?.disconnect();
-    for (const animation of held) if (animation.playState === "paused") animation.play();
-    held.clear();
-    loops.clear();
-    watched.clear();
-  };
 }
 
 // src/client/agent-new.js
@@ -66541,25 +69558,25 @@ function watchBotCompletions({ roster, sessions, statuses, unread }) {
       const active = (row?.retainedBy?.mainView ?? 0) > 0;
       const status = statusMap?.get(id);
       const hidden = team.exchangeTurns?.[id] ?? [];
-      const outline = turnOutlineOf(list, id);
-      if (!Array.isArray(outline)) {
+      const outline2 = turnOutlineOf(list, id);
+      if (!Array.isArray(outline2)) {
         if (!active && (previous[id] === true || !seen.has(id) && hidden.length === 0 && status?.completionUnread === true)) next[id] = true;
         continue;
       }
-      const latest = outline.at(-1);
+      const latest = outline2.at(-1);
       const running = status?.running === true || row?.running === true;
-      const end = running && !latest?.response ? outline.length - 2 : outline.length - 1;
-      const closed = outline[end]?.turn ?? -1;
+      const end = running && !latest?.response ? outline2.length - 2 : outline2.length - 1;
+      const closed = outline2[end]?.turn ?? -1;
       if (active) {
         seen.set(id, Math.max(seen.get(id) ?? -1, closed));
         continue;
       }
       if (!seen.has(id)) {
-        const unreadLatest = status?.completionUnread === true && end === outline.length - 1 && !hidden.includes(closed);
-        seen.set(id, unreadLatest ? outline[end - 1]?.turn ?? -1 : closed);
+        const unreadLatest = status?.completionUnread === true && end === outline2.length - 1 && !hidden.includes(closed);
+        seen.set(id, unreadLatest ? outline2[end - 1]?.turn ?? -1 : closed);
       }
-      for (let i = end; i >= 0 && outline[i].turn > seen.get(id); i -= 1) {
-        if (hidden.includes(outline[i].turn)) continue;
+      for (let i = end; i >= 0 && outline2[i].turn > seen.get(id); i -= 1) {
+        if (hidden.includes(outline2[i].turn)) continue;
         next[id] = true;
         break;
       }
@@ -66600,7 +69617,7 @@ function apply(ctx) {
   const ui = createSource({ details: null, view: "details", renaming: false, tab: null, side: null, task: null, taskDeck: null, newChat: null, exchange: null, menu: null, voice: null, palette: null, quote: null, paste: {}, pendingOpen: null, settings: null, memory: null, toast: null, signIn: null, renameAgent: null, unread: unreadStore.read(), reactions: reactionStore.read(), visits: {}, panelYield: false, leftDrawer: false, bootFailed: false, goalCompose: null, goalOpen: null, approvalOpen: null });
   let sidebarSaved = readSidebar();
   const sidebarPref = createSource(sidebarSaved.pref);
-  const frame2 = createSource({ viewport: typeof window === "undefined" ? 0 : window.innerWidth, sidebarWidth: sidebarSaved.width, collapsedWidth: 0, collapsed: false });
+  const frame3 = createSource({ viewport: typeof window === "undefined" ? 0 : window.innerWidth, sidebarWidth: sidebarSaved.width, collapsedWidth: 0, collapsed: false });
   const surface = createSource({ mode: readMode(), plain: false });
   const settingsShellHeld = createSource(false);
   let settingsShell = null;
@@ -66668,7 +69685,7 @@ function apply(ctx) {
     ])));
   };
   const writeUnread = (id, value) => {
-    const unread = unreadStore.update((marks) => setUnread(marks, id, value), ui.getSnapshot().unread);
+    const unread = unreadStore.update((marks2) => setUnread(marks2, id, value), ui.getSnapshot().unread);
     ui.set((state) => JSON.stringify(state.unread) === JSON.stringify(unread) ? state : { ...state, unread });
   };
   const refreshed = /* @__PURE__ */ new Set();
@@ -66767,11 +69784,11 @@ function apply(ctx) {
   ctx.effect(() => {
     let stopped = false;
     let running = false;
-    let timer;
+    let timer2;
     let misses = 0;
     let unchanged = 0;
-    const loop = async () => {
-      clearTimeout(timer);
+    const loop2 = async () => {
+      clearTimeout(timer2);
       if (running || stopped) return;
       running = true;
       try {
@@ -66789,19 +69806,19 @@ function apply(ctx) {
       } finally {
         running = false;
       }
-      if (!stopped) timer = setTimeout(loop, pollDelay(document.hidden ? 1e4 : 1500, unchanged));
+      if (!stopped) timer2 = setTimeout(loop2, pollDelay(document.hidden ? 1e4 : 1500, unchanged));
     };
     const wake = () => {
       if (!document.hidden) {
         unchanged = 0;
-        void loop();
+        void loop2();
       }
     };
     document.addEventListener("visibilitychange", wake);
-    void loop();
+    void loop2();
     return () => {
       stopped = true;
-      clearTimeout(timer);
+      clearTimeout(timer2);
       document.removeEventListener("visibilitychange", wake);
     };
   }, "ds-bot: roster poll");
@@ -66810,20 +69827,20 @@ function apply(ctx) {
   };
   ctx.effect(() => {
     let stopped = false;
-    let timer;
-    const loop = async () => {
-      clearTimeout(timer);
+    let timer2;
+    const loop2 = async () => {
+      clearTimeout(timer2);
       if (stopped) return;
       const value = await call("update-check", { fresh: false }).catch(() => null);
       if (stopped) return;
       if (value) update.set((previous) => ({ ...value, app: previous.app, ownApp: previous.ownApp }));
-      timer = setTimeout(loop, value?.phase === "installing" || value?.dsh?.phase === "installing" ? 2e3 : 60 * 6e4);
+      timer2 = setTimeout(loop2, value?.phase === "installing" || value?.dsh?.phase === "installing" ? 2e3 : 60 * 6e4);
     };
-    wakeUpdate = loop;
-    void loop();
+    wakeUpdate = loop2;
+    void loop2();
     return () => {
       stopped = true;
-      clearTimeout(timer);
+      clearTimeout(timer2);
       wakeUpdate = () => {
       };
     };
@@ -66910,8 +69927,8 @@ function apply(ctx) {
         const anchor = `.bt-bubble a[href="${MENTION_ORIGIN}${bot.id}"]`;
         const chip = /\s/.test(bot.name) ? "" : `:is([class*="_userRow"],.bt-uhost) [data-ref-chip="file"][title="@${bot.name.replace(/["\\]/g, "\\$&")}" i]`;
         const look = lookOf(bot);
-        const marks = chip ? `${anchor}::before,${chip}::before` : `${anchor}::before`;
-        const mark2 = look.image ? `${marks}{background:center/cover url("${look.image}");-webkit-mask:none;mask:none;border-radius:50%}` : `${marks}{background:${paintCss(look.color)};-webkit-mask-image:${maskOf(look.shape)};mask-image:${maskOf(look.shape)}}`;
+        const marks2 = chip ? `${anchor}::before,${chip}::before` : `${anchor}::before`;
+        const mark2 = look.image ? `${marks2}{background:center/cover url("${look.image}");-webkit-mask:none;mask:none;border-radius:50%}` : `${marks2}{background:${paintCss(look.color)};-webkit-mask-image:${maskOf(look.shape)};mask-image:${maskOf(look.shape)}}`;
         const chipBase = chip ? `${chip}{color:inherit;font-weight:600}${chip}>svg{display:none}${chip}::before{content:"";display:inline-block;flex:none;width:16px;height:16px;margin-right:3px;vertical-align:-3px;-webkit-mask:${DEFAULT_MASK} center/contain no-repeat;mask:${DEFAULT_MASK} center/contain no-repeat}` : "";
         return `${anchor}{color:${inkText(look.color)}}${chipBase}${mark2}`;
       }).join("\n");
@@ -66956,14 +69973,14 @@ function apply(ctx) {
       }
       return false;
     };
-    const observer = typeof MutationObserver === "function" ? new MutationObserver((records) => {
+    const observer2 = typeof MutationObserver === "function" ? new MutationObserver((records) => {
       if (records.length > 0 && records.every(isTitleOnly)) return;
       scheduleSkin();
     }) : null;
-    if (observer !== null) {
-      observer.observe(document.body, { attributes: true, attributeFilter: ["style", "data-ds-dark-theme"] });
-      observer.observe(document.documentElement, { attributes: true, attributeFilter: ["style", "class"] });
-      observer.observe(document.head, { childList: true, subtree: true, characterData: true });
+    if (observer2 !== null) {
+      observer2.observe(document.body, { attributes: true, attributeFilter: ["style", "data-ds-dark-theme"] });
+      observer2.observe(document.documentElement, { attributes: true, attributeFilter: ["style", "class"] });
+      observer2.observe(document.head, { childList: true, subtree: true, characterData: true });
     }
     const render = () => {
       const snapshot = roster.getSnapshot();
@@ -67028,7 +70045,7 @@ function apply(ctx) {
       userSheet.remove();
       offTheme();
       if (skinRaf && typeof cancelAnimationFrame === "function") cancelAnimationFrame(skinRaf);
-      observer?.disconnect();
+      observer2?.disconnect();
       skin.clear();
       try {
         if (typeof releaseTokens === "function") releaseTokens();
@@ -67074,17 +70091,17 @@ function apply(ctx) {
   const openChangesReview = (changes, tries = 60) => {
     actions.openSession(changes.sessionId);
     let left = tries;
-    const timer = setInterval(() => {
+    const timer2 = setInterval(() => {
       if (mainView() === changes.sessionId) {
         try {
           openReview(changes);
-          clearInterval(timer);
+          clearInterval(timer2);
           return;
         } catch {
         }
       }
       if ((left -= 1) <= 0) {
-        clearInterval(timer);
+        clearInterval(timer2);
         actions.notice(t("This window cannot open the change review"));
       }
     }, 100);
@@ -67134,7 +70151,7 @@ function apply(ctx) {
   const panelFolded = (view) => {
     const state = ui.getSnapshot();
     if (state.details === null) return false;
-    const f = frame2.getSnapshot();
+    const f = frame3.getSnapshot();
     return frameLayout({ viewport: f.viewport, sidebarWidth: f.sidebarWidth, pref: sidebarPref.getSnapshot(), drawer: state.leftDrawer, panel: { view: view ?? state.view, yielded: state.panelYield === true } }).panel === "folded";
   };
   const yieldBrowser = (state) => state.panelYield === true || panelFolded("browser");
@@ -67277,13 +70294,13 @@ function apply(ctx) {
         moved = currentOfLast(roster.getSnapshot());
       }
       if (seq !== navSeq) return;
-      const now = mainView();
-      if (last && now !== void 0 && now !== last.sessionId) {
+      const now2 = mainView();
+      if (last && now2 !== void 0 && now2 !== last.sessionId) {
         const snap = roster.getSnapshot();
         const list = ctx.sessions.list.getSnapshot();
-        const nowBot = snap.byId[now];
-        const nowRoom = snap.roomsById[now];
-        if (nowBot !== void 0 && currentPart(nowBot) === now || nowRoom !== void 0 && (nowRoom.sessionId ?? nowRoom.id) === now || isAgentSessionId(now) || nowBot === void 0 && nowRoom === void 0 && list.byId?.[now]?.blank !== true) return;
+        const nowBot = snap.byId[now2];
+        const nowRoom = snap.roomsById[now2];
+        if (nowBot !== void 0 && currentPart(nowBot) === now2 || nowRoom !== void 0 && (nowRoom.sessionId ?? nowRoom.id) === now2 || isAgentSessionId(now2) || nowBot === void 0 && nowRoom === void 0 && list.byId?.[now2]?.blank !== true) return;
       }
       setPlain(false);
       const target = moved !== void 0 && moved !== last?.sessionId ? moved : partFor(id);
@@ -67311,7 +70328,7 @@ function apply(ctx) {
     setSidebarWidth: (width) => {
       sidebarSaved = { ...sidebarSaved, width };
       writeSidebar(sidebarSaved);
-      frame2.set((state) => state.sidebarWidth === width ? state : { ...state, sidebarWidth: width });
+      frame3.set((state) => state.sidebarWidth === width ? state : { ...state, sidebarWidth: width });
     },
     setLeftDrawer: (on) => ui.set((state) => state.leftDrawer === on ? state : { ...state, leftDrawer: on }),
     setPanelYield: (on) => ui.set((state) => state.panelYield === on ? state : { ...state, panelYield: on }),
@@ -67329,7 +70346,7 @@ function apply(ctx) {
       }
       writeMode(mode);
       surface.set((state) => ({ ...state, mode }));
-      if (mode === "agent" && window.innerWidth >= DSH_NARROW && frame2.getSnapshot().collapsed) ctx.layout.toggleSidebar();
+      if (mode === "agent" && window.innerWidth >= DSH_NARROW && frame3.getSnapshot().collapsed) ctx.layout.toggleSidebar();
       if (mode !== "bot") return;
       ensureBotHome();
     },
@@ -67544,12 +70561,12 @@ function apply(ctx) {
           resolve2();
           return;
         }
-        const timer = setTimeout(() => {
+        const timer2 = setTimeout(() => {
           if (cancelPause === cancel) cancelPause = null;
           resolve2();
         }, ms);
         const cancel = () => {
-          clearTimeout(timer);
+          clearTimeout(timer2);
           if (cancelPause === cancel) cancelPause = null;
           resolve2();
         };
@@ -67596,7 +70613,7 @@ function apply(ctx) {
   }
   if (typeof appComputer?.idleSeconds === "function") {
     ctx.effect(() => {
-      let timer = 0;
+      let timer2 = 0;
       const push = () => {
         const current2 = roster.getSnapshot();
         if (current2.computer?.enabled !== true) return;
@@ -67609,17 +70626,17 @@ function apply(ctx) {
       };
       const sync = () => {
         const enabled = roster.getSnapshot().computer?.enabled === true;
-        if (enabled && !timer) timer = setInterval(push, 2e3);
-        else if (!enabled && timer) {
-          clearInterval(timer);
-          timer = 0;
+        if (enabled && !timer2) timer2 = setInterval(push, 2e3);
+        else if (!enabled && timer2) {
+          clearInterval(timer2);
+          timer2 = 0;
         }
       };
       sync();
       const offRoster = roster.subscribe(sync);
       return () => {
         offRoster();
-        if (timer) clearInterval(timer);
+        if (timer2) clearInterval(timer2);
       };
     }, "ds-bot: computer user active");
   }
@@ -67635,7 +70652,7 @@ function apply(ctx) {
       };
     }, "ds-bot: computer actions");
   }
-  const face = () => ({ actions, hooks: { roster, ui, activity, work, memoryNews, registry, turnClock, live, computer, cards, heldCards, rescuedDrafts: questionDrafts.rescued, browserPages, browserTabs, browserHolds, surface, update, frame: frame2, sidebarPref, settingsShellHeld } });
+  const face = () => ({ actions, hooks: { roster, ui, activity, work, memoryNews, registry, turnClock, live, computer, cards, heldCards, rescuedDrafts: questionDrafts.rescued, browserPages, browserTabs, browserHolds, surface, update, frame: frame3, sidebarPref, settingsShellHeld } });
   const hostDrawsUserText = typeof ctx.uiConversation.userText?.register === "function";
   ctx.effect(() => installCommandActions(ctx, { roster, actions }), "ds-bot: bot command actions");
   ctx.inject(["shortcuts"], (scope) => {
@@ -67773,20 +70790,20 @@ function apply(ctx) {
     return roster.subscribe(() => {
       const snapshot = roster.getSnapshot();
       if (!snapshot.ready) return;
-      const now = /* @__PURE__ */ new Map();
+      const now2 = /* @__PURE__ */ new Map();
       for (const bot of snapshot.bots) {
         const ids = [bot.id, bot.sessionId, ...bot.parts ?? []].filter((id) => typeof id === "string" && id !== "");
-        now.set(bot.id, [...new Set(ids)]);
+        now2.set(bot.id, [...new Set(ids)]);
       }
       for (const room2 of snapshot.rooms) {
         const ids = [room2.id, room2.sessionId, ...room2.ownParts ?? []].filter((id) => typeof id === "string" && id !== "");
-        now.set(room2.id, [...new Set(ids)]);
+        now2.set(room2.id, [...new Set(ids)]);
       }
       if (chats !== null) {
         const goneChats = [];
         const goneAll = [];
         for (const [chatId, prevIds] of chats) {
-          if (now.has(chatId)) continue;
+          if (now2.has(chatId)) continue;
           goneChats.push(chatId);
           for (const id of prevIds) goneAll.push(id);
         }
@@ -67795,7 +70812,7 @@ function apply(ctx) {
           questionDrafts.pruneChats([...new Set(goneAll)]);
         }
       }
-      chats = now;
+      chats = now2;
     });
   }, "ds-bot: drafts of removed chats");
   ctx.effect(() => {
@@ -67923,7 +70940,7 @@ function apply(ctx) {
         actions.reportError(error, "right-sidebar");
       }
     };
-    const observer = new MutationObserver(() => {
+    const observer2 = new MutationObserver(() => {
       const next = rightColumnOpen(document);
       const opening = next && !open;
       open = next;
@@ -67931,7 +70948,7 @@ function apply(ctx) {
       if (verdict === "close-drawer") actions.closePanel();
       else if (verdict === "collapse-column") collapseColumn();
     });
-    observer.observe(document.documentElement, {
+    observer2.observe(document.documentElement, {
       subtree: true,
       attributes: true,
       attributeFilter: RIGHTBAR_ATTRIBUTES
@@ -67944,7 +70961,7 @@ function apply(ctx) {
       drawer = next;
     });
     return () => {
-      observer.disconnect();
+      observer2.disconnect();
       offMounted();
       offUi();
     };
@@ -67989,7 +71006,7 @@ function apply(ctx) {
     let lastDetails = ui.getSnapshot().details;
     const sync = () => {
       const s = ui.getSnapshot();
-      const f = frame2.getSnapshot();
+      const f = frame3.getSnapshot();
       const opened = s.details !== null && lastDetails === null;
       lastDetails = s.details;
       const layout = frameLayout({ viewport: f.viewport, sidebarWidth: f.sidebarWidth, pref: sidebarPref.getSnapshot(), drawer: s.leftDrawer === true, panel: s.details === null ? null : { view: s.view, yielded: false } });
@@ -67999,7 +71016,7 @@ function apply(ctx) {
       else if (s.panelYield && layout.panel === "shown") actions.setPanelYield(false);
       if (s.leftDrawer === true && layout.left !== "drawer") actions.setLeftDrawer(false);
     };
-    const offs = [ui.subscribe(sync), frame2.subscribe(sync), sidebarPref.subscribe(sync)];
+    const offs = [ui.subscribe(sync), frame3.subscribe(sync), sidebarPref.subscribe(sync)];
     return () => {
       for (const off of offs) off();
     };
@@ -68065,7 +71082,7 @@ function apply(ctx) {
       };
     },
     ...SHELL_SHEETS.map(([text, tag]) => () => installCompiledStyles(text, tag)),
-    () => installFrameWatch(frame2),
+    () => installFrameWatch(frame3),
     () => installFrameSync(),
     () => installTheme(),
     () => shadow("sidebar.workspaces", { priority: BOT_PRIORITY, inject: () => ({ actions, hooks: { ...face().hooks, botCompletions } }) }, TeamSidebar),
@@ -68166,15 +71183,15 @@ function apply(ctx) {
   shadow("sidebar.footer.action", { id: "bot-return", order: -300, inject: face }, BotReturn);
   ctx.effect(() => {
     let stopped = false;
-    let timer = 0;
+    let timer2 = 0;
     let forks = null;
     const syncTimer = () => {
       if (stopped) return;
       const active = forks?.hasPending() === true;
-      if (active && !timer) timer = setInterval(reconcile, 5e3);
-      else if (!active && timer) {
-        clearInterval(timer);
-        timer = 0;
+      if (active && !timer2) timer2 = setInterval(reconcile, 5e3);
+      else if (!active && timer2) {
+        clearInterval(timer2);
+        timer2 = 0;
       }
     };
     const reconcile = () => {
@@ -68216,9 +71233,9 @@ function apply(ctx) {
       if (typeof window !== "undefined" && typeof window.removeEventListener === "function") {
         window.removeEventListener("storage", onStorage);
       }
-      if (timer) {
-        clearInterval(timer);
-        timer = 0;
+      if (timer2) {
+        clearInterval(timer2);
+        timer2 = 0;
       }
       return forks.dispose();
     };

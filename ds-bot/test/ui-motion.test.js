@@ -210,7 +210,11 @@ test('botOwnCss preserves effects tokens, backdrop relief and off-tier rules whi
   const own = botOwnCss(SHELL_CSS)
   assert.match(own, /body\[data-bt-effects=reduced\],body\[data-bt-effects=off\],body\[data-bt-os=windows\]\{--dsw-menu-backdrop-filter:none;--dsw-mask-blur:none;/)
   assert.match(SHELL_CSS, /body\[data-bt-os=windows\] :is\(\[data-composer-card\],[^)]*\)\{-webkit-backdrop-filter:none!important;backdrop-filter:none!important\}/)
-  assert.match(own, /body\[data-bt-effects=reduced\] \.bt-mark\[data-gaze\] \.bt-gaze/)
+  assert.match(own, /body\[data-bt-effects=reduced\] :is\(\.bt-badge-alert,/)
+  // The system setting beats the lively ride: same selector, later rule.
+  const ride = SHELL_CSS.indexOf('body[data-bt-motion=lively] .bt-badge-alert{right:auto')
+  const still = SHELL_CSS.indexOf('@media (prefers-reduced-motion:reduce){body[data-bt-motion=lively] .bt-badge-alert{animation:none}}')
+  assert.ok(ride >= 0 && still > ride)
   assert.match(own, /--bt-fx-blur-6:none/)
   assert.match(own, /\.bt-pill[^}]*backdrop-filter:none!important/)
   assert.match(own, /\.bt-settings-layer[^}]*animation:none!important;transition:none!important/)
@@ -258,32 +262,34 @@ test('SettingsDialog renders Interface motion choices in Appearance and updates 
   assert.deepEqual(JSON.parse(JSON.stringify(calls)), [{ effects: 'off' }])
 })
 
-test('BotMark gaze listeners and offsets respond dynamically to data-bt-effects changes', async () => {
+test('BotMark follows the pointer through its engine and lets go when interface motion is reduced', async () => {
   const dom = new JSDOM('<!doctype html><html><body></body></html>')
   const { window } = dom
   const { document } = window
   document.body.dataset.btEffects = 'full'
+  // A page in view: JSDOM reports itself hidden unless told otherwise.
+  Object.defineProperty(document, 'hidden', { value: false })
 
+  // Frames are queued and run by hand; the mark's own clock queues frames too.
   let rafId = 0
-  let queued = new Map()
-  let rafCalls = 0
+  const queued = new Map()
   window.matchMedia = () => ({ matches: false })
   const globals = {
     window,
     document,
     MutationObserver: window.MutationObserver,
-    requestAnimationFrame: (fn) => {
-      rafCalls += 1
-      const id = ++rafId
-      queued.set(id, fn)
-      return id
-    },
+    performance,
+    setTimeout,
+    clearTimeout,
+    setInterval,
+    clearInterval,
+    requestAnimationFrame: (fn) => { const id = ++rafId; queued.set(id, fn); return id },
     cancelAnimationFrame: (id) => { queued.delete(id) },
   }
   const flushRaf = () => {
     const callbacks = [...queued.values()]
     queued.clear()
-    for (const fn of callbacks) fn()
+    for (const fn of callbacks) fn(0)
   }
 
   const node = document.createElement('span')
@@ -298,42 +304,36 @@ test('BotMark gaze listeners and offsets respond dynamically to data-bt-effects 
   })
 
   client.BotMark({ bot: { id: 'b1' }, look: { shape: 'orb', color: '#4f7' }, gaze: true })
-  assert.equal(effects.length, 1)
-  const dispose = effects[0]()
-
+  const disposers = effects.map(fn => fn())
+  const engine = node.__btLive.engine
   const move = (x, y) => {
     const ev = new window.Event('pointermove')
     ev.clientX = x
     ev.clientY = y
     window.dispatchEvent(ev)
   }
-  rafCalls = 0
   move(100, 60)
-  assert.equal(rafCalls, 1)
   flushRaf()
-  assert.notEqual(node.style.getPropertyValue('--bt-gx'), '')
+  // In mark radii from its middle: (100 - 20) / 20 across, (60 - 20) / 20 down.
+  assert.deepEqual({ ...engine.gazeTarget }, { x: 4, y: 2 })
 
-  // Switching to reduced clears existing gaze offsets and stops scheduling RAF
+  // Reduced interface motion lets go of the pointer and ignores it after.
   document.body.dataset.btEffects = 'reduced'
   await new Promise(r => setTimeout(r, 20))
-  assert.equal(node.style.getPropertyValue('--bt-gx'), '')
-  assert.equal(node.style.getPropertyValue('--bt-gy'), '')
-  rafCalls = 0
+  assert.equal(engine.gazeTarget, null)
   move(180, 140)
-  assert.equal(rafCalls, 0)
+  flushRaf()
+  assert.equal(engine.gazeTarget, null)
 
-  // Switching back to full re-attaches without remounting the mark
+  // Back to full, it follows again without remounting.
   document.body.dataset.btEffects = 'full'
   await new Promise(r => setTimeout(r, 20))
   move(180, 140)
-  assert.equal(rafCalls, 1)
   flushRaf()
-  assert.notEqual(node.style.getPropertyValue('--bt-gx'), '')
+  assert.deepEqual({ ...engine.gazeTarget }, { x: 8, y: 6 })
 
-  dispose()
-  rafCalls = 0
-  move(10, 10)
-  assert.equal(rafCalls, 0)
+  for (const dispose of disposers) dispose?.()
+  assert.equal(node.__btLive, undefined)
 })
 
 test('fitSegmented picks single row, grid-2, grid-3, wrap or stack from button geometry without thumb interference', () => {
