@@ -162,6 +162,16 @@ function ImagePreview({ file }) {
     h('img', { className: 'dsb-pv-image', src, alt: file.name }))
 }
 
+
+export function HtmlPreviewNotice() {
+  return h('div', { className: 'dsb-pv-banner' }, t('Scripts and external or local resources are blocked in this preview'))
+}
+
+export function HtmlPreviewFrame({ html, title }) {
+  return h('div', { className: 'dsb-pv-html-wrap' },
+    h('iframe', { className: 'dsb-pv-frame dsb-pv-html', sandbox: '', referrerPolicy: 'no-referrer', srcDoc: html, title }))
+}
+
 /**
  * Multi-format workspace file preview component.
  */
@@ -169,7 +179,7 @@ export function FilePreview({ file, loading, error, onRetry }) {
   const [mode, setMode] = useState('preview')
   const [copied, setCopied] = useState(false)
   const copyTimerRef = useRef(0)
-  const htmlPreview = useMemo(() => (file?.kind === 'html' ? prepareHtmlPreview(file.text, t('Scripts and external or local resources are blocked in this preview')) : null), [file?.kind, file?.text])
+  const htmlPreview = useMemo(() => (file?.kind === 'html' ? prepareHtmlPreview(file.text) : null), [file?.kind, file?.text])
 
   useEffect(() => {
     setMode('preview')
@@ -233,6 +243,7 @@ export function FilePreview({ file, loading, error, onRetry }) {
         onClick: copy,
       }, copied ? h(CheckIcon) : h(CopyIcon)) : null),
     file.truncated ? h('div', { className: 'dsb-pv-banner' }, t('File truncated for preview')) : null,
+    file.kind === 'html' && mode === 'preview' && htmlPreview?.blocked === true ? h(HtmlPreviewNotice) : null,
     h('div', { className: 'dsb-pv-body' },
       file.kind === 'markdown'
         ? (mode === 'source' ? h(CodeLines, { text: file.text }) : h('div', { className: 'dsb-pv-md' }, h(MarkdownText, {
@@ -244,10 +255,9 @@ export function FilePreview({ file, loading, error, onRetry }) {
           : file.kind === 'html'
             ? (mode === 'source'
                 ? h(CodeLines, { text: file.text })
-                : h('div', { className: 'dsb-pv-html-wrap' },
-                  htmlPreview === null
-                    ? h('div', { className: 'dsb-rp-empty' }, t('Preview unavailable in this environment'))
-                    : h('iframe', { className: 'dsb-pv-frame dsb-pv-html', sandbox: '', referrerPolicy: 'no-referrer', srcDoc: htmlPreview, title: file.name })))
+                : htmlPreview === null
+                  ? h('div', { className: 'dsb-pv-html-wrap' }, h('div', { className: 'dsb-rp-empty' }, t('Preview unavailable in this environment')))
+                  : h(HtmlPreviewFrame, { html: htmlPreview.html, title: file.name }))
             : file.kind === 'svg'
               ? (mode === 'source' || !file.base64 ? h(CodeLines, { text: file.text }) : h(ImagePreview, { file }))
               : file.kind === 'image'

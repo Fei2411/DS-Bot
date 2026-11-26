@@ -16,8 +16,8 @@ export const TEAM_ENDPOINTS = new Set([
   'browser-takeover', 'btw-delete', 'cancel-work', 'capability-approve',
   'capability-delete', 'capability-save', 'changes-check', 'chat',
   'chatgpt', 'chatgpt-cancel', 'chatgpt-models', 'chatgpt-sign-out',
-  'computer-stop', 'connector-add', 'connector-cancel', 'connector-client',
-  'connector-connect', 'connector-disconnect', 'connector-import', 'connector-import-scan',
+  'computer-app-answer', 'computer-stop', 'connector-add', 'connector-cancel', 'connector-client',
+  'connector-connect', 'connector-disconnect',
   'connector-remove', 'connector-request-cancel', 'connector-retry', 'connector-set',
   'connector-sign-in-code', 'create-bot', 'create-room', 'deepseek-services',
   'deepseek-services-config', 'deepseek-synthesize', 'delete-bot', 'delete-room',
@@ -64,12 +64,16 @@ export const COMPUTER_ONLY_ENDPOINTS = new Set([
   // impersonate the computer that serves browser reads.
   'browser-wait',
   'browser-result',
+  // Reads other apps' connector configurations and secrets from this computer's home folder.
+  'connector-import-scan',
+  'connector-import',
 ])
 
 // Endpoint families whose whole purpose is this computer: pairing, raw Session logs,
 // external API tokens, MCP setup, workspace files and terminals, engine/plugin/speech/
-// telemetry settings, and computer-use mediation. `computer-stop` is the one exception:
-// it is the same protective stop as stop-chat for work that happens to control the computer.
+// telemetry settings, and computer-use mediation. `computer-stop` and
+// `computer-app-answer` are the exceptions: the phone may stop computer control and answer
+// the access card while the computer itself stays in charge of that control.
 export const COMPUTER_ONLY_PREFIXES = Object.freeze([
   'phone-',
   'session-',
@@ -110,6 +114,7 @@ export function computerOnlyError(endpoint) {
   if (endpoint.startsWith('telemetry-')) return { code: 'bot/refused', message: 'Privacy and telemetry settings are managed on the computer', details: {} }
   if (endpoint === 'folder-pick') return { code: 'bot/refused', message: 'Folders are chosen in a window on the computer', details: {} }
   if (endpoint.startsWith('computer-')) return { code: 'bot/refused', message: 'Computer use is controlled on the computer', details: {} }
+  if (endpoint === 'connector-import-scan' || endpoint === 'connector-import') return { code: 'bot/refused', message: 'Connector imports read apps on this computer', details: {} }
   return { code: 'bot/refused', message: 'This action is available in the window on the computer', details: {} }
 }
 

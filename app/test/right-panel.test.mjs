@@ -62,7 +62,7 @@ const stubs = {
 }
 
 const entryCode = `
-  export { parseDelimitedTable, FilePreview } from './ui/src/file-preview.js'
+  export { parseDelimitedTable, FilePreview, HtmlPreviewFrame, HtmlPreviewNotice } from './ui/src/file-preview.js'
   export { createLocalLineEditor, createTerminalKeyHandler, parseAnsiSpans, readXtermTheme, WorkspaceTerminal } from './ui/src/workspace-terminal.js'
   export { ChangesReview } from './ui/src/changes-review.js'
   export { RightPanel, WorkspacePaneBody, buildWorkspaceTabs } from './ui/src/right-panel.js'
@@ -200,6 +200,8 @@ runInNewContext(outputFiles[0].text, sandbox)
 const {
   parseDelimitedTable,
   FilePreview,
+  HtmlPreviewFrame,
+  HtmlPreviewNotice,
   createLocalLineEditor,
   createTerminalKeyHandler,
   parseAnsiSpans,
@@ -411,6 +413,30 @@ test('FilePreview renders Markdown, CSV table, strictly sandboxed HTML, PDF (Off
     pdf.unmount()
   }
   assert.equal(revokedUrls.length, 1, 'PDF blob URL must be revoked on unmount')
+})
+
+test('HtmlPreviewFrame keeps the iframe isolated and the blocked notice outside it without a DOM parser', () => {
+  const framed = mount(HtmlPreviewFrame, { html: '<!doctype html><p>Hello</p>', title: 'demo.html' })
+  try {
+    const tree = framed.render()
+    const iframe = all(tree, n => n.type === 'iframe')[0]
+    assert.equal(iframe.props.sandbox, '', 'HTML preview iframe must be strictly sandboxed with empty sandbox attribute')
+    assert.equal(iframe.props.referrerPolicy, 'no-referrer')
+    assert.equal(iframe.props.srcDoc, '<!doctype html><p>Hello</p>')
+    assert.equal(iframe.props.title, 'demo.html')
+  } finally {
+    framed.unmount()
+  }
+  const notice = mount(HtmlPreviewNotice)
+  try {
+    const tree = notice.render()
+    const banner = all(tree, n => n.props?.className === 'dsb-pv-banner')[0]
+    assert.ok(banner)
+    assert.match(textOf(tree), /external or local resources are blocked/)
+    assert.equal(all(tree, n => n.type === 'iframe').length, 0, 'notice is outside the iframe')
+  } finally {
+    notice.unmount()
+  }
 })
 
 for (const native of [false, true]) {
