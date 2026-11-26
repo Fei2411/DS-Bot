@@ -47,6 +47,7 @@ export class BotViews {
   #wss
   #address
   #onChange
+  #onInputShortcut
   #downloadPaths = new Map()
   #downloadRoots = new Map()
   #statePath
@@ -71,7 +72,7 @@ export class BotViews {
   #disposed = false
 
   constructor({
-    window, WebContentsView, guests, origin, devTools = false, onChange = () => {}, statePath,
+    window, WebContentsView, guests, origin, devTools = false, onChange = () => {}, onInputShortcut = () => false, statePath,
     maxLiveViews = MAX_LIVE_VIEWS, idleMs = IDLE_EVICT_MS, maxTabsPerBot = MAX_TABS_PER_BOT,
     persistDebounceMs = PERSIST_DEBOUNCE_MS,
   }) {
@@ -81,6 +82,7 @@ export class BotViews {
     this.#origin = origin
     this.#devTools = devTools
     this.#onChange = onChange
+    this.#onInputShortcut = onInputShortcut
     this.#statePath = statePath
     this.#maxLiveViews = maxLiveViews
     this.#idleMs = idleMs
@@ -216,6 +218,9 @@ export class BotViews {
       return { action: 'deny' }
     })
     contents.on('will-attach-webview', event => event.preventDefault())
+    contents.on('before-input-event', (event, input) => {
+      if (this.#onInputShortcut(input) === true) event.preventDefault()
+    })
     contents.on('login', (event, _details, _auth, callback) => { event.preventDefault(); callback() })
     this.#guests.setDownloadHandler(`bot:${botId}`, (event, item, source) => {
       const target = [...this.#views.values()].find(value => value.botId === botId && value.view.webContents === source)
