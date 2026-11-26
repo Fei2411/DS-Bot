@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
+import { once } from 'node:events'
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
+import { setTimeout as delay } from 'node:timers/promises'
 import { LocalAgentAdapter } from '../src/host/local-agents/adapter.js'
 import { AcpEngine, stdioBridgePath } from '../src/host/local-agents/acp.js'
 import { CodexEngine, unwrapShellCommand } from '../src/host/local-agents/codex.js'
@@ -27,7 +29,7 @@ const system = (id, text) => ({ id, role: 'system', content: [{ type: 'text', te
 const toolResult = (id, callId, text, isError = false) => ({ id, role: 'tool', content: [{ type: 'text', text }], toolCallId: callId, isError, source: { kind: 'tool', callId } })
 
 // An adapter wired to the fake CLIs: every engine route spawns `node fixture`.
-function makeAdapter({ records = {}, preset = 'workspace-write', acp = FIXTURES.acp, acpArgs = [], cancelAckTimeoutMs, codex = FIXTURES.codex, codexArgs = [], claude = FIXTURES.claude, claudeArgs = [], cwdFor, attachments, fs, rt, freshMemoryView } = {}) {
+function makeAdapter({ records = {}, preset = 'workspace-write', review = false, acp = FIXTURES.acp, acpArgs = [], cancelAckTimeoutMs, codex = FIXTURES.codex, codexArgs = [], claude = FIXTURES.claude, claudeArgs = [], cwdFor, attachments, fs, rt, freshMemoryView } = {}) {
   const files = { acp, codex, claude }
   const spawned = []
   const adapter = new LocalAgentAdapter({
@@ -47,6 +49,7 @@ function makeAdapter({ records = {}, preset = 'workspace-write', acp = FIXTURES.
     record: sessionId => records[sessionId],
     saveRecord: (sessionId, record) => { records[sessionId] = record },
     presetFor: typeof preset === 'function' ? preset : () => preset,
+    reviewFor: () => review,
     cwdFor: cwdFor ?? (async () => mkdtempSync(join(tmpdir(), 'dsb-cwd-'))),
     probeCwd: () => mkdtempSync(join(tmpdir(), 'dsb-probe-')),
     toolsFor: () => [{ name: 'message_bot', description: 'Message another Bot', parameters: { type: 'object', properties: { bot: { type: 'string' }, text: { type: 'string' } } } }],
@@ -84,6 +87,27 @@ test('session-title and compaction stay deterministic, no CLI is started', async
   const title = await collect(adapter.stream(options('s1', [user('m1', 'Please review the auth changes')], { purpose: 'session-title' })))
   assert.equal(title.text, 'Please review the auth changes')
   assert.equal(title.finish.kind, 'stop')
+
+  const framedArray = await collect(adapter.stream(options('s1', [
+    user('m1', 'Generate the session title from this JSON array of human messages:\n[{"seq":10,"text":"Fix perfesclist loading issue\\nmore details"}]'),
+  ], { purpose: 'session-title' })))
+  assert.equal(framedArray.text, 'Fix perfesclist loading issue')
+
+  const framedObject = await collect(adapter.stream(options('s1', [
+    user('m1', 'Update the session title from this JSON object:\n{"currentTitle":"Old title","messages":[{"seq":10,"text":"Refactor login flow"}]}'),
+  ], { purpose: 'session-title' })))
+  assert.equal(framedObject.text, 'Refactor login flow')
+
+  const framedFallbackCurrent = await collect(adapter.stream(options('s1', [
+    user('m1', 'Update the session title from this JSON object:\n{"currentTitle":"Keep existing title","messages":[]}'),
+  ], { purpose: 'session-title' })))
+  assert.equal(framedFallbackCurrent.text, 'Keep existing title')
+
+  const framedMalformed = await collect(adapter.stream(options('s1', [
+    user('m1', 'Generate the session title from this JSON array of human messages:\n{bad json'),
+  ], { purpose: 'session-title' })))
+  assert.equal(framedMalformed.text, 'Chat')
+
   const digest = await collect(adapter.stream(options('s1', [user('m1', 'hello')], { purpose: 'compaction' })))
   assert.match(digest.text, /condensed/)
   assert.equal(adapter.engines.size, 0)
@@ -132,10 +156,13 @@ test('queued calls finish later streams', async (t) => {
   t.after(() => adapter.dispose())
   const first = await collect(adapter.stream(options('s1', [user('m1', 'two-calls')])))
   assert.equal(first.finish.kind, 'tool-calls')
-  assert.equal(first.calls.length, 1)
-  const seen = [user('m1', 'two-calls'), toolResult('m2', first.calls[0].id, 'one back')]
+  assert.ok(first.calls.length === 1 || first.calls.length === 2, JSON.stringify(first.calls))
+  const seen = [
+    user('m1', 'two-calls'),
+    ...first.calls.map((call, index) => toolResult(`m${index + 2}`, call.id, index === 0 ? 'one back' : 'two back')),
+  ]
   const second = await collect(adapter.stream(options('s1', seen)))
-  // The second queued call is emitted (or the agent already got both answered).
+  // Either both parallel calls were batched in one step and finished here, or the second queued call is emitted now.
   assert.ok(second.finish.kind === 'tool-calls' || /tool said/.test(second.text), JSON.stringify(second))
 })
 
@@ -149,6 +176,7 @@ test('a permission prompt bridges to approve_agent_action and fails closed', asy
   const asked = JSON.parse(ask.calls[0].arguments ?? JSON.stringify(ask.calls[0].args))
   assert.equal(asked.action, 'Run `rm -rf /tmp/x`')
   assert.equal(asked.detail ?? '', '')
+  assert.equal(JSON.parse(asked.evidence).rawInput.command, 'rm -rf /tmp/x')
   // An allowed answer picks the agent's allow option: the tool returns its
   // structured decision, and only {"decision":"allow"} counts.
   const allowed = await collect(adapter.stream(options('s1', [user('m1', 'ask-permission'), toolResult('m2', ask.calls[0].id, JSON.stringify({ decision: 'allow' }))])))
@@ -189,6 +217,133 @@ test('abort cancels the turn and the pending calls', async (t) => {
   setTimeout(() => control.abort(), 300)
   const out = await stream
   assert.equal(out.finish.kind, 'aborted')
+})
+
+test('acp: a stalled prompt fails instead of ending normally or being replayed', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsb-acp-stall-'))
+  const record = join(dir, 'requests.jsonl')
+  const adapter = makeAdapter({ acpArgs: ['--record', record] })
+  t.after(() => adapter.dispose())
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  await collect(adapter.stream(options('s1', [user('m0', 'hello')])))
+  const engine = adapter.engine('local-acp-fake')
+  const exited = once(engine.child, 'exit')
+  const live = adapter.live.get('s1')
+  clearTimeout(live.idle)
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  live.push({ type: 'status' })
+  const prompts = () => readFileSync(record, 'utf8').trim().split('\n').map(JSON.parse).filter(entry => entry.method === 'session/prompt')
+  const pending = collect(adapter.stream(options('s1', [user('m0', 'hello'), user('m1', 'hang')]))).catch(error => ({ error }))
+  for (let attempt = 0; prompts().length < 2 && attempt < 300; attempt++) await delay(10)
+  assert.equal(prompts().length, 2)
+  assert.equal(live.engineSession.running, true)
+  t.mock.timers.tick(10 * 60_000)
+  const outcome = await pending
+  assert.equal(outcome.error?.code ?? outcome.finish?.kind, 'LOCAL_AGENT_EXIT')
+  assert.match(outcome.error.message, /stalled/)
+  await exited
+  assert.equal(adapter.live.has('s1'), false)
+  assert.equal(prompts().length, 2)
+  assert.equal(adapter.providerRetryPolicy().maxRetries, 0)
+})
+
+test('acp: tool output without a label or status change keeps the turn alive', async (t) => {
+  const adapter = makeAdapter()
+  t.after(() => adapter.dispose())
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const pending = collect(adapter.stream(options('s1', [user('m1', 'hang')]))).catch(error => ({ error }))
+  for (let attempt = 0; !adapter.live.get('s1')?.engineSession?.running && attempt < 300; attempt++) await delay(10)
+  const live = adapter.live.get('s1')
+  assert.equal(live?.engineSession?.running, true)
+  const { peer } = adapter.engine('local-acp-fake')
+  const promptId = peer.nextId
+  const tool = { toolCallId: 'tool', kind: 'execute', title: 'Run tests', status: 'in_progress' }
+  const update = (sessionUpdate, content) => peer.handleLine(JSON.stringify({
+    jsonrpc: '2.0', method: 'session/update',
+    params: { sessionId: live.engineSession.acpSessionId, update: { sessionUpdate, ...tool, content } },
+  }))
+  update('tool_call')
+  await delay(0)
+  t.mock.timers.tick(9 * 60_000)
+  update('tool_call_update', [{ type: 'content', content: { type: 'text', text: 'More tests passed' } }])
+  await delay(0)
+  t.mock.timers.tick(60_000)
+  peer.handleLine(JSON.stringify({ jsonrpc: '2.0', id: promptId, result: { stopReason: 'end_turn' } }))
+  const outcome = await pending
+  assert.equal(outcome.error?.code ?? outcome.finish?.kind, 'stop')
+  assert.equal(outcome.thinking.trim().split('\n').length, 1)
+  assert.match(outcome.thinking, /Run tests/)
+})
+
+test('acp: a stall after approval leaves the queued follow-up for explicit retry', async (t) => {
+  const records = {}
+  const adapter = makeAdapter({ records, review: true, acpArgs: ['--stall-after-permission'] })
+  t.after(() => adapter.dispose())
+  const first = user('m1', 'ask-permission')
+  const ask = await collect(adapter.stream(options('s1', [first])))
+  assert.equal(ask.finish.kind, 'tool-calls')
+  const approval = toolResult('m2', ask.calls[0].id, JSON.stringify({ decision: 'allow' }))
+  const followup = user('m3', 'also check the logs')
+  const live = adapter.live.get('s1')
+  const cliSessionId = records.s1.cliSessionId
+  clearTimeout(live.idle)
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const stalled = assert.rejects(collect(adapter.stream(options('s1', [first, approval, followup]))), error => error.code === 'LOCAL_AGENT_EXIT')
+  for (let attempt = 0; live.state !== 'running' && attempt < 300; attempt++) await delay(10)
+  assert.equal(live.state, 'running')
+  assert.equal(live.engineSession.running, true)
+  assert.equal(live.queue.length, 1)
+  assert.equal(records.s1.handedId, 'm1')
+  t.mock.timers.tick(10 * 60_000)
+  await stalled
+  t.mock.timers.reset()
+  const retry = { ...user('m4', 'Answer the last unanswered message.'), source: { kind: 'bot', form: 'relay', role: 'continue' } }
+  const out = await collect(adapter.stream(options('s1', [first, approval, followup, retry])))
+  assert.equal(adapter.live.get('s1').engineSession.resumed, true)
+  assert.equal(records.s1.cliSessionId, cliSessionId)
+  assert.match(out.text, /also check the logs/)
+  assert.equal(records.s1.handedId, 'm4')
+})
+
+test('acp: a queued follow-up without instructions does not undo compaction invalidation', async (t) => {
+  const records = {}
+  const adapter = makeAdapter({ records, review: true, acpArgs: ['--compact-after-permission'] })
+  t.after(() => adapter.dispose())
+  const messages = [system('sys', 'Brief.'), user('m1', 'ask-permission')]
+  const ask = await collect(adapter.stream(options('s1', messages)))
+  assert.equal(ask.finish.kind, 'tool-calls')
+  assert.notEqual(records.s1.promptHash, undefined)
+  messages.push(toolResult('m2', ask.calls[0].id, JSON.stringify({ decision: 'allow' })), user('m3', 'also check the logs'))
+  const followed = await collect(adapter.stream(options('s1', messages)))
+  assert.match(followed.text, /also check the logs/)
+  assert.doesNotMatch(followed.text, /Updated team instructions/)
+  assert.equal(records.s1.compactions, 1)
+  messages.push(user('m4', 'what did you find?'))
+  const next = await collect(adapter.stream(options('s1', messages)))
+  assert.match(next.text, /Updated team instructions.*\n\nBrief\./)
+})
+
+test('acp: a forgotten stalled prompt releases its RPC without closing a shared peer', async (t) => {
+  const adapter = makeAdapter({ acpArgs: ['--no-cancel-ack'] })
+  t.after(() => adapter.dispose())
+  await collect(adapter.stream(options('other', [user('other1', 'hello')])))
+  const engine = adapter.engine('local-acp-fake')
+  const peer = engine.peer
+  const child = engine.child
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const stalled = assert.rejects(collect(adapter.stream(options('s1', [user('m1', 'hang')]))), error => error.code === 'LOCAL_AGENT_EXIT')
+  for (let attempt = 0; !adapter.live.get('s1')?.engineSession?.running && attempt < 300; attempt++) await delay(10)
+  assert.equal(adapter.live.get('s1')?.engineSession?.running, true)
+  const promptId = peer.nextId
+  assert.equal(peer.pending.has(promptId), true)
+  t.mock.timers.tick(10 * 60_000)
+  await stalled
+  t.mock.timers.reset()
+  assert.equal(engine.peer, peer)
+  assert.equal(engine.child, child)
+  assert.equal(peer.pending.has(promptId), false)
+  const next = await collect(adapter.stream(options('other', [user('other1', 'hello'), user('other2', 'still here')])))
+  assert.equal(next.text, 'ok: still here')
 })
 
 test('acp: a stopped prompt cannot fail or finish the following turns', async (t) => {
@@ -436,6 +591,18 @@ test('acp: full access allows and read-only refuses a change without a card', as
   assert.match(refused.text, /denied/)
 })
 
+test('model review preserves read-only denials and suppresses full-access preset grants', async t => {
+  for (const preset of ['read-only', 'danger-full-access']) {
+    const adapter = makeAdapter({ preset, review: true, acpArgs: ['--cursor-modes'] })
+    t.after(() => adapter.dispose())
+    const result = await collect(adapter.stream(options('s1', [user('m1', 'ask-permission')])))
+    if (preset === 'read-only') {
+      assert.equal(result.calls.length, 0)
+      assert.match(result.text, /denied/)
+    } else assert.equal(result.calls[0]?.name, 'approve_agent_action')
+  }
+})
+
 test('devin: a call to the dsbot server is allowed once without asking; other servers still ask', async (t) => {
   const adapter = makeAdapter()
   t.after(() => adapter.dispose())
@@ -447,11 +614,12 @@ test('devin: a call to the dsbot server is allowed once without asking; other se
   assert.equal(other.calls[0]?.name, 'approve_agent_action')
 })
 
-test('acp: a dsbot call with no one-time allow still asks', async (t) => {
+test('acp: a request with no one-time allow is refused without a misleading approval card', async (t) => {
   const adapter = makeAdapter()
   t.after(() => adapter.dispose())
-  const asked = await collect(adapter.stream(options('s1', [user('m1', 'team-permission always-only')])))
-  assert.equal(asked.calls[0]?.name, 'approve_agent_action')
+  const denied = await collect(adapter.stream(options('s1', [user('m1', 'team-permission always-only')])))
+  assert.equal(denied.calls.length, 0)
+  assert.match(denied.text, /denied/)
 })
 
 test('acp: the preset picks among the modes the session lists', async (t) => {
@@ -517,6 +685,51 @@ test('codex app-server: thread per session, models from model/list', async (t) =
   const out = await collect(adapter.stream(options('s1', [user('m1', 'fix it')], { provider: 'local-codex-cli' })))
   assert.match(out.text, /fix it/)
   assert.match(out.thinking, /▸/)
+})
+
+test('codex app-server: failed thread start closes the bridge so the same session can retry', async (t) => {
+  const codexArgs = ['--fail-start']
+  const adapter = makeAdapter({ codexArgs })
+  t.after(() => adapter.dispose())
+  const request = options('s1', [user('m1', 'list-team-tools')], { provider: 'local-codex-cli' })
+  const live = await adapter.liveFor(request, adapter.deps.presetFor('s1'))
+  await live.engine.ensure()
+  const child = live.engine.child
+
+  await assert.rejects(collect(adapter.stream(request)), /thread start failed/)
+  assert.equal(live.mcp.server.listening, false)
+  assert.ok(child.exitCode !== null || child.signalCode !== null)
+  assert.equal(adapter.live.has('s1'), false)
+
+  codexArgs.length = 0
+  const out = await collect(adapter.stream(request))
+  assert.equal(out.text, 'message_bot')
+  assert.equal(out.finish.kind, 'stop')
+})
+
+test('codex app-server: idle resume reconnects team tools without disturbing another conversation', async (t) => {
+  const records = {}
+  const adapter = makeAdapter({ records })
+  t.after(() => adapter.dispose())
+  const listTools = async (sessionId, ...ids) => (await collect(adapter.stream(options(
+    sessionId, ids.map(id => user(id, 'list-team-tools')), { provider: 'local-codex-cli' },
+  )))).text
+  assert.equal(await listTools('a', 'm1'), 'message_bot')
+  assert.equal(await listTools('b', 'm1'), 'message_bot')
+  const a = adapter.live.get('a')
+  const b = adapter.live.get('b')
+  const threadId = records.a.cliSessionId
+  const aProcess = a.engine.child
+  const bProcess = b.engine.child
+
+  await adapter.closeLive(a, { idle: true })
+  assert.equal(a.mcp.server.listening, false)
+  assert.equal(await listTools('a', 'm1', 'm2'), 'message_bot')
+  assert.ok(aProcess.exitCode !== null || aProcess.signalCode !== null)
+  assert.equal(records.a.cliSessionId, threadId)
+  assert.equal(adapter.live.get('a').engineSession.resumed, true)
+  assert.equal(await listTools('b', 'm1', 'm2'), 'message_bot')
+  assert.equal(adapter.live.get('b').engine.child, bProcess)
 })
 
 // #1144: Codex 0.166 reads ThreadStartParams at the top level and the MCP servers from
@@ -871,6 +1084,29 @@ test('claude: the retry flow replays the unanswered message', async (t) => {
   const prompts = readFileSync(`${runs}.prompts`, 'utf8')
   assert.match(prompts, /fix the login/)
   assert.match(prompts, /last unanswered message/)
+})
+
+test('claude: an explicit retry includes the message from a pre-init stall', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsb-claude-stall-'))
+  const runs = join(dir, 'runs')
+  const records = {}
+  const adapter = makeAdapter({ records, claude: FIXTURE('fake-claude-flaky.mjs'), claudeArgs: [runs, '', '', '--stall-first'] })
+  t.after(() => adapter.dispose())
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const asked = user('m1', 'fix the login')
+  const request = messages => options('s1', messages, { provider: 'local-claude-code' })
+  const stalled = assert.rejects(collect(adapter.stream(request([asked]))), error => error.code === 'LOCAL_AGENT_EXIT' && /stalled/.test(error.message))
+  for (let attempt = 0; statSync(runs, { throwIfNoEntry: false })?.size !== 1 && attempt < 300; attempt++) await delay(10)
+  assert.equal(readFileSync(runs, 'utf8'), '1')
+  assert.equal(adapter.live.get('s1')?.engineSession?.running, true)
+  assert.equal(records.s1.handedId, 'm1')
+  t.mock.timers.tick(10 * 60_000)
+  await stalled
+  t.mock.timers.reset()
+  const retry = { ...user('m2', 'Answer the last unanswered message.'), source: { kind: 'bot', form: 'relay', role: 'continue' } }
+  assert.equal((await collect(adapter.stream(request([asked, retry])))).finish.kind, 'stop')
+  assert.match(readFileSync(`${runs}.prompts`, 'utf8'), /fix the login/)
 })
 
 // The rollback is saved, not only kept in memory: a host that restarts after a
@@ -1323,23 +1559,33 @@ test('acp tries HTTP MCP when mcpCapabilities is omitted (#1073), bridges stdio 
   const stdioOnly = makeAdapter({ acpArgs: ['--no-http-mcp'] })
   t.after(() => stdioOnly.dispose())
   const stdio1 = await collect(stdioOnly.stream(options('s-stdio', [user('m1', 'two-calls')])))
-  assert.equal(stdio1.calls.length, 1)
+  assert.ok(stdio1.calls.length === 1 || stdio1.calls.length === 2, JSON.stringify(stdio1.calls))
   assert.equal(stdio1.calls[0]?.name, 'message_bot')
-  const msg1 = JSON.parse(stdio1.calls[0].arguments).message
-  const reply1 = msg1 === 'hi 0' ? 'zero' : 'one'
-  const stdio2 = await collect(stdioOnly.stream(options('s-stdio', [
-    user('m1', 'two-calls'),
-    toolResult('m2', stdio1.calls[0].id, reply1),
-  ])))
-  assert.equal(stdio2.calls.length, 1)
-  const msg2 = JSON.parse(stdio2.calls[0].arguments).message
-  assert.notEqual(msg1, msg2)
-  const reply2 = msg2 === 'hi 0' ? 'zero' : 'one'
-  const stdioDone = await collect(stdioOnly.stream(options('s-stdio', [
-    user('m1', 'two-calls'),
-    toolResult('m2', stdio1.calls[0].id, reply1),
-    toolResult('m3', stdio2.calls[0].id, reply2),
-  ])))
+  const replyFor = (call) => (JSON.parse(call.arguments).message === 'hi 0' ? 'zero' : 'one')
+  let stdioDone
+  if (stdio1.calls.length === 2) {
+    assert.notEqual(JSON.parse(stdio1.calls[0].arguments).message, JSON.parse(stdio1.calls[1].arguments).message)
+    stdioDone = await collect(stdioOnly.stream(options('s-stdio', [
+      user('m1', 'two-calls'),
+      toolResult('m2', stdio1.calls[0].id, replyFor(stdio1.calls[0])),
+      toolResult('m3', stdio1.calls[1].id, replyFor(stdio1.calls[1])),
+    ])))
+  } else {
+    const msg1 = JSON.parse(stdio1.calls[0].arguments).message
+    const reply1 = replyFor(stdio1.calls[0])
+    const stdio2 = await collect(stdioOnly.stream(options('s-stdio', [
+      user('m1', 'two-calls'),
+      toolResult('m2', stdio1.calls[0].id, reply1),
+    ])))
+    assert.equal(stdio2.calls.length, 1)
+    const msg2 = JSON.parse(stdio2.calls[0].arguments).message
+    assert.notEqual(msg1, msg2)
+    stdioDone = await collect(stdioOnly.stream(options('s-stdio', [
+      user('m1', 'two-calls'),
+      toolResult('m2', stdio1.calls[0].id, reply1),
+      toolResult('m3', stdio2.calls[0].id, replyFor(stdio2.calls[0])),
+    ])))
+  }
   assert.match(stdioDone.text, /tool said: zero \| one/)
 
   const records = {}
@@ -2230,7 +2476,7 @@ test('ACP upstream error data preserves code, detail and status (#1806)', async 
       data: { code }, code: 'LOCAL_AGENT_QUOTA', text: 'Internal error',
     })),
     ...[
-      ['Too many tokens', 'CONTEXT_WINDOW_EXCEEDED'],
+      ['Prompt is too long', 'CONTEXT_WINDOW_EXCEEDED'],
       ['Login required', 'LOCAL_AGENT_SIGNIN'],
       ['Rate limit reached', 'LOCAL_AGENT_QUOTA'],
     ].flatMap(([text, code]) => [
@@ -2240,7 +2486,7 @@ test('ACP upstream error data preserves code, detail and status (#1806)', async 
     ...[
       ['Login required', 'LOCAL_AGENT_SIGNIN'],
       ['Rate limit reached', 'LOCAL_AGENT_QUOTA'],
-      ['Too many tokens', 'CONTEXT_WINDOW_EXCEEDED'],
+      ['Prompt is too long', 'CONTEXT_WINDOW_EXCEEDED'],
     ].map(([message, code]) => ({ message, data: { detail }, code, text: detail })),
     { data: { code: '', detail }, code: 'LOCAL_AGENT_ERROR', text: detail },
     { data: { code: 403, detail }, code: 'LOCAL_AGENT_ERROR', text: detail },

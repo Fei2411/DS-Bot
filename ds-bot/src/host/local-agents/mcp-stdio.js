@@ -7,11 +7,42 @@ const token = process.env.DSBOT_MCP_TOKEN || process.argv[3]
 
 if (!url || !token) process.exit(1)
 
+const STDIN_CLOSE_GRACE_MS = 2_000
+
 let sessionId
 const inFlight = new Set()
+const sseKeepaliveControllers = new Set()
+const shutdown = new AbortController()
+let stdinClosed = false
+let exiting = false
+let graceTimer
+let notificationStreamStarted = false
 
 const send = (message) => {
   process.stdout.write(`${JSON.stringify(message)}\n`)
+}
+
+function startNotificationStream() {
+  if (notificationStreamStarted || shutdown.signal.aborted) return
+  notificationStreamStarted = true
+  const headers = {
+    Authorization: `Bearer ${token}`,
+    Accept: 'text/event-stream',
+  }
+  if (sessionId !== undefined) headers['mcp-session-id'] = sessionId
+  void fetch(url, { method: 'GET', headers, signal: shutdown.signal })
+    .then(async (response) => {
+      if (!response.ok || response.body === null) return
+      const contentType = response.headers.get('content-type') ?? ''
+      if (!contentType.includes('text/event-stream')) {
+        await response.body.cancel().catch(() => {})
+        return
+      }
+      await readSse(response.body, (msg) => {
+        if (!shutdown.signal.aborted && msg !== null && typeof msg === 'object') send(msg)
+      })
+    })
+    .catch(() => {})
 }
 
 const sendError = (id, code, message) => {
@@ -32,21 +63,26 @@ async function readSse(body, onJson) {
   const reader = body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    buffer += decoder.decode(value, { stream: true })
-    let match
-    while ((match = /\r?\n\r?\n/u.exec(buffer)) !== null) {
-      parseSseEvent(buffer.slice(0, match.index), onJson)
-      buffer = buffer.slice(match.index + match[0].length)
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      let match
+      while ((match = /\r?\n\r?\n/u.exec(buffer)) !== null) {
+        parseSseEvent(buffer.slice(0, match.index), onJson)
+        buffer = buffer.slice(match.index + match[0].length)
+      }
     }
+    buffer += decoder.decode()
+    if (buffer.trim() !== '') parseSseEvent(buffer, onJson)
+  } finally {
+    reader.releaseLock?.()
   }
-  buffer += decoder.decode()
-  if (buffer.trim() !== '') parseSseEvent(buffer, onJson)
 }
 
 async function forward(raw) {
+  if (shutdown.signal.aborted) return
   let parsed
   try {
     parsed = JSON.parse(raw)
@@ -62,10 +98,13 @@ async function forward(raw) {
   }
   if (sessionId !== undefined) headers['mcp-session-id'] = sessionId
 
+  const reqAbort = new AbortController()
+  const signal = AbortSignal.any([shutdown.signal, reqAbort.signal])
   let response
   try {
-    response = await fetch(url, { method: 'POST', headers, body: raw })
+    response = await fetch(url, { method: 'POST', headers, body: raw, signal })
   } catch (error) {
+    if (signal.aborted) return
     sendError(hasId ? parsed.id : undefined, -32603, error instanceof Error ? error.message : String(error))
     return
   }
@@ -78,6 +117,7 @@ async function forward(raw) {
   }
   if (!response.ok) {
     const detail = (await response.text().catch(() => '')).trim()
+    if (signal.aborted) return
     sendError(hasId ? parsed.id : undefined, -32603, detail || `MCP HTTP ${response.status}`)
     return
   }
@@ -85,15 +125,34 @@ async function forward(raw) {
   const contentType = response.headers.get('content-type') ?? ''
   if (contentType.includes('text/event-stream') && response.body !== null) {
     let responded = false
-    await readSse(response.body, (msg) => {
-      if (hasId && msg?.id === parsed.id) responded = true
-      send(msg)
-    })
-    if (hasId && !responded) sendError(parsed.id, -32603, 'MCP stream ended without a response')
+    try {
+      await readSse(response.body, (msg) => {
+        if (hasId && msg?.id === parsed.id) responded = true
+        if (msg?.method === 'notifications/progress') {
+          sseKeepaliveControllers.add(reqAbort)
+          if (stdinClosed) reqAbort.abort()
+        }
+        send(msg)
+      })
+    } catch (error) {
+      if (signal.aborted) return
+      sendError(hasId ? parsed.id : undefined, -32603, error instanceof Error ? error.message : String(error))
+      return
+    } finally {
+      sseKeepaliveControllers.delete(reqAbort)
+    }
+    if (hasId && !responded && !signal.aborted) sendError(parsed.id, -32603, 'MCP stream ended without a response')
     return
   }
 
-  const text = (await response.text()).trim()
+  let text
+  try {
+    text = (await response.text()).trim()
+  } catch (error) {
+    if (signal.aborted) return
+    sendError(hasId ? parsed.id : undefined, -32603, error instanceof Error ? error.message : String(error))
+    return
+  }
   if (text === '') {
     if (hasId) sendError(parsed.id, -32603, 'Empty MCP HTTP response')
     return
@@ -104,11 +163,32 @@ async function forward(raw) {
       for (const item of data) send(item)
     } else {
       send(data)
+      if (parsed?.method === 'initialize' && data?.result?.capabilities?.tools?.listChanged === true) {
+        startNotificationStream()
+      }
     }
   } catch {
     if (hasId) sendError(parsed.id, -32603, 'Invalid MCP JSON response')
   }
 }
+
+const finishExit = () => {
+  clearTimeout(graceTimer)
+  graceTimer = undefined
+  process.exit(0)
+}
+
+const abortAndExit = () => {
+  if (exiting) return
+  exiting = true
+  clearTimeout(graceTimer)
+  graceTimer = undefined
+  shutdown.abort()
+  void Promise.allSettled(inFlight).finally(finishExit)
+}
+
+process.on('SIGTERM', abortAndExit)
+process.on('SIGINT', abortAndExit)
 
 const lines = createInterface({ input: process.stdin, crlfDelay: Infinity })
 lines.on('line', (line) => {
@@ -118,5 +198,16 @@ lines.on('line', (line) => {
   inFlight.add(task)
 })
 lines.on('close', () => {
-  void Promise.allSettled(inFlight).then(() => process.exit(0))
+  stdinClosed = true
+  if (exiting) return
+  if (inFlight.size === 0) {
+    abortAndExit()
+    return
+  }
+  for (const ctrl of sseKeepaliveControllers) ctrl.abort()
+  graceTimer = setTimeout(abortAndExit, STDIN_CLOSE_GRACE_MS)
+  graceTimer.unref?.()
+  void Promise.allSettled(inFlight).then(() => {
+    if (!exiting) abortAndExit()
+  })
 })

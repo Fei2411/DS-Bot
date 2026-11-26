@@ -474,7 +474,7 @@ const cleanRewrittenText = (text) => text
 // Resolves local image references via `resolveImage(path)` (backed by DS Bot's
 // `markdown-image` workspace boundary), strips successfully resolved tags from
 // the reply text, and replaces unresolved ones with a visible failure note.
-export async function prepareOutboundReply(body, { resolveImage }) {
+export async function prepareOutboundReply(body, { resolveImage, maxBytes }) {
   const source = String(body ?? '')
   const links = extractLocalMarkdownImages(source)
   if (links.length === 0) return { text: source, images: [], failed: [] }
@@ -495,6 +495,8 @@ export async function prepareOutboundReply(body, { resolveImage }) {
           outcome = { ok: false, reason: `Unsupported IM image format (${mediaType || 'unknown'})` }
         } else if (data === undefined || data.byteLength === 0) {
           outcome = { ok: false, reason: 'Empty image' }
+        } else if (maxBytes !== undefined && data.byteLength > maxBytes) {
+          outcome = { ok: false, reason: `Image over the IM platform's ${maxBytes}-byte limit` }
         } else {
           const image = {
             data,

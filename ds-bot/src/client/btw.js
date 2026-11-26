@@ -1,11 +1,14 @@
 // The earlier `/btw` aside cards. Their contents are read-only; the user can
 // delete a card when it is no longer wanted.
-import { createElement as h, useEffect, useState } from 'react'
+import { createElement as h, useEffect, useMemo, useState } from 'react'
 import { MarkdownText } from './dsh-primitives.js'
 import { hostText, mdLabels, t } from './i18n.js'
 import { CloseIcon } from './icons.js'
 import { messageClock } from './text.js'
-import { dockCards, sessionCards, tailCards } from './btw-model.js'
+import { dockCards, tailCards } from './btw-model.js'
+
+const EMPTY_TURN_FACTS = { turns: undefined, openTurn: undefined }
+const EMPTY_CARDS = []
 
 export function failureText(card) {
   const raw = typeof card.error === 'string' ? card.error : card.error?.message
@@ -68,9 +71,13 @@ export function BtwCardView({ card, compact = false, sessionId, actions, onDelet
     answer !== '' ? h('div', { className: 'bt-btw-answer' }, h(MarkdownText, { text: answer, labels: mdLabels(), variant: 'compact' })) : null) : null)
 }
 
-export function useTurnFacts(sessionId, actions) {
-  const [facts, setFacts] = useState(() => actions.turnFacts(sessionId))
+export function useTurnFacts(sessionId, actions, active = true) {
+  const [facts, setFacts] = useState(() => (active ? actions.turnFacts(sessionId) : EMPTY_TURN_FACTS))
   useEffect(() => {
+    if (!active) {
+      setFacts(EMPTY_TURN_FACTS)
+      return undefined
+    }
     let live = true
     const read = () => {
       if (!live) return
@@ -80,24 +87,34 @@ export function useTurnFacts(sessionId, actions) {
     read()
     const off = actions.watchTurns(sessionId, read)
     return () => { live = false; off() }
-  }, [sessionId, actions])
+  }, [sessionId, actions, active])
   return facts
+}
+
+function useSessionBtwCards(useRoster, sessionId) {
+  const botCards = useRoster((roster) => {
+    if (!roster?.ready || roster.roomsById?.[sessionId]) return null
+    const bot = roster.byId?.[sessionId]
+    if (!bot) return null
+    return roster.btwCards?.[bot.id] ?? null
+  })
+  return useMemo(() => (Array.isArray(botCards) ? botCards.filter(card => card?.partId === sessionId) : EMPTY_CARDS), [botCards, sessionId])
 }
 
 // Cards whose turn is still open, or that no closed turn owns, sit in the
 // composer dock. No new cards can arrive, and old ones leave when deleted.
 export function BtwDock({ sessionId, useRoster, actions }) {
-  const roster = useRoster(value => value)
-  const facts = useTurnFacts(sessionId, actions)
-  const cards = dockCards(sessionCards(roster, sessionId), facts)
+  const partCards = useSessionBtwCards(useRoster, sessionId)
+  const facts = useTurnFacts(sessionId, actions, partCards.length > 0)
+  const cards = partCards.length > 0 ? dockCards(partCards, facts) : EMPTY_CARDS
   if (cards.length === 0) return null
   return h('div', { className: 'bt-btw-dock' }, cards.map(card => h(BtwCardView, { key: card.id, card, compact: true, sessionId, actions })))
 }
 
 export function BtwTurnTail({ turn, sessionId, useRoster, actions }) {
-  const roster = useRoster(value => value)
-  const facts = useTurnFacts(sessionId, actions)
-  const cards = tailCards(sessionCards(roster, sessionId), turn, facts?.turns)
+  const partCards = useSessionBtwCards(useRoster, sessionId)
+  const facts = useTurnFacts(sessionId, actions, partCards.length > 0)
+  const cards = partCards.length > 0 ? tailCards(partCards, turn, facts?.turns) : EMPTY_CARDS
   if (cards.length === 0) return null
   return h('div', { className: 'bt-btw-stack' }, cards.map(card => h(BtwCardView, { key: card.id, card, sessionId, actions })))
 }

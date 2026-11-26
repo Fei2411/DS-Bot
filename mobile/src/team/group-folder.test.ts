@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import { runInNewContext } from 'node:vm'
 import ts from 'typescript'
+import { roomTitle } from '../ui/phrases.ts'
 
 type Node = { type: unknown; props: Record<string, any> }
 
@@ -35,6 +36,7 @@ function screen(room: Record<string, unknown>, call = async (_name: string, _bod
     '../team/context.tsx': { useTeam: () => ({ team: { rooms: [room], bots: [] }, call }) },
     '../ui/tokens.ts': { useTheme: () => ({ p: {}, dark: false }), type: {}, radius: {}, shadow: () => ({}) },
     '../ui/i18n.ts': { t: (value: string) => value },
+    '../ui/phrases.ts': { roomTitle },
   }
   const exports: Record<string, any> = {}
   runInNewContext(source, { exports, require: (name: string) => modules[name] ?? {} })

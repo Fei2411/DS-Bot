@@ -1,0 +1,178 @@
+import { createElement as h, useEffect, useMemo, useRef } from 'react'
+import { createPortal } from 'react-dom'
+import { t } from '../../../ds-bot/src/client/i18n.js'
+import { CloseIcon } from '../../../ds-bot/src/client/icons.js'
+import { useEscape } from '../../../ds-bot/src/client/overlay-hooks.js'
+import {
+  SHORTCUT_DEFS,
+  SHORTCUT_GROUPS,
+  bindingsEqual,
+  effectiveBinding,
+  formatBindingCaps,
+  isCommandAvailable,
+  isMacPlatform,
+  matchShortcutEvent,
+  shortcutsStore,
+} from '../../../ds-bot/src/client/shortcuts-model.js'
+import { useShortcutOverrides } from '../../../ds-bot/src/client/shortcuts-page.js'
+
+export { isMacPlatform }
+
+let liveShortcutContext = null
+
+/**
+ * Registers the desktop window's live shortcut context provider (modal, settingsOpen,
+ * capabilities) so focused embedded views like xterm mirror the window dispatcher exactly.
+ */
+export function setLiveShortcutContext(provider) {
+  liveShortcutContext = typeof provider === 'function' ? provider : null
+  return () => {
+    if (liveShortcutContext === provider) liveShortcutContext = null
+  }
+}
+
+export function getLiveShortcutContext() {
+  return liveShortcutContext ? liveShortcutContext() : {}
+}
+
+/**
+ * Matches desktop-wide keyboard shortcuts using the active user bindings.
+ * Respects IME composition, already-handled events, recording mode, terminal pass-through,
+ * modal boundaries, and Settings' own Cmd/Ctrl+K search.
+ */
+export function matchGlobalShortcut(event, options = {}) {
+  return matchShortcutEvent(event, options)
+}
+
+function labelForDef(def) {
+  return def.labelVars ? t(def.label, def.labelVars) : t(def.label)
+}
+
+/**
+ * Keyboard shortcuts cheatsheet modal, portaled into `document.body` and dismissed via Esc or backdrop.
+ * Reads live custom bindings from `shortcutsStore` and links straight to Settings → Shortcuts.
+ */
+export function ShortcutsDialog({
+  open,
+  enterToSend = true,
+  hasSurface = true,
+  hasBrowser = true,
+  hasInbox = false,
+  onCustomize,
+  onClose,
+  store = shortcutsStore,
+}) {
+  const closeBtn = useRef(null)
+  const returnFocus = useRef(null)
+  const overrides = useShortcutOverrides(store)
+  useEscape(onClose, open)
+  useEffect(() => {
+    if (open) {
+      returnFocus.current = typeof document !== 'undefined' ? document.activeElement : null
+      closeBtn.current?.focus?.()
+      return undefined
+    }
+    const prev = returnFocus.current
+    returnFocus.current = null
+    const active = typeof document !== 'undefined' ? document.activeElement : null
+    if (prev && prev.isConnected !== false && typeof prev.focus === 'function'
+      && (!active || active === document.body || active === document.documentElement)) {
+      prev.focus()
+    }
+    return undefined
+  }, [open])
+
+  const mac = isMacPlatform()
+  const mod = mac ? '⌘' : 'Ctrl'
+  const shift = mac ? '⇧' : 'Shift'
+
+  const sections = useMemo(() => {
+    const out = []
+    const capabilities = { hasSurface, hasBrowser, hasInbox }
+    const regularGroups = SHORTCUT_GROUPS.filter(group => group.id !== 'chats')
+    for (const group of regularGroups) {
+      const rows = []
+      for (const def of SHORTCUT_DEFS) {
+        if (def.group !== group.id) continue
+        if (!isCommandAvailable(def, capabilities)) continue
+        const binding = effectiveBinding(def.id, overrides)
+        if (!binding) continue
+        rows.push({
+          id: def.id,
+          label: labelForDef(def),
+          keys: formatBindingCaps(binding, mac),
+        })
+      }
+      if (group.id === 'navigation') {
+        const chatDefs = SHORTCUT_DEFS.filter(def => def.group === 'chats')
+        const allDefault = chatDefs.every(def => bindingsEqual(effectiveBinding(def.id, overrides), def.defaultBinding, mac))
+        if (allDefault) {
+          rows.push({
+            id: 'switch-bot-range',
+            label: t('Switch to conversation 1–9'),
+            keys: [mod, '1–9'],
+          })
+        } else {
+          for (const def of chatDefs) {
+            const binding = effectiveBinding(def.id, overrides)
+            if (!binding) continue
+            rows.push({
+              id: def.id,
+              label: labelForDef(def),
+              keys: formatBindingCaps(binding, mac),
+            })
+          }
+        }
+      }
+      if (rows.length > 0) out.push({ id: group.id, title: t(group.label), rows })
+    }
+    out.push({
+      id: 'fixed',
+      title: t('Fixed'),
+      rows: [
+        { id: 'fixed:mention', keys: ['@'], label: t('Mention a Bot') },
+        { id: 'fixed:commands', keys: ['/'], label: t('Commands') },
+        { id: 'fixed:send', keys: enterToSend ? ['Enter'] : [mod, 'Enter'], label: t('Send message') },
+        { id: 'fixed:newline', keys: enterToSend ? [shift, 'Enter'] : ['Enter'], label: t('New line') },
+        { id: 'fixed:stop-esc', keys: ['Esc', 'Esc'], label: t('Stop generating') },
+        { id: 'fixed:esc', keys: ['Esc'], label: t('Close dialog or menu') },
+      ],
+    })
+    return out
+  }, [overrides, mac, mod, shift, enterToSend, hasSurface, hasBrowser, hasInbox])
+
+  if (!open) return null
+
+  const dialog = h('div', {
+    className: 'dsb-shortcuts-layer',
+    onClick: (event) => { if (event.target === event.currentTarget) onClose?.() },
+  },
+  h('div', { className: 'dsb-shortcuts', role: 'dialog', 'aria-modal': true, 'aria-label': t('Keyboard shortcuts') },
+    h('div', { className: 'dsb-shortcuts-head' },
+      h('h2', { className: 'dsb-shortcuts-title' }, t('Keyboard shortcuts')),
+      h('div', { className: 'dsb-shortcuts-head-actions' },
+        typeof onCustomize === 'function'
+          ? h('button', {
+            type: 'button',
+            className: 'bt-soft bt-soft-sm dsb-shortcuts-customize',
+            onClick: () => { onClose?.(); onCustomize() },
+          }, t('Customize'))
+          : null,
+        h('button', {
+          ref: closeBtn,
+          type: 'button',
+          className: 'bt-icon-btn dsb-shortcuts-close',
+          'aria-label': t('Close'),
+          title: t('Close'),
+          onClick: onClose,
+        }, h(CloseIcon)))),
+    h('div', { className: 'dsb-shortcuts-list' },
+      sections.map(section => h('div', { key: section.id, className: 'dsb-shortcuts-group' },
+        h('div', { className: 'dsb-shortcuts-group-title' }, section.title),
+        section.rows.map(row => h('div', { key: row.id, className: 'dsb-shortcuts-row' },
+          h('span', { className: 'dsb-shortcuts-label' }, row.label),
+          h('span', { className: 'dsb-shortcuts-keys' },
+            row.keys.map((cap, index) => h('kbd', { key: index, className: 'dsb-kbd' }, cap))))))))))
+  const target = typeof document !== 'undefined' && document?.body ? document.body : null
+  return target ? createPortal(dialog, target) : dialog
+}

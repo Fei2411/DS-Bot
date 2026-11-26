@@ -62,6 +62,14 @@ export function openingModel({ pending, current, roster }) {
   if (current === pending.target) return null
   const bot = roster?.byId?.[pending.id]
   const room = roster?.roomsById?.[pending.id]
+  // Moving to a fresh part of the same Bot or group chat is already showing that
+  // conversation, so keep it visible until the fresh part lands instead of flashing
+  // a full-screen cover over it. If the earlier part is archived first (`current`
+  // clears), the cover steps in until the fresh part arrives.
+  if (current !== null && current !== undefined) {
+    if (bot !== undefined && roster?.byId?.[current]?.id === bot.id) return null
+    if (room !== undefined && roster?.roomsById?.[current]?.id === room.id) return null
+  }
   return {
     id: pending.id,
     name: bot?.name ?? room?.name ?? pending.name ?? '',

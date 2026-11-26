@@ -90,17 +90,58 @@ function selectorOf(when) {
 }
 
 export function install(rt) {
-  const { ctx } = rt
+  const { ctx, state } = rt
+  const SCHEDULE_ATTACH_GRACE_MS = rt.config?.scheduleAttachWaitMs ?? 10_000
   let service = null
+  let disposed = false
+  let scheduleDeadline = typeof ctx.inject === 'function' ? Date.now() + SCHEDULE_ATTACH_GRACE_MS : 0
+  let scheduleGraceTimer
+
+  const clearGraceTimer = () => {
+    if (scheduleGraceTimer === undefined) return
+    clearTimeout(scheduleGraceTimer)
+    scheduleGraceTimer = undefined
+  }
+
+  // DSH injects its schedule service after the plugin starts; while inside the attach
+  // grace window, parts wait before archiving so unmoved reminders are not destroyed.
+  const schedulesPending = () => !disposed && typeof ctx.inject === 'function' && service === null && Date.now() < scheduleDeadline
+
+  const armGraceRetry = () => {
+    if (scheduleGraceTimer !== undefined || !schedulesPending()) return
+    const wait = Math.max(1, scheduleDeadline - Date.now())
+    scheduleGraceTimer = setTimeout(() => {
+      scheduleGraceTimer = undefined
+      if (disposed) return
+      void rt.retireParts?.()
+      void rt.retireTasks?.()
+      void rt.heldBack?.()?.catch?.(error => rt.warn('ds-bot: handing on input kept in earlier parts failed: %s', error))
+    }, wait)
+    scheduleGraceTimer.unref?.()
+  }
 
   const attach = (sub) => {
+    if (disposed) return
     const own = sub.schedule
     service = own
-    sub.effect(() => () => { if (service === own) service = null }, 'ds-bot: schedule service')
+    clearGraceTimer()
+    sub.effect(() => () => {
+      if (service === own) {
+        service = null
+        if (!disposed) scheduleDeadline = Date.now() + SCHEDULE_ATTACH_GRACE_MS
+      }
+    }, 'ds-bot: schedule service')
     void rt.retireParts?.()
+    void rt.retireTasks?.()
+    void rt.heldBack?.()?.catch?.(error => rt.warn('ds-bot: handing on input kept in earlier parts failed: %s', error))
   }
-  if (typeof ctx.inject === 'function') ctx.inject(['schedule'], attach)
-  else if (ctx.get?.('schedule') !== undefined) attach({ schedule: ctx.get('schedule'), effect: (execute, label) => ctx.effect(execute, label) })
+  if (typeof ctx.inject === 'function') {
+    ctx.effect(() => () => {
+      disposed = true
+      clearGraceTimer()
+    }, 'ds-bot: schedule attach grace')
+    ctx.inject(['schedule'], attach)
+  } else if (ctx.get?.('schedule') !== undefined) attach({ schedule: ctx.get('schedule'), effect: (execute, label) => ctx.effect(execute, label) })
 
   // The Bot (and group chat) a task's Session speaks for, the group chat for a group's
   // own Session, or nothing for a Session outside the team.
@@ -222,33 +263,74 @@ export function install(rt) {
     },
   }
 
-  // A fresh part takes over the earlier part's active tasks: each is created again on
-  // the fresh Session before the old one goes, so a failure leaves it where it was.
-  async function moveSchedules(fromId, toId) {
-    if (service === null) return
-    // A Host-wide task changes its target in place and keeps its next firing; a
-    // paused one moves too, so it resumes in the Bot's current part.
-    if (hostWide(service)) {
-      for (const entry of await service.catalog()) {
-        if (entry.status === 'ended' || sessionOf(entry) !== fromId) continue
-        await service.edit({ id: entry.id, action: 'update', patch: { target: { kind: 'session', sessionId: toId } } })
+  let scheduleMoves = Promise.resolve()
+  const movesFrom = fromId => (state.legacyScheduleMoves ?? []).filter(move => move.fromId === fromId)
+  const saveMoves = moves => {
+    if (moves.length === 0) delete state.legacyScheduleMoves
+    else state.legacyScheduleMoves = moves
+    return rt.save({ required: true })
+  }
+  const forgetMoves = moves => saveMoves((state.legacyScheduleMoves ?? []).filter(move => !moves.includes(move)))
+
+  async function moveLegacySchedules(schedule, fromId, toId, canStopActivity) {
+    const records = await schedule.list({ sessionId: fromId })
+    const active = new Set(records.map(record => record.id))
+    const stale = movesFrom(fromId).filter(move => !active.has(move.id))
+    if (stale.length > 0) await forgetMoves(stale)
+    const toStop = []
+    for (const record of records) {
+      let move = movesFrom(fromId).find(move => move.id === record.id && typeof move.copyId === 'string')
+      if (move === undefined) {
+        const request = requestOf(record)
+        if (request === null || (request.at !== undefined && Date.parse(request.at) <= Date.now())) continue
+        const copy = await schedule.create(toId, request)
+        move = { fromId, id: record.id, copyId: copy.id }
+        const other = (state.legacyScheduleMoves ?? []).filter(item => item.fromId !== fromId || item.id !== record.id)
+        await saveMoves([...other, move])
+      } else {
+        // The earlier destination may already have moved or forwarded its reminders.
+        // Keep the exact copy and ensure its receipt made it to disk before deleting.
+        await rt.save({ required: true })
+      }
+      try {
+        await schedule.delete({ sessionId: fromId, id: record.id })
+      } catch (error) {
+        if (!canStopActivity) throw error
+        toStop.push(move)
+        rt.warn('ds-bot: earlier copy of task %s not removed: %s', record.title, error?.message ?? error)
+        continue
+      }
+      await forgetMoves([move])
+    }
+    if (toStop.length > 0) return () => forgetMoves(toStop)
+  }
+
+  async function moveSchedules(fromId, toId, { stopActivity = false, resolveTarget } = {}) {
+    if (fromId === toId && typeof resolveTarget !== 'function') return
+    if (service === null) {
+      if (schedulesPending()) {
+        armGraceRetry()
+        throw Object.assign(new Error('schedule service is still attaching'), { code: 'schedule/pending' })
       }
       return
     }
-    const records = await service.list({ sessionId: fromId })
-    for (const record of records) {
-      const request = requestOf(record)
-      if (request === null || (request.at !== undefined && Date.parse(request.at) <= Date.now())) continue
-      // A failed read or copy must prevent stopActivity from deleting an unmoved
-      // task. Equal requests can be separate tasks; copy each source record.
-      await service.create(toId, request)
-      try {
-        await service.delete({ sessionId: fromId, id: record.id })
-      } catch (error) {
-        // The copy is safe; archiving the earlier part will remove its old task.
-        rt.warn('ds-bot: earlier copy of task %s not removed: %s', record.title, error?.message ?? error)
+    const schedule = service
+    // A switch must see any reminders moved into its earlier part before it archives it.
+    // When `resolveTarget` is provided, re-evaluate the live destination inside the
+    // serialized `scheduleMoves` chain so recovery cannot move a reminder onto a part
+    // whose own migration already ran.
+    const move = scheduleMoves.then(async () => {
+      const targetId = typeof resolveTarget === 'function' ? resolveTarget() : toId
+      if (targetId === undefined || fromId === targetId) return
+      if (!hostWide(schedule)) return moveLegacySchedules(schedule, fromId, targetId, stopActivity)
+      // Moving in place keeps the next firing and carries paused tasks forward too.
+      for (const entry of await schedule.catalog()) {
+        if (entry.status === 'ended' || sessionOf(entry) !== fromId) continue
+        await schedule.edit({ id: entry.id, action: 'update', patch: { target: { kind: 'session', sessionId: targetId } } })
       }
-    }
+    })
+    scheduleMoves = move.catch(() => {})
+    return move
   }
 
   // DSH 0.2.2's task ids are Host-wide, so a Bot's schedule tools reach only the tasks
@@ -307,7 +389,5 @@ export function install(rt) {
     return { ...result, value: { ...result.value, items, shown: items.length, total: positions.length, limit, offset } }
   })
 
-  // DSH injects its schedule service after the plugin starts; until then a task cannot move.
-  const schedulesPending = () => typeof ctx.inject === 'function' && service === null
   Object.assign(rt, { scheduleEndpoint: (endpoint, body) => endpoints[endpoint](body ?? {}), moveSchedules, schedulesPending })
 }

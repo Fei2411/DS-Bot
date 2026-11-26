@@ -4,7 +4,7 @@
 
 English | [中文](README.zh.md) · [Docs](docs/README.md) · [Vision](docs/vision.md) · [Known issues](docs/known-issues.md) · [Contributing](CONTRIBUTING.md)
 
-![version](https://img.shields.io/badge/version-v0.3.10-blue) ![DSH](https://img.shields.io/badge/DSH-0.2.2--rc.1-4D6BFE) ![license](https://img.shields.io/badge/license-Apache_2.0-green)
+![version](https://img.shields.io/badge/version-v0.3.10-blue) ![DSH](https://img.shields.io/badge/DSH-0.2.2--rc.5-4D6BFE) ![license](https://img.shields.io/badge/license-Apache_2.0-green)
 
 DS Bot is an open-source project built on [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH), available as a standalone desktop app or as a DSH plugin. It turns DSH into a team of long-lived bots that you create, talk to and work with.
 
@@ -29,7 +29,7 @@ Code-mode requires DSH **0.2.2-rc.1 or newer**; with the switch off the main plu
 
 **Desktop app (Windows, macOS, Linux)**
 
-The desktop app bundles a pinned DSH, so you do not need to install DSH first. Download the package for your system from [Releases](https://github.com/Fei2411/DS-Bot/releases/latest), open it, and configure a model in Settings (it can also copy your existing bot team from DSH).
+The desktop app bundles a pinned DSH, so you do not need to install DSH first. Download the package for your system from [Releases](https://github.com/Fei-Craft/DS-Bot/releases/latest), open it, and configure a model in Settings (it can also copy your existing bot team from DSH).
 
 If your OS warns about an unsigned app: on Windows select **More info** → **Run anyway**; on macOS open **System Settings** → **Privacy & Security** and select **Open Anyway**.
 
@@ -41,8 +41,8 @@ First install DSH and configure at least one model in it. DS Bot uses the models
 - **DSH Web** (needs Node.js `22.19` or later, and pnpm):
 
 ```sh
-npx @deepseek-ai/dsh@0.2.2-rc.1 plugin --profile web add ds-bot
-npx @deepseek-ai/dsh@0.2.2-rc.1 web
+npx @deepseek-ai/dsh@0.2.2-rc.5 plugin --profile web add ds-bot
+npx @deepseek-ai/dsh@0.2.2-rc.5 web
 ```
 
 **Docker (NAS, Linux server)**
@@ -58,7 +58,7 @@ The easiest way to set up other bots and group chats is to just talk to your Mai
 - **General** & **Appearance** (live preview, 8 UI languages, themes, layout and motion)
 - **Models**: Providers · Local agents · Bot models · DeepSeek services
 - **Team**: Bots · Group chats · Scheduled tasks
-- **Connect**: Connectors · IM · Phone · MCP access
+- **Connect**: Connectors · IM · Phone · API
 - **Tools**: Computer use · Browser · Capabilities · Secrets
 - **Usage** & **About DS Bot** (includes **Feedback**)
 
@@ -68,11 +68,23 @@ In the standalone desktop app, you can use your ChatGPT plan for bot models with
 
 ## Features
 
+### Browser remote (preview)
+
+Use the phone app's interface in a browser without installing it. On the computer, open **Settings → Connect → Phone**, enable phone access, show a pairing code, then choose **Open in a browser** or **Copy browser link**. You can also paste the pairing link into the web app. The browser pairs as another device over the existing end-to-end encrypted link; remove it from the computer's paired-device list to revoke access.
+
+The Relay Server must serve the web build: run `npm ci && npm run export:web` in `mobile/`, then set `DSBOT_LINK_WEB_DIR` to the absolute `mobile/dist` directory when starting the [Relay Server](link/README.md). Use HTTPS/WSS outside localhost. `relay.dsbot.app` needs this deployment before its browser links work. Browser storage is AES-GCM encrypted with a non-extractable key in IndexedDB, but the browser still runs the Server's page: only use a trusted Server. Sensitive operations require the phone app or computer, and there are no background notifications. See the [design and security limits](docs/plans/2026-11-17-web-remote.md).
+
+### Local API & MCP
+
+Other agents on this computer (Claude Desktop, Cursor, Codex, Antigravity, or your own scripts) can call your Bots and group chats through the unified local API gateway. Open **Settings → Connect → API**, turn it on (off by default, bound to `127.0.0.1:17830`), and create scoped, revocable Bearer tokens. Each token is shown once and stored as a salted hash; private Bots stay excluded unless explicitly confirmed per token.
+
+The same local gateway serves versioned `/v1/*` REST + SSE endpoints, Streamable HTTP MCP (`/mcp`), an optional OpenAI-compatible adapter (`/compat/openai/v1/*`), and the `ds-bot` CLI (`ds-bot mcp` stdio bridge, `ds-bot send`, `ds-bot event`). Existing `mcp.json` setups and `npx -p ds-bot ds-bot-mcp` commands migrate automatically. See the [design](docs/plans/2026-11-21-external-api.md).
+
 ### Bot
 
 Each bot is a long-lived identity with one continuous conversation—no session lists or manual session switching. When context fills up, DS Bot condenses or moves to a fresh part automatically while earlier history stays readable and searchable. Each bot keeps its own saved profile (model, thinking level, instructions, working folder and permission preset), separate from the host's DSH installation profile.
 
-Your foreground chat stays responsive while a bot works: slow shell commands move to background jobs automatically, and a bot can launch background tasks or hand an in-flight turn to the background when you send a new message. Track progress, answer approvals, send follow-ups or stop tasks from the header island, inspect task transcripts in the details **Tasks** tab, or type `/side` to ask a side question. Bots also maintain long-term memory, render interactive charts/tables/forms in replies, run scheduled tasks, and can be organized into collapsible sidebar sections.
+Each bot can have its own working folder and permission preset — just tell the bot when you want to switch folders. A bot that looks after several projects can also get extra folders and work in all of them at once. Your foreground chat stays responsive while a bot works: slow shell commands move to background jobs automatically, and a bot can launch background tasks or hand an in-flight turn to the background when you send a new message. Track progress, answer approvals, send follow-ups or stop tasks from the header island, inspect task transcripts in the details **Tasks** tab, manage them on mobile, or type `/side` to ask a side question. Bots also maintain long-term memory, render interactive charts/tables/forms in replies, run scheduled tasks, and can be organized into collapsible sidebar sections.
 
 ![Bot details: model, memory, usage](docs/images/details.png)
 
@@ -106,7 +118,7 @@ Because it uses the CLI's own tools, shared capabilities and connectors in DS Bo
 
 ### Browser
 
-Each bot has its own isolated browser with separate logins, and in the desktop app can import cookies and supported `localStorage` from files or local browsers (including Chrome/Edge, Brave, Arc, Firefox and Zen). For interactive browsing, set `browserPlugin` to `refs`, `script` or `task` in the DSH profile and restart DS Bot; **Settings → Tools → Browser** explains setup and manages per-site action grants. Posting, uploading, downloading and deleting require approval unless preauthorized; logins, CAPTCHAs and payments hand control back to you.
+Each bot has its own isolated browser with separate logins, and in the desktop app can import cookies and supported `localStorage` from files or local browsers (including Chrome/Edge, Safari, Brave, Arc, Firefox and Zen). For interactive browsing, set `browserPlugin` to `refs`, `script` or `task` in the DSH profile and restart DS Bot; **Settings → Tools → Browser** explains setup and manages per-site action grants. Posting, uploading, downloading and deleting require approval unless preauthorized; logins, CAPTCHAs and payments hand control back to you.
 
 The embedded browser panel is available in the desktop app and DSH Desktop (not DSH Web); only the desktop app persists panel sign-ins across restarts and supports cookie import.
 
@@ -132,7 +144,7 @@ Bots can create, inspect and edit Word (`.docx`), PowerPoint (`.pptx`) and Excel
 
 ### Mobile app & browser remote
 
-Control your running bot team from iOS, Android, or a browser over an end-to-end encrypted link (Noise IK)—your computer connects outbound only, with no public IP or open ports. Open **Settings → Connect → Phone**, enable phone access, and scan the QR code in the mobile app (Android APK in [Releases](https://github.com/Fei2411/DS-Bot/releases/latest); see [`mobile/README.md`](mobile/README.md) for iOS).
+Control your running bot team from iOS, Android, or a browser over an end-to-end encrypted link (Noise IK)—your computer connects outbound only, with no public IP or open ports. Open **Settings → Connect → Phone**, enable phone access, and scan the QR code in the mobile app (Android APK in [Releases](https://github.com/Fei-Craft/DS-Bot/releases/latest); see [`mobile/README.md`](mobile/README.md) for iOS).
 
 For **browser remote (preview)**, pick **Open in a browser** or **Copy browser link** on the same pairing screen. Self-hosted relay instructions and security limits are in [`link/README.md`](link/README.md) and [`docs/plans/2026-11-17-web-remote.md`](docs/plans/2026-11-17-web-remote.md).
 
@@ -142,9 +154,6 @@ In **Settings → Connect → IM**, link any bot or group chat to WeChat, Feishu
 
 WeChat supports private chat with the QR-paired account only; WeChat and QQ enforce platform reply windows; WeChat, QQ and DingTalk use numbered replies instead of card buttons; secret cards cannot be submitted from IM apps.
 
-### MCP access (preview)
-
-Let other local agents on this computer (Claude Desktop, Cursor, Codex, or your scripts) talk to selected bots and groups through MCP. Turn it on in **Settings → Connect → MCP access** and issue a per-client bearer token (private bots are never exposed, and approvals, settings and secrets stay on your computer). Connect HTTP MCP clients to `http://127.0.0.1:8797/mcp` with `Authorization: Bearer <token>`, or stdio clients via `DSBOT_MCP_TOKEN=<token> npx -p ds-bot ds-bot-mcp`. See [`docs/plans/2026-11-20-mcp-access.md`](docs/plans/2026-11-20-mcp-access.md).
 
 ### Usage & appearance
 
@@ -152,9 +161,11 @@ In **Settings → Usage**, track token usage by time range, bot and model. In **
 
 ![Usage page](docs/images/usage.png)
 
-## Data
+## Data & privacy
 
 All data stays on your computer: in the data folder chosen for the desktop app (`~/.ds-bot` by default), or in `bot/` and `sessions/` inside your DSH home folder (`~/.dsh` by default) for the plugin. Uninstalling the app or plugin does not delete your data.
+
+Optional anonymous telemetry is gated behind a one-time notice before anything is sent, and can be changed, inspected (raw JSON of the last 20 payloads), or disabled anytime in **Settings → About DS Bot → Privacy** (or via `DS_BOT_TELEMETRY_DISABLED=1` / `DO_NOT_TRACK=1`). Chats, memories, secrets, file paths, Bot names, private Bots, error messages, and IP addresses are never collected. Upstream DSH official API session-log upload and feedback session upload are disabled by default in DS Bot, with private Bots permanently excluded. See [`docs/plans/2026-11-25-telemetry-and-privacy.md`](docs/plans/2026-11-25-telemetry-and-privacy.md) and [`telemetry/`](telemetry/).
 
 ## Documentation & development
 

@@ -206,16 +206,15 @@ export function mainBotName(state) {
 }
 
 // What the start knows about the team it opens. The ring page no longer shows it (no greeting or
-// hint lines since 2026-10-30); the snapshot keeps it for now. previewNotice: DSH shows its
-// preview notice when the Session is ready and the main view has no non-empty Session, which a
-// data folder without a team always has.
+// hint lines since 2026-10-30); the snapshot keeps it for now. With DS Bot's own frontend no
+// DSH preview notice is ever shown.
 export function explainOf({ offered = false, team } = {}) {
   if (offered) return { mode: 'import', nextStep: false, previewNotice: false }
   if (team !== undefined) {
     const name = mainBotName(team.team)
     return { mode: 'reinstall', bots: team.bots, groups: team.rooms, ...(name === undefined ? {} : { name }), nextStep: false, previewNotice: false }
   }
-  return { mode: 'new', nextStep: true, previewNotice: true }
+  return { mode: 'new', nextStep: true, previewNotice: false }
 }
 
 export const clockMs = (clock, now) => clock.base + (clock.running ? Math.max(0, now - clock.from) : 0)
@@ -361,9 +360,30 @@ export class StartWindow {
     win.once('ready-to-show', () => { note(`the start page painted ${sinceLaunch()} ms after launch`) })
     this.#later('show', PAINT_WAIT_MS, () => { this.#showStart('the page did not say it painted', { now: true }) })
     this.#painted = new Promise((resolve) => {
-      win.once('ready-to-show', resolve)
-      contents.once('did-finish-load', resolve)
-      setTimeout(resolve, PAINT_WAIT_MS)
+      let settled = false
+      let timer
+      const cleanup = () => {
+        clearTimeout(timer)
+        win.off?.('ready-to-show', done)
+        win.off?.('closed', onClosed)
+        contents.off?.('did-finish-load', done)
+      }
+      const done = () => {
+        if (settled) return
+        settled = true
+        cleanup()
+        resolve()
+      }
+      const onClosed = () => {
+        if (settled) return
+        settled = true
+        cleanup()
+      }
+      win.once('ready-to-show', done)
+      win.once('closed', onClosed)
+      contents.once('did-finish-load', done)
+      timer = setTimeout(done, PAINT_WAIT_MS)
+      timer.unref?.()
     })
     win.on('page-title-updated', (event) => { event.preventDefault() })
     contents.on('will-navigate', (event) => { event.preventDefault() })

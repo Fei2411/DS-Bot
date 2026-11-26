@@ -1,16 +1,16 @@
 # DS Bot desktop app
 
-The Electron app for Windows, macOS and Linux. It installs a pinned DeepSeek Harness (DSH 0.2.2-rc.1) and the `ds-bot` plugin of this repository, boots its own DSH profile `ds-bot` through `@deepseek-ai/dsh/profile-boot`, and keeps its data in its own `DSH_HOME`. It never writes to `~/.dsh`. Its window shows DSH's Web front end with the plugin, as DSH Desktop does. The design is in [docs/plans/2026-10-16-desktop-app.md](../docs/plans/2026-10-16-desktop-app.md).
+The Electron app for Windows, macOS and Linux. It installs a pinned DeepSeek Harness (DSH 0.2.2-rc.5) and the `ds-bot` plugin of this repository, boots its own DSH profile `ds-bot` through `@deepseek-ai/dsh/profile-boot`, and keeps its data in its own `DSH_HOME`. It never writes to `~/.dsh`. Its window loads DS Bot's own frontend (`ui/dist`), served same-origin by the pure-host `dsbot-engine` bundle (`engine/`) without DSH Web's front end. The design is in [docs/plans/2026-10-16-desktop-app.md](../docs/plans/2026-10-16-desktop-app.md) and [docs/plans/2026-11-21-own-frontend.md](../docs/plans/2026-11-21-own-frontend.md).
 
 ## Run
 
 ```sh
 npm ci
 node node_modules/electron/install.js   # when npm did not download Electron (no node_modules/electron/dist)
-npm start                               # starts the app
+npm start                               # builds ui/dist (via prestart) and starts the app
 ```
 
-When GitHub downloads are slow, set `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/` before the Electron download. Unset `ELECTRON_RUN_AS_NODE` before `npm start` if your terminal has it (terminals inside some Electron-based editors do): with it, Electron runs as plain Node and the app does not start.
+When GitHub downloads are slow, set `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/` before the Electron download. Unset `ELECTRON_RUN_AS_NODE` before `npm start` if your terminal has it (terminals inside some Electron-based editors do): with it, Electron runs as plain Node and the app does not start. On macOS, unpackaged source runs with an isolated `DS_BOT_SHELL_DATA` directory automatically enable Chromium's mock keychain (`--use-mock-keychain`) so they neither prompt against nor overwrite an installed `DS Bot.app`'s login keychain entry; ChatGPT sign-in fails closed while the mock keychain is active so credentials are never saved under the mock key. Packaged builds and default shell directories keep the real login keychain unless `--use-mock-keychain` is passed explicitly (as in the automated check scripts).
 
 `npm run runtime` downloads the runtime payload (Python with the document libraries, a standalone Node, the Office skill assets) into `build/runtime`. On Linux, run it before `npm start`: the Host uses this plain Node to keep sharp's libvips out of Electron's process. On macOS and Windows the payload is optional for source runs; without it only the Office skills are unavailable. `beforePack` prepares the payload for every package.
 
@@ -53,15 +53,16 @@ The Host reads model settings and API keys the way DSH does: environment variabl
 
 ## The profile
 
-The Host's profile `ds-bot` is in `profiles/ds-bot` in the data location. It stacks three bundles, and after them the bundles that the user installs:
+The Host's profile `ds-bot` is in `profiles/ds-bot` in the data location. It stacks four bundles, and after them the bundles that the user installs:
 
 | Bundle | What it adds |
 |---|---|
 | `@deepseek-ai/dsh-base` | DSH's shared core: models, Sessions, tools, settings, plugin management |
-| `@deepseek-ai/dsh-web-app` | DSH's Web front end, which the window shows, and the host services that it and ds-bot use |
+| `dsbot-engine` | Loopback transport, pure-host services, built-in agent presets, and the static server for `ui/dist` (no DSH Web front end) |
+| `@deepseek-ai/dsh-experimental-voice-input-bundle` | Local SenseVoice / speech-to-text host service |
 | `ds-bot` | The Bot team |
 
-At every start the Host puts these three bundles at the head of the profile's bundle list. Settings for one machine go into the profile's `cordis.patch.yml`, as in DSH. A profile from an earlier build that lists `dsbot-engine` gets `@deepseek-ai/dsh-web-app` in its place.
+At every start the Host puts these bundles at the head of the profile's bundle list. Settings for one machine go into the profile's `cordis.patch.yml`, as in DSH. A profile from an earlier build that lists `@deepseek-ai/dsh-web-app` is migrated automatically to `dsbot-engine`.
 
 ## Check a change
 
@@ -165,9 +166,9 @@ The launch URL of the Host is good for one use only. When the first load never c
 | `src/import.mjs` | The import of a Bot team from the user's DSH |
 | `src/move-data.mjs` | The move of the data location: which folders can take it, and the copy through a staging folder |
 | `src/updates.mjs` | The self-updates (Windows installer, Linux AppImage) and the release-page checks (macOS, Linux deb) |
-| `engine/` | On hold, not installed: the bundle `dsbot-engine` for the app's own window in `ui/` |
+| `engine/` | The pure-host bundle `dsbot-engine`: loopback webserver, host services, built-in agent presets, host-only directory picker, and the static UI server for `ui/dist` |
 | `test/` | `npm test`: the composition of the profile, the dependencies that the package needs, and the window and the tray (the main process runs there with the Electron parts as test doubles, in `test/helpers/`) |
-| `ui/` | On hold, not built or packaged: the app's own window. React, built with Vite (`vite.config.js`) into `ui/dist`. It draws the plugin's own Bot views from `../ds-bot/src/client/` (sidebar, chat rows, docks, dialogs and their stylesheets) and puts its own Markdown in place of DSH's. It uses ds-bot's `api/bot` channel and its live feed `api/bot/feed` |
+| `ui/` | The desktop app's own frontend. React, built with Vite (`vite.config.js`) into `ui/dist` (automatically via `prestart` / `prepack` / `predist`). It draws the plugin's own Bot views from `../ds-bot/src/client/` and talks exclusively to `api/bot` and `api/bot/feed` |
 | `assets/` | The app icon: `icon.svg`, `icon.png` (1024 px) and `icon.ico` (Windows, 16 to 256 px), and the tray marks: `tray.ico` (Windows), `tray.png` (Linux) and `trayTemplate.png` with its `@2x` (macOS). `npm run icon` (`scripts/icon.mjs`) draws them again from the Main Bot's whale in `../ds-bot` |
 | `electron-builder.yml`, `build/` | The package and the installers: app identity, files, icons, the Windows installer, the macOS zip and the Linux AppImage and deb |
 | `scripts/check-packed.mjs` | `npm run check-packed`: the check of a packaged app |

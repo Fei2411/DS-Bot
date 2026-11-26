@@ -4,7 +4,7 @@
 
 [English](README.md) | 中文 · [文档导航](docs/README.md) · [愿景](docs/vision.zh.md) · [已知问题](docs/known-issues.zh.md) · [参与开发](CONTRIBUTING.zh.md)
 
-![版本](https://img.shields.io/badge/版本-v0.3.10-blue) ![DSH](https://img.shields.io/badge/DSH-0.2.2--rc.1-4D6BFE) ![许可](https://img.shields.io/badge/许可-Apache_2.0-green)
+![版本](https://img.shields.io/badge/版本-v0.3.10-blue) ![DSH](https://img.shields.io/badge/DSH-0.2.2--rc.5-4D6BFE) ![许可](https://img.shields.io/badge/许可-Apache_2.0-green)
 
 DS Bot 是一个基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（简称 DSH）的开源项目，提供独立桌面应用和 DSH 插件两种形态。它将 DSH 转化为一支持久化的 Bot 团队，你可以创建、交流并与它们一起工作。
 
@@ -29,7 +29,7 @@ DS Bot 是一个基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepsee
 
 **桌面应用（Windows、macOS、Linux）**
 
-桌面应用自带锁定版本的 DSH，不需要先装 DSH。直接在 [Releases](https://github.com/Fei2411/DS-Bot/releases/latest) 下载对应系统的安装包，打开后在设置里配好模型即可使用（也可以直接复制你原来在 DSH 里的 Bot 团队）。
+桌面应用自带锁定版本的 DSH，不需要先装 DSH。直接在 [Releases](https://github.com/Fei-Craft/DS-Bot/releases/latest) 下载对应系统的安装包，打开后在设置里配好模型即可使用（也可以直接复制你原来在 DSH 里的 Bot 团队）。
 
 如果安装或打开时提示未签名拦截：Windows 点 **更多信息** → **仍要运行**；macOS 在 **系统设置** → **隐私与安全性** 里点 **仍要打开**。
 
@@ -41,8 +41,8 @@ DS Bot 是一个基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepsee
 - **DSH Web**（需要 Node.js `22.19` 以上和 pnpm）：
 
 ```sh
-npx @deepseek-ai/dsh@0.2.2-rc.1 plugin --profile web add ds-bot
-npx @deepseek-ai/dsh@0.2.2-rc.1 web
+npx @deepseek-ai/dsh@0.2.2-rc.5 plugin --profile web add ds-bot
+npx @deepseek-ai/dsh@0.2.2-rc.5 web
 ```
 
 **Docker（NAS、Linux 服务器）**
@@ -58,7 +58,7 @@ npx @deepseek-ai/dsh@0.2.2-rc.1 web
 - **通用**与**外观**（实时预览、8 种界面语言、主题、布局与动效）
 - **模型**：服务商 · 本地智能体 · Bot 模型 · DeepSeek 服务
 - **团队**：Bot · 群聊 · 定时任务
-- **连接**：连接器 · IM · 手机 · MCP 访问
+- **连接**：连接器 · IM · 手机 · API
 - **工具**：电脑操控 · 浏览器 · 能力 · 密钥
 - **用量**与**关于 DS Bot**（含**反馈**）
 
@@ -68,11 +68,23 @@ npx @deepseek-ai/dsh@0.2.2-rc.1 web
 
 ## 功能
 
+### 浏览器远程访问（预览）
+
+无需安装 App，也能在浏览器里使用手机端界面。在电脑上打开 **设置 → 手机**，开启手机访问并显示配对码，然后选择 **Open in a browser** 或 **Copy browser link**；也可以在网页里粘贴配对链接。浏览器作为一台额外设备，经已有的端到端加密链路配对；在电脑的已配对设备列表里移除即可撤销访问。
+
+中转服务器需要部署网页构建：在 `mobile/` 运行 `npm ci && npm run export:web`，启动[中转服务器](link/README.md)时把 `DSBOT_LINK_WEB_DIR` 设为 `mobile/dist` 的绝对路径。localhost 以外使用 HTTPS/WSS。`relay.dsbot.app` 完成这项部署后，默认服务器的浏览器链接才能使用。浏览器存储由 IndexedDB 中不可导出的密钥进行 AES-GCM 加密，但浏览器仍运行服务器提供的网页，请只使用可信的服务器。敏感操作需要改用手机 App 或电脑；网页没有后台通知。详见[设计与安全限制](docs/plans/2026-11-17-web-remote.md)。
+
+### 本地 API 与 MCP
+
+本机的其他智能体（Claude Desktop、Cursor、Codex、Antigravity 或你自己的脚本与本地服务）可以通过统一的本地 API 网关调用你的 Bot 和群聊。打开 **设置 → 连接 → API** 开启服务（默认关闭，仅监听 `127.0.0.1:17830`），按能力域与目标范围创建可撤销的 Bearer 令牌；令牌只在创建时展示一次并仅存哈希，隐私 Bot 默认彻底隔离，仅在显式二次确认后才对指定令牌开放。
+
+同一本地网关同时提供版本化 `/v1/*` REST + SSE、MCP Streamable HTTP（`/mcp`）、可单独开关的 OpenAI 兼容层（`/compat/openai/v1/*`）以及薄层命令行（`ds-bot mcp` stdio 桥、`ds-bot send`、`ds-bot event`）。旧版 `mcp.json` 配置与 `npx -p ds-bot ds-bot-mcp` 命令自动平滑迁移与兼容。详见[设计](docs/plans/2026-11-21-external-api.md)。
+
 ### Bot
 
 每个 Bot 都是持久化身份，对外始终只有一条连续对话——没有会话列表，也不用手动切会话或开新会话。上下文快满时系统自动压缩或换段，历史记录持续可读可搜。每个 Bot 拥有自己保存的配置（模型、思考强度、指令、工作文件夹和权限预设），不同于 DSH 的安装 profile。
 
-Bot 干活时前台始终能接话：耗时的终端命令会自动转入后台执行；Bot 也能主动启动后台任务，或在它正忙时你发新消息把正在做的活顺手转到后台继续跑。你可以在顶栏灵动岛查看进度、批复权限、发追问或停止，在详情页「任务」标签查看任务记录，或输入 `/side` 开侧边对话顺手问一句。Bot 还支持长期记忆、在回复里绘制交互式图表/表格/表单、定时任务，并可在侧边栏按工作收进折叠分组。
+每个 Bot 可以单独设置工作文件夹和权限，换文件夹直接和它说一声就行；一个 Bot 同时负责几个项目时，可以再给它加几个额外工作文件夹，它在这些文件夹里同时干活。Bot 干活时前台始终能接话：耗时的终端命令会自动转入后台执行；Bot 也能主动启动后台任务，或在它正忙时你发新消息把正在做的活顺手转到后台继续跑。你可以在顶栏灵动岛查看进度、批复权限、发追问或停止，在详情页「任务」标签查看任务记录，或在手机端管理活跃任务，也可以输入 `/side` 开侧边对话顺手问一句。Bot 还支持长期记忆、在回复里绘制交互式图表/表格/表单、定时任务，并可在侧边栏按工作收进折叠分组。
 
 ![bot 详情页：模型、记忆、用量](docs/images/details.zh.png)
 
@@ -106,7 +118,7 @@ Main Bot 是你的团队总管，拥有创建和修改其他 Bot、管理群聊�
 
 ### 浏览器
 
-每个 Bot 有独立的浏览器和登录态，桌面应用支持从文件或本机浏览器（Chrome/Edge、Brave、Arc、Firefox、Zen 等）导入 Cookie 及受支持的 `localStorage`。需要交互式操作网页时，在 DSH profile 里将 `browserPlugin` 设为 `refs`、`script` 或 `task` 并重启 DS Bot；**设置 → 工具 → 浏览器**提供配置指引和按站点操作授权。发帖、上传、下载、删除默认需要你批准；登录、验证码和付款会交还由你操作。
+每个 Bot 有独立的浏览器和登录态，桌面应用支持从文件或本机浏览器（Chrome/Edge、Safari、Brave、Arc、Firefox、Zen 等）导入 Cookie 及受支持的 `localStorage`。需要交互式操作网页时，在 DSH profile 里将 `browserPlugin` 设为 `refs`、`script` 或 `task` 并重启 DS Bot；**设置 → 工具 → 浏览器**提供配置指引和按站点操作授权。发帖、上传、下载、删除默认需要你批准；登录、验证码和付款会交还由你操作。
 
 内嵌浏览器面板仅桌面应用和 DSH Desktop 可用（DSH Web 没有）；仅桌面应用会在退出后保留登录态并支持导入 Cookie。
 
@@ -132,7 +144,7 @@ Bot 可直接创建、检查和编辑 Word（`.docx`）、PowerPoint（`.pptx`�
 
 ### 手机 App 与浏览器远程访问
 
-通过端到端加密链路（Noise IK）在 iOS、Android 或浏览器里远程操控电脑上的 Bot 团队——电脑仅向外连接，不需要公网 IP 或开放端口。在 **设置 → 连接 → 手机** 开启手机访问，用手机 App 扫码即可配对（Android APK 见 [Releases](https://github.com/Fei2411/DS-Bot/releases/latest)，iOS 构建见 [`mobile/README.md`](mobile/README.md)）。
+通过端到端加密链路（Noise IK）在 iOS、Android 或浏览器里远程操控电脑上的 Bot 团队——电脑仅向外连接，不需要公网 IP 或开放端口。在 **设置 → 连接 → 手机** 开启手机访问，用手机 App 扫码即可配对（Android APK 见 [Releases](https://github.com/Fei-Craft/DS-Bot/releases/latest)，iOS 构建见 [`mobile/README.md`](mobile/README.md)）。
 
 无需安装 App 也可使用**浏览器远程访问（预览）**：在同一配对页点 **Open in a browser** 或 **Copy browser link**。自建中转服务器与安全限制见 [`link/README.md`](link/README.md) 和 [`docs/plans/2026-11-17-web-remote.md`](docs/plans/2026-11-17-web-remote.md)。
 
@@ -142,9 +154,6 @@ Bot 可直接创建、检查和编辑 Word（`.docx`）、PowerPoint（`.pptx`�
 
 微信仅支持与扫码账号私聊；微信与 QQ 有平台回复时间窗；微信、QQ、钉钉不支持卡片按钮，按编号回复即可；密钥卡不允许在聊天软件中填写。
 
-### MCP 访问（预览）
-
-让本机其他智能体（Claude Desktop、Cursor、Codex 或你自己的脚本）经由 MCP 与指定 Bot 和群聊对话。在 **设置 → 连接 → MCP 访问** 开启并为每个客户端生成独立令牌（隐私 Bot 永远隔离，审批、设置和密钥均留在本机）。HTTP MCP 客户端连 `http://127.0.0.1:8797/mcp`（请求头 `Authorization: Bearer <令牌>`），stdio 客户端用 `DSBOT_MCP_TOKEN=<令牌> npx -p ds-bot ds-bot-mcp`。详见 [`docs/plans/2026-11-20-mcp-access.md`](docs/plans/2026-11-20-mcp-access.md)。
 
 ### 用量与外观
 
@@ -152,9 +161,11 @@ Bot 可直接创建、检查和编辑 Word（`.docx`）、PowerPoint（`.pptx`�
 
 ![用量页](docs/images/usage.zh.png)
 
-## 数据
+## 数据与隐私
 
 所有数据都留在你自己的电脑上：桌面应用存在首次启动选定的数据目录（默认 `~/.ds-bot`），插件版存在 DSH 主目录（默认 `~/.dsh`）的 `bot/` 和 `sessions/` 下。卸载应用或插件不会删除这些数据。
+
+可选的匿名遥测在首次隐私告知卡确认前不会发送任何数据；你随时可以在 **设置 → 关于 DS Bot → 隐私** 中调整、查看本机最近发出的 20 条完整 JSON 原文或一键关闭（也支持 `DS_BOT_TELEMETRY_DISABLED=1` / `DO_NOT_TRACK=1` 环境变量）。对话、记忆、密钥、文件路径、Bot 名称、隐私 Bot、报错原文与 IP 地址绝不收集。DS Bot 同时默认关闭 DSH 上游的官方 API Session Log 与反馈会话上传，并永久排除隐私 Bot。详见 [`docs/plans/2026-11-25-telemetry-and-privacy.md`](docs/plans/2026-11-25-telemetry-and-privacy.md) 与开源接收端 [`telemetry/`](telemetry/)。
 
 ## 文档与开发
 

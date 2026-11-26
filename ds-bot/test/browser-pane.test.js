@@ -390,3 +390,341 @@ test('ImportMenu keeps profile email and Last used visible alongside Ready', () 
   assert.match(secondText, /Browser profile/)
   inst.unmount()
 })
+
+test('ImportMenu displays profile cookie counts and Safari Permission needed badge', () => {
+  const h = createHarness()
+  const { ImportMenu } = h.exports
+  const inst = h.mount(ImportMenu, {
+    sources: [
+      { id: 'chrome:Default', label: 'Chrome — Personal', email: 'me@example.com', cookieCount: 42, liveDebugReady: false, needsPermission: false },
+      { id: 'safari:permission', label: 'Safari', email: null, cookieCount: null, liveDebugReady: false, needsPermission: true },
+    ],
+    lastSourceId: 'chrome:Default',
+    loading: false,
+    busy: false,
+    canPaste: true,
+    onFile() {}, onPaste() {}, onSource() {}, onClose() {},
+  })
+  const tree = inst.render()
+  const items = allNodes(tree, (n) => n.type === 'button' && n.props?.role === 'menuitem')
+  const firstText = textOf(items[0])
+  assert.match(firstText, /Chrome — Personal/)
+  assert.match(firstText, /me@example\.com/)
+  assert.match(firstText, /Last used/)
+  assert.match(firstText, /42 cookies/)
+
+  const secondText = textOf(items[1])
+  assert.match(secondText, /Safari/)
+  assert.match(secondText, /Permission needed/)
+  inst.unmount()
+})
+
+test('SafariPermissionCard polls serially via probe, opens System Settings, notifies once on grant, and cleans up timers', async () => {
+  const h = createHarness()
+  const { SafariPermissionCard } = h.exports
+  let probeCalls = 0
+  let resolveProbe = null
+  let openCalls = 0
+  let grantedNotifications = 0
+  const imports = {
+    probe: (id) => {
+      probeCalls += 1
+      assert.equal(id, 'safari:permission')
+      return new Promise((resolve) => { resolveProbe = resolve })
+    },
+    openPermission: async () => { openCalls += 1; return { opened: true } },
+  }
+  const inst = h.mount(SafariPermissionCard, {
+    flow: { source: { id: 'safari:permission', name: 'Safari', label: 'Safari' }, info: {} },
+    busy: false,
+    imports,
+    onOpenPermission: () => { void imports.openPermission() },
+    onPermissionGranted: () => { grantedNotifications += 1 },
+    onRetrySource() {},
+    onCancel() {},
+  })
+  let tree = inst.render()
+  assert.equal(h.intervalCalls, 0, 'must not use setInterval')
+  assert.equal(h.timers.size, 1)
+
+  const openBtn = allNodes(tree, (n) => n.type === 'button' && textOf(n) === 'Open System Settings')[0]
+  assert.ok(openBtn)
+  openBtn.props.onClick()
+  assert.equal(openCalls, 1)
+
+  const [firstId, firstTimer] = [...h.timers.entries()][0]
+  h.timers.delete(firstId)
+  firstTimer.fn()
+  assert.equal(probeCalls, 1)
+  assert.equal(h.timers.size, 0, 'serial polling waits for in-flight probe')
+
+  resolveProbe({ liveDebugReady: false, permissionGranted: true })
+  await new Promise((r) => setTimeout(r, 0))
+  assert.equal(grantedNotifications, 1)
+  tree = inst.render()
+  assert.match(textOf(tree), /Full Disk Access granted/)
+  assert.equal(h.timers.size, 1)
+
+  // Second granted poll must not fire onPermissionGranted a second time.
+  const [secondId, secondTimer] = [...h.timers.entries()][0]
+  h.timers.delete(secondId)
+  secondTimer.fn()
+  resolveProbe({ liveDebugReady: false, permissionGranted: true })
+  await new Promise((r) => setTimeout(r, 0))
+  assert.equal(grantedNotifications, 1)
+
+  inst.unmount()
+  assert.equal(h.timers.size, 0, 'unmount clears active poll timer')
+})
+
+test('BrowserView enters safari-permission, clears stale rows while refreshing multi-profile Safari, and renders browser-locked errors', async () => {
+  const h = createHarness()
+  const { BrowserView } = h.exports
+  const imports = {
+    sources: async () => [{ id: 'safari:permission', name: 'Safari', label: 'Safari', needsPermission: true }],
+    live: async () => ({ needsFullDiskAccess: true, sourceId: 'safari:permission', browserName: 'Safari', label: 'Safari', kind: 'safari' }),
+    probe: async () => ({ liveDebugReady: false, permissionGranted: false }),
+    openPermission: async () => ({ opened: true }),
+    cancel: async () => {},
+  }
+  const inst = h.mount(BrowserView, {
+    bot: { id: 'b1', name: 'Bot' },
+    tabId: 'tab-1',
+    leaving: false,
+    landed: true,
+    hold: null,
+    useBrowserPages: () => ({ url: '', title: '', favicon: null, loading: false, canGoBack: false, canGoForward: false, error: null, excerpt: '' }),
+    actions: {
+      browserImport: imports,
+      browserShow: async () => {},
+      browserCommand: async () => {},
+      browserNavigate: async () => false,
+      browserFocus: () => {},
+      browserNewTab: () => {},
+    },
+  })
+  let tree = inst.render()
+  const importBtn = allNodes(tree, (n) => n.type === 'button' && String(n.props?.className ?? '').includes('bt-import-btn'))[0]
+  importBtn.props.onClick()
+  await new Promise((r) => setTimeout(r, 0))
+  tree = inst.render()
+  const menuNode = allNodes(tree, (n) => n.type === h.exports.ImportMenu)[0]
+  await menuNode.props.onSource({ id: 'safari:permission', name: 'Safari', label: 'Safari', needsPermission: true })
+  tree = inst.render()
+  const cardNode = allNodes(tree, (n) => typeof n.type === 'function' && n.props?.flow?.stage === 'safari-permission')[0]
+  assert.ok(cardNode, 'expected BrowserView to transition to safari-permission stage')
+
+  // When multi-profile Safari unlocks and live returns needsProfileChoice, stale safari:permission
+  // must be cleared immediately (loading: true, sources: []) until unlocked profiles resolve.
+  let resolveRefresh = null
+  let sourcesRefreshes = 0
+  imports.sources = () => {
+    sourcesRefreshes += 1
+    return new Promise((resolve) => { resolveRefresh = resolve })
+  }
+  imports.live = async () => ({ needsProfileChoice: true })
+  cardNode.props.onRetrySource()
+  await new Promise((r) => setTimeout(r, 0))
+  tree = inst.render()
+  const loadingMenu = allNodes(tree, (n) => n.type === h.exports.ImportMenu)[0]
+  assert.ok(loadingMenu, 'expected return to ImportMenu')
+  assert.equal(loadingMenu.props.loading, true, 'must show loading state while refreshed Safari profiles load')
+  assert.deepEqual(Array.from(loadingMenu.props.sources), [], 'stale pre-permission Safari row must not stay clickable during refresh')
+  assert.equal(sourcesRefreshes, 1)
+
+  resolveRefresh([
+    { id: 'safari:Default', name: 'Safari', label: 'Safari — Personal', cookieCount: 10 },
+    { id: 'safari:work-uuid', name: 'Safari', label: 'Safari — Work', cookieCount: 25 },
+  ])
+  await new Promise((r) => setTimeout(r, 0))
+  tree = inst.render()
+  const loadedMenu = allNodes(tree, (n) => n.type === h.exports.ImportMenu)[0]
+  assert.equal(loadedMenu.props.loading, false)
+  assert.deepEqual(Array.from(loadedMenu.props.sources, (s) => s.id), ['safari:Default', 'safari:work-uuid'])
+
+  // Non-Windows locked SQLite error renders the localized busy-database message instead of running prompt.
+  imports.live = async () => ({ error: 'browser-locked' })
+  await loadedMenu.props.onSource({ id: 'chrome:Default', name: 'Chrome', label: 'Chrome — Default' })
+  tree = inst.render()
+  const errCard = allNodes(tree, (n) => typeof n.type === 'function' && n.props?.flow?.stage === 'error')[0]
+  assert.ok(errCard)
+  assert.match(errCard.props.flow.message, /cookie database is busy/i)
+  inst.unmount()
+})
+
+test('PreviewCard toggles session persistence via DS Bot switch and passes persistSession to onApply', () => {
+  const h = createHarness()
+  const { PreviewCard } = h.exports
+  const applied = []
+  const inst = h.mount(PreviewCard, {
+    flow: {
+      id: 'p2',
+      preview: {
+        source: { label: 'Chrome — Personal' },
+        notes: ['session-cookies'],
+        warnings: [],
+        skipped: [],
+        sites: [{ site: 'github.com', cookies: 5, session: 2, localStorage: 0 }],
+      },
+    },
+    page: { url: 'https://github.com/Fei-Craft/DS-Bot' },
+    busy: false,
+    onApply: (opts) => applied.push(opts),
+    onCancel() {},
+  })
+  let tree = inst.render()
+  const sw = allNodes(tree, (n) => n.type === 'button' && n.props?.role === 'switch')[0]
+  assert.ok(sw, 'expected a role=switch toggle for session persistence')
+  assert.equal(sw.props['aria-checked'], true)
+  sw.props.onClick()
+  tree = inst.render()
+  const swAfter = allNodes(tree, (n) => n.type === 'button' && n.props?.role === 'switch')[0]
+  assert.equal(swAfter.props['aria-checked'], false)
+
+  const submitBtn = allNodes(tree, (n) => n.type === 'button' && n.props?.className === 'bt-import-primary')[0]
+  submitBtn.props.onClick()
+  assert.equal(applied.length, 1)
+  assert.equal(applied[0].sites, undefined)
+  assert.equal(applied[0].persistSession, false)
+  inst.unmount()
+})
+
+test('SafariPermissionCard keeps the primary CTA rightmost before and after permission grant', async () => {
+  const h = createHarness()
+  const { SafariPermissionCard } = h.exports
+  let resolveProbe = null
+  const imports = {
+    probe: () => new Promise((resolve) => { resolveProbe = resolve }),
+    openPermission: async () => ({ opened: true }),
+  }
+  const inst = h.mount(SafariPermissionCard, {
+    flow: { source: { id: 'safari:permission', name: 'Safari', label: 'Safari' }, info: {} },
+    busy: false,
+    imports,
+    onOpenPermission() {},
+    onRetrySource() {},
+    onCancel() {},
+  })
+  let tree = inst.render()
+  const actionsBefore = allNodes(tree, (n) => n.type === 'div' && n.props?.className === 'bt-import-actions')[0]
+  const btnsBefore = allNodes(actionsBefore, (n) => n.type === 'button')
+  assert.equal(btnsBefore.at(-1)?.props?.className, 'bt-import-primary')
+  assert.equal(textOf(btnsBefore.at(-1)), 'Open System Settings')
+
+  const [id, timer] = [...h.timers.entries()][0]
+  h.timers.delete(id)
+  timer.fn()
+  resolveProbe({ permissionGranted: true })
+  await new Promise((r) => setTimeout(r, 0))
+  tree = inst.render()
+  const actionsAfter = allNodes(tree, (n) => n.type === 'div' && n.props?.className === 'bt-import-actions')[0]
+  const btnsAfter = allNodes(actionsAfter, (n) => n.type === 'button')
+  assert.equal(btnsAfter.at(-1)?.props?.className, 'bt-import-primary')
+  assert.equal(textOf(btnsAfter.at(-1)), 'Import')
+  inst.unmount()
+})
+
+test('ImportCard disables Close and ignores Escape while apply is busy, but still lets connecting cancel on Escape', () => {
+  const h = createHarness()
+  const { ImportCard, PreviewCard } = h.exports
+  let canceled = 0
+  const previewFlow = {
+    stage: 'preview',
+    id: 'p-busy',
+    preview: {
+      source: { label: 'Chrome — Personal' },
+      notes: [],
+      warnings: [],
+      skipped: [],
+      sites: [{ site: 'github.com', cookies: 5, session: 0, localStorage: 0 }],
+    },
+  }
+  const inst = h.mount(ImportCard, {
+    flow: previewFlow,
+    page: { url: '' },
+    busy: true,
+    imports: {},
+    onApply() {},
+    onCancel: () => { canceled += 1 },
+    onDone() {},
+  })
+  inst.render()
+  h.window.dispatch('keydown', { key: 'Escape', isComposing: false, keyCode: 27 })
+  assert.equal(canceled, 0, 'Escape must not dismiss preview while apply is busy')
+  inst.unmount()
+
+  // PreviewCard header Close button is also disabled while busy.
+  const prevInst = h.mount(PreviewCard, {
+    flow: previewFlow,
+    page: { url: '' },
+    busy: true,
+    onApply() {},
+    onCancel: () => { canceled += 1 },
+  })
+  const prevTree = prevInst.render()
+  const headerNode = allNodes(prevTree, (n) => typeof n.type === 'function' && n.props?.onClose)[0]
+  assert.ok(headerNode, 'expected ImportHeader with onClose in non-inline PreviewCard')
+  assert.equal(headerNode.props.busy, true)
+  const closeBtn = allNodes(headerNode.type(headerNode.props), (n) => n.type === 'button' && n.props?.['aria-label'] === 'Close')[0]
+  assert.ok(closeBtn, 'expected Close button in non-inline PreviewCard header')
+  assert.equal(closeBtn.props.disabled, true)
+  prevInst.unmount()
+
+  // Connecting stage remains cancellable via Escape so live harvest can be aborted.
+  const connInst = h.mount(ImportCard, {
+    flow: { stage: 'connecting', source: { id: 'chrome:Default', name: 'Chrome', label: 'Chrome — Default' } },
+    page: { url: '' },
+    busy: true,
+    imports: {},
+    onApply() {},
+    onCancel: () => { canceled += 1 },
+    onDone() {},
+  })
+  connInst.render()
+  h.window.dispatch('keydown', { key: 'Escape', isComposing: false, keyCode: 27 })
+  assert.equal(canceled, 1, 'Escape must still cancel connecting stage')
+  connInst.unmount()
+
+  // Running stage (closeAndImport live read) remains cancellable via Escape and Cancel button.
+  const runInst = h.mount(ImportCard, {
+    flow: { stage: 'running', source: { id: 'chrome:Default', name: 'Chrome', label: 'Chrome — Default' } },
+    page: { url: '' },
+    busy: true,
+    imports: {},
+    onApply() {},
+    onCancel: () => { canceled += 1 },
+    onCloseAndImport() {},
+    onDone() {},
+  })
+  const runTree = runInst.render()
+  const runCancelBtn = allNodes(runTree, (n) => n.type === 'button' && textOf(n) === 'Cancel')[0]
+  assert.ok(runCancelBtn)
+  assert.notEqual(runCancelBtn.props.disabled, true)
+  h.window.dispatch('keydown', { key: 'Escape', isComposing: false, keyCode: 27 })
+  assert.equal(canceled, 2, 'Escape must still cancel busy running close-and-import read')
+  runInst.unmount()
+
+  // Overlay ImportMenu also disables Close and ignores Escape while busy (e.g. pickFile in flight).
+  let menuClosed = 0
+  const { ImportMenu } = h.exports
+  const menuInst = h.mount(ImportMenu, {
+    sources: [],
+    lastSourceId: null,
+    loading: false,
+    busy: true,
+    canPaste: true,
+    onFile() {},
+    onPaste() {},
+    onSource() {},
+    onClose: () => { menuClosed += 1 },
+  })
+  const menuTree = menuInst.render()
+  const menuHeader = allNodes(menuTree, (n) => typeof n.type === 'function' && n.props?.onClose)[0]
+  assert.ok(menuHeader)
+  assert.equal(menuHeader.props.busy, true)
+  const menuCloseBtn = allNodes(menuHeader.type(menuHeader.props), (n) => n.type === 'button' && n.props?.['aria-label'] === 'Close')[0]
+  assert.equal(menuCloseBtn.props.disabled, true)
+  h.window.dispatch('keydown', { key: 'Escape', isComposing: false, keyCode: 27 })
+  assert.equal(menuClosed, 0, 'Escape must not dismiss overlay ImportMenu while busy')
+  menuInst.unmount()
+})
