@@ -6,6 +6,7 @@ import { runInNewContext } from 'node:vm'
 import { build } from 'esbuild'
 import { watchBotCompletions } from '../src/client/bot-completions.js'
 import { createSource } from '../src/client/sources.js'
+import { teamActions } from '../src/client/team-actions.js'
 
 const PLUGIN = dirname(dirname(fileURLToPath(import.meta.url)))
 
@@ -86,6 +87,8 @@ function renderSidebar({
   unread = {},
   activeSession = null,
   wide = true,
+  actions = noopActions,
+  sectionFolds,
 } = {}) {
   const byId = Object.fromEntries(bots.flatMap(bot => [[bot.id, bot], ...(bot.sessionId ? [[bot.sessionId, bot]] : [])]))
   const roomsById = Object.fromEntries(rooms.flatMap(room => [[room.id, room], ...(room.sessionId ? [[room.sessionId, room]] : [])]))
@@ -102,10 +105,10 @@ function renderSidebar({
     botCompletions = snapshot.getSnapshot()
   }
   const tree = TeamSidebar({
-    actions: noopActions,
+    actions,
     useSidebarPref: () => (wide ? 'open' : 'rail'),
     useRoster: pick => pick(roster),
-    useUi: pick => pick({ unread: { ...unread, ...markedUnread } }),
+    useUi: pick => pick({ unread: { ...unread, ...markedUnread }, sectionFolds }),
     useRegistry: pick => pick({}),
     useSessions: pick => pick(list),
     useBotCompletions: pick => pick(botCompletions),
@@ -119,6 +122,36 @@ function renderSidebar({
   })
   return expand(tree)
 }
+
+test('a sidebar section folds before the save finishes and opens again if saving fails', async () => {
+  const sections = [{ id: 'one', name: 'One' }, { id: 'two', name: 'Two' }]
+  const roster = createSource({ sections })
+  const ui = createSource({})
+  const write = Promise.withResolvers()
+  const sent = []
+  const errors = []
+  const actions = {
+    ...noopActions,
+    ...teamActions({
+      roster, ui,
+      call: (mode, payload) => { sent.push([mode, { ...payload }]); return write.promise },
+      after: () => assert.fail('folding should not pull the roster again'),
+    }),
+    reportError: (error, where) => { errors.push([error.message, where]) },
+  }
+  const headers = () => walk(renderSidebar({
+    actions, sections: roster.getSnapshot().sections, sectionFolds: ui.getSnapshot().sectionFolds,
+  }), node => classes(node).includes('bt-sec-head'))
+  headers()[0].props.onClick()
+  assert.deepEqual(headers().map(header => header.props['aria-expanded']), [false, true])
+  assert.equal(roster.getSnapshot().sections, sections)
+  await Promise.resolve()
+  assert.deepEqual(sent, [['section-save', { id: 'one', collapsed: true }]])
+  write.reject(new Error('save failed'))
+  await new Promise(resolve => setImmediate(resolve))
+  assert.deepEqual(headers().map(header => header.props['aria-expanded']), [true, true])
+  assert.deepEqual(errors, [['save failed', 'section']])
+})
 
 test('only a visible completion sets the Bot row unread dot', () => {
   const part = 'writer-p2'

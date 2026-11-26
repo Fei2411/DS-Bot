@@ -21337,7 +21337,25 @@ function forgetKeptFiles() {
 }
 
 // src/client/team-actions.js
-function teamActions({ call: call2, after, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded, questionDrafts }) {
+function sectionFoldWrites() {
+  let version = 0;
+  const saved = /* @__PURE__ */ new Map();
+  return {
+    version: () => version,
+    note(id, collapsed) {
+      saved.set(id, { version: ++version, collapsed });
+    },
+    reconcile(sections, readVersion) {
+      if (!sections || saved.size === 0) return sections;
+      for (const [id, fold] of saved) if (fold.version <= readVersion) saved.delete(id);
+      return saved.size === 0 ? sections : sections.map((section) => {
+        const fold = saved.get(section.id);
+        return fold ? { ...section, collapsed: fold.collapsed } : section;
+      });
+    }
+  };
+}
+function teamActions({ call: call2, after, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded, questionDrafts, foldWrites }) {
   const memoryOf = (id) => roster.getSnapshot().roomsById[id] ? { roomId: id } : { botId: id };
   const subjectOf = (snap, id) => snap.byId?.[id]?.id ?? snap.roomsById?.[id]?.id ?? id;
   let pastes = 0;
@@ -21361,6 +21379,39 @@ function teamActions({ call: call2, after, partFor, roster, ui, live, cards, hel
       delete next[oldest];
     }
     return next;
+  };
+  const sectionSaves = /* @__PURE__ */ new Map();
+  const saveSection = async (payload) => {
+    const { id, collapsed } = payload;
+    if (typeof id !== "string" || !id || typeof collapsed !== "boolean" || Object.keys(payload).some((key) => key !== "id" && key !== "collapsed")) {
+      return after(call2("section-save", payload));
+    }
+    const previous = sectionSaves.get(id);
+    const save = async () => {
+      const saved = await call2("section-save", payload);
+      foldWrites?.note(id, saved.collapsed);
+      roster.set((state) => {
+        const section = state.sections?.find((section2) => section2.id === id);
+        if (!section || Boolean(section.collapsed) === Boolean(saved.collapsed)) return state;
+        return { ...state, sections: state.sections.map((entry) => entry === section ? { ...entry, collapsed: saved.collapsed } : entry) };
+      });
+      return saved;
+    };
+    const pending = previous ? previous.then(save, save) : Promise.resolve().then(save);
+    sectionSaves.set(id, pending);
+    ui.set((state) => ({ ...state, sectionFolds: { ...state.sectionFolds, [id]: collapsed } }));
+    try {
+      return await pending;
+    } finally {
+      if (sectionSaves.get(id) === pending) {
+        sectionSaves.delete(id);
+        ui.set((state) => {
+          const sectionFolds = { ...state.sectionFolds };
+          delete sectionFolds[id];
+          return { ...state, sectionFolds };
+        });
+      }
+    }
   };
   return {
     // The pane starts at the rail's edge, so a floating drawer would stick out from under it.
@@ -21545,7 +21596,7 @@ function teamActions({ call: call2, after, partFor, roster, ui, live, cards, hel
     }),
     clearQuote: (token) => ui.set((state) => state.quote?.token === token ? { ...state, quote: null } : state),
     setFlags: (id, flags) => after(call2("set-flags", { id, ...flags })),
-    saveSection: (payload) => after(call2("section-save", payload)),
+    saveSection,
     reorderSections: (ids) => after(call2("section-order", { ids })),
     deleteSection: (id) => after(call2("section-delete", { id })),
     beginSectionRename: (id) => ui.set((state) => ({ ...state, renameSection: id })),
@@ -47411,6 +47462,7 @@ function TeamSidebar(props) {
   const panelYield = useUi((value) => value.panelYield === true);
   const bootFailed = useUi((value) => value.bootFailed === true);
   const renameSection = useUi((value) => value.renameSection);
+  const sectionFolds = useUi((value) => value.sectionFolds);
   const inboxOpen = useUi((value) => value.inbox === true);
   props.useRegistry((value) => value);
   const frameSnap = props.useFrame ? props.useFrame((value) => value) : { viewport: typeof window === "undefined" ? 0 : window.innerWidth, sidebarWidth: FALLBACK_SIDEBAR_WIDTH, collapsedWidth: 0 };
@@ -47446,7 +47498,13 @@ function TeamSidebar(props) {
     ];
     return entries2.sort((a, b2) => Number(Boolean(b2.item.pinned)) - Number(Boolean(a.item.pinned)) || b2.at - a.at);
   }, [roster, updated]);
-  const sections = roster.sections ?? [];
+  const sections = (0, import_react45.useMemo)(() => {
+    const sections2 = roster.sections ?? [];
+    return sectionFolds ? sections2.map((section) => {
+      const collapsed = sectionFolds[section.id];
+      return collapsed === void 0 ? section : { ...section, collapsed };
+    }) : sections2;
+  }, [roster.sections, sectionFolds]);
   const sectionSet = (0, import_react45.useMemo)(() => new Set(sections.map((sec) => sec.id)), [sections]);
   const ungrouped = (0, import_react45.useMemo)(
     () => order.filter((entry) => !entry.item.sectionId || !sectionSet.has(entry.item.sectionId)),
@@ -71495,9 +71553,11 @@ function apply(ctx) {
   const avatarRefs = createAvatarRefCache(call);
   let pulls = 0;
   let applied = 0;
+  const foldWrites = sectionFoldWrites();
   let avatarIncomplete = false;
   const pull = async () => {
     const order = ++pulls;
+    const foldVersion = foldWrites.version();
     const known = roster.getSnapshot();
     const since = avatarIncomplete ? -1 : known.revision;
     const value = await call("state", { since, models: known.modelsKey ?? "", live: liveKey, locale: language(), avatars: "ref" });
@@ -71561,7 +71621,7 @@ function apply(ctx) {
       return value.liveKey !== void 0 && value.liveKey !== prevLiveKey;
     }
     if (Object.keys(seenAt).length === 0) leaveVisits([...hydrated.bots, ...hydrated.rooms].map((entry) => entry.id));
-    roster.set(indexRoster(hydrated));
+    roster.set(indexRoster({ ...hydrated, sections: foldWrites.reconcile(hydrated.sections, foldVersion) }));
     try {
       const ids = (hydrated.agents ?? []).flatMap((agent) => agent.sessions ?? []);
       localStorage.setItem(STORAGE.agentSessions, JSON.stringify(ids));
@@ -71989,7 +72049,7 @@ function apply(ctx) {
     }
   };
   const actions = {
-    ...teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded, questionDrafts }),
+    ...teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded, questionDrafts, foldWrites }),
     // The files a group row names open DSH's own review tab for that turn. The tab reads
     // the changes of the Session the shell shows, so that Session is opened first; the same
     // call then retries until its right column is mounted. This jump is the one place a

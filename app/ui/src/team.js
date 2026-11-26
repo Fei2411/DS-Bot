@@ -16,7 +16,7 @@ import { createSource, EMPTY_ROSTER, indexRoster } from '../../../ds-bot/src/cli
 import { requestPreparation } from '../../../ds-bot/src/client/speech.js'
 import { STORAGE, migrateStorage } from '../../../ds-bot/src/client/storage.js'
 import { readMode, writeMode } from '../../../ds-bot/src/client/surface.js'
-import { teamActions } from '../../../ds-bot/src/client/team-actions.js'
+import { sectionFoldWrites, teamActions } from '../../../ds-bot/src/client/team-actions.js'
 import { currentPart } from '../../../ds-bot/src/client/text.js'
 import { registry } from '../../../ds-bot/src/client/themes.js'
 import { openFeed } from './api.js'
@@ -229,9 +229,11 @@ export function createTeam() {
   // Reads can overlap (the feed and a finished action); an older answer never wins.
   let pulls = 0
   let applied = 0
+  const foldWrites = sectionFoldWrites()
   let liveKey
   const pull = async () => {
     const order = ++pulls
+    const foldVersion = foldWrites.version()
     const known = roster.getSnapshot()
     const value = await call('state', { since: known.revision, models: known.modelsKey ?? '', live: liveKey, locale: language() })
     if (order < applied) return
@@ -270,7 +272,7 @@ export function createTeam() {
     }
     // In a window with no visit record yet, everything already there counts as seen.
     if (Object.keys(seenAt).length === 0) leaveVisits([...value.bots, ...value.rooms].map(entry => entry.id))
-    const indexed = indexRoster(value)
+    const indexed = indexRoster({ ...value, sections: foldWrites.reconcile(value.sections, foldVersion) })
     if (current.ready) {
       const gone = [
         ...Object.keys(current.byId ?? {}).filter(id => indexed.byId[id] === undefined),
@@ -319,7 +321,7 @@ export function createTeam() {
   }
 
   const questionDrafts = createQuestionDrafts()
-  const baseActions = teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock, questionDrafts })
+  const baseActions = teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock, questionDrafts, foldWrites })
   const speechCall = (endpoint, payload, signal) => call(endpoint, payload, signal).then(
     value => ({ ok: true, value }),
     error => ({ ok: false, error: { code: error?.code ?? 'speech/error', message: error?.message ?? String(error) } }),

@@ -589,6 +589,7 @@ export function TeamSidebar(props) {
   const panelYield = useUi(value => value.panelYield === true)
   const bootFailed = useUi(value => value.bootFailed === true)
   const renameSection = useUi(value => value.renameSection)
+  const sectionFolds = useUi(value => value.sectionFolds)
   const inboxOpen = useUi(value => value.inbox === true)
   props.useRegistry(value => value)
   const frameSnap = props.useFrame ? props.useFrame(value => value) : { viewport: typeof window === 'undefined' ? 0 : window.innerWidth, sidebarWidth: FALLBACK_SIDEBAR_WIDTH, collapsedWidth: 0 }
@@ -623,7 +624,13 @@ export function TeamSidebar(props) {
     ]
     return entries.sort((a, b) => Number(Boolean(b.item.pinned)) - Number(Boolean(a.item.pinned)) || b.at - a.at)
   }, [roster, updated])
-  const sections = roster.sections ?? []
+  const sections = useMemo(() => {
+    const sections = roster.sections ?? []
+    return sectionFolds ? sections.map(section => {
+      const collapsed = sectionFolds[section.id]
+      return collapsed === undefined ? section : { ...section, collapsed }
+    }) : sections
+  }, [roster.sections, sectionFolds])
   const sectionSet = useMemo(() => new Set(sections.map(sec => sec.id)), [sections])
   const ungrouped = useMemo(
     () => order.filter(entry => !entry.item.sectionId || !sectionSet.has(entry.item.sectionId)),
