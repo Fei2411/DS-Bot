@@ -262,6 +262,25 @@ await step('admin calls everyone', () => send(roomNamed('研发群').id, '讨论
   return expect(answers.length >= 2, `expected at least two answers, got ${answers.length}`)
 })
 
+await step('group request returns once; mentions in the goal, result and receipt do not wake peers',
+  () => send(roomNamed('研发群').id, '@Chief route-contract: start'), () => {
+    const room = roomNamed('研发群')
+    const lines = room.log.slice(room.log.findLastIndex(line => line.who === 'User') + 1).filter(line => line.botId)
+    const routed = lines.filter(line => line.text.includes('route-contract:'))
+    return expect(JSON.stringify(routed.map(line => [line.who, line.route?.kind])) === JSON.stringify([
+      ['Chief', 'request'], ['Writer', 'result'], ['Chief', 'note'],
+    ]), `unexpected routing: ${routed.map(line => `${line.who}:${line.route?.kind}`)}`)
+      ?? expect(!lines.some(line => line.who === 'Coder') && !room.paused?.length, 'an FYI opened or parked another turn')
+  })
+
+await step('a private completion rejects a fresh acknowledgement delegation without waking the worker',
+  () => send(chief().id, '转告 Writer: route-contract: check backup'), async (_value, calls) => {
+    const messages = await api('exchange', { a: chief().id, b: botNamed('Writer').id })
+    const marked = messages.filter(entry => entry.text?.includes('route-contract:'))
+    return expect(calls.some(call => call.out?.some(block => block.name === 'delegate_work' && block.input?.goal === 'route-contract: acknowledgement')), 'the model never attempted the bounce')
+      ?? expect(marked.map(entry => entry.role).join(',') === 'request,reply', `unexpected private deliveries: ${marked.map(entry => entry.role)}`)
+  })
+
 await step('Chief posts to the group', () => send(chief().id, '群发 研发群: 今天下午开会'), () => {
   const log = roomNamed('研发群').log ?? []
   return expect(log.some(line => line.who === 'Chief' && line.text.includes('今天下午开会')), 'post missing from the group log')
@@ -482,7 +501,7 @@ await step('Chief runs a background task forked from its own chat and receives t
   )
 })
 
-await step('busy foreground auto-moves to background on new user message and reports back', async () => {
+await step('explicit move-to-background moves busy foreground into a task and reports back', async () => {
   const oldSid = chief().sessionId ?? chief().id
   const callsBefore = mockLog().length
   await send(chief().id, '慢活 4')
@@ -493,9 +512,10 @@ await step('busy foreground auto-moves to background on new user message and rep
     await sleep(100)
   }
   await sleep(300)
-  // User sends a new message while Chief is busy -> oldSid moves into bot.tasks[] as fg-handoff.
+  // User explicitly moves Chief's busy turn to background, then chats freely on the new foreground.
+  const moved = await api('bot-move-to-background', { botId: chief().id, sessionId: oldSid })
   await send(chief().id, '前台新问题')
-  const newSid = chief().sessionId ?? chief().id
+  const newSid = moved?.sessionId ?? (chief().sessionId ?? chief().id)
   const deadline = Date.now() + 25_000
   let movedTask
   while (Date.now() < deadline) {
@@ -506,18 +526,19 @@ await step('busy foreground auto-moves to background on new user message and rep
     await sleep(300)
   }
   await settle()
-  return { oldSid, newSid, movedTask }
-}, ({ oldSid, newSid, movedTask }, calls) => {
+  return { oldSid, newSid, moved, movedTask }
+}, ({ oldSid, newSid, moved, movedTask }, calls) => {
   const outputs = calls.flatMap(call => call.out ?? []).filter(block => block.type === 'text').map(block => block.text)
   const slowDone = outputs.find(line => line.includes('慢活已完成'))
   const fgReport = outputs.find(line => line.includes('已收到后台任务汇报') && line.includes('慢活已完成'))
   return expect(
-    newSid !== oldSid
+    moved?.moved === true
+      && newSid !== oldSid
       && movedTask?.origin === 'fg-handoff'
       && movedTask?.status === 'completed'
       && slowDone !== undefined
       && fgReport !== undefined,
-    `oldSid=${oldSid} newSid=${newSid} movedTask=${JSON.stringify(movedTask)} slowDone=${slowDone} fgReport=${fgReport}`,
+    `oldSid=${oldSid} newSid=${newSid} moved=${JSON.stringify(moved)} movedTask=${JSON.stringify(movedTask)} slowDone=${slowDone} fgReport=${fgReport}`,
   )
 })
 

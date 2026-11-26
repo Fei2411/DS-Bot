@@ -99,6 +99,22 @@ test('a message in an im channel is direct, app_mention is group, every envelope
   await until(() => fake.acks.length === 4)
 })
 
+test('stop and card commands pass through direct messages and mentioned group messages alike', async (t) => {
+  const fake = await fakeSlack()
+  const messages = []
+  const handle = slack.connect(FIELDS, env(fake), { onMessage: msg => messages.push(msg), onAction() {}, onStatus() {} })
+  t.after(() => { handle.stop(); fake.close() })
+  const ws = await until(() => fake.sockets[0])
+  const commands = ['/stop', '!card V3\n1: first  line\nsecond\tline', '/card V3 1,3']
+  for (const text of commands) {
+    fake.push(ws, envelope({ type: 'message', channel_type: 'im', channel: 'D1', user: 'U2', text }))
+    fake.push(ws, envelope({ type: 'app_mention', channel: 'C1', user: 'U2', text: `<@U81> ${text}` }))
+  }
+  await until(() => messages.length === commands.length * 2)
+  assert.deepEqual(messages.map(msg => msg.text), commands.flatMap(text => [text, text]))
+  assert.deepEqual(messages.map(msg => msg.mentioned), commands.flatMap(() => [false, true]))
+})
+
 test('a block_actions envelope reports the action', async (t) => {
   const fake = await fakeSlack()
   const actions = []

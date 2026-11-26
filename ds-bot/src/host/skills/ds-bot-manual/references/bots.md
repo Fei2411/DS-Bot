@@ -1,10 +1,12 @@
 # Bots, roles and characters
 
-A Bot is a long-lived identity with its own chat, instructions, model, working folder and memory. The **Label** is a short description under its name. It does not grant permissions. **Main Bot** is an administrative right, not just a label.
+A Bot is a long-lived identity with its own saved profile: instructions, model, thinking level, working folder and permissions, plus its own chat and memory. This is not a separate DSH installation profile. The **Label** is a short description under its name. It does not grant permissions. **Main Bot** is an administrative right, not just a label.
 
 ## Where and how
 
 Open **Settings → Bots** and select a Bot. **Profile** contains **Name** and **Label**. **Instructions** define its work. **Working folder → Folder** sets where file tools and commands start. The avatar editor offers **Bot**, **Upload** and **Library**; **Reset** restores the default character.
+
+The same name and avatar controls apply to Chief, the initial Main Bot. Editing them does not change its Main Bot rights.
 
 Call `list_bots` to inspect the team. Call `update_bot` without bot to change yourself. Supported fields include name, role, instructions, color, avatar, model, effort and work_dir. Instructions replace the old text; preserve rules the user still wants. Use an absolute working folder, such as /opt/projects/site. An empty work_dir returns to the team workspace. A folder change can need user approval.
 

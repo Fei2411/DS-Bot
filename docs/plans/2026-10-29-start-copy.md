@@ -14,7 +14,7 @@
 
 ### 1. 一张表
 
-- 壳里用户看得到的字都在 `app/src/start/text.mjs` 的 `TEXT` 里：启动页的，和挂在启动窗口或主窗口上的系统对话框的（选文件夹、搬数据、导入、更新）。`first-run.mjs` 和 `updates.mjs` 不再有自己的表。
+- 启动、选择框、搬数据、导入和更新的共用文案在 `app/src/start/text.mjs` 的 `TEXT` 里。选择框和提示现在由应用自己的页面绘制，不是系统对话框；`first-run.mjs` 和 `updates.mjs` 不再有自己的表。主菜单等其他壳文案仍有主进程内的语言表，不属于这张表。
 - 中文是源，英文逐键对照；两边键集相同、占位符相同（已有的测试）。
 - 占位符 `{name}`；路径、大小、名字、版本都从快照或参数填，表里不写。英文的单复数写在占位符里：`{bots|Bot|Bots}` 填成「1 Bot」「6 Bots」（`t()` 按值是不是 1 选）。中文不用。
 - 查字只有一个函数 `t(lang, key, vars)`。语言由 `langOf(locale)` 定（`zh*` → `zh`，其余 `en`），页面从快照拿，主进程用 `app.getLocale()`。
@@ -190,6 +190,8 @@
 - 测试里的「以 … 结尾」只查 `data-act="pick"` 的按钮；对话框里打开选择框的按钮（没有）不在内。
 
 ## 变更
+
+- 2026-11-22：明确共用文案表的实际范围，区分自建页面选择框与系统对话框，对照 dev 代码校正。
 
 - 2026-10-29 首稿：十层、一张表、键的对照、测试；对应 `text.mjs` 重排、`first-run.mjs` 和 `updates.mjs` 的表并入、`start.html` 和 `start.js` 改键。依据：2026-10-29 对三张表的审读（30 个对话框键和 11 个更新键都在用，没有死键；页面表和两份设计稿逐句对照只有 `failed.reason.*` 的句号一处不同；风格问题 30 条，全部复核过）。
 - 2026-10-30：启动窗口的样子换成圆环（[启动窗口](2026-10-26-start-window.md) 同一天的变更）：鲸鱼的话只剩用户要知道或回答时的几句，表里去掉 14 个键（`voice.hello / helloName / helloBack / data / found / engine / slow10 / team / ready / opening`、`hint.model / preview / reinstall`、`status.elapsed`），`hint.slowLater` 改名 `voice.slowLater`（同一句，以后的启动和搬数据时 45 秒起由鲸鱼说）；第 2 节 `voice`、`hint`、`status` 三层的说明、第 3 节的对照和第 4 节单复数的例子跟着改，第 5 节加一条测试。依据：维护者 2026-10-30 转来的讨论（「现在这版有点噪了」）和维护者选定的圆环原型。

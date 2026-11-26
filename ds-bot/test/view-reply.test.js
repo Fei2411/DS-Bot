@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { createRuntime } from '../index.js'
 import { normalizeView, VIEW_BYTE_LIMIT, viewBytes } from 'deep-view/core'
-import { goalProvider } from '../src/host/goal-skills.js'
+import { goalProvider, unpackedPath } from '../src/host/goal-skills.js'
 import { replyText } from '../src/host/parts.js'
 import { fakeContext } from './fake-ctx.js'
 
@@ -94,11 +94,19 @@ async function prepareIssue(args = {}) {
   return JSON.parse(prepared.slice(prepared.indexOf('\n') + 1))
 }
 
-test('the bundled report skill can be invoked by the model and by the user', async () => {
+test('the bundled report skill can be invoked by the model and by the user with strict trigger boundaries', async () => {
   const provider = goalProvider()
   const item = (await provider.list()).find(skill => skill.name === 'report-ds-bot-issue')
   assert.deepEqual(item.invocation, { modelInvocable: true, userInvocable: true })
-  assert.match((await provider.get(item)).content, /prepare_ds_bot_issue.*show_view/)
+  assert.ok(item.description.length <= 500)
+  assert.match(item.description, /Do not use for user code errors/i)
+  assert.match(item.description, /Never open the approval card before the user agrees/i)
+  const full = await provider.get(item)
+  assert.match(full.content, /prepare_ds_bot_issue.*show_view/)
+  assert.match(full.content, /Fei-Craft\/DS-Bot/)
+  const suffix = join('node_modules', 'ds-bot', 'src', 'host', 'skills', 'report-ds-bot-issue')
+  assert.equal(unpackedPath(join('opt', 'app.asar', suffix)), join('opt', 'app.asar.unpacked', suffix))
+  assert.equal(unpackedPath(join('opt', suffix)), join('opt', suffix))
 })
 
 test('only the matching affirmative view reply publishes the redacted issue shown to the user', async (t) => {
@@ -109,9 +117,10 @@ test('only the matching affirmative view reply publishes the redacted issue show
   rt.redactSecrets = value => value.replaceAll(savedSecret, '[hidden]')
   rt.publishDsBotIssue = async (botId, draft) => {
     writes.push({ botId, ...draft })
-    return 'https://github.com/Fei2411/DS-Bot/issues/42'
+    return 'https://github.com/Fei-Craft/DS-Bot/issues/42'
   }
   const draft = await prepareIssue({ what: `Error in ${homedir()}/a with ${savedSecret}` })
+  assert.match(draft.view.children[0].text, /Fei-Craft\/DS-Bot/)
   const action = draft.view.children.at(-1).id
   const tampered = await show('writer-now', { ...draft, title: 'Not the approved title' })
   assert.match(tampered.text, /draft changed or expired/)
@@ -126,7 +135,7 @@ test('only the matching affirmative view reply publishes the redacted issue show
   assert.equal((await call('view-reply', { ...reply, values: { confirmed: 'yes' } })).ok, false)
   const answers = await Promise.all([call('view-reply', reply), call('view-reply', reply)])
   assert.equal(answers.filter(result => result.ok).length, 1)
-  assert.deepEqual(answers.find(result => result.ok).value, { issueReportResult: 'Issue published: https://github.com/Fei2411/DS-Bot/issues/42' })
+  assert.deepEqual(answers.find(result => result.ok).value, { issueReportResult: 'Issue published: https://github.com/Fei-Craft/DS-Bot/issues/42' })
   assert.equal(writes.length, 1)
   const [{ botId, title, body }] = writes
   assert.equal(botId, 'writer')
@@ -137,7 +146,7 @@ test('only the matching affirmative view reply publishes the redacted issue show
   assert.ok(!JSON.stringify(draft).includes(savedSecret))
   const followup = sent.at(-1).message.content[0].text
   assert.equal(JSON.parse(followup).answers[0].values.confirmed, true)
-  assert.match(replyText(followup), /Issue published: https:\/\/github\.com\/Fei2411\/DS-Bot\/issues\/42$/)
+  assert.match(replyText(followup), /Issue published: https:\/\/github\.com\/Fei-Craft\/DS-Bot\/issues\/42$/)
 })
 
 test('cancel, dismiss, a typed yes, and a plain confirmation card never publish an issue', async (t) => {
@@ -179,7 +188,7 @@ test('an unconnected report returns a capped prefilled link, and a failed follow
   const link = fallback.value.issueReportResult.match(/https:\/\/\S+/)[0]
   assert.ok(link.length <= 4000)
   const url = new URL(link)
-  assert.equal(url.origin + url.pathname, 'https://github.com/Fei2411/DS-Bot/issues/new')
+  assert.equal(url.origin + url.pathname, 'https://github.com/Fei-Craft/DS-Bot/issues/new')
   assert.equal(url.searchParams.get('template'), 'bug.yml')
   assert.equal(url.searchParams.get('title'), args.title)
   assert.match(url.searchParams.get('what'), /^(?:故障😀)+故?障?…$/)
@@ -194,7 +203,7 @@ test('an unconnected report returns a capped prefilled link, and a failed follow
   assert.match(uncertain.value.issueReportResult, /Check existing issues before submitting manually: https:\/\//)
 
   let writes = 0
-  rt.publishDsBotIssue = async () => { writes += 1; return 'https://github.com/Fei2411/DS-Bot/issues/42' }
+  rt.publishDsBotIssue = async () => { writes += 1; return 'https://github.com/Fei-Craft/DS-Bot/issues/42' }
   await show('writer-now', await prepareIssue())
   const reply = await open()
   failFlush(new Error('could not flush'))
@@ -310,7 +319,7 @@ test('issue report redaction preserves the destination of a failed rename', asyn
   assert.ok(args.view.children[1].text.includes(expected.join('\n')))
 })
 
-test('show_view registers an interactive card, refuses a group and a display-only wait, and leaves a display-only card unregistered', async (t) => {
+test('show_view permits display, choice and typed views in IM-origin groups', async (t) => {
   const { emit, show, team, stop } = await start()
   t.after(stop)
   await rt.teamTools.find(d => d.name === 'list_bots').execute({}, { agent: { id: 'chief' } })
@@ -318,6 +327,24 @@ test('show_view registers an interactive card, refuses a group and a display-onl
   const group = await show('writer-group', { title: 'Pick', view: CHOICES })
   assert.equal(group.text, 'View cards only work in your own chat. In a group, ask in your message instead.')
   assert.equal(group.concluded, false)
+  rt.roomHasImOrigin = () => true
+  const interactiveGroup = await show('writer-group', { title: 'Pick', view: CHOICES })
+  assert.match(interactiveGroup.text, /user's answer arrives/)
+  assert.equal(interactiveGroup.concluded, true)
+  assert.ok(rt.state.views['writer-group'])
+  const typedGroup = await show('writer-group', { title: 'Details', view: { type: 'form', id: 'details', fields: [{ id: 'name', label: 'Name' }] } })
+  assert.match(typedGroup.text, /user's answer arrives/)
+  assert.equal(typedGroup.concluded, true)
+  const multiGroup = await show('writer-group', { title: 'Several', view: { ...CHOICES, multi: true } })
+  assert.match(multiGroup.text, /user's answer arrives/)
+  assert.equal(multiGroup.concluded, true)
+  delete rt.state.views['writer-group']
+  const displayGroup = await show('writer-group', { title: 'Meter', view: METER })
+  assert.equal(displayGroup.text, 'The view is on screen.')
+  assert.equal(displayGroup.concluded, false)
+  assert.equal(rt.state.views['writer-group'], undefined)
+  assert.match(rt.roomOf('r1').log.at(-1).text, /70%/)
+  assert.match((await show('writer-group', { title: 'Meter', view: METER, report_issue: 'draft' })).text, /Issue reports only work in your own chat/)
   const stranger = await show('outsider', { title: 'Pick', view: CHOICES })
   assert.match(stranger.text, /^Only Bots on the team can use show_view\. Use ask_user_question if it is available in this session, or ask the user in your reply\.$/)
   assert.equal(stranger.concluded, false)
@@ -456,6 +483,17 @@ test('dismiss-view drops the open view, keeps it as a closed card, and leaves a 
   assert.deepEqual((await team()).closedCards, { 'writer-now': { 'call-1': 'dismissed', 'q-call': 'dismissed' } })
 })
 
+test('a view shown over one still open closes the earlier view instead of dropping it (#2172)', async (t) => {
+  const { show, team, stop } = await start()
+  t.after(stop)
+  await rt.teamTools.find(d => d.name === 'list_bots').execute({}, { agent: { id: 'chief' } })
+  await show('writer-now', { title: 'Pick', view: CHOICES }, 'v-first')
+  await show('writer-now', { title: 'Pick again', view: CHOICES }, 'v-second')
+  const open = await team()
+  assert.equal(open.views['writer-now'].callId, 'v-second')
+  assert.deepEqual(open.closedCards, { 'writer-now': { 'v-first': 'dismissed' } })
+})
+
 test('an answered view is not kept as a closed card: its reply message carries it', async (t) => {
   const { show, call, team, stop } = await start()
   t.after(stop)
@@ -557,4 +595,26 @@ test('a card carried from an earlier part records its close on the part that ask
   assert.equal(open.questions['writer-now'], undefined)
   assert.equal(open.views['writer-now'], undefined)
   assert.deepEqual(open.closedCards, { 'writer-old': { 'q-old': 'replied', 'v-old': 'replied' } })
+})
+
+test('show_view closes an earlier-segment card as dismissed even when the new card reuses the same callId', async (t) => {
+  const { show, team, stop } = await start()
+  t.after(stop)
+  await rt.teamTools.find(d => d.name === 'list_bots').execute({}, { agent: { id: 'chief' } })
+  rt.state.views['writer-now'] = {
+    id: 'v-carried',
+    callId: 'v-dup',
+    callSessionId: 'writer-old',
+    title: 'Old View',
+    view: CHOICES,
+    askedAt: 1,
+  }
+  await show('writer-now', { title: 'New View', view: CHOICES }, 'v-dup')
+  const open = await team()
+  assert.equal(open.views['writer-now'].title, 'New View')
+  assert.deepEqual(open.closedCards, { 'writer-old': { 'v-dup': 'dismissed' } })
+
+  // Same-segment same-callId re-entry must NOT dismiss itself.
+  await show('writer-now', { title: 'New View Again', view: CHOICES }, 'v-dup')
+  assert.equal((await team()).closedCards['writer-now'], undefined)
 })

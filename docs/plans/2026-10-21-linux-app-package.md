@@ -9,7 +9,7 @@
 
 ## 已定的行为
 
-- Linux 只出两个包，同一次 `npm run dist` 产出：**AppImage**（主包，一个文件跑所有 glibc 发行版）加 **deb**（Debian/Ubuntu 兜底）。不打 rpm/pacman/Flatpak/Snap，也不做按发行版分包。
+- Linux 只出两个包，同一次 `npm run dist` 产出：**AppImage**（主包，要求 glibc 2.28 或更新）加 **deb**（Debian/Ubuntu 兜底）。不打 rpm/pacman/Flatpak/Snap，也不做按发行版分包。
 - AppImage 是 Linux 上唯一被 electron-updater 原生支持的格式：读 `latest-linux.yml`，后台下载、退出时替换自身，与 Windows 共用 `watchUpdates` 路径。
 - deb 不能自更新：与 macOS 共用 `watchReleases` 发布页提醒路径，等待的资产是 `linux-amd64.deb`（`watchReleases` 因此加了 `asset` 参数，默认仍是 mac zip）。
 - 文件名遵循 Linux 惯例而非 `${arch}` 字面量：AppImage 是 `linux-x86_64`，deb 是 `linux-amd64`（electron-builder 对 Linux 目标的架构名映射；与 IPFS Desktop 等先例一致）。`main.mjs` 和 `check-update.mjs` 里因此有 x64→amd64 的映射。
@@ -25,4 +25,7 @@
 - `release.yml` 加 `app-linux` job：把 AppImage（含 `.blockmap`）、deb 和 `latest-linux.yml` 挂到 release。
 - `result` 汇总 job 的 `needs` 同步加 `app-package-linux`。
 
+## 变更
+
 - 2026-11-01：程序与包名改为 dsbot；deb 声明替换并冲突于旧包，安装新包时由包管理器移除旧程序，用户数据保留。
+- 2026-11-22：明确 AppImage 的 glibc 2.28 最低要求，对照 dev 代码校正。

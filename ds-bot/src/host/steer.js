@@ -10,7 +10,9 @@
 //  - a running model call is cancelled (hook reason) and the steer is moved to
 //    the front of next-turn, so a fresh turn claims it at once.
 import { isAbsolute, resolve } from 'node:path'
-import { boundContextSummary, createUserMessage } from '@deepseek-ai/dsh-llm'
+import { symbols as cordisSymbols } from '@deepseek-ai/cordis'
+import { boundContextSummary, createUserMessage, HarnessError } from '@deepseek-ai/dsh-llm'
+import { TOOL_ABORTED } from '@deepseek-ai/dsh-tools'
 import { BACKGROUND_WAIT_MS, STEER_CUT } from './constants.js'
 
 const SHELL_TOOLS = ['pwsh', 'bash']
@@ -76,10 +78,23 @@ export function install(rt) {
         activeWaitReads: new Map(),
         activeKills: new Map(),
         cutting: false,
+        folding: false,
+        cutAnchorId: undefined,
+        pendingSteerRpcs: new Map(),
+        pendingSteerIds: new Map(),
       }
       state.set(id, entry)
     }
     return entry
+  }
+
+  const isActiveForeground = (id, agent = liveAgent(id)) => {
+    if (id === undefined || rt.readOnly?.() !== undefined || !privateOf(id)) return false
+    if (rt.taskOwners?.has(id)) return false
+    const botId = rt.chatOwners.get(id)
+    if (botId === undefined || (typeof rt.chatOf === 'function' && rt.chatOf(botId) !== id)) return false
+    if (agent !== undefined && liveAgent(id) !== agent) return false
+    return true
   }
 
   // How long a Bot's own chat waits for a shell call before it goes on as a background
@@ -113,31 +128,182 @@ export function install(rt) {
     && (event.data.inserted ?? []).some(message => message?.source?.kind === 'user')
   const wake = (set, value) => { const waiters = [...set]; set.clear(); for (const fn of waiters) fn(value) }
 
-  // A user steer into a private chat must cut a running model call. The check runs
-  // off the event that queued it, never inside the append that emitted the event.
+  // A user steer into a private chat must cut a running model call, but never
+  // before the step's claimed messages are committed to session history (which
+  // happens right before `agent/assistant-stream` `start`). The check runs off
+  // the event that queued it, never inside the append that emitted the event.
   const maybeCut = (id) => {
     const entry = rt.live.get(id)
     const agent = liveAgent(id)
-    if (!privateOf(id) || rt.readOnly?.() !== undefined || entry === undefined || agent === undefined) return
-    if (rt.taskOwners?.has(id) || rt.shouldMoveForeground?.(rt.botOf(rt.chatOwners.get(id)), id)) return
-    if ([...(rt.switchJobs?.() ?? [])].some(job => job?.botId === rt.chatOwners.get(id) && job.roomId === undefined)) return
+    if (entry === undefined || agent === undefined || !isActiveForeground(id, agent)) return
+    if (rt.isLocalCliSession?.(id)) return
+    const botId = rt.chatOwners.get(id)
+    const activeInfo = entry.info ?? entry.claimed?.find(item => item?.silent !== true)
+    if (rt.isHiddenBotWorkTurn?.(botId, activeInfo)) return
+    if (rt.isHandingOff?.(id) || rt.mustIsolateHiddenWork?.(rt.botOf(botId), id)) return
+    if (rt.waitsForApproval?.(id)) return
+    if ([...(rt.switchJobs?.() ?? [])].some(job => job?.botId === botId && job.roomId === undefined)) return
     const track = stateOf(id)
-    if (track.phase !== 'model' || track.cutting) return
+    if (track.phase !== 'model' || track.cutting || track.folding) return
     if (entry.turn === undefined || (entry.calls?.size ?? 0) > 0 || agent.status !== 'running') return
     const nextStep = agent.inbox?.nextStep ?? []
     const last = [...nextStep].reverse().find(message => message?.source?.kind === 'user')
     if (last === undefined) return
-    track.cutting = true
-    rt.markSteerCut(id)
-    agent.inbox.remove(last.id)
-    agent.cancel({ kind: 'hook', reason: STEER_CUT }, { keepInbox: true })
-    agent.send(last, 'next-turn', true)
-    if (agent.inbox.nextTurn[0]?.id !== last.id) {
-      agent.inbox.remove(last.id)
-      agent.inbox.prepend('next-turn', last)
+    track.folding = true
+    try {
+      if (!agent.inbox.remove(last.id)) return
+      track.cutting = true
+      track.cutAnchorId = last.id
+      rt.markSteerCut(id)
+      agent.cancel({ kind: 'hook', reason: STEER_CUT }, { keepInbox: true })
+      agent.send(last, 'next-turn', true)
+      if (agent.inbox.nextTurn[0]?.id !== last.id && agent.inbox.remove(last.id)) {
+        agent.inbox.prepend('next-turn', last)
+      }
+    } finally {
+      track.folding = false
     }
   }
   const scheduleCut = (id) => { queueMicrotask(() => maybeCut(id)) }
+
+  // Promotes a user steer that arrived while a STEER_CUT abort was still
+  // winding down (where DSH's `wakingAfterAbort` appends it to the tail of
+  // `next-turn`) into the active cut batch so the incoming turn claims every
+  // steered message together in exact FIFO order ahead of unsteered queued rows.
+  const foldIntoCutBatch = (id, messageId) => {
+    const track = state.get(id)
+    const agent = liveAgent(id)
+    if (track === undefined || !track.cutting || track.cutAnchorId === undefined || track.folding || agent === undefined) return
+    if (!isActiveForeground(id, agent) || rt.isLocalCliSession?.(id)) return
+    const botId = rt.chatOwners.get(id)
+    if (rt.isHandingOff?.(id) || rt.mustIsolateHiddenWork?.(rt.botOf(botId), id)) return
+    const nextTurn = agent.inbox?.nextTurn ?? []
+    const incoming = nextTurn.find(message => message?.id === messageId && message?.source?.kind === 'user')
+    if (incoming === undefined) return
+    // Re-steering the active cut anchor via updateQueue moves it to the tail of
+    // next-turn during `wakingAfterAbort`; keep it pinned at index 0.
+    if (messageId === track.cutAnchorId) {
+      if (nextTurn[0]?.id === messageId) return
+      track.folding = true
+      try {
+        if (agent.inbox.remove(incoming.id)) agent.inbox.prepend('next-turn', incoming)
+      } finally {
+        track.folding = false
+      }
+      return
+    }
+    const anchor = nextTurn[0]?.id === track.cutAnchorId ? nextTurn[0] : undefined
+    const previousAnchorId = track.cutAnchorId
+    track.folding = true
+    try {
+      if (!agent.inbox.remove(incoming.id)) return
+      if (anchor !== undefined) {
+        if (!agent.inbox.remove(anchor.id)) {
+          agent.inbox.append('next-turn', incoming)
+          return
+        }
+        agent.inbox.append('next-step', anchor)
+      }
+      track.cutAnchorId = incoming.id
+      agent.inbox.prepend('next-turn', incoming)
+    } catch (error) {
+      track.cutAnchorId = previousAnchorId
+      throw error
+    } finally {
+      track.folding = false
+    }
+  }
+
+  // Steers queued user-authored messages in one atomic host step so promoting
+  // several queued rows at once never races between per-row RPCs, never
+  // reorders messages behind other queued items, and never cascade-cuts turns.
+  const steerQueued = (id, ids) => {
+    const agent = liveAgent(id)
+    if (agent === undefined || !isActiveForeground(id, agent) || agent.status !== 'running') return { steered: 0 }
+    const botId = rt.chatOwners.get(id)
+    if (Array.isArray(ids) && ids.length === 0) return { steered: 0 }
+    const nextTurn = agent.inbox?.nextTurn ?? []
+    const wanted = Array.isArray(ids) ? new Set(ids) : undefined
+    const selected = nextTurn.filter(message => message?.source?.kind === 'user'
+      && (wanted === undefined || wanted.has(message.id)))
+    if (selected.length === 0) return { steered: 0 }
+    if (rt.isHandingOff?.(id) || rt.mustIsolateHiddenWork?.(rt.botOf(botId), id)) {
+      // Let the caller fall back to per-row steering so `bot-tasks.js`
+      // foreground handoff isolates user input from hidden peer-Bot work.
+      return { steered: 0, fallback: true }
+    }
+    const entry = rt.live.get(id)
+    const activeInfo = entry?.info ?? entry?.claimed?.find(item => item?.silent !== true)
+    if (rt.isHiddenBotWorkTurn?.(botId, activeInfo)) return { steered: 0 }
+    const track = stateOf(id)
+    if (track.folding) return { steered: 0 }
+    if (track.cutting && track.cutAnchorId !== undefined) {
+      const anchor = nextTurn[0]?.id === track.cutAnchorId ? nextTurn[0] : undefined
+      const additions = selected.filter(message => message.id !== track.cutAnchorId)
+      if (additions.length === 0) return { steered: 0 }
+      const previousAnchorId = track.cutAnchorId
+      track.folding = true
+      try {
+        const removed = []
+        for (const message of additions) {
+          if (agent.inbox.remove(message.id)) removed.push(message)
+        }
+        if (removed.length === 0) return { steered: 0 }
+        if (anchor !== undefined && !agent.inbox.remove(anchor.id)) {
+          for (const message of removed) agent.inbox.append('next-turn', message)
+          return { steered: 0 }
+        }
+        const tail = removed.pop()
+        const toNextStep = anchor !== undefined ? [anchor, ...removed] : removed
+        if (toNextStep.length > 0) {
+          if (typeof agent.inbox.splice === 'function') {
+            agent.inbox.splice('next-step', agent.inbox.nextStep.length, 0, toNextStep)
+          } else {
+            for (const message of toNextStep) agent.inbox.append('next-step', message)
+          }
+        }
+        track.cutAnchorId = tail.id
+        agent.inbox.prepend('next-turn', tail)
+        return { steered: removed.length + 1 }
+      } catch (error) {
+        track.cutAnchorId = previousAnchorId
+        throw error
+      } finally {
+        track.folding = false
+      }
+    }
+    track.folding = true
+    try {
+      const removed = []
+      for (const message of selected) {
+        if (agent.inbox.remove(message.id)) removed.push(message)
+      }
+      if (removed.length === 0) return { steered: 0 }
+      const tail = removed.pop()
+      if (removed.length > 0) {
+        if (typeof agent.inbox.splice === 'function') {
+          agent.inbox.splice('next-step', agent.inbox.nextStep.length, 0, removed)
+        } else {
+          for (const message of removed) agent.inbox.append('next-step', message)
+        }
+      }
+      if (typeof agent.steer === 'function') agent.steer(tail)
+      else if (typeof agent.send === 'function') agent.send(tail, 'next-step', true)
+      else agent.inbox.append('next-step', tail)
+      // If a non-cut abort was winding down (`wakingAfterAbort`), DSH placed `tail`
+      // at the end of `next-turn`: keep it at index 0 so the next turn claims the
+      // full steered batch `[...removed, tail]` ahead of any unsteered rows.
+      if ((agent.inbox.nextTurn ?? []).some(message => message?.id === tail.id)
+        && agent.inbox.nextTurn[0]?.id !== tail.id
+        && agent.inbox.remove(tail.id)) {
+        agent.inbox.prepend('next-turn', tail)
+      }
+      return { steered: removed.length + 1 }
+    } finally {
+      track.folding = false
+    }
+  }
+  rt.steerQueued = steerQueued
 
   // Renders one jobs.read() result the way tool-jobs' renderModelDelta does:
   // stdout and unlabeled chunks joined, then a [stderr] section, then a
@@ -233,283 +399,388 @@ export function install(rt) {
     && paramOf(def, 'run_in_background') !== undefined
     && !/kills the command on expiry/i.test(paramOf(def, 'timeoutMs')?.description ?? '')
 
-  // Track the underlying global definition wrapped per agent so tools/change
-  // (e.g. when jobs attaches after startup and dsh-tool-bash re-registers) can
-  // refresh the shadow without recursive wrapping.
-  const wrappedDefs = new WeakSet()
-  const agentShadows = new WeakMap()
+  // Intercept shell calls through DSH's `tools/execute` waterfall on each Bot
+  // agent's scope rather than re-registering a shadowing tool definition. DSH
+  // may register `tool-bash` / `tool-pwsh` globally, in a standing parent preset
+  // scope (`dsh-agent-preset-registry`), or directly in `agent.ctx` (where
+  // `dsh-tools` forbids duplicate same-scope registrations); looking up the live
+  // executable definition inside `tools/execute` works uniformly across all three
+  // layers, avoids stale shadows when jobs/presets reload, and preserves
+  // `tools.restrict()` visibility.
+  //
+  // Note: `dsh-tools`'s `dispatchToolBody` re-fuses the caller's AbortSignal onto
+  // `exec.signal`, so steer-detach cannot delegate through `next()` without
+  // `STEER_CUT` killing a detached job. Invoking `def.execute` directly means:
+  //  - any `tools/execute` hook registered *after* an agent attaches is bypassed
+  //    for private-chat `bash`/`pwsh` (host modules like `privacy` and `secrets`
+  //    install first, enforced by the `rt.installed` gate below);
+  //  - `dsh-tools` sees `bodyInvoked = false` if the caller signal aborts in the
+  //    narrow window after `steerShellExecute` returns a success value.
   const formatWarned = new Set()
-  const KEEP_CURRENT = Symbol('keep-current-shadow')
 
-  const resolveShellDef = (name, agent, current) => {
-    if (typeof ctx.tools?.get !== 'function') return undefined
-    const globalRaw = ctx.tools.get(name)
-    const globalDef = globalRaw !== undefined && !wrappedDefs.has(globalRaw) ? globalRaw : undefined
-    if (current !== undefined) {
-      if (current.fromGlobal) {
-        if (globalDef === undefined) return undefined
-        if (globalDef === current.rawDef) return KEEP_CURRENT
-        return { def: globalDef, fromGlobal: true, checkVisibleAfterDispose: true }
-      }
-      const scopedDef = ctx.tools.get(name, agent)
-      if (scopedDef !== undefined && wrappedDefs.has(scopedDef)) return KEEP_CURRENT
-      return scopedDef !== undefined ? { def: scopedDef, fromGlobal: false, checkVisibleAfterDispose: false } : undefined
+  const errorMessage = (error) => (error instanceof Error
+    ? (error.message || error.name)
+    : typeof error === 'object' && error !== null && typeof error.message === 'string' && error.message !== ''
+      ? error.message
+      : String(error))
+
+  const toToolError = (error) => {
+    const message = errorMessage(error)
+    const info = error instanceof HarnessError
+      ? { name: error.name, code: error.code }
+      : (error?.name === 'AbortError' || error?.code === TOOL_ABORTED)
+        ? { name: 'AbortError', code: TOOL_ABORTED }
+        : undefined
+    return {
+      isError: true,
+      error: { message, ...(info === undefined ? {} : { info }) },
+      content: [{ type: 'text', text: `Error: ${message}` }],
     }
-    // Initial attach must respect agent-level tools.restrict() visibility.
-    const visible = ctx.tools.get(name, agent)
-    if (visible === undefined || wrappedDefs.has(visible)) return undefined
-    return { def: visible, fromGlobal: visible === globalDef, checkVisibleAfterDispose: false }
   }
 
-  const shadowShell = (agent, name, def) => {
+  const toAbortedError = () => ({
+    isError: true,
+    error: { message: 'tool call aborted', info: { name: 'AbortError', code: TOOL_ABORTED } },
+    content: [{ type: 'text', text: 'Error: tool call aborted' }],
+  })
+
+  const executeShell = async (def, name, args, exec) => {
+    const sessionId = exec.agent?.id
+    const waitMs = rt.backgroundWaitMs?.()
+    const capacity = hasJobCapacity(sessionId)
+
+    // 0s setting: hand off directly to DSH's native run_in_background path
+    // so approval runs first, startJob registers once, and tool-jobs owns
+    // every read and completion notice. Shape the result as `promoted` (0ms)
+    // so DSH's own presenter renders a background console card rather than a
+    // completed exit-0 terminal card when the model did not pass run_in_background.
+    if (waitMs === 0 && capacity && hasBackgroundFormat(def)) {
+      const bg = await def.execute({ ...args, run_in_background: true }, exec)
+      if (bg?.kind === 'background' && typeof bg.jobId === 'string') {
+        return {
+          detached: false,
+          value: { kind: 'promoted', cwd: typeof bg.cwd === 'string' ? bg.cwd : '', jobId: bg.jobId, timeoutMs: 0, output: '' },
+        }
+      }
+      return { detached: false, value: bg }
+    }
+
+    // Tighten timeoutMs into DSH's native waitOnJob whenever the shell tool
+    // supports native timeout promotion and the owner has job capacity.
+    // Non-positive caller timeoutMs was already passed through untouched above.
+    const nativePromote = Number.isFinite(waitMs) && waitMs > 0 && capacity && canNativePromote(def)
+    const callerTimeout = args?.timeoutMs
+    const effectiveTimeoutMs = nativePromote
+      ? (callerTimeout !== undefined ? Math.min(callerTimeout, waitMs) : waitMs)
+      : undefined
+    const callArgs = effectiveTimeoutMs !== undefined ? { ...args, timeoutMs: effectiveTimeoutMs } : args
+
+    const track = stateOf(sessionId)
+    // Proxy exec.signal so a turn cancellation (such as STEER_CUT) after a
+    // steer detach cannot reach waitOnJob and kill the promoted job, while
+    // still forwarding aborts before detach (including during approvals).
+    const nativeController = new AbortController()
+    const onTurnAbort = () => nativeController.abort(exec.signal.reason)
+    if (exec.signal?.aborted) nativeController.abort(exec.signal.reason)
+    else exec.signal?.addEventListener('abort', onTurnAbort, { once: true })
+    const detachSignal = () => exec.signal?.removeEventListener('abort', onTurnAbort)
+    const nativeExec = exec.signal === undefined
+      ? exec
+      : {
+          ...exec,
+          ...(typeof exec.concludeTurn === 'function' ? { concludeTurn: () => exec.concludeTurn() } : {}),
+          signal: nativeController.signal,
+        }
+
+    let steeredAt = (exec.agent.inbox?.nextStep ?? []).some(message => message?.source?.kind === 'user') ? Date.now() : undefined
+    let steerSignal
+    const onSteer = () => {
+      if (steeredAt === undefined) steeredAt = Date.now()
+      steerSignal?.()
+    }
+    // Subscribe before calling def.execute so a steer arriving during
+    // approval or before job/registered is never missed.
+    track.steerWaiters.add(onSteer)
+
+    let native
+    try {
+      native = Promise.resolve(def.execute(callArgs, nativeExec))
+    } catch (error) {
+      track.steerWaiters.delete(onSteer)
+      detachSignal()
+      throw error
+    }
+    native.catch(() => {})
+
+    let jobResolve
+    let graceTimer
+    let waitTimer
+    let runningSince
+    let detached = false
+    try {
+      const known = track.jobsByCall.get(exec.callId)
+      const jobWait = known !== undefined ? Promise.resolve(known) : new Promise((resolve) => {
+        jobResolve = resolve
+        const set = track.jobWaiters.get(exec.callId) ?? new Set()
+        track.jobWaiters.set(exec.callId, set)
+        set.add(resolve)
+      })
+      const registered = await Promise.race([native.then(() => 'native', () => 'native'), jobWait.then(() => 'job')])
+      if (registered !== 'job') return { detached: false, value: await native }
+      runningSince = Date.now()
+
+      if (waitMs !== 0 || !capacity) {
+        if (steeredAt === undefined && (exec.agent.inbox?.nextStep ?? []).some(message => message?.source?.kind === 'user')) {
+          steeredAt = Date.now()
+        }
+        if (steeredAt === undefined) {
+          const steerPromise = new Promise((resolve) => { steerSignal = () => resolve('steered') })
+          // When nativePromote is active, DSH's own waitOnJob owns the
+          // timeout so we only wake early on a user steer. Otherwise (e.g.
+          // a custom/mock tool without run_in_background), keep the local
+          // wait timer as fallback.
+          const racers = [native.then(() => 'native', () => 'native'), steerPromise]
+          if (!nativePromote && Number.isFinite(waitMs) && waitMs > 0) {
+            racers.push(new Promise((resolve) => { waitTimer = setTimeout(() => resolve('waited'), waitMs) }))
+          }
+          const first = await Promise.race(racers)
+          if (first !== 'steered' && first !== 'waited') return { detached: false, value: await native }
+        }
+        if (steeredAt !== undefined) {
+          const remainingGrace = Math.max(0, STEER_GRACE_MS - (Date.now() - steeredAt))
+          const capMs = effectiveTimeoutMs ?? (Number.isFinite(waitMs) && waitMs > 0 ? waitMs : Infinity)
+          const remainingWait = Number.isFinite(capMs) ? Math.max(0, capMs - (Date.now() - runningSince)) : Infinity
+          // If native waitOnJob will promote within the steer grace window
+          // anyway, stay on the native single track instead of detaching.
+          if (nativePromote && remainingWait <= remainingGrace) return { detached: false, value: await native }
+          const grace = Math.min(remainingGrace, remainingWait)
+          if (grace > 0) {
+            const graced = await Promise.race([
+              native.then(() => 'native', () => 'native'),
+              new Promise((resolve) => { graceTimer = setTimeout(() => resolve('grace'), grace) }),
+            ])
+            if (graced !== 'grace') return { detached: false, value: await native }
+          }
+        }
+      }
+
+      if (nativeController.signal.aborted) return { detached: false, value: await native }
+      const jobId = track.jobsByCall.get(exec.callId)
+      let read
+      try {
+        read = jobs.read(jobId, sessionId)
+      } catch {
+        return { detached: false, value: await native }
+      }
+      const status = read?.job?.status
+      if (status === 'completed' || status === 'killed' || status === 'failed') return { detached: false, value: await native }
+      detached = true
+      detachSignal()
+      detachAfter(jobId, args, exec, def, native, name)
+      const base = rt.sessionFolder?.(exec.agent.session)
+      const cwd = args?.workdir === undefined ? (base ?? '')
+        : !isAbsolute(args.workdir) && base !== undefined ? resolve(base, args.workdir) : args.workdir
+      return {
+        detached: true,
+        value: { kind: 'promoted', cwd, jobId, timeoutMs: Math.max(0, Date.now() - runningSince), output: renderJobRead(read) },
+      }
+    } finally {
+      if (!detached) void native.then(detachSignal, detachSignal)
+      track.steerWaiters.delete(onSteer)
+      if (jobResolve !== undefined) {
+        const set = track.jobWaiters.get(exec.callId)
+        set?.delete(jobResolve)
+        if (set?.size === 0) track.jobWaiters.delete(exec.callId)
+      }
+      clearTimeout(graceTimer)
+      clearTimeout(waitTimer)
+    }
+  }
+
+  const steerShellExecute = async (exec, next) => {
+    const name = exec?.name
+    if (!SHELL_TOOLS.includes(name)) return next()
+    const args = exec.arguments
+    // Pass malformed/non-object arguments straight to DSH's own validation path.
+    if (args === null || typeof args !== 'object' || Array.isArray(args)) return next()
+    const sessionId = exec.agent?.id
+    if (args.run_in_background === true || jobs === undefined || sessionId === undefined
+      || !privateOf(sessionId) || rt.taskOwners?.has(sessionId)) return next()
+    if (exec.signal?.aborted) return next()
+
+    const callerTimeout = args.timeoutMs
+    if (callerTimeout !== undefined && (!Number.isFinite(callerTimeout) || callerTimeout <= 0)) return next()
+
+    const def = typeof ctx.tools?.executable === 'function'
+      ? ctx.tools.executable(name, exec.agent, exec.toolSet)
+      : ctx.tools?.get?.(name, exec.agent, exec.toolSet)
+    if (def === undefined) return next()
     if (!hasPromotedFormat(def)) {
       if (!formatWarned.has(name)) {
         formatWarned.add(name)
         rt.warn('ds-bot: %s has no promoted result format; its calls keep the step boundary', name)
       }
-      return undefined
+      return next()
     }
-    const wrapper = {
-      ...def,
-      ...(typeof def.presentResult === 'function' ? {
-        presentResult: (args, result) => {
-          const effectiveArgs = result?.value?.kind === 'background' && args?.run_in_background !== true
-            ? { ...args, run_in_background: true } : args
-          return def.presentResult(effectiveArgs, result)
-        },
-      } : {}),
-      execute: async (args, exec) => {
-        const sessionId = exec.agent?.id
-        if (args?.run_in_background === true || jobs === undefined || sessionId === undefined
-          || !privateOf(sessionId)) return def.execute(args, exec)
 
-        const waitMs = rt.backgroundWaitMs?.()
-        const capacity = hasJobCapacity(sessionId)
-
-        // 0s setting: hand off directly to DSH's native run_in_background path
-        // so approval runs first, startJob registers once, and tool-jobs owns
-        // every read and completion notice.
-        if (waitMs === 0 && capacity && hasBackgroundFormat(def)) {
-          return def.execute({ ...args, run_in_background: true }, exec)
-        }
-
-        // Tighten timeoutMs into DSH's native waitOnJob whenever the shell tool
-        // supports native timeout promotion and the owner has job capacity.
-        // Leave invalid caller timeoutMs untouched so DSH's own validation rejects it.
-        const nativePromote = Number.isFinite(waitMs) && waitMs > 0 && capacity && canNativePromote(def)
-        const callerTimeout = args?.timeoutMs
-        const validCallerTimeout = callerTimeout === undefined || (Number.isFinite(callerTimeout) && callerTimeout > 0)
-        const effectiveTimeoutMs = nativePromote && validCallerTimeout
-          ? (callerTimeout !== undefined ? Math.min(callerTimeout, waitMs) : waitMs)
-          : undefined
-        const callArgs = effectiveTimeoutMs !== undefined ? { ...args, timeoutMs: effectiveTimeoutMs } : args
-
-        const track = stateOf(sessionId)
-        // Proxy exec.signal so a turn cancellation (such as STEER_CUT) after a
-        // steer detach cannot reach waitOnJob and kill the promoted job, while
-        // still forwarding aborts before detach (including during approvals).
-        const nativeController = new AbortController()
-        const onTurnAbort = () => nativeController.abort(exec.signal.reason)
-        if (exec.signal?.aborted) nativeController.abort(exec.signal.reason)
-        else exec.signal?.addEventListener('abort', onTurnAbort, { once: true })
-        const detachSignal = () => exec.signal?.removeEventListener('abort', onTurnAbort)
-        const nativeExec = exec.signal === undefined ? exec : { ...exec, signal: nativeController.signal }
-
-        let steeredAt = (exec.agent.inbox?.nextStep ?? []).some(message => message?.source?.kind === 'user') ? Date.now() : undefined
-        let steerSignal
-        const onSteer = () => {
-          if (steeredAt === undefined) steeredAt = Date.now()
-          steerSignal?.()
-        }
-        // Subscribe before calling def.execute so a steer arriving during
-        // approval or before job/registered is never missed.
-        track.steerWaiters.add(onSteer)
-
-        let native
-        try {
-          native = Promise.resolve(def.execute(callArgs, nativeExec))
-        } catch (error) {
-          track.steerWaiters.delete(onSteer)
-          detachSignal()
-          throw error
-        }
-        native.catch(() => {})
-
-        let jobResolve
-        let graceTimer
-        let waitTimer
-        let runningSince
-        let detached = false
-        try {
-          const known = track.jobsByCall.get(exec.callId)
-          const jobWait = known !== undefined ? Promise.resolve(known) : new Promise((resolve) => {
-            jobResolve = resolve
-            const set = track.jobWaiters.get(exec.callId) ?? new Set()
-            track.jobWaiters.set(exec.callId, set)
-            set.add(resolve)
-          })
-          const registered = await Promise.race([native.then(() => 'native', () => 'native'), jobWait.then(() => 'job')])
-          if (registered !== 'job') return await native
-          runningSince = Date.now()
-
-          if (waitMs !== 0 || !capacity) {
-            if (steeredAt === undefined && (exec.agent.inbox?.nextStep ?? []).some(message => message?.source?.kind === 'user')) {
-              steeredAt = Date.now()
-            }
-            if (steeredAt === undefined) {
-              const steerPromise = new Promise((resolve) => { steerSignal = () => resolve('steered') })
-              // When nativePromote is active, DSH's own waitOnJob owns the
-              // timeout so we only wake early on a user steer. Otherwise (e.g.
-              // a custom/mock tool without run_in_background), keep the local
-              // wait timer as fallback.
-              const racers = [native.then(() => 'native', () => 'native'), steerPromise]
-              if (!nativePromote && Number.isFinite(waitMs) && waitMs > 0) {
-                racers.push(new Promise((resolve) => { waitTimer = setTimeout(() => resolve('waited'), waitMs) }))
-              }
-              const first = await Promise.race(racers)
-              if (first !== 'steered' && first !== 'waited') return await native
-            }
-            if (steeredAt !== undefined) {
-              const remainingGrace = Math.max(0, STEER_GRACE_MS - (Date.now() - steeredAt))
-              const capMs = effectiveTimeoutMs ?? (Number.isFinite(waitMs) && waitMs > 0 ? waitMs : Infinity)
-              const remainingWait = Number.isFinite(capMs) ? Math.max(0, capMs - (Date.now() - runningSince)) : Infinity
-              // If native waitOnJob will promote within the steer grace window
-              // anyway, stay on the native single track instead of detaching.
-              if (nativePromote && remainingWait <= remainingGrace) return await native
-              const grace = Math.min(remainingGrace, remainingWait)
-              if (grace > 0) {
-                const graced = await Promise.race([
-                  native.then(() => 'native', () => 'native'),
-                  new Promise((resolve) => { graceTimer = setTimeout(() => resolve('grace'), grace) }),
-                ])
-                if (graced !== 'grace') return await native
-              }
-            }
-          }
-
-          if (nativeController.signal.aborted) return await native
-          const jobId = track.jobsByCall.get(exec.callId)
-          let read
-          try {
-            read = jobs.read(jobId, sessionId)
-          } catch {
-            return await native
-          }
-          const status = read?.job?.status
-          if (status === 'completed' || status === 'killed' || status === 'failed') return await native
-          detached = true
-          detachSignal()
-          detachAfter(jobId, args, exec, def, native, name)
-          const base = rt.sessionFolder?.(exec.agent.session)
-          const cwd = args?.workdir === undefined ? (base ?? '')
-            : !isAbsolute(args.workdir) && base !== undefined ? resolve(base, args.workdir) : args.workdir
-          return { kind: 'promoted', cwd, jobId, timeoutMs: Math.max(0, Date.now() - runningSince), output: renderJobRead(read) }
-        } finally {
-          if (!detached) void native.then(detachSignal, detachSignal)
-          track.steerWaiters.delete(onSteer)
-          if (jobResolve !== undefined) {
-            const set = track.jobWaiters.get(exec.callId)
-            set?.delete(jobResolve)
-            if (set?.size === 0) track.jobWaiters.delete(exec.callId)
-          }
-          clearTimeout(graceTimer)
-          clearTimeout(waitTimer)
-        }
-      },
-    }
-    wrappedDefs.add(wrapper)
-    const lift = agent.ctx.tools.register(wrapper)
-    return typeof lift === 'function' ? lift : () => {}
-  }
-
-  const syncing = new WeakSet()
-
-  const syncShellShadows = (agent) => {
-    if (agent === undefined || !rt.isBotSession(agent.session?.id)) return false
-    if (typeof agent.ctx?.tools?.register !== 'function') return false
-    // agent.ctx.tools.register() and its disposer synchronously emit tools/change;
-    // ignore re-entrant refreshes triggered by our own mutations.
-    if (syncing.has(agent)) return (agentShadows.get(agent)?.size ?? 0) > 0
-    syncing.add(agent)
     try {
-      let map = agentShadows.get(agent)
-      if (map === undefined) {
-        map = new Map()
-        agentShadows.set(agent, map)
-      }
-      for (const name of SHELL_TOOLS) {
-        const current = map.get(name)
-        const resolved = resolveShellDef(name, agent, current)
-        if (resolved === KEEP_CURRENT) continue
-        if (current !== undefined) {
-          map.delete(name)
-          current.dispose()
+      const outcome = await executeShell(def, name, args, exec)
+      if (!outcome.detached && exec.signal?.aborted) return toAbortedError()
+      // Populate content & meta for outer `tools/execute` wrappers; `dsh-tools`
+      // `normalizeDispatchResult` still validates and re-renders from any
+      // redacted `value` (e.g. `secrets.js`) because this object is non-canonical.
+      let content = []
+      let meta
+      try {
+        const rendered = def.output?.render?.(args, outcome.value)
+        if (Array.isArray(rendered)) content = rendered
+        if (typeof def.output?.presentationMeta === 'function') {
+          meta = def.output.presentationMeta(args, outcome.value)
         }
-        if (resolved === undefined) continue
-        if (resolved.checkVisibleAfterDispose && ctx.tools.get(name, agent) !== resolved.def) continue
-        try {
-          const dispose = shadowShell(agent, name, resolved.def)
-          if (dispose !== undefined) map.set(name, { rawDef: resolved.def, fromGlobal: resolved.fromGlobal, dispose })
-        } catch (error) {
-          rt.warn('ds-bot: shadowing %s failed: %s', name, error)
-        }
+      } catch {
+        // Leave empty content so `normalizeDispatchResult` surfaces ToolOutputError.
       }
-      return map.size > 0
-    } finally {
-      syncing.delete(agent)
+      return {
+        isError: false,
+        value: outcome.value,
+        content,
+        ...(meta === undefined ? {} : { meta }),
+      }
+    } catch (error) {
+      return toToolError(error)
     }
   }
 
   const ownedDisposers = new WeakSet()
   rt.shadowShells = (agent) => {
+    // Defer while `createRuntime` is still installing host modules so `privacy`
+    // and `secrets` always register their `tools/execute` wrappers before us.
+    if (rt.installed === false) return []
     if (agent === undefined || !rt.isBotSession(agent.session?.id)) return []
-    if (typeof agent.ctx?.tools?.register !== 'function') return []
-    const alreadyOwned = ownedDisposers.has(agent)
-    ownedDisposers.add(agent)
-    syncShellShadows(agent)
-    if (alreadyOwned) return []
+    if (typeof agent.ctx?.on !== 'function') return []
+    if (ownedDisposers.has(agent)) return []
     const id = agent.session?.id ?? agent.id
+    const offExecute = agent.ctx.on('tools/execute', steerShellExecute)
+    ownedDisposers.add(agent)
     return [() => {
       ownedDisposers.delete(agent)
-      syncing.add(agent)
-      try {
-        const map = agentShadows.get(agent)
-        agentShadows.delete(agent)
-        if (map !== undefined) {
-          for (const item of map.values()) item.dispose()
-          map.clear()
-        }
-      } finally {
-        syncing.delete(agent)
-      }
+      if (typeof offExecute === 'function') offExecute()
       if (id !== undefined && (liveAgent(id) === undefined || liveAgent(id) === agent)) {
         state.delete(id)
       }
     }]
   }
-  rt.refreshShellShadows = (agent) => {
-    if (agent !== undefined && ownedDisposers.has(agent)) syncShellShadows(agent)
+  rt.refreshShellShadows = () => {}
+
+  // Track steer-mode prompt/updateQueue RPCs so steers arriving while a
+  // STEER_CUT abort is winding down (where DSH's `wakingAfterAbort` lands them
+  // in `next-turn`) fold into the active cut batch instead of queuing behind
+  // unsteered items. Patch the unwrapped Cordis service target (not its
+  // traceable proxy, which allocates a fresh shadow function on every read) so
+  // identity checks and cleanup restore the original method cleanly on unload.
+  const controller = ctx.sessionController
+  const controllerTarget = controller?.[cordisSymbols.original] ?? controller
+  if (controllerTarget !== undefined && (typeof controllerTarget.prompt === 'function' || typeof controllerTarget.updateQueue === 'function')) {
+    const hadOwnPrompt = Object.hasOwn(controllerTarget, 'prompt')
+    const hadOwnUpdateQueue = Object.hasOwn(controllerTarget, 'updateQueue')
+    const origPrompt = typeof controllerTarget.prompt === 'function' ? controllerTarget.prompt : undefined
+    const origUpdateQueue = typeof controllerTarget.updateQueue === 'function' ? controllerTarget.updateQueue : undefined
+    const incMap = (map, key) => map.set(key, (map.get(key) ?? 0) + 1)
+    const decMap = (map, key) => {
+      const next = (map.get(key) ?? 0) - 1
+      if (next > 0) map.set(key, next)
+      else map.delete(key)
+    }
+    const trackable = (id) => {
+      if (id === undefined || rt.readOnly?.() !== undefined || !privateOf(id) || rt.taskOwners?.has(id) || rt.isLocalCliSession?.(id)) return false
+      const botId = rt.chatOwners.get(id)
+      return botId !== undefined && (typeof rt.chatOf !== 'function' || rt.chatOf(botId) === id)
+    }
+    const wrappedPrompt = origPrompt === undefined ? undefined : async function (request, ...rest) {
+      const id = request?.sessionId
+      const rpcId = request?.mode === 'steer' && typeof request?.requestId === 'string' && request.requestId !== '' && trackable(id) ? request.requestId : undefined
+      const track = rpcId === undefined ? undefined : stateOf(id)
+      if (rpcId !== undefined) incMap(track.pendingSteerRpcs, rpcId)
+      try {
+        return await origPrompt.call(this, request, ...rest)
+      } finally {
+        if (rpcId !== undefined) decMap(track.pendingSteerRpcs, rpcId)
+      }
+    }
+    const wrappedUpdateQueue = origUpdateQueue === undefined ? undefined : async function (request, ...rest) {
+      const id = request?.sessionId
+      const itemId = request?.action?.kind === 'steer' && typeof request?.itemId === 'string' && request.itemId !== '' && trackable(id) ? request.itemId : undefined
+      const track = itemId === undefined ? undefined : stateOf(id)
+      if (itemId !== undefined) incMap(track.pendingSteerIds, itemId)
+      try {
+        return await origUpdateQueue.call(this, request, ...rest)
+      } finally {
+        if (itemId !== undefined) decMap(track.pendingSteerIds, itemId)
+      }
+    }
+    ctx.effect(() => {
+      if (wrappedPrompt !== undefined) controllerTarget.prompt = wrappedPrompt
+      if (wrappedUpdateQueue !== undefined) controllerTarget.updateQueue = wrappedUpdateQueue
+      return () => {
+        if (wrappedPrompt !== undefined && controllerTarget.prompt === wrappedPrompt) {
+          if (hadOwnPrompt) controllerTarget.prompt = origPrompt
+          else delete controllerTarget.prompt
+        }
+        if (wrappedUpdateQueue !== undefined && controllerTarget.updateQueue === wrappedUpdateQueue) {
+          if (hadOwnUpdateQueue) controllerTarget.updateQueue = origUpdateQueue
+          else delete controllerTarget.updateQueue
+        }
+      }
+    }, 'ds-bot: steer cut tracking')
   }
+
+  ctx.on('agent/inbox/inserted', ({ agent, message } = {}) => {
+    const id = agent?.id ?? agent?.session?.id
+    if (id === undefined || !isActiveForeground(id, agent) || rt.isLocalCliSession?.(id) || message?.source?.kind !== 'user') return
+    const botId = rt.chatOwners.get(id)
+    if (rt.isHandingOff?.(id) || rt.mustIsolateHiddenWork?.(rt.botOf(botId), id)) return
+    const track = state.get(id)
+    if (track === undefined || !track.cutting || track.cutAnchorId === undefined || track.folding) return
+    if (message.id === track.cutAnchorId && agent.inbox?.nextTurn?.[0]?.id === message.id) return
+    const matched = (track.pendingSteerIds.get(message.id) ?? 0) > 0
+      || (message.source.rpcId !== undefined && (track.pendingSteerRpcs.get(message.source.rpcId) ?? 0) > 0)
+    if (!matched) return
+    if ((agent.inbox?.nextTurn ?? []).some(item => item?.id === message.id)) {
+      foldIntoCutBatch(id, message.id)
+    }
+  })
+
+  // DSH commits every claimed `user/message` before calling `live.start()`, so
+  // entering `model` phase here guarantees a STEER_CUT never aborts `prepareRequest`
+  // and swallows claimed messages.
+  ctx.on('agent/assistant-stream', ({ agent, frame } = {}) => {
+    if (frame?.type !== 'start') return
+    const id = agent?.id ?? agent?.session?.id
+    if (id === undefined || !privateOf(id) || liveAgent(id) !== agent) return
+    const track = stateOf(id)
+    track.phase = 'model'
+    if ((agent?.inbox?.nextStep ?? []).some(message => message?.source?.kind === 'user')) scheduleCut(id)
+  })
 
   ctx.on('session/event', (session, event) => {
     const id = session?.id
     if (id === undefined || !privateOf(id)) return
     const track = stateOf(id)
     switch (event.type) {
-      case 'step/start': {
-        track.phase = 'model'
-        const agent = liveAgent(id)
-        if ((agent?.inbox?.nextStep ?? []).some(message => message?.source?.kind === 'user')) scheduleCut(id)
+      case 'step/start':
+        track.phase = 'prepare'
         break
-      }
       case 'assistant/message':
         track.phase = 'tools'
         break
       case 'step/end':
+        track.phase = 'boundary'
+        break
       case 'turn/start':
       case 'turn/end':
         track.phase = 'boundary'
         track.cutting = false
+        track.cutAnchorId = undefined
         break
       case 'job/registered': {
         const callId = event.data?.toolCall?.callId
@@ -578,7 +849,7 @@ export function install(rt) {
       }
       case 'agent/inbox/spliced':
         if (isUserSteer(event)) {
-          if (rt.taskOwners?.has(id) || rt.shouldMoveForeground?.(rt.botOf(rt.chatOwners.get(id)), id)) break
+          if (rt.taskOwners?.has(id) || rt.isHandingOff?.(id) || rt.isLocalCliSession?.(id) || rt.mustIsolateHiddenWork?.(rt.botOf(rt.chatOwners.get(id)), id)) break
           wake(track.steerWaiters, true)
           scheduleCut(id)
         }

@@ -7,6 +7,7 @@ directories:
 files:
   - package.json
   - src/**
+  - ui/dist/**
   - assets/**
   # The LibreOffice engine goes beside the app instead (extraResources).
   - '!node_modules/@deepseek-ai/libreoffice-kit-*{,/**/*}'
@@ -17,6 +18,7 @@ asarUnpack:
   - node_modules/@deepseek-ai/libreoffice-kit/**
   # The payload Node cannot read office.js through the asar.
   - node_modules/ds-bot/office.js
+  # Bots and local agent CLIs read bundled skill files and references from disk on demand.
   - node_modules/ds-bot/src/host/skills/**
   # Automatic unpacking misses versioned Linux libraries such as libvips-cpp.so.8.18.7.
   - node_modules/@img/sharp*/**
@@ -116,5 +118,5 @@ deb:
 # so the build itself never publishes (--publish never).
 publish:
   provider: github
-  owner: Fei2411
+  owner: Fei-Craft
   repo: DS-Bot

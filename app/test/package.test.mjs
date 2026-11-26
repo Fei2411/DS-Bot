@@ -5,6 +5,11 @@ import { join, resolve } from 'node:path'
 import { FileMatcher, getNodeModuleFileMatcher } from 'app-builder-lib/out/fileMatcher.js'
 import { parse } from 'yaml'
 
+test('packaged auto-updates use the Fei-Craft GitHub release feed', () => {
+  const config = parse(readFileSync(new URL('../electron-builder.yml', import.meta.url), 'utf8'))
+  assert.deepEqual(config.publish, { provider: 'github', owner: 'Fei-Craft', repo: 'DS-Bot' })
+})
+
 // npm installs the peers that the DSH packages ask for, but electron-builder packs only the
 // dependencies it finds through `dependencies` and `optionalDependencies`. A package that npm
 // installed only as a peer would be left out of the installer, and the Host would not boot.
@@ -30,6 +35,8 @@ test('sharp native modules and versioned libvips libraries are unpacked together
     '@img/sharp-libvips-darwin-arm64/lib/libvips-cpp.8.18.7.dylib',
     '@img/sharp-win32-x64/lib/libvips-42.dll',
     'pnpm/bin/pnpm.cjs',
+    'ds-bot/src/host/skills/ds-bot-maintenance/references/online-inspection.md',
+    'ds-bot/src/host/skills/ds-bot-plugin-dev/references/capabilities-and-mcp.md',
     'ds-bot/src/host/skills/ds-bot-manual/SKILL.md',
     'ds-bot/src/host/skills/ds-bot-manual/references/settings.md',
   ]) assert.equal(filter(join(root, 'node_modules', file), stat), true, file)
