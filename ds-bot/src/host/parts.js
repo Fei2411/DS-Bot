@@ -29,7 +29,7 @@ import { RESUME_DELAY_MS } from './resume.js'
 import { clip, createClock, escapeRegExp, estimateTokens, reminderPrompts, splitRef, textOf } from './text.js'
 import { pageThinkingMs } from './thinking.js'
 import { viaOf } from '../shared/im-platforms.js'
-import { ownChatSessions, pushThreadPart, successorOfMovedPart, threadCurrent, threadCurrentOfPart, threadOf, threadOfPart } from './threads.js'
+import { isMissingSessionError, ownChatSessions, pushThreadPart, successorOfMovedPart, threadCurrent, threadCurrentOfPart, threadOf, threadOfPart } from './threads.js'
 import { checkShownView, normalizeView, readViewReply, viewCardText, viewReply, viewReplyText } from 'deep-view/core'
 
 // An ask_user card as the user saw it. The user's reply is often just an option label,
@@ -2669,6 +2669,10 @@ export function install(rt) {
           blockedIdx = i
           continue
         }
+        if (entry.owner.missing === true) {
+          entry.held = []
+          continue
+        }
         try {
           const agent = await rt.resolveAgent(entry.sessionId)
           if (switches.has(entry.sessionId)) {
@@ -2764,7 +2768,9 @@ export function install(rt) {
         // Target admission is now durable on disk: remove acknowledged originals at once
         // so a later switch of `target` before reminder/archive cleanup cannot replay
         // prompts `target` already answered.
-        for (const { agent, held } of ready) removeForMove(agent, held)
+        for (const { agent, held } of ready) {
+          if (agent !== undefined) removeForMove(agent, held)
+        }
       } catch (error) {
         retryNeeded = true
         rt.warn('ds-bot: input kept in parts targeting %s was not handed on: %s', target, error)
@@ -2779,6 +2785,17 @@ export function install(rt) {
           const liveTarget = threadTargetOf(sessionId, owner)
           if (liveTarget !== target || switches.has(target)) {
             retryNeeded = true
+            continue
+          }
+          if (owner.missing === true) {
+            if (target !== undefined && rt.botOf(owner.botId) !== undefined) {
+              await rt.moveSilentNotes?.(sessionId, target, { awaitFlush: true, rethrow: true })
+              await rt.moveSchedules?.(sessionId, target, {
+                resolveTarget: () => threadTargetOf(sessionId, owner),
+              })
+            }
+            delete state.switching[sessionId]
+            await rt.save()
             continue
           }
           await rt.moveSilentNotes?.(sessionId, target, { awaitFlush: true, rethrow: true })
@@ -4737,5 +4754,114 @@ export function install(rt) {
     return { sessionId: nextId }
   }
 
-  Object.assign(rt, { clock, partsOf, partsOfThread, historyEntry, partLines, noteText, earlierPage, chatPage, agentPage, taskPage, displayItems, applySteps, followFolder, followEngine, heldBack, openTaskPart, forkForegroundPart, forgetSessionParts, recoverOverflowPart, isSwitchingPart: id => switches.has(id), isMovingInboxMessage: id => id !== undefined && movingInboxMessages.has(id), applyBotPreset, noteDefaultPresetPending, sessionTokens: session => tokensOf(session), switchJobs: () => switches.values() })
+  // Replaces a Bot's foreground Session when it is gone from the Session library (#1929).
+  // Runs only when resolving the current Session fails with a missing-session error; if
+  // the Session is actually available again, clears any stale `sessionMissing` marker
+  // and keeps the Bot's continuous conversation intact.
+  const recoveringMissing = new Map()
+  async function recoverMissingSession(botId) {
+    await rt.load()
+    if (readOnly()) throw Object.assign(new Error('DS Bot is read-only in this window'), { code: 'bot/read-only' })
+    const bot = rt.botOf(botId)
+    if (bot === undefined) throw Object.assign(new Error('Unknown Bot'), { code: 'bot/not-found' })
+    const existing = recoveringMissing.get(bot.id)
+    if (existing !== undefined) return existing
+    const run = (async () => {
+      const lostId = rt.chatOf(bot.id)
+      if (switches.has(lostId)) throw Object.assign(new Error('This conversation is already moving to a new part'), { code: 'bot/busy' })
+      try {
+        await rt.resolveAgent(lostId)
+        if (rt.botOf(bot.id) !== bot || rt.chatOf(bot.id) !== lostId) {
+          return { sessionId: rt.chatOf(bot.id), recovered: false }
+        }
+        if (bot.sessionMissing === lostId) {
+          delete bot.sessionMissing
+          if (!readOnly()) await rt.save()
+          await rt.applyModel(bot, { force: true }).catch(error => rt.warn('ds-bot: model for %s not applied: %s', bot.name, error))
+          if (bot.blocked === undefined) {
+            await rt.releaseKickoff?.(bot).catch(error => rt.warn('ds-bot: greeting for %s not sent: %s', bot.name, error))
+          }
+        }
+        return { sessionId: lostId, recovered: false }
+      } catch (error) {
+        if (!isMissingSessionError(error)) throw error
+      }
+      if (readOnly()) throw Object.assign(new Error('DS Bot is read-only in this window'), { code: 'bot/read-only' })
+      if (rt.botOf(bot.id) !== bot || rt.chatOf(bot.id) !== lostId) {
+        return { sessionId: rt.chatOf(bot.id), recovered: false }
+      }
+      const dir = rt.workDirOf({ botId: bot.id })
+      const presetAtCreation = bot.agentPreset
+      const freshId = await rt.createSession(bot.name, { dir, bot })
+      const picked = await freshRoute(bot, undefined)
+      if (picked !== undefined) await selectRoute({ name: bot.name }, freshId, picked)
+      await rt.applyPermission(bot, freshId, undefined)
+        .catch(error => rt.warn('ds-bot: permission for the new part of %s not applied: %s', bot.name, error))
+      if (readOnly() || rt.botOf(bot.id) !== bot || rt.chatOf(bot.id) !== lostId) {
+        await ctx.workspaceRegistry.archiveSession(freshId, { stopActivity: true })
+          .catch(error => rt.warn('ds-bot: unused fresh part of %s not archived: %s', bot.name, error))
+        return { sessionId: rt.chatOf(bot.id), recovered: false }
+      }
+      bot.sessionId = freshId
+      finishPresetClear(bot, lostId, presetAtCreation !== undefined ? freshId : undefined)
+      if (bot.sessionMissing === lostId) delete bot.sessionMissing
+      if (bot.failures?.[lostId] !== undefined) {
+        delete bot.failures[lostId]
+        if (Object.keys(bot.failures).length === 0) delete bot.failures
+      }
+      // Record durable recovery lineage before dropping `lostId` from `chatOwners` and
+      // before `rt.save()`, so an in-flight `flushSilentNotes(lostId)` cannot discard
+      // buffered notes and a crash after `rt.save()` still resolves `lostId -> freshId`.
+      state.switching[lostId] = { botId: bot.id, missing: true }
+      rt.chatOwners.set(freshId, bot.id)
+      rt.chatOwners.delete(lostId)
+      if (state.questions?.[lostId] !== undefined) {
+        rt.closeCard?.(lostId, state.questions[lostId], 'dismissed')
+        delete state.questions[lostId]
+      }
+      if (state.views?.[lostId] !== undefined) {
+        rt.closeCard?.(lostId, state.views[lostId], 'dismissed')
+        delete state.views[lostId]
+      }
+      rt.renewMemory?.(lostId)
+      await rt.closeLocalAgentSession?.(lostId)?.catch(error => rt.warn('ds-bot: the local agent of earlier part %s did not stop: %s', lostId, error))
+      forgetSessionParts(lostId)
+      rt.forgetSessionTurn?.(lostId)
+      rt.forgetSessionModel?.(lostId)
+      rt.forgetSessionChanges?.(lostId)
+      // Commit replacement ownership and `state.switching[lostId]` to disk BEFORE
+      // moving or removing silent notes from `lostId`, so a crash before `rt.save()`
+      // never strands persisted silent notes under an unowned `freshId`.
+      await rt.save({ required: true })
+      try {
+        await rt.moveSilentNotes?.(lostId, freshId, { awaitFlush: true, rethrow: true })
+        await rt.moveSchedules?.(lostId, freshId, { resolveTarget: () => rt.chatOf(bot.id) })
+        delete state.switching[lostId]
+        await rt.save()
+      } catch (error) {
+        rt.warn('ds-bot: recovery cleanup for %s to %s failed: %s', lostId, freshId, error)
+        scheduleHeldBackRetry()
+      }
+      // A model the user picked while this part was being made went to the parts that were
+      // registered then, and the sync recorded it as applied; this part was not one of them
+      // yet, so the route picked at the top may be the old one. Read it again now that the
+      // part is the Bot's, as the switch does.
+      const now = await freshRoute(bot, undefined)
+      if (now !== undefined && (now.ref !== picked?.ref || now.effort !== picked?.effort)) {
+        await selectRoute({ name: bot.name }, freshId, now)
+      }
+      if (bot.blocked === undefined) {
+        await rt.releaseKickoff?.(bot).catch(error => rt.warn('ds-bot: greeting for %s not sent: %s', bot.name, error))
+      }
+      return { sessionId: freshId, recovered: true }
+    })()
+    recoveringMissing.set(bot.id, run)
+    try {
+      return await run
+    } finally {
+      if (recoveringMissing.get(bot.id) === run) recoveringMissing.delete(bot.id)
+    }
+  }
+
+  Object.assign(rt, { clock, partsOf, partsOfThread, historyEntry, partLines, noteText, earlierPage, chatPage, agentPage, taskPage, displayItems, applySteps, followFolder, followEngine, heldBack, openTaskPart, forkForegroundPart, forgetSessionParts, recoverOverflowPart, recoverMissingSession, isSwitchingPart: id => switches.has(id), isMovingInboxMessage: id => id !== undefined && movingInboxMessages.has(id), applyBotPreset, noteDefaultPresetPending, sessionTokens: session => tokensOf(session), switchJobs: () => switches.values() })
 }

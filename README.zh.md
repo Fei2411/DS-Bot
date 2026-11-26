@@ -45,6 +45,10 @@ npx @deepseek-ai/dsh@0.2.2-rc.5 web
 
 见 [`docker/README.md`](docker/README.md)。
 
+**可选代码执行器（实验性）**
+
+可选代码执行器通过 `ds-bot/code-mode` 提供（要求 DSH **0.2.2-rc.1 或更新版本**，默认关闭，不影响旧版宿主和默认 Bot）。在当前 profile 的 `bot`（`ds-bot`）行中设置 `config.codeMode.enabled: true` 并重启 engine，多文件补丁可同时在 agent 预设中开启 `tool-fs` 的 `applyPatch: true`。参见[配置和限制](docs/plans/2026-11-18-code-mode.md)。
+
 ## 配置
 
 最简单的方式是直接和你的 Main Bot 对话，让它帮你创建和配置其他 Bot 与群聊。
