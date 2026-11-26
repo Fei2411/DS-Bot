@@ -549,3 +549,120 @@ test('PluginsPage hides uninstalled engine bundles and internal DSH profile/suba
   assert.match(catalogText, /DS Bot Notes/)
   assert.doesNotMatch(catalogText, /ACP Profile|Agent Team|Subagent Core|Developer Tools|Headless Profile|DS Bot Engine/)
 })
+
+test('PluginsPage shows consent-required with an Approve action, the reason banner, and no misleading enable toggle', async () => {
+  const consentView = {
+    ...SAMPLE_VIEW,
+    plugins: SAMPLE_VIEW.plugins.map(p => (p.id === 'mcp:notes'
+      ? {
+        ...p,
+        enabled: false,
+        active: false,
+        desired: true,
+        status: 'consent-required',
+        consentRequired: true,
+        error: 'This plugin changed since it was approved (capabilities, execution tier, executable entry, content, or placement). It needs explicit approval before it can run again.',
+      }
+      : p)),
+  }
+  const consentCalls = []
+  const { draw } = mountPluginsPage({
+    view: consentView,
+    actions: {
+      pluginsConsent: id => { consentCalls.push(id); return Promise.resolve({ view: consentView }) },
+    },
+  })
+  draw()
+  await flush()
+  let tree = draw()
+
+  // The tile carries the approval-needed badge and an Approve button instead of a switch:
+  // a toggle would promise control the consent gate has deliberately withdrawn.
+  const tile = findAll(tree, n => n.props?.className === 'bt-plg-tile' && textOf(n).includes('Notes MCP'))[0]
+  assert.ok(tile)
+  assert.ok(findAll(tile, n => n.type === 'span' && n.props?.className === 'bt-tag' && textOf(n) === 'Approval needed').length === 1)
+  assert.equal(findAll(tile, n => n.type === 'button' && n.props?.role === 'switch').length, 0, 'no enable switch while approval is required')
+  const approveBtn = findAll(tile, n => n.type === 'button' && textOf(n) === 'Approve')[0]
+  assert.ok(approveBtn)
+  approveBtn.props.onClick()
+  await flush()
+  assert.deepEqual(consentCalls, ['mcp:notes'])
+
+  // The detail view explains WHAT changed and offers one clear approval path (banner CTA, no duplicate hero error/button).
+  tree = draw()
+  findAll(tree, n => n.type === 'button' && n.props?.className === 'bt-plg-main' && textOf(n).includes('Notes MCP'))[0].props.onClick()
+  tree = draw()
+  assert.match(textOf(tree), /capabilities, execution tier, executable entry, content, or placement/)
+  assert.equal(findAll(tree, n => n.props?.className === 'bt-plg-detail-err').length, 0, 'consent banner replaces duplicate hero error')
+  const detailApproves = findAll(tree, n => n.type === 'button' && textOf(n) === 'Approve')
+  assert.equal(detailApproves.length, 1, 'single Approve CTA in detail view')
+  detailApproves[0].props.onClick()
+  await flush()
+  assert.deepEqual(consentCalls, ['mcp:notes', 'mcp:notes'])
+})
+
+test('PluginsPage shows killed plugins as stopped without enable controls and unverifiable plugins as unverifiable', async () => {
+  const killedView = {
+    ...SAMPLE_VIEW,
+    plugins: SAMPLE_VIEW.plugins.map((p) => {
+      if (p.id === 'mcp:notes') {
+        return {
+          ...p,
+          enabled: false,
+          active: false,
+          status: 'killed',
+          killed: true,
+          error: 'Plugin disabled by the kill list: compromised upstream',
+        }
+      }
+      if (p.id === 'dsh:dsh-ego-browser') {
+        return {
+          ...p,
+          installed: true,
+          status: 'unverifiable',
+          error: 'Plugin files cannot be verified (symlink escape). It cannot run until its directory is safe to read.',
+        }
+      }
+      return p
+    }),
+  }
+  const { draw, calls } = mountPluginsPage({ view: killedView })
+  draw()
+  await flush()
+  const tree = draw()
+
+  // Killed: badge instead of any enable control — the kill list has decided, not the user.
+  const killedTile = findAll(tree, n => n.props?.className === 'bt-plg-tile' && textOf(n).includes('Notes MCP'))[0]
+  assert.ok(killedTile)
+  assert.ok(findAll(killedTile, n => n.type === 'span' && n.props?.className === 'bt-tag' && textOf(n) === 'Stopped').length === 1)
+  assert.equal(findAll(killedTile, n => n.type === 'button' && n.props?.role === 'switch').length, 0)
+  assert.equal(findAll(killedTile, n => n.type === 'button' && textOf(n) === 'Approve').length, 0, 'a killed plugin offers no approval path')
+
+  // Unverifiable: explicit badge and no Use action — unverifiable bytes cannot activate.
+  const badTile = findAll(tree, n => n.props?.className === 'bt-plg-tile' && textOf(n).includes('Ego Lite Browser'))[0]
+  assert.ok(badTile)
+  assert.ok(findAll(badTile, n => n.type === 'span' && n.props?.className === 'bt-tag' && textOf(n) === 'Unverifiable').length === 1)
+  assert.equal(findAll(badTile, n => n.type === 'button' && textOf(n) === 'Use').length, 0)
+  // Neither state offers any action button at all (besides the details opener).
+  assert.equal(findAll(killedTile, n => n.type === 'button' && n.props?.className === 'bt-plg-btn').length, 0)
+  assert.equal(findAll(badTile, n => n.type === 'button' && n.props?.className === 'bt-plg-btn').length, 0)
+  assert.equal(calls.length, 0)
+})
+
+test('PluginsPage shows the execution tier row and the floating-version note in details', async () => {
+  const floatingView = {
+    ...SAMPLE_VIEW,
+    plugins: SAMPLE_VIEW.plugins.map(p => (p.id === 'mcp:notes'
+      ? { ...p, execution: 'trusted-worker', unpinnedSpec: true, version: null }
+      : p)),
+  }
+  const { draw } = mountPluginsPage({ view: floatingView })
+  draw()
+  await flush()
+  let tree = draw()
+  findAll(tree, n => n.type === 'button' && n.props?.className === 'bt-plg-main' && textOf(n).includes('Notes MCP'))[0].props.onClick()
+  tree = draw()
+  assert.match(textOf(tree), /Execution tier/)
+  assert.match(textOf(tree), /trusted-worker/)
+  assert.match(textOf(tree), /approval does not pin exact bytes/)
+})

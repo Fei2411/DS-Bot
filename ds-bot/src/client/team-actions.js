@@ -400,6 +400,7 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     pluginsToggle: (id, enabled) => after(call('plugins-toggle', { id, enabled })),
     pluginsRemove: id => after(call('plugins-remove', { id })),
     pluginsUpdate: (id, version) => after(call('plugins-update', { id, ...(version ? { version } : {}) })),
+    pluginsConsent: id => after(call('plugins-consent', { id })),
     pluginsSlotSet: (slot, id) => after(call('plugins-slot-set', { slot, id })),
     pluginsBotToggle: (id, botId, enabled) => after(call('plugins-bot-toggle', { id, botId, enabled })),
     pluginsCustomSave: body => after(call('plugins-custom-save', body)),

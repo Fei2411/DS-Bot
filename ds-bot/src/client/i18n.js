@@ -895,6 +895,14 @@ const ZH = {
   'Dictation provider': '听写提供方',
   'Use DeepSeek for dictation': '用 DeepSeek 听写',
   'In use': '使用中',
+  'Stopped by the security kill list': '已被安全拦截列表停用',
+  'Approval needed': '需要重新批准',
+  Unverifiable: '无法验证',
+  'Plugin files cannot be verified': '插件文件无法验证',
+  'Approving…': '批准中…',
+  'Execution tier': '执行层级',
+  'This plugin changed since it was approved — its capabilities, execution tier, executable entry, content, or placement. It stays stopped until you approve the plugin exactly as it is now.': '这个插件在批准后发生了变化：能力、执行层级、可执行入口、内容或位置。它已停止运行，确认按现在的样子批准后才会重新运行。',
+  'Runs the latest published version at start time; approval does not pin exact bytes.': '每次启动时运行最新发布的版本；批准不固定具体代码。',
 
   // Phone
   Phone: '手机',
@@ -2401,6 +2409,11 @@ const ZH = {
 // Host errors stay English, since Bots read them too; they are translated where the
 // interface shows them. Static ones go through ZH, these carry names or numbers.
 const HOST_ERRORS = [
+  [/^Plugin disabled by the kill list: (.+)$/, '插件已被安全拦截列表停用：$1'],
+  [/^Plugin disabled by the kill list\.$/, '插件已被安全拦截列表停用。'],
+  [/^This plugin changed since it was approved \(capabilities, execution tier, executable entry, content, or placement\)\. It needs explicit approval before it can run again\.$/, '这个插件在批准后发生了变化（能力、执行层级、可执行入口、内容或位置）。需要明确批准后才能重新运行。'],
+  [/^Plugin files cannot be verified \((.+)\)\. It cannot run until its directory is safe to read\..*$/, '插件文件无法验证（$1）。目录可安全读取前它不能运行；问题依旧的话，移除后重新安装。'],
+  [/^Plugin files cannot be verified \((.+)\)\. It cannot be approved until its directory is safe to read\..*$/, '插件文件无法验证（$1）。目录可安全读取前无法批准；问题依旧的话，移除后重新安装。'],
   [/^Could not reach the mail server at (.+)\. Check the server address\.$/, '连不上邮件服务器 $1，请检查服务器地址。'],
   [/^Model (.+) is not available\. Available: (.*)$/, '模型 $1 不可用。可用的：$2'],
   [/^The API key for (.+) is set outside DS Bot and cannot be changed here$/, '$1 的 API key 是在 DS Bot 之外设置的，这里改不了'],
