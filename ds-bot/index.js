@@ -3,7 +3,6 @@
 // in one JSON file under DSH_HOME so they survive restarts without new Session event types.
 import { join } from 'node:path'
 import { installSocketTosGuard } from './src/host/socket-tos-guard.js'
-import { installGitConfigEnvGuard } from './src/host/git-config-env.js'
 import * as diagnostics from './src/host/diagnostics.js'
 import * as branding from './src/host/branding.js'
 import * as telemetry from './src/host/telemetry.js'
@@ -91,7 +90,6 @@ const MODULES = [diagnostics, branding, store, contextRuntime, ledger, coordinat
 
 export function apply(ctx, config = {}) {
   ctx.effect(() => installSocketTosGuard(), 'ds-bot: socket type of service')
-  ctx.effect(() => installGitConfigEnvGuard(), 'ds-bot: inherited git config env')
   return createRuntime(ctx, config)
 }
 

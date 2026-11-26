@@ -11,8 +11,8 @@ import { copyFile, mkdtemp, open, readdir, realpath, rm, stat } from 'node:fs/pr
 import { tmpdir } from 'node:os'
 import { basename, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { StringDecoder } from 'node:string_decoder'
-import { within } from './folders.js'
 import { isInjectedGitConfigEnvKey } from './git-config-env.js'
+import { within } from './folders.js'
 
 const MAX_LIST_ENTRIES = 500
 const PARALLEL_LIST_INSPECTS = 8
