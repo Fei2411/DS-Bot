@@ -157,7 +157,7 @@ export interface TeamState {
   }
   activity?: Record<string, { tool?: string; said?: string; note?: string; target?: string; switching?: boolean }>
   exchangeTurns?: Record<string, number[]>
-  prefs?: { theme?: string; accent?: string; layout?: string; width?: number; flatWidth?: number }
+  prefs?: { theme?: string; accent?: string; layout?: string; width?: number; flatWidth?: number; enterToSend?: boolean }
 }
 
 /** A card as the computer keeps it: `view` is the root node of the blueprint. */

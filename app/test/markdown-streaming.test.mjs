@@ -7,7 +7,7 @@
 //  2. While chunks arrive, the closed blocks never re-parse: counting every react-markdown
 //     invocation shows the per-chunk cost stays flat instead of growing with the reply.
 import assert from 'node:assert/strict'
-import { test } from 'node:test'
+import { after, test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { build } from 'esbuild'
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
@@ -446,8 +446,32 @@ test('list-hosted fences never truncate top-level code blocks or restart numbere
     }
     streamed.unmount()
   }
+  // Ordered list with unindented lazy continuation line followed by blank line and next `1.` item.
+  const lazyOrderedList = `${'Introduction paragraph with enough text to pass the 512-byte streaming threshold cleanly. '.repeat(7)}\n\n1. First step wraps\non second line\n\n1. Second step\n`
+  const settledLazy = mounted()
+  settledLazy.render(h(MarkdownText, { text: lazyOrderedList, labels }))
+  const lazyRef = fold(settledLazy.container.innerHTML)
+  settledLazy.unmount()
+  const streamedLazy = mounted()
+  streamedLazy.render(h(MarkdownText, { text: lazyOrderedList, streaming: true, labels }))
+  assert.equal(fold(streamedLazy.container.innerHTML), lazyRef, 'lazy-continuation ordered list matches settled byte for byte')
+  assert.equal(streamedLazy.container.querySelectorAll('ol').length, 1, 'lazy-continuation ordered list stays one <ol>')
+  assert.equal(streamedLazy.container.querySelectorAll('li').length, 2, 'lazy-continuation ordered list keeps both items')
+  streamedLazy.unmount()
+
+  // 4-6 space closing fence inside a list item followed by an indented link reference definition.
+  const deepClosingFenceWithDef = `${'Intro paragraph referencing [deep] with enough text to exceed the streaming threshold. '.repeat(8)}\n\n- Item:\n  \`\`\`js\n  code()\n    \`\`\`\n  [deep]: https://example.com/deep\n`
+  const settledDeep = mounted()
+  settledDeep.render(h(MarkdownText, { text: deepClosingFenceWithDef, labels }))
+  const deepRef = fold(settledDeep.container.innerHTML)
+  settledDeep.unmount()
+  const streamedDeep = mounted()
+  streamedDeep.render(h(MarkdownText, { text: deepClosingFenceWithDef, streaming: true, labels }))
+  assert.equal(fold(streamedDeep.container.innerHTML), deepRef, '4-space closing fence inside list followed by link def matches settled')
+  assert.ok(streamedDeep.container.querySelectorAll('a').length > 0, 'link definition after 4-space closing fence still resolves')
+  streamedDeep.unmount()
 })
 
-test('teardown: the bundle file goes away with the temp directory', () => {
+after(() => {
   rmSync(dir, { recursive: true, force: true })
 })

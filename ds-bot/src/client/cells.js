@@ -141,14 +141,15 @@ const sameBubble = (a, b) => a.text === b.text
   && a.roster?.bots === b.roster?.bots
   && a.roster?.byId?.[a.selfId]?.name === b.roster?.byId?.[b.selfId]?.name
 
-// `lang` only invalidates the memo on a language switch: the labels inside are localized,
-// and `mdLabels()` is content-addressed, so an unchanged language keeps the same object.
-const Bubble = memo(function Bubble({ text, index, first = true, last = true, roster, selfId, actions, sessionId, msgKey, mentions, fold, picked, live, lead, whole, textInteractionSource, lang }) {
+// `lang` is compared in `sameBubble` to invalidate memoization on language switches;
+// `mdLabels()` is already content-addressed per language so Bubble reads it directly.
+const Bubble = memo(function Bubble({ text, index, first = true, last = true, roster, selfId, actions, sessionId, msgKey, mentions, fold, picked, live, lead, whole, textInteractionSource }) {
   const { shown, folded, control, code, codeHead } = useFold(text, { limit: fold, whole, live })
   const key = msgKey ? `${msgKey}:${index}` : undefined
-  // The language keys the labels: a switch rebuilds them in the new language, and
-  // `mdLabels()` returns the shared instance again as long as nothing changed.
-  const labels = useMemo(() => mdLabels(), [lang])
+  // `mdLabels()` is already content-addressed per language; reading it directly avoids
+  // freezing labels at mount time for callers that do not pass `lang`, while `sameBubble`
+  // still invalidates memoization when `lang` changes.
+  const labels = mdLabels()
   const linked = useMemo(() => (shown === '' ? '' : linkMentions(normalizeFileLinks(shown), roster.bots, selfId)), [shown, roster.bots, selfId])
   const body = useMemo(
     () => (linked === '' ? null : h(MarkdownText, { text: linked, streaming: live, labels, variant: 'compact', fileMentions: mentions })),

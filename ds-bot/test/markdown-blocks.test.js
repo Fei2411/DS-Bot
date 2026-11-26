@@ -248,3 +248,17 @@ test('adversarial growth: a bare dash and a bare digit keep their splits correct
   // ...while after a marker line it is kept inside the same list's piece.
   assert.deepEqual(splitMarkdownBlocks('- a\n\n1.\n\nbeta\n'), ['- a\n\n1.\n\n', 'beta\n'])
 })
+
+test('lazy-continuation ordered lists stay together and 4+ space closing fences inside lists bail cleanly', () => {
+  const lazy = 'Intro.\n\n1. First step wraps\non second line\n\n1. Second step\n\nAfter.\n'
+  const blocks = splitMarkdownBlocks(lazy)
+  assert.deepEqual(blocks, [
+    'Intro.\n\n',
+    '1. First step wraps\non second line\n\n1. Second step\n\n',
+    'After.\n',
+  ])
+  // A 4-space closing fence inside an indented list-item fence can legitimately close the
+  // fence per CommonMark §4.5/§5.2; bail instead of missing subsequent link definitions.
+  const deepCloseWithDef = 'Intro [x].\n\n- Item:\n  ```js\n  a()\n    ```\n  [x]: https://example.com\n'
+  assert.equal(splitMarkdownBlocks(deepCloseWithDef), null)
+})

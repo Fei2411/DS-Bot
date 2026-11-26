@@ -13,7 +13,7 @@
 // with `react` aliased to a counting shim and `ui/src/api.js` stubbed (the bundle never
 // opens a socket). The locale service the rows read is created and driven from here.
 import assert from 'node:assert/strict'
-import { test } from 'node:test'
+import { after, test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { build } from 'esbuild'
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
@@ -317,10 +317,18 @@ test('a stream chunk never rewrites the turn clock: the noting effect skips when
   log = applyFrame(log, streamChunk(3, 4, 2, ' and more')).log
   render(log)
   assert.equal(notes.length, initial, 'nor does the next chunk')
+
+  // Switching sessionId or actions.noteTurnTime with the same events array reference MUST re-note.
+  const otherNotes = []
+  act(() => root.render(h(SessionTranscript, {
+    log, sessionId: 'session-2', roster, actions: { noteTurnTime: (...args) => otherNotes.push(args) }, classic: false, bot,
+  })))
+  assert.ok(otherNotes.length > 0, 'switching sessionId/actions re-notes turn times even when events array ref matches')
+  assert.ok(otherNotes.every(([sid]) => sid === 'session-2'))
   act(() => root.unmount())
   container.remove()
 })
 
-test('bundle cleanup', () => {
+after(() => {
   rmSync(dir, { recursive: true, force: true })
 })

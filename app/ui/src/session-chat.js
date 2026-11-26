@@ -738,8 +738,13 @@ export function SessionTranscript({
   const notedEventsRef = useRef(null)
   useEffect(() => {
     if (typeof actions?.noteTurnTime !== 'function') return
-    if (log?.events !== undefined && notedEventsRef.current === log.events) return
-    notedEventsRef.current = log?.events ?? null
+    const prev = notedEventsRef.current
+    if (log?.events !== undefined
+      && prev !== null
+      && prev.events === log.events
+      && prev.sessionId === sessionId
+      && prev.noteTurnTime === actions.noteTurnTime) return
+    notedEventsRef.current = { events: log?.events ?? null, sessionId, noteTurnTime: actions.noteTurnTime }
     for (const event of Array.isArray(log?.events) ? log.events : []) {
       const turn = event?.data?.turn
       if (!Number.isInteger(turn) || !Number.isFinite(event.time)) continue

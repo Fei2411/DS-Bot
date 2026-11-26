@@ -17,19 +17,13 @@
 // ends on a blank line and the trailing piece starts with real content. A split is never
 // made inside a fenced code block, before an indented continuation line (indented code
 // and loose list items can continue across blank lines that way), or before a list
-// marker that could continue a list on the other side of the blank lines (items of one
-// list separated by blank lines still form one loose list, so a marker line or an
-// indented line just before them keeps the boundary closed).
-//
-// One known approximation, visual only: a list item whose last paragraph is continued
-// lazy (an unindented text line right after the item line) followed by blank lines and
-// the next item's marker splits as two tight lists where the whole document reads one
-// loose list, so the items show paragraph margins until the settled full parse replaces
-// the pieces. Anything worse than spacing this never does, and lazy continuations of
-// that shape are rare in assistant output next to the indented form, which never splits.
+// marker while a list is open (items of one list separated by blank lines — including
+// items with unindented lazy continuation lines — still form one loose list).
 
 const LIST_MARKER = /^ {0,3}(?:[-+*]|\d{1,9}[.)])(?=[ \t]|$)/
 const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})/
+const INDENTED_FENCE_CLOSE = /^ {4,}(`+|~+)[ \t]*$/
+const THEMATIC_BREAK = /^ {0,3}(?:(?:-[ \t]*){3,}|(?:\*[ \t]*){3,}|(?:_[ \t]*){3,})$/
 const FOOTNOTE_REFERENCE = /\[\^[^\]\n]+\]/
 // Link reference definitions reach across the whole document from wherever they sit —
 // inside blockquotes (nested included) and list items — so the check strips the
@@ -129,9 +123,10 @@ export function splitMarkdownBlocks(text) {
   const starts = [0]
   for (const line of lines) starts.push(starts.at(-1) + line.length + 1)
   const ends = []
+  const slugs = new Set()
   let fence = null
   let previousBlank = true
-  let previousLineMarker = false
+  let inList = false
   let previousLineIndented = false
   // The guards look at every line, the last one included: while a reply streams the
   // steady state has no trailing newline, and a definition that lands on the final line
@@ -142,17 +137,22 @@ export function splitMarkdownBlocks(text) {
       const blankInside = BLANK.test(line)
       // An indented fence (1–3 spaces) can sit inside a list item, where a less-indented
       // non-blank line closes the list container and implicitly ends the fence without a
-      // closing marker. Without container-stack tracking, bail rather than invert state
-      // on a later top-level fence.
+      // closing marker. A 4+ space closing-fence candidate can likewise close a list-item
+      // fence (CommonMark §4.5 + §5.2 allows 0–3 spaces beyond the list content column).
+      // Without container-stack tracking, bail rather than invert state or skip later guards.
       if (!blankInside && fence.indent > 0 && leadingSpaces(line) < fence.indent) return null
+      if (fence.indent > 0) {
+        const deepClose = INDENTED_FENCE_CLOSE.exec(line)
+        if (deepClose !== null && deepClose[1][0] === fence.char && deepClose[1].length >= fence.length) return null
+      }
       if (fenceClose(line, fence)) {
         const wasIndented = fence.indent > 0
         fence = null
         // A top-level fence (indent 0) always ends any open list, whereas an indented
         // fence may belong to a list item whose next marker (`1. Step two`) continues the
-        // same loose list. Preserve the indentation signal across an indented fence close.
+        // same loose list. Preserve list / indentation state across an indented fence close.
         previousBlank = false
-        previousLineMarker = false
+        if (!wasIndented) inList = false
         previousLineIndented = wasIndented
       }
       continue
@@ -162,12 +162,23 @@ export function splitMarkdownBlocks(text) {
       const opening = fenceOpen(line)
       if (opening !== null) {
         fence = opening
+        if (opening.indent === 0) inList = false
       } else {
         // A fence nested behind a container prefix (`- ```js`, `> ```js`, `    ```js`)
         // cannot be tracked safely without container state: its later indented closing
         // marker could be misread as a new opening fence. Fall back to whole-doc parse.
         const stripped = stripContainerPrefixes(line)
         if (stripped !== line && fenceOpen(stripped) !== null) return null
+        // Duplicate ATX heading slugs are resolved document-wide (`# A` then `# A` again
+        // becomes `a` and `a-1`); checking them in the same pass keeps fence state identical.
+        const heading = ATX_HEADING.exec(line)
+        if (heading !== null) {
+          const slug = slugOf(line.slice(heading[0].length))
+          if (slug !== '') {
+            if (slugs.has(slug)) return null
+            slugs.add(slug)
+          }
+        }
       }
       // Anything whose reach crosses block boundaries stops the split outright.
       if (opensLinkDefinition(line)) return null
@@ -177,7 +188,8 @@ export function splitMarkdownBlocks(text) {
       if (DISPLAY_MATH.test(line)) return null
       if (!previousBlank && (SETEXT_DASHES.test(line) || SETEXT_EQUALS.test(line))) return null
       previousBlank = false
-      previousLineMarker = LIST_MARKER.test(line)
+      if (LIST_MARKER.test(line)) inList = true
+      else if (ATX_HEADING.test(line) || THEMATIC_BREAK.test(line)) inList = false
       previousLineIndented = line.startsWith(' ') || line.startsWith('\t')
       continue
     }
@@ -187,38 +199,18 @@ export function splitMarkdownBlocks(text) {
     if (index + 1 < lines.length && !BLANK.test(lines[index + 1])) {
       const next = lines[index + 1]
       const indented = next.startsWith(' ') || next.startsWith('\t')
-      // A list marker on the far side only threatens the split when the near side could
-      // belong to the same list: a marker line of its own or an indented line just before
-      // the blank run. After plain text the marker plainly starts a new list.
-      const continuesList = LIST_MARKER.test(next) && (previousLineMarker || previousLineIndented)
-      if (!indented && !continuesList) ends.push(starts[index + 1])
+      // A list marker on the far side threatens the split whenever the near side belongs
+      // to an open list (including lazy continuation lines) or an indented line. After
+      // plain text outside any list, the marker plainly starts a new list.
+      const continuesList = LIST_MARKER.test(next) && (inList || previousLineIndented)
+      if (!indented && !continuesList) {
+        ends.push(starts[index + 1])
+        inList = false
+      }
     }
     previousBlank = true
   }
   if (ends.length === 0) return [text]
-  // Duplicate ATX heading slugs are resolved document-wide (`# A` then `# A` again
-  // becomes `a` and `a-1`); with duplicates present no block may be parsed alone.
-  const slugs = new Set()
-  let insideFence = null
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index]
-    if (insideFence !== null) {
-      if (fenceClose(line, insideFence)) insideFence = null
-      continue
-    }
-    const opening = fenceOpen(line)
-    if (opening !== null) {
-      insideFence = opening
-      continue
-    }
-    const heading = ATX_HEADING.exec(line)
-    if (heading === null) continue
-    const slug = slugOf(line.slice(heading[0].length))
-    if (slug !== '') {
-      if (slugs.has(slug)) return null
-      slugs.add(slug)
-    }
-  }
   const blocks = []
   let from = 0
   for (const end of ends) {
