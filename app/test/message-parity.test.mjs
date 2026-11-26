@@ -15,13 +15,16 @@ const entryCode = `
     JsonBlock,
   } from './ui/src/primitives.js'
   export { ensureLanguage, isLanguageLoaded, highlightSync } from './ui/src/code-highlight.js'
-  export { ensureKatex, normalizeMathDelimiters } from './ui/src/math-render.js'
-  export { parseFileTarget, parseLocalFileHref, isInlineCodeFilePath, extractUserFileRefs } from './ui/src/file-references.js'
+  export { ensureKatex, normalizeMathDelimiters, escapeCurrencyDollars } from './ui/src/math-render.js'
+  export { parseFileTarget, parseLocalFileHref, isInlineCodeFilePath, extractUserFileRefs, matchFileMention } from './ui/src/file-references.js'
   export { UserMessageText, tokenizeUserText, copyableUserText } from './ui/src/user-text.js'
   export { SessionTranscript } from './ui/src/session-chat.js'
+  export { feedbackErrorMessage } from './ui/src/classic-feedback.js'
   export { FilePreview } from './ui/src/file-preview.js'
-  export { WorkspacePaneBody } from './ui/src/right-panel.js'
+  export { WorkspacePaneBody, normalizeRevealPath } from './ui/src/right-panel.js'
   export { createTeam } from './ui/src/team.js'
+  export { ChatRows } from '../ds-bot/src/client/cells.js'
+  export { hasEscapeLayer } from '../ds-bot/src/client/overlay-hooks.js'
   export { QueueDock } from '../ds-bot/src/client/queue-dock.js'
 `
 
@@ -64,6 +67,19 @@ const ReactDOMClient = await import('react-dom/client')
 
 const { document, window } = installMiniDom()
 const { Element, HTMLElement, Node, Event } = window
+const windowListeners = new Map()
+window.addEventListener = (type, fn) => {
+  let set = windowListeners.get(type)
+  if (!set) { set = new Set(); windowListeners.set(type, set) }
+  set.add(fn)
+}
+window.removeEventListener = (type, fn) => {
+  windowListeners.get(type)?.delete(fn)
+}
+window.dispatchEvent = (ev) => {
+  for (const fn of [...(windowListeners.get(ev.type) ?? [])]) fn(ev)
+  return !ev.defaultPrevented
+}
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 const copied = []
 Object.defineProperty(globalThis, 'navigator', {
@@ -113,15 +129,21 @@ const {
   ensureLanguage,
   ensureKatex,
   normalizeMathDelimiters,
+  escapeCurrencyDollars,
   parseFileTarget,
+  parseLocalFileHref,
   isInlineCodeFilePath,
   extractUserFileRefs,
+  matchFileMention,
   UserMessageText,
   copyableUserText,
   SessionTranscript,
+  feedbackErrorMessage,
   FilePreview,
   WorkspacePaneBody,
-  createTeam,
+  normalizeRevealPath,
+  ChatRows,
+  hasEscapeLayer,
   QueueDock,
 } = mod.exports
 
@@ -239,6 +261,130 @@ test('UserRow masks credentials in Bot chat and Classic session, supports per-se
   assert.equal(copyableUserText(`ok ${sk}`, new Set()).includes(sk), false)
 })
 
+test('folded user messages, URL credentials, group chats, and earlier parts never leak secrets and keep reveal/copy parity', async () => {
+  copied.length = 0
+  const sk = join('sk-', 'proj123456', 'AbCdEfGhIjKlMnOpQrSt')
+  const pemBegin = join('-----BEGIN ', 'RSA PRIVATE KEY-----')
+  const pemEnd = join('-----END ', 'RSA PRIVATE KEY-----')
+  const pem = `${pemBegin}\nMIIEowIBAAKCAQEAfoldedSecretBodyLine1\nsecondFoldedSecretLine2\n${pemEnd}`
+  const roster = { bots: [{ id: 'b1', name: 'Chief', sessions: ['b1'] }], byId: { b1: { id: 'b1', name: 'Chief' } }, rooms: [], roomsById: {}, prefs: {} }
+  const actions = { openSession() {}, openFile() {}, revealFolder() {}, notice() {} }
+
+  // 1. Secret crossing the 600-char fold cut stays masked while folded and matches Copy after reveal.
+  const crossedText = `${'a'.repeat(587)} ${sk}\n${'b'.repeat(1200)}`
+  const crossedView = mountDom(React.createElement(SessionTranscript, {
+    log: { header: { cwd: '/repo' }, events: [{ seq: 1, time: 1000, type: 'user/message', data: { turn: 1, content: [{ type: 'text', text: crossedText }], source: { kind: 'user' } } }], writing: null },
+    sessionId: 'b1', bot: roster.byId.b1, roster, actions, classic: false,
+  }))
+  try {
+    await flush()
+    assert.equal(crossedView.host.textContent.includes('123456'), false, 'chars past 8-char prefix stay masked across fold cut')
+    const toggle = crossedView.host.querySelector('.dsb-secret-toggle')
+    assert.ok(toggle, 'clipped secret still has reveal toggle')
+    const copyBtn = findBtn(crossedView.host, el => el.getAttribute('aria-label') === 'Copy')
+    await React.act(async () => { clickEl(copyBtn); await Promise.resolve() })
+    assert.equal(copied.at(-1).includes(sk), false, 'Copy keeps folded secret masked')
+    await React.act(async () => { clickEl(toggle) })
+    await React.act(async () => { clickEl(copyBtn); await Promise.resolve() })
+    assert.equal(copied.at(-1).includes(sk), true, 'Reveal-then-copy matches full secret even while folded')
+  } finally {
+    crossedView.unmount()
+  }
+
+  // 2. PEM key cut before `-----END` keeps full-text key so reveal-then-copy matches cleanly.
+  const pemText = `${'p'.repeat(540)}\n${pem}\n${'q'.repeat(1200)}`
+  const pemView = mountDom(React.createElement(SessionTranscript, {
+    log: { header: { cwd: '/repo' }, events: [{ seq: 1, time: 1000, type: 'user/message', data: { turn: 1, content: [{ type: 'text', text: pemText }], source: { kind: 'user' } } }], writing: null },
+    sessionId: 'b1', bot: roster.byId.b1, roster, actions, classic: false,
+  }))
+  try {
+    await flush()
+    assert.equal(pemView.host.textContent.includes('MIIEowIBAAKCAQEA'), false, 'truncated PEM body is masked while folded')
+    const toggle = pemView.host.querySelector('.dsb-secret-toggle')
+    const copyBtn = findBtn(pemView.host, el => el.getAttribute('aria-label') === 'Copy')
+    assert.ok(toggle && copyBtn)
+    await React.act(async () => { clickEl(toggle) })
+    await React.act(async () => { clickEl(copyBtn); await Promise.resolve() })
+    assert.equal(copied.at(-1).includes(pem), true, 'Revealing folded PEM lets Copy include the full PEM')
+  } finally {
+    pemView.unmount()
+  }
+
+  // 3. URL credential cut before `@host` stays masked while folded; full URL never turns `@host/path` into a FileRefChip.
+  const urlFolded = `${'u'.repeat(583)} https://admin:TopS3cretPwd!@db.example.com/src/demo.js\n${'z'.repeat(1200)}`
+  const urlView = mountDom(React.createElement(SessionTranscript, {
+    log: { header: { cwd: '/repo' }, events: [{ seq: 1, time: 1000, type: 'user/message', data: { turn: 1, content: [{ type: 'text', text: urlFolded }], source: { kind: 'user' } } }], writing: null },
+    sessionId: 'b1', bot: roster.byId.b1, roster, actions, classic: false,
+  }))
+  try {
+    await flush()
+    assert.equal(urlView.host.textContent.includes('TopS3'), false, 'URL password cut before @host stays masked')
+    assert.ok(urlView.host.querySelector('.dsb-secret-toggle'))
+  } finally {
+    urlView.unmount()
+  }
+
+  const opened = []
+  const urlChipView = mountDom(React.createElement(UserMessageText, {
+    text: 'Check https://admin:s3cr3tPass!@db.example.com/src/demo.js and @src/real.js',
+    onOpenFile: target => opened.push(target),
+  }))
+  try {
+    const chips = Array.from(urlChipView.host.querySelectorAll('.dsb-file-ref'))
+    assert.deepEqual(chips.map(el => el.getAttribute('data-file-ref')), ['src/real.js'])
+    assert.equal(urlChipView.host.textContent.includes('s3cr3tPass!'), false)
+  } finally {
+    urlChipView.unmount()
+  }
+
+  // 4. Folded group/earlier user message containing fenced code with a secret never bypasses masking,
+  //    and own-window group chats share mentions + file refs + secret masking identically to DMs.
+  const fencedSecret = `Intro\n\n\`\`\`sh\nexport KEY=${sk}\n${'echo hi\n'.repeat(180)}\`\`\``
+  const groupOpened = []
+  const groupBots = []
+  const pluginGroupView = mountDom(React.createElement(ChatRows, {
+    items: [{ kind: 'user', text: fencedSecret, time: 1000 }],
+    sessionId: 'r1',
+    roster,
+    actions,
+  }))
+  try {
+    assert.equal(pluginGroupView.host.textContent.includes(sk), false, 'folded fenced secret in EarlierUser is masked even in plugin fallback')
+    assert.equal(pluginGroupView.host.querySelectorAll('.bt-fold-pre').length, 0, 'secret-bearing user message never leaks into raw foldArea')
+  } finally {
+    pluginGroupView.unmount()
+  }
+
+  const ownGroupView = mountDom(React.createElement(ChatRows, {
+    items: [{ kind: 'user', text: `@Chief inspect @README.md:42 with ${sk}`, time: 1000 }],
+    sessionId: 'r1',
+    roster,
+    actions,
+    renderUserText: ({ text, fullText, revealedSecrets, onToggleSecret }) => React.createElement(UserMessageText, {
+      text,
+      fullText,
+      bots: roster.bots,
+      revealedSecrets,
+      onToggleSecret,
+      onOpenBot: id => groupBots.push(id),
+      onOpenFile: target => groupOpened.push(target),
+    }),
+  }))
+  try {
+    assert.equal(ownGroupView.host.textContent.includes(sk), false, 'group chat masks secret')
+    const mentionBtn = ownGroupView.host.querySelector('.bt-umention')
+    const fileBtn = ownGroupView.host.querySelector('.dsb-file-ref')
+    assert.ok(mentionBtn, 'group chat keeps Bot @mention alongside secret')
+    assert.equal(fileBtn?.getAttribute('data-file-ref'), 'README.md')
+    assert.equal(fileBtn?.getAttribute('data-file-line'), '42')
+    await React.act(async () => { clickEl(mentionBtn); clickEl(fileBtn) })
+    assert.deepEqual(plain(groupBots), ['b1'])
+    assert.deepEqual(plain(groupOpened), [{ path: 'README.md', line: 42 }])
+  } finally {
+    ownGroupView.unmount()
+  }
+})
+
 test('file and folder references parse cleanly with no false positives and open files or reveal folders', async () => {
   assert.deepEqual(plain(parseFileTarget('src/app.js:42')), { path: 'src/app.js', line: 42, endLine: null, isDir: false, display: 'src/app.js:42' })
   assert.deepEqual(plain(parseFileTarget('app/ui/src/')), { path: 'app/ui/src', line: null, endLine: null, isDir: true, display: 'app/ui/src/' })
@@ -247,9 +393,20 @@ test('file and folder references parse cleanly with no false positives and open 
   // Inline code: true positives vs false positives.
   assert.equal(isInlineCodeFilePath('src/app.js:12')?.path, 'src/app.js')
   assert.equal(isInlineCodeFilePath('README.md')?.path, 'README.md')
+  assert.deepEqual(plain(isInlineCodeFilePath('README.md:42')), { path: 'README.md', line: 42, endLine: null, isDir: false, display: 'README.md:42' })
+  assert.deepEqual(plain(isInlineCodeFilePath('src/')), { path: 'src', line: null, endLine: null, isDir: true, display: 'src/' })
+  assert.deepEqual(plain(isInlineCodeFilePath('subdir/')), { path: 'subdir', line: null, endLine: null, isDir: true, display: 'subdir/' })
+  assert.equal(isInlineCodeFilePath('src/main.c')?.path, 'src/main.c')
+  assert.equal(isInlineCodeFilePath('include/box.h')?.path, 'include/box.h')
   assert.equal(isInlineCodeFilePath('./docs/plans/')?.isDir, true)
   assert.equal(isInlineCodeFilePath('console.log'), null)
   assert.equal(isInlineCodeFilePath('Math.max'), null)
+  assert.equal(isInlineCodeFilePath('box.h'), null)
+  assert.equal(isInlineCodeFilePath('color.r'), null)
+  assert.equal(isInlineCodeFilePath('macOS/Linux/Windows'), null)
+  assert.equal(isInlineCodeFilePath('yes/no/maybe'), null)
+  assert.equal(isInlineCodeFilePath('github.com/Fei-Craft/DS-Bot'), null)
+  assert.equal(isInlineCodeFilePath('tel:123456'), null)
   assert.equal(isInlineCodeFilePath('application/json'), null)
   assert.equal(isInlineCodeFilePath('light/dark'), null)
   assert.equal(isInlineCodeFilePath('2026/11/26'), null)
@@ -257,10 +414,18 @@ test('file and folder references parse cleanly with no false positives and open 
   assert.equal(isInlineCodeFilePath('plainword'), null)
   assert.equal(isInlineCodeFilePath('@scope/pkg'), null)
 
-  // User refs: `@"quoted"`, `@path`, relative/absolute, no plain words or `/help`.
-  const refs = extractUserFileRefs('Check @"docs/my spec.md", @src/app.js:10, ./folder/, and /help or hello@example.com')
+  // Bare filename with `:line` in parseLocalFileHref and matchFileMention basename isolation.
+  assert.equal(parseLocalFileHref('README.md:42')?.line, 42)
+  assert.equal(parseLocalFileHref('mailto:user@example.com'), null)
+  const turnMentions = new Map([['src/foo.js', { path: 'src/foo.js' }], ['foo.js', { path: 'src/foo.js' }]])
+  assert.equal(matchFileMention('foo.js:5', turnMentions)?.path, 'src/foo.js')
+  assert.equal(matchFileMention('other/foo.js', turnMentions), null, 'explicit different path must not resolve to delivered basename')
+
+  // User refs: `@"quoted"`, `@path`, `@README.md:42`, relative/absolute, no plain words or `/help`.
+  const refs = extractUserFileRefs('Check @"docs/my spec.md", @README.md:42, @src/app.js:10, ./folder/, and /help or hello@example.com')
   assert.deepEqual(plain(refs.map(r => [r.target.path, r.target.line, r.target.isDir])), [
     ['docs/my spec.md', null, false],
+    ['README.md', 42, false],
     ['src/app.js', 10, false],
     ['./folder', null, true],
   ])
@@ -268,7 +433,7 @@ test('file and folder references parse cleanly with no false positives and open 
   const openedFiles = []
   const revealedFolders = []
   const md = [
-    'See [chat](app/ui/src/session-chat.js:42), `src/host/channel.js`, [folder](app/ui/src/), and plain `console.log` or `light/dark`.',
+    'Open src/demo.js:4, [readme](README.md:42), [chat](app/ui/src/session-chat.js:42), [local](file:///repo/src/local.js#L9), [win](C:\\repo\\src\\win.js:7), `src/host/channel.js`, `subdir/`, [folder](app/ui/src/), [ext](https://example.com), [bad](javascript:alert(1)), and plain `console.log` or `box.h` or `macOS/Linux/Windows`.',
     '',
     '```js',
     'const path = "src/not-a-link.js"',
@@ -283,17 +448,35 @@ test('file and folder references parse cleanly with no false positives and open 
   try {
     const chips = Array.from(view.host.querySelectorAll('.dsb-file-ref'))
     assert.deepEqual(chips.map(el => el.getAttribute('data-file-ref')), [
+      'src/demo.js',
+      'README.md',
       'app/ui/src/session-chat.js',
+      '/repo/src/local.js',
+      'C:/repo/src/win.js',
       'src/host/channel.js',
+      'subdir',
       'app/ui/src',
     ])
+    // External https link stays an anchor, javascript: is stripped by defaultUrlTransform.
+    const anchors = Array.from(view.host.querySelectorAll('a'))
+    assert.equal(anchors.some(a => a.getAttribute('href') === 'https://example.com'), true)
+    assert.equal(anchors.some(a => String(a.getAttribute('href') ?? '').startsWith('javascript:')), false)
     // Ensure zero file-ref buttons inside fenced code blocks.
     const preBlocks = view.host.querySelectorAll('pre')
     assert.equal(preBlocks.reduce((n, pre) => n + pre.querySelectorAll('.dsb-file-ref').length, 0), 0)
     await React.act(async () => { clickEl(chips[0]) })
-    await React.act(async () => { clickEl(chips[2]) })
-    assert.deepEqual(plain(openedFiles), [{ path: 'app/ui/src/session-chat.js', line: 42 }])
-    assert.deepEqual(plain(revealedFolders), [{ path: 'app/ui/src' }])
+    await React.act(async () => { clickEl(chips[1]) })
+    await React.act(async () => { clickEl(chips[3]) })
+    await React.act(async () => { clickEl(chips[4]) })
+    await React.act(async () => { clickEl(chips[6]) })
+    await React.act(async () => { clickEl(chips[7]) })
+    assert.deepEqual(plain(openedFiles), [
+      { path: 'src/demo.js', line: 4 },
+      { path: 'README.md', line: 42 },
+      { path: '/repo/src/local.js', line: 9 },
+      { path: 'C:/repo/src/win.js', line: 7 },
+    ])
+    assert.deepEqual(plain(revealedFolders), [{ path: 'subdir' }, { path: 'app/ui/src' }])
   } finally {
     view.unmount()
   }
@@ -354,37 +537,112 @@ test('Classic session renders reply feedback (submit, dialog, retract) and never
     botView.unmount()
   }
 
-  // Classic session mounts thumbs up / down, submits via modal, and retracts on second click.
+  // Read-only window (string reason from host) must hide classic feedback buttons.
+  const roView = mountDom(React.createElement(SessionTranscript, {
+    log, sessionId: 'as1', roster: { ...roster, readOnly: 'Team is open in another window' }, actions, classic: true,
+  }))
+  try {
+    await flush()
+    assert.equal(roView.host.querySelectorAll('.dsb-fb-btn').length, 0, 'String roster.readOnly hides classic feedback buttons')
+  } finally {
+    roView.unmount()
+  }
+
+  // Distinct real DSH failure codes map to specific user-facing messages.
+  assert.match(feedbackErrorMessage({ code: 'note-too-large', maxBytes: 128 }, 'fallback'), /128/)
+  assert.equal(feedbackErrorMessage({ code: 'note-blank' }, 'fallback'), 'Feedback note cannot be blank')
+  assert.equal(feedbackErrorMessage({ code: 'target-not-found' }, 'fallback'), 'This message can no longer receive feedback')
+  assert.equal(feedbackErrorMessage({ code: 'session-not-found' }, 'fallback'), 'This session is no longer available')
+
+  // Classic session: Escape when closed does not throw or block shortcuts; Escape when open closes dialog;
+  // version-conflict reconciles `current` without wiping unsaved edits; retry submits reconciled version;
+  // success does NOT emit an error toast (`actions.notice`).
+  let putAttempt = 0
+  sandbox.__testCall = async (ep, body) => {
+    rpcCalls.push([ep, body])
+    if (ep === 'engine-feedback-list') return { available: true, items: [] }
+    if (ep === 'engine-feedback-put') {
+      putAttempt += 1
+      if (putAttempt === 1) {
+        return {
+          ok: false,
+          error: {
+            code: 'version-conflict',
+            current: { messageId: body.messageId, rating: 'positive', version: 'v-remote' },
+          },
+        }
+      }
+      return { ok: true, item: { sessionId: body.sessionId, messageId: body.messageId, rating: body.rating, category: body.category, note: body.note, version: 'v2' } }
+    }
+    if (ep === 'engine-feedback-delete') return { ok: true, absent: true }
+    return {}
+  }
+
+  const dispatchEscape = () => {
+    const ev = new Event('keydown', { cancelable: true })
+    ev.key = 'Escape'
+    window.dispatchEvent(ev)
+  }
+
   const classicView = mountDom(React.createElement(SessionTranscript, {
     log, sessionId: 'as1', roster, actions, classic: true,
   }))
   try {
     await flush()
+    assert.equal(hasEscapeLayer(), false, 'Closed feedback dialog must not register an Escape layer')
+    dispatchEscape() // Must not throw when closed.
+
     const up = findBtn(classicView.host, el => el.getAttribute('data-feedback-rating') === 'positive')
     const down = findBtn(classicView.host, el => el.getAttribute('data-feedback-rating') === 'negative')
     assert.ok(up && down, 'Classic assistant reply shows thumbs up and thumbs down')
+
+    // Open and close with Escape.
+    await React.act(async () => { clickEl(up) })
+    await flush()
+    assert.equal(hasEscapeLayer(), true, 'Open feedback dialog registers an Escape layer')
+    assert.ok(document.body.querySelector('.dsb-fb-dialog'))
+    await React.act(async () => { dispatchEscape() })
+    await flush(200)
+    assert.equal(document.body.querySelector('.dsb-fb-dialog'), null, 'Escape closes open feedback dialog')
+    assert.equal(hasEscapeLayer(), false)
+
+    // Open thumbs down, select category + type unsaved note, trigger `version-conflict`,
+    // confirm unsaved note/category survive, then retry and succeed with reconciled `v-remote`.
     await React.act(async () => { clickEl(down) })
     await flush()
-
     const dialog = document.body.querySelector('.dsb-fb-dialog')
     assert.ok(dialog, 'Clicking thumbs down opens feedback dialog')
     const catBtn = dialog.querySelector('.dsb-fb-cat')
-    await React.act(async () => { clickEl(catBtn) })
+    const noteEl = dialog.querySelector('.dsb-fb-note')
+    await React.act(async () => {
+      clickEl(catBtn)
+      reactProps(noteEl).onChange?.({ target: { value: 'Keep my draft note' } })
+    })
     await React.act(async () => { submitForm(dialog) })
     await flush()
 
-    const putCall = rpcCalls.find(([ep]) => ep === 'engine-feedback-put')
-    assert.equal(putCall?.[1]?.messageId, 'msg-42')
-    assert.equal(putCall?.[1]?.rating, 'negative')
-    assert.equal(putCall?.[1]?.category, 'task-result')
+    assert.ok(document.body.querySelector('.dsb-fb-err')?.textContent.includes('Feedback changed elsewhere'))
+    assert.equal(document.body.querySelector('.dsb-fb-note')?.value, 'Keep my draft note', 'version-conflict preserves unsaved note')
+    assert.equal(document.body.querySelector('.dsb-fb-cat')?.getAttribute('aria-pressed'), 'true', 'version-conflict preserves unsaved category')
+
+    // Retry submit immediately uses reconciled version `v-remote`.
+    await React.act(async () => { submitForm(document.body.querySelector('.dsb-fb-dialog')) })
+    await flush()
+    const putCalls = rpcCalls.filter(([ep]) => ep === 'engine-feedback-put')
+    assert.equal(putCalls[0][1].ifVersion, null)
+    assert.equal(putCalls[1][1].ifVersion, 'v-remote')
+    assert.equal(putCalls[1][1].category, 'task-result')
+    assert.equal(putCalls[1][1].note, 'Keep my draft note')
     assert.equal(findBtn(classicView.host, el => el.getAttribute('data-feedback-rating') === 'negative')?.getAttribute('aria-pressed'), 'true')
+    assert.equal(notices.length, 0, 'Successful feedback submission must not trigger error-styled actions.notice')
 
     // Click active thumbs down again to retract.
     await React.act(async () => { clickEl(findBtn(classicView.host, el => el.getAttribute('data-feedback-rating') === 'negative')) })
     await flush()
     const delCall = rpcCalls.find(([ep]) => ep === 'engine-feedback-delete')
-    assert.equal(delCall?.[1]?.ifVersion, 'v1')
+    assert.equal(delCall?.[1]?.ifVersion, 'v2')
     assert.equal(findBtn(classicView.host, el => el.getAttribute('data-feedback-rating') === 'negative')?.getAttribute('aria-pressed'), 'false')
+    assert.equal(notices.length, 0, 'Successful feedback retraction must not trigger error-styled actions.notice')
   } finally {
     classicView.unmount()
   }
@@ -396,9 +654,17 @@ test('syntax highlighting highlights fenced code blocks and FilePreview, and mat
 
   assert.equal(normalizeMathDelimiters('Inline \\(x+1\\) and `\\(code\\)`'), 'Inline $x+1$ and `\\(code\\)`')
   assert.match(normalizeMathDelimiters('Block \\[a^2 + b^2\\]'), /\$\$\na\^2 \+ b\^2\n\$\$/)
+  // CommonMark indented code blocks must stay untouched (both displayed and copied).
+  const indentedSrc = 'Intro paragraph\n\n    const raw = "\\\\(x\\\\)"\n    \\(keep_me\\)\n'
+  assert.equal(normalizeMathDelimiters(indentedSrc), indentedSrc)
+  assert.equal(escapeCurrencyDollars('    $5 and $10\n'), '    $5 and $10\n')
 
   const md = [
-    'Price is $5 and $10, while $E = mc^2$ and \\(a + b\\) are math.',
+    'Price is $5 and $10, range $100-$200 or $10–$20 or $5/$10, 价格$5和$10.',
+    '',
+    'The item costs $5 and the answer is $x^2$, while $E = mc^2$ and \\(a + b\\) are math.',
+    '',
+    '    literal \\(indented\\) code',
     '',
     '$$',
     '\\int_0^1 x\\,dx = \\frac{1}{2}',
@@ -413,17 +679,30 @@ test('syntax highlighting highlights fenced code blocks and FilePreview, and mat
     '```',
   ].join('\n')
 
+  copied.length = 0
   const view = mountDom(React.createElement(MarkdownText, {
     text: md,
     labels: { code: { copyLabel: 'Copy', copiedLabel: 'Copied' } },
   }))
   try {
     await flush()
-    assert.equal(view.host.textContent.includes('$5 and $10'), true, 'currency stays plain text')
-    assert.equal(view.host.querySelectorAll('.dsb-math-inline').length, 2, 'inline $...$ and \\(...\\) render as math')
+    assert.equal(view.host.textContent.includes('$5 and $10'), true, 'spaced currency stays plain text')
+    assert.equal(view.host.textContent.includes('$100-$200'), true, 'hyphen currency range stays plain text')
+    assert.equal(view.host.textContent.includes('$10–$20'), true, 'en-dash currency range stays plain text')
+    assert.equal(view.host.textContent.includes('$5/$10'), true, 'slash currency stays plain text')
+    assert.equal(view.host.textContent.includes('价格$5和$10'), true, 'CJK currency stays plain text')
+    assert.equal(view.host.textContent.includes('costs $5 and the answer is '), true, 'leading price before equation stays plain text')
+    assert.equal(view.host.querySelectorAll('.dsb-math-inline').length, 3, 'mixed price+equation ($x^2$), $E = mc^2$, and \\(a + b\\) all render as math')
     assert.equal(view.host.querySelectorAll('.dsb-math-block').length, 2, '$$...$$ and ```math render as display math')
     const mathEl = view.host.querySelector('.dsb-math-inline')
     assert.equal(mathEl?.textContent.includes('class="katex"'), true, 'KaTeX markup rendered')
+    // Indented code block keeps literal `\(indented\)` both displayed and copied.
+    const preBlocks = Array.from(view.host.querySelectorAll('pre'))
+    const indentedPre = preBlocks.find(el => el.textContent.includes('indented'))
+    assert.ok(indentedPre?.textContent.includes('\\(indented\\)'), 'indented code block displays literal LaTeX delimiters')
+    const indentedCopy = indentedPre?.parentNode?.querySelector('.md-copy')
+    await React.act(async () => { clickEl(indentedCopy); await Promise.resolve() })
+    assert.equal(copied.at(-1), 'literal \\(indented\\) code', 'indented code block copies literal LaTeX delimiters')
     const hljsCode = view.host.querySelector('.hljs')
     assert.ok(hljsCode?.querySelector('.hljs-keyword'), 'fenced JS code block is syntax highlighted')
     assert.equal(view.host.querySelector('.md-code-lang')?.textContent, 'javascript')
@@ -486,7 +765,31 @@ test('WorkspacePaneBody reveals folders in FileTree (including when workspace-re
     dirView.unmount()
   }
 
-  // Opening FileTree with revealDir expands ancestors and marks target folder as revealed.
+  // normalizeRevealPath: out-of-workspace detection + Windows case-insensitive root match.
+  assert.deepEqual(plain(normalizeRevealPath('/etc/ssh', '/repo')), { status: 'outside', raw: '/etc/ssh' })
+  assert.deepEqual(plain(normalizeRevealPath('../outside', '/repo')), { status: 'outside', raw: '../outside' })
+  assert.deepEqual(plain(normalizeRevealPath('D:\\other\\dir', 'C:\\Repo')), { status: 'outside', raw: 'D:/other/dir' })
+  assert.deepEqual(plain(normalizeRevealPath('c:\\repo\\src\\nested', 'C:\\Repo')), { status: 'ok', path: 'src/nested' })
+  assert.deepEqual(plain(normalizeRevealPath('/repo/app/ui', '/repo')), { status: 'ok', path: 'app/ui' })
+
+  // Opening FileTree with revealDir expands ancestors, flashes reveal highlight, rejects out-of-workspace
+  // paths with an explicit alert, and consumes dotfolder reveals once so Hide dotfiles works cleanly.
+  const dotListCalls = []
+  sandbox.__testCall = async (ep, body) => {
+    if (ep === 'workspace-list') {
+      dotListCalls.push([body.path, body.includeHidden])
+      if (body.path === '') {
+        const entries = [{ name: 'app', path: 'app', kind: 'dir', size: 0, ext: '' }]
+        if (body.includeHidden) entries.unshift({ name: '.github', path: '.github', kind: 'dir', size: 0, ext: '' })
+        return { root: '/repo', rootName: 'repo', path: '', truncated: false, entries }
+      }
+      if (body.path === 'app') return { root: '/repo', rootName: 'repo', path: 'app', truncated: false, entries: [{ name: 'ui', path: 'app/ui', kind: 'dir', size: 0, ext: '' }] }
+      if (body.path === 'app/ui') return { root: '/repo', rootName: 'repo', path: 'app/ui', truncated: false, entries: [{ name: 'src', path: 'app/ui/src', kind: 'dir', size: 0, ext: '' }] }
+      if (body.path === '.github') return { root: '/repo', rootName: 'repo', path: '.github', truncated: false, entries: [] }
+    }
+    return {}
+  }
+
   const treeView = mountDom(React.createElement(WorkspacePaneBody, {
     sessionId: 'b1',
     panel: { tabs: ['files'], tab: 'files', revealDir: 'app/ui', revealNonce: 1 },
@@ -497,7 +800,33 @@ test('WorkspacePaneBody reveals folders in FileTree (including when workspace-re
     await flush(50)
     const row = Array.from(treeView.host.querySelectorAll('.dsb-ft-row')).find(el => el.getAttribute('data-tree-path') === 'app/ui')
     assert.ok(row, 'nested folder app/ui expanded and rendered in FileTree')
-    assert.equal(row.getAttribute('data-revealed') !== null, true, 'revealed folder is highlighted')
+    assert.equal(row.getAttribute('data-revealed') !== null, true, 'revealed folder flashes highlight')
+
+    // Revealing an out-of-workspace path surfaces an explicit alert notice without hiding the tree.
+    treeView.update(React.createElement(WorkspacePaneBody, {
+      sessionId: 'b1',
+      panel: { tabs: ['files'], tab: 'files', revealDir: '/etc/ssh', revealNonce: 2 },
+      team: fakeTeam,
+      visible: true,
+    }))
+    await flush(50)
+    const alert = treeView.host.querySelector('.dsb-ft-notice')
+    assert.ok(alert?.textContent.includes('/etc/ssh'), 'out-of-workspace path shows explicit alert notice')
+
+    // Revealing `.github` turns hidden files on once; clicking Hide dotfiles keeps them off without replaying reveal.
+    treeView.update(React.createElement(WorkspacePaneBody, {
+      sessionId: 'b1',
+      panel: { tabs: ['files'], tab: 'files', revealDir: '.github', revealNonce: 3 },
+      team: fakeTeam,
+      visible: true,
+    }))
+    await flush(60)
+    const hideBtn = findBtn(treeView.host, el => el.textContent === 'Hide dotfiles')
+    assert.ok(hideBtn, 'dotfolder reveal enables dotfiles')
+    await React.act(async () => { clickEl(hideBtn) })
+    await flush(60)
+    const showBtn = findBtn(treeView.host, el => el.textContent === 'Show hidden')
+    assert.ok(showBtn, 'Hide dotfiles stays off and does not replay previous dotfolder reveal')
   } finally {
     treeView.unmount()
   }

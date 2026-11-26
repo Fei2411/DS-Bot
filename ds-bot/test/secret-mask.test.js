@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { detectSecrets, maskSecrets, redactSecretsForLog } from '../src/shared/secret-mask.js'
+import { detectSecrets, maskSecrets, projectSecretsToSlice, redactSecretsForLog } from '../src/shared/secret-mask.js'
 import { cleanText } from '../src/host/diagnostics.js'
 
 const join = (...parts) => parts.join('')
@@ -80,6 +80,43 @@ test('detectSecrets avoids false positives and handles multiple independent secr
   assert.equal(partial.includes(first), false)
   assert.equal(partial.includes(spans[0].masked), true)
   assert.equal(partial.includes(second), true)
+})
+
+test('projectSecretsToSlice keeps fold-truncated secrets masked with stable full-text keys', () => {
+  const tok = join('ghp_', '1234567890', 'abcdefABCDEF1234567890abcdef')
+  const pad = `${'a'.repeat(589)} `
+  const fullTok = `${pad}${tok} trailing`
+  const shownTok = fullTok.slice(0, 602) // cuts mid-token at 12 chars (4 chars past 8-char prefix)
+  const tokSpans = projectSecretsToSlice(fullTok, shownTok)
+  assert.equal(tokSpans.length, 1)
+  assert.equal(tokSpans[0].clipped, true)
+  assert.equal(tokSpans[0].masked, `${tok.slice(0, 8)}****`)
+  assert.equal(tokSpans[0].key, `${pad.length}:${tok}`)
+  assert.equal(maskSecrets(fullTok, new Set([tokSpans[0].key])), fullTok)
+
+  // URL credential cut before `@host` still masks every password char while folded.
+  const urlFull = `${'b'.repeat(584)} https://admin:s3cr3tPass!@db.example.internal/src/demo.js`
+  const urlShown = urlFull.slice(0, 605) // cuts inside `s3cr3tPass!` before `@db.example.internal`
+  const urlSpans = projectSecretsToSlice(urlFull, urlShown)
+  assert.equal(urlSpans.length, 1)
+  assert.equal(urlSpans[0].kind, 'url-password')
+  assert.equal(urlSpans[0].clipped, true)
+  assert.equal(/^\*+$/.test(urlSpans[0].masked), true)
+  assert.equal(urlSpans[0].masked.length, urlSpans[0].raw.length)
+  assert.equal(maskSecrets(urlFull, new Set([urlSpans[0].key])), urlFull)
+
+  // PEM private key cut before `-----END` retains the full-text span key so reveal-then-copy matches.
+  const pemBegin = join('-----BEGIN ', 'RSA PRIVATE KEY-----')
+  const pemEnd = join('-----END ', 'RSA PRIVATE KEY-----')
+  const pemFull = `Lead:\n${pemBegin}\nMIIEowIBAAKCAQEAtestline1\nsecondLineOfSyntheticBody\n${pemEnd}\nDone`
+  const pemShown = pemFull.slice(0, pemFull.indexOf(pemEnd) - 5)
+  const pemSpans = projectSecretsToSlice(pemFull, pemShown)
+  assert.equal(pemSpans.length, 1)
+  assert.equal(pemSpans[0].kind, 'private-key')
+  assert.equal(pemSpans[0].clipped, true)
+  assert.equal(pemSpans[0].masked.includes('MIIEowIBAAKCAQEA'), false)
+  assert.equal(pemSpans[0].masked.startsWith(pemBegin), true)
+  assert.equal(maskSecrets(pemFull, new Set([pemSpans[0].key])), pemFull)
 })
 
 test('diagnostics cleanText shares the secret-mask source of truth', () => {

@@ -144,6 +144,66 @@ export function detectSecrets(text) {
 }
 
 /**
+ * Projects secret spans detected on `fullText` onto a folded/truncated slice `shownText`.
+ * Guarantees folding never unmasks a credential crossing the fold boundary (including
+ * truncated tokens, URL passwords cut before `@host`, and PEM keys cut before `-----END`)
+ * and keeps each span's full-text `key` intact so reveal-then-copy always agrees.
+ */
+export function projectSecretsToSlice(fullText, shownText, fullSpans = null) {
+  if (typeof shownText !== 'string' || shownText === '') return []
+  const source = typeof fullText === 'string' ? fullText : shownText
+  const spans = Array.isArray(fullSpans) ? fullSpans : detectSecrets(source)
+  if (spans.length === 0) return []
+
+  let sliceStart = 0
+  if (shownText !== source) {
+    const strippedOffset = source.length - source.replace(/^(\s*\n)+/, '').length
+    if (source.startsWith(shownText, strippedOffset)) {
+      sliceStart = strippedOffset
+    } else {
+      const idx = source.indexOf(shownText)
+      if (idx === -1) return detectSecrets(shownText)
+      sliceStart = idx
+    }
+  }
+  const sliceEnd = sliceStart + shownText.length
+  const projected = []
+
+  for (const span of spans) {
+    if (span.end <= sliceStart || span.start >= sliceEnd) continue
+    const visStart = Math.max(span.start, sliceStart)
+    const visEnd = Math.min(span.end, sliceEnd)
+    const start = visStart - sliceStart
+    const end = visEnd - sliceStart
+    if (visStart === span.start && visEnd === span.end) {
+      projected.push({ ...span, start, end })
+      continue
+    }
+    const raw = source.slice(visStart, visEnd)
+    const relStart = visStart - span.start
+    let masked
+    if (span.kind === 'url-password') {
+      masked = maskAllCodePoints(raw)
+    } else if (span.kind === 'private-key') {
+      masked = relStart === 0 ? maskPrivateKeyBlock(raw) : maskAllCodePoints(raw)
+    } else {
+      const remainingPrefix = Math.max(0, VISIBLE_PREFIX_CHARS - relStart)
+      masked = maskPrefixedToken(raw, remainingPrefix)
+    }
+    projected.push({
+      start,
+      end,
+      kind: span.kind,
+      raw,
+      masked,
+      key: span.key,
+      clipped: true,
+    })
+  }
+  return projected
+}
+
+/**
  * Returns `text` with all detected secrets masked except those whose `span.key` is in `revealedKeys`.
  */
 export function maskSecrets(text, revealedKeys = null) {

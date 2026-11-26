@@ -24,6 +24,7 @@ import { SecretDock } from '../../../ds-bot/src/client/secret-card.js'
 import { writingBlocks } from '../../../ds-bot/src/client/session-log.js'
 import { STORAGE } from '../../../ds-bot/src/client/storage.js'
 import { currentPart } from '../../../ds-bot/src/client/text.js'
+import { mentionableBots } from '../../../ds-bot/src/client/user-message.js'
 import { WidgetDock } from '../../../ds-bot/src/client/widget-cell.js'
 import { ApprovalDock } from './approval-dock.js'
 import { AgentEmptyHero } from './classic-sidebar.js'
@@ -1203,6 +1204,33 @@ export function Chat({ sessionId, team, registry, classic = false }) {
     return h(UserAttachments, { attachments: blocks, sessionId: row.sessionId ?? activeSessionId })
   }, [activeSessionId])
 
+  const openRoomFile = useMemo(() => (typeof actions?.openFile === 'function'
+    ? target => actions.openFile(typeof target === 'string'
+      ? { path: target, sessionId: activeSessionId }
+      : { ...target, sessionId: target?.sessionId ?? activeSessionId })
+    : undefined), [actions, activeSessionId])
+  const revealRoomFolder = useMemo(() => (typeof actions?.revealFolder === 'function'
+    ? target => actions.revealFolder(typeof target === 'string'
+      ? { path: target, sessionId: activeSessionId }
+      : { ...target, sessionId: target?.sessionId ?? activeSessionId })
+    : openRoomFile
+      ? target => openRoomFile(typeof target === 'string' ? { path: target, isDir: true } : { ...target, isDir: true })
+      : undefined), [actions, activeSessionId, openRoomFile])
+  const roomMentionBots = useMemo(
+    () => (Array.isArray(roster?.bots) ? mentionableBots(roster, activeSessionId) : []),
+    [roster, activeSessionId],
+  )
+  const renderRoomUserText = useCallback(({ text, fullText, revealedSecrets, onToggleSecret }) => h(UserMessageText, {
+    text,
+    fullText,
+    bots: roomMentionBots,
+    revealedSecrets,
+    onToggleSecret,
+    onOpenBot: actions?.openSession,
+    onOpenFile: openRoomFile,
+    onRevealFolder: revealRoomFolder,
+  }), [roomMentionBots, actions, openRoomFile, revealRoomFolder])
+
   const hasAgentMessages = !isRoom && Array.isArray(dmChat.log?.events)
     && dmChat.log.events.some(ev => ev?.type === 'user/message' || ev?.type === 'assistant/message' || ev?.type === 'turn/start' || ev?.type === 'tool/call')
   const showAgentHero = isAgent
@@ -1233,7 +1261,7 @@ export function Chat({ sessionId, team, registry, classic = false }) {
       sessionNotice,
       h('div', { className: 'dsb-flow', 'data-chat-flow': '', role: 'feed', 'aria-label': name, 'aria-busy': busy },
         isRoom
-          ? h(MemoChatRows, { items: roomChat.view.items, sessionId, roster, actions, useUi: hooks.useUi, clock: true, renderUserAttachments: renderRoomUserAttachments })
+          ? h(MemoChatRows, { items: roomChat.view.items, sessionId, roster, actions, useUi: hooks.useUi, clock: true, renderUserAttachments: renderRoomUserAttachments, renderUserText: renderRoomUserText })
           : h(SessionTranscript, {
             log: dmChat.log,
             sessionId: activeSessionId,

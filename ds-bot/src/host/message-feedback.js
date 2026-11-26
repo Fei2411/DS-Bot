@@ -30,6 +30,18 @@ function requireMessageId(body) {
   return messageId
 }
 
+function serializeFeedbackError(err) {
+  const code = typeof err?.code === 'string' && err.code !== '' ? err.code : 'INTERNAL'
+  const out = { code }
+  if (typeof err?.message === 'string' && err.message !== '') out.message = err.message
+  if (err && Object.hasOwn(err, 'current')) out.current = err.current
+  if (Number.isFinite(err?.maxBytes)) out.maxBytes = err.maxBytes
+  if (Number.isFinite(err?.actualBytes)) out.actualBytes = err.actualBytes
+  if (typeof err?.sessionId === 'string') out.sessionId = err.sessionId
+  if (typeof err?.messageId === 'string') out.messageId = err.messageId
+  return out
+}
+
 export function install(rt) {
   const { ctx } = rt
   const serviceOf = () => ctx.get?.('messageFeedback') ?? ctx.messageFeedback
@@ -37,17 +49,27 @@ export function install(rt) {
     const why = rt.readOnly?.()
     if (why) throw refused(why, 'bot/read-only')
   }
+  const classicSessionCheck = (sessionId) => {
+    if (rt.isBotSession?.(sessionId) === true || rt.roomOf?.(sessionId) !== undefined) {
+      throw refused('Message feedback is only available in classic sessions', 'bot/refused')
+    }
+  }
 
   rt.feedbackEndpoint = async (name, body = {}) => {
     const service = serviceOf()
     switch (name) {
       case 'list': {
         const sessionId = requireSessionId(body)
+        classicSessionCheck(sessionId)
         if (typeof service?.list !== 'function') {
           return { available: false, items: [] }
         }
         const res = await service.list({ sessionId })
         if (!res?.ok) {
+          // A newly opened blank classic session has no persisted log yet, but the service is available.
+          if (res?.error?.code === 'session-not-found') {
+            return { available: true, items: [] }
+          }
           throw refused(res?.error?.message ?? 'Could not load message feedback')
         }
         return {
@@ -61,6 +83,7 @@ export function install(rt) {
           throw unavailable('Message feedback is not available in this engine')
         }
         const sessionId = requireSessionId(body)
+        classicSessionCheck(sessionId)
         const messageId = requireMessageId(body)
         const rating = typeof body.rating === 'string' ? body.rating : ''
         if (!VALID_RATINGS.has(rating)) throw invalid('A valid feedback rating is required')
@@ -68,21 +91,14 @@ export function install(rt) {
           ? null
           : (typeof body.ifVersion === 'string' ? body.ifVersion : null)
         const req = { sessionId, messageId, rating, ifVersion }
-        if (typeof body.note === 'string' && body.note.trim() !== '') req.note = body.note
+        if (typeof body.note === 'string' && body.note !== '') req.note = body.note
         if (typeof body.category === 'string' && body.category !== '') {
           if (!VALID_CATEGORIES.has(body.category)) throw invalid('Unknown feedback category')
           req.category = body.category
         }
         const res = await service.put(req)
         if (res?.ok) return { ok: true, item: res.value }
-        return {
-          ok: false,
-          error: {
-            code: res?.error?.code ?? 'INTERNAL',
-            message: res?.error?.message ?? 'Could not submit feedback',
-            ...(res?.error && Object.hasOwn(res.error, 'current') ? { current: res.error.current } : {}),
-          },
-        }
+        return { ok: false, error: serializeFeedbackError(res?.error) }
       }
       case 'delete': {
         writeCheck()
@@ -90,19 +106,13 @@ export function install(rt) {
           throw unavailable('Message feedback is not available in this engine')
         }
         const sessionId = requireSessionId(body)
+        classicSessionCheck(sessionId)
         const messageId = requireMessageId(body)
         const ifVersion = typeof body.ifVersion === 'string' && body.ifVersion !== '' ? body.ifVersion : ''
         if (ifVersion === '') throw invalid('A feedback version is required')
         const res = await service.delete({ sessionId, messageId, ifVersion })
         if (res?.ok) return { ok: true, absent: true }
-        return {
-          ok: false,
-          error: {
-            code: res?.error?.code ?? 'INTERNAL',
-            message: res?.error?.message ?? 'Could not retract feedback',
-            ...(res?.error && Object.hasOwn(res.error, 'current') ? { current: res.error.current } : {}),
-          },
-        }
+        return { ok: false, error: serializeFeedbackError(res?.error) }
       }
       default:
         throw notFound(`Unknown endpoint engine-feedback-${name}`)

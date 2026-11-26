@@ -279,9 +279,11 @@ export const USER_MESSAGE_CSS = `
 .bt-uvia{display:inline-block;margin-right:6px;padding:0 6px;border-radius:6px;background:var(--bt-hover);color:var(--bt-ink-3);font-size:11px;line-height:16px;vertical-align:1px}
 .bt-utools{display:flex;flex:none;gap:2px;opacity:0;visibility:hidden;transition:opacity .12s ease,visibility .12s}
 .bt-umsg:hover .bt-utools,.bt-umsg:focus-within .bt-utools{opacity:1;visibility:visible}
-.dsb-secret{display:inline;border-radius:4px;padding:1px 4px;background:color-mix(in srgb,currentColor 10%,transparent)}
+.dsb-secret{display:inline;border-radius:4px;padding:1px 4px;background:color-mix(in srgb,currentColor 10%,transparent);box-decoration-break:clone;-webkit-box-decoration-break:clone}
+.dsb-secret.is-revealed{background:color-mix(in srgb,var(--bt-accent) 22%,transparent)}
 .dsb-secret-val{font-family:var(--bt-mono,ui-monospace,"SF Mono",Menlo,Consolas,monospace);font-size:.92em;overflow-wrap:anywhere;word-break:break-word}
-.dsb-secret-toggle{display:inline-flex;align-items:center;justify-content:center;vertical-align:middle;width:20px;height:20px;margin-left:3px;padding:0;border:0;border-radius:6px;background:none;color:inherit;opacity:.78;cursor:pointer}
+.dsb-secret-toggle{position:relative;display:inline-flex;align-items:center;justify-content:center;vertical-align:middle;width:20px;height:20px;margin-left:3px;padding:0;border:0;border-radius:6px;background:none;color:inherit;opacity:.78;cursor:pointer}
+.dsb-secret-toggle::after{content:"";position:absolute;inset:-4px}
 .dsb-secret-toggle:hover{background:color-mix(in srgb,currentColor 14%,transparent);opacity:1}
 .dsb-secret-toggle:focus-visible{outline:2px solid var(--bt-accent);outline-offset:1px;opacity:1}
 .dsb-secret-toggle svg{width:13px;height:13px}

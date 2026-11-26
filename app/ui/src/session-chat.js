@@ -422,6 +422,7 @@ const UserRow = memo(function UserRow({ row, sessionId, roster, actions, classic
   }
   const body = h(UserMessageText, {
     text: shown,
+    fullText: row.text ?? '',
     bots,
     revealedSecrets,
     onToggleSecret: toggleSecret,
@@ -585,7 +586,7 @@ const AssistantRow = memo(function AssistantRow({
           messageId: row.messageId,
           item: feedbackItem,
           pending: feedbackPending,
-          readOnly: roster?.readOnly === true,
+          readOnly: Boolean(roster?.readOnly),
           onSelect: onSelectFeedback,
           onRetract: onRetractFeedback,
         }) : null,
@@ -878,19 +879,32 @@ export function SessionTranscript({
   }, [])
   const handleRetractFeedback = useCallback(async (messageId) => {
     const res = await retractFeedback(messageId)
-    if (res?.ok) actions?.notice?.(t('Feedback removed'))
-    else if (res?.message) actions?.notice?.(res.message)
+    if (!res?.ok && res?.message) actions?.notice?.(res.message)
   }, [retractFeedback, actions])
   const handleSubmitFeedback = useCallback(async ({ messageId, rating, category, note }) => {
     setFeedbackError('')
     const res = await submitFeedback(messageId, { rating, category, note })
     if (res?.ok) {
       setFeedbackDraft(null)
-      actions?.notice?.(t('Feedback submitted'))
     } else if (res?.message) {
       setFeedbackError(res.message)
     }
-  }, [submitFeedback, actions])
+  }, [submitFeedback])
+
+  const earlierMentionBots = useMemo(
+    () => (Array.isArray(roster?.bots) ? mentionableBots(roster, sessionId) : []),
+    [roster, sessionId],
+  )
+  const renderEarlierUserText = useCallback(({ text, fullText, revealedSecrets, onToggleSecret }) => h(UserMessageText, {
+    text,
+    fullText,
+    bots: earlierMentionBots,
+    revealedSecrets,
+    onToggleSecret,
+    onOpenBot: actions?.openSession,
+    onOpenFile: openSessionFile,
+    onRevealFolder: revealSessionFolder,
+  }), [earlierMentionBots, actions, openSessionFile, revealSessionFolder])
 
   // `bot.parts` holds only earlier segments (host/channel.js), not current `bot.sessionId`.
   // Wait until the opening snapshot lands (`log.header !== null`) before mounting EarlierParts
@@ -903,7 +917,7 @@ export function SessionTranscript({
     if (row.kind === 'part-start') {
       prevTime = undefined
       return [canLoadEarlierParts
-        ? h(EarlierParts, { key: row.key, sessionId, roster, actions })
+        ? h(EarlierParts, { key: row.key, sessionId, roster, actions, renderUserText: renderEarlierUserText })
         : h(PartLine, { key: row.key, time: row.time })]
     }
 
@@ -982,7 +996,7 @@ export function SessionTranscript({
   }) : null
 
   return [
-    ...(showTopEarlierParts ? [h(EarlierParts, { key: `earlier-parts:${sessionId}`, sessionId, roster, actions })] : []),
+    ...(showTopEarlierParts ? [h(EarlierParts, { key: `earlier-parts:${sessionId}`, sessionId, roster, actions, renderUserText: renderEarlierUserText })] : []),
     ...projected,
     ...(feedbackDialog ? [feedbackDialog] : []),
   ]

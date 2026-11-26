@@ -23,6 +23,7 @@
   letter-spacing:.04em;
 }
 .dsb-secret-toggle{
+  position:relative;
   display:inline-flex;
   align-items:center;
   justify-content:center;
@@ -38,6 +39,11 @@
   opacity:.72;
   cursor:pointer;
   transition:background-color .14s ease,opacity .14s ease;
+}
+.dsb-secret-toggle::after{
+  content:"";
+  position:absolute;
+  inset:-4px;
 }
 .dsb-secret-toggle:hover{
   background:color-mix(in srgb,currentColor 14%,transparent);
@@ -82,11 +88,11 @@
   border-color:color-mix(in srgb,var(--bt-accent) 48%,transparent);
   color:var(--bt-accent);
 }
-.bt-ubody .dsb-file-ref{
+:is(.bt-ubody,.bt-ububble) .dsb-file-ref{
   border-color:color-mix(in srgb,currentColor 26%,transparent);
   background:color-mix(in srgb,currentColor 12%,transparent);
 }
-.bt-ubody .dsb-file-ref:hover{
+:is(.bt-ubody,.bt-ububble) .dsb-file-ref:hover{
   background:color-mix(in srgb,currentColor 22%,transparent);
   border-color:color-mix(in srgb,currentColor 45%,transparent);
   color:inherit;
@@ -116,10 +122,19 @@
   white-space:nowrap;
 }
 
-/* Revealed folder highlight in FileTree & target line highlight in FilePreview */
+/* Transient folder reveal highlight in FileTree & target line highlight in FilePreview */
 .dsb-ft-row[data-revealed]{
-  background:color-mix(in srgb,var(--bt-accent) 14%,transparent);
+  background:color-mix(in srgb,var(--bt-accent) 16%,transparent);
   color:var(--bt-accent);
+  animation:dsb-ft-reveal 1.8s ease-out forwards;
+}
+.dsb-ft-notice{
+  margin:0 10px 8px;
+}
+@keyframes dsb-ft-reveal{
+  0%{background:color-mix(in srgb,var(--bt-accent) 20%,transparent);color:var(--bt-accent)}
+  55%{background:color-mix(in srgb,var(--bt-accent) 14%,transparent);color:var(--bt-accent)}
+  100%{background:transparent;color:var(--bt-ink)}
 }
 .dsb-pv-code tr[data-target-line]{
   background:color-mix(in srgb,var(--bt-accent) 16%,transparent);
@@ -146,15 +161,17 @@
 .dsb-fb-backdrop{
   position:fixed;
   inset:0;
-  z-index:10050;
+  z-index:65;
   display:grid;
   place-items:center;
   padding:16px;
   background:var(--bt-palette-scrim,rgba(0,0,0,.4));
-  animation:dsb-fb-fade .14s ease both;
+  animation:bt-fade .18s ease-out both;
 }
 .dsb-fb-backdrop[data-leaving]{
-  animation:dsb-fb-fade-out .14s ease both;
+  opacity:0;
+  transition:opacity .16s ease-in;
+  pointer-events:none;
 }
 .dsb-fb-dialog{
   width:min(440px,100%);
@@ -168,10 +185,10 @@
   background:var(--bt-card,var(--bt-main));
   color:var(--bt-ink);
   box-shadow:var(--bt-dialog-shadow,0 24px 72px rgba(0,0,0,.32));
-  animation:dsb-fb-pop .16s cubic-bezier(.22,1,.36,1) both;
+  animation:bt-dialog-rise .22s cubic-bezier(.22,1,.36,1),bt-veil-in .18s ease-out;
 }
 .dsb-fb-backdrop[data-leaving] .dsb-fb-dialog{
-  animation:dsb-fb-pop-out .14s ease both;
+  animation:bt-dialog-sink .16s cubic-bezier(.4,0,1,1) forwards;
 }
 .dsb-fb-head{
   display:flex;
@@ -223,7 +240,7 @@
   min-height:88px;
   padding:10px 12px;
   border:.5px solid var(--bt-line-2);
-  border-radius:10px;
+  border-radius:8px;
   background:var(--bt-sidebar,var(--bt-main));
   color:var(--bt-ink);
   font:inherit;
@@ -245,15 +262,19 @@
   gap:8px;
 }
 .dsb-fb-submit{
-  height:34px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  box-sizing:border-box;
+  height:36px;
   padding:0 16px;
   border:0;
   border-radius:999px;
   background:var(--bt-accent);
   color:var(--bt-accent-ink,#ffffff);
   font:inherit;
-  font-size:13.5px;
-  font-weight:500;
+  font-size:14px;
+  font-weight:450;
   cursor:pointer;
   transition:filter .14s ease,opacity .14s ease;
 }
@@ -269,12 +290,39 @@
   cursor:default;
 }
 
-@keyframes dsb-fb-fade{from{opacity:0}to{opacity:1}}
-@keyframes dsb-fb-fade-out{from{opacity:1}to{opacity:0}}
-@keyframes dsb-fb-pop{from{opacity:0;transform:scale(.96) translateY(4px)}to{opacity:1;transform:none}}
-@keyframes dsb-fb-pop-out{from{opacity:1;transform:none}to{opacity:0;transform:scale(.97)}}
-
-/* ---------- Code block header bar & theme-variable syntax highlighting ---------- */
+/* ---------- Code block header bar, thin scrollbars & theme-variable syntax highlighting ---------- */
+.md_markdown .md-code pre,
+.dsb-pv-code-wrap,
+.dsb-math-block{
+  scrollbar-width:thin;
+  scrollbar-color:color-mix(in srgb,var(--bt-ink) 18%,transparent) transparent;
+}
+.md_markdown .md-code pre::-webkit-scrollbar,
+.dsb-pv-code-wrap::-webkit-scrollbar,
+.dsb-math-block::-webkit-scrollbar{
+  width:6px;
+  height:6px;
+}
+.md_markdown .md-code pre::-webkit-scrollbar-track,
+.md_markdown .md-code pre::-webkit-scrollbar-corner,
+.dsb-pv-code-wrap::-webkit-scrollbar-track,
+.dsb-pv-code-wrap::-webkit-scrollbar-corner,
+.dsb-math-block::-webkit-scrollbar-track,
+.dsb-math-block::-webkit-scrollbar-corner{
+  background:transparent;
+}
+.md_markdown .md-code pre::-webkit-scrollbar-thumb,
+.dsb-pv-code-wrap::-webkit-scrollbar-thumb,
+.dsb-math-block::-webkit-scrollbar-thumb{
+  border:1px solid transparent;
+  border-radius:999px;
+  background:color-mix(in srgb,var(--bt-ink) 16%,transparent) padding-box;
+}
+.md_markdown .md-code pre:hover::-webkit-scrollbar-thumb,
+.dsb-pv-code-wrap:hover::-webkit-scrollbar-thumb,
+.dsb-math-block:hover::-webkit-scrollbar-thumb{
+  background:color-mix(in srgb,var(--bt-ink) 30%,transparent) padding-box;
+}
 .md_markdown .md-code{
   position:relative;
 }
@@ -380,8 +428,8 @@ body[data-ds-dark-theme]{
 }
 
 @media (prefers-reduced-motion:reduce){
-  .dsb-fb-backdrop,.dsb-fb-dialog{animation:none!important}
-  .dsb-secret-toggle,.dsb-file-ref,.dsb-fb-cat{transition:none!important}
+  .dsb-fb-backdrop,.dsb-fb-dialog,.dsb-ft-row[data-revealed]{animation:none!important}
+  .dsb-secret-toggle,.dsb-file-ref,.dsb-fb-cat,.dsb-fb-backdrop[data-leaving]{transition:none!important}
 }
-[data-bt-effects=off] .dsb-fb-backdrop,[data-bt-effects=off] .dsb-fb-dialog{animation:none!important}
-[data-bt-effects=off] .dsb-secret-toggle,[data-bt-effects=off] .dsb-file-ref,[data-bt-effects=off] .dsb-fb-cat{transition:none!important}
+[data-bt-effects=off] .dsb-fb-backdrop,[data-bt-effects=off] .dsb-fb-dialog,[data-bt-effects=off] .dsb-ft-row[data-revealed]{animation:none!important}
+[data-bt-effects=off] .dsb-secret-toggle,[data-bt-effects=off] .dsb-file-ref,[data-bt-effects=off] .dsb-fb-cat,[data-bt-effects=off] .dsb-fb-backdrop[data-leaving]{transition:none!important}

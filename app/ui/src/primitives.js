@@ -9,7 +9,7 @@ import { MENTION_ORIGIN } from '../../../ds-bot/src/client/text.js'
 import { ArchiveIcon, DownloadIcon, GearIcon, PersonIcon, SlidersIcon, SpinnerIcon, StackIcon } from '../../../ds-bot/src/client/icons.js'
 import { renderHighlightedBlock, useHighlightedCode } from './code-highlight.js'
 import { FileRefChip, isInlineCodeFilePath, matchFileMention, parseLocalFileHref, remarkFileReferences } from './file-references.js'
-import { MathExpression, normalizeMathDelimiters, remarkGuardCurrencyMath } from './math-render.js'
+import { MathExpression, escapeCurrencyDollars, normalizeMathDelimiters, remarkGuardCurrencyMath } from './math-render.js'
 
 // Official DeepSeek Harness FishLogo geometry (@deepseek-ai/dsh-client-ui-primitives).
 export const FISH_LOGO_VIEWBOX = { width: 23.16, height: 17.04 }
@@ -181,13 +181,46 @@ const elements = ({ labels, onOpenFile, onRevealFolder, fileMentions }) => ({
   code: ({ node: _node, ...props }) => h(InlineCode, { ...props, onOpenFile, onRevealFolder, fileMentions }),
 })
 
+const SAFE_URL_PROTOCOL_RE = /^(https?|ircs?|mailto|xmpp)$/i
+
+// Matches react-markdown's `defaultUrlTransform` without requiring a named import
+// (test harnesses replace `react-markdown` with a default-export-only stub).
+function defaultSafeUrlTransform(value) {
+  if (typeof value !== 'string') return ''
+  const colon = value.indexOf(':')
+  const questionMark = value.indexOf('?')
+  const numberSign = value.indexOf('#')
+  const slash = value.indexOf('/')
+  if (
+    colon === -1
+    || (slash !== -1 && colon > slash)
+    || (questionMark !== -1 && colon > questionMark)
+    || (numberSign !== -1 && colon > numberSign)
+    || SAFE_URL_PROTOCOL_RE.test(value.slice(0, colon))
+  ) {
+    return value
+  }
+  return ''
+}
+
+// Preserves recognized local file/folder destinations (prose `dsb-file://`, `file://`,
+// Windows drive links including percent-encoded backslashes, and `README.md:42`) ONLY on
+// anchor `href` attributes consumed by our custom `a` renderer; delegates every other URL
+// (including `javascript:`, `data:`, and non-anchor elements like `<img>`) to the safe allowlist.
+export function markdownUrlTransform(url, key, node) {
+  if (typeof url === 'string' && key === 'href' && (!node || node.tagName === 'a') && parseLocalFileHref(url) !== null) {
+    return url
+  }
+  return defaultSafeUrlTransform(url)
+}
+
 // A closed block of a streaming reply. Once the splitter has closed it, later chunks
 // cannot change what it means, so the memo holds for the rest of the stream and the
 // block never re-parses. The Fragment keeps the block's elements flat inside the one
 // outer `.md_markdown` wrapper: the DOM a settled full parse would produce is the same,
 // so nothing jumps when streaming completes.
-const StaticMarkdownBlock = memo(function StaticMarkdownBlock({ text, components, remarkPlugins }) {
-  return h(Fragment, null, h(Markdown, { remarkPlugins, components }, text))
+const StaticMarkdownBlock = memo(function StaticMarkdownBlock({ text, components, remarkPlugins, urlTransform }) {
+  return h(Fragment, null, h(Markdown, { remarkPlugins, components, urlTransform }, text))
 })
 
 // Short replies cost little enough that splitting them is not worth the extra elements.
@@ -197,12 +230,13 @@ const STREAM_SPLIT_MIN = 512
 export function MarkdownText({ text, labels, variant, streaming = false, onOpenFile, onRevealFolder, fileMentions }) {
   const linkFiles = typeof onOpenFile === 'function' || typeof onRevealFolder === 'function'
   const remarkPlugins = linkFiles ? LINKED_PLUGINS : BASE_PLUGINS
+  const urlTransform = linkFiles ? markdownUrlTransform : defaultSafeUrlTransform
   // New element types on every render would remount each code block as a reply streams in.
   const components = useMemo(
     () => elements({ labels, onOpenFile, onRevealFolder, fileMentions }),
     [labels?.code?.copyLabel, labels?.code?.copiedLabel, onOpenFile, onRevealFolder, fileMentions],
   )
-  const source = useMemo(() => normalizeMathDelimiters(text ?? ''), [text])
+  const source = useMemo(() => escapeCurrencyDollars(normalizeMathDelimiters(text ?? '')), [text])
   // While streaming, closed blocks parse once and only the live trailing piece re-parses
   // per chunk, instead of the whole message (which re-parses quadratically over a reply).
   // `null` from the splitter means the text holds document-wide syntax and stays whole.
@@ -211,10 +245,10 @@ export function MarkdownText({ text, labels, variant, streaming = false, onOpenF
   return h('div', { className: variant === 'compact' ? 'md_markdown md-compact' : 'md_markdown' },
     split
       ? [
-        ...blocks.slice(0, -1).map((block, index) => h(StaticMarkdownBlock, { key: index, text: block, components, remarkPlugins })),
-        h(Markdown, { key: blocks.length - 1, remarkPlugins, components }, blocks.at(-1)),
+        ...blocks.slice(0, -1).map((block, index) => h(StaticMarkdownBlock, { key: index, text: block, components, remarkPlugins, urlTransform })),
+        h(Markdown, { key: blocks.length - 1, remarkPlugins, components, urlTransform }, blocks.at(-1)),
       ]
-      : h(Markdown, { remarkPlugins, components }, source))
+      : h(Markdown, { remarkPlugins, components, urlTransform }, source))
 }
 
 // Settings icons, drawn by DS Bot (ds-bot/src/client/icons.js). DSH's take a `size`.

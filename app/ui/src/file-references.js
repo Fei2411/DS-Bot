@@ -8,25 +8,27 @@ import { FileIcon, FolderIcon } from '../../../ds-bot/src/client/icons.js'
 
 const WINDOWS_DRIVE_RE = /^[A-Za-z]:[\\/]/
 const SCHEME_RE = /^[A-Za-z][A-Za-z0-9+.-]*:/
+const LINE_ONLY_SUFFIX_RE = /^\d+(?::\d+)?(?:-\d+(?::\d+)?)?$/
+const DOMAIN_LIKE_RE = /^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.(?:com|org|net|io|dev|ai|cn|co|edu|gov|me|gg|tv|uk|de|fr|jp|kr|xyz|info|biz|tech|cloud|site|online)$/i
 const CONTROL_RE = /[\u0000-\u001f\u007f]/
 const TRAILING_PUNCT_RE = /[.,;:!?，。；：！？)）\]】》〉」』"']+$/u
 
 // Known file extensions recognized for bare filenames and workspace-relative paths.
 // Excludes extensions that commonly collide with JS member access (like `.log`, `.get`, `.set`, `.map`)
-// unless preceded by a directory separator.
+// and single-letter extensions (`c`, `h`, `r`) unless preceded by a directory separator.
 const BARE_FILE_EXTS = new Set([
   'js', 'mjs', 'cjs', 'jsx', 'ts', 'tsx', 'mts', 'cts', 'd.ts',
   'json', 'jsonc', 'json5', 'jsonl', 'yaml', 'yml', 'toml', 'ini', 'cfg', 'conf', 'env', 'lock',
   'md', 'mdx', 'markdown', 'rst', 'txt', 'csv', 'tsv',
   'html', 'htm', 'css', 'scss', 'sass', 'less', 'svg', 'xml',
-  'py', 'rb', 'go', 'rs', 'java', 'kt', 'kts', 'scala', 'c', 'h', 'cc', 'cpp', 'cxx', 'hpp', 'cs', 'php', 'swift', 'dart', 'lua', 'zig', 'ex', 'exs', 'erl', 'hs', 'r', 'jl',
+  'py', 'rb', 'go', 'rs', 'java', 'kt', 'kts', 'scala', 'cc', 'cpp', 'cxx', 'hpp', 'cs', 'php', 'swift', 'dart', 'lua', 'zig', 'ex', 'exs', 'erl', 'hs', 'jl',
   'sh', 'bash', 'zsh', 'fish', 'ps1', 'bat', 'cmd',
   'sql', 'graphql', 'gql', 'prisma', 'proto', 'tf', 'hcl', 'nix', 'vue', 'svelte', 'astro',
   'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico', 'avif', 'pdf', 'docx', 'xlsx', 'pptx', 'doc', 'xls', 'ppt',
   'dockerfile', 'makefile', 'gitignore', 'npmrc', 'nvmrc', 'editorconfig',
 ])
 
-const PATH_FILE_EXTS = new Set([...BARE_FILE_EXTS, 'log', 'map', 'out', 'err', 'pid', 'tmp', 'bak', 'patch', 'diff', 'pem', 'crt', 'key', 'wasm', 'bin', 'zip', 'tar', 'gz'])
+const PATH_FILE_EXTS = new Set([...BARE_FILE_EXTS, 'c', 'h', 'r', 'log', 'map', 'out', 'err', 'pid', 'tmp', 'bak', 'patch', 'diff', 'pem', 'crt', 'key', 'wasm', 'bin', 'zip', 'tar', 'gz'])
 
 const SPECIAL_BASENAMES = new Set([
   'README', 'LICENSE', 'NOTICE', 'CHANGELOG', 'Dockerfile', 'Makefile', 'Rakefile', 'Gemfile', 'Procfile', 'AGENTS.md',
@@ -102,6 +104,25 @@ function isMimeLike(raw) {
   return parts.length === 2 && MIME_PREFIXES.has(parts[0].toLowerCase()) && /^[A-Za-z0-9.+-]+$/.test(parts[1])
 }
 
+function isDomainLike(segment) {
+  return typeof segment === 'string' && DOMAIN_LIKE_RE.test(segment)
+}
+
+function isExternalUrlScheme(value) {
+  if (WINDOWS_DRIVE_RE.test(value)) return false
+  if (/^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(value)) return true
+  const match = SCHEME_RE.exec(value)
+  if (!match) return false
+  const prefix = match[0].slice(0, -1)
+  const rest = value.slice(match[0].length)
+  // Recognize `filename:line` / `filename:line:col` on valid filenames without admitting URL schemes.
+  if (LINE_ONLY_SUFFIX_RE.test(rest)) {
+    const ext = extOf(prefix)
+    if (SPECIAL_BASENAMES.has(prefix) || (ext !== '' && PATH_FILE_EXTS.has(ext))) return false
+  }
+  return true
+}
+
 /**
  * Parses a raw path string (optionally `file://...` or with `:line` / `#Lline`) into
  * `{ path, line, endLine, isDir, display }` or `null` if not a local path.
@@ -125,7 +146,7 @@ export function parseFileTarget(raw) {
   } else if (candidate.startsWith(FILE_SCHEME_PREFIX)) {
     const rest = safeDecode(candidate.slice(FILE_SCHEME_PREFIX.length))
     return parseFileTarget(rest)
-  } else if (SCHEME_RE.test(candidate) && !WINDOWS_DRIVE_RE.test(candidate)) {
+  } else if (isExternalUrlScheme(candidate)) {
     return null
   }
 
@@ -153,11 +174,14 @@ export function parseLocalFileHref(href) {
     return parseFileTarget(safeDecode(trimmed.slice(FILE_SCHEME_PREFIX.length)))
   }
   if (/^file:\/\//i.test(trimmed)) return parseFileTarget(trimmed)
-  if (SCHEME_RE.test(trimmed) && !WINDOWS_DRIVE_RE.test(trimmed)) return null
 
-  // Decode percent-encoded spaces/Unicode from CommonMark destinations.
+  // Decode percent-encoded spaces, Unicode, and CommonMark-encoded Windows backslashes (`%5C`)
+  // BEFORE scheme classification so `C:%5Crepo%5Cfile.js` is recognized as a Windows drive path
+  // while `javascript%3A...` is still rejected by `isExternalUrlScheme`.
   const withoutQuery = trimmed.split('?')[0]
-  return parseFileTarget(safeDecode(withoutQuery))
+  const decoded = safeDecode(withoutQuery)
+  if (isExternalUrlScheme(decoded)) return null
+  return parseFileTarget(decoded)
 }
 
 /**
@@ -194,15 +218,19 @@ export function isInlineCodeFilePath(raw) {
     return (segs.length >= 2 || ext !== '') ? parsed : null
   }
 
+  // Single-segment workspace folder with explicit trailing slash (e.g. `src/`, `subdir/`, `.github/`).
+  if (isDir && line === null && !hasSlash) {
+    return (/^[A-Za-z0-9._-]+$/.test(path) && !/^\d+$/.test(path) && !isDomainLike(path)) ? parsed : null
+  }
+
   if (hasSlash) {
     const segs = path.split('/').filter(Boolean)
     if (segs.length < 2 && !isDir) return null
+    if (isDomainLike(segs[0])) return null
     if (isDir) return parsed
     if (line !== null) return parsed
     if (ext !== '' && PATH_FILE_EXTS.has(ext)) return parsed
     if (SPECIAL_BASENAMES.has(base)) return parsed
-    // Three or more clean path segments like `app/ui/src` are unambiguous directory references.
-    if (segs.length >= 3 && segs.every(seg => /^[A-Za-z0-9._-]+$/.test(seg) && !/^\d+$/.test(seg))) return parsed
     return null
   }
 
@@ -231,6 +259,7 @@ export function matchFileMention(raw, fileMentions) {
   const byPath = typeof fileMentions.get === 'function' ? fileMentions.get(parsed.path) : fileMentions[parsed.path]
   if (byPath) return { ...byPath, line: parsed.line ?? byPath.line }
   const base = basenameOf(parsed.path)
+  if (parsed.path !== base) return null
   const byBase = typeof fileMentions.get === 'function' ? fileMentions.get(base) : fileMentions[base]
   if (byBase) return { ...byBase, line: parsed.line ?? byBase.line }
   return null
@@ -271,6 +300,8 @@ function isExplicitPathCandidate(raw, { allowAt = false } = {}) {
     // Unquoted `@ref`: must contain a path separator, trailing slash, line suffix, special filename, or known extension.
     const parsed = parseFileTarget(inner)
     if (!parsed) return null
+    const firstSeg = parsed.path.split('/').filter(Boolean)[0] ?? ''
+    if (isDomainLike(firstSeg)) return null
     const base = basenameOf(parsed.path)
     const ext = extOf(base)
     if (parsed.isDir || parsed.line !== null || parsed.path.includes('/') || SPECIAL_BASENAMES.has(base) || (ext !== '' && PATH_FILE_EXTS.has(ext))) {
@@ -291,6 +322,7 @@ function isExplicitPathCandidate(raw, { allowAt = false } = {}) {
   if (parsed.path.includes('/')) {
     const segs = parsed.path.split('/').filter(Boolean)
     if (segs.length < 2 && !parsed.isDir) return null
+    if (isDomainLike(segs[0])) return null
     const base = basenameOf(parsed.path)
     const ext = extOf(base)
     if (parsed.isDir || parsed.line !== null || (ext !== '' && PATH_FILE_EXTS.has(ext)) || SPECIAL_BASENAMES.has(base)) {

@@ -8,22 +8,37 @@ import { t } from '../../../ds-bot/src/client/i18n.js'
 import { EyeIcon, HideIcon } from '../../../ds-bot/src/client/icons.js'
 import { BotMark } from '../../../ds-bot/src/client/mark.js'
 import { userTextParts } from '../../../ds-bot/src/client/user-message.js'
-import { detectSecrets, maskSecrets } from '../../../ds-bot/src/shared/secret-mask.js'
+import { detectSecrets, maskSecrets, projectSecretsToSlice } from '../../../ds-bot/src/shared/secret-mask.js'
 import { extractUserFileRefs, FileRefChip } from './file-references.js'
+
+const URL_HOST_TAIL_RE = /^@[^\s"'`<>()[\]{}]+/
 
 /**
  * Splits `text` into ordered non-overlapping segments of kinds:
  * `'text' | 'secret' | 'mention' | 'file'`.
+ * When `fullText` is provided (e.g. for folded messages), secret detection runs on `fullText`
+ * and projects onto `text`, preventing fold cuts from unmasking credentials or changing keys.
  */
-export function tokenizeUserText(text, { bots = [], detectFiles = true } = {}) {
+export function tokenizeUserText(text, { bots = [], detectFiles = true, fullText = null } = {}) {
   if (typeof text !== 'string' || text === '') return []
-  const secrets = detectSecrets(text)
+  const secrets = typeof fullText === 'string' && fullText !== text
+    ? projectSecretsToSlice(fullText, text)
+    : detectSecrets(text)
   const segments = []
   let cursor = 0
 
-  const pushNonSecret = (chunk) => {
+  const pushNonSecret = (chunk, { afterUrlPassword = false } = {}) => {
     if (chunk === '') return
-    const mentionParts = bots.length > 0 ? userTextParts(chunk, bots) : [{ text: chunk }]
+    let rest = chunk
+    if (afterUrlPassword && rest.startsWith('@')) {
+      const tail = URL_HOST_TAIL_RE.exec(rest)
+      if (tail) {
+        segments.push({ kind: 'text', text: tail[0] })
+        rest = rest.slice(tail[0].length)
+        if (rest === '') return
+      }
+    }
+    const mentionParts = bots.length > 0 ? userTextParts(rest, bots) : [{ text: rest }]
     for (const part of mentionParts) {
       if (part.bot) {
         segments.push({ kind: 'mention', bot: part.bot, label: part.label })
@@ -52,12 +67,18 @@ export function tokenizeUserText(text, { bots = [], detectFiles = true } = {}) {
     }
   }
 
+  let prevKind = null
   for (const span of secrets) {
-    if (span.start > cursor) pushNonSecret(text.slice(cursor, span.start))
+    if (span.start > cursor) {
+      pushNonSecret(text.slice(cursor, span.start), { afterUrlPassword: prevKind === 'url-password' })
+    }
     segments.push({ kind: 'secret', span })
     cursor = span.end
+    prevKind = span.kind
   }
-  if (cursor < text.length) pushNonSecret(text.slice(cursor))
+  if (cursor < text.length) {
+    pushNonSecret(text.slice(cursor), { afterUrlPassword: prevKind === 'url-password' })
+  }
   return segments
 }
 
@@ -99,6 +120,7 @@ function SecretSpan({ span, revealed, interactive, onToggle }) {
  */
 export function UserMessageText({
   text,
+  fullText = null,
   bots = [],
   revealedSecrets = null,
   onToggleSecret,
@@ -109,8 +131,8 @@ export function UserMessageText({
 }) {
   const canOpenFiles = interactive && (typeof onOpenFile === 'function' || typeof onRevealFolder === 'function')
   const segments = useMemo(
-    () => tokenizeUserText(text ?? '', { bots, detectFiles: canOpenFiles }),
-    [text, bots, canOpenFiles],
+    () => tokenizeUserText(text ?? '', { bots, detectFiles: canOpenFiles, fullText }),
+    [text, fullText, bots, canOpenFiles],
   )
   return segments.map((seg, index) => {
     if (seg.kind === 'secret') {

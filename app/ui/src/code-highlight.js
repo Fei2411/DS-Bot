@@ -2,7 +2,7 @@
 // Keeps initial startup lightweight by dynamically loading both the core highlighter
 // and each language grammar on demand, rendering with semantic `hljs-*` token classes
 // themed via CSS variables.
-import { createElement as h, useEffect, useState } from 'react'
+import { createElement as h, useEffect, useMemo, useState } from 'react'
 
 const MAX_HIGHLIGHT_CHARS = 200_000
 
@@ -289,7 +289,7 @@ export function useHighlightedCode(code, rawLang) {
     return () => { alive = false }
   }, [canonical, loaded])
 
-  return loaded ? highlightSync(code, canonical) : null
+  return useMemo(() => (loaded ? highlightSync(code, canonical) : null), [loaded, code, canonical])
 }
 
 /**
@@ -297,5 +297,5 @@ export function useHighlightedCode(code, rawLang) {
  */
 export function useHighlightedLines(code, rawLang) {
   const html = useHighlightedCode(code, rawLang)
-  return html === null ? null : parseHighlightedTokensByLine(html)
+  return useMemo(() => (html === null ? null : parseHighlightedTokensByLine(html)), [html])
 }

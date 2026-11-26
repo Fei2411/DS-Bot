@@ -4,7 +4,7 @@ import { MarkdownText, writeClipboard } from './dsh-primitives.js'
 import { inkText } from './inks.js'
 import { linkMentions, normalizeFileLinks, mentionTarget, dayLabel, contentText, stripHeader, stripToolCallTags, isHiddenTurn, isRelayContext, relaysBefore, relayPart, commRunOf, toolName, toolArgs, reminderPrompts, elapsedLabel, clockLabel, messageClock } from './text.js'
 import { SmileIcon, ReplyIcon, DotsIcon, CheckIcon, DownloadIcon, CopyIcon, EyeIcon, HideIcon, GoalIcon, MemoryIcon } from './icons.js'
-import { detectSecrets } from '../shared/secret-mask.js'
+import { detectSecrets, projectSecretsToSlice } from '../shared/secret-mask.js'
 import { ChangesCard } from './changes-card.js'
 import { goalEventText } from './goal.js'
 import { colorOf, toolState, BotMark, RoomAvatar } from './mark.js'
@@ -602,13 +602,15 @@ const scrollParent = (node) => {
   return null
 }
 
-function MaskedUserInline({ text, spans }) {
-  const [revealed, setRevealed] = useState(() => new Set())
+function MaskedUserInline({ text, spans, revealed: controlledRevealed = null, onToggle = null }) {
+  const [localRevealed, setLocalRevealed] = useState(() => new Set())
   useEffect(() => {
-    setRevealed(prev => (prev.size === 0 ? prev : new Set()))
+    setLocalRevealed(prev => (prev.size === 0 ? prev : new Set()))
   }, [text])
+  const revealed = controlledRevealed instanceof Set ? controlledRevealed : localRevealed
   const toggle = (key) => {
-    setRevealed((prev) => {
+    if (typeof onToggle === 'function') { onToggle(key); return }
+    setLocalRevealed((prev) => {
       const next = new Set(prev)
       if (next.has(key)) next.delete(key)
       else next.add(key)
@@ -642,13 +644,48 @@ function MaskedUserInline({ text, spans }) {
   return h('div', { className: 'bt-umasked', style: { whiteSpace: 'pre-wrap' } }, nodes)
 }
 
-function EarlierUser({ row, actions, renderUserAttachments }) {
-  const { shown, folded, control, code, codeHead } = useFold(row.text ?? '')
-  const secretSpans = useMemo(() => detectSecrets(shown), [shown])
-  const body = row.text && shown !== ''
-    ? (secretSpans.length > 0
-      ? h(MaskedUserInline, { text: shown, spans: secretSpans })
-      : h(MarkdownText, { text: shown, labels: mdLabels(), variant: 'compact' }))
+function EarlierUser({ row, sessionId, roster, actions, renderUserAttachments, renderUserText, showTime = false }) {
+  const fullText = row.text ?? ''
+  const customRender = typeof renderUserText === 'function'
+    ? renderUserText
+    : (typeof actions?.renderUserText === 'function' ? actions.renderUserText : null)
+  const fullSecrets = useMemo(() => detectSecrets(fullText), [fullText])
+  // Disable markdown code-fence folding whenever credentials are present or the own-window
+  // user renderer handles the bubble, so folded fenced code can never bypass masking.
+  const { shown, folded, control, code, codeHead } = useFold(fullText, {
+    markdown: customRender === null && fullSecrets.length === 0,
+  })
+  const [revealedSecrets, setRevealedSecrets] = useState(() => new Set())
+  useEffect(() => {
+    setRevealedSecrets(prev => (prev.size === 0 ? prev : new Set()))
+  }, [fullText])
+  const toggleSecret = (key) => {
+    setRevealedSecrets((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+  const secretSpans = useMemo(
+    () => (fullSecrets.length > 0 ? projectSecretsToSlice(fullText, shown, fullSecrets) : []),
+    [fullText, shown, fullSecrets],
+  )
+  const body = fullText && shown !== ''
+    ? (customRender !== null
+      ? h('div', { className: 'bt-umasked', style: { whiteSpace: 'pre-wrap' } },
+        customRender({
+          text: shown,
+          fullText,
+          sessionId,
+          roster,
+          actions,
+          revealedSecrets,
+          onToggleSecret: toggleSecret,
+        }))
+      : secretSpans.length > 0
+        ? h(MaskedUserInline, { text: shown, spans: secretSpans, revealed: revealedSecrets, onToggle: toggleSecret })
+        : h(MarkdownText, { text: shown, labels: mdLabels(), variant: 'compact' }))
     : null
   const area = foldArea(body, code, codeHead, actions)
   const hasRich = typeof renderUserAttachments === 'function' && ((row.imageRefs?.length ?? 0) > 0 || (row.fileRefs?.length ?? 0) > 0)
@@ -657,6 +694,7 @@ function EarlierUser({ row, actions, renderUserAttachments }) {
     ? row.fileRefs.map(file => file.name).filter(Boolean).join(', ')
     : ''
   const showBubble = Boolean(body || code !== undefined || (!hasRich && (row.images || fileNames)))
+  const hasMeta = row.via !== undefined || (showTime && Number.isFinite(row.time))
   return h('div', { className: 'bt-urow' },
     attachments,
     showBubble ? h('div', { className: 'bt-ububble', 'data-folded': folded || undefined, 'data-text-interaction-source': body || code !== undefined ? '' : undefined },
@@ -664,7 +702,9 @@ function EarlierUser({ row, actions, renderUserAttachments }) {
       control,
       !hasRich && row.images ? h('span', { className: 'bt-uimages', 'data-text-interaction-exclude': '' }, row.images === 1 ? t('1 image') : t('{count} images', { count: row.images })) : null,
       fileNames ? h('span', { className: 'bt-uimages', 'data-text-interaction-exclude': '' }, fileNames) : null) : null,
-    row.via ? h('div', { className: 'bt-utime' }, h(ViaTag, { via: row.via }), Number.isFinite(row.time) ? messageClock(row.time) : null) : null)
+    hasMeta ? h('div', { className: 'bt-utime', title: Number.isFinite(row.time) ? clockLabel(row.time) : undefined },
+      row.via !== undefined ? h(ViaTag, { via: row.via }) : null,
+      Number.isFinite(row.time) ? messageClock(row.time) : null) : null)
 }
 
 // Pure helpers for EarlierParts: merging skipped/multi-page earlier responses,
@@ -704,7 +744,7 @@ export function earlierItems(pages, { cursor, loading } = {}) {
 // The earlier parts of a Bot's own chat, above its current part as one conversation.
 // Pages load from the host as the user scrolls up; a thin line marks where each
 // part begins, the last one where the current part begins.
-export function EarlierParts({ sessionId, roster, actions }) {
+export function EarlierParts({ sessionId, roster, actions, renderUserText }) {
   const [view, setView] = useState({ pages: [], cursor: undefined, loading: true, failed: false, startedAt: null })
   const top = useRef(null)
   const busy = useRef(false)
@@ -772,14 +812,14 @@ export function EarlierParts({ sessionId, roster, actions }) {
       view.loading ? h(Shimmer, null, t('Loading earlier messages…'))
         : view.failed ? h('button', { type: 'button', className: 'bt-soft', onClick: () => load(view.cursor) }, t('Couldn’t load earlier messages · Retry'))
           : view.cursor ? h('button', { type: 'button', className: 'bt-soft', onClick: () => load(view.cursor) }, t('Load earlier')) : null),
-    h(ChatRows, { items, sessionId, roster, actions, onBtwDelete: removeBtw }),
+    h(ChatRows, { items, sessionId, roster, actions, onBtwDelete: removeBtw, renderUserText }),
     hasContent ? h(PartLine, { time: view.startedAt }) : null)
 }
 
 // A Bot chat's entries as the host lists them (the `earlier` and `chat` endpoints): the
 // Bot's messages in a row are one block, and a thin line marks where a part begins.
 // `clock` adds the time separators: one above the first entry, and one after each pause.
-export function ChatRows({ items, sessionId, roster, actions, useUi, clock = false, onBtwDelete, renderUserAttachments }) {
+export function ChatRows({ items, sessionId, roster, actions, useUi, clock = false, onBtwDelete, renderUserAttachments, renderUserText }) {
   const selfId = roster.byId[sessionId]?.id
   const rows = []
   for (const item of items) {
@@ -796,7 +836,7 @@ export function ChatRows({ items, sessionId, roster, actions, useUi, clock = fal
   return rows.flatMap((row, index) => {
     // Pages are prepended, so a row keeps its distance from the end.
     const key = rows.length - index
-    const shown = chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDelete, renderUserAttachments })
+    const shown = chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDelete, renderUserAttachments, renderUserText })
     // A part's first entry shows its time under the part's line, as a chat's first one does.
     if (row.kind === 'divider') {
       before = undefined
@@ -809,10 +849,10 @@ export function ChatRows({ items, sessionId, roster, actions, useUi, clock = fal
 }
 
 // `useUi` gives a block its reactions and its Reply tool.
-function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDelete, renderUserAttachments }) {
+function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDelete, renderUserAttachments, renderUserText }) {
   switch (row.kind) {
     case 'divider': return h(PartLine, { key, time: row.time })
-    case 'user': return h(EarlierUser, { key, row, actions, renderUserAttachments })
+    case 'user': return h(EarlierUser, { key, row, sessionId, roster, actions, renderUserAttachments, renderUserText })
     case 'answer': return h(AnsweredReply, { key, node: { data: row } })
     // A question or view card closed without an answer on it.
     case 'closed': return row.view === undefined
@@ -1389,13 +1429,14 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useRo
     stacked.map(({ reply, index, texts, time, duration, claims, changes }, at) => {
       const bot = roster.byId[reply.botId] ?? { id: reply.botId, name: reply.name, color: reply.color ?? 'gray' }
       if (reply.kind === 'user') {
-        const secretSpans = detectSecrets(reply.text ?? '')
-        return h('div', { key: `user-${index}`, className: 'bt-urow' },
-          h('div', { className: 'bt-ububble', 'data-text-interaction-source': '' },
-            secretSpans.length > 0
-              ? h(MaskedUserInline, { text: reply.text ?? '', spans: secretSpans })
-              : h(MarkdownText, { text: reply.text, labels: mdLabels(), variant: 'compact' })),
-          (reply.via !== undefined || Number.isFinite(time)) ? h('div', { className: 'bt-utime', title: clockLabel(time) }, ...(reply.via !== undefined ? [h(ViaTag, { key: 'via', via: reply.via })] : []), Number.isFinite(time) ? messageClock(time) : null) : null)
+        return h(EarlierUser, {
+          key: `user-${index}`,
+          row: { ...reply, time },
+          sessionId,
+          roster,
+          actions,
+          showTime: true,
+        })
       }
       if (reply.kind === 'goal') {
         return h('div', { key: `goal-${index}`, className: 'bt-event', title: reply.text || undefined },

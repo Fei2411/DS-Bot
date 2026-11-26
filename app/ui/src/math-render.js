@@ -52,58 +52,110 @@ export function renderKatexSync(tex, display = false) {
   }
 }
 
+function measureIndent(text, lineStart) {
+  let i = lineStart
+  let col = 0
+  while (i < text.length) {
+    const ch = text[i]
+    if (ch === ' ') { col += 1; i += 1 }
+    else if (ch === '\t') { col += 4 - (col % 4); i += 1 }
+    else break
+  }
+  return { col, index: i }
+}
+
+function readInlineCodeSpan(text, start) {
+  let ticks = 0
+  while (start + ticks < text.length && text[start + ticks] === '`') ticks += 1
+  const needle = '`'.repeat(ticks)
+  let close = text.indexOf(needle, start + ticks)
+  while (close !== -1) {
+    const beforeOk = close === 0 || text[close - 1] !== '`'
+    const afterOk = close + ticks >= text.length || text[close + ticks] !== '`'
+    if (beforeOk && afterOk) return close + ticks
+    close = text.indexOf(needle, close + 1)
+  }
+  return start + ticks
+}
+
 /**
- * Converts LaTeX `\(...\)` and `\[...\]` math delimiters into `$...$` / `$$...$$`
- * outside fenced code blocks (` ``` ` / `~~~`) and inline code spans.
+ * Walks CommonMark source while preserving fenced code blocks (` ``` ` / `~~~`),
+ * CommonMark indented code blocks (4+ spaces / tab after blank line), and inline backtick spans
+ * completely untouched, calling `onProseChar(text, i, out)` for non-code characters.
  */
-export function normalizeMathDelimiters(text) {
-  if (typeof text !== 'string' || (!text.includes('\\(') && !text.includes('\\['))) return text
+function walkMarkdownProse(text, onProseChar) {
   const out = []
   let i = 0
   let lineStart = true
+  let prevLineBlank = true
+  let inIndentedCode = false
   let fenceChar = ''
   let fenceLen = 0
 
   while (i < text.length) {
     if (lineStart) {
-      let lead = i
-      let spaces = 0
-      while (lead < text.length && text[lead] === ' ' && spaces < 3) {
-        lead += 1
-        spaces += 1
-      }
-      const ch = text[lead]
-      if (ch === '`' || ch === '~') {
-        let count = 0
-        while (lead + count < text.length && text[lead + count] === ch) count += 1
-        if (count >= 3) {
-          if (fenceChar === '') {
-            fenceChar = ch
-            fenceLen = count
-          } else if (ch === fenceChar && count >= fenceLen) {
-            const after = text.slice(lead + count)
-            const nl = after.indexOf('\n')
-            const rest = nl === -1 ? after : after.slice(0, nl)
-            if (rest.trim() === '') {
+      const nl = text.indexOf('\n', i)
+      const lineEnd = nl === -1 ? text.length : nl + 1
+      const { col, index: firstNonWs } = measureIndent(text, i)
+      const isBlank = firstNonWs >= lineEnd || text[firstNonWs] === '\n' || text[firstNonWs] === '\r'
+
+      if (fenceChar !== '') {
+        if (col <= 3) {
+          const ch = text[firstNonWs]
+          if (ch === fenceChar) {
+            let count = 0
+            while (firstNonWs + count < lineEnd && text[firstNonWs + count] === ch) count += 1
+            if (count >= fenceLen && text.slice(firstNonWs + count, lineEnd).trim() === '') {
               fenceChar = ''
               fenceLen = 0
             }
           }
-          const nl = text.indexOf('\n', lead)
-          const end = nl === -1 ? text.length : nl + 1
-          out.push(text.slice(i, end))
-          i = end
-          lineStart = true
-          continue
         }
+        out.push(text.slice(i, lineEnd))
+        i = lineEnd
+        lineStart = true
+        prevLineBlank = isBlank
+        continue
       }
-      if (fenceChar !== '') {
-        const nl = text.indexOf('\n', i)
-        const end = nl === -1 ? text.length : nl + 1
-        out.push(text.slice(i, end))
-        i = end
+
+      if (isBlank) {
+        out.push(text.slice(i, lineEnd))
+        i = lineEnd
+        lineStart = true
+        prevLineBlank = true
+        continue
+      }
+
+      // CommonMark indented code block: 4+ column indent when starting after a blank line
+      // (or document start) or continuing an active indented code block.
+      if ((prevLineBlank || inIndentedCode) && col >= 4) {
+        inIndentedCode = true
+        prevLineBlank = false
+        out.push(text.slice(i, lineEnd))
+        i = lineEnd
         lineStart = true
         continue
+      }
+
+      inIndentedCode = false
+      prevLineBlank = false
+
+      if (col <= 3) {
+        const ch = text[firstNonWs]
+        if (ch === '`' || ch === '~') {
+          let count = 0
+          while (firstNonWs + count < lineEnd && text[firstNonWs + count] === ch) count += 1
+          // Backtick info strings cannot contain backticks in CommonMark.
+          const info = text.slice(firstNonWs + count, lineEnd)
+          if (count >= 3 && (ch === '~' || !info.includes('`'))) {
+            fenceChar = ch
+            fenceLen = count
+            out.push(text.slice(i, lineEnd))
+            i = lineEnd
+            lineStart = true
+            continue
+          }
+        }
       }
     }
 
@@ -118,68 +170,67 @@ export function normalizeMathDelimiters(text) {
 
     // Skip inline code spans with exact matching backtick count.
     if (ch === '`') {
-      let ticks = 0
-      while (i + ticks < text.length && text[i + ticks] === '`') ticks += 1
-      const needle = '`'.repeat(ticks)
-      let close = text.indexOf(needle, i + ticks)
-      while (close !== -1) {
-        const beforeOk = close === 0 || text[close - 1] !== '`'
-        const afterOk = close + ticks >= text.length || text[close + ticks] !== '`'
-        if (beforeOk && afterOk) break
-        close = text.indexOf(needle, close + 1)
-      }
-      if (close !== -1) {
-        out.push(text.slice(i, close + ticks))
-        i = close + ticks
-        continue
-      }
-      out.push(needle)
-      i += ticks
+      const end = readInlineCodeSpan(text, i)
+      out.push(text.slice(i, end))
+      i = end
       continue
     }
 
-    // Escaped backslash (`\\`) stays literal so `\\(` is not treated as math.
-    if (ch === '\\' && text[i + 1] === '\\') {
-      out.push('\\\\')
-      i += 2
+    const next = onProseChar(text, i, out)
+    if (next > i) {
+      if (text[next - 1] === '\n') lineStart = true
+      i = next
       continue
-    }
-
-    // Display math: `\[ ... \]`
-    if (ch === '\\' && text[i + 1] === '[') {
-      const close = findLatexClose(text, i + 2, ']')
-      if (close !== -1) {
-        const inner = text.slice(i + 2, close).trim()
-        if (inner !== '') {
-          const prev = out.at(-1)
-          const needBefore = prev !== undefined && !prev.endsWith('\n')
-          const nextCh = text[close + 2]
-          const needAfter = nextCh !== undefined && nextCh !== '\n'
-          out.push(`${needBefore ? '\n' : ''}$$\n${inner}\n$$${needAfter ? '\n' : ''}`)
-          i = close + 2
-          lineStart = !needAfter ? false : true
-          continue
-        }
-      }
-    }
-
-    // Inline math: `\(...\)` (single-line only to avoid swallowing prose)
-    if (ch === '\\' && text[i + 1] === '(') {
-      const close = findLatexClose(text, i + 2, ')', true)
-      if (close !== -1) {
-        const inner = text.slice(i + 2, close).trim()
-        if (inner !== '') {
-          out.push(`$${inner}$`)
-          i = close + 2
-          continue
-        }
-      }
     }
 
     out.push(ch)
     i += 1
   }
   return out.join('')
+}
+
+/**
+ * Converts LaTeX `\(...\)` and `\[...\]` math delimiters into `$...$` / `$$...$$`
+ * outside fenced code blocks (` ``` ` / `~~~`), CommonMark indented code blocks,
+ * and inline code spans.
+ */
+export function normalizeMathDelimiters(text) {
+  if (typeof text !== 'string' || (!text.includes('\\(') && !text.includes('\\['))) return text
+  return walkMarkdownProse(text, (src, i, out) => {
+    const ch = src[i]
+    // Escaped backslash (`\\`) stays literal so `\\(` is not treated as math.
+    if (ch === '\\' && src[i + 1] === '\\') {
+      out.push('\\\\')
+      return i + 2
+    }
+    // Display math: `\[ ... \]`
+    if (ch === '\\' && src[i + 1] === '[') {
+      const close = findLatexClose(src, i + 2, ']')
+      if (close !== -1) {
+        const inner = src.slice(i + 2, close).trim()
+        if (inner !== '') {
+          const prev = out.at(-1)
+          const needBefore = prev !== undefined && !prev.endsWith('\n')
+          const nextCh = src[close + 2]
+          const needAfter = nextCh !== undefined && nextCh !== '\n'
+          out.push(`${needBefore ? '\n' : ''}$$\n${inner}\n$$${needAfter ? '\n' : ''}`)
+          return close + 2
+        }
+      }
+    }
+    // Inline math: `\(...\)` (single-line only to avoid swallowing prose)
+    if (ch === '\\' && src[i + 1] === '(') {
+      const close = findLatexClose(src, i + 2, ')', true)
+      if (close !== -1) {
+        const inner = src.slice(i + 2, close).trim()
+        if (inner !== '') {
+          out.push(`$${inner}$`)
+          return close + 2
+        }
+      }
+    }
+    return i
+  })
 }
 
 function findLatexClose(text, start, closer, singleLine = false) {
@@ -193,13 +244,93 @@ function findLatexClose(text, start, closer, singleLine = false) {
   return -1
 }
 
-// Heuristic rejecting accidental currency spans like `$5 and $10` or `$12.50 to $20`.
+const CURRENCY_NUM_RE = /^(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?(?:[kKmMbBtT](?![A-Za-z0-9_]))?/
+
+function findNextSingleDollar(text, start) {
+  for (let i = start; i < text.length; i += 1) {
+    const ch = text[i]
+    if (ch === '\n' || ch === '`') return -1
+    if (ch === '\\') { i += 1; continue }
+    if (ch === '$') {
+      if (text[i + 1] === '$') return -1
+      return i
+    }
+  }
+  return -1
+}
+
+function isCurrencyOpeningDollar(text, open, close) {
+  if (close === -1) return false
+  if (open > 0 && /[A-Za-z0-9]/.test(text[open - 1])) return false
+  const inner = text.slice(open + 1, close)
+  if (inner === '') return false
+  const numMatch = CURRENCY_NUM_RE.exec(inner)
+  if (!numMatch) return false
+
+  const afterNum = inner.slice(numMatch[0].length)
+  const afterClose = text[close + 1] ?? ''
+
+  // Closing `$` followed immediately by a digit (e.g. `$100-$200`, `$10–$20`, `$5/$10`, `价格$5和$10`, `$5 and $10`).
+  if (/\d/.test(afterClose)) return true
+  // Trailing whitespace before the next `$` (e.g. `The item costs $5 and the answer is $x^2$.`).
+  if (/\s$/.test(inner)) return true
+  // Currency amount followed by CJK/non-ASCII text or English prose words without TeX/math operators.
+  if (afterNum !== '' && !/[\\^_{}=<>|]/.test(afterNum)) {
+    if (/[^\x00-\x7F]/.test(afterNum)) return true
+    if (/^(?:,\s|\s+[A-Za-z]{2,})/.test(afterNum)) return true
+  }
+  return false
+}
+
+/**
+ * Disambiguates currency dollar signs (e.g. `$5 and $10`, `$100-$200`, `价格$5和$10`,
+ * `The item costs $5 and the answer is $x^2$.`) BEFORE `remark-math` pairs inline `$...$`,
+ * so a leading price never borrows the opening `$` of a nearby real equation.
+ * Preserves fenced code, CommonMark indented code, inline code, `$$...$$`, and escaped `\$`.
+ */
+export function escapeCurrencyDollars(text) {
+  if (typeof text !== 'string' || !text.includes('$')) return text
+  return walkMarkdownProse(text, (src, i, out) => {
+    const ch = src[i]
+    if (ch === '\\' && i + 1 < src.length) {
+      out.push(src.slice(i, i + 2))
+      return i + 2
+    }
+    if (ch !== '$') return i
+    // Preserve display math `$$...$$` intact.
+    if (src[i + 1] === '$') {
+      let j = i + 2
+      while (j < src.length) {
+        if (src[j] === '\\') { j += 2; continue }
+        if (src[j] === '$' && src[j + 1] === '$') {
+          out.push(src.slice(i, j + 2))
+          return j + 2
+        }
+        j += 1
+      }
+      out.push('$$')
+      return i + 2
+    }
+    const close = findNextSingleDollar(src, i + 1)
+    if (isCurrencyOpeningDollar(src, i, close)) {
+      out.push('\\$')
+      return i + 1
+    }
+    // Real inline math span `$...$`: copy verbatim through closing `$` so we don't inspect its body.
+    if (close !== -1) {
+      out.push(src.slice(i, close + 1))
+      return close + 1
+    }
+    out.push('$')
+    return i + 1
+  })
+}
+
+// Second-line safety net for any remaining accidental currency/prose spans.
 function looksLikeCurrencyProse(value) {
   if (typeof value !== 'string') return true
   if (value === '' || /^\s/.test(value) || /\s$/.test(value)) return true
-  // Leading digit followed by prose words without math operators/commands.
-  if (/^\d[\d,.]*(?:\s+[A-Za-z]+)+/.test(value) && !/[\\^_{}=<>+\-*/|]/.test(value)) return true
-  // Plain multi-word English sentence without any TeX/math tokens.
+  if (/^\d[\d,.]*(?:[-–—/,~·]|\s+[A-Za-z]+|[^\x00-\x7F])/.test(value) && !/[\\^_{}=<>|]/.test(value)) return true
   if (/\s/.test(value) && !/[\\^_{}=<>+\-*/|()[\]]/.test(value) && /^[A-Za-z0-9.,;:!?\s'-]+$/.test(value)) return true
   return false
 }

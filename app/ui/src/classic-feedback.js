@@ -26,6 +26,29 @@ function utf8Bytes(value) {
   return value.length
 }
 
+export function feedbackErrorMessage(error, fallback) {
+  switch (error?.code) {
+    case 'version-conflict':
+      return t('Feedback changed elsewhere. Try again.')
+    case 'note-too-large':
+      return Number.isFinite(error?.maxBytes)
+        ? t('Note is too long (max {bytes} bytes)', { bytes: error.maxBytes })
+        : t('Note is too long')
+    case 'note-blank':
+      return t('Feedback note cannot be blank')
+    case 'target-not-found':
+      return t('This message can no longer receive feedback')
+    case 'session-not-found':
+      return t('This session is no longer available')
+    case 'bot/read-only':
+      return t('This window is read-only')
+    case 'bot/unavailable':
+      return t('Message feedback is unavailable')
+    default:
+      return hostText(error?.message ?? fallback)
+  }
+}
+
 /**
  * Manages per-session classic reply feedback state, serialized CAS mutations, and
  * version-conflict reconciliation for a single Classic Agent session.
@@ -90,14 +113,20 @@ export function useSessionFeedback(sessionId, enabled) {
 
   const submit = useCallback((messageId, { rating, category, note }) => enqueue(messageId, async () => {
     const current = itemsRef.current.get(messageId) ?? null
-    const res = await call('engine-feedback-put', {
-      sessionId,
-      messageId,
-      rating,
-      ...(category ? { category } : {}),
-      ...(typeof note === 'string' && note.trim() !== '' ? { note: note.trim() } : {}),
-      ifVersion: current?.version ?? null,
-    })
+    let res
+    try {
+      res = await call('engine-feedback-put', {
+        sessionId,
+        messageId,
+        rating,
+        ...(category ? { category } : {}),
+        ...(typeof note === 'string' && note.trim() !== '' ? { note: note.trim() } : {}),
+        ifVersion: current?.version ?? null,
+      })
+    } catch (failure) {
+      if (sessionRef.current !== sessionId) return { ok: false, stale: true }
+      return { ok: false, code: failure?.code, message: feedbackErrorMessage(failure, t('Could not submit feedback')) }
+    }
     if (sessionRef.current !== sessionId) return { ok: false, stale: true }
     if (res?.ok && res.item) {
       setItems((prev) => {
@@ -107,26 +136,42 @@ export function useSessionFeedback(sessionId, enabled) {
       })
       return { ok: true, item: res.item }
     }
-    if (res?.error?.code === 'CONFLICT') {
+    if (res?.error?.code === 'version-conflict') {
       setItems((prev) => {
         const next = new Map(prev)
         if (res.error.current) next.set(messageId, res.error.current)
         else next.delete(messageId)
         return next
       })
-      return { ok: false, conflict: true, message: t('Feedback changed elsewhere. Try again.') }
+      return {
+        ok: false,
+        conflict: true,
+        code: 'version-conflict',
+        current: res.error.current ?? null,
+        message: feedbackErrorMessage(res.error, t('Could not submit feedback')),
+      }
     }
-    return { ok: false, message: hostText(res?.error?.message ?? t('Could not submit feedback')) }
+    return {
+      ok: false,
+      code: res?.error?.code,
+      message: feedbackErrorMessage(res?.error, t('Could not submit feedback')),
+    }
   }), [sessionId, enqueue])
 
   const retract = useCallback((messageId) => enqueue(messageId, async () => {
     const current = itemsRef.current.get(messageId) ?? null
     if (!current?.version) return { ok: true, absent: true }
-    const res = await call('engine-feedback-delete', {
-      sessionId,
-      messageId,
-      ifVersion: current.version,
-    })
+    let res
+    try {
+      res = await call('engine-feedback-delete', {
+        sessionId,
+        messageId,
+        ifVersion: current.version,
+      })
+    } catch (failure) {
+      if (sessionRef.current !== sessionId) return { ok: false, stale: true }
+      return { ok: false, code: failure?.code, message: feedbackErrorMessage(failure, t('Could not remove feedback')) }
+    }
     if (sessionRef.current !== sessionId) return { ok: false, stale: true }
     if (res?.ok) {
       setItems((prev) => {
@@ -136,16 +181,26 @@ export function useSessionFeedback(sessionId, enabled) {
       })
       return { ok: true, absent: true }
     }
-    if (res?.error?.code === 'CONFLICT') {
+    if (res?.error?.code === 'version-conflict') {
       setItems((prev) => {
         const next = new Map(prev)
         if (res.error.current) next.set(messageId, res.error.current)
         else next.delete(messageId)
         return next
       })
-      return { ok: !res.error.current, conflict: Boolean(res.error.current), message: t('Feedback changed elsewhere. Try again.') }
+      return {
+        ok: !res.error.current,
+        conflict: Boolean(res.error.current),
+        code: 'version-conflict',
+        current: res.error.current ?? null,
+        message: feedbackErrorMessage(res.error, t('Could not remove feedback')),
+      }
     }
-    return { ok: false, message: hostText(res?.error?.message ?? t('Could not remove feedback')) }
+    return {
+      ok: false,
+      code: res?.error?.code,
+      message: feedbackErrorMessage(res?.error, t('Could not remove feedback')),
+    }
   }), [sessionId, enqueue])
 
   return useMemo(
@@ -202,11 +257,17 @@ export function ClassicFeedbackDialog({ draft, current, pending = false, error =
   const [note, setNote] = useState('')
   const noteRef = useRef(null)
 
+  const currentRef = useRef(current)
+  currentRef.current = current
+
+  // Seed inputs when opening a dialog for a message/rating; never overwrite unsaved edits
+  // when `current` refreshes in the background (e.g. after a version-conflict reconciliation).
   useEffect(() => {
     if (!draft) return
-    setCategory(current?.rating === draft.rating && typeof current?.category === 'string' ? current.category : '')
-    setNote(current?.rating === draft.rating && typeof current?.note === 'string' ? current.note : '')
-  }, [draft?.messageId, draft?.rating, current])
+    const cur = currentRef.current
+    setCategory(cur?.rating === draft.rating && typeof cur?.category === 'string' ? cur.category : '')
+    setNote(cur?.rating === draft.rating && typeof cur?.note === 'string' ? cur.note : '')
+  }, [draft?.messageId, draft?.rating])
 
   useEffect(() => {
     if (!draft) return undefined
@@ -216,7 +277,7 @@ export function ClassicFeedbackDialog({ draft, current, pending = false, error =
     return () => { if (id && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(id) }
   }, [draft])
 
-  useEscape(Boolean(draft) && !pending, onClose)
+  useEscape(onClose, Boolean(draft) && !pending)
 
   if (!shown) return null
 
