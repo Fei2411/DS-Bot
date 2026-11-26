@@ -12,6 +12,7 @@ import { lookOf } from './mark.js'
 import { TeamSidebar, YouAvatar, AccountLauncher, FooterAccount, BrandMark, BrandName, BotReturn, SIDEBAR_CSS, RETURN_CSS, holdShellShortcuts } from './sidebar.js'
 import { installSettingsShell, SETTINGS_SHELL_CSS } from './settings-shell.js'
 import { frameLayout, readSidebar, writeSidebar, toggledPref, DSH_NARROW } from './frame-layout.js'
+import { panelLayoutOf } from './side-layout-ui.js'
 import { installFrameWatch } from './frame-watch.js'
 import { HeaderPill } from './header.js'
 import { watchAgentTerminals } from './agent-terminals.js'
@@ -690,7 +691,7 @@ export function apply(ctx) {
     const state = ui.getSnapshot()
     if (state.details === null) return false
     const f = frame.getSnapshot()
-    return frameLayout({ viewport: f.viewport, sidebarWidth: f.sidebarWidth, pref: sidebarPref.getSnapshot(), drawer: state.leftDrawer, panel: { view: view ?? state.view, yielded: state.panelYield === true } }).panel === 'folded'
+    return frameLayout({ viewport: f.viewport, sidebarWidth: f.sidebarWidth, pref: sidebarPref.getSnapshot(), drawer: state.leftDrawer, panel: { view: view ?? state.view, yielded: state.panelYield === true, layout: panelLayoutOf(roster.getSnapshot(), state.details, view ?? state.view) } }).panel === 'folded'
   }
   const yieldBrowser = state => state.panelYield === true || panelFolded('browser')
   // Bot mode's view must hold a team conversation; an outside Session wears the
@@ -1429,7 +1430,7 @@ export function apply(ctx) {
       // team-actions carry the yield themselves.
       const opened = s.details !== null && lastDetails === null
       lastDetails = s.details
-      const layout = frameLayout({ viewport: f.viewport, sidebarWidth: f.sidebarWidth, pref: sidebarPref.getSnapshot(), drawer: s.leftDrawer === true, panel: s.details === null ? null : { view: s.view, yielded: false } })
+      const layout = frameLayout({ viewport: f.viewport, sidebarWidth: f.sidebarWidth, pref: sidebarPref.getSnapshot(), drawer: s.leftDrawer === true, panel: s.details === null ? null : { view: s.view, yielded: false, layout: panelLayoutOf(roster.getSnapshot(), s.details, s.view) } })
       if (s.details === null) {
         if (s.panelYield) actions.setPanelYield(false)
       } else if (!s.panelYield && opened && layout.panel === 'folded') actions.setPanelYield(true)

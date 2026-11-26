@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
   RAIL_WIDTH, RAIL_SNAP, SIDEBAR_MIN, SIDEBAR_MAX, MIN_CHAT, FALLBACK_SIDEBAR_WIDTH, PANEL_MIN,
-  frameLayout, dragColumn, toggledPref, trackRoom, nextCollapsedWidth, userSidebarToggle, readSidebar, writeSidebar,
+  frameLayout, floatsOver, dragColumn, toggledPref, trackRoom, nextCollapsedWidth, userSidebarToggle, readSidebar, writeSidebar,
 } from '../src/client/frame-layout.js'
 import { createSource } from '../src/client/sources.js'
 import { teamActions } from '../src/client/team-actions.js'
@@ -363,4 +363,50 @@ test('toggleDetails closes the details panel when toggled with another part of t
   actions.showDetails('chief')
   actions.toggleDetails('chief-p2', true)
   assert.equal(ui.getSnapshot().details, 'chief-p2')
+})
+
+// ---- Side App layouts: docked beside the chat, a drawer over it, or centered ----------------
+
+const floating = (layout, view = 'details') => ({ view, yielded: false, layout })
+
+test('a drawer or centered panel floats over the chat and never folds or moves the left column', () => {
+  for (const layout of ['drawer', 'centered']) {
+    // 280 + 320 + 420 = 1020 > 1000: docked would fold here.
+    const squeezed = at(1000, 280, { panel: floating(layout) })
+    assert.deepEqual({ left: squeezed.left, panel: squeezed.panel }, { left: 'open', panel: 'floating' }, layout)
+    assert.equal(squeezed.column, 280, 'the column keeps its place and the chat keeps its width')
+    assert.equal(at(1400, 280, { panel: floating(layout) }).panel, 'floating')
+  }
+  assert.equal(at(1000, 280, { panel: floating('docked') }).panel, 'folded', 'the docked rule is unchanged')
+  assert.equal(at(1000, 280, { panel: { view: 'details', yielded: false } }).panel, 'folded', 'no layout means docked')
+})
+
+test('a floating panel does not take the rail back from an open column even when yielded', () => {
+  const layout = at(1000, 280, { panel: { view: 'details', yielded: true, layout: 'drawer' } })
+  assert.deepEqual({ left: layout.left, panel: layout.panel, column: layout.column }, { left: 'open', panel: 'floating', column: 280 })
+})
+
+test('a floating panel covers a window narrower than its own minimum like any overlay', () => {
+  assert.equal(at(PANEL_MIN.details, 280, { panel: floating('centered') }).panel, 'floating')
+  assert.equal(at(PANEL_MIN.details - 1, 280, { panel: floating('centered') }).panel, 'overlay')
+  assert.equal(at(PANEL_MIN.browser - 1, 280, { panel: floating('drawer', 'browser') }).panel, 'overlay')
+  assert.equal(at(PANEL_MIN.canvas, 280, { panel: floating('drawer', 'canvas') }).panel, 'floating')
+})
+
+test('floatsOver names the two layouts that float and nothing else', () => {
+  assert.equal(floatsOver('drawer'), true)
+  assert.equal(floatsOver('centered'), true)
+  for (const other of ['docked', undefined, null, '', 'grid']) assert.equal(floatsOver(other), false, String(other))
+})
+
+test('the same open panel changes layout without changing which view or room it uses', () => {
+  const base = { view: 'canvas', yielded: false }
+  const docked = at(1600, 280, { panel: { ...base, layout: 'docked' } })
+  const drawer = at(1600, 280, { panel: { ...base, layout: 'drawer' } })
+  const centered = at(1600, 280, { panel: { ...base, layout: 'centered' } })
+  assert.equal(docked.panel, 'shown')
+  assert.equal(drawer.panel, 'floating')
+  assert.equal(centered.panel, 'floating')
+  assert.equal(drawer.room, docked.room, 'the room the window leaves is the same whatever the layout')
+  assert.equal(centered.column, docked.column)
 })

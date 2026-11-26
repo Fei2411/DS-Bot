@@ -14,6 +14,7 @@ import { AvatarLibraryPanel, avatarImage } from './avatar-library.js'
 import { useMemoryCount } from './memory-panel.js'
 import { SPRING_SHAPE, SPRING_TAP, spring, useGlide, useLinger } from './motion.js'
 import { ChatBackgroundSection } from './appearance-page.js'
+import { SideLayoutCard } from './side-layout-ui.js'
 import { t } from './i18n.js'
 import { ApprovalSettings } from './approval-settings.js'
 
@@ -291,6 +292,7 @@ export function BotSettingsForm({ bot, roster, actions, run }) {
         })),
     // The Main Bot tile is always first and always shown, like in the context menu.
     h(ChatBackgroundSection, { owner: bot, ownerKind: 'bot', actions, run, Section: Card }),
+    h(SideLayoutCard, { subject: bot, Card, run, setFlags: actions.setFlags }),
     isTile ? null : h(Card, { title: t('Sidebar') },
       h(SwitchRow, { label: t('Pin'), hint: t('Kept above the other chats.'), on: bot.pinned === true, onChange: pinned => run(actions.setFlags(bot.id, { pinned })) }),
       isMainBot ? null : h(SwitchRow, { label: t('Hide from sidebar'), hint: t('Search still finds it.'), on: bot.hidden === true, onChange: hidden => run(actions.setFlags(bot.id, { hidden })) })),

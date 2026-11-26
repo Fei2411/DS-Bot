@@ -125,6 +125,10 @@ export const CanvasIcon = lineIcon(['M4 6.5V5a1 1 0 0 1 1-1h1.5', 'M13.5 4H15a1 
 export const ReaderIcon = lineIcon(['M10 6.2C8.6 5 6.6 4.6 4 4.8v9.4c2.6-.2 4.6.2 6 1.4', 'M10 6.2c1.4-1.2 3.4-1.6 6-1.4v9.4c-2.6-.2-4.6.2-6 1.4z', 'M10 6.2v9.4'])
 export const SourceIcon = lineIcon(['M7.5 6.5L4 10l3.5 3.5', 'M12.5 6.5L16 10l-3.5 3.5'])
 export const RefreshIcon = lineIcon(['M15.5 10a5.5 5.5 0 1 1-1.6-3.9', 'M15.5 3.5v3.5H12'])
+// The three places a Side App panel can sit: beside the chat, over its right edge, centered.
+export const DockedIcon = lineIcon(['M4 5.5h12a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1z', 'M12 5.5v9'])
+export const DrawerIcon = lineIcon(['M4 5.5h12a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1z', 'M10.5 5.5v9', 'M10.5 5.5h6.5v9h-6.5z'])
+export const CenteredIcon = lineIcon(['M4 5.5h12a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1z', 'M7 8h6a.5.5 0 0 1 .5.5v3a.5.5 0 0 1-.5.5H7a.5.5 0 0 1-.5-.5v-3A.5.5 0 0 1 7 8z'])
 // An arrow stuck in a target: a group's goal.
 export const GoalIcon = lineIcon(['M15.1 8.8A6.5 6.5 0 1 1 11.2 4.9', 'M9 8a3 3 0 1 0 0 6 3 3 0 1 0 0-6', 'M9 11l7.5-7.5', 'M14.6 2.8v2.6h2.6'])
 // Defined here, after the icons: SettingsDialog only reads them at render time.

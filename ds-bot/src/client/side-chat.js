@@ -156,5 +156,8 @@ export const SIDE_CSS = `
 .bt-pmenu-item:hover{background:var(--bt-hover)}
 .bt-pmenu-item:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
 .bt-pmenu-item svg{flex:none;width:15px;height:15px;color:var(--bt-ink-3)}
+.bt-pmenu-item[data-checked]{font-weight:500}
+.bt-pmenu-check{margin-left:auto;display:inline-flex}
+.bt-pmenu-item .bt-pmenu-check svg{color:var(--bt-accent)}
 .bt-pmenu-sep{height:.5px;flex:none;margin:4px 8px;background:var(--bt-line-2)}
 `

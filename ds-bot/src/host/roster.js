@@ -8,6 +8,7 @@ import { cleanAvatarImage } from './avatar.js'
 import { ROOM_MAX_MEMBERS, ROOM_MODES, ROOM_NAME_MAX, ROOM_NOTICE_MAX, ROOM_TODO_MAX, ROOM_TODO_TEXT_MAX, SECTION_COLORS, SECTION_NAME_MAX } from './constants.js'
 import { currentColor, isColor, normalize, unquote } from './text.js'
 import { nameProblem } from '../shared/mentions.js'
+import { cleanSideLayout, initialSideLayout } from '../shared/side-layout.js'
 
 const BROWSER_GRANT_KINDS = new Set(['post', 'upload', 'download', 'delete', '*'])
 export const API_ACTOR = Symbol('external API')
@@ -239,6 +240,9 @@ export function install(rt) {
         ...(dir ? { workDir: dir } : {}),
         ...(extras.length > 0 ? { extraDirs: extras } : {}),
         ...(resolvedSecId ? { sectionId: resolvedSecId } : {}),
+        // The team's Side App layout default at this moment; later changes of the default
+        // leave this conversation alone.
+        ...(initialSideLayout(state.prefs) ? { sideLayoutInitial: initialSideLayout(state.prefs) } : {}),
         instructions: String(instructions).trim(),
         createdAt: Date.now(),
         createdBy: createdBy ?? null,
@@ -549,11 +553,19 @@ export function install(rt) {
     return bot
   }
 
-  async function setFlags(id, { pinned, hidden, sectionId }) {
+  async function setFlags(id, { pinned, hidden, sectionId, sideLayout }) {
     const entry = rt.botOf(id) ?? rt.roomOf(id) ?? rt.own(state.agents, id)
     if (entry === undefined) throw new Error('Unknown conversation')
     if (typeof pinned === 'boolean') entry.pinned = pinned
     if (typeof hidden === 'boolean') entry.hidden = hidden
+    if (sideLayout !== undefined) {
+      // One conversation's own choice for its Side App panel. Clearing it falls back to the
+      // layout it was made with (sideLayoutInitial), or docked for one that predates the setting.
+      const cleaned = cleanSideLayout(sideLayout)
+      if (!cleaned.ok) throw new Error('Side App layout must be docked, drawer or centered')
+      if (cleaned.value === null) delete entry.sideLayout
+      else entry.sideLayout = cleaned.value
+    }
     if (sectionId !== undefined) {
       if (sectionId === null || sectionId === '' || id === state.mainBotIds[0]) delete entry.sectionId
       else if (typeof sectionId === 'string' && (state.sections ?? []).some(sec => sec.id === sectionId)) entry.sectionId = sectionId
@@ -722,6 +734,7 @@ export function install(rt) {
         ...(custom ? { named: true } : {}),
         ...(avatar ? { avatar } : {}),
         ...(resolvedSecId ? { sectionId: resolvedSecId } : {}),
+        ...(initialSideLayout(state.prefs) ? { sideLayoutInitial: initialSideLayout(state.prefs) } : {}),
         members: live,
         admin: lead,
         mode: mode ?? 'admin',

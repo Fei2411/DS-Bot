@@ -18,6 +18,7 @@ import { clientErrors } from './diagnostics.js'
 import { showsDshRow } from './dsh-offer.js'
 import { quietly } from './diagnostics.js'
 import { frameLayout, dragColumn, RAIL_WIDTH, FALLBACK_SIDEBAR_WIDTH, userSidebarToggle } from './frame-layout.js'
+import { panelLayoutOf } from './side-layout-ui.js'
 import { chatRoom, dshCollapsed } from './frame-watch.js'
 import { useEscape } from './overlay-hooks.js'
 
@@ -627,7 +628,7 @@ export function TeamSidebar(props) {
   const layout = frameLayout({
     viewport: frameSnap.viewport, sidebarWidth: frameSnap.sidebarWidth,
     pref, drawer: leftDrawer,
-    panel: details ? { view, yielded: panelYield } : null,
+    panel: details ? { view, yielded: panelYield, layout: panelLayoutOf(roster, details, view) } : null,
   })
   // A drag of the column's edge shows where it would land, live; an explicit
   // hide takes precedence so toggling the sidebar mid-drag aborts the drag.

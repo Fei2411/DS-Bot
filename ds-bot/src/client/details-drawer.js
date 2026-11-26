@@ -4,6 +4,7 @@ import { HEADER, currentPart, runStatsOf, stripHeader, usageOf } from './text.js
 import { PlusIcon, ShareIcon, CloseIcon, ChevronLeftIcon, GearIcon } from './icons.js'
 import { botState, BotMark, BotAvatar } from './mark.js'
 import { GlobeIcon, Favicon, PanelMenu, menuItemFor } from './browser-pane.js'
+import { LAYOUT_ICONS, layoutMenuItems, layoutOf } from './side-layout-ui.js'
 import { drawerMenuKeys } from './side-model.js'
 import { BotSettingsForm, InlineText } from './bot-settings.js'
 import { GroupSettingsForm, GroupTodos, ROOM_MODES, roomSubtitle, shownMode } from './group-settings.js'
@@ -311,6 +312,7 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, ro
   const top = h('div', { className: 'bt-drawer-top', 'data-move': side, 'data-window-drag': !hasStrip || undefined },
     bot || room ? h('button', { type: 'button', className: 'bt-round', 'aria-label': bot ? t('Edit Bot') : t('Group settings'), title: bot ? t('Edit Bot') : t('Group settings'), 'data-info-row': 'settings', onClick: () => setView('settings') }, h(GearIcon)) : null,
     more.length > 0 ? h('span', { 'data-info-row': 'more' }, h(PanelMenu, { items: more, className: 'bt-round', 'aria-label': t('New tab') })) : null,
+    bot || room ? h('span', { 'data-info-row': 'layout' }, h(PanelMenu, { items: layoutMenuItems(bot ?? room, next => { void Promise.resolve(actions.setFlags((bot ?? room).id, { sideLayout: next })).catch(error => actions.reportError?.(error, 'side-layout')) }), className: 'bt-round', 'aria-label': t('Side App layout'), icon: LAYOUT_ICONS[layoutOf(bot ?? room)] })) : null,
     bot || room ? h('button', { type: 'button', className: 'bt-round', 'aria-label': copied ? t('Copied conversation') : t('Share conversation'), title: copied ? t('Copied') : t('Copy conversation as Markdown'), onClick: share }, copied ? h('span', { key: 'copied', className: 'bt-pop-in' }, '✓') : h(ShareIcon)) : null,
     hasStrip ? null : h('button', { type: 'button', className: 'bt-round', 'aria-label': t('Close details'), onClick: close }, h(CloseIcon)))
   if (!bot && !room) {

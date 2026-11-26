@@ -156,16 +156,19 @@ export function useWorkspaceFile(tab, active) {
  */
 export function useHostBase(tab, revision, wanted, request = (body) => call('side-app-diff', body)) {
   const [answer, setAnswer] = useState(null)
+  // An answer belongs to the conversation and tab it was asked for, as well as the revision:
+  // the same file at the same revision in another part has its own base.
+  const owner = sessionKey(tab)
   useEffect(() => {
     if (!wanted || typeof revision !== 'string') return undefined
     let current = true
     request({ sessionId: tab.sessionId, file: fileOf(tab), revision }).then(
-      (value) => { if (current) setAnswer({ ...value, forRevision: revision }) },
-      () => { if (current) setAnswer({ kind: 'unavailable', forRevision: revision }) },
+      (value) => { if (current) setAnswer({ ...value, forRevision: revision, forOwner: owner }) },
+      () => { if (current) setAnswer({ kind: 'unavailable', forRevision: revision, forOwner: owner }) },
     )
     return () => { current = false }
   }, [tab.key, tab.sessionId, revision, wanted])
-  return answer?.forRevision === revision ? answer : null
+  return answer?.forRevision === revision && answer?.forOwner === owner ? answer : null
 }
 
 // ---- pictures beside an article ---------------------------------------------------------

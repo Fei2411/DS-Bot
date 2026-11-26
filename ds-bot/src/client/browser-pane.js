@@ -16,9 +16,10 @@ import { DetailsDrawer } from './details-drawer.js'
 import { SideChatView } from './side-chat.js'
 import { TaskReaderView } from './bot-tasks.js'
 import { panelHasStrip, sideChatsOf, stripMenuKeys } from './side-model.js'
-import { FolderIcon, SideIcon, TerminalIcon, CanvasIcon, ReaderIcon } from './icons.js'
+import { FolderIcon, SideIcon, TerminalIcon, CanvasIcon, ReaderIcon, CheckIcon } from './icons.js'
 import { ImportCard, ImportMenu, PreviewCard, RemoteDebugCard, SafariPermissionCard, orderImportSources, siteMatchesHost, useCookieImportFlow } from './cookie-import-ui.js'
 import { SIDE_APPS, isFileApp, tabLabels, widthRangeOf } from './side-apps.js'
+import { LAYOUT_ICONS, layoutMenuItems, layoutOf } from './side-layout-ui.js'
 import { CanvasView } from './canvas-app.js'
 import { ReaderView } from './reader-app.js'
 import { t } from './i18n.js'
@@ -74,11 +75,15 @@ const savedWidth = () => {
 // `room` is what the panel and the conversation share: the viewport minus the
 // left column's footprint (frame-layout.js). The panel never takes the last
 // MIN_CHAT px of it; below that it covers the conversation instead.
-const widthRange = (view, room) => (isFileApp(view)
-  ? widthRangeOf(view, room)
-  : view === 'browser' || view === 'workspace'
-    ? [MIN_WIDTH, room - MIN_CHAT]
-    : [DETAILS_WIDTH, Math.min(DETAILS_MAX, room - MIN_CHAT)])
+const widthRange = (view, room, floating = false) => (floating
+  ? [Math.min(PANEL_FLOOR(view), room), room]
+  : isFileApp(view)
+    ? widthRangeOf(view, room)
+    : view === 'browser' || view === 'workspace'
+      ? [MIN_WIDTH, room - MIN_CHAT]
+      : [DETAILS_WIDTH, Math.min(DETAILS_MAX, room - MIN_CHAT)])
+// A floating panel shares nothing with the chat, so only the App's own minimum limits it.
+const PANEL_FLOOR = view => (isFileApp(view) ? SIDE_APPS[view].width.min : view === 'browser' || view === 'workspace' ? MIN_WIDTH : DETAILS_WIDTH)
 const fitWidth = (width, [low, high]) => Math.round(Math.max(low, Math.min(width, high)))
 const attrValue = value => String(value ?? '').replace(/\\/g, '\\\\').replace(/"/g, '\\"')
 // Each file App keeps a width of its own; the Bot page and the browser share the old key.
@@ -151,9 +156,10 @@ export function PanelMenu({ items, className, 'aria-label': label, icon: Trigger
       items.map((item, index) => (item.sep
         ? h('span', { key: `sep-${index}`, className: 'bt-pmenu-sep', role: 'separator' })
         : h('button', {
-          key: item.key, type: 'button', role: 'menuitem', className: 'bt-pmenu-item',
+          key: item.key, type: 'button', role: item.checked === undefined ? 'menuitem' : 'menuitemradio', 'aria-checked': item.checked, className: 'bt-pmenu-item',
+          'data-checked': item.checked || undefined,
           onClick: () => { setOpen(false); item.onPick() },
-        }, h(item.icon), h('span', null, item.label))))) : null)
+        }, h(item.icon), h('span', null, item.label), item.checked ? h('span', { className: 'bt-pmenu-check' }, h(CheckIcon)) : null)))) : null)
 }
 
 // The menu builders in side-model.js give keys; each maps to an icon, a label
@@ -190,7 +196,7 @@ const measureTabSpot = (box, node, isStickyBot) => {
   return { left, right: box.offsetWidth - left - node.offsetWidth, boxWidth: box.offsetWidth }
 }
 
-export function PanelStrip({ bot, roomSubject, subject, view, ids, active, sides, side, task, workspace, files = [], fileKey = null, hasSubjectDetails = true, canBrowse, reading, onView, actions, useBrowserPages }) {
+export function PanelStrip({ bot, roomSubject, subject, view, ids, active, sides, side, task, workspace, files = [], fileKey = null, hasSubjectDetails = true, canBrowse, reading, onView, actions, useBrowserPages, layoutSubject, setLayout }) {
   const pages = useBrowserPages(map => map)
   const labels = tabLabels(files)
   const wsTabs = workspace?.tabs ?? []
@@ -439,6 +445,7 @@ export function PanelStrip({ bot, roomSubject, subject, view, ids, active, sides
       h('span', { ref: ind, className: 'bt-ptab-ind', 'aria-hidden': true })),
     // `+` sits right after the tabs (and pins before Close on overflow); Close stays right-aligned.
     items.length > 0 ? h(PanelMenu, { items, className: 'bt-ptab-new', 'aria-label': t('New tab') }) : null,
+    layoutSubject && setLayout ? h('span', { className: 'bt-ptab-layout' }, h(PanelMenu, { items: layoutMenuItems(layoutSubject, setLayout), className: 'bt-icon-btn', 'aria-label': t('Side App layout'), icon: LAYOUT_ICONS[layoutOf(layoutSubject)] })) : null,
     h('button', { type: 'button', className: 'bt-icon-btn bt-ptab-close', 'aria-label': t('Close panel'), title: t('Close panel'), onClick: () => actions.closePanel() }, h(CloseIcon)))
 }
 
@@ -665,7 +672,7 @@ export function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPa
  * `id` is the Session id the panel follows and `side` the open chat's id. Without the
  * Desktop bridge the browser view never shows; side chats need no bridge.
  */
-export function BotPanel({ pane, leaving, room, overlay, roster, actions, useSessions, useSessionStatus, useActivity, useWork, useBrowserTabs, useBrowserPages, useBrowserHolds, useComputer, workspace, fileTabs = [] }) {
+export function BotPanel({ pane, leaving, room, overlay, floating = false, layout = 'docked', roster, actions, useSessions, useSessionStatus, useActivity, useWork, useBrowserTabs, useBrowserPages, useBrowserHolds, useComputer, workspace, fileTabs = [] }) {
   const bot = roster.byId[pane.id]
   const roomSubject = roster.roomsById?.[pane.id]
   const subjectId = bot?.id ?? roomSubject?.id ?? pane.id
@@ -708,7 +715,7 @@ export function BotPanel({ pane, leaving, room, overlay, roster, actions, useSes
   // A file App keeps a width of its own; the rest share one (see `width`).
   const [appWidths, setAppWidths] = useState({})
   const defaultWidth = view === 'browser' ? DEFAULT_WIDTH : view === 'workspace' ? DEFAULT_WORKSPACE_WIDTH : DETAILS_WIDTH
-  const panelWidth = fitWidth(isFileApp(view) ? appWidths[view] ?? appWidth(view) ?? SIDE_APPS[view].width.initial : width ?? defaultWidth, widthRange(view, room))
+  const panelWidth = fitWidth(isFileApp(view) ? appWidths[view] ?? appWidth(view) ?? SIDE_APPS[view].width.initial : width ?? defaultWidth, widthRange(view, room, floating))
   // Once the browser or workspace has shown, the Bot page keeps its width (up to DETAILS_MAX).
   useLayoutEffect(() => {
     if (width !== null) return
@@ -733,9 +740,11 @@ export function BotPanel({ pane, leaving, room, overlay, roster, actions, useSes
     const switched = settling && shownView.current !== view
     shownView.current = view
     if (switched) chatRoom.hold(true)
-    chatRoom.setRight(leaving || overlay ? null : panelWidth)
+    // Only a docked panel gives the chat a margin: a drawer, a centered panel and an
+    // overlay float over it, and the chat keeps the width it has.
+    chatRoom.setRight(leaving || overlay || floating ? null : panelWidth)
     if (switched) chatRoom.hold(false)
-  }, [view, panelWidth, leaving, overlay])
+  }, [view, panelWidth, leaving, overlay, floating])
   const dragCleanup = useRef(null)
   useEscape(() => actions.closeOverlay(), !leaving, { priority: -1 })
   useEffect(() => () => { dragCleanup.current?.(); chatRoom.setRight(null); chatRoom.hold(false) }, [])
@@ -881,22 +890,24 @@ export function BotPanel({ pane, leaving, room, overlay, roster, actions, useSes
   // A drag writes the width into the panel's and the column's own inline styles each
   // frame (each restyles one element) and renders once, on release.
   const startResize = (event) => {
-    if (event.button !== 0 || leaving || overlay) return
+    if (event.button !== 0 || leaving || overlay || layout === 'centered') return
     event.preventDefault()
     const panel = root.current
     const grip = event.currentTarget
     grip.setPointerCapture?.(event.pointerId)
-    const range = widthRange(view, room)
+    const range = widthRange(view, room, floating)
     const from = { x: event.clientX, width: panelWidth }
     let next = panelWidth
     setDragging(true)
     setSettling(false)
     chatRoom.hold(true)
-    const columns = chatRoom.columns()
+    // A drawer floats over the chat: its edge moves, the chat's margins stay as they are.
+    const columns = floating ? [] : chatRoom.columns()
     for (const column of columns) column.style.setProperty('transition', 'none', 'important')
     const onMove = (move) => {
       next = fitWidth(from.width + from.x - move.clientX, range)
       panel.style.width = `${next}px`
+      if (floating) return
       if (columns.length === 0) chatRoom.setRight(next)
       for (const column of columns) column.style.setProperty('margin-right', `${next}px`, 'important')
     }
@@ -912,7 +923,7 @@ export function BotPanel({ pane, leaving, room, overlay, roster, actions, useSes
       if (end.type === 'pointerup') onMove(end)
       cleanup()
       // Hand the width back to the rule and the panel's variable in the same frame.
-      chatRoom.setRight(next)
+      if (!floating) chatRoom.setRight(next)
       panel?.style.setProperty('--bt-panel-w', `${next}px`)
       setDragging(false)
       if (next === from.width) return
@@ -935,21 +946,23 @@ export function BotPanel({ pane, leaving, room, overlay, roster, actions, useSes
             : t('Conversation details')
   const setMode = (mode) => actions.setSideAppMode(pane.id, fileTab.key, mode)
   const openFile = (path) => actions.openSideApp(pane.id, { v: 1, app: 'reader', workspaceTag: fileTab.workspaceTag, displayPath: path, sessionId: fileTab.sessionId })
+  const layoutSubject = bot ?? roomSubject
+  const setLayout = layoutSubject ? (next) => { void Promise.resolve(actions.setFlags(layoutSubject.id, { sideLayout: next })).catch(error => actions.reportError?.(error, 'side-layout')) } : undefined
   return h('aside', {
-    ref: root, className: 'bt-panel', 'data-view': view,
+    ref: root, className: 'bt-panel', 'data-view': view, 'data-layout': layout,
     'aria-label': viewLabel,
     'data-leaving': leaving || undefined, 'aria-hidden': leaving || undefined, 'data-settling': settling || undefined,
-    'data-instant': instant || undefined, 'data-dragging': dragging || undefined, 'data-overlay': overlay || undefined, style: { '--bt-panel-w': `${panelWidth}px` },
+    'data-instant': instant || undefined, 'data-dragging': dragging || undefined, 'data-overlay': overlay || undefined, 'data-floating': floating || undefined, style: { '--bt-panel-w': `${panelWidth}px` },
     onAnimationEnd: (event) => { if (event.target === event.currentTarget) setLanded(true) },
   },
-    leaving || overlay ? null : h('div', { className: 'bt-panel-grip', role: 'separator', 'aria-orientation': 'vertical', 'aria-label': t('Resize panel'), onPointerDown: startResize }),
+    leaving || overlay || layout === 'centered' ? null : h('div', { className: 'bt-panel-grip', role: 'separator', 'aria-orientation': 'vertical', 'aria-label': t('Resize panel'), onPointerDown: startResize }),
     // Over the whole window while dragging: the cursor stays a resize cursor and the
     // pages underneath (the chat, the guest) see no pointer.
     dragging ? createPortal(h('div', { className: 'bt-drag-shield', 'aria-hidden': true }), document.body) : null,
     hasStrip ? h(PanelStrip, {
       bot, roomSubject, subject: pane.id, view, ids: tabState.ids, active, sides: sideChats, side: pane.side, task: taskEntry,
       workspace, files: fileTabs, fileKey: fileTab?.key ?? null, hasSubjectDetails: hasSubjectDetails || workspace === undefined,
-      canBrowse, reading, onView: switchView, actions: panelActions, useBrowserPages,
+      canBrowse, reading, onView: switchView, actions: panelActions, useBrowserPages, layoutSubject, setLayout,
     }) : null,
     hasWs
       ? h('div', { key: 'workspace', className: 'bt-panel-view bt-panel-workspace', hidden: view !== 'workspace' },
@@ -1207,6 +1220,19 @@ export const BROWSER_CSS = `
    and its close controls get a touch-sized target. */
 .bt-panel[data-overlay]{width:100vw}
 .bt-panel[data-overlay] .bt-ptab-close,.bt-panel[data-overlay] .bt-drawer-top .bt-round{width:44px;height:44px}
+/* Floating layouts: the panel covers part of the chat and gives it no margin. A drawer
+   keeps the docked panel's place and edge; a centered one rises in the middle of the window
+   with a shadow, sized by what the window leaves it. Both are non-modal: no backdrop, the
+   chat stays reachable around them. */
+.bt-panel[data-floating]{box-shadow:var(--bt-glass-shadow,0 12px 40px rgba(0,0,0,.28))}
+.bt-panel[data-layout=drawer][data-floating]{max-width:100vw;border-left:.5px solid var(--bt-line-2)}
+.bt-panel[data-layout=centered][data-floating]{top:calc(var(--dsh-frame-chrome-top,0px) + 24px);bottom:24px;right:auto;left:50%;width:min(var(--bt-panel-w,640px),calc(100vw - 48px));max-height:calc(100vh - var(--dsh-frame-chrome-top,0px) - 48px);translate:-50% 0;border:.5px solid var(--bt-line-2);border-radius:16px;overflow:hidden;animation:bt-pane-center-in .22s cubic-bezier(.2,0,0,1)}
+.bt-panel[data-layout=centered][data-floating][data-leaving]{transform:none;translate:-50% 8px;opacity:0;transition:opacity .16s ease,translate .16s ease}
+@keyframes bt-pane-center-in{from{opacity:0;translate:-50% 10px;scale:.985}}
+@media (max-width:640px){.bt-panel[data-layout=centered][data-floating]{top:var(--dsh-frame-chrome-top,0px);bottom:0;left:0;width:100vw;max-height:none;translate:none;border-radius:0;border:0}}
+@media (prefers-reduced-motion:reduce){.bt-panel[data-layout=centered][data-floating]{animation:none}.bt-panel[data-layout=centered][data-floating][data-leaving]{transition:none}}
+.bt-ptab-layout{flex:none;display:inline-flex;align-items:center}
+.bt-ptab-layout .bt-pmenu{display:inline-flex}
 /* Touch: the hidden-but-tappable tab and card close buttons stay visible at a
    finger-sized target instead. */
 @media (hover:none){

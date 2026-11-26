@@ -10,6 +10,7 @@ import { replaceFile } from './files.js'
 import { homeLock } from './home-lock.js'
 import { currentColor, headOf, normalize, unquote } from './text.js'
 import { isActiveTask } from './threads.js'
+import { isSideLayout } from '../shared/side-layout.js'
 import { AMBIGUOUS_OLD_ROUTES, legacyRoute } from './local-agents/engines.js'
 
 // A table read that sees only the keys the table holds itself. Ids that come from
@@ -484,7 +485,12 @@ export function install(rt) {
       if (entry.sectionId !== undefined && (typeof entry.sectionId !== 'string' || !sectionIds.has(entry.sectionId) || entry.id === state.mainBotIds[0])) {
         delete entry.sectionId
       }
+      // A Side App layout the host would not accept reads as none: that conversation is docked.
+      for (const field of ['sideLayout', 'sideLayoutInitial']) {
+        if (entry[field] !== undefined && !isSideLayout(entry[field])) { delete entry[field]; migrated = true }
+      }
     }
+    if (state.prefs.sideLayout !== undefined && !isSideLayout(state.prefs.sideLayout)) { delete state.prefs.sideLayout; migrated = true }
     // Teams from before the whale was stored at setup: their first Bot, while still a
     // Main Bot, gets it once wherever it has no look of its own. After that the whale is
     // an ordinary look the user can change, and it never passes to another Bot.

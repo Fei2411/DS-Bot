@@ -9,6 +9,7 @@ import { threadCurrentOfPart, threadOfPart } from './threads.js'
 import { validateViewAnswer } from 'deep-view/core'
 import { validateOnePasswordConfig } from './secret-providers/onepassword.js'
 import { BACKGROUND_AFTER_MAX_SEC, COLORS, EXTRA_COLORS, ROUTE } from './constants.js'
+import { cleanSideLayout } from '../shared/side-layout.js'
 
 const STAGED_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
 const STAGED_MS = 30 * 60_000
@@ -412,6 +413,13 @@ export function install(rt) {
       else delete state.prefs.approvalModel
     }
     rt.appearancePrefs(body)
+    // The layout new conversations start with; each keeps the one it was made with.
+    if (body.sideLayout !== undefined) {
+      const cleaned = cleanSideLayout(body.sideLayout)
+      if (!cleaned.ok) throw invalid('Side App layout must be docked, drawer or centered')
+      if (cleaned.value === null || cleaned.value === 'docked') delete state.prefs.sideLayout
+      else state.prefs.sideLayout = cleaned.value
+    }
     return { secretShellModeChanged, secretProvidersChanged }
   }
 
