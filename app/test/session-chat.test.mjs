@@ -1431,6 +1431,91 @@ test('createTeam rescues unsubmitted question drafts on external question remova
   }
 })
 
+test('buildSessionRows keeps committed row objects identical across 50 stream chunks and rebuilds only on real changes', () => {
+  // A committed history of two turns, then one active attempt streaming text chunks.
+  const history = {
+    type: 'snapshot',
+    header: { id: 's1', cwd: '/repo' },
+    cursor: 6,
+    hasMore: false,
+    records: [
+      { type: 'event', event: { type: 'turn/start', seq: 1, time: 1000, data: { turn: 1 } } },
+      { type: 'event', event: { type: 'user/message', seq: 2, time: 1001, data: { turn: 1, source: { kind: 'user' }, content: [{ type: 'text', text: 'first question' }] } } },
+      { type: 'event', event: { type: 'assistant/message', seq: 3, time: 1002, data: { turn: 1, step: 1, message: { content: [{ type: 'text', text: 'first answer' }] } } } },
+      { type: 'event', event: { type: 'turn/end', seq: 4, time: 1003, data: { turn: 1, reason: { kind: 'completed' } } } },
+      { type: 'event', event: { type: 'turn/start', seq: 5, time: 1100, data: { turn: 2 } } },
+      { type: 'event', event: { type: 'user/message', seq: 6, time: 1101, data: { turn: 2, source: { kind: 'user' }, content: [{ type: 'text', text: 'second question' }] } } },
+    ],
+  }
+  const roster = { bots: [], byId: {}, roomsById: {}, prefs: {}, exchangeTurns: {} }
+  let log = applyFrame(emptyLog(), history).log
+  const committedCount = buildSessionRows(log, { roster, sessionId: 's1' }).length
+
+  const start = { type: 'assistant-stream', frame: { type: 'start', attemptId: 'att-1', revision: 1, turn: 2, step: 1, startedAfterSeq: 6 } }
+  log = applyFrame(log, start).log
+  let revision = 1
+  let index = 0
+  const chunkFrame = (chunk) => {
+    revision += 1
+    const frame = { type: 'assistant-stream', frame: { type: 'chunk', attemptId: 'att-1', revision, index, time: 2000 + revision, chunk } }
+    index += 1
+    return frame
+  }
+
+  // 50 text chunks of one growing text block (block-start once, then deltas). The
+  // writing row only appears once real text exists, so the baseline builds after word0.
+  log = applyFrame(log, chunkFrame({ type: 'block-start', index: 0, blockType: 'text' })).log
+  assert.equal(buildSessionRows(log, { roster, sessionId: 's1' }).length, committedCount, 'an empty text block renders no writing row yet')
+  log = applyFrame(log, chunkFrame({ type: 'text-delta', index: 0, text: 'word0 ' })).log
+  const first = buildSessionRows(log, { roster, sessionId: 's1' })
+  assert.equal(first.length, committedCount + 1, 'the live writing row trails the committed rows')
+  const committed = first.slice(0, committedCount)
+  let live = first.at(-1)
+  assert.equal(live.streaming, true)
+  assert.equal(live.key, 'writing:att-1')
+
+  let drift = 0
+  for (let piece = 1; piece < 50; piece += 1) {
+    log = applyFrame(log, chunkFrame({ type: 'text-delta', index: 0, text: `word${piece} ` })).log
+    const rows = buildSessionRows(log, { roster, sessionId: 's1' })
+    assert.equal(rows.length, committedCount + 1)
+    for (let at = 0; at < committedCount; at += 1) {
+      if (rows[at] !== committed[at]) drift += 1
+    }
+    const current = rows.at(-1)
+    if (piece === 1) {
+      // The writing row itself is rebuilt per chunk; only the committed rows hold still.
+      assert.notEqual(current, live)
+    }
+    live = current
+  }
+  assert.equal(drift, 0, 'every committed row object is identical across all 50 chunks')
+  assert.match(live.texts[0], /word48/, 'the live row carries the whole streamed text')
+
+  // The same rows again when the exact same log builds twice (cache hit even with no new frame).
+  const again = buildSessionRows(log, { roster, sessionId: 's1' })
+  for (let at = 0; at < committedCount; at += 1) assert.equal(again[at], committed[at])
+
+  // A new events array (a real event lands) rebuilds the committed rows.
+  const seq7 = { type: 'event', event: { type: 'assistant/message', seq: 7, time: 1200, data: { turn: 2, step: 1, message: { content: [{ type: 'text', text: live.texts[0] }] } } } }
+  log = applyFrame(log, seq7).log
+  const settled = buildSessionRows(log, { roster, sessionId: 's1' })
+  assert.notEqual(settled[2], committed[2], 'a new events array invalidates the committed cache')
+  assert.equal(settled.filter(row => row.kind === 'assistant').at(-1).streaming, false, 'the settled message replaces the live row')
+
+  // The cache validates on the options: a different roster or session id never reuses rows.
+  const otherRoster = { ...roster, exchangeTurns: { s1: [2] } }
+  const hiddenRows = buildSessionRows(log, { roster: otherRoster, sessionId: 's1' })
+  assert.equal(hiddenRows.some(row => row.kind === 'assistant' && row.turn === 2), false, 'hidden exchange turn rows vanish under a changed roster')
+  assert.equal(hiddenRows.length, settled.length - 1, 'only the hidden assistant row drops out')
+  const otherSession = buildSessionRows(log, { roster, sessionId: 'elsewhere' })
+  assert.equal(otherSession.length, settled.length, 'another session id builds fresh rows')
+  for (let at = 0; at < committedCount; at += 1) assert.notEqual(otherSession[at], committed[at], 'rows differ under another session id')
+  // ...and the original cache entry still serves the original caller afterwards.
+  const backAgain = buildSessionRows(log, { roster, sessionId: 's1' })
+  assert.equal(backAgain[0], settled[0], 'the original entry survives foreign lookups')
+})
+
 test('createTeam followWork marks activeRooms running before member turns start and clears once idle', async () => {
   const prevSetInterval = sandbox.setInterval
   const prevClearInterval = sandbox.clearInterval

@@ -291,6 +291,28 @@ test('Mobile/IM sendUser does NOT auto-move ordinary busy foreground, supports s
   assert.equal(env.prompts[2].sessionId, 'fork-1')
 })
 
+test('IM sendUser keeps the message queued on the current chat when a hidden-work fresh preset session fails before commit', async (t) => {
+  const env = await startEnv({ forkImpl: async () => { throw new Error('no completed turn to fork') } })
+  t.after(env.stop)
+  const dmB = env.agentMap.get('dm-b')
+  dmB.status = 'running'
+  env.rt.openWork('w-preset-fallback', { from: 'a', to: 'b' })
+  await env.emit('dm-b', 'turn/start', { turn: 1 })
+  env.rt.live.get('dm-b').info = { kind: SOURCE_KIND, role: 'request', exchangeId: 'w-preset-fallback', senderSessionId: 'a', senderName: 'Chief' }
+  await env.emit('dm-b', 'tool/call', { callId: 'tc1', name: 'bash', arguments: '{}' })
+  env.rt.botOf('b').agentPreset = 'removed-from-profile'
+  assert.equal(env.rt.mustIsolateHiddenWork(env.rt.botOf('b'), 'dm-b'), true)
+
+  await env.rt.sendUser({ sessionId: 'dm-b', content: [{ type: 'text', text: 'IM follow-up' }], requestId: 'req-im-fallback', mode: 'steer' })
+  assert.equal(env.rt.botOf('b').sessionId, 'dm-b')
+  assert.deepEqual(env.rt.botOf('b').tasks ?? [], [])
+  assert.equal(env.createdSessions.length, 0, 'the unavailable preset still refuses a fresh Session')
+  assert.equal(env.prompts.length, 1, 'the incoming IM is queued exactly once')
+  assert.deepEqual(env.prompts[0], {
+    requestId: 'req-im-fallback', sessionId: 'dm-b', mode: 'queue', content: [{ type: 'text', text: 'IM follow-up' }],
+  })
+})
+
 test('canMoveForeground blocks open interactive cards and supports local CLI backgrounding, while peer spawn keeps busy heuristic', async (t) => {
   const env = await startEnv()
   t.after(env.stop)
