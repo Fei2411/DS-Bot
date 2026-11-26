@@ -23,6 +23,7 @@ import { disk } from './copy-tree.mjs'
 import { configureIdentity } from './legacy.mjs'
 import { hostPort } from './host-port.mjs'
 import { captureStdio, LogFile } from './logs.mjs'
+import { locationsFile, readSavedLocations } from './locations.mjs'
 import { Pickers } from './picker-host.mjs'
 import { currentRootOf, driveOf, formatBytes, freeSpace, isEmptyTree, pickFrom, placeOf, rootOf, runningLow } from './place.mjs'
 import { createShell, SHELL_TEXT } from './shell.mjs'
@@ -286,7 +287,15 @@ function stopHost() {
 }
 
 // A throwaway run (DS_BOT_HOME) asks nothing and shows what a later start shows.
-const startKind = () => (process.env.DS_BOT_HOME || existsSync(join(app.getPath('userData'), 'locations.json')) ? 'later' : 'first')
+function startKind() {
+  if (process.env.DS_BOT_HOME) return 'later'
+  try {
+    return readSavedLocations(locationsFile(app.getPath('userData'))) ? 'later' : 'first'
+  } catch {
+    // Let boot report a read error through the start window instead of treating it as a first run.
+    return 'later'
+  }
+}
 
 async function start() {
   setMenu()
@@ -456,7 +465,7 @@ async function boot(mine) {
     setPlaces({ dataDir: where.dataDir, workspace: where.workspace })
     importOffer = where.offer
     if (first) startWindow.explain(explainOf({ offered: importOffer !== undefined, team: teamIn(where.dataDir) }))
-    else tellLowSpace(where.freeAtStart)
+    else if (importOffer === undefined) tellLowSpace(where.freeAtStart)
   }
   // Also the check that the data folder can be written.
   mkdirSync(profileDir(), { recursive: true })
