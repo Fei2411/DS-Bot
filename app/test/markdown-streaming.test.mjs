@@ -8,7 +8,7 @@
 //     invocation shows the per-chunk cost stays flat instead of growing with the reply.
 import assert from 'node:assert/strict'
 import { after, test } from 'node:test'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { build } from 'esbuild'
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -41,10 +41,11 @@ export default function CountingMarkdown(props) {
 }
 `)
 
+const appDir = fileURLToPath(new URL('..', import.meta.url))
 const { outputFiles } = await build({
   stdin: {
     contents: entryCode,
-    resolveDir: fileURLToPath(new URL('..', import.meta.url)),
+    resolveDir: appDir,
     loader: 'js',
   },
   bundle: true,
@@ -53,11 +54,14 @@ const { outputFiles } = await build({
   write: false,
   logLevel: 'silent',
   alias: { 'react-markdown': shimPath },
+  // Resolve React and Markdown deps strictly from app/node_modules so standalone
+  // `Desktop app profile` CI (without ds-bot/node_modules) bundles ../ds-bot/src/client/*.
+  nodePaths: [join(appDir, 'node_modules')],
 })
 
 const bundlePath = join(dir, 'bundle.mjs')
 writeFileSync(bundlePath, outputFiles[0].text)
-const { createElement: h, createRoot, flushSync, MarkdownText } = await import(bundlePath)
+const { createElement: h, createRoot, flushSync, MarkdownText } = await import(pathToFileURL(bundlePath).href)
 
 const labels = { code: { copyLabel: 'Copy', copiedLabel: 'Copied' } }
 const renderCount = () => globalThis.__mdCount ?? 0

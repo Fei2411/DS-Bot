@@ -14,7 +14,7 @@
 // opens a socket). The locale service the rows read is created and driven from here.
 import assert from 'node:assert/strict'
 import { after, test } from 'node:test'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { build } from 'esbuild'
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
@@ -79,7 +79,7 @@ const reactAliasPlugin = {
       if (args.importer === reactCountPath || args.importer === '') return { path: 'react', external: true }
       return { path: reactCountPath }
     })
-    buildCtx.onResolve({ filter: /ui\/src\/api\.js$/ }, () => ({ path: apiStubPath }))
+    buildCtx.onResolve({ filter: /ui[\\/]src[\\/]api\.js$/ }, () => ({ path: apiStubPath }))
     buildCtx.onResolve({ filter: /dsh-primitives\.js$/ }, () => ({ path: primitivesPath }))
   },
 }
@@ -98,7 +98,7 @@ const { outputFiles } = await build({
 })
 const bundlePath = join(dir, 'bundle.mjs')
 writeFileSync(bundlePath, outputFiles[0].text)
-const { createElement: h, createRoot, act, renderCounts, resetRenderCounts, applyFrame, emptyLog, SessionTranscript, installLocale, setAppLocaleService } = await import(bundlePath)
+const { createElement: h, createRoot, act, renderCounts, resetRenderCounts, applyFrame, emptyLog, SessionTranscript, installLocale, setAppLocaleService } = await import(pathToFileURL(bundlePath).href)
 
 // One locale service, shared with the bundle: `installLocale` binds the bundle's `t()`
 // and registers every dictionary into it; `setAppLocaleService` is what the rows'
