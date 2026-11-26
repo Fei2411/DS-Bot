@@ -36,27 +36,14 @@ export const ROUTED = new Set([NO_MATCH, GONE, DENIED, REFUSED, RECENT_REMOVAL])
 // replacing them, and Jaccard punishes exactly that. Stop words and inflections
 // fall out in `wordsOf`, so what is compared is the fact's own words. At or past
 // `READD_SIMILARITY` of the smaller text shared, one counts as the other
-// re-added. Two guards keep the measure honest: fewer than `READD_SHARED_MIN`
-// shared words is coincidence, not closeness, and a text that flips the negation
-// ("likes" against "does not like", "喜欢" against "不喜欢") is the opposite of
-// the dropped fact — correcting memory, not laundering it back — so it never
-// counts as a re-add however close the words are.
+// re-added. One guard keeps the measure honest: fewer than `READD_SHARED_MIN`
+// shared words is coincidence, not closeness. There is deliberately no smarter
+// exception: a lexical scan cannot tell "does not like" the correction apart
+// from "no doubt" the filler, and any such door is the guard's own bypass —
+// a real correction is the user's, and the user's own writes never face the
+// guard at all.
 export const READD_SIMILARITY = 0.8
 export const READD_SHARED_MIN = 2
-
-// Han negators: 不/没/无/非/别 are the productive ones; 未 and 莫 are rarer but
-// unambiguous in a fact. Counted on the raw text, position-independent.
-const NEGATORS_HAN = /[不没无非别未莫]/gu
-// One bit of negation per text, scanned before `wordsOf` drops the English ones
-// as closed-class glue: n't for contractions, the standalone words, and every
-// Han negator. Only the parity matters — a double negation reads positive, which
-// is as close as a text scan gets to the truth of it.
-function negationParity(text) {
-  const lower = squash(text)
-  const en = (lower.match(/\bnot\b|\bno\b|\bnever\b|n't/gu) ?? []).length
-  const han = (lower.match(NEGATORS_HAN) ?? []).length
-  return (en + han) % 2
-}
 
 // The share of the smaller text's words the larger one carries: 1 when the
 // shorter text is word-for-word inside the longer. Empty token sets fall back
@@ -78,13 +65,11 @@ const sharedTokens = (a, b) => {
 }
 
 // The entries a write must not silently bring back while the removal is fresh:
-// identical after `squash`, or this close by words — unless the new text negates
-// what the dropped one said, which is a correction memory must be free to keep.
+// identical after `squash`, or this close by words.
 export const readdMatch = (text, dropped) => {
   const candidate = squash(text)
   if (candidate === '') return false
   if (squash(dropped) === candidate) return true
-  if (negationParity(candidate) !== negationParity(dropped)) return false
   if (sharedTokens(candidate, dropped) < READD_SHARED_MIN) return false
   return tokenOverlap(candidate, dropped) >= READD_SIMILARITY
 }

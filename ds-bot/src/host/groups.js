@@ -296,7 +296,10 @@ export function extractGroupSessionLines(events, botNameOf = () => undefined) {
       const time = Number.isFinite(event.time) ? { time: event.time } : {}
       if (source?.kind === 'user') {
         const text = [textOf(content), ...files.map(fileLine)].filter(Boolean).join('\n')
-        lines.push({ who: 'User', text, ...(files.length > 0 ? { files } : {}), ...time })
+        // The channel the post came in over survives the backfill exactly as a
+        // live post keeps it: a backfilled IM or API line is no owner's line either.
+        const via = viaOf(source)
+        lines.push({ who: 'User', text, ...(files.length > 0 ? { files } : {}), ...(via === undefined ? {} : { via }), ...time })
       } else if (source?.kind === 'schedule') {
         const prompts = reminderPrompts(textOf(content))
         const text = prompts.length > 0 ? prompts.join('\n') : textOf(content)

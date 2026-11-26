@@ -228,7 +228,10 @@ test('a group review drops IM posts but keeps the owner\'s direct posts and bot 
 
 test('an API-originated group post never enters the review transcript, and the cursor still passes it', async (t) => {
   // viaOf tags api:<keyId>:<runId> as 'api' at the intake boundary, so the ledger
-  // line carries via: 'api' exactly as an IM post carries its platform.
+  // line carries via: 'api' exactly as an IM post carries its platform. The same
+  // tag covers API-originated goal drafts: group-goal.test.js proves the chain
+  // POST-goal-draft → relay source → ledger line logs via: 'api', and this test
+  // proves what the review does with such a line.
   assert.equal(viaOf({ rpcId: 'api:token123:run_abcdef' }), 'api')
   assert.equal(viaOf({ rpcId: 'im:telegram:deadbeef' }), 'telegram')
   assert.equal(viaOf({ rpcId: 'web-f47ac10b' }), undefined)
@@ -313,19 +316,17 @@ test('readdMatch blocks the reworded re-add and allows a different fact', () => 
   assert.equal(readdMatch('the user enjoys light mode', 'dark mode'), false)
 })
 
-test('negation is the opposite of the dropped fact, never its re-add', () => {
-  // English: the correction "does not like" for a dropped "likes" is free to land.
-  assert.equal(readdMatch('The user does not like tea', 'The user likes tea'), false)
-  assert.equal(readdMatch("The user doesn't like tea", 'The user likes tea'), false)
-  assert.equal(readdMatch('The user never liked tea', 'The user likes tea'), false)
-  // The same holds for the opposite direction: a positive re-add of a negative
-  // removal is a correction too.
-  assert.equal(readdMatch('The user likes tea', 'The user does not like tea'), false)
-  // CJK: 不/没 flip the fact the same way.
-  assert.equal(readdMatch('用户不喜欢红茶', '用户喜欢红茶'), false)
-  assert.equal(readdMatch('用户喜欢红茶', '用户不喜欢红茶'), false)
-  assert.equal(readdMatch('用户没有去过杭州', '用户去过杭州'), false)
-  // But the re-add of the same negative fact is still blocked.
+test('no lexical loophole: negation filler cannot bypass the guard', () => {
+  // An injected re-add dressed in an odd negation word is the same fact wearing
+  // filler: every one of these is blocked, exactly like the plain rewording.
+  assert.equal(readdMatch('The user likes tea, no doubt', 'The user likes tea'), true)
+  assert.equal(readdMatch('The user likes tea, believe it or not', 'The user likes tea'), true)
+  assert.equal(readdMatch('用户喜欢红茶，这没什么问题', '用户喜欢红茶'), true)
+  // A real correction is the user's, and the user's own writes never face the
+  // guard, so no lexical exception is needed: even the negated opposite is
+  // blocked here, and the panel is how a correction lands.
+  assert.equal(readdMatch('The user does not like tea', 'The user likes tea'), true)
+  assert.equal(readdMatch('用户不喜欢红茶', '用户喜欢红茶'), true)
   assert.equal(readdMatch('The user does not like green tea', 'The user does not like tea'), true)
   assert.equal(readdMatch('用户不太喜欢红茶', '用户不喜欢红茶'), true)
 })

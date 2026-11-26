@@ -534,14 +534,14 @@ export function install(rt) {
 
   // A goal message into the room's own Session, which relays it as a new round:
   // the user's draft request, a resume after the user continues, or an idle nudge.
-  async function queueGoalRelay(room, goal, text, senderName = 'You') {
+  async function queueGoalRelay(room, goal, text, senderName = 'You', origin) {
     const exchangeId = randomUUID()
     if (goal !== 'draft') rt.noteRoomRelayQueued?.(room.id, exchangeId)
     try {
       const agent = await rt.resolveAgent(rt.sessionOfRoom(room))
       agent.followup(createUserMessage({
         content: [{ type: 'text', text }],
-        source: { kind: SOURCE_KIND, form: 'relay', role: 'goal', goal, goalId: room.goal?.id, exchangeId, senderName, roomId: room.id },
+        source: { kind: SOURCE_KIND, form: 'relay', role: 'goal', goal, goalId: room.goal?.id, exchangeId, senderName, roomId: room.id, ...(origin?.via === undefined ? {} : { via: origin.via }) },
       }))
       await ctx.sessions.flush(agent.session)
     } catch (error) {
@@ -572,7 +572,9 @@ export function install(rt) {
   }
 
   // goal-draft { roomId, text }: the user's one-line ask opens a drafting goal.
-  async function goalDraft(roomId, text) {
+  // `origin` marks an external channel's ask (the API passes via 'api') so the
+  // ledger line it becomes is never mistaken for the owner's own words.
+  async function goalDraft(roomId, text, origin) {
     const room = rt.roomOf(roomId)
     if (room === undefined) return { error: 'Unknown group chat' }
     const input = String(text ?? '').trim()
@@ -586,7 +588,7 @@ export function install(rt) {
     if (result.error !== undefined) return { error: result.error }
     announce(room, result.reply)
     await rt.save()
-    await queueGoalRelay(room, 'draft', `[Goal request]\n${input}`)
+    await queueGoalRelay(room, 'draft', `[Goal request]\n${input}`, 'You', origin)
     return {}
   }
 

@@ -818,7 +818,10 @@ export function createApiRoutes(rt, { auth, runs, sseClients }) {
         throw httpError(400, 'api/invalid', 'Invalid goal action, text, goalId, or stopWork')
       }
       if (body.action === 'draft' && typeof body.text === 'string') {
-        const res = await rt.goalDraft(room.id, body.text)
+        // The token holder's words are no owner's words: the draft travels
+        // tagged 'api' through the relay into the group ledger, so the memory
+        // review's external filter treats it like any API input (viaOf's tag).
+        const res = await rt.goalDraft(room.id, body.text, { via: 'api' })
         if (res?.error) throw httpError(400, res.code ?? 'bot/refused', res.error)
       } else {
         const res = await rt.goalControl(room.id, patch)
