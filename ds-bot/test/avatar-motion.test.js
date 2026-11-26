@@ -226,16 +226,39 @@ test('quick pokes go from a bounce to spins to a dizzy spell; quiet ignores them
   assert.equal(quiet.clips.length, 0)
 })
 
-test('a resting window starts nothing new, and a lively mark dozes off and wakes', () => {
-  const avatar = new Avatar({ seed: 6, size: 44, live: true, tier: 'lively' })
-  avatar.setState('working')
-  avatar.rest(true)
-  run(avatar, 3)
-  assert.equal(avatar.clips.length, 0)
-  assert.equal(avatar.wakeIn(), Infinity)
-  avatar.rest(false)
-  run(avatar, 2)
-  assert.ok(avatar.clips.length > 0 || avatar.wakeIn() < 1)
+test('a resting window keeps showing what a Bot does, more sparsely, and nothing else; a lively mark dozes off and wakes', () => {
+  // Someone glancing at the screen to see how the work goes is not touching anything:
+  // a state's own moves go on, a few seconds apart.
+  const moves = (avatar, seconds) => {
+    let started = 0
+    run(avatar, seconds, (a) => { started += a.clips.filter(play => !play.blink && play.t === 1 / 60).length })
+    return started
+  }
+  const awake = new Avatar({ seed: 6, size: 44, live: true, tier: 'lively' })
+  awake.setState('working')
+  run(awake, 2)
+  const resting = new Avatar({ seed: 6, size: 44, live: true, tier: 'lively' })
+  resting.setState('working')
+  run(resting, 2)
+  resting.rest(true)
+  run(resting, 2)
+  const busy = moves(awake, 30)
+  const glanced = moves(resting, 30)
+  assert.ok(glanced >= 3, `still working while resting (${glanced} moves in 30 s)`)
+  assert.ok(glanced * 3 < busy, `but sparser (${glanced} against ${busy})`)
+  assert.ok(resting.wakeIn() <= 8, 'its clock wakes for the next move')
+  // Idle fidgets, glances and blinks wait for input.
+  const idle = new Avatar({ seed: 6, size: 44, live: true, tier: 'lively' })
+  idle.rest(true)
+  run(idle, 0.5)
+  const before = idle.clips.length
+  run(idle, 30, (a) => { assert.equal(a.clips.filter(play => play.t > 0 && play.t <= 1 / 60).length, 0, 'nothing new while idle and resting') })
+  assert.equal(before, 0)
+  assert.equal(idle.wakeIn(), Infinity)
+  resting.rest(false)
+  run(resting, 2)
+  assert.ok(resting.clips.length > 0 || resting.wakeIn() < 1)
+  const avatar = resting
   avatar.setState('idle')
   avatar.doze(true)
   assert.equal(avatar.state, 'sleeping')
@@ -423,6 +446,65 @@ test('a spin throws confetti that stays on the canvas; a bounce and reduced effe
   const calm = new Avatar({ seed: 9, size: 64, effects: 'reduced' })
   for (let i = 0; i < 3; i += 1) { calm.poke(); run(calm, 0.8) }
   assert.equal(calm.frame.accent, null)
+})
+
+// How far a mark's outline moves on screen, in pixels at `size`: the largest travel of
+// any edge of its box over `seconds`, after a second to settle into the state.
+function travel(id, state, size, seconds, { resting = false, tier = 'normal', effects = 'full' } = {}) {
+  const rig = rigFor(id, SHAPES[id])
+  const avatar = new Avatar({ seed: 5, size, live: true, tier, effects })
+  avatar.setState(state)
+  if (resting) avatar.rest(true)
+  run(avatar, 1)
+  const edges = [[], [], [], []]
+  const scratch = {}
+  run(avatar, seconds, (a) => {
+    const loops = shapesOf(rig, a.frame, scratch).body.map(loop => box(loop))
+    const b = [Math.min(...loops.map(l => l.x0)), Math.min(...loops.map(l => l.y0)), Math.max(...loops.map(l => l.x1)), Math.max(...loops.map(l => l.y1))]
+    b.forEach((v, i) => edges[i].push(v * size / 100))
+  })
+  return Math.max(...edges.map(list => Math.max(...list) - Math.min(...list)))
+}
+
+test('what a Bot is doing shows in its motion down to an 18px mark, also while the window rests', () => {
+  for (const id of ['whale', 'bunny', 'gumdrop']) {
+    for (const state of ['thinking', 'searching', 'working', 'sending', 'relaying', 'waiting', 'background', 'alert', 'failed']) {
+      const awake = travel(id, state, 18, 12)
+      assert.ok(awake >= 1, `${id} ${state} at 18px moves ${awake.toFixed(2)}px`)
+      const resting = travel(id, state, 18, 20, { resting: true })
+      assert.ok(resting >= 1, `${id} ${state} at 18px, window resting, moves ${resting.toFixed(2)}px`)
+    }
+    // Idle and an unread reply stay still below the lively level.
+    for (const state of ['idle', 'replied']) assert.ok(travel(id, state, 18, 12) < 0.05, `${id} ${state} holds still`)
+  }
+})
+
+test('a question keeps calling at every motion level until it is answered; reduced motion calls once', () => {
+  const calls = (options) => {
+    const avatar = new Avatar({ seed: 4, size: 36, live: true, ...options })
+    avatar.setState('alert')
+    let count = 0
+    run(avatar, 20, (a) => { count += a.clips.filter(play => play.name === 'call' && play.t === 1 / 60).length })
+    return count
+  }
+  for (const tier of ['quiet', 'normal', 'lively']) assert.ok(calls({ tier }) >= 4, `${tier}: ${calls({ tier })} calls in 20 s`)
+  assert.equal(calls({ effects: 'reduced' }), 0)
+})
+
+test('a failed turn slumps the Bot and it shakes its head, no; sending dashes one way, relaying swings both ways', () => {
+  const avatar = new Avatar({ seed: 2, size: 36, live: true })
+  avatar.setState('failed')
+  run(avatar, 2)
+  assert.equal(avatar.face.name, 'worried')
+  assert.ok(STATES.failed.pose.y > 0 && STATES.failed.pose.pitch > 0, 'slumped')
+  const shake = CLIPS.shake(random(1))
+  const turns = shake.tracks.x.slice(1).filter(([, v], i) => Math.sign(v) !== Math.sign(shake.tracks.x[i][1]) && v !== 0).length
+  assert.ok(turns >= 4, `a shake goes back and forth (${turns} turns)`)
+  const reach = (made) => { const xs = made.tracks.x.map(([, v]) => v); return [Math.min(...xs), Math.max(...xs)] }
+  const [dashLo, dashHi] = reach(CLIPS.dash(random(1)))
+  assert.ok(dashHi > 2 * Math.abs(dashLo), 'a dash goes one way, after a small wind-up')
+  const [relayLo, relayHi] = reach(CLIPS.relay(random(1)))
+  assert.ok(Math.abs(relayLo + relayHi) < 0.5 && relayHi > 4, 'a relay swings as far both ways')
 })
 
 test('asleep, a lively mark peeks now and then, less often the longer it sleeps, also while the window rests', () => {

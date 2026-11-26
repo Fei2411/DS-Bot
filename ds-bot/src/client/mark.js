@@ -13,12 +13,35 @@ export { colorOf, lookOf } from './characters.js'
 // moves gets a live layer (avatar/live.js): the character's 3D model turned and drawn
 // by the avatar engine, from the same pose, so nothing jumps when it takes over.
 
-// Mark states: what the Bot is doing picks the motion (avatar/states.js). `waiting`:
-// no turn runs, but work it handed on has not come back yet. `orbit`: relaying
-// messages in a group.
-const STATES = ['idle', 'thinking', 'searching', 'working', 'sending', 'orbit', 'waiting', 'alert', 'done']
-export const botState = (running, activity, alert) => (running ? (STATES.includes(activity) && activity !== 'waiting' ? activity : 'working')
-  : alert ? 'alert' : activity === 'waiting' ? 'waiting' : 'idle')
+// Mark states: what the Bot is doing picks the motion (avatar/states.js), and the motion
+// alone says it; no state needs a badge or a line of text to read. `waiting`: no turn
+// runs, but work it handed on has not come back yet. `orbit`: relaying messages in a
+// group. Between turns, in this order: a question for you (`alert`), a last turn that
+// failed (`failed`), work handed on (`waiting`), background tasks running
+// (`background`), a reply you have not read (`replied`).
+const STATES = ['idle', 'thinking', 'searching', 'working', 'sending', 'orbit', 'waiting', 'background', 'alert', 'failed', 'done', 'replied']
+// States between turns; a running turn shows what it does instead.
+const BETWEEN = new Set(['waiting', 'background', 'failed', 'replied'])
+// States that wear the working badge.
+const RUNNING = new Set(['thinking', 'searching', 'working', 'sending', 'orbit', 'done'])
+export const botState = (running, activity, alert, { failed = false, background = false, replied = false } = {}) => (running
+  ? (STATES.includes(activity) && !BETWEEN.has(activity) ? activity : 'working')
+  : alert ? 'alert' : failed ? 'failed' : activity === 'waiting' ? 'waiting' : background ? 'background' : replied ? 'replied' : 'idle')
+// Whether the Bot's last turn in its chat failed and no turn has gone through since:
+// the host keeps the failure on the Bot until the next completed turn of that part.
+export const lastTurnFailed = bot => bot?.blocked !== undefined || bot?.failures?.[bot.sessionId ?? bot.id] !== undefined
+const failureKey = bot => (lastTurnFailed(bot) ? JSON.stringify([bot.blocked ?? null, bot.failures?.[bot.sessionId ?? bot.id] ?? null]) : '')
+// lastTurnFailed as a mark shows it. A running turn shows at once, but the failure comes
+// with the roster, which is polled: when a retry goes through, the old failure would
+// stay a few seconds after the turn ends. A failure already listed when the latest turn
+// started belongs to an earlier turn, so it no longer counts; a new one has its own
+// time and counts as soon as it arrives.
+export function useLastTurnFailed(bot, running) {
+  const key = failureKey(bot)
+  const [seen, setSeen] = useState({ running: false, before: '' })
+  if (running !== seen.running) setSeen({ running, before: running ? key : seen.before })
+  return key !== '' && key !== seen.before
+}
 export const toolState = name => (/^(message_bot|delegate_work|ask_back|answer_work|cancel_work|note_bot|stop_bot|create_bot|update_bot|create_group|update_group|delete_group|post_to_group)$/.test(name) ? 'sending'
   : /search|fetch|browse|read|grep|glob|list|recall/i.test(name) ? 'searching' : 'working')
 
@@ -124,8 +147,10 @@ function useSettled(state, id) {
   useEffect(() => {
     const was = prev.current
     prev.current = { state, id }
-    if (was.id !== id || state !== 'idle') { setSettled(false); return undefined }
-    if (was.state === 'idle' || was.state === 'alert') return undefined
+    if (was.id !== id || !(state === 'idle' || state === 'replied')) { setSettled(false); return undefined }
+    // Done celebrates a piece of work coming to an end, not a question answered or a
+    // failure.
+    if (was.state === 'idle' || was.state === 'alert' || was.state === 'failed' || was.state === 'replied') return undefined
     setSettled(true)
     const timer = setTimeout(() => setSettled(false), 1800)
     return () => clearTimeout(timer)
@@ -136,7 +161,7 @@ function useSettled(state, id) {
 export const BotAvatar = memo(function BotAvatar({ bot, size, state = 'idle', main, admin, badge = true, live = true, gaze = false, pokeable = false }) {
   const settled = useSettled(state, bot?.id)
   if (bot === undefined) return h(BotMark, { size })
-  const badgeKind = !badge ? null : state === 'alert' ? 'alert' : state !== 'idle' && state !== 'waiting' ? 'working' : admin ? 'admin' : main ? 'main' : null
+  const badgeKind = !badge ? null : state === 'alert' ? 'alert' : RUNNING.has(state) ? 'working' : admin ? 'admin' : main ? 'main' : null
   return h('span', { className: 'bt-mark', style: { width: size, height: size, '--bt-size': `${size}px` } },
     h(BotMark, { bot, size, state: settled ? 'done' : state, live, gaze, pokeable }),
     badgeKind === 'working' ? h('span', { className: 'bt-badge bt-badge-working', 'aria-label': t('Working'), role: 'img' }) : null,

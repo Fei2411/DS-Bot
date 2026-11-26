@@ -392,8 +392,8 @@ export class LiveMark {
   // Called by the clock: moves on and draws. Returns seconds until it needs a frame.
   step(time) {
     const elapsed = this.tickedAt ? (time - this.tickedAt) / 1000 : 1 / 60
-    // Small marks draw at most 30 times a second.
-    if (this.engine.lod === 'chip' && elapsed < 1 / 31 && !this.dirty) return 1 / 30 - elapsed
+    // Small marks, and every mark while the window rests, draw at most 30 times a second.
+    if ((this.engine.lod === 'chip' || this.engine.resting) && elapsed < 1 / 31 && !this.dirty) return 1 / 30 - elapsed
     // Still on the flat art: time runs on while nothing would move. A move waits for the
     // model; the mark's clock starts again once the model is in (attachRig kicks it).
     if (this.rig === undefined && !(this.engine.atRest && this.engine.wakeIn() > elapsed)) {

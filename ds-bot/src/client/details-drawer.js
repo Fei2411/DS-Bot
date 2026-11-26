@@ -2,7 +2,7 @@ import { createElement as h, Fragment, useEffect, useRef, useState } from 'react
 import { isMainOf } from './sources.js'
 import { HEADER, currentPart, runStatsOf, stripHeader, usageOf } from './text.js'
 import { PlusIcon, ShareIcon, CloseIcon, ChevronLeftIcon, GearIcon } from './icons.js'
-import { botState, BotMark, BotAvatar } from './mark.js'
+import { botState, useLastTurnFailed, BotMark, BotAvatar } from './mark.js'
 import { GlobeIcon, Favicon, PanelMenu, menuItemFor } from './browser-pane.js'
 import { drawerMenuKeys } from './side-model.js'
 import { BotSettingsForm, InlineText } from './bot-settings.js'
@@ -16,7 +16,7 @@ import { MemberApprovals, MemberState, StopMemberWork, StopRoomWork, useMemberWo
 import { canSetGoal, goalView, hasGoalAdmin } from './goal.js'
 import { PermissionPicker, presetDanger, presetName } from './permission-picker.js'
 import { TaskBoard } from './task-board.js'
-import { DetailsTaskList, isActiveTask, tasksForChat } from './bot-tasks.js'
+import { DetailsTaskList, isActiveTask, taskCountsOf, tasksForChat } from './bot-tasks.js'
 import { BotConnectors } from './connectors.js'
 import { ComputerView } from './computer.js'
 import { useEscape } from './overlay-hooks.js'
@@ -272,6 +272,7 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, ro
   const side = move === 'tab' ? undefined : move
   const close = () => actions.closeOverlay()
   const running = useSessionStatus(map => map.get(part)?.running === true)
+  const failed = useLastTurnFailed(bot, running)
   const doing = useActivity(map => map[bot?.id ?? sessionId])
   const sessionsRef = useRef(null)
   useSessions((list) => { sessionsRef.current = list; return null })
@@ -330,7 +331,7 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, ro
   const subtitle = bot ? undefined : roomSubtitle(room, roster)
   return [h(Fragment, { key: 'top' }, top),
     h('div', { key: 'id', className: 'bt-drawer-id', 'data-move': side },
-      bot ? h(BotAvatar, { bot, size: 64, state: botState(running, doing, roster.questions?.[part] !== undefined), main: isMainBot, badge: false, gaze: true, pokeable: true })
+      bot ? h(BotAvatar, { bot, size: 64, state: botState(running, doing, roster.questions?.[part] !== undefined, { failed, background: taskCountsOf({ bot }).active > 0 }), main: isMainBot, badge: false, gaze: true, pokeable: true })
         : h(MemberPile, { room, roster }),
       editing
         ? h('input', {

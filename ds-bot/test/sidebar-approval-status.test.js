@@ -323,3 +323,23 @@ test('a background task approval does not mask a foreground question, and still 
   assert.equal(walk(idleRow, node => classes(node).includes('bt-badge-alert')).length, 1)
   assert.equal(textOf(walk(idleRow, node => classes(node).includes('bt-row-preview-wait'))[0]), 'Waiting for your approval')
 })
+
+test('a Bot row shows between turns a failed turn, background tasks and an unread reply in its mark, with no badge', () => {
+  const stateOf = (tree, id) => walk(tree, node => node.props?.['data-bot-id'] === id).flatMap(row => walk(row, node => node.props?.['data-state'] !== undefined))[0]?.props['data-state']
+  const badges = (tree, id) => walk(walk(tree, node => node.props?.['data-bot-id'] === id)[0], node => classes(node).includes('bt-badge')).length
+  // The host keeps a failed turn on the Bot, under the part it failed in (turns.js).
+  const failed = { id: 'f', name: 'Failed', createdAt: 1, sessionId: 'f-2', failures: { 'f-2': { turn: 4, code: 'NETWORK', message: 'socket hang up', at: 1 } } }
+  const stale = { id: 's', name: 'Stale', createdAt: 2, sessionId: 's-2', failures: { s: { turn: 9, code: 'NETWORK', message: 'old', at: 1 } } }
+  const tasks = { id: 't', name: 'Tasks', createdAt: 3, tasks: [{ id: 'k1', status: 'running', title: 'Nightly report' }] }
+  const done = { id: 'd', name: 'Done', createdAt: 4 }
+  const tree = renderSidebar({ bots: [failed, stale, tasks, done], statusMap: new Map([['d', { running: false, completionUnread: true }]]) })
+  assert.equal(stateOf(tree, 'f'), 'failed')
+  assert.equal(stateOf(tree, 's'), 'idle', 'a failure in an earlier part of the chat no longer shows')
+  assert.equal(stateOf(tree, 't'), 'background')
+  assert.equal(stateOf(tree, 'd'), 'replied')
+  for (const id of ['f', 't', 'd']) assert.equal(badges(tree, id), 0, `${id}: the motion says it, no badge`)
+  // Running wins; an open chat has no unread reply.
+  const running = renderSidebar({ bots: [failed, done], statusMap: new Map([['f-2', { running: true }], ['d', { running: false, completionUnread: true }]]), activeSession: 'd' })
+  assert.equal(stateOf(running, 'f'), 'working')
+  assert.equal(stateOf(running, 'd'), 'idle')
+})

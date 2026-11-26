@@ -2,13 +2,13 @@ import { createElement as h, Fragment, useEffect, useLayoutEffect, useRef, useSt
 import { createPortal } from 'react-dom'
 import { currentPart, latestMemoryChange } from './text.js'
 import { ArrowUpIcon, CloseIcon, ArrowDownIcon, GoalIcon, MemoryIcon, SearchIcon } from './icons.js'
-import { botState, BotAvatar, RoomAvatar } from './mark.js'
+import { botState, useLastTurnFailed, BotAvatar, RoomAvatar } from './mark.js'
 import { AgentBadge } from './agent-badge.js'
 import { ActivityIndicator } from './activity-row.js'
 import { clockLabel, newDividerIn, openingTurn, unseenSince } from './cells.js'
 import { GoalIsland, goalView } from './goal.js'
 import { ApprovalIslandPod, roomApprovals } from './member-status.js'
-import { TaskIslandPod, isActiveTask, tasksForChat } from './bot-tasks.js'
+import { TaskIslandPod, isActiveTask, taskCountsOf, tasksForChat } from './bot-tasks.js'
 import { viewBottom } from './motion.js'
 import { t } from './i18n.js'
 
@@ -74,6 +74,7 @@ export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus
   const owner = roster.byId[sessionId]?.id ?? sessionId
   const doing = useActivity(map => map[owner])
   const bot = roster.byId[sessionId]
+  const failed = useLastTurnFailed(bot, running)
   const room = roster.roomsById[sessionId]
   const goal = room?.goal
   // Goal panels are keyed by the group, never by its current Session: `composeGoal` and
@@ -169,7 +170,7 @@ export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus
     title: away ? name : undefined,
     onClick: () => (away ? selectView('chat') : memoryNotice ? actions.openMemory(changed) : actions.toggleDetails(sessionId)),
   },
-    bot ? h(BotAvatar, { bot, size: 24, state: botState(running, doing, roster.questions?.[currentPart(bot)] !== undefined), badge: false })
+    bot ? h(BotAvatar, { bot, size: 24, state: botState(running, doing, roster.questions?.[currentPart(bot)] !== undefined, { failed, background: taskCountsOf({ bot }).active > 0 }), badge: false })
       : room ? h(RoomAvatar, { room, roster, size: 24 }) : null,
     goalShown
       ? h('span', { className: 'bt-pill-swap' },

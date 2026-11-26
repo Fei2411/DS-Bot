@@ -21249,18 +21249,22 @@ var CLIPS = {
       pitch: [[0, 0], [0.4, 3], [1.4, 3, "linear"], [1.9, 0]]
     }), side(rng));
   },
-  // ---- Thinking.
+  // ---- Thinking: the head tips slowly to one side and stays there a while, then to the
+  // other. The slow tilt is what reads as thinking, down to the smallest mark.
   ponder(rng) {
-    return mirror(clip(2.2, {
-      roll: [[0, 0], [1.1, 3], [2.2, 0]],
-      pitch: [[0, 0], [1.1, -2], [2.2, 0]],
-      gx: [[0, 0], [1.1, 0.2], [2.2, 0]]
+    const hold = 0.7 + rng() * 0.8;
+    return mirror(clip(1.4 + hold, {
+      roll: [[0, 0], [0.7, 12], [0.7 + hold, 12, "linear"], [1.4 + hold, 0]],
+      x: [[0, 0], [0.7, 3.5], [0.7 + hold, 3.5, "linear"], [1.4 + hold, 0]],
+      pitch: [[0, 0], [0.7, -2], [0.7 + hold, -2, "linear"], [1.4 + hold, 0]],
+      gx: [[0, 0], [0.5, 0.3], [0.7 + hold, 0.3, "linear"], [1.3 + hold, 0]]
     }), side(rng));
   },
   // Tips the head the other way and looks up to the other side.
   ponderSwap() {
     return clip(2.4, {
-      roll: [[0, 0], [0.6, -14], [1.8, -14, "linear"], [2.4, 0]],
+      roll: [[0, 0], [0.6, -17], [1.8, -17, "linear"], [2.4, 0]],
+      x: [[0, 0], [0.6, -4], [1.8, -4, "linear"], [2.4, 0]],
       gx: [[0, 0], [0.16, -0.95, "snap"], [1.8, -0.95, "linear"], [2.15, 0]],
       yaw: [[0, 0], [0.6, -3], [1.8, -3, "linear"], [2.4, 0]]
     }, { blink: [0.3] });
@@ -21271,14 +21275,16 @@ var CLIPS = {
       y: [[0, 0], [0.14, 0.6], [0.32, 0], [0.46, 0.5], [0.66, 0]]
     });
   },
-  // ---- Searching.
+  // ---- Searching: quick looks one way, the other, and back, the body following the
+  // eyes. Quick and side to side, unlike thinking's slow tilt.
   scan(rng) {
-    return mirror(clip(1.4, {
-      gx: [[0, 0], [0.08, 0.9, "snap"], [0.58, 0.9, "linear"], [0.66, -0.9, "snap"], [1.05, -0.9, "linear"], [1.25, 0]],
-      yaw: [[0, 0], [0.35, 4], [0.95, -4], [1.4, 0]],
-      x: [[0, 0], [0.35, 1.2], [0.95, -1.2], [1.4, 0]],
-      pitch: [[0, 0], [0.35, 2], [0.95, 2], [1.4, 0]]
-    }, { blink: [0.6] }), side(rng));
+    return mirror(clip(1.5, {
+      gx: [[0, 0], [0.08, 0.95, "snap"], [0.5, 0.95, "linear"], [0.58, -0.95, "snap"], [1, -0.95, "linear"], [1.08, 0.6, "snap"], [1.3, 0.6, "linear"], [1.5, 0]],
+      x: [[0, 0], [0.25, 4.5], [0.5, 4.5, "linear"], [0.75, -4.5], [1, -4.5, "linear"], [1.25, 2], [1.5, 0]],
+      roll: [[0, 0], [0.25, 4], [0.75, -4], [1.25, 2], [1.5, 0]],
+      yaw: [[0, 0], [0.25, 3], [0.75, -3], [1.25, 1.5], [1.5, 0]],
+      pitch: [[0, 0], [0.3, 2], [1.2, 2, "linear"], [1.5, 0]]
+    }, { blink: [0.55] }), side(rng));
   },
   peer() {
     return clip(1.3, {
@@ -21294,12 +21300,13 @@ var CLIPS = {
       pitch: [[0, 0], [0.1, 4, "out"], [0.22, 0], [0.34, 4, "out"], [0.48, 0], [0.62, 0]]
     });
   },
-  // ---- Working: steady, small, busy.
+  // ---- Working: a quick, steady beat with the head down, as if typing. The fastest
+  // regular rhythm of any state.
   type(rng) {
     const s = side(rng);
     return clip(0.82, {
-      pitch: [[0, 0], [0.09, 3.5, "out"], [0.2, 0], [0.29, 3, "out"], [0.4, 0], [0.49, 3.5, "out"], [0.6, 0], [0.69, 2.5, "out"], [0.82, 0]],
-      y: [[0, 0], [0.09, 1, "out"], [0.2, 0], [0.29, 0.9, "out"], [0.4, 0], [0.49, 1, "out"], [0.6, 0], [0.69, 0.7, "out"], [0.82, 0]],
+      pitch: [[0, 0], [0.09, 4, "out"], [0.2, 0], [0.29, 3.5, "out"], [0.4, 0], [0.49, 4, "out"], [0.6, 0], [0.69, 3, "out"], [0.82, 0]],
+      y: [[0, 0], [0.09, 1.8, "out"], [0.2, 0], [0.29, 1.6, "out"], [0.4, 0], [0.49, 1.8, "out"], [0.6, 0], [0.69, 1.3, "out"], [0.82, 0]],
       sq: [[0, 0], [0.09, 0.02], [0.2, 0], [0.49, 0.02], [0.6, 0], [0.82, 0]],
       gx: [[0, 0], [0.12, -0.3 * s], [0.7, 0.3 * s, "linear"], [0.82, 0]]
     });
@@ -21330,27 +21337,32 @@ var CLIPS = {
       gx: [[0, 0], [0.18, 0.9, "snap"], [0.8, 0.9, "linear"], [1, 0]]
     });
   },
-  // ---- Relaying in a group: turns from one side to the other, passing words along.
+  // ---- Relaying in a group: leans to one side as if taking the words, then swings
+  // across to pass them on. Even, both ways, unlike sending's one dash.
   relay(rng) {
     return mirror(clip(2, {
+      x: [[0, 0], [0.4, -6], [0.75, -6, "linear"], [1.2, 6], [1.6, 6, "linear"], [2, 0]],
+      roll: [[0, 0], [0.4, -6], [0.75, -6, "linear"], [1.2, 6], [1.6, 6, "linear"], [2, 0]],
       yaw: [[0, 0], [0.4, -4.5], [0.75, -4.5, "linear"], [1.2, 4], [1.6, 4, "linear"], [2, 0]],
-      x: [[0, 0], [0.4, -1.8], [0.75, -1.8, "linear"], [1.2, 1.6], [1.6, 1.6, "linear"], [2, 0]],
-      gx: [[0, 0], [0.1, -0.85, "snap"], [0.75, -0.85, "linear"], [0.85, 0.85, "snap"], [1.6, 0.85, "linear"], [1.9, 0]],
-      roll: [[0, 0], [0.4, 3], [1.2, -3], [2, 0]]
+      gx: [[0, 0], [0.1, -0.85, "snap"], [0.75, -0.85, "linear"], [0.85, 0.85, "snap"], [1.6, 0.85, "linear"], [1.9, 0]]
     }, { blink: [0.8] }), side(rng));
   },
-  // ---- Waiting on other Bots.
+  // ---- Waiting on other Bots: taps its foot, three quick small hops on the spot, and
+  // looks over to where the work went.
   tap() {
     return clip(0.96, {
-      y: [[0, 0], [0.1, -1.8, "out"], [0.2, 0, "in"], [0.42, -1.8, "out"], [0.52, 0, "in"], [0.74, -1.8, "out"], [0.84, 0, "in"], [0.96, 0]],
-      sq: [[0, 0], [0.2, 0.03, "out"], [0.3, 0], [0.52, 0.03, "out"], [0.62, 0], [0.84, 0.03, "out"], [0.96, 0]]
+      y: [[0, 0], [0.1, -3.5, "out"], [0.2, 0, "in"], [0.42, -3.5, "out"], [0.52, 0, "in"], [0.74, -3.5, "out"], [0.84, 0, "in"], [0.96, 0]],
+      sq: [[0, 0], [0.2, 0.045, "out"], [0.3, 0], [0.52, 0.045, "out"], [0.62, 0], [0.84, 0.045, "out"], [0.96, 0]]
     });
   },
+  // Looks over to one side, where the work went, and leans after it for a while.
   patient(rng) {
-    return mirror(clip(2, {
-      yaw: [[0, 0], [0.6, 3], [1.4, 3, "linear"], [2, 0]],
-      gx: [[0, 0], [0.12, 0.6, "snap"], [1.5, 0.6, "linear"], [1.9, 0]],
-      roll: [[0, 0], [0.6, 2], [1.4, 2, "linear"], [2, 0]]
+    const hold = 0.8 + rng() * 0.8;
+    return mirror(clip(1.2 + hold, {
+      x: [[0, 0], [0.6, 3.5], [0.6 + hold, 3.5, "linear"], [1.2 + hold, 0]],
+      roll: [[0, 0], [0.6, 5], [0.6 + hold, 5, "linear"], [1.2 + hold, 0]],
+      yaw: [[0, 0], [0.6, 3], [0.6 + hold, 3, "linear"], [1.2 + hold, 0]],
+      gx: [[0, 0], [0.12, 0.8, "snap"], [0.7 + hold, 0.8, "linear"], [1.1 + hold, 0]]
     }), side(rng));
   },
   sigh() {
@@ -21360,7 +21372,16 @@ var CLIPS = {
       pitch: [[0, 0], [0.5, -2], [1.1, 4], [1.5, 0]]
     });
   },
-  // ---- Needs you: two hops to catch your eye, then a small nudge now and then.
+  // ---- Background tasks: working's nod, at half its pace: busy, but calmly.
+  hum() {
+    return clip(1.4, {
+      pitch: [[0, 0], [0.3, 9, "out"], [0.7, 0], [1, 8, "out"], [1.4, 0]],
+      y: [[0, 0], [0.3, 4.5, "out"], [0.7, 0], [1, 4, "out"], [1.4, 0]],
+      sq: [[0, 0], [0.3, 0.05, "out"], [0.7, 0], [1, 0.045, "out"], [1.4, 0]]
+    });
+  },
+  // ---- Needs you: two hops to catch your eye, and two smaller ones every few seconds
+  // until you answer.
   attention() {
     return clip(0.96, {
       y: [[0, 0], [0.08, 0.6, "out"], [0.24, -10, "out"], [0.4, 0, "in"], [0.46, 0.4, "out"], [0.6, -7, "out"], [0.76, 0, "in"], [0.96, 0]],
@@ -21368,10 +21389,28 @@ var CLIPS = {
       pupil: [[0, 0], [0.24, 0.08], [0.6, 0.06], [0.96, 0]]
     });
   },
-  nudge() {
-    return clip(0.56, {
-      y: [[0, 0], [0.06, 0.4, "out"], [0.18, -4.5, "out"], [0.34, 0, "in"], [0.56, 0]],
-      sq: [[0, 0], [0.06, 0.05, "out"], [0.14, -0.05, "out"], [0.28, 0], [0.36, 0.06, "out"], [0.46, -0.015], [0.56, 0]]
+  call() {
+    return clip(0.9, {
+      y: [[0, 0], [0.07, 0.5, "out"], [0.22, -7, "out"], [0.38, 0, "in"], [0.44, 0.4, "out"], [0.58, -5, "out"], [0.74, 0, "in"], [0.9, 0]],
+      sq: [[0, 0], [0.07, 0.06, "out"], [0.15, -0.07, "out"], [0.3, 0], [0.38, 0.08, "out"], [0.47, -0.05, "out"], [0.6, 0], [0.74, 0.06, "out"], [0.82, -0.015], [0.9, 0]],
+      scale: [[0, 0], [0.22, 0.04], [0.58, 0.03], [0.9, 0]],
+      pupil: [[0, 0], [0.22, 0.06], [0.9, 0]]
+    });
+  },
+  // ---- Failed: shakes its head, no, and sinks with a sigh now and then.
+  shake() {
+    return clip(0.8, {
+      x: [[0, 0], [0.1, 5, "out"], [0.24, -5], [0.38, 4.2], [0.52, -3.2], [0.66, 1.2], [0.8, 0]],
+      roll: [[0, 0], [0.1, 6, "out"], [0.24, -6], [0.38, 5], [0.52, -3.5], [0.66, 1.2], [0.8, 0]],
+      yaw: [[0, 0], [0.1, 3], [0.24, -3], [0.38, 2.5], [0.52, -2], [0.8, 0]]
+    });
+  },
+  slump() {
+    return clip(1.6, {
+      y: [[0, 0], [0.5, -1.2], [1.1, 2.6, "in"], [1.6, 0]],
+      sq: [[0, 0], [0.5, -0.04], [1.1, 0.07, "out"], [1.6, 0]],
+      pitch: [[0, 0], [0.5, -3], [1.1, 5], [1.6, 0]],
+      lid: [[0, 0], [0.9, 0.35], [1.5, 0]]
     });
   },
   // ---- Done: a small celebration, not the same one every time.
@@ -21682,8 +21721,8 @@ var STATES = {
   thinking: {
     face: "think",
     pose: { pitch: -7, roll: 7, gx: 0.3, gy: -0.65 },
-    loop: { bag: { ponder: 3, ponderSwap: 1, hmm: 1.5 }, gap: [0.3, 1.4] },
-    compact: { bag: { ponder: 1, hmm: 1 }, gap: [0.6, 2] },
+    loop: { bag: { ponder: 2, ponderSwap: 1.5, hmm: 0.5 }, gap: [0.2, 0.9] },
+    compact: { bag: { ponder: 1, ponderSwap: 1 }, gap: [0.2, 0.9] },
     blink: [3, 7],
     accent: "dots"
   },
@@ -21691,7 +21730,7 @@ var STATES = {
     face: "curious",
     pose: { pitch: 4 },
     loop: { bag: { scan: 3, peer: 1, sniff: 1 }, gap: [0.1, 0.6] },
-    compact: { bag: { scan: 2, sniff: 1 }, gap: [0.3, 1] },
+    compact: { bag: { scan: 1 }, gap: [0.2, 0.8] },
     blink: [2.5, 5]
   },
   working: {
@@ -21714,20 +21753,39 @@ var STATES = {
     loop: { bag: { relay: 1 }, gap: [0.2, 0.8] },
     blink: [3, 6]
   },
+  // Waiting for work it handed on: taps its foot, and looks over to where the work went.
   waiting: {
     face: "neutral",
     pose: { roll: -2 },
-    loop: { bag: { patient: 3, tap: 2, sigh: 1, checkIn: 1 }, gap: [1.6, 4] },
-    compact: { bag: { tap: 1, patient: 1 }, gap: [2, 5] },
+    loop: { bag: { tap: 2, patient: 2, sigh: 1 }, gap: [1, 2.6] },
+    compact: { bag: { tap: 1, patient: 1 }, gap: [1, 2.6] },
     blink: [2, 5]
   },
-  // Needs your answer: sits up, eyes wide and on you, and catches your eye.
+  // Background tasks run while its chat is idle: working's nod at half the pace.
+  background: {
+    face: "neutral",
+    pose: { pitch: 3, gy: 0.3 },
+    loop: { bag: { hum: 1 }, gap: [0.9, 1.8] },
+    blink: [2.5, 6]
+  },
+  // Needs your answer: sits up, eyes wide and on you, and hops to catch your eye every
+  // few seconds until you answer, at every motion level.
   alert: {
     face: "wide",
     pose: { pitch: -5, y: -1, scale: 0.03 },
     enter: { attention: 1 },
-    lively: { bag: { nudge: 1 }, gap: [3.5, 7] },
+    loop: { bag: { call: 1 }, gap: [2.4, 4.2] },
     blink: [2, 4.5]
+  },
+  // The last turn failed: slumped and worried, it shakes its head now and then until a
+  // turn goes through.
+  failed: {
+    face: "worried",
+    pose: { pitch: 8, y: 2.5, roll: -6, sq: 0.04 },
+    enter: { slump: 1 },
+    loop: { bag: { shake: 2, slump: 1 }, gap: [2.6, 4.6] },
+    compact: { bag: { shake: 1 }, gap: [2.6, 4.6] },
+    blink: [3, 7]
   },
   done: {
     face: "happy",
@@ -21737,6 +21795,13 @@ var STATES = {
     next: "idle",
     hold: 1.6,
     blink: false
+  },
+  // Finished with a reply you have not read: a soft smile, nothing more (the row's
+  // unread dot says the rest).
+  replied: {
+    face: "content",
+    pose: {},
+    blink: [3, 7]
   },
   sleeping: {
     face: "asleep",
@@ -21764,8 +21829,6 @@ var SPRINGS = {
   lid: [22, 1],
   pupil: [18, 0.55]
 };
-var POSITION = /* @__PURE__ */ new Set(["x", "y"]);
-var ROTATION = /* @__PURE__ */ new Set(["yaw", "pitch", "roll"]);
 function random(seed) {
   let a = seed >>> 0;
   return () => {
@@ -21784,6 +21847,7 @@ var SWAP_CLOSE = 0.075;
 var POKE_WINDOW = 1.6;
 var SNEAK_FIRST = [7, 14];
 var SNEAK_DEEPER = 1.7;
+var REST_GAP = [4, 7];
 var Avatar = class {
   constructor({ seed = 1, size = 36, live = false, tier = "normal", effects = "full", state = "idle" } = {}) {
     this.rng = random(seed);
@@ -21987,7 +22051,6 @@ var Avatar = class {
     }
     const out = {};
     for (const name of CHANNELS) out[name] = this.springs[name].x;
-    const amp = this.lod === "chip" ? { pos: 0.7, rot: 0.8 } : { pos: 1, rot: 1 };
     let clipFace = null;
     let blinks = 0;
     for (const play of this.clips) {
@@ -21995,12 +22058,7 @@ var Avatar = class {
       if (play.fade < 0) play.weight = Math.max(0, play.weight - dt / 0.25);
       const { clip: clip3 } = play;
       const t2 = Math.min(play.t, clip3.dur);
-      for (const [name, keys] of Object.entries(clip3.tracks)) {
-        let value = sampleTrack(keys, t2) * play.weight;
-        if (POSITION.has(name)) value *= amp.pos;
-        else if (ROTATION.has(name) && name !== "yaw") value *= amp.rot;
-        out[name] += value;
-      }
+      for (const [name, keys] of Object.entries(clip3.tracks)) out[name] += sampleTrack(keys, t2) * play.weight;
       if (clip3.face) {
         for (const [at2, face] of clip3.face) if (t2 >= at2) clipFace = face === null ? void 0 : face;
       }
@@ -22063,14 +22121,20 @@ var Avatar = class {
     if (def.next) times.push(this.stateSince + def.hold);
     if (this.override.face) times.push(this.override.faceUntil);
     if (this.sneaks()) times.push(this.sneakAt());
-    if (this.still || this.resting) return Math.max(0, Math.min(...times) - this.time);
-    if (this.loopOf(STATES[this.state])) times.push(this.nextLoop);
+    if (this.still) return Math.max(0, Math.min(...times) - this.time);
+    if (this.resting) {
+      if (this.stateLoop(def)) times.push(this.nextLoop);
+      return Math.max(0, Math.min(...times.filter(Number.isFinite)) - this.time);
+    }
+    if (this.loopOf(def)) times.push(this.nextLoop);
     if (this.blinks()) times.push(this.nextBlink);
     if (this.glances()) times.push(this.saccade.until > this.time ? this.saccade.until : this.saccade.next);
     return Math.max(0, Math.min(...times.filter(Number.isFinite)) - this.time);
   }
-  // Resting: nobody has touched the window for a while. Moves under way finish, but
-  // nothing new starts until it is lifted, even under a pointer left on the mark.
+  // Resting: nobody has touched the window for a while. Moves under way finish. A state
+  // keeps showing what the Bot is doing, a move every REST_GAP seconds: someone glancing
+  // at the screen to see how the work goes is not touching anything. Fidgets, glances,
+  // blinks and petting wait for input, even under a pointer left on the mark.
   rest(on) {
     this.resting = on;
     if (!on) {
@@ -22086,7 +22150,10 @@ var Avatar = class {
       this.play("sneak");
       this.sneak = { wait: this.sneak.wait * SNEAK_DEEPER, at: this.time };
     }
-    if (this.resting) return;
+    if (this.resting) {
+      this.loopOn(def, this.stateLoop(def), REST_GAP);
+      return;
+    }
     if (this.blinks() && this.time >= this.nextBlink) {
       this.blink();
       this.nextBlink = this.time + def.blink[0] + this.rng() * (def.blink[1] - def.blink[0]);
@@ -22107,17 +22174,21 @@ var Avatar = class {
         this.retarget();
       }
     }
+    const loop2 = this.loopOf(def);
+    this.loopOn(def, loop2, loop2?.gap);
+  }
+  // Plays the next clip of `loop` once its time has come, `gap` seconds [min, max] after
+  // the last one ends.
+  loopOn(def, loop2, gap) {
     if (this.time < this.nextLoop) return;
     if (this.clips.some((play) => !play.blink && play.weight >= 1)) return;
-    const loop2 = this.loopOf(def);
     if (!loop2) {
       this.nextLoop = this.petting || def.next ? this.time + 0.5 : Infinity;
       return;
     }
     this.play(this.draw(loop2.bag));
-    const played = this.clips[this.clips.length - 1];
-    const dur = played?.clip.dur ?? 0;
-    this.nextLoop = this.time + dur + loop2.gap[0] + this.rng() * (loop2.gap[1] - loop2.gap[0]);
+    const dur = this.clips.at(-1)?.clip.dur ?? 0;
+    this.nextLoop = this.time + dur + gap[0] + this.rng() * (gap[1] - gap[0]);
   }
   // Blinks are part of every state's motion (they repeat, so reduced motion has none);
   // at rest only a lively mark blinks.
@@ -22140,11 +22211,17 @@ var Avatar = class {
   loopOf(def) {
     if (this.calm) return null;
     if (this.petting) return { bag: { nuzzle: 1 }, gap: [0.05, 0.3] };
-    if (this.lod === "chip" && def.compact) return def.compact;
-    if (def.loop) return def.loop;
+    const own = this.stateLoop(def);
+    if (own) return own;
     if (def.lively && this.tier === "lively") return def.lively;
     if (def.idle && this.live && this.tier === "lively" && this.lod !== "chip") return def.idle;
     return null;
+  }
+  // The moves that show what the Bot is doing: they play at every motion level, and on
+  // through a resting window.
+  stateLoop(def) {
+    if (this.calm || this.petting) return null;
+    return this.lod === "chip" && def.compact || def.loop || null;
   }
   // A weighted draw that avoids playing the same clip twice in a row.
   draw(bag) {
@@ -24175,7 +24252,7 @@ var LiveMark = class {
   // Called by the clock: moves on and draws. Returns seconds until it needs a frame.
   step(time) {
     const elapsed = this.tickedAt ? (time - this.tickedAt) / 1e3 : 1 / 60;
-    if (this.engine.lod === "chip" && elapsed < 1 / 31 && !this.dirty) return 1 / 30 - elapsed;
+    if ((this.engine.lod === "chip" || this.engine.resting) && elapsed < 1 / 31 && !this.dirty) return 1 / 30 - elapsed;
     if (this.rig === void 0 && !(this.engine.atRest && this.engine.wakeIn() > elapsed)) {
       if (!rigReady(this.look.shape, this.def)) {
         buildSoon(this);
@@ -24270,8 +24347,18 @@ function useRosterPick(useRoster, fields) {
 
 // src/client/mark.js
 var import_react2 = require("react");
-var STATES2 = ["idle", "thinking", "searching", "working", "sending", "orbit", "waiting", "alert", "done"];
-var botState = (running, activity, alert) => running ? STATES2.includes(activity) && activity !== "waiting" ? activity : "working" : alert ? "alert" : activity === "waiting" ? "waiting" : "idle";
+var STATES2 = ["idle", "thinking", "searching", "working", "sending", "orbit", "waiting", "background", "alert", "failed", "done", "replied"];
+var BETWEEN = /* @__PURE__ */ new Set(["waiting", "background", "failed", "replied"]);
+var RUNNING = /* @__PURE__ */ new Set(["thinking", "searching", "working", "sending", "orbit", "done"]);
+var botState = (running, activity, alert, { failed = false, background = false, replied = false } = {}) => running ? STATES2.includes(activity) && !BETWEEN.has(activity) ? activity : "working" : alert ? "alert" : failed ? "failed" : activity === "waiting" ? "waiting" : background ? "background" : replied ? "replied" : "idle";
+var lastTurnFailed = (bot) => bot?.blocked !== void 0 || bot?.failures?.[bot.sessionId ?? bot.id] !== void 0;
+var failureKey = (bot) => lastTurnFailed(bot) ? JSON.stringify([bot.blocked ?? null, bot.failures?.[bot.sessionId ?? bot.id] ?? null]) : "";
+function useLastTurnFailed(bot, running) {
+  const key = failureKey(bot);
+  const [seen, setSeen] = (0, import_react2.useState)({ running: false, before: "" });
+  if (running !== seen.running) setSeen({ running, before: running ? key : seen.before });
+  return key !== "" && key !== seen.before;
+}
 var toolState = (name) => /^(message_bot|delegate_work|ask_back|answer_work|cancel_work|note_bot|stop_bot|create_bot|update_bot|create_group|update_group|delete_group|post_to_group)$/.test(name) ? "sending" : /search|fetch|browse|read|grep|glob|list|recall/i.test(name) ? "searching" : "working";
 var PET_ZONE = ":is(.bt-row,.bt-tile)>:is(.bt-mark,.bt-cluster),.bt-pet-zone";
 function useLive(ref, { look, image, size, state, live, gaze, pokeable, seed }) {
@@ -24352,11 +24439,11 @@ function useSettled(state, id) {
   (0, import_react2.useEffect)(() => {
     const was = prev.current;
     prev.current = { state, id };
-    if (was.id !== id || state !== "idle") {
+    if (was.id !== id || !(state === "idle" || state === "replied")) {
       setSettled(false);
       return void 0;
     }
-    if (was.state === "idle" || was.state === "alert") return void 0;
+    if (was.state === "idle" || was.state === "alert" || was.state === "failed" || was.state === "replied") return void 0;
     setSettled(true);
     const timer2 = setTimeout(() => setSettled(false), 1800);
     return () => clearTimeout(timer2);
@@ -24366,7 +24453,7 @@ function useSettled(state, id) {
 var BotAvatar = memo(function BotAvatar2({ bot, size, state = "idle", main, admin, badge = true, live = true, gaze = false, pokeable = false }) {
   const settled = useSettled(state, bot?.id);
   if (bot === void 0) return (0, import_react2.createElement)(BotMark, { size });
-  const badgeKind = !badge ? null : state === "alert" ? "alert" : state !== "idle" && state !== "waiting" ? "working" : admin ? "admin" : main ? "main" : null;
+  const badgeKind = !badge ? null : state === "alert" ? "alert" : RUNNING.has(state) ? "working" : admin ? "admin" : main ? "main" : null;
   return (0, import_react2.createElement)(
     "span",
     { className: "bt-mark", style: { width: size, height: size, "--bt-size": `${size}px` } },
@@ -24861,7 +24948,7 @@ function useEscape(onClose, active = true, { priority = 0 } = {}) {
 // src/client/goal.js
 var import_react7 = require("react");
 var REPORTED = /* @__PURE__ */ new Set(["reported", "done"]);
-var RUNNING = /* @__PURE__ */ new Set(["active", "paused"]);
+var RUNNING2 = /* @__PURE__ */ new Set(["active", "paused"]);
 var FACES_MAX = 4;
 var hasGoalAdmin = (room2, roster) => room2 !== void 0 && room2.members?.includes(room2.admin) === true && roster.byId?.[room2.admin] !== void 0;
 var canSetGoal = (room2, roster) => hasGoalAdmin(room2, roster) && room2.goal?.status !== "active" && room2.goal?.status !== "paused";
@@ -24870,7 +24957,7 @@ function goalView(goal, { roster = {}, roomWork = [] } = {}) {
   const stages = goal.stages ?? [];
   const count = stages.length;
   const at2 = goal.current;
-  const current2 = RUNNING.has(goal.status) ? stages[at2] : void 0;
+  const current2 = RUNNING2.has(goal.status) ? stages[at2] : void 0;
   const checking = current2 !== void 0 && (current2.tasks ?? []).every((task) => REPORTED.has(task.status));
   const number = goal.status === "drafting" ? void 0 : goal.status === "stopped" ? stages.filter((stage) => stage.status === "passed").length : current2 !== void 0 ? at2 + 1 : count;
   const barLabel = goal.status === "drafting" ? t("Aligning the goal with you") : goal.status === "stopped" ? t("Stopped") : goal.status === "complete" ? t("Goal reached") : goal.status === "paused" ? current2 ? t("Paused · {title}", { title: current2.title }) : t("Paused") : goal.idle === true ? current2 ? t("Waiting for you · {title}", { title: current2.title }) : t("Waiting for you") : current2 === void 0 ? t("Final check") : checking ? t("Checking · {title}", { title: current2.title }) : current2.title;
@@ -24887,7 +24974,7 @@ function goalView(goal, { roster = {}, roomWork = [] } = {}) {
     title: stage.title,
     acceptance: stage.acceptance,
     status: stage.status,
-    kind: stage.status === "passed" ? "passed" : i === at2 && RUNNING.has(goal.status) ? "current" : "upcoming",
+    kind: stage.status === "passed" ? "passed" : i === at2 && RUNNING2.has(goal.status) ? "current" : "upcoming",
     tasks: (stage.tasks ?? []).map((task) => ({ bot: roster.byId?.[task.botId], task: task.task, status: task.status })),
     evidence: stage.evidence,
     reworks: stage.reworks ?? 0,
@@ -24987,11 +25074,11 @@ function TaskRow({ task, working }) {
 }
 var STOP_ARM_MS = 3e3;
 function GoalPanel({ goal, view, room: room2, roster, actions, working }) {
-  const at2 = RUNNING.has(view.status) && goal.current < view.stages.length ? goal.current : -1;
+  const at2 = RUNNING2.has(view.status) && goal.current < view.stages.length ? goal.current : -1;
   const [selected, setSelected] = (0, import_react7.useState)(at2);
   const [checks, setChecks] = (0, import_react7.useState)(false);
   const [armed, setArmed] = (0, import_react7.useState)(false);
-  (0, import_react7.useEffect)(() => setSelected(RUNNING.has(view.status) && goal.current < view.stages.length ? goal.current : -1), [view.status, goal.current]);
+  (0, import_react7.useEffect)(() => setSelected(RUNNING2.has(view.status) && goal.current < view.stages.length ? goal.current : -1), [view.status, goal.current]);
   (0, import_react7.useEffect)(() => {
     if (!armed) return void 0;
     const timer2 = setTimeout(() => setArmed(false), STOP_ARM_MS);
@@ -38311,6 +38398,7 @@ var BotRow = memo(function BotRow2({ bot, roster, actions, useSessions, useSessi
   const running = useSessionStatus((map) => map.get(part)?.running === true);
   const active = useSessionRetainInfo(part, (info) => (info?.retainedBy?.mainView ?? 0) > 0);
   const unread = useSessionStatus((map) => map.get(part)?.completionUnread === true || map.get(part)?.pendingInteraction !== void 0) || marked2 && !active;
+  const finished = useSessionStatus((map) => map.get(part)?.completionUnread === true) && !active;
   useMarkedUnread(id, active, marked2, actions);
   const main = isMainOf(roster, id);
   const tile = roster.mainBotId === id;
@@ -38332,7 +38420,9 @@ var BotRow = memo(function BotRow2({ bot, roster, actions, useSessions, useSessi
   const away = !running && groups.length > 0;
   const blockingAlert = blockingApproval || pending.question;
   const dmDoing = blockingAlert ? "alert" : doing === "alert" ? void 0 : doing;
-  const state = botState(running || away, dmDoing, alert);
+  const taskCounts = taskCountsOf({ bot });
+  const failed = useLastTurnFailed(bot, running);
+  const state = botState(running || away, dmDoing, alert, { failed, background: taskCounts.active > 0, replied: finished });
   const waitLine = blockingApproval ? t("Waiting for your approval") : pending.question ? t("Waiting for your answer") : null;
   const deferredWaitLine = nonBlockingApproval ? t("Waiting for your approval") : null;
   const runningLine = running && doing && doing !== "alert" ? doingLine(doing) : null;
@@ -38347,7 +38437,6 @@ var BotRow = memo(function BotRow2({ bot, roster, actions, useSessions, useSessi
     actions.openMenu({ kind: "bot", id, x: event.clientX, y: event.clientY });
   };
   const pinned = bot.pinned === true && !tile;
-  const taskCounts = taskCountsOf({ bot });
   const openTasks = () => {
     actions.openSession(id);
     actions.openTaskDeck?.(id);
@@ -51255,6 +51344,7 @@ function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSe
   const owner = roster.byId[sessionId]?.id ?? sessionId;
   const doing = useActivity((map) => map[owner]);
   const bot = roster.byId[sessionId];
+  const failed = useLastTurnFailed(bot, running);
   const room2 = roster.roomsById[sessionId];
   const goal = room2?.goal;
   const goalCompose = useUi((state) => room2 !== void 0 && state.goalCompose === room2.id);
@@ -51331,7 +51421,7 @@ function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSe
       title: away ? name : void 0,
       onClick: () => away ? selectView("chat") : memoryNotice ? actions.openMemory(changed) : actions.toggleDetails(sessionId)
     },
-    bot ? (0, import_react67.createElement)(BotAvatar, { bot, size: 24, state: botState(running, doing, roster.questions?.[currentPart(bot)] !== void 0), badge: false }) : room2 ? (0, import_react67.createElement)(RoomAvatar, { room: room2, roster, size: 24 }) : null,
+    bot ? (0, import_react67.createElement)(BotAvatar, { bot, size: 24, state: botState(running, doing, roster.questions?.[currentPart(bot)] !== void 0, { failed, background: taskCountsOf({ bot }).active > 0 }), badge: false }) : room2 ? (0, import_react67.createElement)(RoomAvatar, { room: room2, roster, size: 24 }) : null,
     goalShown ? (0, import_react67.createElement)(
       "span",
       { className: "bt-pill-swap" },
@@ -55665,6 +55755,7 @@ function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, a
   const side2 = move === "tab" ? void 0 : move;
   const close = () => actions.closeOverlay();
   const running = useSessionStatus((map) => map.get(part)?.running === true);
+  const failed = useLastTurnFailed(bot, running);
   const doing = useActivity((map) => map[bot?.id ?? sessionId]);
   const sessionsRef = (0, import_react81.useRef)(null);
   useSessions((list) => {
@@ -55743,7 +55834,7 @@ function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, a
     (0, import_react81.createElement)(
       "div",
       { key: "id", className: "bt-drawer-id", "data-move": side2 },
-      bot ? (0, import_react81.createElement)(BotAvatar, { bot, size: 64, state: botState(running, doing, roster.questions?.[part] !== void 0), main: isMainBot, badge: false, gaze: true, pokeable: true }) : (0, import_react81.createElement)(MemberPile, { room: room2, roster }),
+      bot ? (0, import_react81.createElement)(BotAvatar, { bot, size: 64, state: botState(running, doing, roster.questions?.[part] !== void 0, { failed, background: taskCountsOf({ bot }).active > 0 }), main: isMainBot, badge: false, gaze: true, pokeable: true }) : (0, import_react81.createElement)(MemberPile, { room: room2, roster }),
       editing ? (0, import_react81.createElement)("input", {
         className: "bt-drawer-name-input",
         autoFocus: true,
