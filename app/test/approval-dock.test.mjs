@@ -36,6 +36,15 @@ const { outputFiles } = await build({
         `,
         loader: 'js',
       }))
+      bundler.onResolve({ filter: /cells\.js$/ }, () => ({ path: 'cells.js', namespace: 'ad-cells-stub' }))
+      bundler.onLoad({ filter: /.*/, namespace: 'ad-cells-stub' }, () => ({
+        contents: `
+          export const Elapsed = () => null
+          export const Shimmer = ({ children }) => children ?? null
+          export const workPhrase = () => ''
+        `,
+        loader: 'js',
+      }))
     },
   }],
 })
