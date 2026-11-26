@@ -1280,3 +1280,202 @@ test('P2 #1: fast answer_work crossing actual Turn 1 -> Turn 2 boundary on bot-h
   assert.equal(agents.get('dm-a').calls.length, chiefCallsBeforeEnd + 1)
   assert.match(textOf(agents.get('dm-a').calls.at(-1)[1].content), /Deployed to us-west-2\./)
 })
+
+test('R1 P0-1 & P2-1: direct user text reply closes user_question wait without phantom wake; pending inbox wakes on resolve; startup cancels orphan approval waits', async (t) => {
+  const { rt, agents, emit } = await startHost(t)
+  rt.coordDb.ensureForegroundWork({ botId: 'a', sessionId: 'dm-a' })
+
+  // 1) Open an ask_user question card + SQLite required user_question wait on fg:a.
+  rt.state.questions['dm-a'] = { id: 'q-direct-1', callId: 'call-q1', question: 'Proceed?' }
+  rt.coordDb.addWait({
+    workId: 'fg:a',
+    kind: 'user_question',
+    targetId: 'question:q-direct-1',
+    required: true,
+    meta: { cardId: 'q-direct-1', sessionId: 'dm-a' },
+  })
+  assert.equal(rt.coordDb.listWaits({ workId: 'fg:a', status: 'open' }).length, 1)
+
+  // User replies directly in chat text (instead of clicking the card) -> closeCard closes SQLite wait.
+  const callsBefore = agents.get('dm-a').calls.length
+  emit('dm-a', 'turn/start', { turn: 1 })
+  emit('dm-a', 'user/message', { content: textBlock('Yes, go ahead'), source: { kind: 'user' } })
+  emit('dm-a', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  await realDelay(30)
+  assert.equal(rt.coordDb.listWaits({ workId: 'fg:a', status: 'open' }).length, 0, 'direct user text reply must close user_question wait')
+  assert.equal(agents.get('dm-a').calls.length, callsBefore, 'closing user_question wait with empty inbox must NOT fire phantom "(continue work)"')
+
+  // 2) P2-1: when an unread waking message IS queued while a user_question wait is open, resolving the wait wakes fg:a!
+  rt.coordDb.addWait({
+    workId: 'fg:a',
+    kind: 'user_question',
+    targetId: 'question:q-pending-2',
+    required: true,
+    meta: { cardId: 'q-pending-2', sessionId: 'dm-a' },
+  })
+  rt.coordDb.parkWaiting('fg:a')
+  rt.coordDb.receiveMessage({
+    workId: 'fg:a',
+    kind: 'result',
+    bodyPreview: 'Child finished while question was open',
+    payload: { renderedText: 'Child finished while question was open' },
+  })
+  rt.resolveUserQuestionWait({ sessionId: 'dm-a', kind: 'question', cardId: 'q-pending-2', status: 'resolved' })
+  await settle(() => agents.get('dm-a').calls.some(([, m]) => textOf(m.content).includes('Child finished while question was open')), 2000, 'resolving user_question wait must wake work with unread waking inbox')
+
+  // Complete that foreground turn so fg:a returns to idle.
+  const wokenMsg = agents.get('dm-a').calls.at(-1)[1]
+  emit('dm-a', 'turn/start', { turn: 2 })
+  emit('dm-a', 'user/message', { content: wokenMsg.content, source: wokenMsg.source })
+  emit('dm-a', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
+
+  // 3) Orphan open approval wait after restart is cancelled by adoptLiveWork and unblocks pending inbox!
+  rt.coordDb.addWait({
+    workId: 'fg:a',
+    kind: 'approval',
+    targetId: 'approval:dead-appr-99',
+    required: true,
+    meta: { approvalId: 'dead-appr-99', sessionId: 'dm-a' },
+  })
+  rt.coordDb.parkWaiting('fg:a')
+  rt.coordDb.receiveMessage({
+    workId: 'fg:a',
+    kind: 'result',
+    bodyPreview: 'Result after orphan approval',
+    payload: { renderedText: 'Result after orphan approval' },
+  })
+  await rt.adoptLiveWork()
+  const remainingAppr = rt.coordDb.listWaits({ workId: 'fg:a', kind: 'approval', status: 'open' })
+  assert.equal(remainingAppr.length, 0, 'adoptLiveWork must cancel orphan approval waits whose in-memory approval no longer exists')
+  await settle(() => agents.get('dm-a').calls.some(([, m]) => textOf(m.content).includes('Result after orphan approval')), 2000, 'cancelling orphan approval wait must unblock pending inbox')
+})
+
+test('R1 P0-2 & P1-3: startTask records D2 idempotencyKey; restart preserves needs_verification without clobbering and surfaces standalone task in inboxView', async (t) => {
+  const { rt, agents, tool } = await startHost(t)
+  await tool('task_start', { title: 'deploy prod', brief: 'run deploy script' }, 'dm-a')
+  const bot = rt.botOf('a')
+  const task = bot.tasks[0]
+  assert.ok(task, 'task_start must create a background task')
+  const taskWorkId = `task:${task.id}`
+  const dbWork = rt.coordDb.getWork(taskWorkId)
+  assert.ok(dbWork?.activeDeliveryKey, 'startTask must record durable D2 activeDeliveryKey')
+  const deliveredMsg = agents.get(task.sessionId).calls[0][1]
+  assert.equal(deliveredMsg.source.idempotencyKey, dbWork.activeDeliveryKey, 'delivered task prompt must carry matching idempotencyKey')
+
+  // Clear in-memory inbox & pending direct tracker (simulating fresh process after restart)
+  // so reconcileTasksAfterRestart would previously have killed this task as idle/interrupted.
+  agents.get(task.sessionId).inbox.nextTurn.length = 0
+  agents.get(task.sessionId).inbox.nextStep.length = 0
+  rt.forgetDelivery?.(deliveredMsg.source.exchangeId)
+  rt.forgetWorkDeliveries?.(taskWorkId)
+
+  // Simulate host restart with D2 reporting interrupted side-effect tools -> needs_verification.
+  const origQuery = rt.queryDeliveryStatus
+  rt.queryDeliveryStatus = async () => ({
+    status: 'aborted',
+    consumed: true,
+    interruptedTools: [{ toolName: 'bash', callId: 'c1' }],
+  })
+  try {
+    await rt.adoptLiveWork()
+  } finally {
+    rt.queryDeliveryStatus = origQuery
+  }
+
+  assert.equal(rt.coordDb.getWork(taskWorkId).status, 'needs_verification', 'reconcileTasksAfterRestart must NOT clobber needs_verification to stopped')
+  assert.equal(task.status, 'waiting_work', 'task must remain active waiting_work for user verification, never interrupted')
+  const inbox = rt.inboxView()
+  assert.ok(
+    inbox.items.some(item => item.kind === 'paused' && item.id === `paused:${taskWorkId}`),
+    'standalone task in needs_verification must surface in inboxView()',
+  )
+})
+
+test('R1 P1-1: user turn abort/yield and direct non-coordDb relay end do NOT settle or ack activeClaims, while pre-step hard failure does', async (t) => {
+  const { rt, agents, emit, tool } = await startHost(t)
+  await tool('delegate_work', { to: 'Writer', goal: 'audit schema' }, 'dm-a')
+  await settle(() => agents.get('dm-b').calls.length >= 1, 2000)
+  const reqMsg = agents.get('dm-b').calls[0][1]
+  const workId = reqMsg.source.coordWorkId
+  assert.ok(workId, 'delegate_work must dispatch coordWorkId')
+  assert.equal(rt.coordDb.getWork(workId).status, 'running')
+
+  // 1) Overlapping user turn aborted (hadUserMessage: true) -> must NOT touch active claim!
+  rt.notifyTurnLifecycle({ type: 'turn/aborted', sessionId: 'dm-b', turn: 10, reasonKind: 'aborted', isUserTurn: true, hadUserMessage: true })
+  assert.equal(rt.coordDb.getWork(workId).status, 'running', 'user turn abort must not settle active claim')
+
+  // 2) Overlapping user turn yielded (hadUserMessage: true) -> must NOT yield or ack active claim!
+  rt.notifyTurnLifecycle({ type: 'turn/yielded', sessionId: 'dm-b', turn: 11, reasonKind: 'yielded', isUserTurn: true, hadUserMessage: true })
+  assert.equal(rt.coordDb.getWork(workId).status, 'running', 'user turn yield must not yield active claim')
+
+  // 3) Direct non-coordDb relay turn (`task-report`, no coordWorkId) ended -> must NOT settle active claim!
+  rt.notifyTurnLifecycle({
+    type: 'turn/ended',
+    sessionId: 'dm-b',
+    turn: 12,
+    reasonKind: 'completed',
+    text: 'task report ack',
+    info: { kind: SOURCE_KIND, role: 'task-report', exchangeId: 'tr-1' },
+    isUserTurn: false,
+    hadUserMessage: true,
+  })
+  assert.equal(rt.coordDb.getWork(workId).status, 'running', 'direct non-coordDb relay end must not settle active claim')
+  assert.equal(rt.coordDb.listInbox(workId, { unreadOnly: true }).length, 1, 'unread inbox must NOT be prematurely acked')
+
+  // 4) Pre-step hard failure before user/message (isUserTurn: true, hadUserMessage: false) -> MUST fail active claim!
+  emit('dm-b', 'turn/start', { turn: 13 })
+  emit('dm-b', 'turn/end', { turn: 13, reason: { kind: 'error', error: { code: 'MODEL_ERR', message: 'pre-step boom' } } })
+  await settle(() => rt.coordDb.getWork(workId).status === 'failed', 2000, 'pre-step hard failure must fail active claim')
+})
+
+test('R1 P1-2: deliverToTask (task_send) delivers exactly once without double-enqueue or phantom "(continue work)"', async (t) => {
+  const { rt, agents, tool } = await startHost(t)
+  await tool('task_start', { title: 'bg build', brief: 'build artifacts' }, 'dm-a')
+  const task = rt.botOf('a').tasks[0]
+  const taskAgent = agents.get(task.sessionId)
+  task.status = 'waiting_work'
+  rt.coordDb.parkWaiting(`task:${task.id}`)
+  const callsBefore = taskAgent.calls.length
+
+  await rt.deliverToTask(task.id, { text: 'switch to release mode' })
+  await rt.kickScheduler()
+  await realDelay(40)
+
+  const newCalls = taskAgent.calls.slice(callsBefore)
+  assert.equal(newCalls.length, 1, 'deliverToTask + kickScheduler must deliver exactly once (no double-enqueue)')
+  assert.match(textOf(newCalls[0][1].content), /switch to release mode/)
+  assert.ok(!newCalls.some(([, m]) => textOf(m.content).includes('(continue work)')), 'must never fire phantom "(continue work)"')
+})
+
+test('R1 P1-3: resumePausedWork on group room_work (paused and needs_verification) routes through resumeRoomPause', async (t) => {
+  const team = makeTeam({
+    rooms: {
+      r1: { id: 'r1', name: 'Design', sessionId: 'room-r1', members: ['a', 'b'], sessions: { a: 'rm-a', b: 'rm-b' } },
+    },
+  })
+  const { rt, agents } = await startHost(t, { team })
+  const room = rt.roomOf('r1')
+  const created1 = rt.openRoomCall(room, 'a', [rt.botOf('b')])
+  const w1 = created1.children[0].work.workId
+  rt.coordDb.pauseWork(w1, { status: 'paused', reason: 'no_progress' })
+
+  const resumed1 = await rt.resumePausedWork(w1)
+  assert.equal(resumed1, true, 'resumePausedWork must succeed for paused group room_work')
+  assert.notEqual(rt.coordDb.getWork(w1).status, 'paused')
+  assert.ok(
+    agents.get('room-r1').calls.some(([, m]) => m.source?.resumedPause === true && m.source?.resumedWorkIds?.includes(w1)),
+    'resuming paused group room_work must route through resumeRoomPause and enqueue group resume post',
+  )
+
+  const created2 = rt.openRoomCall(room, 'a', [rt.botOf('b')])
+  const w2 = created2.children[0].work.workId
+  rt.coordDb.pauseWork(w2, { status: 'needs_verification', reason: 'interrupted_tools' })
+
+  const resumed2 = await rt.resumePausedWork(w2)
+  assert.equal(resumed2, true, 'resumePausedWork must succeed for needs_verification group room_work')
+  assert.notEqual(rt.coordDb.getWork(w2).status, 'needs_verification')
+  assert.ok(
+    agents.get('room-r1').calls.some(([, m]) => m.source?.resumedPause === true && m.source?.resumedWorkIds?.includes(w2)),
+    'resuming needs_verification group room_work must route through resumeRoomPause',
+  )
+})

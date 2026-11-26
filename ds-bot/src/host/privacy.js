@@ -1144,7 +1144,7 @@ export function install(rt) {
           const keys = await spellings(base === undefined ? candidate : resolve(base, candidate), memo)
           if (keys.some(key => protectedPaths.some(file => key === file || key.startsWith(file.endsWith('api-') ? file : `${file}.`)))) throw closedApi()
         }
-        if (flat.includes('api-') || flat.includes('mcp.json') || flat.includes('telemetry.json')) {
+        if (flat.includes('api-') || flat.includes('mcp.json') || flat.includes('telemetry.json') || flat.includes('coordination.sqlite')) {
           const homeKeys = await spellings(rt.home, memo)
           const baseKeys = base === undefined ? [] : await spellings(base, memo)
           if (base === undefined || baseKeys.some(k => homeKeys.some(h => within(h, k)))) throw closedApi()

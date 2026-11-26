@@ -730,6 +730,13 @@ export function install(rt) {
     if (!writableCoordDb()) return { resumed: false, resumedWorkIds: [], queuedWorkIds: [] }
     const work = findDbWork(idOrRef)
     if (work === undefined) return { resumed: false, resumedWorkIds: [], queuedWorkIds: [] }
+    if (work.roomId && work.originKind === 'group' && typeof rt.resumeRoomPause === 'function') {
+      if (work.status !== 'paused' && work.status !== 'needs_verification') {
+        return { resumed: false, resumedWorkIds: [], queuedWorkIds: [] }
+      }
+      void rt.resumeRoomPause(work.roomId, { workId: work.workId }).catch(() => {})
+      return { resumed: true, resumedWorkIds: [work.workId], queuedWorkIds: [] }
+    }
     const res = rt.coordDb.resumeWork(work.workId, { resumeChain, resetProgress, reason })
     if (res.resumed) {
       void rt.kickScheduler?.().catch(() => {})
@@ -1089,6 +1096,7 @@ export function install(rt) {
           goal: work.title ?? headOf(detail.message ?? detail.text ?? '', 200),
           ...(detail.question ? { question: headOf(detail.question, 200) } : {}),
           ...(detail.count !== undefined ? { bounces: detail.count } : {}),
+          ...(work.roomId ? { roomId: work.roomId } : {}),
           at: typeof detail.at === 'number' ? detail.at : (work.updatedAt ?? work.createdAt),
         })
       }
@@ -1300,7 +1308,9 @@ export function install(rt) {
         const targetBot = abandoned.waiting ?? abandoned.from ?? parentWork?.botId ?? work.botId
         const body = String(text ?? '').trim()
         if (targetBot !== undefined && body !== '' && typeof rt.deliver === 'function') {
-          const targetSession = parentWork?.sessionId ?? rt.chatOf?.(targetBot)
+          const targetSession = (parentWork?.logicalAddress ? rt.resolveLogicalSession?.(parentWork.logicalAddress) : undefined)
+            ?? parentWork?.sessionId
+            ?? rt.chatOf?.(targetBot)
           void rt.deliver({
             fromName: subName,
             toId: targetBot,

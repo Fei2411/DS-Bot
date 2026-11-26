@@ -561,6 +561,9 @@ export function openCoordinationDb({
     hasUnreadInterruptingAfter: db.prepare(
       "SELECT seq FROM inbox WHERE work_id = ? AND seq > ? AND read_at IS NULL AND kind IN ('request', 'revise', 'ask') ORDER BY seq ASC LIMIT 1",
     ),
+    hasUnreadForegroundInterruptingAfter: db.prepare(
+      "SELECT seq FROM inbox WHERE work_id = ? AND seq > ? AND read_at IS NULL AND (kind IN ('request', 'revise', 'ask') OR (kind = 'result' AND sender_address LIKE 'room-report:%')) ORDER BY seq ASC LIMIT 1",
+    ),
     insertInbox: db.prepare(`
       INSERT INTO inbox (
         work_id, seq, dedup_key, kind, sender_address, sender_bot_id,
@@ -908,7 +911,13 @@ export function openCoordinationDb({
     return transaction(() => {
       const existing = stmt.getWork.get(workId)
       if (!existing) throw new CoordinationError('coordination/not_found', `Work ${workId} not found`)
-      stmt.rebindSession.run(toSql(sessionId), toSql(executionKind), toSql(workspaceDir), now(), workId)
+      stmt.rebindSession.run(
+        toSql(sessionId),
+        toSql(executionKind),
+        toSql(workspaceDir !== undefined ? canonicalizeWorkspaceDir(workspaceDir) : undefined),
+        now(),
+        workId,
+      )
       return mapWork(stmt.getWork.get(workId))
     })
   }
@@ -1240,6 +1249,7 @@ export function openCoordinationDb({
           payload: initialMessage.payload,
           priority: initialMessage.priority,
           dshIdempotencyKey: initialMessage.dshIdempotencyKey,
+          ...(initialMessage.wake === false ? { wake: false } : {}),
         })
         childMessage = received.message
       }
@@ -1908,9 +1918,12 @@ export function openCoordinationDb({
       const checkSeq = expectedInboxSeq ?? work.claimed_inbox_seq ?? 0
       const revisionChanged = checkRevision !== null && checkRevision !== undefined && work.revision !== checkRevision
       // When required waits remain open, partial `result`/`answer` messages wait in inbox until
-      // all required waits resolve; only `request`/`revise`/`ask` or revision bumps block yield.
+      // all required waits resolve; only `request`/`revise`/`ask` (or foreground `room-report:`
+      // results) or revision bumps block yield.
       const unreadWaking = openReqWaits > 0
-        ? stmt.hasUnreadInterruptingAfter.get(workId, checkSeq)
+        ? (work.kind === 'foreground'
+            ? stmt.hasUnreadForegroundInterruptingAfter.get(workId, checkSeq)
+            : stmt.hasUnreadInterruptingAfter.get(workId, checkSeq))
         : stmt.hasUnreadWakingAfter.get(workId, checkSeq)
 
       // Silent notes never block yield; only revision changes or unread waking messages do.
@@ -2874,35 +2887,24 @@ export function openCoordinationDb({
         if (!wId) continue
         const targetWork = stmt.getWork.get(wId)
         if (!targetWork || TERMINAL_WORK_STATUSES.has(targetWork.status)) continue
-        if (record.approval) {
-          const wRes = addWait({
-            waitId: `wt_legacy_appr_${sessionId}`,
-            workId: wId,
-            kind: 'approval',
-            targetId: `approval:${sessionId}`,
-            meta: { migratedFrom: 'inflight.turns', approval: record.approval },
-          })
-          if (wRes.created) imported.waits += 1
-          else skipped.waits += 1
-        } else {
-          // Record interrupted turn metadata for DSH D2 reconciliation instead of synthesizing
-          // a fake inbox request (prevents replaying a turn that already finished in DSH logs).
-          const turnKey = record.trigger?.exchangeId ?? `legacy:turn:${sessionId}:${record.turn ?? record.since ?? 0}`
-          if (targetWork.active_delivery_key === turnKey) {
-            skipped.works += 1
-            continue
-          }
-          const ts = now()
-          stmt.deleteReady.run(wId)
-          db.prepare(`
-            UPDATE works
-            SET status = 'running',
-                active_delivery_key = ?,
-                active_turn = COALESCE(?, active_turn),
-                updated_at = ?
-            WHERE work_id = ?
-          `).run(turnKey, toSql(Number.isInteger(record.turn) ? record.turn : null), ts, wId)
+        // Record interrupted turn metadata for DSH D2 reconciliation instead of synthesizing
+        // a fake inbox request or an unanswerable orphan approval wait (memory pending approvals
+        // do not survive restart, so leaving an open required approval wait would deadlock the work).
+        const turnKey = record.trigger?.exchangeId ?? `legacy:turn:${sessionId}:${record.turn ?? record.since ?? 0}`
+        if (targetWork.active_delivery_key === turnKey) {
+          skipped.works += 1
+          continue
         }
+        const ts = now()
+        stmt.deleteReady.run(wId)
+        db.prepare(`
+          UPDATE works
+          SET status = 'running',
+              active_delivery_key = ?,
+              active_turn = COALESCE(?, active_turn),
+              updated_at = ?
+          WHERE work_id = ?
+        `).run(turnKey, toSql(Number.isInteger(record.turn) ? record.turn : null), ts, wId)
       }
 
       const cancelledLegacyIds = new Set()

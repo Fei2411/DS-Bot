@@ -1155,6 +1155,13 @@ export function install(rt) {
   // was asked, its call id and how it closed. A card answered on the card shows
   // on its reply message.
   const closeCard = (sessionId, card, outcome) => {
+    rt.resolveUserQuestionWait?.({
+      sessionId,
+      kind: card?.view !== undefined ? 'view' : 'question',
+      cardId: card?.id,
+      status: outcome === 'replied' ? 'resolved' : 'cancelled',
+      resolution: { outcome },
+    })
     if (typeof card?.callId !== 'string') return
     const target = typeof card.callSessionId === 'string' ? card.callSessionId : sessionId
     state.closedCards[target] = { ...own(state.closedCards, target), [card.callId]: outcome }

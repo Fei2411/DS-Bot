@@ -1149,6 +1149,7 @@ export function install(rt) {
           && (source?.kind === 'user' || source?.kind === REPLY_KIND || source?.kind === 'schedule' || source?.kind === SOURCE_KIND)) {
           entry.opened = true
         }
+        if (entry.turn !== undefined) entry.hadUserMessage = true
         if (entry.turn !== undefined && (source?.kind === 'user' || source?.kind === REPLY_KIND || source?.kind === SOURCE_KIND)) {
           if (bare(source)) {
             if (entry.answers) break
@@ -1357,6 +1358,7 @@ export function install(rt) {
         const workToolCount = entry.workToolCount ?? 0
         const uiToolCount = entry.uiToolCount ?? 0
         const suppressedSubagent = entry.suppressedSubagent === true
+        const hadUserMessage = entry.hadUserMessage === true
         const switched = entry.switched === true
         const overflowFailure = entry.overflowFailure === true
         const watched = entry.turn !== undefined
@@ -1371,6 +1373,7 @@ export function install(rt) {
         entry.workToolCount = 0
         entry.uiToolCount = 0
         entry.suppressedSubagent = false
+        entry.hadUserMessage = false
         entry.switched = false
         entry.overflowFailure = false
         entry.lastSwitched = switched
@@ -1550,6 +1553,7 @@ export function install(rt) {
             uiToolCount,
             info,
             isUserTurn: info === undefined,
+            hadUserMessage,
           })
         }
 

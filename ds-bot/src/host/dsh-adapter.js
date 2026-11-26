@@ -1134,18 +1134,30 @@ export function install(rt) {
       pendingFallbackNoteAcks.delete(sessionId)
 
       let active = activeClaims.get(sessionId)
-      if (active && event.type === 'turn/ended' && event.info?.coordWorkId !== undefined && event.info.coordWorkId !== active.workId) {
-        // An unrelated coordDb work's turn ended on this session: do not settle `active`.
-        active = undefined
-      } else if (active && event.type === 'turn/ended' && event.isUserTurn === true) {
-        // A user turn ended while `active` was queued or steered-and-deferred on this session:
-        // never settle `active` with the user turn's reply!
-        return
+      if (active && event.info !== undefined) {
+        if (event.info.coordWorkId === undefined) {
+          // A direct non-coordDb relay turn (`task-report`, `kickoff`, `continue`, `secret`,
+          // `answerSender`, etc.) finished while `active` was queued or deferred on this session:
+          // never settle or yield `active` from an unrelated relay turn.
+          return
+        }
+        if (event.info.coordWorkId !== active.workId) {
+          // An unrelated coordDb work's turn ended on this session: do not settle `active`.
+          active = undefined
+        }
+      } else if (active && event.isUserTurn === true) {
+        // A user turn ended/aborted/failed/yielded while `active` was queued or deferred on this
+        // session: never settle or yield `active`, except for a pre-step hard error before any
+        // `user/message` committed (which belongs to the dispatched `active` claim).
+        if (!(event.type === 'turn/failed' && event.hadUserMessage !== true)) {
+          return
+        }
       }
       if (!active) {
         const infoWorkId = event.info?.coordWorkId !== undefined ? rt.workOf?.(event.info) : undefined
         const dbWork = infoWorkId !== undefined ? coordDb.getWork(infoWorkId) : undefined
-        if (dbWork && dbWork.kind !== 'foreground' && !['done', 'failed', 'stopped'].includes(dbWork.status)) {
+        if (dbWork && dbWork.kind !== 'foreground' && dbWork.kind !== 'task' && dbWork.kind !== 'room_work'
+          && !['done', 'failed', 'stopped'].includes(dbWork.status)) {
           // Turn carrying `coordWorkId` completed after a restart/reload before `activeClaims` was hydrated.
           active = {
             workId: dbWork.workId,
@@ -1305,10 +1317,10 @@ export function install(rt) {
           const fullText = rt.answerText?.(active.workId, event.text ?? '', senderName) ?? (event.text ?? '')
           const parentWork = work.parentWorkId ? coordDb.getWork(work.parentWorkId) : undefined
           const needsResultFile = parentWork !== undefined && parentWork.kind !== 'foreground'
-          const resultRef = needsResultFile ? rt.keepResultFile?.(active.workId, fullText) : undefined
           const origLength = fullText.length > TEXT_KEPT ? fullText.length : undefined
           const finalizeDone = (long) => {
             if (isStopped(rt.coordDb)) return
+            const resultRef = needsResultFile ? rt.keepResultFile?.(active.workId, fullText) : undefined
             if (origLength !== undefined) {
               try { rt.coordDb.updateApiMeta?.(active.workId, { resultLength: origLength }) } catch {}
             }

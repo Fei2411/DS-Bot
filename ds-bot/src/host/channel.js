@@ -244,28 +244,23 @@ export function install(rt) {
       const realWokenWorkIds = []
       db.transaction(() => {
         for (const w of matches) {
-          const res = db.resolveWait({
+          db.resolveWait({
             waitId: w.waitId,
             status,
             resolution: { kind, cardId, sessionId, ...resolution },
             wake: false,
           })
           // `answerQuestion` / `answerView` already delivered the reply via `agent.followup`
-          // (and `dismiss-*` must not start a turn). If `resolveWait` enqueued `ready` with
-          // zero unread inbox messages, drain that empty `ready` row back to `idle` so the
-          // scheduler never fires a phantom `"(continue work)"` turn.
-          if (res?.workWoken === true) {
-            const claimed = db.claimReady({ workId: w.workId })
-            if (claimed) {
-              if (claimed.unreadMessages.length === 0) {
-                db.yieldWork({
-                  workId: w.workId,
-                  claimToken: claimed.claimToken,
-                  nextStatus: 'idle',
-                  expectedRevision: claimed.claimedRevision,
-                  expectedInboxSeq: claimed.claimedInboxSeq,
-                })
-              } else {
+          // (and `dismiss-*` must not start a turn). Wake the work only when no required waits
+          // remain open AND there is at least one unread waking message waiting in its inbox,
+          // so we never fire a phantom `"(continue work)"` turn when inbox is empty.
+          const openReq = db.listWaits({ workId: w.workId, status: 'open', limit: 20 })
+            .filter(item => item.required)
+          if (openReq.length === 0) {
+            const work = db.getWork(w.workId)
+            if (work && (work.status === 'waiting' || work.status === 'idle')) {
+              const unreadWaking = db.listInbox(w.workId, { unreadOnly: true, includeNotes: false, limit: 1 })
+              if (unreadWaking.length > 0) {
                 db.requeueInterruptedWork(w.workId, { reason: 'pending_inbox_after_user_question' })
                 realWokenWorkIds.push(w.workId)
               }
@@ -1664,7 +1659,7 @@ export function install(rt) {
     return issueReportResult === undefined ? true : { issueReportResult }
   }
 
-  Object.assign(rt, { sendUser, answerQuestion, answerView })
+  Object.assign(rt, { sendUser, answerQuestion, answerView, resolveUserQuestionWait })
 
   // An exact Fetch route on the shared /api channel; the browser authenticates with its session cookie.
   ctx.effect(() => {

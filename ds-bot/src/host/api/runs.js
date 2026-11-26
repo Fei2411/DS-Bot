@@ -1807,24 +1807,19 @@ export function createRunCoordinator(rt, auth) {
           const wait = db.listWaits({ kind: 'user_question', status: 'open', targetId: `view:${action.actionId}`, limit: 1 })[0]
           if (wait !== undefined) {
             db.transaction(() => {
-              const res = db.resolveWait({
+              db.resolveWait({
                 waitId: wait.waitId,
                 status: 'resolved',
                 resolution: { kind: 'view', cardId: action.actionId, action: body.action },
                 wake: false,
               })
-              if (res?.workWoken === true) {
-                const claimed = db.claimReady({ workId: wait.workId })
-                if (claimed) {
-                  if (claimed.unreadMessages.length === 0) {
-                    db.yieldWork({
-                      workId: wait.workId,
-                      claimToken: claimed.claimToken,
-                      nextStatus: 'idle',
-                      expectedRevision: claimed.claimedRevision,
-                      expectedInboxSeq: claimed.claimedInboxSeq,
-                    })
-                  } else {
+              const openReq = db.listWaits({ workId: wait.workId, status: 'open', limit: 20 })
+                .filter(item => item.required)
+              if (openReq.length === 0) {
+                const work = db.getWork(wait.workId)
+                if (work && (work.status === 'waiting' || work.status === 'idle')) {
+                  const unreadWaking = db.listInbox(wait.workId, { unreadOnly: true, includeNotes: false, limit: 1 })
+                  if (unreadWaking.length > 0) {
                     db.requeueInterruptedWork(wait.workId, { reason: 'pending_inbox_after_user_question' })
                     wakeWorkId = wait.workId
                   }

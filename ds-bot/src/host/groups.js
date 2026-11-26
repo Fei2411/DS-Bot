@@ -2388,11 +2388,11 @@ export function install(rt) {
   // Resumes any paused `room_work` rows (including the room's chain anchor) in SQLite when
   // the user writes a message or clicks Continue. Always consumes `ready` tokens so
   // `dsh-adapter.js` never dispatches a group delegation outside `group_relay`.
-  const resumePausedRoomWorks = (room, round, { reason = 'user_resume' } = {}) => {
+  const resumePausedRoomWorks = (room, round, { reason = 'user_resume', workId } = {}) => {
     const handle = writableDb()
     if (handle === null || room === undefined) return 0
-    const paused = handle.listWorks({ kind: 'room_work', roomId: room.id, status: 'paused', limit: 200 })
-      .filter(work => isDelegationWork(work) || isChainWork(work))
+    const paused = handle.listWorks({ kind: 'room_work', roomId: room.id, statuses: ['paused', 'needs_verification'], limit: 200 })
+      .filter(work => (isDelegationWork(work) || isChainWork(work)) && (workId === undefined || work.workId === workId))
     if (paused.length === 0) {
       if (reason === 'user_message' || reason === 'goal_resume') resetRoomChainProgress(room)
       return 0
@@ -2438,14 +2438,14 @@ export function install(rt) {
     resumePausedRoomWorks(room, runningRound(room.id), { reason: 'goal_resume' })
   }
 
-  async function resumeRoomPause(roomId) {
+  async function resumeRoomPause(roomId, { workId } = {}) {
     await rt.load()
     const room = rt.roomOf(roomId)
     if (room === undefined) return false
     const handle = writableDb()
     if (handle === null) return false
-    const paused = handle.listWorks({ kind: 'room_work', roomId: room.id, status: 'paused', limit: 200 })
-      .filter(work => isDelegationWork(work) || isChainWork(work))
+    const paused = handle.listWorks({ kind: 'room_work', roomId: room.id, statuses: ['paused', 'needs_verification'], limit: 200 })
+      .filter(work => (isDelegationWork(work) || isChainWork(work)) && (workId === undefined || work.workId === workId))
     const hadIdlePause = room.idlePaused !== undefined
     if (paused.length === 0 && !hadIdlePause) return false
     if (hadIdlePause) {
@@ -2457,12 +2457,12 @@ export function install(rt) {
     if (paused.length === 0) return true
     const running = runningRound(room.id)
     if (running !== undefined && !running.starting && !running.closed) {
-      resumePausedRoomWorks(room, running, { reason: 'user_continue' })
+      resumePausedRoomWorks(room, running, { reason: 'user_continue', workId })
       running.nudge?.()
       return true
     }
     const resumedCalls = paused.filter(isCallWork)
-    resumePausedRoomWorks(room, undefined, { reason: 'user_continue' })
+    resumePausedRoomWorks(room, undefined, { reason: 'user_continue', workId })
     if (resumedCalls.length > 0) {
       const exchangeId = randomUUID()
       const resumedWorkIds = resumedCalls.map(w => w.workId)

@@ -418,6 +418,11 @@ export function install(rt) {
       }
 
       const targetChat = rt.chatOf(target.id)
+      // Decide BEFORE `openCall` whether this delegation will run in a dedicated `bot-handoff`
+      // background task session. If so, defer enqueuing `ready` (`wake: false`) until the task
+      // session is created and bound via `rebindSession`, preventing any concurrent `kickScheduler`
+      // tick from stealing the work onto the busy foreground chat `targetChat` during `await`.
+      const willSpawnPeerTask = when !== 'queue' && targetChat !== undefined && rt.shouldSpawnPeerTask?.(target, targetChat) === true
       let created
       try {
         created = rt.openCall({
@@ -428,13 +433,14 @@ export function install(rt) {
           returnAddr: senderReturn,
           title: text,
           imOrigin,
-          sessionId: targetChat,
+          ...(willSpawnPeerTask ? {} : { sessionId: targetChat }),
           priority: when === 'queue' ? 'background' : 'interactive',
           initialMessage: {
             dedupKey: request?.dedupKey ?? `call:${exchangeId}:request`,
             senderAddress: senderReturn,
             senderBotId: sender.id,
             bodyPreview: oneLine(text, 400),
+            ...(willSpawnPeerTask ? { wake: false } : {}),
             payload: {
               role: 'request',
               fromId: sender.id,
@@ -470,10 +476,10 @@ export function install(rt) {
 
       // If target Bot's foreground chat is busy (and not `when: 'queue'` or local CLI),
       // bind this delegation to an isolated `bot-handoff` background task session before
-      // the scheduler dispatches it, keeping the user's foreground chat untouched.
+      // enqueuing it onto the scheduler, keeping the user's foreground chat untouched.
       let boundSessionId = targetChat
       let spawnedTask
-      if (when !== 'queue' && targetChat !== undefined && rt.shouldSpawnPeerTask?.(target, targetChat, { ignoreWorkId: created.workId })) {
+      if (willSpawnPeerTask) {
         try {
           spawnedTask = await rt.spawnBotHandoffTask?.(target, targetChat, {
             fromBot: sender,
@@ -493,6 +499,8 @@ export function install(rt) {
           throw error
         }
         if (spawnedTask?.sessionId) boundSessionId = spawnedTask.sessionId
+        else if (targetChat) rt.coordDb.rebindSession(created.workId, targetChat)
+        rt.coordDb.requeueInterruptedWork(created.workId, { reason: 'bot_handoff_bound' })
       }
 
       try {
@@ -519,7 +527,7 @@ export function install(rt) {
       } catch (error) {
         if (error?.code !== 'EIO') {
           const w = rt.coordDb?.getWork?.(created.workId)
-          if (error?.delivered !== true && w !== undefined && w.status !== 'running' && w.activeDeliveryKey === null) {
+          if (error?.delivered !== true && w !== undefined && w.status !== 'running' && w.status !== 'needs_verification' && w.activeDeliveryKey === null) {
             rt.dropWork?.(created.workId)
           }
           throw error
@@ -575,6 +583,10 @@ export function install(rt) {
     resumingWorks.add(rawKey)
     try {
       await rt.load()
+      const dbWork = rt.coordDb?.getWork?.(rawKey) ?? rt.resolveWork?.(rawKey)?.work
+      if (dbWork?.roomId && dbWork?.originKind === 'group' && typeof rt.resumeRoomPause === 'function') {
+        return await rt.resumeRoomPause(dbWork.roomId, { workId: dbWork.workId }) === true
+      }
       const res = rt.resumeWork?.(rawKey, { resumeChain: true, resetProgress: true, reason: 'user_resume' })
       return res?.resumed === true
     } finally {

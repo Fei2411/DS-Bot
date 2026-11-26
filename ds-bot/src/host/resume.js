@@ -177,6 +177,48 @@ export function install(rt) {
       migrateLegacyToCoordDb()
       rt.reconcileLostWorks?.()
 
+      // Cancel orphan open `approval` waits whose in-memory approval no longer exists after
+      // a host restart; otherwise their `required=1` wait would permanently deadlock the work.
+      try {
+        const liveApprovalIds = new Set(
+          (rt.approvalsView?.() ?? [])
+            .filter(item => item?.answerable !== false && typeof item?.id === 'string')
+            .map(item => item.id),
+        )
+        const openApprovalWaits = coordDb.listWaits({ kind: 'approval', status: 'open', limit: 500 })
+        if (openApprovalWaits.length > 0) {
+          coordDb.transaction(() => {
+            for (const wait of openApprovalWaits) {
+              const apprId = typeof wait.meta?.approvalId === 'string'
+                ? wait.meta.approvalId
+                : (typeof wait.targetId === 'string' && wait.targetId.startsWith('approval:')
+                    ? wait.targetId.slice('approval:'.length)
+                    : undefined)
+              if (apprId !== undefined && liveApprovalIds.has(apprId)) continue
+              coordDb.resolveWait({
+                waitId: wait.waitId,
+                status: 'cancelled',
+                resolution: { reason: 'host_restarted' },
+                wake: false,
+              })
+              const openReq = coordDb.listWaits({ workId: wait.workId, status: 'open', limit: 20 })
+                .filter(item => item.required)
+              if (openReq.length === 0) {
+                const work = coordDb.getWork(wait.workId)
+                if (work && (work.status === 'waiting' || work.status === 'idle')) {
+                  const unreadWaking = coordDb.listInbox(wait.workId, { unreadOnly: true, includeNotes: false, limit: 1 })
+                  if (unreadWaking.length > 0) {
+                    coordDb.requeueInterruptedWork(wait.workId, { reason: 'orphan_approval_cleared' })
+                  }
+                }
+              }
+            }
+          })
+        }
+      } catch (error) {
+        rt.warn?.('ds-bot: cleaning orphan approval waits failed: %s', error?.message ?? error)
+      }
+
       // Ensure every known Bot has its permanent foreground work bound to its latest session.
       for (const [id, bot] of Object.entries(rt.state?.bots ?? {})) {
         if (!bot || typeof bot !== 'object') continue
@@ -226,6 +268,12 @@ export function install(rt) {
           : (Number.isInteger(work.activeTurn) ? { turn: work.activeTurn } : undefined)
 
         if (!query) {
+          // Direct-dispatched `task` works without a durable delivery key or unread inbox messages
+          // (e.g. legacy `state.json` left-over tasks) cannot be replayed via `kickScheduler`; let
+          // `reconcileTasksAfterRestart` inspect and settle them as `interrupted`.
+          if (work.kind === 'task' && coordDb.listInbox(work.workId, { unreadOnly: true, includeNotes: false, limit: 1 }).length === 0) {
+            continue
+          }
           coordDb.requeueInterruptedWork(work.workId, { reason: 'restart_no_delivery_key' })
           continue
         }

@@ -1136,6 +1136,7 @@ export function install(rt) {
     if (taskWorkId !== undefined) {
       rt.openWork?.(taskWorkId, { from: bot.id, parent: parentWork, toSession: sessionId, toTaskId: id, name: `task "${name}"`, child: id })
     }
+    const deliveryKey = `task:${id}:${randomBytes(6).toString('hex')}`
     if (writableCoordDb()) {
       const coordWorkId = taskWorkId ?? taskAddress(id)
       try {
@@ -1160,6 +1161,11 @@ export function install(rt) {
           } else {
             rt.coordDb.rebindSession(coordWorkId, sessionId)
           }
+          rt.coordDb.recordDirectDeliveryAttempt({
+            workId: coordWorkId,
+            idempotencyKey: deliveryKey,
+            sessionId,
+          })
         })
       } catch (error) {
         rt.warn?.('ds-bot: registering task work %s in coordDb failed: %s', coordWorkId, error?.message ?? error)
@@ -1182,6 +1188,7 @@ export function install(rt) {
         role: 'task',
         note: `"${name}" (${id})`,
         taskId: id,
+        idempotencyKey: deliveryKey,
         recordExchange: false,
       })
     } catch (error) {
@@ -1244,21 +1251,34 @@ export function install(rt) {
       if (!isActiveTask(task) || settling.has(task.id)) {
         throw Object.assign(new Error(`Task "${task.title}" is ${task.status} and cannot receive messages.`), { code: 'bot/invalid' })
       }
+      const deliveryKey = `task-send:${task.id}:${randomBytes(6).toString('hex')}`
       let reviseWorkId
       let reviseSeq
       if (writableCoordDb()) {
         const coordWorkId = taskWorkIdOf(task)
         if (coordWorkId !== undefined && rt.coordDb.getWork(coordWorkId) !== undefined) {
           try {
-            rt.coordDb.rebindSession(coordWorkId, task.sessionId)
-            const recv = rt.coordDb.receiveMessage({
-              workId: coordWorkId,
-              kind: 'revise',
-              bodyPreview: oneLine(text, 200),
-              payload: { text: String(text ?? ''), role, note },
+            rt.coordDb.transaction(() => {
+              rt.coordDb.rebindSession(coordWorkId, task.sessionId)
+              const recv = rt.coordDb.receiveMessage({
+                workId: coordWorkId,
+                kind: 'revise',
+                bodyPreview: oneLine(text, 200),
+                payload: { text: String(text ?? ''), role, note },
+                dshIdempotencyKey: deliveryKey,
+                wake: false,
+              })
+              reviseWorkId = coordWorkId
+              reviseSeq = recv?.message?.seq
+              const dbWork = rt.coordDb.getWork(coordWorkId)
+              if (dbWork && dbWork.status !== 'paused' && dbWork.status !== 'needs_verification' && dbWork.status !== 'stopping') {
+                rt.coordDb.recordDirectDeliveryAttempt({
+                  workId: coordWorkId,
+                  idempotencyKey: deliveryKey,
+                  sessionId: task.sessionId,
+                })
+              }
             })
-            reviseWorkId = coordWorkId
-            reviseSeq = recv?.message?.seq
           } catch { /* best-effort */ }
         }
       }
@@ -1270,11 +1290,15 @@ export function install(rt) {
         role,
         note: note ?? `"${task.title}" (${task.id})`,
         taskId: task.id,
+        idempotencyKey: deliveryKey,
         steer,
         recordExchange: false,
         ...(reviseWorkId ? { coordWorkId: reviseWorkId } : {}),
         ...(Number.isInteger(reviseSeq) ? { coordThroughSeq: reviseSeq } : {}),
       })
+      if (writableCoordDb() && reviseWorkId !== undefined && Number.isInteger(reviseSeq)) {
+        try { rt.coordDb.ackInboxSeq(reviseWorkId, reviseSeq) } catch { /* best-effort */ }
+      }
       return { botId: bot.id, taskId: task.id, sessionId: task.sessionId }
     } finally {
       delivering.delete(task.id)
@@ -1365,6 +1389,39 @@ export function install(rt) {
         if (state.switching?.[sid] !== undefined || rt.isSwitchingPart?.(sid)) continue
         if ((rt.runningJobs?.(sid)?.length ?? 0) > 0) continue
         if ((rt.unreadOf?.(sid)?.length ?? 0) > 0) continue
+        // Respect D2 crash-reconciled SQLite work status before touching cold/corrupt sessions
+        // so `needs_verification`, `paused`, `queued`, `waiting`, and already-settled works are
+        // never clobbered into `interrupted` / `stopped`.
+        const coordWorkId = taskWorkIdOf(task)
+        const dbWork = hasCoordDb() && coordWorkId !== undefined ? rt.coordDb.getWork(coordWorkId) : undefined
+        if (dbWork !== undefined) {
+          if (dbWork.status === 'needs_verification' || dbWork.status === 'paused' || dbWork.status === 'waiting') {
+            if (task.status !== 'waiting_work') {
+              task.status = 'waiting_work'
+              task.updatedAt = Date.now()
+              await rt.save()
+            }
+            continue
+          }
+          if (dbWork.status === 'queued') {
+            const hasQueuedInbox = rt.coordDb.listInbox(coordWorkId, { unreadOnly: true, includeNotes: false, limit: 1 }).length > 0
+            if (hasQueuedInbox) continue
+          }
+          if (dbWork.status === 'done' || dbWork.status === 'failed' || dbWork.status === 'stopped') {
+            await settleTask(
+              bot,
+              task,
+              dbWork.status === 'done' ? 'completed' : dbWork.status,
+              {
+                text: dbWork.resultSummary ?? '',
+                error: dbWork.error?.message,
+                notifyForeground: true,
+                settleWork: false,
+              },
+            )
+            continue
+          }
+        }
         const agent = await rt.resolveAgent(sid).catch(() => undefined)
         if (agent?.status === 'running' || hasWakingInboxInput(agent)) continue
         if (hasOpenOutgoingWorks(bot, task) || isAwaitingHandoffInput(task)) {
