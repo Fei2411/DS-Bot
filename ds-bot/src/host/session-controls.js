@@ -706,8 +706,20 @@ export function install(rt) {
     throw invalid('Unknown queue action')
   }
 
-  const prevSessionEndpoint = rt.sessionEndpoint
-  rt.sessionEndpoint = async (name, body = {}, signal) => {
+  const SESSION_CONTROL_NAMES = new Set([
+    'controls',
+    'model',
+    'permission',
+    'commands',
+    'command-run',
+    'skills',
+    'files',
+    'question-answer',
+    'question-dismiss',
+    'queue-update',
+  ])
+
+  const sessionControlsEndpoint = async (name, body = {}, signal) => {
     switch (name) {
       case 'controls':
         return await readControls(requireSessionId(body?.sessionId), signal)
@@ -730,7 +742,6 @@ export function install(rt) {
       case 'queue-update':
         return await updateQueue(body)
       default:
-        if (typeof prevSessionEndpoint === 'function') return await prevSessionEndpoint(name, body, signal)
         throw notFound(`Unknown endpoint session-${name}`)
     }
   }
@@ -746,6 +757,8 @@ export function install(rt) {
   }, 'ds-bot: session controls')
 
   Object.assign(rt, {
+    hasSessionControlEndpoint: name => SESSION_CONTROL_NAMES.has(name),
+    sessionControlsEndpoint,
     userQuestionsView,
     sessionQueuesView,
   })

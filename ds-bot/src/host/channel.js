@@ -1268,7 +1268,11 @@ export function install(rt) {
           })
           return ok(true)
         default:
-          if (endpoint.startsWith('session-')) return ok(await rt.sessionEndpoint(endpoint.slice('session-'.length), body, signal))
+          if (endpoint.startsWith('session-')) {
+            const name = endpoint.slice('session-'.length)
+            if (rt.hasSessionControlEndpoint?.(name)) return ok(await rt.sessionControlsEndpoint(name, body, signal))
+            return ok(await rt.sessionEndpoint(name, body, signal))
+          }
           if (endpoint.startsWith('workspace-')) return ok(await rt.workspaceEndpoint(endpoint.slice('workspace-'.length), body, signal))
           if (endpoint.startsWith('terminal-')) return ok(await rt.terminalEndpoint(endpoint.slice('terminal-'.length), body, signal))
           if (endpoint.startsWith('engine-')) return ok(await rt.engineEndpoint(endpoint.slice('engine-'.length), body, signal, meta))
