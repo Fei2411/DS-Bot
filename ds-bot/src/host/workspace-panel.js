@@ -480,11 +480,16 @@ export function install(rt) {
   // for N + 1, and trimming drops whole parts so the position never lands inside one.
   const appendScrollback = (term, chunk) => {
     if (!chunk) return
-    for (let at = 0; at < chunk.length; at += TERMINAL_SCROLLBACK_PART_CHARS) {
-      const text = chunk.slice(at, at + TERMINAL_SCROLLBACK_PART_CHARS)
+    let at = 0
+    while (at < chunk.length) {
+      let end = Math.min(at + TERMINAL_SCROLLBACK_PART_CHARS, chunk.length)
+      const code = chunk.charCodeAt(end - 1)
+      if (end < chunk.length && end > at + 1 && code >= 0xd800 && code <= 0xdbff) end -= 1
+      const text = chunk.slice(at, end)
       term.endSeq += 1
       term.parts.push({ seq: term.endSeq, text })
       term.buffer += text
+      at = end
     }
   }
 
@@ -526,12 +531,10 @@ export function install(rt) {
       start: term.startSeq,
       end: term.endSeq,
     }
-    if (positions === undefined) return { ...base, snapshot: term.buffer, parts: term.parts.map(part => ({ seq: part.seq, text: part.text })) }
-    const after = positions[term.id]
-    if (after === undefined) {
-      return { ...base, snapshot: term.buffer, ...readScrollback(term, 0), cwd: term.cwd, title: term.title, pty: term.pty }
-    }
-    return { ...base, ...readScrollback(term, after), cwd: term.cwd, title: term.title, pty: term.pty }
+    if (positions === undefined) return { ...base, snapshot: term.buffer }
+    const after = Object.hasOwn(positions, term.id) ? positions[term.id] : undefined
+    const { chunk, ...catchup } = readScrollback(term, after ?? 0)
+    return { ...base, ...catchup, cwd: term.cwd, title: term.title, pty: term.pty }
   }
 
   async function openTerminal(body = {}, signal) {

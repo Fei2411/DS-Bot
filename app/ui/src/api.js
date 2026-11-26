@@ -4,8 +4,8 @@
 const RETRY_MS = [500, 1000, 2000, 5000]
 const HEALTHY_MS = 5_000
 const MAX_SSE_BUFFER_CHARS = 8 * 1024 * 1024
-// A Session that is gone, refused, or malformed stops the follow loop instead of retrying forever.
-const TERMINAL_SESSION_ERRORS = new Set(['bot/not-found', 'bot/refused', 'bot/invalid'])
+// A Session that is gone, refused, malformed, or stale stops the follow loop instead of retrying forever.
+const TERMINAL_SESSION_ERRORS = new Set(['bot/not-found', 'bot/refused', 'bot/invalid', 'bot/stale'])
 
 function parseEvent(block) {
   let event = 'message'
@@ -103,7 +103,7 @@ export function openFeed(onEvent) {
 /**
  * Follow one DSH Session through `GET api/bot/session` (SSE).
  * Reconnects with backoff on transient drops, stops on terminal errors (`bot/not-found`,
- * `bot/refused`, `bot/invalid`), and supports an immediate `reopen()` when the window sees
+ * `bot/refused`, `bot/invalid`, `bot/stale`), and supports an immediate `reopen()` when the window sees
  * a frame gap or a read-only refresh signal.
  * @param {{ sessionId: string, parent?: string, mode?: string, max?: number, after?: () => number }} request
  * @param {(event: 'frame' | 'error' | 'end' | 'lost', data: any) => void} onEvent

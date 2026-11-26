@@ -440,6 +440,14 @@ test('terminal endpoints preserve scrubbedParentEnv, publish only to local feed 
   const readHeld = await rt.terminalEndpoint('read', { id: opened.id, after: readAll.end })
   assert.equal(readHeld.chunk, '')
 
+  // A fixed-size part never cuts an astral surrogate pair in half.
+  const beforeAstral = readAll.end
+  output.write(`${'a'.repeat(4095)}😀z`)
+  await new Promise(resolve => setTimeout(resolve, 40))
+  const astral = await rt.terminalEndpoint('read', { id: opened.id, after: beforeAstral })
+  assert.equal(astral.parts[0].text.length, 4095)
+  assert.equal(astral.parts.map(part => part.text).join(''), `${'a'.repeat(4095)}😀z`)
+
   // Scrollback trimming drops whole numbered parts. A client behind the trim hears that
   // honestly; one at the exact retained boundary still reads every later part once.
   for (let index = 0; index < 18; index += 1) output.write(`${'x'.repeat(4090)}${index}\n`)
@@ -455,6 +463,10 @@ test('terminal endpoints preserve scrubbedParentEnv, publish only to local feed 
   assert.equal(withPositions[0].truncated, false)
   assert.equal(withPositions[0].parts[0].seq, trimmed.start)
   assert.equal(withPositions[0].snapshot, undefined)
+  const unseen = await rt.terminalEndpoint('list', { positions: {} })
+  assert.equal(unseen[0].snapshot, undefined)
+  assert.equal(unseen[0].chunk, undefined)
+  assert.ok(Array.isArray(unseen[0].parts))
 
   // Exit is part of the catch-up state even when its live event was not received.
   resolveDone({ exitCode: 7 })

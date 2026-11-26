@@ -141,12 +141,14 @@ export function useSessionFollow({ sessionId, enabled, feed, readOnly, onUserMes
     failed: false,
     pageFailed: false,
     terminalError: null,
+    historyReloaded: false,
   }))
   const logRef = useRef(emptyLog())
   const followRef = useRef(null)
   const genRef = useRef(0)
   const pagingRef = useRef(false)
   const openedRef = useRef(false)
+  const resyncRef = useRef(false)
   const seenUserSeqsRef = useRef(new Set())
   const onUserRef = useRef(onUserMessage)
   onUserRef.current = onUserMessage
@@ -157,16 +159,19 @@ export function useSessionFollow({ sessionId, enabled, feed, readOnly, onUserMes
     const myGen = ++genRef.current
     pagingRef.current = false
     openedRef.current = false
+    resyncRef.current = false
     seenUserSeqsRef.current = new Set()
     const fresh = emptyLog()
     logRef.current = fresh
-    setState({ log: fresh, thinkingAt: {}, loading: enabled, paging: false, failed: false, pageFailed: false, terminalError: null })
+    setState({ log: fresh, thinkingAt: {}, loading: enabled, paging: false, failed: false, pageFailed: false, terminalError: null, historyReloaded: false })
     if (!enabled || !sessionId) return undefined
 
-    const handle = openFollowRef.current({ sessionId, max: PAGE_SIZE, after: () => logRef.current.cursor }, (event, data) => {
+    const handle = openFollowRef.current({ sessionId, max: PAGE_SIZE, after: () => (resyncRef.current ? undefined : logRef.current.cursor) }, (event, data) => {
       if (genRef.current !== myGen) return
       if (event === 'frame') {
-        const next = applyFrame(logRef.current, data)
+        const resyncing = data?.type === 'snapshot' && resyncRef.current
+        const next = applyFrame(resyncing ? emptyLog() : logRef.current, data)
+        if (resyncing) resyncRef.current = false
         logRef.current = next.log
         // Notify new user messages so optimistic pending bubbles clear one-for-one without
         // matching historical duplicates or dropping messages on a gap-reopen frame.
@@ -195,10 +200,18 @@ export function useSessionFollow({ sessionId, enabled, feed, readOnly, onUserMes
           loading: false,
           failed: false,
           terminalError: null,
+          historyReloaded: current.historyReloaded || resyncing,
         }))
         if (next.reopen) followRef.current?.reopen()
       } else if (event === 'error') {
-        const terminal = data?.code === 'bot/not-found' || data?.code === 'bot/refused' || data?.code === 'bot/invalid'
+        if (data?.code === 'bot/stale' && !resyncRef.current) {
+          // The durable log no longer reaches this window's cursor. Reopen once without
+          // `after`; the fresh opening replaces the rows instead of looping on that cursor.
+          resyncRef.current = true
+          followRef.current?.reopen()
+          return
+        }
+        const terminal = data?.code === 'bot/not-found' || data?.code === 'bot/refused' || data?.code === 'bot/invalid' || data?.code === 'bot/stale'
         setState(current => ({
           ...current,
           loading: false,
@@ -266,6 +279,7 @@ export function useSessionFollow({ sessionId, enabled, feed, readOnly, onUserMes
     failed: state.failed,
     pageFailed: state.pageFailed,
     terminalError: state.terminalError,
+    historyReloaded: state.historyReloaded,
     hasMore: pageBefore(state.log) !== undefined,
     thinkingAt: state.thinkingAt,
     loadEarlier,
@@ -710,7 +724,7 @@ const TurnTailRow = memo(function TurnTailRow({ row, sessionId, useRoster, actio
 
 const EMPTY_SPEAKERS = new Set()
 
-const TranscriptRows = memo(function TranscriptRows({
+function renderTranscriptRows({
   rows, initialSpeakers = EMPTY_SPEAKERS, canLoadEarlierParts,
   sessionId, bot, roster, actions, classic, useUi, useRoster, useTurnClock, useWork, useHeldCards,
   useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer, thinkingAt, registry, lang,
@@ -782,7 +796,7 @@ const TranscriptRows = memo(function TranscriptRows({
       ? [h('div', { key: `${row.key}:clock`, className: 'bt-time-sep', role: 'separator' }, clockLabel(row.time)), node]
       : [node]
   })
-})
+}
 
 export function SessionTranscript({
   log, sessionId, bot, roster, actions, classic = false,
@@ -876,10 +890,26 @@ export function SessionTranscript({
     selfId, cwd, showThinking, flat,
   }
 
-  const projected = [
-    h(TranscriptRows, { key: 'committed', ...rowProps, rows: rowParts.committed }),
-    rowParts.live.length === 0 ? null : h(TranscriptRows, { key: 'writing', ...rowProps, rows: rowParts.live, initialSpeakers: committedSpeakers }),
-  ]
+  // Committed and live rows must be siblings in one keyed list: a live tool call that
+  // commits keeps the same component instance instead of unmounting into another subtree.
+  // The committed elements are memoized without `thinkingAt`, so stream chunks and
+  // reasoning clocks never repaint finished history.
+  const committedElements = useMemo(() => renderTranscriptRows({
+    ...rowProps,
+    thinkingAt: undefined,
+    rows: rowParts.committed,
+  }), [
+    rowParts.committed, canLoadEarlierParts, sessionId, bot, roster, actions, classic,
+    useUi, useRoster, useTurnClock, useWork, useHeldCards,
+    useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer, registry, lang,
+    resolvedUseRoster, resolvedUseUi, resolvedUseWork, resolvedUseHeldCards,
+    resolvedUseBrowserHolds, resolvedUseBrowserTabs, resolvedUseBrowserPages, resolvedUseComputer,
+    selfId, cwd, showThinking, flat,
+  ])
+  const liveElements = rowParts.live.length === 0
+    ? []
+    : renderTranscriptRows({ ...rowProps, rows: rowParts.live, initialSpeakers: committedSpeakers })
+  const projected = [...committedElements, ...liveElements]
 
   return showTopEarlierParts
     ? [h(EarlierParts, { key: `earlier-parts:${sessionId}`, sessionId, roster, actions }), ...projected]

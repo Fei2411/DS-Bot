@@ -947,6 +947,82 @@ test('WorkspaceTerminal resumes numbered output after feed reconnects and marks 
   }
 })
 
+
+test('WorkspaceTerminal does not auto-open after a list failure, appends reconnected terminals, and syncs early exits', async () => {
+  sandbox.__xterms.length = 0
+  let openCalls = 0
+  sandbox.__testCall = (endpoint) => {
+    if (endpoint === 'terminal-list') return Promise.reject(new Error('host hiccup'))
+    if (endpoint === 'terminal-open') { openCalls += 1; return Promise.resolve({ id: 'never', cwd: '/repo', title: 'repo' }) }
+    return Promise.resolve({})
+  }
+  let team = createTeam()
+  let inst = mount(WorkspaceTerminal, { sessionId: 'b1', feed: team.chat })
+  inst.render()
+  await tick()
+  await tick()
+  assert.equal(openCalls, 0, 'a failed terminal-list is not proof that no terminals exist')
+  inst.unmount()
+
+  // Reconnected discoveries append after existing tabs, keeping tab numbers stable.
+  const entry = (id, title) => ({ id, cwd: '/repo', title, pty: true, start: 1, end: 0, parts: [], truncated: false, exited: false, exitCode: null })
+  const answers = [
+    [entry('term-a', 'alpha')],
+    [entry('term-a', 'alpha'), entry('term-b', 'beta')],
+  ]
+  sandbox.__xterms.length = 0
+  sandbox.__testCall = (endpoint) => {
+    if (endpoint === 'terminal-list') return Promise.resolve(answers.length > 1 ? answers.shift() : answers[0])
+    return Promise.resolve({})
+  }
+  team = createTeam()
+  inst = mount(WorkspaceTerminal, { sessionId: 'b1', feed: team.chat })
+  try {
+    inst.render()
+    await tick()
+    await tick()
+    inst.render()
+    team.chat.emit('hello', {})
+    await tick()
+    await tick()
+    const text = textOf(inst.render())
+    assert.ok(text.indexOf('alpha #1') >= 0 && text.indexOf('alpha #1') < text.indexOf('beta #2'), `tabs keep their order: ${text}`)
+  } finally {
+    inst.unmount()
+  }
+
+  // An exit that wins the race with terminal-open still triggers an immediate positional catch-up.
+  sandbox.__xterms.length = 0
+  let resolveOpen
+  let listCalls = 0
+  sandbox.__testCall = (endpoint) => {
+    if (endpoint === 'terminal-list') {
+      listCalls += 1
+      return Promise.resolve(listCalls === 1 ? [] : [entry('term-fast', 'fast')].map(item => ({ ...item, end: 2, parts: [{ seq: 1, text: 'final-1\n' }, { seq: 2, text: 'final-2\n' }], exited: true, exitCode: 0 })))
+    }
+    if (endpoint === 'terminal-open') return new Promise(resolve => { resolveOpen = resolve })
+    return Promise.resolve({})
+  }
+  team = createTeam()
+  inst = mount(WorkspaceTerminal, { sessionId: 'b1', feed: team.chat })
+  try {
+    inst.render()
+    await tick()
+    await tick()
+    team.chat.emit('terminal-exit', { id: 'term-fast', code: 0, end: 2 })
+    resolveOpen({ id: 'term-fast', cwd: '/repo', title: 'fast', cols: 96, rows: 28, pty: true })
+    await tick()
+    await tick()
+    await tick()
+    assert.ok(listCalls >= 2, 'the early exit end position triggers terminal-list immediately')
+    inst.render()
+    assert.equal(sandbox.__xterms[0]?.written.join(''), 'final-1\nfinal-2\n')
+  } finally {
+    inst.unmount()
+    sandbox.__testCall = async () => ({})
+  }
+})
+
 test('WorkspaceTerminal closes sub-tabs reliably on rapid/concurrent clicks, prevents mousedown scroll-shift, supports wheel scroll, and handles non-PTY & shortcuts cleanly', async () => {
   const closedCalls = []
   const inputCalls = []

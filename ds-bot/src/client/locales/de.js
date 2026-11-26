@@ -2450,6 +2450,7 @@ export const DE = {
   "Open file": "Datei öffnen",
   "File is too large for diff preview": "Datei zu groß für Diff-Vorschau",
   "Earlier output was trimmed": "Frühere Ausgabe wurde ausgelassen",
+  "Conversation history was reloaded": "Der Unterhaltungsverlauf wurde neu geladen",
   "New terminal": "Neues Terminal",
   "Terminals are disabled in a read-only window": "Terminals sind im schreibgeschützten Fenster deaktiviert",
   "No open terminals": "Keine offenen Terminals",
