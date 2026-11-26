@@ -1,6 +1,7 @@
 import { createElement as h, useEffect, useRef, useState } from 'react'
 import { fnv1a, lookOf, shapeId, shapeOf, MASK_ID, nextMarkSerial, characterMarkup } from './characters.js'
 import { LiveMark } from './avatar/live.js'
+import { MARK_STATES as STATES, botState, toolState } from './mark-states.js'
 import { memo } from './memo.js'
 import { currentPart, turnOutlineOf } from './text.js'
 import { t } from './i18n.js'
@@ -14,20 +15,11 @@ export { colorOf, lookOf } from './characters.js'
 // moves gets a live layer (avatar/live.js): the character's 3D model turned and drawn
 // by the avatar engine, from the same pose, so nothing jumps when it takes over.
 
-// Mark states: what the Bot is doing picks the motion (avatar/states.js), and the motion
-// alone says it; no state needs a badge or a line of text to read. `waiting`: no turn
-// runs, but work it handed on has not come back yet. `orbit`: relaying messages in a
-// group. Between turns, in this order: a question for you (`alert`), a last turn that
-// failed (`failed`), work handed on (`waiting`), background tasks running
-// (`background`), a reply you have not read (`replied`).
-const STATES = ['idle', 'thinking', 'searching', 'working', 'sending', 'orbit', 'waiting', 'background', 'alert', 'failed', 'done', 'replied']
-// States between turns; a running turn shows what it does instead.
-const BETWEEN = new Set(['waiting', 'background', 'failed', 'replied'])
+// Mark states (mark-states.js, shared with the phone app): what the Bot is doing picks
+// the motion.
+export { botState, toolState }
 // States that wear the working badge.
 const RUNNING = new Set(['thinking', 'searching', 'working', 'sending', 'orbit', 'done'])
-export const botState = (running, activity, alert, { failed = false, background = false, replied = false } = {}) => (running
-  ? (STATES.includes(activity) && !BETWEEN.has(activity) ? activity : 'working')
-  : alert ? 'alert' : failed ? 'failed' : activity === 'waiting' ? 'waiting' : background ? 'background' : replied ? 'replied' : 'idle')
 // The newest turn a part's live outline lists, or undefined while the list holds none.
 export const latestTurnOf = (list, part) => {
   const outline = turnOutlineOf(list, part)
@@ -79,7 +71,7 @@ export function useBotApprovals(botId, useWork, useComputer) {
 }
 
 export const isBrowserHandoff = hold => hold?.callId !== undefined
-export const isComputerHandoff = hold => hold !== undefined && (hold.by === 'bot' || hold.callId !== undefined || (typeof hold.reason === 'string' && hold.reason !== 'takeover'))
+export const isComputerHandoff = hold => hold !== undefined && (hold.by === 'bot' || hold.fromBot === true || hold.callId !== undefined || (typeof hold.reason === 'string' && hold.reason !== 'takeover'))
 
 // Active browser/computer handoff hold waiting for the user on one Bot.
 export function useBotHandoff(botId, useBrowserHolds, useComputer) {
@@ -99,8 +91,6 @@ export function dmMarkState({ running = false, doing, failed = false, background
   const dmDoing = blockingAlert ? 'alert' : doing === 'alert' ? undefined : doing
   return botState(running, dmDoing, alert, { failed, background, replied })
 }
-export const toolState = name => (/^(message_bot|delegate_work|ask_back|answer_work|cancel_work|note_bot|stop_bot|create_bot|update_bot|create_group|update_group|delete_group|post_to_group)$/.test(name) ? 'sending'
-  : /search|fetch|browse|read|grep|glob|list|recall/i.test(name) ? 'searching' : 'working')
 
 // Where petting happens: a sidebar avatar or the About mark with a ring around it
 // (`.bt-pet-zone`), or a mark that can be poked.

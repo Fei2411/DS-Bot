@@ -4,6 +4,7 @@ import { manipulateAsync, SaveFormat } from 'expo-image-manipulator'
 import { useState } from 'react'
 import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { noteInput } from '../../ui/avatar/host.ts'
 import { t } from '../../ui/i18n.ts'
 import { ArrowUpIcon, CloseIcon, PlusIcon, StopIcon } from '../../ui/icons.tsx'
 import { radius, shadow, type as typeScale, type Palette } from '../../ui/tokens.ts'
@@ -93,7 +94,7 @@ export function Composer({ chatKey, name, running, canStop, canAttach, sends, on
               <PlusIcon size={20} color={p.ink2} />
             </Pressable>
           ) : null}
-          <TextInput value={text} onChangeText={changeText} placeholder={t('Message {name}', { name })} placeholderTextColor={p.ink3}
+          <TextInput value={text} onChangeText={next => { noteInput(); changeText(next) }} placeholder={t('Message {name}', { name })} placeholderTextColor={p.ink3}
             multiline {...submitProps(sends)} onKeyPress={enterHandler(sends, send)} onSubmitEditing={sends ? send : undefined}
             style={[styles.input, { color: p.ink, paddingLeft: canAttach ? 2 : 6 }]} accessibilityLabel={t('Message {name}', { name })} />
           {running && canStop && !ready

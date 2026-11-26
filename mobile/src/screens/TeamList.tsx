@@ -1,18 +1,20 @@
-import { useMemo, useSyncExternalStore } from 'react'
-import { Pressable, StyleSheet, Text, View, SectionList } from 'react-native'
+import { useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { Pressable, StyleSheet, Text, View, SectionList, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native'
 import type { Agent, Bot, Room } from '../connection.ts'
 import { useTeam } from '../team/context.tsx'
 import { botHasPending, roomHasPending } from '../nav/pending.ts'
+import { botMarkState, botRunning } from '../team/mark-state.ts'
 import { isUnread, seenVersion, subscribeSeen } from '../team/seen.ts'
 import { getLang, t } from '../ui/i18n.ts'
 import { radius, type as typeScale, useTheme } from '../ui/tokens.ts'
 import { Avatar, RoomAvatar } from '../ui/marks.tsx'
+import { MarksShown } from '../ui/avatar/LiveMark.tsx'
 import { FishLogo, PinMarkIcon } from '../ui/icons.tsx'
 import { roomTitle, workPhrase } from '../ui/phrases.ts'
 import { teamListEmptyMessage } from '../nav/team-list-empty.ts'
 import { cleanPreview } from './chat/settled.ts'
 
-export interface ChatTarget { kind: 'bot' | 'room' | 'agent'; id: string }
+export interface ChatTarget { kind: 'bot' | 'room' | 'agent'; id: string; focus?: string }
 
 // The drawer's team list, laid out like the desktop sidebar (sidebar.js): every Main
 // Bot as a tile on top, then the other Bots and groups as rows, pinned first, then
@@ -22,10 +24,28 @@ export function TeamList({ onOpen, query = '', current }: { onOpen: (target: Cha
   const { p, dark } = useTheme()
   const hostId = computer?.hostDeviceId ?? ''
   useSyncExternalStore(subscribeSeen, seenVersion)
+  // Marks move only in the rows in view, as the desktop's do (avatar/live.js); until the
+  // list says which rows those are, all are.
+  const shown = useContext(MarksShown)
+  const [inView, setInView] = useState<ReadonlySet<string> | null>(null)
+  const onViewable = useRef(({ viewableItems }: { viewableItems: { key: string }[] }) => setInView(new Set(viewableItems.map(token => token.key)))).current
+  const viewability = useRef({ itemVisiblePercentThreshold: 1 }).current
+  const headerHeight = useRef(0)
+  const scrollY = useRef(0)
+  const [headerInView, setHeaderInView] = useState(true)
+  const syncHeaderInView = () => setHeaderInView(headerHeight.current <= 0 || scrollY.current < headerHeight.current)
+  const onScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    scrollY.current = event.nativeEvent.contentOffset.y
+    syncHeaderInView()
+  }
 
   const bots = Array.isArray(team?.bots) ? team.bots : []
   const mains = new Set(team?.mainBotIds ?? [])
   const needle = query.trim().toLowerCase()
+  useEffect(() => {
+    scrollY.current = 0
+    setHeaderInView(true)
+  }, [needle])
   const lang = getLang()
   const mainList = bots.filter(bot => mains.has(bot.id) && bot.hidden !== true && (needle === '' || (bot.name ?? '').toLowerCase().includes(needle)))
   const agentList = (Array.isArray(team?.agents) ? team.agents : []).filter(agent => needle === '' || agentName(agent).toLowerCase().includes(needle))
@@ -82,23 +102,27 @@ export function TeamList({ onOpen, query = '', current }: { onOpen: (target: Cha
         sections={entries.length > 0 ? [{ data: entries }] : []}
         keyExtractor={entry => `${entry.kind}-${entry.item.id}`}
         stickySectionHeadersEnabled={false}
+        onViewableItemsChanged={onViewable}
+        viewabilityConfig={viewability}
+        onScroll={onScroll}
+        scrollEventThrottle={100}
         ListHeaderComponent={mainList.length > 0 || agentList.length > 0 ? (
-          <View>
-          {mainList.length > 0 ? <View style={styles.tiles}>
+          <View onLayout={event => { headerHeight.current = event.nativeEvent.layout.height; syncHeaderInView() }}>
+          {mainList.length > 0 ? <MarksShown.Provider value={shown && headerInView}><View style={styles.tiles}>
             {mainList.map(main => (
               <Pressable key={main.id} accessibilityRole="button" accessibilityLabel={`${main.name}, ${t('Main Bot')}`} onPress={() => onOpen({ kind: 'bot', id: main.id })}
                 style={({ pressed }) => [styles.tile, { backgroundColor: pressed || current === main.id ? p.active : p.hover }]}>
-                <Avatar bot={main} dark={dark} size={52} ring={p.hover} main working={workBots[main.id] !== undefined} waiting={botHasPending(team, main)} />
+                <Avatar bot={main} dark={dark} size={52} ring={p.sidebar} main working={botRunning(team, main.id)} waiting={botHasPending(team, main)} state={botMarkState(team, main)} live />
                 <Text style={[typeScale.small, { color: p.ink, fontWeight: '600', marginTop: 6 }]} numberOfLines={1}>{main.name}</Text>
                 {main.role ? <View style={[styles.tag, { backgroundColor: p.active }]}><Text style={{ fontSize: 11, lineHeight: 15, color: p.ink2 }} numberOfLines={1}>{main.role}</Text></View> : null}
               </Pressable>
             ))}
-          </View> : null}
+          </View></MarksShown.Provider> : null}
           {agentList.map(agent => <AgentRow key={agent.id} agent={agent} p={p} selected={current === agent.id} onPress={() => onOpen({ kind: 'agent', id: agent.id })} />)}
           </View>
         ) : undefined}
         renderItem={({ item: entry }) => entry.kind === 'bot' ? (
-          <BotRow bot={entry.item} p={p} dark={dark} mains={mains} waiting={botHasPending(team, entry.item)} workBots={workBots} preview={preview(entry.item)} selected={current === entry.item.id} unread={isUnread(hostId, entry.item.id, entry.item.lastAt, current === entry.item.id)} onPress={() => onOpen({ kind: 'bot', id: entry.item.id })} />
+          <BotRow bot={entry.item} p={p} dark={dark} mains={mains} waiting={botHasPending(team, entry.item)} working={botRunning(team, entry.item.id)} state={botMarkState(team, entry.item)} shown={shown && (inView === null || inView.has(`bot-${entry.item.id}`))} preview={preview(entry.item)} selected={current === entry.item.id} unread={isUnread(hostId, entry.item.id, entry.item.lastAt, current === entry.item.id)} onPress={() => onOpen({ kind: 'bot', id: entry.item.id })} />
         ) : (
           <RoomRow room={entry.item} bots={bots} p={p} dark={dark} waiting={roomHasPending(team, entry.item)} preview={roomPreview(entry.item)} selected={current === entry.item.id} unread={isUnread(hostId, entry.item.id, entry.item.lastAt, current === entry.item.id)} working={(workRooms[entry.item.id] ?? []).length > 0} onPress={() => onOpen({ kind: 'room', id: entry.item.id })} />
         )}
@@ -110,13 +134,15 @@ export function TeamList({ onOpen, query = '', current }: { onOpen: (target: Cha
   )
 }
 
-function BotRow({ bot, p, dark, mains, waiting, workBots, preview, unread, selected, onPress }: {
+function BotRow({ bot, p, dark, mains, waiting, working, state, shown, preview, unread, selected, onPress }: {
   bot: Bot; p: ReturnType<typeof useTheme>['p']; dark: boolean; mains: Set<string>
-  waiting: boolean; workBots: Record<string, unknown>; preview?: string; unread?: boolean; selected?: boolean; onPress: () => void
+  waiting: boolean; working: boolean; state: string; shown: boolean; preview?: string; unread?: boolean; selected?: boolean; onPress: () => void
 }) {
   return (
     <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.row, (pressed || selected) && { backgroundColor: p.hover }]}>
-      <Avatar bot={bot} dark={dark} size={36} ring={p.sidebar} main={mains.has(bot.id)} working={workBots[bot.id] !== undefined} waiting={waiting} />
+      <MarksShown.Provider value={shown}>
+        <Avatar bot={bot} dark={dark} size={36} ring={p.sidebar} main={mains.has(bot.id)} working={working} waiting={waiting} state={state} live />
+      </MarksShown.Provider>
       <View style={styles.rowBody}>
         <View style={styles.nameRow}>
           <Text style={[typeScale.rowName, { color: p.ink, flexShrink: 1 }]} numberOfLines={1}>{bot.name}</Text>

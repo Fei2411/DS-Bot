@@ -4,7 +4,7 @@ import { ChevronRightIcon } from '../../ui/icons.tsx'
 import { ViewCard } from './view.tsx'
 import { Animated, Platform, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View, Pressable } from 'react-native'
 import Reanimated, { useReducedMotion, useAnimatedStyle, withSpring, useSharedValue } from 'react-native-reanimated'
-import type { Approval, ConnectorRequest, Question, ShownView } from '../../connection.ts'
+import type { Approval, ConnectorRequest, MailRequest, Question, ShownView } from '../../connection.ts'
 import { connectorCanConnectOnMobile } from '../../team/connectors.ts'
 import { t } from '../../ui/i18n.ts'
 import { MONO, radius, shadow, SPRING_TAP, type as typeScale, type Palette } from '../../ui/tokens.ts'
@@ -42,21 +42,36 @@ function AccordionCard({ title, dot, expanded, onToggle, p, children }: { title:
   )
 }
 
-export function Dock({ question, sessionId, approvals, learning = [], secrets = [], connectorRequests = [], botName, onOpenConnector, btw = [], handoff, onViewBrowser, view, call, p, maxHeight, expanded, onExpand }: {
+export function Dock({ question, questions, sessionId, questionSessionId, viewSessionId, approvals, learning = [], secrets = [], connectorRequests = [], mailRequests = [], botName, onOpenConnector, btw = [], handoff, onViewBrowser, view, views, call, p, maxHeight, expanded, onExpand }: {
   view?: ShownView
-  secrets?: SecretRequest[]; connectorRequests?: ConnectorRequest[]; botName?: string; onOpenConnector?: (connectorId: string) => void
+  views?: { sessionId: string; view: ShownView }[]
+  questionSessionId?: string; viewSessionId?: string
+  secrets?: SecretRequest[]; connectorRequests?: ConnectorRequest[]; mailRequests?: MailRequest[]; botName?: string; onOpenConnector?: (connectorId: string) => void
   btw?: BtwCardData[]; handoff?: HandoffData; onViewBrowser?: () => void
   maxHeight?: number; expanded: string | null; onExpand: (key: string | null) => void
-  question?: Question; sessionId: string; approvals: Approval[]; call: Call; p: Palette
+  question?: Question
+  questions?: { sessionId: string; question: Question; botName?: string }[]
+  sessionId: string; approvals: Approval[]; call: Call; p: Palette
   learning?: LearningProposal[]
 }) {
   interface CardEntry { key: string; title: string; needs: boolean; order: number; body: React.ReactNode }
   const { height: windowHeight } = useWindowDimensions()
   const cap = maxHeight ?? Math.round(windowHeight * 0.52)
   const cards: CardEntry[] = []
+  const questionEntries = questions ?? (question !== undefined ? [{ sessionId: questionSessionId ?? sessionId, question }] : [])
+  const viewEntries = views ?? (view !== undefined ? [{ sessionId: viewSessionId ?? sessionId, view }] : [])
   for (const proposal of learning) cards.push({ key: `learning-${proposal.id}`, title: proposal.kind === 'agents' ? t('AGENTS.md update') : `${t(proposal.action === 'update' ? 'Skill update' : 'New skill')} · ${proposal.name}`, needs: true, order: 0, body: <LearningCard proposal={proposal} call={call} p={p} /> })
   for (const approval of approvals) cards.push({ key: `approval-${approval.id}`, title: approval.tool ?? t('Approval'), needs: true, order: 0, body: <ApprovalCard approval={approval} call={call} p={p} bare /> })
-  if (question !== undefined) cards.push({ key: 'question', title: question.question ?? t('Question'), needs: true, order: 1, body: <QuestionCard question={question} sessionId={sessionId} call={call} p={p} bare /> })
+  for (const entry of questionEntries) {
+    const title = entry.question.question ?? t('Question')
+    cards.push({
+      key: entry.question.id ? `question-${entry.question.id}` : `question-${entry.sessionId}`,
+      title: entry.botName ? `${entry.botName} · ${title}` : title,
+      needs: true,
+      order: 1,
+      body: <QuestionCard question={entry.question} sessionId={entry.sessionId} call={call} p={p} bare />,
+    })
+  }
   for (const secret of secrets) cards.push({ key: `secret-${secret.id}`, title: secret.kind === 'allow' ? t('Allow a secret') : (secret.name ? t('{name} needs a key', { name: secret.name }) : t('A secret is needed')), needs: true, order: 2, body: <SecretCard secret={secret} call={call} p={p} bare /> })
   for (const request of connectorRequests) {
     cards.push({
@@ -67,8 +82,25 @@ export function Dock({ question, sessionId, approvals, learning = [], secrets = 
       body: <ConnectorRequestCard request={request} onConnect={onOpenConnector} call={call} p={p} bare />,
     })
   }
+  for (const request of mailRequests) {
+    cards.push({
+      key: `mail-${request.id}`,
+      title: request.subject || t('Send email'),
+      needs: true,
+      order: 2,
+      body: <MailRequestCard request={request} call={call} p={p} bare />,
+    })
+  }
   if (handoff !== undefined) cards.push({ key: 'handoff', title: t('Browser handoff'), needs: true, order: 3, body: <HandoffCard handoff={handoff} botId={sessionId.split(':')[0]} onView={onViewBrowser} call={call} p={p} bare /> })
-  if (view !== undefined) cards.push({ key: `view-${view.id ?? 'view'}`, title: view.title || t('Card'), needs: true, order: 4, body: <ViewCard sessionId={sessionId} id={view.id} title={view.title} root={view.view} p={p} bare /> })
+  for (const entry of viewEntries) {
+    cards.push({
+      key: `view-${entry.view.id ?? entry.sessionId}`,
+      title: entry.view.title || t('Card'),
+      needs: true,
+      order: 4,
+      body: <ViewCard sessionId={entry.sessionId} id={entry.view.id} title={entry.view.title} root={entry.view.view} p={p} bare />,
+    })
+  }
   for (const card of btw) cards.push({ key: `btw-${card.id}`, title: card.question ?? t('Aside'), needs: false, order: 5, body: <BtwCard card={card} sessionId={sessionId} call={call} p={p} bare /> })
   if (cards.length === 0) return null
   const chosen = cards.find(card => card.key === expanded)
@@ -298,6 +330,60 @@ export function ConnectorRequestCard({ request, onConnect, call, p, bare = false
   )
 }
 
+export function MailRequestCard({ request, call, p, bare = false }: {
+  request: MailRequest
+  call: Call
+  p: Palette
+  bare?: boolean
+}) {
+  const [busy, setBusy] = useState(false)
+  const [failed, setFailed] = useState(false)
+  const onWeb = Platform.OS === 'web'
+  const answer = async (choice: 'send' | 'cancel') => {
+    if (busy || onWeb) return
+    setBusy(true)
+    setFailed(false)
+    try { await call('mail-send-answer', { requestId: request.id, choice }) }
+    catch { setFailed(true) }
+    finally { setBusy(false) }
+  }
+  const rawAttachments = request.attachmentDetails?.length ? request.attachmentDetails : (request.attachments ?? [])
+  const attachments = rawAttachments
+    .map(file => {
+      if (typeof file === 'string') return file
+      const label = file?.name || file?.path || ''
+      if (!label) return ''
+      const size = typeof file.size === 'number' && Number.isFinite(file.size)
+        ? ` (${file.size >= 1024 * 1024 ? `${(file.size / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.round(file.size / 1024))} KB`})`
+        : ''
+      return `${label}${size}`
+    })
+    .filter(Boolean)
+  return (
+    <View style={bare ? undefined : [styles.card, { backgroundColor: p.card, borderColor: p.line }]}>
+      {bare ? null : <Text selectable style={[type.settingsRow, { color: p.ink, fontWeight: '600' }]}>{request.subject || t('Send email')}</Text>}
+      {request.to ? <Text selectable style={[type.small, { color: p.ink2, marginTop: bare ? 0 : 4 }]}>{`${t('To')}: ${request.to}`}</Text> : null}
+      {request.cc ? <Text selectable style={[type.small, { color: p.ink2, marginTop: 2 }]}>{`${t('Cc')}: ${request.cc}`}</Text> : null}
+      {request.bcc ? <Text selectable style={[type.small, { color: p.ink2, marginTop: 2 }]}>{`${t('Bcc')}: ${request.bcc}`}</Text> : null}
+      {attachments.length > 0 ? <Text selectable style={[type.small, { color: p.ink3, marginTop: 4 }]}>{attachments.join(', ')}</Text> : null}
+      {request.body ? <Text selectable style={[type.small, { color: p.ink, marginTop: 6 }]}>{request.body}</Text> : null}
+      {onWeb ? (
+        <Text style={[type.small, { color: p.ink2, marginTop: 8 }]}>{t('Not available from a browser. Use the phone app or the computer.')}</Text>
+      ) : (
+        <View style={styles.answerRow}>
+          <Pressable accessibilityRole="button" disabled={busy} onPress={() => void answer('cancel')} style={[styles.choice, { backgroundColor: p.hover, opacity: busy ? 0.35 : 1 }]}>
+            <Text style={{ color: p.ink, fontSize: 14 }}>{t('Discard')}</Text>
+          </Pressable>
+          <Pressable accessibilityRole="button" disabled={busy} onPress={() => void answer('send')} style={[styles.choice, { backgroundColor: p.accent, opacity: busy ? 0.35 : 1 }]}>
+            <Text style={{ color: p.accentInk, fontSize: 14, fontWeight: '600' }}>{t('Send')}</Text>
+          </Pressable>
+        </View>
+      )}
+      {failed ? <Text style={[type.small, { color: p.danger, marginTop: 8 }]}>{t('This approval is no longer open.')}</Text> : null}
+    </View>
+  )
+}
+
 export interface BtwCardData { id: string; partId?: string; question?: string; answer?: string; failure?: string; status?: string }
 
 export function BtwCard({ card, sessionId, call, p , bare = false }: { card: BtwCardData; sessionId: string; call: Call; p: Palette; bare?: boolean }) {
@@ -355,7 +441,7 @@ export function HandoffCard({ handoff, botId, onView, call, p , bare = false }: 
   )
 }
 
-export function ActionRow({ bot, doing, p, dark, active = true }: { bot: Bot; doing: string; p: Palette; dark: boolean; active?: boolean }) {
+export function ActionRow({ bot, doing, state = 'thinking', p, dark, active = true }: { bot: Bot; doing: string; state?: string; p: Palette; dark: boolean; active?: boolean }) {
   const reduced = useReducedMotion()
   const opacityRef = useRef<Animated.Value | null>(null)
   if (opacityRef.current === null) {
@@ -370,7 +456,7 @@ export function ActionRow({ bot, doing, p, dark, active = true }: { bot: Bot; do
   }), [opacity, reduced, active])
   return (
     <View style={styles.action}>
-      <Avatar bot={bot} dark={dark} size={28} ring={p.main} working />
+      <Avatar bot={bot} dark={dark} size={28} ring={p.main} working state={state} live pokeable />
       <Animated.Text style={[type.rowPreview, { color: p.ink2, marginLeft: 8, flex: 1, opacity }]} numberOfLines={1}>{doing}…</Animated.Text>
     </View>
   )

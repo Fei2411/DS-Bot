@@ -945,3 +945,11 @@ test('DSH Agent blank session renders AgentEmptyHero with workspace folder and f
     view.unmount()
   }
 })
+
+test('adaptRoomItem preserves presented files on group Bot messages for ChatRows', () => {
+  const { adaptRoomItem } = module.exports
+  const file = { name: 'report.pdf', path: '/work/report.pdf', description: 'Final', sessionId: 'm1', seq: 5, index: 0 }
+  const adapted = adaptRoomItem({ id: 'r1:0', kind: 'bot', botId: 'b1', name: 'Writer', text: 'Ready.', time: 100, files: [file] })
+  assert.equal(adapted.kind, 'post')
+  assert.deepEqual(adapted.presented, [file])
+})

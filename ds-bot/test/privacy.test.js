@@ -1238,3 +1238,26 @@ test('privacy shell and run_code guards normalize Windows UNC and repeated slash
   assert.equal(codeRes.ran, false, 'expected run_code block for escaped UNC path')
   assert.match(codeRes.error, CLOSED)
 })
+
+test('present tool cannot expose private Bot files, host API files, or secret files', async (t) => {
+  const { run, rt, home, diary, agentOf, stop } = await start()
+  t.after(stop)
+  const writerAgent = agentOf('b')
+  const privateRes = await run('present', { files: [{ path: join(diary, 'notes.txt') }] }, 'b', writerAgent)
+  assert.equal(privateRes.ran, false)
+  assert.match(privateRes.error, CLOSED)
+  // Without any private Bot, guardApiFiles, guardSecretFiles, and guardPresentData still block present.
+  rt.state.bots[P].private = false
+  const apiRes = await run('present', { files: [{ path: join(home, 'api-tokens.json') }] }, 'b', writerAgent)
+  assert.equal(apiRes.ran, false)
+  assert.match(apiRes.error, /API token|telemetry/)
+  const secretRes = await run('present', { files: [{ path: join(home, 'secret-refs', 'tok.json') }] }, 'b', writerAgent)
+  assert.equal(secretRes.ran, false)
+  assert.match(secretRes.error, /secret/)
+  const stateRes = await run('present', { files: [{ path: join(home, 'state.json') }] }, 'b', writerAgent)
+  assert.equal(stateRes.ran, false)
+  assert.match(stateRes.error, /DeepSeek Harness data/)
+  const secretsJsonRes = await run('present', { files: [{ path: join(home, 'secrets.json') }] }, 'b', writerAgent)
+  assert.equal(secretsJsonRes.ran, false)
+  assert.match(secretsJsonRes.error, /DeepSeek Harness data/)
+})
