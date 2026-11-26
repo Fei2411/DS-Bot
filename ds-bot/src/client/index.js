@@ -721,16 +721,20 @@ export function apply(ctx) {
       // A DSH Agent Session id lands on the plain surface, not the Bot skin.
       if (isAgentSessionId(id)) return actions.openAgentSession(id)
       navSeq += 1
-      ui.set(state => (state.newChat || state.exchange || state.menu || state.palette || state.groupSearch || state.inbox ? { ...state, newChat: null, exchange: null, menu: null, palette: null, groupSearch: null, inbox: false } : state))
-      setPlain(false)
       const target = partFor(id)
+      const fromInbox = ui.getSnapshot().inbox === true
+      ui.set(state => (state.newChat || state.exchange || state.menu || state.palette || state.groupSearch || state.inbox || state.inboxTarget
+        ? { ...state, newChat: null, exchange: null, menu: null, palette: null, groupSearch: null, inbox: false, inboxTarget: fromInbox ? target : null }
+        : state))
+      setPlain(false)
       show(target)
     },
     // The conversation replacements withdraw for a plain Session; set the surface
     // before the navigation so the Bot skin never flashes.
     openAgentSession: (sessionId) => {
       navSeq += 1
-      ui.set(state => ({ ...state, newChat: null, exchange: null, menu: null, palette: null, groupSearch: null, inbox: false, details: null, view: 'details', renaming: false, tab: null, task: null, taskDeck: null }))
+      const fromInbox = ui.getSnapshot().inbox === true
+      ui.set(state => ({ ...state, newChat: null, exchange: null, menu: null, palette: null, groupSearch: null, inbox: false, inboxTarget: fromInbox ? sessionId : null, details: null, view: 'details', renaming: false, tab: null, task: null, taskDeck: null }))
       setPlain(true)
       show(sessionId)
     },

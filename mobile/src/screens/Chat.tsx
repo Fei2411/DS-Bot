@@ -742,10 +742,14 @@ function ComputerCards({ bot, p }: { bot: Bot; p: ReturnType<typeof useTheme>['p
         <View style={[styles.blocked, { backgroundColor: p.card, borderColor: p.line }]}>
           <Text style={[type.settingsRow, { color: p.ink, fontWeight: '600' }]}>{t('Computer handoff')}</Text>
           {hold.note || hold.reason ? <Text style={[type.small, { color: p.ink2, marginTop: 4 }]}>{hold.note || hold.reason}</Text> : null}
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
-            <Pressable accessibilityRole="button" onPress={() => act('computer-hold-answer', { botId: bot.id, outcome: 'skip' })} style={[styles.fix, { backgroundColor: p.hover }]}><Text style={{ color: p.ink }}>{t('Skip')}</Text></Pressable>
-            <Pressable accessibilityRole="button" onPress={() => act('computer-hold-answer', { botId: bot.id, outcome: 'done' })} style={[styles.fix, { backgroundColor: p.accent }]}><Text style={{ color: p.accentInk, fontWeight: '600' }}>{t("I'm done")}</Text></Pressable>
-          </View>
+          {Platform.OS === 'web' ? (
+            <Text style={[type.small, { color: p.ink2, marginTop: 8 }]}>{t('Not available from a browser. Use the phone app or the computer.')}</Text>
+          ) : (
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
+              <Pressable accessibilityRole="button" onPress={() => act('computer-hold-answer', { botId: bot.id, outcome: 'skip' })} style={[styles.fix, { backgroundColor: p.hover }]}><Text style={{ color: p.ink }}>{t('Skip')}</Text></Pressable>
+              <Pressable accessibilityRole="button" onPress={() => act('computer-hold-answer', { botId: bot.id, outcome: 'done' })} style={[styles.fix, { backgroundColor: p.accent }]}><Text style={{ color: p.accentInk, fontWeight: '600' }}>{t("I'm done")}</Text></Pressable>
+            </View>
+          )}
         </View>
       ) : null}
       {acting ? (

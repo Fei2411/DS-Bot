@@ -20938,14 +20938,14 @@ function teamActions({ call: call2, after, partFor, roster, ui, live, cards, hel
   return {
     // The pane starts at the rail's edge, so a floating drawer would stick out from under it.
     openNewChat: (mode, sectionId = null) => {
-      ui.set((state) => ({ ...state, newChat: mode, newChatSection: sectionId ?? null, inbox: false, menu: null, palette: null, leftDrawer: false }));
+      ui.set((state) => ({ ...state, newChat: mode, newChatSection: sectionId ?? null, inbox: false, inboxTarget: null, menu: null, palette: null, leftDrawer: false }));
     },
     // The inbox page sits over the conversation column like New chat (inbox.js).
     openInbox: () => {
-      ui.set((state) => ({ ...state, inbox: true, newChat: null, newChatSection: null, exchange: null, menu: null, palette: null, groupSearch: null, leftDrawer: false }));
+      ui.set((state) => ({ ...state, inbox: true, inboxTarget: null, newChat: null, newChatSection: null, exchange: null, menu: null, palette: null, groupSearch: null, leftDrawer: false }));
     },
     closeInbox: () => {
-      ui.set((state) => state.inbox ? { ...state, inbox: false } : state);
+      ui.set((state) => state.inbox ? { ...state, inbox: false, inboxTarget: null } : state);
     },
     openPalette: (query = "") => {
       ui.set((state) => ({ ...state, palette: { query, token: Date.now() }, newChat: null, menu: null }));
@@ -41932,13 +41932,13 @@ function ItemCard({ item, bot, roster, actions, hooks, run: run2, busy }) {
   const takeoverActions = bot ? {
     ...actions,
     openBrowser: (id) => {
-      actions.closeInbox?.();
       actions.openSession?.(bot.id);
+      actions.closeInbox?.();
       return actions.openBrowser?.(id);
     },
     showDetails: (id, tab) => {
-      actions.closeInbox?.();
       actions.openSession?.(bot.id);
+      actions.closeInbox?.();
       return actions.showDetails?.(id, tab);
     }
   } : actions;
@@ -42001,15 +42001,18 @@ function ItemCard({ item, bot, roster, actions, hooks, run: run2, busy }) {
 }
 var HERE = /* @__PURE__ */ new Set(["approval", "computer", "question", "view", "secret", "connector", "mail", "handoff", "paused", "room-paused", "blocked", "learning"]);
 function openItem(item, actions) {
-  actions.closeInbox?.();
   if (item.roomId !== void 0) {
     actions.openSession(item.roomId);
+    actions.closeInbox?.();
     if (item.taskId !== void 0) actions.openTaskDeck?.(item.roomId, item.taskId);
     else if (item.kind === "approval" || item.kind === "computer") actions.openApproval?.(item.roomId);
     else if (item.kind === "goal") actions.openGoal?.(item.roomId);
   } else if (item.botId !== void 0) {
     actions.openSession(item.botId);
+    actions.closeInbox?.();
     if (item.taskId !== void 0) actions.openTaskDeck?.(item.botId, item.taskId);
+  } else {
+    actions.closeInbox?.();
   }
 }
 function Row2({ item, gone, open, toggle, roster, actions, hooks, rowRef }) {
@@ -42326,8 +42329,8 @@ function InboxPane({ paneLeft, roster, actions, useWork, useComputer, useSession
                 type: "button",
                 className: "bt-ib-sum",
                 onClick: () => {
-                  actions.closeInbox?.();
                   actions.openSession(entry.id);
+                  actions.closeInbox?.();
                 }
               },
               entry.bot ? (0, import_react44.createElement)(BotAvatar, { bot: entry.bot, size: 36, badge: false, live: false }) : (0, import_react44.createElement)(RoomAvatar, { room: entry.room, roster, size: 36 }),
@@ -66628,11 +66631,17 @@ function createAvatarRefCache(call2) {
 // src/client/bot-completions.js
 function watchBotCompletions({ roster, sessions, statuses, unread, ui }) {
   const seen = /* @__PURE__ */ new Map();
+  let pendingTarget = null;
   const sync = () => {
     const team = roster.getSnapshot();
     const list = sessions.getSnapshot();
     const statusMap = statuses?.getSnapshot();
-    const inboxOpen = ui?.getSnapshot?.().inbox === true;
+    const uiSnap = ui?.getSnapshot?.();
+    const inboxOpen = uiSnap?.inbox === true;
+    if (inboxOpen) pendingTarget = null;
+    else if (typeof uiSnap?.inboxTarget === "string" && uiSnap.inboxTarget !== "") pendingTarget = uiSnap.inboxTarget;
+    else if (uiSnap?.inboxTarget === null) pendingTarget = null;
+    if (pendingTarget !== null && (list.byId[pendingTarget]?.retainedBy?.mainView ?? 0) > 0) pendingTarget = null;
     const previous = unread.getSnapshot();
     const next = {};
     const parts = /* @__PURE__ */ new Set();
@@ -66640,7 +66649,7 @@ function watchBotCompletions({ roster, sessions, statuses, unread, ui }) {
       const id = currentPart(bot);
       parts.add(id);
       const row = list.byId[id];
-      const active = (row?.retainedBy?.mainView ?? 0) > 0 && !inboxOpen;
+      const active = (row?.retainedBy?.mainView ?? 0) > 0 && !inboxOpen && (pendingTarget === null || pendingTarget === id);
       const status = statusMap?.get(id);
       const hidden = team.exchangeTurns?.[id] ?? [];
       const outline = turnOutlineOf(list, id);
@@ -67294,16 +67303,18 @@ function apply(ctx) {
     openSession: (id) => {
       if (isAgentSessionId(id)) return actions.openAgentSession(id);
       navSeq += 1;
-      ui.set((state) => state.newChat || state.exchange || state.menu || state.palette || state.groupSearch || state.inbox ? { ...state, newChat: null, exchange: null, menu: null, palette: null, groupSearch: null, inbox: false } : state);
-      setPlain(false);
       const target = partFor(id);
+      const fromInbox = ui.getSnapshot().inbox === true;
+      ui.set((state) => state.newChat || state.exchange || state.menu || state.palette || state.groupSearch || state.inbox || state.inboxTarget ? { ...state, newChat: null, exchange: null, menu: null, palette: null, groupSearch: null, inbox: false, inboxTarget: fromInbox ? target : null } : state);
+      setPlain(false);
       show2(target);
     },
     // The conversation replacements withdraw for a plain Session; set the surface
     // before the navigation so the Bot skin never flashes.
     openAgentSession: (sessionId) => {
       navSeq += 1;
-      ui.set((state) => ({ ...state, newChat: null, exchange: null, menu: null, palette: null, groupSearch: null, inbox: false, details: null, view: "details", renaming: false, tab: null, task: null, taskDeck: null }));
+      const fromInbox = ui.getSnapshot().inbox === true;
+      ui.set((state) => ({ ...state, newChat: null, exchange: null, menu: null, palette: null, groupSearch: null, inbox: false, inboxTarget: fromInbox ? sessionId : null, details: null, view: "details", renaming: false, tab: null, task: null, taskDeck: null }));
       setPlain(true);
       show2(sessionId);
     },

@@ -236,11 +236,18 @@ test('createTeam pauses catch-up polling while hidden, caches sessionHook, prune
   sandbox.__feedCb('notice', { kind: 'group', roomId: 'r1', botId: 'b2', text: 'ops update', time: 111 })
   assert.equal(team.hooks.useSessionStatus(map => map.get('b1')?.completionUnread), true, 'active chat reply marks unread while Inbox covers it')
   assert.equal(team.hooks.useSessionStatus(map => map.get('r1')?.completionUnread), true, 'group reply notice marks group unread')
-  team.actions.closeInbox()
-  assert.equal(team.hooks.useSessionStatus(map => map.get('b1')?.completionUnread), false, 'closing Inbox clears unread on the revealed active chat')
-  assert.equal(team.hooks.useSessionStatus(map => map.get('r1')?.completionUnread), true, 'unopened group stays unread after closing Inbox')
+  // Opening r1 from Inbox clears r1 without clearing b1!
   team.actions.openSession('r1')
   assert.equal(team.hooks.useSessionStatus(map => map.get('r1')?.completionUnread), false, 'opening the group clears its unread flag')
+  assert.equal(team.hooks.useSessionStatus(map => map.get('b1')?.completionUnread), true, 'opening r1 from Inbox preserves b1 unread')
+  // Opening Inbox over r1, receiving a reply on r1, and dismissing Inbox clears r1.
+  team.actions.openInbox()
+  sandbox.__feedCb('notice', { kind: 'group', roomId: 'r1', botId: 'b2', text: 'ops update 2', time: 112 })
+  assert.equal(team.hooks.useSessionStatus(map => map.get('r1')?.completionUnread), true)
+  team.actions.closeInbox()
+  assert.equal(team.hooks.useSessionStatus(map => map.get('r1')?.completionUnread), false, 'closing Inbox without navigating clears unread on revealed chat')
+  team.actions.openSession('b1')
+  assert.equal(team.hooks.useSessionStatus(map => map.get('b1')?.completionUnread), false)
 
   // 5. Deleting a bot in a roster update prunes its sessionId from sessions, status, sent, and sessionHooks.
   team.actions.noteSent('b2')

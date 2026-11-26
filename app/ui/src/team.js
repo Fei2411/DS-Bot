@@ -483,6 +483,7 @@ export function createTeam() {
       lastTeamSession = id
       const next = partFor(id)
       const switched = next !== shown.getSnapshot()
+      show(next)
       ui.set((state) => {
         const dropOverlay = Boolean(state.newChat || state.exchange || state.menu || state.palette || state.shortcuts || state.inbox)
         const rp = switched ? pruneStaleWorkspace(state.rightPanel) : state.rightPanel
@@ -495,12 +496,12 @@ export function createTeam() {
           rightPanel: rp,
         }
       })
-      show(next)
     },
     openAgentSession: (sessionId) => {
       if (!sessionId) return
       const switched = sessionId !== shown.getSnapshot()
       lastAgentSession = sessionId
+      show(sessionId)
       ui.set((state) => {
         const rp = switched ? pruneStaleWorkspace(state.rightPanel) : state.rightPanel
         const keepPanel = Boolean(state.details && rp !== null && rp.tabs.length > 0)
@@ -519,7 +520,6 @@ export function createTeam() {
           rightPanel: keepPanel ? rp : null,
         }
       })
-      show(sessionId)
     },
     addAgent: async (options = {}) => {
       const agentPreset = typeof options?.agentPreset === 'string' && options.agentPreset.trim() !== '' ? options.agentPreset.trim() : undefined
@@ -939,8 +939,9 @@ export function createTeam() {
   work.subscribe(followWork)
   let wasInbox = ui.getSnapshot().inbox === true
   ui.subscribe(() => {
-    const inboxOpen = ui.getSnapshot().inbox === true
-    if (wasInbox && !inboxOpen) {
+    const snap = ui.getSnapshot()
+    const inboxOpen = snap.inbox === true
+    if (wasInbox && !inboxOpen && !snap.newChat) {
       const active = shown.getSnapshot()
       if (active) setStatus(active, { completionUnread: false })
     }

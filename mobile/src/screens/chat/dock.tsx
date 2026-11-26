@@ -316,27 +316,45 @@ export function MailRequestCard({ request, call, p, bare = false }: {
 }) {
   const [busy, setBusy] = useState(false)
   const [failed, setFailed] = useState(false)
+  const onWeb = Platform.OS === 'web'
   const answer = async (choice: 'send' | 'cancel') => {
-    if (busy) return
+    if (busy || onWeb) return
     setBusy(true)
     setFailed(false)
     try { await call('mail-send-answer', { requestId: request.id, choice }) }
     catch { setFailed(true) }
     finally { setBusy(false) }
   }
+  const attachments = (request.attachments ?? [])
+    .map(file => {
+      const label = file?.name || file?.path || ''
+      if (!label) return ''
+      const size = typeof file.size === 'number' && Number.isFinite(file.size)
+        ? ` (${file.size >= 1024 * 1024 ? `${(file.size / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.round(file.size / 1024))} KB`})`
+        : ''
+      return `${label}${size}`
+    })
+    .filter(Boolean)
   return (
     <View style={bare ? undefined : [styles.card, { backgroundColor: p.card, borderColor: p.line }]}>
-      {bare ? null : <Text style={[type.settingsRow, { color: p.ink, fontWeight: '600' }]}>{request.subject || t('Send email')}</Text>}
-      {request.to ? <Text style={[type.small, { color: p.ink2, marginTop: bare ? 0 : 4 }]} numberOfLines={1}>{`${t('To')}: ${request.to}`}</Text> : null}
-      {request.body ? <Text style={[type.small, { color: p.ink2, marginTop: 6 }]} numberOfLines={5}>{request.body}</Text> : null}
-      <View style={styles.answerRow}>
-        <Pressable accessibilityRole="button" disabled={busy} onPress={() => void answer('cancel')} style={[styles.choice, { backgroundColor: p.hover, opacity: busy ? 0.35 : 1 }]}>
-          <Text style={{ color: p.ink, fontSize: 14 }}>{t('Discard')}</Text>
-        </Pressable>
-        <Pressable accessibilityRole="button" disabled={busy} onPress={() => void answer('send')} style={[styles.choice, { backgroundColor: p.accent, opacity: busy ? 0.35 : 1 }]}>
-          <Text style={{ color: p.accentInk, fontSize: 14, fontWeight: '600' }}>{t('Send')}</Text>
-        </Pressable>
-      </View>
+      {bare ? null : <Text selectable style={[type.settingsRow, { color: p.ink, fontWeight: '600' }]}>{request.subject || t('Send email')}</Text>}
+      {request.to ? <Text selectable style={[type.small, { color: p.ink2, marginTop: bare ? 0 : 4 }]}>{`${t('To')}: ${request.to}`}</Text> : null}
+      {request.cc ? <Text selectable style={[type.small, { color: p.ink2, marginTop: 2 }]}>{`${t('Cc')}: ${request.cc}`}</Text> : null}
+      {request.bcc ? <Text selectable style={[type.small, { color: p.ink2, marginTop: 2 }]}>{`${t('Bcc')}: ${request.bcc}`}</Text> : null}
+      {attachments.length > 0 ? <Text selectable style={[type.small, { color: p.ink3, marginTop: 4 }]}>{attachments.join(', ')}</Text> : null}
+      {request.body ? <Text selectable style={[type.small, { color: p.ink, marginTop: 6 }]}>{request.body}</Text> : null}
+      {onWeb ? (
+        <Text style={[type.small, { color: p.ink2, marginTop: 8 }]}>{t('Not available from a browser. Use the phone app or the computer.')}</Text>
+      ) : (
+        <View style={styles.answerRow}>
+          <Pressable accessibilityRole="button" disabled={busy} onPress={() => void answer('cancel')} style={[styles.choice, { backgroundColor: p.hover, opacity: busy ? 0.35 : 1 }]}>
+            <Text style={{ color: p.ink, fontSize: 14 }}>{t('Discard')}</Text>
+          </Pressable>
+          <Pressable accessibilityRole="button" disabled={busy} onPress={() => void answer('send')} style={[styles.choice, { backgroundColor: p.accent, opacity: busy ? 0.35 : 1 }]}>
+            <Text style={{ color: p.accentInk, fontSize: 14, fontWeight: '600' }}>{t('Send')}</Text>
+          </Pressable>
+        </View>
+      )}
       {failed ? <Text style={[type.small, { color: p.danger, marginTop: 8 }]}>{t('This approval is no longer open.')}</Text> : null}
     </View>
   )

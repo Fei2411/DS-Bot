@@ -91,13 +91,13 @@ function ItemCard({ item, bot, roster, actions, hooks, run, busy }) {
   const takeoverActions = bot ? {
     ...actions,
     openBrowser: (id) => {
-      actions.closeInbox?.()
       actions.openSession?.(bot.id)
+      actions.closeInbox?.()
       return actions.openBrowser?.(id)
     },
     showDetails: (id, tab) => {
-      actions.closeInbox?.()
       actions.openSession?.(bot.id)
+      actions.closeInbox?.()
       return actions.showDetails?.(id, tab)
     },
   } : actions
@@ -163,15 +163,18 @@ const HERE = new Set(['approval', 'computer', 'question', 'view', 'secret', 'con
 
 // A card asked in a group lives in that group's chat, not in the member's own.
 function openItem(item, actions) {
-  actions.closeInbox?.()
   if (item.roomId !== undefined) {
     actions.openSession(item.roomId)
+    actions.closeInbox?.()
     if (item.taskId !== undefined) actions.openTaskDeck?.(item.roomId, item.taskId)
     else if (item.kind === 'approval' || item.kind === 'computer') actions.openApproval?.(item.roomId)
     else if (item.kind === 'goal') actions.openGoal?.(item.roomId)
   } else if (item.botId !== undefined) {
     actions.openSession(item.botId)
+    actions.closeInbox?.()
     if (item.taskId !== undefined) actions.openTaskDeck?.(item.botId, item.taskId)
+  } else {
+    actions.closeInbox?.()
   }
 }
 
@@ -418,7 +421,7 @@ export function InboxPane({ paneLeft, roster, actions, useWork, useComputer, use
                   h('div', { className: 'bt-ib-head' },
                     h('button', {
                       type: 'button', className: 'bt-ib-sum',
-                      onClick: () => { actions.closeInbox?.(); actions.openSession(entry.id) },
+                      onClick: () => { actions.openSession(entry.id); actions.closeInbox?.() },
                     },
                     entry.bot ? h(BotAvatar, { bot: entry.bot, size: 36, badge: false, live: false }) : h(RoomAvatar, { room: entry.room, roster, size: 36 }),
                     h('span', { className: 'bt-ib-copy' },

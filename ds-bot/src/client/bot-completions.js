@@ -2,11 +2,17 @@ import { currentPart, turnOutlineOf } from './text.js'
 
 export function watchBotCompletions({ roster, sessions, statuses, unread, ui }) {
   const seen = new Map()
+  let pendingTarget = null
   const sync = () => {
     const team = roster.getSnapshot()
     const list = sessions.getSnapshot()
     const statusMap = statuses?.getSnapshot()
-    const inboxOpen = ui?.getSnapshot?.().inbox === true
+    const uiSnap = ui?.getSnapshot?.()
+    const inboxOpen = uiSnap?.inbox === true
+    if (inboxOpen) pendingTarget = null
+    else if (typeof uiSnap?.inboxTarget === 'string' && uiSnap.inboxTarget !== '') pendingTarget = uiSnap.inboxTarget
+    else if (uiSnap?.inboxTarget === null) pendingTarget = null
+    if (pendingTarget !== null && (list.byId[pendingTarget]?.retainedBy?.mainView ?? 0) > 0) pendingTarget = null
     const previous = unread.getSnapshot()
     const next = {}
     const parts = new Set()
@@ -14,7 +20,7 @@ export function watchBotCompletions({ roster, sessions, statuses, unread, ui }) 
       const id = currentPart(bot)
       parts.add(id)
       const row = list.byId[id]
-      const active = (row?.retainedBy?.mainView ?? 0) > 0 && !inboxOpen
+      const active = (row?.retainedBy?.mainView ?? 0) > 0 && !inboxOpen && (pendingTarget === null || pendingTarget === id)
       const status = statusMap?.get(id)
       const hidden = team.exchangeTurns?.[id] ?? []
       const outline = turnOutlineOf(list, id)

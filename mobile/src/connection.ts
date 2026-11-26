@@ -200,8 +200,11 @@ export interface MailRequest {
   id: string
   sessionId?: string
   to?: string
+  cc?: string
+  bcc?: string
   subject?: string
   body?: string
+  attachments?: { name?: string; path?: string; size?: number }[]
   status?: string
 }
 

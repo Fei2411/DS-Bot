@@ -265,7 +265,7 @@ test('Take over on a handoff card closes the inbox and focuses the Bot panel; qu
   tree = draw()
   button(rowOf(tree, 'handoff:bh-1'), 'Take over').props.onClick()
   await sleep(10)
-  assert.deepEqual(events, ['takeover:writer', 'closeInbox', 'openSession:writer', 'openBrowser:writer'])
+  assert.deepEqual(events, ['takeover:writer', 'openSession:writer', 'closeInbox', 'openBrowser:writer'])
 })
 
 test('Escape closes the inbox on the first press after switching tabs, and filtering holds steady during leave grace', async (t) => {
@@ -348,28 +348,66 @@ test('watchBotCompletions marks replies on the active chat unread while Inbox co
       set: next => { value = typeof next === 'function' ? next(value) : next; for (const fn of [...listeners]) fn() },
     }
   }
-  const roster = makeStore({ bots: [{ id: 'w1', sessionId: 'w1', parts: ['w1'] }], exchangeTurns: {} })
-  const sessions = makeStore({
-    ids: ['w1'],
-    byId: { w1: { retainedBy: { mainView: 1 }, projectionValues: { turnOutline: [{ turn: 1, response: 'hi' }] } } },
+  const roster = makeStore({
+    bots: [
+      { id: 'w1', sessionId: 'w1', parts: ['w1'] },
+      { id: 'w2', sessionId: 'w2', parts: ['w2'] },
+    ],
+    exchangeTurns: {},
   })
-  const statuses = makeStore(new Map([['w1', { running: false, completionUnread: false }]]))
+  const sessions = makeStore({
+    ids: ['w1', 'w2'],
+    byId: {
+      w1: { retainedBy: { mainView: 1 }, projectionValues: { turnOutline: [{ turn: 1, response: 'hi' }] } },
+      w2: { retainedBy: { mainView: 0 }, projectionValues: { turnOutline: [{ turn: 1, response: 'hello' }] } },
+    },
+  })
+  const statuses = makeStore(new Map([
+    ['w1', { running: false, completionUnread: false }],
+    ['w2', { running: false, completionUnread: false }],
+  ]))
   const unread = makeStore({})
-  const ui = makeStore({ inbox: false })
+  const ui = makeStore({ inbox: false, inboxTarget: null })
 
   const stop = watchBotCompletions({ roster, sessions, statuses, unread, ui })
   assert.deepEqual(unread.getSnapshot(), {}, 'visible chat starts read')
 
-  // Open Inbox while w1 stays retained in mainView, then a new reply arrives on w1.
-  ui.set({ inbox: true })
+  // Open Inbox while w1 stays retained in mainView, then replies arrive on both w1 and w2.
+  ui.set({ inbox: true, inboxTarget: null })
   sessions.set({
-    ids: ['w1'],
-    byId: { w1: { retainedBy: { mainView: 1 }, projectionValues: { turnOutline: [{ turn: 1, response: 'hi' }, { turn: 2, response: 'done' }] } } },
+    ids: ['w1', 'w2'],
+    byId: {
+      w1: { retainedBy: { mainView: 1 }, projectionValues: { turnOutline: [{ turn: 1, response: 'hi' }, { turn: 2, response: 'done' }] } },
+      w2: { retainedBy: { mainView: 0 }, projectionValues: { turnOutline: [{ turn: 1, response: 'hello' }, { turn: 2, response: 'ready' }] } },
+    },
   })
   assert.equal(unread.getSnapshot().w1, true, 'reply while Inbox covers active chat is marked unread')
+  assert.equal(unread.getSnapshot().w2, true, 'reply on background chat is marked unread')
 
-  // Closing Inbox reveals w1 and clears its unread mark.
-  ui.set({ inbox: false })
-  assert.deepEqual(unread.getSnapshot(), {}, 'closing Inbox clears unread on the revealed active chat')
+  // Navigating from Inbox to w2 closes Inbox before mainView moves: w1 must stay unread!
+  ui.set({ inbox: false, inboxTarget: 'w2' })
+  assert.equal(unread.getSnapshot().w1, true, 'navigating to w2 does not clear w1 unread')
+  assert.equal(unread.getSnapshot().w2, true, 'w2 stays unread until mainView switches to it')
+  sessions.set({
+    ids: ['w1', 'w2'],
+    byId: {
+      w1: { retainedBy: { mainView: 0 }, projectionValues: { turnOutline: [{ turn: 1, response: 'hi' }, { turn: 2, response: 'done' }] } },
+      w2: { retainedBy: { mainView: 1 }, projectionValues: { turnOutline: [{ turn: 1, response: 'hello' }, { turn: 2, response: 'ready' }] } },
+    },
+  })
+  assert.deepEqual(unread.getSnapshot(), { w1: true }, 'switching mainView to w2 clears w2 while keeping w1 unread')
+
+  // Closing Inbox directly without navigating clears the revealed active chat (w2).
+  ui.set({ inbox: true, inboxTarget: null })
+  sessions.set({
+    ids: ['w1', 'w2'],
+    byId: {
+      w1: { retainedBy: { mainView: 0 }, projectionValues: { turnOutline: [{ turn: 1, response: 'hi' }, { turn: 2, response: 'done' }] } },
+      w2: { retainedBy: { mainView: 1 }, projectionValues: { turnOutline: [{ turn: 1, response: 'hello' }, { turn: 2, response: 'ready' }, { turn: 3, response: 'again' }] } },
+    },
+  })
+  assert.equal(unread.getSnapshot().w2, true)
+  ui.set({ inbox: false, inboxTarget: null })
+  assert.deepEqual(unread.getSnapshot(), { w1: true }, 'closing Inbox without navigating clears the revealed chat')
   stop()
 })
