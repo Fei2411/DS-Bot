@@ -269,7 +269,7 @@ export class LocalAgentAdapter extends LlmAdapter {
       if (existing !== undefined) await this.closeLive(existing)
       throw new LlmError(`Unknown local agent ${route}`, 'LOCAL_AGENT_MISSING')
     }
-    const secrets = spec.kind === 'codex' ? this.deps.secretEnvForSession?.(sessionId) ?? {} : {}
+    const resolveSecrets = () => spec.kind === 'codex' ? this.deps.secretEnvForSession?.(sessionId) ?? {} : {}
     let live = this.live.get(sessionId)
     let orphanedPending
     let carriedContext
@@ -287,7 +287,7 @@ export class LocalAgentAdapter extends LlmAdapter {
       }
       // A CLI takes its model and permission mode when its session opens. A
       // changed secret set also requires replacing the Codex process, even mid-turn.
-      if (isDeepStrictEqual(live.secrets, secrets)) {
+      if (isDeepStrictEqual(live.secrets, resolveSecrets())) {
         if ((live.model === options.model && live.preset === preset) || live.state !== 'idle') return live
       } else {
         if (live.pending.size > 0 || live.orphanedPending?.size > 0) {
@@ -307,6 +307,7 @@ export class LocalAgentAdapter extends LlmAdapter {
     } else if (live !== undefined) await this.closeLive(live)
     if (this.disposed) throw new LlmError('the local agents adapter is disposed', 'NO_ADAPTER')
     const record = this.deps.record(sessionId)
+    const secrets = resolveSecrets()
     // Codex warm-resumes a loaded thread with its old MCP address (#2110), and all
     // threads in one app-server share its process environment. Each live Session
     // gets its own app-server, with its authorized secrets merged into spec.env.

@@ -752,6 +752,35 @@ test('codex replaces its process cleanly when secrets change while suspended on 
   assert.deepEqual(JSON.parse(envCheck.text), { granted: false, inherited: false, internal: false })
 })
 
+test('codex rechecks secret access after interrupting the previous turn', async (t) => {
+  let secrets = {}
+  const adapter = makeAdapter({ secretEnvForSession: () => secrets })
+  t.after(() => adapter.dispose())
+  const messages = [user('m1', 'hold-ask')]
+  const first = await collect(adapter.stream(options('s1', messages, { provider: 'local-codex-cli' })))
+  const call = first.calls.find(entry => entry.name === 'approve_agent_action')
+  assert.ok(call)
+  const live = adapter.live.get('s1')
+  const cancel = live.engine.cancel.bind(live.engine)
+  const interrupting = Promise.withResolvers()
+  const interrupted = Promise.withResolvers()
+  live.engine.cancel = async (thread) => {
+    interrupting.resolve()
+    await interrupted.promise
+    return cancel(thread)
+  }
+  secrets = { DSH_SECRET_ENV_PROBE: 'scoped-test-value' }
+  const next = collect(adapter.stream(options(
+    's1',
+    [...messages, toolResult('t1', call.id, '{"decision":"allow"}'), user('m2', 'show-shell-env')],
+    { provider: 'local-codex-cli', signal: AbortSignal.timeout(30_000) },
+  )))
+  await interrupting.promise
+  secrets = {}
+  interrupted.resolve()
+  assert.deepEqual(JSON.parse((await next).text), { granted: false, inherited: false, internal: false })
+})
+
 test('codex secretsChanged closes idle sessions whose secrets changed without disturbing others', async (t) => {
   let granted = true
   const records = {}
