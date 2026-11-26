@@ -20605,6 +20605,7 @@ var tabFromDescriptor = (descriptor, sessionId) => ({
   asked: MODES.includes(descriptor.tab)
 });
 var fileOf = (tab) => ({ app: tab.app, displayPath: tab.displayPath, workspaceTag: tab.workspaceTag });
+var reopenBody = (tab) => ({ app: tab.app, sessionId: tab.sessionId, file: fileOf(tab) });
 function openFileTab(tabs, tab) {
   const at = tabs.findIndex((item) => item.key === tab.key);
   const stored = ({ asked: _asked, ...rest }) => rest;
@@ -20850,9 +20851,10 @@ function sessionFor(tab, readFile2 = (file, subject, known) => call("side-app-re
   }
   return session;
 }
-function dropSession(tabKey) {
+function dropSession(tabKey, sessionId) {
+  const own = (key) => key.endsWith(`${KEY_SEP}${tabKey}`) && (sessionId === void 0 || key.startsWith(`${sessionId}${KEY_SEP}`));
   for (const key of [...sessions.keys()]) {
-    if (key.endsWith(`${KEY_SEP}${tabKey}`)) {
+    if (own(key)) {
       sessions.get(key)?.stop();
       sessions.delete(key);
     }
@@ -20861,7 +20863,7 @@ function dropSession(tabKey) {
 var dropSessionsExcept = (keys) => {
   for (const key of [...sessions.keys()]) {
     const tabKey = key.slice(key.indexOf(KEY_SEP) + 1);
-    if (!keys.has(tabKey)) dropSession(tabKey);
+    if (!keys.has(tabKey)) dropSession(tabKey, key.slice(0, key.indexOf(KEY_SEP)));
   }
 };
 function startPolling({ tick, delay, active, doc = typeof document === "undefined" ? void 0 : document, timers = { set: setTimeout, clear: clearTimeout } }) {
@@ -21133,10 +21135,11 @@ function teamActions({ call: call2, after, partFor, roster, ui, live, cards, hel
     // an unconsumed open names the file; the host proves it again on every read. `auto`
     // opens never move the user off the conversation they are in: they only touch the
     // panel of the subject they belong to.
-    openSideApp: async (sessionId, descriptor, { auto = false } = {}) => {
+    openSideApp: async (sessionId, descriptor, { auto = false, reopen = false } = {}) => {
       const parsed = parseDescriptor(descriptor);
       if (parsed === void 0) throw new Error("This card has no file to open.");
       const tab = tabFromDescriptor(parsed, sessionId);
+      if (reopen) await call2("side-app-open", reopenBody(tab));
       const snap = roster.getSnapshot();
       const subject = subjectOf(snap, sessionId);
       let full2 = false;
@@ -21164,11 +21167,12 @@ function teamActions({ call: call2, after, partFor, roster, ui, live, cards, hel
       });
     },
     closeSideAppTab: (sessionId, key) => {
-      dropSession(key);
       ui.set((state) => {
         const subject = subjectOf(roster.getSnapshot(), sessionId);
         const own = state.fileTabs?.[subject] ?? [];
-        if (!own.some((tab) => tab.key === key)) return state;
+        const closing = own.find((tab) => tab.key === key);
+        if (closing === void 0) return state;
+        dropSession(key, closing.sessionId);
         const rest = closeFileTab(own, key);
         const leaving = state.fileTab === key && isFileApp(state.view);
         return { ...state, fileTabs: { ...state.fileTabs, [subject]: rest }, ...leaving ? { view: "details", fileTab: null } : {} };

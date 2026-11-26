@@ -1,7 +1,7 @@
 import { countCards, heldCardKey } from './sources.js'
 import { noteClientError } from './diagnostics.js'
 import { chatOfSession } from './draft-keep.js'
-import { FILE_TABS_MAX, closeFileTab, isFileApp, isSideApp, openFileTab, parseDescriptor, setTabMode, tabFromDescriptor } from './side-apps.js'
+import { FILE_TABS_MAX, closeFileTab, isFileApp, isSideApp, openFileTab, parseDescriptor, reopenBody, setTabMode, tabFromDescriptor } from './side-apps.js'
 import { dropSession } from './side-file-source.js'
 
 // The actions every window that draws the Bot views shares: dialogs and panels (the `ui`
@@ -109,10 +109,14 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     // an unconsumed open names the file; the host proves it again on every read. `auto`
     // opens never move the user off the conversation they are in: they only touch the
     // panel of the subject they belong to.
-    openSideApp: async (sessionId, descriptor, { auto = false } = {}) => {
+    openSideApp: async (sessionId, descriptor, { auto = false, reopen = false } = {}) => {
       const parsed = parseDescriptor(descriptor)
       if (parsed === undefined) throw new Error('This card has no file to open.')
       const tab = tabFromDescriptor(parsed, sessionId)
+      // A card from an earlier part reopens only after the host proves the file again against
+      // the conversation the card came from: an old card never rebinds to another folder, and
+      // a refusal leaves the panel as it was.
+      if (reopen) await call('side-app-open', reopenBody(tab))
       const snap = roster.getSnapshot()
       const subject = subjectOf(snap, sessionId)
       let full = false
@@ -140,11 +144,13 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
       })
     },
     closeSideAppTab: (sessionId, key) => {
-      dropSession(key)
       ui.set((state) => {
         const subject = subjectOf(roster.getSnapshot(), sessionId)
         const own = state.fileTabs?.[subject] ?? []
-        if (!own.some(tab => tab.key === key)) return state
+        const closing = own.find(tab => tab.key === key)
+        if (closing === undefined) return state
+        // Only this tab's own conversation loses its reading state.
+        dropSession(key, closing.sessionId)
         const rest = closeFileTab(own, key)
         const leaving = state.fileTab === key && isFileApp(state.view)
         return { ...state, fileTabs: { ...state.fileTabs, [subject]: rest }, ...(leaving ? { view: 'details', fileTab: null } : {}) }

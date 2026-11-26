@@ -89,16 +89,18 @@ export function sessionFor(tab, readFile = (file, subject, known) => call('side-
   }
   return session
 }
-// Closing a tab drops the sessions of that file from every conversation.
-export function dropSession(tabKey) {
+// Closing a tab drops the reading state of that tab in its own conversation only: the
+// same file open in another conversation keeps what it read and what was reviewed.
+export function dropSession(tabKey, sessionId) {
+  const own = key => key.endsWith(`${KEY_SEP}${tabKey}`) && (sessionId === undefined || key.startsWith(`${sessionId}${KEY_SEP}`))
   for (const key of [...sessions.keys()]) {
-    if (key.endsWith(`${KEY_SEP}${tabKey}`)) { sessions.get(key)?.stop(); sessions.delete(key) }
+    if (own(key)) { sessions.get(key)?.stop(); sessions.delete(key) }
   }
 }
 export const dropSessionsExcept = (keys) => {
   for (const key of [...sessions.keys()]) {
     const tabKey = key.slice(key.indexOf(KEY_SEP) + 1)
-    if (!keys.has(tabKey)) dropSession(tabKey)
+    if (!keys.has(tabKey)) dropSession(tabKey, key.slice(0, key.indexOf(KEY_SEP)))
   }
 }
 

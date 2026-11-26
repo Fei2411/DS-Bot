@@ -83,6 +83,9 @@ export const tabFromDescriptor = (descriptor, sessionId) => ({
 /** The file descriptor the host endpoints take, from a tab. */
 export const fileOf = tab => ({ app: tab.app, displayPath: tab.displayPath, workspaceTag: tab.workspaceTag })
 
+/** What `side-app-open` is asked when a card is reopened: the card's own conversation and file. */
+export const reopenBody = tab => ({ app: tab.app, sessionId: tab.sessionId, file: fileOf(tab) })
+
 /**
  * Open or focus a tab. An open tab is focused and keeps its own mode unless the
  * descriptor names one. A full strip refuses instead of dropping a tab that may hold

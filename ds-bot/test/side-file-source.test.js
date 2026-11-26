@@ -247,17 +247,30 @@ test('after a review the host base is used again once it starts at the reviewed 
   assert.deepEqual(plain(chooseBase({ file: { ...reviewed, text: 'v3', revision: 'r3', base: 'v2' }, host: wide })), { text: 'v2', source: 'snapshot' })
 })
 
-test('the same file in two conversations keeps two sessions, and closing the tab drops both', () => {
+test('the same file in two conversations keeps two sessions, and closing one tab drops only its own', () => {
   const base = { key: 'reader\0t\0a.md', app: 'reader', displayPath: 'a.md', workspaceTag: 't' }
   const read = () => Promise.resolve(text('x', 'r1'))
   const one = sessionFor({ ...base, sessionId: 's1' }, read)
   const two = sessionFor({ ...base, sessionId: 's2' }, read)
   assert.notEqual(one, two)
   assert.equal(sessionFor({ ...base, sessionId: 's1' }, read), one)
-  dropSession(base.key)
-  assert.notEqual(sessionFor({ ...base, sessionId: 's1' }, read), one)
-  assert.notEqual(sessionFor({ ...base, sessionId: 's2' }, read), two)
-  dropSession(base.key)
+  dropSession(base.key, 's1')
+  assert.notEqual(sessionFor({ ...base, sessionId: 's1' }, read), one, 'the closed tab starts again')
+  assert.equal(sessionFor({ ...base, sessionId: 's2' }, read), two, 'the other conversation keeps its reading and review state')
+  dropSession(base.key, 's1')
+  dropSession(base.key, 's2')
+})
+
+test('a session id that merely starts like another is not dropped with it', () => {
+  const base = { key: 'reader\0t\0b.md', app: 'reader', displayPath: 'b.md', workspaceTag: 't' }
+  const read = () => Promise.resolve(text('x', 'r1'))
+  const short = sessionFor({ ...base, sessionId: 's1' }, read)
+  const long = sessionFor({ ...base, sessionId: 's10' }, read)
+  dropSession(base.key, 's1')
+  assert.equal(sessionFor({ ...base, sessionId: 's10' }, read), long)
+  assert.notEqual(sessionFor({ ...base, sessionId: 's1' }, read), short)
+  dropSession(base.key, 's1')
+  dropSession(base.key, 's10')
 })
 
 test('a renewed ticket for unchanged content moves the frame to the new address', () => {

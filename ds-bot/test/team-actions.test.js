@@ -103,3 +103,38 @@ test('computerAppAnswer refreshes team state and approval island stays mutually 
   assert.equal(ui.getSnapshot().goalOpen, 'r1')
   assert.equal(ui.getSnapshot().approvalOpen, null)
 })
+
+// A card from an earlier part reopens only after the host proves it again for that part.
+function sideAppBench(call) {
+  const roster = createSource({ byId: { bot1: { id: 'bot1' } }, roomsById: {}, sideChats: {} })
+  const ui = createSource({ details: null, view: 'details', fileTabs: {}, fileTab: null, panelYield: false })
+  const actions = teamActions({ call, after: promise => promise, partFor: id => id, roster, ui, panelFolded: () => false })
+  return { actions, ui }
+}
+const card = { v: 1, app: 'reader', sessionId: 'old-part', workspaceTag: 'tag', displayPath: 'docs/a.md' }
+
+test('a reopened card asks the host to prove its own conversation before the tab takes focus', async () => {
+  const sent = []
+  const { actions, ui } = sideAppBench(async (name, body) => { sent.push([name, body]); return { ok: true } })
+  await actions.openSideApp('bot1', card, { reopen: true })
+  assert.equal(sent.length, 1)
+  assert.equal(sent[0][0], 'side-app-open')
+  assert.deepEqual(JSON.parse(JSON.stringify(sent[0][1])), { app: 'reader', sessionId: 'old-part', file: { app: 'reader', displayPath: 'docs/a.md', workspaceTag: 'tag' } })
+  assert.equal(ui.getSnapshot().view, 'reader')
+})
+
+test('a refused reopen leaves the panel and its tabs exactly as they were', async () => {
+  const refuse = async () => { throw Object.assign(new Error('The working folder changed'), { code: 'bot/workspace-changed' }) }
+  const { actions, ui } = sideAppBench(refuse)
+  const before = ui.getSnapshot()
+  await assert.rejects(actions.openSideApp('bot1', card, { reopen: true }), { code: 'bot/workspace-changed' })
+  assert.equal(ui.getSnapshot(), before, 'no tab was added or focused')
+})
+
+test('a live open and a reader link do not wait on the extra check', async () => {
+  const sent = []
+  const { actions } = sideAppBench(async (name) => { sent.push(name); return {} })
+  await actions.openSideApp('bot1', card, { auto: true })
+  await actions.openSideApp('bot1', { ...card, displayPath: 'docs/b.md' })
+  assert.deepEqual(sent, [])
+})
