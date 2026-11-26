@@ -358,18 +358,29 @@ test('Segmented adapts without clipping across narrow/wide panels, services acti
         const longLayout = longSeg.dataset.layout || 'row'
         const longOver = [...longSeg.querySelectorAll('button')].some(b => b.scrollWidth > b.clientWidth + 1)
 
-        // AvatarEditor inside 320px right panel must not cause horizontal scroll or right clipping.
+        // Verify no redundant data-layout mutation thrash after mount settles (line-height invariant).
+        let mutations = 0
+        const mo = new MutationObserver(() => { mutations += 1 })
+        mo.observe(perm, { attributes: true, attributeFilter: ['data-layout'] })
+        perm.querySelectorAll('button')[0].click()
+        await wait()
+        mo.disconnect()
+
+        // AvatarEditor inside 320px right panel must not cause horizontal scroll or left/right clipping.
         const avBody = root.querySelector('#avedit-panel .bt-drawer-body')
         const avPop = root.querySelector('#avedit-panel .bt-avedit')
+        const avBodyRect = avBody.getBoundingClientRect()
+        const avPopRect = avPop.getBoundingClientRect()
         const avOverflow = avBody.scrollWidth > avBody.clientWidth + 1
-        const avClipped = avPop.getBoundingClientRect().right > avBody.getBoundingClientRect().right + 1
+        const avClipped = avPopRect.right > avBodyRect.right + 1 || avPopRect.left < avBodyRect.left - 1
 
-        return { layout320, thumb320Ok, layout520, layoutBack320, fontBefore, fontAfter, svcLayout: svcSeg.dataset.layout, svcClipped, longLayout, longOver, avOverflow, avClipped }
+        return { layout320, thumb320Ok, layout520, layoutBack320, mutations, fontBefore, fontAfter, svcLayout: svcSeg.dataset.layout, svcClipped, longLayout, longOver, avOverflow, avClipped }
       })
       assert.equal(res.layout320, 'grid-2', JSON.stringify(res))
       assert.equal(res.thumb320Ok, true, JSON.stringify(res))
       assert.equal(res.layout520, 'row', JSON.stringify(res))
       assert.equal(res.layoutBack320, 'grid-2', JSON.stringify(res))
+      assert.equal(res.mutations, 0, JSON.stringify(res))
       assert.equal(res.fontBefore, 'row', JSON.stringify(res))
       assert.equal(res.fontAfter, 'wrap', JSON.stringify(res))
       assert.equal(res.svcClipped, false, JSON.stringify(res))

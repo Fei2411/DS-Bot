@@ -21621,7 +21621,10 @@ function liveSprings(apply2) {
       cancelAnimationFrame(frame2);
       frame2 = 0;
     },
-    stop: () => cancelAnimationFrame(frame2)
+    stop: () => {
+      cancelAnimationFrame(frame2);
+      frame2 = 0;
+    }
   };
 }
 var CHOSEN = '[aria-pressed="true"],[aria-selected="true"],[aria-current="page"]';
@@ -21769,7 +21772,8 @@ function Segmented({ label, value, className, children }) {
     if (!node) return;
     const state = fitRef.current;
     const buttons = segButtons(node);
-    const font = typeof getComputedStyle === "function" ? getComputedStyle(buttons[0] ?? node).font ?? "" : "";
+    const cs = typeof getComputedStyle === "function" ? getComputedStyle(buttons[0] ?? node) : null;
+    const font = cs ? `${cs.fontWeight}\0${cs.fontSize}\0${cs.fontFamily}` : "";
     const sig = `${font}\0${buttons.map((button) => button.textContent).join("\0")}`;
     const parent = node.parentElement;
     const row = typeof node.closest === "function" ? node.closest(".bt-set-row") : null;

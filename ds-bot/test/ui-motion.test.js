@@ -492,6 +492,26 @@ test('useGlide axis=both tracks 2D thumb rect, snaps on syncKey, recovers from d
   runRender('a', 'zh', 'x')
   assert.equal(thumb.style.transform, 'translateX(2px)')
   assert.equal(thumb.style.height, '')
+
+  // Stopping an in-flight spring (StrictMode cleanup / node detach) clears `frame` so
+  // the next selection change after reattach still schedules RAF instead of freezing.
+  b0.setAttribute('aria-pressed', 'false')
+  b1.setAttribute('aria-pressed', 'true')
+  const beforeDetach = rafCount
+  runRender('b', 'zh', 'x')
+  assert.equal(rafCount, beforeDetach + 1)
+  // Detach (null box) stops the in-flight spring.
+  refIdx = 0
+  const detached = client.useGlide('b', { axis: 'x', box: { current: null }, syncKey: 'zh' })
+  detached.thumb.current = thumb
+  layoutFn()
+  // Reattach and move back to 'a': must schedule a fresh RAF.
+  runRender('b', 'zh', 'x')
+  b1.setAttribute('aria-pressed', 'false')
+  b0.setAttribute('aria-pressed', 'true')
+  const afterReattach = rafCount
+  runRender('a', 'zh', 'x')
+  assert.equal(rafCount, afterReattach + 1)
 })
 
 test('SHELL_CSS uses container queries on narrow cards and responsive Segmented layouts', () => {

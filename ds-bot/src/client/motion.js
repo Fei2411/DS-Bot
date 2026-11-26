@@ -117,7 +117,7 @@ function liveSprings(apply) {
       if (!frame) { last = performance.now(); frame = requestAnimationFrame(step) }
     },
     reset: () => { values.clear(); for (const key of Object.keys(current)) delete current[key]; cancelAnimationFrame(frame); frame = 0 },
-    stop: () => cancelAnimationFrame(frame),
+    stop: () => { cancelAnimationFrame(frame); frame = 0 },
   }
 }
 
@@ -279,7 +279,8 @@ export function Segmented({ label, value, className, children }) {
     if (!node) return
     const state = fitRef.current
     const buttons = segButtons(node)
-    const font = typeof getComputedStyle === 'function' ? (getComputedStyle(buttons[0] ?? node).font ?? '') : ''
+    const cs = typeof getComputedStyle === 'function' ? getComputedStyle(buttons[0] ?? node) : null
+    const font = cs ? `${cs.fontWeight}\u0000${cs.fontSize}\u0000${cs.fontFamily}` : ''
     const sig = `${font}\u0000${buttons.map(button => button.textContent).join('\u0000')}`
     const parent = node.parentElement
     const row = typeof node.closest === 'function' ? node.closest('.bt-set-row') : null
