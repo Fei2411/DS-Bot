@@ -112,13 +112,17 @@ test('context-pack: buildHandoffPack, buildCheckpointPack, buildCompactDigest, b
   const fallback = buildFallbackContext({
     events: [
       { seq: 0, type: 'turn/start', data: { turn: 1 } },
-      { seq: 1, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'Build feature X' }] } },
-      { seq: 2, type: 'assistant/message', data: { message: { content: [{ type: 'text', text: 'Working on X now.' }] } } },
-      { seq: 3, type: 'turn/end', data: { turn: 1 } },
-      { seq: 4, type: 'turn/start', data: { turn: 2 } },
-      { seq: 5, type: 'user/message', data: { source: { kind: SOURCE_KIND, role: 'request' }, content: [{ type: 'text', text: 'SECRET_PEER_DELEGATION' }] } },
-      { seq: 6, type: 'assistant/message', data: { message: { content: [{ type: 'text', text: 'SECRET_PEER_REPLY' }] } } },
-      { seq: 7, type: 'turn/end', data: { turn: 2 } },
+      { seq: 1, type: 'user/message', data: { source: { kind: 'ds-bot-own-memory' }, content: [{ type: 'text', text: '## Your memory (MEMORY.md)\nNOISE_MEM' }] } },
+      { seq: 2, type: 'user/message', data: { source: { kind: 'workspace-instructions' }, content: [{ type: 'text', text: '<system-reminder>NOISE_AGENTS_MD</system-reminder>' }] } },
+      { seq: 3, type: 'user/message', data: { source: { kind: 'time' }, content: [{ type: 'text', text: 'Time sampled while preparing turn 1' }] } },
+      { seq: 4, type: 'user/message', data: { source: { kind: SOURCE_KIND, role: 'kickoff' }, content: [{ type: 'text', text: '[Bot team setup] NOISE_KICKOFF' }] } },
+      { seq: 5, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'Build feature X' }] } },
+      { seq: 6, type: 'assistant/message', data: { message: { content: [{ type: 'text', text: 'Working on X now.' }] } } },
+      { seq: 7, type: 'turn/end', data: { turn: 1 } },
+      { seq: 8, type: 'turn/start', data: { turn: 2 } },
+      { seq: 9, type: 'user/message', data: { source: { kind: SOURCE_KIND, role: 'request' }, content: [{ type: 'text', text: 'SECRET_PEER_DELEGATION' }] } },
+      { seq: 10, type: 'assistant/message', data: { message: { content: [{ type: 'text', text: 'SECRET_PEER_REPLY' }] } } },
+      { seq: 11, type: 'turn/end', data: { turn: 2 } },
     ],
     label: 'your own chat',
     sourceKind: SOURCE_KIND,
@@ -127,6 +131,7 @@ test('context-pack: buildHandoffPack, buildCheckpointPack, buildCompactDigest, b
   assert.match(fallback, /\[Recent context from your own chat\]/)
   assert.match(fallback, /User: Build feature X/)
   assert.match(fallback, /Assistant: Working on X now\./)
+  assert.doesNotMatch(fallback, /NOISE_MEM|NOISE_AGENTS_MD|Time sampled|NOISE_KICKOFF/, 'must filter out DSH/plugin context injections and kickoff boilerplate')
   assert.doesNotMatch(fallback, /SECRET_PEER/, 'excludeTurns must strip hidden peer-Bot turns completely')
 
   // A second consecutive non-forked bot-handoff or fg-handoff preserves prior carriedContext

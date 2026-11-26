@@ -410,10 +410,15 @@ export function buildFallbackContext({
     if (shadowedEnd >= 0 && Number.isInteger(event.seq) && event.seq <= shadowedEnd) continue
     if (event.type === 'user/message') {
       const source = event.data?.source
-      if (source?.kind === 'runtime-context' || source?.kind === 'compact-checkpoint') continue
-      if (source?.kind === sourceKind && (source.handoff === true || source.role === 'task-handoff' || (source.role === 'request' && source.audience !== 'user'))) continue
+      const kind = source?.kind
+      // Only carry real conversation messages: skip DSH/plugin context injections
+      // (memory snapshots/updates/recalls, clock/time samples, workspace instructions,
+      // skill catalogs, runtime-context, compact-checkpoint) and internal notices.
+      const allowed = kind === undefined || kind === 'user' || kind === 'reply' || kind === 'schedule' || kind === sourceKind
+      if (!allowed) continue
+      if (kind === sourceKind && (source.handoff === true || source.role === 'task-handoff' || source.role === 'kickoff' || source.role === 'goal' || (source.role === 'request' && source.audience !== 'user'))) continue
       const text = textOf(event.data?.message?.content ?? event.data?.content ?? '').trim()
-      if (text !== '') lines.push(`User: ${normalizeSingleLine(text, lineMax)}`)
+      if (text !== '' && !text.startsWith('<system-reminder>')) lines.push(`User: ${normalizeSingleLine(text, lineMax)}`)
     } else if (event.type === 'assistant/message') {
       const text = textOf(event.data?.message?.content ?? []).trim()
       if (text !== '' && text !== handoffAck) lines.push(`Assistant: ${normalizeSingleLine(text, lineMax)}`)
