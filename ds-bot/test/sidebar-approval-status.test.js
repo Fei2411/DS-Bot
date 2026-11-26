@@ -460,4 +460,11 @@ test('a Bot row shows between turns a failed turn, background tasks and an unrea
   const running = renderSidebar({ bots: [failed, done], statusMap: new Map([['f-2', { running: true }], ['d', { running: false, completionUnread: true }]]), activeSession: 'd' })
   assert.equal(stateOf(running, 'f'), 'working')
   assert.equal(stateOf(running, 'd'), 'idle')
+  // The roster with the failure is polled; the part's outline is live. Once it lists a
+  // later turn (a retry under way, finished or stopped), the failure is behind it.
+  const outline = turns => ({ 'f-2': { values: { turnOutline: turns } } })
+  const failedTurn = { turn: 4, seq: 31, prompt: 'Check the inbox', response: '' }
+  assert.equal(stateOf(renderSidebar({ bots: [failed], projectionsBySession: outline([failedTurn]) }), 'f'), 'failed')
+  const retried = renderSidebar({ bots: [failed], projectionsBySession: outline([failedTurn, { turn: 5, seq: 40, prompt: '', response: 'Inbox is clear.' }]), activeSession: 'f-2' })
+  assert.equal(stateOf(retried, 'f'), 'idle')
 })

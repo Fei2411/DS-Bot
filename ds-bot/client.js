@@ -24551,6 +24551,7 @@ var POKE_WINDOW = 1.6;
 var SNEAK_FIRST = [7, 14];
 var SNEAK_DEEPER = 1.7;
 var REST_GAP = [4, 7];
+var AMBIENT = /* @__PURE__ */ new Set(["idle", "sleeping"]);
 var Avatar = class {
   constructor({ seed = 1, size = 36, live = false, tier = "normal", effects = "full", state = "idle" } = {}) {
     this.rng = random(seed);
@@ -24835,9 +24836,10 @@ var Avatar = class {
     return Math.max(0, Math.min(...times.filter(Number.isFinite)) - this.time);
   }
   // Resting: nobody has touched the window for a while. Moves under way finish. A state
-  // keeps showing what the Bot is doing, a move every REST_GAP seconds: someone glancing
-  // at the screen to see how the work goes is not touching anything. Fidgets, glances,
-  // blinks and petting wait for input, even under a pointer left on the mark.
+  // keeps showing what the Bot is doing, a move every REST_GAP seconds, also under a
+  // pointer left on the mark: someone glancing at the screen to see how the work goes is
+  // not touching anything. Idle and asleep hold still; fidgets, glances, blinks and
+  // petting wait for input.
   rest(on) {
     this.resting = on;
     if (!on) {
@@ -24897,8 +24899,7 @@ var Avatar = class {
   // at rest only a lively mark blinks.
   blinks() {
     const def = STATES[this.state];
-    const ambient = this.state === "idle" || this.state === "sleeping";
-    return !!def.blink && !this.calm && (!ambient || !!this.petting || this.live && this.tier === "lively");
+    return !!def.blink && !this.calm && (!AMBIENT.has(this.state) || !!this.petting || this.live && this.tier === "lively");
   }
   // Peeks while asleep, on large lively marks (only they doze off).
   sneaks() {
@@ -24921,9 +24922,11 @@ var Avatar = class {
     return null;
   }
   // The moves that show what the Bot is doing: they play at every motion level, and on
-  // through a resting window.
+  // through a resting window, also under a pointer left on the mark. Idle and asleep
+  // show nothing going on, so a resting window holds them still.
   stateLoop(def) {
-    if (this.calm || this.petting) return null;
+    if (this.calm) return null;
+    if (this.resting ? AMBIENT.has(this.state) : this.petting) return null;
     return this.lod === "chip" && def.compact || def.loop || null;
   }
   // A weighted draw that avoids playing the same clip twice in a row.
@@ -27054,13 +27057,17 @@ var STATES2 = ["idle", "thinking", "searching", "working", "sending", "orbit", "
 var BETWEEN = /* @__PURE__ */ new Set(["waiting", "background", "failed", "replied"]);
 var RUNNING = /* @__PURE__ */ new Set(["thinking", "searching", "working", "sending", "orbit", "done"]);
 var botState = (running, activity, alert, { failed = false, background = false, replied = false } = {}) => running ? STATES2.includes(activity) && !BETWEEN.has(activity) ? activity : "working" : alert ? "alert" : failed ? "failed" : activity === "waiting" ? "waiting" : background ? "background" : replied ? "replied" : "idle";
-var lastTurnFailed = (bot) => bot?.blocked !== void 0 || bot?.failures?.[bot.sessionId ?? bot.id] !== void 0;
-var failureKey = (bot) => lastTurnFailed(bot) ? JSON.stringify([bot.blocked ?? null, bot.failures?.[bot.sessionId ?? bot.id] ?? null]) : "";
-function useLastTurnFailed(bot, running) {
-  const key = failureKey(bot);
-  const [seen, setSeen] = (0, import_react2.useState)({ running: false, before: "" });
-  if (running !== seen.running) setSeen({ running, before: running ? key : seen.before });
-  return key !== "" && key !== seen.before;
+var latestTurnOf = (list, part) => {
+  const outline2 = turnOutlineOf(list, part);
+  return Array.isArray(outline2) && outline2.length > 0 ? outline2.at(-1).turn : void 0;
+};
+function lastTurnFailed(bot, latestTurn) {
+  if (bot === void 0) return false;
+  const failure = bot.failures?.[currentPart(bot)];
+  const past = failure !== void 0 && failure.turn >= 1 && latestTurn > failure.turn;
+  if (failure !== void 0 && !past) return true;
+  if (bot.blocked === void 0) return false;
+  return !(past && bot.blocked.code === failure.code);
 }
 var toolState = (name) => /^(message_bot|delegate_work|ask_back|answer_work|cancel_work|note_bot|stop_bot|create_bot|update_bot|create_group|update_group|delete_group|post_to_group)$/.test(name) ? "sending" : /search|fetch|browse|read|grep|glob|list|recall/i.test(name) ? "searching" : "working";
 var PET_ZONE = ":is(.bt-row,.bt-tile)>:is(.bt-mark,.bt-cluster),.bt-pet-zone";
@@ -27136,21 +27143,27 @@ function MainStar() {
     (0, import_react2.createElement)("path", { d: "M10 2.4l2.29 5.04 5.51.63-4.09 3.74 1.11 5.42L10 14.5l-4.82 2.73 1.11-5.42L2.2 8.07l5.51-.63z" })
   );
 }
+var AFTER_WORK = /* @__PURE__ */ new Set(["idle", "replied"]);
+var NOT_WORK = /* @__PURE__ */ new Set(["alert", "failed"]);
 function useSettled(state, id) {
-  const prev = (0, import_react2.useRef)({ state, id });
+  const after = AFTER_WORK.has(state);
+  const before = (0, import_react2.useRef)({ state, id });
   const [settled, setSettled] = (0, import_react2.useState)(false);
   (0, import_react2.useEffect)(() => {
-    const was = prev.current;
-    prev.current = { state, id };
-    if (was.id !== id || !(state === "idle" || state === "replied")) {
+    const was = before.current;
+    before.current = { state, id };
+    if (was.id !== id || !after) {
       setSettled(false);
       return void 0;
     }
-    if (was.state === "idle" || was.state === "alert" || was.state === "failed" || was.state === "replied") return void 0;
+    if (AFTER_WORK.has(was.state) || NOT_WORK.has(was.state)) return void 0;
     setSettled(true);
     const timer2 = setTimeout(() => setSettled(false), 1800);
     return () => clearTimeout(timer2);
-  }, [state, id]);
+  }, [after, id]);
+  (0, import_react2.useEffect)(() => {
+    if (!after) before.current = { state, id };
+  });
   return settled;
 }
 var BotAvatar = memo(function BotAvatar2({ bot, size, state = "idle", main, admin, badge = true, live = true, gaze = false, pokeable = false }) {
@@ -42651,7 +42664,7 @@ var BotRow = memo(function BotRow2({ bot, roster, actions, useSessions, useBotCo
   const blockingAlert = blockingApproval || pending.question;
   const dmDoing = blockingAlert ? "alert" : doing === "alert" ? void 0 : doing;
   const taskCounts = taskCountsOf({ bot });
-  const failed = useLastTurnFailed(bot, running);
+  const failed = lastTurnFailed(bot, useSessions((list) => latestTurnOf(list, part)));
   const state = botState(running || away, dmDoing, alert, { failed, background: taskCounts.active > 0, replied: finished });
   const waitLine = blockingApproval ? t("Waiting for your approval") : pending.question ? t("Waiting for your answer") : null;
   const deferredWaitLine = nonBlockingApproval ? t("Waiting for your approval") : null;
@@ -57765,7 +57778,7 @@ function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSe
   const owner = roster.byId[sessionId]?.id ?? sessionId;
   const doing = useActivity((map) => map[owner]);
   const bot = roster.byId[sessionId];
-  const failed = useLastTurnFailed(bot, running);
+  const failed = lastTurnFailed(bot, useSessions((list) => bot ? latestTurnOf(list, currentPart(bot)) : void 0));
   const room2 = roster.roomsById[sessionId];
   const goal = room2?.goal;
   const goalCompose = useUi((state) => room2 !== void 0 && state.goalCompose === room2.id);
@@ -62351,7 +62364,7 @@ function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, a
   const side2 = move === "tab" ? void 0 : move;
   const close = () => actions.closeOverlay();
   const running = useSessionStatus((map) => map.get(part)?.running === true);
-  const failed = useLastTurnFailed(bot, running);
+  const failed = lastTurnFailed(bot, useSessions((list) => latestTurnOf(list, part)));
   const doing = useActivity((map) => map[bot?.id ?? sessionId]);
   const sessionsRef = (0, import_react87.useRef)(null);
   useSessions((list) => {

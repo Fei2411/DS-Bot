@@ -12,8 +12,9 @@ import { REST_MS } from '../motion-rest.js'
 // The clock only asks for frames while some mark moves. A mark at rest sleeps until its
 // next blink or fidget; a mark out of view, or in a hidden page, is skipped. When
 // nobody has touched the window for REST_MS (as for the page's other loops,
-// motion-rest.js), marks finish what they are doing and hold still; after DOZE_MS a
-// lively mark at rest nods off, and wakes on input.
+// motion-rest.js), marks finish what they are doing and keep only their state's own
+// moves, further apart and at 30 fps at most: idle and asleep hold still. After
+// DOZE_MS a lively mark at rest nods off, and wakes on input.
 //
 // A mark shows its flat art until it first leaves the rest pose. Only then is its
 // model built (in idle slices) and the canvas put over the art; the move waits for

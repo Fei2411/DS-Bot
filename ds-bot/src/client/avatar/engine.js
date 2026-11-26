@@ -9,10 +9,10 @@ import { STATES, stateName } from './states.js'
 //
 // Motion levels (`tier`): quiet plays only the states' own motion; normal adds petting,
 // pokes, and following the pointer; lively adds life at rest (blinks, glances,
-// fidgets, dozing off) and repeats the call for attention. A resting mark below lively
-// holds still, so a quiet window stays quiet. `effects` (the interface motion setting): `reduced`
-// keeps one-shot moves and expressions but no loops; `off` holds still and changes
-// expressions in place.
+// fidgets, dozing off). Once nobody has touched the window for a while (`rest`), a mark
+// keeps only its state's own moves, further apart, so idle and asleep hold still.
+// `effects` (the interface motion setting): `reduced` keeps one-shot moves and
+// expressions but no loops; `off` holds still and changes expressions in place.
 
 // Spring per channel: [ω (rad/s), damping ratio]. Squash is loose so it jiggles; eyes
 // are quick so a glance snaps; the head is slower than the eyes it follows.
@@ -49,6 +49,8 @@ const SNEAK_FIRST = [7, 14]
 const SNEAK_DEEPER = 1.7
 // While the window rests, a state's own moves come REST_GAP seconds [min, max] apart.
 const REST_GAP = [4, 7]
+// States with nothing going on: their motion is life at rest, not news.
+const AMBIENT = new Set(['idle', 'sleeping'])
 
 export class Avatar {
   constructor({ seed = 1, size = 36, live = false, tier = 'normal', effects = 'full', state = 'idle' } = {}) {
@@ -323,9 +325,10 @@ export class Avatar {
   }
 
   // Resting: nobody has touched the window for a while. Moves under way finish. A state
-  // keeps showing what the Bot is doing, a move every REST_GAP seconds: someone glancing
-  // at the screen to see how the work goes is not touching anything. Fidgets, glances,
-  // blinks and petting wait for input, even under a pointer left on the mark.
+  // keeps showing what the Bot is doing, a move every REST_GAP seconds, also under a
+  // pointer left on the mark: someone glancing at the screen to see how the work goes is
+  // not touching anything. Idle and asleep hold still; fidgets, glances, blinks and
+  // petting wait for input.
   rest(on) {
     this.resting = on
     if (!on) { this.nextLoop = Math.min(this.nextLoop, this.time + 0.4 + this.rng() * 1.2); this.nextBlink = Math.min(this.nextBlink, this.time + 0.3 + this.rng()) }
@@ -377,8 +380,7 @@ export class Avatar {
   // at rest only a lively mark blinks.
   blinks() {
     const def = STATES[this.state]
-    const ambient = this.state === 'idle' || this.state === 'sleeping'
-    return !!def.blink && !this.calm && (!ambient || !!this.petting || (this.live && this.tier === 'lively'))
+    return !!def.blink && !this.calm && (!AMBIENT.has(this.state) || !!this.petting || (this.live && this.tier === 'lively'))
   }
 
   // Peeks while asleep, on large lively marks (only they doze off).
@@ -403,9 +405,11 @@ export class Avatar {
   }
 
   // The moves that show what the Bot is doing: they play at every motion level, and on
-  // through a resting window.
+  // through a resting window, also under a pointer left on the mark. Idle and asleep
+  // show nothing going on, so a resting window holds them still.
   stateLoop(def) {
-    if (this.calm || this.petting) return null
+    if (this.calm) return null
+    if (this.resting ? AMBIENT.has(this.state) : this.petting) return null
     return (this.lod === 'chip' && def.compact) || def.loop || null
   }
 

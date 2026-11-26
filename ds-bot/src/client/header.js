@@ -2,7 +2,7 @@ import { createElement as h, Fragment, useEffect, useLayoutEffect, useRef, useSt
 import { createPortal } from 'react-dom'
 import { currentPart, latestMemoryChange } from './text.js'
 import { ArrowUpIcon, CloseIcon, ArrowDownIcon, GoalIcon, MemoryIcon, SearchIcon } from './icons.js'
-import { botState, useLastTurnFailed, BotAvatar, RoomAvatar } from './mark.js'
+import { botState, lastTurnFailed, latestTurnOf, BotAvatar, RoomAvatar } from './mark.js'
 import { AgentBadge } from './agent-badge.js'
 import { ActivityIndicator } from './activity-row.js'
 import { clockLabel, newDividerIn, openingTurn, unseenSince } from './cells.js'
@@ -74,7 +74,7 @@ export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus
   const owner = roster.byId[sessionId]?.id ?? sessionId
   const doing = useActivity(map => map[owner])
   const bot = roster.byId[sessionId]
-  const failed = useLastTurnFailed(bot, running)
+  const failed = lastTurnFailed(bot, useSessions(list => (bot ? latestTurnOf(list, currentPart(bot)) : undefined)))
   const room = roster.roomsById[sessionId]
   const goal = room?.goal
   // Goal panels are keyed by the group, never by its current Session: `composeGoal` and

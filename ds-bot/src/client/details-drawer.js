@@ -2,7 +2,7 @@ import { createElement as h, Fragment, useEffect, useRef, useState } from 'react
 import { isMainOf } from './sources.js'
 import { HEADER, currentPart, runStatsOf, stripHeader, usageOf } from './text.js'
 import { PlusIcon, ShareIcon, CloseIcon, ChevronLeftIcon, GearIcon } from './icons.js'
-import { botState, useLastTurnFailed, BotMark, BotAvatar } from './mark.js'
+import { botState, lastTurnFailed, latestTurnOf, BotMark, BotAvatar } from './mark.js'
 import { GlobeIcon, Favicon, PanelMenu, menuItemFor } from './browser-pane.js'
 import { drawerMenuKeys } from './side-model.js'
 import { BotSettingsForm, InlineText } from './bot-settings.js'
@@ -272,7 +272,7 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, ro
   const side = move === 'tab' ? undefined : move
   const close = () => actions.closeOverlay()
   const running = useSessionStatus(map => map.get(part)?.running === true)
-  const failed = useLastTurnFailed(bot, running)
+  const failed = lastTurnFailed(bot, useSessions(list => latestTurnOf(list, part)))
   const doing = useActivity(map => map[bot?.id ?? sessionId])
   const sessionsRef = useRef(null)
   useSessions((list) => { sessionsRef.current = list; return null })

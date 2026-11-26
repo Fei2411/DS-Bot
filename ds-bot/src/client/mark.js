@@ -2,6 +2,7 @@ import { createElement as h, useEffect, useRef, useState } from 'react'
 import { fnv1a, lookOf, shapeId, shapeOf, MASK_ID, nextMarkSerial, characterMarkup } from './characters.js'
 import { LiveMark } from './avatar/live.js'
 import { memo } from './memo.js'
+import { currentPart, turnOutlineOf } from './text.js'
 import { t } from './i18n.js'
 
 export { colorOf, lookOf } from './characters.js'
@@ -27,20 +28,26 @@ const RUNNING = new Set(['thinking', 'searching', 'working', 'sending', 'orbit',
 export const botState = (running, activity, alert, { failed = false, background = false, replied = false } = {}) => (running
   ? (STATES.includes(activity) && !BETWEEN.has(activity) ? activity : 'working')
   : alert ? 'alert' : failed ? 'failed' : activity === 'waiting' ? 'waiting' : background ? 'background' : replied ? 'replied' : 'idle')
-// Whether the Bot's last turn in its chat failed and no turn has gone through since:
-// the host keeps the failure on the Bot until the next completed turn of that part.
-export const lastTurnFailed = bot => bot?.blocked !== undefined || bot?.failures?.[bot.sessionId ?? bot.id] !== undefined
-const failureKey = bot => (lastTurnFailed(bot) ? JSON.stringify([bot.blocked ?? null, bot.failures?.[bot.sessionId ?? bot.id] ?? null]) : '')
-// lastTurnFailed as a mark shows it. A running turn shows at once, but the failure comes
-// with the roster, which is polled: when a retry goes through, the old failure would
-// stay a few seconds after the turn ends. A failure already listed when the latest turn
-// started belongs to an earlier turn, so it no longer counts; a new one has its own
-// time and counts as soon as it arrives.
-export function useLastTurnFailed(bot, running) {
-  const key = failureKey(bot)
-  const [seen, setSeen] = useState({ running: false, before: '' })
-  if (running !== seen.running) setSeen({ running, before: running ? key : seen.before })
-  return key !== '' && key !== seen.before
+// The newest turn a part's live outline lists, or undefined while the list holds none.
+export const latestTurnOf = (list, part) => {
+  const outline = turnOutlineOf(list, part)
+  return Array.isArray(outline) && outline.length > 0 ? outline.at(-1).turn : undefined
+}
+// Whether the Bot's last turn in its chat failed. The host keeps the failure under the
+// part and turn it happened in until a turn there goes through, but the roster that
+// carries it is polled, while the part's turn outline is live. So a failure counts until
+// a later turn shows in the outline: a retry under way, finished or stopped leaves it
+// behind at once, as the chat's failure card does (turn-error.js). A turn the host
+// could not number (picked up after a restart) cannot be placed, so it counts. A block
+// (a key, a balance) stands for the whole Bot, wherever it came from (its chat, a group,
+// a task), until the host lifts it; one from this part's failure goes with it.
+export function lastTurnFailed(bot, latestTurn) {
+  if (bot === undefined) return false
+  const failure = bot.failures?.[currentPart(bot)]
+  const past = failure !== undefined && failure.turn >= 1 && latestTurn > failure.turn
+  if (failure !== undefined && !past) return true
+  if (bot.blocked === undefined) return false
+  return !(past && bot.blocked.code === failure.code)
 }
 export const toolState = name => (/^(message_bot|delegate_work|ask_back|answer_work|cancel_work|note_bot|stop_bot|create_bot|update_bot|create_group|update_group|delete_group|post_to_group)$/.test(name) ? 'sending'
   : /search|fetch|browse|read|grep|glob|list|recall/i.test(name) ? 'searching' : 'working')
@@ -141,20 +148,28 @@ function MainStar() {
 }
 
 // Marks settle with a short squash when a run finishes.
+// Done, for a moment, when a piece of work comes to an end: the Bot was busy and is now
+// idle or has a reply waiting. Idle and an unread reply count as one (opening the chat
+// reads the reply), so the moment runs its course across that change. A question
+// answered or a failure is not work done.
+const AFTER_WORK = new Set(['idle', 'replied'])
+const NOT_WORK = new Set(['alert', 'failed'])
 function useSettled(state, id) {
-  const prev = useRef({ state, id })
+  const after = AFTER_WORK.has(state)
+  const before = useRef({ state, id })
   const [settled, setSettled] = useState(false)
   useEffect(() => {
-    const was = prev.current
-    prev.current = { state, id }
-    if (was.id !== id || !(state === 'idle' || state === 'replied')) { setSettled(false); return undefined }
-    // Done celebrates a piece of work coming to an end, not a question answered or a
-    // failure.
-    if (was.state === 'idle' || was.state === 'alert' || was.state === 'failed' || was.state === 'replied') return undefined
+    const was = before.current
+    before.current = { state, id }
+    if (was.id !== id || !after) { setSettled(false); return undefined }
+    if (AFTER_WORK.has(was.state) || NOT_WORK.has(was.state)) return undefined
     setSettled(true)
     const timer = setTimeout(() => setSettled(false), 1800)
     return () => clearTimeout(timer)
-  }, [state, id])
+  }, [after, id])
+  // While the Bot is busy, the latest of what it does: a turn run after a failure is
+  // work, and its end is done.
+  useEffect(() => { if (!after) before.current = { state, id } })
   return settled
 }
 

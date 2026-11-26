@@ -255,6 +255,16 @@ test('a resting window keeps showing what a Bot does, more sparsely, and nothing
   run(idle, 30, (a) => { assert.equal(a.clips.filter(play => play.t > 0 && play.t <= 1 / 60).length, 0, 'nothing new while idle and resting') })
   assert.equal(before, 0)
   assert.equal(idle.wakeIn(), Infinity)
+  // A pointer left on a working mark is nobody petting it: the work still shows.
+  const hovered = new Avatar({ seed: 6, size: 44, live: true, tier: 'normal' })
+  hovered.setState('working')
+  hovered.pet(true, 1)
+  run(hovered, 2)
+  hovered.rest(true)
+  run(hovered, 2)
+  const underPointer = moves(hovered, 30)
+  assert.ok(underPointer >= 3, `working under a resting pointer (${underPointer} moves in 30 s)`)
+  assert.ok(!hovered.clips.some(play => play.name === 'nuzzle'), 'and no petting')
   resting.rest(false)
   run(resting, 2)
   assert.ok(resting.clips.length > 0 || resting.wakeIn() < 1)
@@ -467,7 +477,9 @@ function travel(id, state, size, seconds, { resting = false, tier = 'normal', ef
 }
 
 test('what a Bot is doing shows in its motion down to an 18px mark, also while the window rests', () => {
-  for (const id of ['whale', 'bunny', 'gumdrop']) {
+  // All 20 characters pass; these three move least (acorn thinking 1.18 px, puppy in the
+  // background 1.19 px, bear waiting 1.27 px), so they guard the rest.
+  for (const id of ['acorn', 'puppy', 'bear']) {
     for (const state of ['thinking', 'searching', 'working', 'sending', 'relaying', 'waiting', 'background', 'alert', 'failed']) {
       const awake = travel(id, state, 18, 12)
       assert.ok(awake >= 1, `${id} ${state} at 18px moves ${awake.toFixed(2)}px`)
@@ -484,11 +496,20 @@ test('a question keeps calling at every motion level until it is answered; reduc
     const avatar = new Avatar({ seed: 4, size: 36, live: true, ...options })
     avatar.setState('alert')
     let count = 0
-    run(avatar, 20, (a) => { count += a.clips.filter(play => play.name === 'call' && play.t === 1 / 60).length })
-    return count
+    let entered = 0
+    run(avatar, 20, (a) => {
+      count += a.clips.filter(play => play.name === 'call' && play.t === 1 / 60).length
+      entered += a.clips.filter(play => play.name === 'attention' && play.t === 1 / 60).length
+    })
+    return { count, entered }
   }
-  for (const tier of ['quiet', 'normal', 'lively']) assert.ok(calls({ tier }) >= 4, `${tier}: ${calls({ tier })} calls in 20 s`)
-  assert.equal(calls({ effects: 'reduced' }), 0)
+  for (const tier of ['quiet', 'normal', 'lively']) {
+    const { count, entered } = calls({ tier })
+    assert.ok(count >= 4, `${tier}: ${count} calls in 20 s`)
+    assert.equal(entered, 1, `${tier}: sits up once`)
+  }
+  // Reduced motion: the one-shot call on entering, then nothing repeats.
+  assert.deepEqual(calls({ effects: 'reduced' }), { count: 0, entered: 1 })
 })
 
 test('a failed turn slumps the Bot and it shakes its head, no; sending dashes one way, relaying swings both ways', () => {
@@ -514,12 +535,14 @@ test('asleep, a lively mark peeks now and then, less often the longer it sleeps,
   const peeks = []
   let peeked = false
   let opened = false
+  let breaths = 0
   for (let t = 0; t < 240; t += 1 / 30) {
     // Ticked the way the clock does: frames while moving, else a jump to the next move.
     const wait = avatar.wakeIn()
     avatar.tick(wait === 0 ? 1 / 30 : Math.min(wait + 0.01, 5))
     if (avatar.clips.some(play => play.name === 'sneak') && !peeked) peeks.push(avatar.time)
     peeked = avatar.clips.some(play => play.name === 'sneak')
+    if (avatar.clips.some(play => play.name === 'breathe')) breaths += 1
     const shown = avatar.shownFace()
     if (shown.filter(eye => eye.kind === 'capsule').length === 1) opened = true
   }
@@ -528,7 +551,8 @@ test('asleep, a lively mark peeks now and then, less often the longer it sleeps,
   const gaps = peeks.slice(1).map((t, i) => t - peeks[i])
   for (let i = 1; i < gaps.length; i += 1) assert.ok(gaps[i] > gaps[i - 1], `gaps grow: ${gaps.map(g => g.toFixed(0))}`)
   assert.equal(avatar.state, 'sleeping')
-  assert.ok(Number.isFinite(avatar.wakeIn()), 'the next peek wakes the clock')
+  assert.equal(breaths, 0, 'asleep is nothing going on: no breathing while the window rests, so the clock sleeps between peeks')
+  assert.ok(avatar.wakeIn() > 10, `the next peek is far off (${avatar.wakeIn().toFixed(0)} s)`)
   // Reduced effects and smaller levels never peek.
   const calm = new Avatar({ seed: 7, size: 64, live: true, tier: 'lively', effects: 'reduced' })
   calm.doze(true)

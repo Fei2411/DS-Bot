@@ -7,7 +7,7 @@ import { isMainOf } from './sources.js'
 import { currentPart, previewOf, relativeShort } from './text.js'
 import { PlusIcon, SearchIcon, SidebarIcon, GaugeIcon, ClockIcon, GearIcon, PinMarkIcon, ConnectorIcon, PlugIcon, SwitchIcon, CloudDownloadIcon, SignInIcon, SignOutIcon, SlidersIcon, ChevronRightIcon, DotsIcon, FolderIcon } from './icons.js'
 import { lookOf, MAIN_LOOK } from './characters.js'
-import { botState, useLastTurnFailed, BotMark, BotAvatar, RoomAvatar } from './mark.js'
+import { botState, lastTurnFailed, latestTurnOf, BotMark, BotAvatar, RoomAvatar } from './mark.js'
 import { AgentBadge } from './agent-badge.js'
 import { SidebarTaskPill, taskCountsOf } from './bot-tasks.js'
 import { reducedMotion } from './activity-row.js'
@@ -157,7 +157,7 @@ const BotRow = memo(function BotRow({ bot, roster, actions, useSessions, useBotC
   const blockingAlert = blockingApproval || pending.question
   const dmDoing = blockingAlert ? 'alert' : doing === 'alert' ? undefined : doing
   const taskCounts = taskCountsOf({ bot })
-  const failed = useLastTurnFailed(bot, running)
+  const failed = lastTurnFailed(bot, useSessions(list => latestTurnOf(list, part)))
   const state = botState(running || away, dmDoing, alert, { failed, background: taskCounts.active > 0, replied: finished })
   const waitLine = blockingApproval ? t('Waiting for your approval') : pending.question ? t('Waiting for your answer') : null
   const deferredWaitLine = nonBlockingApproval ? t('Waiting for your approval') : null

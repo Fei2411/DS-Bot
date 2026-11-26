@@ -7,7 +7,7 @@ import { build } from 'esbuild'
 import { STATES, stateName } from '../src/client/avatar/states.js'
 
 const bundle = await build({
-  stdin: { contents: "export { botState, lastTurnFailed, useLastTurnFailed, BotAvatar, BotMark, RoomAvatar } from './src/client/mark.js'", resolveDir: dirname(dirname(fileURLToPath(import.meta.url))) },
+  stdin: { contents: "export { botState, lastTurnFailed, latestTurnOf, BotAvatar, BotMark, RoomAvatar } from './src/client/mark.js'", resolveDir: dirname(dirname(fileURLToPath(import.meta.url))) },
   bundle: true, format: 'cjs', platform: 'node', write: false, logLevel: 'silent',
   external: ['react', 'react-dom', '@deepseek-ai/dsh-client-ui-primitives'],
 })
@@ -25,8 +25,22 @@ const react = {
   createElement: (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat(Infinity) }),
   useState: initial => [states.length > 0 ? states.shift() : initial, value => sets.push(value)], useEffect: () => {}, useRef: current => ({ current }), useLayoutEffect: () => {}, Fragment: 'fragment',
 }
-runInNewContext(bundle.outputFiles[0].text, { module, exports: module.exports, require: name => (name === 'react' ? react : {}) })
-const { botState, lastTurnFailed, useLastTurnFailed, BotAvatar, BotMark, RoomAvatar } = module.exports
+// A clock the test moves by hand, for the module's timers.
+const clock = { now: 0, next: 1, timers: new Map() }
+const timers = {
+  setTimeout: (fn, ms = 0) => { const id = clock.next++; clock.timers.set(id, { at: clock.now + ms, fn }); return id },
+  clearTimeout: id => clock.timers.delete(id),
+}
+const advance = (ms) => {
+  clock.now += ms
+  for (const [id, timer] of [...clock.timers].sort((a, b) => a[1].at - b[1].at)) {
+    if (timer.at > clock.now || !clock.timers.has(id)) continue
+    clock.timers.delete(id)
+    timer.fn()
+  }
+}
+runInNewContext(bundle.outputFiles[0].text, { module, exports: module.exports, require: name => (name === 'react' ? react : {}), ...timers })
+const { botState, lastTurnFailed, latestTurnOf, BotAvatar, BotMark, RoomAvatar } = module.exports
 
 test('a group photo replaces its collage at all sizes and a broken photo falls back', () => {
   const image = 'data:image/png;base64,iVBORw0KGgo='
@@ -82,62 +96,108 @@ test('between turns a Bot shows, in order: a question, a failed turn, work hande
   for (const state of ['background', 'failed', 'replied']) assert.equal(stateName(state), state)
 })
 
-test('a last turn failed until a turn of that chat goes through: the host keeps the failure on the Bot', () => {
-  assert.equal(lastTurnFailed({ id: 'b' }), false)
-  assert.equal(lastTurnFailed({ id: 'b', failures: { b: { turn: 3, code: 'NETWORK' } } }), true)
+test('a last turn failed until a later turn of that chat shows in its live outline', () => {
+  // The host's shapes (turns.js): a failure under the part and turn it happened in, a
+  // block on the Bot. The outline is DSH's turnOutline, numbered by the same turn/start.
+  const failed = { id: 'b', failures: { b: { turn: 3, code: 'NETWORK', message: 'socket hang up', at: 10 } } }
+  assert.equal(lastTurnFailed(undefined, 3), false)
+  assert.equal(lastTurnFailed({ id: 'b' }, 2), false)
+  assert.equal(lastTurnFailed(failed, 3), true)
+  assert.equal(lastTurnFailed(failed, undefined), true, 'with no outline listed, the failure counts')
+  // A retry under way, finished or stopped leaves it behind before the polled roster drops it.
+  assert.equal(lastTurnFailed(failed, 4), false)
   // A failure in an earlier part of the chat no longer stands.
-  assert.equal(lastTurnFailed({ id: 'b', sessionId: 'b-2', failures: { b: { turn: 3, code: 'NETWORK' } } }), false)
-  assert.equal(lastTurnFailed({ id: 'b', sessionId: 'b-2', failures: { 'b-2': { turn: 1, code: 'AUTH' } } }), true)
-  // A failure that stands until it is fixed (a key, a balance).
-  assert.equal(lastTurnFailed({ id: 'b', blocked: { code: 'AUTH' } }), true)
+  assert.equal(lastTurnFailed({ id: 'b', sessionId: 'b-2', failures: { b: { turn: 3, code: 'NETWORK' } } }, 1), false)
+  assert.equal(lastTurnFailed({ id: 'b', sessionId: 'b-2', failures: { 'b-2': { turn: 1, code: 'AUTH' } } }, 1), true)
+  // A turn picked up after a restart has no number to place it by, so it counts.
+  assert.equal(lastTurnFailed({ id: 'b', failures: { b: { turn: -1, code: 'NETWORK' } } }, 5), true)
+  // A block stands for the whole Bot, from wherever it came (a group, a task)...
+  assert.equal(lastTurnFailed({ id: 'b', blocked: { code: 'QUOTA', provider: 'deepseek', at: 10 } }, 7), true)
+  assert.equal(lastTurnFailed({ ...failed, blocked: { code: 'QUOTA', provider: 'deepseek', at: 12 } }, 4), true)
+  // ...and one from this part's failure goes with it.
+  const auth = { id: 'b', failures: { b: { turn: 3, code: 'AUTH', at: 10 } }, blocked: { code: 'AUTH', provider: 'deepseek', at: 10 } }
+  assert.equal(lastTurnFailed(auth, 3), true)
+  assert.equal(lastTurnFailed(auth, 4), false)
+  // The newest turn of a part, from the live list.
+  assert.equal(latestTurnOf({ byId: { b: { projectionValues: { turnOutline: [{ turn: 2, seq: 5, prompt: 'hi', response: '' }, { turn: 3, seq: 9, prompt: 'again', response: '' }] } } } }, 'b'), 3)
+  assert.equal(latestTurnOf({ byId: {} }, 'b'), undefined)
+  assert.equal(latestTurnOf({ byId: { b: { projectionValues: { turnOutline: [] } } } }, 'b'), undefined)
 })
 
-// Runs a hook as React does for one component: its state stays between renders, and a
-// set made while rendering renders it again.
-function hookRunner(hook) {
-  let kept
-  return (...args) => {
-    for (let pass = 0; pass < 5; pass += 1) {
-      states.length = 0
-      sets.length = 0
-      if (kept !== undefined) states.push(kept.value)
-      const out = hook(...args)
-      if (sets.length === 0) return out
-      kept = { value: sets.at(-1) }
-    }
-    throw new Error('the hook keeps setting its state')
+// One component under React's rules for hooks: state and refs stay between renders;
+// after a render, effects whose deps changed clean up their last run, then run, in
+// order; a state set renders again.
+function mountComponent(component) {
+  const slots = []
+  const saved = { useState: react.useState, useRef: react.useRef, useEffect: react.useEffect }
+  let props
+  let rendering = false
+  let dirty = false
+  const view = { out: undefined }
+  const render = () => {
+    rendering = true
+    let index = 0
+    const due = []
+    Object.assign(react, {
+      useState: (initial) => {
+        const slot = (slots[index++] ??= { value: initial })
+        return [slot.value, (value) => {
+          const next = typeof value === 'function' ? value(slot.value) : value
+          if (Object.is(next, slot.value)) return
+          slot.value = next
+          if (rendering) dirty = true
+          else render()
+        }]
+      },
+      useRef: initial => (slots[index++] ??= { current: initial }),
+      useEffect: (run, deps) => {
+        const slot = (slots[index++] ??= {})
+        if (deps === undefined || slot.deps === undefined || deps.some((dep, at) => !Object.is(dep, slot.deps[at]))) due.push({ slot, run, deps })
+      },
+    })
+    try { view.out = component(props) } finally { Object.assign(react, saved) }
+    for (const { slot } of due) slot.cleanup?.()
+    for (const effect of due) { effect.slot.cleanup = effect.run() ?? undefined; effect.slot.deps = effect.deps }
+    rendering = false
+    if (dirty) { dirty = false; render() }
   }
+  view.render = (next) => { props = next; render() }
+  return view
 }
 
-test('a failure from before the latest turn stops showing when that turn ends, before the polled roster drops it', () => {
-  // The host's shapes (turns.js): a failure under the part it happened in, a block on the Bot.
-  const failedAt = (turn, at) => ({ id: 'b', failures: { b: { turn, code: 'NETWORK', message: 'socket hang up', at } } })
-  const shown = hookRunner(useLastTurnFailed)
-  assert.equal(shown(failedAt(3, 10), false), true)
-  // A retry runs, and goes through: the session says so at once, the roster a poll later.
-  shown(failedAt(3, 10), true)
-  assert.equal(shown(failedAt(3, 10), false), false)
-  assert.equal(shown({ id: 'b' }, false), false)
-  // A turn that fails again shows its own failure as soon as the roster brings it.
-  const again = hookRunner(useLastTurnFailed)
-  again(failedAt(3, 10), false)
-  again(failedAt(3, 10), true)
-  assert.equal(again(failedAt(3, 10), false), false)
-  assert.equal(again(failedAt(4, 20), false), true)
-  // Also when the roster brings it while the session still reads as running.
-  const early = hookRunner(useLastTurnFailed)
-  early(failedAt(3, 10), true)
-  early(failedAt(4, 20), true)
-  assert.equal(early(failedAt(4, 20), false), true)
-  // A block from before the turn counts the same way; a new block shows.
-  const blocked = at => ({ id: 'b', blocked: { code: 'AUTH', provider: 'deepseek', at } })
-  const block = hookRunner(useLastTurnFailed)
-  assert.equal(block(blocked(10), false), true)
-  block(blocked(10), true)
-  assert.equal(block(blocked(10), false), false)
-  assert.equal(block(blocked(30), false), true)
-  // A mark with no Bot shows no failure.
-  assert.equal(hookRunner(useLastTurnFailed)(undefined, false), false)
+test('done plays once when work ends and stops on time, also when the chat opens on the unread reply', () => {
+  const avatar = mountComponent(props => BotAvatar({ bot: { id: 'b', name: 'Writer' }, size: 36, badge: false, ...props }))
+  const shown = () => avatar.out.children[0].props.state
+  const go = (...states) => { for (const state of states) avatar.render({ state }) }
+  go('idle', 'thinking', 'working')
+  assert.equal(shown(), 'working')
+  go('replied')
+  assert.equal(shown(), 'done')
+  // The chat opens on the reply while done plays: it still ends on time.
+  advance(600)
+  go('idle')
+  assert.equal(shown(), 'done')
+  advance(1300)
+  assert.equal(shown(), 'idle')
+  advance(5000)
+  assert.equal(shown(), 'idle')
+  // A question answered or a failure is not work done; a retry that goes through is.
+  go('alert', 'idle')
+  assert.equal(shown(), 'idle')
+  go('failed', 'idle')
+  assert.equal(shown(), 'idle')
+  go('failed', 'thinking', 'idle')
+  assert.equal(shown(), 'done')
+  advance(1800)
+  assert.equal(shown(), 'idle')
+  // Back to work cuts the moment short.
+  go('working', 'idle', 'searching')
+  assert.equal(shown(), 'searching')
+  advance(2000)
+  go('idle')
+  assert.equal(shown(), 'done')
+  advance(1800)
+  assert.equal(clock.timers.size, 0, 'no timer left behind')
 })
 
 test('a photo that does not load shows the Bot\'s character instead', () => {
