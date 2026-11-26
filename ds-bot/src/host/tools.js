@@ -8,6 +8,7 @@ import { within } from './folders.js'
 import { missingFileRefs } from './claims.js'
 import { absoluteLinks } from './links.js'
 import { NAME_MAX } from './requests.js'
+import { roomRequest, roomNote, waitsOnMember } from './room-message.js'
 import { unquote } from './text.js'
 import { ownChatSessions, threadCurrentOfPart } from './threads.js'
 import { mentionSpans } from '../shared/mentions.js'
@@ -49,6 +50,7 @@ const MODE_PARAM = {
   description: '"everyone": every member answers a plain message in turn, admin first. "admin" (the default): a plain message goes to the admin, who calls others with @Name. @mentions always choose who answers.',
 }
 const WORK_DIR_PARAM = { type: 'string', description: 'Full path of the folder to work in, where commands and file tools start. Only when the user asks for it' }
+const EXTRA_DIRS_PARAM = { type: 'array', items: { type: 'string' }, description: 'Full paths of more folders to work in besides the working folder, such as other projects; the file tools change files there without asking again. Replaces the list; an empty list removes them. Only when the user asks for it' }
 const SECTION_PARAM = { type: 'string', description: 'Sidebar section name to group Bots and group chats that work on the same project together; creates the section if it does not exist' }
 const AVATAR_PARAM = {
   type: 'string',
@@ -96,6 +98,7 @@ export function install(rt) {
       room.mode === 'admin' && room.admin ? 'plain messages go to the admin first' : 'every member replies in turn',
       room.notice ? `notice: ${room.notice.split('\n')[0].slice(0, 100)}` : '',
       room.workDir ? `members work in ${room.workDir} here` : '',
+      room.extraDirs?.length ? `members also work in ${room.extraDirs.join(', ')} here` : '',
       room.permission ? `members work with the ${room.permission} permissions here` : '',
       room.goal !== undefined ? `goal: "${room.goal.title}" (${room.goal.status}${room.goal.status === 'active' || room.goal.status === 'paused' ? `, stage ${Math.min(room.goal.current + 1, room.goal.stages.length)}/${room.goal.stages.length}` : ''})` : '',
     ].filter(Boolean)
@@ -117,7 +120,7 @@ export function install(rt) {
     if (bot.private === true && bot.id !== self) return `- ${bot.name} (${[bot.role, 'private Bot, closed to other Bots'].filter(Boolean).join(', ')})`
     const model = bot.appliedModel ?? bot.model
     const section = sectionNameOf(bot.sectionId)
-    const tags = [bot.role, section ? `section "${section}"` : '', model ? `model ${model}` : '', bot.workDir ? `works in ${bot.workDir}` : '', rt.isMain(bot.id) ? 'Main Bot' : '', bot.private === true ? 'private' : '', bot.id === self ? 'you' : ''].filter(Boolean).join(', ')
+    const tags = [bot.role, section ? `section "${section}"` : '', model ? `model ${model}` : '', bot.workDir ? `works in ${bot.workDir}` : '', bot.extraDirs?.length ? `also works in ${bot.extraDirs.join(', ')}` : '', rt.isMain(bot.id) ? 'Main Bot' : '', bot.private === true ? 'private' : '', bot.id === self ? 'you' : ''].filter(Boolean).join(', ')
     const job = bot.instructions ? ` — ${bot.instructions.split('\n')[0].slice(0, 120)}` : ''
     const now = bot.id === self ? '' : `\n  now: ${rt.statusOf(bot.id)}`
     return `- ${bot.name}${tags ? ` (${tags})` : ''}${job}${now}`
@@ -217,12 +220,24 @@ export function install(rt) {
     return `Not sent: ${target.name} is not in "${room.name}", and work for this group stays in it. Ask the user to add ${target.name} to the group${add}.`
   }
 
-  const callInGroup = async (exec, room, sender, target, message) => {
+  const callInGroup = async (room, sender, target, message, follows, { worked = false, callerExchangeId, callerId, parentBatchKey } = {}) => {
+    if (waitsOnMember(state.roomBatches, room.id, sender.id, target.id)) refuse(`Not sent: ${target.name} is already waiting for your result. Write the result or blocking question in your reply.`)
     const call = `@${target.name}`
     const everyone = room.members.map(rt.botOf).filter(Boolean)
     const alreadyCalls = mentionSpans(message, everyone).some(span => !span.all && span.bot?.id === target.id)
-    await rt.roomStepText(exec.agent.id, rt.live.get(exec.agent.id)?.info, alreadyCalls ? message : `${call} ${message}`, false)
-    return `Called ${target.name} in "${room.name}" with your message, as writing "${call}" there does: it works on it in the group, and you answer its result there. Nothing went to its own chat.`
+    const posted = await rt.postToRoom(room, sender, alreadyCalls ? message : `${call} ${message}`, {
+      progress: true,
+      explicitDelegate: true,
+      ...(worked ? { worked: true } : {}),
+      ...(callerExchangeId ? { callerExchangeId } : {}),
+      ...(callerId ? { callerId } : {}),
+      ...(parentBatchKey ? { parentBatchKey } : {}),
+      route: { ...roomRequest([target.id]), expectsResult: true, ...(follows ? { follows } : {}) },
+    })
+    if (posted?.paused === true) {
+      return `Paused in "${room.name}": consecutive handoffs without running a work tool reached the loop guard. The call to ${target.name} waits until the user continues or writes in the group.`
+    }
+    return `Called ${target.name} in "${room.name}". Its result returns in the group. Nothing went to its own chat.`
   }
 
   // The Bots each Session's post_to_group called by name in its current turn, so that
@@ -275,12 +290,13 @@ export function install(rt) {
   // long-file attachments, busy-foreground background handoff, and live delivery.
   // Used by both `delegate_work` and `resumePausedWork` so paused delegations run
   // through the exact same path when the user clicks Continue.
-  async function dispatchDelegation({ sender, target, text, files = [], length, fromPart, parentWork, imOrigin, toUser = false, when = 'now', request, existingWork, callerWorked = false }) {
+  async function dispatchDelegation({ sender, target, text, files = [], length, fromPart, parentWork, imOrigin, follows, toUser = false, when = 'now', request, existingWork, callerWorked = false }) {
     const chat = rt.chatOf(target.id)
     const agent = await rt.resolveAgent(chat)
     const status = rt.statusOf(target.id)
     const earlier = existingWork !== undefined ? undefined : unreadRequest(agent, sender.id, toUser)
     const joinable = earlier !== undefined
+      && earlier.message.source.follows === follows
       && (toUser || ((earlier.message.source.senderPart ?? undefined) === fromPart && rt.sameWork(earlier.message.source.exchangeId, parentWork)))
     const before = joinable ? bodyOf(earlier.message) : undefined
     // Snapshot prior inflight unread args BEFORE inbox.remove() synchronously emits
@@ -311,6 +327,7 @@ export function install(rt) {
       try {
         await rt.spawnBotHandoffTask(target, chat, {
           fromBot: sender,
+          follows,
           fromPart,
           parentWork,
           ...(imOrigin ? { imOrigin } : {}),
@@ -363,6 +380,7 @@ export function install(rt) {
         files: [...long.files, ...(joins ? before.files : [])],
         length: long.length,
         role: 'request',
+        ...(follows ? { follows } : {}),
         steer,
         exchangeId,
         ...(workRef ? { workRef } : {}),
@@ -558,6 +576,7 @@ export function install(rt) {
           length: paused.length,
           fromPart: work.fromPart,
           parentWork: work.parent,
+          follows: paused.follows,
           ...(work.imOrigin ? { imOrigin: work.imOrigin } : {}),
           toUser: paused.toUser === true,
           when: paused.when ?? 'now',
@@ -594,6 +613,7 @@ export function install(rt) {
     parameters: {
       to: { type: 'string', required: true, description: 'Exact Bot name from list_bots' },
       goal: { type: 'string', required: true, description: 'Self-contained task to execute or specific question to answer; the other Bot cannot see this conversation' },
+      follow_up_to: { type: 'string', description: 'For a distinct task prompted by a completed result, cite the reference in this turn (e.g. W7 in chat, G12 in a group). Acknowledgements are not follow-ups.' },
       deliver_to: {
         type: 'string',
         enum: ['me', 'user'],
@@ -629,6 +649,9 @@ export function install(rt) {
       const room = rt.roomOf(rt.groupOwners.get(exec.agent?.id)?.roomId)
       const deliverTo = args.deliver_to === 'user' || args.reply_to === 'user' ? 'user' : 'me'
       const when = args.when === 'queue' ? 'queue' : 'now'
+      const trigger = rt.live.get(exec.agent?.id)?.info
+      const resultRef = trigger?.resultRef ?? (trigger?.role === 'reply' ? trigger.workRef ?? rt.workRefOf?.(trigger.replyTo) ?? trigger.replyTo : undefined)
+      const followUp = String(args.follow_up_to ?? '').trim().replace(/^#/, '').toUpperCase()
       const request = name === '' ? undefined : rt.requestIdentity({
         caller: sender.id,
         context: room === undefined ? 'chat' : `room:${room.id}`,
@@ -638,6 +661,7 @@ export function install(rt) {
           goal: rawGoal.replace(/\r\n?/g, '\n').trim(),
           deliver_to: deliverTo,
           when,
+          ...(followUp ? { followUp } : {}),
         },
       })
       const answer = (outcome) => {
@@ -652,10 +676,34 @@ export function install(rt) {
         const seen = await rt.knownRequest(request)
         if (seen !== undefined) return answer(seen)
       }
+      const fromResult = (trigger?.role === 'reply' || Boolean(trigger?.resultRef)) && !trigger?.work
+      const userTurn = rt.live.get(exec.agent?.id)?.userInput === true
+      if (fromResult && !userTurn && resultRef !== undefined) {
+        if (!followUp) {
+          refuse(`Not sent: this is a result, not a new request. Report it to the user or leave a silent note. Only for a distinct next task, cite ${resultRef} in follow_up_to.`)
+        }
+        if (followUp !== resultRef.toUpperCase()) {
+          refuse(`Not sent: follow_up_to must identify the completed work that opened this turn (${resultRef}).`)
+        }
+      }
       if (room !== undefined) {
         const refusal = groupRefusal(room, sender, target)
         if (refusal !== undefined) refuse(refusal)
-        const send = () => callInGroup(exec, room, sender, target, text.trim())
+        if (waitsOnMember(state.roomBatches, room.id, sender.id, target.id)) {
+          refuse(`Not sent: ${target.name} is already waiting for your result. Write the result or blocking question in your reply.`)
+        }
+        const callerWorked = (rt.live.get(exec.agent?.id)?.workToolCount ?? 0) > 0
+        const parentBatchKey = rt.activeRoomBatchKey?.(exec.agent?.id, trigger)
+        const send = async () => {
+          const receipt = await callInGroup(room, sender, target, text.trim(), followUp, {
+            worked: callerWorked,
+            callerExchangeId: trigger?.exchangeId,
+            callerId: trigger?.askedBy,
+            ...(parentBatchKey ? { parentBatchKey } : {}),
+          })
+          rt.markExplicitRoomCall?.(trigger?.exchangeId, target.id)
+          return receipt
+        }
         return request === undefined ? await send() : answer(await rt.admitRequest(request, send))
       }
       const posted = calledInPosts.get(exec.agent?.id)
@@ -669,7 +717,7 @@ export function install(rt) {
         const imOrigin = !toUser && work === undefined ? callerImOrigin(exec) : undefined
         const fromPart = callerPart(exec).fromPart
         const callerWorked = (rt.live.get(exec.agent?.id)?.workToolCount ?? 0) > 0
-        const loop = rt.checkPairLoop?.(sender.id, target.id, { callerWorked, text }) ?? { ok: true }
+        const loop = rt.checkPairLoop?.(sender.id, target.id, { callerWorked, text, followUp: !!followUp }) ?? { ok: true }
         if (loop.blocked === 'already_paused') {
           if (request !== undefined) request.unsent = true
           return `Not sent: work ${loop.work?.ref ? `#${loop.work.ref}` : loop.id} between you and ${target.name} is already paused waiting for the user. Wait for the user to continue or cancel it.`
@@ -693,6 +741,7 @@ export function install(rt) {
               files: long.files,
               length: long.length,
               when,
+              ...(followUp ? { follows: followUp } : {}),
               ...(toUser ? { toUser: true } : {}),
               bounces: loop.bounces,
               at: Date.now(),
@@ -704,7 +753,7 @@ export function install(rt) {
           }
           return `Paused work${ref} before waking ${target.name}: you and ${target.name} have completed ${loop.bounces} consecutive delegations since the user last wrote. The user can click Continue on the pause card to keep going.`
         }
-        return dispatchDelegation({ sender, target, text, fromPart, parentWork: work, imOrigin, toUser, when, request, callerWorked })
+        return dispatchDelegation({ sender, target, text, fromPart, parentWork: work, imOrigin, follows: followUp || undefined, toUser, when, request, callerWorked })
       }
       return request === undefined ? await send() : answer(await rt.admitRequest(request, send))
     },
@@ -1063,7 +1112,7 @@ export function install(rt) {
 
   rt.teamTools.push(defineTool({
     name: 'update_bot',
-    description: 'Change a Bot\'s name, role, color, profile picture, model, thinking level, working folder, or instructions. Every Bot may change itself; only a Main Bot may change another Bot.',
+    description: 'Change a Bot\'s name, role, color, profile picture, model, thinking level, working folder, extra folders, or instructions. Every Bot may change itself; only a Main Bot may change another Bot.',
     parameters: {
       bot: { type: 'string', description: 'Current name of the Bot to change; leave out to change yourself' },
       name: { type: 'string', description: 'New name' },
@@ -1074,6 +1123,7 @@ export function install(rt) {
       model: { type: 'string', description: 'Move the Bot to another model, as provider/model or a model id. It stays on what it runs on: only the user moves a Bot between DS Bot models and a local agent CLI, or between two CLIs, in its settings.' },
       effort: { type: 'string', description: 'Thinking level for the Bot\'s model, as list_bot_models shows; an empty string returns to the model\'s default' },
       work_dir: { ...WORK_DIR_PARAM, description: `${WORK_DIR_PARAM.description}; an empty string returns it to the team workspace` },
+      extra_dirs: EXTRA_DIRS_PARAM,
       section: { ...SECTION_PARAM, description: `${SECTION_PARAM.description}; an empty string removes the Bot from its section (Main Bot only)` },
     },
     output,
@@ -1095,14 +1145,17 @@ export function install(rt) {
         const moving = typeof args.work_dir === 'string'
         const workDir = moving ? await rt.cleanWorkDir(args.work_dir) : undefined
         if (moving && workDir !== bot.workDir) await rt.approveFolder(exec, { path: workDir, botId: bot.id, who: { en: bot.name, zh: ` ${bot.name} ` } })
+        const extraDirs = args.extra_dirs === undefined ? undefined : await rt.cleanExtraDirs(args.extra_dirs)
+        if (extraDirs !== undefined) await rt.approveExtraDirs(exec, { paths: extraDirs, before: bot.extraDirs, botId: bot.id, extra: true, who: { en: bot.name, zh: ` ${bot.name} ` } })
         // The photo rides on the Bot's other avatar fields, as the settings page's upload
         // does: setting one keeps a custom character, and clearing removes only the image.
         // They are read here, after the waits above, so a change made meanwhile stays.
         const avatar = image === undefined ? undefined : { ...rt.botOf(bot.id)?.avatar, image }
-        const next = await rt.updateBot(bot.id, { name: newName, role, instructions, color, ...(avatar !== undefined ? { avatar } : {}), ...(model ? { model } : {}), ...(effort === undefined ? {} : { effort }), ...(section === undefined ? {} : { section }), ...(moving ? { workDir: workDir ?? '' } : {}) }, self, exec.agent?.id)
-        if (!moving) return `Updated ${next.name}.`
+        const next = await rt.updateBot(bot.id, { name: newName, role, instructions, color, ...(avatar !== undefined ? { avatar } : {}), ...(model ? { model } : {}), ...(effort === undefined ? {} : { effort }), ...(section === undefined ? {} : { section }), ...(moving ? { workDir: workDir ?? '' } : {}), ...(extraDirs === undefined ? {} : { extraDirs }) }, self, exec.agent?.id)
+        const extras = extraDirs === undefined ? '' : extraDirs.length === 0 ? (bot.id === caller.id ? ' You have no extra folders now.' : ' It has no extra folders now.') : ` ${bot.id === caller.id ? 'You' : 'It'} also work${bot.id === caller.id ? '' : 's'} in ${extraDirs.join(', ')}.`
+        if (!moving) return `Updated ${next.name}.${extras}`
         const folder = workDir ?? 'the team workspace'
-        return bot.id === caller.id ? `Updated ${next.name}. From your next step on, you work in ${folder}.` : `Updated ${next.name}. It now works in ${folder}.`
+        return bot.id === caller.id ? `Updated ${next.name}. From your next step on, you work in ${folder}.${extras}` : `Updated ${next.name}. It now works in ${folder}.${extras}`
       } catch (error) {
         return `Could not update the Bot: ${error.message}`
       }
@@ -1112,7 +1165,8 @@ export function install(rt) {
   // DSH's working_directory changes a Session's folder in place, and the next part starts in
   // the Bot's working folder again. A Bot that changes to a folder outside its working folder
   // sets its working folder instead, with update_bot's checks, and goes on in a fresh part
-  // there; a folder inside it only moves this Session there. In a group without a folder of
+  // there; a folder inside it, or inside one of its extra folders, only moves this Session
+  // there. In a group without a folder of
   // its own the change holds only for that conversation: the Bot's folder, its other groups
   // and its own chat keep theirs (folders.js memberDirs).
   ctx.on('tools/execute', async (exec, next) => {
@@ -1129,6 +1183,10 @@ export function install(rt) {
     const home = taskDir ?? rt.teamFolder()
     const target = await rt.folderAt(rt.sessionFolder(session), cd)
     if (target === undefined || !(await rt.isFolder(target)) || home === undefined || within(target, await rt.real(home))) return next()
+    // An extra folder is one the Bot already works in, so only this Session moves there.
+    for (const dir of rt.extraDirsOf({ botId: bot.id, roomId: room?.id })) {
+      if (within(target, await rt.real(dir))) return next()
+    }
     if (room?.workDir) throw new Error(`Every member of "${room.name}" works in ${room.workDir} here, so you stay inside it. The user or a Main Bot can change the group's folder.`)
     const readOnly = rt.readOnly()
     if (readOnly !== undefined) throw new Error(`Your working folder cannot change now: ${readOnly}`)
@@ -1249,6 +1307,7 @@ export function install(rt) {
       admin: { type: 'string', description: 'Member to make the admin; "none" leaves the group without one (Main Bots only)' },
       mode: MODE_PARAM,
       work_dir: { ...WORK_DIR_PARAM, description: `${WORK_DIR_PARAM.description}. Every member works there in this group; an empty string lets each member work in its own folder again (Main Bots only)` },
+      extra_dirs: { ...EXTRA_DIRS_PARAM, description: `${EXTRA_DIRS_PARAM.description}. Every member also works there in this group (Main Bots only)` },
       section: { ...SECTION_PARAM, description: `${SECTION_PARAM.description}; an empty string removes the group from its section (Main Bots only)` },
     },
     output,
@@ -1259,7 +1318,7 @@ export function install(rt) {
       const { room, error } = pickRoom(args.group, self)
       if (error) return error
       const moving = typeof args.work_dir === 'string'
-      if (moving && !rt.isMain(self)) return `Only a Main Bot can set the folder of "${room.name}".`
+      if ((moving || args.extra_dirs !== undefined) && !rt.isMain(self)) return `Only a Main Bot can set the folder of "${room.name}".`
       if (args.section !== undefined && !rt.isMain(self)) return `Only a Main Bot can move "${room.name}" between sidebar sections.`
       const add = resolveBots(args.add_members)
       const remove = resolveBots(args.remove_members)
@@ -1286,13 +1345,31 @@ export function install(rt) {
         } else if (joining.length > 0 && targetDir !== undefined) {
           const names = joining.map(bot => bot.name)
           await rt.approveFolder(exec, { path: targetDir, room, botIds: joining.map(bot => bot.id), who: { en: names.join(', '), zh: ` ${names.join('、')} ` } })
-        } else if (targetDir === undefined && room.permission !== undefined) {
+        }
+        const extraDirs = args.extra_dirs === undefined ? undefined : await rt.cleanExtraDirs(args.extra_dirs)
+        if (extraDirs !== undefined) {
+          const members = [...room.members.filter(id => !removing.has(id)), ...joining.map(bot => bot.id)]
+          await rt.approveExtraDirs(exec, { paths: extraDirs, before: room.extraDirs, room, botIds: members, who: { en: `every member of "${room.name}"`, zh: `群聊「${room.name}」的成员` } })
+        }
+        // A Bot that joins also gets the group's extra folders it keeps, so it asks for those too.
+        const kept = (extraDirs ?? room.extraDirs ?? []).filter(path => (room.extraDirs ?? []).includes(path))
+        if (joining.length > 0 && kept.length > 0) {
+          const names = joining.map(bot => bot.name)
+          await rt.approveExtraDirs(exec, { paths: kept, room, botIds: joining.map(bot => bot.id), who: { en: names.join(', '), zh: ` ${names.join('、')} ` } })
+        }
+        if (targetDir === undefined && room.permission !== undefined) {
           const exposed = moving && room.workDir !== undefined
             ? [...new Set([...room.members.filter(id => !removing.has(id)), ...joining.map(bot => bot.id)])].map(id => rt.botOf(id)).filter(Boolean)
             : joining
           for (const bot of exposed) {
-            if (!bot.workDir || (!(moving && room.workDir !== undefined) && Object.hasOwn(room.memberDirs ?? {}, bot.id))) continue
-            await rt.approveFolder(exec, { path: bot.workDir, room, botIds: [bot.id], who: { en: bot.name, zh: ` ${bot.name} ` } })
+            if (!(moving && room.workDir !== undefined) && Object.hasOwn(room.memberDirs ?? {}, bot.id)) continue
+            const who = { en: bot.name, zh: ` ${bot.name} ` }
+            if (bot.workDir) await rt.approveFolder(exec, { path: bot.workDir, room, botIds: [bot.id], who })
+            // The group's preset reaches the member's extra folders too; a Bot on a
+            // local agent keeps its own file permissions instead.
+            if (!rt.onLocalAgent(bot)) {
+              await rt.approveExtraDirs(exec, { paths: bot.extraDirs ?? [], before: extraDirs ?? room.extraDirs, room, botIds: [bot.id], who })
+            }
           }
         }
         const { room: next, changes } = await rt.updateRoom(room.id, {
@@ -1304,6 +1381,7 @@ export function install(rt) {
           remove: remove.bots.map(bot => bot.id),
           ...(args.section === undefined ? {} : { section: args.section }),
           ...(moving ? { workDir: workDir ?? '' } : {}),
+          ...(extraDirs === undefined ? {} : { extraDirs }),
         }, self)
         return changes.length === 0 ? `Nothing changed in "${next.name}".` : `Updated "${next.name}": ${changes.join('; ')}.`
       } catch (failure) {
@@ -1417,10 +1495,11 @@ export function install(rt) {
 
   rt.teamTools.push(defineTool({
     name: 'post_to_group',
-    description: 'Post a message into a group chat as yourself. A Main Bot may post into any group, any other Bot into a group it is in. A Main Bot\'s or the group admin\'s post starts a round: members reply in the group, where the user reads them. Another member\'s post calls only the members it names with "@Name"; without one it is only written into the group. By default, whenever your post calls members, their final outcome comes back to you as a new message once the group\'s work (including long tasks, approvals, relays and any active goal) finishes; pass report_back: false for a one-way notice or when the user reads in the group themselves.',
+    description: 'Post into a group chat as yourself. Main Bots may post into any group; others only into their groups. A notice never wakes anyone. To ask for work, address members with @Name, or use intent "request" as Main Bot or admin to start a discussion. The final outcome of a request comes back once the group finishes; set report_back false to leave it in the group.',
     parameters: {
       group: GROUP_REF,
       message: { type: 'string', required: true, description: 'What to say; write "@Name" to choose who answers, and a name without "@" to only mention a member' },
+      intent: { type: 'string', enum: ['notice', 'request'], description: 'A notice is visible but never calls members, even if the body contains @names. A request invites answers. Without named members, explicitly use request to open a discussion.' },
       report_back: { type: 'boolean', description: 'Send the group\'s final replies back to you as a new message once its work finishes (default true when your post calls members; set false for a one-way notice)' },
     },
     output,
@@ -1446,10 +1525,14 @@ export function install(rt) {
         if (span.bot && span.bot.id !== self && !named.includes(span.bot.id)) named.push(span.bot.id)
       }
       const mentions = { ids: named, all: spans.some(span => span.all === true) }
-      if (member && named.length === 0 && args.report_back === true) {
+      const receipt = info?.role === 'report' && info.roomId === room.id
+      const notice = args.intent === 'notice' || (args.intent !== 'request'
+        && (receipt || (args.report_back !== true && named.length === 0 && !(mentions.all && !member))))
+      if (notice && args.report_back === true) return 'A notice calls nobody and cannot report back. Use intent "request" to ask for work.'
+      if (!notice && member && named.length === 0 && args.report_back === true) {
         return 'Nobody would answer: your post only calls the members you name. Write "@Name" for each member who should answer, or post with report_back: false.'
       }
-      const reportBack = !(member && named.length === 0) && args.report_back !== false
+      const reportBack = !notice && !(member && named.length === 0) && args.report_back !== false
       const long = await rt.attachLong(text, `Post from ${sender.name}.txt`)
       if (long === undefined) return tooLong(text)
       // Replies the poster waits for, while it works on what a Bot asked it for — or from
@@ -1469,7 +1552,7 @@ export function install(rt) {
       try {
         // A post that wants the replies names the conversation it was written
         // from, so the report comes back there instead of the own chat.
-        await rt.postToRoom(room, sender, long.text, { mentions, ...(claims ? { claims } : {}), ...(callerOrigin ? { callerOrigin } : {}), ...(reportBack ? { reportBack: true, reportId, ...(fromTaskId ? { fromTaskId } : {}), ...(imOrigin ? { imOrigin } : {}), ...callerRoom(exec), ...callerPart(exec) } : {}), ...(member ? { member: true } : {}), ...(sub ? { sub } : {}), ...(long.length ? { length: long.length } : {}) }, long.files)
+        await rt.postToRoom(room, sender, long.text, { mentions, ...(notice ? { route: roomNote(), quiet: true } : {}), ...(claims ? { claims } : {}), ...(callerOrigin ? { callerOrigin } : {}), ...(reportBack ? { reportBack: true, reportId, ...(fromTaskId ? { fromTaskId } : {}), ...(imOrigin ? { imOrigin } : {}), ...callerRoom(exec), ...callerPart(exec) } : {}), ...(member ? { member: true } : {}), ...(sub ? { sub } : {}), ...(long.length ? { length: long.length } : {}) }, long.files)
       } catch (failure) {
         if (failure?.delivered !== true) {
           if (sub !== undefined) rt.dropWork(sub)
@@ -1478,6 +1561,7 @@ export function install(rt) {
         return `Could not post in "${room.name}": ${failure.message}`
       }
       if (member && named.length === 0) return `Posted in "${room.name}", where the user and its members read it. Nobody answers it: your post only calls the members you name with @Name.`
+      if (notice) return `Posted in "${room.name}" as a notice. Nobody answers it.`
       if (named.length > 0) {
         const turn = turnOf(exec)
         const earlier = calledInPosts.get(exec.agent?.id)
@@ -1531,6 +1615,12 @@ export function install(rt) {
         .filter(option => option.label !== '')
         .slice(0, 6)
       if (options.length === 0) return 'Give at least one option.'
+      // A card still open (the user has not written since; a Bot's message started this
+      // turn) closes in the chat instead of vanishing from it (#2172).
+      const prevQuestion = rt.own(state.questions, id)
+      if (prevQuestion !== undefined && ((prevQuestion.callSessionId ?? id) !== id || prevQuestion.callId !== exec.callId)) {
+        rt.closeCard(id, prevQuestion, 'dismissed')
+      }
       state.questions[id] = {
         id: randomUUID(),
         ...(exec.callId ? { callId: exec.callId } : {}),
@@ -1587,6 +1677,11 @@ export function install(rt) {
         return 'The view is on screen.'
       }
       const imOrigin = rt.captureImOrigin?.(owner === undefined ? id : rt.roomOf(owner.roomId)?.sessionId ?? owner.roomId)
+      // As with ask_user: an earlier view still open closes instead of vanishing (#2172).
+      const prevView = rt.own(state.views, id)
+      if (prevView !== undefined && ((prevView.callSessionId ?? id) !== id || prevView.callId !== exec.callId)) {
+        rt.closeCard(id, prevView, 'dismissed')
+      }
       state.views[id] = {
         id: randomUUID(),
         ...(exec.callId ? { callId: exec.callId } : {}),
@@ -1623,13 +1718,14 @@ export function install(rt) {
     main: rt.isMain(rt.selfOf(id)),
     hasRooms: Object.keys(state.rooms ?? {}).length > 0,
     inRoom: rt.roomsOf?.(rt.selfOf(id))?.length > 0,
+    isGroup: rt.groupOwners?.has(id) === true,
     isTask: rt.taskOwners?.has(id) === true,
     hasTaskRoom: rt.taskOwners?.get(id)?.roomId !== undefined,
     hasPacks: (rt.botOf(rt.selfOf(id))?.packs?.length ?? 0) > 0 || rt.hasLoadedPacks?.(id) === true,
   }
   const scopeKeyOf = (id) => {
     const s = scopeOf(id)
-    return `${s.main ? 1 : 0}:${s.hasRooms ? 1 : 0}:${s.inRoom ? 1 : 0}:${s.isTask ? 1 : 0}:${s.hasTaskRoom ? 1 : 0}:${s.hasPacks ? 1 : 0}`
+    return `${s.main ? 1 : 0}:${s.hasRooms ? 1 : 0}:${s.inRoom ? 1 : 0}:${s.isGroup ? 1 : 0}:${s.isTask ? 1 : 0}:${s.hasTaskRoom ? 1 : 0}:${s.hasPacks ? 1 : 0}`
   }
 
   // Team tools that have zero valid actions in this Bot Session's current role/context.
@@ -1649,6 +1745,9 @@ export function install(rt) {
     } else if (!s.hasRooms) {
       for (const name of GROUP_ONLY_TOOLS) hidden.add(name)
       hidden.add('delete_group')
+    }
+    if (s.isGroup) {
+      hidden.add('prepare_ds_bot_issue')
     }
     if (s.isTask) {
       for (const name of TASK_HIDDEN_TEAM_TOOLS) hidden.add(name)

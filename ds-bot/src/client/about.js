@@ -62,7 +62,7 @@ function dshHint(dsh, shown) {
 
 const linkProps = href => ({ className: 'bt-soft bt-soft-sm bt-about-link', href, target: '_blank', rel: 'noopener noreferrer' })
 
-export function AboutPage({ useUpdate, actions, run, Section, Row, Switch = null, onStartTour = null }) {
+export function AboutPage({ useUpdate, actions, run, Section, Row, Switch = null, onStartTour = null, inlineFeedback = false }) {
   const update = useUpdate(value => value) ?? {}
   const [checking, setChecking] = useState(false)
   const [stars, setStars] = useState(null)
@@ -138,7 +138,7 @@ export function AboutPage({ useUpdate, actions, run, Section, Row, Switch = null
       onStartTour ? h(Row, { label: t('Settings guide') }, h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', onClick: onStartTour }, h(CompassIcon), t('Start'))) : null,
       repo ? h(Row, { label: t('Source code'), hint: repo.replace(/^https:\/\//, '') }, h('a', linkProps(repo), h(GitHubMark), t('Open'))) : null,
       update.notesUrl ? h(Row, { label: t('Release notes') }, h('a', linkProps(update.notesUrl), t('Open'))) : null,
-      h(Row, { label: t('Report a problem') }, h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => actions.openSettings('feedback') }, t('Open')))),
+      inlineFeedback ? null : h(Row, { label: t('Report a problem') }, h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => actions.openSettings('feedback') }, t('Open')))),
   ]
 }
 

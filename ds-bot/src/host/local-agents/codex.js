@@ -1,8 +1,8 @@
-// The Codex app-server engine: `codex app-server --listen stdio://`, one
-// JSON-RPC process per route that multiplexes threads. DS Bot Sessions map to
-// threads; turns stream item notifications back.
+// The Codex app-server engine: `codex app-server --listen stdio://`.
+// Each live Session has its own process and resumable thread. Turns stream
+// item notifications back.
 import { JsonRpcPeer, wireProcess, EventQueue } from './jsonrpc.js'
-import { cleanEnv, findEngineExecutable, spawnAgent, terminateChild } from './discover.js'
+import { PROBE_FORCE_KILL_AFTER_MS, cleanEnv, findEngineExecutable, probeEnv, spawnAgent, terminateChild } from './discover.js'
 
 // The name the loopback MCP server is registered under in each thread's config.
 const MCP_SERVER = 'dsbot'
@@ -16,6 +16,7 @@ export class CodexEngine {
     this.peer = undefined
     this.starting = undefined
     this.threads = new Map()
+    this.probeEngines = new Set()
   }
 
   threadFor(dshSessionId) {
@@ -38,11 +39,11 @@ export class CodexEngine {
     return thread
   }
 
-  async ensure() {
+  async ensure({ probe = false } = {}) {
     // A peer exists before its handshake has finished; other callers wait for it.
     if (this.starting !== undefined) return this.starting
     if (this.peer !== undefined) return this.peer
-    const starting = this.startPeer()
+    const starting = this.startPeer({ probe })
     this.starting = starting
     try {
       return await starting
@@ -51,11 +52,11 @@ export class CodexEngine {
     }
   }
 
-  async startPeer() {
+  async startPeer({ probe = false } = {}) {
     const bin = findEngineExecutable(this.engine, name => this.findExecutable(name))
     if (bin === undefined) throw Object.assign(new Error(`${this.engine.name} is not installed`), { code: 'NO_ADAPTER' })
     const child = spawnAgent(bin, this.engine.args ?? [], {
-      env: cleanEnv(this.engine.env ?? {}),
+      env: (probe ? probeEnv : cleanEnv)(this.engine.env ?? {}),
       stdio: ['pipe', 'pipe', 'inherit'],
       windowsHide: true,
     })
@@ -92,7 +93,7 @@ export class CodexEngine {
       if (this.child === child) {
         this.child = undefined
         this.peer = undefined
-        terminateChild(child)
+        terminateChild(child, probe ? { forceKillAfterMs: PROBE_FORCE_KILL_AFTER_MS } : undefined)
       }
       throw error
     }
@@ -357,8 +358,8 @@ export class CodexEngine {
     this.threads.delete(dshSessionId)
   }
 
-  async listModels() {
-    const peer = await this.ensure()
+  async listModelsOnOwnPeer({ probe }) {
+    const peer = await this.ensure({ probe })
     const reply = await peer.request('model/list', {}, { timeout: 30_000 })
     return (reply?.data ?? reply?.models ?? []).map((entry) => {
       const model = {
@@ -379,7 +380,26 @@ export class CodexEngine {
     })
   }
 
-  async close() {
+  async listModels() {
+    // Reuse an existing live peer if one is already running; otherwise probe in a
+    // temporary process with probeEnv so a concurrent live session never inherits MISE_OFFLINE=1.
+    if (this.peer !== undefined || this.starting !== undefined) {
+      return this.listModelsOnOwnPeer({ probe: false })
+    }
+    const temp = new CodexEngine(this.route, this.engine, { findExecutable: this.findExecutable })
+    this.probeEngines.add(temp)
+    try {
+      return await temp.listModelsOnOwnPeer({ probe: true })
+    } finally {
+      this.probeEngines.delete(temp)
+      await temp.close({ forceKillAfterMs: PROBE_FORCE_KILL_AFTER_MS }).catch(() => {})
+    }
+  }
+
+  async close({ forceKillAfterMs } = {}) {
+    const probes = [...this.probeEngines]
+    this.probeEngines.clear()
+    await Promise.all(probes.map(engine => engine.close({ forceKillAfterMs }).catch(() => {})))
     for (const thread of this.threads.values()) this.releaseCompaction(thread)
     this.threads.clear()
     const child = this.child
@@ -390,11 +410,9 @@ export class CodexEngine {
     peer?.close?.(new Error(`${this.engine.name} closed`))
     if (child === undefined) return this.closing
     if (child.exitCode !== null || child.signalCode !== null) return
-    this.closing = new Promise(resolve => {
-      const timer = setTimeout(() => { try { child.kill('SIGKILL') } catch {} }, 5_000)
-      timer.unref?.()
-      child.once('close', () => { clearTimeout(timer); resolve() })
-      child.kill('SIGTERM')
+    this.closing = new Promise((resolve) => {
+      child.once('close', () => resolve())
+      terminateChild(child, forceKillAfterMs === undefined ? undefined : { forceKillAfterMs })
     })
     return this.closing
   }

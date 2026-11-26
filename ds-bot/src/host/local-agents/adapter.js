@@ -7,11 +7,12 @@ import { createHash, randomUUID } from 'node:crypto'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, dirname, resolve } from 'node:path'
-import { LlmAdapter, LlmError, offloadedImageText, resolveImageAttachmentAccess, textOnlyImageText } from '@deepseek-ai/dsh-llm'
+import { LlmAdapter, LlmError, offloadedImageText, resolveImageAttachmentAccess, resolveRetryPolicy, textOnlyImageText } from '@deepseek-ai/dsh-llm'
 import { SOURCE_KIND } from '../constants.js'
 import { GROUP_MEMORY_SOURCE, MEMORY_UPDATE_SOURCE } from '../memory-copy.js'
 import { textOf } from '../text.js'
 import { engineOf, cliMode, signInFor } from './engines.js'
+import { PROBE_FORCE_KILL_AFTER_MS } from './discover.js'
 import { LoopbackMcp } from './mcp.js'
 
 async function cleanupProbeDir(dir) {
@@ -35,6 +36,8 @@ const REPLAY_LINE_MAX = 2_000
 const MEMORY_UPDATE_REPLAY_MAX = 4
 const MEMORY_UPDATE_REPLAY_BYTES = 8 * 1024
 const IDLE_CLOSE_MS = 10 * 60_000
+// A local CLI may have already performed actions before its request fails.
+const LOCAL_RETRY_POLICY = resolveRetryPolicy({ mode: 'normal', maxRetries: 0 }, 'local-agent')
 const APPROVE_TOOL = 'approve_agent_action'
 // A CLI that answers its compaction command first and condenses after (Devin) says
 // that it started within this long, or it is taken to have condensed without a word.
@@ -43,6 +46,42 @@ const COMPACT_START_MS = 15_000
 const NO_TOOLS = 'Tools are not available for this request. Answer with text only.'
 
 // A title request never reaches the CLI.
+const TITLE_ARRAY_PREFIX = 'Generate the session title from this JSON array of human messages:'
+const TITLE_OBJECT_PREFIX = 'Update the session title from this JSON object:'
+
+function firstNonEmptyLine(text) {
+  return (String(text ?? '').split('\n').find(line => line.trim() !== '') ?? '').trim()
+}
+
+// DSH's session-title-llm wraps human messages in a fixed instruction line followed by
+// JSON; unwrap that payload so the fallback title uses the user's message instead of
+// the instruction prefix.
+function extractSessionTitle(raw) {
+  const trimmed = String(raw ?? '').trim()
+  let jsonText
+  if (trimmed.startsWith(TITLE_ARRAY_PREFIX)) jsonText = trimmed.slice(TITLE_ARRAY_PREFIX.length).trim()
+  else if (trimmed.startsWith(TITLE_OBJECT_PREFIX)) jsonText = trimmed.slice(TITLE_OBJECT_PREFIX.length).trim()
+  if (jsonText !== undefined) {
+    try {
+      const parsed = JSON.parse(jsonText)
+      const items = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.messages) ? parsed.messages : undefined
+      if (items !== undefined) {
+        for (const item of items) {
+          const line = firstNonEmptyLine(typeof item === 'string' ? item : item?.text)
+          if (line !== '') return line
+        }
+      }
+      if (typeof parsed?.currentTitle === 'string') {
+        const line = firstNonEmptyLine(parsed.currentTitle)
+        if (line !== '') return line
+      }
+    } catch { /* fall through to default */ }
+    return 'Chat'
+  }
+  const line = firstNonEmptyLine(trimmed)
+  return line === '' ? 'Chat' : line
+}
+
 function titleChunk(text) {
   const title = text.slice(0, 60)
   return [
@@ -88,8 +127,12 @@ export class LocalAgentAdapter extends LlmAdapter {
     this.engines = new Map()   // route -> engine driver
     this.live = new Map()      // sessionId -> live session
     this.modelCache = new Map()
+    this.nextModelEpoch = 0
+    this.globalModelEpoch = 0
+    this.modelEpochs = new Map() // route -> monotonic epoch for modelCache writes
     this.windows = new Map()   // route\0model -> the window the CLI reported for it
-    this.probes = new Map()    // route -> the probe under way
+    this.probes = new Map()    // route -> { epoch, promise }
+    this.activeProbes = new Set() // active askModels runs, so superseding probes stay protected
     this.sideRequests = new Set()
     this.disposed = false
   }
@@ -98,7 +141,7 @@ export class LocalAgentAdapter extends LlmAdapter {
     const engine = engineOf(route, this.deps.customAgents())
     return { id: route, name: engine?.name ?? route }
   }
-  providerRetryPolicy() { return undefined }
+  providerRetryPolicy() { return LOCAL_RETRY_POLICY }
   imageRequestPricing() { return undefined }
 
   engine(route) {
@@ -125,36 +168,77 @@ export class LocalAgentAdapter extends LlmAdapter {
       .map(entry => ({ ...entry, inputModalities }))
   }
 
+  modelEpochOf(route) {
+    return Math.max(this.globalModelEpoch, this.modelEpochs.get(route) ?? 0)
+  }
+
+  bumpModelEpoch(route) {
+    const next = ++this.nextModelEpoch
+    this.modelEpochs.set(route, next)
+    return next
+  }
+
+  recordDiscoveredModels(route, models, { epoch } = {}) {
+    const current = this.modelEpochOf(route)
+    if (epoch !== undefined && epoch !== current) return false
+    if (epoch === undefined) {
+      this.bumpModelEpoch(route)
+      this.probes.delete(route)
+    }
+    this.modelCache.set(route, (models ?? []).filter(model => model.id !== 'default')
+      .map(model => ({ provider: route, id: model.id, name: model.name ?? model.id, ...(model.reasoning ? { reasoning: model.reasoning } : {}) })))
+    return true
+  }
+
   // Asks one CLI what it serves, once. A failure is not kept, so the next look tries
   // again. The process it took leaves unless a Session runs on it.
   async probeModels(route) {
     if (this.modelCache.has(route)) return this.listModels(route)
     if (engineOf(route, this.deps.customAgents()) === undefined) return []
-    let probe = this.probes.get(route)
-    if (probe === undefined) {
-      probe = this.askModels(route).finally(() => this.probes.delete(route))
-      this.probes.set(route, probe)
+    const epoch = this.modelEpochOf(route)
+    let entry = this.probes.get(route)
+    if (entry === undefined || entry.epoch !== epoch) {
+      entry = { epoch, promise: undefined }
+      entry.promise = this.askModels(route, epoch).finally(() => {
+        if (this.probes.get(route) === entry) this.probes.delete(route)
+      })
+      this.probes.set(route, entry)
     }
-    await probe
+    await entry.promise
+    while (this.probes.get(route) !== undefined && this.probes.get(route) !== entry) {
+      entry = this.probes.get(route)
+      await entry.promise
+    }
     return this.listModels(route)
   }
 
-  async askModels(route) {
+  async askModels(route, epoch = this.modelEpochOf(route)) {
     const engine = this.engine(route)
+    const token = { route, engine, epoch }
     const cwd = this.deps.probeCwd()
+    this.activeProbes.add(token)
     try {
       const models = await engine.listModels({ cwd, mcp: undefined })
-      this.modelCache.set(route, (models ?? []).filter(model => model.id !== 'default')
-        .map(model => ({ provider: route, id: model.id, name: model.name ?? model.id, ...(model.reasoning ? { reasoning: model.reasoning } : {}) })))
+      this.recordDiscoveredModels(route, models, { epoch })
     } catch { /* the menu still has the CLI's default */ } finally {
-      if (!this.engineInUse(engine, route)) await engine.close?.().catch(() => {})
+      this.activeProbes.delete(token)
+      if (!this.engineInUse(engine, token)) await engine.close?.({ forceKillAfterMs: PROBE_FORCE_KILL_AFTER_MS }).catch(() => {})
       await cleanupProbeDir(cwd)
     }
   }
 
   dropModelCache(route) {
-    if (route === undefined) this.modelCache.clear()
-    else this.modelCache.delete(route)
+    if (route === undefined) {
+      this.globalModelEpoch = ++this.nextModelEpoch
+      this.modelCache.clear()
+      this.probes.clear()
+      for (const engine of this.engines.values()) engine.invalidateListed?.()
+    } else {
+      this.bumpModelEpoch(route)
+      this.modelCache.delete(route)
+      this.probes.delete(route)
+      this.engines.get(route)?.invalidateListed?.()
+    }
   }
 
   async resolveModel(route, model) {
@@ -198,7 +282,9 @@ export class LocalAgentAdapter extends LlmAdapter {
     } else if (live !== undefined) await this.closeLive(live)
     const spec = engineOf(route, this.deps.customAgents())
     if (spec === undefined) throw new LlmError(`Unknown local agent ${route}`, 'LOCAL_AGENT_MISSING')
-    const engine = this.engine(route)
+    // Codex warm-resumes a loaded thread with its old MCP address (#2110).
+    // Let closing this bridge stop its app-server without stopping other Sessions.
+    const engine = spec.kind === 'codex' ? this.deps.spawnEngine(spec.kind, route, spec) : this.engine(route)
     live = {
       sessionId, route, spec, engine, dead: false,
       record,
@@ -232,23 +318,28 @@ export class LocalAgentAdapter extends LlmAdapter {
       mute: false,
     }
     const idleCloseMs = this.deps.idleCloseMs ?? IDLE_CLOSE_MS
-    const scheduleIdle = () => {
+    live.scheduleIdle = () => {
       clearTimeout(live.idle)
       if (live.dead || !(idleCloseMs > 0)) return
       live.idle = setTimeout(() => {
         if (live.dead) return
         if (live.state === 'suspended') {
-          scheduleIdle()
+          live.scheduleIdle()
           return
         }
-        void this.closeLive(live, { idle: true })
+        const error = live.state === 'running'
+          ? new LlmError(`${live.spec.name} stalled: no activity before the local-agent idle timeout.`, 'LOCAL_AGENT_EXIT')
+          : undefined
+        void this.closeLive(live, { idle: true, error })
       }, idleCloseMs)
       live.idle.unref?.()
     }
     live.push = (event) => {
+      if (live.dead) return
       this.observe(live, event)
+      if (event?.type === 'models') return
       if (live.mute && live.state === 'idle' && (event?.type === 'text' || event?.type === 'thought' || event?.type === 'activity' || event?.type === 'status')) return
-      scheduleIdle()
+      live.scheduleIdle()
       const waiter = live.waiters.shift()
       if (waiter !== undefined) waiter(event)
       else live.events.push(event)
@@ -280,6 +371,10 @@ export class LocalAgentAdapter extends LlmAdapter {
   // window; a compaction makes the last figure stale until the CLI reports again,
   // except where it reported during the compaction itself (Codex).
   observe(live, event) {
+    if (event?.type === 'models') {
+      if (Array.isArray(event.models) && event.models.length > 0) this.recordDiscoveredModels(live.route, event.models)
+      return
+    }
     if (event?.type === 'effort') {
       if (event.defaultEffort !== undefined) live.defaultEffort = event.defaultEffort
       live.effort = event.effort
@@ -342,15 +437,20 @@ export class LocalAgentAdapter extends LlmAdapter {
   engineInUse(engine, except) {
     return [...this.live.values()].some(other => other.engine === engine && !other.dead)
       || [...this.sideRequests].some(request => request !== except && request.engine === engine)
-      || [...this.probes.keys()].some(route => route !== except && this.engines.get(route) === engine)
+      || [...this.activeProbes].some(probe => probe !== except && probe.engine === engine)
   }
 
-  async closeLive(live, { idle = false } = {}) {
+  async closeLive(live, { idle = false, error } = {}) {
     if (live.dead) return
     live.dead = true
     clearTimeout(live.idle)
+    if (error !== undefined) {
+      live.closeFailure = { type: 'error', error }
+      void this.stopTurn(live, error.message)
+    }
     this.live.delete(live.sessionId)
     live.engine.forget?.(live.sessionId)
+    if (error !== undefined && Object.hasOwn(live, 'handedBefore')) this.rollbackUnread(live, live.sessionId)
     live.mcp?.close()
     if (idle) {
       // The CLI session survives on the agent side; the process leaves and the
@@ -358,7 +458,7 @@ export class LocalAgentAdapter extends LlmAdapter {
       live.engineSession = undefined
       live.started = false
     }
-    for (const waiter of live.waiters.splice(0)) waiter({ type: 'done', reason: 'stop' })
+    for (const waiter of live.waiters.splice(0)) waiter(live.closeFailure ?? { type: 'done', reason: 'stop' })
     const stillUsed = this.engineInUse(live.engine)
     if (!stillUsed) await live.engine.close?.().catch(() => {})
   }
@@ -436,8 +536,7 @@ export class LocalAgentAdapter extends LlmAdapter {
     if (this.disposed) throw new LlmError('the local agents adapter is disposed', 'NO_ADAPTER')
     if (options.purpose === 'session-title') {
       const first = (options.messages ?? []).find(message => message.role === 'user')
-      const title = (textOf(first?.content).split('\n').find(line => line.trim() !== '') ?? 'Chat').trim()
-      yield* titleChunk(title === '' ? 'Chat' : title)
+      yield* titleChunk(extractSessionTitle(textOf(first?.content)))
       return
     }
     if (options.purpose === 'compaction') {
@@ -455,8 +554,10 @@ export class LocalAgentAdapter extends LlmAdapter {
     // What the request carries past the last handed message. When the marker is
     // gone the CLI session is stale or new: it gets a replay instead of a delta.
     const messages = options.messages ?? []
-    const at = live.handed === undefined ? -1 : messages.findIndex(message => message.id === live.handed)
-    const fresh = live.handed === undefined || at === -1
+    const queuedDelivery = live.queue.at(-1)?.delivery
+    const handed = queuedDelivery?.id ?? live.handed
+    const at = handed === undefined ? -1 : messages.findIndex(message => message.id === handed)
+    const fresh = at === -1
     const delta = fresh ? [] : messages.slice(at + 1)
 
     // Results of the calls the last step emitted answer the suspended CLI calls.
@@ -561,7 +662,10 @@ export class LocalAgentAdapter extends LlmAdapter {
         system: live.spec.kind === 'claude' ? instructions : undefined,
       }
       live.engineSession = await live.engine.open(sessionId, openArgs)
-        .catch(error => { throw toLlmError(error, live) })
+        .catch(async error => {
+          if (live.spec.kind === 'codex') await this.closeLive(live)
+          throw toLlmError(error, live)
+        })
       // A resumed CLI reports its id only with `system/init`: keep the saved one
       // in the meantime, or a resume that fails would erase it. If ACP or Codex
       // could not resume and opened a fresh session instead, replay conversation
@@ -580,6 +684,8 @@ export class LocalAgentAdapter extends LlmAdapter {
         if (live.engineSession.defaultEffort !== undefined) live.defaultEffort = live.engineSession.defaultEffort
         live.effort = live.engineSession.effort
       }
+      const discovered = live.engine.discoveredModels?.(live.engineSession)
+      if (Array.isArray(discovered) && discovered.length > 0) this.recordDiscoveredModels(live.route, discovered)
       live.started = true
       // The session's events feed this Session's queue: a call from any engine
       // kind reaches drain() through live.next().
@@ -615,9 +721,11 @@ export class LocalAgentAdapter extends LlmAdapter {
       ? await renderReplay(messages, system, resolveImage, { preserve: remaining, freshMemory, memoryNote: appliedMemory.note })
       : await renderDelta(contextText, remaining, resolveImage)
     let sentInstructions = live.spec.kind !== 'acp' && startedFreshCli && instructions !== undefined
+    let nextPromptHash = live.promptHash
+    const expectedPromptHash = live.queue.findLast(entry => entry.delivery?.promptHash !== undefined)?.delivery.promptHash ?? live.promptHash
     // A new CLI session gets its instructions in the open args or the replay;
     // the "updated" line is only for a session that saw older ones.
-    if (instructions !== undefined && !startedFreshCli && live.promptHash !== promptHash) {
+    if (instructions !== undefined && !startedFreshCli && expectedPromptHash !== promptHash) {
       const updated = `Updated team instructions (replace earlier ones):\n\n${instructions}`
       if (live.spec.kind === 'codex') {
         await live.engine.instruct?.(live.engineSession, updated)
@@ -642,7 +750,7 @@ export class LocalAgentAdapter extends LlmAdapter {
       // message — because context alone would carry the turn without the decision.
       const blocks = mergeTextBlocks([{ type: 'text', text: settledText }, ...promptBlocks])
       this.discardTurnOutput(live)
-      if (sentInstructions) live.promptHash = promptHash
+      if (sentInstructions) nextPromptHash = promptHash
       promptBlocks = []
       await this.startTurn(live, blocks, options.signal, options.reasoningEffort)
     } else if (settledText !== '') {
@@ -652,26 +760,30 @@ export class LocalAgentAdapter extends LlmAdapter {
     }
     if (promptBlocks.length > 0) {
       await this.sendInput(live, promptBlocks, options.signal, options.reasoningEffort, settledText)
-      if (sentInstructions) live.promptHash = promptHash
+      if (sentInstructions) nextPromptHash = promptHash
       // ACP only counts instructions once they reach the agent with a prompt.
-      if (live.spec.kind === 'acp' && (startedFreshCli || sentInstructions)) live.promptHash = promptHash
+      if (live.spec.kind === 'acp' && (startedFreshCli || sentInstructions)) nextPromptHash = promptHash
     }
     if (live.spec.kind === 'acp' && startedFreshCli && promptBlocks.length === 0 && instructions !== undefined) {
       await this.sendInput(live, `Follow these instructions from the user's team for everything you do here. They sit on top of your own; when they conflict, these win.\n\n${instructions}`, options.signal, options.reasoningEffort)
-      live.promptHash = promptHash
+      nextPromptHash = promptHash
     }
 
-    // The last DSH message is handed now; a later call sends only what follows.
-    // The marker before it is kept: a start that fails before the CLI reads
-    // anything must not count that message as delivered.
+    // A queued ACP input is not handed until drain sends its prompt.
     const last = messages.at(-1)
-    if (last !== undefined) {
-      live.handedBefore = live.handed
-      live.handed = last.id
-      this.deps.saveRecord(sessionId, this.recordOf(live, { cwd, promptHash: live.promptHash ?? promptHash, model: options.model }))
+    const queued = live.queue.at(-1)
+    if (queued !== undefined) {
+      if (last !== undefined) queued.delivery = { id: last.id, promptHash: sentInstructions ? nextPromptHash : undefined }
+    } else {
+      live.promptHash = nextPromptHash
+      if (last !== undefined && live.closeFailure === undefined) this.markHanded(live, last.id, nextPromptHash ?? promptHash)
     }
 
     try {
+      if (settled.length > 0 && live.state === 'suspended' && live.pending.size === 0) {
+        live.state = 'running'
+        live.scheduleIdle()
+      }
       yield* this.drain(live, options)
     } catch (error) {
       // The caller sees the failure now: a start that died before reading its
@@ -679,13 +791,19 @@ export class LocalAgentAdapter extends LlmAdapter {
       this.rollbackUnread(live, sessionId)
       // The saved conversation is gone: start over in a new one with the
       // history, once, so the user sees the answer instead of this failure.
-      if (live.resumeLost === true && options[RESUME_RETRIED] !== true) {
+      if (live.closeFailure === undefined && live.resumeLost === true && options[RESUME_RETRIED] !== true) {
         live.resumeLost = false
         yield* this.stream({ ...options, [RESUME_RETRIED]: true })
         return
       }
       throw error
     }
+  }
+
+  markHanded(live, id, promptHash) {
+    live.handedBefore = live.handed
+    live.handed = id
+    this.deps.saveRecord(live.sessionId, this.recordOf(live, { promptHash }))
   }
 
   // Input for the CLI: a fresh prompt while it is idle; while a turn runs or
@@ -708,7 +826,7 @@ export class LocalAgentAdapter extends LlmAdapter {
       ? blocks
       : mergeTextBlocks([{ type: 'text', text: settled }, ...blocks])
     if (live.state !== 'idle') {
-      if (live.spec.kind === 'acp') { live.queue.push(blocks); return Promise.resolve() }
+      if (live.spec.kind === 'acp') { live.queue.push({ blocks }); return Promise.resolve() }
       // Steering lands on a turn that is still running. When the CLI finished the
       // turn behind a card — the usual case for an answer that arrives late — the
       // steer has nothing to land on, and dropping it leaves the user's answer
@@ -743,17 +861,19 @@ export class LocalAgentAdapter extends LlmAdapter {
 
   // Codex resolves on acceptance; ACP resolves only when the entire turn ends.
   startTurn(live, input, signal, effort) {
+    if (live.dead) return Promise.resolve()
     if (live.stopped) {
       this.discardTurnOutput(live)
       live.stopped = false
     }
     const blocks = typeof input === 'string' ? [{ type: 'text', text: input }] : input
     live.state = 'running'
+    live.scheduleIdle()
     // The turn an engine names is the one this stream reads: a finished turn's late
     // events carry another id and are dropped instead of answering this one (#1513).
     live.turnTag = undefined
     try {
-      const started = Promise.resolve(live.engine.prompt(live.engineSession, blocks, { signal, effort }))
+      const started = Promise.resolve(live.engine.prompt(live.engineSession, blocks, { signal, effort, onProgress: live.scheduleIdle }))
         .then((turnId) => { if (live.spec.kind === 'codex' && turnId !== undefined) live.turnTag = turnId })
         .catch(error => { if (!signal?.aborted) live.push({ type: 'error', error }) })
       return live.spec.kind === 'acp' ? Promise.resolve() : started
@@ -937,7 +1057,11 @@ export class LocalAgentAdapter extends LlmAdapter {
           // inside the same drain (ACP takes one prompt at a time).
           const next = live.queue.shift()
           if (next !== undefined) {
-            this.sendInput(live, next, options.signal, options.reasoningEffort)
+            this.sendInput(live, next.blocks, options.signal, options.reasoningEffort)
+            if (next.delivery !== undefined) {
+              live.promptHash = next.delivery.promptHash ?? live.promptHash
+              this.markHanded(live, next.delivery.id, live.promptHash)
+            }
             break
           }
           yield { type: 'finish', reason: { kind: 'stop' } }
@@ -971,6 +1095,7 @@ export class LocalAgentAdapter extends LlmAdapter {
         live.state = 'idle'
         return 'unsupported'
       }
+      live.scheduleIdle()
       this.meter(live, await this.collect(live, () => this.take(live), signal, { compaction: true }))
       return 'done'
     })
@@ -1061,6 +1186,7 @@ export class LocalAgentAdapter extends LlmAdapter {
   // The next event of a live session, as a wait that can be given up: a wait left
   // behind would take the first event of the next turn.
   take(live) {
+    if (live.closeFailure !== undefined) return { event: Promise.resolve(live.closeFailure), drop: () => {} }
     if (live.events.length > 0) return { event: Promise.resolve(live.events.shift()), drop: () => {} }
     let resolver
     const event = new Promise((resolve) => { resolver = resolve; live.waiters.push(resolve) })

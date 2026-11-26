@@ -2,6 +2,7 @@ import { createElement as h, Fragment, useEffect, useRef, useState } from 'react
 import { PlusIcon } from './icons.js'
 import { t } from './i18n.js'
 import { Segmented } from './motion.js'
+import { SelectMenu } from './select-menu.js'
 
 const blank = () => ({ name: '', kind: 'mcp', description: '', transport: 'stdio', command: '', argsText: '', envText: '{}', url: '', headersText: '{}', content: '', items: [] })
 const parseMap = (text, label) => {
@@ -63,16 +64,29 @@ function CapabilityForm({ draft, setDraft, items, actions, onClose }) {
   const available = items.filter(item => item.name !== draft.name && ['mcp', 'skill'].includes(item.kind))
   return h('form', { className: 'bt-set-card bt-task-form', onSubmit: submit },
     h(Field, { label: 'Name', value: draft.name, disabled: draft.originalName !== undefined, onChange: value => set('name', value), placeholder: 'my-tool' }),
-    h('label', { className: 'bt-set-row bt-bs-row' },
+    h('div', { className: 'bt-set-row bt-bs-row' },
       h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-bs-label' }, t('Type'))),
-      h('select', { className: 'bt-select bt-task-bot', value: draft.kind, disabled: draft.originalName !== undefined, onChange: event => set('kind', event.target.value) },
-        ['mcp', 'skill', 'pack'].map(kind => h('option', { key: kind, value: kind }, t(kind === 'mcp' ? 'MCP server' : kind === 'skill' ? 'Skill' : 'Pack'))))),
+      h(SelectMenu, {
+        className: 'bt-task-bot',
+        'aria-label': t('Type'),
+        value: draft.kind,
+        disabled: draft.originalName !== undefined,
+        options: ['mcp', 'skill', 'pack'].map(kind => ({ value: kind, label: t(kind === 'mcp' ? 'MCP server' : kind === 'skill' ? 'Skill' : 'Pack') })),
+        onChange: value => set('kind', value),
+      })),
     h(Field, { label: 'Description', value: draft.description, onChange: value => set('description', value) }),
-    draft.kind === 'mcp' ? h('label', { className: 'bt-set-row bt-bs-row' },
+    draft.kind === 'mcp' ? h('div', { className: 'bt-set-row bt-bs-row' },
       h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-bs-label' }, t('Connection'))),
-      h('select', { className: 'bt-select bt-task-bot', value: draft.transport, onChange: event => set('transport', event.target.value) },
-        h('option', { value: 'stdio' }, t('Local command')),
-        h('option', { value: 'streamable-http' }, t('HTTP server')))) : null,
+      h(SelectMenu, {
+        className: 'bt-task-bot',
+        'aria-label': t('Connection'),
+        value: draft.transport,
+        options: [
+          { value: 'stdio', label: t('Local command') },
+          { value: 'streamable-http', label: t('HTTP server') },
+        ],
+        onChange: value => set('transport', value),
+      })) : null,
     draft.kind === 'mcp' && draft.transport === 'stdio' ? h(Fragment, null,
       h(Field, { label: 'Command', value: draft.command, onChange: value => set('command', value) }),
       h(Field, { label: 'Arguments (one per line)', value: draft.argsText, onChange: value => set('argsText', value), multiline: true }),

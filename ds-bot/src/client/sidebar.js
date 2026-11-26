@@ -101,6 +101,7 @@ const sameBotRow = (a, b) => a.bot === b.bot
   && a.actions === b.actions
   && a.onDragStart === b.onDragStart
   && a.useSessions === b.useSessions
+  && a.useBotCompletions === b.useBotCompletions
   && a.useSessionStatus === b.useSessionStatus
   && a.useSessionRetainInfo === b.useSessionRetainInfo
   && a.useActivity === b.useActivity
@@ -118,14 +119,16 @@ const sameBotRow = (a, b) => a.bot === b.bot
   && a.roster.questions === b.roster.questions
   && a.roster.views === b.roster.views
 
-const BotRow = memo(function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, useComputer, wide, marked, onDragStart }) {
+const BotRow = memo(function BotRow({ bot, roster, actions, useSessions, useBotCompletions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, useComputer, wide, marked, onDragStart }) {
   const id = bot.id
   const part = currentPart(bot)
   const preview = useSessions(list => previewOf(list, part, roster.exchangeTurns[part]))
+  const completionUnread = useBotCompletions(unread => unread[part] === true)
   const running = useSessionStatus(map => map.get(part)?.running === true)
   const active = useSessionRetainInfo(part, info => (info?.retainedBy?.mainView ?? 0) > 0)
-  const unread = useSessionStatus(map => map.get(part)?.completionUnread === true || map.get(part)?.pendingInteraction !== undefined) || (marked && !active)
-  const finished = useSessionStatus(map => map.get(part)?.completionUnread === true) && !active
+  const pendingInteraction = useSessionStatus(map => map.get(part)?.pendingInteraction !== undefined)
+  const unread = pendingInteraction || completionUnread || (marked && !active)
+  const finished = completionUnread && !active
   useMarkedUnread(id, active, marked, actions)
   const main = isMainOf(roster, id)
   const tile = roster.mainBotId === id
@@ -373,7 +376,7 @@ function renderSidebarEntry(entry, rowProps, markedUnread, onDragStart) {
 }
 
 function SectionBlock({ section, entries, rowProps, markedUnread, renaming, dropTarget, onDragStart, onDragOverSec, onDropSec }) {
-  const { roster, actions, useSessions, useSessionStatus, useWork, useComputer, wide } = rowProps
+  const { roster, actions, useSessions, useBotCompletions, useSessionStatus, useWork, useComputer, wide } = rowProps
   const input = useRef(null)
   useLayoutEffect(() => {
     if (!renaming) return
@@ -401,6 +404,7 @@ function SectionBlock({ section, entries, rowProps, markedUnread, renaming, drop
       : entry.kind === 'room' ? [entry.item.sessionId ?? entry.item.id]
         : entry.item.sessions ?? []
   )), [entries])
+  const botParts = useMemo(() => new Set(entries.filter(entry => entry.kind === 'bot').map(entry => currentPart(entry.item))), [entries])
   const activeSession = useSessions(list => sessionIds.find(id => (list.byId[id]?.retainedBy?.mainView ?? 0) > 0) ?? '')
   const activeEntry = useMemo(() => {
     if (activeSession === '') return undefined
@@ -413,7 +417,7 @@ function SectionBlock({ section, entries, rowProps, markedUnread, renaming, drop
   const statusBits = useSessionStatus(map => JSON.stringify(sessionIds.map(id => [
     id,
     map.get(id)?.running === true ? 1 : 0,
-    map.get(id)?.completionUnread === true || map.get(id)?.pendingInteraction !== undefined ? 1 : 0,
+    (!botParts.has(id) && map.get(id)?.completionUnread === true) || map.get(id)?.pendingInteraction !== undefined ? 1 : 0,
   ])))
   const shownEntries = useMemo(() => entries.filter(entry => (
     !entry.item.hidden || entry === activeEntry || (entry.kind === 'bot' && isMainOf(roster, entry.item.id))
@@ -443,7 +447,8 @@ function SectionBlock({ section, entries, rowProps, markedUnread, renaming, drop
   })
   const hasAlert = hasPendingCard || hasApproval || hasComputerAsk
   const hasWorking = hasRoomWork || parsedStatuses.some(([, run]) => run === 1)
-  const hasUnread = parsedStatuses.some(([id, , unread]) => unread === 1 && id !== activeSession)
+  const hasBotUnread = useBotCompletions(unread => [...botParts].some(id => id !== activeSession && unread[id] === true))
+  const hasUnread = hasBotUnread || parsedStatuses.some(([id, , unread]) => unread === 1 && id !== activeSession)
     || entries.some(entry => markedUnread[entry.item.id] === true && entry !== activeEntry)
   const statusKind = hasAlert ? 'alert' : hasWorking ? 'working' : hasUnread ? 'unread' : null
   const toggle = () => {
@@ -577,13 +582,13 @@ function LeftColumn({ mode, width, onGrip, leaving, entering, children }) {
 // Windows title bar it takes the shell's own place in the title band; elsewhere
 // it shows only while the column is hidden, since the column's own top row
 // carries it otherwise.
-function TitleToggle({ hidden, onToggle }) {
+function TitleToggle({ hidden, mode, onToggle }) {
   if (typeof document === 'undefined') return null
   const titlebar = document.documentElement.hasAttribute('data-windows-titlebar')
   if (!titlebar && !hidden) return null
   const label = t(hidden ? 'Expand sidebar' : 'Collapse sidebar')
   return createPortal(h('button', {
-    type: 'button', className: titlebar ? 'bt-title-toggle' : 'bt-round bt-title-toggle', 'aria-label': label, title: label, onClick: onToggle,
+    type: 'button', className: titlebar ? 'bt-title-toggle' : 'bt-round bt-title-toggle', 'data-left': mode, 'aria-label': label, title: label, onClick: onToggle,
   }, h(SidebarIcon)), document.body)
 }
 
@@ -626,9 +631,10 @@ export function TeamSidebar(props) {
     pref, drawer: leftDrawer,
     panel: details ? { view, yielded: panelYield } : null,
   })
-  // A drag of the column's edge shows where it would land, live.
+  // A drag of the column's edge shows where it would land, live; an explicit
+  // hide takes precedence so toggling the sidebar mid-drag aborts the drag.
   const [drag, setDrag] = useState(null)
-  const mode = drag?.left ?? layout.left
+  const mode = layout.left === 'hidden' ? 'hidden' : (drag?.left ?? layout.left)
   // A hidden column stays mounted for its slide out; `shown` is the mode it last had.
   const [held, leaving] = useLinger(mode === 'hidden' ? null : mode, SPRING_SHAPE.duration)
   const shown = held ?? mode
@@ -687,11 +693,6 @@ export function TeamSidebar(props) {
       void Promise.resolve(actions.saveSection({ id: secId, collapsed: false })).catch(() => {})
     }
   }
-  const createNewSection = () => {
-    void Promise.resolve(actions.saveSection({}))
-      .then((sec) => { if (sec?.id) actions.beginSectionRename(sec.id) })
-      .catch(error => actions.reportError(error, 'section'))
-  }
 
   // Our column pushes the conversation over by what it takes beyond the shell's
   // collapsed track; a drawer floats over the rail's place, so it pushes as much
@@ -699,11 +700,27 @@ export function TeamSidebar(props) {
   const openWidth = drag?.width ?? frameSnap.sidebarWidth
   const ourWidth = shown === 'rail' ? RAIL_WIDTH : openWidth
   const pushed = mode === 'open' ? openWidth : mode === 'hidden' ? 0 : RAIL_WIDTH
+  const settleTimer = useRef(0)
+  const springTimer = useRef(0)
+  const activeDrag = useRef(null)
+  const dragRef = useRef(drag)
+  dragRef.current = drag
+  const collapsedWidthRef = useRef(frameSnap.collapsedWidth ?? 0)
+  collapsedWidthRef.current = frameSnap.collapsedWidth ?? 0
+  const modeRef = useRef(mode)
+  modeRef.current = mode
   useLayoutEffect(() => {
     if (typeof document === 'undefined') return
+    const current = activeDrag.current
+    if (current !== null && (mode === 'hidden' || (current.settling && (mode !== current.landedMode || pushed !== current.landedPushed)))) {
+      current.cancel(false)
+    }
     chatRoom.setLeft(Math.max(0, pushed - (frameSnap.collapsedWidth ?? 0)))
-  }, [pushed, frameSnap.collapsedWidth])
-  useEffect(() => () => { if (typeof document !== 'undefined') chatRoom.setLeft(null) }, [])
+  }, [mode, pushed, frameSnap.collapsedWidth])
+  useEffect(() => () => {
+    activeDrag.current?.cancel(false)
+    if (typeof document !== 'undefined') chatRoom.setLeft(null)
+  }, [])
 
   // The edge drag: live while the pointer moves, the column's new state on release.
   // Per frame the drag writes the column's own inline style and each conversation
@@ -712,17 +729,10 @@ export function TeamSidebar(props) {
   // when the drag crosses the rail's snap line, and the spring (`data-folding`)
   // rides that switch alone: it comes off when the switch settles, so a drag that
   // keeps going afterwards follows the cursor frame by frame again.
-  const settleTimer = useRef(0)
-  const springTimer = useRef(0)
-  useEffect(() => () => {
-    clearTimeout(settleTimer.current)
-    clearTimeout(springTimer.current)
-  }, [])
   const startDrag = (event) => {
     if (event.button !== 0) return
     event.preventDefault()
-    clearTimeout(settleTimer.current)
-    clearTimeout(springTimer.current)
+    activeDrag.current?.cancel(false)
     const grip = event.currentTarget
     const column = grip.parentElement
     // A re-grab can land while a previous spring still stands: the new drag owns
@@ -733,7 +743,6 @@ export function TeamSidebar(props) {
     const columns = chatRoom.columns()
     for (const col of columns) col.style.setProperty('transition', 'none', 'important')
     const panes = [...document.querySelectorAll('.bt-pane')]
-    const offLeft = frameSnap.collapsedWidth ?? 0
     let last = null
     let liveLeft = mode
     let done = false
@@ -742,14 +751,16 @@ export function TeamSidebar(props) {
       column.style.width = `${width}px`
       column.style.setProperty('--bt-lc-w', `${width}px`)
       const occupied = at.left === 'open' ? width : RAIL_WIDTH
-      const push = Math.max(0, occupied - offLeft)
+      const push = Math.max(0, occupied - collapsedWidthRef.current)
       for (const col of columns) col.style.setProperty('margin-left', `${push}px`, 'important')
       for (const pane of panes) pane.style.left = `${occupied}px`
     }
     // A snap crossing arms the spring for the switch's glide; the timer takes it
-    // back off once the switch has had its duration.
+    // back off once the switch has had its duration, or immediately if the pointer
+    // keeps resizing the open column past its minimum width.
     let springUntil = 0
     const springOff = () => {
+      if (springTimer.current) { clearTimeout(springTimer.current); springTimer.current = 0 }
       springUntil = 0
       delete column.dataset.folding
       for (const col of columns) col.style.setProperty('transition', 'none', 'important')
@@ -758,33 +769,52 @@ export function TeamSidebar(props) {
       column.dataset.folding = ''
       for (const col of columns) col.style.setProperty('transition', `margin-left ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}`, 'important')
       springUntil = performance.now() + SPRING_SHAPE.duration
-      clearTimeout(springTimer.current)
+      if (springTimer.current) clearTimeout(springTimer.current)
       springTimer.current = setTimeout(springOff, SPRING_SHAPE.duration)
     }
     const track = (x) => {
+      const prev = last
       last = dragColumn(x, window.innerWidth)
       if (last.left !== liveLeft) {
         liveLeft = last.left
         if (!reducedMotion()) springOn()
         setDrag(last)
+      } else if (springUntil > 0 && prev !== null && last.left !== 'rail' && last.width !== prev.width) {
+        springOff()
       }
       write(last)
     }
     const onMove = (move) => track(move.clientX)
+    const ends = ['pointerup', 'pointercancel', 'lostpointercapture']
     // The rules and props take the landed geometry back over; while the fold's
     // spring still runs this waits it out so the landing does not snap. The
     // inline `width` stays: it is the landed geometry, and React writes its width
     // prop only when the value changes, so removing it would leave the edge at
     // its CSS fallback (57px on the rail).
-    const finish = () => {
-      clearTimeout(springTimer.current)
-      if (column.isConnected && last !== null) chatRoom.setLeft(Math.max(0, (last.left === 'open' ? last.width : RAIL_WIDTH) - offLeft))
-      for (const col of columns) { col.style.removeProperty('margin-left'); col.style.removeProperty('transition') }
-      column.style.removeProperty('--bt-lc-w')
-      delete column.dataset.folding
-      chatRoom.hold(false)
+    const dragState = {
+      settling: false,
+      landedMode: null,
+      landedPushed: null,
+      cancel(commitLanded) {
+        if (!done) {
+          done = true
+          grip.removeEventListener('pointermove', onMove)
+          for (const name of ends) grip.removeEventListener(name, onEnd)
+          if (dragRef.current !== null) setDrag(null)
+        }
+        if (settleTimer.current) { clearTimeout(settleTimer.current); settleTimer.current = 0 }
+        if (springTimer.current) { clearTimeout(springTimer.current); springTimer.current = 0 }
+        if (activeDrag.current === dragState) activeDrag.current = null
+        if (commitLanded && column.isConnected && !column.hasAttribute('data-leaving') && modeRef.current !== 'hidden' && dragState.landedPushed !== null) {
+          chatRoom.setLeft(Math.max(0, dragState.landedPushed - collapsedWidthRef.current))
+        }
+        for (const col of columns) { col.style.removeProperty('margin-left'); col.style.removeProperty('transition') }
+        column.style.removeProperty('--bt-lc-w')
+        delete column.dataset.folding
+        chatRoom.hold(false)
+      },
     }
-    const ends = ['pointerup', 'pointercancel', 'lostpointercapture']
+    activeDrag.current = dragState
     const onEnd = (end) => {
       if (done) return
       done = true
@@ -792,7 +822,7 @@ export function TeamSidebar(props) {
       grip.removeEventListener('pointermove', onMove)
       for (const name of ends) grip.removeEventListener(name, onEnd)
       setDrag(null)
-      if (last === null) { finish(); return }
+      if (last === null) { dragState.cancel(false); return }
       // The drag is the latest explicit gesture: it takes back a yielded panel's room.
       actions.setPanelYield?.(false)
       if (last.left === 'rail') { actions.setLeftDrawer?.(false); actions.setSidebarPref?.('rail') }
@@ -801,8 +831,11 @@ export function TeamSidebar(props) {
         actions.setSidebarPref?.('open')
         actions.setLeftDrawer?.(last.left === 'drawer')
       }
-      if (springUntil === 0) finish()
-      else settleTimer.current = setTimeout(finish, Math.max(0, springUntil - performance.now()) + 60)
+      dragState.settling = true
+      dragState.landedMode = last.left
+      dragState.landedPushed = last.left === 'open' ? last.width : RAIL_WIDTH
+      if (springUntil === 0) dragState.cancel(true)
+      else settleTimer.current = setTimeout(() => dragState.cancel(true), Math.max(0, springUntil - performance.now()) + 60)
     }
     grip.addEventListener('pointermove', onMove)
     for (const name of ends) grip.addEventListener(name, onEnd)
@@ -900,7 +933,7 @@ export function TeamSidebar(props) {
       newAgentSession: id => navigate(actions.newAgentSession, id),
     }
   }, [actions])
-  const rowProps = { roster, actions: rowActions, useSessions, useUi, useSessionStatus: props.useSessionStatus, useSessionRetainInfo: props.useSessionRetainInfo, useActivity: props.useActivity, useWork: props.useWork, useComputer: props.useComputer, wide: wideContent }
+  const rowProps = { roster, actions: rowActions, useSessions, useUi, useBotCompletions: props.useBotCompletions ?? useFalse, useSessionStatus: props.useSessionStatus, useSessionRetainInfo: props.useSessionRetainInfo, useActivity: props.useActivity, useWork: props.useWork, useComputer: props.useComputer, wide: wideContent }
   // Typing while the sidebar has focus starts a search.
   const typeToSearch = (event) => {
     if (event.defaultPrevented || event.key.length !== 1 || event.key === ' ' || event.metaKey || event.ctrlKey || event.altKey || event.nativeEvent.isComposing) return
@@ -932,7 +965,6 @@ export function TeamSidebar(props) {
     ? h('div', { className: 'bt-side-top' },
         h('span', { className: 'bt-brand' }, h(BrandName)),
         h(UpdateButton, { useUpdate: props.useUpdate, actions }),
-        h('button', { type: 'button', className: 'bt-round', 'aria-label': t('New section'), title: t('New section'), onClick: createNewSection }, h(FolderIcon)),
         h('button', { type: 'button', className: 'bt-round', 'aria-label': t('Search'), title: t('Search'), onClick: () => actions.openPalette() }, h(SearchIcon)),
         h('button', { type: 'button', className: 'bt-round', 'aria-label': t('New…'), title: t('New…'), onClick: () => actions.openNewChat('new') }, h(PlusIcon)),
         h('button', { type: 'button', className: 'bt-round bt-side-collapse', 'aria-label': t('Collapse sidebar'), title: t('Collapse sidebar'), onClick: onToggle }, h(SidebarIcon)))
@@ -981,7 +1013,7 @@ export function TeamSidebar(props) {
       }))),
     foot)
   return h(Fragment, null,
-    h(TitleToggle, { hidden: mode === 'hidden', onToggle }),
+    h(TitleToggle, { hidden: mode === 'hidden', mode, onToggle }),
     shown === 'hidden' ? null : h(LeftColumn, { mode: shown, width: ourWidth, onGrip: startDrag, leaving, entering: !firstColumn.current }, content))
 }
 
@@ -1189,7 +1221,7 @@ export function AccountLauncher({ seat = true, settingsOpen, actions }) {
       [t('Usage'), GaugeIcon, () => actions.openSettings('usage')],
       openModels ? [t('Models and API keys'), SlidersIcon, () => openModels()] : null,
       [t('Connectors'), ConnectorIcon, () => actions.openConnectors()],
-      [t('Automation tasks'), ClockIcon, () => actions.selectPanel('schedules')],
+      [t('Scheduled tasks'), ClockIcon, () => actions.selectPanel('schedules')],
       [t('Settings'), GearIcon, () => actions.openSettings('overview')],
     ].filter(Boolean),
     typeof actions.setSurface === 'function' ? [[t('Classic Agent mode'), SwitchIcon, () => actions.setSurface('agent')]] : null,
@@ -1485,7 +1517,7 @@ export const SIDEBAR_CSS = `
 
 /* The DSH Agent row and its expanding Session list. The black whale is the
    harness's own mark, so the row reads as "plain dsh" next to the Bot marks. */
-.bt-agent-ava{flex:none;width:36px;height:36px;border-radius:50%;corner-shape:round;display:inline-flex;align-items:center;justify-content:center;background:var(--bt-hover);color:var(--bt-ink)}
+.bt-agent-ava{flex:none;width:36px;height:36px;border-radius:50%;corner-shape:round;display:inline-flex;align-items:center;justify-content:center;background:transparent;color:var(--bt-ink)}
 .bt-agent-ava.bt-run{animation:bt-agent-pulse 1.4s ease-in-out infinite}
 @keyframes bt-agent-pulse{0%,100%{opacity:1}50%{opacity:.55}}
 .bt-agent-sub{display:grid;grid-template-rows:0fr;transition:grid-template-rows ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}}

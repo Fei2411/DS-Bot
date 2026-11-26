@@ -194,7 +194,7 @@ test('the chat-room rule is installed through installStyles, so it is owned too'
 
 test('message tools anchor to the bottom of a long reply in both layouts', () => {
   const css = readFileSync(new URL('../src/client/styles.js', import.meta.url), 'utf8')
-  assert.match(css, /\.bt-tools\{position:absolute;bottom:0;/)
+  assert.match(css, /\.bt-tools\{position:absolute;bottom:5px;/)
   // Flat: the toolbar hangs below the whole message instead of over its last line.
   assert.match(css, /body\[data-bt-layout=flat\] \.bt-msg\{position:relative\}/)
   assert.match(css, /body\[data-bt-layout=flat\] \.bt-msg-line\{position:static\}/)
@@ -208,7 +208,7 @@ test('the tools toolbar keeps its own stacking context for the hover bridge', ()
   // Without a stacking context on .bt-tools, the ::after bridge's z-index:-1
   // sinks behind the full-width .bt-astack and the toolbar flickers when the
   // pointer crosses the gap.
-  assert.match(css, /\.bt-tools\{position:absolute;bottom:0;z-index:0;/)
+  assert.match(css, /\.bt-tools\{position:absolute;bottom:5px;z-index:0;/)
   assert.match(css, /\.bt-tools::after\{[^}]*z-index:-1/)
 })
 
@@ -340,4 +340,27 @@ test('send and voice buttons tint background-color on hover, matching their tran
   // The transition lists the property the hover changes, so the tint animates.
   assert.match(css, /_primary"\]\{[^}]*transition:background-color \.15s ease/)
   assert.match(css, /\.bt-voice\{[^}]*;transition:background-color \.15s ease|\.bt-mic,\.bt-voice\{[^}]*transition:background-color \.15s ease/)
+})
+
+test('hidden Usage pane suppresses ghost scrollbar and Settings separates Level-2 vs Level-3 headings', () => {
+  const css = readFileSync(new URL('../src/client/styles.js', import.meta.url), 'utf8')
+  const offStart = css.indexOf('.bt-settings-usage[data-off]{')
+  assert.ok(offStart >= 0)
+  const offRule = css.slice(offStart, css.indexOf('}', offStart))
+  assert.match(offRule, /visibility:hidden/)
+  assert.match(offRule, /opacity:0/)
+  assert.match(offRule, /overflow:hidden/)
+  assert.match(css, /\.bt-part-head\{[^}]*font-size:16px[^}]*font-weight:650[^}]*color:var\(--bt-ink\)/)
+  assert.match(css, /\.bt-set-section>h3,\.bt-la-sec-head>h3\{[^}]*font-size:12\.5px[^}]*font-weight:500[^}]*color:var\(--bt-ink-2\)/)
+})
+
+test('sidebar top stays a single clean row with New section moved to CommandPalette', () => {
+  const css = readFileSync(new URL('../src/client/styles.js', import.meta.url), 'utf8')
+  const sidebar = readFileSync(new URL('../src/client/sidebar.js', import.meta.url), 'utf8')
+  const palette = readFileSync(new URL('../src/client/palette.js', import.meta.url), 'utf8')
+  assert.match(css, /\.bt-side-top\{[^}]*flex-wrap:nowrap/)
+  assert.doesNotMatch(css, /@container bt-side-top/)
+  assert.match(css, /\.bt-side-top \.bt-round\{width:30px;height:30px;border:0;background:transparent;color:var\(--bt-ink-2\)\}/)
+  assert.equal(sidebar.includes("t('New section')"), false)
+  assert.match(palette, /key:\s*'cmd:section'[\s\S]*t\('New section'\)/)
 })

@@ -11,12 +11,14 @@ Use **Settings → Group chats** to inspect and change groups. In a chat's **+**
 - `delegate_work` delegates a concrete task or question to another Bot as a tracked work (#W…), whose final reply returns automatically and closes the work. Use `ask_back` when blocked, `answer_work` to unblock, `cancel_work` to silently cancel without waking the target, and `note_bot` for silent FYI updates that never wake the target. In a group `delegate_work` reaches only that group's members.
 - `create_group` is Main Bot only. It joins the creator as admin unless another admin is named.
 - `update_group` changes name, notice, members, admin, reply mode or work_dir. A Main Bot can manage any group; the group's admin can manage its group, but only a Main Bot can change its working folder or sidebar section.
-- `post_to_group` posts from outside a group. A Main Bot's or the admin's post starts a discussion. Another member's post calls the members it names with @Name. A Main Bot can post to any group.
+- `post_to_group` posts from outside a group. A plain update is visible without waking anyone. `intent: "notice"` keeps even @names passive. Use `intent: "request"` to start a discussion as Main Bot or admin, or name the members who should answer. A Main Bot can post to any group.
 - `delete_group` archives a group and is Main Bot only. Use it only when the user asks.
 - `group_goal` manages staged goals. The admin normally runs it. Load goal-grill before starting: align objective, acceptance, constraints, stages and assigned tasks with the user.
 - `group_task` manages the group's shared task board. `group_todo` manages its checklist. These are not scheduled reminders.
 
 By default the admin answers ordinary group messages. @Name chooses who answers. In everyone mode, members answer in order with the admin first. Bots can hand work to members with @Name. Do not send the same assignment through several routes.
+
+`delegate_work` addresses one member; other names in its goal or answer are not recipients. Results return to the caller once. Its summary is visible but calls nobody. To start distinct follow-up work from a result turn, pass its reference as the follow_up_to argument (`G…` in a group or `W…` in a Bot chat).
 
 ## Context and handoffs
 

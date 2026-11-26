@@ -173,6 +173,28 @@ test('send chunks long text, buttons go on the last chunk, edit patches', async 
   assert.ok(fake.calls.some(call => call.method === 'PATCH' && /messages\/55$/.test(call.path)))
 })
 
+test('a chunk of emoji fits Discord\'s 2000-unit limit', async (t) => {
+  // The cut is measured in code points, but Discord counts UTF-16 units and a 400 there is
+  // permanent: a chunk of 2000 code points holding astral characters is longer than 2000
+  // units, so the message is rejected and the rest of the reply never goes out.
+  const fake = await fakeDiscord()
+  const handle = discord.connect({ token: 'tok' }, env(fake), { onMessage: () => {}, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  await until(() => fake.sockets[0])
+  const text = `a${'\u{1F600}'.repeat(1200)}`
+  assert.ok(text.length > 2000, `fixture is ${text.length} units`)
+  await handle.send({ key: 'dm1', kind: 'direct' }, { text })
+  const posts = fake.calls.filter(call => /messages$/.test(call.path) && call.method === 'POST')
+  assert.ok(posts.length > 1, 'the reply spans several messages')
+  for (const post of posts) {
+    const content = post.params.content
+    assert.ok(content.length <= 2000, `chunk is ${content.length} units`)
+    assert.ok(!/[\uD800-\uDBFF]$/.test(content), 'a chunk must not end on a lone high surrogate')
+    assert.ok(!/^[\uDC00-\uDFFF]/.test(content), 'a chunk must not start on a lone low surrogate')
+  }
+  assert.equal(posts.map(post => post.params.content).join(''), text, 'every code point arrives')
+})
+
 test('a dropped socket reconnects and resumes the session', async (t) => {
   const fake = await fakeDiscord()
   const statuses = []

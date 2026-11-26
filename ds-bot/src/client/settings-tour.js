@@ -3,6 +3,7 @@
 // concise action cue telling the user where to click. Runs once automatically on first
 // open, can be replayed from About DS Bot, and every section has its own focused guide.
 import { createElement as h, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { CloseIcon } from './icons.js'
 import { useEscape } from './overlay-hooks.js'
 import { isImeComposing } from './enter-key.js'
 import { t } from './i18n.js'
@@ -91,9 +92,9 @@ const SECTION_TOURS = {
     { target: 'phone-pair', title: 'Pair a phone', cue: 'Click "Turn on & pair" to show a one-time QR code, then scan it on your phone.' },
     { target: 'phone-server', title: 'Server', cue: 'Click "Edit" here only if you host your own relay server.' },
   ],
-  mcp: [
-    { target: 'mcp-switch', title: 'MCP access', cue: 'Turn on this switch so other local agents can reach your Bots.' },
-    { target: 'mcp-add', title: 'Add a client', cue: 'Enter a client name, click "Create token", then pick allowed Bots below.' },
+  api: [
+    { target: 'api-switch', title: 'Enable local API server', cue: 'Turn on this switch so other local agents can reach your Bots.' },
+    { target: 'api-add', title: 'Access tokens', cue: 'Click "New token", then choose the allowed targets and scopes before creating it.' },
   ],
   computer: [
     { target: 'comp-switch', title: 'Computer use', cue: 'Turn on this switch and grant system permissions when prompted.' },
@@ -471,7 +472,9 @@ export function SettingsTour({ tour, currentPage, dialogRef, hasProviders, hasAd
   },
   h('div', { className: 'bt-tour-head' },
     h('span', { className: 'bt-tour-title' }, t(shownStep.title)),
-    steps.length > 1 ? h('span', { className: 'bt-tour-count' }, `${index + 1} / ${steps.length}`) : null),
+    h('div', { className: 'bt-tour-head-end' },
+      steps.length > 1 ? h('span', { className: 'bt-tour-count' }, `${index + 1} / ${steps.length}`) : null,
+      h('button', { type: 'button', className: 'bt-tour-close', 'aria-label': t('Close'), title: t('Close'), onClick: dismiss }, h(CloseIcon)))),
   h('p', { className: 'bt-tour-cue' }, t(shownStep.cue)),
   h('div', { className: 'bt-tour-foot' },
     h('button', { type: 'button', className: 'bt-tour-skip', onClick: dismiss }, t('Skip')),

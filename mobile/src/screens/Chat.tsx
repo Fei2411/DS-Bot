@@ -421,7 +421,7 @@ export function ChatView({ bot, room, agent, header, onMissing }: { bot?: Bot; r
       const images: string[] = []
       for (const photo of entry.photos) images.push(((await call('stage-image', { mediaType: photo.mediaType, data: photo.data })) as { id: string }).id)
       const target = entry.sessionId !== '' || entry.agentId === undefined ? entry.sessionId : await agentSession(call, entry.agentId)
-      await call('send', { sessionId: target, text: entry.item.text ?? '', ...(images.length > 0 ? { images } : {}) })
+      await call('send', { sessionId: target, text: entry.item.text ?? '', requestId: localId, ...(images.length > 0 ? { images } : {}) })
       // What the chat already holds, so only a new row of the same text counts as this one.
       const kept = pages.get(key)
       const all = [...(kept?.older ?? []), ...(kept?.page.items ?? [])]
@@ -561,7 +561,7 @@ export function ChatView({ bot, room, agent, header, onMissing }: { bot?: Bot; r
       <Dock question={question} sessionId={sessionId} approvals={approvals} learning={learning} secrets={secrets} connectorRequests={connectorRequests} botName={bot?.name} onOpenConnector={connectorId => { if (connectorCanConnectOnMobile(connectorId)) navigation.navigate('Settings', { screen: 'Connectors', params: { focusId: connectorId }, initial: false }) }} btw={btw} handoff={browserHold} view={team?.views?.[sessionId]} call={call} p={p} expanded={expandedKey} onExpand={setExpandedKey} />
       {fileError ? <Text style={[type.small, { color: p.danger, textAlign: 'center', marginBottom: 4 }]} accessibilityRole="alert">{fileError}</Text> : null}
       {page !== null && loadError !== null ? <Text style={[type.small, { color: p.danger, textAlign: 'center', marginBottom: 4, marginHorizontal: 16 }]} accessibilityRole="alert">{loadError}</Text> : null}
-      <Composer name={bot?.name ?? room?.name ?? agent?.name ?? ''} running={running} canStop={canStop} canAttach={hello?.capabilities?.includes('send-images') === true} onSend={send} onStop={stop} p={p} />
+      <Composer key={chatKey} chatKey={chatKey} name={bot?.name ?? room?.name ?? agent?.name ?? ''} running={running} canStop={canStop} canAttach={hello?.capabilities?.includes('send-images') === true} onSend={send} onStop={stop} p={p} />
       <Actions visible={menuText !== null} text={menuText ?? ''} p={p}
         onClose={() => setMenuText(null)}
         onSelect={() => { setReaderTitle(null); setReaderText(menuText); setMenuText(null) }} />

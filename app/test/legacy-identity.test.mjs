@@ -7,24 +7,29 @@ import { spawnSync } from 'node:child_process'
 import { test } from 'node:test'
 import { parse } from 'yaml'
 import { UUID } from 'builder-util-runtime'
-import { APP_ID, configureIdentity, LEGACY_ARTIFACT_PREFIX, LEGACY_PRODUCT_NAME } from '../src/legacy.mjs'
+import { APP_ID, configureIdentity, LEGACY_ARTIFACT_PREFIX, LEGACY_PRODUCT_NAME, mockKeychainArgs } from '../src/legacy.mjs'
 
-function fixture({ saved = [], packaged = true } = {}) {
+function fixture({ saved = [], packaged = true, initialSwitches = [] } = {}) {
   const app = new EventEmitter()
   const appData = join(tmpdir(), 'dsbot-identity-fixture')
   const current = join(appData, 'DS Bot')
   const legacy = join(appData, LEGACY_PRODUCT_NAME)
   const paths = { appData, userData: current }
   const names = []
+  const switches = [...initialSwitches]
   Object.assign(app, {
     isPackaged: packaged,
     getPath: name => paths[name],
     setPath: (name, value) => { paths[name] = value },
     setName: name => names.push(name),
     setAppUserModelId: id => { app.id = id },
+    commandLine: {
+      appendSwitch: name => switches.push(name),
+      hasSwitch: name => switches.includes(name),
+    },
   })
   const exists = path => saved.includes(path)
-  return { app, paths, names, current, legacy, exists }
+  return { app, paths, names, switches, current, legacy, exists }
 }
 
 for (const platform of ['win32', 'darwin', 'linux']) {
@@ -73,6 +78,57 @@ test('an isolated data run never probes an installed application', () => {
 test('a source installation also keeps its existing shell data', () => {
   const f = fixture({ packaged: false })
   assert.equal(configureIdentity(f.app, { env: {}, mkdir: () => {}, exists: path => path === f.legacy }).userData, f.legacy)
+})
+
+test('macOS uses the mock keychain only for unpackaged runs with isolated shell data', () => {
+  assert.deepEqual(mockKeychainArgs('darwin'), ['--use-mock-keychain'])
+  assert.deepEqual(mockKeychainArgs('win32'), [])
+  assert.deepEqual(mockKeychainArgs('linux'), [])
+
+  const isolatedSource = fixture({ packaged: false })
+  configureIdentity(isolatedSource.app, { env: { DS_BOT_SHELL_DATA: '/tmp/dsbot-dev-shell' }, platform: 'darwin', mkdir: () => {}, exists: () => false })
+  assert.deepEqual(isolatedSource.switches, ['use-mock-keychain'])
+
+  const isolatedBoth = fixture({ packaged: false })
+  configureIdentity(isolatedBoth.app, { env: { DS_BOT_HOME: '/tmp/dsbot-dev-home', DS_BOT_SHELL_DATA: '/tmp/dsbot-dev-shell' }, platform: 'darwin', mkdir: () => {}, exists: () => false })
+  assert.deepEqual(isolatedBoth.switches, ['use-mock-keychain'])
+
+  const preset = fixture({ packaged: false, initialSwitches: ['use-mock-keychain'] })
+  configureIdentity(preset.app, { env: { DS_BOT_SHELL_DATA: '/tmp/dsbot-dev-shell' }, platform: 'darwin', mkdir: () => {}, exists: () => false })
+  assert.deepEqual(preset.switches, ['use-mock-keychain'])
+
+  // Default shell directories and reused legacy profiles must stay on the real login keychain
+  // so existing cookies and ChatGPT sign-in credentials remain decryptable.
+  const defaultSource = fixture({ packaged: false })
+  configureIdentity(defaultSource.app, { env: {}, platform: 'darwin', mkdir: () => {}, exists: () => false })
+  assert.deepEqual(defaultSource.switches, [])
+
+  const legacySource = fixture({ packaged: false })
+  configureIdentity(legacySource.app, { env: {}, platform: 'darwin', mkdir: () => {}, exists: path => path === legacySource.legacy })
+  assert.deepEqual(legacySource.switches, [])
+  assert.deepEqual(legacySource.names, [LEGACY_PRODUCT_NAME])
+
+  const homeOnlySource = fixture({ packaged: false })
+  configureIdentity(homeOnlySource.app, { env: { DS_BOT_HOME: '/tmp/dsbot-test-data' }, platform: 'darwin', mkdir: () => {}, exists: () => false })
+  assert.deepEqual(homeOnlySource.switches, [])
+
+  // Packaged apps never silently downgrade encryption via environment variables.
+  for (const env of [
+    {},
+    { DS_BOT_HOME: '/tmp/dsbot-home' },
+    { DS_BOT_SHELL_DATA: '/tmp/dsbot-shell' },
+    { DS_BOT_HOME: '/tmp/dsbot-home', DS_BOT_SHELL_DATA: '/tmp/dsbot-shell' },
+  ]) {
+    const packaged = fixture({ packaged: true })
+    configureIdentity(packaged.app, { env, platform: 'darwin', mkdir: () => {}, exists: () => false })
+    assert.deepEqual(packaged.switches, [], JSON.stringify(env))
+  }
+
+  for (const platform of ['win32', 'linux']) {
+    const dev = fixture({ packaged: false })
+    configureIdentity(dev.app, { env: { DS_BOT_HOME: '/tmp/dsbot-test-data', DS_BOT_SHELL_DATA: '/tmp/dsbot-dev-shell' }, platform, mkdir: () => {}, exists: () => false })
+    assert.deepEqual(dev.switches, [], platform)
+  }
 })
 
 for (const suffix of ['mac-arm64.zip', 'mac-x64.zip', 'linux-amd64.deb']) {

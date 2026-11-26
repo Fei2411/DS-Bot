@@ -249,7 +249,7 @@ export function install(rt) {
     const room = rt.roomOf(place.roomId ?? taskEntry?.roomId)
     // A background part makes room within its own thread, like the foreground chat.
     const parts = place.roomId === undefined ? partsOfThread(place.botId, agent.id) : partsOf(place.botId, place.roomId)
-    const previous = parts.slice(0, -1).findLast(part => part?.endedAt !== undefined) ?? parts.at(-2)
+    const previous = parts.slice(0, -1).findLast(part => part?.endedAt !== undefined && !Number.isInteger(part.throughSeq)) ?? parts.at(-2)
     const previousNote = segmentNoteOf(previous)
     const lines = await contextLines(session).catch(() => undefined)
     const budget = Math.min(RECENT_TOKENS, Math.floor((lines?.check ?? 4 * RECENT_TOKENS) / 4))
@@ -419,11 +419,29 @@ export function install(rt) {
       // stay available to `read_own_chat({ part: N })` and overflow `earlierNote`.
       const bySession = new Map((bot.segments ?? []).filter(seg => seg?.sessionId).map(seg => [seg.sessionId, seg]))
       const inherited = (Array.isArray(task.inheritedSegments) ? task.inheritedSegments : [])
-        .map(seg => (seg?.sessionId && bySession.has(seg.sessionId) ? { ...bySession.get(seg.sessionId), ...seg } : seg))
+        .map((seg) => {
+          if (!seg?.sessionId || !bySession.has(seg.sessionId)) return seg
+          const base = bySession.get(seg.sessionId)
+          if (Number.isInteger(seg.throughSeq)) {
+            // Bounded inherited refs (non-forked task_start) stay strictly capped at branch time
+            // and never hydrate a closing handoff note written for post-branch foreground turns.
+            return {
+              ...seg,
+              ...(seg.endedAt === undefined && base.endedAt !== undefined ? { endedAt: base.endedAt } : {}),
+              throughSeq: seg.throughSeq,
+            }
+          }
+          return { ...base, ...seg }
+        })
       const seen = new Set(inherited.map(seg => seg?.sessionId).filter(Boolean))
-      const segments = [...inherited, ...(thread.segments ?? []).filter(seg => !seen.has(seg?.sessionId))]
+      const ownSegments = (thread.segments ?? []).filter(seg => !seen.has(seg?.sessionId))
+      const segments = [...inherited, ...ownSegments]
       const result = partsOf(bot.id, undefined, segments, task.sessionId)
-      if (task.startedAt !== undefined && segments.length > 0 && segments.at(-1)?.endedAt === undefined && result.at(-1)?.sessionId === task.sessionId) {
+      const tailSeg = segments.at(-1)
+      if (task.startedAt !== undefined
+        && tailSeg !== undefined
+        && (tailSeg.endedAt === undefined || (ownSegments.length === 0 && Number.isInteger(tailSeg.throughSeq)))
+        && result.at(-1)?.sessionId === task.sessionId) {
         result.at(-1).startedAt = task.startedAt
       }
       return result
@@ -432,11 +450,18 @@ export function install(rt) {
   }
 
   // What was said in one part, newest first: the user, other Bots, and the Bot itself.
-  async function* partLines(sessionId, signal, { group = false, pages, read } = {}) {
+  async function* partLines(sessionId, signal, { group = false, pages, read, throughSeq } = {}) {
     // Read backwards, a Bot's answers come before the message they answer.
     const scan = read ?? {}
+    const bound = Number.isInteger(throughSeq) ? throughSeq : undefined
+    if (bound !== undefined && bound < 0) {
+      scan.complete = true
+      scan.capped = false
+      return
+    }
     let answers = []
-    for await (const event of rt.eventsBackwards(sessionId, signal, pages, scan)) {
+    for await (const event of rt.eventsBackwards(sessionId, signal, pages, scan, bound)) {
+      if (bound !== undefined && Number.isInteger(event?.seq) && event.seq > bound) continue
       const entry = historyEntry(event, group)
       if (entry === undefined) continue
       if (entry.answer) {
@@ -1473,6 +1498,7 @@ export function install(rt) {
 
   const segmentNoteOf = (segment) => {
     if (segment === undefined || segment === null) return undefined
+    if (Number.isInteger(segment.throughSeq)) return undefined
     if (typeof segment.note === 'string') return segment.note
     return rt.readSegmentNote?.(segment)
   }
@@ -1728,15 +1754,16 @@ export function install(rt) {
   // Track message ids DS Bot itself removes from an inbox in order to wake or forward
   // them during a part switch so `agent/inbox/discarded` never mistakes a move for a cancel.
   const movingInboxMessages = new Set()
-  const removeForMove = (agent, messages) => {
-    for (const message of messages) {
-      if (message?.id !== undefined) movingInboxMessages.add(message.id)
-      try {
-        agent.inbox.remove(message.id)
-      } finally {
-        if (message?.id !== undefined) movingInboxMessages.delete(message.id)
-      }
+  const removeMessageForMove = (agent, message) => {
+    if (message.id !== undefined) movingInboxMessages.add(message.id)
+    try {
+      return agent.inbox.remove(message.id)
+    } finally {
+      if (message.id !== undefined) movingInboxMessages.delete(message.id)
     }
+  }
+  const removeForMove = (agent, messages) => {
+    for (const message of messages) removeMessageForMove(agent, message)
   }
   const wake = (agent) => {
     const pending = [...agent.inbox.nextStep, ...agent.inbox.nextTurn]
@@ -1786,9 +1813,13 @@ export function install(rt) {
           removeForMove(agent, held)
           // An interrupted switch may not have finished moving the tasks over; stop
           // the earlier part only after they sit on the part that replaced it.
-          await rt.moveSchedules?.(sessionId, target)
+          const finishMove = await rt.moveSchedules?.(sessionId, target, { stopActivity: true })
           await ctx.workspaceRegistry.archiveSession(sessionId, { stopActivity: true })
-            .catch(error => rt.warn('ds-bot: earlier part %s not archived: %s', sessionId, error))
+            .then(() => finishMove?.())
+            .catch(error => {
+              if (finishMove !== undefined) throw error
+              rt.warn('ds-bot: earlier part %s not archived: %s', sessionId, error)
+            })
         } else {
           try { wake(agent) } catch (error) { rt.warn('ds-bot: part %s could not be woken for its kept input: %s', sessionId, error) }
         }
@@ -1897,8 +1928,9 @@ export function install(rt) {
     if (job.moved) {
       rt.renewMemory(agent.id)
       await rt.closeLocalAgentSession?.(agent.id)?.catch(error => rt.warn('ds-bot: the local agent of earlier part %s did not stop: %s', agent.id, error))
+      let finishMove
       try {
-        await rt.moveSchedules(agent.id, job.next ?? currentOf(job))
+        finishMove = await rt.moveSchedules(agent.id, job.next ?? currentOf(job), { stopActivity: true })
       } catch (error) {
         // Keep the restart marker: stopping this part would delete unmoved tasks.
         job.kept = true
@@ -1906,7 +1938,11 @@ export function install(rt) {
         throw error
       }
       await ctx.workspaceRegistry.archiveSession(agent.id, { stopActivity: true })
-        .catch(error => rt.warn('ds-bot: earlier part %s not archived: %s', agent.id, error))
+        .then(() => finishMove?.())
+        .catch(error => {
+          if (finishMove !== undefined) job.kept = true
+          rt.warn('ds-bot: earlier part %s not archived: %s', agent.id, error)
+        })
     }
   }
 
@@ -2012,7 +2048,7 @@ export function install(rt) {
       return
     }
     if (failure !== undefined) rt.warn('ds-bot: handoff note for %s failed past the hard line; moving on with the earlier note: %s', name, failure)
-    const previous = parts.slice(0, -1).findLast(part => part?.endedAt !== undefined) ?? parts.at(-2)
+    const previous = parts.slice(0, -1).findLast(part => part?.endedAt !== undefined && !Number.isInteger(part.throughSeq)) ?? parts.at(-2)
     const previousNote = segmentNoteOf(previous)
     const earlierNote = previousNote ? { note: previousNote, noteFrom: previous.noteFrom ?? previous.number } : {}
     const fallback = written !== undefined ? undefined
@@ -2513,7 +2549,7 @@ export function install(rt) {
 
   // The newest turn/end among the Session's last events in memory.
   function lastTurnEnd(agent) {
-    const latest = agent.session.seq - 1
+    const latest = (agent.session?.seq ?? 0) - 1
     for (let seq = latest; seq >= Math.max(0, latest - 199); seq -= 1) {
       const event = agent.session.eventAt?.(seq)
       if (event?.type === 'turn/end') return event
@@ -2525,6 +2561,20 @@ export function install(rt) {
     if (!rescued.has(agent.id)) return
     const end = lastTurnEnd(agent)
     if (end !== undefined && end.data?.reason?.kind !== 'error') rescued.delete(agent.id)
+  }
+
+  function wakeFailedTurnInbox(agent, end) {
+    if (agent.status !== 'idle' || lastTurnEnd(agent) !== end || readOnly() || ctx.fiber?.uid === null) return
+    const id = agent.id
+    if (!rt.isBotSession(id) || switches.has(id) || rt.live.get(id)?.lastSwitched || rt.isHandingOff?.(id)) return
+    const nextTurn = agent.inbox?.nextTurn ?? []
+    const nextStep = agent.inbox?.nextStep ?? []
+    const target = nextTurn.length > 0 ? 'next-turn' : 'next-step'
+    const tail = target === 'next-turn' ? nextTurn.at(-1)
+      : nextStep.some(message => inboxTargetOf(message) === 'next-turn' || message.source?.kind === 'subagent-settled') ? nextStep.at(-1) : undefined
+    // DSH preserves pending input on error but stops its driver. Reinsert one message
+    // at the same position with wake enabled rather than duplicating or reordering it.
+    if (tail !== undefined && removeMessageForMove(agent, tail)) agent.send(tail, target, true)
   }
 
   ctx.effect(() => {
@@ -2549,9 +2599,17 @@ export function install(rt) {
   })
 
   ctx.on('agent/status', ({ agent, status }) => {
+    if (status === 'idle') rt.retireSettledTasksAfterIdle?.(agent.id)
     if (status === 'idle' && rt.isBotSession(agent.id)) {
       releaseRescued(agent)
-      void checkContext(agent).catch(error => rt.warn('ds-bot: context check for %s failed: %s', agent.id, error))
+      const end = lastTurnEnd(agent)
+      if (end?.data?.reason?.kind === 'error') {
+        // Let the old driver finish and replay any wake already latched on it.
+        void Promise.resolve().then(() => wakeFailedTurnInbox(agent, end))
+          .catch(error => rt.warn('ds-bot: waking queued input in %s after a failed turn failed: %s', agent.id, error))
+      } else {
+        void checkContext(agent).catch(error => rt.warn('ds-bot: context check for %s failed: %s', agent.id, error))
+      }
     }
   })
 
@@ -2758,13 +2816,25 @@ export function install(rt) {
     // An archived earlier part may have no live agent left; its stored events
     // still page fine, so resolve failure only drops the live-session cap.
     const agent = await rt.resolveAgent(part.sessionId).catch(() => undefined)
+    const liveSeq = agent?.session?.seq
+    const liveThroughSeq = typeof liveSeq === 'number' && Number.isInteger(liveSeq) && liveSeq >= 0
+      ? liveSeq - 1
+      : undefined
+    const boundThroughSeq = Number.isInteger(part.throughSeq) ? part.throughSeq : undefined
+    const throughSeq = liveThroughSeq !== undefined && boundThroughSeq !== undefined
+      ? Math.min(liveThroughSeq, boundThroughSeq)
+      : (boundThroughSeq ?? liveThroughSeq)
+    if (boundThroughSeq !== undefined && boundThroughSeq < 0) {
+      return { items: [], cursor: index > 0 ? { part: index - 1 } : null }
+    }
     const page = await ctx.sessionController.page({
       address: { kind: 'session', sessionId: part.sessionId },
-      ...(agent ? { throughSeq: Number(agent.session.seq) - 1 } : {}),
+      ...(throughSeq !== undefined ? { throughSeq } : {}),
       ...(Number.isInteger(cursor?.beforeSeq) ? { beforeSeq: cursor.beforeSeq } : {}),
       maxMessages: EARLIER_PAGE,
     }, signal)
     const rawEvents = page.records.map(record => record.event)
+      .filter(event => boundThroughSeq === undefined || !Number.isInteger(event?.seq) || event.seq <= boundThroughSeq)
     const minSeq = Number.isInteger(options.minSeq) && options.minSeq > 0 ? options.minSeq : undefined
     const events = minSeq === undefined
       ? rawEvents
@@ -2969,11 +3039,28 @@ export function install(rt) {
   // different workDir is requested, or the Bot runs on a local CLI agent.
   // Pass `fork: false` for lightweight independent tasks (peer-Bot handoffs or
   // `task_start` from a large parent Session).
-  async function openTaskPart(bot, fromSessionId, task, { workDir, fork = true } = {}) {
+  async function openTaskPart(bot, fromSessionId, task, { workDir, fork = true, throughSeq } = {}) {
     const room = task.roomId !== undefined ? rt.roomOf(task.roomId) : undefined
     const defaultDir = rt.workDirOf({ botId: bot.id, ...(room ? { roomId: room.id } : {}) })
     const dir = workDir !== undefined ? (workDir ?? undefined) : defaultDir
     const isLocal = rt.localAgentBadge?.(bot.model ?? bot.appliedModel) !== undefined
+    // Capture the parent session's last event seq before async creation/routing so a
+    // non-forked inherited ref stays pinned strictly to branch time.
+    const sourceSessionAtBranch = ctx.get?.('agents')?.get(fromSessionId)?.session
+      ?? ctx.get?.('sessions')?.get(fromSessionId)
+      ?? ctx.sessions?.get?.(fromSessionId)
+    const branchThroughSeq = Number.isInteger(throughSeq) ? throughSeq : (() => {
+      if (sourceSessionAtBranch === undefined || sourceSessionAtBranch === null) return undefined
+      const seq = sourceSessionAtBranch.seq
+      if (typeof seq === 'number' && Number.isInteger(seq) && seq >= 0) return seq - 1
+      const events = sourceSessionAtBranch.snapshotEvents?.()
+      if (Array.isArray(events)) {
+        if (events.length === 0) return -1
+        const last = events.at(-1)?.seq
+        return Number.isInteger(last) ? last : events.length - 1
+      }
+      return undefined
+    })()
     let sessionId
     let forked = false
     if (fork !== false && !isLocal && dir === defaultDir && typeof ctx.sessionController?.fork === 'function') {
@@ -3009,11 +3096,15 @@ export function install(rt) {
       else if (Number.isInteger(seq) && seq > 0) startSeq = seq
     }
     // When an own-chat task_start does not fork, append a slim ref to the parent
-    // foreground part so read_own_chat can search it alongside earlier bot.segments.
+    // foreground part bounded to branch time so read_own_chat can search pre-branch
+    // history without ever leaking later foreground or fg-handoff messages.
     let inheritedSegments = Array.isArray(task.inheritedSegments) ? [...task.inheritedSegments] : []
     if (!forked && room === undefined && task.origin !== 'bot-handoff' && typeof fromSessionId === 'string' && fromSessionId !== '' && fromSessionId !== sessionId) {
       if (!inheritedSegments.some(seg => seg?.sessionId === fromSessionId)) {
-        inheritedSegments.push({ sessionId: fromSessionId })
+        inheritedSegments.push({
+          sessionId: fromSessionId,
+          ...(Number.isInteger(branchThroughSeq) ? { throughSeq: branchThroughSeq } : {}),
+        })
       }
     }
     const stored = {
