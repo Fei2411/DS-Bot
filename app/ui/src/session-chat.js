@@ -4,7 +4,7 @@
 // user messages, settled card replies, Markdown replies, thinking, tool calls
 // (via `tool.call.toolview` -> `WidgetCell` for `show_view` / `GenericToolCard`),
 // compaction markers, Bot/schedule events, and failed turns (`FailureCell`).
-import { createElement as h, Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createElement as h, Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import { call } from '../../../ds-bot/src/client/api.js'
 import { BtwTurnTail } from '../../../ds-bot/src/client/btw.js'
@@ -25,9 +25,22 @@ import { FailureCell, failureText } from '../../../ds-bot/src/client/turn-error.
 import { ViaTag, contentParts, mentionableBots, userTextParts } from '../../../ds-bot/src/client/user-message.js'
 import { AnsweredReply } from '../../../ds-bot/src/client/widget-cell.js'
 import { openSessionFollow } from './api.js'
-import { useUiLanguage } from './locale.js'
+import { getAppLocale } from './locale.js'
 import { buildSessionRows, extractTurnFacts } from './session-transcript.js'
 import { CHAT_NODE_SLOT, SlotOutlet, slots as defaultSlots } from './slots.js'
+
+const NO_LOCALE = () => {}
+
+// Subscribe to the active interface language so memoized transcript rows receive `lang`
+// and re-render on a language switch without pulling React into pure `./locale.js`.
+function useUiLanguage() {
+  const subscribe = useCallback((notify) => {
+    const service = getAppLocale()
+    return typeof service?.subscribe === 'function' ? service.subscribe(notify) : NO_LOCALE
+  }, [])
+  const snapshot = useCallback(() => getAppLocale()?.getLocale?.().active ?? 'en', [])
+  return useSyncExternalStore(subscribe, snapshot, snapshot)
+}
 import { GenericToolCard, ToolCallCard } from './tool-card.js'
 
 const PAGE_SIZE = 40

@@ -1,7 +1,7 @@
 // Reactive locale service for the desktop app's own interface, matching DSH's locale
 // contract (`getLocale`, `register`, `bind`) while adding user language selection and
-// persistence in `localStorage`.
-import { useCallback, useSyncExternalStore } from 'react'
+// persistence in `localStorage`. Kept free of React imports so non-React modules and
+// host-side tests (`ds-bot/test/frontend-audit-regressions.test.js`) can import it directly.
 
 const fill = (text, params) => (params
   ? text.replace(/\{(\w+)\}/g, (match, name) => (name in params ? String(params[name]) : match))
@@ -100,20 +100,4 @@ export function setAppLocaleService(service) {
 
 export function getAppLocale() {
   return appLocaleService
-}
-
-const NO_LOCALE = () => {}
-
-// The active interface language, subscribed at the component that needs it. `t()` reads
-// the language at call time and a memoized component never re-renders on a language
-// switch on its own, so any memoized copy passes this value as a prop and changes with
-// the language instead of freezing in the old one. While a reply streams the language
-// does not change, so the memo holds exactly as before.
-export function useUiLanguage() {
-  const subscribe = useCallback((notify) => {
-    const service = getAppLocale()
-    return typeof service?.subscribe === 'function' ? service.subscribe(notify) : NO_LOCALE
-  }, [])
-  const snapshot = useCallback(() => getAppLocale()?.getLocale?.().active ?? 'en', [])
-  return useSyncExternalStore(subscribe, snapshot, snapshot)
 }
