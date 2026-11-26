@@ -2,9 +2,10 @@
 // <style> element: replaceSync lets the browser parse it (which normalizes every escape
 // and oddity into CSSOM) and the tree is then walked and stripped of everything that
 // could load a file (shared/theme-css.js, the lexical scan, decides what can load one).
-// Mutating the live CSSStyleSheet means nothing unsanitized is ever serialized back into
-// text or re-parsed, so no double-parse gap exists. Where constructed stylesheets do not
-// exist the user stylesheet simply does not apply -- fail closed.
+// Building and sanitizing an offline CSSStyleSheet before adopting it means nothing
+// unsanitized is ever serialized back into text, re-parsed, or exposed to the document,
+// so no double-parse gap exists. Where constructed stylesheets do not exist the user
+// stylesheet simply does not apply -- fail closed.
 import { themeCssLoadsRemoteFiles, themeCssValueFetches, themeCssWithoutImports } from '../shared/theme-css.js'
 
 // Rules that hold other rules, per the CSSOM class hierarchy. @keyframes is recursed too

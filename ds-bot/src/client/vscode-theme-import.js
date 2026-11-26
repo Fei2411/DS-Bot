@@ -206,6 +206,7 @@ export function parseVscodeTheme(text, fallbackLabel = 'VS Code theme') {
       .map(name => flattenColor(colors[name], canvas))
       .find(color => color !== undefined && (!textReplaced || contrast(mode.text, color) >= READABLE))
     if (found !== undefined) mode[key] = found
+    else if (textReplaced && contrast(mode.text, mode[key]) < READABLE) mode[key] = canvas
   }
 
   // The other mode is derived from the same canvas flipped in lightness: the file says

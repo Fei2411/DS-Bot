@@ -248,6 +248,23 @@ test('transparent editor.background falls back to the mode default canvas instea
   assert.ok(contrast(midtoneClash.dark.text, midtoneClash.dark.sidebar) >= 4.5, 'sidebar remains readable with replacement text')
   assert.ok(contrast(midtoneClash.dark.text, midtoneClash.dark.bubble) >= 4.5, 'bubble remains readable with replacement text')
 
+  // When a fallback `foreground` replaces `editor.foreground` and an imported surface fails
+  // readability, a derived surface that clashes with that fallback text falls back to `canvas`.
+  const fallbackSurfaceClash = parseVscodeTheme(JSON.stringify({
+    type: 'dark',
+    colors: {
+      'editor.background': '#757575',
+      'editor.foreground': '#777777',
+      'foreground': '#000000',
+      'panel.background': '#747474',
+    },
+  }))
+  assert.equal(fallbackSurfaceClash.dark.text, '#000000')
+  assert.ok(contrast(fallbackSurfaceClash.dark.text, fallbackSurfaceClash.dark.bg) >= 4.5)
+  assert.ok(contrast(fallbackSurfaceClash.dark.text, fallbackSurfaceClash.dark.bubble) >= 4.5, 'retained bubble falls back to canvas when derived bubble fails readability')
+  assert.ok(contrast(fallbackSurfaceClash.dark.text, fallbackSurfaceClash.dark.sidebar) >= 4.5)
+  assert.ok(contrast(fallbackSurfaceClash.dark.text, fallbackSurfaceClash.dark.card) >= 4.5)
+
   // Shorthand 4-digit transparent #0000 also falls back to mode default.
   const shortGlass = parseVscodeTheme(JSON.stringify({
     type: 'light',
