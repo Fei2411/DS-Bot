@@ -1,4 +1,4 @@
-import { createElement as h, Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { createElement as h, Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { ChatsIcon, ClockIcon, GoalIcon, MicIcon, MoveIcon, PaperclipIcon, PeopleIcon, PlusIcon, WaveIcon } from './icons.js'
 import { canSetGoal } from './goal.js'
@@ -7,7 +7,11 @@ import { stepMenuFocus, useLinger, useViewport, viewBottom } from './motion.js'
 import { hostText, t } from './i18n.js'
 import { insertComposerNewline, sendsOnEnter } from './enter-key.js'
 import { emptyAccelQueueKey, enterSteers, steerable } from './enter-steer.js'
-import { chatOfSession, flushDrafts, keepDraft, takeDraft } from './draft-keep.js'
+import {
+  captureAdmissionBaseline, chatOfSession, dropPartDraft, dropSentDraft,
+  flushDrafts, hasLivePartDraft, hasOtherTabPartDraft, isSentAdmitted, keepDraft, keepDraftFiles, keepSentDraft,
+  markSentAdmitted, maxUserSeqOf, peekSentDraft, takeDraft, takeSentDraft,
+} from './draft-keep.js'
 import { lruGet, lruSet } from './memo.js'
 import { mergeRescuedDraft, readRescuedForChat } from './question-draft.js'
 import { openCapture, speechCatalog, transcribeWave } from './speech.js'
@@ -44,7 +48,7 @@ export function useDictation(onText) {
   const [note, setNote] = useState('')
   const recognition = useRef(null)
   const latest = useRef(onText)
-  latest.current = onText
+  useEffect(() => { latest.current = onText }, [onText])
   useEffect(() => () => recognition.current?.abort(), [])
   useEffect(() => {
     if (!note) return undefined
@@ -345,13 +349,14 @@ export function ComposerPlus({ sessionId, inputActions, useInput, useRoster, use
   }, [open, sessionId, enterToSend])
   // Hooks stay above the early return below: the roster may not know the Bot yet, and a
   // render that skips a hook breaks the composer's slot when the roster arrives.
-  // Anchored to the "+" each render: the visible viewport can move (on-screen
-  // keyboard) while the menu is open.
-  const place = useMemo(() => {
-    if (!shown || !button.current) return null
+  // Anchored to the "+" after layout: the visible viewport can move (on-screen keyboard)
+  // while the menu is open.
+  const [place, setPlace] = useState(undefined)
+  useLayoutEffect(() => {
+    if (!shown || !button.current) { setPlace(undefined); return }
     const rect = button.current.getBoundingClientRect()
     const cardTop = button.current.closest?.('[data-composer-card]')?.getBoundingClientRect?.().top ?? rect.top
-    return { left: rect.left, bottom: viewBottom() - Math.min(rect.top, cardTop) + 8 }
+    setPlace({ left: rect.left, bottom: viewBottom() - Math.min(rect.top, cardTop) + 8 })
   }, [shown, open, tick])
   if (sessionId === undefined || target === undefined) return null
   const fileInput = () => button.current?.closest('[data-composer-card]')?.querySelector('input[type=file]')
@@ -403,6 +408,8 @@ export function ComposerPlus({ sessionId, inputActions, useInput, useRoster, use
 }
 
 const NO_IDS = []
+const NO_QUEUE = []
+const NO_SUBMISSIONS = []
 const FROZEN_PHASES = new Set(['adjudicating', 'submitting', 'sending'])
 const DRAFT_DEBOUNCE_MS = 300
 
@@ -425,31 +432,76 @@ const appendRescuedPreservingChips = (inputActions, base, rescued) => {
 
 // An unsent draft stays with its chat (draft-keep.js). Sits in the composer of every Bot
 // and group Session and renders nothing.
-export function DraftKeeper({ sessionId, inputActions, useInput, useRoster, useRescuedDrafts, actions }) {
+export function DraftKeeper({
+  sessionId, inputActions, useInput, useSession, useConversation, useProjection,
+  useRoster, useRescuedDrafts, actions,
+}) {
   const chatId = useRoster(roster => chatOfSession(roster, sessionId)?.id)
   const current = useRoster(roster => chatOfSession(roster, sessionId)?.part === sessionId)
   const draft = useInput?.(state => state.draft) ?? ''
   const ids = useInput?.(state => state.attachmentIds) ?? NO_IDS
   const phase = useInput?.(state => state.phase) ?? 'plain'
+  const queue = useInput?.(state => state.queue) ?? NO_QUEUE
   const occurrences = useInput?.(state => state.occurrences) ?? NO_IDS
   const hasChips = Array.isArray(occurrences) && occurrences.length > 0
+  const openState = useSession?.(state => state?.openState)
+  const pendingSubmissions = useSession?.(state => state?.pendingSubmissions) ?? NO_SUBMISSIONS
+  const nextStep = useProjection?.('inbox', inbox => inbox?.['next-step']) ?? NO_QUEUE
   const rescued = useRescuedDrafts?.(state => readRescuedForChat(state, chatId, sessionId)) ?? ''
   const frozen = FROZEN_PHASES.has(phase)
+  // Only an ordinary message send has a text that may never come back: a command's
+  // draft is still the user's, however its slash adjudication settles.
+  const sending = phase === 'sending'
   // setDraft cancels a claimed slash command; wait for plain phase before landing rescued text.
   const rescueBlocked = frozen || phase === 'claimed'
   const key = `${chatId}:${sessionId}`
+  // Return a primitive seq while idle so streaming assistant chunks do not re-render the
+  // keeper; return the live chat snapshot only when an active send or watch needs inspection.
+  const chatOrSeq = useConversation?.((conversation) => {
+    const chatSnapshot = conversation?.views?.get?.('chat')
+    if (!current) return 0
+    if (!sending && peekSentDraft({ chatId, sessionId }) === undefined) return maxUserSeqOf(chatSnapshot)
+    return chatSnapshot
+  }) ?? 0
+  const chat = typeof chatOrSeq === 'object' && chatOrSeq !== null ? chatOrSeq : undefined
+  const lastUserSeq = typeof chatOrSeq === 'number' ? chatOrSeq : maxUserSeqOf(chat)
+
   const keyRef = useRef(key)
   const restored = useRef('')
-  // What was just put back and has not reached the input state yet.
+  const deferredRestore = useRef(false)
+  const skippedLiveDraft = useRef(null)
+  // What was just put back (or cleared) and has not reached the input state yet.
   const pending = useRef({ text: false, staleDraft: null, files: false })
   const latestDraft = useRef(draft)
-  if (keyRef.current !== key) {
-    keyRef.current = key
-    pending.current = { text: false, staleDraft: null, files: false }
-    latestDraft.current = draft
-  } else if (!pending.current.text || draft !== pending.current.staleDraft) {
-    latestDraft.current = draft
-  }
+  // Continuously refreshed while !frozen so a fast local Host acceptance on the first
+  // 'sending' render cannot fold the new message into its own baseline.
+  const preSendBaseline = useRef(null)
+
+  useEffect(() => {
+    if (keyRef.current !== key) {
+      keyRef.current = key
+      deferredRestore.current = false
+      skippedLiveDraft.current = null
+      pending.current = { text: false, staleDraft: null, files: false }
+      latestDraft.current = draft
+    } else if (!pending.current.text || draft !== pending.current.staleDraft) {
+      latestDraft.current = draft
+    }
+  }, [key, draft])
+
+  useEffect(() => {
+    if (!current || frozen) return
+    preSendBaseline.current = {
+      key,
+      baseline: captureAdmissionBaseline({
+        maxUserSeq: lastUserSeq,
+        pendingSubmissions,
+        queue,
+        nextStep,
+      }),
+    }
+  }, [current, frozen, key, lastUserSeq, pendingSubmissions, queue, nextStep])
+
   useEffect(() => {
     const flush = () => flushDrafts()
     const onVisibility = () => { if (document.hidden === true) flush() }
@@ -469,6 +521,7 @@ export function DraftKeeper({ sessionId, inputActions, useInput, useRoster, useR
       flush()
     }
   }, [chatId, sessionId])
+
   // Take back first, so the empty box of a composer that just opened is not kept over
   // the draft it is about to get. While a send is in flight the shell refuses edits, so
   // wait for the submit plane to settle and leave the kept draft untouched.
@@ -476,11 +529,34 @@ export function DraftKeeper({ sessionId, inputActions, useInput, useRoster, useR
   useEffect(() => {
     if (!current || frozen || inputActions === undefined) return
     if (restored.current === key) return
-    const back = takeDraft({ chatId, part: sessionId, text: draft, attached: ids.length })
-    const canLandRescueHere = rescued !== '' && !rescueBlocked && (!hasChips || back.text !== '')
-    const baseText = back.text !== '' ? back.text : draft
+    // The box may hold the text of a message that was already sent, when its send closed
+    // the composer before the shell committed the empty draft (#1891). Clear it only once
+    // Host admission is confirmed (not merely attempted) and no other tab wrote a fresh
+    // unsent draft for this Session since the send started.
+    let effectiveDraft = draft
+    let clearSent = false
+    const watch = peekSentDraft({ chatId, sessionId })
+    if (watch !== undefined) {
+      const livePartDraft = hasLivePartDraft({ chatId, part: sessionId })
+      if (draft !== watch.text || livePartDraft) {
+        dropSentDraft({ chatId, sessionId })
+      } else if (isSentAdmitted(watch, { chat, pendingSubmissions, queue, nextStep })) {
+        takeSentDraft({ chatId, sessionId })
+        effectiveDraft = ''
+        clearSent = true
+      } else if (openState === 'cold' || openState === 'loading') {
+        deferredRestore.current = true
+        return
+      } else {
+        dropSentDraft({ chatId, sessionId })
+      }
+    }
+    const back = takeDraft({ chatId, part: sessionId, text: effectiveDraft, attached: ids.length })
+    const canLandRescueHere = rescued !== '' && !rescueBlocked && (!hasChips || back.text !== '' || clearSent)
+    const baseText = back.text !== '' ? back.text : effectiveDraft
     const mergedText = canLandRescueHere ? mergeRescuedDraft(baseText, rescued) : back.text
-    const applyText = canLandRescueHere ? mergedText !== draft : back.text !== ''
+    const nextText = canLandRescueHere ? mergedText : (back.text !== '' ? back.text : (clearSent ? '' : null))
+    const applyText = nextText !== null && nextText !== draft
     if (canLandRescueHere) rescuedHandled = true
     let added = []
     let attached = false
@@ -489,9 +565,9 @@ export function DraftKeeper({ sessionId, inputActions, useInput, useRoster, useR
     let ok = true
     try {
       if (applyText) {
-        inputActions.setDraft(mergedText)
+        inputActions.setDraft(nextText)
         restoredText = true
-        latestDraft.current = mergedText
+        latestDraft.current = nextText
       }
       if (canLandRescueHere) {
         actions.consumeRescuedDraft?.(chatId, sessionId, rescued)
@@ -519,8 +595,22 @@ export function DraftKeeper({ sessionId, inputActions, useInput, useRoster, useR
     // draft is kept from what the box holds now, and the user hears the files are gone.
     pending.current = { text: restoredText, staleDraft: restoredText ? draft : null, files: restoredFiles }
     restored.current = key
+    if (!restoredText && !clearSent && hasOtherTabPartDraft({ chatId, part: sessionId, text: draft })) {
+      skippedLiveDraft.current = { key, draft }
+    }
+    const wasDeferred = deferredRestore.current
+    deferredRestore.current = false
+    if (wasDeferred && !restoredText && !restoredFiles && (draft !== '' || ids.length > 0)) {
+      const files = actions.draftFiles?.(ids) ?? []
+      if (hasLivePartDraft({ chatId, part: sessionId })) {
+        if (files.length > 0) keepDraftFiles({ chatId, part: sessionId, files })
+      } else {
+        keepDraft({ chatId, part: sessionId, text: draft, files }, undefined, { deferMs: DRAFT_DEBOUNCE_MS })
+      }
+    }
     if (!ok && back.files.length > 0) actions.notice?.(t('The files attached to this draft could not be put back.'))
-  }, [current, frozen, chatId, sessionId, inputActions])
+  }, [current, frozen, rescueBlocked, hasChips, chatId, sessionId, key, inputActions, draft, rescued, openState, chat, lastUserSeq, pendingSubmissions, queue, nextStep])
+
   // Rescued text from an interrupted question card lands live once this composer is plain & editable.
   useEffect(() => {
     if (rescuedHandled || !current || rescueBlocked || inputActions === undefined || rescued === '' || restored.current !== key) return
@@ -548,22 +638,65 @@ export function DraftKeeper({ sessionId, inputActions, useInput, useRoster, useR
     } catch (error) {
       console.warn('[ds-bot] could not return the question draft', error)
     }
-  }, [current, rescueBlocked, hasChips, chatId, sessionId, inputActions, rescued])
+  }, [current, rescueBlocked, hasChips, chatId, sessionId, key, inputActions, rescued])
+
+  // Observe Host admission for an in-flight send (or an existing un-admitted watch) without
+  // re-running draft persistence on unrelated queue, steering, or transcript updates.
   useEffect(() => {
-    if (!current || restored.current !== key) return
-    // A draft on its way out is no longer kept: should the composer close before the
-    // Host takes it, the sent images must not come back as a draft. A send that fails
-    // returns to the plain phase with its draft, which is then kept again.
-    if (frozen) {
-      keepDraft({ chatId, part: sessionId, text: '', files: [] })
+    if (!current) return
+    const existing = peekSentDraft({ chatId, sessionId })
+    if (!sending) {
+      if (existing !== undefined && !existing.admitted && isSentAdmitted(existing, { chat, pendingSubmissions, queue, nextStep })) {
+        markSentAdmitted({ chatId, sessionId })
+      }
       return
     }
-    // What was put back lands in the input state a render later; keeping the empty box
-    // in between would drop it.
+    const admissionState = { chat, pendingSubmissions, queue, nextStep }
+    if (draft === '') {
+      if (existing !== undefined && !existing.admitted && isSentAdmitted(existing, admissionState)) {
+        markSentAdmitted({ chatId, sessionId })
+      }
+      return
+    }
+    if (existing?.text === draft) {
+      if (!existing.admitted && isSentAdmitted(existing, admissionState)) markSentAdmitted({ chatId, sessionId })
+      return
+    }
+    const baseline = preSendBaseline.current?.key === key
+      ? preSendBaseline.current.baseline
+      : captureAdmissionBaseline({ ...admissionState, maxUserSeq: lastUserSeq })
+    keepSentDraft({ chatId, sessionId, text: draft, baseline })
+    const created = peekSentDraft({ chatId, sessionId })
+    if (isSentAdmitted(created, admissionState)) markSentAdmitted({ chatId, sessionId })
+  }, [current, sending, key, chatId, sessionId, draft, chat, lastUserSeq, pendingSubmissions, queue, nextStep])
+
+  // Persist draft edits and phase transitions only; never subscribe to queue or transcript
+  // churn here so an untouched empty composer cannot overwrite another tab's fresh draft.
+  useEffect(() => {
+    if (!current) return
+    if (frozen) {
+      // Before the take, an earlier part's draft still waits to be carried; only a draft
+      // this part owns is dropped.
+      if (restored.current === key) keepDraft({ chatId, part: sessionId, text: '', files: [] })
+      else if (sending) dropPartDraft({ chatId, part: sessionId })
+      return
+    }
+    if (restored.current !== key) return
+    // The composer is open and the send has settled: the text cannot come back now.
+    dropSentDraft({ chatId, sessionId })
+    // What was put back (or cleared) lands in the input state a render later; keeping the
+    // stale box in between would drop the restored text or re-keep the sent text.
     if (pending.current.text && draft === pending.current.staleDraft) return
     if (pending.current.files && ids.length === 0) return
     pending.current = { text: false, staleDraft: null, files: false }
+    if (skippedLiveDraft.current?.key === key) {
+      if (draft === skippedLiveDraft.current.draft) {
+        keepDraftFiles({ chatId, part: sessionId, files: actions.draftFiles?.(ids) ?? [] })
+        return
+      }
+      skippedLiveDraft.current = null
+    }
     keepDraft({ chatId, part: sessionId, text: draft, files: actions.draftFiles(ids) }, undefined, { deferMs: DRAFT_DEBOUNCE_MS })
-  }, [current, frozen, chatId, sessionId, draft, ids])
+  }, [current, sending, frozen, key, chatId, sessionId, draft, ids])
   return null
 }
