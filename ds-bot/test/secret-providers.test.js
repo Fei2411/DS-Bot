@@ -269,7 +269,7 @@ test('readSecretsSync stays synchronous with mixed vault + external entries, and
     revision: 1,
     bots: {
       m1: { id: 'm1', sessionId: 'm1', name: 'Chief', role: 'Main', instructions: '', createdAt: 1 },
-      b2: { id: 'b2', sessionId: 'b2', name: 'Writer', role: 'Writer', instructions: '', createdAt: 2 },
+      b2: { id: 'b2', sessionId: 'b2', name: 'Writer', role: 'Writer', model: 'local-codex-cli/default', instructions: '', createdAt: 2 },
     },
     rooms: {},
     exchanges: [],
@@ -370,6 +370,22 @@ test('readSecretsSync stays synchronous with mixed vault + external entries, and
   // Shell env now has both VAULT_KEY and resolved OP_TOKEN for b2, and only VAULT_KEY for m1.
   assert.deepEqual(env('b2'), { DSH_SECRET_VAULT_KEY: vaultVal, DSH_SECRET_OP_TOKEN: extVal })
   assert.deepEqual(env('m1'), { DSH_SECRET_VAULT_KEY: vaultVal })
+
+  await t.test('a Codex launch resolves only its authorized external references on a cold cache', async (t) => {
+    assert.equal((await call('secret-refresh-external', {})).ok, true)
+    assert.equal(rt.secretValue('OP_TOKEN'), undefined)
+    await rt.load()
+    const provider = 'local-codex-cli'
+    const { adapter } = ctx.adapters.find(entry => entry.routes.includes(provider))
+    const spawn = t.mock.method(adapter.deps, 'spawnEngine', () => ({}))
+    const launch = sessionId => adapter.liveFor({ sessionId, provider, model: 'default' }, 'workspace-write')
+    await launch('m1')
+    assert.equal(spawn.mock.calls[0].arguments[2].env?.DSH_SECRET_OP_TOKEN, undefined)
+    assert.equal(fakeOp.readCalls().length, 1, 'no lookup for the denied Bot')
+    await launch('b2')
+    assert.equal(spawn.mock.calls[1].arguments[2].env?.DSH_SECRET_OP_TOKEN === extVal, true)
+    assert.equal(fakeOp.readCalls().length, 2, 'authorized Codex launch read the reference once')
+  })
 
   // Invalid 1Password account in set-prefs returns bot/invalid (parameter error).
   const badPrefs = await call('set-prefs', { secretProviders: { onepassword: { account: '--evil' } } })

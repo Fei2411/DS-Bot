@@ -1,6 +1,23 @@
 // German (de) localization for DS Bot client and DSH settings namespaces.
 
 export const DE = {
+  'Agent preset': 'Agent-Voreinstellung',
+  'Agent preset: {preset}': 'Agent-Voreinstellung: {preset}',
+  'Default (Standard)': 'Standard (Standardprofil)',
+  'Default (DSH default)': 'Standard (DSH-Standard)',
+  'The standard agent preset': 'Die Standardvoreinstellung für Agents',
+  'The default for new tasks in DeepSeek Harness.': 'Die Voreinstellung für neue Aufgaben in DeepSeek Harness.',
+  'Missing preset': 'Voreinstellung nicht gefunden',
+  'This preset cannot start.': 'Diese Voreinstellung kann nicht starten.',
+  'This preset cannot start. Pick another one.': 'Diese Voreinstellung kann nicht starten. Wähle eine andere.',
+  'This preset cannot start ({reason}). Pick another one.': 'Diese Voreinstellung kann nicht starten ({reason}). Wähle eine andere.',
+  'This preset is not in the profile anymore. Pick another one.': 'Diese Voreinstellung ist nicht mehr im Profil. Wähle eine andere.',
+  'The preset list could not be loaded.': 'Die Liste der Voreinstellungen konnte nicht geladen werden.',
+  'DS Bot needs the Bot\'s own prompt, which this preset replaces': 'Diese Voreinstellung ersetzt den eigenen Prompt des Bots, den DS Bot benötigt.',
+  'DS Bot could not verify that it keeps the Bot\'s own prompt': 'DS Bot konnte nicht prüfen, ob der eigene Prompt des Bots erhalten bleibt.',
+  'Applies from the next conversation segment.': 'Gilt ab dem nächsten Gesprächsabschnitt.',
+  'The Bot runs on the default agent preset.': 'Der Bot verwendet die Standardvoreinstellung für Agents.',
+  'The Bot runs on the {name} agent preset.': 'Der Bot verwendet die Agent-Voreinstellung {name}.',
   "Direct value": "Direkter Wert",
   "1Password (op://)": "1Password (op://)",
   "Secret source": "Geheimnisquelle",
@@ -2329,6 +2346,10 @@ export const DE = {
   "Click again to restore": "Zum Zurücksetzen noch einmal klicken",
   "Restore": "Zurücksetzen",
   "Your stylesheet": "Eigenes Stylesheet",
+  "Derive from 2 colors": "Aus 2 Farben ableiten",
+  "Derive": "Ableiten",
+  "Canvas": "Grundfarbe",
+  "VS Code theme": "VS-Code-Design",
   "The stylesheet holds at most {kb} KB": "Das Stylesheet darf höchstens {kb} KB groß sein",
   "This window opened in safe appearance: the background and your stylesheet are off here.": "Dieses Fenster wurde im sicheren Erscheinungsbild geöffnet: Hintergrund und eigenes Stylesheet sind hier aus.",
   "Turn them back on": "Wieder einschalten",
@@ -2582,6 +2603,13 @@ export const DE = {
 }
 
 export const HOST_ERRORS_DE = [
+  [/^The agent preset "(.+)" is not available in this DeepSeek Harness\. Pick another preset in the Bot's settings\.$/, 'Die Agent-Voreinstellung "$1" ist in diesem DeepSeek Harness nicht verfügbar. Wähle eine andere in den Bot-Einstellungen.'],
+  [/^The agent preset "(.+)" cannot run: (.+)\. Pick another preset in the Bot's settings\.$/, 'Die Agent-Voreinstellung "$1" kann nicht ausgeführt werden: $2. Wähle eine andere in den Bot-Einstellungen.'],
+  [/^An agent preset must be named by its id$/, 'Eine Agent-Voreinstellung muss über ihre ID benannt werden'],
+  [/^The agent preset "(.+)" cannot be used for a Bot: (.+)\. Pick another preset in the Bot's settings\.$/, 'Die Agent-Voreinstellung "$1" kann für einen Bot nicht verwendet werden: $2. Wähle eine andere in den Bot-Einstellungen.'],
+  [/^The default agent preset "(.+)" cannot be used for a Bot: (.+)\. Choose a preset for the Bot in its settings\.$/, 'Die Standard-Agent-Voreinstellung "$1" kann für einen Bot nicht verwendet werden: $2. Wähle in den Einstellungen eine Voreinstellung für den Bot.'],
+  [/^The agent preset "(.+)" of (.+) cannot run a Bot in this DeepSeek Harness, so it keeps the preset its running conversations were made with\. Pick another preset in the Bot's settings\.$/, 'Die Agent-Voreinstellung "$1" von $2 kann in diesem DeepSeek Harness keinen Bot ausführen, daher behalten laufende Unterhaltungen die Voreinstellung, mit der sie erstellt wurden. Wähle eine andere in den Bot-Einstellungen.'],
+  [/^Only the user can choose the agent preset of (.+)$/, 'Nur der Benutzer kann die Agent-Voreinstellung von $1 auswählen'],
   [/^Plugin disabled by the kill list: (.+)$/, 'Plugin von der Kill-Liste deaktiviert: $1'],
   [/^Plugin disabled by the kill list\.$/, 'Plugin von der Kill-Liste deaktiviert.'],
   [/^This plugin changed since it was approved \(capabilities, execution tier, executable entry, content, or placement\)\. It needs explicit approval before it can run again\.$/, 'Dieses Plugin hat sich seit der Genehmigung geändert (Fähigkeiten, Ausführungsebene, ausführbarer Einstieg, Inhalt oder Platzierung). Es benötigt eine explizite Genehmigung, bevor es wieder ausgeführt werden kann.'],
