@@ -902,6 +902,11 @@ test('ClassicPlanReviewDock approves, requests changes with feedback, uses real 
   assert.deepEqual(plain(mod.planStatusOf({
     phase: 'done',
     isError: true,
+    content: [{ type: 'text', text: 'Error: The user chose to keep planning; their feedback: Add error handling' }],
+  })), { tone: 'warn', label: 'Changes requested' })
+  assert.deepEqual(plain(mod.planStatusOf({
+    phase: 'done',
+    isError: true,
     content: [{ type: 'text', text: 'The user chose to keep planning; revise the plan and present it again.' }],
   })), { tone: 'warn', label: 'Changes requested' })
   assert.deepEqual(plain(mod.planStatusOf({

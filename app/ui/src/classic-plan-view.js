@@ -10,15 +10,16 @@ import { TOOL_VIEW_SLOT, slots as defaultSlots } from './slots.js'
 
 const PLAN_VIEW_PRIORITY = 100
 
-// Real prose produced by `@deepseek-ai/dsh-plan-mode` (`exit_plan_mode`) and `@deepseek-ai/dsh-user-questions`:
+// Real prose produced by `@deepseek-ai/dsh-plan-mode` (`exit_plan_mode`) and `@deepseek-ai/dsh-user-questions`
+// (DSH's tool runner may also prepend `Error: ` when serializing `isError: true` results):
 // - approved (isError: false):  "Plan approved — plan mode exited; carry out the plan starting with your next step."
 // - dismissed (isError: false): "The user dismissed the plan review to reply in their own words; plan mode remains active."
-// - keep planning (isError: true): "The user chose to keep planning; revise the plan and present it again."
-//                               or "The user chose to keep planning; their feedback: <feedback>"
-// - interrupted (isError: true, error.code === 'ASK_ABORTED'): "ask_user_question was aborted before the user answered"
+// - keep planning (isError: true): "[Error: ]The user chose to keep planning; revise the plan and present it again."
+//                               or "[Error: ]The user chose to keep planning; their feedback: <feedback>"
+// - interrupted (isError: true, error.code === 'ASK_ABORTED'): "[Error: ]ask_user_question was aborted before the user answered"
 const APPROVED_PROSE = /^Plan approved\b/i
 const DISMISSED_PROSE = /^The user dismissed the plan review\b/i
-const KEEP_PLANNING_PROSE = /^The user chose to keep planning\b/i
+const KEEP_PLANNING_PROSE = /^(?:Error:\s*)?The user chose to keep planning\b/i
 const ABORTED_PROSE = /\baborted before the user answered\b/i
 
 function readPlanMarkdown(block) {
@@ -75,7 +76,10 @@ export function ClassicPlanCard({ block }) {
   const pending = status.tone === 'pending'
   const [open, setOpen] = useState(() => pending || status.tone === 'ok')
   const [copied, setCopied] = useState(false)
-  const resultText = block?.isError ? readResultText(block) : ''
+  const rawResultText = block?.isError ? readResultText(block) : ''
+  const resultText = status.tone === 'warn' || status.tone === 'muted'
+    ? rawResultText.replace(/^Error:\s*/i, '')
+    : rawResultText
 
   const copyPlan = async (event) => {
     event.stopPropagation()
