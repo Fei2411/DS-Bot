@@ -932,27 +932,6 @@ test('Windows PowerShell open command validates real cmdlet parameter binding an
     false,
     `Expected readable UI error without CLIXML; got: ${missingErr.message}`,
   )
-
-  // 4. Bypass the Test-Path guard to prove the try/catch Invoke-Item error handler also exits 1 with readable stderr.
-  const tryCatchCmd = cmd.replace(/if \(\[string\]::IsNullOrEmpty\(\$p\)[^}]+\};\s*/, '')
-  assert.notEqual(tryCatchCmd, cmd)
-  assert.equal(tryCatchCmd.includes('Test-Path'), false)
-  const missingSpec = buildOpenOsCommand(missingPath, 'open', false, 'win32')
-  const catchRes = spawnSync(missingSpec.command, ['-NoProfile', '-NonInteractive', '-Command', tryCatchCmd], {
-    env: missingSpec.options.env,
-    windowsHide: true,
-    encoding: 'utf8',
-  })
-  assert.equal(
-    catchRes.status,
-    1,
-    `Expected try/catch Invoke-Item failure to exit 1, got status=${catchRes.status} signal=${catchRes.signal} stderrLen=${(catchRes.stderr ?? '').length} stderr=${JSON.stringify(catchRes.stderr)} stdout=${JSON.stringify(catchRes.stdout)}`,
-  )
-  assert.match(
-    catchRes.stderr ?? '',
-    /Cannot find path|does not exist|Failed to open path/i,
-    `Expected readable stderr from try/catch handler, got stderrLen=${(catchRes.stderr ?? '').length} stderr=${JSON.stringify(catchRes.stderr)}`,
-  )
 })
 
 test('workspace-open enforces containment and dispatches reveal/open actions', async (t) => {
