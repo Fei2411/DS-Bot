@@ -157,9 +157,23 @@ function remoteState(state, { browser = false } = {}) {
     delete phone.pairing
     next = { ...next, phone }
   }
-  if (browser && Array.isArray(next.work?.approvals)) {
-    const approvals = next.work.approvals.filter(entry => entry?.botId !== undefined)
-    if (approvals.length !== next.work.approvals.length) {
+  if (Array.isArray(next.work?.approvals)) {
+    let changed = false
+    const approvals = []
+    for (const entry of next.work.approvals) {
+      if (browser && entry?.botId === undefined) {
+        changed = true
+        continue
+      }
+      if (entry && Object.hasOwn(entry, 'alwaysAllow')) {
+        const { alwaysAllow: _, ...rest } = entry
+        approvals.push(rest)
+        changed = true
+      } else {
+        approvals.push(entry)
+      }
+    }
+    if (changed) {
       next = { ...next, work: { ...next.work, approvals } }
     }
   }
@@ -357,6 +371,9 @@ export function install(rt) {
   }
   const hasParentArg = payload => payload?.parent !== undefined && payload?.parent !== null && String(payload.parent).trim() !== ''
   const agentAccessError = (device, endpoint, payload) => {
+    if (endpoint === 'approval-answer' && payload?.choice === 'always') {
+      return { code: 'bot/refused', message: 'Always allow is available on the computer', details: {} }
+    }
     if (endpoint === 'image' && hasParentArg(payload)) {
       return device.kind !== 'phone'
         ? BROWSER_DENIED

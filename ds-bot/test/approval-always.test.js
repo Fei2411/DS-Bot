@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { homedir, tmpdir } from 'node:os'
+import { join, parse } from 'node:path'
 import { test } from 'node:test'
 import { install as installApprovals } from '../src/host/approvals.js'
 import { install as installChannel } from '../src/host/channel.js'
@@ -19,8 +19,8 @@ const waitFor = async (predicate, timeoutMs = 1000) => {
   return predicate()
 }
 
-function setup(t, { privateBot = false, existingExtraDirs = [], readOnly = false } = {}) {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), 'ds-bot-always-')))
+function setup(t, { privateBot = false, existingExtraDirs = [], readOnly = false, privateClashFn = null, withRoom = false } = {}) {
+  const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'ds-bot-always-')))
   const home = join(root, 'home')
   const dshHome = join(root, 'dsh-home')
   const ws = join(root, 'workspace')
@@ -45,7 +45,18 @@ function setup(t, { privateBot = false, existingExtraDirs = [], readOnly = false
       ...(existingExtraDirs.length ? { extraDirs: existingExtraDirs } : {}),
     },
   }
-  const rooms = {}
+  const rooms = withRoom
+    ? {
+        r1: {
+          id: 'r1',
+          sessionId: 'r1-own',
+          name: 'Design',
+          workDir: ws,
+          members: ['b1'],
+          sessions: { b1: 'g-b1' },
+        },
+      }
+    : {}
   const services = {
     sandboxPolicy: { resolve: () => ({ mode: 'workspace-write', workspaceRoot: ws }) },
     fs: {
@@ -81,6 +92,7 @@ function setup(t, { privateBot = false, existingExtraDirs = [], readOnly = false
   }
 
   let saved = 0
+  const clashCalls = []
   const rt = {
     ctx,
     home,
@@ -88,20 +100,44 @@ function setup(t, { privateBot = false, existingExtraDirs = [], readOnly = false
     config: {},
     readOnly: () => (readOnly ? 'This window is read-only. Close the other DS Bot window to make changes here.' : undefined),
     phoneServe: () => {},
-    state: { version: 1, workspaceId: 'ws-1', bots, rooms, prefs: {} },
-    chatOwners: new Map([['b1', 'b1']]),
-    groupOwners: new Map(),
+    state: { version: 1, revision: 1, workspaceId: 'ws-1', bots, rooms, prefs: {} },
+    chatOwners: new Map([['b1', 'b1'], ...(withRoom ? [['g-b1', 'b1']] : [])]),
+    groupOwners: new Map(withRoom ? [['g-b1', { roomId: 'r1', botId: 'b1' }]] : []),
     pastOwners: new Map(),
     botOf: id => bots[id],
     roomOf: id => rooms[id],
     selfOf: id => (id === 'b1' ? 'b1' : undefined),
     chatOf: id => (id === 'b1' ? 'b1' : undefined),
+    bootstrap: async () => {},
+    catalog: async () => [],
+    cachedCatalog: () => [],
+    cachedDefault: () => null,
+    loadSecrets: async () => {},
+    secretStoreStatus: () => ({}),
+    secretsView: () => [],
+    activityView: () => ({}),
+    roomWorkView: () => ({}),
+    memoryNews: () => ({}),
+    memoryReviews: () => [],
+    learningView: () => ({}),
+    learningSettledView: () => ({}),
+    connectorsView: () => ({}),
+    capabilityStatusesView: () => ({}),
+    phoneView: () => ({}),
     load: async () => {},
     refresh: async () => {},
     save: async () => { saved += 1 },
     warn() {},
     stateView: () => ({}),
     workView: () => ({}),
+    ...(privateClashFn
+      ? {
+          privateClash: async (dir, opts) => {
+            clashCalls.push({ dir, opts })
+            return privateClashFn(dir, opts)
+          },
+        }
+      : {}),
   }
 
   installFolders(rt)
@@ -123,7 +159,7 @@ function setup(t, { privateBot = false, existingExtraDirs = [], readOnly = false
   }
 
   return {
-    root, home, ws, extraDir, rt, bots,
+    root, home, ws, extraDir, rt, bots, rooms, clashCalls,
     get saved() { return saved },
     requestApproval: req => runChain('approval/request', req),
     firePreExecute: exec => runChain('tools/pre-execute', exec),
@@ -177,7 +213,15 @@ test('file-tool sandbox escalation offers Always allow for direct Bot sessions, 
     reason: `${ESCALATION} write notes outside workspace`,
   })
   const resolved = await waitFor(() => env.rt.approvalsView()[0]?.alwaysAllow)
-  assert.deepEqual(resolved, { kind: 'extra-dir', dirs: [env.extraDir] })
+  assert.deepEqual(resolved, { kind: 'extra-dir', dirs: [env.extraDir], scope: 'bot' })
+
+  // Remote channel calls strip alwaysAllow from state and refuse choice === 'always'.
+  const remoteState = await env.rt.channelCall('state', { since: 1 }, undefined, true)
+  assert.equal(remoteState.ok, true)
+  assert.equal(remoteState.value.work.approvals[0].alwaysAllow, undefined)
+  const remoteAlways = await env.rt.channelCall('approval-answer', { id: env.rt.approvalsView()[0].id, choice: 'always' }, undefined, true)
+  assert.equal(remoteAlways.ok, false)
+  assert.equal(remoteAlways.error.code, 'bot/refused')
 
   const open = env.rt.approvalsView()
   assert.equal(open.length, 1)
@@ -212,6 +256,162 @@ test('file-tool sandbox escalation offers Always allow for direct Bot sessions, 
   assert.equal(subOpen[0].alwaysAllow, undefined)
   env.rt.answerApproval(subOpen[0].id, 'reject')
   assert.equal(await subPromise, 'rejected')
+})
+
+test('extra-folder Always allow never walks up missing ancestors, refuses root/home, passes options object to privateClash, and scopes group grants', async (t) => {
+  const privateDir = join(realpathSync.native(mkdtempSync(join(tmpdir(), 'ds-bot-priv-'))), 'secret-bot')
+  mkdirSync(privateDir, { recursive: true })
+  t.after(() => rmSync(join(privateDir, '..'), { recursive: true, force: true, maxRetries: 5 }))
+
+  const env = setup(t, {
+    withRoom: true,
+    privateClashFn: (dir, opts) => {
+      assert.equal(typeof opts, 'object', 'privateClash must receive an options object, not a string')
+      assert.notEqual(opts, null)
+      if (dir === privateDir) return 'Another private Bot owns that folder'
+      return undefined
+    },
+  })
+  const agent = { id: 'b1', session: { id: 'b1', header: { id: 'b1', cwd: env.ws } } }
+
+  // 1. Missing parent folder: NEVER walks up to an existing ancestor (root); must withhold Always allow.
+  const missingTarget = join(env.root, 'does-not-exist', 'nested', 'out.md')
+  assert.deepEqual(await env.rt.resolvableExtraDirs({ session: agent.session, botId: 'b1', name: 'write', args: { file_path: missingTarget } }), [])
+  await assert.rejects(
+    () => env.rt.grantExtraDirs({ botId: 'b1', dirs: [join(env.root, 'does-not-exist', 'nested')] }),
+    { code: 'bot/refused' },
+  )
+
+  // 2. Filesystem root and user home directory are ALWAYS refused.
+  const fsRoot = parse(env.root).root
+  assert.deepEqual(await env.rt.resolvableExtraDirs({ session: agent.session, botId: 'b1', name: 'write', args: { file_path: join(fsRoot, 'foo.txt') } }), [])
+  await assert.rejects(() => env.rt.grantExtraDirs({ botId: 'b1', dirs: [fsRoot] }), { code: 'bot/refused' })
+
+  const userHome = homedir()
+  assert.deepEqual(await env.rt.resolvableExtraDirs({ session: agent.session, botId: 'b1', name: 'write', args: { file_path: join(userHome, 'foo.txt') } }), [])
+  await assert.rejects(() => env.rt.grantExtraDirs({ botId: 'b1', dirs: [userHome] }), { code: 'bot/refused' })
+
+  // 3. Private folder clash receives `{ except: 'b1' }` and blocks Always allow.
+  assert.deepEqual(await env.rt.resolvableExtraDirs({ session: agent.session, botId: 'b1', name: 'write', args: { file_path: join(privateDir, 'doc.md') } }), [])
+  assert.deepEqual(env.clashCalls.at(-1)?.opts, { except: 'b1' })
+  await assert.rejects(() => env.rt.grantExtraDirs({ botId: 'b1', dirs: [privateDir] }), { code: 'bot/refused' })
+
+  // 4. Group-scoped approval passes `{}` (no `except`) to privateClash and marks `scope: 'group'` with `scopeName`.
+  const groupAgent = { id: 'g-b1', session: { id: 'g-b1', header: { id: 'g-b1', cwd: env.ws } } }
+  env.rt.resolveAgent = async id => (id === 'g-b1' ? groupAgent : agent)
+  await env.firePreExecute({
+    agent: groupAgent,
+    callId: 'c-group-write',
+    name: 'write',
+    arguments: { file_path: join(env.extraDir, 'shared.md'), content: 'group', sandbox_permissions: 'danger-full-access' },
+  })
+  const groupPromise = env.requestApproval({
+    agent: groupAgent,
+    toolName: 'write',
+    callId: 'c-group-write',
+    reason: `${ESCALATION} write group file`,
+  })
+  const groupAlways = await waitFor(() => env.rt.approvalsView()[0]?.alwaysAllow)
+  assert.deepEqual(groupAlways, { kind: 'extra-dir', dirs: [env.extraDir], scope: 'group', scopeName: 'Design' })
+  assert.deepEqual(env.clashCalls.at(-1)?.opts, {})
+  await env.rt.answerApproval(env.rt.approvalsView()[0].id, 'always')
+  assert.equal(await groupPromise, 'allowed-once')
+  assert.deepEqual(env.rooms.r1.extraDirs, [env.extraDir])
+  assert.equal(env.bots.b1.extraDirs, undefined)
+})
+
+test('Always allow never persists extraDirs if the approval is aborted, already settled, or cancelled before settlement', async (t) => {
+  const env = setup(t)
+  const agent = { id: 'b1', session: { id: 'b1', header: { id: 'b1', cwd: env.ws } } }
+  env.rt.resolveAgent = async () => agent
+
+  // 1. Aborted signal before answering 'always' must NOT persist extraDirs.
+  const controller = new AbortController()
+  await env.firePreExecute({
+    agent,
+    callId: 'c-race-abort',
+    name: 'write',
+    arguments: { file_path: join(env.extraDir, 'abort.md'), content: 'x', sandbox_permissions: 'danger-full-access' },
+  })
+  const pAbort = env.requestApproval({
+    agent,
+    toolName: 'write',
+    callId: 'c-race-abort',
+    reason: `${ESCALATION} write abort`,
+    signal: controller.signal,
+  })
+  await waitFor(() => env.rt.approvalsView()[0]?.alwaysAllow)
+  const abortId = env.rt.approvalsView()[0].id
+  controller.abort()
+  await tick()
+  assert.throws(() => env.rt.answerApproval(abortId, 'always'), { code: 'bot/stale' })
+  assert.equal(await pAbort, 'cancelled')
+  assert.equal(env.bots.b1.extraDirs, undefined)
+  assert.equal(env.saved, 0)
+
+  // 2. Answering 'reject' then immediately 'always' must NOT persist extraDirs.
+  await env.firePreExecute({
+    agent,
+    callId: 'c-race-double',
+    name: 'write',
+    arguments: { file_path: join(env.extraDir, 'double.md'), content: 'x', sandbox_permissions: 'danger-full-access' },
+  })
+  const pDouble = env.requestApproval({
+    agent,
+    toolName: 'write',
+    callId: 'c-race-double',
+    reason: `${ESCALATION} write double`,
+  })
+  await waitFor(() => env.rt.approvalsView()[0]?.alwaysAllow)
+  const doubleId = env.rt.approvalsView()[0].id
+  env.rt.answerApproval(doubleId, 'reject')
+  assert.throws(() => env.rt.answerApproval(doubleId, 'always'), { code: 'bot/stale' })
+  assert.equal(await pDouble, 'rejected')
+  assert.equal(env.bots.b1.extraDirs, undefined)
+  assert.equal(env.saved, 0)
+
+  // 3. cancelApprovals winning before user clicks 'always' leaves extraDirs untouched.
+  await env.firePreExecute({
+    agent,
+    callId: 'c-race-cancel',
+    name: 'write',
+    arguments: { file_path: join(env.extraDir, 'cancel.md'), content: 'x', sandbox_permissions: 'danger-full-access' },
+  })
+  const pCancel = env.requestApproval({
+    agent,
+    toolName: 'write',
+    callId: 'c-race-cancel',
+    reason: `${ESCALATION} write cancel`,
+  })
+  await waitFor(() => env.rt.approvalsView()[0]?.alwaysAllow)
+  const cancelId = env.rt.approvalsView()[0].id
+  env.rt.cancelApprovals('b1')
+  assert.throws(() => env.rt.answerApproval(cancelId, 'always'), { code: 'bot/stale' })
+  assert.equal(await pCancel, 'cancelled')
+  assert.equal(env.bots.b1.extraDirs, undefined)
+  assert.equal(env.saved, 0)
+
+  // 4. Synchronous double 'always' settles once, rejects the second with bot/stale, and persists once.
+  await env.firePreExecute({
+    agent,
+    callId: 'c-race-twice',
+    name: 'write',
+    arguments: { file_path: join(env.extraDir, 'twice.md'), content: 'x', sandbox_permissions: 'danger-full-access' },
+  })
+  const pTwice = env.requestApproval({
+    agent,
+    toolName: 'write',
+    callId: 'c-race-twice',
+    reason: `${ESCALATION} write twice`,
+  })
+  await waitFor(() => env.rt.approvalsView()[0]?.alwaysAllow)
+  const twiceId = env.rt.approvalsView()[0].id
+  const firstAlways = env.rt.answerApproval(twiceId, 'always')
+  assert.throws(() => env.rt.answerApproval(twiceId, 'always'), { code: 'bot/stale' })
+  await firstAlways
+  assert.equal(await pTwice, 'allowed-once')
+  assert.deepEqual(env.bots.b1.extraDirs, [env.extraDir])
+  assert.equal(env.saved, 1)
 })
 
 test('Always allow is strictly withheld for bash, privacy approvals, private Bots, guarded dirs, MAX_EXTRA_DIRS, and read-only windows', async (t) => {

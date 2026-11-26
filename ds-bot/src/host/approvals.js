@@ -56,7 +56,7 @@ export function install(rt) {
       try { listener(kind, data) } catch (error) { rt.warn('ds-bot: approval listener failed: %s', error) }
     }
   }
-  const view = ({ answer, cancelReview, ownerSessionId, lineageSessionIds, persistAlways, answering, privacy: _, ...entry }) => {
+  const view = ({ answer, cancelReview, isAborted, ownerSessionId, lineageSessionIds, persistAlways, answering, privacy: _, ...entry }) => {
     const taskSessionId = rt.taskOwners?.has(entry.sessionId) ? entry.sessionId : ownerSessionId ?? entry.sessionId
     const liveTask = entry.taskId === undefined ? rt.taskOwners?.get(taskSessionId) : undefined
     const liveEntry = liveTask === undefined ? undefined : rt.taskBySession?.(taskSessionId)?.task
@@ -235,7 +235,11 @@ export function install(rt) {
         emit('settled', { id, outcome, ...(settledTaskId ? { taskId: settledTaskId } : {}) })
         return true
       }
-      const complete = (outcome, reviewed = false) => { if (settle(outcome, reviewed)) resolve(outcome) }
+      const complete = (outcome, reviewed = false) => {
+        const didSettle = settle(outcome, reviewed)
+        if (didSettle) resolve(outcome)
+        return didSettle
+      }
       const manual = reason => {
         if (!pending.has(id) || manualStarted) return
         manualStarted = true
@@ -258,6 +262,7 @@ export function install(rt) {
       }
       entry.answer = complete
       entry.cancelReview = () => reviewer.abort()
+      entry.isAborted = () => original?.aborted === true
       pending.set(id, entry)
       rt.noteApproval?.(owner.ownerSessionId, { tool: entry.tool, reason: entry.reason.slice(0, 200), ...(entry.privacy ? { privacy: true } : {}) })
       if (owner.botId !== undefined) rt.approvalWaiting?.(entry)
@@ -285,7 +290,14 @@ export function install(rt) {
           args: execution.arguments,
         }).then((dirs) => {
           if (!pending.has(id) || entry.answering || !Array.isArray(dirs) || dirs.length === 0) return
-          entry.alwaysAllow = { kind: 'extra-dir', dirs }
+          const scopeRoom = owner.roomId ? rt.roomOf(owner.roomId) : undefined
+          const groupScoped = scopeRoom?.workDir !== undefined
+          entry.alwaysAllow = {
+            kind: 'extra-dir',
+            dirs,
+            scope: groupScoped ? 'group' : 'bot',
+            ...(groupScoped && scopeRoom?.name ? { scopeName: scopeRoom.name } : {}),
+          }
           entry.persistAlways = () => rt.grantExtraDirs({ botId: owner.botId, roomId: owner.roomId, dirs })
           changed(entry)
         }).catch(() => {})
@@ -306,7 +318,7 @@ export function install(rt) {
         request, owner, evidence, validateEvidence, signal: reviewer.signal,
         onModel: model => { if (pending.has(id)) { entry.review.model = model; changed(entry) } },
       }), timeout]).then(async decision => {
-        if (!pending.has(id)) return
+        if (!pending.has(id) || entry.answering) return
         if (reviewer.signal.aborted || !enabled(owner)) throw new Error('Automatic review was invalidated')
         if (decision.decision === 'manual') {
           manual(decision.reason)
@@ -318,11 +330,11 @@ export function install(rt) {
           throw new Error('The conversation changed while saving the review')
         }
         await validateEvidence?.()
-        if (!pending.has(id)) return
+        if (!pending.has(id) || entry.answering) return
         if (reviewer.signal.aborted || !enabled(owner)) throw new Error('Automatic review was invalidated')
         complete(OUTCOMES[decision.decision], true)
       }).catch(async () => {
-        if (!pending.has(id)) return
+        if (!pending.has(id) || entry.answering) return
         const reason = 'Automatic review could not decide. Review this action manually.'
         manual(reason)
         try { await record(entry, { decision: 'manual', reason }) } catch { /* the manual card remains available */ }
@@ -342,14 +354,20 @@ export function install(rt) {
         throw Object.assign(new Error('Always allow is not available for this request'), { code: 'bot/refused' })
       }
       if (entry.answering) throw Object.assign(new Error('This approval is no longer open'), { code: 'bot/stale' })
+      // Cancel any in-flight automatic review synchronously and settle the approval atomically
+      // before persisting `extraDirs`, so a concurrent reject, cancel, or timeout can never leave
+      // behind a lasting grant for an approval that did not settle as allowed.
+      entry.cancelReview()
+      if (entry.isAborted?.()) {
+        entry.answer('cancelled')
+        throw Object.assign(new Error('This approval is no longer open'), { code: 'bot/stale' })
+      }
       entry.answering = true
-      return Promise.resolve().then(() => entry.persistAlways()).then(() => {
-        if (!pending.has(entry.id)) return
-        entry.answer('allowed-once')
-      }, (error) => {
-        entry.answering = false
-        throw error
-      })
+      const settled = entry.answer('allowed-once')
+      if (!settled) {
+        throw Object.assign(new Error('This approval is no longer open'), { code: 'bot/stale' })
+      }
+      return Promise.resolve().then(() => entry.persistAlways())
     }
     if (!Object.hasOwn(OUTCOMES, choice)) throw Object.assign(new Error('Choose allow or reject'), { code: 'bot/invalid' })
     if (entry.answering) throw Object.assign(new Error('This approval is no longer open'), { code: 'bot/stale' })

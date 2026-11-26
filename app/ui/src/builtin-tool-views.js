@@ -349,7 +349,7 @@ function ShellToolView({ block, cwd, phase, useDisclosure, openFile, sessionId, 
   const duration = formatToolDuration(block, phase)
   const badges = []
   if (bgJobId || runInBg) {
-    badges.push(h('span', { key: 'bg', className: 'dsb-tool-pill' }, t('Background')))
+    badges.push(h('span', { key: 'bg', className: 'dsb-tool-pill' }, t('In background')))
   }
   if (parsed && 'signal' in parsed) {
     badges.push(h('span', { key: 'sig', className: 'dsb-tool-pill', 'data-tone': 'danger' }, t('signal {signal}', { signal: parsed.signal })))
@@ -505,6 +505,7 @@ function ReadImageToolView({ block, cwd, phase, useDisclosure, openFile, loadIma
       attachment: item.attachment,
       loadImage,
       alt: displayPath || item.attachment.name || t('Image'),
+      showMeta: false,
     }))) : null,
   textOnlyResult !== '' && (isError || imageBlocks.length === 0)
     ? h(CodeSection, { label: isError ? t('Error') : t('Result'), text: textOnlyResult, error: isError })

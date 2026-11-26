@@ -2741,10 +2741,21 @@ var JA = {
   "Read image": "画像を読み込む",
   "Always allow file edits in {dir}": "{dir} 内のファイル編集を常に許可",
   "Always allow file edits in {dir} (+{count})": "{dir} ほか {count} 個のフォルダでのファイル編集を常に許可",
+  "Always allow this group to edit files in {dir}": "このグループによる {dir} 内のファイル編集を常に許可",
+  "Always allow this group to edit files in {dir} (+{count})": "このグループによる {dir} ほか {count} 個のフォルダでのファイル編集を常に許可",
   "Always allow": "常に許可",
-  "Allow approval": "承認を許可",
-  "Always allow approval": "承認を常に許可",
-  "Reject approval": "承認を拒否",
+  "Allow approval (card focused)": "承認を許可（カードにフォーカス時）",
+  "Reject approval (card focused)": "承認を拒否（カードにフォーカス時）",
+  "External": "外部",
+  "In background": "バックグラウンド",
+  "1 job": "1 件のジョブ",
+  "1 page": "1 ページ",
+  "1 slide": "1 枚のスライド",
+  "1 sheet": "1 個のシート",
+  "1 paragraph": "1 段落",
+  "1 issue": "1 件の問題",
+  "Earlier output was dropped": "以前の出力は省略されました",
+  "Always allow is available on the computer": "「常に許可」はパソコン側でのみ使用できます",
   "Render document": "ドキュメントを描画",
   "Convert document": "ドキュメントを変換",
   "Recalculate spreadsheet": "スプレッドシートを再計算",
@@ -6207,10 +6218,21 @@ var KO = {
   "Read image": "이미지 읽기",
   "Always allow file edits in {dir}": "{dir} 폴더에서 파일 수정 항상 허용",
   "Always allow file edits in {dir} (+{count})": "{dir} 외 {count}개 폴더에서 파일 수정 항상 허용",
+  "Always allow this group to edit files in {dir}": "이 그룹에서 {dir} 폴더의 파일 수정 항상 허용",
+  "Always allow this group to edit files in {dir} (+{count})": "이 그룹에서 {dir} 외 {count}개 폴더의 파일 수정 항상 허용",
   "Always allow": "항상 허용",
-  "Allow approval": "승인 허용",
-  "Always allow approval": "승인 항상 허용",
-  "Reject approval": "승인 거부",
+  "Allow approval (card focused)": "승인 허용(카드 포커스 시)",
+  "Reject approval (card focused)": "승인 거부(카드 포커스 시)",
+  "External": "외부",
+  "In background": "백그라운드",
+  "1 job": "작업 1개",
+  "1 page": "1페이지",
+  "1 slide": "슬라이드 1장",
+  "1 sheet": "시트 1개",
+  "1 paragraph": "단락 1개",
+  "1 issue": "문제 1개",
+  "Earlier output was dropped": "이전 출력이 생략되었습니다",
+  "Always allow is available on the computer": "'항상 허용'은 컴퓨터에서만 사용할 수 있습니다",
   "Render document": "문서 렌더링",
   "Convert document": "문서 변환",
   "Recalculate spreadsheet": "스프레드시트 다시 계산",
@@ -9674,10 +9696,21 @@ var ES = {
   "Read image": "Leer imagen",
   "Always allow file edits in {dir}": "Permitir siempre editar archivos en {dir}",
   "Always allow file edits in {dir} (+{count})": "Permitir siempre editar archivos en {dir} (+{count})",
+  "Always allow this group to edit files in {dir}": "Permitir siempre a este grupo editar archivos en {dir}",
+  "Always allow this group to edit files in {dir} (+{count})": "Permitir siempre a este grupo editar archivos en {dir} (+{count})",
   "Always allow": "Permitir siempre",
-  "Allow approval": "Permitir aprobación",
-  "Always allow approval": "Permitir siempre la aprobación",
-  "Reject approval": "Rechazar aprobación",
+  "Allow approval (card focused)": "Permitir aprobación (tarjeta enfocada)",
+  "Reject approval (card focused)": "Rechazar aprobación (tarjeta enfocada)",
+  "External": "Externo",
+  "In background": "En segundo plano",
+  "1 job": "1 tarea",
+  "1 page": "1 página",
+  "1 slide": "1 diapositiva",
+  "1 sheet": "1 hoja",
+  "1 paragraph": "1 párrafo",
+  "1 issue": "1 problema",
+  "Earlier output was dropped": "Se descartó la salida anterior",
+  "Always allow is available on the computer": "«Permitir siempre» solo está disponible en el equipo",
   "Render document": "Renderizar documento",
   "Convert document": "Convertir documento",
   "Recalculate spreadsheet": "Recalcular hoja de cálculo",
@@ -13097,10 +13130,21 @@ var FR = {
   "Read image": "Lire l’image",
   "Always allow file edits in {dir}": "Toujours autoriser la modification de fichiers dans {dir}",
   "Always allow file edits in {dir} (+{count})": "Toujours autoriser la modification de fichiers dans {dir} (+{count})",
+  "Always allow this group to edit files in {dir}": "Toujours autoriser ce groupe à modifier les fichiers dans {dir}",
+  "Always allow this group to edit files in {dir} (+{count})": "Toujours autoriser ce groupe à modifier les fichiers dans {dir} (+{count})",
   "Always allow": "Toujours autoriser",
-  "Allow approval": "Autoriser l’approbation",
-  "Always allow approval": "Toujours autoriser l’approbation",
-  "Reject approval": "Refuser l’approbation",
+  "Allow approval (card focused)": "Autoriser l’approbation (carte sélectionnée)",
+  "Reject approval (card focused)": "Refuser l’approbation (carte sélectionnée)",
+  "External": "Externe",
+  "In background": "En arrière-plan",
+  "1 job": "1 tâche",
+  "1 page": "1 page",
+  "1 slide": "1 diapositive",
+  "1 sheet": "1 feuille",
+  "1 paragraph": "1 paragraphe",
+  "1 issue": "1 problème",
+  "Earlier output was dropped": "La sortie précédente a été tronquée",
+  "Always allow is available on the computer": "« Toujours autoriser » est uniquement disponible sur l’ordinateur",
   "Render document": "Afficher le document",
   "Convert document": "Convertir le document",
   "Recalculate spreadsheet": "Recalculer la feuille de calcul",
@@ -16563,10 +16607,21 @@ var DE = {
   "Read image": "Bild lesen",
   "Always allow file edits in {dir}": "Dateiänderungen in {dir} immer erlauben",
   "Always allow file edits in {dir} (+{count})": "Dateiänderungen in {dir} (+{count}) immer erlauben",
+  "Always allow this group to edit files in {dir}": "Dieser Gruppe Dateiänderungen in {dir} immer erlauben",
+  "Always allow this group to edit files in {dir} (+{count})": "Dieser Gruppe Dateiänderungen in {dir} (+{count}) immer erlauben",
   "Always allow": "Immer erlauben",
-  "Allow approval": "Freigabe erlauben",
-  "Always allow approval": "Freigabe immer erlauben",
-  "Reject approval": "Freigabe ablehnen",
+  "Allow approval (card focused)": "Freigabe erlauben (Karte fokussiert)",
+  "Reject approval (card focused)": "Freigabe ablehnen (Karte fokussiert)",
+  "External": "Extern",
+  "In background": "Im Hintergrund",
+  "1 job": "1 Aufgabe",
+  "1 page": "1 Seite",
+  "1 slide": "1 Folie",
+  "1 sheet": "1 Blatt",
+  "1 paragraph": "1 Absatz",
+  "1 issue": "1 Problem",
+  "Earlier output was dropped": "Frühere Ausgabe wurde verworfen",
+  "Always allow is available on the computer": "„Immer erlauben“ ist nur auf dem Computer verfügbar",
   "Render document": "Dokument rendern",
   "Convert document": "Dokument konvertieren",
   "Recalculate spreadsheet": "Tabelle neu berechnen",
@@ -19843,11 +19898,22 @@ var ZH = {
   "Back to parent": "返回主会话",
   "Read image": "读取图片",
   "Always allow file edits in {dir}": "总是允许在 {dir} 中修改文件",
-  "Always allow file edits in {dir} (+{count})": "总是允许在 {dir} 等 {count} 个额外文件夹中修改文件",
+  "Always allow file edits in {dir} (+{count})": "总是允许在 {dir} 及另外 {count} 个文件夹中修改文件",
+  "Always allow this group to edit files in {dir}": "总是允许此群组在 {dir} 中修改文件",
+  "Always allow this group to edit files in {dir} (+{count})": "总是允许此群组在 {dir} 及另外 {count} 个文件夹中修改文件",
   "Always allow": "总是允许",
-  "Allow approval": "允许审批",
-  "Always allow approval": "总是允许审批",
-  "Reject approval": "拒绝审批",
+  "Allow approval (card focused)": "允许审批（卡片聚焦时）",
+  "Reject approval (card focused)": "拒绝审批（卡片聚焦时）",
+  "External": "外部",
+  "In background": "后台运行",
+  "1 job": "1 个任务",
+  "1 page": "1 页",
+  "1 slide": "1 页幻灯片",
+  "1 sheet": "1 个工作表",
+  "1 paragraph": "1 段",
+  "1 issue": "1 个问题",
+  "Earlier output was dropped": "较早的输出已被截断",
+  "Always allow is available on the computer": "“总是允许”仅支持在电脑端操作",
   "Render document": "渲染文档",
   "Convert document": "转换文档",
   "Recalculate spreadsheet": "重算表格",
@@ -44363,6 +44429,41 @@ function ToolCell({ node, sessionId, useRoster, useUi, useWork, useHeldCards, us
   return (0, import_react38.createElement)(import_react38.Fragment, null, drawn.map((call2, index) => (0, import_react38.createElement)(import_react38.Fragment, { key: call2.callId ?? index }, renderCall(call2, env))));
 }
 
+// src/client/approval-helpers.js
+var ESCALATION_PREFIX = /^(?:Allow this operation with danger-full-access permissions:|escalate sandbox to danger-full-access:)\s*/i;
+function resolveApprovalReason(entry, lang = language()) {
+  const map = entry?.displayReason;
+  if (map && typeof map === "object" && !Array.isArray(map)) {
+    const raw = String(lang ?? "en").toLowerCase();
+    const base = raw.split("-")[0];
+    if (typeof map[lang] === "string" && map[lang].trim() !== "") return map[lang];
+    if (typeof map[raw] === "string" && map[raw].trim() !== "") return map[raw];
+    if ((raw === "zh-tw" || raw === "zh-hk" || raw === "zh-hant") && typeof map.zh === "string" && map.zh.trim() !== "") {
+      return toTraditional(map.zh);
+    }
+    if (typeof map[base] === "string" && map[base].trim() !== "") return map[base];
+    if (typeof map.en === "string" && map.en.trim() !== "") return map.en;
+  }
+  return typeof entry?.reason === "string" && entry.reason.trim() !== "" ? entry.reason : "";
+}
+function cleanApprovalReason(entry, duplicateText = "", lang = language()) {
+  const raw = resolveApprovalReason(entry, lang);
+  const clean = raw.replace(ESCALATION_PREFIX, "").trim();
+  if (!clean) return "";
+  return clean === String(duplicateText ?? "").trim() ? "" : clean;
+}
+function alwaysAllowScopeLabel(alwaysAllow) {
+  if (!alwaysAllow || typeof alwaysAllow !== "object") return "";
+  if (alwaysAllow.kind === "extra-dir" && Array.isArray(alwaysAllow.dirs) && alwaysAllow.dirs.length > 0) {
+    const first = alwaysAllow.dirs[0];
+    if (alwaysAllow.scope === "group") {
+      return alwaysAllow.dirs.length === 1 ? t("Always allow this group to edit files in {dir}", { dir: first }) : t("Always allow this group to edit files in {dir} (+{count})", { dir: first, count: alwaysAllow.dirs.length - 1 });
+    }
+    return alwaysAllow.dirs.length === 1 ? t("Always allow file edits in {dir}", { dir: first }) : t("Always allow file edits in {dir} (+{count})", { dir: first, count: alwaysAllow.dirs.length - 1 });
+  }
+  return "";
+}
+
 // src/client/bot-tasks.js
 var import_react39 = require("react");
 var ACTIVE_TASK_STATUSES = /* @__PURE__ */ new Set(["running", "waiting_work", "waiting_approval"]);
@@ -44579,10 +44680,16 @@ function TaskIslandPanel({ bot, room: room2, roster, approvals = [], focusTaskId
   const setDraftFor = (key, updater) => setDrafts((prev) => ({ ...prev, [key]: typeof updater === "function" ? updater(prev[key] ?? "") : updater }));
   const approvalItem = item.kind === "approval" ? item.approvalItem : null;
   const isApproval = approvalItem !== null;
+  const readOnly = Boolean(roster?.readOnly);
+  const toolApproval = isApproval && approvalItem.kind === "tool" ? approvalItem.approval : null;
+  const canAlways = Boolean(toolApproval?.alwaysAllow) && !readOnly;
+  const approvalReason = toolApproval ? cleanApprovalReason(toolApproval, item.title) : "";
+  const approvalScope = canAlways ? alwaysAllowScopeLabel(toolApproval.alwaysAllow) : "";
   const taskActive = task !== void 0 && isActiveTask(task);
   const panelSubject = room2?.sessionId ?? room2?.id ?? bot?.sessionId ?? bot?.id ?? targetId;
   const answerApproval = (choice) => {
-    if (busy || !approvalItem) return;
+    if (busy || readOnly || !approvalItem) return;
+    if (approvalItem.kind === "tool" && choice === "always" && !canAlways) return;
     setBusy(true);
     setError("");
     const promise = approvalItem.kind === "computer-app" ? actions.computerAppAnswer(approvalItem.ask.id, choice) : actions.answerApproval(approvalItem.approval.id, choice);
@@ -44655,13 +44762,14 @@ function TaskIslandPanel({ bot, room: room2, roster, approvals = [], focusTaskId
         isApproval && approvalItem.kind === "tool" ? (0, import_react39.createElement)(
           import_react39.Fragment,
           null,
-          approvalItem.approval.reason ? (0, import_react39.createElement)("div", { className: "bt-btask-reason" }, approvalItem.approval.reason) : null,
+          approvalReason ? (0, import_react39.createElement)("div", { className: "bt-btask-reason" }, approvalReason) : null,
           approvalItem.approval.detail?.code ? (0, import_react39.createElement)(
             "div",
             { className: "bt-btask-cmd" },
             approvalItem.approval.tool ? (0, import_react39.createElement)("span", { className: "bt-btask-cmd-tool" }, approvalItem.approval.tool) : null,
             (0, import_react39.createElement)("code", { className: "bt-btask-cmd-code", title: approvalItem.approval.detail.code }, approvalItem.approval.detail.code)
-          ) : null
+          ) : null,
+          approvalScope ? (0, import_react39.createElement)("div", { className: "bt-btask-scope" }, approvalScope) : null
         ) : null,
         !isApproval && task ? (0, import_react39.createElement)(
           import_react39.Fragment,
@@ -44723,9 +44831,9 @@ function TaskIslandPanel({ bot, room: room2, roster, approvals = [], focusTaskId
         ) : isApproval ? (0, import_react39.createElement)(
           import_react39.Fragment,
           null,
-          (0, import_react39.createElement)("button", { type: "button", className: "bt-btask-btn", disabled: busy, onClick: () => answerApproval("reject") }, t("Reject")),
-          (0, import_react39.createElement)("button", { type: "button", className: approvalItem.approval?.alwaysAllow ? "bt-btask-btn" : "bt-btask-btn is-primary", disabled: busy, onClick: () => answerApproval("allow") }, t("Allow once")),
-          approvalItem.approval?.alwaysAllow ? (0, import_react39.createElement)("button", { type: "button", className: "bt-btask-btn is-primary", disabled: busy, onClick: () => answerApproval("always") }, t("Always allow")) : null
+          (0, import_react39.createElement)("button", { type: "button", className: "bt-btask-btn", disabled: busy || readOnly, onClick: () => answerApproval("reject") }, t("Reject")),
+          (0, import_react39.createElement)("button", { type: "button", className: "bt-btask-btn is-primary", disabled: busy || readOnly, onClick: () => answerApproval("allow") }, t("Allow once")),
+          canAlways ? (0, import_react39.createElement)("button", { type: "button", className: "bt-btask-btn", disabled: busy || readOnly, onClick: () => answerApproval("always") }, t("Always allow")) : null
         ) : taskActive ? (0, import_react39.createElement)("button", { type: "button", className: "bt-btask-btn is-danger", disabled: busy, onClick: stopFocusedTask }, t("Stop")) : null
       )
     )
@@ -45114,6 +45222,7 @@ var TASKS_CSS = `
 
 .bt-btask-title{font-size:15px;line-height:21px;font-weight:600;letter-spacing:-.012em;color:var(--bt-ink);overflow-wrap:anywhere}
 .bt-btask-reason{font-size:12.5px;line-height:18px;color:var(--bt-ink-2);overflow-wrap:anywhere}
+.bt-btask-scope{padding:6px 10px;border-radius:8px;background:color-mix(in srgb,var(--bt-accent) 8%,transparent);font-size:12px;line-height:17px;color:var(--bt-ink-2);overflow-wrap:anywhere}
 
 /* Clean inset monospace command strip (zero card-in-card clutter) */
 .bt-btask-cmd{display:flex;align-items:baseline;gap:8px;padding:8px 11px;border-radius:10px;background:var(--bt-island-well);border:.5px solid var(--bt-line);overflow-x:auto}
@@ -58947,9 +59056,8 @@ function ShortcutsPage({ roster, actions, Section: Section2, Row: Row4, store = 
       { id: "fixed:mention", label: t("Mention a Bot"), caps: ["@"] },
       { id: "fixed:commands", label: t("Commands"), caps: ["/"] },
       { id: "fixed:stop-esc", label: t("Stop generating"), caps: ["Esc", "Esc"] },
-      { id: "fixed:approval-allow", label: t("Allow approval"), caps: ["Enter"] },
-      { id: "fixed:approval-always", label: t("Always allow approval"), caps: [shiftCap, "Enter"] },
-      { id: "fixed:approval-reject", label: t("Reject approval"), caps: ["Esc"] },
+      { id: "fixed:approval-allow", label: t("Allow approval (card focused)"), caps: ["Enter"] },
+      { id: "fixed:approval-reject", label: t("Reject approval (card focused)"), caps: ["Esc"] },
       { id: "fixed:escape", label: t("Close dialog or menu"), caps: ["Esc"] }
     ];
     if (!wanted) return all;
@@ -61676,29 +61784,36 @@ var cardHead = (bot, at2, label) => (0, import_react74.createElement)(
   label ? (0, import_react74.createElement)("span", { className: "bt-mw-tool" }, label) : null,
   typeof at2 === "number" ? (0, import_react74.createElement)(Elapsed, { at: at2, className: "bt-mw-time" }) : null
 );
-function ApprovalCard({ approval, bot, actions, showBot = false }) {
+function ApprovalCard({ approval, bot, actions, showBot = false, readOnly = false }) {
   const [busy, setBusy] = (0, import_react74.useState)(false);
+  const canAlways = Boolean(approval.alwaysAllow) && !readOnly;
   const answer = (choice) => {
+    if (busy || readOnly) return;
+    if (choice === "always" && !canAlways) return;
     setBusy(true);
     void Promise.resolve(actions.answerApproval(approval.id, choice)).catch((error) => actions.reportError(error, "approval")).finally(() => setBusy(false));
   };
   const label = approval.taskTitle ? `${approval.taskTitle} · ${approval.tool}` : approval.tool;
+  const detailText = typeof approval.detail?.text === "string" && approval.detail.text.trim() !== "" ? approval.detail.text : "";
+  const reason = cleanApprovalReason(approval, detailText);
+  const scopeText = canAlways ? alwaysAllowScopeLabel(approval.alwaysAllow) : "";
   return (0, import_react74.createElement)(
     "div",
     { className: "bt-mw-card", role: "group", "aria-label": t("{name} is waiting for your approval", { name: bot.name }) },
     showBot ? cardHead(bot, approval.at, label) : (0, import_react74.createElement)("div", { className: "bt-mw-tool" }, label),
-    approval.detail?.text ? (0, import_react74.createElement)("div", { className: "bt-mw-text" }, approval.detail.text) : null,
-    approval.reason ? (0, import_react74.createElement)("div", { className: "bt-mw-reason" }, approval.reason) : null,
+    detailText ? (0, import_react74.createElement)("div", { className: "bt-mw-text" }, detailText) : null,
+    reason ? (0, import_react74.createElement)("div", { className: "bt-mw-reason" }, reason) : null,
     approval.review ? (0, import_react74.createElement)("div", { className: "bt-mw-reason", role: "status" }, approval.review.status === "reviewing" ? t("Reviewing this action…") : approval.review.reason) : null,
     approval.detail?.code ? (0, import_react74.createElement)("code", { className: "bt-mw-code", title: approval.detail.code }, approval.detail.code) : null,
+    scopeText ? (0, import_react74.createElement)("div", { className: "bt-mw-scope" }, scopeText) : null,
     // Answering here resolves the request and withdraws the Bot's own DSH card,
     // so group, task and own-chat approvals all get buttons.
     approval.answerable ? (0, import_react74.createElement)(
       "div",
       { className: "bt-mw-actions" },
-      (0, import_react74.createElement)("button", { type: "button", className: "bt-q-btn", disabled: busy, onClick: () => answer("reject") }, t("Reject")),
-      (0, import_react74.createElement)("button", { type: "button", className: approval.alwaysAllow ? "bt-q-btn" : "bt-q-submit", disabled: busy, onClick: () => answer("allow") }, t("Allow once")),
-      approval.alwaysAllow ? (0, import_react74.createElement)("button", { type: "button", className: "bt-q-submit", disabled: busy, onClick: () => answer("always") }, t("Always allow")) : null
+      (0, import_react74.createElement)("button", { type: "button", className: "bt-q-btn", disabled: busy || readOnly, onClick: () => answer("reject") }, t("Reject")),
+      (0, import_react74.createElement)("button", { type: "button", className: "bt-q-submit", disabled: busy || readOnly, onClick: () => answer("allow") }, t("Allow once")),
+      canAlways ? (0, import_react74.createElement)("button", { type: "button", className: "bt-q-btn", disabled: busy || readOnly, onClick: () => answer("always") }, t("Always allow")) : null
     ) : (0, import_react74.createElement)(
       "div",
       { className: "bt-mw-actions" },
@@ -61754,12 +61869,12 @@ function StopRoomWork({ room: room2, entries: entries2, actions }) {
   const label = t("Stop all work in this group");
   return (0, import_react74.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: stopping, "aria-label": label, title: label, onClick: stop }, t("Stop all"));
 }
-function MemberApprovals({ entry, bot, actions }) {
+function MemberApprovals({ entry, bot, actions, readOnly = false }) {
   if (entry?.state !== "ask") return null;
   return (0, import_react74.createElement)(
     "div",
     { className: "bt-member-cards" },
-    (entry.approvals ?? []).map((approval) => (0, import_react74.createElement)(ApprovalCard, { key: `t:${approval.id}`, approval, bot, actions })),
+    (entry.approvals ?? []).map((approval) => (0, import_react74.createElement)(ApprovalCard, { key: `t:${approval.id}`, approval, bot, actions, readOnly })),
     (entry.computerAsks ?? []).map((ask) => (0, import_react74.createElement)(ComputerAppApprovalCard, { key: `c:${ask.id}`, ask, bot, actions }))
   );
 }
@@ -61774,7 +61889,7 @@ function approvalSummary(approvals) {
   const label = bots.length === 0 ? t("Waiting for your approval") : bots.length === 1 ? t("{name} is waiting for your approval", { name: bots[0].name }) : bots.length === 2 ? t("{first} and {second} are waiting for your approval", { first: bots[0].name, second: bots[1].name }) : t("{first}, {second} and {count} more are waiting for your approval", { first: bots[0].name, second: bots[1].name, count: bots.length - 2, total: bots.length });
   return { bots, label };
 }
-function ApprovalIslandPod({ approvals, open, room: room2, targetId = room2?.id, actions }) {
+function ApprovalIslandPod({ approvals, open, room: room2, targetId = room2?.id, actions, readOnly = false }) {
   if (!approvals || approvals.length === 0) return null;
   const { bots, label } = approvalSummary(approvals);
   return (0, import_react74.createElement)(
@@ -61806,7 +61921,7 @@ function ApprovalIslandPod({ approvals, open, room: room2, targetId = room2?.id,
     open ? (0, import_react74.createElement)(
       "div",
       { className: "bt-apv-panel", role: "region", "aria-label": t("Waiting for your approval") },
-      approvals.map((item) => item.kind === "computer-app" ? (0, import_react74.createElement)(ComputerAppApprovalCard, { key: `c:${item.id}`, ask: item.ask, bot: item.bot, actions, showBot: true }) : (0, import_react74.createElement)(ApprovalCard, { key: `t:${item.id}`, approval: item.approval, bot: item.bot, actions, showBot: true }))
+      approvals.map((item) => item.kind === "computer-app" ? (0, import_react74.createElement)(ComputerAppApprovalCard, { key: `c:${item.id}`, ask: item.ask, bot: item.bot, actions, showBot: true }) : (0, import_react74.createElement)(ApprovalCard, { key: `t:${item.id}`, approval: item.approval, bot: item.bot, actions, showBot: true, readOnly }))
     ) : null
   );
 }
@@ -61868,6 +61983,7 @@ var MEMBER_CSS = `
 .bt-mw-text{color:var(--bt-ink);overflow-wrap:anywhere}
 .bt-mw-reason{overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 .bt-mw-code{display:block;padding:4px 8px;border-radius:6px;background:var(--bt-main);font:11px/16px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--bt-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bt-mw-scope{padding:5px 8px;border-radius:8px;background:color-mix(in srgb,var(--bt-accent) 8%,transparent);font-size:11.5px;line-height:16px;color:var(--bt-ink-2);overflow-wrap:anywhere}
 .bt-mw-actions{display:flex;justify-content:flex-end;gap:6px;margin-top:4px}
 .bt-mw-actions>button{height:28px;padding:0 12px;font-size:12px}
 .bt-mw-actions>button:disabled{opacity:.5;cursor:default}
@@ -62031,7 +62147,7 @@ function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSe
     (0, import_react75.createElement)(MemoryNotice, { shown: memoryNotice }),
     (0, import_react75.createElement)("span", { className: "bt-pill-go", "aria-hidden": true }, (0, import_react75.createElement)(GoArrow))
   );
-  const approvalPod = showApprovals ? (0, import_react75.createElement)(ApprovalIslandPod, { approvals: standaloneApprovals, open: approvalOpen, room: room2, targetId: approvalTargetId, actions }) : null;
+  const approvalPod = showApprovals ? (0, import_react75.createElement)(ApprovalIslandPod, { approvals: standaloneApprovals, open: approvalOpen, room: room2, targetId: approvalTargetId, actions, readOnly: Boolean(roster.readOnly) }) : null;
   const taskPod = showTasks ? (0, import_react75.createElement)(TaskIslandPod, { bot, room: room2, roster, tasks: chatTasks, approvals: taskApprovals, open: taskDeckOpen, focusTaskId: taskDeckState?.taskId ?? null, targetId: approvalTargetId, actions }) : null;
   const taskWaiting = Math.max(activeTasks.filter((item) => item.status === "waiting_approval").length, taskApprovals.length);
   const taskBadge = taskHoverReveal ? (0, import_react75.createElement)(
@@ -66589,7 +66705,7 @@ function MemberRow({ member, entry, room: room2, roster, actions }) {
       ),
       (0, import_react89.createElement)(StopMemberWork, { entry, bot: member, room: room2, actions })
     ),
-    (0, import_react89.createElement)(MemberApprovals, { entry, bot: member, actions })
+    (0, import_react89.createElement)(MemberApprovals, { entry, bot: member, actions, readOnly: Boolean(roster?.readOnly) })
   );
 }
 function GroupOverview({ room: room2, roster, actions, usage, useWork, useComputer, openSettings }) {

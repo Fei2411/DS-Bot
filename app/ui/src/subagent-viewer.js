@@ -14,7 +14,8 @@ function isEditableElement(node) {
 
 function subagentModeLabel(mode) {
   if (mode === 'continuable') return t('Continuable')
-  if (mode === 'one_shot') return t('One-shot')
+  if (mode === 'one-shot' || mode === 'one_shot') return t('One-shot')
+  if (mode === 'external') return t('External')
   return mode
 }
 

@@ -142,7 +142,7 @@ body[data-bt-layout=flat] .dsb-tool{max-width:calc(var(--bt-flat-w,1) * 100%)}
 .dsb-tool-head-row{display:flex;align-items:center;gap:4px;min-width:0}
 .dsb-tool-head-row>.dsb-tool-head{flex:1 1 auto;min-width:0;width:auto}
 .dsb-tool-head-action{flex:none;display:inline-flex;align-items:center;padding-right:8px}
-.dsb-tool-action{display:inline-flex;align-items:center;justify-content:center;gap:4px;min-height:24px;padding:0 9px;border:0;border-radius:6px;background:var(--bt-hover);box-shadow:inset 0 0 0 1px var(--bt-line);color:var(--bt-ink);font:inherit;font-size:11.5px;line-height:16px;font-weight:500;white-space:nowrap;cursor:pointer;transition:background-color .12s ease,color .12s ease}
+.dsb-tool-action{display:inline-flex;align-items:center;justify-content:center;gap:4px;min-height:28px;min-width:28px;padding:0 10px;border:0;border-radius:6px;background:var(--bt-hover);box-shadow:inset 0 0 0 1px var(--bt-line);color:var(--bt-ink);font:inherit;font-size:11.5px;line-height:16px;font-weight:500;white-space:nowrap;cursor:pointer;transition:background-color .12s ease,color .12s ease}
 .dsb-tool-action:hover:not(:disabled){background:var(--bt-active);color:var(--bt-accent)}
 .dsb-tool-action:focus-visible{outline:2px solid var(--bt-accent);outline-offset:1px}
 .dsb-tool-head{display:flex;align-items:center;gap:8px;width:100%;min-height:34px;padding:6px 10px;border:0;background:none;color:var(--bt-ink);font:inherit;font-size:13px;line-height:18px;text-align:left;cursor:pointer;box-sizing:border-box;transition:background-color .12s ease}
@@ -274,7 +274,7 @@ a.dsb-web-link:focus-visible,.dsb-web-url:focus-visible{outline:2px solid var(--
 .dsb-job-head{display:flex;align-items:center;flex-wrap:wrap;gap:6px 8px;min-width:0}
 .dsb-job-detail{font-size:12px;line-height:17px;color:var(--bt-ink-2);overflow-wrap:anywhere}
 .dsb-job-stop-wrap{margin-left:auto;display:inline-flex;align-items:center;gap:6px;flex:none}
-.dsb-job-stop{display:inline-flex;align-items:center;gap:4px;min-height:24px;padding:0 9px;border:0;border-radius:6px;background:var(--bt-hover);box-shadow:inset 0 0 0 1px var(--bt-line-2);color:var(--bt-ink);font:inherit;font-size:11.5px;line-height:16px;font-weight:500;cursor:pointer;transition:background-color .12s ease,color .12s ease,box-shadow .12s ease}
+.dsb-job-stop{display:inline-flex;align-items:center;justify-content:center;gap:4px;min-height:28px;min-width:28px;padding:0 10px;border:0;border-radius:6px;background:var(--bt-hover);box-shadow:inset 0 0 0 1px var(--bt-line-2);color:var(--bt-ink);font:inherit;font-size:11.5px;line-height:16px;font-weight:500;cursor:pointer;transition:background-color .12s ease,color .12s ease,box-shadow .12s ease}
 .dsb-job-stop svg{width:11px;height:11px}
 .dsb-job-stop:hover:not(:disabled){background:var(--bt-danger-soft);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--bt-danger) 40%,transparent);color:var(--bt-danger)}
 .dsb-job-stop[data-armed]{background:var(--bt-danger);box-shadow:none;color:var(--bt-accent-ink,#fff)}
@@ -329,6 +329,7 @@ button.dsb-sub-crumb:focus-visible{outline:2px solid var(--bt-accent);outline-of
 /* Foreground DM tool approval dock. */
 .dsb-approval-dock{width:100%;max-width:min(992px,100%);display:flex;flex-direction:column;gap:8px}
 .dsb-approval{display:flex;flex-direction:column;gap:8px;padding:12px 14px;border-radius:16px;background:var(--bt-card);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--bt-star) 35%,var(--bt-line));color:var(--bt-ink);box-sizing:border-box}
+.dsb-approval:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
 .dsb-approval-head{display:flex;align-items:center;gap:8px;min-width:0}
 .dsb-approval-dot{flex:none;width:7px;height:7px;border-radius:50%;corner-shape:round;background:var(--bt-star)}
 .dsb-approval-title{font-size:13px;line-height:18px;font-weight:600;color:var(--bt-ink)}

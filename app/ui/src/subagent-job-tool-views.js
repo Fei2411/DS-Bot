@@ -61,17 +61,20 @@ export function resolveSubagentCatalog(log) {
   const byId = new Map()
   const add = (raw) => {
     if (!raw || typeof raw !== 'object') return
-    const childSessionId = typeof raw.childId === 'string' ? raw.childId
-      : (typeof raw.childSessionId === 'string' ? raw.childSessionId
-        : (typeof raw.sessionId === 'string' ? raw.sessionId : ''))
+    const childSessionId = typeof raw.id === 'string' && raw.id !== '' ? raw.id
+      : (typeof raw.childId === 'string' && raw.childId !== '' ? raw.childId
+        : (typeof raw.childSessionId === 'string' && raw.childSessionId !== '' ? raw.childSessionId
+          : (typeof raw.sessionId === 'string' && raw.sessionId !== '' ? raw.sessionId : '')))
     if (!childSessionId) return
     const prev = byId.get(childSessionId) ?? {}
+    const createdAt = Number.isFinite(raw.createdAt) ? raw.createdAt
+      : (Number.isFinite(raw.childCreatedAt) ? raw.childCreatedAt : prev.createdAt)
     byId.set(childSessionId, {
       childSessionId,
       name: typeof raw.name === 'string' && raw.name !== '' ? raw.name : (prev.name ?? ''),
       mode: typeof raw.mode === 'string' && raw.mode !== '' ? raw.mode : (prev.mode ?? 'unknown'),
       label: typeof raw.label === 'string' && raw.label !== '' ? raw.label : (prev.label ?? ''),
-      createdAt: Number.isFinite(raw.createdAt) ? raw.createdAt : prev.createdAt,
+      createdAt,
     })
   }
   const proj = log?.projections?.values?.subagentCatalog
@@ -84,6 +87,13 @@ export function resolveSubagentCatalog(log) {
     if (event?.type === 'subagent/catalog') add(event.data)
   }
   return [...byId.values()]
+}
+
+function subagentModeLabel(mode) {
+  if (mode === 'continuable') return t('Continuable')
+  if (mode === 'one-shot' || mode === 'one_shot') return t('One-shot')
+  if (mode === 'external') return t('External')
+  return mode
 }
 
 export function findSubagentInCatalog(catalog, { childId, name }) {
@@ -191,13 +201,10 @@ export function SubagentToolView({
     badges.push(h('span', { key: 'name', className: 'dsb-tool-pill' }, targetName))
   }
   if (targetMode && targetMode !== 'unknown') {
-    const modeLabel = targetMode === 'continuable' ? t('Continuable')
-      : targetMode === 'one_shot' ? t('One-shot')
-        : targetMode
-    badges.push(h('span', { key: 'mode', className: 'dsb-tool-pill' }, modeLabel))
+    badges.push(h('span', { key: 'mode', className: 'dsb-tool-pill' }, subagentModeLabel(targetMode)))
   }
 
-  const canOpen = Boolean(targetSessionId && sessionId && typeof onOpenSubagent === 'function')
+  const canOpen = Boolean(targetSessionId && sessionId && targetMode !== 'external' && typeof onOpenSubagent === 'function')
   const headerAction = canOpen
     ? h('button', {
       type: 'button',
@@ -235,7 +242,7 @@ export function SubagentToolView({
         h('span', { className: 'dsb-subagent-name' }, row.idOrName),
         row.status ? h('span', { className: 'dsb-tool-pill' }, row.status) : null,
         row.detail ? h('span', { className: 'dsb-subagent-detail' }, row.detail) : null,
-        found && typeof onOpenSubagent === 'function' ? h('button', {
+        found && found.mode !== 'external' && typeof onOpenSubagent === 'function' ? h('button', {
           type: 'button',
           className: 'dsb-tool-action',
           onClick: () => openChild(found),
@@ -370,6 +377,7 @@ export function JobStopButton({ sessionId, jobId, disabled = false, onStopped })
 export function BackgroundJobPanel({ sessionId, jobId, feed, readOnly = false, initialStatus = '', onStatusChange, onUnavailable }) {
   const [job, setJob] = useState(null)
   const [output, setOutput] = useState('')
+  const [lossy, setLossy] = useState(false)
   const [expanded, setExpanded] = useState(false)
   const [copied, setCopied] = useState(false)
   const [now, setNow] = useState(Date.now)
@@ -405,9 +413,26 @@ export function BackgroundJobPanel({ sessionId, jobId, feed, readOnly = false, i
         if (nextStatus && nextStatus !== statusRef.current) onStatusRef.current?.(nextStatus)
         statusRef.current = nextStatus
       }
-      const delta = typeof res?.text === 'string' ? res.text : (typeof res?.output === 'string' ? res.output : '')
-      if (delta !== '') {
-        setOutput(prev => prev + delta)
+      const chunks = Array.isArray(res?.chunks) ? res.chunks : null
+      const hasChunkGap = chunks !== null && chunks.some(chunk => chunk?.gapBefore === true)
+      if (res?.lossy === true || hasChunkGap) setLossy(true)
+      const fallbackDelta = typeof res?.text === 'string' ? res.text : (typeof res?.output === 'string' ? res.output : '')
+      const hasChunkText = chunks !== null && chunks.some(chunk => typeof chunk?.text === 'string' && chunk.text !== '')
+      if (hasChunkGap || hasChunkText || fallbackDelta !== '') {
+        setOutput((prev) => {
+          if (chunks !== null && (hasChunkGap || hasChunkText)) {
+            let out = prev
+            for (const chunk of chunks) {
+              if (chunk?.gapBefore === true) {
+                if (out !== '' && !out.endsWith('\n')) out += '\n'
+                out += `… ${t('Earlier output was dropped')} …\n`
+              }
+              if (typeof chunk?.text === 'string') out += chunk.text
+            }
+            return out
+          }
+          return prev + fallbackDelta
+        })
       }
       const nextCursor = Number.isInteger(res?.next) ? res.next : res?.nextOffset
       if (Number.isInteger(nextCursor) && nextCursor >= offsetRef.current) {
@@ -430,34 +455,40 @@ export function BackgroundJobPanel({ sessionId, jobId, feed, readOnly = false, i
     }
   }, [sessionId, jobId])
 
+  const status = job?.status || initialStatus || 'running'
+  const active = !unavailable && (status === 'running' || status === 'stopping')
+
   useEffect(() => {
     offsetRef.current = 0
     setOutput('')
     setJob(null)
+    setLossy(false)
     setUnavailable(false)
     statusRef.current = initialStatus
     if (!sessionId || !jobId) return undefined
     void refresh()
+    return undefined
+  }, [sessionId, jobId, initialStatus, refresh])
+
+  useEffect(() => {
+    if (!sessionId || !jobId || !active) return undefined
     const timer = setInterval(() => {
       if (TERMINAL_JOB_STATUSES.has(statusRef.current) || statusRef.current === 'unknown') return
       if (typeof document !== 'undefined' && document.hidden) return
       void refresh()
     }, JOB_POLL_MS)
     return () => clearInterval(timer)
-  }, [sessionId, jobId, initialStatus, refresh])
+  }, [sessionId, jobId, active, refresh])
 
   useEffect(() => {
-    if (!feed || !sessionId || !jobId) return undefined
+    if (!feed || !sessionId || !jobId || !active) return undefined
     return feed.on((event, data) => {
       if (event !== 'jobs') return
       if (data?.sessionId && data.sessionId !== sessionId) return
       if (data?.jobId && data.jobId !== jobId) return
       void refresh()
     })
-  }, [feed, sessionId, jobId, refresh])
-
-  const status = job?.status || initialStatus || 'running'
-  const active = status === 'running' || status === 'stopping'
+  }, [feed, sessionId, jobId, active, refresh])
 
   useEffect(() => {
     if (!active || !Number.isFinite(job?.startedAt)) return undefined
@@ -486,6 +517,7 @@ export function BackgroundJobPanel({ sessionId, jobId, feed, readOnly = false, i
     h('div', { className: 'dsb-job-head' },
       h('span', { className: 'dsb-job-id' }, jobId),
       h('span', { className: 'dsb-tool-pill', 'data-tone': jobStatusTone(status) }, t(JOB_STATUS_LABELS[status] ?? status)),
+      lossy ? h('span', { className: 'dsb-tool-pill', 'data-tone': 'warn' }, t('Truncated')) : null,
       elapsed ? h('span', { className: 'dsb-tool-time' }, elapsed) : null,
       status === 'running' && !readOnly
         ? h(JobStopButton, { sessionId, jobId, onStopped: () => { void refresh() } })
@@ -553,33 +585,52 @@ export function JobToolView({ toolName, block, phase, useDisclosure, sessionId, 
     })
   }, [toolName, sessionId, disclosure.expanded, feed, refreshList])
 
-  // Keep `job_output` status badge synchronized with live job updates even while collapsed.
+  const snapshotInProgress = parsedOutput?.status === 'running' || parsedOutput?.status === 'stopping'
+  const effectiveOutputStatus = liveOutputStatus || parsedOutput?.status || ''
+  const watchCollapsedStatus = toolName === 'job_output'
+    && Boolean(sessionId && jobId)
+    && !disclosure.expanded
+    && snapshotInProgress
+    && !liveUnavailable
+    && !TERMINAL_JOB_STATUSES.has(effectiveOutputStatus)
+
+  // Keep collapsed `job_output` status badge synchronized via lightweight `job-list`
+  // (never `job-read` from 0) and stop watching once terminal or pruned.
   useEffect(() => {
-    if (toolName !== 'job_output' || !sessionId || !jobId) return undefined
-    if (parsedOutput?.status !== 'running' && parsedOutput?.status !== 'stopping') return undefined
+    if (!watchCollapsedStatus) return undefined
     let alive = true
     const syncStatus = async () => {
       try {
-        const res = await call('job-read', { sessionId, jobId, from: 0 })
-        if (alive && res?.job?.status) setLiveOutputStatus(res.job.status)
-      } catch { /* job pruned or unavailable */ }
+        const res = await call('job-list', { sessionId })
+        if (!alive || !Array.isArray(res?.jobs)) return
+        const match = res.jobs.find(item => item?.id === jobId)
+        if (match?.status) setLiveOutputStatus(match.status)
+        else setLiveUnavailable(true)
+      } catch (error) {
+        if (!alive) return
+        if (error?.code === 'bot/not-found' || error?.code === 'bot/refused') setLiveUnavailable(true)
+      }
     }
     void syncStatus()
     if (!feed) return () => { alive = false }
     const off = feed.on((event, data) => {
-      if (event === 'jobs' && (!data?.sessionId || data.sessionId === sessionId)) void syncStatus()
+      if (event !== 'jobs') return
+      if (data?.sessionId && data.sessionId !== sessionId) return
+      if (data?.jobId && data.jobId !== jobId) return
+      void syncStatus()
     })
     return () => { alive = false; off?.() }
-  }, [toolName, sessionId, jobId, parsedOutput?.status, feed])
+  }, [watchCollapsedStatus, sessionId, jobId, feed])
 
   const shownList = liveJobs ?? parsedList
   const activeCount = shownList.filter(item => item.status === 'running' || item.status === 'stopping').length
-  const effectiveOutputStatus = liveOutputStatus || parsedOutput?.status || ''
 
   const badges = []
   if (toolName === 'job_list' && phase === 'result') {
     badges.push(h('span', { key: 'cnt', className: 'dsb-tool-pill', 'data-tone': activeCount > 0 ? 'warn' : undefined },
-      shownList.length === 0 ? t('No jobs') : t('{count} jobs', { count: shownList.length })))
+      shownList.length === 0 ? t('No jobs')
+        : shownList.length === 1 ? t('1 job')
+          : t('{count} jobs', { count: shownList.length })))
   } else if (toolName === 'job_output' && effectiveOutputStatus) {
     badges.push(h('span', { key: 'st', className: 'dsb-tool-pill', 'data-tone': jobStatusTone(effectiveOutputStatus) },
       t(JOB_STATUS_LABELS[effectiveOutputStatus] ?? effectiveOutputStatus)))
@@ -598,7 +649,6 @@ export function JobToolView({ toolName, block, phase, useDisclosure, sessionId, 
   // Keep the live panel mounted after a running snapshot completes so post-snapshot output
   // stays visible (polling stops automatically at terminal status). Fall back to the static
   // snapshot only when the job can no longer be read (e.g. pruned after restart).
-  const snapshotInProgress = parsedOutput?.status === 'running' || parsedOutput?.status === 'stopping'
   const showLivePanel = toolName === 'job_output'
     && Boolean(sessionId && jobId)
     && snapshotInProgress

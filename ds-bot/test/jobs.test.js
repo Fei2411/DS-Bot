@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { apply } from '../index.js'
+import { install as installJobs } from '../src/host/jobs.js'
 import { fakeContext } from './fake-ctx.js'
 
 const TEAM = {
@@ -16,9 +17,10 @@ const TEAM = {
   questions: {},
 }
 
-// Mirrors `@deepseek-ai/dsh-api-job-controller` exact method signatures:
-// list(owner), get(jobId, owner), read(jobId, owner), readAt(jobId, cursor, owner),
-// kill(jobId, owner, reason), events.subscribe({ owners }, fn).
+// Mirrors `@deepseek-ai/dsh-jobs` & `@deepseek-ai/dsh-api-job-controller` exact wire contracts:
+// JobView.output: { earliest, total, spillPaths? }
+// JobChunk: { at, text, channel?: 'stdout'|'stderr'|'log', gapBefore?: true }
+// JobEvent: { type: 'output', id, owner, total } | { type: 'status', job }
 function makeFakeJobs() {
   const store = new Map([
     ['job-1', {
@@ -28,7 +30,11 @@ function makeFakeJobs() {
       label: 'npm run watch',
       status: 'running',
       startedAt: 1000,
-      chunks: [{ at: 1001, text: 'line 1\n' }, { at: 1002, text: 'line 2\n' }],
+      spillPaths: ['/tmp/job-1.log'],
+      chunks: [
+        { at: 1001, text: 'line 1\n', channel: 'stdout' },
+        { at: 1002, text: 'warn 2\n', channel: 'stderr', gapBefore: true },
+      ],
       kills: [],
       readCalls: 0,
       readAtCalls: [],
@@ -44,10 +50,17 @@ function makeFakeJobs() {
     detail: job.detail,
     startedAt: job.startedAt,
     ...(job.finishedAt !== undefined ? { finishedAt: job.finishedAt } : {}),
-    output: { earliest: 0, total: job.chunks.length, retained: job.chunks.length, truncated: false },
+    output: {
+      earliest: 0,
+      total: job.chunks.length,
+      ...(job.spillPaths ? { spillPaths: job.spillPaths } : {}),
+    },
   })
   return {
     store,
+    emit(event) {
+      for (const fn of listeners) fn(event)
+    },
     service: {
       list: (owner) => [...store.values()].filter(j => j.owner === owner).map(view),
       get: (jobId, owner) => {
@@ -70,7 +83,7 @@ function makeFakeJobs() {
         return {
           chunks: j.chunks.slice(start),
           next: j.chunks.length,
-          lossy: false,
+          lossy: j.chunks.slice(start).some(c => c.gapBefore === true),
         }
       },
       kill: (jobId, owner, reason) => {
@@ -127,7 +140,7 @@ function startHarness({ readOnly = false } = {}) {
   }
 }
 
-test('job-list, non-consuming job-read, and job-kill work through api/bot', async () => {
+test('job-list, non-consuming job-read (preserving channel, gapBefore, spillPaths), and job-kill work through api/bot', async () => {
   const env = startHarness()
   try {
     const listed = await env.call('job-list', { sessionId: 'm1' })
@@ -135,20 +148,27 @@ test('job-list, non-consuming job-read, and job-kill work through api/bot', asyn
     assert.equal(listed.value.jobs.length, 1)
     assert.equal(listed.value.jobs[0].id, 'job-1')
     assert.equal(listed.value.jobs[0].status, 'running')
+    assert.deepEqual(listed.value.jobs[0].output, { earliest: 0, total: 2, spillPaths: ['/tmp/job-1.log'] })
 
     const read1 = await env.call('job-read', { sessionId: 'm1', jobId: 'job-1', from: 0 })
     assert.equal(read1.ok, true)
-    assert.equal(read1.value.text, 'line 1\nline 2\n')
+    assert.equal(read1.value.text, 'line 1\nwarn 2\n')
     assert.equal(read1.value.next, 2)
+    assert.equal(read1.value.lossy, true)
+    assert.deepEqual(read1.value.chunks, [
+      { at: 1001, text: 'line 1\n', channel: 'stdout' },
+      { at: 1002, text: 'warn 2\n', channel: 'stderr', gapBefore: true },
+    ])
     const rawJob = env.jobs.store.get('job-1')
     assert.equal(rawJob.readCalls, 0, 'job-read must NEVER consume the model read cursor')
     assert.deepEqual(rawJob.readAtCalls, [0])
 
     // Incremental append reads only the newly added chunk.
-    rawJob.chunks.push({ at: 1003, text: 'line 3\n' })
+    rawJob.chunks.push({ at: 1003, text: 'line 3\n', channel: 'log' })
     const read2 = await env.call('job-read', { sessionId: 'm1', jobId: 'job-1', from: read1.value.next })
     assert.equal(read2.ok, true)
     assert.equal(read2.value.text, 'line 3\n')
+    assert.deepEqual(read2.value.chunks, [{ at: 1003, text: 'line 3\n', channel: 'log' }])
     assert.equal(read2.value.next, 3)
 
     const killed = await env.call('job-kill', { sessionId: 'm1', jobId: 'job-1' })
@@ -157,6 +177,37 @@ test('job-list, non-consuming job-read, and job-kill work through api/bot', asyn
     assert.deepEqual(rawJob.kills, ['cancelled by the user'])
   } finally {
     await env.stop()
+  }
+})
+
+test('jobs.events output notices forward event.owner and event.id into local SSE feed', async () => {
+  const jobs = makeFakeJobs()
+  const localEvents = []
+  const disposers = []
+  const ctx = {
+    get: name => (name === 'jobs' ? jobs.service : undefined),
+    effect: fn => { disposers.push(fn()) },
+  }
+  const rt = {
+    ctx,
+    readOnly: () => undefined,
+    publishLocalFeed: (event, data) => { localEvents.push({ event, data }) },
+  }
+  installJobs(rt)
+  try {
+    // Single-job DSH output event carries owner & id at top level (not under event.job).
+    jobs.emit({ type: 'output', id: 'job-1', owner: 'm1', total: 3 })
+    await new Promise(resolve => setTimeout(resolve, 250))
+    assert.deepEqual(localEvents, [{ event: 'jobs', data: { sessionId: 'm1', jobId: 'job-1' } }])
+
+    // Multiple jobs changing for the same session within the coalesce window emit session-level notice.
+    localEvents.length = 0
+    jobs.emit({ type: 'output', id: 'job-1', owner: 'm1', total: 4 })
+    jobs.emit({ type: 'output', id: 'job-2', owner: 'm1', total: 1 })
+    await new Promise(resolve => setTimeout(resolve, 250))
+    assert.deepEqual(localEvents, [{ event: 'jobs', data: { sessionId: 'm1' } }])
+  } finally {
+    for (const d of disposers) d?.()
   }
 })
 

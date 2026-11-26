@@ -1,9 +1,10 @@
 import { createElement as h, useCallback, useEffect, useRef, useState } from 'react'
+import { alwaysAllowScopeLabel, cleanApprovalReason, resolveApprovalReason } from '../../../ds-bot/src/client/approval-helpers.js'
 import { isImeComposing } from '../../../ds-bot/src/client/enter-key.js'
-import { hostText, language, t } from '../../../ds-bot/src/client/i18n.js'
-import { toTraditional } from '../../../ds-bot/src/client/locales/zh-tw.js'
+import { hostText, t } from '../../../ds-bot/src/client/i18n.js'
 import { hasEscapeLayer } from '../../../ds-bot/src/client/overlay-hooks.js'
-import { isMacPlatform } from '../../../ds-bot/src/client/shortcuts-model.js'
+
+export { alwaysAllowScopeLabel, cleanApprovalReason, resolveApprovalReason }
 
 const EMPTY_APPROVALS = []
 
@@ -35,57 +36,32 @@ function hasOpenModalInDom(doc) {
 }
 
 /**
- * Resolves the localized approval reason from `entry.displayReason` if present,
- * falling back cleanly to `entry.reason`.
+ * Matches a card-focused approval shortcut (`Enter` = allow once, `Escape` = reject),
+ * returning `'allow' | 'reject' | null`. Mirrors DSH's `ApprovalCard.tsx`:
+ * - Only fires while the approval card itself contains `document.activeElement`
+ * - Never binds `Shift+Enter` or any lasting "Always allow" grant to a keyboard shortcut
+ * - Ignores modifier chords, IME composition, editable elements, open overlays/menus,
+ *   and (for `Enter`) interactive buttons/links inside the card
  */
-export function resolveApprovalReason(entry, lang = language()) {
-  const map = entry?.displayReason
-  if (map && typeof map === 'object' && !Array.isArray(map)) {
-    const raw = String(lang ?? 'en').toLowerCase()
-    const base = raw.split('-')[0]
-    if (typeof map[lang] === 'string' && map[lang].trim() !== '') return map[lang]
-    if (typeof map[raw] === 'string' && map[raw].trim() !== '') return map[raw]
-    if ((raw === 'zh-tw' || raw === 'zh-hk' || raw === 'zh-hant') && typeof map.zh === 'string' && map.zh.trim() !== '') {
-      return toTraditional(map.zh)
-    }
-    if (typeof map[base] === 'string' && map[base].trim() !== '') return map[base]
-    if (typeof map.en === 'string' && map.en.trim() !== '') return map.en
-  }
-  return typeof entry?.reason === 'string' && entry.reason.trim() !== '' ? entry.reason : ''
-}
-
-/**
- * Human-readable scope summary explaining what "Always allow" will persist.
- */
-export function alwaysAllowScopeLabel(alwaysAllow) {
-  if (!alwaysAllow || typeof alwaysAllow !== 'object') return ''
-  if (alwaysAllow.kind === 'extra-dir' && Array.isArray(alwaysAllow.dirs) && alwaysAllow.dirs.length > 0) {
-    const first = alwaysAllow.dirs[0]
-    return alwaysAllow.dirs.length === 1
-      ? t('Always allow file edits in {dir}', { dir: first })
-      : t('Always allow file edits in {dir} (+{count})', { dir: first, count: alwaysAllow.dirs.length - 1 })
-  }
-  return ''
-}
-
-/**
- * Matches an approval dock keyboard shortcut (`Enter` = allow once, `Shift+Enter` = always allow
- * when eligible, `Escape` = reject), returning `'allow' | 'always' | 'reject' | null`.
- * Never fires while typing in the composer/inputs, during IME composition, while another dialog
- * or menu is open, or when Enter is pressed on another focused button/link.
- */
-export function matchApprovalShortcut(event, { canAlways = false, doc = typeof document !== 'undefined' ? document : null, escapeLayerOpen = hasEscapeLayer() } = {}) {
+export function matchApprovalShortcut(event, {
+  cardEl = null,
+  doc = typeof document !== 'undefined' ? document : null,
+  escapeLayerOpen = hasEscapeLayer(),
+  composing = false,
+  compositionEnded = false,
+} = {}) {
   if (!event || event.defaultPrevented || event.repeat) return null
-  if (isImeComposing(event) || event.keyCode === 229) return null
-  if (event.metaKey || event.ctrlKey || event.altKey) return null
+  if (composing || compositionEnded || isImeComposing(event) || event.keyCode === 229) return null
+  if (event.shiftKey || event.metaKey || event.ctrlKey || event.altKey) return null
   if (escapeLayerOpen || hasOpenModalInDom(doc)) return null
+  const container = cardEl ?? event.currentTarget ?? null
   const active = doc?.activeElement ?? null
+  if (!container || typeof container.contains !== 'function' || !active || !container.contains(active)) return null
   if (isEditableElement(event.target) || isEditableElement(active)) return null
 
-  if (event.key === 'Escape' && !event.shiftKey) return 'reject'
+  if (event.key === 'Escape') return 'reject'
   if (event.key === 'Enter') {
     if (isInteractiveElement(event.target) || isInteractiveElement(active)) return null
-    if (event.shiftKey) return canAlways ? 'always' : null
     return 'allow'
   }
   return null
@@ -115,11 +91,14 @@ export function foregroundApprovalsOf(approvals, botId, sessionId = null) {
   return EMPTY_APPROVALS
 }
 
-function ApprovalCard({ entry, actions, readOnly, activeShortcuts = false }) {
+function ApprovalCard({ entry, actions, readOnly }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const cardRef = useRef(null)
   const busyRef = useRef(false)
   const mountedRef = useRef(true)
+  const composingRef = useRef(false)
+  const compositionEndedRef = useRef(false)
   useEffect(() => {
     mountedRef.current = true
     return () => { mountedRef.current = false }
@@ -143,70 +122,86 @@ function ApprovalCard({ entry, actions, readOnly, activeShortcuts = false }) {
     }
   }, [actions, entry.id, readOnly, canAlways])
 
-  useEffect(() => {
-    if (!activeShortcuts || readOnly || typeof window === 'undefined') return undefined
-    const onKeyDown = (event) => {
-      if (busyRef.current) return
-      const choice = matchApprovalShortcut(event, { canAlways })
-      if (!choice) return
-      event.preventDefault()
-      event.stopPropagation()
-      void decide(choice)
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [activeShortcuts, readOnly, canAlways, decide])
+  const onCompositionStartCapture = useCallback(() => {
+    composingRef.current = true
+    compositionEndedRef.current = false
+  }, [])
+
+  const onCompositionEndCapture = useCallback(() => {
+    composingRef.current = false
+    compositionEndedRef.current = true
+  }, [])
+
+  const onKeyUpCapture = useCallback(() => {
+    compositionEndedRef.current = false
+  }, [])
+
+  const onKeyDown = useCallback((event) => {
+    if (busyRef.current || readOnly) return
+    const choice = matchApprovalShortcut(event, {
+      cardEl: cardRef.current ?? event.currentTarget,
+      composing: composingRef.current,
+      compositionEnded: compositionEndedRef.current,
+    })
+    if (!choice) return
+    event.preventDefault()
+    event.stopPropagation()
+    void decide(choice)
+  }, [readOnly, decide])
 
   const code = typeof entry.detail?.code === 'string' && entry.detail.code.trim() !== '' ? entry.detail.code : ''
   const detailText = typeof entry.detail?.text === 'string' && entry.detail.text.trim() !== '' ? entry.detail.text : ''
-  const rawReason = resolveApprovalReason(entry)
-  const cleanReason = rawReason
-    .replace(/^(?:Allow this operation with danger-full-access permissions:|escalate sandbox to danger-full-access:)\s*/i, '')
-    .trim()
-  const reason = cleanReason && cleanReason !== detailText ? cleanReason : ''
+  const reason = cleanApprovalReason(entry, detailText)
   const scopeText = canAlways ? alwaysAllowScopeLabel(entry.alwaysAllow) : ''
   const reviewNote = entry.review
     ? (entry.review.status === 'reviewing' ? t('Reviewing this action…') : (entry.review.reason || ''))
     : ''
-  const mac = isMacPlatform()
-  const alwaysCap = mac ? '⇧↵' : 'Shift+↵'
 
-  return h('div', { className: 'dsb-approval', role: 'region', 'aria-label': t('Waiting for approval') },
-    h('div', { className: 'dsb-approval-head' },
-      h('span', { className: 'dsb-approval-dot', 'aria-hidden': true }),
-      h('span', { className: 'dsb-approval-title' }, t('Waiting for approval')),
-      entry.tool ? h('span', { className: 'dsb-approval-tool', title: entry.tool }, entry.tool) : null),
-    code ? h('pre', { className: 'dsb-approval-code' }, h('code', null, code)) : null,
-    detailText ? h('p', { className: 'dsb-approval-text' }, detailText) : null,
-    reason ? h('p', { className: 'dsb-approval-reason' }, reason) : null,
-    reviewNote ? h('p', { className: 'dsb-approval-review', role: 'status' }, reviewNote) : null,
-    scopeText ? h('p', { className: 'dsb-approval-scope' }, scopeText) : null,
-    error ? h('p', { className: 'dsb-approval-error', role: 'alert' }, error) : null,
-    h('div', { className: 'dsb-approval-foot' },
-      h('button', {
-        type: 'button',
-        className: 'bt-q-btn',
-        disabled: busy || readOnly,
-        onClick: () => { void decide('reject') },
-      },
-      h('span', null, t('Reject')),
-      activeShortcuts && !readOnly ? h('kbd', { className: 'dsb-approval-kbd', 'aria-hidden': true }, 'Esc') : null),
-      h('button', {
-        type: 'button',
-        className: canAlways ? 'bt-q-btn' : 'bt-q-submit',
-        disabled: busy || readOnly,
-        onClick: () => { void decide('allow') },
-      },
-      h('span', null, t('Allow once')),
-      activeShortcuts && !readOnly ? h('kbd', { className: 'dsb-approval-kbd', 'aria-hidden': true }, '↵') : null),
-      canAlways ? h('button', {
-        type: 'button',
-        className: 'bt-q-submit',
-        disabled: busy || readOnly,
-        onClick: () => { void decide('always') },
-      },
-      h('span', null, t('Always allow')),
-      activeShortcuts && !readOnly ? h('kbd', { className: 'dsb-approval-kbd', 'aria-hidden': true }, alwaysCap) : null) : null))
+  return h('div', {
+    ref: cardRef,
+    className: 'dsb-approval',
+    role: 'region',
+    'aria-label': t('Waiting for approval'),
+    tabIndex: readOnly ? undefined : 0,
+    onKeyDown,
+    onKeyUpCapture,
+    onCompositionStartCapture,
+    onCompositionEndCapture,
+  },
+  h('div', { className: 'dsb-approval-head' },
+    h('span', { className: 'dsb-approval-dot', 'aria-hidden': true }),
+    h('span', { className: 'dsb-approval-title' }, t('Waiting for approval')),
+    entry.tool ? h('span', { className: 'dsb-approval-tool', title: entry.tool }, entry.tool) : null),
+  code ? h('pre', { className: 'dsb-approval-code' }, h('code', null, code)) : null,
+  detailText ? h('p', { className: 'dsb-approval-text' }, detailText) : null,
+  reason ? h('p', { className: 'dsb-approval-reason' }, reason) : null,
+  reviewNote ? h('p', { className: 'dsb-approval-review', role: 'status' }, reviewNote) : null,
+  scopeText ? h('p', { className: 'dsb-approval-scope' }, scopeText) : null,
+  error ? h('p', { className: 'dsb-approval-error', role: 'alert' }, error) : null,
+  h('div', { className: 'dsb-approval-foot' },
+    h('button', {
+      type: 'button',
+      className: 'bt-q-btn',
+      disabled: busy || readOnly,
+      onClick: () => { void decide('reject') },
+    },
+    h('span', null, t('Reject')),
+    !readOnly ? h('kbd', { className: 'dsb-approval-kbd', 'aria-hidden': true }, 'Esc') : null),
+    h('button', {
+      type: 'button',
+      className: 'bt-q-submit',
+      disabled: busy || readOnly,
+      onClick: () => { void decide('allow') },
+    },
+    h('span', null, t('Allow once')),
+    !readOnly ? h('kbd', { className: 'dsb-approval-kbd', 'aria-hidden': true }, '↵') : null),
+    canAlways ? h('button', {
+      type: 'button',
+      className: 'bt-q-btn',
+      disabled: busy || readOnly,
+      onClick: () => { void decide('always') },
+    },
+    h('span', null, t('Always allow'))) : null))
 }
 
 /**
@@ -217,11 +212,10 @@ export function ApprovalDock({ botId, sessionId, useWork, actions, readOnly = fa
   const pending = foregroundApprovalsOf(approvals, botId, sessionId)
   if (pending.length === 0) return null
   return h('div', { className: 'dsb-approval-dock', 'data-approval-dock': '' },
-    pending.map((entry, index) => h(ApprovalCard, {
+    pending.map(entry => h(ApprovalCard, {
       key: entry.id,
       entry,
       actions,
       readOnly,
-      activeShortcuts: index === 0,
     })))
 }

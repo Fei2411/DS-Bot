@@ -40,8 +40,7 @@ function cleanJobView(job) {
     output: {
       earliest: Number.isFinite(job.output?.earliest) ? job.output.earliest : 0,
       total: Number.isFinite(job.output?.total) ? job.output.total : 0,
-      ...(Number.isFinite(job.output?.retained) ? { retained: job.output.retained } : {}),
-      ...(job.output?.truncated === true ? { truncated: true } : {}),
+      ...(Array.isArray(job.output?.spillPaths) && job.output.spillPaths.length > 0 ? { spillPaths: [...job.output.spillPaths] } : {}),
     },
   }
 }
@@ -57,22 +56,32 @@ function chunksText(chunks) {
 
 export function install(rt) {
   const { ctx } = rt
-  const timers = new Map()
 
   const emitLocal = (event, data) => {
     if (typeof rt.publishLocalFeed === 'function') rt.publishLocalFeed(event, data)
     else rt.publishFeed?.(event, data)
   }
 
-  const scheduleNotice = (sessionId) => {
+  const pendingNotices = new Map()
+
+  const scheduleNotice = (sessionId, jobId) => {
     const key = sessionId ?? '*'
-    if (timers.has(key)) return
-    const timer = setTimeout(() => {
-      timers.delete(key)
-      emitLocal('jobs', sessionId ? { sessionId } : {})
+    let entry = pendingNotices.get(key)
+    if (!entry) {
+      entry = { jobIds: new Set(), timer: null }
+      pendingNotices.set(key, entry)
+    }
+    if (jobId) entry.jobIds.add(String(jobId))
+    if (entry.timer !== null) return
+    entry.timer = setTimeout(() => {
+      pendingNotices.delete(key)
+      const singleJobId = entry.jobIds.size === 1 ? [...entry.jobIds][0] : undefined
+      emitLocal('jobs', {
+        ...(sessionId ? { sessionId } : {}),
+        ...(singleJobId ? { jobId: singleJobId } : {}),
+      })
     }, FEED_COALESCE_MS)
-    timer.unref?.()
-    timers.set(key, timer)
+    entry.timer.unref?.()
   }
 
   let unsubscribe
@@ -82,8 +91,9 @@ export function install(rt) {
     if (typeof jobs?.events?.subscribe !== 'function') return
     try {
       unsubscribe = jobs.events.subscribe({ owners: 'all' }, (event) => {
-        const owner = event?.type === 'output' ? undefined : event?.job?.owner
-        scheduleNotice(owner)
+        const owner = event?.type === 'output' ? event.owner : event?.job?.owner
+        const jobId = event?.type === 'output' ? event.id : event?.job?.id
+        scheduleNotice(owner, jobId)
       })
     } catch {
       unsubscribe = undefined
@@ -92,8 +102,8 @@ export function install(rt) {
   attachEvents()
 
   ctx.effect?.(() => () => {
-    for (const timer of timers.values()) clearTimeout(timer)
-    timers.clear()
+    for (const entry of pendingNotices.values()) clearTimeout(entry.timer)
+    pendingNotices.clear()
     try { unsubscribe?.() } catch { /* ignore */ }
     unsubscribe = undefined
   }, 'ds-bot: background jobs')
@@ -152,7 +162,8 @@ export function install(rt) {
         chunks: chunks.map(chunk => ({
           at: Number.isFinite(chunk?.at) ? chunk.at : 0,
           text: typeof chunk?.text === 'string' ? chunk.text : '',
-          ...(typeof chunk?.stream === 'string' ? { stream: chunk.stream } : {}),
+          ...(typeof chunk?.channel === 'string' ? { channel: chunk.channel } : {}),
+          ...(chunk?.gapBefore === true ? { gapBefore: true } : {}),
         })),
       }
     }

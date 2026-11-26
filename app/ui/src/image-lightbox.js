@@ -16,15 +16,17 @@ export function ImageLightbox({ open, src, loadFull, alt, caption, onClose }) {
   const closeBtn = useRef(null)
   const returnFocus = useRef(null)
 
-  // Keep `hasEscapeLayer()` true while the lightbox is open (blocking Enter/Esc shortcuts below),
-  // and intercept Escape in the capture phase so it closes only the lightbox without propagating.
-  useEscape(() => {}, open, { priority: 60 })
+  // Keep `hasEscapeLayer()` true while the lightbox is open and register `onClose`,
+  // while the capture-phase listener intercepts Escape first so it closes only the lightbox.
+  useEscape(onClose, open, { priority: 60 })
 
   useEffect(() => {
     if (!open || typeof window === 'undefined') return undefined
     const onKey = (event) => {
+      if (event.defaultPrevented || event.isComposing || event.keyCode === 229) return
       if (event.key === 'Escape') {
-        event.stopPropagation()
+        event.preventDefault?.()
+        event.stopPropagation?.()
         onClose?.()
       }
     }
@@ -109,6 +111,7 @@ export function ToolImageThumb({
   alt,
   label,
   compact = false,
+  showMeta = true,
 }) {
   const attachmentId = attachment?.attachmentId
   const direct = typeof attachment?.previewUrl === 'string' && attachment.previewUrl !== '' ? attachment.previewUrl : null
@@ -179,7 +182,7 @@ export function ToolImageThumb({
     return h('div', { className: compact ? 'dsb-timg-placeholder is-compact' : 'dsb-timg-placeholder' },
       h('span', { className: 'dsb-timg-ph-ico', 'aria-hidden': true }, h(ImageIcon)),
       h('span', { className: 'dsb-timg-ph-text' }, label || t('Image unavailable')),
-      meta ? h('span', { className: 'dsb-timg-ph-meta' }, meta) : null)
+      showMeta && meta ? h('span', { className: 'dsb-timg-ph-meta' }, meta) : null)
   }
 
   return h(Fragment, null,
@@ -193,7 +196,7 @@ export function ToolImageThumb({
       },
       h('img', { className: 'dsb-timg', src, alt: title, loading: 'lazy' }),
       label ? h('span', { className: 'dsb-timg-label' }, label) : null),
-      meta && !compact ? h('div', { className: 'dsb-timg-meta' }, meta) : null),
+      showMeta && meta && !compact ? h('div', { className: 'dsb-timg-meta' }, meta) : null),
     h(ImageLightbox, {
       open: zoomed,
       src,

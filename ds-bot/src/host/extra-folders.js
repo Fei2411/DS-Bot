@@ -4,6 +4,7 @@
 // change that lands in the Session's folder or one of its extra folders, DS Bot answers
 // the approval itself. The paths of a shell command cannot be read reliably, so a shell
 // command still asks the user.
+import { homedir } from 'node:os'
 import { dirname } from 'node:path'
 import { within } from './folders.js'
 import { unquote } from './text.js'
@@ -141,10 +142,21 @@ export function install(rt) {
     text: context => sectionFor(context?.agent?.id),
   }), 'ds-bot: extra folders section')
 
-  // Resolves the minimal real parent directories that would need to be added to extraDirs
-  // so future calls of this file tool on the same target(s) proceed without re-asking.
-  // Returns [] whenever the call is ineligible (private Bot, local agent, non-workspace-write,
-  // guarded or private-clashing path, or adding would exceed MAX_EXTRA_DIRS).
+  const samePath = (a, b) => (process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b)
+
+  // Permanent "Always allow" grants must never target a filesystem root (e.g. /, C:\, D:\)
+  // or the user's home directory, even when DSH_HOME is isolated elsewhere.
+  async function isRootOrHome(realDir) {
+    if (typeof realDir !== 'string' || realDir === '' || dirname(realDir) === realDir) return true
+    const home = await rt.real(homedir())
+    if (samePath(realDir, home)) return true
+    return false
+  }
+
+  // Resolves the minimal existing parent directories named by the request that would need to be
+  // added to extraDirs so future calls of this file tool on the same target(s) proceed without
+  // re-asking. Never walks upward past a non-existent directory, and rejects roots, homedir,
+  // guarded data folders, private clashes, private Bots, local agents, and > MAX_EXTRA_DIRS.
   async function resolvableExtraDirs({ session, botId, roomId, name, args }) {
     const bot = rt.botOf(botId)
     if (bot === undefined || bot.private === true || onLocalAgent(bot)) return []
@@ -156,6 +168,8 @@ export function install(rt) {
     const fs = ctx.get?.('fs')
     if (policy?.mode !== 'workspace-write' || base === undefined) return []
     if (typeof fs?.resolve !== 'function' || typeof fs.processPath !== 'function' || typeof fs.processPathFromHostPath !== 'function') return []
+    const holderIsRoom = room?.workDir !== undefined
+    const clashOpts = holderIsRoom ? {} : { except: botId }
     const currentExtras = extraDirsOf({ botId, roomId })
     const existingDirs = [policy.workspaceRoot ?? session?.header?.cwd, ...currentExtras].filter(Boolean)
     const roots = (await Promise.all(existingDirs.map(async dir => (await rt.isFolder(dir) ? rt.real(dir) : undefined)))).filter(Boolean)
@@ -164,19 +178,15 @@ export function install(rt) {
       const resolved = fs.processPath(await fs.resolve(target, { cwd: base }))
       if (fs.processPathFromHostPath(resolved) !== resolved || await rt.guarded(resolved)) return []
       if (roots.some(root => within(resolved, root))) continue
-      let candidate = dirname(resolved)
-      while (!(await rt.isFolder(candidate))) {
-        const up = dirname(candidate)
-        if (up === candidate) return []
-        candidate = up
-      }
-      const realDir = await rt.real(candidate)
-      if (await rt.guarded(realDir)) return []
-      if (await rt.privateClash?.(realDir, botId)) return []
+      const parentDir = dirname(resolved)
+      if (parentDir === resolved || !(await rt.isFolder(parentDir))) return []
+      const realDir = await rt.real(parentDir)
+      if (await isRootOrHome(realDir) || await rt.guarded(realDir)) return []
+      if (await rt.privateClash?.(realDir, clashOpts)) return []
       if (!needed.includes(realDir)) needed.push(realDir)
     }
     if (needed.length === 0) return []
-    const holder = room?.workDir !== undefined ? room : bot
+    const holder = holderIsRoom ? room : bot
     const baseList = Array.isArray(holder.extraDirs) ? holder.extraDirs : []
     const combined = [...new Set([...baseList, ...needed])]
     if (combined.length > MAX_EXTRA_DIRS) return []
@@ -184,7 +194,7 @@ export function install(rt) {
   }
 
   // Persists extra directories granted via "Always allow" onto the owning room (when the room
-  // pins its own working folder) or Bot, enforcing the exact same folder and privacy guards.
+  // pins its own working folder) or Bot, enforcing the exact same root/home, folder, and privacy guards.
   async function grantExtraDirs({ botId, roomId, dirs }) {
     await rt.load()
     const bot = rt.botOf(botId)
@@ -192,11 +202,26 @@ export function install(rt) {
       throw Object.assign(new Error('Always allow is not available for this request'), { code: 'bot/refused' })
     }
     const room = rt.roomOf(roomId)
-    const holder = room?.workDir !== undefined ? room : bot
+    const holderIsRoom = room?.workDir !== undefined
+    const holder = holderIsRoom ? room : bot
+    const clashOpts = holderIsRoom ? {} : { except: botId }
+    const incoming = Array.isArray(dirs) ? dirs : []
+    for (const raw of incoming) {
+      if (!(await rt.isFolder(raw))) {
+        throw Object.assign(new Error('Always allow is not available for this request'), { code: 'bot/refused' })
+      }
+      const realDir = await rt.real(raw)
+      if (await isRootOrHome(realDir) || await rt.guarded(realDir)) {
+        throw Object.assign(new Error('Always allow is not available for this request'), { code: 'bot/refused' })
+      }
+      if (await rt.privateClash?.(realDir, clashOpts)) {
+        throw Object.assign(new Error('Always allow is not available for this request'), { code: 'bot/refused' })
+      }
+    }
     const current = Array.isArray(holder.extraDirs) ? holder.extraDirs : []
-    const cleaned = await cleanExtraDirs([...current, ...(Array.isArray(dirs) ? dirs : [])])
+    const cleaned = await cleanExtraDirs([...current, ...incoming])
     for (const dir of cleaned) {
-      if (await rt.privateClash?.(dir, botId)) {
+      if (await rt.privateClash?.(dir, clashOpts)) {
         throw Object.assign(new Error('Always allow is not available for this request'), { code: 'bot/refused' })
       }
     }

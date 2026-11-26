@@ -136,6 +136,28 @@ export async function* feedEvents(subscribe, signal, stopSignal) {
   }
 }
 
+function stripRemoteLive(value) {
+  if (!value || typeof value !== 'object') return value
+  let next = value
+  if (next.phone && typeof next.phone === 'object' && Object.hasOwn(next.phone, 'pairing')) {
+    const phone = { ...next.phone }
+    delete phone.pairing
+    next = { ...next, phone }
+  }
+  if (Array.isArray(next.work?.approvals) && next.work.approvals.some(entry => entry && Object.hasOwn(entry, 'alwaysAllow'))) {
+    next = {
+      ...next,
+      work: {
+        ...next.work,
+        approvals: next.work.approvals.map(entry => (entry && Object.hasOwn(entry, 'alwaysAllow')
+          ? (({ alwaysAllow: _, ...rest }) => rest)(entry)
+          : entry)),
+      },
+    }
+  }
+  return next
+}
+
 export function createRemoteService(rt) {
   class DsBotRemote extends TypertRemoteService {
     constructor(ctx) {
@@ -182,12 +204,15 @@ export function createRemoteService(rt) {
       if (name.startsWith('speech-')) {
         return { ok: false, error: { code: 'bot/refused', message: 'Voice input settings and transcription are available on the computer', details: {} } }
       }
+      if (name === 'image' && payload?.parent !== undefined && payload?.parent !== null && String(payload.parent).trim() !== '') {
+        return { ok: false, error: { code: 'bot/refused', message: 'Session logs are read on the computer', details: {} } }
+      }
+      if (name === 'approval-answer' && payload?.choice === 'always') {
+        return { ok: false, error: { code: 'bot/refused', message: 'Always allow is available on the computer', details: {} } }
+      }
       const answer = plain(await rt.channelCall(name, payload ?? {}, signal, true))
-      if (name === 'state' && answer?.ok === true && answer.value && typeof answer.value === 'object'
-        && answer.value.phone && typeof answer.value.phone === 'object' && Object.hasOwn(answer.value.phone, 'pairing')) {
-        const phone = { ...answer.value.phone }
-        delete phone.pairing
-        return { ...answer, value: { ...answer.value, phone } }
+      if (name === 'state' && answer?.ok === true && answer.value && typeof answer.value === 'object') {
+        return { ...answer, value: stripRemoteLive(answer.value) }
       }
       if (name === 'folders' && answer?.ok === true && answer.value && typeof answer.value === 'object' && Object.hasOwn(answer.value, 'data')) {
         const value = { ...answer.value }
@@ -199,8 +224,8 @@ export function createRemoteService(rt) {
 
     feed(signal) {
       return feedEvents((listener) => rt.subscribeFeed((event, data) => {
-        if (event === 'terminal' || event === 'terminal-exit') return
-        listener(event, data)
+        if (event === 'terminal' || event === 'terminal-exit' || event === 'jobs') return
+        listener(event, event === 'live' ? stripRemoteLive(data) : data)
       }), signal, this[STOP])
     }
   }

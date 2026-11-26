@@ -429,7 +429,19 @@ export function install(rt) {
           await rt.loadSecrets()
           const answer = liveAnswer()
           const { api: _, telemetryPrompt: _tp, ...remoteLive } = answer.value
-          const liveValue = remote ? remoteLive : answer.value
+          const liveValue = remote
+            ? {
+              ...remoteLive,
+              ...(Array.isArray(remoteLive.work?.approvals)
+                ? {
+                  work: {
+                    ...remoteLive.work,
+                    approvals: remoteLive.work.approvals.map(({ alwaysAllow: _aa, ...entry }) => entry),
+                  },
+                }
+                : {}),
+            }
+            : answer.value
           if (body.since === state.revision && (body.models === undefined || body.models === modelsKey())) {
             if (body.live === answer.key) return ok({ revision: state.revision, unchanged: true, liveKey: answer.key })
             return ok({ revision: state.revision, unchanged: true, liveKey: answer.key, ...liveValue })
@@ -747,6 +759,7 @@ export function install(rt) {
           return ok(view())
         case 'approval-answer':
           if (body.choice === 'always') {
+            if (remote) return fail('Always allow is available on the computer', 'bot/refused')
             const readOnly = rt.readOnly()
             if (readOnly !== undefined) return fail(readOnly, 'bot/read-only')
           }
@@ -899,12 +912,17 @@ export function install(rt) {
         case 'notices':
         case 'avatar':
         case 'room-chat':
-        case 'image':
         case 'file-download':
         case 'markdown-image':
         case 'usage-summary':
         case 'memory-edit':
         case 'memory-add':
+          await rt.load()
+          return ok(await rt.mobileEndpoint(endpoint, body))
+        case 'image':
+          if (remote && body?.parent != null && String(body.parent).trim() !== '') {
+            return fail('Session logs are read on the computer', 'bot/refused')
+          }
           await rt.load()
           return ok(await rt.mobileEndpoint(endpoint, body))
         case 'answer-question': {

@@ -65,17 +65,23 @@ function normalizePosixPath(rawPath) {
   if (!s) return ''
   let prefix = ''
   let rest = s
-  if (/^[A-Za-z]:/.test(s)) {
+  let unc = false
+  if (s.startsWith('//')) {
+    unc = true
+    prefix = '//'
+    rest = s.replace(/^\/+/, '')
+  } else if (/^[A-Za-z]:/.test(s)) {
     prefix = s.slice(0, 2)
     rest = s.slice(2)
   }
-  const rooted = rest.startsWith('/')
+  const rooted = !unc && rest.startsWith('/')
+  const minParts = unc ? 2 : 0
   const parts = []
   for (const part of rest.split('/')) {
     if (!part || part === '.') continue
     if (part === '..') {
-      if (parts.length > 0 && parts.at(-1) !== '..') parts.pop()
-      else if (!rooted) parts.push('..')
+      if (parts.length > minParts && parts.at(-1) !== '..') parts.pop()
+      else if (!rooted && !unc) parts.push('..')
     } else {
       parts.push(part)
     }
@@ -126,14 +132,15 @@ export function officePreviewTarget(inputPath, outputPath, cwd, workdir = '') {
 export function parseOfficeResultText(text) {
   const source = typeof text === 'string' ? text : ''
   const missingFonts = []
-  const fontMatch = /missing fonts?:\s*(.+)$/im.exec(source)
+  const fontMatch = /(?:fonts not installed and substituted|missing fonts?):\s*(.+?)\.?\s*$/im.exec(source)
   if (fontMatch?.[1]) {
     for (const item of fontMatch[1].split(/[,;]/)) {
-      const cleaned = item.trim()
+      const cleaned = item.replace(/\.+$/, '').trim()
       if (cleaned) missingFonts.push(cleaned)
     }
   }
   const pageMatch = /(\d+)\s+pages?\b/i.exec(source)
+    ?? /\bRendered\s+(\d+)\s+images?(?:\(s\))?\b/i.exec(source)
   const pages = pageMatch ? Number(pageMatch[1]) : undefined
   const firstLine = source.split('\n').map(line => line.trim()).find(Boolean) ?? ''
   return { missingFonts, pages, firstLine }
@@ -180,7 +187,7 @@ export function parseOfficeCliCommand(command) {
     if (tok === '--in-place') { inPlace = true; continue }
     if (tok.startsWith('-')) {
       // Skip value for known value flags.
-      if (['--sheet', '--range', '--slide', '--format', '--dpi', '--pages', '--json-file', '--spec'].includes(tok)) i += 1
+      if (['--sheet', '--range', '--slide', '--format', '--dpi', '--pages', '--json-file', '--spec', '--against', '--ops', '--order'].includes(tok)) i += 1
       continue
     }
     if (!action && ['docx', 'pptx', 'xlsx'].includes(subcommand) && !tok.includes('.') && !tok.includes('/') && !tok.includes('\\')) {
@@ -231,12 +238,26 @@ export function parseOfficeCliOutput(text) {
   }
 }
 
+function countLabel(kind, count) {
+  if (kind === 'pages') return count === 1 ? t('1 page') : t('{count} pages', { count })
+  if (kind === 'slides') return count === 1 ? t('1 slide') : t('{count} slides', { count })
+  if (kind === 'sheets') return count === 1 ? t('1 sheet') : t('{count} sheets', { count })
+  if (kind === 'paragraphs') return count === 1 ? t('1 paragraph') : t('{count} paragraphs', { count })
+  if (kind === 'issues') return count === 1 ? t('1 issue') : t('{count} issues', { count })
+  return String(count)
+}
+
 function pageLabelsFromContent(content) {
   const labels = []
   for (const item of Array.isArray(content) ? content : []) {
-    if (item?.type === 'text' && typeof item.text === 'string') {
-      const m = /(?:^|\n)(?:Page|Slide|Sheet)\s+([^\n:]+)/i.exec(item.text)
-      if (m) labels.push(m[0].trim())
+    if (item?.type !== 'text' || typeof item.text !== 'string') continue
+    for (const rawLine of item.text.split('\n')) {
+      const line = rawLine.trim()
+      if (!line) continue
+      const stripped = line.replace(/:\s*\d+\s*[x×]\s*\d+\s*px\s*$/i, '').trim()
+      if (/^(?:Page|Slide|Sheet)\s+\S/i.test(stripped)) {
+        labels.push(stripped)
+      }
     }
   }
   return labels
@@ -267,7 +288,10 @@ export function OfficeToolView({ toolName, block, cwd, phase, useDisclosure, ope
   const displayPath = shortPath(previewPath || inputPath, cwd)
   const docKind = officeKindOf(previewPath || inputPath)
   const format = readArgText(block, 'format').toUpperCase()
-  const pagesArg = readArgText(block, 'pages')
+  const rawPagesArg = readArgValue(block, 'pages')
+  const pagesArg = Array.isArray(rawPagesArg)
+    ? rawPagesArg.filter(v => Number.isInteger(v) || (typeof v === 'string' && v.trim() !== '')).join(', ')
+    : (typeof rawPagesArg === 'string' ? rawPagesArg.trim() : '')
   const sheetArg = readArgText(block, 'sheet')
   const rangeArg = readArgText(block, 'range')
   const dpiArg = readArgValue(block, 'dpi')
@@ -286,9 +310,9 @@ export function OfficeToolView({ toolName, block, cwd, phase, useDisclosure, ope
     badges.push(h('span', { key: 'fmt', className: 'dsb-tool-pill', 'data-tone': 'ok' }, `→ ${format}`))
   }
   if (imageBlocks.length > 0) {
-    badges.push(h('span', { key: 'pages', className: 'dsb-tool-pill' }, t('{count} pages', { count: imageBlocks.length })))
+    badges.push(h('span', { key: 'pages', className: 'dsb-tool-pill' }, countLabel('pages', imageBlocks.length)))
   } else if (parsed.pages) {
-    badges.push(h('span', { key: 'pages', className: 'dsb-tool-pill' }, t('{count} pages', { count: parsed.pages })))
+    badges.push(h('span', { key: 'pages', className: 'dsb-tool-pill' }, countLabel('pages', parsed.pages)))
   } else if (pagesArg) {
     badges.push(h('span', { key: 'pages', className: 'dsb-tool-pill' }, pagesArg))
   }
@@ -370,18 +394,14 @@ export function OfficeCliCard({ parsedCli, command, block, cwd, workdir = '', ph
   if (docKind) badges.push(h('span', { key: 'kind', className: 'dsb-tool-pill' }, docKind))
   if (parsedCli.action) badges.push(h('span', { key: 'act', className: 'dsb-tool-pill' }, parsedCli.action))
   if (cliOut?.count) {
-    const labelKey = cliOut.count.kind === 'slides' ? '{count} slides'
-      : cliOut.count.kind === 'sheets' ? '{count} sheets'
-        : cliOut.count.kind === 'pages' ? '{count} pages'
-          : '{count} paragraphs'
-    badges.push(h('span', { key: 'cnt', className: 'dsb-tool-pill' }, t(labelKey, { count: cliOut.count.value })))
+    badges.push(h('span', { key: 'cnt', className: 'dsb-tool-pill' }, countLabel(cliOut.count.kind, cliOut.count.value)))
   }
   if (typeof cliOut?.findings === 'number') {
     badges.push(h('span', {
       key: 'find',
       className: 'dsb-tool-pill',
       'data-tone': cliOut.findings === 0 ? 'ok' : 'warn',
-    }, cliOut.findings === 0 ? t('No issues') : t('{count} issues', { count: cliOut.findings })))
+    }, cliOut.findings === 0 ? t('No issues') : countLabel('issues', cliOut.findings)))
   }
   if (exitParsed && 'signal' in exitParsed) {
     badges.push(h('span', { key: 'sig', className: 'dsb-tool-pill', 'data-tone': 'danger' }, t('signal {signal}', { signal: exitParsed.signal })))

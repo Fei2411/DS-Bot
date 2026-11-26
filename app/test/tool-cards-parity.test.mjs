@@ -231,12 +231,14 @@ test('Office tools (office_render, office_convert, office.js CLI) render documen
   const registry = createSlotRegistry()
   const dispose = registerBuiltinToolViews(registry)
   try {
-    // Temp-dir output falls back to workspace input for workspace-read safety; workspace output (including relative paths) previews directly.
+    // Temp-dir output falls back to workspace input for workspace-read safety; workspace output (including relative & UNC paths) previews directly.
     assert.equal(officePreviewTarget('/ws/report.docx', '/tmp/dsh-office/out.pdf', '/ws'), '/ws/report.docx')
     assert.equal(officePreviewTarget('/ws/report.docx', '/ws/out/report.pdf', '/ws'), '/ws/out/report.pdf')
     assert.equal(officePreviewTarget('draft.docx', 'final.docx', '/ws'), '/ws/final.docx')
     assert.equal(officePreviewTarget('draft.docx', 'final.docx', '/ws', 'reports'), '/ws/reports/final.docx')
     assert.equal(officePreviewTarget('draft.docx', '../outside.docx', '/ws'), '/ws/draft.docx')
+    assert.equal(officePreviewTarget('\\\\server\\share\\docs\\draft.docx', 'final.docx', '\\\\server\\share\\docs'), '//server/share/docs/final.docx')
+    assert.equal(officePreviewTarget('\\\\server\\share\\docs\\draft.docx', '\\\\server\\other\\out.docx', '\\\\server\\share\\docs'), '//server/share/docs/draft.docx')
 
     const opened = []
     const loaded = []
@@ -245,17 +247,19 @@ test('Office tools (office_render, office_convert, office.js CLI) render documen
       return `data:image/png;base64,PAGE_${id}_${opts?.preview === false ? 'FULL' : 'THUMB'}`
     }
 
-    // 1. office_render with rendered page images + missing fonts warning.
+    // 1. office_render with real DSH 0.2.2-rc.5 output wording, array `pages`, sheet range caption, and missing fonts warning.
     const renderInst = h.mount(ToolCallCard, {
       registry,
       cwd: '/ws',
       openFile: p => opened.push(p),
       loadImage,
-      block: h.makeBlock('office_render', { input: '/ws/deck.pptx', pages: '1-2', dpi: 150 }, {
+      block: h.makeBlock('office_render', { input: '/ws/deck.pptx', pages: [1, 2], dpi: 150 }, {
         meta: { path: '/ws/deck.pptx' },
         content: [
-          { type: 'text', text: 'Rendered 2 pages from deck.pptx.\nMissing fonts: Calibri, Arial' },
+          { type: 'text', text: 'Rendered 2 image(s) of /ws/deck.pptx (5 in the document) at 150 DPI.\nFonts not installed and substituted: Calibri, Arial.' },
+          { type: 'text', text: 'Page 1: 1280x720 px' },
           { type: 'image', attachment: { attachmentId: 'pg-1', width: 1280, height: 720, bytes: 42000 } },
+          { type: 'text', text: 'Sheet "Summary" A1:D20: 1280x720 px' },
           { type: 'image', attachment: { attachmentId: 'pg-2', width: 1280, height: 720, bytes: 38000 } },
         ],
       }),
@@ -269,6 +273,7 @@ test('Office tools (office_render, office_convert, office.js CLI) render documen
     assert.match(txt, /2 pages/)
     assert.match(txt, /Missing fonts/)
     assert.match(txt, /Calibri, Arial/)
+    assert.match(txt, /Sheet "Summary" A1:D20/)
     assert.equal(h.all(tree, n => n.type === 'img' && n.props?.className === 'dsb-timg').length, 2)
 
     // Clicking Preview opens the document in the right panel.
@@ -277,21 +282,23 @@ test('Office tools (office_render, office_convert, office.js CLI) render documen
     assert.deepEqual(opened, ['/ws/deck.pptx'])
     renderInst.unmount()
 
-    // 2. DS Bot office.js CLI call inside bash renders as Office card with Preview action (including relative `file` output).
-    const parsedCli = parseOfficeCliCommand('node /opt/office.js docx write draft.docx -o final.docx --json')
+    // 2. DS Bot office.js CLI call inside bash renders as Office card with Preview action (skipping --against/--ops/--order value flags + singular labels).
+    const parsedCli = parseOfficeCliCommand('node /opt/office.js docx write --ops patch.json --against base.docx draft.docx -o final.docx --json')
     assert.equal(parsedCli.subcommand, 'docx')
+    assert.equal(parsedCli.inputPath, 'draft.docx')
     assert.equal(parsedCli.outputPath, 'final.docx')
     const cliInst = h.mount(ToolCallCard, {
       registry,
       cwd: '/ws',
       openFile: p => opened.push(p),
       block: h.makeBlock('bash', { command: 'node /opt/office.js docx write draft.docx -o final.docx --json', workdir: 'docs' }, {
-        content: [{ type: 'text', text: JSON.stringify({ ok: true, data: { file: 'final.docx', paragraphs: 12 } }) }],
+        content: [{ type: 'text', text: JSON.stringify({ ok: true, data: { file: 'final.docx', paragraphs: 1, issues: ['Font fallback'] } }) }],
       }),
     })
     const cliTree = cliInst.render()
     assert.match(h.textOf(cliTree), /Word document/)
-    assert.match(h.textOf(cliTree), /12 paragraphs/)
+    assert.match(h.textOf(cliTree), /1 paragraph/)
+    assert.match(h.textOf(cliTree), /1 issue/)
     h.all(cliTree, n => n.type === 'button' && n.props?.className === 'dsb-tool-action')[0].props.onClick()
     assert.equal(opened.at(-1), '/ws/docs/final.docx')
     cliInst.unmount()
@@ -349,6 +356,7 @@ test('read_image renders clickable thumbnail, loads full-res on lightbox enlarge
     let tree = inst.render()
     assert.match(h.textOf(tree), /Read image/)
     assert.match(h.textOf(tree), /800×600/)
+    assert.equal(h.all(tree, n => n.props?.className === 'dsb-timg-meta').length, 0, 'Read image must not duplicate dimensions/size under thumbnail')
     const imgs = h.all(tree, n => n.type === 'img' && n.props?.className === 'dsb-timg')
     assert.equal(imgs.length, 1)
     assert.equal(imgs[0].props.src, 'data:image/png;base64,img-42:thumb')
@@ -468,9 +476,16 @@ test('Subagent card opens child session in viewer, and background job card strea
   const registry = createSlotRegistry()
   const dispose = registerBuiltinToolViews(registry)
   try {
-    // 1. Subagent catalog + Open session callback.
+    // 1. Subagent catalog (real DSH `id` wire shape) + Open session callback + External withholding.
     const catalog = resolveSubagentCatalog({
-      projections: { values: { subagentCatalog: [{ childId: 'sub-77', name: 'researcher', mode: 'one-shot', label: 'Audit dependencies' }] } },
+      projections: {
+        values: {
+          subagentCatalog: [
+            { id: 'sub-77', createdAt: 1000, name: 'researcher', mode: 'one-shot', label: 'Audit dependencies' },
+            { id: 'ext-1', createdAt: 1001, name: 'codex-ext', mode: 'external', label: 'External agent' },
+          ],
+        },
+      },
       events: [],
     })
     const openedSub = []
@@ -487,6 +502,7 @@ test('Subagent card opens child session in viewer, and background job card strea
     const subTree = subInst.render()
     assert.match(h.textOf(subTree), /Subagent/)
     assert.match(h.textOf(subTree), /Audit dependencies/)
+    assert.match(h.textOf(subTree), /One-shot/)
     h.all(subTree, n => n.type === 'button' && n.props?.className === 'dsb-tool-action')[0].props.onClick()
     assert.deepEqual(JSON.parse(JSON.stringify(openedSub)), [{
       sessionId: 'sub-77',
@@ -496,6 +512,22 @@ test('Subagent card opens child session in viewer, and background job card strea
       name: 'researcher',
     }])
     subInst.unmount()
+
+    // External subagent shows localized External badge and withholds "Open session".
+    const extInst = h.mount(ToolCallCard, {
+      registry,
+      sessionId: 'parent-1',
+      subagentCatalog: catalog,
+      onOpenSubagent: info => openedSub.push(info),
+      block: h.makeBlock('subagent', { description: 'External agent', prompt: 'Run externally' }, {
+        meta: { kind: 'activation', name: 'codex-ext' },
+        content: [{ type: 'text', text: 'Done.' }],
+      }),
+    })
+    const extTree = extInst.render()
+    assert.match(h.textOf(extTree), /External/)
+    assert.equal(h.all(extTree, n => n.type === 'button' && n.props?.className === 'dsb-tool-action').length, 0)
+    extInst.unmount()
 
     // Lineage bar & read-only bar navigation.
     let backed = 0
@@ -548,7 +580,7 @@ test('Subagent card opens child session in viewer, and background job card strea
     bgInst.render()
     await tick()
     let bgTree = bgInst.render()
-    assert.match(h.textOf(bgTree), /Background/)
+    assert.match(h.textOf(bgTree), /In background/)
     assert.match(h.textOf(bgTree), /building bundle\.\.\./)
     const stopBtn1 = h.all(bgTree, n => n.type === 'button' && n.props?.className === 'dsb-job-stop')[0]
     assert.match(h.textOf(stopBtn1), /Stop/)
@@ -566,16 +598,34 @@ test('Subagent card opens child session in viewer, and background job card strea
     assert.equal(apiCalls.some(c => c.endpoint === 'job-kill' && c.payload.jobId === 'job-bg-1'), true)
     bgInst.unmount()
 
-    // 3. job_output snapshot initially running keeps live output after job completes (does not revert to stale snapshot).
+    // 3. Collapsed job_output watches status via lightweight `job-list` (never `job-read`),
+    // and expanded BackgroundJobPanel renders `lossy` + `gapBefore` and unsubscribes at terminal status.
     let jobDone = false
+    const collapsedCalls = []
     const feedListeners = new Set()
     const fakeFeed = { on: (fn) => { feedListeners.add(fn); return () => feedListeners.delete(fn) } }
     h.sandbox.__testCall = async (endpoint, payload) => {
+      collapsedCalls.push({ endpoint, payload })
+      if (endpoint === 'job-list') {
+        return { jobs: [{ id: 'job-live-2', status: jobDone ? 'completed' : 'running', label: 'build' }] }
+      }
       if (endpoint === 'job-read') {
         if (!jobDone) {
-          return { job: { id: 'job-live-2', status: 'running', startedAt: Date.now() - 2000 }, text: payload.from === 0 ? 'Compiling...\n' : '', next: 1 }
+          return {
+            job: { id: 'job-live-2', status: 'running', startedAt: Date.now() - 2000 },
+            chunks: [{ at: 1, text: 'Compiling...\n', channel: 'stdout' }],
+            text: payload.from === 0 ? 'Compiling...\n' : '',
+            next: 1,
+            lossy: false,
+          }
         }
-        return { job: { id: 'job-live-2', status: 'completed', startedAt: Date.now() - 3000, finishedAt: Date.now() }, text: payload.from === 0 ? 'Compiling...\nBuild succeeded!\n' : 'Build succeeded!\n', next: 2 }
+        return {
+          job: { id: 'job-live-2', status: 'completed', startedAt: Date.now() - 3000, finishedAt: Date.now() },
+          chunks: [{ at: 2, text: 'Build succeeded!\n', channel: 'stdout', gapBefore: true }],
+          text: 'Build succeeded!\n',
+          next: 2,
+          lossy: true,
+        }
       }
       return {}
     }
@@ -588,8 +638,14 @@ test('Subagent card opens child session in viewer, and background job card strea
         content: [{ type: 'text', text: 'Compiling...\n[status: running]' }],
       }),
     })
+    // While collapsed, only `job-list` is called (never `job-read`).
+    const collapsedTree = outInst.render()
+    await tick()
+    assert.equal(collapsedCalls.some(c => c.endpoint === 'job-list'), true)
+    assert.equal(collapsedCalls.some(c => c.endpoint === 'job-read'), false)
+
     // Open disclosure so BackgroundJobPanel mounts.
-    const headBtn = h.all(outInst.render(), n => n.type === 'button' && n.props?.className === 'dsb-tool-head')[0]
+    const headBtn = h.all(collapsedTree, n => n.type === 'button' && n.props?.className === 'dsb-tool-head')[0]
     headBtn.props.onClick()
     outInst.render()
     await tick()
@@ -598,17 +654,36 @@ test('Subagent card opens child session in viewer, and background job card strea
     for (const fn of feedListeners) fn('jobs', { sessionId: 'parent-1', jobId: 'job-live-2' })
     await tick()
     const finishedText = h.textOf(outInst.render())
+    assert.match(finishedText, /Earlier output was dropped/)
+    assert.match(finishedText, /Truncated/)
     assert.match(finishedText, /Build succeeded!/)
     assert.match(finishedText, /Completed/)
+    // Terminal status unsubscribes from feed.
+    assert.equal(feedListeners.size, 0)
     outInst.unmount()
+
+    // 4. job_list with 1 job uses singular '1 job'.
+    h.sandbox.__testCall = async () => ({ jobs: [{ id: 'j-one', kind: 'bash', status: 'running', label: 'dev' }] })
+    const listInst = h.mount(ToolCallCard, {
+      registry,
+      sessionId: 'parent-1',
+      readOnly: false,
+      block: h.makeBlock('job_list', {}, {
+        content: [{ type: 'text', text: 'j-one [bash] running — dev' }],
+      }),
+    })
+    listInst.render()
+    await tick()
+    assert.match(h.textOf(listInst.render()), /1 job/)
+    listInst.unmount()
   } finally {
     dispose()
   }
 })
 
-test('real recorded DSH 0.2.2-rc.5 session fixture projects and renders read_image, office.js CLI, read_browser, background bash, job_list, and job_output cards', async () => {
+test('real recorded DSH 0.2.2-rc.5 session fixture projects and renders read_image, office.js CLI, read_browser, background bash, job_list, job_output, and subagent cards', async () => {
   const h = createHarness()
-  const { registerBuiltinToolViews, createSlotRegistry, ToolCallCard, buildSessionRows } = h.exports
+  const { registerBuiltinToolViews, createSlotRegistry, ToolCallCard, buildSessionRows, resolveSubagentCatalog } = h.exports
   const registry = createSlotRegistry()
   const dispose = registerBuiltinToolViews(registry)
   try {
@@ -626,11 +701,23 @@ test('real recorded DSH 0.2.2-rc.5 session fixture projects and renders read_ima
     const toolRows = rows.filter(r => r.kind === 'tool')
     assert.equal(toolRows.length, 6)
 
+    // Assert fixture is trimmed (no verbose unused `assistant/message` stream chunk arrays).
+    assert.equal(
+      RECORDED_FIXTURE.events.some(e => e.type === 'assistant/message' && Array.isArray(e.data?.stream)),
+      false,
+      'recorded fixture must strip unused assistant/message stream chunk arrays',
+    )
+
+    const recordedJobId = RECORDED_FIXTURE.events
+      .filter(e => e.type === 'tool/call' && e.data?.name === 'job_output')
+      .map(e => JSON.parse(e.data.arguments || '{}').job_id)[0]
+    assert.ok(recordedJobId)
+
     const loadedImages = []
     const openedFiles = []
     h.sandbox.__testCall = async (endpoint) => {
-      if (endpoint === 'job-read') return { job: { id: 'bash-a344fed15c774ca1', status: 'running', startedAt: Date.now() - 2000 }, text: 'Watching build output...\n', next: 1 }
-      if (endpoint === 'job-list') return { jobs: [{ id: 'bash-a344fed15c774ca1', kind: 'bash', status: 'running', label: 'Dev build watcher' }] }
+      if (endpoint === 'job-read') return { job: { id: recordedJobId, status: 'running', startedAt: Date.now() - 2000 }, text: 'Watching build output...\n', next: 1 }
+      if (endpoint === 'job-list') return { jobs: [{ id: recordedJobId, kind: 'bash', status: 'running', label: 'Dev build watcher' }] }
       return {}
     }
 
@@ -658,11 +745,50 @@ test('real recorded DSH 0.2.2-rc.5 session fixture projects and renders read_ima
     assert.equal(loadedImages.length, 1, 'read_image card must auto-load thumbnail from recorded DSH tool/result attachment')
     assert.match(joined, /Word document/)
     assert.match(joined, /quarterly-report\.docx/)
-    assert.match(joined, /Background/)
+    assert.match(joined, /In background/)
     assert.match(joined, /Watching build output/)
     assert.match(joined, /Read page/)
     assert.match(joined, /Background jobs/)
+    assert.match(joined, /1 job/)
     assert.match(joined, /Job output/)
+
+    // Recorded DSH 0.2.2-rc.5 Classic Agent subagent session (including live `subagent/catalog` event).
+    assert.ok(RECORDED_FIXTURE.subagentSession?.events?.length > 0)
+    const subLog = {
+      header: { id: 'session-classic-recorded-1', cwd: '/workspace' },
+      cursor: 50,
+      events: RECORDED_FIXTURE.subagentSession.events,
+      hasMore: false,
+      projections: null,
+      writing: null,
+      streamRevision: null,
+      revision: 1,
+    }
+    const subCatalog = resolveSubagentCatalog(subLog)
+    assert.equal(subCatalog.length, 1)
+    assert.equal(subCatalog[0].name, 'agent-1')
+    assert.equal(subCatalog[0].mode, 'continuable')
+    const subRows = buildSessionRows(subLog, { roster: { bots: [], rooms: [], byId: {}, roomsById: {}, exchangeTurns: {} }, sessionId: 'session-classic-recorded-1' })
+    const subToolRow = subRows.find(r => r.kind === 'tool' && r.block?.name === 'subagent')
+    assert.ok(subToolRow)
+    const openedSub = []
+    const subInst = h.mount(ToolCallCard, {
+      registry,
+      entry: subToolRow,
+      cwd: '/workspace',
+      sessionId: 'session-classic-recorded-1',
+      subagentCatalog: subCatalog,
+      onOpenSubagent: info => openedSub.push(info),
+    })
+    const subTree = subInst.render()
+    const subTxt = h.textOf(subTree)
+    assert.match(subTxt, /Subagent/)
+    assert.match(subTxt, /Inspect architecture diagram/)
+    assert.match(subTxt, /Continuable/)
+    assert.match(subTxt, /Open session/)
+    h.all(subTree, n => n.type === 'button' && n.props?.className === 'dsb-tool-action')[0].props.onClick()
+    assert.equal(openedSub[0]?.sessionId, subCatalog[0].childSessionId)
+    subInst.unmount()
   } finally {
     dispose()
   }
