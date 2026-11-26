@@ -91,7 +91,7 @@ const files = walk(root).map(path => relative(root, path).split('\\').join('/'))
 
 for (const file of files) {
   for (const rule of FORBIDDEN_FILES) {
-    if ((file === '.scan-extra' ? scanExtraTracked : rule.re.test(file))) add(MUST, 'forbidden-file', file, 0, rule.why)
+    if (rule.re.test(file) && (file !== '.scan-extra' || scanExtraTracked)) add(MUST, 'forbidden-file', file, 0, rule.why)
   }
   // The scanner and the local pattern file name the patterns they look for.
   if (file === SELF || file === '.scan-extra') continue
